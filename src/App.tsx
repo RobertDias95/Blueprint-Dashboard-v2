@@ -6,6 +6,7 @@ import { router } from './router';
 import { supabase } from './lib/supabase';
 import { useAuthStore } from './stores/authStore';
 import { useRealtimeInvalidation } from './hooks/useRealtimeInvalidation';
+import ToastHost from './components/ToastHost';
 
 // Q1: app shell. Wires QueryClient + Router + auth bootstrap.
 //
@@ -86,6 +87,7 @@ export default function App() {
     <QueryClientProvider client={queryClient}>
       <RealtimeMount />
       <RouterProvider router={router} />
+      <ToastHost />
       {import.meta.env.DEV && <ReactQueryDevtools initialIsOpen={false} />}
     </QueryClientProvider>
   );

@@ -1,13 +1,19 @@
 import { Link, useParams } from 'react-router-dom';
 import { useProjects } from '../hooks/useProjects';
 import { usePermitsByProject } from '../hooks/usePermitsByProject';
+import { useUpdatePermit } from '../hooks/useUpdatePermit';
 import { effectiveStage } from '../lib/permitStage';
-import type { PermitCycle, PermitWithCycles, Stage } from '../lib/database.types';
+import type { Permit, PermitCycle, PermitWithCycles, Stage } from '../lib/database.types';
 import { SkeletonRows } from '../components/Skeleton';
 import QueryError from '../components/QueryError';
+import EditableField from '../components/EditableField';
 
-// Q2: Read-only single-project view. Lists permits with their cycles +
-// inline metadata. Q3 will add inline edits; Q4 will add tasks.
+// Q3: Read + write — single-project view with inline editing for the
+// permit-level fields the user listed (target_submit, dd_start, dd_end,
+// expected_issue, da, dm, ent_lead, status, stage_override). Each save
+// fires a row-level OCC mutation; only the edited permit gets touched.
+//
+// Cycles + tasks editing waits for Q4 (needs row-level RPCs server-side).
 
 const STAGE_LABEL: Record<Stage, string> = {
   de: 'D&E',
@@ -24,6 +30,15 @@ const STAGE_BADGE: Record<Stage, string> = {
   ap: 'bg-jv-bg text-jv border-jv-border',
   is: 'bg-is-bg text-is border-is-border',
 };
+
+const STAGE_OVERRIDE_OPTIONS = [
+  { value: '', label: 'Auto' },
+  { value: 'de', label: 'D&E' },
+  { value: 'pm', label: 'Permitting' },
+  { value: 'co', label: 'Corrections' },
+  { value: 'ap', label: 'Approved' },
+  { value: 'is', label: 'Issued' },
+];
 
 export default function ProjectDetail() {
   const { id } = useParams<{ id: string }>();
@@ -102,6 +117,31 @@ export default function ProjectDetail() {
 function PermitDetailRow({ permit }: { permit: PermitWithCycles }) {
   const cycles = permit.permit_cycles ?? [];
   const stage = effectiveStage(permit, cycles);
+  const updateMutation = useUpdatePermit();
+
+  const occToken = permit.updated_at;
+  const occMissing = !occToken;
+
+  function makeSaver<K extends keyof Permit>(field: K, label: string) {
+    return async (next: string) => {
+      if (occMissing || !occToken) return;
+      await updateMutation.mutateAsync({
+        permitId: permit.id,
+        projectId: permit.project_id,
+        expectedUpdatedAt: occToken,
+        patch: { [field]: next === '' ? null : next } as Partial<Permit>,
+        fieldLabel: label,
+      });
+    };
+  }
+
+  // Track which field is currently being saved so we can show the spinner
+  // only on that field. Reading mutation.variables tells us what's in flight.
+  const inFlight = updateMutation.isPending
+    ? Object.keys(updateMutation.variables?.patch ?? {})[0]
+    : null;
+  const isFieldSaving = (field: keyof Permit) =>
+    updateMutation.isPending && inFlight === field;
 
   return (
     <article className="bg-surface border border-border rounded-xl overflow-hidden">
@@ -110,7 +150,9 @@ function PermitDetailRow({ permit }: { permit: PermitWithCycles }) {
           <div className="text-sm font-display font-bold text-text">
             {permit.type ?? '—'}
             {permit.num && (
-              <span className="ml-2 font-mono text-xs text-muted">{permit.num}</span>
+              <span className="ml-2 font-mono text-xs text-muted">
+                {permit.num}
+              </span>
             )}
           </div>
           <div className="text-[11px] text-muted mt-1">
@@ -126,24 +168,102 @@ function PermitDetailRow({ permit }: { permit: PermitWithCycles }) {
         </span>
       </header>
 
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 px-4 py-3 text-[10px]">
-        <Field label="Target Submit" value={permit.target_submit} />
-        <Field label="DD Start" value={permit.dd_start} />
-        <Field label="Approval" value={permit.approval_date} />
-        <Field label="Issued" value={permit.actual_issue} />
+      {occMissing && (
+        <div className="px-4 py-2 bg-co-bg/40 border-b border-co-border text-[11px] text-co">
+          Editing disabled — this permit has no updated_at token. Refresh and
+          try again.
+        </div>
+      )}
+
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 px-4 py-3">
+        <EditableField
+          kind="date"
+          label="Target Submit"
+          value={permit.target_submit}
+          saving={isFieldSaving('target_submit')}
+          disabled={occMissing || updateMutation.isPending}
+          onSave={makeSaver('target_submit', 'Target Submit')}
+          testId={`permit-${permit.id}-target_submit`}
+        />
+        <EditableField
+          kind="date"
+          label="DD Start"
+          value={permit.dd_start}
+          saving={isFieldSaving('dd_start')}
+          disabled={occMissing || updateMutation.isPending}
+          onSave={makeSaver('dd_start', 'DD Start')}
+          testId={`permit-${permit.id}-dd_start`}
+        />
+        <EditableField
+          kind="date"
+          label="DD End"
+          value={permit.dd_end}
+          saving={isFieldSaving('dd_end')}
+          disabled={occMissing || updateMutation.isPending}
+          onSave={makeSaver('dd_end', 'DD End')}
+          testId={`permit-${permit.id}-dd_end`}
+        />
+        <EditableField
+          kind="date"
+          label="Expected Issue"
+          value={permit.expected_issue}
+          saving={isFieldSaving('expected_issue')}
+          disabled={occMissing || updateMutation.isPending}
+          onSave={makeSaver('expected_issue', 'Expected Issue')}
+          testId={`permit-${permit.id}-expected_issue`}
+        />
+
+        <EditableField
+          kind="text"
+          label="DA"
+          value={permit.da}
+          saving={isFieldSaving('da')}
+          disabled={occMissing || updateMutation.isPending}
+          onSave={makeSaver('da', 'DA')}
+          testId={`permit-${permit.id}-da`}
+        />
+        <EditableField
+          kind="text"
+          label="DM"
+          value={permit.dm}
+          saving={isFieldSaving('dm')}
+          disabled={occMissing || updateMutation.isPending}
+          onSave={makeSaver('dm', 'DM')}
+          testId={`permit-${permit.id}-dm`}
+        />
+        <EditableField
+          kind="text"
+          label="ENT Lead"
+          value={permit.ent_lead}
+          saving={isFieldSaving('ent_lead')}
+          disabled={occMissing || updateMutation.isPending}
+          onSave={makeSaver('ent_lead', 'ENT Lead')}
+          testId={`permit-${permit.id}-ent_lead`}
+        />
+        <EditableField
+          kind="text"
+          label="Status"
+          value={permit.status}
+          saving={isFieldSaving('status')}
+          disabled={occMissing || updateMutation.isPending}
+          onSave={makeSaver('status', 'Status')}
+          testId={`permit-${permit.id}-status`}
+        />
+
+        <EditableField
+          kind="select"
+          label="Stage Override"
+          value={permit.stage_override ?? ''}
+          options={STAGE_OVERRIDE_OPTIONS}
+          saving={isFieldSaving('stage_override')}
+          disabled={occMissing || updateMutation.isPending}
+          onSave={makeSaver('stage_override', 'Stage')}
+          testId={`permit-${permit.id}-stage_override`}
+        />
       </div>
 
       {cycles.length > 0 && <CycleTable cycles={cycles} />}
     </article>
-  );
-}
-
-function Field({ label, value }: { label: string; value: string | null | undefined }) {
-  return (
-    <div>
-      <div className="text-dim uppercase tracking-wide text-[9px]">{label}</div>
-      <div className="font-mono text-text mt-0.5">{value || '—'}</div>
-    </div>
   );
 }
 
@@ -152,7 +272,7 @@ function CycleTable({ cycles }: { cycles: PermitCycle[] }) {
   return (
     <div className="border-t border-border px-4 py-3">
       <div className="text-[10px] text-dim uppercase tracking-wide mb-2">
-        Cycles
+        Cycles <span className="opacity-60">(read-only — editing in Q4)</span>
       </div>
       <table className="w-full text-[10px]">
         <thead className="text-dim">
