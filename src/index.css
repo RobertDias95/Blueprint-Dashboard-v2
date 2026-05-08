@@ -1,0 +1,24 @@
+/* Q1 base styles — Tailwind directives + Google Fonts + minimal globals.
+   Visual identity ported from v1 (Blueprint-Dashboard-/index.html). */
+
+@import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Inter:wght@400;500;600;700;800&family=Syne:wght@400;600;700;800&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html, body, #root {
+    @apply h-full;
+  }
+  body {
+    @apply font-sans bg-bg text-text antialiased;
+    min-height: 100vh;
+  }
+  button {
+    @apply font-display cursor-pointer;
+  }
+  select, input {
+    @apply font-display;
+  }
+}
