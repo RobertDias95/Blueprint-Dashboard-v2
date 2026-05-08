@@ -18,7 +18,10 @@ export interface Project {
 }
 
 export interface PermitCycle {
-  id: number;
+  /** Q4: cycle id is now a uuid (verified via list_tables). Earlier draft had it
+   * typed as number — that was wrong; the schema has used gen_random_uuid()
+   * since the table was created. Fixed now that Q4 RPCs need it for OCC. */
+  id: string;
   permit_id: number;
   cycle_index: number;
   submitted: string | null;
@@ -26,6 +29,9 @@ export interface PermitCycle {
   corr_issued: string | null;
   resubmitted: string | null;
   intake_accepted: string | null;
+  /** Q4 Migration 2 added these. Required for row-level OCC. */
+  created_at: string;
+  updated_at: string;
 }
 
 export interface Permit {
@@ -75,20 +81,32 @@ export interface PermitWithCycles extends Permit {
 }
 
 export interface PermitTask {
-  id: number;
+  /** uuid, gen_random_uuid */
+  id: string;
   permit_id: number;
-  bucket: string | null;
-  text: string | null;
+  /** NOT NULL — one of 'de' | 'pm' | 'co' (or extended buckets). */
+  bucket: string;
+  legacy_id: string | null;
+  /** NOT NULL on the schema. */
+  text: string;
   cat: string | null;
+  is_jurisdiction_specific: boolean;
   start_date: string | null;
   due_date: string | null;
   target_date: string | null;
+  /** Defaults to 'Open'. */
+  completion_status: string;
   done: boolean;
-  completion_status: string | null;
   assigned_to: string | null;
-  stage: string | null;
+  /** Defaults to 'de'. */
+  stage: string;
+  is_auto_generated: boolean;
+  city_acceptance_check: boolean;
   cycle_idx: number | null;
-  sort_order: number | null;
+  /** Defaults to 0. */
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
 }
 
 export interface DrawScheduleRow {

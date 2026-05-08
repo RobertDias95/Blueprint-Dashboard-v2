@@ -1,19 +1,33 @@
+import { useMemo } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { useProjects } from '../hooks/useProjects';
 import { usePermitsByProject } from '../hooks/usePermitsByProject';
+import { usePermitTasks } from '../hooks/usePermitTasks';
 import { useUpdatePermit } from '../hooks/useUpdatePermit';
+import {
+  useUpsertPermitCycle,
+  type CyclePatch,
+  type DateField,
+} from '../hooks/useUpsertPermitCycle';
+import { useDeletePermitCycle } from '../hooks/useDeletePermitCycle';
+import { useUpsertPermitTask, type TaskPatch } from '../hooks/useUpsertPermitTask';
+import { useDeletePermitTask } from '../hooks/useDeletePermitTask';
 import { effectiveStage } from '../lib/permitStage';
-import type { Permit, PermitCycle, PermitWithCycles, Stage } from '../lib/database.types';
+import type {
+  Permit,
+  PermitCycle,
+  PermitTask,
+  PermitWithCycles,
+  Stage,
+} from '../lib/database.types';
 import { SkeletonRows } from '../components/Skeleton';
 import QueryError from '../components/QueryError';
 import EditableField from '../components/EditableField';
 
-// Q3: Read + write — single-project view with inline editing for the
-// permit-level fields the user listed (target_submit, dd_start, dd_end,
-// expected_issue, da, dm, ent_lead, status, stage_override). Each save
-// fires a row-level OCC mutation; only the edited permit gets touched.
-//
-// Cycles + tasks editing waits for Q4 (needs row-level RPCs server-side).
+// Q3 + Q4: Single-project view. Q3 wired editable permit-level fields. Q4
+// adds editable cycles (5 date columns + add/delete) and a tasks section
+// per permit (3 buckets: de/pm/co + add/delete). All writes are row-level
+// OCC via the bp_upsert_*_row / bp_delete_*_row RPCs.
 
 const STAGE_LABEL: Record<Stage, string> = {
   de: 'D&E',
@@ -38,6 +52,19 @@ const STAGE_OVERRIDE_OPTIONS = [
   { value: 'co', label: 'Corrections' },
   { value: 'ap', label: 'Approved' },
   { value: 'is', label: 'Issued' },
+];
+
+const TASK_BUCKETS = [
+  { id: 'de', label: 'Design' },
+  { id: 'pm', label: 'Permit' },
+  { id: 'co', label: 'Corrections' },
+] as const;
+
+const COMPLETION_OPTIONS = [
+  { value: 'Open', label: 'Open' },
+  { value: 'In Progress', label: 'In Progress' },
+  { value: 'Resolved', label: 'Resolved' },
+  { value: 'Skipped', label: 'Skipped' },
 ];
 
 export default function ProjectDetail() {
@@ -105,7 +132,11 @@ export default function ProjectDetail() {
         ) : (
           <div className="flex flex-col gap-3">
             {(permitsQ.data ?? []).map((permit) => (
-              <PermitDetailRow key={permit.id} permit={permit} />
+              <PermitDetailRow
+                key={permit.id}
+                permit={permit}
+                projectId={project!.id}
+              />
             ))}
           </div>
         )}
@@ -114,29 +145,31 @@ export default function ProjectDetail() {
   );
 }
 
-function PermitDetailRow({ permit }: { permit: PermitWithCycles }) {
+function PermitDetailRow({
+  permit,
+  projectId,
+}: {
+  permit: PermitWithCycles;
+  projectId: string;
+}) {
   const cycles = permit.permit_cycles ?? [];
   const stage = effectiveStage(permit, cycles);
   const updateMutation = useUpdatePermit();
+  const occMissing = !permit.updated_at;
 
-  const occToken = permit.updated_at;
-  const occMissing = !occToken;
-
-  function makeSaver<K extends keyof Permit>(field: K, label: string) {
+  function makePermitSaver<K extends keyof Permit>(field: K, label: string) {
     return async (next: string) => {
-      if (occMissing || !occToken) return;
+      if (occMissing || !permit.updated_at) return;
       await updateMutation.mutateAsync({
         permitId: permit.id,
         projectId: permit.project_id,
-        expectedUpdatedAt: occToken,
+        expectedUpdatedAt: permit.updated_at,
         patch: { [field]: next === '' ? null : next } as Partial<Permit>,
         fieldLabel: label,
       });
     };
   }
 
-  // Track which field is currently being saved so we can show the spinner
-  // only on that field. Reading mutation.variables tells us what's in flight.
   const inFlight = updateMutation.isPending
     ? Object.keys(updateMutation.variables?.patch ?? {})[0]
     : null;
@@ -182,7 +215,7 @@ function PermitDetailRow({ permit }: { permit: PermitWithCycles }) {
           value={permit.target_submit}
           saving={isFieldSaving('target_submit')}
           disabled={occMissing || updateMutation.isPending}
-          onSave={makeSaver('target_submit', 'Target Submit')}
+          onSave={makePermitSaver('target_submit', 'Target Submit')}
           testId={`permit-${permit.id}-target_submit`}
         />
         <EditableField
@@ -191,7 +224,7 @@ function PermitDetailRow({ permit }: { permit: PermitWithCycles }) {
           value={permit.dd_start}
           saving={isFieldSaving('dd_start')}
           disabled={occMissing || updateMutation.isPending}
-          onSave={makeSaver('dd_start', 'DD Start')}
+          onSave={makePermitSaver('dd_start', 'DD Start')}
           testId={`permit-${permit.id}-dd_start`}
         />
         <EditableField
@@ -200,7 +233,7 @@ function PermitDetailRow({ permit }: { permit: PermitWithCycles }) {
           value={permit.dd_end}
           saving={isFieldSaving('dd_end')}
           disabled={occMissing || updateMutation.isPending}
-          onSave={makeSaver('dd_end', 'DD End')}
+          onSave={makePermitSaver('dd_end', 'DD End')}
           testId={`permit-${permit.id}-dd_end`}
         />
         <EditableField
@@ -209,17 +242,16 @@ function PermitDetailRow({ permit }: { permit: PermitWithCycles }) {
           value={permit.expected_issue}
           saving={isFieldSaving('expected_issue')}
           disabled={occMissing || updateMutation.isPending}
-          onSave={makeSaver('expected_issue', 'Expected Issue')}
+          onSave={makePermitSaver('expected_issue', 'Expected Issue')}
           testId={`permit-${permit.id}-expected_issue`}
         />
-
         <EditableField
           kind="text"
           label="DA"
           value={permit.da}
           saving={isFieldSaving('da')}
           disabled={occMissing || updateMutation.isPending}
-          onSave={makeSaver('da', 'DA')}
+          onSave={makePermitSaver('da', 'DA')}
           testId={`permit-${permit.id}-da`}
         />
         <EditableField
@@ -228,7 +260,7 @@ function PermitDetailRow({ permit }: { permit: PermitWithCycles }) {
           value={permit.dm}
           saving={isFieldSaving('dm')}
           disabled={occMissing || updateMutation.isPending}
-          onSave={makeSaver('dm', 'DM')}
+          onSave={makePermitSaver('dm', 'DM')}
           testId={`permit-${permit.id}-dm`}
         />
         <EditableField
@@ -237,7 +269,7 @@ function PermitDetailRow({ permit }: { permit: PermitWithCycles }) {
           value={permit.ent_lead}
           saving={isFieldSaving('ent_lead')}
           disabled={occMissing || updateMutation.isPending}
-          onSave={makeSaver('ent_lead', 'ENT Lead')}
+          onSave={makePermitSaver('ent_lead', 'ENT Lead')}
           testId={`permit-${permit.id}-ent_lead`}
         />
         <EditableField
@@ -246,10 +278,9 @@ function PermitDetailRow({ permit }: { permit: PermitWithCycles }) {
           value={permit.status}
           saving={isFieldSaving('status')}
           disabled={occMissing || updateMutation.isPending}
-          onSave={makeSaver('status', 'Status')}
+          onSave={makePermitSaver('status', 'Status')}
           testId={`permit-${permit.id}-status`}
         />
-
         <EditableField
           kind="select"
           label="Stage Override"
@@ -257,47 +288,384 @@ function PermitDetailRow({ permit }: { permit: PermitWithCycles }) {
           options={STAGE_OVERRIDE_OPTIONS}
           saving={isFieldSaving('stage_override')}
           disabled={occMissing || updateMutation.isPending}
-          onSave={makeSaver('stage_override', 'Stage')}
+          onSave={makePermitSaver('stage_override', 'Stage')}
           testId={`permit-${permit.id}-stage_override`}
         />
       </div>
 
-      {cycles.length > 0 && <CycleTable cycles={cycles} />}
+      <CycleSection
+        permitId={permit.id}
+        projectId={projectId}
+        cycles={cycles}
+      />
+
+      <TaskSection permitId={permit.id} />
     </article>
   );
 }
 
-function CycleTable({ cycles }: { cycles: PermitCycle[] }) {
-  const sorted = [...cycles].sort((a, b) => a.cycle_index - b.cycle_index);
+function CycleSection({
+  permitId,
+  projectId,
+  cycles,
+}: {
+  permitId: number;
+  projectId: string;
+  cycles: PermitCycle[];
+}) {
+  const upsert = useUpsertPermitCycle();
+  const remove = useDeletePermitCycle();
+  const sorted = useMemo(
+    () => [...cycles].sort((a, b) => a.cycle_index - b.cycle_index),
+    [cycles],
+  );
+
+  function makeCycleSaver(cycle: PermitCycle, field: DateField) {
+    return async (next: string) => {
+      await upsert.mutateAsync({
+        op: 'update',
+        permitId,
+        projectId,
+        cycle,
+        patch: { [field]: next === '' ? null : next } as CyclePatch,
+      });
+    };
+  }
+
+  function handleAddCycle() {
+    const nextIndex = sorted.length
+      ? Math.max(...sorted.map((c) => c.cycle_index)) + 1
+      : 1;
+    upsert.mutate({
+      op: 'insert',
+      permitId,
+      projectId,
+      cycleIndex: nextIndex,
+      patch: {},
+    });
+  }
+
+  function handleDelete(cycle: PermitCycle) {
+    if (
+      !window.confirm(
+        `Delete cycle ${cycle.cycle_index}? This will hard-delete the row.`,
+      )
+    ) {
+      return;
+    }
+    remove.mutate({ cycle, permitId, projectId });
+  }
+
+  const inFlightCycleId =
+    upsert.isPending && upsert.variables?.op === 'update'
+      ? upsert.variables.cycle.id
+      : null;
+
+  return (
+    <div className="border-t border-border px-4 py-3">
+      <div className="flex items-center justify-between mb-2">
+        <div className="text-[10px] text-dim uppercase tracking-wide">
+          Cycles
+        </div>
+        <button
+          type="button"
+          onClick={handleAddCycle}
+          disabled={upsert.isPending}
+          className="text-[10px] px-2 py-0.5 rounded border border-border bg-s2 hover:bg-s3 text-text transition disabled:opacity-50"
+          data-testid={`permit-${permitId}-add-cycle`}
+        >
+          + Add cycle
+        </button>
+      </div>
+
+      {sorted.length === 0 ? (
+        <div className="text-[11px] text-dim italic py-2">
+          No cycles yet — add one to track submission/correction dates.
+        </div>
+      ) : (
+        <table className="w-full text-[10px]">
+          <thead className="text-dim">
+            <tr>
+              <th className="text-left font-normal pb-1 pr-2">#</th>
+              <th className="text-left font-normal pb-1 pr-2">Submitted</th>
+              <th className="text-left font-normal pb-1 pr-2">City Target</th>
+              <th className="text-left font-normal pb-1 pr-2">Corr. Out</th>
+              <th className="text-left font-normal pb-1 pr-2">Resubmitted</th>
+              <th className="text-left font-normal pb-1 pr-2">Intake Acc.</th>
+              <th className="text-left font-normal pb-1" />
+            </tr>
+          </thead>
+          <tbody>
+            {sorted.map((cycle) => {
+              const saving = inFlightCycleId === cycle.id;
+              return (
+                <tr key={cycle.id} className="border-t border-border/50">
+                  <td className="py-1 pr-2 font-mono text-text">
+                    {cycle.cycle_index}
+                  </td>
+                  <td className="py-1 pr-2">
+                    <CycleDateCell
+                      cycle={cycle}
+                      field="submitted"
+                      saving={saving}
+                      onSave={makeCycleSaver(cycle, 'submitted')}
+                      pending={upsert.isPending}
+                    />
+                  </td>
+                  <td className="py-1 pr-2">
+                    <CycleDateCell
+                      cycle={cycle}
+                      field="city_target"
+                      saving={saving}
+                      onSave={makeCycleSaver(cycle, 'city_target')}
+                      pending={upsert.isPending}
+                    />
+                  </td>
+                  <td className="py-1 pr-2">
+                    <CycleDateCell
+                      cycle={cycle}
+                      field="corr_issued"
+                      saving={saving}
+                      onSave={makeCycleSaver(cycle, 'corr_issued')}
+                      pending={upsert.isPending}
+                    />
+                  </td>
+                  <td className="py-1 pr-2">
+                    <CycleDateCell
+                      cycle={cycle}
+                      field="resubmitted"
+                      saving={saving}
+                      onSave={makeCycleSaver(cycle, 'resubmitted')}
+                      pending={upsert.isPending}
+                    />
+                  </td>
+                  <td className="py-1 pr-2">
+                    <CycleDateCell
+                      cycle={cycle}
+                      field="intake_accepted"
+                      saving={saving}
+                      onSave={makeCycleSaver(cycle, 'intake_accepted')}
+                      pending={upsert.isPending}
+                    />
+                  </td>
+                  <td className="py-1">
+                    <button
+                      type="button"
+                      onClick={() => handleDelete(cycle)}
+                      disabled={remove.isPending || upsert.isPending}
+                      className="text-co hover:text-co/70 px-1 disabled:opacity-50"
+                      title="Delete cycle"
+                      data-testid={`cycle-${cycle.id}-delete`}
+                    >
+                      ✕
+                    </button>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      )}
+    </div>
+  );
+}
+
+function CycleDateCell({
+  cycle,
+  field,
+  saving,
+  pending,
+  onSave,
+}: {
+  cycle: PermitCycle;
+  field: DateField;
+  saving: boolean;
+  pending: boolean;
+  onSave: (next: string) => void | Promise<void>;
+}) {
+  return (
+    <EditableField
+      kind="date"
+      label=""
+      value={cycle[field] ?? null}
+      saving={saving}
+      disabled={pending && !saving}
+      onSave={onSave}
+      testId={`cycle-${cycle.id}-${field}`}
+    />
+  );
+}
+
+function TaskSection({ permitId }: { permitId: number }) {
+  const tasksQ = usePermitTasks(permitId);
+  const upsert = useUpsertPermitTask();
+  const remove = useDeletePermitTask();
+
+  const tasksByBucket = useMemo(() => {
+    const m = new Map<string, PermitTask[]>();
+    for (const t of tasksQ.data ?? []) {
+      const list = m.get(t.bucket) ?? [];
+      list.push(t);
+      m.set(t.bucket, list);
+    }
+    return m;
+  }, [tasksQ.data]);
+
+  function handleAdd(bucketId: string) {
+    upsert.mutate({
+      op: 'insert',
+      permitId,
+      patch: {
+        bucket: bucketId,
+        text: 'New task',
+        completion_status: 'Open',
+        stage: bucketId === 'co' ? 'co' : bucketId === 'pm' ? 'pm' : 'de',
+      },
+    });
+  }
+
+  function handleDelete(task: PermitTask) {
+    if (!window.confirm(`Delete task "${task.text}"?`)) return;
+    remove.mutate({ task, permitId });
+  }
+
+  function makeTaskSaver(task: PermitTask, field: keyof PermitTask) {
+    return async (next: string) => {
+      await upsert.mutateAsync({
+        op: 'update',
+        permitId,
+        task,
+        patch: { [field]: next === '' ? null : next } as TaskPatch,
+      });
+    };
+  }
+
+  const inFlightTaskId =
+    upsert.isPending && upsert.variables?.op === 'update'
+      ? upsert.variables.task.id
+      : null;
+
   return (
     <div className="border-t border-border px-4 py-3">
       <div className="text-[10px] text-dim uppercase tracking-wide mb-2">
-        Cycles <span className="opacity-60">(read-only — editing in Q4)</span>
+        Tasks
       </div>
-      <table className="w-full text-[10px]">
-        <thead className="text-dim">
-          <tr>
-            <th className="text-left font-normal pb-1">#</th>
-            <th className="text-left font-normal pb-1">Submitted</th>
-            <th className="text-left font-normal pb-1">City Target</th>
-            <th className="text-left font-normal pb-1">Corr. Out</th>
-            <th className="text-left font-normal pb-1">Resubmitted</th>
-            <th className="text-left font-normal pb-1">Intake Acc.</th>
-          </tr>
-        </thead>
-        <tbody className="font-mono text-text">
-          {sorted.map((c) => (
-            <tr key={c.id} className="border-t border-border/50">
-              <td className="py-1">{c.cycle_index}</td>
-              <td className="py-1">{c.submitted ?? '—'}</td>
-              <td className="py-1">{c.city_target ?? '—'}</td>
-              <td className="py-1">{c.corr_issued ?? '—'}</td>
-              <td className="py-1">{c.resubmitted ?? '—'}</td>
-              <td className="py-1">{c.intake_accepted ?? '—'}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+      {tasksQ.isLoading ? (
+        <SkeletonRows count={2} rowClassName="h-10" />
+      ) : tasksQ.error ? (
+        <QueryError
+          title="Tasks failed to load"
+          error={tasksQ.error}
+          onRetry={() => tasksQ.refetch()}
+        />
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+          {TASK_BUCKETS.map((bucket) => {
+            const bucketTasks = tasksByBucket.get(bucket.id) ?? [];
+            return (
+              <div
+                key={bucket.id}
+                className="border border-border rounded-lg overflow-hidden bg-bg/40"
+                data-testid={`task-bucket-${bucket.id}`}
+              >
+                <div className="flex items-center justify-between px-2.5 py-1.5 bg-s2">
+                  <span className="text-[11px] font-display font-bold text-text">
+                    {bucket.label}
+                  </span>
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] text-dim font-mono">
+                      {bucketTasks.length}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => handleAdd(bucket.id)}
+                      disabled={upsert.isPending}
+                      className="text-[10px] px-1.5 py-0.5 rounded border border-border bg-surface hover:bg-s3 text-text transition disabled:opacity-50"
+                      data-testid={`task-add-${bucket.id}-${permitId}`}
+                    >
+                      + Add
+                    </button>
+                  </div>
+                </div>
+                <ul className="divide-y divide-border">
+                  {bucketTasks.length === 0 ? (
+                    <li className="px-2.5 py-2 text-[11px] text-dim italic">
+                      No tasks yet.
+                    </li>
+                  ) : (
+                    bucketTasks.map((task) => {
+                      const saving = inFlightTaskId === task.id;
+                      const isTemp = task.id.startsWith('temp-');
+                      return (
+                        <li
+                          key={task.id}
+                          className="px-2.5 py-2 flex flex-col gap-1.5"
+                        >
+                          <div className="flex items-start gap-1.5">
+                            <div className="flex-1 min-w-0">
+                              <EditableField
+                                kind="text"
+                                label=""
+                                value={task.text}
+                                saving={saving}
+                                disabled={isTemp || upsert.isPending}
+                                onSave={makeTaskSaver(task, 'text')}
+                                testId={`task-${task.id}-text`}
+                              />
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => handleDelete(task)}
+                              disabled={
+                                isTemp || remove.isPending || upsert.isPending
+                              }
+                              className="text-co hover:text-co/70 px-1 disabled:opacity-50"
+                              title="Delete task"
+                              data-testid={`task-${task.id}-delete`}
+                            >
+                              ✕
+                            </button>
+                          </div>
+                          <div className="grid grid-cols-3 gap-1.5">
+                            <EditableField
+                              kind="select"
+                              label="Status"
+                              value={task.completion_status ?? 'Open'}
+                              options={COMPLETION_OPTIONS}
+                              saving={saving}
+                              disabled={isTemp || upsert.isPending}
+                              onSave={makeTaskSaver(task, 'completion_status')}
+                              testId={`task-${task.id}-completion_status`}
+                            />
+                            <EditableField
+                              kind="text"
+                              label="Assignee"
+                              value={task.assigned_to}
+                              saving={saving}
+                              disabled={isTemp || upsert.isPending}
+                              onSave={makeTaskSaver(task, 'assigned_to')}
+                              testId={`task-${task.id}-assigned_to`}
+                            />
+                            <EditableField
+                              kind="date"
+                              label="Due"
+                              value={task.due_date}
+                              saving={saving}
+                              disabled={isTemp || upsert.isPending}
+                              onSave={makeTaskSaver(task, 'due_date')}
+                              testId={`task-${task.id}-due_date`}
+                            />
+                          </div>
+                        </li>
+                      );
+                    })
+                  )}
+                </ul>
+              </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }

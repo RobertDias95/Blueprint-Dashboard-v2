@@ -54,7 +54,7 @@ function permit(id: number, over: Partial<Permit> = {}): Permit {
 
 function cycle(over: Partial<PermitCycle>): PermitCycle {
   return {
-    id: Math.random(),
+    id: `c-${Math.random()}`,
     permit_id: 1,
     cycle_index: 1,
     submitted: null,
@@ -62,6 +62,8 @@ function cycle(over: Partial<PermitCycle>): PermitCycle {
     corr_issued: null,
     resubmitted: null,
     intake_accepted: null,
+    created_at: '2026-01-01T00:00:00Z',
+    updated_at: '2026-01-01T00:00:00Z',
     ...over,
   };
 }

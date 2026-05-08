@@ -9,6 +9,10 @@ export const queryKeys = {
     ['permits', { projectId }] as const,
   permitCycles: ['permit_cycles'] as const,
   permitTasks: ['permit_tasks'] as const,
+  /** Per-permit task list. The realtime invalidation key (`permitTasks`) is the
+   * prefix; TanStack Query treats `['permit_tasks', { permitId }]` as matching it. */
+  permitTasksFor: (permitId: number) =>
+    ['permit_tasks', { permitId }] as const,
   drawSchedule: ['draw_schedule'] as const,
   intakeRecords: ['intake_records'] as const,
 } as const;
