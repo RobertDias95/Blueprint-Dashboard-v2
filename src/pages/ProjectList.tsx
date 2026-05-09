@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
+import NewProjectWizard from '../components/NewProjectWizard';
 import { useProjects } from '../hooks/useProjects';
 import { usePermits } from '../hooks/usePermits';
 import { effectiveStage } from '../lib/permitStage';
@@ -25,6 +26,7 @@ export default function ProjectList() {
   const permitsQ = usePermits();
   const [search, setSearch] = useState('');
   const [jurisFilter, setJurisFilter] = useState('');
+  const [wizardOpen, setWizardOpen] = useState(false);
 
   const isLoading = projectsQ.isLoading || permitsQ.isLoading;
   const error = projectsQ.error ?? permitsQ.error;
@@ -106,7 +108,16 @@ export default function ProjectList() {
         <span className="text-[11px] text-muted font-mono ml-auto">
           {rows.length} project{rows.length === 1 ? '' : 's'}
         </span>
+        <button
+          type="button"
+          onClick={() => setWizardOpen(true)}
+          className="text-xs px-3 py-1.5 rounded-md bg-de text-white font-display font-bold hover:opacity-90 transition"
+          data-testid="projectlist-new-project"
+        >
+          + Add New Project
+        </button>
       </div>
+      <NewProjectWizard open={wizardOpen} onClose={() => setWizardOpen(false)} />
 
       {isLoading ? (
         <SkeletonRows count={6} rowClassName="h-14" />

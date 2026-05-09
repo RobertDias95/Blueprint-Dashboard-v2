@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
 // Q2: ProjectList search/filter behavior. Mock the data hooks so the test
 // renders synchronously with a fixed dataset; verify search + juris
@@ -50,10 +51,17 @@ import ProjectList from '../pages/ProjectList';
 
 describe('<ProjectList />', () => {
   function renderIt() {
+    // Wrap with QueryClientProvider — Q5 added NewProjectWizard to the page,
+    // and its mutation hook calls useQueryClient().
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
     return render(
-      <MemoryRouter>
-        <ProjectList />
-      </MemoryRouter>,
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter>
+          <ProjectList />
+        </MemoryRouter>
+      </QueryClientProvider>,
     );
   }
 

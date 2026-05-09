@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import NewProjectWizard from '../components/NewProjectWizard';
 import { useProjects } from '../hooks/useProjects';
 import { usePermits } from '../hooks/usePermits';
 import { useDrawSchedule } from '../hooks/useDrawSchedule';
@@ -35,6 +36,7 @@ export default function Dashboard() {
   const permitsQ = usePermits();
   const drawQ = useDrawSchedule();
   const [search, setSearch] = useState('');
+  const [wizardOpen, setWizardOpen] = useState(false);
 
   const isLoading = projectsQ.isLoading || permitsQ.isLoading || drawQ.isLoading;
   const error = projectsQ.error ?? permitsQ.error ?? drawQ.error;
@@ -127,7 +129,16 @@ export default function Dashboard() {
           className="flex-1 min-w-[220px] max-w-[360px] bg-bg border border-border rounded-md px-3 py-1.5 text-xs font-display text-text placeholder:text-dim focus:outline-none focus:border-de"
         />
         <DashSummary buckets={buckets} loading={isLoading} />
+        <button
+          type="button"
+          onClick={() => setWizardOpen(true)}
+          className="text-xs px-3 py-1.5 rounded-md bg-de text-white font-display font-bold hover:opacity-90 transition"
+          data-testid="dashboard-new-project"
+        >
+          + Add New Project
+        </button>
       </div>
+      <NewProjectWizard open={wizardOpen} onClose={() => setWizardOpen(false)} />
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <StageGroup
