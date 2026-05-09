@@ -4,7 +4,10 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { ReactNode } from 'react';
 import { queryKeys } from '../lib/queryKeys';
 import { useToastStore } from '../stores/toastStore';
+import { useAuthStore } from '../stores/authStore';
 import type { PermitWithCycles } from '../lib/database.types';
+
+const T = 'test-tenant-uuid';
 
 // Q3: useUpdatePermit — wire-shape test. Asserts the hook fires the right
 // .from/.update/.eq chain with OCC token, applies optimistic state, rolls
@@ -122,6 +125,9 @@ describe('useUpdatePermit', () => {
     mocks.eqFn.mockClear();
     mocks.selectFn.mockClear();
     useToastStore.getState().clear();
+    // Q5.5.D: hooks read activeTenantId from authStore. Seed it so the
+    // mutation builds query keys correctly.
+    useAuthStore.setState({ activeTenantId: T, memberships: [{ tenant_id: T, role: 'admin' }] });
   });
 
   it('fires UPDATE with the OCC token (id + updated_at eq filters)', async () => {
@@ -130,8 +136,8 @@ describe('useUpdatePermit', () => {
     mocks.setResult({ data: [updated], error: null });
 
     const { queryClient, wrapper } = setupQueryClient();
-    queryClient.setQueryData(queryKeys.permits, [permit]);
-    queryClient.setQueryData(queryKeys.permitsByProject('proj-1'), [permit]);
+    queryClient.setQueryData(queryKeys.permits(T), [permit]);
+    queryClient.setQueryData(queryKeys.permitsByProject(T, 'proj-1'), [permit]);
 
     const { result } = renderHook(() => useUpdatePermit(), { wrapper });
 
@@ -163,8 +169,8 @@ describe('useUpdatePermit', () => {
     });
 
     const { queryClient, wrapper } = setupQueryClient();
-    queryClient.setQueryData(queryKeys.permits, [permit]);
-    queryClient.setQueryData(queryKeys.permitsByProject('proj-1'), [permit]);
+    queryClient.setQueryData(queryKeys.permits(T), [permit]);
+    queryClient.setQueryData(queryKeys.permitsByProject(T, 'proj-1'), [permit]);
 
     const { result } = renderHook(() => useUpdatePermit(), { wrapper });
 
@@ -177,9 +183,9 @@ describe('useUpdatePermit', () => {
       });
     });
 
-    const global = queryClient.getQueryData<PermitWithCycles[]>(queryKeys.permits);
+    const global = queryClient.getQueryData<PermitWithCycles[]>(queryKeys.permits(T));
     const byProject = queryClient.getQueryData<PermitWithCycles[]>(
-      queryKeys.permitsByProject('proj-1'),
+      queryKeys.permitsByProject(T, 'proj-1'),
     );
     expect(global?.[0].da).toBe('Ainsley');
     expect(byProject?.[0].da).toBe('Ainsley');
@@ -192,8 +198,8 @@ describe('useUpdatePermit', () => {
     mocks.setResult({ data: [], error: null });
 
     const { queryClient, wrapper } = setupQueryClient();
-    queryClient.setQueryData(queryKeys.permits, [permit]);
-    queryClient.setQueryData(queryKeys.permitsByProject('proj-1'), [permit]);
+    queryClient.setQueryData(queryKeys.permits(T), [permit]);
+    queryClient.setQueryData(queryKeys.permitsByProject(T, 'proj-1'), [permit]);
 
     const { result } = renderHook(() => useUpdatePermit(), { wrapper });
 
@@ -210,7 +216,7 @@ describe('useUpdatePermit', () => {
     });
 
     // Cache rolled back to original value.
-    const global = queryClient.getQueryData<PermitWithCycles[]>(queryKeys.permits);
+    const global = queryClient.getQueryData<PermitWithCycles[]>(queryKeys.permits(T));
     expect(global?.[0].target_submit).toBe('2026-01-15');
 
     await waitFor(() => {
@@ -227,8 +233,8 @@ describe('useUpdatePermit', () => {
     });
 
     const { queryClient, wrapper } = setupQueryClient();
-    queryClient.setQueryData(queryKeys.permits, [permit]);
-    queryClient.setQueryData(queryKeys.permitsByProject('proj-1'), [permit]);
+    queryClient.setQueryData(queryKeys.permits(T), [permit]);
+    queryClient.setQueryData(queryKeys.permitsByProject(T, 'proj-1'), [permit]);
 
     const { result } = renderHook(() => useUpdatePermit(), { wrapper });
 
@@ -244,7 +250,7 @@ describe('useUpdatePermit', () => {
       ).rejects.toThrow(/connection refused/i);
     });
 
-    const global = queryClient.getQueryData<PermitWithCycles[]>(queryKeys.permits);
+    const global = queryClient.getQueryData<PermitWithCycles[]>(queryKeys.permits(T));
     expect(global?.[0].da).toBe('Trevor');
 
     await waitFor(() => {
@@ -264,8 +270,8 @@ describe('useUpdatePermit', () => {
     });
 
     const { queryClient, wrapper } = setupQueryClient();
-    queryClient.setQueryData(queryKeys.permits, [target, sibling]);
-    queryClient.setQueryData(queryKeys.permitsByProject('proj-1'), [target, sibling]);
+    queryClient.setQueryData(queryKeys.permits(T), [target, sibling]);
+    queryClient.setQueryData(queryKeys.permitsByProject(T, 'proj-1'), [target, sibling]);
 
     const { result } = renderHook(() => useUpdatePermit(), { wrapper });
 
@@ -278,7 +284,7 @@ describe('useUpdatePermit', () => {
       });
     });
 
-    const global = queryClient.getQueryData<PermitWithCycles[]>(queryKeys.permits);
+    const global = queryClient.getQueryData<PermitWithCycles[]>(queryKeys.permits(T));
     const byId = new Map(global?.map((p) => [p.id, p]));
     expect(byId.get(7)?.da).toBe('Ahmadi');
     expect(byId.get(8)?.da).toBe('Nicky'); // untouched

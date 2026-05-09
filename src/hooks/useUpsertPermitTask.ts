@@ -3,6 +3,7 @@ import { supabase } from '../lib/supabase';
 import { queryKeys } from '../lib/queryKeys';
 import { OCCConflictError, isOCCConflict } from '../lib/occ';
 import { pushToast } from '../stores/toastStore';
+import { useAuthStore } from '../stores/authStore';
 import type { PermitTask } from '../lib/database.types';
 
 // Q4: Row-level OCC upsert for permit_tasks via bp_upsert_permit_task_row.
@@ -73,6 +74,7 @@ function buildFullPayload(
 
 export function useUpsertPermitTask() {
   const queryClient = useQueryClient();
+  const tenantId = useAuthStore((s) => s.activeTenantId) ?? '';
 
   return useMutation<PermitTask, Error, UpsertTaskInput, MutationContext>({
     mutationFn: async (input) => {
@@ -131,7 +133,7 @@ export function useUpsertPermitTask() {
     },
 
     onMutate: async (input) => {
-      const key = queryKeys.permitTasksFor(input.permitId);
+      const key = queryKeys.permitTasksFor(tenantId, input.permitId);
       await queryClient.cancelQueries({ queryKey: key });
       const snapshot = queryClient.getQueryData<PermitTask[]>(key);
 
@@ -176,14 +178,14 @@ export function useUpsertPermitTask() {
     onError: (error, input, context) => {
       if (context?.snapshot !== undefined) {
         queryClient.setQueryData(
-          queryKeys.permitTasksFor(input.permitId),
+          queryKeys.permitTasksFor(tenantId, input.permitId),
           context.snapshot,
         );
       }
       if (isOCCConflict(error)) {
         pushToast(error.message, 'warn');
         queryClient.invalidateQueries({
-          queryKey: queryKeys.permitTasksFor(input.permitId),
+          queryKey: queryKeys.permitTasksFor(tenantId, input.permitId),
         });
       } else {
         pushToast(`Could not save task — ${error.message}`, 'error');
@@ -192,7 +194,7 @@ export function useUpsertPermitTask() {
 
     onSuccess: (_, input) => {
       queryClient.invalidateQueries({
-        queryKey: queryKeys.permitTasksFor(input.permitId),
+        queryKey: queryKeys.permitTasksFor(tenantId, input.permitId),
       });
       pushToast('Saved task', 'success');
     },

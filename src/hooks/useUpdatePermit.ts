@@ -3,6 +3,7 @@ import { supabase } from '../lib/supabase';
 import { queryKeys } from '../lib/queryKeys';
 import { OCCConflictError, isOCCConflict } from '../lib/occ';
 import { pushToast } from '../stores/toastStore';
+import { useAuthStore } from '../stores/authStore';
 import type { Permit, PermitWithCycles } from '../lib/database.types';
 
 // Q3: Row-level OCC mutation for permit fields. Architectural primitive #2:
@@ -33,6 +34,7 @@ interface MutationContext {
 
 export function useUpdatePermit() {
   const queryClient = useQueryClient();
+  const tenantId = useAuthStore((s) => s.activeTenantId) ?? '';
 
   return useMutation<PermitWithCycles, Error, UpdatePermitInput, MutationContext>({
     mutationFn: async ({ permitId, expectedUpdatedAt, patch, fieldLabel }) => {
@@ -51,50 +53,39 @@ export function useUpdatePermit() {
     },
 
     onMutate: async ({ permitId, projectId, patch }) => {
-      // Cancel in-flight refetches so they don't overwrite our optimistic state.
-      await queryClient.cancelQueries({ queryKey: queryKeys.permits });
-      await queryClient.cancelQueries({
-        queryKey: queryKeys.permitsByProject(projectId),
-      });
+      const permitsKey = queryKeys.permits(tenantId);
+      const byProjectKey = queryKeys.permitsByProject(tenantId, projectId);
 
-      const globalSnapshot = queryClient.getQueryData<PermitWithCycles[]>(
-        queryKeys.permits,
-      );
-      const byProjectSnapshot = queryClient.getQueryData<PermitWithCycles[]>(
-        queryKeys.permitsByProject(projectId),
-      );
+      await queryClient.cancelQueries({ queryKey: permitsKey });
+      await queryClient.cancelQueries({ queryKey: byProjectKey });
+
+      const globalSnapshot = queryClient.getQueryData<PermitWithCycles[]>(permitsKey);
+      const byProjectSnapshot = queryClient.getQueryData<PermitWithCycles[]>(byProjectKey);
 
       const apply = (rows: PermitWithCycles[] | undefined) =>
         rows?.map((p) => (p.id === permitId ? { ...p, ...patch } : p));
 
-      queryClient.setQueryData(queryKeys.permits, apply(globalSnapshot));
-      queryClient.setQueryData(
-        queryKeys.permitsByProject(projectId),
-        apply(byProjectSnapshot),
-      );
+      queryClient.setQueryData(permitsKey, apply(globalSnapshot));
+      queryClient.setQueryData(byProjectKey, apply(byProjectSnapshot));
 
       return { globalSnapshot, byProjectSnapshot };
     },
 
     onError: (error, variables, context) => {
-      // Rollback both caches.
+      const permitsKey = queryKeys.permits(tenantId);
+      const byProjectKey = queryKeys.permitsByProject(tenantId, variables.projectId);
+
       if (context?.globalSnapshot !== undefined) {
-        queryClient.setQueryData(queryKeys.permits, context.globalSnapshot);
+        queryClient.setQueryData(permitsKey, context.globalSnapshot);
       }
       if (context?.byProjectSnapshot !== undefined) {
-        queryClient.setQueryData(
-          queryKeys.permitsByProject(variables.projectId),
-          context.byProjectSnapshot,
-        );
+        queryClient.setQueryData(byProjectKey, context.byProjectSnapshot);
       }
 
       if (isOCCConflict(error)) {
         pushToast(error.message, 'warn');
-        // Refetch the row so the user sees current server state.
-        queryClient.invalidateQueries({ queryKey: queryKeys.permits });
-        queryClient.invalidateQueries({
-          queryKey: queryKeys.permitsByProject(variables.projectId),
-        });
+        queryClient.invalidateQueries({ queryKey: permitsKey });
+        queryClient.invalidateQueries({ queryKey: byProjectKey });
       } else {
         pushToast(
           `Could not save${variables.fieldLabel ? ' ' + variables.fieldLabel : ''} — ${error.message}`,
@@ -104,17 +95,18 @@ export function useUpdatePermit() {
     },
 
     onSuccess: (data, variables) => {
+      const permitsKey = queryKeys.permits(tenantId);
+      const byProjectKey = queryKeys.permitsByProject(tenantId, variables.projectId);
       // Merge the authoritative server row (new updated_at) into both caches.
       // Realtime will eventually arrive too, but this keeps the OCC token
       // fresh for any immediate follow-up edit on the same field.
       const merge = (rows: PermitWithCycles[] | undefined) =>
         rows?.map((p) => (p.id === variables.permitId ? data : p));
-      queryClient.setQueryData(queryKeys.permits, (prev: PermitWithCycles[] | undefined) =>
+      queryClient.setQueryData(permitsKey, (prev: PermitWithCycles[] | undefined) =>
         merge(prev),
       );
-      queryClient.setQueryData(
-        queryKeys.permitsByProject(variables.projectId),
-        (prev: PermitWithCycles[] | undefined) => merge(prev),
+      queryClient.setQueryData(byProjectKey, (prev: PermitWithCycles[] | undefined) =>
+        merge(prev),
       );
       pushToast(`Saved ${variables.fieldLabel ?? 'change'}`, 'success');
     },

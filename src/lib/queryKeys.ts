@@ -1,28 +1,42 @@
 // Q2: Centralized TanStack Query keys. Realtime invalidation references the
 // same keys so subscriptions and queries can never drift. Add a key here
 // before adding the matching hook.
+//
+// Q5.5.D: Every key is now parameterized by tenantId. Cache entries for a
+// previous tenant are isolated from the active tenant, which matters when
+// (Phase 2) the user switches tenants — old data must not bleed through.
+// Realtime invalidation uses the bare table-prefix key (without tenantId),
+// which TanStack Query treats as a prefix match for all tenant variants.
 
 export const queryKeys = {
-  projects: ['projects'] as const,
-  permits: ['permits'] as const,
-  permitsByProject: (projectId: string) =>
-    ['permits', { projectId }] as const,
-  permitCycles: ['permit_cycles'] as const,
-  permitTasks: ['permit_tasks'] as const,
-  /** Per-permit task list. The realtime invalidation key (`permitTasks`) is the
-   * prefix; TanStack Query treats `['permit_tasks', { permitId }]` as matching it. */
-  permitTasksFor: (permitId: number) =>
-    ['permit_tasks', { permitId }] as const,
-  drawSchedule: ['draw_schedule'] as const,
-  intakeRecords: ['intake_records'] as const,
+  // Bare prefixes used by realtime invalidation (prefix-match across tenants).
+  projectsAll: ['projects'] as const,
+  permitsAll: ['permits'] as const,
+  permitCyclesAll: ['permit_cycles'] as const,
+  permitTasksAll: ['permit_tasks'] as const,
+  drawScheduleAll: ['draw_schedule'] as const,
+  intakeRecordsAll: ['intake_records'] as const,
+  // Tenant-scoped keys used by queries and per-tenant invalidation.
+  projects: (tenantId: string) => ['projects', tenantId] as const,
+  permits: (tenantId: string) => ['permits', tenantId] as const,
+  permitsByProject: (tenantId: string, projectId: string) =>
+    ['permits', tenantId, { projectId }] as const,
+  permitCycles: (tenantId: string) => ['permit_cycles', tenantId] as const,
+  permitTasks: (tenantId: string) => ['permit_tasks', tenantId] as const,
+  permitTasksFor: (tenantId: string, permitId: number) =>
+    ['permit_tasks', tenantId, { permitId }] as const,
+  drawSchedule: (tenantId: string) => ['draw_schedule', tenantId] as const,
+  intakeRecords: (tenantId: string) => ['intake_records', tenantId] as const,
 } as const;
 
-/** Map from Postgres table name → query keys to invalidate on realtime change. */
+/** Map from Postgres table name → bare-prefix query keys to invalidate on
+ * realtime change. Bare prefixes match all tenant variants under each prefix.
+ */
 export const REALTIME_TABLES = {
-  projects: [queryKeys.projects, queryKeys.permits],
-  permits: [queryKeys.permits, queryKeys.projects],
-  permit_cycles: [queryKeys.permits, queryKeys.permitCycles],
-  permit_tasks: [queryKeys.permitTasks],
-  draw_schedule: [queryKeys.drawSchedule],
-  intake_records: [queryKeys.intakeRecords],
+  projects: [queryKeys.projectsAll, queryKeys.permitsAll],
+  permits: [queryKeys.permitsAll, queryKeys.projectsAll],
+  permit_cycles: [queryKeys.permitsAll, queryKeys.permitCyclesAll],
+  permit_tasks: [queryKeys.permitTasksAll],
+  draw_schedule: [queryKeys.drawScheduleAll, queryKeys.permitsAll],
+  intake_records: [queryKeys.intakeRecordsAll],
 } as const;

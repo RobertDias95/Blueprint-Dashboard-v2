@@ -3,6 +3,7 @@ import { supabase } from '../lib/supabase';
 import { queryKeys } from '../lib/queryKeys';
 import { OCCConflictError, isOCCConflict } from '../lib/occ';
 import { pushToast } from '../stores/toastStore';
+import { useAuthStore } from '../stores/authStore';
 import type { PermitTask } from '../lib/database.types';
 
 // Q4: Row-level OCC delete for permit_tasks via bp_delete_permit_task_row.
@@ -18,6 +19,7 @@ interface MutationContext {
 
 export function useDeletePermitTask() {
   const queryClient = useQueryClient();
+  const tenantId = useAuthStore((s) => s.activeTenantId) ?? '';
 
   return useMutation<void, Error, DeleteTaskInput, MutationContext>({
     mutationFn: async ({ task, permitId }) => {
@@ -40,7 +42,7 @@ export function useDeletePermitTask() {
     },
 
     onMutate: async ({ task, permitId }) => {
-      const key = queryKeys.permitTasksFor(permitId);
+      const key = queryKeys.permitTasksFor(tenantId, permitId);
       await queryClient.cancelQueries({ queryKey: key });
       const snapshot = queryClient.getQueryData<PermitTask[]>(key);
       queryClient.setQueryData<PermitTask[]>(
@@ -53,14 +55,14 @@ export function useDeletePermitTask() {
     onError: (error, input, context) => {
       if (context?.snapshot !== undefined) {
         queryClient.setQueryData(
-          queryKeys.permitTasksFor(input.permitId),
+          queryKeys.permitTasksFor(tenantId, input.permitId),
           context.snapshot,
         );
       }
       if (isOCCConflict(error)) {
         pushToast(error.message, 'warn');
         queryClient.invalidateQueries({
-          queryKey: queryKeys.permitTasksFor(input.permitId),
+          queryKey: queryKeys.permitTasksFor(tenantId, input.permitId),
         });
       } else {
         pushToast(`Could not delete task — ${error.message}`, 'error');

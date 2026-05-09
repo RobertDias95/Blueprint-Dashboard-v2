@@ -122,6 +122,8 @@ export interface DrawScheduleRow {
   notes: string | null;
   color_override: string | null;
   status_override: string | null;
+  /** Q5.5.C: required for row-level OCC on the draw_schedule write path. */
+  updated_at: string;
 }
 
 export interface IntakeRecord {

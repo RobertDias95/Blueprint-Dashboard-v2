@@ -218,22 +218,14 @@ function PermitDetailRow({
           onSave={makePermitSaver('target_submit', 'Target Submit')}
           testId={`permit-${permit.id}-target_submit`}
         />
-        <EditableField
-          kind="date"
+        <ReadOnlyDateField
           label="DD Start"
           value={permit.dd_start}
-          saving={isFieldSaving('dd_start')}
-          disabled={occMissing || updateMutation.isPending}
-          onSave={makePermitSaver('dd_start', 'DD Start')}
           testId={`permit-${permit.id}-dd_start`}
         />
-        <EditableField
-          kind="date"
+        <ReadOnlyDateField
           label="DD End"
           value={permit.dd_end}
-          saving={isFieldSaving('dd_end')}
-          disabled={occMissing || updateMutation.isPending}
-          onSave={makePermitSaver('dd_end', 'DD End')}
           testId={`permit-${permit.id}-dd_end`}
         />
         <EditableField
@@ -466,6 +458,34 @@ function CycleSection({
           </tbody>
         </table>
       )}
+    </div>
+  );
+}
+
+// Q5.5.D: dd_start/dd_end on permits are sourced from the draw schedule via
+// the Q5.5.C atomic RPC. ProjectDetail surfaces them as read-only displays;
+// editing happens in the draw schedule view (Q6).
+function ReadOnlyDateField({
+  label,
+  value,
+  testId,
+}: {
+  label: string;
+  value: string | null;
+  testId?: string;
+}) {
+  return (
+    <div className="flex flex-col gap-1">
+      <span className="text-[10px] uppercase tracking-wide text-muted font-mono">
+        {label}
+      </span>
+      <span
+        className="text-xs text-text font-mono px-2 py-1 bg-bg/40 border border-border/40 rounded min-h-[26px] flex items-center"
+        data-testid={testId}
+        title="Edited via the draw schedule view"
+      >
+        {value ?? '—'}
+      </span>
     </div>
   );
 }

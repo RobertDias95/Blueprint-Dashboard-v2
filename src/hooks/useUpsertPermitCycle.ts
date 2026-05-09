@@ -3,6 +3,7 @@ import { supabase } from '../lib/supabase';
 import { queryKeys } from '../lib/queryKeys';
 import { OCCConflictError, isOCCConflict } from '../lib/occ';
 import { pushToast } from '../stores/toastStore';
+import { useAuthStore } from '../stores/authStore';
 import type { PermitCycle, PermitWithCycles } from '../lib/database.types';
 
 // Q4: Row-level OCC upsert for permit_cycles via bp_upsert_permit_cycle_row.
@@ -15,9 +16,8 @@ import type { PermitCycle, PermitWithCycles } from '../lib/database.types';
 //                      and ships all 5 date fields to the RPC (full-row
 //                      payload contract — see Migration 3 design notes).
 //
-// Cache target: queryKeys.permitsByProject(projectId) and queryKeys.permits.
-// Cycles live nested under each permit's permit_cycles[] array. Optimistic
-// patch walks both caches; rollback restores both on error.
+// Cache target: queryKeys.permitsByProject and queryKeys.permits, both
+// tenant-scoped. Cycles live nested under each permit's permit_cycles[].
 
 export type DateField =
   | 'submitted'
@@ -50,9 +50,6 @@ const DATE_FIELDS: DateField[] = [
   'intake_accepted',
 ];
 
-/** Build the full date-field jsonb payload by merging current cycle values
- *  with the user's patch. Empty string for missing values so NULLIF in the
- *  RPC can normalize to SQL NULL. */
 function buildFullPayload(
   base: Partial<Record<DateField, string | null>>,
   patch: CyclePatch,
@@ -67,6 +64,7 @@ function buildFullPayload(
 
 export function useUpsertPermitCycle() {
   const queryClient = useQueryClient();
+  const tenantId = useAuthStore((s) => s.activeTenantId) ?? '';
 
   return useMutation<PermitCycle, Error, UpsertCycleInput, MutationContext>({
     mutationFn: async (input) => {
@@ -98,7 +96,6 @@ export function useUpsertPermitCycle() {
         };
       }
 
-      // UPDATE — merge current cycle values with patch.
       const merged = buildFullPayload(input.cycle, input.patch);
       const { data, error } = await supabase.rpc('bp_upsert_permit_cycle_row', {
         p_id: input.cycle.id,
@@ -120,15 +117,15 @@ export function useUpsertPermitCycle() {
     },
 
     onMutate: async (input) => {
-      await queryClient.cancelQueries({ queryKey: queryKeys.permits });
+      await queryClient.cancelQueries({ queryKey: queryKeys.permits(tenantId) });
       await queryClient.cancelQueries({
-        queryKey: queryKeys.permitsByProject(input.projectId),
+        queryKey: queryKeys.permitsByProject(tenantId, input.projectId),
       });
       const globalSnapshot = queryClient.getQueryData<PermitWithCycles[]>(
-        queryKeys.permits,
+        queryKeys.permits(tenantId),
       );
       const byProjectSnapshot = queryClient.getQueryData<PermitWithCycles[]>(
-        queryKeys.permitsByProject(input.projectId),
+        queryKeys.permitsByProject(tenantId, input.projectId),
       );
 
       const apply = (rows: PermitWithCycles[] | undefined) =>
@@ -136,7 +133,6 @@ export function useUpsertPermitCycle() {
           if (p.id !== input.permitId) return p;
           const cycles = p.permit_cycles ?? [];
           if (input.op === 'insert') {
-            // Append a temp cycle; replaced with server row on success.
             const temp: PermitCycle = {
               id: `temp-${Math.random()}`,
               permit_id: input.permitId,
@@ -159,9 +155,9 @@ export function useUpsertPermitCycle() {
           };
         });
 
-      queryClient.setQueryData(queryKeys.permits, apply(globalSnapshot));
+      queryClient.setQueryData(queryKeys.permits(tenantId), apply(globalSnapshot));
       queryClient.setQueryData(
-        queryKeys.permitsByProject(input.projectId),
+        queryKeys.permitsByProject(tenantId, input.projectId),
         apply(byProjectSnapshot),
       );
 
@@ -170,19 +166,19 @@ export function useUpsertPermitCycle() {
 
     onError: (error, input, context) => {
       if (context?.globalSnapshot !== undefined) {
-        queryClient.setQueryData(queryKeys.permits, context.globalSnapshot);
+        queryClient.setQueryData(queryKeys.permits(tenantId), context.globalSnapshot);
       }
       if (context?.byProjectSnapshot !== undefined) {
         queryClient.setQueryData(
-          queryKeys.permitsByProject(input.projectId),
+          queryKeys.permitsByProject(tenantId, input.projectId),
           context.byProjectSnapshot,
         );
       }
       if (isOCCConflict(error)) {
         pushToast(error.message, 'warn');
-        queryClient.invalidateQueries({ queryKey: queryKeys.permits });
+        queryClient.invalidateQueries({ queryKey: queryKeys.permits(tenantId) });
         queryClient.invalidateQueries({
-          queryKey: queryKeys.permitsByProject(input.projectId),
+          queryKey: queryKeys.permitsByProject(tenantId, input.projectId),
         });
       } else {
         pushToast(`Could not save cycle — ${error.message}`, 'error');
@@ -190,9 +186,7 @@ export function useUpsertPermitCycle() {
     },
 
     onSuccess: () => {
-      // Realtime will arrive via permit_cycles invalidation; force one refetch
-      // now to replace the optimistic temp row (INSERT case) with the real row.
-      queryClient.invalidateQueries({ queryKey: queryKeys.permits });
+      queryClient.invalidateQueries({ queryKey: queryKeys.permits(tenantId) });
       pushToast('Saved cycle', 'success');
     },
   });

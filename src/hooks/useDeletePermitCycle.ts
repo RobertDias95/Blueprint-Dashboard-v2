@@ -3,6 +3,7 @@ import { supabase } from '../lib/supabase';
 import { queryKeys } from '../lib/queryKeys';
 import { OCCConflictError, isOCCConflict } from '../lib/occ';
 import { pushToast } from '../stores/toastStore';
+import { useAuthStore } from '../stores/authStore';
 import type { PermitCycle, PermitWithCycles } from '../lib/database.types';
 
 // Q4: Row-level OCC delete for permit_cycles via bp_delete_permit_cycle_row.
@@ -20,6 +21,7 @@ interface MutationContext {
 
 export function useDeletePermitCycle() {
   const queryClient = useQueryClient();
+  const tenantId = useAuthStore((s) => s.activeTenantId) ?? '';
 
   return useMutation<void, Error, DeleteCycleInput, MutationContext>({
     mutationFn: async ({ cycle, permitId }) => {
@@ -42,15 +44,15 @@ export function useDeletePermitCycle() {
     },
 
     onMutate: async ({ cycle, permitId, projectId }) => {
-      await queryClient.cancelQueries({ queryKey: queryKeys.permits });
+      await queryClient.cancelQueries({ queryKey: queryKeys.permits(tenantId) });
       await queryClient.cancelQueries({
-        queryKey: queryKeys.permitsByProject(projectId),
+        queryKey: queryKeys.permitsByProject(tenantId, projectId),
       });
       const globalSnapshot = queryClient.getQueryData<PermitWithCycles[]>(
-        queryKeys.permits,
+        queryKeys.permits(tenantId),
       );
       const byProjectSnapshot = queryClient.getQueryData<PermitWithCycles[]>(
-        queryKeys.permitsByProject(projectId),
+        queryKeys.permitsByProject(tenantId, projectId),
       );
       const apply = (rows: PermitWithCycles[] | undefined) =>
         rows?.map((p) =>
@@ -63,9 +65,9 @@ export function useDeletePermitCycle() {
                 ),
               },
         );
-      queryClient.setQueryData(queryKeys.permits, apply(globalSnapshot));
+      queryClient.setQueryData(queryKeys.permits(tenantId), apply(globalSnapshot));
       queryClient.setQueryData(
-        queryKeys.permitsByProject(projectId),
+        queryKeys.permitsByProject(tenantId, projectId),
         apply(byProjectSnapshot),
       );
       return { globalSnapshot, byProjectSnapshot };
@@ -73,17 +75,17 @@ export function useDeletePermitCycle() {
 
     onError: (error, input, context) => {
       if (context?.globalSnapshot !== undefined) {
-        queryClient.setQueryData(queryKeys.permits, context.globalSnapshot);
+        queryClient.setQueryData(queryKeys.permits(tenantId), context.globalSnapshot);
       }
       if (context?.byProjectSnapshot !== undefined) {
         queryClient.setQueryData(
-          queryKeys.permitsByProject(input.projectId),
+          queryKeys.permitsByProject(tenantId, input.projectId),
           context.byProjectSnapshot,
         );
       }
       if (isOCCConflict(error)) {
         pushToast(error.message, 'warn');
-        queryClient.invalidateQueries({ queryKey: queryKeys.permits });
+        queryClient.invalidateQueries({ queryKey: queryKeys.permits(tenantId) });
       } else {
         pushToast(`Could not delete cycle — ${error.message}`, 'error');
       }

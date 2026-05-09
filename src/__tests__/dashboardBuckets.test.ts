@@ -118,6 +118,7 @@ describe('bucketPermits', () => {
           notes: null,
           color_override: null,
           status_override: null,
+          updated_at: '2026-05-08T10:00:00Z',
         },
       ],
     ]);

@@ -5,6 +5,9 @@ import { MemoryRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { ReactNode } from 'react';
 import { useToastStore } from '../stores/toastStore';
+import { useAuthStore } from '../stores/authStore';
+
+const T = 'test-tenant-uuid';
 
 // Q5: Wire-shape tests for useCreateProjectWithPermits + behavior tests for
 // NewProjectWizard. Mocks supabase.rpc with a hoisted builder.
@@ -58,6 +61,10 @@ beforeEach(() => {
   mocks.rpcFn.mockClear();
   navigate.mockClear();
   useToastStore.getState().clear();
+  useAuthStore.setState({
+    activeTenantId: T,
+    memberships: [{ tenant_id: T, role: 'admin' }],
+  });
 });
 
 // ============================================================
@@ -97,6 +104,7 @@ describe('useCreateProjectWithPermits', () => {
     expect(mocks.rpcFn).toHaveBeenCalledTimes(1);
     const [name, args] = mocks.rpcFn.mock.calls[0];
     expect(name).toBe('bp_create_project_with_permits');
+    expect(args.p_tenant_id).toBe(T);
     expect(args.p_address).toBe('123 Main St');
     expect(args.p_juris).toBe('Seattle');
     expect(args.p_notes).toBe('first project');

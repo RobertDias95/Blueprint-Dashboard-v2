@@ -4,11 +4,14 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { ReactNode } from 'react';
 import { queryKeys } from '../lib/queryKeys';
 import { useToastStore } from '../stores/toastStore';
+import { useAuthStore } from '../stores/authStore';
 import type {
   PermitCycle,
   PermitTask,
   PermitWithCycles,
 } from '../lib/database.types';
+
+const T = 'test-tenant-uuid';
 
 // Q4: Wire-shape + behavior tests for the four cycle/task mutation hooks.
 // Mocks supabase.rpc with a hoisted builder so the assertions can verify
@@ -98,6 +101,11 @@ function makeTask(over: Partial<PermitTask> = {}): PermitTask {
 beforeEach(() => {
   mocks.rpcFn.mockClear();
   useToastStore.getState().clear();
+  // Q5.5.D: hooks read activeTenantId from authStore. Seed it.
+  useAuthStore.setState({
+    activeTenantId: T,
+    memberships: [{ tenant_id: T, role: 'admin' }],
+  });
 });
 
 // ============================================================
@@ -304,8 +312,8 @@ describe('useDeletePermitCycle', () => {
       updated_at: '2026-05-08T10:00:00Z',
       permit_cycles: [cycle],
     };
-    queryClient.setQueryData(queryKeys.permits, [permit]);
-    queryClient.setQueryData(queryKeys.permitsByProject('proj-1'), [permit]);
+    queryClient.setQueryData(queryKeys.permits(T), [permit]);
+    queryClient.setQueryData(queryKeys.permitsByProject(T, 'proj-1'), [permit]);
 
     const { result } = renderHook(() => useDeletePermitCycle(), { wrapper });
 
@@ -320,7 +328,7 @@ describe('useDeletePermitCycle', () => {
     });
 
     // Cache should still have the cycle (rollback restored it).
-    const restored = queryClient.getQueryData<PermitWithCycles[]>(queryKeys.permits);
+    const restored = queryClient.getQueryData<PermitWithCycles[]>(queryKeys.permits(T));
     expect(restored?.[0].permit_cycles).toHaveLength(1);
     expect(restored?.[0].permit_cycles[0].id).toBe('cycle-1');
 
@@ -491,7 +499,7 @@ describe('useDeletePermitTask', () => {
 
     const { queryClient, wrapper } = setupQueryClient();
     const task = makeTask();
-    queryClient.setQueryData(queryKeys.permitTasksFor(7), [task]);
+    queryClient.setQueryData(queryKeys.permitTasksFor(T, 7), [task]);
 
     const { result } = renderHook(() => useDeletePermitTask(), { wrapper });
 
@@ -502,7 +510,7 @@ describe('useDeletePermitTask', () => {
     });
 
     const restored = queryClient.getQueryData<PermitTask[]>(
-      queryKeys.permitTasksFor(7),
+      queryKeys.permitTasksFor(T, 7),
     );
     expect(restored).toHaveLength(1);
     expect(restored?.[0].id).toBe('task-1');
