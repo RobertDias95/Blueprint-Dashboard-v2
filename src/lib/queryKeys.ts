@@ -16,6 +16,7 @@ export const queryKeys = {
   permitTasksAll: ['permit_tasks'] as const,
   drawScheduleAll: ['draw_schedule'] as const,
   intakeRecordsAll: ['intake_records'] as const,
+  dmDaGroupsAll: ['dm_da_groups'] as const,
   // Tenant-scoped keys used by queries and per-tenant invalidation.
   projects: (tenantId: string) => ['projects', tenantId] as const,
   permits: (tenantId: string) => ['permits', tenantId] as const,
@@ -27,6 +28,7 @@ export const queryKeys = {
     ['permit_tasks', tenantId, { permitId }] as const,
   drawSchedule: (tenantId: string) => ['draw_schedule', tenantId] as const,
   intakeRecords: (tenantId: string) => ['intake_records', tenantId] as const,
+  dmDaGroups: (tenantId: string) => ['dm_da_groups', tenantId] as const,
 } as const;
 
 /** Map from Postgres table name → bare-prefix query keys to invalidate on
