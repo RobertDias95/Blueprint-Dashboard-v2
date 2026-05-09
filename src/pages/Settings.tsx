@@ -1,14 +1,16 @@
 import { useState } from 'react';
-import { useDrawSchedule } from '../hooks/useDrawSchedule';
 import { useIntakeRecords } from '../hooks/useIntakeRecords';
-import { useProjects } from '../hooks/useProjects';
 import { SkeletonRows } from '../components/Skeleton';
 import QueryError from '../components/QueryError';
+import DrawScheduleGrid from '../components/DrawScheduleGrid';
 
 // Q2: Settings page shell — three tabs: Draw Schedule, Library, Seattle
 // Intakes. Q6 ships drag-and-drop draw schedule editing; Q7 builds the
 // intake tracker UI. Q2 establishes the tab shell + a read-only summary
 // for each so Bobby can verify the pipes are flowing.
+//
+// Q6.1: Draw Schedule tab now renders the v1-parity grid (read-only).
+// Q6.2 will wire drag-to-edit; Q6.3 fills in Library + Intakes content.
 
 type SettingsTab = 'schedule' | 'library' | 'intakes';
 
@@ -59,61 +61,7 @@ function TabButton({
 }
 
 function DrawScheduleTab() {
-  const drawQ = useDrawSchedule();
-  const projectsQ = useProjects();
-
-  if (drawQ.error || projectsQ.error) {
-    return (
-      <QueryError
-        title="Draw schedule failed to load"
-        error={drawQ.error ?? projectsQ.error}
-        onRetry={() => {
-          drawQ.refetch();
-          projectsQ.refetch();
-        }}
-      />
-    );
-  }
-
-  if (drawQ.isLoading || projectsQ.isLoading) {
-    return <SkeletonRows count={6} rowClassName="h-10" />;
-  }
-
-  const projectById = new Map((projectsQ.data ?? []).map((p) => [p.id, p]));
-  const rows = drawQ.data ?? [];
-
-  return (
-    <div className="space-y-3">
-      <div className="text-[11px] text-muted">
-        {rows.length} row{rows.length === 1 ? '' : 's'} · drag/drop editing
-        ships in Q6
-      </div>
-      <ul className="bg-surface border border-border rounded-xl divide-y divide-border overflow-hidden">
-        {rows.map((row) => {
-          const project = projectById.get(row.project_id);
-          return (
-            <li
-              key={row.project_id}
-              className="flex items-center gap-3 px-4 py-2"
-            >
-              <div className="flex-1 min-w-0">
-                <div className="text-xs text-text font-display font-semibold truncate">
-                  {project?.address ?? row.project_id}
-                </div>
-                <div className="text-[10px] text-muted font-mono">
-                  {row.da_assigned ?? '—'} · {row.start_week ?? '—'}
-                  {row.end_week ? ` → ${row.end_week}` : ''}
-                </div>
-              </div>
-              <span className="text-[10px] px-1.5 py-0.5 rounded border border-border bg-s2 text-text font-semibold uppercase tracking-wide">
-                {row.status ?? '—'}
-              </span>
-            </li>
-          );
-        })}
-      </ul>
-    </div>
-  );
+  return <DrawScheduleGrid />;
 }
 
 function LibraryTab() {
