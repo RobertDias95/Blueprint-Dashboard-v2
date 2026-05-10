@@ -270,15 +270,18 @@ describe('<DrawScheduleGrid /> Q6.2 drag-edit', () => {
     expect(updateMutate).not.toHaveBeenCalled();
   });
 
-  it('Bug A: blocks become pointer-events:none during a drag (so drops pass through to cells underneath)', () => {
+  it('Bug A (siblings only): drag source keeps pointer-events:auto, only siblings flip to none', () => {
+    // Real-browser invariant: setting pointer-events:none on the dragged
+    // source cancels the drag. Q6.2.a-fix tried to flip ALL blocks; that
+    // broke drag in browsers but jsdom didn't catch it. This test asserts
+    // the corrected behavior — source stays interactive, siblings step
+    // aside so drops pass through to the cells underneath.
     renderGrid();
     const sourceBlock = screen.getByTestId('block-p-now');
     const otherBlock = screen.getByTestId('block-p-other');
-    // Pre-drag: both blocks are interactive.
     expect(sourceBlock.style.pointerEvents).toBe('auto');
     expect(otherBlock.style.pointerEvents).toBe('auto');
 
-    // Fire dragstart only — onDragStart should flip isDragging.
     const dragStart = new Event('dragstart', { bubbles: true, cancelable: true });
     const dataTransfer = {
       setData: vi.fn(),
@@ -291,12 +294,13 @@ describe('<DrawScheduleGrid /> Q6.2 drag-edit', () => {
       sourceBlock.dispatchEvent(dragStart);
     });
 
-    // Both blocks (source AND siblings) are now transparent to pointer events,
-    // so drops always land on the cell underneath.
-    expect(screen.getByTestId('block-p-now').style.pointerEvents).toBe('none');
+    // CRITICAL: source must remain auto — flipping it to none cancels the
+    // drag operation in real browsers.
+    expect(screen.getByTestId('block-p-now').style.pointerEvents).toBe('auto');
+    // Siblings step aside so drops can land on the cells underneath them.
     expect(screen.getByTestId('block-p-other').style.pointerEvents).toBe('none');
 
-    // dragend restores interactivity.
+    // dragend restores all blocks to interactive.
     const dragEnd = new Event('dragend', { bubbles: true, cancelable: true });
     Object.defineProperty(dragEnd, 'dataTransfer', { value: dataTransfer });
     act(() => {

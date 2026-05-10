@@ -120,11 +120,16 @@ function DrawScheduleBody({
   const [pendingOverlap, setPendingOverlap] = useState<PendingOverlap | null>(
     null,
   );
-  // Bug A: while a drag is active, ALL blocks become pointer-events:none so
-  // drops aren't intercepted by the project block underneath the cursor.
-  // Without this, dragging onto an occupied cell hits the block (no drop
-  // handler → "no drop" cursor) and the overlap modal can never fire.
-  const [isDragging, setIsDragging] = useState(false);
+  // Bug A (siblings only): while a drag is active, SIBLING blocks become
+  // pointer-events:none so drops aren't intercepted by the project block
+  // underneath the cursor. The dragged source MUST keep pointer-events:auto
+  // — putting pointer-events:none on the source cancels the drag in real
+  // browsers (jsdom doesn't simulate this; it had to be caught by smoke).
+  // Tracking the source by project_id (not a boolean) lets us flip just
+  // the siblings.
+  const [draggingProjectId, setDraggingProjectId] = useState<string | null>(
+    null,
+  );
 
   const projectById = useMemo(
     () => new Map(projects.map((p) => [p.id, p])),
@@ -391,9 +396,9 @@ function DrawScheduleBody({
                             JSON.stringify(payload),
                           );
                           e.dataTransfer.effectAllowed = 'move';
-                          setIsDragging(true);
+                          setDraggingProjectId(row.project_id);
                         }}
-                        onDragEnd={() => setIsDragging(false)}
+                        onDragEnd={() => setDraggingProjectId(null)}
                         style={{
                           position: 'absolute',
                           top,
@@ -413,11 +418,18 @@ function DrawScheduleBody({
                           textOverflow: 'ellipsis',
                           zIndex: 5,
                           cursor: 'grab',
-                          // Bug A: during ANY active drag, blocks let drops
-                          // pass through to the cell underneath. The source
-                          // block keeps its drag state regardless of pointer-
-                          // events (browser tracks the drag separately).
-                          pointerEvents: isDragging ? 'none' : 'auto',
+                          // Bug A: during a drag, SIBLING blocks let drops
+                          // pass through to the cell underneath. The drag
+                          // source keeps pointer-events:auto — setting it to
+                          // 'none' on the source cancels the drag in real
+                          // browsers (jsdom doesn't catch this). Tracking
+                          // draggingProjectId (vs a boolean) lets us flip
+                          // just the siblings.
+                          pointerEvents:
+                            draggingProjectId !== null &&
+                            draggingProjectId !== row.project_id
+                              ? 'none'
+                              : 'auto',
                         }}
                       >
                         {project.address}
