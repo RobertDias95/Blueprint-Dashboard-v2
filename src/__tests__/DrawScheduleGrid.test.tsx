@@ -109,6 +109,21 @@ vi.mock('../hooks/useUpdateDrawSchedule', () => ({
   }),
 }));
 
+// Q6.2.b: mock useResolveDaOverlap. The mock's mutate respects the second
+// argument (mutate options) so the onSuccess callback that closes the prompt
+// can be exercised by the component test.
+const resolveMutate = vi.fn();
+vi.mock('../hooks/useResolveDaOverlap', () => ({
+  useResolveDaOverlap: () => ({
+    mutate: resolveMutate,
+    mutateAsync: vi.fn(),
+    isPending: false,
+    isError: false,
+    error: null,
+    reset: vi.fn(),
+  }),
+}));
+
 import DrawScheduleGrid from '../components/DrawScheduleGrid';
 
 beforeEach(() => {
@@ -117,6 +132,7 @@ beforeEach(() => {
     memberships: [{ tenant_id: T, role: 'admin' }],
   });
   updateMutate.mockClear();
+  resolveMutate.mockClear();
 });
 
 /** Synthesize an HTML5 drag-and-drop sequence in jsdom (which doesn't natively
@@ -252,8 +268,9 @@ describe('<DrawScheduleGrid /> Q6.2 drag-edit', () => {
     // Scope to the prompt — the address also appears in the grid block, so
     // a global getByText would be ambiguous.
     expect(within(prompt).getByText(/750 Oak Way/)).toBeInTheDocument();
+    // Q6.2.b: Push Down is now ENABLED (was disabled in Q6.2.a).
     const pushBtn = screen.getByTestId('overlap-prompt-push-down');
-    expect(pushBtn).toBeDisabled();
+    expect(pushBtn).not.toBeDisabled();
   });
 
   it('clicking Cancel on the overlap prompt closes it without saving', () => {
@@ -268,6 +285,44 @@ describe('<DrawScheduleGrid /> Q6.2 drag-edit', () => {
     fireEvent.click(screen.getByTestId('overlap-prompt-cancel'));
     expect(screen.queryByTestId('overlap-prompt')).not.toBeInTheDocument();
     expect(updateMutate).not.toHaveBeenCalled();
+  });
+
+  it('Q6.2.b: clicking Push Down fires useResolveDaOverlap with the captured target context, prompt closes on success', () => {
+    renderGrid();
+    const block = screen.getByTestId('block-p-now');
+    const overlapTarget = screen.getByTestId('drop-cell-Ahmadi-2026-05-04');
+    act(() => {
+      simulateDragDrop(block, overlapTarget);
+    });
+
+    expect(screen.getByTestId('overlap-prompt')).toBeInTheDocument();
+
+    act(() => {
+      fireEvent.click(screen.getByTestId('overlap-prompt-push-down'));
+    });
+
+    expect(resolveMutate).toHaveBeenCalledTimes(1);
+    const [arg, opts] = resolveMutate.mock.calls[0] as [
+      Record<string, unknown>,
+      { onSuccess?: () => void } | undefined,
+    ];
+    // Args mirror the captured drop intent.
+    expect(arg.anchorProjectId).toBe('p-now');
+    expect(arg.daAssigned).toBe('Ahmadi');
+    expect(arg.startWeek).toBe('2026-05-04');
+    // Duration was 3 weeks → end = start + 2 weeks = 2026-05-18.
+    expect(arg.endWeek).toBe('2026-05-18');
+    expect(arg.expectedUpdatedAt).toBe('2026-05-09T12:00:00Z');
+
+    // Update mutation must NOT have been called — overlap path takes precedence.
+    expect(updateMutate).not.toHaveBeenCalled();
+
+    // Component passes onSuccess that closes the prompt; invoke it to verify.
+    expect(opts?.onSuccess).toBeTypeOf('function');
+    act(() => {
+      opts!.onSuccess!();
+    });
+    expect(screen.queryByTestId('overlap-prompt')).not.toBeInTheDocument();
   });
 
   it('Bug A (siblings only): drag source keeps pointer-events:auto, only siblings flip to none', () => {

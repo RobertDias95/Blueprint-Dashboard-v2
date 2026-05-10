@@ -150,3 +150,53 @@ export function decideDrop(
   if (conflicts.length === 0) return { kind: 'save' };
   return { kind: 'overlap', conflictingProjectIds: conflicts };
 }
+
+/** Q6.2.b: cascade math for the Push Down operation. Given the anchor's
+ * NEW position and every other block on the target DA, returns the new
+ * positions for blocks that must move (preserving each block's duration).
+ *
+ * Algorithm: walk blocks in current-start order; track a frontier (latest
+ * occupied week, starting at anchor end). A block must be pushed iff its
+ * range overlaps with [anchor_start, frontier]. Pushed block: new_start =
+ * frontier + 1 week, new_end = new_start + originalDuration; frontier
+ * advances to new_end so chain effects (push A → A overlaps B → push B)
+ * are caught in a single pass.
+ *
+ * The bp_resolve_da_overlap SQL implements the same algorithm; this pure
+ * helper exists for unit testing the math AND for client-side preview if
+ * we ever want to show "X will move from W3 to W7" before confirmation. */
+export interface PushedBlock {
+  projectId: string;
+  newStartWeek: string;
+  newEndWeek: string;
+}
+export function planPushDown(
+  otherBlocks: DropBlock[],
+  anchorStartWeek: string,
+  anchorEndWeek: string,
+): PushedBlock[] {
+  const sorted = [...otherBlocks].sort((a, b) =>
+    a.startWeek.localeCompare(b.startWeek),
+  );
+  let frontier = anchorEndWeek;
+  const pushed: PushedBlock[] = [];
+  for (const b of sorted) {
+    // Block needs pushing iff it overlaps with [anchor_start, frontier].
+    // Lexical compare on YYYY-MM-DD = date compare.
+    if (!weekRangeOverlap(anchorStartWeek, frontier, b.startWeek, b.endWeek)) {
+      continue;
+    }
+    const startMs = new Date(`${b.startWeek}T12:00:00Z`).getTime();
+    const endMs = new Date(`${b.endWeek}T12:00:00Z`).getTime();
+    const durationWeeks = Math.round((endMs - startMs) / (7 * 86400000));
+    const newStartWeek = addWeeksToWeekKey(frontier, 1);
+    const newEndWeek = addWeeksToWeekKey(newStartWeek, durationWeeks);
+    pushed.push({
+      projectId: b.projectId,
+      newStartWeek,
+      newEndWeek,
+    });
+    frontier = newEndWeek;
+  }
+  return pushed;
+}

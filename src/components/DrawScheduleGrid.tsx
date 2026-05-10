@@ -3,6 +3,7 @@ import { useDrawSchedule } from '../hooks/useDrawSchedule';
 import { useProjects } from '../hooks/useProjects';
 import { useDmDaGroups } from '../hooks/useDmDaGroups';
 import { useUpdateDrawSchedule } from '../hooks/useUpdateDrawSchedule';
+import { useResolveDaOverlap } from '../hooks/useResolveDaOverlap';
 import {
   DS_STATUS_COLORS,
   addWeeksToWeekKey,
@@ -50,6 +51,14 @@ interface PendingOverlap {
   conflictingAddresses: string[];
   /** Count for the prompt heading. */
   conflictCount: number;
+  /** Captured at drop time so onConfirm can call bp_resolve_da_overlap with
+   * the same target the user just released over. */
+  anchorProjectId: string;
+  expectedUpdatedAt: string;
+  daAssigned: string;
+  startWeek: string;
+  endWeek: string;
+  scheduleStatus: string | null;
 }
 
 export default function DrawScheduleGrid() {
@@ -117,6 +126,7 @@ function DrawScheduleBody({
   const currentWeek = useMemo(() => dateToWeekKey(getMonday(new Date())), []);
 
   const updateMutation = useUpdateDrawSchedule();
+  const resolveMutation = useResolveDaOverlap();
   const [pendingOverlap, setPendingOverlap] = useState<PendingOverlap | null>(
     null,
   );
@@ -181,7 +191,9 @@ function DrawScheduleBody({
     }
 
     // Overlap → surface the Option B prompt. Map the conflicting project ids
-    // back to addresses for human-readable display.
+    // back to addresses for human-readable display. Capture the full target
+    // context so onConfirm (Push Down) can fire bp_resolve_da_overlap with
+    // the exact same intent the user released over.
     const conflictAddrs = decision.conflictingProjectIds
       .map((pid) => projectById.get(pid)?.address ?? pid)
       .sort();
@@ -191,6 +203,12 @@ function DrawScheduleBody({
       anchorAddress: anchorAddr,
       conflictingAddresses: conflictAddrs,
       conflictCount: decision.conflictingProjectIds.length,
+      anchorProjectId: payload.projectId,
+      expectedUpdatedAt: payload.expectedUpdatedAt,
+      daAssigned: targetDa,
+      startWeek: targetStartWeek,
+      endWeek: targetEndWeek,
+      scheduleStatus: payload.status,
     });
   }
   // Per-DA list of project blocks visible this quarter, after search filter.
@@ -451,7 +469,25 @@ function DrawScheduleBody({
           anchorAddress={pendingOverlap.anchorAddress}
           conflictingAddresses={pendingOverlap.conflictingAddresses}
           conflictCount={pendingOverlap.conflictCount}
+          pending={resolveMutation.isPending}
           onCancel={() => setPendingOverlap(null)}
+          onConfirm={() => {
+            resolveMutation.mutate(
+              {
+                anchorProjectId: pendingOverlap.anchorProjectId,
+                expectedUpdatedAt: pendingOverlap.expectedUpdatedAt,
+                daAssigned: pendingOverlap.daAssigned,
+                startWeek: pendingOverlap.startWeek,
+                endWeek: pendingOverlap.endWeek,
+                scheduleStatus: pendingOverlap.scheduleStatus,
+              },
+              {
+                // Close the prompt only on success — leave it open on error
+                // so the user can see the toast + retry/cancel.
+                onSuccess: () => setPendingOverlap(null),
+              },
+            );
+          }}
         />
       )}
     </div>

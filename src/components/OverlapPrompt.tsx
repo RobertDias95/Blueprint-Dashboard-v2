@@ -1,14 +1,17 @@
 // Q6.2: Option B conflict UX. Shown when a drag-drop on the schedule grid
 // would overlap one or more existing project blocks on the target DA.
-// "Push Down" cascade is the Q6.2.b ship; for now the button is rendered
-// disabled with a tooltip so the design intent is visible while we land
-// the read/move paths first.
+//
+// Q6.2.b: Push Down is enabled — clicking it fires bp_resolve_da_overlap
+// via useResolveDaOverlap, which moves the anchor + cascades the displaced
+// blocks past the new anchor end (preserving each block's duration).
 
 interface Props {
   anchorAddress: string;
   conflictingAddresses: string[];
   conflictCount: number;
   onCancel: () => void;
+  onConfirm: () => void;
+  pending: boolean;
 }
 
 export default function OverlapPrompt({
@@ -16,12 +19,14 @@ export default function OverlapPrompt({
   conflictingAddresses,
   conflictCount,
   onCancel,
+  onConfirm,
+  pending,
 }: Props) {
   return (
     <div
       className="fixed inset-0 z-[9000] bg-black/50 flex items-center justify-center p-6"
       onClick={(e) => {
-        if (e.target === e.currentTarget) onCancel();
+        if (e.target === e.currentTarget && !pending) onCancel();
       }}
       data-testid="overlap-prompt-backdrop"
     >
@@ -36,7 +41,9 @@ export default function OverlapPrompt({
           </div>
           <div className="text-[11px] text-muted">
             Moving <span className="font-semibold text-text">{anchorAddress}</span>{' '}
-            here would conflict with the following on the target DA:
+            here would conflict with the following on the target DA. Push Down
+            moves the displaced projects to start immediately after the new
+            anchor end (preserves each project's duration).
           </div>
         </div>
 
@@ -58,19 +65,20 @@ export default function OverlapPrompt({
           <button
             type="button"
             onClick={onCancel}
-            className="text-xs px-3 py-1.5 rounded-md border border-border bg-bg hover:bg-s2 transition font-display"
+            disabled={pending}
+            className="text-xs px-3 py-1.5 rounded-md border border-border bg-bg hover:bg-s2 transition font-display disabled:opacity-50 disabled:cursor-not-allowed"
             data-testid="overlap-prompt-cancel"
           >
             Cancel
           </button>
           <button
             type="button"
-            disabled
-            title="Push-down cascade ships in Q6.2.b — the server RPC isn't deployed yet."
-            className="text-xs px-3 py-1.5 rounded-md bg-de text-white font-display font-bold opacity-40 cursor-not-allowed"
+            onClick={onConfirm}
+            disabled={pending}
+            className="text-xs px-3 py-1.5 rounded-md bg-de text-white font-display font-bold hover:opacity-90 transition disabled:opacity-50 disabled:cursor-not-allowed"
             data-testid="overlap-prompt-push-down"
           >
-            Push down (Q6.2.b)
+            {pending ? 'Pushing…' : `Push down ${conflictCount} project${conflictCount === 1 ? '' : 's'}`}
           </button>
         </div>
       </div>

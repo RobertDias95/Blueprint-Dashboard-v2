@@ -11,6 +11,7 @@ import {
   getQuarterWeeks,
   jurisBorder,
   multiMatchAddress,
+  planPushDown,
   rangeOverlapsWeeks,
   weekRangeOverlap,
 } from '../lib/drawScheduleHelpers';
@@ -196,6 +197,99 @@ describe('decideDrop', () => {
     if (result.kind === 'overlap') {
       expect(result.conflictingProjectIds.sort()).toEqual(['other-1', 'other-2']);
     }
+  });
+});
+
+describe('planPushDown (Q6.2.b cascade math)', () => {
+  it('returns empty plan when no other blocks overlap with the anchor', () => {
+    const blocks = [
+      { projectId: 'far', startWeek: '2026-08-03', endWeek: '2026-08-17' },
+    ];
+    expect(planPushDown(blocks, '2026-05-04', '2026-05-18')).toEqual([]);
+  });
+
+  it('skips blocks that are entirely BEFORE the anchor', () => {
+    const blocks = [
+      { projectId: 'before', startWeek: '2026-04-06', endWeek: '2026-04-20' },
+    ];
+    expect(planPushDown(blocks, '2026-05-04', '2026-05-18')).toEqual([]);
+  });
+
+  it('pushes a single overlapping block immediately after the anchor end, preserving duration', () => {
+    // Anchor at W5–W7 (3 weeks). Conflict at W6–W9 (4 weeks).
+    // Expected: pushed to W8–W11 (still 4 weeks).
+    const blocks = [
+      { projectId: 'conflict', startWeek: '2026-05-11', endWeek: '2026-06-01' },
+    ];
+    const plan = planPushDown(blocks, '2026-05-04', '2026-05-18');
+    expect(plan).toEqual([
+      {
+        projectId: 'conflict',
+        newStartWeek: '2026-05-25',
+        newEndWeek: '2026-06-15', // 25 + 3 weeks = June 15
+      },
+    ]);
+  });
+
+  it('cascades: pushing block A forces an overlap with block B → B pushed too', () => {
+    // Anchor at 2026-05-04–2026-05-04 (1 week).
+    // Block A at 2026-05-04–2026-05-11 (2 weeks) → must push.
+    // Block B at 2026-05-18–2026-05-18 (1 week) → originally NOT overlapping
+    // anchor, but after A is pushed to 2026-05-11–2026-05-18, B at 05-18
+    // overlaps with A's new end → B also pushed.
+    const blocks = [
+      { projectId: 'A', startWeek: '2026-05-04', endWeek: '2026-05-11' },
+      { projectId: 'B', startWeek: '2026-05-18', endWeek: '2026-05-18' },
+    ];
+    const plan = planPushDown(blocks, '2026-05-04', '2026-05-04');
+    expect(plan).toEqual([
+      {
+        projectId: 'A',
+        newStartWeek: '2026-05-11',
+        newEndWeek: '2026-05-18',
+      },
+      {
+        projectId: 'B',
+        newStartWeek: '2026-05-25',
+        newEndWeek: '2026-05-25',
+      },
+    ]);
+  });
+
+  it('leaves blocks AFTER the anchor end alone if they do not overlap the frontier', () => {
+    const blocks = [
+      // Anchor will end at 2026-05-18; this block starts well after.
+      { projectId: 'far-after', startWeek: '2026-07-13', endWeek: '2026-07-27' },
+    ];
+    expect(planPushDown(blocks, '2026-05-04', '2026-05-18')).toEqual([]);
+  });
+
+  it('processes blocks in current-start order (so the cascade is deterministic)', () => {
+    // Provide blocks in REVERSE start order; planner must sort them.
+    // Anchor W04–W11. A overlaps anchor on its leading edge; B sits right
+    // after A's original position. After pushing A, B then overlaps too.
+    const blocks = [
+      { projectId: 'B', startWeek: '2026-05-18', endWeek: '2026-05-25' },
+      { projectId: 'A', startWeek: '2026-05-11', endWeek: '2026-05-18' },
+    ];
+    const plan = planPushDown(blocks, '2026-05-04', '2026-05-11');
+    // Sorted: A (W11) first, then B (W18).
+    // A: overlaps [W04, W11] → push. dur=1 week. new=W18–W25. frontier=W25.
+    // B: overlaps [W04, W25] (B.start=W18 ≤ W25) → push. dur=1 week.
+    //    new=W25+1wk=2026-06-01, end=2026-06-01.
+    expect(plan.map((p) => p.projectId)).toEqual(['A', 'B']);
+    expect(plan[0]).toEqual({
+      projectId: 'A',
+      newStartWeek: '2026-05-18',
+      newEndWeek: '2026-05-25',
+    });
+    expect(plan[1]).toEqual({
+      projectId: 'B',
+      newStartWeek: '2026-06-01',
+      // B's original duration was 1 week-shift (W18 → W25). Preserved:
+      // new_start=2026-06-01 → new_end=2026-06-01 + 1 week = 2026-06-08.
+      newEndWeek: '2026-06-08',
+    });
   });
 });
 
