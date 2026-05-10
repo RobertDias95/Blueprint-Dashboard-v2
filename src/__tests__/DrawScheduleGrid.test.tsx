@@ -269,4 +269,40 @@ describe('<DrawScheduleGrid /> Q6.2 drag-edit', () => {
     expect(screen.queryByTestId('overlap-prompt')).not.toBeInTheDocument();
     expect(updateMutate).not.toHaveBeenCalled();
   });
+
+  it('Bug A: blocks become pointer-events:none during a drag (so drops pass through to cells underneath)', () => {
+    renderGrid();
+    const sourceBlock = screen.getByTestId('block-p-now');
+    const otherBlock = screen.getByTestId('block-p-other');
+    // Pre-drag: both blocks are interactive.
+    expect(sourceBlock.style.pointerEvents).toBe('auto');
+    expect(otherBlock.style.pointerEvents).toBe('auto');
+
+    // Fire dragstart only — onDragStart should flip isDragging.
+    const dragStart = new Event('dragstart', { bubbles: true, cancelable: true });
+    const dataTransfer = {
+      setData: vi.fn(),
+      getData: () => '',
+      effectAllowed: 'move',
+      dropEffect: 'move',
+    };
+    Object.defineProperty(dragStart, 'dataTransfer', { value: dataTransfer });
+    act(() => {
+      sourceBlock.dispatchEvent(dragStart);
+    });
+
+    // Both blocks (source AND siblings) are now transparent to pointer events,
+    // so drops always land on the cell underneath.
+    expect(screen.getByTestId('block-p-now').style.pointerEvents).toBe('none');
+    expect(screen.getByTestId('block-p-other').style.pointerEvents).toBe('none');
+
+    // dragend restores interactivity.
+    const dragEnd = new Event('dragend', { bubbles: true, cancelable: true });
+    Object.defineProperty(dragEnd, 'dataTransfer', { value: dataTransfer });
+    act(() => {
+      sourceBlock.dispatchEvent(dragEnd);
+    });
+    expect(screen.getByTestId('block-p-now').style.pointerEvents).toBe('auto');
+    expect(screen.getByTestId('block-p-other').style.pointerEvents).toBe('auto');
+  });
 });

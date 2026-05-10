@@ -120,6 +120,11 @@ function DrawScheduleBody({
   const [pendingOverlap, setPendingOverlap] = useState<PendingOverlap | null>(
     null,
   );
+  // Bug A: while a drag is active, ALL blocks become pointer-events:none so
+  // drops aren't intercepted by the project block underneath the cursor.
+  // Without this, dragging onto an occupied cell hits the block (no drop
+  // handler → "no drop" cursor) and the overlap modal can never fire.
+  const [isDragging, setIsDragging] = useState(false);
 
   const projectById = useMemo(
     () => new Map(projects.map((p) => [p.id, p])),
@@ -386,7 +391,9 @@ function DrawScheduleBody({
                             JSON.stringify(payload),
                           );
                           e.dataTransfer.effectAllowed = 'move';
+                          setIsDragging(true);
                         }}
+                        onDragEnd={() => setIsDragging(false)}
                         style={{
                           position: 'absolute',
                           top,
@@ -406,6 +413,11 @@ function DrawScheduleBody({
                           textOverflow: 'ellipsis',
                           zIndex: 5,
                           cursor: 'grab',
+                          // Bug A: during ANY active drag, blocks let drops
+                          // pass through to the cell underneath. The source
+                          // block keeps its drag state regardless of pointer-
+                          // events (browser tracks the drag separately).
+                          pointerEvents: isDragging ? 'none' : 'auto',
                         }}
                       >
                         {project.address}

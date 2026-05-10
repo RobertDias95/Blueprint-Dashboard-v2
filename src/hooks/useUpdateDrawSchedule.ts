@@ -141,13 +141,33 @@ export function useUpdateDrawSchedule() {
       }
     },
 
-    onSuccess: (_, input) => {
-      // Refetch to pick up the server's authoritative updated_at on draw_schedule
-      // and the cascaded permit rows. Realtime will arrive too but doing this
-      // here keeps the OCC token fresh for any immediate follow-up edit.
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.drawSchedule(tenantId),
-      });
+    onSuccess: (data, input) => {
+      // Bug B fix: write the server's fresh out_updated_at SYNCHRONOUSLY into
+      // the draw_schedule cache row. The previous code only invalidateQueries'd
+      // (async refetch) — between server-confirm and refetch-lands, the next
+      // drag would capture the row's stale updated_at and the follow-up RPC
+      // would hit OCC instead of overlap detection. setQueryData is sync,
+      // so the OCC token is fresh by the time the next dragstart reads it.
+      if (data.out_updated_at) {
+        queryClient.setQueryData<DrawScheduleRow[]>(
+          queryKeys.drawSchedule(tenantId),
+          (rows) =>
+            rows?.map((r) =>
+              r.project_id === input.projectId
+                ? {
+                    ...r,
+                    updated_at: data.out_updated_at as string,
+                    da_assigned: input.daAssigned,
+                    start_week: input.startWeek,
+                    end_week: input.endWeek,
+                    status: input.scheduleStatus,
+                  }
+                : r,
+            ),
+        );
+      }
+      // Permits' updated_at advances via the bp_set_updated_at trigger; refetch
+      // to pick up the cascaded dd_start/dd_end + new tokens.
       queryClient.invalidateQueries({
         queryKey: queryKeys.permits(tenantId),
       });
