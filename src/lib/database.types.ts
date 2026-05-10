@@ -126,6 +126,22 @@ export interface DrawScheduleRow {
   updated_at: string;
 }
 
+/** Q6.2.c: DA non-project blocks (vacation, training, redesign, etc.).
+ * Rendered as grey overlays in DA columns. v2 client treats them as
+ * read-only — admin editing is Q7+. */
+export interface DaTimeBlock {
+  id: string;
+  da_name: string;
+  /** v1 set: Vacation | Training | Redesign | Corrections | Other. */
+  type: string;
+  /** Human label; usually the same as `type` but can be more specific
+   * (e.g., "Style Guide", "Cancelled Project (9022 36th Ave SW)"). */
+  label: string | null;
+  start_week: string;
+  end_week: string;
+  created_at?: string | null;
+}
+
 export interface IntakeRecord {
   id: number;
   juris: string | null;

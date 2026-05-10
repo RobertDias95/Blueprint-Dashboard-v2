@@ -4,8 +4,10 @@ import { useProjects } from '../hooks/useProjects';
 import { useDmDaGroups } from '../hooks/useDmDaGroups';
 import { useUpdateDrawSchedule } from '../hooks/useUpdateDrawSchedule';
 import { useResolveDaOverlap } from '../hooks/useResolveDaOverlap';
+import { useDaTimeBlocks } from '../hooks/useDaTimeBlocks';
 import {
   DS_STATUS_COLORS,
+  NP_BLOCK_COLOR,
   addWeeksToWeekKey,
   dateToWeekKey,
   decideDrop,
@@ -19,7 +21,11 @@ import {
 import { SkeletonRows } from './Skeleton';
 import QueryError from './QueryError';
 import OverlapPrompt from './OverlapPrompt';
-import type { DrawScheduleRow, Project } from '../lib/database.types';
+import type {
+  DaTimeBlock,
+  DrawScheduleRow,
+  Project,
+} from '../lib/database.types';
 
 // Q6.1: read-only render of all draw_schedule rows. Mirrors v1's
 // renderDrawSchedule layout (index.html lines 7875-8090):
@@ -65,11 +71,13 @@ export default function DrawScheduleGrid() {
   const drawQ = useDrawSchedule();
   const projectsQ = useProjects();
   const groupsQ = useDmDaGroups();
+  const npBlocksQ = useDaTimeBlocks();
 
   const [quarterOffset, setQuarterOffset] = useState(0);
   const [search, setSearch] = useState('');
 
-  const error = drawQ.error ?? projectsQ.error ?? groupsQ.error;
+  const error =
+    drawQ.error ?? projectsQ.error ?? groupsQ.error ?? npBlocksQ.error;
   if (error) {
     return (
       <QueryError
@@ -79,13 +87,17 @@ export default function DrawScheduleGrid() {
           drawQ.refetch();
           projectsQ.refetch();
           groupsQ.refetch();
+          npBlocksQ.refetch();
         }}
       />
     );
   }
 
   const isLoading =
-    drawQ.isLoading || projectsQ.isLoading || groupsQ.isLoading;
+    drawQ.isLoading ||
+    projectsQ.isLoading ||
+    groupsQ.isLoading ||
+    npBlocksQ.isLoading;
   if (isLoading) {
     return <SkeletonRows count={8} rowClassName="h-7" />;
   }
@@ -95,6 +107,7 @@ export default function DrawScheduleGrid() {
       draw={drawQ.data ?? []}
       projects={projectsQ.data ?? []}
       groups={groupsQ.groups}
+      npBlocks={npBlocksQ.data ?? []}
       quarterOffset={quarterOffset}
       setQuarterOffset={setQuarterOffset}
       search={search}
@@ -107,6 +120,7 @@ interface BodyProps {
   draw: DrawScheduleRow[];
   projects: Project[];
   groups: { dm: string; das: string[] }[];
+  npBlocks: DaTimeBlock[];
   quarterOffset: number;
   setQuarterOffset: (n: number) => void;
   search: string;
@@ -117,6 +131,7 @@ function DrawScheduleBody({
   draw,
   projects,
   groups,
+  npBlocks,
   quarterOffset,
   setQuarterOffset,
   search,
@@ -239,6 +254,21 @@ function DrawScheduleBody({
     return map;
   }, [draw, projectById, groups, weeks, search]);
 
+  // Q6.2.c: NP blocks grouped by DA, filtered to current quarter. Same
+  // overlap predicate as project blocks; render-only (no drag, no drop).
+  const npBlocksByDa = useMemo(() => {
+    const map = new Map<string, DaTimeBlock[]>();
+    for (const b of npBlocks) {
+      const overlapsQ =
+        b.start_week <= weeks[weeks.length - 1] && b.end_week >= weeks[0];
+      if (!overlapsQ) continue;
+      const list = map.get(b.da_name) ?? [];
+      list.push(b);
+      map.set(b.da_name, list);
+    }
+    return map;
+  }, [npBlocks, weeks]);
+
   // "Unscheduled": projects with no DA or no week range, optionally filtered.
   const unscheduled = useMemo(() => {
     return draw
@@ -335,6 +365,7 @@ function DrawScheduleBody({
             g.das.map((da, daIdx) => {
               const isLast = daIdx === g.das.length - 1;
               const blocks = blocksByDa.get(da) ?? [];
+              const daNpBlocks = npBlocksByDa.get(da) ?? [];
               return (
                 <div
                   key={`${g.dm}-${da}-col`}
@@ -373,6 +404,55 @@ function DrawScheduleBody({
                       }}
                     />
                   ))}
+
+                  {/* NP blocks (vacation/training/etc.) — render below project
+                      blocks (lower z-index) and pointer-events:none so they
+                      never intercept drags. Read-only in v2. */}
+                  {daNpBlocks.map((np) => {
+                    const startIdx = weeks.indexOf(np.start_week);
+                    const endIdx = weeks.indexOf(np.end_week);
+                    if (startIdx < 0 && endIdx < 0) return null;
+                    const si = startIdx >= 0 ? startIdx : 0;
+                    const ei = endIdx >= 0 ? endIdx : weeks.length - 1;
+                    const top = si * ROW_H;
+                    const height =
+                      Math.min((ei - si + 1) * ROW_H, (weeks.length - si) * ROW_H) - 2;
+                    const labelText = np.label?.trim() || np.type;
+                    return (
+                      <div
+                        key={np.id}
+                        data-testid={`np-block-${np.id}`}
+                        title={`${np.type}${np.label && np.label !== np.type ? ` — ${np.label}` : ''} (${np.start_week} → ${np.end_week})`}
+                        style={{
+                          position: 'absolute',
+                          top,
+                          left: 2,
+                          right: 2,
+                          height,
+                          background: NP_BLOCK_COLOR.bg,
+                          color: NP_BLOCK_COLOR.text,
+                          border: `1px solid ${NP_BLOCK_COLOR.border}`,
+                          borderRadius: 4,
+                          padding: '2px 4px',
+                          overflow: 'hidden',
+                          fontSize: 9,
+                          fontWeight: 700,
+                          lineHeight: 1.1,
+                          whiteSpace: 'nowrap',
+                          textOverflow: 'ellipsis',
+                          textAlign: 'center',
+                          // Below project blocks (z=5) so projects layer on top
+                          // visually if they happen to overlap an NP range.
+                          zIndex: 3,
+                          // Always transparent to drag-drop — Q6.2.c is render-
+                          // only; soft-warning UX is Q6.2.d.
+                          pointerEvents: 'none',
+                        }}
+                      >
+                        {labelText}
+                      </div>
+                    );
+                  })}
 
                   {/* Project blocks */}
                   {blocks.map(({ row, project }) => {

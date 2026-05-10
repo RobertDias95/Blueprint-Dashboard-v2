@@ -21,6 +21,14 @@ export const DS_STATUS_COLORS: Record<string, StatusColor> = {
   Approved: { bg: '#5abf75', border: '#3aa55e', text: '#ffffff' },
 };
 
+/** Q6.2.c: NP block colors (Vacation/Training/Redesign/Corrections/Other).
+ * v1 used the same flat grey for every type (index.html line 8035). */
+export const NP_BLOCK_COLOR: StatusColor = {
+  bg: '#cacaca',
+  border: '#a0a0a0',
+  text: '#1a2540',
+};
+
 /** v1 jurisdiction → border color (index.html line 7318). */
 export function jurisBorder(juris: string | null | undefined): string {
   if (!juris) return '#16a34a'; // green default

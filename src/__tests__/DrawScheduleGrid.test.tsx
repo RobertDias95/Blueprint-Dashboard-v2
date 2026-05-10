@@ -95,6 +95,46 @@ vi.mock('../hooks/useDmDaGroups', () => ({
   }),
 }));
 
+// Q6.2.c: NP blocks (vacation/training overlay). One on Trevor, one on
+// Ahmadi, one on Marc — covers a couple DAs across both groups.
+vi.mock('../hooks/useDaTimeBlocks', () => ({
+  useDaTimeBlocks: () => ({
+    data: [
+      {
+        id: 'np-trevor',
+        da_name: 'Trevor',
+        type: 'Vacation',
+        label: 'Vacation',
+        start_week: '2026-04-27',
+        end_week: '2026-05-04',
+        created_at: null,
+      },
+      {
+        id: 'np-ahmadi',
+        da_name: 'Ahmadi',
+        type: 'Other',
+        label: 'Style Guide',
+        start_week: '2026-05-11',
+        end_week: '2026-05-18',
+        created_at: null,
+      },
+      {
+        // Out of current quarter — should NOT render.
+        id: 'np-marc-far',
+        da_name: 'Marc',
+        type: 'Training',
+        label: 'Training',
+        start_week: '2025-09-15',
+        end_week: '2025-09-22',
+        created_at: null,
+      },
+    ],
+    isLoading: false,
+    error: null,
+    refetch: vi.fn(),
+  }),
+}));
+
 // Mock useUpdateDrawSchedule so we can assert the drag-drop wiring fires it
 // with the right payload (no Supabase round-trip in jsdom).
 const updateMutate = vi.fn();
@@ -210,6 +250,42 @@ describe('<DrawScheduleGrid />', () => {
 
     expect(screen.getByTestId('block-p-now')).toBeInTheDocument();
     expect(screen.queryByTestId('block-p-other')).not.toBeInTheDocument();
+  });
+
+  it('Q6.2.c: NP blocks render in their DA columns with the correct label', () => {
+    renderGrid();
+    const trevorNp = screen.getByTestId('np-block-np-trevor');
+    expect(trevorNp).toBeInTheDocument();
+    expect(trevorNp.textContent).toBe('Vacation');
+    // pointer-events:none is the contract — NP blocks must never intercept
+    // drag-drop. If this regresses, drops onto cells visually under an NP
+    // block silently fail (same Bug A class regression).
+    expect(trevorNp.style.pointerEvents).toBe('none');
+
+    const ahmadiNp = screen.getByTestId('np-block-np-ahmadi');
+    expect(ahmadiNp).toBeInTheDocument();
+    // label preferred over type when distinct.
+    expect(ahmadiNp.textContent).toBe('Style Guide');
+  });
+
+  it('Q6.2.c: NP blocks outside the current quarter are NOT rendered', () => {
+    renderGrid();
+    expect(screen.queryByTestId('np-block-np-marc-far')).not.toBeInTheDocument();
+  });
+
+  it('Q6.2.c: drag-drop still works through cells visually covered by NP blocks (pointer-events:none contract)', () => {
+    renderGrid();
+    // The Trevor NP block (np-trevor) covers 2026-04-27 → 2026-05-04. Drop the
+    // p-now block onto that range on a DIFFERENT DA (Fisk has no NP block) to
+    // verify the basic drop path is unaffected. We don't test drop ON the NP
+    // range itself yet — that's Q6.2.d (soft warning).
+    const block = screen.getByTestId('block-p-now');
+    const dropTarget = screen.getByTestId('drop-cell-Fisk-2026-04-27');
+    simulateDragDrop(block, dropTarget);
+    expect(updateMutate).toHaveBeenCalledTimes(1);
+    const arg = updateMutate.mock.calls[0][0] as Record<string, unknown>;
+    expect(arg.daAssigned).toBe('Fisk');
+    expect(arg.startWeek).toBe('2026-04-27');
   });
 
   it('quarter navigator advances + rewinds, and "today" snaps back', () => {
