@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, act, within } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { ReactNode } from 'react';
 import { useAuthStore } from '../stores/authStore';
@@ -95,6 +95,20 @@ vi.mock('../hooks/useDmDaGroups', () => ({
   }),
 }));
 
+// Mock useUpdateDrawSchedule so we can assert the drag-drop wiring fires it
+// with the right payload (no Supabase round-trip in jsdom).
+const updateMutate = vi.fn();
+vi.mock('../hooks/useUpdateDrawSchedule', () => ({
+  useUpdateDrawSchedule: () => ({
+    mutate: updateMutate,
+    mutateAsync: vi.fn(),
+    isPending: false,
+    isError: false,
+    error: null,
+    reset: vi.fn(),
+  }),
+}));
+
 import DrawScheduleGrid from '../components/DrawScheduleGrid';
 
 beforeEach(() => {
@@ -102,7 +116,38 @@ beforeEach(() => {
     activeTenantId: T,
     memberships: [{ tenant_id: T, role: 'admin' }],
   });
+  updateMutate.mockClear();
 });
+
+/** Synthesize an HTML5 drag-and-drop sequence in jsdom (which doesn't natively
+ * implement DataTransfer round-trips). We share a single payload string across
+ * the dragstart → drop pair to mirror what the browser does. */
+function simulateDragDrop(
+  source: HTMLElement,
+  target: HTMLElement,
+): void {
+  const store = new Map<string, string>();
+  const dataTransfer = {
+    setData: (k: string, v: string) => {
+      store.set(k, v);
+    },
+    getData: (k: string) => store.get(k) ?? '',
+    effectAllowed: 'move',
+    dropEffect: 'move',
+  };
+
+  const dragStart = new Event('dragstart', { bubbles: true, cancelable: true });
+  Object.defineProperty(dragStart, 'dataTransfer', { value: dataTransfer });
+  source.dispatchEvent(dragStart);
+
+  const dragOver = new Event('dragover', { bubbles: true, cancelable: true });
+  Object.defineProperty(dragOver, 'dataTransfer', { value: dataTransfer });
+  target.dispatchEvent(dragOver);
+
+  const drop = new Event('drop', { bubbles: true, cancelable: true });
+  Object.defineProperty(drop, 'dataTransfer', { value: dataTransfer });
+  target.dispatchEvent(drop);
+}
 
 function renderGrid() {
   const queryClient = new QueryClient({
@@ -169,5 +214,59 @@ describe('<DrawScheduleGrid />', () => {
     // "Today" snaps offset back to 0 → label matches initial again.
     fireEvent.click(screen.getByTestId('quarter-today'));
     expect(nav.textContent).toBe(initial);
+  });
+});
+
+describe('<DrawScheduleGrid /> Q6.2 drag-edit', () => {
+  it('drops on an empty cell on a different DA → fires updateMutation', () => {
+    renderGrid();
+    // Drag p-now (Trevor, 2026-05-04→2026-05-18) to Fisk on week 2026-06-08
+    // (Fisk has no blocks → no overlap).
+    const block = screen.getByTestId('block-p-now');
+    const dropTarget = screen.getByTestId('drop-cell-Fisk-2026-06-08');
+    simulateDragDrop(block, dropTarget);
+
+    expect(updateMutate).toHaveBeenCalledTimes(1);
+    const arg = updateMutate.mock.calls[0][0] as Record<string, unknown>;
+    expect(arg.projectId).toBe('p-now');
+    expect(arg.daAssigned).toBe('Fisk');
+    expect(arg.startWeek).toBe('2026-06-08');
+    // Duration was 3 weeks (05-04, 05-11, 05-18) → end = 06-08 + 2 weeks = 06-22.
+    expect(arg.endWeek).toBe('2026-06-22');
+    expect(arg.expectedUpdatedAt).toBe('2026-05-09T12:00:00Z');
+  });
+
+  it('drops on a cell that overlaps another block → shows the prompt and does NOT save', () => {
+    renderGrid();
+    const block = screen.getByTestId('block-p-now');
+    const overlapTarget = screen.getByTestId('drop-cell-Ahmadi-2026-05-04');
+    // Wrap in act() because the drop fires setPendingOverlap (state update)
+    // and React 19 wants the update flushed before assertions read the DOM.
+    act(() => {
+      simulateDragDrop(block, overlapTarget);
+    });
+
+    expect(updateMutate).not.toHaveBeenCalled();
+    const prompt = screen.getByTestId('overlap-prompt');
+    expect(prompt).toBeInTheDocument();
+    // Scope to the prompt — the address also appears in the grid block, so
+    // a global getByText would be ambiguous.
+    expect(within(prompt).getByText(/750 Oak Way/)).toBeInTheDocument();
+    const pushBtn = screen.getByTestId('overlap-prompt-push-down');
+    expect(pushBtn).toBeDisabled();
+  });
+
+  it('clicking Cancel on the overlap prompt closes it without saving', () => {
+    renderGrid();
+    const block = screen.getByTestId('block-p-now');
+    const overlapTarget = screen.getByTestId('drop-cell-Ahmadi-2026-05-04');
+    act(() => {
+      simulateDragDrop(block, overlapTarget);
+    });
+
+    expect(screen.getByTestId('overlap-prompt')).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId('overlap-prompt-cancel'));
+    expect(screen.queryByTestId('overlap-prompt')).not.toBeInTheDocument();
+    expect(updateMutate).not.toHaveBeenCalled();
   });
 });

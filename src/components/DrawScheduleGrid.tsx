@@ -2,17 +2,22 @@ import { useMemo, useState } from 'react';
 import { useDrawSchedule } from '../hooks/useDrawSchedule';
 import { useProjects } from '../hooks/useProjects';
 import { useDmDaGroups } from '../hooks/useDmDaGroups';
+import { useUpdateDrawSchedule } from '../hooks/useUpdateDrawSchedule';
 import {
   DS_STATUS_COLORS,
+  addWeeksToWeekKey,
   dateToWeekKey,
+  decideDrop,
   getMonday,
   getQuarterLabel,
   getQuarterWeeks,
   jurisBorder,
   multiMatchAddress,
+  type DropBlock,
 } from '../lib/drawScheduleHelpers';
 import { SkeletonRows } from './Skeleton';
 import QueryError from './QueryError';
+import OverlapPrompt from './OverlapPrompt';
 import type { DrawScheduleRow, Project } from '../lib/database.types';
 
 // Q6.1: read-only render of all draw_schedule rows. Mirrors v1's
@@ -23,10 +28,29 @@ import type { DrawScheduleRow, Project } from '../lib/database.types';
 //     [startWeek..endWeek] vertically
 //   - Quarter navigator + search at top
 //   - Unscheduled lane below the grid
-// No interactivity in Q6.1; Q6.2 wires drag-to-edit via useUpdateDrawSchedule.
+//
+// Q6.2: drag-to-edit. Drop on (DA, week) → preserves duration → either saves
+// silently (no overlap) or surfaces the Option B conflict prompt with the
+// list of blocked projects. Cascade RPC ("Push Down") ships in Q6.2.b.
 
 const ROW_H = 28;
 const LABEL_W = 64;
+/** What we ship in the HTML5 drag's dataTransfer payload. JSON-encoded so
+ * jsdom + browsers both round-trip it cleanly via getData/setData. */
+interface DragPayload {
+  projectId: string;
+  durationWeeks: number;
+  expectedUpdatedAt: string;
+  status: string | null;
+}
+interface PendingOverlap {
+  /** Absolute address of the dragged project, for the prompt header. */
+  anchorAddress: string;
+  /** Addresses of the projects that would be displaced. */
+  conflictingAddresses: string[];
+  /** Count for the prompt heading. */
+  conflictCount: number;
+}
 
 export default function DrawScheduleGrid() {
   const drawQ = useDrawSchedule();
@@ -92,10 +116,73 @@ function DrawScheduleBody({
   const weeks = useMemo(() => getQuarterWeeks(quarterOffset), [quarterOffset]);
   const currentWeek = useMemo(() => dateToWeekKey(getMonday(new Date())), []);
 
+  const updateMutation = useUpdateDrawSchedule();
+  const [pendingOverlap, setPendingOverlap] = useState<PendingOverlap | null>(
+    null,
+  );
+
   const projectById = useMemo(
     () => new Map(projects.map((p) => [p.id, p])),
     [projects],
   );
+
+  // All blocks (across DAs), keyed by da. Used by drop handler to detect
+  // overlap on the target DA. Different from blocksByDa (which is filtered
+  // to the current quarter + search) — overlap detection should consider
+  // every existing block, not just the visible ones.
+  const blocksByDaForOverlap = useMemo(() => {
+    const m = new Map<string, DropBlock[]>();
+    for (const row of draw) {
+      if (!row.da_assigned || !row.start_week || !row.end_week) continue;
+      const list = m.get(row.da_assigned) ?? [];
+      list.push({
+        projectId: row.project_id,
+        startWeek: row.start_week,
+        endWeek: row.end_week,
+      });
+      m.set(row.da_assigned, list);
+    }
+    return m;
+  }, [draw]);
+
+  function handleDrop(targetDa: string, targetStartWeek: string, payload: DragPayload) {
+    const targetEndWeek = addWeeksToWeekKey(
+      targetStartWeek,
+      payload.durationWeeks - 1,
+    );
+    const blocks = blocksByDaForOverlap.get(targetDa) ?? [];
+    const decision = decideDrop(
+      blocks,
+      payload.projectId,
+      targetStartWeek,
+      targetEndWeek,
+    );
+
+    if (decision.kind === 'save') {
+      updateMutation.mutate({
+        projectId: payload.projectId,
+        expectedUpdatedAt: payload.expectedUpdatedAt,
+        daAssigned: targetDa,
+        startWeek: targetStartWeek,
+        endWeek: targetEndWeek,
+        scheduleStatus: payload.status,
+      });
+      return;
+    }
+
+    // Overlap → surface the Option B prompt. Map the conflicting project ids
+    // back to addresses for human-readable display.
+    const conflictAddrs = decision.conflictingProjectIds
+      .map((pid) => projectById.get(pid)?.address ?? pid)
+      .sort();
+    const anchorAddr =
+      projectById.get(payload.projectId)?.address ?? payload.projectId;
+    setPendingOverlap({
+      anchorAddress: anchorAddr,
+      conflictingAddresses: conflictAddrs,
+      conflictCount: decision.conflictingProjectIds.length,
+    });
+  }
   // Per-DA list of project blocks visible this quarter, after search filter.
   const blocksByDa = useMemo(() => {
     const allDas = groups.flatMap((g) => g.das);
@@ -230,14 +317,32 @@ function DrawScheduleBody({
                       : 'border-r border-border'
                   }`}
                 >
-                  {/* Empty week cells for hover/grid ruling */}
+                  {/* Empty week cells — also serve as drop targets. */}
                   {weeks.map((wk) => (
                     <div
                       key={wk}
+                      data-testid={`drop-cell-${da}-${wk}`}
                       style={{ height: ROW_H }}
                       className={`border-b border-border ${
                         wk === currentWeek ? 'bg-de/[0.04]' : ''
                       }`}
+                      onDragOver={(e) => {
+                        // preventDefault is what tells the browser this is a
+                        // valid drop target. Without it, onDrop never fires.
+                        e.preventDefault();
+                      }}
+                      onDrop={(e) => {
+                        e.preventDefault();
+                        const raw = e.dataTransfer.getData('application/json');
+                        if (!raw) return;
+                        let payload: DragPayload;
+                        try {
+                          payload = JSON.parse(raw) as DragPayload;
+                        } catch {
+                          return;
+                        }
+                        handleDrop(da, wk, payload);
+                      }}
                     />
                   ))}
 
@@ -254,11 +359,34 @@ function DrawScheduleBody({
                     const status = row.status ?? 'Scheduled';
                     const sc = DS_STATUS_COLORS[status] ?? DS_STATUS_COLORS.Scheduled;
                     const borderColor = jurisBorder(project.juris);
+                    // Duration in weeks is end..start inclusive.
+                    const durationWeeks = Math.max(
+                      1,
+                      Math.round(
+                        (new Date(`${row.end_week}T12:00:00Z`).getTime() -
+                          new Date(`${row.start_week}T12:00:00Z`).getTime()) /
+                          (7 * 86400000),
+                      ) + 1,
+                    );
                     return (
                       <div
                         key={row.project_id}
                         data-testid={`block-${row.project_id}`}
-                        title={`${project.address} — ${status}`}
+                        title={`${project.address} — ${status} (drag to move)`}
+                        draggable
+                        onDragStart={(e) => {
+                          const payload: DragPayload = {
+                            projectId: row.project_id,
+                            durationWeeks,
+                            expectedUpdatedAt: row.updated_at,
+                            status: row.status,
+                          };
+                          e.dataTransfer.setData(
+                            'application/json',
+                            JSON.stringify(payload),
+                          );
+                          e.dataTransfer.effectAllowed = 'move';
+                        }}
                         style={{
                           position: 'absolute',
                           top,
@@ -277,6 +405,7 @@ function DrawScheduleBody({
                           whiteSpace: 'nowrap',
                           textOverflow: 'ellipsis',
                           zIndex: 5,
+                          cursor: 'grab',
                         }}
                       >
                         {project.address}
@@ -292,6 +421,15 @@ function DrawScheduleBody({
 
       {/* Unscheduled lane */}
       <UnscheduledLane items={unscheduled} />
+
+      {pendingOverlap && (
+        <OverlapPrompt
+          anchorAddress={pendingOverlap.anchorAddress}
+          conflictingAddresses={pendingOverlap.conflictingAddresses}
+          conflictCount={pendingOverlap.conflictCount}
+          onCancel={() => setPendingOverlap(null)}
+        />
+      )}
     </div>
   );
 }
@@ -349,7 +487,7 @@ function Toolbar({
       />
 
       <span className="text-[10px] text-muted font-mono ml-auto">
-        Drag-to-edit ships in Q6.2
+        Drag a project block to move it. Push-down on overlap ships in Q6.2.b.
       </span>
     </div>
   );

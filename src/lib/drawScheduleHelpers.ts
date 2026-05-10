@@ -103,3 +103,50 @@ export function multiMatchAddress(query: string, haystack: string): boolean {
   const hay = haystack.toLowerCase();
   return tokens.every((t) => hay.includes(t));
 }
+
+/** Week-keys are YYYY-MM-DD strings → lexical compare is order-equivalent
+ * to date compare. weekKeyAdd shifts a week-key by `n` weeks. */
+export function addWeeksToWeekKey(wk: string, n: number): string {
+  const d = new Date(`${wk}T12:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + n * 7);
+  return d.toISOString().slice(0, 10);
+}
+
+/** Inclusive overlap predicate on week-key ranges. Equivalent to date
+ * overlap: ranges touch if aStart ≤ bEnd AND bStart ≤ aEnd. */
+export function weekRangeOverlap(
+  aStart: string,
+  aEnd: string,
+  bStart: string,
+  bEnd: string,
+): boolean {
+  return aStart <= bEnd && bStart <= aEnd;
+}
+
+/** Q6.2 drop-decision input: every existing block on the target DA, plus the
+ * proposed (anchorProjectId, targetStart, targetEnd). Returns either `save`
+ * (no overlap with other blocks) or `overlap` (with conflicting project ids
+ * the caller should surface in the prompt). The anchor itself is excluded
+ * from overlap checks (a project can't conflict with its own current slot). */
+export interface DropBlock {
+  projectId: string;
+  startWeek: string;
+  endWeek: string;
+}
+export type DropDecision =
+  | { kind: 'save' }
+  | { kind: 'overlap'; conflictingProjectIds: string[] };
+
+export function decideDrop(
+  existingBlocks: DropBlock[],
+  anchorProjectId: string,
+  targetStart: string,
+  targetEnd: string,
+): DropDecision {
+  const conflicts = existingBlocks
+    .filter((b) => b.projectId !== anchorProjectId)
+    .filter((b) => weekRangeOverlap(targetStart, targetEnd, b.startWeek, b.endWeek))
+    .map((b) => b.projectId);
+  if (conflicts.length === 0) return { kind: 'save' };
+  return { kind: 'overlap', conflictingProjectIds: conflicts };
+}
