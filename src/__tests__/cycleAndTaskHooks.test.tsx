@@ -228,6 +228,51 @@ describe('useUpsertPermitCycle INSERT', () => {
     expect(args.p_data.submitted).toBe('2026-05-01');
     expect(args.p_data.city_target).toBe('');
   });
+
+  it('cycle date auto-derivation rule: setting intake_accepted ships it to the RPC (server creates cycle N+1)', async () => {
+    // Server-side auto-derive (project_cycle_date_rule.md) is implemented in
+    // bp_upsert_permit_cycle_row. The client just needs to ship the new
+    // intake_accepted in the full-row payload — the RPC does the rest. This
+    // test pins the wire shape so a future refactor of useUpsertPermitCycle
+    // can't silently drop intake_accepted from the payload.
+    const cycle = makeCycle({
+      submitted: '2026-05-01',
+      city_target: null,
+      corr_issued: null,
+      resubmitted: null,
+      intake_accepted: null,
+    });
+    mocks.setResult({
+      data: [
+        {
+          out_id: 'cycle-1',
+          updated_at: '2026-05-11T12:00:00Z',
+          conflict: false,
+        },
+      ],
+      error: null,
+    });
+
+    const { wrapper } = setupQueryClient();
+    const { result } = renderHook(() => useUpsertPermitCycle(), { wrapper });
+
+    await act(async () => {
+      await result.current.mutateAsync({
+        op: 'update',
+        permitId: 7,
+        projectId: 'proj-1',
+        cycle,
+        patch: { intake_accepted: '2026-05-10' },
+      });
+    });
+
+    const [, args] = mocks.rpcFn.mock.calls[0];
+    expect(args.p_data.intake_accepted).toBe('2026-05-10');
+    // The full-row payload must still ship the unchanged fields so the
+    // server doesn't NULL them — and so the validation (intake_accepted >=
+    // submitted) has both dates to compare.
+    expect(args.p_data.submitted).toBe('2026-05-01');
+  });
 });
 
 // ============================================================
