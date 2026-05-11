@@ -444,9 +444,14 @@ function DrawScheduleBody({
                           // Below project blocks (z=5) so projects layer on top
                           // visually if they happen to overlap an NP range.
                           zIndex: 3,
-                          // Always transparent to drag-drop — Q6.2.c is render-
-                          // only; soft-warning UX is Q6.2.d.
-                          pointerEvents: 'none',
+                          // Q6.2.c-fix: pointer-events:auto by default so the
+                          // native title tooltip fires on hover. During an
+                          // active drag, flip to none so drops pass through
+                          // to the cell underneath (same contract project
+                          // siblings use). NP blocks are never themselves
+                          // draggable in v2.
+                          pointerEvents:
+                            draggingProjectId === null ? 'auto' : 'none',
                         }}
                       >
                         {labelText}

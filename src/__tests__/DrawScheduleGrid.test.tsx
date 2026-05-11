@@ -257,15 +257,44 @@ describe('<DrawScheduleGrid />', () => {
     const trevorNp = screen.getByTestId('np-block-np-trevor');
     expect(trevorNp).toBeInTheDocument();
     expect(trevorNp.textContent).toBe('Vacation');
-    // pointer-events:none is the contract — NP blocks must never intercept
-    // drag-drop. If this regresses, drops onto cells visually under an NP
-    // block silently fail (same Bug A class regression).
-    expect(trevorNp.style.pointerEvents).toBe('none');
 
     const ahmadiNp = screen.getByTestId('np-block-np-ahmadi');
     expect(ahmadiNp).toBeInTheDocument();
     // label preferred over type when distinct.
     expect(ahmadiNp.textContent).toBe('Style Guide');
+  });
+
+  it('Q6.2.c-fix: NP blocks have pointer-events:auto by default (so hover tooltip fires) and flip to none during a drag', () => {
+    // Initial Q6.2.c shipped pointer-events:none ALWAYS, which silently broke
+    // native title tooltips on NP blocks. The fix mirrors the source/sibling
+    // pattern: auto by default, none only while a drag is active so drops
+    // pass through to the cell underneath.
+    renderGrid();
+    const np = screen.getByTestId('np-block-np-trevor');
+    expect(np.style.pointerEvents).toBe('auto');
+
+    // Fire dragstart on a project block; NP blocks should flip to none.
+    const sourceBlock = screen.getByTestId('block-p-now');
+    const dragStart = new Event('dragstart', { bubbles: true, cancelable: true });
+    const dataTransfer = {
+      setData: vi.fn(),
+      getData: () => '',
+      effectAllowed: 'move',
+      dropEffect: 'move',
+    };
+    Object.defineProperty(dragStart, 'dataTransfer', { value: dataTransfer });
+    act(() => {
+      sourceBlock.dispatchEvent(dragStart);
+    });
+    expect(screen.getByTestId('np-block-np-trevor').style.pointerEvents).toBe('none');
+
+    // dragend restores hover-friendly state.
+    const dragEnd = new Event('dragend', { bubbles: true, cancelable: true });
+    Object.defineProperty(dragEnd, 'dataTransfer', { value: dataTransfer });
+    act(() => {
+      sourceBlock.dispatchEvent(dragEnd);
+    });
+    expect(screen.getByTestId('np-block-np-trevor').style.pointerEvents).toBe('auto');
   });
 
   it('Q6.2.c: NP blocks outside the current quarter are NOT rendered', () => {
