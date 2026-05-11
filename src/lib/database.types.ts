@@ -153,6 +153,33 @@ export interface DaTimeBlock {
  * DB — runtime worked because useIntakeRecords did `select('*')`, but the
  * typed shape was misleading. Worth a fuller audit pass at Q7+ for other
  * interfaces that may have drifted similarly. */
+// Q7.3.a — admin catalog types.
+
+/** Global catalog. PK=name; legacy `profiles.role='admin'` write gate.
+ * `learn_window_days` per-juris override for Q7.2 schedule-benchmark learner. */
+export interface Jurisdiction {
+  name: string;
+  learn_window_days: number | null;
+  notes: string | null;
+}
+
+/** Global catalog of permit types ("Building Permit", "PAR/Pre-Sub", etc.).
+ * `is_builtin` marks the v1 hardcoded types we ship with by default. */
+export interface PermitType {
+  name: string;
+  is_builtin: boolean | null;
+  notes: string | null;
+}
+
+/** Tenant-scoped JSONB key/value store. `productTypes`, `projectTagOptions`,
+ * `consultantTypes`, `wizQuestions`, etc. all live here under their own key.
+ * v2 writes via the single-key bp_set_app_config_key RPC. */
+export interface AppConfigEntry {
+  key: string;
+  value: unknown;
+  updated_at: string | null;
+}
+
 export interface IntakeRecord {
   id: number;
   /** FK to projects(id); nullable in DB (intakes can exist before a project is wired up). */

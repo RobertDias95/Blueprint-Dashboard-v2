@@ -2,16 +2,15 @@ import { useState } from 'react';
 import DrawScheduleGrid from '../components/DrawScheduleGrid';
 import LibraryMatrix from '../components/LibraryMatrix';
 import IntakeTracker from '../components/IntakeTracker';
+import AdminProjectsTab from '../components/Settings/AdminProjectsTab';
 
-// Q2: Settings page shell — three tabs: Draw Schedule, Library, Seattle
-// Intakes. Q6 ships drag-and-drop draw schedule editing; Q7 builds the
-// intake tracker UI. Q2 establishes the tab shell + a read-only summary
-// for each so Bobby can verify the pipes are flowing.
-//
-// Q6.1: Draw Schedule tab now renders the v1-parity grid (read-only).
-// Q6.2 will wire drag-to-edit; Q6.3 fills in Library + Intakes content.
+// Q2: Settings page shell — tabs: Draw Schedule, Library, Seattle Intakes.
+// Q6.1: Draw Schedule tab renders the v1-parity grid.
+// Q7.3.a: extended with "Projects" admin catalog tab (jurisdictions,
+// permit types, product types, project tags). Q7.3.b/.c/.d add more
+// tabs alongside this one.
 
-type SettingsTab = 'schedule' | 'library' | 'intakes';
+type SettingsTab = 'schedule' | 'library' | 'intakes' | 'projects';
 
 export default function Settings() {
   const [tab, setTab] = useState<SettingsTab>('schedule');
@@ -28,10 +27,14 @@ export default function Settings() {
         <TabButton active={tab === 'intakes'} onClick={() => setTab('intakes')}>
           Seattle Intakes
         </TabButton>
+        <TabButton active={tab === 'projects'} onClick={() => setTab('projects')}>
+          Projects
+        </TabButton>
       </div>
       {tab === 'schedule' && <DrawScheduleTab />}
       {tab === 'library' && <LibraryTab />}
       {tab === 'intakes' && <IntakesTab />}
+      {tab === 'projects' && <AdminProjectsTab />}
     </div>
   );
 }

@@ -18,6 +18,9 @@ export const queryKeys = {
   intakeRecordsAll: ['intake_records'] as const,
   dmDaGroupsAll: ['dm_da_groups'] as const,
   daTimeBlocksAll: ['da_time_blocks'] as const,
+  jurisdictionsAll: ['jurisdictions'] as const,
+  permitTypesAll: ['permit_types'] as const,
+  appConfigAll: ['app_config'] as const,
   // Tenant-scoped keys used by queries and per-tenant invalidation.
   projects: (tenantId: string) => ['projects', tenantId] as const,
   permits: (tenantId: string) => ['permits', tenantId] as const,
@@ -31,6 +34,12 @@ export const queryKeys = {
   intakeRecords: (tenantId: string) => ['intake_records', tenantId] as const,
   dmDaGroups: (tenantId: string) => ['dm_da_groups', tenantId] as const,
   daTimeBlocks: (tenantId: string) => ['da_time_blocks', tenantId] as const,
+  // Q7.3.a — admin catalogs. Jurisdictions + permit_types are global (no
+  // tenant_id) but we still parameterize by tenantId so cache entries scope
+  // cleanly. app_config IS tenant-scoped.
+  jurisdictions: (tenantId: string) => ['jurisdictions', tenantId] as const,
+  permitTypes: (tenantId: string) => ['permit_types', tenantId] as const,
+  appConfig: (tenantId: string) => ['app_config', tenantId] as const,
 } as const;
 
 /** Map from Postgres table name → bare-prefix query keys to invalidate on
