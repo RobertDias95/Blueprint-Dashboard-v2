@@ -1,56 +1,24 @@
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import {
   useCreateProjectWithPermits,
   type PermitInput,
 } from '../hooks/useCreateProjectWithPermits';
+import { useJurisdictions } from '../hooks/useJurisdictions';
+import { usePermitTypes } from '../hooks/usePermitTypes';
 
 // Q5: Modal wizard for atomic project creation. Replaces v1's saveProject
 // (line 6489-6539 of Blueprint-Dashboard-/index.html) with a single
 // transactional RPC call. Validation matches v1: address required, at
 // least one permit row required, each permit row must have a type.
 //
-// Modal lifecycle is owned by the parent (Dashboard / ProjectList). When
-// the user hits Cancel or completes successfully, parent closes via
-// onClose. Conflict path keeps the modal open and surfaces an inline
-// "view existing project?" prompt — no auto-navigate.
-
-const JURISDICTIONS = [
-  'Seattle',
-  'Bellevue',
-  'Kirkland',
-  'Edmonds',
-  'Bothell',
-  'Shoreline',
-  'Mercer Island',
-  'Newcastle',
-  'Issaquah',
-  'Sammamish',
-  'Mill Creek',
-  'Burien',
-  'Snoqualmie',
-  'Auburn',
-  'Kenmore',
-  'Federal Way',
-  'Phoenix',
-  'Redmond',
-] as const;
-
-const PERMIT_TYPES = [
-  'Building Permit',
-  'Demolition',
-  'ECA Waiver',
-  'Grading / Clearing',
-  'IPR',
-  'LBA',
-  'LSM',
-  'PAR/Pre-Sub',
-  'PPR',
-  'Short Plat',
-  'SIP',
-  'TRAO',
-  'ULS',
-] as const;
+// Q7.3.a-fix: Jurisdiction + permit-type dropdowns now read from the
+// live catalogs (useJurisdictions + usePermitTypes) instead of hardcoded
+// arrays. Catalog edits from Settings → Projects flow through here
+// immediately. Selection state stores '' until the user picks; the render
+// + submit paths fall back to the first catalog entry when state is empty,
+// so the default-first-row UX matches the previous hardcoded behavior
+// once the catalogs are populated.
 
 interface PermitRow extends PermitInput {
   /** Stable key for React list rendering — never sent to the server. */
@@ -59,7 +27,10 @@ interface PermitRow extends PermitInput {
 
 let _nextRowId = 1;
 function newRow(): PermitRow {
-  return { _rowId: _nextRowId++, type: PERMIT_TYPES[0] };
+  // type='' here is resolved at render + submit time to the first catalog
+  // entry. Keeping state empty until the user explicitly picks avoids
+  // useState/useEffect coordination dance for "first row default".
+  return { _rowId: _nextRowId++, type: '' };
 }
 
 interface Props {
@@ -70,9 +41,16 @@ interface Props {
 export default function NewProjectWizard({ open, onClose }: Props) {
   const navigate = useNavigate();
   const create = useCreateProjectWithPermits();
+  const jurisQ = useJurisdictions();
+  const typesQ = usePermitTypes();
+
+  const jurisOptions = jurisQ.data ?? [];
+  const typeOptions = typesQ.data ?? [];
+  const defaultJuris = jurisOptions[0]?.name ?? '';
+  const defaultType = typeOptions[0]?.name ?? '';
 
   const [address, setAddress] = useState('');
-  const [juris, setJuris] = useState<string>(JURISDICTIONS[0]);
+  const [juris, setJuris] = useState<string>('');
   const [notes, setNotes] = useState('');
   const [permits, setPermits] = useState<PermitRow[]>([newRow()]);
   const [validationErr, setValidationErr] = useState<string | null>(null);
@@ -82,7 +60,7 @@ export default function NewProjectWizard({ open, onClose }: Props) {
 
   function reset() {
     setAddress('');
-    setJuris(JURISDICTIONS[0]);
+    setJuris('');
     setNotes('');
     setPermits([newRow()]);
     setValidationErr(null);
@@ -121,9 +99,22 @@ export default function NewProjectWizard({ open, onClose }: Props) {
       setValidationErr('Please add at least one permit type.');
       return;
     }
-    for (const p of permits) {
-      if (!p.type || !p.type.trim()) {
-        setValidationErr('Every permit row needs a type.');
+    const resolvedJuris = (juris || defaultJuris).trim();
+    if (!resolvedJuris) {
+      setValidationErr(
+        'No jurisdictions in catalog. Add one in Settings → Projects first.',
+      );
+      return;
+    }
+    const normalizedPermits = permits.map((p) => ({
+      ...p,
+      type: (p.type || defaultType).trim(),
+    }));
+    for (const p of normalizedPermits) {
+      if (!p.type) {
+        setValidationErr(
+          'No permit types in catalog. Add one in Settings → Projects first.',
+        );
         return;
       }
     }
@@ -131,9 +122,9 @@ export default function NewProjectWizard({ open, onClose }: Props) {
     try {
       const result = await create.mutateAsync({
         address: trimmedAddress,
-        juris,
+        juris: resolvedJuris,
         notes: notes.trim() || undefined,
-        permits: permits.map((p) => {
+        permits: normalizedPermits.map((p) => {
           const { _rowId, ...rest } = p;
           void _rowId;
           return rest;
@@ -194,6 +185,24 @@ export default function NewProjectWizard({ open, onClose }: Props) {
         </header>
 
         <div className="px-5 py-4 space-y-4">
+          {!jurisQ.isLoading &&
+            !typesQ.isLoading &&
+            (jurisOptions.length === 0 || typeOptions.length === 0) && (
+              <div
+                className="text-[12px] text-co bg-co-bg/40 border border-co-border rounded-md px-3 py-2"
+                data-testid="wizard-empty-catalog"
+              >
+                {jurisOptions.length === 0 && typeOptions.length === 0
+                  ? 'No jurisdictions or permit types in the catalog yet. '
+                  : jurisOptions.length === 0
+                    ? 'No jurisdictions in the catalog yet. '
+                    : 'No permit types in the catalog yet. '}
+                <Link to="/settings" className="underline font-semibold">
+                  Add them in Settings → Projects
+                </Link>
+                .
+              </div>
+            )}
           {validationErr && (
             <div className="text-[12px] text-co bg-co-bg/40 border border-co-border rounded-md px-3 py-2">
               {validationErr}
@@ -243,16 +252,21 @@ export default function NewProjectWizard({ open, onClose }: Props) {
                 Jurisdiction
               </span>
               <select
-                value={juris}
+                value={juris || defaultJuris}
                 onChange={(e) => setJuris(e.target.value)}
                 className="bg-bg border border-border rounded-md px-3 py-1.5 text-xs font-display text-text focus:outline-none focus:border-de"
                 data-testid="wizard-juris"
+                disabled={jurisQ.isLoading}
               >
-                {JURISDICTIONS.map((j) => (
-                  <option key={j} value={j}>
-                    {j}
-                  </option>
-                ))}
+                {jurisOptions.length === 0 ? (
+                  <option value="">— No jurisdictions —</option>
+                ) : (
+                  jurisOptions.map((j) => (
+                    <option key={j.name} value={j.name}>
+                      {j.name}
+                    </option>
+                  ))
+                )}
               </select>
             </label>
           </div>
@@ -297,18 +311,23 @@ export default function NewProjectWizard({ open, onClose }: Props) {
                       Type
                     </span>
                     <select
-                      value={permit.type}
+                      value={permit.type || defaultType}
                       onChange={(e) =>
                         updatePermit(permit._rowId, { type: e.target.value })
                       }
                       className="bg-surface border border-border rounded-md px-2 py-1 text-xs font-mono text-text focus:outline-none focus:border-de"
                       data-testid={`wizard-permit-type-${permit._rowId}`}
+                      disabled={typesQ.isLoading}
                     >
-                      {PERMIT_TYPES.map((t) => (
-                        <option key={t} value={t}>
-                          {t}
-                        </option>
-                      ))}
+                      {typeOptions.length === 0 ? (
+                        <option value="">— No permit types —</option>
+                      ) : (
+                        typeOptions.map((t) => (
+                          <option key={t.name} value={t.name}>
+                            {t.name}
+                          </option>
+                        ))
+                      )}
                     </select>
                   </label>
 

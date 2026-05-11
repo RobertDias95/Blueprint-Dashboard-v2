@@ -35,6 +35,33 @@ const mocks = vi.hoisted(() => {
 
 vi.mock('../lib/supabase', () => ({ supabase: mocks.builder }));
 
+// Q7.3.a-fix: wizard now reads jurisdictions + permit_types from live
+// catalogs. Mock the read hooks so wizard tests render synchronously
+// against a known fixture set (the legacy hardcoded defaults for parity
+// with the original tests).
+vi.mock('../hooks/useJurisdictions', () => ({
+  useJurisdictions: () => ({
+    data: [
+      { name: 'Seattle', learn_window_days: 120, notes: null },
+      { name: 'Bellevue', learn_window_days: 120, notes: null },
+    ],
+    isLoading: false,
+    error: null,
+    refetch: vi.fn(),
+  }),
+}));
+vi.mock('../hooks/usePermitTypes', () => ({
+  usePermitTypes: () => ({
+    data: [
+      { name: 'Building Permit', is_builtin: true, notes: null },
+      { name: 'Demolition', is_builtin: true, notes: null },
+    ],
+    isLoading: false,
+    error: null,
+    refetch: vi.fn(),
+  }),
+}));
+
 const navigate = vi.fn();
 vi.mock('react-router-dom', async () => {
   const actual =
@@ -268,6 +295,33 @@ describe('<NewProjectWizard />', () => {
     expect(navigate).toHaveBeenCalledWith(
       '/project/44444444-4444-4444-4444-444444444444',
     );
+  });
+
+  // Q7.3.a-fix tests —————————————————————————————————————————
+
+  it('Type and Juris dropdowns render options from the live catalogs (not the hardcoded list)', () => {
+    renderWizard();
+    const juris = screen.getByTestId('wizard-juris') as HTMLSelectElement;
+    // _rowId is a module-scoped counter that's bumped by earlier tests, so
+    // pick the first wizard-permit-type-* element by pattern match instead.
+    const typeSel = screen.getAllByTestId(/^wizard-permit-type-/)[0] as HTMLSelectElement;
+    // Fixtures above provide 2 jurisdictions + 2 permit types.
+    expect(juris.options.length).toBe(2);
+    expect([...juris.options].map((o) => o.value)).toEqual([
+      'Seattle',
+      'Bellevue',
+    ]);
+    expect([...typeSel.options].map((o) => o.value)).toEqual([
+      'Building Permit',
+      'Demolition',
+    ]);
+    expect(juris.value).toBe('Seattle');
+    expect(typeSel.value).toBe('Building Permit');
+    // The legacy hardcoded "Phoenix" jurisdiction shouldn't render because
+    // the live catalog mock doesn't include it.
+    expect(
+      [...juris.options].some((o) => o.value === 'Phoenix'),
+    ).toBe(false);
   });
 
   it('preserves form data on RPC error (modal stays open)', async () => {
