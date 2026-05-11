@@ -87,11 +87,9 @@ interface BodyProps {
 function Body({ projects, permits }: BodyProps) {
   const [filters, setFilters] = useState<LibraryFilters>({
     search: '',
-    lotwMin: null,
-    lotwMax: null,
+    lotwTarget: null,
     lotwBuf: 2,
-    lotdMin: null,
-    lotdMax: null,
+    lotdTarget: null,
     lotdBuf: 2,
     zone: '',
     alley: '',
@@ -133,11 +131,9 @@ function Body({ projects, permits }: BodyProps) {
   function clearFilters() {
     setFilters({
       search: '',
-      lotwMin: null,
-      lotwMax: null,
+      lotwTarget: null,
       lotwBuf: 2,
-      lotdMin: null,
-      lotdMax: null,
+      lotdTarget: null,
       lotdBuf: 2,
       zone: '',
       alley: '',
@@ -165,23 +161,19 @@ function Body({ projects, permits }: BodyProps) {
           Filter Projects
         </div>
 
-        <DimRange
+        <TargetRange
           label="Lot Width (ft)"
-          min={filters.lotwMin}
-          max={filters.lotwMax}
+          target={filters.lotwTarget}
           buf={filters.lotwBuf}
-          onMin={(v) => update('lotwMin', v)}
-          onMax={(v) => update('lotwMax', v)}
+          onTarget={(v) => update('lotwTarget', v)}
           onBuf={(v) => update('lotwBuf', v)}
           testIdPrefix="lotw"
         />
-        <DimRange
+        <TargetRange
           label="Lot Depth (ft)"
-          min={filters.lotdMin}
-          max={filters.lotdMax}
+          target={filters.lotdTarget}
           buf={filters.lotdBuf}
-          onMin={(v) => update('lotdMin', v)}
-          onMax={(v) => update('lotdMax', v)}
+          onTarget={(v) => update('lotdTarget', v)}
           onBuf={(v) => update('lotdBuf', v)}
           testIdPrefix="lotd"
         />
@@ -427,22 +419,18 @@ function FieldLabel({
   );
 }
 
-function DimRange({
+function TargetRange({
   label,
-  min,
-  max,
+  target,
   buf,
-  onMin,
-  onMax,
+  onTarget,
   onBuf,
   testIdPrefix,
 }: {
   label: string;
-  min: number | null;
-  max: number | null;
+  target: number | null;
   buf: number;
-  onMin: (v: number | null) => void;
-  onMax: (v: number | null) => void;
+  onTarget: (v: number | null) => void;
   onBuf: (v: number) => void;
   testIdPrefix: string;
 }) {
@@ -452,25 +440,13 @@ function DimRange({
         <input
           type="number"
           min={0}
-          value={min ?? ''}
+          value={target ?? ''}
           onChange={(e) =>
-            onMin(e.target.value === '' ? null : Number(e.target.value))
+            onTarget(e.target.value === '' ? null : Number(e.target.value))
           }
-          placeholder="Min"
-          className="w-14 bg-bg border border-border rounded px-1 py-1 text-[11px] text-text text-center focus:outline-none focus:border-de"
-          data-testid={`${testIdPrefix}-min`}
-        />
-        <span>–</span>
-        <input
-          type="number"
-          min={0}
-          value={max ?? ''}
-          onChange={(e) =>
-            onMax(e.target.value === '' ? null : Number(e.target.value))
-          }
-          placeholder="Max"
-          className="w-14 bg-bg border border-border rounded px-1 py-1 text-[11px] text-text text-center focus:outline-none focus:border-de"
-          data-testid={`${testIdPrefix}-max`}
+          placeholder="Target"
+          className="w-16 bg-bg border border-border rounded px-1 py-1 text-[11px] text-text text-center focus:outline-none focus:border-de"
+          data-testid={`${testIdPrefix}-target`}
         />
         <span>±</span>
         <input

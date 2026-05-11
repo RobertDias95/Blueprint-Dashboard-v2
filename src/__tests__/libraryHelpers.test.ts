@@ -3,7 +3,7 @@ import {
   buildLibraryRows,
   extractTags,
   filterLibraryRows,
-  matchRange,
+  matchTargetWithBuffer,
   pickBpForProject,
   sortLibraryRows,
   worstStage,
@@ -74,40 +74,40 @@ function makeProject(over: Partial<Project> = {}): Project {
   };
 }
 
-describe('matchRange', () => {
-  it('returns true when both bounds null (filter inactive)', () => {
-    expect(matchRange(40, null, null, 2)).toBe(true);
+describe('matchTargetWithBuffer', () => {
+  it('returns true when target is null (filter inactive)', () => {
+    expect(matchTargetWithBuffer(40, null, 5)).toBe(true);
   });
 
-  it('returns false when val is falsy and any bound is active', () => {
-    expect(matchRange(0, 30, null, 2)).toBe(false);
-    expect(matchRange(null, null, 50, 2)).toBe(false);
-    expect(matchRange(undefined, 30, 50, 2)).toBe(false);
+  it('returns false when val is falsy and target is active', () => {
+    expect(matchTargetWithBuffer(0, 50, 5)).toBe(false);
+    expect(matchTargetWithBuffer(null, 50, 5)).toBe(false);
+    expect(matchTargetWithBuffer(undefined, 50, 5)).toBe(false);
   });
 
-  it('min-only with buffer: passes anything ≥ (min - buf)', () => {
-    // min=40, buf=2 → effective range is [38, val] which simplifies to "val ≥ 38".
-    expect(matchRange(38, 40, null, 2)).toBe(true);
-    expect(matchRange(37, 40, null, 2)).toBe(false);
+  it('"50 ± 5" matches everything in [45, 55] inclusive', () => {
+    expect(matchTargetWithBuffer(45, 50, 5)).toBe(true);
+    expect(matchTargetWithBuffer(50, 50, 5)).toBe(true);
+    expect(matchTargetWithBuffer(55, 50, 5)).toBe(true);
+    expect(matchTargetWithBuffer(44, 50, 5)).toBe(false);
+    expect(matchTargetWithBuffer(56, 50, 5)).toBe(false);
   });
 
-  it('max-only with buffer: passes anything ≤ (max + buf)', () => {
-    // max=50, buf=2 → effective range is [val, 52] which simplifies to "val ≤ 52".
-    expect(matchRange(52, null, 50, 2)).toBe(true);
-    expect(matchRange(53, null, 50, 2)).toBe(false);
+  it('absolute difference (works in both directions from target)', () => {
+    expect(matchTargetWithBuffer(48, 50, 2)).toBe(true);
+    expect(matchTargetWithBuffer(52, 50, 2)).toBe(true);
+    expect(matchTargetWithBuffer(47, 50, 2)).toBe(false);
   });
 
-  it('both bounds with buffer: range is [min-buf, max+buf]', () => {
-    expect(matchRange(38, 40, 50, 2)).toBe(true);
-    expect(matchRange(52, 40, 50, 2)).toBe(true);
-    expect(matchRange(37, 40, 50, 2)).toBe(false);
-    expect(matchRange(53, 40, 50, 2)).toBe(false);
+  it('buf=0 requires exact match to target', () => {
+    expect(matchTargetWithBuffer(50, 50, 0)).toBe(true);
+    expect(matchTargetWithBuffer(51, 50, 0)).toBe(false);
+    expect(matchTargetWithBuffer(49, 50, 0)).toBe(false);
   });
 
-  it('buf=0 means strict range', () => {
-    expect(matchRange(40, 40, 50, 0)).toBe(true);
-    expect(matchRange(50, 40, 50, 0)).toBe(true);
-    expect(matchRange(39, 40, 50, 0)).toBe(false);
+  it('handles non-integer values + decimal buffers', () => {
+    expect(matchTargetWithBuffer(40.94, 41, 0.5)).toBe(true);
+    expect(matchTargetWithBuffer(40.4, 41, 0.5)).toBe(false);
   });
 });
 
@@ -207,11 +207,9 @@ describe('buildLibraryRows', () => {
 describe('filterLibraryRows', () => {
   const baseFilters: LibraryFilters = {
     search: '',
-    lotwMin: null,
-    lotwMax: null,
+    lotwTarget: null,
     lotwBuf: 2,
-    lotdMin: null,
-    lotdMax: null,
+    lotdTarget: null,
     lotdBuf: 2,
     zone: '',
     alley: '',
@@ -252,11 +250,11 @@ describe('filterLibraryRows', () => {
     expect(filterLibraryRows(rows, baseFilters)).toHaveLength(2);
   });
 
-  it('lotw range narrows to matching rows (within buffer)', () => {
+  it('lotw target ± buf narrows to matching rows', () => {
+    // Target 60 ± 2 → matches [58, 62]. Row b is 60, matches. Row a is 40, no.
     const filtered = filterLibraryRows(rows, {
       ...baseFilters,
-      lotwMin: 58,
-      lotwMax: 62,
+      lotwTarget: 60,
       lotwBuf: 2,
     });
     expect(filtered.map((r) => r.projectId)).toEqual(['b']);

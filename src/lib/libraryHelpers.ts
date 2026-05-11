@@ -23,20 +23,19 @@ export interface LibraryRow {
   stage: Stage;
 }
 
-/** v1's matchRange (line 5709). Both bounds null → no filter. One bound +
- * buffer expands around the unset side. Falsy val + any active bound →
- * fails (filter requires the row to have data). */
-export function matchRange(
+/** Q6.3.a-fix: target ± buffer filter. "50 ± 5" matches every value in
+ * [45, 55] inclusive. Replaces v1's min/max+buf asymmetric range — the
+ * team thinks about lot sizing as "find me similar lots near 50ft", not
+ * as "lots between X and Y." Null target → no filter; falsy val with an
+ * active filter → fails (filter requires the row to have data). */
+export function matchTargetWithBuffer(
   val: number | null | undefined,
-  minV: number | null,
-  maxV: number | null,
-  buf: number,
+  target: number | null,
+  bufWidth: number,
 ): boolean {
-  if (minV === null && maxV === null) return true;
+  if (target === null) return true;
   if (!val) return false;
-  const lo = (minV !== null ? minV : val) - (buf || 0);
-  const hi = (maxV !== null ? maxV : val) + (buf || 0);
-  return val >= lo && val <= hi;
+  return Math.abs(val - target) <= (bufWidth || 0);
 }
 
 /** Pick one permit per project for matrix dim fields. Prefer the project's
@@ -114,11 +113,9 @@ export function buildLibraryRows(
 
 export interface LibraryFilters {
   search: string;
-  lotwMin: number | null;
-  lotwMax: number | null;
+  lotwTarget: number | null;
   lotwBuf: number;
-  lotdMin: number | null;
-  lotdMax: number | null;
+  lotdTarget: number | null;
   lotdBuf: number;
   zone: string;
   alley: string;
@@ -127,16 +124,15 @@ export interface LibraryFilters {
   juris: string;
 }
 
-/** Apply the 7 active filters to the matrix rows. Mirrors v1's filter
- * predicate stack in renderMatrix (lines 5732-5743). */
+/** Apply the 7 active filters to the matrix rows. */
 export function filterLibraryRows(
   rows: LibraryRow[],
   filters: LibraryFilters,
 ): LibraryRow[] {
   const zoneQ = filters.zone.trim().toLowerCase();
   return rows.filter((r) => {
-    if (!matchRange(r.lotWidth, filters.lotwMin, filters.lotwMax, filters.lotwBuf)) return false;
-    if (!matchRange(r.lotDepth, filters.lotdMin, filters.lotdMax, filters.lotdBuf)) return false;
+    if (!matchTargetWithBuffer(r.lotWidth, filters.lotwTarget, filters.lotwBuf)) return false;
+    if (!matchTargetWithBuffer(r.lotDepth, filters.lotdTarget, filters.lotdBuf)) return false;
     if (zoneQ && !r.zone.toLowerCase().includes(zoneQ)) return false;
     if (filters.alley && r.alley !== filters.alley) return false;
     if (filters.productType && r.productType !== filters.productType) return false;

@@ -217,11 +217,10 @@ describe('<LibraryMatrix />', () => {
     expect(screen.queryByTestId('library-row-b')).not.toBeInTheDocument();
   });
 
-  it('lot-width filter with buffer narrows correctly', () => {
+  it('lot-width target ± buf narrows correctly', () => {
     renderIt();
-    // Set min=60, max=60, buf=2 → matches rows with lotWidth in [58, 62].
-    fireEvent.change(screen.getByTestId('lotw-min'), { target: { value: '60' } });
-    fireEvent.change(screen.getByTestId('lotw-max'), { target: { value: '60' } });
+    // Target 60 ± 2 → matches lotWidth in [58, 62]. Only row b (60) qualifies.
+    fireEvent.change(screen.getByTestId('lotw-target'), { target: { value: '60' } });
     expect(screen.getByTestId('library-row-b')).toBeInTheDocument();
     expect(screen.queryByTestId('library-row-a')).not.toBeInTheDocument();
     expect(screen.queryByTestId('library-row-c')).not.toBeInTheDocument();
