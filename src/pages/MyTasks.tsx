@@ -1,8 +1,9 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { useAllPermitTasks } from '../hooks/useAllPermitTasks';
 import { usePermits } from '../hooks/usePermits';
 import { useProjects } from '../hooks/useProjects';
 import {
+  assignedToOptions,
   computeStats,
   filterTasks,
   type FilterContext,
@@ -12,13 +13,17 @@ import { SkeletonRows } from '../components/Skeleton';
 import QueryError from '../components/QueryError';
 import StatsRow from '../components/MyTasks/StatsRow';
 import TaskColumn from '../components/MyTasks/TaskColumn';
+import FilterBar from '../components/MyTasks/FilterBar';
+import type {
+  PermitTask,
+  PermitWithCycles,
+  Project,
+} from '../lib/database.types';
 
-// Q7.1.b: My Tasks view shell. Read-only against the data layer shipped
-// in Q7.1.a. Filter UI + inline edits land in Q7.1.c.
-//
-// Defaults match v1's initial state on load:
-//   stage='all', status='active' (hides done tasks), assignee='',
-//   search=''. The UI controls to change them ship in Q7.1.c.
+// Q7.1.b: read-only view shell.
+// Q7.1.c: filter state lifted here + FilterBar mounted; selected-task
+// state managed at page level so inline date editors only render for
+// one card at a time.
 
 const DEFAULT_FILTERS: TaskFilters = {
   stage: 'all',
@@ -59,28 +64,16 @@ export default function MyTasks() {
   );
 }
 
-function Body({
-  tasks,
-  permits,
-  projects,
-}: {
-  tasks: ReturnType<typeof useAllPermitTasks>['data'] extends infer T
-    ? T extends Array<infer U>
-      ? U[]
-      : never
-    : never;
-  permits: ReturnType<typeof usePermits>['data'] extends infer T
-    ? T extends Array<infer U>
-      ? U[]
-      : never
-    : never;
-  projects: ReturnType<typeof useProjects>['data'] extends infer T
-    ? T extends Array<infer U>
-      ? U[]
-      : never
-    : never;
-}) {
+interface BodyProps {
+  tasks: PermitTask[];
+  permits: PermitWithCycles[];
+  projects: Project[];
+}
+
+function Body({ tasks, permits, projects }: BodyProps) {
   const today = useMemo(() => new Date(), []);
+  const [filters, setFilters] = useState<TaskFilters>(DEFAULT_FILTERS);
+  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
 
   const ctx: FilterContext = useMemo(
     () => ({
@@ -90,9 +83,16 @@ function Body({
     [permits, projects],
   );
 
+  // Dropdown options come from the FULL task set (so the dropdown doesn't
+  // mysteriously shrink as the user narrows filters and assignees fall out).
+  const assigneeChoices = useMemo(
+    () => assignedToOptions(tasks),
+    [tasks],
+  );
+
   const filtered = useMemo(
-    () => filterTasks(tasks, DEFAULT_FILTERS, ctx),
-    [tasks, ctx],
+    () => filterTasks(tasks, filters, ctx),
+    [tasks, filters, ctx],
   );
 
   const stats = useMemo(
@@ -100,11 +100,9 @@ function Body({
     [filtered, ctx, today],
   );
 
-  // Split filtered tasks into the two stage columns. PM has already been
-  // dropped by filterTasks.
   const { deTasks, coTasks } = useMemo(() => {
-    const de: typeof filtered = [];
-    const co: typeof filtered = [];
+    const de: PermitTask[] = [];
+    const co: PermitTask[] = [];
     for (const t of filtered) {
       if (t.bucket === 'de') de.push(t);
       else if (t.bucket === 'co') co.push(t);
@@ -112,12 +110,57 @@ function Body({
     return { deTasks: de, coTasks: co };
   }, [filtered]);
 
+  function updateFilter<K extends keyof TaskFilters>(
+    key: K,
+    value: TaskFilters[K],
+  ) {
+    setFilters((prev) => ({ ...prev, [key]: value }));
+    setSelectedTaskId(null); // narrowing the set should drop selection
+  }
+  function clearFilters() {
+    setFilters(DEFAULT_FILTERS);
+    setSelectedTaskId(null);
+  }
+
   return (
     <div className="space-y-4" data-testid="mytasks-page">
+      <FilterBar
+        filters={filters}
+        onChange={updateFilter}
+        onClear={clearFilters}
+        assigneeOptions={assigneeChoices}
+        resultCount={filtered.length}
+      />
       <StatsRow stats={stats} />
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <TaskColumn stage="de" tasks={deTasks} ctx={ctx} today={today} />
-        <TaskColumn stage="co" tasks={coTasks} ctx={ctx} today={today} />
+        <TaskColumn
+          // Q7.1.c: key on filters.status remounts the column when the
+          // user changes status. That re-initializes the Completed
+          // collapse state to defaultCompletedOpen — cleaner than syncing
+          // via useEffect.
+          key={`de-${filters.status}`}
+          stage="de"
+          tasks={deTasks}
+          ctx={ctx}
+          today={today}
+          selectedTaskId={selectedTaskId}
+          onSelect={setSelectedTaskId}
+          defaultCompletedOpen={
+            filters.status === 'done' || filters.status === 'all'
+          }
+        />
+        <TaskColumn
+          key={`co-${filters.status}`}
+          stage="co"
+          tasks={coTasks}
+          ctx={ctx}
+          today={today}
+          selectedTaskId={selectedTaskId}
+          onSelect={setSelectedTaskId}
+          defaultCompletedOpen={
+            filters.status === 'done' || filters.status === 'all'
+          }
+        />
       </div>
     </div>
   );

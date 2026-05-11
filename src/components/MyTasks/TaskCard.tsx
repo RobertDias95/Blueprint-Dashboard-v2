@@ -4,16 +4,15 @@ import {
   effectiveDueDate,
   isOverdue,
   type FilterContext,
+  type TaskState,
 } from '../../lib/myTasksHelpers';
 import type { PermitTask } from '../../lib/database.types';
+import { useUpsertPermitTask } from '../../hooks/useUpsertPermitTask';
 
-// Q7.1.b: per-task card render. Mirrors v1's makeTaskCard (index.html
-// 5003-5034) under v2's unified schema:
-//   - Auto-generated badge (Q5a) — small 🤖 icon when is_auto_generated.
-//   - Done indicator (☐ / ✓) is non-interactive in Q7.1.b. Q7.1.c wires
-//     the toggle via useUpsertPermitTask.
-//   - Address pill links to /project/:id (replaces v1's openProject()
-//     navigation hack).
+// Q7.1.b: per-task card render.
+// Q7.1.c: checkbox toggle, status-pill cycle, selected-card date editors.
+// All edits route through useUpsertPermitTask (Q4 hook) — the existing
+// full-row payload contract handles the merge + OCC.
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -21,13 +20,58 @@ interface Props {
   task: PermitTask;
   ctx: FilterContext;
   today: Date;
+  selected: boolean;
+  onSelect: (taskId: string | null) => void;
 }
 
-export default function TaskCard({ task, ctx, today }: Props) {
+export default function TaskCard({
+  task,
+  ctx,
+  today,
+  selected,
+  onSelect,
+}: Props) {
   const state = deriveTaskState(task);
   const isDone = state === 'complete';
   const permit = ctx.permitsById.get(task.permit_id);
   const project = permit ? ctx.projectsById.get(permit.project_id) : undefined;
+
+  const upsert = useUpsertPermitTask();
+
+  function patchTask(patch: Partial<PermitTask>) {
+    upsert.mutate({
+      op: 'update',
+      permitId: task.permit_id,
+      task,
+      patch,
+    });
+  }
+
+  // Q7.1.c: clicking the checkbox flips both done + completion_status so
+  // the unified derivation in deriveTaskState lines up regardless of which
+  // field a downstream consumer looks at.
+  function toggleDone(e: React.MouseEvent) {
+    e.stopPropagation();
+    if (isDone) {
+      patchTask({ done: false, completion_status: 'Open' });
+    } else {
+      patchTask({ done: true, completion_status: 'Resolved' });
+    }
+  }
+
+  // Q7.1.c: 3-state cycle matching v1's cycleTaskStatus behavior:
+  //   not-started → in-progress → complete → not-started
+  function cycleState(e: React.MouseEvent) {
+    e.stopPropagation();
+    if (state === 'not-started') {
+      patchTask({ done: false, completion_status: 'In Progress' });
+    } else if (state === 'in-progress') {
+      patchTask({ done: true, completion_status: 'Resolved' });
+    } else {
+      // complete → not-started
+      patchTask({ done: false, completion_status: 'Open' });
+    }
+  }
 
   const permitLabel =
     permit?.type === 'Building Permit' && permit?.nickname
@@ -53,22 +97,26 @@ export default function TaskCard({ task, ctx, today }: Props) {
 
   return (
     <div
-      className={`flex items-start gap-2 px-3 py-2 border-b border-border last:border-b-0 ${
+      className={`flex items-start gap-2 px-3 py-2 border-b border-border last:border-b-0 cursor-pointer ${
         isDone ? 'opacity-60' : ''
-      }`}
+      } ${selected ? 'bg-de-bg/40' : 'hover:bg-s2'}`}
       data-testid={`mytasks-card-${task.id}`}
+      onClick={() => onSelect(selected ? null : task.id)}
     >
-      {/* Checkbox — read-only in Q7.1.b. Q7.1.c wires toggle. */}
-      <div
+      <button
+        type="button"
+        onClick={toggleDone}
         className={`w-3.5 h-3.5 mt-0.5 rounded-sm border flex items-center justify-center flex-shrink-0 ${
           isDone
             ? 'bg-pm border-pm text-white'
-            : 'border-border bg-bg'
+            : 'border-border bg-bg hover:border-de'
         }`}
+        title={isDone ? 'Mark not done' : 'Mark done'}
         data-testid={`mytasks-check-${task.id}`}
+        disabled={upsert.isPending}
       >
         {isDone && <span className="text-[9px] leading-none">✓</span>}
-      </div>
+      </button>
 
       <div className="flex-1 min-w-0">
         <div className="flex items-start gap-1 mb-0.5">
@@ -92,13 +140,13 @@ export default function TaskCard({ task, ctx, today }: Props) {
         </div>
 
         <div className="flex items-center gap-1.5 flex-wrap mt-0.5">
-          {/* Address pill — links to project detail */}
           {project && (
             <Link
               to={`/project/${project.id}`}
               className="text-[10px] text-jv font-bold bg-jv-bg px-1.5 py-0.5 rounded max-w-[160px] truncate hover:underline"
               title={project.address}
               data-testid={`mytasks-addr-${task.id}`}
+              onClick={(e) => e.stopPropagation()}
             >
               {project.address.split(',')[0]}
             </Link>
@@ -106,10 +154,8 @@ export default function TaskCard({ task, ctx, today }: Props) {
 
           <span className="text-[9px] text-dim">{permitLabel}</span>
 
-          {/* Status pill */}
-          <StatusPill state={state} />
+          <StatusPill state={state} onClick={cycleState} taskId={task.id} />
 
-          {/* Due date */}
           {due && (
             <span
               className={`text-[9px] ${
@@ -126,7 +172,6 @@ export default function TaskCard({ task, ctx, today }: Props) {
             </span>
           )}
 
-          {/* Assignee chip (v2 addition — surfaces the unified assigned_to) */}
           {task.assigned_to && (
             <span
               className="text-[9px] text-muted bg-s2 border border-border px-1 py-0.5 rounded"
@@ -136,30 +181,110 @@ export default function TaskCard({ task, ctx, today }: Props) {
             </span>
           )}
         </div>
+
+        {selected && (
+          <SelectedDateInputs task={task} onChange={patchTask} />
+        )}
       </div>
     </div>
   );
 }
 
-const STATE_PILL: Record<
-  ReturnType<typeof deriveTaskState>,
-  { label: string; cls: string }
-> = {
-  'not-started': {
-    label: '○ Not Started',
-    cls: 'text-dim',
-  },
-  'in-progress': {
-    label: '◐ In Progress',
-    cls: 'text-de font-semibold',
-  },
-  complete: {
-    label: '● Done',
-    cls: 'text-pm',
-  },
+const STATE_PILL: Record<TaskState, { label: string; cls: string }> = {
+  'not-started': { label: '○ Not Started', cls: 'text-dim hover:text-text' },
+  'in-progress': { label: '◐ In Progress', cls: 'text-de font-semibold hover:opacity-80' },
+  complete: { label: '● Done', cls: 'text-pm hover:opacity-80' },
 };
 
-function StatusPill({ state }: { state: ReturnType<typeof deriveTaskState> }) {
+function StatusPill({
+  state,
+  onClick,
+  taskId,
+}: {
+  state: TaskState;
+  onClick: (e: React.MouseEvent) => void;
+  taskId: string;
+}) {
   const cfg = STATE_PILL[state];
-  return <span className={`text-[9px] ${cfg.cls}`}>{cfg.label}</span>;
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`text-[9px] transition cursor-pointer ${cfg.cls}`}
+      title="Click to cycle status"
+      data-testid={`mytasks-status-pill-${taskId}`}
+    >
+      {cfg.label}
+    </button>
+  );
+}
+
+function SelectedDateInputs({
+  task,
+  onChange,
+}: {
+  task: PermitTask;
+  onChange: (patch: Partial<PermitTask>) => void;
+}) {
+  return (
+    <div
+      className="flex flex-wrap gap-3 mt-2 pt-2 border-t border-border"
+      onClick={(e) => e.stopPropagation()}
+      data-testid={`mytasks-dates-${task.id}`}
+    >
+      <DateField
+        label="Start"
+        value={task.start_date}
+        onChange={(v) => onChange({ start_date: v || null })}
+        testId={`mytasks-date-start-${task.id}`}
+      />
+      <DateField
+        label="Target"
+        value={task.target_date}
+        onChange={(v) => onChange({ target_date: v || null })}
+        accent="de"
+        testId={`mytasks-date-target-${task.id}`}
+      />
+      <DateField
+        label="Done"
+        value={task.due_date}
+        onChange={(v) => onChange({ due_date: v || null })}
+        accent="pm"
+        testId={`mytasks-date-due-${task.id}`}
+      />
+    </div>
+  );
+}
+
+function DateField({
+  label,
+  value,
+  onChange,
+  accent,
+  testId,
+}: {
+  label: string;
+  value: string | null;
+  onChange: (v: string) => void;
+  accent?: 'de' | 'pm';
+  testId: string;
+}) {
+  const labelCls =
+    accent === 'de'
+      ? 'text-de'
+      : accent === 'pm'
+        ? 'text-pm'
+        : 'text-muted';
+  return (
+    <label className="flex items-center gap-1 text-[10px]">
+      <span className={`font-semibold ${labelCls}`}>{label}:</span>
+      <input
+        type="date"
+        value={value ?? ''}
+        onChange={(e) => onChange(e.target.value)}
+        className="bg-bg border border-border rounded px-1.5 py-0.5 text-[10px] text-text focus:outline-none focus:border-de"
+        data-testid={testId}
+      />
+    </label>
+  );
 }

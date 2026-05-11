@@ -22,10 +22,29 @@ interface Props {
   tasks: PermitTask[];
   ctx: FilterContext;
   today: Date;
+  /** Q7.1.c: selected task id (page-level state). Null when nothing selected. */
+  selectedTaskId?: string | null;
+  /** Q7.1.c: select handler. Passes null to deselect. */
+  onSelect?: (taskId: string | null) => void;
+  /** Q7.1.c: when true, the Completed collapse starts expanded. Used when
+   * the page-level status filter is 'done' or 'all' — the user explicitly
+   * asked to see done tasks, so hiding them behind a collapse is wrong. */
+  defaultCompletedOpen?: boolean;
 }
 
-export default function TaskColumn({ stage, tasks, ctx, today }: Props) {
-  const [doneOpen, setDoneOpen] = useState(false);
+export default function TaskColumn({
+  stage,
+  tasks,
+  ctx,
+  today,
+  selectedTaskId = null,
+  onSelect = () => {},
+  defaultCompletedOpen = false,
+}: Props) {
+  // Q7.1.c: initial state honors defaultCompletedOpen; the parent uses a
+  // key prop to remount when the status filter changes, so this state
+  // re-initializes to the new intent (avoids setState-in-effect lint).
+  const [doneOpen, setDoneOpen] = useState(defaultCompletedOpen);
 
   const notStarted = sortTasksForColumn(
     tasks.filter((t) => deriveTaskState(t) === 'not-started'),
@@ -66,7 +85,14 @@ export default function TaskColumn({ stage, tasks, ctx, today }: Props) {
                 <Empty>Nothing queued</Empty>
               ) : (
                 notStarted.map((t) => (
-                  <TaskCard key={t.id} task={t} ctx={ctx} today={today} />
+                  <TaskCard
+                  key={t.id}
+                  task={t}
+                  ctx={ctx}
+                  today={today}
+                  selected={selectedTaskId === t.id}
+                  onSelect={onSelect}
+                />
                 ))
               )}
             </div>
@@ -76,7 +102,14 @@ export default function TaskColumn({ stage, tasks, ctx, today }: Props) {
                 <Empty>None active</Empty>
               ) : (
                 inProgress.map((t) => (
-                  <TaskCard key={t.id} task={t} ctx={ctx} today={today} />
+                  <TaskCard
+                  key={t.id}
+                  task={t}
+                  ctx={ctx}
+                  today={today}
+                  selected={selectedTaskId === t.id}
+                  onSelect={onSelect}
+                />
                 ))
               )}
             </div>
@@ -108,7 +141,14 @@ export default function TaskColumn({ stage, tasks, ctx, today }: Props) {
               {doneOpen && (
                 <div className="opacity-70" data-testid={`mytasks-col-${stage}-done-list`}>
                   {completed.map((t) => (
-                    <TaskCard key={t.id} task={t} ctx={ctx} today={today} />
+                    <TaskCard
+                  key={t.id}
+                  task={t}
+                  ctx={ctx}
+                  today={today}
+                  selected={selectedTaskId === t.id}
+                  onSelect={onSelect}
+                />
                   ))}
                 </div>
               )}

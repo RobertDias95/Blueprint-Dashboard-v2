@@ -207,9 +207,24 @@ vi.mock('../hooks/useProjects', () => ({
   }),
 }));
 
+// Q7.1.c: mock useUpsertPermitTask so we can assert the patch shapes
+// (checkbox / status cycle / date edits) without round-tripping Supabase.
+const upsertMutate = vi.fn();
+vi.mock('../hooks/useUpsertPermitTask', () => ({
+  useUpsertPermitTask: () => ({
+    mutate: upsertMutate,
+    mutateAsync: vi.fn(),
+    isPending: false,
+    isError: false,
+    error: null,
+    reset: vi.fn(),
+  }),
+}));
+
 beforeEach(() => {
   vi.useFakeTimers();
   vi.setSystemTime(FIXED_TODAY);
+  upsertMutate.mockClear();
   useAuthStore.setState({
     activeTenantId: T,
     memberships: [{ tenant_id: T, role: 'admin' }],
@@ -330,5 +345,132 @@ describe('<MyTasks /> Q7.1.b', () => {
     const col = screen.getByTestId('mytasks-col-de');
     expect(col.textContent).toContain('Overdue DE task');
     expect(col.textContent).toContain('Active DE task');
+  });
+});
+
+describe('<MyTasks /> Q7.1.c — filters', () => {
+  it('FilterBar renders all 4 controls + result count', () => {
+    renderIt();
+    expect(screen.getByTestId('mytasks-filterbar')).toBeInTheDocument();
+    expect(screen.getByTestId('mytasks-filter-stage')).toBeInTheDocument();
+    expect(screen.getByTestId('mytasks-filter-status')).toBeInTheDocument();
+    expect(screen.getByTestId('mytasks-filter-assignee')).toBeInTheDocument();
+    expect(screen.getByTestId('mytasks-filter-search')).toBeInTheDocument();
+    expect(screen.getByTestId('mytasks-result-count')).toBeInTheDocument();
+  });
+
+  it('stage filter narrows to DE only', () => {
+    renderIt();
+    fireEvent.change(screen.getByTestId('mytasks-filter-stage'), {
+      target: { value: 'de' },
+    });
+    expect(screen.getByTestId('mytasks-card-t-de-od')).toBeInTheDocument();
+    expect(screen.getByTestId('mytasks-card-t-de-ip')).toBeInTheDocument();
+    expect(screen.queryByTestId('mytasks-card-t-co-ns')).not.toBeInTheDocument();
+  });
+
+  it("status='done' surfaces the completed task and hides active ones", () => {
+    renderIt();
+    fireEvent.change(screen.getByTestId('mytasks-filter-status'), {
+      target: { value: 'done' },
+    });
+    expect(screen.getByTestId('mytasks-card-t-de-done')).toBeInTheDocument();
+    expect(screen.queryByTestId('mytasks-card-t-de-od')).not.toBeInTheDocument();
+  });
+
+  it('assignee filter is exact match against assigned_to', () => {
+    renderIt();
+    fireEvent.change(screen.getByTestId('mytasks-filter-assignee'), {
+      target: { value: 'Briana' },
+    });
+    expect(screen.getByTestId('mytasks-card-t-co-ns')).toBeInTheDocument();
+    expect(screen.queryByTestId('mytasks-card-t-de-od')).not.toBeInTheDocument();
+  });
+
+  it('assignee dropdown is populated from the full task set (Entitlements/Architecture/Briana visible)', () => {
+    renderIt();
+    const select = screen.getByTestId('mytasks-filter-assignee') as HTMLSelectElement;
+    const options = Array.from(select.options).map((o) => o.value);
+    expect(options).toContain('Entitlements');
+    expect(options).toContain('Architecture');
+    expect(options).toContain('Briana');
+  });
+
+  it('search narrows by multi-token match across task text + joined fields', () => {
+    renderIt();
+    fireEvent.change(screen.getByTestId('mytasks-filter-search'), {
+      target: { value: 'corr' },
+    });
+    expect(screen.getByTestId('mytasks-card-t-co-ns')).toBeInTheDocument();
+    expect(screen.queryByTestId('mytasks-card-t-de-od')).not.toBeInTheDocument();
+  });
+
+  it('Clear button resets all filters', () => {
+    renderIt();
+    fireEvent.change(screen.getByTestId('mytasks-filter-stage'), {
+      target: { value: 'co' },
+    });
+    expect(screen.queryByTestId('mytasks-card-t-de-od')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByTestId('mytasks-filter-clear'));
+    expect(screen.getByTestId('mytasks-card-t-de-od')).toBeInTheDocument();
+  });
+});
+
+describe('<MyTasks /> Q7.1.c — inline edits', () => {
+  it('checkbox click on an active task fires useUpsertPermitTask with done:true + Resolved', () => {
+    renderIt();
+    fireEvent.click(screen.getByTestId('mytasks-check-t-de-od'));
+    expect(upsertMutate).toHaveBeenCalledTimes(1);
+    const arg = upsertMutate.mock.calls[0][0] as Record<string, unknown>;
+    expect(arg.op).toBe('update');
+    expect(arg.permitId).toBe(1);
+    expect(arg.patch).toEqual({ done: true, completion_status: 'Resolved' });
+  });
+
+  it('status pill click cycles not-started → in-progress', () => {
+    renderIt();
+    fireEvent.click(screen.getByTestId('mytasks-status-pill-t-de-od'));
+    expect(upsertMutate).toHaveBeenCalledTimes(1);
+    expect(
+      (upsertMutate.mock.calls[0][0] as Record<string, unknown>).patch,
+    ).toEqual({ done: false, completion_status: 'In Progress' });
+  });
+
+  it('status pill click cycles in-progress → complete', () => {
+    renderIt();
+    // t-de-ip is in-progress (start_date set).
+    fireEvent.click(screen.getByTestId('mytasks-status-pill-t-de-ip'));
+    expect(
+      (upsertMutate.mock.calls[0][0] as Record<string, unknown>).patch,
+    ).toEqual({ done: true, completion_status: 'Resolved' });
+  });
+
+  it('clicking a card body selects it; selected card shows date inputs', () => {
+    renderIt();
+    // Pre-select: date inputs not visible.
+    expect(screen.queryByTestId('mytasks-dates-t-de-od')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByTestId('mytasks-card-t-de-od'));
+    expect(screen.getByTestId('mytasks-dates-t-de-od')).toBeInTheDocument();
+    expect(screen.getByTestId('mytasks-date-target-t-de-od')).toBeInTheDocument();
+  });
+
+  it('changing the target date input on a selected card fires the mutation with target_date', () => {
+    renderIt();
+    fireEvent.click(screen.getByTestId('mytasks-card-t-de-od'));
+    fireEvent.change(screen.getByTestId('mytasks-date-target-t-de-od'), {
+      target: { value: '2026-06-01' },
+    });
+    expect(upsertMutate).toHaveBeenCalledTimes(1);
+    expect(
+      (upsertMutate.mock.calls[0][0] as Record<string, unknown>).patch,
+    ).toEqual({ target_date: '2026-06-01' });
+  });
+
+  it('clicking a selected card again deselects (toggle)', () => {
+    renderIt();
+    fireEvent.click(screen.getByTestId('mytasks-card-t-de-od'));
+    expect(screen.getByTestId('mytasks-dates-t-de-od')).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId('mytasks-card-t-de-od'));
+    expect(screen.queryByTestId('mytasks-dates-t-de-od')).not.toBeInTheDocument();
   });
 });
