@@ -153,6 +153,33 @@ export interface DaTimeBlock {
  * DB — runtime worked because useIntakeRecords did `select('*')`, but the
  * typed shape was misleading. Worth a fuller audit pass at Q7+ for other
  * interfaces that may have drifted similarly. */
+// Q7.3.b — team_members + dm_da_groups.
+
+export type TeamRole = 'da' | 'dm' | 'ent' | 'acq';
+
+/** Tenant-scoped roster. `active` flags currently-working members;
+ * `former` flags DAs (and only DAs in v1's UX) who used to be on the
+ * draw schedule and may still be referenced by historical permits. */
+export interface TeamMember {
+  id: string;
+  name: string;
+  role: TeamRole;
+  active: boolean | null;
+  former: boolean | null;
+  email: string | null;
+  notes: string | null;
+  /** Q7.3.0 added — used for row-level OCC. */
+  updated_at: string;
+}
+
+/** Flat (dm_name, da_name) pair table. Q7.3.0 added updated_at for OCC. */
+export interface DmDaGroupRow {
+  id: string;
+  dm_name: string;
+  da_name: string;
+  updated_at: string;
+}
+
 // Q7.3.a — admin catalog types.
 
 /** Global catalog. PK=name; legacy `profiles.role='admin'` write gate.
