@@ -285,4 +285,87 @@ describe('<Reports /> Q7.2.b', () => {
     expect(screen.getByTestId('filter-date-from')).toBeInTheDocument();
     expect(screen.getByTestId('filter-date-to')).toBeInTheDocument();
   });
+
+  // Q7.2.c additions —————————————————————————————————————————
+
+  it('renders the 2 new charts (City Review by Juris, Correction Response by Type)', () => {
+    renderIt();
+    expect(screen.getByTestId('chart-city-review-by-juris')).toBeInTheDocument();
+    expect(screen.getByTestId('chart-corr-response-by-type')).toBeInTheDocument();
+  });
+
+  it('Schedule Benchmarks card surfaces for each (type · juris) combo in the set', () => {
+    renderIt();
+    expect(screen.getByTestId('schedule-benchmarks')).toBeInTheDocument();
+    // Both fixture permits live at distinct type·juris combos.
+    expect(
+      screen.getByTestId('benchmark-card-Building Permit-Seattle'),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByTestId('benchmark-card-Demolition-Bellevue'),
+    ).toBeInTheDocument();
+  });
+
+  it('Schedule Benchmarks shows "Insufficient data" for combos with no approved permits', () => {
+    renderIt();
+    // Permit 1 (Building Permit · Seattle) has approval_date, so it
+    // produces a learned estimate. Permit 2 (Demolition · Bellevue) has
+    // neither approval_date nor actual_issue, so its card surfaces the
+    // insufficient-data state.
+    const demoCard = screen.getByTestId('benchmark-card-Demolition-Bellevue');
+    expect(demoCard.textContent).toMatch(/Insufficient data/i);
+    const bldgCard = screen.getByTestId('benchmark-card-Building Permit-Seattle');
+    expect(bldgCard.textContent).toMatch(/sample/i);
+  });
+
+  it('Report Table renders one row per filtered permit + headline count', () => {
+    renderIt();
+    const table = screen.getByTestId('report-table');
+    expect(table.textContent).toContain('Permit Detail (2)');
+    expect(screen.getByTestId('report-table-row-1')).toBeInTheDocument();
+    expect(screen.getByTestId('report-table-row-2')).toBeInTheDocument();
+  });
+
+  it('Report Table empty state when filter narrows to zero', () => {
+    renderIt();
+    fireEvent.change(screen.getByTestId('filter-search'), {
+      target: { value: 'no-such-address-zzz' },
+    });
+    expect(screen.getByTestId('report-table').textContent).toMatch(
+      /No permits match/i,
+    );
+  });
+
+  it('Report Table header click toggles sort direction', () => {
+    renderIt();
+    const headerGo = screen.getByTestId('report-table-header-go');
+    // Default state is { key: 'go', dir: 'desc' } so first click flips to asc.
+    expect(headerGo.textContent).toContain('▼');
+    fireEvent.click(headerGo);
+    expect(headerGo.textContent).toContain('▲');
+    fireEvent.click(headerGo);
+    expect(headerGo.textContent).toContain('▼');
+  });
+
+  it('Report Table sort-by-juris reorders rows alphabetically', () => {
+    renderIt();
+    // Click juris header → asc by default for non-active columns.
+    fireEvent.click(screen.getByTestId('report-table-header-juris'));
+    const rows = screen
+      .getAllByTestId(/^report-table-row-/)
+      .map((tr) => tr.getAttribute('data-testid'));
+    // Bellevue < Seattle alphabetically → permit 2 (Bellevue) first.
+    expect(rows[0]).toBe('report-table-row-2');
+    expect(rows[1]).toBe('report-table-row-1');
+  });
+
+  it('Report Table filter narrowing flows through to row set', () => {
+    renderIt();
+    fireEvent.click(screen.getByTestId('filter-juris-opt-Bellevue'));
+    expect(screen.getByTestId('report-table').textContent).toContain(
+      'Permit Detail (1)',
+    );
+    expect(screen.queryByTestId('report-table-row-1')).not.toBeInTheDocument();
+    expect(screen.getByTestId('report-table-row-2')).toBeInTheDocument();
+  });
 });

@@ -13,6 +13,8 @@ import QueryError from '../components/QueryError';
 import ReportFilterBar from '../components/Reports/ReportFilterBar';
 import MetricCards from '../components/Reports/MetricCards';
 import BarChartCard from '../components/Reports/BarChartCard';
+import ReportTable from '../components/Reports/ReportTable';
+import ScheduleBenchmarks from '../components/Reports/ScheduleBenchmarks';
 import type { PermitWithCycles, Project } from '../lib/database.types';
 
 // Q7.2.b: Reports view rewrite. Drops the Q2 tab shell (Q4 decision —
@@ -149,6 +151,19 @@ function Body({
       ),
     [filtered],
   );
+  const cityReviewByJuris = useMemo(
+    () => groupAvgBy(filtered, (e) => e.juris, (e) => e.cityReviewDays),
+    [filtered],
+  );
+  const corrResponseByType = useMemo(
+    () =>
+      groupAvgBy(
+        filtered,
+        (e) => e.permit.type,
+        (e) => e.corrResponseDays,
+      ),
+    [filtered],
+  );
 
   function update<K extends keyof ReportFilters>(key: K, value: ReportFilters[K]) {
     setFilters((prev) => ({ ...prev, [key]: value }));
@@ -203,7 +218,27 @@ function Body({
           emptyState="No issued permits yet"
           testId="chart-schedule-variance-by-type"
         />
+        <BarChartCard
+          title="City Review by Jurisdiction (avg days)"
+          data={cityReviewByJuris}
+          color="pm"
+          unit="d"
+          emptyState="No completed reviews yet"
+          testId="chart-city-review-by-juris"
+        />
+        <BarChartCard
+          title="Correction Response by Type (avg days)"
+          data={corrResponseByType}
+          color="overdue"
+          unit="d"
+          emptyState="No correction rounds completed yet"
+          testId="chart-corr-response-by-type"
+        />
       </div>
+
+      <ScheduleBenchmarks permits={permits} projects={projects} />
+
+      <ReportTable permits={filtered} />
     </div>
   );
 }
