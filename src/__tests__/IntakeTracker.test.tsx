@@ -216,6 +216,30 @@ vi.mock('../hooks/usePermits', () => ({
     refetch: vi.fn(),
   }),
 }));
+// Q6.3.c: editor wires usePermitTypes + 3 mutation hooks. Mock all of
+// them so the existing read-only tests keep their original assertions
+// (the new editor affordances render but the existing assertions are
+// scoped to display-level test-ids).
+vi.mock('../hooks/usePermitTypes', () => ({
+  usePermitTypes: () => ({
+    data: [
+      { name: 'Building Permit', is_builtin: true, notes: null },
+      { name: 'Demolition', is_builtin: true, notes: null },
+    ],
+    isLoading: false,
+    error: null,
+    refetch: vi.fn(),
+  }),
+}));
+vi.mock('../hooks/useUpsertIntakeRecord', () => ({
+  useUpsertIntakeRecord: () => ({ mutate: vi.fn() }),
+}));
+vi.mock('../hooks/useDeleteIntakeRecord', () => ({
+  useDeleteIntakeRecord: () => ({ mutate: vi.fn() }),
+}));
+vi.mock('../hooks/useSwapIntakeDates', () => ({
+  useSwapIntakeDates: () => ({ mutate: vi.fn() }),
+}));
 
 import IntakeTracker from '../components/IntakeTracker';
 
@@ -277,13 +301,17 @@ describe('<IntakeTracker />', () => {
     expect(screen.queryByTestId('week-action-needed-2026-06-15')).not.toBeInTheDocument();
   });
 
-  it('renders portal_url as a clickable permit# link when set', () => {
+  it('renders portal_url as a clickable ↗ icon next to the permit# cell', () => {
+    // Q6.3.c: permit# is now its own inline-edit text cell; the portal_url
+    // is rendered as a separate ↗ link icon. Asserts the link target +
+    // that the link exists only when portal_url is set.
     renderIt();
     const link = screen.getByTestId('intake-portal-link-2');
     expect(link.getAttribute('href')).toBe('https://city.example/200');
     expect(link.getAttribute('target')).toBe('_blank');
-    expect(link.textContent).toMatch(/BP-200/);
-    // Intake 3 has no portal_url → not a link.
+    // The link icon renders ↗; the permit# itself ('BP-200') lives in
+    // the adjacent inline-text cell.
+    expect(screen.getByTestId('intake-num-2').textContent).toMatch(/BP-200/);
     expect(screen.queryByTestId('intake-portal-link-3')).not.toBeInTheDocument();
   });
 
