@@ -9,6 +9,7 @@ import {
   DS_STATUS_COLORS,
   NP_BLOCK_COLOR,
   addWeeksToWeekKey,
+  computeNpSegments,
   dateToWeekKey,
   decideDrop,
   findNpConflictsForDrop,
@@ -471,58 +472,67 @@ function DrawScheduleBody({
                     />
                   ))}
 
-                  {/* NP blocks (vacation/training/etc.) — render below project
-                      blocks (lower z-index) and pointer-events:none so they
-                      never intercept drags. Read-only in v2. */}
-                  {daNpBlocks.map((np) => {
-                    const startIdx = weeks.indexOf(np.start_week);
-                    const endIdx = weeks.indexOf(np.end_week);
-                    if (startIdx < 0 && endIdx < 0) return null;
-                    const si = startIdx >= 0 ? startIdx : 0;
-                    const ei = endIdx >= 0 ? endIdx : weeks.length - 1;
-                    const top = si * ROW_H;
-                    const height =
-                      Math.min((ei - si + 1) * ROW_H, (weeks.length - si) * ROW_H) - 2;
-                    const labelText = np.label?.trim() || np.type;
-                    return (
-                      <div
-                        key={np.id}
-                        data-testid={`np-block-${np.id}`}
-                        title={`${np.type}${np.label && np.label !== np.type ? ` — ${np.label}` : ''} (${np.start_week} → ${np.end_week})`}
-                        style={{
-                          position: 'absolute',
-                          top,
-                          left: 2,
-                          right: 2,
-                          height,
-                          background: NP_BLOCK_COLOR.bg,
-                          color: NP_BLOCK_COLOR.text,
-                          border: `1px solid ${NP_BLOCK_COLOR.border}`,
-                          borderRadius: 4,
-                          padding: '2px 4px',
-                          overflow: 'hidden',
-                          fontSize: 9,
-                          fontWeight: 700,
-                          lineHeight: 1.1,
-                          whiteSpace: 'nowrap',
-                          textOverflow: 'ellipsis',
-                          textAlign: 'center',
-                          // Below project blocks (z=5) so projects layer on top
-                          // visually if they happen to overlap an NP range.
-                          zIndex: 3,
-                          // Q6.2.c-fix: pointer-events:auto by default so the
-                          // native title tooltip fires on hover. During an
-                          // active drag, flip to none so drops pass through
-                          // to the cell underneath (same contract project
-                          // siblings use). NP blocks are never themselves
-                          // draggable in v2.
-                          pointerEvents:
-                            draggingProjectId === null ? 'auto' : 'none',
-                        }}
-                      >
-                        {labelText}
-                      </div>
+                  {/* NP blocks (vacation/training/etc.). Q6.2.e: clipped
+                      around project blocks on the same DA — render one
+                      rectangle per visible (uncovered) segment, so users
+                      can still read e.g. "vacation ends week X" even when
+                      part of the NP range is covered by a project. */}
+                  {daNpBlocks.flatMap((np) => {
+                    const projectRanges = blocks
+                      .filter((b) => b.row.start_week && b.row.end_week)
+                      .map((b) => ({
+                        startWeek: b.row.start_week as string,
+                        endWeek: b.row.end_week as string,
+                      }));
+                    const segments = computeNpSegments(
+                      np.start_week,
+                      np.end_week,
+                      projectRanges,
+                      weeks,
                     );
+                    if (segments.length === 0) return [];
+                    const labelText = np.label?.trim() || np.type;
+                    const tooltipText = `${np.type}${np.label && np.label !== np.type ? ` — ${np.label}` : ''} (${np.start_week} → ${np.end_week})`;
+                    return segments.map((seg, segIdx) => {
+                      const si = weeks.indexOf(seg.startWeek);
+                      const ei = weeks.indexOf(seg.endWeek);
+                      if (si < 0 || ei < 0) return null;
+                      const top = si * ROW_H;
+                      const height = (ei - si + 1) * ROW_H - 2;
+                      return (
+                        <div
+                          key={`${np.id}-seg-${segIdx}`}
+                          data-testid={`np-block-${np.id}-seg-${segIdx}`}
+                          title={tooltipText}
+                          style={{
+                            position: 'absolute',
+                            top,
+                            left: 2,
+                            right: 2,
+                            height,
+                            background: NP_BLOCK_COLOR.bg,
+                            color: NP_BLOCK_COLOR.text,
+                            border: `1px solid ${NP_BLOCK_COLOR.border}`,
+                            borderRadius: 4,
+                            padding: '2px 4px',
+                            overflow: 'hidden',
+                            fontSize: 9,
+                            fontWeight: 700,
+                            lineHeight: 1.1,
+                            whiteSpace: 'nowrap',
+                            textOverflow: 'ellipsis',
+                            textAlign: 'center',
+                            zIndex: 3,
+                            // Same pointer-events contract as before:
+                            // auto for hover, none during drag.
+                            pointerEvents:
+                              draggingProjectId === null ? 'auto' : 'none',
+                          }}
+                        >
+                          {labelText}
+                        </div>
+                      );
+                    });
                   })}
 
                   {/* Project blocks */}

@@ -182,6 +182,53 @@ export function findNpConflictsForDrop(
   );
 }
 
+/** Q6.2.e: segment math for clipping NP block render around overlapping
+ * project blocks on the same DA. Given an NP range, the project ranges on
+ * that DA, and the visible quarter weeks, returns the visible (uncovered)
+ * sub-ranges of the NP. Each sub-range maps to one rendered rectangle.
+ *
+ * Bounded to the current quarter view — NP weeks outside it aren't
+ * rendered anyway. Multiple project blocks may split the NP into several
+ * visible segments. If a project fully covers the NP, returns [].
+ *
+ * Pure function, walks the quarter weeks once; per-week cost is bounded
+ * by the project count on the target DA. */
+export interface WeekRange {
+  startWeek: string;
+  endWeek: string;
+}
+export function computeNpSegments(
+  npStart: string,
+  npEnd: string,
+  projectRanges: WeekRange[],
+  quarterWeeks: string[],
+): WeekRange[] {
+  const segments: WeekRange[] = [];
+  let curSegStart: string | null = null;
+  let curSegEnd: string | null = null;
+
+  for (const wk of quarterWeeks) {
+    const inNp = wk >= npStart && wk <= npEnd;
+    const covered = projectRanges.some(
+      (p) => wk >= p.startWeek && wk <= p.endWeek,
+    );
+    const visible = inNp && !covered;
+
+    if (visible) {
+      if (curSegStart === null) curSegStart = wk;
+      curSegEnd = wk;
+    } else if (curSegStart !== null) {
+      segments.push({ startWeek: curSegStart, endWeek: curSegEnd as string });
+      curSegStart = null;
+      curSegEnd = null;
+    }
+  }
+  if (curSegStart !== null) {
+    segments.push({ startWeek: curSegStart, endWeek: curSegEnd as string });
+  }
+  return segments;
+}
+
 /** Q6.2.b: cascade math for the Push Down operation. Given the anchor's
  * NEW position and every other block on the target DA, returns the new
  * positions for blocks that must move (preserving each block's duration).

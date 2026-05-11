@@ -3,6 +3,7 @@ import {
   DS_STATUS_COLORS,
   addWeeks,
   addWeeksToWeekKey,
+  computeNpSegments,
   dateToWeekKey,
   decideDrop,
   findNpConflictsForDrop,
@@ -332,6 +333,94 @@ describe('findNpConflictsForDrop (Q6.2.d)', () => {
   it('treats touching boundaries as overlap (consistent with project overlap predicate)', () => {
     // Drop ends exactly on the NP's start week.
     expect(findNpConflictsForDrop(npBlocks, '2026-04-20', '2026-04-27')).toHaveLength(1);
+  });
+});
+
+describe('computeNpSegments (Q6.2.e NP clipping)', () => {
+  // 5-week quarter for these tests.
+  const weeks = [
+    '2026-05-04',
+    '2026-05-11',
+    '2026-05-18',
+    '2026-05-25',
+    '2026-06-01',
+  ];
+
+  it('no overlap → returns the full NP range as one segment', () => {
+    const segs = computeNpSegments(
+      '2026-05-04',
+      '2026-05-18',
+      [{ startWeek: '2026-09-01', endWeek: '2026-09-08' }],
+      weeks,
+    );
+    expect(segs).toEqual([
+      { startWeek: '2026-05-04', endWeek: '2026-05-18' },
+    ]);
+  });
+
+  it('project fully covers NP → returns []', () => {
+    const segs = computeNpSegments(
+      '2026-05-11',
+      '2026-05-18',
+      [{ startWeek: '2026-05-04', endWeek: '2026-05-25' }],
+      weeks,
+    );
+    expect(segs).toEqual([]);
+  });
+
+  it('project covers the START of the NP → tail segment visible', () => {
+    // Common case Bobby cited: weeks 1–N covered, "vacation ends week X" stays readable.
+    const segs = computeNpSegments(
+      '2026-05-04',
+      '2026-05-25',
+      [{ startWeek: '2026-05-04', endWeek: '2026-05-11' }],
+      weeks,
+    );
+    expect(segs).toEqual([
+      { startWeek: '2026-05-18', endWeek: '2026-05-25' },
+    ]);
+  });
+
+  it('project covers the MIDDLE of the NP → two segments (head + tail)', () => {
+    const segs = computeNpSegments(
+      '2026-05-04',
+      '2026-06-01',
+      [{ startWeek: '2026-05-11', endWeek: '2026-05-18' }],
+      weeks,
+    );
+    expect(segs).toEqual([
+      { startWeek: '2026-05-04', endWeek: '2026-05-04' },
+      { startWeek: '2026-05-25', endWeek: '2026-06-01' },
+    ]);
+  });
+
+  it('two projects splitting the NP into three segments', () => {
+    const segs = computeNpSegments(
+      '2026-05-04',
+      '2026-06-01',
+      [
+        { startWeek: '2026-05-11', endWeek: '2026-05-11' },
+        { startWeek: '2026-05-25', endWeek: '2026-05-25' },
+      ],
+      weeks,
+    );
+    expect(segs).toEqual([
+      { startWeek: '2026-05-04', endWeek: '2026-05-04' },
+      { startWeek: '2026-05-18', endWeek: '2026-05-18' },
+      { startWeek: '2026-06-01', endWeek: '2026-06-01' },
+    ]);
+  });
+
+  it('NP extends outside the visible quarter → clips to visible weeks only', () => {
+    const segs = computeNpSegments(
+      '2026-04-01', // before quarter
+      '2026-05-18', // mid-quarter
+      [],
+      weeks,
+    );
+    expect(segs).toEqual([
+      { startWeek: '2026-05-04', endWeek: '2026-05-18' },
+    ]);
   });
 });
 

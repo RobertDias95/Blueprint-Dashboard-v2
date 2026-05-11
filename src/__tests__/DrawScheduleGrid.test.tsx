@@ -110,12 +110,15 @@ vi.mock('../hooks/useDaTimeBlocks', () => ({
         created_at: null,
       },
       {
+        // Q6.2.e: spans both before and after p-other's range (Ahmadi
+        // 05-04 → 05-11) so clipping produces TWO visible segments:
+        // 04-27 (head) and 05-18 → 05-25 (tail).
         id: 'np-ahmadi',
         da_name: 'Ahmadi',
         type: 'Other',
         label: 'Style Guide',
-        start_week: '2026-05-11',
-        end_week: '2026-05-18',
+        start_week: '2026-04-27',
+        end_week: '2026-05-25',
         created_at: null,
       },
       {
@@ -254,14 +257,36 @@ describe('<DrawScheduleGrid />', () => {
 
   it('Q6.2.c: NP blocks render in their DA columns with the correct label', () => {
     renderGrid();
-    const trevorNp = screen.getByTestId('np-block-np-trevor');
+    const trevorNp = screen.getByTestId('np-block-np-trevor-seg-0');
     expect(trevorNp).toBeInTheDocument();
     expect(trevorNp.textContent).toBe('Vacation');
 
-    const ahmadiNp = screen.getByTestId('np-block-np-ahmadi');
+    const ahmadiNp = screen.getByTestId('np-block-np-ahmadi-seg-0');
     expect(ahmadiNp).toBeInTheDocument();
     // label preferred over type when distinct.
     expect(ahmadiNp.textContent).toBe('Style Guide');
+  });
+
+  it('Q6.2.e: NP block clipping renders one rectangle per visible segment when a project covers part of the NP range', () => {
+    // np-ahmadi spans Ahmadi 2026-04-27 → 2026-05-25 (5 weeks). p-other on
+    // Ahmadi covers 2026-05-04 → 2026-05-11. Expected segments:
+    //   seg-0: 2026-04-27 (head, before project)
+    //   seg-1: 2026-05-18 → 2026-05-25 (tail, after project)
+    // No seg-2.
+    renderGrid();
+    const seg0 = screen.getByTestId('np-block-np-ahmadi-seg-0');
+    const seg1 = screen.getByTestId('np-block-np-ahmadi-seg-1');
+    expect(seg0).toBeInTheDocument();
+    expect(seg1).toBeInTheDocument();
+    // Both segments carry the same label.
+    expect(seg0.textContent).toBe('Style Guide');
+    expect(seg1.textContent).toBe('Style Guide');
+    // Same hover tooltip on each segment (the underlying NP block is the
+    // same record — clipping is purely visual).
+    expect(seg0.getAttribute('title')).toBe(seg1.getAttribute('title'));
+    expect(seg0.getAttribute('title')).toMatch(/2026-04-27 → 2026-05-25/);
+    // No third segment.
+    expect(screen.queryByTestId('np-block-np-ahmadi-seg-2')).not.toBeInTheDocument();
   });
 
   it('Q6.2.c-fix: NP blocks have pointer-events:auto by default (so hover tooltip fires) and flip to none during a drag', () => {
@@ -270,7 +295,7 @@ describe('<DrawScheduleGrid />', () => {
     // pattern: auto by default, none only while a drag is active so drops
     // pass through to the cell underneath.
     renderGrid();
-    const np = screen.getByTestId('np-block-np-trevor');
+    const np = screen.getByTestId('np-block-np-trevor-seg-0');
     expect(np.style.pointerEvents).toBe('auto');
 
     // Fire dragstart on a project block; NP blocks should flip to none.
@@ -286,7 +311,7 @@ describe('<DrawScheduleGrid />', () => {
     act(() => {
       sourceBlock.dispatchEvent(dragStart);
     });
-    expect(screen.getByTestId('np-block-np-trevor').style.pointerEvents).toBe('none');
+    expect(screen.getByTestId('np-block-np-trevor-seg-0').style.pointerEvents).toBe('none');
 
     // dragend restores hover-friendly state.
     const dragEnd = new Event('dragend', { bubbles: true, cancelable: true });
@@ -294,12 +319,13 @@ describe('<DrawScheduleGrid />', () => {
     act(() => {
       sourceBlock.dispatchEvent(dragEnd);
     });
-    expect(screen.getByTestId('np-block-np-trevor').style.pointerEvents).toBe('auto');
+    expect(screen.getByTestId('np-block-np-trevor-seg-0').style.pointerEvents).toBe('auto');
   });
 
   it('Q6.2.c: NP blocks outside the current quarter are NOT rendered', () => {
     renderGrid();
-    expect(screen.queryByTestId('np-block-np-marc-far')).not.toBeInTheDocument();
+    // No segments at all for the out-of-quarter NP.
+    expect(screen.queryByTestId('np-block-np-marc-far-seg-0')).not.toBeInTheDocument();
   });
 
   it('Q6.2.d: drop overlapping an NP block (no project conflict) shows the soft warning, does NOT silently save', () => {
