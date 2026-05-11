@@ -5,6 +5,9 @@ import { useDmDaGroups } from '../hooks/useDmDaGroups';
 import { useUpdateDrawSchedule } from '../hooks/useUpdateDrawSchedule';
 import { useResolveDaOverlap } from '../hooks/useResolveDaOverlap';
 import { useDaTimeBlocks } from '../hooks/useDaTimeBlocks';
+import { useUpsertDaTimeBlock } from '../hooks/useUpsertDaTimeBlock';
+import { useDeleteDaTimeBlock } from '../hooks/useDeleteDaTimeBlock';
+import NpBlockEditPopup from './NpBlockEditPopup';
 import {
   DS_STATUS_COLORS,
   NP_BLOCK_COLOR,
@@ -70,6 +73,13 @@ interface PendingOverlap {
   endWeek: string;
   scheduleStatus: string | null;
 }
+
+/** Q6.2.f: popover state for the add-NP / edit-NP flow. Position is
+ * captured at click-time so the popup floats next to the source cell. */
+type NpPopupState =
+  | { mode: 'add'; daName: string; weekKey: string; x: number; y: number }
+  | { mode: 'edit'; block: DaTimeBlock; x: number; y: number }
+  | null;
 
 interface PendingNpWarning {
   anchorAddress: string;
@@ -160,11 +170,14 @@ function DrawScheduleBody({
 
   const updateMutation = useUpdateDrawSchedule();
   const resolveMutation = useResolveDaOverlap();
+  const upsertNp = useUpsertDaTimeBlock();
+  const deleteNp = useDeleteDaTimeBlock();
   const [pendingOverlap, setPendingOverlap] = useState<PendingOverlap | null>(
     null,
   );
   const [pendingNpWarning, setPendingNpWarning] =
     useState<PendingNpWarning | null>(null);
+  const [npPopup, setNpPopup] = useState<NpPopupState>(null);
   // Bug A (siblings only): while a drag is active, SIBLING blocks become
   // pointer-events:none so drops aren't intercepted by the project block
   // underneath the cursor. The dragged source MUST keep pointer-events:auto
@@ -443,15 +456,31 @@ function DrawScheduleBody({
                       : 'border-r border-border'
                   }`}
                 >
-                  {/* Empty week cells — also serve as drop targets. */}
+                  {/* Empty week cells — drop target for drags AND click
+                      target for Q6.2.f's add-NP popup. The popup only opens
+                      on a real click; HTML5 drag suppresses onClick when a
+                      drop completes, so the two interactions don't fight. */}
                   {weeks.map((wk) => (
                     <div
                       key={wk}
                       data-testid={`drop-cell-${da}-${wk}`}
                       style={{ height: ROW_H }}
-                      className={`border-b border-border ${
+                      className={`border-b border-border cursor-pointer ${
                         wk === currentWeek ? 'bg-de/[0.04]' : ''
                       }`}
+                      onClick={(e) => {
+                        // Ignore clicks while a drag is active (the drop
+                        // handler already fired) — opening the popup mid-drag
+                        // is jarring.
+                        if (draggingProjectId !== null) return;
+                        setNpPopup({
+                          mode: 'add',
+                          daName: da,
+                          weekKey: wk,
+                          x: e.clientX,
+                          y: e.clientY,
+                        });
+                      }}
                       onDragOver={(e) => {
                         // preventDefault is what tells the browser this is a
                         // valid drop target. Without it, onDrop never fires.
@@ -504,6 +533,19 @@ function DrawScheduleBody({
                           key={`${np.id}-seg-${segIdx}`}
                           data-testid={`np-block-${np.id}-seg-${segIdx}`}
                           title={tooltipText}
+                          onClick={(e) => {
+                            // Open edit popup. stopPropagation so the click
+                            // doesn't bubble to the underlying empty-cell
+                            // add-popup handler.
+                            e.stopPropagation();
+                            if (draggingProjectId !== null) return;
+                            setNpPopup({
+                              mode: 'edit',
+                              block: np,
+                              x: e.clientX,
+                              y: e.clientY,
+                            });
+                          }}
                           style={{
                             position: 'absolute',
                             top,
@@ -523,6 +565,7 @@ function DrawScheduleBody({
                             textOverflow: 'ellipsis',
                             textAlign: 'center',
                             zIndex: 3,
+                            cursor: 'pointer',
                             // Same pointer-events contract as before:
                             // auto for hover, none during drag.
                             pointerEvents:
@@ -673,6 +716,76 @@ function DrawScheduleBody({
             );
           }}
         />
+      )}
+
+      {/* Q6.2.f: NP edit/add popup. Backdrop catches outside clicks. */}
+      {npPopup && (
+        <>
+          <div
+            data-testid="np-popup-backdrop"
+            onClick={() => setNpPopup(null)}
+            style={{
+              position: 'fixed',
+              inset: 0,
+              zIndex: 9998,
+              background: 'transparent',
+            }}
+          />
+          <div
+            style={{
+              position: 'fixed',
+              left: Math.min(npPopup.x, window.innerWidth - 230),
+              top: Math.min(npPopup.y, window.innerHeight - 320),
+              zIndex: 9999,
+            }}
+          >
+            {npPopup.mode === 'add' ? (
+              <NpBlockEditPopup
+                mode="add"
+                daName={npPopup.daName}
+                weekKey={npPopup.weekKey}
+                onAdd={(type, label) => {
+                  const id =
+                    'np_' +
+                    Date.now() +
+                    '_' +
+                    Math.random().toString(36).slice(2, 6);
+                  upsertNp.mutate({
+                    op: 'insert',
+                    id,
+                    patch: {
+                      da_name: npPopup.daName,
+                      type,
+                      label: label || type,
+                      start_week: npPopup.weekKey,
+                      end_week: npPopup.weekKey,
+                    },
+                  });
+                }}
+                onClose={() => setNpPopup(null)}
+              />
+            ) : (
+              <NpBlockEditPopup
+                mode="edit"
+                block={npPopup.block}
+                onUpdate={(type, label) => {
+                  upsertNp.mutate({
+                    op: 'update',
+                    block: npPopup.block,
+                    patch: { type, label: label || type },
+                  });
+                }}
+                onRemove={() => {
+                  deleteNp.mutate({
+                    id: npPopup.block.id,
+                    updated_at: npPopup.block.updated_at,
+                  });
+                }}
+                onClose={() => setNpPopup(null)}
+              />
+            )}
+          </div>
+        </>
       )}
     </div>
   );

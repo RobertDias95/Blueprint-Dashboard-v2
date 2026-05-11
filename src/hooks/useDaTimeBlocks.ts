@@ -5,8 +5,9 @@ import { useAuthStore } from '../stores/authStore';
 import type { DaTimeBlock } from '../lib/database.types';
 
 // Q6.2.c: read-only fetch for da_time_blocks (DA vacation/training/etc.
-// overlay). Tenant scope enforced by RLS. Render-only in v2; admin
-// editing is Q7+.
+// overlay). Tenant scope enforced by RLS.
+// Q6.2.f: updated_at now included in the select — required by the
+// inline edit flow's OCC upsert/delete RPCs.
 
 export function useDaTimeBlocks() {
   const tenantId = useAuthStore((s) => s.activeTenantId);
@@ -16,7 +17,9 @@ export function useDaTimeBlocks() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('da_time_blocks')
-        .select('id, da_name, type, label, start_week, end_week, created_at')
+        .select(
+          'id, da_name, type, label, start_week, end_week, created_at, updated_at',
+        )
         .order('da_name', { ascending: true })
         .order('start_week', { ascending: true });
       if (error) throw error;

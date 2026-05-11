@@ -146,6 +146,8 @@ export interface DaTimeBlock {
   start_week: string;
   end_week: string;
   created_at?: string | null;
+  /** Q7.3.0 added — used for row-level OCC by Q6.2.f edit flow. */
+  updated_at: string;
 }
 
 /** Q6.3.b: corrected against information_schema. Earlier draft carried five
