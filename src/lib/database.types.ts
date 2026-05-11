@@ -148,16 +148,28 @@ export interface DaTimeBlock {
   created_at?: string | null;
 }
 
+/** Q6.3.b: corrected against information_schema. Earlier draft carried five
+ * fields (juris, applicant, status, notes, raw) that never existed in the
+ * DB — runtime worked because useIntakeRecords did `select('*')`, but the
+ * typed shape was misleading. Worth a fuller audit pass at Q7+ for other
+ * interfaces that may have drifted similarly. */
 export interface IntakeRecord {
   id: number;
-  juris: string | null;
-  permit_num: string | null;
+  /** FK to projects(id); nullable in DB (intakes can exist before a project is wired up). */
+  project_id: string | null;
+  /** FK to permits(id); nullable in DB. Drives the "Submitted" status badge
+   * by looking at the linked permit's cycles. */
+  permit_id: number | null;
   address: string | null;
-  applicant: string | null;
+  permit_num: string | null;
+  /** "Building Permit" or "Demolition" per v1 conventions. */
+  permit_type: string | null;
   intake_date: string | null;
-  status: string | null;
-  notes: string | null;
-  raw: unknown;
+  is_placeholder: boolean | null;
+  /** City portal URL — makes the permit# clickable. Editor lands in Q7.3. */
+  portal_url: string | null;
+  /** Legacy duplicate of portal_url in some rows; prefer portal_url at read time. */
+  link: string | null;
   created_at?: string | null;
-  updated_at?: string | null;
+  updated_at: string;
 }

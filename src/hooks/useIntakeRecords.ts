@@ -16,10 +16,17 @@ export function useIntakeRecords() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('intake_records')
-        .select('*')
+        .select(
+          'id, project_id, permit_id, address, permit_num, permit_type, ' +
+            'intake_date, is_placeholder, portal_url, link, ' +
+            'created_at, updated_at',
+        )
         .order('intake_date', { ascending: false });
       if (error) throw error;
-      return (data ?? []) as IntakeRecord[];
+      // PostgREST infers a column-string-based shape from the select that
+      // doesn't unify with IntakeRecord (no generated types in this repo).
+      // Cast via unknown — the columns selected match the interface exactly.
+      return (data ?? []) as unknown as IntakeRecord[];
     },
   });
 }
