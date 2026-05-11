@@ -11,16 +11,19 @@ import {
   addWeeksToWeekKey,
   dateToWeekKey,
   decideDrop,
+  findNpConflictsForDrop,
   getMonday,
   getQuarterLabel,
   getQuarterWeeks,
   jurisBorder,
   multiMatchAddress,
   type DropBlock,
+  type NpConflict,
 } from '../lib/drawScheduleHelpers';
 import { SkeletonRows } from './Skeleton';
 import QueryError from './QueryError';
 import OverlapPrompt from './OverlapPrompt';
+import NpWarningPrompt, { type NpWarningEntry } from './NpWarningPrompt';
 import type {
   DaTimeBlock,
   DrawScheduleRow,
@@ -59,6 +62,20 @@ interface PendingOverlap {
   conflictCount: number;
   /** Captured at drop time so onConfirm can call bp_resolve_da_overlap with
    * the same target the user just released over. */
+  anchorProjectId: string;
+  expectedUpdatedAt: string;
+  daAssigned: string;
+  startWeek: string;
+  endWeek: string;
+  scheduleStatus: string | null;
+}
+
+interface PendingNpWarning {
+  anchorAddress: string;
+  daName: string;
+  conflicts: NpWarningEntry[];
+  /** Same target context as the project-overlap path, since "Save anyway"
+   * fires the silent useUpdateDrawSchedule path with these args. */
   anchorProjectId: string;
   expectedUpdatedAt: string;
   daAssigned: string;
@@ -145,6 +162,8 @@ function DrawScheduleBody({
   const [pendingOverlap, setPendingOverlap] = useState<PendingOverlap | null>(
     null,
   );
+  const [pendingNpWarning, setPendingNpWarning] =
+    useState<PendingNpWarning | null>(null);
   // Bug A (siblings only): while a drag is active, SIBLING blocks become
   // pointer-events:none so drops aren't intercepted by the project block
   // underneath the cursor. The dragged source MUST keep pointer-events:auto
@@ -194,6 +213,52 @@ function DrawScheduleBody({
     );
 
     if (decision.kind === 'save') {
+      // Q6.2.d: project overlap is clean, but check NP conflicts before
+      // saving silently. Project overlap takes precedence (already handled
+      // above) — NP warning is only reachable from the no-project-overlap
+      // path, so the two prompts can never be on screen simultaneously.
+      // Q6.2.d: filter NP blocks for the target DA inline. 26 NP rows
+      // max across all DAs in production — per-drop cost is trivial, and
+      // doing it without a useMemo avoids a React Compiler grumble about
+      // un-preservable `new Map()` memoization.
+      const npCandidates: NpConflict[] = npBlocks
+        .filter((b) => b.da_name === targetDa)
+        .map((b) => ({
+          id: b.id,
+          daName: b.da_name,
+          type: b.type,
+          label: b.label,
+          startWeek: b.start_week,
+          endWeek: b.end_week,
+        }));
+      const npConflicts = findNpConflictsForDrop(
+        npCandidates,
+        targetStartWeek,
+        targetEndWeek,
+      );
+      if (npConflicts.length > 0) {
+        const anchorAddr =
+          projectById.get(payload.projectId)?.address ?? payload.projectId;
+        setPendingNpWarning({
+          anchorAddress: anchorAddr,
+          daName: targetDa,
+          conflicts: npConflicts.map((c) => ({
+            id: c.id,
+            type: c.type,
+            label: c.label,
+            startWeek: c.startWeek,
+            endWeek: c.endWeek,
+          })),
+          anchorProjectId: payload.projectId,
+          expectedUpdatedAt: payload.expectedUpdatedAt,
+          daAssigned: targetDa,
+          startWeek: targetStartWeek,
+          endWeek: targetEndWeek,
+          scheduleStatus: payload.status,
+        });
+        return;
+      }
+
       updateMutation.mutate({
         projectId: payload.projectId,
         expectedUpdatedAt: payload.expectedUpdatedAt,
@@ -268,6 +333,7 @@ function DrawScheduleBody({
     }
     return map;
   }, [npBlocks, weeks]);
+
 
   // "Unscheduled": projects with no DA or no week range, optionally filtered.
   const unscheduled = useMemo(() => {
@@ -548,6 +614,29 @@ function DrawScheduleBody({
 
       {/* Unscheduled lane */}
       <UnscheduledLane items={unscheduled} />
+
+      {pendingNpWarning && (
+        <NpWarningPrompt
+          anchorAddress={pendingNpWarning.anchorAddress}
+          daName={pendingNpWarning.daName}
+          conflicts={pendingNpWarning.conflicts}
+          pending={updateMutation.isPending}
+          onCancel={() => setPendingNpWarning(null)}
+          onConfirm={() => {
+            updateMutation.mutate(
+              {
+                projectId: pendingNpWarning.anchorProjectId,
+                expectedUpdatedAt: pendingNpWarning.expectedUpdatedAt,
+                daAssigned: pendingNpWarning.daAssigned,
+                startWeek: pendingNpWarning.startWeek,
+                endWeek: pendingNpWarning.endWeek,
+                scheduleStatus: pendingNpWarning.scheduleStatus,
+              },
+              { onSuccess: () => setPendingNpWarning(null) },
+            );
+          }}
+        />
+      )}
 
       {pendingOverlap && (
         <OverlapPrompt

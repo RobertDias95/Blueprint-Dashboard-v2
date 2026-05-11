@@ -302,6 +302,72 @@ describe('<DrawScheduleGrid />', () => {
     expect(screen.queryByTestId('np-block-np-marc-far')).not.toBeInTheDocument();
   });
 
+  it('Q6.2.d: drop overlapping an NP block (no project conflict) shows the soft warning, does NOT silently save', () => {
+    renderGrid();
+    // Trevor has an NP block at 2026-04-27 → 2026-05-04. Drop p-now (3 weeks)
+    // onto Trevor at 2026-04-27 → range = 2026-04-27 → 2026-05-11 → overlaps NP.
+    // Trevor has no project blocks currently on that range (p-now is on
+    // Trevor at 05-04 originally; dropping at 04-27 is a no-project-overlap
+    // case since the anchor excludes itself from project overlap).
+    const block = screen.getByTestId('block-p-now');
+    const target = screen.getByTestId('drop-cell-Trevor-2026-04-27');
+    act(() => {
+      simulateDragDrop(block, target);
+    });
+    expect(screen.getByTestId('np-warning-prompt')).toBeInTheDocument();
+    expect(updateMutate).not.toHaveBeenCalled();
+    // Cancel closes the prompt without saving.
+    fireEvent.click(screen.getByTestId('np-warning-prompt-cancel'));
+    expect(screen.queryByTestId('np-warning-prompt')).not.toBeInTheDocument();
+    expect(updateMutate).not.toHaveBeenCalled();
+  });
+
+  it('Q6.2.d: Save Anyway fires updateMutation with the captured target context + closes prompt on success', () => {
+    renderGrid();
+    const block = screen.getByTestId('block-p-now');
+    const target = screen.getByTestId('drop-cell-Trevor-2026-04-27');
+    act(() => {
+      simulateDragDrop(block, target);
+    });
+
+    act(() => {
+      fireEvent.click(screen.getByTestId('np-warning-prompt-confirm'));
+    });
+    expect(updateMutate).toHaveBeenCalledTimes(1);
+    const [arg, opts] = updateMutate.mock.calls[0] as [
+      Record<string, unknown>,
+      { onSuccess?: () => void } | undefined,
+    ];
+    expect(arg.projectId).toBe('p-now');
+    expect(arg.daAssigned).toBe('Trevor');
+    expect(arg.startWeek).toBe('2026-04-27');
+    expect(arg.endWeek).toBe('2026-05-11'); // duration 3 weeks preserved
+
+    // Component passes onSuccess that closes the prompt; invoke it.
+    expect(opts?.onSuccess).toBeTypeOf('function');
+    act(() => {
+      opts!.onSuccess!();
+    });
+    expect(screen.queryByTestId('np-warning-prompt')).not.toBeInTheDocument();
+  });
+
+  it('Q6.2.d: project overlap takes precedence over NP overlap — project modal shows, NP prompt never appears', () => {
+    renderGrid();
+    // Drop p-now onto Ahmadi at 2026-05-04: collides with p-other (project
+    // overlap) AND with the Ahmadi NP block "Style Guide" 2026-05-11 →
+    // 2026-05-18 (NP overlap; new range = 05-04 → 05-18 spans it).
+    // Expected: ONLY the project-overlap (Push Down) modal opens.
+    const block = screen.getByTestId('block-p-now');
+    const target = screen.getByTestId('drop-cell-Ahmadi-2026-05-04');
+    act(() => {
+      simulateDragDrop(block, target);
+    });
+
+    expect(screen.getByTestId('overlap-prompt')).toBeInTheDocument();
+    expect(screen.queryByTestId('np-warning-prompt')).not.toBeInTheDocument();
+    expect(updateMutate).not.toHaveBeenCalled();
+  });
+
   it('Q6.2.c: drag-drop still works through cells visually covered by NP blocks (pointer-events:none contract)', () => {
     renderGrid();
     // The Trevor NP block (np-trevor) covers 2026-04-27 → 2026-05-04. Drop the

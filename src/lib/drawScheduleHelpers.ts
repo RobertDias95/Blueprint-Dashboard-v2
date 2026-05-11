@@ -159,6 +159,29 @@ export function decideDrop(
   return { kind: 'overlap', conflictingProjectIds: conflicts };
 }
 
+/** Q6.2.d: NP block conflict detection. Given the NP blocks on the target
+ * DA and the proposed range, returns the NP blocks the drop would overlap.
+ * Pure function — identical shape to decideDrop but treats every match as
+ * a soft warning rather than a hard conflict. Anchor exclusion isn't a
+ * concern here: projects and NP blocks live in separate tables. */
+export interface NpConflict {
+  id: string;
+  daName: string;
+  type: string;
+  label: string | null;
+  startWeek: string;
+  endWeek: string;
+}
+export function findNpConflictsForDrop(
+  daNpBlocks: NpConflict[],
+  targetStart: string,
+  targetEnd: string,
+): NpConflict[] {
+  return daNpBlocks.filter((np) =>
+    weekRangeOverlap(targetStart, targetEnd, np.startWeek, np.endWeek),
+  );
+}
+
 /** Q6.2.b: cascade math for the Push Down operation. Given the anchor's
  * NEW position and every other block on the target DA, returns the new
  * positions for blocks that must move (preserving each block's duration).

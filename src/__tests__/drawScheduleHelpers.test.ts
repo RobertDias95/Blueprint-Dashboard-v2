@@ -5,6 +5,7 @@ import {
   addWeeksToWeekKey,
   dateToWeekKey,
   decideDrop,
+  findNpConflictsForDrop,
   getMonday,
   getQuarterLabel,
   getQuarterStart,
@@ -290,6 +291,47 @@ describe('planPushDown (Q6.2.b cascade math)', () => {
       // new_start=2026-06-01 → new_end=2026-06-01 + 1 week = 2026-06-08.
       newEndWeek: '2026-06-08',
     });
+  });
+});
+
+describe('findNpConflictsForDrop (Q6.2.d)', () => {
+  const npBlocks = [
+    {
+      id: 'vac-1',
+      daName: 'Trevor',
+      type: 'Vacation',
+      label: 'Vacation',
+      startWeek: '2026-04-27',
+      endWeek: '2026-05-04',
+    },
+    {
+      id: 'redesign-1',
+      daName: 'Trevor',
+      type: 'Redesign',
+      label: 'Redesign sprint',
+      startWeek: '2026-06-15',
+      endWeek: '2026-06-29',
+    },
+  ];
+
+  it('returns empty when target range overlaps no NP blocks', () => {
+    expect(findNpConflictsForDrop(npBlocks, '2026-08-03', '2026-08-17')).toEqual([]);
+  });
+
+  it('returns the single NP block the drop overlaps', () => {
+    const result = findNpConflictsForDrop(npBlocks, '2026-05-04', '2026-05-11');
+    expect(result).toHaveLength(1);
+    expect(result[0].id).toBe('vac-1');
+  });
+
+  it('returns multiple NP blocks when the range spans several', () => {
+    const result = findNpConflictsForDrop(npBlocks, '2026-05-04', '2026-06-22');
+    expect(result.map((n) => n.id).sort()).toEqual(['redesign-1', 'vac-1']);
+  });
+
+  it('treats touching boundaries as overlap (consistent with project overlap predicate)', () => {
+    // Drop ends exactly on the NP's start week.
+    expect(findNpConflictsForDrop(npBlocks, '2026-04-20', '2026-04-27')).toHaveLength(1);
   });
 });
 
