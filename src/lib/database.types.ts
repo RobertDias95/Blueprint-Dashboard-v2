@@ -65,6 +65,12 @@ export interface Permit {
   unit_types: unknown;
   parking_type: string | null;
   parking_stalls: number | null;
+  /** Q6.3.a: dim columns used by the Library matrix view. Optional because
+   * existing test fixtures + narrow read paths don't always carry them;
+   * the matrix view selects them explicitly. */
+  lot_width?: number | null;
+  lot_depth?: number | null;
+  alley?: string | null;
   corr_rounds: number | null;
   permit_owner: string | null;
   architect: string | null;

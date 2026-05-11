@@ -3,6 +3,7 @@ import { useIntakeRecords } from '../hooks/useIntakeRecords';
 import { SkeletonRows } from '../components/Skeleton';
 import QueryError from '../components/QueryError';
 import DrawScheduleGrid from '../components/DrawScheduleGrid';
+import LibraryMatrix from '../components/LibraryMatrix';
 
 // Q2: Settings page shell — three tabs: Draw Schedule, Library, Seattle
 // Intakes. Q6 ships drag-and-drop draw schedule editing; Q7 builds the
@@ -65,17 +66,7 @@ function DrawScheduleTab() {
 }
 
 function LibraryTab() {
-  return (
-    <div className="bg-surface border border-border rounded-xl px-6 py-12 text-center">
-      <div className="text-sm font-display font-bold text-text mb-1">
-        Library — coming in Q7
-      </div>
-      <div className="text-xs text-muted">
-        Roster, jurisdictions, permit types, task templates. Q2 establishes
-        the route; the editor UI ships with the admin harness in Q7.
-      </div>
-    </div>
-  );
+  return <LibraryMatrix />;
 }
 
 function IntakesTab() {
