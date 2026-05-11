@@ -115,6 +115,7 @@ function searchHaystack(
     task.text,
     task.assigned_to,
     permit?.type,
+    permit?.product_type,
     permit?.da,
     permit?.dm,
     permit?.ent_lead,

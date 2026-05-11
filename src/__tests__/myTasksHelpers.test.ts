@@ -303,6 +303,22 @@ describe('filterTasks', () => {
     expect(out.map((t) => t.id).sort()).toEqual(['t-co-1', 't-de-1']);
   });
 
+  it('search matches permit.product_type via joined context (e.g. "all SFR tasks")', () => {
+    // Add product_type to the test permit so the haystack includes it.
+    const ctxWithProductType: FilterContext = {
+      permitsById: new Map([
+        [1, makePermit({ id: 1, product_type: 'SFR + Attached Units' })],
+      ]),
+      projectsById: ctx.projectsById,
+    };
+    const out = filterTasks(
+      tasks,
+      { ...baseFilters, search: 'SFR' },
+      ctxWithProductType,
+    );
+    expect(out.map((t) => t.id).sort()).toEqual(['t-co-1', 't-de-1']);
+  });
+
   it('search matches project.address via joined context', () => {
     const out = filterTasks(
       tasks,
