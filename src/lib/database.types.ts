@@ -153,6 +153,35 @@ export interface DaTimeBlock {
  * DB — runtime worked because useIntakeRecords did `select('*')`, but the
  * typed shape was misleading. Worth a fuller audit pass at Q7+ for other
  * interfaces that may have drifted similarly. */
+// Q7.3.c — task_templates + subtasks.
+
+export type TemplateBucket = 'de' | 'pm' | 'co';
+
+/** Tenant-scoped. jurisdiction=NULL means the template applies to ALL
+ * jurisdictions (the "base" set in v1's mental model). Sorted by
+ * sort_order; ties broken by text. */
+export interface TaskTemplate {
+  id: string;
+  permit_type: string;
+  jurisdiction: string | null;
+  bucket: TemplateBucket;
+  text: string;
+  default_assignee: string | null;
+  default_target_offset: number | null;
+  cat: string | null;
+  sort_order: number | null;
+  updated_at: string;
+}
+
+/** Subtask under a task_template. FK CASCADE on template delete. */
+export interface TaskTemplateSubtask {
+  id: string;
+  template_id: string;
+  text: string;
+  sort_order: number | null;
+  updated_at: string;
+}
+
 // Q7.3.b — team_members + dm_da_groups.
 
 export type TeamRole = 'da' | 'dm' | 'ent' | 'acq';

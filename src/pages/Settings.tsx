@@ -4,14 +4,23 @@ import LibraryMatrix from '../components/LibraryMatrix';
 import IntakeTracker from '../components/IntakeTracker';
 import AdminProjectsTab from '../components/Settings/AdminProjectsTab';
 import AdminTeamTab from '../components/Settings/AdminTeamTab';
+import AdminPermitsTab from '../components/Settings/AdminPermitsTab';
 
 // Q2: Settings page shell — tabs: Draw Schedule, Library, Seattle Intakes.
 // Q6.1: Draw Schedule tab renders the v1-parity grid.
-// Q7.3.a: extended with "Projects" admin catalog tab (jurisdictions,
-// permit types, product types, project tags).
+// Q7.3.a: + "Projects" admin catalog tab (jurisdictions, permit types,
+// product types, project tags).
 // Q7.3.b: + "Team" tab (DAs/DMs/ENTs/ACQs + team structure + former DAs).
+// Q7.3.c: + "Permits & Templates" tab (task templates editor with
+// per-(type, juris, stage) scope).
 
-type SettingsTab = 'schedule' | 'library' | 'intakes' | 'projects' | 'team';
+type SettingsTab =
+  | 'schedule'
+  | 'library'
+  | 'intakes'
+  | 'projects'
+  | 'team'
+  | 'permits';
 
 export default function Settings() {
   const [tab, setTab] = useState<SettingsTab>('schedule');
@@ -34,12 +43,16 @@ export default function Settings() {
         <TabButton active={tab === 'team'} onClick={() => setTab('team')}>
           Team
         </TabButton>
+        <TabButton active={tab === 'permits'} onClick={() => setTab('permits')}>
+          Permits & Templates
+        </TabButton>
       </div>
       {tab === 'schedule' && <DrawScheduleTab />}
       {tab === 'library' && <LibraryTab />}
       {tab === 'intakes' && <IntakesTab />}
       {tab === 'projects' && <AdminProjectsTab />}
       {tab === 'team' && <AdminTeamTab />}
+      {tab === 'permits' && <AdminPermitsTab />}
     </div>
   );
 }
