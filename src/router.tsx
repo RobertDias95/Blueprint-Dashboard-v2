@@ -6,12 +6,18 @@ import Dashboard from './pages/Dashboard';
 import ProjectList from './pages/ProjectList';
 import ProjectDetail from './pages/ProjectDetail';
 import Reports from './pages/Reports';
-import Settings from './pages/Settings';
 import MyTasks from './pages/MyTasks';
+import DrawSchedule from './pages/DrawSchedule';
 
-// Q2: routes wired to real read-side pages. /my-tasks stays a placeholder
-// until Q7 ships the per-user task list. /admin retired — its features
-// live under /settings now.
+// Q2: routes wired to real read-side pages.
+// Q9.5.a: structural realignment to v1's top-nav.
+//   - /draw-schedule promoted to top-level (was a Settings sub-tab in
+//     v2's misaligned shape). Hosts 3 sub-tabs: Draw Schedule / Library
+//     / Seattle Intakes.
+//   - /settings removed as a route — System Settings is a MODAL opened
+//     from the gear button in Chrome, not a page. Legacy /settings URLs
+//     redirect to /dashboard since the modal is stateful inside Chrome.
+
 export const router = createBrowserRouter([
   { path: '/login', element: <Login /> },
   {
@@ -24,11 +30,14 @@ export const router = createBrowserRouter([
     children: [
       { index: true, element: <Navigate to="/dashboard" replace /> },
       { path: 'dashboard', element: <Dashboard /> },
+      { path: 'draw-schedule', element: <DrawSchedule /> },
       { path: 'projects', element: <ProjectList /> },
       { path: 'project/:id', element: <ProjectDetail /> },
       { path: 'reports', element: <Reports /> },
-      { path: 'settings', element: <Settings /> },
       { path: 'my-tasks', element: <MyTasks /> },
+      // Q9.5.a: legacy /settings URLs land back on the dashboard since
+      // Settings is now a modal. Bookmarks bouncing here is expected.
+      { path: 'settings', element: <Navigate to="/dashboard" replace /> },
     ],
   },
   { path: '*', element: <Navigate to="/dashboard" replace /> },

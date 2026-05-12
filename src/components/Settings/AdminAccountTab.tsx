@@ -1,10 +1,12 @@
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
 import { useAuthStore } from '../../stores/authStore';
+import DbToolsCard from '../SettingsModal/DbToolsCard';
 
-// Q7.3.d: Account tab. Read-only sign-in info + sign-out. v1's "DB
-// tools" (push/pull/migrate) section dropped per Q3 design decision —
-// legacy migration scaffolding that doesn't survive cutover.
+// Q7.3.d: Account tab. Read-only sign-in info + sign-out.
+// Q9.5.a: DB Tools restored (was dropped per Q3 — wrong call given the
+// preserve-v1-layout rule). Bobby uses these regularly for manual
+// snapshots before risky operations.
 
 const ROLE_LABEL: Record<string, string> = {
   admin: 'Admin',
@@ -71,6 +73,8 @@ export default function AdminAccountTab() {
           Sign out
         </button>
       </div>
+
+      {activeRole === 'admin' && <DbToolsCard />}
     </div>
   );
 }
