@@ -192,16 +192,17 @@ function ProjectDetailBody({
           permits={permits}
           selectedId={selectedPermit?.id ?? null}
           onSelect={setSelectedPermitId}
-          onClearSelection={() => setSelectedPermitId(null)}
         />
         <div
           className="flex-1 flex flex-col overflow-hidden min-h-0"
           data-testid="project-right-pane"
         >
           {selectedPermitId === null || !selectedPermit ? (
-            // Project overview state
+            // Q9.5.e-fix-2: project overview pane is a single scrollable
+            // column — no flex-1 spacer between Schedule Health and
+            // Notes/Docs, so the footer sits ~16px below the table.
             <div
-              className="flex-1 flex flex-col overflow-hidden min-h-0"
+              className="flex-1 overflow-y-auto"
               data-testid="project-overview-pane"
             >
               <ProjectDetailHeader
@@ -210,20 +211,41 @@ function ProjectDetailBody({
                 bp={bp}
               />
               <ScheduleHealthTable permits={permits} />
-              <div className="flex-1 overflow-y-auto" />
+              <div style={{ height: 16 }} />
               <NotesDocsFooter project={project} />
             </div>
           ) : (
-            // Selected permit edit state — reuses existing PermitDetailRow
+            // Q9.5.e-fix-2: selected permit edit state. The "← Back to
+            // overview" button is promoted out of the sidebar header and
+            // pinned at the top of the right pane — same visual register
+            // as the chrome "← Search" button.
             <div
-              className="flex-1 overflow-y-auto p-3"
+              className="flex-1 flex flex-col overflow-hidden min-h-0"
               data-testid="permit-edit-pane"
             >
-              <PermitDetailRow
-                key={selectedPermit.id}
-                permit={selectedPermit}
-                projectId={project.id}
-              />
+              <div
+                className="px-3 py-2 border-b flex-shrink-0 flex items-center"
+                style={{
+                  background: 'var(--color-s2)',
+                  borderBottomColor: 'var(--color-border)',
+                }}
+              >
+                <button
+                  type="button"
+                  onClick={() => setSelectedPermitId(null)}
+                  className="px-3 py-1 rounded-md text-xs font-bold border border-border bg-surface text-text hover:bg-s3 transition"
+                  data-testid="permit-edit-back-overview"
+                >
+                  ← Back to overview
+                </button>
+              </div>
+              <div className="flex-1 overflow-y-auto p-3 min-h-0">
+                <PermitDetailRow
+                  key={selectedPermit.id}
+                  permit={selectedPermit}
+                  projectId={project.id}
+                />
+              </div>
             </div>
           )}
         </div>
@@ -290,12 +312,10 @@ function PermitsSidebar({
   permits,
   selectedId,
   onSelect,
-  onClearSelection,
 }: {
   permits: PermitWithCycles[];
   selectedId: number | null;
   onSelect: (id: number) => void;
-  onClearSelection: () => void;
 }) {
   return (
     <aside
@@ -304,7 +324,7 @@ function PermitsSidebar({
       data-testid="permits-sidebar"
     >
       <header
-        className="px-3 py-2 border-b flex flex-col items-center gap-1"
+        className="px-3 py-2 border-b flex items-center justify-center"
         style={{
           background: 'var(--color-s2)',
           borderBottomColor: 'var(--color-border)',
@@ -313,18 +333,6 @@ function PermitsSidebar({
         <span className="text-[11px] font-extrabold text-text uppercase tracking-wider">
           Permits ({permits.length})
         </span>
-        {selectedId !== null && (
-          // Q9.5.e-fix-1: while a permit is selected the right pane
-          // shows that permit's edit UI; this link returns to the
-          // project overview (4-col header + Schedule Health + Notes).
-          <button
-            onClick={onClearSelection}
-            className="text-[10px] text-de hover:underline"
-            data-testid="permits-sidebar-overview"
-          >
-            ← Back to overview
-          </button>
-        )}
       </header>
       <div className="flex-1 overflow-y-auto">
         {permits.length === 0 ? (
