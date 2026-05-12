@@ -101,7 +101,13 @@ export default function AddrGroup({
           ? URGENCY_HOVER_BG[cardUrgency]
           : URGENCY_BG[cardUrgency],
         borderBottom: '1px solid var(--color-border)',
-        transition: 'background 0.15s',
+        // Q9.5.e2-fix-4: v1 .addr-highlighted at index.html:186 outlines the
+        // opened address with a 3px blue ring; inset box-shadow avoids the
+        // layout-shift the v1 `border:3px solid` would cause.
+        boxShadow: isOpen ? 'inset 0 0 0 3px var(--color-de)' : undefined,
+        position: isOpen ? 'relative' : undefined,
+        zIndex: isOpen ? 2 : undefined,
+        transition: 'background 0.15s, box-shadow 0.15s',
       }}
       className="overflow-hidden"
     >

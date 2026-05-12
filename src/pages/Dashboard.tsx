@@ -374,7 +374,7 @@ function StageGroup({
                 </span>
               </div>
               <div
-                className="flex flex-col gap-0 border border-border rounded-md overflow-y-auto"
+                className="border border-border rounded-md overflow-y-auto"
                 style={{ maxHeight: 'calc(100vh - 220px)' }}
                 data-scroll-bucket="true"
               >
