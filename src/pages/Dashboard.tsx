@@ -69,11 +69,12 @@ export default function Dashboard() {
     });
     // Mirror v1 :2864 — open toggles the highlight to this addr; close clears it.
     setHighlightedAddress((cur) => (cur === addr ? null : addr));
-    // Q9.5.e2-fix: on open, scroll each bucket's scrollable container so the
-    // matching addr-group is in view. Mirrors v1 :2849-2860. Deferred to the
-    // next microtask so React has flushed the expanded state before measuring.
+    // Q9.5.e2-fix-5: on open, scroll each bucket's scrollable container so
+    // the matching addr-group is in view. Mirrors v1 :2849-2860. Deferred to
+    // the next paint via rAF — queueMicrotask was firing before React had
+    // committed the state change, so the post-open layout wasn't measured.
     if (didOpen) {
-      queueMicrotask(() => scrollAddrIntoView(addr));
+      requestAnimationFrame(() => scrollAddrIntoView(addr));
     }
   }, []);
 
