@@ -375,7 +375,7 @@ function StageGroup({
               </div>
               <div
                 className="flex flex-col gap-0 border border-border rounded-md overflow-y-auto"
-                style={{ maxHeight: 480 }}
+                style={{ maxHeight: 'calc(100vh - 320px)' }}
                 data-scroll-bucket="true"
               >
                 {loading ? (
@@ -480,7 +480,7 @@ function BottomStrip({
           ) : (
             <div
               className="border border-border rounded-md overflow-y-auto"
-              style={{ maxHeight: 480 }}
+              style={{ maxHeight: 'calc(100vh - 320px)' }}
               data-scroll-bucket="true"
             >
               <SubBucketGroups
