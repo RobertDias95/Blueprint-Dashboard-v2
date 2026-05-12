@@ -9,9 +9,11 @@ import {
   type BucketInput,
   type BucketedPermits,
 } from '../lib/permitStage';
+import { permitUrgency } from '../lib/urgencyHelpers';
 import type {
   DrawScheduleRow,
   Permit,
+  PermitCycle,
   Project,
   Stage,
 } from '../lib/database.types';
@@ -41,7 +43,7 @@ export default function Dashboard() {
   const isLoading = projectsQ.isLoading || permitsQ.isLoading || drawQ.isLoading;
   const error = projectsQ.error ?? permitsQ.error ?? drawQ.error;
 
-  const { buckets, projectById } = useMemo(() => {
+  const { buckets, projectById, cyclesByPermit } = useMemo(() => {
     const projects = projectsQ.data ?? [];
     const permits = permitsQ.data ?? [];
     const draw = drawQ.data ?? [];
@@ -101,7 +103,18 @@ export default function Dashboard() {
     const visible = filteredInputs.filter((b) => !hide.has(b.permit.id));
     const bucketed = bucketPermits(visible, drawByProjectId);
 
-    return { buckets: bucketed, projectById: projectByIdMap };
+    // Q9.5.c: per-permit cycle index for urgency lookups. Reuses the
+    // same shape `bucketPermits` consumed so we don't re-walk permits.
+    const cyclesByPermit = new Map<number, PermitCycle[]>();
+    for (const b of visible) {
+      cyclesByPermit.set(b.permit.id, b.cycles);
+    }
+
+    return {
+      buckets: bucketed,
+      projectById: projectByIdMap,
+      cyclesByPermit,
+    };
   }, [projectsQ.data, permitsQ.data, drawQ.data, search]);
 
   if (error) {
@@ -164,7 +177,7 @@ export default function Dashboard() {
           ]}
           stage="de"
           projectById={projectById}
-          permitsData={permitsQ.data ?? []}
+          cyclesByPermit={cyclesByPermit}
         />
         <StageGroup
           title="Permitting"
@@ -178,6 +191,8 @@ export default function Dashboard() {
               permits: buckets.pm,
               keyDateLabel: 'City Target',
               getKeyDate: getMostRecentCityTarget(permitsQ.data ?? []),
+              // Q9.5.c: 'pm' urgency uses the latest city_target across cycles.
+              urgencyStage: 'pm',
             },
             {
               title: 'Corrections',
@@ -185,11 +200,15 @@ export default function Dashboard() {
               permits: buckets.co,
               keyDateLabel: 'Corrections Out',
               getKeyDate: getMostRecentCorrIssued(permitsQ.data ?? []),
+              // Corrections sub-bucket evaluates urgency under 'co' rules
+              // (business-days-since open corr_issued), even though the
+              // parent group's accent is pm.
+              urgencyStage: 'co',
             },
           ]}
           stage="pm"
           projectById={projectById}
-          permitsData={permitsQ.data ?? []}
+          cyclesByPermit={cyclesByPermit}
         />
       </div>
 
@@ -203,6 +222,7 @@ export default function Dashboard() {
           keyDateLabel="Approved"
           getKeyDate={(p) => p.approval_date}
           projectById={projectById}
+          cyclesByPermit={cyclesByPermit}
           loading={isLoading}
         />
         <BottomStrip
@@ -214,6 +234,7 @@ export default function Dashboard() {
           keyDateLabel="Issued"
           getKeyDate={(p) => p.actual_issue}
           projectById={projectById}
+          cyclesByPermit={cyclesByPermit}
           loading={isLoading}
         />
       </div>
@@ -227,6 +248,11 @@ interface SubBucket {
   permits: Permit[];
   keyDateLabel: string;
   getKeyDate: (p: Permit) => string | null;
+  /** Q9.5.c: optional override for urgency math when the sub-bucket's
+   *  urgency stage differs from the group's parent stage (e.g., the
+   *  Corrections sub-bucket inside the Permitting group uses 'co'
+   *  predicates). Defaults to the parent group's `stage`. */
+  urgencyStage?: Stage;
 }
 
 interface StageGroupProps {
@@ -237,8 +263,19 @@ interface StageGroupProps {
   subBuckets: SubBucket[];
   stage: Stage;
   projectById: Map<string, Project>;
-  permitsData: Permit[];
+  cyclesByPermit: Map<number, PermitCycle[]>;
 }
+
+// Q9.5.c: header backgrounds use the stage-bg tint per v1 §4.6.a.
+// Tints are intentionally LIGHT so the count text stays readable.
+const STAGE_HEADER_BG: Record<'de' | 'pm', string> = {
+  de: 'var(--color-de-bg)',
+  pm: 'var(--color-pm-bg)',
+};
+const STAGE_HEADER_BORDER: Record<'de' | 'pm', string> = {
+  de: 'var(--color-de-border)',
+  pm: 'var(--color-pm-border)',
+};
 
 function StageGroup({
   title,
@@ -248,12 +285,17 @@ function StageGroup({
   subBuckets,
   stage,
   projectById,
+  cyclesByPermit,
 }: StageGroupProps) {
-  const accentClass = accent === 'de' ? 'bg-de' : 'bg-pm';
   return (
     <section className="bg-surface border border-border rounded-xl overflow-hidden">
-      <header className="flex items-center gap-2 px-4 py-3 border-b border-border">
-        <span className={`w-2 h-2 rounded-full ${accentClass}`} />
+      <header
+        className="flex items-center gap-2 px-4 py-3 border-b"
+        style={{
+          background: STAGE_HEADER_BG[accent],
+          borderBottomColor: STAGE_HEADER_BORDER[accent],
+        }}
+      >
         <span className="text-xs font-display font-extrabold uppercase tracking-wide text-text flex-1">
           {title}
         </span>
@@ -262,42 +304,50 @@ function StageGroup({
         </span>
       </header>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-0 divide-x divide-border">
-        {subBuckets.map((sub) => (
-          <div key={sub.title} className="p-3">
-            <div className="flex items-center gap-2 mb-2">
-              <span
-                className="w-2 h-2 rounded-full"
-                style={{ background: sub.dotColor }}
-              />
-              <span className="text-[11px] font-display font-bold text-text flex-1">
-                {sub.title}
-              </span>
-              <span className="text-xs font-display font-black text-text">
-                {sub.permits.length}
-              </span>
+        {subBuckets.map((sub) => {
+          const subStage: Stage = sub.urgencyStage ?? stage;
+          return (
+            <div key={sub.title} className="p-3">
+              <div className="flex items-center gap-2 mb-2">
+                <span
+                  className="w-2 h-2 rounded-full"
+                  style={{ background: sub.dotColor }}
+                />
+                <span className="text-[11px] font-display font-bold text-text flex-1">
+                  {sub.title}
+                </span>
+                <span className="text-xs font-display font-black text-text">
+                  {sub.permits.length}
+                </span>
+              </div>
+              <div className="flex flex-col gap-2">
+                {loading ? (
+                  <SkeletonRows count={2} rowClassName="h-16" />
+                ) : sub.permits.length === 0 ? (
+                  <div className="text-[11px] text-dim italic px-2 py-3">
+                    No permits
+                  </div>
+                ) : (
+                  sub.permits.map((p) => {
+                    const cycles = cyclesByPermit.get(p.id) ?? [];
+                    const urgency = permitUrgency(p, cycles, subStage);
+                    return (
+                      <PermitCard
+                        key={p.id}
+                        permit={p}
+                        project={projectById.get(p.project_id)}
+                        stage={subStage}
+                        keyDate={sub.getKeyDate(p)}
+                        keyDateLabel={sub.keyDateLabel}
+                        urgency={urgency}
+                      />
+                    );
+                  })
+                )}
+              </div>
             </div>
-            <div className="flex flex-col gap-2">
-              {loading ? (
-                <SkeletonRows count={2} rowClassName="h-16" />
-              ) : sub.permits.length === 0 ? (
-                <div className="text-[11px] text-dim italic px-2 py-3">
-                  No permits
-                </div>
-              ) : (
-                sub.permits.map((p) => (
-                  <PermitCard
-                    key={p.id}
-                    permit={p}
-                    project={projectById.get(p.project_id)}
-                    stage={stage}
-                    keyDate={sub.getKeyDate(p)}
-                    keyDateLabel={sub.keyDateLabel}
-                  />
-                ))
-              )}
-            </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
     </section>
   );
@@ -312,8 +362,20 @@ interface BottomStripProps {
   keyDateLabel: string;
   getKeyDate: (p: Permit) => string | null;
   projectById: Map<string, Project>;
+  cyclesByPermit: Map<number, PermitCycle[]>;
   loading: boolean;
 }
+
+// Q9.5.c: same stage-bg tinting pattern as the top stage groups for
+// the Approval (jv) + Issued (is) bottom strips.
+const BOTTOM_STRIP_BG: Record<'jv' | 'is', string> = {
+  jv: 'var(--color-jv-bg)',
+  is: 'var(--color-is-bg)',
+};
+const BOTTOM_STRIP_BORDER: Record<'jv' | 'is', string> = {
+  jv: 'var(--color-jv-border)',
+  is: 'var(--color-is-border)',
+};
 
 function BottomStrip({
   title,
@@ -324,17 +386,20 @@ function BottomStrip({
   keyDateLabel,
   getKeyDate,
   projectById,
+  cyclesByPermit,
   loading,
 }: BottomStripProps) {
   const [open, setOpen] = useState(false);
-  const accentClass = accent === 'jv' ? 'bg-jv' : 'bg-is';
   return (
     <section className="bg-surface border border-border rounded-xl overflow-hidden">
       <button
         onClick={() => setOpen((o) => !o)}
-        className="w-full flex items-center gap-2 px-4 py-2.5 hover:bg-s2 transition text-left"
+        className="w-full flex items-center gap-2 px-4 py-2.5 transition text-left"
+        style={{
+          background: BOTTOM_STRIP_BG[accent],
+          borderBottom: open ? `1px solid ${BOTTOM_STRIP_BORDER[accent]}` : 'none',
+        }}
       >
-        <span className={`w-2 h-2 rounded-full ${accentClass}`} />
         <span className="text-[11px] font-display font-extrabold uppercase tracking-wide text-text">
           {title}
         </span>
@@ -350,7 +415,7 @@ function BottomStrip({
         </span>
       </button>
       {open && (
-        <div className="border-t border-border p-3">
+        <div className="p-3">
           {loading ? (
             <SkeletonRows count={2} rowClassName="h-16" />
           ) : permits.length === 0 ? (
@@ -359,16 +424,21 @@ function BottomStrip({
             </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-              {permits.map((p) => (
-                <PermitCard
-                  key={p.id}
-                  permit={p}
-                  project={projectById.get(p.project_id)}
-                  stage={stage}
-                  keyDate={getKeyDate(p)}
-                  keyDateLabel={keyDateLabel}
-                />
-              ))}
+              {permits.map((p) => {
+                const cycles = cyclesByPermit.get(p.id) ?? [];
+                const urgency = permitUrgency(p, cycles, stage);
+                return (
+                  <PermitCard
+                    key={p.id}
+                    permit={p}
+                    project={projectById.get(p.project_id)}
+                    stage={stage}
+                    keyDate={getKeyDate(p)}
+                    keyDateLabel={keyDateLabel}
+                    urgency={urgency}
+                  />
+                );
+              })}
             </div>
           )}
         </div>

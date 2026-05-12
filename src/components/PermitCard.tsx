@@ -1,5 +1,6 @@
 import { Link } from 'react-router-dom';
 import type { Permit, Project, Stage } from '../lib/database.types';
+import type { UrgencyLevel } from '../lib/urgencyHelpers';
 
 interface PermitCardProps {
   permit: Permit;
@@ -8,6 +9,9 @@ interface PermitCardProps {
   /** The date that drives the column-relevant strip (target submit, city target, etc.). */
   keyDate: string | null;
   keyDateLabel: string;
+  /** Q9.5.c: urgency level for this permit at this stage. Drives the
+   *  card's bg tint + 3px left-border. 'ok' renders neutral surface. */
+  urgency?: UrgencyLevel;
 }
 
 const STAGE_BADGE_CLASS: Record<Stage, string> = {
@@ -26,8 +30,20 @@ const STAGE_LABEL: Record<Stage, string> = {
   is: 'Issued',
 };
 
-// Q2: One card per permit on the dashboard matrix. Read-only — clicking the
-// card navigates to the project detail page. Q3 introduces inline editing.
+// Q9.5.c: urgency styling per v1 (.addr-group.urg-* at index.html:179-181).
+// Literal hex values: alert tones distinct from the stage palette.
+const URGENCY_STYLES: Record<
+  UrgencyLevel,
+  { borderLeftColor: string; background: string }
+> = {
+  red: { borderLeftColor: '#dc2626', background: '#fee2e2' },
+  yellow: { borderLeftColor: '#eab308', background: '#fef9c3' },
+  ok: { borderLeftColor: 'transparent', background: 'var(--color-surface)' },
+};
+
+// Q2: One card per permit on the dashboard matrix. Read-only — clicking
+// navigates to the project detail page.
+// Q9.5.c: urgency-tinted left-border + bg per v1 §4.6.b predicate output.
 
 export default function PermitCard({
   permit,
@@ -35,17 +51,24 @@ export default function PermitCard({
   stage,
   keyDate,
   keyDateLabel,
+  urgency = 'ok',
 }: PermitCardProps) {
   const address = project?.address ?? permit.struct_address ?? '—';
   const lead = permit.ent_lead || permit.permit_owner || '';
   const team = [permit.da, permit.dual_da, permit.dm].filter(Boolean).join(' · ');
+  const urgencyStyle = URGENCY_STYLES[urgency];
 
   return (
     <Link
       to={`/project/${permit.project_id}`}
-      className="block border border-border rounded-lg bg-surface p-3 hover:border-de hover:shadow-sm transition"
+      className="block border border-y border-r border-border rounded-lg p-3 hover:border-de hover:shadow-sm transition"
+      style={{
+        background: urgencyStyle.background,
+        borderLeft: `3px solid ${urgencyStyle.borderLeftColor}`,
+      }}
       data-testid="permit-card"
       data-permit-id={permit.id}
+      data-urgency={urgency}
     >
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0 flex-1">
