@@ -552,33 +552,19 @@ function mostRecent<T>(rows: T[], pick: (row: T) => string | null): string | nul
 // so the just-opened card is in view. Mirrors v1 toggleProjectExpanded
 // :2849-2860 — independent per-container scroll, smooth, with an 8px buffer
 // so the card doesn't snap flush to the top edge.
+// Q9.5.e2-fix-7: scroll each bucket that contains a matching addr-group
+// so the just-opened card is in view. Uses native Element.scrollIntoView —
+// the browser walks up every scrollable ancestor automatically, which is
+// more robust than the per-bucket scrollTop math we tried in fix-5/fix-6
+// (worked for the active bucket, missed the cross-bucket landing).
 function scrollAddrIntoView(addr: string) {
   if (typeof document === 'undefined') return;
   const safe = typeof CSS !== 'undefined' && CSS.escape ? CSS.escape(addr) : addr;
   const matches = document.querySelectorAll<HTMLElement>(
     `[data-addr-group="${safe}"]`,
   );
-  // Q9.5.e2-fix-6 DIAGNOSTIC — remove in fix-7 once Bobby confirms whether
-  // missing scrolls are no-match cases or layout-math cases.
-  // eslint-disable-next-line no-console
-  console.log(
-    `[scrollAddrIntoView] addr="${addr}" matches=${matches.length}`,
-  );
-  matches.forEach((el, i) => {
-    const container = el.closest<HTMLElement>('[data-scroll-bucket="true"]');
-    if (!container) {
-      // eslint-disable-next-line no-console
-      console.log(`  [${i}] NO scroll-bucket parent for this match`);
-      return;
-    }
-    const containerTop = container.getBoundingClientRect().top;
-    const elTop = el.getBoundingClientRect().top;
-    const offset = elTop - containerTop + container.scrollTop - 8;
-    // eslint-disable-next-line no-console
-    console.log(
-      `  [${i}] bucket parent found, current scrollTop=${container.scrollTop}, target offset=${offset}, el rect top=${elTop}, container rect top=${containerTop}`,
-    );
-    container.scrollTo({ top: offset, behavior: 'smooth' });
+  matches.forEach((el) => {
+    el.scrollIntoView({ block: 'start', behavior: 'smooth' });
   });
 }
 
