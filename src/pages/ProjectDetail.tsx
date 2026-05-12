@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { useProjects } from '../hooks/useProjects';
 import { usePermitsByProject } from '../hooks/usePermitsByProject';
@@ -23,11 +23,22 @@ import type {
 import { SkeletonRows } from '../components/Skeleton';
 import QueryError from '../components/QueryError';
 import EditableField from '../components/EditableField';
+import ProjectDetailHeader from '../components/ProjectDetail/ProjectDetailHeader';
+import ScheduleHealthTable from '../components/ProjectDetail/ScheduleHealthTable';
+import NotesDocsFooter from '../components/ProjectDetail/NotesDocsFooter';
 
 // Q3 + Q4: Single-project view. Q3 wired editable permit-level fields. Q4
 // adds editable cycles (5 date columns + add/delete) and a tasks section
 // per permit (3 buckets: de/pm/co + add/delete). All writes are row-level
 // OCC via the bp_upsert_*_row / bp_delete_*_row RPCs.
+//
+// Q9.5.e: layout rewrite to v1 §4.2.1 parity. Top strip = 4-column
+// header (DD Phase / Project / Team / Builder). Body splits into:
+//   - Schedule Health summary table (5 cols this phase; full 8 in polish)
+//   - Permits sidebar (200px) on the left + selected-permit detail pane
+//     (flex) on the right. Existing PermitDetailRow inline edits reused
+//     intact inside the right pane.
+// Notes + Documents footer below.
 
 const STAGE_LABEL: Record<Stage, string> = {
   de: 'D&E',
@@ -99,49 +110,157 @@ export default function ProjectDetail() {
     );
   }
 
+  if (isLoading || !project) {
+    return <SkeletonRows count={6} rowClassName="h-16" />;
+  }
+  const permits = permitsQ.data ?? [];
+  return <ProjectDetailBody project={project} permits={permits} />;
+}
+
+function ProjectDetailBody({
+  project,
+  permits,
+}: {
+  project: NonNullable<ReturnType<typeof useProjects>['data']>[number];
+  permits: PermitWithCycles[];
+}) {
+  // Building Permit is the canonical anchor for project-level fields
+  // (matches v1's `bp = ps.filter(p => p.type === 'Building Permit')[0] || ps[0]`).
+  const bp = useMemo(() => {
+    return permits.find((p) => p.type === 'Building Permit') ?? permits[0] ?? null;
+  }, [permits]);
+
+  // Currently-selected permit for the right-side detail pane. Defaults
+  // to the BP; null when there are no permits yet.
+  const [selectedPermitId, setSelectedPermitId] = useState<number | null>(
+    bp?.id ?? null,
+  );
+  const selectedPermit =
+    permits.find((p) => p.id === selectedPermitId) ?? bp ?? null;
+
   return (
-    <div className="space-y-6">
-      <header>
+    <div className="flex flex-col h-[calc(100vh-100px)] overflow-hidden" data-testid="project-detail-page">
+      <header className="flex items-baseline gap-3 px-4 py-2 flex-shrink-0">
         <Link
           to="/projects"
           className="text-[11px] text-muted hover:text-text transition"
         >
           ← Project View
         </Link>
-        <h1 className="text-xl font-display font-black text-text mt-1">
-          {project?.address ?? '...'}
+        <h1 className="text-base font-extrabold text-text">
+          {project.address}
         </h1>
-        <div className="text-[11px] text-muted font-mono mt-1">
-          {project?.juris ?? '—'}
-          {project?.notes && (
-            <span className="ml-2 text-dim">· {project.notes}</span>
-          )}
-        </div>
+        <span className="text-[11px] text-muted font-mono">
+          {project.juris ?? '—'}
+        </span>
       </header>
 
-      <section>
-        <h2 className="text-xs font-display font-extrabold uppercase tracking-wide text-text mb-3">
-          Permits
-        </h2>
-        {isLoading ? (
-          <SkeletonRows count={3} rowClassName="h-24" />
-        ) : (permitsQ.data ?? []).length === 0 ? (
-          <div className="text-sm text-dim italic px-2 py-6 text-center bg-surface border border-border rounded-xl">
-            No permits on this project yet.
+      <ProjectDetailHeader
+        project={project}
+        permits={permits}
+        bp={bp}
+      />
+
+      <ScheduleHealthTable permits={permits} />
+
+      <div className="flex flex-1 overflow-hidden min-h-0">
+        <PermitsSidebar
+          permits={permits}
+          selectedId={selectedPermit?.id ?? null}
+          onSelect={setSelectedPermitId}
+        />
+        <div className="flex-1 overflow-y-auto" data-testid="permit-detail-pane">
+          {selectedPermit ? (
+            <PermitDetailRow
+              key={selectedPermit.id}
+              permit={selectedPermit}
+              projectId={project.id}
+            />
+          ) : (
+            <div className="text-sm text-dim italic px-2 py-12 text-center">
+              No permits on this project yet. Add one in the Settings modal.
+            </div>
+          )}
+        </div>
+      </div>
+
+      <NotesDocsFooter project={project} />
+    </div>
+  );
+}
+
+function PermitsSidebar({
+  permits,
+  selectedId,
+  onSelect,
+}: {
+  permits: PermitWithCycles[];
+  selectedId: number | null;
+  onSelect: (id: number) => void;
+}) {
+  return (
+    <aside
+      className="flex-shrink-0 border-r flex flex-col bg-surface"
+      style={{ width: 220, borderRightColor: 'var(--color-border)' }}
+      data-testid="permits-sidebar"
+    >
+      <header
+        className="px-3 py-2 border-b flex items-center justify-center"
+        style={{
+          background: 'var(--color-s2)',
+          borderBottomColor: 'var(--color-border)',
+        }}
+      >
+        <span className="text-[11px] font-extrabold text-text uppercase tracking-wider">
+          Permits ({permits.length})
+        </span>
+      </header>
+      <div className="flex-1 overflow-y-auto">
+        {permits.length === 0 ? (
+          <div className="text-[11px] text-dim italic p-4 text-center">
+            No permits yet.
           </div>
         ) : (
-          <div className="flex flex-col gap-3">
-            {(permitsQ.data ?? []).map((permit) => (
-              <PermitDetailRow
-                key={permit.id}
-                permit={permit}
-                projectId={project!.id}
-              />
-            ))}
-          </div>
+          permits.map((p) => {
+            const stage = effectiveStage(p, p.permit_cycles ?? []);
+            const isSelected = p.id === selectedId;
+            return (
+              <button
+                key={p.id}
+                onClick={() => onSelect(p.id)}
+                className="w-full text-left px-3 py-2.5 border-b transition flex flex-col gap-1"
+                style={{
+                  borderBottomColor: 'var(--color-border)',
+                  background: isSelected
+                    ? 'var(--color-s3)'
+                    : 'transparent',
+                  borderLeft: isSelected
+                    ? `3px solid var(--color-${stage})`
+                    : '3px solid transparent',
+                }}
+                data-testid={`permits-sidebar-row-${p.id}`}
+              >
+                <div className="text-[11px] font-bold text-text truncate">
+                  {p.type ?? '—'}
+                  {p.nickname && (
+                    <span className="text-muted font-normal ml-1">
+                      — {p.nickname}
+                    </span>
+                  )}
+                </div>
+                <div className="text-[9px] text-muted truncate font-mono">
+                  {p.num ?? '—'}
+                  {p.ent_lead && (
+                    <span className="ml-1 text-text">{p.ent_lead}</span>
+                  )}
+                  {p.da && <span className="ml-1 text-text">{p.da}</span>}
+                </div>
+              </button>
+            );
+          })
         )}
-      </section>
-    </div>
+      </div>
+    </aside>
   );
 }
 
