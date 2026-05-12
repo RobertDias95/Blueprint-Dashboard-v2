@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import NewProjectWizard from '../components/NewProjectWizard';
 import { useProjects } from '../hooks/useProjects';
 import { usePermits } from '../hooks/usePermits';
@@ -9,7 +9,7 @@ import {
   type BucketInput,
   type BucketedPermits,
 } from '../lib/permitStage';
-import { permitUrgency } from '../lib/urgencyHelpers';
+import { cardUrgency } from '../lib/urgencyHelpers';
 import type {
   DrawScheduleRow,
   Permit,
@@ -17,9 +17,21 @@ import type {
   Project,
   Stage,
 } from '../lib/database.types';
-import PermitCard from '../components/PermitCard';
+import AddrGroup from '../components/Dashboard/AddrGroup';
 import { SkeletonRows } from '../components/Skeleton';
 import QueryError from '../components/QueryError';
+
+// Q9.5.e2: cross-bucket interactivity. `DashContext` lifts `highlightedAddress`
+// + `openAddresses` to the Dashboard root so toggling open/highlight on one
+// .addr-group propagates to every sub-bucket that shows the same address —
+// mirrors v1's `toggleProjectExpanded` at index.html:2832 + `highlightProject`
+// at :2823.
+interface DashContext {
+  highlightedAddress: string | null;
+  openAddresses: Set<string>;
+  toggleAddress: (addr: string) => void;
+  setHighlight: (addr: string | null) => void;
+}
 
 // Q2: Dashboard matrix. Project-keyed render — iterates `projects`, looks
 // up permits via project_id, classifies each by effectiveStage, splits the
@@ -39,6 +51,32 @@ export default function Dashboard() {
   const drawQ = useDrawSchedule();
   const [search, setSearch] = useState('');
   const [wizardOpen, setWizardOpen] = useState(false);
+  const [highlightedAddress, setHighlightedAddress] = useState<string | null>(null);
+  const [openAddresses, setOpenAddresses] = useState<Set<string>>(new Set());
+
+  const toggleAddress = useCallback((addr: string) => {
+    setOpenAddresses((prev) => {
+      const next = new Set(prev);
+      if (next.has(addr)) {
+        next.delete(addr);
+      } else {
+        next.add(addr);
+      }
+      return next;
+    });
+    // Mirror v1 :2864 — open toggles the highlight to this addr; close clears it.
+    setHighlightedAddress((cur) => (cur === addr ? null : addr));
+  }, []);
+
+  const dashCtx: DashContext = useMemo(
+    () => ({
+      highlightedAddress,
+      openAddresses,
+      toggleAddress,
+      setHighlight: setHighlightedAddress,
+    }),
+    [highlightedAddress, openAddresses, toggleAddress],
+  );
 
   const isLoading = projectsQ.isLoading || permitsQ.isLoading || drawQ.isLoading;
   const error = projectsQ.error ?? permitsQ.error ?? drawQ.error;
@@ -178,6 +216,7 @@ export default function Dashboard() {
           stage="de"
           projectById={projectById}
           cyclesByPermit={cyclesByPermit}
+          ctx={dashCtx}
         />
         <StageGroup
           title="Permitting"
@@ -209,6 +248,7 @@ export default function Dashboard() {
           stage="pm"
           projectById={projectById}
           cyclesByPermit={cyclesByPermit}
+          ctx={dashCtx}
         />
       </div>
 
@@ -224,6 +264,7 @@ export default function Dashboard() {
           projectById={projectById}
           cyclesByPermit={cyclesByPermit}
           loading={isLoading}
+          ctx={dashCtx}
         />
         <BottomStrip
           title="Issued"
@@ -236,6 +277,7 @@ export default function Dashboard() {
           projectById={projectById}
           cyclesByPermit={cyclesByPermit}
           loading={isLoading}
+          ctx={dashCtx}
         />
       </div>
     </div>
@@ -264,6 +306,7 @@ interface StageGroupProps {
   stage: Stage;
   projectById: Map<string, Project>;
   cyclesByPermit: Map<number, PermitCycle[]>;
+  ctx: DashContext;
 }
 
 // Q9.5.c: header backgrounds use the stage-bg tint per v1 §4.6.a.
@@ -286,6 +329,7 @@ function StageGroup({
   stage,
   projectById,
   cyclesByPermit,
+  ctx,
 }: StageGroupProps) {
   return (
     <section className="bg-surface border border-border rounded-xl overflow-hidden">
@@ -320,29 +364,25 @@ function StageGroup({
                   {sub.permits.length}
                 </span>
               </div>
-              <div className="flex flex-col gap-2">
+              <div className="flex flex-col gap-0 border border-border rounded-md overflow-hidden">
                 {loading ? (
-                  <SkeletonRows count={2} rowClassName="h-16" />
+                  <div className="p-2">
+                    <SkeletonRows count={2} rowClassName="h-16" />
+                  </div>
                 ) : sub.permits.length === 0 ? (
                   <div className="text-[11px] text-dim italic px-2 py-3">
                     No permits
                   </div>
                 ) : (
-                  sub.permits.map((p) => {
-                    const cycles = cyclesByPermit.get(p.id) ?? [];
-                    const urgency = permitUrgency(p, cycles, subStage);
-                    return (
-                      <PermitCard
-                        key={p.id}
-                        permit={p}
-                        project={projectById.get(p.project_id)}
-                        stage={subStage}
-                        keyDate={sub.getKeyDate(p)}
-                        keyDateLabel={sub.keyDateLabel}
-                        urgency={urgency}
-                      />
-                    );
-                  })
+                  <SubBucketGroups
+                    permits={sub.permits}
+                    stage={subStage}
+                    cyclesByPermit={cyclesByPermit}
+                    projectById={projectById}
+                    keyDateLabel={sub.keyDateLabel}
+                    getKeyDate={sub.getKeyDate}
+                    ctx={ctx}
+                  />
                 )}
               </div>
             </div>
@@ -364,6 +404,7 @@ interface BottomStripProps {
   projectById: Map<string, Project>;
   cyclesByPermit: Map<number, PermitCycle[]>;
   loading: boolean;
+  ctx: DashContext;
 }
 
 // Q9.5.c: same stage-bg tinting pattern as the top stage groups for
@@ -388,6 +429,7 @@ function BottomStrip({
   projectById,
   cyclesByPermit,
   loading,
+  ctx,
 }: BottomStripProps) {
   const [open, setOpen] = useState(false);
   return (
@@ -423,22 +465,16 @@ function BottomStrip({
               No permits
             </div>
           ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-              {permits.map((p) => {
-                const cycles = cyclesByPermit.get(p.id) ?? [];
-                const urgency = permitUrgency(p, cycles, stage);
-                return (
-                  <PermitCard
-                    key={p.id}
-                    permit={p}
-                    project={projectById.get(p.project_id)}
-                    stage={stage}
-                    keyDate={getKeyDate(p)}
-                    keyDateLabel={keyDateLabel}
-                    urgency={urgency}
-                  />
-                );
-              })}
+            <div className="border border-border rounded-md overflow-hidden">
+              <SubBucketGroups
+                permits={permits}
+                stage={stage}
+                cyclesByPermit={cyclesByPermit}
+                projectById={projectById}
+                keyDateLabel={keyDateLabel}
+                getKeyDate={getKeyDate}
+                ctx={ctx}
+              />
             </div>
           )}
         </div>
@@ -491,4 +527,99 @@ function getMostRecentCorrIssued(permits: Permit[]) {
 function mostRecent<T>(rows: T[], pick: (row: T) => string | null): string | null {
   const dates = rows.map(pick).filter((d): d is string => Boolean(d)).sort();
   return dates.length ? dates[dates.length - 1] : null;
+}
+
+// Q9.5.e2: group permits in a sub-bucket by project address, then render one
+// AddrGroup per address. Addresses sort by worst-urgency-first so red groups
+// surface to the top — mirrors v1's :2686-2707 sort logic at the group level.
+interface SubBucketGroupsProps {
+  permits: Permit[];
+  stage: Stage;
+  cyclesByPermit: Map<number, PermitCycle[]>;
+  projectById: Map<string, Project>;
+  keyDateLabel: string;
+  getKeyDate: (p: Permit) => string | null;
+  ctx: DashContext;
+}
+
+function SubBucketGroups({
+  permits,
+  stage,
+  cyclesByPermit,
+  projectById,
+  keyDateLabel,
+  getKeyDate,
+  ctx,
+}: SubBucketGroupsProps) {
+  const groups = useMemo(() => {
+    const byAddr = new Map<string, Permit[]>();
+    for (const p of permits) {
+      const project = projectById.get(p.project_id);
+      const addr = project?.address ?? p.struct_address ?? '—';
+      const list = byAddr.get(addr) ?? [];
+      list.push(p);
+      byAddr.set(addr, list);
+    }
+    // Compute worst-urgency per group for sort + render
+    const entries: {
+      address: string;
+      juris: string | null;
+      projectId: string;
+      permits: Permit[];
+      urgency: ReturnType<typeof cardUrgency>;
+    }[] = [];
+    for (const [addr, ps] of byAddr) {
+      const inputs = ps.map((p) => ({
+        permit: p,
+        cycles: cyclesByPermit.get(p.id) ?? [],
+      }));
+      const u = cardUrgency(inputs, stage);
+      const first = ps[0];
+      const project = projectById.get(first.project_id);
+      entries.push({
+        address: addr,
+        juris: project?.juris ?? null,
+        projectId: first.project_id,
+        permits: ps,
+        urgency: u,
+      });
+    }
+    // Red → Yellow → OK; within same urgency, alpha by address.
+    const urgRank = { red: 0, yellow: 1, ok: 2 } as const;
+    entries.sort((a, b) => {
+      const ra = urgRank[a.urgency];
+      const rb = urgRank[b.urgency];
+      if (ra !== rb) return ra - rb;
+      return a.address.localeCompare(b.address);
+    });
+    return entries;
+  }, [permits, projectById, cyclesByPermit, stage]);
+
+  return (
+    <>
+      {groups.map((g) => (
+        <AddrGroup
+          key={g.address}
+          address={g.address}
+          juris={g.juris}
+          projectId={g.projectId}
+          permits={g.permits}
+          stage={stage}
+          cyclesByPermit={cyclesByPermit}
+          cardUrgency={g.urgency}
+          keyDateLabel={keyDateLabel}
+          getKeyDate={getKeyDate}
+          isOpen={ctx.openAddresses.has(g.address)}
+          isHighlighted={ctx.highlightedAddress === g.address}
+          onToggle={() => ctx.toggleAddress(g.address)}
+          onHover={() => ctx.setHighlight(g.address)}
+          onLeave={() =>
+            ctx.setHighlight(
+              ctx.openAddresses.has(g.address) ? g.address : null,
+            )
+          }
+        />
+      ))}
+    </>
+  );
 }
