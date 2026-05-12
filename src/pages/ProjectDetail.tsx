@@ -26,6 +26,7 @@ import EditableField from '../components/EditableField';
 import ProjectDetailHeader from '../components/ProjectDetail/ProjectDetailHeader';
 import ScheduleHealthTable from '../components/ProjectDetail/ScheduleHealthTable';
 import NotesDocsFooter from '../components/ProjectDetail/NotesDocsFooter';
+import { pushToast } from '../stores/toastStore';
 
 // Q3 + Q4: Single-project view. Q3 wired editable permit-level fields. Q4
 // adds editable cycles (5 date columns + add/delete) and a tasks section
@@ -130,61 +131,157 @@ function ProjectDetailBody({
     return permits.find((p) => p.type === 'Building Permit') ?? permits[0] ?? null;
   }, [permits]);
 
-  // Currently-selected permit for the right-side detail pane. Defaults
-  // to the BP; null when there are no permits yet.
-  const [selectedPermitId, setSelectedPermitId] = useState<number | null>(
-    bp?.id ?? null,
-  );
+  // Q9.5.e-fix-1: default to project-overview view (null selection)
+  // per v1 spatial pattern (index.html:3611). Sidebar click sets a
+  // permit; "← Back to overview" link clears back to null.
+  const [selectedPermitId, setSelectedPermitId] = useState<number | null>(null);
   const selectedPermit =
-    permits.find((p) => p.id === selectedPermitId) ?? bp ?? null;
+    selectedPermitId !== null
+      ? permits.find((p) => p.id === selectedPermitId) ?? null
+      : null;
+  // Keep bp around for the project-overview render even when no permit
+  // is explicitly selected — the 4-col header anchors on the BP.
+  void bp;
 
   return (
-    <div className="flex flex-col h-[calc(100vh-100px)] overflow-hidden" data-testid="project-detail-page">
-      <header className="flex items-baseline gap-3 px-4 py-2 flex-shrink-0">
-        <Link
-          to="/projects"
-          className="text-[11px] text-muted hover:text-text transition"
-        >
-          ← Project View
-        </Link>
-        <h1 className="text-base font-extrabold text-text">
-          {project.address}
-        </h1>
-        <span className="text-[11px] text-muted font-mono">
-          {project.juris ?? '—'}
-        </span>
-      </header>
-
-      <ProjectDetailHeader
-        project={project}
-        permits={permits}
-        bp={bp}
+    <div
+      className="flex flex-col h-[calc(100vh-100px)] overflow-hidden"
+      data-testid="project-detail-page"
+    >
+      {/* Q9.5.e-fix-1: page chrome matches v1 :751-756 — Search button
+          left, centered "Project Overview" title (absolute positioning
+          so the buttons don't shift it off-center), Project Settings +
+          Delete buttons right. */}
+      <ProjectPageChrome
+        onDelete={() => {
+          // Q9.5.e-fix-1: Delete button is a stub for now — destructive
+          // op needs a confirm modal + cascade RPC. Backlog #67.
+          pushToast(
+            'Project delete — backlog; route this via Settings → DB Tools or contact Claude for SQL delete.',
+            'info',
+          );
+        }}
+        onSettings={() => {
+          // Q9.5.e-fix-1: Project Settings modal is v1's per-project
+          // info editor (index.html:773-850). Build lands in
+          // Q9.5.e-fix-2 (editable Site fields all wire there).
+          pushToast(
+            'Project Settings modal — lands in Q9.5.e-fix-2 alongside the editable Site fields.',
+            'info',
+          );
+        }}
       />
 
-      <ScheduleHealthTable permits={permits} />
+      {/* Project address sub-header — centered, larger per v1 :758 */}
+      <div className="text-center pt-1 pb-3 flex-shrink-0">
+        <div className="text-[15px] font-extrabold text-text">
+          {project.address}
+        </div>
+        <div className="text-[11px] text-muted font-mono mt-0.5">
+          {project.juris ?? '—'}
+        </div>
+      </div>
 
+      {/* Q9.5.e-fix-1: right-pane toggle. When no permit is selected,
+          the right pane shows the project overview (4-col header +
+          Schedule Health + Notes/Docs footer). Click a permit and the
+          whole right pane swaps to that permit's edit UI. Matches v1
+          showProjectOverview/_renderPermitDetail (index.html:3526-4096). */}
       <div className="flex flex-1 overflow-hidden min-h-0">
         <PermitsSidebar
           permits={permits}
           selectedId={selectedPermit?.id ?? null}
           onSelect={setSelectedPermitId}
+          onClearSelection={() => setSelectedPermitId(null)}
         />
-        <div className="flex-1 overflow-y-auto" data-testid="permit-detail-pane">
-          {selectedPermit ? (
-            <PermitDetailRow
-              key={selectedPermit.id}
-              permit={selectedPermit}
-              projectId={project.id}
-            />
+        <div
+          className="flex-1 flex flex-col overflow-hidden min-h-0"
+          data-testid="project-right-pane"
+        >
+          {selectedPermitId === null || !selectedPermit ? (
+            // Project overview state
+            <div
+              className="flex-1 flex flex-col overflow-hidden min-h-0"
+              data-testid="project-overview-pane"
+            >
+              <ProjectDetailHeader
+                project={project}
+                permits={permits}
+                bp={bp}
+              />
+              <ScheduleHealthTable permits={permits} />
+              <div className="flex-1 overflow-y-auto" />
+              <NotesDocsFooter project={project} />
+            </div>
           ) : (
-            <div className="text-sm text-dim italic px-2 py-12 text-center">
-              No permits on this project yet. Add one in the Settings modal.
+            // Selected permit edit state — reuses existing PermitDetailRow
+            <div
+              className="flex-1 overflow-y-auto p-3"
+              data-testid="permit-edit-pane"
+            >
+              <PermitDetailRow
+                key={selectedPermit.id}
+                permit={selectedPermit}
+                projectId={project.id}
+              />
             </div>
           )}
         </div>
       </div>
+    </div>
+  );
+}
 
-      <NotesDocsFooter project={project} />
+// Q9.5.e-fix-1: page chrome bar per v1 :751-756. Three-section layout
+// using absolute centering on the title so the side buttons can grow
+// without shifting the title off-center.
+function ProjectPageChrome({
+  onDelete,
+  onSettings,
+}: {
+  onDelete: () => void;
+  onSettings: () => void;
+}) {
+  return (
+    <div
+      className="relative flex items-center justify-between px-4 py-2 border-b flex-shrink-0"
+      style={{ borderBottomColor: 'var(--color-border)' }}
+      data-testid="project-page-chrome"
+    >
+      <Link
+        to="/projects"
+        className="px-3 py-1 rounded-md text-xs font-bold border border-border bg-s2 text-text hover:bg-s3 transition no-underline"
+        data-testid="project-search-back"
+      >
+        ← Search
+      </Link>
+      <div
+        className="absolute left-0 right-0 text-center pointer-events-none text-xl font-extrabold text-text"
+        style={{ top: '50%', transform: 'translateY(-50%)' }}
+      >
+        Project Overview
+      </div>
+      <div className="flex items-center gap-2">
+        <button
+          onClick={onSettings}
+          className="px-3 py-1 rounded-md text-xs font-bold border border-border bg-s2 text-text hover:bg-s3 transition"
+          data-testid="project-settings-btn"
+        >
+          ⚙ Project Settings
+        </button>
+        <button
+          onClick={onDelete}
+          className="px-3 py-1 rounded-md text-xs font-bold transition"
+          style={{
+            background: '#fee2e2',
+            color: '#991b1b',
+            border: '1px solid #fca5a5',
+          }}
+          data-testid="project-delete-btn"
+        >
+          🗑 Delete
+        </button>
+      </div>
     </div>
   );
 }
@@ -193,10 +290,12 @@ function PermitsSidebar({
   permits,
   selectedId,
   onSelect,
+  onClearSelection,
 }: {
   permits: PermitWithCycles[];
   selectedId: number | null;
   onSelect: (id: number) => void;
+  onClearSelection: () => void;
 }) {
   return (
     <aside
@@ -205,7 +304,7 @@ function PermitsSidebar({
       data-testid="permits-sidebar"
     >
       <header
-        className="px-3 py-2 border-b flex items-center justify-center"
+        className="px-3 py-2 border-b flex flex-col items-center gap-1"
         style={{
           background: 'var(--color-s2)',
           borderBottomColor: 'var(--color-border)',
@@ -214,6 +313,18 @@ function PermitsSidebar({
         <span className="text-[11px] font-extrabold text-text uppercase tracking-wider">
           Permits ({permits.length})
         </span>
+        {selectedId !== null && (
+          // Q9.5.e-fix-1: while a permit is selected the right pane
+          // shows that permit's edit UI; this link returns to the
+          // project overview (4-col header + Schedule Health + Notes).
+          <button
+            onClick={onClearSelection}
+            className="text-[10px] text-de hover:underline"
+            data-testid="permits-sidebar-overview"
+          >
+            ← Back to overview
+          </button>
+        )}
       </header>
       <div className="flex-1 overflow-y-auto">
         {permits.length === 0 ? (

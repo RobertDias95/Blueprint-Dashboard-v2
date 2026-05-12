@@ -71,6 +71,9 @@ function DDPhaseEditor({ bp }: { bp: PermitWithCycles }) {
   const [startDraft, setStartDraft] = useState(bp.dd_start ?? '');
   const [endDraft, setEndDraft] = useState(bp.dd_end ?? '');
   const dur = computeDuration(startDraft || null, endDraft || null);
+  // Q9.5.e-fix-1: GO date renders as "Nov 14, 2025" per v1
+  // (index.html:3850). ISO format was Bobby's first smoke delta.
+  const goDisplay = formatGoDate(bp.go_date);
 
   async function commitField<K extends keyof Permit>(
     field: K,
@@ -95,7 +98,7 @@ function DDPhaseEditor({ bp }: { bp: PermitWithCycles }) {
       <div className="flex flex-col gap-1.5">
         <PhaseRow
           label="GO Date"
-          value={bp.go_date ?? '—'}
+          value={goDisplay}
           dashed
           title="GO date is set on the Project Settings page or the date strip below the permit"
         />
@@ -407,12 +410,26 @@ function TeamRow({
 }
 
 function computeDuration(start: string | null, end: string | null): string {
+  // Q9.5.e-fix-1: v1 renders plain "Nd" (index.html:3851) — was
+  // incorrectly converting to weeks for ≥7d. Match v1 verbatim.
   if (!start || !end) return '';
   const a = new Date(start + 'T12:00:00');
   const b = new Date(end + 'T12:00:00');
   const days = Math.round((b.getTime() - a.getTime()) / (24 * 60 * 60 * 1000));
   if (Number.isNaN(days)) return '';
-  if (days < 7) return `${days}d`;
-  const weeks = Math.round((days / 7) * 10) / 10;
-  return `${weeks}w (${days}d)`;
+  return `${days}d`;
+}
+
+/** Format an ISO date as "MMM DD, YYYY" (e.g. "Nov 14, 2025") — matches
+ * v1's `toLocaleDateString('en-US', {month:'short', day:'numeric',
+ * year:'numeric'})` at index.html:3850. */
+function formatGoDate(iso: string | null | undefined): string {
+  if (!iso) return '—';
+  const d = new Date(iso + 'T12:00:00');
+  if (Number.isNaN(d.getTime())) return '—';
+  return d.toLocaleDateString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+  });
 }
