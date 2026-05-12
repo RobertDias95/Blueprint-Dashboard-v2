@@ -105,36 +105,64 @@ export default function AddrGroup({
       }}
       className="overflow-hidden"
     >
-      {/* Collapsed header (always shown) */}
+      {/* Collapsed header (always shown). Q9.5.e2-fix-3: density matches
+          v1 .addr-collapsed (padding 12/14), .addr-top (gap 7, mb 6),
+          .addr-name (13px bold), .addr-juris (chip s2/border/4px radius),
+          .addr-pcount (10px on s3, padding 2/7, radius 10), .addr-permits-row
+          (gap 4, pl 16), .permit-pill (10px, padding 3/8, radius 5). */}
       <button
         type="button"
         onClick={onToggle}
-        className="w-full flex flex-col gap-1 px-3 py-2 text-left cursor-pointer bg-transparent border-0"
+        className="w-full flex flex-col text-left cursor-pointer bg-transparent border-0"
+        style={{ padding: '12px 14px' }}
         data-testid={`addr-group-toggle-${stage}`}
       >
-        <div className="flex items-center gap-2 min-w-0">
+        <div
+          className="flex items-center min-w-0"
+          style={{ gap: 7, marginBottom: 6 }}
+        >
           <span
-            className="text-[10px] text-dim flex-shrink-0"
+            className="text-[11px] text-muted flex-shrink-0"
             style={{
-              transition: 'transform 0.15s',
+              transition: 'transform 0.2s',
               transform: isOpen ? 'rotate(90deg)' : 'rotate(0deg)',
             }}
           >
             ▶
           </span>
-          <span className="text-[12px] font-bold text-text truncate flex-1 min-w-0">
+          <span
+            className="text-[13px] font-bold text-text truncate flex-1 min-w-0"
+            style={{ lineHeight: 1.3 }}
+          >
             {address}
           </span>
-          <span className="text-[10px] text-dim flex-shrink-0">{juris ?? '—'}</span>
-          <div className="flex items-center gap-1 flex-shrink-0">
+          {juris && (
+            <span
+              className="text-[9px] text-text flex-shrink-0"
+              style={{
+                padding: '2px 6px',
+                borderRadius: 4,
+                background: 'var(--color-s2)',
+                border: '1px solid var(--color-border)',
+              }}
+            >
+              {juris}
+            </span>
+          )}
+          <div
+            className="flex items-center flex-shrink-0"
+            style={{ gap: 4 }}
+          >
             {stageCounts.map((c) => (
               <span
                 key={c.stage}
-                className="text-[9px] font-bold px-1.5 py-0.5 rounded border"
+                className="text-[10px] font-bold flex-shrink-0"
                 style={{
-                  background: 'var(--color-s2)',
+                  padding: '2px 7px',
+                  borderRadius: 10,
+                  background: 'var(--color-s3, var(--color-s2))',
                   color: STAGE_PILL_FG[c.stage],
-                  borderColor: 'var(--color-border)',
+                  border: '1px solid var(--color-border)',
                 }}
               >
                 {STAGE_PILL_LABEL[c.stage]} {c.count}
@@ -143,7 +171,10 @@ export default function AddrGroup({
           </div>
         </div>
         {/* Permit-type pill row */}
-        <div className="flex items-center gap-1.5 flex-wrap pl-4">
+        <div
+          className="flex items-center flex-wrap"
+          style={{ gap: 4, paddingLeft: 16 }}
+        >
           {permits.map((p) => {
             const u = permitUrgency(
               p,
@@ -153,26 +184,36 @@ export default function AddrGroup({
             return (
               <span
                 key={p.id}
-                className="text-[9px] px-1.5 py-0.5 rounded border font-mono"
+                className="text-[10px] flex items-center"
                 style={{
+                  padding: '3px 8px',
+                  borderRadius: 5,
+                  gap: 5,
                   background:
                     u === 'red'
                       ? '#fee2e2'
                       : u === 'yellow'
                         ? '#fef9c3'
-                        : 'var(--color-bg)',
-                  borderColor:
+                        : 'var(--color-s2)',
+                  border: `1px solid ${
                     u === 'red'
                       ? '#fca5a5'
                       : u === 'yellow'
                         ? '#fcd34d'
-                        : 'var(--color-border)',
+                        : 'var(--color-border)'
+                  }`,
                   color: 'var(--color-text)',
+                  fontWeight: 600,
                 }}
               >
                 {pillLabel(p)}
                 {getKeyDate(p) && (
-                  <span className="ml-1 text-dim">{getKeyDate(p)}</span>
+                  <span
+                    className="text-dim"
+                    style={{ marginLeft: 5, fontSize: 9 }}
+                  >
+                    {getKeyDate(p)}
+                  </span>
                 )}
               </span>
             );
