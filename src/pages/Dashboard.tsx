@@ -69,12 +69,13 @@ export default function Dashboard() {
     });
     // Mirror v1 :2864 — open toggles the highlight to this addr; close clears it.
     setHighlightedAddress((cur) => (cur === addr ? null : addr));
-    // Q9.5.e2-fix-5: on open, scroll each bucket's scrollable container so
-    // the matching addr-group is in view. Mirrors v1 :2849-2860. Deferred to
-    // the next paint via rAF — queueMicrotask was firing before React had
-    // committed the state change, so the post-open layout wasn't measured.
+    // Q9.5.e2-fix-6: double rAF — first rAF runs after commit but before
+    // paint; second runs after the first paint. Belt-and-suspenders for
+    // cases where the expanded body hasn't laid out by the first frame.
     if (didOpen) {
-      requestAnimationFrame(() => scrollAddrIntoView(addr));
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => scrollAddrIntoView(addr));
+      });
     }
   }, []);
 
@@ -557,12 +558,26 @@ function scrollAddrIntoView(addr: string) {
   const matches = document.querySelectorAll<HTMLElement>(
     `[data-addr-group="${safe}"]`,
   );
-  matches.forEach((el) => {
+  // Q9.5.e2-fix-6 DIAGNOSTIC — remove in fix-7 once Bobby confirms whether
+  // missing scrolls are no-match cases or layout-math cases.
+  // eslint-disable-next-line no-console
+  console.log(
+    `[scrollAddrIntoView] addr="${addr}" matches=${matches.length}`,
+  );
+  matches.forEach((el, i) => {
     const container = el.closest<HTMLElement>('[data-scroll-bucket="true"]');
-    if (!container) return;
+    if (!container) {
+      // eslint-disable-next-line no-console
+      console.log(`  [${i}] NO scroll-bucket parent for this match`);
+      return;
+    }
     const containerTop = container.getBoundingClientRect().top;
     const elTop = el.getBoundingClientRect().top;
     const offset = elTop - containerTop + container.scrollTop - 8;
+    // eslint-disable-next-line no-console
+    console.log(
+      `  [${i}] bucket parent found, current scrollTop=${container.scrollTop}, target offset=${offset}, el rect top=${elTop}, container rect top=${containerTop}`,
+    );
     container.scrollTo({ top: offset, behavior: 'smooth' });
   });
 }
