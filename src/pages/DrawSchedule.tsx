@@ -7,7 +7,8 @@ import StatusLegend from '../components/DrawSchedule/StatusLegend';
 // Q9.5.a: Draw Schedule promoted to top-level route. 3 sub-tabs match v1
 // index.html:9257-9261 — Draw Schedule / Library / Seattle Intakes.
 // Sub-tabs are visually the same pattern as Reports' Overview/Trends
-// (12px/700 Syne, var(--de) underline active, var(--muted) inactive).
+// (12px/700 system-sans, var(--color-de) underline active, var(--color-muted) inactive).
+// Q9.5.b: typography simplified — was Syne in earlier v1; now system-sans.
 
 type DSTab = 'schedule' | 'library' | 'intake';
 

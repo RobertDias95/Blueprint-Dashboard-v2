@@ -1,24 +1,91 @@
-/* Q1 base styles — Tailwind directives + Google Fonts + minimal globals.
-   Visual identity ported from v1 (Blueprint-Dashboard-/index.html). */
-
-@import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Inter:wght@400;500;600;700;800&family=Syne:wght@400;600;700;800&display=swap');
+/* Q1 base styles — Tailwind directives + minimal globals.
+   Q9.5.b: dropped Google Fonts (Syne + Inter + DM Mono) per Bobby's
+   system-sans-everywhere decision. Visual identity now reads through
+   the :root CSS variables ported verbatim from v1 index.html:46-57
+   plus per-surface box-shadow tokens captured during the Q9.5 spec
+   pass (REBUILD_V1_VISUAL_SPEC.md §5 + §8). */
 
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
+:root {
+  /* Surface palette — v1 verbatim (index.html:47-48) */
+  --color-bg:      #f0f4f8;
+  --color-surface: #ffffff;
+  --color-s2:      #e8edf3;
+  --color-s3:      #dce3ec;
+  --color-border:  #c8d3e0;
+  --color-text:    #1a2540;
+  --color-muted:   #5a6a85;
+  --color-dim:     #8a9bb5;
+
+  /* Stage palette — main + bg + border tones (index.html:49-53) */
+  --color-de:        #2563eb;
+  --color-de-bg:     #dbeafe;
+  --color-de-border: #93c5fd;
+  --color-pm:        #059669;
+  --color-pm-bg:     #d1fae5;
+  --color-pm-border: #6ee7b7;
+  --color-co:        #d97706;
+  --color-co-bg:     #fef3c7;
+  --color-co-border: #fcd34d;
+  --color-jv:        #7c3aed;
+  --color-jv-bg:     #ede9fe;
+  --color-jv-border: #c4b5fd;
+  --color-is:        #0891b2;
+  --color-is-bg:     #cffafe;
+  --color-is-border: #67e8f9;
+
+  /* Team accents (index.html:54-56) */
+  --color-ent:      #0284c7;
+  --color-arch:     #ea580c;
+  --color-miles-bg: #e0f2fe;
+  --color-miles-c:  #0369a1;
+  --color-bri-bg:   #fce7f3;
+  --color-bri-c:    #be185d;
+
+  /* Per-surface box-shadow tokens — exact v1 values from §8 audit:
+     - .fab (Dashboard floating action button, line 478)
+     - .ds-block:hover (Draw Schedule project block hover, line 297)
+     - .modal (line 532)
+     - .ms-dropdown (multi-select dropdown, line 68)
+     - .quick-edit-popup (line 269)
+     v1 buttons have NO shadow. Don't apply shadow-fab to plain buttons. */
+  --shadow-fab:          0 4px 24px rgba(59, 130, 246, .4);
+  --shadow-block-hover:  0 2px 8px rgba(0, 0, 0, .15);
+  --shadow-modal:        0 20px 60px rgba(0, 0, 0, 0.3);
+  --shadow-dropdown:     0 8px 24px rgba(0, 0, 0, .4);
+  --shadow-popup:        0 4px 24px rgba(0, 0, 80, .15);
+}
+
 @layer base {
   html, body, #root {
     @apply h-full;
   }
+  /* System sans-serif everywhere — Bobby's Q9.5.b call. No external
+     font dependency; the OS-native sans renders fast and matches the
+     team's already-trained eye. */
   body {
-    @apply font-sans bg-bg text-text antialiased;
+    font-family:
+      -apple-system, BlinkMacSystemFont, 'Segoe UI',
+      'Helvetica Neue', Arial, sans-serif;
+    background: var(--color-bg);
+    color: var(--color-text);
     min-height: 100vh;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+  /* Form elements inherit the body font (was Syne in earlier build). */
+  button, select, input, textarea {
+    font-family: inherit;
   }
   button {
-    @apply font-display cursor-pointer;
+    cursor: pointer;
   }
-  select, input {
-    @apply font-display;
+  code, .mono, .font-mono {
+    font-family:
+      ui-monospace, 'SF Mono', Monaco, 'Cascadia Code',
+      'Roboto Mono', monospace;
   }
 }

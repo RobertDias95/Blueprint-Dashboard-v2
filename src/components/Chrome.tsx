@@ -40,21 +40,42 @@ export default function Chrome() {
         className="bg-surface border-b border-border h-[52px] sticky top-0 z-50 flex items-center px-6"
         data-testid="chrome-header"
       >
-        {/* Left: Blueprint logo = home button (→ /dashboard) */}
+        {/* Left: Blueprint logo = home button (→ /dashboard).
+            Q9.5.b: swapped from text-only to the v1 SVG logo at
+            Webflow CDN (index.html:576). Padding + hover bg match
+            v1's `.bp-home` class. Text fallback when img fails. */}
         <button
           onClick={() => navigate('/dashboard')}
-          className="flex items-center gap-2 cursor-pointer bg-transparent border-none rounded-md px-2.5 py-1 hover:bg-s2 transition flex-shrink-0"
+          className="flex items-center gap-2 bg-transparent border-none rounded-lg hover:bg-s2 transition flex-shrink-0"
+          style={{ padding: '5px 10px' }}
           title="Blueprint Capital — Home"
           data-testid="chrome-home"
         >
-          <div className="flex flex-col items-start leading-tight">
-            <span className="font-display font-extrabold text-[13px] text-text tracking-tight">
+          <img
+            src="https://cdn.prod.website-files.com/63541c8a0af27d5cafc89858/6358e4f2bd05f5417c7d88e7_Group%20891%20(3).svg"
+            alt="Blueprint Capital"
+            className="block w-auto"
+            style={{ height: 26 }}
+            onError={(e) => {
+              // SVG load failed (offline, CDN gone, etc.) — degrade to
+              // the v2 text label so the home button still works.
+              (e.currentTarget as HTMLImageElement).style.display = 'none';
+              const fallback = e.currentTarget
+                .nextElementSibling as HTMLElement | null;
+              if (fallback) fallback.style.display = 'flex';
+            }}
+          />
+          <span
+            className="flex-col items-start leading-tight"
+            style={{ display: 'none' }}
+          >
+            <span className="font-extrabold text-[13px] text-text tracking-tight">
               Blueprint Capital
             </span>
-            <span className="font-display text-[8px] uppercase tracking-widest text-dim font-medium">
+            <span className="text-[8px] uppercase tracking-widest text-dim font-medium">
               Entitlements
             </span>
-          </div>
+          </span>
         </button>
 
         {/* Right: nav tabs + divider + gear */}
