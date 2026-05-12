@@ -91,6 +91,7 @@ export default function AddrGroup({
   return (
     <div
       data-addr={address}
+      data-addr-group={address}
       data-testid={`addr-group-${stage}`}
       onMouseEnter={onHover}
       onMouseLeave={onLeave}

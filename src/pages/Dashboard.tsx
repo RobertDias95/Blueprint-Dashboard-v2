@@ -55,17 +55,26 @@ export default function Dashboard() {
   const [openAddresses, setOpenAddresses] = useState<Set<string>>(new Set());
 
   const toggleAddress = useCallback((addr: string) => {
+    let didOpen = false;
     setOpenAddresses((prev) => {
       const next = new Set(prev);
       if (next.has(addr)) {
         next.delete(addr);
+        didOpen = false;
       } else {
         next.add(addr);
+        didOpen = true;
       }
       return next;
     });
     // Mirror v1 :2864 — open toggles the highlight to this addr; close clears it.
     setHighlightedAddress((cur) => (cur === addr ? null : addr));
+    // Q9.5.e2-fix: on open, scroll each bucket's scrollable container so the
+    // matching addr-group is in view. Mirrors v1 :2849-2860. Deferred to the
+    // next microtask so React has flushed the expanded state before measuring.
+    if (didOpen) {
+      queueMicrotask(() => scrollAddrIntoView(addr));
+    }
   }, []);
 
   const dashCtx: DashContext = useMemo(
@@ -364,7 +373,11 @@ function StageGroup({
                   {sub.permits.length}
                 </span>
               </div>
-              <div className="flex flex-col gap-0 border border-border rounded-md overflow-hidden">
+              <div
+                className="flex flex-col gap-0 border border-border rounded-md overflow-y-auto"
+                style={{ maxHeight: 480 }}
+                data-scroll-bucket="true"
+              >
                 {loading ? (
                   <div className="p-2">
                     <SkeletonRows count={2} rowClassName="h-16" />
@@ -465,7 +478,11 @@ function BottomStrip({
               No permits
             </div>
           ) : (
-            <div className="border border-border rounded-md overflow-hidden">
+            <div
+              className="border border-border rounded-md overflow-y-auto"
+              style={{ maxHeight: 480 }}
+              data-scroll-bucket="true"
+            >
               <SubBucketGroups
                 permits={permits}
                 stage={stage}
@@ -527,6 +544,26 @@ function getMostRecentCorrIssued(permits: Permit[]) {
 function mostRecent<T>(rows: T[], pick: (row: T) => string | null): string | null {
   const dates = rows.map(pick).filter((d): d is string => Boolean(d)).sort();
   return dates.length ? dates[dates.length - 1] : null;
+}
+
+// Q9.5.e2-fix: scroll every bucket container that holds a matching addr-group
+// so the just-opened card is in view. Mirrors v1 toggleProjectExpanded
+// :2849-2860 — independent per-container scroll, smooth, with an 8px buffer
+// so the card doesn't snap flush to the top edge.
+function scrollAddrIntoView(addr: string) {
+  if (typeof document === 'undefined') return;
+  const safe = typeof CSS !== 'undefined' && CSS.escape ? CSS.escape(addr) : addr;
+  const matches = document.querySelectorAll<HTMLElement>(
+    `[data-addr-group="${safe}"]`,
+  );
+  matches.forEach((el) => {
+    const container = el.closest<HTMLElement>('[data-scroll-bucket="true"]');
+    if (!container) return;
+    const containerTop = container.getBoundingClientRect().top;
+    const elTop = el.getBoundingClientRect().top;
+    const offset = elTop - containerTop + container.scrollTop - 8;
+    container.scrollTo({ top: offset, behavior: 'smooth' });
+  });
 }
 
 // Q9.5.e2: group permits in a sub-bucket by project address, then render one
