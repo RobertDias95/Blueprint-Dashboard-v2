@@ -1,18 +1,25 @@
+import { useMemo } from 'react';
 import { effectiveStage } from '../../lib/permitStage';
-import type { PermitWithCycles, Stage } from '../../lib/database.types';
+import { useAllPermitTasks } from '../../hooks/useAllPermitTasks';
+import type { PermitTask, PermitWithCycles, Stage } from '../../lib/database.types';
 
-// Q9.5.e: Schedule Health summary table per v1 §4.2.1 (B). v1 has 8
-// columns (Permit Type / Tasks / Stage / Permit Status / Data Source /
-// Est. Approval / ACQ Target Date / Schedule Health). v2 ships 5
-// columns this phase — the 3 deferred (Tasks count / Data Source /
-// ACQ Target Date / Schedule Health) need data wiring that hasn't
-// landed yet: Tasks count needs an aggregate query, Data Source +
-// Schedule Health are computed from the v1 learner state, ACQ Target
-// Date is blocked on task #63 (no permits.acq_lead column).
+// Q9.5.e-fix-4: 8-column Schedule Health table per v1 §4.2.1 (B) and the
+// _healthRow / _healthRowShell render at index.html:3646-3678. Columns:
+//   1. Permit Type
+//   2. Tasks — % done progress bar (open vs resolved+skipped)
+//   3. Stage — colored badge
+//   4. Permit Status — free-text from permits.status
+//   5. Data Source — Default / Learned badge (v2 always shows Default until
+//      the learner state ports — Q7+ backlog)
+//   6. Current Projection — actual_issue / approval_date / expected_issue
+//   7. ACQ Target — placeholder until task #63 unblocks acq target schema
+//   8. Schedule Health — bucket based on (projection - target):
+//        diff ≤ -1  → "↑ On Track"   (green / --color-pm)
+//        diff ≤ 14  → "→ At Risk"     (yellow / --color-co)
+//        diff > 14  → "↓ Behind"      (red)
+//        either date missing → "→ In Progress" (blue placeholder)
 //
-// Q9.5.f polish (or follow-up Q9.5.e-fix) can fill the 3 remaining
-// columns. The 5-col version below covers the visible "what's the
-// state of each permit at a glance" need today.
+// Mirrors v1's `_healthStatusParts` predicate at index.html:3623-3631.
 
 const STAGE_LABEL: Record<Stage, string> = {
   de: 'D&E',
@@ -35,6 +42,17 @@ interface Props {
 }
 
 export default function ScheduleHealthTable({ permits }: Props) {
+  const tasksQ = useAllPermitTasks();
+  const tasksByPermit = useMemo(() => {
+    const m = new Map<number, PermitTask[]>();
+    for (const t of tasksQ.data ?? []) {
+      const list = m.get(t.permit_id) ?? [];
+      list.push(t);
+      m.set(t.permit_id, list);
+    }
+    return m;
+  }, [tasksQ.data]);
+
   if (permits.length === 0) {
     return (
       <div className="text-xs text-dim italic px-3 py-3.5">
@@ -48,17 +66,20 @@ export default function ScheduleHealthTable({ permits }: Props) {
       className="flex-shrink-0 border-b border-border bg-surface"
       data-testid="schedule-health-table"
     >
-      <div className="text-center pt-2.5 pb-1">
+      <div className="text-center pt-1.5 pb-0.5">
         <div className="text-xs font-extrabold text-text uppercase tracking-wider">
           Schedule Health
         </div>
       </div>
-      <table className="w-full border-collapse mt-2">
+      <table className="w-full border-collapse mt-1.5 text-[10px]">
         <colgroup>
-          <col style={{ width: 160 }} />
+          <col style={{ width: 140 }} />
+          <col style={{ width: 90 }} />
           <col style={{ width: 90 }} />
           <col style={{ width: 130 }} />
-          <col style={{ width: 130 }} />
+          <col style={{ width: 90 }} />
+          <col style={{ width: 110 }} />
+          <col style={{ width: 110 }} />
           <col style={{ width: 130 }} />
         </colgroup>
         <thead>
@@ -70,15 +91,22 @@ export default function ScheduleHealthTable({ permits }: Props) {
             }}
           >
             <Th align="left">Permit Type</Th>
+            <Th>Tasks</Th>
             <Th>Stage</Th>
-            <Th>Target Submit</Th>
-            <Th>Est. Approval</Th>
-            <Th>Variance</Th>
+            <Th>Permit Status</Th>
+            <Th>Data Source</Th>
+            <Th>Current Projection</Th>
+            <Th>ACQ Target</Th>
+            <Th>Schedule Health</Th>
           </tr>
         </thead>
         <tbody>
           {permits.map((p) => (
-            <Row key={p.id} permit={p} />
+            <Row
+              key={p.id}
+              permit={p}
+              tasks={tasksByPermit.get(p.id) ?? []}
+            />
           ))}
         </tbody>
       </table>
@@ -86,9 +114,17 @@ export default function ScheduleHealthTable({ permits }: Props) {
   );
 }
 
-function Row({ permit }: { permit: PermitWithCycles }) {
+function Row({ permit, tasks }: { permit: PermitWithCycles; tasks: PermitTask[] }) {
   const stage = effectiveStage(permit, permit.permit_cycles ?? []);
-  const variance = computeVariance(permit);
+  const taskStats = computeTaskStats(tasks);
+  const projection = permit.actual_issue ?? permit.approval_date ?? permit.expected_issue;
+  const isActual = !!(permit.actual_issue || permit.approval_date);
+  // v2 doesn't have an ACQ target column yet (task #63). Show null and let
+  // the health column fall through to the "In Progress" placeholder.
+  const acqTarget: string | null = null;
+  const diff = computeHealthDiff(projection, acqTarget);
+
+  const borderL = { borderLeftColor: 'var(--color-border)' } as const;
 
   return (
     <tr
@@ -96,41 +132,75 @@ function Row({ permit }: { permit: PermitWithCycles }) {
       style={{ borderBottomColor: 'var(--color-border)' }}
       data-testid={`schedule-health-row-${permit.id}`}
     >
-      <td className="px-3 py-1.5 text-xs text-text">
+      {/* 1. Permit Type */}
+      <td className="px-3 py-2 align-middle text-[11px] text-text truncate">
         {permit.type ?? '—'}
         {permit.num && (
-          <span className="ml-2 text-[10px] text-muted font-mono">
+          <span className="ml-2 text-[9px] text-muted font-mono">
             {permit.num}
           </span>
         )}
       </td>
-      <td className="px-2 py-1.5 text-center border-l" style={{ borderLeftColor: 'var(--color-border)' }}>
+      {/* 2. Tasks — progress bar */}
+      <td className="px-2 py-2 align-middle text-center border-l" style={borderL}>
+        <TaskProgress stats={taskStats} />
+      </td>
+      {/* 3. Stage */}
+      <td className="px-2 py-2 align-middle text-center border-l" style={borderL}>
         <span
-          className="text-[10px] font-bold uppercase tracking-wide"
+          className="text-[9px] font-bold uppercase tracking-wide"
           style={{ color: STAGE_TINT[stage] }}
         >
           {STAGE_LABEL[stage]}
         </span>
       </td>
-      <td className="px-2 py-1.5 text-center border-l text-[10px] font-mono text-text" style={{ borderLeftColor: 'var(--color-border)' }}>
-        {permit.target_submit ?? '—'}
-      </td>
-      <td className="px-2 py-1.5 text-center border-l text-[10px] font-mono text-text" style={{ borderLeftColor: 'var(--color-border)' }}>
-        {permit.expected_issue ?? '—'}
-      </td>
+      {/* 4. Permit Status */}
       <td
-        className="px-2 py-1.5 text-center border-l text-[10px] font-mono"
-        style={{
-          borderLeftColor: 'var(--color-border)',
-          color:
-            variance === null
-              ? 'var(--color-dim)'
-              : variance > 0
-                ? '#dc2626'
-                : 'var(--color-pm)',
-        }}
+        className="px-2 py-2 align-middle text-center border-l text-[10px]"
+        style={borderL}
       >
-        {variance !== null ? `${variance > 0 ? '+' : ''}${variance}d` : '—'}
+        {permit.status ? (
+          <span className="text-text">{permit.status}</span>
+        ) : (
+          <span className="text-dim">—</span>
+        )}
+      </td>
+      {/* 5. Data Source */}
+      <td className="px-2 py-2 align-middle text-center border-l" style={borderL}>
+        <DataSourceBadge />
+      </td>
+      {/* 6. Current Projection */}
+      <td
+        className="px-2 py-2 align-middle text-center border-l text-[10px] font-mono"
+        style={borderL}
+      >
+        {projection ? (
+          <div>
+            <div className="text-text font-bold">{fmtDate(projection)}</div>
+            <div className="text-[9px] text-dim mt-0.5 font-sans">
+              {isActual ? 'Actual' : 'Est. Approval'}
+            </div>
+          </div>
+        ) : (
+          <span className="text-dim">—</span>
+        )}
+      </td>
+      {/* 7. ACQ Target */}
+      <td
+        className="px-2 py-2 align-middle text-center border-l text-[10px] font-mono"
+        style={borderL}
+      >
+        {acqTarget ? (
+          <span className="text-text font-bold">{fmtDate(acqTarget)}</span>
+        ) : (
+          <span className="text-dim italic" title="ACQ target — task #63 backlog">
+            —
+          </span>
+        )}
+      </td>
+      {/* 8. Schedule Health */}
+      <td className="px-2 py-2 align-middle text-center border-l" style={borderL}>
+        <HealthBadge diff={diff} />
       </td>
     </tr>
   );
@@ -145,7 +215,7 @@ function Th({
 }) {
   return (
     <th
-      className={`px-3 py-1.5 text-[10px] font-extrabold text-text uppercase tracking-wider border-l first:border-l-0 ${
+      className={`px-2 py-1.5 text-[9px] font-extrabold text-text uppercase tracking-wider border-l first:border-l-0 ${
         align === 'left' ? 'text-left' : 'text-center'
       }`}
       style={{ borderLeftColor: 'var(--color-border)' }}
@@ -155,14 +225,175 @@ function Th({
   );
 }
 
-function computeVariance(p: PermitWithCycles): number | null {
-  // expected_issue - (approval_date ?? actual_issue), in days.
-  // Positive = late, negative = ahead.
-  const expected = p.expected_issue;
-  const actual = p.approval_date ?? p.actual_issue;
-  if (!expected || !actual) return null;
-  const exp = new Date(expected + 'T12:00:00').getTime();
-  const act = new Date(actual + 'T12:00:00').getTime();
-  if (Number.isNaN(exp) || Number.isNaN(act)) return null;
-  return Math.round((act - exp) / (24 * 60 * 60 * 1000));
+// ============================================================
+// Sub-components & helpers
+// ============================================================
+
+interface TaskStats {
+  total: number;
+  done: number;
+  percent: number;
+}
+
+function computeTaskStats(tasks: PermitTask[]): TaskStats {
+  if (tasks.length === 0) return { total: 0, done: 0, percent: 0 };
+  let done = 0;
+  for (const t of tasks) {
+    if (t.done) {
+      done++;
+      continue;
+    }
+    if (t.completion_status === 'Resolved' || t.completion_status === 'Skipped') {
+      done++;
+    }
+  }
+  return {
+    total: tasks.length,
+    done,
+    percent: Math.round((done / tasks.length) * 100),
+  };
+}
+
+function TaskProgress({ stats }: { stats: TaskStats }) {
+  if (stats.total === 0) {
+    return <span className="text-[9px] text-dim italic">no tasks</span>;
+  }
+  const colored = stats.percent === 100 ? 'var(--color-pm)' : 'var(--color-de)';
+  return (
+    <div className="flex flex-col gap-0.5 items-center">
+      <div className="flex items-baseline gap-1">
+        <span className="text-[10px] font-bold text-text">{stats.percent}%</span>
+        <span className="text-[8px] text-dim font-mono">
+          {stats.done}/{stats.total}
+        </span>
+      </div>
+      <div
+        className="w-full h-1 rounded-full overflow-hidden"
+        style={{ background: 'var(--color-bg)' }}
+      >
+        <div
+          className="h-full"
+          style={{
+            width: `${stats.percent}%`,
+            background: colored,
+            transition: 'width 0.2s',
+          }}
+        />
+      </div>
+    </div>
+  );
+}
+
+function DataSourceBadge() {
+  // v2 ships the "Default" branch; the v1 learner state hasn't been ported
+  // (Q7+ backlog). Once it does, this component will read learned metadata
+  // off the permit (avg cycles, source, sample count) and switch styling.
+  return (
+    <span
+      className="text-[8px] font-bold px-2 py-0.5 rounded border"
+      style={{
+        background: 'var(--color-s2)',
+        color: 'var(--color-dim)',
+        borderColor: 'var(--color-border)',
+      }}
+      title="Default schedule — learner state not yet ported (Q7+ backlog)"
+    >
+      Default
+    </span>
+  );
+}
+
+interface HealthStatus {
+  bg: string;
+  fg: string;
+  border: string;
+  icon: string;
+  label: string;
+  daysTxt: string;
+}
+
+function healthParts(diff: number): HealthStatus {
+  // Mirrors v1's _healthStatusParts at index.html:3623-3631.
+  if (diff <= -1) {
+    return {
+      bg: 'rgba(16,185,129,.08)',
+      fg: 'var(--color-pm)',
+      border: 'var(--color-pm)',
+      icon: '↑',
+      label: 'On Track',
+      daysTxt: `${Math.abs(diff)}d Ahead`,
+    };
+  }
+  if (diff <= 14) {
+    return {
+      bg: 'rgba(245,158,11,.08)',
+      fg: 'var(--color-co)',
+      border: 'var(--color-co)',
+      icon: '→',
+      label: 'At Risk',
+      daysTxt: diff === 0 ? 'On Target' : `${diff}d Behind`,
+    };
+  }
+  return {
+    bg: 'rgba(248,113,113,.08)',
+    fg: '#dc2626',
+    border: '#dc2626',
+    icon: '↓',
+    label: 'Behind',
+    daysTxt: `${diff}d Behind`,
+  };
+}
+
+function HealthBadge({ diff }: { diff: number | null }) {
+  if (diff === null) {
+    return (
+      <span
+        className="text-[9px] font-bold px-2 py-0.5 rounded border"
+        style={{
+          background: 'rgba(59,130,246,.08)',
+          color: 'var(--color-pm)',
+          borderColor: 'rgba(59,130,246,.3)',
+        }}
+        title="Schedule Health needs both an ACQ target and a current projection"
+      >
+        → In Progress
+      </span>
+    );
+  }
+  const s = healthParts(diff);
+  return (
+    <div className="flex flex-col gap-0.5 items-center">
+      <span
+        className="text-[9px] font-extrabold px-2 py-0.5 rounded border"
+        style={{ background: s.bg, color: s.fg, borderColor: s.border }}
+      >
+        {s.icon} {s.label}
+      </span>
+      <span className="text-[9px] font-bold" style={{ color: s.fg }}>
+        {s.daysTxt}
+      </span>
+    </div>
+  );
+}
+
+function computeHealthDiff(
+  projection: string | null,
+  target: string | null,
+): number | null {
+  if (!projection || !target) return null;
+  const p = new Date(projection + 'T12:00:00').getTime();
+  const t = new Date(target + 'T12:00:00').getTime();
+  if (Number.isNaN(p) || Number.isNaN(t)) return null;
+  return Math.round((p - t) / (24 * 60 * 60 * 1000));
+}
+
+function fmtDate(iso: string): string {
+  // Match v1's fmtDate convention: "Nov 14, 2025" — short month + day + year
+  const d = new Date(iso + 'T12:00:00');
+  if (Number.isNaN(d.getTime())) return iso;
+  return d.toLocaleDateString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+  });
 }

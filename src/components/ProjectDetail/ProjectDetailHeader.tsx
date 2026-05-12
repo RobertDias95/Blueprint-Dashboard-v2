@@ -31,7 +31,7 @@ export default function ProjectDetailHeader({ project, permits, bp }: Props) {
       data-testid="project-detail-header"
     >
       <div
-        className="flex-1 px-4 pt-3.5 pb-3"
+        className="flex-1 px-4 pt-2 pb-2"
         style={{ background: 'var(--color-s2)' }}
       >
         <div
@@ -413,7 +413,7 @@ function BuilderOwnerCell({ project }: { project: Project }) {
   // BuilderForm.
   return (
     <div
-      className="flex-shrink-0 px-4 py-3.5 border-l flex flex-col gap-2"
+      className="flex-shrink-0 px-4 py-2 border-l flex flex-col gap-1.5"
       style={{
         width: 240,
         borderLeftColor: 'var(--color-border)',
@@ -527,23 +527,37 @@ function BuilderForm({
   const [email, setEmail] = useState(current?.email ?? '');
   const [phone, setPhone] = useState(current?.phone ?? '');
 
-  function onNameBlur() {
-    const trimmed = name.trim();
-    if (!trimmed) return;
-    // Exact name match against existing builders → pick existing
+  // Q9.5.e-fix-4: datalist picks fire `change` but not `blur` until the
+  // user tabs away. So we run the exact-match auto-fill on every change.
+  // Returns true when an auto-pick fired, so onBlur can skip the create
+  // path. Match is exact (case-insensitive) and only fires when the picked
+  // builder differs from `current` to avoid re-firing the same FK update.
+  function maybeAutoPick(value: string): boolean {
+    const trimmed = value.trim();
+    if (!trimmed) return false;
     const match = builders.find(
       (b) => b.name.trim().toLowerCase() === trimmed.toLowerCase(),
     );
     if (match && match.id !== current?.id) {
-      // Pre-fill the form from the matched builder for visual feedback
       setName(match.name);
       setCompany(match.company ?? '');
       setEmail(match.email ?? '');
       setPhone(match.phone ?? '');
       void onPickExisting(match.id);
-      return;
+      return true;
     }
-    // No match — commit will land via field-level blur (company/email/phone)
+    return false;
+  }
+
+  function onNameChange(next: string) {
+    setName(next);
+    maybeAutoPick(next);
+  }
+
+  function onNameBlur() {
+    if (maybeAutoPick(name)) return;
+    const trimmed = name.trim();
+    if (!trimmed) return;
     void onCreateOrUpdate({ name: trimmed, company, email, phone });
   }
 
@@ -567,7 +581,7 @@ function BuilderForm({
           value={name}
           list={datalistId}
           placeholder="Full name"
-          onChange={(e) => setName(e.target.value)}
+          onChange={(e) => onNameChange(e.target.value)}
           onBlur={onNameBlur}
           disabled={disabled}
           className={inputClass}

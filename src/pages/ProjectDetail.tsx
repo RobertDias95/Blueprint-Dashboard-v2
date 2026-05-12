@@ -13,6 +13,8 @@ import { useDeletePermitCycle } from '../hooks/useDeletePermitCycle';
 import { useUpsertPermitTask, type TaskPatch } from '../hooks/useUpsertPermitTask';
 import { useDeletePermitTask } from '../hooks/useDeletePermitTask';
 import { effectiveStage } from '../lib/permitStage';
+import { permitUrgency } from '../lib/urgencyHelpers';
+import { useUpdateProject } from '../hooks/useUpdateProject';
 import type {
   Permit,
   PermitCycle,
@@ -190,6 +192,7 @@ function ProjectDetailBody({
       <div className="flex flex-1 overflow-hidden min-h-0">
         <PermitsSidebar
           permits={permits}
+          project={project}
           selectedId={selectedPermit?.id ?? null}
           onSelect={setSelectedPermitId}
         />
@@ -198,21 +201,26 @@ function ProjectDetailBody({
           data-testid="project-right-pane"
         >
           {selectedPermitId === null || !selectedPermit ? (
-            // Q9.5.e-fix-2: project overview pane is a single scrollable
-            // column — no flex-1 spacer between Schedule Health and
-            // Notes/Docs, so the footer sits ~16px below the table.
+            // Q9.5.e-fix-4: project overview pane is a flex column where
+            // ProjectDetailHeader + ScheduleHealthTable take their natural
+            // height and NotesDocsFooter claims the remaining viewport.
+            // Top section is internally scrollable when the health table
+            // grows past available space.
             <div
-              className="flex-1 overflow-y-auto"
+              className="flex-1 flex flex-col overflow-hidden min-h-0"
               data-testid="project-overview-pane"
             >
-              <ProjectDetailHeader
-                project={project}
-                permits={permits}
-                bp={bp}
-              />
-              <ScheduleHealthTable permits={permits} />
-              <div style={{ height: 16 }} />
-              <NotesDocsFooter project={project} />
+              <div className="overflow-y-auto flex-shrink-0">
+                <ProjectDetailHeader
+                  project={project}
+                  permits={permits}
+                  bp={bp}
+                />
+                <ScheduleHealthTable permits={permits} />
+              </div>
+              <div className="flex-1 min-h-0 overflow-hidden">
+                <NotesDocsFooter project={project} />
+              </div>
             </div>
           ) : (
             // Q9.5.e-fix-2: selected permit edit state. The "← Back to
@@ -308,19 +316,94 @@ function ProjectPageChrome({
   );
 }
 
+// Q9.5.e-fix-4: sidebar redesign per v1 §4.2.1 sidebar parity and
+// index.html:3539-3596. Each row shows a stage-tinted dot, permit type
+// (Building Permit shows nickname when set), permit # / "No permit # yet",
+// stage-appropriate key date with urgency-driven color, and a drag handle.
+// Order is persisted as projects.permit_order (number[]). Permits without
+// an explicit order are appended after ordered ones, alphabetical fallback.
+const STAGE_DOT_COLOR: Record<Stage, string> = {
+  de: 'var(--color-de)',
+  pm: 'var(--color-pm)',
+  co: 'var(--color-co)',
+  ap: 'var(--color-jv)',
+  is: 'var(--color-is)',
+};
+
 function PermitsSidebar({
   permits,
+  project,
   selectedId,
   onSelect,
 }: {
   permits: PermitWithCycles[];
+  project: NonNullable<ReturnType<typeof useProjects>['data']>[number];
   selectedId: number | null;
   onSelect: (id: number) => void;
 }) {
+  const updateProject = useUpdateProject();
+  const [dragOverId, setDragOverId] = useState<number | null>(null);
+
+  // Sort by project.permit_order; unordered permits drop to the end.
+  const order = useMemo(
+    () =>
+      Array.isArray(project.permit_order) ? project.permit_order : [],
+    [project.permit_order],
+  );
+  const sorted = useMemo(() => {
+    return [...permits].sort((a, b) => {
+      const oa = order.indexOf(a.id);
+      const ob = order.indexOf(b.id);
+      const aRank = oa === -1 ? Number.MAX_SAFE_INTEGER : oa;
+      const bRank = ob === -1 ? Number.MAX_SAFE_INTEGER : ob;
+      if (aRank !== bRank) return aRank - bRank;
+      // Fallback: created order (id ascending, since permits.id is identity)
+      return a.id - b.id;
+    });
+  }, [permits, order]);
+
+  function commitOrder(nextIds: number[]) {
+    if (!project.updated_at) return;
+    void updateProject.mutateAsync({
+      projectId: project.id,
+      expectedUpdatedAt: project.updated_at,
+      patch: { permit_order: nextIds },
+      fieldLabel: 'Permit order',
+    });
+  }
+
+  function onDragStart(e: React.DragEvent, permitId: number) {
+    e.dataTransfer.setData('text/plain', String(permitId));
+    e.dataTransfer.effectAllowed = 'move';
+  }
+  function onDragOver(e: React.DragEvent, permitId: number) {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    if (dragOverId !== permitId) setDragOverId(permitId);
+  }
+  function onDragLeave(e: React.DragEvent) {
+    e.preventDefault();
+    setDragOverId(null);
+  }
+  function onDrop(e: React.DragEvent, targetId: number) {
+    e.preventDefault();
+    setDragOverId(null);
+    const src = Number(e.dataTransfer.getData('text/plain'));
+    if (!src || src === targetId) return;
+    const ids = sorted.map((p) => p.id);
+    const fromIdx = ids.indexOf(src);
+    const toIdx = ids.indexOf(targetId);
+    if (fromIdx === -1 || toIdx === -1) return;
+    const next = [...ids];
+    next.splice(fromIdx, 1);
+    next.splice(toIdx, 0, src);
+    commitOrder(next);
+  }
+
   return (
     <aside
       className="flex-shrink-0 border-r flex flex-col bg-surface"
-      style={{ width: 220, borderRightColor: 'var(--color-border)' }}
+      style={{ width: 240, borderRightColor: 'var(--color-border)' }}
       data-testid="permits-sidebar"
     >
       <header
@@ -335,52 +418,169 @@ function PermitsSidebar({
         </span>
       </header>
       <div className="flex-1 overflow-y-auto">
-        {permits.length === 0 ? (
+        {sorted.length === 0 ? (
           <div className="text-[11px] text-dim italic p-4 text-center">
             No permits yet.
           </div>
         ) : (
-          permits.map((p) => {
-            const stage = effectiveStage(p, p.permit_cycles ?? []);
-            const isSelected = p.id === selectedId;
-            return (
-              <button
-                key={p.id}
-                onClick={() => onSelect(p.id)}
-                className="w-full text-left px-3 py-2.5 border-b transition flex flex-col gap-1"
-                style={{
-                  borderBottomColor: 'var(--color-border)',
-                  background: isSelected
-                    ? 'var(--color-s3)'
-                    : 'transparent',
-                  borderLeft: isSelected
-                    ? `3px solid var(--color-${stage})`
-                    : '3px solid transparent',
-                }}
-                data-testid={`permits-sidebar-row-${p.id}`}
-              >
-                <div className="text-[11px] font-bold text-text truncate">
-                  {p.type ?? '—'}
-                  {p.nickname && (
-                    <span className="text-muted font-normal ml-1">
-                      — {p.nickname}
-                    </span>
-                  )}
-                </div>
-                <div className="text-[9px] text-muted truncate font-mono">
-                  {p.num ?? '—'}
-                  {p.ent_lead && (
-                    <span className="ml-1 text-text">{p.ent_lead}</span>
-                  )}
-                  {p.da && <span className="ml-1 text-text">{p.da}</span>}
-                </div>
-              </button>
-            );
-          })
+          sorted.map((p) => (
+            <SidebarRow
+              key={p.id}
+              permit={p}
+              selected={p.id === selectedId}
+              dragOver={p.id === dragOverId}
+              onSelect={() => onSelect(p.id)}
+              onDragStart={(e) => onDragStart(e, p.id)}
+              onDragOver={(e) => onDragOver(e, p.id)}
+              onDragLeave={onDragLeave}
+              onDrop={(e) => onDrop(e, p.id)}
+            />
+          ))
         )}
       </div>
     </aside>
   );
+}
+
+function SidebarRow({
+  permit,
+  selected,
+  dragOver,
+  onSelect,
+  onDragStart,
+  onDragOver,
+  onDragLeave,
+  onDrop,
+}: {
+  permit: PermitWithCycles;
+  selected: boolean;
+  dragOver: boolean;
+  onSelect: () => void;
+  onDragStart: (e: React.DragEvent) => void;
+  onDragOver: (e: React.DragEvent) => void;
+  onDragLeave: (e: React.DragEvent) => void;
+  onDrop: (e: React.DragEvent) => void;
+}) {
+  const cycles = permit.permit_cycles ?? [];
+  const stage = effectiveStage(permit, cycles);
+  const urgency =
+    stage === 'is' ? 'ok' : permitUrgency(permit, cycles, stage);
+  const { label: keyLabel, date: keyDate } = pickKeyDate(permit, cycles, stage);
+  const displayLabel =
+    permit.type === 'Building Permit' && permit.nickname
+      ? `Building Permit — ${permit.nickname}`
+      : permit.type ?? '—';
+  const dateColor =
+    urgency === 'red'
+      ? '#dc2626'
+      : urgency === 'yellow'
+        ? 'var(--color-co)'
+        : stage === 'is'
+          ? 'var(--color-is)'
+          : 'var(--color-text)';
+
+  return (
+    <div
+      draggable
+      onDragStart={onDragStart}
+      onDragOver={onDragOver}
+      onDragLeave={onDragLeave}
+      onDrop={onDrop}
+      onClick={onSelect}
+      className="w-full px-3 py-2 border-b cursor-pointer transition flex flex-col gap-1"
+      style={{
+        borderBottomColor: 'var(--color-border)',
+        background: dragOver
+          ? 'var(--color-de-bg)'
+          : selected
+            ? 'var(--color-s3)'
+            : 'transparent',
+        borderLeft: selected
+          ? `3px solid var(--color-${stage})`
+          : dragOver
+            ? '3px solid var(--color-de)'
+            : '3px solid transparent',
+      }}
+      data-testid={`permits-sidebar-row-${permit.id}`}
+    >
+      <div className="flex items-center gap-1.5 min-w-0">
+        <span
+          className="inline-block flex-shrink-0 rounded-full"
+          style={{
+            width: 7,
+            height: 7,
+            background: STAGE_DOT_COLOR[stage],
+          }}
+        />
+        <span className="text-[11px] font-bold text-text truncate flex-1 min-w-0">
+          {displayLabel}
+        </span>
+        <span
+          className="text-dim flex-shrink-0 cursor-grab text-[12px] leading-none"
+          title="Drag to reorder"
+        >
+          ⠿
+        </span>
+      </div>
+      <div className="text-[10px] truncate">
+        {permit.num ? (
+          <span className="text-de font-mono">{permit.num}</span>
+        ) : (
+          <span className="text-dim italic">No permit # yet</span>
+        )}
+      </div>
+      {keyDate && (
+        <div className="flex items-center gap-1.5 mt-0.5">
+          <span
+            className="text-[8px] font-bold uppercase tracking-wide"
+            style={{ color: STAGE_DOT_COLOR[stage] }}
+          >
+            {keyLabel}
+          </span>
+          <span
+            className="text-[10px] font-bold font-mono"
+            style={{ color: dateColor }}
+          >
+            {keyDate}
+          </span>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Stage-appropriate "key date" + short label, mirrors v1's index.html
+// :3554-3577 logic.
+function pickKeyDate(
+  permit: PermitWithCycles,
+  cycles: PermitCycle[],
+  stage: Stage,
+): { label: string; date: string | null } {
+  const sortedCycles = [...cycles].sort((a, b) => a.cycle_index - b.cycle_index);
+  const c0 = sortedCycles[0];
+  const latest = sortedCycles[sortedCycles.length - 1];
+
+  if (stage === 'is') {
+    if (permit.actual_issue) return { label: 'Issued', date: permit.actual_issue };
+    if (permit.approval_date) return { label: 'Approved', date: permit.approval_date };
+  }
+  if (stage === 'ap' && permit.approval_date) {
+    return { label: 'Approved', date: permit.approval_date };
+  }
+  if (stage === 'co' && latest) {
+    if (latest.corr_issued) return { label: 'Corrections', date: latest.corr_issued };
+    if (latest.resubmitted) return { label: 'Resubmitted', date: latest.resubmitted };
+    if (c0?.submitted) return { label: 'Submitted', date: c0.submitted };
+  }
+  if (stage === 'pm' && latest) {
+    if (latest.city_target) return { label: 'City Target', date: latest.city_target };
+    if (latest.submitted) return { label: 'Submitted', date: latest.submitted };
+    if (c0?.submitted) return { label: 'Submitted', date: c0.submitted };
+  }
+  // de stage (or anything fallthrough): submitted on cycle 0, else target_submit
+  if (c0?.submitted) return { label: 'Submitted', date: c0.submitted };
+  if (permit.target_submit) return { label: 'Target', date: permit.target_submit };
+  return { label: 'Target', date: null };
 }
 
 function PermitDetailRow({

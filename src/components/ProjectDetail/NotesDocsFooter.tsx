@@ -20,7 +20,7 @@ interface Props {
 export default function NotesDocsFooter({ project }: Props) {
   return (
     <div
-      className="border-t bg-surface grid"
+      className="h-full border-t bg-surface grid overflow-hidden"
       style={{
         gridTemplateColumns: '1fr 2fr',
         borderTopColor: 'var(--color-border)',
@@ -58,10 +58,10 @@ function NotesCell({ project }: { project: Project }) {
 
   return (
     <div
-      className="p-3 border-r flex flex-col gap-1.5"
+      className="p-3 border-r flex flex-col gap-1.5 min-h-0 overflow-hidden"
       style={{ borderRightColor: 'var(--color-border)' }}
     >
-      <div className="text-[9px] font-extrabold text-text uppercase tracking-wider text-center">
+      <div className="text-[9px] font-extrabold text-text uppercase tracking-wider text-center flex-shrink-0">
         Notes {saving && <span className="ml-1 text-dim normal-case">saving…</span>}
       </div>
       <textarea
@@ -69,10 +69,8 @@ function NotesCell({ project }: { project: Project }) {
         onChange={(e) => setValue(e.target.value)}
         onBlur={commit}
         placeholder="Add project notes..."
-        className="w-full text-xs p-2 border rounded-md outline-none resize-y leading-relaxed"
+        className="w-full flex-1 min-h-0 text-xs p-2 border rounded-md outline-none resize-none leading-relaxed"
         style={{
-          minHeight: 100,
-          maxHeight: 240,
           background: 'var(--color-bg)',
           borderColor: 'var(--color-border)',
         }}
@@ -114,20 +112,23 @@ function DocumentsCell({ projectId }: { projectId: string }) {
   const docs = docsQ.data ?? [];
 
   return (
-    <div className="p-3 flex flex-col gap-1.5" data-testid="pd-documents-cell">
-      <div className="text-[9px] font-extrabold text-text uppercase tracking-wider text-center">
+    <div
+      className="p-3 flex flex-col gap-1.5 min-h-0 overflow-hidden"
+      data-testid="pd-documents-cell"
+    >
+      <div className="text-[9px] font-extrabold text-text uppercase tracking-wider text-center flex-shrink-0">
         Documents &amp; Links
       </div>
       {docsQ.isLoading ? (
-        <div className="text-[11px] text-dim italic text-center py-3">
+        <div className="text-[11px] text-dim italic text-center py-3 flex-1">
           Loading…
         </div>
       ) : docs.length === 0 ? (
-        <div className="text-[11px] text-dim italic text-center py-3">
+        <div className="text-[11px] text-dim italic text-center py-3 flex-1">
           No documents yet. Add a link below.
         </div>
       ) : (
-        <ul className="flex flex-col gap-1">
+        <ul className="flex flex-col gap-1 flex-1 min-h-0 overflow-y-auto">
           {docs.map((doc) => (
             <li
               key={doc.id}
@@ -171,7 +172,7 @@ function DocumentsCell({ projectId }: { projectId: string }) {
         </ul>
       )}
       <div
-        className="flex items-center gap-1.5 mt-1 pt-2 border-t"
+        className="flex items-center gap-1.5 mt-1 pt-2 border-t flex-shrink-0"
         style={{ borderTopColor: 'var(--color-border)' }}
       >
         <input
