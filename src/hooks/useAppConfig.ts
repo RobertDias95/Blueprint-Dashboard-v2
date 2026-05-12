@@ -48,3 +48,24 @@ export function readAppConfigStringArray(
   if (!Array.isArray(v)) return [];
   return v.filter((x): x is string => typeof x === 'string');
 }
+
+/** Q9.5.e-fix-3: read consultantTypes — JSONB array of `{type, firms[]}`.
+ * Used by the Project Detail TeamCell external section. Returns [] when
+ * missing or shape-broken. */
+export interface ConsultantType {
+  type: string;
+  firms: string[];
+}
+export function readConsultantTypes(map: Map<string, unknown>): ConsultantType[] {
+  const v = map.get('consultantTypes');
+  if (!Array.isArray(v)) return [];
+  return v
+    .filter((x): x is Record<string, unknown> => !!x && typeof x === 'object')
+    .map((x) => ({
+      type: typeof x.type === 'string' ? x.type : '',
+      firms: Array.isArray(x.firms)
+        ? x.firms.filter((f): f is string => typeof f === 'string')
+        : [],
+    }))
+    .filter((ct) => ct.type !== '');
+}

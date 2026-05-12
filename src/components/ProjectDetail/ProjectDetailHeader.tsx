@@ -1,6 +1,9 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import type { Permit, PermitWithCycles, Project } from '../../lib/database.types';
 import { useUpdatePermit } from '../../hooks/useUpdatePermit';
+import { useUpdateProject } from '../../hooks/useUpdateProject';
+import { useAppConfig, readConsultantTypes } from '../../hooks/useAppConfig';
+import { useBuilders, useUpsertBuilder } from '../../hooks/useBuilders';
 
 // Q9.5.e: 4-column header top strip per v1 §4.2.1. Left card holds an
 // inner 3-column grid (DD Phase 0.75fr / Project 1.5fr / Team 1.75fr)
@@ -40,10 +43,10 @@ export default function ProjectDetailHeader({ project, permits, bp }: Props) {
         >
           <DDPhaseCell bp={bp} />
           <ProjectCell project={project} bp={bp} />
-          <TeamCell bp={bp} permits={permits} />
+          <TeamCell bp={bp} permits={permits} project={project} />
         </div>
       </div>
-      <BuilderOwnerCell />
+      <BuilderOwnerCell project={project} />
     </div>
   );
 }
@@ -267,9 +270,11 @@ function ProjectCell({
 function TeamCell({
   bp,
   permits,
+  project,
 }: {
   bp: PermitWithCycles | null;
   permits: PermitWithCycles[];
+  project: Project;
 }) {
   const ent = bp?.ent_lead;
   const da = bp?.da ?? bp?.architect;
@@ -305,12 +310,80 @@ function TeamCell({
           <div className="text-[9px] font-extrabold text-text uppercase tracking-wider mb-1.5">
             External
           </div>
-          <div className="text-[10px] text-dim italic">
-            Consultant assignments — backlog #67
-          </div>
+          <ExternalTeamEditor project={project} />
         </div>
       </div>
     </CellShell>
+  );
+}
+
+// Q9.5.e-fix-3: External team editor — 3 selects (Civil / Surveyor /
+// Structural) sourced from app_config.consultantTypes. Each select writes
+// the full external_team JSON back to projects via useUpdateProject (OCC).
+function ExternalTeamEditor({ project }: { project: Project }) {
+  const cfgQ = useAppConfig();
+  const updateMutation = useUpdateProject();
+  const consultants = useMemo(
+    () => readConsultantTypes(cfgQ.map),
+    [cfgQ.map],
+  );
+  const external =
+    project.external_team && typeof project.external_team === 'object'
+      ? (project.external_team as Record<string, string>)
+      : {};
+  const occMissing = !project.updated_at;
+
+  if (consultants.length === 0) {
+    return (
+      <div className="text-[10px] text-dim italic">
+        No consultant types configured. Settings → Consultants.
+      </div>
+    );
+  }
+
+  async function setFirm(consultantType: string, firm: string) {
+    if (!project.updated_at) return;
+    const next: Record<string, string> = { ...external };
+    if (firm) next[consultantType] = firm;
+    else delete next[consultantType];
+    await updateMutation.mutateAsync({
+      projectId: project.id,
+      expectedUpdatedAt: project.updated_at,
+      patch: { external_team: next },
+      fieldLabel: `${consultantType} consultant`,
+    });
+  }
+
+  return (
+    <div className="flex flex-col gap-1.5">
+      {consultants.map((ct) => {
+        const val = external[ct.type] ?? '';
+        return (
+          <div key={ct.type} className="flex flex-col gap-0.5">
+            <span className="text-[8px] font-bold text-dim uppercase tracking-wide">
+              {ct.type}
+            </span>
+            <select
+              value={val}
+              onChange={(e) => void setFirm(ct.type, e.target.value)}
+              disabled={occMissing || updateMutation.isPending}
+              className={`text-[10px] border-0 border-b outline-none bg-transparent w-full px-0 py-0.5 cursor-pointer disabled:opacity-50 ${
+                val ? 'font-bold text-text' : 'font-normal text-dim'
+              }`}
+              style={{ borderBottomColor: 'var(--color-border)' }}
+              data-testid={`pd-ext-${ct.type.toLowerCase()}`}
+            >
+              <option value="">unassigned</option>
+              {ct.firms.map((f) => (
+                <option key={f} value={f}>
+                  {f}
+                </option>
+              ))}
+            </select>
+          </div>
+        );
+      })}
+    </div>
   );
 }
 
@@ -318,10 +391,29 @@ function TeamCell({
 // Builder / Owner cell (read-only stub — see backlog)
 // ============================================================
 
-function BuilderOwnerCell() {
+// Q9.5.e-fix-3: Builder/Owner cell — autocomplete from `builders` table via
+// HTML `<datalist>`, falling back to "Create new" on commit. Selecting an
+// existing builder sets projects.builder_id (FK); selecting/clearing all
+// fields clears builder_id back to null.
+function BuilderOwnerCell({ project }: { project: Project }) {
+  const buildersQ = useBuilders();
+  const updateProject = useUpdateProject();
+  const upsertBuilder = useUpsertBuilder();
+
+  const current =
+    project.builder_id
+      ? buildersQ.data?.find((b) => b.id === project.builder_id) ?? null
+      : null;
+
+  const occMissing = !project.updated_at;
+  const datalistId = `builders-list-${project.id}`;
+
+  // Local drafts — commit on blur. When `current` changes (via picker or
+  // external sync), re-seed from props on next render via key prop on
+  // BuilderForm.
   return (
     <div
-      className="flex-shrink-0 px-4 py-3.5 border-l flex flex-col"
+      className="flex-shrink-0 px-4 py-3.5 border-l flex flex-col gap-2"
       style={{
         width: 240,
         borderLeftColor: 'var(--color-border)',
@@ -329,11 +421,201 @@ function BuilderOwnerCell() {
       }}
       data-testid="pd-builder-cell"
     >
-      <div className="text-[10px] font-extrabold text-text uppercase tracking-wider mb-2.5">
-        Builder / Owner
+      <div className="flex items-center justify-between">
+        <div className="text-[10px] font-extrabold text-text uppercase tracking-wider">
+          Builder / Owner
+        </div>
+        {current && (
+          <button
+            type="button"
+            onClick={() =>
+              project.updated_at &&
+              void updateProject.mutateAsync({
+                projectId: project.id,
+                expectedUpdatedAt: project.updated_at,
+                patch: { builder_id: null },
+                fieldLabel: 'Builder',
+              })
+            }
+            disabled={occMissing || updateProject.isPending}
+            className="text-[9px] text-dim hover:text-co underline disabled:opacity-50"
+            data-testid="pd-builder-clear"
+            title="Detach builder from this project"
+          >
+            clear
+          </button>
+        )}
       </div>
-      <div className="text-[12px] text-dim italic">
-        No builder / owner on file. Backlog #67 wires the builders hook.
+      <datalist id={datalistId}>
+        {(buildersQ.data ?? []).map((b) => (
+          <option key={b.id} value={b.name}>
+            {b.company || b.email || b.phone || ''}
+          </option>
+        ))}
+      </datalist>
+      <BuilderForm
+        key={current?.id ?? 'empty'}
+        current={current}
+        builders={buildersQ.data ?? []}
+        disabled={occMissing}
+        datalistId={datalistId}
+        onPickExisting={async (builderId) => {
+          if (!project.updated_at) return;
+          await updateProject.mutateAsync({
+            projectId: project.id,
+            expectedUpdatedAt: project.updated_at,
+            patch: { builder_id: builderId },
+            fieldLabel: 'Builder',
+          });
+        }}
+        onCreateOrUpdate={async (form) => {
+          if (!project.updated_at) return;
+          // If no name, nothing to do.
+          if (!form.name.trim()) return;
+          // If editing an existing builder linked to this project, update
+          // that row. Otherwise, create a new builder and FK it in.
+          if (current && form.name.trim() === current.name) {
+            await upsertBuilder.mutateAsync({
+              id: current.id,
+              name: form.name.trim(),
+              company: form.company.trim() || null,
+              email: form.email.trim() || null,
+              phone: form.phone.trim() || null,
+            });
+            return;
+          }
+          const created = await upsertBuilder.mutateAsync({
+            name: form.name.trim(),
+            company: form.company.trim() || null,
+            email: form.email.trim() || null,
+            phone: form.phone.trim() || null,
+          });
+          await updateProject.mutateAsync({
+            projectId: project.id,
+            expectedUpdatedAt: project.updated_at,
+            patch: { builder_id: created.id },
+            fieldLabel: 'Builder',
+          });
+        }}
+      />
+    </div>
+  );
+}
+
+function BuilderForm({
+  current,
+  builders,
+  disabled,
+  datalistId,
+  onPickExisting,
+  onCreateOrUpdate,
+}: {
+  current: { id: string; name: string; company: string | null; email: string | null; phone: string | null } | null;
+  builders: { id: string; name: string; company: string | null; email: string | null; phone: string | null }[];
+  disabled: boolean;
+  datalistId: string;
+  onPickExisting: (builderId: string) => Promise<void>;
+  onCreateOrUpdate: (form: {
+    name: string;
+    company: string;
+    email: string;
+    phone: string;
+  }) => Promise<void>;
+}) {
+  const [name, setName] = useState(current?.name ?? '');
+  const [company, setCompany] = useState(current?.company ?? '');
+  const [email, setEmail] = useState(current?.email ?? '');
+  const [phone, setPhone] = useState(current?.phone ?? '');
+
+  function onNameBlur() {
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    // Exact name match against existing builders → pick existing
+    const match = builders.find(
+      (b) => b.name.trim().toLowerCase() === trimmed.toLowerCase(),
+    );
+    if (match && match.id !== current?.id) {
+      // Pre-fill the form from the matched builder for visual feedback
+      setName(match.name);
+      setCompany(match.company ?? '');
+      setEmail(match.email ?? '');
+      setPhone(match.phone ?? '');
+      void onPickExisting(match.id);
+      return;
+    }
+    // No match — commit will land via field-level blur (company/email/phone)
+    void onCreateOrUpdate({ name: trimmed, company, email, phone });
+  }
+
+  function fieldBlur() {
+    if (!name.trim()) return;
+    void onCreateOrUpdate({ name: name.trim(), company, email, phone });
+  }
+
+  const labelStyle =
+    'text-[8px] font-bold text-dim uppercase tracking-wide';
+  const inputClass =
+    'text-[12px] font-bold text-text border-0 border-b outline-none bg-transparent w-full px-0 py-0.5 disabled:opacity-50';
+  const inputStyle = { borderBottomColor: 'var(--color-border)' };
+
+  return (
+    <div className="flex flex-col gap-2">
+      <div>
+        <span className={labelStyle}>Owner</span>
+        <input
+          type="text"
+          value={name}
+          list={datalistId}
+          placeholder="Full name"
+          onChange={(e) => setName(e.target.value)}
+          onBlur={onNameBlur}
+          disabled={disabled}
+          className={inputClass}
+          style={inputStyle}
+          data-testid="pd-builder-name"
+        />
+      </div>
+      <div>
+        <span className={labelStyle}>Business</span>
+        <input
+          type="text"
+          value={company}
+          placeholder="Company"
+          onChange={(e) => setCompany(e.target.value)}
+          onBlur={fieldBlur}
+          disabled={disabled}
+          className={inputClass}
+          style={inputStyle}
+          data-testid="pd-builder-company"
+        />
+      </div>
+      <div>
+        <span className={labelStyle}>Email</span>
+        <input
+          type="email"
+          value={email}
+          placeholder="builder@email.com"
+          onChange={(e) => setEmail(e.target.value)}
+          onBlur={fieldBlur}
+          disabled={disabled}
+          className={`${inputClass} font-semibold`}
+          style={{ ...inputStyle, color: 'var(--color-de)' }}
+          data-testid="pd-builder-email"
+        />
+      </div>
+      <div>
+        <span className={labelStyle}>Cell</span>
+        <input
+          type="tel"
+          value={phone}
+          placeholder="(206) 555-0100"
+          onChange={(e) => setPhone(e.target.value)}
+          onBlur={fieldBlur}
+          disabled={disabled}
+          className={inputClass}
+          style={inputStyle}
+          data-testid="pd-builder-phone"
+        />
       </div>
     </div>
   );

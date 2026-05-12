@@ -13,8 +13,40 @@ export interface Project {
   juris: string | null;
   archived: boolean;
   notes: string | null;
+  /** Q9.5.e-fix-3: JSONB map of consultant type → firm name. Shape:
+   * `{ Civil: 'Facet', Surveyor: 'Emerald' }`. Empty object when unset. */
+  external_team?: Record<string, string> | null;
+  /** Q9.5.e-fix-3: FK to builders.id. Null when no builder/owner on file. */
+  builder_id?: string | null;
+  /** Q9.5.e-fix-3: JSONB array of permit ids in display order. v1 parity for
+   * the permits sidebar drag-reorder feature (fix-4 wires the UI). */
+  permit_order?: number[] | null;
   created_at?: string | null;
   updated_at?: string | null;
+}
+
+/** Q9.5.e-fix-3: builders table row. Used by the Project Detail Builder/Owner
+ * cell + the new-project wizard's builder picker. */
+export interface Builder {
+  id: string;
+  name: string;
+  company: string | null;
+  email: string | null;
+  phone: string | null;
+  notes: string | null;
+  active: boolean | null;
+}
+
+/** Q9.5.e-fix-3: project_documents row. updated_at added by fix-3 migration
+ * for row-level OCC via bp_upsert_project_document_row. */
+export interface ProjectDocument {
+  id: string;
+  project_id: string;
+  name: string;
+  url: string | null;
+  uploaded_by: string | null;
+  uploaded_at: string | null;
+  updated_at: string;
 }
 
 export interface PermitCycle {

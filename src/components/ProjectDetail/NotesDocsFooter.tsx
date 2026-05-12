@@ -1,15 +1,17 @@
 import { useState } from 'react';
 import { supabase } from '../../lib/supabase';
 import { pushToast } from '../../stores/toastStore';
-import type { Project } from '../../lib/database.types';
+import {
+  useProjectDocuments,
+  useUpsertProjectDocument,
+  useDeleteProjectDocument,
+} from '../../hooks/useProjectDocuments';
+import type { Project, ProjectDocument } from '../../lib/database.types';
 
-// Q9.5.e: project Notes (left 1fr) + Documents stub (right 2fr) per
-// v1 §4.2.1 (C). Notes is editable; writes go through a direct
-// projects-table update via the anon key (RLS gates by tenant).
-//
-// Documents column ships as a stub — project_documents table exists
-// (saw it during Q5.5 schema work) but no v2 hook surfaces it yet.
-// Backlog tracker covers the add/list/remove flow.
+// Q9.5.e: project Notes (left 1fr) + Documents (right 2fr) per v1 §4.2.1 (C).
+// Notes is editable; writes go through a direct projects-table update.
+// Q9.5.e-fix-3: Documents column is now a real list + add form, wired to
+// the project_documents table via the new OCC RPCs.
 
 interface Props {
   project: Project;
@@ -18,7 +20,7 @@ interface Props {
 export default function NotesDocsFooter({ project }: Props) {
   return (
     <div
-      className="flex-shrink-0 border-t bg-surface grid"
+      className="border-t bg-surface grid"
       style={{
         gridTemplateColumns: '1fr 2fr',
         borderTopColor: 'var(--color-border)',
@@ -26,7 +28,7 @@ export default function NotesDocsFooter({ project }: Props) {
       data-testid="notes-docs-footer"
     >
       <NotesCell project={project} />
-      <DocumentsCell />
+      <DocumentsCell projectId={project.id} />
     </div>
   );
 }
@@ -83,16 +85,129 @@ function NotesCell({ project }: { project: Project }) {
   );
 }
 
-function DocumentsCell() {
+function DocumentsCell({ projectId }: { projectId: string }) {
+  const docsQ = useProjectDocuments(projectId);
+  const upsert = useUpsertProjectDocument();
+  const remove = useDeleteProjectDocument();
+  const [labelDraft, setLabelDraft] = useState('');
+  const [urlDraft, setUrlDraft] = useState('');
+
+  async function handleAdd() {
+    const name = labelDraft.trim();
+    if (!name) {
+      pushToast('Label is required', 'warn');
+      return;
+    }
+    await upsert.mutateAsync({
+      projectId,
+      patch: { name, url: urlDraft.trim() || null },
+    });
+    setLabelDraft('');
+    setUrlDraft('');
+  }
+
+  async function handleDelete(doc: ProjectDocument) {
+    if (!window.confirm(`Delete document "${doc.name}"?`)) return;
+    await remove.mutateAsync({ projectId, doc });
+  }
+
+  const docs = docsQ.data ?? [];
+
   return (
-    <div className="p-3 flex flex-col gap-1.5">
+    <div className="p-3 flex flex-col gap-1.5" data-testid="pd-documents-cell">
       <div className="text-[9px] font-extrabold text-text uppercase tracking-wider text-center">
         Documents &amp; Links
       </div>
-      <div className="text-[11px] text-dim italic text-center py-6">
-        Project documents wiring — backlog #67 (project_documents hook +
-        add form). Paste any link — Google Drive, Dropbox, drone footage,
-        permit portals — once the editor lands.
+      {docsQ.isLoading ? (
+        <div className="text-[11px] text-dim italic text-center py-3">
+          Loading…
+        </div>
+      ) : docs.length === 0 ? (
+        <div className="text-[11px] text-dim italic text-center py-3">
+          No documents yet. Add a link below.
+        </div>
+      ) : (
+        <ul className="flex flex-col gap-1">
+          {docs.map((doc) => (
+            <li
+              key={doc.id}
+              className="flex items-center gap-2 px-2 py-1 rounded border"
+              style={{
+                borderColor: 'var(--color-border)',
+                background: 'var(--color-bg)',
+              }}
+              data-testid={`pd-doc-${doc.id}`}
+            >
+              <span className="text-[11px] font-bold text-text flex-shrink-0">
+                {doc.name}
+              </span>
+              {doc.url ? (
+                <a
+                  href={doc.url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-[10px] text-de underline truncate flex-1 min-w-0"
+                  title={doc.url}
+                >
+                  {doc.url}
+                </a>
+              ) : (
+                <span className="text-[10px] text-dim italic flex-1">
+                  (no URL)
+                </span>
+              )}
+              <button
+                type="button"
+                onClick={() => void handleDelete(doc)}
+                disabled={remove.isPending}
+                className="text-[10px] text-co hover:text-co/70 px-1 disabled:opacity-50"
+                title="Delete document"
+                data-testid={`pd-doc-${doc.id}-delete`}
+              >
+                ✕
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+      <div
+        className="flex items-center gap-1.5 mt-1 pt-2 border-t"
+        style={{ borderTopColor: 'var(--color-border)' }}
+      >
+        <input
+          type="text"
+          value={labelDraft}
+          onChange={(e) => setLabelDraft(e.target.value)}
+          placeholder="Label"
+          className="text-[11px] px-2 py-1 border rounded outline-none flex-shrink-0"
+          style={{
+            width: 100,
+            borderColor: 'var(--color-border)',
+            background: 'var(--color-bg)',
+          }}
+          data-testid="pd-doc-add-label"
+        />
+        <input
+          type="url"
+          value={urlDraft}
+          onChange={(e) => setUrlDraft(e.target.value)}
+          placeholder="https://… (Drive, Dropbox, portal, etc.)"
+          className="text-[11px] px-2 py-1 border rounded outline-none flex-1"
+          style={{
+            borderColor: 'var(--color-border)',
+            background: 'var(--color-bg)',
+          }}
+          data-testid="pd-doc-add-url"
+        />
+        <button
+          type="button"
+          onClick={() => void handleAdd()}
+          disabled={upsert.isPending || !labelDraft.trim()}
+          className="text-[11px] px-3 py-1 rounded-md font-bold border border-border bg-s2 text-text hover:bg-s3 transition disabled:opacity-50"
+          data-testid="pd-doc-add-btn"
+        >
+          + Add
+        </button>
       </div>
     </div>
   );
