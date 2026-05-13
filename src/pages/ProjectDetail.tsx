@@ -18,6 +18,7 @@ import NotesDocsFooter from '../components/ProjectDetail/NotesDocsFooter';
 import PermitDetailV2 from '../components/ProjectDetail/PermitDetailV2';
 import ProjectSettingsModal from '../components/ProjectDetail/ProjectSettingsModal';
 import DeleteProjectDialog from '../components/ProjectDetail/DeleteProjectDialog';
+import QuickEditPermitModal from '../components/ProjectDetail/QuickEditPermitModal';
 
 // Q3 + Q4: Single-project view. Q3 wired editable permit-level fields. Q4
 // adds editable cycles (5 date columns + add/delete) and a tasks section
@@ -101,6 +102,14 @@ function ProjectDetailBody({
   // button / Delete button / future hotkeys) target the same instances.
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
+  // Q9.5.f-fix-19: Quick Edit popup opened by double-click on a sidebar row.
+  const [quickEditPermitId, setQuickEditPermitId] = useState<number | null>(
+    null,
+  );
+  const quickEditPermit =
+    quickEditPermitId !== null
+      ? permits.find((p) => p.id === quickEditPermitId) ?? null
+      : null;
   // Keep bp around for the project-overview render even when no permit
   // is explicitly selected — the 4-col header anchors on the BP.
   void bp;
@@ -132,6 +141,12 @@ function ProjectDetailBody({
           onClose={() => setDeleteOpen(false)}
         />
       )}
+      {quickEditPermit && (
+        <QuickEditPermitModal
+          permit={quickEditPermit}
+          onClose={() => setQuickEditPermitId(null)}
+        />
+      )}
 
       {/* Project address sub-header — centered, larger per v1 :758 */}
       <div className="text-center pt-1 pb-3 flex-shrink-0">
@@ -154,6 +169,7 @@ function ProjectDetailBody({
           project={project}
           selectedId={selectedPermit?.id ?? null}
           onSelect={setSelectedPermitId}
+          onQuickEdit={setQuickEditPermitId}
         />
         <div
           className="flex-1 flex flex-col overflow-hidden min-h-0"
@@ -294,11 +310,13 @@ function PermitsSidebar({
   project,
   selectedId,
   onSelect,
+  onQuickEdit,
 }: {
   permits: PermitWithCycles[];
   project: NonNullable<ReturnType<typeof useProjects>['data']>[number];
   selectedId: number | null;
   onSelect: (id: number) => void;
+  onQuickEdit: (id: number) => void;
 }) {
   const updateProject = useUpdateProject();
   const [dragOverId, setDragOverId] = useState<number | null>(null);
@@ -395,6 +413,7 @@ function PermitsSidebar({
               selected={p.id === selectedId}
               dragOver={p.id === dragOverId}
               onSelect={() => onSelect(p.id)}
+              onQuickEdit={() => onQuickEdit(p.id)}
               onDragStart={(e) => onDragStart(e, p.id)}
               onDragOver={(e) => onDragOver(e, p.id)}
               onDragLeave={onDragLeave}
@@ -412,6 +431,7 @@ function SidebarRow({
   selected,
   dragOver,
   onSelect,
+  onQuickEdit,
   onDragStart,
   onDragOver,
   onDragLeave,
@@ -421,6 +441,7 @@ function SidebarRow({
   selected: boolean;
   dragOver: boolean;
   onSelect: () => void;
+  onQuickEdit: () => void;
   onDragStart: (e: React.DragEvent) => void;
   onDragOver: (e: React.DragEvent) => void;
   onDragLeave: (e: React.DragEvent) => void;
@@ -452,7 +473,7 @@ function SidebarRow({
       onDragLeave={onDragLeave}
       onDrop={onDrop}
       onClick={onSelect}
-      onDoubleClick={onSelect}
+      onDoubleClick={onQuickEdit}
       className="w-full px-3 py-2 border-b cursor-pointer transition flex flex-col gap-1"
       style={{
         borderBottomColor: 'var(--color-border)',
