@@ -551,12 +551,14 @@ function mostRecent<T>(rows: T[], pick: (row: T) => string | null): string | nul
 // so the just-opened card is in view. Mirrors v1 toggleProjectExpanded
 // :2849-2860 — independent per-container scroll, smooth, with an 8px buffer
 // so the card doesn't snap flush to the top edge.
-// Q9.5.f Item 3: replace scrollIntoView with explicit per-container
-// scrollTo math + a 50ms stagger between containers. scrollIntoView fired
-// only the active bucket reliably (the non-active bucket's smooth-scroll
-// got trampled when issued in the same task). Walking each bucket's
-// scrollable container directly and offsetting one frame apart fixes the
-// landing on every bucket independently.
+// Q9.5.f-fix-1: scroll math uses getBoundingClientRect (matches v1
+// :8856-8859) rather than the offsetTop/offsetParent walk we tried in
+// Item 3. That walk failed when the bucket had position:static —
+// offsetParent skipped past the bucket to <body>, so the computed offset
+// was relative to the wrong ancestor and the scroll landed at 0.
+// getBoundingClientRect is layout-independent; subtracting container.top
+// + adding container.scrollTop gives a target that works regardless of
+// the container's position style.
 function scrollAddrIntoView(addr: string) {
   if (typeof document === 'undefined') return;
   const safe = typeof CSS !== 'undefined' && CSS.escape ? CSS.escape(addr) : addr;
@@ -566,18 +568,11 @@ function scrollAddrIntoView(addr: string) {
   containers.forEach((container, i) => {
     const el = container.querySelector<HTMLElement>(`[data-addr-group="${safe}"]`);
     if (!el) return;
-    // offsetTop is measured from the nearest positioned ancestor. Walk up
-    // until we hit the bucket container itself so the math works even if
-    // intermediate wrappers (e.g. sub-bucket padding) are positioned.
-    let elOffset = el.offsetTop;
-    let parent = el.offsetParent as HTMLElement | null;
-    while (parent && parent !== container) {
-      elOffset += parent.offsetTop;
-      parent = parent.offsetParent as HTMLElement | null;
-    }
-    const target = Math.max(0, elOffset - 8);
+    const containerTop = container.getBoundingClientRect().top;
+    const elTop = el.getBoundingClientRect().top;
+    const offset = elTop - containerTop + container.scrollTop - 8;
     setTimeout(() => {
-      container.scrollTo({ top: target, behavior: 'smooth' });
+      container.scrollTo({ top: Math.max(0, offset), behavior: 'smooth' });
     }, i * 50);
   });
 }
