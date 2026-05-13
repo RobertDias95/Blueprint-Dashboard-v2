@@ -21,6 +21,7 @@ import type {
   Project,
   Stage,
 } from '../../lib/database.types';
+import ScheduleEstimator from './ScheduleEstimator';
 
 // Q9.5.e-fix-5: PermitDetailV2 rebuilds the v2 permit edit panel to match
 // v1's _renderPermitDetail at index.html:4787. Visual blocks (top→bottom):
@@ -1181,6 +1182,11 @@ function Sidebar({
           removeCycle={removeCycle}
         />
       </SidebarWidget>
+
+      {/* Q9.5.f-fix-11: Schedule Estimator — sits between Cycle History
+          and Issue Dates per v1 :4845. Pulls cross-tenant data via hooks
+          internally, no extra prop drilling needed. */}
+      <ScheduleEstimator permit={permit} />
 
       {/* Issue Dates */}
       <SidebarWidget title="Issue Dates">

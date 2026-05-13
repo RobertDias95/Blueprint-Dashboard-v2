@@ -1,11 +1,14 @@
 import { describe, it, expect } from 'vitest';
 import { computeProjectedApproval } from '../lib/projectedApproval';
-import { SCHEDULE_DEFAULTS, type LearnedEstimate } from '../lib/scheduleBenchmarks';
+import {
+  SCHEDULE_DEFAULTS,
+  type LearnedEstimate,
+} from '../lib/scheduleBenchmarks';
 import type { Permit, PermitCycle } from '../lib/database.types';
 
-// Q9.5.f-fix-10: walk-forward projection tests. Each case pins the math
-// to a hand-computed expected value so a future refactor can't silently
-// shift the formula.
+// Q9.5.f-fix-11: rewritten for the v1-parity algorithm. Each branch (real-
+// short-circuit, ULS BP-anchor, holistic shortcut, target-cycle walk,
+// last-real-date floor) has at least one pinned test.
 
 function permit(over: Partial<Permit> = {}): Permit {
   return {
@@ -64,6 +67,37 @@ function cyc(over: Partial<PermitCycle> & { cycle_index: number }): PermitCycle 
   };
 }
 
+function learned(over: Partial<LearnedEstimate> = {}): LearnedEstimate {
+  return {
+    source: 'test',
+    sampleCount: 5,
+    dateRange: '',
+    goToSubmit: null,
+    avgSubmitToIssue: null,
+    cityReview1: SCHEDULE_DEFAULTS.cityReview1,
+    corrResponse1: SCHEDULE_DEFAULTS.corrResponse1,
+    cityReview2: SCHEDULE_DEFAULTS.cityReview2,
+    corrResponse2: SCHEDULE_DEFAULTS.corrResponse2,
+    cityReview3: SCHEDULE_DEFAULTS.cityReview3,
+    corrResponse3: SCHEDULE_DEFAULTS.corrResponse3,
+    cityReview4: SCHEDULE_DEFAULTS.cityReview4,
+    corrResponse4: SCHEDULE_DEFAULTS.corrResponse4,
+    cr1Count: 0,
+    cr2Count: 0,
+    cr3Count: 0,
+    cr4Count: 0,
+    co1Count: 0,
+    co2Count: 0,
+    co3Count: 0,
+    co4Count: 0,
+    avgCycles: 2,
+    mostLikelyCycle: 1,
+    cycleDist: { 1: 0, 2: 0, 3: 0, 4: 0 },
+    isAllTime: false,
+    ...over,
+  };
+}
+
 describe('computeProjectedApproval', () => {
   it('actual_issue short-circuits with isActual=true', () => {
     const r = computeProjectedApproval({
@@ -71,11 +105,8 @@ describe('computeProjectedApproval', () => {
       cycles: [],
       learnedEstimate: null,
     });
-    expect(r).toEqual({
-      projection: '2026-06-15',
-      isActual: true,
-      isProjected: false,
-    });
+    expect(r.projection).toBe('2026-06-15');
+    expect(r.isActual).toBe(true);
   });
 
   it('approval_date short-circuits when no actual_issue', () => {
@@ -84,146 +115,154 @@ describe('computeProjectedApproval', () => {
       cycles: [],
       learnedEstimate: null,
     });
-    expect(r).toEqual({
-      projection: '2026-06-01',
-      isActual: true,
-      isProjected: false,
-    });
+    expect(r.projection).toBe('2026-06-01');
+    expect(r.isActual).toBe(true);
   });
 
-  it('null projection when no anchor (no cycle1.submitted, no target, no GO)', () => {
+  it('null projection when no anchor available', () => {
     const r = computeProjectedApproval({
       permit: permit(),
       cycles: [],
       learnedEstimate: null,
     });
-    expect(r).toEqual({ projection: null, isActual: false, isProjected: false });
+    expect(r.projection).toBeNull();
   });
 
-  it('cycle 1 submitted only, no learned → walks with defaults (2 cycles)', () => {
-    // anchor = 2026-01-01
-    // cr1End = anchor + cityReview1 (21) = 2026-01-22
-    // cursor = cr1End + corrResponse1 (10) = 2026-02-01
-    // cr2End = cursor + cityReview2 (21) = 2026-02-22
-    // cursor = cr2End + corrResponse2 (10) = 2026-03-04
-    // projection = cursor + 7 = 2026-03-11
+  it('cycle 1 submitted only, no learned → cityReview1 + 7d (target cycle 1)', () => {
+    // No mostLikelyCycle → currentReviewCycle = 1 → targetCycle = 1.
+    // No avgSubmitToIssue → cursor = base + cityReview1 (21) + 7 = 2026-01-29.
     const r = computeProjectedApproval({
       permit: permit(),
       cycles: [cyc({ cycle_index: 1, submitted: '2026-01-01' })],
       learnedEstimate: null,
     });
-    expect(r.projection).toBe('2026-03-11');
-    expect(r.isActual).toBe(false);
+    expect(r.projection).toBe('2026-01-29');
+    expect(r.targetCycle).toBe(1);
     expect(r.isProjected).toBe(true);
-    // Defensive: confirms SCHEDULE_DEFAULTS still ship the values this test
-    // pinned against. Catches a silent change to the fallback table.
-    expect(SCHEDULE_DEFAULTS.cityReview1).toBe(21);
   });
 
-  it('cycle 1 submitted + corr_issued → walks forward from real corr_issued', () => {
-    // anchor = 2026-01-01 (used only if no corr_issued)
-    // cr1End = 2026-02-10 (real corr_issued)
-    // cursor = cr1End + corrResponse1 (10) = 2026-02-20
-    // cr2End = cursor + cityReview2 (21) = 2026-03-13
-    // cursor = cr2End + corrResponse2 (10) = 2026-03-23
-    // projection = cursor + 7 = 2026-03-30
-    const r = computeProjectedApproval({
-      permit: permit(),
-      cycles: [
-        cyc({
-          cycle_index: 1,
-          submitted: '2026-01-01',
-          corr_issued: '2026-02-10',
-        }),
-      ],
-      learnedEstimate: null,
-    });
-    expect(r.projection).toBe('2026-03-30');
-  });
-
-  it('cycle 2 in progress with corr_issued uses real cy2.corr_issued as anchor', () => {
-    // cycle 1: submitted + corr_issued + resubmitted (all real)
-    // cycle 2: corr_issued real (still waiting on resubmittal)
-    // cy1 cursor = 2026-02-20 (real resubmitted)
-    // cy2 cr2End = 2026-04-01 (real corr_issued)
-    // cursor = cr2End + co2 (10) = 2026-04-11
-    // projection = cursor + 7 = 2026-04-18
-    const r = computeProjectedApproval({
-      permit: permit(),
-      cycles: [
-        cyc({
-          cycle_index: 1,
-          submitted: '2026-01-01',
-          corr_issued: '2026-02-10',
-          resubmitted: '2026-02-20',
-        }),
-        cyc({ cycle_index: 2, submitted: '2026-02-20', corr_issued: '2026-04-01' }),
-      ],
-      learnedEstimate: null,
-    });
-    expect(r.projection).toBe('2026-04-18');
-  });
-
-  it('learned estimate overrides defaults', () => {
-    const learned: LearnedEstimate = {
-      source: 'test',
-      sampleCount: 10,
-      dateRange: '',
-      goToSubmit: null,
-      avgSubmitToIssue: null,
-      cityReview1: 30, // longer than default 21
-      corrResponse1: 14,
-      cityReview2: 30,
-      corrResponse2: 14,
-      cityReview3: 30,
-      corrResponse3: 14,
-      cityReview4: 30,
-      corrResponse4: 14,
-      cr1Count: 10,
-      cr2Count: 10,
-      cr3Count: 0,
-      cr4Count: 0,
-      co1Count: 10,
-      co2Count: 10,
-      co3Count: 0,
-      co4Count: 0,
-      avgCycles: 2,
-      mostLikelyCycle: 2,
-      cycleDist: { 1: 0, 2: 10, 3: 0, 4: 0 },
-      isAllTime: false,
-    };
-    // anchor=2026-01-01
-    // cr1End = +30 = 2026-01-31
-    // cursor = +14 = 2026-02-14
-    // cr2End = +30 = 2026-03-16
-    // cursor = +14 = 2026-03-30
-    // projection = +7 = 2026-04-06
+  it('holistic shortcut: targetCycle=1 + no corrections + avgSubmitToIssue → base + avgSubmitToIssue', () => {
+    // Bobby's 3-day drift fix: when learner knows the BP usually approves
+    // in cycle 1 in N days, trust that average instead of cityReview1 + 7.
     const r = computeProjectedApproval({
       permit: permit(),
       cycles: [cyc({ cycle_index: 1, submitted: '2026-01-01' })],
-      learnedEstimate: learned,
+      learnedEstimate: learned({ avgSubmitToIssue: 80, mostLikelyCycle: 1 }),
     });
-    expect(r.projection).toBe('2026-04-06');
+    // 2026-01-01 + 80 days = 2026-03-22
+    expect(r.projection).toBe('2026-03-22');
+    expect(r.targetCycle).toBe(1);
   });
 
-  it('target_submit serves as anchor when cycle1.submitted is missing', () => {
+  it('targetCycle bumps when learned.mostLikelyCycle > currentReviewCycle', () => {
+    // learner says "most permits approve in cycle 2" but this permit has
+    // no corrections yet → walk 1 correction round before final approval.
+    const r = computeProjectedApproval({
+      permit: permit(),
+      cycles: [cyc({ cycle_index: 1, submitted: '2026-01-01' })],
+      learnedEstimate: learned({ mostLikelyCycle: 2 }),
+    });
+    // cy1 cr = 21, cy1 co = 10 (cursor now at 2026-02-01), +7 final = 2026-02-08
+    expect(r.projection).toBe('2026-02-08');
+    expect(r.targetCycle).toBe(2);
+    expect(r.rounds?.corrIssued1).toBe('2026-01-22');
+    expect(r.rounds?.resubmitted1).toBe('2026-02-01');
+  });
+
+  it('actual corr_issued overrides learned cityReview', () => {
+    // Permit has real corr_issued on cy1 → that date IS the cr1 end.
+    // Permit has corrections → currentReviewCycle=2 → targetCycle=2.
+    const r = computeProjectedApproval({
+      permit: permit(),
+      cycles: [
+        cyc({
+          cycle_index: 1,
+          submitted: '2026-01-01',
+          corr_issued: '2026-02-10',
+        }),
+      ],
+      learnedEstimate: null,
+    });
+    // crEnd=2026-02-10 (real), resub = +corrResponse1(10) = 2026-02-20
+    // cursor = 2026-02-20, +7 final = 2026-02-27
+    expect(r.projection).toBe('2026-02-27');
+    expect(r.targetCycle).toBe(2);
+    expect(r.rounds?.corrIssued1).toBe('2026-02-10');
+    expect(r.rounds?.resubmitted1).toBe('2026-02-20');
+  });
+
+  it('target_submit serves as anchor when no cy1.submitted', () => {
     const r = computeProjectedApproval({
       permit: permit({ target_submit: '2026-05-01' }),
       cycles: [],
       learnedEstimate: null,
     });
-    // 2026-05-01 + 21 + 10 + 21 + 10 + 7 = +69 days = 2026-07-09
-    expect(r.projection).toBe('2026-07-09');
-    expect(r.isProjected).toBe(true);
+    // targetCycle=1, cityReview1=21 + 7 = 28 days. 2026-05-01 + 28 = 2026-05-29
+    expect(r.projection).toBe('2026-05-29');
   });
 
-  it('go_date serves as anchor when no submitted and no target_submit', () => {
+  it('ULS short-circuits to BP anchor + 120 days when sibling BP has expected_issue', () => {
+    const bp = permit({ id: 100, type: 'Building Permit', expected_issue: '2026-08-01' });
+    const uls = permit({ id: 200, type: 'ULS' });
     const r = computeProjectedApproval({
-      permit: permit({ go_date: '2026-01-01' }),
+      permit: uls,
       cycles: [],
       learnedEstimate: null,
+      siblingPermits: [bp, uls],
+      siblingCyclesByPermitId: new Map([
+        [100, [cyc({ cycle_index: 1, submitted: '2026-01-01' })]],
+      ]),
+      siblingLearnedByPermitId: new Map([[100, null]]),
     });
-    // 2026-01-01 + 21 + 10 + 21 + 10 + 7 = 2026-03-11
-    expect(r.projection).toBe('2026-03-11');
+    // ULS approval = bp.expected_issue (2026-08-01) + 120 days = 2026-11-29
+    // ULS base = uls.target_submit (none) → anchors.targetSubmit fallback
+    //   bpCy1.submitted=2026-01-01 → corrCycle has no resub/corr/target
+    //   cy1Resub = (2026-01-01 + 21) + 10 = 2026-02-01
+    //   ulsTargetSubmit = 2026-02-01 + 14 = 2026-02-15
+    //   ulsBase = 2026-02-15
+    //   Sanity walk: 2 cycles from ulsBase
+    //     cy1: cr=21 + co=10 → 2026-02-15 + 21 + 10 = 2026-03-18
+    //     cy2: cr=21 + co=10 → 2026-03-18 + 21 + 10 = 2026-04-18
+    //   lastProj=2026-04-18, ulsProj(2026-11-29) > lastProj → keep 2026-11-29
+    expect(r.projection).toBe('2026-11-29');
+    expect(r.targetCycle).toBe(0);
+    expect(r.ulsAnchors).toBeDefined();
+    expect(r.ulsAnchors?.bpIssueAnchor).toBe('2026-08-01');
+  });
+
+  it('ULS falls through to default walk when no sibling BP exists', () => {
+    const uls = permit({ id: 200, type: 'ULS', target_submit: '2026-05-01' });
+    const r = computeProjectedApproval({
+      permit: uls,
+      cycles: [],
+      learnedEstimate: null,
+      siblingPermits: [uls],
+      siblingCyclesByPermitId: new Map(),
+      siblingLearnedByPermitId: new Map(),
+    });
+    // No BP → ULS branch returns no anchors → falls to non-ULS walk.
+    // targetCycle=1, base=2026-05-01, +21+7=28 days → 2026-05-29
+    expect(r.projection).toBe('2026-05-29');
+    expect(r.ulsAnchors).toBeUndefined();
+  });
+
+  it('last-real-date floor prevents projection earlier than known events', () => {
+    // Hand-craft a case where the walk would land BEFORE the last real
+    // resubmit (data anomaly). Floor pushes projection to lastReal + 7.
+    const r = computeProjectedApproval({
+      permit: permit(),
+      cycles: [
+        cyc({
+          cycle_index: 1,
+          submitted: '2026-01-01',
+          corr_issued: '2026-02-10',
+          resubmitted: '2027-12-31', // far-future real date
+        }),
+      ],
+      learnedEstimate: null,
+    });
+    // walk lands at 2026-02-27 but lastRealDate=2027-12-31 → floor to
+    // 2027-12-31 + 7 = 2028-01-07
+    expect(r.projection).toBe('2028-01-07');
   });
 });

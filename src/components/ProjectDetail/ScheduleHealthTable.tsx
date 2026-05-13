@@ -5,7 +5,7 @@ import { usePermits } from '../../hooks/usePermits';
 import { useProjects } from '../../hooks/useProjects';
 import { computeLearnedSchedule } from '../../lib/scheduleBenchmarks';
 import { computeProjectedApproval } from '../../lib/projectedApproval';
-import type { PermitTask, PermitWithCycles, Stage } from '../../lib/database.types';
+import type { PermitCycle, PermitTask, PermitWithCycles, Stage } from '../../lib/database.types';
 
 // Q9.5.e-fix-4: 8-column Schedule Health table per v1 §4.2.1 (B) and the
 // _healthRow / _healthRowShell render at index.html:3646-3678. Columns:
@@ -157,6 +157,30 @@ function Row({
       projectsByIdRef,
     );
   }, [allPermits, permit.type, permit.project_id, projectsByIdRef, projectsById]);
+  // Q9.5.f-fix-11: ULS branch needs sibling permits + their cycles +
+  // per-permit learned data to compute the BP-anchor formula. Scope to
+  // the same project — that's where v1 looks for the BP.
+  const siblings = useMemo(
+    () => allPermits.filter((p) => p.project_id === permit.project_id),
+    [allPermits, permit.project_id],
+  );
+  const siblingCyclesByPermitId = useMemo(() => {
+    const m = new Map<number, PermitCycle[]>();
+    for (const s of siblings) m.set(s.id, s.permit_cycles ?? []);
+    return m;
+  }, [siblings]);
+  const siblingLearnedByPermitId = useMemo(() => {
+    const m = new Map<number, import('../../lib/scheduleBenchmarks').LearnedEstimate | null>();
+    const juris = projectsById.get(permit.project_id)?.juris ?? '';
+    for (const s of siblings) {
+      if (!s.type || !juris) {
+        m.set(s.id, null);
+        continue;
+      }
+      m.set(s.id, computeLearnedSchedule(allPermits, s.type, juris, projectsByIdRef));
+    }
+    return m;
+  }, [siblings, allPermits, permit.project_id, projectsById, projectsByIdRef]);
   const projectedResult = useMemo(
     () =>
       computeProjectedApproval({
@@ -165,8 +189,11 @@ function Row({
           .filter((c) => c.cycle_index !== 0)
           .sort((a, b) => a.cycle_index - b.cycle_index),
         learnedEstimate,
+        siblingPermits: siblings,
+        siblingCyclesByPermitId,
+        siblingLearnedByPermitId,
       }),
-    [permit, learnedEstimate],
+    [permit, learnedEstimate, siblings, siblingCyclesByPermitId, siblingLearnedByPermitId],
   );
   const projection = projectedResult.projection;
   const isActual = projectedResult.isActual;
