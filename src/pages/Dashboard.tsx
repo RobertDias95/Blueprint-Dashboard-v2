@@ -74,14 +74,12 @@ export default function Dashboard() {
     });
     // Mirror v1 :2864 — open toggles the highlight to this addr; close clears it.
     setHighlightedAddress((cur) => (cur === addr ? null : addr));
-    // Q9.5.e2-fix-6: double rAF — first rAF runs after commit but before
-    // paint; second runs after the first paint. Belt-and-suspenders for
-    // cases where the expanded body hasn't laid out by the first frame.
-    if (didOpen) {
-      requestAnimationFrame(() => {
-        requestAnimationFrame(() => scrollAddrIntoView(addr));
-      });
-    }
+    // Q9.5.f-fix-1d: cross-bucket scroll moved into each AddrGroup's own
+    // useEffect (keyed on isOpen). Parent rAF kept dispatching scroll on
+    // non-active buckets before their expanded body had contributed to
+    // scrollHeight; component-local effect runs at exactly the right
+    // moment because it fires after THIS AddrGroup's render commits.
+    void didOpen;
   }, []);
 
   const dashCtx: DashContext = useMemo(
@@ -551,29 +549,10 @@ function mostRecent<T>(rows: T[], pick: (row: T) => string | null): string | nul
 // so the just-opened card is in view. Mirrors v1 toggleProjectExpanded
 // :2849-2860 — independent per-container scroll, smooth, with an 8px buffer
 // so the card doesn't snap flush to the top edge.
-// Q9.5.f-fix-1c: direct scrollTop assignment — no smooth, no setTimeout,
-// no diagnostic toasts. Property assignment is the simplest possible
-// mechanism: cannot be canceled by another smooth-scroll in flight, no
-// browser optimization can defer it, no race between containers. If this
-// doesn't visibly land cross-bucket, the bug isn't in scroll math or
-// timing — it's structural (container re-mount, ref staleness, addr-
-// group detached at the moment of measurement) and we'll instrument
-// differently in the next iteration.
-function scrollAddrIntoView(addr: string) {
-  if (typeof document === 'undefined') return;
-  const safe = typeof CSS !== 'undefined' && CSS.escape ? CSS.escape(addr) : addr;
-  const containers = document.querySelectorAll<HTMLElement>(
-    '[data-scroll-bucket="true"]',
-  );
-  containers.forEach((container) => {
-    const el = container.querySelector<HTMLElement>(`[data-addr-group="${safe}"]`);
-    if (!el) return;
-    const containerRect = container.getBoundingClientRect();
-    const elRect = el.getBoundingClientRect();
-    const offset = elRect.top - containerRect.top + container.scrollTop - 8;
-    container.scrollTop = Math.max(0, offset);
-  });
-}
+// Q9.5.f-fix-1d: scrollAddrIntoView removed — cross-bucket scroll now
+// runs from each AddrGroup's own useEffect (src/components/Dashboard/
+// AddrGroup.tsx), guaranteeing the measurement happens after that
+// component's expanded body has committed to scrollHeight.
 
 // Q9.5.e2: group permits in a sub-bucket by project address, then render one
 // AddrGroup per address. Addresses sort by worst-urgency-first so red groups

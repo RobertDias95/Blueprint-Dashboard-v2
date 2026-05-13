@@ -1,3 +1,4 @@
+import { useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import { effectiveStage } from '../../lib/permitStage';
 import { permitUrgency, type UrgencyLevel } from '../../lib/urgencyHelpers';
@@ -88,8 +89,33 @@ export default function AddrGroup({
   // what v1 shows when the group lives inside one stage column.
   const stageCounts = useStageCounts(permits, cyclesByPermit);
 
+  // Q9.5.f-fix-1d: each AddrGroup scrolls ITS containing data-scroll-bucket
+  // when its own isOpen flips true. Component-local because that's the
+  // only timing at which we're guaranteed the expanded body has
+  // contributed to the scroll parent's scrollHeight — a parent-imperative
+  // scrollAddrIntoView ran before non-active buckets had committed their
+  // expanded-state render, so the offset math was being clamped to 0 by
+  // the unchanged scrollHeight on those buckets. rAF defers the scroll
+  // until after this AddrGroup's paint, then closest() walks up to find
+  // the real scrollable parent regardless of intermediate wrappers.
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (!isOpen) return;
+    const el = rootRef.current;
+    if (!el) return;
+    const container = el.closest<HTMLElement>('[data-scroll-bucket="true"]');
+    if (!container) return;
+    requestAnimationFrame(() => {
+      const containerRect = container.getBoundingClientRect();
+      const elRect = el.getBoundingClientRect();
+      const offset = elRect.top - containerRect.top + container.scrollTop - 8;
+      container.scrollTop = Math.max(0, offset);
+    });
+  }, [isOpen]);
+
   return (
     <div
+      ref={rootRef}
       data-addr={address}
       data-addr-group={address}
       data-testid={`addr-group-${stage}`}
