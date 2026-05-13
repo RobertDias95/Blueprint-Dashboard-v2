@@ -1,4 +1,5 @@
 import type { TaskFilters } from '../../lib/myTasksHelpers';
+import FilterDropdown from '../FilterDropdown';
 
 // Q7.1.c: filter bar for My Tasks. 4 controls matching v1's mt-stage,
 // mt-status, mt-search inputs (index.html 4918-4922) + a single
@@ -12,6 +13,12 @@ interface Props {
   onChange: <K extends keyof TaskFilters>(key: K, value: TaskFilters[K]) => void;
   onClear: () => void;
   assigneeOptions: string[];
+  // Q9.5.f-fix-2 C: person/consultant filter options. Each comes from the
+  // permits + tasks data via the option-derivers in myTasksHelpers.
+  entLeadOpts: string[];
+  daOpts: string[];
+  dmOpts: string[];
+  externalConsultantOpts: string[];
   resultCount: number;
 }
 
@@ -20,6 +27,10 @@ export default function FilterBar({
   onChange,
   onClear,
   assigneeOptions,
+  entLeadOpts,
+  daOpts,
+  dmOpts,
+  externalConsultantOpts,
   resultCount,
 }: Props) {
   return (
@@ -81,6 +92,45 @@ export default function FilterBar({
           placeholder="Address, task, juris, type…"
           className="bg-bg border border-border rounded px-2 py-1 text-[11px] text-text placeholder:text-dim focus:outline-none focus:border-de min-w-[220px]"
           data-testid="mytasks-filter-search"
+        />
+      </FieldLabel>
+
+      {/* Q9.5.f-fix-2 C: 4 person/consultant filter dropdowns. Reuses the
+          shared FilterDropdown primitive — empty Set = no filter. */}
+      <FieldLabel label="ENT">
+        <FilterDropdown
+          label="ENT"
+          options={entLeadOpts}
+          selected={filters.entLeads}
+          onChange={(s) => onChange('entLeads', s)}
+          testId="mytasks-filter-ent"
+        />
+      </FieldLabel>
+      <FieldLabel label="DA">
+        <FilterDropdown
+          label="DA"
+          options={daOpts}
+          selected={filters.das}
+          onChange={(s) => onChange('das', s)}
+          testId="mytasks-filter-da"
+        />
+      </FieldLabel>
+      <FieldLabel label="DM">
+        <FilterDropdown
+          label="DM"
+          options={dmOpts}
+          selected={filters.dms}
+          onChange={(s) => onChange('dms', s)}
+          testId="mytasks-filter-dm"
+        />
+      </FieldLabel>
+      <FieldLabel label="External">
+        <FilterDropdown
+          label="External"
+          options={externalConsultantOpts}
+          selected={filters.externalConsultants}
+          onChange={(s) => onChange('externalConsultants', s)}
+          testId="mytasks-filter-consultants"
         />
       </FieldLabel>
 

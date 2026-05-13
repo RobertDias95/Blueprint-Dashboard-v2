@@ -91,6 +91,16 @@ export interface TaskFilters {
   /** Multi-token search; matches against task text, assignee, address,
    * juris, permit type/da/dm/ent_lead. */
   search: string;
+  // Q9.5.f-fix-2 C: multi-select person/consultant filters. Empty Set = no
+  // filter (matches the Dashboard/Reports filter conventions).
+  entLeads: Set<string>;
+  /** Matches against either permit.da OR permit.dual_da. */
+  das: Set<string>;
+  dms: Set<string>;
+  /** Matches task.assigned_to when the value is something other than the
+   *  internal 'Entitlements' / 'Architecture' team labels — i.e., a
+   *  consultant firm name from the v2 consultantTypes config. */
+  externalConsultants: Set<string>;
 }
 
 export interface FilterContext {
@@ -145,6 +155,30 @@ export function filterTasks(
 
     if (filters.assignee && (task.assigned_to ?? '') !== filters.assignee) {
       return false;
+    }
+
+    // Q9.5.f-fix-2 C: person/consultant filter checks. Each requires the
+    // permit to be loaded in ctx (it always is when the page mounts), then
+    // matches against the relevant column. Sets are empty by default so
+    // these are no-ops unless the user has narrowed.
+    const permit = ctx.permitsById.get(task.permit_id);
+    if (filters.entLeads.size > 0) {
+      if (!permit?.ent_lead || !filters.entLeads.has(permit.ent_lead)) return false;
+    }
+    if (filters.das.size > 0) {
+      const da = permit?.da;
+      const dualDa = permit?.dual_da;
+      const matched =
+        (da !== null && da !== undefined && filters.das.has(da)) ||
+        (dualDa !== null && dualDa !== undefined && filters.das.has(dualDa));
+      if (!matched) return false;
+    }
+    if (filters.dms.size > 0) {
+      if (!permit?.dm || !filters.dms.has(permit.dm)) return false;
+    }
+    if (filters.externalConsultants.size > 0) {
+      const a = task.assigned_to ?? '';
+      if (!filters.externalConsultants.has(a)) return false;
     }
 
     if (tokens.length > 0) {
@@ -244,6 +278,45 @@ export function assignedToOptions(tasks: PermitTask[]): string[] {
   for (const t of tasks) {
     const v = (t.assigned_to ?? '').trim();
     if (v) set.add(v);
+  }
+  return Array.from(set).sort();
+}
+
+// Q9.5.f-fix-2 C: person/consultant dropdown option derivers. Each picks
+// distinct non-empty values from the linked permits + tasks; alpha-sorted.
+
+export function entLeadOptions(permits: Permit[]): string[] {
+  const set = new Set<string>();
+  for (const p of permits) if (p.ent_lead) set.add(p.ent_lead);
+  return Array.from(set).sort();
+}
+
+export function daOptions(permits: Permit[]): string[] {
+  const set = new Set<string>();
+  for (const p of permits) {
+    if (p.da) set.add(p.da);
+    if (p.dual_da) set.add(p.dual_da);
+  }
+  return Array.from(set).sort();
+}
+
+export function dmOptions(permits: Permit[]): string[] {
+  const set = new Set<string>();
+  for (const p of permits) if (p.dm) set.add(p.dm);
+  return Array.from(set).sort();
+}
+
+/** External-consultant options = distinct task.assigned_to values that are
+ * NOT the internal 'Entitlements' / 'Architecture' labels. These end up
+ * being consultant firm names (Civil/Surveyor/Structural — set via the
+ * Q9.5.e-fix-3 consultantTypes config or typed inline by users). */
+export function externalConsultantOptions(tasks: PermitTask[]): string[] {
+  const set = new Set<string>();
+  for (const t of tasks) {
+    const v = (t.assigned_to ?? '').trim();
+    if (!v) continue;
+    if (v === 'Entitlements' || v === 'Architecture') continue;
+    set.add(v);
   }
   return Array.from(set).sort();
 }

@@ -17,6 +17,12 @@ const STAGE_LABEL: Record<'de' | 'co', string> = {
   co: 'Corrections',
 };
 
+// Q9.5.f-fix-2 A: stage-colored dot in the column header matches v1:959.
+const STAGE_COLOR: Record<'de' | 'co', string> = {
+  de: 'var(--color-de)',
+  co: 'var(--color-co)',
+};
+
 interface Props {
   stage: 'de' | 'co';
   tasks: PermitTask[];
@@ -61,11 +67,21 @@ export default function TaskColumn({
       data-testid={`mytasks-col-${stage}`}
     >
       <div className="flex items-center justify-between px-3 py-2 bg-s2 border-b border-border">
-        <span className="text-xs font-display font-extrabold uppercase tracking-wide text-text">
-          {STAGE_LABEL[stage]}
-        </span>
+        <div className="flex items-center gap-2">
+          <span
+            className="w-2 h-2 rounded-full flex-shrink-0"
+            style={{ background: STAGE_COLOR[stage] }}
+          />
+          <span
+            className="text-xs font-display font-extrabold uppercase tracking-wide"
+            style={{ color: STAGE_COLOR[stage] }}
+          >
+            {STAGE_LABEL[stage]} Tasks
+          </span>
+        </div>
         <span
-          className="text-[11px] text-dim font-mono"
+          className="text-[11px] font-mono"
+          style={{ color: STAGE_COLOR[stage] }}
           data-testid={`mytasks-col-${stage}-count`}
         >
           {openCount} open

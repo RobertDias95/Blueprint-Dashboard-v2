@@ -5,6 +5,10 @@ import { useProjects } from '../hooks/useProjects';
 import {
   assignedToOptions,
   computeStats,
+  daOptions,
+  dmOptions,
+  entLeadOptions,
+  externalConsultantOptions,
   filterTasks,
   type FilterContext,
   type TaskFilters,
@@ -31,6 +35,11 @@ const DEFAULT_FILTERS: TaskFilters = {
   status: 'active',
   assignee: '',
   search: '',
+  // Q9.5.f-fix-2 C: new multi-select dimensions default to empty (no filter).
+  entLeads: new Set<string>(),
+  das: new Set<string>(),
+  dms: new Set<string>(),
+  externalConsultants: new Set<string>(),
 };
 
 export default function MyTasks() {
@@ -90,6 +99,15 @@ function Body({ tasks, permits, projects }: BodyProps) {
     () => assignedToOptions(tasks),
     [tasks],
   );
+  // Q9.5.f-fix-2 C: person/consultant option lists from the linked permits
+  // and the full task set. Same "from the unfiltered data" rule.
+  const entChoices = useMemo(() => entLeadOptions(permits), [permits]);
+  const daChoices = useMemo(() => daOptions(permits), [permits]);
+  const dmChoices = useMemo(() => dmOptions(permits), [permits]);
+  const consultantChoices = useMemo(
+    () => externalConsultantOptions(tasks),
+    [tasks],
+  );
 
   const filtered = useMemo(
     () => filterTasks(tasks, filters, ctx),
@@ -130,6 +148,10 @@ function Body({ tasks, permits, projects }: BodyProps) {
         onChange={updateFilter}
         onClear={clearFilters}
         assigneeOptions={assigneeChoices}
+        entLeadOpts={entChoices}
+        daOpts={daChoices}
+        dmOpts={dmChoices}
+        externalConsultantOpts={consultantChoices}
         resultCount={filtered.length}
       />
       <StatsRow stats={stats} />
@@ -173,6 +195,7 @@ function Body({ tasks, permits, projects }: BodyProps) {
               : null
           }
           ctx={ctx}
+          assigneeOptions={assigneeChoices}
         />
       </div>
     </div>
