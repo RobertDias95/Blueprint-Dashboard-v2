@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
+  aggregateByProject,
   computeMetrics,
   enrichPermits,
   filterEnrichedPermits,
@@ -488,5 +489,109 @@ describe('computeMetrics', () => {
     expect(m.totalUnits).toBe(0);
     expect(m.avgGoToSubmit).toBeNull();
     expect(m.onTimeSubmits).toBe(0);
+  });
+});
+
+// ============================================================
+// Q9.5.f-fix-4: aggregateByProject — groups EnrichedPermits by project_id
+// and rolls up day metrics + key dates + ent/da/dm into ProjectRow.
+// ============================================================
+describe('aggregateByProject', () => {
+  const projectsById = new Map([
+    [
+      'p1',
+      { id: 'p1', address: '500 Pike', juris: 'Seattle', archived: false, notes: null } as Project,
+    ],
+    [
+      'p2',
+      { id: 'p2', address: '750 Oak', juris: 'Bellevue', archived: false, notes: null } as Project,
+    ],
+  ]);
+
+  it('aggregates two permits at same project into one row', () => {
+    // Permit A: GO=2025-01-01 → first submitted 2025-02-01 = 31 days
+    // Permit B: GO=2025-03-01 → first submitted 2025-04-15 = 45 days
+    // avgGoToSubmit should be (31 + 45) / 2 = 38
+    const a = makePermit({
+      id: 1,
+      project_id: 'p1',
+      go_date: '2025-01-01',
+      ent_lead: 'Bobby',
+      da: 'Ada',
+      dm: 'Dave',
+      stage: 'pm',
+      units: 4,
+      permit_cycles: [makeCycle({ submitted: '2025-02-01' })],
+    });
+    const b = makePermit({
+      id: 2,
+      project_id: 'p1',
+      go_date: '2025-03-01',
+      ent_lead: null,
+      da: null,
+      dm: null,
+      stage: 'co',
+      units: 2,
+      permit_cycles: [makeCycle({ id: 'c2', submitted: '2025-04-15', corr_issued: '2025-05-30' })],
+    });
+    const enriched = enrichPermits([a, b], projectsById);
+    const rows = aggregateByProject(enriched);
+    expect(rows).toHaveLength(1);
+    const row = rows[0];
+    expect(row.projectId).toBe('p1');
+    expect(row.permitCount).toBe(2);
+    expect(row.avgGoToSubmit).toBe(38);
+    expect(row.earliestGoDate).toBe('2025-01-01');
+    // First non-null person fields — permit A has them; B has nulls.
+    expect(row.ent).toBe('Bobby');
+    expect(row.da).toBe('Ada');
+    expect(row.dm).toBe('Dave');
+    expect(row.unitsSum).toBe(6);
+    // Dominant stage = highest rank (co > pm).
+    expect(row.dominantStage).toBe('co');
+    // Max correction rounds = max cycle count across permits.
+    expect(row.maxCorrRounds).toBe(1);
+  });
+
+  it('aggregates two permits in different projects into two rows', () => {
+    const a = makePermit({ id: 1, project_id: 'p1', go_date: '2025-01-01' });
+    const b = makePermit({ id: 2, project_id: 'p2', go_date: '2025-02-01' });
+    const enriched = enrichPermits([a, b], projectsById);
+    const rows = aggregateByProject(enriched);
+    expect(rows).toHaveLength(2);
+    const ids = rows.map((r) => r.projectId).sort();
+    expect(ids).toEqual(['p1', 'p2']);
+  });
+
+  it('activeCount excludes permits with approval_date or actual_issue', () => {
+    const active = makePermit({ id: 1, project_id: 'p1' });
+    const approved = makePermit({ id: 2, project_id: 'p1', approval_date: '2025-06-01' });
+    const issued = makePermit({ id: 3, project_id: 'p1', actual_issue: '2025-07-01' });
+    const enriched = enrichPermits([active, approved, issued], projectsById);
+    const rows = aggregateByProject(enriched);
+    expect(rows[0].permitCount).toBe(3);
+    expect(rows[0].activeCount).toBe(1);
+    expect(rows[0].earliestApproval).toBe('2025-06-01');
+    expect(rows[0].earliestActualIssue).toBe('2025-07-01');
+  });
+
+  it('null metrics across all permits → null aggregates, not NaN', () => {
+    const a = makePermit({ id: 1, project_id: 'p1', go_date: null });
+    const enriched = enrichPermits([a], projectsById);
+    const rows = aggregateByProject(enriched);
+    expect(rows[0].avgGoToSubmit).toBeNull();
+    expect(rows[0].avgDDDuration).toBeNull();
+    expect(rows[0].avgCityReview).toBeNull();
+    expect(rows[0].earliestGoDate).toBeNull();
+    expect(rows[0].unitsSum).toBeNull();
+  });
+
+  it('latestAcqTarget takes the max expected_issue across permits', () => {
+    const a = makePermit({ id: 1, project_id: 'p1', expected_issue: '2025-05-01' });
+    const b = makePermit({ id: 2, project_id: 'p1', expected_issue: '2025-08-15' });
+    const c = makePermit({ id: 3, project_id: 'p1', expected_issue: null });
+    const enriched = enrichPermits([a, b, c], projectsById);
+    const rows = aggregateByProject(enriched);
+    expect(rows[0].latestAcqTarget).toBe('2025-08-15');
   });
 });

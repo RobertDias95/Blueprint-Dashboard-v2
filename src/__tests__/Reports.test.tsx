@@ -325,12 +325,15 @@ describe('<Reports /> Q7.2.b', () => {
     expect(bldgCard.textContent).toMatch(/LAST 120D|ALL-TIME/i);
   });
 
-  it('Report Table renders one row per filtered permit + headline count', () => {
+  it('Report Table renders one row per project + permit headline count', () => {
     renderIt();
     const table = screen.getByTestId('report-table');
-    expect(table.textContent).toContain('Permit Detail (2)');
-    expect(screen.getByTestId('report-table-row-1')).toBeInTheDocument();
-    expect(screen.getByTestId('report-table-row-2')).toBeInTheDocument();
+    // Q9.5.f-fix-4: rows aggregate by project. Two permits in two
+    // different projects (p1 + p2) → two rows. Header reports both
+    // project + permit counts.
+    expect(table.textContent).toContain('Permit Ledger (2 projects · 2 permits)');
+    expect(screen.getByTestId('report-table-row-p1')).toBeInTheDocument();
+    expect(screen.getByTestId('report-table-row-p2')).toBeInTheDocument();
   });
 
   it('Report Table empty state when filter narrows to zero', () => {
@@ -361,9 +364,9 @@ describe('<Reports /> Q7.2.b', () => {
     const rows = screen
       .getAllByTestId(/^report-table-row-/)
       .map((tr) => tr.getAttribute('data-testid'));
-    // Bellevue < Seattle alphabetically → permit 2 (Bellevue) first.
-    expect(rows[0]).toBe('report-table-row-2');
-    expect(rows[1]).toBe('report-table-row-1');
+    // Bellevue < Seattle alphabetically → project p2 (Bellevue) first.
+    expect(rows[0]).toBe('report-table-row-p2');
+    expect(rows[1]).toBe('report-table-row-p1');
   });
 
   it('Report Table filter narrowing flows through to row set', () => {
@@ -372,9 +375,9 @@ describe('<Reports /> Q7.2.b', () => {
     fireEvent.click(screen.getByTestId('filter-juris-btn'));
     fireEvent.click(screen.getByTestId('filter-juris-opt-Bellevue'));
     expect(screen.getByTestId('report-table').textContent).toContain(
-      'Permit Detail (1)',
+      'Permit Ledger (1 project · 1 permit)',
     );
-    expect(screen.queryByTestId('report-table-row-1')).not.toBeInTheDocument();
-    expect(screen.getByTestId('report-table-row-2')).toBeInTheDocument();
+    expect(screen.queryByTestId('report-table-row-p1')).not.toBeInTheDocument();
+    expect(screen.getByTestId('report-table-row-p2')).toBeInTheDocument();
   });
 });

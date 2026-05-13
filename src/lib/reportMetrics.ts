@@ -200,6 +200,156 @@ export function resolveDateRange(
   return { from: new Date(today.getTime() - days * DAY_MS), to: null };
 }
 
+// ============================================================
+// Q9.5.f-fix-4: project aggregation for the Permit Ledger (v1 parity).
+// ReportTable shifts from per-permit to per-project rows; each row holds
+// project-level aggregates + a list of contributing permits for the
+// expand-on-click detail.
+// ============================================================
+
+export interface ProjectRow {
+  projectId: string;
+  address: string;
+  juris: string;
+  permits: EnrichedPermit[];
+  permitCount: number;
+  /** Permits not yet issued or approved (status === 'active' analogue). */
+  activeCount: number;
+  /** Most-advanced effectiveStage across the project's permits. 'mixed'
+   *  when permits span more than one stage. */
+  dominantStage: string;
+  /** First non-null ent_lead / da / dm across the project's permits. */
+  ent: string | null;
+  da: string | null;
+  dm: string | null;
+  /** Earliest go_date across permits — drives the GO sort key. */
+  earliestGoDate: string | null;
+  // Aggregate day metrics (mean of non-null values across permits).
+  avgGoToDDStart: number | null;
+  avgDDDuration: number | null;
+  avgDDEndToSubmit: number | null;
+  avgGoToSubmit: number | null;
+  avgSubmitToIntake: number | null;
+  avgCityReview: number | null;
+  /** Latest expected_issue across permits (acq target proxy until task #63). */
+  latestAcqTarget: string | null;
+  /** Earliest approval / actual issue across permits. */
+  earliestApproval: string | null;
+  earliestActualIssue: string | null;
+  /** Mean of non-null per-permit variances. */
+  variance: number | null;
+  /** Max permit_cycles.length across permits — proxy for correction rounds. */
+  maxCorrRounds: number;
+  /** Sum of permit.units across permits (skips nulls). null when no permit
+   *  has a units value. */
+  unitsSum: number | null;
+}
+
+/** Mean of a number list, ignoring nulls. Returns null when the list has
+ *  no non-null values. Rounds to nearest int (consistent with the per-
+ *  permit day metrics in EnrichedPermit which are already integers). */
+function meanOrNull(values: (number | null | undefined)[]): number | null {
+  const real = values.filter((v): v is number => v !== null && v !== undefined);
+  if (real.length === 0) return null;
+  return Math.round(real.reduce((a, b) => a + b, 0) / real.length);
+}
+
+/** Most-advanced effectiveStage across a permit set. The "advancement"
+ *  order matches v1's bucketing: de < pm < co < ap < is. Returns 'mixed'
+ *  when permits land in more than one stage AND we want disambiguation —
+ *  in practice we return the highest-rank stage (closer to v1 where the
+ *  ledger summary shows "most-advanced" rather than warning on disparity). */
+const STAGE_RANK: Record<string, number> = { de: 0, pm: 1, co: 2, ap: 3, is: 4 };
+function pickDominantStage(permits: EnrichedPermit[]): string {
+  let best = '';
+  let bestRank = -1;
+  for (const e of permits) {
+    const s = e.permit.stage_override ?? e.permit.stage ?? '';
+    const rank = STAGE_RANK[s] ?? -1;
+    if (rank > bestRank) {
+      bestRank = rank;
+      best = s;
+    }
+  }
+  return best;
+}
+
+/** First non-null value of `pick(e)` across permits. v1 uses the first
+ *  permit's ent/da/dm; collapsing follows the same heuristic so disparity
+ *  doesn't get loud — Bobby asked for "first non-null" not "most-frequent". */
+function firstNonNull(
+  permits: EnrichedPermit[],
+  pick: (e: EnrichedPermit) => string | null | undefined,
+): string | null {
+  for (const e of permits) {
+    const v = pick(e);
+    if (v) return v;
+  }
+  return null;
+}
+
+/** Minimum of ISO date strings (lexical compare = chronological for
+ *  YYYY-MM-DD). Returns null when no permit has the field set. */
+function minDate(values: (string | null | undefined)[]): string | null {
+  const real = values.filter((v): v is string => !!v);
+  if (real.length === 0) return null;
+  return real.reduce((a, b) => (a < b ? a : b));
+}
+
+function maxDate(values: (string | null | undefined)[]): string | null {
+  const real = values.filter((v): v is string => !!v);
+  if (real.length === 0) return null;
+  return real.reduce((a, b) => (a > b ? a : b));
+}
+
+export function aggregateByProject(enriched: EnrichedPermit[]): ProjectRow[] {
+  const byProject = new Map<string, EnrichedPermit[]>();
+  for (const e of enriched) {
+    const list = byProject.get(e.permit.project_id) ?? [];
+    list.push(e);
+    byProject.set(e.permit.project_id, list);
+  }
+  const rows: ProjectRow[] = [];
+  for (const [projectId, permits] of byProject) {
+    const activeCount = permits.filter(
+      (e) => !e.permit.actual_issue && !e.permit.approval_date,
+    ).length;
+    const unitsRaw = permits
+      .map((e) => e.permit.units)
+      .filter((u): u is number => u !== null && u !== undefined);
+    const unitsSum = unitsRaw.length === 0 ? null : unitsRaw.reduce((a, b) => a + b, 0);
+    rows.push({
+      projectId,
+      address: permits[0]?.address ?? '',
+      juris: permits[0]?.juris ?? '',
+      permits,
+      permitCount: permits.length,
+      activeCount,
+      dominantStage: pickDominantStage(permits),
+      ent: firstNonNull(permits, (e) => e.permit.ent_lead),
+      da: firstNonNull(permits, (e) => e.permit.da),
+      dm: firstNonNull(permits, (e) => e.permit.dm),
+      earliestGoDate: minDate(permits.map((e) => e.permit.go_date)),
+      avgGoToDDStart: meanOrNull(permits.map((e) => e.goToDDStart)),
+      avgDDDuration: meanOrNull(permits.map((e) => e.ddDuration)),
+      avgDDEndToSubmit: meanOrNull(permits.map((e) => e.ddEndToSubmit)),
+      avgGoToSubmit: meanOrNull(permits.map((e) => e.goToSubmit)),
+      avgSubmitToIntake: meanOrNull(permits.map((e) => e.submitToIntake)),
+      avgCityReview: meanOrNull(permits.map((e) => e.cityReviewDays)),
+      latestAcqTarget: maxDate(permits.map((e) => e.permit.expected_issue)),
+      earliestApproval: minDate(permits.map((e) => e.permit.approval_date)),
+      earliestActualIssue: minDate(permits.map((e) => e.permit.actual_issue)),
+      variance: meanOrNull(permits.map((e) => e.variance)),
+      maxCorrRounds: permits.reduce(
+        (m, e) => Math.max(m, (e.permit.permit_cycles ?? []).length),
+        0,
+      ),
+      unitsSum,
+    });
+  }
+  return rows;
+}
+
 /** Project-level "fully issued" check: every permit at the address has
  * actual_issue set. Used by the status filter. */
 function buildFullyIssuedProjectIds(
