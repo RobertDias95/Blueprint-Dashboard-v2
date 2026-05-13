@@ -277,7 +277,11 @@ function TeamCell({
   project: Project;
 }) {
   const ent = bp?.ent_lead;
-  const da = bp?.da ?? bp?.architect;
+  // Q9.5.f-fix-9: stop masking permits.architect inside DA. They're
+  // distinct concepts (DA = internal Blueprint staff; architect = external
+  // design firm), and the fallback was hiding 11 architect values across
+  // production. Architect renders as its own labeled row below.
+  const da = bp?.da;
   const dm = bp?.dm;
   // Project-level ACQ: scan all permits — v2 doesn't have an acq_lead
   // column yet (task #63 backlog); show '—' for now.
@@ -304,6 +308,7 @@ function TeamCell({
             <TeamRow label="DA" value={da} />
             <TeamRow label="DM" value={dm} />
             <TeamRow label="ACQ" value="—" />
+            {bp && <ArchitectRow bp={bp} />}
           </div>
         </div>
         <div className="p-2">
@@ -700,6 +705,43 @@ function TeamRow({
       >
         {value || '—'}
       </span>
+    </div>
+  );
+}
+
+// Q9.5.f-fix-9: editable Architect row, blur-commit via useUpdatePermit on
+// the BP. Matches the Site fields' commit-on-blur pattern (set local draft
+// while typing, write only when changed).
+function ArchitectRow({ bp }: { bp: PermitWithCycles }) {
+  const updateMutation = useUpdatePermit();
+  const [draft, setDraft] = useState(bp.architect ?? '');
+  const occMissing = !bp.updated_at;
+  function commit() {
+    if (!bp.updated_at) return;
+    const next = draft.trim() || null;
+    if (next === (bp.architect ?? null)) return;
+    void updateMutation.mutateAsync({
+      permitId: bp.id,
+      projectId: bp.project_id,
+      expectedUpdatedAt: bp.updated_at,
+      patch: { architect: next } as Partial<Permit>,
+      fieldLabel: 'Architect',
+    });
+  }
+  return (
+    <div className="flex items-baseline gap-1">
+      <span className="text-[9px] text-dim w-8 flex-shrink-0">Arch</span>
+      <input
+        type="text"
+        value={draft}
+        placeholder="—"
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={commit}
+        disabled={occMissing}
+        className="flex-1 min-w-0 text-[10px] font-bold text-text border-0 border-b outline-none bg-transparent px-0 py-0.5 disabled:opacity-50"
+        style={{ borderBottomColor: 'var(--color-border)' }}
+        data-testid="pd-team-architect"
+      />
     </div>
   );
 }
