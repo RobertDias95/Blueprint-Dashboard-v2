@@ -16,7 +16,8 @@ import ProjectDetailHeader from '../components/ProjectDetail/ProjectDetailHeader
 import ScheduleHealthTable from '../components/ProjectDetail/ScheduleHealthTable';
 import NotesDocsFooter from '../components/ProjectDetail/NotesDocsFooter';
 import PermitDetailV2 from '../components/ProjectDetail/PermitDetailV2';
-import { pushToast } from '../stores/toastStore';
+import ProjectSettingsModal from '../components/ProjectDetail/ProjectSettingsModal';
+import DeleteProjectDialog from '../components/ProjectDetail/DeleteProjectDialog';
 
 // Q3 + Q4: Single-project view. Q3 wired editable permit-level fields. Q4
 // adds editable cycles (5 date columns + add/delete) and a tasks section
@@ -95,6 +96,11 @@ function ProjectDetailBody({
     selectedPermitId !== null
       ? permits.find((p) => p.id === selectedPermitId) ?? null
       : null;
+  // Q9.5.f-fix-16 D + E: Project Settings modal + Delete confirmation
+  // dialog are owned at the page level so all four entry points (Settings
+  // button / Delete button / future hotkeys) target the same instances.
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
   // Keep bp around for the project-overview render even when no permit
   // is explicitly selected — the 4-col header anchors on the BP.
   void bp;
@@ -109,24 +115,23 @@ function ProjectDetailBody({
           so the buttons don't shift it off-center), Project Settings +
           Delete buttons right. */}
       <ProjectPageChrome
-        onDelete={() => {
-          // Q9.5.e-fix-1: Delete button is a stub for now — destructive
-          // op needs a confirm modal + cascade RPC. Backlog #67.
-          pushToast(
-            'Project delete — backlog; route this via Settings → DB Tools or contact Claude for SQL delete.',
-            'info',
-          );
-        }}
-        onSettings={() => {
-          // Q9.5.e-fix-1: Project Settings modal is v1's per-project
-          // info editor (index.html:773-850). Build lands in
-          // Q9.5.e-fix-2 (editable Site fields all wire there).
-          pushToast(
-            'Project Settings modal — lands in Q9.5.e-fix-2 alongside the editable Site fields.',
-            'info',
-          );
-        }}
+        onDelete={() => setDeleteOpen(true)}
+        onSettings={() => setSettingsOpen(true)}
       />
+
+      {settingsOpen && (
+        <ProjectSettingsModal
+          project={project}
+          onClose={() => setSettingsOpen(false)}
+        />
+      )}
+      {deleteOpen && (
+        <DeleteProjectDialog
+          project={project}
+          permitCount={permits.length}
+          onClose={() => setDeleteOpen(false)}
+        />
+      )}
 
       {/* Project address sub-header — centered, larger per v1 :758 */}
       <div className="text-center pt-1 pb-3 flex-shrink-0">
@@ -447,6 +452,7 @@ function SidebarRow({
       onDragLeave={onDragLeave}
       onDrop={onDrop}
       onClick={onSelect}
+      onDoubleClick={onSelect}
       className="w-full px-3 py-2 border-b cursor-pointer transition flex flex-col gap-1"
       style={{
         borderBottomColor: 'var(--color-border)',

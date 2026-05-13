@@ -51,6 +51,12 @@ export interface ProjectedApprovalInput {
   /** Optional per-permit learned data for the sibling BP — drives the
    *  ULS anchor math. When null/missing, BP-anchor walk uses defaults. */
   siblingLearnedByPermitId?: Map<number, LearnedEstimate | null>;
+  /** Q9.5.f-fix-16 B: user-supplied target cycle override. Replaces the
+   *  learner's `mostLikelyCycle` pick. Floored at currentReviewCycle (can't
+   *  target a round earlier than what's already happened) and clamped 1–4.
+   *  When set, the holistic shortcut still applies if the resolved target
+   *  is 1 + no actual corrections. */
+  targetCycleOverride?: number | null;
 }
 
 export interface ProjectedApprovalRounds {
@@ -299,7 +305,9 @@ export function computeProjectedApproval(
   // happened on this permit (currentReviewCycle).
   const currentReviewCycle = Math.max(1, actualCorrCycles + 1);
   let targetCycle: number;
-  if (learnedEstimate && typeof learnedEstimate.mostLikelyCycle === 'number') {
+  if (typeof input.targetCycleOverride === 'number') {
+    targetCycle = Math.max(currentReviewCycle, input.targetCycleOverride);
+  } else if (learnedEstimate && typeof learnedEstimate.mostLikelyCycle === 'number') {
     targetCycle = Math.max(currentReviewCycle, learnedEstimate.mostLikelyCycle);
   } else {
     targetCycle = currentReviewCycle;

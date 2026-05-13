@@ -113,6 +113,9 @@ export interface Permit {
   nickname: string | null;
   struct_address: string | null;
   portal_url: string | null;
+  /** Q9.5.f-fix-16 B: JSONB bag for per-permit ad-hoc settings. Currently
+   *  used for `scheduleCycleOverride` (manual +/- on ScheduleEstimator). */
+  extras?: Record<string, unknown> | null;
   created_at?: string | null;
   updated_at?: string | null;
 }

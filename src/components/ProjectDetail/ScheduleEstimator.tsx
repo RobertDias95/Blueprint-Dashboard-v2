@@ -1,6 +1,7 @@
 import { useMemo } from 'react';
 import { usePermits } from '../../hooks/usePermits';
 import { useProjects } from '../../hooks/useProjects';
+import { useUpdatePermit } from '../../hooks/useUpdatePermit';
 import {
   computeLearnedSchedule,
   type LearnedEstimate,
@@ -33,6 +34,15 @@ interface Props {
 export default function ScheduleEstimator({ permit }: Props) {
   const allPermitsQ = usePermits();
   const projectsQ = useProjects();
+  const updatePermit = useUpdatePermit();
+
+  // Q9.5.f-fix-16 B: read the manual override (if any) from extras.
+  const extras = (permit.extras ?? {}) as Record<string, unknown>;
+  const rawOverride = extras.scheduleCycleOverride;
+  const cycleOverride =
+    typeof rawOverride === 'number' && rawOverride >= 1 && rawOverride <= 4
+      ? rawOverride
+      : null;
   const projectsById = useMemo(
     () => new Map((projectsQ.data ?? []).map((p) => [p.id, p])),
     [projectsQ.data],
@@ -87,9 +97,40 @@ export default function ScheduleEstimator({ permit }: Props) {
         siblingPermits: siblings,
         siblingCyclesByPermitId,
         siblingLearnedByPermitId,
+        targetCycleOverride: cycleOverride,
       }),
-    [permit, learnedEstimate, siblings, siblingCyclesByPermitId, siblingLearnedByPermitId],
+    [permit, learnedEstimate, siblings, siblingCyclesByPermitId, siblingLearnedByPermitId, cycleOverride],
   );
+
+  function adjustOverride(delta: number) {
+    if (!permit.updated_at) return;
+    // Base = current effective target. If user has no override yet, start
+    // from learner's pick (result.targetCycle), then bump.
+    const base = cycleOverride ?? result.targetCycle ?? 1;
+    const next = Math.max(1, Math.min(4, base + delta));
+    if (next === cycleOverride) return;
+    const nextExtras = { ...extras, scheduleCycleOverride: next };
+    updatePermit.mutate({
+      permitId: permit.id,
+      projectId: permit.project_id,
+      expectedUpdatedAt: permit.updated_at,
+      patch: { extras: nextExtras },
+      fieldLabel: 'scheduleCycleOverride',
+    });
+  }
+
+  function clearOverride() {
+    if (!permit.updated_at || cycleOverride === null) return;
+    const nextExtras = { ...extras };
+    delete (nextExtras as Record<string, unknown>).scheduleCycleOverride;
+    updatePermit.mutate({
+      permitId: permit.id,
+      projectId: permit.project_id,
+      expectedUpdatedAt: permit.updated_at,
+      patch: { extras: nextExtras },
+      fieldLabel: 'scheduleCycleOverride',
+    });
+  }
 
   const cycles = (permit.permit_cycles ?? [])
     .filter((c) => c.cycle_index !== 0)
@@ -105,13 +146,23 @@ export default function ScheduleEstimator({ permit }: Props) {
       data-testid="pd-v2-schedule-estimator"
     >
       <div
-        className="px-3 py-1.5 border-b text-[10px] font-bold uppercase tracking-wide"
+        className="px-3 py-1.5 border-b text-[10px] font-bold uppercase tracking-wide flex items-center justify-between gap-2"
         style={{
           background: 'var(--color-s2)',
           borderBottomColor: 'var(--color-border)',
         }}
       >
-        Schedule Estimator
+        <span>Schedule Estimator</span>
+        {result.targetCycle !== undefined && result.targetCycle > 0 && (
+          <CycleAdjuster
+            current={result.targetCycle}
+            overridden={cycleOverride !== null}
+            disabled={updatePermit.isPending || !permit.updated_at}
+            onDec={() => adjustOverride(-1)}
+            onInc={() => adjustOverride(+1)}
+            onClear={clearOverride}
+          />
+        )}
       </div>
       <div className="p-3 flex flex-col gap-2">
         <HeadlineProjection result={result} />
@@ -255,6 +306,74 @@ function PerRoundBlock({
         </div>
       ))}
     </div>
+  );
+}
+
+function CycleAdjuster({
+  current,
+  overridden,
+  disabled,
+  onDec,
+  onInc,
+  onClear,
+}: {
+  current: number;
+  overridden: boolean;
+  disabled: boolean;
+  onDec: () => void;
+  onInc: () => void;
+  onClear: () => void;
+}) {
+  return (
+    <span className="flex items-center gap-1 normal-case tracking-normal">
+      <button
+        type="button"
+        onClick={onDec}
+        disabled={disabled || current <= 1}
+        className="w-4 h-4 rounded border text-[10px] font-bold flex items-center justify-center disabled:opacity-30"
+        style={{
+          borderColor: 'var(--color-border)',
+          background: 'var(--color-surface)',
+        }}
+        title="Project one fewer cycle"
+      >
+        −
+      </button>
+      <span
+        className="text-[10px] font-mono font-bold w-4 text-center"
+        style={{
+          color: overridden ? 'var(--color-pm)' : 'var(--color-text)',
+        }}
+        title={overridden ? 'Manual override — click ✕ to clear' : 'Learner pick'}
+      >
+        {current}
+      </span>
+      <button
+        type="button"
+        onClick={onInc}
+        disabled={disabled || current >= 4}
+        className="w-4 h-4 rounded border text-[10px] font-bold flex items-center justify-center disabled:opacity-30"
+        style={{
+          borderColor: 'var(--color-border)',
+          background: 'var(--color-surface)',
+        }}
+        title="Project one more cycle"
+      >
+        +
+      </button>
+      {overridden && (
+        <button
+          type="button"
+          onClick={onClear}
+          disabled={disabled}
+          className="w-4 h-4 text-[10px] flex items-center justify-center disabled:opacity-30"
+          style={{ color: 'var(--color-dim)' }}
+          title="Clear override"
+        >
+          ✕
+        </button>
+      )}
+    </span>
   );
 }
 
