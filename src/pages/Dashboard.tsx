@@ -17,7 +17,6 @@ import type {
   Stage,
 } from '../lib/database.types';
 import AddrGroup from '../components/Dashboard/AddrGroup';
-import { pushToast } from '../stores/toastStore';
 import StageFilters, {
   EMPTY_DASH_FILTERS,
   permitPassesDashFilters,
@@ -552,52 +551,28 @@ function mostRecent<T>(rows: T[], pick: (row: T) => string | null): string | nul
 // so the just-opened card is in view. Mirrors v1 toggleProjectExpanded
 // :2849-2860 — independent per-container scroll, smooth, with an 8px buffer
 // so the card doesn't snap flush to the top edge.
-// Q9.5.f-fix-1b: TEMPORARY toast diagnostic. After eight cross-bucket
-// scroll iterations Bobby still sees only the active bucket scroll. This
-// version surfaces the match count, per-bucket offset math, and pre/post
-// scrollTop deltas via a single pushToast so the next smoke produces
-// ground truth without devtools. Once we know whether the failure is
-// "no matches" (cross-bucket open not actually working) vs "matches but
-// scroll doesn't land" (math/timing) we can target fix-2.
+// Q9.5.f-fix-1c: direct scrollTop assignment — no smooth, no setTimeout,
+// no diagnostic toasts. Property assignment is the simplest possible
+// mechanism: cannot be canceled by another smooth-scroll in flight, no
+// browser optimization can defer it, no race between containers. If this
+// doesn't visibly land cross-bucket, the bug isn't in scroll math or
+// timing — it's structural (container re-mount, ref staleness, addr-
+// group detached at the moment of measurement) and we'll instrument
+// differently in the next iteration.
 function scrollAddrIntoView(addr: string) {
   if (typeof document === 'undefined') return;
   const safe = typeof CSS !== 'undefined' && CSS.escape ? CSS.escape(addr) : addr;
   const containers = document.querySelectorAll<HTMLElement>(
     '[data-scroll-bucket="true"]',
   );
-  let matchCount = 0;
-  const lines: string[] = [];
-  containers.forEach((container, i) => {
+  containers.forEach((container) => {
     const el = container.querySelector<HTMLElement>(`[data-addr-group="${safe}"]`);
-    if (!el) {
-      lines.push(`b${i}:none`);
-      return;
-    }
-    matchCount++;
-    const containerTop = container.getBoundingClientRect().top;
-    const elTop = el.getBoundingClientRect().top;
-    const offset = elTop - containerTop + container.scrollTop - 8;
-    const before = container.scrollTop;
-    lines.push(
-      `b${i}:el@${Math.round(elTop)} cont@${Math.round(containerTop)} st=${before} tgt=${Math.round(offset)}`,
-    );
-    setTimeout(() => {
-      container.scrollTo({ top: Math.max(0, offset), behavior: 'smooth' });
-      // After the smooth-scroll animation, check whether scrollTop actually moved.
-      // 600ms covers most smooth-scroll durations + a buffer.
-      setTimeout(() => {
-        const after = container.scrollTop;
-        const moved = Math.abs(after - before);
-        if (moved < 5) {
-          pushToast(`b${i} did NOT scroll (st stayed ${before})`, 'warn');
-        }
-      }, 600);
-    }, i * 50);
+    if (!el) return;
+    const containerRect = container.getBoundingClientRect();
+    const elRect = el.getBoundingClientRect();
+    const offset = elRect.top - containerRect.top + container.scrollTop - 8;
+    container.scrollTop = Math.max(0, offset);
   });
-  pushToast(
-    `Scroll: ${matchCount} match${matchCount === 1 ? '' : 'es'} in ${containers.length} buckets — ${lines.join(' | ')}`,
-    matchCount === 0 ? 'error' : 'info',
-  );
 }
 
 // Q9.5.e2: group permits in a sub-bucket by project address, then render one
