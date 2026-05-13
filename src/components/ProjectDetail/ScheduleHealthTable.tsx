@@ -119,9 +119,12 @@ function Row({ permit, tasks }: { permit: PermitWithCycles; tasks: PermitTask[] 
   const taskStats = computeTaskStats(tasks);
   const projection = permit.actual_issue ?? permit.approval_date ?? permit.expected_issue;
   const isActual = !!(permit.actual_issue || permit.approval_date);
-  // v2 doesn't have an ACQ target column yet (task #63). Show null and let
-  // the health column fall through to the "In Progress" placeholder.
-  const acqTarget: string | null = null;
+  // Q9.5.f-fix-7: wire ACQ Target to permits.expected_issue. v1 writes the
+  // team's target issue date here, so v2 reads it. Current Projection at
+  // :120 already prefers actual_issue/approval_date over expected_issue,
+  // so the two columns diverge once a permit is issued — ACQ Target stays
+  // as the team's plan; Current Projection reflects the actual outcome.
+  const acqTarget: string | null = permit.expected_issue ?? null;
   const diff = computeHealthDiff(projection, acqTarget);
 
   const borderL = { borderLeftColor: 'var(--color-border)' } as const;
