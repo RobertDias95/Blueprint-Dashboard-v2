@@ -153,7 +153,11 @@ export interface DrawScheduleRow {
   start_week: string | null;
   end_week: string | null;
   status: string | null;
-  manual_status: string | null;
+  /** Q9.5.g: true when the user picked a status from the block popup
+   *  (suppresses dsAutoStatus auto-override). Defaults to false. The hand-
+   *  typed declaration previously had this as `string | null` — wrong; the
+   *  DB column is boolean. Caught while wiring the status popup. */
+  manual_status: boolean | null;
   manually_placed: boolean | null;
   dd_start: string | null;
   dd_end: string | null;

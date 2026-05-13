@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { useDrawSchedule } from '../hooks/useDrawSchedule';
 import { useProjects } from '../hooks/useProjects';
+import { usePermits } from '../hooks/usePermits';
 import { useDmDaGroups } from '../hooks/useDmDaGroups';
 import { useUpdateDrawSchedule } from '../hooks/useUpdateDrawSchedule';
 import { useResolveDaOverlap } from '../hooks/useResolveDaOverlap';
@@ -8,6 +9,7 @@ import { useDaTimeBlocks } from '../hooks/useDaTimeBlocks';
 import { useUpsertDaTimeBlock } from '../hooks/useUpsertDaTimeBlock';
 import { useDeleteDaTimeBlock } from '../hooks/useDeleteDaTimeBlock';
 import NpBlockEditPopup from './NpBlockEditPopup';
+import ProjectBlockPopup from './DrawSchedule/ProjectBlockPopup';
 import {
   DS_STATUS_COLORS,
   NP_BLOCK_COLOR,
@@ -31,8 +33,11 @@ import NpWarningPrompt, { type NpWarningEntry } from './NpWarningPrompt';
 import type {
   DaTimeBlock,
   DrawScheduleRow,
+  Permit,
+  PermitCycle,
   Project,
 } from '../lib/database.types';
+import { deriveBlockStatus } from '../lib/drawScheduleStatus';
 
 // Q6.1: read-only render of all draw_schedule rows. Mirrors v1's
 // renderDrawSchedule layout (index.html lines 7875-8090):
@@ -98,6 +103,7 @@ interface PendingNpWarning {
 export default function DrawScheduleGrid() {
   const drawQ = useDrawSchedule();
   const projectsQ = useProjects();
+  const permitsQ = usePermits();
   const groupsQ = useDmDaGroups();
   const npBlocksQ = useDaTimeBlocks();
 
@@ -134,6 +140,7 @@ export default function DrawScheduleGrid() {
     <DrawScheduleBody
       draw={drawQ.data ?? []}
       projects={projectsQ.data ?? []}
+      permits={permitsQ.data ?? []}
       groups={groupsQ.groups}
       npBlocks={npBlocksQ.data ?? []}
       quarterOffset={quarterOffset}
@@ -147,6 +154,7 @@ export default function DrawScheduleGrid() {
 interface BodyProps {
   draw: DrawScheduleRow[];
   projects: Project[];
+  permits: (Permit & { permit_cycles?: PermitCycle[] })[];
   groups: { dm: string; das: string[] }[];
   npBlocks: DaTimeBlock[];
   quarterOffset: number;
@@ -158,6 +166,7 @@ interface BodyProps {
 function DrawScheduleBody({
   draw,
   projects,
+  permits,
   groups,
   npBlocks,
   quarterOffset,
@@ -165,6 +174,27 @@ function DrawScheduleBody({
   search,
   setSearch,
 }: BodyProps) {
+  // Q9.5.g: lookup tables for deriveBlockStatus per block render.
+  // permitsByProjectId groups permits at each project (deriveBlockStatus
+  // filters to BPs internally). cyclesByPermit indexes the cycles array
+  // attached via the usePermits .select('*, permit_cycles(*)') nested query.
+  const permitsByProjectId = useMemo(() => {
+    const m = new Map<string, Permit[]>();
+    for (const p of permits) {
+      const list = m.get(p.project_id) ?? [];
+      list.push(p);
+      m.set(p.project_id, list);
+    }
+    return m;
+  }, [permits]);
+
+  const cyclesByPermit = useMemo(() => {
+    const m = new Map<number, PermitCycle[]>();
+    for (const p of permits) {
+      m.set(p.id, p.permit_cycles ?? []);
+    }
+    return m;
+  }, [permits]);
   const weeks = useMemo(() => getQuarterWeeks(quarterOffset), [quarterOffset]);
   const currentWeek = useMemo(() => dateToWeekKey(getMonday(new Date())), []);
 
@@ -188,6 +218,10 @@ function DrawScheduleBody({
   const [draggingProjectId, setDraggingProjectId] = useState<string | null>(
     null,
   );
+  // Q9.5.g: project-block popup. Opens on click (gated on !draggingProjectId
+  // so the click that ends a drag doesn't fire the popup). State holds the
+  // project_id of the block currently showing the popup, or null.
+  const [popupProjectId, setPopupProjectId] = useState<string | null>(null);
 
   const projectById = useMemo(
     () => new Map(projects.map((p) => [p.id, p])),
@@ -588,8 +622,19 @@ function DrawScheduleBody({
                     const top = si * ROW_H;
                     const height =
                       Math.min((ei - si + 1) * ROW_H, (weeks.length - si) * ROW_H) - 3;
-                    const status = row.status ?? 'Scheduled';
-                    const sc = DS_STATUS_COLORS[status] ?? DS_STATUS_COLORS.Scheduled;
+                    // Q9.5.g: derive status from live permit/cycle data via
+                    // dsAutoStatus precedence (Corrections > Approved > Under
+                    // Review > DD-phase date math). The stored row.status is
+                    // only respected when manual_status is true AND the auto
+                    // derive is in the DD phase — the three permit-data
+                    // branches always win.
+                    const { status: derivedStatus } = deriveBlockStatus({
+                      permits: permitsByProjectId.get(row.project_id) ?? [],
+                      cyclesByPermit,
+                      currentStatus: row.status,
+                      manualStatus: row.manual_status === true,
+                    });
+                    const sc = DS_STATUS_COLORS[derivedStatus] ?? DS_STATUS_COLORS.Scheduled;
                     const borderColor = jurisBorder(project.juris);
                     // Duration in weeks is end..start inclusive.
                     const durationWeeks = Math.max(
@@ -604,7 +649,7 @@ function DrawScheduleBody({
                       <div
                         key={row.project_id}
                         data-testid={`block-${row.project_id}`}
-                        title={`${project.address} — ${status} (drag to move)`}
+                        title={`${project.address} — ${derivedStatus} (drag to move, click to edit)`}
                         draggable
                         onDragStart={(e) => {
                           const payload: DragPayload = {
@@ -621,6 +666,15 @@ function DrawScheduleBody({
                           setDraggingProjectId(row.project_id);
                         }}
                         onDragEnd={() => setDraggingProjectId(null)}
+                        onClick={(e) => {
+                          // Q9.5.g: gate the click on !draggingProjectId so
+                          // the drag-release click (HTML5 DnD fires both
+                          // dragend AND click on the source) doesn't open
+                          // the popup the moment a drop lands.
+                          if (draggingProjectId !== null) return;
+                          e.stopPropagation();
+                          setPopupProjectId(row.project_id);
+                        }}
                         style={{
                           position: 'absolute',
                           top,
@@ -667,6 +721,33 @@ function DrawScheduleBody({
 
       {/* Unscheduled lane */}
       <UnscheduledLane items={unscheduled} />
+
+      {/* Q9.5.g: project block popup. Rendered as a portal-like sibling of
+          the grid so its fixed positioning isn't trapped inside any
+          transformed/overflow:hidden parent. */}
+      {popupProjectId &&
+        (() => {
+          const row = draw.find((r) => r.project_id === popupProjectId);
+          const project = projectById.get(popupProjectId);
+          if (!row || !project) return null;
+          const projectPermits = permitsByProjectId.get(popupProjectId) ?? [];
+          const { status: derivedStatus, isAuto } = deriveBlockStatus({
+            permits: projectPermits,
+            cyclesByPermit,
+            currentStatus: row.status,
+            manualStatus: row.manual_status === true,
+          });
+          return (
+            <ProjectBlockPopup
+              row={row}
+              address={project.address}
+              permits={projectPermits}
+              displayedStatus={derivedStatus}
+              isAutoDerived={isAuto}
+              onClose={() => setPopupProjectId(null)}
+            />
+          );
+        })()}
 
       {pendingNpWarning && (
         <NpWarningPrompt
