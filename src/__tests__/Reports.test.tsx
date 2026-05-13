@@ -319,7 +319,10 @@ describe('<Reports /> Q7.2.b', () => {
     const demoCard = screen.getByTestId('benchmark-card-Demolition-Bellevue');
     expect(demoCard.textContent).toMatch(/Insufficient data/i);
     const bldgCard = screen.getByTestId('benchmark-card-Building Permit-Seattle');
-    expect(bldgCard.textContent).toMatch(/sample/i);
+    // Q9.5.f-fix-3: tile layout drops the "sample" wording — assert on the
+    // tier badge ("LAST 120D" or "ALL-TIME") which is always present when
+    // there's a learned estimate.
+    expect(bldgCard.textContent).toMatch(/LAST 120D|ALL-TIME/i);
   });
 
   it('Report Table renders one row per filtered permit + headline count', () => {

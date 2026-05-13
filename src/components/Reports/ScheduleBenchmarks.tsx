@@ -1,20 +1,22 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import {
   computeLearnedSchedule,
+  listSourcePermits,
   listTypeJurisCombos,
   type LearnedEstimate,
 } from '../../lib/scheduleBenchmarks';
 import type { PermitWithCycles, Project } from '../../lib/database.types';
+import BenchmarkSourceModal from './BenchmarkSourceModal';
 
-// Q7.2.c: per (type, juris) schedule benchmarks. Renders one card per
-// combo from listTypeJurisCombos. Each card shows the 3-tier learned
-// estimate (recent → all-time → fallback) from computeLearnedSchedule,
-// laid out as a cycle-by-cycle CR/CO breakdown plus headline averages.
+// Q7.2.c: per (type, juris) schedule benchmarks. One card per combo from
+// listTypeJurisCombos, sorted descending by sample count. Empty-data
+// combos still render (planning signal — Bobby wants to see which combos
+// exist but lack a learned baseline).
 //
-// Cards are sorted descending by sample count via listTypeJurisCombos.
-// Combos with no approved permits show "Insufficient data" — we still
-// list them so Bobby knows which combos exist but lack a learned
-// baseline (useful planning signal).
+// Q9.5.f-fix-3: visual layout switched from the 3-col table to v1's tile
+// grid (index.html:5395-5500) — status dot + corner badge + 2-up headline
+// tiles + cycle tiles per learned data. Clicking a card opens
+// BenchmarkSourceModal listing the contributing permits.
 
 interface Props {
   permits: PermitWithCycles[];
@@ -49,6 +51,24 @@ export default function ScheduleBenchmarks({ permits, projects }: Props) {
     [combos, permits, projectsById, today],
   );
 
+  // Q9.5.f-fix-3 4.B: state for the source modal. Holds the (type, juris)
+  // pair of the clicked card; sources are derived lazily on open.
+  const [modalTarget, setModalTarget] = useState<{
+    type: string;
+    juris: string;
+  } | null>(null);
+
+  const modalSources = useMemo(() => {
+    if (!modalTarget) return [];
+    return listSourcePermits(
+      permits,
+      modalTarget.type,
+      modalTarget.juris,
+      projectsById,
+      today,
+    );
+  }, [modalTarget, permits, projectsById, today]);
+
   return (
     <div
       className="bg-surface border border-border rounded-lg p-4"
@@ -59,7 +79,7 @@ export default function ScheduleBenchmarks({ permits, projects }: Props) {
           Schedule Benchmarks
         </div>
         <div className="text-[10px] text-dim">
-          Learned from approved permits · recent → all-time fallback
+          Learned from approved permits · recent → all-time fallback · click a card to see sources
         </div>
       </div>
 
@@ -76,167 +96,299 @@ export default function ScheduleBenchmarks({ permits, projects }: Props) {
               juris={c.juris}
               count={c.count}
               estimate={c.estimate}
+              onSelect={() => setModalTarget({ type: c.type, juris: c.juris })}
             />
           ))}
         </div>
       )}
+
+      {modalTarget && (
+        <BenchmarkSourceModal
+          type={modalTarget.type}
+          juris={modalTarget.juris}
+          sources={modalSources}
+          onClose={() => setModalTarget(null)}
+        />
+      )}
     </div>
   );
 }
+
+// ============================================================
+// Card render — v1 tile layout per index.html:5395-5500
+// ============================================================
+
+type SourceTier = 'recent' | 'all-time' | 'default';
+
+function tierOf(estimate: LearnedEstimate | null): SourceTier {
+  if (!estimate) return 'default';
+  return estimate.isAllTime ? 'all-time' : 'recent';
+}
+
+const TIER_DOT: Record<SourceTier, string> = {
+  recent: 'var(--color-pm)',
+  'all-time': 'var(--color-co)',
+  default: 'var(--color-border)',
+};
+
+const TIER_BADGE_LABEL: Record<SourceTier, string> = {
+  recent: '↑ LAST 120D',
+  'all-time': '⚠ ALL-TIME',
+  default: 'DEFAULT',
+};
+
+interface TierBadgeStyle {
+  background: string;
+  color: string;
+  borderColor: string;
+}
+
+const TIER_BADGE_STYLE: Record<SourceTier, TierBadgeStyle> = {
+  recent: {
+    background: 'rgba(16,185,129,.1)',
+    color: 'var(--color-pm)',
+    borderColor: 'rgba(16,185,129,.3)',
+  },
+  'all-time': {
+    background: 'rgba(245,158,11,.1)',
+    color: 'var(--color-co)',
+    borderColor: 'rgba(245,158,11,.4)',
+  },
+  default: {
+    background: 'var(--color-s2)',
+    color: 'var(--color-dim)',
+    borderColor: 'var(--color-border)',
+  },
+};
 
 function BenchmarkCard({
   type,
   juris,
   count,
   estimate,
+  onSelect,
 }: {
   type: string;
   juris: string;
   count: number;
   estimate: LearnedEstimate | null;
+  onSelect: () => void;
 }) {
+  const tier = tierOf(estimate);
+  const sampleCount = estimate?.sampleCount ?? 0;
+  const badgeStyle = TIER_BADGE_STYLE[tier];
+
   return (
     <div
-      className="border border-border rounded-lg p-3 flex flex-col gap-2"
+      onClick={onSelect}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          onSelect();
+        }
+      }}
+      role="button"
+      tabIndex={0}
+      className="border border-border rounded-lg p-3 flex flex-col gap-2 cursor-pointer hover:border-de transition"
       data-testid={`benchmark-card-${type}-${juris}`}
     >
-      <div className="flex items-baseline justify-between gap-2">
-        <div className="font-display font-bold text-text text-sm truncate">
-          {type}
+      {/* Header: status dot + type/juris + corner badge */}
+      <div className="flex items-start justify-between gap-2">
+        <div className="flex items-start gap-2 min-w-0">
+          <span
+            className="rounded-full flex-shrink-0"
+            style={{
+              width: 7,
+              height: 7,
+              marginTop: 5,
+              background: TIER_DOT[tier],
+            }}
+          />
+          <div className="min-w-0 flex flex-col">
+            <span className="font-display font-bold text-text text-sm truncate">
+              {type}
+            </span>
+            <span className="text-[10px] text-muted truncate">
+              {juris} · {sampleCount > 0 ? sampleCount : count} permit
+              {(sampleCount || count) === 1 ? '' : 's'}
+            </span>
+          </div>
         </div>
-        <div className="text-[10px] text-muted truncate">{juris}</div>
+        <span
+          className="text-[8px] font-bold flex-shrink-0"
+          style={{
+            padding: '2px 7px',
+            borderRadius: 4,
+            background: badgeStyle.background,
+            color: badgeStyle.color,
+            border: `1px solid ${badgeStyle.borderColor}`,
+            letterSpacing: '0.04em',
+            whiteSpace: 'nowrap',
+          }}
+        >
+          {TIER_BADGE_LABEL[tier]}
+        </span>
       </div>
 
       {estimate === null ? (
         <div className="text-[11px] text-dim italic py-2">
-          Insufficient data ({count} permit{count === 1 ? '' : 's'} in set, none
-          approved yet)
+          Insufficient data — {count} permit{count === 1 ? '' : 's'} in set, none
+          approved yet
         </div>
       ) : (
         <>
-          <div className="text-[10px] text-dim">
-            {estimate.source} · {estimate.sampleCount} sample
-            {estimate.sampleCount === 1 ? '' : 's'}
-            {estimate.isAllTime && (
-              <span className="ml-1 text-[#dc2626]">(fallback)</span>
-            )}
-          </div>
-          {estimate.dateRange && (
-            <div className="text-[10px] text-muted truncate">
-              {estimate.dateRange}
-            </div>
-          )}
-
-          <table className="w-full text-[11px] mt-1">
-            <thead>
-              <tr className="text-[10px] uppercase tracking-wide text-dim">
-                <th className="text-left font-normal py-0.5">Cycle</th>
-                <th className="text-right font-normal py-0.5">City Review</th>
-                <th className="text-right font-normal py-0.5">Corr. Resp.</th>
-              </tr>
-            </thead>
-            <tbody>
-              <CycleRow
-                n={1}
-                cr={estimate.cityReview1}
-                crCount={estimate.cr1Count}
-                co={estimate.corrResponse1}
-                coCount={estimate.co1Count}
-              />
-              <CycleRow
-                n={2}
-                cr={estimate.cityReview2}
-                crCount={estimate.cr2Count}
-                co={estimate.corrResponse2}
-                coCount={estimate.co2Count}
-              />
-              <CycleRow
-                n={3}
-                cr={estimate.cityReview3}
-                crCount={estimate.cr3Count}
-                co={estimate.corrResponse3}
-                coCount={estimate.co3Count}
-              />
-              <CycleRow
-                n={4}
-                cr={estimate.cityReview4}
-                crCount={estimate.cr4Count}
-                co={estimate.corrResponse4}
-                coCount={estimate.co4Count}
-              />
-            </tbody>
-          </table>
-
-          <div className="grid grid-cols-2 gap-2 text-[10px] mt-1 pt-2 border-t border-border/50">
-            <div>
-              <div className="text-dim">GO → Submit</div>
-              <div className="font-bold text-text">
-                {estimate.goToSubmit !== null ? `${estimate.goToSubmit}d` : '—'}
-              </div>
-            </div>
-            <div>
-              <div className="text-dim">Submit → Issue</div>
-              <div className="font-bold text-text">
-                {estimate.avgSubmitToIssue !== null
+          {/* Headline tiles: GO → Submit + Submit → Approval */}
+          <div className="grid grid-cols-2 gap-2 mt-1">
+            <HeadlineTile
+              label="GO → Submit"
+              value={estimate.goToSubmit !== null ? `${estimate.goToSubmit}d` : '—'}
+              tone="text"
+            />
+            <HeadlineTile
+              label="Submit → Approval"
+              value={
+                estimate.avgSubmitToIssue !== null
                   ? `${estimate.avgSubmitToIssue}d`
-                  : '—'}
-              </div>
-            </div>
-            <div>
-              <div className="text-dim">Avg cycles</div>
-              <div className="font-bold text-text">
-                {estimate.avgCycles ?? '—'}
-              </div>
-            </div>
-            <div>
-              <div className="text-dim">Most likely</div>
-              <div className="font-bold text-text">
-                Cycle {estimate.mostLikelyCycle}
-              </div>
-            </div>
+                  : '—'
+              }
+              tone="pm"
+            />
           </div>
+
+          {/* Cycle tiles — 4 base, +2 for cycle 3 if data, +2 for cycle 4 */}
+          <CycleTiles estimate={estimate} />
         </>
       )}
     </div>
   );
 }
 
-function CycleRow({
-  n,
-  cr,
-  crCount,
-  co,
-  coCount,
+function HeadlineTile({
+  label,
+  value,
+  tone,
 }: {
-  n: number;
-  cr: number;
-  crCount: number;
-  co: number;
-  coCount: number;
+  label: string;
+  value: string;
+  tone: 'text' | 'pm';
 }) {
-  // Dim a cell when we had no samples for it (the value is a default
-  // fallback, not a learned estimate). v1 shows this with reduced opacity.
-  const crDim = crCount === 0;
-  const coDim = coCount === 0;
   return (
-    <tr>
-      <td className="py-0.5 text-muted">C{n}</td>
-      <td
-        className={`py-0.5 text-right ${crDim ? 'text-dim italic' : 'text-text'}`}
+    <div
+      style={{
+        background: 'var(--color-s2)',
+        borderRadius: 5,
+        padding: '6px 8px',
+      }}
+    >
+      <div
+        className="font-bold uppercase tracking-wide"
+        style={{ fontSize: 8, color: 'var(--color-dim)' }}
       >
-        {cr}d
-        {crCount > 0 && (
-          <span className="text-dim text-[9px] ml-1">(n={crCount})</span>
-        )}
-      </td>
-      <td
-        className={`py-0.5 text-right ${coDim ? 'text-dim italic' : 'text-text'}`}
+        {label}
+      </div>
+      <div
+        className="font-bold"
+        style={{
+          fontSize: 13,
+          color: tone === 'pm' ? 'var(--color-pm)' : 'var(--color-text)',
+        }}
       >
-        {co}d
-        {coCount > 0 && (
-          <span className="text-dim text-[9px] ml-1">(n={coCount})</span>
+        {value}
+      </div>
+    </div>
+  );
+}
+
+function CycleTiles({ estimate }: { estimate: LearnedEstimate }) {
+  const hasC3 = estimate.cr3Count > 0 || estimate.co3Count > 0;
+  const hasC4 = estimate.cr4Count > 0 || estimate.co4Count > 0;
+  const rows: Array<{
+    index: number;
+    cr: number;
+    crCount: number;
+    co: number;
+    coCount: number;
+  }> = [
+    { index: 1, cr: estimate.cityReview1, crCount: estimate.cr1Count, co: estimate.corrResponse1, coCount: estimate.co1Count },
+    { index: 2, cr: estimate.cityReview2, crCount: estimate.cr2Count, co: estimate.corrResponse2, coCount: estimate.co2Count },
+  ];
+  if (hasC3) {
+    rows.push({ index: 3, cr: estimate.cityReview3, crCount: estimate.cr3Count, co: estimate.corrResponse3, coCount: estimate.co3Count });
+  }
+  if (hasC4) {
+    rows.push({ index: 4, cr: estimate.cityReview4, crCount: estimate.cr4Count, co: estimate.corrResponse4, coCount: estimate.co4Count });
+  }
+
+  return (
+    <div className="grid grid-cols-2 gap-2">
+      {rows.flatMap((r) => [
+        <CycleTile
+          key={`cr${r.index}`}
+          label={`City Review ${r.index}`}
+          value={r.cr}
+          count={r.crCount}
+          tone="de"
+        />,
+        <CycleTile
+          key={`co${r.index}`}
+          label={`Corr. Response ${r.index}`}
+          value={r.co}
+          count={r.coCount}
+          tone="co"
+        />,
+      ])}
+    </div>
+  );
+}
+
+function CycleTile({
+  label,
+  value,
+  count,
+  tone,
+}: {
+  label: string;
+  value: number;
+  count: number;
+  tone: 'de' | 'co';
+}) {
+  const isFallback = count === 0;
+  const accent = tone === 'de' ? 'var(--color-de)' : 'var(--color-co)';
+  const title = isFallback
+    ? 'No learned data — using default'
+    : `${count} permit${count === 1 ? '' : 's'} contributed`;
+  return (
+    <div
+      title={title}
+      style={{
+        background: 'var(--color-s2)',
+        borderRadius: 5,
+        padding: '6px 8px',
+      }}
+    >
+      <div
+        className="font-bold uppercase tracking-wide"
+        style={{ fontSize: 8, color: 'var(--color-dim)' }}
+      >
+        {label}
+      </div>
+      <div className="flex items-baseline gap-1.5">
+        <span
+          className="font-bold"
+          style={{
+            fontSize: 13,
+            color: isFallback ? 'var(--color-dim)' : accent,
+            fontStyle: isFallback ? 'italic' : 'normal',
+          }}
+        >
+          {value}d
+        </span>
+        {count > 0 && (
+          <span style={{ fontSize: 9, color: 'var(--color-dim)' }}>
+            n={count}
+          </span>
         )}
-      </td>
-    </tr>
+      </div>
+    </div>
   );
 }

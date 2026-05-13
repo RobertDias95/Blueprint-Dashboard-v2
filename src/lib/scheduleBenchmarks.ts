@@ -293,6 +293,77 @@ export function computeLearnedSchedule(
   return null;
 }
 
+/** Q9.5.f-fix-3 4.B: one row per contributing permit for the source modal.
+ *  Includes the per-cycle CR/CO days that fed the learned averages so the
+ *  modal can show the contribution alongside the high-level dates. */
+export interface BenchmarkSourcePermit {
+  permitId: number;
+  projectId: string;
+  address: string;
+  type: string;
+  num: string | null;
+  submitted: string | null;
+  approval: string | null;
+  cycleCount: number;
+  /** True when this permit's approval/issue fell within the learned window
+   *  for the given juris — drives a "recent" pill in the modal. */
+  inRecentWindow: boolean;
+  /** Per-cycle CR/CO days (parallel to the card tiles). */
+  cycles: Array<{ index: number; cr: number | null; co: number | null }>;
+}
+
+export function listSourcePermits(
+  permits: PermitWithCycles[],
+  type: string,
+  juris: string,
+  projectsById: Map<string, Project>,
+  today: Date = new Date(),
+): BenchmarkSourcePermit[] {
+  const windowDays = getLearnWindow(juris);
+  const cutoff = new Date(today.getTime() - windowDays * DAY_MS);
+  const out: BenchmarkSourcePermit[] = [];
+  for (const p of permits) {
+    if (p.type !== type) continue;
+    const project = projectsById.get(p.project_id);
+    if (project?.juris !== juris) continue;
+    if (!p.approval_date && !p.actual_issue) continue;
+    const sample = extractSample(p);
+    if (!sample) continue;
+    const approval = p.approval_date ?? p.actual_issue ?? null;
+    const inRecentWindow =
+      !!approval &&
+      new Date(`${approval}T12:00:00Z`).getTime() >= cutoff.getTime();
+    out.push({
+      permitId: p.id,
+      projectId: p.project_id,
+      address: project?.address ?? '—',
+      type: p.type ?? '—',
+      num: p.num,
+      submitted: sample.submittedAnchor,
+      approval,
+      cycleCount: sample.nCycles,
+      inRecentWindow,
+      cycles: [
+        { index: 1, cr: sample.cityReview1Days, co: sample.corrResponse1Days },
+        { index: 2, cr: sample.cityReview2Days, co: sample.corrResponse2Days },
+        { index: 3, cr: sample.cityReview3Days, co: sample.corrResponse3Days },
+        { index: 4, cr: sample.cityReview4Days, co: sample.corrResponse4Days },
+      ].filter((c) => c.cr !== null || c.co !== null),
+    });
+  }
+  // Sort recent-first, then approval date desc, then address.
+  out.sort((a, b) => {
+    if (a.inRecentWindow !== b.inRecentWindow) {
+      return a.inRecentWindow ? -1 : 1;
+    }
+    const ad = a.approval ?? '';
+    const bd = b.approval ?? '';
+    if (ad !== bd) return ad > bd ? -1 : 1;
+    return a.address.localeCompare(b.address);
+  });
+  return out;
+}
+
 /** Enumerate all (type, juris) combos present in a permit set, joined to
  * projects for jurisdiction. Used by the benchmark grid to know which
  * cards to render. */
