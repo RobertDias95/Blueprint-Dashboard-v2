@@ -685,13 +685,7 @@ function DrawScheduleBody({
                           color: sc.text,
                           border: `2px solid ${borderColor}`,
                           borderRadius: 4,
-                          padding: '2px 4px',
                           overflow: 'hidden',
-                          fontSize: 10,
-                          fontWeight: 700,
-                          lineHeight: 1.1,
-                          whiteSpace: 'nowrap',
-                          textOverflow: 'ellipsis',
                           zIndex: 5,
                           cursor: 'grab',
                           // Bug A: during a drag, SIBLING blocks let drops
@@ -706,9 +700,92 @@ function DrawScheduleBody({
                             draggingProjectId !== row.project_id
                               ? 'none'
                               : 'auto',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          alignItems: 'flex-start',
+                          justifyContent: 'center',
+                          gap: 2,
+                          padding: '2px 6px',
                         }}
                       >
-                        {project.address}
+                        {/* Q9.5.f Item 4: 4-tier block content per v1
+                            :8097-8121. Each tier appears only if block
+                            height permits, so short blocks degrade
+                            gracefully and tall blocks show full detail. */}
+                        <span
+                          style={{
+                            fontSize: 10,
+                            fontWeight: 800,
+                            lineHeight: 1.1,
+                            whiteSpace: 'nowrap',
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                            maxWidth: '100%',
+                            color: sc.text,
+                          }}
+                        >
+                          {project.address.split(',')[0]}
+                        </span>
+                        {height >= 22 && project.juris && (
+                          <span
+                            style={{
+                              fontSize: 8,
+                              fontWeight: 500,
+                              lineHeight: 1.1,
+                              opacity: 0.75,
+                              color: sc.text,
+                            }}
+                          >
+                            {project.juris}
+                          </span>
+                        )}
+                        {height >= 32 && (
+                          <span
+                            style={{
+                              fontSize: 8,
+                              fontWeight: 700,
+                              padding: '1px 5px',
+                              borderRadius: 3,
+                              background: 'rgba(255,255,255,0.55)',
+                              color: sc.border,
+                              border: `1px solid ${sc.border}`,
+                              whiteSpace: 'nowrap',
+                            }}
+                          >
+                            {derivedStatus}
+                          </span>
+                        )}
+                        {height >= 60 &&
+                          (() => {
+                            // Est. Approval projection: prefer actual data
+                            // when present, fall back to expected_issue.
+                            // Pulls from the BP at this project; gracefully
+                            // omits the line if nothing is available.
+                            const bp =
+                              (permitsByProjectId.get(row.project_id) ?? [])
+                                .find((p) => p.type === 'Building Permit') ??
+                              (permitsByProjectId.get(row.project_id) ?? [])[0];
+                            const projDate =
+                              bp?.actual_issue ??
+                              bp?.approval_date ??
+                              bp?.expected_issue ??
+                              null;
+                            if (!projDate) return null;
+                            return (
+                              <span
+                                style={{
+                                  fontSize: 8,
+                                  fontWeight: 800,
+                                  lineHeight: 1.1,
+                                  color: sc.text,
+                                  opacity: 0.9,
+                                }}
+                                title={`Est. Approval — ${projDate}`}
+                              >
+                                Est. Approval · {projDate}
+                              </span>
+                            );
+                          })()}
                       </div>
                     );
                   })}

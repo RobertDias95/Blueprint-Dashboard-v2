@@ -1,4 +1,5 @@
 import type { ReportFilters, TimeRange } from '../../lib/reportMetrics';
+import FilterDropdown from '../FilterDropdown';
 
 // Q7.2.a: global filter bar for the Reports view. 7 controls per Q2c
 // (Acq Lead dropped). State lives on the parent Reports page; this
@@ -180,9 +181,12 @@ function FieldLabel({
   );
 }
 
-/** Inline multi-select chip group. Click an option to toggle membership;
- * empty set = "All". Compact UI for the filter bar — full dropdown UX
- * (with search) deferred until tag/option counts grow. */
+/** Q9.5.f Item 6: replaces the inline chip-blanket with a proper
+ *  dropdown (chevron + popover + "All" toggle + checkbox list). Reuses
+ *  the shared FilterDropdown primitive that the Dashboard StageFilters
+ *  also consumes — same v1 .ms-btn / .ms-dropdown pattern across both
+ *  pages. Call-site API (label / selected / options / onChange / testId)
+ *  preserved so the parent ReportFilterBar JSX is unchanged. */
 function SetMultiSelect({
   label,
   selected,
@@ -196,40 +200,15 @@ function SetMultiSelect({
   onChange: (next: Set<string>) => void;
   testId: string;
 }) {
-  function toggle(value: string) {
-    const next = new Set(selected);
-    if (next.has(value)) next.delete(value);
-    else next.add(value);
-    onChange(next);
-  }
   return (
     <FieldLabel label={label}>
-      <div
-        className="flex flex-wrap gap-1 max-w-[260px]"
-        data-testid={testId}
-      >
-        {options.length === 0 && (
-          <span className="text-[10px] text-dim italic">no options</span>
-        )}
-        {options.map((opt) => {
-          const active = selected.has(opt);
-          return (
-            <button
-              key={opt}
-              type="button"
-              onClick={() => toggle(opt)}
-              className={`text-[10px] px-1.5 py-0.5 rounded border transition ${
-                active
-                  ? 'bg-de text-white border-de'
-                  : 'bg-bg text-muted border-border hover:bg-s2'
-              }`}
-              data-testid={`${testId}-opt-${opt}`}
-            >
-              {opt}
-            </button>
-          );
-        })}
-      </div>
+      <FilterDropdown
+        label={label}
+        options={options}
+        selected={selected}
+        onChange={onChange}
+        testId={testId}
+      />
     </FieldLabel>
   );
 }

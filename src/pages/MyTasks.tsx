@@ -14,6 +14,7 @@ import QueryError from '../components/QueryError';
 import StatsRow from '../components/MyTasks/StatsRow';
 import TaskColumn from '../components/MyTasks/TaskColumn';
 import FilterBar from '../components/MyTasks/FilterBar';
+import TaskDetailPanel from '../components/MyTasks/TaskDetailPanel';
 import type {
   PermitTask,
   PermitWithCycles,
@@ -132,7 +133,11 @@ function Body({ tasks, permits, projects }: BodyProps) {
         resultCount={filtered.length}
       />
       <StatsRow stats={stats} />
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+      {/* Q9.5.f Item 5: 3-pane layout — D&E | Permitting | Task Detail (280px).
+          The detail panel reads selectedTaskId and renders the picked task's
+          full context (mirrors v1 index.html:976-982). Empty state shows
+          "Click a task to view details" until a row is clicked. */}
+      <div className="grid grid-cols-1 lg:grid-cols-[1fr_1fr_280px] gap-4">
         <TaskColumn
           // Q7.1.c: key on filters.status remounts the column when the
           // user changes status. That re-initializes the Completed
@@ -160,6 +165,14 @@ function Body({ tasks, permits, projects }: BodyProps) {
           defaultCompletedOpen={
             filters.status === 'done' || filters.status === 'all'
           }
+        />
+        <TaskDetailPanel
+          task={
+            selectedTaskId
+              ? filtered.find((t) => t.id === selectedTaskId) ?? null
+              : null
+          }
+          ctx={ctx}
         />
       </div>
     </div>

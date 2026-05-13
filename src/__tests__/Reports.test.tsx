@@ -235,6 +235,8 @@ describe('<Reports /> Q7.2.b', () => {
   it('Filter narrowing: selecting juris=Bellevue removes Seattle permits + updates result count', () => {
     renderIt();
     expect(screen.getByTestId('filter-result-count').textContent).toBe('2 permits');
+    // Q9.5.f Item 6: filter is a dropdown now — open it first, then pick.
+    fireEvent.click(screen.getByTestId('filter-juris-btn'));
     fireEvent.click(screen.getByTestId('filter-juris-opt-Bellevue'));
     expect(screen.getByTestId('filter-result-count').textContent).toBe('1 permit');
     // Only Demolition remains → total permits card reads 1.
@@ -260,6 +262,8 @@ describe('<Reports /> Q7.2.b', () => {
 
   it('Clear button resets all filter dimensions', () => {
     renderIt();
+    // Q9.5.f Item 6: filter is a dropdown now — open it first, then pick.
+    fireEvent.click(screen.getByTestId('filter-juris-btn'));
     fireEvent.click(screen.getByTestId('filter-juris-opt-Bellevue'));
     expect(screen.getByTestId('filter-result-count').textContent).toBe('1 permit');
     fireEvent.click(screen.getByTestId('filter-clear'));
@@ -361,6 +365,8 @@ describe('<Reports /> Q7.2.b', () => {
 
   it('Report Table filter narrowing flows through to row set', () => {
     renderIt();
+    // Q9.5.f Item 6: filter is a dropdown now — open it first, then pick.
+    fireEvent.click(screen.getByTestId('filter-juris-btn'));
     fireEvent.click(screen.getByTestId('filter-juris-opt-Bellevue'));
     expect(screen.getByTestId('report-table').textContent).toContain(
       'Permit Detail (1)',

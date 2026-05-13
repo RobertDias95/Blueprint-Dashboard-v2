@@ -7,7 +7,6 @@ import {
   bucketPermits,
   hideIssuedAtAddress,
   type BucketInput,
-  type BucketedPermits,
 } from '../lib/permitStage';
 import { cardUrgency } from '../lib/urgencyHelpers';
 import type {
@@ -18,6 +17,11 @@ import type {
   Stage,
 } from '../lib/database.types';
 import AddrGroup from '../components/Dashboard/AddrGroup';
+import StageFilters, {
+  EMPTY_DASH_FILTERS,
+  permitPassesDashFilters,
+  type DashFilters,
+} from '../components/Dashboard/StageFilters';
 import { SkeletonRows } from '../components/Skeleton';
 import QueryError from '../components/QueryError';
 
@@ -51,6 +55,7 @@ export default function Dashboard() {
   const drawQ = useDrawSchedule();
   const [search, setSearch] = useState('');
   const [wizardOpen, setWizardOpen] = useState(false);
+  const [filters, setFilters] = useState<DashFilters>(EMPTY_DASH_FILTERS);
   const [highlightedAddress, setHighlightedAddress] = useState<string | null>(null);
   const [openAddresses, setOpenAddresses] = useState<Set<string>>(new Set());
 
@@ -141,11 +146,17 @@ export default function Dashboard() {
     }
 
     // Project-keyed iteration — every visible permit must belong to a project.
+    // Q9.5.f Item 2: per-permit ENT/DA/DM/Type filter on top of the
+    // project-level search filter. Empty filter Sets are no-ops; specific
+    // values exclude permits whose dimension is null per v1 :4949-4951.
     const filteredInputs: BucketInput[] = [];
     for (const project of projects) {
       const projectPermits = permitsByProjectId.get(project.id) ?? [];
       if (!matchesSearch(project, projectPermits.map((b) => b.permit))) continue;
-      filteredInputs.push(...projectPermits);
+      for (const b of projectPermits) {
+        if (!permitPassesDashFilters(b.permit, filters)) continue;
+        filteredInputs.push(b);
+      }
     }
 
     const hide = hideIssuedAtAddress(filteredInputs, projectIdToAddress);
@@ -164,7 +175,7 @@ export default function Dashboard() {
       projectById: projectByIdMap,
       cyclesByPermit,
     };
-  }, [projectsQ.data, permitsQ.data, drawQ.data, search]);
+  }, [projectsQ.data, permitsQ.data, drawQ.data, search, filters]);
 
   if (error) {
     return (
@@ -190,11 +201,16 @@ export default function Dashboard() {
           placeholder="Search address, DA, ENT, juris, num... (space or comma = AND)"
           className="flex-1 min-w-[220px] max-w-[360px] bg-bg border border-border rounded-md px-3 py-1.5 text-xs font-display text-text placeholder:text-dim focus:outline-none focus:border-de"
         />
-        <DashSummary buckets={buckets} loading={isLoading} />
+        {/* Q9.5.f Item 2: filter dropdowns inline with search bar */}
+        <StageFilters
+          permits={permitsQ.data ?? []}
+          filters={filters}
+          onChange={setFilters}
+        />
         <button
           type="button"
           onClick={() => setWizardOpen(true)}
-          className="text-xs px-3 py-1.5 rounded-md bg-de text-white font-display font-bold hover:opacity-90 transition"
+          className="text-xs px-3 py-1.5 rounded-md bg-de text-white font-display font-bold hover:opacity-90 transition ml-auto"
           data-testid="dashboard-new-project"
         >
           + Add New Project
@@ -502,26 +518,9 @@ function BottomStrip({
   );
 }
 
-interface DashSummaryProps {
-  buckets: BucketedPermits;
-  loading: boolean;
-}
-
-function DashSummary({ buckets, loading }: DashSummaryProps) {
-  if (loading) return <span className="text-xs text-dim">Loading…</span>;
-  const parts = [
-    `${buckets.deEarly.length + buckets.deLate.length} D&E`,
-    `${buckets.pm.length} Permitting`,
-    `${buckets.co.length} Corrections`,
-    `${buckets.ap.length} Approved`,
-    `${buckets.is.length} Issued`,
-  ];
-  return (
-    <span className="text-[11px] text-muted font-mono ml-auto">
-      {parts.join(' · ')}
-    </span>
-  );
-}
+// Q9.5.f Item 1: DashSummary removed — counts already render in each
+// bucket header, the inline summary string near the search bar was
+// redundant.
 
 // Helpers for permitting column key dates — pull most-recent cycle field
 // across all cycles attached to that permit.
@@ -552,19 +551,34 @@ function mostRecent<T>(rows: T[], pick: (row: T) => string | null): string | nul
 // so the just-opened card is in view. Mirrors v1 toggleProjectExpanded
 // :2849-2860 — independent per-container scroll, smooth, with an 8px buffer
 // so the card doesn't snap flush to the top edge.
-// Q9.5.e2-fix-7: scroll each bucket that contains a matching addr-group
-// so the just-opened card is in view. Uses native Element.scrollIntoView —
-// the browser walks up every scrollable ancestor automatically, which is
-// more robust than the per-bucket scrollTop math we tried in fix-5/fix-6
-// (worked for the active bucket, missed the cross-bucket landing).
+// Q9.5.f Item 3: replace scrollIntoView with explicit per-container
+// scrollTo math + a 50ms stagger between containers. scrollIntoView fired
+// only the active bucket reliably (the non-active bucket's smooth-scroll
+// got trampled when issued in the same task). Walking each bucket's
+// scrollable container directly and offsetting one frame apart fixes the
+// landing on every bucket independently.
 function scrollAddrIntoView(addr: string) {
   if (typeof document === 'undefined') return;
   const safe = typeof CSS !== 'undefined' && CSS.escape ? CSS.escape(addr) : addr;
-  const matches = document.querySelectorAll<HTMLElement>(
-    `[data-addr-group="${safe}"]`,
+  const containers = document.querySelectorAll<HTMLElement>(
+    '[data-scroll-bucket="true"]',
   );
-  matches.forEach((el) => {
-    el.scrollIntoView({ block: 'start', behavior: 'smooth' });
+  containers.forEach((container, i) => {
+    const el = container.querySelector<HTMLElement>(`[data-addr-group="${safe}"]`);
+    if (!el) return;
+    // offsetTop is measured from the nearest positioned ancestor. Walk up
+    // until we hit the bucket container itself so the math works even if
+    // intermediate wrappers (e.g. sub-bucket padding) are positioned.
+    let elOffset = el.offsetTop;
+    let parent = el.offsetParent as HTMLElement | null;
+    while (parent && parent !== container) {
+      elOffset += parent.offsetTop;
+      parent = parent.offsetParent as HTMLElement | null;
+    }
+    const target = Math.max(0, elOffset - 8);
+    setTimeout(() => {
+      container.scrollTo({ top: target, behavior: 'smooth' });
+    }, i * 50);
   });
 }
 
