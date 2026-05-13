@@ -307,8 +307,7 @@ function TeamCell({
             <TeamRow label="ENT" value={ent} />
             <TeamRow label="DA" value={da} />
             <TeamRow label="DM" value={dm} />
-            <TeamRow label="ACQ" value="—" />
-            {bp && <ArchitectRow bp={bp} />}
+            <TeamRow label="ACQ" value={project.acq_lead ?? '—'} />
           </div>
         </div>
         <div className="p-2">
@@ -709,42 +708,10 @@ function TeamRow({
   );
 }
 
-// Q9.5.f-fix-9: editable Architect row, blur-commit via useUpdatePermit on
-// the BP. Matches the Site fields' commit-on-blur pattern (set local draft
-// while typing, write only when changed).
-function ArchitectRow({ bp }: { bp: PermitWithCycles }) {
-  const updateMutation = useUpdatePermit();
-  const [draft, setDraft] = useState(bp.architect ?? '');
-  const occMissing = !bp.updated_at;
-  function commit() {
-    if (!bp.updated_at) return;
-    const next = draft.trim() || null;
-    if (next === (bp.architect ?? null)) return;
-    void updateMutation.mutateAsync({
-      permitId: bp.id,
-      projectId: bp.project_id,
-      expectedUpdatedAt: bp.updated_at,
-      patch: { architect: next } as Partial<Permit>,
-      fieldLabel: 'Architect',
-    });
-  }
-  return (
-    <div className="flex items-baseline gap-1">
-      <span className="text-[9px] text-dim w-8 flex-shrink-0">Arch</span>
-      <input
-        type="text"
-        value={draft}
-        placeholder="—"
-        onChange={(e) => setDraft(e.target.value)}
-        onBlur={commit}
-        disabled={occMissing}
-        className="flex-1 min-w-0 text-[10px] font-bold text-text border-0 border-b outline-none bg-transparent px-0 py-0.5 disabled:opacity-50"
-        style={{ borderBottomColor: 'var(--color-border)' }}
-        data-testid="pd-team-architect"
-      />
-    </div>
-  );
-}
+// Q9.5.f-fix-10: ArchitectRow removed (revert of fix-9). Architect is an
+// external consultant, not internal team — does not belong in the team
+// section. permits.architect column stays populated; surfaces elsewhere
+// when external-team UI grows to cover it.
 
 function computeDuration(start: string | null, end: string | null): string {
   // Q9.5.e-fix-1: v1 renders plain "Nd" (index.html:3851) — was

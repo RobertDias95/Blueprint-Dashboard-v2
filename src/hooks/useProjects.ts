@@ -19,7 +19,7 @@ export function useProjects() {
       const { data, error } = await supabase
         .from('projects')
         .select(
-          'id, address, juris, archived, notes, external_team, builder_id, permit_order, created_at, updated_at',
+          'id, address, juris, archived, notes, acq_lead, external_team, builder_id, permit_order, created_at, updated_at',
         )
         .eq('archived', false)
         .order('address', { ascending: true });

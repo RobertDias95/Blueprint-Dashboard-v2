@@ -1,6 +1,10 @@
 import { useMemo } from 'react';
 import { effectiveStage } from '../../lib/permitStage';
 import { useAllPermitTasks } from '../../hooks/useAllPermitTasks';
+import { usePermits } from '../../hooks/usePermits';
+import { useProjects } from '../../hooks/useProjects';
+import { computeLearnedSchedule } from '../../lib/scheduleBenchmarks';
+import { computeProjectedApproval } from '../../lib/projectedApproval';
 import type { PermitTask, PermitWithCycles, Stage } from '../../lib/database.types';
 
 // Q9.5.e-fix-4: 8-column Schedule Health table per v1 §4.2.1 (B) and the
@@ -43,6 +47,15 @@ interface Props {
 
 export default function ScheduleHealthTable({ permits }: Props) {
   const tasksQ = useAllPermitTasks();
+  // Q9.5.f-fix-10: cross-tenant permits + projects feed computeLearnedSchedule
+  // for the (type, juris) baseline. Hooks are tenant-scoped via RLS so no
+  // extra plumbing needed.
+  const allPermitsQ = usePermits();
+  const projectsQ = useProjects();
+  const projectsById = useMemo(
+    () => new Map((projectsQ.data ?? []).map((p) => [p.id, p])),
+    [projectsQ.data],
+  );
   const tasksByPermit = useMemo(() => {
     const m = new Map<number, PermitTask[]>();
     for (const t of tasksQ.data ?? []) {
@@ -106,6 +119,8 @@ export default function ScheduleHealthTable({ permits }: Props) {
               key={p.id}
               permit={p}
               tasks={tasksByPermit.get(p.id) ?? []}
+              allPermits={allPermitsQ.data ?? []}
+              projectsById={projectsById}
             />
           ))}
         </tbody>
@@ -114,11 +129,47 @@ export default function ScheduleHealthTable({ permits }: Props) {
   );
 }
 
-function Row({ permit, tasks }: { permit: PermitWithCycles; tasks: PermitTask[] }) {
+function Row({
+  permit,
+  tasks,
+  allPermits,
+  projectsById,
+}: {
+  permit: PermitWithCycles;
+  tasks: PermitTask[];
+  allPermits: PermitWithCycles[];
+  projectsById: Map<string, import('../../lib/database.types').Project>;
+}) {
   const stage = effectiveStage(permit, permit.permit_cycles ?? []);
   const taskStats = computeTaskStats(tasks);
-  const projection = permit.actual_issue ?? permit.approval_date ?? permit.expected_issue;
-  const isActual = !!(permit.actual_issue || permit.approval_date);
+  // Q9.5.f-fix-10: walk-forward projection per v1 :8068-8092. Learned
+  // baseline from cross-tenant (type, juris) approved permits; fallback
+  // to SCHEDULE_DEFAULTS when no historical data exists. Real outcomes
+  // (actual_issue / approval_date) short-circuit the projection.
+  const projectsByIdRef = projectsById;
+  const learnedEstimate = useMemo(() => {
+    const juris = projectsById.get(permit.project_id)?.juris ?? '';
+    if (!permit.type || !juris) return null;
+    return computeLearnedSchedule(
+      allPermits,
+      permit.type,
+      juris,
+      projectsByIdRef,
+    );
+  }, [allPermits, permit.type, permit.project_id, projectsByIdRef, projectsById]);
+  const projectedResult = useMemo(
+    () =>
+      computeProjectedApproval({
+        permit,
+        cycles: (permit.permit_cycles ?? [])
+          .filter((c) => c.cycle_index !== 0)
+          .sort((a, b) => a.cycle_index - b.cycle_index),
+        learnedEstimate,
+      }),
+    [permit, learnedEstimate],
+  );
+  const projection = projectedResult.projection;
+  const isActual = projectedResult.isActual;
   // Q9.5.f-fix-7: wire ACQ Target to permits.expected_issue. v1 writes the
   // team's target issue date here, so v2 reads it. Current Projection at
   // :120 already prefers actual_issue/approval_date over expected_issue,

@@ -13,6 +13,10 @@ export interface Project {
   juris: string | null;
   archived: boolean;
   notes: string | null;
+  /** Q9.5.f-fix-10: ACQ Lead name on the project. 38/43 production rows
+   *  have a value (Jake / Bobby / etc.). The hand-typed Project shape had
+   *  missed this column — the projects table has had it since Q5.5. */
+  acq_lead?: string | null;
   /** Q9.5.e-fix-3: JSONB map of consultant type → firm name. Shape:
    * `{ Civil: 'Facet', Surveyor: 'Emerald' }`. Empty object when unset. */
   external_team?: Record<string, string> | null;
