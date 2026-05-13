@@ -201,7 +201,11 @@ describe('computeProjectedApproval', () => {
     expect(r.projection).toBe('2026-05-29');
   });
 
-  it('ULS short-circuits to BP anchor + 120 days when sibling BP has expected_issue', () => {
+  it('ULS uses BP LIVE projection (not stored expected_issue) as anchor — Q9.5.f-fix-18', () => {
+    // BP has stored expected_issue=2026-08-01 but no actual outcome.
+    // fix-18: anchor should use the BP's LIVE projection, not the stored
+    // snapshot. That way an override or cycle update on the BP propagates
+    // to its ULS sibling in real time.
     const bp = permit({ id: 100, type: 'Building Permit', expected_issue: '2026-08-01' });
     const uls = permit({ id: 200, type: 'ULS' });
     const r = computeProjectedApproval({
@@ -214,20 +218,67 @@ describe('computeProjectedApproval', () => {
       ]),
       siblingLearnedByPermitId: new Map([[100, null]]),
     });
-    // ULS approval = bp.expected_issue (2026-08-01) + 120 days = 2026-11-29
-    // ULS base = uls.target_submit (none) → anchors.targetSubmit fallback
-    //   bpCy1.submitted=2026-01-01 → corrCycle has no resub/corr/target
-    //   cy1Resub = (2026-01-01 + 21) + 10 = 2026-02-01
-    //   ulsTargetSubmit = 2026-02-01 + 14 = 2026-02-15
-    //   ulsBase = 2026-02-15
-    //   Sanity walk: 2 cycles from ulsBase
-    //     cy1: cr=21 + co=10 → 2026-02-15 + 21 + 10 = 2026-03-18
-    //     cy2: cr=21 + co=10 → 2026-03-18 + 21 + 10 = 2026-04-18
-    //   lastProj=2026-04-18, ulsProj(2026-11-29) > lastProj → keep 2026-11-29
-    expect(r.projection).toBe('2026-11-29');
+    // BP live projection: targetCycle=1, base=2026-01-01, cr1=21+7 buffer = 28d
+    // → 2026-01-29. ULS = 2026-01-29 + 120 = 2026-05-29.
+    // Sanity walk (2 default ULS cycles): 2026-02-15 + 62d = 2026-04-18.
+    // 2026-05-29 > 2026-04-18 → keep 2026-05-29.
+    expect(r.projection).toBe('2026-05-29');
     expect(r.targetCycle).toBe(0);
     expect(r.ulsAnchors).toBeDefined();
-    expect(r.ulsAnchors?.bpIssueAnchor).toBe('2026-08-01');
+    expect(r.ulsAnchors?.bpIssueAnchor).toBe('2026-01-29');
+  });
+
+  it('BP scheduleCycleOverride propagates to ULS anchor — Q9.5.f-fix-18', () => {
+    // The BP has a manual cycle-count override (extras.scheduleCycleOverride=3).
+    // That override should affect the BP's live projection AND therefore the
+    // ULS anchor — bidirectional propagation across siblings.
+    const bp = permit({
+      id: 100,
+      type: 'Building Permit',
+      extras: { scheduleCycleOverride: 3 },
+    });
+    const uls = permit({ id: 200, type: 'ULS' });
+    const r = computeProjectedApproval({
+      permit: uls,
+      cycles: [],
+      learnedEstimate: null,
+      siblingPermits: [bp, uls],
+      siblingCyclesByPermitId: new Map([
+        [100, [cyc({ cycle_index: 1, submitted: '2026-01-01' })]],
+      ]),
+      siblingLearnedByPermitId: new Map([[100, null]]),
+    });
+    // BP live projection: targetCycle=3 (override), walk 2 corr rounds:
+    //   i=0: cr=21 +co=10 → 2026-02-01
+    //   i=1: cr=21 +co=10 → 2026-03-04
+    //   final +7 = 2026-03-11
+    // ULS = 2026-03-11 + 120 = 2026-07-09 (well past the sanity-walk cap).
+    expect(r.ulsAnchors?.bpIssueAnchor).toBe('2026-03-11');
+    expect(r.projection).toBe('2026-07-09');
+  });
+
+  it('cityTarget shortcut: cycle 1 city_target acts as crEnd when no corr_issued — Q9.5.f-fix-18', () => {
+    // v1 :4530 parity. When targeting cycle ≥ 2 and cycle 1 has a
+    // city_target date but no actual corr_issued, use city_target as the
+    // round-1 corrections-issued projection. Tightens the walk-forward
+    // estimate when the city has supplied a corrections deadline.
+    const r = computeProjectedApproval({
+      permit: permit(),
+      cycles: [
+        cyc({
+          cycle_index: 1,
+          submitted: '2026-01-01',
+          city_target: '2026-04-15', // earlier than 2026-01-01 + 21 = 2026-01-22? No, much later
+        }),
+      ],
+      learnedEstimate: learned({ mostLikelyCycle: 2 }),
+    });
+    // targetCycle=2 (learner pick), walk one cycle:
+    //   i=0: rd.corr_issued=null → cityTarget=2026-04-15 used as crEnd
+    //        resub = 2026-04-15 + co(10) = 2026-04-25
+    //   cursor = 2026-04-25, +7 final = 2026-05-02
+    expect(r.rounds?.corrIssued1).toBe('2026-04-15');
+    expect(r.projection).toBe('2026-05-02');
   });
 
   it('ULS falls through to default walk when no sibling BP exists', () => {

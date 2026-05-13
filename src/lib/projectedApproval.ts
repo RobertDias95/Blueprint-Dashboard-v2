@@ -206,7 +206,36 @@ function getULSAnchorDates(
   }
 
   const ulsTargetSubmit = addDays(cy1Resub, ULS_TARGET_SUBMIT_BUFFER);
-  let bpIssueAnchor = bp.expected_issue ?? bp.actual_issue ?? bp.approval_date ?? '';
+  // Q9.5.f-fix-18 B: prefer the BP's LIVE projection over the stored
+  // expected_issue column. The stored column is a snapshot from when the
+  // user last saved it (or what the scraper imported); the live projection
+  // updates as cycle data changes. Real outcomes (actual_issue / approval_date)
+  // still short-circuit because those are facts. The stored expected_issue
+  // is only used as a last-ditch fallback when the live projection fails.
+  let bpIssueAnchor = '';
+  if (bp.actual_issue) {
+    bpIssueAnchor = bp.actual_issue;
+  } else if (bp.approval_date) {
+    bpIssueAnchor = bp.approval_date;
+  } else {
+    const bpExtras = (bp.extras ?? {}) as Record<string, unknown>;
+    const rawBpOv = bpExtras.scheduleCycleOverride;
+    const bpOverride =
+      typeof rawBpOv === 'number' && rawBpOv >= 1 && rawBpOv <= 8
+        ? rawBpOv
+        : null;
+    // Recursive call — the BP is type 'Building Permit', not 'ULS', so the
+    // ULS branch inside computeProjectedApproval will not fire. No infinite
+    // loop possible. Siblings intentionally omitted (BP doesn't recurse).
+    const bpProjection = computeProjectedApproval({
+      permit: bp,
+      cycles: bpCycles,
+      learnedEstimate: bpLearned,
+      targetCycleOverride: bpOverride,
+    });
+    bpIssueAnchor =
+      bpProjection.projection ?? bp.expected_issue ?? '';
+  }
   if (!bpIssueAnchor) {
     bpIssueAnchor = addDays(cy1Resub, bpCityReview2 + FINAL_APPROVAL_BUFFER);
   }
@@ -372,11 +401,25 @@ export function computeProjectedApproval(
     }
   } else {
     const cycleRows = [r1, r2, r3, r4];
+    // Q9.5.f-fix-18 C: v1 :4530 cityTarget shortcut for cycle 1 only.
+    // If cycle 1 has no actual corr_issued but ANY cycle has a city_target
+    // date after `cursor`, use the earliest such date as that round's
+    // crEnd. Mirrors v1's projection more closely (accounts for the team
+    // entering a city-target date as a city-supplied corrections deadline).
+    const earliestCityTargetAfterCursor = cycles
+      .map((c) => c.city_target ?? '')
+      .filter((t) => t && t > cursor)
+      .sort()[0] ?? '';
     for (let i = 0; i < targetCycle - 1; i++) {
       const rd = cycleRows[i];
       const crDays = durFor(i, 'cr', learnedEstimate, thisPermitDur);
       const coDays = durFor(i, 'co', learnedEstimate, thisPermitDur);
-      const crEnd = rd?.corr_issued ?? addDays(cursor, crDays);
+      const cityTargetCrEnd =
+        i === 0 && !rd?.corr_issued && earliestCityTargetAfterCursor
+          ? earliestCityTargetAfterCursor
+          : null;
+      const crEnd =
+        rd?.corr_issued ?? cityTargetCrEnd ?? addDays(cursor, crDays);
       const resubEnd = rd?.resubmitted ?? addDays(crEnd, coDays);
       rounds[`corrIssued${i + 1}` as keyof ProjectedApprovalRounds] = crEnd;
       rounds[`resubmitted${i + 1}` as keyof ProjectedApprovalRounds] = resubEnd;
