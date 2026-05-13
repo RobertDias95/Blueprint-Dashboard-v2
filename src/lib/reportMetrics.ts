@@ -267,9 +267,17 @@ function meanOrNull(values: (number | null | undefined)[]): number | null {
  *  ledger summary shows "most-advanced" rather than warning on disparity). */
 const STAGE_RANK: Record<string, number> = { de: 0, pm: 1, co: 2, ap: 3, is: 4 };
 function pickDominantStage(permits: EnrichedPermit[]): string {
+  // Q9.5.f-fix-14: project stage follows the Building Permit, not the
+  // most-advanced permit across all types. Confirmed against 8844 10th
+  // Ave SW: BP at 'de' with a PAR/Pre-Sub at 'is' — old logic showed
+  // "Issued" which misrepresented the project's actual state. When no BP
+  // exists, fall back to most-advanced across all permits (so PAR-only
+  // or ROW-only projects still get a meaningful stage).
+  const bps = permits.filter((e) => e.permit.type === 'Building Permit');
+  const pool = bps.length > 0 ? bps : permits;
   let best = '';
   let bestRank = -1;
-  for (const e of permits) {
+  for (const e of pool) {
     const s = e.permit.stage_override ?? e.permit.stage ?? '';
     const rank = STAGE_RANK[s] ?? -1;
     if (rank > bestRank) {

@@ -511,26 +511,34 @@ function PermitDetailTr({ permit: e }: { permit: EnrichedPermit }) {
       style={{ background: 'var(--color-bg)' }}
       data-testid={`report-table-detail-${e.permit.id}`}
     >
+      {/* Q9.5.f-fix-14 A: permit number lives in the Address column, type
+          in the Permits column. The ↳ prefix stays in Address to signal
+          this is a sub-row of the project. */}
       <td className="px-2 py-1 pl-8 whitespace-nowrap text-muted text-[10px]">
-        ↳ {e.permit.type ?? '—'}
-        {e.permit.num &&
-          (e.permit.portal_url ? (
+        ↳{' '}
+        {e.permit.num ? (
+          e.permit.portal_url ? (
             <a
               href={e.permit.portal_url}
               target="_blank"
               rel="noreferrer"
               onClick={(ev) => ev.stopPropagation()}
-              className="ml-1 font-mono font-bold no-underline"
+              className="font-mono font-bold no-underline"
               style={{ color: 'var(--color-de)' }}
               data-testid={`report-table-permit-link-${e.permit.id}`}
             >
               {e.permit.num} ↗
             </a>
           ) : (
-            <span className="ml-1 text-dim font-mono">{e.permit.num}</span>
-          ))}
+            <span className="font-mono">{e.permit.num}</span>
+          )
+        ) : (
+          <span className="text-dim italic">no permit #</span>
+        )}
       </td>
-      <td className="px-2 py-1 whitespace-nowrap text-dim text-[10px]">—</td>
+      <td className="px-2 py-1 whitespace-nowrap text-dim text-[10px]">
+        {e.permit.type ?? '—'}
+      </td>
       <td className="px-2 py-1 whitespace-nowrap text-dim text-[10px]">
         {stageLabel}
       </td>
@@ -590,10 +598,15 @@ function PermitDetailTr({ permit: e }: { permit: EnrichedPermit }) {
           : '—'}
       </td>
       <td className="px-2 py-1 whitespace-nowrap text-dim text-[10px] text-right">
-        {(e.permit.permit_cycles ?? []).length || '—'}
+        {/* Q9.5.f-fix-14 B: rounds = cycles with corr_issued (matches the
+            project-row math from fix-12). Previous .length included cy0
+            placeholder + empty cy1, inflating every count. */}
+        {(e.permit.permit_cycles ?? []).filter((c) => c.corr_issued).length ||
+          '—'}
       </td>
       <td className="px-2 py-1 whitespace-nowrap text-dim text-[10px] text-right">
-        {e.permit.units ?? '—'}
+        {/* Q9.5.f-fix-14 C: units is project-level, blank on permit rows. */}
+        —
       </td>
     </tr>
   );

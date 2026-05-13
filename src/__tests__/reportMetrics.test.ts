@@ -590,6 +590,36 @@ describe('aggregateByProject', () => {
     expect(rows[0].units).toBeNull();
   });
 
+  it('dominantStage follows the Building Permit even when a sibling is more advanced', () => {
+    // Q9.5.f-fix-14: a project with BP at 'de' but a PAR/Pre-Sub at 'is'
+    // should still surface as 'D&E' — the BP is what gates everything,
+    // an early sibling reaching issuance doesn't make the project issued.
+    const bp = makePermit({
+      id: 1,
+      project_id: 'p1',
+      type: 'Building Permit',
+      stage: 'de',
+    });
+    const par = makePermit({
+      id: 2,
+      project_id: 'p1',
+      type: 'PAR',
+      stage: 'is',
+      actual_issue: '2025-09-01',
+    });
+    const enriched = enrichPermits([bp, par], projectsById);
+    const rows = aggregateByProject(enriched);
+    expect(rows[0].dominantStage).toBe('de');
+  });
+
+  it('dominantStage falls back to most-advanced when no BP exists', () => {
+    // PAR-only project — BP filter empty → falls back to pool of all permits.
+    const par = makePermit({ id: 1, project_id: 'p1', type: 'PAR', stage: 'co' });
+    const enriched = enrichPermits([par], projectsById);
+    const rows = aggregateByProject(enriched);
+    expect(rows[0].dominantStage).toBe('co');
+  });
+
   it('latestAcqTarget takes the max expected_issue across permits', () => {
     const a = makePermit({ id: 1, project_id: 'p1', expected_issue: '2025-05-01' });
     const b = makePermit({ id: 2, project_id: 'p1', expected_issue: '2025-08-15' });
