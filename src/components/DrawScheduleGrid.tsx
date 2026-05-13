@@ -26,6 +26,11 @@ import {
   type DropBlock,
   type NpConflict,
 } from '../lib/drawScheduleHelpers';
+import { computeProjectedApproval } from '../lib/projectedApproval';
+import {
+  computeLearnedSchedule,
+  type LearnedEstimate,
+} from '../lib/scheduleBenchmarks';
 import { SkeletonRows } from './Skeleton';
 import QueryError from './QueryError';
 import OverlapPrompt from './OverlapPrompt';
@@ -195,6 +200,72 @@ function DrawScheduleBody({
     }
     return m;
   }, [permits]);
+  const projectsById = useMemo(
+    () => new Map(projects.map((pr) => [pr.id, pr])),
+    [projects],
+  );
+  // Q9.5.f-fix-17.5 C: bidirectional projection — Draw Schedule block's
+  // "Est. Approval" line must call computeProjectedApproval with the BP's
+  // scheduleCycleOverride so it matches Schedule Estimator / Schedule
+  // Health. Cached as one Map<projectId, projection> per render.
+  const projectionByProjectId = useMemo(() => {
+    type WithCycles = Permit & { permit_cycles?: PermitCycle[] | null };
+    const permitsWithCycles = permits as WithCycles[];
+    const m = new Map<string, string | null>();
+    const learnedCache = new Map<string, LearnedEstimate | null>();
+    function getLearned(type: string, juris: string): LearnedEstimate | null {
+      const key = `${type}|${juris}`;
+      if (learnedCache.has(key)) return learnedCache.get(key) ?? null;
+      const est = type && juris
+        ? computeLearnedSchedule(
+            permitsWithCycles.map((p) => ({ ...p, permit_cycles: p.permit_cycles ?? [] })),
+            type,
+            juris,
+            projectsById,
+          )
+        : null;
+      learnedCache.set(key, est);
+      return est;
+    }
+    for (const project of projects) {
+      const projectPermits = permitsByProjectId.get(project.id) ?? [];
+      const bp = ((projectPermits.find((p) => p.type === 'Building Permit') ??
+        projectPermits[0]) as WithCycles | undefined);
+      if (!bp) {
+        m.set(project.id, null);
+        continue;
+      }
+      const juris = project.juris ?? '';
+      const learned = bp.type ? getLearned(bp.type, juris) : null;
+      const extras = (bp.extras ?? {}) as Record<string, unknown>;
+      const raw = extras.scheduleCycleOverride;
+      const cycleOverride =
+        typeof raw === 'number' && raw >= 1 && raw <= 8 ? raw : null;
+      const siblingCyclesByPermitId = new Map<number, PermitCycle[]>();
+      const siblingLearnedByPermitId = new Map<number, LearnedEstimate | null>();
+      for (const s of projectPermits as WithCycles[]) {
+        siblingCyclesByPermitId.set(s.id, s.permit_cycles ?? []);
+        siblingLearnedByPermitId.set(
+          s.id,
+          s.type ? getLearned(s.type, juris) : null,
+        );
+      }
+      const bpCycles = (bp.permit_cycles ?? []) as PermitCycle[];
+      const result = computeProjectedApproval({
+        permit: bp,
+        cycles: bpCycles
+          .filter((c) => c.cycle_index !== 0)
+          .sort((a, b) => a.cycle_index - b.cycle_index),
+        learnedEstimate: learned,
+        siblingPermits: projectPermits,
+        siblingCyclesByPermitId,
+        siblingLearnedByPermitId,
+        targetCycleOverride: cycleOverride,
+      });
+      m.set(project.id, result.projection ?? null);
+    }
+    return m;
+  }, [projects, permits, permitsByProjectId, projectsById]);
   const weeks = useMemo(() => getQuarterWeeks(quarterOffset), [quarterOffset]);
   const currentWeek = useMemo(() => dateToWeekKey(getMonday(new Date())), []);
 
@@ -757,19 +828,15 @@ function DrawScheduleBody({
                         )}
                         {height >= 60 &&
                           (() => {
-                            // Est. Approval projection: prefer actual data
-                            // when present, fall back to expected_issue.
-                            // Pulls from the BP at this project; gracefully
-                            // omits the line if nothing is available.
-                            const bp =
-                              (permitsByProjectId.get(row.project_id) ?? [])
-                                .find((p) => p.type === 'Building Permit') ??
-                              (permitsByProjectId.get(row.project_id) ?? [])[0];
-                            const projDate =
-                              bp?.actual_issue ??
-                              bp?.approval_date ??
-                              bp?.expected_issue ??
-                              null;
+                            // Q9.5.f-fix-17.5 C: Est. Approval line uses the
+                            // same computeProjectedApproval pipeline as
+                            // ScheduleEstimator / ScheduleHealthTable so the
+                            // user's +/- cycle override is reflected here.
+                            // Pre-computed per-project at body scope so the
+                            // per-block render stays cheap.
+                            const projDate = projectionByProjectId.get(
+                              row.project_id,
+                            );
                             if (!projDate) return null;
                             return (
                               <span

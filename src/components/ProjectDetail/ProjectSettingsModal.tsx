@@ -361,7 +361,7 @@ export default function ProjectSettingsModal({ project, onClose }: Props) {
       data-testid="project-settings-modal"
     >
       <div
-        className="rounded-lg shadow-xl w-[600px] max-h-[90vh] overflow-hidden flex flex-col"
+        className="rounded-lg shadow-xl w-[720px] max-h-[90vh] overflow-hidden flex flex-col"
         style={{ background: 'var(--color-surface)' }}
         onClick={(e) => e.stopPropagation()}
       >
@@ -770,62 +770,74 @@ function PermitSubsection({
   onChange: (patch: Partial<PermitRow>) => void;
   onRemove: () => void;
 }) {
+  // Q9.5.f-fix-17.5 A: single horizontal row per permit. Compact 7-column
+  // grid; fits inside the 600px modal without overflow. Headers are tiny
+  // upper-case labels above each input.
   return (
     <div
-      className="rounded border p-2 flex flex-col gap-2"
+      className="rounded border p-2 grid items-end gap-1.5"
       style={{
         background: 'var(--color-bg)',
         borderColor: 'var(--color-border)',
+        gridTemplateColumns: '110px 90px 90px 130px 1fr 130px 24px',
       }}
       data-testid={`psm-permit-row-${row.id ?? 'new'}`}
     >
-      <div className="grid grid-cols-[1fr_1fr_auto] gap-2 items-end">
-        <Field label="Permit Type">
-          <Input value={row.type} onChange={(v) => onChange({ type: v })} />
-        </Field>
-        <div className="flex gap-1">
-          <Field label="ENT">
-            <DatalistInput
-              value={row.ent_lead}
-              onChange={(v) => onChange({ ent_lead: v })}
-              listId={`psm-permit-ent-${row.id ?? 'new'}`}
-              options={entOptions}
-            />
-          </Field>
-          <Field label="DA">
-            <DatalistInput
-              value={row.da}
-              onChange={(v) => onChange({ da: v })}
-              listId={`psm-permit-da-${row.id ?? 'new'}`}
-              options={daOptions}
-            />
-          </Field>
-        </div>
-        <button
-          type="button"
-          onClick={onRemove}
-          className="self-end px-2 py-1 text-[12px] rounded border"
-          style={{
-            borderColor: '#7f1d1d',
-            color: '#f87171',
-            background: 'transparent',
-          }}
-          title="Remove permit"
-        >
-          ✕
-        </button>
-      </div>
-      <Field label="Permit Portal URL" full>
+      <TinyField label="Type">
+        <Input value={row.type} onChange={(v) => onChange({ type: v })} />
+      </TinyField>
+      <TinyField label="ENT">
+        <DatalistInput
+          value={row.ent_lead}
+          onChange={(v) => onChange({ ent_lead: v })}
+          listId={`psm-permit-ent-${row.id ?? 'new'}`}
+          options={entOptions}
+        />
+      </TinyField>
+      <TinyField label="DA">
+        <DatalistInput
+          value={row.da}
+          onChange={(v) => onChange({ da: v })}
+          listId={`psm-permit-da-${row.id ?? 'new'}`}
+          options={daOptions}
+        />
+      </TinyField>
+      <TinyField label="Permit #">
+        <Input value={row.num} onChange={(v) => onChange({ num: v })} />
+      </TinyField>
+      <TinyField label="Portal URL">
         <Input value={row.portal_url} onChange={(v) => onChange({ portal_url: v })} />
-      </Field>
-      <div className="grid grid-cols-2 gap-2">
-        <Field label="Permit Number">
-          <Input value={row.num} onChange={(v) => onChange({ num: v })} />
-        </Field>
-        <Field label="Structure Address">
-          <Input value={row.struct_address} onChange={(v) => onChange({ struct_address: v })} />
-        </Field>
-      </div>
+      </TinyField>
+      <TinyField label="Struct Addr">
+        <Input value={row.struct_address} onChange={(v) => onChange({ struct_address: v })} />
+      </TinyField>
+      <button
+        type="button"
+        onClick={onRemove}
+        className="self-end h-[26px] w-[24px] text-[12px] rounded border flex items-center justify-center"
+        style={{
+          borderColor: '#7f1d1d',
+          color: '#f87171',
+          background: 'transparent',
+        }}
+        title="Remove permit"
+      >
+        ✕
+      </button>
+    </div>
+  );
+}
+
+function TinyField({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="flex flex-col gap-0.5 min-w-0">
+      <span
+        className="text-[8px] font-bold uppercase tracking-wide truncate"
+        style={{ color: 'var(--color-dim)' }}
+      >
+        {label}
+      </span>
+      {children}
     </div>
   );
 }

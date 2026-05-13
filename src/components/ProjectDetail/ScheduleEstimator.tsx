@@ -107,7 +107,7 @@ export default function ScheduleEstimator({ permit }: Props) {
     // Base = current effective target. If user has no override yet, start
     // from learner's pick (result.targetCycle), then bump.
     const base = cycleOverride ?? result.targetCycle ?? 1;
-    const next = Math.max(1, Math.min(4, base + delta));
+    const next = Math.max(1, Math.min(8, base + delta));
     if (next === cycleOverride) return;
     const nextExtras = { ...extras, scheduleCycleOverride: next };
     updatePermit.mutate({
@@ -351,7 +351,7 @@ function CycleAdjuster({
       <button
         type="button"
         onClick={onInc}
-        disabled={disabled || current >= 4}
+        disabled={disabled || current >= 8}
         className="w-4 h-4 rounded border text-[10px] font-bold flex items-center justify-center disabled:opacity-30"
         style={{
           borderColor: 'var(--color-border)',

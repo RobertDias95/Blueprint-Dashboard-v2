@@ -68,6 +68,14 @@ export interface ProjectedApprovalRounds {
   resubmitted3?: string;
   corrIssued4?: string;
   resubmitted4?: string;
+  corrIssued5?: string;
+  resubmitted5?: string;
+  corrIssued6?: string;
+  resubmitted6?: string;
+  corrIssued7?: string;
+  resubmitted7?: string;
+  corrIssued8?: string;
+  resubmitted8?: string;
 }
 
 export interface ProjectedApprovalResult {
@@ -312,7 +320,13 @@ export function computeProjectedApproval(
   } else {
     targetCycle = currentReviewCycle;
   }
-  targetCycle = Math.max(1, Math.min(targetCycle, 4));
+  // Q9.5.f-fix-17.5 B: ceiling lifted from 4 → 8 for edge cases (complex
+  // permits that hit 5+ correction rounds). The learner's mostLikelyCycle
+  // still caps at 4 (real-world historical max); the manual override is
+  // the only path to 5–8. durFor's walk-back handles missing data at
+  // those depths gracefully (falls back to earlier-cycle signal or
+  // default).
+  targetCycle = Math.max(1, Math.min(targetCycle, 8));
 
   // Holistic shortcut (v1 :4442-4446). When we expect approval in the
   // first review with no corrections AND we have a juris-wide
