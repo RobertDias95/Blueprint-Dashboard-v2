@@ -496,7 +496,7 @@ function ProjectRowTr({
         {row.maxCorrRounds || '—'}
       </td>
       <td className="px-2 py-1.5 whitespace-nowrap text-muted text-right">
-        {row.unitsSum ?? '—'}
+        {row.units ?? '—'}
       </td>
     </tr>
   );

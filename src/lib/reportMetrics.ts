@@ -238,11 +238,17 @@ export interface ProjectRow {
   earliestActualIssue: string | null;
   /** Mean of non-null per-permit variances. */
   variance: number | null;
-  /** Max permit_cycles.length across permits — proxy for correction rounds. */
+  /** Q9.5.f-fix-12: max count of cycles with corr_issued set across the
+   *  project's permits. Matches v1's actualCorrRounds at index.html:3243.
+   *  Previously counted permit_cycles.length which included the cy0
+   *  design placeholder and any empty cycles — off by 1+ on every row. */
   maxCorrRounds: number;
-  /** Sum of permit.units across permits (skips nulls). null when no permit
-   *  has a units value. */
-  unitsSum: number | null;
+  /** Q9.5.f-fix-12: canonical project unit count. v1 treats units as
+   *  project-level (every permit at a project shares the same value).
+   *  Prefer the BP's units, fall back to max across permits. The prior
+   *  `unitsSum` summed across permits — triple-counted a 1-unit project
+   *  that had BP + Demo + ULS. */
+  units: number | null;
 }
 
 /** Mean of a number list, ignoring nulls. Returns null when the list has
@@ -314,10 +320,15 @@ export function aggregateByProject(enriched: EnrichedPermit[]): ProjectRow[] {
     const activeCount = permits.filter(
       (e) => !e.permit.actual_issue && !e.permit.approval_date,
     ).length;
+    // Q9.5.f-fix-12: canonical units (not summed). v1 treats units as a
+    // project-level number; every permit at the address carries it.
+    const bp = permits.find((e) => e.permit.type === 'Building Permit');
     const unitsRaw = permits
       .map((e) => e.permit.units)
       .filter((u): u is number => u !== null && u !== undefined);
-    const unitsSum = unitsRaw.length === 0 ? null : unitsRaw.reduce((a, b) => a + b, 0);
+    const units =
+      bp?.permit.units ??
+      (unitsRaw.length === 0 ? null : Math.max(...unitsRaw));
     rows.push({
       projectId,
       address: permits[0]?.address ?? '',
@@ -340,11 +351,19 @@ export function aggregateByProject(enriched: EnrichedPermit[]): ProjectRow[] {
       earliestApproval: minDate(permits.map((e) => e.permit.approval_date)),
       earliestActualIssue: minDate(permits.map((e) => e.permit.actual_issue)),
       variance: meanOrNull(permits.map((e) => e.variance)),
+      // Q9.5.f-fix-12: v1 actualCorrRounds = count of cycles WITH
+      // corr_issued (index.html:3243). Old .length math counted every
+      // cycle row including the cy0 placeholder, giving Rounds=2 on a
+      // permit that's only seen one correction round.
       maxCorrRounds: permits.reduce(
-        (m, e) => Math.max(m, (e.permit.permit_cycles ?? []).length),
+        (m, e) =>
+          Math.max(
+            m,
+            (e.permit.permit_cycles ?? []).filter((c) => c.corr_issued).length,
+          ),
         0,
       ),
-      unitsSum,
+      units,
     });
   }
   return rows;

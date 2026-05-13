@@ -546,10 +546,14 @@ describe('aggregateByProject', () => {
     expect(row.ent).toBe('Bobby');
     expect(row.da).toBe('Ada');
     expect(row.dm).toBe('Dave');
-    expect(row.unitsSum).toBe(6);
+    // Q9.5.f-fix-12: units is canonical (BP's value), not the sum across
+    // permits. Both permits default to type='Building Permit' in makePermit,
+    // so the find() picks permit a — units=4.
+    expect(row.units).toBe(4);
     // Dominant stage = highest rank (co > pm).
     expect(row.dominantStage).toBe('co');
-    // Max correction rounds = max cycle count across permits.
+    // Max correction rounds = count of cycles with corr_issued, max across
+    // permits. Permit b has corr_issued on its cycle → 1 round.
     expect(row.maxCorrRounds).toBe(1);
   });
 
@@ -583,7 +587,7 @@ describe('aggregateByProject', () => {
     expect(rows[0].avgDDDuration).toBeNull();
     expect(rows[0].avgCityReview).toBeNull();
     expect(rows[0].earliestGoDate).toBeNull();
-    expect(rows[0].unitsSum).toBeNull();
+    expect(rows[0].units).toBeNull();
   });
 
   it('latestAcqTarget takes the max expected_issue across permits', () => {
