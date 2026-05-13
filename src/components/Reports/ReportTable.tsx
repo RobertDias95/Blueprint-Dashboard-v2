@@ -511,11 +511,14 @@ function PermitDetailTr({ permit: e }: { permit: EnrichedPermit }) {
       style={{ background: 'var(--color-bg)' }}
       data-testid={`report-table-detail-${e.permit.id}`}
     >
-      {/* Q9.5.f-fix-14 A: permit number lives in the Address column, type
-          in the Permits column. The ↳ prefix stays in Address to signal
-          this is a sub-row of the project. */}
+      {/* Q9.5.f-fix-15: v1 expanded-row layout — permit TYPE in Address
+          column, permit NUMBER (with portal_url ↗ when set) in Permits
+          column. fix-14 had these reversed. The ↳ prefix stays in
+          Address as the sub-row indicator. */}
       <td className="px-2 py-1 pl-8 whitespace-nowrap text-muted text-[10px]">
-        ↳{' '}
+        ↳ {e.permit.type ?? '—'}
+      </td>
+      <td className="px-2 py-1 whitespace-nowrap text-dim text-[10px]">
         {e.permit.num ? (
           e.permit.portal_url ? (
             <a
@@ -533,11 +536,8 @@ function PermitDetailTr({ permit: e }: { permit: EnrichedPermit }) {
             <span className="font-mono">{e.permit.num}</span>
           )
         ) : (
-          <span className="text-dim italic">no permit #</span>
+          <span className="italic">no permit #</span>
         )}
-      </td>
-      <td className="px-2 py-1 whitespace-nowrap text-dim text-[10px]">
-        {e.permit.type ?? '—'}
       </td>
       <td className="px-2 py-1 whitespace-nowrap text-dim text-[10px]">
         {stageLabel}
