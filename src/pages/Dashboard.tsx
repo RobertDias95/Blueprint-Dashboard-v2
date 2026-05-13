@@ -17,6 +17,7 @@ import type {
   Stage,
 } from '../lib/database.types';
 import AddrGroup from '../components/Dashboard/AddrGroup';
+import { pushToast } from '../stores/toastStore';
 import StageFilters, {
   EMPTY_DASH_FILTERS,
   permitPassesDashFilters,
@@ -551,30 +552,52 @@ function mostRecent<T>(rows: T[], pick: (row: T) => string | null): string | nul
 // so the just-opened card is in view. Mirrors v1 toggleProjectExpanded
 // :2849-2860 — independent per-container scroll, smooth, with an 8px buffer
 // so the card doesn't snap flush to the top edge.
-// Q9.5.f-fix-1: scroll math uses getBoundingClientRect (matches v1
-// :8856-8859) rather than the offsetTop/offsetParent walk we tried in
-// Item 3. That walk failed when the bucket had position:static —
-// offsetParent skipped past the bucket to <body>, so the computed offset
-// was relative to the wrong ancestor and the scroll landed at 0.
-// getBoundingClientRect is layout-independent; subtracting container.top
-// + adding container.scrollTop gives a target that works regardless of
-// the container's position style.
+// Q9.5.f-fix-1b: TEMPORARY toast diagnostic. After eight cross-bucket
+// scroll iterations Bobby still sees only the active bucket scroll. This
+// version surfaces the match count, per-bucket offset math, and pre/post
+// scrollTop deltas via a single pushToast so the next smoke produces
+// ground truth without devtools. Once we know whether the failure is
+// "no matches" (cross-bucket open not actually working) vs "matches but
+// scroll doesn't land" (math/timing) we can target fix-2.
 function scrollAddrIntoView(addr: string) {
   if (typeof document === 'undefined') return;
   const safe = typeof CSS !== 'undefined' && CSS.escape ? CSS.escape(addr) : addr;
   const containers = document.querySelectorAll<HTMLElement>(
     '[data-scroll-bucket="true"]',
   );
+  let matchCount = 0;
+  const lines: string[] = [];
   containers.forEach((container, i) => {
     const el = container.querySelector<HTMLElement>(`[data-addr-group="${safe}"]`);
-    if (!el) return;
+    if (!el) {
+      lines.push(`b${i}:none`);
+      return;
+    }
+    matchCount++;
     const containerTop = container.getBoundingClientRect().top;
     const elTop = el.getBoundingClientRect().top;
     const offset = elTop - containerTop + container.scrollTop - 8;
+    const before = container.scrollTop;
+    lines.push(
+      `b${i}:el@${Math.round(elTop)} cont@${Math.round(containerTop)} st=${before} tgt=${Math.round(offset)}`,
+    );
     setTimeout(() => {
       container.scrollTo({ top: Math.max(0, offset), behavior: 'smooth' });
+      // After the smooth-scroll animation, check whether scrollTop actually moved.
+      // 600ms covers most smooth-scroll durations + a buffer.
+      setTimeout(() => {
+        const after = container.scrollTop;
+        const moved = Math.abs(after - before);
+        if (moved < 5) {
+          pushToast(`b${i} did NOT scroll (st stayed ${before})`, 'warn');
+        }
+      }, 600);
     }, i * 50);
   });
+  pushToast(
+    `Scroll: ${matchCount} match${matchCount === 1 ? '' : 'es'} in ${containers.length} buckets — ${lines.join(' | ')}`,
+    matchCount === 0 ? 'error' : 'info',
+  );
 }
 
 // Q9.5.e2: group permits in a sub-bucket by project address, then render one
