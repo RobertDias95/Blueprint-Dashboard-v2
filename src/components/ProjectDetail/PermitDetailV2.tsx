@@ -86,16 +86,35 @@ interface Props {
 }
 
 export default function PermitDetailV2({ permit }: Props) {
+  // Q9.5.f-fix-6 A: drop cycle_index=0 rows. v2's review cycles start at 1;
+  // index 0 is a legacy design-phase placeholder that should never surface
+  // in the user-visible cycle list. (Production data was cleaned today —
+  // 79 polluted cy0 rows had submitted=NULL'd — but the filter stays as a
+  // belt-and-suspenders in case any sneak back via scraper or import.)
   const cycles = useMemo(
-    () => [...(permit.permit_cycles ?? [])].sort((a, b) => a.cycle_index - b.cycle_index),
+    () =>
+      [...(permit.permit_cycles ?? [])]
+        .filter((c) => c.cycle_index !== 0)
+        .sort((a, b) => a.cycle_index - b.cycle_index),
     [permit.permit_cycles],
   );
   const stage = effectiveStage(permit, cycles);
-  // Cycle tab state. Index 0 = "Design" virtual tab (permit-level dates).
-  // Indices 1+ map to actual permit_cycles rows (sorted by cycle_index).
-  const [viewCycleIdx, setViewCycleIdx] = useState<number>(() =>
-    stage === 'de' ? 0 : Math.max(1, cycles.length),
+  // Q9.5.f-fix-6 C: derive the permit's current phase + which cycle index
+  // contains it. Drives both the initial viewed-cycle tab AND the date-
+  // strip cell highlight.
+  const currentPhase = useMemo(
+    () => deriveCurrentPhase(permit, cycles),
+    [permit, cycles],
   );
+  // Cycle tab state. Index 0 = "Design" virtual tab (permit-level dates).
+  // Real review cycles use their cycle_index value (1+) directly — no
+  // array-position arithmetic, so non-contiguous indices (e.g. after a
+  // cycle delete) display correctly.
+  const [viewCycleIdx, setViewCycleIdx] = useState<number>(() => {
+    if (currentPhase.cycleIndex !== null) return currentPhase.cycleIndex;
+    if (stage === 'de') return 0;
+    return cycles[cycles.length - 1]?.cycle_index ?? 0;
+  });
   // D&E vs Permitting stage tab. v1 only shows 2 tabs.
   const [activeStage, setActiveStage] = useState<'de' | 'pm'>(
     stage === 'de' ? 'de' : 'pm',
@@ -109,7 +128,12 @@ export default function PermitDetailV2({ permit }: Props) {
         viewIdx={viewCycleIdx}
         onSelect={setViewCycleIdx}
       />
-      <DateStrip permit={permit} cycles={cycles} viewIdx={viewCycleIdx} />
+      <DateStrip
+        permit={permit}
+        cycles={cycles}
+        viewIdx={viewCycleIdx}
+        currentPhase={currentPhase}
+      />
       <div
         className="grid"
         style={{
@@ -254,12 +278,15 @@ function CycleTabBar({
 }) {
   // Always show Design + Cycle 1. Hide trailing empty cycles after that
   // (v1 :3132 — hide ≥cy2 empties unless they're the viewed one).
+  // Q9.5.f-fix-6 A: tab labels and idx come straight from cycle_index now
+  // — no `i + 1` math, so cycle_index=0 placeholders that snuck in or non-
+  // contiguous indices after a delete display correctly.
   const visible = useMemo(() => {
     const out: { idx: number; label: string; empty: boolean }[] = [
       { idx: 0, label: 'Design', empty: false },
     ];
-    cycles.forEach((c, i) => {
-      const realIdx = i + 1;
+    cycles.forEach((c) => {
+      const realIdx = c.cycle_index;
       const empty =
         !c.submitted && !c.city_target && !c.corr_issued && !c.resubmitted;
       if (realIdx > 1 && empty && viewIdx !== realIdx) return;
@@ -316,11 +343,25 @@ function DateStrip({
   permit,
   cycles,
   viewIdx,
+  currentPhase,
 }: {
   permit: PermitWithCycles;
   cycles: PermitCycle[];
   viewIdx: number;
+  currentPhase: CurrentPhaseResult;
 }) {
+  // Q9.5.f-fix-6 C: highlight predicate. A cell is "current" when the
+  // permit's derived phase points at it AND the user is viewing the same
+  // cycle (or Design for permit-level design dates). Approval / Actual
+  // are permit-level — they show inside whichever review cycle is viewed,
+  // so we highlight them as long as the permit is in that phase, no
+  // cycle-index check needed.
+  const isCurrent = (cellPhase: CurrentPhase): boolean => {
+    if (currentPhase.phase !== cellPhase) return false;
+    if (cellPhase === 'actual_issue' || cellPhase === 'approval') return true;
+    if (currentPhase.cycleIndex === null) return viewIdx === 0;
+    return viewIdx === currentPhase.cycleIndex;
+  };
   const updateMutation = useUpdatePermit();
   const upsertCycle = useUpsertPermitCycle();
 
@@ -367,12 +408,14 @@ function DateStrip({
         <DateCell
           label="GO"
           value={permit.go_date}
+          highlighted={isCurrent('go')}
           onCommit={(v) => commitPermit('go_date', v || null, permit.go_date, 'GO Date')}
         />
         <DateCell
           label="Target Submit"
           accentColor="var(--color-de)"
           value={permit.target_submit}
+          highlighted={isCurrent('target_submit')}
           onCommit={(v) =>
             commitPermit('target_submit', v || null, permit.target_submit, 'Target Submit')
           }
@@ -380,6 +423,7 @@ function DateStrip({
         <DateCell
           label="DD Start"
           value={permit.dd_start}
+          highlighted={isCurrent('dd_start')}
           onCommit={(v) =>
             commitPermit('dd_start', v || null, permit.dd_start, 'DD Start')
           }
@@ -387,14 +431,16 @@ function DateStrip({
         <DateCell
           label="DD End"
           value={permit.dd_end}
+          highlighted={isCurrent('dd_end')}
           onCommit={(v) => commitPermit('dd_end', v || null, permit.dd_end, 'DD End')}
         />
       </div>
     );
   }
 
-  // Review cycle N≥1
-  const cycle = cycles[viewIdx - 1];
+  // Review cycle N≥1 — look up by actual cycle_index (not array position).
+  // Handles non-contiguous indices left by deletes.
+  const cycle = cycles.find((c) => c.cycle_index === viewIdx);
   if (!cycle) {
     return (
       <div
@@ -424,30 +470,35 @@ function DateStrip({
       <DateCell
         label="Submitted"
         value={cycle.submitted}
+        highlighted={isCurrent('submitted')}
         onCommit={(v) => commitCycleField(cycle, 'submitted', v)}
       />
       <DateCell
         label="City Target"
         accentColor="var(--color-pm)"
         value={cycle.city_target}
+        highlighted={isCurrent('city_target')}
         onCommit={(v) => commitCycleField(cycle, 'city_target', v)}
       />
       <DateCell
         label="Corr. Issued"
         accentColor="var(--color-co)"
         value={cycle.corr_issued}
+        highlighted={isCurrent('corr_issued')}
         onCommit={(v) => commitCycleField(cycle, 'corr_issued', v)}
       />
       <DateCell
         label="Resubmitted"
         accentColor="var(--color-pm)"
         value={cycle.resubmitted}
+        highlighted={isCurrent('resubmitted')}
         onCommit={(v) => commitCycleField(cycle, 'resubmitted', v)}
       />
       <DateCell
         label="Approval Date"
         accentColor="var(--color-jv)"
         value={permit.approval_date}
+        highlighted={isCurrent('approval')}
         onCommit={(v) =>
           commitPermit(
             'approval_date',
@@ -461,6 +512,7 @@ function DateStrip({
         label="Actual Issue"
         accentColor="var(--color-is)"
         value={permit.actual_issue}
+        highlighted={isCurrent('actual_issue')}
         onCommit={(v) =>
           commitPermit('actual_issue', v || null, permit.actual_issue, 'Actual Issue')
         }
@@ -473,25 +525,47 @@ function DateCell({
   label,
   value,
   accentColor,
+  highlighted,
   onCommit,
 }: {
   label: string;
   value: string | null;
   accentColor?: string;
+  // Q9.5.f-fix-6 C: when true, this cell is the permit's current phase.
+  // Render an inset blue outline + bg tint so the eye lands on it.
+  highlighted?: boolean;
   onCommit: (next: string) => void | Promise<void>;
 }) {
   const [draft, setDraft] = useState(value ?? '');
   return (
     <div
-      className="px-2 py-1.5 flex flex-col gap-1"
-      style={{ background: 'var(--color-surface)' }}
+      className="px-2 py-1.5 flex flex-col gap-1 relative"
+      style={{
+        background: highlighted
+          ? 'var(--color-de-bg)'
+          : 'var(--color-surface)',
+        outline: highlighted ? '2px solid var(--color-de)' : undefined,
+        outlineOffset: highlighted ? '-2px' : undefined,
+        transition: 'background 0.15s',
+      }}
     >
-      <span
-        className="text-[8px] font-bold uppercase tracking-wide"
-        style={{ color: accentColor ?? 'var(--color-dim)' }}
-      >
-        {label}
-      </span>
+      <div className="flex items-center justify-between">
+        <span
+          className="text-[8px] font-bold uppercase tracking-wide"
+          style={{ color: accentColor ?? 'var(--color-dim)' }}
+        >
+          {label}
+        </span>
+        {highlighted && (
+          <span
+            className="text-[7px] font-bold uppercase tracking-wider"
+            style={{ color: 'var(--color-de)' }}
+            title="Permit is currently in this phase"
+          >
+            ▶ NOW
+          </span>
+        )}
+      </div>
       <input
         type="date"
         value={draft}
@@ -506,6 +580,63 @@ function DateCell({
       />
     </div>
   );
+}
+
+// ============================================================
+// Q9.5.f-fix-6 C: current-phase derivation. Mirrors v1's date-strip
+// precedence: most-advanced state wins, scanned latest-cycle-first.
+// Returns the phase identifier + the cycle_index that contains it (or
+// null when the phase lives at the permit/design level).
+// ============================================================
+
+type CurrentPhase =
+  | 'go'
+  | 'target_submit'
+  | 'dd_start'
+  | 'dd_end'
+  | 'submitted'
+  | 'city_target'
+  | 'corr_issued'
+  | 'resubmitted'
+  | 'approval'
+  | 'actual_issue';
+
+interface CurrentPhaseResult {
+  phase: CurrentPhase | null;
+  cycleIndex: number | null;
+}
+
+function deriveCurrentPhase(
+  permit: PermitWithCycles,
+  cycles: PermitCycle[],
+): CurrentPhaseResult {
+  // Highest cycle_index in the data — used as the "latest cycle" for
+  // approval / actual_issue (which live at permit level but visually pair
+  // with the most recent review cycle).
+  const latestIdx =
+    cycles.length === 0 ? null : cycles[cycles.length - 1].cycle_index;
+  if (permit.actual_issue) {
+    return { phase: 'actual_issue', cycleIndex: latestIdx };
+  }
+  if (permit.approval_date) {
+    return { phase: 'approval', cycleIndex: latestIdx };
+  }
+  // Scan cycles from latest to earliest — first non-empty field wins.
+  for (let i = cycles.length - 1; i >= 0; i--) {
+    const c = cycles[i];
+    if (c.resubmitted) return { phase: 'resubmitted', cycleIndex: c.cycle_index };
+    if (c.corr_issued) return { phase: 'corr_issued', cycleIndex: c.cycle_index };
+    if (c.submitted && c.city_target) {
+      return { phase: 'city_target', cycleIndex: c.cycle_index };
+    }
+    if (c.submitted) return { phase: 'submitted', cycleIndex: c.cycle_index };
+  }
+  // Design phase fallbacks.
+  if (permit.dd_end) return { phase: 'dd_end', cycleIndex: null };
+  if (permit.dd_start) return { phase: 'dd_start', cycleIndex: null };
+  if (permit.target_submit) return { phase: 'target_submit', cycleIndex: null };
+  if (permit.go_date) return { phase: 'go', cycleIndex: null };
+  return { phase: null, cycleIndex: null };
 }
 
 // ============================================================
