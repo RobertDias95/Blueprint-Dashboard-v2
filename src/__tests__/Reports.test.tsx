@@ -380,4 +380,48 @@ describe('<Reports /> Q7.2.b', () => {
     expect(screen.queryByTestId('report-table-row-p1')).not.toBeInTheDocument();
     expect(screen.getByTestId('report-table-row-p2')).toBeInTheDocument();
   });
+
+  // Q9.5.f-fix-5: ledger-local controls (stage select, assignee select,
+  // smart search) narrow on top of the page-level filters.
+  it('ledger search narrows to matching project rows', () => {
+    renderIt();
+    fireEvent.change(screen.getByTestId('ledger-search'), {
+      target: { value: 'oak' },
+    });
+    // Fixture: p1 = 500 Pike (Seattle), p2 = 750 Oak Way (Bellevue).
+    // Search "oak" hits p2 only.
+    expect(screen.queryByTestId('report-table-row-p1')).not.toBeInTheDocument();
+    expect(screen.getByTestId('report-table-row-p2')).toBeInTheDocument();
+    expect(screen.getByTestId('report-table').textContent).toContain(
+      'Permit Ledger (1 project',
+    );
+  });
+
+  it('ledger stage select narrows to projects with that dominant stage', () => {
+    renderIt();
+    // Fixture: p1 permit stage='pm', p2 permit stage='de'. Selecting 'pm'
+    // keeps only p1; selecting 'de' keeps only p2.
+    fireEvent.change(screen.getByTestId('ledger-filter-stage'), {
+      target: { value: 'pm' },
+    });
+    expect(screen.getByTestId('report-table-row-p1')).toBeInTheDocument();
+    expect(screen.queryByTestId('report-table-row-p2')).not.toBeInTheDocument();
+    fireEvent.change(screen.getByTestId('ledger-filter-stage'), {
+      target: { value: 'de' },
+    });
+    expect(screen.queryByTestId('report-table-row-p1')).not.toBeInTheDocument();
+    expect(screen.getByTestId('report-table-row-p2')).toBeInTheDocument();
+  });
+
+  it('ledger Clear button resets all 3 local filters', () => {
+    renderIt();
+    fireEvent.change(screen.getByTestId('ledger-search'), {
+      target: { value: 'oak' },
+    });
+    expect(screen.queryByTestId('report-table-row-p1')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByTestId('ledger-filter-clear'));
+    // After clear, both rows return.
+    expect(screen.getByTestId('report-table-row-p1')).toBeInTheDocument();
+    expect(screen.getByTestId('report-table-row-p2')).toBeInTheDocument();
+  });
 });

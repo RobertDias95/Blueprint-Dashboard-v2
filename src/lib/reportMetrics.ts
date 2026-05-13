@@ -350,6 +350,35 @@ export function aggregateByProject(enriched: EnrichedPermit[]): ProjectRow[] {
   return rows;
 }
 
+// Q9.5.f-fix-5: ledger-local smart search. Splits on whitespace + comma,
+// then requires every token to find a match in the project + ANY of its
+// permits' searchable fields. Permit-level hits qualify the whole project
+// row (matches v1's rt-search behavior at index.html:1158-1196).
+export function matchesLedgerSearch(row: ProjectRow, query: string): boolean {
+  const tokens = query.toLowerCase().split(/[,\s]+/).filter(Boolean);
+  if (tokens.length === 0) return true;
+  const parts: (string | null | undefined)[] = [row.address, row.juris];
+  for (const e of row.permits) {
+    parts.push(
+      e.permit.type,
+      e.permit.num,
+      e.permit.ent_lead,
+      e.permit.da,
+      e.permit.dual_da,
+      e.permit.dm,
+      e.permit.permit_owner,
+      e.permit.nickname,
+      e.permit.status,
+      e.permit.product_type,
+    );
+  }
+  const haystack = parts
+    .filter((p): p is string => Boolean(p))
+    .join(' ')
+    .toLowerCase();
+  return tokens.every((t) => haystack.includes(t));
+}
+
 /** Project-level "fully issued" check: every permit at the address has
  * actual_issue set. Used by the status filter. */
 function buildFullyIssuedProjectIds(

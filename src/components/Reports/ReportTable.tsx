@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import {
   aggregateByProject,
+  matchesLedgerSearch,
   type EnrichedPermit,
   type ProjectRow,
 } from '../../lib/reportMetrics';
@@ -39,6 +40,82 @@ const STAGE_LABELS: Record<string, string> = {
   ap: 'Approved',
   is: 'Issued',
 };
+
+// Q9.5.f-fix-5: stage pill colors keyed to v2's CSS vars. `ap` reuses
+// the `jv` (joint venture / approved) palette; everything else lines up
+// 1:1 with the existing stage palette tokens.
+const STAGE_PILL: Record<
+  string,
+  { bg: string; fg: string; border: string }
+> = {
+  de: { bg: 'var(--color-de-bg)', fg: 'var(--color-de)', border: 'var(--color-de-border)' },
+  pm: { bg: 'var(--color-pm-bg)', fg: 'var(--color-pm)', border: 'var(--color-pm-border)' },
+  co: { bg: 'var(--color-co-bg)', fg: 'var(--color-co)', border: 'var(--color-co-border)' },
+  ap: { bg: 'var(--color-jv-bg)', fg: 'var(--color-jv)', border: 'var(--color-jv-border)' },
+  is: { bg: 'var(--color-is-bg)', fg: 'var(--color-is)', border: 'var(--color-is-border)' },
+};
+
+function StagePill({ stage }: { stage: string }) {
+  const p = STAGE_PILL[stage];
+  const label = STAGE_LABELS[stage] ?? stage ?? '—';
+  if (!p) return <span className="text-muted">{label || '—'}</span>;
+  return (
+    <span
+      style={{
+        padding: '2px 8px',
+        borderRadius: 12,
+        fontSize: 10,
+        fontWeight: 700,
+        background: p.bg,
+        color: p.fg,
+        border: `1px solid ${p.border}`,
+        textTransform: 'uppercase',
+        letterSpacing: '0.04em',
+        whiteSpace: 'nowrap',
+      }}
+    >
+      {label}
+    </span>
+  );
+}
+
+// Pink-tinted ENT pill — v1 marks ent_lead with a distinct color so it
+// pops against the regular DA/DM names in the same row.
+function EntPill({ value }: { value: string | null }) {
+  if (!value) return <span className="text-muted">—</span>;
+  return (
+    <span
+      style={{
+        padding: '2px 8px',
+        borderRadius: 12,
+        fontSize: 10,
+        fontWeight: 700,
+        background: 'rgba(244, 114, 182, 0.15)',
+        color: '#be185d',
+        border: '1px solid rgba(244, 114, 182, 0.4)',
+        whiteSpace: 'nowrap',
+      }}
+    >
+      {value}
+    </span>
+  );
+}
+
+// Q9.5.f-fix-5 D: per-metric accent color for the day cells. Variance is
+// sign-aware (red late / green early); the rest are tone-cued by metric
+// type so the eye can scan a row left-to-right and spot anomalies.
+type MetricTone = 'pm' | 'de' | 'co';
+const TONE_COLOR: Record<MetricTone, string> = {
+  pm: 'var(--color-pm)',
+  de: 'var(--color-de)',
+  co: 'var(--color-co)',
+};
+function DayMetric({ value, tone }: { value: number | null; tone: MetricTone }) {
+  if (value === null) return <span className="text-muted">—</span>;
+  return (
+    <span style={{ color: TONE_COLOR[tone], fontWeight: 600 }}>{value}d</span>
+  );
+}
 
 interface ColDef {
   key: SortKey | null; // null when not sortable
@@ -129,16 +206,52 @@ export default function ReportTable({
   const [sort, setSort] = useState<SortState>({ key: 'go', dir: 'desc' });
   // Q9.5.f-fix-4: expand-on-click state. project_ids whose row is expanded.
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  // Q9.5.f-fix-5: ledger-local filters layered ON TOP of the page-level
+  // filter set passed in via `permits`. Page filters narrow to a working
+  // set; these narrow further without disturbing the headline metric cards
+  // / charts. Empty string / "all" = no further narrowing.
+  const [stageFilter, setStageFilter] = useState<string>('all');
+  const [assigneeFilter, setAssigneeFilter] = useState<string>('all');
+  const [search, setSearch] = useState<string>('');
 
   const rows = useMemo(() => aggregateByProject(permits), [permits]);
 
+  // Distinct assignee options for the local dropdown — union of ent/da/dm
+  // across the unfiltered (passed-in) permit set so the dropdown stays
+  // stable as the user narrows.
+  const assigneeOptions = useMemo(() => {
+    const s = new Set<string>();
+    for (const r of rows) {
+      if (r.ent) s.add(r.ent);
+      if (r.da) s.add(r.da);
+      if (r.dm) s.add(r.dm);
+    }
+    return Array.from(s).sort();
+  }, [rows]);
+
+  const filtered = useMemo(() => {
+    return rows.filter((r) => {
+      if (stageFilter !== 'all' && r.dominantStage !== stageFilter) return false;
+      if (
+        assigneeFilter !== 'all' &&
+        r.ent !== assigneeFilter &&
+        r.da !== assigneeFilter &&
+        r.dm !== assigneeFilter
+      ) {
+        return false;
+      }
+      if (search.trim() && !matchesLedgerSearch(r, search)) return false;
+      return true;
+    });
+  }, [rows, stageFilter, assigneeFilter, search]);
+
   const sorted = useMemo(() => {
-    const copy = rows.slice();
+    const copy = filtered.slice();
     copy.sort((a, b) =>
       compareValues(sortValue(a, sort.key), sortValue(b, sort.key), sort.dir),
     );
     return copy;
-  }, [rows, sort]);
+  }, [filtered, sort]);
 
   function onHeaderClick(key: SortKey | null) {
     if (!key) return;
@@ -164,12 +277,68 @@ export default function ReportTable({
     >
       <div className="px-4 py-2 border-b border-border flex items-center justify-between">
         <div className="text-[10px] uppercase tracking-wide text-muted font-display font-bold">
-          Permit Ledger ({rows.length} project{rows.length === 1 ? '' : 's'} ·{' '}
+          Permit Ledger ({filtered.length} project{filtered.length === 1 ? '' : 's'} ·{' '}
           {permits.length} permit{permits.length === 1 ? '' : 's'})
         </div>
         <div className="text-[10px] text-dim">
           Click address to expand permits · click columns to sort
         </div>
+      </div>
+      {/* Q9.5.f-fix-5: ledger-local filter chrome. Stage + assignee selects
+          + a smart multi-token search. State lives in this component so
+          the page-level filter bar above isn't disturbed. */}
+      <div
+        className="px-4 py-2 border-b border-border flex items-center gap-2 flex-wrap"
+        data-testid="report-table-controls"
+      >
+        <select
+          value={stageFilter}
+          onChange={(e) => setStageFilter(e.target.value)}
+          className="bg-bg border border-border rounded px-2 py-1 text-[11px] text-text focus:outline-none focus:border-de"
+          data-testid="ledger-filter-stage"
+        >
+          <option value="all">All stages</option>
+          <option value="de">D&amp;E</option>
+          <option value="pm">PM</option>
+          <option value="co">Corrections</option>
+          <option value="ap">Approved</option>
+          <option value="is">Issued</option>
+        </select>
+        <select
+          value={assigneeFilter}
+          onChange={(e) => setAssigneeFilter(e.target.value)}
+          className="bg-bg border border-border rounded px-2 py-1 text-[11px] text-text focus:outline-none focus:border-de"
+          data-testid="ledger-filter-assignee"
+        >
+          <option value="all">All assignees</option>
+          {assigneeOptions.map((a) => (
+            <option key={a} value={a}>
+              {a}
+            </option>
+          ))}
+        </select>
+        <input
+          type="text"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Search address, DA, ENT, juris… (space or comma = AND)"
+          className="bg-bg border border-border rounded px-2 py-1 text-[11px] text-text placeholder:text-dim focus:outline-none focus:border-de min-w-[260px] flex-1"
+          data-testid="ledger-search"
+        />
+        {(stageFilter !== 'all' || assigneeFilter !== 'all' || search.trim()) && (
+          <button
+            type="button"
+            onClick={() => {
+              setStageFilter('all');
+              setAssigneeFilter('all');
+              setSearch('');
+            }}
+            className="text-[10px] px-2 py-1 rounded border border-border bg-surface text-muted hover:bg-bg transition font-display"
+            data-testid="ledger-filter-clear"
+          >
+            Clear
+          </button>
+        )}
       </div>
       <div className="overflow-x-auto max-h-[480px] overflow-y-auto">
         <table className="min-w-full text-[11px]">
@@ -245,7 +414,6 @@ function ProjectRowTr({
   open: boolean;
   onToggle: () => void;
 }) {
-  const stageLabel = STAGE_LABELS[row.dominantStage] ?? row.dominantStage ?? '—';
   return (
     <tr
       className="border-t border-border/40 hover:bg-surface-2"
@@ -272,28 +440,32 @@ function ProjectRowTr({
           <span className="ml-1 text-de">· {row.activeCount} active</span>
         )}
       </td>
-      <td className="px-2 py-1.5 whitespace-nowrap text-muted">{stageLabel}</td>
-      <td className="px-2 py-1.5 whitespace-nowrap text-muted">{row.ent ?? '—'}</td>
+      <td className="px-2 py-1.5 whitespace-nowrap">
+        <StagePill stage={row.dominantStage} />
+      </td>
+      <td className="px-2 py-1.5 whitespace-nowrap">
+        <EntPill value={row.ent} />
+      </td>
       <td className="px-2 py-1.5 whitespace-nowrap text-muted">{row.da ?? '—'}</td>
       <td className="px-2 py-1.5 whitespace-nowrap text-muted">{row.dm ?? '—'}</td>
       <td className="px-2 py-1.5 whitespace-nowrap text-muted">{row.juris || '—'}</td>
-      <td className="px-2 py-1.5 whitespace-nowrap text-muted text-right">
-        {fmtDays(row.avgGoToDDStart)}
+      <td className="px-2 py-1.5 whitespace-nowrap text-right">
+        <DayMetric value={row.avgGoToDDStart} tone="pm" />
       </td>
-      <td className="px-2 py-1.5 whitespace-nowrap text-muted text-right">
-        {fmtDays(row.avgDDDuration)}
+      <td className="px-2 py-1.5 whitespace-nowrap text-right">
+        <DayMetric value={row.avgDDDuration} tone="de" />
       </td>
-      <td className="px-2 py-1.5 whitespace-nowrap text-muted text-right">
-        {fmtDays(row.avgDDEndToSubmit)}
+      <td className="px-2 py-1.5 whitespace-nowrap text-right">
+        <DayMetric value={row.avgDDEndToSubmit} tone="co" />
       </td>
-      <td className="px-2 py-1.5 whitespace-nowrap text-muted text-right">
-        {fmtDays(row.avgGoToSubmit)}
+      <td className="px-2 py-1.5 whitespace-nowrap text-right">
+        <DayMetric value={row.avgGoToSubmit} tone="co" />
       </td>
-      <td className="px-2 py-1.5 whitespace-nowrap text-muted text-right">
-        {fmtDays(row.avgSubmitToIntake)}
+      <td className="px-2 py-1.5 whitespace-nowrap text-right">
+        <DayMetric value={row.avgSubmitToIntake} tone="pm" />
       </td>
-      <td className="px-2 py-1.5 whitespace-nowrap text-muted text-right">
-        {fmtDays(row.avgCityReview)}
+      <td className="px-2 py-1.5 whitespace-nowrap text-right">
+        <DayMetric value={row.avgCityReview} tone="pm" />
       </td>
       <td className="px-2 py-1.5 whitespace-nowrap text-muted">
         {row.latestAcqTarget ?? '—'}
@@ -341,9 +513,22 @@ function PermitDetailTr({ permit: e }: { permit: EnrichedPermit }) {
     >
       <td className="px-2 py-1 pl-8 whitespace-nowrap text-muted text-[10px]">
         ↳ {e.permit.type ?? '—'}
-        {e.permit.num && (
-          <span className="ml-1 text-dim font-mono">{e.permit.num}</span>
-        )}
+        {e.permit.num &&
+          (e.permit.portal_url ? (
+            <a
+              href={e.permit.portal_url}
+              target="_blank"
+              rel="noreferrer"
+              onClick={(ev) => ev.stopPropagation()}
+              className="ml-1 font-mono font-bold no-underline"
+              style={{ color: 'var(--color-de)' }}
+              data-testid={`report-table-permit-link-${e.permit.id}`}
+            >
+              {e.permit.num} ↗
+            </a>
+          ) : (
+            <span className="ml-1 text-dim font-mono">{e.permit.num}</span>
+          ))}
       </td>
       <td className="px-2 py-1 whitespace-nowrap text-dim text-[10px]">—</td>
       <td className="px-2 py-1 whitespace-nowrap text-dim text-[10px]">
