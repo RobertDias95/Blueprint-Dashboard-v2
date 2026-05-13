@@ -205,6 +205,7 @@ function ProjectDetailBody({
                 <PermitDetailV2
                   key={selectedPermit.id}
                   permit={selectedPermit}
+                  project={project}
                 />
               </div>
             </div>
@@ -305,6 +306,12 @@ function PermitsSidebar({
   );
   const sorted = useMemo(() => {
     return [...permits].sort((a, b) => {
+      // Q9.5.f-fix-8 C: issued permits drop to the bottom regardless of
+      // permit_order. The "what's active right now" rows stay visually
+      // grouped at the top of the sidebar.
+      const aIssued = !!a.actual_issue;
+      const bIssued = !!b.actual_issue;
+      if (aIssued !== bIssued) return aIssued ? 1 : -1;
       const oa = order.indexOf(a.id);
       const ob = order.indexOf(b.id);
       const aRank = oa === -1 ? Number.MAX_SAFE_INTEGER : oa;

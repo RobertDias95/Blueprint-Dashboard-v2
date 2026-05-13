@@ -18,6 +18,7 @@ import type {
   PermitCycle,
   PermitTask,
   PermitWithCycles,
+  Project,
   Stage,
 } from '../../lib/database.types';
 
@@ -83,9 +84,13 @@ const STAGE_OVERRIDE_OPTIONS = [
 
 interface Props {
   permit: PermitWithCycles;
+  /** Q9.5.f-fix-8 B: parent passes the joined project so we can render
+   *  juris-conditional UI (Seattle Intake row) without a second hook
+   *  lookup inside this component. */
+  project?: Project | null;
 }
 
-export default function PermitDetailV2({ permit }: Props) {
+export default function PermitDetailV2({ permit, project }: Props) {
   // Q9.5.f-fix-6 A: drop cycle_index=0 rows. v2's review cycles start at 1;
   // index 0 is a legacy design-phase placeholder that should never surface
   // in the user-visible cycle list. (Production data was cleaned today —
@@ -128,6 +133,7 @@ export default function PermitDetailV2({ permit }: Props) {
         viewIdx={viewCycleIdx}
         onSelect={setViewCycleIdx}
       />
+      <SeattleIntakeRow permit={permit} juris={project?.juris ?? null} />
       <DateStrip
         permit={permit}
         cycles={cycles}
@@ -264,6 +270,78 @@ function HeaderStrip({
 }
 
 // ============================================================
+// Q9.5.f-fix-8 B: Seattle intake row. Only renders for Building Permit
+// or Demolition permits at Seattle juris (mirrors v1:3219-3228). Edits
+// write to permits.intake_date — independent of cycle 1's submitted /
+// intake_accepted (production data confirms the two diverge in ~85% of
+// cases; v1 keeps them separate too).
+// ============================================================
+
+function SeattleIntakeRow({
+  permit,
+  juris,
+}: {
+  permit: PermitWithCycles;
+  juris: string | null;
+}) {
+  const updateMutation = useUpdatePermit();
+  const [draft, setDraft] = useState(permit.intake_date ?? '');
+  if (juris !== 'Seattle') return null;
+  if (permit.type !== 'Building Permit' && permit.type !== 'Demolition') {
+    return null;
+  }
+  const occMissing = !permit.updated_at;
+
+  function commit() {
+    if (!permit.updated_at) return;
+    const normalized = draft || null;
+    if (normalized === (permit.intake_date ?? null)) return;
+    updateMutation.mutate({
+      permitId: permit.id,
+      projectId: permit.project_id,
+      expectedUpdatedAt: permit.updated_at,
+      patch: { intake_date: normalized } as Partial<Permit>,
+      fieldLabel: 'Seattle Intake',
+    });
+  }
+
+  return (
+    <div
+      className="flex items-center gap-2.5 px-3.5 py-1.5 border-b"
+      style={{
+        borderBottomColor: 'var(--color-border)',
+        background: 'rgba(59,130,246,0.04)',
+      }}
+      data-testid="pd-v2-seattle-intake"
+    >
+      <span
+        className="text-[9px] font-bold uppercase tracking-wider whitespace-nowrap"
+        style={{ color: '#3b82f6' }}
+      >
+        📅 Seattle Intake
+      </span>
+      <input
+        type="date"
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={commit}
+        disabled={occMissing}
+        className="text-[11px] px-2 py-0.5 border rounded outline-none disabled:opacity-50"
+        style={{
+          borderColor: 'rgba(59,130,246,0.35)',
+          background: 'var(--color-bg)',
+          color: 'var(--color-text)',
+        }}
+        data-testid="pd-v2-seattle-intake-input"
+      />
+      <span className="text-[9px] text-muted">
+        Scheduled intake with Seattle portal — syncs to Intake Tracker
+      </span>
+    </div>
+  );
+}
+
+// ============================================================
 // Cycle tab bar: Design + Cycle 1 + Cycle 2 …
 // ============================================================
 
@@ -393,7 +471,35 @@ function DateStrip({
   }
 
   if (viewIdx === 0) {
-    // Design phase: permit-level dates only
+    // Q9.5.f-fix-8 A: Design tab now shows the journey from project kickoff
+    // to official intake (GO → Target Submit → Initial Submit → Intake
+    // Accepted). DD Start/End dropped from this view — they live on the
+    // permit schema for legacy data + ledger consumption, but no longer
+    // clutter the day-to-day Design workflow. Once intake_accepted is set,
+    // the user moves on to Cycle 1 view for review tracking.
+    const cycle1 = cycles.find((c) => c.cycle_index === 1) ?? null;
+    async function commitCycle1Field(field: DateField, next: string) {
+      const normalized = next || null;
+      if (cycle1) {
+        await upsertCycle.mutateAsync({
+          op: 'update',
+          permitId: permit.id,
+          projectId: permit.project_id,
+          cycle: cycle1,
+          patch: { [field]: normalized } as CyclePatch,
+        });
+        return;
+      }
+      // No cycle 1 yet — first edit creates it.
+      if (!normalized) return; // don't auto-create on a blur-clear with no data
+      await upsertCycle.mutateAsync({
+        op: 'insert',
+        permitId: permit.id,
+        projectId: permit.project_id,
+        cycleIndex: 1,
+        patch: { [field]: normalized } as CyclePatch,
+      });
+    }
     return (
       <div
         className="grid border-b"
@@ -421,18 +527,18 @@ function DateStrip({
           }
         />
         <DateCell
-          label="DD Start"
-          value={permit.dd_start}
-          highlighted={isCurrent('dd_start')}
-          onCommit={(v) =>
-            commitPermit('dd_start', v || null, permit.dd_start, 'DD Start')
-          }
+          label="Initial Submit"
+          accentColor="var(--color-pm)"
+          value={cycle1?.submitted ?? null}
+          highlighted={isCurrent('submitted')}
+          onCommit={(v) => commitCycle1Field('submitted', v)}
         />
         <DateCell
-          label="DD End"
-          value={permit.dd_end}
-          highlighted={isCurrent('dd_end')}
-          onCommit={(v) => commitPermit('dd_end', v || null, permit.dd_end, 'DD End')}
+          label="Intake Accepted"
+          accentColor="var(--color-pm)"
+          value={cycle1?.intake_accepted ?? null}
+          highlighted={isCurrent('intake_accepted')}
+          onCommit={(v) => commitCycle1Field('intake_accepted', v)}
         />
       </div>
     );
@@ -595,6 +701,7 @@ type CurrentPhase =
   | 'dd_start'
   | 'dd_end'
   | 'submitted'
+  | 'intake_accepted'
   | 'city_target'
   | 'corr_issued'
   | 'resubmitted'
@@ -628,6 +735,12 @@ function deriveCurrentPhase(
     if (c.corr_issued) return { phase: 'corr_issued', cycleIndex: c.cycle_index };
     if (c.submitted && c.city_target) {
       return { phase: 'city_target', cycleIndex: c.cycle_index };
+    }
+    // Q9.5.f-fix-8 A: intake_accepted falls between submitted and
+    // city_target — once the city accepts intake, the permit is queued
+    // for review but no city target is set yet.
+    if (c.submitted && c.intake_accepted) {
+      return { phase: 'intake_accepted', cycleIndex: c.cycle_index };
     }
     if (c.submitted) return { phase: 'submitted', cycleIndex: c.cycle_index };
   }
