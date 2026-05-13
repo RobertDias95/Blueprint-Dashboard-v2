@@ -15,7 +15,7 @@ import type { PermitCycle, PermitTask, PermitWithCycles, Stage } from '../../lib
 //   4. Permit Status — free-text from permits.status
 //   5. Data Source — Default / Learned badge (v2 always shows Default until
 //      the learner state ports — Q7+ backlog)
-//   6. Current Projection — actual_issue / approval_date / expected_issue
+//   6. Estimated Approval — actual_issue / approval_date / expected_issue
 //   7. ACQ Target — placeholder until task #63 unblocks acq target schema
 //   8. Schedule Health — bucket based on (projection - target):
 //        diff ≤ -1  → "↑ On Track"   (green / --color-pm)
@@ -108,7 +108,7 @@ export default function ScheduleHealthTable({ permits }: Props) {
             <Th>Stage</Th>
             <Th>Permit Status</Th>
             <Th>Data Source</Th>
-            <Th>Current Projection</Th>
+            <Th>Estimated Approval</Th>
             <Th>ACQ Target</Th>
             <Th>Schedule Health</Th>
           </tr>
@@ -181,6 +181,15 @@ function Row({
     }
     return m;
   }, [siblings, allPermits, permit.project_id, projectsById, projectsByIdRef]);
+  // Q9.5.f-fix-17 A: bidirectional cycle override. ScheduleEstimator
+  // writes the user's +/- pick to permit.extras.scheduleCycleOverride;
+  // this row reads it back so both widgets project the same date.
+  const extras = (permit.extras ?? {}) as Record<string, unknown>;
+  const rawOverride = extras.scheduleCycleOverride;
+  const cycleOverride =
+    typeof rawOverride === 'number' && rawOverride >= 1 && rawOverride <= 4
+      ? rawOverride
+      : null;
   const projectedResult = useMemo(
     () =>
       computeProjectedApproval({
@@ -192,16 +201,17 @@ function Row({
         siblingPermits: siblings,
         siblingCyclesByPermitId,
         siblingLearnedByPermitId,
+        targetCycleOverride: cycleOverride,
       }),
-    [permit, learnedEstimate, siblings, siblingCyclesByPermitId, siblingLearnedByPermitId],
+    [permit, learnedEstimate, siblings, siblingCyclesByPermitId, siblingLearnedByPermitId, cycleOverride],
   );
   const projection = projectedResult.projection;
   const isActual = projectedResult.isActual;
   // Q9.5.f-fix-7: wire ACQ Target to permits.expected_issue. v1 writes the
-  // team's target issue date here, so v2 reads it. Current Projection at
+  // team's target issue date here, so v2 reads it. Estimated Approval at
   // :120 already prefers actual_issue/approval_date over expected_issue,
   // so the two columns diverge once a permit is issued — ACQ Target stays
-  // as the team's plan; Current Projection reflects the actual outcome.
+  // as the team's plan; Estimated Approval reflects the actual outcome.
   const acqTarget: string | null = permit.expected_issue ?? null;
   const diff = computeHealthDiff(projection, acqTarget);
 
@@ -250,7 +260,7 @@ function Row({
       <td className="px-2 py-2 align-middle text-center border-l" style={borderL}>
         <DataSourceBadge />
       </td>
-      {/* 6. Current Projection */}
+      {/* 6. Estimated Approval */}
       <td
         className="px-2 py-2 align-middle text-center border-l text-[10px] font-mono"
         style={borderL}

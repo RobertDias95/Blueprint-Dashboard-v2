@@ -15,7 +15,7 @@ import type { PermitCycle, PermitWithCycles } from '../../lib/database.types';
 // Q9.5.f-fix-11 C: Schedule Estimator widget. Read-only port of v1's
 // buildScheduleEstimator (index.html:4544-4660). Renders inside the
 // PermitDetailV2 sidebar between Cycle History and Issue Dates. Shows:
-//   - The headline projected approval (same value as Current Projection
+//   - The headline estimated approval (same value as Estimated Approval
 //     on the schedule health table)
 //   - Per-round projected dates (corr issued + resubmitted for each
 //     cycle the walk targets), with visual cue when sourced from real
@@ -182,7 +182,7 @@ function HeadlineProjection({ result }: { result: ProjectedApprovalResult }) {
   const label = result.isActual
     ? 'Actual / Approved'
     : result.isProjected
-      ? 'Projected Approval'
+      ? 'Estimated Approval'
       : 'Projection';
   const color = result.isActual ? 'var(--color-is)' : 'var(--color-pm)';
   return (
