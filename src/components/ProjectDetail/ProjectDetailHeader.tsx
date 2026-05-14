@@ -1,12 +1,11 @@
 import { useMemo, useState } from 'react';
 import type {
-  Permit,
   PermitWithCycles,
   Project,
   UnitType,
 } from '../../lib/database.types';
-import { useUpdatePermit } from '../../hooks/useUpdatePermit';
 import { useUpdateProject } from '../../hooks/useUpdateProject';
+import { useSetBpDdDates } from '../../hooks/useSetBpDdDates';
 import { useAppConfig, readConsultantTypes } from '../../hooks/useAppConfig';
 
 // Q9.5.e: 4-column header top strip per v1 §4.2.1. Left card holds an
@@ -83,7 +82,14 @@ function DDPhaseCell({
 function DDPhaseEditor({ project, bp }: { project: Project; bp: PermitWithCycles }) {
   // Local-controlled inputs to avoid one-save-per-keystroke. Fires
   // update on blur if the value changed.
-  const updateMutation = useUpdatePermit();
+  //
+  // fix-23a: dd_start/dd_end commits route through useSetBpDdDates so the
+  // RPC can cascade target_submit (+14d) across sibling permits AND
+  // mirror the dates onto draw_schedule.start_week/end_week. Direct
+  // useUpdatePermit writes here left those downstream rows stale —
+  // smoke-confirmed against "test 678" (project 094e7d54-…) which now
+  // propagates clean.
+  const setBpDdDates = useSetBpDdDates();
   const occMissing = !bp.updated_at;
   const [startDraft, setStartDraft] = useState(bp.dd_start ?? '');
   const [endDraft, setEndDraft] = useState(bp.dd_end ?? '');
@@ -91,22 +97,33 @@ function DDPhaseEditor({ project, bp }: { project: Project; bp: PermitWithCycles
   // fix-22 Mig 3: GO date is project-level now.
   const goDisplay = formatGoDate(project.go_date);
 
-  async function commitField<K extends keyof Permit>(
-    field: K,
-    next: string,
-    original: string | null,
-    label: string,
-  ) {
+  /** Commit DD dates. The RPC accepts (a) both filled, (b) both null
+   *  (clear), but rejects partial-null. We mirror that gate here: when
+   *  exactly one input is empty, treat it as mid-state and skip. The
+   *  user is mid-typing; the next blur with both filled (or both
+   *  cleared) actually fires. */
+  async function commitDd() {
     if (!bp.updated_at) return;
-    const normalized = next || null;
-    if (normalized === original) return;
-    await updateMutation.mutateAsync({
-      permitId: bp.id,
-      projectId: bp.project_id,
-      expectedUpdatedAt: bp.updated_at,
-      patch: { [field]: normalized } as Partial<Permit>,
-      fieldLabel: label,
-    });
+    const startNorm = startDraft.trim() || null;
+    const endNorm = endDraft.trim() || null;
+    // Mid-state: one filled, one empty. Hold off until the user
+    // finishes editing.
+    if ((startNorm === null) !== (endNorm === null)) return;
+    // No-op when nothing changed.
+    if (startNorm === (bp.dd_start ?? null) && endNorm === (bp.dd_end ?? null)) {
+      return;
+    }
+    try {
+      await setBpDdDates.mutateAsync({
+        projectId: bp.project_id,
+        ddStart: startNorm,
+        ddEnd: endNorm,
+        expectedUpdatedAt: bp.updated_at,
+      });
+    } catch {
+      // Toasts surfaced inside the hook; swallow here so the input
+      // blur doesn't crash the page on OCC / RPC failure.
+    }
   }
 
   return (
@@ -124,7 +141,7 @@ function DDPhaseEditor({ project, bp }: { project: Project; bp: PermitWithCycles
             type="date"
             value={startDraft}
             onChange={(e) => setStartDraft(e.target.value)}
-            onBlur={() => commitField('dd_start', startDraft, bp.dd_start, 'DD Start')}
+            onBlur={() => void commitDd()}
             disabled={occMissing}
             className="text-[11px] font-semibold px-1.5 py-0.5 border rounded outline-none flex-1 disabled:opacity-50"
             style={{
@@ -141,7 +158,7 @@ function DDPhaseEditor({ project, bp }: { project: Project; bp: PermitWithCycles
             type="date"
             value={endDraft}
             onChange={(e) => setEndDraft(e.target.value)}
-            onBlur={() => commitField('dd_end', endDraft, bp.dd_end, 'DD End')}
+            onBlur={() => void commitDd()}
             disabled={occMissing}
             className="text-[11px] font-semibold px-1.5 py-0.5 border rounded outline-none flex-1 disabled:opacity-50"
             style={{
