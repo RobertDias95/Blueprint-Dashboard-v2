@@ -26,6 +26,7 @@ import {
   getQuarterWeeks,
   jurisBorder,
   multiMatchAddress,
+  weekKeyToQuarterOffset,
   type DropBlock,
   type NpConflict,
 } from '../lib/drawScheduleHelpers';
@@ -468,6 +469,42 @@ function DrawScheduleBody({
     [projects],
   );
 
+  // fix-23b B1: auto-snap quarterOffset to the earliest matched project's
+  // start_week when search is active. Without this, a user navigating
+  // forward two quarters and typing an address whose block lives in today's
+  // quarter sees an empty grid with no hint where the match is.
+  //
+  // Guarded by lastSnappedSearchRef so we fire exactly once per search
+  // string (effect deps also include `draw` so a late-arriving fetch can
+  // trigger the snap retroactively; without the ref, a re-render with the
+  // same search would re-snap and potentially fight the user's manual
+  // quarter arrow click).
+  //
+  // Clearing search resets the ref but does NOT snap back — the user keeps
+  // whatever quarter they last navigated to (matches the spec).
+  const lastSnappedSearchRef = useRef<string>('');
+  useEffect(() => {
+    const trimmed = search.trim();
+    if (trimmed === '') {
+      lastSnappedSearchRef.current = '';
+      return;
+    }
+    if (trimmed === lastSnappedSearchRef.current) return;
+    let earliestStart: string | null = null;
+    for (const row of draw) {
+      if (!row.start_week) continue;
+      const project = projectById.get(row.project_id);
+      if (!project) continue;
+      if (!multiMatchAddress(trimmed, project.address)) continue;
+      if (earliestStart === null || row.start_week < earliestStart) {
+        earliestStart = row.start_week;
+      }
+    }
+    lastSnappedSearchRef.current = trimmed;
+    if (earliestStart === null) return; // no scheduled project matched; stay put
+    setQuarterOffset(weekKeyToQuarterOffset(earliestStart));
+  }, [search, draw, projectById, setQuarterOffset]);
+
   // All blocks (across DAs), keyed by da. Used by drop handler to detect
   // overlap on the target DA. Different from blocksByDa (which is filtered
   // to the current quarter + search) — overlap detection should consider
@@ -666,18 +703,31 @@ function DrawScheduleBody({
 
   // Q6.2.c: NP blocks grouped by DA, filtered to current quarter. Same
   // overlap predicate as project blocks; render-only (no drag, no drop).
+  //
+  // fix-23b B2: also filter by search. Suppress NP blocks whose label and
+  // type both fail the active query, matching the project-block filter at
+  // blocksByDa (same multiMatchAddress matcher). Without this, NP overlays
+  // (vacation / training / etc.) leaked through during search and cluttered
+  // the otherwise-narrowed grid.
   const npBlocksByDa = useMemo(() => {
+    const trimmed = search.trim();
     const map = new Map<string, DaTimeBlock[]>();
     for (const b of npBlocks) {
       const overlapsQ =
         b.start_week <= weeks[weeks.length - 1] && b.end_week >= weeks[0];
       if (!overlapsQ) continue;
+      if (trimmed !== '') {
+        const labelMatch =
+          b.label != null && multiMatchAddress(trimmed, b.label);
+        const typeMatch = multiMatchAddress(trimmed, b.type);
+        if (!labelMatch && !typeMatch) continue;
+      }
       const list = map.get(b.da_name) ?? [];
       list.push(b);
       map.set(b.da_name, list);
     }
     return map;
-  }, [npBlocks, weeks]);
+  }, [npBlocks, weeks, search]);
 
 
   // "Unscheduled": projects with no DA or no week range, optionally filtered.

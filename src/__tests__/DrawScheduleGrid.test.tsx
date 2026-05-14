@@ -741,4 +741,92 @@ describe('<DrawScheduleGrid /> Q9.5.f-fix-20', () => {
     expect(moveDaMutate).toHaveBeenCalledTimes(1);
     expect(screen.queryByTestId('gap-fill-prompt')).toBeNull();
   });
+
+  // ============================================================
+  // fix-23b: search snaps to matching quarter + filters NP overlays
+  // ============================================================
+  //
+  // Test assumptions match the existing fixtures (no global Date mock):
+  // run-date sits in Q2 2026 (per the autoMemory currentDate) and the
+  // project blocks live there too. quarter-next steps forward one quarter
+  // at a time; the active quarter label is rendered on the quarter-today
+  // button. p-now ("500 Pike St") on Trevor at start_week=2026-05-04 is
+  // the snap target.
+
+  it('snaps quarterOffset to earliest match when search produces a result outside the current quarter', () => {
+    renderGrid();
+    const todayBtn = screen.getByTestId('quarter-today');
+    const baseLabel = todayBtn.textContent ?? '';
+
+    // Navigate forward two quarters; the displayed label changes.
+    fireEvent.click(screen.getByTestId('quarter-next'));
+    fireEvent.click(screen.getByTestId('quarter-next'));
+    expect(screen.getByTestId('quarter-today').textContent).not.toBe(baseLabel);
+    // Blocks no longer in the visible quarter.
+    expect(screen.queryByTestId('block-p-now')).not.toBeInTheDocument();
+
+    // Type a query matching p-now's address.
+    fireEvent.change(screen.getByTestId('schedule-search'), {
+      target: { value: 'pike' },
+    });
+
+    // Effect runs synchronously inside the change handler's commit.
+    // Quarter label snaps back to the original quarter (Q2 2026 in fixture
+    // time) and the matched block reappears.
+    expect(screen.getByTestId('quarter-today').textContent).toBe(baseLabel);
+    expect(screen.getByTestId('block-p-now')).toBeInTheDocument();
+    // Non-matching block stays hidden by the search filter.
+    expect(screen.queryByTestId('block-p-other')).not.toBeInTheDocument();
+  });
+
+  it('does not snap back when search is cleared', () => {
+    renderGrid();
+    // Search drives a snap to the match-quarter.
+    fireEvent.click(screen.getByTestId('quarter-next'));
+    fireEvent.click(screen.getByTestId('quarter-next'));
+    fireEvent.change(screen.getByTestId('schedule-search'), {
+      target: { value: 'pike' },
+    });
+    const snappedLabel = screen.getByTestId('quarter-today').textContent;
+
+    // Clear search. The user keeps whichever quarter they're on.
+    fireEvent.change(screen.getByTestId('schedule-search'), {
+      target: { value: '' },
+    });
+    expect(screen.getByTestId('quarter-today').textContent).toBe(snappedLabel);
+    // All blocks reappear since the filter is inactive.
+    expect(screen.getByTestId('block-p-now')).toBeInTheDocument();
+    expect(screen.getByTestId('block-p-other')).toBeInTheDocument();
+  });
+
+  it('hides NP blocks whose label and type do not match the active search', () => {
+    renderGrid();
+    // Baseline: both NP blocks render.
+    expect(screen.getByTestId('np-block-np-trevor-seg-0')).toBeInTheDocument();
+    expect(screen.getByTestId('np-block-np-ahmadi-seg-0')).toBeInTheDocument();
+
+    // A query that matches neither NP labels/types nor any project.
+    fireEvent.change(screen.getByTestId('schedule-search'), {
+      target: { value: 'zzzzzz' },
+    });
+
+    expect(screen.queryByTestId('np-block-np-trevor-seg-0')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('np-block-np-ahmadi-seg-0')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('block-p-now')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('block-p-other')).not.toBeInTheDocument();
+  });
+
+  it('keeps NP blocks whose label matches the search', () => {
+    renderGrid();
+    fireEvent.change(screen.getByTestId('schedule-search'), {
+      target: { value: 'vacation' },
+    });
+    // np-trevor's label and type are both "Vacation" — it stays.
+    expect(screen.getByTestId('np-block-np-trevor-seg-0')).toBeInTheDocument();
+    // np-ahmadi label is "Style Guide", type is "Other" — neither matches.
+    expect(screen.queryByTestId('np-block-np-ahmadi-seg-0')).not.toBeInTheDocument();
+    // No project address contains "vacation" either.
+    expect(screen.queryByTestId('block-p-now')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('block-p-other')).not.toBeInTheDocument();
+  });
 });

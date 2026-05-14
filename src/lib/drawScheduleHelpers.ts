@@ -75,6 +75,24 @@ export function getQuarterLabel(offset: number, now: Date = new Date()): string 
   return `Q${Math.floor(d.getMonth() / 3) + 1} ${d.getFullYear()}`;
 }
 
+/** fix-23b: inverse of getQuarterStart. Maps a YYYY-MM-DD week-key to the
+ * quarter offset (delta from `now`'s quarter) that contains it. Used by the
+ * Draw Schedule auto-snap: when a search filters down to a match outside
+ * the visible quarter, the grid jumps to whichever quarter contains the
+ * earliest matched block's start_week. */
+export function weekKeyToQuarterOffset(
+  weekKey: string,
+  now: Date = new Date(),
+): number {
+  // Parse the week-key as a local-noon date to dodge timezone edge cases
+  // around month boundaries (a UTC midnight parse can land on the prior
+  // day in negative-offset zones).
+  const d = new Date(`${weekKey}T12:00:00`);
+  const targetQ = Math.floor(d.getMonth() / 3);
+  const nowQ = Math.floor(now.getMonth() / 3);
+  return (d.getFullYear() - now.getFullYear()) * 4 + (targetQ - nowQ);
+}
+
 /** All Monday week-keys covering the quarter at `offset`. */
 export function getQuarterWeeks(offset: number, now: Date = new Date()): string[] {
   const qs = getQuarterStart(offset, now);
