@@ -190,6 +190,7 @@ function Row({
     typeof rawOverride === 'number' && rawOverride >= 1 && rawOverride <= 4
       ? rawOverride
       : null;
+  const projectGoDate = projectsById.get(permit.project_id)?.go_date ?? null;
   const projectedResult = useMemo(
     () =>
       computeProjectedApproval({
@@ -198,12 +199,13 @@ function Row({
           .filter((c) => c.cycle_index !== 0)
           .sort((a, b) => a.cycle_index - b.cycle_index),
         learnedEstimate,
+        projectGoDate,
         siblingPermits: siblings,
         siblingCyclesByPermitId,
         siblingLearnedByPermitId,
         targetCycleOverride: cycleOverride,
       }),
-    [permit, learnedEstimate, siblings, siblingCyclesByPermitId, siblingLearnedByPermitId, cycleOverride],
+    [permit, learnedEstimate, projectGoDate, siblings, siblingCyclesByPermitId, siblingLearnedByPermitId, cycleOverride],
   );
   const projection = projectedResult.projection;
   const isActual = projectedResult.isActual;

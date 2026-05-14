@@ -29,7 +29,6 @@ function makePermit(over: Partial<PermitWithCycles>): PermitWithCycles {
     dm: null,
     ent_lead: null,
     dual_da: null,
-    go_date: null,
     target_submit: null,
     dd_start: null,
     dd_end: null,
@@ -37,20 +36,10 @@ function makePermit(over: Partial<PermitWithCycles>): PermitWithCycles {
     actual_issue: null,
     approval_date: null,
     intake_date: null,
-    units: 0,
     notes: null,
     cycle_model: null,
     view_cycle: null,
     kickoff_date: null,
-    zone: null,
-    product_type: null,
-    project_tags: null,
-    unit_types: null,
-    parking_type: null,
-    parking_stalls: null,
-    lot_width: null,
-    lot_depth: null,
-    alley: null,
     corr_rounds: null,
     permit_owner: null,
     architect: null,
@@ -159,8 +148,20 @@ describe('worstStage', () => {
 
 describe('buildLibraryRows', () => {
   it('builds one row per non-archived project that has at least one permit', () => {
+    // fix-22 Mig 3: physical fields (units/zone/lot_*/alley/product_type/
+    // project_tags) live on the project now. Matrix row reads from project.
     const projects = [
-      makeProject({ id: 'p1', address: '500 Pike St' }),
+      makeProject({
+        id: 'p1',
+        address: '500 Pike St',
+        units: 3,
+        zone: 'NR',
+        lot_width: 40,
+        lot_depth: 100,
+        alley: 'Yes',
+        product_type: 'SFR',
+        project_tags: ['ECA'],
+      }),
       makeProject({ id: 'p2', address: '750 Oak Way', archived: true }),
       makeProject({ id: 'p3', address: '900 Birch Ln' }), // no permits
     ];
@@ -169,13 +170,6 @@ describe('buildLibraryRows', () => {
         id: 1,
         project_id: 'p1',
         type: 'Building Permit',
-        units: 3,
-        zone: 'NR',
-        lot_width: 40,
-        lot_depth: 100,
-        alley: 'Yes',
-        product_type: 'SFR',
-        project_tags: ['ECA'],
       }),
     ];
     const rows = buildLibraryRows(projects, permits);

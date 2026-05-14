@@ -59,7 +59,9 @@ export default function ScheduleEstimator({ permit }: Props) {
     return m;
   }, [siblings]);
 
-  const projectJuris = projectsById.get(permit.project_id)?.juris ?? '';
+  const project = projectsById.get(permit.project_id);
+  const projectJuris = project?.juris ?? '';
+  const projectGoDate = project?.go_date ?? null;
 
   const learnedEstimate = useMemo(() => {
     if (!permit.type || !projectJuris) return null;
@@ -94,12 +96,13 @@ export default function ScheduleEstimator({ permit }: Props) {
           .filter((c) => c.cycle_index !== 0)
           .sort((a, b) => a.cycle_index - b.cycle_index),
         learnedEstimate,
+        projectGoDate,
         siblingPermits: siblings,
         siblingCyclesByPermitId,
         siblingLearnedByPermitId,
         targetCycleOverride: cycleOverride,
       }),
-    [permit, learnedEstimate, siblings, siblingCyclesByPermitId, siblingLearnedByPermitId, cycleOverride],
+    [permit, learnedEstimate, projectGoDate, siblings, siblingCyclesByPermitId, siblingLearnedByPermitId, cycleOverride],
   );
 
   function adjustOverride(delta: number) {

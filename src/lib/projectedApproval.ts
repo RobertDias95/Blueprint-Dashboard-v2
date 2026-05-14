@@ -43,6 +43,11 @@ export interface ProjectedApprovalInput {
   /** This permit's cycles, filtered for cycle_index !== 0 and sorted asc. */
   cycles: PermitCycle[];
   learnedEstimate: LearnedEstimate | null;
+  /** fix-22 Migration 3: go_date moved permits → projects. Caller passes
+   *  the project's go_date so the projection's fallback anchor chain
+   *  still works (was previously sourced from permit.go_date). Null/
+   *  undefined when the project has no GO date set. */
+  projectGoDate?: string | null;
   /** Q9.5.f-fix-11 A: needed for the ULS BP-anchor lookup. Caller passes
    *  every permit at the same project; this code finds the Building Permit
    *  and walks ITS cycles for the anchor math. */
@@ -169,6 +174,9 @@ function getULSAnchorDates(
   siblingPermits: Permit[],
   siblingCyclesByPermitId: Map<number, PermitCycle[]>,
   siblingLearnedByPermitId: Map<number, LearnedEstimate | null>,
+  /** fix-22 Mig 3: the BP and ULS share a project, so caller passes the
+   *  project's go_date once and we thread it into the BP's recursive call. */
+  bpProjectGoDate?: string | null,
 ): { targetSubmit: string; estApproval: string; bpIssueAnchor: string; cy1Resub: string } | null {
   const bp = siblingPermits.find(
     (p) => p.project_id === permit.project_id && p.type === 'Building Permit',
@@ -231,6 +239,8 @@ function getULSAnchorDates(
       permit: bp,
       cycles: bpCycles,
       learnedEstimate: bpLearned,
+      // The BP and the ULS share a project, so they share go_date too.
+      projectGoDate: bpProjectGoDate,
       targetCycleOverride: bpOverride,
     });
     bpIssueAnchor =
@@ -246,7 +256,7 @@ function getULSAnchorDates(
 export function computeProjectedApproval(
   input: ProjectedApprovalInput,
 ): ProjectedApprovalResult {
-  const { permit, cycles, learnedEstimate } = input;
+  const { permit, cycles, learnedEstimate, projectGoDate } = input;
 
   // Real outcomes short-circuit.
   if (permit.actual_issue) {
@@ -265,6 +275,7 @@ export function computeProjectedApproval(
       input.siblingPermits,
       input.siblingCyclesByPermitId,
       input.siblingLearnedByPermitId ?? new Map(),
+      projectGoDate,
     );
     if (anchors?.estApproval) {
       let proj = anchors.estApproval;
@@ -272,7 +283,7 @@ export function computeProjectedApproval(
         cycles.find((c) => c.cycle_index === 1)?.submitted ??
         permit.target_submit ??
         anchors.targetSubmit ??
-        permit.go_date ??
+        projectGoDate ??
         '';
       if (ulsBase) {
         const ulsCycles = Math.max(
@@ -316,7 +327,7 @@ export function computeProjectedApproval(
   const r2 = cycles.find((c) => c.cycle_index === 2) ?? null;
   const r3 = cycles.find((c) => c.cycle_index === 3) ?? null;
   const r4 = cycles.find((c) => c.cycle_index === 4) ?? null;
-  const base = r1?.submitted ?? permit.target_submit ?? permit.go_date ?? null;
+  const base = r1?.submitted ?? permit.target_submit ?? projectGoDate ?? null;
   if (!base) {
     return { projection: null, isActual: false, isProjected: false };
   }

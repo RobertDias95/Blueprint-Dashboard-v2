@@ -165,7 +165,8 @@ describe('mutations pass tenant_id from authStore', () => {
       await result.current.mutateAsync({
         address: '500 Test Ave',
         juris: 'Seattle',
-        permits: [{ type: 'Building Permit' }],
+        project_data: {},
+        permits: [{ type: 'Building Permit', task_template_ids: [] }],
       });
     });
 
@@ -187,7 +188,8 @@ describe('mutations pass tenant_id from authStore', () => {
         result.current.mutateAsync({
           address: '500 Test Ave',
           juris: 'Seattle',
-          permits: [{ type: 'Building Permit' }],
+          project_data: {},
+          permits: [{ type: 'Building Permit', task_template_ids: [] }],
         }),
       ).rejects.toThrow(/no active tenant/i);
     });

@@ -266,6 +266,7 @@ function DrawScheduleBody({
           .filter((c) => c.cycle_index !== 0)
           .sort((a, b) => a.cycle_index - b.cycle_index),
         learnedEstimate: learned,
+        projectGoDate: project.go_date ?? null,
         siblingPermits: projectPermits,
         siblingCyclesByPermitId,
         siblingLearnedByPermitId,

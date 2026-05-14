@@ -62,6 +62,12 @@ export const DEFAULT_FILTERS: TrendsFilters = {
 export function getMonthRange(
   filters: TrendsFilters,
   permits: PermitWithCycles[],
+  /** fix-22 Mig 3: go_date moved permits → projects. Caller passes
+   *  projectsById so we can resolve each permit's project go_date for
+   *  the "earliest" anchor walk in the 'all' range. Optional for
+   *  backward compat — null/missing falls back to cycle/actual_issue
+   *  candidates only. */
+  projectsById?: Map<string, Project>,
   now: Date = new Date(),
 ): string[] {
   const labels: string[] = [];
@@ -84,7 +90,9 @@ export function getMonthRange(
     let earliest = '';
     for (const p of permits) {
       const candidates: string[] = [];
-      if (p.go_date) candidates.push(p.go_date);
+      // fix-22 Mig 3: go_date lives on the project now.
+      const projGo = projectsById?.get(p.project_id)?.go_date;
+      if (projGo) candidates.push(projGo);
       for (const c of p.permit_cycles ?? []) {
         if (c.submitted) candidates.push(c.submitted);
       }
@@ -150,7 +158,9 @@ export function trFilteredPermits(
       if (!daMatch) return false;
     }
     if (filters.tag) {
-      const tags = (p.project_tags as unknown[]) ?? [];
+      // fix-22 Mig 3: project_tags is project-level now.
+      const proj = projectsById.get(p.project_id);
+      const tags = (proj?.project_tags as unknown[]) ?? [];
       if (!tags.includes(filters.tag)) return false;
     }
     return true;
@@ -215,7 +225,8 @@ function keyForGroupBy(
     case 'dm':
       return p.dm ?? 'Unknown';
     case 'tag': {
-      const tags = (p.project_tags as unknown[]) ?? [];
+      // fix-22 Mig 3: project_tags is project-level now.
+      const tags = (proj?.project_tags as unknown[]) ?? [];
       const list = tags.filter((t): t is string => typeof t === 'string');
       return list.length ? list : ['Untagged'];
     }
@@ -338,14 +349,14 @@ export function buildGoSeries(
   months: string[],
   groupKeys: string[],
 ): ChartPoint[] {
-  // First pass: dedupe per address — keep one permit per address with
-  // a non-null go_date.
+  // First pass: dedupe per address — keep one permit per address whose
+  // project has a non-null go_date. fix-22 Mig 3: go_date is on project.
   const seenAddrs = new Set<string>();
   const goPermits: PermitWithCycles[] = [];
   for (const p of filteredPermits) {
-    if (!p.go_date) continue;
     const proj = projectsById.get(p.project_id);
-    const addr = proj?.address ?? `__noaddr_${p.project_id}`;
+    if (!proj?.go_date) continue;
+    const addr = proj.address ?? `__noaddr_${p.project_id}`;
     if (seenAddrs.has(addr)) continue;
     seenAddrs.add(addr);
     goPermits.push(p);
@@ -359,7 +370,7 @@ export function buildGoSeries(
       for (const p of goPermits) {
         const proj = projectsById.get(p.project_id);
         if (!permMatchesGroup(p, proj, key, filters.group)) continue;
-        if ((p.go_date ?? '').slice(0, 7) !== m) continue;
+        if ((proj?.go_date ?? '').slice(0, 7) !== m) continue;
         addrs.add(proj?.address ?? `__noaddr_${p.project_id}`);
       }
       values[key] = addrs.size;

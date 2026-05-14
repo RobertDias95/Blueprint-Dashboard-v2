@@ -109,8 +109,8 @@ export default function PermitDetailV2({ permit, project }: Props) {
   // contains it. Drives both the initial viewed-cycle tab AND the date-
   // strip cell highlight.
   const currentPhase = useMemo(
-    () => deriveCurrentPhase(permit, cycles),
-    [permit, cycles],
+    () => deriveCurrentPhase(permit, cycles, project?.go_date),
+    [permit, cycles, project?.go_date],
   );
   // Cycle tab state. Index 0 = "Design" virtual tab (permit-level dates).
   // Real review cycles use their cycle_index value (1+) directly — no
@@ -137,6 +137,7 @@ export default function PermitDetailV2({ permit, project }: Props) {
       <SeattleIntakeRow permit={permit} juris={project?.juris ?? null} />
       <DateStrip
         permit={permit}
+        project={project}
         cycles={cycles}
         viewIdx={viewCycleIdx}
         currentPhase={currentPhase}
@@ -420,11 +421,14 @@ function CycleTabBar({
 
 function DateStrip({
   permit,
+  project,
   cycles,
   viewIdx,
   currentPhase,
 }: {
   permit: PermitWithCycles;
+  /** fix-22 Mig 3: GO Date renders from project.go_date as read-only. */
+  project?: Project | null;
   cycles: PermitCycle[];
   viewIdx: number;
   currentPhase: CurrentPhaseResult;
@@ -514,9 +518,12 @@ function DateStrip({
       >
         <DateCell
           label="GO"
-          value={permit.go_date}
+          value={project?.go_date ?? null}
           highlighted={isCurrent('go')}
-          onCommit={(v) => commitPermit('go_date', v || null, permit.go_date, 'GO Date')}
+          /** fix-22 Mig 3: go_date is project-level now; GO cell here is
+           *  read-only display. Edit via Project Settings → GO Date. */
+          onCommit={() => {}}
+          readOnly
         />
         <DateCell
           label="Target Submit"
@@ -634,6 +641,7 @@ function DateCell({
   accentColor,
   highlighted,
   onCommit,
+  readOnly,
 }: {
   label: string;
   value: string | null;
@@ -642,6 +650,9 @@ function DateCell({
   // Render an inset blue outline + bg tint so the eye lands on it.
   highlighted?: boolean;
   onCommit: (next: string) => void | Promise<void>;
+  /** fix-22 Mig 3: GO cell now reads project.go_date as read-only — edits
+   *  happen in Project Settings. */
+  readOnly?: boolean;
 }) {
   const [draft, setDraft] = useState(value ?? '');
   return (
@@ -677,8 +688,12 @@ function DateCell({
         type="date"
         value={draft}
         onChange={(e) => setDraft(e.target.value)}
-        onBlur={() => void onCommit(draft)}
-        className="text-[11px] px-1.5 py-0.5 border rounded outline-none w-full"
+        onBlur={() => {
+          if (!readOnly) void onCommit(draft);
+        }}
+        disabled={readOnly}
+        title={readOnly ? 'Edit GO Date in Project Settings' : undefined}
+        className="text-[11px] px-1.5 py-0.5 border rounded outline-none w-full disabled:opacity-70 disabled:cursor-not-allowed"
         style={{
           borderColor: 'var(--color-border)',
           background: 'var(--color-bg)',
@@ -717,6 +732,9 @@ interface CurrentPhaseResult {
 function deriveCurrentPhase(
   permit: PermitWithCycles,
   cycles: PermitCycle[],
+  /** fix-22 Mig 3: GO date moved permits → projects. Caller passes the
+   *  project's go_date as the design-phase fallback anchor. */
+  projectGoDate?: string | null,
 ): CurrentPhaseResult {
   // Highest cycle_index in the data — used as the "latest cycle" for
   // approval / actual_issue (which live at permit level but visually pair
@@ -749,7 +767,7 @@ function deriveCurrentPhase(
   if (permit.dd_end) return { phase: 'dd_end', cycleIndex: null };
   if (permit.dd_start) return { phase: 'dd_start', cycleIndex: null };
   if (permit.target_submit) return { phase: 'target_submit', cycleIndex: null };
-  if (permit.go_date) return { phase: 'go', cycleIndex: null };
+  if (projectGoDate) return { phase: 'go', cycleIndex: null };
   return { phase: null, cycleIndex: null };
 }
 

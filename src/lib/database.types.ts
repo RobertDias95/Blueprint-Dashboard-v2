@@ -7,6 +7,15 @@
 
 export type Stage = 'de' | 'pm' | 'co' | 'ap' | 'is';
 
+/** fix-22: per-unit-type sub-row stored as jsonb on projects.unit_types.
+ *  Wizard's UnitTypesEditor reads/writes this shape. */
+export interface UnitType {
+  label: string;
+  width_ft: number | null;
+  depth_ft: number | null;
+  qty: number;
+}
+
 export interface Project {
   id: string;
   address: string;
@@ -25,6 +34,33 @@ export interface Project {
   /** Q9.5.e-fix-3: JSONB array of permit ids in display order. v1 parity for
    * the permits sidebar drag-reorder feature (fix-4 wires the UI). */
   permit_order?: number[] | null;
+  /** fix-22 Migration 1: NEW project-level role defaults. Wizard Step 1
+   *  collects them; Step 3 uses them as per-permit defaults. Bobby's
+   *  PAR/SDOT/ECA routing pattern is preserved on permits.ent_lead. */
+  entitlement_lead?: string | null;
+  design_manager?: string | null;
+  /** fix-22 Migration 1+2: physical/scheduling fields moved from permits
+   *  → projects as the single source of truth. Backfilled from each
+   *  project's Building Permit; conflicts recorded in audit_log. */
+  go_date?: string | null;
+  units?: number | null;
+  zone?: string | null;
+  lot_width?: number | null;
+  lot_depth?: number | null;
+  unit_types?: UnitType[] | null;
+  parking_type?: string | null;
+  parking_stalls?: number | null;
+  alley?: string | null;
+  product_type?: string | null;
+  project_tags?: string[] | null;
+  /** fix-22-final Migration 6: builder/owner contact fields. v1 stored
+   *  these inside a `builder: {name, company, email, phone}` object;
+   *  v2 promotes them to flat columns so the matrix view + reports can
+   *  read them without a JSONB lookup. */
+  builder_name?: string | null;
+  builder_company?: string | null;
+  builder_email?: string | null;
+  builder_phone?: string | null;
   created_at?: string | null;
   updated_at?: string | null;
 }
@@ -80,9 +116,11 @@ export interface Permit {
   num: string | null;
   da: string | null;
   dm: string | null;
+  /** Per-permit ENT override. Kept on permits intentionally (Bobby's
+   *  PAR/SDOT/ECA routing pattern). projects.entitlement_lead carries the
+   *  project-level default; this field overrides per permit. */
   ent_lead: string | null;
   dual_da: string | null;
-  go_date: string | null;
   target_submit: string | null;
   dd_start: string | null;
   dd_end: string | null;
@@ -90,25 +128,14 @@ export interface Permit {
   actual_issue: string | null;
   approval_date: string | null;
   intake_date: string | null;
-  units: number | null;
   notes: string | null;
   cycle_model: string | null;
   view_cycle: number | null;
   kickoff_date: string | null;
-  zone: string | null;
-  product_type: string | null;
-  project_tags: unknown;
-  unit_types: unknown;
-  parking_type: string | null;
-  parking_stalls: number | null;
-  /** Q6.3.a: dim columns used by the Library matrix view. Optional because
-   * existing test fixtures + narrow read paths don't always carry them;
-   * the matrix view selects them explicitly. */
-  lot_width?: number | null;
-  lot_depth?: number | null;
-  alley?: string | null;
   corr_rounds: number | null;
   permit_owner: string | null;
+  /** External design firm — kept per-permit (different permits at the
+   *  same project can have different architects). */
   architect: string | null;
   nickname: string | null;
   struct_address: string | null;
@@ -118,6 +145,15 @@ export interface Permit {
   extras?: Record<string, unknown> | null;
   created_at?: string | null;
   updated_at?: string | null;
+  // fix-22 Migration 3 (pending): the following 15 fields moved from
+  // permits → projects. The Permit interface intentionally NO LONGER
+  // declares them so the compiler surfaces every site that needs to
+  // read from the project instead. Removed:
+  //   zone, alley, lot_width, lot_depth, units, unit_types,
+  //   parking_type, parking_stalls, product_type, project_tags, go_date,
+  //   builder_name, builder_company, builder_email, builder_phone
+  // Read them via Project. ent_lead, dm, da, dual_da, architect,
+  // kickoff_date STAY on Permit per spec.
 }
 
 /** Permit with cycles attached via Supabase nested select. */
@@ -229,7 +265,17 @@ export interface TaskTemplateSubtask {
 
 // Q7.3.b — team_members + dm_da_groups.
 
-export type TeamRole = 'da' | 'dm' | 'ent' | 'acq';
+/** Schema enforces `role` as text (no CHECK constraint). Audit shows both
+ *  legacy + lead variants live (`ent` + `ent_lead`, `acq` + `acq_lead`).
+ *  Listed as fix-23 cleanup; fix-22's wizard filters use `role IN (...)`
+ *  forms to bridge the drift. */
+export type TeamRole =
+  | 'da'
+  | 'dm'
+  | 'ent'
+  | 'ent_lead'
+  | 'acq'
+  | 'acq_lead';
 
 /** Tenant-scoped roster. `active` flags currently-working members;
  * `former` flags DAs (and only DAs in v1's UX) who used to be on the
@@ -270,6 +316,17 @@ export interface PermitType {
   name: string;
   is_builtin: boolean | null;
   notes: string | null;
+}
+
+/** fix-22 Migration 4: per-juris permit usage stats from the
+ *  juris_permit_stats matview, surfaced via bp_get_juris_permit_stats RPC.
+ *  `usage_pct_display` is NULL when total_projects_in_juris < 5 (hide %). */
+export interface JurisPermitStat {
+  permit_type: string;
+  projects_with_this_permit: number;
+  total_projects_in_juris: number;
+  usage_fraction: number;
+  usage_pct_display: number | null;
 }
 
 /** Tenant-scoped JSONB key/value store. `productTypes`, `projectTagOptions`,

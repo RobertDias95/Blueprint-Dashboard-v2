@@ -57,7 +57,6 @@ function makePermit(over: Partial<Permit> = {}): Permit {
     dm: 'Lindsay',
     ent_lead: 'Bobby',
     dual_da: null,
-    go_date: null,
     target_submit: null,
     dd_start: null,
     dd_end: null,
@@ -65,17 +64,10 @@ function makePermit(over: Partial<Permit> = {}): Permit {
     actual_issue: null,
     approval_date: null,
     intake_date: null,
-    units: null,
     notes: null,
     cycle_model: null,
     view_cycle: null,
     kickoff_date: null,
-    zone: null,
-    product_type: null,
-    project_tags: null,
-    unit_types: null,
-    parking_type: null,
-    parking_stalls: null,
     corr_rounds: null,
     permit_owner: null,
     architect: null,
@@ -307,13 +299,15 @@ describe('filterTasks', () => {
     expect(out.map((t) => t.id).sort()).toEqual(['t-co-1', 't-de-1']);
   });
 
-  it('search matches permit.product_type via joined context (e.g. "all SFR tasks")', () => {
-    // Add product_type to the test permit so the haystack includes it.
+  it('search matches project.product_type via joined context (e.g. "all SFR tasks")', () => {
+    // fix-22 Mig 3: product_type moved permits → projects.
+    const projWithProduct = makeProject({
+      id: ctx.projectsById.values().next().value!.id,
+      product_type: 'SFR + Attached Units',
+    });
     const ctxWithProductType: FilterContext = {
-      permitsById: new Map([
-        [1, makePermit({ id: 1, product_type: 'SFR + Attached Units' })],
-      ]),
-      projectsById: ctx.projectsById,
+      permitsById: ctx.permitsById,
+      projectsById: new Map([[projWithProduct.id, projWithProduct]]),
     };
     const out = filterTasks(
       tasks,

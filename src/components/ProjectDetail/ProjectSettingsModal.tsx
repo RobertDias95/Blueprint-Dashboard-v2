@@ -3,27 +3,32 @@ import { useUpdateProject } from '../../hooks/useUpdateProject';
 import { useUpdatePermit } from '../../hooks/useUpdatePermit';
 import { useCreatePermit } from '../../hooks/useCreatePermit';
 import { useDeletePermit } from '../../hooks/useDeletePermit';
-import { useBuilders, useUpsertBuilder } from '../../hooks/useBuilders';
 import { useJurisdictions } from '../../hooks/useJurisdictions';
 import { useTeamMembers } from '../../hooks/useTeamMembers';
 import { usePermitsByProject } from '../../hooks/usePermitsByProject';
 import { pushToast } from '../../stores/toastStore';
 import type { PermitWithCycles, Project } from '../../lib/database.types';
 
-// Q9.5.f-fix-17 C: full rebuild for v1 parity (index.html:773-850).
-// Three sections:
-//   1. PROJECT INFO — mixes project-level fields (address / juris / acq_lead /
-//      archived / notes / builder_id) with BP-anchored site fields (go_date /
-//      ent_lead / dm / da / units / zone / lot_w/d / parking / alley /
-//      product_type). v1 stores those site fields on the Building Permit row,
-//      so v2 does the same — the BP is the canonical anchor.
-//   2. BUILDER / OWNER — edits the builders row that projects.builder_id
-//      points to (or upserts a new one).
-//   3. PERMITS — repeating block; edit / add / delete permits on the project.
+// fix-22 Migration 3 sweep: ProjectSettingsModal repointed so the 11
+// physical fields + 4 builder fields read/write directly on projects.*
+// instead of the BP permit anchor. Per-permit fields (ent_lead, dm, da,
+// dual_da, architect, portal_url, num, struct_address) still flow
+// through useUpdatePermit for the BP.
 //
-// Deferred from v1: PROJECT TAGS (jsonb pill editor) and UNIT TYPES (jsonb
-// repeating-row editor). Both need their own sub-components — surfaced as a
-// gap to Bobby; the underlying jsonb columns survive untouched on save.
+// Three sections:
+//   1. PROJECT INFO — address / juris / acq_lead / archived / notes plus
+//      the 11 moved-to-project fields (go_date, units, zone, lot_*,
+//      parking_*, alley, product_type, entitlement_lead, design_manager).
+//      ENT/DM defaults live on projects; per-permit overrides happen in
+//      the Permits section.
+//   2. BUILDER / OWNER — 4 freeform inputs writing directly to
+//      projects.builder_name/_company/_email/_phone.
+//   3. PERMITS — repeating block; edit / add / delete permits.
+//
+// Deferred from v1: PROJECT TAGS (jsonb pill editor) and UNIT TYPES
+// (jsonb repeating-row editor). Both columns now ride on projects;
+// editing happens in the Project Overview header until those components
+// land here.
 
 interface Props {
   project: Project;
@@ -40,11 +45,12 @@ const PRODUCT_TYPES = [
   'Cottages',
 ];
 
-interface BpFields {
+/** fix-22 Mig 3: project-level scalar fields that used to live on the BP
+ *  permit (rebranded from "BpFields" to make their new home explicit).
+ *  ent_lead + dm still live per-permit on the BP — kept in BpRoleFields
+ *  below. */
+interface ProjectScalarFields {
   go_date: string;
-  ent_lead: string;
-  dm: string;
-  da: string;
   units: string;
   zone: string;
   lot_width: string;
@@ -53,6 +59,19 @@ interface BpFields {
   parking_stalls: string;
   alley: string;
   product_type: string;
+  entitlement_lead: string;
+  design_manager: string;
+}
+
+interface BpRoleFields {
+  da: string;
+}
+
+interface BuilderFlatFields {
+  builder_name: string;
+  builder_company: string;
+  builder_email: string;
+  builder_phone: string;
 }
 
 interface PermitRow {
@@ -68,22 +87,18 @@ interface PermitRow {
   updated_at?: string | null;
 }
 
-interface BuilderFields {
-  name: string;
-  company: string;
-  email: string;
-  phone: string;
-}
-
 interface FormState {
   address: string;
   juris: string;
   acq_lead: string;
   notes: string;
   archived: boolean;
-  builder_id: string;
-  builder: BuilderFields;
-  bp: BpFields;
+  /** fix-22 Mig 3: project-level scalar fields. */
+  projectFields: ProjectScalarFields;
+  /** fix-22 Mig 3: project-level builder/owner fields (flat columns). */
+  builder: BuilderFlatFields;
+  /** BP-anchored fields that stay per-permit. */
+  bpRole: BpRoleFields;
   permits: PermitRow[];
 }
 
@@ -105,7 +120,6 @@ function permitToRow(p: PermitWithCycles): PermitRow {
 function initForm(
   project: Project,
   permits: PermitWithCycles[],
-  builderRow: { name?: string | null; company?: string | null; email?: string | null; phone?: string | null } | null,
 ): FormState {
   const bp = permits.find((p) => p.type === 'Building Permit') ?? permits[0] ?? null;
   return {
@@ -114,26 +128,28 @@ function initForm(
     acq_lead: project.acq_lead ?? '',
     notes: project.notes ?? '',
     archived: !!project.archived,
-    builder_id: project.builder_id ?? '',
     builder: {
-      name: builderRow?.name ?? '',
-      company: builderRow?.company ?? '',
-      email: builderRow?.email ?? '',
-      phone: builderRow?.phone ?? '',
+      builder_name: project.builder_name ?? '',
+      builder_company: project.builder_company ?? '',
+      builder_email: project.builder_email ?? '',
+      builder_phone: project.builder_phone ?? '',
     },
-    bp: {
-      go_date: bp?.go_date ?? '',
-      ent_lead: bp?.ent_lead ?? '',
-      dm: bp?.dm ?? '',
+    projectFields: {
+      go_date: project.go_date ?? '',
+      units: project.units != null ? String(project.units) : '',
+      zone: project.zone ?? '',
+      lot_width: project.lot_width != null ? String(project.lot_width) : '',
+      lot_depth: project.lot_depth != null ? String(project.lot_depth) : '',
+      parking_type: project.parking_type ?? '',
+      parking_stalls:
+        project.parking_stalls != null ? String(project.parking_stalls) : '',
+      alley: project.alley ?? '',
+      product_type: project.product_type ?? '',
+      entitlement_lead: project.entitlement_lead ?? '',
+      design_manager: project.design_manager ?? '',
+    },
+    bpRole: {
       da: bp?.da ?? '',
-      units: bp?.units != null ? String(bp.units) : '',
-      zone: bp?.zone ?? '',
-      lot_width: bp?.lot_width != null ? String(bp.lot_width) : '',
-      lot_depth: bp?.lot_depth != null ? String(bp.lot_depth) : '',
-      parking_type: bp?.parking_type ?? '',
-      parking_stalls: bp?.parking_stalls != null ? String(bp.parking_stalls) : '',
-      alley: bp?.alley ?? '',
-      product_type: bp?.product_type ?? '',
     },
     permits: permits.map(permitToRow),
   };
@@ -141,7 +157,6 @@ function initForm(
 
 export default function ProjectSettingsModal({ project, onClose }: Props) {
   const permitsQ = usePermitsByProject(project.id);
-  const buildersQ = useBuilders();
   const jurisdictionsQ = useJurisdictions();
   const teamQ = useTeamMembers();
 
@@ -150,39 +165,57 @@ export default function ProjectSettingsModal({ project, onClose }: Props) {
     () => permits.find((p) => p.type === 'Building Permit') ?? permits[0] ?? null,
     [permits],
   );
-  const builderRow = useMemo(
-    () => (buildersQ.data ?? []).find((b) => b.id === project.builder_id) ?? null,
-    [buildersQ.data, project.builder_id],
-  );
 
-  const [form, setForm] = useState<FormState>(() =>
-    initForm(project, permits, builderRow),
-  );
+  const [form, setForm] = useState<FormState>(() => initForm(project, permits));
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    setForm(initForm(project, permits, builderRow));
-  }, [project.id, project.updated_at, permits, builderRow]);
+    setForm(initForm(project, permits));
+  }, [project.id, project.updated_at, permits]);
 
   const updateProject = useUpdateProject();
   const updatePermit = useUpdatePermit();
   const createPermit = useCreatePermit();
   const deletePermit = useDeletePermit();
-  const upsertBuilder = useUpsertBuilder();
 
+  // fix-22-final: dedupe by name. Schema carries both legacy + lead role
+  // variants for the same person (e.g. Bobby is both 'ent' and 'ent_lead').
   const team = teamQ.data ?? [];
-  const entMembers = team.filter((t) => t.role === 'ent' && t.active !== false);
+  const dedupByName = (list: typeof team) => {
+    const seen = new Set<string>();
+    const out: typeof team = [];
+    for (const m of list) {
+      if (seen.has(m.name)) continue;
+      seen.add(m.name);
+      out.push(m);
+    }
+    return out;
+  };
+  const entMembers = dedupByName(
+    team.filter((t) => (t.role === 'ent' || t.role === 'ent_lead') && t.active !== false),
+  );
   const dmMembers = team.filter((t) => t.role === 'dm' && t.active !== false);
   const daMembers = team.filter((t) => t.role === 'da' && t.active !== false);
-  const acqMembers = team.filter((t) => t.role === 'acq' && t.active !== false);
+  const acqMembers = dedupByName(
+    team.filter((t) => (t.role === 'acq' || t.role === 'acq_lead') && t.active !== false),
+  );
 
   function set<K extends keyof FormState>(key: K, value: FormState[K]) {
     setForm((f) => ({ ...f, [key]: value }));
   }
-  function setBp<K extends keyof BpFields>(key: K, value: BpFields[K]) {
-    setForm((f) => ({ ...f, bp: { ...f.bp, [key]: value } }));
+  function setProj<K extends keyof ProjectScalarFields>(
+    key: K,
+    value: ProjectScalarFields[K],
+  ) {
+    setForm((f) => ({ ...f, projectFields: { ...f.projectFields, [key]: value } }));
   }
-  function setBuilderField<K extends keyof BuilderFields>(key: K, value: BuilderFields[K]) {
+  function setBpRole<K extends keyof BpRoleFields>(key: K, value: BpRoleFields[K]) {
+    setForm((f) => ({ ...f, bpRole: { ...f.bpRole, [key]: value } }));
+  }
+  function setBuilderField<K extends keyof BuilderFlatFields>(
+    key: K,
+    value: BuilderFlatFields[K],
+  ) {
     setForm((f) => ({ ...f, builder: { ...f.builder, [key]: value } }));
   }
   function setPermitField(idx: number, patch: Partial<PermitRow>) {
@@ -238,25 +271,10 @@ export default function ProjectSettingsModal({ project, onClose }: Props) {
     if (!project.updated_at) return;
     setSaving(true);
     try {
-      // 1. Builder upsert (do this first so we have an id for projects.builder_id).
-      let builderId = form.builder_id || null;
-      const hasBuilderEdit =
-        form.builder.name.trim() ||
-        form.builder.company.trim() ||
-        form.builder.email.trim() ||
-        form.builder.phone.trim();
-      if (hasBuilderEdit) {
-        const saved = await upsertBuilder.mutateAsync({
-          id: builderId ?? undefined,
-          name: form.builder.name.trim() || form.builder.company.trim() || 'Builder',
-          company: form.builder.company.trim() || null,
-          email: form.builder.email.trim() || null,
-          phone: form.builder.phone.trim() || null,
-        });
-        builderId = saved.id;
-      }
-
-      // 2. Project update.
+      // 1. Project update — fix-22 Mig 3 collapses the previous
+      // project-update + builder-upsert + BP-anchored-site-update into a
+      // single projects.* write. The 11 moved-to-project fields and the 4
+      // builder fields all live here now.
       await updateProject.mutateAsync({
         projectId: project.id,
         expectedUpdatedAt: project.updated_at,
@@ -266,32 +284,37 @@ export default function ProjectSettingsModal({ project, onClose }: Props) {
           acq_lead: form.acq_lead.trim() || null,
           notes: form.notes,
           archived: form.archived,
-          builder_id: builderId,
+          go_date: form.projectFields.go_date || null,
+          units: toNumOrNull(form.projectFields.units),
+          zone: form.projectFields.zone.trim() || null,
+          lot_width: toNumOrNull(form.projectFields.lot_width),
+          lot_depth: toNumOrNull(form.projectFields.lot_depth),
+          parking_type: form.projectFields.parking_type || null,
+          parking_stalls: toNumOrNull(form.projectFields.parking_stalls),
+          alley: form.projectFields.alley || null,
+          product_type: form.projectFields.product_type || null,
+          entitlement_lead: form.projectFields.entitlement_lead.trim() || null,
+          design_manager: form.projectFields.design_manager.trim() || null,
+          builder_name: form.builder.builder_name.trim() || null,
+          builder_company: form.builder.builder_company.trim() || null,
+          builder_email: form.builder.builder_email.trim() || null,
+          builder_phone: form.builder.builder_phone.trim() || null,
         },
         fieldLabel: 'Project Settings',
       });
 
-      // 3. BP-anchored site fields (only if a BP exists and the values changed).
-      if (bpPermit && bpPermit.updated_at) {
+      // 2. BP-anchored per-permit fields (DA stays per-permit). Skip if no
+      // BP or no change. ENT/DM are project-level defaults now; per-permit
+      // overrides happen in the Permits section below.
+      if (bpPermit && bpPermit.updated_at && form.bpRole.da !== (bpPermit.da ?? '')) {
         await updatePermit.mutateAsync({
           permitId: bpPermit.id,
           projectId: project.id,
           expectedUpdatedAt: bpPermit.updated_at,
           patch: {
-            go_date: form.bp.go_date || null,
-            ent_lead: form.bp.ent_lead.trim() || null,
-            dm: form.bp.dm.trim() || null,
-            da: form.bp.da.trim() || null,
-            units: toNumOrNull(form.bp.units),
-            zone: form.bp.zone.trim() || null,
-            lot_width: toNumOrNull(form.bp.lot_width),
-            lot_depth: toNumOrNull(form.bp.lot_depth),
-            parking_type: form.bp.parking_type || null,
-            parking_stalls: toNumOrNull(form.bp.parking_stalls),
-            alley: form.bp.alley || null,
-            product_type: form.bp.product_type || null,
+            da: form.bpRole.da.trim() || null,
           },
-          fieldLabel: 'Building Permit',
+          fieldLabel: 'Building Permit DA',
         });
       }
 
@@ -400,12 +423,17 @@ export default function ProjectSettingsModal({ project, onClose }: Props) {
               />
             </Field>
             <Field label="GO Date">
-              <Input type="date" value={form.bp.go_date} onChange={(v) => setBp('go_date', v)} testid="psm-go" />
+              <Input
+                type="date"
+                value={form.projectFields.go_date}
+                onChange={(v) => setProj('go_date', v)}
+                testid="psm-go"
+              />
             </Field>
             <Field label="Entitlement Lead">
               <DatalistInput
-                value={form.bp.ent_lead}
-                onChange={(v) => setBp('ent_lead', v)}
+                value={form.projectFields.entitlement_lead}
+                onChange={(v) => setProj('entitlement_lead', v)}
                 listId="psm-ent-options"
                 options={entMembers.map((m) => m.name)}
                 testid="psm-ent"
@@ -413,25 +441,34 @@ export default function ProjectSettingsModal({ project, onClose }: Props) {
             </Field>
             <Field label="Design Manager">
               <DatalistInput
-                value={form.bp.dm}
-                onChange={(v) => setBp('dm', v)}
+                value={form.projectFields.design_manager}
+                onChange={(v) => setProj('design_manager', v)}
                 listId="psm-dm-options"
                 options={dmMembers.map((m) => m.name)}
                 testid="psm-dm"
               />
             </Field>
             <Field label="Unit Count">
-              <Input type="number" value={form.bp.units} onChange={(v) => setBp('units', v)} testid="psm-units" />
+              <Input
+                type="number"
+                value={form.projectFields.units}
+                onChange={(v) => setProj('units', v)}
+                testid="psm-units"
+              />
             </Field>
             <Field label="Zone">
-              <Input value={form.bp.zone} onChange={(v) => setBp('zone', v)} testid="psm-zone" />
+              <Input
+                value={form.projectFields.zone}
+                onChange={(v) => setProj('zone', v)}
+                testid="psm-zone"
+              />
             </Field>
             <Field label="Lot Size (W × D, ft)">
               <div className="flex items-center gap-1">
                 <input
                   type="number"
-                  value={form.bp.lot_width}
-                  onChange={(e) => setBp('lot_width', e.target.value)}
+                  value={form.projectFields.lot_width}
+                  onChange={(e) => setProj('lot_width', e.target.value)}
                   className={inputCls}
                   style={{ ...inputStyle, width: 70 }}
                   placeholder="W"
@@ -440,8 +477,8 @@ export default function ProjectSettingsModal({ project, onClose }: Props) {
                 <span style={{ color: 'var(--color-dim)' }}>×</span>
                 <input
                   type="number"
-                  value={form.bp.lot_depth}
-                  onChange={(e) => setBp('lot_depth', e.target.value)}
+                  value={form.projectFields.lot_depth}
+                  onChange={(e) => setProj('lot_depth', e.target.value)}
                   className={inputCls}
                   style={{ ...inputStyle, width: 70 }}
                   placeholder="D"
@@ -451,29 +488,34 @@ export default function ProjectSettingsModal({ project, onClose }: Props) {
             </Field>
             <Field label="Parking Type">
               <SelectInput
-                value={form.bp.parking_type}
-                onChange={(v) => setBp('parking_type', v)}
+                value={form.projectFields.parking_type}
+                onChange={(v) => setProj('parking_type', v)}
                 options={PARKING_OPTIONS}
                 placeholderLabel="— unknown —"
                 testid="psm-parking-type"
               />
             </Field>
             <Field label="Parking Stalls">
-              <Input type="number" value={form.bp.parking_stalls} onChange={(v) => setBp('parking_stalls', v)} testid="psm-parking-stalls" />
+              <Input
+                type="number"
+                value={form.projectFields.parking_stalls}
+                onChange={(v) => setProj('parking_stalls', v)}
+                testid="psm-parking-stalls"
+              />
             </Field>
             <Field label="Alley">
               <SelectInput
-                value={form.bp.alley}
-                onChange={(v) => setBp('alley', v)}
+                value={form.projectFields.alley}
+                onChange={(v) => setProj('alley', v)}
                 options={ALLEY_OPTIONS}
                 placeholderLabel="— unknown —"
                 testid="psm-alley"
               />
             </Field>
-            <Field label="Design Associate">
+            <Field label="BP Design Associate">
               <DatalistInput
-                value={form.bp.da}
-                onChange={(v) => setBp('da', v)}
+                value={form.bpRole.da}
+                onChange={(v) => setBpRole('da', v)}
                 listId="psm-da-options"
                 options={daMembers.map((m) => m.name)}
                 testid="psm-da"
@@ -490,8 +532,8 @@ export default function ProjectSettingsModal({ project, onClose }: Props) {
             </Field>
             <Field label="Product Type">
               <SelectInput
-                value={form.bp.product_type}
-                onChange={(v) => setBp('product_type', v)}
+                value={form.projectFields.product_type}
+                onChange={(v) => setProj('product_type', v)}
                 options={PRODUCT_TYPES}
                 placeholderLabel="— select type —"
                 testid="psm-product-type"
@@ -522,16 +564,33 @@ export default function ProjectSettingsModal({ project, onClose }: Props) {
 
           <Section title="Builder / Owner" color="var(--color-co)">
             <Field label="Builder Name">
-              <Input value={form.builder.name} onChange={(v) => setBuilderField('name', v)} testid="psm-builder-name" />
+              <Input
+                value={form.builder.builder_name}
+                onChange={(v) => setBuilderField('builder_name', v)}
+                testid="psm-builder-name"
+              />
             </Field>
             <Field label="Company">
-              <Input value={form.builder.company} onChange={(v) => setBuilderField('company', v)} testid="psm-builder-co" />
+              <Input
+                value={form.builder.builder_company}
+                onChange={(v) => setBuilderField('builder_company', v)}
+                testid="psm-builder-co"
+              />
             </Field>
             <Field label="Email">
-              <Input type="email" value={form.builder.email} onChange={(v) => setBuilderField('email', v)} testid="psm-builder-email" />
+              <Input
+                type="email"
+                value={form.builder.builder_email}
+                onChange={(v) => setBuilderField('builder_email', v)}
+                testid="psm-builder-email"
+              />
             </Field>
             <Field label="Phone">
-              <Input value={form.builder.phone} onChange={(v) => setBuilderField('phone', v)} testid="psm-builder-phone" />
+              <Input
+                value={form.builder.builder_phone}
+                onChange={(v) => setBuilderField('builder_phone', v)}
+                testid="psm-builder-phone"
+              />
             </Field>
           </Section>
 

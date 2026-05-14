@@ -61,7 +61,9 @@ export function exportEnrichedPermitsToCSV(
       p.da ?? p.architect ?? '',
       p.dm ?? '',
       e.juris,
-      p.go_date ?? '',
+      // fix-22 Mig 3: go_date + units moved to projects; EnrichedPermit
+      // carries them via the project join.
+      e.goDate ?? '',
       p.target_submit ?? '',
       e.firstSubmitted ?? '',
       e.firstIntakeAccepted ?? '',
@@ -75,7 +77,7 @@ export function exportEnrichedPermitsToCSV(
       p.actual_issue ?? '',
       daysOrEmpty(e.variance),
       p.corr_rounds ?? 0,
-      p.units ?? 0,
+      e.units ?? 0,
     ];
     lines.push(cells.map(quoteCell).join(','));
   }

@@ -71,7 +71,6 @@ function makePermit(p: Partial<PermitWithCycles>): PermitWithCycles {
     dm: null,
     ent_lead: null,
     dual_da: null,
-    go_date: null,
     target_submit: null,
     dd_start: null,
     dd_end: null,
@@ -79,20 +78,10 @@ function makePermit(p: Partial<PermitWithCycles>): PermitWithCycles {
     actual_issue: null,
     approval_date: null,
     intake_date: null,
-    units: null,
     notes: null,
     cycle_model: null,
     view_cycle: null,
     kickoff_date: null,
-    zone: null,
-    product_type: null,
-    project_tags: null,
-    unit_types: null,
-    parking_type: null,
-    parking_stalls: null,
-    lot_width: null,
-    lot_depth: null,
-    alley: null,
     corr_rounds: null,
     permit_owner: null,
     architect: null,
@@ -146,9 +135,18 @@ describe('getMonthRange', () => {
     expect(months).toEqual(['2025-11', '2025-12', '2026-01', '2026-02']);
   });
 
-  it("'all' walks back to the earliest permit-anchor date", () => {
-    const p = makePermit({ go_date: '2025-10-15' });
-    const months = getMonthRange({ ...DEFAULT_FILTERS, range: 'all' }, [p]);
+  it("'all' walks back to the earliest project-anchor date", () => {
+    // fix-22 Mig 3: go_date moved to projects; getMonthRange now takes
+    // projectsById to resolve each permit's project go_date.
+    const p = makePermit({ project_id: 'p1' });
+    const projectsById = new Map<string, Project>([
+      ['p1', makeProject({ id: 'p1', go_date: '2025-10-15' })],
+    ]);
+    const months = getMonthRange(
+      { ...DEFAULT_FILTERS, range: 'all' },
+      [p],
+      projectsById,
+    );
     expect(months[0]).toBe('2025-10');
     expect(months[months.length - 1]).toBe('2026-05');
   });
@@ -248,12 +246,18 @@ describe('getGroupKeys + permMatchesGroup', () => {
     ).toEqual(['Total']);
   });
   it('getGroupKeys by tag flattens project_tags arrays', () => {
+    // fix-22 Mig 3: project_tags moved to projects; group key resolution
+    // reads from the project via projectsById.
+    const taggedProjects = new Map<string, Project>([
+      ['p1', makeProject({ id: 'p1', juris: 'Seattle', project_tags: ['ECA', 'SIP'] })],
+      ['p2', makeProject({ id: 'p2', juris: 'Bellevue', project_tags: ['LBA'] })],
+    ]);
     const tagged = [
-      makePermit({ id: 1, project_id: 'p1', project_tags: ['ECA', 'SIP'] as unknown as PermitWithCycles['project_tags'] }),
-      makePermit({ id: 2, project_id: 'p2', project_tags: ['LBA'] as unknown as PermitWithCycles['project_tags'] }),
+      makePermit({ id: 1, project_id: 'p1' }),
+      makePermit({ id: 2, project_id: 'p2' }),
     ];
     expect(
-      getGroupKeys(tagged, { ...DEFAULT_FILTERS, group: 'tag' }, projectsById),
+      getGroupKeys(tagged, { ...DEFAULT_FILTERS, group: 'tag' }, taggedProjects),
     ).toEqual(['ECA', 'LBA', 'SIP']);
   });
 
@@ -403,16 +407,18 @@ describe('buildTimelineSeries', () => {
 });
 
 describe('buildGoSeries', () => {
+  // fix-22 Mig 3: go_date moved to projects. The dedupe-per-address logic
+  // still works because the project carries the canonical go_date.
   const projectsById = new Map([
-    ['p1', makeProject({ id: 'p1', address: '100 Pike St' })],
-    ['p2', makeProject({ id: 'p2', address: '200 Oak Ave' })],
+    ['p1', makeProject({ id: 'p1', address: '100 Pike St', go_date: '2026-03-01' })],
+    ['p2', makeProject({ id: 'p2', address: '200 Oak Ave', go_date: '2026-04-10' })],
   ]);
 
   it('counts distinct addresses with go_date per month (dedupes per address)', () => {
     const permits = [
-      makePermit({ id: 1, project_id: 'p1', go_date: '2026-03-01' }),
-      makePermit({ id: 2, project_id: 'p1', go_date: '2026-03-15' }), // same addr, ignored
-      makePermit({ id: 3, project_id: 'p2', go_date: '2026-04-10' }),
+      makePermit({ id: 1, project_id: 'p1' }),
+      makePermit({ id: 2, project_id: 'p1' }), // same addr, ignored
+      makePermit({ id: 3, project_id: 'p2' }),
     ];
     const series = buildGoSeries(
       permits,

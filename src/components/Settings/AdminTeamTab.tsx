@@ -32,7 +32,9 @@ const ROLE_LABEL: Record<TeamRole, string> = {
   da: 'Design Associates',
   dm: 'Design Managers',
   ent: 'Entitlement Leads',
+  ent_lead: 'Entitlement Leads',
   acq: 'Acquisition Leads',
+  acq_lead: 'Acquisition Leads',
 };
 
 export default function AdminTeamTab() {

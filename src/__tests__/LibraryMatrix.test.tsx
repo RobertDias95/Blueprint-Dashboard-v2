@@ -10,11 +10,52 @@ import { useAuthStore } from '../stores/authStore';
 
 const T = 'test-tenant-uuid';
 
+// fix-22 Mig 3: physical fields (units/zone/lot_*/alley/product_type/
+// project_tags) live on projects now. Matrix rows read from project.
 const fixtures = vi.hoisted(() => ({
   projects: [
-    { id: 'a', address: '100 Apple Way', juris: 'Seattle', archived: false, notes: null },
-    { id: 'b', address: '300 Oak Ln', juris: 'Bellevue', archived: false, notes: null },
-    { id: 'c', address: '500 Pike St', juris: 'Seattle', archived: false, notes: null },
+    {
+      id: 'a',
+      address: '100 Apple Way',
+      juris: 'Seattle',
+      archived: false,
+      notes: null,
+      units: 3,
+      zone: 'NR',
+      lot_width: 40,
+      lot_depth: 100,
+      alley: 'Yes',
+      product_type: 'SFR',
+      project_tags: ['ECA'],
+    },
+    {
+      id: 'b',
+      address: '300 Oak Ln',
+      juris: 'Bellevue',
+      archived: false,
+      notes: null,
+      units: 5,
+      zone: 'R-2',
+      lot_width: 60,
+      lot_depth: 120,
+      alley: 'No',
+      product_type: 'Attached Units',
+      project_tags: ['SIP'],
+    },
+    {
+      id: 'c',
+      address: '500 Pike St',
+      juris: 'Seattle',
+      archived: false,
+      notes: null,
+      units: 7,
+      zone: 'NR',
+      lot_width: 80,
+      lot_depth: 120,
+      alley: 'Yes',
+      product_type: 'SFR',
+      project_tags: [],
+    },
     { id: 'd', address: '700 Archived', juris: 'Seattle', archived: true, notes: null },
   ],
   permits: [

@@ -576,7 +576,9 @@ function PermitDetailTr({ permit: e }: { permit: EnrichedPermit }) {
         {e.permit.expected_issue ?? '—'}
       </td>
       <td className="px-2 py-1 whitespace-nowrap text-dim text-[10px]">
-        {e.permit.go_date ?? '—'}
+        {/* fix-22 Mig 3: go_date is project-level; EnrichedPermit carries
+            it as `goDate` (joined from projects). */}
+        {e.goDate ?? '—'}
       </td>
       <td className="px-2 py-1 whitespace-nowrap text-dim text-[10px]">
         {e.permit.approval_date ?? '—'}

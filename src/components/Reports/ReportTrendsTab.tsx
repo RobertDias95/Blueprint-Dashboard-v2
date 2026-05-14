@@ -148,8 +148,8 @@ function Body({
   );
 
   const months = useMemo(
-    () => getMonthRange(filters, permits),
-    [filters, permits],
+    () => getMonthRange(filters, permits, projectsById),
+    [filters, permits, projectsById],
   );
   const filteredPermits = useMemo(
     () => trFilteredPermits(permits, filters, projectsById),

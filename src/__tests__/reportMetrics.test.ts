@@ -47,7 +47,6 @@ function makePermit(over: Partial<PermitWithCycles> = {}): PermitWithCycles {
     dm: null,
     ent_lead: null,
     dual_da: null,
-    go_date: null,
     target_submit: null,
     dd_start: null,
     dd_end: null,
@@ -55,20 +54,10 @@ function makePermit(over: Partial<PermitWithCycles> = {}): PermitWithCycles {
     actual_issue: null,
     approval_date: null,
     intake_date: null,
-    units: null,
     notes: null,
     cycle_model: null,
     view_cycle: null,
     kickoff_date: null,
-    zone: null,
-    product_type: null,
-    project_tags: null,
-    unit_types: null,
-    parking_type: null,
-    parking_stalls: null,
-    lot_width: null,
-    lot_depth: null,
-    alley: null,
     corr_rounds: null,
     permit_owner: null,
     architect: null,
@@ -144,11 +133,15 @@ describe('enrichPermits', () => {
     expect(enriched[0].address).toBe('500 Pike St');
   });
 
-  it('goToSubmit = days from go_date to first cycle submitted', () => {
+  it('goToSubmit = days from project.go_date to first cycle submitted', () => {
+    // fix-22 Mig 3: go_date moved to projects.
     const cycle = makeCycle({ submitted: '2026-04-01' });
+    const localById = new Map([
+      ['p1', makeProject({ id: 'p1', go_date: '2026-01-01' })],
+    ]);
     const enriched = enrichPermits(
-      [makePermit({ go_date: '2026-01-01', permit_cycles: [cycle] })],
-      projectsById,
+      [makePermit({ project_id: 'p1', permit_cycles: [cycle] })],
+      localById,
     );
     // 2026-01-01 → 2026-04-01 = 90 days.
     expect(enriched[0].goToSubmit).toBe(90);
@@ -265,9 +258,30 @@ describe('enrichPermits', () => {
 // filterEnrichedPermits
 // ============================================================
 describe('filterEnrichedPermits', () => {
+  // fix-22 Mig 3: go_date / product_type / project_tags live on projects.
   const projectsById = new Map<string, Project>([
-    ['p1', makeProject({ id: 'p1', address: '500 Pike St', juris: 'Seattle' })],
-    ['p2', makeProject({ id: 'p2', address: '750 Oak Way', juris: 'Bellevue' })],
+    [
+      'p1',
+      makeProject({
+        id: 'p1',
+        address: '500 Pike St',
+        juris: 'Seattle',
+        go_date: '2026-04-01',
+        product_type: 'SFR',
+        project_tags: ['ECA'],
+      }),
+    ],
+    [
+      'p2',
+      makeProject({
+        id: 'p2',
+        address: '750 Oak Way',
+        juris: 'Bellevue',
+        go_date: '2025-12-01',
+        product_type: 'Attached Units',
+        project_tags: ['SIP'],
+      }),
+    ],
   ]);
   const enriched = enrichPermits(
     [
@@ -276,9 +290,6 @@ describe('filterEnrichedPermits', () => {
         project_id: 'p1',
         type: 'Building Permit',
         ent_lead: 'Bobby',
-        go_date: '2026-04-01',
-        product_type: 'SFR',
-        project_tags: ['ECA'],
         actual_issue: '2026-05-01',
       }),
       makePermit({
@@ -286,9 +297,6 @@ describe('filterEnrichedPermits', () => {
         project_id: 'p2',
         type: 'Demolition',
         ent_lead: 'Miles',
-        go_date: '2025-12-01',
-        product_type: 'Attached Units',
-        project_tags: ['SIP'],
         actual_issue: null,
       }),
     ],
@@ -410,19 +418,20 @@ describe('resolveDateRange', () => {
 // computeMetrics
 // ============================================================
 describe('computeMetrics', () => {
+  // fix-22 Mig 3: units lives on projects (canonical per-address value).
   const projectsById = new Map<string, Project>([
-    ['p1', makeProject({ id: 'p1', address: 'Addr 1', juris: 'Seattle' })],
-    ['p2', makeProject({ id: 'p2', address: 'Addr 2', juris: 'Seattle' })],
+    ['p1', makeProject({ id: 'p1', address: 'Addr 1', juris: 'Seattle', units: 4 })],
+    ['p2', makeProject({ id: 'p2', address: 'Addr 2', juris: 'Seattle', units: 3 })],
   ]);
 
   it('totalPermits + totalUnits across DISTINCT addresses', () => {
     const enriched = enrichPermits(
       [
-        // Two permits at the same address — units counted once.
-        makePermit({ id: 1, project_id: 'p1', units: 4 }),
-        makePermit({ id: 2, project_id: 'p1', units: 4 }),
+        // Two permits at the same address — units counted once (per project).
+        makePermit({ id: 1, project_id: 'p1' }),
+        makePermit({ id: 2, project_id: 'p1' }),
         // Different address.
-        makePermit({ id: 3, project_id: 'p2', units: 3 }),
+        makePermit({ id: 3, project_id: 'p2' }),
       ],
       projectsById,
     );
@@ -509,58 +518,70 @@ describe('aggregateByProject', () => {
   ]);
 
   it('aggregates two permits at same project into one row', () => {
-    // Permit A: GO=2025-01-01 → first submitted 2025-02-01 = 31 days
-    // Permit B: GO=2025-03-01 → first submitted 2025-04-15 = 45 days
-    // avgGoToSubmit should be (31 + 45) / 2 = 38
+    // fix-22 Mig 3: go_date + units live on the project — single canonical
+    // value shared across permits. avgGoToSubmit averages each permit's own
+    // first-submitted relative to the SAME project go_date.
+    //   Project go_date = 2025-01-01, units = 4.
+    //   Permit A first submitted 2025-02-01 → 31 days
+    //   Permit B first submitted 2025-04-15 → 104 days
+    //   avg = (31 + 104) / 2 = 68 (rounded)
+    const localById = new Map<string, Project>([
+      [
+        'p1',
+        makeProject({
+          id: 'p1',
+          address: '500 Pike',
+          juris: 'Seattle',
+          go_date: '2025-01-01',
+          units: 4,
+        }),
+      ],
+    ]);
     const a = makePermit({
       id: 1,
       project_id: 'p1',
-      go_date: '2025-01-01',
       ent_lead: 'Bobby',
       da: 'Ada',
       dm: 'Dave',
       stage: 'pm',
-      units: 4,
       permit_cycles: [makeCycle({ submitted: '2025-02-01' })],
     });
     const b = makePermit({
       id: 2,
       project_id: 'p1',
-      go_date: '2025-03-01',
       ent_lead: null,
       da: null,
       dm: null,
       stage: 'co',
-      units: 2,
       permit_cycles: [makeCycle({ id: 'c2', submitted: '2025-04-15', corr_issued: '2025-05-30' })],
     });
-    const enriched = enrichPermits([a, b], projectsById);
+    const enriched = enrichPermits([a, b], localById);
     const rows = aggregateByProject(enriched);
     expect(rows).toHaveLength(1);
     const row = rows[0];
     expect(row.projectId).toBe('p1');
     expect(row.permitCount).toBe(2);
-    expect(row.avgGoToSubmit).toBe(38);
+    expect(row.avgGoToSubmit).toBe(68);
     expect(row.earliestGoDate).toBe('2025-01-01');
     // First non-null person fields — permit A has them; B has nulls.
     expect(row.ent).toBe('Bobby');
     expect(row.da).toBe('Ada');
     expect(row.dm).toBe('Dave');
-    // Q9.5.f-fix-12: units is canonical (BP's value), not the sum across
-    // permits. Both permits default to type='Building Permit' in makePermit,
-    // so the find() picks permit a — units=4.
+    // fix-22 Mig 3: units is the project's canonical value.
     expect(row.units).toBe(4);
-    // Dominant stage = highest rank (co > pm).
     expect(row.dominantStage).toBe('co');
-    // Max correction rounds = count of cycles with corr_issued, max across
-    // permits. Permit b has corr_issued on its cycle → 1 round.
     expect(row.maxCorrRounds).toBe(1);
   });
 
   it('aggregates two permits in different projects into two rows', () => {
-    const a = makePermit({ id: 1, project_id: 'p1', go_date: '2025-01-01' });
-    const b = makePermit({ id: 2, project_id: 'p2', go_date: '2025-02-01' });
-    const enriched = enrichPermits([a, b], projectsById);
+    // fix-22 Mig 3: go_date on the project.
+    const localById = new Map<string, Project>([
+      ['p1', makeProject({ id: 'p1', go_date: '2025-01-01' })],
+      ['p2', makeProject({ id: 'p2', go_date: '2025-02-01' })],
+    ]);
+    const a = makePermit({ id: 1, project_id: 'p1' });
+    const b = makePermit({ id: 2, project_id: 'p2' });
+    const enriched = enrichPermits([a, b], localById);
     const rows = aggregateByProject(enriched);
     expect(rows).toHaveLength(2);
     const ids = rows.map((r) => r.projectId).sort();
@@ -580,7 +601,8 @@ describe('aggregateByProject', () => {
   });
 
   it('null metrics across all permits → null aggregates, not NaN', () => {
-    const a = makePermit({ id: 1, project_id: 'p1', go_date: null });
+    // fix-22 Mig 3: go_date on project; default null.
+    const a = makePermit({ id: 1, project_id: 'p1' });
     const enriched = enrichPermits([a], projectsById);
     const rows = aggregateByProject(enriched);
     expect(rows[0].avgGoToSubmit).toBeNull();

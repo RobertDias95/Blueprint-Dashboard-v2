@@ -92,19 +92,20 @@ export function buildLibraryRows(
     if (proj.archived) continue;
     const projectPermits = permitsByProject.get(proj.id) ?? [];
     if (projectPermits.length === 0) continue;
-    const bp = pickBpForProject(projectPermits);
-    if (!bp) continue;
+    // fix-22 Migration 3 read-surface sweep: matrix rows source the physical
+    // fields directly from the project now (they moved off permits.*).
+    // BP is still used for the worst-stage rollup below.
     rows.push({
       projectId: proj.id,
       address: proj.address,
       juris: proj.juris ?? '',
-      productType: bp.product_type ?? '',
-      units: bp.units ?? 0,
-      zone: bp.zone ?? '',
-      lotWidth: bp.lot_width ?? 0,
-      lotDepth: bp.lot_depth ?? 0,
-      alley: bp.alley ?? '',
-      tags: extractTags(bp.project_tags),
+      productType: proj.product_type ?? '',
+      units: proj.units ?? 0,
+      zone: proj.zone ?? '',
+      lotWidth: proj.lot_width ?? 0,
+      lotDepth: proj.lot_depth ?? 0,
+      alley: proj.alley ?? '',
+      tags: Array.isArray(proj.project_tags) ? proj.project_tags : [],
       stage: worstStage(projectPermits),
     });
   }

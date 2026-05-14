@@ -67,8 +67,14 @@ function daysBetween(a: string | null | undefined, b: string | null | undefined)
 }
 
 /** Extract a learning sample from one approved/issued permit. Returns null
- * if the permit hasn't reached approval (incomplete lifecycle). */
-export function extractSample(permit: PermitWithCycles): LearnSample | null {
+ * if the permit hasn't reached approval (incomplete lifecycle).
+ *
+ * fix-22 Mig 3: go_date moved permits → projects. The optional second arg
+ * carries the project's go_date so goToSubmitDays still has its anchor. */
+export function extractSample(
+  permit: PermitWithCycles,
+  projectGoDate?: string | null,
+): LearnSample | null {
   if (!permit.approval_date && !permit.actual_issue) return null;
   const cycles = (permit.permit_cycles ?? []).slice().sort(
     (a, b) => a.cycle_index - b.cycle_index,
@@ -128,7 +134,7 @@ export function extractSample(permit: PermitWithCycles): LearnSample | null {
     corrResponse4Days,
     nCycles,
     approvedInCycle,
-    goToSubmitDays: daysBetween(permit.go_date, submittedAnchor),
+    goToSubmitDays: daysBetween(projectGoDate, submittedAnchor),
     submitToIssueDays: daysBetween(submittedAnchor, approvalDate),
     submittedAnchor,
   };
@@ -272,7 +278,9 @@ export function computeLearnedSchedule(
     if (!d) return false;
     return new Date(`${d}T12:00:00Z`).getTime() >= cutoff.getTime();
   });
-  const recentSamples = recent.map(extractSample).filter((s): s is LearnSample => s !== null);
+  const recentSamples = recent
+    .map((p) => extractSample(p, projectsById.get(p.project_id)?.go_date ?? null))
+    .filter((s): s is LearnSample => s !== null);
   if (recentSamples.length > 0) {
     return buildEstimate(
       recentSamples,
@@ -281,7 +289,9 @@ export function computeLearnedSchedule(
     );
   }
   // Tier 2: all-time approved fallback.
-  const allSamples = matchingApproved.map(extractSample).filter((s): s is LearnSample => s !== null);
+  const allSamples = matchingApproved
+    .map((p) => extractSample(p, projectsById.get(p.project_id)?.go_date ?? null))
+    .filter((s): s is LearnSample => s !== null);
   if (allSamples.length > 0) {
     return buildEstimate(
       allSamples,
@@ -327,7 +337,7 @@ export function listSourcePermits(
     const project = projectsById.get(p.project_id);
     if (project?.juris !== juris) continue;
     if (!p.approval_date && !p.actual_issue) continue;
-    const sample = extractSample(p);
+    const sample = extractSample(p, project?.go_date ?? null);
     if (!sample) continue;
     const approval = p.approval_date ?? p.actual_issue ?? null;
     const inRecentWindow =

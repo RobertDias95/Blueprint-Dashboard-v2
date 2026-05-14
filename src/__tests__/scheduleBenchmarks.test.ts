@@ -43,7 +43,6 @@ function makePermit(over: Partial<PermitWithCycles> = {}): PermitWithCycles {
     dm: null,
     ent_lead: null,
     dual_da: null,
-    go_date: null,
     target_submit: null,
     dd_start: null,
     dd_end: null,
@@ -51,20 +50,10 @@ function makePermit(over: Partial<PermitWithCycles> = {}): PermitWithCycles {
     actual_issue: null,
     approval_date: null,
     intake_date: null,
-    units: null,
     notes: null,
     cycle_model: null,
     view_cycle: null,
     kickoff_date: null,
-    zone: null,
-    product_type: null,
-    project_tags: null,
-    unit_types: null,
-    parking_type: null,
-    parking_stalls: null,
-    lot_width: null,
-    lot_depth: null,
-    alley: null,
     corr_rounds: null,
     permit_owner: null,
     architect: null,
@@ -156,14 +145,15 @@ describe('extractSample', () => {
     expect(extractSample(permit)?.approvedInCycle).toBe(3);
   });
 
-  it('goToSubmitDays = go_date → cycle 1 submitted', () => {
+  it('goToSubmitDays = project.go_date → cycle 1 submitted', () => {
+    // fix-22 Mig 3: extractSample now takes the project's go_date as a
+    // second arg.
     const permit = makePermit({
       approval_date: '2026-06-01',
-      go_date: '2026-01-15',
       permit_cycles: [makeCycle({ cycle_index: 1, submitted: '2026-03-01' })],
     });
     // Jan 15 → Mar 1 = 45 days.
-    expect(extractSample(permit)?.goToSubmitDays).toBe(45);
+    expect(extractSample(permit, '2026-01-15')?.goToSubmitDays).toBe(45);
   });
 });
 
@@ -190,7 +180,6 @@ describe('computeLearnedSchedule', () => {
   it('tier 1: recent-window samples build a learned estimate (isAllTime=false)', () => {
     const permit = makePermit({
       approval_date: '2026-05-01',
-      go_date: '2026-01-01',
       permit_cycles: [
         makeCycle({ cycle_index: 1, submitted: '2026-02-01', corr_issued: '2026-03-01' }),
       ],
@@ -213,7 +202,6 @@ describe('computeLearnedSchedule', () => {
     const oldPermit = makePermit({
       id: 1,
       approval_date: '2024-05-01', // > 180 days before today=2026-05-15
-      go_date: '2024-01-01',
       permit_cycles: [
         makeCycle({ cycle_index: 1, submitted: '2024-02-01', corr_issued: '2024-03-01' }),
       ],

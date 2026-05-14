@@ -1,0 +1,139 @@
+import { useEffect, useMemo } from 'react';
+import { useTeamMembers } from '../../hooks/useTeamMembers';
+import PermitAssignmentRow from './PermitAssignmentRow';
+import {
+  newPermitRowId,
+  type WizardPermit,
+  type WizardState,
+} from './wizardState';
+import type { TeamMember } from '../../lib/database.types';
+
+// fix-22 Step 3 — per-permit role/date assignments. Building Permit is
+// always present.
+//
+// fix-22-final updates:
+//   - DA source: switched from useDmDaGroups (draw-schedule lane DAs
+//     only — missed team members like Cam + Shire who aren't yet on a
+//     lane) to useTeamMembers WHERE role='da' AND active=true. The DA
+//     list now matches the full active DA roster.
+//   - BP row persistence: previous implementation conjured the BP row
+//     on every render via useMemo, generating a fresh rowId each time.
+//     React's keyed list saw a new child every render → focus loss and
+//     scroll-jump when the user changed any field on the BP row.
+//     Now: useEffect appends the missing BP row to value.permits exactly
+//     once. After that the row carries a stable rowId across renders.
+
+const BUILDING_PERMIT = 'Building Permit';
+const ENT_ROLES = new Set(['ent', 'ent_lead']);
+const DA_ROLE = 'da';
+
+interface Props {
+  value: WizardState;
+  onChange: (patch: Partial<WizardState>) => void;
+}
+
+function makeBpPermit(defaults: WizardState): WizardPermit {
+  return {
+    rowId: newPermitRowId(),
+    type: BUILDING_PERMIT,
+    selected: true,
+    ent_lead: defaults.entitlement_lead,
+    dm: defaults.design_manager,
+    da: '',
+    dual_da: '',
+    architect: '',
+    num: '',
+    target_submit: '',
+    taskTemplateIds: [],
+  };
+}
+
+/** Filter + dedupe by name. Same logic the Step 1 ENT dropdown uses,
+ *  for the same reason: schema has both ('ent','ent_lead') variants
+ *  per person and we want a single entry. */
+function dedupedByName(all: TeamMember[], roles: Set<string>): TeamMember[] {
+  const seen = new Set<string>();
+  const out: TeamMember[] = [];
+  for (const m of all) {
+    if (!roles.has(m.role)) continue;
+    if (m.active === false) continue;
+    if (seen.has(m.name)) continue;
+    seen.add(m.name);
+    out.push(m);
+  }
+  return out;
+}
+
+export default function Step3Permits({ value, onChange }: Props) {
+  const teamQ = useTeamMembers();
+
+  const entOptions = useMemo(
+    () => dedupedByName(teamQ.all ?? [], ENT_ROLES),
+    [teamQ.all],
+  );
+
+  /** Full active DA roster from team_members. Replaces the previous
+   *  useDmDaGroups source which only included DAs on a draw-schedule
+   *  lane (missed Cam + Shire). Sort alphabetically. */
+  const daOptions = useMemo(() => {
+    const all = teamQ.all ?? [];
+    return all
+      .filter((m) => m.role === DA_ROLE && m.active !== false)
+      .map((m) => m.name)
+      .sort((a, b) => a.localeCompare(b));
+  }, [teamQ.all]);
+
+  /** Ensure a Building Permit row exists in value.permits exactly once.
+   *  Persisting via useEffect (vs. computing on every render) keeps
+   *  rowIds stable across renders — that's what fixes the scroll-jump
+   *  + focus-loss bug. */
+  useEffect(() => {
+    const hasBp = value.permits.some(
+      (p) => p.type === BUILDING_PERMIT && p.selected,
+    );
+    if (hasBp) return;
+    // No selected BP. Either no BP row at all, or one is present but
+    // selected=false. Add a fresh selected BP row at the top.
+    onChange({ permits: [makeBpPermit(value), ...value.permits] });
+    // We intentionally only depend on the BP-presence question.
+    // value.permits identity changes on every keystroke; gating on the
+    // boolean keeps this from looping. The wizard's parent owns the
+    // state so even a self-referential update settles immediately.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [value.permits.some((p) => p.type === BUILDING_PERMIT && p.selected)]);
+
+  const selectedPermits = useMemo(
+    () => value.permits.filter((p) => p.selected),
+    [value.permits],
+  );
+
+  function updatePermit(rowId: string, patch: Partial<WizardPermit>) {
+    onChange({
+      permits: value.permits.map((p) =>
+        p.rowId === rowId ? { ...p, ...patch } : p,
+      ),
+    });
+  }
+
+  return (
+    <div className="space-y-3" data-testid="wizard-step-3">
+      <div className="text-[11px] text-muted">
+        Based on your answers, the following permits are suggested. Adjust
+        per-permit ENT/DA assignments and target dates as needed. Bobby
+        owns PAR/Pre-Sub + SDOT/ECA permits across the team — override
+        the ENT column for those.
+      </div>
+      <div className="flex flex-col gap-2">
+        {selectedPermits.map((p) => (
+          <PermitAssignmentRow
+            key={p.rowId}
+            permit={p}
+            entOptions={entOptions}
+            daOptions={daOptions}
+            onChange={(patch) => updatePermit(p.rowId, patch)}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}

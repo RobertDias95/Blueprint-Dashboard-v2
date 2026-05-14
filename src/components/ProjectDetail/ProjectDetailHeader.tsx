@@ -1,26 +1,33 @@
 import { useMemo, useState } from 'react';
-import type { Permit, PermitWithCycles, Project } from '../../lib/database.types';
+import type {
+  Permit,
+  PermitWithCycles,
+  Project,
+  UnitType,
+} from '../../lib/database.types';
 import { useUpdatePermit } from '../../hooks/useUpdatePermit';
 import { useUpdateProject } from '../../hooks/useUpdateProject';
 import { useAppConfig, readConsultantTypes } from '../../hooks/useAppConfig';
-import { useBuilders, useUpsertBuilder } from '../../hooks/useBuilders';
 
 // Q9.5.e: 4-column header top strip per v1 §4.2.1. Left card holds an
 // inner 3-column grid (DD Phase 0.75fr / Project 1.5fr / Team 1.75fr)
 // inside a single bordered container with var(--color-s2) background.
 // Right panel is a 240px fixed-width Builder/Owner card.
 //
-// v2 doesn't have a `builders` hook yet (table exists but isn't surfaced).
-// Builder/Owner column ships as a read-only empty state for now; backlog
-// item #67 covers the builders hook + edit flow. Bobby's spec accepts
-// this honesty in §4.2.1.
+// fix-22 Migration 3 sweep: the 11 physical fields (zone/alley/lot/units/
+// unit_types/parking/product_type/project_tags/go_date) plus the 4 new
+// builder fields moved permits → projects. This file now reads them off
+// the joined project and writes them via useUpdateProject. Per-permit
+// fields that intentionally stayed on permits (ent_lead, dm, da, dual_da,
+// architect, kickoff_date, dd_start, dd_end) still flow through
+// useUpdatePermit on the BP anchor.
 
 interface Props {
   project: Project;
   permits: PermitWithCycles[];
   /** When set, edits operate against this permit (the Building Permit
    *  by default). Mirrors v1's pattern of using the BP as the
-   *  project-level anchor. */
+   *  project-level anchor for permit-scoped fields. */
   bp: PermitWithCycles | null;
 }
 
@@ -41,9 +48,9 @@ export default function ProjectDetailHeader({ project, permits, bp }: Props) {
             borderColor: 'var(--color-border)',
           }}
         >
-          <DDPhaseCell bp={bp} />
+          <DDPhaseCell project={project} bp={bp} />
           <ProjectCell project={project} bp={bp} />
-          <TeamCell bp={bp} permits={permits} project={project} />
+          <TeamCell project={project} bp={bp} permits={permits} />
         </div>
       </div>
       <BuilderOwnerCell project={project} />
@@ -52,10 +59,17 @@ export default function ProjectDetailHeader({ project, permits, bp }: Props) {
 }
 
 // ============================================================
-// DD Phase cell — GO date (read-only) + DD Start/End (editable) + Duration
+// DD Phase cell — GO date (read-only, project-level) + DD Start/End
+// (editable, permit-level) + Duration
 // ============================================================
 
-function DDPhaseCell({ bp }: { bp: PermitWithCycles | null }) {
+function DDPhaseCell({
+  project,
+  bp,
+}: {
+  project: Project;
+  bp: PermitWithCycles | null;
+}) {
   if (!bp) {
     return (
       <CellShell title="DD Phase" rightBorder>
@@ -63,10 +77,10 @@ function DDPhaseCell({ bp }: { bp: PermitWithCycles | null }) {
       </CellShell>
     );
   }
-  return <DDPhaseEditor bp={bp} />;
+  return <DDPhaseEditor project={project} bp={bp} />;
 }
 
-function DDPhaseEditor({ bp }: { bp: PermitWithCycles }) {
+function DDPhaseEditor({ project, bp }: { project: Project; bp: PermitWithCycles }) {
   // Local-controlled inputs to avoid one-save-per-keystroke. Fires
   // update on blur if the value changed.
   const updateMutation = useUpdatePermit();
@@ -74,9 +88,8 @@ function DDPhaseEditor({ bp }: { bp: PermitWithCycles }) {
   const [startDraft, setStartDraft] = useState(bp.dd_start ?? '');
   const [endDraft, setEndDraft] = useState(bp.dd_end ?? '');
   const dur = computeDuration(startDraft || null, endDraft || null);
-  // Q9.5.e-fix-1: GO date renders as "Nov 14, 2025" per v1
-  // (index.html:3850). ISO format was Bobby's first smoke delta.
-  const goDisplay = formatGoDate(bp.go_date);
+  // fix-22 Mig 3: GO date is project-level now.
+  const goDisplay = formatGoDate(project.go_date);
 
   async function commitField<K extends keyof Permit>(
     field: K,
@@ -103,7 +116,7 @@ function DDPhaseEditor({ bp }: { bp: PermitWithCycles }) {
           label="GO Date"
           value={goDisplay}
           dashed
-          title="GO date is set on the Project Settings page or the date strip below the permit"
+          title="GO date is set on the Project Settings page"
         />
         <div className="flex items-center gap-1.5">
           <span className="text-[9px] text-dim w-12 flex-shrink-0">Start</span>
@@ -153,7 +166,9 @@ function DDPhaseEditor({ bp }: { bp: PermitWithCycles }) {
 }
 
 // ============================================================
-// Project cell — nested Proposal + Site sub-cards
+// Project cell — Proposal (units/type/unit_types/tags) + Site (zone/
+// lot/alley/parking). All values read from projects.*, all writes via
+// useUpdateProject post-Mig 3.
 // ============================================================
 
 function ProjectCell({
@@ -163,12 +178,10 @@ function ProjectCell({
   project: Project;
   bp: PermitWithCycles | null;
 }) {
-  void project;
-  const productType = bp?.product_type ?? '';
-  const tags = Array.isArray(bp?.project_tags)
-    ? (bp.project_tags as unknown[]).filter(
-        (t): t is string => typeof t === 'string',
-      )
+  void bp;
+  const productType = project.product_type ?? '';
+  const tags = Array.isArray(project.project_tags)
+    ? (project.project_tags as string[])
     : [];
 
   return (
@@ -189,11 +202,11 @@ function ProjectCell({
             Proposal
           </div>
           <div className="flex flex-col gap-1">
-            {bp?.units != null && (
+            {project.units != null && (
               <div className="flex items-baseline gap-1.5">
                 <span className="text-[9px] text-dim min-w-[36px]">Units</span>
                 <span className="text-sm font-extrabold text-text">
-                  {bp.units}
+                  {project.units}
                 </span>
               </div>
             )}
@@ -205,19 +218,14 @@ function ProjectCell({
                 </span>
               </div>
             )}
-            {/* Q9.5.e-fix-2: Unit Dimensions section ports v1's
-                renderUnitTypesInline (index.html:5842-5874). Editable inline,
-                writes JSONB unit_types on the BP. */}
+            {/* Unit Dimensions section. fix-22 Mig 3: unit_types lives on
+                projects now, writes via useUpdateProject. */}
             <div className="flex items-baseline gap-1.5 mt-0.5">
               <span className="text-[9px] text-dim min-w-[36px] pt-0.5">
                 Units
               </span>
               <div className="flex-1 min-w-0">
-                {bp ? (
-                  <UnitDimensions bp={bp} />
-                ) : (
-                  <span className="text-[9px] text-dim italic">—</span>
-                )}
+                <UnitDimensions project={project} />
               </div>
             </div>
             <div className="flex items-baseline gap-1.5 mt-0.5">
@@ -245,18 +253,13 @@ function ProjectCell({
           </div>
         </div>
 
-        {/* Site — Q9.5.e-fix-2: editable inputs wired to useUpdatePermit on
-            the BP. Each control commits on blur/change matching the DD Phase
-            pattern. */}
+        {/* Site — fix-22 Mig 3: zone/alley/lot/parking moved to projects;
+            writes via useUpdateProject. */}
         <div className="p-2">
           <div className="text-[9px] font-extrabold text-text uppercase tracking-wider mb-1.5">
             Site
           </div>
-          {bp ? (
-            <SiteEditor bp={bp} />
-          ) : (
-            <div className="text-[10px] text-dim italic">No building permit</div>
-          )}
+          <SiteEditor project={project} />
         </div>
       </div>
     </CellShell>
@@ -264,27 +267,24 @@ function ProjectCell({
 }
 
 // ============================================================
-// Team cell — nested Internal + External sub-cards
+// Team cell — Internal (ENT/DA/DM/ACQ) + External
 // ============================================================
 
 function TeamCell({
+  project,
   bp,
   permits,
-  project,
 }: {
+  project: Project;
   bp: PermitWithCycles | null;
   permits: PermitWithCycles[];
-  project: Project;
 }) {
-  const ent = bp?.ent_lead;
-  // Q9.5.f-fix-9: stop masking permits.architect inside DA. They're
-  // distinct concepts (DA = internal Blueprint staff; architect = external
-  // design firm), and the fallback was hiding 11 architect values across
-  // production. Architect renders as its own labeled row below.
-  const da = bp?.da;
-  const dm = bp?.dm;
-  // Project-level ACQ: scan all permits — v2 doesn't have an acq_lead
-  // column yet (task #63 backlog); show '—' for now.
+  // fix-22 Mig 3: project-level entitlement_lead is the default; bp.ent_lead
+  // overrides per-permit (Bobby's PAR/SDOT/ECA pattern). Display the BP
+  // override when present, else fall back to project-level default.
+  const ent = bp?.ent_lead ?? project.entitlement_lead ?? null;
+  const da = bp?.da ?? null;
+  const dm = bp?.dm ?? project.design_manager ?? null;
   void permits;
 
   return (
@@ -392,29 +392,47 @@ function ExternalTeamEditor({ project }: { project: Project }) {
 }
 
 // ============================================================
-// Builder / Owner cell (read-only stub — see backlog)
+// Builder / Owner cell — fix-22 Mig 6+7: 4 freeform inputs writing
+// directly to projects.builder_name/_company/_email/_phone. Replaces the
+// previous builders-table FK flow (still available via useBuilders for
+// future cross-project rolodex use, but the Project Overview surface
+// now treats the four columns as the canonical store, matching the
+// wizard's Step 1 panel layout).
 // ============================================================
 
-// Q9.5.e-fix-3: Builder/Owner cell — autocomplete from `builders` table via
-// HTML `<datalist>`, falling back to "Create new" on commit. Selecting an
-// existing builder sets projects.builder_id (FK); selecting/clearing all
-// fields clears builder_id back to null.
 function BuilderOwnerCell({ project }: { project: Project }) {
-  const buildersQ = useBuilders();
   const updateProject = useUpdateProject();
-  const upsertBuilder = useUpsertBuilder();
-
-  const current =
-    project.builder_id
-      ? buildersQ.data?.find((b) => b.id === project.builder_id) ?? null
-      : null;
-
   const occMissing = !project.updated_at;
-  const datalistId = `builders-list-${project.id}`;
 
-  // Local drafts — commit on blur. When `current` changes (via picker or
-  // external sync), re-seed from props on next render via key prop on
-  // BuilderForm.
+  const [name, setName] = useState(project.builder_name ?? '');
+  const [company, setCompany] = useState(project.builder_company ?? '');
+  const [email, setEmail] = useState(project.builder_email ?? '');
+  const [phone, setPhone] = useState(project.builder_phone ?? '');
+
+  async function commit<K extends keyof Project>(
+    field: K,
+    next: string,
+    original: string | null | undefined,
+    label: string,
+  ) {
+    if (!project.updated_at) return;
+    const trimmed = next.trim();
+    const normalized: string | null = trimmed === '' ? null : trimmed;
+    if (normalized === (original ?? null)) return;
+    await updateProject.mutateAsync({
+      projectId: project.id,
+      expectedUpdatedAt: project.updated_at,
+      patch: { [field]: normalized } as Partial<Project>,
+      fieldLabel: label,
+    });
+  }
+
+  const labelStyle =
+    'text-[8px] font-bold text-dim uppercase tracking-wide';
+  const inputClass =
+    'text-[12px] font-bold text-text border-0 border-b outline-none bg-transparent w-full px-0 py-0.5 disabled:opacity-50';
+  const inputStyle = { borderBottomColor: 'var(--color-border)' };
+
   return (
     <div
       className="flex-shrink-0 px-4 py-2 border-l flex flex-col gap-1.5"
@@ -425,169 +443,18 @@ function BuilderOwnerCell({ project }: { project: Project }) {
       }}
       data-testid="pd-builder-cell"
     >
-      <div className="flex items-center justify-between">
-        <div className="text-[10px] font-extrabold text-text uppercase tracking-wider">
-          Builder / Owner
-        </div>
-        {current && (
-          <button
-            type="button"
-            onClick={() =>
-              project.updated_at &&
-              void updateProject.mutateAsync({
-                projectId: project.id,
-                expectedUpdatedAt: project.updated_at,
-                patch: { builder_id: null },
-                fieldLabel: 'Builder',
-              })
-            }
-            disabled={occMissing || updateProject.isPending}
-            className="text-[9px] text-dim hover:text-co underline disabled:opacity-50"
-            data-testid="pd-builder-clear"
-            title="Detach builder from this project"
-          >
-            clear
-          </button>
-        )}
+      <div className="text-[10px] font-extrabold text-text uppercase tracking-wider">
+        Builder / Owner
       </div>
-      <datalist id={datalistId}>
-        {(buildersQ.data ?? []).map((b) => (
-          <option key={b.id} value={b.name}>
-            {b.company || b.email || b.phone || ''}
-          </option>
-        ))}
-      </datalist>
-      <BuilderForm
-        key={current?.id ?? 'empty'}
-        current={current}
-        builders={buildersQ.data ?? []}
-        disabled={occMissing}
-        datalistId={datalistId}
-        onPickExisting={async (builderId) => {
-          if (!project.updated_at) return;
-          await updateProject.mutateAsync({
-            projectId: project.id,
-            expectedUpdatedAt: project.updated_at,
-            patch: { builder_id: builderId },
-            fieldLabel: 'Builder',
-          });
-        }}
-        onCreateOrUpdate={async (form) => {
-          if (!project.updated_at) return;
-          // If no name, nothing to do.
-          if (!form.name.trim()) return;
-          // If editing an existing builder linked to this project, update
-          // that row. Otherwise, create a new builder and FK it in.
-          if (current && form.name.trim() === current.name) {
-            await upsertBuilder.mutateAsync({
-              id: current.id,
-              name: form.name.trim(),
-              company: form.company.trim() || null,
-              email: form.email.trim() || null,
-              phone: form.phone.trim() || null,
-            });
-            return;
-          }
-          const created = await upsertBuilder.mutateAsync({
-            name: form.name.trim(),
-            company: form.company.trim() || null,
-            email: form.email.trim() || null,
-            phone: form.phone.trim() || null,
-          });
-          await updateProject.mutateAsync({
-            projectId: project.id,
-            expectedUpdatedAt: project.updated_at,
-            patch: { builder_id: created.id },
-            fieldLabel: 'Builder',
-          });
-        }}
-      />
-    </div>
-  );
-}
-
-function BuilderForm({
-  current,
-  builders,
-  disabled,
-  datalistId,
-  onPickExisting,
-  onCreateOrUpdate,
-}: {
-  current: { id: string; name: string; company: string | null; email: string | null; phone: string | null } | null;
-  builders: { id: string; name: string; company: string | null; email: string | null; phone: string | null }[];
-  disabled: boolean;
-  datalistId: string;
-  onPickExisting: (builderId: string) => Promise<void>;
-  onCreateOrUpdate: (form: {
-    name: string;
-    company: string;
-    email: string;
-    phone: string;
-  }) => Promise<void>;
-}) {
-  const [name, setName] = useState(current?.name ?? '');
-  const [company, setCompany] = useState(current?.company ?? '');
-  const [email, setEmail] = useState(current?.email ?? '');
-  const [phone, setPhone] = useState(current?.phone ?? '');
-
-  // Q9.5.e-fix-4: datalist picks fire `change` but not `blur` until the
-  // user tabs away. So we run the exact-match auto-fill on every change.
-  // Returns true when an auto-pick fired, so onBlur can skip the create
-  // path. Match is exact (case-insensitive) and only fires when the picked
-  // builder differs from `current` to avoid re-firing the same FK update.
-  function maybeAutoPick(value: string): boolean {
-    const trimmed = value.trim();
-    if (!trimmed) return false;
-    const match = builders.find(
-      (b) => b.name.trim().toLowerCase() === trimmed.toLowerCase(),
-    );
-    if (match && match.id !== current?.id) {
-      setName(match.name);
-      setCompany(match.company ?? '');
-      setEmail(match.email ?? '');
-      setPhone(match.phone ?? '');
-      void onPickExisting(match.id);
-      return true;
-    }
-    return false;
-  }
-
-  function onNameChange(next: string) {
-    setName(next);
-    maybeAutoPick(next);
-  }
-
-  function onNameBlur() {
-    if (maybeAutoPick(name)) return;
-    const trimmed = name.trim();
-    if (!trimmed) return;
-    void onCreateOrUpdate({ name: trimmed, company, email, phone });
-  }
-
-  function fieldBlur() {
-    if (!name.trim()) return;
-    void onCreateOrUpdate({ name: name.trim(), company, email, phone });
-  }
-
-  const labelStyle =
-    'text-[8px] font-bold text-dim uppercase tracking-wide';
-  const inputClass =
-    'text-[12px] font-bold text-text border-0 border-b outline-none bg-transparent w-full px-0 py-0.5 disabled:opacity-50';
-  const inputStyle = { borderBottomColor: 'var(--color-border)' };
-
-  return (
-    <div className="flex flex-col gap-2">
       <div>
         <span className={labelStyle}>Owner</span>
         <input
           type="text"
           value={name}
-          list={datalistId}
           placeholder="Full name"
-          onChange={(e) => onNameChange(e.target.value)}
-          onBlur={onNameBlur}
-          disabled={disabled}
+          onChange={(e) => setName(e.target.value)}
+          onBlur={() => commit('builder_name', name, project.builder_name, 'Builder Name')}
+          disabled={occMissing}
           className={inputClass}
           style={inputStyle}
           data-testid="pd-builder-name"
@@ -600,8 +467,8 @@ function BuilderForm({
           value={company}
           placeholder="Company"
           onChange={(e) => setCompany(e.target.value)}
-          onBlur={fieldBlur}
-          disabled={disabled}
+          onBlur={() => commit('builder_company', company, project.builder_company, 'Builder Company')}
+          disabled={occMissing}
           className={inputClass}
           style={inputStyle}
           data-testid="pd-builder-company"
@@ -614,8 +481,8 @@ function BuilderForm({
           value={email}
           placeholder="builder@email.com"
           onChange={(e) => setEmail(e.target.value)}
-          onBlur={fieldBlur}
-          disabled={disabled}
+          onBlur={() => commit('builder_email', email, project.builder_email, 'Builder Email')}
+          disabled={occMissing}
           className={`${inputClass} font-semibold`}
           style={{ ...inputStyle, color: 'var(--color-de)' }}
           data-testid="pd-builder-email"
@@ -628,8 +495,8 @@ function BuilderForm({
           value={phone}
           placeholder="(206) 555-0100"
           onChange={(e) => setPhone(e.target.value)}
-          onBlur={fieldBlur}
-          disabled={disabled}
+          onBlur={() => commit('builder_phone', phone, project.builder_phone, 'Builder Phone')}
+          disabled={occMissing}
           className={inputClass}
           style={inputStyle}
           data-testid="pd-builder-phone"
@@ -708,14 +575,7 @@ function TeamRow({
   );
 }
 
-// Q9.5.f-fix-10: ArchitectRow removed (revert of fix-9). Architect is an
-// external consultant, not internal team — does not belong in the team
-// section. permits.architect column stays populated; surfaces elsewhere
-// when external-team UI grows to cover it.
-
 function computeDuration(start: string | null, end: string | null): string {
-  // Q9.5.e-fix-1: v1 renders plain "Nd" (index.html:3851) — was
-  // incorrectly converting to weeks for ≥7d. Match v1 verbatim.
   if (!start || !end) return '';
   const a = new Date(start + 'T12:00:00');
   const b = new Date(end + 'T12:00:00');
@@ -724,8 +584,8 @@ function computeDuration(start: string | null, end: string | null): string {
   return `${days}d`;
 }
 
-/** Format an ISO date as "MMM DD, YYYY" (e.g. "Nov 14, 2025") — matches
- * v1's `toLocaleDateString('en-US', {month:'short', day:'numeric',
+/** Format an ISO date as "MMM DD, YYYY" — matches v1's
+ * `toLocaleDateString('en-US', {month:'short', day:'numeric',
  * year:'numeric'})` at index.html:3850. */
 function formatGoDate(iso: string | null | undefined): string {
   if (!iso) return '—';
@@ -739,28 +599,27 @@ function formatGoDate(iso: string | null | undefined): string {
 }
 
 // ============================================================
-// Q9.5.e-fix-2: editable Site fields (Zone / Lot / Alley / Parking / Stalls)
-// All writes go through useUpdatePermit on the BP. Commit on blur for text
-// inputs, on change for selects — matches the DD Phase commit pattern.
+// fix-22 Mig 3: Site editor — writes zone / lot / alley / parking_type /
+// parking_stalls to projects via useUpdateProject. Previously wrote to
+// permits via useUpdatePermit on the BP.
 // ============================================================
 
-function SiteEditor({ bp }: { bp: PermitWithCycles }) {
-  const updateMutation = useUpdatePermit();
-  const occMissing = !bp.updated_at;
+function SiteEditor({ project }: { project: Project }) {
+  const updateMutation = useUpdateProject();
+  const occMissing = !project.updated_at;
 
-  async function commit<K extends keyof Permit>(
+  async function commit<K extends keyof Project>(
     field: K,
-    next: Permit[K],
-    original: Permit[K],
+    next: Project[K],
+    original: Project[K] | null | undefined,
     label: string,
   ) {
-    if (!bp.updated_at) return;
-    if (next === original) return;
+    if (!project.updated_at) return;
+    if (next === (original ?? null)) return;
     await updateMutation.mutateAsync({
-      permitId: bp.id,
-      projectId: bp.project_id,
-      expectedUpdatedAt: bp.updated_at,
-      patch: { [field]: next } as Partial<Permit>,
+      projectId: project.id,
+      expectedUpdatedAt: project.updated_at,
+      patch: { [field]: next } as Partial<Project>,
       fieldLabel: label,
     });
   }
@@ -769,34 +628,34 @@ function SiteEditor({ bp }: { bp: PermitWithCycles }) {
     <div className="flex flex-col gap-1">
       <SiteTextRow
         label="Zone"
-        value={bp.zone}
+        value={project.zone}
         placeholder="e.g. RSL"
         disabled={occMissing}
-        onCommit={(v) => commit('zone', v || null, bp.zone, 'Zone')}
+        onCommit={(v) => commit('zone', v || null, project.zone, 'Zone')}
       />
-      <SiteLotRow bp={bp} disabled={occMissing} onCommit={commit} />
+      <SiteLotRow project={project} disabled={occMissing} onCommit={commit} />
       <SiteSelectRow
         label="Alley"
-        value={bp.alley ?? ''}
+        value={project.alley ?? ''}
         options={['', 'Yes', 'No']}
         disabled={occMissing}
-        onCommit={(v) => commit('alley', v || null, bp.alley ?? null, 'Alley')}
+        onCommit={(v) => commit('alley', v || null, project.alley, 'Alley')}
       />
       <SiteSelectRow
         label="Parking"
-        value={bp.parking_type ?? ''}
+        value={project.parking_type ?? ''}
         options={['', 'None', 'Surface', 'Garage', 'Both']}
         disabled={occMissing}
         onCommit={(v) =>
-          commit('parking_type', v || null, bp.parking_type, 'Parking Type')
+          commit('parking_type', v || null, project.parking_type, 'Parking Type')
         }
       />
       <SiteNumberRow
         label="Stalls"
-        value={bp.parking_stalls}
+        value={project.parking_stalls ?? null}
         disabled={occMissing}
         onCommit={(v) =>
-          commit('parking_stalls', v, bp.parking_stalls, 'Parking Stalls')
+          commit('parking_stalls', v, project.parking_stalls, 'Parking Stalls')
         }
       />
     </div>
@@ -904,24 +763,24 @@ function SiteNumberRow({
 }
 
 function SiteLotRow({
-  bp,
+  project,
   disabled,
   onCommit,
 }: {
-  bp: PermitWithCycles;
+  project: Project;
   disabled: boolean;
-  onCommit: <K extends keyof Permit>(
+  onCommit: <K extends keyof Project>(
     field: K,
-    next: Permit[K],
-    original: Permit[K],
+    next: Project[K],
+    original: Project[K] | null | undefined,
     label: string,
   ) => Promise<void>;
 }) {
   const [wDraft, setWDraft] = useState<string>(
-    bp.lot_width != null ? String(bp.lot_width) : '',
+    project.lot_width != null ? String(project.lot_width) : '',
   );
   const [dDraft, setDDraft] = useState<string>(
-    bp.lot_depth != null ? String(bp.lot_depth) : '',
+    project.lot_depth != null ? String(project.lot_depth) : '',
   );
   const parse = (s: string): number | null => {
     const trimmed = s.trim();
@@ -939,7 +798,7 @@ function SiteLotRow({
         placeholder="W"
         onChange={(e) => setWDraft(e.target.value)}
         onBlur={() =>
-          onCommit('lot_width', parse(wDraft), bp.lot_width ?? null, 'Lot Width')
+          onCommit('lot_width', parse(wDraft), project.lot_width, 'Lot Width')
         }
         disabled={disabled}
         className="w-10 text-[10px] font-semibold text-text border-0 border-b outline-none bg-transparent px-0 py-0.5 text-center disabled:opacity-50"
@@ -954,7 +813,7 @@ function SiteLotRow({
         placeholder="D"
         onChange={(e) => setDDraft(e.target.value)}
         onBlur={() =>
-          onCommit('lot_depth', parse(dDraft), bp.lot_depth ?? null, 'Lot Depth')
+          onCommit('lot_depth', parse(dDraft), project.lot_depth, 'Lot Depth')
         }
         disabled={disabled}
         className="w-10 text-[10px] font-semibold text-text border-0 border-b outline-none bg-transparent px-0 py-0.5 text-center disabled:opacity-50"
@@ -967,23 +826,9 @@ function SiteLotRow({
 }
 
 // ============================================================
-// Q9.5.e-fix-2: Unit Dimensions editor — port of v1's renderUnitTypesInline
-// (index.html:5842-5874). unit_types lives as JSONB on the BP.
-//
-// Two render modes:
-//   - Compact (≤1 entry, no label): one W×D pair with "+ different sizes"
-//     to expand into typed entries.
-//   - Expanded: list of {label, w, d, qty} rows with add/remove.
-// All writes flush the full array via useUpdatePermit. Local drafts let the
-// user type without one-RPC-per-keystroke; commit happens on blur.
+// fix-22 Mig 3: Unit Dimensions editor — unit_types moved permits →
+// projects. Writes via useUpdateProject.
 // ============================================================
-
-interface UnitType {
-  label: string;
-  w: number;
-  d: number;
-  qty: number;
-}
 
 function parseUnitTypes(raw: unknown): UnitType[] {
   if (!Array.isArray(raw)) return [];
@@ -991,24 +836,35 @@ function parseUnitTypes(raw: unknown): UnitType[] {
     .filter((u): u is Record<string, unknown> => !!u && typeof u === 'object')
     .map((u) => ({
       label: typeof u.label === 'string' ? u.label : '',
-      w: typeof u.w === 'number' ? u.w : 0,
-      d: typeof u.d === 'number' ? u.d : 0,
+      // Support both v1's {w,d} shape and the new {width_ft,depth_ft} shape
+      // the wizard writes. Keep the canonical UnitType shape going out.
+      width_ft:
+        typeof u.width_ft === 'number'
+          ? u.width_ft
+          : typeof u.w === 'number'
+            ? u.w
+            : null,
+      depth_ft:
+        typeof u.depth_ft === 'number'
+          ? u.depth_ft
+          : typeof u.d === 'number'
+            ? u.d
+            : null,
       qty: typeof u.qty === 'number' && u.qty > 0 ? u.qty : 1,
     }));
 }
 
-function UnitDimensions({ bp }: { bp: PermitWithCycles }) {
-  const updateMutation = useUpdatePermit();
-  const occMissing = !bp.updated_at;
-  const types = parseUnitTypes(bp.unit_types);
+function UnitDimensions({ project }: { project: Project }) {
+  const updateMutation = useUpdateProject();
+  const occMissing = !project.updated_at;
+  const types = parseUnitTypes(project.unit_types);
 
   async function writeTypes(next: UnitType[]) {
-    if (!bp.updated_at) return;
+    if (!project.updated_at) return;
     await updateMutation.mutateAsync({
-      permitId: bp.id,
-      projectId: bp.project_id,
-      expectedUpdatedAt: bp.updated_at,
-      patch: { unit_types: next as unknown as Permit['unit_types'] },
+      projectId: project.id,
+      expectedUpdatedAt: project.updated_at,
+      patch: { unit_types: next },
       fieldLabel: 'Unit Dimensions',
     });
   }
@@ -1019,11 +875,10 @@ function UnitDimensions({ bp }: { bp: PermitWithCycles }) {
   if (isCompact) {
     return (
       <UnitDimensionsCompact
-        bp={bp}
         current={types[0]}
         disabled={occMissing}
         onSet={(field, val) => {
-          const base = types[0] ?? { label: '', w: 0, d: 0, qty: 1 };
+          const base = types[0] ?? { label: '', width_ft: null, depth_ft: null, qty: 1 };
           const next: UnitType = { ...base, [field]: val };
           void writeTypes([next]);
         }}
@@ -1031,12 +886,12 @@ function UnitDimensions({ bp }: { bp: PermitWithCycles }) {
           const seed: UnitType[] =
             types.length === 0
               ? [
-                  { label: 'Type A', w: 0, d: 0, qty: 1 },
-                  { label: 'Type B', w: 0, d: 0, qty: 1 },
+                  { label: 'Type A', width_ft: null, depth_ft: null, qty: 1 },
+                  { label: 'Type B', width_ft: null, depth_ft: null, qty: 1 },
                 ]
               : [
                   { ...types[0], label: types[0].label || 'Type A' },
-                  { label: 'Type B', w: 0, d: 0, qty: 1 },
+                  { label: 'Type B', width_ft: null, depth_ft: null, qty: 1 },
                 ];
           void writeTypes(seed);
         }}
@@ -1059,7 +914,10 @@ function UnitDimensions({ bp }: { bp: PermitWithCycles }) {
         void writeTypes(next);
       }}
       onAdd={() => {
-        const next = [...types, { label: '', w: 0, d: 0, qty: 1 }];
+        const next = [
+          ...types,
+          { label: '', width_ft: null, depth_ft: null, qty: 1 },
+        ];
         void writeTypes(next);
       }}
     />
@@ -1067,21 +925,22 @@ function UnitDimensions({ bp }: { bp: PermitWithCycles }) {
 }
 
 function UnitDimensionsCompact({
-  bp,
   current,
   disabled,
   onSet,
   onExpand,
 }: {
-  bp: PermitWithCycles;
   current: UnitType | undefined;
   disabled: boolean;
-  onSet: (field: 'w' | 'd', val: number) => void;
+  onSet: (field: 'width_ft' | 'depth_ft', val: number) => void;
   onExpand: () => void;
 }) {
-  void bp;
-  const [w, setW] = useState<string>(current?.w ? String(current.w) : '');
-  const [d, setD] = useState<string>(current?.d ? String(current.d) : '');
+  const [w, setW] = useState<string>(
+    current?.width_ft != null ? String(current.width_ft) : '',
+  );
+  const [d, setD] = useState<string>(
+    current?.depth_ft != null ? String(current.depth_ft) : '',
+  );
   return (
     <div className="flex flex-col gap-1">
       <div className="flex items-center gap-1">
@@ -1091,7 +950,7 @@ function UnitDimensionsCompact({
           value={w}
           placeholder="W"
           onChange={(e) => setW(e.target.value)}
-          onBlur={() => onSet('w', Number(w) || 0)}
+          onBlur={() => onSet('width_ft', Number(w) || 0)}
           disabled={disabled}
           className="w-9 text-[10px] font-semibold text-text border-0 border-b outline-none bg-transparent text-center disabled:opacity-50"
           style={{ borderBottomColor: 'var(--color-border)' }}
@@ -1104,7 +963,7 @@ function UnitDimensionsCompact({
           value={d}
           placeholder="D"
           onChange={(e) => setD(e.target.value)}
-          onBlur={() => onSet('d', Number(d) || 0)}
+          onBlur={() => onSet('depth_ft', Number(d) || 0)}
           disabled={disabled}
           className="w-9 text-[10px] font-semibold text-text border-0 border-b outline-none bg-transparent text-center disabled:opacity-50"
           style={{ borderBottomColor: 'var(--color-border)' }}
@@ -1135,7 +994,11 @@ function UnitDimensionsExpanded({
 }: {
   types: UnitType[];
   disabled: boolean;
-  onUpdate: (idx: number, field: keyof UnitType, val: string | number) => void;
+  onUpdate: (
+    idx: number,
+    field: keyof UnitType,
+    val: string | number | null,
+  ) => void;
   onRemove: (idx: number) => void;
   onAdd: () => void;
 }) {
@@ -1180,12 +1043,12 @@ function UnitRow({
 }: {
   row: UnitType;
   disabled: boolean;
-  onChange: (field: keyof UnitType, val: string | number) => void;
+  onChange: (field: keyof UnitType, val: string | number | null) => void;
   onRemove: () => void;
 }) {
   const [label, setLabel] = useState(row.label);
-  const [w, setW] = useState(row.w ? String(row.w) : '');
-  const [d, setD] = useState(row.d ? String(row.d) : '');
+  const [w, setW] = useState(row.width_ft != null ? String(row.width_ft) : '');
+  const [d, setD] = useState(row.depth_ft != null ? String(row.depth_ft) : '');
   const [qty, setQty] = useState(String(row.qty || 1));
   const cellStyle = { borderBottomColor: 'var(--color-border)' } as const;
   const cellClass =
@@ -1208,7 +1071,7 @@ function UnitRow({
         value={w}
         placeholder="W"
         onChange={(e) => setW(e.target.value)}
-        onBlur={() => onChange('w', Number(w) || 0)}
+        onBlur={() => onChange('width_ft', w === '' ? null : Number(w) || 0)}
         disabled={disabled}
         style={{ ...cellStyle, width: 26 }}
         className={cellClass}
@@ -1220,7 +1083,7 @@ function UnitRow({
         value={d}
         placeholder="D"
         onChange={(e) => setD(e.target.value)}
-        onBlur={() => onChange('d', Number(d) || 0)}
+        onBlur={() => onChange('depth_ft', d === '' ? null : Number(d) || 0)}
         disabled={disabled}
         style={{ ...cellStyle, width: 26 }}
         className={cellClass}

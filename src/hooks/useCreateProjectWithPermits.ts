@@ -3,37 +3,62 @@ import { supabase } from '../lib/supabase';
 import { queryKeys } from '../lib/queryKeys';
 import { pushToast } from '../stores/toastStore';
 import { useAuthStore } from '../stores/authStore';
+import type { UnitType } from '../lib/database.types';
 
-// Q5: Atomic create-with-children via bp_create_project_with_permits.
-// One RPC creates project + permits + 2 default cycles per permit + base
-// tasks copied from task_templates, all in a single transaction.
+// fix-22: extended to match the new bp_create_project_with_permits RPC
+// signature (Migration 5). Adds p_project_data with the 13 new project-
+// level columns; each permit now carries task_template_ids[] (uuids) so
+// Step 4's task toggles map directly to permit_tasks inserts.
 //
-// Address collision is NOT an error from the RPC's perspective — it
-// returns conflict=true with the existing project_id. The wizard surfaces
-// that as an inline "view existing?" prompt rather than a hard failure.
-// Other errors (network/SQL) come through as Error and bubble to the
-// mutation's onError handler.
-//
-// Q5.5.D: p_tenant_id is required by the RPC (no internal default).
-// Read activeTenantId from authStore at mutation-call time. RLS WITH CHECK
-// on each INSERT confirms the caller is a member of that tenant.
+// Q5 conflict semantics preserved: address collision returns conflict=true
+// with the existing project_id; other errors throw.
 
+/** Per-permit payload — fields default to undefined; the hook wires
+ *  undefined → null on the wire so the DB keeps clean NULLs. */
 export interface PermitInput {
   type: string;
   num?: string;
   da?: string;
   dm?: string;
   ent_lead?: string;
+  dual_da?: string;
+  architect?: string;
   target_submit?: string;
-  dd_start?: string;
-  dd_end?: string;
-  kickoff_date?: string;
+  /** REQUIRED on the new signature. Empty array = create no tasks for
+   *  this permit (Bobby's "task toggle behavior" decision). */
+  task_template_ids: string[];
+}
+
+/** Project-level fields collected by Step 1; serialized as p_project_data.
+ *  Migration 6 added builder_name/_company/_email/_phone; Migration 7
+ *  taught the RPC to read them from this payload (NULLIF(..., '') →
+ *  projects.builder_*). */
+export interface ProjectData {
+  entitlement_lead?: string | null;
+  design_manager?: string | null;
+  acq_lead?: string | null;
+  go_date?: string | null;
+  units?: number | null;
+  zone?: string | null;
+  lot_width?: number | null;
+  lot_depth?: number | null;
+  unit_types?: UnitType[] | null;
+  parking_type?: string | null;
+  parking_stalls?: number | null;
+  alley?: string | null;
+  product_type?: string | null;
+  project_tags?: string[] | null;
+  builder_name?: string | null;
+  builder_company?: string | null;
+  builder_email?: string | null;
+  builder_phone?: string | null;
 }
 
 export interface CreateProjectInput {
   address: string;
   juris: string;
   notes?: string;
+  project_data: ProjectData;
   permits: PermitInput[];
 }
 
@@ -59,6 +84,7 @@ export function useCreateProjectWithPermits() {
           p_address: input.address,
           p_juris: input.juris,
           p_notes: input.notes ?? null,
+          p_project_data: input.project_data,
           p_permits: input.permits,
         },
       );
@@ -69,11 +95,10 @@ export function useCreateProjectWithPermits() {
     },
 
     onSuccess: (result) => {
-      // Bare-prefix invalidation matches every tenant variant (Phase 2 safety).
+      // Bare-prefix invalidation matches every tenant variant.
       queryClient.invalidateQueries({ queryKey: queryKeys.projectsAll });
       queryClient.invalidateQueries({ queryKey: queryKeys.permitsAll });
-      // Conflict path: no toast here — the wizard surfaces an inline UI for
-      // the "view existing?" handoff. Toast would compete with that.
+      queryClient.invalidateQueries({ queryKey: queryKeys.permitTasksAll });
       if (!result.conflict) {
         pushToast('Project created', 'success');
       }

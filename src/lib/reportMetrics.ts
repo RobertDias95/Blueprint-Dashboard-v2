@@ -22,10 +22,15 @@ export interface EnrichedPermit {
   address: string;
   /** Jurisdiction — lives on the project, not the permit, in v2. */
   juris: string;
-  /** Project-level product_type (preferred over permit's own if both set). */
+  /** fix-22 Mig 3: project-level product_type (moved from permits.*). */
   productType: string;
-  /** project_tags merged (preferring any permit at the address that has them set). */
+  /** fix-22 Mig 3: project_tags read directly from the joined project. */
   projectTags: string[];
+  /** fix-22 Mig 3: go_date moved from permits → projects. */
+  goDate: string | null;
+  /** fix-22 Mig 3: units moved from permits → projects (no more sibling
+   *  scan; the project carries the canonical count). */
+  units: number | null;
   /** First cycle with a non-null submitted; null if no cycle has submitted. */
   firstSubmitted: string | null;
   /** intake_accepted from the same first-submitted cycle. */
@@ -67,35 +72,25 @@ function daysBetween(a: string | null, b: string | null): number | null {
 }
 
 /** Enrich a permit list with per-permit derived metrics + project joins.
- * Mirrors v1's getRptFiltered enrichment pass (index.html 2948-2987). */
+ * Mirrors v1's getRptFiltered enrichment pass (index.html 2948-2987).
+ *
+ * fix-22 Migration 3 sweep: product_type / project_tags / go_date now
+ * live on projects (single source of truth). Enrichment reads them off
+ * the joined project rather than the permit. */
 export function enrichPermits(
   permits: PermitWithCycles[],
   projectsById: Map<string, Project>,
 ): EnrichedPermit[] {
-  // First pass: build project → permits[] map so we can resolve project-
-  // level fields (product_type, project_tags) that may be set on ANY
-  // permit at the address. v1 does this lookup per-permit at line 2938.
-  const permitsByProjectId = new Map<string, PermitWithCycles[]>();
-  for (const p of permits) {
-    const list = permitsByProjectId.get(p.project_id) ?? [];
-    list.push(p);
-    permitsByProjectId.set(p.project_id, list);
-  }
-
   return permits.map<EnrichedPermit>((permit) => {
     const project = projectsById.get(permit.project_id);
-    const sibling = permitsByProjectId.get(permit.project_id) ?? [permit];
-    const productTypeFromSibling = sibling.find((s) => s.product_type)?.product_type;
-    const projectTagsFromSibling = sibling.find((s) => {
-      return Array.isArray(s.project_tags) && (s.project_tags as unknown[]).length > 0;
-    })?.project_tags as unknown[] | undefined;
+    const projectGoDate = project?.go_date ?? null;
 
     const firstSub = pickFirstSubmittedCycle(permit.permit_cycles ?? []);
     const firstSubmitted = firstSub?.submitted ?? null;
     const firstIntakeAccepted = firstSub?.intake_accepted ?? null;
 
-    const goToSubmit = daysBetween(permit.go_date ?? null, firstSubmitted);
-    const goToDDStart = daysBetween(permit.go_date ?? null, permit.dd_start ?? null);
+    const goToSubmit = daysBetween(projectGoDate, firstSubmitted);
+    const goToDDStart = daysBetween(projectGoDate, permit.dd_start ?? null);
     const ddDuration = daysBetween(permit.dd_start ?? null, permit.dd_end ?? null);
     const ddEndToSubmit = daysBetween(permit.dd_end ?? null, firstSubmitted);
     const submitToIntake = daysBetween(firstSubmitted, firstIntakeAccepted);
@@ -124,20 +119,20 @@ export function enrichPermits(
     const corrResponseDays =
       corrCycle ? daysBetween(corrCycle.corr_issued, corrCycle.resubmitted) : null;
 
-    const tags = Array.isArray(permit.project_tags)
-      ? (permit.project_tags as unknown[]).filter(
+    const tags = Array.isArray(project?.project_tags)
+      ? (project.project_tags as string[]).filter(
           (t): t is string => typeof t === 'string',
         )
-      : Array.isArray(projectTagsFromSibling)
-        ? projectTagsFromSibling.filter((t): t is string => typeof t === 'string')
-        : [];
+      : [];
 
     return {
       permit,
       address: project?.address ?? '',
       juris: project?.juris ?? '',
-      productType: permit.product_type ?? productTypeFromSibling ?? '',
+      productType: project?.product_type ?? '',
       projectTags: tags,
+      goDate: projectGoDate,
+      units: project?.units ?? null,
       firstSubmitted,
       firstIntakeAccepted,
       goToSubmit,
@@ -328,15 +323,9 @@ export function aggregateByProject(enriched: EnrichedPermit[]): ProjectRow[] {
     const activeCount = permits.filter(
       (e) => !e.permit.actual_issue && !e.permit.approval_date,
     ).length;
-    // Q9.5.f-fix-12: canonical units (not summed). v1 treats units as a
-    // project-level number; every permit at the address carries it.
-    const bp = permits.find((e) => e.permit.type === 'Building Permit');
-    const unitsRaw = permits
-      .map((e) => e.permit.units)
-      .filter((u): u is number => u !== null && u !== undefined);
-    const units =
-      bp?.permit.units ??
-      (unitsRaw.length === 0 ? null : Math.max(...unitsRaw));
+    // fix-22 Mig 3: units is project-level now — single canonical value
+    // shared across all permits at the address.
+    const units = permits[0]?.units ?? null;
     rows.push({
       projectId,
       address: permits[0]?.address ?? '',
@@ -348,7 +337,9 @@ export function aggregateByProject(enriched: EnrichedPermit[]): ProjectRow[] {
       ent: firstNonNull(permits, (e) => e.permit.ent_lead),
       da: firstNonNull(permits, (e) => e.permit.da),
       dm: firstNonNull(permits, (e) => e.permit.dm),
-      earliestGoDate: minDate(permits.map((e) => e.permit.go_date)),
+      // fix-22 Mig 3: go_date is project-level; every enriched permit at
+      // the same project carries the same goDate. Just pull from permits[0].
+      earliestGoDate: permits[0]?.goDate ?? null,
       avgGoToDDStart: meanOrNull(permits.map((e) => e.goToDDStart)),
       avgDDDuration: meanOrNull(permits.map((e) => e.ddDuration)),
       avgDDEndToSubmit: meanOrNull(permits.map((e) => e.ddEndToSubmit)),
@@ -396,7 +387,8 @@ export function matchesLedgerSearch(row: ProjectRow, query: string): boolean {
       e.permit.permit_owner,
       e.permit.nickname,
       e.permit.status,
-      e.permit.product_type,
+      // fix-22 Mig 3: product_type now lives on the joined project.
+      e.productType,
     );
   }
   const haystack = parts
@@ -438,11 +430,13 @@ export function filterEnrichedPermits(
     if (filters.jurisdictions.size > 0 && !filters.jurisdictions.has(e.juris)) return false;
     if (filters.ents.size > 0 && !filters.ents.has(p.ent_lead ?? '')) return false;
 
-    if (from && p.go_date) {
-      if (new Date(`${p.go_date}T00:00:00`) < from) return false;
+    // fix-22 Mig 3: go_date is on the project now (carried on the enriched
+    // permit as `e.goDate`).
+    if (from && e.goDate) {
+      if (new Date(`${e.goDate}T00:00:00`) < from) return false;
     }
-    if (to && p.go_date) {
-      if (new Date(`${p.go_date}T00:00:00`) > to) return false;
+    if (to && e.goDate) {
+      if (new Date(`${e.goDate}T00:00:00`) > to) return false;
     }
 
     if (filters.status === 'active' && fullyIssued.has(p.project_id)) return false;
@@ -514,14 +508,15 @@ function avg(values: (number | null)[]): number | null {
 
 /** Compute the 11 v1 metric cards from a filtered, enriched permit set. */
 export function computeMetrics(enriched: EnrichedPermit[]): ReportMetrics {
-  // Total units: sum across distinct projects using the highest-units
-  // permit at each address (v1 picks .find() — first match; close enough).
+  // Total units: sum across distinct projects. fix-22 Mig 3: units lives
+  // on the project (single canonical value); every enriched permit at the
+  // same address carries the same `units`.
   const seenAddrs = new Set<string>();
   let totalUnits = 0;
   for (const e of enriched) {
     if (seenAddrs.has(e.address)) continue;
     seenAddrs.add(e.address);
-    totalUnits += e.permit.units ?? 0;
+    totalUnits += e.units ?? 0;
   }
 
   // Submit variance breakdown.
