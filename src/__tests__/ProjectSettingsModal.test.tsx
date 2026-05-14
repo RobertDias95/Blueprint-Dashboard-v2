@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { render, screen, within } from '@testing-library/react';
+import { render, screen, within, fireEvent } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { ReactNode } from 'react';
 import { useAuthStore } from '../stores/authStore';
@@ -162,6 +162,48 @@ vi.mock('../hooks/useDeletePermit', () => ({
   }),
 }));
 
+// fix-23f: drive the Builder/Owner autocomplete via a mocked
+// useBuilderSearch. Substring-filtered against this fixture to mirror
+// the real ILIKE OR query.
+const builderFixtures = vi.hoisted(() => ({
+  rows: [
+    {
+      id: 'b-boyd',
+      name: 'Boyd Livek',
+      company: 'Crafted Design Build',
+      email: 'boyd@crafted.test',
+      phone: '(206) 555-0199',
+      notes: null,
+      active: true,
+    },
+    {
+      id: 'b-jane',
+      name: 'Jane Builder',
+      company: 'Acme Homes',
+      email: 'jane@acme.test',
+      phone: null,
+      notes: null,
+      active: true,
+    },
+  ],
+}));
+
+vi.mock('../hooks/useBuilderSearch', () => ({
+  useBuilderSearch: (query: string) => {
+    const t = query.trim().toLowerCase();
+    if (t.length === 0) return { data: [], isLoading: false };
+    const data = builderFixtures.rows.filter((b) => {
+      return (
+        (b.name ?? '').toLowerCase().includes(t) ||
+        (b.company ?? '').toLowerCase().includes(t) ||
+        (b.email ?? '').toLowerCase().includes(t) ||
+        (b.phone ?? '').toLowerCase().includes(t)
+      );
+    });
+    return { data, isLoading: false };
+  },
+}));
+
 import ProjectSettingsModal from '../components/ProjectDetail/ProjectSettingsModal';
 
 function renderModal() {
@@ -282,5 +324,27 @@ describe('<ProjectSettingsModal /> fix-23d unified permit row', () => {
     expect(inputs.length).toBe(4);
     // Delete X stays inside the card (top-right corner).
     expect(scope.getByTitle('Remove permit')).toBeInTheDocument();
+  });
+});
+
+describe('<ProjectSettingsModal /> fix-23f builder autocomplete', () => {
+  it('Builder Name field surfaces matching builders and fills sibling fields on select', () => {
+    renderModal();
+    const nameInput = screen.getByTestId('psm-builder-name') as HTMLInputElement;
+    fireEvent.change(nameInput, { target: { value: 'Boyd' } });
+
+    // Dropdown opens with Boyd Livek as a match.
+    const option = screen.getByTestId('psm-builder-name-option-b-boyd');
+    expect(option).toBeInTheDocument();
+
+    fireEvent.click(option);
+
+    // All four siblings filled from the picked builder.
+    expect((screen.getByTestId('psm-builder-name') as HTMLInputElement).value).toBe('Boyd Livek');
+    expect((screen.getByTestId('psm-builder-co') as HTMLInputElement).value).toBe('Crafted Design Build');
+    expect((screen.getByTestId('psm-builder-email') as HTMLInputElement).value).toBe('boyd@crafted.test');
+    expect((screen.getByTestId('psm-builder-phone') as HTMLInputElement).value).toBe('(206) 555-0199');
+    // Menu closes after select.
+    expect(screen.queryByTestId('psm-builder-name-menu')).toBeNull();
   });
 });

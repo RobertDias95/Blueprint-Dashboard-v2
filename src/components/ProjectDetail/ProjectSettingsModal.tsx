@@ -7,7 +7,12 @@ import { useJurisdictions } from '../../hooks/useJurisdictions';
 import { useTeamMembers } from '../../hooks/useTeamMembers';
 import { usePermitsByProject } from '../../hooks/usePermitsByProject';
 import { pushToast } from '../../stores/toastStore';
-import type { PermitWithCycles, Project } from '../../lib/database.types';
+import BuilderAutocompleteField from '../builder/BuilderAutocompleteField';
+import type {
+  Builder,
+  PermitWithCycles,
+  Project,
+} from '../../lib/database.types';
 
 // fix-22 Migration 3 sweep: ProjectSettingsModal repointed so the 11
 // physical fields + 4 builder fields read/write directly on projects.*
@@ -217,6 +222,20 @@ export default function ProjectSettingsModal({ project, onClose }: Props) {
     value: BuilderFlatFields[K],
   ) {
     setForm((f) => ({ ...f, builder: { ...f.builder, [key]: value } }));
+  }
+  /** fix-23f: shared "user picked an existing builder" handler. Fills
+   *  all four sibling fields in one setForm so React batches them into
+   *  a single render. */
+  function fillFromBuilder(b: Builder) {
+    setForm((f) => ({
+      ...f,
+      builder: {
+        builder_name: b.name ?? '',
+        builder_company: b.company ?? '',
+        builder_email: b.email ?? '',
+        builder_phone: b.phone ?? '',
+      },
+    }));
   }
   function setPermitField(idx: number, patch: Partial<PermitRow>) {
     setForm((f) => ({
@@ -568,33 +587,56 @@ export default function ProjectSettingsModal({ project, onClose }: Props) {
             </Field>
           </Section>
 
+          {/* fix-23f: the 4 plain Builder Inputs are now
+              BuilderAutocompleteField — typing any of name/company/email/
+              phone surfaces existing builders and picking one fills all
+              four siblings in one shot. */}
           <Section title="Builder / Owner" color="var(--color-co)">
             <Field label="Builder Name">
-              <Input
+              <BuilderAutocompleteField
+                field="name"
+                label="Builder Name"
                 value={form.builder.builder_name}
                 onChange={(v) => setBuilderField('builder_name', v)}
+                onSelectBuilder={fillFromBuilder}
+                inputClassName={inputCls}
+                inputStyle={inputStyle}
                 testid="psm-builder-name"
               />
             </Field>
             <Field label="Company">
-              <Input
+              <BuilderAutocompleteField
+                field="company"
+                label="Company"
                 value={form.builder.builder_company}
                 onChange={(v) => setBuilderField('builder_company', v)}
+                onSelectBuilder={fillFromBuilder}
+                inputClassName={inputCls}
+                inputStyle={inputStyle}
                 testid="psm-builder-co"
               />
             </Field>
             <Field label="Email">
-              <Input
-                type="email"
+              <BuilderAutocompleteField
+                field="email"
+                label="Email"
                 value={form.builder.builder_email}
                 onChange={(v) => setBuilderField('builder_email', v)}
+                onSelectBuilder={fillFromBuilder}
+                inputClassName={inputCls}
+                inputStyle={inputStyle}
                 testid="psm-builder-email"
               />
             </Field>
             <Field label="Phone">
-              <Input
+              <BuilderAutocompleteField
+                field="phone"
+                label="Phone"
                 value={form.builder.builder_phone}
                 onChange={(v) => setBuilderField('builder_phone', v)}
+                onSelectBuilder={fillFromBuilder}
+                inputClassName={inputCls}
+                inputStyle={inputStyle}
                 testid="psm-builder-phone"
               />
             </Field>

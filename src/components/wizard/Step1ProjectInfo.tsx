@@ -3,13 +3,18 @@ import { Link } from 'react-router-dom';
 import { useJurisdictions } from '../../hooks/useJurisdictions';
 import { useTeamMembers } from '../../hooks/useTeamMembers';
 import UnitTypesEditor from './UnitTypesEditor';
+import BuilderAutocompleteField from '../builder/BuilderAutocompleteField';
 import {
   ALLEY_OPTIONS,
   PARKING_TYPE_OPTIONS,
   PRODUCT_TYPE_OPTIONS,
   type WizardState,
 } from './wizardState';
-import type { TeamMember, UnitType } from '../../lib/database.types';
+import type {
+  Builder,
+  TeamMember,
+  UnitType,
+} from '../../lib/database.types';
 
 // fix-22 Step 1 — Project Info. Mirrors v1's wizard step 1 layout
 // (Blueprint-Dashboard-/index.html lines 1376-1424): two sections in
@@ -78,6 +83,18 @@ export default function Step1ProjectInfo({ value, onChange }: Props) {
   // Treat 0 as missing for legacy numerics so the user re-enters real values.
   function numStr(v: string): string {
     return v === '0' || v === '0.00' ? '' : v;
+  }
+
+  /** fix-23f: shared "user picked an existing builder" handler. Each of
+   *  the four BuilderAutocompleteFields wires this to onSelectBuilder so
+   *  picking any suggestion fills all four sibling fields in one shot. */
+  function fillFromBuilder(b: Builder) {
+    onChange({
+      builder_name: b.name ?? '',
+      builder_company: b.company ?? '',
+      builder_email: b.email ?? '',
+      builder_phone: b.phone ?? '',
+    });
   }
 
   function addTag(tag: string) {
@@ -376,7 +393,10 @@ export default function Step1ProjectInfo({ value, onChange }: Props) {
         />
       </section>
 
-      {/* Builder / Owner section — fix-22-final adds the v1 panel. */}
+      {/* Builder / Owner section — fix-22-final adds the v1 panel.
+          fix-23f wires the 4 fields to BuilderAutocompleteField so a
+          partial match in ANY of name/company/email/phone surfaces
+          existing builders; picking one fills all four siblings. */}
       <section
         className="bg-s2/60 rounded-lg p-4 space-y-3"
         data-testid="wizard-section-builder"
@@ -389,53 +409,60 @@ export default function Step1ProjectInfo({ value, onChange }: Props) {
             <span className="text-[10px] uppercase tracking-wide text-dim">
               Builder Name
             </span>
-            <input
-              type="text"
+            <BuilderAutocompleteField
+              field="name"
+              label="Builder Name"
               value={value.builder_name}
-              onChange={(e) => set('builder_name', e.target.value)}
+              onChange={(v) => set('builder_name', v)}
+              onSelectBuilder={fillFromBuilder}
               placeholder="Full name"
-              autoComplete="off"
-              className="bg-bg border border-border rounded-md px-3 py-1.5 text-xs font-display text-text placeholder:text-dim focus:outline-none focus:border-de"
-              data-testid="wizard-builder-name"
+              inputClassName="bg-bg border border-border rounded-md px-3 py-1.5 text-xs font-display text-text placeholder:text-dim focus:outline-none focus:border-de w-full"
+              testid="wizard-builder-name"
             />
           </label>
           <label className="flex flex-col gap-1">
             <span className="text-[10px] uppercase tracking-wide text-dim">
               Company
             </span>
-            <input
-              type="text"
+            <BuilderAutocompleteField
+              field="company"
+              label="Company"
               value={value.builder_company}
-              onChange={(e) => set('builder_company', e.target.value)}
+              onChange={(v) => set('builder_company', v)}
+              onSelectBuilder={fillFromBuilder}
               placeholder="Company name"
-              className="bg-bg border border-border rounded-md px-3 py-1.5 text-xs font-display text-text placeholder:text-dim focus:outline-none focus:border-de"
-              data-testid="wizard-builder-company"
+              inputClassName="bg-bg border border-border rounded-md px-3 py-1.5 text-xs font-display text-text placeholder:text-dim focus:outline-none focus:border-de w-full"
+              testid="wizard-builder-company"
             />
           </label>
           <label className="flex flex-col gap-1">
             <span className="text-[10px] uppercase tracking-wide text-dim">
               Email
             </span>
-            <input
-              type="email"
+            <BuilderAutocompleteField
+              field="email"
+              label="Email"
               value={value.builder_email}
-              onChange={(e) => set('builder_email', e.target.value)}
+              onChange={(v) => set('builder_email', v)}
+              onSelectBuilder={fillFromBuilder}
               placeholder="builder@email.com"
-              className="bg-bg border border-border rounded-md px-3 py-1.5 text-xs font-display text-text placeholder:text-dim focus:outline-none focus:border-de"
-              data-testid="wizard-builder-email"
+              inputClassName="bg-bg border border-border rounded-md px-3 py-1.5 text-xs font-display text-text placeholder:text-dim focus:outline-none focus:border-de w-full"
+              testid="wizard-builder-email"
             />
           </label>
           <label className="flex flex-col gap-1">
             <span className="text-[10px] uppercase tracking-wide text-dim">
               Phone
             </span>
-            <input
-              type="text"
+            <BuilderAutocompleteField
+              field="phone"
+              label="Phone"
               value={value.builder_phone}
-              onChange={(e) => set('builder_phone', e.target.value)}
+              onChange={(v) => set('builder_phone', v)}
+              onSelectBuilder={fillFromBuilder}
               placeholder="(206) 555-0100"
-              className="bg-bg border border-border rounded-md px-3 py-1.5 text-xs font-display text-text placeholder:text-dim focus:outline-none focus:border-de"
-              data-testid="wizard-builder-phone"
+              inputClassName="bg-bg border border-border rounded-md px-3 py-1.5 text-xs font-display text-text placeholder:text-dim focus:outline-none focus:border-de w-full"
+              testid="wizard-builder-phone"
             />
           </label>
         </div>
