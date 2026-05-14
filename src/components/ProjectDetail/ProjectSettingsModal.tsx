@@ -414,11 +414,14 @@ export default function ProjectSettingsModal({ project, onClose }: Props) {
               <Input value={form.address} onChange={(v) => set('address', v)} testid="psm-address" />
             </Field>
             <Field label="Jurisdiction">
-              <DatalistInput
+              {/* fix-23d: native &lt;select&gt; (was &lt;input list&gt;+&lt;datalist&gt;)
+                  — click on the caret now opens a real menu. The "none"
+                  option lets users clear the jurisdiction without typing. */}
+              <SelectInput
                 value={form.juris}
                 onChange={(v) => set('juris', v)}
-                listId="psm-juris-options"
-                options={jurisdictions.map((j) => j.name)}
+                options={['', ...jurisdictions.map((j) => j.name)]}
+                placeholderLabel="— none —"
                 testid="psm-juris"
               />
             </Field>
@@ -431,20 +434,20 @@ export default function ProjectSettingsModal({ project, onClose }: Props) {
               />
             </Field>
             <Field label="Entitlement Lead">
-              <DatalistInput
+              <SelectInput
                 value={form.projectFields.entitlement_lead}
                 onChange={(v) => setProj('entitlement_lead', v)}
-                listId="psm-ent-options"
-                options={entMembers.map((m) => m.name)}
+                options={['', ...entMembers.map((m) => m.name)]}
+                placeholderLabel="— none —"
                 testid="psm-ent"
               />
             </Field>
             <Field label="Design Manager">
-              <DatalistInput
+              <SelectInput
                 value={form.projectFields.design_manager}
                 onChange={(v) => setProj('design_manager', v)}
-                listId="psm-dm-options"
-                options={dmMembers.map((m) => m.name)}
+                options={['', ...dmMembers.map((m) => m.name)]}
+                placeholderLabel="— none —"
                 testid="psm-dm"
               />
             </Field>
@@ -513,20 +516,23 @@ export default function ProjectSettingsModal({ project, onClose }: Props) {
               />
             </Field>
             <Field label="BP Design Associate">
-              <DatalistInput
+              <SelectInput
                 value={form.bpRole.da}
                 onChange={(v) => setBpRole('da', v)}
-                listId="psm-da-options"
-                options={daMembers.map((m) => m.name)}
+                options={['', ...daMembers.map((m) => m.name)]}
+                placeholderLabel="— none —"
                 testid="psm-da"
               />
             </Field>
-            <Field label="Acquisition Lead">
-              <DatalistInput
+            <Field label="Acquisitions">
+              {/* fix-23d: acq + acq_lead collapse to ONE selector. Per Bobby
+                  both role values represent the same person; the data layer
+                  cleanup is queued as a fix-23 follow-up. */}
+              <SelectInput
                 value={form.acq_lead}
                 onChange={(v) => set('acq_lead', v)}
-                listId="psm-acq-options"
-                options={acqMembers.map((m) => m.name)}
+                options={['', ...acqMembers.map((m) => m.name)]}
+                placeholderLabel="— none —"
                 testid="psm-acq"
               />
             </Field>
@@ -747,39 +753,6 @@ function Input({
   );
 }
 
-function DatalistInput({
-  value,
-  onChange,
-  listId,
-  options,
-  testid,
-}: {
-  value: string;
-  onChange: (v: string) => void;
-  listId: string;
-  options: string[];
-  testid?: string;
-}) {
-  return (
-    <>
-      <input
-        type="text"
-        list={listId}
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        className={inputCls}
-        style={inputStyle}
-        data-testid={testid}
-      />
-      <datalist id={listId}>
-        {options.map((o) => (
-          <option key={o} value={o} />
-        ))}
-      </datalist>
-    </>
-  );
-}
-
 function SelectInput({
   value,
   onChange,
@@ -829,51 +802,32 @@ function PermitSubsection({
   onChange: (patch: Partial<PermitRow>) => void;
   onRemove: () => void;
 }) {
-  // Q9.5.f-fix-17.5 A: single horizontal row per permit. Compact 7-column
-  // grid; fits inside the 600px modal without overflow. Headers are tiny
-  // upper-case labels above each input.
+  // fix-23d: V1 cohesive layout — ONE outer card per permit, three internal
+  // rows. Replaces the prior 7-column single-row grid that wrapped weirdly
+  // at modal width and gave the visual impression of three glued widgets.
+  //
+  //   ┌─ Permit ───────────────────── X ─┐
+  //   │  Type   ENT   DA                │
+  //   │  Permit Portal URL              │
+  //   │  Permit #   Structure Address   │
+  //   └─────────────────────────────────┘
+  //
+  // ENT + DA become real <select>s (was <input list>+<datalist>). Type
+  // stays a free input because the per-permit type values aren't strictly
+  // constrained to the catalog at this surface.
   return (
     <div
-      className="rounded border p-2 grid items-end gap-1.5"
+      className="rounded border p-3 flex flex-col gap-2 relative"
       style={{
         background: 'var(--color-bg)',
         borderColor: 'var(--color-border)',
-        gridTemplateColumns: '110px 90px 90px 130px 1fr 130px 24px',
       }}
       data-testid={`psm-permit-row-${row.id ?? 'new'}`}
     >
-      <TinyField label="Type">
-        <Input value={row.type} onChange={(v) => onChange({ type: v })} />
-      </TinyField>
-      <TinyField label="ENT">
-        <DatalistInput
-          value={row.ent_lead}
-          onChange={(v) => onChange({ ent_lead: v })}
-          listId={`psm-permit-ent-${row.id ?? 'new'}`}
-          options={entOptions}
-        />
-      </TinyField>
-      <TinyField label="DA">
-        <DatalistInput
-          value={row.da}
-          onChange={(v) => onChange({ da: v })}
-          listId={`psm-permit-da-${row.id ?? 'new'}`}
-          options={daOptions}
-        />
-      </TinyField>
-      <TinyField label="Permit #">
-        <Input value={row.num} onChange={(v) => onChange({ num: v })} />
-      </TinyField>
-      <TinyField label="Portal URL">
-        <Input value={row.portal_url} onChange={(v) => onChange({ portal_url: v })} />
-      </TinyField>
-      <TinyField label="Struct Addr">
-        <Input value={row.struct_address} onChange={(v) => onChange({ struct_address: v })} />
-      </TinyField>
       <button
         type="button"
         onClick={onRemove}
-        className="self-end h-[26px] w-[24px] text-[12px] rounded border flex items-center justify-center"
+        className="absolute top-2 right-2 h-[20px] w-[20px] text-[12px] rounded border flex items-center justify-center"
         style={{
           borderColor: '#7f1d1d',
           color: '#f87171',
@@ -883,6 +837,53 @@ function PermitSubsection({
       >
         ✕
       </button>
+
+      <div
+        className="grid gap-2 items-end pr-7"
+        style={{ gridTemplateColumns: '1fr 1fr 1fr' }}
+      >
+        <TinyField label="Type">
+          <Input value={row.type} onChange={(v) => onChange({ type: v })} />
+        </TinyField>
+        <TinyField label="ENT">
+          <SelectInput
+            value={row.ent_lead}
+            onChange={(v) => onChange({ ent_lead: v })}
+            options={['', ...entOptions]}
+            placeholderLabel="— none —"
+          />
+        </TinyField>
+        <TinyField label="DA">
+          <SelectInput
+            value={row.da}
+            onChange={(v) => onChange({ da: v })}
+            options={['', ...daOptions]}
+            placeholderLabel="— none —"
+          />
+        </TinyField>
+      </div>
+
+      <TinyField label="Permit Portal URL">
+        <Input
+          value={row.portal_url}
+          onChange={(v) => onChange({ portal_url: v })}
+        />
+      </TinyField>
+
+      <div
+        className="grid gap-2"
+        style={{ gridTemplateColumns: '1fr 1fr' }}
+      >
+        <TinyField label="Permit # (from city)">
+          <Input value={row.num} onChange={(v) => onChange({ num: v })} />
+        </TinyField>
+        <TinyField label="Structure Address">
+          <Input
+            value={row.struct_address}
+            onChange={(v) => onChange({ struct_address: v })}
+          />
+        </TinyField>
+      </div>
     </div>
   );
 }
