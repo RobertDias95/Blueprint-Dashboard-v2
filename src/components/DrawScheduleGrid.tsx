@@ -1,15 +1,18 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useDrawSchedule } from '../hooks/useDrawSchedule';
 import { useProjects } from '../hooks/useProjects';
 import { usePermits } from '../hooks/usePermits';
 import { useDmDaGroups } from '../hooks/useDmDaGroups';
 import { useUpdateDrawSchedule } from '../hooks/useUpdateDrawSchedule';
 import { useResolveDaOverlap } from '../hooks/useResolveDaOverlap';
+import { useMoveDrawScheduleDa } from '../hooks/useMoveDrawScheduleDa';
+import { useShiftDaBlocksUp } from '../hooks/useShiftDaBlocksUp';
 import { useDaTimeBlocks } from '../hooks/useDaTimeBlocks';
 import { useUpsertDaTimeBlock } from '../hooks/useUpsertDaTimeBlock';
 import { useDeleteDaTimeBlock } from '../hooks/useDeleteDaTimeBlock';
 import NpBlockEditPopup from './NpBlockEditPopup';
 import ProjectBlockPopup from './DrawSchedule/ProjectBlockPopup';
+import GapFillPrompt from './GapFillPrompt';
 import {
   DS_STATUS_COLORS,
   NP_BLOCK_COLOR,
@@ -60,12 +63,18 @@ import { deriveBlockStatus } from '../lib/drawScheduleStatus';
 const ROW_H = 28;
 const LABEL_W = 64;
 /** What we ship in the HTML5 drag's dataTransfer payload. JSON-encoded so
- * jsdom + browsers both round-trip it cleanly via getData/setData. */
+ * jsdom + browsers both round-trip it cleanly via getData/setData.
+ * Q9.5.f-fix-20: added currentDa + originalStart/EndWeek so the drop handler
+ * can detect DA changes (route to bp_move_draw_schedule_da for propagation)
+ * and gap-fill anchor (original vacated slot) without re-reading row state. */
 interface DragPayload {
   projectId: string;
   durationWeeks: number;
   expectedUpdatedAt: string;
   status: string | null;
+  currentDa: string | null;
+  originalStartWeek: string | null;
+  originalEndWeek: string | null;
 }
 interface PendingOverlap {
   /** Absolute address of the dragged project, for the prompt header. */
@@ -270,9 +279,35 @@ function DrawScheduleBody({
   const currentWeek = useMemo(() => dateToWeekKey(getMonday(new Date())), []);
 
   const updateMutation = useUpdateDrawSchedule();
+  const moveDaMutation = useMoveDrawScheduleDa();
+  const shiftUpMutation = useShiftDaBlocksUp();
   const resolveMutation = useResolveDaOverlap();
   const upsertNp = useUpsertDaTimeBlock();
   const deleteNp = useDeleteDaTimeBlock();
+
+  // Q9.5.f-fix-20: reverse lookup DM by DA name. Used when routing a DA
+  // move through bp_move_draw_schedule_da, which writes permits.dm to keep
+  // the dashboard's DM groupings coherent.
+  const dmByDa = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const g of groups) {
+      for (const da of g.das) m.set(da, g.dm);
+    }
+    return m;
+  }, [groups]);
+
+  // Q9.5.f-fix-20: pending gap-fill prompt. Set after a successful DA-move
+  // when downstream blocks on the OLD DA remained.
+  interface PendingGapFill {
+    daName: string;
+    movedAddress: string;
+    downstreamCount: number;
+    gapStartWeek: string;
+    gapEndWeek: string;
+  }
+  const [pendingGapFill, setPendingGapFill] = useState<PendingGapFill | null>(
+    null,
+  );
   const [pendingOverlap, setPendingOverlap] = useState<PendingOverlap | null>(
     null,
   );
@@ -293,6 +328,139 @@ function DrawScheduleBody({
   // so the click that ends a drag doesn't fire the popup). State holds the
   // project_id of the block currently showing the popup, or null.
   const [popupProjectId, setPopupProjectId] = useState<string | null>(null);
+
+  // Q9.5.f-fix-20: hover-week highlight. When the cursor is over a project
+  // block, light up every week in its [start_week .. end_week] range in the
+  // left week-label column. When over an empty cell, light up that single
+  // week. Clears on mouseleave at the body-grid boundary. Set is keyed by
+  // week_key (YYYY-MM-DD Monday) so the per-week label render is O(1).
+  const [hoveredWeeks, setHoveredWeeks] = useState<Set<string>>(
+    () => new Set(),
+  );
+
+  // Q9.5.f-fix-20: drag-to-resize bottom edge. While resizing, we attach
+  // window-level mousemove/mouseup so the gesture continues if the cursor
+  // leaves the block (or even the grid). The block's rendered height is
+  // re-derived from previewEndWeek, so the user sees a live preview. On
+  // mouseup we apply the same overlap/conflict pipeline as drag-to-move,
+  // reusing OverlapPrompt for resize-into-collision cases.
+  interface ResizeState {
+    projectId: string;
+    daAssigned: string;
+    startWeek: string;
+    /** The block's end_week at the moment resize began. Used as the anchor
+     *  for delta math + as the rollback target if the user cancels. */
+    originalEndWeek: string;
+    /** Live preview end_week while the cursor moves. Equals originalEndWeek
+     *  before the first mousemove crosses a row boundary. */
+    previewEndWeek: string;
+    /** Mouse Y at mousedown — delta is computed from current Y. */
+    startMouseY: number;
+    expectedUpdatedAt: string;
+    status: string | null;
+  }
+  const [resizing, setResizing] = useState<ResizeState | null>(null);
+  // Stable ref so the window listeners (which close over `resizing` at
+  // attach time) can read the latest state without re-attaching on every
+  // mousemove tick.
+  const resizingRef = useRef<ResizeState | null>(null);
+  resizingRef.current = resizing;
+  // Q9.5.f-fix-20: window listeners for active resize. Attaching at the
+  // window level (not on the block) lets the gesture continue if the
+  // pointer leaves the grid or moves faster than React can re-render.
+  // Listeners auto-clean when resizing returns to null, so there's no
+  // leak when the user releases.
+  useEffect(() => {
+    if (!resizing) return;
+    function onMove(e: MouseEvent) {
+      const r = resizingRef.current;
+      if (!r) return;
+      const deltaPx = e.clientY - r.startMouseY;
+      const deltaWeeks = Math.round(deltaPx / ROW_H);
+      // Clamp: end_week must be >= start_week (block can't go below 1 wk).
+      // addWeeksToWeekKey accepts negative deltas, so we can shrink past
+      // originalEndWeek but not before startWeek.
+      let candidate = addWeeksToWeekKey(r.originalEndWeek, deltaWeeks);
+      if (candidate < r.startWeek) candidate = r.startWeek;
+      if (candidate === r.previewEndWeek) return; // dedupe no-op moves
+      setResizing({ ...r, previewEndWeek: candidate });
+    }
+    function onUp() {
+      const r = resizingRef.current;
+      setResizing(null); // detach + clear preview
+      if (!r) return;
+      // If user released at the same week they started, no-op (avoids
+      // firing an RPC for an idle gesture).
+      if (r.previewEndWeek === r.originalEndWeek) return;
+      // Reuse the drop pipeline's overlap detection: a resize is just a
+      // move to (same DA, same startWeek, new endWeek). Excludes self
+      // from overlap candidates so growing a block doesn't conflict
+      // with itself.
+      const blocks = blocksByDaForOverlap.get(r.daAssigned) ?? [];
+      const decision = decideDrop(
+        blocks,
+        r.projectId,
+        r.startWeek,
+        r.previewEndWeek,
+      );
+      if (decision.kind === 'save') {
+        updateMutation.mutate({
+          projectId: r.projectId,
+          expectedUpdatedAt: r.expectedUpdatedAt,
+          daAssigned: r.daAssigned,
+          startWeek: r.startWeek,
+          endWeek: r.previewEndWeek,
+          scheduleStatus: r.status,
+        });
+        return;
+      }
+      // Resize-into-overlap → surface the same Option B prompt the
+      // drag-to-move path uses. Push-down cascades downstream blocks.
+      const conflictAddrs = decision.conflictingProjectIds
+        .map((pid) => projectById.get(pid)?.address ?? pid)
+        .sort();
+      const anchorAddr = projectById.get(r.projectId)?.address ?? r.projectId;
+      setPendingOverlap({
+        anchorAddress: anchorAddr,
+        conflictingAddresses: conflictAddrs,
+        conflictCount: decision.conflictingProjectIds.length,
+        anchorProjectId: r.projectId,
+        expectedUpdatedAt: r.expectedUpdatedAt,
+        daAssigned: r.daAssigned,
+        startWeek: r.startWeek,
+        endWeek: r.previewEndWeek,
+        scheduleStatus: r.status,
+      });
+    }
+    function onKey(e: KeyboardEvent) {
+      // Escape cancels an in-flight resize without committing.
+      if (e.key === 'Escape') setResizing(null);
+    }
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+    window.addEventListener('keydown', onKey);
+    return () => {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+      window.removeEventListener('keydown', onKey);
+    };
+    // resizing is the trigger; the listeners read resizingRef.current so
+    // they don't need to re-attach on every state tick.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [resizing !== null]);
+
+  function hoverRange(startWeek: string, endWeek: string) {
+    // weeks already covers the current quarter — intersect against it so we
+    // don't store off-screen keys (cheap; <=14 entries).
+    const next = new Set<string>();
+    for (const w of weeks) {
+      if (w >= startWeek && w <= endWeek) next.add(w);
+    }
+    setHoveredWeeks(next);
+  }
+  function clearHover() {
+    setHoveredWeeks((prev) => (prev.size === 0 ? prev : new Set()));
+  }
 
   const projectById = useMemo(
     () => new Map(projects.map((p) => [p.id, p])),
@@ -317,6 +485,66 @@ function DrawScheduleBody({
     }
     return m;
   }, [draw]);
+
+  /** Q9.5.f-fix-20: dispatch a "silent save" drop (no overlap, no NP).
+   *  When the DA differs from the source, route through
+   *  bp_move_draw_schedule_da so permits + tasks rewrite atomically with
+   *  the schedule change. Same-DA moves stay on the original RPC.
+   *  After a DA move that leaves downstream blocks behind, the result
+   *  carries gap_exists=true and we open GapFillPrompt. */
+  function commitMove(
+    payload: DragPayload,
+    targetDa: string,
+    targetStartWeek: string,
+    targetEndWeek: string,
+  ) {
+    const isDaChange =
+      payload.currentDa !== null && payload.currentDa !== targetDa;
+    if (!isDaChange) {
+      updateMutation.mutate({
+        projectId: payload.projectId,
+        expectedUpdatedAt: payload.expectedUpdatedAt,
+        daAssigned: targetDa,
+        startWeek: targetStartWeek,
+        endWeek: targetEndWeek,
+        scheduleStatus: payload.status,
+      });
+      return;
+    }
+    const newDm = dmByDa.get(targetDa) ?? null;
+    moveDaMutation.mutate(
+      {
+        projectId: payload.projectId,
+        newDa: targetDa,
+        newDm,
+        startWeek: targetStartWeek,
+        endWeek: targetEndWeek,
+        scheduleStatus: payload.status,
+        expectedUpdatedAt: payload.expectedUpdatedAt,
+      },
+      {
+        onSuccess: (result) => {
+          if (
+            result.gapExists &&
+            result.gapDownstreamCount > 0 &&
+            result.oldDa &&
+            payload.originalStartWeek &&
+            payload.originalEndWeek
+          ) {
+            const addr =
+              projectById.get(payload.projectId)?.address ?? payload.projectId;
+            setPendingGapFill({
+              daName: result.oldDa,
+              movedAddress: addr,
+              downstreamCount: result.gapDownstreamCount,
+              gapStartWeek: payload.originalStartWeek,
+              gapEndWeek: payload.originalEndWeek,
+            });
+          }
+        },
+      },
+    );
+  }
 
   function handleDrop(targetDa: string, targetStartWeek: string, payload: DragPayload) {
     const targetEndWeek = addWeeksToWeekKey(
@@ -378,14 +606,11 @@ function DrawScheduleBody({
         return;
       }
 
-      updateMutation.mutate({
-        projectId: payload.projectId,
-        expectedUpdatedAt: payload.expectedUpdatedAt,
-        daAssigned: targetDa,
-        startWeek: targetStartWeek,
-        endWeek: targetEndWeek,
-        scheduleStatus: payload.status,
-      });
+      // Q9.5.f-fix-20: dispatch through commitMove — picks
+      // bp_move_draw_schedule_da when DA changed, bp_update_draw_schedule_with_dd_sync
+      // for same-DA reposition. Also opens GapFillPrompt if the move
+      // stranded downstream blocks on the old DA.
+      commitMove(payload, targetDa, targetStartWeek, targetEndWeek);
       return;
     }
 
@@ -519,8 +744,10 @@ function DrawScheduleBody({
           )}
         </div>
 
-        {/* Body grid */}
-        <div className="flex relative">
+        {/* Body grid. onMouseLeave clears the hover-week highlight when the
+            cursor exits the whole grid — child mouseenter handlers (blocks +
+            empty cells) drive the active range while inside. */}
+        <div className="flex relative" onMouseLeave={clearHover}>
           {/* Week labels column */}
           <div
             style={{ width: LABEL_W, minWidth: LABEL_W }}
@@ -529,13 +756,23 @@ function DrawScheduleBody({
             {weeks.map((wk) => {
               const d = new Date(`${wk}T12:00:00`);
               const isCurrent = wk === currentWeek;
+              // Q9.5.f-fix-20: highlight when a project block or empty cell
+              // at this week is hovered. Hover wins over the muted current-
+              // week styling so the user sees a coherent range while moving
+              // the mouse — current-week chevron still shows.
+              const isHovered = hoveredWeeks.has(wk);
               return (
                 <div
                   key={wk}
                   data-testid={`week-label-${wk}`}
+                  data-hovered={isHovered ? 'true' : undefined}
                   style={{ height: ROW_H }}
-                  className={`flex items-center justify-end pr-1.5 border-b border-border text-[9px] font-mono ${
-                    isCurrent ? 'text-de font-bold' : 'text-dim'
+                  className={`flex items-center justify-end pr-1.5 border-b border-border text-[9px] font-mono transition-colors ${
+                    isHovered
+                      ? 'bg-de/[0.18] text-text font-bold'
+                      : isCurrent
+                        ? 'text-de font-bold'
+                        : 'text-dim'
                   }`}
                 >
                   {isCurrent ? '▸ ' : ''}
@@ -573,6 +810,7 @@ function DrawScheduleBody({
                       className={`border-b border-border cursor-pointer ${
                         wk === currentWeek ? 'bg-de/[0.04]' : ''
                       }`}
+                      onMouseEnter={() => hoverRange(wk, wk)}
                       onClick={(e) => {
                         // Ignore clicks while a drag is active (the drop
                         // handler already fired) — opening the popup mid-drag
@@ -638,6 +876,15 @@ function DrawScheduleBody({
                           key={`${np.id}-seg-${segIdx}`}
                           data-testid={`np-block-${np.id}-seg-${segIdx}`}
                           title={tooltipText}
+                          onMouseEnter={() =>
+                            // Q9.5.f-fix-20: NP block hover highlights its
+                            // segment's week range in the left column. Use
+                            // the visible segment range, not the underlying
+                            // np.start_week..end_week, so a clipped vacation
+                            // only highlights the uncovered portion the
+                            // user can actually see.
+                            hoverRange(seg.startWeek, seg.endWeek)
+                          }
                           onClick={(e) => {
                             // Open edit popup. stopPropagation so the click
                             // doesn't bubble to the underlying empty-cell
@@ -686,7 +933,15 @@ function DrawScheduleBody({
                   {/* Project blocks */}
                   {blocks.map(({ row, project }) => {
                     const startIdx = weeks.indexOf(row.start_week ?? '');
-                    const endIdx = weeks.indexOf(row.end_week ?? '');
+                    // Q9.5.f-fix-20: while THIS block is being resized, the
+                    // visible end_week comes from the preview state (live
+                    // height feedback). Otherwise use the stored end_week.
+                    // Non-resized blocks render identically to before.
+                    const effectiveEndWeek =
+                      resizing?.projectId === row.project_id
+                        ? resizing.previewEndWeek
+                        : row.end_week ?? '';
+                    const endIdx = weeks.indexOf(effectiveEndWeek);
                     if (startIdx < 0 && endIdx < 0) return null;
                     const si = startIdx >= 0 ? startIdx : 0;
                     const ei = endIdx >= 0 ? endIdx : weeks.length - 1;
@@ -722,12 +977,26 @@ function DrawScheduleBody({
                         data-testid={`block-${row.project_id}`}
                         title={`${project.address} — ${derivedStatus} (drag to move, click to edit)`}
                         draggable
+                        onMouseEnter={() => {
+                          // Q9.5.f-fix-20: highlight every week the block
+                          // spans in the left column. Range is the row's
+                          // own start_week..end_week (storage truth), not
+                          // the clipped visible range, so hovering a block
+                          // that extends past the quarter still lights up
+                          // the in-quarter weeks correctly.
+                          if (row.start_week && row.end_week) {
+                            hoverRange(row.start_week, row.end_week);
+                          }
+                        }}
                         onDragStart={(e) => {
                           const payload: DragPayload = {
                             projectId: row.project_id,
                             durationWeeks,
                             expectedUpdatedAt: row.updated_at,
                             status: row.status,
+                            currentDa: row.da_assigned,
+                            originalStartWeek: row.start_week,
+                            originalEndWeek: row.end_week,
                           };
                           e.dataTransfer.setData(
                             'application/json',
@@ -773,8 +1042,14 @@ function DrawScheduleBody({
                               : 'auto',
                           display: 'flex',
                           flexDirection: 'column',
-                          alignItems: 'flex-start',
+                          // Q9.5.f-fix-20: center block content horizontally
+                          // AND vertically. Previously alignItems was
+                          // flex-start (left-skewed); Bobby wants the v1
+                          // visual where address/juris/status/est-approval
+                          // stack centered in the block.
+                          alignItems: 'center',
                           justifyContent: 'center',
+                          textAlign: 'center',
                           gap: 2,
                           padding: '2px 6px',
                         }}
@@ -853,6 +1128,61 @@ function DrawScheduleBody({
                               </span>
                             );
                           })()}
+                        {/* Q9.5.f-fix-20: resize handle on the bottom edge.
+                            6px tall, full-width, ns-resize cursor. Captures
+                            mousedown to start the resize gesture; the actual
+                            move/up listeners live on window so the cursor
+                            can leave the block without canceling. The
+                            handle itself is not draggable, and we stop
+                            propagation so it doesn't trigger the parent's
+                            HTML5 drag. */}
+                        <div
+                          data-testid={`resize-handle-${row.project_id}`}
+                          draggable={false}
+                          onMouseDown={(e) => {
+                            // Only left-button initiates a resize.
+                            if (e.button !== 0) return;
+                            if (!row.start_week || !row.end_week || !row.da_assigned) {
+                              return;
+                            }
+                            e.stopPropagation();
+                            e.preventDefault();
+                            setResizing({
+                              projectId: row.project_id,
+                              daAssigned: row.da_assigned,
+                              startWeek: row.start_week,
+                              originalEndWeek: row.end_week,
+                              previewEndWeek: row.end_week,
+                              startMouseY: e.clientY,
+                              expectedUpdatedAt: row.updated_at,
+                              status: row.status,
+                            });
+                          }}
+                          style={{
+                            position: 'absolute',
+                            left: 0,
+                            right: 0,
+                            bottom: 0,
+                            height: 6,
+                            cursor: 'ns-resize',
+                            // Subtle visual affordance: a slightly darker
+                            // band at the bottom edge. Becomes more visible
+                            // when the user hovers the handle directly.
+                            background:
+                              resizing?.projectId === row.project_id
+                                ? 'rgba(0,0,0,0.25)'
+                                : 'rgba(0,0,0,0.10)',
+                            // Prevent the handle from blocking pointer
+                            // events on sibling blocks during another
+                            // block's drag (mirrors the existing
+                            // pointer-events contract for siblings).
+                            pointerEvents:
+                              draggingProjectId !== null &&
+                              draggingProjectId !== row.project_id
+                                ? 'none'
+                                : 'auto',
+                          }}
+                        />
                       </div>
                     );
                   })}
@@ -898,20 +1228,34 @@ function DrawScheduleBody({
           anchorAddress={pendingNpWarning.anchorAddress}
           daName={pendingNpWarning.daName}
           conflicts={pendingNpWarning.conflicts}
-          pending={updateMutation.isPending}
+          pending={updateMutation.isPending || moveDaMutation.isPending}
           onCancel={() => setPendingNpWarning(null)}
           onConfirm={() => {
-            updateMutation.mutate(
+            // Q9.5.f-fix-20: NP-warning "Save anyway" still needs to
+            // propagate DA changes to permits + tasks. Synthesize a
+            // DragPayload from the pending NP state so commitMove can
+            // decide between the move RPC and the same-DA RPC. We don't
+            // have currentDa here, so look it up from the latest draw
+            // row (Bug-B: draft cache may still reflect a stale DA,
+            // but invalidateQueries on success makes this self-healing).
+            const row = draw.find(
+              (r) => r.project_id === pendingNpWarning.anchorProjectId,
+            );
+            commitMove(
               {
                 projectId: pendingNpWarning.anchorProjectId,
+                durationWeeks: 0,
                 expectedUpdatedAt: pendingNpWarning.expectedUpdatedAt,
-                daAssigned: pendingNpWarning.daAssigned,
-                startWeek: pendingNpWarning.startWeek,
-                endWeek: pendingNpWarning.endWeek,
-                scheduleStatus: pendingNpWarning.scheduleStatus,
+                status: pendingNpWarning.scheduleStatus,
+                currentDa: row?.da_assigned ?? null,
+                originalStartWeek: row?.start_week ?? null,
+                originalEndWeek: row?.end_week ?? null,
               },
-              { onSuccess: () => setPendingNpWarning(null) },
+              pendingNpWarning.daAssigned,
+              pendingNpWarning.startWeek,
+              pendingNpWarning.endWeek,
             );
+            setPendingNpWarning(null);
           }}
         />
       )}
@@ -938,6 +1282,29 @@ function DrawScheduleBody({
                 // so the user can see the toast + retry/cancel.
                 onSuccess: () => setPendingOverlap(null),
               },
+            );
+          }}
+        />
+      )}
+
+      {/* Q9.5.f-fix-20: gap-fill prompt. Opens after a successful DA move
+          when downstream blocks remained on the OLD DA. Shift Up fires
+          bp_shift_da_blocks_up; Leave Gap dismisses without action. */}
+      {pendingGapFill && (
+        <GapFillPrompt
+          daName={pendingGapFill.daName}
+          downstreamCount={pendingGapFill.downstreamCount}
+          movedAddress={pendingGapFill.movedAddress}
+          pending={shiftUpMutation.isPending}
+          onLeaveGap={() => setPendingGapFill(null)}
+          onShiftUp={() => {
+            shiftUpMutation.mutate(
+              {
+                daName: pendingGapFill.daName,
+                gapStartWeek: pendingGapFill.gapStartWeek,
+                gapEndWeek: pendingGapFill.gapEndWeek,
+              },
+              { onSuccess: () => setPendingGapFill(null) },
             );
           }}
         />
@@ -1069,7 +1436,7 @@ function Toolbar({
       />
 
       <span className="text-[10px] text-muted font-mono ml-auto">
-        Drag a project block to move it. Push-down on overlap ships in Q6.2.b.
+        Drag a block to move it. Drag the bottom edge to resize.
       </span>
     </div>
   );

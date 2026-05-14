@@ -77,9 +77,21 @@ export function useUpdateDrawSchedule() {
 
       // Compute the cascaded permit dd dates the way the server will: dd_start
       // is the start_week's date, dd_end is end_week + 4 days (Friday).
+      // Q9.5.f-fix-20 caveat: target_submit cascades to BPs as end_week + 7
+      // (Monday after DD ends). Optimistic update applies it locally so
+      // computeProjectedApproval picks up the new anchor immediately and the
+      // Est. Approval line + Schedule Estimator update on the next render
+      // — no flash of stale data between mutation and server-side refetch.
       const newDdStart = input.startWeek;
       const newDdEnd = input.endWeek
         ? new Date(new Date(input.endWeek).getTime() + 4 * 24 * 60 * 60 * 1000)
+            .toISOString()
+            .slice(0, 10)
+        : null;
+      // Bobby's spec: target_submit = end_week + 14 days. Two-week buffer
+      // covers final prep + corrections. Matches v1 behavior.
+      const newTargetSubmit = input.endWeek
+        ? new Date(new Date(input.endWeek).getTime() + 14 * 24 * 60 * 60 * 1000)
             .toISOString()
             .slice(0, 10)
         : null;
@@ -101,11 +113,21 @@ export function useUpdateDrawSchedule() {
       );
 
       const cascadePermits = (rows: PermitWithCycles[] | undefined) =>
-        rows?.map((p) =>
-          p.project_id === input.projectId
-            ? { ...p, dd_start: newDdStart, dd_end: newDdEnd }
-            : p,
-        );
+        rows?.map((p) => {
+          if (p.project_id !== input.projectId) return p;
+          // BPs also get the target_submit refresh; non-BP permits keep
+          // their per-permit target_submit (matches the server-side
+          // type='Building Permit' filter on the cascade).
+          if (p.type === 'Building Permit') {
+            return {
+              ...p,
+              dd_start: newDdStart,
+              dd_end: newDdEnd,
+              target_submit: newTargetSubmit,
+            };
+          }
+          return { ...p, dd_start: newDdStart, dd_end: newDdEnd };
+        });
 
       queryClient.setQueryData(permitsKey, cascadePermits(permitsSnapshot));
       queryClient.setQueryData(byProjectKey, cascadePermits(byProjectSnapshot));

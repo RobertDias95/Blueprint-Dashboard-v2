@@ -38,7 +38,7 @@ const fixtures = vi.hoisted(() => {
       { id: 'acq-1', name: 'Caleb', role: 'acq', active: true, former: false, email: null, notes: null, updated_at: NOW },
     ],
     groups: [
-      { id: 'g-1', dm_name: 'Lindsay', da_name: 'Trevor', updated_at: NOW },
+      { id: 'g-1', dm_name: 'Lindsay', da_name: 'Trevor', dm_order: 1, da_order: 3, updated_at: NOW },
       // Marc is unassigned → should appear in unassigned warning
     ],
   };

@@ -167,6 +167,48 @@ vi.mock('../hooks/useResolveDaOverlap', () => ({
   }),
 }));
 
+// Q9.5.f-fix-20: mocks for the new DA-propagation mutation hooks. The
+// mutate fn invokes onSuccess synchronously with a configurable result so
+// tests can drive the GapFillPrompt flow without a real RPC.
+const moveDaMutate = vi.fn();
+const moveDaResult = {
+  current: {
+    projectId: 'p-now',
+    updatedAt: '2026-05-14T12:30:00Z',
+    oldDa: 'Trevor',
+    permitsUpdated: 2,
+    tasksUpdated: 5,
+    gapExists: true,
+    gapDownstreamCount: 2,
+    gapAfterWeek: '2026-05-04',
+  },
+};
+vi.mock('../hooks/useMoveDrawScheduleDa', () => ({
+  useMoveDrawScheduleDa: () => ({
+    mutate: (input: unknown, opts?: { onSuccess?: (r: unknown) => void }) => {
+      moveDaMutate(input);
+      opts?.onSuccess?.(moveDaResult.current);
+    },
+    mutateAsync: vi.fn(),
+    isPending: false,
+    isError: false,
+    error: null,
+    reset: vi.fn(),
+  }),
+}));
+
+const shiftUpMutate = vi.fn();
+vi.mock('../hooks/useShiftDaBlocksUp', () => ({
+  useShiftDaBlocksUp: () => ({
+    mutate: shiftUpMutate,
+    mutateAsync: vi.fn(),
+    isPending: false,
+    isError: false,
+    error: null,
+    reset: vi.fn(),
+  }),
+}));
+
 import DrawScheduleGrid from '../components/DrawScheduleGrid';
 
 beforeEach(() => {
@@ -176,6 +218,18 @@ beforeEach(() => {
   });
   updateMutate.mockClear();
   resolveMutate.mockClear();
+  moveDaMutate.mockClear();
+  shiftUpMutate.mockClear();
+  moveDaResult.current = {
+    projectId: 'p-now',
+    updatedAt: '2026-05-14T12:30:00Z',
+    oldDa: 'Trevor',
+    permitsUpdated: 2,
+    tasksUpdated: 5,
+    gapExists: true,
+    gapDownstreamCount: 2,
+    gapAfterWeek: '2026-05-04',
+  };
 });
 
 /** Synthesize an HTML5 drag-and-drop sequence in jsdom (which doesn't natively
@@ -348,7 +402,7 @@ describe('<DrawScheduleGrid />', () => {
     expect(updateMutate).not.toHaveBeenCalled();
   });
 
-  it('Q6.2.d: Save Anyway fires updateMutation with the captured target context + closes prompt on success', () => {
+  it('Q6.2.d: Save Anyway fires updateMutation with the captured target context + closes prompt', () => {
     renderGrid();
     const block = screen.getByTestId('block-p-now');
     const target = screen.getByTestId('drop-cell-Trevor-2026-04-27');
@@ -359,21 +413,20 @@ describe('<DrawScheduleGrid />', () => {
     act(() => {
       fireEvent.click(screen.getByTestId('np-warning-prompt-confirm'));
     });
+    // Same-DA drop with NP conflict — Trevor → Trevor — stays on
+    // updateMutate (commitMove routes by DA-change detection).
     expect(updateMutate).toHaveBeenCalledTimes(1);
-    const [arg, opts] = updateMutate.mock.calls[0] as [
-      Record<string, unknown>,
-      { onSuccess?: () => void } | undefined,
-    ];
+    expect(moveDaMutate).not.toHaveBeenCalled();
+    const arg = updateMutate.mock.calls[0][0] as Record<string, unknown>;
     expect(arg.projectId).toBe('p-now');
     expect(arg.daAssigned).toBe('Trevor');
     expect(arg.startWeek).toBe('2026-04-27');
     expect(arg.endWeek).toBe('2026-05-11'); // duration 3 weeks preserved
 
-    // Component passes onSuccess that closes the prompt; invoke it.
-    expect(opts?.onSuccess).toBeTypeOf('function');
-    act(() => {
-      opts!.onSuccess!();
-    });
+    // Q9.5.f-fix-20: NP confirm closes prompt synchronously now (was
+    // gated on mutation onSuccess pre-fix). UX-wise this matches the
+    // optimistic-write flow — the prompt vanishes the instant the
+    // user accepts.
     expect(screen.queryByTestId('np-warning-prompt')).not.toBeInTheDocument();
   });
 
@@ -403,9 +456,13 @@ describe('<DrawScheduleGrid />', () => {
     const block = screen.getByTestId('block-p-now');
     const dropTarget = screen.getByTestId('drop-cell-Fisk-2026-04-27');
     simulateDragDrop(block, dropTarget);
-    expect(updateMutate).toHaveBeenCalledTimes(1);
-    const arg = updateMutate.mock.calls[0][0] as Record<string, unknown>;
-    expect(arg.daAssigned).toBe('Fisk');
+    // Q9.5.f-fix-20: cross-DA drops route through bp_move_draw_schedule_da
+    // (was updateMutation pre-fix-20). The same-DA path stays on the
+    // original RPC; this drop targets Fisk while p-now is on Trevor → new path.
+    expect(moveDaMutate).toHaveBeenCalledTimes(1);
+    expect(updateMutate).not.toHaveBeenCalled();
+    const arg = moveDaMutate.mock.calls[0][0] as Record<string, unknown>;
+    expect(arg.newDa).toBe('Fisk');
     expect(arg.startWeek).toBe('2026-04-27');
   });
 
@@ -431,18 +488,22 @@ describe('<DrawScheduleGrid />', () => {
 });
 
 describe('<DrawScheduleGrid /> Q6.2 drag-edit', () => {
-  it('drops on an empty cell on a different DA → fires updateMutation', () => {
+  it('drops on an empty cell on a different DA → fires the DA-move mutation (Q9.5.f-fix-20)', () => {
     renderGrid();
     // Drag p-now (Trevor, 2026-05-04→2026-05-18) to Fisk on week 2026-06-08
-    // (Fisk has no blocks → no overlap).
+    // (Fisk has no blocks → no overlap). Cross-DA drops now route through
+    // bp_move_draw_schedule_da so permits + tasks propagate.
     const block = screen.getByTestId('block-p-now');
     const dropTarget = screen.getByTestId('drop-cell-Fisk-2026-06-08');
     simulateDragDrop(block, dropTarget);
 
-    expect(updateMutate).toHaveBeenCalledTimes(1);
-    const arg = updateMutate.mock.calls[0][0] as Record<string, unknown>;
+    expect(moveDaMutate).toHaveBeenCalledTimes(1);
+    expect(updateMutate).not.toHaveBeenCalled();
+    const arg = moveDaMutate.mock.calls[0][0] as Record<string, unknown>;
     expect(arg.projectId).toBe('p-now');
-    expect(arg.daAssigned).toBe('Fisk');
+    expect(arg.newDa).toBe('Fisk');
+    // newDm derives from the dm_da_groups lookup: Fisk lives under Brittani.
+    expect(arg.newDm).toBe('Brittani');
     expect(arg.startWeek).toBe('2026-06-08');
     // Duration was 3 weeks (05-04, 05-11, 05-18) → end = 06-08 + 2 weeks = 06-22.
     expect(arg.endWeek).toBe('2026-06-22');
@@ -560,5 +621,124 @@ describe('<DrawScheduleGrid /> Q6.2 drag-edit', () => {
     });
     expect(screen.getByTestId('block-p-now').style.pointerEvents).toBe('auto');
     expect(screen.getByTestId('block-p-other').style.pointerEvents).toBe('auto');
+  });
+});
+
+describe('<DrawScheduleGrid /> Q9.5.f-fix-20', () => {
+  it('hovering a block lights up every week in its start..end range in the left column', () => {
+    renderGrid();
+    // p-now spans 2026-05-04 → 2026-05-18 (3 Mondays). Hover should mark
+    // each of those 3 week-label cells as data-hovered.
+    fireEvent.mouseEnter(screen.getByTestId('block-p-now'));
+    expect(
+      screen.getByTestId('week-label-2026-05-04').getAttribute('data-hovered'),
+    ).toBe('true');
+    expect(
+      screen.getByTestId('week-label-2026-05-11').getAttribute('data-hovered'),
+    ).toBe('true');
+    expect(
+      screen.getByTestId('week-label-2026-05-18').getAttribute('data-hovered'),
+    ).toBe('true');
+    // Adjacent uncovered week stays unmarked.
+    expect(
+      screen.getByTestId('week-label-2026-05-25').getAttribute('data-hovered'),
+    ).toBeNull();
+  });
+
+  it('hovering an empty drop cell lights up just that single week', () => {
+    renderGrid();
+    fireEvent.mouseEnter(
+      screen.getByTestId('drop-cell-Francesca-2026-06-08'),
+    );
+    expect(
+      screen.getByTestId('week-label-2026-06-08').getAttribute('data-hovered'),
+    ).toBe('true');
+    // 1 week before — should NOT be highlighted (empty-cell hover = single).
+    expect(
+      screen.getByTestId('week-label-2026-06-01').getAttribute('data-hovered'),
+    ).toBeNull();
+  });
+
+  it('renders a bottom-edge resize handle on every project block', () => {
+    renderGrid();
+    expect(screen.getByTestId('resize-handle-p-now')).toBeInTheDocument();
+    expect(screen.getByTestId('resize-handle-p-other')).toBeInTheDocument();
+  });
+
+  it('dropping on a DIFFERENT DA routes through bp_move_draw_schedule_da, opens GapFillPrompt on gap_exists', () => {
+    renderGrid();
+    const sourceBlock = screen.getByTestId('block-p-now'); // currently on Trevor
+    const targetCell = screen.getByTestId('drop-cell-Francesca-2026-06-08');
+    act(() => {
+      simulateDragDrop(sourceBlock, targetCell);
+    });
+    // The DA-move RPC fired (not the same-DA update path).
+    expect(moveDaMutate).toHaveBeenCalledTimes(1);
+    expect(updateMutate).not.toHaveBeenCalled();
+    // GapFillPrompt opens because moveDaResult.gapExists=true.
+    expect(screen.getByTestId('gap-fill-prompt')).toBeInTheDocument();
+  });
+
+  it('dropping on the SAME DA stays on the original bp_update_draw_schedule_with_dd_sync path', () => {
+    renderGrid();
+    const sourceBlock = screen.getByTestId('block-p-now'); // on Trevor
+    const targetCell = screen.getByTestId('drop-cell-Trevor-2026-06-15'); // also Trevor
+    act(() => {
+      simulateDragDrop(sourceBlock, targetCell);
+    });
+    expect(updateMutate).toHaveBeenCalledTimes(1);
+    expect(moveDaMutate).not.toHaveBeenCalled();
+    // No gap on same-DA reposition, so no prompt.
+    expect(screen.queryByTestId('gap-fill-prompt')).toBeNull();
+  });
+
+  it('GapFillPrompt Shift Up button fires useShiftDaBlocksUp with the right gap anchor', () => {
+    renderGrid();
+    const sourceBlock = screen.getByTestId('block-p-now');
+    const targetCell = screen.getByTestId('drop-cell-Francesca-2026-06-08');
+    act(() => {
+      simulateDragDrop(sourceBlock, targetCell);
+    });
+    act(() => {
+      fireEvent.click(screen.getByTestId('gap-fill-prompt-shift'));
+    });
+    expect(shiftUpMutate).toHaveBeenCalledTimes(1);
+    const callArg = shiftUpMutate.mock.calls[0][0];
+    expect(callArg).toMatchObject({
+      daName: 'Trevor', // the OLD DA — the one that just lost a block
+      gapStartWeek: '2026-05-04',
+      gapEndWeek: '2026-05-18',
+    });
+  });
+
+  it('GapFillPrompt Leave Gap dismisses without firing the shift RPC', () => {
+    renderGrid();
+    const sourceBlock = screen.getByTestId('block-p-now');
+    const targetCell = screen.getByTestId('drop-cell-Francesca-2026-06-08');
+    act(() => {
+      simulateDragDrop(sourceBlock, targetCell);
+    });
+    act(() => {
+      fireEvent.click(screen.getByTestId('gap-fill-prompt-leave'));
+    });
+    expect(shiftUpMutate).not.toHaveBeenCalled();
+    expect(screen.queryByTestId('gap-fill-prompt')).toBeNull();
+  });
+
+  it('does NOT open GapFillPrompt when the move returned gap_exists=false', () => {
+    // Override the default fixture: move succeeds but leaves no downstream.
+    moveDaResult.current = {
+      ...moveDaResult.current,
+      gapExists: false,
+      gapDownstreamCount: 0,
+    };
+    renderGrid();
+    const sourceBlock = screen.getByTestId('block-p-now');
+    const targetCell = screen.getByTestId('drop-cell-Francesca-2026-06-08');
+    act(() => {
+      simulateDragDrop(sourceBlock, targetCell);
+    });
+    expect(moveDaMutate).toHaveBeenCalledTimes(1);
+    expect(screen.queryByTestId('gap-fill-prompt')).toBeNull();
   });
 });
