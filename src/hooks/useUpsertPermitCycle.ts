@@ -16,6 +16,17 @@ import type { PermitCycle, PermitWithCycles } from '../lib/database.types';
 //                      and ships all 5 date fields to the RPC (full-row
 //                      payload contract — see Migration 3 design notes).
 //
+// Server-side snap behavior the RPC performs after a successful write (see
+// migrations fix_24c_2_snap_update_if_null, fix_24c_3_snap_on_resubmitted_too,
+// fix_25a_b_intake_snap_gated_to_design):
+//   - intake_accepted on DESIGN cycle (cycle_index = 0) → INSERT-or-
+//     UPDATE-if-NULL cycle 1.submitted with intake date.
+//   - resubmitted on REVIEW cycle (cycle_index >= 1) → INSERT-or-
+//     UPDATE-if-NULL cycle N+1.submitted with resubmitted date.
+//   - intake_accepted on a review cycle is data noise (V1 model) and does
+//     NOT trigger snap. resubmitted on the design cycle likewise no-ops.
+//   - city_target, corr_issued, submitted (alone) never trigger snap.
+//
 // Cache target: queryKeys.permitsByProject and queryKeys.permits, both
 // tenant-scoped. Cycles live nested under each permit's permit_cycles[].
 
