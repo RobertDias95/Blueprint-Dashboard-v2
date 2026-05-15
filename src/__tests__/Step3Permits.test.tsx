@@ -47,7 +47,7 @@ function permit(type: string, partial: Partial<WizardPermit> = {}): WizardPermit
     dual_da: '',
     architect: '',
     num: '',
-    target_submit: '',
+    expected_issue: '',
     taskTemplateIds: [],
     ...partial,
   };
@@ -182,7 +182,7 @@ describe('<Step3Permits />', () => {
     );
   });
 
-  it('setting ACQ target date updates target_submit on the right permit', () => {
+  it('setting ACQ Target Date updates expected_issue on the right permit (fix-25c)', () => {
     const init = makeEmptyWizardState();
     // Seed BP so the useEffect-driven auto-injection doesn't fire and
     // doesn't claim onChange.mock.calls[0].
@@ -193,15 +193,16 @@ describe('<Step3Permits />', () => {
       screen.getByTestId(`wizard-perm-target-${par.rowId}`),
       { target: { value: '2026-06-01' } },
     );
-    // Find the call that carried the target_submit patch.
+    // fix-25c: the input now lands on expected_issue (target ISSUE date),
+    // not target_submit. Find the patch call that carries expected_issue.
     const targetCall = onChange.mock.calls.find((c) => {
       const patch = c[0] as Partial<WizardState>;
-      return patch.permits?.some((p) => p.target_submit === '2026-06-01');
+      return patch.permits?.some((p) => p.expected_issue === '2026-06-01');
     });
     expect(targetCall).toBeTruthy();
     const patch = targetCall![0] as Partial<WizardState>;
     expect(
-      patch.permits!.find((p) => p.rowId === par.rowId)!.target_submit,
+      patch.permits!.find((p) => p.rowId === par.rowId)!.expected_issue,
     ).toBe('2026-06-01');
   });
 

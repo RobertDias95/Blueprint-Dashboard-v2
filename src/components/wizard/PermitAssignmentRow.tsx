@@ -7,7 +7,11 @@ import type { TeamMember } from '../../lib/database.types';
 // permit (Bobby owns PAR/Pre-Sub + SDOT Tree + ECA Waiver — that's why
 // Migration 3 keeps `ent_lead` on `permits` rather than demoting it to
 // project-level). DA comes from the dm_da_groups view; "none" allowed.
-// ACQ Target Date typically used for ULS/PAR; becomes permits.target_submit.
+//
+// fix-25c: "ACQ Target Date" input now binds to expected_issue (the
+// team's target ISSUE date — the column Schedule Health reads as
+// "ACQ Target"). Pre-fix it bound to target_submit, which meant
+// dates entered here never reached the display.
 
 interface Props {
   permit: WizardPermit;
@@ -85,8 +89,8 @@ export default function PermitAssignmentRow({
         </span>
         <input
           type="date"
-          value={permit.target_submit}
-          onChange={(e) => onChange({ target_submit: e.target.value })}
+          value={permit.expected_issue}
+          onChange={(e) => onChange({ expected_issue: e.target.value })}
           className="bg-surface border border-border rounded-md px-2 py-1 text-xs font-mono text-text focus:outline-none focus:border-de"
           data-testid={`wizard-perm-target-${permit.rowId}`}
         />

@@ -24,6 +24,10 @@ export interface PermitInput {
   dual_da?: string;
   architect?: string;
   target_submit?: string;
+  /** fix-25c: ACQ Target Date from the wizard. Maps to
+   *  permits.expected_issue (the column Schedule Health labels
+   *  "ACQ Target"). target_submit stays NULL on wizard-created permits. */
+  expected_issue?: string;
   /** REQUIRED on the new signature. Empty array = create no tasks for
    *  this permit (Bobby's "task toggle behavior" decision). */
   task_template_ids: string[];

@@ -65,7 +65,7 @@ function makeBpPermit(state: WizardState): WizardPermit {
     dual_da: '',
     architect: '',
     num: '',
-    target_submit: '',
+    expected_issue: '',
     taskTemplateIds: [],
   };
 }
@@ -204,7 +204,11 @@ export default function NewProjectWizard({ open, onClose }: Props) {
       da: strOrNull(p.da) ?? undefined,
       dual_da: strOrNull(p.dual_da) ?? undefined,
       architect: strOrNull(p.architect) ?? undefined,
-      target_submit: strOrNull(p.target_submit) ?? undefined,
+      // fix-25c: "ACQ Target Date" input → expected_issue (the column
+      // Schedule Health reads). target_submit stays NULL on wizard-created
+      // permits; set later via Project Settings if a planned submission
+      // date is needed.
+      expected_issue: strOrNull(p.expected_issue) ?? undefined,
       task_template_ids: p.taskTemplateIds,
     }));
 

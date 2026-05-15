@@ -82,7 +82,7 @@ function permit(type: string, partial: Partial<WizardPermit> = {}): WizardPermit
     dual_da: '',
     architect: '',
     num: '',
-    target_submit: '',
+    expected_issue: '',
     taskTemplateIds: [],
     ...partial,
   };

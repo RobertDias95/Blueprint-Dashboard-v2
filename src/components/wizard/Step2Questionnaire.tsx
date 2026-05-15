@@ -43,7 +43,7 @@ function makePermit(type: string, selected: boolean, defaults: WizardState): Wiz
     dual_da: '',
     architect: '',
     num: '',
-    target_submit: '',
+    expected_issue: '',
     taskTemplateIds: [],
   };
 }

@@ -213,6 +213,58 @@ describe('useCreateProjectWithPermits (fix-22 signature)', () => {
     ]);
   });
 
+  it('fix-25c: passes per-permit expected_issue through to the RPC payload', async () => {
+    mocks.setResult({
+      data: [
+        {
+          project_id: '22222222-2222-2222-2222-222222222222',
+          permit_ids: [20000, 20001],
+          conflict: false,
+        },
+      ],
+      error: null,
+    });
+
+    const { wrapper } = setup();
+    const { result } = renderHook(() => useCreateProjectWithPermits(), {
+      wrapper,
+    });
+
+    await act(async () => {
+      await result.current.mutateAsync({
+        address: '999 Pine Ln',
+        juris: 'Seattle',
+        project_data: {},
+        permits: [
+          {
+            type: 'Building Permit',
+            expected_issue: '2026-08-15',
+            task_template_ids: [],
+          },
+          {
+            type: 'Demolition',
+            target_submit: '2026-10-01', // separate field still flows
+            task_template_ids: [],
+          },
+        ],
+      });
+    });
+
+    const [, args] = mocks.rpcFn.mock.calls[0];
+    expect(args.p_permits).toEqual([
+      {
+        type: 'Building Permit',
+        expected_issue: '2026-08-15',
+        task_template_ids: [],
+      },
+      {
+        type: 'Demolition',
+        target_submit: '2026-10-01',
+        task_template_ids: [],
+      },
+    ]);
+  });
+
   it('surfaces conflict=true to the caller without throwing', async () => {
     mocks.setResult({
       data: [
