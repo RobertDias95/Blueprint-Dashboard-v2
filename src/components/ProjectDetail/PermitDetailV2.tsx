@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { effectiveStage } from '../../lib/permitStage';
 import {
   getHighlightedMilestone,
@@ -129,6 +129,35 @@ export default function PermitDetailV2({ permit, project }: Props) {
   const [activeStage, setActiveStage] = useState<'de' | 'pm'>(
     stage === 'de' ? 'de' : 'pm',
   );
+
+  // fix-25d sub-issue 3: when a snap creates a new cycle (intake on
+  // design → cycle 1; resubmitted on cycle N → cycle N+1), the cycles
+  // array grows. If the newest cycle is later than what the user is
+  // currently viewing, follow it. Tracks the prior count in a ref so the
+  // effect fires only on growth, not on every render.
+  const prevCycleCountRef = useRef(cycles.length);
+  useEffect(() => {
+    if (cycles.length > prevCycleCountRef.current) {
+      const newestIdx = cycles[cycles.length - 1]?.cycle_index ?? null;
+      if (newestIdx !== null && newestIdx > viewCycleIdx) {
+        setViewCycleIdx(newestIdx);
+      }
+    }
+    prevCycleCountRef.current = cycles.length;
+  }, [cycles, viewCycleIdx]);
+
+  // fix-25d sub-issue 4 (25f): when the user (or sub-issue 3's
+  // auto-advance) moves from Design (viewCycleIdx=0) to a review cycle
+  // (viewCycleIdx>=1), flip the task list category to Permitting. Only
+  // fires on the 0 → ≥1 transition — moving back to Design later doesn't
+  // auto-revert (respects manual category choice once made).
+  const prevViewCycleIdxRef = useRef(viewCycleIdx);
+  useEffect(() => {
+    if (prevViewCycleIdxRef.current === 0 && viewCycleIdx >= 1) {
+      setActiveStage('pm');
+    }
+    prevViewCycleIdxRef.current = viewCycleIdx;
+  }, [viewCycleIdx]);
 
   return (
     <div className="flex flex-col gap-0 bg-surface" data-testid="permit-detail-v2">
@@ -726,6 +755,14 @@ function DateCell({
   testid?: string;
 }) {
   const [draft, setDraft] = useState(value ?? '');
+  // fix-25d sub-issue 1: commit on CHANGE as well as on blur. Bobby
+  // reported a 10-15s "highlight lag" — the actual cause was the
+  // blur-only commit. type=date browser pickers fire onChange the moment
+  // a date is picked, but no blur until the user clicks somewhere else.
+  // Until blur, no mutation fires, no optimistic cache update, no
+  // highlight refresh. tryCommit dedupes via a ref so onChange + onBlur
+  // can't fire the mutation twice with the same value.
+  const lastCommittedRef = useRef(value ?? '');
   // fix-24c: when the value prop updates after our initial mount (cycles
   // load async, parent refetches after a save, user switches cycle tabs),
   // pull the new value into our draft. Without this, useState(value)
@@ -734,7 +771,14 @@ function DateCell({
   // Design strip when cycles arrived a tick after the permit row.
   useEffect(() => {
     setDraft(value ?? '');
+    lastCommittedRef.current = value ?? '';
   }, [value]);
+  function tryCommit(next: string) {
+    if (readOnly) return;
+    if (next === lastCommittedRef.current) return;
+    lastCommittedRef.current = next;
+    void onCommit(next);
+  }
   return (
     <div
       className="px-2 py-1.5 flex flex-col gap-1 relative"
@@ -772,10 +816,12 @@ function DateCell({
       <input
         type="date"
         value={draft}
-        onChange={(e) => setDraft(e.target.value)}
-        onBlur={() => {
-          if (!readOnly) void onCommit(draft);
+        onChange={(e) => {
+          const v = e.target.value;
+          setDraft(v);
+          tryCommit(v);
         }}
+        onBlur={() => tryCommit(draft)}
         disabled={readOnly}
         title={readOnly ? 'Edit GO Date in Project Settings' : undefined}
         className="text-[11px] px-1.5 py-0.5 border rounded outline-none w-full disabled:opacity-70 disabled:cursor-not-allowed"
