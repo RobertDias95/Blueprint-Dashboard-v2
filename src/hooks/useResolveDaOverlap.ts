@@ -12,6 +12,14 @@ import type { DrawScheduleRow } from '../lib/database.types';
 // (preserves each block's duration). Server enforces tenant scope via
 // SECURITY INVOKER + RLS; OCC is on the anchor only.
 //
+// fix-24a (prod migration 2026-05-14): each pushed block now skips past
+// any overlapping da_time_blocks entry on the target DA — same NP-jump
+// loop bp_shift_da_blocks_up uses. Push-down used to land pushed blocks
+// at `frontier + 7` unconditionally and silently overlap vacation /
+// training / redesign / other NP blocks. The new RPC iteratively jumps
+// the candidate position past each overlapping NP until no overlap
+// remains, then writes. Symmetric with the shift-up gap close.
+//
 // Optimistic update strategy: too risky to mirror the cascade math
 // client-side — instead we just patch the anchor's row optimistically
 // (mirrors useUpdateDrawSchedule) and let invalidation pick up the pushed
