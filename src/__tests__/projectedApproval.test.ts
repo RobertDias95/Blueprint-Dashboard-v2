@@ -65,7 +65,7 @@ function learned(over: Partial<LearnedEstimate> = {}): LearnedEstimate {
     sampleCount: 5,
     dateRange: '',
     goToSubmit: null,
-    avgSubmitToIssue: null,
+    avgIntakeToApproval: null,
     cityReview1: SCHEDULE_DEFAULTS.cityReview1,
     corrResponse1: SCHEDULE_DEFAULTS.corrResponse1,
     cityReview2: SCHEDULE_DEFAULTS.cityReview2,
@@ -86,6 +86,7 @@ function learned(over: Partial<LearnedEstimate> = {}): LearnedEstimate {
     mostLikelyCycle: 1,
     cycleDist: { 1: 0, 2: 0, 3: 0, 4: 0 },
     isAllTime: false,
+    isCrossJuris: false,
     ...over,
   };
 }
@@ -146,13 +147,13 @@ describe('computeProjectedApproval', () => {
     expect(r.isProjected).toBe(true);
   });
 
-  it('holistic shortcut: targetCycle=1 + no corrections + avgSubmitToIssue → base + avgSubmitToIssue', () => {
+  it('holistic shortcut: targetCycle=1 + no corrections + avgIntakeToApproval → base + avgIntakeToApproval', () => {
     // Bobby's 3-day drift fix: when learner knows the BP usually approves
     // in cycle 1 in N days, trust that average instead of cityReview1 + 7.
     const r = computeProjectedApproval({
       permit: permit(),
       cycles: [cyc({ cycle_index: 1, submitted: '2026-01-01' })],
-      learnedEstimate: learned({ avgSubmitToIssue: 80, mostLikelyCycle: 1 }),
+      learnedEstimate: learned({ avgIntakeToApproval: 80, mostLikelyCycle: 1 }),
     });
     // 2026-01-01 + 80 days = 2026-03-22
     expect(r.projection).toBe('2026-03-22');
@@ -202,10 +203,10 @@ describe('computeProjectedApproval', () => {
       cycles: [],
       learnedEstimate: null,
     });
-    // No cycle activity + no learner avgSubmitToIssue → fix-24h holistic
-    // fallback fires with DEFAULT_AVG_SUBMIT_TO_ISSUE=210. base is future
-    // (today pinned to 2025-12-01 in beforeEach), so anchor used as-is.
-    // 2026-05-01 + 210d = 2026-11-27.
+    // No cycle activity + no learner avgIntakeToApproval → fix-24h/24i
+    // holistic fallback fires with defaultDaysForType('Building Permit')=210.
+    // base is future (today pinned to 2025-12-01 in beforeEach), so anchor
+    // used as-is. 2026-05-01 + 210d = 2026-11-27.
     expect(r.projection).toBe('2026-11-27');
   });
 
@@ -300,9 +301,9 @@ describe('computeProjectedApproval', () => {
       siblingLearnedByPermitId: new Map(),
     });
     // No BP → ULS branch returns no anchors → falls to non-ULS walk. Then
-    // fix-24h: no cycle activity + no learner → 210d default fires.
-    // 2026-05-01 + 210d = 2026-11-27.
-    expect(r.projection).toBe('2026-11-27');
+    // fix-24h/24i: no cycle activity + no learner → defaultDaysForType('ULS')=90.
+    // 2026-05-01 + 90d = 2026-07-30.
+    expect(r.projection).toBe('2026-07-30');
     expect(r.ulsAnchors).toBeUndefined();
   });
 
@@ -495,7 +496,7 @@ describe('computeProjectedApproval — fix-24e today-floor on projection anchors
   });
 });
 
-describe('computeProjectedApproval — fix-24h DEFAULT_AVG_SUBMIT_TO_ISSUE fallback', () => {
+describe('computeProjectedApproval — fix-24h/24i defaultDaysForType fallback', () => {
   it('no actuals + no learner + no cycle dates → defaults to today + 210d (test bobby case)', () => {
     // The canonical fix-24h motivator. test bobby permit: past target_submit,
     // no learner samples for Bothell BPs, single empty cycle 0 row.
@@ -523,14 +524,14 @@ describe('computeProjectedApproval — fix-24h DEFAULT_AVG_SUBMIT_TO_ISSUE fallb
     expect(r.projection).toBe('2027-07-30');
   });
 
-  it('learner avgSubmitToIssue present → uses learner avg, NOT the 210d default', () => {
+  it('learner avgIntakeToApproval present → uses learner avg, NOT the 210d default', () => {
     // Even with no cycle activity, the learner takes precedence over the
     // hardcoded 210d. Real data wins over the magic number.
     vi.setSystemTime(new Date('2026-05-15T12:00:00Z'));
     const r = computeProjectedApproval({
       permit: permit({ target_submit: '2025-10-06' }),
       cycles: [],
-      learnedEstimate: learned({ avgSubmitToIssue: 90 }),
+      learnedEstimate: learned({ avgIntakeToApproval: 90 }),
     });
     // base floored to today + 90 = 2026-08-13.
     expect(r.projection).toBe('2026-08-13');
@@ -549,5 +550,43 @@ describe('computeProjectedApproval — fix-24h DEFAULT_AVG_SUBMIT_TO_ISSUE fallb
     // Cycle walk fires, NOT today + 210d. Exact value depends on the
     // cycle walk math, but it must NOT equal the 210d default output.
     expect(r.projection).not.toBe('2026-12-11');
+  });
+
+  it('fix-24i: Demolition permit + no learner + no cycle activity → uses 60d per-type default, NOT 210d', () => {
+    // Bothell Demolition. Per-type default = 60d (much faster than BP).
+    vi.setSystemTime(new Date('2026-05-15T12:00:00Z'));
+    const r = computeProjectedApproval({
+      permit: permit({ type: 'Demolition', target_submit: '2025-10-06' }),
+      cycles: [],
+      learnedEstimate: null,
+    });
+    // today (floored) + 60d = 2026-07-14.
+    expect(r.projection).toBe('2026-07-14');
+  });
+
+  it('fix-24i: ULS permit + no learner + no cycle activity → uses 90d per-type default', () => {
+    vi.setSystemTime(new Date('2026-05-15T12:00:00Z'));
+    const r = computeProjectedApproval({
+      // Use a target_submit so we reach the non-ULS fallback path (no
+      // sibling BP supplied → ULS branch returns no anchors, falls through).
+      permit: permit({ type: 'ULS', target_submit: '2025-10-06' }),
+      cycles: [],
+      learnedEstimate: null,
+      siblingPermits: [],
+      siblingCyclesByPermitId: new Map(),
+    });
+    // today (floored) + 90d = 2026-08-13.
+    expect(r.projection).toBe('2026-08-13');
+  });
+
+  it('fix-24i: unknown permit type falls back to PER_TYPE_FALLBACK_DAYS (210)', () => {
+    vi.setSystemTime(new Date('2026-05-15T12:00:00Z'));
+    const r = computeProjectedApproval({
+      permit: permit({ type: 'Bizarre Custom Type', target_submit: '2025-10-06' }),
+      cycles: [],
+      learnedEstimate: null,
+    });
+    // today + 210d = 2026-12-11 (same as the BP default).
+    expect(r.projection).toBe('2026-12-11');
   });
 });

@@ -310,19 +310,19 @@ describe('<Reports /> Q7.2.b', () => {
     ).toBeInTheDocument();
   });
 
-  it('Schedule Benchmarks shows "Insufficient data" for combos with no approved permits', () => {
+  it('Schedule Benchmarks shows "Insufficient data" when the learner returns null', () => {
     renderIt();
-    // Permit 1 (Building Permit · Seattle) has approval_date, so it
-    // produces a learned estimate. Permit 2 (Demolition · Bellevue) has
-    // neither approval_date nor actual_issue, so its card surfaces the
-    // insufficient-data state.
+    // Permit 2 (Demolition · Bellevue) has no approval → insufficient.
     const demoCard = screen.getByTestId('benchmark-card-Demolition-Bellevue');
     expect(demoCard.textContent).toMatch(/Insufficient data/i);
+    // fix-24i: Permit 1 (Building Permit · Seattle) has approval_date but
+    // (a) its intake_accepted is on cycle_index=1, not cycle_index=0 (so it
+    // drops out of extractSample's intake gate) and (b) even if it counted,
+    // 1 sample is below MIN_SAMPLES_FOR_LEARNER=3. The card surfaces the
+    // insufficient-data state regardless of cross-juris fallback because
+    // there are no other Building Permit approvals in the fixture.
     const bldgCard = screen.getByTestId('benchmark-card-Building Permit-Seattle');
-    // Q9.5.f-fix-3: tile layout drops the "sample" wording — assert on the
-    // tier badge ("LAST 120D" or "ALL-TIME") which is always present when
-    // there's a learned estimate.
-    expect(bldgCard.textContent).toMatch(/LAST 120D|ALL-TIME/i);
+    expect(bldgCard.textContent).toMatch(/Insufficient data/i);
   });
 
   it('Report Table renders one row per project + permit headline count', () => {

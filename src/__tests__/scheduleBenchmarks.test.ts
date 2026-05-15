@@ -1,8 +1,11 @@
 import { describe, it, expect } from 'vitest';
 import {
   computeLearnedSchedule,
+  defaultDaysForType,
   extractSample,
   listTypeJurisCombos,
+  PER_TYPE_DEFAULT_DAYS,
+  PER_TYPE_FALLBACK_DAYS,
   SCHEDULE_DEFAULTS,
 } from '../lib/scheduleBenchmarks';
 import type {
@@ -85,18 +88,46 @@ describe('extractSample', () => {
     expect(extractSample(makePermit({ approval_date: null, actual_issue: null }))).toBeNull();
   });
 
-  it('returns null when cycle 1 has no submitted date', () => {
+  it('fix-24i: returns null when cycle 0 has no intake_accepted (drops out of learner)', () => {
     const permit = makePermit({
       approval_date: '2026-05-01',
-      permit_cycles: [makeCycle({ cycle_index: 1, submitted: null })],
+      permit_cycles: [
+        makeCycle({ cycle_index: 0, intake_accepted: null }),
+        makeCycle({ cycle_index: 1, submitted: '2026-02-01', corr_issued: '2026-03-01' }),
+      ],
     });
     expect(extractSample(permit)).toBeNull();
   });
 
-  it('computes cityReview1Days from cycle 1 submitted → corr_issued', () => {
+  it('fix-24i: returns null when cycle 0 row is missing entirely', () => {
+    const permit = makePermit({
+      approval_date: '2026-05-01',
+      permit_cycles: [
+        makeCycle({ cycle_index: 1, submitted: '2026-02-01', corr_issued: '2026-03-01' }),
+      ],
+    });
+    expect(extractSample(permit)).toBeNull();
+  });
+
+  it('fix-24i: intakeToApprovalDays anchors at c0.intake_accepted, not c1.submitted', () => {
+    const permit = makePermit({
+      approval_date: '2026-02-01',
+      permit_cycles: [
+        makeCycle({ cycle_index: 0, intake_accepted: '2025-08-01' }),
+        makeCycle({ cycle_index: 1, submitted: '2025-09-15' }), // ignored
+      ],
+    });
+    const s = extractSample(permit);
+    // 2025-08-01 → 2026-02-01 = 184 days. c1.submitted is irrelevant.
+    expect(s?.intakeToApprovalDays).toBe(184);
+    expect(s?.intakeAnchor).toBe('2025-08-01');
+  });
+
+  it('computes cityReview1Days from cycle 1 submitted → corr_issued (per-round still c1.submitted)', () => {
     const permit = makePermit({
       approval_date: '2026-06-01',
       permit_cycles: [
+        makeCycle({ cycle_index: 0, intake_accepted: '2026-02-15' }),
         makeCycle({ cycle_index: 1, submitted: '2026-03-01', corr_issued: '2026-04-01' }),
       ],
     });
@@ -109,6 +140,7 @@ describe('extractSample', () => {
     const permit = makePermit({
       approval_date: '2026-03-20',
       permit_cycles: [
+        makeCycle({ cycle_index: 0, intake_accepted: '2026-02-15' }),
         makeCycle({ cycle_index: 1, submitted: '2026-03-01', corr_issued: null }),
         // No cycle 2; approval landed during cycle 1's review.
       ],
@@ -122,6 +154,7 @@ describe('extractSample', () => {
     const permit = makePermit({
       approval_date: '2026-06-01',
       permit_cycles: [
+        makeCycle({ cycle_index: 0, intake_accepted: '2026-02-15' }),
         makeCycle({
           cycle_index: 1,
           submitted: '2026-03-01',
@@ -137,6 +170,7 @@ describe('extractSample', () => {
     const permit = makePermit({
       approval_date: '2026-08-01',
       permit_cycles: [
+        makeCycle({ cycle_index: 0, intake_accepted: '2026-02-15' }),
         makeCycle({ cycle_index: 1, submitted: '2026-03-01', corr_issued: '2026-04-01', resubmitted: '2026-04-15' }),
         makeCycle({ cycle_index: 2, submitted: '2026-04-15', corr_issued: '2026-05-15', resubmitted: '2026-05-29' }),
       ],
@@ -145,12 +179,16 @@ describe('extractSample', () => {
     expect(extractSample(permit)?.approvedInCycle).toBe(3);
   });
 
-  it('goToSubmitDays = project.go_date → cycle 1 submitted', () => {
-    // fix-22 Mig 3: extractSample now takes the project's go_date as a
-    // second arg.
+  it('goToSubmitDays = project.go_date → cycle 1 submitted (unchanged in fix-24i)', () => {
+    // fix-22 Mig 3: extractSample takes the project's go_date as a second
+    // arg. fix-24i: anchor switched to intake for the holistic clock, but
+    // goToSubmit still measures go_date → c1.submitted (team-side ramp).
     const permit = makePermit({
       approval_date: '2026-06-01',
-      permit_cycles: [makeCycle({ cycle_index: 1, submitted: '2026-03-01' })],
+      permit_cycles: [
+        makeCycle({ cycle_index: 0, intake_accepted: '2026-02-15' }),
+        makeCycle({ cycle_index: 1, submitted: '2026-03-01' }),
+      ],
     });
     // Jan 15 → Mar 1 = 45 days.
     expect(extractSample(permit, '2026-01-15')?.goToSubmitDays).toBe(45);
@@ -164,7 +202,38 @@ describe('computeLearnedSchedule', () => {
   const projectsById = new Map<string, Project>([
     ['p1', makeProject({ id: 'p1', juris: 'Seattle' })],
     ['p2', makeProject({ id: 'p2', juris: 'Seattle' })],
+    ['p3', makeProject({ id: 'p3', juris: 'Seattle' })],
+    ['p4', makeProject({ id: 'p4', juris: 'Seattle' })],
+    ['p5', makeProject({ id: 'p5', juris: 'Seattle' })],
   ]);
+
+  /** Build an approved BP fixture with c0 intake + c1 review. */
+  function approvedBP(args: {
+    id: number;
+    projectId: string;
+    intake: string;
+    submitted: string;
+    corrIssued?: string;
+    resubmitted?: string;
+    approval: string;
+    type?: string;
+  }): PermitWithCycles {
+    return makePermit({
+      id: args.id,
+      project_id: args.projectId,
+      type: args.type ?? 'Building Permit',
+      approval_date: args.approval,
+      permit_cycles: [
+        makeCycle({ cycle_index: 0, intake_accepted: args.intake }),
+        makeCycle({
+          cycle_index: 1,
+          submitted: args.submitted,
+          corr_issued: args.corrIssued ?? null,
+          resubmitted: args.resubmitted ?? null,
+        }),
+      ],
+    });
+  }
 
   it('returns null when no approved permits match the (type, juris) combo', () => {
     const result = computeLearnedSchedule(
@@ -177,15 +246,31 @@ describe('computeLearnedSchedule', () => {
     expect(result).toBeNull();
   });
 
-  it('tier 1: recent-window samples build a learned estimate (isAllTime=false)', () => {
-    const permit = makePermit({
-      approval_date: '2026-05-01',
-      permit_cycles: [
-        makeCycle({ cycle_index: 1, submitted: '2026-02-01', corr_issued: '2026-03-01' }),
-      ],
-    });
+  it('fix-24i: returns null when sample count is below MIN_SAMPLES_FOR_LEARNER (3) and no cross-juris signal', () => {
+    // Only 2 Seattle BPs approved → below the gate. Cross-juris also has 2 →
+    // also below the gate. Caller falls back to defaultDaysForType.
+    const permits = [
+      approvedBP({ id: 1, projectId: 'p1', intake: '2026-02-15', submitted: '2026-02-15', corrIssued: '2026-03-15', approval: '2026-05-01' }),
+      approvedBP({ id: 2, projectId: 'p2', intake: '2026-02-20', submitted: '2026-02-20', corrIssued: '2026-03-20', approval: '2026-05-05' }),
+    ];
     const result = computeLearnedSchedule(
-      [permit],
+      permits,
+      'Building Permit',
+      'Seattle',
+      projectsById,
+      new Date(2026, 4, 15),
+    );
+    expect(result).toBeNull();
+  });
+
+  it('tier 1: 3+ recent-window samples build a learned estimate (isAllTime=false)', () => {
+    const permits = [
+      approvedBP({ id: 1, projectId: 'p1', intake: '2026-02-01', submitted: '2026-02-01', corrIssued: '2026-03-01', approval: '2026-05-01' }),
+      approvedBP({ id: 2, projectId: 'p2', intake: '2026-02-05', submitted: '2026-02-05', corrIssued: '2026-03-05', approval: '2026-05-05' }),
+      approvedBP({ id: 3, projectId: 'p3', intake: '2026-02-10', submitted: '2026-02-10', corrIssued: '2026-03-10', approval: '2026-05-10' }),
+    ];
+    const result = computeLearnedSchedule(
+      permits,
       'Building Permit',
       'Seattle',
       projectsById,
@@ -193,21 +278,20 @@ describe('computeLearnedSchedule', () => {
     );
     expect(result).not.toBeNull();
     expect(result?.isAllTime).toBe(false);
-    expect(result?.sampleCount).toBe(1);
-    expect(result?.cityReview1).toBe(28); // Feb 1 → Mar 1
+    expect(result?.isCrossJuris).toBe(false);
+    expect(result?.sampleCount).toBe(3);
+    expect(result?.cityReview1).toBe(28); // ~Feb → ~Mar = 28d each
     expect(result?.source).toContain('Last 180d');
   });
 
-  it('tier 2: all-time fallback when no permits in window (isAllTime=true)', () => {
-    const oldPermit = makePermit({
-      id: 1,
-      approval_date: '2024-05-01', // > 180 days before today=2026-05-15
-      permit_cycles: [
-        makeCycle({ cycle_index: 1, submitted: '2024-02-01', corr_issued: '2024-03-01' }),
-      ],
-    });
+  it('tier 2: 3+ all-time samples (outside 180d window) → isAllTime=true', () => {
+    const oldPermits = [
+      approvedBP({ id: 1, projectId: 'p1', intake: '2024-02-01', submitted: '2024-02-01', corrIssued: '2024-03-01', approval: '2024-05-01' }),
+      approvedBP({ id: 2, projectId: 'p2', intake: '2024-02-05', submitted: '2024-02-05', corrIssued: '2024-03-05', approval: '2024-05-05' }),
+      approvedBP({ id: 3, projectId: 'p3', intake: '2024-02-10', submitted: '2024-02-10', corrIssued: '2024-03-10', approval: '2024-05-10' }),
+    ];
     const result = computeLearnedSchedule(
-      [oldPermit],
+      oldPermits,
       'Building Permit',
       'Seattle',
       projectsById,
@@ -217,16 +301,15 @@ describe('computeLearnedSchedule', () => {
     expect(result?.source).toContain('All-time');
   });
 
-  it('falls back to SCHEDULE_DEFAULTS for cycles with no learned samples', () => {
-    // Only cycle 1 has data; cycles 2-4 should fall back to defaults.
-    const permit = makePermit({
-      approval_date: '2026-05-01',
-      permit_cycles: [
-        makeCycle({ cycle_index: 1, submitted: '2026-02-01', corr_issued: '2026-03-01' }),
-      ],
-    });
+  it('falls back to SCHEDULE_DEFAULTS for cycles with no learned samples (cycles 2-4)', () => {
+    // 3 Seattle BPs, all with only cycle 1 review data. cycles 2-4 use defaults.
+    const permits = [
+      approvedBP({ id: 1, projectId: 'p1', intake: '2026-02-01', submitted: '2026-02-01', corrIssued: '2026-03-01', approval: '2026-05-01' }),
+      approvedBP({ id: 2, projectId: 'p2', intake: '2026-02-05', submitted: '2026-02-05', corrIssued: '2026-03-05', approval: '2026-05-05' }),
+      approvedBP({ id: 3, projectId: 'p3', intake: '2026-02-10', submitted: '2026-02-10', corrIssued: '2026-03-10', approval: '2026-05-10' }),
+    ];
     const result = computeLearnedSchedule(
-      [permit],
+      permits,
       'Building Permit',
       'Seattle',
       projectsById,
@@ -236,47 +319,94 @@ describe('computeLearnedSchedule', () => {
     expect(result?.corrResponse2).toBe(SCHEDULE_DEFAULTS.corrResponse2);
   });
 
-  it('filters by (type, juris) — does NOT mix data across combos', () => {
-    const seattleBP = makePermit({
-      id: 1,
-      project_id: 'p1',
-      type: 'Building Permit',
-      approval_date: '2026-05-01',
-      permit_cycles: [makeCycle({ cycle_index: 1, submitted: '2026-02-01', corr_issued: '2026-03-01' })],
-    });
-    const bellevueBP = makePermit({
-      id: 2,
-      project_id: 'p2',
-      type: 'Building Permit',
-      approval_date: '2026-05-01',
-      permit_cycles: [makeCycle({ cycle_index: 1, submitted: '2026-02-01', corr_issued: '2026-04-15' })],
-    });
+  it('filters by (type, juris) — does NOT mix data across combos when both sides have enough samples', () => {
+    // 3 Seattle BPs (cityReview1 ≈ 28) + 3 Bellevue BPs (cityReview1 ≈ 73).
+    // Seattle scope should ONLY learn from Seattle samples.
+    const permits = [
+      approvedBP({ id: 1, projectId: 'p1', intake: '2026-02-01', submitted: '2026-02-01', corrIssued: '2026-03-01', approval: '2026-05-01' }),
+      approvedBP({ id: 2, projectId: 'p2', intake: '2026-02-05', submitted: '2026-02-05', corrIssued: '2026-03-05', approval: '2026-05-05' }),
+      approvedBP({ id: 3, projectId: 'p3', intake: '2026-02-10', submitted: '2026-02-10', corrIssued: '2026-03-10', approval: '2026-05-10' }),
+      approvedBP({ id: 4, projectId: 'pBV1', intake: '2026-02-01', submitted: '2026-02-01', corrIssued: '2026-04-15', approval: '2026-05-01' }),
+      approvedBP({ id: 5, projectId: 'pBV2', intake: '2026-02-05', submitted: '2026-02-05', corrIssued: '2026-04-20', approval: '2026-05-05' }),
+      approvedBP({ id: 6, projectId: 'pBV3', intake: '2026-02-10', submitted: '2026-02-10', corrIssued: '2026-04-25', approval: '2026-05-10' }),
+    ];
     const projectsBoth = new Map<string, Project>([
       ['p1', makeProject({ id: 'p1', juris: 'Seattle' })],
-      ['p2', makeProject({ id: 'p2', juris: 'Bellevue' })],
+      ['p2', makeProject({ id: 'p2', juris: 'Seattle' })],
+      ['p3', makeProject({ id: 'p3', juris: 'Seattle' })],
+      ['pBV1', makeProject({ id: 'pBV1', juris: 'Bellevue' })],
+      ['pBV2', makeProject({ id: 'pBV2', juris: 'Bellevue' })],
+      ['pBV3', makeProject({ id: 'pBV3', juris: 'Bellevue' })],
     ]);
     const seattle = computeLearnedSchedule(
-      [seattleBP, bellevueBP],
+      permits,
       'Building Permit',
       'Seattle',
       projectsBoth,
       new Date(2026, 4, 15),
     );
-    // Only the Seattle permit contributed → cityReview1 = 28 days, not the
-    // average of [28, 73] = 50 we'd see if filtering was broken.
-    expect(seattle?.sampleCount).toBe(1);
-    expect(seattle?.cityReview1).toBe(28);
+    expect(seattle?.sampleCount).toBe(3);
+    expect(seattle?.isCrossJuris).toBe(false);
+    expect(seattle?.cityReview1).toBe(28); // Seattle's 28d, NOT mixed with Bellevue's ~73d
+  });
+
+  it('fix-24i: (type, juris) has 0 samples but (type, *) has 3+ → cross-juris fallback fires with isCrossJuris=true', () => {
+    // Request: Bothell BP. No Bothell BPs exist. Cross-juris pool: 3 Seattle BPs.
+    const permits = [
+      approvedBP({ id: 1, projectId: 'p1', intake: '2026-02-01', submitted: '2026-02-01', corrIssued: '2026-03-01', approval: '2026-05-01' }),
+      approvedBP({ id: 2, projectId: 'p2', intake: '2026-02-05', submitted: '2026-02-05', corrIssued: '2026-03-05', approval: '2026-05-05' }),
+      approvedBP({ id: 3, projectId: 'p3', intake: '2026-02-10', submitted: '2026-02-10', corrIssued: '2026-03-10', approval: '2026-05-10' }),
+    ];
+    const result = computeLearnedSchedule(
+      permits,
+      'Building Permit',
+      'Bothell',
+      projectsById, // all p1/p2/p3 → Seattle
+      new Date(2026, 4, 15),
+    );
+    expect(result).not.toBeNull();
+    expect(result?.isCrossJuris).toBe(true);
+    expect(result?.sampleCount).toBe(3);
+    expect(result?.source).toContain('*'); // "Last 180d · Building Permit · *"
+  });
+
+  it('fix-24i: (type, juris) has 2 samples (below gate) → cross-juris fallback fires when (type, *) has 3+', () => {
+    // 2 Seattle BPs + 2 Bellevue BPs (both below gate individually). Combined
+    // (type, *) has 4 → cross-juris fallback fires.
+    const permits = [
+      approvedBP({ id: 1, projectId: 'p1', intake: '2026-02-01', submitted: '2026-02-01', corrIssued: '2026-03-01', approval: '2026-05-01' }),
+      approvedBP({ id: 2, projectId: 'p2', intake: '2026-02-05', submitted: '2026-02-05', corrIssued: '2026-03-05', approval: '2026-05-05' }),
+      approvedBP({ id: 3, projectId: 'pBV1', intake: '2026-02-10', submitted: '2026-02-10', corrIssued: '2026-03-10', approval: '2026-05-10' }),
+      approvedBP({ id: 4, projectId: 'pBV2', intake: '2026-02-15', submitted: '2026-02-15', corrIssued: '2026-03-15', approval: '2026-05-15' }),
+    ];
+    const projectsBoth = new Map<string, Project>([
+      ['p1', makeProject({ id: 'p1', juris: 'Seattle' })],
+      ['p2', makeProject({ id: 'p2', juris: 'Seattle' })],
+      ['pBV1', makeProject({ id: 'pBV1', juris: 'Bellevue' })],
+      ['pBV2', makeProject({ id: 'pBV2', juris: 'Bellevue' })],
+    ]);
+    const result = computeLearnedSchedule(
+      permits,
+      'Building Permit',
+      'Seattle', // only 2 Seattle samples
+      projectsBoth,
+      new Date(2026, 4, 15),
+    );
+    expect(result).not.toBeNull();
+    expect(result?.isCrossJuris).toBe(true);
+    expect(result?.sampleCount).toBe(4);
   });
 
   it('mostLikelyCycle = bucket with highest count; tiebreak favors lower cycle', () => {
     function approved(nCycles: number, id: number): PermitWithCycles {
       const cycles: PermitCycle[] = [
-        makeCycle({ cycle_index: 1, submitted: '2026-02-01' }),
+        makeCycle({ cycle_index: 0, intake_accepted: '2026-02-01' }),
+        makeCycle({ cycle_index: 1, submitted: '2026-02-15' }),
       ];
       for (let i = 0; i < nCycles; i++) {
         cycles.push(
           makeCycle({
-            cycle_index: 1 + i + 1,
+            cycle_index: 2 + i,
             submitted: '2026-02-15',
             corr_issued: '2026-03-01',
             resubmitted: '2026-03-15',
@@ -285,21 +415,48 @@ describe('computeLearnedSchedule', () => {
       }
       return makePermit({
         id,
+        project_id: `p${id}`,
         approval_date: '2026-05-01',
         permit_cycles: cycles,
       });
     }
-    // 3 permits approved in cycle 1, 2 permits approved in cycle 2.
+    // 3 permits approved in cycle 1 (no corrections), 2 in cycle 2 (1 correction).
+    const projects5 = new Map<string, Project>([
+      ['p1', makeProject({ id: 'p1', juris: 'Seattle' })],
+      ['p2', makeProject({ id: 'p2', juris: 'Seattle' })],
+      ['p3', makeProject({ id: 'p3', juris: 'Seattle' })],
+      ['p4', makeProject({ id: 'p4', juris: 'Seattle' })],
+      ['p5', makeProject({ id: 'p5', juris: 'Seattle' })],
+    ]);
     const result = computeLearnedSchedule(
       [approved(0, 1), approved(0, 2), approved(0, 3), approved(1, 4), approved(1, 5)],
       'Building Permit',
       'Seattle',
-      projectsById,
+      projects5,
       new Date(2026, 4, 15),
     );
     expect(result?.mostLikelyCycle).toBe(1);
     expect(result?.cycleDist[1]).toBe(3);
     expect(result?.cycleDist[2]).toBe(2);
+  });
+});
+
+// ============================================================
+// fix-24i: per-type default lookup
+// ============================================================
+describe('defaultDaysForType', () => {
+  it('returns the per-type default for known types', () => {
+    expect(defaultDaysForType('Building Permit')).toBe(PER_TYPE_DEFAULT_DAYS['Building Permit']);
+    expect(defaultDaysForType('Demolition')).toBe(60);
+    expect(defaultDaysForType('ULS')).toBe(90);
+    expect(defaultDaysForType('SDOT')).toBe(45);
+  });
+
+  it('falls back to PER_TYPE_FALLBACK_DAYS for unknown types', () => {
+    expect(defaultDaysForType('Bizarre Custom Type')).toBe(PER_TYPE_FALLBACK_DAYS);
+    expect(defaultDaysForType('')).toBe(PER_TYPE_FALLBACK_DAYS);
+    expect(defaultDaysForType(null)).toBe(PER_TYPE_FALLBACK_DAYS);
+    expect(defaultDaysForType(undefined)).toBe(PER_TYPE_FALLBACK_DAYS);
   });
 });
 

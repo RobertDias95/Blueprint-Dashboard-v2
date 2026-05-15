@@ -29,21 +29,50 @@ export const SCHEDULE_DEFAULTS = {
   corrResponse4: 10,
 } as const;
 
-/** fix-24h: holistic fallback when (juris × type) learner is silent AND
- * the permit has no cycle activity yet. Approximates the typical Seattle
- * SFR multi-cycle workflow (~7 months anchor-to-approval). Captures
- * "expect a few correction rounds" without being literally derived from
- * SCHEDULE_DEFAULTS, which add up to ~215d but rest on the optimistic
- * cycle 1 assumption.
- *
- * Once real approved permits accumulate, the learner takes over via
- * avgSubmitToIssue and this default becomes irrelevant.
- *
- * Known limitation (fix-24i territory): the learner measures
- * c1.submitted → approval, not Bobby's stated c0.intake_accepted →
- * approval. Doesn't affect this default (anchored at today via the
- * flooredAnchor wrapper) but will skew once real samples land. */
-export const DEFAULT_AVG_SUBMIT_TO_ISSUE = 210;
+/** fix-24h → fix-24i: holistic fallback when (type, juris) and (type, *)
+ * learners are both silent AND the permit has no cycle activity yet.
+ * Used by the unknown-type fallback in defaultDaysForType() below. Real
+ * dispatch goes through PER_TYPE_DEFAULT_DAYS for known types. */
+export const DEFAULT_AVG_INTAKE_TO_APPROVAL = 210;
+
+/** fix-24i: per-permit-type baseline durations (intake_accepted → approval).
+ *  Used when (type, juris) and (type, *) both have insufficient samples.
+ *  Starter values; refine as real samples accumulate or via a future
+ *  editable-defaults settings panel. */
+export const PER_TYPE_DEFAULT_DAYS: Record<string, number> = {
+  'Building Permit': 210,
+  'Demolition': 60,
+  'ULS': 90,
+  'Use Limitation': 90,
+  'Land Use': 180,
+  LU: 180,
+  'Pre-Application': 30,
+  PA: 30,
+  IPR: 30,
+  LBA: 120,
+  Condo: 180,
+  'Short Plat': 180,
+  SIP: 60,
+  SDOT: 45,
+  TRAO: 30,
+};
+
+/** fix-24i: fallback for unknown / custom permit types. Same value as the
+ *  historical 210d global default so existing test bobby smoke continues
+ *  to land on 2026-12-11 even when permit.type isn't in the table. */
+export const PER_TYPE_FALLBACK_DAYS = 210;
+
+/** fix-24i: lookup helper used by the consumer (projectedApproval.ts) when
+ *  the learner has no signal and no cycle activity exists. */
+export function defaultDaysForType(type: string | null | undefined): number {
+  if (!type) return PER_TYPE_FALLBACK_DAYS;
+  return PER_TYPE_DEFAULT_DAYS[type] ?? PER_TYPE_FALLBACK_DAYS;
+}
+
+/** fix-24i: minimum samples before the learner is trusted. Below this
+ *  threshold, return null and let the caller fall back through the
+ *  cross-juris path → per-type default ladder. */
+export const MIN_SAMPLES_FOR_LEARNER = 3;
 
 /** Per-jurisdiction window override hook. v1 reads from appConfig; v2
  * eventually wires this from a tenant-level setting (Q7.3). For now,
@@ -70,9 +99,15 @@ interface LearnSample {
   nCycles: number;
   approvedInCycle: number;
   goToSubmitDays: number | null;
-  submitToIssueDays: number | null;
-  /** The first-review submitted date (anchor for date-range display). */
-  submittedAnchor: string;
+  /** fix-24i: holistic clock — c0.intake_accepted → approval. */
+  intakeToApprovalDays: number | null;
+  /** fix-24i: c0.intake_accepted, drives the learner anchor AND the
+   *  date-range display ("Last 180d · Type · Juris" subtitle). */
+  intakeAnchor: string;
+  /** First-review submitted date. Preserved for the source-permit modal's
+   *  "Submitted" column (team-side submission visibility). Not used by
+   *  the learner anymore post-fix-24i. */
+  submittedAnchor: string | null;
 }
 
 function daysBetween(a: string | null | undefined, b: string | null | undefined): number | null {
@@ -95,13 +130,28 @@ export function extractSample(
   const cycles = (permit.permit_cycles ?? []).slice().sort(
     (a, b) => a.cycle_index - b.cycle_index,
   );
+  const c0 = cycles.find((c) => c.cycle_index === 0);
   const c1 = cycles.find((c) => c.cycle_index === 1);
   const c2 = cycles.find((c) => c.cycle_index === 2);
   const c3 = cycles.find((c) => c.cycle_index === 3);
   const c4 = cycles.find((c) => c.cycle_index === 4);
 
+  // fix-24i: anchor switched from c1.submitted → c0.intake_accepted per
+  // Bobby's spec. "city accepted intake → city issued permit" is the
+  // canonical learner clock. permits.intake_date (scraper-captured) is
+  // the team's SUBMISSION date and is NOT used here — that's a different
+  // milestone and conflating them would inflate learned durations by
+  // erasing the team-vs-city responsibility signal.
+  //
+  // Permits without c0.intake_accepted drop out of the learner entirely.
+  // Per-round clocks (cityReviewN, corrResponseN) still work for any
+  // sample that makes it past this gate and has c_N.submitted populated.
+  const intakeAnchor = c0?.intake_accepted ?? null;
+  if (!intakeAnchor) return null;
+
+  // submittedAnchor (c1.submitted) is preserved for the source-permit
+  // modal's "Submitted" column display only. Nullable now.
   const submittedAnchor = c1?.submitted ?? null;
-  if (!submittedAnchor) return null; // can't compute review math without c1.submitted
 
   // City review N = days from cycle N's submitted to cycle N's corr_issued
   // (or, if approval landed mid-cycle, to approval_date as a fallback).
@@ -151,7 +201,8 @@ export function extractSample(
     nCycles,
     approvedInCycle,
     goToSubmitDays: daysBetween(projectGoDate, submittedAnchor),
-    submitToIssueDays: daysBetween(submittedAnchor, approvalDate),
+    intakeToApprovalDays: daysBetween(intakeAnchor, approvalDate),
+    intakeAnchor,
     submittedAnchor,
   };
 }
@@ -165,7 +216,10 @@ export interface LearnedEstimate {
   sampleCount: number;
   dateRange: string;
   goToSubmit: number | null;
-  avgSubmitToIssue: number | null;
+  /** fix-24i: holistic clock — avg(c0.intake_accepted → approval) across
+   *  the sample set. Renamed from avgSubmitToIssue (which measured
+   *  c1.submitted → approval). */
+  avgIntakeToApproval: number | null;
   cityReview1: number;
   corrResponse1: number;
   cityReview2: number;
@@ -190,6 +244,10 @@ export interface LearnedEstimate {
   cycleDist: Record<1 | 2 | 3 | 4, number>;
   /** Source flag — true when only all-time samples were available. */
   isAllTime: boolean;
+  /** fix-24i: true when the (type, juris) tier returned no samples and
+   *  the (type, *) cross-juris tier was used. Reports / Trends can label
+   *  cross-juris-sourced estimates accordingly. */
+  isCrossJuris: boolean;
 }
 
 function avg(values: (number | null | undefined)[]): number | null {
@@ -198,7 +256,12 @@ function avg(values: (number | null | undefined)[]): number | null {
   return Math.round(real.reduce((a, b) => a + b, 0) / real.length);
 }
 
-function buildEstimate(samples: LearnSample[], source: string, isAllTime: boolean): LearnedEstimate | null {
+function buildEstimate(
+  samples: LearnSample[],
+  source: string,
+  isAllTime: boolean,
+  isCrossJuris: boolean,
+): LearnedEstimate | null {
   if (samples.length === 0) return null;
   const cr1 = samples.map((s) => s.cityReview1Days);
   const co1 = samples.map((s) => s.corrResponse1Days);
@@ -225,9 +288,12 @@ function buildEstimate(samples: LearnSample[], source: string, isAllTime: boolea
     }
   });
 
-  const subAnchors = samples.map((s) => s.submittedAnchor).filter(Boolean).sort();
-  const dateFrom = subAnchors[0] ?? '';
-  const dateTo = subAnchors[subAnchors.length - 1] ?? '';
+  // fix-24i: date range now reflects the intake-anchored sample window
+  // (matches the renamed learner clock). Every surviving sample has
+  // intakeAnchor populated thanks to the extractSample gate.
+  const intakeAnchors = samples.map((s) => s.intakeAnchor).sort();
+  const dateFrom = intakeAnchors[0] ?? '';
+  const dateTo = intakeAnchors[intakeAnchors.length - 1] ?? '';
   const dateRange =
     dateFrom && dateTo && dateFrom !== dateTo ? `${dateFrom} – ${dateTo}` : dateFrom;
 
@@ -244,7 +310,7 @@ function buildEstimate(samples: LearnSample[], source: string, isAllTime: boolea
     sampleCount: samples.length,
     dateRange,
     goToSubmit: avg(samples.map((s) => s.goToSubmitDays)),
-    avgSubmitToIssue: avg(samples.map((s) => s.submitToIssueDays)),
+    avgIntakeToApproval: avg(samples.map((s) => s.intakeToApprovalDays)),
     cityReview1: avg(cr1) ?? SCHEDULE_DEFAULTS.cityReview1,
     corrResponse1: avg(co1) ?? SCHEDULE_DEFAULTS.corrResponse1,
     cityReview2: avg(cr2) ?? SCHEDULE_DEFAULTS.cityReview2,
@@ -265,30 +331,36 @@ function buildEstimate(samples: LearnSample[], source: string, isAllTime: boolea
     mostLikelyCycle,
     cycleDist,
     isAllTime,
+    isCrossJuris,
   };
 }
 
-/** v1's three-tier learner. Returns null if no approved permits exist
- * for this (type, juris) combo — caller falls back to SCHEDULE_DEFAULTS. */
-export function computeLearnedSchedule(
+/** fix-24i: build estimate for a (type, juris | null) scope. juris=null is
+ *  the cross-juris path (type, *). Returns null when the sample count is
+ *  below MIN_SAMPLES_FOR_LEARNER. Caller orchestrates the fallback ladder. */
+function computeForFilter(
   permits: PermitWithCycles[],
-  type: string,
-  juris: string,
   projectsById: Map<string, Project>,
-  today: Date = new Date(),
+  type: string,
+  juris: string | null,
+  windowDays: number,
+  today: Date,
+  isCrossJuris: boolean,
 ): LearnedEstimate | null {
-  const windowDays = getLearnWindow(juris);
   const cutoff = new Date(today.getTime() - windowDays * DAY_MS);
+  const jurisLabel = juris ?? '*';
 
   const matchingApproved = permits.filter((p) => {
     if (p.type !== type) return false;
-    const project = projectsById.get(p.project_id);
-    if (project?.juris !== juris) return false;
+    if (juris !== null) {
+      const project = projectsById.get(p.project_id);
+      if (project?.juris !== juris) return false;
+    }
     return Boolean(p.approval_date || p.actual_issue);
   });
   if (matchingApproved.length === 0) return null;
 
-  // Tier 1: permits whose approval/issue is within the recent window.
+  // Tier 1: approvals within the recent window.
   const recent = matchingApproved.filter((p) => {
     const d = p.approval_date ?? p.actual_issue;
     if (!d) return false;
@@ -297,25 +369,65 @@ export function computeLearnedSchedule(
   const recentSamples = recent
     .map((p) => extractSample(p, projectsById.get(p.project_id)?.go_date ?? null))
     .filter((s): s is LearnSample => s !== null);
-  if (recentSamples.length > 0) {
+  if (recentSamples.length >= MIN_SAMPLES_FOR_LEARNER) {
     return buildEstimate(
       recentSamples,
-      `Last ${windowDays}d · ${type} · ${juris}`,
+      `Last ${windowDays}d · ${type} · ${jurisLabel}`,
       false,
+      isCrossJuris,
     );
   }
-  // Tier 2: all-time approved fallback.
+  // Tier 2: all-time approved fallback within the same scope.
   const allSamples = matchingApproved
     .map((p) => extractSample(p, projectsById.get(p.project_id)?.go_date ?? null))
     .filter((s): s is LearnSample => s !== null);
-  if (allSamples.length > 0) {
+  if (allSamples.length >= MIN_SAMPLES_FOR_LEARNER) {
     return buildEstimate(
       allSamples,
-      `All-time · ${type} · ${juris}`,
+      `All-time · ${type} · ${jurisLabel}`,
       true,
+      isCrossJuris,
     );
   }
-  // Tier 3: no samples → caller uses SCHEDULE_DEFAULTS.
+  // Below the min-sample gate → caller falls through.
+  return null;
+}
+
+/** fix-24i: orchestrator. Tries (type, juris) first, then (type, *), then
+ *  returns null so the caller falls back to defaultDaysForType(type).
+ *  Each scope respects MIN_SAMPLES_FOR_LEARNER and prefers the 180d
+ *  recency window over the all-time pool. */
+export function computeLearnedSchedule(
+  permits: PermitWithCycles[],
+  type: string,
+  juris: string,
+  projectsById: Map<string, Project>,
+  today: Date = new Date(),
+): LearnedEstimate | null {
+  const windowDays = getLearnWindow(juris);
+  // Tier A: (type, juris).
+  const scoped = computeForFilter(
+    permits,
+    projectsById,
+    type,
+    juris,
+    windowDays,
+    today,
+    false,
+  );
+  if (scoped) return scoped;
+  // Tier B: (type, *) — any jurisdiction.
+  const crossJuris = computeForFilter(
+    permits,
+    projectsById,
+    type,
+    null,
+    windowDays,
+    today,
+    true,
+  );
+  if (crossJuris) return crossJuris;
+  // No signal anywhere → caller uses defaultDaysForType(type).
   return null;
 }
 

@@ -1,5 +1,5 @@
 import {
-  DEFAULT_AVG_SUBMIT_TO_ISSUE,
+  defaultDaysForType,
   SCHEDULE_DEFAULTS,
   type LearnedEstimate,
 } from './scheduleBenchmarks';
@@ -181,9 +181,9 @@ function durFor(
     if (sv != null) return sv;
   }
   // Holistic decomposition (v1 :4501-4504): when no per-cycle signal
-  // exists at all, derive from avgSubmitToIssue using a 70/30 split.
-  if (learned?.avgSubmitToIssue && learned.avgSubmitToIssue > 0) {
-    const s2i = learned.avgSubmitToIssue;
+  // exists at all, derive from avgIntakeToApproval using a 70/30 split.
+  if (learned?.avgIntakeToApproval && learned.avgIntakeToApproval > 0) {
+    const s2i = learned.avgIntakeToApproval;
     return kind === 'cr'
       ? Math.max(7, Math.round(s2i * 0.7))
       : Math.max(5, Math.round(s2i * 0.3));
@@ -444,12 +444,16 @@ export function computeProjectedApproval(
       c.resubmitted ||
       c.intake_accepted,
   );
+  // fix-24i: the no-learner default now dispatches per permit type via
+  // defaultDaysForType (Building Permit=210d, Demolition=60d, ULS=90d,
+  // etc.) instead of a single global 210d. Unknown types still fall back
+  // to PER_TYPE_FALLBACK_DAYS=210 so the test bobby smoke pins.
   const effectiveAvg: number | null =
-    learnedEstimate?.avgSubmitToIssue &&
-    learnedEstimate.avgSubmitToIssue > 0
-      ? Math.round(learnedEstimate.avgSubmitToIssue)
+    learnedEstimate?.avgIntakeToApproval &&
+    learnedEstimate.avgIntakeToApproval > 0
+      ? Math.round(learnedEstimate.avgIntakeToApproval)
       : !hasAnyCycleActivity
-        ? DEFAULT_AVG_SUBMIT_TO_ISSUE
+        ? defaultDaysForType(permit.type)
         : null;
   if (effectiveAvg !== null && actualCorrCycles === 0) {
     // fix-24e: floor base so a past submitted/target_submit still produces a
@@ -488,8 +492,8 @@ export function computeProjectedApproval(
     // fix-24e: floor base so projection is forward-looking even when base
     // is months in the past.
     const baseAnchor = flooredAnchor(base) ?? base;
-    if (learnedEstimate?.avgSubmitToIssue && learnedEstimate.avgSubmitToIssue > 0) {
-      cursor = addDays(baseAnchor, Math.round(learnedEstimate.avgSubmitToIssue));
+    if (learnedEstimate?.avgIntakeToApproval && learnedEstimate.avgIntakeToApproval > 0) {
+      cursor = addDays(baseAnchor, Math.round(learnedEstimate.avgIntakeToApproval));
     } else {
       const cr1Days = durFor(0, 'cr', learnedEstimate, thisPermitDur);
       cursor = addDays(baseAnchor, cr1Days + FINAL_APPROVAL_BUFFER);

@@ -245,10 +245,10 @@ function BenchmarkCard({
               tone="text"
             />
             <HeadlineTile
-              label="Submit → Approval"
+              label="Intake → Approval"
               value={
-                estimate.avgSubmitToIssue !== null
-                  ? `${estimate.avgSubmitToIssue}d`
+                estimate.avgIntakeToApproval !== null
+                  ? `${estimate.avgIntakeToApproval}d`
                   : '—'
               }
               tone="pm"
