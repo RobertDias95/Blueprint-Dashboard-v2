@@ -1,5 +1,9 @@
 import { useMemo, useState } from 'react';
 import { effectiveStage } from '../../lib/permitStage';
+import {
+  getHighlightedMilestone,
+  isMilestoneHighlighted,
+} from '../../lib/permitHelpers';
 import { useUpdatePermit } from '../../hooks/useUpdatePermit';
 import { usePermitTasks } from '../../hooks/usePermitTasks';
 import {
@@ -433,18 +437,23 @@ function DateStrip({
   viewIdx: number;
   currentPhase: CurrentPhaseResult;
 }) {
-  // Q9.5.f-fix-6 C: highlight predicate. A cell is "current" when the
-  // permit's derived phase points at it AND the user is viewing the same
-  // cycle (or Design for permit-level design dates). Approval / Actual
-  // are permit-level — they show inside whichever review cycle is viewed,
-  // so we highlight them as long as the permit is in that phase, no
-  // cycle-index check needed.
-  const isCurrent = (cellPhase: CurrentPhase): boolean => {
-    if (currentPhase.phase !== cellPhase) return false;
-    if (cellPhase === 'actual_issue' || cellPhase === 'approval') return true;
-    if (currentPhase.cycleIndex === null) return viewIdx === 0;
-    return viewIdx === currentPhase.cycleIndex;
-  };
+  // fix-23c B: status-bar highlight follows the LATEST POPULATED date in
+  // the chain (target_submit → cycle dates desc → approval_date →
+  // actual_issue). Helper lives in lib/permitHelpers so other surfaces
+  // can reuse the rule. Each cell construct its own HighlightTarget
+  // identity below and asks isMilestoneHighlighted whether it matches.
+  //
+  // Note: cells in the Design strip (viewIdx===0) reference cycle 1's
+  // submitted/intake_accepted data — so when target = {cycle:1, ...} the
+  // Design strip's "Initial Submit" / "Intake Accepted" cells ARE the
+  // matching cells. The Cycle 1 review strip shows the same data again
+  // but only one strip renders at a time, so exactly one cell ends up
+  // with data-highlighted="true".
+  //
+  // currentPhase is kept around for the cycle-tab initial-selection logic
+  // (DrawScheduleGrid + a few legacy callers still want it).
+  void currentPhase;
+  const highlightTarget = getHighlightedMilestone(permit);
   const updateMutation = useUpdatePermit();
   const upsertCycle = useUpsertPermitCycle();
 
@@ -519,34 +528,51 @@ function DateStrip({
         <DateCell
           label="GO"
           value={project?.go_date ?? null}
-          highlighted={isCurrent('go')}
+          /** fix-23c B: GO is no longer in the highlight chain — Bobby's
+           *  rule starts at target_submit. */
+          highlighted={false}
           /** fix-22 Mig 3: go_date is project-level now; GO cell here is
            *  read-only display. Edit via Project Settings → GO Date. */
           onCommit={() => {}}
           readOnly
+          testid="pd-cell-go"
         />
         <DateCell
           label="Target Submit"
           accentColor="var(--color-de)"
           value={permit.target_submit}
-          highlighted={isCurrent('target_submit')}
+          highlighted={isMilestoneHighlighted(highlightTarget, {
+            kind: 'permit',
+            key: 'target_submit',
+          })}
           onCommit={(v) =>
             commitPermit('target_submit', v || null, permit.target_submit, 'Target Submit')
           }
+          testid="pd-cell-target_submit"
         />
         <DateCell
           label="Initial Submit"
           accentColor="var(--color-pm)"
           value={cycle1?.submitted ?? null}
-          highlighted={isCurrent('submitted')}
+          highlighted={isMilestoneHighlighted(highlightTarget, {
+            kind: 'cycle',
+            cycleIndex: 1,
+            key: 'submitted',
+          })}
           onCommit={(v) => commitCycle1Field('submitted', v)}
+          testid="pd-cell-design-submitted"
         />
         <DateCell
           label="Intake Accepted"
           accentColor="var(--color-pm)"
           value={cycle1?.intake_accepted ?? null}
-          highlighted={isCurrent('intake_accepted')}
+          highlighted={isMilestoneHighlighted(highlightTarget, {
+            kind: 'cycle',
+            cycleIndex: 1,
+            key: 'intake_accepted',
+          })}
           onCommit={(v) => commitCycle1Field('intake_accepted', v)}
+          testid="pd-cell-design-intake_accepted"
         />
       </div>
     );
@@ -584,35 +610,57 @@ function DateStrip({
       <DateCell
         label="Submitted"
         value={cycle.submitted}
-        highlighted={isCurrent('submitted')}
+        highlighted={isMilestoneHighlighted(highlightTarget, {
+          kind: 'cycle',
+          cycleIndex: viewIdx,
+          key: 'submitted',
+        })}
         onCommit={(v) => commitCycleField(cycle, 'submitted', v)}
+        testid={`pd-cell-cycle${viewIdx}-submitted`}
       />
       <DateCell
         label="City Target"
         accentColor="var(--color-pm)"
         value={cycle.city_target}
-        highlighted={isCurrent('city_target')}
+        /** fix-23c B: city_target intentionally NOT in the highlight rule.
+         *  It tracks a city-scheduled review date but doesn't advance the
+         *  permit's milestone position. */
+        highlighted={false}
         onCommit={(v) => commitCycleField(cycle, 'city_target', v)}
+        testid={`pd-cell-cycle${viewIdx}-city_target`}
       />
       <DateCell
         label="Corr. Issued"
         accentColor="var(--color-co)"
         value={cycle.corr_issued}
-        highlighted={isCurrent('corr_issued')}
+        highlighted={isMilestoneHighlighted(highlightTarget, {
+          kind: 'cycle',
+          cycleIndex: viewIdx,
+          key: 'corr_issued',
+        })}
         onCommit={(v) => commitCycleField(cycle, 'corr_issued', v)}
+        testid={`pd-cell-cycle${viewIdx}-corr_issued`}
       />
       <DateCell
         label="Resubmitted"
         accentColor="var(--color-pm)"
         value={cycle.resubmitted}
-        highlighted={isCurrent('resubmitted')}
+        highlighted={isMilestoneHighlighted(highlightTarget, {
+          kind: 'cycle',
+          cycleIndex: viewIdx,
+          key: 'resubmitted',
+        })}
         onCommit={(v) => commitCycleField(cycle, 'resubmitted', v)}
+        testid={`pd-cell-cycle${viewIdx}-resubmitted`}
       />
       <DateCell
         label="Approval Date"
         accentColor="var(--color-jv)"
         value={permit.approval_date}
-        highlighted={isCurrent('approval')}
+        highlighted={isMilestoneHighlighted(highlightTarget, {
+          kind: 'permit',
+          key: 'approval_date',
+        })}
         onCommit={(v) =>
           commitPermit(
             'approval_date',
@@ -621,15 +669,20 @@ function DateStrip({
             'Approval Date',
           )
         }
+        testid="pd-cell-approval_date"
       />
       <DateCell
         label="Actual Issue"
         accentColor="var(--color-is)"
         value={permit.actual_issue}
-        highlighted={isCurrent('actual_issue')}
+        highlighted={isMilestoneHighlighted(highlightTarget, {
+          kind: 'permit',
+          key: 'actual_issue',
+        })}
         onCommit={(v) =>
           commitPermit('actual_issue', v || null, permit.actual_issue, 'Actual Issue')
         }
+        testid="pd-cell-actual_issue"
       />
     </div>
   );
@@ -642,6 +695,7 @@ function DateCell({
   highlighted,
   onCommit,
   readOnly,
+  testid,
 }: {
   label: string;
   value: string | null;
@@ -653,6 +707,10 @@ function DateCell({
   /** fix-22 Mig 3: GO cell now reads project.go_date as read-only — edits
    *  happen in Project Settings. */
   readOnly?: boolean;
+  /** fix-23c: cells expose a stable testid so the highlight-rule
+   *  integration test can find them by name regardless of where they
+   *  live in the design vs cycle-N strips. */
+  testid?: string;
 }) {
   const [draft, setDraft] = useState(value ?? '');
   return (
@@ -666,6 +724,11 @@ function DateCell({
         outlineOffset: highlighted ? '-2px' : undefined,
         transition: 'background 0.15s',
       }}
+      // fix-23c B: every cell carries data-highlighted so tests can
+      // assert "exactly one cell has data-highlighted='true'" without
+      // depending on inline styles.
+      data-highlighted={highlighted ? 'true' : 'false'}
+      data-testid={testid}
     >
       <div className="flex items-center justify-between">
         <span
