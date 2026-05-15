@@ -6,16 +6,13 @@ import {
 } from '../lib/permitHelpers';
 import type { PermitCycle, PermitWithCycles } from '../lib/database.types';
 
-// fix-24c-2: tests for the "events beat forecasts, walk cycles DESC" rule.
-//   1. actual_issue → highlight
-//   2. approval_date → highlight
-//   3. Walk cycles DESC. For each cycle:
-//      - any of {submitted, corr_issued, resubmitted, intake_accepted}? →
-//        latest by date wins (chain priority tiebreak on same date).
-//      - else city_target? → city_target wins for this cycle.
-//      - else fall through to prior cycle.
-//   4. target_submit fallback.
-// The 621 Daley smoke and the test 678 snap-follows case are pinned below.
+// fix-24c-3: tests for the chain-position rule.
+//   - The cycle with the lowest cycle_index is DESIGN. Its chain (reversed,
+//     most-advanced first) is: intake_accepted → submitted.
+//   - All other cycles are REVIEW. Chain (reversed): resubmitted →
+//     corr_issued → city_target → submitted.
+//   - Walk cycles DESC. In each, walk the appropriate reverse chain. First
+//     populated cell wins. No date sorting anywhere.
 
 function makePermit(over: Partial<PermitWithCycles> = {}): PermitWithCycles {
   return {
@@ -47,13 +44,15 @@ function makePermit(over: Partial<PermitWithCycles> = {}): PermitWithCycles {
     nickname: null,
     struct_address: null,
     portal_url: null,
-    updated_at: '2026-05-14T12:00:00Z',
+    updated_at: '2026-05-15T12:00:00Z',
     permit_cycles: [],
     ...over,
   };
 }
 
-function cycle(over: Partial<PermitCycle> & Pick<PermitCycle, 'cycle_index'>): PermitCycle {
+function cycle(
+  over: Partial<PermitCycle> & Pick<PermitCycle, 'cycle_index'>,
+): PermitCycle {
   return {
     id: `c-${over.cycle_index}`,
     permit_id: 1,
@@ -62,247 +61,300 @@ function cycle(over: Partial<PermitCycle> & Pick<PermitCycle, 'cycle_index'>): P
     corr_issued: null,
     resubmitted: null,
     intake_accepted: null,
-    created_at: '2026-05-14T12:00:00Z',
-    updated_at: '2026-05-14T12:00:00Z',
+    created_at: '2026-05-15T12:00:00Z',
+    updated_at: '2026-05-15T12:00:00Z',
     ...over,
   };
 }
 
-describe('getHighlightedMilestone — fix-24c-2 (events beat forecasts, walk DESC)', () => {
-  it('empty permit (no cycles, no dates) → falls back to target_submit', () => {
-    const target = getHighlightedMilestone(makePermit());
-    expect(target).toEqual({ kind: 'permit', key: 'target_submit' });
-  });
-
-  it('only target_submit set → still falls back to target_submit', () => {
-    const target = getHighlightedMilestone(
-      makePermit({ target_submit: '2026-06-01' }),
-    );
-    expect(target).toEqual({ kind: 'permit', key: 'target_submit' });
-  });
-
-  it('single cycle with only submitted → submitted wins', () => {
-    const target = getHighlightedMilestone(
-      makePermit({
-        permit_cycles: [cycle({ cycle_index: 1, submitted: '2026-06-10' })],
-      }),
-    );
-    expect(target).toEqual({
-      kind: 'cycle',
-      cycleIndex: 1,
-      key: 'submitted',
+describe('getHighlightedMilestone — fix-24c-3 (chain-position)', () => {
+  it('no cycles, no dates → target_submit', () => {
+    expect(getHighlightedMilestone(makePermit())).toEqual({
+      kind: 'permit',
+      key: 'target_submit',
     });
   });
 
-  it('actual_issue populated → highlights actual_issue regardless of cycle dates', () => {
-    const target = getHighlightedMilestone(
-      makePermit({
-        actual_issue: '2026-09-01',
-        approval_date: '2026-08-15',
-        target_submit: '2026-06-01',
-        permit_cycles: [
-          cycle({
-            cycle_index: 1,
-            submitted: '2026-06-10',
-            intake_accepted: '2026-06-15',
-          }),
-        ],
-      }),
-    );
-    expect(target).toEqual({ kind: 'permit', key: 'actual_issue' });
+  it('only target_submit set → still target_submit (it is the anchor, not a candidate)', () => {
+    expect(
+      getHighlightedMilestone(makePermit({ target_submit: '2026-06-01' })),
+    ).toEqual({ kind: 'permit', key: 'target_submit' });
   });
 
-  it('approval_date populated, no actual_issue → highlights approval_date', () => {
-    const target = getHighlightedMilestone(
-      makePermit({
-        approval_date: '2026-08-15',
-        permit_cycles: [
-          cycle({ cycle_index: 1, submitted: '2026-06-10' }),
-        ],
-      }),
-    );
-    expect(target).toEqual({ kind: 'permit', key: 'approval_date' });
+  it('actual_issue populated → short-circuits to actual_issue regardless of cycle state', () => {
+    expect(
+      getHighlightedMilestone(
+        makePermit({
+          actual_issue: '2026-09-01',
+          approval_date: '2026-08-15',
+          permit_cycles: [
+            cycle({ cycle_index: 0, submitted: '2026-06-10', intake_accepted: '2026-06-15' }),
+            cycle({ cycle_index: 1, submitted: '2026-06-15', resubmitted: '2026-07-20' }),
+          ],
+        }),
+      ),
+    ).toEqual({ kind: 'permit', key: 'actual_issue' });
   });
 
-  it('621 Daley smoke: events present → latest event wins; later city_target is ignored', () => {
-    // The canonical motivator. cycle 1 has submitted=intake=2026-03-13 and
-    // corr_issued=2026-04-16 (the latest event). city_target=2026-04-20 is a
-    // forecast and loses to the event even though it's later by date.
-    const target = getHighlightedMilestone(
-      makePermit({
-        permit_cycles: [
-          cycle({
-            cycle_index: 1,
-            submitted: '2026-03-13',
-            intake_accepted: '2026-03-13',
-            corr_issued: '2026-04-16',
-            city_target: '2026-04-20',
-          }),
-        ],
-      }),
-    );
-    expect(target).toEqual({
-      kind: 'cycle',
-      cycleIndex: 1,
-      key: 'corr_issued',
-    });
+  it('approval_date populated, no actual_issue → approval_date', () => {
+    expect(
+      getHighlightedMilestone(
+        makePermit({
+          approval_date: '2026-08-15',
+          permit_cycles: [cycle({ cycle_index: 0, submitted: '2026-06-10' })],
+        }),
+      ),
+    ).toEqual({ kind: 'permit', key: 'approval_date' });
   });
 
-  it('city_target wins ONLY when cycle has no actual events', () => {
-    const target = getHighlightedMilestone(
-      makePermit({
-        permit_cycles: [
-          cycle({
-            cycle_index: 1,
-            city_target: '2026-08-01',
-          }),
-        ],
-      }),
-    );
-    expect(target).toEqual({
-      kind: 'cycle',
-      cycleIndex: 1,
-      key: 'city_target',
-    });
+  it('design cycle only, submitted set → submitted', () => {
+    expect(
+      getHighlightedMilestone(
+        makePermit({
+          permit_cycles: [cycle({ cycle_index: 0, submitted: '2026-06-10' })],
+        }),
+      ),
+    ).toEqual({ kind: 'cycle', cycleIndex: 0, key: 'submitted' });
   });
 
-  it('test 678 snap-follows: cycle 1 events + cycle 2 submitted (from snap) → cycle 2 submitted wins', () => {
-    // Post-backfill 2026-05-15 state of permit 10009. Walking DESC lands on
-    // cycle 2 first; it has an event (submitted) so we return immediately
-    // and never look at cycle 1.
-    const target = getHighlightedMilestone(
-      makePermit({
-        permit_cycles: [
-          cycle({
-            cycle_index: 1,
-            submitted: '2025-11-15',
-            intake_accepted: '2025-11-21',
-          }),
-          cycle({ cycle_index: 2, submitted: '2025-11-21' }),
-        ],
-      }),
-    );
-    expect(target).toEqual({
-      kind: 'cycle',
-      cycleIndex: 2,
-      key: 'submitted',
-    });
+  it('design cycle, intake_accepted + submitted both set → intake_accepted wins (DESIGN_REVERSE)', () => {
+    expect(
+      getHighlightedMilestone(
+        makePermit({
+          permit_cycles: [
+            cycle({
+              cycle_index: 0,
+              submitted: '2026-06-10',
+              intake_accepted: '2026-06-15',
+            }),
+          ],
+        }),
+      ),
+    ).toEqual({ kind: 'cycle', cycleIndex: 0, key: 'intake_accepted' });
   });
 
-  it('higher cycle has city_target only, lower cycle has events → city_target on the higher cycle wins (walking stops there)', () => {
-    // The walk-DESC rule: cycle 2 has a forecast (city_target), no events.
-    // We return city_target for cycle 2 and never look at cycle 1's events.
-    // Reflects "we've moved into cycle 2 and are waiting on the city."
-    const target = getHighlightedMilestone(
-      makePermit({
-        permit_cycles: [
-          cycle({
-            cycle_index: 1,
-            submitted: '2026-06-10',
-            corr_issued: '2026-07-01',
-          }),
-          cycle({ cycle_index: 2, city_target: '2026-08-15' }),
-        ],
-      }),
-    );
-    expect(target).toEqual({
-      kind: 'cycle',
-      cycleIndex: 2,
-      key: 'city_target',
-    });
+  it('design cycle, city_target set but no chain fields → falls through (city_target is review-only); ends at target_submit', () => {
+    // city_target on the design cycle is NOT in DESIGN_REVERSE. The design
+    // cycle has no chain matches; with only one cycle, walking ends and
+    // falls back to target_submit.
+    expect(
+      getHighlightedMilestone(
+        makePermit({
+          permit_cycles: [cycle({ cycle_index: 0, city_target: '2026-08-01' })],
+        }),
+      ),
+    ).toEqual({ kind: 'permit', key: 'target_submit' });
   });
 
-  it('higher cycle is fully empty → falls through to lower cycle with events', () => {
-    const target = getHighlightedMilestone(
-      makePermit({
-        permit_cycles: [
-          cycle({
-            cycle_index: 1,
-            submitted: '2026-06-10',
-            corr_issued: '2026-07-01',
-          }),
-          cycle({ cycle_index: 2 }),
-        ],
-      }),
-    );
-    expect(target).toEqual({
-      kind: 'cycle',
-      cycleIndex: 1,
-      key: 'corr_issued',
-    });
+  it('design cycle, resubmitted set is IGNORED (not in DESIGN_REVERSE)', () => {
+    // Design's chain is submitted → intake_accepted. resubmitted is data
+    // noise on the design cycle and never wins.
+    expect(
+      getHighlightedMilestone(
+        makePermit({
+          permit_cycles: [
+            cycle({
+              cycle_index: 0,
+              submitted: '2026-06-10',
+              resubmitted: '2026-07-20',
+            }),
+          ],
+        }),
+      ),
+    ).toEqual({ kind: 'cycle', cycleIndex: 0, key: 'submitted' });
   });
 
-  it('out-of-order dates within a cycle: latest event date wins regardless of chain position', () => {
-    const target = getHighlightedMilestone(
-      makePermit({
-        permit_cycles: [
-          cycle({
-            cycle_index: 1,
-            submitted: '2026-06-10',
-            corr_issued: '2026-05-01',
-            resubmitted: '2026-04-01',
-          }),
-        ],
-      }),
-    );
-    expect(target).toEqual({
-      kind: 'cycle',
-      cycleIndex: 1,
-      key: 'submitted',
-    });
+  it('621 Daley post-repair: cycle 0 empty + cycle 1 with submitted/city_target/corr_issued → corr_issued wins (REVIEW_REVERSE position)', () => {
+    // The canonical motivator. corr_issued is further along REVIEW_REVERSE
+    // than city_target — even though city_target's date (2026-04-20) is
+    // later than corr_issued's (2026-04-16). Chain-position, not date.
+    expect(
+      getHighlightedMilestone(
+        makePermit({
+          permit_cycles: [
+            cycle({ cycle_index: 0 }),
+            cycle({
+              cycle_index: 1,
+              submitted: '2026-03-13',
+              city_target: '2026-04-20',
+              corr_issued: '2026-04-16',
+            }),
+          ],
+        }),
+      ),
+    ).toEqual({ kind: 'cycle', cycleIndex: 1, key: 'corr_issued' });
   });
 
-  it('same-day tie within ONE cycle → event chain priority resolves (intake > resubmitted > corr > submitted)', () => {
-    // All four events share a date. Chain priority picks intake_accepted.
-    // city_target=2026-06-10 is ignored because events exist.
-    const target = getHighlightedMilestone(
-      makePermit({
-        permit_cycles: [
-          cycle({
-            cycle_index: 1,
-            submitted: '2026-06-10',
-            city_target: '2026-06-10',
-            corr_issued: '2026-06-10',
-            resubmitted: '2026-06-10',
-            intake_accepted: '2026-06-10',
-          }),
-        ],
-      }),
-    );
-    expect(target).toEqual({
-      kind: 'cycle',
-      cycleIndex: 1,
-      key: 'intake_accepted',
-    });
+  it('review cycle, resubmitted set → resubmitted wins over corr_issued/city_target/submitted', () => {
+    expect(
+      getHighlightedMilestone(
+        makePermit({
+          permit_cycles: [
+            cycle({ cycle_index: 0 }),
+            cycle({
+              cycle_index: 1,
+              submitted: '2026-03-13',
+              city_target: '2026-04-20',
+              corr_issued: '2026-04-16',
+              resubmitted: '2026-04-25',
+            }),
+          ],
+        }),
+      ),
+    ).toEqual({ kind: 'cycle', cycleIndex: 1, key: 'resubmitted' });
   });
 
-  it('only city_target across multiple empty cycles → highest cycle_index with city_target wins', () => {
-    const target = getHighlightedMilestone(
-      makePermit({
-        permit_cycles: [
-          cycle({ cycle_index: 1, city_target: '2026-06-01' }),
-          cycle({ cycle_index: 2, city_target: '2026-07-01' }),
-        ],
-      }),
-    );
-    expect(target).toEqual({
-      kind: 'cycle',
-      cycleIndex: 2,
-      key: 'city_target',
-    });
+  it('review cycle, intake_accepted set is IGNORED (not in REVIEW_REVERSE)', () => {
+    // On review cycles, intake_accepted is data noise (it lives on the
+    // design cycle). REVIEW_REVERSE is resubmitted → corr_issued →
+    // city_target → submitted. Old V1-migration intake_accepted=submitted
+    // rows were cleared in fix-24c-3, but if it sneaks in, it should not
+    // win.
+    expect(
+      getHighlightedMilestone(
+        makePermit({
+          permit_cycles: [
+            cycle({ cycle_index: 0 }),
+            cycle({
+              cycle_index: 1,
+              submitted: '2026-03-13',
+              intake_accepted: '2026-03-13',
+            }),
+          ],
+        }),
+      ),
+    ).toEqual({ kind: 'cycle', cycleIndex: 1, key: 'submitted' });
   });
 
-  it('all cycles fully empty → falls back to target_submit', () => {
-    const target = getHighlightedMilestone(
-      makePermit({
-        target_submit: '2026-06-01',
-        permit_cycles: [
-          cycle({ cycle_index: 0 }),
-          cycle({ cycle_index: 1 }),
-        ],
-      }),
-    );
-    expect(target).toEqual({ kind: 'permit', key: 'target_submit' });
+  it('test 678 post-repair: design (cycle 0) populated + review (cycle 1) with submitted (from snap) → cycle 1 submitted wins', () => {
+    // After fix-24c-3 data repair, permit 10009 cycle 0 holds the design
+    // data and cycle 1 holds the snap-derived submitted. Walking DESC lands
+    // on cycle 1 first (review chain), finds submitted, returns. We never
+    // look at cycle 0's intake_accepted.
+    expect(
+      getHighlightedMilestone(
+        makePermit({
+          permit_cycles: [
+            cycle({
+              cycle_index: 0,
+              submitted: '2025-11-15',
+              intake_accepted: '2025-11-21',
+            }),
+            cycle({ cycle_index: 1, submitted: '2025-11-21' }),
+          ],
+        }),
+      ),
+    ).toEqual({ kind: 'cycle', cycleIndex: 1, key: 'submitted' });
+  });
+
+  it('resubmitted-snap pattern: cycle 1 review with resubmitted + cycle 2 review with submitted (from snap) → cycle 2 submitted wins', () => {
+    // Setting resubmitted on cycle 1 auto-fills cycle 2.submitted via the
+    // new fix-24c-3 RPC branch. Walk DESC: cycle 2 (review chain) →
+    // submitted populated → return cycle 2 submitted.
+    expect(
+      getHighlightedMilestone(
+        makePermit({
+          permit_cycles: [
+            cycle({ cycle_index: 0 }),
+            cycle({
+              cycle_index: 1,
+              submitted: '2026-03-13',
+              resubmitted: '2026-04-25',
+            }),
+            cycle({ cycle_index: 2, submitted: '2026-04-25' }),
+          ],
+        }),
+      ),
+    ).toEqual({ kind: 'cycle', cycleIndex: 2, key: 'submitted' });
+  });
+
+  it('higher review cycle has only city_target → city_target on the higher cycle wins (walk stops there)', () => {
+    expect(
+      getHighlightedMilestone(
+        makePermit({
+          permit_cycles: [
+            cycle({ cycle_index: 0 }),
+            cycle({
+              cycle_index: 1,
+              submitted: '2026-03-13',
+              corr_issued: '2026-04-16',
+            }),
+            cycle({ cycle_index: 2, city_target: '2026-05-30' }),
+          ],
+        }),
+      ),
+    ).toEqual({ kind: 'cycle', cycleIndex: 2, key: 'city_target' });
+  });
+
+  it('higher review cycle fully empty → falls through to prior review cycle', () => {
+    expect(
+      getHighlightedMilestone(
+        makePermit({
+          permit_cycles: [
+            cycle({ cycle_index: 0 }),
+            cycle({
+              cycle_index: 1,
+              submitted: '2026-03-13',
+              corr_issued: '2026-04-16',
+            }),
+            cycle({ cycle_index: 2 }),
+          ],
+        }),
+      ),
+    ).toEqual({ kind: 'cycle', cycleIndex: 1, key: 'corr_issued' });
+  });
+
+  it('all review cycles empty + design has intake_accepted → falls back to design intake_accepted', () => {
+    expect(
+      getHighlightedMilestone(
+        makePermit({
+          permit_cycles: [
+            cycle({
+              cycle_index: 0,
+              submitted: '2025-11-15',
+              intake_accepted: '2025-11-21',
+            }),
+            cycle({ cycle_index: 1 }),
+            cycle({ cycle_index: 2 }),
+          ],
+        }),
+      ),
+    ).toEqual({ kind: 'cycle', cycleIndex: 0, key: 'intake_accepted' });
+  });
+
+  it('all cycles fully empty → target_submit fallback', () => {
+    expect(
+      getHighlightedMilestone(
+        makePermit({
+          target_submit: '2026-06-01',
+          permit_cycles: [
+            cycle({ cycle_index: 0 }),
+            cycle({ cycle_index: 1 }),
+          ],
+        }),
+      ),
+    ).toEqual({ kind: 'permit', key: 'target_submit' });
+  });
+
+  it('legacy permit with cycles starting at 1 (no cycle 0) → cycle 1 is treated as design (firstIdx logic)', () => {
+    // Edge case: a permit that has no cycle 0 (legacy or oddly-created).
+    // The cycle with the lowest index becomes the design cycle, so cycle 1
+    // here uses DESIGN_REVERSE (intake_accepted → submitted), ignoring its
+    // city_target and corr_issued.
+    expect(
+      getHighlightedMilestone(
+        makePermit({
+          permit_cycles: [
+            cycle({
+              cycle_index: 1,
+              submitted: '2025-11-15',
+              intake_accepted: '2025-11-21',
+              corr_issued: '2025-12-15',
+            }),
+          ],
+        }),
+      ),
+    ).toEqual({ kind: 'cycle', cycleIndex: 1, key: 'intake_accepted' });
   });
 });
 
