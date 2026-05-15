@@ -1,33 +1,38 @@
 import type { PermitWithCycles } from './database.types';
 
-// fix-23c B / fix-24c: permit-level milestone helpers. The status-bar
-// highlight rule lives here as a pure function so PermitDetailV2 (and any
-// future surface — Reports detail row, etc.) can render exactly ONE
-// highlighted cell driven by the same logic.
+// fix-24c-2: permit-level milestone helpers. The status-bar highlight rule
+// lives here as a pure function so PermitDetailV2 (and any future surface —
+// Reports detail row, etc.) can render exactly ONE highlighted cell driven
+// by the same logic.
 //
-// Rule (Bobby's spec, locked in 2026-05-14 — fix-24c rev):
-//   Highlight the LATEST POPULATED date BY ABSOLUTE DATE, not by chain
-//   position. This better reflects "where the permit actually is" when
-//   data comes back out of strict chain order — e.g. 621 Daley permit
-//   202 has cycle 1 submitted=2026-03-13, intake_accepted=2026-03-13,
-//   corr_issued=2026-04-16. The corrections came AFTER intake, so the
-//   highlight should land on corr_issued — even though the chain-walk
-//   priority would put intake_accepted first.
+// Rule (Bobby's spec, fix-24c-2 — events beat forecasts, walk cycles DESC):
+//   1. permits.actual_issue populated → highlight it
+//   2. permits.approval_date populated → highlight it
+//   3. Walk cycles DESC by cycle_index. For each cycle:
+//      a. Gather ACTUAL EVENTS in that cycle:
+//         submitted, corr_issued, resubmitted, intake_accepted
+//         (city_target is a FORECAST, not an event.)
+//      b. If any events exist → pick latest BY DATE → return
+//         (tiebreaker on same date: chain priority
+//          intake > resubmitted > corr_issued > submitted)
+//      c. Else if city_target is set on this cycle → return city_target
+//         (current state is "waiting on city" for this cycle)
+//      d. Else continue to the prior cycle
+//   4. No candidates anywhere → fall back to target_submit
 //
-// Candidate set (any of these with a non-null date):
-//   - permits.actual_issue   (kind:'permit')
-//   - permits.approval_date  (kind:'permit')
-//   - per cycle: submitted / city_target / corr_issued / resubmitted /
-//                intake_accepted
+// Why "events beat forecasts": city_target is what the city PROMISED, not
+// what happened. An actual event (submitted/corr_issued/resubmitted/intake)
+// always represents reality and should win over a forecast — even a forecast
+// dated later. The 621 Daley case is canonical:
+//   cycle 1: submitted=2026-03-13, intake_accepted=2026-03-13,
+//            corr_issued=2026-04-16, city_target=2026-04-20
+//   → corr_issued wins (latest event), city_target=2026-04-20 is ignored.
 //
-// Sort: by date DESC. Tiebreaker when two candidates share a date:
-//   1. higher cycle_index wins (permit-level treated as +Inf)
-//   2. then chain priority (actual_issue > approval_date > intake_accepted
-//      > resubmitted > corr_issued > city_target > submitted)
-//
-// Empty: when no candidates exist anywhere, fall back to target_submit
-// (the "anticipated" anchor so the Design strip's leftmost cell still
-// glows for a brand-new permit).
+// The intake→snap pattern lands cleanly: cycle N intake_accepted writes
+// auto-fill cycle N+1.submitted (via bp_upsert_permit_cycle_row). Once that
+// happens, cycle N+1 has an event → walking DESC finds it first → highlight
+// follows the snap. (Backfill 2026-05-15 repaired any pre-existing empty
+// placeholder N+1 rows.)
 
 export type HighlightKey =
   | 'target_submit'
@@ -55,92 +60,61 @@ export type HighlightTarget =
         | 'intake_accepted';
     };
 
-const CHAIN_PRIORITY: Record<HighlightKey, number> = {
-  actual_issue: 9,
-  approval_date: 8,
-  intake_accepted: 7,
-  resubmitted: 6,
-  corr_issued: 5,
-  city_target: 4,
-  submitted: 3,
-  target_submit: 2,
+type EventKey = 'submitted' | 'corr_issued' | 'resubmitted' | 'intake_accepted';
+
+const EVENT_KEYS: EventKey[] = [
+  'submitted',
+  'corr_issued',
+  'resubmitted',
+  'intake_accepted',
+];
+
+// Tiebreaker when two events in the SAME cycle share a date.
+// Higher number wins.
+const EVENT_PRIORITY: Record<EventKey, number> = {
+  intake_accepted: 4,
+  resubmitted: 3,
+  corr_issued: 2,
+  submitted: 1,
 };
 
 export function getHighlightedMilestone(
   permit: PermitWithCycles,
 ): HighlightTarget {
-  const candidates: Array<{ target: HighlightTarget; date: string }> = [];
   if (permit.actual_issue) {
-    candidates.push({
-      target: { kind: 'permit', key: 'actual_issue' },
-      date: permit.actual_issue,
-    });
+    return { kind: 'permit', key: 'actual_issue' };
   }
   if (permit.approval_date) {
-    candidates.push({
-      target: { kind: 'permit', key: 'approval_date' },
-      date: permit.approval_date,
-    });
+    return { kind: 'permit', key: 'approval_date' };
   }
-  for (const c of permit.permit_cycles ?? []) {
-    if (c.submitted) {
-      candidates.push({
-        target: { kind: 'cycle', cycleIndex: c.cycle_index, key: 'submitted' },
-        date: c.submitted,
+
+  const cyclesDesc = [...(permit.permit_cycles ?? [])].sort(
+    (a, b) => b.cycle_index - a.cycle_index,
+  );
+
+  for (const c of cyclesDesc) {
+    const events: Array<{ key: EventKey; date: string }> = [];
+    for (const k of EVENT_KEYS) {
+      const v = c[k];
+      if (v) events.push({ key: k, date: v });
+    }
+    if (events.length > 0) {
+      events.sort((a, b) => {
+        if (a.date !== b.date) return b.date.localeCompare(a.date);
+        return EVENT_PRIORITY[b.key] - EVENT_PRIORITY[a.key];
       });
+      return { kind: 'cycle', cycleIndex: c.cycle_index, key: events[0].key };
     }
     if (c.city_target) {
-      candidates.push({
-        target: {
-          kind: 'cycle',
-          cycleIndex: c.cycle_index,
-          key: 'city_target',
-        },
-        date: c.city_target,
-      });
-    }
-    if (c.corr_issued) {
-      candidates.push({
-        target: {
-          kind: 'cycle',
-          cycleIndex: c.cycle_index,
-          key: 'corr_issued',
-        },
-        date: c.corr_issued,
-      });
-    }
-    if (c.resubmitted) {
-      candidates.push({
-        target: {
-          kind: 'cycle',
-          cycleIndex: c.cycle_index,
-          key: 'resubmitted',
-        },
-        date: c.resubmitted,
-      });
-    }
-    if (c.intake_accepted) {
-      candidates.push({
-        target: {
-          kind: 'cycle',
-          cycleIndex: c.cycle_index,
-          key: 'intake_accepted',
-        },
-        date: c.intake_accepted,
-      });
+      return {
+        kind: 'cycle',
+        cycleIndex: c.cycle_index,
+        key: 'city_target',
+      };
     }
   }
-  if (candidates.length === 0) {
-    return { kind: 'permit', key: 'target_submit' };
-  }
-  candidates.sort((a, b) => {
-    if (a.date !== b.date) return b.date.localeCompare(a.date);
-    const aCycle = a.target.kind === 'cycle' ? a.target.cycleIndex : 999;
-    const bCycle = b.target.kind === 'cycle' ? b.target.cycleIndex : 999;
-    if (aCycle !== bCycle) return bCycle - aCycle;
-    return CHAIN_PRIORITY[b.target.key] - CHAIN_PRIORITY[a.target.key];
-  });
-  return candidates[0].target;
+
+  return { kind: 'permit', key: 'target_submit' };
 }
 
 /** Equality helper for component-level "is this cell highlighted?" checks.
