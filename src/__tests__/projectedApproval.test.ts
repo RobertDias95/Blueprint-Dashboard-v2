@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { computeProjectedApproval } from '../lib/projectedApproval';
 import {
   SCHEDULE_DEFAULTS,
@@ -89,6 +89,19 @@ function learned(over: Partial<LearnedEstimate> = {}): LearnedEstimate {
     ...over,
   };
 }
+
+// fix-24e: pin "today" before the test anchors (all 2026+). All existing
+// tests then operate as if their anchors are future, so the today-floor is
+// a no-op for them. The fix-24e suite at the bottom moves the clock past
+// each anchor to exercise the floor.
+beforeEach(() => {
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date('2025-12-01T12:00:00Z'));
+});
+
+afterEach(() => {
+  vi.useRealTimers();
+});
 
 describe('computeProjectedApproval', () => {
   it('actual_issue short-circuits with isActual=true', () => {
@@ -307,5 +320,170 @@ describe('computeProjectedApproval', () => {
     // walk lands at 2026-02-27 but lastRealDate=2027-12-31 → floor to
     // 2027-12-31 + 7 = 2028-01-07
     expect(r.projection).toBe('2028-01-07');
+  });
+});
+
+describe('computeProjectedApproval — fix-24e today-floor on projection anchors', () => {
+  it('past target_submit: projection chains from today, not the past anchor', () => {
+    // Permit only has target_submit. With today=2026-05-15 and an anchor
+    // of 2025-08-01 (300+ days back), the projection should anchor on
+    // today, not on the stale target_submit.
+    vi.setSystemTime(new Date('2026-05-15T12:00:00Z'));
+    const r = computeProjectedApproval({
+      permit: permit({ target_submit: '2025-08-01' }),
+      cycles: [],
+      learnedEstimate: null,
+    });
+    // targetCycle=1, no cycle data, base=target_submit=2025-08-01 → floored
+    // to 2026-05-15. cr1=21 + 7 = 28d. 2026-05-15 + 28d = 2026-06-12.
+    expect(r.projection).toBe('2026-06-12');
+    expect(r.isProjected).toBe(true);
+  });
+
+  it('future target_submit: projection chains from the anchor (no floor applied)', () => {
+    // Today is 2026-05-15 and target_submit is 2026-08-01 (future).
+    // The anchor is used as-is, floor is a no-op.
+    vi.setSystemTime(new Date('2026-05-15T12:00:00Z'));
+    const r = computeProjectedApproval({
+      permit: permit({ target_submit: '2026-08-01' }),
+      cycles: [],
+      learnedEstimate: null,
+    });
+    // base=2026-08-01, +28d = 2026-08-29.
+    expect(r.projection).toBe('2026-08-29');
+  });
+
+  it('today exactly: anchor returned as-is (boundary, not floored)', () => {
+    vi.setSystemTime(new Date('2026-05-15T12:00:00Z'));
+    const r = computeProjectedApproval({
+      permit: permit({ target_submit: '2026-05-15' }),
+      cycles: [],
+      learnedEstimate: null,
+    });
+    expect(r.projection).toBe('2026-06-12'); // 2026-05-15 + 28d
+  });
+
+  it('past cycle 1 submitted: forecast chains from today, but the SUBMITTED CELL still shows the actual past date', () => {
+    // The actual cycle 1 submitted is 2025-11-15. Today is 2026-05-15.
+    // Forecast for projected approval anchors at today. Returned
+    // rounds.corrIssued1 (forecast) reflects the today anchor, not the
+    // stale submitted, but cycle 1 submitted itself is the caller's
+    // responsibility to display from rd?.submitted — the estimator never
+    // hands back a "modified submitted" value.
+    vi.setSystemTime(new Date('2026-05-15T12:00:00Z'));
+    const r = computeProjectedApproval({
+      permit: permit(),
+      cycles: [cyc({ cycle_index: 1, submitted: '2025-11-15' })],
+      learnedEstimate: learned({ mostLikelyCycle: 2 }),
+    });
+    // targetCycle=2, base=2025-11-15 → floored to 2026-05-15.
+    // i=0: rd has no corr_issued, no city_target.
+    //   crEnd = addDays(today=2026-05-15, cr1=21) = 2026-06-05
+    //   resubEnd = addDays(2026-06-05, co1=10) = 2026-06-15
+    // After loop, cursor = 2026-06-15, +7 buffer = 2026-06-22.
+    expect(r.rounds?.corrIssued1).toBe('2026-06-05');
+    expect(r.rounds?.resubmitted1).toBe('2026-06-15');
+    expect(r.projection).toBe('2026-06-22');
+  });
+
+  it('past actual corr_issued: displayed as-is, but downstream resubmitted forecast floors at today', () => {
+    // Bobby's "past corr_issued" smoke. corr_issued=2025-11-01 (real, past).
+    // The Cy1 Corr Issued cell shows 2025-11-01. Cy1 Resubmitted has no
+    // actual, so it's a forecast — anchored to today, not 2025-11-01.
+    vi.setSystemTime(new Date('2026-05-15T12:00:00Z'));
+    const r = computeProjectedApproval({
+      permit: permit(),
+      cycles: [
+        cyc({
+          cycle_index: 1,
+          submitted: '2025-10-01',
+          corr_issued: '2025-11-01',
+        }),
+      ],
+      learnedEstimate: learned({ mostLikelyCycle: 2 }),
+    });
+    // Actual corrIssued1 displays as-is.
+    expect(r.rounds?.corrIssued1).toBe('2025-11-01');
+    // Resub forecast: addDays(flooredAnchor('2025-11-01')=today, co1=10) =
+    // 2026-05-15 + 10 = 2026-05-25.
+    expect(r.rounds?.resubmitted1).toBe('2026-05-25');
+    // Final +7 = 2026-06-01.
+    expect(r.projection).toBe('2026-06-01');
+  });
+
+  it("past city_target (Bobby's example): forecast crEnd lifted to today instead of using the stale forecast", () => {
+    // city_target=2025-12-15, today=2025-12-16. v1 would use 2025-12-15 as
+    // crEnd directly — that's a past-dated forecast. fix-24e: floor to
+    // today. Then resub forecast chains from today.
+    vi.setSystemTime(new Date('2025-12-16T12:00:00Z'));
+    const r = computeProjectedApproval({
+      permit: permit(),
+      cycles: [
+        cyc({
+          cycle_index: 1,
+          submitted: '2025-09-01',
+          city_target: '2025-12-15',
+        }),
+      ],
+      learnedEstimate: learned({ mostLikelyCycle: 2 }),
+    });
+    // crEnd = flooredAnchor(city_target=2025-12-15) = today=2025-12-16
+    // resubEnd = addDays(2025-12-16, co1=10) = 2025-12-26
+    // Final +7 = 2026-01-02.
+    expect(r.rounds?.corrIssued1).toBe('2025-12-16');
+    expect(r.rounds?.resubmitted1).toBe('2025-12-26');
+    expect(r.projection).toBe('2026-01-02');
+  });
+
+  it('est_approval is never in the past when at least one downstream duration is positive', () => {
+    // Stress case: everything in the past, all anchors stale. With the
+    // floor, the projection should still land at or after today.
+    vi.setSystemTime(new Date('2026-05-15T12:00:00Z'));
+    const r = computeProjectedApproval({
+      permit: permit({ target_submit: '2024-01-01' }),
+      cycles: [
+        cyc({
+          cycle_index: 1,
+          submitted: '2024-02-01',
+          corr_issued: '2024-04-01',
+          resubmitted: '2024-05-01',
+        }),
+      ],
+      learnedEstimate: learned({ mostLikelyCycle: 3 }),
+    });
+    expect(r.projection).not.toBeNull();
+    // ISO date lex compare is fine because both are YYYY-MM-DD.
+    expect(r.projection! >= '2026-05-15').toBe(true);
+  });
+
+  it('null anchors → null projection (no floor side-effect)', () => {
+    vi.setSystemTime(new Date('2026-05-15T12:00:00Z'));
+    const r = computeProjectedApproval({
+      permit: permit(),
+      cycles: [],
+      learnedEstimate: null,
+    });
+    expect(r.projection).toBeNull();
+  });
+
+  it('actual_issue / approval_date still short-circuit even when they are in the past', () => {
+    // Past actual_issue is a HISTORICAL fact, not a forecast — display
+    // as-is, never floor.
+    vi.setSystemTime(new Date('2026-05-15T12:00:00Z'));
+    const r1 = computeProjectedApproval({
+      permit: permit({ actual_issue: '2025-09-01' }),
+      cycles: [],
+      learnedEstimate: null,
+    });
+    expect(r1.projection).toBe('2025-09-01');
+    expect(r1.isActual).toBe(true);
+
+    const r2 = computeProjectedApproval({
+      permit: permit({ approval_date: '2025-08-15' }),
+      cycles: [],
+      learnedEstimate: null,
+    });
+    expect(r2.projection).toBe('2025-08-15');
+    expect(r2.isActual).toBe(true);
   });
 });

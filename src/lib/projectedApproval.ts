@@ -24,6 +24,29 @@ function addDays(date: string, days: number): string {
   return d.toISOString().slice(0, 10);
 }
 
+/** fix-24e: today as an ISO date string in local tz. Pinned by
+ *  vi.useFakeTimers in unit tests via setSystemTime. */
+function todayISO(): string {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+/** fix-24e: when an anchor used to project a FUTURE event is itself in
+ *  the past, return today instead. Keeps downstream projections
+ *  forward-looking (est_approval doesn't drift behind reality just
+ *  because city_target / target_submit / cycle dates were set months
+ *  ago). Returns null for null/empty input — callers can `?? anchor`
+ *  to fall back when they want to display the unfloored value.
+ *  Lexical ISO compare works because all anchors are YYYY-MM-DD. */
+function flooredAnchor(anchor: string | null | undefined): string | null {
+  if (!anchor) return null;
+  const today = todayISO();
+  return anchor < today ? today : anchor;
+}
+
 /** v1 :4455-4459: days between two ISO dates (b - a). Returns null when
  *  either is missing OR when the delta is non-positive (filters out
  *  same-day or backward sequences which usually mean bad data). */
@@ -201,19 +224,35 @@ function getULSAnchorDates(
   const bpCityReview2 =
     bpLearned?.cityReview2 ?? SCHEDULE_DEFAULTS.cityReview2;
 
+  // fix-24e: every anchor consumed in an addDays call here is a forecast
+  // input — floor at today so past anchors don't drag the projection back.
+  // Direct-display values (corrCycle.resubmitted as-is) keep their actual
+  // value since we don't transform them.
   let cy1Resub: string;
   if (corrCycle?.resubmitted) {
     cy1Resub = corrCycle.resubmitted;
   } else if (corrCycle?.corr_issued) {
-    cy1Resub = addDays(corrCycle.corr_issued, bpCorrResponse1);
+    cy1Resub = addDays(
+      flooredAnchor(corrCycle.corr_issued) ?? corrCycle.corr_issued,
+      bpCorrResponse1,
+    );
   } else if (corrCycle?.city_target) {
-    cy1Resub = addDays(corrCycle.city_target, bpCorrResponse1);
+    cy1Resub = addDays(
+      flooredAnchor(corrCycle.city_target) ?? corrCycle.city_target,
+      bpCorrResponse1,
+    );
   } else {
-    const cy1CorrEnd = addDays(sub, bpCityReview1);
-    cy1Resub = addDays(cy1CorrEnd, bpCorrResponse1);
+    const cy1CorrEnd = addDays(flooredAnchor(sub) ?? sub, bpCityReview1);
+    cy1Resub = addDays(
+      flooredAnchor(cy1CorrEnd) ?? cy1CorrEnd,
+      bpCorrResponse1,
+    );
   }
 
-  const ulsTargetSubmit = addDays(cy1Resub, ULS_TARGET_SUBMIT_BUFFER);
+  const ulsTargetSubmit = addDays(
+    flooredAnchor(cy1Resub) ?? cy1Resub,
+    ULS_TARGET_SUBMIT_BUFFER,
+  );
   // Q9.5.f-fix-18 B: prefer the BP's LIVE projection over the stored
   // expected_issue column. The stored column is a snapshot from when the
   // user last saved it (or what the scraper imported); the live projection
@@ -247,9 +286,15 @@ function getULSAnchorDates(
       bpProjection.projection ?? bp.expected_issue ?? '';
   }
   if (!bpIssueAnchor) {
-    bpIssueAnchor = addDays(cy1Resub, bpCityReview2 + FINAL_APPROVAL_BUFFER);
+    bpIssueAnchor = addDays(
+      flooredAnchor(cy1Resub) ?? cy1Resub,
+      bpCityReview2 + FINAL_APPROVAL_BUFFER,
+    );
   }
-  const estApproval = addDays(bpIssueAnchor, ULS_BP_LAG_DAYS);
+  const estApproval = addDays(
+    flooredAnchor(bpIssueAnchor) ?? bpIssueAnchor,
+    ULS_BP_LAG_DAYS,
+  );
   return { targetSubmit: ulsTargetSubmit, estApproval, bpIssueAnchor, cy1Resub };
 }
 
@@ -302,13 +347,18 @@ export function computeProjectedApproval(
         for (let i = 0; i < ulsCycles; i++) {
           const cr = durFor(i, 'cr', learnedEstimate, thisPermitDur);
           const co = durFor(i, 'co', learnedEstimate, thisPermitDur);
-          const corrEnd = addDays(cursor, cr);
-          const resub = addDays(corrEnd, co);
+          // fix-24e: floor each step's anchor so a past cursor produces a
+          // future corrEnd, and past corrEnd produces a future resub.
+          const corrEnd = addDays(flooredAnchor(cursor) ?? cursor, cr);
+          const resub = addDays(flooredAnchor(corrEnd) ?? corrEnd, co);
           lastProj = resub;
           cursor = resub;
         }
         if (lastProj && proj <= lastProj) {
-          proj = addDays(lastProj, FINAL_APPROVAL_BUFFER);
+          proj = addDays(
+            flooredAnchor(lastProj) ?? lastProj,
+            FINAL_APPROVAL_BUFFER,
+          );
         }
       }
       return {
@@ -377,10 +427,18 @@ export function computeProjectedApproval(
     learnedEstimate?.avgSubmitToIssue &&
     learnedEstimate.avgSubmitToIssue > 0
   ) {
-    const holistic = addDays(base, Math.round(learnedEstimate.avgSubmitToIssue));
+    // fix-24e: floor base so a past submitted/target_submit still produces a
+    // future-looking holistic projection.
+    const holistic = addDays(
+      flooredAnchor(base) ?? base,
+      Math.round(learnedEstimate.avgSubmitToIssue),
+    );
     const projection =
       lastRealDate && holistic < lastRealDate
-        ? addDays(lastRealDate, FINAL_APPROVAL_BUFFER)
+        ? addDays(
+            flooredAnchor(lastRealDate) ?? lastRealDate,
+            FINAL_APPROVAL_BUFFER,
+          )
         : holistic;
     return {
       projection,
@@ -404,11 +462,14 @@ export function computeProjectedApproval(
   if (targetCycle === 1) {
     // Approving in first review without corrections. v1 :4515-4523:
     // prefer avgSubmitToIssue, else cityReview1 + 7-day approval buffer.
+    // fix-24e: floor base so projection is forward-looking even when base
+    // is months in the past.
+    const baseAnchor = flooredAnchor(base) ?? base;
     if (learnedEstimate?.avgSubmitToIssue && learnedEstimate.avgSubmitToIssue > 0) {
-      cursor = addDays(base, Math.round(learnedEstimate.avgSubmitToIssue));
+      cursor = addDays(baseAnchor, Math.round(learnedEstimate.avgSubmitToIssue));
     } else {
       const cr1Days = durFor(0, 'cr', learnedEstimate, thisPermitDur);
-      cursor = addDays(base, cr1Days + FINAL_APPROVAL_BUFFER);
+      cursor = addDays(baseAnchor, cr1Days + FINAL_APPROVAL_BUFFER);
     }
   } else {
     const cycleRows = [r1, r2, r3, r4];
@@ -429,20 +490,33 @@ export function computeProjectedApproval(
         i === 0 && !rd?.corr_issued && earliestCityTargetAfterCursor
           ? earliestCityTargetAfterCursor
           : null;
+      // fix-24e: rd?.corr_issued / rd?.resubmitted are ACTUAL dates and
+      // display as-is even when past. The forecast branches (cityTargetCrEnd
+      // assigned directly, addDays projections) and the chained resubEnd
+      // anchor floor at today so past anchors don't yield past forecasts.
       const crEnd =
-        rd?.corr_issued ?? cityTargetCrEnd ?? addDays(cursor, crDays);
-      const resubEnd = rd?.resubmitted ?? addDays(crEnd, coDays);
+        rd?.corr_issued ??
+        flooredAnchor(cityTargetCrEnd) ??
+        addDays(flooredAnchor(cursor) ?? cursor, crDays);
+      const resubEnd =
+        rd?.resubmitted ??
+        addDays(flooredAnchor(crEnd) ?? crEnd, coDays);
       rounds[`corrIssued${i + 1}` as keyof ProjectedApprovalRounds] = crEnd;
       rounds[`resubmitted${i + 1}` as keyof ProjectedApprovalRounds] = resubEnd;
       cursor = resubEnd;
     }
-    cursor = addDays(cursor, FINAL_APPROVAL_BUFFER);
+    cursor = addDays(flooredAnchor(cursor) ?? cursor, FINAL_APPROVAL_BUFFER);
   }
 
   let projection = cursor;
   // v1 :4541 floor — never project earlier than the last real date on file.
+  // fix-24e: the +buffer also floors lastRealDate at today so the final
+  // projection stays forward-looking when lastRealDate itself is past.
   if (lastRealDate && projection < lastRealDate) {
-    projection = addDays(lastRealDate, FINAL_APPROVAL_BUFFER);
+    projection = addDays(
+      flooredAnchor(lastRealDate) ?? lastRealDate,
+      FINAL_APPROVAL_BUFFER,
+    );
   }
   return {
     projection,
