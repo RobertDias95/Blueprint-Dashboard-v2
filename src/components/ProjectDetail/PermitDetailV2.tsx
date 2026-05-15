@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { effectiveStage } from '../../lib/permitStage';
 import {
   getHighlightedMilestone,
@@ -491,20 +491,28 @@ function DateStrip({
     // permit schema for legacy data + ledger consumption, but no longer
     // clutter the day-to-day Design workflow. Once intake_accepted is set,
     // the user moves on to Cycle 1 view for review tracking.
-    const cycle1 = cycles.find((c) => c.cycle_index === 1) ?? null;
-    async function commitCycle1Field(field: DateField, next: string) {
+    //
+    // fix-24c: take the FIRST surviving cycle by index (cycles is already
+    // sorted ascending + filtered to drop cycle_index=0). Used to hard-code
+    // cycle_index===1, which silently rendered blank cells whenever the
+    // first real cycle's index drifted (post-delete renumber, scraper
+    // import quirks, etc.). The "Initial Submit" anchor is always the
+    // earliest review cycle, whatever its index.
+    const firstCycle = cycles[0] ?? null;
+    const firstCycleIndex = firstCycle?.cycle_index ?? 1;
+    async function commitFirstCycleField(field: DateField, next: string) {
       const normalized = next || null;
-      if (cycle1) {
+      if (firstCycle) {
         await upsertCycle.mutateAsync({
           op: 'update',
           permitId: permit.id,
           projectId: permit.project_id,
-          cycle: cycle1,
+          cycle: firstCycle,
           patch: { [field]: normalized } as CyclePatch,
         });
         return;
       }
-      // No cycle 1 yet — first edit creates it.
+      // No cycle yet — first edit creates it at index 1.
       if (!normalized) return; // don't auto-create on a blur-clear with no data
       await upsertCycle.mutateAsync({
         op: 'insert',
@@ -553,25 +561,25 @@ function DateStrip({
         <DateCell
           label="Initial Submit"
           accentColor="var(--color-pm)"
-          value={cycle1?.submitted ?? null}
+          value={firstCycle?.submitted ?? null}
           highlighted={isMilestoneHighlighted(highlightTarget, {
             kind: 'cycle',
-            cycleIndex: 1,
+            cycleIndex: firstCycleIndex,
             key: 'submitted',
           })}
-          onCommit={(v) => commitCycle1Field('submitted', v)}
+          onCommit={(v) => commitFirstCycleField('submitted', v)}
           testid="pd-cell-design-submitted"
         />
         <DateCell
           label="Intake Accepted"
           accentColor="var(--color-pm)"
-          value={cycle1?.intake_accepted ?? null}
+          value={firstCycle?.intake_accepted ?? null}
           highlighted={isMilestoneHighlighted(highlightTarget, {
             kind: 'cycle',
-            cycleIndex: 1,
+            cycleIndex: firstCycleIndex,
             key: 'intake_accepted',
           })}
-          onCommit={(v) => commitCycle1Field('intake_accepted', v)}
+          onCommit={(v) => commitFirstCycleField('intake_accepted', v)}
           testid="pd-cell-design-intake_accepted"
         />
       </div>
@@ -622,10 +630,15 @@ function DateStrip({
         label="City Target"
         accentColor="var(--color-pm)"
         value={cycle.city_target}
-        /** fix-23c B: city_target intentionally NOT in the highlight rule.
-         *  It tracks a city-scheduled review date but doesn't advance the
-         *  permit's milestone position. */
-        highlighted={false}
+        /** fix-24c: city_target IS now a candidate in the latest-by-date
+         *  rule (fix-23c had excluded it). When the city's scheduled
+         *  review date is the most recent populated milestone, this cell
+         *  lights up. */
+        highlighted={isMilestoneHighlighted(highlightTarget, {
+          kind: 'cycle',
+          cycleIndex: viewIdx,
+          key: 'city_target',
+        })}
         onCommit={(v) => commitCycleField(cycle, 'city_target', v)}
         testid={`pd-cell-cycle${viewIdx}-city_target`}
       />
@@ -713,6 +726,15 @@ function DateCell({
   testid?: string;
 }) {
   const [draft, setDraft] = useState(value ?? '');
+  // fix-24c: when the value prop updates after our initial mount (cycles
+  // load async, parent refetches after a save, user switches cycle tabs),
+  // pull the new value into our draft. Without this, useState(value)
+  // captures only the first render's value and the cell silently shows
+  // stale (often blank) data forever. Bobby's test 678 hit this on the
+  // Design strip when cycles arrived a tick after the permit row.
+  useEffect(() => {
+    setDraft(value ?? '');
+  }, [value]);
   return (
     <div
       className="px-2 py-1.5 flex flex-col gap-1 relative"

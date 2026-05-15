@@ -216,6 +216,41 @@ describe('<BuilderAutocompleteField />', () => {
     expect(screen.queryByTestId('ac-name-menu')).toBeNull();
   });
 
+  it('fix-24c "boyd" smoke: typing the lowercase fragment surfaces Boyd Lybeck across name/company match paths', async () => {
+    // Pins Bobby's regression: prior bundle returned nothing when he
+    // typed "boyd". Two of three suggestions should appear here — the
+    // name-match on Boyd Lybeck and the company-match on Boyd Realty.
+    // The plain "Aaron" row is filtered out.
+    searchResults.current = [
+      builder({
+        id: 'boyd-lybeck',
+        name: 'Boyd Lybeck',
+        company: "Jake'sD Corporation",
+        email: 'jakesbd@comcast.net',
+        phone: '(206) 387-6534',
+      }),
+      builder({
+        id: 'b-realty',
+        name: 'Maria Hayes',
+        company: 'Boyd Realty Group',
+      }),
+      builder({
+        id: 'b-aaron',
+        name: 'Aaron Cole',
+        company: 'Cole Building',
+      }),
+    ];
+    renderHost();
+    fireEvent.change(screen.getByTestId('ac-name'), {
+      target: { value: 'boyd' },
+    });
+    await waitFor(() => {
+      expect(screen.getByTestId('ac-name-option-boyd-lybeck')).toBeInTheDocument();
+    });
+    expect(screen.getByTestId('ac-name-option-b-realty')).toBeInTheDocument();
+    expect(screen.queryByTestId('ac-name-option-b-aaron')).toBeNull();
+  });
+
   it('dropdown closes on Esc and on outside click', async () => {
     searchResults.current = [
       builder({ id: 'b1', name: 'Boyd Livek', company: 'Crafted Design Build' }),

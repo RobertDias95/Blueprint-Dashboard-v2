@@ -6,9 +6,12 @@ import {
 } from '../lib/permitHelpers';
 import type { PermitCycle, PermitWithCycles } from '../lib/database.types';
 
-// fix-23c B: tests for the latest-populated highlight selector. Every
-// case from Bobby's spec is pinned plus a few sanity checks for the
-// equality helper.
+// fix-23c B → fix-24c: tests for the latest-populated highlight selector.
+// fix-24c rewrites the rule from chain-position-latest to latest-BY-DATE
+// (with tiebreakers: higher cycle_index wins, then chain priority). The
+// 621 Daley smoke case (corr_issued 2026-04-16 beats intake_accepted
+// 2026-03-13 even though intake ranks above corr in the chain) is the
+// canonical motivator and is pinned below.
 
 function makePermit(over: Partial<PermitWithCycles> = {}): PermitWithCycles {
   return {
@@ -61,92 +64,54 @@ function cycle(over: Partial<PermitCycle> & Pick<PermitCycle, 'cycle_index'>): P
   };
 }
 
-describe('getHighlightedMilestone', () => {
+describe('getHighlightedMilestone — fix-24c (latest by date)', () => {
   it('empty permit (no cycles, no dates) → falls back to target_submit', () => {
     const target = getHighlightedMilestone(makePermit());
     expect(target).toEqual({ kind: 'permit', key: 'target_submit' });
   });
 
-  it('only target_submit set → target_submit (it is the anticipated next milestone)', () => {
+  it('only target_submit set → still falls back to target_submit', () => {
+    // target_submit is the empty-state anchor; it's not itself a
+    // candidate in the date-latest set (otherwise an anticipated date
+    // far in the future would steal the highlight from real history).
     const target = getHighlightedMilestone(
       makePermit({ target_submit: '2026-06-01' }),
     );
     expect(target).toEqual({ kind: 'permit', key: 'target_submit' });
   });
 
-  it('cycle 0 submitted only → that cycle 0 submitted is the latest populated', () => {
+  it('single cycle with only submitted → submitted wins', () => {
     const target = getHighlightedMilestone(
       makePermit({
-        target_submit: '2026-06-01',
-        permit_cycles: [
-          cycle({ cycle_index: 0, submitted: '2026-06-10' }),
-        ],
-      }),
-    );
-    expect(target).toEqual({ kind: 'cycle', cycleIndex: 0, key: 'submitted' });
-  });
-
-  it('cycle 0 fully filled, no cycle 1 → cycle 0 intake_accepted (latest within cycle)', () => {
-    const target = getHighlightedMilestone(
-      makePermit({
-        target_submit: '2026-06-01',
-        permit_cycles: [
-          cycle({
-            cycle_index: 0,
-            submitted: '2026-06-10',
-            corr_issued: '2026-07-01',
-            resubmitted: '2026-07-15',
-            intake_accepted: '2026-07-20',
-          }),
-        ],
+        permit_cycles: [cycle({ cycle_index: 1, submitted: '2026-06-10' })],
       }),
     );
     expect(target).toEqual({
       kind: 'cycle',
-      cycleIndex: 0,
-      key: 'intake_accepted',
+      cycleIndex: 1,
+      key: 'submitted',
     });
   });
 
-  it('cycle 0 fully filled + cycle 1 submitted → cycle 1 submitted wins (snap target)', () => {
-    // This is the exact case Bobby calls out in the spec: after the
-    // intake_accepted snap on cycle 0 auto-creates cycle 1 with
-    // submitted=intake_accepted, the highlight lands on cycle 1's
-    // submitted because cycle 1 has a higher index AND a populated date.
-    const target = getHighlightedMilestone(
-      makePermit({
-        target_submit: '2026-06-01',
-        permit_cycles: [
-          cycle({
-            cycle_index: 0,
-            submitted: '2026-06-10',
-            corr_issued: '2026-07-01',
-            resubmitted: '2026-07-15',
-            intake_accepted: '2026-07-20',
-          }),
-          // Snap auto-created this row.
-          cycle({ cycle_index: 1, submitted: '2026-07-20' }),
-        ],
-      }),
-    );
-    expect(target).toEqual({ kind: 'cycle', cycleIndex: 1, key: 'submitted' });
-  });
-
-  it('actual_issue populated → highlights actual_issue regardless of cycles', () => {
+  it('actual_issue populated → highlights actual_issue regardless of cycle dates', () => {
     const target = getHighlightedMilestone(
       makePermit({
         actual_issue: '2026-09-01',
         approval_date: '2026-08-15',
         target_submit: '2026-06-01',
         permit_cycles: [
-          cycle({ cycle_index: 1, submitted: '2026-06-10', intake_accepted: '2026-06-15' }),
+          cycle({
+            cycle_index: 1,
+            submitted: '2026-06-10',
+            intake_accepted: '2026-06-15',
+          }),
         ],
       }),
     );
     expect(target).toEqual({ kind: 'permit', key: 'actual_issue' });
   });
 
-  it('approval_date populated without actual_issue → highlights approval_date', () => {
+  it('approval_date populated, no actual_issue → highlights approval_date', () => {
     const target = getHighlightedMilestone(
       makePermit({
         approval_date: '2026-08-15',
@@ -158,43 +123,34 @@ describe('getHighlightedMilestone', () => {
     expect(target).toEqual({ kind: 'permit', key: 'approval_date' });
   });
 
-  it('within a cycle: intake_accepted beats resubmitted beats corr_issued beats submitted', () => {
-    // submit + corr_issued, no resub yet → corr_issued
-    expect(
-      getHighlightedMilestone(
-        makePermit({
-          permit_cycles: [
-            cycle({
-              cycle_index: 1,
-              submitted: '2026-06-10',
-              corr_issued: '2026-07-01',
-            }),
-          ],
-        }),
-      ),
-    ).toEqual({ kind: 'cycle', cycleIndex: 1, key: 'corr_issued' });
-    // resubmitted but no intake yet → resubmitted
-    expect(
-      getHighlightedMilestone(
-        makePermit({
-          permit_cycles: [
-            cycle({
-              cycle_index: 1,
-              submitted: '2026-06-10',
-              corr_issued: '2026-07-01',
-              resubmitted: '2026-07-10',
-            }),
-          ],
-        }),
-      ),
-    ).toEqual({ kind: 'cycle', cycleIndex: 1, key: 'resubmitted' });
+  it('621 Daley smoke case: cycle 1 submitted=intake_accepted=2026-03-13, corr_issued=2026-04-16 → corr_issued wins by date', () => {
+    // The motivating bug. Old rule (chain position) returned
+    // intake_accepted because it ranks above corr_issued in the chain.
+    // New rule sorts by date first: 2026-04-16 (corr_issued) > 2026-03-13
+    // (the other two), so corr_issued wins.
+    const target = getHighlightedMilestone(
+      makePermit({
+        permit_cycles: [
+          cycle({
+            cycle_index: 1,
+            submitted: '2026-03-13',
+            intake_accepted: '2026-03-13',
+            corr_issued: '2026-04-16',
+          }),
+        ],
+      }),
+    );
+    expect(target).toEqual({
+      kind: 'cycle',
+      cycleIndex: 1,
+      key: 'corr_issued',
+    });
   });
 
-  it('city_target does NOT contribute to the highlight chain', () => {
-    // Bobby's rule (decided 2026-05-14): city_target tracks a city-
-    // scheduled review date but does not advance the permit's milestone.
-    // A cycle with submitted + city_target only should still highlight
-    // on submitted.
+  it('city_target IS a candidate — when it is the latest by date, it wins', () => {
+    // fix-24c reversal of fix-23c: city_target now joins the candidate
+    // set. A cycle whose city_target is the most recent populated date
+    // ends up highlighted.
     const target = getHighlightedMilestone(
       makePermit({
         permit_cycles: [
@@ -206,7 +162,113 @@ describe('getHighlightedMilestone', () => {
         ],
       }),
     );
-    expect(target).toEqual({ kind: 'cycle', cycleIndex: 1, key: 'submitted' });
+    expect(target).toEqual({
+      kind: 'cycle',
+      cycleIndex: 1,
+      key: 'city_target',
+    });
+  });
+
+  it('cycle 1 fully filled + cycle 2 submitted same day as cycle 1 intake_accepted → cycle 2 wins (higher cycle_index tiebreak)', () => {
+    // The intake→snap pattern: cycle 1 intake_accepted auto-creates
+    // cycle 2 with submitted=that date. Both rows share that date — the
+    // tiebreaker (higher cycle_index) hands the highlight to cycle 2.
+    const target = getHighlightedMilestone(
+      makePermit({
+        permit_cycles: [
+          cycle({
+            cycle_index: 1,
+            submitted: '2026-06-10',
+            corr_issued: '2026-07-01',
+            resubmitted: '2026-07-15',
+            intake_accepted: '2026-07-20',
+          }),
+          cycle({ cycle_index: 2, submitted: '2026-07-20' }),
+        ],
+      }),
+    );
+    expect(target).toEqual({
+      kind: 'cycle',
+      cycleIndex: 2,
+      key: 'submitted',
+    });
+  });
+
+  it('out-of-order dates within a cycle: latest date wins regardless of chain position', () => {
+    // Imagine bad data entry where submitted is later than corr_issued.
+    // The new rule trusts the dates: whichever is actually latest gets
+    // the highlight. (Old rule used chain position and would return
+    // resubmitted/intake even when corr was later.)
+    const target = getHighlightedMilestone(
+      makePermit({
+        permit_cycles: [
+          cycle({
+            cycle_index: 1,
+            submitted: '2026-06-10',
+            corr_issued: '2026-05-01', // earlier than submitted — odd
+            resubmitted: '2026-04-01', // even earlier
+          }),
+        ],
+      }),
+    );
+    expect(target).toEqual({
+      kind: 'cycle',
+      cycleIndex: 1,
+      key: 'submitted',
+    });
+  });
+
+  it('same-day tie between two cycles + same chain key → higher cycle_index wins', () => {
+    const target = getHighlightedMilestone(
+      makePermit({
+        permit_cycles: [
+          cycle({ cycle_index: 1, submitted: '2026-06-10' }),
+          cycle({ cycle_index: 3, submitted: '2026-06-10' }),
+          cycle({ cycle_index: 2, submitted: '2026-06-10' }),
+        ],
+      }),
+    );
+    expect(target).toEqual({
+      kind: 'cycle',
+      cycleIndex: 3,
+      key: 'submitted',
+    });
+  });
+
+  it('same-day tie within ONE cycle → chain priority resolves it (intake > resubmitted > corr > city > submitted)', () => {
+    // All four populated with the same date — chain priority picks the
+    // most-advanced one.
+    const target = getHighlightedMilestone(
+      makePermit({
+        permit_cycles: [
+          cycle({
+            cycle_index: 1,
+            submitted: '2026-06-10',
+            city_target: '2026-06-10',
+            corr_issued: '2026-06-10',
+            resubmitted: '2026-06-10',
+            intake_accepted: '2026-06-10',
+          }),
+        ],
+      }),
+    );
+    expect(target).toEqual({
+      kind: 'cycle',
+      cycleIndex: 1,
+      key: 'intake_accepted',
+    });
+  });
+
+  it('permit-level dates win ties against cycle dates with the same value (cycle_index treated as +Inf)', () => {
+    // approval_date and cycle 1 submitted share a date. The tiebreaker
+    // treats permit-level as cycle_index=999 → wins over any real cycle.
+    const target = getHighlightedMilestone(
+      makePermit({
+        approval_date: '2026-08-01',
+        permit_cycles: [cycle({ cycle_index: 1, submitted: '2026-08-01' })],
+      }),
+    );
+    expect(target).toEqual({ kind: 'permit', key: 'approval_date' });
   });
 });
 
@@ -226,6 +288,11 @@ describe('isMilestoneHighlighted', () => {
     cycleIndex: 2,
     key: 'submitted',
   };
+  const cellCycle1CityTarget: HighlightTarget = {
+    kind: 'cycle',
+    cycleIndex: 1,
+    key: 'city_target',
+  };
   const cellTargetSubmit: HighlightTarget = {
     kind: 'permit',
     key: 'target_submit',
@@ -243,5 +310,10 @@ describe('isMilestoneHighlighted', () => {
     const aCycle: HighlightTarget = { kind: 'cycle', cycleIndex: 0, key: 'submitted' };
     expect(isMilestoneHighlighted(aPermit, aCycle)).toBe(false);
     expect(isMilestoneHighlighted(aCycle, aPermit)).toBe(false);
+  });
+
+  it('city_target identity matches via isMilestoneHighlighted (fix-24c: city_target is now a real candidate)', () => {
+    expect(isMilestoneHighlighted(cellCycle1CityTarget, cellCycle1CityTarget)).toBe(true);
+    expect(isMilestoneHighlighted(cellCycle1CityTarget, cellCycle1Submitted)).toBe(false);
   });
 });

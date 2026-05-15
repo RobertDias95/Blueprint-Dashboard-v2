@@ -32,11 +32,17 @@ function useDebounced<T>(value: T, delay: number): T {
   return debounced;
 }
 
-/** Escape a string for use inside a PostgREST `ilike` value. PostgREST
- *  treats `%` and `_` as wildcards; users typing a literal email
- *  (something_else@x.com) shouldn't match every `_`-containing builder. */
+/** Escape a string for use inside a PostgREST `ilike` value embedded in
+ *  an `.or()` filter expression. PostgREST recognises `*` and `%` as
+ *  wildcards in `ilike` values — but using `%` inside `.or()` is fragile:
+ *  supabase-js url-encodes the value as `%25`, and intermediate URL
+ *  parsers / proxies have been known to mis-handle the double-encode
+ *  (resulting in the query silently matching nothing — exactly Bobby's
+ *  fix-24c "boyd" symptom). `*` sidesteps that entire class of bugs.
+ *  We escape `\`, `%`, `_`, and `*` so any of those literals the user
+ *  typed are matched verbatim rather than acting as wildcards. */
 function escapeLike(s: string): string {
-  return s.replace(/([\\%_])/g, '\\$1');
+  return s.replace(/([\\%_*])/g, '\\$1');
 }
 
 export function useBuilderSearch(query: string): {
@@ -57,7 +63,14 @@ export function useBuilderSearch(query: string): {
     queryKey: ['builders_search', tenantId ?? '', debouncedQuery],
     enabled,
     queryFn: async () => {
-      const needle = `%${escapeLike(debouncedQuery)}%`;
+      // fix-24c: `*` not `%` — PostgREST's URL-safe wildcard. See
+      // escapeLike for the rationale. Bobby smoked "boyd" against a row
+      // we'd confirmed in prod (Boyd Lybeck, tenant 00000…001, active)
+      // and got nothing; API logs showed no /rest/v1/builders requests
+      // landed correctly. Switching to `*` produces a URL with no raw
+      // `%` chars in the filter value at all, which removes the
+      // suspected mis-encoding path entirely.
+      const needle = `*${escapeLike(debouncedQuery)}*`;
       const { data, error } = await supabase
         .from('builders')
         .select('id, name, company, email, phone, notes, active')
