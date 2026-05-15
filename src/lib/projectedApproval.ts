@@ -1,4 +1,5 @@
 import {
+  DEFAULT_AVG_SUBMIT_TO_ISSUE,
   SCHEDULE_DEFAULTS,
   type LearnedEstimate,
 } from './scheduleBenchmarks';
@@ -418,21 +419,42 @@ export function computeProjectedApproval(
   // default).
   targetCycle = Math.max(1, Math.min(targetCycle, 8));
 
-  // Holistic shortcut (v1 :4442-4446). When we expect approval in the
-  // first review with no corrections AND we have a juris-wide
-  // submit-to-issue average, trust it instead of the per-cycle walk.
-  if (
-    targetCycle === 1 &&
-    actualCorrCycles === 0 &&
+  // Holistic shortcut (v1 :4442-4446 + fix-24h).
+  //
+  // Original v1 rule: when we expect approval in the first review with no
+  // corrections AND we have a juris-wide submit-to-issue average, trust
+  // the average instead of the per-cycle walk.
+  //
+  // fix-24h extends the "value source" so the same branch can fire even
+  // when the learner is silent — IF the permit has no cycle activity at
+  // all, fall back to DEFAULT_AVG_SUBMIT_TO_ISSUE (210d). This stops
+  // brand-new permits in new (type, juris) combos from defaulting to the
+  // optimistic targetCycle=1 path (today + 28d) when the user expects
+  // multi-cycle math.
+  //
+  // The fallback ONLY fires when !hasAnyCycleActivity. Any populated
+  // cycle field (submitted / city_target / corr_issued / resubmitted /
+  // intake_accepted) means the user has real data to project from, and
+  // the cycle walk below takes over.
+  const hasAnyCycleActivity = cycles.some(
+    (c) =>
+      c.submitted ||
+      c.city_target ||
+      c.corr_issued ||
+      c.resubmitted ||
+      c.intake_accepted,
+  );
+  const effectiveAvg: number | null =
     learnedEstimate?.avgSubmitToIssue &&
     learnedEstimate.avgSubmitToIssue > 0
-  ) {
+      ? Math.round(learnedEstimate.avgSubmitToIssue)
+      : !hasAnyCycleActivity
+        ? DEFAULT_AVG_SUBMIT_TO_ISSUE
+        : null;
+  if (effectiveAvg !== null && actualCorrCycles === 0) {
     // fix-24e: floor base so a past submitted/target_submit still produces a
     // future-looking holistic projection.
-    const holistic = addDays(
-      flooredAnchor(base) ?? base,
-      Math.round(learnedEstimate.avgSubmitToIssue),
-    );
+    const holistic = addDays(flooredAnchor(base) ?? base, effectiveAvg);
     const projection =
       lastRealDate && holistic < lastRealDate
         ? addDays(
@@ -445,6 +467,7 @@ export function computeProjectedApproval(
       isActual: false,
       isProjected: true,
       targetCycle: 1,
+      rounds: {},
     };
   }
 

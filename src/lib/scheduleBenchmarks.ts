@@ -29,6 +29,22 @@ export const SCHEDULE_DEFAULTS = {
   corrResponse4: 10,
 } as const;
 
+/** fix-24h: holistic fallback when (juris × type) learner is silent AND
+ * the permit has no cycle activity yet. Approximates the typical Seattle
+ * SFR multi-cycle workflow (~7 months anchor-to-approval). Captures
+ * "expect a few correction rounds" without being literally derived from
+ * SCHEDULE_DEFAULTS, which add up to ~215d but rest on the optimistic
+ * cycle 1 assumption.
+ *
+ * Once real approved permits accumulate, the learner takes over via
+ * avgSubmitToIssue and this default becomes irrelevant.
+ *
+ * Known limitation (fix-24i territory): the learner measures
+ * c1.submitted → approval, not Bobby's stated c0.intake_accepted →
+ * approval. Doesn't affect this default (anchored at today via the
+ * flooredAnchor wrapper) but will skew once real samples land. */
+export const DEFAULT_AVG_SUBMIT_TO_ISSUE = 210;
+
 /** Per-jurisdiction window override hook. v1 reads from appConfig; v2
  * eventually wires this from a tenant-level setting (Q7.3). For now,
  * flat default — `juris` param is accepted by the signature but ignored

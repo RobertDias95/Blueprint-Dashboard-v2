@@ -196,14 +196,17 @@ describe('computeProjectedApproval', () => {
     expect(r.rounds?.resubmitted1).toBe('2026-02-20');
   });
 
-  it('target_submit serves as anchor when no cy1.submitted', () => {
+  it('target_submit serves as anchor when no cy1.submitted (fix-24h: 210d default fires)', () => {
     const r = computeProjectedApproval({
       permit: permit({ target_submit: '2026-05-01' }),
       cycles: [],
       learnedEstimate: null,
     });
-    // targetCycle=1, cityReview1=21 + 7 = 28 days. 2026-05-01 + 28 = 2026-05-29
-    expect(r.projection).toBe('2026-05-29');
+    // No cycle activity + no learner avgSubmitToIssue → fix-24h holistic
+    // fallback fires with DEFAULT_AVG_SUBMIT_TO_ISSUE=210. base is future
+    // (today pinned to 2025-12-01 in beforeEach), so anchor used as-is.
+    // 2026-05-01 + 210d = 2026-11-27.
+    expect(r.projection).toBe('2026-11-27');
   });
 
   it('ULS uses BP LIVE projection (not stored expected_issue) as anchor — Q9.5.f-fix-18', () => {
@@ -296,9 +299,10 @@ describe('computeProjectedApproval', () => {
       siblingCyclesByPermitId: new Map(),
       siblingLearnedByPermitId: new Map(),
     });
-    // No BP → ULS branch returns no anchors → falls to non-ULS walk.
-    // targetCycle=1, base=2026-05-01, +21+7=28 days → 2026-05-29
-    expect(r.projection).toBe('2026-05-29');
+    // No BP → ULS branch returns no anchors → falls to non-ULS walk. Then
+    // fix-24h: no cycle activity + no learner → 210d default fires.
+    // 2026-05-01 + 210d = 2026-11-27.
+    expect(r.projection).toBe('2026-11-27');
     expect(r.ulsAnchors).toBeUndefined();
   });
 
@@ -324,9 +328,9 @@ describe('computeProjectedApproval', () => {
 });
 
 describe('computeProjectedApproval — fix-24e today-floor on projection anchors', () => {
-  it('past target_submit: projection chains from today, not the past anchor', () => {
+  it('past target_submit: projection chains from today, not the past anchor (fix-24h: 210d default + floor)', () => {
     // Permit only has target_submit. With today=2026-05-15 and an anchor
-    // of 2025-08-01 (300+ days back), the projection should anchor on
+    // of 2025-08-01 (~9 months back), the projection should anchor on
     // today, not on the stale target_submit.
     vi.setSystemTime(new Date('2026-05-15T12:00:00Z'));
     const r = computeProjectedApproval({
@@ -334,33 +338,36 @@ describe('computeProjectedApproval — fix-24e today-floor on projection anchors
       cycles: [],
       learnedEstimate: null,
     });
-    // targetCycle=1, no cycle data, base=target_submit=2025-08-01 → floored
-    // to 2026-05-15. cr1=21 + 7 = 28d. 2026-05-15 + 28d = 2026-06-12.
-    expect(r.projection).toBe('2026-06-12');
+    // No cycle activity + no learner → 210d default. base floored to today.
+    // 2026-05-15 + 210d = 2026-12-11.
+    expect(r.projection).toBe('2026-12-11');
     expect(r.isProjected).toBe(true);
   });
 
-  it('future target_submit: projection chains from the anchor (no floor applied)', () => {
+  it('future target_submit: projection chains from the anchor (no floor applied, fix-24h: +210d)', () => {
     // Today is 2026-05-15 and target_submit is 2026-08-01 (future).
-    // The anchor is used as-is, floor is a no-op.
+    // The anchor is used as-is, floor is a no-op. fix-24h holistic still
+    // fires (no cycle activity, no learner) → anchor + 210d.
     vi.setSystemTime(new Date('2026-05-15T12:00:00Z'));
     const r = computeProjectedApproval({
       permit: permit({ target_submit: '2026-08-01' }),
       cycles: [],
       learnedEstimate: null,
     });
-    // base=2026-08-01, +28d = 2026-08-29.
-    expect(r.projection).toBe('2026-08-29');
+    // base=2026-08-01, +210d = 2027-02-27.
+    expect(r.projection).toBe('2027-02-27');
   });
 
-  it('today exactly: anchor returned as-is (boundary, not floored)', () => {
+  it('today exactly: anchor returned as-is (boundary, not floored, fix-24h: +210d)', () => {
     vi.setSystemTime(new Date('2026-05-15T12:00:00Z'));
     const r = computeProjectedApproval({
       permit: permit({ target_submit: '2026-05-15' }),
       cycles: [],
       learnedEstimate: null,
     });
-    expect(r.projection).toBe('2026-06-12'); // 2026-05-15 + 28d
+    // base=today exactly → flooredAnchor returns today as-is.
+    // today + 210d = 2026-12-11.
+    expect(r.projection).toBe('2026-12-11');
   });
 
   it('past cycle 1 submitted: forecast chains from today, but the SUBMITTED CELL still shows the actual past date', () => {
@@ -485,5 +492,62 @@ describe('computeProjectedApproval — fix-24e today-floor on projection anchors
     });
     expect(r2.projection).toBe('2025-08-15');
     expect(r2.isActual).toBe(true);
+  });
+});
+
+describe('computeProjectedApproval — fix-24h DEFAULT_AVG_SUBMIT_TO_ISSUE fallback', () => {
+  it('no actuals + no learner + no cycle dates → defaults to today + 210d (test bobby case)', () => {
+    // The canonical fix-24h motivator. test bobby permit: past target_submit,
+    // no learner samples for Bothell BPs, single empty cycle 0 row.
+    // Pre-fix-24h would have returned today + 28d (optimistic cycle 1 walk).
+    // Post-fix-24h returns today + 210d.
+    vi.setSystemTime(new Date('2026-05-15T12:00:00Z'));
+    const r = computeProjectedApproval({
+      permit: permit({ target_submit: '2025-10-06' }),
+      cycles: [cyc({ cycle_index: 0 })],
+      learnedEstimate: null,
+    });
+    // today (2026-05-15) + 210d = 2026-12-11.
+    expect(r.projection).toBe('2026-12-11');
+    expect(r.targetCycle).toBe(1);
+  });
+
+  it('future target_submit + no learner + no cycle dates → target_submit + 210d (no floor needed)', () => {
+    vi.setSystemTime(new Date('2026-05-15T12:00:00Z'));
+    const r = computeProjectedApproval({
+      permit: permit({ target_submit: '2027-01-01' }),
+      cycles: [],
+      learnedEstimate: null,
+    });
+    // 2027-01-01 + 210d = 2027-07-30.
+    expect(r.projection).toBe('2027-07-30');
+  });
+
+  it('learner avgSubmitToIssue present → uses learner avg, NOT the 210d default', () => {
+    // Even with no cycle activity, the learner takes precedence over the
+    // hardcoded 210d. Real data wins over the magic number.
+    vi.setSystemTime(new Date('2026-05-15T12:00:00Z'));
+    const r = computeProjectedApproval({
+      permit: permit({ target_submit: '2025-10-06' }),
+      cycles: [],
+      learnedEstimate: learned({ avgSubmitToIssue: 90 }),
+    });
+    // base floored to today + 90 = 2026-08-13.
+    expect(r.projection).toBe('2026-08-13');
+  });
+
+  it('cycle activity present → falls into cycle walk, NOT the 210d default', () => {
+    // Cycle 1 has submitted set → hasAnyCycleActivity=true → the 210d
+    // branch is skipped and the cycle walk takes over. Real user data
+    // always overrides the magic default.
+    vi.setSystemTime(new Date('2026-05-15T12:00:00Z'));
+    const r = computeProjectedApproval({
+      permit: permit({ target_submit: '2025-10-06' }),
+      cycles: [cyc({ cycle_index: 1, submitted: '2026-04-01' })],
+      learnedEstimate: null,
+    });
+    // Cycle walk fires, NOT today + 210d. Exact value depends on the
+    // cycle walk math, but it must NOT equal the 210d default output.
+    expect(r.projection).not.toBe('2026-12-11');
   });
 });
