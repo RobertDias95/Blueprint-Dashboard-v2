@@ -336,6 +336,42 @@ describe('getHighlightedMilestone — fix-24c-3 (chain-position)', () => {
     ).toEqual({ kind: 'permit', key: 'target_submit' });
   });
 
+  it('fix-24f fresh-permit shape: only cycle 0 exists with no dates → target_submit fallback (no Cycle 1 placeholder in the way)', () => {
+    // Post fix-24f, brand-new permits land with exactly one row at
+    // cycle_index = 0 (and no cycle 1 placeholder). The highlight rule
+    // must fall through cleanly to target_submit. Prior to fix-24f the
+    // RPC pre-created an empty cycle 1 row; the new shape removes it.
+    expect(
+      getHighlightedMilestone(
+        makePermit({
+          target_submit: '2026-06-01',
+          permit_cycles: [cycle({ cycle_index: 0 })],
+        }),
+      ),
+    ).toEqual({ kind: 'permit', key: 'target_submit' });
+  });
+
+  it('fix-24f post-snap shape: cycle 0 with intake_accepted + cycle 1 created lazily with submitted (from snap) → cycle 1 submitted wins', () => {
+    // First intake_accepted on the design cycle fires the snap, which
+    // CREATES (not UPDATEs — no placeholder exists) cycle 1 with
+    // submitted = intake_accepted. Walk DESC lands on cycle 1 first
+    // and returns its submitted via REVIEW_REVERSE.
+    expect(
+      getHighlightedMilestone(
+        makePermit({
+          permit_cycles: [
+            cycle({
+              cycle_index: 0,
+              submitted: '2026-06-01',
+              intake_accepted: '2026-06-05',
+            }),
+            cycle({ cycle_index: 1, submitted: '2026-06-05' }),
+          ],
+        }),
+      ),
+    ).toEqual({ kind: 'cycle', cycleIndex: 1, key: 'submitted' });
+  });
+
   it('legacy permit with cycles starting at 1 (no cycle 0) → cycle 1 is treated as design (firstIdx logic)', () => {
     // Edge case: a permit that has no cycle 0 (legacy or oddly-created).
     // The cycle with the lowest index becomes the design cycle, so cycle 1
