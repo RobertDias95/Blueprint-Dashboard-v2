@@ -149,7 +149,7 @@ function ProjectDetailBody({
       )}
 
       {/* Project address sub-header — centered, larger per v1 :758 */}
-      <div className="text-center pt-1 pb-3 flex-shrink-0">
+      <div className="text-center pt-1 pb-2 flex-shrink-0">
         <div className="text-[15px] font-extrabold text-text">
           {project.address}
         </div>
@@ -158,12 +158,24 @@ function ProjectDetailBody({
         </div>
       </div>
 
-      {/* Q9.5.e-fix-1: right-pane toggle. When no permit is selected,
-          the right pane shows the project overview (4-col header +
-          Schedule Health + Notes/Docs footer). Click a permit and the
-          whole right pane swaps to that permit's edit UI. Matches v1
-          showProjectOverview/_renderPermitDetail (index.html:3526-4096). */}
-      <div className="flex flex-1 overflow-hidden min-h-0">
+      {/* fix-23e: Two-pillbox body layout. The outer page is bounded
+          by `h-[calc(100vh-100px)] overflow-hidden` (set above on the
+          page-root), so vertical growth is impossible regardless of
+          how many permits a project has or how tall any single widget
+          renders. Inside, two side-by-side pillboxes scroll
+          independently:
+            • pd-left-pillbox = the permits list (PermitsSidebar)
+            • pd-right-pillbox = either the project overview content
+              (when no permit is selected) or the per-permit detail
+              widgets (when one is). PermitDetailV2's own internal
+              flex layout handles the stacking of HeaderStrip / Cycle
+              tabs / DateStrip / Tasks / Sidebar widgets; it all
+              scrolls as one inside the right pillbox.
+
+          Both pillboxes get rounded-lg border + bg-surface + their
+          own overflow-y-auto so the content clips at the pillbox
+          edge instead of pushing the outer page down. */}
+      <div className="flex flex-1 gap-3 px-3 pb-3 overflow-hidden min-h-0">
         <PermitsSidebar
           permits={permits}
           project={project}
@@ -172,42 +184,40 @@ function ProjectDetailBody({
           onQuickEdit={setQuickEditPermitId}
         />
         <div
-          className="flex-1 flex flex-col overflow-hidden min-h-0"
-          data-testid="project-right-pane"
+          className="flex-1 rounded-lg border bg-surface overflow-y-auto min-h-0"
+          style={{ borderColor: 'var(--color-border)' }}
+          data-testid="pd-right-pillbox"
         >
           {selectedPermitId === null || !selectedPermit ? (
-            // Q9.5.e-fix-4: project overview pane is a flex column where
-            // ProjectDetailHeader + ScheduleHealthTable take their natural
-            // height and NotesDocsFooter claims the remaining viewport.
-            // Top section is internally scrollable when the health table
-            // grows past available space.
+            // No permit selected → project overview content. Stacks
+            // vertically inside the right pillbox: 4-col header,
+            // Schedule Health table, Notes/Docs footer. All scroll
+            // together as one pillbox.
             <div
-              className="flex-1 flex flex-col overflow-hidden min-h-0"
+              className="flex flex-col"
               data-testid="project-overview-pane"
             >
-              <div className="overflow-y-auto flex-shrink-0">
-                <ProjectDetailHeader
-                  project={project}
-                  permits={permits}
-                  bp={bp}
-                />
-                <ScheduleHealthTable permits={permits} />
-              </div>
-              <div className="flex-1 min-h-0 overflow-hidden">
-                <NotesDocsFooter project={project} />
-              </div>
+              <ProjectDetailHeader
+                project={project}
+                permits={permits}
+                bp={bp}
+              />
+              <ScheduleHealthTable permits={permits} />
+              <NotesDocsFooter project={project} />
             </div>
           ) : (
-            // Q9.5.e-fix-2: selected permit edit state. The "← Back to
-            // overview" button is promoted out of the sidebar header and
-            // pinned at the top of the right pane — same visual register
-            // as the chrome "← Search" button.
+            // Permit selected → per-permit widgets stack inside the
+            // same right pillbox. The "← Back to overview" button sits
+            // at the top of the pillbox content; PermitDetailV2 below
+            // contributes HeaderStrip / Cycle tabs / DateStrip /
+            // Tasks + Sidebar widgets, all rendered in their natural
+            // height. The pillbox's overflow-y-auto handles the scroll.
             <div
-              className="flex-1 flex flex-col overflow-hidden min-h-0"
+              className="flex flex-col min-h-0"
               data-testid="permit-edit-pane"
             >
               <div
-                className="px-3 py-2 border-b flex-shrink-0 flex items-center"
+                className="px-3 py-2 border-b flex-shrink-0 flex items-center sticky top-0 z-10"
                 style={{
                   background: 'var(--color-s2)',
                   borderBottomColor: 'var(--color-border)',
@@ -222,13 +232,11 @@ function ProjectDetailBody({
                   ← Back to overview
                 </button>
               </div>
-              <div className="flex-1 overflow-y-auto min-h-0">
-                <PermitDetailV2
-                  key={selectedPermit.id}
-                  permit={selectedPermit}
-                  project={project}
-                />
-              </div>
+              <PermitDetailV2
+                key={selectedPermit.id}
+                permit={selectedPermit}
+                project={project}
+              />
             </div>
           )}
         </div>
@@ -383,14 +391,20 @@ function PermitsSidebar({
     commitOrder(next);
   }
 
+  // fix-23e: PermitsSidebar is the left pillbox. Outer aside has the
+  // rounded border + bg-surface; the header stays pinned at top via
+  // flex-shrink-0; the permit list claims remaining height and scrolls
+  // internally via overflow-y-auto. The aside itself does NOT scroll
+  // (overflow-hidden) so the rounded border isn't broken by content
+  // overlapping the rounded corners.
   return (
     <aside
-      className="flex-shrink-0 border-r flex flex-col bg-surface"
-      style={{ width: 240, borderRightColor: 'var(--color-border)' }}
-      data-testid="permits-sidebar"
+      className="flex-shrink-0 rounded-lg border bg-surface flex flex-col overflow-hidden min-h-0"
+      style={{ width: 240, borderColor: 'var(--color-border)' }}
+      data-testid="pd-left-pillbox"
     >
       <header
-        className="px-3 py-2 border-b flex items-center justify-center"
+        className="px-3 py-2 border-b flex-shrink-0 flex items-center justify-center"
         style={{
           background: 'var(--color-s2)',
           borderBottomColor: 'var(--color-border)',
@@ -400,7 +414,7 @@ function PermitsSidebar({
           Permits ({permits.length})
         </span>
       </header>
-      <div className="flex-1 overflow-y-auto">
+      <div className="flex-1 overflow-y-auto" data-testid="permits-sidebar-list">
         {sorted.length === 0 ? (
           <div className="text-[11px] text-dim italic p-4 text-center">
             No permits yet.
