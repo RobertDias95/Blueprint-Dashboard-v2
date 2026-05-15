@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import type {
+  Builder,
   PermitWithCycles,
   Project,
   UnitType,
@@ -7,6 +8,7 @@ import type {
 import { useUpdateProject } from '../../hooks/useUpdateProject';
 import { useSetBpDdDates } from '../../hooks/useSetBpDdDates';
 import { useAppConfig, readConsultantTypes } from '../../hooks/useAppConfig';
+import BuilderAutocompleteField from '../builder/BuilderAutocompleteField';
 
 // Q9.5.e: 4-column header top strip per v1 §4.2.1. Left card holds an
 // inner 3-column grid (DD Phase 0.75fr / Project 1.5fr / Team 1.75fr)
@@ -409,12 +411,19 @@ function ExternalTeamEditor({ project }: { project: Project }) {
 }
 
 // ============================================================
-// Builder / Owner cell — fix-22 Mig 6+7: 4 freeform inputs writing
-// directly to projects.builder_name/_company/_email/_phone. Replaces the
-// previous builders-table FK flow (still available via useBuilders for
-// future cross-project rolodex use, but the Project Overview surface
-// now treats the four columns as the canonical store, matching the
-// wizard's Step 1 panel layout).
+// Builder / Owner cell — fix-24d: BuilderAutocompleteField on all 4
+// fields (Owner / Business / Email / Cell). Typing surfaces matching
+// catalog entries; picking one calls fillFromBuilder which sets all
+// four siblings and fires ONE save with the full patch (avoids the
+// 4-saves-per-pick race you'd get from blurring each input in
+// sequence). Typing without picking still commits-on-blur as before
+// and the auto-promote in useUpdateProject (fix-24b) puts the typed
+// name into the catalog.
+//
+// Pre-history: fix-22 Mig 6+7 moved the 4 builder fields permits →
+// projects; this cell wrote them as plain inputs until fix-24d wired
+// the autocomplete here to match the wizard's Step 1 panel and the
+// Project Settings modal.
 // ============================================================
 
 function BuilderOwnerCell({ project }: { project: Project }) {
@@ -444,11 +453,40 @@ function BuilderOwnerCell({ project }: { project: Project }) {
     });
   }
 
+  /** fix-24d: user picked an existing builder from the autocomplete
+   *  menu. Mirror the modal's pattern — fill all four local states,
+   *  then fire ONE save carrying the full patch so OCC sees a single
+   *  atomic write instead of four racing per-field commits. */
+  function fillFromBuilder(b: Builder) {
+    const nextName = b.name ?? '';
+    const nextCompany = b.company ?? '';
+    const nextEmail = b.email ?? '';
+    const nextPhone = b.phone ?? '';
+    setName(nextName);
+    setCompany(nextCompany);
+    setEmail(nextEmail);
+    setPhone(nextPhone);
+    if (!project.updated_at) return;
+    void updateProject.mutateAsync({
+      projectId: project.id,
+      expectedUpdatedAt: project.updated_at,
+      patch: {
+        builder_name: nextName || null,
+        builder_company: nextCompany || null,
+        builder_email: nextEmail || null,
+        builder_phone: nextPhone || null,
+      },
+      fieldLabel: 'Builder',
+    });
+  }
+
   const labelStyle =
     'text-[8px] font-bold text-dim uppercase tracking-wide';
   const inputClass =
     'text-[12px] font-bold text-text border-0 border-b outline-none bg-transparent w-full px-0 py-0.5 disabled:opacity-50';
   const inputStyle = { borderBottomColor: 'var(--color-border)' };
+  const emailInputClass = `${inputClass} font-semibold`;
+  const emailInputStyle = { ...inputStyle, color: 'var(--color-de)' };
 
   return (
     <div
@@ -465,58 +503,66 @@ function BuilderOwnerCell({ project }: { project: Project }) {
       </div>
       <div>
         <span className={labelStyle}>Owner</span>
-        <input
-          type="text"
+        <BuilderAutocompleteField
+          field="name"
+          label="Builder Name"
           value={name}
-          placeholder="Full name"
-          onChange={(e) => setName(e.target.value)}
+          onChange={setName}
+          onSelectBuilder={fillFromBuilder}
           onBlur={() => commit('builder_name', name, project.builder_name, 'Builder Name')}
+          placeholder="Full name"
           disabled={occMissing}
-          className={inputClass}
-          style={inputStyle}
-          data-testid="pd-builder-name"
+          inputClassName={inputClass}
+          inputStyle={inputStyle}
+          testid="pd-builder-name"
         />
       </div>
       <div>
         <span className={labelStyle}>Business</span>
-        <input
-          type="text"
+        <BuilderAutocompleteField
+          field="company"
+          label="Builder Company"
           value={company}
-          placeholder="Company"
-          onChange={(e) => setCompany(e.target.value)}
+          onChange={setCompany}
+          onSelectBuilder={fillFromBuilder}
           onBlur={() => commit('builder_company', company, project.builder_company, 'Builder Company')}
+          placeholder="Company"
           disabled={occMissing}
-          className={inputClass}
-          style={inputStyle}
-          data-testid="pd-builder-company"
+          inputClassName={inputClass}
+          inputStyle={inputStyle}
+          testid="pd-builder-company"
         />
       </div>
       <div>
         <span className={labelStyle}>Email</span>
-        <input
-          type="email"
+        <BuilderAutocompleteField
+          field="email"
+          label="Builder Email"
           value={email}
-          placeholder="builder@email.com"
-          onChange={(e) => setEmail(e.target.value)}
+          onChange={setEmail}
+          onSelectBuilder={fillFromBuilder}
           onBlur={() => commit('builder_email', email, project.builder_email, 'Builder Email')}
+          placeholder="builder@email.com"
           disabled={occMissing}
-          className={`${inputClass} font-semibold`}
-          style={{ ...inputStyle, color: 'var(--color-de)' }}
-          data-testid="pd-builder-email"
+          inputClassName={emailInputClass}
+          inputStyle={emailInputStyle}
+          testid="pd-builder-email"
         />
       </div>
       <div>
         <span className={labelStyle}>Cell</span>
-        <input
-          type="tel"
+        <BuilderAutocompleteField
+          field="phone"
+          label="Builder Phone"
           value={phone}
-          placeholder="(206) 555-0100"
-          onChange={(e) => setPhone(e.target.value)}
+          onChange={setPhone}
+          onSelectBuilder={fillFromBuilder}
           onBlur={() => commit('builder_phone', phone, project.builder_phone, 'Builder Phone')}
+          placeholder="(206) 555-0100"
           disabled={occMissing}
-          className={inputClass}
-          style={inputStyle}
-          data-testid="pd-builder-phone"
+          inputClassName={inputClass}
+          inputStyle={inputStyle}
+          testid="pd-builder-phone"
         />
       </div>
     </div>

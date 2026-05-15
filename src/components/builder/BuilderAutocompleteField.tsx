@@ -38,6 +38,11 @@ interface Props {
    *  the modal's). */
   inputClassName?: string;
   inputStyle?: React.CSSProperties;
+  /** fix-24d: fires when the user genuinely tabs/clicks away (NOT when
+   *  they're picking a suggestion — that path is suppressed via the
+   *  internal mousedown ref). Lets the Project Overview surface commit
+   *  per-field on blur the same way the plain inputs used to. */
+  onBlur?: () => void;
 }
 
 /** Picks the right HTML input type for each builder field — email for
@@ -66,6 +71,7 @@ export default function BuilderAutocompleteField({
   testid,
   inputClassName,
   inputStyle,
+  onBlur,
 }: Props) {
   const [open, setOpen] = useState(false);
   const [highlightIdx, setHighlightIdx] = useState(0);
@@ -145,11 +151,14 @@ export default function BuilderAutocompleteField({
   function onInputBlur() {
     // If the user clicked a suggestion, the mousedown ref will be true
     // for one tick. Defer the close so the click handler can fire first.
+    // The parent's onBlur is intentionally NOT fired here — fillFromBuilder
+    // already runs inside handleSelect and triggers its own save.
     if (suggestionMouseDownRef.current) {
       suggestionMouseDownRef.current = false;
       return;
     }
     setOpen(false);
+    onBlur?.();
   }
 
   return (
