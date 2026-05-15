@@ -108,6 +108,18 @@ export default function PermitDetailV2({ permit, project }: Props) {
         .sort((a, b) => a.cycle_index - b.cycle_index),
     [permit.permit_cycles],
   );
+  // fix-26: Design strip now reads/writes cycle_index = 0 (the design slot)
+  // per Bobby's V1 model. Cycle 0 is the design phase; cycles 1+ are review
+  // cycles. Pre-fix-26 frontends wrote Design data to cycle 1, so legacy
+  // permits may have cycle 0 empty + cycle 1 with design-shape data — the
+  // Design strip falls back to displaying cycle 1's submitted/intake when
+  // cycle 0 lacks those fields. Writes always go to cycle 0 (lazy-creating
+  // it if absent).
+  const designCycle = useMemo(
+    () =>
+      (permit.permit_cycles ?? []).find((c) => c.cycle_index === 0) ?? null,
+    [permit.permit_cycles],
+  );
   const stage = effectiveStage(permit, cycles);
   // Q9.5.f-fix-6 C: derive the permit's current phase + which cycle index
   // contains it. Drives both the initial viewed-cycle tab AND the date-
@@ -172,6 +184,7 @@ export default function PermitDetailV2({ permit, project }: Props) {
         permit={permit}
         project={project}
         cycles={cycles}
+        designCycle={designCycle}
         viewIdx={viewCycleIdx}
         currentPhase={currentPhase}
       />
@@ -456,28 +469,28 @@ function DateStrip({
   permit,
   project,
   cycles,
+  designCycle,
   viewIdx,
   currentPhase,
 }: {
   permit: PermitWithCycles;
   /** fix-22 Mig 3: GO Date renders from project.go_date as read-only. */
   project?: Project | null;
+  /** Review cycles only (cycle_index >= 1), sorted ascending. */
   cycles: PermitCycle[];
+  /** fix-26: design slot (cycle_index = 0). Null when absent (legacy
+   *  pre-fix-24f permits or freshly-wiped state); the Design strip falls
+   *  back to displaying cycle 1's design-shape data in that case. */
+  designCycle: PermitCycle | null;
   viewIdx: number;
   currentPhase: CurrentPhaseResult;
 }) {
-  // fix-23c B: status-bar highlight follows the LATEST POPULATED date in
-  // the chain (target_submit → cycle dates desc → approval_date →
-  // actual_issue). Helper lives in lib/permitHelpers so other surfaces
-  // can reuse the rule. Each cell construct its own HighlightTarget
-  // identity below and asks isMilestoneHighlighted whether it matches.
-  //
-  // Note: cells in the Design strip (viewIdx===0) reference cycle 1's
-  // submitted/intake_accepted data — so when target = {cycle:1, ...} the
-  // Design strip's "Initial Submit" / "Intake Accepted" cells ARE the
-  // matching cells. The Cycle 1 review strip shows the same data again
-  // but only one strip renders at a time, so exactly one cell ends up
-  // with data-highlighted="true".
+  // fix-23c B → fix-26: status-bar highlight follows the chain-position
+  // rule in permitHelpers. Design strip cells anchor at the design cycle
+  // (cycle_index=0); the highlight helper's firstIdx logic picks the
+  // lowest cycle_index for the chain start, so when cycle 0 exists it
+  // becomes the design chain anchor; otherwise the lowest-index review
+  // cycle is treated as design (legacy permits).
   //
   // currentPhase is kept around for the cycle-tab initial-selection logic
   // (DrawScheduleGrid + a few legacy callers still want it).
@@ -514,40 +527,62 @@ function DateStrip({
   }
 
   if (viewIdx === 0) {
-    // Q9.5.f-fix-8 A: Design tab now shows the journey from project kickoff
-    // to official intake (GO → Target Submit → Initial Submit → Intake
-    // Accepted). DD Start/End dropped from this view — they live on the
-    // permit schema for legacy data + ledger consumption, but no longer
-    // clutter the day-to-day Design workflow. Once intake_accepted is set,
-    // the user moves on to Cycle 1 view for review tracking.
+    // Q9.5.f-fix-8 A → fix-26: Design tab shows GO → Target Submit →
+    // Initial Submit → Intake Accepted, all bound to the DESIGN CYCLE
+    // (cycle_index = 0) per Bobby's V1 model. Pre-fix-26 frontends wrote
+    // Design data to cycle 1; legacy permits where cycle 0 lacks design
+    // fields fall back to displaying cycle 1's submitted/intake_accepted
+    // (read-only fallback; new writes always target cycle 0).
     //
-    // fix-24c: take the FIRST surviving cycle by index (cycles is already
-    // sorted ascending + filtered to drop cycle_index=0). Used to hard-code
-    // cycle_index===1, which silently rendered blank cells whenever the
-    // first real cycle's index drifted (post-delete renumber, scraper
-    // import quirks, etc.). The "Initial Submit" anchor is always the
-    // earliest review cycle, whatever its index.
-    const firstCycle = cycles[0] ?? null;
-    const firstCycleIndex = firstCycle?.cycle_index ?? 1;
-    async function commitFirstCycleField(field: DateField, next: string) {
+    // Once cycle 0.intake_accepted is set, bp_upsert_permit_cycle_row's
+    // fix-25a-b snap creates cycle 1 with submitted = c0.intake (the
+    // design → first-review transition). The auto-advance effect in
+    // PermitDetailV2 then moves the view to Cycle 1.
+    const firstReviewCycle = cycles[0] ?? null;
+    // Legacy display fallback: cycle 0 lacks design fields, but cycle 1
+    // has them — render cycle 1's values in the Design strip until the
+    // fix-26 data migration moves them to cycle 0.
+    const designDataMissing =
+      !designCycle ||
+      (designCycle.submitted == null && designCycle.intake_accepted == null);
+    const legacyShim =
+      designDataMissing &&
+      firstReviewCycle &&
+      (firstReviewCycle.submitted != null ||
+        firstReviewCycle.intake_accepted != null)
+        ? firstReviewCycle
+        : null;
+    // Prefer legacyShim when designCycle exists but lacks the design
+    // fields (post-fix-24f cycle 0 placeholder, pre-fix-26 data still on
+    // cycle 1). Falling through to designCycle would render blank cells
+    // while cycle 1 still has the user's data.
+    const designDisplaySource = legacyShim ?? designCycle;
+    // Highlight identity for Design cells: anchor at the chain's
+    // firstIdx (the lowest cycle_index in the permit) — matches the
+    // getHighlightedMilestone rule. When cycle 0 exists, that's 0;
+    // legacy permits without cycle 0 use the lowest review-cycle index.
+    const designHighlightCycleIdx =
+      designCycle?.cycle_index ?? firstReviewCycle?.cycle_index ?? 0;
+    async function commitDesignField(field: DateField, next: string) {
       const normalized = next || null;
-      if (firstCycle) {
+      if (designCycle) {
         await upsertCycle.mutateAsync({
           op: 'update',
           permitId: permit.id,
           projectId: permit.project_id,
-          cycle: firstCycle,
+          cycle: designCycle,
           patch: { [field]: normalized } as CyclePatch,
         });
         return;
       }
-      // No cycle yet — first edit creates it at index 1.
-      if (!normalized) return; // don't auto-create on a blur-clear with no data
+      // No cycle 0 exists yet — first edit lazy-creates it. Don't
+      // auto-create on a blur-clear with no data.
+      if (!normalized) return;
       await upsertCycle.mutateAsync({
         op: 'insert',
         permitId: permit.id,
         projectId: permit.project_id,
-        cycleIndex: 1,
+        cycleIndex: 0,
         patch: { [field]: normalized } as CyclePatch,
       });
     }
@@ -590,25 +625,25 @@ function DateStrip({
         <DateCell
           label="Initial Submit"
           accentColor="var(--color-pm)"
-          value={firstCycle?.submitted ?? null}
+          value={designDisplaySource?.submitted ?? null}
           highlighted={isMilestoneHighlighted(highlightTarget, {
             kind: 'cycle',
-            cycleIndex: firstCycleIndex,
+            cycleIndex: designHighlightCycleIdx,
             key: 'submitted',
           })}
-          onCommit={(v) => commitFirstCycleField('submitted', v)}
+          onCommit={(v) => commitDesignField('submitted', v)}
           testid="pd-cell-design-submitted"
         />
         <DateCell
           label="Intake Accepted"
           accentColor="var(--color-pm)"
-          value={firstCycle?.intake_accepted ?? null}
+          value={designDisplaySource?.intake_accepted ?? null}
           highlighted={isMilestoneHighlighted(highlightTarget, {
             kind: 'cycle',
-            cycleIndex: firstCycleIndex,
+            cycleIndex: designHighlightCycleIdx,
             key: 'intake_accepted',
           })}
-          onCommit={(v) => commitFirstCycleField('intake_accepted', v)}
+          onCommit={(v) => commitDesignField('intake_accepted', v)}
           testid="pd-cell-design-intake_accepted"
         />
       </div>
