@@ -14,6 +14,19 @@ import type { Project } from '../lib/database.types';
 //   - External team selects (writes projects.external_team[type] = firm)
 //   - Builder/Owner cell (writes projects.builder_id)
 //   - Future: permits sidebar reorder (writes projects.permit_order)
+//
+// fix-24b: when the patch contains a non-empty builder_name, we also
+// upsert the typed builder into the public.builders catalog so it shows
+// up in future autocomplete searches. ON CONFLICT (name, company)
+// DO NOTHING preserves existing curated entries. Best-effort: if the
+// catalog upsert fails (network blip, RLS), we log and swallow — the
+// project save itself already committed and the user got their success
+// toast. The wizard's bp_create_project_with_permits path does the
+// equivalent server-side and atomically.
+//
+// TODO (fix-24f or later): consolidate both project-write paths into a
+// single bp_update_project_with_builder_promote RPC so this stops
+// being two non-atomic client writes.
 
 export interface UpdateProjectInput {
   projectId: string;
@@ -41,6 +54,51 @@ export function useUpdateProject() {
       if (error) throw error;
       if (!data || data.length === 0) {
         throw new OCCConflictError(0, fieldLabel ?? 'Project');
+      }
+      // fix-24b: auto-promote the typed builder into the catalog when
+      // the patch carries a builder_name. tenantId comes from authStore
+      // (closure capture below); RLS ensures the caller can only update
+      // projects in their active tenant, so the catalog row's tenant
+      // matches by construction.
+      const typedName =
+        typeof patch.builder_name === 'string'
+          ? patch.builder_name.trim()
+          : '';
+      if (typedName !== '' && tenantId !== '') {
+        const company =
+          typeof patch.builder_company === 'string'
+            ? patch.builder_company.trim() || null
+            : null;
+        const email =
+          typeof patch.builder_email === 'string'
+            ? patch.builder_email.trim() || null
+            : null;
+        const phone =
+          typeof patch.builder_phone === 'string'
+            ? patch.builder_phone.trim() || null
+            : null;
+        const { error: promoteError } = await supabase
+          .from('builders')
+          .upsert(
+            {
+              name: typedName,
+              company,
+              email,
+              phone,
+              tenant_id: tenantId,
+            },
+            // ignoreDuplicates so the existing catalog row's email/phone
+            // aren't overwritten by whatever the user typed this time.
+            { onConflict: 'name,company', ignoreDuplicates: true },
+          );
+        if (promoteError) {
+          // Swallow — best-effort. The project save already succeeded.
+          // Next save attempt will retry the catalog upsert.
+          console.warn(
+            '[useUpdateProject] builder auto-promote failed:',
+            promoteError.message,
+          );
+        }
       }
       return data[0] as Project;
     },
