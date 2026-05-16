@@ -16,6 +16,31 @@ import { useAuthStore } from '../stores/authStore';
 // wipes both columns + drops the draw_schedule row weeks. Caller must
 // ensure both values are null together — partial-null is a mid-state
 // the wizard should not submit (see DDPhaseEditor for the gate).
+//
+// fix-25h: the RPC now overlap-checks the proposed start_week/end_week
+// against other projects + NP blocks on the same DA. When a conflict is
+// found, the RPC RETURNS conflict info (overlapKind + conflicts list +
+// proposed weeks + draw_schedule.updated_at) instead of writing. The
+// caller surfaces the appropriate prompt:
+//   - overlapKind='project' → OverlapPrompt → Push Down via
+//     bp_resolve_da_overlap with the proposed weeks
+//   - overlapKind='np' → NpWarningPrompt → retry useSetBpDdDates with
+//     forceNp=true (RPC skips the NP check on the retry)
+
+export type ProjectOverlapConflict = {
+  project_id: string;
+  address: string;
+  start_week: string;
+  end_week: string;
+};
+
+export type NpOverlapConflict = {
+  id: string;
+  type: string;
+  label: string | null;
+  start_week: string;
+  end_week: string;
+};
 
 export interface SetBpDdDatesInput {
   projectId: string;
@@ -26,6 +51,9 @@ export interface SetBpDdDatesInput {
   ddEnd: string | null;
   /** BP permit's current updated_at, captured from the row before edit. */
   expectedUpdatedAt: string;
+  /** When true, the RPC skips the NP overlap check. Set after the user
+   *  confirms "Save anyway" on NpWarningPrompt. */
+  forceNp?: boolean;
 }
 
 interface RpcRow {
@@ -34,6 +62,13 @@ interface RpcRow {
   out_draw_schedule_updated_at: string | null;
   out_conflict: boolean;
   out_permits_updated: number;
+  out_overlap_kind: 'project' | 'np' | null;
+  out_overlap_conflicts:
+    | ProjectOverlapConflict[]
+    | NpOverlapConflict[]
+    | null;
+  out_proposed_start_week: string | null;
+  out_proposed_end_week: string | null;
 }
 
 export interface SetBpDdDatesResult {
@@ -41,6 +76,15 @@ export interface SetBpDdDatesResult {
   bpUpdatedAt: string | null;
   drawScheduleUpdatedAt: string | null;
   permitsUpdated: number;
+  /** When set, the RPC did NOT write — caller must surface a prompt and
+   *  decide whether to push-down or save-anyway. */
+  overlapKind: 'project' | 'np' | null;
+  overlapConflicts:
+    | ProjectOverlapConflict[]
+    | NpOverlapConflict[]
+    | null;
+  proposedStartWeek: string | null;
+  proposedEndWeek: string | null;
 }
 
 export function useSetBpDdDates() {
@@ -54,6 +98,7 @@ export function useSetBpDdDates() {
         p_dd_start: input.ddStart,
         p_dd_end: input.ddEnd,
         p_expected_updated_at: input.expectedUpdatedAt,
+        p_force_np: input.forceNp ?? false,
       });
       if (error) throw error;
       const row = (data as RpcRow[])[0];
@@ -66,14 +111,18 @@ export function useSetBpDdDates() {
         bpUpdatedAt: row.out_bp_updated_at,
         drawScheduleUpdatedAt: row.out_draw_schedule_updated_at,
         permitsUpdated: row.out_permits_updated,
+        overlapKind: row.out_overlap_kind,
+        overlapConflicts: row.out_overlap_conflicts,
+        proposedStartWeek: row.out_proposed_start_week,
+        proposedEndWeek: row.out_proposed_end_week,
       };
     },
 
     onSuccess: (result) => {
-      // Bare-prefix invalidation touches every tenant variant; the
-      // explicit by-project key covers the Project Detail page's own
-      // permits query. Draw schedule needs a refresh because the BP's
-      // dd_start/dd_end mirror onto draw_schedule.start_week/end_week.
+      // Overlap responses are NOT writes — caller handles them via prompts.
+      // Skip cache invalidation and the success toast in that case.
+      if (result.overlapKind) return;
+
       queryClient.invalidateQueries({ queryKey: queryKeys.permitsAll });
       queryClient.invalidateQueries({ queryKey: queryKeys.drawScheduleAll });
       queryClient.invalidateQueries({

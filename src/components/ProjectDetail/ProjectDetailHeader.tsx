@@ -6,8 +6,16 @@ import type {
   UnitType,
 } from '../../lib/database.types';
 import { useUpdateProject } from '../../hooks/useUpdateProject';
-import { useSetBpDdDates } from '../../hooks/useSetBpDdDates';
+import {
+  useSetBpDdDates,
+  type ProjectOverlapConflict,
+  type NpOverlapConflict,
+} from '../../hooks/useSetBpDdDates';
+import { useResolveDaOverlap } from '../../hooks/useResolveDaOverlap';
+import { useDrawSchedule } from '../../hooks/useDrawSchedule';
 import { useAppConfig, readConsultantTypes } from '../../hooks/useAppConfig';
+import OverlapPrompt from '../OverlapPrompt';
+import NpWarningPrompt from '../NpWarningPrompt';
 import BuilderAutocompleteField from '../builder/BuilderAutocompleteField';
 
 // Q9.5.e: 4-column header top strip per v1 §4.2.1. Left card holds an
@@ -81,106 +89,234 @@ function DDPhaseCell({
   return <DDPhaseEditor project={project} bp={bp} />;
 }
 
+/** fix-25h: a conflict response from bp_set_bp_dd_dates carries enough
+ *  context to drive either the OverlapPrompt (project overlap → Push Down
+ *  via bp_resolve_da_overlap) or the NpWarningPrompt (NP overlap → retry
+ *  setBpDdDates with forceNp=true). We snapshot everything we need at
+ *  the moment the conflict comes back so the prompt's confirm callback
+ *  can fire without re-reading state that may have changed. */
+interface PendingDdOverlap {
+  kind: 'project';
+  proposedStartWeek: string;
+  proposedEndWeek: string;
+  conflicts: ProjectOverlapConflict[];
+  drawScheduleUpdatedAt: string;
+  daAssigned: string;
+  scheduleStatus: string | null;
+  anchorAddress: string;
+}
+interface PendingDdNpWarning {
+  kind: 'np';
+  ddStart: string;
+  ddEnd: string;
+  bpUpdatedAt: string;
+  conflicts: NpOverlapConflict[];
+  daAssigned: string;
+  anchorAddress: string;
+}
+
 function DDPhaseEditor({ project, bp }: { project: Project; bp: PermitWithCycles }) {
   // Local-controlled inputs to avoid one-save-per-keystroke. Fires
   // update on blur if the value changed.
   //
   // fix-23a: dd_start/dd_end commits route through useSetBpDdDates so the
   // RPC can cascade target_submit (+14d) across sibling permits AND
-  // mirror the dates onto draw_schedule.start_week/end_week. Direct
-  // useUpdatePermit writes here left those downstream rows stale —
-  // smoke-confirmed against "test 678" (project 094e7d54-…) which now
-  // propagates clean.
+  // mirror the dates onto draw_schedule.start_week/end_week.
+  //
+  // fix-25h: the RPC now overlap-checks the proposed weeks against other
+  // projects + NP blocks on the same DA before writing. Project conflicts
+  // open OverlapPrompt → Push Down via bp_resolve_da_overlap; NP conflicts
+  // open NpWarningPrompt → "Save anyway" retries with forceNp=true.
   const setBpDdDates = useSetBpDdDates();
+  const resolveOverlap = useResolveDaOverlap();
+  const drawScheduleQ = useDrawSchedule();
   const occMissing = !bp.updated_at;
   const [startDraft, setStartDraft] = useState(bp.dd_start ?? '');
   const [endDraft, setEndDraft] = useState(bp.dd_end ?? '');
+  const [pendingOverlap, setPendingOverlap] = useState<PendingDdOverlap | null>(
+    null,
+  );
+  const [pendingNp, setPendingNp] = useState<PendingDdNpWarning | null>(null);
   const dur = computeDuration(startDraft || null, endDraft || null);
   // fix-22 Mig 3: GO date is project-level now.
   const goDisplay = formatGoDate(project.go_date);
 
+  /** Look up this project's draw_schedule row from the query cache. Used
+   *  to capture da_assigned + status when opening the OverlapPrompt — the
+   *  RPC returns the OCC token + proposed weeks, but Push Down also needs
+   *  da_assigned + status to write the anchor's new schedule row. */
+  const drawRow = useMemo(
+    () =>
+      drawScheduleQ.data?.find((r) => r.project_id === bp.project_id) ?? null,
+    [drawScheduleQ.data, bp.project_id],
+  );
+
   /** Commit DD dates. The RPC accepts (a) both filled, (b) both null
-   *  (clear), but rejects partial-null. We mirror that gate here: when
-   *  exactly one input is empty, treat it as mid-state and skip. The
-   *  user is mid-typing; the next blur with both filled (or both
-   *  cleared) actually fires. */
-  async function commitDd() {
+   *  (clear), but rejects partial-null. */
+  async function commitDd(opts: { forceNp?: boolean } = {}) {
     if (!bp.updated_at) return;
     const startNorm = startDraft.trim() || null;
     const endNorm = endDraft.trim() || null;
-    // Mid-state: one filled, one empty. Hold off until the user
-    // finishes editing.
+    // Mid-state: one filled, one empty. Hold off until the user finishes.
     if ((startNorm === null) !== (endNorm === null)) return;
-    // No-op when nothing changed.
-    if (startNorm === (bp.dd_start ?? null) && endNorm === (bp.dd_end ?? null)) {
+    // No-op when nothing changed AND we're not retrying after a prompt.
+    if (
+      !opts.forceNp &&
+      startNorm === (bp.dd_start ?? null) &&
+      endNorm === (bp.dd_end ?? null)
+    ) {
       return;
     }
     try {
-      await setBpDdDates.mutateAsync({
+      const result = await setBpDdDates.mutateAsync({
         projectId: bp.project_id,
         ddStart: startNorm,
         ddEnd: endNorm,
         expectedUpdatedAt: bp.updated_at,
+        forceNp: opts.forceNp ?? false,
       });
+      if (result.overlapKind === 'project') {
+        if (
+          !drawRow ||
+          !drawRow.da_assigned ||
+          !result.drawScheduleUpdatedAt ||
+          !result.proposedStartWeek ||
+          !result.proposedEndWeek
+        ) {
+          // Missing context to drive Push Down — fall through silently.
+          return;
+        }
+        setPendingOverlap({
+          kind: 'project',
+          proposedStartWeek: result.proposedStartWeek,
+          proposedEndWeek: result.proposedEndWeek,
+          conflicts: result.overlapConflicts as ProjectOverlapConflict[],
+          drawScheduleUpdatedAt: result.drawScheduleUpdatedAt,
+          daAssigned: drawRow.da_assigned,
+          scheduleStatus: drawRow.status,
+          anchorAddress: project.address,
+        });
+      } else if (result.overlapKind === 'np') {
+        if (!startNorm || !endNorm || !drawRow?.da_assigned) return;
+        setPendingNp({
+          kind: 'np',
+          ddStart: startNorm,
+          ddEnd: endNorm,
+          bpUpdatedAt: bp.updated_at,
+          conflicts: result.overlapConflicts as NpOverlapConflict[],
+          daAssigned: drawRow.da_assigned,
+          anchorAddress: project.address,
+        });
+      }
     } catch {
-      // Toasts surfaced inside the hook; swallow here so the input
-      // blur doesn't crash the page on OCC / RPC failure.
+      // Toasts surfaced inside the hook; swallow so input blur doesn't crash.
     }
   }
 
+  async function confirmPushDown() {
+    if (!pendingOverlap) return;
+    try {
+      await resolveOverlap.mutateAsync({
+        anchorProjectId: bp.project_id,
+        expectedUpdatedAt: pendingOverlap.drawScheduleUpdatedAt,
+        daAssigned: pendingOverlap.daAssigned,
+        startWeek: pendingOverlap.proposedStartWeek,
+        endWeek: pendingOverlap.proposedEndWeek,
+        scheduleStatus: pendingOverlap.scheduleStatus,
+      });
+      setPendingOverlap(null);
+    } catch {
+      // Toasts surfaced inside useResolveDaOverlap.
+    }
+  }
+
+  async function confirmNpSaveAnyway() {
+    if (!pendingNp) return;
+    setPendingNp(null);
+    await commitDd({ forceNp: true });
+  }
+
   return (
-    <CellShell title="DD Phase" rightBorder>
-      <div className="flex flex-col gap-1.5">
-        <PhaseRow
-          label="GO Date"
-          value={goDisplay}
-          dashed
-          title="GO date is set on the Project Settings page"
-        />
-        <div className="flex items-center gap-1.5">
-          <span className="text-[9px] text-dim w-12 flex-shrink-0">Start</span>
-          <input
-            type="date"
-            value={startDraft}
-            onChange={(e) => setStartDraft(e.target.value)}
-            onBlur={() => void commitDd()}
-            disabled={occMissing}
-            className="text-[11px] font-semibold px-1.5 py-0.5 border rounded outline-none flex-1 disabled:opacity-50"
-            style={{
-              borderColor: 'var(--color-border)',
-              background: 'var(--color-bg)',
-              color: 'var(--color-text)',
-            }}
-            data-testid="pd-bp-dd_start"
+    <>
+      <CellShell title="DD Phase" rightBorder>
+        <div className="flex flex-col gap-1.5">
+          <PhaseRow
+            label="GO Date"
+            value={goDisplay}
+            dashed
+            title="GO date is set on the Project Settings page"
           />
-        </div>
-        <div className="flex items-center gap-1.5">
-          <span className="text-[9px] text-dim w-12 flex-shrink-0">End</span>
-          <input
-            type="date"
-            value={endDraft}
-            onChange={(e) => setEndDraft(e.target.value)}
-            onBlur={() => void commitDd()}
-            disabled={occMissing}
-            className="text-[11px] font-semibold px-1.5 py-0.5 border rounded outline-none flex-1 disabled:opacity-50"
-            style={{
-              borderColor: 'var(--color-border)',
-              background: 'var(--color-bg)',
-              color: 'var(--color-text)',
-            }}
-            data-testid="pd-bp-dd_end"
-          />
-        </div>
-        {dur && (
           <div className="flex items-center gap-1.5">
-            <span className="text-[9px] text-dim w-12 flex-shrink-0">
-              Duration
-            </span>
-            <span className="text-[11px] font-bold text-text">{dur}</span>
+            <span className="text-[9px] text-dim w-12 flex-shrink-0">Start</span>
+            <input
+              type="date"
+              value={startDraft}
+              onChange={(e) => setStartDraft(e.target.value)}
+              onBlur={() => void commitDd()}
+              disabled={occMissing}
+              className="text-[11px] font-semibold px-1.5 py-0.5 border rounded outline-none flex-1 disabled:opacity-50"
+              style={{
+                borderColor: 'var(--color-border)',
+                background: 'var(--color-bg)',
+                color: 'var(--color-text)',
+              }}
+              data-testid="pd-bp-dd_start"
+            />
           </div>
-        )}
-      </div>
-    </CellShell>
+          <div className="flex items-center gap-1.5">
+            <span className="text-[9px] text-dim w-12 flex-shrink-0">End</span>
+            <input
+              type="date"
+              value={endDraft}
+              onChange={(e) => setEndDraft(e.target.value)}
+              onBlur={() => void commitDd()}
+              disabled={occMissing}
+              className="text-[11px] font-semibold px-1.5 py-0.5 border rounded outline-none flex-1 disabled:opacity-50"
+              style={{
+                borderColor: 'var(--color-border)',
+                background: 'var(--color-bg)',
+                color: 'var(--color-text)',
+              }}
+              data-testid="pd-bp-dd_end"
+            />
+          </div>
+          {dur && (
+            <div className="flex items-center gap-1.5">
+              <span className="text-[9px] text-dim w-12 flex-shrink-0">
+                Duration
+              </span>
+              <span className="text-[11px] font-bold text-text">{dur}</span>
+            </div>
+          )}
+        </div>
+      </CellShell>
+      {pendingOverlap && (
+        <OverlapPrompt
+          anchorAddress={pendingOverlap.anchorAddress}
+          conflictingAddresses={pendingOverlap.conflicts.map((c) => c.address)}
+          conflictCount={pendingOverlap.conflicts.length}
+          onCancel={() => setPendingOverlap(null)}
+          onConfirm={() => void confirmPushDown()}
+          pending={resolveOverlap.isPending}
+        />
+      )}
+      {pendingNp && (
+        <NpWarningPrompt
+          anchorAddress={pendingNp.anchorAddress}
+          daName={pendingNp.daAssigned}
+          conflicts={pendingNp.conflicts.map((c) => ({
+            id: c.id,
+            type: c.type,
+            label: c.label,
+            startWeek: c.start_week,
+            endWeek: c.end_week,
+          }))}
+          onCancel={() => setPendingNp(null)}
+          onConfirm={() => void confirmNpSaveAnyway()}
+          pending={setBpDdDates.isPending}
+        />
+      )}
+    </>
   );
 }
 
