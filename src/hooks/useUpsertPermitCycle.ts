@@ -192,7 +192,15 @@ export function useUpsertPermitCycle() {
           queryKey: queryKeys.permitsByProject(tenantId, input.projectId),
         });
       } else {
-        pushToast(`Could not save cycle — ${error.message}`, 'error');
+        // fix-26a: strip the "bp_upsert_permit_cycle_row:" prefix that
+        // PL/pgSQL RAISE EXCEPTION prepends so the user sees just the
+        // validation message (e.g., "intake_accepted (2026-05-10) cannot
+        // precede submitted (2026-05-15)"), not the function name.
+        const cleaned = error.message.replace(
+          /^bp_upsert_permit_cycle_row:\s*/,
+          '',
+        );
+        pushToast(`Could not save cycle — ${cleaned}`, 'error');
       }
     },
 

@@ -811,8 +811,19 @@ function DateCell({
   function tryCommit(next: string) {
     if (readOnly) return;
     if (next === lastCommittedRef.current) return;
+    // fix-26a: capture prev so we can restore the ref if the mutation
+    // rejects (e.g., RPC validation: intake_accepted < submitted). Without
+    // restoring, re-typing the same value after correcting the sibling
+    // field gets deduped away — Bobby's "couldn't delete or correct" symptom.
+    const prev = lastCommittedRef.current;
     lastCommittedRef.current = next;
-    void onCommit(next);
+    // The mutation hook already pushes an error toast via its onError
+    // (useUpsertPermitCycle). We just swallow the rejection here so it
+    // doesn't bubble to the runtime as "Uncaught (in promise)" + reset
+    // the ref so user can retry.
+    void Promise.resolve(onCommit(next)).catch(() => {
+      lastCommittedRef.current = prev;
+    });
   }
   return (
     <div
