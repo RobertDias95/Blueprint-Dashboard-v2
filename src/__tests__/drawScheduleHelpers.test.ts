@@ -7,6 +7,7 @@ import {
   dateToWeekKey,
   decideDrop,
   findNpConflictsForDrop,
+  formatWeekRange,
   getMonday,
   getQuarterLabel,
   getQuarterStart,
@@ -438,5 +439,26 @@ describe('DS_STATUS_COLORS + jurisBorder', () => {
     expect(jurisBorder('PHOENIX')).toBe('#dc2626');
     expect(jurisBorder('Bellevue')).toBe('#16a34a');
     expect(jurisBorder(null)).toBe('#16a34a');
+  });
+});
+
+describe('formatWeekRange (fix-25-feat-c)', () => {
+  it('returns "M/D — M/D" Monday → Friday for a same-month week', () => {
+    expect(formatWeekRange('2026-05-25')).toBe('5/25 — 5/29');
+  });
+
+  it('handles month boundaries cleanly', () => {
+    // Week of June 29 2026: Mon 6/29, Fri 7/3 (crosses month boundary).
+    expect(formatWeekRange('2026-06-29')).toBe('6/29 — 7/3');
+  });
+
+  it('handles year boundaries cleanly', () => {
+    // Week of Dec 29 2025: Mon 12/29, Fri 1/2/2026.
+    expect(formatWeekRange('2025-12-29')).toBe('12/29 — 1/2');
+  });
+
+  it('renders single-digit months and days without zero-padding', () => {
+    // Week of Jan 5 2026: Mon 1/5, Fri 1/9.
+    expect(formatWeekRange('2026-01-05')).toBe('1/5 — 1/9');
   });
 });

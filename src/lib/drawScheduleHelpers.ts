@@ -55,6 +55,18 @@ export function dateToWeekKey(d: Date): string {
   return getMonday(d).toISOString().slice(0, 10);
 }
 
+/** fix-25-feat-c: format a Monday week-key as 'M/D — M/D' covering the
+ *  Mon → Fri work week. weekKey is always 'YYYY-MM-DD' parsed at local
+ *  noon to dodge timezone edge cases at month / year boundaries. Friday
+ *  is Monday + 4 days. */
+export function formatWeekRange(weekKey: string): string {
+  const monday = new Date(`${weekKey}T12:00:00`);
+  const friday = new Date(monday);
+  friday.setDate(friday.getDate() + 4);
+  const fmt = (d: Date) => `${d.getMonth() + 1}/${d.getDate()}`;
+  return `${fmt(monday)} — ${fmt(friday)}`;
+}
+
 export function addWeeks(d: Date, n: number): Date {
   const dt = new Date(d);
   dt.setDate(dt.getDate() + n * 7);

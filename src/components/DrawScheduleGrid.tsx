@@ -32,6 +32,7 @@ import {
   dateToWeekKey,
   decideDrop,
   findNpConflictsForDrop,
+  formatWeekRange,
   getMonday,
   getQuarterLabel,
   getQuarterWeeks,
@@ -73,7 +74,9 @@ import { deriveBlockStatus } from '../lib/drawScheduleStatus';
 // list of blocked projects. Cascade RPC ("Push Down") ships in Q6.2.b.
 
 const ROW_H = 28;
-const LABEL_W = 64;
+// fix-25-feat-c: bumped from 64 → 88 to fit the Mon-Fri "M/D — M/D"
+// range label (widest case "▸ 12/29 — 12/31" at 9px font-mono).
+const LABEL_W = 88;
 /** What we ship in the HTML5 drag's dataTransfer payload. JSON-encoded so
  * jsdom + browsers both round-trip it cleanly via getData/setData.
  * Q9.5.f-fix-20: added currentDa + originalStart/EndWeek so the drop handler
@@ -1068,7 +1071,6 @@ function DrawScheduleBody({
             className="border-r border-border"
           >
             {weeks.map((wk) => {
-              const d = new Date(`${wk}T12:00:00`);
               const isCurrent = wk === currentWeek;
               // Q9.5.f-fix-20: highlight when a project block or empty cell
               // at this week is hovered. Hover wins over the muted current-
@@ -1090,7 +1092,7 @@ function DrawScheduleBody({
                   }`}
                 >
                   {isCurrent ? '▸ ' : ''}
-                  {d.getMonth() + 1}/{d.getDate()}
+                  {formatWeekRange(wk)}
                 </div>
               );
             })}
