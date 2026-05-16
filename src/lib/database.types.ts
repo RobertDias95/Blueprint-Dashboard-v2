@@ -290,6 +290,12 @@ export interface TeamMember {
   notes: string | null;
   /** Q7.3.0 added — used for row-level OCC. */
   updated_at: string;
+  /** fix-25-feat-b: per-quarter activity range. NULL on either side means
+   *  open-ended (NULL start = always-active-from-beginning, NULL end =
+   *  still-active). Storage format is 'YYYY-Qn' so lexical compare =
+   *  chronological compare. */
+  active_start_quarter: string | null;
+  active_end_quarter: string | null;
 }
 
 /** Flat (dm_name, da_name) pair table. Q7.3.0 added updated_at for OCC. */

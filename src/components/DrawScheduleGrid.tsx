@@ -10,6 +10,11 @@ import { useShiftDaBlocksUp } from '../hooks/useShiftDaBlocksUp';
 import { useDaTimeBlocks } from '../hooks/useDaTimeBlocks';
 import { useUpsertDaTimeBlock } from '../hooks/useUpsertDaTimeBlock';
 import { useDeleteDaTimeBlock } from '../hooks/useDeleteDaTimeBlock';
+import { useTeamMembers } from '../hooks/useTeamMembers';
+import {
+  isMemberActiveInQuarter,
+  quarterOffsetToString,
+} from '../lib/teamQuarterHelpers';
 import {
   useResizeDaTimeBlock,
   type NpResizeProjectConflict,
@@ -292,6 +297,82 @@ function DrawScheduleBody({
   const resolveMutation = useResolveDaOverlap();
   const upsertNp = useUpsertDaTimeBlock();
   const deleteNp = useDeleteDaTimeBlock();
+
+  // fix-25-feat-b: filter DA lanes by the viewed quarter's activity range.
+  // A DA's lane is visible iff their team_members range covers the viewed
+  // quarter OR they have a project block on the lane overlapping the
+  // viewed weeks (forced visibility — old work doesn't vanish when the
+  // person leaves). DAs with no team_members row default to visible
+  // (matches today's behavior where dm_da_groups is the source of truth).
+  const teamMembersQ = useTeamMembers();
+  const currentQuarter = useMemo(
+    () => quarterOffsetToString(quarterOffset),
+    [quarterOffset],
+  );
+  const daMemberByName = useMemo(() => {
+    const m = new Map<
+      string,
+      { active_start_quarter: string | null; active_end_quarter: string | null }
+    >();
+    for (const tm of teamMembersQ.all) {
+      if (tm.role === 'da') {
+        m.set(tm.name, {
+          active_start_quarter: tm.active_start_quarter,
+          active_end_quarter: tm.active_end_quarter,
+        });
+      }
+    }
+    return m;
+  }, [teamMembersQ.all]);
+  const forcedDAs = useMemo(() => {
+    const set = new Set<string>();
+    if (weeks.length === 0) return set;
+    const firstWeek = weeks[0];
+    const lastWeek = weeks[weeks.length - 1];
+    for (const row of draw) {
+      if (!row.da_assigned || !row.start_week || !row.end_week) continue;
+      if (row.start_week <= lastWeek && row.end_week >= firstWeek) {
+        set.add(row.da_assigned);
+      }
+    }
+    return set;
+  }, [draw, weeks]);
+  const filteredGroups = useMemo(() => {
+    return groups
+      .map((g) => ({
+        dm: g.dm,
+        das: g.das.filter((daName) => {
+          const tm = daMemberByName.get(daName);
+          if (!tm) return true; // no team_member record -> default visible
+          const active = isMemberActiveInQuarter(
+            tm.active_start_quarter,
+            tm.active_end_quarter,
+            currentQuarter,
+          );
+          return active || forcedDAs.has(daName);
+        }),
+      }))
+      .filter((g) => g.das.length > 0);
+  }, [groups, daMemberByName, currentQuarter, forcedDAs]);
+  /** DAs kept visible only because they have a block this quarter — render
+   *  their header label italic + dimmed so the user can tell they're not on
+   *  the current roster. */
+  const inactiveButForcedDAs = useMemo(() => {
+    const set = new Set<string>();
+    for (const g of filteredGroups) {
+      for (const daName of g.das) {
+        const tm = daMemberByName.get(daName);
+        if (!tm) continue;
+        const active = isMemberActiveInQuarter(
+          tm.active_start_quarter,
+          tm.active_end_quarter,
+          currentQuarter,
+        );
+        if (!active) set.add(daName);
+      }
+    }
+    return set;
+  }, [filteredGroups, daMemberByName, currentQuarter]);
 
   // Q9.5.f-fix-20: reverse lookup DM by DA name. Used when routing a DA
   // move through bp_move_draw_schedule_da, which writes permits.dm to keep
@@ -847,7 +928,7 @@ function DrawScheduleBody({
   }
   // Per-DA list of project blocks visible this quarter, after search filter.
   const blocksByDa = useMemo(() => {
-    const allDas = groups.flatMap((g) => g.das);
+    const allDas = filteredGroups.flatMap((g) => g.das);
     const map = new Map<string, { row: DrawScheduleRow; project: Project }[]>();
     for (const da of allDas) map.set(da, []);
     for (const row of draw) {
@@ -871,7 +952,7 @@ function DrawScheduleBody({
       );
     }
     return map;
-  }, [draw, projectById, groups, weeks, search]);
+  }, [draw, projectById, filteredGroups, weeks, search]);
 
   // Q6.2.c: NP blocks grouped by DA, filtered to current quarter. Same
   // overlap predicate as project blocks; render-only (no drag, no drop).
@@ -934,7 +1015,7 @@ function DrawScheduleBody({
             style={{ width: LABEL_W, minWidth: LABEL_W }}
             className="border-r border-border"
           />
-          {groups.map((g) => (
+          {filteredGroups.map((g) => (
             <div
               key={g.dm}
               style={{ flex: g.das.length }}
@@ -951,19 +1032,29 @@ function DrawScheduleBody({
             style={{ width: LABEL_W, minWidth: LABEL_W }}
             className="border-r border-border"
           />
-          {groups.flatMap((g) =>
-            g.das.map((da, i) => (
-              <div
-                key={`${g.dm}-${da}`}
-                className={`flex-1 text-center px-1 py-1 text-[10px] font-bold truncate ${
-                  i === g.das.length - 1
-                    ? 'border-r-2 border-border'
-                    : 'border-r border-border'
-                }`}
-              >
-                {da}
-              </div>
-            )),
+          {filteredGroups.flatMap((g) =>
+            g.das.map((da, i) => {
+              const isInactive = inactiveButForcedDAs.has(da);
+              return (
+                <div
+                  key={`${g.dm}-${da}`}
+                  data-testid={`da-header-${da}`}
+                  data-inactive={isInactive ? 'true' : undefined}
+                  title={
+                    isInactive
+                      ? `${da} is not active this quarter — visible because they have a block here`
+                      : da
+                  }
+                  className={`flex-1 text-center px-1 py-1 text-[10px] font-bold truncate ${
+                    i === g.das.length - 1
+                      ? 'border-r-2 border-border'
+                      : 'border-r border-border'
+                  } ${isInactive ? 'italic opacity-60' : ''}`}
+                >
+                  {da}
+                </div>
+              );
+            }),
           )}
         </div>
 
@@ -1006,7 +1097,7 @@ function DrawScheduleBody({
           </div>
 
           {/* DA columns */}
-          {groups.flatMap((g) =>
+          {filteredGroups.flatMap((g) =>
             g.das.map((da, daIdx) => {
               const isLast = daIdx === g.das.length - 1;
               const blocks = blocksByDa.get(da) ?? [];

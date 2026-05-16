@@ -1,5 +1,6 @@
 import PillListEditor from './PillListEditor';
 import TeamStructureEditor from './TeamStructureEditor';
+import TeamActiveQuartersEditor from './TeamActiveQuartersEditor';
 import { useTeamMembers } from '../../hooks/useTeamMembers';
 import { useUpsertTeamMember } from '../../hooks/useUpsertTeamMember';
 import { useDeleteTeamMember } from '../../hooks/useDeleteTeamMember';
@@ -116,6 +117,13 @@ export default function AdminTeamTab() {
           placeholder="Add Design Associate…"
           readOnly={!isAdmin}
           testIdPrefix="team-da"
+        />
+      </Section>
+
+      <Section title="Active Quarters">
+        <TeamActiveQuartersEditor
+          activeDas={teamQ.activeDas}
+          readOnly={!isAdmin}
         />
       </Section>
 

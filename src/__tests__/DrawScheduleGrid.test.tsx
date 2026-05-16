@@ -209,6 +209,43 @@ vi.mock('../hooks/useShiftDaBlocksUp', () => ({
   }),
 }));
 
+// fix-25-feat-b: mock useTeamMembers so tests can drive the quarter-range
+// filter without a real supabase round-trip. Default empty `all`
+// preserves backward-compatible behavior (no team_member record -> lane
+// always visible) for the existing test fixtures.
+const teamMembersData: {
+  current: Array<{
+    id: string;
+    name: string;
+    role: string;
+    active_start_quarter: string | null;
+    active_end_quarter: string | null;
+    updated_at: string;
+    active: boolean | null;
+    former: boolean | null;
+    email: string | null;
+    notes: string | null;
+  }>;
+} = { current: [] };
+vi.mock('../hooks/useTeamMembers', () => ({
+  useTeamMembers: () => ({
+    all: teamMembersData.current,
+    activeDas: teamMembersData.current.filter(
+      (m) => m.role === 'da' && !m.former,
+    ),
+    formerDas: teamMembersData.current.filter(
+      (m) => m.role === 'da' && m.former,
+    ),
+    dms: teamMembersData.current.filter((m) => m.role === 'dm'),
+    ents: teamMembersData.current.filter((m) => m.role === 'ent'),
+    acqs: teamMembersData.current.filter((m) => m.role === 'acq'),
+    data: teamMembersData.current,
+    isLoading: false,
+    error: null,
+    refetch: vi.fn(),
+  }),
+}));
+
 // fix-25-feat-a: mock useResizeDaTimeBlock. Its mutate fn invokes
 // onSuccess synchronously with a configurable result so tests can drive
 // the conflict-prompt path without a real RPC.
@@ -258,6 +295,7 @@ beforeEach(() => {
   moveDaMutate.mockClear();
   shiftUpMutate.mockClear();
   resizeNpMutate.mockClear();
+  teamMembersData.current = [];
   resizeNpResult.current = {
     blockId: 'np-trevor',
     updatedAt: '2026-05-16T18:00:00Z',
@@ -1011,6 +1049,72 @@ describe('<DrawScheduleGrid /> Q9.5.f-fix-20', () => {
     expect(prompt).toHaveTextContent(/time block/i);
     expect(prompt).toHaveTextContent('Training');
   });
+
+  // ----- fix-25-feat-b: per-quarter DA team configuration -----
+
+  /** Build a team_member fixture for the DA-role filter. */
+  function tm(
+    name: string,
+    activeStart: string | null,
+    activeEnd: string | null,
+  ) {
+    return {
+      id: `tm-${name}`,
+      name,
+      role: 'da',
+      active_start_quarter: activeStart,
+      active_end_quarter: activeEnd,
+      updated_at: '2026-05-16T00:00:00Z',
+      active: true,
+      former: false,
+      email: null,
+      notes: null,
+    };
+  }
+
+  it('hides a DA lane whose team_member range excludes the viewed quarter', () => {
+    // Ahmadi's range ends in 2025-Q4 — well before today (2026-Q2). She
+    // has a block on p-other in current weeks too, BUT this test asserts
+    // the predicate alone. So pick a DA with no blocks in viewed weeks.
+    // Use a synthetic DA name added only via the mock — but the fixtures
+    // already give Ahmadi a block. Pivot: use "Fisk" who has no blocks
+    // anywhere in the fixture data.
+    teamMembersData.current = [tm('Fisk', null, '2025-Q4')];
+    renderGrid();
+    expect(screen.queryByTestId('da-header-Fisk')).toBeNull();
+  });
+
+  it('keeps a DA lane forced-visible when their range excludes the quarter but they have a block here', () => {
+    // Ahmadi has a block on p-other (2026-05-04 → 2026-05-11, in
+    // current quarter). Mark her as ended in 2025-Q4 — lane stays
+    // visible because of forcedDAs, but the header shows italic + dim.
+    teamMembersData.current = [tm('Ahmadi', null, '2025-Q4')];
+    renderGrid();
+    const header = screen.getByTestId('da-header-Ahmadi');
+    expect(header).toBeInTheDocument();
+    expect(header.getAttribute('data-inactive')).toBe('true');
+    expect(header.className).toMatch(/italic/);
+  });
+
+  it('shows a future DA lane when their range starts at or before the viewed quarter', () => {
+    // Trevor is active 2026-Q1 → null — covers current Q2 2026 → visible.
+    teamMembersData.current = [tm('Trevor', '2026-Q1', null)];
+    renderGrid();
+    expect(screen.getByTestId('da-header-Trevor')).toBeInTheDocument();
+    expect(
+      screen.getByTestId('da-header-Trevor').getAttribute('data-inactive'),
+    ).toBeNull();
+  });
+
+  it('hides a DA whose range starts after the viewed quarter AND has no blocks here', () => {
+    // Fisk has no blocks in the fixture; start='2027-Q1' is far future
+    // → lane hidden (no forced visibility).
+    teamMembersData.current = [tm('Fisk', '2027-Q1', null)];
+    renderGrid();
+    expect(screen.queryByTestId('da-header-Fisk')).toBeNull();
+  });
+
+  // ----- existing fix-25-feat-a tests below -----
 
   it('Save anyway in NpResizeConflictPrompt re-fires the RPC with force=true', () => {
     resizeNpResult.current = {

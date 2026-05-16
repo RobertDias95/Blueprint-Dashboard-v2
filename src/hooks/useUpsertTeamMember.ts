@@ -67,6 +67,9 @@ export function useUpsertTeamMember() {
           email: payload.email as string | null,
           notes: payload.notes as string | null,
           updated_at: row.updated_at,
+          // fix-25-feat-b: inserts default to open-ended (always active).
+          active_start_quarter: null,
+          active_end_quarter: null,
         };
       }
       const payload = buildPayload(input.member, input.patch);
