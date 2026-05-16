@@ -327,6 +327,30 @@ describe('<ProjectSettingsModal /> fix-23d unified permit row', () => {
   });
 });
 
+describe('<ProjectSettingsModal /> fix-25-feat-e wider modal + 2-row layout', () => {
+  it('modal container is 960px wide (bumped from 720)', () => {
+    renderModal();
+    // The .w-[960px] container is the first descendant of the modal
+    // backdrop. Walk to it and check the class.
+    const backdrop = screen.getByTestId('project-settings-modal');
+    const container = backdrop.firstElementChild as HTMLElement | null;
+    expect(container).not.toBeNull();
+    expect(container!.className).toMatch(/w-\[960px\]/);
+  });
+
+  it('permit row uses 2 horizontal sub-grids (Type/ENT/DA + Num/URL/Address)', () => {
+    renderModal();
+    const card = screen.getByTestId(`psm-permit-row-${refs.permits[0].id}`);
+    // Sub-grids inside the card use display:grid via inline style. The
+    // direct grid children are the only grid containers — 2 of them now
+    // (was 3 in fix-23d's layout: 3-col top, full-width middle, 2-col bottom).
+    const grids = Array.from(
+      card.querySelectorAll<HTMLElement>(':scope > div'),
+    ).filter((el) => /grid/.test(el.className));
+    expect(grids.length).toBe(2);
+  });
+});
+
 describe('<ProjectSettingsModal /> fix-23f builder autocomplete', () => {
   it('Builder Name field surfaces matching builders and fills sibling fields on select', () => {
     renderModal();

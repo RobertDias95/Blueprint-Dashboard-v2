@@ -403,7 +403,7 @@ export default function ProjectSettingsModal({ project, onClose }: Props) {
       data-testid="project-settings-modal"
     >
       <div
-        className="rounded-lg shadow-xl w-[720px] max-h-[90vh] overflow-hidden flex flex-col"
+        className="rounded-lg shadow-xl w-[960px] max-w-[95vw] max-h-[90vh] overflow-hidden flex flex-col"
         style={{ background: 'var(--color-surface)' }}
         onClick={(e) => e.stopPropagation()}
       >
@@ -844,19 +844,18 @@ function PermitSubsection({
   onChange: (patch: Partial<PermitRow>) => void;
   onRemove: () => void;
 }) {
-  // fix-23d: V1 cohesive layout — ONE outer card per permit, three internal
-  // rows. Replaces the prior 7-column single-row grid that wrapped weirdly
-  // at modal width and gave the visual impression of three glued widgets.
+  // fix-23d: V1 cohesive layout — ONE outer card per permit. fix-25-feat-e:
+  // collapsed the prior 3-row internal stack into 2 rows now that the
+  // modal is 960px wide. Portal URL gets 2× the column weight on row 2
+  // because that's the only field whose content is routinely long.
   //
-  //   ┌─ Permit ───────────────────── X ─┐
-  //   │  Type   ENT   DA                │
-  //   │  Permit Portal URL              │
-  //   │  Permit #   Structure Address   │
-  //   └─────────────────────────────────┘
+  //   ┌─ Permit ─────────────────────────────────────── X ─┐
+  //   │  Type      ENT      DA                            │
+  //   │  Permit #   Permit Portal URL    Structure Addr   │
+  //   └────────────────────────────────────────────────────┘
   //
-  // ENT + DA become real <select>s (was <input list>+<datalist>). Type
-  // stays a free input because the per-permit type values aren't strictly
-  // constrained to the catalog at this surface.
+  // ENT + DA stay <select>s (fix-23d). Type stays a free input because
+  // per-permit type values aren't strictly catalog-constrained here.
   return (
     <div
       className="rounded border p-3 flex flex-col gap-2 relative"
@@ -905,19 +904,18 @@ function PermitSubsection({
         </TinyField>
       </div>
 
-      <TinyField label="Permit Portal URL">
-        <Input
-          value={row.portal_url}
-          onChange={(v) => onChange({ portal_url: v })}
-        />
-      </TinyField>
-
       <div
-        className="grid gap-2"
-        style={{ gridTemplateColumns: '1fr 1fr' }}
+        className="grid gap-2 items-end"
+        style={{ gridTemplateColumns: '1fr 2fr 1.5fr' }}
       >
         <TinyField label="Permit # (from city)">
           <Input value={row.num} onChange={(v) => onChange({ num: v })} />
+        </TinyField>
+        <TinyField label="Permit Portal URL">
+          <Input
+            value={row.portal_url}
+            onChange={(v) => onChange({ portal_url: v })}
+          />
         </TinyField>
         <TinyField label="Structure Address">
           <Input
