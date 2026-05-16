@@ -4,6 +4,7 @@ import {
   defaultDaysForType,
   extractSample,
   listTypeJurisCombos,
+  MIN_SAMPLES_FOR_LEARNER,
   PER_TYPE_DEFAULT_DAYS,
   PER_TYPE_FALLBACK_DAYS,
   SCHEDULE_DEFAULTS,
@@ -88,15 +89,40 @@ describe('extractSample', () => {
     expect(extractSample(makePermit({ approval_date: null, actual_issue: null }))).toBeNull();
   });
 
-  it('fix-24i: returns null when cycle 0 has no intake_accepted (drops out of learner)', () => {
+  it('fix-25-feat-g: returns null only when BOTH c0.intake_accepted AND c0.submitted are missing', () => {
+    // c0 exists but both anchor fields are null. Per fix-25-feat-g the
+    // fallback ladder runs out and the sample drops.
     const permit = makePermit({
       approval_date: '2026-05-01',
       permit_cycles: [
-        makeCycle({ cycle_index: 0, intake_accepted: null }),
+        makeCycle({ cycle_index: 0, intake_accepted: null, submitted: null }),
         makeCycle({ cycle_index: 1, submitted: '2026-02-01', corr_issued: '2026-03-01' }),
       ],
     });
     expect(extractSample(permit)).toBeNull();
+  });
+
+  it('fix-25-feat-g: anchors at c0.submitted when c0.intake_accepted is null', () => {
+    // Mirrors the scraper-set + pre-fix-26 reality where c0.submitted is
+    // populated but intake_accepted is not. Learner uses submitted as the
+    // anchor with a small upward bias on intake→approval (acceptable per
+    // Bobby's "use the data we have" call).
+    const permit = makePermit({
+      approval_date: '2026-05-01',
+      permit_cycles: [
+        makeCycle({
+          cycle_index: 0,
+          intake_accepted: null,
+          submitted: '2026-02-15',
+        }),
+        makeCycle({ cycle_index: 1, submitted: '2026-02-15' }),
+      ],
+    });
+    const s = extractSample(permit);
+    expect(s).not.toBeNull();
+    expect(s?.intakeAnchor).toBe('2026-02-15');
+    // 2026-02-15 → 2026-05-01 = 75 days
+    expect(s?.intakeToApprovalDays).toBe(75);
   });
 
   it('fix-24i: returns null when cycle 0 row is missing entirely', () => {
@@ -246,12 +272,28 @@ describe('computeLearnedSchedule', () => {
     expect(result).toBeNull();
   });
 
-  it('fix-24i: returns null when sample count is below MIN_SAMPLES_FOR_LEARNER (3) and no cross-juris signal', () => {
-    // Only 2 Seattle BPs approved → below the gate. Cross-juris also has 2 →
-    // also below the gate. Caller falls back to defaultDaysForType.
+  it('fix-25-feat-g: MIN_SAMPLES_FOR_LEARNER is 1 — gate flipped from fix-24i (3) so the learner uses every available sample', () => {
+    expect(MIN_SAMPLES_FOR_LEARNER).toBe(1);
+  });
+
+  it('fix-25-feat-g: returns null when there are zero matching approved permits in scope AND zero cross-juris samples', () => {
+    // No approved BPs anywhere → both scoped and cross-juris tiers
+    // return null; caller falls back to defaultDaysForType.
+    const result = computeLearnedSchedule(
+      [makePermit({ approval_date: null, actual_issue: null })],
+      'Building Permit',
+      'Seattle',
+      projectsById,
+      new Date(2026, 4, 15),
+    );
+    expect(result).toBeNull();
+  });
+
+  it('fix-25-feat-g: a single in-scope sample produces a learned estimate (no min-gate)', () => {
+    // 1 Seattle BP, recent window. Pre-fix-25-feat-g this would have been
+    // null (below the 3-sample gate). Now it fires the scoped tier.
     const permits = [
       approvedBP({ id: 1, projectId: 'p1', intake: '2026-02-15', submitted: '2026-02-15', corrIssued: '2026-03-15', approval: '2026-05-01' }),
-      approvedBP({ id: 2, projectId: 'p2', intake: '2026-02-20', submitted: '2026-02-20', corrIssued: '2026-03-20', approval: '2026-05-05' }),
     ];
     const result = computeLearnedSchedule(
       permits,
@@ -260,7 +302,10 @@ describe('computeLearnedSchedule', () => {
       projectsById,
       new Date(2026, 4, 15),
     );
-    expect(result).toBeNull();
+    expect(result).not.toBeNull();
+    expect(result?.sampleCount).toBe(1);
+    expect(result?.isCrossJuris).toBe(false);
+    expect(result?.source).toContain('Last 180d');
   });
 
   it('tier 1: 3+ recent-window samples build a learned estimate (isAllTime=false)', () => {
@@ -370,9 +415,10 @@ describe('computeLearnedSchedule', () => {
     expect(result?.source).toContain('*'); // "Last 180d · Building Permit · *"
   });
 
-  it('fix-24i: (type, juris) has 2 samples (below gate) → cross-juris fallback fires when (type, *) has 3+', () => {
-    // 2 Seattle BPs + 2 Bellevue BPs (both below gate individually). Combined
-    // (type, *) has 4 → cross-juris fallback fires.
+  it('fix-25-feat-g: (type, juris) has 2 samples → scoped tier fires (no cross-juris) because the gate is now 1', () => {
+    // 2 Seattle BPs + 2 Bellevue BPs. Pre-fix-25-feat-g the 2 Seattle
+    // samples were below the 3-gate and cross-juris (4 combined) fired
+    // instead. Now Seattle's 2 are enough on their own.
     const permits = [
       approvedBP({ id: 1, projectId: 'p1', intake: '2026-02-01', submitted: '2026-02-01', corrIssued: '2026-03-01', approval: '2026-05-01' }),
       approvedBP({ id: 2, projectId: 'p2', intake: '2026-02-05', submitted: '2026-02-05', corrIssued: '2026-03-05', approval: '2026-05-05' }),
@@ -388,13 +434,13 @@ describe('computeLearnedSchedule', () => {
     const result = computeLearnedSchedule(
       permits,
       'Building Permit',
-      'Seattle', // only 2 Seattle samples
+      'Seattle',
       projectsBoth,
       new Date(2026, 4, 15),
     );
     expect(result).not.toBeNull();
-    expect(result?.isCrossJuris).toBe(true);
-    expect(result?.sampleCount).toBe(4);
+    expect(result?.isCrossJuris).toBe(false);
+    expect(result?.sampleCount).toBe(2);
   });
 
   it('mostLikelyCycle = bucket with highest count; tiebreak favors lower cycle', () => {

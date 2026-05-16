@@ -69,10 +69,12 @@ export function defaultDaysForType(type: string | null | undefined): number {
   return PER_TYPE_DEFAULT_DAYS[type] ?? PER_TYPE_FALLBACK_DAYS;
 }
 
-/** fix-24i: minimum samples before the learner is trusted. Below this
- *  threshold, return null and let the caller fall back through the
- *  cross-juris path → per-type default ladder. */
-export const MIN_SAMPLES_FOR_LEARNER = 3;
+/** fix-24i: minimum samples before the learner is trusted. fix-25-feat-g
+ *  flipped this to 1 — Bobby's stance is "use the data we have." Holding
+ *  back a real average for a 210d generic default just because there's
+ *  only 1-2 samples is the wrong tradeoff. As real samples accumulate
+ *  the recency cap and (eventually) outlier trimming handle noise. */
+export const MIN_SAMPLES_FOR_LEARNER = 1;
 
 /** Per-jurisdiction window override hook. v1 reads from appConfig; v2
  * eventually wires this from a tenant-level setting (Q7.3). For now,
@@ -136,17 +138,19 @@ export function extractSample(
   const c3 = cycles.find((c) => c.cycle_index === 3);
   const c4 = cycles.find((c) => c.cycle_index === 4);
 
-  // fix-24i: anchor switched from c1.submitted → c0.intake_accepted per
-  // Bobby's spec. "city accepted intake → city issued permit" is the
-  // canonical learner clock. permits.intake_date (scraper-captured) is
-  // the team's SUBMISSION date and is NOT used here — that's a different
-  // milestone and conflating them would inflate learned durations by
-  // erasing the team-vs-city responsibility signal.
+  // fix-24i: anchor is c0.intake_accepted ("city accepted intake → city
+  // issued permit" is the canonical learner clock).
   //
-  // Permits without c0.intake_accepted drop out of the learner entirely.
-  // Per-round clocks (cityReviewN, corrResponseN) still work for any
-  // sample that makes it past this gate and has c_N.submitted populated.
-  const intakeAnchor = c0?.intake_accepted ?? null;
+  // fix-25-feat-g: fall back to c0.submitted when intake_accepted is null.
+  // Pre-fix-26 permits and scraper-captured rows don't carry the separate
+  // intake_accepted field, so dropping them entirely was costing the
+  // learner ~46 approved permits worth of signal. The submit→intake gap
+  // inflates the average slightly on those samples, but that bias shrinks
+  // to zero as the team enters real intake_accepted dates going forward.
+  // permits.intake_date (top-level scraper field) is the team's submission
+  // date and is NOT used — that would erase the team-vs-city signal we
+  // preserve at the data layer for future Reports.
+  const intakeAnchor = c0?.intake_accepted ?? c0?.submitted ?? null;
   if (!intakeAnchor) return null;
 
   // submittedAnchor (c1.submitted) is preserved for the source-permit
