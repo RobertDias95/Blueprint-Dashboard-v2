@@ -209,6 +209,43 @@ vi.mock('../hooks/useShiftDaBlocksUp', () => ({
   }),
 }));
 
+// fix-25-feat-a: mock useResizeDaTimeBlock. Its mutate fn invokes
+// onSuccess synchronously with a configurable result so tests can drive
+// the conflict-prompt path without a real RPC.
+const resizeNpMutate = vi.fn();
+const resizeNpResult: {
+  current: {
+    blockId: string;
+    updatedAt: string | null;
+    overlapKind: 'project' | 'np' | null;
+    overlapConflicts: unknown[] | null;
+    proposedStartWeek: string | null;
+    proposedEndWeek: string | null;
+  };
+} = {
+  current: {
+    blockId: 'np-trevor',
+    updatedAt: '2026-05-16T18:00:00Z',
+    overlapKind: null,
+    overlapConflicts: null,
+    proposedStartWeek: null,
+    proposedEndWeek: null,
+  },
+};
+vi.mock('../hooks/useResizeDaTimeBlock', () => ({
+  useResizeDaTimeBlock: () => ({
+    mutate: (input: unknown, opts?: { onSuccess?: (r: unknown) => void }) => {
+      resizeNpMutate(input);
+      opts?.onSuccess?.(resizeNpResult.current);
+    },
+    mutateAsync: vi.fn(),
+    isPending: false,
+    isError: false,
+    error: null,
+    reset: vi.fn(),
+  }),
+}));
+
 import DrawScheduleGrid from '../components/DrawScheduleGrid';
 
 beforeEach(() => {
@@ -220,6 +257,15 @@ beforeEach(() => {
   resolveMutate.mockClear();
   moveDaMutate.mockClear();
   shiftUpMutate.mockClear();
+  resizeNpMutate.mockClear();
+  resizeNpResult.current = {
+    blockId: 'np-trevor',
+    updatedAt: '2026-05-16T18:00:00Z',
+    overlapKind: null,
+    overlapConflicts: null,
+    proposedStartWeek: null,
+    proposedEndWeek: null,
+  };
   moveDaResult.current = {
     projectId: 'p-now',
     updatedAt: '2026-05-14T12:30:00Z',
@@ -828,5 +874,187 @@ describe('<DrawScheduleGrid /> Q9.5.f-fix-20', () => {
     // No project address contains "vacation" either.
     expect(screen.queryByTestId('block-p-now')).not.toBeInTheDocument();
     expect(screen.queryByTestId('block-p-other')).not.toBeInTheDocument();
+  });
+
+  // ----- fix-25-feat-a: NP block drag-to-resize -----
+
+  it('renders top + bottom resize handles on each NP block segment', () => {
+    renderGrid();
+    // Trevor's vacation has one visible segment in current quarter.
+    expect(screen.getByTestId('np-resize-top-np-trevor')).toBeInTheDocument();
+    expect(screen.getByTestId('np-resize-bottom-np-trevor')).toBeInTheDocument();
+    // Ahmadi's spans the p-other block; only the FIRST segment carries the
+    // top handle (anchored to start_week), only the LAST carries the bottom
+    // (anchored to end_week). Both segments exist; both handles exist once.
+    expect(screen.getByTestId('np-resize-top-np-ahmadi')).toBeInTheDocument();
+    expect(screen.getByTestId('np-resize-bottom-np-ahmadi')).toBeInTheDocument();
+  });
+
+  /** Simulate a window-level mouse event after the useEffect has attached
+   *  its listener. Wraps in act() so the resulting state updates flush
+   *  before the assertion runs. */
+  function dispatchOnWindow(type: 'mousemove' | 'mouseup', init?: MouseEventInit) {
+    act(() => {
+      window.dispatchEvent(new MouseEvent(type, { bubbles: true, ...init }));
+    });
+  }
+
+  it('dragging the bottom edge later commits via the resize RPC', () => {
+    renderGrid();
+    const handle = screen.getByTestId('np-resize-bottom-np-trevor');
+    // mouseDown fires through its own act() so the useEffect attaching
+    // the window listeners commits before the next dispatch.
+    act(() => {
+      fireEvent.mouseDown(handle, { button: 0, clientY: 100 });
+    });
+    // ROW_H = 28; drag down 56px = +2 weeks.
+    dispatchOnWindow('mousemove', { clientY: 156 });
+    dispatchOnWindow('mouseup');
+    expect(resizeNpMutate).toHaveBeenCalledTimes(1);
+    expect(resizeNpMutate.mock.calls[0][0]).toMatchObject({
+      blockId: 'np-trevor',
+      // start_week unchanged
+      newStartWeek: '2026-04-27',
+      // end_week pushed 2 weeks past original 2026-05-04
+      newEndWeek: '2026-05-18',
+      force: false,
+    });
+  });
+
+  it('dragging the top edge earlier commits with a new start_week', () => {
+    renderGrid();
+    const handle = screen.getByTestId('np-resize-top-np-trevor');
+    act(() => {
+      fireEvent.mouseDown(handle, { button: 0, clientY: 100 });
+    });
+    // Drag up 28px = -1 week (start_week moves earlier).
+    dispatchOnWindow('mousemove', { clientY: 72 });
+    dispatchOnWindow('mouseup');
+    expect(resizeNpMutate).toHaveBeenCalledTimes(1);
+    expect(resizeNpMutate.mock.calls[0][0]).toMatchObject({
+      blockId: 'np-trevor',
+      newStartWeek: '2026-04-20', // 1 week earlier than original 2026-04-27
+      newEndWeek: '2026-05-04', // unchanged
+    });
+  });
+
+  it('Escape during a resize cancels without firing the RPC', () => {
+    renderGrid();
+    const handle = screen.getByTestId('np-resize-bottom-np-trevor');
+    act(() => {
+      fireEvent.mouseDown(handle, { button: 0, clientY: 100 });
+    });
+    dispatchOnWindow('mousemove', { clientY: 156 });
+    // Escape clears the resizing state. The mouseup listener then no-ops.
+    act(() => {
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+    });
+    dispatchOnWindow('mouseup');
+    expect(resizeNpMutate).not.toHaveBeenCalled();
+  });
+
+  it('resize hitting a project conflict opens NpResizeConflictPrompt with project copy', () => {
+    resizeNpResult.current = {
+      blockId: 'np-trevor',
+      updatedAt: null,
+      overlapKind: 'project',
+      overlapConflicts: [
+        {
+          project_id: 'p-conflict',
+          address: '500 Pike St',
+          start_week: '2026-05-18',
+          end_week: '2026-06-01',
+        },
+      ],
+      proposedStartWeek: '2026-04-27',
+      proposedEndWeek: '2026-05-25',
+    };
+    renderGrid();
+    const handle = screen.getByTestId('np-resize-bottom-np-trevor');
+    act(() => {
+      fireEvent.mouseDown(handle, { button: 0, clientY: 100 });
+    });
+    dispatchOnWindow('mousemove', { clientY: 156 });
+    dispatchOnWindow('mouseup');
+    const prompt = screen.getByTestId('np-resize-conflict-prompt');
+    expect(prompt).toBeInTheDocument();
+    expect(prompt).toHaveTextContent(/project block/i);
+    expect(prompt).toHaveTextContent('500 Pike St');
+  });
+
+  it('resize hitting an NP conflict opens NpResizeConflictPrompt with np copy', () => {
+    resizeNpResult.current = {
+      blockId: 'np-trevor',
+      updatedAt: null,
+      overlapKind: 'np',
+      overlapConflicts: [
+        {
+          id: 'np_other',
+          type: 'Training',
+          label: 'Course',
+          start_week: '2026-05-25',
+          end_week: '2026-06-01',
+        },
+      ],
+      proposedStartWeek: '2026-04-27',
+      proposedEndWeek: '2026-05-25',
+    };
+    renderGrid();
+    const handle = screen.getByTestId('np-resize-bottom-np-trevor');
+    act(() => {
+      fireEvent.mouseDown(handle, { button: 0, clientY: 100 });
+    });
+    dispatchOnWindow('mousemove', { clientY: 156 });
+    dispatchOnWindow('mouseup');
+    const prompt = screen.getByTestId('np-resize-conflict-prompt');
+    expect(prompt).toBeInTheDocument();
+    expect(prompt).toHaveTextContent(/time block/i);
+    expect(prompt).toHaveTextContent('Training');
+  });
+
+  it('Save anyway in NpResizeConflictPrompt re-fires the RPC with force=true', () => {
+    resizeNpResult.current = {
+      blockId: 'np-trevor',
+      updatedAt: null,
+      overlapKind: 'np',
+      overlapConflicts: [
+        {
+          id: 'np_other',
+          type: 'Training',
+          label: null,
+          start_week: '2026-05-25',
+          end_week: '2026-06-01',
+        },
+      ],
+      proposedStartWeek: '2026-04-27',
+      proposedEndWeek: '2026-05-25',
+    };
+    renderGrid();
+    const handle = screen.getByTestId('np-resize-bottom-np-trevor');
+    act(() => {
+      fireEvent.mouseDown(handle, { button: 0, clientY: 100 });
+    });
+    dispatchOnWindow('mousemove', { clientY: 156 });
+    dispatchOnWindow('mouseup');
+    expect(resizeNpMutate).toHaveBeenCalledTimes(1);
+
+    // Reset the mocked response so the retry path lands as a clean write
+    // (no infinite prompt loop).
+    resizeNpResult.current = {
+      blockId: 'np-trevor',
+      updatedAt: '2026-05-16T20:00:00Z',
+      overlapKind: null,
+      overlapConflicts: null,
+      proposedStartWeek: null,
+      proposedEndWeek: null,
+    };
+    act(() => {
+      fireEvent.click(screen.getByTestId('np-resize-conflict-confirm'));
+    });
+    expect(resizeNpMutate).toHaveBeenCalledTimes(2);
+    expect(resizeNpMutate.mock.calls[1][0]).toMatchObject({
+      force: true,
+    });
+    expect(screen.queryByTestId('np-resize-conflict-prompt')).toBeNull();
   });
 });

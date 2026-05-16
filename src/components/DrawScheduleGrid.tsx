@@ -10,7 +10,13 @@ import { useShiftDaBlocksUp } from '../hooks/useShiftDaBlocksUp';
 import { useDaTimeBlocks } from '../hooks/useDaTimeBlocks';
 import { useUpsertDaTimeBlock } from '../hooks/useUpsertDaTimeBlock';
 import { useDeleteDaTimeBlock } from '../hooks/useDeleteDaTimeBlock';
+import {
+  useResizeDaTimeBlock,
+  type NpResizeProjectConflict,
+  type NpResizeNpConflict,
+} from '../hooks/useResizeDaTimeBlock';
 import NpBlockEditPopup from './NpBlockEditPopup';
+import NpResizeConflictPrompt from './NpResizeConflictPrompt';
 import ProjectBlockPopup from './DrawSchedule/ProjectBlockPopup';
 import GapFillPrompt from './GapFillPrompt';
 import {
@@ -450,6 +456,172 @@ function DrawScheduleBody({
     // they don't need to re-attach on every state tick.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [resizing !== null]);
+
+  // fix-25-feat-a: drag-to-resize NP blocks (vacation / training / etc.)
+  // on BOTH edges. Top handle moves start_week; bottom handle moves
+  // end_week. Same window-listener pattern as project-block resize.
+  // Overlap is checked server-side and surfaced via the conflict prompt.
+  interface NpResizeState {
+    blockId: string;
+    daName: string;
+    edge: 'top' | 'bottom';
+    /** Captured at mousedown — used as the rollback anchor. */
+    originalStartWeek: string;
+    originalEndWeek: string;
+    /** Live preview, mutated by mousemove. The non-active edge stays
+     *  pinned to its original value. */
+    previewStartWeek: string;
+    previewEndWeek: string;
+    startMouseY: number;
+    expectedUpdatedAt: string;
+    /** Display label for the conflict prompt header. */
+    anchorLabel: string;
+  }
+  interface PendingNpResizeConflict {
+    blockId: string;
+    daName: string;
+    anchorLabel: string;
+    expectedUpdatedAt: string;
+    newStartWeek: string;
+    newEndWeek: string;
+    kind: 'project' | 'np';
+    conflicts: Array<
+      | { kind: 'project'; address: string; startWeek: string; endWeek: string }
+      | {
+          kind: 'np';
+          type: string;
+          label: string | null;
+          startWeek: string;
+          endWeek: string;
+        }
+    >;
+  }
+  const resizeNpMutation = useResizeDaTimeBlock();
+  const [npResizing, setNpResizing] = useState<NpResizeState | null>(null);
+  const npResizingRef = useRef<NpResizeState | null>(null);
+  npResizingRef.current = npResizing;
+  const [pendingNpConflict, setPendingNpConflict] =
+    useState<PendingNpResizeConflict | null>(null);
+
+  /** Commit an NP resize via the RPC. Used by both the mouseup
+   *  handler (initial commit) and the conflict prompt's confirm
+   *  callback (force=true retry). */
+  function commitNpResize(args: {
+    blockId: string;
+    daName: string;
+    anchorLabel: string;
+    expectedUpdatedAt: string;
+    newStartWeek: string;
+    newEndWeek: string;
+    force?: boolean;
+  }) {
+    resizeNpMutation.mutate(
+      {
+        blockId: args.blockId,
+        newStartWeek: args.newStartWeek,
+        newEndWeek: args.newEndWeek,
+        expectedUpdatedAt: args.expectedUpdatedAt,
+        force: args.force ?? false,
+      },
+      {
+        onSuccess: (result) => {
+          if (result.overlapKind === 'project') {
+            const items = (result.overlapConflicts as
+              | NpResizeProjectConflict[]
+              | null) ?? [];
+            setPendingNpConflict({
+              blockId: args.blockId,
+              daName: args.daName,
+              anchorLabel: args.anchorLabel,
+              expectedUpdatedAt: args.expectedUpdatedAt,
+              newStartWeek: args.newStartWeek,
+              newEndWeek: args.newEndWeek,
+              kind: 'project',
+              conflicts: items.map((c) => ({
+                kind: 'project',
+                address: c.address,
+                startWeek: c.start_week,
+                endWeek: c.end_week,
+              })),
+            });
+          } else if (result.overlapKind === 'np') {
+            const items = (result.overlapConflicts as
+              | NpResizeNpConflict[]
+              | null) ?? [];
+            setPendingNpConflict({
+              blockId: args.blockId,
+              daName: args.daName,
+              anchorLabel: args.anchorLabel,
+              expectedUpdatedAt: args.expectedUpdatedAt,
+              newStartWeek: args.newStartWeek,
+              newEndWeek: args.newEndWeek,
+              kind: 'np',
+              conflicts: items.map((c) => ({
+                kind: 'np',
+                type: c.type,
+                label: c.label,
+                startWeek: c.start_week,
+                endWeek: c.end_week,
+              })),
+            });
+          }
+        },
+      },
+    );
+  }
+
+  useEffect(() => {
+    if (!npResizing) return;
+    function onMove(e: MouseEvent) {
+      const r = npResizingRef.current;
+      if (!r) return;
+      const deltaPx = e.clientY - r.startMouseY;
+      const deltaWeeks = Math.round(deltaPx / ROW_H);
+      if (r.edge === 'bottom') {
+        let candidate = addWeeksToWeekKey(r.originalEndWeek, deltaWeeks);
+        if (candidate < r.previewStartWeek) candidate = r.previewStartWeek;
+        if (candidate === r.previewEndWeek) return;
+        setNpResizing({ ...r, previewEndWeek: candidate });
+      } else {
+        let candidate = addWeeksToWeekKey(r.originalStartWeek, deltaWeeks);
+        if (candidate > r.previewEndWeek) candidate = r.previewEndWeek;
+        if (candidate === r.previewStartWeek) return;
+        setNpResizing({ ...r, previewStartWeek: candidate });
+      }
+    }
+    function onUp() {
+      const r = npResizingRef.current;
+      setNpResizing(null);
+      if (!r) return;
+      // No-op if the user released at the same range they started.
+      if (
+        r.previewStartWeek === r.originalStartWeek &&
+        r.previewEndWeek === r.originalEndWeek
+      ) {
+        return;
+      }
+      commitNpResize({
+        blockId: r.blockId,
+        daName: r.daName,
+        anchorLabel: r.anchorLabel,
+        expectedUpdatedAt: r.expectedUpdatedAt,
+        newStartWeek: r.previewStartWeek,
+        newEndWeek: r.previewEndWeek,
+      });
+    }
+    function onKey(e: KeyboardEvent) {
+      if (e.key === 'Escape') setNpResizing(null);
+    }
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+    window.addEventListener('keydown', onKey);
+    return () => {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+      window.removeEventListener('keydown', onKey);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [npResizing !== null]);
 
   function hoverRange(startWeek: string, endWeek: string) {
     // weeks already covers the current quarter — intersect against it so we
@@ -899,8 +1071,20 @@ function DrawScheduleBody({
                       around project blocks on the same DA — render one
                       rectangle per visible (uncovered) segment, so users
                       can still read e.g. "vacation ends week X" even when
-                      part of the NP range is covered by a project. */}
+                      part of the NP range is covered by a project.
+                      fix-25-feat-a: each segment carries top + bottom
+                      drag handles for resize. While a resize is in
+                      flight, the segment math uses the preview range so
+                      the user gets live height feedback. */}
                   {daNpBlocks.flatMap((np) => {
+                    const isResizingThis =
+                      npResizing?.blockId === np.id;
+                    const effectiveStart = isResizingThis
+                      ? npResizing!.previewStartWeek
+                      : np.start_week;
+                    const effectiveEnd = isResizingThis
+                      ? npResizing!.previewEndWeek
+                      : np.end_week;
                     const projectRanges = blocks
                       .filter((b) => b.row.start_week && b.row.end_week)
                       .map((b) => ({
@@ -908,40 +1092,44 @@ function DrawScheduleBody({
                         endWeek: b.row.end_week as string,
                       }));
                     const segments = computeNpSegments(
-                      np.start_week,
-                      np.end_week,
+                      effectiveStart,
+                      effectiveEnd,
                       projectRanges,
                       weeks,
                     );
                     if (segments.length === 0) return [];
                     const labelText = np.label?.trim() || np.type;
-                    const tooltipText = `${np.type}${np.label && np.label !== np.type ? ` — ${np.label}` : ''} (${np.start_week} → ${np.end_week})`;
+                    const tooltipText = `${np.type}${np.label && np.label !== np.type ? ` — ${np.label}` : ''} (${effectiveStart} → ${effectiveEnd}) — drag edges to resize`;
                     return segments.map((seg, segIdx) => {
                       const si = weeks.indexOf(seg.startWeek);
                       const ei = weeks.indexOf(seg.endWeek);
                       if (si < 0 || ei < 0) return null;
                       const top = si * ROW_H;
                       const height = (ei - si + 1) * ROW_H - 2;
+                      // fix-25-feat-a: attach the top handle to the first
+                      // visible segment and the bottom handle to the last.
+                      // When the true start/end of the NP is covered by a
+                      // project block the user wouldn't otherwise have a
+                      // grabbable edge — anchoring to the visible segments
+                      // keeps resize reachable even when the NP is clipped.
+                      const isFirstSegment = segIdx === 0;
+                      const isLastSegment = segIdx === segments.length - 1;
                       return (
                         <div
                           key={`${np.id}-seg-${segIdx}`}
                           data-testid={`np-block-${np.id}-seg-${segIdx}`}
                           title={tooltipText}
                           onMouseEnter={() =>
-                            // Q9.5.f-fix-20: NP block hover highlights its
-                            // segment's week range in the left column. Use
-                            // the visible segment range, not the underlying
-                            // np.start_week..end_week, so a clipped vacation
-                            // only highlights the uncovered portion the
-                            // user can actually see.
                             hoverRange(seg.startWeek, seg.endWeek)
                           }
                           onClick={(e) => {
                             // Open edit popup. stopPropagation so the click
                             // doesn't bubble to the underlying empty-cell
-                            // add-popup handler.
+                            // add-popup handler. Suppressed during drag /
+                            // resize so the release click doesn't reopen.
                             e.stopPropagation();
                             if (draggingProjectId !== null) return;
+                            if (npResizing !== null) return;
                             setNpPopup({
                               mode: 'edit',
                               block: np,
@@ -969,13 +1157,87 @@ function DrawScheduleBody({
                             textAlign: 'center',
                             zIndex: 3,
                             cursor: 'pointer',
-                            // Same pointer-events contract as before:
-                            // auto for hover, none during drag.
                             pointerEvents:
                               draggingProjectId === null ? 'auto' : 'none',
                           }}
                         >
                           {labelText}
+                          {/* fix-25-feat-a: top edge resize handle (start_week) */}
+                          {isFirstSegment && (
+                            <div
+                              data-testid={`np-resize-top-${np.id}`}
+                              draggable={false}
+                              onMouseDown={(e) => {
+                                if (e.button !== 0) return;
+                                e.stopPropagation();
+                                e.preventDefault();
+                                setNpResizing({
+                                  blockId: np.id,
+                                  daName: np.da_name,
+                                  edge: 'top',
+                                  originalStartWeek: np.start_week,
+                                  originalEndWeek: np.end_week,
+                                  previewStartWeek: np.start_week,
+                                  previewEndWeek: np.end_week,
+                                  startMouseY: e.clientY,
+                                  expectedUpdatedAt: np.updated_at,
+                                  anchorLabel: labelText,
+                                });
+                              }}
+                              style={{
+                                position: 'absolute',
+                                left: 0,
+                                right: 0,
+                                top: 0,
+                                height: 6,
+                                cursor: 'ns-resize',
+                                background:
+                                  isResizingThis && npResizing!.edge === 'top'
+                                    ? 'rgba(0,0,0,0.25)'
+                                    : 'rgba(0,0,0,0.10)',
+                                pointerEvents:
+                                  draggingProjectId !== null ? 'none' : 'auto',
+                              }}
+                            />
+                          )}
+                          {/* fix-25-feat-a: bottom edge resize handle (end_week) */}
+                          {isLastSegment && (
+                            <div
+                              data-testid={`np-resize-bottom-${np.id}`}
+                              draggable={false}
+                              onMouseDown={(e) => {
+                                if (e.button !== 0) return;
+                                e.stopPropagation();
+                                e.preventDefault();
+                                setNpResizing({
+                                  blockId: np.id,
+                                  daName: np.da_name,
+                                  edge: 'bottom',
+                                  originalStartWeek: np.start_week,
+                                  originalEndWeek: np.end_week,
+                                  previewStartWeek: np.start_week,
+                                  previewEndWeek: np.end_week,
+                                  startMouseY: e.clientY,
+                                  expectedUpdatedAt: np.updated_at,
+                                  anchorLabel: labelText,
+                                });
+                              }}
+                              style={{
+                                position: 'absolute',
+                                left: 0,
+                                right: 0,
+                                bottom: 0,
+                                height: 6,
+                                cursor: 'ns-resize',
+                                background:
+                                  isResizingThis && npResizing!.edge === 'bottom'
+                                    ? 'rgba(0,0,0,0.25)'
+                                    : 'rgba(0,0,0,0.10)',
+                                pointerEvents:
+                                  draggingProjectId !== null ? 'none' : 'auto',
+                              }}
+                            />
+                          )}
                         </div>
                       );
                     });
@@ -1334,6 +1596,33 @@ function DrawScheduleBody({
                 onSuccess: () => setPendingOverlap(null),
               },
             );
+          }}
+        />
+      )}
+
+      {/* fix-25-feat-a: NP resize conflict prompt. Both project and NP
+          overlaps are soft — confirm fires the resize again with
+          force=true; cancel discards. */}
+      {pendingNpConflict && (
+        <NpResizeConflictPrompt
+          anchorLabel={pendingNpConflict.anchorLabel}
+          daName={pendingNpConflict.daName}
+          conflictKind={pendingNpConflict.kind}
+          conflicts={pendingNpConflict.conflicts}
+          pending={resizeNpMutation.isPending}
+          onCancel={() => setPendingNpConflict(null)}
+          onConfirm={() => {
+            const c = pendingNpConflict;
+            setPendingNpConflict(null);
+            commitNpResize({
+              blockId: c.blockId,
+              daName: c.daName,
+              anchorLabel: c.anchorLabel,
+              expectedUpdatedAt: c.expectedUpdatedAt,
+              newStartWeek: c.newStartWeek,
+              newEndWeek: c.newEndWeek,
+              force: true,
+            });
           }}
         />
       )}
