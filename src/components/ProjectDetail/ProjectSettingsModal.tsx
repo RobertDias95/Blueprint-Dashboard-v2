@@ -4,6 +4,7 @@ import { useUpdatePermit } from '../../hooks/useUpdatePermit';
 import { useCreatePermit } from '../../hooks/useCreatePermit';
 import { useDeletePermit } from '../../hooks/useDeletePermit';
 import { useJurisdictions } from '../../hooks/useJurisdictions';
+import { usePermitTypes } from '../../hooks/usePermitTypes';
 import { useTeamMembers } from '../../hooks/useTeamMembers';
 import { usePermitsByProject } from '../../hooks/usePermitsByProject';
 import { pushToast } from '../../stores/toastStore';
@@ -164,6 +165,8 @@ export default function ProjectSettingsModal({ project, onClose }: Props) {
   const permitsQ = usePermitsByProject(project.id);
   const jurisdictionsQ = useJurisdictions();
   const teamQ = useTeamMembers();
+  // fix-25-feat-d: catalog source for the per-permit Type dropdown
+  const permitTypesQ = usePermitTypes();
 
   const permits = useMemo(() => permitsQ.data ?? [], [permitsQ.data]);
   const bpPermit = useMemo(
@@ -654,6 +657,7 @@ export default function ProjectSettingsModal({ project, onClose }: Props) {
                     row={row}
                     daOptions={daMembers.map((m) => m.name)}
                     entOptions={entMembers.map((m) => m.name)}
+                    typeOptions={(permitTypesQ.data ?? []).map((t) => t.name)}
                     onChange={(patch) => setPermitField(idx, patch)}
                     onRemove={() => removePermit(idx)}
                   />
@@ -835,15 +839,27 @@ function PermitSubsection({
   row,
   daOptions,
   entOptions,
+  typeOptions,
   onChange,
   onRemove,
 }: {
   row: PermitRow;
   daOptions: string[];
   entOptions: string[];
+  typeOptions: string[];
   onChange: (patch: Partial<PermitRow>) => void;
   onRemove: () => void;
 }) {
+  // fix-25-feat-d: Type is now a dropdown sourced from permit_types
+  // (catalog). If this row carries a legacy / custom type value not in
+  // the catalog, surface it as the first option so the user can keep
+  // it or pick a canonical replacement.
+  const typeOptionsWithLegacy = useMemo(() => {
+    if (row.type && !typeOptions.includes(row.type)) {
+      return ['', row.type, ...typeOptions];
+    }
+    return ['', ...typeOptions];
+  }, [typeOptions, row.type]);
   // fix-23d: V1 cohesive layout — ONE outer card per permit. fix-25-feat-e:
   // collapsed the prior 3-row internal stack into 2 rows now that the
   // modal is 960px wide. Portal URL gets 2× the column weight on row 2
@@ -884,7 +900,12 @@ function PermitSubsection({
         style={{ gridTemplateColumns: '1fr 1fr 1fr' }}
       >
         <TinyField label="Type">
-          <Input value={row.type} onChange={(v) => onChange({ type: v })} />
+          <SelectInput
+            value={row.type}
+            onChange={(v) => onChange({ type: v })}
+            options={typeOptionsWithLegacy}
+            placeholderLabel="— select —"
+          />
         </TinyField>
         <TinyField label="ENT">
           <SelectInput

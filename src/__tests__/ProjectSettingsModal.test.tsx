@@ -124,6 +124,22 @@ vi.mock('../hooks/useJurisdictions', () => ({
   }),
 }));
 
+// fix-25-feat-d: permit_types catalog drives the per-permit Type
+// dropdown. Match the prod shape (name + is_builtin + notes).
+vi.mock('../hooks/usePermitTypes', () => ({
+  usePermitTypes: () => ({
+    data: [
+      { name: 'Building Permit', is_builtin: true, notes: null },
+      { name: 'Demolition', is_builtin: true, notes: null },
+      { name: 'ULS', is_builtin: true, notes: null },
+      { name: 'PAR/Pre-Sub', is_builtin: false, notes: null },
+    ],
+    isLoading: false,
+    error: null,
+    refetch: vi.fn(),
+  }),
+}));
+
 vi.mock('../hooks/useTeamMembers', () => ({
   useTeamMembers: () => ({
     data: refs.team,
@@ -315,15 +331,61 @@ describe('<ProjectSettingsModal /> fix-23d unified permit row', () => {
 
     // All expected fields render inside this single card.
     const scope = within(card);
-    // 3 selects (the spec mockup labels: Type-as-input, ENT-as-select,
-    // DA-as-select). Type stays a free <input>.
+    // fix-25-feat-d: Type joined ENT + DA as a <select> -> 3 selects.
     const selects = card.querySelectorAll('select');
-    expect(selects.length).toBe(2); // ENT + DA selects
-    // Inputs: Type, Permit Portal URL, Permit #, Structure Address = 4.
+    expect(selects.length).toBe(3); // Type + ENT + DA
+    // Inputs: Permit Portal URL, Permit #, Structure Address = 3.
     const inputs = card.querySelectorAll('input');
-    expect(inputs.length).toBe(4);
+    expect(inputs.length).toBe(3);
     // Delete X stays inside the card (top-right corner).
     expect(scope.getByTitle('Remove permit')).toBeInTheDocument();
+  });
+});
+
+describe('<ProjectSettingsModal /> fix-25-feat-d Type dropdown', () => {
+  it('Type field renders as a <select> with all catalog options + the placeholder', () => {
+    renderModal();
+    const card = screen.getByTestId(`psm-permit-row-${refs.permits[0].id}`);
+    const selects = Array.from(card.querySelectorAll('select'));
+    // Type is the first select inside the card's top sub-grid.
+    const typeSelect = selects[0] as HTMLSelectElement;
+    const optionValues = Array.from(typeSelect.options).map((o) => o.value);
+    expect(optionValues).toContain('Building Permit');
+    expect(optionValues).toContain('Demolition');
+    expect(optionValues).toContain('ULS');
+    expect(optionValues).toContain('PAR/Pre-Sub');
+    // Placeholder (empty value) is present so users can clear the type.
+    expect(optionValues).toContain('');
+    // No duplicate of the row's current value when it IS in the catalog.
+    const buildingPermitCount = optionValues.filter(
+      (v) => v === 'Building Permit',
+    ).length;
+    expect(buildingPermitCount).toBe(1);
+  });
+
+  it('preserves a legacy type value not in the catalog as a selectable option', () => {
+    // Mutate the fixture so the row carries a custom type. Reset in
+    // afterEach below.
+    const original = refs.permits[0].type;
+    refs.permits[0].type = 'CustomLegacyType';
+    try {
+      renderModal();
+      const card = screen.getByTestId(`psm-permit-row-${refs.permits[0].id}`);
+      const typeSelect = card.querySelector('select') as HTMLSelectElement;
+      const optionValues = Array.from(typeSelect.options).map((o) => o.value);
+      expect(optionValues).toContain('CustomLegacyType');
+      expect(typeSelect.value).toBe('CustomLegacyType');
+    } finally {
+      refs.permits[0].type = original;
+    }
+  });
+
+  it('changing the Type select fires onChange via the row patch', () => {
+    renderModal();
+    const card = screen.getByTestId(`psm-permit-row-${refs.permits[0].id}`);
+    const typeSelect = card.querySelector('select') as HTMLSelectElement;
+    fireEvent.change(typeSelect, { target: { value: 'Demolition' } });
+    expect(typeSelect.value).toBe('Demolition');
   });
 });
 
