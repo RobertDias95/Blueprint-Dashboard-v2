@@ -389,23 +389,34 @@ describe('<ProjectSettingsModal /> fix-25-feat-d Type dropdown', () => {
   });
 });
 
-describe('<ProjectSettingsModal /> fix-25-feat-e wider modal + 2-row layout', () => {
-  it('modal container is 960px wide (bumped from 720)', () => {
+describe('<ProjectSettingsModal /> fix-25-feat-e-redo permits fill section width', () => {
+  it('modal container is 720px wide (original; not the over-wide fix-25-feat-e value)', () => {
     renderModal();
-    // The .w-[960px] container is the first descendant of the modal
-    // backdrop. Walk to it and check the class.
     const backdrop = screen.getByTestId('project-settings-modal');
     const container = backdrop.firstElementChild as HTMLElement | null;
     expect(container).not.toBeNull();
-    expect(container!.className).toMatch(/w-\[960px\]/);
+    expect(container!.className).toMatch(/w-\[720px\]/);
+    expect(container!.className).not.toMatch(/w-\[960px\]/);
+  });
+
+  it('permits container carries col-span-2 so it fills the full Section width', () => {
+    // Section's body is a `grid grid-cols-2`. Without col-span-2 on the
+    // permits wrapper, each card gets confined to half the modal width.
+    renderModal();
+    const card = screen.getByTestId(`psm-permit-row-${refs.permits[0].id}`);
+    // Walk up from the card until we hit the wrapping flex-col container
+    // that contains all permits + the add button.
+    let parent: HTMLElement | null = card.parentElement;
+    while (parent && !/flex-col/.test(parent.className)) {
+      parent = parent.parentElement;
+    }
+    expect(parent).not.toBeNull();
+    expect(parent!.className).toMatch(/col-span-2/);
   });
 
   it('permit row uses 2 horizontal sub-grids (Type/ENT/DA + Num/URL/Address)', () => {
     renderModal();
     const card = screen.getByTestId(`psm-permit-row-${refs.permits[0].id}`);
-    // Sub-grids inside the card use display:grid via inline style. The
-    // direct grid children are the only grid containers — 2 of them now
-    // (was 3 in fix-23d's layout: 3-col top, full-width middle, 2-col bottom).
     const grids = Array.from(
       card.querySelectorAll<HTMLElement>(':scope > div'),
     ).filter((el) => /grid/.test(el.className));

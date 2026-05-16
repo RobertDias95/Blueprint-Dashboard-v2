@@ -406,7 +406,7 @@ export default function ProjectSettingsModal({ project, onClose }: Props) {
       data-testid="project-settings-modal"
     >
       <div
-        className="rounded-lg shadow-xl w-[960px] max-w-[95vw] max-h-[90vh] overflow-hidden flex flex-col"
+        className="rounded-lg shadow-xl w-[720px] max-h-[90vh] overflow-hidden flex flex-col"
         style={{ background: 'var(--color-surface)' }}
         onClick={(e) => e.stopPropagation()}
       >
@@ -646,7 +646,11 @@ export default function ProjectSettingsModal({ project, onClose }: Props) {
           </Section>
 
           <Section title="Permits" color="var(--color-de)">
-            <div className="flex flex-col gap-2 w-full">
+            {/* fix-25-feat-e-redo: Section's body is a grid-cols-2 layout;
+                without col-span-2 the permits container gets confined to
+                half the modal width (the other half stays empty). Each
+                permit card should fill the full content area. */}
+            <div className="flex flex-col gap-2 w-full col-span-2">
               {form.permits.filter((p) => !p.isDeleted).length === 0 && (
                 <div className="text-[11px] text-dim italic">No permits yet.</div>
               )}
