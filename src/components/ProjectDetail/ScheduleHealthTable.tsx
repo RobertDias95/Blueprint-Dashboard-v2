@@ -5,6 +5,7 @@ import { usePermits } from '../../hooks/usePermits';
 import { useProjects } from '../../hooks/useProjects';
 import { computeLearnedSchedule } from '../../lib/scheduleBenchmarks';
 import { computeProjectedApproval } from '../../lib/projectedApproval';
+import { derivePermitStatus } from '../../lib/permitStatus';
 import type { PermitCycle, PermitTask, PermitWithCycles, Stage } from '../../lib/database.types';
 
 // Q9.5.e-fix-4: 8-column Schedule Health table per v1 §4.2.1 (B) and the
@@ -247,16 +248,26 @@ function Row({
           {STAGE_LABEL[stage]}
         </span>
       </td>
-      {/* 4. Permit Status */}
+      {/* 4. Permit Status — fix-25e: derived from cycle state when there's
+          any progress, falls back to stored permits.status otherwise. */}
       <td
         className="px-2 py-2 align-middle text-center border-l text-[10px]"
         style={borderL}
+        data-testid={`schedule-health-status-${permit.id}`}
       >
-        {permit.status ? (
-          <span className="text-text">{permit.status}</span>
-        ) : (
-          <span className="text-dim">—</span>
-        )}
+        {(() => {
+          const status = derivePermitStatus(permit);
+          return (
+            <div>
+              <div className="text-text">{status.label}</div>
+              {status.date && (
+                <div className="text-[9px] text-dim mt-0.5 font-mono">
+                  {fmtDate(status.date)}
+                </div>
+              )}
+            </div>
+          );
+        })()}
       </td>
       {/* 5. Data Source */}
       <td className="px-2 py-2 align-middle text-center border-l" style={borderL}>

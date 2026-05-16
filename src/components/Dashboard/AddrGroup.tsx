@@ -2,7 +2,13 @@ import { useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import { effectiveStage } from '../../lib/permitStage';
 import { permitUrgency, type UrgencyLevel } from '../../lib/urgencyHelpers';
-import type { Permit, PermitCycle, Stage } from '../../lib/database.types';
+import { derivePermitStatus } from '../../lib/permitStatus';
+import type {
+  Permit,
+  PermitCycle,
+  PermitWithCycles,
+  Stage,
+} from '../../lib/database.types';
 
 // Q9.5.e2: Address-clumped permit group per v1 .addr-group at index.html
 // :177-211. One group per (sub-bucket, address) pair. Collapsed header
@@ -368,9 +374,18 @@ function ExpandedRow({
         {team && (
           <span className="text-[10px] text-muted truncate">{team}</span>
         )}
-        {permit.status && (
-          <span className="text-[10px] text-dim truncate">{permit.status}</span>
-        )}
+        {(() => {
+          // fix-25e: derived status takes precedence over the stored
+          // permits.status when cycle data exists. Falls back to the
+          // stored value (or "Pre-Submittal — GO") for fresh permits.
+          const status = derivePermitStatus(permit as PermitWithCycles);
+          return (
+            <span className="text-[10px] text-dim truncate">
+              {status.label}
+              {status.date ? ` · ${status.date}` : ''}
+            </span>
+          );
+        })()}
       </div>
       <div className="text-right flex flex-col items-end gap-0.5 flex-shrink-0">
         <span className="text-[8px] uppercase tracking-wide text-dim">
