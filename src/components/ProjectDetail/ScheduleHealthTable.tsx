@@ -3,7 +3,7 @@ import { effectiveStage } from '../../lib/permitStage';
 import { useAllPermitTasks } from '../../hooks/useAllPermitTasks';
 import { usePermits } from '../../hooks/usePermits';
 import { useProjects } from '../../hooks/useProjects';
-import { computeLearnedSchedule } from '../../lib/scheduleBenchmarks';
+import { computeLearnedSchedule, type LearnedEstimate } from '../../lib/scheduleBenchmarks';
 import { computeProjectedApproval } from '../../lib/projectedApproval';
 import { derivePermitStatus } from '../../lib/permitStatus';
 import type { PermitCycle, PermitTask, PermitWithCycles, Stage } from '../../lib/database.types';
@@ -271,7 +271,7 @@ function Row({
       </td>
       {/* 5. Data Source */}
       <td className="px-2 py-2 align-middle text-center border-l" style={borderL}>
-        <DataSourceBadge />
+        <DataSourceBadge estimate={learnedEstimate} />
       </td>
       {/* 6. Estimated Approval */}
       <td
@@ -388,21 +388,43 @@ function TaskProgress({ stats }: { stats: TaskStats }) {
   );
 }
 
-function DataSourceBadge() {
-  // v2 ships the "Default" branch; the v1 learner state hasn't been ported
-  // (Q7+ backlog). Once it does, this component will read learned metadata
-  // off the permit (avg cycles, source, sample count) and switch styling.
+function DataSourceBadge({ estimate }: { estimate: LearnedEstimate | null }) {
+  // fix-25-feat-g-badge: the badge was hardcoded "Default" from the
+  // pre-fix-24i era when the learner hadn't shipped yet. Now that the
+  // learner runs on every row, branch on whether it produced an
+  // estimate — null means we genuinely fell back to defaultDaysForType,
+  // non-null means at least one approved permit in this (type, juris)
+  // scope (or in the cross-juris pool) is feeding the projection.
+  if (!estimate) {
+    return (
+      <span
+        className="text-[8px] font-bold px-2 py-0.5 rounded border"
+        style={{
+          background: 'var(--color-s2)',
+          color: 'var(--color-dim)',
+          borderColor: 'var(--color-border)',
+        }}
+        title="No approved permits available for this type/jurisdiction — using per-type default"
+      >
+        Default
+      </span>
+    );
+  }
+  const crossJurisMark = estimate.isCrossJuris ? ' *' : '';
   return (
     <span
       className="text-[8px] font-bold px-2 py-0.5 rounded border"
       style={{
-        background: 'var(--color-s2)',
-        color: 'var(--color-dim)',
-        borderColor: 'var(--color-border)',
+        background: 'var(--color-pm-bg)',
+        color: 'var(--color-pm)',
+        borderColor: 'var(--color-pm-border)',
       }}
-      title="Default schedule — learner state not yet ported (Q7+ backlog)"
+      title={`${estimate.source} · ${estimate.sampleCount} sample${estimate.sampleCount === 1 ? '' : 's'}${
+        estimate.dateRange ? ` (${estimate.dateRange})` : ''
+      }`}
     >
-      Default
+      Learned ({estimate.sampleCount}
+      {crossJurisMark})
     </span>
   );
 }
