@@ -16,6 +16,29 @@ const DAY_MS = 24 * 60 * 60 * 1000;
  * exposes the override via getLearnWindow. */
 const LEARN_WINDOW_DEFAULT = 180;
 
+/** fix-25-feat-AA: recency cascade tiers (days). The learner walks
+ *  fresh→stale and returns the first tier with N ≥ gate. After 365d
+ *  the cascade falls through to all-time (no cutoff) so a cohort
+ *  with old data still contributes — better than silent fallback to
+ *  hardcoded defaults. */
+export const WINDOW_TIERS_DAYS = [90, 180, 365] as const;
+
+/** fix-25-feat-AA: tier label surfaced on LearnedEstimate.recencyTier
+ *  so UI can show "based on last 90d (n=12)" vs "all-time (n=3)". */
+export type RecencyTier =
+  | 'last_90d'
+  | 'last_180d'
+  | 'last_365d'
+  | 'all_time'
+  | 'default';
+
+function tierLabelFor(windowDays: number | null): RecencyTier {
+  if (windowDays === 90) return 'last_90d';
+  if (windowDays === 180) return 'last_180d';
+  if (windowDays === 365) return 'last_365d';
+  return 'all_time';
+}
+
 /** Hardcoded fallbacks when no learned data exists (v1's getScheduleDefaults
  * for v2-style cycle numbering). Each value in days. */
 export const SCHEDULE_DEFAULTS = {
@@ -285,6 +308,12 @@ export interface LearnedEstimate {
    *  exposed individually — each cycle's filter sees a different
    *  distribution and aggregating across them would mislead. */
   filteredCount?: number;
+  /** fix-25-feat-AA: which recency tier won the cascade. UI can use this
+   *  to surface "based on last 90d" / "all-time" labels. Mirrors the
+   *  hierarchy WINDOW_TIERS_DAYS → all_time → default. `isAllTime`
+   *  stays in place for backward compat but `recencyTier` is the
+   *  authoritative signal. */
+  recencyTier: RecencyTier;
 }
 
 /** fix-25-feat-W: hard-cap upper bound (days). Any clock > 2 years is
@@ -521,6 +550,7 @@ function buildEstimate(
   source: string,
   isAllTime: boolean,
   isCrossJuris: boolean,
+  recencyTier: RecencyTier,
 ): LearnedEstimate | null {
   if (samples.length === 0) return null;
   const cr1 = samples.map((s) => s.cityReview1Days);
@@ -608,22 +638,29 @@ function buildEstimate(
     cycleDist,
     isAllTime,
     isCrossJuris,
+    recencyTier,
   };
 }
 
-/** fix-24i: build estimate for a (type, juris | null) scope. juris=null is
- *  the cross-juris path (type, *). Returns null when the sample count is
- *  below MIN_SAMPLES_FOR_LEARNER. Caller orchestrates the fallback ladder. */
+/** fix-25-feat-AA: build estimate for a (type, juris | null) scope.
+ *  juris=null is the cross-juris path (type, *). Walks the 4-tier
+ *  recency cascade: 90d → 180d → 365d → all-time. Returns the first
+ *  tier with N ≥ MIN_SAMPLES_FOR_LEARNER. Caller orchestrates the
+ *  cross-juris fallback after this returns null.
+ *
+ *  Recency anchor for the existing learner = approval_date (or
+ *  actual_issue fallback). Older fix-24i implementation only had a
+ *  single 180d window + all-time; this generalizes to a configurable
+ *  cascade so the team can prefer "last quarter" over "old steady
+ *  state" without losing the all-time signal as a fallback. */
 function computeForFilter(
   permits: PermitWithCycles[],
   projectsById: Map<string, Project>,
   type: string,
   juris: string | null,
-  windowDays: number,
   today: Date,
   isCrossJuris: boolean,
 ): LearnedEstimate | null {
-  const cutoff = new Date(today.getTime() - windowDays * DAY_MS);
   const jurisLabel = juris ?? '*';
 
   const matchingApproved = permits.filter((p) => {
@@ -636,24 +673,31 @@ function computeForFilter(
   });
   if (matchingApproved.length === 0) return null;
 
-  // Tier 1: approvals within the recent window.
-  const recent = matchingApproved.filter((p) => {
-    const d = p.approval_date ?? p.actual_issue;
-    if (!d) return false;
-    return new Date(`${d}T12:00:00Z`).getTime() >= cutoff.getTime();
-  });
-  const recentSamples = recent
-    .map((p) => extractSample(p, projectsById.get(p.project_id)?.go_date ?? null))
-    .filter((s): s is LearnSample => s !== null);
-  if (recentSamples.length >= MIN_SAMPLES_FOR_LEARNER) {
-    return buildEstimate(
-      recentSamples,
-      `Last ${windowDays}d · ${type} · ${jurisLabel}`,
-      false,
-      isCrossJuris,
-    );
+  // Walk the recency cascade fresh→stale. Each tier widens the cutoff;
+  // first tier with enough samples wins.
+  for (const windowDays of WINDOW_TIERS_DAYS) {
+    const cutoff = new Date(today.getTime() - windowDays * DAY_MS);
+    const recent = matchingApproved.filter((p) => {
+      const d = p.approval_date ?? p.actual_issue;
+      if (!d) return false;
+      return new Date(`${d}T12:00:00Z`).getTime() >= cutoff.getTime();
+    });
+    const samples = recent
+      .map((p) =>
+        extractSample(p, projectsById.get(p.project_id)?.go_date ?? null),
+      )
+      .filter((s): s is LearnSample => s !== null);
+    if (samples.length >= MIN_SAMPLES_FOR_LEARNER) {
+      return buildEstimate(
+        samples,
+        `Last ${windowDays}d · ${type} · ${jurisLabel}`,
+        false,
+        isCrossJuris,
+        tierLabelFor(windowDays),
+      );
+    }
   }
-  // Tier 2: all-time approved fallback within the same scope.
+  // Tier 4: all-time within the same scope.
   const allSamples = matchingApproved
     .map((p) => extractSample(p, projectsById.get(p.project_id)?.go_date ?? null))
     .filter((s): s is LearnSample => s !== null);
@@ -663,16 +707,23 @@ function computeForFilter(
       `All-time · ${type} · ${jurisLabel}`,
       true,
       isCrossJuris,
+      'all_time',
     );
   }
-  // Below the min-sample gate → caller falls through.
+  // Below the min-sample gate at every tier → caller falls through.
   return null;
 }
 
-/** fix-24i: orchestrator. Tries (type, juris) first, then (type, *), then
- *  returns null so the caller falls back to defaultDaysForType(type).
- *  Each scope respects MIN_SAMPLES_FOR_LEARNER and prefers the 180d
- *  recency window over the all-time pool. */
+/** fix-25-feat-AA: orchestrator. Walks the (type, juris) recency cascade,
+ *  then (type, *) cross-juris cascade, then returns null so the caller
+ *  falls back to defaultDaysForType(type). The inner cascade (90d →
+ *  180d → 365d → all-time) is the same in each scope — only the cohort
+ *  filter changes between scopes.
+ *
+ *  getLearnWindow still exists for back-compat callers but no longer
+ *  drives this function — the cascade subsumes per-juris window tuning.
+ *  Old per-juris overrides will be revisited if needed once enough
+ *  juris-level signal exists to justify a custom window per tier. */
 export function computeLearnedSchedule(
   permits: PermitWithCycles[],
   type: string,
@@ -680,14 +731,12 @@ export function computeLearnedSchedule(
   projectsById: Map<string, Project>,
   today: Date = new Date(),
 ): LearnedEstimate | null {
-  const windowDays = getLearnWindow(juris);
   // Tier A: (type, juris).
   const scoped = computeForFilter(
     permits,
     projectsById,
     type,
     juris,
-    windowDays,
     today,
     false,
   );
@@ -698,7 +747,6 @@ export function computeLearnedSchedule(
     projectsById,
     type,
     null,
-    windowDays,
     today,
     true,
   );

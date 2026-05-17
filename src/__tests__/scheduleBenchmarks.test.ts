@@ -15,8 +15,15 @@ import {
   RECENCY_HALF_LIFE_MONTHS,
   recencyWeight,
   SCHEDULE_DEFAULTS,
+  WINDOW_TIERS_DAYS,
   type LearnedEstimate,
 } from '../lib/scheduleBenchmarks';
+import {
+  anchorFor,
+  computeLearnedTargetSubmit,
+  extractTargetSubmitSample,
+  HARDCODED_TARGET_SUBMIT_OFFSETS,
+} from '../lib/targetSubmitLearner';
 import type {
   PermitCycle,
   PermitWithCycles,
@@ -313,7 +320,10 @@ describe('computeLearnedSchedule', () => {
     expect(result).not.toBeNull();
     expect(result?.sampleCount).toBe(1);
     expect(result?.isCrossJuris).toBe(false);
-    expect(result?.source).toContain('Last 180d');
+    // fix-25-feat-AA: cascade walks 90d → 180d → 365d → all-time. A
+    // sample within 90 days lands in the freshest tier.
+    expect(result?.source).toContain('Last 90d');
+    expect(result?.recencyTier).toBe('last_90d');
   });
 
   it('tier 1: 3+ recent-window samples build a learned estimate (isAllTime=false)', () => {
@@ -334,7 +344,10 @@ describe('computeLearnedSchedule', () => {
     expect(result?.isCrossJuris).toBe(false);
     expect(result?.sampleCount).toBe(3);
     expect(result?.cityReview1).toBe(28); // ~Feb → ~Mar = 28d each
-    expect(result?.source).toContain('Last 180d');
+    // fix-25-feat-AA: approval dates 2026-05-01..10 vs today 2026-05-15
+    // → all three land in the 90d tier.
+    expect(result?.source).toContain('Last 90d');
+    expect(result?.recencyTier).toBe('last_90d');
   });
 
   it('tier 2: 3+ all-time samples (outside 180d window) → isAllTime=true', () => {
@@ -722,6 +735,7 @@ function mkEstimate(
     cycleDist: { 1: 0, 2: 0, 3: 0, 4: 0 },
     isAllTime: false,
     isCrossJuris: false,
+    recencyTier: 'last_180d' as const,
     ...over,
   };
 }
@@ -983,5 +997,351 @@ describe('filteredMean with weights (fix-25-feat-Y)', () => {
     expect(r.n).toBe(10);
     expect(r.filteredCount).toBe(0);
     expect(r.mean).toBe(138);
+  });
+});
+
+// ============================================================
+// fix-25-feat-AA: recency cascade — existing learner
+// ============================================================
+describe('computeLearnedSchedule recency cascade (fix-25-feat-AA)', () => {
+  // Today pin: 2026-05-15. Each tier cutoff:
+  //   last_90d  → on/after 2026-02-14
+  //   last_180d → on/after 2025-11-16
+  //   last_365d → on/after 2025-05-15
+  //   all_time  → no cutoff
+  const TODAY = new Date(2026, 4, 15);
+
+  function approvedAt(
+    id: number,
+    projectId: string,
+    approval: string,
+  ): PermitWithCycles {
+    return makePermit({
+      id,
+      project_id: projectId,
+      approval_date: approval,
+      permit_cycles: [
+        makeCycle({ permit_id: id, cycle_index: 0, intake_accepted: approval }),
+        makeCycle({ permit_id: id, cycle_index: 1, submitted: approval }),
+      ],
+    });
+  }
+
+  const projects = new Map<string, Project>([
+    ['p1', makeProject({ id: 'p1', juris: 'Seattle' })],
+    ['p2', makeProject({ id: 'p2', juris: 'Seattle' })],
+    ['p3', makeProject({ id: 'p3', juris: 'Seattle' })],
+    ['p4', makeProject({ id: 'p4', juris: 'Seattle' })],
+  ]);
+
+  it('exports WINDOW_TIERS_DAYS in fresh→stale order', () => {
+    expect(Array.from(WINDOW_TIERS_DAYS)).toEqual([90, 180, 365]);
+  });
+
+  it('tier 90d wins when any sample is within 90 days', () => {
+    const permits = [approvedAt(1, 'p1', '2026-04-01')]; // ~44d ago
+    const r = computeLearnedSchedule(
+      permits,
+      'Building Permit',
+      'Seattle',
+      projects,
+      TODAY,
+    );
+    expect(r?.recencyTier).toBe('last_90d');
+    expect(r?.source).toContain('Last 90d');
+  });
+
+  it('tier 180d wins when nothing inside 90d but something inside 180d', () => {
+    // 2026-01-15 → 120 days ago (outside 90, inside 180)
+    const permits = [approvedAt(1, 'p1', '2026-01-15')];
+    const r = computeLearnedSchedule(
+      permits,
+      'Building Permit',
+      'Seattle',
+      projects,
+      TODAY,
+    );
+    expect(r?.recencyTier).toBe('last_180d');
+  });
+
+  it('tier 365d wins when nothing inside 180d but something inside 365d', () => {
+    // 2025-09-01 → ~256 days ago (outside 180, inside 365)
+    const permits = [approvedAt(1, 'p1', '2025-09-01')];
+    const r = computeLearnedSchedule(
+      permits,
+      'Building Permit',
+      'Seattle',
+      projects,
+      TODAY,
+    );
+    expect(r?.recencyTier).toBe('last_365d');
+  });
+
+  it('all_time wins when every sample is older than 365 days', () => {
+    const permits = [
+      approvedAt(1, 'p1', '2024-01-01'),
+      approvedAt(2, 'p2', '2024-02-01'),
+    ];
+    const r = computeLearnedSchedule(
+      permits,
+      'Building Permit',
+      'Seattle',
+      projects,
+      TODAY,
+    );
+    expect(r?.recencyTier).toBe('all_time');
+    expect(r?.isAllTime).toBe(true);
+  });
+
+  it('returns null when every tier is below MIN_SAMPLES_FOR_LEARNER (cohort empty)', () => {
+    const r = computeLearnedSchedule(
+      [],
+      'Building Permit',
+      'Seattle',
+      projects,
+      TODAY,
+    );
+    expect(r).toBeNull();
+  });
+
+  it('prefers the freshest tier even if older tiers have more samples', () => {
+    // 1 sample inside 90d (single) + 5 samples inside 365d. Cascade
+    // still picks the 90d tier because it has N ≥ MIN_SAMPLES_FOR_LEARNER (1).
+    const permits = [
+      approvedAt(1, 'p1', '2026-04-01'),          // 90d tier
+      approvedAt(2, 'p2', '2025-09-01'),          // 365d tier
+      approvedAt(3, 'p3', '2025-08-01'),          // 365d tier
+      approvedAt(4, 'p4', '2025-07-01'),          // 365d tier
+    ];
+    const r = computeLearnedSchedule(
+      permits,
+      'Building Permit',
+      'Seattle',
+      projects,
+      TODAY,
+    );
+    expect(r?.recencyTier).toBe('last_90d');
+    expect(r?.sampleCount).toBe(1);
+  });
+
+  it('cross-juris fallback walks the cascade in its own scope', () => {
+    // 0 Seattle BPs but 1 Bellevue BP inside 90d → cross-juris last_90d.
+    const projectsX = new Map<string, Project>([
+      ['pBV1', makeProject({ id: 'pBV1', juris: 'Bellevue' })],
+    ]);
+    const permits = [approvedAt(1, 'pBV1', '2026-04-01')];
+    const r = computeLearnedSchedule(
+      permits,
+      'Building Permit',
+      'Seattle',
+      projectsX,
+      TODAY,
+    );
+    expect(r?.isCrossJuris).toBe(true);
+    expect(r?.recencyTier).toBe('last_90d');
+  });
+});
+
+// ============================================================
+// fix-25-feat-AA: target_submit learner
+// ============================================================
+describe('target_submit learner anchorFor (fix-25-feat-AA)', () => {
+  it('maps each permit type to the correct anchor', () => {
+    expect(anchorFor('Building Permit')).toBe('dd_end');
+    expect(anchorFor('Demolition')).toBe('bp_c0_intake');
+    expect(anchorFor('IPR')).toBe('bp_c1_resub');
+    expect(anchorFor('ULS')).toBe('bp_c1_resub');
+    expect(anchorFor('Condo')).toBe('bp_actual_issue');
+    expect(anchorFor('ECA Waiver')).toBe('go_date');
+    expect(anchorFor('PAR/Pre-Sub')).toBe('go_date');
+    expect(anchorFor('SDOT Tree')).toBe('go_date');
+    expect(anchorFor('TRAO')).toBe('go_date');
+    expect(anchorFor('LBA')).toBe('go_date');
+    expect(anchorFor('Short Plat')).toBe('go_date');
+    expect(anchorFor('SIP')).toBe('go_date');
+    expect(anchorFor('Grading / Clearing')).toBe('mirror_bp');
+    expect(anchorFor('LSM')).toBe('mirror_bp');
+    expect(anchorFor(null)).toBe('mirror_bp');
+    expect(anchorFor('Unknown Type')).toBe('mirror_bp');
+  });
+});
+
+describe('extractTargetSubmitSample (fix-25-feat-AA)', () => {
+  it('returns null when permit type has no anchor (mirror_bp)', () => {
+    const permit = makePermit({
+      type: 'Grading / Clearing',
+      permit_cycles: [makeCycle({ cycle_index: 0, submitted: '2026-04-01' })],
+    });
+    expect(
+      extractTargetSubmitSample(permit, makeProject(), undefined),
+    ).toBeNull();
+  });
+
+  it('returns null when c0.submitted is missing', () => {
+    const permit = makePermit({
+      type: 'Building Permit',
+      dd_end: '2026-03-15',
+      permit_cycles: [makeCycle({ cycle_index: 0, submitted: null })],
+    });
+    expect(
+      extractTargetSubmitSample(permit, makeProject(), undefined),
+    ).toBeNull();
+  });
+
+  it('returns null when anchor date is missing (BP without dd_end)', () => {
+    const permit = makePermit({
+      type: 'Building Permit',
+      dd_end: null,
+      permit_cycles: [makeCycle({ cycle_index: 0, submitted: '2026-04-01' })],
+    });
+    expect(
+      extractTargetSubmitSample(permit, makeProject(), undefined),
+    ).toBeNull();
+  });
+
+  it('BP: returns days between dd_end and c0.submitted', () => {
+    const permit = makePermit({
+      type: 'Building Permit',
+      dd_end: '2026-03-15',
+      permit_cycles: [makeCycle({ cycle_index: 0, submitted: '2026-04-05' })],
+    });
+    const s = extractTargetSubmitSample(permit, makeProject(), undefined);
+    expect(s).not.toBeNull();
+    expect(s?.anchor).toBe('dd_end');
+    expect(s?.daysAnchorToSubmit).toBe(21);
+    expect(s?.recencyDate).toBe('2026-04-05');
+  });
+
+  it('go-anchored: PAR/Pre-Sub uses project.go_date and accepts negative values', () => {
+    const permit = makePermit({
+      id: 7,
+      type: 'PAR/Pre-Sub',
+      permit_cycles: [makeCycle({ cycle_index: 0, submitted: '2026-02-01' })],
+    });
+    const project = makeProject({ go_date: '2026-03-01' });
+    const s = extractTargetSubmitSample(permit, project, undefined);
+    expect(s?.anchor).toBe('go_date');
+    expect(s?.daysAnchorToSubmit).toBe(-28); // submitted before go-date
+  });
+
+  it('Demo: anchors to sibling BP c0.intake_accepted', () => {
+    const demo = makePermit({
+      id: 2,
+      type: 'Demolition',
+      permit_cycles: [makeCycle({ cycle_index: 0, submitted: '2026-04-15' })],
+    });
+    const bp = makePermit({
+      id: 1,
+      type: 'Building Permit',
+      permit_cycles: [
+        makeCycle({ cycle_index: 0, intake_accepted: '2026-03-09' }),
+      ],
+    });
+    const s = extractTargetSubmitSample(demo, makeProject(), bp);
+    expect(s?.anchor).toBe('bp_c0_intake');
+    expect(s?.daysAnchorToSubmit).toBe(37);
+  });
+
+  it('drops samples beyond the symmetric outlier cap', () => {
+    const permit = makePermit({
+      type: 'Building Permit',
+      dd_end: '2020-01-01',
+      permit_cycles: [makeCycle({ cycle_index: 0, submitted: '2026-04-01' })],
+    });
+    // ~6 years between → exceeds OUTLIER_HARD_CAP_DAYS (730).
+    expect(
+      extractTargetSubmitSample(permit, makeProject(), undefined),
+    ).toBeNull();
+  });
+});
+
+describe('computeLearnedTargetSubmit (fix-25-feat-AA)', () => {
+  const TODAY = new Date(2026, 4, 15);
+
+  function bpSample(
+    id: number,
+    projectId: string,
+    submitted: string,
+    ddEnd: string,
+  ): PermitWithCycles {
+    return makePermit({
+      id,
+      project_id: projectId,
+      type: 'Building Permit',
+      dd_end: ddEnd,
+      permit_cycles: [makeCycle({ permit_id: id, cycle_index: 0, submitted })],
+    });
+  }
+
+  it('cohort empty → returns hardcoded fallback with source=default', () => {
+    const result = computeLearnedTargetSubmit(
+      [],
+      new Map<string, Project>(),
+      { type: 'Building Permit', juris: 'Seattle' },
+      TODAY,
+    );
+    expect(result.source).toBe('default');
+    expect(result.value).toBe(HARDCODED_TARGET_SUBMIT_OFFSETS['Building Permit']);
+    expect(result.sampleCount).toBe(0);
+  });
+
+  it('one BP sample within 90d → tier last_90d with learned value', () => {
+    const permits = [bpSample(1, 'p1', '2026-04-01', '2026-03-10')]; // +22d
+    const projects = new Map([['p1', makeProject({ id: 'p1', juris: 'Seattle' })]]);
+    const result = computeLearnedTargetSubmit(
+      permits,
+      projects,
+      { type: 'Building Permit', juris: 'Seattle' },
+      TODAY,
+    );
+    expect(result.source).toBe('last_90d');
+    expect(result.value).toBe(22);
+    expect(result.sampleCount).toBe(1);
+    expect(result.isCrossJuris).toBe(false);
+  });
+
+  it('cross-juris fallback when scoped (type, juris) has no sample', () => {
+    // 0 Seattle samples, 1 Bellevue sample.
+    const permits = [bpSample(1, 'pBV1', '2026-04-01', '2026-03-10')];
+    const projects = new Map([['pBV1', makeProject({ id: 'pBV1', juris: 'Bellevue' })]]);
+    const result = computeLearnedTargetSubmit(
+      permits,
+      projects,
+      { type: 'Building Permit', juris: 'Seattle' },
+      TODAY,
+    );
+    expect(result.isCrossJuris).toBe(true);
+    expect(result.value).toBe(22);
+  });
+
+  it('mirror_bp types short-circuit to default with null value', () => {
+    const result = computeLearnedTargetSubmit(
+      [],
+      new Map(),
+      { type: 'Grading / Clearing', juris: 'Seattle' },
+      TODAY,
+    );
+    expect(result.value).toBeNull();
+    expect(result.source).toBe('default');
+  });
+
+  it('walks cascade past empty 90d tier when older samples exist', () => {
+    const permits = [
+      bpSample(1, 'p1', '2025-09-01', '2025-08-05'), // 365d tier (27d)
+      bpSample(2, 'p2', '2025-09-15', '2025-08-20'), // 365d tier (26d)
+    ];
+    const projects = new Map([
+      ['p1', makeProject({ id: 'p1', juris: 'Seattle' })],
+      ['p2', makeProject({ id: 'p2', juris: 'Seattle' })],
+    ]);
+    const result = computeLearnedTargetSubmit(
+      permits,
+      projects,
+      { type: 'Building Permit', juris: 'Seattle' },
+      TODAY,
+    );
+    expect(result.source).toBe('last_365d');
+    expect(result.value).toBeGreaterThan(20);
+    expect(result.value).toBeLessThan(30);
   });
 });

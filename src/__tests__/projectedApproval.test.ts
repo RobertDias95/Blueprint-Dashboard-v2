@@ -87,6 +87,7 @@ function learned(over: Partial<LearnedEstimate> = {}): LearnedEstimate {
     cycleDist: { 1: 0, 2: 0, 3: 0, 4: 0 },
     isAllTime: false,
     isCrossJuris: false,
+    recencyTier: 'last_180d' as const,
     ...over,
   };
 }
