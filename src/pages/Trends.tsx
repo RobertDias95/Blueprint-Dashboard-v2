@@ -24,6 +24,7 @@ import {
   filterPermits,
   intakeToApprovalByMonth,
   SPARSE_GATE,
+  submissionToIntakeVariance,
   targetSubmitHitRate,
   totalApprovedInWindow,
   type PerfTrendsFilters,
@@ -172,6 +173,31 @@ function TrendsBody({ permits, projects }: BodyProps) {
     [filtered, projectsById],
   );
 
+  // fix-25-feat-V: aggregate submission → intake variance for the
+  // tile + a lookup map for per-row table joining. Helper returns one
+  // VarianceRow per (juris × type); the tile weighs avgDays by n.
+  const varianceRows = useMemo(
+    () => submissionToIntakeVariance(filtered, projectsById),
+    [filtered, projectsById],
+  );
+  const submitToIntakeByCohort = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const v of varianceRows) {
+      m.set(`${v.juris}||${v.type}`, v.avgDaysFromSubmittedToIntakeAccepted);
+    }
+    return m;
+  }, [varianceRows]);
+  const kpiSubmitToIntake = useMemo(() => {
+    let totalDays = 0;
+    let totalN = 0;
+    for (const v of varianceRows) {
+      totalDays += v.avgDaysFromSubmittedToIntakeAccepted * v.n;
+      totalN += v.n;
+    }
+    if (totalN === 0) return null;
+    return { avgDays: Math.round(totalDays / totalN), n: totalN };
+  }, [varianceRows]);
+
   // Chart 2: grouped bar over breakdown rows that have BOTH per-cycle
   // averages populated. Sparse rows still show in the table below.
   const cycleCharts = useMemo(
@@ -200,14 +226,27 @@ function TrendsBody({ permits, projects }: BodyProps) {
     | 'avgCycles'
     | 'avgCityReviewPerCycle'
     | 'avgTeamTurnaroundPerCycle'
+    | 'submitToIntake'
     | 'targetHitRate';
   const [sortKey, setSortKey] = useState<SortKey>('n');
   const [sortDesc, setSortDesc] = useState(true);
+  /** Resolve the sort field for a row. submitToIntake comes from the
+   *  variance map (not a column on BreakdownRow); everything else
+   *  reads off the row directly. */
+  function sortValue(
+    row: (typeof breakdown)[number],
+    key: SortKey,
+  ): number | string | null {
+    if (key === 'submitToIntake') {
+      return submitToIntakeByCohort.get(`${row.juris}||${row.type}`) ?? null;
+    }
+    return row[key];
+  }
   const sortedBreakdown = useMemo(() => {
     const arr = [...breakdown];
     arr.sort((a, b) => {
-      const av = a[sortKey];
-      const bv = b[sortKey];
+      const av = sortValue(a, sortKey);
+      const bv = sortValue(b, sortKey);
       if (av === bv) return 0;
       if (av === null) return 1;
       if (bv === null) return -1;
@@ -219,7 +258,8 @@ function TrendsBody({ permits, projects }: BodyProps) {
         : String(av).localeCompare(String(bv));
     });
     return arr;
-  }, [breakdown, sortKey, sortDesc]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [breakdown, sortKey, sortDesc, submitToIntakeByCohort]);
 
   function toggleSort(key: SortKey) {
     if (key === sortKey) setSortDesc((d) => !d);
@@ -337,11 +377,24 @@ function TrendsBody({ permits, projects }: BodyProps) {
       </div>
 
       {/* KPI tile row */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
         <KpiTile
           label="Approved permits in window"
           value={kpiTotal === 0 ? '—' : String(kpiTotal)}
           testId="trends-kpi-total"
+        />
+        <KpiTile
+          label="Avg submit → intake delay"
+          value={
+            kpiSubmitToIntake === null ? '—' : `${kpiSubmitToIntake.avgDays}d`
+          }
+          sub={
+            kpiSubmitToIntake === null
+              ? undefined
+              : `${kpiSubmitToIntake.n} sample${kpiSubmitToIntake.n === 1 ? '' : 's'}`
+          }
+          tileTitle="Avg days between team submission (c0.submitted) and city intake acceptance (c0.intake_accepted). Low = team ready + city responsive. High = packet issues / fees / city delay."
+          testId="trends-kpi-submit-intake"
         />
         <KpiTile
           label="Avg city clock (intake → approval)"
@@ -493,19 +546,23 @@ function TrendsBody({ permits, projects }: BodyProps) {
               <Th onClick={() => toggleSort('avgCycles')} active={sortKey === 'avgCycles'} desc={sortDesc} align="right">Avg cycles</Th>
               <Th onClick={() => toggleSort('avgCityReviewPerCycle')} active={sortKey === 'avgCityReviewPerCycle'} desc={sortDesc} align="right">City/cycle</Th>
               <Th onClick={() => toggleSort('avgTeamTurnaroundPerCycle')} active={sortKey === 'avgTeamTurnaroundPerCycle'} desc={sortDesc} align="right">Team/cycle</Th>
+              <Th onClick={() => toggleSort('submitToIntake')} active={sortKey === 'submitToIntake'} desc={sortDesc} align="right">Submit→Intake (d)</Th>
               <Th onClick={() => toggleSort('targetHitRate')} active={sortKey === 'targetHitRate'} desc={sortDesc} align="right">Target hit</Th>
             </tr>
           </thead>
           <tbody>
             {sortedBreakdown.length === 0 && (
               <tr>
-                <td colSpan={8} className="px-3 py-4 text-center text-dim italic">
+                <td colSpan={9} className="px-3 py-4 text-center text-dim italic">
                   No approved permits match the filters
                 </td>
               </tr>
             )}
             {sortedBreakdown.map((row) => {
               const sparse = row.n < SPARSE_GATE;
+              const submitToIntake = submitToIntakeByCohort.get(
+                `${row.juris}||${row.type}`,
+              );
               return (
                 <tr
                   key={`${row.juris}-${row.type}`}
@@ -537,6 +594,9 @@ function TrendsBody({ permits, projects }: BodyProps) {
                     {row.avgTeamTurnaroundPerCycle === null ? '—' : `${row.avgTeamTurnaroundPerCycle}d`}
                   </Td>
                   <Td align="right">
+                    {submitToIntake === undefined ? '—' : `${submitToIntake}d`}
+                  </Td>
+                  <Td align="right">
                     {row.targetHitRate === null
                       ? '—'
                       : `${Math.round(row.targetHitRate * 100)}%`}
@@ -555,11 +615,15 @@ function KpiTile({
   label,
   value,
   sub,
+  tileTitle,
   testId,
 }: {
   label: string;
   value: string;
   sub?: string;
+  /** Hover tooltip on the whole tile — surfaces the metric's definition
+   *  / interpretation guidance without bloating the visible label. */
+  tileTitle?: string;
   testId?: string;
 }) {
   return (
@@ -570,6 +634,7 @@ function KpiTile({
         borderColor: 'var(--color-border)',
       }}
       data-testid={testId}
+      title={tileTitle}
     >
       <div className="text-[9px] uppercase tracking-wide text-dim font-display font-bold">
         {label}
