@@ -12,6 +12,8 @@ import {
   OUTLIER_HARD_CAP_DAYS,
   PER_TYPE_DEFAULT_DAYS,
   PER_TYPE_FALLBACK_DAYS,
+  RECENCY_HALF_LIFE_MONTHS,
+  recencyWeight,
   SCHEDULE_DEFAULTS,
   type LearnedEstimate,
 } from '../lib/scheduleBenchmarks';
@@ -810,5 +812,144 @@ describe('effectiveCorrResponse (fix-25-feat-X)', () => {
   it('no cohort signal → SCHEDULE_DEFAULTS.corrResponse1', () => {
     const e = mkEstimate(); // all counts 0
     expect(effectiveCorrResponse(e, 2)).toBe(SCHEDULE_DEFAULTS.corrResponse1);
+  });
+});
+
+// ============================================================
+// fix-25-feat-Y: recency weighting
+// ============================================================
+
+describe('recencyWeight (fix-25-feat-Y)', () => {
+  const NOW = new Date('2026-05-17T12:00:00Z');
+
+  it('null / undefined approval → weight 1', () => {
+    expect(recencyWeight(null, NOW)).toBe(1);
+    expect(recencyWeight(undefined, NOW)).toBe(1);
+  });
+
+  it('today → weight 1', () => {
+    expect(recencyWeight('2026-05-17', NOW)).toBeCloseTo(1, 2);
+  });
+
+  it('future-dated approval → weight 1 (no clock-skew penalty)', () => {
+    expect(recencyWeight('2027-01-01', NOW)).toBe(1);
+  });
+
+  it('18 months old → weight 0.5', () => {
+    // 18 months back from 2026-05-17 ≈ 2024-11-17. 30.44 d/mo × 18 mo
+    // = 547.92 days. Compute exact ISO date for the test to land
+    // close to 0.5 without floating-point fuzz.
+    const months18Ago = new Date(NOW);
+    months18Ago.setUTCDate(
+      months18Ago.getUTCDate() - Math.round(30.44 * RECENCY_HALF_LIFE_MONTHS),
+    );
+    const w = recencyWeight(months18Ago, NOW);
+    expect(w).toBeGreaterThan(0.49);
+    expect(w).toBeLessThan(0.51);
+  });
+
+  it('36 months old → weight 0.25', () => {
+    const months36Ago = new Date(NOW);
+    months36Ago.setUTCDate(
+      months36Ago.getUTCDate() - Math.round(30.44 * 36),
+    );
+    const w = recencyWeight(months36Ago, NOW);
+    expect(w).toBeGreaterThan(0.24);
+    expect(w).toBeLessThan(0.26);
+  });
+
+  it('ancient sample (10+ years) → clamps at floor 0.05', () => {
+    const veryOld = new Date(NOW);
+    veryOld.setUTCFullYear(veryOld.getUTCFullYear() - 20);
+    expect(recencyWeight(veryOld, NOW)).toBe(0.05);
+  });
+
+  it('invalid string → weight 1 (graceful)', () => {
+    expect(recencyWeight('not-a-date', NOW)).toBe(1);
+  });
+});
+
+describe('filteredMean with weights (fix-25-feat-Y)', () => {
+  it('no weights → behavior identical to unweighted filteredMean (regression)', () => {
+    const unweighted = filteredMean([10, 20, 30]);
+    const weightedNoArg = filteredMean([10, 20, 30]);
+    expect(unweighted).toEqual(weightedNoArg);
+    expect(unweighted!.mean).toBe(20);
+  });
+
+  it('all weights equal → weighted mean equals unweighted mean', () => {
+    const r = filteredMean([10, 20, 30], [0.5, 0.5, 0.5])!;
+    expect(r.mean).toBe(20);
+    expect(r.n).toBe(3);
+  });
+
+  it('higher weight on a sample pulls the mean toward it', () => {
+    // [recent=10 with weight 1.0, old=100 with weight 0.1].
+    // SUM(value*weight) = 10 + 10 = 20
+    // SUM(weight) = 1.1
+    // mean = 20 / 1.1 ≈ 18.18 → rounds to 18.
+    const r = filteredMean([10, 100], [1.0, 0.1])!;
+    expect(r.mean).toBe(18);
+    expect(r.n).toBe(2);
+  });
+
+  it('hard caps drop value AND its weight in lockstep', () => {
+    // Two samples capped (negative + 9999), two kept. Weights for
+    // the two kept don't include the dropped weights.
+    const r = filteredMean(
+      [-1, 50, 100, 9999],
+      [10, 1, 1, 10],
+    )!;
+    // Kept: value 50 with weight 1, value 100 with weight 1.
+    // mean = (50*1 + 100*1) / 2 = 75.
+    expect(r.mean).toBe(75);
+    expect(r.n).toBe(2);
+    expect(r.filteredCount).toBe(2);
+  });
+
+  it('IQR upper-fence drops outlier WITH its weight (N≥8 cohort)', () => {
+    // 7 around 100s + 1 far upper at 600. With equal weights,
+    // expected behavior matches the unweighted IQR test from
+    // fix-25-feat-W.
+    const samples = [100, 110, 120, 130, 140, 150, 160, 600];
+    const weights = samples.map(() => 1);
+    const r = filteredMean(samples, weights)!;
+    expect(r.n).toBe(7);
+    expect(r.filteredCount).toBe(1);
+    expect(r.mean).toBe(130);
+  });
+
+  it('shorter weights array → missing positions default to weight 1', () => {
+    // Defensive: 3 samples, 2 weights. The 3rd sample gets weight 1.
+    const r = filteredMean([10, 20, 30], [2, 2])!;
+    // weights = [2, 2, 1].
+    // SUM(weight) = 5. SUM(value*weight) = 20 + 40 + 30 = 90.
+    // mean = 90 / 5 = 18.
+    expect(r.mean).toBe(18);
+    expect(r.n).toBe(3);
+  });
+
+  it('zero / negative weight → defaults to 1 (defensive guard)', () => {
+    // Avoid divide-by-zero or signed weight math.
+    const r = filteredMean([10, 20], [-5, 0])!;
+    // Both weights coerced to 1. Plain mean of [10, 20] = 15.
+    expect(r.mean).toBe(15);
+  });
+
+  it('real-world recent-vs-old cohort skews toward recent', () => {
+    // 5 recent samples around 120 days + 5 old samples around 200 days.
+    // Unweighted mean = (5*120 + 5*200) / 10 = 160.
+    // Weighted with recent=1.0 and old=0.3:
+    //   SUM(value*weight) = 5*120*1.0 + 5*200*0.3 = 600 + 300 = 900
+    //   SUM(weight)       = 5*1.0 + 5*0.3 = 6.5
+    //   weighted mean     = 900 / 6.5 ≈ 138.5 → rounds to 138
+    const samples = [120, 120, 120, 120, 120, 200, 200, 200, 200, 200];
+    const weights = [1, 1, 1, 1, 1, 0.3, 0.3, 0.3, 0.3, 0.3];
+    const r = filteredMean(samples, weights)!;
+    // Note: with 10 samples, IQR will run. Values 120 and 200 give
+    // IQR=80, upperFence=200+1.5*80=320. All values stay.
+    expect(r.n).toBe(10);
+    expect(r.filteredCount).toBe(0);
+    expect(r.mean).toBe(138);
   });
 });

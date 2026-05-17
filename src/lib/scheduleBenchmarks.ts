@@ -110,6 +110,12 @@ interface LearnSample {
    *  "Submitted" column (team-side submission visibility). Not used by
    *  the learner anymore post-fix-24i. */
   submittedAnchor: string | null;
+  /** fix-25-feat-Y: permit's approval timestamp — drives the recency
+   *  weight applied to every aggregate derived from this sample.
+   *  approval_date preferred, actual_issue fallback (mirrors the
+   *  extraction gate at line 131). Null only if neither exists,
+   *  which means the sample wouldn't survive extractSample anyway. */
+  approvalDate: string | null;
 }
 
 function daysBetween(a: string | null | undefined, b: string | null | undefined): number | null {
@@ -208,6 +214,7 @@ export function extractSample(
     intakeToApprovalDays: daysBetween(intakeAnchor, approvalDate),
     intakeAnchor,
     submittedAnchor,
+    approvalDate,
   };
 }
 
@@ -268,6 +275,54 @@ export const OUTLIER_HARD_CAP_DAYS = 730;
  *  this, IQR fences are unstable — only the hard caps apply. */
 export const IQR_MIN_SAMPLES = 8;
 
+/** fix-25-feat-Y: half-life (months) for the recency-weighting decay.
+ *  A sample 18 months old carries half the weight of one approved
+ *  today. Chosen as the sweet spot between "let recent dominate"
+ *  and "throw away useful history" — the team's last 18 months are
+ *  the most predictive of the next quarter without making old
+ *  cohorts disappear entirely. */
+export const RECENCY_HALF_LIFE_MONTHS = 18;
+
+/** fix-25-feat-Y: minimum weight any sample can fall to. Ancient
+ *  samples still carry SOME weight so a single very-old data point
+ *  isn't lost in sparse cohorts. 0.05 keeps it visible without
+ *  letting it dominate fresh signal. */
+const RECENCY_WEIGHT_FLOOR = 0.05;
+
+/** Average days/month for the monthsOld calculation. 30.44 matches
+ *  the Gregorian average (365.25/12). */
+const DAYS_PER_MONTH = 30.44;
+
+/** fix-25-feat-Y: exponential time-decay weight for a sample whose
+ *  approval landed at `approvalDate`. Returns a number in
+ *  [RECENCY_WEIGHT_FLOOR, 1].
+ *
+ *  Semantics:
+ *    monthsOld = (now - approvalDate) / 30.44 days
+ *    weight = 0.5 ^ (monthsOld / 18)
+ *    floor at RECENCY_WEIGHT_FLOOR
+ *    future-dated (negative monthsOld) → 1
+ *    null / missing date → 1 (can't weight what we can't measure)
+ *
+ *  `now` is parameterized for test determinism — runtime callers
+ *  use the default `new Date()`. */
+export function recencyWeight(
+  approvalDate: string | Date | null | undefined,
+  now: Date = new Date(),
+): number {
+  if (!approvalDate) return 1;
+  const d =
+    typeof approvalDate === 'string'
+      ? new Date(`${approvalDate}T12:00:00Z`)
+      : approvalDate;
+  if (isNaN(d.getTime())) return 1;
+  const monthsOld =
+    (now.getTime() - d.getTime()) / (DAYS_PER_MONTH * DAY_MS);
+  if (monthsOld < 0) return 1;
+  const w = Math.pow(0.5, monthsOld / RECENCY_HALF_LIFE_MONTHS);
+  return Math.max(w, RECENCY_WEIGHT_FLOOR);
+}
+
 export interface FilteredMean {
   mean: number;
   n: number;
@@ -283,44 +338,66 @@ export interface FilteredMean {
  *     fast approvals on simple permits are real and should land in
  *     the average.
  *
+ *  fix-25-feat-Y: optional `weights` array — parallel to `samples`.
+ *  When provided, returns a WEIGHTED mean instead of straight mean.
+ *  Filter operations (hard caps, IQR) drop the value AND its weight
+ *  in lockstep. Missing weights default to 1 (so older callers and
+ *  weighted callers can coexist). Weights aren't themselves
+ *  filtered — only the parallel sample value drives drops.
+ *
  *  Returns null when no samples survive filtering. Otherwise returns
  *  the rounded mean of the kept set, the kept count, and the count
  *  dropped (so consumers can surface "n with -k outliers" if desired). */
 export function filteredMean(
   samples: (number | null | undefined)[],
+  weights?: number[],
 ): FilteredMean | null {
-  // Normalize null/undefined to the same drop bucket as out-of-range.
-  const numeric = samples.filter(
-    (v): v is number => v !== null && v !== undefined,
-  );
+  // Walk samples + parallel weights, keeping only entries where the
+  // sample is numeric. Missing or undefined weight → defaults to 1.
+  const numericPairs: Array<{ value: number; weight: number }> = [];
+  for (let i = 0; i < samples.length; i += 1) {
+    const v = samples[i];
+    if (v === null || v === undefined) continue;
+    const w = weights?.[i];
+    const weight =
+      typeof w === 'number' && Number.isFinite(w) && w > 0 ? w : 1;
+    numericPairs.push({ value: v, weight });
+  }
+  if (numericPairs.length === 0) return null;
 
   // Step 1: hard caps
-  const capped = numeric.filter((d) => d >= 1 && d <= OUTLIER_HARD_CAP_DAYS);
+  const capped = numericPairs.filter(
+    (p) => p.value >= 1 && p.value <= OUTLIER_HARD_CAP_DAYS,
+  );
   if (capped.length === 0) return null;
 
   // Step 2: Tukey IQR upper fence — only when distribution is stable.
   let kept = capped;
   if (capped.length >= IQR_MIN_SAMPLES) {
-    const sorted = [...capped].sort((a, b) => a - b);
-    const q1 = quantile(sorted, 0.25);
-    const q3 = quantile(sorted, 0.75);
+    const sortedValues = capped.map((p) => p.value).sort((a, b) => a - b);
+    const q1 = quantile(sortedValues, 0.25);
+    const q3 = quantile(sortedValues, 0.75);
     const iqr = q3 - q1;
-    // IQR=0 means Q1=Q3 (the middle 50% is a single value). The
-    // upperFence would equal Q3 and any value above gets dropped,
-    // which can be aggressive on very tight distributions. Keep
-    // everything when IQR=0 — those cohorts are effectively flat.
     if (iqr > 0) {
       const upperFence = q3 + 1.5 * iqr;
-      kept = capped.filter((d) => d <= upperFence);
+      kept = capped.filter((p) => p.value <= upperFence);
     }
   }
 
   if (kept.length === 0) return null;
-  const mean = kept.reduce((a, b) => a + b, 0) / kept.length;
+  // Weighted mean: SUM(value * weight) / SUM(weight).
+  let sumWV = 0;
+  let sumW = 0;
+  for (const p of kept) {
+    sumWV += p.value * p.weight;
+    sumW += p.weight;
+  }
+  // sumW > 0 always — we filter weights ≤ 0 above. Guard anyway.
+  const mean = sumW > 0 ? sumWV / sumW : 0;
   return {
     mean: Math.round(mean),
     n: kept.length,
-    filteredCount: numeric.length - kept.length,
+    filteredCount: numericPairs.length - kept.length,
   };
 }
 
@@ -406,9 +483,16 @@ function quantile(sorted: number[], p: number): number {
 /** fix-25-feat-W: thin convenience wrapper for the call sites that only
  *  need the mean (preserves the prior avg() signature). The headline
  *  intake→approval aggregation calls filteredMean directly so it can
- *  surface filteredCount on the LearnedEstimate. */
-function avg(values: (number | null | undefined)[]): number | null {
-  const result = filteredMean(values);
+ *  surface filteredCount on the LearnedEstimate.
+ *
+ *  fix-25-feat-Y: accepts optional `weights` parallel to `values` so
+ *  per-cycle aggregates can carry recency weighting through to the
+ *  weighted mean. Missing weights default to 1 (unweighted). */
+function avg(
+  values: (number | null | undefined)[],
+  weights?: number[],
+): number | null {
+  const result = filteredMean(values, weights);
   return result === null ? null : result.mean;
 }
 
@@ -461,28 +545,36 @@ function buildEstimate(
           (nCycValues.reduce((a, b) => a + b, 0) / nCycValues.length) * 10,
         ) / 10;
 
+  // fix-25-feat-Y: recency weights — one weight per sample derived
+  // from the permit's approval timestamp. Parallel to every aggregate
+  // array below. Captured at buildEstimate time (not inside avg() or
+  // filteredMean) so consumers can rely on a single `now`-relative
+  // snapshot across all the per-cycle aggregations.
+  const weights = samples.map((s) => recencyWeight(s.approvalDate));
+
   // fix-25-feat-W: capture filteredCount from the headline aggregation
   // so consumers can surface "n=12 (-2 outliers)" if desired. Per-cycle
   // counts aren't exposed individually — see LearnedEstimate.filteredCount.
   const intakeFiltered = filteredMean(
     samples.map((s) => s.intakeToApprovalDays),
+    weights,
   );
 
   return {
     source,
     sampleCount: samples.length,
     dateRange,
-    goToSubmit: avg(samples.map((s) => s.goToSubmitDays)),
+    goToSubmit: avg(samples.map((s) => s.goToSubmitDays), weights),
     avgIntakeToApproval: intakeFiltered === null ? null : intakeFiltered.mean,
     filteredCount: intakeFiltered?.filteredCount ?? 0,
-    cityReview1: avg(cr1) ?? SCHEDULE_DEFAULTS.cityReview1,
-    corrResponse1: avg(co1) ?? SCHEDULE_DEFAULTS.corrResponse1,
-    cityReview2: avg(cr2) ?? SCHEDULE_DEFAULTS.cityReview2,
-    corrResponse2: avg(co2) ?? SCHEDULE_DEFAULTS.corrResponse2,
-    cityReview3: avg(cr3) ?? SCHEDULE_DEFAULTS.cityReview3,
-    corrResponse3: avg(co3) ?? SCHEDULE_DEFAULTS.corrResponse3,
-    cityReview4: avg(cr4) ?? SCHEDULE_DEFAULTS.cityReview4,
-    corrResponse4: avg(co4) ?? SCHEDULE_DEFAULTS.corrResponse4,
+    cityReview1: avg(cr1, weights) ?? SCHEDULE_DEFAULTS.cityReview1,
+    corrResponse1: avg(co1, weights) ?? SCHEDULE_DEFAULTS.corrResponse1,
+    cityReview2: avg(cr2, weights) ?? SCHEDULE_DEFAULTS.cityReview2,
+    corrResponse2: avg(co2, weights) ?? SCHEDULE_DEFAULTS.corrResponse2,
+    cityReview3: avg(cr3, weights) ?? SCHEDULE_DEFAULTS.cityReview3,
+    corrResponse3: avg(co3, weights) ?? SCHEDULE_DEFAULTS.corrResponse3,
+    cityReview4: avg(cr4, weights) ?? SCHEDULE_DEFAULTS.cityReview4,
+    corrResponse4: avg(co4, weights) ?? SCHEDULE_DEFAULTS.corrResponse4,
     cr1Count: cr1.filter((v) => v !== null && v > 0).length,
     cr2Count: cr2.filter((v) => v !== null && v > 0).length,
     cr3Count: cr3.filter((v) => v !== null && v > 0).length,
