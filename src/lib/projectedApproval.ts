@@ -86,6 +86,10 @@ export interface ProjectedApprovalInput {
    *  When set, the holistic shortcut still applies if the resolved target
    *  is 1 + no actual corrections. */
   targetCycleOverride?: number | null;
+  /** fix-25-feat-Z: tenant-scoped per-type default overrides. When the
+   *  learner is silent and the holistic fallback fires, prefer this map
+   *  over the hardcoded PER_TYPE_DEFAULT_DAYS table. Map<type, intake_to_approval_days>. */
+  typeDefaultsOverride?: Map<string, number>;
 }
 
 export interface ProjectedApprovalRounds {
@@ -453,7 +457,7 @@ export function computeProjectedApproval(
     learnedEstimate.avgIntakeToApproval > 0
       ? Math.round(learnedEstimate.avgIntakeToApproval)
       : !hasAnyCycleActivity
-        ? defaultDaysForType(permit.type)
+        ? defaultDaysForType(permit.type, input.typeDefaultsOverride)
         : null;
   if (effectiveAvg !== null && actualCorrCycles === 0) {
     // fix-24e: floor base so a past submitted/target_submit still produces a

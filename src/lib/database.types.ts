@@ -324,6 +324,17 @@ export interface PermitType {
   notes: string | null;
 }
 
+/** fix-25-feat-Z: tenant-scoped per-type default overrides for the
+ *  schedule estimator. PK = (tenant_id, type). intake_to_approval_days
+ *  required; c1_resub_offset_days optional (NULL → falls through to
+ *  intake_to_approval / 3 in the SQL learner). */
+export interface PermitTypeDefault {
+  type: string;
+  intake_to_approval_days: number;
+  c1_resub_offset_days: number | null;
+  updated_at: string;
+}
+
 /** fix-22 Migration 4: per-juris permit usage stats from the
  *  juris_permit_stats matview, surfaced via bp_get_juris_permit_stats RPC.
  *  `usage_pct_display` is NULL when total_projects_in_juris < 5 (hide %). */

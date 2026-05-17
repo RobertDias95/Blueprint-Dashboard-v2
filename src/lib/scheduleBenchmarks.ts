@@ -63,9 +63,29 @@ export const PER_TYPE_DEFAULT_DAYS: Record<string, number> = {
 export const PER_TYPE_FALLBACK_DAYS = 210;
 
 /** fix-24i: lookup helper used by the consumer (projectedApproval.ts) when
- *  the learner has no signal and no cycle activity exists. */
-export function defaultDaysForType(type: string | null | undefined): number {
+ *  the learner has no signal and no cycle activity exists.
+ *
+ *  fix-25-feat-Z: accepts an optional overrides map (typically sourced
+ *  from usePermitTypeDefaults / permit_type_defaults table). Resolution
+ *  order:
+ *    1. overrides[type] — tenant-editable value from the DB table
+ *    2. PER_TYPE_DEFAULT_DAYS[type] — hardcoded baseline matching the
+ *       seed values in the migration
+ *    3. PER_TYPE_FALLBACK_DAYS — ultimate fallback for unknown types
+ *
+ *  Hardcoded values stay as defense in depth — a tenant with no DB
+ *  row (or an unauthenticated context) gets the same number as before
+ *  this fix. */
+export function defaultDaysForType(
+  type: string | null | undefined,
+  overrides?: Map<string, number> | Record<string, number>,
+): number {
   if (!type) return PER_TYPE_FALLBACK_DAYS;
+  if (overrides) {
+    const override =
+      overrides instanceof Map ? overrides.get(type) : overrides[type];
+    if (typeof override === 'number' && override > 0) return override;
+  }
   return PER_TYPE_DEFAULT_DAYS[type] ?? PER_TYPE_FALLBACK_DAYS;
 }
 

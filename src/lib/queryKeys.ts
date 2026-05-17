@@ -20,6 +20,7 @@ export const queryKeys = {
   daTimeBlocksAll: ['da_time_blocks'] as const,
   jurisdictionsAll: ['jurisdictions'] as const,
   permitTypesAll: ['permit_types'] as const,
+  permitTypeDefaultsAll: ['permit_type_defaults'] as const,
   appConfigAll: ['app_config'] as const,
   teamMembersAll: ['team_members'] as const,
   taskTemplatesAll: ['task_templates'] as const,
@@ -45,6 +46,8 @@ export const queryKeys = {
   // cleanly. app_config IS tenant-scoped.
   jurisdictions: (tenantId: string) => ['jurisdictions', tenantId] as const,
   permitTypes: (tenantId: string) => ['permit_types', tenantId] as const,
+  permitTypeDefaults: (tenantId: string) =>
+    ['permit_type_defaults', tenantId] as const,
   appConfig: (tenantId: string) => ['app_config', tenantId] as const,
   teamMembers: (tenantId: string) => ['team_members', tenantId] as const,
   taskTemplates: (tenantId: string) => ['task_templates', tenantId] as const,

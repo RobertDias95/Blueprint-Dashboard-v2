@@ -3,6 +3,7 @@ import { effectiveStage } from '../../lib/permitStage';
 import { useAllPermitTasks } from '../../hooks/useAllPermitTasks';
 import { usePermits } from '../../hooks/usePermits';
 import { useProjects } from '../../hooks/useProjects';
+import { usePermitTypeDefaults } from '../../hooks/usePermitTypeDefaults';
 import { computeLearnedSchedule, type LearnedEstimate } from '../../lib/scheduleBenchmarks';
 import { computeProjectedApproval } from '../../lib/projectedApproval';
 import { derivePermitStatus } from '../../lib/permitStatus';
@@ -53,6 +54,7 @@ export default function ScheduleHealthTable({ permits }: Props) {
   // extra plumbing needed.
   const allPermitsQ = usePermits();
   const projectsQ = useProjects();
+  const typeDefaultsQ = usePermitTypeDefaults();
   const projectsById = useMemo(
     () => new Map((projectsQ.data ?? []).map((p) => [p.id, p])),
     [projectsQ.data],
@@ -122,6 +124,7 @@ export default function ScheduleHealthTable({ permits }: Props) {
               tasks={tasksByPermit.get(p.id) ?? []}
               allPermits={allPermitsQ.data ?? []}
               projectsById={projectsById}
+              typeDefaultsOverride={typeDefaultsQ.byType}
             />
           ))}
         </tbody>
@@ -135,11 +138,13 @@ function Row({
   tasks,
   allPermits,
   projectsById,
+  typeDefaultsOverride,
 }: {
   permit: PermitWithCycles;
   tasks: PermitTask[];
   allPermits: PermitWithCycles[];
   projectsById: Map<string, import('../../lib/database.types').Project>;
+  typeDefaultsOverride: Map<string, number>;
 }) {
   const stage = effectiveStage(permit, permit.permit_cycles ?? []);
   const taskStats = computeTaskStats(tasks);
@@ -205,8 +210,9 @@ function Row({
         siblingCyclesByPermitId,
         siblingLearnedByPermitId,
         targetCycleOverride: cycleOverride,
+        typeDefaultsOverride,
       }),
-    [permit, learnedEstimate, projectGoDate, siblings, siblingCyclesByPermitId, siblingLearnedByPermitId, cycleOverride],
+    [permit, learnedEstimate, projectGoDate, siblings, siblingCyclesByPermitId, siblingLearnedByPermitId, cycleOverride, typeDefaultsOverride],
   );
   const projection = projectedResult.projection;
   const isActual = projectedResult.isActual;

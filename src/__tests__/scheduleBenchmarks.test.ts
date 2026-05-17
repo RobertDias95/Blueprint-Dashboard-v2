@@ -512,6 +512,38 @@ describe('defaultDaysForType', () => {
     expect(defaultDaysForType(null)).toBe(PER_TYPE_FALLBACK_DAYS);
     expect(defaultDaysForType(undefined)).toBe(PER_TYPE_FALLBACK_DAYS);
   });
+
+  // fix-25-feat-Z: tenant-scoped overrides take precedence over the
+  // hardcoded constants, and Map / Record forms are both accepted.
+  it('honors tenant overrides over the hardcoded table', () => {
+    const overridesMap = new Map<string, number>([
+      ['Building Permit', 365],
+      ['ULS', 14],
+    ]);
+    expect(defaultDaysForType('Building Permit', overridesMap)).toBe(365);
+    expect(defaultDaysForType('ULS', overridesMap)).toBe(14);
+
+    const overridesRecord = { 'Building Permit': 90, ULS: 30 };
+    expect(defaultDaysForType('Building Permit', overridesRecord)).toBe(90);
+    expect(defaultDaysForType('ULS', overridesRecord)).toBe(30);
+  });
+
+  it('falls through to the hardcoded table when override is missing for the type', () => {
+    const overrides = new Map<string, number>([['Building Permit', 365]]);
+    // Demolition not in override — hardcoded 60 stands.
+    expect(defaultDaysForType('Demolition', overrides)).toBe(60);
+  });
+
+  it('ignores invalid override values (non-positive, non-number)', () => {
+    const overrides = new Map<string, number>([
+      ['Building Permit', 0],
+      ['ULS', -7],
+    ]);
+    expect(defaultDaysForType('Building Permit', overrides)).toBe(
+      PER_TYPE_DEFAULT_DAYS['Building Permit'],
+    );
+    expect(defaultDaysForType('ULS', overrides)).toBe(90);
+  });
 });
 
 // ============================================================

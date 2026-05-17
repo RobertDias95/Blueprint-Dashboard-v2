@@ -3,6 +3,7 @@ import { useUpsertJurisdiction } from '../../hooks/useUpsertJurisdiction';
 import { useIsTenantAdmin } from '../../hooks/useIsTenantAdmin';
 import { SkeletonRows } from '../Skeleton';
 import QueryError from '../QueryError';
+import PermitTypeDefaultsEditor from './PermitTypeDefaultsEditor';
 
 // Q7.3.d: Schedule tab — per-juris learning windows in a table view.
 // Mirrors v1's renderLearnThresholdsAdmin (index.html 6732-6750).
@@ -110,6 +111,7 @@ export default function AdminScheduleTab() {
           </tbody>
         </table>
       </div>
+      <PermitTypeDefaultsEditor />
     </div>
   );
 }
