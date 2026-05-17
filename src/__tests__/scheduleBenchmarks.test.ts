@@ -3,8 +3,11 @@ import {
   computeLearnedSchedule,
   defaultDaysForType,
   extractSample,
+  filteredMean,
+  IQR_MIN_SAMPLES,
   listTypeJurisCombos,
   MIN_SAMPLES_FOR_LEARNER,
+  OUTLIER_HARD_CAP_DAYS,
   PER_TYPE_DEFAULT_DAYS,
   PER_TYPE_FALLBACK_DAYS,
   SCHEDULE_DEFAULTS,
@@ -542,5 +545,106 @@ describe('listTypeJurisCombos', () => {
     expect(listTypeJurisCombos(permits, projectsById)).toEqual([
       { type: 'Building Permit', juris: 'Seattle', count: 1 },
     ]);
+  });
+});
+
+// ============================================================
+// fix-25-feat-W: outlier filter
+// ============================================================
+describe('filteredMean (fix-25-feat-W)', () => {
+  it('returns null on empty input', () => {
+    expect(filteredMean([])).toBeNull();
+  });
+
+  it('returns null when every value is dropped by hard caps', () => {
+    expect(filteredMean([-1, 0, 731, 9999])).toBeNull();
+  });
+
+  it('treats null and undefined as drops (matches prior avg() contract)', () => {
+    const r = filteredMean([null, undefined, 10, 20]);
+    expect(r).not.toBeNull();
+    expect(r!.mean).toBe(15);
+    expect(r!.n).toBe(2);
+    // null/undefined are filtered at the numeric coercion step before
+    // hard caps, so they don't count toward filteredCount (which is
+    // measured against the numeric input set).
+    expect(r!.filteredCount).toBe(0);
+  });
+
+  it('hard-caps negative + zero-day values (lower bound)', () => {
+    const r = filteredMean([-5, 0, 0.5, 10, 20])!;
+    // -5, 0, 0.5 all dropped; 10, 20 kept.
+    expect(r.n).toBe(2);
+    expect(r.mean).toBe(15);
+    expect(r.filteredCount).toBe(3);
+  });
+
+  it('hard-caps multi-year values at OUTLIER_HARD_CAP_DAYS', () => {
+    const r = filteredMean([100, 200, 731, 1000])!;
+    expect(OUTLIER_HARD_CAP_DAYS).toBe(730);
+    expect(r.n).toBe(2);
+    expect(r.mean).toBe(150);
+    expect(r.filteredCount).toBe(2);
+  });
+
+  it('keeps values at the boundary (1d and 730d both pass hard caps)', () => {
+    const r = filteredMean([1, 730])!;
+    expect(r.n).toBe(2);
+    expect(r.mean).toBe(366); // (1+730)/2 = 365.5 → 366
+    expect(r.filteredCount).toBe(0);
+  });
+
+  it('IQR upper-fence drops a single far-upper outlier when N >= IQR_MIN_SAMPLES', () => {
+    expect(IQR_MIN_SAMPLES).toBe(8);
+    // 8 samples: 7 around the mid-100s + 1 far upper at 600.
+    const samples = [100, 110, 120, 130, 140, 150, 160, 600];
+    const r = filteredMean(samples)!;
+    expect(r.n).toBe(7);
+    expect(r.filteredCount).toBe(1);
+    // Mean of the 7 kept = (100+110+120+130+140+150+160)/7 = 130
+    expect(r.mean).toBe(130);
+  });
+
+  it('skips IQR when N < IQR_MIN_SAMPLES — hard caps still apply', () => {
+    // 7 samples, with one far-upper value. IQR would drop it on N>=8;
+    // at N=7, IQR is skipped, only hard caps run. 600 passes hard cap
+    // (< 730) so it stays.
+    const samples = [100, 110, 120, 130, 140, 150, 600];
+    const r = filteredMean(samples)!;
+    expect(r.n).toBe(7);
+    expect(r.filteredCount).toBe(0);
+    expect(r.mean).toBe(Math.round((100 + 110 + 120 + 130 + 140 + 150 + 600) / 7));
+  });
+
+  it('does NOT drop the LOW end — fast approvals are preserved', () => {
+    // 8 samples skewed high with a single very low one. Low value
+    // would fall outside a hypothetical lower fence, but we don't
+    // apply a lower fence. Should be kept.
+    const samples = [3, 200, 210, 220, 230, 240, 250, 260];
+    const r = filteredMean(samples)!;
+    expect(r.n).toBe(8);
+    expect(r.filteredCount).toBe(0);
+  });
+
+  it('keeps everything when IQR=0 (tight / flat distribution)', () => {
+    // All 8 samples equal — IQR collapses to 0. Upper fence would
+    // equal Q3 itself and any equal value would technically pass.
+    // The explicit IQR=0 guard avoids edge-case drops.
+    const samples = [100, 100, 100, 100, 100, 100, 100, 100];
+    const r = filteredMean(samples)!;
+    expect(r.n).toBe(8);
+    expect(r.mean).toBe(100);
+    expect(r.filteredCount).toBe(0);
+  });
+
+  it('real-world Seattle BP-style cohort: 10 samples with 1 outlier', () => {
+    // Approximate Bobby's prod cohort shape: clocks clustered ~180d
+    // with one outlier ~500d. The outlier should fall above the
+    // upper fence and drop.
+    const samples = [150, 160, 170, 180, 190, 200, 210, 220, 230, 500];
+    const r = filteredMean(samples)!;
+    expect(r.filteredCount).toBe(1);
+    expect(r.n).toBe(9);
+    expect(r.mean).toBe(190); // (150+...+230)/9 = 190
   });
 });

@@ -252,12 +252,95 @@ export interface LearnedEstimate {
    *  the (type, *) cross-juris tier was used. Reports / Trends can label
    *  cross-juris-sourced estimates accordingly. */
   isCrossJuris: boolean;
+  /** fix-25-feat-W: number of samples the outlier filter dropped from
+   *  the headline intake→approval aggregation. Surfaced for diagnostic
+   *  UI (e.g., "n=12 (-2 outliers)"). Per-cycle filter counts aren't
+   *  exposed individually — each cycle's filter sees a different
+   *  distribution and aggregating across them would mislead. */
+  filteredCount?: number;
 }
 
+/** fix-25-feat-W: hard-cap upper bound (days). Any clock > 2 years is
+ *  treated as a data error or extreme outlier — drop before IQR. */
+export const OUTLIER_HARD_CAP_DAYS = 730;
+
+/** fix-25-feat-W: minimum cohort size before Tukey IQR runs. Below
+ *  this, IQR fences are unstable — only the hard caps apply. */
+export const IQR_MIN_SAMPLES = 8;
+
+export interface FilteredMean {
+  mean: number;
+  n: number;
+  filteredCount: number;
+}
+
+/** fix-25-feat-W: outlier-resistant mean for learner aggregates.
+ *
+ *  1. Hard caps: drop samples < 1 (negative / zero-day, impossible)
+ *     and > OUTLIER_HARD_CAP_DAYS (multi-year, data error / extreme).
+ *  2. Tukey IQR upper fence (when N ≥ IQR_MIN_SAMPLES): drop samples
+ *     above Q3 + 1.5×IQR. Lower fence intentionally NOT applied —
+ *     fast approvals on simple permits are real and should land in
+ *     the average.
+ *
+ *  Returns null when no samples survive filtering. Otherwise returns
+ *  the rounded mean of the kept set, the kept count, and the count
+ *  dropped (so consumers can surface "n with -k outliers" if desired). */
+export function filteredMean(
+  samples: (number | null | undefined)[],
+): FilteredMean | null {
+  // Normalize null/undefined to the same drop bucket as out-of-range.
+  const numeric = samples.filter(
+    (v): v is number => v !== null && v !== undefined,
+  );
+
+  // Step 1: hard caps
+  const capped = numeric.filter((d) => d >= 1 && d <= OUTLIER_HARD_CAP_DAYS);
+  if (capped.length === 0) return null;
+
+  // Step 2: Tukey IQR upper fence — only when distribution is stable.
+  let kept = capped;
+  if (capped.length >= IQR_MIN_SAMPLES) {
+    const sorted = [...capped].sort((a, b) => a - b);
+    const q1 = quantile(sorted, 0.25);
+    const q3 = quantile(sorted, 0.75);
+    const iqr = q3 - q1;
+    // IQR=0 means Q1=Q3 (the middle 50% is a single value). The
+    // upperFence would equal Q3 and any value above gets dropped,
+    // which can be aggressive on very tight distributions. Keep
+    // everything when IQR=0 — those cohorts are effectively flat.
+    if (iqr > 0) {
+      const upperFence = q3 + 1.5 * iqr;
+      kept = capped.filter((d) => d <= upperFence);
+    }
+  }
+
+  if (kept.length === 0) return null;
+  const mean = kept.reduce((a, b) => a + b, 0) / kept.length;
+  return {
+    mean: Math.round(mean),
+    n: kept.length,
+    filteredCount: numeric.length - kept.length,
+  };
+}
+
+/** Linear-interpolation quantile on a pre-sorted ascending array.
+ *  Standard percentile algorithm (R type 7 / pandas / NumPy default). */
+function quantile(sorted: number[], p: number): number {
+  const idx = (sorted.length - 1) * p;
+  const lo = Math.floor(idx);
+  const hi = Math.ceil(idx);
+  if (lo === hi) return sorted[lo];
+  return sorted[lo] + (sorted[hi] - sorted[lo]) * (idx - lo);
+}
+
+/** fix-25-feat-W: thin convenience wrapper for the call sites that only
+ *  need the mean (preserves the prior avg() signature). The headline
+ *  intake→approval aggregation calls filteredMean directly so it can
+ *  surface filteredCount on the LearnedEstimate. */
 function avg(values: (number | null | undefined)[]): number | null {
-  const real = values.filter((v): v is number => v !== null && v !== undefined && v > 0);
-  if (real.length === 0) return null;
-  return Math.round(real.reduce((a, b) => a + b, 0) / real.length);
+  const result = filteredMean(values);
+  return result === null ? null : result.mean;
 }
 
 function buildEstimate(
@@ -309,12 +392,20 @@ function buildEstimate(
           (nCycValues.reduce((a, b) => a + b, 0) / nCycValues.length) * 10,
         ) / 10;
 
+  // fix-25-feat-W: capture filteredCount from the headline aggregation
+  // so consumers can surface "n=12 (-2 outliers)" if desired. Per-cycle
+  // counts aren't exposed individually — see LearnedEstimate.filteredCount.
+  const intakeFiltered = filteredMean(
+    samples.map((s) => s.intakeToApprovalDays),
+  );
+
   return {
     source,
     sampleCount: samples.length,
     dateRange,
     goToSubmit: avg(samples.map((s) => s.goToSubmitDays)),
-    avgIntakeToApproval: avg(samples.map((s) => s.intakeToApprovalDays)),
+    avgIntakeToApproval: intakeFiltered === null ? null : intakeFiltered.mean,
+    filteredCount: intakeFiltered?.filteredCount ?? 0,
     cityReview1: avg(cr1) ?? SCHEDULE_DEFAULTS.cityReview1,
     corrResponse1: avg(co1) ?? SCHEDULE_DEFAULTS.corrResponse1,
     cityReview2: avg(cr2) ?? SCHEDULE_DEFAULTS.cityReview2,
