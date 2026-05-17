@@ -445,6 +445,13 @@ export interface BenchmarkSourcePermit {
   type: string;
   num: string | null;
   submitted: string | null;
+  /** fix-25-feat-U: raw c0.intake_accepted on the source permit. Null
+   *  when the permit was anchored via the fix-25-feat-g fallback
+   *  (extractSample falls back to c0.submitted when intake_accepted
+   *  is missing). Modal renders this so reviewers can see which
+   *  anchor the learner used and the submission→intake variance per
+   *  sample (Bobby's team-side-delay signal). */
+  intakeAccepted: string | null;
   approval: string | null;
   cycleCount: number;
   /** True when this permit's approval/issue fell within the learned window
@@ -475,6 +482,12 @@ export function listSourcePermits(
     const inRecentWindow =
       !!approval &&
       new Date(`${approval}T12:00:00Z`).getTime() >= cutoff.getTime();
+    // fix-25-feat-U: raw c0.intake_accepted alongside the submittedAnchor.
+    // Reading c0 directly (not via sample.intakeAnchor) because
+    // intakeAnchor falls back to submitted post-fix-25-feat-g, which would
+    // hide the "no intake_accepted recorded" case from the modal.
+    const c0Raw = (p.permit_cycles ?? []).find((c) => c.cycle_index === 0);
+    const c0IntakeRaw = c0Raw?.intake_accepted ?? null;
     out.push({
       permitId: p.id,
       projectId: p.project_id,
@@ -482,6 +495,7 @@ export function listSourcePermits(
       type: p.type ?? '—',
       num: p.num,
       submitted: sample.submittedAnchor,
+      intakeAccepted: c0IntakeRaw,
       approval,
       cycleCount: sample.nCycles,
       inRecentWindow,

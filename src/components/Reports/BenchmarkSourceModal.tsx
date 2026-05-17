@@ -144,10 +144,51 @@ function SourceRow({ source }: { source: BenchmarkSourcePermit }) {
         </span>
       </div>
 
-      <div className="flex items-center gap-3 text-[10px]">
+      <div className="flex items-center gap-3 text-[10px] flex-wrap">
         <span className="text-dim">
           Submitted{' '}
           <span className="font-mono text-text">{source.submitted ?? '—'}</span>
+        </span>
+        <span className="text-dim">→</span>
+        {/* fix-25-feat-U: raw c0.intake_accepted. Null when learner
+            fell back to c0.submitted per fix-25-feat-g — title surfaces
+            the reason on hover. Subtitle "+Nd" shows team↔city
+            variance when both anchors are populated and intake > submit. */}
+        <span
+          className="text-dim"
+          title={
+            source.intakeAccepted === null
+              ? 'Anchored on submission date (no intake_accepted recorded)'
+              : undefined
+          }
+          data-testid={`benchmark-source-intake-${source.permitId}`}
+        >
+          Intake{' '}
+          <span
+            className={`font-mono ${
+              source.intakeAccepted === null ? 'text-dim italic' : 'text-text'
+            }`}
+          >
+            {source.intakeAccepted ?? '—'}
+          </span>
+          {(() => {
+            if (!source.submitted || !source.intakeAccepted) return null;
+            const subMs = new Date(`${source.submitted}T12:00:00Z`).getTime();
+            const intMs = new Date(
+              `${source.intakeAccepted}T12:00:00Z`,
+            ).getTime();
+            const days = Math.round((intMs - subMs) / 86400000);
+            if (days <= 0) return null;
+            return (
+              <span
+                className="ml-1 text-[9px] text-muted font-mono"
+                data-testid={`benchmark-source-variance-${source.permitId}`}
+                title="Days between team submission and city intake acceptance"
+              >
+                (+{days}d)
+              </span>
+            );
+          })()}
         </span>
         <span className="text-dim">→</span>
         <span className="text-dim">

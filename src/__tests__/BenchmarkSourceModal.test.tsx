@@ -14,6 +14,7 @@ function makeSource(over: Partial<BenchmarkSourcePermit> = {}): BenchmarkSourceP
     type: 'Building Permit',
     num: 'BP-2026-1',
     submitted: '2026-01-15',
+    intakeAccepted: '2026-01-22',
     approval: '2026-04-20',
     cycleCount: 2,
     inRecentWindow: true,
@@ -84,5 +85,73 @@ describe('<BenchmarkSourceModal />', () => {
     renderModal([makeSource()], onClose);
     fireEvent.click(screen.getByTestId('benchmark-source-backdrop'));
     expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  // ----- fix-25-feat-U: Intake Accepted column -----
+
+  it('renders Intake Accepted value when c0.intake_accepted populated', () => {
+    renderModal([
+      makeSource({
+        permitId: 1,
+        submitted: '2026-01-15',
+        intakeAccepted: '2026-01-22',
+      }),
+    ]);
+    const cell = screen.getByTestId('benchmark-source-intake-1');
+    expect(cell.textContent).toMatch(/Intake/);
+    expect(cell.textContent).toMatch(/2026-01-22/);
+  });
+
+  it('renders "—" with fallback tooltip when intakeAccepted is null', () => {
+    renderModal([
+      makeSource({
+        permitId: 7,
+        submitted: '2026-01-15',
+        intakeAccepted: null,
+      }),
+    ]);
+    const cell = screen.getByTestId('benchmark-source-intake-7');
+    expect(cell.textContent).toMatch(/Intake/);
+    expect(cell.textContent).toMatch(/—/);
+    expect(cell.getAttribute('title')).toMatch(/no intake_accepted recorded/i);
+  });
+
+  it('renders "+Nd" variance subtitle when intake > submitted', () => {
+    // 2026-01-15 → 2026-01-22 = +7d
+    renderModal([
+      makeSource({
+        permitId: 3,
+        submitted: '2026-01-15',
+        intakeAccepted: '2026-01-22',
+      }),
+    ]);
+    const variance = screen.getByTestId('benchmark-source-variance-3');
+    expect(variance.textContent).toMatch(/\+7d/);
+  });
+
+  it('does NOT render variance when intake == submitted (same-day)', () => {
+    renderModal([
+      makeSource({
+        permitId: 4,
+        submitted: '2026-01-15',
+        intakeAccepted: '2026-01-15',
+      }),
+    ]);
+    expect(
+      screen.queryByTestId('benchmark-source-variance-4'),
+    ).not.toBeInTheDocument();
+  });
+
+  it('does NOT render variance when intakeAccepted is null (fallback)', () => {
+    renderModal([
+      makeSource({
+        permitId: 5,
+        submitted: '2026-01-15',
+        intakeAccepted: null,
+      }),
+    ]);
+    expect(
+      screen.queryByTestId('benchmark-source-variance-5'),
+    ).not.toBeInTheDocument();
   });
 });
