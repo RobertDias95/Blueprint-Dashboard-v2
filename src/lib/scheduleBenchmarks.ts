@@ -324,6 +324,75 @@ export function filteredMean(
   };
 }
 
+/** fix-25-feat-X: cycle extrapolation. Given a 1-indexed cycle, walk
+ *  DOWN through the learned per-cycle averages to find the highest
+ *  populated cycle ≤ min(cycleIdx, 4) and return its avg. Falls back
+ *  to SCHEDULE_DEFAULTS.cityReview1 when no learned cycle in the
+ *  cohort has samples (or when estimate is null).
+ *
+ *  Bobby's spec (2026-05-16): when projecting cycle N+1 but the
+ *  learner only has data through cycle N, reuse cycle N's clock
+ *  instead of jumping to the historical default. Example: a permit
+ *  going into cycle 5 reads cycle 4's learned value, not the
+ *  21-day generic default.
+ *
+ *  Count-gated: a cycle is "populated" iff its crNCount > 0. The
+ *  cityReviewN field always carries a number (learned avg OR
+ *  SCHEDULE_DEFAULTS.cityReviewN), so we can't rely on `!= null` to
+ *  detect "actually learned" — count is the authoritative signal.
+ *
+ *  cycleIdx coerced to [1, 4]: 0 / negatives → 1; 5+ → 4. */
+export function effectiveCityReview(
+  estimate: LearnedEstimate | null,
+  cycleIdx: number,
+): number {
+  if (!estimate) return SCHEDULE_DEFAULTS.cityReview1;
+  const cap = Math.min(Math.max(cycleIdx, 1), 4);
+  for (let i = cap; i >= 1; i--) {
+    const countKey = `cr${i}Count` as
+      | 'cr1Count'
+      | 'cr2Count'
+      | 'cr3Count'
+      | 'cr4Count';
+    const valueKey = `cityReview${i}` as
+      | 'cityReview1'
+      | 'cityReview2'
+      | 'cityReview3'
+      | 'cityReview4';
+    if ((estimate[countKey] ?? 0) > 0) {
+      return estimate[valueKey];
+    }
+  }
+  return SCHEDULE_DEFAULTS.cityReview1;
+}
+
+/** fix-25-feat-X: same shape as effectiveCityReview for the team's
+ *  corrections-response clock per cycle. Walks down from
+ *  min(cycleIdx, 4) → 1, falls back to SCHEDULE_DEFAULTS.corrResponse1. */
+export function effectiveCorrResponse(
+  estimate: LearnedEstimate | null,
+  cycleIdx: number,
+): number {
+  if (!estimate) return SCHEDULE_DEFAULTS.corrResponse1;
+  const cap = Math.min(Math.max(cycleIdx, 1), 4);
+  for (let i = cap; i >= 1; i--) {
+    const countKey = `co${i}Count` as
+      | 'co1Count'
+      | 'co2Count'
+      | 'co3Count'
+      | 'co4Count';
+    const valueKey = `corrResponse${i}` as
+      | 'corrResponse1'
+      | 'corrResponse2'
+      | 'corrResponse3'
+      | 'corrResponse4';
+    if ((estimate[countKey] ?? 0) > 0) {
+      return estimate[valueKey];
+    }
+  }
+  return SCHEDULE_DEFAULTS.corrResponse1;
+}
+
 /** Linear-interpolation quantile on a pre-sorted ascending array.
  *  Standard percentile algorithm (R type 7 / pandas / NumPy default). */
 function quantile(sorted: number[], p: number): number {

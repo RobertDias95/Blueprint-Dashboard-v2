@@ -2,6 +2,8 @@ import { describe, it, expect } from 'vitest';
 import {
   computeLearnedSchedule,
   defaultDaysForType,
+  effectiveCityReview,
+  effectiveCorrResponse,
   extractSample,
   filteredMean,
   IQR_MIN_SAMPLES,
@@ -11,6 +13,7 @@ import {
   PER_TYPE_DEFAULT_DAYS,
   PER_TYPE_FALLBACK_DAYS,
   SCHEDULE_DEFAULTS,
+  type LearnedEstimate,
 } from '../lib/scheduleBenchmarks';
 import type {
   PermitCycle,
@@ -646,5 +649,166 @@ describe('filteredMean (fix-25-feat-W)', () => {
     expect(r.filteredCount).toBe(1);
     expect(r.n).toBe(9);
     expect(r.mean).toBe(190); // (150+...+230)/9 = 190
+  });
+});
+
+// ============================================================
+// fix-25-feat-X: cycle extrapolation helpers
+// ============================================================
+
+/** Build a LearnedEstimate fixture with the cycle clocks + counts the
+ *  test cares about. All other fields are inert. */
+function mkEstimate(
+  over: Partial<LearnedEstimate> = {},
+): LearnedEstimate {
+  return {
+    source: 'test',
+    sampleCount: 0,
+    dateRange: '',
+    goToSubmit: null,
+    avgIntakeToApproval: null,
+    cityReview1: SCHEDULE_DEFAULTS.cityReview1,
+    corrResponse1: SCHEDULE_DEFAULTS.corrResponse1,
+    cityReview2: SCHEDULE_DEFAULTS.cityReview2,
+    corrResponse2: SCHEDULE_DEFAULTS.corrResponse2,
+    cityReview3: SCHEDULE_DEFAULTS.cityReview3,
+    corrResponse3: SCHEDULE_DEFAULTS.corrResponse3,
+    cityReview4: SCHEDULE_DEFAULTS.cityReview4,
+    corrResponse4: SCHEDULE_DEFAULTS.corrResponse4,
+    cr1Count: 0,
+    cr2Count: 0,
+    cr3Count: 0,
+    cr4Count: 0,
+    co1Count: 0,
+    co2Count: 0,
+    co3Count: 0,
+    co4Count: 0,
+    avgCycles: null,
+    mostLikelyCycle: 1,
+    cycleDist: { 1: 0, 2: 0, 3: 0, 4: 0 },
+    isAllTime: false,
+    isCrossJuris: false,
+    ...over,
+  };
+}
+
+describe('effectiveCityReview (fix-25-feat-X)', () => {
+  it('null estimate → SCHEDULE_DEFAULTS.cityReview1', () => {
+    expect(effectiveCityReview(null, 1)).toBe(SCHEDULE_DEFAULTS.cityReview1);
+    expect(effectiveCityReview(null, 3)).toBe(SCHEDULE_DEFAULTS.cityReview1);
+    expect(effectiveCityReview(null, 99)).toBe(SCHEDULE_DEFAULTS.cityReview1);
+  });
+
+  it('cohort with only cycle 1 data → returns cycle 1 value for any cycleIdx', () => {
+    const e = mkEstimate({ cityReview1: 14, cr1Count: 5 });
+    expect(effectiveCityReview(e, 1)).toBe(14);
+    expect(effectiveCityReview(e, 2)).toBe(14); // walks down 2→1
+    expect(effectiveCityReview(e, 3)).toBe(14);
+    expect(effectiveCityReview(e, 4)).toBe(14);
+    expect(effectiveCityReview(e, 5)).toBe(14); // caps to 4 then walks
+  });
+
+  it('cohort with cycle 1 + cycle 2 → cycle 3 request extrapolates from cycle 2', () => {
+    const e = mkEstimate({
+      cityReview1: 10,
+      cr1Count: 5,
+      cityReview2: 28,
+      cr2Count: 4,
+    });
+    expect(effectiveCityReview(e, 1)).toBe(10);
+    expect(effectiveCityReview(e, 2)).toBe(28);
+    expect(effectiveCityReview(e, 3)).toBe(28); // walks down 3→2
+    expect(effectiveCityReview(e, 4)).toBe(28); // walks down 4→3→2
+  });
+
+  it('cohort with all 4 cycles populated → cycle 5 caps to cycle 4', () => {
+    const e = mkEstimate({
+      cityReview1: 10,
+      cr1Count: 5,
+      cityReview2: 20,
+      cr2Count: 4,
+      cityReview3: 30,
+      cr3Count: 3,
+      cityReview4: 40,
+      cr4Count: 2,
+    });
+    expect(effectiveCityReview(e, 5)).toBe(40);
+    expect(effectiveCityReview(e, 99)).toBe(40);
+  });
+
+  it('cohort with all 4 cycles populated → each cycle returns its own value', () => {
+    const e = mkEstimate({
+      cityReview1: 10,
+      cr1Count: 1,
+      cityReview2: 20,
+      cr2Count: 1,
+      cityReview3: 30,
+      cr3Count: 1,
+      cityReview4: 40,
+      cr4Count: 1,
+    });
+    expect(effectiveCityReview(e, 1)).toBe(10);
+    expect(effectiveCityReview(e, 2)).toBe(20);
+    expect(effectiveCityReview(e, 3)).toBe(30);
+    expect(effectiveCityReview(e, 4)).toBe(40);
+  });
+
+  it('cycleIdx 0 / negative / NaN coerce to 1', () => {
+    const e = mkEstimate({ cityReview1: 14, cr1Count: 5 });
+    expect(effectiveCityReview(e, 0)).toBe(14);
+    expect(effectiveCityReview(e, -3)).toBe(14);
+  });
+
+  it('no cycle has samples (all counts 0) → SCHEDULE_DEFAULTS.cityReview1', () => {
+    // cityReview values present (default-filled by buildEstimate) but no
+    // count means we shouldn't trust them as learned signal.
+    const e = mkEstimate({
+      cityReview1: 999,
+      cityReview2: 888,
+      cr1Count: 0,
+      cr2Count: 0,
+    });
+    expect(effectiveCityReview(e, 1)).toBe(SCHEDULE_DEFAULTS.cityReview1);
+    expect(effectiveCityReview(e, 4)).toBe(SCHEDULE_DEFAULTS.cityReview1);
+  });
+
+  it('cohort with cycle 2 but NOT cycle 1 → cycle 1 request still finds cycle 2 NOT used (walks down only)', () => {
+    // Edge case: walk-down direction is strict — we don't walk UP from
+    // cycle 1 to find cycle 2. cycle 1 request with no cycle 1 data
+    // falls to default.
+    const e = mkEstimate({ cityReview2: 28, cr2Count: 4 });
+    expect(effectiveCityReview(e, 1)).toBe(SCHEDULE_DEFAULTS.cityReview1);
+    expect(effectiveCityReview(e, 2)).toBe(28);
+    expect(effectiveCityReview(e, 3)).toBe(28); // walks 3→2
+  });
+});
+
+describe('effectiveCorrResponse (fix-25-feat-X)', () => {
+  it('null estimate → SCHEDULE_DEFAULTS.corrResponse1', () => {
+    expect(effectiveCorrResponse(null, 1)).toBe(
+      SCHEDULE_DEFAULTS.corrResponse1,
+    );
+    expect(effectiveCorrResponse(null, 7)).toBe(
+      SCHEDULE_DEFAULTS.corrResponse1,
+    );
+  });
+
+  it('walks down from min(cycleIdx, 4) → 1 same as effectiveCityReview', () => {
+    const e = mkEstimate({
+      corrResponse1: 5,
+      co1Count: 3,
+      corrResponse3: 12,
+      co3Count: 2,
+    });
+    expect(effectiveCorrResponse(e, 1)).toBe(5);
+    expect(effectiveCorrResponse(e, 2)).toBe(5); // walks 2→1
+    expect(effectiveCorrResponse(e, 3)).toBe(12);
+    expect(effectiveCorrResponse(e, 4)).toBe(12); // walks 4→3
+    expect(effectiveCorrResponse(e, 5)).toBe(12); // caps to 4 then walks
+  });
+
+  it('no cohort signal → SCHEDULE_DEFAULTS.corrResponse1', () => {
+    const e = mkEstimate(); // all counts 0
+    expect(effectiveCorrResponse(e, 2)).toBe(SCHEDULE_DEFAULTS.corrResponse1);
   });
 });
