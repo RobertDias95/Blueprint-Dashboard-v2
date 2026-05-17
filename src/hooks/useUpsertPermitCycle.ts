@@ -27,8 +27,12 @@ import type { PermitCycle, PermitWithCycles } from '../lib/database.types';
 //     NOT trigger snap. resubmitted on the design cycle likewise no-ops.
 //   - city_target, corr_issued, submitted (alone) never trigger snap.
 //
-// Cache target: queryKeys.permitsByProject and queryKeys.permits, both
-// tenant-scoped. Cycles live nested under each permit's permit_cycles[].
+// fix-25d-residual: RPC now also returns the snap-created cycle row
+// (snap_id / snap_cycle_index / snap_submitted / snap_updated_at).
+// onSuccess merges BOTH the edited row AND the snap row into both
+// cache keys (permits + permitsByProject) via setQueryData. No
+// invalidate roundtrip — highlight calc sees the snap cycle on the
+// same render pass that resolves the mutation.
 
 export type DateField =
   | 'submitted'
@@ -47,6 +51,23 @@ export type UpsertCycleInput = {
   | { op: 'insert'; cycleIndex: number }
   | { op: 'update'; cycle: PermitCycle }
 );
+
+interface RpcRow {
+  out_id: string;
+  updated_at: string;
+  conflict: boolean;
+  snap_id: string | null;
+  snap_cycle_index: number | null;
+  snap_submitted: string | null;
+  snap_updated_at: string | null;
+}
+
+/** Result of a successful mutation — exposes the snap row when one fired
+ *  so callers / tests can assert against the post-snap cache. */
+export interface UpsertCycleResult {
+  cycle: PermitCycle;
+  snapCycle: PermitCycle | null;
+}
 
 interface MutationContext {
   globalSnapshot: PermitWithCycles[] | undefined;
@@ -73,12 +94,64 @@ function buildFullPayload(
   return out;
 }
 
+/** Apply the edited + (optional) snap cycle to one PermitWithCycles row.
+ *  Insert path adds the edited row + any snap row to permit_cycles.
+ *  Update path replaces the edited row in place AND merges or inserts
+ *  the snap row. */
+function mergePermitCycles(
+  permit: PermitWithCycles,
+  permitId: number,
+  edited: PermitCycle,
+  snap: PermitCycle | null,
+  op: 'insert' | 'update',
+): PermitWithCycles {
+  if (permit.id !== permitId) return permit;
+  const cycles = permit.permit_cycles ?? [];
+
+  let next: PermitCycle[];
+  if (op === 'insert') {
+    // Remove any prior temp placeholder for this cycle_index, then add.
+    const filtered = cycles.filter(
+      (c) =>
+        !(typeof c.id === 'string' && c.id.startsWith('temp-')) ||
+        c.cycle_index !== edited.cycle_index,
+    );
+    next = [...filtered, edited];
+  } else {
+    next = cycles.map((c) => (c.id === edited.id ? edited : c));
+  }
+
+  if (snap) {
+    const existingIdx = next.findIndex((c) => c.id === snap.id);
+    if (existingIdx >= 0) {
+      next[existingIdx] = snap;
+    } else {
+      // Snap created a new cycle row OR snap updated an existing row whose
+      // current id we hadn't loaded — either way, find/replace by
+      // cycle_index, falling back to append.
+      const byIndex = next.findIndex(
+        (c) => c.cycle_index === snap.cycle_index,
+      );
+      if (byIndex >= 0) {
+        next[byIndex] = snap;
+      } else {
+        next = [...next, snap];
+      }
+    }
+  }
+
+  return { ...permit, permit_cycles: next };
+}
+
 export function useUpsertPermitCycle() {
   const queryClient = useQueryClient();
   const tenantId = useAuthStore((s) => s.activeTenantId) ?? '';
 
-  return useMutation<PermitCycle, Error, UpsertCycleInput, MutationContext>({
+  return useMutation<UpsertCycleResult, Error, UpsertCycleInput, MutationContext>({
     mutationFn: async (input) => {
+      let row: RpcRow | undefined;
+      let editedCycle: PermitCycle;
+
       if (input.op === 'insert') {
         const dataPayload = {
           permit_id: input.permitId,
@@ -91,9 +164,9 @@ export function useUpsertPermitCycle() {
           p_expected_updated_at: null,
         });
         if (error) throw error;
-        const row = (data as { out_id: string; updated_at: string; conflict: boolean }[])[0];
+        row = (data as RpcRow[])[0];
         if (!row) throw new Error('Insert returned no row');
-        return {
+        editedCycle = {
           id: row.out_id,
           permit_id: input.permitId,
           cycle_index: input.cycleIndex,
@@ -105,26 +178,54 @@ export function useUpsertPermitCycle() {
           created_at: row.updated_at,
           updated_at: row.updated_at,
         };
+      } else {
+        const merged = buildFullPayload(input.cycle, input.patch);
+        const { data, error } = await supabase.rpc('bp_upsert_permit_cycle_row', {
+          p_id: input.cycle.id,
+          p_data: merged,
+          p_expected_updated_at: input.cycle.updated_at,
+        });
+        if (error) throw error;
+        row = (data as RpcRow[])[0];
+        if (!row) throw new Error('Update returned no row');
+        if (row.conflict) {
+          throw new OCCConflictError(input.permitId, 'Cycle');
+        }
+        editedCycle = {
+          ...input.cycle,
+          ...input.patch,
+          id: row.out_id,
+          updated_at: row.updated_at,
+        };
       }
 
-      const merged = buildFullPayload(input.cycle, input.patch);
-      const { data, error } = await supabase.rpc('bp_upsert_permit_cycle_row', {
-        p_id: input.cycle.id,
-        p_data: merged,
-        p_expected_updated_at: input.cycle.updated_at,
-      });
-      if (error) throw error;
-      const row = (data as { out_id: string; updated_at: string; conflict: boolean }[])[0];
-      if (!row) throw new Error('Update returned no row');
-      if (row.conflict) {
-        throw new OCCConflictError(input.permitId, 'Cycle');
+      // Build the snap cycle (if RPC reported one). Fields we don't know
+      // — city_target / corr_issued / resubmitted / intake_accepted —
+      // default to null on the snap row. The snap creates / updates a
+      // row whose only meaningful date is `submitted` (per the snap
+      // rules); subsequent edits via this same hook will fill in the
+      // other fields on later passes.
+      let snapCycle: PermitCycle | null = null;
+      if (
+        row.snap_id !== null &&
+        row.snap_cycle_index !== null &&
+        row.snap_updated_at !== null
+      ) {
+        snapCycle = {
+          id: row.snap_id,
+          permit_id: input.permitId,
+          cycle_index: row.snap_cycle_index,
+          submitted: row.snap_submitted,
+          city_target: null,
+          corr_issued: null,
+          resubmitted: null,
+          intake_accepted: null,
+          created_at: row.snap_updated_at,
+          updated_at: row.snap_updated_at,
+        };
       }
-      return {
-        ...input.cycle,
-        ...input.patch,
-        id: row.out_id,
-        updated_at: row.updated_at,
-      };
+
+      return { cycle: editedCycle, snapCycle };
     },
 
     onMutate: async (input) => {
@@ -204,8 +305,32 @@ export function useUpsertPermitCycle() {
       }
     },
 
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.permits(tenantId) });
+    onSuccess: (result, input) => {
+      // fix-25d-residual: merge the real edited row + any snap row
+      // into BOTH cache keys synchronously. This collapses the prior
+      // ~10-15s window where the snap row was server-only and the
+      // chain-position highlight couldn't land on the snapped cell
+      // until something (window focus, route change) refetched.
+      const apply = (rows: PermitWithCycles[] | undefined) =>
+        rows?.map((p) =>
+          mergePermitCycles(
+            p,
+            input.permitId,
+            result.cycle,
+            result.snapCycle,
+            input.op,
+          ),
+        );
+
+      queryClient.setQueryData<PermitWithCycles[]>(
+        queryKeys.permits(tenantId),
+        (rows) => apply(rows),
+      );
+      queryClient.setQueryData<PermitWithCycles[]>(
+        queryKeys.permitsByProject(tenantId, input.projectId),
+        (rows) => apply(rows),
+      );
+
       pushToast('Saved cycle', 'success');
     },
   });
