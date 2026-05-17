@@ -44,6 +44,7 @@ function makeBpPermit(defaults: WizardState): WizardPermit {
     architect: '',
     num: '',
     expected_issue: '',
+    target_submit: '',
     taskTemplateIds: [],
   };
 }

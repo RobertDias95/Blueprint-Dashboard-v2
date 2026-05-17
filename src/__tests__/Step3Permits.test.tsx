@@ -48,6 +48,7 @@ function permit(type: string, partial: Partial<WizardPermit> = {}): WizardPermit
     architect: '',
     num: '',
     expected_issue: '',
+    target_submit: '',
     taskTemplateIds: [],
     ...partial,
   };

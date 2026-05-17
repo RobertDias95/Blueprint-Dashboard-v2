@@ -32,13 +32,15 @@ export interface WizardPermit {
   num: string;
   /** fix-25c: ACQ Target Date = team's target ISSUE date. Lands on
    *  permits.expected_issue (the column Schedule Health reads as
-   *  "ACQ Target"). Previously this field was bound to target_submit
-   *  with a misleading "ACQ target submit" label — the values entered
-   *  through the wizard never reached the display because the columns
-   *  diverged. target_submit is no longer collected via the wizard;
-   *  it stays NULL on new permits and can be set later via Project
-   *  Settings if a planned submission date is needed. */
+   *  "ACQ Target"). */
   expected_issue: string;
+  /** fix-25-feat-h: planned submission date. Lands on
+   *  permits.target_submit. Optional everywhere — for Building Permits
+   *  the bp_set_bp_dd_dates cascade fills this from dd_end + 14 once
+   *  DD dates are entered, so leaving it blank at wizard time is the
+   *  default expectation. For non-BP types, this is the only surface
+   *  that anchors the team's planned submit date at creation. */
+  target_submit: string;
   /** Set in Step 4. Empty array = create no tasks for this permit. */
   taskTemplateIds: string[];
 }

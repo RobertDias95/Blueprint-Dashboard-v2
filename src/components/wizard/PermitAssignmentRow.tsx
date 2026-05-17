@@ -30,7 +30,7 @@ export default function PermitAssignmentRow({
 }: Props) {
   return (
     <div
-      className="border border-border rounded-md bg-bg/40 p-3 grid grid-cols-1 md:grid-cols-5 gap-2"
+      className="border border-border rounded-md bg-bg/40 p-3 grid grid-cols-1 md:grid-cols-6 gap-2"
       data-testid={`wizard-perm-row-${permit.rowId}`}
     >
       <div className="flex flex-col gap-0.5">
@@ -93,6 +93,23 @@ export default function PermitAssignmentRow({
           onChange={(e) => onChange({ expected_issue: e.target.value })}
           className="bg-surface border border-border rounded-md px-2 py-1 text-xs font-mono text-text focus:outline-none focus:border-de"
           data-testid={`wizard-perm-target-${permit.rowId}`}
+        />
+      </label>
+
+      {/* fix-25-feat-h: planned submission date. Optional; BP rows are
+          backfilled by bp_set_bp_dd_dates (dd_end + 14) when DD dates
+          land, so wizard-time is the right place for non-BP types
+          (IPR/ULS/Demo/PAR/SDOT) whose target_submit has no cascade. */}
+      <label className="flex flex-col gap-0.5">
+        <span className="text-[9px] uppercase tracking-wide text-dim">
+          Target Submit
+        </span>
+        <input
+          type="date"
+          value={permit.target_submit}
+          onChange={(e) => onChange({ target_submit: e.target.value })}
+          className="bg-surface border border-border rounded-md px-2 py-1 text-xs font-mono text-text focus:outline-none focus:border-de"
+          data-testid={`wizard-perm-target-submit-${permit.rowId}`}
         />
       </label>
 

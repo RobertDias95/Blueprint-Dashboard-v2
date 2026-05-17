@@ -66,6 +66,7 @@ function makeBpPermit(state: WizardState): WizardPermit {
     architect: '',
     num: '',
     expected_issue: '',
+    target_submit: '',
     taskTemplateIds: [],
   };
 }
@@ -205,10 +206,13 @@ export default function NewProjectWizard({ open, onClose }: Props) {
       dual_da: strOrNull(p.dual_da) ?? undefined,
       architect: strOrNull(p.architect) ?? undefined,
       // fix-25c: "ACQ Target Date" input → expected_issue (the column
-      // Schedule Health reads). target_submit stays NULL on wizard-created
-      // permits; set later via Project Settings if a planned submission
-      // date is needed.
+      // Schedule Health reads).
       expected_issue: strOrNull(p.expected_issue) ?? undefined,
+      // fix-25-feat-h: optional Target Submit. For BPs the cascade
+      // (bp_set_bp_dd_dates: dd_end + 14) will overwrite this once DD
+      // dates land, so an empty string here is fine. Non-BPs rely on
+      // this field as their only target_submit anchor.
+      target_submit: strOrNull(p.target_submit) ?? undefined,
       task_template_ids: p.taskTemplateIds,
     }));
 

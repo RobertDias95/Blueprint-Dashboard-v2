@@ -90,6 +90,10 @@ interface PermitRow {
   portal_url: string;
   num: string;
   struct_address: string;
+  /** fix-25-feat-h: planned submission date. 'YYYY-MM-DD' or '' for null.
+   *  For Building Permits the bp_set_bp_dd_dates cascade auto-fills this
+   *  from dd_end + 14; for non-BP types this surface is the only anchor. */
+  target_submit: string;
   updated_at?: string | null;
 }
 
@@ -119,6 +123,7 @@ function permitToRow(p: PermitWithCycles): PermitRow {
     portal_url: p.portal_url ?? '',
     num: p.num ?? '',
     struct_address: p.struct_address ?? '',
+    target_submit: p.target_submit ?? '',
     updated_at: p.updated_at,
   };
 }
@@ -261,6 +266,7 @@ export default function ProjectSettingsModal({ project, onClose }: Props) {
           portal_url: '',
           num: '',
           struct_address: '',
+          target_submit: '',
         },
       ],
     }));
@@ -362,6 +368,7 @@ export default function ProjectSettingsModal({ project, onClose }: Props) {
               portal_url: row.portal_url.trim() || null,
               num: row.num.trim() || null,
               struct_address: row.struct_address.trim() || null,
+              target_submit: row.target_submit.trim() || null,
             },
           });
           continue;
@@ -369,7 +376,7 @@ export default function ProjectSettingsModal({ project, onClose }: Props) {
         if (row.id != null && row.updated_at) {
           // Skip the BP — its core site fields are already handled in step 3,
           // but the BP can also be in this list with its per-permit fields
-          // (type/ent_lead/da/portal_url/num/struct_address). Patch those too.
+          // (type/ent_lead/da/portal_url/num/struct_address/target_submit).
           await updatePermit.mutateAsync({
             permitId: row.id,
             projectId: project.id,
@@ -381,6 +388,7 @@ export default function ProjectSettingsModal({ project, onClose }: Props) {
               portal_url: row.portal_url.trim() || null,
               num: row.num.trim() || null,
               struct_address: row.struct_address.trim() || null,
+              target_submit: row.target_submit.trim() || null,
             },
             fieldLabel: row.type || 'Permit',
           });
@@ -931,8 +939,20 @@ function PermitSubsection({
 
       <div
         className="grid gap-2 items-end"
-        style={{ gridTemplateColumns: '1fr 2fr 1.5fr' }}
+        style={{ gridTemplateColumns: '1fr 1fr 2fr 1.5fr' }}
       >
+        {/* fix-25-feat-h: planned submission date. For BPs the
+            bp_set_bp_dd_dates cascade auto-fills this (dd_end + 14)
+            but the field is editable here for explicit override. For
+            non-BP types (IPR/ULS/Demo/PAR/SDOT) there's no cascade,
+            so this surface is the only place to anchor it. */}
+        <TinyField label="Target Submit">
+          <Input
+            type="date"
+            value={row.target_submit}
+            onChange={(v) => onChange({ target_submit: v })}
+          />
+        </TinyField>
         <TinyField label="Permit # (from city)">
           <Input value={row.num} onChange={(v) => onChange({ num: v })} />
         </TinyField>
