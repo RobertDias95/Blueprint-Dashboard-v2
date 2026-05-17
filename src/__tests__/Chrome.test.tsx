@@ -52,9 +52,16 @@ describe('<Chrome /> Q9.5.a top-nav restructure', () => {
     );
   }
 
-  it('renders the 4 v1-parity nav tabs in order — Draw Schedule, Project View, My Tasks, Reports', () => {
+  it('renders the v1-parity nav tabs in order, plus fix-25-feat-T Trends tab', () => {
     renderIt();
-    const expected = ['Draw Schedule', 'Project View', 'My Tasks', 'Reports'];
+    // fix-25-feat-T appended a 5th tab "Trends" for operational performance.
+    const expected = [
+      'Draw Schedule',
+      'Project View',
+      'My Tasks',
+      'Reports',
+      'Trends',
+    ];
     const links = screen.getAllByRole('link');
     const labels = links.map((a) => a.textContent?.trim());
     expect(labels).toEqual(expected);

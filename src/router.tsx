@@ -8,6 +8,7 @@ import ProjectDetail from './pages/ProjectDetail';
 import Reports from './pages/Reports';
 import MyTasks from './pages/MyTasks';
 import DrawSchedule from './pages/DrawSchedule';
+import Trends from './pages/Trends';
 
 // Q2: routes wired to real read-side pages.
 // Q9.5.a: structural realignment to v1's top-nav.
@@ -34,6 +35,7 @@ export const router = createBrowserRouter([
       { path: 'projects', element: <ProjectList /> },
       { path: 'project/:id', element: <ProjectDetail /> },
       { path: 'reports', element: <Reports /> },
+      { path: 'trends', element: <Trends /> },
       { path: 'my-tasks', element: <MyTasks /> },
       // Q9.5.a: legacy /settings URLs land back on the dashboard since
       // Settings is now a modal. Bookmarks bouncing here is expected.
