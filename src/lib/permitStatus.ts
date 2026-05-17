@@ -52,10 +52,15 @@ export function derivePermitStatus(permit: PermitWithCycles): PermitStatus {
     date = (c ? (c[target.key] as string | null | undefined) : null) ?? null;
   }
 
-  // The chain rule's last fallback is target_submit — but if that's also
-  // null, we have nothing populated anywhere. Surface the stored status
-  // so the wizard / scraper value still shows.
-  if (target.kind === 'permit' && target.key === 'target_submit' && !date) {
+  // The chain rule's last fallback is target_submit. Bobby's call
+  // (2026-05-17): target_submit is a *planned* date, not a lifecycle
+  // milestone — so a permit that hasn't been submitted yet should
+  // surface its stored stage/status ("Pre-Submittal — GO") rather
+  // than displaying a Target-Submit pill. This matters more post
+  // fix-25-feat-i / -j where the cascade engine populates
+  // target_submit on nearly every permit, which previously turned
+  // every pre-cycle pill into "Target Submit — <date>".
+  if (target.kind === 'permit' && target.key === 'target_submit') {
     return {
       label: permit.status?.trim() || FALLBACK_LABEL,
       date: null,

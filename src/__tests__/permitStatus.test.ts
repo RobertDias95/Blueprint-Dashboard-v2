@@ -82,11 +82,33 @@ describe('derivePermitStatus', () => {
     });
   });
 
-  it('target_submit populated, no cycles → "Target Submit" + date, derived=true', () => {
-    const r = derivePermitStatus(makePermit({ target_submit: '2026-06-01' }));
+  it('target_submit populated, no cycle progress → falls back to stored status (fix-25e Project Overview)', () => {
+    // Bobby's stance (2026-05-17): target_submit is a planned date, not a
+    // lifecycle milestone. Post fix-25-feat-i/-j most permits have a
+    // computed target_submit, so the previous "Target Submit" pill was
+    // taking over from the stored "Pre-Submittal — GO" everywhere.
+    const r = derivePermitStatus(
+      makePermit({ target_submit: '2026-06-01', status: 'Pre-Submittal — GO' }),
+    );
     expect(r).toEqual({
-      label: 'Target Submit',
-      date: '2026-06-01',
+      label: 'Pre-Submittal — GO',
+      date: null,
+      derived: false,
+    });
+  });
+
+  it('target_submit + cycle 0 with submitted set → cycle wins over target_submit', () => {
+    // Sanity: target_submit fallback only kicks in when the cycle chain
+    // is empty. Any real cycle progress still drives the derived label.
+    const r = derivePermitStatus(
+      makePermit({
+        target_submit: '2026-06-01',
+        permit_cycles: [cyc({ cycle_index: 0, submitted: '2026-05-15' })],
+      }),
+    );
+    expect(r).toEqual({
+      label: 'Initial Submit',
+      date: '2026-05-15',
       derived: true,
     });
   });
