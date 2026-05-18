@@ -28,6 +28,9 @@ export const queryKeys = {
   // Q9.5.e-fix-3
   buildersAll: ['builders'] as const,
   projectDocumentsAll: ['project_documents'] as const,
+  // fix-27: notification center reads audit_log via bp_fetch_scraper_activity
+  // RPC. Bare-prefix key participates in realtime invalidation on audit_log.
+  scraperActivityAll: ['scraper_activity'] as const,
   // Tenant-scoped keys used by queries and per-tenant invalidation.
   projects: (tenantId: string) => ['projects', tenantId] as const,
   permits: (tenantId: string) => ['permits', tenantId] as const,
@@ -57,6 +60,9 @@ export const queryKeys = {
   builders: (tenantId: string) => ['builders', tenantId] as const,
   projectDocuments: (tenantId: string, projectId: string) =>
     ['project_documents', tenantId, { projectId }] as const,
+  // fix-27: notification center activity feed.
+  scraperActivity: (tenantId: string, days: number) =>
+    ['scraper_activity', tenantId, { days }] as const,
 } as const;
 
 /** Map from Postgres table name → bare-prefix query keys to invalidate on

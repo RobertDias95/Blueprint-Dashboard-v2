@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
 import SettingsModal from './SettingsModal';
+import NotificationBell from './NotificationBell';
 
 // Q9.5.a: top-nav restructured to v1 parity (index.html:573-591).
 //   - Blueprint logo on the left IS the home button (clicks → /dashboard).
@@ -108,9 +109,12 @@ export default function Chrome() {
             className="bg-border flex-shrink-0 mx-2"
             style={{ width: 1, height: 24 }}
           />
+          {/* fix-27: notification center. Bell lives left of the gear
+              per spec; its popover anchors right-aligned. */}
+          <NotificationBell />
           <button
             onClick={() => setSettingsOpen(true)}
-            className="bg-transparent border border-border text-muted hover:text-text px-3 py-1 rounded-md text-[11px] font-display font-semibold whitespace-nowrap transition"
+            className="bg-transparent border border-border text-muted hover:text-text px-3 py-1 rounded-md text-[11px] font-display font-semibold whitespace-nowrap transition ml-1.5"
             title="Settings"
             data-testid="chrome-settings-gear"
           >
