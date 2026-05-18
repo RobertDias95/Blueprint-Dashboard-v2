@@ -183,6 +183,8 @@ export default function ProjectSettingsModal({ project, onClose }: Props) {
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
+    // Project/permits-prop sync: rebuild form drafts on upstream changes.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setForm(initForm(project, permits));
   }, [project.id, project.updated_at, permits]);
 

@@ -15,6 +15,7 @@ export interface DashFilters {
   type: Set<string>;
 }
 
+// eslint-disable-next-line react-refresh/only-export-components
 export const EMPTY_DASH_FILTERS: DashFilters = {
   ent: new Set(),
   da: new Set(),
@@ -87,6 +88,7 @@ export default function StageFilters({ permits, filters, onChange }: Props) {
 /** v1 :4949-4951 semantics — a permit passes when each dimension is
  *  either unfiltered (empty Set) OR contains a value present in the
  *  permit. Permits with null on a filtered dimension are excluded. */
+// eslint-disable-next-line react-refresh/only-export-components
 export function permitPassesDashFilters(
   permit: Permit,
   filters: DashFilters,

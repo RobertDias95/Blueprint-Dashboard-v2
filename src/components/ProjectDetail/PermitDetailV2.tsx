@@ -835,7 +835,14 @@ function DateCell({
   // captures only the first render's value and the cell silently shows
   // stale (often blank) data forever. Bobby's test 678 hit this on the
   // Design strip when cycles arrived a tick after the permit row.
+  //
+  // react-hooks/set-state-in-effect flags this as a cascading-render
+  // risk but the value-prop sync is the entire point — refactoring to
+  // `key={value}` on the parent would force unmount/remount and lose
+  // focus mid-edit. Keep the effect; disable the rule on the setDraft
+  // line itself (the rule fires on the setState call, not the effect).
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setDraft(value ?? '');
     lastCommittedRef.current = value ?? '';
   }, [value]);

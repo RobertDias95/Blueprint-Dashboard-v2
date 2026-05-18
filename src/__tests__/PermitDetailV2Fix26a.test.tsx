@@ -107,14 +107,24 @@ function renderWithClient(node: React.ReactNode) {
 /** Controlled host so a test can simulate React Query rolling back the
  *  cache after a mutation rejection: flip the permit prop back to the
  *  pre-mutation state. */
+type HostRef = { setPermit: (p: PermitWithCycles) => void };
+function makeHostRef(): HostRef {
+  // See fix-25-DD lint cleanup in Fix25d test — zero-arg arrow avoids
+  // the no-unused-vars violation that `(_p) => {}` triggers because
+  // the eslint config doesn't whitelist underscore-prefixed args.
+  return { setPermit: () => {} };
+}
 function ControlledHost({
   initial,
   hostRef,
 }: {
   initial: PermitWithCycles;
-  hostRef: { setPermit: (p: PermitWithCycles) => void };
+  hostRef: HostRef;
 }) {
   const [permit, setPermit] = useState(initial);
+  // Capturing setState into a test-controlled ref is deliberate — see
+  // the matching comment in PermitDetailV2Fix25d's ControlledHost.
+  // eslint-disable-next-line react-hooks/immutability
   hostRef.setPermit = setPermit;
   return <PermitDetailV2 permit={permit} />;
 }
@@ -191,7 +201,7 @@ describe('PermitDetailV2 fix-26a — DateCell error handling', () => {
     const initial = makePermit([
       makeCycle({ cycle_index: 0, submitted: '2026-05-15', intake_accepted: null }),
     ]);
-    const hostRef = { setPermit: (_p: PermitWithCycles) => {} };
+    const hostRef = makeHostRef();
     renderWithClient(<ControlledHost initial={initial} hostRef={hostRef} />);
     fireEvent.click(screen.getByTestId('pd-v2-cycle-tab-0'));
     const intakeInput = screen

@@ -456,6 +456,9 @@ function DrawScheduleBody({
   // attach time) can read the latest state without re-attaching on every
   // mousemove tick.
   const resizingRef = useRef<ResizeState | null>(null);
+  // Sync ref during render so window listeners (attached once when
+  // resize starts) read the freshest resize state without re-attaching.
+  // eslint-disable-next-line react-hooks/refs
   resizingRef.current = resizing;
   // Q9.5.f-fix-20: window listeners for active resize. Attaching at the
   // window level (not on the block) lets the gesture continue if the
@@ -487,7 +490,10 @@ function DrawScheduleBody({
       // Reuse the drop pipeline's overlap detection: a resize is just a
       // move to (same DA, same startWeek, new endWeek). Excludes self
       // from overlap candidates so growing a block doesn't conflict
-      // with itself.
+      // with itself. (blocksByDaForOverlap is declared after this effect
+      // but read inside an event handler that fires post-render — react
+      // compiler's hoisting check is a false positive here.)
+      // eslint-disable-next-line react-hooks/immutability
       const blocks = blocksByDaForOverlap.get(r.daAssigned) ?? [];
       const decision = decideDrop(
         blocks,
@@ -508,7 +514,9 @@ function DrawScheduleBody({
       }
       // Resize-into-overlap → surface the same Option B prompt the
       // drag-to-move path uses. Push-down cascades downstream blocks.
+      // (projectById declared later but read here inside a handler.)
       const conflictAddrs = decision.conflictingProjectIds
+        // eslint-disable-next-line react-hooks/immutability
         .map((pid) => projectById.get(pid)?.address ?? pid)
         .sort();
       const anchorAddr = projectById.get(r.projectId)?.address ?? r.projectId;
@@ -583,6 +591,8 @@ function DrawScheduleBody({
   const resizeNpMutation = useResizeDaTimeBlock();
   const [npResizing, setNpResizing] = useState<NpResizeState | null>(null);
   const npResizingRef = useRef<NpResizeState | null>(null);
+  // Same render-time-ref pattern as resizingRef above.
+  // eslint-disable-next-line react-hooks/refs
   npResizingRef.current = npResizing;
   const [pendingNpConflict, setPendingNpConflict] =
     useState<PendingNpResizeConflict | null>(null);
@@ -720,6 +730,10 @@ function DrawScheduleBody({
     setHoveredWeeks((prev) => (prev.size === 0 ? prev : new Set()));
   }
 
+  // react-compiler complains it can't preserve this memoization; the
+  // useMemo is intentional caching across renders for downstream
+  // address lookups. Disable to allow the manual memoization to stand.
+  // eslint-disable-next-line react-hooks/preserve-manual-memoization
   const projectById = useMemo(
     () => new Map(projects.map((p) => [p.id, p])),
     [projects],
@@ -765,6 +779,7 @@ function DrawScheduleBody({
   // overlap on the target DA. Different from blocksByDa (which is filtered
   // to the current quarter + search) — overlap detection should consider
   // every existing block, not just the visible ones.
+  // eslint-disable-next-line react-hooks/preserve-manual-memoization
   const blocksByDaForOverlap = useMemo(() => {
     const m = new Map<string, DropBlock[]>();
     for (const row of draw) {

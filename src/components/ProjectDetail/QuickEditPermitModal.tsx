@@ -57,6 +57,11 @@ export default function QuickEditPermitModal({ permit, onClose }: Props) {
 
   useEffect(() => {
     const next = initForm(permit);
+    // Permit-prop sync: rebuild form drafts when the modal opens on a
+    // different permit or upstream data updates. eslint complains about
+    // setState-in-effect but the form is intentionally controlled by
+    // the permit prop here.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setOriginal(next);
     setForm(next);
   }, [permit.id, permit.updated_at]);

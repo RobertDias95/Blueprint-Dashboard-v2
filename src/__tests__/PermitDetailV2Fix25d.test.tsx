@@ -113,14 +113,28 @@ function renderWithClient(node: React.ReactNode) {
 
 /** Controlled host — lets a test flip the permit prop in place to simulate
  *  a cache update (e.g., a snap creating a new cycle). */
+type HostRef = { setPermit: (p: PermitWithCycles) => void };
+function makeHostRef(): HostRef {
+  // Stub typed to the contract; ControlledHost overwrites this with the
+  // real setState on first render. Using a zero-arg arrow keeps the
+  // unused-args lint rule happy without needing an underscore prefix
+  // (the repo's eslint config doesn't whitelist `_*`).
+  return { setPermit: () => {} };
+}
 function ControlledHost({
   initial,
   hostRef,
 }: {
   initial: PermitWithCycles;
-  hostRef: { setPermit: (p: PermitWithCycles) => void };
+  hostRef: HostRef;
 }) {
   const [permit, setPermit] = useState(initial);
+  // Capturing setState into a test-controlled ref is deliberate — the
+  // pattern lets the test drive permit updates after the component has
+  // mounted (simulating a TanStack-Query cache refresh). The react-hooks
+  // immutability rule flags any prop mutation, but the ref-object IS
+  // the contract here.
+  // eslint-disable-next-line react-hooks/immutability
   hostRef.setPermit = setPermit;
   return <PermitDetailV2 permit={permit} />;
 }
@@ -209,7 +223,7 @@ describe('PermitDetailV2 fix-25-DD — auto-advance fires only on c0 → c1', ()
     // c0.intake snap creates c1 → cycles.length grows from 0 → 1 with
     // newest cycle_index=1. The auto-advance effect SHOULD fire.
     const initial = makePermit([]);
-    const hostRef = { setPermit: (_p: PermitWithCycles) => {} };
+    const hostRef = makeHostRef();
     renderWithClient(<ControlledHost initial={initial} hostRef={hostRef} />);
 
     expect(screen.getByTestId('pd-v2-date-strip-design')).toBeInTheDocument();
@@ -241,7 +255,7 @@ describe('PermitDetailV2 fix-25-DD — auto-advance fires only on c0 → c1', ()
         intake_accepted: '2026-05-07',
       }),
     ]);
-    const hostRef = { setPermit: (_p: PermitWithCycles) => {} };
+    const hostRef = makeHostRef();
     renderWithClient(<ControlledHost initial={initial} hostRef={hostRef} />);
 
     expect(screen.getByTestId('pd-v2-date-strip-cycle-1')).toBeInTheDocument();
@@ -272,7 +286,7 @@ describe('PermitDetailV2 fix-25-DD — auto-advance fires only on c0 → c1', ()
     // already on c1, so the effect's `viewCycleIdx === 0` guard
     // prevents a redundant setViewCycleIdx (and any flicker).
     const initial = makePermit([]);
-    const hostRef = { setPermit: (_p: PermitWithCycles) => {} };
+    const hostRef = makeHostRef();
     renderWithClient(<ControlledHost initial={initial} hostRef={hostRef} />);
 
     // Sanity start on Design.
@@ -350,7 +364,7 @@ describe('PermitDetailV2 fix-25-DD — repeated cycle growth never reactivates a
         intake_accepted: '2026-05-07',
       }),
     ]);
-    const hostRef = { setPermit: (_p: PermitWithCycles) => {} };
+    const hostRef = makeHostRef();
     renderWithClient(<ControlledHost initial={initial} hostRef={hostRef} />);
 
     expect(screen.getByTestId('pd-v2-date-strip-cycle-1')).toBeInTheDocument();

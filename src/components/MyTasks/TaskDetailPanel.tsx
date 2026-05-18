@@ -72,10 +72,16 @@ function Editor({
   const [textDraft, setTextDraft] = useState(task.text);
   const [assigneeDraft, setAssigneeDraft] = useState(task.assigned_to ?? '');
 
+  // Value-prop sync — pull new task fields into local drafts when the
+  // panel switches to a different task. Same pattern as DateCell; the
+  // lint rule flags it as a cascading-render risk but it's the correct
+  // shape for "controlled input keyed by external selection".
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setTextDraft(task.text);
   }, [task.id, task.text]);
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setAssigneeDraft(task.assigned_to ?? '');
   }, [task.id, task.assigned_to]);
 
