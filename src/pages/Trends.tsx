@@ -14,6 +14,7 @@ import {
 } from 'recharts';
 import { usePermits } from '../hooks/usePermits';
 import { useProjects } from '../hooks/useProjects';
+import { usePermitTypes } from '../hooks/usePermitTypes';
 import { SkeletonRows } from '../components/Skeleton';
 import QueryError from '../components/QueryError';
 import {
@@ -29,14 +30,41 @@ import {
   totalApprovedInWindow,
   type PerfTrendsFilters,
 } from '../lib/perfTrends';
+import {
+  buildApprovedSeries,
+  buildGoSeries,
+  buildSubmittedSeries,
+  buildTimelineSeries,
+  DEFAULT_FILTERS as TR_DEFAULT_FILTERS,
+  formatMonthShort,
+  getGroupKeys,
+  getMonthRange,
+  trColor,
+  trFilteredPermits,
+  type ChartPoint,
+  type TrendsFilters as TrTrendsFilters,
+} from '../lib/trendsHelpers';
+import {
+  anchorFor,
+  computeLearnedTargetSubmit,
+  HARDCODED_TARGET_SUBMIT_OFFSETS,
+  type TargetSubmitAnchor,
+} from '../lib/targetSubmitLearner';
+import type { RecencyTier } from '../lib/scheduleBenchmarks';
+import type { PermitWithCycles, Project } from '../lib/database.types';
 
-// fix-25-feat-T: Trends — operational performance MVP. Answers Bobby's
-// three operational questions:
-//   1. Are we getting faster? — line chart of avg intake→approval over time
-//   2. Where's time going? — grouped bar of city review vs team turnaround
-//   3. Are we hitting target? — KPI tile + per-cohort hit rate column
-// Filters (date range / juris / type) persist to URL search params so
-// the view is shareable.
+// fix-25-feat-T → V → BB: Trends — operational performance + volume +
+// learned target_submit, merged into one sectioned surface. Replaces
+// the legacy Reports → Trends sub-tab. Sections (scrolling):
+//   - Filter bar (date / juris / type)
+//   - KPI tile row (5 tiles)
+//   - § Volume — 4 v1-parity charts (submit / approved / timeline / GOs)
+//   - § City performance — intake→approval over time + city vs team
+//   - § Variance — submit→intake + target hit summary tiles
+//   - § Target Submit — learned anchor→submit per (juris × type)
+//   - § Breakdown — unified per-cohort detail table
+// Card style mirrors the old Reports → Trends sub-tab (bg-surface +
+// border-border + uppercase-tracking title) that Bobby liked.
 
 const QUICK_RANGES: Array<{
   label: string;
@@ -71,8 +99,9 @@ const QUICK_RANGES: Array<{
 export default function Trends() {
   const permitsQ = usePermits();
   const projectsQ = useProjects();
+  const typesQ = usePermitTypes();
 
-  const error = permitsQ.error ?? projectsQ.error;
+  const error = permitsQ.error ?? projectsQ.error ?? typesQ.error;
   if (error) {
     return (
       <QueryError
@@ -85,7 +114,7 @@ export default function Trends() {
       />
     );
   }
-  if (permitsQ.isLoading || projectsQ.isLoading) {
+  if (permitsQ.isLoading || projectsQ.isLoading || typesQ.isLoading) {
     return <SkeletonRows count={6} rowClassName="h-16" />;
   }
 
@@ -93,16 +122,18 @@ export default function Trends() {
     <TrendsBody
       permits={permitsQ.data ?? []}
       projects={projectsQ.data ?? []}
+      catalogTypes={(typesQ.data ?? []).map((t) => t.name)}
     />
   );
 }
 
 interface BodyProps {
-  permits: import('../lib/database.types').PermitWithCycles[];
-  projects: import('../lib/database.types').Project[];
+  permits: PermitWithCycles[];
+  projects: Project[];
+  catalogTypes: string[];
 }
 
-function TrendsBody({ permits, projects }: BodyProps) {
+function TrendsBody({ permits, projects, catalogTypes }: BodyProps) {
   const [searchParams, setSearchParams] = useSearchParams();
   const today = useMemo(() => new Date(), []);
   const defaultRange = useMemo(() => defaultDateRange(today), [today]);
@@ -153,6 +184,7 @@ function TrendsBody({ permits, projects }: BodyProps) {
     return Array.from(set).sort();
   }, [permits]);
 
+  // ----- Performance helpers (perfTrends) -----
   const filtered = useMemo(
     () => filterPermits(permits, projectsById, filters),
     [permits, projectsById, filters],
@@ -173,9 +205,6 @@ function TrendsBody({ permits, projects }: BodyProps) {
     [filtered, projectsById],
   );
 
-  // fix-25-feat-V: aggregate submission → intake variance for the
-  // tile + a lookup map for per-row table joining. Helper returns one
-  // VarianceRow per (juris × type); the tile weighs avgDays by n.
   const varianceRows = useMemo(
     () => submissionToIntakeVariance(filtered, projectsById),
     [filtered, projectsById],
@@ -198,8 +227,6 @@ function TrendsBody({ permits, projects }: BodyProps) {
     return { avgDays: Math.round(totalDays / totalN), n: totalN };
   }, [varianceRows]);
 
-  // Chart 2: grouped bar over breakdown rows that have BOTH per-cycle
-  // averages populated. Sparse rows still show in the table below.
   const cycleCharts = useMemo(
     () =>
       breakdown
@@ -208,7 +235,7 @@ function TrendsBody({ permits, projects }: BodyProps) {
             r.avgCityReviewPerCycle !== null &&
             r.avgTeamTurnaroundPerCycle !== null,
         )
-        .slice(0, 10) // cap to keep the chart readable
+        .slice(0, 10)
         .map((r) => ({
           label: `${r.juris} · ${r.type}`,
           'City review': r.avgCityReviewPerCycle ?? 0,
@@ -216,6 +243,99 @@ function TrendsBody({ permits, projects }: BodyProps) {
           n: r.n,
         })),
     [breakdown],
+  );
+
+  // ----- Volume helpers (trendsHelpers, v1-parity) -----
+  //
+  // Per spec: Volume section uses date range only, ignores juris/type
+  // filters, grouped by jurisdiction. Convert the page's
+  // PerfTrendsFilters → trendsHelpers TrendsFilters via a custom-range
+  // adapter — no new helpers, just a shape bridge.
+  const volumeFilters: TrTrendsFilters = useMemo(
+    () => ({
+      ...TR_DEFAULT_FILTERS,
+      range: 'custom',
+      dateFrom: filters.dateRange.from.slice(0, 7),
+      dateTo: filters.dateRange.to.slice(0, 7),
+      group: 'jurisdiction',
+    }),
+    [filters.dateRange],
+  );
+  const volumeMonths = useMemo(
+    () => getMonthRange(volumeFilters, permits, projectsById, today),
+    [volumeFilters, permits, projectsById, today],
+  );
+  const volumeFiltered = useMemo(
+    () => trFilteredPermits(permits, volumeFilters, projectsById),
+    [permits, volumeFilters, projectsById],
+  );
+  const volumeGroupKeys = useMemo(
+    () => getGroupKeys(volumeFiltered, volumeFilters, projectsById),
+    [volumeFiltered, volumeFilters, projectsById],
+  );
+  const submittedSeries = useMemo(
+    () =>
+      buildSubmittedSeries(
+        volumeFiltered,
+        volumeFilters,
+        projectsById,
+        volumeMonths,
+        volumeGroupKeys,
+      ),
+    [volumeFiltered, volumeFilters, projectsById, volumeMonths, volumeGroupKeys],
+  );
+  const approvedSeries = useMemo(
+    () =>
+      buildApprovedSeries(
+        volumeFiltered,
+        volumeFilters,
+        projectsById,
+        volumeMonths,
+        volumeGroupKeys,
+      ),
+    [volumeFiltered, volumeFilters, projectsById, volumeMonths, volumeGroupKeys],
+  );
+  const timelineSeries = useMemo(
+    () =>
+      buildTimelineSeries(
+        volumeFiltered,
+        volumeFilters,
+        projectsById,
+        volumeMonths,
+        volumeGroupKeys,
+      ),
+    [volumeFiltered, volumeFilters, projectsById, volumeMonths, volumeGroupKeys],
+  );
+  const goSeries = useMemo(
+    () =>
+      buildGoSeries(
+        volumeFiltered,
+        volumeFilters,
+        projectsById,
+        volumeMonths,
+        volumeGroupKeys,
+      ),
+    [volumeFiltered, volumeFilters, projectsById, volumeMonths, volumeGroupKeys],
+  );
+
+  // ----- Target Submit rows (fix-25-feat-AA) -----
+  //
+  // One row per (juris × catalog type) for non-mirror anchors. Respects
+  // the global juris / type filter so the table narrows alongside the
+  // rest of the page. Empty cohort still surfaces — source='default'
+  // and the hardcoded fallback value get shown so the team sees what
+  // the engine will produce when no signal exists.
+  const targetSubmitRows = useMemo(
+    () =>
+      buildTargetSubmitRows(
+        permits,
+        projectsById,
+        catalogTypes,
+        jurisOptions,
+        filters,
+        today,
+      ),
+    [permits, projectsById, catalogTypes, jurisOptions, filters, today],
   );
 
   type SortKey =
@@ -230,9 +350,6 @@ function TrendsBody({ permits, projects }: BodyProps) {
     | 'targetHitRate';
   const [sortKey, setSortKey] = useState<SortKey>('n');
   const [sortDesc, setSortDesc] = useState(true);
-  /** Resolve the sort field for a row. submitToIntake comes from the
-   *  variance map (not a column on BreakdownRow); everything else
-   *  reads off the row directly. */
   function sortValue(
     row: (typeof breakdown)[number],
     key: SortKey,
@@ -428,188 +545,672 @@ function TrendsBody({ permits, projects }: BodyProps) {
         />
       </div>
 
-      {/* Chart 1: time series */}
-      <ChartCard
-        title="Avg city clock by month (intake → approval)"
-        testId="trends-chart-clock"
-        empty={timeSeries.length === 0}
-        emptyLabel="No approved permits in this window"
+      {/* § Volume */}
+      <Section
+        title="Volume"
+        subtitle="Permit activity over time (date range applies; juris/type filters do not)"
+        testId="trends-section-volume"
       >
-        <ResponsiveContainer width="100%" height={260}>
-          <LineChart
-            data={timeSeries}
-            margin={{ top: 10, right: 20, bottom: 10, left: 0 }}
-          >
-            <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" />
-            <XAxis
-              dataKey="month"
-              tick={{ fontSize: 10, fill: 'var(--color-dim)' }}
-            />
-            <YAxis
-              tick={{ fontSize: 10, fill: 'var(--color-dim)' }}
-              label={{
-                value: 'days',
-                angle: -90,
-                position: 'insideLeft',
-                style: { fontSize: 10, fill: 'var(--color-dim)' },
-              }}
-            />
-            <Tooltip
-              contentStyle={{
-                background: 'var(--color-surface)',
-                border: '1px solid var(--color-border)',
-                fontSize: 11,
-              }}
-              formatter={(value, _name, item) => {
-                const payload = (item as { payload?: { n?: number } } | undefined)
-                  ?.payload;
-                return [
-                  `${value}d · n=${payload?.n ?? 0}`,
-                  'Avg city clock',
-                ];
-              }}
-            />
-            <Line
-              type="monotone"
-              dataKey="avgDays"
-              stroke="var(--color-pm)"
-              strokeWidth={2}
-              dot={{ r: 3 }}
-            />
-          </LineChart>
-        </ResponsiveContainer>
-      </ChartCard>
-
-      {/* Chart 2: grouped bar — city vs team */}
-      <ChartCard
-        title="Where's time going? City review vs team turnaround per cycle"
-        testId="trends-chart-citytm"
-        empty={cycleCharts.length === 0}
-        emptyLabel="No multi-cycle permits in this window"
-      >
-        <ResponsiveContainer width="100%" height={300}>
-          <BarChart
-            data={cycleCharts}
-            margin={{ top: 10, right: 20, bottom: 60, left: 0 }}
-          >
-            <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" />
-            <XAxis
-              dataKey="label"
-              tick={{ fontSize: 10, fill: 'var(--color-dim)' }}
-              angle={-30}
-              textAnchor="end"
-              height={70}
-              interval={0}
-            />
-            <YAxis
-              tick={{ fontSize: 10, fill: 'var(--color-dim)' }}
-              label={{
-                value: 'days/cycle',
-                angle: -90,
-                position: 'insideLeft',
-                style: { fontSize: 10, fill: 'var(--color-dim)' },
-              }}
-            />
-            <Tooltip
-              contentStyle={{
-                background: 'var(--color-surface)',
-                border: '1px solid var(--color-border)',
-                fontSize: 11,
-              }}
-            />
-            <Legend wrapperStyle={{ fontSize: 11 }} />
-            <Bar dataKey="City review" fill="var(--color-de)" />
-            <Bar dataKey="Team turnaround" fill="var(--color-co)" />
-          </BarChart>
-        </ResponsiveContainer>
-      </ChartCard>
-
-      {/* Detail table */}
-      <div
-        className="rounded-lg border overflow-hidden"
-        style={{
-          background: 'var(--color-surface)',
-          borderColor: 'var(--color-border)',
-        }}
-        data-testid="trends-breakdown-table"
-      >
-        <div className="px-3 py-2 text-[11px] font-display font-bold text-text border-b" style={{ borderColor: 'var(--color-border)' }}>
-          Breakdown — {breakdown.length} cohort{breakdown.length === 1 ? '' : 's'}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <TrendChartCard
+            title="Permits Submitted by Month"
+            chartKind="bar"
+            series={submittedSeries}
+            groupKeys={volumeGroupKeys}
+            yLabel="# Permits"
+            testId="tr-chart-submitted"
+          />
+          <TrendChartCard
+            title="Permits Approved by Month"
+            chartKind="bar"
+            series={approvedSeries}
+            groupKeys={volumeGroupKeys}
+            yLabel="# Permits"
+            testId="tr-chart-approved"
+          />
+          <TrendChartCard
+            title="Avg Permit Timeline by Month"
+            subtitle="(submit → approval, days)"
+            chartKind="line"
+            series={timelineSeries}
+            groupKeys={volumeGroupKeys}
+            yLabel="Avg Days"
+            testId="tr-chart-timeline"
+          />
+          <TrendChartCard
+            title="GOs by Month"
+            subtitle="(new projects)"
+            chartKind="bar"
+            series={goSeries}
+            groupKeys={volumeGroupKeys}
+            yLabel="# Projects"
+            testId="tr-chart-goes"
+          />
         </div>
-        <table className="w-full text-[11px]">
-          <thead className="bg-s2">
-            <tr>
-              <Th onClick={() => toggleSort('juris')} active={sortKey === 'juris'} desc={sortDesc}>Juris</Th>
-              <Th onClick={() => toggleSort('type')} active={sortKey === 'type'} desc={sortDesc}>Type</Th>
-              <Th onClick={() => toggleSort('n')} active={sortKey === 'n'} desc={sortDesc} align="right">n</Th>
-              <Th onClick={() => toggleSort('avgIntakeToApproval')} active={sortKey === 'avgIntakeToApproval'} desc={sortDesc} align="right">Avg city clock</Th>
-              <Th onClick={() => toggleSort('avgCycles')} active={sortKey === 'avgCycles'} desc={sortDesc} align="right">Avg cycles</Th>
-              <Th onClick={() => toggleSort('avgCityReviewPerCycle')} active={sortKey === 'avgCityReviewPerCycle'} desc={sortDesc} align="right">City/cycle</Th>
-              <Th onClick={() => toggleSort('avgTeamTurnaroundPerCycle')} active={sortKey === 'avgTeamTurnaroundPerCycle'} desc={sortDesc} align="right">Team/cycle</Th>
-              <Th onClick={() => toggleSort('submitToIntake')} active={sortKey === 'submitToIntake'} desc={sortDesc} align="right">Submit→Intake (d)</Th>
-              <Th onClick={() => toggleSort('targetHitRate')} active={sortKey === 'targetHitRate'} desc={sortDesc} align="right">Target hit</Th>
-            </tr>
-          </thead>
-          <tbody>
-            {sortedBreakdown.length === 0 && (
+      </Section>
+
+      {/* § City performance */}
+      <Section title="City performance" testId="trends-section-city">
+        <ChartCard
+          title="Avg city clock by month (intake → approval)"
+          testId="trends-chart-clock"
+          empty={timeSeries.length === 0}
+          emptyLabel="No approved permits in this window"
+        >
+          <ResponsiveContainer width="100%" height={260}>
+            <LineChart
+              data={timeSeries}
+              margin={{ top: 10, right: 20, bottom: 10, left: 0 }}
+            >
+              <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" />
+              <XAxis
+                dataKey="month"
+                tick={{ fontSize: 10, fill: 'var(--color-dim)' }}
+              />
+              <YAxis
+                tick={{ fontSize: 10, fill: 'var(--color-dim)' }}
+                label={{
+                  value: 'days',
+                  angle: -90,
+                  position: 'insideLeft',
+                  style: { fontSize: 10, fill: 'var(--color-dim)' },
+                }}
+              />
+              <Tooltip
+                contentStyle={{
+                  background: 'var(--color-surface)',
+                  border: '1px solid var(--color-border)',
+                  fontSize: 11,
+                }}
+                formatter={(value, _name, item) => {
+                  const payload = (item as { payload?: { n?: number } } | undefined)
+                    ?.payload;
+                  return [
+                    `${value}d · n=${payload?.n ?? 0}`,
+                    'Avg city clock',
+                  ];
+                }}
+              />
+              <Line
+                type="monotone"
+                dataKey="avgDays"
+                stroke="var(--color-pm)"
+                strokeWidth={2}
+                dot={{ r: 3 }}
+              />
+            </LineChart>
+          </ResponsiveContainer>
+        </ChartCard>
+
+        <ChartCard
+          title="Where's time going? City review vs team turnaround per cycle"
+          testId="trends-chart-citytm"
+          empty={cycleCharts.length === 0}
+          emptyLabel="No multi-cycle permits in this window"
+        >
+          <ResponsiveContainer width="100%" height={300}>
+            <BarChart
+              data={cycleCharts}
+              margin={{ top: 10, right: 20, bottom: 60, left: 0 }}
+            >
+              <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" />
+              <XAxis
+                dataKey="label"
+                tick={{ fontSize: 10, fill: 'var(--color-dim)' }}
+                angle={-30}
+                textAnchor="end"
+                height={70}
+                interval={0}
+              />
+              <YAxis
+                tick={{ fontSize: 10, fill: 'var(--color-dim)' }}
+                label={{
+                  value: 'days/cycle',
+                  angle: -90,
+                  position: 'insideLeft',
+                  style: { fontSize: 10, fill: 'var(--color-dim)' },
+                }}
+              />
+              <Tooltip
+                contentStyle={{
+                  background: 'var(--color-surface)',
+                  border: '1px solid var(--color-border)',
+                  fontSize: 11,
+                }}
+              />
+              <Legend wrapperStyle={{ fontSize: 11 }} />
+              <Bar dataKey="City review" fill="var(--color-de)" />
+              <Bar dataKey="Team turnaround" fill="var(--color-co)" />
+            </BarChart>
+          </ResponsiveContainer>
+        </ChartCard>
+      </Section>
+
+      {/* § Variance */}
+      <Section
+        title="Variance"
+        subtitle="Slippage between plan and reality"
+        testId="trends-section-variance"
+      >
+        <div className="bg-surface border border-border rounded-lg p-4">
+          <p className="text-xs text-muted leading-relaxed">
+            <strong className="text-text">Submit → Intake</strong>: gap between
+            team submission (<code className="text-[10px]">c0.submitted</code>) and
+            city intake acceptance. Captures packet quality + city responsiveness.
+            Window weighted avg:{' '}
+            <strong className="text-text">
+              {kpiSubmitToIntake === null
+                ? '—'
+                : `${kpiSubmitToIntake.avgDays}d (n=${kpiSubmitToIntake.n})`}
+            </strong>
+            .
+          </p>
+          <p className="text-xs text-muted leading-relaxed mt-2">
+            <strong className="text-text">Target hit rate</strong>: how often
+            actual submission lands on or before the engine-derived
+            target_submit. Window:{' '}
+            <strong className="text-text">
+              {kpiHitRate === null
+                ? '—'
+                : `${kpiHitRate.hit} of ${kpiHitRate.total} (${Math.round(
+                    (kpiHitRate.hit / kpiHitRate.total) * 100,
+                  )}%); ${
+                    kpiHitRate.avgDaysOff > 0
+                      ? `avg ${kpiHitRate.avgDaysOff}d late`
+                      : kpiHitRate.avgDaysOff < 0
+                        ? `avg ${Math.abs(kpiHitRate.avgDaysOff)}d early`
+                        : 'on time'
+                  }`}
+            </strong>
+            . Per-cohort detail in the Breakdown table below.
+          </p>
+        </div>
+      </Section>
+
+      {/* § Target Submit (fix-25-feat-AA) */}
+      <Section
+        title="Target Submit — Team prep time per anchor"
+        subtitle="Learned days from each anchor (DD end / go-date / BP cycle dates) to c0.submitted, per (juris × type)"
+        testId="trends-section-target-submit"
+      >
+        <div className="bg-surface border border-border rounded-lg overflow-hidden">
+          <table className="w-full text-[11px]">
+            <thead className="bg-s2">
               <tr>
-                <td colSpan={9} className="px-3 py-4 text-center text-dim italic">
-                  No approved permits match the filters
-                </td>
+                <TargetTh align="left">Juris</TargetTh>
+                <TargetTh align="left">Type</TargetTh>
+                <TargetTh align="left">Anchor</TargetTh>
+                <TargetTh align="right">n</TargetTh>
+                <TargetTh align="right">Avg days</TargetTh>
+                <TargetTh align="left">Tier</TargetTh>
+                <TargetTh align="left">Source</TargetTh>
               </tr>
-            )}
-            {sortedBreakdown.map((row) => {
-              const sparse = row.n < SPARSE_GATE;
-              const submitToIntake = submitToIntakeByCohort.get(
-                `${row.juris}||${row.type}`,
-              );
-              return (
+            </thead>
+            <tbody>
+              {targetSubmitRows.length === 0 && (
+                <tr>
+                  <td colSpan={7} className="px-3 py-4 text-center text-dim italic">
+                    No applicable (juris × type) combos with the current filter
+                  </td>
+                </tr>
+              )}
+              {targetSubmitRows.map((row) => (
                 <tr
                   key={`${row.juris}-${row.type}`}
-                  className={`border-t ${sparse ? 'opacity-60' : ''}`}
+                  className={`border-t ${row.source === 'default' ? 'opacity-60' : ''}`}
                   style={{ borderColor: 'var(--color-border)' }}
-                  data-testid={`trends-row-${row.juris}-${row.type}`}
-                  data-sparse={sparse ? 'true' : undefined}
+                  data-testid={`trends-ts-row-${row.juris}-${row.type}`}
                 >
                   <Td>{row.juris}</Td>
+                  <Td>{row.type}</Td>
                   <Td>
-                    {row.type}
-                    {sparse && (
-                      <span className="ml-2 text-[9px] uppercase tracking-wide text-dim italic">
-                        sparse
-                      </span>
-                    )}
+                    <code className="text-[10px] text-muted">
+                      {anchorLabel(row.anchor)}
+                    </code>
                   </Td>
                   <Td align="right">{row.n}</Td>
                   <Td align="right">
-                    {row.avgIntakeToApproval === null ? '—' : `${row.avgIntakeToApproval}d`}
+                    {row.avgDays === null ? '—' : `${row.avgDays}d`}
                   </Td>
-                  <Td align="right">
-                    {row.avgCycles === null ? '—' : row.avgCycles.toFixed(1)}
+                  <Td>
+                    <TierBadge tier={row.source} />
                   </Td>
-                  <Td align="right">
-                    {row.avgCityReviewPerCycle === null ? '—' : `${row.avgCityReviewPerCycle}d`}
-                  </Td>
-                  <Td align="right">
-                    {row.avgTeamTurnaroundPerCycle === null ? '—' : `${row.avgTeamTurnaroundPerCycle}d`}
-                  </Td>
-                  <Td align="right">
-                    {submitToIntake === undefined ? '—' : `${submitToIntake}d`}
-                  </Td>
-                  <Td align="right">
-                    {row.targetHitRate === null
-                      ? '—'
-                      : `${Math.round(row.targetHitRate * 100)}%`}
+                  <Td>
+                    {row.source === 'default' ? (
+                      <span className="text-[9px] italic text-dim">
+                        hardcoded fallback
+                      </span>
+                    ) : (
+                      <span className="text-[9px] text-text">
+                        learned{row.isCrossJuris ? ' (cross-juris)' : ''}
+                      </span>
+                    )}
                   </Td>
                 </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <p className="text-[10px] text-dim mt-2 leading-relaxed">
+          Anchors: <strong>DD end</strong> (BP), <strong>go-date</strong>{' '}
+          (ECA / PAR / SDOT / TRAO / LBA / SP / SIP),{' '}
+          <strong>BP c0 intake</strong> (Demolition),{' '}
+          <strong>BP c1 resub</strong> (IPR / ULS),{' '}
+          <strong>BP actual issue</strong> (Condo). Avg days can be negative —
+          some types (e.g. PAR/Pre-Sub) typically submit before the anchor date.
+        </p>
+      </Section>
+
+      {/* § Breakdown table */}
+      <Section title="Breakdown" testId="trends-section-breakdown">
+        <div
+          className="rounded-lg border overflow-hidden"
+          style={{
+            background: 'var(--color-surface)',
+            borderColor: 'var(--color-border)',
+          }}
+          data-testid="trends-breakdown-table"
+        >
+          <div className="px-3 py-2 text-[11px] font-display font-bold text-text border-b" style={{ borderColor: 'var(--color-border)' }}>
+            Breakdown — {breakdown.length} cohort{breakdown.length === 1 ? '' : 's'}
+          </div>
+          <table className="w-full text-[11px]">
+            <thead className="bg-s2">
+              <tr>
+                <Th onClick={() => toggleSort('juris')} active={sortKey === 'juris'} desc={sortDesc}>Juris</Th>
+                <Th onClick={() => toggleSort('type')} active={sortKey === 'type'} desc={sortDesc}>Type</Th>
+                <Th onClick={() => toggleSort('n')} active={sortKey === 'n'} desc={sortDesc} align="right">n</Th>
+                <Th onClick={() => toggleSort('avgIntakeToApproval')} active={sortKey === 'avgIntakeToApproval'} desc={sortDesc} align="right">Avg city clock</Th>
+                <Th onClick={() => toggleSort('avgCycles')} active={sortKey === 'avgCycles'} desc={sortDesc} align="right">Avg cycles</Th>
+                <Th onClick={() => toggleSort('avgCityReviewPerCycle')} active={sortKey === 'avgCityReviewPerCycle'} desc={sortDesc} align="right">City/cycle</Th>
+                <Th onClick={() => toggleSort('avgTeamTurnaroundPerCycle')} active={sortKey === 'avgTeamTurnaroundPerCycle'} desc={sortDesc} align="right">Team/cycle</Th>
+                <Th onClick={() => toggleSort('submitToIntake')} active={sortKey === 'submitToIntake'} desc={sortDesc} align="right">Submit→Intake (d)</Th>
+                <Th onClick={() => toggleSort('targetHitRate')} active={sortKey === 'targetHitRate'} desc={sortDesc} align="right">Target hit</Th>
+              </tr>
+            </thead>
+            <tbody>
+              {sortedBreakdown.length === 0 && (
+                <tr>
+                  <td colSpan={9} className="px-3 py-4 text-center text-dim italic">
+                    No approved permits match the filters
+                  </td>
+                </tr>
+              )}
+              {sortedBreakdown.map((row) => {
+                const sparse = row.n < SPARSE_GATE;
+                const submitToIntake = submitToIntakeByCohort.get(
+                  `${row.juris}||${row.type}`,
+                );
+                return (
+                  <tr
+                    key={`${row.juris}-${row.type}`}
+                    className={`border-t ${sparse ? 'opacity-60' : ''}`}
+                    style={{ borderColor: 'var(--color-border)' }}
+                    data-testid={`trends-row-${row.juris}-${row.type}`}
+                    data-sparse={sparse ? 'true' : undefined}
+                  >
+                    <Td>{row.juris}</Td>
+                    <Td>
+                      {row.type}
+                      {sparse && (
+                        <span className="ml-2 text-[9px] uppercase tracking-wide text-dim italic">
+                          sparse
+                        </span>
+                      )}
+                    </Td>
+                    <Td align="right">{row.n}</Td>
+                    <Td align="right">
+                      {row.avgIntakeToApproval === null ? '—' : `${row.avgIntakeToApproval}d`}
+                    </Td>
+                    <Td align="right">
+                      {row.avgCycles === null ? '—' : row.avgCycles.toFixed(1)}
+                    </Td>
+                    <Td align="right">
+                      {row.avgCityReviewPerCycle === null ? '—' : `${row.avgCityReviewPerCycle}d`}
+                    </Td>
+                    <Td align="right">
+                      {row.avgTeamTurnaroundPerCycle === null ? '—' : `${row.avgTeamTurnaroundPerCycle}d`}
+                    </Td>
+                    <Td align="right">
+                      {submitToIntake === undefined ? '—' : `${submitToIntake}d`}
+                    </Td>
+                    <Td align="right">
+                      {row.targetHitRate === null
+                        ? '—'
+                        : `${Math.round(row.targetHitRate * 100)}%`}
+                    </Td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </Section>
     </div>
   );
 }
+
+// ============================================================
+// Section wrapper — matches the Reports → Trends card style
+// ============================================================
+
+function Section({
+  title,
+  subtitle,
+  children,
+  testId,
+}: {
+  title: string;
+  subtitle?: string;
+  children: React.ReactNode;
+  testId?: string;
+}) {
+  return (
+    <section className="space-y-3" data-testid={testId}>
+      <div>
+        <h2 className="text-[12px] font-extrabold uppercase tracking-wider text-text">
+          {title}
+        </h2>
+        {subtitle && (
+          <div className="text-[10px] text-dim mt-0.5">{subtitle}</div>
+        )}
+      </div>
+      {children}
+    </section>
+  );
+}
+
+// ============================================================
+// Target Submit row builder + helpers (fix-25-feat-BB)
+// ============================================================
+
+interface TargetSubmitRow {
+  juris: string;
+  type: string;
+  anchor: TargetSubmitAnchor;
+  n: number;
+  avgDays: number | null;
+  source: RecencyTier;
+  isCrossJuris: boolean;
+}
+
+function buildTargetSubmitRows(
+  permits: PermitWithCycles[],
+  projectsById: Map<string, Project>,
+  catalogTypes: string[],
+  jurisOptions: string[],
+  filters: PerfTrendsFilters,
+  today: Date,
+): TargetSubmitRow[] {
+  // Mirror types (G&C / LSM) don't have a learner — anchorFor returns
+  // 'mirror_bp' and they're excluded here. Catalog types with no entry
+  // in HARDCODED_TARGET_SUBMIT_OFFSETS (and no anchor) also drop.
+  const eligibleTypes = catalogTypes.filter((t) => {
+    const a = anchorFor(t);
+    if (a === 'mirror_bp') return false;
+    return true;
+  });
+
+  // Single-tenant projects map by id (for the learner call signature).
+  const projectsMap = new Map<string, Project>();
+  for (const [k, v] of projectsById) projectsMap.set(k, v);
+
+  const out: TargetSubmitRow[] = [];
+  const jurises = filters.juris ? [filters.juris] : jurisOptions;
+  for (const juris of jurises) {
+    for (const type of eligibleTypes) {
+      if (filters.permitType && type !== filters.permitType) continue;
+      const result = computeLearnedTargetSubmit(
+        permits,
+        projectsMap,
+        { type, juris },
+        today,
+      );
+      // Skip rows that don't even have a hardcoded fallback (custom types).
+      if (result.value === null && !(type in HARDCODED_TARGET_SUBMIT_OFFSETS)) {
+        continue;
+      }
+      out.push({
+        juris,
+        type,
+        anchor: anchorFor(type),
+        n: result.sampleCount,
+        avgDays: result.value,
+        source: result.source,
+        isCrossJuris: result.isCrossJuris,
+      });
+    }
+  }
+  // Sort: learned rows first (descending sample count), then defaults.
+  out.sort((a, b) => {
+    if (a.source === 'default' && b.source !== 'default') return 1;
+    if (a.source !== 'default' && b.source === 'default') return -1;
+    if (a.n !== b.n) return b.n - a.n;
+    if (a.juris !== b.juris) return a.juris.localeCompare(b.juris);
+    return a.type.localeCompare(b.type);
+  });
+  return out;
+}
+
+function anchorLabel(anchor: TargetSubmitAnchor): string {
+  switch (anchor) {
+    case 'dd_end':
+      return 'dd_end';
+    case 'go_date':
+      return 'project.go_date';
+    case 'bp_c0_intake':
+      return 'BP c0.intake_accepted';
+    case 'bp_c1_resub':
+      return 'BP c1.resubmitted';
+    case 'bp_actual_issue':
+      return 'BP actual_issue';
+    case 'mirror_bp':
+      return '— (mirrors BP)';
+  }
+}
+
+const TIER_LABEL: Record<RecencyTier, string> = {
+  last_90d: 'last 90d',
+  last_180d: 'last 180d',
+  last_365d: 'last 365d',
+  all_time: 'all-time',
+  default: 'default',
+};
+
+const TIER_BG: Record<RecencyTier, string> = {
+  last_90d: 'rgba(16,185,129,0.12)',
+  last_180d: 'rgba(59,130,246,0.12)',
+  last_365d: 'rgba(245,158,11,0.12)',
+  all_time: 'rgba(148,163,184,0.18)',
+  default: 'rgba(148,163,184,0.10)',
+};
+
+const TIER_FG: Record<RecencyTier, string> = {
+  last_90d: 'var(--color-pm)',
+  last_180d: 'var(--color-de)',
+  last_365d: 'var(--color-co)',
+  all_time: 'var(--color-dim)',
+  default: 'var(--color-dim)',
+};
+
+function TierBadge({ tier }: { tier: RecencyTier }) {
+  return (
+    <span
+      className="text-[9px] font-display font-bold px-1.5 py-0.5 rounded uppercase tracking-wide"
+      style={{ background: TIER_BG[tier], color: TIER_FG[tier] }}
+      data-testid={`tier-${tier}`}
+    >
+      {TIER_LABEL[tier]}
+    </span>
+  );
+}
+
+function TargetTh({
+  children,
+  align,
+}: {
+  children: React.ReactNode;
+  align: 'left' | 'right';
+}) {
+  return (
+    <th
+      className={`px-3 py-2 text-[9px] uppercase tracking-wide font-display font-bold text-dim ${
+        align === 'right' ? 'text-right' : 'text-left'
+      }`}
+    >
+      {children}
+    </th>
+  );
+}
+
+// ============================================================
+// Volume chart card — ported from ReportTrendsTab.TrendChartCard
+// ============================================================
+
+interface TrendChartCardProps {
+  title: string;
+  subtitle?: string;
+  chartKind: 'bar' | 'line';
+  series: ChartPoint[];
+  groupKeys: string[];
+  yLabel: string;
+  testId: string;
+}
+
+function TrendChartCard({
+  title,
+  subtitle,
+  chartKind,
+  series,
+  groupKeys,
+  yLabel,
+  testId,
+}: TrendChartCardProps) {
+  const chartData = series.map((p) => {
+    const row: Record<string, string | number | null> = {
+      month: formatMonthShort(p.month),
+    };
+    for (const k of groupKeys) row[k] = p.values[k] ?? null;
+    return row;
+  });
+  const hasAnyValue = series.some((p) =>
+    Object.values(p.values).some((v) => v !== null && v !== 0),
+  );
+
+  return (
+    <div
+      className="bg-surface border border-border rounded-lg p-4"
+      data-testid={testId}
+    >
+      <div className="mb-3 text-[11px] font-extrabold text-text uppercase tracking-wider">
+        {title}
+        {subtitle && (
+          <span className="ml-2 text-[9px] font-normal text-dim normal-case tracking-normal">
+            {subtitle}
+          </span>
+        )}
+      </div>
+      {!hasAnyValue ? (
+        <div className="text-xs text-dim italic text-center py-12">
+          No data in the selected range
+        </div>
+      ) : (
+        <div style={{ width: '100%', height: 220 }}>
+          <ResponsiveContainer width="100%" height="100%">
+            {chartKind === 'bar' ? (
+              <BarChart data={chartData} margin={{ top: 4, right: 8, bottom: 0, left: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="rgba(0,0,0,0.06)" />
+                <XAxis
+                  dataKey="month"
+                  tick={{ fontSize: 9, fill: '#64748b' }}
+                  axisLine={false}
+                  tickLine={false}
+                />
+                <YAxis
+                  tick={{ fontSize: 10, fill: '#64748b' }}
+                  axisLine={false}
+                  tickLine={false}
+                  label={{
+                    value: yLabel,
+                    angle: -90,
+                    position: 'insideLeft',
+                    style: { fill: '#64748b', fontSize: 10 },
+                  }}
+                />
+                <Tooltip
+                  contentStyle={{
+                    background: 'var(--color-surface)',
+                    border: '1px solid var(--color-border)',
+                    borderRadius: 6,
+                    fontSize: 11,
+                  }}
+                />
+                {groupKeys.length > 1 && (
+                  <Legend wrapperStyle={{ fontSize: 9, paddingTop: 4 }} />
+                )}
+                {groupKeys.map((k, idx) => (
+                  <Bar
+                    key={k}
+                    dataKey={k}
+                    fill={trColor(k, idx)}
+                    stackId={groupKeys.length > 1 ? 'a' : undefined}
+                  />
+                ))}
+              </BarChart>
+            ) : (
+              <LineChart data={chartData} margin={{ top: 4, right: 8, bottom: 0, left: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="rgba(0,0,0,0.06)" />
+                <XAxis
+                  dataKey="month"
+                  tick={{ fontSize: 9, fill: '#64748b' }}
+                  axisLine={false}
+                  tickLine={false}
+                />
+                <YAxis
+                  tick={{ fontSize: 10, fill: '#64748b' }}
+                  axisLine={false}
+                  tickLine={false}
+                  label={{
+                    value: yLabel,
+                    angle: -90,
+                    position: 'insideLeft',
+                    style: { fill: '#64748b', fontSize: 10 },
+                  }}
+                />
+                <Tooltip
+                  contentStyle={{
+                    background: 'var(--color-surface)',
+                    border: '1px solid var(--color-border)',
+                    borderRadius: 6,
+                    fontSize: 11,
+                  }}
+                />
+                {groupKeys.length > 1 && (
+                  <Legend wrapperStyle={{ fontSize: 9, paddingTop: 4 }} />
+                )}
+                {groupKeys.map((k, idx) => (
+                  <Line
+                    key={k}
+                    type="monotone"
+                    dataKey={k}
+                    stroke={trColor(k, idx)}
+                    strokeWidth={2}
+                    dot={{ r: 3, fill: trColor(k, idx) }}
+                    connectNulls
+                  />
+                ))}
+              </LineChart>
+            )}
+          </ResponsiveContainer>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ============================================================
+// Shared building blocks (existing on this page pre-fix-25-feat-BB)
+// ============================================================
 
 function KpiTile({
   label,
@@ -621,8 +1222,6 @@ function KpiTile({
   label: string;
   value: string;
   sub?: string;
-  /** Hover tooltip on the whole tile — surfaces the metric's definition
-   *  / interpretation guidance without bloating the visible label. */
   tileTitle?: string;
   testId?: string;
 }) {

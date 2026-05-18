@@ -147,6 +147,21 @@ vi.mock('../hooks/useProjects', () => ({
     refetch: vi.fn(),
   }),
 }));
+// fix-25-feat-BB: Trends now reads catalog types so the Target
+// Submit table can iterate them. Provide a minimal type catalog so
+// the section renders rows for the BPs in the fixture.
+vi.mock('../hooks/usePermitTypes', () => ({
+  usePermitTypes: () => ({
+    data: [
+      { name: 'Building Permit', is_builtin: true, notes: null },
+      { name: 'Demolition', is_builtin: true, notes: null },
+      { name: 'Grading / Clearing', is_builtin: true, notes: null },
+    ],
+    isLoading: false,
+    error: null,
+    refetch: vi.fn(),
+  }),
+}));
 
 import Trends from '../pages/Trends';
 
@@ -224,6 +239,64 @@ describe('Trends — fix-25-feat-V submit→intake surface', () => {
     expect(header!.textContent).toMatch(/▼/);
     fireEvent.click(header!);
     expect(header!.textContent).toMatch(/▲/);
+  });
+
+  // fix-25-feat-BB: sectioned layout + Target Submit section + Volume
+  // section adopted from Reports → Trends.
+  it('renders the new sectioned layout: filter bar, KPI row, Volume, City performance, Variance, Target Submit, Breakdown', () => {
+    renderTrends();
+    // Filter bar still present.
+    expect(screen.getByTestId('trends-filter-bar')).toBeInTheDocument();
+    // All five sections by testid.
+    expect(screen.getByTestId('trends-section-volume')).toBeInTheDocument();
+    expect(screen.getByTestId('trends-section-city')).toBeInTheDocument();
+    expect(screen.getByTestId('trends-section-variance')).toBeInTheDocument();
+    expect(
+      screen.getByTestId('trends-section-target-submit'),
+    ).toBeInTheDocument();
+    expect(screen.getByTestId('trends-section-breakdown')).toBeInTheDocument();
+  });
+
+  it('Volume section renders the 4 v1-parity charts (submitted / approved / timeline / GOs)', () => {
+    renderTrends();
+    expect(screen.getByTestId('tr-chart-submitted')).toBeInTheDocument();
+    expect(screen.getByTestId('tr-chart-approved')).toBeInTheDocument();
+    expect(screen.getByTestId('tr-chart-timeline')).toBeInTheDocument();
+    expect(screen.getByTestId('tr-chart-goes')).toBeInTheDocument();
+  });
+
+  it('Target Submit section renders one row per (juris × type) with non-mirror anchor', () => {
+    renderTrends();
+    // Demolition is in the catalog but has no Demo permits with the
+    // required anchor (BP c0 intake) populated — still shown with
+    // hardcoded fallback / source=default.
+    const bpRow = screen.getByTestId('trends-ts-row-Seattle-Building Permit');
+    expect(bpRow).toBeInTheDocument();
+    const demoRow = screen.getByTestId('trends-ts-row-Seattle-Demolition');
+    expect(demoRow).toBeInTheDocument();
+    // Mirror types (Grading / Clearing) are excluded.
+    expect(
+      screen.queryByTestId('trends-ts-row-Seattle-Grading / Clearing'),
+    ).toBeNull();
+  });
+
+  it('Target Submit row for Demolition (no samples) shows the "default" tier badge', () => {
+    renderTrends();
+    const demoRow = screen.getByTestId('trends-ts-row-Seattle-Demolition');
+    // The tier badge has data-testid="tier-{source}"; default tier =
+    // hardcoded fallback fired.
+    const tierBadge = demoRow.querySelector('[data-testid="tier-default"]');
+    expect(tierBadge).toBeTruthy();
+    // Source column reads "hardcoded fallback" for default tier.
+    expect(demoRow.textContent).toMatch(/hardcoded fallback/i);
+  });
+
+  it('Variance section paragraph quotes the submit→intake weighted avg + target hit rate', () => {
+    renderTrends();
+    const variance = screen.getByTestId('trends-section-variance');
+    // Same numbers as the KPI tiles (8d weighted, n=2).
+    expect(variance.textContent).toMatch(/8d/);
+    expect(variance.textContent).toMatch(/n=2/);
   });
 
   it('KPI tile shows "—" when no permits have both submitted + intake_accepted in window', () => {

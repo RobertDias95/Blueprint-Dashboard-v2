@@ -15,18 +15,16 @@ import MetricCards from '../components/Reports/MetricCards';
 import BarChartCard from '../components/Reports/BarChartCard';
 import ReportTable from '../components/Reports/ReportTable';
 import ScheduleBenchmarks from '../components/Reports/ScheduleBenchmarks';
-import ReportTrendsTab from '../components/Reports/ReportTrendsTab';
 import { exportEnrichedPermitsToCSV } from '../lib/csvExport';
 import { pushToast } from '../stores/toastStore';
 import type { PermitWithCycles, Project } from '../lib/database.types';
 
 // Q7.2.b: Reports view. FilterBar → MetricCards → 6 charts → Benchmarks → Table.
-// Q9.5.d: page header restyle ("Reports & Metrics" + Export CSV button) +
-// Overview/Trends sub-tab bar restoring the v1 sub-tab pattern that Q7.2
-// Q4 incorrectly dropped. ReportTrendsTab renders the full v1 Trends
-// panel (filter bar + 4 time-series charts).
-
-type ReportsSubTab = 'overview' | 'trends';
+// Q9.5.d: page header restyle + Export CSV button.
+// fix-25-feat-BB: the Overview/Trends sub-tab bar was removed — the
+// v1-parity Trends time-series merged into the top-level Trends page
+// alongside the operational KPIs. Reports now renders the overview
+// content directly with no sub-tab switch.
 
 const DEFAULT_FILTERS: ReportFilters = {
   types: new Set(),
@@ -44,7 +42,6 @@ const DEFAULT_FILTERS: ReportFilters = {
 export default function Reports() {
   const permitsQ = usePermits();
   const projectsQ = useProjects();
-  const [tab, setTab] = useState<ReportsSubTab>('overview');
 
   const error = permitsQ.error ?? projectsQ.error;
   if (error) {
@@ -67,8 +64,6 @@ export default function Reports() {
     <Body
       permits={permitsQ.data ?? []}
       projects={projectsQ.data ?? []}
-      tab={tab}
-      setTab={setTab}
     />
   );
 }
@@ -76,13 +71,9 @@ export default function Reports() {
 function Body({
   permits,
   projects,
-  tab,
-  setTab,
 }: {
   permits: PermitWithCycles[];
   projects: Project[];
-  tab: ReportsSubTab;
-  setTab: (t: ReportsSubTab) => void;
 }) {
   const [filters, setFilters] = useState<ReportFilters>(DEFAULT_FILTERS);
   const today = useMemo(() => new Date(), []);
@@ -205,120 +196,71 @@ function Body({
         </button>
       </div>
 
-      <div className="flex items-center gap-0 border-b-2 border-border">
-        <SubTab
-          active={tab === 'overview'}
-          onClick={() => setTab('overview')}
-          testId="rpt-tab-overview"
-        >
-          Overview
-        </SubTab>
-        <SubTab
-          active={tab === 'trends'}
-          onClick={() => setTab('trends')}
-          testId="rpt-tab-trends"
-        >
-          Trends
-        </SubTab>
+      <ReportFilterBar
+        filters={filters}
+        onChange={update}
+        onClear={clearFilters}
+        typeOptions={typeOptions}
+        jurisOptions={jurisOptions}
+        entOptions={entOptions}
+        productTypeOptions={productTypeOptions}
+        tagOptions={tagOptions}
+        resultCount={filtered.length}
+      />
+
+      <MetricCards metrics={metrics} />
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+        <BarChartCard
+          title="Permits by Type"
+          data={permitsByType}
+          color="jv"
+          showAverage={false}
+          testId="chart-permits-by-type"
+        />
+        <BarChartCard
+          title="Permits by Jurisdiction"
+          data={permitsByJuris}
+          color="is"
+          showAverage={false}
+          testId="chart-permits-by-juris"
+        />
+        <BarChartCard
+          title="GO → Submit (avg days by type)"
+          data={goToSubmitByType}
+          color="de"
+          unit="d"
+          testId="chart-go-to-submit-by-type"
+        />
+        <BarChartCard
+          title="Schedule Variance by Type (avg days off)"
+          data={scheduleVarianceByType}
+          color="co"
+          unit="d"
+          emptyState="No issued permits yet"
+          testId="chart-schedule-variance-by-type"
+        />
+        <BarChartCard
+          title="City Review by Jurisdiction (avg days)"
+          data={cityReviewByJuris}
+          color="pm"
+          unit="d"
+          emptyState="No completed reviews yet"
+          testId="chart-city-review-by-juris"
+        />
+        <BarChartCard
+          title="Correction Response by Type (avg days)"
+          data={corrResponseByType}
+          color="overdue"
+          unit="d"
+          emptyState="No correction rounds completed yet"
+          testId="chart-corr-response-by-type"
+        />
       </div>
 
-      {tab === 'overview' ? (
-        <>
-          <ReportFilterBar
-            filters={filters}
-            onChange={update}
-            onClear={clearFilters}
-            typeOptions={typeOptions}
-            jurisOptions={jurisOptions}
-            entOptions={entOptions}
-            productTypeOptions={productTypeOptions}
-            tagOptions={tagOptions}
-            resultCount={filtered.length}
-          />
+      <ScheduleBenchmarks permits={permits} projects={projects} />
 
-          <MetricCards metrics={metrics} />
-
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
-            <BarChartCard
-              title="Permits by Type"
-              data={permitsByType}
-              color="jv"
-              showAverage={false}
-              testId="chart-permits-by-type"
-            />
-            <BarChartCard
-              title="Permits by Jurisdiction"
-              data={permitsByJuris}
-              color="is"
-              showAverage={false}
-              testId="chart-permits-by-juris"
-            />
-            <BarChartCard
-              title="GO → Submit (avg days by type)"
-              data={goToSubmitByType}
-              color="de"
-              unit="d"
-              testId="chart-go-to-submit-by-type"
-            />
-            <BarChartCard
-              title="Schedule Variance by Type (avg days off)"
-              data={scheduleVarianceByType}
-              color="co"
-              unit="d"
-              emptyState="No issued permits yet"
-              testId="chart-schedule-variance-by-type"
-            />
-            <BarChartCard
-              title="City Review by Jurisdiction (avg days)"
-              data={cityReviewByJuris}
-              color="pm"
-              unit="d"
-              emptyState="No completed reviews yet"
-              testId="chart-city-review-by-juris"
-            />
-            <BarChartCard
-              title="Correction Response by Type (avg days)"
-              data={corrResponseByType}
-              color="overdue"
-              unit="d"
-              emptyState="No correction rounds completed yet"
-              testId="chart-corr-response-by-type"
-            />
-          </div>
-
-          <ScheduleBenchmarks permits={permits} projects={projects} />
-
-          <ReportTable permits={filtered} />
-        </>
-      ) : (
-        <ReportTrendsTab />
-      )}
+      <ReportTable permits={filtered} />
     </div>
-  );
-}
-
-function SubTab({
-  active,
-  onClick,
-  testId,
-  children,
-}: {
-  active: boolean;
-  onClick: () => void;
-  testId: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <button
-      onClick={onClick}
-      className={`px-4 py-1.5 text-xs font-bold border-b-2 transition -mb-0.5 ${
-        active
-          ? 'text-de border-de'
-          : 'text-muted border-transparent hover:text-text'
-      }`}
-      data-testid={testId}
-    >
-      {children}
-    </button>
   );
 }
