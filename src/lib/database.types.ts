@@ -355,6 +355,49 @@ export interface AppConfigEntry {
   updated_at: string | null;
 }
 
+// fix-27: notification center activity feed. Shape mirrors the
+// bp_fetch_scraper_activity RPC return (audit_log enriched with the
+// joined permit + project).
+export type ScraperActivityAction =
+  | 'scrape_change_applied'
+  | 'scrape_cycle_change_applied'
+  | 'scrape_skipped_recent_manual_edit'
+  | 'scrape_cycle_skipped_recent_manual_edit'
+  | 'scrape_cycle_disagreement'
+  | 'scrape_skipped'
+  | 'manual_admin_correction'
+  | string; // permissive — new audit actions render as generic
+
+/** The `changes` jsonb is one of several shapes depending on action.
+ *  Components must treat unknown keys gracefully. */
+export interface ScraperActivityChanges {
+  db?: Record<string, unknown> | null;
+  observed?: Record<string, unknown> | null;
+  applied?: Record<string, unknown> | null;
+  disagreement?: Record<string, { db: unknown; observed: unknown }> | null;
+  reason?: string | null;
+  source?: string | null;
+  scraper_run_at?: string | null;
+  // manual_admin_correction
+  before?: Record<string, unknown> | null;
+  after?: Record<string, unknown> | null;
+  [key: string]: unknown;
+}
+
+export interface ScraperActivityRow {
+  id: number;
+  created_at: string;
+  action: ScraperActivityAction;
+  row_id: string | null;
+  changes: ScraperActivityChanges;
+  permit_num: string | null;
+  permit_type: string | null;
+  address: string | null;
+  juris: string | null;
+  /** Populated when action is a cycle event; null otherwise. */
+  cycle_index: number | null;
+}
+
 export interface IntakeRecord {
   id: number;
   /** FK to projects(id); nullable in DB (intakes can exist before a project is wired up). */

@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
 // Q2: Chrome nav lock test.
 // Q9.5.a: rewritten for v1-parity top-nav — logo=home + 4 tabs (no
@@ -8,13 +9,25 @@ import { MemoryRouter } from 'react-router-dom';
 // System Settings modal. Sign-out moved into the modal's Account
 // section, no longer in the topbar.
 
-vi.mock('../lib/supabase', () => ({
-  supabase: {
-    auth: { signOut: vi.fn().mockResolvedValue({ error: null }) },
-    from: () => ({ select: vi.fn().mockResolvedValue({ data: [], error: null }) }),
-  },
-  supabaseUrl: 'http://test.local',
-}));
+// fix-27: extended to cover supabase.rpc and supabase.channel so the
+// NotificationBell mounted by Chrome doesn't blow up. The bell's
+// underlying useScraperActivity hook hits both.
+vi.mock('../lib/supabase', () => {
+  const channelChain = {
+    on: vi.fn().mockReturnThis(),
+    subscribe: vi.fn().mockReturnThis(),
+  };
+  return {
+    supabase: {
+      auth: { signOut: vi.fn().mockResolvedValue({ error: null }) },
+      from: () => ({ select: vi.fn().mockResolvedValue({ data: [], error: null }) }),
+      rpc: vi.fn().mockResolvedValue({ data: [], error: null }),
+      channel: vi.fn(() => channelChain),
+      removeChannel: vi.fn().mockResolvedValue(undefined),
+    },
+    supabaseUrl: 'http://test.local',
+  };
+});
 
 vi.mock('../stores/authStore', () => ({
   useAuthStore: (selector: (s: unknown) => unknown) =>
@@ -45,10 +58,17 @@ describe('<Chrome /> Q9.5.a top-nav restructure', () => {
   });
 
   function renderIt() {
+    // fix-27: Chrome now mounts NotificationBell, which uses TanStack
+    // Query — so the test tree needs a QueryClientProvider.
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
     return render(
-      <MemoryRouter>
-        <Chrome />
-      </MemoryRouter>,
+      <QueryClientProvider client={client}>
+        <MemoryRouter>
+          <Chrome />
+        </MemoryRouter>
+      </QueryClientProvider>,
     );
   }
 
