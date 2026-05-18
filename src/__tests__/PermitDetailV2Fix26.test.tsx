@@ -182,7 +182,9 @@ describe('PermitDetailV2 fix-26 — Design strip reads from cycle 0', () => {
     const submittedInput = screen
       .getByTestId('pd-cell-design-submitted')
       .querySelector('input') as HTMLInputElement;
+    // fix-25-DD: commits fire on blur, not on change.
     fireEvent.change(submittedInput, { target: { value: '2026-01-15' } });
+    fireEvent.blur(submittedInput);
     expect(cycleMutateAsync).toHaveBeenCalled();
     const payload = cycleMutateAsync.mock.calls[0][0];
     expect(payload.op).toBe('update');
@@ -202,6 +204,7 @@ describe('PermitDetailV2 fix-26 — Design strip reads from cycle 0', () => {
       .getByTestId('pd-cell-design-intake_accepted')
       .querySelector('input') as HTMLInputElement;
     fireEvent.change(intakeInput, { target: { value: '2025-11-21' } });
+    fireEvent.blur(intakeInput);
     expect(cycleMutateAsync).toHaveBeenCalled();
     const payload = cycleMutateAsync.mock.calls[0][0];
     expect(payload.op).toBe('insert');

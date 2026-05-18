@@ -142,20 +142,42 @@ export default function PermitDetailV2({ permit, project }: Props) {
     stage === 'de' ? 'de' : 'pm',
   );
 
-  // fix-25d sub-issue 3: when a snap creates a new cycle (intake on
-  // design → cycle 1; resubmitted on cycle N → cycle N+1), the cycles
-  // array grows. If the newest cycle is later than what the user is
-  // currently viewing, follow it. Tracks the prior count in a ref so the
-  // effect fires only on growth, not on every render.
-  const prevCycleCountRef = useRef(cycles.length);
+  // fix-25d sub-issue 3 originally auto-advanced to whatever the
+  // newest cycle was after any growth. fix-25-DD narrows that to the
+  // first c0 → c1 transition only — the UX moment Bobby wants
+  // covered (intake-accepted snap creates c1, view follows).
+  //
+  // The old behavior fired on every cycles.length bump, which fed
+  // the cluster-A feedback loop on 3056 PAR/Pre-Sub: c_N.resubmitted
+  // edit → snap creates c_(N+1) → view auto-advances to N+1 → next
+  // onChange writes to N+1 → repeat. Eleven cycles in ten seconds.
+  // Even with fix-25-DD's blur-only DateCell, keeping auto-advance
+  // narrow is defense in depth against any future entry mode that
+  // emits rapid commits.
+  //
+  // Initialised to the current newest cycle so mounts with a c1 (or
+  // later) already present do NOT auto-advance — the user has either
+  // passed through that transition in a prior session or is being
+  // restored to where they were. Only an in-session change from
+  // 0/null → 1 fires the bump.
+  const prevNewestIdxRef = useRef<number | null>(
+    cycles.length > 0 ? cycles[cycles.length - 1]?.cycle_index ?? null : null,
+  );
   useEffect(() => {
-    if (cycles.length > prevCycleCountRef.current) {
-      const newestIdx = cycles[cycles.length - 1]?.cycle_index ?? null;
-      if (newestIdx !== null && newestIdx > viewCycleIdx) {
-        setViewCycleIdx(newestIdx);
-      }
+    const newestIdx =
+      cycles.length > 0
+        ? cycles[cycles.length - 1]?.cycle_index ?? null
+        : null;
+    const prevNewest = prevNewestIdxRef.current;
+    if (
+      prevNewest !== newestIdx &&
+      (prevNewest === null || prevNewest === 0) &&
+      newestIdx === 1 &&
+      viewCycleIdx === 0
+    ) {
+      setViewCycleIdx(1);
     }
-    prevCycleCountRef.current = cycles.length;
+    prevNewestIdxRef.current = newestIdx;
   }, [cycles, viewCycleIdx]);
 
   // fix-25d sub-issue 4 (25f): when the user (or sub-issue 3's
@@ -790,13 +812,22 @@ function DateCell({
   testid?: string;
 }) {
   const [draft, setDraft] = useState(value ?? '');
-  // fix-25d sub-issue 1: commit on CHANGE as well as on blur. Bobby
-  // reported a 10-15s "highlight lag" — the actual cause was the
-  // blur-only commit. type=date browser pickers fire onChange the moment
-  // a date is picked, but no blur until the user clicks somewhere else.
-  // Until blur, no mutation fires, no optimistic cache update, no
-  // highlight refresh. tryCommit dedupes via a ref so onChange + onBlur
-  // can't fire the mutation twice with the same value.
+  // fix-25d sub-issue 1 added commit-on-change to fix a 10-15s
+  // "highlight lag" on type=date pickers.
+  //
+  // fix-25-DD reverts that: commit-on-change caused calendar
+  // navigation arrows (which fire onChange on each step) to trigger
+  // a server roundtrip + snap RPC per click. On 3056 48th Ave SW
+  // PAR/Pre-Sub that produced 11 cycles in a backward chain when
+  // Bobby walked the date picker back month-by-month. The original
+  // highlight lag is now handled by fix-25d-residual's optimistic
+  // cache merge (snap row lands on the same render pass as the
+  // mutation resolution) — commit-on-change is no longer needed for
+  // responsive highlighting.
+  //
+  // Commit triggers post-DD: onBlur (clicking away) + Enter key
+  // (explicit submit). tryCommit dedupes via the ref so blur after
+  // Enter doesn't double-commit.
   const lastCommittedRef = useRef(value ?? '');
   // fix-24c: when the value prop updates after our initial mount (cycles
   // load async, parent refetches after a save, user switches cycle tabs),
@@ -862,12 +893,17 @@ function DateCell({
       <input
         type="date"
         value={draft}
-        onChange={(e) => {
-          const v = e.target.value;
-          setDraft(v);
-          tryCommit(v);
-        }}
+        // fix-25-DD: local-only on change. Calendar nav arrows /
+        // intermediate keystrokes only update the visible value;
+        // no mutation fires until blur or Enter.
+        onChange={(e) => setDraft(e.target.value)}
         onBlur={() => tryCommit(draft)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') {
+            // Trigger the blur path so commit + dedupe stay in one place.
+            (e.currentTarget as HTMLInputElement).blur();
+          }
+        }}
         disabled={readOnly}
         title={readOnly ? 'Edit GO Date in Project Settings' : undefined}
         className="text-[11px] px-1.5 py-0.5 border rounded outline-none w-full disabled:opacity-70 disabled:cursor-not-allowed"
