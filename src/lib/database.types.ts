@@ -396,6 +396,9 @@ export interface ScraperActivityRow {
   juris: string | null;
   /** Populated when action is a cycle event; null otherwise. */
   cycle_index: number | null;
+  /** fix-28: entitlement lead from permits.ent_lead. Drives the
+   *  Activity page's per-lead filter (Bobby / Briana / Miles). */
+  ent_lead: string | null;
 }
 
 export interface IntakeRecord {
