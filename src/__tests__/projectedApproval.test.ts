@@ -591,3 +591,207 @@ describe('computeProjectedApproval — fix-24h/24i defaultDaysForType fallback',
     expect(r.projection).toBe('2026-12-11');
   });
 });
+
+// ============================================================
+// fix-25-HH: project the in-flight cycle's remaining work
+// ============================================================
+//
+// Pre-HH bug: after the cycle-walk loop, only FINAL_APPROVAL_BUFFER
+// (7d) was added. For permits whose CURRENT cycle had corr_issued
+// but no resubmitted, the team turnaround + final city review were
+// silently skipped — projection collapsed to "today + 7d". The patch
+// inspects cycleRows[targetCycle-1] and explicitly projects the
+// remaining steps.
+
+describe('computeProjectedApproval fix-25-HH (in-flight cycle work)', () => {
+  it('T1: cycle 3 corr_issued + no resub → projects co + cr + buffer', () => {
+    // 3056 BP-style: today 2026-05-18, c3.corr_issued=2026-05-13.
+    // Loop iterates cycles 1+2; in-flight branch handles cycle 3.
+    vi.setSystemTime(new Date('2026-05-18T12:00:00Z'));
+    const r = computeProjectedApproval({
+      permit: permit(),
+      cycles: [
+        cyc({
+          cycle_index: 1,
+          submitted: '2025-12-22',
+          corr_issued: '2026-02-27',
+          resubmitted: '2026-04-18',
+        }),
+        cyc({
+          cycle_index: 2,
+          submitted: '2026-04-18',
+          resubmitted: '2026-04-21',
+        }),
+        cyc({
+          cycle_index: 3,
+          submitted: '2026-04-21',
+          corr_issued: '2026-05-13',
+        }),
+      ],
+      // Mirror the production Seattle-BP learner: 1 sample (permit 338).
+      // cityReview2 = 33d, corrResponse1 = 24d (walk-back from co2Count=0).
+      learnedEstimate: learned({
+        avgIntakeToApproval: 129,
+        mostLikelyCycle: 2,
+        cityReview1: 72,
+        corrResponse1: 24,
+        cityReview2: 33,
+        cr1Count: 1,
+        cr2Count: 1,
+        co1Count: 1,
+        co2Count: 0,
+      }),
+    });
+    // targetCycle = max(currentReviewCycle=3, mostLikelyCycle=2) = 3.
+    expect(r.targetCycle).toBe(3);
+    // Hand-compute (durFor blends juris + self-actual where both exist):
+    //   coDays = durFor(2,'co',...):
+    //     ci=2: jv null (co3Count=0), sv null (no resub3) → continue
+    //     ci=1: jv null (co2Count=0), sv null (no corr2) → continue
+    //     ci=0: jv=24 (co1=corrResponse1), sv=50 (c1 actual corr→resub)
+    //       → blend round((24+50)/2) = 37
+    //   crDays = durFor(2,'cr',...):
+    //     ci=2: jv null (cr3Count=0), sv=22 (days r2.resub→r3.corr) → 22
+    //   teamStart = max('2026-05-13', '2026-05-18') = '2026-05-18'
+    //   projectedResub = '2026-05-18' + 37 = '2026-06-24'
+    //   projectedCityDone = '2026-06-24' + 22 = '2026-07-16'
+    //   + FINAL_APPROVAL_BUFFER (7) = '2026-07-23'
+    expect(r.projection).toBe('2026-07-23');
+    expect(r.rounds?.corrIssued3).toBe('2026-05-13');
+    expect(r.rounds?.resubmitted3).toBe('2026-06-24');
+  });
+
+  it('T2: cycle 2 submitted + no corr_issued → projects city review + buffer', () => {
+    // mostLikelyCycle=2 (two-cycle approval); cycle 2 just submitted.
+    vi.setSystemTime(new Date('2026-04-25T12:00:00Z'));
+    const r = computeProjectedApproval({
+      permit: permit(),
+      cycles: [
+        cyc({
+          cycle_index: 1,
+          submitted: '2026-01-01',
+          corr_issued: '2026-02-10',
+          resubmitted: '2026-04-18',
+        }),
+        cyc({ cycle_index: 2, submitted: '2026-04-18' }),
+      ],
+      learnedEstimate: learned({
+        mostLikelyCycle: 2,
+        cityReview2: 30,
+        cr2Count: 5,
+      }),
+    });
+    expect(r.targetCycle).toBe(2);
+    // Branch (b): cityStart = max('2026-04-18', '2026-04-25') = '2026-04-25'.
+    // + cityReview2 (30) = '2026-05-25', + buffer (7) = '2026-06-01'.
+    expect(r.projection).toBe('2026-06-01');
+  });
+
+  it('T3: cycle complete (corr_issued + resubmitted both set) → falls through to buffer', () => {
+    // currentCycle has full real data → branch (c). Same as pre-HH.
+    vi.setSystemTime(new Date('2026-05-01T12:00:00Z'));
+    const r = computeProjectedApproval({
+      permit: permit(),
+      cycles: [
+        cyc({
+          cycle_index: 1,
+          submitted: '2026-01-01',
+          corr_issued: '2026-02-10',
+          resubmitted: '2026-03-15',
+        }),
+        cyc({
+          cycle_index: 2,
+          submitted: '2026-03-15',
+          corr_issued: '2026-04-10',
+          resubmitted: '2026-04-25',
+        }),
+      ],
+      learnedEstimate: learned({ mostLikelyCycle: 2 }),
+    });
+    // targetCycle = max(currentReviewCycle=3, mostLikelyCycle=2) = 3.
+    // cycleRows[2] = undefined → in-flight branch falls through.
+    // Loop iterates i=0,1; cursor=r2.resubmitted='2026-04-25' (past).
+    // flooredAnchor → today '2026-05-01' + FINAL_APPROVAL_BUFFER (7) = '2026-05-08'.
+    expect(r.projection).toBe('2026-05-08');
+  });
+
+  it('T5: no in-flight cycle (every cycle through targetCycle has resub) → pre-HH behavior', () => {
+    // Two-cycle history where cycle 2 is fully done. targetCycle = 3
+    // (currentReviewCycle = 2 corr + 1 = 3, no learner mostLikelyCycle).
+    // cycleRows[2] = undefined → branch falls through.
+    vi.setSystemTime(new Date('2026-05-01T12:00:00Z'));
+    const r = computeProjectedApproval({
+      permit: permit(),
+      cycles: [
+        cyc({
+          cycle_index: 1,
+          submitted: '2026-01-01',
+          corr_issued: '2026-02-10',
+          resubmitted: '2026-03-15',
+        }),
+        cyc({
+          cycle_index: 2,
+          submitted: '2026-03-15',
+          corr_issued: '2026-04-10',
+          resubmitted: '2026-04-25',
+        }),
+      ],
+      learnedEstimate: null,
+    });
+    // Walk uses real dates for cycles 1+2. cursor=r2.resub='2026-04-25' (past).
+    // flooredAnchor → today '2026-05-01' + buffer (7) = '2026-05-08'.
+    // Identical to pre-HH for this shape (in-flight branch falls through).
+    expect(r.projection).toBe('2026-05-08');
+    expect(r.targetCycle).toBe(3);
+  });
+
+  it('T6: 3056 BP regression — exact prod fixture', () => {
+    // Exact reproduction of Bobby's smoke report. Pinned for life.
+    vi.setSystemTime(new Date('2026-05-18T12:00:00Z'));
+    const r = computeProjectedApproval({
+      permit: permit({ target_submit: '2025-11-24' }),
+      cycles: [
+        cyc({
+          cycle_index: 0,
+          submitted: '2025-12-17',
+          intake_accepted: '2025-12-22',
+        }),
+        cyc({
+          cycle_index: 1,
+          submitted: '2025-12-22',
+          city_target: '2026-03-02',
+          corr_issued: '2026-02-27',
+          resubmitted: '2026-04-18',
+        }),
+        cyc({
+          cycle_index: 2,
+          submitted: '2026-04-18',
+          resubmitted: '2026-04-21',
+        }),
+        cyc({
+          cycle_index: 3,
+          submitted: '2026-04-21',
+          city_target: '2026-05-05',
+          corr_issued: '2026-05-13',
+        }),
+      ].filter((c) => c.cycle_index !== 0), // caller already filters out c0
+      learnedEstimate: learned({
+        avgIntakeToApproval: 129,
+        mostLikelyCycle: 2,
+        cityReview1: 72,
+        corrResponse1: 24,
+        cityReview2: 33,
+        cr1Count: 1,
+        cr2Count: 1,
+        co1Count: 1,
+        co2Count: 0,
+      }),
+    });
+    // Pre-HH: 2026-05-25 (today + 7). Post-HH: 2026-07-23.
+    // Same arithmetic as T1 — durFor blends learner's co1 (24d) with
+    // this permit's c1 actual corr→resub (50d) → 37d team turnaround;
+    // crDays from this permit's c2→c3 actual span (22d).
+    expect(r.projection).toBe('2026-07-23');
+    expect(r.targetCycle).toBe(3);
+  });
+});

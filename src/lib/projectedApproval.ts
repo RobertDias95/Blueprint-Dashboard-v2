@@ -537,6 +537,39 @@ export function computeProjectedApproval(
       rounds[`resubmitted${i + 1}` as keyof ProjectedApprovalRounds] = resubEnd;
       cursor = resubEnd;
     }
+    // fix-25-HH: when the user's CURRENT review cycle (targetCycle)
+    // already has real data — corr_issued and/or submitted — but no
+    // resubmitted yet, project that cycle's remaining work explicitly
+    // before the final-approval buffer. Pre-HH, the loop modeled cycles
+    // 1..(targetCycle-1) and then jumped straight to "+ 7d", silently
+    // skipping the in-flight cycle's team turnaround + city review.
+    // For permits mid-cycle that today-floored cursor collapsed to
+    // "today + 7" regardless of how much real work remained — Bobby's
+    // 3056 BP smoke. See fix-25-GG findings for the full trace.
+    const currentCycle = cycleRows[targetCycle - 1] ?? null;
+    if (currentCycle) {
+      if (currentCycle.corr_issued && !currentCycle.resubmitted) {
+        // (a) city sent corrections; team turnaround + final review ahead.
+        const coDays = durFor(targetCycle - 1, 'co', learnedEstimate, thisPermitDur);
+        const crDays = durFor(targetCycle - 1, 'cr', learnedEstimate, thisPermitDur);
+        const teamStart =
+          flooredAnchor(currentCycle.corr_issued) ?? currentCycle.corr_issued;
+        const projectedResub = addDays(teamStart, coDays);
+        cursor = addDays(projectedResub, crDays);
+        rounds[`corrIssued${targetCycle}` as keyof ProjectedApprovalRounds] =
+          currentCycle.corr_issued;
+        rounds[`resubmitted${targetCycle}` as keyof ProjectedApprovalRounds] =
+          projectedResub;
+      } else if (currentCycle.submitted && !currentCycle.corr_issued) {
+        // (b) city reviewing; project the city-review window.
+        const crDays = durFor(targetCycle - 1, 'cr', learnedEstimate, thisPermitDur);
+        const cityStart =
+          flooredAnchor(currentCycle.submitted) ?? currentCycle.submitted;
+        cursor = addDays(cityStart, crDays);
+      }
+      // (c) cycle effectively complete OR every field null → fall through
+      // to the buffer step below (preserves pre-HH behavior).
+    }
     cursor = addDays(flooredAnchor(cursor) ?? cursor, FINAL_APPROVAL_BUFFER);
   }
 
