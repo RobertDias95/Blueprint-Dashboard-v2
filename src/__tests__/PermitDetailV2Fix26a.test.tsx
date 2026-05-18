@@ -10,6 +10,9 @@ import type { PermitWithCycles, PermitCycle } from '../lib/database.types';
 // retry the same value after a React Query rollback refreshes the value
 // prop. Bobby's symptom on 1327: entered intake_accepted < submitted,
 // got console-noise from unhandled rejections, plus the cell felt stuck.
+//
+// fix-25-DD: commits moved from onChange → onBlur. Each test now follows
+// fireEvent.change with fireEvent.blur to drive the same code paths.
 
 const cycleMutateAsync = vi.hoisted(() => vi.fn());
 
@@ -104,14 +107,24 @@ function renderWithClient(node: React.ReactNode) {
 /** Controlled host so a test can simulate React Query rolling back the
  *  cache after a mutation rejection: flip the permit prop back to the
  *  pre-mutation state. */
+type HostRef = { setPermit: (p: PermitWithCycles) => void };
+function makeHostRef(): HostRef {
+  // See fix-25-DD lint cleanup in Fix25d test — zero-arg arrow avoids
+  // the no-unused-vars violation that `(_p) => {}` triggers because
+  // the eslint config doesn't whitelist underscore-prefixed args.
+  return { setPermit: () => {} };
+}
 function ControlledHost({
   initial,
   hostRef,
 }: {
   initial: PermitWithCycles;
-  hostRef: { setPermit: (p: PermitWithCycles) => void };
+  hostRef: HostRef;
 }) {
   const [permit, setPermit] = useState(initial);
+  // Capturing setState into a test-controlled ref is deliberate — see
+  // the matching comment in PermitDetailV2Fix25d's ControlledHost.
+  // eslint-disable-next-line react-hooks/immutability
   hostRef.setPermit = setPermit;
   return <PermitDetailV2 permit={permit} />;
 }
@@ -139,6 +152,7 @@ describe('PermitDetailV2 fix-26a — DateCell error handling', () => {
       .getByTestId('pd-cell-design-intake_accepted')
       .querySelector('input') as HTMLInputElement;
     fireEvent.change(intakeInput, { target: { value: '2026-05-10' } });
+    fireEvent.blur(intakeInput);
     await waitFor(() => expect(cycleMutateAsync).toHaveBeenCalledTimes(1));
     // Give the catch a tick to run before the test ends.
     await new Promise((r) => setTimeout(r, 0));
@@ -159,12 +173,14 @@ describe('PermitDetailV2 fix-26a — DateCell error handling', () => {
       .getByTestId('pd-cell-design-intake_accepted')
       .querySelector('input') as HTMLInputElement;
     fireEvent.change(intakeInput, { target: { value: '2026-05-10' } });
+    fireEvent.blur(intakeInput);
     await waitFor(() => expect(cycleMutateAsync).toHaveBeenCalledTimes(1));
     await new Promise((r) => setTimeout(r, 0));
     // Corrected value — different from the bad one, so dedup never kicks in
     // regardless of whether the catch reset the ref. Verifies the cell
     // remains responsive after a rejection.
     fireEvent.change(intakeInput, { target: { value: '2026-05-20' } });
+    fireEvent.blur(intakeInput);
     await waitFor(() => expect(cycleMutateAsync).toHaveBeenCalledTimes(2));
     expect(cycleMutateAsync.mock.calls[1][0].patch).toEqual({
       intake_accepted: '2026-05-20',
@@ -185,7 +201,7 @@ describe('PermitDetailV2 fix-26a — DateCell error handling', () => {
     const initial = makePermit([
       makeCycle({ cycle_index: 0, submitted: '2026-05-15', intake_accepted: null }),
     ]);
-    const hostRef = { setPermit: (_p: PermitWithCycles) => {} };
+    const hostRef = makeHostRef();
     renderWithClient(<ControlledHost initial={initial} hostRef={hostRef} />);
     fireEvent.click(screen.getByTestId('pd-v2-cycle-tab-0'));
     const intakeInput = screen
@@ -194,6 +210,7 @@ describe('PermitDetailV2 fix-26a — DateCell error handling', () => {
 
     // First attempt — rejected.
     fireEvent.change(intakeInput, { target: { value: '2026-05-10' } });
+    fireEvent.blur(intakeInput);
     await waitFor(() => expect(cycleMutateAsync).toHaveBeenCalledTimes(1));
 
     // Simulate React Query's onMutate optimistic update + onError rollback:
@@ -213,9 +230,10 @@ describe('PermitDetailV2 fix-26a — DateCell error handling', () => {
     await new Promise((r) => setTimeout(r, 0));
 
     // Cell visually reverted to '' (DOM input.value == ''). Re-typing the
-    // same bad value triggers a real DOM change, onChange fires, and
-    // tryCommit proceeds (ref was reset by useEffect on the prop flips).
+    // same bad value triggers a real DOM change; tryCommit proceeds on
+    // blur (ref was reset by useEffect on the prop flips).
     fireEvent.change(intakeInput, { target: { value: '2026-05-10' } });
+    fireEvent.blur(intakeInput);
     await waitFor(() => expect(cycleMutateAsync).toHaveBeenCalledTimes(2));
   });
 
@@ -230,8 +248,9 @@ describe('PermitDetailV2 fix-26a — DateCell error handling', () => {
       .getByTestId('pd-cell-design-intake_accepted')
       .querySelector('input') as HTMLInputElement;
     fireEvent.change(intakeInput, { target: { value: '2026-05-20' } });
+    fireEvent.blur(intakeInput);
     await waitFor(() => expect(cycleMutateAsync).toHaveBeenCalledTimes(1));
-    // Blur with the same draft — ref still equals draft so dedup blocks.
+    // A second blur with no further change — ref still equals draft so dedup blocks.
     fireEvent.blur(intakeInput);
     await new Promise((r) => setTimeout(r, 0));
     expect(cycleMutateAsync).toHaveBeenCalledTimes(1);

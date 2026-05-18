@@ -5,16 +5,19 @@ import { useState } from 'react';
 import type { ReactNode } from 'react';
 import type { PermitWithCycles, PermitCycle } from '../lib/database.types';
 
-// fix-25d: PermitDetailV2 behavior tests.
-//   Sub-issue 1: DateCell commits on onChange (not just onBlur) — kills
-//     the 10-15s "highlight lag" Bobby reported on 1327.
-//   Sub-issue 3: viewCycleIdx auto-advances to the newest cycle when a
-//     snap creates one (cycles array grows).
-//   Sub-issue 4 (25f): activeStage flips to 'pm' on viewCycleIdx 0→≥1
-//     transition (entering review cycles auto-switches the task list
-//     category to Permitting).
-//   Manual navigation back to an earlier cycle is preserved (auto-advance
-//     only fires on cycle-count growth, not on every render).
+// fix-25d / fix-25-DD: PermitDetailV2 behavior tests.
+//   Sub-issue 1 (fix-25-DD reverts): DateCell commits on blur or
+//     Enter, NOT on every onChange. Calendar nav arrows / intermediate
+//     keystrokes only update the visible value. The 10-15s highlight
+//     lag from the original blur-only era is now handled by
+//     fix-25d-residual's cache merge, not commit-on-change.
+//   Sub-issue 3 (fix-25-DD narrows): viewCycleIdx auto-advances only
+//     on the first c0 → c1 transition. Subsequent snap-driven growth
+//     (c_N.resubmitted → c_(N+1) creation) does NOT move the tab.
+//     Defense in depth against the cluster-A feedback loop.
+//   Sub-issue 4 (25f, unchanged): activeStage flips to 'pm' on
+//     viewCycleIdx 0→≥1 transition.
+//   Manual navigation back to an earlier cycle is preserved.
 
 // Shared mock — every component render gets the same mutateAsync so the
 // test can assert call counts across the whole render lifecycle.
@@ -110,14 +113,28 @@ function renderWithClient(node: React.ReactNode) {
 
 /** Controlled host — lets a test flip the permit prop in place to simulate
  *  a cache update (e.g., a snap creating a new cycle). */
+type HostRef = { setPermit: (p: PermitWithCycles) => void };
+function makeHostRef(): HostRef {
+  // Stub typed to the contract; ControlledHost overwrites this with the
+  // real setState on first render. Using a zero-arg arrow keeps the
+  // unused-args lint rule happy without needing an underscore prefix
+  // (the repo's eslint config doesn't whitelist `_*`).
+  return { setPermit: () => {} };
+}
 function ControlledHost({
   initial,
   hostRef,
 }: {
   initial: PermitWithCycles;
-  hostRef: { setPermit: (p: PermitWithCycles) => void };
+  hostRef: HostRef;
 }) {
   const [permit, setPermit] = useState(initial);
+  // Capturing setState into a test-controlled ref is deliberate — the
+  // pattern lets the test drive permit updates after the component has
+  // mounted (simulating a TanStack-Query cache refresh). The react-hooks
+  // immutability rule flags any prop mutation, but the ref-object IS
+  // the contract here.
+  // eslint-disable-next-line react-hooks/immutability
   hostRef.setPermit = setPermit;
   return <PermitDetailV2 permit={permit} />;
 }
@@ -127,32 +144,12 @@ beforeEach(() => {
   cycleMutateAsync.mockResolvedValue({});
 });
 
-describe('PermitDetailV2 fix-25d — DateCell commits on change (not blur-only)', () => {
-  it('typing a date in a Cycle 1 input fires the cycle upsert BEFORE blur', () => {
-    // Permit with cycle 1 already created (so the Cycle 1 tab exists +
-    // commitCycleField hits the update path). Pre-fix-25d this required a
-    // blur to commit, leaving the highlight stale until blur fired.
-    const permit = makePermit([
-      makeCycle({ cycle_index: 1, submitted: '2026-05-01' }),
-    ]);
-    renderWithClient(<PermitDetailV2 permit={permit} />);
-    // Switch to Cycle 1 tab so the cycle strip renders.
-    fireEvent.click(screen.getByTestId('pd-v2-cycle-tab-1'));
-
-    // The cycle strip's corr_issued cell — currently empty. Type a date.
-    const corrInput = screen
-      .getByTestId('pd-cell-cycle1-corr_issued')
-      .querySelector('input') as HTMLInputElement;
-    fireEvent.change(corrInput, { target: { value: '2026-06-15' } });
-
-    // The mutation should fire immediately, not wait for blur.
-    expect(cycleMutateAsync).toHaveBeenCalled();
-    const payload = cycleMutateAsync.mock.calls[0][0];
-    expect(payload.op).toBe('update');
-    expect(payload.patch).toEqual({ corr_issued: '2026-06-15' });
-  });
-
-  it('blurring the same cell with the same value does NOT fire a second commit (idempotency dedup)', () => {
+describe('PermitDetailV2 fix-25-DD — DateCell commits on blur or Enter only', () => {
+  it('typing / changing a date in a Cycle 1 input does NOT commit until blur', () => {
+    // fix-25-DD reverts the per-change commit. Picking a date in the
+    // browser's date picker fires onChange (no blur yet) — pre-DD this
+    // triggered the mutation immediately, which on calendar-arrow
+    // backfills fed the cluster-A feedback loop on 3056 PAR.
     const permit = makePermit([
       makeCycle({ cycle_index: 1, submitted: '2026-05-01' }),
     ]);
@@ -163,18 +160,94 @@ describe('PermitDetailV2 fix-25d — DateCell commits on change (not blur-only)'
       .getByTestId('pd-cell-cycle1-corr_issued')
       .querySelector('input') as HTMLInputElement;
     fireEvent.change(corrInput, { target: { value: '2026-06-15' } });
-    expect(cycleMutateAsync).toHaveBeenCalledTimes(1);
-    // Now blur. Same value → no additional commit.
+    expect(cycleMutateAsync).not.toHaveBeenCalled();
+    // Multiple intermediate changes — still no commits.
+    fireEvent.change(corrInput, { target: { value: '2026-05-15' } });
+    fireEvent.change(corrInput, { target: { value: '2026-04-15' } });
+    expect(cycleMutateAsync).not.toHaveBeenCalled();
+    // Blur commits the final value once.
     fireEvent.blur(corrInput);
     expect(cycleMutateAsync).toHaveBeenCalledTimes(1);
+    const payload = cycleMutateAsync.mock.calls[0][0];
+    expect(payload.op).toBe('update');
+    expect(payload.patch).toEqual({ corr_issued: '2026-04-15' });
+  });
+
+  it('blurring with no value change does NOT fire a commit (idempotency dedup)', () => {
+    const permit = makePermit([
+      makeCycle({
+        cycle_index: 1,
+        submitted: '2026-05-01',
+        corr_issued: '2026-06-15',
+      }),
+    ]);
+    renderWithClient(<PermitDetailV2 permit={permit} />);
+    fireEvent.click(screen.getByTestId('pd-v2-cycle-tab-1'));
+
+    const corrInput = screen
+      .getByTestId('pd-cell-cycle1-corr_issued')
+      .querySelector('input') as HTMLInputElement;
+    // Blur without changing the value — should be a no-op.
+    fireEvent.blur(corrInput);
+    expect(cycleMutateAsync).not.toHaveBeenCalled();
+  });
+
+  it('Enter key commits via the blur path', () => {
+    const permit = makePermit([
+      makeCycle({ cycle_index: 1, submitted: '2026-05-01' }),
+    ]);
+    renderWithClient(<PermitDetailV2 permit={permit} />);
+    fireEvent.click(screen.getByTestId('pd-v2-cycle-tab-1'));
+
+    const corrInput = screen
+      .getByTestId('pd-cell-cycle1-corr_issued')
+      .querySelector('input') as HTMLInputElement;
+    corrInput.focus();
+    fireEvent.change(corrInput, { target: { value: '2026-06-15' } });
+    expect(cycleMutateAsync).not.toHaveBeenCalled();
+    // The Enter handler programmatically blurs. jsdom dispatches blur
+    // synchronously when an active element is blurred; React's synthetic
+    // onBlur fires on the dispatched event.
+    fireEvent.keyDown(corrInput, { key: 'Enter' });
+    fireEvent.blur(corrInput);
+    expect(cycleMutateAsync).toHaveBeenCalledTimes(1);
+    expect(cycleMutateAsync.mock.calls[0][0].patch).toEqual({
+      corr_issued: '2026-06-15',
+    });
   });
 });
 
-describe('PermitDetailV2 fix-25d — active tab auto-advances on snap', () => {
-  it('viewCycleIdx jumps to the newest cycle when cycles array grows', () => {
-    // Initial state: cycle 1 already populated → component initialises
-    // viewCycleIdx to 1. After a snap creates cycle 2, the cycle count
-    // grows and the newest cycle_index (2) is > current view (1) → bump.
+describe('PermitDetailV2 fix-25-DD — auto-advance fires only on c0 → c1', () => {
+  it('first c0 → c1 transition while viewing Design auto-advances to c1', () => {
+    // Permit starts with no cycles → initial viewCycleIdx=0 (Design).
+    // c0.intake snap creates c1 → cycles.length grows from 0 → 1 with
+    // newest cycle_index=1. The auto-advance effect SHOULD fire.
+    const initial = makePermit([]);
+    const hostRef = makeHostRef();
+    renderWithClient(<ControlledHost initial={initial} hostRef={hostRef} />);
+
+    expect(screen.getByTestId('pd-v2-date-strip-design')).toBeInTheDocument();
+
+    const afterIntakeSnap = makePermit([
+      makeCycle({ cycle_index: 0, intake_accepted: '2026-05-07' }),
+      makeCycle({ cycle_index: 1, submitted: '2026-05-07' }),
+    ]);
+    act(() => {
+      hostRef.setPermit(afterIntakeSnap);
+    });
+
+    expect(screen.getByTestId('pd-v2-cycle-tab-1')).toBeInTheDocument();
+    expect(screen.getByTestId('pd-v2-date-strip-cycle-1')).toBeInTheDocument();
+  });
+
+  it('subsequent c_N → c_(N+1) growth does NOT auto-advance the tab', () => {
+    // cluster-A regression: c1.resubmitted edit → snap creates c2 →
+    // pre-DD the view auto-advanced to c2 and the next onChange (still
+    // in flight on the calendar widget) wrote to c2.resubmitted, which
+    // snapped c3, etc. Eleven cycles on 3056 PAR/Pre-Sub.
+    //
+    // fix-25-DD: once view sits on c1 (or later), cycle growth doesn't
+    // move it. User stays where they were editing.
     const initial = makePermit([
       makeCycle({
         cycle_index: 1,
@@ -182,16 +255,12 @@ describe('PermitDetailV2 fix-25d — active tab auto-advances on snap', () => {
         intake_accepted: '2026-05-07',
       }),
     ]);
-    const hostRef = { setPermit: (_p: PermitWithCycles) => {} };
+    const hostRef = makeHostRef();
     renderWithClient(<ControlledHost initial={initial} hostRef={hostRef} />);
 
-    // Sanity: cycle 1 tab is the active one.
-    const tab1Before = screen.getByTestId('pd-v2-cycle-tab-1');
-    expect(tab1Before).toBeInTheDocument();
-    expect(screen.queryByTestId('pd-v2-cycle-tab-2')).toBeNull();
+    expect(screen.getByTestId('pd-v2-date-strip-cycle-1')).toBeInTheDocument();
 
-    // Snap fires server-side → optimistic cache update inflates cycles
-    // array. Simulate by flipping the permit prop.
+    // Simulate snap creating c2 (c1.resub → c2.submitted snap).
     const afterSnap = makePermit([
       makeCycle({
         cycle_index: 1,
@@ -205,11 +274,33 @@ describe('PermitDetailV2 fix-25d — active tab auto-advances on snap', () => {
       hostRef.setPermit(afterSnap);
     });
 
-    // Cycle 2 tab now exists AND is the active view (DateStrip below the
-    // tab bar would render cycle-2's grid). We assert via the cycle strip
-    // testid which encodes the current viewIdx.
+    // c2 tab is available, BUT the view stays on c1.
     expect(screen.getByTestId('pd-v2-cycle-tab-2')).toBeInTheDocument();
-    expect(screen.getByTestId('pd-v2-date-strip-cycle-2')).toBeInTheDocument();
+    expect(screen.getByTestId('pd-v2-date-strip-cycle-1')).toBeInTheDocument();
+    expect(screen.queryByTestId('pd-v2-date-strip-cycle-2')).toBeNull();
+  });
+
+  it('c0 → c1 auto-advance only fires when viewCycleIdx is still 0', () => {
+    // Edge case: user manually clicks Cycle 1 tab before any snap has
+    // ever fired, then a c0 → c1 snap creates the row. The view is
+    // already on c1, so the effect's `viewCycleIdx === 0` guard
+    // prevents a redundant setViewCycleIdx (and any flicker).
+    const initial = makePermit([]);
+    const hostRef = makeHostRef();
+    renderWithClient(<ControlledHost initial={initial} hostRef={hostRef} />);
+
+    // Sanity start on Design.
+    expect(screen.getByTestId('pd-v2-date-strip-design')).toBeInTheDocument();
+
+    // Snap happens. View advances to c1 (this is the canonical happy path).
+    const afterFirstSnap = makePermit([
+      makeCycle({ cycle_index: 0, intake_accepted: '2026-05-07' }),
+      makeCycle({ cycle_index: 1, submitted: '2026-05-07' }),
+    ]);
+    act(() => {
+      hostRef.setPermit(afterFirstSnap);
+    });
+    expect(screen.getByTestId('pd-v2-date-strip-cycle-1')).toBeInTheDocument();
   });
 });
 
@@ -259,11 +350,13 @@ describe('PermitDetailV2 fix-25d — task category auto-switches to Permitting',
   });
 });
 
-describe('PermitDetailV2 fix-25d — auto-advance respects manual navigation', () => {
-  it('after auto-advance to Cycle 2, user clicking Cycle 1 stays on Cycle 1 (no re-advance)', () => {
-    // Bobby's spec test: auto-advance only fires on cycle-count growth.
-    // Once the user manually navigates back to an earlier cycle, the
-    // effect doesn't re-trigger.
+describe('PermitDetailV2 fix-25-DD — repeated cycle growth never reactivates auto-advance', () => {
+  it('three sequential snaps (c1→c2→c3→c4) all leave the view on c1', () => {
+    // Direct regression for the cluster-A 3056 PAR pattern. Pre-DD,
+    // each cycle-growth bump moved the view to the new cycle; the next
+    // calendar-arrow click landed on that cycle and snapped another.
+    // Post-DD the view never advances past c1, no matter how many
+    // snaps fire in sequence.
     const initial = makePermit([
       makeCycle({
         cycle_index: 1,
@@ -271,45 +364,76 @@ describe('PermitDetailV2 fix-25d — auto-advance respects manual navigation', (
         intake_accepted: '2026-05-07',
       }),
     ]);
-    const hostRef = { setPermit: (_p: PermitWithCycles) => {} };
+    const hostRef = makeHostRef();
     renderWithClient(<ControlledHost initial={initial} hostRef={hostRef} />);
 
-    // Trigger the snap-driven growth.
-    const afterSnap = makePermit([
-      makeCycle({
-        cycle_index: 1,
-        submitted: '2026-05-01',
-        intake_accepted: '2026-05-07',
-        resubmitted: '2026-06-10',
-      }),
-      makeCycle({ cycle_index: 2, submitted: '2026-06-10' }),
-    ]);
-    act(() => {
-      hostRef.setPermit(afterSnap);
-    });
-    // Auto-advanced to Cycle 2.
-    expect(screen.getByTestId('pd-v2-date-strip-cycle-2')).toBeInTheDocument();
-
-    // Manually navigate back to Cycle 1.
-    fireEvent.click(screen.getByTestId('pd-v2-cycle-tab-1'));
     expect(screen.getByTestId('pd-v2-date-strip-cycle-1')).toBeInTheDocument();
 
-    // Trigger ANOTHER permit update that does NOT grow cycles (e.g. a
-    // field update on cycle 1). The auto-advance effect should not fire.
-    const noGrowth = makePermit([
-      makeCycle({
-        cycle_index: 1,
-        submitted: '2026-05-01',
-        intake_accepted: '2026-05-07',
-        resubmitted: '2026-06-10',
-        city_target: '2026-07-01', // new field, no new cycle
-      }),
-      makeCycle({ cycle_index: 2, submitted: '2026-06-10' }),
-    ]);
+    // Iteration 1: c2 lands.
     act(() => {
-      hostRef.setPermit(noGrowth);
+      hostRef.setPermit(
+        makePermit([
+          makeCycle({
+            cycle_index: 1,
+            submitted: '2026-05-01',
+            intake_accepted: '2026-05-07',
+            resubmitted: '2026-06-10',
+          }),
+          makeCycle({ cycle_index: 2, submitted: '2026-06-10' }),
+        ]),
+      );
     });
-    // Stayed on Cycle 1 — auto-advance did NOT fire on re-render.
     expect(screen.getByTestId('pd-v2-date-strip-cycle-1')).toBeInTheDocument();
+
+    // Iteration 2: c3 lands.
+    act(() => {
+      hostRef.setPermit(
+        makePermit([
+          makeCycle({
+            cycle_index: 1,
+            submitted: '2026-05-01',
+            intake_accepted: '2026-05-07',
+            resubmitted: '2026-06-10',
+          }),
+          makeCycle({
+            cycle_index: 2,
+            submitted: '2026-06-10',
+            resubmitted: '2026-07-10',
+          }),
+          makeCycle({ cycle_index: 3, submitted: '2026-07-10' }),
+        ]),
+      );
+    });
+    expect(screen.getByTestId('pd-v2-date-strip-cycle-1')).toBeInTheDocument();
+
+    // Iteration 3: c4 lands. Still cycle-1 in the strip.
+    act(() => {
+      hostRef.setPermit(
+        makePermit([
+          makeCycle({
+            cycle_index: 1,
+            submitted: '2026-05-01',
+            intake_accepted: '2026-05-07',
+            resubmitted: '2026-06-10',
+          }),
+          makeCycle({
+            cycle_index: 2,
+            submitted: '2026-06-10',
+            resubmitted: '2026-07-10',
+          }),
+          makeCycle({
+            cycle_index: 3,
+            submitted: '2026-07-10',
+            resubmitted: '2026-08-10',
+          }),
+          makeCycle({ cycle_index: 4, submitted: '2026-08-10' }),
+        ]),
+      );
+    });
+    expect(screen.getByTestId('pd-v2-date-strip-cycle-1')).toBeInTheDocument();
+    // All four cycle tabs are reachable, but only by clicking.
+    expect(screen.getByTestId('pd-v2-cycle-tab-2')).toBeInTheDocument();
+    expect(screen.getByTestId('pd-v2-cycle-tab-3')).toBeInTheDocument();
+    expect(screen.getByTestId('pd-v2-cycle-tab-4')).toBeInTheDocument();
   });
 });

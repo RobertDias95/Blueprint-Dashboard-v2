@@ -264,6 +264,7 @@ function getULSAnchorDates(
   // updates as cycle data changes. Real outcomes (actual_issue / approval_date)
   // still short-circuit because those are facts. The stored expected_issue
   // is only used as a last-ditch fallback when the live projection fails.
+  // eslint-disable-next-line no-useless-assignment
   let bpIssueAnchor = '';
   if (bp.actual_issue) {
     bpIssueAnchor = bp.actual_issue;

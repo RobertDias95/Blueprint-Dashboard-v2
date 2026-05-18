@@ -88,6 +88,7 @@ export default function BuilderAutocompleteField({
   // Reset highlight whenever the visible list changes to keep arrow-down
   // behaviour intuitive after a query change.
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setHighlightIdx(0);
   }, [suggestions]);
 
