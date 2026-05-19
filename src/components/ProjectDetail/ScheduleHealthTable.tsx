@@ -1,13 +1,19 @@
 import { useMemo } from 'react';
 import { effectiveStage } from '../../lib/permitStage';
-import { useAllPermitTasks } from '../../hooks/useAllPermitTasks';
+import { useAllPermitCycleReviewers } from '../../hooks/useAllPermitCycleReviewers';
 import { usePermits } from '../../hooks/usePermits';
 import { useProjects } from '../../hooks/useProjects';
 import { usePermitTypeDefaults } from '../../hooks/usePermitTypeDefaults';
 import { computeLearnedSchedule, type LearnedEstimate } from '../../lib/scheduleBenchmarks';
 import { computeProjectedApproval } from '../../lib/projectedApproval';
 import { derivePermitStatus } from '../../lib/permitStatus';
-import type { PermitCycle, PermitTask, PermitWithCycles, Stage } from '../../lib/database.types';
+import type {
+  PermitCycle,
+  PermitCycleReviewer,
+  PermitWithCycles,
+  Stage,
+} from '../../lib/database.types';
+import ReviewerRollupChip from './ReviewerRollupChip';
 
 // Q9.5.e-fix-4: 8-column Schedule Health table per v1 §4.2.1 (B) and the
 // _healthRow / _healthRowShell render at index.html:3646-3678. Columns:
@@ -48,7 +54,10 @@ interface Props {
 }
 
 export default function ScheduleHealthTable({ permits }: Props) {
-  const tasksQ = useAllPermitTasks();
+  // fix-31: swap the placeholder "tasks" column for a reviewer rollup
+  // chip backed by permit_cycle_reviewers. The hook returns every
+  // reviewer row in the tenant scope; we index by permit_id below.
+  const reviewersQ = useAllPermitCycleReviewers();
   // Q9.5.f-fix-10: cross-tenant permits + projects feed computeLearnedSchedule
   // for the (type, juris) baseline. Hooks are tenant-scoped via RLS so no
   // extra plumbing needed.
@@ -59,15 +68,15 @@ export default function ScheduleHealthTable({ permits }: Props) {
     () => new Map((projectsQ.data ?? []).map((p) => [p.id, p])),
     [projectsQ.data],
   );
-  const tasksByPermit = useMemo(() => {
-    const m = new Map<number, PermitTask[]>();
-    for (const t of tasksQ.data ?? []) {
-      const list = m.get(t.permit_id) ?? [];
-      list.push(t);
-      m.set(t.permit_id, list);
+  const reviewersByPermit = useMemo(() => {
+    const m = new Map<number, PermitCycleReviewer[]>();
+    for (const r of reviewersQ.data ?? []) {
+      const list = m.get(r.permit_id) ?? [];
+      list.push(r);
+      m.set(r.permit_id, list);
     }
     return m;
-  }, [tasksQ.data]);
+  }, [reviewersQ.data]);
 
   if (permits.length === 0) {
     return (
@@ -90,7 +99,7 @@ export default function ScheduleHealthTable({ permits }: Props) {
       <table className="w-full border-collapse mt-1.5 text-[10px]">
         <colgroup>
           <col style={{ width: 140 }} />
-          <col style={{ width: 90 }} />
+          <col style={{ width: 120 }} />
           <col style={{ width: 90 }} />
           <col style={{ width: 130 }} />
           <col style={{ width: 90 }} />
@@ -107,7 +116,7 @@ export default function ScheduleHealthTable({ permits }: Props) {
             }}
           >
             <Th align="left">Permit Type</Th>
-            <Th>Tasks</Th>
+            <Th>Reviewers</Th>
             <Th>Stage</Th>
             <Th>Permit Status</Th>
             <Th>Data Source</Th>
@@ -121,7 +130,7 @@ export default function ScheduleHealthTable({ permits }: Props) {
             <Row
               key={p.id}
               permit={p}
-              tasks={tasksByPermit.get(p.id) ?? []}
+              reviewers={reviewersByPermit.get(p.id) ?? []}
               allPermits={allPermitsQ.data ?? []}
               projectsById={projectsById}
               typeDefaultsOverride={typeDefaultsQ.byType}
@@ -135,19 +144,28 @@ export default function ScheduleHealthTable({ permits }: Props) {
 
 function Row({
   permit,
-  tasks,
+  reviewers,
   allPermits,
   projectsById,
   typeDefaultsOverride,
 }: {
   permit: PermitWithCycles;
-  tasks: PermitTask[];
+  reviewers: PermitCycleReviewer[];
   allPermits: PermitWithCycles[];
   projectsById: Map<string, import('../../lib/database.types').Project>;
   typeDefaultsOverride: Map<string, number>;
 }) {
   const stage = effectiveStage(permit, permit.permit_cycles ?? []);
-  const taskStats = computeTaskStats(tasks);
+  // fix-31: legacy fallback display for permit types whose adapter
+  // doesn't yet capture per-reviewer rows (PA / IPR / SPU / Land Use /
+  // MBP / Redmond). The scraper still observes a "latest_reviewer"
+  // name via extras for those — surface it so the column isn't blank.
+  const extrasObj = (permit.extras ?? {}) as Record<string, unknown>;
+  const fallbackReviewer =
+    typeof extrasObj.latest_reviewer === 'string' &&
+    extrasObj.latest_reviewer.trim()
+      ? (extrasObj.latest_reviewer as string)
+      : null;
   // Q9.5.f-fix-10: walk-forward projection per v1 :8068-8092. Learned
   // baseline from cross-tenant (type, juris) approved permits; fallback
   // to SCHEDULE_DEFAULTS when no historical data exists. Real outcomes
@@ -241,9 +259,18 @@ function Row({
           </span>
         )}
       </td>
-      {/* 2. Tasks — progress bar */}
+      {/* 2. Reviewers — fix-31 rollup chip (replaces the pre-fix-31
+          "tasks" placeholder column). Shows N · approved · corrections
+          · in-review for the latest cycle's reviewers; click opens
+          a side popover with the full list. Falls back to the legacy
+          permits.extras.latest_reviewer single-name display when the
+          permit's adapter hasn't done per-reviewer extraction yet. */}
       <td className="px-2 py-2 align-middle text-center border-l" style={borderL}>
-        <TaskProgress stats={taskStats} />
+        <ReviewerRollupChip
+          permitId={permit.id}
+          rows={reviewers}
+          fallbackReviewer={fallbackReviewer}
+        />
       </td>
       {/* 3. Stage */}
       <td className="px-2 py-2 align-middle text-center border-l" style={borderL}>
@@ -338,61 +365,6 @@ function Th({
 // ============================================================
 // Sub-components & helpers
 // ============================================================
-
-interface TaskStats {
-  total: number;
-  done: number;
-  percent: number;
-}
-
-function computeTaskStats(tasks: PermitTask[]): TaskStats {
-  if (tasks.length === 0) return { total: 0, done: 0, percent: 0 };
-  let done = 0;
-  for (const t of tasks) {
-    if (t.done) {
-      done++;
-      continue;
-    }
-    if (t.completion_status === 'Resolved' || t.completion_status === 'Skipped') {
-      done++;
-    }
-  }
-  return {
-    total: tasks.length,
-    done,
-    percent: Math.round((done / tasks.length) * 100),
-  };
-}
-
-function TaskProgress({ stats }: { stats: TaskStats }) {
-  if (stats.total === 0) {
-    return <span className="text-[9px] text-dim italic">no tasks</span>;
-  }
-  const colored = stats.percent === 100 ? 'var(--color-pm)' : 'var(--color-de)';
-  return (
-    <div className="flex flex-col gap-0.5 items-center">
-      <div className="flex items-baseline gap-1">
-        <span className="text-[10px] font-bold text-text">{stats.percent}%</span>
-        <span className="text-[8px] text-dim font-mono">
-          {stats.done}/{stats.total}
-        </span>
-      </div>
-      <div
-        className="w-full h-1 rounded-full overflow-hidden"
-        style={{ background: 'var(--color-bg)' }}
-      >
-        <div
-          className="h-full"
-          style={{
-            width: `${stats.percent}%`,
-            background: colored,
-            transition: 'width 0.2s',
-          }}
-        />
-      </div>
-    </div>
-  );
-}
 
 function DataSourceBadge({ estimate }: { estimate: LearnedEstimate | null }) {
   // fix-25-feat-g-badge: the badge was hardcoded "Default" from the

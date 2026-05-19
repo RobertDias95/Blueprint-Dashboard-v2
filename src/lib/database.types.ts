@@ -114,6 +114,35 @@ export interface PermitCycle {
   updated_at: string;
 }
 
+// fix-31: per-reviewer status captured by the scraper from the Accela
+// workflow timeline. Each row is one reviewer's most-recent status on
+// a given (permit, cycle) pair. The scraper upserts via
+// bp_upsert_permit_cycle_reviewer; the dashboard fetches all rows for
+// the active tenant via PostgREST SELECT (RLS auto-scopes).
+export type ReviewerStatus =
+  | 'approved'
+  | 'corrections_required'
+  | 'in_process'
+  | 'in_review'
+  | 'assigned'
+  | 'pending'
+  | 'not_required';
+
+export interface PermitCycleReviewer {
+  id: string;
+  tenant_id: string;
+  permit_id: number;
+  cycle_index: number;
+  reviewer_name: string;
+  /** "Land Use", "Plan Review", etc. when the adapter knows it; null when
+   *  the adapter can only see the reviewer's name without their role. */
+  discipline: string | null;
+  current_status: ReviewerStatus;
+  last_event_date: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface Permit {
   id: number;
   project_id: string;
