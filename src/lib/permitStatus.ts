@@ -42,6 +42,9 @@ export function derivePermitStatus(permit: PermitWithCycles): PermitStatus {
 
   // Pull the date corresponding to the target. Cycle targets read from
   // the matching cycle row; permit targets read from the permit row.
+  // The initial `null` is overwritten in both branches below but kept
+  // for explicit definite-assignment + readability.
+  // eslint-disable-next-line no-useless-assignment
   let date: string | null = null;
   if (target.kind === 'permit') {
     date = (permit[target.key] as string | null | undefined) ?? null;
