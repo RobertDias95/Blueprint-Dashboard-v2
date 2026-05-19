@@ -31,6 +31,9 @@ export const queryKeys = {
   // fix-27: notification center reads audit_log via bp_fetch_scraper_activity
   // RPC. Bare-prefix key participates in realtime invalidation on audit_log.
   scraperActivityAll: ['scraper_activity'] as const,
+  // fix-31: per-reviewer status table (replaces the placeholder "tasks" column
+  // on Project Overview with a real rollup of city-side review state).
+  permitCycleReviewersAll: ['permit_cycle_reviewers'] as const,
   // Tenant-scoped keys used by queries and per-tenant invalidation.
   projects: (tenantId: string) => ['projects', tenantId] as const,
   permits: (tenantId: string) => ['permits', tenantId] as const,
@@ -63,6 +66,9 @@ export const queryKeys = {
   // fix-27: notification center activity feed.
   scraperActivity: (tenantId: string, days: number) =>
     ['scraper_activity', tenantId, { days }] as const,
+  // fix-31: per-reviewer status table.
+  permitCycleReviewers: (tenantId: string) =>
+    ['permit_cycle_reviewers', tenantId] as const,
 } as const;
 
 /** Map from Postgres table name → bare-prefix query keys to invalidate on
@@ -75,4 +81,7 @@ export const REALTIME_TABLES = {
   permit_tasks: [queryKeys.permitTasksAll],
   draw_schedule: [queryKeys.drawScheduleAll, queryKeys.permitsAll],
   intake_records: [queryKeys.intakeRecordsAll],
+  // fix-31: scraper writes reviewer rows -> bell badge ticks + Project
+  // Overview rollup refreshes live.
+  permit_cycle_reviewers: [queryKeys.permitCycleReviewersAll],
 } as const;
