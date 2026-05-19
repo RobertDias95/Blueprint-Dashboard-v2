@@ -153,11 +153,18 @@ describe('classifyDeBucket', () => {
 });
 
 // ============================================================
-// fix-31c (2026-05-19): terminal-positive permit.status routes
-// effectiveStage past stale cycle data. SDOTTRLA0002310 scenario.
+// fix-31c → fix-31d (2026-05-19): terminal-positive permit.status
+// routes effectiveStage past stale cycle data. fix-31d splits the
+// route by sub-set: TERMINAL_ISSUED_STATUSES → 'is' (SDOTTRLA0002310
+// scenario — "Conceptually Approved" with no separate issue doc),
+// TERMINAL_APPROVED_STATUSES → 'ap' ("Ready for Issuance").
 // ============================================================
-describe('effectiveStage with terminal-positive permit.status (fix-31c)', () => {
-  it('Conceptually Approved + stale cycle.corr_issued → "pm" (not "co")', () => {
+describe('effectiveStage with terminal-positive permit.status (fix-31c/d)', () => {
+  it('Conceptually Approved + stale cycle.corr_issued → "is" (SDOTTRLA0002310)', () => {
+    // fix-31d: SDOT trees never issue a separate document; the city's
+    // "Conceptually Approved" event IS the terminal state. Pre-fix-31d
+    // we routed these to 'pm', conservatively assuming an actual_issue
+    // would come later. That never happens for this permit type.
     const cycles = [
       cycle({
         cycle_index: 1,
@@ -170,7 +177,7 @@ describe('effectiveStage with terminal-positive permit.status (fix-31c)', () => 
         makePermit({ status: 'Conceptually Approved' }),
         cycles,
       ),
-    ).toBe('pm');
+    ).toBe('is');
   });
 
   it('Conceptually Approved + approval_date → "ap" (approval_date short-circuits before the override)', () => {
@@ -197,27 +204,46 @@ describe('effectiveStage with terminal-positive permit.status (fix-31c)', () => 
     ).toBe('is');
   });
 
-  it('Closed status without any outcome date set + stale corr_issued → "pm"', () => {
+  it('Closed status without any outcome date set + stale corr_issued → "is"', () => {
     const cycles = [
       cycle({ cycle_index: 1, submitted: '2026-04-10', corr_issued: '2026-05-06' }),
     ];
     expect(
       effectiveStage(makePermit({ status: 'Closed' }), cycles),
-    ).toBe('pm');
+    ).toBe('is');
   });
 
-  it('every TERMINAL_POSITIVE_STATUSES value routes to "pm" when no outcome date set', () => {
+  it('Ready for Issuance → "ap" (approved-pending-issuance)', () => {
+    // fix-31d: Ready for Issuance is the one terminal-positive value
+    // that signals "city approved but issuance is still outstanding."
+    // 'ap' is the correct slot — 'is' would imply the permit is
+    // physically issued, which it isn't yet.
+    expect(
+      effectiveStage(makePermit({ status: 'Ready for Issuance' }), []),
+    ).toBe('ap');
+  });
+
+  it('every TERMINAL_ISSUED_STATUSES value routes to "is" when no outcome date set', () => {
     for (const status of [
       'Conceptually Approved',
       'Approved',
       'Issued',
       'Completed',
-      'Ready for Issuance',
       'Closed',
     ]) {
       expect(
         effectiveStage(makePermit({ status }), []),
-      ).toBe('pm');
+      ).toBe('is');
+    }
+  });
+
+  it('every TERMINAL_APPROVED_STATUSES value routes to "ap"', () => {
+    // Only "Ready for Issuance" today, but kept as a loop so adding
+    // future values triggers the test naturally.
+    for (const status of ['Ready for Issuance']) {
+      expect(
+        effectiveStage(makePermit({ status }), []),
+      ).toBe('ap');
     }
   });
 

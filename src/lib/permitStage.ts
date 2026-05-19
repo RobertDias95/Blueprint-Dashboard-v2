@@ -4,7 +4,10 @@ import type {
   PermitCycle,
   Stage,
 } from './database.types';
-import { isTerminalPositiveStatus } from './permitTerminalStatus';
+import {
+  isTerminalApprovedStatus,
+  isTerminalIssuedStatus,
+} from './permitTerminalStatus';
 
 // Q2: Pure stage-classification helpers. Ported from v1's
 // computeStage/effectiveStage and DE early/late split (see v1 index.html
@@ -41,13 +44,16 @@ export function computeStage(p: Permit, cycles: PermitCycle[]): Stage {
 export function effectiveStage(p: Permit, cycles: PermitCycle[]): Stage {
   if (p.actual_issue) return 'is';
   if (p.approval_date) return 'ap';
-  // fix-31c: portal-side terminal-positive status (e.g. "Conceptually
-  // Approved") trumps stale cycle data. actual_issue + approval_date
-  // already short-circuit above; this branch covers the case where
-  // the city has terminally signed off but the dashboard hasn't
-  // recorded the formal approval_date yet (Bobby keeps that field
-  // for the final ready-to-issue moment, not the conceptual sign-off).
-  if (isTerminalPositiveStatus(p.status)) return 'pm';
+  // fix-31c → fix-31d: portal-side terminal status trumps stale cycle
+  // data. The split distinguishes two cases the earlier version
+  // collapsed under 'pm':
+  //   - TERMINAL_ISSUED_STATUSES → 'is' (city is done; for SDOT permit
+  //     types where no separate issue document exists, "Conceptually
+  //     Approved" IS the final state).
+  //   - TERMINAL_APPROVED_STATUSES → 'ap' ("Ready for Issuance" =
+  //     approved but issuance paperwork still outstanding).
+  if (isTerminalIssuedStatus(p.status)) return 'is';
+  if (isTerminalApprovedStatus(p.status)) return 'ap';
   return computeStage(p, cycles);
 }
 
