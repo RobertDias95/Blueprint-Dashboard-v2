@@ -256,7 +256,11 @@ export function groupActivityByRun(rows: ScraperActivityRow[]): ActivityGroup[] 
 }
 
 /** Count rows with created_at > lastSeenAt. lastSeenAt may be null
- *  (never marked read → all rows unread). */
+ *  (never marked read → all rows unread).
+ *
+ *  fix-28: superseded by countUnreadByIds (per-row read state). Kept
+ *  for the fix-27 test that pinned this behavior + as a clean
+ *  rollback path. */
 export function countUnread(
   rows: ScraperActivityRow[],
   lastSeenAt: string | null,
@@ -268,4 +272,97 @@ export function countUnread(
     (n, r) => (new Date(r.created_at).getTime() > cutoff ? n + 1 : n),
     0,
   );
+}
+
+// ============================================================
+// fix-28: project grouping + search + ent filter + per-row read state
+// ============================================================
+
+/** Group activity rows by project address. Address is the user-facing
+ *  identifier — multiple permits at the same address roll up under
+ *  one card. Rows with null/empty address bucket under "Unknown address"
+ *  so they don't disappear from the page. Map insertion order
+ *  preserves the input order (rows arrive newest-first → bucket
+ *  ordering reflects most-recent activity per project). */
+export const UNKNOWN_ADDRESS_LABEL = 'Unknown address';
+
+export function groupActivityByProject(
+  rows: ScraperActivityRow[],
+): Map<string, ScraperActivityRow[]> {
+  const out = new Map<string, ScraperActivityRow[]>();
+  for (const row of rows) {
+    const key =
+      row.address && row.address.trim() !== ''
+        ? row.address.trim()
+        : UNKNOWN_ADDRESS_LABEL;
+    const bucket = out.get(key);
+    if (bucket) {
+      bucket.push(row);
+    } else {
+      out.set(key, [row]);
+    }
+  }
+  return out;
+}
+
+/** Case-insensitive substring match across address / permit_num /
+ *  permit_type / juris / summary lines. Empty query matches every
+ *  row. Whitespace in the query becomes an AND tokenization — every
+ *  token must hit one of the searchable fields. Matches the
+ *  Reports search idiom ("space or comma = AND"). */
+export function matchesSearch(
+  row: ScraperActivityRow,
+  query: string,
+  summary: string[],
+): boolean {
+  const q = (query ?? '').trim().toLowerCase();
+  if (q === '') return true;
+  const haystack = [
+    row.address ?? '',
+    row.permit_num ?? '',
+    row.permit_type ?? '',
+    row.juris ?? '',
+    row.ent_lead ?? '',
+    ...summary,
+  ]
+    .join(' ')
+    .toLowerCase();
+  const tokens = q.split(/[\s,]+/).filter(Boolean);
+  return tokens.every((t) => haystack.includes(t));
+}
+
+/** Multi-select ent filter. A null `selectedEnts` (or one matching
+ *  the full options list) is the "all selected" no-op. Rows where
+ *  ent_lead is null are visible only when "all selected" — keeping
+ *  defensive null rows from disappearing when Bobby filters by his
+ *  own name. Comparison is case-insensitive. */
+export function matchesEntFilter(
+  row: ScraperActivityRow,
+  selectedEnts: Set<string> | null,
+  allEnts: string[],
+): boolean {
+  if (!selectedEnts) return true;
+  if (selectedEnts.size === 0) return false;
+  if (selectedEnts.size >= allEnts.length) {
+    // "All selected" — pass everything including null ent_lead rows.
+    return true;
+  }
+  if (!row.ent_lead) return false;
+  const lead = row.ent_lead.toLowerCase();
+  for (const sel of selectedEnts) {
+    if (sel.toLowerCase() === lead) return true;
+  }
+  return false;
+}
+
+/** Count rows whose id is NOT in the readIds set. Replaces fix-27's
+ *  timestamp-based unread count. */
+export function countUnreadByIds(
+  rows: ScraperActivityRow[],
+  readIds: Set<number>,
+): number {
+  if (readIds.size === 0) return rows.length;
+  let n = 0;
+  for (const r of rows) if (!readIds.has(r.id)) n += 1;
+  return n;
 }

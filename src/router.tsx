@@ -9,6 +9,7 @@ import Reports from './pages/Reports';
 import MyTasks from './pages/MyTasks';
 import DrawSchedule from './pages/DrawSchedule';
 import Trends from './pages/Trends';
+import ActivityPage from './pages/ActivityPage';
 
 // Q2: routes wired to real read-side pages.
 // Q9.5.a: structural realignment to v1's top-nav.
@@ -37,6 +38,9 @@ export const router = createBrowserRouter([
       { path: 'reports', element: <Reports /> },
       { path: 'trends', element: <Trends /> },
       { path: 'my-tasks', element: <MyTasks /> },
+      // fix-28: scraper activity feed. NotificationBell links here;
+      // page owns search / category / ent filters + per-row read state.
+      { path: 'activity', element: <ActivityPage /> },
       // Q9.5.a: legacy /settings URLs land back on the dashboard since
       // Settings is now a modal. Bookmarks bouncing here is expected.
       { path: 'settings', element: <Navigate to="/dashboard" replace /> },
