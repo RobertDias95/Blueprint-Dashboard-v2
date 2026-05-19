@@ -43,12 +43,21 @@ interface Props {
    *  permit types whose adapter doesn't yet do per-reviewer extraction
    *  (PA/IPR/SPU/Land Use/MBP/Redmond). */
   fallbackReviewer: string | null;
+  /** fix-31b: permits.status drives the rollup override. When the
+   *  city's portal-side Record Status is a terminal-positive value
+   *  (Conceptually Approved / Approved / Issued / Completed / Ready
+   *  for Issuance / Closed) every reviewer rolls up as approved
+   *  regardless of their last individual event — the permit's own
+   *  status is the authoritative ceiling. See reviewerRollup.ts for
+   *  the full list. */
+  permitStatus?: string | null;
 }
 
 export default function ReviewerRollupChip({
   permitId,
   rows,
   fallbackReviewer,
+  permitStatus,
 }: Props) {
   const [open, setOpen] = useState(false);
   const chipRef = useRef<HTMLButtonElement>(null);
@@ -58,7 +67,7 @@ export default function ReviewerRollupChip({
 
   const latestIdx = latestCycleIndex(rows);
   const visibleRows = latestIdx === null ? [] : rowsForCycle(rows, latestIdx);
-  const counts = rollupCounts(visibleRows);
+  const counts = rollupCounts(visibleRows, permitStatus);
 
   // Outside-click + Esc dismiss
   useEffect(() => {
