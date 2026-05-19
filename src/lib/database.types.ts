@@ -108,7 +108,7 @@ export interface PermitCycle {
    *  will stamp NOW() when the team marks intake as verified. Until
    *  fix-30b ships, this column is read-only from v2's perspective —
    *  consumers can display it but don't write it. */
-  intake_accepted_verified_at: string | null;
+  intake_accepted_verified_at?: string | null;
   /** Q4 Migration 2 added these. Required for row-level OCC. */
   created_at: string;
   updated_at: string;
