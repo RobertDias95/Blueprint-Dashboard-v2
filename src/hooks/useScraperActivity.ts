@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../lib/supabase';
 import { queryKeys } from '../lib/queryKeys';
@@ -26,6 +26,18 @@ export function useScraperActivity(
 ) {
   const tenantId = useAuthStore((s) => s.activeTenantId);
   const queryClient = useQueryClient();
+  // fix-28-bug: per-mount unique channel name. The bell (mounted in
+  // Chrome) and ActivityPage both call this hook; with a hardcoded
+  // channel name, the second mount tried to attach a postgres_changes
+  // listener to an already-subscribed channel and Supabase Realtime
+  // throws ("cannot add `postgres_changes` callbacks ... after
+  // `subscribe()`"). Random suffix computed in useState's lazy
+  // initializer is stable across re-renders of the same mount but
+  // unique per instance — two mounts = two independent channels.
+  // Both still invalidate the same TanStack queryKey on INSERT.
+  const [channelName] = useState(
+    () => `bp-v2-scraper-activity-${Math.random().toString(36).slice(2, 10)}`,
+  );
 
   // Realtime: any new audit_log INSERT invalidates the cache. The
   // RLS filter on audit_log already restricts visible rows to the
@@ -33,7 +45,7 @@ export function useScraperActivity(
   useEffect(() => {
     if (!tenantId) return;
     const channel = supabase
-      .channel('bp-v2-scraper-activity')
+      .channel(channelName)
       .on(
         'postgres_changes',
         { event: 'INSERT', schema: 'public', table: 'audit_log' },
@@ -47,7 +59,7 @@ export function useScraperActivity(
     return () => {
       void supabase.removeChannel(channel);
     };
-  }, [tenantId, queryClient]);
+  }, [tenantId, queryClient, channelName]);
 
   return useQuery<ScraperActivityRow[]>({
     queryKey: queryKeys.scraperActivity(tenantId ?? '', days),
