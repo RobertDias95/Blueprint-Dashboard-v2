@@ -4,11 +4,22 @@ import type {
   PermitCycle,
   Stage,
 } from './database.types';
+import { isTerminalPositiveStatus } from './permitTerminalStatus';
 
 // Q2: Pure stage-classification helpers. Ported from v1's
 // computeStage/effectiveStage and DE early/late split (see v1 index.html
 // lines 2641-2653 + 3064-3081). Pure functions only — no DOM, no globals,
 // no Supabase. The matrix renderer composes them.
+//
+// fix-31c (2026-05-19): effectiveStage gained a terminal-positive
+// permit.status override. When the portal's Record Status reaches
+// "Conceptually Approved" / "Approved" / "Issued" / "Completed" /
+// "Ready for Issuance" / "Closed", per-cycle state is known-stale —
+// e.g. a permit at "Conceptually Approved" can still have a cycle 1
+// corr_issued from a historical correction round that's since been
+// resolved at the parent / record-status level. Pre-fix that
+// short-circuited as 'co' (Corrections) on the matrix; now it routes
+// to 'is' when actual_issue is set, else 'pm'.
 
 const STAGES: ReadonlySet<Stage> = new Set(['de', 'pm', 'co', 'ap', 'is']);
 
@@ -30,6 +41,13 @@ export function computeStage(p: Permit, cycles: PermitCycle[]): Stage {
 export function effectiveStage(p: Permit, cycles: PermitCycle[]): Stage {
   if (p.actual_issue) return 'is';
   if (p.approval_date) return 'ap';
+  // fix-31c: portal-side terminal-positive status (e.g. "Conceptually
+  // Approved") trumps stale cycle data. actual_issue + approval_date
+  // already short-circuit above; this branch covers the case where
+  // the city has terminally signed off but the dashboard hasn't
+  // recorded the formal approval_date yet (Bobby keeps that field
+  // for the final ready-to-issue moment, not the conceptual sign-off).
+  if (isTerminalPositiveStatus(p.status)) return 'pm';
   return computeStage(p, cycles);
 }
 

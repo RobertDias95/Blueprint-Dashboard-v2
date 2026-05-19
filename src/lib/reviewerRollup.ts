@@ -59,39 +59,18 @@ export function bucketStatus(
   }
 }
 
-// fix-31b: when a permit's portal-side Record Status reaches a
-// terminal-positive value (Conceptually Approved / Approved / Issued
-// / Completed / Ready for Issuance / Closed), per-reviewer state is
-// known-stale by definition — every reviewer's contribution is
-// effectively closed even when their individual event stream's last
-// entry was "Additional Info Requested" or similar. Without this
-// override the chip surfaces a misleading ⚠ corrections pill on
-// permits that already approved past it.
-//
-// Example that motivated fix-31b: SDOTTRLA0002310 at 4506 14th Ave SW.
-// Anne-Marie Freudenthal's last event was Additional Info Requested
-// (cycle 1). The parent TBD row marked the cycle Completed on 5/7 and
-// the permit's Record Status is "Conceptually Approved" — the chip
-// should show all reviewers green, not a warning.
-const TERMINAL_POSITIVE_STATUSES: ReadonlySet<string> = new Set([
-  'Conceptually Approved',
-  'Approved',
-  'Issued',
-  'Completed',
-  'Ready for Issuance',
-  'Closed',
-]);
-
-/** Returns true when the given permits.status string indicates the
- *  permit has moved past per-reviewer-level review concerns. Exported
- *  so callers can decide whether to render review-level UI at all
- *  (e.g., skip per-reviewer detail entirely on Closed permits). */
-export function isTerminalPositiveStatus(
-  permitStatus: string | null | undefined,
-): boolean {
-  if (!permitStatus) return false;
-  return TERMINAL_POSITIVE_STATUSES.has(permitStatus.trim());
-}
+// fix-31b: the terminal-positive override (chip rolls every reviewer
+// up to "approved" when permit.status is a terminal-positive value).
+// fix-31c (2026-05-19) moved the constant + helper to
+// ./permitTerminalStatus.ts so permitStatus.ts + permitStage.ts can
+// apply the same override without pulling reviewer-rollup-specific
+// imports. Re-exported here for backwards compatibility with any
+// fix-31b consumer that imported from this module.
+import {
+  TERMINAL_POSITIVE_STATUSES,
+  isTerminalPositiveStatus,
+} from './permitTerminalStatus';
+export { TERMINAL_POSITIVE_STATUSES, isTerminalPositiveStatus };
 
 /** Roll up a list of reviewer rows into chip counts. Each reviewer is
  *  counted exactly once; the per-reviewer current_status determines

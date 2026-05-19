@@ -3,6 +3,7 @@ import {
   getHighlightedMilestone,
   type HighlightTarget,
 } from './permitHelpers';
+import { isTerminalPositiveStatus } from './permitTerminalStatus';
 
 // fix-25e: derive a user-facing status pill ("Corr Required (Cycle 2)" +
 // date) from cycle state instead of displaying permits.status raw. The
@@ -15,6 +16,13 @@ import {
 // When no cycle data + no target_submit + no permit-level outcome dates
 // exist, falls back to permits.status (preserving the wizard / scraper
 // value). When ANY meaningful date exists, the derived label takes over.
+//
+// fix-31c (2026-05-19): when permit.status is a terminal-positive value
+// (Conceptually Approved / Approved / Issued / Completed / Ready for
+// Issuance / Closed) the cycle-derived label is wrong by construction
+// — the city already moved past whatever interim state the cycles
+// record. Bypass the chain rule entirely and surface permit.status
+// with its outcome date.
 
 export interface PermitStatus {
   label: string;
@@ -38,6 +46,19 @@ const LABEL_MAP: Record<HighlightTarget['key'], string> = {
 const FALLBACK_LABEL = 'Pre-Submittal — GO';
 
 export function derivePermitStatus(permit: PermitWithCycles): PermitStatus {
+  // fix-31c: terminal-positive permit.status wins over any cycle-
+  // derived label. Date prefers actual_issue (city physically issued)
+  // then approval_date (city approved) — both can be null when the
+  // status is e.g. "Conceptually Approved" without a date yet, in
+  // which case the pill renders with no date suffix.
+  if (isTerminalPositiveStatus(permit.status)) {
+    return {
+      label: permit.status!.trim(),
+      date: permit.actual_issue ?? permit.approval_date ?? null,
+      derived: false,
+    };
+  }
+
   const target = getHighlightedMilestone(permit);
 
   // Pull the date corresponding to the target. Cycle targets read from
