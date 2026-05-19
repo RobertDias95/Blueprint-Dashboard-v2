@@ -16,22 +16,21 @@ import type {
 // changes can't silently shift the chip counts.
 
 function makeReviewer(
-  over: Partial<PermitCycleReviewer> & {
-    reviewer_name: string;
-    current_status: ReviewerStatus;
-  },
+  over: Partial<PermitCycleReviewer> = {},
 ): PermitCycleReviewer {
   return {
-    id: `r-${over.reviewer_name}-${over.cycle_index ?? 1}`,
+    id: `r-${over.reviewer_name ?? 'X'}-${over.cycle_index ?? 1}`,
     tenant_id: 'tenant-0',
     permit_id: 1,
     cycle_index: 1,
-    reviewer_name: over.reviewer_name,
+    reviewer_name: 'placeholder',
     discipline: null,
-    current_status: over.current_status,
+    current_status: 'pending',
     last_event_date: null,
     created_at: '2026-05-19T12:00:00Z',
     updated_at: '2026-05-19T12:00:00Z',
+    // Override spread last so caller fields cleanly win + no duplicate
+    // keys (TS2783 caught this when Render ran tsc -b strict mode).
     ...over,
   };
 }
