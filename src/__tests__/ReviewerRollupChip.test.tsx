@@ -95,6 +95,46 @@ describe('ReviewerRollupChip', () => {
     expect(screen.queryByTestId('reviewer-chip-42')).toBeNull();
   });
 
+  it('terminal-positive permitStatus suppresses the ⚠ corrections pill (fix-31b)', () => {
+    // Mirrors SDOTTRLA0002310: reviewer's individual event stream ends
+    // at corrections_required, but the permit is Conceptually Approved
+    // so the chip must NOT show the corrections pill.
+    const rows: PermitCycleReviewer[] = [
+      makeReviewer('Anne-Marie', 'corrections_required'),
+      makeReviewer('Tom', 'approved'),
+      makeReviewer('Jane', 'in_process'),
+    ];
+    render(
+      <ReviewerRollupChip
+        permitId={42}
+        rows={rows}
+        fallbackReviewer={null}
+        permitStatus="Conceptually Approved"
+      />,
+    );
+    const chip = screen.getByTestId('reviewer-chip-42');
+    expect(chip.textContent).toContain('3');
+    expect(chip.textContent).toContain('3✓');
+    expect(chip.textContent).not.toContain('⚠');
+  });
+
+  it('non-terminal permitStatus leaves the ⚠ corrections pill visible', () => {
+    const rows: PermitCycleReviewer[] = [
+      makeReviewer('Anne-Marie', 'corrections_required'),
+      makeReviewer('Tom', 'approved'),
+    ];
+    render(
+      <ReviewerRollupChip
+        permitId={42}
+        rows={rows}
+        fallbackReviewer={null}
+        permitStatus="Reviews In Process"
+      />,
+    );
+    const chip = screen.getByTestId('reviewer-chip-42');
+    expect(chip.textContent).toContain('1⚠');
+  });
+
   it('renders the dim em-dash when there are no rows and no fallback', () => {
     const { container } = render(
       <ReviewerRollupChip permitId={42} rows={[]} fallbackReviewer={null} />,

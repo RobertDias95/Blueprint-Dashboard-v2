@@ -128,6 +128,72 @@ describe('rollupCounts — Bobby user story', () => {
   });
 });
 
+describe('rollupCounts with permitStatus override (fix-31b)', () => {
+  it('terminal-positive status collapses every reviewer to approved', () => {
+    // SDOTTRLA0002310 scenario: Anne-Marie's last per-reviewer event
+    // was corrections_required, but the permit's Record Status is
+    // "Conceptually Approved" — workflow moved past her individual
+    // step. The chip should show all reviewers green, not a ⚠ pill.
+    const rows = [
+      makeReviewer({ reviewer_name: 'Anne-Marie', current_status: 'corrections_required' }),
+      makeReviewer({ reviewer_name: 'Tom', current_status: 'approved' }),
+      makeReviewer({ reviewer_name: 'Jane', current_status: 'in_process' }),
+    ];
+    const counts = rollupCounts(rows, 'Conceptually Approved');
+    expect(counts.total).toBe(3);
+    expect(counts.approved).toBe(3);
+    expect(counts.correctionsRequired).toBe(0);
+    expect(counts.inReview).toBe(0);
+    expect(counts.pending).toBe(0);
+    expect(counts.notRequired).toBe(0);
+  });
+
+  it('non-terminal status leaves individual buckets intact', () => {
+    const rows = [
+      makeReviewer({ reviewer_name: 'A', current_status: 'corrections_required' }),
+      makeReviewer({ reviewer_name: 'B', current_status: 'approved' }),
+    ];
+    const counts = rollupCounts(rows, 'Reviews In Process');
+    expect(counts.approved).toBe(1);
+    expect(counts.correctionsRequired).toBe(1);
+  });
+
+  it('null / undefined / empty permitStatus does not override', () => {
+    const rows = [
+      makeReviewer({ reviewer_name: 'A', current_status: 'corrections_required' }),
+    ];
+    expect(rollupCounts(rows, null).correctionsRequired).toBe(1);
+    expect(rollupCounts(rows, undefined).correctionsRequired).toBe(1);
+    expect(rollupCounts(rows, '').correctionsRequired).toBe(1);
+    expect(rollupCounts(rows).correctionsRequired).toBe(1);
+  });
+
+  it('every TERMINAL_POSITIVE_STATUSES value triggers the override', () => {
+    const rows = [
+      makeReviewer({ reviewer_name: 'A', current_status: 'corrections_required' }),
+    ];
+    for (const status of [
+      'Conceptually Approved',
+      'Approved',
+      'Issued',
+      'Completed',
+      'Ready for Issuance',
+      'Closed',
+    ]) {
+      const counts = rollupCounts(rows, status);
+      expect(counts.approved).toBe(1);
+      expect(counts.correctionsRequired).toBe(0);
+    }
+  });
+
+  it('whitespace tolerance on permitStatus (trim before match)', () => {
+    const rows = [
+      makeReviewer({ reviewer_name: 'A', current_status: 'corrections_required' }),
+    ];
+    expect(rollupCounts(rows, '  Conceptually Approved  ').approved).toBe(1);
+  });
+});
+
 describe('statusLabel', () => {
   it('returns a human-readable label for every status', () => {
     const cases: Array<[ReviewerStatus, string]> = [
