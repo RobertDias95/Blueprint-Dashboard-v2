@@ -525,7 +525,25 @@ function SidebarRow({
       </div>
       <div className="text-[10px] truncate">
         {permit.num ? (
-          <span className="text-de font-mono">{permit.num}</span>
+          permit.portal_url ? (
+            // fix-25-II D1: permit # was styled link-blue (text-de) but had
+            // no anchor — clicking only fired the parent's onSelect. When
+            // a portal URL is set, make the # an actual <a> to the portal.
+            // stopPropagation so the row-select click doesn't fire on top.
+            <a
+              href={permit.portal_url}
+              target="_blank"
+              rel="noreferrer"
+              onClick={(e) => e.stopPropagation()}
+              className="text-de font-mono no-underline hover:underline"
+              title={permit.portal_url}
+              data-testid={`permits-sidebar-num-link-${permit.id}`}
+            >
+              {permit.num} ↗
+            </a>
+          ) : (
+            <span className="text-de font-mono">{permit.num}</span>
+          )
         ) : (
           <span className="text-dim italic">No permit # yet</span>
         )}

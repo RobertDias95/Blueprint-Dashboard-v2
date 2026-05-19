@@ -1015,7 +1015,15 @@ function DrawScheduleBody({
   }, [draw, projectById, search]);
 
   return (
-    <div className="space-y-3">
+    // fix-25-II D4: outer wrapper was `space-y-3` (block layout, content
+    // height only). The grid panel inside is content-sized (ROW_H × N
+    // weeks ≈ 400px), so on tall viewports the page background showed
+    // through as a wide grey band below the panel. Switch to a flex
+    // column that claims `min-h-full` (the parent scroll-area's height)
+    // and let the grid panel `flex-1 min-h-0` grow into the remaining
+    // space — bg-surface extends to the bottom of the viewport, no
+    // grey gap.
+    <div className="flex flex-col gap-3 min-h-full">
       <Toolbar
         quarterOffset={quarterOffset}
         setQuarterOffset={setQuarterOffset}
@@ -1024,7 +1032,7 @@ function DrawScheduleBody({
       />
 
       <div
-        className="bg-surface border border-border rounded-xl overflow-x-auto"
+        className="flex-1 min-h-0 bg-surface border border-border rounded-xl overflow-x-auto"
         data-testid="draw-schedule-grid"
       >
         {/* DM header row */}

@@ -690,6 +690,19 @@ function DateStrip({
     );
   }
 
+  // fix-25-II D2: approval_date / actual_issue are permit-level fields that
+  // were rendered unconditionally on every cycle strip — so the same date
+  // shown up on cycle 1, 2, 3, etc. Bobby's rule: pin each to the cycle
+  // where the milestone actually landed = highest cycle_index whose
+  // submitted is <= the milestone date. When the milestone hasn't been
+  // recorded yet, anchor on the latest review cycle so the user has one
+  // editable slot to type into. Other cycles render a dim placeholder
+  // that holds the grid column but hides the date + input.
+  const approvalCycle = pickAnchorCycleIdx(cycles, permit.approval_date);
+  const issueCycle = pickAnchorCycleIdx(cycles, permit.actual_issue);
+  const showApprovalHere = approvalCycle === viewIdx;
+  const showIssueHere = issueCycle === viewIdx;
+
   return (
     <div
       className="grid border-b"
@@ -752,37 +765,55 @@ function DateStrip({
         onCommit={(v) => commitCycleField(cycle, 'resubmitted', v)}
         testid={`pd-cell-cycle${viewIdx}-resubmitted`}
       />
-      <DateCell
-        label="Approval Date"
-        accentColor="var(--color-jv)"
-        value={permit.approval_date}
-        highlighted={isMilestoneHighlighted(highlightTarget, {
-          kind: 'permit',
-          key: 'approval_date',
-        })}
-        onCommit={(v) =>
-          commitPermit(
-            'approval_date',
-            v || null,
-            permit.approval_date,
-            'Approval Date',
-          )
-        }
-        testid="pd-cell-approval_date"
-      />
-      <DateCell
-        label="Actual Issue"
-        accentColor="var(--color-is)"
-        value={permit.actual_issue}
-        highlighted={isMilestoneHighlighted(highlightTarget, {
-          kind: 'permit',
-          key: 'actual_issue',
-        })}
-        onCommit={(v) =>
-          commitPermit('actual_issue', v || null, permit.actual_issue, 'Actual Issue')
-        }
-        testid="pd-cell-actual_issue"
-      />
+      {showApprovalHere ? (
+        <DateCell
+          label="Approval Date"
+          accentColor="var(--color-jv)"
+          value={permit.approval_date}
+          highlighted={isMilestoneHighlighted(highlightTarget, {
+            kind: 'permit',
+            key: 'approval_date',
+          })}
+          onCommit={(v) =>
+            commitPermit(
+              'approval_date',
+              v || null,
+              permit.approval_date,
+              'Approval Date',
+            )
+          }
+          testid="pd-cell-approval_date"
+        />
+      ) : (
+        <DateCellPlaceholder
+          label="Approval Date"
+          accentColor="var(--color-jv)"
+          anchorCycle={approvalCycle}
+          testid={`pd-cell-approval_date-placeholder-cycle${viewIdx}`}
+        />
+      )}
+      {showIssueHere ? (
+        <DateCell
+          label="Actual Issue"
+          accentColor="var(--color-is)"
+          value={permit.actual_issue}
+          highlighted={isMilestoneHighlighted(highlightTarget, {
+            kind: 'permit',
+            key: 'actual_issue',
+          })}
+          onCommit={(v) =>
+            commitPermit('actual_issue', v || null, permit.actual_issue, 'Actual Issue')
+          }
+          testid="pd-cell-actual_issue"
+        />
+      ) : (
+        <DateCellPlaceholder
+          label="Actual Issue"
+          accentColor="var(--color-is)"
+          anchorCycle={issueCycle}
+          testid={`pd-cell-actual_issue-placeholder-cycle${viewIdx}`}
+        />
+      )}
     </div>
   );
 }
@@ -920,6 +951,63 @@ function DateCell({
           color: 'var(--color-text)',
         }}
       />
+    </div>
+  );
+}
+
+// fix-25-II D2: picks the cycle_index where a permit-level milestone
+// (approval_date / actual_issue) should be rendered on the cycle strip.
+// Rule: highest cycle_index whose submitted is on/before the target date.
+// When the target is null (milestone not recorded yet), pin to the latest
+// cycle so there's one editable slot. cycles is the review-only list
+// (cycle_index >= 1), sorted ascending — guaranteed non-empty in the
+// call site (review-cycle strip render).
+function pickAnchorCycleIdx(
+  cycles: PermitCycle[],
+  target: string | null,
+): number {
+  if (cycles.length === 0) return 1;
+  if (!target) return cycles[cycles.length - 1].cycle_index;
+  let anchor = cycles[0].cycle_index;
+  for (const c of cycles) {
+    if (c.submitted && c.submitted <= target) {
+      anchor = c.cycle_index;
+    }
+  }
+  return anchor;
+}
+
+// fix-25-II D2: holds the column slot on cycle strips that are NOT the
+// approval / actual-issue anchor. Keeps the 6-column grid alignment; no
+// editable input + no value, so a stale milestone date no longer appears
+// to belong to a cycle where it didn't land.
+function DateCellPlaceholder({
+  label,
+  accentColor,
+  anchorCycle,
+  testid,
+}: {
+  label: string;
+  accentColor: string;
+  anchorCycle: number;
+  testid?: string;
+}) {
+  return (
+    <div
+      className="px-2 py-1.5 flex flex-col gap-1"
+      style={{ background: 'var(--color-surface)', opacity: 0.55 }}
+      data-testid={testid}
+      title={`${label} is shown on cycle ${anchorCycle}`}
+    >
+      <span
+        className="text-[8px] font-bold uppercase tracking-wide"
+        style={{ color: accentColor }}
+      >
+        {label}
+      </span>
+      <span className="text-[10px] italic" style={{ color: 'var(--color-dim)' }}>
+        — cycle {anchorCycle}
+      </span>
     </div>
   );
 }
