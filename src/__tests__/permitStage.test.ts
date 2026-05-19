@@ -151,3 +151,94 @@ describe('classifyDeBucket', () => {
     ).toBe('early');
   });
 });
+
+// ============================================================
+// fix-31c (2026-05-19): terminal-positive permit.status routes
+// effectiveStage past stale cycle data. SDOTTRLA0002310 scenario.
+// ============================================================
+describe('effectiveStage with terminal-positive permit.status (fix-31c)', () => {
+  it('Conceptually Approved + stale cycle.corr_issued → "pm" (not "co")', () => {
+    const cycles = [
+      cycle({
+        cycle_index: 1,
+        submitted: '2026-04-10',
+        corr_issued: '2026-05-06',
+      }),
+    ];
+    expect(
+      effectiveStage(
+        makePermit({ status: 'Conceptually Approved' }),
+        cycles,
+      ),
+    ).toBe('pm');
+  });
+
+  it('Conceptually Approved + approval_date → "ap" (approval_date short-circuits before the override)', () => {
+    // The existing approval_date check at the top of effectiveStage
+    // wins. Terminal-positive override only fires when neither
+    // actual_issue nor approval_date is set.
+    expect(
+      effectiveStage(
+        makePermit({
+          status: 'Conceptually Approved',
+          approval_date: '2026-05-07',
+        }),
+        [],
+      ),
+    ).toBe('ap');
+  });
+
+  it('Issued + actual_issue → "is" (actual_issue short-circuits first)', () => {
+    expect(
+      effectiveStage(
+        makePermit({ status: 'Issued', actual_issue: '2026-05-10' }),
+        [],
+      ),
+    ).toBe('is');
+  });
+
+  it('Closed status without any outcome date set + stale corr_issued → "pm"', () => {
+    const cycles = [
+      cycle({ cycle_index: 1, submitted: '2026-04-10', corr_issued: '2026-05-06' }),
+    ];
+    expect(
+      effectiveStage(makePermit({ status: 'Closed' }), cycles),
+    ).toBe('pm');
+  });
+
+  it('every TERMINAL_POSITIVE_STATUSES value routes to "pm" when no outcome date set', () => {
+    for (const status of [
+      'Conceptually Approved',
+      'Approved',
+      'Issued',
+      'Completed',
+      'Ready for Issuance',
+      'Closed',
+    ]) {
+      expect(
+        effectiveStage(makePermit({ status }), []),
+      ).toBe('pm');
+    }
+  });
+
+  it('non-terminal status (Reviews In Process) falls through to cycle-derived stage', () => {
+    const cycles = [
+      cycle({ cycle_index: 1, submitted: '2026-04-10', corr_issued: '2026-05-06' }),
+    ];
+    expect(
+      effectiveStage(
+        makePermit({ status: 'Reviews In Process' }),
+        cycles,
+      ),
+    ).toBe('co');
+  });
+
+  it('null status falls through to cycle-derived stage (no regression)', () => {
+    const cycles = [
+      cycle({ cycle_index: 1, submitted: '2026-04-10' }),
+    ];
+    expect(
+      effectiveStage(makePermit({ status: null }), cycles),
+    ).toBe('pm');
+  });
+});

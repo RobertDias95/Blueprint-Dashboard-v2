@@ -272,4 +272,126 @@ describe('derivePermitStatus', () => {
     expect(r.label).toBe('City Target (Cycle 1)');
     expect(r.date).toBe('2026-06-15');
   });
+
+  // ============================================================
+  // fix-31c (2026-05-19): terminal-positive permit.status override
+  // ============================================================
+  describe('terminal-positive status override (fix-31c)', () => {
+    it('Conceptually Approved + stale cycle.corr_issued → permit.status wins, no "(Cycle N)" suffix', () => {
+      // SDOTTRLA0002310 scenario verbatim: city resolved a historical
+      // correction at the parent level (permit.status moved to
+      // Conceptually Approved) but cycle 1.corr_issued still holds
+      // the date. Pre fix-31c the pill said "Corr Required (Cycle 1)";
+      // post fix-31c it mirrors permit.status.
+      const r = derivePermitStatus(
+        makePermit({
+          status: 'Conceptually Approved',
+          permit_cycles: [
+            cyc({
+              cycle_index: 1,
+              submitted: '2026-04-10',
+              corr_issued: '2026-05-06',
+            }),
+          ],
+        }),
+      );
+      expect(r.label).toBe('Conceptually Approved');
+      expect(r.label).not.toContain('Cycle');
+      expect(r.derived).toBe(false);
+    });
+
+    it('Conceptually Approved + approval_date set → date surfaces from approval_date', () => {
+      const r = derivePermitStatus(
+        makePermit({
+          status: 'Conceptually Approved',
+          approval_date: '2026-05-07',
+        }),
+      );
+      expect(r).toEqual({
+        label: 'Conceptually Approved',
+        date: '2026-05-07',
+        derived: false,
+      });
+    });
+
+    it('Issued status + actual_issue set → actual_issue beats approval_date for date', () => {
+      const r = derivePermitStatus(
+        makePermit({
+          status: 'Issued',
+          actual_issue: '2026-05-10',
+          approval_date: '2026-05-07',
+        }),
+      );
+      expect(r).toEqual({
+        label: 'Issued',
+        date: '2026-05-10',
+        derived: false,
+      });
+    });
+
+    it('terminal status + neither outcome date set → label only, date null', () => {
+      // Some statuses (e.g. "Closed") may land before formal approval_date
+      // is recorded. The pill renders without a date suffix.
+      const r = derivePermitStatus(
+        makePermit({ status: 'Closed' }),
+      );
+      expect(r).toEqual({
+        label: 'Closed',
+        date: null,
+        derived: false,
+      });
+    });
+
+    it('every TERMINAL_POSITIVE_STATUSES value triggers override', () => {
+      for (const status of [
+        'Conceptually Approved',
+        'Approved',
+        'Issued',
+        'Completed',
+        'Ready for Issuance',
+        'Closed',
+      ]) {
+        const r = derivePermitStatus(
+          makePermit({
+            status,
+            permit_cycles: [
+              cyc({ cycle_index: 1, corr_issued: '2026-05-06' }),
+            ],
+          }),
+        );
+        expect(r.label).toBe(status);
+        expect(r.label).not.toContain('Cycle');
+      }
+    });
+
+    it('whitespace-padded status still triggers override', () => {
+      const r = derivePermitStatus(
+        makePermit({ status: '  Conceptually Approved  ' }),
+      );
+      expect(r.label).toBe('Conceptually Approved');
+    });
+
+    it('non-terminal status (e.g. Reviews In Process) falls through to cycle-derived label', () => {
+      // Sanity: no regression on the pre-fix-31c path. Matches the
+      // setup of the standalone "cycle 1 with corr_issued" test above
+      // (cycle 0.intake_accepted populated so the chain advances past
+      // the design slot before evaluating cycle 1's corr_issued).
+      const r = derivePermitStatus(
+        makePermit({
+          status: 'Reviews In Process',
+          permit_cycles: [
+            cyc({ cycle_index: 0, intake_accepted: '2026-04-08' }),
+            cyc({
+              cycle_index: 1,
+              submitted: '2026-04-10',
+              corr_issued: '2026-05-06',
+            }),
+          ],
+        }),
+      );
+      expect(r.label).toBe('Corr Required (Cycle 1)');
+      expect(r.date).toBe('2026-05-06');
+      expect(r.derived).toBe(true);
+    });
+  });
 });
