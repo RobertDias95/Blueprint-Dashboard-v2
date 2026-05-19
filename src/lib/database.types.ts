@@ -101,6 +101,14 @@ export interface PermitCycle {
   corr_issued: string | null;
   resubmitted: string | null;
   intake_accepted: string | null;
+  /** fix-30: per-cycle verification timestamp for intake_accepted. NULL
+   *  means scraper observed but team hasn't manually verified yet.
+   *  Populated by backfill (= cycle's updated_at) for all pre-existing
+   *  intake_accepted values. Future writes via fix-30b's verify RPC
+   *  will stamp NOW() when the team marks intake as verified. Until
+   *  fix-30b ships, this column is read-only from v2's perspective —
+   *  consumers can display it but don't write it. */
+  intake_accepted_verified_at: string | null;
   /** Q4 Migration 2 added these. Required for row-level OCC. */
   created_at: string;
   updated_at: string;
