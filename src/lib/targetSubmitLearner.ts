@@ -10,9 +10,12 @@ import {
 // fix-25-feat-AA: target_submit learner. Replaces fix-25-feat-J's
 // hardcoded offsets (BP=+21d, Demo=+37d, ECA=+10d, etc.) with an
 // average of the team's actual anchor→submitted clock for each
-// (type, juris) cohort. Same 5-tier cascade as the existing
-// intake→approval learner: per-scope 90d → 180d → 365d → all-time,
-// then cross-juris fallback, then hardcoded default.
+// (type, juris) cohort. Cascade mirrors the intake→approval learner:
+// (type, juris) 90d → 180d → 365d → all-time, then hardcoded default.
+//
+// fix-37: the (type, *) cross-juris tier is removed — jurisdictions
+// without own data fall straight to the hardcoded per-type offset
+// rather than borrowing another jurisdiction's timeline.
 //
 // "Open sample gate" — any permit with both anchor dates contributes,
 // regardless of approval status. Negative samples (team submitted
@@ -269,8 +272,13 @@ function weightedMean(samples: TargetSubmitSample[], now: Date): number {
 }
 
 /** Top-level entry point: target_submit days for (type, juris).
- *  Walks (type, juris) cascade first, then (type, *) cascade.
- *  Returns the hardcoded default + 'default' source when both miss.
+ *  Walks the (type, juris) cascade, then returns the hardcoded per-type
+ *  offset + 'default' source when it misses.
+ *
+ *  fix-37: the (type, *) cross-juris tier is removed. A jurisdiction with
+ *  no own learned anchor→submit signal now falls straight through to the
+ *  hardcoded per-type offset, never borrowing another jurisdiction's
+ *  timeline. isCrossJuris is always false now (retained for minimal churn).
  *
  *  Mirror types (G&C, LSM) return null with source='default' — the
  *  engine handles those via direct copy of BP.target_submit; the
@@ -285,21 +293,14 @@ export function computeLearnedTargetSubmit(
   if (anchor === 'mirror_bp') {
     return { value: null, source: 'default', sampleCount: 0, isCrossJuris: false };
   }
-  // Tier A: (type, juris).
+  // (type, juris) only.
   const scoped = collectSamples(permits, projects, {
     type: filter.type,
     juris: filter.juris,
   });
   const scopedResult = cascadeForCohort(scoped, false, today);
   if (scopedResult) return scopedResult;
-  // Tier B: (type, *).
-  const crossJuris = collectSamples(permits, projects, {
-    type: filter.type,
-    juris: null,
-  });
-  const crossResult = cascadeForCohort(crossJuris, true, today);
-  if (crossResult) return crossResult;
-  // Tier 5: hardcoded default.
+  // Hardcoded per-type default — no cross-juris borrowing.
   const fallback = HARDCODED_TARGET_SUBMIT_OFFSETS[filter.type] ?? null;
   return {
     value: fallback,

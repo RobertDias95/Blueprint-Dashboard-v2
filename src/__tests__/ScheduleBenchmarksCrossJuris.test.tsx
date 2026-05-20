@@ -1,14 +1,92 @@
 import { describe, it, expect } from 'vitest';
 import { render, screen } from '@testing-library/react';
-import ScheduleBenchmarks from '../components/Reports/ScheduleBenchmarks';
+import ScheduleBenchmarks, {
+  BenchmarkCard,
+} from '../components/Reports/ScheduleBenchmarks';
+import { SCHEDULE_DEFAULTS, type LearnedEstimate } from '../lib/scheduleBenchmarks';
 import type { PermitCycle, PermitWithCycles, Project } from '../lib/database.types';
 
-// fix-35 Bug 4: the schedule learner falls back to (type, *) cross-juris
-// samples when a jurisdiction has no own-type approved permits. Before
-// fix-35 the UI showed those numbers with no indication. BenchmarkCard now
-// renders a CROSS-JURIS badge when estimate.isCrossJuris === true. The flag
-// logic itself is covered in scheduleBenchmarks.test.ts; these tests assert
-// the badge surfaces (and only surfaces) for cross-juris cards.
+// fix-35 added a CROSS-JURIS badge on BenchmarkCard when an estimate came
+// from the (type, *) cross-juris fallback. fix-37 removes that fallback, so
+// no live cascade ever sets isCrossJuris=true anymore — Bellevue/Phoenix with
+// no own data now fall to the per-type default and show no badge.
+//
+// We keep two things:
+//  1. The component contract — the badge still renders WHEN isCrossJuris=true
+//     (so a future re-introduction of cross-juris keeps working).
+//  2. A fix-37 regression — a real Bellevue cohort with no own data yields no
+//     CROSS-JURIS badge.
+
+function mkEstimate(over: Partial<LearnedEstimate> = {}): LearnedEstimate {
+  return {
+    source: 'test',
+    sampleCount: 3,
+    dateRange: '',
+    goToSubmit: null,
+    avgIntakeToApproval: null,
+    cityReview1: SCHEDULE_DEFAULTS.cityReview1,
+    corrResponse1: SCHEDULE_DEFAULTS.corrResponse1,
+    cityReview2: SCHEDULE_DEFAULTS.cityReview2,
+    corrResponse2: SCHEDULE_DEFAULTS.corrResponse2,
+    cityReview3: SCHEDULE_DEFAULTS.cityReview3,
+    corrResponse3: SCHEDULE_DEFAULTS.corrResponse3,
+    cityReview4: SCHEDULE_DEFAULTS.cityReview4,
+    corrResponse4: SCHEDULE_DEFAULTS.corrResponse4,
+    cr1Count: 0,
+    cr2Count: 0,
+    cr3Count: 0,
+    cr4Count: 0,
+    co1Count: 0,
+    co2Count: 0,
+    co3Count: 0,
+    co4Count: 0,
+    avgCycles: null,
+    mostLikelyCycle: 1,
+    cycleDist: { 1: 0, 2: 0, 3: 0, 4: 0 },
+    isAllTime: false,
+    isCrossJuris: false,
+    recencyTier: 'last_180d',
+    ...over,
+  };
+}
+
+describe('BenchmarkCard — CROSS-JURIS badge component contract', () => {
+  it('renders the badge when isCrossJuris=true', () => {
+    render(
+      <BenchmarkCard
+        type="Building Permit"
+        juris="Bellevue"
+        count={3}
+        estimate={mkEstimate({ isCrossJuris: true })}
+        onSelect={() => {}}
+      />,
+    );
+    const badge = screen.getByTestId(
+      'benchmark-card-crossjuris-Building Permit-Bellevue',
+    );
+    expect(badge.textContent).toBe('CROSS-JURIS');
+    expect(badge.getAttribute('title')).toContain('all jurisdictions');
+  });
+
+  it('does not render the badge when isCrossJuris=false', () => {
+    render(
+      <BenchmarkCard
+        type="Building Permit"
+        juris="Seattle"
+        count={3}
+        estimate={mkEstimate({ isCrossJuris: false })}
+        onSelect={() => {}}
+      />,
+    );
+    expect(
+      screen.queryByTestId('benchmark-card-crossjuris-Building Permit-Seattle'),
+    ).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// fix-37 regression — real cohorts never produce the badge anymore
+// ---------------------------------------------------------------------------
 
 function makeCycle(
   over: Partial<PermitCycle> & Pick<PermitCycle, 'cycle_index'>,
@@ -73,7 +151,6 @@ function makeProject(over: Partial<Project> & Pick<Project, 'id'>): Project {
   };
 }
 
-/** Approved BP with c0 intake + c1 review — a valid learner sample. */
 function approvedBP(args: {
   id: number;
   projectId: string;
@@ -97,10 +174,10 @@ function approvedBP(args: {
   });
 }
 
-describe('ScheduleBenchmarks — fix-35 Bug 4 cross-juris badge', () => {
-  // 3 approved Seattle BPs form the cross-juris pool. One UNAPPROVED Bellevue
-  // BP makes (BP, Bellevue) a combo with zero own samples → the learner falls
-  // back to the Seattle pool and flags isCrossJuris.
+describe('ScheduleBenchmarks — fix-37 no cross-juris fallback', () => {
+  // 3 approved Seattle BPs + one Bellevue BP. Pre-fix-37 the Bellevue card
+  // borrowed Seattle's numbers and showed CROSS-JURIS. Now Bellevue has no
+  // own data → no learned estimate → no badge anywhere.
   const permits: PermitWithCycles[] = [
     approvedBP({ id: 1, projectId: 'p1', intake: '2026-02-01', submitted: '2026-02-01', corrIssued: '2026-03-01', approval: '2026-05-01' }),
     approvedBP({ id: 2, projectId: 'p2', intake: '2026-02-05', submitted: '2026-02-05', corrIssued: '2026-03-05', approval: '2026-05-05' }),
@@ -114,23 +191,21 @@ describe('ScheduleBenchmarks — fix-35 Bug 4 cross-juris badge', () => {
     makeProject({ id: 'pBV', juris: 'Bellevue' }),
   ];
 
-  it('renders CROSS-JURIS on the Bellevue card (no own-type samples)', () => {
+  it('Bellevue (no own data) shows no CROSS-JURIS badge', () => {
     render(<ScheduleBenchmarks permits={permits} projects={projects} />);
-    const badge = screen.getByTestId(
-      'benchmark-card-crossjuris-Building Permit-Bellevue',
-    );
-    expect(badge).toBeInTheDocument();
-    expect(badge.textContent).toBe('CROSS-JURIS');
-    expect(badge.getAttribute('title')).toContain('all jurisdictions');
+    expect(
+      screen.getByTestId('benchmark-card-Building Permit-Bellevue'),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByTestId('benchmark-card-crossjuris-Building Permit-Bellevue'),
+    ).toBeNull();
   });
 
-  it('does NOT render CROSS-JURIS on the Seattle card (juris-specific samples)', () => {
+  it('Seattle (own data) still renders its card with no cross-juris badge', () => {
     render(<ScheduleBenchmarks permits={permits} projects={projects} />);
-    // The Seattle card itself renders …
     expect(
       screen.getByTestId('benchmark-card-Building Permit-Seattle'),
     ).toBeInTheDocument();
-    // … but without the cross-juris badge.
     expect(
       screen.queryByTestId('benchmark-card-crossjuris-Building Permit-Seattle'),
     ).toBeNull();

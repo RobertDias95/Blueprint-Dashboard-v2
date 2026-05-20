@@ -714,16 +714,20 @@ function computeForFilter(
   return null;
 }
 
-/** fix-25-feat-AA: orchestrator. Walks the (type, juris) recency cascade,
- *  then (type, *) cross-juris cascade, then returns null so the caller
- *  falls back to defaultDaysForType(type). The inner cascade (90d →
- *  180d → 365d → all-time) is the same in each scope — only the cohort
- *  filter changes between scopes.
+/** fix-25-feat-AA → fix-37: orchestrator. Walks the (type, juris) recency
+ *  cascade (90d → 180d → 365d → all-time), then returns null so the caller
+ *  falls back to defaultDaysForType(type).
+ *
+ *  fix-37: the (type, *) cross-juris tier (fix-24i / fix-25-feat-AA) is
+ *  removed. A jurisdiction with no own learned data now uses the per-type
+ *  default, never another jurisdiction's timeline — Bellevue/Phoenix
+ *  processes differ materially from Seattle and cross-juris was polluting
+ *  estimates. isCrossJuris therefore never fires (always false); the field
+ *  is retained for minimal churn and the fix-35 CROSS-JURIS badge simply
+ *  never renders.
  *
  *  getLearnWindow still exists for back-compat callers but no longer
- *  drives this function — the cascade subsumes per-juris window tuning.
- *  Old per-juris overrides will be revisited if needed once enough
- *  juris-level signal exists to justify a custom window per tier. */
+ *  drives this function — the cascade subsumes per-juris window tuning. */
 export function computeLearnedSchedule(
   permits: PermitWithCycles[],
   type: string,
@@ -731,28 +735,8 @@ export function computeLearnedSchedule(
   projectsById: Map<string, Project>,
   today: Date = new Date(),
 ): LearnedEstimate | null {
-  // Tier A: (type, juris).
-  const scoped = computeForFilter(
-    permits,
-    projectsById,
-    type,
-    juris,
-    today,
-    false,
-  );
-  if (scoped) return scoped;
-  // Tier B: (type, *) — any jurisdiction.
-  const crossJuris = computeForFilter(
-    permits,
-    projectsById,
-    type,
-    null,
-    today,
-    true,
-  );
-  if (crossJuris) return crossJuris;
-  // No signal anywhere → caller uses defaultDaysForType(type).
-  return null;
+  // (type, juris) only. No signal → caller uses defaultDaysForType(type).
+  return computeForFilter(permits, projectsById, type, juris, today, false);
 }
 
 /** Q9.5.f-fix-3 4.B: one row per contributing permit for the source modal.
