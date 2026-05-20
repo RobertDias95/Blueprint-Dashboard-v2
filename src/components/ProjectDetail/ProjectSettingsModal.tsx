@@ -1,8 +1,8 @@
 import { useState, useEffect, useMemo } from 'react';
-import { useUpdateProject } from '../../hooks/useUpdateProject';
-import { useUpdatePermit } from '../../hooks/useUpdatePermit';
-import { useCreatePermit } from '../../hooks/useCreatePermit';
-import { useDeletePermit } from '../../hooks/useDeletePermit';
+import {
+  useUpdateProjectWithPermits,
+  type PermitUpsertInput,
+} from '../../hooks/useUpdateProjectWithPermits';
 import { useJurisdictions } from '../../hooks/useJurisdictions';
 import { usePermitTypes } from '../../hooks/usePermitTypes';
 import { useTeamMembers } from '../../hooks/useTeamMembers';
@@ -90,10 +90,6 @@ interface PermitRow {
   portal_url: string;
   num: string;
   struct_address: string;
-  /** fix-25-feat-h: planned submission date. 'YYYY-MM-DD' or '' for null.
-   *  For Building Permits the bp_set_bp_dd_dates cascade auto-fills this
-   *  from dd_end + 14; for non-BP types this surface is the only anchor. */
-  target_submit: string;
   updated_at?: string | null;
 }
 
@@ -123,7 +119,6 @@ function permitToRow(p: PermitWithCycles): PermitRow {
     portal_url: p.portal_url ?? '',
     num: p.num ?? '',
     struct_address: p.struct_address ?? '',
-    target_submit: p.target_submit ?? '',
     updated_at: p.updated_at,
   };
 }
@@ -184,14 +179,16 @@ export default function ProjectSettingsModal({ project, onClose }: Props) {
 
   useEffect(() => {
     // Project/permits-prop sync: rebuild form drafts on upstream changes.
+    // fix-36: never rebuild mid-save — the atomic save's own invalidation +
+    // the engine cascade's realtime invalidation must not churn the form (and
+    // its OCC tokens) while handleSave is in flight. Belt-and-suspenders even
+    // though the single-RPC save removes the multi-write window.
+    if (saving) return;
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setForm(initForm(project, permits));
-  }, [project.id, project.updated_at, permits]);
+  }, [project.id, project.updated_at, permits, saving]);
 
-  const updateProject = useUpdateProject();
-  const updatePermit = useUpdatePermit();
-  const createPermit = useCreatePermit();
-  const deletePermit = useDeletePermit();
+  const updateProjectWithPermits = useUpdateProjectWithPermits();
 
   // fix-22-final: dedupe by name. Schema carries both legacy + lead role
   // variants for the same person (e.g. Bobby is both 'ent' and 'ent_lead').
@@ -268,7 +265,6 @@ export default function ProjectSettingsModal({ project, onClose }: Props) {
           portal_url: '',
           num: '',
           struct_address: '',
-          target_submit: '',
         },
       ],
     }));
@@ -301,106 +297,90 @@ export default function ProjectSettingsModal({ project, onClose }: Props) {
     if (!project.updated_at) return;
     setSaving(true);
     try {
-      // 1. Project update — fix-22 Mig 3 collapses the previous
-      // project-update + builder-upsert + BP-anchored-site-update into a
-      // single projects.* write. The 11 moved-to-project fields and the 4
-      // builder fields all live here now.
-      await updateProject.mutateAsync({
-        projectId: project.id,
-        expectedUpdatedAt: project.updated_at,
-        patch: {
-          address: form.address.trim(),
-          juris: form.juris.trim() || null,
-          acq_lead: form.acq_lead.trim() || null,
-          notes: form.notes,
-          archived: form.archived,
-          go_date: form.projectFields.go_date || null,
-          units: toNumOrNull(form.projectFields.units),
-          zone: form.projectFields.zone.trim() || null,
-          lot_width: toNumOrNull(form.projectFields.lot_width),
-          lot_depth: toNumOrNull(form.projectFields.lot_depth),
-          parking_type: form.projectFields.parking_type || null,
-          parking_stalls: toNumOrNull(form.projectFields.parking_stalls),
-          alley: form.projectFields.alley || null,
-          product_type: form.projectFields.product_type || null,
-          entitlement_lead: form.projectFields.entitlement_lead.trim() || null,
-          design_manager: form.projectFields.design_manager.trim() || null,
-          builder_name: form.builder.builder_name.trim() || null,
-          builder_company: form.builder.builder_company.trim() || null,
-          builder_email: form.builder.builder_email.trim() || null,
-          builder_phone: form.builder.builder_phone.trim() || null,
-        },
-        fieldLabel: 'Project Settings',
-      });
+      // fix-36: ONE atomic RPC for the whole save (project + every permit
+      // upsert/delete) with per-row OCC checks inside a single transaction.
+      // Replaces the old sequential updateProject + per-permit loop that
+      // reused modal-open tokens across N round-trips and lost the OCC race
+      // to the engine cascade's realtime invalidation.
+      const projectPatch = {
+        address: form.address.trim(),
+        juris: form.juris.trim() || null,
+        acq_lead: form.acq_lead.trim() || null,
+        notes: form.notes,
+        archived: form.archived,
+        go_date: form.projectFields.go_date || null,
+        units: toNumOrNull(form.projectFields.units),
+        zone: form.projectFields.zone.trim() || null,
+        lot_width: toNumOrNull(form.projectFields.lot_width),
+        lot_depth: toNumOrNull(form.projectFields.lot_depth),
+        parking_type: form.projectFields.parking_type || null,
+        parking_stalls: toNumOrNull(form.projectFields.parking_stalls),
+        alley: form.projectFields.alley || null,
+        product_type: form.projectFields.product_type || null,
+        entitlement_lead: form.projectFields.entitlement_lead.trim() || null,
+        design_manager: form.projectFields.design_manager.trim() || null,
+        builder_name: form.builder.builder_name.trim() || null,
+        builder_company: form.builder.builder_company.trim() || null,
+        builder_email: form.builder.builder_email.trim() || null,
+        builder_phone: form.builder.builder_phone.trim() || null,
+      };
 
-      // 2. BP-anchored per-permit fields (DA stays per-permit). Skip if no
-      // BP or no change. ENT/DM are project-level defaults now; per-permit
-      // overrides happen in the Permits section below.
-      if (bpPermit && bpPermit.updated_at && form.bpRole.da !== (bpPermit.da ?? '')) {
-        await updatePermit.mutateAsync({
-          permitId: bpPermit.id,
-          projectId: project.id,
-          expectedUpdatedAt: bpPermit.updated_at,
-          patch: {
-            da: form.bpRole.da.trim() || null,
-          },
-          fieldLabel: 'Building Permit DA',
-        });
-      }
+      // The dedicated "BP Design Associate" field (form.bpRole.da) is folded
+      // into the BP's permit upsert (the separate step-2 write is gone). When
+      // that field was edited it wins; otherwise the BP row's own da is used.
+      const bpDaEdited =
+        !!bpPermit && form.bpRole.da !== (bpPermit.da ?? '');
 
-      // 4. Per-permit updates / creates / deletes.
+      const permitUpserts: PermitUpsertInput[] = [];
+      const permitDeletes: number[] = [];
       for (const row of form.permits) {
         if (row.isDeleted) {
-          if (!row.isNew && row.id != null && row.updated_at) {
-            await deletePermit.mutateAsync({
-              permitId: row.id,
-              projectId: project.id,
-              expectedUpdatedAt: row.updated_at,
-            });
-          }
+          if (!row.isNew && row.id != null) permitDeletes.push(row.id);
           continue;
         }
+        const isBp = bpPermit != null && row.id === bpPermit.id;
+        const da = isBp && bpDaEdited ? form.bpRole.da : row.da;
+        // target_submit is engine-owned — intentionally never sent.
+        const fields = {
+          type: row.type,
+          ent_lead: row.ent_lead.trim() || null,
+          da: da.trim() || null,
+          portal_url: row.portal_url.trim() || null,
+          num: row.num.trim() || null,
+          struct_address: row.struct_address.trim() || null,
+        };
         if (row.isNew) {
-          await createPermit.mutateAsync({
-            projectId: project.id,
-            type: row.type,
-            patch: {
-              ent_lead: row.ent_lead.trim() || null,
-              da: row.da.trim() || null,
-              portal_url: row.portal_url.trim() || null,
-              num: row.num.trim() || null,
-              struct_address: row.struct_address.trim() || null,
-              target_submit: row.target_submit.trim() || null,
-            },
-          });
-          continue;
-        }
-        if (row.id != null && row.updated_at) {
-          // Skip the BP — its core site fields are already handled in step 3,
-          // but the BP can also be in this list with its per-permit fields
-          // (type/ent_lead/da/portal_url/num/struct_address/target_submit).
-          await updatePermit.mutateAsync({
-            permitId: row.id,
-            projectId: project.id,
-            expectedUpdatedAt: row.updated_at,
-            patch: {
-              type: row.type,
-              ent_lead: row.ent_lead.trim() || null,
-              da: row.da.trim() || null,
-              portal_url: row.portal_url.trim() || null,
-              num: row.num.trim() || null,
-              struct_address: row.struct_address.trim() || null,
-              target_submit: row.target_submit.trim() || null,
-            },
-            fieldLabel: row.type || 'Permit',
+          permitUpserts.push(fields);
+        } else if (row.id != null && row.updated_at) {
+          permitUpserts.push({
+            id: row.id,
+            expected_updated_at: row.updated_at,
+            ...fields,
           });
         }
+      }
+
+      const result = await updateProjectWithPermits.mutateAsync({
+        projectId: project.id,
+        projectExpectedUpdatedAt: project.updated_at,
+        projectPatch,
+        permitUpserts,
+        permitDeletes,
+      });
+
+      if (result.conflict) {
+        // The whole edit rolled back atomically — nothing partial landed.
+        pushToast(
+          'This project was modified elsewhere — reload and retry.',
+          'warn',
+        );
+        return; // keep the modal open
       }
 
       pushToast('Project settings saved.', 'success');
       onClose();
     } catch {
-      // individual hooks already toasted.
+      // useUpdateProjectWithPermits already toasted real errors.
     } finally {
       setSaving(false);
     }
@@ -941,20 +921,11 @@ function PermitSubsection({
 
       <div
         className="grid gap-2 items-end"
-        style={{ gridTemplateColumns: '1fr 1fr 2fr 1.5fr' }}
+        style={{ gridTemplateColumns: '1fr 2fr 1.5fr' }}
       >
-        {/* fix-25-feat-h: planned submission date. For BPs the
-            bp_set_bp_dd_dates cascade auto-fills this (dd_end + 14)
-            but the field is editable here for explicit override. For
-            non-BP types (IPR/ULS/Demo/PAR/SDOT) there's no cascade,
-            so this surface is the only place to anchor it. */}
-        <TinyField label="Target Submit">
-          <Input
-            type="date"
-            value={row.target_submit}
-            onChange={(v) => onChange({ target_submit: v })}
-          />
-        </TinyField>
+        {/* fix-36: the per-permit "Target Submit" input was removed — it's
+            engine-owned (bp_recompute_target_submits) and the modal must not
+            write it. Manual overrides live on the Schedule Estimator. */}
         <TinyField label="Permit # (from city)">
           <Input value={row.num} onChange={(v) => onChange({ num: v })} />
         </TinyField>
