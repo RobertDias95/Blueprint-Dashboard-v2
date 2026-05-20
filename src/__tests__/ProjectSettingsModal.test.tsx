@@ -150,30 +150,16 @@ vi.mock('../hooks/useTeamMembers', () => ({
   }),
 }));
 
-vi.mock('../hooks/useUpdateProject', () => ({
-  useUpdateProject: () => ({
-    mutateAsync: vi.fn().mockResolvedValue({}),
-    isPending: false,
-  }),
-}));
-
-vi.mock('../hooks/useUpdatePermit', () => ({
-  useUpdatePermit: () => ({
-    mutateAsync: vi.fn().mockResolvedValue({}),
-    isPending: false,
-  }),
-}));
-
-vi.mock('../hooks/useCreatePermit', () => ({
-  useCreatePermit: () => ({
-    mutateAsync: vi.fn().mockResolvedValue({}),
-    isPending: false,
-  }),
-}));
-
-vi.mock('../hooks/useDeletePermit', () => ({
-  useDeletePermit: () => ({
-    mutateAsync: vi.fn().mockResolvedValue({}),
+// fix-36: the modal now saves through one atomic RPC hook.
+vi.mock('../hooks/useUpdateProjectWithPermits', () => ({
+  useUpdateProjectWithPermits: () => ({
+    mutateAsync: vi.fn().mockResolvedValue({
+      conflict: false,
+      conflictKind: null,
+      conflictId: null,
+      projectUpdatedAt: null,
+      permits: [],
+    }),
     isPending: false,
   }),
 }));
@@ -334,53 +320,22 @@ describe('<ProjectSettingsModal /> fix-23d unified permit row', () => {
     // fix-25-feat-d: Type joined ENT + DA as a <select> -> 3 selects.
     const selects = card.querySelectorAll('select');
     expect(selects.length).toBe(3); // Type + ENT + DA
-    // fix-25-feat-h: Target Submit added as a 4th <input> alongside
-    // Permit Portal URL, Permit #, Structure Address.
+    // fix-36: the Target Submit input was removed (engine-owned), leaving
+    // Permit #, Permit Portal URL, Structure Address.
     const inputs = card.querySelectorAll('input');
-    expect(inputs.length).toBe(4);
+    expect(inputs.length).toBe(3);
     // Delete X stays inside the card (top-right corner).
     expect(scope.getByTitle('Remove permit')).toBeInTheDocument();
   });
 });
 
-describe('<ProjectSettingsModal /> fix-25-feat-h Target Submit field', () => {
-  it('renders a Target Submit date input on each permit row', () => {
+describe('<ProjectSettingsModal /> fix-36 Target Submit removed (engine-owned)', () => {
+  it('no longer renders a Target Submit date input on permit rows', () => {
     renderModal();
     const card = screen.getByTestId(`psm-permit-row-${refs.permits[0].id}`);
-    const dateInputs = Array.from(
-      card.querySelectorAll<HTMLInputElement>('input[type="date"]'),
-    );
-    // The Target Submit field is the only date input on the card.
-    expect(dateInputs).toHaveLength(1);
-  });
-
-  it('populates the Target Submit input from the permit row', () => {
-    // Mutate fixture so the row has a target_submit value, then verify
-    // the input picks it up at mount. Cast through unknown because the
-    // hoisted fixture's literal `null` narrows the field type.
-    const row = refs.permits[0] as unknown as { target_submit: string | null };
-    const originalTs = row.target_submit;
-    row.target_submit = '2026-09-15';
-    try {
-      renderModal();
-      const card = screen.getByTestId(`psm-permit-row-${refs.permits[0].id}`);
-      const dateInput = card.querySelector(
-        'input[type="date"]',
-      ) as HTMLInputElement;
-      expect(dateInput.value).toBe('2026-09-15');
-    } finally {
-      row.target_submit = originalTs;
-    }
-  });
-
-  it('typing into Target Submit updates the controlled input', () => {
-    renderModal();
-    const card = screen.getByTestId(`psm-permit-row-${refs.permits[0].id}`);
-    const dateInput = card.querySelector(
-      'input[type="date"]',
-    ) as HTMLInputElement;
-    fireEvent.change(dateInput, { target: { value: '2026-10-20' } });
-    expect(dateInput.value).toBe('2026-10-20');
+    const dateInputs = card.querySelectorAll('input[type="date"]');
+    // fix-36: target_submit is engine-owned; the modal must not edit it.
+    expect(dateInputs).toHaveLength(0);
   });
 });
 
