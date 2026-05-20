@@ -161,7 +161,10 @@ const TIER_BADGE_STYLE: Record<SourceTier, TierBadgeStyle> = {
   },
 };
 
-function BenchmarkCard({
+// Exported for the fix-37 component-contract test: the CROSS-JURIS badge
+// still renders when isCrossJuris is true, even though no live cascade
+// produces that flag anymore (fix-37 dropped the cross-juris tier).
+export function BenchmarkCard({
   type,
   juris,
   count,

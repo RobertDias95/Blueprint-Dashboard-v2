@@ -416,8 +416,11 @@ describe('computeLearnedSchedule', () => {
     expect(seattle?.cityReview1).toBe(28); // Seattle's 28d, NOT mixed with Bellevue's ~73d
   });
 
-  it('fix-24i: (type, juris) has 0 samples but (type, *) has 3+ → cross-juris fallback fires with isCrossJuris=true', () => {
-    // Request: Bothell BP. No Bothell BPs exist. Cross-juris pool: 3 Seattle BPs.
+  it('fix-37: (type, juris) has 0 samples → returns null (no cross-juris borrow); caller uses the per-type default', () => {
+    // Request: Bothell BP. No Bothell BPs exist. Pre-fix-37 the 3 Seattle
+    // BPs would have fired as a (type, *) cross-juris fallback. fix-37
+    // removes that tier — Bothell has no own data, so the learner returns
+    // null and the caller falls back to defaultDaysForType('Building Permit').
     const permits = [
       approvedBP({ id: 1, projectId: 'p1', intake: '2026-02-01', submitted: '2026-02-01', corrIssued: '2026-03-01', approval: '2026-05-01' }),
       approvedBP({ id: 2, projectId: 'p2', intake: '2026-02-05', submitted: '2026-02-05', corrIssued: '2026-03-05', approval: '2026-05-05' }),
@@ -430,10 +433,7 @@ describe('computeLearnedSchedule', () => {
       projectsById, // all p1/p2/p3 → Seattle
       new Date(2026, 4, 15),
     );
-    expect(result).not.toBeNull();
-    expect(result?.isCrossJuris).toBe(true);
-    expect(result?.sampleCount).toBe(3);
-    expect(result?.source).toContain('*'); // "Last 180d · Building Permit · *"
+    expect(result).toBeNull();
   });
 
   it('fix-25-feat-g: (type, juris) has 2 samples → scoped tier fires (no cross-juris) because the gate is now 1', () => {
@@ -1124,8 +1124,10 @@ describe('computeLearnedSchedule recency cascade (fix-25-feat-AA)', () => {
     expect(r?.sampleCount).toBe(1);
   });
 
-  it('cross-juris fallback walks the cascade in its own scope', () => {
-    // 0 Seattle BPs but 1 Bellevue BP inside 90d → cross-juris last_90d.
+  it('fix-37: no own-juris sample → returns null even when another juris has data', () => {
+    // 0 Seattle BPs but 1 Bellevue BP inside 90d. Pre-fix-37 this fired as a
+    // cross-juris last_90d estimate; fix-37 removes that — Seattle gets null
+    // and the caller falls back to the per-type default.
     const projectsX = new Map<string, Project>([
       ['pBV1', makeProject({ id: 'pBV1', juris: 'Bellevue' })],
     ]);
@@ -1137,8 +1139,7 @@ describe('computeLearnedSchedule recency cascade (fix-25-feat-AA)', () => {
       projectsX,
       TODAY,
     );
-    expect(r?.isCrossJuris).toBe(true);
-    expect(r?.recencyTier).toBe('last_90d');
+    expect(r).toBeNull();
   });
 });
 
@@ -1300,8 +1301,10 @@ describe('computeLearnedTargetSubmit (fix-25-feat-AA)', () => {
     expect(result.isCrossJuris).toBe(false);
   });
 
-  it('cross-juris fallback when scoped (type, juris) has no sample', () => {
-    // 0 Seattle samples, 1 Bellevue sample.
+  it('fix-37: scoped (type, juris) has no sample → hardcoded default, no cross-juris borrow', () => {
+    // 0 Seattle samples, 1 Bellevue sample. Pre-fix-37 the Bellevue sample
+    // fired as a cross-juris value (22). fix-37 removes that tier — Seattle
+    // falls straight to the hardcoded per-type offset.
     const permits = [bpSample(1, 'pBV1', '2026-04-01', '2026-03-10')];
     const projects = new Map([['pBV1', makeProject({ id: 'pBV1', juris: 'Bellevue' })]]);
     const result = computeLearnedTargetSubmit(
@@ -1310,8 +1313,10 @@ describe('computeLearnedTargetSubmit (fix-25-feat-AA)', () => {
       { type: 'Building Permit', juris: 'Seattle' },
       TODAY,
     );
-    expect(result.isCrossJuris).toBe(true);
-    expect(result.value).toBe(22);
+    expect(result.isCrossJuris).toBe(false);
+    expect(result.source).toBe('default');
+    expect(result.value).toBe(HARDCODED_TARGET_SUBMIT_OFFSETS['Building Permit']);
+    expect(result.sampleCount).toBe(0);
   });
 
   it('mirror_bp types short-circuit to default with null value', () => {
