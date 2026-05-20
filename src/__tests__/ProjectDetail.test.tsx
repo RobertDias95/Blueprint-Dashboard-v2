@@ -252,6 +252,42 @@ describe('<ProjectDetail /> fix-23e two-pillbox layout', () => {
     expect(left.contains(row2)).toBe(true);
   });
 
+  it('fix-35 Bug 1: permit # links to portal_url and struct_address shows', () => {
+    refs.setPermits([
+      {
+        ...refs.permits[0],
+        id: 1,
+        num: 'BP-100',
+        portal_url: 'https://portal.example/bp100',
+        struct_address: '123 Main St',
+      },
+      {
+        ...refs.permits[1],
+        id: 2,
+        num: 'DM-200',
+        portal_url: null,
+        struct_address: null,
+      },
+    ]);
+    renderAt();
+
+    // Permit with portal_url → a real anchor (the dead/missing <a> bug).
+    const link = screen.getByTestId('permits-sidebar-portal-1');
+    expect(link.tagName).toBe('A');
+    expect(link.getAttribute('href')).toBe('https://portal.example/bp100');
+    expect(link.getAttribute('target')).toBe('_blank');
+    expect(link.textContent).toContain('BP-100');
+    // Structure address surfaces for distinguishing multiple BPs.
+    expect(screen.getByTestId('permits-sidebar-addr-1').textContent).toContain(
+      '123 Main St',
+    );
+
+    // Permit without portal_url → plain span, never a broken-looking link.
+    expect(screen.queryByTestId('permits-sidebar-portal-2')).toBeNull();
+    expect(screen.getByTestId('permits-sidebar-num-2').tagName).toBe('SPAN');
+    expect(screen.queryByTestId('permits-sidebar-addr-2')).toBeNull();
+  });
+
   it('does not expand height when many permits are present (20-permit fixture)', () => {
     // Swap in 20 permits.
     refs.setPermits(refs.permits20.map((p) => ({ ...p })));

@@ -3,6 +3,7 @@ import { effectiveStage } from '../../lib/permitStage';
 import {
   getHighlightedMilestone,
   isMilestoneHighlighted,
+  type HighlightTarget,
 } from '../../lib/permitHelpers';
 import { useUpdatePermit } from '../../hooks/useUpdatePermit';
 import { usePermitTasks } from '../../hooks/usePermitTasks';
@@ -487,6 +488,44 @@ function CycleTabBar({
 // Date strip: cycle-aware grid of editable date cells
 // ============================================================
 
+// fix-35 Bug 3: a single in-flight DateCell draft (local, uncommitted).
+// The chain-position highlight is a pure function of committed permit data,
+// so before fix-35 it couldn't move until blur committed. We re-run the same
+// rule against a permit copy with the draft injected, so the highlight snaps
+// the instant a date is picked — without firing any mutation.
+type DraftOverlay = { milestone: HighlightTarget; value: string };
+
+function applyDraftOverlay(
+  permit: PermitWithCycles,
+  overlay: DraftOverlay | null,
+): PermitWithCycles {
+  if (!overlay) return permit;
+  const { milestone, value } = overlay;
+  const v = value || null;
+  if (milestone.kind === 'permit') {
+    return { ...permit, [milestone.key]: v };
+  }
+  const cycles = permit.permit_cycles ?? [];
+  let found = false;
+  const next = cycles.map((c) => {
+    if (c.cycle_index === milestone.cycleIndex) {
+      found = true;
+      return { ...c, [milestone.key]: v };
+    }
+    return c;
+  });
+  if (!found) {
+    // Target cycle isn't in the cache yet (e.g. design cycle 0 lazy-create on
+    // a brand-new permit). getHighlightedMilestone only reads cycle_index +
+    // the chain keys, so a minimal synthetic row is a safe cast.
+    next.push({
+      cycle_index: milestone.cycleIndex,
+      [milestone.key]: v,
+    } as unknown as PermitCycle);
+  }
+  return { ...permit, permit_cycles: next };
+}
+
 function DateStrip({
   permit,
   project,
@@ -517,7 +556,31 @@ function DateStrip({
   // currentPhase is kept around for the cycle-tab initial-selection logic
   // (DrawScheduleGrid + a few legacy callers still want it).
   void currentPhase;
-  const highlightTarget = getHighlightedMilestone(permit);
+  // fix-35 Bug 3: optimistic, mutation-free highlight overlay. DateCell reports
+  // its in-flight draft here; the highlight reads the draft, then clears back to
+  // committed on blur (mutation fires there) or on cycle-tab switch.
+  const [draftOverlay, setDraftOverlay] = useState<DraftOverlay | null>(null);
+  // Drop the transient overlay when the viewed cycle changes. React's
+  // "adjust state during render" pattern (https://react.dev/learn/you-might-
+  // not-need-an-effect#adjusting-some-state-when-a-prop-changes) — avoids an
+  // effect + the cascading-render it would cost.
+  const [overlayViewIdx, setOverlayViewIdx] = useState(viewIdx);
+  if (overlayViewIdx !== viewIdx) {
+    setOverlayViewIdx(viewIdx);
+    setDraftOverlay(null);
+  }
+  function handleDraftChange(milestone: HighlightTarget, value: string) {
+    setDraftOverlay({ milestone, value });
+  }
+  function handleDraftClear(milestone: HighlightTarget) {
+    setDraftOverlay((prev) =>
+      prev && isMilestoneHighlighted(prev.milestone, milestone) ? null : prev,
+    );
+  }
+  const highlightTarget = useMemo(
+    () => getHighlightedMilestone(applyDraftOverlay(permit, draftOverlay)),
+    [permit, draftOverlay],
+  );
   const updateMutation = useUpdatePermit();
   const upsertCycle = useUpsertPermitCycle();
 
@@ -639,6 +702,9 @@ function DateStrip({
             kind: 'permit',
             key: 'target_submit',
           })}
+          milestone={{ kind: 'permit', key: 'target_submit' }}
+          onDraftChange={handleDraftChange}
+          onDraftClear={handleDraftClear}
           onCommit={(v) =>
             commitPermit('target_submit', v || null, permit.target_submit, 'Target Submit')
           }
@@ -653,6 +719,13 @@ function DateStrip({
             cycleIndex: designHighlightCycleIdx,
             key: 'submitted',
           })}
+          milestone={{
+            kind: 'cycle',
+            cycleIndex: designHighlightCycleIdx,
+            key: 'submitted',
+          }}
+          onDraftChange={handleDraftChange}
+          onDraftClear={handleDraftClear}
           onCommit={(v) => commitDesignField('submitted', v)}
           testid="pd-cell-design-submitted"
         />
@@ -665,6 +738,13 @@ function DateStrip({
             cycleIndex: designHighlightCycleIdx,
             key: 'intake_accepted',
           })}
+          milestone={{
+            kind: 'cycle',
+            cycleIndex: designHighlightCycleIdx,
+            key: 'intake_accepted',
+          }}
+          onDraftChange={handleDraftChange}
+          onDraftClear={handleDraftClear}
           onCommit={(v) => commitDesignField('intake_accepted', v)}
           testid="pd-cell-design-intake_accepted"
         />
@@ -709,6 +789,9 @@ function DateStrip({
           cycleIndex: viewIdx,
           key: 'submitted',
         })}
+        milestone={{ kind: 'cycle', cycleIndex: viewIdx, key: 'submitted' }}
+        onDraftChange={handleDraftChange}
+        onDraftClear={handleDraftClear}
         onCommit={(v) => commitCycleField(cycle, 'submitted', v)}
         testid={`pd-cell-cycle${viewIdx}-submitted`}
       />
@@ -725,6 +808,9 @@ function DateStrip({
           cycleIndex: viewIdx,
           key: 'city_target',
         })}
+        milestone={{ kind: 'cycle', cycleIndex: viewIdx, key: 'city_target' }}
+        onDraftChange={handleDraftChange}
+        onDraftClear={handleDraftClear}
         onCommit={(v) => commitCycleField(cycle, 'city_target', v)}
         testid={`pd-cell-cycle${viewIdx}-city_target`}
       />
@@ -737,6 +823,9 @@ function DateStrip({
           cycleIndex: viewIdx,
           key: 'corr_issued',
         })}
+        milestone={{ kind: 'cycle', cycleIndex: viewIdx, key: 'corr_issued' }}
+        onDraftChange={handleDraftChange}
+        onDraftClear={handleDraftClear}
         onCommit={(v) => commitCycleField(cycle, 'corr_issued', v)}
         testid={`pd-cell-cycle${viewIdx}-corr_issued`}
       />
@@ -749,6 +838,9 @@ function DateStrip({
           cycleIndex: viewIdx,
           key: 'resubmitted',
         })}
+        milestone={{ kind: 'cycle', cycleIndex: viewIdx, key: 'resubmitted' }}
+        onDraftChange={handleDraftChange}
+        onDraftClear={handleDraftClear}
         onCommit={(v) => commitCycleField(cycle, 'resubmitted', v)}
         testid={`pd-cell-cycle${viewIdx}-resubmitted`}
       />
@@ -760,6 +852,9 @@ function DateStrip({
           kind: 'permit',
           key: 'approval_date',
         })}
+        milestone={{ kind: 'permit', key: 'approval_date' }}
+        onDraftChange={handleDraftChange}
+        onDraftClear={handleDraftClear}
         onCommit={(v) =>
           commitPermit(
             'approval_date',
@@ -778,6 +873,9 @@ function DateStrip({
           kind: 'permit',
           key: 'actual_issue',
         })}
+        milestone={{ kind: 'permit', key: 'actual_issue' }}
+        onDraftChange={handleDraftChange}
+        onDraftClear={handleDraftClear}
         onCommit={(v) =>
           commitPermit('actual_issue', v || null, permit.actual_issue, 'Actual Issue')
         }
@@ -792,6 +890,9 @@ function DateCell({
   value,
   accentColor,
   highlighted,
+  milestone,
+  onDraftChange,
+  onDraftClear,
   onCommit,
   readOnly,
   testid,
@@ -802,6 +903,12 @@ function DateCell({
   // Q9.5.f-fix-6 C: when true, this cell is the permit's current phase.
   // Render an inset blue outline + bg tint so the eye lands on it.
   highlighted?: boolean;
+  /** fix-35 Bug 3: this cell's chain-position identity. When set together
+   *  with onDraftChange, picking a date reports a local draft so the parent's
+   *  highlight snaps immediately — no mutation until blur/Enter. */
+  milestone?: HighlightTarget;
+  onDraftChange?: (milestone: HighlightTarget, value: string) => void;
+  onDraftClear?: (milestone: HighlightTarget) => void;
   onCommit: (next: string) => void | Promise<void>;
   /** fix-22 Mig 3: GO cell now reads project.go_date as read-only — edits
    *  happen in Project Settings. */
@@ -903,8 +1010,18 @@ function DateCell({
         // fix-25-DD: local-only on change. Calendar nav arrows /
         // intermediate keystrokes only update the visible value;
         // no mutation fires until blur or Enter.
-        onChange={(e) => setDraft(e.target.value)}
-        onBlur={() => tryCommit(draft)}
+        // fix-35 Bug 3: also report the draft to the parent so the highlight
+        // snaps now — this is a visual overlay only, still no mutation.
+        onChange={(e) => {
+          setDraft(e.target.value);
+          if (milestone) onDraftChange?.(milestone, e.target.value);
+        }}
+        onBlur={() => {
+          tryCommit(draft);
+          // The committed value flows back through the value prop; drop the
+          // overlay so the highlight reads committed data again.
+          if (milestone) onDraftClear?.(milestone);
+        }}
         onKeyDown={(e) => {
           if (e.key === 'Enter') {
             // Trigger the blur path so commit + dedupe stay in one place.

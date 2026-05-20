@@ -217,6 +217,90 @@ describe('PermitDetailV2 fix-25-DD — DateCell commits on blur or Enter only', 
   });
 });
 
+describe('PermitDetailV2 fix-35 Bug 3 — draft overlay snaps the highlight before commit', () => {
+  // The chain-position highlight reads committed permit data, so pre-fix-35
+  // it lagged until blur. The overlay treats the in-flight draft as the
+  // field's value for highlight purposes only — no mutation until blur.
+  // cycle 0 (design) + cycle 1 (review) so cycle 1 uses the REVIEW chain
+  // (corr_issued is a candidate); a firstIdx cycle would use the design
+  // chain and ignore corr_issued.
+  function designPlusReview(): PermitWithCycles {
+    return makePermit([
+      makeCycle({ cycle_index: 0, intake_accepted: '2026-04-01' }),
+      makeCycle({ cycle_index: 1, submitted: '2026-05-01' }),
+    ]);
+  }
+
+  it('picking a date moves data-highlighted to that cell immediately, with no mutation', () => {
+    renderWithClient(<PermitDetailV2 permit={designPlusReview()} />);
+    fireEvent.click(screen.getByTestId('pd-v2-cycle-tab-1'));
+
+    const submittedCell = screen.getByTestId('pd-cell-cycle1-submitted');
+    const corrCell = screen.getByTestId('pd-cell-cycle1-corr_issued');
+    // Chain-position rule: submitted is the most-advanced populated cell.
+    expect(submittedCell.getAttribute('data-highlighted')).toBe('true');
+    expect(corrCell.getAttribute('data-highlighted')).toBe('false');
+
+    const corrInput = corrCell.querySelector('input') as HTMLInputElement;
+    fireEvent.change(corrInput, { target: { value: '2026-06-15' } });
+
+    // Highlight snaps to corr_issued the instant the date is picked …
+    expect(corrCell.getAttribute('data-highlighted')).toBe('true');
+    expect(submittedCell.getAttribute('data-highlighted')).toBe('false');
+    // … and the overlay is visual-only: no mutation, hence no snap RPC and
+    // no cycle creation.
+    expect(cycleMutateAsync).not.toHaveBeenCalled();
+  });
+
+  it('calendar-arrow spam keeps the highlight live but fires zero mutations; blur commits once', () => {
+    renderWithClient(<PermitDetailV2 permit={designPlusReview()} />);
+    fireEvent.click(screen.getByTestId('pd-v2-cycle-tab-1'));
+
+    const corrCell = screen.getByTestId('pd-cell-cycle1-corr_issued');
+    const corrInput = corrCell.querySelector('input') as HTMLInputElement;
+    // Walking the date picker back month-by-month — many onChange events.
+    fireEvent.change(corrInput, { target: { value: '2026-08-15' } });
+    fireEvent.change(corrInput, { target: { value: '2026-07-15' } });
+    fireEvent.change(corrInput, { target: { value: '2026-06-15' } });
+    expect(corrCell.getAttribute('data-highlighted')).toBe('true');
+    expect(cycleMutateAsync).not.toHaveBeenCalled();
+
+    fireEvent.blur(corrInput);
+    expect(cycleMutateAsync).toHaveBeenCalledTimes(1);
+    expect(cycleMutateAsync.mock.calls[0][0].patch).toEqual({
+      corr_issued: '2026-06-15',
+    });
+  });
+
+  it('switching cycle tabs clears the overlay (highlight reverts to committed)', () => {
+    const permit = designPlusReview();
+    renderWithClient(<PermitDetailV2 permit={permit} />);
+    fireEvent.click(screen.getByTestId('pd-v2-cycle-tab-1'));
+
+    const corrInput = screen
+      .getByTestId('pd-cell-cycle1-corr_issued')
+      .querySelector('input') as HTMLInputElement;
+    fireEvent.change(corrInput, { target: { value: '2026-06-15' } });
+    expect(
+      screen.getByTestId('pd-cell-cycle1-corr_issued').getAttribute('data-highlighted'),
+    ).toBe('true');
+
+    // Switch away (to Design) and back — no blur fired (input was never
+    // focused), so the view-change reset is what must clear the overlay.
+    fireEvent.click(screen.getByTestId('pd-v2-cycle-tab-0'));
+    fireEvent.click(screen.getByTestId('pd-v2-cycle-tab-1'));
+
+    // Committed corr_issued is still null → highlight is back on submitted.
+    expect(
+      screen.getByTestId('pd-cell-cycle1-corr_issued').getAttribute('data-highlighted'),
+    ).toBe('false');
+    expect(
+      screen.getByTestId('pd-cell-cycle1-submitted').getAttribute('data-highlighted'),
+    ).toBe('true');
+    expect(cycleMutateAsync).not.toHaveBeenCalled();
+  });
+});
+
 describe('PermitDetailV2 fix-25-DD — auto-advance fires only on c0 → c1', () => {
   it('first c0 → c1 transition while viewing Design auto-advances to c1', () => {
     // Permit starts with no cycles → initial viewCycleIdx=0 (Design).

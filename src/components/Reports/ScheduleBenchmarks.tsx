@@ -214,20 +214,44 @@ function BenchmarkCard({
             </span>
           </div>
         </div>
-        <span
-          className="text-[8px] font-bold flex-shrink-0"
-          style={{
-            padding: '2px 7px',
-            borderRadius: 4,
-            background: badgeStyle.background,
-            color: badgeStyle.color,
-            border: `1px solid ${badgeStyle.borderColor}`,
-            letterSpacing: '0.04em',
-            whiteSpace: 'nowrap',
-          }}
-        >
-          {TIER_BADGE_LABEL[tier]}
-        </span>
+        <div className="flex flex-col items-end gap-1 flex-shrink-0">
+          <span
+            className="text-[8px] font-bold"
+            style={{
+              padding: '2px 7px',
+              borderRadius: 4,
+              background: badgeStyle.background,
+              color: badgeStyle.color,
+              border: `1px solid ${badgeStyle.borderColor}`,
+              letterSpacing: '0.04em',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            {TIER_BADGE_LABEL[tier]}
+          </span>
+          {/* fix-35 Bug 4: the learner fell back to (type, *) cross-juris
+              samples because this juris has no own-type approved permits.
+              Surface it so Seattle's numbers aren't silently shown for
+              Bellevue/Phoenix BPs. Display-only — learner logic unchanged. */}
+          {estimate?.isCrossJuris && (
+            <span
+              className="text-[8px] font-bold"
+              style={{
+                padding: '2px 7px',
+                borderRadius: 4,
+                background: 'rgba(139,92,246,.12)',
+                color: '#8b5cf6',
+                border: '1px solid rgba(139,92,246,.4)',
+                letterSpacing: '0.04em',
+                whiteSpace: 'nowrap',
+              }}
+              title={`Based on ${type} data from all jurisdictions — no ${juris} ${type} samples yet. Will differentiate once ${juris} accumulates approved ${type} permits.`}
+              data-testid={`benchmark-card-crossjuris-${type}-${juris}`}
+            >
+              CROSS-JURIS
+            </span>
+          )}
+        </div>
       </div>
 
       {estimate === null ? (

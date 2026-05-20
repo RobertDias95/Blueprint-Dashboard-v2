@@ -308,7 +308,11 @@ function Row({
       </td>
       {/* 5. Data Source */}
       <td className="px-2 py-2 align-middle text-center border-l" style={borderL}>
-        <DataSourceBadge estimate={learnedEstimate} />
+        <DataSourceBadge
+          estimate={learnedEstimate}
+          permitType={permit.type ?? ''}
+          juris={projectsById.get(permit.project_id)?.juris ?? ''}
+        />
       </td>
       {/* 6. Estimated Approval */}
       <td
@@ -370,7 +374,15 @@ function Th({
 // Sub-components & helpers
 // ============================================================
 
-function DataSourceBadge({ estimate }: { estimate: LearnedEstimate | null }) {
+function DataSourceBadge({
+  estimate,
+  permitType,
+  juris,
+}: {
+  estimate: LearnedEstimate | null;
+  permitType: string;
+  juris: string;
+}) {
   // fix-25-feat-g-badge: the badge was hardcoded "Default" from the
   // pre-fix-24i era when the learner hadn't shipped yet. Now that the
   // learner runs on every row, branch on whether it produced an
@@ -392,22 +404,38 @@ function DataSourceBadge({ estimate }: { estimate: LearnedEstimate | null }) {
       </span>
     );
   }
-  const crossJurisMark = estimate.isCrossJuris ? ' *' : '';
   return (
-    <span
-      className="text-[8px] font-bold px-2 py-0.5 rounded border"
-      style={{
-        background: 'var(--color-pm-bg)',
-        color: 'var(--color-pm)',
-        borderColor: 'var(--color-pm-border)',
-      }}
-      title={`${estimate.source} · ${estimate.sampleCount} sample${estimate.sampleCount === 1 ? '' : 's'}${
-        estimate.dateRange ? ` (${estimate.dateRange})` : ''
-      }`}
-    >
-      Learned ({estimate.sampleCount}
-      {crossJurisMark})
-    </span>
+    <div className="flex flex-col items-center gap-1">
+      <span
+        className="text-[8px] font-bold px-2 py-0.5 rounded border"
+        style={{
+          background: 'var(--color-pm-bg)',
+          color: 'var(--color-pm)',
+          borderColor: 'var(--color-pm-border)',
+        }}
+        title={`${estimate.source} · ${estimate.sampleCount} sample${estimate.sampleCount === 1 ? '' : 's'}${
+          estimate.dateRange ? ` (${estimate.dateRange})` : ''
+        }`}
+      >
+        Learned ({estimate.sampleCount})
+      </span>
+      {/* fix-35 Bug 4: explicit cross-juris badge (was a bare " *" mark).
+          Matches BenchmarkCard so the (type, *) fallback is unmistakable. */}
+      {estimate.isCrossJuris && (
+        <span
+          className="text-[8px] font-bold px-2 py-0.5 rounded border"
+          style={{
+            background: 'rgba(139,92,246,.12)',
+            color: '#8b5cf6',
+            borderColor: 'rgba(139,92,246,.4)',
+          }}
+          title={`Based on ${permitType} data from all jurisdictions — no ${juris} ${permitType} samples yet. Will differentiate once ${juris} accumulates approved ${permitType} permits.`}
+          data-testid="data-source-crossjuris"
+        >
+          CROSS-JURIS
+        </span>
+      )}
+    </div>
   );
 }
 
