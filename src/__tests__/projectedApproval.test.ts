@@ -768,6 +768,36 @@ describe('computeProjectedApproval — fix-32 reviewer-corrections cycle predict
     expect(withFlag.projection! > baseline.projection!).toBe(true);
   });
 
+  it('(f) latestCycleIdx is order-independent — cycles passed descending still bump correctly', () => {
+    // fix-32a: callers sort cycles ascending today, but the rule must
+    // not depend on it. A descending-order array with corrections
+    // flagged on the highest cycle (no cycle 3 row) must still bump
+    // targetCycle to 3, same as case (d).
+    const cyclesDesc = [
+      cyc({ cycle_index: 2, submitted: '2026-03-01' }),
+      cyc({
+        cycle_index: 1,
+        submitted: '2026-01-15',
+        corr_issued: '2026-02-10',
+        resubmitted: '2026-03-01',
+      }),
+    ];
+    const flagged: PermitCycleReviewer[] = [
+      reviewer({
+        cycle_index: 2,
+        reviewer_name: 'Shimika Dowlen',
+        current_status: 'corrections_required',
+      }),
+    ];
+    const r = computeProjectedApproval({
+      permit: permit(),
+      cycles: cyclesDesc,
+      learnedEstimate: learned(),
+      permitReviewers: flagged,
+    });
+    expect(r.targetCycle).toBe(3);
+  });
+
   it('(e) reviewer on cycle 0 (design) is ignored — fix-32 anchors on review cycles only', () => {
     // The projection's `cycles` input is already filtered to
     // cycle_index !== 0 by callers, so a cycle-0 reviewer never matches

@@ -412,8 +412,11 @@ export function computeProjectedApproval(
   // row; the rule fires only when reviewer corrections are
   // attributed to THAT cycle (guard against double-counting an
   // already-progressed permit where a newer cycle exists).
+  // fix-32a: order-independent — callers pass sorted lists today but
+  // future refactors shouldn't be a silent failure mode here. Math.max
+  // is O(n) over a tiny array (<=4 review cycles in practice).
   const latestCycleIdx =
-    cycles.length > 0 ? cycles[cycles.length - 1].cycle_index : 0;
+    cycles.length > 0 ? Math.max(...cycles.map((c) => c.cycle_index)) : 0;
   const hasReviewerCorrectionsOnLatestCycle =
     latestCycleIdx >= 1 &&
     !!input.permitReviewers &&
