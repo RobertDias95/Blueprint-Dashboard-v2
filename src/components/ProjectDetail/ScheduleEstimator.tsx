@@ -1,6 +1,7 @@
 import { useMemo } from 'react';
 import { usePermits } from '../../hooks/usePermits';
 import { useProjects } from '../../hooks/useProjects';
+import { useAllPermitCycleReviewers } from '../../hooks/useAllPermitCycleReviewers';
 import { useUpdatePermit } from '../../hooks/useUpdatePermit';
 import {
   computeLearnedSchedule,
@@ -34,6 +35,9 @@ interface Props {
 export default function ScheduleEstimator({ permit }: Props) {
   const allPermitsQ = usePermits();
   const projectsQ = useProjects();
+  // fix-32: per-reviewer state for the corrections-cycle prediction.
+  // Tenant-scoped via RLS; we slice to THIS permit below.
+  const reviewersQ = useAllPermitCycleReviewers();
   const updatePermit = useUpdatePermit();
 
   // Q9.5.f-fix-16 B: read the manual override (if any) from extras.
@@ -88,6 +92,11 @@ export default function ScheduleEstimator({ permit }: Props) {
     return m;
   }, [siblings, allPermits, projectJuris, projectsById]);
 
+  const permitReviewers = useMemo(
+    () => (reviewersQ.data ?? []).filter((r) => r.permit_id === permit.id),
+    [reviewersQ.data, permit.id],
+  );
+
   const result: ProjectedApprovalResult = useMemo(
     () =>
       computeProjectedApproval({
@@ -101,8 +110,10 @@ export default function ScheduleEstimator({ permit }: Props) {
         siblingCyclesByPermitId,
         siblingLearnedByPermitId,
         targetCycleOverride: cycleOverride,
+        // fix-32: reviewer-corrections rule feeds into targetCycle.
+        permitReviewers,
       }),
-    [permit, learnedEstimate, projectGoDate, siblings, siblingCyclesByPermitId, siblingLearnedByPermitId, cycleOverride],
+    [permit, learnedEstimate, projectGoDate, siblings, siblingCyclesByPermitId, siblingLearnedByPermitId, cycleOverride, permitReviewers],
   );
 
   function adjustOverride(delta: number) {

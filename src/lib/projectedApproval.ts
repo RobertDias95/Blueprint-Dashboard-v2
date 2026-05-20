@@ -3,7 +3,11 @@ import {
   SCHEDULE_DEFAULTS,
   type LearnedEstimate,
 } from './scheduleBenchmarks';
-import type { Permit, PermitCycle } from './database.types';
+import type {
+  Permit,
+  PermitCycle,
+  PermitCycleReviewer,
+} from './database.types';
 
 // Q9.5.f-fix-11: full port of v1's projectPermitApproval + getULSAnchorDates
 // (index.html:4308-4543). Adds three pieces that fix-10 missed:
@@ -90,6 +94,16 @@ export interface ProjectedApprovalInput {
    *  learner is silent and the holistic fallback fires, prefer this map
    *  over the hardcoded PER_TYPE_DEFAULT_DAYS table. Map<type, intake_to_approval_days>. */
   typeDefaultsOverride?: Map<string, number>;
+  /** fix-32: per-reviewer state for THIS permit (cycle 1+; cycle 0
+   *  rows are ignored). When any reviewer on the permit's LATEST cycle
+   *  has current_status === 'corrections_required' AND no newer cycle
+   *  row exists, the projection bumps targetCycle by one to account
+   *  for the not-yet-issued correction round the reviewer is signaling.
+   *  Caller passes the slice for this permit from
+   *  useAllPermitCycleReviewers; leave undefined when reviewer data
+   *  isn't available (the projection falls back to the pre-fix-32
+   *  cycle-walk behavior unchanged). */
+  permitReviewers?: PermitCycleReviewer[];
 }
 
 export interface ProjectedApprovalRounds {
@@ -389,6 +403,28 @@ export function computeProjectedApproval(
   }
 
   const actualCorrCycles = [r1, r2, r3, r4].filter((c) => c?.corr_issued).length;
+  // fix-32 (2026-05-19): "reviewer signaled corrections on the
+  // latest cycle, but no corr_issued or next-cycle row has been
+  // written yet" — predict one more correction round. Computed
+  // once here so both the holistic shortcut gate (below) and the
+  // targetCycle bump (further down) consult the same signal.
+  // latestCycleIdx is the highest cycle_index that actually has a
+  // row; the rule fires only when reviewer corrections are
+  // attributed to THAT cycle (guard against double-counting an
+  // already-progressed permit where a newer cycle exists).
+  // fix-32a: order-independent — callers pass sorted lists today but
+  // future refactors shouldn't be a silent failure mode here. Math.max
+  // is O(n) over a tiny array (<=4 review cycles in practice).
+  const latestCycleIdx =
+    cycles.length > 0 ? Math.max(...cycles.map((c) => c.cycle_index)) : 0;
+  const hasReviewerCorrectionsOnLatestCycle =
+    latestCycleIdx >= 1 &&
+    !!input.permitReviewers &&
+    input.permitReviewers.some(
+      (r) =>
+        r.cycle_index === latestCycleIdx &&
+        r.current_status === 'corrections_required',
+    );
   const lastRealDate = [
     r1?.submitted,
     r1?.corr_issued,
@@ -415,6 +451,19 @@ export function computeProjectedApproval(
     targetCycle = Math.max(currentReviewCycle, learnedEstimate.mostLikelyCycle);
   } else {
     targetCycle = currentReviewCycle;
+  }
+  // fix-32 (2026-05-19): a reviewer flagged corrections_required on
+  // the LATEST cycle is the city signaling "another corr_issued is
+  // coming on this cycle." Bump targetCycle so the projection adds
+  // one more cycle's worth of duration (cityReview + corrResponse).
+  // Guard against double-counting: only fire when the corrections-
+  // flagged cycle is still the highest cycle_index in the list. If a
+  // new cycle row already exists beyond it, the correction is already
+  // represented in the cycle walk and adding +1 here would push the
+  // projection too far. (hasReviewerCorrectionsOnLatestCycle is
+  // computed above so the holistic shortcut gate uses the same signal.)
+  if (hasReviewerCorrectionsOnLatestCycle) {
+    targetCycle = Math.max(targetCycle, latestCycleIdx + 1);
   }
   // Q9.5.f-fix-17.5 B: ceiling lifted from 4 → 8 for edge cases (complex
   // permits that hit 5+ correction rounds). The learner's mostLikelyCycle
@@ -460,7 +509,15 @@ export function computeProjectedApproval(
       : !hasAnyCycleActivity
         ? defaultDaysForType(permit.type, input.typeDefaultsOverride)
         : null;
-  if (effectiveAvg !== null && actualCorrCycles === 0) {
+  // fix-32: when reviewers have flagged corrections on the latest
+  // cycle, we already know a correction round is incoming. Skip the
+  // first-review-approval shortcut and let the cycle walk produce a
+  // multi-cycle projection so the +1-cycle bump above can take effect.
+  if (
+    effectiveAvg !== null &&
+    actualCorrCycles === 0 &&
+    !hasReviewerCorrectionsOnLatestCycle
+  ) {
     // fix-24e: floor base so a past submitted/target_submit still produces a
     // future-looking holistic projection.
     const holistic = addDays(flooredAnchor(base) ?? base, effectiveAvg);

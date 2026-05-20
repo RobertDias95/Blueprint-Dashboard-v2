@@ -4,7 +4,12 @@ import {
   SCHEDULE_DEFAULTS,
   type LearnedEstimate,
 } from '../lib/scheduleBenchmarks';
-import type { Permit, PermitCycle } from '../lib/database.types';
+import type {
+  Permit,
+  PermitCycle,
+  PermitCycleReviewer,
+  ReviewerStatus,
+} from '../lib/database.types';
 
 // Q9.5.f-fix-11: rewritten for the v1-parity algorithm. Each branch (real-
 // short-circuit, ULS BP-anchor, holistic shortcut, target-cycle walk,
@@ -589,5 +594,234 @@ describe('computeProjectedApproval — fix-24h/24i defaultDaysForType fallback',
     });
     // today + 210d = 2026-12-11 (same as the BP default).
     expect(r.projection).toBe('2026-12-11');
+  });
+});
+
+// ============================================================
+// fix-32 (2026-05-19): reviewer-corrections cycle prediction
+// ============================================================
+// When a reviewer on the permit's latest cycle is in
+// current_status='corrections_required' AND no newer cycle row exists,
+// the projection bumps targetCycle by 1 to account for the upcoming
+// correction round the reviewer is signaling. Guard: if a newer cycle
+// already exists, the correction is already represented in the cycle
+// walk — don't double-count.
+
+function reviewer(
+  over: Partial<PermitCycleReviewer> & {
+    cycle_index: number;
+    reviewer_name: string;
+    current_status: ReviewerStatus;
+  },
+): PermitCycleReviewer {
+  return {
+    id: `rv-${over.reviewer_name}-${over.cycle_index}`,
+    tenant_id: 't0',
+    permit_id: 1,
+    discipline: null,
+    last_event_date: null,
+    created_at: '2026-05-19T00:00:00Z',
+    updated_at: '2026-05-19T00:00:00Z',
+    ...over,
+  };
+}
+
+describe('computeProjectedApproval — fix-32 reviewer-corrections cycle prediction', () => {
+  it('(a) latest cycle flagged corrections + no next cycle → targetCycle bumped, projection pushed out', () => {
+    // Permit in cycle 1 with submitted set but no corr_issued yet.
+    // A reviewer on cycle 1 flagged corrections_required — the city is
+    // signaling another correction round is coming. Without the flag,
+    // the learner's avgIntakeToApproval would route through the holistic
+    // shortcut (targetCycle=1, approve-in-first-review). With the flag,
+    // the shortcut is bypassed and the walk targets cycle 2.
+    const cycles = [cyc({ cycle_index: 1, submitted: '2026-01-15' })];
+    const flagged: PermitCycleReviewer[] = [
+      reviewer({
+        cycle_index: 1,
+        reviewer_name: 'Aaron Blunt',
+        current_status: 'corrections_required',
+      }),
+    ];
+    const baseline = computeProjectedApproval({
+      permit: permit(),
+      cycles,
+      learnedEstimate: learned({ avgIntakeToApproval: 210 }),
+    });
+    const withFlag = computeProjectedApproval({
+      permit: permit(),
+      cycles,
+      learnedEstimate: learned({ avgIntakeToApproval: 210 }),
+      permitReviewers: flagged,
+    });
+    expect(baseline.targetCycle).toBe(1);
+    expect(withFlag.targetCycle).toBe(2);
+    // Date must move forward — a real additional cycle's worth of duration.
+    expect(withFlag.projection).not.toBe(null);
+    expect(baseline.projection).not.toBe(null);
+    expect(
+      withFlag.projection! > baseline.projection!,
+    ).toBe(true);
+  });
+
+  it('(b) corrections flagged but next cycle already exists → no bump (no double-count)', () => {
+    // Cycle 1 had a correction round and resubmitted; cycle 2 now exists.
+    // The reviewer's corrections_required state on cycle 1 is stale —
+    // the city already issued corrections on that cycle and the team
+    // resubmitted. Rule must NOT add another cycle on top.
+    const cycles = [
+      cyc({
+        cycle_index: 1,
+        submitted: '2026-01-15',
+        corr_issued: '2026-02-10',
+        resubmitted: '2026-03-01',
+      }),
+      cyc({ cycle_index: 2, submitted: '2026-03-01' }),
+    ];
+    const staleFlag: PermitCycleReviewer[] = [
+      reviewer({
+        cycle_index: 1,
+        reviewer_name: 'Aaron Blunt',
+        current_status: 'corrections_required',
+      }),
+    ];
+    const withFlag = computeProjectedApproval({
+      permit: permit(),
+      cycles,
+      learnedEstimate: learned(),
+      permitReviewers: staleFlag,
+    });
+    const withoutFlag = computeProjectedApproval({
+      permit: permit(),
+      cycles,
+      learnedEstimate: learned(),
+    });
+    expect(withFlag.targetCycle).toBe(withoutFlag.targetCycle);
+    expect(withFlag.projection).toBe(withoutFlag.projection);
+  });
+
+  it('(c) no corrections_required on any cycle → unchanged baseline', () => {
+    const cycles = [cyc({ cycle_index: 1, submitted: '2026-01-15' })];
+    const benignReviewers: PermitCycleReviewer[] = [
+      reviewer({
+        cycle_index: 1,
+        reviewer_name: 'Aaron Blunt',
+        current_status: 'approved',
+      }),
+      reviewer({
+        cycle_index: 1,
+        reviewer_name: 'Bea Carlson',
+        current_status: 'in_process',
+      }),
+    ];
+    const withReviewers = computeProjectedApproval({
+      permit: permit(),
+      cycles,
+      learnedEstimate: learned({ avgIntakeToApproval: 210 }),
+      permitReviewers: benignReviewers,
+    });
+    const baseline = computeProjectedApproval({
+      permit: permit(),
+      cycles,
+      learnedEstimate: learned({ avgIntakeToApproval: 210 }),
+    });
+    expect(withReviewers.targetCycle).toBe(baseline.targetCycle);
+    expect(withReviewers.projection).toBe(baseline.projection);
+  });
+
+  it('(d) corrections flagged on cycle 2 AND cycle 1 already had corrections → +1 on top of existing walk', () => {
+    // Multi-cycle scenario: cycle 1 went through corrections and got
+    // resubmitted to cycle 2; cycle 2 is now active and a reviewer
+    // flagged corrections_required on cycle 2. Without the flag the
+    // walk would target cycle 2 (currentReviewCycle = actualCorrCycles
+    // + 1 = 2). With the flag, targetCycle bumps to 3.
+    const cycles = [
+      cyc({
+        cycle_index: 1,
+        submitted: '2026-01-15',
+        corr_issued: '2026-02-10',
+        resubmitted: '2026-03-01',
+      }),
+      cyc({ cycle_index: 2, submitted: '2026-03-01' }),
+    ];
+    const flagged: PermitCycleReviewer[] = [
+      reviewer({
+        cycle_index: 2,
+        reviewer_name: 'Shimika Dowlen',
+        current_status: 'corrections_required',
+      }),
+    ];
+    const baseline = computeProjectedApproval({
+      permit: permit(),
+      cycles,
+      learnedEstimate: learned(),
+    });
+    const withFlag = computeProjectedApproval({
+      permit: permit(),
+      cycles,
+      learnedEstimate: learned(),
+      permitReviewers: flagged,
+    });
+    expect(baseline.targetCycle).toBe(2);
+    expect(withFlag.targetCycle).toBe(3);
+    expect(withFlag.projection).not.toBe(null);
+    expect(baseline.projection).not.toBe(null);
+    expect(withFlag.projection! > baseline.projection!).toBe(true);
+  });
+
+  it('(f) latestCycleIdx is order-independent — cycles passed descending still bump correctly', () => {
+    // fix-32a: callers sort cycles ascending today, but the rule must
+    // not depend on it. A descending-order array with corrections
+    // flagged on the highest cycle (no cycle 3 row) must still bump
+    // targetCycle to 3, same as case (d).
+    const cyclesDesc = [
+      cyc({ cycle_index: 2, submitted: '2026-03-01' }),
+      cyc({
+        cycle_index: 1,
+        submitted: '2026-01-15',
+        corr_issued: '2026-02-10',
+        resubmitted: '2026-03-01',
+      }),
+    ];
+    const flagged: PermitCycleReviewer[] = [
+      reviewer({
+        cycle_index: 2,
+        reviewer_name: 'Shimika Dowlen',
+        current_status: 'corrections_required',
+      }),
+    ];
+    const r = computeProjectedApproval({
+      permit: permit(),
+      cycles: cyclesDesc,
+      learnedEstimate: learned(),
+      permitReviewers: flagged,
+    });
+    expect(r.targetCycle).toBe(3);
+  });
+
+  it('(e) reviewer on cycle 0 (design) is ignored — fix-32 anchors on review cycles only', () => {
+    // The projection's `cycles` input is already filtered to
+    // cycle_index !== 0 by callers, so a cycle-0 reviewer never matches
+    // any cycle in the projection's view. Sanity test the guard.
+    const cycles = [cyc({ cycle_index: 1, submitted: '2026-01-15' })];
+    const designReviewer: PermitCycleReviewer[] = [
+      reviewer({
+        cycle_index: 0,
+        reviewer_name: 'Design Reviewer',
+        current_status: 'corrections_required',
+      }),
+    ];
+    const baseline = computeProjectedApproval({
+      permit: permit(),
+      cycles,
+      learnedEstimate: learned({ avgIntakeToApproval: 210 }),
+    });
+    const withDesignFlag = computeProjectedApproval({
+      permit: permit(),
+      cycles,
+      learnedEstimate: learned({ avgIntakeToApproval: 210 }),
+      permitReviewers: designReviewer,
+    });
+    expect(withDesignFlag.targetCycle).toBe(baseline.targetCycle);
+    expect(withDesignFlag.projection).toBe(baseline.projection);
   });
 });

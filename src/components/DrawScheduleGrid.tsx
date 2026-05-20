@@ -11,6 +11,7 @@ import { useDaTimeBlocks } from '../hooks/useDaTimeBlocks';
 import { useUpsertDaTimeBlock } from '../hooks/useUpsertDaTimeBlock';
 import { useDeleteDaTimeBlock } from '../hooks/useDeleteDaTimeBlock';
 import { useTeamMembers } from '../hooks/useTeamMembers';
+import { useAllPermitCycleReviewers } from '../hooks/useAllPermitCycleReviewers';
 import {
   isMemberActiveInQuarter,
   quarterOffsetToString,
@@ -135,6 +136,9 @@ export default function DrawScheduleGrid() {
   const permitsQ = usePermits();
   const groupsQ = useDmDaGroups();
   const npBlocksQ = useDaTimeBlocks();
+  // fix-32: reviewer-corrections feeds into each BP's projected
+  // approval date used by the grid's block rendering.
+  const reviewersQ = useAllPermitCycleReviewers();
 
   const [quarterOffset, setQuarterOffset] = useState(0);
   const [search, setSearch] = useState('');
@@ -172,6 +176,7 @@ export default function DrawScheduleGrid() {
       permits={permitsQ.data ?? []}
       groups={groupsQ.groups}
       npBlocks={npBlocksQ.data ?? []}
+      reviewers={reviewersQ.data ?? []}
       quarterOffset={quarterOffset}
       setQuarterOffset={setQuarterOffset}
       search={search}
@@ -186,6 +191,7 @@ interface BodyProps {
   permits: (Permit & { permit_cycles?: PermitCycle[] })[];
   groups: { dm: string; das: string[] }[];
   npBlocks: DaTimeBlock[];
+  reviewers: import('../lib/database.types').PermitCycleReviewer[];
   quarterOffset: number;
   setQuarterOffset: (n: number) => void;
   search: string;
@@ -198,6 +204,7 @@ function DrawScheduleBody({
   permits,
   groups,
   npBlocks,
+  reviewers,
   quarterOffset,
   setQuarterOffset,
   search,
@@ -228,6 +235,17 @@ function DrawScheduleBody({
     () => new Map(projects.map((pr) => [pr.id, pr])),
     [projects],
   );
+  // fix-32: index reviewers by permit_id once per render so the BP
+  // projection picks up the per-permit slice without repeated filters.
+  const reviewersByPermitId = useMemo(() => {
+    const m = new Map<number, import('../lib/database.types').PermitCycleReviewer[]>();
+    for (const r of reviewers) {
+      const list = m.get(r.permit_id) ?? [];
+      list.push(r);
+      m.set(r.permit_id, list);
+    }
+    return m;
+  }, [reviewers]);
   // Q9.5.f-fix-17.5 C: bidirectional projection — Draw Schedule block's
   // "Est. Approval" line must call computeProjectedApproval with the BP's
   // scheduleCycleOverride so it matches Schedule Estimator / Schedule
@@ -286,11 +304,14 @@ function DrawScheduleBody({
         siblingCyclesByPermitId,
         siblingLearnedByPermitId,
         targetCycleOverride: cycleOverride,
+        // fix-32: reviewer-corrections rule on the BP feeds into the
+        // grid block's projected approval date.
+        permitReviewers: reviewersByPermitId.get(bp.id) ?? [],
       });
       m.set(project.id, result.projection ?? null);
     }
     return m;
-  }, [projects, permits, permitsByProjectId, projectsById]);
+  }, [projects, permits, permitsByProjectId, projectsById, reviewersByPermitId]);
   const weeks = useMemo(() => getQuarterWeeks(quarterOffset), [quarterOffset]);
   const currentWeek = useMemo(() => dateToWeekKey(getMonday(new Date())), []);
 
