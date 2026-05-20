@@ -594,6 +594,51 @@ export function computeProjectedApproval(
       rounds[`resubmitted${i + 1}` as keyof ProjectedApprovalRounds] = resubEnd;
       cursor = resubEnd;
     }
+    // fix-25-HH-redux: project the FINAL review cycle's city review.
+    // After the N-1 correction-round loop, `cursor` sits at cycle
+    // `targetCycle`'s submission point (the resubmit of cycle N-1, or a
+    // projected value). Cycle `targetCycle` is the approval review — the
+    // city still has to review THAT submission before approving. Pre-redux
+    // the walk jumped straight to + FINAL_APPROVAL_BUFFER, collapsing the
+    // projection to "submission + 7" — the in-flight +7 under-count
+    // (3056 48th Ave SW BP projected ~late-May instead of ~mid-July).
+    //
+    // Composes with fix-32: when fix-32 bumped targetCycle past the
+    // highest actual cycle (a reviewer flagged corrections on the latest
+    // cycle), `finalCycle` is null and we project the bumped cycle's
+    // city review from `cursor` (the projected resubmit of the prior
+    // round). When the target cycle is a real in-flight row we read its
+    // actual anchors.
+    const finalCycle = cycleRows[targetCycle - 1] ?? null;
+    const finalCrDays = durFor(targetCycle - 1, 'cr', learnedEstimate, thisPermitDur);
+    if (finalCycle?.corr_issued && !finalCycle.resubmitted) {
+      // Target cycle already received corrections but hasn't been
+      // resubmitted yet: project team turnaround (co) → resubmit, then
+      // the next city review (cr) → approval.
+      const finalCoDays = durFor(targetCycle - 1, 'co', learnedEstimate, thisPermitDur);
+      const projResub = addDays(
+        flooredAnchor(finalCycle.corr_issued) ?? finalCycle.corr_issued,
+        finalCoDays,
+      );
+      rounds[`corrIssued${targetCycle}` as keyof ProjectedApprovalRounds] =
+        finalCycle.corr_issued;
+      rounds[`resubmitted${targetCycle}` as keyof ProjectedApprovalRounds] =
+        projResub;
+      cursor = addDays(flooredAnchor(projResub) ?? projResub, finalCrDays);
+    } else {
+      // Target cycle submitted (real in-flight row awaiting city review)
+      // OR fully projected by the round loop (fix-32 / learner bump):
+      // its city review hasn't been added yet. Add it from `cursor`.
+      // An actual city_target on the final cycle, when later than the
+      // cursor, is the city's stated review-completion date — prefer it.
+      const finalCityTarget =
+        finalCycle?.city_target && finalCycle.city_target > cursor
+          ? finalCycle.city_target
+          : null;
+      cursor =
+        flooredAnchor(finalCityTarget) ??
+        addDays(flooredAnchor(cursor) ?? cursor, finalCrDays);
+    }
     cursor = addDays(flooredAnchor(cursor) ?? cursor, FINAL_APPROVAL_BUFFER);
   }
 

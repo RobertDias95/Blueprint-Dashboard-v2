@@ -174,8 +174,10 @@ describe('computeProjectedApproval', () => {
       cycles: [cyc({ cycle_index: 1, submitted: '2026-01-01' })],
       learnedEstimate: learned({ mostLikelyCycle: 2 }),
     });
-    // cy1 cr = 21, cy1 co = 10 (cursor now at 2026-02-01), +7 final = 2026-02-08
-    expect(r.projection).toBe('2026-02-08');
+    // cy1 cr = 21, cy1 co = 10 (cursor now at 2026-02-01).
+    // fix-25-HH-redux: cycle 2 (the approval review) now gets its own
+    // city review projected — cr2 default = 21 → 2026-02-22, +7 = 2026-03-01.
+    expect(r.projection).toBe('2026-03-01');
     expect(r.targetCycle).toBe(2);
     expect(r.rounds?.corrIssued1).toBe('2026-01-22');
     expect(r.rounds?.resubmitted1).toBe('2026-02-01');
@@ -195,9 +197,10 @@ describe('computeProjectedApproval', () => {
       ],
       learnedEstimate: null,
     });
-    // crEnd=2026-02-10 (real), resub = +corrResponse1(10) = 2026-02-20
-    // cursor = 2026-02-20, +7 final = 2026-02-27
-    expect(r.projection).toBe('2026-02-27');
+    // crEnd=2026-02-10 (real), resub = +corrResponse1(10) = 2026-02-20.
+    // fix-25-HH-redux: cycle 2 city review projected — cr2 walks back to
+    // this permit's actual cycle-1 review span (40d) → 2026-04-01, +7 = 2026-04-08.
+    expect(r.projection).toBe('2026-04-08');
     expect(r.targetCycle).toBe(2);
     expect(r.rounds?.corrIssued1).toBe('2026-02-10');
     expect(r.rounds?.resubmitted1).toBe('2026-02-20');
@@ -266,10 +269,11 @@ describe('computeProjectedApproval', () => {
     // BP live projection: targetCycle=3 (override), walk 2 corr rounds:
     //   i=0: cr=21 +co=10 → 2026-02-01
     //   i=1: cr=21 +co=10 → 2026-03-04
-    //   final +7 = 2026-03-11
-    // ULS = 2026-03-11 + 120 = 2026-07-09 (well past the sanity-walk cap).
-    expect(r.ulsAnchors?.bpIssueAnchor).toBe('2026-03-11');
-    expect(r.projection).toBe('2026-07-09');
+    // fix-25-HH-redux: cycle 3 (approval review) city review cr3=21 →
+    //   2026-03-25, +7 = 2026-04-01.
+    // ULS = 2026-04-01 + 120 = 2026-07-30 (well past the sanity-walk cap).
+    expect(r.ulsAnchors?.bpIssueAnchor).toBe('2026-04-01');
+    expect(r.projection).toBe('2026-07-30');
   });
 
   it('cityTarget shortcut: cycle 1 city_target acts as crEnd when no corr_issued — Q9.5.f-fix-18', () => {
@@ -291,9 +295,10 @@ describe('computeProjectedApproval', () => {
     // targetCycle=2 (learner pick), walk one cycle:
     //   i=0: rd.corr_issued=null → cityTarget=2026-04-15 used as crEnd
     //        resub = 2026-04-15 + co(10) = 2026-04-25
-    //   cursor = 2026-04-25, +7 final = 2026-05-02
+    // fix-25-HH-redux: cycle 2 city review cr2 default=21 → 2026-05-16,
+    //   +7 final = 2026-05-23.
     expect(r.rounds?.corrIssued1).toBe('2026-04-15');
-    expect(r.projection).toBe('2026-05-02');
+    expect(r.projection).toBe('2026-05-23');
   });
 
   it('ULS falls through to default walk when no sibling BP exists', () => {
@@ -314,8 +319,12 @@ describe('computeProjectedApproval', () => {
   });
 
   it('last-real-date floor prevents projection earlier than known events', () => {
-    // Hand-craft a case where the walk would land BEFORE the last real
-    // resubmit (data anomaly). Floor pushes projection to lastReal + 7.
+    // Hand-craft a case where the walk lands BEFORE a far-future real
+    // date (data anomaly). The anomaly lives on cycle 2's resubmitted —
+    // OFF the targetCycle=2 cursor path (the walk only processes cycle 1
+    // + projects cycle 2's review), so fix-25-HH-redux's added city
+    // review can't push the projection past it. Floor lifts it to
+    // lastReal + 7.
     const r = computeProjectedApproval({
       permit: permit(),
       cycles: [
@@ -323,13 +332,17 @@ describe('computeProjectedApproval', () => {
           cycle_index: 1,
           submitted: '2026-01-01',
           corr_issued: '2026-02-10',
-          resubmitted: '2027-12-31', // far-future real date
+          resubmitted: '2026-02-20',
+        }),
+        cyc({
+          cycle_index: 2,
+          resubmitted: '2027-12-31', // far-future real date (anomaly)
         }),
       ],
       learnedEstimate: null,
     });
-    // walk lands at 2026-02-27 but lastRealDate=2027-12-31 → floor to
-    // 2027-12-31 + 7 = 2028-01-07
+    // walk + cycle-2 city review lands ~2026-04 but lastRealDate=2027-12-31
+    // → floor to 2027-12-31 + 7 = 2028-01-07
     expect(r.projection).toBe('2028-01-07');
   });
 });
@@ -394,10 +407,12 @@ describe('computeProjectedApproval — fix-24e today-floor on projection anchors
     // i=0: rd has no corr_issued, no city_target.
     //   crEnd = addDays(today=2026-05-15, cr1=21) = 2026-06-05
     //   resubEnd = addDays(2026-06-05, co1=10) = 2026-06-15
-    // After loop, cursor = 2026-06-15, +7 buffer = 2026-06-22.
+    // After loop, cursor = 2026-06-15.
+    // fix-25-HH-redux: cycle 2 city review cr2 default=21 → 2026-07-06,
+    //   +7 buffer = 2026-07-13.
     expect(r.rounds?.corrIssued1).toBe('2026-06-05');
     expect(r.rounds?.resubmitted1).toBe('2026-06-15');
-    expect(r.projection).toBe('2026-06-22');
+    expect(r.projection).toBe('2026-07-13');
   });
 
   it('past actual corr_issued: displayed as-is, but downstream resubmitted forecast floors at today', () => {
@@ -421,8 +436,9 @@ describe('computeProjectedApproval — fix-24e today-floor on projection anchors
     // Resub forecast: addDays(flooredAnchor('2025-11-01')=today, co1=10) =
     // 2026-05-15 + 10 = 2026-05-25.
     expect(r.rounds?.resubmitted1).toBe('2026-05-25');
-    // Final +7 = 2026-06-01.
-    expect(r.projection).toBe('2026-06-01');
+    // fix-25-HH-redux: cycle 2 city review cr2 walks back to this permit's
+    // actual cycle-1 review span (31d) → 2026-06-25, +7 = 2026-07-02.
+    expect(r.projection).toBe('2026-07-02');
   });
 
   it("past city_target (Bobby's example): forecast crEnd lifted to today instead of using the stale forecast", () => {
@@ -443,10 +459,11 @@ describe('computeProjectedApproval — fix-24e today-floor on projection anchors
     });
     // crEnd = flooredAnchor(city_target=2025-12-15) = today=2025-12-16
     // resubEnd = addDays(2025-12-16, co1=10) = 2025-12-26
-    // Final +7 = 2026-01-02.
+    // fix-25-HH-redux: cycle 2 city review cr2 default=21 → 2026-01-16,
+    //   +7 = 2026-01-23.
     expect(r.rounds?.corrIssued1).toBe('2025-12-16');
     expect(r.rounds?.resubmitted1).toBe('2025-12-26');
-    expect(r.projection).toBe('2026-01-02');
+    expect(r.projection).toBe('2026-01-23');
   });
 
   it('est_approval is never in the past when at least one downstream duration is positive', () => {
@@ -823,5 +840,97 @@ describe('computeProjectedApproval — fix-32 reviewer-corrections cycle predict
     });
     expect(withDesignFlag.targetCycle).toBe(baseline.targetCycle);
     expect(withDesignFlag.projection).toBe(baseline.projection);
+  });
+});
+
+// ============================================================
+// fix-25-HH-redux: in-flight final-cycle city-review projection
+// ============================================================
+// Pre-redux, a targetCycle>=2 walk jumped from the last resubmit
+// straight to + FINAL_APPROVAL_BUFFER, never projecting the FINAL
+// review cycle's city review. An in-flight cycle (submitted, no
+// corr yet) collapsed to "submitted + 7". This also had to compose
+// with fix-32's reviewer-corrections targetCycle bump.
+
+describe('computeProjectedApproval — fix-25-HH-redux final-cycle city review', () => {
+  it('in-flight cycle (submitted, no corr) projects a city review, not submitted + 7', () => {
+    vi.setSystemTime(new Date('2026-05-20T12:00:00Z'));
+    // cycle 1 fully done; cycle 2 just submitted (in-flight), no corr.
+    // No reviewer flag → targetCycle = currentReviewCycle = 2.
+    const r = computeProjectedApproval({
+      permit: permit(),
+      cycles: [
+        cyc({
+          cycle_index: 1,
+          submitted: '2026-01-15',
+          corr_issued: '2026-02-10',
+          resubmitted: '2026-03-01',
+        }),
+        cyc({ cycle_index: 2, submitted: '2026-03-01' }),
+      ],
+      learnedEstimate: null,
+    });
+    expect(r.targetCycle).toBe(2);
+    // Pre-redux would have been the cycle-1 resubmit (2026-03-01) floored
+    // to today + 7 ≈ 2026-05-27. Redux adds cycle 2's city review first,
+    // so the projection must be materially later than that.
+    expect(r.projection).not.toBeNull();
+    expect(r.projection! > '2026-06-01').toBe(true);
+  });
+
+  it('3056-style: cycle 3 in-flight + reviewer corrections → targetCycle 4, lands ~July 2026', () => {
+    // Permit 355 (7105904-CN) post fix-34 cleanup: cycles 1+2 complete,
+    // cycle 3 submitted (in-flight), two reviewers corrections_required
+    // on cycle 3. fix-32 bumps targetCycle to 4; fix-25-HH-redux projects
+    // cycle 4's city review on top so the est_approval is realistic.
+    vi.setSystemTime(new Date('2026-05-20T12:00:00Z'));
+    const cycles = [
+      cyc({
+        cycle_index: 1,
+        submitted: '2025-12-17',
+        corr_issued: '2026-02-27',
+        resubmitted: '2026-04-21',
+      }),
+      cyc({
+        cycle_index: 2,
+        submitted: '2026-04-21',
+        corr_issued: '2026-05-13',
+        resubmitted: '2026-05-19',
+      }),
+      cyc({ cycle_index: 3, submitted: '2026-05-19' }),
+    ];
+    const reviewers = [
+      reviewer({ cycle_index: 3, reviewer_name: 'Colum Lang', current_status: 'corrections_required' }),
+      reviewer({ cycle_index: 3, reviewer_name: 'Mike Peli', current_status: 'corrections_required' }),
+      reviewer({ cycle_index: 3, reviewer_name: 'Cici Sun', current_status: 'approved' }),
+    ];
+    const r = computeProjectedApproval({
+      permit: permit(),
+      cycles,
+      learnedEstimate: null,
+      permitReviewers: reviewers,
+    });
+    expect(r.targetCycle).toBe(4); // fix-32 bump (cycle 3 corrections flagged)
+    expect(r.projection).not.toBeNull();
+    // Realistic ~July 2026 — NOT the +7 collapse (~late May) it was before.
+    expect(r.projection! >= '2026-07-01').toBe(true);
+    expect(r.projection! < '2026-08-15').toBe(true);
+  });
+
+  it('without the reviewer flag the same permit targets cycle 3 and still projects a final review (no +7 collapse)', () => {
+    vi.setSystemTime(new Date('2026-05-20T12:00:00Z'));
+    const cycles = [
+      cyc({ cycle_index: 1, submitted: '2025-12-17', corr_issued: '2026-02-27', resubmitted: '2026-04-21' }),
+      cyc({ cycle_index: 2, submitted: '2026-04-21', corr_issued: '2026-05-13', resubmitted: '2026-05-19' }),
+      cyc({ cycle_index: 3, submitted: '2026-05-19' }),
+    ];
+    const r = computeProjectedApproval({
+      permit: permit(),
+      cycles,
+      learnedEstimate: null,
+    });
+    expect(r.targetCycle).toBe(3); // currentReviewCycle, no bump
+    // Cycle 3's city review is projected → past mid-June, not 05-19 + 7.
+    expect(r.projection! > '2026-06-01').toBe(true);
   });
 });
