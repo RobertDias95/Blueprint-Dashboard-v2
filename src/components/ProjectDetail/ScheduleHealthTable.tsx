@@ -229,8 +229,11 @@ function Row({
         siblingLearnedByPermitId,
         targetCycleOverride: cycleOverride,
         typeDefaultsOverride,
+        // fix-32: reviewers on this permit feed the corrections-cycle
+        // prediction. Already loaded above for the chip rollup — reuse.
+        permitReviewers: reviewers,
       }),
-    [permit, learnedEstimate, projectGoDate, siblings, siblingCyclesByPermitId, siblingLearnedByPermitId, cycleOverride, typeDefaultsOverride],
+    [permit, learnedEstimate, projectGoDate, siblings, siblingCyclesByPermitId, siblingLearnedByPermitId, cycleOverride, typeDefaultsOverride, reviewers],
   );
   const projection = projectedResult.projection;
   const isActual = projectedResult.isActual;
