@@ -525,11 +525,48 @@ function SidebarRow({
       </div>
       <div className="text-[10px] truncate">
         {permit.num ? (
-          <span className="text-de font-mono">{permit.num}</span>
+          permit.portal_url ? (
+            // fix-35 Bug 1b: restore the portal-link <a> dropped during
+            // fix-26→32 (the # had regressed to a blue-styled non-link span).
+            // stopPropagation so clicking the # opens the portal without also
+            // firing the row's onSelect.
+            <a
+              href={permit.portal_url}
+              target="_blank"
+              rel="noreferrer"
+              onClick={(e) => e.stopPropagation()}
+              className="text-de font-mono hover:underline"
+              title="Open city portal"
+              data-testid={`permits-sidebar-portal-${permit.id}`}
+            >
+              {permit.num} ↗
+            </a>
+          ) : (
+            // No portal URL on file: plain (non-blue) mono so it doesn't
+            // masquerade as a broken link.
+            <span
+              className="text-text font-mono"
+              title="No portal URL on file"
+              data-testid={`permits-sidebar-num-${permit.id}`}
+            >
+              {permit.num}
+            </span>
+          )
         ) : (
           <span className="text-dim italic">No permit # yet</span>
         )}
       </div>
+      {permit.struct_address && (
+        // fix-35 Bug 1a: structure address so multiple BPs on one project
+        // are distinguishable.
+        <div
+          className="text-[10px] text-dim truncate"
+          title={permit.struct_address}
+          data-testid={`permits-sidebar-addr-${permit.id}`}
+        >
+          {permit.struct_address}
+        </div>
+      )}
       {keyDate && (
         <div className="flex items-center gap-1.5 mt-0.5">
           <span
