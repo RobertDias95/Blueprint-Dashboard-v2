@@ -1882,6 +1882,15 @@ function IssueDateField({
   onCommit: (next: string) => void | Promise<void>;
 }) {
   const [draft, setDraft] = useState(value ?? '');
+  // fix-39 Track B: sync the prop into the draft when `value` changes after
+  // mount (commit merge, refetch, scraper overwrite). Without this the Issue
+  // Dates field froze at its mount-time value — it lacked the value→draft sync
+  // DateCell got in fix-24c, so a saved approval_date could show stale or,
+  // after a null refetch, blank.
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setDraft(value ?? '');
+  }, [value]);
   return (
     <div className="flex flex-col gap-1">
       <span

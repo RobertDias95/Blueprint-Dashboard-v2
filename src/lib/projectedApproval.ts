@@ -136,7 +136,7 @@ export interface ProjectedApprovalResult {
   rounds?: ProjectedApprovalRounds;
   /** ULS-specific anchor data (rendered in the widget when the permit is ULS). */
   ulsAnchors?: {
-    bpIssueAnchor: string;
+    bpApprovalAnchor: string;
     cy1Resub: string;
     targetSubmit: string;
     estApproval: string;
@@ -219,7 +219,7 @@ function getULSAnchorDates(
   /** fix-22 Mig 3: the BP and ULS share a project, so caller passes the
    *  project's go_date once and we thread it into the BP's recursive call. */
   bpProjectGoDate?: string | null,
-): { targetSubmit: string; estApproval: string; bpIssueAnchor: string; cy1Resub: string } | null {
+): { targetSubmit: string; estApproval: string; bpApprovalAnchor: string; cy1Resub: string } | null {
   const bp = siblingPermits.find(
     (p) => p.project_id === permit.project_id && p.type === 'Building Permit',
   );
@@ -272,18 +272,19 @@ function getULSAnchorDates(
     flooredAnchor(cy1Resub) ?? cy1Resub,
     ULS_TARGET_SUBMIT_BUFFER,
   );
-  // Q9.5.f-fix-18 B: prefer the BP's LIVE projection over the stored
-  // expected_issue column. The stored column is a snapshot from when the
-  // user last saved it (or what the scraper imported); the live projection
-  // updates as cycle data changes. Real outcomes (actual_issue / approval_date)
-  // still short-circuit because those are facts. The stored expected_issue
-  // is only used as a last-ditch fallback when the live projection fails.
+  // fix-39 Track A: anchor the ULS to the sibling BP's APPROVAL milestone,
+  // not its issuance. When BP.approval_date is set, use it directly; otherwise
+  // use the BP's LIVE projected approval (the recursive projection returns the
+  // BP's est_approval), so the ULS tracks the BP forecast until the BP actually
+  // approves and then auto-re-anchors to the real approval date with no manual
+  // step. Previously this preferred BP.actual_issue, which anchored to the
+  // wrong milestone (issuance lags approval) and made the ULS read early.
+  // The stored expected_issue stays a last-ditch fallback when the live
+  // projection yields nothing.
   // eslint-disable-next-line no-useless-assignment
-  let bpIssueAnchor = '';
-  if (bp.actual_issue) {
-    bpIssueAnchor = bp.actual_issue;
-  } else if (bp.approval_date) {
-    bpIssueAnchor = bp.approval_date;
+  let bpApprovalAnchor = '';
+  if (bp.approval_date) {
+    bpApprovalAnchor = bp.approval_date;
   } else {
     const bpExtras = (bp.extras ?? {}) as Record<string, unknown>;
     const rawBpOv = bpExtras.scheduleCycleOverride;
@@ -302,20 +303,20 @@ function getULSAnchorDates(
       projectGoDate: bpProjectGoDate,
       targetCycleOverride: bpOverride,
     });
-    bpIssueAnchor =
+    bpApprovalAnchor =
       bpProjection.projection ?? bp.expected_issue ?? '';
   }
-  if (!bpIssueAnchor) {
-    bpIssueAnchor = addDays(
+  if (!bpApprovalAnchor) {
+    bpApprovalAnchor = addDays(
       flooredAnchor(cy1Resub) ?? cy1Resub,
       bpCityReview2 + FINAL_APPROVAL_BUFFER,
     );
   }
   const estApproval = addDays(
-    flooredAnchor(bpIssueAnchor) ?? bpIssueAnchor,
+    flooredAnchor(bpApprovalAnchor) ?? bpApprovalAnchor,
     ULS_BP_LAG_DAYS,
   );
-  return { targetSubmit: ulsTargetSubmit, estApproval, bpIssueAnchor, cy1Resub };
+  return { targetSubmit: ulsTargetSubmit, estApproval, bpApprovalAnchor, cy1Resub };
 }
 
 export function computeProjectedApproval(

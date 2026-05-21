@@ -183,7 +183,7 @@ describe('useUpdatePermit', () => {
     expect(byProject?.[0].da).toBe('Ainsley');
   });
 
-  it('rolls back the optimistic update + emits warn toast on OCC mismatch (empty result)', async () => {
+  it('rolls back the optimistic update + emits a loud error toast on OCC mismatch (empty result)', async () => {
     const permit = makePermit();
     // Empty data array = OCC mismatch — server didn't find a row matching
     // both id AND the expected updated_at.
@@ -211,9 +211,15 @@ describe('useUpdatePermit', () => {
     const global = queryClient.getQueryData<PermitWithCycles[]>(queryKeys.permits(T));
     expect(global?.[0].target_submit).toBe('2026-01-15');
 
+    // fix-39 Track B: OCC on a field commit now surfaces a loud, persistent
+    // 'error' (was a low-key 'warn' that read as a silent blank), naming the
+    // field and telling the user to re-enter.
     await waitFor(() => {
       const toasts = useToastStore.getState().toasts;
-      expect(toasts.find((t) => t.kind === 'warn')).toBeTruthy();
+      const err = toasts.find((t) => t.kind === 'error');
+      expect(err).toBeTruthy();
+      expect(err?.message).toMatch(/Target Submit/);
+      expect(err?.message).toMatch(/updated elsewhere/i);
     });
   });
 
