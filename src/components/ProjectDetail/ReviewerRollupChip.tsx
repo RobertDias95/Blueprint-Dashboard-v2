@@ -7,6 +7,7 @@ import {
   rowsForCycle,
   statusLabel,
 } from '../../lib/reviewerRollup';
+import type { ReviewerCounts } from '../../lib/reviewerRollup';
 import { isTerminalPositiveStatus } from '../../lib/permitTerminalStatus';
 
 // fix-31: Schedule Health column cell for the reviewer rollup. Replaces
@@ -34,6 +35,20 @@ const STATUS_ACCENT: Record<
   in_review: { dot: 'var(--color-de)', fg: 'var(--color-de)' },
   pending: { dot: 'var(--color-dim)', fg: 'var(--color-dim)' },
   not_required: { dot: 'var(--color-muted)', fg: 'var(--color-muted)' },
+};
+
+// fix-43: popover sort order — outstanding (not-yet-approved) reviewers
+// surface first so Bobby instantly sees who's holding a permit up;
+// approved sink to the bottom. Lower rank = higher in the list. The rule
+// is uniform (not terminal-special-cased): corrections → in-review/
+// assigned → pending → not-required → approved. Within a rank we fall
+// back to a stable alphabetical sort by reviewer_name.
+const SORT_RANK: Record<ReturnType<typeof bucketStatus>, number> = {
+  corrections: 0,
+  in_review: 1,
+  pending: 2,
+  not_required: 3,
+  approved: 4,
 };
 
 interface Props {
@@ -158,19 +173,35 @@ export default function ReviewerRollupChip({
         aria-expanded={open}
         title={`Cycle ${latestIdx} reviewers — click to expand`}
       >
-        <span className="text-text">{counts.total}</span>
+        {/* fix-43: per-segment title tooltips make the glyphs
+            self-explanatory on hover without changing the data. */}
+        <span
+          className="text-text"
+          title={`${counts.total} reviewers — cycle ${latestIdx}`}
+        >
+          {counts.total}
+        </span>
         {counts.approved > 0 && (
-          <span style={{ color: 'var(--color-pm)' }}>
+          <span
+            style={{ color: 'var(--color-pm)' }}
+            title={`${counts.approved} approved`}
+          >
             {counts.approved}✓
           </span>
         )}
         {!muteCorrections && counts.correctionsRequired > 0 && (
-          <span style={{ color: 'var(--color-co)' }}>
+          <span
+            style={{ color: 'var(--color-co)' }}
+            title={`${counts.correctionsRequired} corrections required`}
+          >
             {counts.correctionsRequired}⚠
           </span>
         )}
         {mutedOther > 0 && (
-          <span style={{ color: 'var(--color-dim)' }}>
+          <span
+            style={{ color: 'var(--color-dim)' }}
+            title={`${mutedOther} outstanding (in review / assigned / pending)`}
+          >
             {mutedOther}©
           </span>
         )}
@@ -180,6 +211,8 @@ export default function ReviewerRollupChip({
           permitId={permitId}
           cycleIndex={latestIdx ?? 0}
           rows={visibleRows}
+          counts={counts}
+          correctionsVisible={!muteCorrections && counts.correctionsRequired > 0}
           top={anchor.top}
           left={anchor.left}
         />
@@ -192,18 +225,30 @@ function ReviewerPopover({
   permitId,
   cycleIndex,
   rows,
+  counts,
+  correctionsVisible,
   top,
   left,
 }: {
   permitId: number;
   cycleIndex: number;
   rows: PermitCycleReviewer[];
+  counts: ReviewerCounts;
+  correctionsVisible: boolean;
   top: number;
   left: number;
 }) {
-  const sorted = [...rows].sort((a, b) =>
-    a.reviewer_name.localeCompare(b.reviewer_name),
-  );
+  // fix-43: outstanding-first ordering (see SORT_RANK). Approved reviewers
+  // sink to the bottom; within a rank we keep a stable alphabetical order.
+  const sorted = [...rows].sort((a, b) => {
+    const ra = SORT_RANK[bucketStatus(a.current_status)];
+    const rb = SORT_RANK[bucketStatus(b.current_status)];
+    if (ra !== rb) return ra - rb;
+    return a.reviewer_name.localeCompare(b.reviewer_name);
+  });
+  // fix-43: header breakdown doubles as the always-visible legend for the
+  // chip glyphs. Mirrors the chip's (override-aware) counts exactly.
+  const outstanding = counts.total - counts.approved;
   return (
     <div
       className="fixed z-[10000] rounded border shadow-lg"
@@ -219,14 +264,36 @@ function ReviewerPopover({
       data-testid={`reviewer-popover-${permitId}`}
     >
       <div
-        className="px-2 py-1.5 border-b text-[9px] font-extrabold uppercase tracking-wider text-text flex items-center justify-between"
+        className="border-b"
         style={{
           background: 'var(--color-s2)',
           borderBottomColor: 'var(--color-border)',
         }}
       >
-        <span>Reviewers — Cycle {cycleIndex}</span>
-        <span className="text-dim font-mono">{sorted.length}</span>
+        <div className="px-2 pt-1.5 text-[9px] font-extrabold uppercase tracking-wider text-text flex items-center justify-between">
+          <span>Reviewers — Cycle {cycleIndex}</span>
+          <span className="text-dim font-mono">{counts.total}</span>
+        </div>
+        <div
+          className="px-2 pb-1.5 pt-0.5 text-[9px] font-semibold flex items-center gap-1.5 flex-wrap"
+          data-testid={`reviewer-legend-${permitId}`}
+        >
+          <span style={{ color: 'var(--color-pm)' }}>
+            {counts.approved} approved
+          </span>
+          <span className="text-dim">·</span>
+          <span style={{ color: 'var(--color-de)' }}>
+            {outstanding} outstanding
+          </span>
+          {correctionsVisible && (
+            <>
+              <span className="text-dim">·</span>
+              <span style={{ color: 'var(--color-co)' }}>
+                {counts.correctionsRequired} corrections
+              </span>
+            </>
+          )}
+        </div>
       </div>
       <ul className="flex flex-col">
         {sorted.map((r) => {

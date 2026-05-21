@@ -220,4 +220,117 @@ describe('ReviewerRollupChip', () => {
     expect(screen.queryByTestId('reviewer-chip-42')).toBeNull();
     expect(screen.queryByTestId('reviewer-fallback-42')).toBeNull();
   });
+
+  it('popover lists outstanding reviewers before approved ones (fix-43)', () => {
+    // 2 approved + 1 corrections + 1 in_process. Outstanding (corrections,
+    // in-review) must render above approved; within a group, alphabetical.
+    const rows: PermitCycleReviewer[] = [
+      makeReviewer('Zoe Approved', 'approved'),
+      makeReviewer('Amy Approved', 'approved'),
+      makeReviewer('Carl Corrections', 'corrections_required'),
+      makeReviewer('Ian InProcess', 'in_process'),
+    ];
+    render(
+      <ReviewerRollupChip
+        permitId={42}
+        rows={rows}
+        fallbackReviewer={null}
+        permitStatus="Reviews In Process"
+        permitType="Building Permit"
+      />,
+    );
+    fireEvent.click(screen.getByTestId('reviewer-chip-42'));
+    const popover = screen.getByTestId('reviewer-popover-42');
+    const order = Array.from(
+      popover.querySelectorAll('[data-testid^="reviewer-row-"]'),
+    ).map((el) => el.textContent ?? '');
+    const idx = (name: string) => order.findIndex((t) => t.includes(name));
+    // Every non-approved reviewer is above every approved one.
+    expect(idx('Carl Corrections')).toBeLessThan(idx('Amy Approved'));
+    expect(idx('Carl Corrections')).toBeLessThan(idx('Zoe Approved'));
+    expect(idx('Ian InProcess')).toBeLessThan(idx('Amy Approved'));
+    expect(idx('Ian InProcess')).toBeLessThan(idx('Zoe Approved'));
+    // corrections rank above in-review.
+    expect(idx('Carl Corrections')).toBeLessThan(idx('Ian InProcess'));
+    // stable alphabetical within the approved group (Amy before Zoe).
+    expect(idx('Amy Approved')).toBeLessThan(idx('Zoe Approved'));
+  });
+
+  it('popover header shows approved / outstanding breakdown (fix-43)', () => {
+    const rows: PermitCycleReviewer[] = [
+      makeReviewer('A', 'approved'),
+      makeReviewer('B', 'approved'),
+      makeReviewer('C', 'corrections_required'),
+      makeReviewer('D', 'in_process'),
+    ];
+    render(
+      <ReviewerRollupChip
+        permitId={42}
+        rows={rows}
+        fallbackReviewer={null}
+        permitStatus="Reviews In Process"
+        permitType="Building Permit"
+      />,
+    );
+    fireEvent.click(screen.getByTestId('reviewer-chip-42'));
+    const legend = screen.getByTestId('reviewer-legend-42');
+    expect(legend.textContent).toContain('2 approved');
+    expect(legend.textContent).toContain('2 outstanding'); // 4 total − 2 approved
+    expect(legend.textContent).toContain('1 corrections'); // non-terminal → shown
+  });
+
+  it('popover legend drops corrections on terminal permits (fix-42/fix-43)', () => {
+    // Issued Building Permit: the corrections reviewer is resolved (fix-42
+    // mutes it on the chip), so the legend should not list corrections —
+    // it folds into outstanding. approved/outstanding still mirror counts.
+    const rows: PermitCycleReviewer[] = [
+      makeReviewer('A', 'approved'),
+      makeReviewer('B', 'approved'),
+      makeReviewer('C', 'corrections_required'),
+    ];
+    render(
+      <ReviewerRollupChip
+        permitId={42}
+        rows={rows}
+        fallbackReviewer={null}
+        permitStatus="Issued"
+        permitType="Building Permit"
+      />,
+    );
+    fireEvent.click(screen.getByTestId('reviewer-chip-42'));
+    const legend = screen.getByTestId('reviewer-legend-42');
+    expect(legend.textContent).toContain('2 approved');
+    expect(legend.textContent).toContain('1 outstanding'); // 3 − 2
+    expect(legend.textContent).not.toContain('corrections');
+  });
+
+  it('chip segments expose title tooltips (fix-43)', () => {
+    // total 3 · 1 approved · 1 corrections · 1 in_process (non-terminal so
+    // corrections shows; © = inReview 1 + pending 0 = 1 outstanding).
+    const rows: PermitCycleReviewer[] = [
+      makeReviewer('A', 'approved'),
+      makeReviewer('B', 'corrections_required'),
+      makeReviewer('C', 'in_process'),
+    ];
+    render(
+      <ReviewerRollupChip
+        permitId={42}
+        rows={rows}
+        fallbackReviewer={null}
+        permitStatus="Reviews In Process"
+        permitType="Building Permit"
+      />,
+    );
+    const chip = screen.getByTestId('reviewer-chip-42');
+    expect(chip.querySelector('[title="3 reviewers — cycle 1"]')).not.toBeNull();
+    expect(chip.querySelector('[title="1 approved"]')).not.toBeNull();
+    expect(
+      chip.querySelector('[title="1 corrections required"]'),
+    ).not.toBeNull();
+    expect(
+      chip.querySelector(
+        '[title="1 outstanding (in review / assigned / pending)"]',
+      ),
+    ).not.toBeNull();
+  });
 });
