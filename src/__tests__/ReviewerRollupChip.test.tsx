@@ -304,6 +304,40 @@ describe('ReviewerRollupChip', () => {
     expect(legend.textContent).not.toContain('corrections');
   });
 
+  it('popover prefixes the discipline (slot) to the reviewer name when present (fix-44)', () => {
+    // Slot data: each row carries its discipline + current assignee. The
+    // popover row reads "Energy — Stephen Rudolph". Lights up once PR2 flows.
+    const rows: PermitCycleReviewer[] = [
+      { ...makeReviewer('Stephen Rudolph', 'approved'), discipline: 'Energy' },
+    ];
+    render(
+      <ReviewerRollupChip permitId={42} rows={rows} fallbackReviewer={null} />,
+    );
+    fireEvent.click(screen.getByTestId('reviewer-chip-42'));
+    const row = screen
+      .getByTestId('reviewer-popover-42')
+      .querySelector('[data-testid^="reviewer-row-"]') as HTMLElement;
+    expect(row.textContent).toContain('Energy — Stephen Rudolph');
+  });
+
+  it('popover renders the bare reviewer name when discipline is null (fix-44)', () => {
+    // Current production data: discipline NULL everywhere → render as before,
+    // no slot prefix / em-dash in the row.
+    const rows: PermitCycleReviewer[] = [
+      makeReviewer('Stephen Rudolph', 'approved'), // discipline: null
+    ];
+    render(
+      <ReviewerRollupChip permitId={42} rows={rows} fallbackReviewer={null} />,
+    );
+    fireEvent.click(screen.getByTestId('reviewer-chip-42'));
+    const row = screen
+      .getByTestId('reviewer-popover-42')
+      .querySelector('[data-testid^="reviewer-row-"]') as HTMLElement;
+    expect(row.textContent).toContain('Stephen Rudolph');
+    expect(row.textContent).not.toContain('—'); // no slot prefix
+    expect(row.textContent).not.toContain('Energy');
+  });
+
   it('chip segments expose title tooltips (fix-43)', () => {
     // total 3 · 1 approved · 1 corrections · 1 in_process (non-terminal so
     // corrections shows; © = inReview 1 + pending 0 = 1 outstanding).

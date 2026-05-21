@@ -315,17 +315,27 @@ function ReviewerPopover({
                 }}
               />
               <div className="flex-1 min-w-0">
+                {/* fix-44: a reviewer row is now a discipline SLOT carrying
+                    its current assignee. Surface the discipline as an inline
+                    prefix — "Energy — Stephen Rudolph" — with the slot label
+                    dimmed and the assignee emphasized. Current data has
+                    discipline NULL everywhere, so this renders exactly as
+                    before (bare name) until PR2's slot data flows. */}
                 <div
                   className="text-[11px] font-bold text-text truncate"
-                  title={r.reviewer_name}
+                  title={
+                    r.discipline
+                      ? `${r.discipline} — ${r.reviewer_name}`
+                      : r.reviewer_name
+                  }
                 >
+                  {r.discipline && (
+                    <span className="text-dim font-semibold">
+                      {r.discipline} —{' '}
+                    </span>
+                  )}
                   {r.reviewer_name}
                 </div>
-                {r.discipline && (
-                  <div className="text-[9px] text-dim truncate">
-                    {r.discipline}
-                  </div>
-                )}
               </div>
               <div className="flex flex-col items-end flex-shrink-0">
                 <span
