@@ -95,10 +95,10 @@ describe('ReviewerRollupChip', () => {
     expect(screen.queryByTestId('reviewer-chip-42')).toBeNull();
   });
 
-  it('terminal-positive permitStatus suppresses the ⚠ corrections pill (fix-31b)', () => {
+  it('terminal-positive + no-issuance type suppresses the ⚠ corrections pill (fix-31b/fix-41)', () => {
     // Mirrors SDOTTRLA0002310: reviewer's individual event stream ends
-    // at corrections_required, but the permit is Conceptually Approved
-    // so the chip must NOT show the corrections pill.
+    // at corrections_required, but it's a Conceptually Approved SDOT Tree
+    // (no-issuance) so the override fires and the chip shows all ✓.
     const rows: PermitCycleReviewer[] = [
       makeReviewer('Anne-Marie', 'corrections_required'),
       makeReviewer('Tom', 'approved'),
@@ -110,12 +110,60 @@ describe('ReviewerRollupChip', () => {
         rows={rows}
         fallbackReviewer={null}
         permitStatus="Conceptually Approved"
+        permitType="SDOT Tree"
       />,
     );
     const chip = screen.getByTestId('reviewer-chip-42');
     expect(chip.textContent).toContain('3');
     expect(chip.textContent).toContain('3✓');
     expect(chip.textContent).not.toContain('⚠');
+  });
+
+  it('terminal-positive + issuance-bearing type shows REAL counts incl. ⚠ (fix-41)', () => {
+    // Same mix but an Issued Building Permit — fix-41 drops the override
+    // so the genuine per-reviewer status shows: 1✓, 1⚠, 1© (in_review).
+    const rows: PermitCycleReviewer[] = [
+      makeReviewer('Anne-Marie', 'corrections_required'),
+      makeReviewer('Tom', 'approved'),
+      makeReviewer('Jane', 'in_process'),
+    ];
+    render(
+      <ReviewerRollupChip
+        permitId={42}
+        rows={rows}
+        fallbackReviewer={null}
+        permitStatus="Issued"
+        permitType="Building Permit"
+      />,
+    );
+    const chip = screen.getByTestId('reviewer-chip-42');
+    expect(chip.textContent).toContain('3');
+    expect(chip.textContent).toContain('1✓');
+    expect(chip.textContent).toContain('1⚠');
+  });
+
+  it('regression 7087866-CN: Issued Building Permit chip reads 14 / 8✓ (not 14✓)', () => {
+    // fix-41 motivating bug. 14 reviewers: 8 approved / 4 assigned /
+    // 1 in_process / 1 pending. The chip must show total 14, approved 8.
+    const rows: PermitCycleReviewer[] = [
+      ...Array.from({ length: 8 }, (_, i) => makeReviewer(`Appr${i}`, 'approved')),
+      ...Array.from({ length: 4 }, (_, i) => makeReviewer(`Asgn${i}`, 'assigned')),
+      makeReviewer('InProc', 'in_process'),
+      makeReviewer('Pend', 'pending'),
+    ];
+    render(
+      <ReviewerRollupChip
+        permitId={7087866}
+        rows={rows}
+        fallbackReviewer={null}
+        permitStatus="Issued"
+        permitType="Building Permit"
+      />,
+    );
+    const chip = screen.getByTestId('reviewer-chip-7087866');
+    expect(chip.textContent).toContain('14'); // total
+    expect(chip.textContent).toContain('8✓'); // real approved, NOT 14
+    expect(chip.textContent).not.toContain('14✓');
   });
 
   it('non-terminal permitStatus leaves the ⚠ corrections pill visible', () => {
@@ -129,6 +177,7 @@ describe('ReviewerRollupChip', () => {
         rows={rows}
         fallbackReviewer={null}
         permitStatus="Reviews In Process"
+        permitType="Building Permit"
       />,
     );
     const chip = screen.getByTestId('reviewer-chip-42');
