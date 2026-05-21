@@ -128,18 +128,22 @@ describe('rollupCounts — Bobby user story', () => {
   });
 });
 
-describe('rollupCounts with permitStatus override (fix-31b)', () => {
-  it('terminal-positive status collapses every reviewer to approved', () => {
+describe('rollupCounts with permitStatus override (fix-31b, type-scoped fix-41)', () => {
+  // fix-41 (2026-05-21): the terminal-positive override now requires a
+  // no-issuance permit type (SDOT Tree / PAR/Pre-Sub / ECA Waiver / ULS).
+  // For issuance-bearing types the per-reviewer current_status is real
+  // (fix-31g) and must NOT be collapsed to all-approved.
+  it('terminal-positive + no-issuance type collapses every reviewer to approved', () => {
     // SDOTTRLA0002310 scenario: Anne-Marie's last per-reviewer event
     // was corrections_required, but the permit's Record Status is
-    // "Conceptually Approved" — workflow moved past her individual
-    // step. The chip should show all reviewers green, not a ⚠ pill.
+    // "Conceptually Approved" and SDOT Tree never issues — workflow
+    // moved past her individual step. All reviewers green, no ⚠ pill.
     const rows = [
       makeReviewer({ reviewer_name: 'Anne-Marie', current_status: 'corrections_required' }),
       makeReviewer({ reviewer_name: 'Tom', current_status: 'approved' }),
       makeReviewer({ reviewer_name: 'Jane', current_status: 'in_process' }),
     ];
-    const counts = rollupCounts(rows, 'Conceptually Approved');
+    const counts = rollupCounts(rows, 'Conceptually Approved', 'SDOT Tree');
     expect(counts.total).toBe(3);
     expect(counts.approved).toBe(3);
     expect(counts.correctionsRequired).toBe(0);
@@ -148,12 +152,64 @@ describe('rollupCounts with permitStatus override (fix-31b)', () => {
     expect(counts.notRequired).toBe(0);
   });
 
-  it('non-terminal status leaves individual buckets intact', () => {
+  it('terminal-positive + issuance-bearing type shows REAL counts (fix-41)', () => {
+    // Same reviewer mix, but an Issued Building Permit. fix-31g populates
+    // real per-reviewer status here, so the override must NOT fire — the
+    // chip shows the genuine 1 approved / 1 corrections / 1 in_review.
+    const rows = [
+      makeReviewer({ reviewer_name: 'Anne-Marie', current_status: 'corrections_required' }),
+      makeReviewer({ reviewer_name: 'Tom', current_status: 'approved' }),
+      makeReviewer({ reviewer_name: 'Jane', current_status: 'in_process' }),
+    ];
+    const counts = rollupCounts(rows, 'Issued', 'Building Permit');
+    expect(counts.total).toBe(3);
+    expect(counts.approved).toBe(1);
+    expect(counts.correctionsRequired).toBe(1);
+    expect(counts.inReview).toBe(1);
+  });
+
+  it('terminal-positive but missing permitType does NOT override (issuance-bearing default)', () => {
+    // fix-41: unknown/absent type is treated as issuance-bearing — the
+    // safer default (show real counts rather than a blanket all-✓).
     const rows = [
       makeReviewer({ reviewer_name: 'A', current_status: 'corrections_required' }),
       makeReviewer({ reviewer_name: 'B', current_status: 'approved' }),
     ];
-    const counts = rollupCounts(rows, 'Reviews In Process');
+    const counts = rollupCounts(rows, 'Conceptually Approved');
+    expect(counts.approved).toBe(1);
+    expect(counts.correctionsRequired).toBe(1);
+  });
+
+  it('regression 7087866-CN: Issued Building Permit reads 14/8, not 14/14', () => {
+    // fix-41 motivating bug. 14 reviewers: 8 approved, 4 assigned,
+    // 1 in_process, 1 pending. Pre-fix-41 the Issued status forced all
+    // 14 to ✓; now the chip shows the real 8 approved (assigned +
+    // in_process collapse to in_review = 5; pending = 1).
+    const rows: PermitCycleReviewer[] = [
+      ...Array.from({ length: 8 }, (_, i) =>
+        makeReviewer({ reviewer_name: `Approved${i}`, current_status: 'approved' }),
+      ),
+      ...Array.from({ length: 4 }, (_, i) =>
+        makeReviewer({ reviewer_name: `Assigned${i}`, current_status: 'assigned' }),
+      ),
+      makeReviewer({ reviewer_name: 'InProc', current_status: 'in_process' }),
+      makeReviewer({ reviewer_name: 'Pend', current_status: 'pending' }),
+    ];
+    const counts = rollupCounts(rows, 'Issued', 'Building Permit');
+    expect(counts.total).toBe(14);
+    expect(counts.approved).toBe(8);
+    expect(counts.inReview).toBe(5); // 4 assigned + 1 in_process
+    expect(counts.pending).toBe(1);
+    expect(counts.correctionsRequired).toBe(0);
+  });
+
+  it('non-terminal status leaves individual buckets intact (any type)', () => {
+    const rows = [
+      makeReviewer({ reviewer_name: 'A', current_status: 'corrections_required' }),
+      makeReviewer({ reviewer_name: 'B', current_status: 'approved' }),
+    ];
+    // Even a no-issuance type doesn't override when status isn't terminal.
+    const counts = rollupCounts(rows, 'Reviews In Process', 'SDOT Tree');
     expect(counts.approved).toBe(1);
     expect(counts.correctionsRequired).toBe(1);
   });
@@ -162,13 +218,13 @@ describe('rollupCounts with permitStatus override (fix-31b)', () => {
     const rows = [
       makeReviewer({ reviewer_name: 'A', current_status: 'corrections_required' }),
     ];
-    expect(rollupCounts(rows, null).correctionsRequired).toBe(1);
-    expect(rollupCounts(rows, undefined).correctionsRequired).toBe(1);
-    expect(rollupCounts(rows, '').correctionsRequired).toBe(1);
+    expect(rollupCounts(rows, null, 'SDOT Tree').correctionsRequired).toBe(1);
+    expect(rollupCounts(rows, undefined, 'SDOT Tree').correctionsRequired).toBe(1);
+    expect(rollupCounts(rows, '', 'SDOT Tree').correctionsRequired).toBe(1);
     expect(rollupCounts(rows).correctionsRequired).toBe(1);
   });
 
-  it('every TERMINAL_POSITIVE_STATUSES value triggers the override', () => {
+  it('every TERMINAL_POSITIVE_STATUSES value triggers the override for a no-issuance type', () => {
     const rows = [
       makeReviewer({ reviewer_name: 'A', current_status: 'corrections_required' }),
     ];
@@ -180,17 +236,30 @@ describe('rollupCounts with permitStatus override (fix-31b)', () => {
       'Ready for Issuance',
       'Closed',
     ]) {
-      const counts = rollupCounts(rows, status);
+      const counts = rollupCounts(rows, status, 'PAR/Pre-Sub');
       expect(counts.approved).toBe(1);
       expect(counts.correctionsRequired).toBe(0);
     }
   });
 
-  it('whitespace tolerance on permitStatus (trim before match)', () => {
+  it('every no-issuance type triggers the override under a terminal-positive status', () => {
     const rows = [
       makeReviewer({ reviewer_name: 'A', current_status: 'corrections_required' }),
     ];
-    expect(rollupCounts(rows, '  Conceptually Approved  ').approved).toBe(1);
+    for (const type of ['SDOT Tree', 'PAR/Pre-Sub', 'ECA Waiver', 'ULS']) {
+      const counts = rollupCounts(rows, 'Issued', type);
+      expect(counts.approved).toBe(1);
+      expect(counts.correctionsRequired).toBe(0);
+    }
+  });
+
+  it('whitespace tolerance on permitStatus and permitType (trim before match)', () => {
+    const rows = [
+      makeReviewer({ reviewer_name: 'A', current_status: 'corrections_required' }),
+    ];
+    expect(
+      rollupCounts(rows, '  Conceptually Approved  ', '  SDOT Tree  ').approved,
+    ).toBe(1);
   });
 });
 

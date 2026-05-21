@@ -70,6 +70,7 @@ import {
   TERMINAL_POSITIVE_STATUSES,
   isTerminalPositiveStatus,
 } from './permitTerminalStatus';
+import { isNoIssuanceType } from './permitTypeTaxonomy';
 export { TERMINAL_POSITIVE_STATUSES, isTerminalPositiveStatus };
 
 /** Roll up a list of reviewer rows into chip counts. Each reviewer is
@@ -77,12 +78,23 @@ export { TERMINAL_POSITIVE_STATUSES, isTerminalPositiveStatus };
  *  which bucket they land in. fix-31b: when permitStatus is a
  *  terminal-positive value, every reviewer collapses to the approved
  *  bucket regardless of their last event — the permit's own status
- *  is the authoritative ceiling. */
+ *  is the authoritative ceiling.
+ *
+ *  fix-41 (2026-05-21): the terminal-positive override is now
+ *  type-scoped. It fires ONLY for no-issuance permit types (SDOT Tree,
+ *  PAR/Pre-Sub, ECA Waiver, ULS) where terminal-positive IS the final
+ *  state and per-reviewer events are noise. For issuance-bearing types
+ *  (Building Permit, Demolition, etc.) fix-31g populates real
+ *  per-reviewer current_status, so we show those real counts — an
+ *  Issued BP with 8/14 reviewers approved must read 8, not 14. The gate
+ *  lives here (single source of truth), not at the call site. */
 export function rollupCounts(
   rows: PermitCycleReviewer[],
   permitStatus?: string | null,
+  permitType?: string | null,
 ): ReviewerCounts {
-  const overrideAllApproved = isTerminalPositiveStatus(permitStatus);
+  const overrideAllApproved =
+    isTerminalPositiveStatus(permitStatus) && isNoIssuanceType(permitType);
   const counts: ReviewerCounts = {
     total: rows.length,
     approved: 0,

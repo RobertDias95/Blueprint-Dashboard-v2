@@ -49,8 +49,13 @@ interface Props {
    *  for Issuance / Closed) every reviewer rolls up as approved
    *  regardless of their last individual event — the permit's own
    *  status is the authoritative ceiling. See reviewerRollup.ts for
-   *  the full list. */
+   *  the full list. fix-41 type-scopes this (see permitType below). */
   permitStatus?: string | null;
+  /** fix-41: permits.type. The fix-31b override is now gated on this —
+   *  it fires only for no-issuance types (SDOT Tree / PAR/Pre-Sub /
+   *  ECA Waiver / ULS). Threaded through to rollupCounts, which owns the
+   *  gate. Issuance-bearing types show real per-reviewer counts. */
+  permitType?: string | null;
 }
 
 export default function ReviewerRollupChip({
@@ -58,6 +63,7 @@ export default function ReviewerRollupChip({
   rows,
   fallbackReviewer,
   permitStatus,
+  permitType,
 }: Props) {
   const [open, setOpen] = useState(false);
   const chipRef = useRef<HTMLButtonElement>(null);
@@ -67,7 +73,7 @@ export default function ReviewerRollupChip({
 
   const latestIdx = latestCycleIndex(rows);
   const visibleRows = latestIdx === null ? [] : rowsForCycle(rows, latestIdx);
-  const counts = rollupCounts(visibleRows, permitStatus);
+  const counts = rollupCounts(visibleRows, permitStatus, permitType);
 
   // Outside-click + Esc dismiss
   useEffect(() => {

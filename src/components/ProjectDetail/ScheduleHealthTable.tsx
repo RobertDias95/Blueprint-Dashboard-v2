@@ -274,6 +274,7 @@ function Row({
           rows={reviewers}
           fallbackReviewer={fallbackReviewer}
           permitStatus={permit.status}
+          permitType={permit.type}
         />
       </td>
       {/* 3. Stage */}
