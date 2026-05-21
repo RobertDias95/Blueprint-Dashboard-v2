@@ -143,24 +143,24 @@ export default function PermitDetailV2({ permit, project }: Props) {
     stage === 'de' ? 'de' : 'pm',
   );
 
-  // fix-25d sub-issue 3 originally auto-advanced to whatever the
-  // newest cycle was after any growth. fix-25-DD narrows that to the
-  // first c0 → c1 transition only — the UX moment Bobby wants
-  // covered (intake-accepted snap creates c1, view follows).
+  // fix-25d sub-issue 3 → fix-35 → fix-38: auto-advance the viewed cycle to
+  // the NEWEST cycle whenever its index grows. Covers BOTH snap transitions:
+  //   - intake_accepted on c0 → snap creates c1 → advance to c1
+  //   - resubmitted on cN  → snap creates c(N+1) → advance to c(N+1)
   //
-  // The old behavior fired on every cycles.length bump, which fed
-  // the cluster-A feedback loop on 3056 PAR/Pre-Sub: c_N.resubmitted
-  // edit → snap creates c_(N+1) → view auto-advances to N+1 → next
-  // onChange writes to N+1 → repeat. Eleven cycles in ten seconds.
-  // Even with fix-25-DD's blur-only DateCell, keeping auto-advance
-  // narrow is defense in depth against any future entry mode that
-  // emits rapid commits.
+  // fix-35 had narrowed this to ONLY c0→c1 to stop the cluster-A calendar-
+  // arrow explosion on 3056 PAR/Pre-Sub (rapid per-increment onChange commits
+  // → snap → advance → write to the new cycle → repeat, 11 cycles in ~10s).
+  // That guard is no longer needed: fix-25-DD made DateCell commit on
+  // blur/Enter ONLY, so the cycles array grows solely on a DELIBERATE commit,
+  // never on raw calendar navigation. The advance is driven by the cache
+  // growing after a committed snap — not by keystrokes — so re-widening to all
+  // cycles is safe. (Commit MUST stay blur/Enter-only; see DateCell.)
   //
-  // Initialised to the current newest cycle so mounts with a c1 (or
-  // later) already present do NOT auto-advance — the user has either
-  // passed through that transition in a prior session or is being
-  // restored to where they were. Only an in-session change from
-  // 0/null → 1 fires the bump.
+  // prevNewestIdxRef is initialised to the mounted newest, and the component
+  // is keyed by permit.id (remounts per permit), so a permit that loads
+  // mid-stream at c3 does NOT auto-advance on mount — only an in-session
+  // growth fires the bump.
   const prevNewestIdxRef = useRef<number | null>(
     cycles.length > 0 ? cycles[cycles.length - 1]?.cycle_index ?? null : null,
   );
@@ -170,16 +170,11 @@ export default function PermitDetailV2({ permit, project }: Props) {
         ? cycles[cycles.length - 1]?.cycle_index ?? null
         : null;
     const prevNewest = prevNewestIdxRef.current;
-    if (
-      prevNewest !== newestIdx &&
-      (prevNewest === null || prevNewest === 0) &&
-      newestIdx === 1 &&
-      viewCycleIdx === 0
-    ) {
-      setViewCycleIdx(1);
+    if (newestIdx !== null && newestIdx > (prevNewest ?? -1)) {
+      setViewCycleIdx(newestIdx);
     }
     prevNewestIdxRef.current = newestIdx;
-  }, [cycles, viewCycleIdx]);
+  }, [cycles]);
 
   // fix-25d sub-issue 4 (25f): when the user (or sub-issue 3's
   // auto-advance) moves from Design (viewCycleIdx=0) to a review cycle
