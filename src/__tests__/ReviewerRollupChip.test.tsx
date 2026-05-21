@@ -119,9 +119,12 @@ describe('ReviewerRollupChip', () => {
     expect(chip.textContent).not.toContain('⚠');
   });
 
-  it('terminal-positive + issuance-bearing type shows REAL counts incl. ⚠ (fix-41)', () => {
-    // Same mix but an Issued Building Permit — fix-41 drops the override
-    // so the genuine per-reviewer status shows: 1✓, 1⚠, 1© (in_review).
+  it('terminal-positive + issuance-bearing keeps REAL approved count but MUTES ⚠ (fix-41/fix-42)', () => {
+    // Same mix but an Issued Building Permit. fix-41 keeps the real
+    // approved count (1✓, not the override's 3✓). fix-42: on a terminal
+    // permit the lone corrections_required is necessarily resolved, so
+    // the ⚠ is de-alarmed — it folds into the muted © group alongside
+    // the in_process reviewer (1 corrections + 1 in_review = 2©).
     const rows: PermitCycleReviewer[] = [
       makeReviewer('Anne-Marie', 'corrections_required'),
       makeReviewer('Tom', 'approved'),
@@ -137,9 +140,34 @@ describe('ReviewerRollupChip', () => {
       />,
     );
     const chip = screen.getByTestId('reviewer-chip-42');
-    expect(chip.textContent).toContain('3');
-    expect(chip.textContent).toContain('1✓');
-    expect(chip.textContent).toContain('1⚠');
+    expect(chip.textContent).toContain('3'); // total unchanged
+    expect(chip.textContent).toContain('1✓'); // real approved unchanged
+    expect(chip.textContent).not.toContain('⚠'); // fix-42: de-alarmed
+    expect(chip.textContent).toContain('2©'); // corrections folded into muted other
+  });
+
+  it('regression 7087867-DM: Issued Demolition mutes the resolved-corrections ⚠ (fix-42)', () => {
+    // Verified case: 7087867-DM (Issued), 3 reviewers, 2 approved + Iris
+    // Moore at corrections_required (an intake hold cleared on resubmit;
+    // her Accela task just never closed). Chip → "3 · 2✓", no ⚠.
+    const rows: PermitCycleReviewer[] = [
+      makeReviewer('Reviewer A', 'approved'),
+      makeReviewer('Reviewer B', 'approved'),
+      makeReviewer('Iris Moore', 'corrections_required'),
+    ];
+    render(
+      <ReviewerRollupChip
+        permitId={7087867}
+        rows={rows}
+        fallbackReviewer={null}
+        permitStatus="Issued"
+        permitType="Demolition"
+      />,
+    );
+    const chip = screen.getByTestId('reviewer-chip-7087867');
+    expect(chip.textContent).toContain('3'); // total unchanged
+    expect(chip.textContent).toContain('2✓'); // approved unchanged
+    expect(chip.textContent).not.toContain('⚠'); // resolved corrections de-alarmed
   });
 
   it('regression 7087866-CN: Issued Building Permit chip reads 14 / 8✓ (not 14✓)', () => {
