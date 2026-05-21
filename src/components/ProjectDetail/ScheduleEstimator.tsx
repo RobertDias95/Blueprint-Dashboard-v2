@@ -236,7 +236,7 @@ function UlsAnchorBlock({
       >
         ULS — BP Anchor Path
       </div>
-      <AnchorRow label="BP Issue Anchor" value={anchors.bpIssueAnchor} />
+      <AnchorRow label="BP Approval Anchor" value={anchors.bpApprovalAnchor} />
       <AnchorRow label="BP Cy1 Resubmit" value={anchors.cy1Resub} />
       <AnchorRow label="ULS Target Submit" value={anchors.targetSubmit} />
       <AnchorRow label="+ 120-day lag" value={anchors.estApproval} />

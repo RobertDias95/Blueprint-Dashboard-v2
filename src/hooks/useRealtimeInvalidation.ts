@@ -23,6 +23,13 @@ export function useRealtimeInvalidation() {
           'postgres_changes',
           { event: '*', schema: 'public', table },
           () => {
+            // fix-39 Track B: don't invalidate (→ refetch) while a mutation is
+            // in flight. A realtime event landing mid-mutation would refetch
+            // the pre-commit row and clobber the optimistic edit — the silent
+            // "approval_date goes blank" race. The mutation's own onSuccess
+            // merges the authoritative row; the next realtime event (after the
+            // mutation settles) re-syncs everything else.
+            if (queryClient.isMutating() > 0) return;
             keys.forEach((key) => {
               queryClient.invalidateQueries({ queryKey: key });
             });

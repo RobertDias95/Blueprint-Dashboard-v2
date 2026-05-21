@@ -243,7 +243,7 @@ describe('computeProjectedApproval', () => {
     expect(r.projection).toBe('2026-05-29');
     expect(r.targetCycle).toBe(0);
     expect(r.ulsAnchors).toBeDefined();
-    expect(r.ulsAnchors?.bpIssueAnchor).toBe('2026-01-29');
+    expect(r.ulsAnchors?.bpApprovalAnchor).toBe('2026-01-29');
   });
 
   it('BP scheduleCycleOverride propagates to ULS anchor — Q9.5.f-fix-18', () => {
@@ -272,8 +272,60 @@ describe('computeProjectedApproval', () => {
     // fix-25-HH-redux: cycle 3 (approval review) city review cr3=21 →
     //   2026-03-25, +7 = 2026-04-01.
     // ULS = 2026-04-01 + 120 = 2026-07-30 (well past the sanity-walk cap).
-    expect(r.ulsAnchors?.bpIssueAnchor).toBe('2026-04-01');
+    expect(r.ulsAnchors?.bpApprovalAnchor).toBe('2026-04-01');
     expect(r.projection).toBe('2026-07-30');
+  });
+
+  it('fix-39 Track A: ULS anchors to BP.approval_date (not actual_issue) + 120, floored', () => {
+    // Mirrors 3039 63rd: BP approved 2026-04-30, issued 2026-05-04. The ULS
+    // must anchor to the APPROVAL milestone, not issuance. Both are in the
+    // past relative to today (2026-05-20), so the anchor floors to today:
+    // 2026-05-20 + 120 = 2026-09-17.
+    vi.setSystemTime(new Date('2026-05-20T12:00:00Z'));
+    const bp = permit({
+      id: 100,
+      type: 'Building Permit',
+      approval_date: '2026-04-30',
+      actual_issue: '2026-05-04',
+    });
+    const uls = permit({ id: 200, type: 'ULS' });
+    const r = computeProjectedApproval({
+      permit: uls,
+      cycles: [cyc({ cycle_index: 1, submitted: '2026-05-04' })],
+      learnedEstimate: null,
+      siblingPermits: [bp, uls],
+      siblingCyclesByPermitId: new Map([
+        [100, [cyc({ cycle_index: 1, submitted: '2025-12-29' })]],
+      ]),
+      siblingLearnedByPermitId: new Map([[100, null]]),
+    });
+    expect(r.targetCycle).toBe(0);
+    expect(r.ulsAnchors?.bpApprovalAnchor).toBe('2026-04-30');
+    expect(r.projection).toBe('2026-09-17');
+  });
+
+  it('fix-39 Track A: BP approved in the FUTURE → ULS = approval + 120 (not issue-based)', () => {
+    // Distinguishes approval-anchoring from issue-anchoring: a BP whose
+    // approval is set to a FUTURE date and has no actual_issue. ULS must read
+    // approval(2026-08-01) + 120 = 2026-11-29, proving it tracks approval.
+    const bp = permit({
+      id: 100,
+      type: 'Building Permit',
+      approval_date: '2026-08-01',
+    });
+    const uls = permit({ id: 200, type: 'ULS' });
+    const r = computeProjectedApproval({
+      permit: uls,
+      cycles: [],
+      learnedEstimate: null,
+      siblingPermits: [bp, uls],
+      siblingCyclesByPermitId: new Map([
+        [100, [cyc({ cycle_index: 1, submitted: '2026-01-01' })]],
+      ]),
+      siblingLearnedByPermitId: new Map([[100, null]]),
+    });
+    expect(r.ulsAnchors?.bpApprovalAnchor).toBe('2026-08-01');
+    expect(r.projection).toBe('2026-11-29');
   });
 
   it('cityTarget shortcut: cycle 1 city_target acts as crEnd when no corr_issued — Q9.5.f-fix-18', () => {

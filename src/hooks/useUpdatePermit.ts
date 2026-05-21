@@ -83,7 +83,15 @@ export function useUpdatePermit() {
       }
 
       if (isOCCConflict(error)) {
-        pushToast(error.message, 'warn');
+        // fix-39 Track B: an OCC conflict on a field commit used to fire a
+        // low-key 'warn' that read as "silently blanked." Make it a loud,
+        // persistent 'error' that names the field, and refetch the fresh
+        // updated_at token (invalidate → refetch) so an immediate re-save
+        // succeeds instead of reverting again.
+        pushToast(
+          `${variables.fieldLabel ?? 'Your change'} wasn't saved — this permit was updated elsewhere. The latest data was refreshed; re-enter and save.`,
+          'error',
+        );
         queryClient.invalidateQueries({ queryKey: permitsKey });
         queryClient.invalidateQueries({ queryKey: byProjectKey });
       } else {
