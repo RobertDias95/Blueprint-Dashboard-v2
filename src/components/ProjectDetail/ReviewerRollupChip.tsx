@@ -7,6 +7,7 @@ import {
   rowsForCycle,
   statusLabel,
 } from '../../lib/reviewerRollup';
+import { isTerminalPositiveStatus } from '../../lib/permitTerminalStatus';
 
 // fix-31: Schedule Health column cell for the reviewer rollup. Replaces
 // the pre-fix-31 "tasks" placeholder column that just rendered "no
@@ -74,6 +75,23 @@ export default function ReviewerRollupChip({
   const latestIdx = latestCycleIndex(rows);
   const visibleRows = latestIdx === null ? [] : rowsForCycle(rows, latestIdx);
   const counts = rollupCounts(visibleRows, permitStatus, permitType);
+
+  // fix-42 (2026-05-21): on a terminal-positive permit, a reviewer still
+  // sitting at corrections_required is necessarily RESOLVED — the permit
+  // advanced past their hold (e.g. 7087867-DM Iris Moore: an intake hold
+  // cleared on resubmit whose Accela task never auto-closed). So the ⚠
+  // "action needed" pill is a false alarm. De-alarm it: suppress the ⚠
+  // and fold those reviewers into the muted "other" (©) group so the
+  // chip stays fully accounted (total = approved + ©). We do NOT collapse
+  // them to approved (fix-41's rollupCounts keeps real counts; the popup
+  // still shows their raw "Corrections" status as honest detail).
+  // No type gate needed: no-issuance types already fold corrections into
+  // approved via fix-41's override, so there is no ⚠ left to mute here.
+  const muteCorrections = isTerminalPositiveStatus(permitStatus);
+  const mutedOther =
+    counts.inReview +
+    counts.pending +
+    (muteCorrections ? counts.correctionsRequired : 0);
 
   // Outside-click + Esc dismiss
   useEffect(() => {
@@ -146,14 +164,14 @@ export default function ReviewerRollupChip({
             {counts.approved}✓
           </span>
         )}
-        {counts.correctionsRequired > 0 && (
+        {!muteCorrections && counts.correctionsRequired > 0 && (
           <span style={{ color: 'var(--color-co)' }}>
             {counts.correctionsRequired}⚠
           </span>
         )}
-        {(counts.inReview + counts.pending) > 0 && (
+        {mutedOther > 0 && (
           <span style={{ color: 'var(--color-dim)' }}>
-            {counts.inReview + counts.pending}©
+            {mutedOther}©
           </span>
         )}
       </button>
