@@ -1162,3 +1162,57 @@ describe('<DrawScheduleGrid /> Q9.5.f-fix-20', () => {
     expect(screen.queryByTestId('np-resize-conflict-prompt')).toBeNull();
   });
 });
+
+// ---------------------------------------------------------------------------
+// fix-47: the lane/grid area stretches to fill the viewport height (taller
+// rows + bigger text), and degrades to BASE_ROW_H when the viewport can't be
+// measured (so the existing block-position + drag-resize math is preserved).
+// ---------------------------------------------------------------------------
+describe('<DrawScheduleGrid /> fix-47 fill-height', () => {
+  it('scales week rows up to fill the measured viewport height', () => {
+    // jsdom reports 0 for layout, so simulate a real viewport: stub the grid
+    // card clientHeight + the header offset, plus a ResizeObserver that fires
+    // its callback synchronously on observe().
+    const clientSpy = vi
+      .spyOn(HTMLElement.prototype, 'clientHeight', 'get')
+      .mockReturnValue(700);
+    const offsetSpy = vi
+      .spyOn(HTMLElement.prototype, 'offsetTop', 'get')
+      .mockReturnValue(48);
+    class SyncResizeObserver {
+      private cb: ResizeObserverCallback;
+      constructor(cb: ResizeObserverCallback) {
+        this.cb = cb;
+      }
+      observe() {
+        this.cb([], this as unknown as ResizeObserver);
+      }
+      unobserve() {}
+      disconnect() {}
+    }
+    vi.stubGlobal('ResizeObserver', SyncResizeObserver);
+    try {
+      renderGrid();
+      // rowsArea = 700 - 48 = 652; ~13 weeks -> rowH ~= 50px, well above the
+      // 28px base. Week label, drop cells and blocks all use the scaled rowH.
+      const cell = screen.getByTestId('drop-cell-Trevor-2026-05-04');
+      expect(parseInt(cell.style.height, 10)).toBeGreaterThan(28);
+      const label = screen.getByTestId('week-label-2026-05-04');
+      expect(parseInt(label.style.height, 10)).toBeGreaterThan(28);
+      // Text scales up too (date label font grows past its 9px base).
+      expect(parseInt(label.style.fontSize, 10)).toBeGreaterThan(9);
+    } finally {
+      clientSpy.mockRestore();
+      offsetSpy.mockRestore();
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('falls back to the 28px base row height when the viewport is unmeasured', () => {
+    // Default jsdom: zero heights / no ResizeObserver -> rowH stays at base so
+    // the resize math (deltaPx / rowH) and block positions are unchanged.
+    renderGrid();
+    const cell = screen.getByTestId('drop-cell-Trevor-2026-05-04');
+    expect(cell.style.height).toBe('28px');
+  });
+});
