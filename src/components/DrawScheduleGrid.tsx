@@ -74,7 +74,13 @@ import { deriveBlockStatus } from '../lib/drawScheduleStatus';
 // silently (no overlap) or surfaces the Option B conflict prompt with the
 // list of blocked projects. Cascade RPC ("Push Down") ships in Q6.2.b.
 
-const ROW_H = 28;
+// fix-47: BASE (minimum) week-row height in px. The grid scales rows UP from
+// this to fill the viewport height (see `rowH` in DrawScheduleBody) so the
+// lanes/blocks/text grow into the available space. BASE_ROW_H is the floor:
+// on short viewports the grid scrolls vertically rather than shrinking below
+// this. When the viewport is unmeasured (initial render / jsdom) rowH === this,
+// so block-position + drag-resize math are unchanged in tests.
+const BASE_ROW_H = 28;
 // fix-25-feat-c: bumped from 64 → 88 to fit the Mon-Fri "M/D — M/D"
 // range label (widest case "▸ 12/29 — 12/31" at 9px font-mono).
 const LABEL_W = 88;
@@ -315,6 +321,50 @@ function DrawScheduleBody({
   const weeks = useMemo(() => getQuarterWeeks(quarterOffset), [quarterOffset]);
   const currentWeek = useMemo(() => dateToWeekKey(getMonday(new Date())), []);
 
+  // fix-47: stretch the week rows to fill the viewport height. The grid's
+  // vertical extent is weeks.length * rowH, which previously only covered the
+  // top ~360px and left the rest of the screen gray. We measure the scroll
+  // card's visible height minus the sticky header rows (the body grid's
+  // offsetTop within the position:relative card), then divide by the week
+  // count so the rows — and the blocks + text inside them — grow to fill the
+  // space. BASE_ROW_H is the floor; on a short viewport the card scrolls
+  // vertically (sticky headers stay pinned) instead of shrinking below it.
+  const gridScrollRef = useRef<HTMLDivElement>(null);
+  const bodyGridRef = useRef<HTMLDivElement>(null);
+  const [rowsAreaH, setRowsAreaH] = useState(0);
+  useEffect(() => {
+    const card = gridScrollRef.current;
+    const body = bodyGridRef.current;
+    if (!card || !body) return;
+    const measure = () => {
+      // clientHeight excludes the horizontal scrollbar; body.offsetTop is the
+      // combined sticky-header height (card is position:relative).
+      setRowsAreaH(Math.max(0, card.clientHeight - body.offsetTop));
+    };
+    measure();
+    // jsdom has no ResizeObserver and reports 0 heights — guard so tests keep
+    // rowH === BASE_ROW_H (block-position + resize math unchanged).
+    if (typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver(measure);
+    ro.observe(card);
+    return () => ro.disconnect();
+  }, []);
+  const rowH = useMemo(() => {
+    if (weeks.length === 0 || rowsAreaH <= 0) return BASE_ROW_H;
+    return Math.max(BASE_ROW_H, Math.floor(rowsAreaH / weeks.length));
+  }, [rowsAreaH, weeks.length]);
+  // Window-level resize listeners (drag-to-resize) read the live rowH via a
+  // ref so they don't re-attach on every viewport change. Mirrors the
+  // resizingRef render-time-sync pattern used below.
+  const rowHRef = useRef(rowH);
+  // eslint-disable-next-line react-hooks/refs
+  rowHRef.current = rowH;
+  // fix-47: scale block + date-label text up with the row height so the extra
+  // space reads as bigger, more legible type (not just taller empty blocks).
+  // Clamped so it never shrinks below the original sizes (factor >= 1) and
+  // doesn't balloon on very tall monitors.
+  const textScale = Math.min(1.7, Math.max(1, rowH / BASE_ROW_H));
+
   const updateMutation = useUpdateDrawSchedule();
   const moveDaMutation = useMoveDrawScheduleDa();
   const shiftUpMutation = useShiftDaBlocksUp();
@@ -492,7 +542,7 @@ function DrawScheduleBody({
       const r = resizingRef.current;
       if (!r) return;
       const deltaPx = e.clientY - r.startMouseY;
-      const deltaWeeks = Math.round(deltaPx / ROW_H);
+      const deltaWeeks = Math.round(deltaPx / rowHRef.current);
       // Clamp: end_week must be >= start_week (block can't go below 1 wk).
       // addWeeksToWeekKey accepts negative deltas, so we can shrink past
       // originalEndWeek but not before startWeek.
@@ -691,7 +741,7 @@ function DrawScheduleBody({
       const r = npResizingRef.current;
       if (!r) return;
       const deltaPx = e.clientY - r.startMouseY;
-      const deltaWeeks = Math.round(deltaPx / ROW_H);
+      const deltaWeeks = Math.round(deltaPx / rowHRef.current);
       if (r.edge === 'bottom') {
         let candidate = addWeeksToWeekKey(r.originalEndWeek, deltaWeeks);
         if (candidate < r.previewStartWeek) candidate = r.previewStartWeek;
@@ -1036,7 +1086,10 @@ function DrawScheduleBody({
   }, [draw, projectById, search]);
 
   return (
-    <div className="space-y-3">
+    // fix-47: fill the parent's height as a flex column so the grid card can
+    // flex-1 into the available space (Toolbar + Unscheduled stay their
+    // natural height; the card absorbs the rest and scrolls if needed).
+    <div className="flex flex-col h-full min-h-0 gap-3">
       <Toolbar
         quarterOffset={quarterOffset}
         setQuarterOffset={setQuarterOffset}
@@ -1045,7 +1098,8 @@ function DrawScheduleBody({
       />
 
       <div
-        className="bg-surface border border-border rounded-xl overflow-x-auto"
+        ref={gridScrollRef}
+        className="relative bg-surface border border-border rounded-xl overflow-auto flex-1 min-h-0"
         data-testid="draw-schedule-grid"
       >
         {/* DM header row */}
@@ -1100,7 +1154,7 @@ function DrawScheduleBody({
         {/* Body grid. onMouseLeave clears the hover-week highlight when the
             cursor exits the whole grid — child mouseenter handlers (blocks +
             empty cells) drive the active range while inside. */}
-        <div className="flex relative" onMouseLeave={clearHover}>
+        <div ref={bodyGridRef} className="flex relative" onMouseLeave={clearHover}>
           {/* Week labels column */}
           <div
             style={{ width: LABEL_W, minWidth: LABEL_W }}
@@ -1118,8 +1172,8 @@ function DrawScheduleBody({
                   key={wk}
                   data-testid={`week-label-${wk}`}
                   data-hovered={isHovered ? 'true' : undefined}
-                  style={{ height: ROW_H }}
-                  className={`flex items-center justify-end pr-1.5 border-b border-border text-[9px] font-mono transition-colors ${
+                  style={{ height: rowH, fontSize: Math.round(9 * textScale) }}
+                  className={`flex items-center justify-end pr-1.5 border-b border-border font-mono transition-colors ${
                     isHovered
                       ? 'bg-de/[0.18] text-text font-bold'
                       : isCurrent
@@ -1158,7 +1212,7 @@ function DrawScheduleBody({
                     <div
                       key={wk}
                       data-testid={`drop-cell-${da}-${wk}`}
-                      style={{ height: ROW_H }}
+                      style={{ height: rowH }}
                       className={`border-b border-border cursor-pointer ${
                         wk === currentWeek ? 'bg-de/[0.04]' : ''
                       }`}
@@ -1233,8 +1287,8 @@ function DrawScheduleBody({
                       const si = weeks.indexOf(seg.startWeek);
                       const ei = weeks.indexOf(seg.endWeek);
                       if (si < 0 || ei < 0) return null;
-                      const top = si * ROW_H;
-                      const height = (ei - si + 1) * ROW_H - 2;
+                      const top = si * rowH;
+                      const height = (ei - si + 1) * rowH - 2;
                       // fix-25-feat-a: attach the top handle to the first
                       // visible segment and the bottom handle to the last.
                       // When the true start/end of the NP is covered by a
@@ -1278,7 +1332,7 @@ function DrawScheduleBody({
                             borderRadius: 4,
                             padding: '2px 4px',
                             overflow: 'hidden',
-                            fontSize: 9,
+                            fontSize: Math.round(9 * textScale),
                             fontWeight: 700,
                             lineHeight: 1.1,
                             whiteSpace: 'nowrap',
@@ -1387,9 +1441,9 @@ function DrawScheduleBody({
                     if (startIdx < 0 && endIdx < 0) return null;
                     const si = startIdx >= 0 ? startIdx : 0;
                     const ei = endIdx >= 0 ? endIdx : weeks.length - 1;
-                    const top = si * ROW_H;
+                    const top = si * rowH;
                     const height =
-                      Math.min((ei - si + 1) * ROW_H, (weeks.length - si) * ROW_H) - 3;
+                      Math.min((ei - si + 1) * rowH, (weeks.length - si) * rowH) - 3;
                     // Q9.5.g: derive status from live permit/cycle data via
                     // dsAutoStatus precedence (Corrections > Approved > Under
                     // Review > DD-phase date math). The stored row.status is
@@ -1502,7 +1556,7 @@ function DrawScheduleBody({
                             gracefully and tall blocks show full detail. */}
                         <span
                           style={{
-                            fontSize: 10,
+                            fontSize: Math.round(10 * textScale),
                             fontWeight: 800,
                             lineHeight: 1.1,
                             whiteSpace: 'nowrap',
@@ -1517,7 +1571,7 @@ function DrawScheduleBody({
                         {height >= 22 && project.juris && (
                           <span
                             style={{
-                              fontSize: 8,
+                              fontSize: Math.round(8 * textScale),
                               fontWeight: 500,
                               lineHeight: 1.1,
                               opacity: 0.75,
@@ -1530,7 +1584,7 @@ function DrawScheduleBody({
                         {height >= 32 && (
                           <span
                             style={{
-                              fontSize: 8,
+                              fontSize: Math.round(8 * textScale),
                               fontWeight: 700,
                               padding: '1px 5px',
                               borderRadius: 3,
@@ -1558,7 +1612,7 @@ function DrawScheduleBody({
                             return (
                               <span
                                 style={{
-                                  fontSize: 8,
+                                  fontSize: Math.round(8 * textScale),
                                   fontWeight: 800,
                                   lineHeight: 1.1,
                                   color: sc.text,
@@ -1864,7 +1918,7 @@ function Toolbar({
   setSearch: (s: string) => void;
 }) {
   return (
-    <div className="flex items-center gap-3 flex-wrap">
+    <div className="flex items-center gap-3 flex-wrap flex-shrink-0">
       <div className="flex items-center gap-1">
         <button
           type="button"
@@ -1918,13 +1972,13 @@ function UnscheduledLane({
 }) {
   if (items.length === 0) {
     return (
-      <div className="bg-surface border border-border rounded-xl px-4 py-2 text-[11px] text-dim italic">
+      <div className="flex-shrink-0 bg-surface border border-border rounded-xl px-4 py-2 text-[11px] text-dim italic">
         No unscheduled projects.
       </div>
     );
   }
   return (
-    <div className="bg-surface border border-border rounded-xl px-4 py-3 space-y-2">
+    <div className="flex-shrink-0 bg-surface border border-border rounded-xl px-4 py-3 space-y-2 max-h-[20vh] overflow-y-auto">
       <div className="text-[11px] font-display font-bold uppercase text-muted tracking-wide">
         Unscheduled ({items.length})
       </div>
