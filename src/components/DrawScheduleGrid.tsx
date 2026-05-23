@@ -83,7 +83,15 @@ import { deriveBlockStatus } from '../lib/drawScheduleStatus';
 const BASE_ROW_H = 28;
 // fix-25-feat-c: bumped from 64 → 88 to fit the Mon-Fri "M/D — M/D"
 // range label (widest case "▸ 12/29 — 12/31" at 9px font-mono).
+// fix-48: this is the BASE label-gutter width (at textScale === 1). The
+// rendered width is `labelW = round(LABEL_W * textScale)` so the gutter grows
+// with fix-47's enlarged date font and the "M/D – M/D" range never wraps.
 const LABEL_W = 88;
+// fix-48: minimum DA (design-associate) column width. DA columns flex to
+// share the available width (few DAs fill it, no empty gutter) but never
+// shrink below this, so a project block's address stays legible; once the
+// columns hit this floor the grid scrolls horizontally as one unit.
+const DA_MIN_W = 150;
 /** What we ship in the HTML5 drag's dataTransfer payload. JSON-encoded so
  * jsdom + browsers both round-trip it cleanly via getData/setData.
  * Q9.5.f-fix-20: added currentDa + originalStart/EndWeek so the drop handler
@@ -364,6 +372,12 @@ function DrawScheduleBody({
   // Clamped so it never shrinks below the original sizes (factor >= 1) and
   // doesn't balloon on very tall monitors.
   const textScale = Math.min(1.7, Math.max(1, rowH / BASE_ROW_H));
+  // fix-48: the left week-label gutter scales with the date font so the
+  // "M/D – M/D" range stops squishing/wrapping at large textScale. A single
+  // derived value drives the DM-header spacer, the DA-header spacer, and the
+  // body label column so they stay in lockstep. At textScale === 1 (unmeasured
+  // / jsdom) this is exactly the original LABEL_W (88) — layout unchanged.
+  const labelW = Math.round(LABEL_W * textScale);
 
   const updateMutation = useUpdateDrawSchedule();
   const moveDaMutation = useMoveDrawScheduleDa();
@@ -1102,16 +1116,24 @@ function DrawScheduleBody({
         className="relative bg-surface border border-border rounded-xl overflow-auto flex-1 min-h-0"
         data-testid="draw-schedule-grid"
       >
-        {/* DM header row */}
-        <div className="flex sticky top-0 z-20 bg-s2 border-b border-border">
+        {/* DM header row.
+            fix-48: min-w-full + w-max — fill the card when DAs are few (flex
+            grow), but grow to content (and scroll) when many columns hit
+            DA_MIN_W, so the header background extends across the full scroll
+            width and stays aligned with the body. */}
+        <div className="flex min-w-full w-max sticky top-0 z-20 bg-s2 border-b border-border">
           <div
-            style={{ width: LABEL_W, minWidth: LABEL_W }}
+            style={{ width: labelW, minWidth: labelW }}
             className="border-r border-border"
           />
           {filteredGroups.map((g) => (
             <div
               key={g.dm}
-              style={{ flex: g.das.length }}
+              // fix-48: grow proportional to the DM's DA count (basis 0) and
+              // floor at das.length * DA_MIN_W so this header stays aligned
+              // with the sum of its DA columns once they hit the min and the
+              // grid scrolls.
+              style={{ flex: `${g.das.length} 1 0`, minWidth: g.das.length * DA_MIN_W }}
               className="text-center px-1 py-1 border-r-2 border-border text-[11px] font-extrabold uppercase truncate text-text"
             >
               {g.dm}
@@ -1119,10 +1141,10 @@ function DrawScheduleBody({
           ))}
         </div>
 
-        {/* DA header row */}
-        <div className="flex sticky top-[26px] z-[19] bg-s2 border-b-2 border-border">
+        {/* DA header row. fix-48: same min-w-full + w-max as the DM row. */}
+        <div className="flex min-w-full w-max sticky top-[26px] z-[19] bg-s2 border-b-2 border-border">
           <div
-            style={{ width: LABEL_W, minWidth: LABEL_W }}
+            style={{ width: labelW, minWidth: labelW }}
             className="border-r border-border"
           />
           {filteredGroups.flatMap((g) =>
@@ -1138,7 +1160,10 @@ function DrawScheduleBody({
                       ? `${da} is not active this quarter — visible because they have a block here`
                       : da
                   }
-                  className={`flex-1 text-center px-1 py-1 text-[10px] font-bold truncate ${
+                  // fix-48: flex to share width (basis 0), floor at DA_MIN_W so
+                  // many DAs shrink to the min and then the grid scrolls.
+                  style={{ flex: '1 1 0', minWidth: DA_MIN_W }}
+                  className={`text-center px-1 py-1 text-[10px] font-bold truncate ${
                     i === g.das.length - 1
                       ? 'border-r-2 border-border'
                       : 'border-r border-border'
@@ -1154,10 +1179,15 @@ function DrawScheduleBody({
         {/* Body grid. onMouseLeave clears the hover-week highlight when the
             cursor exits the whole grid — child mouseenter handlers (blocks +
             empty cells) drive the active range while inside. */}
-        <div ref={bodyGridRef} className="flex relative" onMouseLeave={clearHover}>
+        <div
+          ref={bodyGridRef}
+          className="flex min-w-full w-max relative"
+          onMouseLeave={clearHover}
+        >
           {/* Week labels column */}
           <div
-            style={{ width: LABEL_W, minWidth: LABEL_W }}
+            data-testid="week-label-col"
+            style={{ width: labelW, minWidth: labelW }}
             className="border-r border-border"
           >
             {weeks.map((wk) => {
@@ -1172,7 +1202,12 @@ function DrawScheduleBody({
                   key={wk}
                   data-testid={`week-label-${wk}`}
                   data-hovered={isHovered ? 'true' : undefined}
-                  style={{ height: rowH, fontSize: Math.round(9 * textScale) }}
+                  style={{
+                    height: rowH,
+                    fontSize: Math.round(9 * textScale),
+                    // fix-48: never let the M/D – M/D range wrap to a 2nd line.
+                    whiteSpace: 'nowrap',
+                  }}
                   className={`flex items-center justify-end pr-1.5 border-b border-border font-mono transition-colors ${
                     isHovered
                       ? 'bg-de/[0.18] text-text font-bold'
@@ -1198,7 +1233,10 @@ function DrawScheduleBody({
                 <div
                   key={`${g.dm}-${da}-col`}
                   data-testid={`da-col-${da}`}
-                  className={`flex-1 min-w-0 relative ${
+                  // fix-48: same flex + DA_MIN_W floor as the DA header so the
+                  // body column stays aligned with its header at every width.
+                  style={{ flex: '1 1 0', minWidth: DA_MIN_W }}
+                  className={`relative ${
                     isLast
                       ? 'border-r-2 border-border'
                       : 'border-r border-border'
