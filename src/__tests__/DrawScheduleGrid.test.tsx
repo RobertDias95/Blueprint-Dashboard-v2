@@ -1216,3 +1216,70 @@ describe('<DrawScheduleGrid /> fix-47 fill-height', () => {
     expect(cell.style.height).toBe('28px');
   });
 });
+
+// ---------------------------------------------------------------------------
+// fix-48: (A) the week-label gutter widens with textScale (and never wraps),
+// (B) DA columns flex to share width but floor at DA_MIN_W so many DAs scroll.
+// ---------------------------------------------------------------------------
+describe('<DrawScheduleGrid /> fix-48 labels + DA width', () => {
+  it('A: week-label gutter widens with textScale; labels never wrap', () => {
+    // Stub a tall viewport so textScale climbs to its 1.7x cap; the gutter
+    // width = round(88 * textScale) must grow past the 88px base.
+    const clientSpy = vi
+      .spyOn(HTMLElement.prototype, 'clientHeight', 'get')
+      .mockReturnValue(700);
+    const offsetSpy = vi
+      .spyOn(HTMLElement.prototype, 'offsetTop', 'get')
+      .mockReturnValue(48);
+    class SyncResizeObserver {
+      private cb: ResizeObserverCallback;
+      constructor(cb: ResizeObserverCallback) {
+        this.cb = cb;
+      }
+      observe() {
+        this.cb([], this as unknown as ResizeObserver);
+      }
+      unobserve() {}
+      disconnect() {}
+    }
+    vi.stubGlobal('ResizeObserver', SyncResizeObserver);
+    try {
+      renderGrid();
+      const col = screen.getByTestId('week-label-col');
+      expect(parseInt(col.style.width, 10)).toBeGreaterThan(88);
+      // Header spacer + body gutter stay in lockstep (same derived width).
+      expect(col.style.width).toBe(col.style.minWidth);
+      // The range label is forced onto one line at any font size.
+      const label = screen.getByTestId('week-label-2026-05-04');
+      expect(label.style.whiteSpace).toBe('nowrap');
+    } finally {
+      clientSpy.mockRestore();
+      offsetSpy.mockRestore();
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('A: gutter is the original 88px at base scale (unmeasured viewport)', () => {
+    renderGrid();
+    const col = screen.getByTestId('week-label-col');
+    expect(col.style.width).toBe('88px');
+  });
+
+  it('B: DA header + body columns share a DA_MIN_W (150px) floor', () => {
+    // Independent of measurement — the min-width is a constant floor so that
+    // many DAs shrink to it and then the grid scrolls (overflow-auto card).
+    renderGrid();
+    for (const da of ['Trevor', 'Ahmadi', 'Fisk']) {
+      expect(screen.getByTestId(`da-header-${da}`).style.minWidth).toBe('150px');
+      expect(screen.getByTestId(`da-col-${da}`).style.minWidth).toBe('150px');
+    }
+  });
+
+  it('B: DA header and body column share the same flex sizing (stay aligned)', () => {
+    renderGrid();
+    // Same flex shorthand on header + body => identical width at every size.
+    const header = screen.getByTestId('da-header-Trevor');
+    const col = screen.getByTestId('da-col-Trevor');
+    expect(col.style.flex).toBe(header.style.flex);
+  });
+});
