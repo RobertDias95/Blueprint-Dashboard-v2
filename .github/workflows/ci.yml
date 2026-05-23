@@ -5,6 +5,14 @@ on:
     branches: ['**']
   pull_request:
 
+# fix-ci-checkout-auth: explicitly grant the built-in GITHUB_TOKEN read access
+# to repo contents. Without this, the token inherits the repo/org default
+# "Workflow permissions" — and when that default is restricted, actions/checkout
+# has no credential and fails with "could not read Username for
+# 'https://github.com': terminal prompts disabled" before any code runs.
+permissions:
+  contents: read
+
 jobs:
   verify:
     name: Verify (typecheck + lint + test)
