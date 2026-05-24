@@ -30,6 +30,38 @@ export interface PermitStatus {
   /** True when derived from cycle state. False when falling back to the
    *  stored permits.status (no cycle progress + no target_submit). */
   derived: boolean;
+  /** fix-52: secondary status text shown as a sub-label / tooltip. Set only
+   *  for the "Approved — Not Issued" state, where it carries the underlying
+   *  portal status ("Awaiting Information" held vs "Ready for Issuance"
+   *  ready) so the ready-vs-held nuance isn't lost behind the canonical
+   *  label. Absent for every other state. */
+  detail?: string;
+}
+
+// fix-52 (2026-05-24): canonical label for a Building Permit / Demolition the
+// city has approved (approval_date set — fix-51 stamps it at Issuance-Prep
+// entry) but not yet issued (actual_issue still NULL). One string, used
+// everywhere this state renders.
+export const APPROVED_NOT_ISSUED_LABEL = 'Approved — Not Issued';
+
+const APPROVED_NOT_ISSUED_TYPES: ReadonlySet<string> = new Set([
+  'Building Permit',
+  'Demolition',
+]);
+
+/** fix-52: true for a Building Permit / Demolition the city has approved
+ *  (approval_date set) but not yet issued (actual_issue null). The portal
+ *  status is ambiguous for this state — "Awaiting Information" when held on a
+ *  builder condition (e.g. salvage assessment), "Ready for Issuance" once the
+ *  hold clears — so callers surface the canonical "Approved — Not Issued"
+ *  label and keep the portal status as secondary detail. The remaining wait is
+ *  the BUILDER's, not the city's. */
+export function isApprovedNotIssued(permit: PermitWithCycles): boolean {
+  return (
+    APPROVED_NOT_ISSUED_TYPES.has((permit.type ?? '').trim()) &&
+    !!permit.approval_date &&
+    !permit.actual_issue
+  );
 }
 
 const LABEL_MAP: Record<HighlightTarget['key'], string> = {
@@ -46,6 +78,25 @@ const LABEL_MAP: Record<HighlightTarget['key'], string> = {
 const FALLBACK_LABEL = 'Pre-Submittal — GO';
 
 export function derivePermitStatus(permit: PermitWithCycles): PermitStatus {
+  // fix-52: "Approved — Not Issued" for a Building Permit / Demolition the
+  // city has approved (approval_date set) but not yet issued (actual_issue
+  // null). Sits BELOW "Issued" in precedence — actual_issue being set excludes
+  // this branch, so an issued permit still reads "Issued" — but ABOVE the
+  // terminal-positive portal-status passthrough below, so it also takes over a
+  // "Ready for Issuance" or "Awaiting Information" portal string. The portal
+  // status is preserved as `detail` (the ready-vs-held nuance). The pill date
+  // is the approval date; the builder-side wait is surfaced separately in the
+  // Permit Detail timing widget.
+  if (isApprovedNotIssued(permit)) {
+    const detail = permit.status?.trim();
+    return {
+      label: APPROVED_NOT_ISSUED_LABEL,
+      date: permit.approval_date ?? null,
+      derived: false,
+      ...(detail ? { detail } : {}),
+    };
+  }
+
   // fix-31c: terminal-positive permit.status wins over any cycle-
   // derived label. Date prefers actual_issue (city physically issued)
   // then approval_date (city approved) — both can be null when the

@@ -380,7 +380,13 @@ function ExpandedRow({
           // stored value (or "Pre-Submittal — GO") for fresh permits.
           const status = derivePermitStatus(permit as PermitWithCycles);
           return (
-            <span className="text-[10px] text-dim truncate">
+            // fix-52: for "Approved — Not Issued" the portal status rides as a
+            // tooltip (ready-vs-held nuance) without changing this tight inline
+            // pill's layout.
+            <span
+              className="text-[10px] text-dim truncate"
+              title={status.detail ? `Portal: ${status.detail}` : undefined}
+            >
               {status.label}
               {status.date ? ` · ${status.date}` : ''}
             </span>

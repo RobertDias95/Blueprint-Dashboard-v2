@@ -1,5 +1,9 @@
 import { describe, it, expect } from 'vitest';
-import { derivePermitStatus } from '../lib/permitStatus';
+import {
+  derivePermitStatus,
+  isApprovedNotIssued,
+  APPROVED_NOT_ISSUED_LABEL,
+} from '../lib/permitStatus';
 import type { PermitCycle, PermitWithCycles } from '../lib/database.types';
 
 // fix-25e: derivePermitStatus reuses getHighlightedMilestone's chain rule
@@ -226,8 +230,12 @@ describe('derivePermitStatus', () => {
   });
 
   it('approval_date populated → "Approved" + date (overrides cycle state)', () => {
+    // Non-BP/Demo type: this exercises the cycle-chain "Approved" label
+    // (approval_date milestone). For Building Permit / Demolition the same
+    // data now reads "Approved — Not Issued" (fix-52, covered below).
     const r = derivePermitStatus(
       makePermit({
+        type: 'SDOT Tree',
         approval_date: '2026-08-01',
         permit_cycles: [
           cyc({ cycle_index: 1, submitted: '2026-05-21', corr_issued: '2026-06-12' }),
@@ -301,8 +309,13 @@ describe('derivePermitStatus', () => {
     });
 
     it('Conceptually Approved + approval_date set → date surfaces from approval_date', () => {
+      // Uses an SDOT type ("Conceptually Approved" is an SDOT portal status):
+      // fix-52 only re-labels Building Permit / Demolition as "Approved — Not
+      // Issued", so a non-BP/Demo type still exercises the fix-31c terminal
+      // override in isolation.
       const r = derivePermitStatus(
         makePermit({
+          type: 'SDOT Tree',
           status: 'Conceptually Approved',
           approval_date: '2026-05-07',
         }),
@@ -392,6 +405,125 @@ describe('derivePermitStatus', () => {
       expect(r.label).toBe('Corr Required (Cycle 1)');
       expect(r.date).toBe('2026-05-06');
       expect(r.derived).toBe(true);
+    });
+  });
+
+  // ============================================================
+  // fix-52 (2026-05-24): "Approved — Not Issued" for BP / Demolition
+  // approved (approval_date set) but not yet issued (actual_issue null).
+  // ============================================================
+  describe('Approved — Not Issued (fix-52)', () => {
+    it('held Demolition (portal "Awaiting Information") → "Approved — Not Issued", portal status as detail', () => {
+      // 7122576-DM shape: city approved at Issuance-Prep entry, held on a
+      // builder condition, portal status still the ambiguous "Awaiting
+      // Information".
+      const r = derivePermitStatus(
+        makePermit({
+          type: 'Demolition',
+          status: 'Awaiting Information',
+          approval_date: '2026-04-15',
+          actual_issue: null,
+        }),
+      );
+      expect(r.label).toBe(APPROVED_NOT_ISSUED_LABEL);
+      expect(r.label).toBe('Approved — Not Issued');
+      expect(r.date).toBe('2026-04-15');
+      expect(r.detail).toBe('Awaiting Information'); // ready-vs-held nuance kept
+      expect(r.derived).toBe(false);
+    });
+
+    it('ready Demolition (portal "Ready for Issuance") → "Approved — Not Issued", overriding the terminal-positive passthrough', () => {
+      const r = derivePermitStatus(
+        makePermit({
+          type: 'Demolition',
+          status: 'Ready for Issuance',
+          approval_date: '2026-05-06',
+          actual_issue: null,
+        }),
+      );
+      expect(r.label).toBe(APPROVED_NOT_ISSUED_LABEL);
+      expect(r.detail).toBe('Ready for Issuance');
+    });
+
+    it('Building Permit approved-not-issued behaves the same as Demolition', () => {
+      const r = derivePermitStatus(
+        makePermit({
+          type: 'Building Permit',
+          status: 'Ready for Issuance',
+          approval_date: '2026-02-19',
+          actual_issue: null,
+        }),
+      );
+      expect(r.label).toBe(APPROVED_NOT_ISSUED_LABEL);
+      expect(r.date).toBe('2026-02-19');
+    });
+
+    it('issued (actual_issue set) still reads "Issued" — Issued wins over fix-52', () => {
+      const r = derivePermitStatus(
+        makePermit({
+          type: 'Demolition',
+          status: 'Issued',
+          approval_date: '2026-04-15',
+          actual_issue: '2026-05-11',
+        }),
+      );
+      expect(r.label).toBe('Issued');
+      expect(r.date).toBe('2026-05-11');
+      expect(r.detail).toBeUndefined();
+    });
+
+    it('non-BP/Demo type with approval_date set + actual_issue null is unaffected', () => {
+      // An SDOT permit keeps the fix-31c terminal-positive passthrough; it is
+      // never relabeled "Approved — Not Issued".
+      const r = derivePermitStatus(
+        makePermit({
+          type: 'SDOT Tree',
+          status: 'Ready for Issuance',
+          approval_date: '2026-05-06',
+          actual_issue: null,
+        }),
+      );
+      expect(r.label).toBe('Ready for Issuance');
+      expect(r.detail).toBeUndefined();
+    });
+
+    it('BP/Demo not yet approved (approval_date null) is unaffected', () => {
+      const r = derivePermitStatus(
+        makePermit({
+          type: 'Demolition',
+          status: 'Corrections Required',
+          approval_date: null,
+          actual_issue: null,
+          permit_cycles: [
+            cyc({ cycle_index: 0, intake_accepted: '2026-04-08' }),
+            cyc({ cycle_index: 1, submitted: '2026-04-10', corr_issued: '2026-05-06' }),
+          ],
+        }),
+      );
+      expect(r.label).not.toBe(APPROVED_NOT_ISSUED_LABEL);
+    });
+
+    it('isApprovedNotIssued matches the same predicate', () => {
+      expect(
+        isApprovedNotIssued(
+          makePermit({ type: 'Demolition', approval_date: '2026-04-15', actual_issue: null }),
+        ),
+      ).toBe(true);
+      expect(
+        isApprovedNotIssued(
+          makePermit({ type: 'Building Permit', approval_date: '2026-04-15', actual_issue: '2026-05-01' }),
+        ),
+      ).toBe(false);
+      expect(
+        isApprovedNotIssued(
+          makePermit({ type: 'SDOT Tree', approval_date: '2026-04-15', actual_issue: null }),
+        ),
+      ).toBe(false);
+      expect(
+        isApprovedNotIssued(
+          makePermit({ type: 'Demolition', approval_date: null, actual_issue: null }),
+        ),
+      ).toBe(false);
     });
   });
 });
