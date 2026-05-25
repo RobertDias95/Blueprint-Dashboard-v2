@@ -168,6 +168,27 @@ function daysBetween(a: string | null | undefined, b: string | null | undefined)
   return Math.round((bMs - aMs) / DAY_MS);
 }
 
+/** fix-53: the date the city's FIRST review actually begins — the "City
+ *  Review 1" start anchor. `intake_accepted` (cycle 0, when the city accepted
+ *  the application into review) is the true start; fall back to cycle 1's
+ *  `submitted` only when intake_accepted hasn't been recorded yet. Anchoring
+ *  at submitted (the prior behavior) wrongly absorbed the city intake-queue
+ *  (submit → intake-accepted) into City Review 1, so the per-round clocks
+ *  over-counted vs the intake-anchored holistic clock.
+ *
+ *  Single source of truth, shared by the learner (extractSample) and the
+ *  projection (projectedApproval), and consistent with reportMetrics's
+ *  intake-first `reviewStart` — so the Reports benchmark card, the Reports
+ *  table, the Schedule Estimator, and the source-permit modal all show the
+ *  SAME City Review 1. Cycles 2+ keep starting at their own `submitted`
+ *  (already contiguous with cycle 1 via the snap rule). */
+export function cityReview1Start(
+  c0: { intake_accepted: string | null } | null | undefined,
+  c1: { submitted: string | null } | null | undefined,
+): string | null {
+  return c0?.intake_accepted ?? c1?.submitted ?? null;
+}
+
 /** Extract a learning sample from one approved/issued permit. Returns null
  * if the permit hasn't reached approval (incomplete lifecycle).
  *
@@ -229,7 +250,12 @@ export function extractSample(
   const cr3End = reviewEnd(c3, c4);
   const cr4End = reviewEnd(c4, undefined);
 
-  const cityReview1Days = cr1End ? daysBetween(c1?.submitted, cr1End) : null;
+  // fix-53: City Review 1 starts at intake_accepted (city accepted the app
+  // into review), NOT cycle-1 submitted — so it no longer absorbs the
+  // submit→intake queue and the per-round clocks reconcile to the
+  // intake-anchored holistic total. Falls back to c1.submitted when intake
+  // hasn't been recorded. Cycles 2+ unchanged (cN.submitted → end).
+  const cityReview1Days = cr1End ? daysBetween(cityReview1Start(c0, c1), cr1End) : null;
   const cityReview2Days = cr2End ? daysBetween(c2?.submitted, cr2End) : null;
   const cityReview3Days = cr3End ? daysBetween(c3?.submitted, cr3End) : null;
   const cityReview4Days = cr4End ? daysBetween(c4?.submitted, cr4End) : null;
