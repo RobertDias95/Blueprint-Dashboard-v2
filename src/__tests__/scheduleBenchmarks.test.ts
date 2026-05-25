@@ -24,6 +24,7 @@ import {
   extractTargetSubmitSample,
   HARDCODED_TARGET_SUBMIT_OFFSETS,
 } from '../lib/targetSubmitLearner';
+import { enrichPermits } from '../lib/reportMetrics';
 import type {
   PermitCycle,
   PermitWithCycles,
@@ -164,7 +165,7 @@ describe('extractSample', () => {
     expect(s?.intakeAnchor).toBe('2025-08-01');
   });
 
-  it('computes cityReview1Days from cycle 1 submitted → corr_issued (per-round still c1.submitted)', () => {
+  it('fix-53: cityReview1Days anchors at intake_accepted → corr_issued (not c1.submitted)', () => {
     const permit = makePermit({
       approval_date: '2026-06-01',
       permit_cycles: [
@@ -174,10 +175,25 @@ describe('extractSample', () => {
     });
     const s = extractSample(permit);
     expect(s).not.toBeNull();
-    expect(s?.cityReview1Days).toBe(31); // 31 days from Mar 1 to Apr 1
+    // intake 2026-02-15 → corr 2026-04-01 = 45 days. The 14-day submit→intake
+    // queue (Feb 15 → Mar 1) is NO LONGER absorbed into City Review 1.
+    expect(s?.cityReview1Days).toBe(45);
   });
 
-  it('uses approval_date as cycle review-end when approval lands mid-cycle', () => {
+  it('fix-53: cityReview1Days falls back to c1.submitted when intake_accepted is null', () => {
+    const permit = makePermit({
+      approval_date: '2026-06-01',
+      permit_cycles: [
+        makeCycle({ cycle_index: 0, intake_accepted: null, submitted: '2026-02-10' }),
+        makeCycle({ cycle_index: 1, submitted: '2026-03-01', corr_issued: '2026-04-01' }),
+      ],
+    });
+    const s = extractSample(permit);
+    // No intake_accepted → anchor at c1.submitted 2026-03-01 → 2026-04-01 = 31d.
+    expect(s?.cityReview1Days).toBe(31);
+  });
+
+  it('fix-53: uses approval_date as cycle review-end when approval lands mid-cycle (intake-anchored)', () => {
     const permit = makePermit({
       approval_date: '2026-03-20',
       permit_cycles: [
@@ -187,8 +203,8 @@ describe('extractSample', () => {
       ],
     });
     const s = extractSample(permit);
-    // 2026-03-01 → 2026-03-20 = 19 days
-    expect(s?.cityReview1Days).toBe(19);
+    // intake 2026-02-15 → approval 2026-03-20 = 33 days.
+    expect(s?.cityReview1Days).toBe(33);
   });
 
   it('corrResponse1Days = corr_issued → resubmitted', () => {
@@ -205,6 +221,53 @@ describe('extractSample', () => {
       ],
     });
     expect(extractSample(permit)?.corrResponse1Days).toBe(14);
+  });
+
+  it('fix-53: per-round clocks reconcile to the holistic intake→approval total (no gap/double-count)', () => {
+    // Snap rule holds (cN+1.submitted = cN.resubmitted); c1.submitted is
+    // BEFORE intake_accepted (the city intake-queue) to prove that queue is
+    // excluded from the per-round sum now that City Review 1 is intake-anchored.
+    const permit = makePermit({
+      approval_date: '2026-03-25', // lands mid cycle-3 review
+      permit_cycles: [
+        makeCycle({ cycle_index: 0, intake_accepted: '2026-01-01', submitted: '2025-12-20' }),
+        makeCycle({ cycle_index: 1, submitted: '2025-12-20', corr_issued: '2026-02-01', resubmitted: '2026-02-15' }),
+        makeCycle({ cycle_index: 2, submitted: '2026-02-15', corr_issued: '2026-03-01', resubmitted: '2026-03-10' }),
+        makeCycle({ cycle_index: 3, submitted: '2026-03-10', corr_issued: null, resubmitted: null }),
+      ],
+    });
+    const s = extractSample(permit)!;
+    const perRoundSum =
+      (s.cityReview1Days ?? 0) +
+      (s.corrResponse1Days ?? 0) +
+      (s.cityReview2Days ?? 0) +
+      (s.corrResponse2Days ?? 0) +
+      (s.cityReview3Days ?? 0) +
+      (s.corrResponse3Days ?? 0);
+    expect(s.intakeToApprovalDays).toBe(83); // 2026-01-01 → 2026-03-25
+    expect(perRoundSum).toBe(83); // reconciles exactly — no queue overcount
+    expect(s.cityReview1Days).toBe(31); // intake 01-01 → corr 02-01 (NOT 12-20)
+  });
+
+  it('fix-53: benchmark cityReview1 == reportMetrics cityReviewDays for the same permit', () => {
+    const permit = makePermit({
+      id: 7,
+      project_id: 'pX',
+      approval_date: '2026-06-01',
+      permit_cycles: [
+        makeCycle({ cycle_index: 0, intake_accepted: '2026-02-15', submitted: '2026-02-10' }),
+        makeCycle({ cycle_index: 1, submitted: '2026-03-01', corr_issued: '2026-04-01', resubmitted: '2026-04-15' }),
+      ],
+    });
+    const sample = extractSample(permit)!;
+    const projectsById = new Map<string, Project>([
+      ['pX', makeProject({ id: 'pX' })],
+    ]);
+    const enriched = enrichPermits([permit], projectsById)[0];
+    // Both anchor City Review 1 at intake_accepted (2026-02-15 → 2026-04-01).
+    expect(sample.cityReview1Days).toBe(45);
+    expect(enriched.cityReviewDays).toBe(45);
+    expect(sample.cityReview1Days).toBe(enriched.cityReviewDays);
   });
 
   it('approvedInCycle reflects nCycles + 1 (clamped to [1, 4])', () => {

@@ -1,4 +1,5 @@
 import {
+  cityReview1Start,
   defaultDaysForType,
   SCHEDULE_DEFAULTS,
   type LearnedEstimate,
@@ -76,6 +77,13 @@ export interface ProjectedApprovalInput {
    *  still works (was previously sourced from permit.go_date). Null/
    *  undefined when the project has no GO date set. */
   projectGoDate?: string | null;
+  /** fix-53: cycle 0's intake_accepted (the design/intake cycle is filtered
+   *  out of `cycles` before this fn, so it's threaded in separately). Used to
+   *  anchor cycle-1 city review at intake — matching the learner's
+   *  cityReview1Start — so the projection's decomposition lines up with the
+   *  intake-anchored learned clock. When null (no intake recorded yet) the
+   *  projection falls back to cycle-1 submitted exactly as before. */
+  cycle0IntakeAccepted?: string | null;
   /** Q9.5.f-fix-11 A: needed for the ULS BP-anchor lookup. Caller passes
    *  every permit at the same project; this code finds the Building Permit
    *  and walks ITS cycles for the anchor math. */
@@ -295,6 +303,12 @@ function getULSAnchorDates(
     // Recursive call — the BP is type 'Building Permit', not 'ULS', so the
     // ULS branch inside computeProjectedApproval will not fire. No infinite
     // loop possible. Siblings intentionally omitted (BP doesn't recurse).
+    // fix-53: thread the BP's cycle-0 intake_accepted so its recursive
+    // projection anchors cycle-1 review at intake, same as the top-level call.
+    const bpCycle0Intake =
+      (siblingCyclesByPermitId.get(bp.id) ?? []).find(
+        (c) => c.cycle_index === 0,
+      )?.intake_accepted ?? null;
     const bpProjection = computeProjectedApproval({
       permit: bp,
       cycles: bpCycles,
@@ -302,6 +316,7 @@ function getULSAnchorDates(
       // The BP and the ULS share a project, so they share go_date too.
       projectGoDate: bpProjectGoDate,
       targetCycleOverride: bpOverride,
+      cycle0IntakeAccepted: bpCycle0Intake,
     });
     bpApprovalAnchor =
       bpProjection.projection ?? bp.expected_issue ?? '';
@@ -402,6 +417,19 @@ export function computeProjectedApproval(
   if (!base) {
     return { projection: null, isActual: false, isProjected: false };
   }
+
+  // fix-53: cycle-1 city review starts at intake_accepted (matches the
+  // learner's cityReview1Start), falling back to cycle-1 submitted when intake
+  // hasn't been recorded. This anchors a PROJECTED cycle-1 review only — when
+  // cycle 1 already has an actual corr_issued the walk uses that date directly,
+  // so projections for intake-known, already-in-corrections permits are
+  // unchanged (decomposition only). `base` (the first-review-approval /
+  // holistic-shortcut anchor) intentionally stays at submitted so that
+  // projection is preserved.
+  const firstReviewStart = cityReview1Start(
+    { intake_accepted: input.cycle0IntakeAccepted ?? null },
+    r1,
+  );
 
   const actualCorrCycles = [r1, r2, r3, r4].filter((c) => c?.corr_issued).length;
   // fix-32 (2026-05-19): "reviewer signaled corrections on the
@@ -540,6 +568,12 @@ export function computeProjectedApproval(
 
   // Per-permit actual durations.
   const thisPermitDur: ({ cr: number | null; co: number | null } | null)[] = [
+    // NB: cycle-1's self cr stays submitted-anchored here ON PURPOSE. It only
+    // feeds durFor as a per-permit signal; re-anchoring it at intake would
+    // ripple through durFor's walk-back into cycles 2+ and shift projections
+    // for permits with ACTUAL corrections. fix-53 re-anchors only the cycle-1
+    // PROJECTED review (reviewAnchor below), keeping the change decomposition-
+    // only for intake-known, already-in-corrections permits.
     { cr: positiveDaysBetween(r1?.submitted, r1?.corr_issued), co: positiveDaysBetween(r1?.corr_issued, r1?.resubmitted) },
     { cr: positiveDaysBetween(r1?.resubmitted, r2?.corr_issued), co: positiveDaysBetween(r2?.corr_issued, r2?.resubmitted) },
     { cr: positiveDaysBetween(r2?.resubmitted, r3?.corr_issued), co: positiveDaysBetween(r3?.corr_issued, r3?.resubmitted) },
@@ -580,6 +614,13 @@ export function computeProjectedApproval(
         i === 0 && !rd?.corr_issued && earliestCityTargetAfterCursor
           ? earliestCityTargetAfterCursor
           : null;
+      // fix-53: a PROJECTED cycle-1 review (no actual corr_issued) is anchored
+      // at intake_accepted (firstReviewStart) instead of cursor=base=submitted,
+      // so its decomposition matches the intake-anchored learner. Cycles 2+
+      // keep anchoring on cursor (the prior resubmit), unchanged. When cycle 1
+      // has an actual corr_issued the `rd?.corr_issued ??` short-circuit wins,
+      // so already-in-corrections permits are unaffected.
+      const reviewAnchor = i === 0 ? (firstReviewStart ?? cursor) : cursor;
       // fix-24e: rd?.corr_issued / rd?.resubmitted are ACTUAL dates and
       // display as-is even when past. The forecast branches (cityTargetCrEnd
       // assigned directly, addDays projections) and the chained resubEnd
@@ -587,7 +628,7 @@ export function computeProjectedApproval(
       const crEnd =
         rd?.corr_issued ??
         flooredAnchor(cityTargetCrEnd) ??
-        addDays(flooredAnchor(cursor) ?? cursor, crDays);
+        addDays(flooredAnchor(reviewAnchor) ?? reviewAnchor, crDays);
       const resubEnd =
         rd?.resubmitted ??
         addDays(flooredAnchor(crEnd) ?? crEnd, coDays);

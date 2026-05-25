@@ -222,6 +222,11 @@ function Row({
         cycles: (permit.permit_cycles ?? [])
           .filter((c) => c.cycle_index !== 0)
           .sort((a, b) => a.cycle_index - b.cycle_index),
+        // fix-53: pass cycle 0's intake_accepted (filtered out above) so the
+        // projection anchors cycle-1 review at intake (matches the learner).
+        cycle0IntakeAccepted:
+          (permit.permit_cycles ?? []).find((c) => c.cycle_index === 0)
+            ?.intake_accepted ?? null,
         learnedEstimate,
         projectGoDate,
         siblingPermits: siblings,

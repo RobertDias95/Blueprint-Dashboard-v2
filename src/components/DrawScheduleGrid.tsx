@@ -312,6 +312,9 @@ function DrawScheduleBody({
         cycles: bpCycles
           .filter((c) => c.cycle_index !== 0)
           .sort((a, b) => a.cycle_index - b.cycle_index),
+        // fix-53: cycle 0's intake_accepted anchors cycle-1 review at intake.
+        cycle0IntakeAccepted:
+          bpCycles.find((c) => c.cycle_index === 0)?.intake_accepted ?? null,
         learnedEstimate: learned,
         projectGoDate: project.go_date ?? null,
         siblingPermits: projectPermits,

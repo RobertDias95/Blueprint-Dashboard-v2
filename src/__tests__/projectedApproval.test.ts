@@ -986,3 +986,49 @@ describe('computeProjectedApproval — fix-25-HH-redux final-cycle city review',
     expect(r.projection! > '2026-06-01').toBe(true);
   });
 });
+
+describe('computeProjectedApproval — fix-53 cycle-1 intake anchor', () => {
+  it('decomposition-only: projection UNCHANGED by cycle0IntakeAccepted when cycle 1 has actual corrections', () => {
+    // cycle 1 has an actual corr_issued → its review endpoint is the actual
+    // date regardless of anchor, so threading intake_accepted must not move the
+    // projection. cr2Count>0 keeps cycle-2's projection on the learned avg
+    // (no durFor walk-back to cycle-1's self cr).
+    const cycles = [
+      cyc({ cycle_index: 1, submitted: '2026-01-01', corr_issued: '2026-02-01', resubmitted: '2026-02-15' }),
+      cyc({ cycle_index: 2, submitted: '2026-02-15' }),
+    ];
+    const est = learned({ cityReview2: 20, cr2Count: 3, corrResponse2: 10, co2Count: 3, mostLikelyCycle: 2 });
+    const without = computeProjectedApproval({ permit: permit(), cycles, learnedEstimate: est });
+    const withEarlier = computeProjectedApproval({
+      permit: permit(), cycles, learnedEstimate: est, cycle0IntakeAccepted: '2025-12-15',
+    });
+    const withLater = computeProjectedApproval({
+      permit: permit(), cycles, learnedEstimate: est, cycle0IntakeAccepted: '2026-01-10',
+    });
+    expect(withEarlier.projection).toBe(without.projection);
+    expect(withLater.projection).toBe(without.projection);
+    expect(without.rounds?.corrIssued1).toBe('2026-02-01'); // actual, preserved
+  });
+
+  it('omitting cycle0IntakeAccepted is backward-compatible (anchors at c1.submitted)', () => {
+    // A PROJECTED cycle-1 (no actual corr) + forced 2-cycle walk. Without an
+    // intake date the cycle-1 review anchors at c1.submitted, exactly as before.
+    const cycles = [cyc({ cycle_index: 1, submitted: '2026-01-01' })];
+    const est = learned({ cityReview1: 30, cr1Count: 3, corrResponse1: 10, co1Count: 3, cityReview2: 20, cr2Count: 3 });
+    const r = computeProjectedApproval({
+      permit: permit(), cycles, learnedEstimate: est, targetCycleOverride: 2,
+    });
+    expect(r.rounds?.corrIssued1).toBe('2026-01-31'); // 2026-01-01 + 30d
+  });
+
+  it('a PROJECTED cycle-1 review anchors at intake_accepted (the fix-53 behavior)', () => {
+    const cycles = [cyc({ cycle_index: 1, submitted: '2026-01-01' })];
+    const est = learned({ cityReview1: 30, cr1Count: 3, corrResponse1: 10, co1Count: 3, cityReview2: 20, cr2Count: 3 });
+    const r = computeProjectedApproval({
+      permit: permit(), cycles, learnedEstimate: est, targetCycleOverride: 2,
+      cycle0IntakeAccepted: '2026-01-15',
+    });
+    // Now anchored at intake 2026-01-15 + 30d, not submitted 2026-01-01.
+    expect(r.rounds?.corrIssued1).toBe('2026-02-14');
+  });
+});
