@@ -303,6 +303,11 @@ function Row({
                   {fmtDate(status.date)}
                 </div>
               )}
+              {/* fix-52: portal status kept as secondary detail for the
+                  "Approved — Not Issued" state (ready-vs-held nuance). */}
+              {status.detail && (
+                <div className="text-[9px] text-dim mt-0.5">{status.detail}</div>
+              )}
             </div>
           );
         })()}

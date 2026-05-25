@@ -1807,6 +1807,23 @@ function IssueDates({ permit }: { permit: PermitWithCycles }) {
         )
       : null;
 
+  // fix-52: builder-side wait = (actual_issue ?? today) − approval_date. This
+  // is the BUILDER's clock (time between city approval and the builder pulling
+  // the permit), NOT team/city review time — the team clock already stops at
+  // approval_date. Ongoing until actual_issue is set. `today` is captured once
+  // (useMemo) to keep render pure, matching the codebase's today idiom
+  // (IntakeTracker / ScheduleBenchmarks).
+  const today = useMemo(() => new Date(), []);
+  const builderWait = permit.approval_date
+    ? Math.round(
+        ((permit.actual_issue
+          ? new Date(permit.actual_issue + 'T12:00:00').getTime()
+          : today.getTime()) -
+          new Date(permit.approval_date + 'T12:00:00').getTime()) /
+          86400000,
+      )
+    : null;
+
   return (
     <div className="px-3 py-2 flex flex-col gap-2">
       <IssueDateField
@@ -1852,6 +1869,14 @@ function IssueDates({ permit }: { permit: PermitWithCycles }) {
           style={{ color: variance <= 0 ? 'var(--color-pm)' : '#dc2626' }}
         >
           {Math.abs(variance)}d {variance <= 0 ? 'ahead of' : 'behind'} expected
+        </div>
+      )}
+      {/* fix-52: builder-side wait (approval → issued/today). Labeled as the
+          builder's clock so it isn't mistaken for team/city review time. */}
+      {builderWait !== null && builderWait >= 0 && (
+        <div className="text-[10px] text-dim" data-testid="pd-builder-wait">
+          <span className="font-bold text-text">{builderWait}d</span> builder
+          wait{permit.actual_issue ? '' : ' (ongoing)'} · since approval
         </div>
       )}
     </div>
