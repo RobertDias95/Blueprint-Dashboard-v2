@@ -1,9 +1,17 @@
-import type { PermitWithCycles } from './database.types';
+import type {
+  PermitCycleReviewer,
+  PermitWithCycles,
+} from './database.types';
 import {
   getHighlightedMilestone,
   type HighlightTarget,
 } from './permitHelpers';
 import { isTerminalPositiveStatus } from './permitTerminalStatus';
+import {
+  isReviewerRollupDriven,
+  latestCycleIndex,
+  reviewerVerdictForLatestCycle,
+} from './reviewerRollup';
 
 // fix-25e: derive a user-facing status pill ("Corr Required (Cycle 2)" +
 // date) from cycle state instead of displaying permits.status raw. The
@@ -77,7 +85,10 @@ const LABEL_MAP: Record<HighlightTarget['key'], string> = {
 
 const FALLBACK_LABEL = 'Pre-Submittal — GO';
 
-export function derivePermitStatus(permit: PermitWithCycles): PermitStatus {
+export function derivePermitStatus(
+  permit: PermitWithCycles,
+  reviewers?: PermitCycleReviewer[] | null,
+): PermitStatus {
   // fix-52: "Approved — Not Issued" for a Building Permit / Demolition the
   // city has approved (approval_date set) but not yet issued (actual_issue
   // null). Sits BELOW "Issued" in precedence — actual_issue being set excludes
@@ -108,6 +119,71 @@ export function derivePermitStatus(permit: PermitWithCycles): PermitStatus {
       date: permit.actual_issue ?? permit.approval_date ?? null,
       derived: false,
     };
+  }
+
+  // fix-54 (2026-05-26): wholistic reviewer-rollup override for MPB
+  // (MyBuildingPermit: Bellevue/Edmonds/Kirkland). The MPB portal carries
+  // a coarse "Pending"/"Applied" status with the wholistic truth sitting
+  // in per-discipline reviewer rows. The chain rule below would otherwise
+  // surface a cycle's corr_issued (stamped by the scraper as soon as ANY
+  // one discipline issued corrections) as the permit-level status — even
+  // while other disciplines are still reviewing. Apply Bobby's wholistic
+  // rule here when reviewers are available; fall through to the chain
+  // logic when they aren't.
+  if (reviewers && reviewers.length > 0 && isReviewerRollupDriven(permit.status)) {
+    const verdict = reviewerVerdictForLatestCycle(reviewers);
+    const latestIdx = latestCycleIndex(reviewers);
+    if (verdict && latestIdx !== null) {
+      const cyc = (permit.permit_cycles ?? []).find(
+        (c) => c.cycle_index === latestIdx,
+      );
+      if (verdict === 'in_review') {
+        // Round in flight — surface the city_target (or fall back to
+        // submitted) of the current cycle. Explicitly skip corr_issued
+        // even if some disciplines have already issued one: the round
+        // isn't done.
+        if (cyc?.city_target) {
+          return {
+            label:
+              latestIdx >= 1 ? `City Target (Cycle ${latestIdx})` : 'City Target',
+            date: cyc.city_target,
+            derived: true,
+          };
+        }
+        if (cyc?.submitted) {
+          return {
+            label:
+              latestIdx >= 1
+                ? `Submitted (Cycle ${latestIdx})`
+                : 'Initial Submit',
+            date: cyc.submitted,
+            derived: true,
+          };
+        }
+        // No cycle dates yet — fall through to the chain rule.
+      } else if (verdict === 'corrections_required') {
+        // Round complete with at least one corrections_required — the
+        // existing chain rule would also land here, but pin the label
+        // explicitly so it doesn't drift if scraping skipped corr_issued.
+        return {
+          label:
+            latestIdx >= 1
+              ? `Corr Required (Cycle ${latestIdx})`
+              : 'Corr Required',
+          date: cyc?.corr_issued ?? null,
+          derived: true,
+        };
+      } else if (verdict === 'approved') {
+        // Round complete with all-approved — the city's round work is
+        // done. permit.approval_date won't be set yet (that's the portal
+        // event), so the pill rides without a date.
+        return {
+          label: 'Approved',
+          date: permit.approval_date ?? null,
+          derived: true,
+        };
+      }
+    }
   }
 
   const target = getHighlightedMilestone(permit);

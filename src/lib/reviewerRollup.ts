@@ -118,6 +118,79 @@ export function rollupCounts(
   return counts;
 }
 
+// fix-54 (2026-05-26): wholistic per-permit verdict for MPB (MyBuildingPermit:
+// Bellevue / Edmonds / Kirkland). MPB reviewers issue corrections one
+// discipline at a time, but Blueprint reports the permit-level rollup
+// wholistically — the permit only reads "corrections required" once the
+// city's whole round is complete (every discipline has acted). Until then
+// the permit is "in review" even when some disciplines have already issued
+// corrections individually. The chip/popover (above) keeps showing real
+// per-discipline counts; this verdict drives the single rolled-up
+// status/stage in the Dashboard matrix + Schedule Health row.
+
+export type ReviewerVerdict = 'in_review' | 'corrections_required' | 'approved';
+
+// MPB portal coarse-status values. The MyBuildingPermit portal doesn't carry
+// a wholistic per-permit status the way Accela does — its public string is
+// just "Pending" until the city's whole record closes out. Seattle's Accela
+// permits carry wholistic strings ("Reviews In Process", "Corrections
+// Required", "Ready for Issuance", etc.) and don't fall into this set, so
+// the rollup-driven override never fires for them.
+const REVIEWER_ROLLUP_DRIVEN_STATUSES: ReadonlySet<string> = new Set([
+  'Pending',
+  'Applied',
+]);
+
+/** True iff this permit's display rollup should be driven by per-discipline
+ *  reviewer rows rather than the stored permits.status. Gates the
+ *  fix-54 wholistic override in effectiveStage + derivePermitStatus. */
+export function isReviewerRollupDriven(
+  permitStatus: string | null | undefined,
+): boolean {
+  if (!permitStatus) return false;
+  return REVIEWER_ROLLUP_DRIVEN_STATUSES.has(permitStatus.trim());
+}
+
+/** Wholistic rollup verdict from the latest cycle's reviewer rows.
+ *
+ *  Rule (Bobby, 2026-05-26):
+ *    - OUTSTANDING = any reviewer at in_review / in_process / assigned /
+ *      pending. ACTED = corrections_required / approved.
+ *    - any outstanding → 'in_review' (even if some disciplines have already
+ *      issued corrections individually — the round isn't done).
+ *    - else, any corrections_required → 'corrections_required'.
+ *    - else (all approved) → 'approved'.
+ *
+ *  `not_required` rows don't count toward either bucket — that discipline
+ *  is explicitly N/A. Returns null when there are no reviewer rows at all
+ *  (or only not_required rows), so the caller falls back to its existing
+ *  cycle-state-based logic.
+ *
+ *  Filters to the LATEST cycle index seen in the rows (mirrors the chip's
+ *  latestCycleIndex/rowsForCycle slice — one consistent definition). */
+export function reviewerVerdictForLatestCycle(
+  rows: PermitCycleReviewer[],
+): ReviewerVerdict | null {
+  if (rows.length === 0) return null;
+  const latest = latestCycleIndex(rows);
+  if (latest === null) return null;
+  const cycleRows = rowsForCycle(rows, latest).filter(
+    (r) => r.current_status !== 'not_required',
+  );
+  if (cycleRows.length === 0) return null;
+
+  let outstanding = false;
+  let corrections = false;
+  for (const r of cycleRows) {
+    const b = bucketStatus(r.current_status);
+    if (b === 'in_review' || b === 'pending') outstanding = true;
+    else if (b === 'corrections') corrections = true;
+  }
+  if (outstanding) return 'in_review';
+  if (corrections) return 'corrections_required';
+  return 'approved';
+}
+
 /** Compact human-readable label for a single status. Used in the
  *  popover detail list. */
 export function statusLabel(status: ReviewerStatus): string {

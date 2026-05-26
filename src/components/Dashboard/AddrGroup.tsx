@@ -6,6 +6,7 @@ import { derivePermitStatus } from '../../lib/permitStatus';
 import type {
   Permit,
   PermitCycle,
+  PermitCycleReviewer,
   PermitWithCycles,
   Stage,
 } from '../../lib/database.types';
@@ -26,6 +27,11 @@ interface AddrGroupProps {
   /** Stage label for the badge in expanded rows + urgency math. */
   stage: Stage;
   cyclesByPermit: Map<number, PermitCycle[]>;
+  /** fix-54: per-permit reviewer rows. Wired through to effectiveStage +
+   *  derivePermitStatus so MPB stage/status pills respect the wholistic
+   *  rollup (any outstanding reviewer → "in review", overriding any
+   *  premature corr_issued the scraper stamped). */
+  reviewersByPermit: Map<number, PermitCycleReviewer[]>;
   /** Worst-of-group urgency for the left-border + bg tint. */
   cardUrgency: UrgencyLevel;
   keyDateLabel: string;
@@ -79,6 +85,7 @@ export default function AddrGroup({
   permits,
   stage,
   cyclesByPermit,
+  reviewersByPermit,
   cardUrgency,
   keyDateLabel,
   getKeyDate,
@@ -93,7 +100,7 @@ export default function AddrGroup({
   // Note: parent passes `permits` already filtered to this sub-bucket. The
   // counts here reflect the visible permits in this bucket only — that's
   // what v1 shows when the group lives inside one stage column.
-  const stageCounts = useStageCounts(permits, cyclesByPermit);
+  const stageCounts = useStageCounts(permits, cyclesByPermit, reviewersByPermit);
 
   // Q9.5.f-fix-1d: each AddrGroup scrolls ITS containing data-scroll-bucket
   // when its own isOpen flips true. Component-local because that's the
@@ -279,6 +286,7 @@ export default function AddrGroup({
               projectId={projectId}
               stage={stage}
               cycles={cyclesByPermit.get(p.id) ?? []}
+              reviewers={reviewersByPermit.get(p.id) ?? []}
               keyDate={getKeyDate(p)}
               keyDateLabel={keyDateLabel}
             />
@@ -299,10 +307,15 @@ function pillLabel(p: Permit): string {
 function useStageCounts(
   permits: Permit[],
   cyclesByPermit: Map<number, PermitCycle[]>,
+  reviewersByPermit: Map<number, PermitCycleReviewer[]>,
 ): { stage: Stage; count: number }[] {
   const counts = new Map<Stage, number>();
   for (const p of permits) {
-    const s = effectiveStage(p, cyclesByPermit.get(p.id) ?? []);
+    const s = effectiveStage(
+      p,
+      cyclesByPermit.get(p.id) ?? [],
+      reviewersByPermit.get(p.id) ?? [],
+    );
     counts.set(s, (counts.get(s) ?? 0) + 1);
   }
   // Stable order matching v1 :2792 (de / pm / co / ap / is)
@@ -317,6 +330,7 @@ function ExpandedRow({
   projectId,
   stage,
   cycles,
+  reviewers,
   keyDate,
   keyDateLabel,
 }: {
@@ -324,6 +338,7 @@ function ExpandedRow({
   projectId: string;
   stage: Stage;
   cycles: PermitCycle[];
+  reviewers: PermitCycleReviewer[];
   keyDate: string | null;
   keyDateLabel: string;
 }) {
@@ -378,7 +393,8 @@ function ExpandedRow({
           // fix-25e: derived status takes precedence over the stored
           // permits.status when cycle data exists. Falls back to the
           // stored value (or "Pre-Submittal — GO") for fresh permits.
-          const status = derivePermitStatus(permit as PermitWithCycles);
+          // fix-54: reviewers feed the wholistic-rollup override for MPB.
+          const status = derivePermitStatus(permit as PermitWithCycles, reviewers);
           return (
             // fix-52: for "Approved — Not Issued" the portal status rides as a
             // tooltip (ready-vs-held nuance) without changing this tight inline

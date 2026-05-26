@@ -4,7 +4,11 @@ import {
   effectiveStage,
   classifyDeBucket,
 } from '../lib/permitStage';
-import type { Permit, PermitCycle } from '../lib/database.types';
+import type {
+  Permit,
+  PermitCycle,
+  PermitCycleReviewer,
+} from '../lib/database.types';
 
 // Q2: stage-classification rules ported from v1. Lock them down with
 // targeted unit tests so the matrix render can rely on the contract.
@@ -266,5 +270,161 @@ describe('effectiveStage with terminal-positive permit.status (fix-31c/d)', () =
     expect(
       effectiveStage(makePermit({ status: null }), cycles),
     ).toBe('pm');
+  });
+});
+
+// fix-54 (2026-05-26): wholistic reviewer-rollup override for MPB
+// (MyBuildingPermit: Bellevue / Edmonds / Kirkland). Status "Pending" or
+// "Applied" + reviewer rows → use the wholistic verdict instead of the
+// scraper's potentially-premature corr_issued.
+
+function reviewer(
+  over: Partial<PermitCycleReviewer> = {},
+): PermitCycleReviewer {
+  return {
+    id: `r-${over.reviewer_name ?? 'X'}-${over.cycle_index ?? 1}`,
+    tenant_id: 't',
+    permit_id: 1,
+    cycle_index: 1,
+    reviewer_name: 'placeholder',
+    discipline: null,
+    current_status: 'in_review',
+    last_event_date: null,
+    created_at: '2026-05-25T12:00:00Z',
+    updated_at: '2026-05-25T12:00:00Z',
+    ...over,
+  };
+}
+
+describe('effectiveStage — wholistic reviewer rollup (fix-54)', () => {
+  it('MPB Pending + outstanding reviewer overrides scraper-stamped corr_issued → "pm"', () => {
+    // Regression: 26 110231 BS (Bellevue BP). Cycle 1 has corr_issued
+    // (scraper stamped after one discipline issued), but 2 disciplines
+    // are still in_review. Wholistically the round isn't done → "pm"
+    // (Under Review), NOT "co".
+    const cycles = [
+      cycle({
+        cycle_index: 1,
+        submitted: '2026-04-10',
+        corr_issued: '2026-05-15',
+      }),
+    ];
+    const reviewers = [
+      reviewer({ reviewer_name: 'A1', current_status: 'approved' }),
+      reviewer({ reviewer_name: 'A2', current_status: 'approved' }),
+      reviewer({ reviewer_name: 'C1', current_status: 'corrections_required' }),
+      reviewer({ reviewer_name: 'C2', current_status: 'corrections_required' }),
+      reviewer({ reviewer_name: 'R1', current_status: 'in_review' }),
+      reviewer({ reviewer_name: 'R2', current_status: 'in_review' }),
+    ];
+    expect(
+      effectiveStage(makePermit({ status: 'Pending' }), cycles, reviewers),
+    ).toBe('pm');
+  });
+
+  it('MPB Pending + every reviewer acted with ≥1 corrections → "co"', () => {
+    // 26 108972 BS (Bellevue BP): 1 approved + 5 corrections, 0 outstanding.
+    const cycles = [
+      cycle({
+        cycle_index: 1,
+        submitted: '2026-04-10',
+        corr_issued: '2026-05-15',
+      }),
+    ];
+    const reviewers = [
+      reviewer({ reviewer_name: 'A', current_status: 'approved' }),
+      ...Array.from({ length: 5 }, (_, i) =>
+        reviewer({
+          reviewer_name: `C${i}`,
+          current_status: 'corrections_required',
+        }),
+      ),
+    ];
+    expect(
+      effectiveStage(makePermit({ status: 'Pending' }), cycles, reviewers),
+    ).toBe('co');
+  });
+
+  it('MPB Pending + all reviewers approved → "ap"', () => {
+    const reviewers = [
+      reviewer({ reviewer_name: 'A', current_status: 'approved' }),
+      reviewer({ reviewer_name: 'B', current_status: 'approved' }),
+    ];
+    expect(
+      effectiveStage(
+        makePermit({ status: 'Pending' }),
+        [cycle({ cycle_index: 1, submitted: '2026-04-10' })],
+        reviewers,
+      ),
+    ).toBe('ap');
+  });
+
+  it('MPB Applied (alternate coarse status) also triggers the override', () => {
+    const reviewers = [
+      reviewer({ reviewer_name: 'R', current_status: 'in_review' }),
+    ];
+    expect(
+      effectiveStage(
+        makePermit({ status: 'Applied' }),
+        [
+          cycle({
+            cycle_index: 1,
+            submitted: '2026-04-10',
+            corr_issued: '2026-05-15',
+          }),
+        ],
+        reviewers,
+      ),
+    ).toBe('pm');
+  });
+
+  it('MPB Pending + NO reviewer rows → existing cycle path wins (fallback preserved)', () => {
+    const cycles = [
+      cycle({
+        cycle_index: 1,
+        submitted: '2026-04-10',
+        corr_issued: '2026-05-06',
+      }),
+    ];
+    expect(
+      effectiveStage(makePermit({ status: 'Pending' }), cycles, [])
+    ).toBe('co');
+  });
+
+  it('Seattle Accela status ("Reviews In Process") is NOT affected by reviewers (unchanged)', () => {
+    // Seattle's Accela status is already wholistic. The override is gated
+    // on Pending/Applied — Reviews In Process never fires the new branch.
+    const cycles = [
+      cycle({
+        cycle_index: 1,
+        submitted: '2026-04-10',
+        corr_issued: '2026-05-06',
+      }),
+    ];
+    const reviewers = [
+      reviewer({ reviewer_name: 'A', current_status: 'approved' }),
+      reviewer({ reviewer_name: 'B', current_status: 'approved' }),
+    ];
+    expect(
+      effectiveStage(
+        makePermit({ status: 'Reviews In Process' }),
+        cycles,
+        reviewers,
+      ),
+    ).toBe('co'); // unchanged — driven by cycle corr_issued
+  });
+
+  it('approval_date short-circuits before the rollup override', () => {
+    // Existing precedence: if approval_date is set, "ap" regardless.
+    const reviewers = [
+      reviewer({ reviewer_name: 'R', current_status: 'in_review' }),
+    ];
+    expect(
+      effectiveStage(
+        makePermit({ status: 'Pending', approval_date: '2026-05-20' }),
+        [],
+        reviewers,
+      ),
+    ).toBe('ap');
   });
 });

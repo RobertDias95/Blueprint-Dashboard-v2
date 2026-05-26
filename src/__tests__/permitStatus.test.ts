@@ -4,7 +4,11 @@ import {
   isApprovedNotIssued,
   APPROVED_NOT_ISSUED_LABEL,
 } from '../lib/permitStatus';
-import type { PermitCycle, PermitWithCycles } from '../lib/database.types';
+import type {
+  PermitCycle,
+  PermitCycleReviewer,
+  PermitWithCycles,
+} from '../lib/database.types';
 
 // fix-25e: derivePermitStatus reuses getHighlightedMilestone's chain rule
 // and reformats the result as a status pill ({ label, date, derived }).
@@ -525,5 +529,225 @@ describe('derivePermitStatus', () => {
         ),
       ).toBe(false);
     });
+  });
+});
+
+// fix-54 (2026-05-26): wholistic reviewer-rollup override for MPB.
+
+function reviewer(
+  over: Partial<PermitCycleReviewer> = {},
+): PermitCycleReviewer {
+  return {
+    id: `r-${over.reviewer_name ?? 'X'}-${over.cycle_index ?? 1}`,
+    tenant_id: 't',
+    permit_id: 1,
+    cycle_index: 1,
+    reviewer_name: 'placeholder',
+    discipline: null,
+    current_status: 'in_review',
+    last_event_date: null,
+    created_at: '2026-05-25T12:00:00Z',
+    updated_at: '2026-05-25T12:00:00Z',
+    ...over,
+  };
+}
+
+describe('derivePermitStatus — wholistic reviewer rollup (fix-54)', () => {
+  it('MPB Pending + outstanding reviewer overrides scraper-stamped corr_issued → City Target label', () => {
+    // Regression 26 110231 BS. Cycle has corr_issued (premature) AND
+    // outstanding reviewers — the round isn't done, so the status should
+    // surface the cycle's city_target, NOT "Corr Required."
+    const r = derivePermitStatus(
+      makePermit({
+        status: 'Pending',
+        permit_cycles: [
+          cyc({
+            cycle_index: 1,
+            submitted: '2026-04-10',
+            city_target: '2026-05-30',
+            corr_issued: '2026-05-15', // scraper-stamped, premature
+          }),
+        ],
+      }),
+      [
+        reviewer({ reviewer_name: 'A1', current_status: 'approved' }),
+        reviewer({ reviewer_name: 'A2', current_status: 'approved' }),
+        reviewer({ reviewer_name: 'C1', current_status: 'corrections_required' }),
+        reviewer({ reviewer_name: 'C2', current_status: 'corrections_required' }),
+        reviewer({ reviewer_name: 'R1', current_status: 'in_review' }),
+        reviewer({ reviewer_name: 'R2', current_status: 'in_review' }),
+      ],
+    );
+    expect(r).toEqual({
+      label: 'City Target (Cycle 1)',
+      date: '2026-05-30',
+      derived: true,
+    });
+  });
+
+  it('MPB Pending + outstanding reviewer + no city_target → falls back to "Submitted (Cycle N)"', () => {
+    const r = derivePermitStatus(
+      makePermit({
+        status: 'Pending',
+        permit_cycles: [
+          cyc({
+            cycle_index: 1,
+            submitted: '2026-04-10',
+            corr_issued: '2026-05-15',
+          }),
+        ],
+      }),
+      [
+        reviewer({ reviewer_name: 'R', current_status: 'in_review' }),
+        reviewer({ reviewer_name: 'C', current_status: 'corrections_required' }),
+      ],
+    );
+    expect(r).toEqual({
+      label: 'Submitted (Cycle 1)',
+      date: '2026-04-10',
+      derived: true,
+    });
+  });
+
+  it('MPB Pending + every reviewer acted with ≥1 corrections → "Corr Required (Cycle N)" + corr_issued date', () => {
+    // 26 108972 BS: 1 approved + 5 corrections, 0 outstanding — round
+    // complete, surfaces as corrections required (matches existing label).
+    const r = derivePermitStatus(
+      makePermit({
+        status: 'Pending',
+        permit_cycles: [
+          cyc({
+            cycle_index: 1,
+            submitted: '2026-04-10',
+            city_target: '2026-05-30',
+            corr_issued: '2026-05-15',
+          }),
+        ],
+      }),
+      [
+        reviewer({ reviewer_name: 'A', current_status: 'approved' }),
+        ...Array.from({ length: 5 }, (_, i) =>
+          reviewer({
+            reviewer_name: `C${i}`,
+            current_status: 'corrections_required',
+          }),
+        ),
+      ],
+    );
+    expect(r).toEqual({
+      label: 'Corr Required (Cycle 1)',
+      date: '2026-05-15',
+      derived: true,
+    });
+  });
+
+  it('MPB Pending + all reviewers approved → "Approved"', () => {
+    const r = derivePermitStatus(
+      makePermit({
+        status: 'Pending',
+        permit_cycles: [
+          cyc({
+            cycle_index: 1,
+            submitted: '2026-04-10',
+            city_target: '2026-05-30',
+          }),
+        ],
+      }),
+      [
+        reviewer({ reviewer_name: 'A', current_status: 'approved' }),
+        reviewer({ reviewer_name: 'B', current_status: 'approved' }),
+      ],
+    );
+    expect(r).toEqual({
+      label: 'Approved',
+      date: null,
+      derived: true,
+    });
+  });
+
+  it('MPB Pending + NO reviewer rows → existing chain rule (fallback preserved)', () => {
+    // No reviewers at all → fall through to getHighlightedMilestone +
+    // existing behavior. Scraper's corr_issued surfaces here, intentionally.
+    // Real MPB permits have cycle 0 (design) + cycle 1 (review); the chain
+    // rule treats the lowest cycle_index as design.
+    const r = derivePermitStatus(
+      makePermit({
+        status: 'Pending',
+        permit_cycles: [
+          cyc({ cycle_index: 0, intake_accepted: '2026-04-01' }),
+          cyc({
+            cycle_index: 1,
+            submitted: '2026-04-10',
+            corr_issued: '2026-05-15',
+          }),
+        ],
+      }),
+      [],
+    );
+    expect(r).toEqual({
+      label: 'Corr Required (Cycle 1)',
+      date: '2026-05-15',
+      derived: true,
+    });
+  });
+
+  it('Seattle Accela permit (non-Pending status) is unchanged by reviewer rows', () => {
+    // Seattle "Reviews In Process" with reviewers — reviewer-rollup gate
+    // is OFF (only Pending/Applied trigger it). Existing chain rule runs;
+    // scraper-stamped corr_issued surfaces as expected.
+    const r = derivePermitStatus(
+      makePermit({
+        status: 'Reviews In Process',
+        permit_cycles: [
+          cyc({ cycle_index: 0, intake_accepted: '2026-04-01' }),
+          cyc({
+            cycle_index: 1,
+            submitted: '2026-04-10',
+            corr_issued: '2026-05-06',
+          }),
+        ],
+      }),
+      [
+        reviewer({ reviewer_name: 'A', current_status: 'approved' }),
+        reviewer({ reviewer_name: 'B', current_status: 'in_review' }),
+      ],
+    );
+    expect(r).toEqual({
+      label: 'Corr Required (Cycle 1)',
+      date: '2026-05-06',
+      derived: true,
+    });
+  });
+
+  it('MPB Applied (alternate coarse status) also triggers the override', () => {
+    const r = derivePermitStatus(
+      makePermit({
+        status: 'Applied',
+        permit_cycles: [
+          cyc({
+            cycle_index: 1,
+            submitted: '2026-04-10',
+            city_target: '2026-05-30',
+            corr_issued: '2026-05-15',
+          }),
+        ],
+      }),
+      [reviewer({ reviewer_name: 'R', current_status: 'in_review' })],
+    );
+    expect(r.label).toBe('City Target (Cycle 1)');
+  });
+
+  it('approval_date short-circuits before the rollup override (precedence preserved)', () => {
+    // isApprovedNotIssued wins: BP/Demo with approval_date set + no
+    // actual_issue is "Approved — Not Issued" regardless of reviewers.
+    const r = derivePermitStatus(
+      makePermit({
+        type: 'Building Permit',
+        status: 'Pending',
+        approval_date: '2026-05-20',
+      }),
+      [reviewer({ reviewer_name: 'R', current_status: 'in_review' })],
+    );
+    expect(r.label).toBe(APPROVED_NOT_ISSUED_LABEL);
   });
 });
