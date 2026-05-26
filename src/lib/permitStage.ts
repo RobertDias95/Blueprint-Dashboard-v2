@@ -2,12 +2,17 @@ import type {
   DrawScheduleRow,
   Permit,
   PermitCycle,
+  PermitCycleReviewer,
   Stage,
 } from './database.types';
 import {
   isTerminalApprovedStatus,
   isTerminalIssuedStatus,
 } from './permitTerminalStatus';
+import {
+  isReviewerRollupDriven,
+  reviewerVerdictForLatestCycle,
+} from './reviewerRollup';
 
 // Q2: Pure stage-classification helpers. Ported from v1's
 // computeStage/effectiveStage and DE early/late split (see v1 index.html
@@ -41,7 +46,11 @@ export function computeStage(p: Permit, cycles: PermitCycle[]): Stage {
   return 'de';
 }
 
-export function effectiveStage(p: Permit, cycles: PermitCycle[]): Stage {
+export function effectiveStage(
+  p: Permit,
+  cycles: PermitCycle[],
+  reviewers?: PermitCycleReviewer[] | null,
+): Stage {
   if (p.actual_issue) return 'is';
   if (p.approval_date) return 'ap';
   // fix-31c → fix-31d: portal-side terminal status trumps stale cycle
@@ -54,6 +63,20 @@ export function effectiveStage(p: Permit, cycles: PermitCycle[]): Stage {
   //     approved but issuance paperwork still outstanding).
   if (isTerminalIssuedStatus(p.status)) return 'is';
   if (isTerminalApprovedStatus(p.status)) return 'ap';
+  // fix-54 (2026-05-26): MPB permits (Bellevue/Edmonds/Kirkland) carry a
+  // coarse "Pending" / "Applied" portal status with the wholistic truth
+  // sitting in per-discipline reviewer rows. The scraper may have stamped
+  // cycle.corr_issued the moment one discipline issued corrections —
+  // which puts a still-in-review permit in the 'co' bucket via
+  // computeStage. Apply the wholistic verdict instead when reviewers are
+  // available. Seattle's wholistic Accela strings are not in
+  // isReviewerRollupDriven's set, so this branch never fires for them.
+  if (reviewers && reviewers.length > 0 && isReviewerRollupDriven(p.status)) {
+    const verdict = reviewerVerdictForLatestCycle(reviewers);
+    if (verdict === 'in_review') return 'pm';
+    if (verdict === 'corrections_required') return 'co';
+    if (verdict === 'approved') return 'ap';
+  }
   return computeStage(p, cycles);
 }
 
@@ -91,6 +114,11 @@ export interface BucketedPermits {
 export interface BucketInput {
   permit: Permit;
   cycles: PermitCycle[];
+  /** fix-54: when supplied, effectiveStage applies the wholistic reviewer
+   *  rollup for MPB permits (status ∈ Pending/Applied). Omit / pass empty
+   *  for surfaces that haven't loaded reviewer rows yet — the existing
+   *  cycle-state path remains the fallback. */
+  reviewers?: PermitCycleReviewer[];
 }
 
 /**
@@ -111,8 +139,8 @@ export function bucketPermits(
     is: [],
   };
 
-  for (const { permit, cycles } of inputs) {
-    const stage = effectiveStage(permit, cycles);
+  for (const { permit, cycles, reviewers } of inputs) {
+    const stage = effectiveStage(permit, cycles, reviewers);
     if (stage === 'de') {
       const ds = drawByProjectId.get(permit.project_id);
       const bucket = classifyDeBucket(permit, ds?.status ?? null);
@@ -187,15 +215,16 @@ export function hideIssuedAtAddress(
   const hide = new Set<number>();
   for (const [, list] of permitsByAddress) {
     const allIssued = list.every(
-      ({ permit, cycles }) => effectiveStage(permit, cycles) === 'is',
+      ({ permit, cycles, reviewers }) =>
+        effectiveStage(permit, cycles, reviewers) === 'is',
     );
     // v1 rule (index.html line 2602): hide an issued permit only when
     // EVERY permit at that address is also issued — i.e. the project is
     // fully complete. When the address still has any active work, keep
     // the issued cards visible so progress reads at a glance.
     if (!allIssued) continue;
-    for (const { permit, cycles } of list) {
-      if (effectiveStage(permit, cycles) === 'is') hide.add(permit.id);
+    for (const { permit, cycles, reviewers } of list) {
+      if (effectiveStage(permit, cycles, reviewers) === 'is') hide.add(permit.id);
     }
   }
   return hide;

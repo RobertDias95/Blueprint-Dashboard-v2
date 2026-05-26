@@ -155,7 +155,7 @@ function Row({
   projectsById: Map<string, import('../../lib/database.types').Project>;
   typeDefaultsOverride: Map<string, number>;
 }) {
-  const stage = effectiveStage(permit, permit.permit_cycles ?? []);
+  const stage = effectiveStage(permit, permit.permit_cycles ?? [], reviewers);
   // fix-31: legacy fallback display for permit types whose adapter
   // doesn't yet capture per-reviewer rows (PA / IPR / SPU / Land Use /
   // MBP / Redmond). The scraper still observes a "latest_reviewer"
@@ -299,7 +299,7 @@ function Row({
         data-testid={`schedule-health-status-${permit.id}`}
       >
         {(() => {
-          const status = derivePermitStatus(permit);
+          const status = derivePermitStatus(permit, reviewers);
           return (
             <div>
               <div className="text-text">{status.label}</div>

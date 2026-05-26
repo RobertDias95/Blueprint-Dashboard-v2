@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
   bucketStatus,
+  isReviewerRollupDriven,
   latestCycleIndex,
+  reviewerVerdictForLatestCycle,
   rollupCounts,
   rowsForCycle,
   statusLabel,
@@ -260,6 +262,140 @@ describe('rollupCounts with permitStatus override (fix-31b, type-scoped fix-41)'
     expect(
       rollupCounts(rows, '  Conceptually Approved  ', '  SDOT Tree  ').approved,
     ).toBe(1);
+  });
+});
+
+describe('isReviewerRollupDriven (fix-54)', () => {
+  it('returns true for the MPB coarse portal statuses', () => {
+    expect(isReviewerRollupDriven('Pending')).toBe(true);
+    expect(isReviewerRollupDriven('Applied')).toBe(true);
+  });
+
+  it('returns false for Seattle Accela wholistic statuses', () => {
+    expect(isReviewerRollupDriven('Reviews In Process')).toBe(false);
+    expect(isReviewerRollupDriven('Corrections Required')).toBe(false);
+    expect(isReviewerRollupDriven('Ready for Issuance')).toBe(false);
+    expect(isReviewerRollupDriven('Issued')).toBe(false);
+    expect(isReviewerRollupDriven('Conceptually Approved')).toBe(false);
+  });
+
+  it('returns false for null / undefined / empty', () => {
+    expect(isReviewerRollupDriven(null)).toBe(false);
+    expect(isReviewerRollupDriven(undefined)).toBe(false);
+    expect(isReviewerRollupDriven('')).toBe(false);
+  });
+
+  it('whitespace tolerant', () => {
+    expect(isReviewerRollupDriven('  Pending  ')).toBe(true);
+  });
+});
+
+describe('reviewerVerdictForLatestCycle (fix-54)', () => {
+  // Bobby's wholistic rule for MPB permits (Bellevue / Edmonds / Kirkland):
+  // disciplines issue corrections one-at-a-time, but Blueprint reports
+  // wholistically — the permit only reads "corrections required" once the
+  // round is complete. Any outstanding reviewer trumps any individual
+  // corrections already issued.
+
+  it('returns null on empty input', () => {
+    expect(reviewerVerdictForLatestCycle([])).toBeNull();
+  });
+
+  it('rolls up to in_review when ANY reviewer is outstanding (regression 26 110231 BS)', () => {
+    // Bellevue BP scenario: 2 approved + 2 corrections + 2 in_review.
+    // Pre-fix the scraper-stamped corr_issued surfaced "Corr Required";
+    // wholistically the round isn't done because 2 disciplines still
+    // haven't acted.
+    const rows = [
+      makeReviewer({ reviewer_name: 'A1', current_status: 'approved' }),
+      makeReviewer({ reviewer_name: 'A2', current_status: 'approved' }),
+      makeReviewer({ reviewer_name: 'C1', current_status: 'corrections_required' }),
+      makeReviewer({ reviewer_name: 'C2', current_status: 'corrections_required' }),
+      makeReviewer({ reviewer_name: 'R1', current_status: 'in_review' }),
+      makeReviewer({ reviewer_name: 'R2', current_status: 'in_review' }),
+    ];
+    expect(reviewerVerdictForLatestCycle(rows)).toBe('in_review');
+  });
+
+  it('treats in_process / assigned / pending as outstanding (non-terminal)', () => {
+    for (const status of ['in_process', 'assigned', 'pending'] as const) {
+      const rows = [
+        makeReviewer({ reviewer_name: 'A', current_status: 'approved' }),
+        makeReviewer({ reviewer_name: 'O', current_status: status }),
+      ];
+      expect(reviewerVerdictForLatestCycle(rows)).toBe('in_review');
+    }
+  });
+
+  it('rolls up to corrections_required when every reviewer has acted + ≥1 corrections (regression 26 108972 BS)', () => {
+    // Bellevue BP scenario: 1 approved + 5 corrections, 0 outstanding —
+    // round is complete and corrections are the verdict.
+    const rows = [
+      makeReviewer({ reviewer_name: 'A', current_status: 'approved' }),
+      ...Array.from({ length: 5 }, (_, i) =>
+        makeReviewer({
+          reviewer_name: `C${i}`,
+          current_status: 'corrections_required',
+        }),
+      ),
+    ];
+    expect(reviewerVerdictForLatestCycle(rows)).toBe('corrections_required');
+  });
+
+  it('rolls up to approved when every reviewer has acted with approved', () => {
+    const rows = [
+      makeReviewer({ reviewer_name: 'A', current_status: 'approved' }),
+      makeReviewer({ reviewer_name: 'B', current_status: 'approved' }),
+      makeReviewer({ reviewer_name: 'C', current_status: 'approved' }),
+    ];
+    expect(reviewerVerdictForLatestCycle(rows)).toBe('approved');
+  });
+
+  it('considers only the LATEST cycle (older cycle reviewers ignored)', () => {
+    // Cycle 1 had corrections; cycle 2's reviewers are mixed with one still
+    // outstanding. Verdict is on cycle 2: in_review.
+    const rows = [
+      makeReviewer({
+        reviewer_name: 'OldA',
+        current_status: 'corrections_required',
+        cycle_index: 1,
+      }),
+      makeReviewer({
+        reviewer_name: 'OldB',
+        current_status: 'corrections_required',
+        cycle_index: 1,
+      }),
+      makeReviewer({
+        reviewer_name: 'New1',
+        current_status: 'approved',
+        cycle_index: 2,
+      }),
+      makeReviewer({
+        reviewer_name: 'New2',
+        current_status: 'in_review',
+        cycle_index: 2,
+      }),
+    ];
+    expect(reviewerVerdictForLatestCycle(rows)).toBe('in_review');
+  });
+
+  it('not_required reviewers are excluded from the rollup (discipline N/A)', () => {
+    // Two approved + a not_required → all (effective) reviewers acted with
+    // approved → approved. The N/A doesn't keep it "in_review."
+    const rows = [
+      makeReviewer({ reviewer_name: 'A', current_status: 'approved' }),
+      makeReviewer({ reviewer_name: 'B', current_status: 'approved' }),
+      makeReviewer({ reviewer_name: 'X', current_status: 'not_required' }),
+    ];
+    expect(reviewerVerdictForLatestCycle(rows)).toBe('approved');
+  });
+
+  it('returns null when the latest cycle has only not_required rows', () => {
+    const rows = [
+      makeReviewer({ reviewer_name: 'X', current_status: 'not_required' }),
+      makeReviewer({ reviewer_name: 'Y', current_status: 'not_required' }),
+    ];
+    expect(reviewerVerdictForLatestCycle(rows)).toBeNull();
   });
 });
 

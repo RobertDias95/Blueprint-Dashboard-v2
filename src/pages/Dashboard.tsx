@@ -3,6 +3,7 @@ import NewProjectWizard from '../components/NewProjectWizard';
 import { useProjects } from '../hooks/useProjects';
 import { usePermits } from '../hooks/usePermits';
 import { useDrawSchedule } from '../hooks/useDrawSchedule';
+import { useAllPermitCycleReviewers } from '../hooks/useAllPermitCycleReviewers';
 import {
   bucketPermits,
   hideIssuedAtAddress,
@@ -13,6 +14,7 @@ import type {
   DrawScheduleRow,
   Permit,
   PermitCycle,
+  PermitCycleReviewer,
   Project,
   Stage,
 } from '../lib/database.types';
@@ -53,6 +55,9 @@ export default function Dashboard() {
   const projectsQ = useProjects();
   const permitsQ = usePermits();
   const drawQ = useDrawSchedule();
+  // fix-54: reviewer rows feed the wholistic rollup that overrides the
+  // matrix bucket + Project Overview status pill for MPB permits.
+  const reviewersQ = useAllPermitCycleReviewers();
   const [search, setSearch] = useState('');
   const [wizardOpen, setWizardOpen] = useState(false);
   const [filters, setFilters] = useState<DashFilters>(EMPTY_DASH_FILTERS);
@@ -95,10 +100,18 @@ export default function Dashboard() {
   const isLoading = projectsQ.isLoading || permitsQ.isLoading || drawQ.isLoading;
   const error = projectsQ.error ?? permitsQ.error ?? drawQ.error;
 
-  const { buckets, projectById, cyclesByPermit } = useMemo(() => {
+  const { buckets, projectById, cyclesByPermit, reviewersByPermit } = useMemo(() => {
     const projects = projectsQ.data ?? [];
     const permits = permitsQ.data ?? [];
     const draw = drawQ.data ?? [];
+    const reviewers = reviewersQ.data ?? [];
+
+    const reviewersByPermitId = new Map<number, PermitCycleReviewer[]>();
+    for (const r of reviewers) {
+      const list = reviewersByPermitId.get(r.permit_id) ?? [];
+      list.push(r);
+      reviewersByPermitId.set(r.permit_id, list);
+    }
 
     const projectByIdMap = new Map<string, Project>(
       projects.map((p) => [p.id, p]),
@@ -139,7 +152,11 @@ export default function Dashboard() {
     const permitsByProjectId = new Map<string, BucketInput[]>();
     for (const permit of permits) {
       const list = permitsByProjectId.get(permit.project_id) ?? [];
-      list.push({ permit, cycles: permit.permit_cycles ?? [] });
+      list.push({
+        permit,
+        cycles: permit.permit_cycles ?? [],
+        reviewers: reviewersByPermitId.get(permit.id) ?? [],
+      });
       permitsByProjectId.set(permit.project_id, list);
     }
 
@@ -172,8 +189,9 @@ export default function Dashboard() {
       buckets: bucketed,
       projectById: projectByIdMap,
       cyclesByPermit,
+      reviewersByPermit: reviewersByPermitId,
     };
-  }, [projectsQ.data, permitsQ.data, drawQ.data, search, filters]);
+  }, [projectsQ.data, permitsQ.data, drawQ.data, reviewersQ.data, search, filters]);
 
   if (error) {
     return (
@@ -241,6 +259,7 @@ export default function Dashboard() {
           stage="de"
           projectById={projectById}
           cyclesByPermit={cyclesByPermit}
+          reviewersByPermit={reviewersByPermit}
           ctx={dashCtx}
         />
         <StageGroup
@@ -273,6 +292,7 @@ export default function Dashboard() {
           stage="pm"
           projectById={projectById}
           cyclesByPermit={cyclesByPermit}
+          reviewersByPermit={reviewersByPermit}
           ctx={dashCtx}
         />
       </div>
@@ -288,6 +308,7 @@ export default function Dashboard() {
           getKeyDate={(p) => p.approval_date}
           projectById={projectById}
           cyclesByPermit={cyclesByPermit}
+          reviewersByPermit={reviewersByPermit}
           loading={isLoading}
           ctx={dashCtx}
         />
@@ -301,6 +322,7 @@ export default function Dashboard() {
           getKeyDate={(p) => p.actual_issue}
           projectById={projectById}
           cyclesByPermit={cyclesByPermit}
+          reviewersByPermit={reviewersByPermit}
           loading={isLoading}
           ctx={dashCtx}
         />
@@ -331,6 +353,7 @@ interface StageGroupProps {
   stage: Stage;
   projectById: Map<string, Project>;
   cyclesByPermit: Map<number, PermitCycle[]>;
+  reviewersByPermit: Map<number, PermitCycleReviewer[]>;
   ctx: DashContext;
 }
 
@@ -354,6 +377,7 @@ function StageGroup({
   stage,
   projectById,
   cyclesByPermit,
+  reviewersByPermit,
   ctx,
 }: StageGroupProps) {
   return (
@@ -407,6 +431,7 @@ function StageGroup({
                     permits={sub.permits}
                     stage={subStage}
                     cyclesByPermit={cyclesByPermit}
+                    reviewersByPermit={reviewersByPermit}
                     projectById={projectById}
                     keyDateLabel={sub.keyDateLabel}
                     getKeyDate={sub.getKeyDate}
@@ -432,6 +457,7 @@ interface BottomStripProps {
   getKeyDate: (p: Permit) => string | null;
   projectById: Map<string, Project>;
   cyclesByPermit: Map<number, PermitCycle[]>;
+  reviewersByPermit: Map<number, PermitCycleReviewer[]>;
   loading: boolean;
   ctx: DashContext;
 }
@@ -457,6 +483,7 @@ function BottomStrip({
   getKeyDate,
   projectById,
   cyclesByPermit,
+  reviewersByPermit,
   loading,
   ctx,
 }: BottomStripProps) {
@@ -503,6 +530,7 @@ function BottomStrip({
                 permits={permits}
                 stage={stage}
                 cyclesByPermit={cyclesByPermit}
+                reviewersByPermit={reviewersByPermit}
                 projectById={projectById}
                 keyDateLabel={keyDateLabel}
                 getKeyDate={getKeyDate}
@@ -561,6 +589,7 @@ interface SubBucketGroupsProps {
   permits: Permit[];
   stage: Stage;
   cyclesByPermit: Map<number, PermitCycle[]>;
+  reviewersByPermit: Map<number, PermitCycleReviewer[]>;
   projectById: Map<string, Project>;
   keyDateLabel: string;
   getKeyDate: (p: Permit) => string | null;
@@ -571,6 +600,7 @@ function SubBucketGroups({
   permits,
   stage,
   cyclesByPermit,
+  reviewersByPermit,
   projectById,
   keyDateLabel,
   getKeyDate,
@@ -631,6 +661,7 @@ function SubBucketGroups({
           permits={g.permits}
           stage={stage}
           cyclesByPermit={cyclesByPermit}
+          reviewersByPermit={reviewersByPermit}
           cardUrgency={g.urgency}
           keyDateLabel={keyDateLabel}
           getKeyDate={getKeyDate}
