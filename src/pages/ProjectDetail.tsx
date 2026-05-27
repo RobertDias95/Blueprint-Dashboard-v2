@@ -335,14 +335,29 @@ function PermitsSidebar({
       Array.isArray(project.permit_order) ? project.permit_order : [],
     [project.permit_order],
   );
-  const sorted = useMemo(() => {
-    return [...permits].sort((a, b) => {
-      // Q9.5.f-fix-8 C: issued permits drop to the bottom regardless of
-      // permit_order. The "what's active right now" rows stay visually
-      // grouped at the top of the sidebar.
-      const aIssued = !!a.actual_issue;
-      const bIssued = !!b.actual_issue;
-      if (aIssued !== bIssued) return aIssued ? 1 : -1;
+
+  // fix-65 (2026-05-27): partition into ACTIVE + ISSUED for the v1 sidebar
+  // shape Bobby asked to restore. Active permits stay drag-reorderable
+  // (their permit_order persists); issued permits collect at the bottom
+  // under a "✓ ISSUED (n)" divider with the --color-is highlight tint and
+  // are sorted by actual_issue desc (most recently issued first), static.
+  //
+  // Classification reuses effectiveStage — the same signal Schedule Health
+  // + the row's stage dot already use, so "ISSUED" in the sidebar matches
+  // the row's "ISSUED <date>" label without inventing a parallel rule.
+  // Pre-fix the partition was inline in the sort comparator (`!!actual_
+  // issue`); migrating to effectiveStage also picks up the rare case
+  // where a permit has stage_override='is' / terminal portal status but
+  // no actual_issue yet.
+  const { activeSorted, issuedSorted } = useMemo(() => {
+    const active: PermitWithCycles[] = [];
+    const issued: PermitWithCycles[] = [];
+    for (const p of permits) {
+      const isIssued =
+        effectiveStage(p, p.permit_cycles ?? [], null) === 'is';
+      (isIssued ? issued : active).push(p);
+    }
+    const byOrder = (a: PermitWithCycles, b: PermitWithCycles) => {
       const oa = order.indexOf(a.id);
       const ob = order.indexOf(b.id);
       const aRank = oa === -1 ? Number.MAX_SAFE_INTEGER : oa;
@@ -350,15 +365,32 @@ function PermitsSidebar({
       if (aRank !== bRank) return aRank - bRank;
       // Fallback: created order (id ascending, since permits.id is identity)
       return a.id - b.id;
+    };
+    active.sort(byOrder);
+    // Issued: most-recently-issued first. Permits with stage='is' but
+    // no actual_issue (e.g. stage_override or terminal portal status
+    // without a stamped date) fall back to approval_date, then id desc.
+    issued.sort((a, b) => {
+      const da = a.actual_issue ?? a.approval_date ?? '';
+      const db = b.actual_issue ?? b.approval_date ?? '';
+      if (da !== db) return db.localeCompare(da);
+      return b.id - a.id;
     });
+    return { activeSorted: active, issuedSorted: issued };
   }, [permits, order]);
 
-  function commitOrder(nextIds: number[]) {
+  function commitOrder(nextActiveIds: number[]) {
     if (!project.updated_at) return;
+    // Persist the canonical order across BOTH groups so a permit moving
+    // back from issued → active (rare — e.g. an actual_issue cleared
+    // by fix-actual-issue self-heal) still has a stable position. Active
+    // first (user-chosen), issued appended in their current date-desc
+    // order (stable across navigations).
+    const next = [...nextActiveIds, ...issuedSorted.map((p) => p.id)];
     void updateProject.mutateAsync({
       projectId: project.id,
       expectedUpdatedAt: project.updated_at,
-      patch: { permit_order: nextIds },
+      patch: { permit_order: next },
       fieldLabel: 'Permit order',
     });
   }
@@ -381,11 +413,15 @@ function PermitsSidebar({
     setDragOverId(null);
     const src = Number(e.dataTransfer.getData('text/plain'));
     if (!src || src === targetId) return;
-    const ids = sorted.map((p) => p.id);
-    const fromIdx = ids.indexOf(src);
-    const toIdx = ids.indexOf(targetId);
+    // Reorder operates ONLY within the active group. v1 kept issued
+    // permits as a static bottom block; matching that here keeps the
+    // "what's done" section from being accidentally re-ordered when
+    // a user is shuffling active permits.
+    const activeIds = activeSorted.map((p) => p.id);
+    const fromIdx = activeIds.indexOf(src);
+    const toIdx = activeIds.indexOf(targetId);
     if (fromIdx === -1 || toIdx === -1) return;
-    const next = [...ids];
+    const next = [...activeIds];
     next.splice(fromIdx, 1);
     next.splice(toIdx, 0, src);
     commitOrder(next);
@@ -415,25 +451,71 @@ function PermitsSidebar({
         </span>
       </header>
       <div className="flex-1 overflow-y-auto" data-testid="permits-sidebar-list">
-        {sorted.length === 0 ? (
+        {activeSorted.length === 0 && issuedSorted.length === 0 ? (
           <div className="text-[11px] text-dim italic p-4 text-center">
             No permits yet.
           </div>
         ) : (
-          sorted.map((p) => (
-            <SidebarRow
-              key={p.id}
-              permit={p}
-              selected={p.id === selectedId}
-              dragOver={p.id === dragOverId}
-              onSelect={() => onSelect(p.id)}
-              onQuickEdit={() => onQuickEdit(p.id)}
-              onDragStart={(e) => onDragStart(e, p.id)}
-              onDragOver={(e) => onDragOver(e, p.id)}
-              onDragLeave={onDragLeave}
-              onDrop={(e) => onDrop(e, p.id)}
-            />
-          ))
+          <>
+            {/* fix-65: ACTIVE group. Drag-reorder lives here. */}
+            {activeSorted.map((p) => (
+              <SidebarRow
+                key={p.id}
+                permit={p}
+                selected={p.id === selectedId}
+                dragOver={p.id === dragOverId}
+                draggable
+                onSelect={() => onSelect(p.id)}
+                onQuickEdit={() => onQuickEdit(p.id)}
+                onDragStart={(e) => onDragStart(e, p.id)}
+                onDragOver={(e) => onDragOver(e, p.id)}
+                onDragLeave={onDragLeave}
+                onDrop={(e) => onDrop(e, p.id)}
+              />
+            ))}
+            {/* fix-65: ✓ ISSUED divider + group. Rendered only when there
+                IS at least one issued permit so a fully-active project
+                (no issued permits yet) doesn't gain an empty section. */}
+            {issuedSorted.length > 0 && (
+              <>
+                <div
+                  className="px-3 py-1.5 text-[10px] font-extrabold uppercase tracking-wider flex items-center gap-1.5 border-y"
+                  style={{
+                    background: 'var(--color-is-bg)',
+                    color: 'var(--color-is)',
+                    borderTopColor: 'var(--color-is-border)',
+                    borderBottomColor: 'var(--color-is-border)',
+                  }}
+                  data-testid="permits-sidebar-issued-divider"
+                >
+                  <span aria-hidden="true">✓</span>
+                  <span>Issued ({issuedSorted.length})</span>
+                </div>
+                <div
+                  style={{ background: 'var(--color-is-bg)' }}
+                  data-testid="permits-sidebar-issued-group"
+                >
+                  {issuedSorted.map((p) => (
+                    <SidebarRow
+                      key={p.id}
+                      permit={p}
+                      selected={p.id === selectedId}
+                      // Issued rows aren't part of active drag-reorder
+                      // (v1 kept them as a static bottom block).
+                      dragOver={false}
+                      draggable={false}
+                      onSelect={() => onSelect(p.id)}
+                      onQuickEdit={() => onQuickEdit(p.id)}
+                      onDragStart={() => {}}
+                      onDragOver={() => {}}
+                      onDragLeave={() => {}}
+                      onDrop={() => {}}
+                    />
+                  ))}
+                </div>
+              </>
+            )}
+          </>
         )}
       </div>
     </aside>
@@ -444,6 +526,7 @@ function SidebarRow({
   permit,
   selected,
   dragOver,
+  draggable,
   onSelect,
   onQuickEdit,
   onDragStart,
@@ -454,6 +537,9 @@ function SidebarRow({
   permit: PermitWithCycles;
   selected: boolean;
   dragOver: boolean;
+  /** fix-65: issued permits sit in the static bottom group and are not
+   *  drag-reorderable. Active permits stay drag-reorderable as before. */
+  draggable: boolean;
   onSelect: () => void;
   onQuickEdit: () => void;
   onDragStart: (e: React.DragEvent) => void;
@@ -481,16 +567,19 @@ function SidebarRow({
 
   return (
     <div
-      draggable
-      onDragStart={onDragStart}
-      onDragOver={onDragOver}
-      onDragLeave={onDragLeave}
-      onDrop={onDrop}
+      draggable={draggable}
+      onDragStart={draggable ? onDragStart : undefined}
+      onDragOver={draggable ? onDragOver : undefined}
+      onDragLeave={draggable ? onDragLeave : undefined}
+      onDrop={draggable ? onDrop : undefined}
       onClick={onSelect}
       onDoubleClick={onQuickEdit}
       className="w-full px-3 py-2 border-b cursor-pointer transition flex flex-col gap-1"
       style={{
         borderBottomColor: 'var(--color-border)',
+        // Selection / drag-over tints sit on top of the parent group's
+        // background tint, so the issued group's --color-is-bg shows
+        // through for un-selected, un-hovered issued rows.
         background: dragOver
           ? 'var(--color-de-bg)'
           : selected
@@ -516,12 +605,14 @@ function SidebarRow({
         <span className="text-[11px] font-bold text-text truncate flex-1 min-w-0">
           {displayLabel}
         </span>
-        <span
-          className="text-dim flex-shrink-0 cursor-grab text-[12px] leading-none"
-          title="Drag to reorder"
-        >
-          ⠿
-        </span>
+        {draggable && (
+          <span
+            className="text-dim flex-shrink-0 cursor-grab text-[12px] leading-none"
+            title="Drag to reorder"
+          >
+            ⠿
+          </span>
+        )}
       </div>
       <div className="text-[10px] truncate">
         {permit.num ? (
