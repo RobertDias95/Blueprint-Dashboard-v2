@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import type { CSSProperties } from 'react';
 import type { PermitCycleReviewer } from '../../lib/database.types';
 import {
   bucketStatus,
@@ -9,6 +10,15 @@ import {
 } from '../../lib/reviewerRollup';
 import type { ReviewerCounts } from '../../lib/reviewerRollup';
 import { isTerminalPositiveStatus } from '../../lib/permitTerminalStatus';
+import { useViewportAwarePopover } from '../../hooks/useViewportAwarePopover';
+
+// fix-64 (2026-05-27): popup is now viewport-aware. The hook flips
+// above when there's no room below, clamps horizontally to the viewport,
+// and caps the popup's max-height to available space so a long reviewer
+// list scrolls internally instead of clipping off the bottom (the bug
+// Bobby reported: 6 reviewers on a row near the page bottom rendered
+// only ~5). Lives in src/hooks/useViewportAwarePopover.ts so other
+// popovers (e.g. AddrGroup) can adopt the same pattern.
 
 // fix-31: Schedule Health column cell for the reviewer rollup. Replaces
 // the pre-fix-31 "tasks" placeholder column that just rendered "no
@@ -83,9 +93,19 @@ export default function ReviewerRollupChip({
 }: Props) {
   const [open, setOpen] = useState(false);
   const chipRef = useRef<HTMLButtonElement>(null);
-  const [anchor, setAnchor] = useState<{ top: number; left: number } | null>(
-    null,
-  );
+
+  // fix-64: replaced the local {top, left} state + manual rect math with
+  // the shared useViewportAwarePopover hook. Hardcoded width/maxHeight
+  // match the prior popover style (260 / 320) so visuals are unchanged
+  // when there IS room; the hook only kicks in to flip / cap when the
+  // chip is near a viewport edge. (Side note: the prior math added
+  // window.scrollY to a position:fixed top — also wrong, also gone.)
+  const popover = useViewportAwarePopover({
+    triggerRef: chipRef,
+    open,
+    width: 260,
+    maxHeight: 320,
+  });
 
   const latestIdx = latestCycleIndex(rows);
   const visibleRows = latestIdx === null ? [] : rowsForCycle(rows, latestIdx);
@@ -134,13 +154,8 @@ export default function ReviewerRollupChip({
   }, [open, permitId]);
 
   function toggle() {
-    if (!open && chipRef.current) {
-      const rect = chipRef.current.getBoundingClientRect();
-      // Anchor the popover to the right edge of the chip, vertically
-      // centered. Math is intentionally simple — viewport clipping
-      // is handled by max-height + overflow inside the popover.
-      setAnchor({ top: rect.top + window.scrollY, left: rect.right + 6 });
-    }
+    // fix-64: positioning is computed by useViewportAwarePopover from the
+    // chipRef + open flag; this handler is now just an open/close toggle.
     setOpen((v) => !v);
   }
 
@@ -206,15 +221,14 @@ export default function ReviewerRollupChip({
           </span>
         )}
       </button>
-      {open && anchor && (
+      {open && popover.style && (
         <ReviewerPopover
           permitId={permitId}
           cycleIndex={latestIdx ?? 0}
           rows={visibleRows}
           counts={counts}
           correctionsVisible={!muteCorrections && counts.correctionsRequired > 0}
-          top={anchor.top}
-          left={anchor.left}
+          containerStyle={popover.style}
         />
       )}
     </>
@@ -227,16 +241,18 @@ function ReviewerPopover({
   rows,
   counts,
   correctionsVisible,
-  top,
-  left,
+  containerStyle,
 }: {
   permitId: number;
   cycleIndex: number;
   rows: PermitCycleReviewer[];
   counts: ReviewerCounts;
   correctionsVisible: boolean;
-  top: number;
-  left: number;
+  /** fix-64: position + size come from useViewportAwarePopover so the
+   *  popup stays on-screen near any viewport edge. Includes position,
+   *  top, left, width, maxHeight (capped to viewport), and overflowY:
+   *  auto so long reviewer lists scroll internally rather than clip. */
+  containerStyle: CSSProperties;
 }) {
   // fix-43: outstanding-first ordering (see SORT_RANK). Approved reviewers
   // sink to the bottom; within a rank we keep a stable alphabetical order.
@@ -251,13 +267,12 @@ function ReviewerPopover({
   const outstanding = counts.total - counts.approved;
   return (
     <div
-      className="fixed z-[10000] rounded border shadow-lg"
+      className="z-[10000] rounded border shadow-lg"
       style={{
-        top,
-        left,
-        maxHeight: 320,
-        width: 260,
-        overflowY: 'auto',
+        // Position / size / overflow come from the hook (viewport-aware).
+        // Visual styling (background, border tint) stays inline so the
+        // popover keeps the same surface look in light + dark themes.
+        ...containerStyle,
         background: 'var(--color-surface)',
         borderColor: 'var(--color-border)',
       }}
