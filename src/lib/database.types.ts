@@ -436,6 +436,15 @@ export interface ScraperActivityRow {
   /** fix-28: entitlement lead from permits.ent_lead. Drives the
    *  Activity page's per-lead filter (Bobby / Briana / Miles). */
   ent_lead: string | null;
+  /** fix-61: city portal deep-link from permits.portal_url. ~79%
+   *  populated in prod (160/202 permits). Frontend renders the permit
+   *  number as an external link only when this is non-empty. */
+  portal_url: string | null;
+  /** fix-61: project uuid from permits.project_id, used by the
+   *  Activity page's "Open Project" group header button. Reaches NULL
+   *  only when the audit_log row_id doesn't resolve to a permit (LEFT
+   *  JOIN miss); the button is hidden in that case. */
+  project_id: string | null;
 }
 
 export interface IntakeRecord {

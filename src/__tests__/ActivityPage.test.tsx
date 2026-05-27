@@ -22,18 +22,37 @@ function mkRow(over: Partial<ScraperActivityRow> = {}): ScraperActivityRow {
     juris: 'Seattle',
     cycle_index: null,
     ent_lead: 'Bobby',
+    // fix-61: defaults model the ~79% / 100% prod populations. Cases
+    // that need a null portal_url override below.
+    portal_url: 'https://services.seattle.gov/Portal/Cap/CapDetail.aspx?Module=Permits&capID1=26CMU&capID2=00000&capID3=00261',
+    project_id: '00000000-0000-0000-0000-000000000aaa',
     ...over,
   };
 }
 
+const PROJECT_ID_INTERLAKE = '00000000-0000-0000-0000-000000000001';
+const PROJECT_ID_OAK = '00000000-0000-0000-0000-000000000002';
+const PROJECT_ID_PIKE = '00000000-0000-0000-0000-000000000003';
+const PORTAL_URL_7101215 =
+  'https://services.seattle.gov/Portal/Cap/CapDetail.aspx?Module=Permits&capID1=7101215';
+
 const ROWS: ScraperActivityRow[] = [
-  mkRow({ id: 1, address: '3670 Interlake Ave N', ent_lead: 'Bobby' }),
+  mkRow({
+    id: 1,
+    address: '3670 Interlake Ave N',
+    ent_lead: 'Bobby',
+    portal_url: PORTAL_URL_7101215,
+    project_id: PROJECT_ID_INTERLAKE,
+  }),
   mkRow({
     id: 2,
     address: '3670 Interlake Ave N',
     permit_num: '7119456-DM',
     ent_lead: 'Bobby',
     created_at: '2026-05-18T17:00:00Z',
+    // fix-61: this permit has no portal_url in prod — renders as plain text.
+    portal_url: null,
+    project_id: PROJECT_ID_INTERLAKE,
   }),
   mkRow({
     id: 3,
@@ -42,6 +61,8 @@ const ROWS: ScraperActivityRow[] = [
     permit_type: 'Building Permit',
     ent_lead: 'Briana',
     created_at: '2026-05-18T16:00:00Z',
+    portal_url: 'https://example.com/bp-200',
+    project_id: PROJECT_ID_OAK,
   }),
   mkRow({
     id: 4,
@@ -54,6 +75,8 @@ const ROWS: ScraperActivityRow[] = [
     cycle_index: 1,
     changes: { applied: { submitted: '2026-05-18' } },
     created_at: '2026-05-18T15:00:00Z',
+    portal_url: 'https://example.com/uls-500',
+    project_id: PROJECT_ID_PIKE,
   }),
 ];
 
@@ -227,6 +250,64 @@ describe('<ActivityPage /> (fix-28)', () => {
     expect(screen.queryByTestId('activity-row-2')).toBeNull();
     // Other groups still visible.
     expect(screen.getByTestId('activity-row-3')).toBeInTheDocument();
+  });
+
+  // fix-61: Activity page additions — portal-link permit numbers,
+  // larger collapse caret, and Open-Project group-header button.
+
+  it('renders permit_num as an external portal link when portal_url is set', () => {
+    renderPage();
+    const link = screen.getByTestId('activity-row-portal-link-1') as HTMLAnchorElement;
+    expect(link).toBeInTheDocument();
+    expect(link.tagName).toBe('A');
+    expect(link.getAttribute('href')).toBe(PORTAL_URL_7101215);
+    expect(link.getAttribute('target')).toBe('_blank');
+    expect(link.getAttribute('rel')).toBe('noopener noreferrer');
+    // Text content is the permit number itself.
+    expect(link.textContent).toBe('7101215-DM');
+  });
+
+  it('renders permit_num as plain text when portal_url is null', () => {
+    renderPage();
+    // Row 2's portal_url is null in the test ROWS — no link element.
+    expect(screen.queryByTestId('activity-row-portal-link-2')).toBeNull();
+    const row = screen.getByTestId('activity-row-2');
+    expect(row.textContent).toContain('7119456-DM');
+  });
+
+  it('portal link does not collapse the parent group when clicked', () => {
+    renderPage();
+    const link = screen.getByTestId('activity-row-portal-link-1');
+    fireEvent.click(link);
+    // Group still expanded — child rows still visible.
+    expect(screen.getByTestId('activity-row-1')).toBeInTheDocument();
+    expect(screen.getByTestId('activity-row-2')).toBeInTheDocument();
+  });
+
+  it('group header renders an Open Project link routed to the correct project_id', () => {
+    renderPage();
+    const link = screen.getByTestId(
+      'activity-group-open-project-3670 Interlake Ave N',
+    ) as HTMLAnchorElement;
+    expect(link).toBeInTheDocument();
+    expect(link.textContent).toBe('Open Project');
+    // react-router-dom prepends the basename — assert by suffix.
+    expect(link.getAttribute('href')).toBe(`/project/${PROJECT_ID_INTERLAKE}`);
+
+    const oakLink = screen.getByTestId(
+      'activity-group-open-project-200 Oak Ave',
+    ) as HTMLAnchorElement;
+    expect(oakLink.getAttribute('href')).toBe(`/project/${PROJECT_ID_OAK}`);
+  });
+
+  it('group toggle button exposes aria-expanded for accessibility', () => {
+    renderPage();
+    const toggle = screen.getByTestId(
+      'activity-group-toggle-3670 Interlake Ave N',
+    );
+    expect(toggle.getAttribute('aria-expanded')).toBe('true');
+    fireEvent.click(toggle);
+    expect(toggle.getAttribute('aria-expanded')).toBe('false');
   });
 
   it('ent filter selection persists to localStorage', () => {

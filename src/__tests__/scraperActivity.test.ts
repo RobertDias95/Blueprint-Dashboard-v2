@@ -36,6 +36,10 @@ function mkRow(over: Partial<ScraperActivityRow> = {}): ScraperActivityRow {
     juris: 'Seattle',
     cycle_index: null,
     ent_lead: 'Bobby',
+    // fix-61: required ScraperActivityRow fields. These helpers don't
+    // exercise UI link rendering, so null defaults are fine.
+    portal_url: null,
+    project_id: null,
     ...over,
   };
 }
