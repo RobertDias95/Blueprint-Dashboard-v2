@@ -308,3 +308,152 @@ describe('<ProjectDetail /> fix-23e two-pillbox layout', () => {
     }
   });
 });
+
+// ===========================================================
+// fix-65: restore v1's issued-permit grouping.
+//
+// Pre-fix the sidebar already dropped issued permits to the bottom
+// (via a `!!actual_issue` comparator in the sort) but rendered them
+// indistinguishably from active rows — no divider, no highlight, and
+// drag-reorder applied to all rows including issued ones. v1 shipped a
+// "✓ ISSUED (n)" divider with a teal highlight + a static (non-drag)
+// bottom block. These tests pin the restored UX.
+// ===========================================================
+
+describe('<ProjectDetail /> fix-65 issued-permit grouping', () => {
+  it('renders active permits ABOVE a ✓ ISSUED divider with the correct count', () => {
+    // 4 permits: two active (id 1, 2 — both have actual_issue null), two
+    // issued (id 3, 4 — actual_issue set). The default fixture has
+    // actual_issue null on both, so we extend it.
+    refs.setPermits([
+      { ...refs.permits[0], id: 1, type: 'Building Permit', actual_issue: null },
+      { ...refs.permits[1], id: 2, type: 'Demolition', actual_issue: null },
+      {
+        ...refs.permits[0],
+        id: 3,
+        type: 'SDOT Tree',
+        actual_issue: '2026-04-15',
+      },
+      {
+        ...refs.permits[0],
+        id: 4,
+        type: 'ULS',
+        actual_issue: '2026-05-10',
+      },
+    ]);
+    renderAt();
+
+    const divider = screen.getByTestId('permits-sidebar-issued-divider');
+    expect(divider).toBeInTheDocument();
+    expect(divider.textContent).toMatch(/Issued \(2\)/i);
+    // Highlight tint — uses the --color-is-bg CSS var per fix-65.
+    const bgStyle = divider.getAttribute('style') ?? '';
+    expect(bgStyle).toContain('var(--color-is-bg)');
+    expect(bgStyle).toContain('var(--color-is)');
+
+    // Active rows live before the divider in DOM order.
+    const list = screen.getByTestId('permits-sidebar-list');
+    const all = list.querySelectorAll('[data-testid^="permits-sidebar-row-"]');
+    // 4 rows total: 1, 2 above; 3, 4 below the divider (issued sorts by
+    // actual_issue desc so id 4 first, then id 3).
+    const ids = Array.from(all).map((el) =>
+      el.getAttribute('data-testid')?.replace('permits-sidebar-row-', ''),
+    );
+    expect(ids.indexOf('1')).toBeLessThan(ids.indexOf('3'));
+    expect(ids.indexOf('2')).toBeLessThan(ids.indexOf('3'));
+    expect(ids.indexOf('2')).toBeLessThan(ids.indexOf('4'));
+  });
+
+  it('issued group sits beneath the divider with the highlight bg', () => {
+    refs.setPermits([
+      { ...refs.permits[0], id: 1, actual_issue: null },
+      { ...refs.permits[0], id: 5, actual_issue: '2026-05-10' },
+    ]);
+    renderAt();
+    const issuedGroup = screen.getByTestId('permits-sidebar-issued-group');
+    expect(issuedGroup).toBeInTheDocument();
+    expect(issuedGroup.getAttribute('style')).toContain('var(--color-is-bg)');
+    // The issued row lives inside the issued group.
+    const issuedRow = screen.getByTestId('permits-sidebar-row-5');
+    expect(issuedGroup.contains(issuedRow)).toBe(true);
+    // The active row does NOT live inside the issued group.
+    const activeRow = screen.getByTestId('permits-sidebar-row-1');
+    expect(issuedGroup.contains(activeRow)).toBe(false);
+  });
+
+  it('issued rows are not draggable + omit the grab-handle glyph', () => {
+    refs.setPermits([
+      { ...refs.permits[0], id: 1, actual_issue: null },
+      { ...refs.permits[0], id: 5, actual_issue: '2026-05-10' },
+    ]);
+    renderAt();
+    const activeRow = screen.getByTestId('permits-sidebar-row-1');
+    const issuedRow = screen.getByTestId('permits-sidebar-row-5');
+    // draggable boolean is a DOM attribute on the outer <div>.
+    expect(activeRow.getAttribute('draggable')).toBe('true');
+    expect(issuedRow.getAttribute('draggable')).toBe('false');
+    // Grab-handle glyph (⠿) is present on active rows, absent on issued.
+    expect(activeRow.textContent).toContain('⠿');
+    expect(issuedRow.textContent).not.toContain('⠿');
+  });
+
+  it('"PERMITS (n)" header counts ALL permits (active + issued)', () => {
+    refs.setPermits([
+      { ...refs.permits[0], id: 1, actual_issue: null },
+      { ...refs.permits[0], id: 2, actual_issue: null },
+      { ...refs.permits[0], id: 3, actual_issue: '2026-05-10' },
+    ]);
+    renderAt();
+    const left = screen.getByTestId('pd-left-pillbox');
+    // The header reads "Permits (3)".
+    expect(left.textContent).toMatch(/Permits \(3\)/);
+  });
+
+  it('a project with NO issued permits renders no divider (sidebar looks like before)', () => {
+    refs.setPermits([
+      { ...refs.permits[0], id: 1, actual_issue: null },
+      { ...refs.permits[1], id: 2, actual_issue: null },
+    ]);
+    renderAt();
+    expect(
+      screen.queryByTestId('permits-sidebar-issued-divider'),
+    ).toBeNull();
+    expect(screen.queryByTestId('permits-sidebar-issued-group')).toBeNull();
+  });
+
+  it('a project with ALL permits issued renders the divider + every row inside the issued group', () => {
+    refs.setPermits([
+      { ...refs.permits[0], id: 1, actual_issue: '2026-04-01' },
+      { ...refs.permits[0], id: 2, actual_issue: '2026-05-15' },
+    ]);
+    renderAt();
+    const divider = screen.getByTestId('permits-sidebar-issued-divider');
+    expect(divider.textContent).toMatch(/Issued \(2\)/i);
+    const group = screen.getByTestId('permits-sidebar-issued-group');
+    expect(group.contains(screen.getByTestId('permits-sidebar-row-1'))).toBe(true);
+    expect(group.contains(screen.getByTestId('permits-sidebar-row-2'))).toBe(true);
+    // Most-recently-issued first: id 2 (May 15) before id 1 (April 1).
+    const rows = group.querySelectorAll('[data-testid^="permits-sidebar-row-"]');
+    const ids = Array.from(rows).map((el) =>
+      el.getAttribute('data-testid')?.replace('permits-sidebar-row-', ''),
+    );
+    expect(ids).toEqual(['2', '1']);
+  });
+
+  it('issued permits sort by actual_issue desc (most recently issued first)', () => {
+    refs.setPermits([
+      { ...refs.permits[0], id: 1, actual_issue: null },
+      { ...refs.permits[0], id: 10, actual_issue: '2026-01-15' },
+      { ...refs.permits[0], id: 11, actual_issue: '2026-06-01' },
+      { ...refs.permits[0], id: 12, actual_issue: '2026-03-22' },
+    ]);
+    renderAt();
+    const group = screen.getByTestId('permits-sidebar-issued-group');
+    const rows = group.querySelectorAll('[data-testid^="permits-sidebar-row-"]');
+    const ids = Array.from(rows).map((el) =>
+      el.getAttribute('data-testid')?.replace('permits-sidebar-row-', ''),
+    );
+    // 11 (Jun) > 12 (Mar) > 10 (Jan).
+    expect(ids).toEqual(['11', '12', '10']);
+  });
+});
