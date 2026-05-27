@@ -1,4 +1,5 @@
 import { useMemo } from 'react';
+import { Link } from 'react-router-dom';
 import type { ScraperActivityRow } from '../../lib/database.types';
 import { countUnreadByIds, formatRelativeTime } from '../../lib/scraperActivity';
 import ActivityRow from './ActivityRow';
@@ -7,6 +8,9 @@ import ActivityRow from './ActivityRow';
 // jurisdiction + unread count for this group + collapse caret. Body
 // is the row list, sorted desc by created_at (input is already sorted
 // at the page level so we don't re-sort).
+// fix-61: header restructured from one big button into a flex row
+// with two independent interactive controls (toggle + Open Project)
+// so neither nests inside the other. Caret enlarged for legibility.
 
 const JURIS_TINT: Record<string, string> = {
   Seattle: '#2563eb',
@@ -51,73 +55,96 @@ export default function ActivityProjectGroup({
     return null;
   }, [rows]);
   const jurisTint = juris ? JURIS_TINT[juris] : undefined;
+  // fix-61: project_id is the first non-null we see in the group. The
+  // RPC LEFT JOIN can produce nulls when an audit row_id doesn't resolve
+  // to a permit, so the Open-Project control only renders when present.
+  // Rows in a single group share an address, so they should share a
+  // project_id; first non-null is safe.
+  const projectId = useMemo(() => {
+    for (const r of rows) if (r.project_id) return r.project_id;
+    return null;
+  }, [rows]);
 
   return (
     <div
       className="bg-surface border border-border rounded-lg overflow-hidden"
       data-testid={`activity-group-${address}`}
     >
-      <button
-        type="button"
-        onClick={onToggleCollapsed}
-        className="w-full flex items-center gap-3 px-4 py-2.5 text-left hover:bg-bg transition"
-        data-testid={`activity-group-toggle-${address}`}
-      >
-        <span
-          className="text-[10px] text-dim w-3 inline-block"
-          aria-hidden="true"
+      <div className="flex items-stretch hover:bg-bg transition">
+        <button
+          type="button"
+          onClick={onToggleCollapsed}
+          aria-expanded={!collapsed}
+          aria-label={collapsed ? `Expand ${address}` : `Collapse ${address}`}
+          className="flex-1 min-w-0 flex items-center gap-3 px-4 py-2.5 text-left"
+          data-testid={`activity-group-toggle-${address}`}
         >
-          {collapsed ? '▸' : '▾'}
-        </span>
-        <div className="flex-1 min-w-0">
-          <div className="flex items-baseline gap-2 flex-wrap">
-            <span
-              className={`text-[13px] font-display font-bold ${
-                isUnknown ? 'italic text-dim' : 'text-text'
-              } truncate`}
-            >
-              {address}
-            </span>
-            {juris && (
-              <span
-                className="text-[9px] font-bold px-1.5 py-px rounded"
-                style={{
-                  background: jurisTint ? `${jurisTint}22` : 'var(--color-s2)',
-                  color: jurisTint ?? 'var(--color-muted)',
-                }}
-              >
-                {juris}
-              </span>
-            )}
-          </div>
-          <div className="text-[10px] text-muted mt-0.5">
-            {rows.length} event{rows.length === 1 ? '' : 's'}
-            {unread > 0 && (
-              <>
-                {' · '}
-                <span className="font-bold" style={{ color: 'var(--color-co)' }}>
-                  {unread} unread
-                </span>
-              </>
-            )}
-            {latest && (
-              <>
-                {' · last '}
-                {formatRelativeTime(latest)}
-              </>
-            )}
-          </div>
-        </div>
-        {unread > 0 && (
           <span
-            className="text-[10px] font-extrabold text-white rounded-full min-w-[18px] h-[18px] px-1.5 flex items-center justify-center"
-            style={{ background: 'var(--color-co, #d97706)' }}
-            data-testid={`activity-group-badge-${address}`}
+            className="text-lg leading-none text-muted w-5 h-5 inline-flex items-center justify-center select-none"
+            aria-hidden="true"
           >
-            {unread > 99 ? '99+' : unread}
+            {collapsed ? '▸' : '▾'}
           </span>
+          <div className="flex-1 min-w-0">
+            <div className="flex items-baseline gap-2 flex-wrap">
+              <span
+                className={`text-[13px] font-display font-bold ${
+                  isUnknown ? 'italic text-dim' : 'text-text'
+                } truncate`}
+              >
+                {address}
+              </span>
+              {juris && (
+                <span
+                  className="text-[9px] font-bold px-1.5 py-px rounded"
+                  style={{
+                    background: jurisTint ? `${jurisTint}22` : 'var(--color-s2)',
+                    color: jurisTint ?? 'var(--color-muted)',
+                  }}
+                >
+                  {juris}
+                </span>
+              )}
+            </div>
+            <div className="text-[10px] text-muted mt-0.5">
+              {rows.length} event{rows.length === 1 ? '' : 's'}
+              {unread > 0 && (
+                <>
+                  {' · '}
+                  <span className="font-bold" style={{ color: 'var(--color-co)' }}>
+                    {unread} unread
+                  </span>
+                </>
+              )}
+              {latest && (
+                <>
+                  {' · last '}
+                  {formatRelativeTime(latest)}
+                </>
+              )}
+            </div>
+          </div>
+          {unread > 0 && (
+            <span
+              className="text-[10px] font-extrabold text-white rounded-full min-w-[18px] h-[18px] px-1.5 flex items-center justify-center"
+              style={{ background: 'var(--color-co, #d97706)' }}
+              data-testid={`activity-group-badge-${address}`}
+            >
+              {unread > 99 ? '99+' : unread}
+            </span>
+          )}
+        </button>
+        {projectId && (
+          <Link
+            to={`/project/${projectId}`}
+            className="self-center mr-3 ml-2 shrink-0 text-[10px] font-display font-bold px-2.5 py-1 rounded border border-de text-de bg-de/5 hover:bg-de/10 transition whitespace-nowrap"
+            data-testid={`activity-group-open-project-${address}`}
+            aria-label={`Open project at ${address}`}
+          >
+            Open Project
+          </Link>
         )}
-      </button>
+      </div>
       {!collapsed && (
         <div className="border-t border-border">
           {rows.map((row) => (

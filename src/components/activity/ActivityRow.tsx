@@ -46,9 +46,23 @@ export default function ActivityRow({
       <div className="flex-1 min-w-0">
         <div className="flex items-baseline gap-2 flex-wrap mb-0.5">
           {row.permit_num && (
-            <span className="font-mono text-[10px] text-text font-bold">
-              {row.permit_num}
-            </span>
+            row.portal_url ? (
+              <a
+                href={row.portal_url}
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={(e) => e.stopPropagation()}
+                className="font-mono text-[10px] text-text font-bold underline decoration-dotted decoration-muted underline-offset-2 hover:decoration-solid hover:text-de transition-colors"
+                data-testid={`activity-row-portal-link-${row.id}`}
+                aria-label={`Open ${row.permit_num} in city portal (new tab)`}
+              >
+                {row.permit_num}
+              </a>
+            ) : (
+              <span className="font-mono text-[10px] text-text font-bold">
+                {row.permit_num}
+              </span>
+            )
           )}
           {row.permit_type && (
             <span className="text-[9px] uppercase tracking-wide text-dim">
