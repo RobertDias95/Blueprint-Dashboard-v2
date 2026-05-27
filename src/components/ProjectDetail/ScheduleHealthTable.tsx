@@ -1,16 +1,19 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { effectiveStage } from '../../lib/permitStage';
 import { useAllPermitCycleReviewers } from '../../hooks/useAllPermitCycleReviewers';
 import { usePermits } from '../../hooks/usePermits';
 import { useProjects } from '../../hooks/useProjects';
 import { usePermitTypeDefaults } from '../../hooks/usePermitTypeDefaults';
+import { useUpdateProjectWithPermits } from '../../hooks/useUpdateProjectWithPermits';
 import { computeLearnedSchedule, type LearnedEstimate } from '../../lib/scheduleBenchmarks';
 import { computeProjectedApproval } from '../../lib/projectedApproval';
 import { derivePermitStatus } from '../../lib/permitStatus';
+import { pushToast } from '../../stores/toastStore';
 import type {
   PermitCycle,
   PermitCycleReviewer,
   PermitWithCycles,
+  Project,
   Stage,
 } from '../../lib/database.types';
 import ReviewerRollupChip from './ReviewerRollupChip';
@@ -24,7 +27,11 @@ import ReviewerRollupChip from './ReviewerRollupChip';
 //   5. Data Source — Default / Learned badge (v2 always shows Default until
 //      the learner state ports — Q7+ backlog)
 //   6. Estimated Approval — actual_issue / approval_date / expected_issue
-//   7. ACQ Target — placeholder until task #63 unblocks acq target schema
+//   7. ACQ Target — permits.expected_issue (team-owned, scraper never
+//      writes it). fix-63: inline-editable on this card — Bobby asked for
+//      the target to be adjustable from the same surface that displays
+//      Estimated Approval vs Health, so he can read schedule drift and
+//      retarget without opening Project Settings.
 //   8. Schedule Health — bucket based on (projection - target):
 //        diff ≤ -1  → "↑ On Track"   (green / --color-pm)
 //        diff ≤ 14  → "→ At Risk"     (yellow / --color-co)
@@ -249,6 +256,11 @@ function Row({
   // as the team's plan; Estimated Approval reflects the actual outcome.
   const acqTarget: string | null = permit.expected_issue ?? null;
   const diff = computeHealthDiff(projection, acqTarget);
+  // fix-63: project carries the OCC token the RPC needs for the project-
+  // row precondition check. p_project_patch is empty, so the project row
+  // isn't actually written, but the RPC still requires a token — pass the
+  // known value rather than trying to skip it.
+  const projectForOcc = projectsById.get(permit.project_id) ?? null;
 
   const borderL = { borderLeftColor: 'var(--color-border)' } as const;
 
@@ -341,24 +353,138 @@ function Row({
           <span className="text-dim">—</span>
         )}
       </td>
-      {/* 7. ACQ Target */}
+      {/* 7. ACQ Target — fix-63: inline-editable (was read-only display). */}
       <td
-        className="px-2 py-2 align-middle text-center border-l text-[10px] font-mono"
+        className="px-2 py-2 align-middle text-center border-l"
         style={borderL}
       >
-        {acqTarget ? (
-          <span className="text-text font-bold">{fmtDate(acqTarget)}</span>
-        ) : (
-          <span className="text-dim italic" title="ACQ target — task #63 backlog">
-            —
-          </span>
-        )}
+        <AcqTargetCell permit={permit} project={projectForOcc} />
       </td>
       {/* 8. Schedule Health */}
       <td className="px-2 py-2 align-middle text-center border-l" style={borderL}>
         <HealthBadge diff={diff} />
       </td>
     </tr>
+  );
+}
+
+// ============================================================
+// fix-63: ACQ Target inline-edit cell.
+//
+// Owns its own local draft + mutation so the Schedule Health table can
+// keep its prop tree narrow (each row writes one permit; the surrounding
+// Row component already pulled the project for the OCC token).
+// ============================================================
+
+function AcqTargetCell({
+  permit,
+  project,
+}: {
+  permit: PermitWithCycles;
+  project: Project | null;
+}) {
+  const stored = permit.expected_issue ?? '';
+  const [draft, setDraft] = useState(stored);
+  // React 19 in-render setState pattern (see
+  // https://react.dev/reference/react/useState#storing-information-from-previous-renders).
+  // useState(prop) only initializes ONCE, so a permit switch (different
+  // row) or a save→invalidate→refetch (same row, new expected_issue) would
+  // otherwise leave `draft` stale. Track a snapshot of the most-recent
+  // permit.expected_issue we've reflected; if the prop has moved under
+  // us, reset the draft synchronously in the same commit. Comparing on
+  // (permit.id, stored) means a save-success refetch IS picked up (same
+  // id, new stored value) and a row swap is too (different id; the prop
+  // generally differs as well, but we don't take that for granted).
+  const [snapshot, setSnapshot] = useState<{ id: number; value: string }>({
+    id: permit.id,
+    value: stored,
+  });
+  if (snapshot.id !== permit.id || snapshot.value !== stored) {
+    setSnapshot({ id: permit.id, value: stored });
+    setDraft(stored);
+  }
+
+  const mut = useUpdateProjectWithPermits();
+  // Both OCC tokens must be present for the RPC. permit.updated_at is
+  // virtually always there (it's NOT NULL on the table); project might
+  // be missing if the joined Project query hasn't landed yet (loading)
+  // or returned null for a deleted parent — disable in that case.
+  const occMissing = !permit.updated_at || !project?.updated_at;
+
+  async function commit() {
+    if (!permit.updated_at || !project?.updated_at) return;
+    const next = draft.trim() || null;
+    const current = permit.expected_issue ?? null;
+    if (next === current) return;
+    try {
+      const result = await mut.mutateAsync({
+        projectId: permit.project_id,
+        projectExpectedUpdatedAt: project.updated_at,
+        // Empty patch — the project row isn't actually written. The RPC
+        // skips the project update when p_project_patch is `{}`.
+        projectPatch: {},
+        permitUpserts: [
+          {
+            id: permit.id,
+            expected_updated_at: permit.updated_at,
+            // The RPC casts NULLIF(elem->>'expected_issue','')::date,
+            // so passing null lands as NULL on the column (clear).
+            expected_issue: next,
+          },
+        ],
+        permitDeletes: [],
+      });
+      if (result.conflict) {
+        // out_conflict_kind will typically be 'permit' here (this row's
+        // updated_at moved). The whole edit rolled back atomically — the
+        // user reloads + retries. Keep `draft` as-typed so they don't
+        // lose input. Same copy as fix-62 + the ProjectSettings modal.
+        pushToast(
+          'This project was modified elsewhere — reload and retry.',
+          'warn',
+        );
+        return;
+      }
+      // useUpdateProjectWithPermits.onSuccess invalidates the permits +
+      // permitsByProject queries → fresh permit.expected_issue + new
+      // updated_at land on the next render. The snapshot block above
+      // resyncs `draft` from that fresh prop in the same commit.
+    } catch {
+      // hook-level onError already toasted.
+    }
+  }
+
+  function onKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      // Commit directly — relying on blur() to indirectly fire onBlur is
+      // flaky in jsdom (and a redundant onBlur is a no-op anyway because
+      // commit() short-circuits when next === current).
+      void commit();
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      setDraft(stored);
+      e.currentTarget.blur();
+    }
+  }
+
+  return (
+    <input
+      type="date"
+      value={draft}
+      onChange={(e) => setDraft(e.target.value)}
+      onBlur={() => void commit()}
+      onKeyDown={onKeyDown}
+      disabled={occMissing || mut.isPending}
+      className="text-[10px] font-mono font-bold text-text border rounded outline-none w-full px-1 py-0.5 disabled:opacity-50"
+      style={{
+        background: 'var(--color-bg)',
+        borderColor: 'var(--color-border)',
+      }}
+      title="ACQ Target (team-owned target issue date)"
+      data-testid={`schedule-health-acq-target-${permit.id}`}
+      aria-label={`ACQ Target for ${permit.type ?? 'permit'} ${permit.num ?? permit.id}`}
+    />
   );
 }
 
