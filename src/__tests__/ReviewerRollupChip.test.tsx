@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen } from '@testing-library/react';
 import ReviewerRollupChip from '../components/ProjectDetail/ReviewerRollupChip';
 import type {
@@ -366,5 +366,252 @@ describe('ReviewerRollupChip', () => {
         '[title="1 outstanding (in review / assigned / pending)"]',
       ),
     ).not.toBeNull();
+  });
+
+  // ===========================================================
+  // fix-64: viewport-aware popup positioning.
+  //
+  // Pre-fix the popover used a hardcoded maxHeight:320 + (rect.top +
+  // window.scrollY) anchor on a position:fixed element. A chip on a low
+  // row clipped the bottom of the list (Bobby: "6 reviewers shows only
+  // ~5") and a scrolled page pushed the popup further out of place.
+  // The fix routes through useViewportAwarePopover which caps maxHeight
+  // to viewport-available space, flips above when below doesn't fit, and
+  // uses raw rect.top (no scrollY) since fixed coords are viewport-
+  // relative anyway. Exact pixel positioning is fragile to assert in
+  // jsdom (the layout engine doesn't paint), so these tests pin
+  // contracts that DO survive without painting:
+  //   - container carries position:fixed + a numeric top/left
+  //   - maxHeight + overflowY:auto are on the container (long list scrolls)
+  //   - all reviewer rows are in the DOM (scrollable, NOT truncated)
+  //   - placement flips when the trigger is near the bottom of the
+  //     viewport: top + maxHeight stays inside the viewport.
+  // ===========================================================
+
+  function stubTriggerRect(rect: Partial<DOMRect>) {
+    // RTL doesn't paint, so Element.getBoundingClientRect returns zeros
+    // by default. Stub it on HTMLButtonElement.prototype so the chip's
+    // ref reads the staged geometry when the hook measures.
+    const full = {
+      x: 0,
+      y: 0,
+      top: 0,
+      left: 0,
+      right: 0,
+      bottom: 0,
+      width: 0,
+      height: 0,
+      toJSON: () => ({}),
+      ...rect,
+    } as DOMRect;
+    return vi
+      .spyOn(HTMLButtonElement.prototype, 'getBoundingClientRect')
+      .mockReturnValue(full);
+  }
+
+  function setViewport(w: number, h: number) {
+    // jsdom lets these be assigned directly.
+    Object.defineProperty(window, 'innerWidth', {
+      value: w,
+      writable: true,
+      configurable: true,
+    });
+    Object.defineProperty(window, 'innerHeight', {
+      value: h,
+      writable: true,
+      configurable: true,
+    });
+  }
+
+  it('popover container carries position:fixed + maxHeight + overflowY:auto', () => {
+    setViewport(1280, 800);
+    const restore = stubTriggerRect({
+      top: 100,
+      left: 200,
+      right: 240,
+      bottom: 116,
+      width: 40,
+      height: 16,
+    });
+    try {
+      const rows = Array.from({ length: 8 }, (_, i) =>
+        makeReviewer(`R${i + 1}`, 'corrections_required'),
+      );
+      render(
+        <ReviewerRollupChip
+          permitId={42}
+          rows={rows}
+          fallbackReviewer={null}
+        />,
+      );
+      fireEvent.click(screen.getByTestId('reviewer-chip-42'));
+      const pop = screen.getByTestId('reviewer-popover-42') as HTMLDivElement;
+      expect(pop.style.position).toBe('fixed');
+      expect(pop.style.overflowY).toBe('auto');
+      // Inline maxHeight must be a finite pixel value (number → px).
+      expect(pop.style.maxHeight).toMatch(/^\d+px$/);
+      // width too — pinned at 260 in the chip's hook call.
+      expect(pop.style.width).toBe('260px');
+    } finally {
+      restore.mockRestore();
+    }
+  });
+
+  it('renders every reviewer in the DOM even with a long list (scroll, not truncate)', () => {
+    setViewport(1280, 800);
+    const restore = stubTriggerRect({
+      top: 100,
+      left: 200,
+      right: 240,
+      bottom: 116,
+      width: 40,
+      height: 16,
+    });
+    try {
+      // 12 reviewers — enough to exceed any reasonable maxHeight. The
+      // contract is "all rows in the DOM, container scrolls internally."
+      const rows: PermitCycleReviewer[] = Array.from({ length: 12 }, (_, i) =>
+        makeReviewer(`Reviewer-${i + 1}`, 'corrections_required'),
+      );
+      render(
+        <ReviewerRollupChip
+          permitId={42}
+          rows={rows}
+          fallbackReviewer={null}
+        />,
+      );
+      fireEvent.click(screen.getByTestId('reviewer-chip-42'));
+      const pop = screen.getByTestId('reviewer-popover-42');
+      // Each reviewer row should be queryable.
+      for (let i = 1; i <= 12; i++) {
+        expect(pop.textContent).toContain(`Reviewer-${i}`);
+      }
+      // And the count rows / total still match the input.
+      expect(pop.querySelectorAll('[data-testid^="reviewer-row-"]').length).toBe(
+        12,
+      );
+    } finally {
+      restore.mockRestore();
+    }
+  });
+
+  it('flips upward when the trigger is near the bottom of the viewport (popup stays on-screen)', () => {
+    // Tall popup (12 reviewers → maxHeight 320 cap kicks in), chip 50px
+    // from the bottom of an 800px viewport. Pre-fix the popup would have
+    // had top ≈ 750 + maxHeight 320 = bottom ≈ 1070 (270px off-screen).
+    // Post-fix: top + maxHeight ≤ viewport.height - margin.
+    setViewport(1280, 800);
+    const restore = stubTriggerRect({
+      top: 750,
+      left: 200,
+      right: 240,
+      bottom: 766,
+      width: 40,
+      height: 16,
+    });
+    try {
+      const rows = Array.from({ length: 12 }, (_, i) =>
+        makeReviewer(`R${i + 1}`, 'corrections_required'),
+      );
+      render(
+        <ReviewerRollupChip
+          permitId={42}
+          rows={rows}
+          fallbackReviewer={null}
+        />,
+      );
+      fireEvent.click(screen.getByTestId('reviewer-chip-42'));
+      const pop = screen.getByTestId('reviewer-popover-42') as HTMLDivElement;
+      const top = parseFloat(pop.style.top);
+      const maxH = parseFloat(pop.style.maxHeight);
+      // Both must be finite numbers + the popup's bottom edge must lie
+      // within the viewport's inner area (minus the hook's default 8px
+      // margin). margin=8 → bottom_limit = 800 - 8 = 792.
+      expect(Number.isFinite(top)).toBe(true);
+      expect(Number.isFinite(maxH)).toBe(true);
+      expect(top + maxH).toBeLessThanOrEqual(792);
+      // And the top should ALSO be on screen.
+      expect(top).toBeGreaterThanOrEqual(8);
+    } finally {
+      restore.mockRestore();
+    }
+  });
+
+  it('does NOT add window.scrollY to the popup top (fixed coords are viewport-relative)', () => {
+    // Pre-fix bug: setAnchor({ top: rect.top + window.scrollY, ... }) on
+    // a position:fixed element pushed the popup down by scrollY pixels.
+    setViewport(1280, 800);
+    // Simulate a scrolled page. The chip's *visible* top is 100 (rect.top
+    // already accounts for scroll); the popup's top must equal rect.top,
+    // NOT rect.top + scrollY = 100 + 500 = 600.
+    Object.defineProperty(window, 'scrollY', {
+      value: 500,
+      writable: true,
+      configurable: true,
+    });
+    const restore = stubTriggerRect({
+      top: 100,
+      left: 200,
+      right: 240,
+      bottom: 116,
+      width: 40,
+      height: 16,
+    });
+    try {
+      const rows = [makeReviewer('Solo', 'approved')];
+      render(
+        <ReviewerRollupChip
+          permitId={42}
+          rows={rows}
+          fallbackReviewer={null}
+        />,
+      );
+      fireEvent.click(screen.getByTestId('reviewer-chip-42'));
+      const pop = screen.getByTestId('reviewer-popover-42') as HTMLDivElement;
+      const top = parseFloat(pop.style.top);
+      // top should be near 100 (rect.top), not near 600 (rect.top + scrollY).
+      expect(top).toBeLessThan(200);
+    } finally {
+      restore.mockRestore();
+      Object.defineProperty(window, 'scrollY', {
+        value: 0,
+        writable: true,
+        configurable: true,
+      });
+    }
+  });
+
+  it('clamps horizontally when the trigger is near the viewport right edge', () => {
+    // 1280×800 viewport; trigger at right=1270 means the preferred
+    // (right-of-trigger) placement (1270 + 6 + 260 = 1536) overflows.
+    // Hook should flip to the left of the trigger or pin to margin.
+    setViewport(1280, 800);
+    const restore = stubTriggerRect({
+      top: 100,
+      left: 1230,
+      right: 1270,
+      bottom: 116,
+      width: 40,
+      height: 16,
+    });
+    try {
+      const rows = [makeReviewer('Edge', 'approved')];
+      render(
+        <ReviewerRollupChip
+          permitId={42}
+          rows={rows}
+          fallbackReviewer={null}
+        />,
+      );
+      fireEvent.click(screen.getByTestId('reviewer-chip-42'));
+      const pop = screen.getByTestId('reviewer-popover-42') as HTMLDivElement;
+      const left = parseFloat(pop.style.left);
+      const width = parseFloat(pop.style.width);
+      // Popup must fit inside the viewport (with the 8px margin).
+      expect(left + width).toBeLessThanOrEqual(1272);
+      expect(left).toBeGreaterThanOrEqual(8);
+    } finally {
+      restore.mockRestore();
+    }
   });
 });
