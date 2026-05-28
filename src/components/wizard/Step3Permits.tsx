@@ -45,6 +45,7 @@ function makeBpPermit(defaults: WizardState): WizardPermit {
     num: '',
     expected_issue: '',
     target_submit: '',
+    manuallyEdited: {},
     taskTemplateIds: [],
   };
 }
@@ -110,9 +111,24 @@ export default function Step3Permits({ value, onChange }: Props) {
 
   function updatePermit(rowId: string, patch: Partial<WizardPermit>) {
     onChange({
-      permits: value.permits.map((p) =>
-        p.rowId === rowId ? { ...p, ...patch } : p,
-      ),
+      permits: value.permits.map((p) => {
+        if (p.rowId !== rowId) return p;
+        const next = { ...p, ...patch };
+        // fix-Phase-B: track which seed fields the user has hand-edited so
+        // the reactive re-seed (applySeeding) leaves them alone. A type
+        // change clears the flags so the row re-seeds under the new type's
+        // rule. (The current UI has no per-row type editor — Step 2 governs
+        // types — but this keeps the funnel correct if one is added.)
+        const me = { ...(p.manuallyEdited ?? {}) };
+        if ('type' in patch) {
+          delete me.expected_issue;
+          delete me.target_submit;
+        }
+        if ('expected_issue' in patch) me.expected_issue = true;
+        if ('target_submit' in patch) me.target_submit = true;
+        next.manuallyEdited = me;
+        return next;
+      }),
     });
   }
 

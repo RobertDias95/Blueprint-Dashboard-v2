@@ -1,4 +1,10 @@
 import type { UnitType } from '../../lib/database.types';
+import {
+  seedExpectedIssue,
+  seedTargetSubmit,
+} from '../../lib/permitSeedingDefaults';
+
+const BUILDING_PERMIT = 'Building Permit';
 
 // fix-22: shared state shape threaded through the 4-step wizard. Step 1
 // fills project-level fields; Step 2 picks which permits to create;
@@ -41,6 +47,10 @@ export interface WizardPermit {
    *  default expectation. For non-BP types, this is the only surface
    *  that anchors the team's planned submit date at creation. */
   target_submit: string;
+  /** fix-Phase-B: which seed fields the user has hand-edited. Auto-seeding
+   *  (see applySeeding) never overwrites a field flagged true here. New rows
+   *  start with {} so both fields are seedable until touched. */
+  manuallyEdited: { expected_issue?: boolean; target_submit?: boolean };
   /** Set in Step 4. Empty array = create no tasks for this permit. */
   taskTemplateIds: string[];
 }
@@ -132,6 +142,47 @@ export const PRODUCT_TYPE_OPTIONS = [
  *  v1's "SDOT" entry — reused that wording). Types not in v1's map
  *  (IPR, LBA, Condo, Short Plat, SIP) intentionally have no entry so
  *  Step 2 renders no description rather than fabricating one. */
+// fix-Phase-B: reactive seeding. Given the current wizard state, fill each
+// non-Building-Permit row's expected_issue / target_submit from the per-type
+// rules — EXCEPT fields the user has manually edited (manuallyEdited[F]) and
+// the Building Permit's own expected_issue (it IS the anchor). Anchors: the
+// project GO date + the FIRST Building Permit's expected_issue. Pure: returns
+// the same state object when nothing changed so callers can skip needless
+// renders. Run this after every wizard-state change (see NewProjectWizard's
+// patch) so GO-date / BP-ACQ / permit add-remove / type changes re-seed.
+export function applySeeding(state: WizardState): WizardState {
+  const goDate = state.go_date || '';
+  const bp = state.permits.find((p) => p.type === BUILDING_PERMIT);
+  const bpAcq = bp?.expected_issue || '';
+  const anchors = { goDate, bpAcq };
+
+  let changed = false;
+  const permits = state.permits.map((p) => {
+    // The Building Permit's fields are never auto-seeded here (its ACQ is the
+    // user-entered anchor; its target_submit is engine-derived server-side).
+    if (p.type === BUILDING_PERMIT) return p;
+    const me = p.manuallyEdited ?? {};
+    let expected_issue = p.expected_issue;
+    let target_submit = p.target_submit;
+    if (!me.expected_issue) {
+      const seed = seedExpectedIssue(p.type, anchors);
+      // Don't clobber an existing value with nothing when the anchor's unset.
+      if (seed !== null) expected_issue = seed;
+    }
+    if (!me.target_submit) {
+      const seed = seedTargetSubmit(p.type, anchors);
+      if (seed !== null) target_submit = seed;
+    }
+    if (expected_issue === p.expected_issue && target_submit === p.target_submit) {
+      return p;
+    }
+    changed = true;
+    return { ...p, expected_issue, target_submit };
+  });
+
+  return changed ? { ...state, permits } : state;
+}
+
 export const PERMIT_DESCRIPTIONS: Record<string, string> = {
   'Building Permit':
     'Required for new construction or major structural work',

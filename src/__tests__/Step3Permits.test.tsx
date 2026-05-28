@@ -49,6 +49,7 @@ function permit(type: string, partial: Partial<WizardPermit> = {}): WizardPermit
     num: '',
     expected_issue: '',
     target_submit: '',
+    manuallyEdited: {},
     taskTemplateIds: [],
     ...partial,
   };
