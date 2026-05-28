@@ -45,6 +45,7 @@ function makePermit(type: string, selected: boolean, defaults: WizardState): Wiz
     num: '',
     expected_issue: '',
     target_submit: '',
+    manuallyEdited: {},
     taskTemplateIds: [],
   };
 }

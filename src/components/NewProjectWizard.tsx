@@ -13,6 +13,7 @@ import Step2Questionnaire from './wizard/Step2Questionnaire';
 import Step3Permits from './wizard/Step3Permits';
 import Step4TaskReview from './wizard/Step4TaskReview';
 import {
+  applySeeding,
   makeEmptyWizardState,
   newPermitRowId,
   type WizardPermit,
@@ -67,6 +68,7 @@ function makeBpPermit(state: WizardState): WizardPermit {
     num: '',
     expected_issue: '',
     target_submit: '',
+    manuallyEdited: {},
     taskTemplateIds: [],
   };
 }
@@ -109,7 +111,11 @@ export default function NewProjectWizard({ open, onClose }: Props) {
   const catalogReady = jurisOptions.length > 0 && typeOptions.length > 0;
 
   function patch(p: Partial<WizardState>) {
-    setState((s) => ({ ...s, ...p }));
+    // fix-Phase-B: re-seed per-permit ACQ Target / Target Submit after every
+    // change. applySeeding fills non-manually-edited fields from the GO date
+    // + the BP's ACQ anchor, so editing any of those (or adding/removing a
+    // permit) reactively updates the seeded defaults.
+    setState((s) => applySeeding({ ...s, ...p }));
   }
 
   function reset() {
