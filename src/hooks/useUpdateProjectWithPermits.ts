@@ -13,8 +13,13 @@ import type { Permit } from '../lib/database.types';
 // structured conflict (not an error) when a token is stale, so the modal can
 // keep itself open and prompt a reload.
 //
-// target_submit is ENGINE-owned and is intentionally NOT part of the permit
-// payload (the RPC strips it defensively too).
+// target_submit was originally ENGINE-owned and excluded from the payload.
+// fix-66 (2026-05-28): it's now an OPTIONAL permit_upsert field so the DD
+// Phase cell on Project Overview can edit the BP-anchored projected submit
+// date in place. The DB trigger bp_trg_set_target_submit_manual_flag flips
+// target_submit_is_manual on a direct write, so callers send only
+// target_submit and never the flag. The engine recompute path
+// (bp_recompute_target_submits) still owns the non-manual recomputation.
 
 /** One element of p_permit_upserts. An `id` (+ expected_updated_at) marks an
  *  existing permit to OCC-update; its absence marks a new permit to insert. */
@@ -28,6 +33,12 @@ export interface PermitUpsertInput {
   num?: string | null;
   struct_address?: string | null;
   expected_issue?: string | null;
+  /** fix-66: engine-derived projected submit date, now editable in place
+   *  from the DD Phase cell (BP-anchored). The RPC whitelists this in both
+   *  the update + insert branches; the bp_trg_set_target_submit_manual_flag
+   *  trigger sets target_submit_is_manual automatically, so callers MUST
+   *  NOT pass that flag. '' / null clears the column. */
+  target_submit?: string | null;
 }
 
 export interface UpdateProjectWithPermitsInput {

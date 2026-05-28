@@ -14,6 +14,8 @@ import {
 import { useResolveDaOverlap } from '../../hooks/useResolveDaOverlap';
 import { useDrawSchedule } from '../../hooks/useDrawSchedule';
 import { useAppConfig, readConsultantTypes } from '../../hooks/useAppConfig';
+import { useUpdateProjectWithPermits } from '../../hooks/useUpdateProjectWithPermits';
+import { pushToast } from '../../stores/toastStore';
 import OverlapPrompt from '../OverlapPrompt';
 import NpWarningPrompt from '../NpWarningPrompt';
 import BuilderAutocompleteField from '../builder/BuilderAutocompleteField';
@@ -57,7 +59,7 @@ export default function ProjectDetailHeader({ project, permits, bp }: Props) {
             borderColor: 'var(--color-border)',
           }}
         >
-          <DDPhaseCell project={project} bp={bp} />
+          <DDPhaseCell project={project} bp={bp} permits={permits} />
           <ProjectCell project={project} bp={bp} />
           <TeamCell project={project} bp={bp} permits={permits} />
         </div>
@@ -75,9 +77,11 @@ export default function ProjectDetailHeader({ project, permits, bp }: Props) {
 function DDPhaseCell({
   project,
   bp,
+  permits,
 }: {
   project: Project;
   bp: PermitWithCycles | null;
+  permits: PermitWithCycles[];
 }) {
   if (!bp) {
     return (
@@ -86,7 +90,7 @@ function DDPhaseCell({
       </CellShell>
     );
   }
-  return <DDPhaseEditor project={project} bp={bp} />;
+  return <DDPhaseEditor project={project} bp={bp} permits={permits} />;
 }
 
 /** fix-25h: a conflict response from bp_set_bp_dd_dates carries enough
@@ -115,7 +119,15 @@ interface PendingDdNpWarning {
   anchorAddress: string;
 }
 
-function DDPhaseEditor({ project, bp }: { project: Project; bp: PermitWithCycles }) {
+function DDPhaseEditor({
+  project,
+  bp,
+  permits,
+}: {
+  project: Project;
+  bp: PermitWithCycles;
+  permits: PermitWithCycles[];
+}) {
   // Local-controlled inputs to avoid one-save-per-keystroke. Fires
   // update on blur if the value changed.
   //
@@ -140,6 +152,17 @@ function DDPhaseEditor({ project, bp }: { project: Project; bp: PermitWithCycles
   const dur = computeDuration(startDraft || null, endDraft || null);
   // fix-22 Mig 3: GO date is project-level now.
   const goDisplay = formatGoDate(project.go_date);
+
+  // fix-66: Target Submit anchor. Strictly the project's Building Permit
+  // (lowest id when there are several), NOT the page-level `bp` fallback —
+  // that one degrades to permits[0] when no BP exists, but Target Submit
+  // must render "—"/disabled in that case per spec. Independent of the DD
+  // start/end anchor above.
+  const targetSubmitBp = useMemo(() => {
+    const bps = permits.filter((p) => p.type === 'Building Permit');
+    if (bps.length === 0) return null;
+    return bps.reduce((lo, p) => (p.id < lo.id ? p : lo));
+  }, [permits]);
 
   /** Look up this project's draw_schedule row from the query cache. Used
    *  to capture da_assigned + status when opening the OverlapPrompt — the
@@ -246,6 +269,10 @@ function DDPhaseEditor({ project, bp }: { project: Project; bp: PermitWithCycles
             dashed
             title="GO date is set on the Project Settings page"
           />
+          {/* fix-66: BP-anchored Target Submit, editable in place. Sits
+              between GO Date and Start, matching the Start/End input
+              rhythm. */}
+          <TargetSubmitRow project={project} bp={targetSubmitBp} />
           <div className="flex items-center gap-1.5">
             <span className="text-[9px] text-dim w-12 flex-shrink-0">Start</span>
             <input
@@ -317,6 +344,142 @@ function DDPhaseEditor({ project, bp }: { project: Project; bp: PermitWithCycles
         />
       )}
     </>
+  );
+}
+
+// ============================================================
+// fix-66: Target Submit row — BP-anchored, inline-editable.
+//
+// Mirrors fix-63's AcqTargetCell (ScheduleHealthTable): own local draft +
+// mutation, React 19 in-render snapshot to stay synced when the prop moves
+// (BP swap OR save→invalidate→refetch), conflict toast that preserves the
+// typed value. Writes target_submit via useUpdateProjectWithPermits; the
+// DB trigger sets target_submit_is_manual, so we never send that flag.
+// ============================================================
+
+function TargetSubmitRow({
+  project,
+  bp,
+}: {
+  project: Project;
+  /** The project's Building Permit anchor (lowest id), or null when the
+   *  project has no BP — in which case the row renders disabled "—". */
+  bp: PermitWithCycles | null;
+}) {
+  const stored = bp?.target_submit ?? '';
+  const [draft, setDraft] = useState(stored);
+  // React 19 in-render setState pattern (matches AcqTargetCell). useState
+  // only seeds once; track a {bpId, value} snapshot and reset the draft
+  // synchronously when either moves — a BP swap (rare) or a save-success
+  // refetch (same bp, fresh target_submit). bpId uses -1 as the
+  // no-BP sentinel so a project gaining/losing its BP also resyncs.
+  const bpId = bp?.id ?? -1;
+  const [snapshot, setSnapshot] = useState<{ id: number; value: string }>({
+    id: bpId,
+    value: stored,
+  });
+  if (snapshot.id !== bpId || snapshot.value !== stored) {
+    setSnapshot({ id: bpId, value: stored });
+    setDraft(stored);
+  }
+
+  const mut = useUpdateProjectWithPermits();
+  // Need both OCC tokens. bp null → no anchor; project.updated_at missing →
+  // project query hasn't landed. Either disables the input.
+  const occMissing = !bp || !bp.updated_at || !project.updated_at;
+
+  async function commit() {
+    if (!bp || !bp.updated_at || !project.updated_at) return;
+    const next = draft.trim() || null;
+    const current = bp.target_submit ?? null;
+    if (next === current) return;
+    try {
+      const result = await mut.mutateAsync({
+        projectId: project.id,
+        projectExpectedUpdatedAt: project.updated_at,
+        // Empty patch — only the permit row is written. The RPC skips the
+        // project UPDATE when p_project_patch is `{}`.
+        projectPatch: {},
+        permitUpserts: [
+          {
+            id: bp.id,
+            expected_updated_at: bp.updated_at,
+            // RPC casts NULLIF(elem->>'target_submit','')::date, so null
+            // clears the column. The bp_trg_set_target_submit_manual_flag
+            // trigger sets target_submit_is_manual on this write — we do
+            // NOT pass it.
+            target_submit: next,
+          },
+        ],
+        permitDeletes: [],
+      });
+      if (result.conflict) {
+        // out_conflict_kind is 'permit' here (the BP's updated_at moved).
+        // Whole edit rolled back atomically — surface the reload prompt and
+        // keep `draft` as-typed so the user doesn't lose input. Same copy
+        // as fix-62/63 + the ProjectSettings modal.
+        pushToast(
+          'This project was modified elsewhere — reload and retry.',
+          'warn',
+        );
+        return;
+      }
+      // onSuccess invalidates the permit queries → fresh bp.target_submit +
+      // updated_at land next render; the snapshot block resyncs the draft.
+    } catch {
+      // hook-level onError already toasted.
+    }
+  }
+
+  function onKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      // Commit directly — blur()→onBlur is flaky in jsdom and a redundant
+      // onBlur is a no-op (commit short-circuits when next === current).
+      void commit();
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      setDraft(stored);
+      e.currentTarget.blur();
+    }
+  }
+
+  return (
+    <div className="flex items-center gap-1.5">
+      <span
+        className="text-[9px] text-dim w-12 flex-shrink-0"
+        title="Target Submit — projected submit date (project anchor)"
+      >
+        Target
+      </span>
+      {bp ? (
+        <input
+          type="date"
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onBlur={() => void commit()}
+          onKeyDown={onKeyDown}
+          disabled={occMissing || mut.isPending}
+          className="text-[11px] font-semibold px-1.5 py-0.5 border rounded outline-none flex-1 disabled:opacity-50"
+          style={{
+            borderColor: 'var(--color-border)',
+            background: 'var(--color-bg)',
+            color: 'var(--color-text)',
+          }}
+          title="Target Submit (projected submit date, anchored on the Building Permit)"
+          data-testid="pd-target-submit"
+          aria-label="Target Submit"
+        />
+      ) : (
+        <span
+          className="text-[11px] text-dim flex-1"
+          title="No Building Permit to anchor Target Submit"
+          data-testid="pd-target-submit-empty"
+        >
+          —
+        </span>
+      )}
+    </div>
   );
 }
 
