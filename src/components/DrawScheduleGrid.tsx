@@ -31,7 +31,6 @@ import {
   addWeeksToWeekKey,
   blockFontPx,
   blockOverflow,
-  blockTier,
   computeNpSegments,
   dateToWeekKey,
   decideDrop,
@@ -1502,12 +1501,12 @@ function DrawScheduleBody({
                     });
                     const sc = DS_STATUS_COLORS[derivedStatus] ?? DS_STATUS_COLORS.Scheduled;
                     const borderColor = jurisBorder(project.juris);
-                    // fix-DS-legibility: how many week-rows the block occupies
-                    // IN THIS QUARTER (clamped >=1) drives the content tier;
-                    // and whether it spills past the quarter window drives the
-                    // compact overflow variant (tail/head + nav affordance).
+                    // fix-DS-uniform-layout: every non-tail block renders the
+                    // same 5-line stack — the visible span only feeds the font
+                    // ramp (blockFontPx), not which fields show. Whether the
+                    // block spills past the quarter window still drives the
+                    // compact overflow variant (tail + ← nav affordance).
                     const visibleSpan = ei - si + 1;
-                    const tier = blockTier(visibleSpan);
                     const overflow = blockOverflow(
                       row.start_week ?? '',
                       effectiveEndWeek,
@@ -1534,7 +1533,7 @@ function DrawScheduleBody({
                       <div
                         key={row.project_id}
                         data-testid={`block-${row.project_id}`}
-                        data-tier={overflow === 'tail' ? 'overflow' : tier}
+                        data-tier={overflow === 'tail' ? 'overflow' : 'default'}
                         data-overflow={overflow === 'tail' ? 'tail' : undefined}
                         title={`${project.address} — ${derivedStatus} (drag to move, click to edit)`}
                         draggable
@@ -1603,45 +1602,40 @@ function DrawScheduleBody({
                               : 'auto',
                           display: 'flex',
                           flexDirection: 'column',
-                          // Q9.5.f-fix-20: center block content horizontally.
-                          // fix-DS-fluid-sizing: full-content blocks distribute
-                          // their groups (address / juris+status / Est. Approval)
-                          // through the available height via space-between so the
-                          // empty vertical room Bobby flagged gets used; xs +
-                          // compact-tail blocks (single element) just center.
+                          // fix-DS-uniform-layout: calm top-stacked layout — the
+                          // 5 lines (address / juris / status / Est. Approval
+                          // label / date) stack from the top with a tight,
+                          // uniform gap; any extra vertical room on a tall block
+                          // sits BELOW the content rather than spreading the
+                          // lines apart. Tail slices (single ← element) center.
                           alignItems: 'center',
                           justifyContent:
-                            tier === 'default' && overflow !== 'tail'
-                              ? 'space-between'
-                              : 'center',
+                            overflow === 'tail' ? 'center' : 'flex-start',
                           textAlign: 'center',
                           gap: 2,
-                          padding: '3px 6px',
+                          padding: '2px 6px',
                         }}
                       >
-                        {/* fix-DS-fluid-sizing: block content.
+                        {/* fix-DS-uniform-layout: block content.
                             - tail overflow slice → address + ← nav glyph.
-                            - xs (1 visible week) → address only (no room).
-                            - default (>=2 weeks) → full content (address +
-                              juris + status + Est. Approval), fluid-sized
-                              (blockFontPx) and distributed through the height.
-                            The address wraps to 2 lines instead of clipping;
-                            Est. Approval splits label/date onto two lines. */}
+                            - every other block → the SAME 5-line stack
+                              (address / juris / status / Est. Approval label /
+                              date), fluid-sized via blockFontPx.
+                            The address is a single line that truncates with an
+                            ellipsis (full address in the title tooltip) so the
+                            grid keeps a uniform per-block rhythm. */}
                         <span
                           style={{
                             fontSize: addrFont,
                             fontWeight: 800,
                             lineHeight: 1.1,
-                            // fix-DS-fluid-sizing: wrap to 2 lines into the
-                            // empty vertical space instead of single-line
-                            // ellipsis clipping. title carries the full string
-                            // for the rare 3+ line case.
-                            display: '-webkit-box',
-                            WebkitLineClamp: 2,
-                            WebkitBoxOrient: 'vertical',
+                            // fix-DS-uniform-layout: single line + ellipsis (full
+                            // address lives in `title`) so every block's address
+                            // is exactly one row tall — restores the rhythm the
+                            // 2-line wrap broke.
+                            whiteSpace: 'nowrap',
                             overflow: 'hidden',
-                            whiteSpace: 'normal',
-                            wordBreak: 'break-word',
+                            textOverflow: 'ellipsis',
                             maxWidth: '100%',
                             color: sc.text,
                           }}
@@ -1686,54 +1680,49 @@ function DrawScheduleBody({
                           >
                             ←
                           </button>
-                        ) : tier === 'default' ? (
-                          // fix-DS-fluid-sizing: full content for every block
-                          // >= 2 weeks (the old `sm` tier that dropped juris +
-                          // Est. Approval is gone). juris + status share a row;
-                          // Est. Approval anchors the bottom. Sized to fit via
-                          // detailFont; overflow:hidden trims only the most
-                          // extreme cases.
+                        ) : (
+                          // fix-DS-uniform-layout: the SAME 5-line stack for
+                          // every non-tail block — address (above) / juris /
+                          // status / Est. Approval label / date. juris and the
+                          // status pill each get their own line (no longer a
+                          // shared row) so the rhythm is uniform across blocks.
+                          // Sized via blockFontPx; everything fits even a
+                          // 1-week row at the new low font cap, so there are no
+                          // height gates.
                           <>
-                            <div
-                              style={{
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                flexWrap: 'wrap',
-                                gap: 4,
-                                maxWidth: '100%',
-                              }}
-                            >
-                              {project.juris && (
-                                <span
-                                  style={{
-                                    fontSize: detailFont,
-                                    fontWeight: 500,
-                                    lineHeight: 1.1,
-                                    opacity: 0.75,
-                                    color: sc.text,
-                                  }}
-                                  data-testid={`block-juris-${row.project_id}`}
-                                >
-                                  {project.juris}
-                                </span>
-                              )}
+                            {project.juris && (
                               <span
                                 style={{
-                                  fontSize: Math.round(8 * textScale),
-                                  fontWeight: 700,
-                                  padding: '1px 5px',
-                                  borderRadius: 3,
-                                  background: 'rgba(255,255,255,0.55)',
-                                  color: sc.border,
-                                  border: `1px solid ${sc.border}`,
+                                  fontSize: detailFont,
+                                  fontWeight: 500,
+                                  lineHeight: 1.1,
+                                  opacity: 0.75,
+                                  color: sc.text,
                                   whiteSpace: 'nowrap',
+                                  overflow: 'hidden',
+                                  textOverflow: 'ellipsis',
+                                  maxWidth: '100%',
                                 }}
-                                data-testid={`block-status-${row.project_id}`}
+                                data-testid={`block-juris-${row.project_id}`}
                               >
-                                {derivedStatus}
+                                {project.juris}
                               </span>
-                            </div>
+                            )}
+                            <span
+                              style={{
+                                fontSize: Math.round(8 * textScale),
+                                fontWeight: 700,
+                                padding: '1px 5px',
+                                borderRadius: 3,
+                                background: 'rgba(255,255,255,0.55)',
+                                color: sc.border,
+                                border: `1px solid ${sc.border}`,
+                                whiteSpace: 'nowrap',
+                              }}
+                              data-testid={`block-status-${row.project_id}`}
+                            >
+                              {derivedStatus}
+                            </span>
                             {(() => {
                               // Q9.5.f-fix-17.5 C: Est. Approval uses the same
                               // computeProjectedApproval pipeline as Schedule
@@ -1778,7 +1767,7 @@ function DrawScheduleBody({
                               );
                             })()}
                           </>
-                        ) : null}
+                        )}
                         {/* Q9.5.f-fix-20: resize handle on the bottom edge.
                             6px tall, full-width, ns-resize cursor. Captures
                             mousedown to start the resize gesture; the actual

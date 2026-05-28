@@ -17,7 +17,6 @@ import {
   planPushDown,
   rangeOverlapsWeeks,
   weekRangeOverlap,
-  blockTier,
   blockOverflow,
   blockFontPx,
 } from '../lib/drawScheduleHelpers';
@@ -466,22 +465,8 @@ describe('formatWeekRange (fix-25-feat-c)', () => {
   });
 });
 
-// fix-DS-legibility: short-block tier + quarter-overlap classification.
-describe('blockTier', () => {
-  it('1 visible week -> xs (address only)', () => {
-    expect(blockTier(1)).toBe('xs');
-    expect(blockTier(0)).toBe('xs'); // clamp guard
-  });
-  it('2+ visible weeks -> default (full content; no more sm tier)', () => {
-    // fix-DS-fluid-sizing dropped the 2-week `sm` tier — 2-week blocks now
-    // render full content too.
-    expect(blockTier(2)).toBe('default');
-    expect(blockTier(3)).toBe('default');
-    expect(blockTier(8)).toBe('default');
-    expect(blockTier(13)).toBe('default');
-  });
-});
-
+// fix-DS-uniform-layout: blockTier is gone (every non-tail block renders the
+// same 5-line stack); the font ramp was lowered + capped at 10px.
 describe('blockFontPx', () => {
   it('is monotonic non-decreasing in visible span', () => {
     let prev = -Infinity;
@@ -491,17 +476,17 @@ describe('blockFontPx', () => {
       prev = v;
     }
   });
-  it('hits the pinned ramp targets (span 2 ≈9, span 5 ≈11, span 8 ≈13)', () => {
-    expect(blockFontPx(2)).toBeCloseTo(9, 5);
-    expect(blockFontPx(5)).toBeCloseTo(11, 5);
-    expect(blockFontPx(8)).toBeCloseTo(13, 5);
+  it('hits the lowered ramp targets (span 1/2 = 8, span 5 ≈9.5, span 8 = 10)', () => {
+    expect(blockFontPx(1)).toBe(8);
+    expect(blockFontPx(2)).toBe(8);
+    expect(blockFontPx(3)).toBeCloseTo(8.4, 5);
+    expect(blockFontPx(5)).toBeGreaterThanOrEqual(9);
+    expect(blockFontPx(5)).toBeLessThanOrEqual(10);
+    expect(blockFontPx(8)).toBe(10);
   });
-  it('clamps to [8, 13]', () => {
-    expect(blockFontPx(1)).toBeGreaterThanOrEqual(8);
-    expect(blockFontPx(1)).toBeLessThan(9); // a touch under the span-2 size
-    expect(blockFontPx(3)).toBeGreaterThan(9);
-    expect(blockFontPx(3)).toBeLessThan(11);
-    expect(blockFontPx(20)).toBe(13); // capped
+  it('clamps to [8, 10]', () => {
+    expect(blockFontPx(0)).toBe(8); // clamp guard below span 2
+    expect(blockFontPx(20)).toBe(10); // capped at the new low max
   });
 });
 

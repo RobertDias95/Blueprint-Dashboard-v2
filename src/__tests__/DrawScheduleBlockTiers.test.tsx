@@ -130,22 +130,28 @@ beforeEach(() => {
   refs.permits.current = [];
 });
 
-describe('Draw Schedule block tiers (fix-DS-legibility)', () => {
-  it('xs (1 week): renders ONLY the address', () => {
+describe('Draw Schedule block layout (fix-DS-uniform-layout)', () => {
+  it('1 week: renders the SAME full 5-line stack — address + juris + status + Est. Approval (xs tier dropped)', () => {
+    // fix-DS-uniform-layout: a 1-week block used to be the `xs` tier (address
+    // only). Every non-tail block now renders the full stack regardless of
+    // span. A permit drives the projection so the Est. Approval lines show.
     refs.draw.current = [row({ project_id: 'p1', da_assigned: 'A1', start_week: W[3], end_week: W[3] })];
     refs.projects.current = [project('p1', '500 Pike St')];
+    refs.permits.current = [
+      { id: 1, project_id: 'p1', type: 'Building Permit', permit_cycles: [], extras: {} },
+    ];
     renderGrid();
     const block = screen.getByTestId('block-p1');
-    expect(block).toHaveAttribute('data-tier', 'xs');
+    expect(block).toHaveAttribute('data-tier', 'default');
     expect(screen.getByTestId('block-address-p1').textContent).toContain('500 Pike St');
-    expect(screen.queryByTestId('block-juris-p1')).toBeNull();
-    expect(screen.queryByTestId('block-status-p1')).toBeNull();
-    expect(screen.queryByTestId('block-est-approval-p1')).toBeNull();
+    expect(screen.getByTestId('block-juris-p1')).toBeInTheDocument();
+    expect(screen.getByTestId('block-status-p1')).toBeInTheDocument();
+    const est = screen.getByTestId('block-est-approval-p1');
+    expect(est.textContent).toContain('Est. Approval');
+    expect(est.textContent).toContain('Aug 15, 2026');
   });
 
-  it('default (2 weeks): renders FULL content now — address + juris + status (sm tier dropped)', () => {
-    // fix-DS-fluid-sizing: a 2-week block used to be the stripped `sm` tier
-    // (no juris). It is now `default` and shows juris like any wider block.
+  it('2 weeks: same full stack — address + juris + status', () => {
     refs.draw.current = [row({ project_id: 'p2', da_assigned: 'A2', start_week: W[3], end_week: W[4] })];
     refs.projects.current = [project('p2', '750 Oak Way')];
     renderGrid();
@@ -156,7 +162,7 @@ describe('Draw Schedule block tiers (fix-DS-legibility)', () => {
     expect(screen.getByTestId('block-status-p2')).toBeInTheDocument();
   });
 
-  it('default (3 weeks): renders address + juris + status', () => {
+  it('3 weeks: same full stack — address + juris + status', () => {
     refs.draw.current = [row({ project_id: 'p3', da_assigned: 'A3', start_week: W[3], end_week: W[5] })];
     refs.projects.current = [project('p3', '123 Main St')];
     renderGrid();
@@ -167,7 +173,7 @@ describe('Draw Schedule block tiers (fix-DS-legibility)', () => {
     expect(screen.getByTestId('block-status-p3')).toBeInTheDocument();
   });
 
-  it('default (8 weeks): still full content (wide blocks unchanged)', () => {
+  it('8 weeks: same full stack (wide blocks identical content, just larger font)', () => {
     refs.draw.current = [row({ project_id: 'p8', da_assigned: 'A4', start_week: W[2], end_week: W[9] })];
     refs.projects.current = [project('p8', '88 Wide Blvd')];
     renderGrid();
@@ -196,18 +202,22 @@ describe('Draw Schedule block tiers (fix-DS-legibility)', () => {
     expect(est.textContent).toContain('Aug 15, 2026');
   });
 
-  it('address renders the full pre-comma string with no JS-inserted ellipsis (2-line wrap clamp)', () => {
-    // fix-DS-fluid-sizing: addresses wrap to 2 lines via -webkit-line-clamp
-    // rather than a single-line "…" truncation, and the full address lives in
-    // the title attribute.
+  it('address is a single line truncated with CSS ellipsis; full address in the title', () => {
+    // fix-DS-uniform-layout: addresses are one line, clipped via
+    // white-space:nowrap + text-overflow:ellipsis (the browser paints the "…";
+    // jsdom does not, so assert the CSS, not a literal character). The full
+    // address lives in the title tooltip.
     const fullAddr = '12345 Northeast Greenwood Park Boulevard Suite 1000, Seattle, WA';
     refs.draw.current = [row({ project_id: 'pa', da_assigned: 'A1', start_week: W[3], end_week: W[6] })];
     refs.projects.current = [project('pa', fullAddr)];
     renderGrid();
     const addr = screen.getByTestId('block-address-pa');
-    // shortLabel = everything before the first comma; no ellipsis character.
+    // shortLabel = everything before the first comma; no JS-inserted "…".
     expect(addr.textContent).toBe('12345 Northeast Greenwood Park Boulevard Suite 1000');
     expect(addr.textContent).not.toContain('…');
+    expect(addr.style.whiteSpace).toBe('nowrap');
+    expect(addr.style.textOverflow).toBe('ellipsis');
+    expect(addr.style.overflow).toBe('hidden');
     expect(addr).toHaveAttribute('title', fullAddr);
   });
 
@@ -243,26 +253,25 @@ describe('Draw Schedule block tiers (fix-DS-legibility)', () => {
   });
 
   it('head (starts in this quarter, ends after): renders FULL with no arrow', () => {
-    // Starts within the current quarter (visible span >= 3 → default tier),
-    // ends in the next quarter. The start/home quarter renders full content;
-    // the continuation is left to the next quarter's tail slice.
+    // Starts within the current quarter, ends in the next. The start/home
+    // quarter renders the full uniform stack; the continuation is left to the
+    // next quarter's tail slice.
     refs.draw.current = [
       row({ project_id: 'ph', da_assigned: 'A5', start_week: W[W.length - 4], end_week: NEXT[1] }),
     ];
     refs.projects.current = [project('ph', '42 Head Blvd')];
     renderGrid();
     const block = screen.getByTestId('block-ph');
-    // Not compact: keeps its visible-span tier, no overflow attribute/arrow.
+    // Not compact: full (non-overflow) block, no overflow attribute/arrow.
     expect(block).not.toHaveAttribute('data-overflow');
     expect(block).toHaveAttribute('data-tier', 'default');
     expect(screen.queryByTestId('block-overflow-nav-ph')).toBeNull();
-    // Full content visible by tier + height.
     expect(screen.getByTestId('block-address-ph')).toBeInTheDocument();
     expect(screen.getByTestId('block-juris-ph')).toBeInTheDocument();
     expect(screen.getByTestId('block-status-ph')).toBeInTheDocument();
   });
 
-  it('tier DOM snapshots (guard against silent restyle regressions)', () => {
+  it('uniform DOM snapshots: every span renders the same fields (guard against silent restyle regressions)', () => {
     // manual_status:true so deriveBlockStatus honors the stored "Approved"
     // (no permits in this test → otherwise it derives "Scheduled" from DD math).
     refs.draw.current = [
@@ -276,19 +285,21 @@ describe('Draw Schedule block tiers (fix-DS-legibility)', () => {
       project('p3', '123 Main St'),
     ];
     renderGrid();
-    // xs (span 1) is address-only.
-    expect(screen.getByTestId('block-p1').querySelector('[data-testid^="block-"]')?.textContent)
-      .toMatchInlineSnapshot(`"500 Pike St"`);
-    // fix-DS-fluid-sizing: span-2 is now `default` full content — juris shows.
-    const two = screen.getByTestId('block-p2');
-    expect(two.getAttribute('data-tier')).toBe('default');
-    expect(two.textContent).toContain('750 Oak Way');
-    expect(two.textContent).toContain('Seattle');
-    expect(two.textContent).toContain('Approved');
-    const def = screen.getByTestId('block-p3');
-    expect(def.getAttribute('data-tier')).toBe('default');
-    expect(def.textContent).toContain('123 Main St');
-    expect(def.textContent).toContain('Seattle');
-    expect(def.textContent).toContain('Approved');
+    // fix-DS-uniform-layout: span 1, 2 and 3 all render the identical field
+    // set — address + juris + status (Est. Approval is projection-gated and
+    // omitted here since there are no permits). No span is address-only.
+    for (const [id, addr] of [
+      ['p1', '500 Pike St'],
+      ['p2', '750 Oak Way'],
+      ['p3', '123 Main St'],
+    ] as const) {
+      const block = screen.getByTestId(`block-${id}`);
+      expect(block.getAttribute('data-tier')).toBe('default');
+      expect(block.textContent).toContain(addr);
+      expect(block.textContent).toContain('Seattle');
+      expect(block.textContent).toContain('Approved');
+      expect(screen.getByTestId(`block-juris-${id}`)).toBeInTheDocument();
+      expect(screen.getByTestId(`block-status-${id}`)).toBeInTheDocument();
+    }
   });
 });

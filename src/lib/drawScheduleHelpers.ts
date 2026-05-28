@@ -309,39 +309,27 @@ export function planPushDown(
   return pushed;
 }
 
-// fix-DS-legibility / fix-DS-fluid-sizing: short-block + quarter-overlap
-// rendering helpers.
+// fix-DS-legibility / fix-DS-fluid-sizing / fix-DS-uniform-layout:
+// quarter-overlap + block-font helpers.
 //
-// A project block's legible content depends on how many week-rows it
-// actually occupies IN THE VISIBLE QUARTER, not its full duration. Two tiers:
-//   xs (1 week)  -> address only (genuinely no room for more)
-//   default (>=2) -> full content (address + juris + status + est-approval),
-//                    with font sizes scaled fluidly to fit (blockFontPx) and
-//                    the address wrapping to 2 lines.
-//
-// fix-DS-fluid-sizing dropped the old `sm` (2-week) tier: 2-week blocks now
-// render full content too — the layout flows into the available vertical
-// height instead of dropping juris + Est. Approval.
-export type BlockTier = 'xs' | 'default';
+// fix-DS-uniform-layout dropped the content tiers entirely. Every non-tail
+// block now renders the SAME 5-line stack (address / juris / status / "Est.
+// Approval" label / date) regardless of how many week-rows it occupies — only
+// the absolute font size changes (blockFontPx), so the grid reads uniformly
+// instead of some blocks dropping fields. (The old xs/sm/default `blockTier`
+// helper is gone.)
 
-/** Pick the content tier from the number of week-rows the block occupies in
- *  the current quarter view (clamped to >=1). Only a 1-week block is
- *  address-only; everything taller renders full content. */
-export function blockTier(visibleSpanWeeks: number): BlockTier {
-  return visibleSpanWeeks <= 1 ? 'xs' : 'default';
-}
-
-/** fix-DS-fluid-sizing: base font size (px, before textScale) for a block's
- *  content, ramped by how many week-rows it occupies so a short block reads
- *  at a smaller-but-legible size and a tall one grows into its space —
- *  keeping the visual density of a ~5-week block (Bobby's "looks very good"
- *  target) constant. Linear from span 2 (≈9px) through span 5 (≈11px) to
- *  span 8 (≈13px), clamped to [8, 13]. The component multiplies textScale
- *  (fix-47 row-height scaling) on top of this. The address renders one step
- *  larger (base + 1, bold); juris / Est. Approval one step smaller (base − 1). */
+/** fix-DS-fluid-sizing / fix-DS-uniform-layout: base font size (px, before
+ *  textScale) for a block's content, ramped gently by how many week-rows it
+ *  occupies so a short block reads a touch smaller and a tall one a touch
+ *  larger — but capped low (10px) so even wide blocks stay calm. Linear from
+ *  span 2 (8px) through span 5 (≈9.5px) to span 8+ (10px), clamped to [8, 10].
+ *  The component multiplies textScale (fix-47 row-height scaling) on top of
+ *  this. The address renders one step larger (base + 1, bold); juris / Est.
+ *  Approval one step smaller (base − 1). */
 export function blockFontPx(visibleSpanWeeks: number): number {
-  const ramped = 9 + (visibleSpanWeeks - 2) * (2 / 3);
-  return Math.min(13, Math.max(8, ramped));
+  const ramped = 8 + (visibleSpanWeeks - 2) * 0.4;
+  return Math.min(10, Math.max(8, ramped));
 }
 
 // When a project spans beyond the visible quarter window, the partial slice
