@@ -319,17 +319,18 @@ export function planPushDown(
 // instead of some blocks dropping fields. (The old xs/sm/default `blockTier`
 // helper is gone.)
 
-/** fix-DS-fluid-sizing / fix-DS-uniform-layout: base font size (px, before
- *  textScale) for a block's content, ramped gently by how many week-rows it
- *  occupies so a short block reads a touch smaller and a tall one a touch
- *  larger — but capped low (10px) so even wide blocks stay calm. Linear from
- *  span 2 (8px) through span 5 (≈9.5px) to span 8+ (10px), clamped to [8, 10].
- *  The component multiplies textScale (fix-47 row-height scaling) on top of
- *  this. The address renders one step larger (base + 1, bold); juris / Est.
- *  Approval one step smaller (base − 1). */
+/** fix-DS-fluid-sizing / fix-DS-uniform-layout / fix-DS-tail-and-fit: base font
+ *  size (px, before textScale) for a block's content, ramped gently by how many
+ *  week-rows it occupies so a short block reads a touch smaller and a tall one a
+ *  touch larger — but capped low (9px) so even wide blocks stay calm and longer
+ *  addresses fit on one line. Linear from span 2 (7px) through span 5 (≈8.05px)
+ *  to span 8+ (9px), clamped to [7, 9]. The component multiplies textScale
+ *  (fix-47 row-height scaling) on top of this. The address renders one step
+ *  larger (base + 1, bold, caps at 10px); juris / Est. Approval one step smaller
+ *  (base − 1, caps at 8px). */
 export function blockFontPx(visibleSpanWeeks: number): number {
-  const ramped = 8 + (visibleSpanWeeks - 2) * 0.4;
-  return Math.min(10, Math.max(8, ramped));
+  const ramped = 7 + (visibleSpanWeeks - 2) * 0.35;
+  return Math.min(9, Math.max(7, ramped));
 }
 
 // When a project spans beyond the visible quarter window, the partial slice
