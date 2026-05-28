@@ -12,6 +12,8 @@ import Trends from './pages/Trends';
 import ActivityPage from './pages/ActivityPage';
 import WeeklyDaReport from './pages/WeeklyDaReport';
 import ReportingHubPage from './pages/ReportingHubPage';
+import CustomReport from './pages/CustomReport';
+import ReportBuilder from './pages/ReportBuilder';
 
 // Q2: routes wired to real read-side pages.
 // Q9.5.a: structural realignment to v1's top-nav.
@@ -44,6 +46,10 @@ export const router = createBrowserRouter([
       // fix-68: Reporting hub (Reports Phase 2). Also surfaced as a Settings
       // modal section; this route makes the hub deep-linkable.
       { path: 'settings/reporting', element: <ReportingHubPage /> },
+      // fix-69: report builder Phase 3 — freeform builder + custom viewer.
+      { path: 'reports/builder', element: <ReportBuilder /> },
+      { path: 'reports/builder/:id', element: <ReportBuilder /> },
+      { path: 'reports/custom/:id', element: <CustomReport /> },
       { path: 'trends', element: <Trends /> },
       { path: 'my-tasks', element: <MyTasks /> },
       // fix-28: scraper activity feed. NotificationBell links here;
