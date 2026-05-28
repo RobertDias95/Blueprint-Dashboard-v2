@@ -11,6 +11,7 @@ import DrawSchedule from './pages/DrawSchedule';
 import Trends from './pages/Trends';
 import ActivityPage from './pages/ActivityPage';
 import WeeklyDaReport from './pages/WeeklyDaReport';
+import ReportingHubPage from './pages/ReportingHubPage';
 
 // Q2: routes wired to real read-side pages.
 // Q9.5.a: structural realignment to v1's top-nav.
@@ -37,9 +38,12 @@ export const router = createBrowserRouter([
       { path: 'projects', element: <ProjectList /> },
       { path: 'project/:id', element: <ProjectDetail /> },
       { path: 'reports', element: <Reports /> },
-      // fix-67: Weekly DA Update report (Reports hub Phase 1). Opened from
-      // the "Weekly DA Update" card on the Reports landing page.
+      // fix-67: Weekly DA Update report. Opened from the "Weekly DA Update"
+      // card in the Reporting hub (Settings -> Reporting). URL stays stable.
       { path: 'reports/weekly-da', element: <WeeklyDaReport /> },
+      // fix-68: Reporting hub (Reports Phase 2). Also surfaced as a Settings
+      // modal section; this route makes the hub deep-linkable.
+      { path: 'settings/reporting', element: <ReportingHubPage /> },
       { path: 'trends', element: <Trends /> },
       { path: 'my-tasks', element: <MyTasks /> },
       // fix-28: scraper activity feed. NotificationBell links here;

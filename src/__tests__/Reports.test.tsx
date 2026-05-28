@@ -425,15 +425,16 @@ describe('<Reports /> Q7.2.b', () => {
     expect(screen.getByTestId('report-table-row-p2')).toBeInTheDocument();
   });
 
-  // fix-67: Saved Reports hub (Phase 1) — the Weekly DA Update card is
-  // additive; the existing CSV export must remain.
-  it('renders the Weekly DA Update card linking to /reports/weekly-da, CSV export preserved', () => {
+  // fix-68: the Saved Reports library relocated to Settings -> Reporting.
+  // The Reports tab is analytics-only now — the Weekly DA card + the Saved
+  // Reports section are gone; CSV export + charts remain.
+  it('no longer renders the Saved Reports section or the Weekly DA card; CSV export + charts remain', () => {
     renderIt();
-    const card = screen.getByTestId('report-card-weekly-da');
-    expect(card).toBeInTheDocument();
-    expect(card.getAttribute('href')).toBe('/reports/weekly-da');
-    expect(card.textContent).toMatch(/Weekly DA Update/);
-    // The pre-existing CSV export button is still present (additive change).
+    expect(screen.queryByTestId('saved-reports')).toBeNull();
+    expect(screen.queryByTestId('report-card-weekly-da')).toBeNull();
+    // Analytics surface is intact.
     expect(screen.getByTestId('reports-export-csv')).toBeInTheDocument();
+    expect(screen.getByTestId('report-filterbar')).toBeInTheDocument();
+    expect(screen.getByTestId('chart-permits-by-type')).toBeInTheDocument();
   });
 });

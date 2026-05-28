@@ -78,6 +78,8 @@ export const queryKeys = {
     filters: Record<string, string>,
   ) =>
     ['weekly_da_report', tenantId, { weekStart, windowDays, filters }] as const,
+  // fix-68: Reports hub (Settings -> Reporting). Categories + saved reports.
+  reportHub: (tenantId: string) => ['report_hub', tenantId] as const,
 } as const;
 
 /** Map from Postgres table name → bare-prefix query keys to invalidate on
