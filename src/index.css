@@ -89,3 +89,37 @@
       'Roboto Mono', monospace;
   }
 }
+
+/* fix-67: print stylesheet for the Weekly DA Update report (browser
+   Print -> Save as PDF, the MVP path — no PDF library dependency yet).
+   - .print-hide: app chrome + the report's filter form / action buttons
+     are hidden when printing.
+   - .report-print-root: the report renders at full width with no app
+     padding so the page uses the full sheet.
+   - .report-da-break: each DA section beyond the first starts a new page
+     so a DA's one-pager is self-contained. break-inside avoid keeps a
+     single table row from splitting across a page boundary. */
+@media print {
+  .print-hide {
+    display: none !important;
+  }
+  .report-print-root {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    padding: 0;
+    margin: 0;
+    background: #fff;
+    color: #000;
+  }
+  .report-da-break {
+    break-before: page;
+    page-break-before: always;
+  }
+  .report-da-section {
+    break-inside: avoid-page;
+  }
+  .report-row {
+    break-inside: avoid;
+  }
+}

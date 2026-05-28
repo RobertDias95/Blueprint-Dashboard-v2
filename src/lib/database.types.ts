@@ -467,3 +467,69 @@ export interface IntakeRecord {
   created_at?: string | null;
   updated_at: string;
 }
+
+// ===========================================================
+// fix-67: Weekly DA Update report (Reports hub Phase 1).
+// ===========================================================
+
+/** One persistent free-text note per permit. The note IS the
+ *  carry-forward: it shows whenever the permit appears in the report and
+ *  is edited in place. Backed by public.report_notes (one row per
+ *  permit_id). */
+export interface ReportNote {
+  permit_id: number;
+  tenant_id: string;
+  body: string;
+  created_at: string;
+  updated_at: string;
+}
+
+/** A single permit row in either report section. Corrections rows carry
+ *  `corr_issued`; upcoming-intake rows carry `target_submit`. Both share
+ *  the rest of the shape. Shapes match the jsonb the
+ *  bp_get_weekly_da_report RPC emits. */
+export interface WeeklyDaReportRow {
+  permit_id: number;
+  project_id: string;
+  address: string | null;
+  juris: string | null;
+  type: string | null;
+  num: string | null;
+  portal_url: string | null;
+  cycle_index: number | null;
+  ent_lead: string | null;
+  da: string | null;
+  /** The persistent note for this permit ('' when none). */
+  note_body: string;
+  /** Present on corrections rows: latest cycle's corr_issued date. */
+  corr_issued?: string | null;
+  /** Present on upcoming-intake rows: the permit's target_submit date. */
+  target_submit?: string | null;
+}
+
+/** One DA's section of the report. `da` is the grouping key
+ *  (COALESCE(permits.da,'Unassigned')); `name` mirrors it for display. */
+export interface WeeklyDaReportGroup {
+  da: string;
+  name: string;
+  corrections: WeeklyDaReportRow[];
+  upcoming_intakes: WeeklyDaReportRow[];
+}
+
+/** Full payload returned by bp_get_weekly_da_report. */
+export interface WeeklyDaReportPayload {
+  das: WeeklyDaReportGroup[];
+  generated_at: string;
+  week_start: string;
+  window_days: number;
+}
+
+/** Optional filters accepted by bp_get_weekly_da_report (p_filters jsonb).
+ *  All keys optional; omitted/empty means "no filter on that field". */
+export interface WeeklyDaReportFilters {
+  ent_lead?: string;
+  type?: string;
+  status?: string;
+  juris?: string;
+  da?: string;
+}

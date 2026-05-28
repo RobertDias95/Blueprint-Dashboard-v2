@@ -10,6 +10,7 @@ import MyTasks from './pages/MyTasks';
 import DrawSchedule from './pages/DrawSchedule';
 import Trends from './pages/Trends';
 import ActivityPage from './pages/ActivityPage';
+import WeeklyDaReport from './pages/WeeklyDaReport';
 
 // Q2: routes wired to real read-side pages.
 // Q9.5.a: structural realignment to v1's top-nav.
@@ -36,6 +37,9 @@ export const router = createBrowserRouter([
       { path: 'projects', element: <ProjectList /> },
       { path: 'project/:id', element: <ProjectDetail /> },
       { path: 'reports', element: <Reports /> },
+      // fix-67: Weekly DA Update report (Reports hub Phase 1). Opened from
+      // the "Weekly DA Update" card on the Reports landing page.
+      { path: 'reports/weekly-da', element: <WeeklyDaReport /> },
       { path: 'trends', element: <Trends /> },
       { path: 'my-tasks', element: <MyTasks /> },
       // fix-28: scraper activity feed. NotificationBell links here;

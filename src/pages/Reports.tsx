@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { usePermits } from '../hooks/usePermits';
 import { useProjects } from '../hooks/useProjects';
 import {
@@ -194,6 +195,32 @@ function Body({
         >
           ↓ Export CSV
         </button>
+      </div>
+
+      {/* fix-67: Saved Reports — the minimal hub shape. Phase 2 generalizes
+          this into categorized folders + a freeform builder. For now a
+          single flagship report card. */}
+      <div data-testid="saved-reports">
+        <div className="text-[11px] font-extrabold uppercase tracking-wider text-dim mb-2">
+          Saved Reports
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+          <Link
+            to="/reports/weekly-da"
+            className="block rounded-lg border bg-surface p-3 hover:bg-s2 transition"
+            style={{ borderColor: 'var(--color-border)' }}
+            data-testid="report-card-weekly-da"
+          >
+            <div className="text-sm font-bold text-text mb-0.5">
+              Weekly DA Update
+            </div>
+            <div className="text-[11px] text-muted leading-snug">
+              Per-DA one-pager: permits in corrections (with the date
+              corrections came out), carry-forward notes, and upcoming
+              intakes for the week. Printable / send-ready.
+            </div>
+          </Link>
+        </div>
       </div>
 
       <ReportFilterBar
