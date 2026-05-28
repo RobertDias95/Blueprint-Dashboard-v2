@@ -1526,8 +1526,8 @@ function DrawScheduleBody({
                       <div
                         key={row.project_id}
                         data-testid={`block-${row.project_id}`}
-                        data-tier={overflow ? 'overflow' : tier}
-                        data-overflow={overflow ?? undefined}
+                        data-tier={overflow === 'tail' ? 'overflow' : tier}
+                        data-overflow={overflow === 'tail' ? 'tail' : undefined}
                         title={`${project.address} — ${derivedStatus} (drag to move, click to edit)`}
                         draggable
                         onMouseEnter={() => {
@@ -1635,35 +1635,27 @@ function DrawScheduleBody({
                           {shortLabel}
                         </span>
 
-                        {overflow ? (
-                          // Compact overflow variant: a single nav glyph that
-                          // jumps to where the block is fully visible. tail ->
-                          // back to the start quarter; head -> the next quarter.
+                        {overflow === 'tail' ? (
+                          // Compact TAIL variant: the block started in an
+                          // earlier quarter, so this slice is just the tail.
+                          // Show a single ← glyph that jumps back to the start
+                          // quarter where the block renders in full. (HEAD
+                          // slices — block starts here, ends past the quarter
+                          // boundary — are NOT compact: the start/home quarter
+                          // always renders full content, no arrow.)
                           <button
                             type="button"
                             data-testid={`block-overflow-nav-${row.project_id}`}
-                            aria-label={
-                              overflow === 'tail'
-                                ? `${shortLabel} starts earlier — go to its quarter`
-                                : `${shortLabel} continues — go to the next quarter`
-                            }
-                            title={
-                              overflow === 'tail'
-                                ? 'Continues from an earlier quarter — click to jump there'
-                                : 'Continues into the next quarter — click to jump there'
-                            }
+                            aria-label={`${shortLabel} starts earlier — go to its quarter`}
+                            title="Continues from an earlier quarter — click to jump there"
                             onClick={(e) => {
                               // Don't let the nav click open the block popup or
                               // start a drag — it's its own affordance.
                               e.stopPropagation();
                               if (draggingProjectId !== null) return;
-                              if (overflow === 'tail') {
-                                setQuarterOffset(
-                                  weekKeyToQuarterOffset(row.start_week ?? ''),
-                                );
-                              } else {
-                                setQuarterOffset(quarterOffset + 1);
-                              }
+                              setQuarterOffset(
+                                weekKeyToQuarterOffset(row.start_week ?? ''),
+                              );
                             }}
                             style={{
                               fontSize: Math.round(11 * textScale),
@@ -1676,7 +1668,7 @@ function DrawScheduleBody({
                               padding: 0,
                             }}
                           >
-                            {overflow === 'tail' ? '←' : '→'}
+                            ←
                           </button>
                         ) : (
                           <>

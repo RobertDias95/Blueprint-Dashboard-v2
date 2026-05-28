@@ -173,29 +173,32 @@ describe('Draw Schedule block tiers (fix-DS-legibility)', () => {
     expect(screen.queryByTestId('block-status-pt')).toBeNull();
     const nav = screen.getByTestId('block-overflow-nav-pt');
     expect(nav.textContent).toBe('←');
-    // Clicking ← navigates to the block's start quarter (the previous one),
-    // where it now reads as a HEAD slice (starts within, ends after).
+    // Clicking ← navigates to the block's start quarter (the previous one).
+    // There the block STARTS in view (a head slice) → it renders FULL, with
+    // no compact arrow and no data-overflow attribute.
     fireEvent.click(nav);
-    expect(screen.getByTestId('block-pt')).toHaveAttribute('data-overflow', 'head');
+    expect(screen.queryByTestId('block-overflow-nav-pt')).toBeNull();
+    expect(screen.getByTestId('block-pt')).not.toHaveAttribute('data-overflow');
   });
 
-  it('head (ends after quarter): compact address-only + → affordance; click navigates to the next quarter', () => {
-    // Starts within the current quarter, ends in the next.
+  it('head (starts in this quarter, ends after): renders FULL with no arrow', () => {
+    // Starts within the current quarter (visible span >= 3 → default tier),
+    // ends in the next quarter. The start/home quarter renders full content;
+    // the continuation is left to the next quarter's tail slice.
     refs.draw.current = [
-      row({ project_id: 'ph', da_assigned: 'A5', start_week: W[W.length - 2], end_week: NEXT[1] }),
+      row({ project_id: 'ph', da_assigned: 'A5', start_week: W[W.length - 4], end_week: NEXT[1] }),
     ];
     refs.projects.current = [project('ph', '42 Head Blvd')];
     renderGrid();
     const block = screen.getByTestId('block-ph');
-    expect(block).toHaveAttribute('data-overflow', 'head');
+    // Not compact: keeps its visible-span tier, no overflow attribute/arrow.
+    expect(block).not.toHaveAttribute('data-overflow');
+    expect(block).toHaveAttribute('data-tier', 'default');
+    expect(screen.queryByTestId('block-overflow-nav-ph')).toBeNull();
+    // Full content visible by tier + height.
     expect(screen.getByTestId('block-address-ph')).toBeInTheDocument();
-    expect(screen.queryByTestId('block-status-ph')).toBeNull();
-    const nav = screen.getByTestId('block-overflow-nav-ph');
-    expect(nav.textContent).toBe('→');
-    // Clicking → navigates to the next quarter, where the block now reads as
-    // a TAIL slice (started in the prior quarter, ends within).
-    fireEvent.click(nav);
-    expect(screen.getByTestId('block-ph')).toHaveAttribute('data-overflow', 'tail');
+    expect(screen.getByTestId('block-juris-ph')).toBeInTheDocument();
+    expect(screen.getByTestId('block-status-ph')).toBeInTheDocument();
   });
 
   it('tier DOM snapshots (guard against silent restyle regressions)', () => {
