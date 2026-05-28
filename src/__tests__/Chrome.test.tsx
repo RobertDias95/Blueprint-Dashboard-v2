@@ -72,22 +72,26 @@ describe('<Chrome /> Q9.5.a top-nav restructure', () => {
     );
   }
 
-  it('renders the v1-parity nav tabs in order, plus fix-25-feat-T Trends tab', () => {
+  it('renders the v1-parity nav tabs in order (Trends folded into Reports)', () => {
     renderIt();
-    // fix-25-feat-T appended a 5th tab "Trends" for operational performance.
+    // fix-trends-subtab: Trends moved out of the top nav and back into
+    // Reports as a sub-tab, so the nav is the 4 v1-parity tabs only.
     // fix-28: NotificationBell is also a <Link> (to /activity) but lives
     // outside the <nav>, so we scope this assertion to <nav> children.
-    const expected = [
-      'Draw Schedule',
-      'Project View',
-      'My Tasks',
-      'Reports',
-      'Trends',
-    ];
+    const expected = ['Draw Schedule', 'Project View', 'My Tasks', 'Reports'];
     const nav = screen.getByTestId('chrome-nav');
     const links = Array.from(nav.querySelectorAll('a'));
     const labels = links.map((a) => a.textContent?.trim());
     expect(labels).toEqual(expected);
+  });
+
+  it('does NOT render a Trends nav tab (fix-trends-subtab)', () => {
+    renderIt();
+    const nav = screen.getByTestId('chrome-nav');
+    const labels = Array.from(nav.querySelectorAll('a')).map((a) =>
+      a.textContent?.trim(),
+    );
+    expect(labels).not.toContain('Trends');
   });
 
   it('does NOT render a "Dashboard" nav tab (logo handles home navigation)', () => {

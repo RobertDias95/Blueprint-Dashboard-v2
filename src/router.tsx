@@ -8,7 +8,6 @@ import ProjectDetail from './pages/ProjectDetail';
 import Reports from './pages/Reports';
 import MyTasks from './pages/MyTasks';
 import DrawSchedule from './pages/DrawSchedule';
-import Trends from './pages/Trends';
 import ActivityPage from './pages/ActivityPage';
 import WeeklyDaReport from './pages/WeeklyDaReport';
 import ReportingHubPage from './pages/ReportingHubPage';
@@ -50,7 +49,9 @@ export const router = createBrowserRouter([
       { path: 'reports/builder', element: <ReportBuilder /> },
       { path: 'reports/builder/:id', element: <ReportBuilder /> },
       { path: 'reports/custom/:id', element: <CustomReport /> },
-      { path: 'trends', element: <Trends /> },
+      // fix-trends-subtab: Trends folded into Reports as a sub-tab. Keep the
+      // legacy /trends URL working by redirecting to the Reports Trends tab.
+      { path: 'trends', element: <Navigate to="/reports?tab=trends" replace /> },
       { path: 'my-tasks', element: <MyTasks /> },
       // fix-28: scraper activity feed. NotificationBell links here;
       // page owns search / category / ent filters + per-row read state.

@@ -29,10 +29,8 @@ const NAV_ITEMS: NavItem[] = [
   { to: '/projects', label: 'Project View', activeColor: 'var(--color-pm, #059669)' },
   { to: '/my-tasks', label: 'My Tasks', activeColor: 'var(--color-co, #d97706)' },
   { to: '/reports', label: 'Reports', activeColor: 'var(--color-jv, #7c3aed)' },
-  // fix-25-feat-T: operational performance trends (intake→approval, city
-  // vs team time per cycle, target submit hit rate). Distinct from
-  // Reports → Trends sub-tab (v1 volume time-series).
-  { to: '/trends', label: 'Trends', activeColor: 'var(--color-de, #d97706)' },
+  // fix-trends-subtab: Trends moved out of the top nav and back into Reports
+  // as a sub-tab (/reports?tab=trends). The legacy /trends route redirects.
 ];
 
 export default function Chrome() {
