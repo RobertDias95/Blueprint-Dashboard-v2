@@ -352,168 +352,113 @@ BEGIN
 END;
 $function$;
 
--- _report_build_and_run: validate (via the helper above), construct a
--- parameterized SQL string from the validated spec, EXECUTE ... USING the
--- collected text params, and return the runtime payload. SECURITY DEFINER so
--- it can read across the joined tables; the tenant filter is ALWAYS appended,
--- so a definer query still only returns the caller's rows.
+-- _report_build_and_run: validate (via the helper above), construct the SQL
+-- from the validated spec, EXECUTE it, and return the runtime payload.
+-- SECURITY DEFINER so it can read across the joined tables; the tenant filter
+-- is ALWAYS appended, so a definer query still only returns the caller's rows.
+--
+-- fix-69 fix (2026-05-28): Postgres `EXECUTE ... USING VARIADIC` is NOT valid
+-- (VARIADIC is only for function-call signatures), so the original
+-- parameterized form failed at runtime. Filter VALUES now go through
+-- quote_literal() — Postgres's canonical safe-escaping primitive — plus an
+-- explicit type cast (::date / ::numeric / ::boolean / ::text[]). This is the
+-- idiomatic approach for variable-arity safe interpolation when EXECUTE ...
+-- USING can't be used. Safety is unchanged: column expressions still come
+-- from the catalog whitelist + the regex-guarded identifier check in
+-- _report_col_sql, and the tenant filter is always appended. Matches the
+-- hotfix already applied to prod.
 CREATE OR REPLACE FUNCTION public._report_build_and_run(p_spec jsonb)
- RETURNS jsonb
- LANGUAGE plpgsql
- VOLATILE
- SECURITY DEFINER
- SET search_path TO 'public', 'pg_temp'
+ RETURNS jsonb LANGUAGE plpgsql VOLATILE SECURITY DEFINER
+ SET search_path TO 'public','pg_temp'
 AS $function$
 DECLARE
-  v_cat     jsonb := public.bp_get_report_builder_catalog();
-  v_entity  text  := p_spec->>'entity';
-  v_ent     jsonb;
-  v_colmap  jsonb := '{}'::jsonb;
-  v_c       jsonb;
-  v_elem    jsonb;
-  v_key     text;
-  v_op      text;
-  v_type    text;
-  v_cast    text;
-  v_acast   text;
-  v_colexpr text;
-  v_pairs   text := '';
-  v_where   text := '';
-  v_order   text := '';
-  v_limit   int;
-  v_params  text[] := ARRAY[]::text[];
-  v_pidx    int := 0;
-  v_ph      text;
-  v_sub     jsonb;
-  v_sql     text;
-  v_rows    jsonb;
+  v_cat jsonb := public.bp_get_report_builder_catalog();
+  v_entity text := p_spec->>'entity';
+  v_ent jsonb; v_colmap jsonb := '{}'::jsonb;
+  v_c jsonb; v_elem jsonb; v_sub jsonb;
+  v_key text; v_op text; v_type text;
+  v_cast text; v_acast text; v_colexpr text;
+  v_pairs text := ''; v_where text := ''; v_order text := '';
+  v_listvals text;
+  v_limit int; v_sql text; v_rows jsonb;
 BEGIN
-  -- Re-validate (defense in depth — a saved spec may predate a catalog change).
   PERFORM public._report_validate_spec(p_spec);
-
-  SELECT e INTO v_ent
-  FROM jsonb_array_elements(v_cat->'entities') e
-  WHERE e->>'key' = v_entity;
-
+  SELECT e INTO v_ent FROM jsonb_array_elements(v_cat->'entities') e WHERE e->>'key' = v_entity;
   FOR v_c IN SELECT * FROM jsonb_array_elements(v_ent->'columns') LOOP
     v_colmap := v_colmap || jsonb_build_object(v_c->>'key', v_c);
   END LOOP;
-
-  -- SELECT object pairs: 'key', <colexpr>, ...
   FOR v_elem IN SELECT * FROM jsonb_array_elements(p_spec->'columns') LOOP
     v_key := v_elem #>> '{}';
     v_colexpr := public._report_col_sql(v_entity, v_key);
-    v_pairs := v_pairs
-      || CASE WHEN v_pairs = '' THEN '' ELSE ', ' END
+    v_pairs := v_pairs || CASE WHEN v_pairs='' THEN '' ELSE ', ' END
       || quote_literal(v_key) || ', ' || v_colexpr;
   END LOOP;
-
-  -- WHERE from filters (all AND-combined). Values parameterized.
   IF p_spec ? 'filters' THEN
     FOR v_elem IN SELECT * FROM jsonb_array_elements(p_spec->'filters') LOOP
-      v_key  := v_elem->>'column';
-      v_op   := v_elem->>'op';
-      v_c    := v_colmap->v_key;
-      v_type := v_c->>'type';
+      v_key := v_elem->>'column'; v_op := v_elem->>'op';
+      v_c := v_colmap->v_key; v_type := v_c->>'type';
       v_colexpr := public._report_col_sql(v_entity, v_key);
-      v_cast := CASE v_type
-                  WHEN 'date' THEN '::date'
-                  WHEN 'number' THEN '::numeric'
-                  WHEN 'boolean' THEN '::boolean'
-                  ELSE '' END;
-      v_acast := CASE v_type
-                  WHEN 'date' THEN '::date[]'
-                  WHEN 'number' THEN '::numeric[]'
-                  WHEN 'boolean' THEN '::boolean[]'
-                  ELSE '::text[]' END;
-
+      v_cast := CASE v_type WHEN 'date' THEN '::date' WHEN 'number' THEN '::numeric' WHEN 'boolean' THEN '::boolean' ELSE '::text' END;
+      v_acast := CASE v_type WHEN 'date' THEN '::date[]' WHEN 'number' THEN '::numeric[]' WHEN 'boolean' THEN '::boolean[]' ELSE '::text[]' END;
       IF v_op IN ('is_null','is_not_null') THEN
         v_where := v_where || ' AND (' || v_colexpr
           || CASE v_op WHEN 'is_null' THEN ' IS NULL' ELSE ' IS NOT NULL' END || ')';
-
       ELSIF v_op IN ('in','not_in') THEN
-        v_ph := '';
+        v_listvals := '';
         FOR v_sub IN SELECT * FROM jsonb_array_elements(v_elem->'value') LOOP
-          v_pidx := v_pidx + 1;
-          v_params := v_params || (v_sub #>> '{}');
-          v_ph := v_ph || CASE WHEN v_ph = '' THEN '' ELSE ',' END || '$' || v_pidx;
+          v_listvals := v_listvals || CASE WHEN v_listvals='' THEN '' ELSE ',' END
+            || quote_literal(v_sub #>> '{}');
         END LOOP;
         v_where := v_where || ' AND ('
-          || CASE WHEN v_op = 'not_in' THEN 'NOT (' ELSE '' END
-          || v_colexpr || ' = ANY(ARRAY[' || v_ph || ']' || v_acast || ')'
-          || CASE WHEN v_op = 'not_in' THEN ')' ELSE '' END
-          || ')';
-
+          || CASE WHEN v_op='not_in' THEN 'NOT (' ELSE '' END
+          || v_colexpr || ' = ANY(ARRAY[' || v_listvals || ']' || v_acast || ')'
+          || CASE WHEN v_op='not_in' THEN ')' ELSE '' END || ')';
       ELSIF v_op = 'contains' THEN
-        v_pidx := v_pidx + 1;
-        v_params := v_params || (v_elem->>'value');
         v_where := v_where || ' AND (' || v_colexpr
-          || ' ILIKE (''%'' || $' || v_pidx || ' || ''%''))';
-
+          || ' ILIKE (''%'' || ' || quote_literal(v_elem->>'value') || ' || ''%''))';
       ELSIF v_op = 'starts_with' THEN
-        v_pidx := v_pidx + 1;
-        v_params := v_params || (v_elem->>'value');
         v_where := v_where || ' AND (' || v_colexpr
-          || ' ILIKE ($' || v_pidx || ' || ''%''))';
-
+          || ' ILIKE (' || quote_literal(v_elem->>'value') || ' || ''%''))';
       ELSE
-        -- comparison ops: = != <> > >= < <=
-        v_pidx := v_pidx + 1;
-        v_params := v_params || (v_elem->>'value');
         v_where := v_where || ' AND (' || v_colexpr || ' '
-          || CASE WHEN v_op = '!=' THEN '<>' ELSE v_op END
-          || ' $' || v_pidx || v_cast || ')';
+          || CASE WHEN v_op='!=' THEN '<>' ELSE v_op END
+          || ' ' || quote_literal(v_elem->>'value') || v_cast || ')';
       END IF;
     END LOOP;
   END IF;
-
-  -- ORDER BY: from spec.sort, else entity default_sort.
   IF p_spec ? 'sort' AND jsonb_array_length(p_spec->'sort') > 0 THEN
     FOR v_elem IN SELECT * FROM jsonb_array_elements(p_spec->'sort') LOOP
       v_colexpr := public._report_col_sql(v_entity, v_elem->>'column');
-      v_order := v_order
-        || CASE WHEN v_order = '' THEN '' ELSE ', ' END
+      v_order := v_order || CASE WHEN v_order='' THEN '' ELSE ', ' END
         || v_colexpr || ' '
-        || CASE WHEN lower(COALESCE(v_elem->>'dir','asc')) = 'desc' THEN 'DESC' ELSE 'ASC' END
+        || CASE WHEN lower(COALESCE(v_elem->>'dir','asc'))='desc' THEN 'DESC' ELSE 'ASC' END
         || ' NULLS LAST';
     END LOOP;
   ELSE
     v_colexpr := public._report_col_sql(v_entity, v_ent->'default_sort'->>'column');
     v_order := v_colexpr || ' '
-      || CASE WHEN lower(COALESCE(v_ent->'default_sort'->>'dir','asc')) = 'desc' THEN 'DESC' ELSE 'ASC' END
+      || CASE WHEN lower(COALESCE(v_ent->'default_sort'->>'dir','asc'))='desc' THEN 'DESC' ELSE 'ASC' END
       || ' NULLS LAST';
   END IF;
-
-  -- LIMIT: default 1000, cap 10000.
   v_limit := COALESCE((p_spec->>'limit')::int, 1000);
   IF v_limit < 1 THEN v_limit := 1; END IF;
   IF v_limit > 10000 THEN v_limit := 10000; END IF;
-
-  v_sql :=
-    'SELECT COALESCE(jsonb_agg(obj ORDER BY rn), ''[]''::jsonb) FROM ('
+  v_sql := 'SELECT COALESCE(jsonb_agg(obj ORDER BY rn), ''[]''::jsonb) FROM ('
     || ' SELECT jsonb_build_object(' || v_pairs || ') AS obj,'
     || ' row_number() OVER (ORDER BY ' || v_order || ') AS rn'
     || ' FROM ' || public._report_from_sql(v_entity)
     || ' WHERE 1=1' || v_where
     || ' AND p.tenant_id = ANY(public.auth_tenant_ids())'
     || ' ORDER BY ' || v_order
-    || ' LIMIT ' || v_limit
-    || ') s';
-
+    || ' LIMIT ' || v_limit || ') s';
   BEGIN
-    EXECUTE v_sql USING VARIADIC v_params INTO v_rows;
+    EXECUTE v_sql INTO v_rows;
   EXCEPTION WHEN OTHERS THEN
-    -- Never leak the constructed SQL or the DB error detail.
     RAISE EXCEPTION 'report execution failed';
   END;
-
   v_rows := COALESCE(v_rows, '[]'::jsonb);
-  RETURN jsonb_build_object(
-    'rows', v_rows,
-    'row_count', jsonb_array_length(v_rows),
-    'executed_at', now(),
-    'spec_version', 1
-  );
+  RETURN jsonb_build_object('rows', v_rows, 'row_count', jsonb_array_length(v_rows),
+    'executed_at', now(), 'spec_version', 1);
 END;
 $function$;
 
