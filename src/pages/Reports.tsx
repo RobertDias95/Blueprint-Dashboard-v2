@@ -1,270 +1,95 @@
-import { useMemo, useState } from 'react';
-import { usePermits } from '../hooks/usePermits';
-import { useProjects } from '../hooks/useProjects';
-import {
-  computeMetrics,
-  enrichPermits,
-  filterEnrichedPermits,
-  type ReportFilters,
-} from '../lib/reportMetrics';
-import { groupAvgBy, groupCountBy } from '../lib/chartHelpers';
-import { SkeletonRows } from '../components/Skeleton';
-import QueryError from '../components/QueryError';
-import ReportFilterBar from '../components/Reports/ReportFilterBar';
-import MetricCards from '../components/Reports/MetricCards';
-import BarChartCard from '../components/Reports/BarChartCard';
-import ReportTable from '../components/Reports/ReportTable';
-import ScheduleBenchmarks from '../components/Reports/ScheduleBenchmarks';
-import { exportEnrichedPermitsToCSV } from '../lib/csvExport';
-import { pushToast } from '../stores/toastStore';
-import type { PermitWithCycles, Project } from '../lib/database.types';
+import { useRef } from 'react';
+import { useSearchParams } from 'react-router-dom';
+import ReportsOverviewTab from '../components/Reports/ReportsOverviewTab';
+import Trends from './Trends';
 
-// Q7.2.b: Reports view. FilterBar → MetricCards → 6 charts → Benchmarks → Table.
-// Q9.5.d: page header restyle + Export CSV button.
-// fix-25-feat-BB: the Overview/Trends sub-tab bar was removed — the
-// v1-parity Trends time-series merged into the top-level Trends page
-// alongside the operational KPIs. Reports now renders the overview
-// content directly with no sub-tab switch.
+// fix-trends-subtab (2026-05-28): Reports hosts two analytics sub-tabs —
+// Overview (the former Reports & Metrics body: charts + filter bar + CSV)
+// and Trends (the former standalone /trends page, unchanged). Trends was a
+// top-nav tab; it's folded back in here. Settings → Reporting (fix-68)
+// remains the home for saved / categorized / custom reports.
+//
+// The active tab lives in the URL (?tab=overview|trends) so it's deep-
+// linkable + back-button friendly. No param (or ?tab=overview) → Overview.
+// The legacy /trends route redirects to /reports?tab=trends.
 
-const DEFAULT_FILTERS: ReportFilters = {
-  types: new Set(),
-  jurisdictions: new Set(),
-  ents: new Set(),
-  productTypes: new Set(),
-  tags: new Set(),
-  range: 'all',
-  dateFrom: null,
-  dateTo: null,
-  status: 'all',
-  search: '',
-};
+type ReportsTab = 'overview' | 'trends';
+
+const TABS: { id: ReportsTab; label: string }[] = [
+  { id: 'overview', label: 'Overview' },
+  { id: 'trends', label: 'Trends' },
+];
 
 export default function Reports() {
-  const permitsQ = usePermits();
-  const projectsQ = useProjects();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const raw = searchParams.get('tab');
+  const active: ReportsTab = raw === 'trends' ? 'trends' : 'overview';
+  const tabRefs = useRef<(HTMLButtonElement | null)[]>([]);
 
-  const error = permitsQ.error ?? projectsQ.error;
-  if (error) {
-    return (
-      <QueryError
-        title="Reports failed to load"
-        error={error}
-        onRetry={() => {
-          permitsQ.refetch();
-          projectsQ.refetch();
-        }}
-      />
-    );
-  }
-  if (permitsQ.isLoading || projectsQ.isLoading) {
-    return <SkeletonRows count={6} rowClassName="h-16" />;
+  function selectTab(tab: ReportsTab) {
+    // Overview is the default — keep the URL clean by dropping the param.
+    const next = new URLSearchParams(searchParams);
+    if (tab === 'overview') next.delete('tab');
+    else next.set('tab', tab);
+    setSearchParams(next, { replace: false });
   }
 
-  return (
-    <Body
-      permits={permitsQ.data ?? []}
-      projects={projectsQ.data ?? []}
-    />
-  );
-}
-
-function Body({
-  permits,
-  projects,
-}: {
-  permits: PermitWithCycles[];
-  projects: Project[];
-}) {
-  const [filters, setFilters] = useState<ReportFilters>(DEFAULT_FILTERS);
-  const today = useMemo(() => new Date(), []);
-
-  const projectsById = useMemo(
-    () => new Map(projects.map((p) => [p.id, p])),
-    [projects],
-  );
-
-  const enriched = useMemo(
-    () => enrichPermits(permits, projectsById),
-    [permits, projectsById],
-  );
-
-  const typeOptions = useMemo(() => {
-    const set = new Set<string>();
-    for (const e of enriched) if (e.permit.type) set.add(e.permit.type);
-    return Array.from(set).sort();
-  }, [enriched]);
-
-  const jurisOptions = useMemo(() => {
-    const set = new Set<string>();
-    for (const e of enriched) if (e.juris) set.add(e.juris);
-    return Array.from(set).sort();
-  }, [enriched]);
-
-  const entOptions = useMemo(() => {
-    const set = new Set<string>();
-    for (const e of enriched) {
-      if (e.permit.ent_lead) set.add(e.permit.ent_lead);
-    }
-    return Array.from(set).sort();
-  }, [enriched]);
-
-  const productTypeOptions = useMemo(() => {
-    const set = new Set<string>();
-    for (const e of enriched) if (e.productType) set.add(e.productType);
-    return Array.from(set).sort();
-  }, [enriched]);
-
-  const tagOptions = useMemo(() => {
-    const set = new Set<string>();
-    for (const e of enriched) for (const t of e.projectTags) set.add(t);
-    return Array.from(set).sort();
-  }, [enriched]);
-
-  const filtered = useMemo(
-    () => filterEnrichedPermits(enriched, filters, today),
-    [enriched, filters, today],
-  );
-
-  const metrics = useMemo(() => computeMetrics(filtered), [filtered]);
-
-  const permitsByType = useMemo(
-    () => groupCountBy(filtered, (e) => e.permit.type),
-    [filtered],
-  );
-  const permitsByJuris = useMemo(
-    () => groupCountBy(filtered, (e) => e.juris),
-    [filtered],
-  );
-  const goToSubmitByType = useMemo(
-    () => groupAvgBy(filtered, (e) => e.permit.type, (e) => e.goToSubmit),
-    [filtered],
-  );
-  const scheduleVarianceByType = useMemo(
-    () =>
-      groupAvgBy(
-        filtered,
-        (e) => e.permit.type,
-        (e) => (e.variance === null ? null : Math.abs(e.variance)),
-      ),
-    [filtered],
-  );
-  const cityReviewByJuris = useMemo(
-    () => groupAvgBy(filtered, (e) => e.juris, (e) => e.cityReviewDays),
-    [filtered],
-  );
-  const corrResponseByType = useMemo(
-    () =>
-      groupAvgBy(filtered, (e) => e.permit.type, (e) => e.corrResponseDays),
-    [filtered],
-  );
-
-  function update<K extends keyof ReportFilters>(key: K, value: ReportFilters[K]) {
-    setFilters((prev) => ({ ...prev, [key]: value }));
-  }
-  function clearFilters() {
-    setFilters(DEFAULT_FILTERS);
-  }
-
-  function handleExport() {
-    try {
-      const result = exportEnrichedPermitsToCSV(filtered);
-      const kb = Math.round(result.bytes / 1024);
-      pushToast(
-        `Exported ${result.rowsExported} permits (${kb} KB)`,
-        'success',
-      );
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      pushToast(`CSV export failed — ${msg}`, 'error');
-    }
+  // role=tablist arrow-key navigation: Left/Right move focus + select.
+  function onKeyDown(e: React.KeyboardEvent, idx: number) {
+    if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return;
+    e.preventDefault();
+    const delta = e.key === 'ArrowRight' ? 1 : -1;
+    const nextIdx = (idx + delta + TABS.length) % TABS.length;
+    selectTab(TABS[nextIdx].id);
+    tabRefs.current[nextIdx]?.focus();
   }
 
   return (
-    <div className="space-y-4" data-testid="reports-page">
-      {/* Q9.5.d: header restyle — "Reports & Metrics" title + Export CSV
-          top-right + Overview/Trends sub-tab bar below */}
-      <div className="flex items-center justify-between flex-wrap gap-3">
-        <div className="text-xl font-extrabold text-text">
-          Reports &amp; Metrics
-        </div>
-        <button
-          onClick={handleExport}
-          className="px-3 py-1.5 rounded-md text-xs font-bold bg-de text-white border border-de hover:opacity-90 transition"
-          data-testid="reports-export-csv"
-        >
-          ↓ Export CSV
-        </button>
+    <div className="space-y-4" data-testid="reports-tabs">
+      {/* Sub-tab bar — matches the DrawSchedule sub-tab styling. */}
+      <div
+        role="tablist"
+        aria-label="Reports sections"
+        className="flex items-center gap-0 border-b border-border"
+        data-testid="reports-subtab-bar"
+      >
+        {TABS.map((t, i) => {
+          const isActive = active === t.id;
+          return (
+            <button
+              key={t.id}
+              ref={(el) => {
+                tabRefs.current[i] = el;
+              }}
+              role="tab"
+              type="button"
+              id={`reports-tab-${t.id}`}
+              aria-selected={isActive}
+              aria-controls={`reports-panel-${t.id}`}
+              tabIndex={isActive ? 0 : -1}
+              onClick={() => selectTab(t.id)}
+              onKeyDown={(e) => onKeyDown(e, i)}
+              className={`px-[18px] py-2.5 text-xs font-bold font-display border-b-2 transition -mb-px ${
+                isActive
+                  ? 'text-de border-de'
+                  : 'text-muted border-transparent hover:text-text'
+              }`}
+              data-testid={`reports-tab-${t.id}`}
+            >
+              {t.label}
+            </button>
+          );
+        })}
       </div>
 
-      {/* fix-68: the Saved Reports library moved to Settings -> Reporting
-          (a tenant-owned category tree). The Reports tab is analytics-only
-          now — Reports & Metrics + the Trends sub-tab. */}
-
-      <ReportFilterBar
-        filters={filters}
-        onChange={update}
-        onClear={clearFilters}
-        typeOptions={typeOptions}
-        jurisOptions={jurisOptions}
-        entOptions={entOptions}
-        productTypeOptions={productTypeOptions}
-        tagOptions={tagOptions}
-        resultCount={filtered.length}
-      />
-
-      <MetricCards metrics={metrics} />
-
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
-        <BarChartCard
-          title="Permits by Type"
-          data={permitsByType}
-          color="jv"
-          showAverage={false}
-          testId="chart-permits-by-type"
-        />
-        <BarChartCard
-          title="Permits by Jurisdiction"
-          data={permitsByJuris}
-          color="is"
-          showAverage={false}
-          testId="chart-permits-by-juris"
-        />
-        <BarChartCard
-          title="GO → Submit (avg days by type)"
-          data={goToSubmitByType}
-          color="de"
-          unit="d"
-          testId="chart-go-to-submit-by-type"
-        />
-        <BarChartCard
-          title="Schedule Variance by Type (avg days off)"
-          data={scheduleVarianceByType}
-          color="co"
-          unit="d"
-          emptyState="No issued permits yet"
-          testId="chart-schedule-variance-by-type"
-        />
-        <BarChartCard
-          title="City Review by Jurisdiction (avg days)"
-          data={cityReviewByJuris}
-          color="pm"
-          unit="d"
-          emptyState="No completed reviews yet"
-          testId="chart-city-review-by-juris"
-        />
-        <BarChartCard
-          title="Correction Response by Type (avg days)"
-          data={corrResponseByType}
-          color="overdue"
-          unit="d"
-          emptyState="No correction rounds completed yet"
-          testId="chart-corr-response-by-type"
-        />
+      <div
+        role="tabpanel"
+        id={`reports-panel-${active}`}
+        aria-labelledby={`reports-tab-${active}`}
+        data-testid={`reports-panel-${active}`}
+      >
+        {active === 'trends' ? <Trends /> : <ReportsOverviewTab />}
       </div>
-
-      <ScheduleBenchmarks permits={permits} projects={projects} />
-
-      <ReportTable permits={filtered} />
     </div>
   );
 }
