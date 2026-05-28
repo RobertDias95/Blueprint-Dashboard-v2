@@ -533,3 +533,38 @@ export interface WeeklyDaReportFilters {
   juris?: string;
   da?: string;
 }
+
+// ===========================================================
+// fix-68: Reports hub Phase 2 — Settings -> Reporting.
+// ===========================================================
+
+/** A folder in the saved-reports tree. parent_id null = a root category.
+ *  Backed by public.report_categories. */
+export interface ReportCategory {
+  id: string;
+  parent_id: string | null;
+  name: string;
+  position: number;
+}
+
+/** A saved report entry. `kind='builtin'` rows render a hard-coded
+ *  component looked up by `builtin_key` (e.g. 'weekly_da_update');
+ *  `kind='custom'` rows (Phase 3) render from `spec`. Backed by
+ *  public.saved_reports. The hub payload omits spec (P2 doesn't need it
+ *  client-side); add it here if a future phase reads it. */
+export interface SavedReport {
+  id: string;
+  category_id: string | null;
+  name: string;
+  description: string;
+  kind: 'builtin' | 'custom';
+  builtin_key: string | null;
+  position: number;
+}
+
+/** Return shape of bp_list_report_hub: the full category tree + every
+ *  saved report for the caller's tenant. */
+export interface ReportHubPayload {
+  categories: ReportCategory[];
+  reports: SavedReport[];
+}

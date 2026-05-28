@@ -6,6 +6,7 @@ import AdminProjectsTab from './Settings/AdminProjectsTab';
 import AdminPermitsTab from './Settings/AdminPermitsTab';
 import AdminScheduleTab from './Settings/AdminScheduleTab';
 import AdminConsultantsTab from './Settings/AdminConsultantsTab';
+import AdminReportingTab from './Settings/AdminReportingTab';
 import { useIsTenantAdmin } from '../hooks/useIsTenantAdmin';
 
 // Q9.5.a: System Settings modal. Restores v1's modal pattern
@@ -32,7 +33,8 @@ type SectionId =
   | 'projects'
   | 'permits'
   | 'schedule'
-  | 'consultants';
+  | 'consultants'
+  | 'reporting';
 
 const SECTIONS: Section[] = [
   {
@@ -75,6 +77,13 @@ const SECTIONS: Section[] = [
     icon: '🤝',
     label: 'Consultants',
     desc: 'External consultant types + firms',
+    adminOnly: true,
+  },
+  {
+    id: 'reporting',
+    icon: '📊',
+    label: 'Reporting',
+    desc: 'Saved reports library + categories',
     adminOnly: true,
   },
 ];
@@ -199,6 +208,9 @@ export default function SettingsModal({
             {effectiveActive === 'permits' && <AdminPermitsTab />}
             {effectiveActive === 'schedule' && <AdminScheduleTab />}
             {effectiveActive === 'consultants' && <AdminConsultantsTab />}
+            {effectiveActive === 'reporting' && (
+              <AdminReportingTab onAfterRun={onClose} />
+            )}
           </div>
         </div>
 
