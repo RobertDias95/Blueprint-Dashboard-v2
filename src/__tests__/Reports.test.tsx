@@ -424,4 +424,16 @@ describe('<Reports /> Q7.2.b', () => {
     expect(screen.getByTestId('report-table-row-p1')).toBeInTheDocument();
     expect(screen.getByTestId('report-table-row-p2')).toBeInTheDocument();
   });
+
+  // fix-67: Saved Reports hub (Phase 1) — the Weekly DA Update card is
+  // additive; the existing CSV export must remain.
+  it('renders the Weekly DA Update card linking to /reports/weekly-da, CSV export preserved', () => {
+    renderIt();
+    const card = screen.getByTestId('report-card-weekly-da');
+    expect(card).toBeInTheDocument();
+    expect(card.getAttribute('href')).toBe('/reports/weekly-da');
+    expect(card.textContent).toMatch(/Weekly DA Update/);
+    // The pre-existing CSV export button is still present (additive change).
+    expect(screen.getByTestId('reports-export-csv')).toBeInTheDocument();
+  });
 });

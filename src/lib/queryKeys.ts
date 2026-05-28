@@ -69,6 +69,15 @@ export const queryKeys = {
   // fix-31: per-reviewer status table.
   permitCycleReviewers: (tenantId: string) =>
     ['permit_cycle_reviewers', tenantId] as const,
+  // fix-67: Weekly DA Update report. Keyed by the filter/window inputs so
+  // changing the week or a filter refetches; tenant-scoped like the rest.
+  weeklyDaReport: (
+    tenantId: string,
+    weekStart: string,
+    windowDays: number,
+    filters: Record<string, string>,
+  ) =>
+    ['weekly_da_report', tenantId, { weekStart, windowDays, filters }] as const,
 } as const;
 
 /** Map from Postgres table name → bare-prefix query keys to invalidate on
