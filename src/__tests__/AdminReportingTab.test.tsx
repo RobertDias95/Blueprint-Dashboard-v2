@@ -38,6 +38,17 @@ const HUB: ReportHubPayload = {
       builtin_key: 'weekly_da_update',
       position: 0,
     },
+    {
+      // fix-69: a custom report lives alongside the builtin in the same
+      // category so the existing "All Reports empty" test still holds.
+      id: 'rep-custom',
+      category_id: 'cat-weekly',
+      name: 'My Custom Report',
+      description: 'A freeform report.',
+      kind: 'custom',
+      builtin_key: null,
+      position: 1,
+    },
   ],
 };
 
@@ -103,13 +114,35 @@ describe('<AdminReportingTab /> (fix-68)', () => {
     expect(onAfterRun).toHaveBeenCalledTimes(1);
   });
 
-  it('"+ New Report" is present but disabled with the Phase 3 tooltip', () => {
+  it('"+ New Report" is enabled and navigates to the builder (fix-69)', () => {
     renderTab();
     const btn = screen.getByTestId('reporting-new-report') as HTMLButtonElement;
     expect(btn).toBeInTheDocument();
-    expect(btn.disabled).toBe(true);
-    const wrap = screen.getByTestId('reporting-new-report-wrap');
-    expect(wrap.getAttribute('title')).toMatch(/Phase 3/i);
+    expect(btn.disabled).toBe(false);
+    fireEvent.click(btn);
+    // No category selected (All Reports) → plain builder route.
+    expect(navigateSpy).toHaveBeenCalledWith('/reports/builder');
+  });
+
+  it('"+ New Report" carries the selected category into the builder', () => {
+    renderTab();
+    fireEvent.click(screen.getByTestId('reporting-cat-cat-weekly'));
+    fireEvent.click(screen.getByTestId('reporting-new-report'));
+    expect(navigateSpy).toHaveBeenCalledWith('/reports/builder?category=cat-weekly');
+  });
+
+  it('custom report Run navigates to the custom viewer (fix-69)', () => {
+    renderTab();
+    fireEvent.click(screen.getByTestId('reporting-cat-cat-weekly'));
+    fireEvent.click(screen.getByTestId('reporting-report-rep-custom-run'));
+    expect(navigateSpy).toHaveBeenCalledWith('/reports/custom/rep-custom');
+  });
+
+  it('custom report Delete is enabled (not a builtin)', () => {
+    renderTab();
+    fireEvent.click(screen.getByTestId('reporting-cat-cat-weekly'));
+    const del = screen.getByTestId('reporting-report-rep-custom-delete') as HTMLButtonElement;
+    expect(del.disabled).toBe(false);
   });
 
   it('Delete is disabled on a builtin report', () => {

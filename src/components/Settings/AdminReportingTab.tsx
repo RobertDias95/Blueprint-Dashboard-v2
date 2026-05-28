@@ -145,10 +145,11 @@ export default function AdminReportingTab({ onAfterRun }: Props) {
   // --- report card actions --------------------------------------------------
 
   function runReport(r: SavedReport) {
+    // fix-69: builtins route to their registered component; custom reports
+    // run through the generic Custom Report viewer.
     const def = builtinReportDef(r.builtin_key);
-    if (!def) return; // custom reports run in Phase 3
     onAfterRun?.();
-    navigate(def.route);
+    navigate(def ? def.route : `/reports/custom/${r.id}`);
   }
 
   function renameReport(r: SavedReport) {
@@ -264,15 +265,20 @@ export default function AdminReportingTab({ onAfterRun }: Props) {
             <h2 className="text-sm font-display font-bold text-text">
               {selectedName}
             </h2>
-            <span
-              className="inline-block"
-              title="Coming in Phase 3 (freeform builder)"
-              data-testid="reporting-new-report-wrap"
-            >
+            {/* fix-69: New Report now opens the freeform builder, pre-filling
+                the currently-selected category (omitted for "All Reports"). */}
+            <span className="inline-block" data-testid="reporting-new-report-wrap">
               <button
                 type="button"
-                disabled
-                className="text-[11px] font-display font-semibold px-2.5 py-1 rounded border border-border bg-s2 text-dim cursor-not-allowed"
+                onClick={() => {
+                  onAfterRun?.();
+                  navigate(
+                    selected === ALL
+                      ? '/reports/builder'
+                      : `/reports/builder?category=${selected}`,
+                  );
+                }}
+                className="text-[11px] font-display font-semibold px-2.5 py-1 rounded border border-de bg-de text-white hover:opacity-90 transition"
                 data-testid="reporting-new-report"
               >
                 + New Report
@@ -295,7 +301,7 @@ export default function AdminReportingTab({ onAfterRun }: Props) {
                   report={r}
                   isFirst={i === 0}
                   isLast={i === visibleReports.length - 1}
-                  runnable={!!builtinReportDef(r.builtin_key)}
+                  runnable
                   moveOptions={flatForMove}
                   onRun={() => runReport(r)}
                   onRename={() => renameReport(r)}
