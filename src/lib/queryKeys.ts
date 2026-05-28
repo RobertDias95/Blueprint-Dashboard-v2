@@ -80,6 +80,12 @@ export const queryKeys = {
     ['weekly_da_report', tenantId, { weekStart, windowDays, filters }] as const,
   // fix-68: Reports hub (Settings -> Reporting). Categories + saved reports.
   reportHub: (tenantId: string) => ['report_hub', tenantId] as const,
+  // fix-69: report builder catalog (static per deploy) + a saved custom
+  // report's executed result.
+  reportBuilderCatalog: (tenantId: string) =>
+    ['report_builder_catalog', tenantId] as const,
+  customReport: (tenantId: string, id: string) =>
+    ['custom_report', tenantId, id] as const,
 } as const;
 
 /** Map from Postgres table name → bare-prefix query keys to invalidate on
