@@ -308,3 +308,49 @@ export function planPushDown(
   }
   return pushed;
 }
+
+// fix-DS-legibility: short-block + quarter-overlap rendering helpers.
+//
+// A project block's legible content depends on how many week-rows it
+// actually occupies IN THE VISIBLE QUARTER, not its full duration. Three
+// tiers trade detail for legibility on short blocks:
+//   xs (1 week)  -> address only
+//   sm (2 weeks) -> address + status pill
+//   default (>=3) -> full content (address + juris + status + est-approval)
+export type BlockTier = 'xs' | 'sm' | 'default';
+
+/** Pick the content tier from the number of week-rows the block occupies in
+ *  the current quarter view (clamped to >=1). */
+export function blockTier(visibleSpanWeeks: number): BlockTier {
+  if (visibleSpanWeeks <= 1) return 'xs';
+  if (visibleSpanWeeks === 2) return 'sm';
+  return 'default';
+}
+
+// When a project spans beyond the visible quarter window, the partial slice
+// shown in a secondary quarter loses context. We mark those slices so the UI
+// can render a compact address-only block with a nav affordance pointing to
+// where the rest lives:
+//   'tail' -> the block STARTED before this quarter (we see its tail); the
+//             affordance jumps back to the start quarter.
+//   'head' -> the block ENDS after this quarter (we see its head); the
+//             affordance jumps forward to the next quarter.
+//   null   -> the block is fully contained in this quarter (render in full).
+export type BlockOverflow = 'tail' | 'head' | null;
+
+/** Classify a block's overlap with the visible quarter window. `weeks` is the
+ *  ordered week-key list for the current quarter (getQuarterWeeks output). */
+export function blockOverflow(
+  startWeek: string,
+  endWeek: string,
+  weeks: string[],
+): BlockOverflow {
+  if (weeks.length === 0) return null;
+  const first = weeks[0];
+  const last = weeks[weeks.length - 1];
+  // Started in an earlier quarter -> this view is the tail.
+  if (startWeek < first) return 'tail';
+  // Starts within but runs past the end -> this view is the head.
+  if (endWeek > last) return 'head';
+  return null;
+}

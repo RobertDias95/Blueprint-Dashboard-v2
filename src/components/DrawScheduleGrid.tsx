@@ -29,6 +29,8 @@ import {
   DS_STATUS_COLORS,
   NP_BLOCK_COLOR,
   addWeeksToWeekKey,
+  blockOverflow,
+  blockTier,
   computeNpSegments,
   dateToWeekKey,
   decideDrop,
@@ -1499,6 +1501,18 @@ function DrawScheduleBody({
                     });
                     const sc = DS_STATUS_COLORS[derivedStatus] ?? DS_STATUS_COLORS.Scheduled;
                     const borderColor = jurisBorder(project.juris);
+                    // fix-DS-legibility: how many week-rows the block occupies
+                    // IN THIS QUARTER (clamped >=1) drives the content tier;
+                    // and whether it spills past the quarter window drives the
+                    // compact overflow variant (tail/head + nav affordance).
+                    const visibleSpan = ei - si + 1;
+                    const tier = blockTier(visibleSpan);
+                    const overflow = blockOverflow(
+                      row.start_week ?? '',
+                      effectiveEndWeek,
+                      weeks,
+                    );
+                    const shortLabel = project.address.split(',')[0];
                     // Duration in weeks is end..start inclusive.
                     const durationWeeks = Math.max(
                       1,
@@ -1512,6 +1526,8 @@ function DrawScheduleBody({
                       <div
                         key={row.project_id}
                         data-testid={`block-${row.project_id}`}
+                        data-tier={overflow ? 'overflow' : tier}
+                        data-overflow={overflow ?? undefined}
                         title={`${project.address} — ${derivedStatus} (drag to move, click to edit)`}
                         draggable
                         onMouseEnter={() => {
@@ -1591,10 +1607,18 @@ function DrawScheduleBody({
                           padding: '2px 6px',
                         }}
                       >
-                        {/* Q9.5.f Item 4: 4-tier block content per v1
-                            :8097-8121. Each tier appears only if block
-                            height permits, so short blocks degrade
-                            gracefully and tall blocks show full detail. */}
+                        {/* fix-DS-legibility: block content. When the block
+                            spills past the visible quarter (overflow), show
+                            address-only + a nav glyph to the quarter where the
+                            rest of the block lives. Otherwise render by
+                            visible-week-span tier:
+                              xs (1wk)  -> address only
+                              sm (2wk)  -> address + status pill
+                              default   -> full content (height-gated, as
+                                           before fix-47/48)
+                            The address always renders; juris / est-approval
+                            are the first detail to drop on short blocks (which
+                            previously clipped the address — Bobby's report). */}
                         <span
                           style={{
                             fontSize: Math.round(10 * textScale),
@@ -1606,65 +1630,118 @@ function DrawScheduleBody({
                             maxWidth: '100%',
                             color: sc.text,
                           }}
+                          data-testid={`block-address-${row.project_id}`}
                         >
-                          {project.address.split(',')[0]}
+                          {shortLabel}
                         </span>
-                        {height >= 22 && project.juris && (
-                          <span
+
+                        {overflow ? (
+                          // Compact overflow variant: a single nav glyph that
+                          // jumps to where the block is fully visible. tail ->
+                          // back to the start quarter; head -> the next quarter.
+                          <button
+                            type="button"
+                            data-testid={`block-overflow-nav-${row.project_id}`}
+                            aria-label={
+                              overflow === 'tail'
+                                ? `${shortLabel} starts earlier — go to its quarter`
+                                : `${shortLabel} continues — go to the next quarter`
+                            }
+                            title={
+                              overflow === 'tail'
+                                ? 'Continues from an earlier quarter — click to jump there'
+                                : 'Continues into the next quarter — click to jump there'
+                            }
+                            onClick={(e) => {
+                              // Don't let the nav click open the block popup or
+                              // start a drag — it's its own affordance.
+                              e.stopPropagation();
+                              if (draggingProjectId !== null) return;
+                              if (overflow === 'tail') {
+                                setQuarterOffset(
+                                  weekKeyToQuarterOffset(row.start_week ?? ''),
+                                );
+                              } else {
+                                setQuarterOffset(quarterOffset + 1);
+                              }
+                            }}
                             style={{
-                              fontSize: Math.round(8 * textScale),
-                              fontWeight: 500,
-                              lineHeight: 1.1,
-                              opacity: 0.75,
+                              fontSize: Math.round(11 * textScale),
+                              fontWeight: 800,
+                              lineHeight: 1,
                               color: sc.text,
+                              background: 'transparent',
+                              border: 'none',
+                              cursor: 'pointer',
+                              padding: 0,
                             }}
                           >
-                            {project.juris}
-                          </span>
-                        )}
-                        {height >= 32 && (
-                          <span
-                            style={{
-                              fontSize: Math.round(8 * textScale),
-                              fontWeight: 700,
-                              padding: '1px 5px',
-                              borderRadius: 3,
-                              background: 'rgba(255,255,255,0.55)',
-                              color: sc.border,
-                              border: `1px solid ${sc.border}`,
-                              whiteSpace: 'nowrap',
-                            }}
-                          >
-                            {derivedStatus}
-                          </span>
-                        )}
-                        {height >= 60 &&
-                          (() => {
-                            // Q9.5.f-fix-17.5 C: Est. Approval line uses the
-                            // same computeProjectedApproval pipeline as
-                            // ScheduleEstimator / ScheduleHealthTable so the
-                            // user's +/- cycle override is reflected here.
-                            // Pre-computed per-project at body scope so the
-                            // per-block render stays cheap.
-                            const projDate = projectionByProjectId.get(
-                              row.project_id,
-                            );
-                            if (!projDate) return null;
-                            return (
+                            {overflow === 'tail' ? '←' : '→'}
+                          </button>
+                        ) : (
+                          <>
+                            {(tier === 'default' && height >= 22 && project.juris) && (
                               <span
                                 style={{
                                   fontSize: Math.round(8 * textScale),
-                                  fontWeight: 800,
+                                  fontWeight: 500,
                                   lineHeight: 1.1,
+                                  opacity: 0.75,
                                   color: sc.text,
-                                  opacity: 0.9,
                                 }}
-                                title={`Est. Approval — ${projDate}`}
+                                data-testid={`block-juris-${row.project_id}`}
                               >
-                                Est. Approval · {projDate}
+                                {project.juris}
                               </span>
-                            );
-                          })()}
+                            )}
+                            {(tier === 'sm' || (tier === 'default' && height >= 32)) && (
+                              <span
+                                style={{
+                                  fontSize: Math.round(8 * textScale),
+                                  fontWeight: 700,
+                                  padding: '1px 5px',
+                                  borderRadius: 3,
+                                  background: 'rgba(255,255,255,0.55)',
+                                  color: sc.border,
+                                  border: `1px solid ${sc.border}`,
+                                  whiteSpace: 'nowrap',
+                                }}
+                                data-testid={`block-status-${row.project_id}`}
+                              >
+                                {derivedStatus}
+                              </span>
+                            )}
+                            {tier === 'default' &&
+                              height >= 60 &&
+                              (() => {
+                                // Q9.5.f-fix-17.5 C: Est. Approval line uses the
+                                // same computeProjectedApproval pipeline as
+                                // ScheduleEstimator / ScheduleHealthTable so the
+                                // user's +/- cycle override is reflected here.
+                                // Pre-computed per-project at body scope so the
+                                // per-block render stays cheap.
+                                const projDate = projectionByProjectId.get(
+                                  row.project_id,
+                                );
+                                if (!projDate) return null;
+                                return (
+                                  <span
+                                    style={{
+                                      fontSize: Math.round(8 * textScale),
+                                      fontWeight: 800,
+                                      lineHeight: 1.1,
+                                      color: sc.text,
+                                      opacity: 0.9,
+                                    }}
+                                    data-testid={`block-est-approval-${row.project_id}`}
+                                    title={`Est. Approval — ${projDate}`}
+                                  >
+                                    Est. Approval · {projDate}
+                                  </span>
+                                );
+                              })()}
+                          </>
+                        )}
                         {/* Q9.5.f-fix-20: resize handle on the bottom edge.
                             6px tall, full-width, ns-resize cursor. Captures
                             mousedown to start the resize gesture; the actual
