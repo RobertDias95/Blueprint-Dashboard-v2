@@ -5,10 +5,16 @@ import type { ReactNode } from 'react';
 import { useAuthStore } from '../stores/authStore';
 import { getQuarterWeeks } from '../lib/drawScheduleHelpers';
 
-// fix-DS-legibility: short-block content tiers (xs/sm/default) + quarter-
-// overlap (tail/head) compact variants. Week keys are derived from
-// getQuarterWeeks relative to the real "now", so the fixtures land in the
-// visible quarter regardless of when CI runs.
+// fix-DS-legibility: short-block content tiers + quarter-overlap (tail/head)
+// compact variants. Week keys are derived from getQuarterWeeks relative to the
+// real "now", so the fixtures land in the visible quarter regardless of when
+// CI runs.
+//
+// fix-DS-fluid-sizing: the 2-week `sm` tier (address + status only) was
+// dropped. Now only span-1 blocks are address-only (`xs`); every block >= 2
+// weeks is `default` and renders full content (address + juris + status +
+// Est. Approval), fluid-sized via blockFontPx. These tests assert the new
+// shape: span-2 now shows juris.
 
 const T = 'test-tenant-uuid';
 
@@ -54,6 +60,15 @@ function row(over: Partial<DrawRow>): DrawRow {
 const refs = vi.hoisted(() => ({
   draw: { current: [] as unknown[] },
   projects: { current: [] as unknown[] },
+  permits: { current: [] as unknown[] },
+}));
+
+// fix-DS-fluid-sizing: the block's Est. Approval line is gated on a computed
+// projection (computeProjectedApproval needs a Building Permit). Stub the
+// projection so a single est-approval test can exercise the 2-line
+// label/date layout without standing up the full permit-cycle pipeline.
+vi.mock('../lib/projectedApproval', () => ({
+  computeProjectedApproval: () => ({ projection: 'Aug 15, 2026' }),
 }));
 
 vi.mock('../hooks/useDrawSchedule', () => ({
@@ -63,7 +78,7 @@ vi.mock('../hooks/useProjects', () => ({
   useProjects: () => ({ data: refs.projects.current, isLoading: false, error: null, refetch: vi.fn() }),
 }));
 vi.mock('../hooks/usePermits', () => ({
-  usePermits: () => ({ data: [], isLoading: false, error: null, refetch: vi.fn() }),
+  usePermits: () => ({ data: refs.permits.current, isLoading: false, error: null, refetch: vi.fn() }),
 }));
 vi.mock('../hooks/useDmDaGroups', () => ({
   useDmDaGroups: () => ({
@@ -112,6 +127,7 @@ beforeEach(() => {
   useAuthStore.setState({ activeTenantId: T, memberships: [{ tenant_id: T, role: 'admin' }] });
   refs.draw.current = [];
   refs.projects.current = [];
+  refs.permits.current = [];
 });
 
 describe('Draw Schedule block tiers (fix-DS-legibility)', () => {
@@ -127,19 +143,20 @@ describe('Draw Schedule block tiers (fix-DS-legibility)', () => {
     expect(screen.queryByTestId('block-est-approval-p1')).toBeNull();
   });
 
-  it('sm (2 weeks): renders address + status, no juris/est-approval', () => {
+  it('default (2 weeks): renders FULL content now — address + juris + status (sm tier dropped)', () => {
+    // fix-DS-fluid-sizing: a 2-week block used to be the stripped `sm` tier
+    // (no juris). It is now `default` and shows juris like any wider block.
     refs.draw.current = [row({ project_id: 'p2', da_assigned: 'A2', start_week: W[3], end_week: W[4] })];
     refs.projects.current = [project('p2', '750 Oak Way')];
     renderGrid();
     const block = screen.getByTestId('block-p2');
-    expect(block).toHaveAttribute('data-tier', 'sm');
+    expect(block).toHaveAttribute('data-tier', 'default');
     expect(screen.getByTestId('block-address-p2')).toBeInTheDocument();
+    expect(screen.getByTestId('block-juris-p2')).toBeInTheDocument();
     expect(screen.getByTestId('block-status-p2')).toBeInTheDocument();
-    expect(screen.queryByTestId('block-juris-p2')).toBeNull();
-    expect(screen.queryByTestId('block-est-approval-p2')).toBeNull();
   });
 
-  it('default (3+ weeks): renders address + juris + status', () => {
+  it('default (3 weeks): renders address + juris + status', () => {
     refs.draw.current = [row({ project_id: 'p3', da_assigned: 'A3', start_week: W[3], end_week: W[5] })];
     refs.projects.current = [project('p3', '123 Main St')];
     renderGrid();
@@ -148,6 +165,50 @@ describe('Draw Schedule block tiers (fix-DS-legibility)', () => {
     expect(screen.getByTestId('block-address-p3')).toBeInTheDocument();
     expect(screen.getByTestId('block-juris-p3')).toBeInTheDocument();
     expect(screen.getByTestId('block-status-p3')).toBeInTheDocument();
+  });
+
+  it('default (8 weeks): still full content (wide blocks unchanged)', () => {
+    refs.draw.current = [row({ project_id: 'p8', da_assigned: 'A4', start_week: W[2], end_week: W[9] })];
+    refs.projects.current = [project('p8', '88 Wide Blvd')];
+    renderGrid();
+    const block = screen.getByTestId('block-p8');
+    expect(block).toHaveAttribute('data-tier', 'default');
+    expect(screen.getByTestId('block-address-p8')).toBeInTheDocument();
+    expect(screen.getByTestId('block-juris-p8')).toBeInTheDocument();
+    expect(screen.getByTestId('block-status-p8')).toBeInTheDocument();
+  });
+
+  it('Est. Approval renders as a two-line label/date when a projection exists', () => {
+    // computeProjectedApproval is stubbed to a fixed date; the block needs a
+    // Building Permit for the projection map to reach the stub.
+    refs.draw.current = [
+      row({ project_id: 'pe', da_assigned: 'A5', start_week: W[3], end_week: W[6] }),
+    ];
+    refs.projects.current = [project('pe', '5107 South Hudson')];
+    refs.permits.current = [
+      { id: 1, project_id: 'pe', type: 'Building Permit', permit_cycles: [], extras: {} },
+    ];
+    renderGrid();
+    const est = screen.getByTestId('block-est-approval-pe');
+    expect(est).toBeInTheDocument();
+    // Two lines: the muted "Est. Approval" label + the bolder date.
+    expect(est.textContent).toContain('Est. Approval');
+    expect(est.textContent).toContain('Aug 15, 2026');
+  });
+
+  it('address renders the full pre-comma string with no JS-inserted ellipsis (2-line wrap clamp)', () => {
+    // fix-DS-fluid-sizing: addresses wrap to 2 lines via -webkit-line-clamp
+    // rather than a single-line "…" truncation, and the full address lives in
+    // the title attribute.
+    const fullAddr = '12345 Northeast Greenwood Park Boulevard Suite 1000, Seattle, WA';
+    refs.draw.current = [row({ project_id: 'pa', da_assigned: 'A1', start_week: W[3], end_week: W[6] })];
+    refs.projects.current = [project('pa', fullAddr)];
+    renderGrid();
+    const addr = screen.getByTestId('block-address-pa');
+    // shortLabel = everything before the first comma; no ellipsis character.
+    expect(addr.textContent).toBe('12345 Northeast Greenwood Park Boulevard Suite 1000');
+    expect(addr.textContent).not.toContain('…');
+    expect(addr).toHaveAttribute('title', fullAddr);
   });
 
   it('fully-contained block has no overflow affordance', () => {
@@ -215,13 +276,15 @@ describe('Draw Schedule block tiers (fix-DS-legibility)', () => {
       project('p3', '123 Main St'),
     ];
     renderGrid();
-    // Snapshot the inner content (not positional styles) of each tier.
+    // xs (span 1) is address-only.
     expect(screen.getByTestId('block-p1').querySelector('[data-testid^="block-"]')?.textContent)
       .toMatchInlineSnapshot(`"500 Pike St"`);
-    const sm = screen.getByTestId('block-p2');
-    expect(sm.getAttribute('data-tier')).toBe('sm');
-    expect(sm.textContent).toContain('750 Oak Way');
-    expect(sm.textContent).toContain('Approved');
+    // fix-DS-fluid-sizing: span-2 is now `default` full content — juris shows.
+    const two = screen.getByTestId('block-p2');
+    expect(two.getAttribute('data-tier')).toBe('default');
+    expect(two.textContent).toContain('750 Oak Way');
+    expect(two.textContent).toContain('Seattle');
+    expect(two.textContent).toContain('Approved');
     const def = screen.getByTestId('block-p3');
     expect(def.getAttribute('data-tier')).toBe('default');
     expect(def.textContent).toContain('123 Main St');

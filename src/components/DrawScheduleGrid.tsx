@@ -29,6 +29,7 @@ import {
   DS_STATUS_COLORS,
   NP_BLOCK_COLOR,
   addWeeksToWeekKey,
+  blockFontPx,
   blockOverflow,
   blockTier,
   computeNpSegments,
@@ -1512,6 +1513,13 @@ function DrawScheduleBody({
                       effectiveEndWeek,
                       weeks,
                     );
+                    // fix-DS-fluid-sizing: fluid base font from the visible
+                    // span, then textScale (fix-47 row-height scaling) on top.
+                    // Address renders one step larger (base + 1, bold); juris /
+                    // Est. Approval one step smaller (base − 1).
+                    const baseFontPx = blockFontPx(visibleSpan);
+                    const addrFont = Math.round((baseFontPx + 1) * textScale);
+                    const detailFont = Math.round((baseFontPx - 1) * textScale);
                     const shortLabel = project.address.split(',')[0];
                     // Duration in weeks is end..start inclusive.
                     const durationWeeks = Math.max(
@@ -1595,41 +1603,49 @@ function DrawScheduleBody({
                               : 'auto',
                           display: 'flex',
                           flexDirection: 'column',
-                          // Q9.5.f-fix-20: center block content horizontally
-                          // AND vertically. Previously alignItems was
-                          // flex-start (left-skewed); Bobby wants the v1
-                          // visual where address/juris/status/est-approval
-                          // stack centered in the block.
+                          // Q9.5.f-fix-20: center block content horizontally.
+                          // fix-DS-fluid-sizing: full-content blocks distribute
+                          // their groups (address / juris+status / Est. Approval)
+                          // through the available height via space-between so the
+                          // empty vertical room Bobby flagged gets used; xs +
+                          // compact-tail blocks (single element) just center.
                           alignItems: 'center',
-                          justifyContent: 'center',
+                          justifyContent:
+                            tier === 'default' && overflow !== 'tail'
+                              ? 'space-between'
+                              : 'center',
                           textAlign: 'center',
                           gap: 2,
-                          padding: '2px 6px',
+                          padding: '3px 6px',
                         }}
                       >
-                        {/* fix-DS-legibility: block content. When the block
-                            spills past the visible quarter (overflow), show
-                            address-only + a nav glyph to the quarter where the
-                            rest of the block lives. Otherwise render by
-                            visible-week-span tier:
-                              xs (1wk)  -> address only
-                              sm (2wk)  -> address + status pill
-                              default   -> full content (height-gated, as
-                                           before fix-47/48)
-                            The address always renders; juris / est-approval
-                            are the first detail to drop on short blocks (which
-                            previously clipped the address — Bobby's report). */}
+                        {/* fix-DS-fluid-sizing: block content.
+                            - tail overflow slice → address + ← nav glyph.
+                            - xs (1 visible week) → address only (no room).
+                            - default (>=2 weeks) → full content (address +
+                              juris + status + Est. Approval), fluid-sized
+                              (blockFontPx) and distributed through the height.
+                            The address wraps to 2 lines instead of clipping;
+                            Est. Approval splits label/date onto two lines. */}
                         <span
                           style={{
-                            fontSize: Math.round(10 * textScale),
+                            fontSize: addrFont,
                             fontWeight: 800,
                             lineHeight: 1.1,
-                            whiteSpace: 'nowrap',
+                            // fix-DS-fluid-sizing: wrap to 2 lines into the
+                            // empty vertical space instead of single-line
+                            // ellipsis clipping. title carries the full string
+                            // for the rare 3+ line case.
+                            display: '-webkit-box',
+                            WebkitLineClamp: 2,
+                            WebkitBoxOrient: 'vertical',
                             overflow: 'hidden',
-                            textOverflow: 'ellipsis',
+                            whiteSpace: 'normal',
+                            wordBreak: 'break-word',
                             maxWidth: '100%',
                             color: sc.text,
                           }}
+                          title={project.address}
                           data-testid={`block-address-${row.project_id}`}
                         >
                           {shortLabel}
@@ -1670,23 +1686,38 @@ function DrawScheduleBody({
                           >
                             ←
                           </button>
-                        ) : (
+                        ) : tier === 'default' ? (
+                          // fix-DS-fluid-sizing: full content for every block
+                          // >= 2 weeks (the old `sm` tier that dropped juris +
+                          // Est. Approval is gone). juris + status share a row;
+                          // Est. Approval anchors the bottom. Sized to fit via
+                          // detailFont; overflow:hidden trims only the most
+                          // extreme cases.
                           <>
-                            {(tier === 'default' && height >= 22 && project.juris) && (
-                              <span
-                                style={{
-                                  fontSize: Math.round(8 * textScale),
-                                  fontWeight: 500,
-                                  lineHeight: 1.1,
-                                  opacity: 0.75,
-                                  color: sc.text,
-                                }}
-                                data-testid={`block-juris-${row.project_id}`}
-                              >
-                                {project.juris}
-                              </span>
-                            )}
-                            {(tier === 'sm' || (tier === 'default' && height >= 32)) && (
+                            <div
+                              style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                flexWrap: 'wrap',
+                                gap: 4,
+                                maxWidth: '100%',
+                              }}
+                            >
+                              {project.juris && (
+                                <span
+                                  style={{
+                                    fontSize: detailFont,
+                                    fontWeight: 500,
+                                    lineHeight: 1.1,
+                                    opacity: 0.75,
+                                    color: sc.text,
+                                  }}
+                                  data-testid={`block-juris-${row.project_id}`}
+                                >
+                                  {project.juris}
+                                </span>
+                              )}
                               <span
                                 style={{
                                   fontSize: Math.round(8 * textScale),
@@ -1702,38 +1733,52 @@ function DrawScheduleBody({
                               >
                                 {derivedStatus}
                               </span>
-                            )}
-                            {tier === 'default' &&
-                              height >= 60 &&
-                              (() => {
-                                // Q9.5.f-fix-17.5 C: Est. Approval line uses the
-                                // same computeProjectedApproval pipeline as
-                                // ScheduleEstimator / ScheduleHealthTable so the
-                                // user's +/- cycle override is reflected here.
-                                // Pre-computed per-project at body scope so the
-                                // per-block render stays cheap.
-                                const projDate = projectionByProjectId.get(
-                                  row.project_id,
-                                );
-                                if (!projDate) return null;
-                                return (
+                            </div>
+                            {(() => {
+                              // Q9.5.f-fix-17.5 C: Est. Approval uses the same
+                              // computeProjectedApproval pipeline as Schedule
+                              // Estimator / Schedule Health (pre-computed per
+                              // project at body scope). fix-DS-fluid-sizing:
+                              // label + date split onto two lines.
+                              const projDate = projectionByProjectId.get(
+                                row.project_id,
+                              );
+                              if (!projDate) return null;
+                              return (
+                                <div
+                                  style={{
+                                    display: 'flex',
+                                    flexDirection: 'column',
+                                    alignItems: 'center',
+                                    lineHeight: 1.1,
+                                    color: sc.text,
+                                  }}
+                                  data-testid={`block-est-approval-${row.project_id}`}
+                                  title={`Est. Approval — ${projDate}`}
+                                >
                                   <span
                                     style={{
-                                      fontSize: Math.round(8 * textScale),
-                                      fontWeight: 800,
-                                      lineHeight: 1.1,
-                                      color: sc.text,
-                                      opacity: 0.9,
+                                      fontSize: Math.max(7, detailFont - 1),
+                                      fontWeight: 600,
+                                      opacity: 0.7,
                                     }}
-                                    data-testid={`block-est-approval-${row.project_id}`}
-                                    title={`Est. Approval — ${projDate}`}
                                   >
-                                    Est. Approval · {projDate}
+                                    Est. Approval
                                   </span>
-                                );
-                              })()}
+                                  <span
+                                    style={{
+                                      fontSize: detailFont,
+                                      fontWeight: 800,
+                                      opacity: 0.95,
+                                    }}
+                                  >
+                                    {projDate}
+                                  </span>
+                                </div>
+                              );
+                            })()}
                           </>
-                        )}
+                        ) : null}
                         {/* Q9.5.f-fix-20: resize handle on the bottom edge.
                             6px tall, full-width, ns-resize cursor. Captures
                             mousedown to start the resize gesture; the actual

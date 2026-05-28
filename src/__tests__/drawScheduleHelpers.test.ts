@@ -19,6 +19,7 @@ import {
   weekRangeOverlap,
   blockTier,
   blockOverflow,
+  blockFontPx,
 } from '../lib/drawScheduleHelpers';
 
 // Q6.1: pure-helper tests. Quarter math, week-key Monday alignment, and
@@ -467,16 +468,40 @@ describe('formatWeekRange (fix-25-feat-c)', () => {
 
 // fix-DS-legibility: short-block tier + quarter-overlap classification.
 describe('blockTier', () => {
-  it('1 visible week -> xs', () => {
+  it('1 visible week -> xs (address only)', () => {
     expect(blockTier(1)).toBe('xs');
     expect(blockTier(0)).toBe('xs'); // clamp guard
   });
-  it('2 visible weeks -> sm', () => {
-    expect(blockTier(2)).toBe('sm');
-  });
-  it('3+ visible weeks -> default', () => {
+  it('2+ visible weeks -> default (full content; no more sm tier)', () => {
+    // fix-DS-fluid-sizing dropped the 2-week `sm` tier — 2-week blocks now
+    // render full content too.
+    expect(blockTier(2)).toBe('default');
     expect(blockTier(3)).toBe('default');
+    expect(blockTier(8)).toBe('default');
     expect(blockTier(13)).toBe('default');
+  });
+});
+
+describe('blockFontPx', () => {
+  it('is monotonic non-decreasing in visible span', () => {
+    let prev = -Infinity;
+    for (let s = 1; s <= 14; s++) {
+      const v = blockFontPx(s);
+      expect(v).toBeGreaterThanOrEqual(prev);
+      prev = v;
+    }
+  });
+  it('hits the pinned ramp targets (span 2 ≈9, span 5 ≈11, span 8 ≈13)', () => {
+    expect(blockFontPx(2)).toBeCloseTo(9, 5);
+    expect(blockFontPx(5)).toBeCloseTo(11, 5);
+    expect(blockFontPx(8)).toBeCloseTo(13, 5);
+  });
+  it('clamps to [8, 13]', () => {
+    expect(blockFontPx(1)).toBeGreaterThanOrEqual(8);
+    expect(blockFontPx(1)).toBeLessThan(9); // a touch under the span-2 size
+    expect(blockFontPx(3)).toBeGreaterThan(9);
+    expect(blockFontPx(3)).toBeLessThan(11);
+    expect(blockFontPx(20)).toBe(13); // capped
   });
 });
 
