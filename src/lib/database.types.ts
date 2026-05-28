@@ -568,3 +568,102 @@ export interface ReportHubPayload {
   categories: ReportCategory[];
   reports: SavedReport[];
 }
+
+// ===========================================================
+// fix-69: Report builder (Reports hub Phase 3).
+// ===========================================================
+
+export type ReportColumnType =
+  | 'text'
+  | 'date'
+  | 'number'
+  | 'boolean'
+  | 'enum';
+
+export type ReportOperator =
+  | '='
+  | '!='
+  | '>'
+  | '>='
+  | '<'
+  | '<='
+  | 'contains'
+  | 'starts_with'
+  | 'in'
+  | 'not_in'
+  | 'is_null'
+  | 'is_not_null';
+
+/** One selectable/filterable column in the builder catalog. `key` is the
+ *  dotted path used in the saved spec (e.g. 'num', 'project.address').
+ *  `operators` is the type-derived whitelist the runtime also enforces. */
+export interface ReportBuilderColumn {
+  key: string;
+  label: string;
+  type: ReportColumnType;
+  filterable: boolean;
+  operators: ReportOperator[];
+  source: 'direct' | 'parent.projects' | 'parent.permits';
+  /** Present only for enum columns. */
+  values?: string[];
+}
+
+export interface ReportBuilderEntity {
+  key: string;
+  label: string;
+  columns: ReportBuilderColumn[];
+  default_sort: { column: string; dir: 'asc' | 'desc' };
+}
+
+/** Return shape of bp_get_report_builder_catalog — the single source of
+ *  truth the builder UI consumes and the runtime validates against. */
+export interface ReportBuilderCatalog {
+  version: number;
+  entities: ReportBuilderEntity[];
+}
+
+/** One AND-combined filter in a saved spec. `value` is a scalar for most
+ *  ops, an array for in/not_in, and absent for is_null/is_not_null. */
+export interface ReportSpecFilter {
+  column: string;
+  op: ReportOperator;
+  value?: string | number | boolean | Array<string | number> | null;
+}
+
+export interface ReportSpecSort {
+  column: string;
+  dir: 'asc' | 'desc';
+}
+
+/** The saved report definition, stored in saved_reports.spec (kind='custom').
+ *  Validated server-side against the catalog on every run/preview/save. */
+export interface ReportSpec {
+  version: number;
+  entity: string;
+  columns: string[];
+  filters: ReportSpecFilter[];
+  sort: ReportSpecSort[];
+  limit: number;
+}
+
+/** Runtime payload from bp_run_saved_report / bp_preview_report_spec. Each
+ *  row is a flat object keyed by the spec's column keys. */
+export interface CustomReportResult {
+  rows: Array<Record<string, unknown>>;
+  row_count: number;
+  executed_at: string;
+  spec_version: number;
+}
+
+/** Full saved-report row incl. spec (bp_get_saved_report) — used by the
+ *  viewer's Edit + the builder's edit mode. */
+export interface SavedReportDetail {
+  id: string;
+  category_id: string | null;
+  name: string;
+  description: string;
+  kind: 'builtin' | 'custom';
+  builtin_key: string | null;
+  spec: ReportSpec;
+  position: number;
+}
