@@ -134,10 +134,10 @@ beforeEach(() => {
 });
 
 describe('Draw Schedule block layout (fix-DS-uniform-layout)', () => {
-  it('1 week: renders the SAME full 5-line stack — address + juris + status + Est. Approval (xs tier dropped)', () => {
-    // fix-DS-uniform-layout: a 1-week block used to be the `xs` tier (address
-    // only). Every non-tail block now renders the full stack regardless of
-    // span. A permit drives the projection so the Est. Approval lines show.
+  it('1 week (non-overflow): is COMPACT — address + Est. Approval only, top-anchored, no juris/pill', () => {
+    // fix-DS-compact-rule: a 1-week block can't fit the full stack, so it's
+    // treated like an overflow slice — minimal content, top-anchored so the
+    // address never clips. A permit drives the projection so Est. Approval shows.
     refs.draw.current = [row({ project_id: 'p1', da_assigned: 'A1', start_week: W[3], end_week: W[3] })];
     refs.projects.current = [project('p1', '500 Pike St')];
     refs.permits.current = [
@@ -145,16 +145,19 @@ describe('Draw Schedule block layout (fix-DS-uniform-layout)', () => {
     ];
     renderGrid();
     const block = screen.getByTestId('block-p1');
-    expect(block).toHaveAttribute('data-tier', 'default');
     expect(screen.getByTestId('block-address-p1').textContent).toContain('500 Pike St');
-    expect(screen.getByTestId('block-juris-p1')).toBeInTheDocument();
-    expect(screen.getByTestId('block-status-p1')).toBeInTheDocument();
+    // Compact: juris + status pill dropped (address is the priority).
+    expect(screen.queryByTestId('block-juris-p1')).toBeNull();
+    expect(screen.queryByTestId('block-status-p1')).toBeNull();
+    // Est. Approval still renders.
     const est = screen.getByTestId('block-est-approval-p1');
     expect(est.textContent).toContain('Est. Approval');
     expect(est.textContent).toContain('08-15-26');
+    // Top-anchored so the address can't clip.
+    expect(block.style.justifyContent).toBe('flex-start');
   });
 
-  it('2 weeks: same full stack — address + juris + status', () => {
+  it('2 weeks (non-overflow): full stack — address + juris + status, centered', () => {
     refs.draw.current = [row({ project_id: 'p2', da_assigned: 'A2', start_week: W[3], end_week: W[4] })];
     refs.projects.current = [project('p2', '750 Oak Way')];
     renderGrid();
@@ -163,6 +166,8 @@ describe('Draw Schedule block layout (fix-DS-uniform-layout)', () => {
     expect(screen.getByTestId('block-address-p2')).toBeInTheDocument();
     expect(screen.getByTestId('block-juris-p2')).toBeInTheDocument();
     expect(screen.getByTestId('block-status-p2')).toBeInTheDocument();
+    // fix-DS-compact-rule: ≥2-week non-overflow blocks center their content.
+    expect(block.style.justifyContent).toBe('center');
   });
 
   it('status pill is small (fix-DS-pill-and-date: font scales from a base of 6, not 8)', () => {
@@ -175,7 +180,7 @@ describe('Draw Schedule block layout (fix-DS-uniform-layout)', () => {
     expect(parseFloat(pill.style.fontSize)).toBeLessThanOrEqual(7);
   });
 
-  it('3 weeks: same full stack — address + juris + status', () => {
+  it('3 weeks (non-overflow): full stack — address + juris + status, centered', () => {
     refs.draw.current = [row({ project_id: 'p3', da_assigned: 'A3', start_week: W[3], end_week: W[5] })];
     refs.projects.current = [project('p3', '123 Main St')];
     renderGrid();
@@ -184,9 +189,10 @@ describe('Draw Schedule block layout (fix-DS-uniform-layout)', () => {
     expect(screen.getByTestId('block-address-p3')).toBeInTheDocument();
     expect(screen.getByTestId('block-juris-p3')).toBeInTheDocument();
     expect(screen.getByTestId('block-status-p3')).toBeInTheDocument();
+    expect(block.style.justifyContent).toBe('center');
   });
 
-  it('8 weeks: same full stack (wide blocks identical content, just larger font)', () => {
+  it('8 weeks (non-overflow): full stack (wide blocks identical content, just larger font), centered', () => {
     refs.draw.current = [row({ project_id: 'p8', da_assigned: 'A4', start_week: W[2], end_week: W[9] })];
     refs.projects.current = [project('p8', '88 Wide Blvd')];
     renderGrid();
@@ -195,6 +201,7 @@ describe('Draw Schedule block layout (fix-DS-uniform-layout)', () => {
     expect(screen.getByTestId('block-address-p8')).toBeInTheDocument();
     expect(screen.getByTestId('block-juris-p8')).toBeInTheDocument();
     expect(screen.getByTestId('block-status-p8')).toBeInTheDocument();
+    expect(block.style.justifyContent).toBe('center');
   });
 
   it('Est. Approval renders as a two-line label/date when a projection exists', () => {
@@ -256,10 +263,11 @@ describe('Draw Schedule block layout (fix-DS-uniform-layout)', () => {
     ];
     renderGrid();
     const block = screen.getByTestId('block-pt');
-    // data-overflow stays so styling/tests can still detect a tail slice...
+    // data-overflow stays so styling/tests can still detect a tail slice.
     expect(block).toHaveAttribute('data-overflow', 'tail');
-    // ...but the content is the same 'default' full stack, not a compact variant.
     expect(block).toHaveAttribute('data-tier', 'default');
+    // A tail slice is compact → top-anchored so the address can't clip.
+    expect(block.style.justifyContent).toBe('flex-start');
     // Address + Est. Approval render on the tail slice...
     expect(screen.getByTestId('block-address-pt')).toBeInTheDocument();
     // ...but overflow slices are stripped to the essentials: the status pill
@@ -289,38 +297,41 @@ describe('Draw Schedule block layout (fix-DS-uniform-layout)', () => {
     expect(screen.getByTestId('block-pt')).not.toHaveAttribute('data-overflow');
   });
 
-  it('anchors the content stack to the top (justify-content: flex-start) so address never clips', () => {
+  it('centers the content stack on tall non-overflow blocks (justify-content: center)', () => {
+    // fix-DS-compact-rule: a 5-week non-overflow block has room for the full
+    // stack, so it centers (vs. the top-anchoring used on compact blocks).
     refs.draw.current = [row({ project_id: 'pc', da_assigned: 'A1', start_week: W[3], end_week: W[7] })];
     refs.projects.current = [project('pc', '321 Center Rd')];
     renderGrid();
     const block = screen.getByTestId('block-pc');
     expect(block.style.flexDirection).toBe('column');
-    expect(block.style.justifyContent).toBe('flex-start');
+    expect(block.style.justifyContent).toBe('center');
   });
 
-  it('head (starts in this quarter, ends after): renders FULL with no arrow', () => {
-    // Starts within the current quarter, ends in the next. The start/home
-    // quarter renders the full uniform stack; the continuation is left to the
-    // next quarter's tail slice.
+  it('head (starts in this quarter, ends after): compact (no juris/pill), top-anchored, no arrow', () => {
+    // Starts within the current quarter, ends in the next. A head slice is an
+    // overflow block → compact: stripped to address + Est. Approval, top-
+    // anchored. The continuation is left to the next quarter's tail slice.
     refs.draw.current = [
       row({ project_id: 'ph', da_assigned: 'A5', start_week: W[W.length - 4], end_week: NEXT[1] }),
     ];
     refs.projects.current = [project('ph', '42 Head Blvd')];
     renderGrid();
     const block = screen.getByTestId('block-ph');
-    // Not compact, and no tail ← arrow. data-overflow is tail-only, so a head
-    // slice never carries that attribute even though it IS an overflow block.
+    // No tail ← arrow. data-overflow is tail-only, so a head slice never
+    // carries that attribute even though it IS an overflow (compact) block.
     expect(block).not.toHaveAttribute('data-overflow');
     expect(block).toHaveAttribute('data-tier', 'default');
+    expect(block.style.justifyContent).toBe('flex-start');
     expect(screen.queryByTestId('block-overflow-nav-ph')).toBeNull();
     expect(screen.getByTestId('block-address-ph')).toBeInTheDocument();
-    // A head slice is an overflow block → stripped to essentials: no status
-    // pill (fix-DS-overflow-no-pill) and no juris (fix-DS-overflow-minimal).
+    // Compact → no status pill (fix-DS-overflow-no-pill) and no juris
+    // (fix-DS-overflow-minimal / fix-DS-compact-rule).
     expect(screen.queryByTestId('block-status-ph')).toBeNull();
     expect(screen.queryByTestId('block-juris-ph')).toBeNull();
   });
 
-  it('uniform DOM snapshots: every span renders the same fields (guard against silent restyle regressions)', () => {
+  it('DOM snapshots: ≥2-week non-overflow blocks render the full field set; the 1-week block is compact', () => {
     // manual_status:true so deriveBlockStatus honors the stored "Approved"
     // (no permits in this test → otherwise it derives "Scheduled" from DD math).
     refs.draw.current = [
@@ -334,11 +345,10 @@ describe('Draw Schedule block layout (fix-DS-uniform-layout)', () => {
       project('p3', '123 Main St'),
     ];
     renderGrid();
-    // fix-DS-uniform-layout: span 1, 2 and 3 all render the identical field
-    // set — address + juris + status (Est. Approval is projection-gated and
-    // omitted here since there are no permits). No span is address-only.
+    // fix-DS-compact-rule: ≥2-week non-overflow blocks render the full set —
+    // address + juris + status (Est. Approval is projection-gated, omitted here
+    // since there are no permits).
     for (const [id, addr] of [
-      ['p1', '500 Pike St'],
       ['p2', '750 Oak Way'],
       ['p3', '123 Main St'],
     ] as const) {
@@ -350,5 +360,10 @@ describe('Draw Schedule block layout (fix-DS-uniform-layout)', () => {
       expect(screen.getByTestId(`block-juris-${id}`)).toBeInTheDocument();
       expect(screen.getByTestId(`block-status-${id}`)).toBeInTheDocument();
     }
+    // The 1-week block is compact: address shows, juris + status drop.
+    const compact = screen.getByTestId('block-p1');
+    expect(compact.textContent).toContain('500 Pike St');
+    expect(screen.queryByTestId('block-juris-p1')).toBeNull();
+    expect(screen.queryByTestId('block-status-p1')).toBeNull();
   });
 });
