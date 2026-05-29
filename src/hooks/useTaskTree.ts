@@ -73,7 +73,16 @@ export interface UpsertTaskInput {
   permitId: number;
   /** Set for a subtask; omit/null for a top-level task. */
   parentTaskId?: string | null;
-  bucket: 'arch' | 'ent';
+  /** fix-79: the DISCIPLINE axis (arch/ent). Renamed from `bucket` to remove
+   *  the conflation with fix-70's `p_bucket` RPC param, which originally
+   *  stored discipline. Maps to permit_tasks.discipline + RPC p_discipline. */
+  discipline: 'arch' | 'ent';
+  /** fix-79: lifecycle PHASE (de/pm). Omit/null to let the BEFORE INSERT
+   *  trigger pick from the parent permit's c0.submitted state; pass an
+   *  explicit value when the user is creating a task with a specific bucket
+   *  active (D&E vs Permitting toggle on PermitDetailV2) OR moving an
+   *  existing task between buckets. */
+  bucket?: 'de' | 'pm' | null;
   text: string;
   status?: 'Open' | 'In Progress' | 'Resolved';
   startDate?: string | null;
@@ -90,12 +99,15 @@ export function useUpsertTask() {
         p_id: input.id ?? null,
         p_permit_id: input.permitId,
         p_parent_task_id: input.parentTaskId ?? null,
-        p_bucket: input.bucket,
+        // fix-79: the RPC signature is (p_discipline, …, p_bucket). p_bucket
+        // = null defers to the trigger (auto-derive from c0.submitted).
+        p_discipline: input.discipline,
         p_text: input.text,
         p_status: input.status ?? 'Open',
         p_start_date: input.startDate ?? null,
         p_target_date: input.targetDate ?? null,
         p_sort_order: input.sortOrder ?? 0,
+        p_bucket: input.bucket ?? null,
       });
       if (error) throw error;
       return data as string;

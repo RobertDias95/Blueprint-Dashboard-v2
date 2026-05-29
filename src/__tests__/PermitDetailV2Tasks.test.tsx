@@ -95,6 +95,7 @@ function makeTask(over: Partial<TaskNode> & Pick<TaskNode, 'id'>): TaskNode {
     permit_id: 10009,
     parent_task_id: null,
     discipline: 'ent',
+    bucket: 'de',
     text: 'Submit application',
     status: 'Open',
     start_date: null,
@@ -156,15 +157,18 @@ describe('PermitDetailV2 fix-70 task editor', () => {
     expect(screen.getByTestId('task-assignee-task-1-Bobby')).toBeInTheDocument();
   });
 
-  it('flipping the bucket dropdown moves the task to the other discipline (upsert with new bucket)', () => {
+  it('flipping the discipline dropdown moves the task to the other column (upsert with new discipline)', () => {
     renderIt();
     fireEvent.change(screen.getByTestId('task-bucket-task-1'), {
       target: { value: 'arch' },
     });
     expect(upsertMutate).toHaveBeenCalledTimes(1);
+    // fix-79: the hook arg renamed bucket → discipline (the OLD `bucket`
+    // RPC param meant the discipline axis; the NEW `bucket` is the lifecycle
+    // phase de/pm).
     expect(upsertMutate.mock.calls[0][0]).toMatchObject({
       id: 'task-1',
-      bucket: 'arch',
+      discipline: 'arch',
     });
   });
 
@@ -222,5 +226,65 @@ describe('PermitDetailV2 fix-70 task editor', () => {
   it('has NO "Waiting on" element (removed in fix-70)', () => {
     renderIt();
     expect(screen.queryByText(/waiting on/i)).toBeNull();
+  });
+
+  // fix-79: D&E / Permitting toggle bars are a real filter. Active bar
+  // accent-borders + shows counts, only that bucket's tasks render below, and
+  // "+ Add task" defaults new rows to the active bucket.
+  describe('fix-79 D&E/Permitting bucket toggle', () => {
+    it('renders both bars with open/total counts and Permitting hidden by default when no c0.submitted', () => {
+      treeRef.current = [
+        makeTask({ id: 't-de-open',   bucket: 'de', status: 'Open',     text: 'Pre-submit task' }),
+        makeTask({ id: 't-de-resolved', bucket: 'de', status: 'Resolved', text: 'Done D&E task' }),
+        makeTask({ id: 't-pm-open',   bucket: 'pm', status: 'Open',     text: 'Permitting task' }),
+      ];
+      renderIt();
+      // D&E bar is active by default (the permit fixture has no c0.submitted).
+      const deBar = screen.getByTestId('pd-v2-task-bucket-bar-de');
+      const pmBar = screen.getByTestId('pd-v2-task-bucket-bar-pm');
+      expect(deBar.getAttribute('data-active')).toBe('true');
+      expect(pmBar.getAttribute('data-active')).toBe('false');
+      // Counts: D&E has 1 open / 2 total, Permitting 1 / 1.
+      expect(screen.getByTestId('pd-v2-task-bucket-count-de').textContent).toBe('1/2');
+      expect(screen.getByTestId('pd-v2-task-bucket-count-pm').textContent).toBe('1/1');
+      // D&E tasks render; Permitting task hidden.
+      expect(screen.getByTestId('task-row-t-de-open')).toBeInTheDocument();
+      expect(screen.queryByTestId('task-row-t-pm-open')).toBeNull();
+    });
+
+    it('clicking the Permitting bar filters to bucket="pm" tasks', () => {
+      treeRef.current = [
+        makeTask({ id: 't-de-open', bucket: 'de', text: 'Pre-submit task' }),
+        makeTask({ id: 't-pm-open', bucket: 'pm', text: 'Corrections response' }),
+      ];
+      renderIt();
+      fireEvent.click(screen.getByTestId('pd-v2-task-bucket-bar-pm'));
+      expect(
+        screen.getByTestId('pd-v2-task-bucket-bar-pm').getAttribute('data-active'),
+      ).toBe('true');
+      expect(screen.getByTestId('task-row-t-pm-open')).toBeInTheDocument();
+      expect(screen.queryByTestId('task-row-t-de-open')).toBeNull();
+    });
+
+    it('"+ Add task" with Permitting active creates the new task with bucket="pm"', () => {
+      treeRef.current = [
+        makeTask({ id: 't-de-open', bucket: 'de', discipline: 'ent', text: 'existing' }),
+      ];
+      renderIt();
+      fireEvent.click(screen.getByTestId('pd-v2-task-bucket-bar-pm'));
+      // The ENT column's add input is visible regardless of the active bucket
+      // (the filter just controls which existing rows show + the new row's
+      // bucket). Type + Enter to add.
+      const input = screen.getByTestId('pd-v2-task-add-ent') as HTMLInputElement;
+      fireEvent.change(input, { target: { value: 'New corrections task' } });
+      fireEvent.keyDown(input, { key: 'Enter' });
+      expect(upsertMutate).toHaveBeenCalledTimes(1);
+      expect(upsertMutate.mock.calls[0][0]).toMatchObject({
+        permitId: 10009,
+        discipline: 'ent',
+        bucket: 'pm', // ← key assertion: active bucket flowed into the new task
+        text: 'New corrections task',
+      });
+    });
   });
 });
