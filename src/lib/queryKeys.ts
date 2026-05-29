@@ -86,6 +86,13 @@ export const queryKeys = {
     ['report_builder_catalog', tenantId] as const,
   customReport: (tenantId: string, id: string) =>
     ['custom_report', tenantId, id] as const,
+  // fix-70: v1-parity tasks. Per-permit nested task tree (bp_list_permit_tasks)
+  // and the caller's assigned tasks (bp_my_tasks). Both share the permit_tasks
+  // bare-prefix for realtime invalidation.
+  permitTaskTree: (tenantId: string, permitId: number) =>
+    ['permit_tasks', tenantId, 'tree', { permitId }] as const,
+  myTasks: (tenantId: string, userName: string) =>
+    ['permit_tasks', tenantId, 'mine', { userName }] as const,
 } as const;
 
 /** Map from Postgres table name → bare-prefix query keys to invalidate on
