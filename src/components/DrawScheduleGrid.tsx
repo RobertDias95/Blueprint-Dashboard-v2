@@ -1721,26 +1721,36 @@ function DrawScheduleBody({
                               {project.juris}
                             </span>
                           )}
-                          <span
-                            style={{
-                              // fix-DS-pill-and-date: shrink the status pill
-                              // ~25% (8 -> 6px font) with tighter padding +
-                              // corner radius so it stops dominating small
-                              // blocks — the bold address on top now reads
-                              // first. Still keeps the colored border + bg.
-                              fontSize: Math.round(6 * textScale),
-                              fontWeight: 700,
-                              padding: '0px 3px',
-                              borderRadius: 2,
-                              background: 'rgba(255,255,255,0.55)',
-                              color: sc.border,
-                              border: `1px solid ${sc.border}`,
-                              whiteSpace: 'nowrap',
-                            }}
-                            data-testid={`block-status-${row.project_id}`}
-                          >
-                            {derivedStatus}
-                          </span>
+                          {/* fix-DS-overflow-no-pill: drop the status pill on
+                              cross-quarter slices (head in the start quarter,
+                              tail in the continuation). The block fill color
+                              already encodes status, and on a 1-week visible
+                              slice the freed space lets the address — the most
+                              identifying field — show instead. Non-overflow
+                              blocks keep the pill (helps users still learning
+                              the color code, and they have room for it). */}
+                          {!overflow && (
+                            <span
+                              style={{
+                                // fix-DS-pill-and-date: shrink the status pill
+                                // ~25% (8 -> 6px font) with tighter padding +
+                                // corner radius so it stops dominating small
+                                // blocks — the bold address on top now reads
+                                // first. Still keeps the colored border + bg.
+                                fontSize: Math.round(6 * textScale),
+                                fontWeight: 700,
+                                padding: '0px 3px',
+                                borderRadius: 2,
+                                background: 'rgba(255,255,255,0.55)',
+                                color: sc.border,
+                                border: `1px solid ${sc.border}`,
+                                whiteSpace: 'nowrap',
+                              }}
+                              data-testid={`block-status-${row.project_id}`}
+                            >
+                              {derivedStatus}
+                            </span>
+                          )}
                           {(() => {
                             // Q9.5.f-fix-17.5 C: Est. Approval uses the same
                             // computeProjectedApproval pipeline as Schedule

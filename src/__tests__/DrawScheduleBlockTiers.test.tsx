@@ -260,10 +260,12 @@ describe('Draw Schedule block layout (fix-DS-uniform-layout)', () => {
     expect(block).toHaveAttribute('data-overflow', 'tail');
     // ...but the content is the same 'default' full stack, not a compact variant.
     expect(block).toHaveAttribute('data-tier', 'default');
-    // Full content now renders on the tail slice (was hidden before).
+    // Address + juris + Est. Approval render on the tail slice...
     expect(screen.getByTestId('block-address-pt')).toBeInTheDocument();
     expect(screen.getByTestId('block-juris-pt')).toBeInTheDocument();
-    expect(screen.getByTestId('block-status-pt')).toBeInTheDocument();
+    // ...but fix-DS-overflow-no-pill drops the status pill on overflow slices
+    // (the fill color already encodes status; freed room shows the address).
+    expect(screen.queryByTestId('block-status-pt')).toBeNull();
     const est = screen.getByTestId('block-est-approval-pt');
     expect(est.textContent).toContain('Est. Approval');
     expect(est.textContent).toContain('08-15-26');
@@ -305,13 +307,15 @@ describe('Draw Schedule block layout (fix-DS-uniform-layout)', () => {
     refs.projects.current = [project('ph', '42 Head Blvd')];
     renderGrid();
     const block = screen.getByTestId('block-ph');
-    // Not compact: full (non-overflow) block, no overflow attribute/arrow.
+    // Not compact, and no tail ← arrow. data-overflow is tail-only, so a head
+    // slice never carries that attribute even though it IS an overflow block.
     expect(block).not.toHaveAttribute('data-overflow');
     expect(block).toHaveAttribute('data-tier', 'default');
     expect(screen.queryByTestId('block-overflow-nav-ph')).toBeNull();
     expect(screen.getByTestId('block-address-ph')).toBeInTheDocument();
     expect(screen.getByTestId('block-juris-ph')).toBeInTheDocument();
-    expect(screen.getByTestId('block-status-ph')).toBeInTheDocument();
+    // fix-DS-overflow-no-pill: a head slice is an overflow block → no pill.
+    expect(screen.queryByTestId('block-status-ph')).toBeNull();
   });
 
   it('uniform DOM snapshots: every span renders the same fields (guard against silent restyle regressions)', () => {
