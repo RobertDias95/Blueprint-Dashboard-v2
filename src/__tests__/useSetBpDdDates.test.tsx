@@ -397,4 +397,64 @@ describe('useSetBpDdDates', () => {
       p_force_np: true,
     });
   });
+
+  // fix-73: on a non-overlap success, the hook writes the BP's fresh
+  // out_bp_updated_at into the permits caches synchronously. Without this, a
+  // follow-up edit on the BP (e.g. setting approval_date) captures the stale
+  // OCC token from the cache and the next save OCC-conflicts. Sibling permits'
+  // tokens also bumped server-side, but only the BP's is returned; they get
+  // refreshed via the invalidate call below.
+  it('fix-73: setQueryData writes the BP fresh updated_at into the permits caches', async () => {
+    mocks.setResult({
+      data: [cleanRow({ out_bp_updated_at: '2026-05-14T20:00:00Z' })],
+      error: null,
+    });
+
+    const { queryClient, wrapper } = setupQueryClient();
+    // Seed the caches with a stale BP row + a sibling (same project).
+    const stalePermits = [
+      {
+        id: 1,
+        project_id: PROJECT,
+        type: 'Building Permit',
+        updated_at: '2026-05-14T15:00:00Z',
+        dd_start: null,
+        dd_end: null,
+        permit_cycles: [],
+      },
+      {
+        id: 2,
+        project_id: PROJECT,
+        type: 'Demolition',
+        updated_at: '2026-05-14T15:00:00Z',
+        permit_cycles: [],
+      },
+    ];
+    const permitsKey = ['permits', T] as const;
+    const byProjKey = ['permits', T, { projectId: PROJECT }] as const;
+    queryClient.setQueryData(permitsKey, stalePermits);
+    queryClient.setQueryData(byProjKey, stalePermits);
+
+    const { result } = renderHook(() => useSetBpDdDates(), { wrapper });
+    await act(async () => {
+      await result.current.mutateAsync({
+        projectId: PROJECT,
+        ddStart: '2025-10-13',
+        ddEnd: '2025-12-19',
+        expectedUpdatedAt: '2026-05-14T15:00:00Z',
+      });
+    });
+
+    // BP row in both caches is now patched with the fresh token + dd dates.
+    for (const key of [permitsKey, byProjKey] as const) {
+      const rows = queryClient.getQueryData<typeof stalePermits>(key) ?? [];
+      const bp = rows.find((p) => p.id === 1);
+      expect(bp?.updated_at).toBe('2026-05-14T20:00:00Z');
+      expect(bp?.dd_start).toBe('2025-10-13');
+      expect(bp?.dd_end).toBe('2025-12-19');
+      // Siblings are left untouched here (their fresh tokens come via refetch).
+      const sibling = rows.find((p) => p.id === 2);
+      expect(sibling?.updated_at).toBe('2026-05-14T15:00:00Z');
+    }
+  });
 });

@@ -152,4 +152,127 @@ describe('useUpdateProjectWithPermits', () => {
     expect(res.conflictKind).toBe('permit');
     expect(res.conflictId).toBe('256');
   });
+
+  // fix-73: on a non-conflict success, the hook writes each returned permit's
+  // fresh updated_at and the project's projectUpdatedAt into the caches
+  // synchronously. Without this, a follow-up inline edit captures the stale
+  // OCC token (e.g. ScheduleHealth ACQ Target → Approval Date sequence Bobby
+  // reported) and OCC-conflicts on its first save.
+  it('fix-73: setQueryData writes fresh updated_at into permits + projects caches', async () => {
+    mocks.setResult({
+      data: [
+        row({
+          out_project_updated_at: '2026-05-20T19:00:00Z',
+          out_permits: [
+            { id: 256, updated_at: '2026-05-20T19:00:00Z' },
+            { id: 257, updated_at: '2026-05-20T19:00:00Z' },
+          ],
+        }),
+      ],
+      error: null,
+    });
+
+    const { queryClient, wrapper } = setup();
+    // Seed caches with stale tokens for the project + its permits.
+    const stalePermits = [
+      {
+        id: 256,
+        project_id: 'proj-1',
+        type: 'Building Permit',
+        updated_at: '2026-05-20T17:00:00Z',
+        permit_cycles: [],
+      },
+      {
+        id: 257,
+        project_id: 'proj-1',
+        type: 'Demolition',
+        updated_at: '2026-05-20T17:00:00Z',
+        permit_cycles: [],
+      },
+      {
+        id: 999,
+        project_id: 'other',
+        type: 'Building Permit',
+        updated_at: 'unchanged',
+        permit_cycles: [],
+      },
+    ];
+    const staleProjects = [
+      { id: 'proj-1', address: '3522 Ashworth', updated_at: '2026-05-20T17:00:00Z' },
+      { id: 'other', address: 'X', updated_at: 'unchanged' },
+    ];
+    queryClient.setQueryData(['permits', T], stalePermits);
+    queryClient.setQueryData(['permits', T, { projectId: 'proj-1' }], stalePermits);
+    queryClient.setQueryData(['projects', T], staleProjects);
+
+    const { result } = renderHook(() => useUpdateProjectWithPermits(), { wrapper });
+    await act(async () => {
+      await result.current.mutateAsync({
+        projectId: 'proj-1',
+        projectExpectedUpdatedAt: '2026-05-20T17:00:00Z',
+        projectPatch: { acq_lead: 'Jake' },
+        permitUpserts: [
+          { id: 256, expected_updated_at: '2026-05-20T17:00:00Z', num: 'BP-1' },
+          { id: 257, expected_updated_at: '2026-05-20T17:00:00Z', num: 'DM-1' },
+        ],
+        permitDeletes: [],
+      });
+    });
+
+    for (const key of [
+      ['permits', T] as const,
+      ['permits', T, { projectId: 'proj-1' }] as const,
+    ]) {
+      const rows = queryClient.getQueryData<typeof stalePermits>(key) ?? [];
+      expect(rows.find((p) => p.id === 256)?.updated_at).toBe('2026-05-20T19:00:00Z');
+      expect(rows.find((p) => p.id === 257)?.updated_at).toBe('2026-05-20T19:00:00Z');
+      // Unrelated project's permit is untouched.
+      expect(rows.find((p) => p.id === 999)?.updated_at).toBe('unchanged');
+    }
+    const projects = queryClient.getQueryData<typeof staleProjects>(['projects', T]) ?? [];
+    expect(projects.find((p) => p.id === 'proj-1')?.updated_at).toBe('2026-05-20T19:00:00Z');
+    expect(projects.find((p) => p.id === 'other')?.updated_at).toBe('unchanged');
+  });
+
+  it('fix-73: on conflict the caches are left alone (rolled-back edit)', async () => {
+    mocks.setResult({
+      data: [
+        row({
+          out_conflict: true,
+          out_conflict_kind: 'permit',
+          out_conflict_id: '256',
+          out_project_updated_at: null,
+          out_permits: [],
+        }),
+      ],
+      error: null,
+    });
+
+    const { queryClient, wrapper } = setup();
+    const stale = [
+      {
+        id: 256,
+        project_id: 'proj-1',
+        type: 'Building Permit',
+        updated_at: 'stale',
+        permit_cycles: [],
+      },
+    ];
+    queryClient.setQueryData(['permits', T], stale);
+
+    const { result } = renderHook(() => useUpdateProjectWithPermits(), { wrapper });
+    await act(async () => {
+      await result.current.mutateAsync({
+        projectId: 'proj-1',
+        projectExpectedUpdatedAt: 'stale',
+        projectPatch: {},
+        permitUpserts: [{ id: 256, expected_updated_at: 'stale' }],
+        permitDeletes: [],
+      });
+    });
+
+    const after = queryClient.getQueryData<typeof stale>(['permits', T]) ?? [];
+    // Conflict = whole edit rolled back server-side; the cache stays as-is.
+    expect(after.find((p) => p.id === 256)?.updated_at).toBe('stale');
+  });
 });
