@@ -466,7 +466,8 @@ describe('formatWeekRange (fix-25-feat-c)', () => {
 });
 
 // fix-DS-uniform-layout: blockTier is gone (every non-tail block renders the
-// same 5-line stack); the font ramp was lowered + capped at 10px.
+// same 5-line stack). fix-DS-tail-and-fit: the ramp was lowered + capped at 9px
+// so longer addresses fit on one line.
 describe('blockFontPx', () => {
   it('is monotonic non-decreasing in visible span', () => {
     let prev = -Infinity;
@@ -476,17 +477,17 @@ describe('blockFontPx', () => {
       prev = v;
     }
   });
-  it('hits the lowered ramp targets (span 1/2 = 8, span 5 ≈9.5, span 8 = 10)', () => {
-    expect(blockFontPx(1)).toBe(8);
-    expect(blockFontPx(2)).toBe(8);
-    expect(blockFontPx(3)).toBeCloseTo(8.4, 5);
-    expect(blockFontPx(5)).toBeGreaterThanOrEqual(9);
-    expect(blockFontPx(5)).toBeLessThanOrEqual(10);
-    expect(blockFontPx(8)).toBe(10);
+  it('hits the lowered ramp targets (span 1/2 = 7, span 5 ≈8.05, span 8 = 9)', () => {
+    expect(blockFontPx(1)).toBe(7);
+    expect(blockFontPx(2)).toBe(7);
+    expect(blockFontPx(3)).toBeCloseTo(7.35, 5);
+    expect(blockFontPx(5)).toBeGreaterThanOrEqual(8);
+    expect(blockFontPx(5)).toBeLessThanOrEqual(9);
+    expect(blockFontPx(8)).toBe(9);
   });
-  it('clamps to [8, 10]', () => {
-    expect(blockFontPx(0)).toBe(8); // clamp guard below span 2
-    expect(blockFontPx(20)).toBe(10); // capped at the new low max
+  it('clamps to [7, 9]', () => {
+    expect(blockFontPx(0)).toBe(7); // clamp guard below span 2
+    expect(blockFontPx(20)).toBe(9); // capped at the new low max
   });
 });
 

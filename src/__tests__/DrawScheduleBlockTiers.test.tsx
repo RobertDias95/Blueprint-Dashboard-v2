@@ -229,27 +229,57 @@ describe('Draw Schedule block layout (fix-DS-uniform-layout)', () => {
     expect(screen.queryByTestId('block-overflow-nav-p3')).toBeNull();
   });
 
-  it('tail (starts before quarter): compact address-only + ← affordance; click navigates to the start quarter', () => {
-    // Starts in the previous quarter, ends within the current one.
+  it('tail (starts before quarter): renders the SAME full stack PLUS a ← corner nav button', () => {
+    // fix-DS-tail-and-fit: a tail slice is no longer compact — it shows the
+    // full stack like any block, with the "starts earlier" cue demoted to a
+    // small corner ← button. Starts in the previous quarter, ends in this one;
+    // a permit drives the projection so the Est. Approval lines show.
+    refs.draw.current = [
+      row({ project_id: 'pt', da_assigned: 'A4', start_week: PREV[PREV.length - 2], end_week: W[1] }),
+    ];
+    refs.projects.current = [project('pt', '900 Tail Ave')];
+    refs.permits.current = [
+      { id: 1, project_id: 'pt', type: 'Building Permit', permit_cycles: [], extras: {} },
+    ];
+    renderGrid();
+    const block = screen.getByTestId('block-pt');
+    // data-overflow stays so styling/tests can still detect a tail slice...
+    expect(block).toHaveAttribute('data-overflow', 'tail');
+    // ...but the content is the same 'default' full stack, not a compact variant.
+    expect(block).toHaveAttribute('data-tier', 'default');
+    // Full content now renders on the tail slice (was hidden before).
+    expect(screen.getByTestId('block-address-pt')).toBeInTheDocument();
+    expect(screen.getByTestId('block-juris-pt')).toBeInTheDocument();
+    expect(screen.getByTestId('block-status-pt')).toBeInTheDocument();
+    const est = screen.getByTestId('block-est-approval-pt');
+    expect(est.textContent).toContain('Est. Approval');
+    expect(est.textContent).toContain('Aug 15, 2026');
+    // The "starts earlier" cue: a small ← corner button.
+    const nav = screen.getByTestId('block-overflow-nav-pt');
+    expect(nav.textContent).toBe('←');
+  });
+
+  it('tail ← corner button still navigates to the start quarter on click', () => {
     refs.draw.current = [
       row({ project_id: 'pt', da_assigned: 'A4', start_week: PREV[PREV.length - 2], end_week: W[1] }),
     ];
     refs.projects.current = [project('pt', '900 Tail Ave')];
     renderGrid();
-    const block = screen.getByTestId('block-pt');
-    expect(block).toHaveAttribute('data-overflow', 'tail');
-    expect(screen.getByTestId('block-address-pt')).toBeInTheDocument();
-    // No detail rows on the compact overflow slice.
-    expect(screen.queryByTestId('block-juris-pt')).toBeNull();
-    expect(screen.queryByTestId('block-status-pt')).toBeNull();
     const nav = screen.getByTestId('block-overflow-nav-pt');
-    expect(nav.textContent).toBe('←');
-    // Clicking ← navigates to the block's start quarter (the previous one).
-    // There the block STARTS in view (a head slice) → it renders FULL, with
-    // no compact arrow and no data-overflow attribute.
+    // Clicking ← jumps to the block's start quarter (the previous one), where
+    // the block STARTS in view (a head slice) → no tail overflow, no arrow.
     fireEvent.click(nav);
     expect(screen.queryByTestId('block-overflow-nav-pt')).toBeNull();
     expect(screen.getByTestId('block-pt')).not.toHaveAttribute('data-overflow');
+  });
+
+  it('centers the content stack vertically (justify-content: center)', () => {
+    refs.draw.current = [row({ project_id: 'pc', da_assigned: 'A1', start_week: W[3], end_week: W[7] })];
+    refs.projects.current = [project('pc', '321 Center Rd')];
+    renderGrid();
+    const block = screen.getByTestId('block-pc');
+    expect(block.style.flexDirection).toBe('column');
+    expect(block.style.justifyContent).toBe('center');
   });
 
   it('head (starts in this quarter, ends after): renders FULL with no arrow', () => {
