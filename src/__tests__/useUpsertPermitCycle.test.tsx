@@ -23,18 +23,44 @@ const mocks = vi.hoisted(() => {
     data: [],
     error: null,
   };
+  // fix-76: the hook also fetches `supabase.from('permits').select('updated_at')
+  // .eq('id', id).single()` after the cycle RPC so it can patch the parent
+  // permit's fresh updated_at into the cache. Stub a chainable builder that
+  // returns this value; default to a benign no-op so pre-fix-76 tests that
+  // don't care still pass.
+  let permitsFromResult: {
+    data: { updated_at: string } | null;
+    error: Error | null;
+  } = { data: null, error: null };
   const rpcFn = vi.fn();
+  const fromFn = vi.fn();
   const builder = {
     rpc: (name: string, args: Record<string, unknown>) => {
       rpcFn(name, args);
       return Promise.resolve(resolveResult);
     },
+    from: (table: string) => {
+      fromFn(table);
+      const chain = {
+        select: () => chain,
+        eq: () => chain,
+        single: () => Promise.resolve(permitsFromResult),
+      };
+      return chain;
+    },
   };
   return {
     builder,
     rpcFn,
+    fromFn,
     setResult: (r: { data: unknown[] | null; error: Error | null }) => {
       resolveResult = r;
+    },
+    setPermitsFromResult: (r: {
+      data: { updated_at: string } | null;
+      error: Error | null;
+    }) => {
+      permitsFromResult = r;
     },
   };
 });
@@ -108,6 +134,10 @@ function seedPermitWithC0(queryClient: QueryClient) {
 
 beforeEach(() => {
   mocks.rpcFn.mockClear();
+  mocks.fromFn.mockClear();
+  // fix-76: default to a benign null parent updated_at so pre-fix-76 tests
+  // that don't seed it keep their existing expectations on permit.updated_at.
+  mocks.setPermitsFromResult({ data: null, error: null });
   useToastStore.getState().clear();
   useAuthStore.setState({
     activeTenantId: T,
@@ -391,5 +421,108 @@ describe('useUpsertPermitCycle — fix-25d-residual snap merge', () => {
         .toasts.find((t) => t.kind === 'warn');
       expect(warn).toBeTruthy();
     });
+  });
+});
+
+// fix-76: on a successful cycle save, the parent permit's updated_at bumps
+// server-side (denormalized columns / triggers — verified in prod on 3522
+// Ashworth: setting cycle 0 intake_accepted bumped permits.10098.updated_at
+// from 21:48:43 to 22:07:09). Without this fix, any DateCell mounted on that
+// permit (Approval Date, Actual Issue, …) sends the pre-RPC OCC token and
+// hits a conflict on its next save. The hook now fetches the parent's fresh
+// updated_at after the RPC and patches the permits caches synchronously,
+// mirroring the fix-73 pattern from useSetBpDdDates.
+describe('useUpsertPermitCycle — fix-76 parent permit updated_at patch', () => {
+  it('patches permit.updated_at in BOTH cache keys from the fresh from(permits).single() fetch', async () => {
+    const { queryClient, wrapper } = setupQueryClient();
+    const seeded = seedPermitWithC0(queryClient);
+    const c0 = seeded.permit_cycles![0];
+
+    mocks.setResult({
+      data: [
+        {
+          out_id: 'c0-uuid',
+          updated_at: '2026-05-10T22:07:09Z',
+          conflict: false,
+          snap_id: null,
+          snap_cycle_index: null,
+          snap_submitted: null,
+          snap_updated_at: null,
+        },
+      ],
+      error: null,
+    });
+    // Server-side bump landed at 22:07:09 (parent permit).
+    mocks.setPermitsFromResult({
+      data: { updated_at: '2026-05-10T22:07:09Z' },
+      error: null,
+    });
+
+    const { result } = renderHook(() => useUpsertPermitCycle(), { wrapper });
+
+    let mutateResult: { parentPermitUpdatedAt?: string | null } = {};
+    await act(async () => {
+      mutateResult = await result.current.mutateAsync({
+        op: 'update',
+        permitId: PERMIT_ID,
+        projectId: PROJECT,
+        cycle: c0,
+        patch: { intake_accepted: '2026-05-10' },
+      });
+    });
+
+    expect(mocks.fromFn).toHaveBeenCalledWith('permits');
+    expect(mutateResult.parentPermitUpdatedAt).toBe('2026-05-10T22:07:09Z');
+
+    // Both cache keys now carry the fresh parent permit updated_at — the next
+    // DateCell save on this permit uses a current OCC token.
+    for (const key of [
+      queryKeys.permits(T),
+      queryKeys.permitsByProject(T, PROJECT),
+    ]) {
+      const rows = queryClient.getQueryData<PermitWithCycles[]>(key);
+      expect(rows?.[0].updated_at).toBe('2026-05-10T22:07:09Z');
+    }
+  });
+
+  it('falls back gracefully when the auxiliary fetch returns nothing (cache permit.updated_at unchanged)', async () => {
+    const { queryClient, wrapper } = setupQueryClient();
+    const seeded = seedPermitWithC0(queryClient);
+    const c0 = seeded.permit_cycles![0];
+
+    mocks.setResult({
+      data: [
+        {
+          out_id: 'c0-uuid',
+          updated_at: '2026-05-10T12:00:00Z',
+          conflict: false,
+          snap_id: null,
+          snap_cycle_index: null,
+          snap_submitted: null,
+          snap_updated_at: null,
+        },
+      ],
+      error: null,
+    });
+    // No data returned for the from() call.
+    mocks.setPermitsFromResult({ data: null, error: null });
+
+    const { result } = renderHook(() => useUpsertPermitCycle(), { wrapper });
+    let mutateResult: { parentPermitUpdatedAt?: string | null } = {};
+    await act(async () => {
+      mutateResult = await result.current.mutateAsync({
+        op: 'update',
+        permitId: PERMIT_ID,
+        projectId: PROJECT,
+        cycle: c0,
+        patch: { intake_accepted: '2026-05-10' },
+      });
+    });
+
+    expect(mutateResult.parentPermitUpdatedAt).toBeNull();
+    // permit.updated_at stays at the seeded value (caller's invalidate path
+    // will eventually refresh).
+    const rows = queryClient.getQueryData<PermitWithCycles[]>(queryKeys.permits(T));
+    expect(rows?.[0].updated_at).toBe('2026-05-01T00:00:00Z');
   });
 });

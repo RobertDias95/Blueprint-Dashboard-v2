@@ -232,4 +232,69 @@ describe('fix-73: PermitDetailV2 DateCell OCC preservation', () => {
       .querySelector('input') as HTMLInputElement;
     expect(inputAfter.value).toBe('2026-12-01');
   });
+
+  // fix-76: when the user types but the save hasn't (yet) succeeded, the cell
+  // exposes data-dirty="true" so the visual marker (amber border + "•" beside
+  // the label) tells Bobby the value he sees isn't saved. The attribute clears
+  // on a successful commit, and stays set on an OCC reject so the retry
+  // workflow still telegraphs the unsaved state.
+  it('the cell carries data-dirty="true" while typed but uncommitted; clears on a successful commit', async () => {
+    updatePermitMutateAsync.mockResolvedValue(undefined);
+    const T0 = '2026-05-14T12:00:00Z';
+    const { rerender } = renderWithClient(
+      <PermitDetailV2 permit={makePermit({ updated_at: T0, approval_date: null })} />,
+    );
+    fireEvent.click(screen.getByTestId('pd-v2-cycle-tab-1'));
+    const cell = screen.getByTestId('pd-cell-approval_date');
+    expect(cell.getAttribute('data-dirty')).toBe('false');
+
+    const input = cell.querySelector('input') as HTMLInputElement;
+    fireEvent.change(input, { target: { value: '2026-08-15' } });
+    // The typed but uncommitted draft marks the cell dirty.
+    expect(cell.getAttribute('data-dirty')).toBe('true');
+
+    // Commit succeeds → on the next render the cell is no longer dirty.
+    await act(async () => {
+      fireEvent.blur(input);
+    });
+    rerender(
+      <PermitDetailV2
+        permit={makePermit({
+          updated_at: '2026-05-14T13:00:00Z',
+          approval_date: '2026-08-15',
+        })}
+      />,
+    );
+    await waitFor(() =>
+      expect(
+        screen.getByTestId('pd-cell-approval_date').getAttribute('data-dirty'),
+      ).toBe('false'),
+    );
+  });
+
+  it('data-dirty stays "true" across an OCC reject so the retry telegraphs the unsaved value', async () => {
+    updatePermitMutateAsync.mockRejectedValueOnce(
+      new Error('this permit was updated elsewhere'),
+    );
+    const T0 = '2026-05-14T12:00:00Z';
+    const { rerender } = renderWithClient(
+      <PermitDetailV2 permit={makePermit({ updated_at: T0, approval_date: null })} />,
+    );
+    fireEvent.click(screen.getByTestId('pd-v2-cycle-tab-1'));
+    const input = screen
+      .getByTestId('pd-cell-approval_date')
+      .querySelector('input') as HTMLInputElement;
+    fireEvent.change(input, { target: { value: '2026-08-15' } });
+    fireEvent.blur(input);
+    await waitFor(() => expect(updatePermitMutateAsync).toHaveBeenCalled());
+
+    rerender(
+      <PermitDetailV2
+        permit={makePermit({ updated_at: '2026-05-14T13:00:00Z', approval_date: null })}
+      />,
+    );
+    expect(
+      screen.getByTestId('pd-cell-approval_date').getAttribute('data-dirty'),
+    ).toBe('true');
+  });
 });

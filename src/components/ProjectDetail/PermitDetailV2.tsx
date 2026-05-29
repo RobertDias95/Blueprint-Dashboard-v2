@@ -1025,6 +1025,13 @@ function DateCell({
       // assert "exactly one cell has data-highlighted='true'" without
       // depending on inline styles.
       data-highlighted={highlighted ? 'true' : 'false'}
+      // fix-76: data-dirty exposes the fix-73 draft-preservation state. A
+      // typed-but-not-yet-committed value (including an OCC retry the user
+      // hasn't re-saved) renders an amber bottom border + a "•" marker so the
+      // user can tell at a glance that what they see isn't saved yet. The
+      // visual disappears the moment a commit succeeds (fix-73 sets
+      // dirty=false in .then). Bobby's "I thought it saved" gap.
+      data-dirty={dirty ? 'true' : 'false'}
       data-testid={testid}
     >
       <div className="flex items-center justify-between">
@@ -1033,6 +1040,16 @@ function DateCell({
           style={{ color: accentColor ?? 'var(--color-dim)' }}
         >
           {label}
+          {dirty && (
+            <span
+              // fix-76: tiny "uncommitted" marker next to the label.
+              style={{ color: 'var(--color-co)', marginLeft: 4 }}
+              title="Unsaved change"
+              data-testid={testid ? `${testid}-dirty-mark` : undefined}
+            >
+              •
+            </span>
+          )}
         </span>
         {highlighted && (
           <span
@@ -1100,7 +1117,11 @@ function DateCell({
         title={readOnly ? 'Edit GO Date in Project Settings' : undefined}
         className="text-[11px] px-1.5 py-0.5 border rounded outline-none w-full disabled:opacity-70 disabled:cursor-not-allowed"
         style={{
-          borderColor: 'var(--color-border)',
+          // fix-76: amber accent on the input border when dirty — the user can
+          // see at a glance that the value displayed is uncommitted draft.
+          // Clears the moment the save resolves (dirty=false).
+          borderColor: dirty ? 'var(--color-co)' : 'var(--color-border)',
+          borderWidth: dirty ? 2 : 1,
           background: 'var(--color-bg)',
           color: 'var(--color-text)',
         }}
