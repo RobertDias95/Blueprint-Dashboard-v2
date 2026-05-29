@@ -67,6 +67,19 @@ export function formatWeekRange(weekKey: string): string {
   return `${fmt(monday)} — ${fmt(friday)}`;
 }
 
+/** fix-DS-pill-and-date: render an ISO date (YYYY-MM-DD) as "MM-DD-YY"
+ *  (e.g. 2026-05-04 -> "05-04-26"). Returns the input as-is if it can't parse
+ *  (empty, too short, or non-numeric parts like "not-a-date"). */
+export function formatProjectionDate(iso: string): string {
+  if (!iso || iso.length < 10) return iso;
+  const [year, month, day] = iso.split('-');
+  if (!year || !month || !day) return iso;
+  if (!/^\d{4}$/.test(year) || !/^\d{2}$/.test(month) || !/^\d{2}$/.test(day)) {
+    return iso;
+  }
+  return `${month}-${day}-${year.slice(2)}`;
+}
+
 export function addWeeks(d: Date, n: number): Date {
   const dt = new Date(d);
   dt.setDate(dt.getDate() + n * 7);

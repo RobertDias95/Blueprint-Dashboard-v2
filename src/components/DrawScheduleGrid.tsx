@@ -35,6 +35,7 @@ import {
   dateToWeekKey,
   decideDrop,
   findNpConflictsForDrop,
+  formatProjectionDate,
   formatWeekRange,
   getMonday,
   getQuarterLabel,
@@ -1722,10 +1723,15 @@ function DrawScheduleBody({
                           )}
                           <span
                             style={{
-                              fontSize: Math.round(8 * textScale),
+                              // fix-DS-pill-and-date: shrink the status pill
+                              // ~25% (8 -> 6px font) with tighter padding +
+                              // corner radius so it stops dominating small
+                              // blocks — the bold address on top now reads
+                              // first. Still keeps the colored border + bg.
+                              fontSize: Math.round(6 * textScale),
                               fontWeight: 700,
-                              padding: '1px 5px',
-                              borderRadius: 3,
+                              padding: '0px 3px',
+                              borderRadius: 2,
                               background: 'rgba(255,255,255,0.55)',
                               color: sc.border,
                               border: `1px solid ${sc.border}`,
@@ -1773,7 +1779,7 @@ function DrawScheduleBody({
                                     opacity: 0.95,
                                   }}
                                 >
-                                  {projDate}
+                                  {formatProjectionDate(projDate)}
                                 </span>
                               </div>
                             );
