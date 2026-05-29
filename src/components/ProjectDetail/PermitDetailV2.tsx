@@ -13,18 +13,22 @@ import {
   type DateField,
 } from '../../hooks/useUpsertPermitCycle';
 import { useDeletePermitCycle } from '../../hooks/useDeletePermitCycle';
+// fix-70: v1-parity task system — discipline buckets, multi-assign, subtasks,
+// status workflow. Replaces the old single-assignee TasksPanel.
 import {
-  useUpsertPermitTask,
-  type TaskPatch,
-} from '../../hooks/useUpsertPermitTask';
-import { useDeletePermitTask } from '../../hooks/useDeletePermitTask';
+  usePermitTaskTree,
+  useUpsertTask,
+  useDeleteTask,
+  useSetTaskAssignees,
+} from '../../hooks/useTaskTree';
+import { useTeamMembers } from '../../hooks/useTeamMembers';
 import type {
   Permit,
   PermitCycle,
-  PermitTask,
   PermitWithCycles,
   Project,
   Stage,
+  TaskNode,
 } from '../../lib/database.types';
 import ScheduleEstimator from './ScheduleEstimator';
 
@@ -138,11 +142,6 @@ export default function PermitDetailV2({ permit, project }: Props) {
     if (stage === 'de') return 0;
     return cycles[cycles.length - 1]?.cycle_index ?? 0;
   });
-  // D&E vs Permitting stage tab. v1 only shows 2 tabs.
-  const [activeStage, setActiveStage] = useState<'de' | 'pm'>(
-    stage === 'de' ? 'de' : 'pm',
-  );
-
   // fix-25d sub-issue 3 → fix-35 → fix-38: auto-advance the viewed cycle to
   // the NEWEST cycle whenever its index grows. Covers BOTH snap transitions:
   //   - intake_accepted on c0 → snap creates c1 → advance to c1
@@ -176,19 +175,6 @@ export default function PermitDetailV2({ permit, project }: Props) {
     prevNewestIdxRef.current = newestIdx;
   }, [cycles]);
 
-  // fix-25d sub-issue 4 (25f): when the user (or sub-issue 3's
-  // auto-advance) moves from Design (viewCycleIdx=0) to a review cycle
-  // (viewCycleIdx>=1), flip the task list category to Permitting. Only
-  // fires on the 0 → ≥1 transition — moving back to Design later doesn't
-  // auto-revert (respects manual category choice once made).
-  const prevViewCycleIdxRef = useRef(viewCycleIdx);
-  useEffect(() => {
-    if (prevViewCycleIdxRef.current === 0 && viewCycleIdx >= 1) {
-      setActiveStage('pm');
-    }
-    prevViewCycleIdxRef.current = viewCycleIdx;
-  }, [viewCycleIdx]);
-
   return (
     <div className="flex flex-col gap-0 bg-surface" data-testid="permit-detail-v2">
       <HeaderStrip permit={permit} stage={stage} />
@@ -213,11 +199,7 @@ export default function PermitDetailV2({ permit, project }: Props) {
           borderTop: '1px solid var(--color-border)',
         }}
       >
-        <TasksPanel
-          permitId={permit.id}
-          activeStage={activeStage}
-          onChangeStage={setActiveStage}
-        />
+        <TasksPanel permitId={permit.id} />
         <Sidebar permit={permit} cycles={cycles} />
       </div>
     </div>
@@ -1104,81 +1086,33 @@ function deriveCurrentPhase(
 }
 
 // ============================================================
-// Tasks panel: stage tabs + Entitlements/Architecture split
+// Tasks panel (fix-70): discipline buckets + multi-assign + subtasks + status
 // ============================================================
+//
+// Two columns by discipline (Entitlements | Architecture). The PRIMARY
+// assignee is derived server-side (arch -> permit.da, ent -> permit.ent_lead)
+// and shown read-only; co-assignees are explicit chips a user adds/removes. A
+// task can be flipped between disciplines (moves columns), grow one level of
+// subtasks, and cycle status Open -> In Progress -> Resolved (Resolved
+// auto-stamps the Done date server-side).
 
-const ASSIGNEE_OPTS = ['Entitlements', 'Architecture'] as const;
+const DISCIPLINES = [
+  { key: 'ent' as const, label: 'Entitlements', accent: 'var(--color-de)' },
+  { key: 'arch' as const, label: 'Architecture', accent: 'var(--color-jv)' },
+];
+const STATUS_OPTS = ['Open', 'In Progress', 'Resolved'] as const;
 
-function TasksPanel({
-  permitId,
-  activeStage,
-  onChangeStage,
-}: {
-  permitId: number;
-  activeStage: 'de' | 'pm';
-  onChangeStage: (s: 'de' | 'pm') => void;
-}) {
-  const tasksQ = usePermitTasks(permitId);
-  const upsert = useUpsertPermitTask();
-  const remove = useDeletePermitTask();
-  const [draft, setDraft] = useState('');
-  const [draftAssignee, setDraftAssignee] = useState<(typeof ASSIGNEE_OPTS)[number]>(
-    'Entitlements',
+function TasksPanel({ permitId }: { permitId: number }) {
+  const treeQ = usePermitTaskTree(permitId);
+  const team = useTeamMembers();
+  const memberNames = useMemo(
+    () => team.all.map((m) => m.name).sort((a, b) => a.localeCompare(b)),
+    [team.all],
   );
-
-  // For v2 fix-5: D&E = bucket 'de'; Permitting = buckets 'pm' OR 'co'
-  // (mirrors v1's merging — index.html:4840 maps "Permitting" tab to 'co').
-  const tasks = tasksQ.data ?? [];
-  const bucketSet =
-    activeStage === 'de' ? new Set(['de']) : new Set(['pm', 'co']);
-  const visible = tasks.filter((t) => bucketSet.has(t.bucket));
-  const ent = visible.filter((t) => (t.assigned_to ?? '') !== 'Architecture');
-  const arch = visible.filter((t) => t.assigned_to === 'Architecture');
-
-  const deCount = tasks.filter((t) => t.bucket === 'de');
-  const pmCount = tasks.filter((t) => t.bucket === 'pm' || t.bucket === 'co');
-  const tabBadge = (list: PermitTask[]) =>
-    `${list.filter((t) => t.done || t.completion_status === 'Resolved').length}/${list.length}`;
-
-  function handleAdd() {
-    const text = draft.trim();
-    if (!text) return;
-    const bucket = activeStage === 'de' ? 'de' : 'co';
-    upsert.mutate({
-      op: 'insert',
-      permitId,
-      patch: {
-        bucket,
-        text,
-        completion_status: 'Open',
-        stage: bucket,
-        assigned_to: draftAssignee,
-      },
-    });
-    setDraft('');
-  }
+  const tasks = treeQ.data ?? [];
 
   return (
     <div className="flex flex-col" data-testid="pd-v2-tasks-panel">
-      <div
-        className="flex border-b"
-        style={{ borderBottomColor: 'var(--color-border)' }}
-      >
-        <StageTab
-          label="D&E"
-          stage="de"
-          active={activeStage === 'de'}
-          badge={tabBadge(deCount)}
-          onClick={() => onChangeStage('de')}
-        />
-        <StageTab
-          label="Permitting"
-          stage="co"
-          active={activeStage === 'pm'}
-          badge={tabBadge(pmCount)}
-          onClick={() => onChangeStage('pm')}
-        />
-      </div>
       <div
         className="grid"
         style={{
@@ -1186,146 +1120,61 @@ function TasksPanel({
           borderBottom: '1px solid var(--color-border)',
         }}
       >
-        <TaskColumn
-          title="Entitlements"
-          accent="var(--color-de)"
-          tasks={ent}
-          upsert={upsert}
-          remove={remove}
-          permitId={permitId}
-        />
-        <TaskColumn
-          title="Architecture"
-          accent="var(--color-jv)"
-          tasks={arch}
-          upsert={upsert}
-          remove={remove}
-          permitId={permitId}
-          borderLeft
-        />
-      </div>
-      <div className="flex items-center gap-2 px-3 py-2">
-        <input
-          type="text"
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') handleAdd();
-          }}
-          placeholder={
-            activeStage === 'de' ? 'Add D&E task…' : 'Add permitting task…'
-          }
-          className="flex-1 text-[11px] px-2 py-1 border rounded outline-none"
-          style={{
-            borderColor: 'var(--color-border)',
-            background: 'var(--color-bg)',
-            color: 'var(--color-text)',
-          }}
-          data-testid="pd-v2-task-add-text"
-        />
-        <select
-          value={draftAssignee}
-          onChange={(e) =>
-            setDraftAssignee(e.target.value as (typeof ASSIGNEE_OPTS)[number])
-          }
-          className="text-[11px] px-2 py-1 border rounded outline-none"
-          style={{
-            borderColor: 'var(--color-border)',
-            background: 'var(--color-bg)',
-            color: 'var(--color-text)',
-          }}
-          data-testid="pd-v2-task-add-assignee"
-        >
-          {ASSIGNEE_OPTS.map((a) => (
-            <option key={a} value={a}>
-              {a}
-            </option>
-          ))}
-        </select>
-        <button
-          type="button"
-          onClick={handleAdd}
-          disabled={upsert.isPending || !draft.trim()}
-          className="text-[11px] px-3 py-1 rounded font-bold transition disabled:opacity-50"
-          style={{
-            background:
-              activeStage === 'de' ? 'var(--color-de)' : 'var(--color-co)',
-            color: '#fff',
-          }}
-          data-testid="pd-v2-task-add-btn"
-        >
-          Add
-        </button>
+        {DISCIPLINES.map((d) => (
+          <DisciplineColumn
+            key={d.key}
+            discipline={d.key}
+            title={d.label}
+            accent={d.accent}
+            permitId={permitId}
+            tasks={tasks.filter((t) => t.discipline === d.key)}
+            memberNames={memberNames}
+            borderLeft={d.key === 'arch'}
+          />
+        ))}
       </div>
     </div>
   );
 }
 
-function StageTab({
-  label,
-  stage,
-  active,
-  badge,
-  onClick,
-}: {
-  label: string;
-  stage: Stage;
-  active: boolean;
-  badge: string;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className="flex-1 px-3 py-2 text-[11px] font-bold uppercase tracking-wide border-r last:border-r-0 cursor-pointer"
-      style={{
-        borderRightColor: 'var(--color-border)',
-        background: active ? STAGE_BG[stage] : 'transparent',
-        color: active ? STAGE_FG[stage] : 'var(--color-muted)',
-        borderBottom: active ? `2px solid ${STAGE_FG[stage]}` : '2px solid transparent',
-      }}
-      data-testid={`pd-v2-stage-tab-${stage}`}
-    >
-      {label}
-      <span
-        className="ml-1.5 text-[9px] font-mono"
-        style={{ opacity: active ? 1 : 0.6 }}
-      >
-        {badge}
-      </span>
-    </button>
-  );
-}
-
-function TaskColumn({
+function DisciplineColumn({
+  discipline,
   title,
   accent,
-  tasks,
-  upsert,
-  remove,
   permitId,
+  tasks,
+  memberNames,
   borderLeft,
 }: {
+  discipline: 'arch' | 'ent';
   title: string;
   accent: string;
-  tasks: PermitTask[];
-  upsert: ReturnType<typeof useUpsertPermitTask>;
-  remove: ReturnType<typeof useDeletePermitTask>;
   permitId: number;
+  tasks: TaskNode[];
+  memberNames: string[];
   borderLeft?: boolean;
 }) {
-  const active = tasks.filter((t) => !isResolved(t));
-  const done = tasks.filter(isResolved);
+  const upsert = useUpsertTask();
+  const [draft, setDraft] = useState('');
   const [doneOpen, setDoneOpen] = useState(false);
+
+  const active = tasks.filter((t) => t.status !== 'Resolved');
+  const done = tasks.filter((t) => t.status === 'Resolved');
+
+  function handleAdd() {
+    const text = draft.trim();
+    if (!text) return;
+    upsert.mutate({ permitId, bucket: discipline, text, status: 'Open' });
+    setDraft('');
+  }
+
   return (
     <div
       className="p-3 flex flex-col gap-1.5"
       style={
-        borderLeft
-          ? { borderLeft: '1px solid var(--color-border)' }
-          : undefined
+        borderLeft ? { borderLeft: '1px solid var(--color-border)' } : undefined
       }
+      data-testid={`pd-v2-task-col-${discipline}`}
     >
       <div
         className="text-[10px] font-bold uppercase tracking-wide pb-1 border-b"
@@ -1334,17 +1183,19 @@ function TaskColumn({
         {title}
       </div>
       {active.length === 0 ? (
-        <div className="text-[11px] italic" style={{ color: 'var(--color-dim)' }}>
+        <div
+          className="text-[11px] italic"
+          style={{ color: 'var(--color-dim)' }}
+        >
           None assigned
         </div>
       ) : (
-        active.map((task) => (
-          <TaskRow
-            key={task.id}
-            task={task}
-            upsert={upsert}
-            remove={remove}
+        active.map((t) => (
+          <TaskItem
+            key={t.id}
+            task={t}
             permitId={permitId}
+            memberNames={memberNames}
           />
         ))
       )}
@@ -1363,107 +1214,363 @@ function TaskColumn({
           <span style={{ fontSize: 10 }}>Completed ({done.length})</span>
         </button>
       )}
-      {doneOpen && (
-        <div style={{ opacity: 0.65 }}>
-          {done.map((task) => (
-            <TaskRow
-              key={task.id}
-              task={task}
-              upsert={upsert}
-              remove={remove}
-              permitId={permitId}
-            />
-          ))}
-        </div>
-      )}
+      {doneOpen &&
+        done.map((t) => (
+          <div key={t.id} style={{ opacity: 0.65 }}>
+            <TaskItem task={t} permitId={permitId} memberNames={memberNames} />
+          </div>
+        ))}
+      <div className="flex items-center gap-2 mt-2">
+        <input
+          type="text"
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') handleAdd();
+          }}
+          placeholder={`Add ${title} task…`}
+          className="flex-1 text-[11px] px-2 py-1 border rounded outline-none"
+          style={{
+            borderColor: 'var(--color-border)',
+            background: 'var(--color-bg)',
+            color: 'var(--color-text)',
+          }}
+          data-testid={`pd-v2-task-add-${discipline}`}
+        />
+        <button
+          type="button"
+          onClick={handleAdd}
+          disabled={!draft.trim()}
+          className="text-[11px] px-3 py-1 rounded font-bold transition disabled:opacity-50"
+          style={{ background: accent, color: '#fff' }}
+          data-testid={`pd-v2-task-add-btn-${discipline}`}
+        >
+          Add
+        </button>
+      </div>
     </div>
   );
 }
 
-function TaskRow({
+function TaskItem({
   task,
-  upsert,
-  remove,
   permitId,
+  memberNames,
+  isSubtask,
 }: {
-  task: PermitTask;
-  upsert: ReturnType<typeof useUpsertPermitTask>;
-  remove: ReturnType<typeof useDeletePermitTask>;
+  task: TaskNode;
   permitId: number;
+  memberNames: string[];
+  isSubtask?: boolean;
 }) {
+  const upsert = useUpsertTask();
+  const remove = useDeleteTask();
+  const setAssignees = useSetTaskAssignees();
   const [textDraft, setTextDraft] = useState(task.text);
-  const resolved = isResolved(task);
+  const [addingSub, setAddingSub] = useState(false);
+  const [subDraft, setSubDraft] = useState('');
+  const resolved = task.status === 'Resolved';
 
-  function patch(p: TaskPatch) {
-    upsert.mutate({ op: 'update', permitId, task, patch: p });
+  // The RPC does a full UPDATE, so always send the task's current values and
+  // override only the field(s) that changed.
+  function save(
+    patch: Partial<{
+      bucket: 'arch' | 'ent';
+      text: string;
+      status: 'Open' | 'In Progress' | 'Resolved';
+      startDate: string | null;
+      targetDate: string | null;
+    }>,
+  ) {
+    upsert.mutate({
+      id: task.id,
+      permitId,
+      parentTaskId: task.parent_task_id,
+      bucket: task.discipline,
+      text: task.text,
+      status: task.status,
+      startDate: task.start_date,
+      targetDate: task.target_date,
+      sortOrder: task.sort_order,
+      ...patch,
+    });
   }
-  function toggle() {
-    if (task.bucket === 'co') {
-      patch({ completion_status: resolved ? 'Open' : 'Resolved' });
-    } else {
-      patch({ done: !task.done });
-    }
-  }
+
   function commitText() {
-    if (textDraft.trim() === task.text) return;
-    patch({ text: textDraft.trim() });
+    const t = textDraft.trim();
+    if (!t || t === task.text) return;
+    save({ text: t });
   }
+  function addSubtask() {
+    const t = subDraft.trim();
+    if (!t) return;
+    upsert.mutate({
+      permitId,
+      parentTaskId: task.id,
+      bucket: task.discipline,
+      text: t,
+      status: 'Open',
+    });
+    setSubDraft('');
+    setAddingSub(false);
+  }
+  function removeAssignee(name: string) {
+    setAssignees.mutate({
+      taskId: task.id,
+      permitId,
+      assignees: task.co_assignees.filter((a) => a !== name),
+    });
+  }
+  function addAssignee(name: string) {
+    if (!name || task.co_assignees.includes(name)) return;
+    setAssignees.mutate({
+      taskId: task.id,
+      permitId,
+      assignees: [...task.co_assignees, name],
+    });
+  }
+
+  const available = memberNames.filter((n) => !task.co_assignees.includes(n));
 
   return (
-    <div className="flex items-start gap-1.5 py-0.5">
-      <button
-        type="button"
-        onClick={toggle}
-        title="Toggle complete"
-        className="flex-shrink-0 mt-0.5 rounded border cursor-pointer"
-        style={{
-          width: 14,
-          height: 14,
-          background: resolved ? 'var(--color-pm)' : 'transparent',
-          borderColor: resolved ? 'var(--color-pm)' : 'var(--color-border)',
-          color: '#fff',
-          fontSize: 9,
-          lineHeight: '12px',
-        }}
-        data-testid={`pd-v2-task-toggle-${task.id}`}
+    <div
+      className="flex flex-col gap-1 py-1"
+      style={
+        isSubtask
+          ? { paddingLeft: 16, borderLeft: '2px solid var(--color-border)' }
+          : undefined
+      }
+      data-testid={`task-row-${task.id}`}
+    >
+      <div className="flex items-start gap-1.5">
+        <input
+          type="text"
+          value={textDraft}
+          onChange={(e) => setTextDraft(e.target.value)}
+          onBlur={commitText}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') e.currentTarget.blur();
+          }}
+          className="flex-1 min-w-0 text-[11px] bg-transparent border-0 outline-none"
+          style={{
+            color: 'var(--color-text)',
+            textDecoration: resolved ? 'line-through' : 'none',
+            opacity: resolved ? 0.65 : 1,
+          }}
+          data-testid={`task-text-${task.id}`}
+        />
+        {!isSubtask && (
+          <select
+            value={task.discipline}
+            onChange={(e) => save({ bucket: e.target.value as 'arch' | 'ent' })}
+            title="Discipline"
+            className="text-[10px] px-1 py-0.5 border rounded outline-none"
+            style={{
+              borderColor: 'var(--color-border)',
+              background: 'var(--color-bg)',
+              color: 'var(--color-text)',
+            }}
+            data-testid={`task-bucket-${task.id}`}
+          >
+            <option value="ent">ENT</option>
+            <option value="arch">Arch</option>
+          </select>
+        )}
+        <select
+          value={task.status}
+          onChange={(e) =>
+            save({ status: e.target.value as 'Open' | 'In Progress' | 'Resolved' })
+          }
+          title="Status"
+          className="text-[10px] px-1 py-0.5 border rounded outline-none"
+          style={{
+            borderColor: 'var(--color-border)',
+            background: 'var(--color-bg)',
+            color: 'var(--color-text)',
+          }}
+          data-testid={`task-status-${task.id}`}
+        >
+          {STATUS_OPTS.map((s) => (
+            <option key={s} value={s}>
+              {s}
+            </option>
+          ))}
+        </select>
+        <button
+          type="button"
+          onClick={() => {
+            if (window.confirm(`Delete task "${task.text}"?`))
+              remove.mutate({ id: task.id, permitId });
+          }}
+          className="flex-shrink-0 px-1 text-[12px] cursor-pointer"
+          style={{
+            color: 'var(--color-dim)',
+            background: 'transparent',
+            border: 0,
+          }}
+          title="Delete task"
+          data-testid={`task-delete-${task.id}`}
+        >
+          ×
+        </button>
+      </div>
+      {/* assignees: derived primary (read-only) + removable co-assignee chips */}
+      <div
+        className="flex flex-wrap items-center gap-1 text-[10px]"
+        style={{ color: 'var(--color-muted)' }}
       >
-        {resolved ? '✓' : ''}
-      </button>
-      <input
-        type="text"
-        value={textDraft}
-        onChange={(e) => setTextDraft(e.target.value)}
-        onBlur={commitText}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter') e.currentTarget.blur();
-        }}
-        className="flex-1 min-w-0 text-[11px] bg-transparent border-0 outline-none"
-        style={{
-          color: 'var(--color-text)',
-          textDecoration: resolved ? 'line-through' : 'none',
-          opacity: resolved ? 0.6 : 1,
-        }}
-        data-testid={`pd-v2-task-text-${task.id}`}
-      />
-      <button
-        type="button"
-        onClick={() => {
-          if (window.confirm(`Delete task "${task.text}"?`))
-            remove.mutate({ task, permitId });
-        }}
-        className="flex-shrink-0 px-1 text-[12px] cursor-pointer"
-        style={{ color: 'var(--color-dim)', background: 'transparent', border: 0 }}
-        title="Delete task"
+        {task.primary_assignee && (
+          <span
+            className="px-1.5 py-0.5 rounded font-bold"
+            style={{ background: 'var(--color-s2)', color: 'var(--color-text)' }}
+            title="Primary (derived from the permit's DA / ENT lead)"
+            data-testid={`task-primary-${task.id}`}
+          >
+            {task.primary_assignee}
+          </span>
+        )}
+        {task.co_assignees.map((name) => (
+          <span
+            key={name}
+            className="px-1.5 py-0.5 rounded inline-flex items-center gap-1"
+            style={{
+              background: 'var(--color-bg)',
+              border: '1px solid var(--color-border)',
+              color: 'var(--color-text)',
+            }}
+            data-testid={`task-assignee-${task.id}-${name}`}
+          >
+            {name}
+            <button
+              type="button"
+              onClick={() => removeAssignee(name)}
+              style={{
+                background: 'transparent',
+                border: 0,
+                cursor: 'pointer',
+                color: 'var(--color-dim)',
+              }}
+              title={`Remove ${name}`}
+              data-testid={`task-unassign-${task.id}-${name}`}
+            >
+              ×
+            </button>
+          </span>
+        ))}
+        <select
+          value=""
+          onChange={(e) => {
+            addAssignee(e.target.value);
+            e.currentTarget.value = '';
+          }}
+          className="text-[10px] px-1 py-0.5 border rounded outline-none"
+          style={{
+            borderColor: 'var(--color-border)',
+            background: 'var(--color-bg)',
+            color: 'var(--color-muted)',
+          }}
+          data-testid={`task-assign-${task.id}`}
+          disabled={available.length === 0}
+        >
+          <option value="">+ Assign</option>
+          {available.map((n) => (
+            <option key={n} value={n}>
+              {n}
+            </option>
+          ))}
+        </select>
+      </div>
+      {/* dates + subtask affordance */}
+      <div
+        className="flex flex-wrap items-center gap-2 text-[10px]"
+        style={{ color: 'var(--color-muted)' }}
       >
-        ×
-      </button>
+        <label className="inline-flex items-center gap-1">
+          Start
+          <input
+            type="date"
+            value={task.start_date ?? ''}
+            onChange={(e) => save({ startDate: e.target.value || null })}
+            className="text-[10px] px-1 py-0.5 border rounded outline-none"
+            style={{
+              borderColor: 'var(--color-border)',
+              background: 'var(--color-bg)',
+              color: 'var(--color-text)',
+            }}
+            data-testid={`task-start-${task.id}`}
+          />
+        </label>
+        <label className="inline-flex items-center gap-1">
+          Target
+          <input
+            type="date"
+            value={task.target_date ?? ''}
+            onChange={(e) => save({ targetDate: e.target.value || null })}
+            className="text-[10px] px-1 py-0.5 border rounded outline-none"
+            style={{
+              borderColor: 'var(--color-border)',
+              background: 'var(--color-bg)',
+              color: 'var(--color-text)',
+            }}
+            data-testid={`task-target-${task.id}`}
+          />
+        </label>
+        <span data-testid={`task-done-${task.id}`}>
+          Done: {task.done_at ? task.done_at.slice(0, 10) : '—'}
+        </span>
+        {!isSubtask && (
+          <button
+            type="button"
+            onClick={() => setAddingSub((v) => !v)}
+            className="cursor-pointer underline"
+            style={{ background: 'transparent', border: 0, color: 'var(--color-de)' }}
+            data-testid={`task-add-subtask-${task.id}`}
+          >
+            + subtask
+          </button>
+        )}
+      </div>
+      {addingSub && !isSubtask && (
+        <div className="flex items-center gap-2" style={{ paddingLeft: 16 }}>
+          <input
+            type="text"
+            value={subDraft}
+            onChange={(e) => setSubDraft(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') addSubtask();
+            }}
+            placeholder="Subtask…"
+            className="flex-1 text-[11px] px-2 py-1 border rounded outline-none"
+            style={{
+              borderColor: 'var(--color-border)',
+              background: 'var(--color-bg)',
+              color: 'var(--color-text)',
+            }}
+            data-testid={`task-subtask-input-${task.id}`}
+          />
+          <button
+            type="button"
+            onClick={addSubtask}
+            disabled={!subDraft.trim()}
+            className="text-[11px] px-2 py-1 rounded font-bold disabled:opacity-50"
+            style={{ background: 'var(--color-de)', color: '#fff' }}
+            data-testid={`task-subtask-add-${task.id}`}
+          >
+            Add
+          </button>
+        </div>
+      )}
+      {(task.subtasks ?? []).map((s) => (
+        <TaskItem
+          key={s.id}
+          task={s}
+          permitId={permitId}
+          memberNames={memberNames}
+          isSubtask
+        />
+      ))}
     </div>
   );
-}
-
-function isResolved(task: PermitTask): boolean {
-  if (task.bucket === 'co') return task.completion_status === 'Resolved';
-  return !!task.done || task.completion_status === 'Resolved';
 }
 
 // ============================================================
