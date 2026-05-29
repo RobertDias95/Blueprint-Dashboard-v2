@@ -796,12 +796,13 @@ describe('<DrawScheduleGrid /> Q9.5.f-fix-20', () => {
     const sourceBlock = screen.getByTestId('block-p-now'); // currently on Trevor
     const targetCell = screen.getByTestId('drop-cell-Francesca-2026-06-08');
     simulateDragDrop(sourceBlock, targetCell);
-    // fix-72: async commitMove defers the move + the gap prompt by a microtask.
+    // fix-72: commitMove is async (awaits routing lookup), so the prompt opens
+    // in onSuccess a microtask after the drop. Wait for the prompt itself —
+    // findByTestId polls until React commits the setPendingGapFill state.
     // (Default projectedEntLead=null → no DM prompt; move proceeds directly.)
-    await waitFor(() => expect(moveDaMutate).toHaveBeenCalledTimes(1));
+    expect(await screen.findByTestId('gap-fill-prompt')).toBeInTheDocument();
+    expect(moveDaMutate).toHaveBeenCalledTimes(1);
     expect(updateMutate).not.toHaveBeenCalled();
-    // GapFillPrompt opens because moveDaResult.gapExists=true.
-    expect(screen.getByTestId('gap-fill-prompt')).toBeInTheDocument();
   });
 
   it('dropping on the SAME DA stays on the original bp_update_draw_schedule_with_dd_sync path', () => {
