@@ -1,5 +1,12 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { render, screen, fireEvent, act, within } from '@testing-library/react';
+import {
+  render,
+  screen,
+  fireEvent,
+  act,
+  within,
+  waitFor,
+} from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { ReactNode } from 'react';
 import { useAuthStore } from '../stores/authStore';
@@ -80,6 +87,18 @@ vi.mock('../hooks/useDrawSchedule', () => ({
 vi.mock('../hooks/useProjects', () => ({
   useProjects: () => ({
     data: fixtures.projects,
+    isLoading: false,
+    error: null,
+    refetch: vi.fn(),
+  }),
+}));
+// fix-72: permits feed the DA->DM cascade prompt's "current DM" (the BP's
+// ent_lead). Default empty preserves existing tests; DM-cascade tests inject a
+// permit with a known ent_lead.
+const permitsData: { current: unknown[] } = { current: [] };
+vi.mock('../hooks/usePermits', () => ({
+  usePermits: () => ({
+    data: permitsData.current,
     isLoading: false,
     error: null,
     refetch: vi.fn(),
@@ -197,6 +216,23 @@ vi.mock('../hooks/useMoveDrawScheduleDa', () => ({
   }),
 }));
 
+// fix-72: DA->DM routing. lookupEntLeadForDa resolves to a controllable value
+// (default null = the DA isn't routed → no prompt, move proceeds with no
+// cascade). useCascadeEntLead.mutate is a spy.
+const cascadeEntLeadMutate = vi.fn();
+const projectedEntLead: { current: string | null } = { current: null };
+vi.mock('../hooks/useDaTeamRouting', () => ({
+  lookupEntLeadForDa: () => Promise.resolve(projectedEntLead.current),
+  useCascadeEntLead: () => ({
+    mutate: cascadeEntLeadMutate,
+    mutateAsync: vi.fn(),
+    isPending: false,
+    isError: false,
+    error: null,
+    reset: vi.fn(),
+  }),
+}));
+
 const shiftUpMutate = vi.fn();
 vi.mock('../hooks/useShiftDaBlocksUp', () => ({
   useShiftDaBlocksUp: () => ({
@@ -293,6 +329,9 @@ beforeEach(() => {
   updateMutate.mockClear();
   resolveMutate.mockClear();
   moveDaMutate.mockClear();
+  cascadeEntLeadMutate.mockClear();
+  projectedEntLead.current = null;
+  permitsData.current = [];
   shiftUpMutate.mockClear();
   resizeNpMutate.mockClear();
   teamMembersData.current = [];
@@ -531,7 +570,7 @@ describe('<DrawScheduleGrid />', () => {
     expect(updateMutate).not.toHaveBeenCalled();
   });
 
-  it('Q6.2.c: drag-drop still works through cells visually covered by NP blocks (pointer-events:none contract)', () => {
+  it('Q6.2.c: drag-drop still works through cells visually covered by NP blocks (pointer-events:none contract)', async () => {
     renderGrid();
     // The Trevor NP block (np-trevor) covers 2026-04-27 → 2026-05-04. Drop the
     // p-now block onto that range on a DIFFERENT DA (Fisk has no NP block) to
@@ -543,7 +582,9 @@ describe('<DrawScheduleGrid />', () => {
     // Q9.5.f-fix-20: cross-DA drops route through bp_move_draw_schedule_da
     // (was updateMutation pre-fix-20). The same-DA path stays on the
     // original RPC; this drop targets Fisk while p-now is on Trevor → new path.
-    expect(moveDaMutate).toHaveBeenCalledTimes(1);
+    // fix-72: commitMove is async (awaits the DA->DM routing lookup), so the
+    // move fires a microtask later — wait for it.
+    await waitFor(() => expect(moveDaMutate).toHaveBeenCalledTimes(1));
     expect(updateMutate).not.toHaveBeenCalled();
     const arg = moveDaMutate.mock.calls[0][0] as Record<string, unknown>;
     expect(arg.newDa).toBe('Fisk');
@@ -572,7 +613,7 @@ describe('<DrawScheduleGrid />', () => {
 });
 
 describe('<DrawScheduleGrid /> Q6.2 drag-edit', () => {
-  it('drops on an empty cell on a different DA → fires the DA-move mutation (Q9.5.f-fix-20)', () => {
+  it('drops on an empty cell on a different DA → fires the DA-move mutation (Q9.5.f-fix-20)', async () => {
     renderGrid();
     // Drag p-now (Trevor, 2026-05-04→2026-05-18) to Fisk on week 2026-06-08
     // (Fisk has no blocks → no overlap). Cross-DA drops now route through
@@ -581,7 +622,8 @@ describe('<DrawScheduleGrid /> Q6.2 drag-edit', () => {
     const dropTarget = screen.getByTestId('drop-cell-Fisk-2026-06-08');
     simulateDragDrop(block, dropTarget);
 
-    expect(moveDaMutate).toHaveBeenCalledTimes(1);
+    // fix-72: async commitMove (awaits the routing lookup) defers the move.
+    await waitFor(() => expect(moveDaMutate).toHaveBeenCalledTimes(1));
     expect(updateMutate).not.toHaveBeenCalled();
     const arg = moveDaMutate.mock.calls[0][0] as Record<string, unknown>;
     expect(arg.projectId).toBe('p-now');
@@ -749,18 +791,18 @@ describe('<DrawScheduleGrid /> Q9.5.f-fix-20', () => {
     expect(screen.getByTestId('resize-handle-p-other')).toBeInTheDocument();
   });
 
-  it('dropping on a DIFFERENT DA routes through bp_move_draw_schedule_da, opens GapFillPrompt on gap_exists', () => {
+  it('dropping on a DIFFERENT DA routes through bp_move_draw_schedule_da, opens GapFillPrompt on gap_exists', async () => {
     renderGrid();
     const sourceBlock = screen.getByTestId('block-p-now'); // currently on Trevor
     const targetCell = screen.getByTestId('drop-cell-Francesca-2026-06-08');
-    act(() => {
-      simulateDragDrop(sourceBlock, targetCell);
-    });
-    // The DA-move RPC fired (not the same-DA update path).
+    simulateDragDrop(sourceBlock, targetCell);
+    // fix-72: commitMove is async (awaits routing lookup), so the prompt opens
+    // in onSuccess a microtask after the drop. Wait for the prompt itself —
+    // findByTestId polls until React commits the setPendingGapFill state.
+    // (Default projectedEntLead=null → no DM prompt; move proceeds directly.)
+    expect(await screen.findByTestId('gap-fill-prompt')).toBeInTheDocument();
     expect(moveDaMutate).toHaveBeenCalledTimes(1);
     expect(updateMutate).not.toHaveBeenCalled();
-    // GapFillPrompt opens because moveDaResult.gapExists=true.
-    expect(screen.getByTestId('gap-fill-prompt')).toBeInTheDocument();
   });
 
   it('dropping on the SAME DA stays on the original bp_update_draw_schedule_with_dd_sync path', () => {
@@ -776,16 +818,13 @@ describe('<DrawScheduleGrid /> Q9.5.f-fix-20', () => {
     expect(screen.queryByTestId('gap-fill-prompt')).toBeNull();
   });
 
-  it('GapFillPrompt Shift Up button fires useShiftDaBlocksUp with the right gap anchor', () => {
+  it('GapFillPrompt Shift Up button fires useShiftDaBlocksUp with the right gap anchor', async () => {
     renderGrid();
     const sourceBlock = screen.getByTestId('block-p-now');
     const targetCell = screen.getByTestId('drop-cell-Francesca-2026-06-08');
-    act(() => {
-      simulateDragDrop(sourceBlock, targetCell);
-    });
-    act(() => {
-      fireEvent.click(screen.getByTestId('gap-fill-prompt-shift'));
-    });
+    simulateDragDrop(sourceBlock, targetCell);
+    // fix-72: async commitMove defers the move + the gap prompt.
+    fireEvent.click(await screen.findByTestId('gap-fill-prompt-shift'));
     expect(shiftUpMutate).toHaveBeenCalledTimes(1);
     const callArg = shiftUpMutate.mock.calls[0][0];
     expect(callArg).toMatchObject({
@@ -795,21 +834,17 @@ describe('<DrawScheduleGrid /> Q9.5.f-fix-20', () => {
     });
   });
 
-  it('GapFillPrompt Leave Gap dismisses without firing the shift RPC', () => {
+  it('GapFillPrompt Leave Gap dismisses without firing the shift RPC', async () => {
     renderGrid();
     const sourceBlock = screen.getByTestId('block-p-now');
     const targetCell = screen.getByTestId('drop-cell-Francesca-2026-06-08');
-    act(() => {
-      simulateDragDrop(sourceBlock, targetCell);
-    });
-    act(() => {
-      fireEvent.click(screen.getByTestId('gap-fill-prompt-leave'));
-    });
+    simulateDragDrop(sourceBlock, targetCell);
+    fireEvent.click(await screen.findByTestId('gap-fill-prompt-leave'));
     expect(shiftUpMutate).not.toHaveBeenCalled();
     expect(screen.queryByTestId('gap-fill-prompt')).toBeNull();
   });
 
-  it('does NOT open GapFillPrompt when the move returned gap_exists=false', () => {
+  it('does NOT open GapFillPrompt when the move returned gap_exists=false', async () => {
     // Override the default fixture: move succeeds but leaves no downstream.
     moveDaResult.current = {
       ...moveDaResult.current,
@@ -819,10 +854,8 @@ describe('<DrawScheduleGrid /> Q9.5.f-fix-20', () => {
     renderGrid();
     const sourceBlock = screen.getByTestId('block-p-now');
     const targetCell = screen.getByTestId('drop-cell-Francesca-2026-06-08');
-    act(() => {
-      simulateDragDrop(sourceBlock, targetCell);
-    });
-    expect(moveDaMutate).toHaveBeenCalledTimes(1);
+    simulateDragDrop(sourceBlock, targetCell);
+    await waitFor(() => expect(moveDaMutate).toHaveBeenCalledTimes(1));
     expect(screen.queryByTestId('gap-fill-prompt')).toBeNull();
   });
 
@@ -1285,5 +1318,122 @@ describe('<DrawScheduleGrid /> fix-48 labels + DA width', () => {
     expect(col.style.flexShrink).toBe(header.style.flexShrink);
     expect(col.style.flexBasis).toBe(header.style.flexBasis);
     expect(header.style.flexGrow).toBe('1');
+  });
+});
+
+// fix-72: DA -> DM (ent_lead) cascade prompt on a draw-schedule move.
+describe('<DrawScheduleGrid /> fix-72 DA->DM cascade', () => {
+  /** p-now's BP permit, used to source the "current DM" (ent_lead). */
+  function pnowBp(entLead: string | null) {
+    return {
+      id: 1,
+      project_id: 'p-now',
+      type: 'Building Permit',
+      da: 'Trevor',
+      dm: null,
+      ent_lead: entLead,
+      dual_da: null,
+      status: null,
+      num: null,
+      stage: 'de',
+      stage_override: null,
+      target_submit: null,
+      dd_start: null,
+      dd_end: null,
+      expected_issue: null,
+      actual_issue: null,
+      approval_date: null,
+      intake_date: null,
+      notes: null,
+      cycle_model: null,
+      view_cycle: null,
+      kickoff_date: null,
+      corr_rounds: null,
+      permit_owner: null,
+      architect: null,
+      nickname: null,
+      struct_address: null,
+      portal_url: null,
+      updated_at: '2026-05-09T12:00:00Z',
+      permit_cycles: [],
+    };
+  }
+
+  beforeEach(() => {
+    // Isolate from the gap-fill prompt — these tests assert the DM prompt only.
+    moveDaResult.current = {
+      ...moveDaResult.current,
+      gapExists: false,
+      gapDownstreamCount: 0,
+    };
+    // p-now's BP currently has DM (ent_lead) = Miles.
+    permitsData.current = [pnowBp('Miles')];
+  });
+
+  function dragPnowToFrancesca() {
+    simulateDragDrop(
+      screen.getByTestId('block-p-now'),
+      screen.getByTestId('drop-cell-Francesca-2026-06-08'),
+    );
+  }
+
+  it('a move implying a DM change opens the prompt (from current to projected) and does NOT move yet', async () => {
+    projectedEntLead.current = 'Bri'; // routing says Francesca -> Bri
+    renderGrid();
+    dragPnowToFrancesca();
+    const body = await screen.findByTestId('dm-cascade-prompt-body');
+    expect(body.textContent).toMatch(/from\s+Miles\s+to\s+Bri/i);
+    // The move is gated on the prompt — nothing fired yet.
+    expect(moveDaMutate).not.toHaveBeenCalled();
+    expect(cascadeEntLeadMutate).not.toHaveBeenCalled();
+  });
+
+  it('"Update DM" moves AND cascades ent_lead for the project', async () => {
+    projectedEntLead.current = 'Bri';
+    renderGrid();
+    dragPnowToFrancesca();
+    fireEvent.click(await screen.findByTestId('dm-cascade-prompt-update'));
+    await waitFor(() => expect(moveDaMutate).toHaveBeenCalledTimes(1));
+    expect(cascadeEntLeadMutate).toHaveBeenCalledTimes(1);
+    expect(cascadeEntLeadMutate.mock.calls[0][0]).toMatchObject({
+      projectId: 'p-now',
+    });
+  });
+
+  it('"Keep current DM" moves WITHOUT cascading', async () => {
+    projectedEntLead.current = 'Bri';
+    renderGrid();
+    dragPnowToFrancesca();
+    fireEvent.click(await screen.findByTestId('dm-cascade-prompt-keep'));
+    await waitFor(() => expect(moveDaMutate).toHaveBeenCalledTimes(1));
+    expect(cascadeEntLeadMutate).not.toHaveBeenCalled();
+  });
+
+  it('"Cancel move" does NOT move or cascade, and closes the prompt', async () => {
+    projectedEntLead.current = 'Bri';
+    renderGrid();
+    dragPnowToFrancesca();
+    fireEvent.click(await screen.findByTestId('dm-cascade-prompt-cancel'));
+    expect(moveDaMutate).not.toHaveBeenCalled();
+    expect(cascadeEntLeadMutate).not.toHaveBeenCalled();
+    expect(screen.queryByTestId('dm-cascade-prompt')).toBeNull();
+  });
+
+  it('no prompt when the projected DM already matches the current DM (silent move)', async () => {
+    projectedEntLead.current = 'Miles'; // == current ent_lead
+    renderGrid();
+    dragPnowToFrancesca();
+    await waitFor(() => expect(moveDaMutate).toHaveBeenCalledTimes(1));
+    expect(screen.queryByTestId('dm-cascade-prompt')).toBeNull();
+    expect(cascadeEntLeadMutate).not.toHaveBeenCalled();
+  });
+
+  it('no prompt when the DA is not in the routing table (null) — moves without cascade', async () => {
+    projectedEntLead.current = null; // unknown DA
+    renderGrid();
+    dragPnowToFrancesca();
+    await waitFor(() => expect(moveDaMutate).toHaveBeenCalledTimes(1));
+    expect(screen.queryByTestId('dm-cascade-prompt')).toBeNull();
+    expect(cascadeEntLeadMutate).not.toHaveBeenCalled();
   });
 });
