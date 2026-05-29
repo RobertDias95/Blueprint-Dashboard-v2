@@ -94,7 +94,12 @@ const LABEL_W = 88;
 // share the available width (few DAs fill it, no empty gutter) but never
 // shrink below this, so a project block's address stays legible; once the
 // columns hit this floor the grid scrolls horizontally as one unit.
-const DA_MIN_W = 150;
+// fix-DS-fit-and-wrap: lowered 150 → 90 so a full DA roster (~12-15 DAs) fits
+// a typical ~1400-1600px viewport without horizontal scroll. The block content
+// already copes with narrow columns (single-line ellipsis address + hover
+// title, compact-rule stack), so 90px stays legible; scroll only resumes once
+// daCount × 90 truly exceeds the viewport.
+const DA_MIN_W = 90;
 /** What we ship in the HTML5 drag's dataTransfer payload. JSON-encoded so
  * jsdom + browsers both round-trip it cleanly via getData/setData.
  * Q9.5.f-fix-20: added currentDa + originalStart/EndWeek so the drop handler
@@ -1168,7 +1173,7 @@ function DrawScheduleBody({
                   }
                   // fix-48: flex to share width (basis 0), floor at DA_MIN_W so
                   // many DAs shrink to the min and then the grid scrolls.
-                  style={{ flex: '1 1 0', minWidth: DA_MIN_W }}
+                  style={{ flexGrow: 1, flexShrink: 1, flexBasis: 0, minWidth: DA_MIN_W }}
                   className={`text-center px-1 py-1 text-[10px] font-bold truncate ${
                     i === g.das.length - 1
                       ? 'border-r-2 border-border'
@@ -1241,7 +1246,7 @@ function DrawScheduleBody({
                   data-testid={`da-col-${da}`}
                   // fix-48: same flex + DA_MIN_W floor as the DA header so the
                   // body column stays aligned with its header at every width.
-                  style={{ flex: '1 1 0', minWidth: DA_MIN_W }}
+                  style={{ flexGrow: 1, flexShrink: 1, flexBasis: 0, minWidth: DA_MIN_W }}
                   className={`relative ${
                     isLast
                       ? 'border-r-2 border-border'
@@ -1381,6 +1386,9 @@ function DrawScheduleBody({
                             // Vacation / Corrections / etc. text centered in the
                             // pill rather than pinned to the top. Resize handles
                             // are position:absolute so they're unaffected.
+                            // fix-DS-fit-and-wrap: the label now wraps (see the
+                            // inner span) instead of clipping mid-word, so the
+                            // container no longer forces nowrap/ellipsis.
                             display: 'flex',
                             flexDirection: 'column',
                             alignItems: 'center',
@@ -1388,8 +1396,6 @@ function DrawScheduleBody({
                             fontSize: Math.round(9 * textScale),
                             fontWeight: 700,
                             lineHeight: 1.1,
-                            whiteSpace: 'nowrap',
-                            textOverflow: 'ellipsis',
                             textAlign: 'center',
                             zIndex: 3,
                             cursor: 'pointer',
@@ -1397,7 +1403,22 @@ function DrawScheduleBody({
                               draggingProjectId === null ? 'auto' : 'none',
                           }}
                         >
-                          {labelText}
+                          {/* fix-DS-fit-and-wrap: let a long NP label (e.g.
+                              "Cancelled Project (9022 36th Ave NE)") wrap onto
+                              multiple lines instead of clipping mid-word. The
+                              outer block keeps overflow:hidden so an extreme
+                              label still can't burst out vertically. */}
+                          <span
+                            data-testid={`np-label-${np.id}`}
+                            style={{
+                              whiteSpace: 'normal',
+                              wordBreak: 'break-word',
+                              overflowWrap: 'anywhere',
+                              textAlign: 'center',
+                            }}
+                          >
+                            {labelText}
+                          </span>
                           {/* fix-25-feat-a: top edge resize handle (start_week) */}
                           {isFirstSegment && (
                             <div

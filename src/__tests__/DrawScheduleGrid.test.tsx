@@ -1265,21 +1265,25 @@ describe('<DrawScheduleGrid /> fix-48 labels + DA width', () => {
     expect(col.style.width).toBe('88px');
   });
 
-  it('B: DA header + body columns share a DA_MIN_W (150px) floor', () => {
+  it('B: DA header + body columns share a DA_MIN_W (90px) floor', () => {
     // Independent of measurement — the min-width is a constant floor so that
     // many DAs shrink to it and then the grid scrolls (overflow-auto card).
+    // fix-DS-fit-and-wrap: lowered 150 → 90 so a full roster fits the viewport.
     renderGrid();
     for (const da of ['Trevor', 'Ahmadi', 'Fisk']) {
-      expect(screen.getByTestId(`da-header-${da}`).style.minWidth).toBe('150px');
-      expect(screen.getByTestId(`da-col-${da}`).style.minWidth).toBe('150px');
+      expect(screen.getByTestId(`da-header-${da}`).style.minWidth).toBe('90px');
+      expect(screen.getByTestId(`da-col-${da}`).style.minWidth).toBe('90px');
     }
   });
 
   it('B: DA header and body column share the same flex sizing (stay aligned)', () => {
     renderGrid();
-    // Same flex shorthand on header + body => identical width at every size.
+    // Same flex longhands on header + body => identical width at every size.
     const header = screen.getByTestId('da-header-Trevor');
     const col = screen.getByTestId('da-col-Trevor');
-    expect(col.style.flex).toBe(header.style.flex);
+    expect(col.style.flexGrow).toBe(header.style.flexGrow);
+    expect(col.style.flexShrink).toBe(header.style.flexShrink);
+    expect(col.style.flexBasis).toBe(header.style.flexBasis);
+    expect(header.style.flexGrow).toBe('1');
   });
 });

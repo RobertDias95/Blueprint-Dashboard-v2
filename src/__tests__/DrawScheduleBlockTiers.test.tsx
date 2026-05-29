@@ -61,6 +61,7 @@ const refs = vi.hoisted(() => ({
   draw: { current: [] as unknown[] },
   projects: { current: [] as unknown[] },
   permits: { current: [] as unknown[] },
+  np: { current: [] as unknown[] },
 }));
 
 // fix-DS-fluid-sizing: the block's Est. Approval line is gated on a computed
@@ -90,7 +91,7 @@ vi.mock('../hooks/useDmDaGroups', () => ({
   }),
 }));
 vi.mock('../hooks/useDaTimeBlocks', () => ({
-  useDaTimeBlocks: () => ({ data: [], isLoading: false, error: null, refetch: vi.fn() }),
+  useDaTimeBlocks: () => ({ data: refs.np.current, isLoading: false, error: null, refetch: vi.fn() }),
 }));
 vi.mock('../hooks/useAllPermitCycleReviewers', () => ({
   useAllPermitCycleReviewers: () => ({ data: [], isLoading: false, error: null, refetch: vi.fn() }),
@@ -131,6 +132,7 @@ beforeEach(() => {
   refs.draw.current = [];
   refs.projects.current = [];
   refs.permits.current = [];
+  refs.np.current = [];
 });
 
 describe('Draw Schedule block layout (fix-DS-uniform-layout)', () => {
@@ -365,5 +367,43 @@ describe('Draw Schedule block layout (fix-DS-uniform-layout)', () => {
     expect(compact.textContent).toContain('500 Pike St');
     expect(screen.queryByTestId('block-juris-p1')).toBeNull();
     expect(screen.queryByTestId('block-status-p1')).toBeNull();
+  });
+
+  it('DA columns auto-fit: each header flexes to share width with a 90px floor', () => {
+    // fix-DS-fit-and-wrap: DA columns flex 1 1 0 so they share the viewport
+    // width, never shrinking below DA_MIN_W (90px) before the grid scrolls.
+    refs.draw.current = [row({ project_id: 'p1', da_assigned: 'A1', start_week: W[3], end_week: W[5] })];
+    refs.projects.current = [project('p1', '500 Pike St')];
+    renderGrid();
+    const header = screen.getByTestId('da-header-A1');
+    expect(header.style.minWidth).toBe('90px');
+    // flexGrow + flexShrink both 1, basis 0 → columns share the row evenly.
+    // (Longhands, not the `flex` shorthand, so jsdom's CSSOM exposes them.)
+    expect(header.style.flexGrow).toBe('1');
+    expect(header.style.flexShrink).toBe('1');
+    expect(header.style.flexBasis).toBe('0px');
+  });
+
+  it('NP block label wraps instead of clipping mid-word (fix-DS-fit-and-wrap)', () => {
+    const longLabel = 'Cancelled Project (9022 36th Ave NE)';
+    refs.np.current = [
+      {
+        id: 'np1',
+        da_name: 'A1',
+        type: 'Other',
+        label: longLabel,
+        start_week: W[3],
+        end_week: W[4],
+        updated_at: '2026-01-01T00:00:00Z',
+      },
+    ];
+    renderGrid();
+    const label = screen.getByTestId('np-label-np1');
+    expect(label.style.whiteSpace).toBe('normal');
+    expect(label.style.wordBreak).toBe('break-word');
+    // Full label present, no JS-inserted ellipsis (jsdom doesn't paint, so this
+    // proves the wrap path renders the whole string).
+    expect(label.textContent).toBe(longLabel);
+    expect(label.textContent).not.toContain('…');
   });
 });
