@@ -67,8 +67,11 @@ const refs = vi.hoisted(() => ({
 // projection (computeProjectedApproval needs a Building Permit). Stub the
 // projection so a single est-approval test can exercise the 2-line
 // label/date layout without standing up the full permit-cycle pipeline.
+// fix-DS-pill-and-date: the pipeline returns an ISO date; the block formats it
+// to MM-DD-YY at render time, so the stub returns ISO and tests assert the
+// formatted output.
 vi.mock('../lib/projectedApproval', () => ({
-  computeProjectedApproval: () => ({ projection: 'Aug 15, 2026' }),
+  computeProjectedApproval: () => ({ projection: '2026-08-15' }),
 }));
 
 vi.mock('../hooks/useDrawSchedule', () => ({
@@ -148,7 +151,7 @@ describe('Draw Schedule block layout (fix-DS-uniform-layout)', () => {
     expect(screen.getByTestId('block-status-p1')).toBeInTheDocument();
     const est = screen.getByTestId('block-est-approval-p1');
     expect(est.textContent).toContain('Est. Approval');
-    expect(est.textContent).toContain('Aug 15, 2026');
+    expect(est.textContent).toContain('08-15-26');
   });
 
   it('2 weeks: same full stack — address + juris + status', () => {
@@ -160,6 +163,16 @@ describe('Draw Schedule block layout (fix-DS-uniform-layout)', () => {
     expect(screen.getByTestId('block-address-p2')).toBeInTheDocument();
     expect(screen.getByTestId('block-juris-p2')).toBeInTheDocument();
     expect(screen.getByTestId('block-status-p2')).toBeInTheDocument();
+  });
+
+  it('status pill is small (fix-DS-pill-and-date: font scales from a base of 6, not 8)', () => {
+    refs.draw.current = [row({ project_id: 'ps', da_assigned: 'A2', start_week: W[3], end_week: W[4] })];
+    refs.projects.current = [project('ps', '12 Small Pill Way')];
+    renderGrid();
+    const pill = screen.getByTestId('block-status-ps');
+    // jsdom textScale=1 → 6px. Assert <=7 so we prove the smaller cap without
+    // locking the exact value (textScale can multiply on a real viewport).
+    expect(parseFloat(pill.style.fontSize)).toBeLessThanOrEqual(7);
   });
 
   it('3 weeks: same full stack — address + juris + status', () => {
@@ -199,7 +212,7 @@ describe('Draw Schedule block layout (fix-DS-uniform-layout)', () => {
     expect(est).toBeInTheDocument();
     // Two lines: the muted "Est. Approval" label + the bolder date.
     expect(est.textContent).toContain('Est. Approval');
-    expect(est.textContent).toContain('Aug 15, 2026');
+    expect(est.textContent).toContain('08-15-26');
   });
 
   it('address is a single line truncated with CSS ellipsis; full address in the title', () => {
@@ -253,7 +266,7 @@ describe('Draw Schedule block layout (fix-DS-uniform-layout)', () => {
     expect(screen.getByTestId('block-status-pt')).toBeInTheDocument();
     const est = screen.getByTestId('block-est-approval-pt');
     expect(est.textContent).toContain('Est. Approval');
-    expect(est.textContent).toContain('Aug 15, 2026');
+    expect(est.textContent).toContain('08-15-26');
     // The "starts earlier" cue: a small ← corner button.
     const nav = screen.getByTestId('block-overflow-nav-pt');
     expect(nav.textContent).toBe('←');

@@ -7,6 +7,7 @@ import {
   dateToWeekKey,
   decideDrop,
   findNpConflictsForDrop,
+  formatProjectionDate,
   formatWeekRange,
   getMonday,
   getQuarterLabel,
@@ -488,6 +489,20 @@ describe('blockFontPx', () => {
   it('clamps to [7, 9]', () => {
     expect(blockFontPx(0)).toBe(7); // clamp guard below span 2
     expect(blockFontPx(20)).toBe(9); // capped at the new low max
+  });
+});
+
+// fix-DS-pill-and-date: ISO -> MM-DD-YY for the block's Est. Approval date.
+describe('formatProjectionDate', () => {
+  it('formats an ISO date as MM-DD-YY', () => {
+    expect(formatProjectionDate('2026-05-04')).toBe('05-04-26');
+    expect(formatProjectionDate('2026-08-15')).toBe('08-15-26');
+  });
+  it('returns empty input as-is', () => {
+    expect(formatProjectionDate('')).toBe('');
+  });
+  it('returns unparseable input unchanged', () => {
+    expect(formatProjectionDate('not-a-date')).toBe('not-a-date');
   });
 });
 
