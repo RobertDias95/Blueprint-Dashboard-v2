@@ -491,51 +491,10 @@ describe('PermitDetailV2 fix-38 — auto-advance follows the newest cycle on sna
   });
 });
 
-describe('PermitDetailV2 fix-25d — task category auto-switches to Permitting', () => {
-  it("clicking Cycle 1 from Design flips activeStage from 'de' to 'pm'", () => {
-    // Permit with no cycles initially → component falls back to viewCycleIdx=0
-    // (Design) and activeStage='de'.
-    const permit = makePermit([]);
-    renderWithClient(<PermitDetailV2 permit={permit} />);
-    // Sanity: D&E stage tab is the placeholder shown by TasksPanel.
-    expect(screen.getByPlaceholderText('Add D&E task…')).toBeInTheDocument();
-
-    // Manually create a cycle by entering data on Design strip? Easier:
-    // use a fresh permit with cycle 1 already present, then click the
-    // Cycle 1 tab. The 0→1 transition fires the auto-switch effect.
-  });
-
-  it('controlled host: flipping viewCycleIdx 0 → 1 via tab click auto-switches activeStage to pm', () => {
-    // Use a permit with cycle 1 + Design tab as the initial view. Then
-    // click Cycle 1 tab → viewCycleIdx 0 → 1 → activeStage auto-flips.
-    //
-    // Initial viewCycleIdx logic: if currentPhase.cycleIndex is null, falls
-    // back to stage check; stage='de' → 0. We make currentPhase.cycleIndex
-    // null by having cycle 1 empty.
-    const permit = makePermit([makeCycle({ cycle_index: 1 })]);
-    renderWithClient(<PermitDetailV2 permit={permit} />);
-    // Pre-click: Design tab + 'de' stage → "Add D&E task…" placeholder.
-    expect(screen.getByPlaceholderText('Add D&E task…')).toBeInTheDocument();
-    // Click Cycle 1 tab.
-    fireEvent.click(screen.getByTestId('pd-v2-cycle-tab-1'));
-    // Post-click: activeStage='pm' → "Add permitting task…" placeholder.
-    expect(screen.getByPlaceholderText('Add permitting task…')).toBeInTheDocument();
-  });
-
-  it("manual navigation back to Design from Cycle 1 does NOT auto-flip stage back to 'de'", () => {
-    // Bobby: once activeStage flips to 'pm', it stays 'pm' even if the
-    // user clicks Design again. (They can manually re-select 'de' via
-    // the stage tabs if they want.)
-    const permit = makePermit([makeCycle({ cycle_index: 1 })]);
-    renderWithClient(<PermitDetailV2 permit={permit} />);
-    fireEvent.click(screen.getByTestId('pd-v2-cycle-tab-1'));
-    expect(screen.getByPlaceholderText('Add permitting task…')).toBeInTheDocument();
-    // Now flip back to Design.
-    fireEvent.click(screen.getByTestId('pd-v2-cycle-tab-0'));
-    // activeStage stays 'pm' — the placeholder still says permitting.
-    expect(screen.getByPlaceholderText('Add permitting task…')).toBeInTheDocument();
-  });
-});
+// fix-70 removed the D&E/Permitting task stage tabs (the task panel now groups
+// by discipline, not phase), so the old "task category auto-switches to
+// Permitting" describe block was deleted — the behavior it covered no longer
+// exists. Cycle auto-advance (fix-38) is unaffected and still covered below.
 
 describe('PermitDetailV2 fix-38 — sequential snaps advance to each new cycle', () => {
   it('three sequential snaps (c1→c2→c3→c4) advance the view to each newest cycle', () => {
