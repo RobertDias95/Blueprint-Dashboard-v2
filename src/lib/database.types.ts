@@ -225,6 +225,60 @@ export interface PermitTask {
   sort_order: number;
   created_at: string;
   updated_at: string;
+  // fix-70 (v1-parity tasks). The discipline bucket drives the DERIVED primary
+  // assignee (arch -> permits.da, ent -> permits.ent_lead); parent_task_id
+  // gives single-level subtasks; done_at auto-stamps when completion_status
+  // becomes 'Resolved'. Optional on the hand-typed interface so existing
+  // fixtures/literals stay valid; the new task UI consumes the TaskNode RPC
+  // shape (where these are required) rather than the raw PermitTask row.
+  /** 'arch' | 'ent' — the discipline bucket. Null only on un-backfilled rows. */
+  discipline?: 'arch' | 'ent' | null;
+  /** Set on subtasks; null on top-level tasks. */
+  parent_task_id?: string | null;
+  /** Auto-stamped by trigger when completion_status -> 'Resolved'. */
+  done_at?: string | null;
+}
+
+/** A co-assignee row (explicit; the primary assignee is derived, not stored).
+ *  fix-70. */
+export interface PermitTaskAssignee {
+  id: string;
+  task_id: string;
+  assignee: string;
+  created_at: string;
+}
+
+/** fix-70: a task as returned by bp_list_permit_tasks / bp_my_tasks. The
+ *  `status` field is the permit_tasks.completion_status value
+ *  ('Open' | 'In Progress' | 'Resolved'); `primary_assignee` is DERIVED from
+ *  the permit's da/ent_lead at read time; `co_assignees` are the explicit
+ *  join-table rows. */
+export interface TaskNode {
+  id: string;
+  permit_id: number;
+  parent_task_id: string | null;
+  discipline: 'arch' | 'ent';
+  text: string;
+  status: 'Open' | 'In Progress' | 'Resolved';
+  start_date: string | null;
+  target_date: string | null;
+  done_at: string | null;
+  sort_order: number;
+  /** Derived: arch -> permit.da, ent -> permit.ent_lead. May be null when the
+   *  permit has no DA/ent_lead set. */
+  primary_assignee: string | null;
+  co_assignees: string[];
+  /** Present on top-level tasks (from bp_list_permit_tasks); absent on
+   *  subtasks and on bp_my_tasks rows. */
+  subtasks?: TaskNode[];
+}
+
+/** fix-70: a row from bp_my_tasks — a task the caller is assigned to (implicit
+ *  primary OR explicit co-assignee), with its project/permit context. */
+export interface MyTaskNode extends TaskNode {
+  project_id: string;
+  project_address: string;
+  permit_type: string | null;
 }
 
 export interface DrawScheduleRow {
