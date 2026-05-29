@@ -5,8 +5,15 @@ import { usePermits } from '../hooks/usePermits';
 import { useDmDaGroups } from '../hooks/useDmDaGroups';
 import { useUpdateDrawSchedule } from '../hooks/useUpdateDrawSchedule';
 import { useResolveDaOverlap } from '../hooks/useResolveDaOverlap';
-import { useMoveDrawScheduleDa } from '../hooks/useMoveDrawScheduleDa';
+import {
+  useMoveDrawScheduleDa,
+  type MoveDrawScheduleDaInput,
+} from '../hooks/useMoveDrawScheduleDa';
 import { useShiftDaBlocksUp } from '../hooks/useShiftDaBlocksUp';
+import {
+  lookupEntLeadForDa,
+  useCascadeEntLead,
+} from '../hooks/useDaTeamRouting';
 import { useDaTimeBlocks } from '../hooks/useDaTimeBlocks';
 import { useUpsertDaTimeBlock } from '../hooks/useUpsertDaTimeBlock';
 import { useDeleteDaTimeBlock } from '../hooks/useDeleteDaTimeBlock';
@@ -25,6 +32,7 @@ import NpBlockEditPopup from './NpBlockEditPopup';
 import NpResizeConflictPrompt from './NpResizeConflictPrompt';
 import ProjectBlockPopup from './DrawSchedule/ProjectBlockPopup';
 import GapFillPrompt from './GapFillPrompt';
+import DmCascadePrompt from './DmCascadePrompt';
 import {
   DS_STATUS_COLORS,
   NP_BLOCK_COLOR,
@@ -392,6 +400,7 @@ function DrawScheduleBody({
 
   const updateMutation = useUpdateDrawSchedule();
   const moveDaMutation = useMoveDrawScheduleDa();
+  const cascadeEntLead = useCascadeEntLead();
   const shiftUpMutation = useShiftDaBlocksUp();
   const resolveMutation = useResolveDaOverlap();
   const upsertNp = useUpsertDaTimeBlock();
@@ -496,6 +505,19 @@ function DrawScheduleBody({
   const [pendingGapFill, setPendingGapFill] = useState<PendingGapFill | null>(
     null,
   );
+  // fix-72: a DA move that implies a DM (ent_lead) change parks here until the
+  // user confirms via DmCascadePrompt. moveArgs is the exact payload for
+  // bp_move_draw_schedule_da; the prompt's buttons then move (+ optionally
+  // cascade ent_lead) or cancel.
+  interface PendingDmCascade {
+    moveArgs: MoveDrawScheduleDaInput;
+    payload: DragPayload;
+    movedAddress: string;
+    fromLead: string | null;
+    toLead: string;
+  }
+  const [pendingDmCascade, setPendingDmCascade] =
+    useState<PendingDmCascade | null>(null);
   const [pendingOverlap, setPendingOverlap] = useState<PendingOverlap | null>(
     null,
   );
@@ -897,7 +919,43 @@ function DrawScheduleBody({
    *  the schedule change. Same-DA moves stay on the original RPC.
    *  After a DA move that leaves downstream blocks behind, the result
    *  carries gap_exists=true and we open GapFillPrompt. */
-  function commitMove(
+  /** Fire bp_move_draw_schedule_da, then (when the user confirmed a DM change)
+   *  cascade ent_lead on the moved project. Preserves the gap-fill prompt. */
+  function doMove(
+    moveArgs: MoveDrawScheduleDaInput,
+    payload: DragPayload,
+    cascadeDm: boolean,
+  ) {
+    moveDaMutation.mutate(moveArgs, {
+      onSuccess: (result) => {
+        // fix-72: the move tx has committed (permits.da settled), so cascading
+        // ent_lead now routes from the new DA. ENT task primary follows by
+        // derivation (fix-70) — no permit_task_assignees edits.
+        if (cascadeDm) {
+          cascadeEntLead.mutate({ projectId: payload.projectId });
+        }
+        if (
+          result.gapExists &&
+          result.gapDownstreamCount > 0 &&
+          result.oldDa &&
+          payload.originalStartWeek &&
+          payload.originalEndWeek
+        ) {
+          const addr =
+            projectById.get(payload.projectId)?.address ?? payload.projectId;
+          setPendingGapFill({
+            daName: result.oldDa,
+            movedAddress: addr,
+            downstreamCount: result.gapDownstreamCount,
+            gapStartWeek: payload.originalStartWeek,
+            gapEndWeek: payload.originalEndWeek,
+          });
+        }
+      },
+    });
+  }
+
+  async function commitMove(
     payload: DragPayload,
     targetDa: string,
     targetStartWeek: string,
@@ -916,39 +974,50 @@ function DrawScheduleBody({
       });
       return;
     }
-    const newDm = dmByDa.get(targetDa) ?? null;
-    moveDaMutation.mutate(
-      {
-        projectId: payload.projectId,
-        newDa: targetDa,
-        newDm,
-        startWeek: targetStartWeek,
-        endWeek: targetEndWeek,
-        scheduleStatus: payload.status,
-        expectedUpdatedAt: payload.expectedUpdatedAt,
-      },
-      {
-        onSuccess: (result) => {
-          if (
-            result.gapExists &&
-            result.gapDownstreamCount > 0 &&
-            result.oldDa &&
-            payload.originalStartWeek &&
-            payload.originalEndWeek
-          ) {
-            const addr =
-              projectById.get(payload.projectId)?.address ?? payload.projectId;
-            setPendingGapFill({
-              daName: result.oldDa,
-              movedAddress: addr,
-              downstreamCount: result.gapDownstreamCount,
-              gapStartWeek: payload.originalStartWeek,
-              gapEndWeek: payload.originalEndWeek,
-            });
-          }
-        },
-      },
-    );
+    const moveArgs: MoveDrawScheduleDaInput = {
+      projectId: payload.projectId,
+      newDa: targetDa,
+      newDm: dmByDa.get(targetDa) ?? null,
+      startWeek: targetStartWeek,
+      endWeek: targetEndWeek,
+      scheduleStatus: payload.status,
+      expectedUpdatedAt: payload.expectedUpdatedAt,
+    };
+
+    // fix-72: does this move imply a DM (ent_lead) change per the team routing?
+    // juris lives on the project; current DM = the BP permit's ent_lead.
+    const project = projectById.get(payload.projectId);
+    const juris = project?.juris ?? null;
+    const projPermits = permitsByProjectId.get(payload.projectId) ?? [];
+    const bp =
+      projPermits.find((p) => p.type === 'Building Permit') ??
+      projPermits[0] ??
+      null;
+    const currentEntLead = bp?.ent_lead ?? null;
+
+    let projected: string | null;
+    try {
+      projected = await lookupEntLeadForDa(targetDa, juris);
+    } catch {
+      // Routing lookup failed — don't block the move; just skip the cascade.
+      projected = null;
+    }
+
+    if (projected !== null && projected !== currentEntLead) {
+      // Implied DM change — ask before applying (Update DM / Keep / Cancel).
+      setPendingDmCascade({
+        moveArgs,
+        payload,
+        movedAddress: project?.address ?? payload.projectId,
+        fromLead: currentEntLead,
+        toLead: projected,
+      });
+      return;
+    }
+
+    // No implied change (projected matches), OR the DA isn't in the routing
+    // table (null) → move without touching ent_lead (manual DM stays put).
+    doMove(moveArgs, payload, false);
   }
 
   function handleDrop(targetDa: string, targetStartWeek: string, payload: DragPayload) {
@@ -1015,7 +1084,7 @@ function DrawScheduleBody({
       // bp_move_draw_schedule_da when DA changed, bp_update_draw_schedule_with_dd_sync
       // for same-DA reposition. Also opens GapFillPrompt if the move
       // stranded downstream blocks on the old DA.
-      commitMove(payload, targetDa, targetStartWeek, targetEndWeek);
+      void commitMove(payload, targetDa, targetStartWeek, targetEndWeek);
       return;
     }
 
@@ -1946,7 +2015,7 @@ function DrawScheduleBody({
             const row = draw.find(
               (r) => r.project_id === pendingNpWarning.anchorProjectId,
             );
-            commitMove(
+            void commitMove(
               {
                 projectId: pendingNpWarning.anchorProjectId,
                 durationWeeks: 0,
@@ -2039,6 +2108,28 @@ function DrawScheduleBody({
               { onSuccess: () => setPendingGapFill(null) },
             );
           }}
+        />
+      )}
+
+      {/* fix-72: DA->DM cascade prompt. Opens before a DA move when the team
+          routing implies a different DM. Update DM = move + cascade ent_lead;
+          Keep current DM = move only; Cancel move = abort. */}
+      {pendingDmCascade && (
+        <DmCascadePrompt
+          movedAddress={pendingDmCascade.movedAddress}
+          newDa={pendingDmCascade.moveArgs.newDa}
+          fromLead={pendingDmCascade.fromLead}
+          toLead={pendingDmCascade.toLead}
+          pending={moveDaMutation.isPending || cascadeEntLead.isPending}
+          onUpdateDm={() => {
+            doMove(pendingDmCascade.moveArgs, pendingDmCascade.payload, true);
+            setPendingDmCascade(null);
+          }}
+          onKeepDm={() => {
+            doMove(pendingDmCascade.moveArgs, pendingDmCascade.payload, false);
+            setPendingDmCascade(null);
+          }}
+          onCancel={() => setPendingDmCascade(null)}
         />
       )}
 
