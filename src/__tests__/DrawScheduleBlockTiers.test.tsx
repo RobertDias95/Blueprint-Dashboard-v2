@@ -260,12 +260,13 @@ describe('Draw Schedule block layout (fix-DS-uniform-layout)', () => {
     expect(block).toHaveAttribute('data-overflow', 'tail');
     // ...but the content is the same 'default' full stack, not a compact variant.
     expect(block).toHaveAttribute('data-tier', 'default');
-    // Address + juris + Est. Approval render on the tail slice...
+    // Address + Est. Approval render on the tail slice...
     expect(screen.getByTestId('block-address-pt')).toBeInTheDocument();
-    expect(screen.getByTestId('block-juris-pt')).toBeInTheDocument();
-    // ...but fix-DS-overflow-no-pill drops the status pill on overflow slices
-    // (the fill color already encodes status; freed room shows the address).
+    // ...but overflow slices are stripped to the essentials: the status pill
+    // (fix-DS-overflow-no-pill) AND juris (fix-DS-overflow-minimal) both drop —
+    // the fill color encodes status and juris still shows in the home quarter.
     expect(screen.queryByTestId('block-status-pt')).toBeNull();
+    expect(screen.queryByTestId('block-juris-pt')).toBeNull();
     const est = screen.getByTestId('block-est-approval-pt');
     expect(est.textContent).toContain('Est. Approval');
     expect(est.textContent).toContain('08-15-26');
@@ -313,9 +314,10 @@ describe('Draw Schedule block layout (fix-DS-uniform-layout)', () => {
     expect(block).toHaveAttribute('data-tier', 'default');
     expect(screen.queryByTestId('block-overflow-nav-ph')).toBeNull();
     expect(screen.getByTestId('block-address-ph')).toBeInTheDocument();
-    expect(screen.getByTestId('block-juris-ph')).toBeInTheDocument();
-    // fix-DS-overflow-no-pill: a head slice is an overflow block → no pill.
+    // A head slice is an overflow block → stripped to essentials: no status
+    // pill (fix-DS-overflow-no-pill) and no juris (fix-DS-overflow-minimal).
     expect(screen.queryByTestId('block-status-ph')).toBeNull();
+    expect(screen.queryByTestId('block-juris-ph')).toBeNull();
   });
 
   it('uniform DOM snapshots: every span renders the same fields (guard against silent restyle regressions)', () => {
