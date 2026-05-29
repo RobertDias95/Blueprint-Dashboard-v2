@@ -1708,7 +1708,14 @@ function DrawScheduleBody({
                             even a 1-week row at the low font cap, so there are no
                             height gates. */}
                         <>
-                          {project.juris && (
+                          {/* fix-DS-overflow-minimal: drop juris on cross-quarter
+                              slices too (stacks on the fix-DS-overflow-no-pill
+                              status-pill gate). A constrained head/tail slice
+                              renders only address + Est. Approval; the full juris
+                              still shows in the home quarter, so nothing is lost
+                              — the view just declutters to the most pertinent
+                              fields. Non-overflow blocks keep juris. */}
+                          {!overflow && project.juris && (
                             <span
                               style={{
                                 fontSize: detailFont,
