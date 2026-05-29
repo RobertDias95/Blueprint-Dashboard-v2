@@ -1522,6 +1522,13 @@ function DrawScheduleBody({
                       effectiveEndWeek,
                       weeks,
                     );
+                    // fix-DS-compact-rule: a block is "compact" when it can't
+                    // fit the full 5-line stack — either a cross-quarter slice
+                    // (overflow) or a 1-week non-overflow block. Compact blocks
+                    // render minimal content (address + Est. Approval) anchored
+                    // to the top so the address never clips; taller non-overflow
+                    // blocks render the full stack, centered.
+                    const isCompact = !!overflow || visibleSpan <= 1;
                     // fix-DS-fluid-sizing: fluid base font from the visible
                     // span, then textScale (fix-47 row-height scaling) on top.
                     // Address renders one step larger (base + 1, bold); juris /
@@ -1612,18 +1619,16 @@ function DrawScheduleBody({
                               : 'auto',
                           display: 'flex',
                           flexDirection: 'column',
-                          // fix-DS-address-anchor: anchor the 5-line stack
-                          // (address / juris / status / Est. Approval label /
-                          // date) to the TOP. Vertical centering (fix-DS-tail-
-                          // and-fit) clipped the top of the address on blocks
-                          // whose content was taller than their pixel budget,
-                          // since overflow:hidden trims the overflowing top
-                          // half. Top-anchoring means any clipping happens at
-                          // the BOTTOM (date first), keeping the address — the
-                          // most identifying field — always visible. Tighter
-                          // gap + padding recover a couple px for the stack.
+                          // fix-DS-compact-rule: compact blocks (overflow slices
+                          // or 1-week non-overflow) top-anchor so the address —
+                          // the first child — can never clip (centering would
+                          // let overflow:hidden trim the top half on a too-tall
+                          // stack, per fix-DS-address-anchor). Taller non-overflow
+                          // blocks have room for the full stack, so they center
+                          // (Bobby's preferred look). gap/padding stay tight so
+                          // even a centered 2-week block doesn't clip.
                           alignItems: 'center',
-                          justifyContent: 'flex-start',
+                          justifyContent: isCompact ? 'flex-start' : 'center',
                           textAlign: 'center',
                           gap: 1,
                           padding: '1px 6px',
@@ -1708,14 +1713,14 @@ function DrawScheduleBody({
                             even a 1-week row at the low font cap, so there are no
                             height gates. */}
                         <>
-                          {/* fix-DS-overflow-minimal: drop juris on cross-quarter
-                              slices too (stacks on the fix-DS-overflow-no-pill
-                              status-pill gate). A constrained head/tail slice
+                          {/* fix-DS-overflow-minimal / fix-DS-compact-rule: drop
+                              juris on every compact block (overflow slices AND
+                              1-week non-overflow blocks). A constrained slice
                               renders only address + Est. Approval; the full juris
                               still shows in the home quarter, so nothing is lost
                               — the view just declutters to the most pertinent
-                              fields. Non-overflow blocks keep juris. */}
-                          {!overflow && project.juris && (
+                              fields. Taller non-overflow blocks keep juris. */}
+                          {!isCompact && project.juris && (
                             <span
                               style={{
                                 fontSize: detailFont,
@@ -1733,15 +1738,15 @@ function DrawScheduleBody({
                               {project.juris}
                             </span>
                           )}
-                          {/* fix-DS-overflow-no-pill: drop the status pill on
-                              cross-quarter slices (head in the start quarter,
-                              tail in the continuation). The block fill color
-                              already encodes status, and on a 1-week visible
-                              slice the freed space lets the address — the most
-                              identifying field — show instead. Non-overflow
-                              blocks keep the pill (helps users still learning
-                              the color code, and they have room for it). */}
-                          {!overflow && (
+                          {/* fix-DS-overflow-no-pill / fix-DS-compact-rule: drop
+                              the status pill on every compact block (overflow
+                              slices AND 1-week non-overflow blocks). The block
+                              fill color already encodes status, and the freed
+                              space lets the address — the most identifying field
+                              — show instead. Taller non-overflow blocks keep the
+                              pill (helps users still learning the color code,
+                              and they have room for it). */}
+                          {!isCompact && (
                             <span
                               style={{
                                 // fix-DS-pill-and-date: shrink the status pill
