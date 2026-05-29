@@ -1612,16 +1612,21 @@ function DrawScheduleBody({
                               : 'auto',
                           display: 'flex',
                           flexDirection: 'column',
-                          // fix-DS-tail-and-fit: center the 5-line stack
+                          // fix-DS-address-anchor: anchor the 5-line stack
                           // (address / juris / status / Est. Approval label /
-                          // date) both axes — Bobby prefers the info centered in
-                          // the pill over reading top-down, so tall blocks get
-                          // equal empty space above + below the content.
+                          // date) to the TOP. Vertical centering (fix-DS-tail-
+                          // and-fit) clipped the top of the address on blocks
+                          // whose content was taller than their pixel budget,
+                          // since overflow:hidden trims the overflowing top
+                          // half. Top-anchoring means any clipping happens at
+                          // the BOTTOM (date first), keeping the address — the
+                          // most identifying field — always visible. Tighter
+                          // gap + padding recover a couple px for the stack.
                           alignItems: 'center',
-                          justifyContent: 'center',
+                          justifyContent: 'flex-start',
                           textAlign: 'center',
-                          gap: 2,
-                          padding: '2px 6px',
+                          gap: 1,
+                          padding: '1px 6px',
                         }}
                       >
                         {/* fix-DS-uniform-layout: block content.
