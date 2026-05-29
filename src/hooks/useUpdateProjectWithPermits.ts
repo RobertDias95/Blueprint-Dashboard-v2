@@ -3,7 +3,7 @@ import { supabase } from '../lib/supabase';
 import { queryKeys } from '../lib/queryKeys';
 import { pushToast } from '../stores/toastStore';
 import { useAuthStore } from '../stores/authStore';
-import type { Permit } from '../lib/database.types';
+import type { Permit, PermitWithCycles, Project } from '../lib/database.types';
 
 // fix-36: atomic Project Settings save. Replaces the modal's sequential
 // updateProject + per-permit update/create/delete loop (which reused
@@ -105,6 +105,41 @@ export function useUpdateProjectWithPermits() {
       // server-side, so leave the caches alone and let the modal prompt a
       // reload. Only refresh on a real success.
       if (result.conflict) return;
+
+      // fix-73: write each returned permit's fresh updated_at + the project's
+      // new updated_at SYNCHRONOUSLY into the caches. Without this, a follow-up
+      // edit on the same row in the window before invalidate's refetch lands
+      // captures the stale OCC token and OCC-conflicts (Bobby's repro on the
+      // Project Settings save → next inline edit). Mirrors the Bug-B-fix
+      // pattern from useUpdateDrawSchedule.
+      if (result.permits.length > 0) {
+        const byId = new Map(result.permits.map((p) => [p.id, p.updated_at]));
+        const patchPermits = (rows: PermitWithCycles[] | undefined) =>
+          rows?.map((p) =>
+            byId.has(p.id) ? { ...p, updated_at: byId.get(p.id) as string } : p,
+          );
+        queryClient.setQueryData<PermitWithCycles[]>(
+          queryKeys.permits(tenantId),
+          (rows) => patchPermits(rows),
+        );
+        queryClient.setQueryData<PermitWithCycles[]>(
+          queryKeys.permitsByProject(tenantId, input.projectId),
+          (rows) => patchPermits(rows),
+        );
+      }
+      if (result.projectUpdatedAt) {
+        const projectUpdatedAt = result.projectUpdatedAt;
+        queryClient.setQueryData<Project[]>(
+          queryKeys.projects(tenantId),
+          (rows) =>
+            rows?.map((p) =>
+              p.id === input.projectId
+                ? { ...p, updated_at: projectUpdatedAt }
+                : p,
+            ),
+        );
+      }
+
       queryClient.invalidateQueries({ queryKey: queryKeys.projects(tenantId) });
       queryClient.invalidateQueries({
         queryKey: queryKeys.permitsByProject(tenantId, input.projectId),

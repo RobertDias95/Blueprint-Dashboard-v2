@@ -896,6 +896,14 @@ function DateCell({
   testid?: string;
 }) {
   const [draft, setDraft] = useState(value ?? '');
+  // fix-73: dirty flag preserves the user's typed value across an OCC retry.
+  // The mutation's onError fires invalidateQueries → refetch → the parent's
+  // value prop refreshes (often back to the pre-edit value). Without this
+  // flag, the prop-sync effect below would overwrite `draft` and Bobby would
+  // lose what he typed, forcing a second click per field. dirty stays true
+  // while the user has unsaved typing; cleared on a successful commit (or on
+  // a blur that turned out to be a no-op).
+  const [dirty, setDirty] = useState(false);
   // fix-25d sub-issue 1 added commit-on-change to fix a 10-15s
   // "highlight lag" on type=date pickers.
   //
@@ -920,19 +928,31 @@ function DateCell({
   // stale (often blank) data forever. Bobby's test 678 hit this on the
   // Design strip when cycles arrived a tick after the permit row.
   //
+  // fix-73: gate the sync on `!dirty`. If the user has typed but not yet
+  // (successfully) committed, preserve their draft — otherwise an OCC-driven
+  // refetch wipes the input mid-edit (see [[feedback-react-usestate-init-once-footgun]]).
+  // lastCommittedRef still advances so the dedupe inside tryCommit compares
+  // against the latest server truth.
+  //
   // react-hooks/set-state-in-effect flags this as a cascading-render
   // risk but the value-prop sync is the entire point — refactoring to
   // `key={value}` on the parent would force unmount/remount and lose
   // focus mid-edit. Keep the effect; disable the rule on the setDraft
   // line itself (the rule fires on the setState call, not the effect).
   useEffect(() => {
+    const incoming = value ?? '';
+    lastCommittedRef.current = incoming;
+    if (dirty) return;
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    setDraft(value ?? '');
-    lastCommittedRef.current = value ?? '';
-  }, [value]);
+    setDraft(incoming);
+  }, [value, dirty]);
   function tryCommit(next: string) {
     if (readOnly) return;
-    if (next === lastCommittedRef.current) return;
+    if (next === lastCommittedRef.current) {
+      // Blur with no change → input is in sync with committed; nothing dirty.
+      setDirty(false);
+      return;
+    }
     // fix-26a: capture prev so we can restore the ref if the mutation
     // rejects (e.g., RPC validation: intake_accepted < submitted). Without
     // restoring, re-typing the same value after correcting the sibling
@@ -943,9 +963,16 @@ function DateCell({
     // (useUpsertPermitCycle). We just swallow the rejection here so it
     // doesn't bubble to the runtime as "Uncaught (in promise)" + reset
     // the ref so user can retry.
-    void Promise.resolve(onCommit(next)).catch(() => {
-      lastCommittedRef.current = prev;
-    });
+    // fix-73: clear `dirty` on success so the next prop-sync (e.g. fresh
+    // cycle data) flows through; KEEP `dirty` on rejection so an OCC retry
+    // doesn't blank what the user typed.
+    void Promise.resolve(onCommit(next))
+      .then(() => {
+        setDirty(false);
+      })
+      .catch(() => {
+        lastCommittedRef.current = prev;
+      });
   }
   return (
     <div
@@ -991,6 +1018,9 @@ function DateCell({
         // snaps now — this is a visual overlay only, still no mutation.
         onChange={(e) => {
           setDraft(e.target.value);
+          // fix-73: any user edit marks the draft dirty, gating the
+          // value-prop-sync effect so an OCC refetch can't wipe it.
+          setDirty(true);
           if (milestone) onDraftChange?.(milestone, e.target.value);
         }}
         onBlur={() => {

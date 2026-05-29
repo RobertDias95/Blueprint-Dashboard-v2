@@ -4,6 +4,7 @@ import { queryKeys } from '../lib/queryKeys';
 import { OCCConflictError, isOCCConflict } from '../lib/occ';
 import { pushToast } from '../stores/toastStore';
 import { useAuthStore } from '../stores/authStore';
+import type { PermitWithCycles } from '../lib/database.types';
 
 // fix-23a: bp_set_bp_dd_dates. Atomic update of the BP's dd_start/dd_end
 // that cascades target_submit (end + 14d) across every permit on the
@@ -118,10 +119,40 @@ export function useSetBpDdDates() {
       };
     },
 
-    onSuccess: (result) => {
+    onSuccess: (result, input) => {
       // Overlap responses are NOT writes — caller handles them via prompts.
       // Skip cache invalidation and the success toast in that case.
       if (result.overlapKind) return;
+
+      // fix-73: write the BP's fresh out_bp_updated_at SYNCHRONOUSLY into the
+      // permits caches. The RPC bulk-updates every permit on the project
+      // (target_submit cascade) so EVERY sibling's updated_at also bumped —
+      // but only the BP's new token is returned. Patching the BP closes the
+      // most common race (Bobby's repro: set DD dates, then edit BP's
+      // approval_date → first save OCC-conflicted, blanked the typed value,
+      // succeeded on second click). Siblings still rely on the refetch below.
+      if (result.bpUpdatedAt) {
+        const bpUpdatedAt = result.bpUpdatedAt;
+        const patchBp = (rows: PermitWithCycles[] | undefined) =>
+          rows?.map((p) =>
+            p.project_id === result.projectId && p.type === 'Building Permit'
+              ? {
+                  ...p,
+                  updated_at: bpUpdatedAt,
+                  dd_start: input.ddStart,
+                  dd_end: input.ddEnd,
+                }
+              : p,
+          );
+        queryClient.setQueryData<PermitWithCycles[]>(
+          queryKeys.permits(tenantId),
+          (rows) => patchBp(rows),
+        );
+        queryClient.setQueryData<PermitWithCycles[]>(
+          queryKeys.permitsByProject(tenantId, result.projectId),
+          (rows) => patchBp(rows),
+        );
+      }
 
       queryClient.invalidateQueries({ queryKey: queryKeys.permitsAll });
       queryClient.invalidateQueries({ queryKey: queryKeys.drawScheduleAll });
