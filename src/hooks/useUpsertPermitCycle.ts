@@ -63,10 +63,19 @@ interface RpcRow {
 }
 
 /** Result of a successful mutation — exposes the snap row when one fired
- *  so callers / tests can assert against the post-snap cache. */
+ *  so callers / tests can assert against the post-snap cache.
+ *
+ *  fix-76: parentPermitUpdatedAt carries the post-RPC value of permits.updated_at
+ *  for the parent permit. The cycle save server-side bumps the parent's
+ *  updated_at (via denormalized columns / triggers — same pattern as
+ *  bp_set_bp_dd_dates from fix-73), and any DateCell mounted on that permit
+ *  was sending the stale OCC token until the next refetch landed. onSuccess
+ *  patches the permits caches with this so the very next DateCell save uses
+ *  the fresh token. */
 export interface UpsertCycleResult {
   cycle: PermitCycle;
   snapCycle: PermitCycle | null;
+  parentPermitUpdatedAt: string | null;
 }
 
 interface MutationContext {
@@ -104,6 +113,7 @@ function mergePermitCycles(
   edited: PermitCycle,
   snap: PermitCycle | null,
   op: 'insert' | 'update',
+  parentPermitUpdatedAt: string | null,
 ): PermitWithCycles {
   if (permit.id !== permitId) return permit;
   const cycles = permit.permit_cycles ?? [];
@@ -140,7 +150,16 @@ function mergePermitCycles(
     }
   }
 
-  return { ...permit, permit_cycles: next };
+  // fix-76: also patch permit.updated_at when the cycle save bumped it
+  // server-side. The Approval Date / other permit-level DateCells read this
+  // value as their OCC token; without the patch, the next save lands stale.
+  return {
+    ...permit,
+    permit_cycles: next,
+    ...(parentPermitUpdatedAt
+      ? { updated_at: parentPermitUpdatedAt }
+      : {}),
+  };
 }
 
 export function useUpsertPermitCycle() {
@@ -225,7 +244,30 @@ export function useUpsertPermitCycle() {
         };
       }
 
-      return { cycle: editedCycle, snapCycle };
+      // fix-76: pull the parent permit's fresh updated_at. The RPC bumps it
+      // server-side (via triggers / denormalized columns), but the cycle row
+      // returned above only carries the cycle's own updated_at. Without this
+      // fetch, the next save on a permit-level DateCell (Approval Date,
+      // Actual Issue, …) still sends the pre-RPC OCC token and hits a
+      // conflict. Mirrors the fix-73 setQueryData write that closed the
+      // same race on bp_set_bp_dd_dates + bp_update_project_with_permits.
+      let parentPermitUpdatedAt: string | null = null;
+      try {
+        const { data: permitRow } = await supabase
+          .from('permits')
+          .select('updated_at')
+          .eq('id', input.permitId)
+          .single();
+        if (permitRow && typeof permitRow.updated_at === 'string') {
+          parentPermitUpdatedAt = permitRow.updated_at;
+        }
+      } catch {
+        // Network blip on the auxiliary fetch — leave parentPermitUpdatedAt
+        // null; the existing invalidate path will eventually refresh the
+        // cache. The user just loses the fast-path on this one save.
+      }
+
+      return { cycle: editedCycle, snapCycle, parentPermitUpdatedAt };
     },
 
     onMutate: async (input) => {
@@ -319,6 +361,7 @@ export function useUpsertPermitCycle() {
             result.cycle,
             result.snapCycle,
             input.op,
+            result.parentPermitUpdatedAt,
           ),
         );
 
