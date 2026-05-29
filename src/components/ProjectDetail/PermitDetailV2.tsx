@@ -723,6 +723,8 @@ function DateStrip({
           onDraftChange={handleDraftChange}
           onDraftClear={handleDraftClear}
           onCommit={(v) => commitDesignField('intake_accepted', v)}
+          // fix-75: snap cycle 1 the moment a valid intake_accepted lands.
+          commitOnChange
           testid="pd-cell-design-intake_accepted"
         />
       </div>
@@ -819,6 +821,8 @@ function DateStrip({
         onDraftChange={handleDraftChange}
         onDraftClear={handleDraftClear}
         onCommit={(v) => commitCycleField(cycle, 'resubmitted', v)}
+        // fix-75: snap cycle N+1 the moment a valid resubmitted lands.
+        commitOnChange
         testid={`pd-cell-cycle${viewIdx}-resubmitted`}
       />
       <DateCell
@@ -862,6 +866,17 @@ function DateStrip({
   );
 }
 
+/** fix-75: strict YYYY-MM-DD shape + parseable-date check. type=date inputs
+ *  produce a 10-char ISO string only once a real date is chosen, so this is a
+ *  reliable gate for "we have a fireable value". Used by the auto-commit path
+ *  on intake_accepted / resubmitted to drive the server-side snap without
+ *  waiting for blur. */
+function isValidIsoDate(s: string): boolean {
+  if (s.length !== 10) return false;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return false;
+  return !Number.isNaN(new Date(s + 'T12:00:00Z').getTime());
+}
+
 function DateCell({
   label,
   value,
@@ -872,6 +887,7 @@ function DateCell({
   onDraftClear,
   onCommit,
   readOnly,
+  commitOnChange,
   testid,
 }: {
   label: string;
@@ -890,6 +906,14 @@ function DateCell({
   /** fix-22 Mig 3: GO cell now reads project.go_date as read-only — edits
    *  happen in Project Settings. */
   readOnly?: boolean;
+  /** fix-75: opt-in commit-on-change for cells whose mutation drives a
+   *  server-side snap (intake_accepted creates cycle N+1, resubmitted snaps
+   *  cycle N→N+1 once we have a valid date). Cells without a snap keep the
+   *  default blur/Enter-only commit because calendar-arrow nav (fix-25-DD)
+   *  fires onChange per step. The auto-commit is gated on a strict
+   *  YYYY-MM-DD shape so a partial keystroke doesn't fire mid-edit; onBlur
+   *  stays as the safety net for paste-and-click cases. */
+  commitOnChange?: boolean;
   /** fix-23c: cells expose a stable testid so the highlight-rule
    *  integration test can find them by name regardless of where they
    *  live in the design vs cycle-N strips. */
@@ -921,6 +945,12 @@ function DateCell({
   // (explicit submit). tryCommit dedupes via the ref so blur after
   // Enter doesn't double-commit.
   const lastCommittedRef = useRef(value ?? '');
+  // fix-75: did the last commit-on-change attempt fail? When true, an
+  // explicit blur (user clicking away or hitting Enter) should retry — even
+  // if the draft is still a valid date that matches what we tried to commit.
+  // This preserves fix-26a's "retry after sibling correction" workflow.
+  // Resets to false on a successful commit.
+  const lastCommitFailedRef = useRef(false);
   // fix-24c: when the value prop updates after our initial mount (cycles
   // load async, parent refetches after a save, user switches cycle tabs),
   // pull the new value into our draft. Without this, useState(value)
@@ -969,9 +999,15 @@ function DateCell({
     void Promise.resolve(onCommit(next))
       .then(() => {
         setDirty(false);
+        // fix-75: a clean success clears the failure flag.
+        lastCommitFailedRef.current = false;
       })
       .catch(() => {
         lastCommittedRef.current = prev;
+        // fix-75: mark that the next explicit blur should retry instead of
+        // being swallowed by the safety-net (the auto-commit attempt failed,
+        // so blur is the user's explicit "try again" signal).
+        lastCommitFailedRef.current = true;
       });
   }
   return (
@@ -1017,14 +1053,39 @@ function DateCell({
         // fix-35 Bug 3: also report the draft to the parent so the highlight
         // snaps now — this is a visual overlay only, still no mutation.
         onChange={(e) => {
-          setDraft(e.target.value);
+          const next = e.target.value;
+          setDraft(next);
           // fix-73: any user edit marks the draft dirty, gating the
           // value-prop-sync effect so an OCC refetch can't wipe it.
           setDirty(true);
-          if (milestone) onDraftChange?.(milestone, e.target.value);
+          if (milestone) onDraftChange?.(milestone, next);
+          // fix-75: when this cell drives a server-side snap (intake_accepted,
+          // resubmitted), commit AS SOON AS we have a valid YYYY-MM-DD so the
+          // snap RPC fires without waiting for blur. The strict shape check
+          // means partial keystrokes / calendar mid-nav still don't fire (the
+          // type=date input only writes a 10-char value once a real date is
+          // chosen). tryCommit dedupes against lastCommittedRef so a no-op
+          // re-fire is free.
+          if (commitOnChange && isValidIsoDate(next)) {
+            tryCommit(next);
+          }
         }}
         onBlur={() => {
-          tryCommit(draft);
+          // fix-75: for commit-on-change cells, onChange already fired the
+          // commit on any valid YYYY-MM-DD — so blur is normally a no-op. Two
+          // exceptions:
+          //   * draft isn't a valid ISO date → safety-net commit for the
+          //     paste-a-partial-then-click case.
+          //   * the last commit-on-change attempt failed → blur is the user's
+          //     explicit retry signal (fix-26a "sibling corrected, try again").
+          // Otherwise skip so the closure-stale draft can't re-fire the commit.
+          if (
+            !commitOnChange ||
+            !isValidIsoDate(draft) ||
+            lastCommitFailedRef.current
+          ) {
+            tryCommit(draft);
+          }
           // The committed value flows back through the value prop; drop the
           // overlay so the highlight reads committed data again.
           if (milestone) onDraftClear?.(milestone);
