@@ -7,6 +7,10 @@ import { useJurisdictions } from '../../hooks/useJurisdictions';
 import { usePermitTypes } from '../../hooks/usePermitTypes';
 import { useTeamMembers } from '../../hooks/useTeamMembers';
 import { usePermitsByProject } from '../../hooks/usePermitsByProject';
+import {
+  seedExpectedIssue,
+  seedTargetSubmit,
+} from '../../lib/permitSeedingDefaults';
 import { pushToast } from '../../stores/toastStore';
 import BuilderAutocompleteField from '../builder/BuilderAutocompleteField';
 import type {
@@ -331,6 +335,20 @@ export default function ProjectSettingsModal({ project, onClose }: Props) {
       const bpDaEdited =
         !!bpPermit && form.bpRole.da !== (bpPermit.da ?? '');
 
+      // fix-71: Phase B auto-seed for permits ADDED to an existing project.
+      // The New Project wizard pre-fills ACQ Target (expected_issue) + Target
+      // Submit per type via permitSeedingDefaults; the add-permit path used to
+      // land both NULL. Reuse the SAME rules (single source of truth) so a
+      // permit added here seeds identically. Anchors: the project's GO date +
+      // the real Building Permit's ACQ (its expected_issue). Only NEW rows are
+      // seeded — existing permits' values are never touched here.
+      const seedAnchors = {
+        goDate: form.projectFields.go_date || null,
+        bpAcq:
+          permits.find((p) => p.type === 'Building Permit')?.expected_issue ??
+          null,
+      };
+
       const permitUpserts: PermitUpsertInput[] = [];
       const permitDeletes: number[] = [];
       for (const row of form.permits) {
@@ -340,7 +358,7 @@ export default function ProjectSettingsModal({ project, onClose }: Props) {
         }
         const isBp = bpPermit != null && row.id === bpPermit.id;
         const da = isBp && bpDaEdited ? form.bpRole.da : row.da;
-        // target_submit is engine-owned — intentionally never sent.
+        // target_submit is engine-owned for EXISTING rows — never sent below.
         const fields = {
           type: row.type,
           ent_lead: row.ent_lead.trim() || null,
@@ -350,7 +368,17 @@ export default function ProjectSettingsModal({ project, onClose }: Props) {
           struct_address: row.struct_address.trim() || null,
         };
         if (row.isNew) {
-          permitUpserts.push(fields);
+          // Seed only when the type has a rule AND its anchor is set; types
+          // without a rule (incl. Building Permit) stay engine-owned/NULL.
+          const seededExpected = seedExpectedIssue(row.type, seedAnchors);
+          const seededSubmit = seedTargetSubmit(row.type, seedAnchors);
+          permitUpserts.push({
+            ...fields,
+            ...(seededExpected !== null
+              ? { expected_issue: seededExpected }
+              : {}),
+            ...(seededSubmit !== null ? { target_submit: seededSubmit } : {}),
+          });
         } else if (row.id != null && row.updated_at) {
           permitUpserts.push({
             id: row.id,
