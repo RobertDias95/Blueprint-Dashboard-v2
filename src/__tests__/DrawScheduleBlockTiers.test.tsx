@@ -288,13 +288,13 @@ describe('Draw Schedule block layout (fix-DS-uniform-layout)', () => {
     expect(screen.getByTestId('block-pt')).not.toHaveAttribute('data-overflow');
   });
 
-  it('centers the content stack vertically (justify-content: center)', () => {
+  it('anchors the content stack to the top (justify-content: flex-start) so address never clips', () => {
     refs.draw.current = [row({ project_id: 'pc', da_assigned: 'A1', start_week: W[3], end_week: W[7] })];
     refs.projects.current = [project('pc', '321 Center Rd')];
     renderGrid();
     const block = screen.getByTestId('block-pc');
     expect(block.style.flexDirection).toBe('column');
-    expect(block.style.justifyContent).toBe('center');
+    expect(block.style.justifyContent).toBe('flex-start');
   });
 
   it('head (starts in this quarter, ends after): renders FULL with no arrow', () => {
