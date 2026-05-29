@@ -93,6 +93,10 @@ export const queryKeys = {
     ['permit_tasks', tenantId, 'tree', { permitId }] as const,
   myTasks: (tenantId: string, userName: string) =>
     ['permit_tasks', tenantId, 'mine', { userName }] as const,
+  // fix-78: My Tasks now lists every task in the tenant; the page filters
+  // client-side (Assignee=Me preset, Discipline, Status, Project, Title).
+  allTasks: (tenantId: string) =>
+    ['permit_tasks', tenantId, 'all'] as const,
 } as const;
 
 /** Map from Postgres table name → bare-prefix query keys to invalidate on

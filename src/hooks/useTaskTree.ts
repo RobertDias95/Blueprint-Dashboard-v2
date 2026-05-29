@@ -49,6 +49,24 @@ export function useMyTasks(userName: string | null) {
   });
 }
 
+/** fix-78: every task in the caller's tenant, with the same shape useMyTasks
+ *  returned (MyTaskNode[]). The page filters client-side via chips — Assignee
+ *  (with Me/All presets), Discipline, Status, Project, Title contains. Drops
+ *  the fix-70 "personal-scope wall" so manager workflows (find every Open
+ *  Corrections, find every task on project X) come back. */
+export function useAllTasks() {
+  const tenantId = useAuthStore((s) => s.activeTenantId);
+  return useQuery<MyTaskNode[]>({
+    queryKey: queryKeys.allTasks(tenantId ?? ''),
+    enabled: !!tenantId,
+    queryFn: async () => {
+      const { data, error } = await supabase.rpc('bp_list_tasks');
+      if (error) throw error;
+      return (data ?? []) as MyTaskNode[];
+    },
+  });
+}
+
 export interface UpsertTaskInput {
   /** null to create; an id to edit. */
   id?: string | null;
