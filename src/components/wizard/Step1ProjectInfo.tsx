@@ -2,6 +2,7 @@ import { useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { useJurisdictions } from '../../hooks/useJurisdictions';
 import { useTeamMembers } from '../../hooks/useTeamMembers';
+import { useAppConfig, readAppConfigStringArray } from '../../hooks/useAppConfig';
 import UnitTypesEditor from './UnitTypesEditor';
 import BuilderAutocompleteField from '../builder/BuilderAutocompleteField';
 import {
@@ -59,9 +60,19 @@ function activeMembersByRoles(
 export default function Step1ProjectInfo({ value, onChange }: Props) {
   const jurisQ = useJurisdictions();
   const teamQ = useTeamMembers();
+  const appConfig = useAppConfig();
 
   const jurisOptions = jurisQ.data ?? [];
   const teamAll = teamQ.all ?? [];
+  // fix-75: Project Tags now picks from the tenant-managed projectTagOptions
+  // app_config key (same source AdminProjectsTab edits). Free-form entry is
+  // gone; existing stored values not in the option list still render as
+  // removable chips so a tenant adding/removing options doesn't blow away
+  // historical data.
+  const projectTagOptions = useMemo(
+    () => readAppConfigStringArray(appConfig.map, 'projectTagOptions'),
+    [appConfig.map],
+  );
 
   const ents = useMemo(
     () => activeMembersByRoles(teamAll, ENT_ROLES),
@@ -388,6 +399,7 @@ export default function Step1ProjectInfo({ value, onChange }: Props) {
 
         <ProjectTagsField
           tags={value.project_tags}
+          options={projectTagOptions}
           onAdd={addTag}
           onRemove={removeTag}
         />
@@ -473,13 +485,21 @@ export default function Step1ProjectInfo({ value, onChange }: Props) {
 
 function ProjectTagsField({
   tags,
+  options,
   onAdd,
   onRemove,
 }: {
   tags: string[];
+  options: string[];
   onAdd: (t: string) => void;
   onRemove: (t: string) => void;
 }) {
+  // fix-75: pick from the tenant-managed projectTagOptions (Settings →
+  // Projects). Already-applied tags are filtered out of the dropdown so the
+  // user can't add a duplicate. Stored values not in `options` still render
+  // above as removable chips — that lets admins curate the option list
+  // without nuking historical project tags.
+  const available = options.filter((o) => !tags.includes(o));
   return (
     <div data-testid="wizard-project-tags">
       <div className="text-[10px] uppercase tracking-wide text-dim mb-1.5">
@@ -509,20 +529,33 @@ function ProjectTagsField({
           ))
         )}
       </div>
-      <input
-        type="text"
-        placeholder="Add tag, press Enter"
-        className="bg-bg border border-border rounded-md px-2 py-1 text-[11px] font-mono text-text placeholder:text-dim focus:outline-none focus:border-de w-full md:w-72"
-        data-testid="wizard-tag-input"
-        onKeyDown={(e) => {
-          if (e.key === 'Enter') {
-            e.preventDefault();
-            const input = e.currentTarget;
-            onAdd(input.value);
-            input.value = '';
-          }
+      <select
+        // Reset to the placeholder option after each pick so the user can
+        // add another tag without re-opening the dropdown twice.
+        value=""
+        onChange={(e) => {
+          const v = e.target.value;
+          if (!v) return;
+          onAdd(v);
+          e.currentTarget.value = '';
         }}
-      />
+        disabled={available.length === 0}
+        className="bg-bg border border-border rounded-md px-2 py-1 text-[11px] font-mono text-text focus:outline-none focus:border-de w-full md:w-72 disabled:opacity-60"
+        data-testid="wizard-tag-select"
+      >
+        <option value="">
+          {options.length === 0
+            ? 'No tag options — add them in Settings → Projects'
+            : available.length === 0
+              ? 'All tags added'
+              : '+ Add tag'}
+        </option>
+        {available.map((o) => (
+          <option key={o} value={o}>
+            {o}
+          </option>
+        ))}
+      </select>
     </div>
   );
 }

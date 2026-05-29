@@ -9,6 +9,28 @@ import {
   type WizardState,
 } from '../components/wizard/wizardState';
 
+// fix-75: Project Tags is now a tenant-managed dropdown sourced from
+// app_config.projectTagOptions (the same key AdminProjectsTab edits). Mock
+// the hook with a small seed list + a way to override per test.
+const appConfigMap = vi.hoisted(() => ({
+  current: new Map<string, unknown>([
+    ['projectTagOptions', ['ECA', 'SIP', 'TRAL', 'LBA', 'Short Plat']],
+  ]),
+}));
+vi.mock('../hooks/useAppConfig', async (importActual) => {
+  const actual = await importActual<typeof import('../hooks/useAppConfig')>();
+  return {
+    ...actual, // keep the real readAppConfigStringArray helper
+    useAppConfig: () => ({
+      map: appConfigMap.current,
+      data: [],
+      isLoading: false,
+      error: null,
+      refetch: vi.fn(),
+    }),
+  };
+});
+
 vi.mock('../hooks/useJurisdictions', () => ({
   useJurisdictions: () => ({
     data: [
@@ -169,14 +191,44 @@ describe('<Step1ProjectInfo />', () => {
     ).toBe('');
   });
 
-  it('adding a project tag fires onChange with the appended array', () => {
+  it('fix-75: project tags is a dropdown sourced from app_config.projectTagOptions (no free-form text input)', () => {
+    setup();
+    expect(screen.queryByTestId('wizard-tag-input')).toBeNull();
+    const select = screen.getByTestId('wizard-tag-select') as HTMLSelectElement;
+    const optionValues = [...select.options].map((o) => o.value);
+    expect(optionValues).toEqual(['', 'ECA', 'SIP', 'TRAL', 'LBA', 'Short Plat']);
+  });
+
+  it('fix-75: picking a tag from the dropdown fires onChange with the appended array', () => {
     const { onChange } = setup();
-    const tagInput = screen.getByTestId('wizard-tag-input') as HTMLInputElement;
-    fireEvent.change(tagInput, { target: { value: 'corner-lot' } });
-    fireEvent.keyDown(tagInput, { key: 'Enter' });
-    expect(onChange).toHaveBeenLastCalledWith({
-      project_tags: ['corner-lot'],
+    fireEvent.change(screen.getByTestId('wizard-tag-select'), {
+      target: { value: 'ECA' },
     });
+    expect(onChange).toHaveBeenLastCalledWith({ project_tags: ['ECA'] });
+  });
+
+  it('fix-75: a tag already on the project is filtered out of the dropdown (no duplicates)', () => {
+    const init = makeEmptyWizardState();
+    init.project_tags = ['ECA'];
+    setup(init);
+    const select = screen.getByTestId('wizard-tag-select') as HTMLSelectElement;
+    expect([...select.options].map((o) => o.value)).toEqual([
+      '',
+      'SIP',
+      'TRAL',
+      'LBA',
+      'Short Plat',
+    ]);
+  });
+
+  it('fix-75: a stored value NOT in the option list still renders as a removable chip (preserved)', () => {
+    // Settings admins can curate the option list; previously-stored values
+    // outside the current list must not be silently dropped.
+    const init = makeEmptyWizardState();
+    init.project_tags = ['legacy-custom-tag'];
+    setup(init);
+    expect(screen.getByTestId('wizard-tag-legacy-custom-tag')).toBeInTheDocument();
+    expect(screen.getByTestId('wizard-tag-remove-legacy-custom-tag')).toBeInTheDocument();
   });
 
   it('renders the UnitTypesEditor empty-state when unit_types is []', () => {

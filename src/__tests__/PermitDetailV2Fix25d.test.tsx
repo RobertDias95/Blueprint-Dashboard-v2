@@ -444,7 +444,12 @@ describe('PermitDetailV2 fix-38 — auto-advance follows the newest cycle on sna
     expect(screen.getByTestId('pd-v2-date-strip-cycle-1')).toBeInTheDocument();
   });
 
-  it('calendar-arrow spam fires zero mutations + zero advances; only the final blur commits + snaps once', () => {
+  // fix-75 explicitly inverts the cluster-A guarantee on snap-driving cells
+  // (intake_accepted + resubmitted): Bobby wants the next cycle to materialize
+  // as SOON as a valid date lands, not on blur. The trade is that walking the
+  // date picker back month-by-month on these specific cells DOES fire a commit
+  // per step. This test pins the new contract.
+  it('fix-75: each calendar-arrow step on `resubmitted` fires a commit immediately (snap-on-input trade)', () => {
     const initial = makePermit([
       makeCycle({
         cycle_index: 1,
@@ -459,21 +464,22 @@ describe('PermitDetailV2 fix-38 — auto-advance follows the newest cycle on sna
     const resub = screen
       .getByTestId('pd-cell-cycle1-resubmitted')
       .querySelector('input') as HTMLInputElement;
-    // Walking the date picker back month-by-month — many onChange, no blur.
+    // Four month-step changes — each a valid YYYY-MM-DD → each commits.
     fireEvent.change(resub, { target: { value: '2026-09-10' } });
     fireEvent.change(resub, { target: { value: '2026-08-10' } });
     fireEvent.change(resub, { target: { value: '2026-07-10' } });
     fireEvent.change(resub, { target: { value: '2026-06-10' } });
-    // No commit → no snap → no growth → no advance. The cluster-A guarantee.
-    expect(cycleMutateAsync).not.toHaveBeenCalled();
-    expect(screen.getByTestId('pd-v2-date-strip-cycle-1')).toBeInTheDocument();
-    expect(screen.queryByTestId('pd-v2-date-strip-cycle-2')).toBeNull();
+    expect(cycleMutateAsync).toHaveBeenCalledTimes(4);
+    expect(cycleMutateAsync.mock.calls[3][0]).toMatchObject({
+      patch: { resubmitted: '2026-06-10' },
+    });
 
-    // One deliberate blur → exactly one commit.
+    // Blur is the safety net; the latest valid value already committed, so
+    // blur is a no-op (dedupe + commitOnChange guard).
     fireEvent.blur(resub);
-    expect(cycleMutateAsync).toHaveBeenCalledTimes(1);
+    expect(cycleMutateAsync).toHaveBeenCalledTimes(4);
 
-    // The single resulting server snap advances the view exactly once.
+    // The server snap from the latest commit advances the view to c2.
     act(() => {
       hostRef.setPermit(
         makePermit([
