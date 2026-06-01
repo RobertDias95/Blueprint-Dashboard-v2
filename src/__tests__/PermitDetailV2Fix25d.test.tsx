@@ -444,12 +444,14 @@ describe('PermitDetailV2 fix-38 — auto-advance follows the newest cycle on sna
     expect(screen.getByTestId('pd-v2-date-strip-cycle-1')).toBeInTheDocument();
   });
 
-  // fix-75 explicitly inverts the cluster-A guarantee on snap-driving cells
-  // (intake_accepted + resubmitted): Bobby wants the next cycle to materialize
-  // as SOON as a valid date lands, not on blur. The trade is that walking the
-  // date picker back month-by-month on these specific cells DOES fire a commit
-  // per step. This test pins the new contract.
-  it('fix-75: each calendar-arrow step on `resubmitted` fires a commit immediately (snap-on-input trade)', () => {
+  // fix-75 inverted the cluster-A guarantee on snap-driving cells (intake_accepted
+  // + resubmitted): the snap RPC fires as soon as a valid date lands, not on blur,
+  // so the next cycle materializes immediately. The original fix-75 contract was
+  // "commit per arrow step." fix-83 narrows that: a burst of arrow-step changes
+  // within 500ms now coalesces into ONE commit with the LAST date (4903 S
+  // Greenway: 6 arrow taps spawned 6 phantom cycles). Blur flushes the pending
+  // commit immediately so the user-explicit signal is never delayed.
+  it('fix-83: rapid calendar-arrow steps on `resubmitted` coalesce into one commit (the latest)', () => {
     const initial = makePermit([
       makeCycle({
         cycle_index: 1,
@@ -464,22 +466,22 @@ describe('PermitDetailV2 fix-38 — auto-advance follows the newest cycle on sna
     const resub = screen
       .getByTestId('pd-cell-cycle1-resubmitted')
       .querySelector('input') as HTMLInputElement;
-    // Four month-step changes — each a valid YYYY-MM-DD → each commits.
+    // Four month-step changes within the debounce window — none commit yet.
     fireEvent.change(resub, { target: { value: '2026-09-10' } });
     fireEvent.change(resub, { target: { value: '2026-08-10' } });
     fireEvent.change(resub, { target: { value: '2026-07-10' } });
     fireEvent.change(resub, { target: { value: '2026-06-10' } });
-    expect(cycleMutateAsync).toHaveBeenCalledTimes(4);
-    expect(cycleMutateAsync.mock.calls[3][0]).toMatchObject({
+    expect(cycleMutateAsync).not.toHaveBeenCalled();
+
+    // Blur flushes the pending debounced commit immediately, carrying the
+    // latest valid draft.
+    fireEvent.blur(resub);
+    expect(cycleMutateAsync).toHaveBeenCalledTimes(1);
+    expect(cycleMutateAsync.mock.calls[0][0]).toMatchObject({
       patch: { resubmitted: '2026-06-10' },
     });
 
-    // Blur is the safety net; the latest valid value already committed, so
-    // blur is a no-op (dedupe + commitOnChange guard).
-    fireEvent.blur(resub);
-    expect(cycleMutateAsync).toHaveBeenCalledTimes(4);
-
-    // The server snap from the latest commit advances the view to c2.
+    // The server snap from that commit advances the view to c2.
     act(() => {
       hostRef.setPermit(
         makePermit([

@@ -956,6 +956,26 @@ function DateCell({
   // This preserves fix-26a's "retry after sibling correction" workflow.
   // Resets to false on a successful commit.
   const lastCommitFailedRef = useRef(false);
+  // fix-83: 500ms debounce on the commit-on-change path. Calendar-arrow nav
+  // (and the type=date stepper) fires onChange with a full valid YYYY-MM-DD
+  // at every step, which used to spawn one mutation per click and — under
+  // race conditions on the IF NOT EXISTS snap branch — one phantom cycle 1
+  // row per click (Bobby's 4903 S Greenway incident: 6 cycles from 6 arrow
+  // taps). The debounce coalesces a burst of valid-date changes into one
+  // save with the LAST date. Blur bypasses the timer so the user-explicit
+  // "commit now" signal is never delayed. Backend defense-in-depth lives
+  // in fix_83_cycle_snap_idempotency.sql (UNIQUE + ON CONFLICT).
+  const commitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Clear any armed timer on unmount so a debounced commit can't fire after
+  // the cell is gone (e.g. user switches permits during the 500ms window).
+  useEffect(() => {
+    return () => {
+      if (commitTimerRef.current) {
+        clearTimeout(commitTimerRef.current);
+        commitTimerRef.current = null;
+      }
+    };
+  }, []);
   // fix-24c: when the value prop updates after our initial mount (cycles
   // load async, parent refetches after a save, user switches cycle tabs),
   // pull the new value into our draft. Without this, useState(value)
@@ -1089,7 +1109,15 @@ function DateCell({
           // chosen). tryCommit dedupes against lastCommittedRef so a no-op
           // re-fire is free.
           if (commitOnChange && isValidIsoDate(next)) {
-            tryCommit(next);
+            // fix-83: debounce commits driven by onChange. Calendar-arrow
+            // spam fires one onChange per step; without this, 6 arrow taps
+            // could spawn 6 racing snap inserts. The timer is cleared on
+            // each new keystroke and on blur (where we want to fire now).
+            if (commitTimerRef.current) clearTimeout(commitTimerRef.current);
+            commitTimerRef.current = setTimeout(() => {
+              commitTimerRef.current = null;
+              tryCommit(next);
+            }, 500);
           }
         }}
         onBlur={() => {
@@ -1101,7 +1129,15 @@ function DateCell({
           //   * the last commit-on-change attempt failed → blur is the user's
           //     explicit retry signal (fix-26a "sibling corrected, try again").
           // Otherwise skip so the closure-stale draft can't re-fire the commit.
-          if (
+          // fix-83: a pending debounced commit means we have a fresh valid
+          // date that hasn't been saved yet — fire it now so blur is never
+          // a wait-500ms-then-save experience. Clear the timer first so the
+          // setTimeout callback can't double-fire.
+          if (commitTimerRef.current) {
+            clearTimeout(commitTimerRef.current);
+            commitTimerRef.current = null;
+            tryCommit(draft);
+          } else if (
             !commitOnChange ||
             !isValidIsoDate(draft) ||
             lastCommitFailedRef.current

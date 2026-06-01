@@ -122,20 +122,25 @@ beforeEach(() => {
 });
 
 describe('fix-75: intake_accepted + resubmitted auto-snap on valid input', () => {
-  it('intake_accepted fires the upsert immediately on a valid date — no blur required', () => {
+  // fix-83 update: the auto-commit path is now debounced 500ms (calendar-arrow
+  // spam was spawning phantom cycles). These fix-75 cases fire blur after the
+  // valid change to flush the pending debounced commit immediately — blur is
+  // the explicit "commit now" signal even mid-debounce.
+  it('intake_accepted fires the upsert on a valid date (flushed via blur)', () => {
     renderWithClient(<PermitDetailV2 permit={makePermit()} />);
     const input = screen
       .getByTestId('pd-cell-design-intake_accepted')
       .querySelector('input') as HTMLInputElement;
 
     fireEvent.change(input, { target: { value: '2026-05-15' } });
+    fireEvent.blur(input);
     expect(cycleMutateAsync).toHaveBeenCalledTimes(1);
     expect(cycleMutateAsync.mock.calls[0][0]).toMatchObject({
       patch: { intake_accepted: '2026-05-15' },
     });
   });
 
-  it('resubmitted fires the upsert immediately on a valid date — no blur required', () => {
+  it('resubmitted fires the upsert on a valid date (flushed via blur)', () => {
     // Cycle 1 needs to exist + be the viewed cycle for the Resubmitted cell to
     // render. With stage='pm', the component lands on the latest cycle (1).
     const permit = makePermit(
@@ -149,6 +154,7 @@ describe('fix-75: intake_accepted + resubmitted auto-snap on valid input', () =>
       .querySelector('input') as HTMLInputElement;
 
     fireEvent.change(input, { target: { value: '2026-06-01' } });
+    fireEvent.blur(input);
     expect(cycleMutateAsync).toHaveBeenCalledTimes(1);
     expect(cycleMutateAsync.mock.calls[0][0]).toMatchObject({
       patch: { resubmitted: '2026-06-01' },
@@ -168,8 +174,9 @@ describe('fix-75: intake_accepted + resubmitted auto-snap on valid input', () =>
     fireEvent.change(input, { target: { value: '2026-05-1' } });
     expect(cycleMutateAsync).not.toHaveBeenCalled();
 
-    // The full valid date fires the snap.
+    // The full valid date arms the debounce; blur flushes.
     fireEvent.change(input, { target: { value: '2026-05-15' } });
+    fireEvent.blur(input);
     expect(cycleMutateAsync).toHaveBeenCalledTimes(1);
   });
 
