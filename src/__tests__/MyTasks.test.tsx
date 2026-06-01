@@ -78,6 +78,7 @@ function task(over: Partial<TaskFixture> & Pick<TaskFixture, 'id'>): TaskFixture
     permit_type: 'Building Permit',
     parent_task_id: null,
     discipline: 'arch',
+    bucket: 'de',
     text: 'Task text',
     status: 'Open',
     start_date: null,

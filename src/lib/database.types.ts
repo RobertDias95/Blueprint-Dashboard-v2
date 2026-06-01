@@ -202,7 +202,10 @@ export interface PermitTask {
   /** uuid, gen_random_uuid */
   id: string;
   permit_id: number;
-  /** NOT NULL — one of 'de' | 'pm' | 'co' (or extended buckets). */
+  /** NOT NULL. fix-79 collapses to two lifecycle PHASES: 'de' (Design &
+   *  Engineering) and 'pm' (Permitting). Legacy 'co' rows were migrated into
+   *  'pm'. Kept as `string` (rather than a union) so existing fixtures + raw
+   *  SELECT shapes stay valid; the strict union lives on TaskNode below. */
   bucket: string;
   legacy_id: string | null;
   /** NOT NULL on the schema. */
@@ -258,6 +261,11 @@ export interface TaskNode {
   permit_id: number;
   parent_task_id: string | null;
   discipline: 'arch' | 'ent';
+  /** fix-79: lifecycle PHASE. 'de' = task created before c0.submitted (Design
+   *  & Engineering); 'pm' = task created after the permit was submitted to
+   *  the city (Permitting / corrections). Drives the D&E/Permitting toggle
+   *  on the permit detail tasks panel and the bucket filter in My Tasks. */
+  bucket: 'de' | 'pm';
   text: string;
   status: 'Open' | 'In Progress' | 'Resolved';
   start_date: string | null;

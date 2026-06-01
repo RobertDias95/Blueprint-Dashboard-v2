@@ -199,7 +199,12 @@ export default function PermitDetailV2({ permit, project }: Props) {
           borderTop: '1px solid var(--color-border)',
         }}
       >
-        <TasksPanel permitId={permit.id} />
+        <TasksPanel
+          permitId={permit.id}
+          // fix-79: pre-submit project → open on D&E; once c0 .submitted lands
+          // the panel opens on Permitting. The user can still toggle freely.
+          defaultBucket={designCycle?.submitted ? 'pm' : 'de'}
+        />
         <Sidebar permit={permit} cycles={cycles} />
       </div>
     </div>
@@ -1214,17 +1219,57 @@ const DISCIPLINES = [
 ];
 const STATUS_OPTS = ['Open', 'In Progress', 'Resolved'] as const;
 
-function TasksPanel({ permitId }: { permitId: number }) {
+function TasksPanel({
+  permitId,
+  defaultBucket,
+}: {
+  permitId: number;
+  /** fix-79: which lifecycle bucket to show on mount. Parent infers from the
+   *  permit's cycle 0 .submitted state — pre-submit projects open on D&E,
+   *  in-review/post-submit open on Permitting. */
+  defaultBucket: 'de' | 'pm';
+}) {
   const treeQ = usePermitTaskTree(permitId);
   const team = useTeamMembers();
   const memberNames = useMemo(
     () => team.all.map((m) => m.name).sort((a, b) => a.localeCompare(b)),
     [team.all],
   );
-  const tasks = treeQ.data ?? [];
+  // Stable reference so the bucket-totals + visible memos below don't churn
+  // when treeQ.data is undefined (the `?? []` literal is a fresh array per
+  // render without this wrapper).
+  const tasks = useMemo(() => treeQ.data ?? [], [treeQ.data]);
+
+  // fix-79: D&E / Permitting toggle. Clicking a bar swaps the active bucket;
+  // the columns below filter to that bucket and "+ Add task" lands new rows
+  // with bucket=activeBucket.
+  const [activeBucket, setActiveBucket] = useState<'de' | 'pm'>(defaultBucket);
+  const bucketTotals = useMemo(() => {
+    const counters: Record<'de' | 'pm', { open: number; total: number }> = {
+      de: { open: 0, total: 0 },
+      pm: { open: 0, total: 0 },
+    };
+    for (const t of tasks) {
+      const b = t.bucket;
+      if (b !== 'de' && b !== 'pm') continue;
+      counters[b].total += 1;
+      if (t.status !== 'Resolved') counters[b].open += 1;
+    }
+    return counters;
+  }, [tasks]);
+
+  const visible = useMemo(
+    () => tasks.filter((t) => t.bucket === activeBucket),
+    [tasks, activeBucket],
+  );
 
   return (
     <div className="flex flex-col" data-testid="pd-v2-tasks-panel">
+      <BucketBars
+        active={activeBucket}
+        totals={bucketTotals}
+        onSelect={setActiveBucket}
+      />
       <div
         className="grid"
         style={{
@@ -1239,7 +1284,8 @@ function TasksPanel({ permitId }: { permitId: number }) {
             title={d.label}
             accent={d.accent}
             permitId={permitId}
-            tasks={tasks.filter((t) => t.discipline === d.key)}
+            activeBucket={activeBucket}
+            tasks={visible.filter((t) => t.discipline === d.key)}
             memberNames={memberNames}
             borderLeft={d.key === 'arch'}
           />
@@ -1249,11 +1295,75 @@ function TasksPanel({ permitId }: { permitId: number }) {
   );
 }
 
+/** fix-79: D&E / Permitting toggle bars. Active bar gets an accent border +
+ *  bolder text; counts show open/total per bucket. */
+function BucketBars({
+  active,
+  totals,
+  onSelect,
+}: {
+  active: 'de' | 'pm';
+  totals: Record<'de' | 'pm', { open: number; total: number }>;
+  onSelect: (b: 'de' | 'pm') => void;
+}) {
+  const BARS = [
+    { key: 'de' as const, label: 'D&E', accent: 'var(--color-de)' },
+    { key: 'pm' as const, label: 'Permitting', accent: 'var(--color-pm)' },
+  ];
+  return (
+    <div
+      className="grid"
+      style={{
+        gridTemplateColumns: '1fr 1fr',
+        borderBottom: '1px solid var(--color-border)',
+      }}
+      data-testid="pd-v2-task-bucket-bars"
+    >
+      {BARS.map((b) => {
+        const isActive = active === b.key;
+        const { open, total } = totals[b.key];
+        return (
+          <button
+            key={b.key}
+            type="button"
+            onClick={() => onSelect(b.key)}
+            className="px-3 py-2 text-left cursor-pointer"
+            style={{
+              background: isActive ? 'var(--color-s2)' : 'var(--color-bg)',
+              borderRight:
+                b.key === 'de' ? '1px solid var(--color-border)' : undefined,
+              borderBottom: isActive
+                ? `2px solid ${b.accent}`
+                : '2px solid transparent',
+              color: isActive ? b.accent : 'var(--color-muted)',
+              fontWeight: isActive ? 700 : 500,
+            }}
+            data-testid={`pd-v2-task-bucket-bar-${b.key}`}
+            data-active={isActive ? 'true' : 'false'}
+            aria-pressed={isActive}
+          >
+            <span className="text-[11px] uppercase tracking-wide">
+              {b.label}
+            </span>
+            <span
+              className="ml-2 text-[10px] font-mono"
+              data-testid={`pd-v2-task-bucket-count-${b.key}`}
+            >
+              {open}/{total}
+            </span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 function DisciplineColumn({
   discipline,
   title,
   accent,
   permitId,
+  activeBucket,
   tasks,
   memberNames,
   borderLeft,
@@ -1262,6 +1372,9 @@ function DisciplineColumn({
   title: string;
   accent: string;
   permitId: number;
+  /** fix-79: the lifecycle bucket the user is viewing. New tasks created from
+   *  the "+ Add task" input land in this bucket. */
+  activeBucket: 'de' | 'pm';
   tasks: TaskNode[];
   memberNames: string[];
   borderLeft?: boolean;
@@ -1276,7 +1389,16 @@ function DisciplineColumn({
   function handleAdd() {
     const text = draft.trim();
     if (!text) return;
-    upsert.mutate({ permitId, bucket: discipline, text, status: 'Open' });
+    // fix-79: pass the renamed `discipline` arg + the explicit lifecycle
+    // `bucket` so a task added while viewing Permitting lands in Permitting
+    // rather than getting the trigger's c0.submitted default.
+    upsert.mutate({
+      permitId,
+      discipline,
+      bucket: activeBucket,
+      text,
+      status: 'Open',
+    });
     setDraft('');
   }
 
@@ -1387,7 +1509,7 @@ function TaskItem({
   // override only the field(s) that changed.
   function save(
     patch: Partial<{
-      bucket: 'arch' | 'ent';
+      discipline: 'arch' | 'ent';
       text: string;
       status: 'Open' | 'In Progress' | 'Resolved';
       startDate: string | null;
@@ -1398,7 +1520,11 @@ function TaskItem({
       id: task.id,
       permitId,
       parentTaskId: task.parent_task_id,
-      bucket: task.discipline,
+      // fix-79: pass the renamed discipline + preserve the existing bucket
+      // (edits don't move tasks between D&E and Permitting; the user moves
+      // them by toggling the BucketBars + re-creating, intentionally).
+      discipline: task.discipline,
+      bucket: task.bucket,
       text: task.text,
       status: task.status,
       startDate: task.start_date,
@@ -1416,10 +1542,12 @@ function TaskItem({
   function addSubtask() {
     const t = subDraft.trim();
     if (!t) return;
+    // fix-79: subtasks inherit the parent's bucket.
     upsert.mutate({
       permitId,
       parentTaskId: task.id,
-      bucket: task.discipline,
+      discipline: task.discipline,
+      bucket: task.bucket,
       text: t,
       status: 'Open',
     });
@@ -1474,7 +1602,9 @@ function TaskItem({
         {!isSubtask && (
           <select
             value={task.discipline}
-            onChange={(e) => save({ bucket: e.target.value as 'arch' | 'ent' })}
+            onChange={(e) =>
+              save({ discipline: e.target.value as 'arch' | 'ent' })
+            }
             title="Discipline"
             className="text-[10px] px-1 py-0.5 border rounded outline-none"
             style={{
