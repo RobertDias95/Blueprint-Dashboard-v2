@@ -956,6 +956,19 @@ function DateCell({
   // This preserves fix-26a's "retry after sibling correction" workflow.
   // Resets to false on a successful commit.
   const lastCommitFailedRef = useRef(false);
+  // fix-86: state mirror of lastCommitFailedRef that drives the red border +
+  // "✕" mark. Bobby's 4563 34th Ave W Demo permit: a server-side validation
+  // rejection (intake_accepted < submitted) painted the cell red, but typing
+  // a fresh value didn't reset the visual — saving the new value still felt
+  // like a stuck-in-error retry. Refs alone don't re-render, so we keep this
+  // boolean state in lockstep with the ref: both set true on .catch, both
+  // cleared on success OR on the first onChange whose value differs from
+  // lastRejectedValueRef.
+  const [errored, setErrored] = useState(false);
+  // fix-86: the exact value the last failed commit attempted. When the user
+  // types something different, we wipe the errored flag immediately so the
+  // input goes neutral and the next save isn't carrying baggage.
+  const lastRejectedValueRef = useRef<string | null>(null);
   // fix-83: 500ms debounce on the commit-on-change path. Calendar-arrow nav
   // (and the type=date stepper) fires onChange with a full valid YYYY-MM-DD
   // at every step, which used to spawn one mutation per click and — under
@@ -1026,6 +1039,10 @@ function DateCell({
         setDirty(false);
         // fix-75: a clean success clears the failure flag.
         lastCommitFailedRef.current = false;
+        // fix-86: success also clears the rejected-value pointer + errored
+        // visual, in case the user typed a fresh value that worked.
+        lastRejectedValueRef.current = null;
+        setErrored(false);
       })
       .catch(() => {
         lastCommittedRef.current = prev;
@@ -1033,6 +1050,11 @@ function DateCell({
         // being swallowed by the safety-net (the auto-commit attempt failed,
         // so blur is the user's explicit "try again" signal).
         lastCommitFailedRef.current = true;
+        // fix-86: remember the exact value that just failed; onChange uses
+        // this to wipe the errored visual the moment the user types something
+        // different. Also drive the red border via state so React re-renders.
+        lastRejectedValueRef.current = next;
+        setErrored(true);
       });
   }
   return (
@@ -1057,6 +1079,13 @@ function DateCell({
       // visual disappears the moment a commit succeeds (fix-73 sets
       // dirty=false in .then). Bobby's "I thought it saved" gap.
       data-dirty={dirty ? 'true' : 'false'}
+      // fix-86: data-errored exposes the post-rejection visual state
+      // (set in tryCommit's .catch). Cleared on success OR on retype
+      // (onChange below). Distinct from data-dirty: dirty=true means
+      // "user typed; not saved yet" (amber); errored=true means "last
+      // save was rejected by validation" (red). Both can be true; the
+      // red borders out-rank amber visually.
+      data-errored={errored ? 'true' : 'false'}
       data-testid={testid}
     >
       <div className="flex items-center justify-between">
@@ -1100,6 +1129,20 @@ function DateCell({
           // fix-73: any user edit marks the draft dirty, gating the
           // value-prop-sync effect so an OCC refetch can't wipe it.
           setDirty(true);
+          // fix-86: clear the errored visual the moment the user types a
+          // value different from the one that was just rejected. Without
+          // this, the cell stays painted red even though the new value has
+          // never been tried — feels like the field is "stuck in error".
+          // Also clear lastCommitFailedRef so the fix-75 blur-retry path
+          // doesn't fire on what's effectively a fresh edit.
+          if (
+            lastRejectedValueRef.current !== null &&
+            next !== lastRejectedValueRef.current
+          ) {
+            lastRejectedValueRef.current = null;
+            lastCommitFailedRef.current = false;
+            setErrored(false);
+          }
           if (milestone) onDraftChange?.(milestone, next);
           // fix-75: when this cell drives a server-side snap (intake_accepted,
           // resubmitted), commit AS SOON AS we have a valid YYYY-MM-DD so the
@@ -1161,8 +1204,15 @@ function DateCell({
           // fix-76: amber accent on the input border when dirty — the user can
           // see at a glance that the value displayed is uncommitted draft.
           // Clears the moment the save resolves (dirty=false).
-          borderColor: dirty ? 'var(--color-co)' : 'var(--color-border)',
-          borderWidth: dirty ? 2 : 1,
+          // fix-86: red border out-ranks amber when the last save was
+          // rejected (server-side validation). Cleared on retype OR
+          // on a successful save.
+          borderColor: errored
+            ? '#dc2626'
+            : dirty
+              ? 'var(--color-co)'
+              : 'var(--color-border)',
+          borderWidth: errored || dirty ? 2 : 1,
           background: 'var(--color-bg)',
           color: 'var(--color-text)',
         }}
