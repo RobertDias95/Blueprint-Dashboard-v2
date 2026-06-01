@@ -5,6 +5,7 @@ import { usePermits } from '../hooks/usePermits';
 import {
   buildLibraryRows,
   filterLibraryRows,
+  matchingUnitIndices,
   sortLibraryRows,
   type LibraryFilters,
   type LibraryRow,
@@ -84,20 +85,35 @@ interface BodyProps {
   projects: Project[];
   permits: PermitWithCycles[];
 }
+const INITIAL_FILTERS: LibraryFilters = {
+  search: '',
+  lotwTarget: null,
+  lotwBuf: 2,
+  lotdTarget: null,
+  lotdBuf: 2,
+  unitwTarget: null,
+  unitwBuf: 2,
+  unitdTarget: null,
+  unitdBuf: 2,
+  zone: '',
+  alley: '',
+  productType: '',
+  tag: '',
+  juris: '',
+};
+
 function Body({ projects, permits }: BodyProps) {
-  const [filters, setFilters] = useState<LibraryFilters>({
-    search: '',
-    lotwTarget: null,
-    lotwBuf: 2,
-    lotdTarget: null,
-    lotdBuf: 2,
-    zone: '',
-    alley: '',
-    productType: '',
-    tag: '',
-    juris: '',
-  });
+  const [filters, setFilters] = useState<LibraryFilters>(INITIAL_FILTERS);
   const [sort, setSort] = useState<SortState>({ col: 'address', asc: true });
+  // fix-81: per-row caret state. Map value: true=explicitly open,
+  // false=explicitly closed. Missing key = "auto" (driven by unit
+  // filter). Component-local; expansion isn't precious enough to
+  // persist to localStorage.
+  const [expandedById, setExpandedById] = useState<Map<string, boolean>>(
+    () => new Map(),
+  );
+  const unitFilterActive =
+    filters.unitwTarget !== null || filters.unitdTarget !== null;
 
   const allRows = useMemo(
     () => buildLibraryRows(projects, permits),
@@ -129,17 +145,19 @@ function Body({ projects, permits }: BodyProps) {
     setFilters((prev) => ({ ...prev, [key]: val }));
   }
   function clearFilters() {
-    setFilters({
-      search: '',
-      lotwTarget: null,
-      lotwBuf: 2,
-      lotdTarget: null,
-      lotdBuf: 2,
-      zone: '',
-      alley: '',
-      productType: '',
-      tag: '',
-      juris: '',
+    setFilters(INITIAL_FILTERS);
+  }
+
+  function isExpanded(projectId: string): boolean {
+    const explicit = expandedById.get(projectId);
+    if (explicit !== undefined) return explicit;
+    return unitFilterActive;
+  }
+  function toggleExpanded(projectId: string) {
+    setExpandedById((prev) => {
+      const next = new Map(prev);
+      next.set(projectId, !isExpanded(projectId));
+      return next;
     });
   }
 
@@ -150,7 +168,7 @@ function Body({ projects, permits }: BodyProps) {
         type="text"
         value={filters.search}
         onChange={(e) => update('search', e.target.value)}
-        placeholder="Search by address (space/comma separated tokens)…"
+        placeholder="Search by address or unit type name (space/comma separated tokens)…"
         className="w-full bg-bg border border-border rounded-md px-3 py-1.5 text-xs font-display text-text placeholder:text-dim focus:outline-none focus:border-de"
         data-testid="library-search"
       />
@@ -176,6 +194,23 @@ function Body({ projects, permits }: BodyProps) {
           onTarget={(v) => update('lotdTarget', v)}
           onBuf={(v) => update('lotdBuf', v)}
           testIdPrefix="lotd"
+        />
+
+        <TargetRange
+          label="Unit Width (ft)"
+          target={filters.unitwTarget}
+          buf={filters.unitwBuf}
+          onTarget={(v) => update('unitwTarget', v)}
+          onBuf={(v) => update('unitwBuf', v)}
+          testIdPrefix="unitw"
+        />
+        <TargetRange
+          label="Unit Depth (ft)"
+          target={filters.unitdTarget}
+          buf={filters.unitdBuf}
+          onTarget={(v) => update('unitdTarget', v)}
+          onBuf={(v) => update('unitdBuf', v)}
+          testIdPrefix="unitd"
         />
 
         <FieldLabel label="Zone">
@@ -265,6 +300,10 @@ function Body({ projects, permits }: BodyProps) {
         <table className="w-full text-xs" data-testid="library-table">
           <thead>
             <tr className="bg-s2 border-b-2 border-border">
+              <th
+                className="px-1 py-1.5 w-6"
+                aria-label="Expand row"
+              />
               <Th sort={sort} col="address" onClick={toggleSort} align="left">Address</Th>
               <Th sort={sort} col="juris" onClick={toggleSort} align="left">Juris</Th>
               <Th sort={sort} col="productType" onClick={toggleSort} align="left">Type</Th>
@@ -280,12 +319,22 @@ function Body({ projects, permits }: BodyProps) {
           </thead>
           <tbody>
             {sorted.map((r) => (
-              <Row key={r.projectId} row={r} />
+              <Row
+                key={r.projectId}
+                row={r}
+                expanded={isExpanded(r.projectId)}
+                onToggle={() => toggleExpanded(r.projectId)}
+                matchedUnitIndices={
+                  unitFilterActive
+                    ? matchingUnitIndices(r, filters)
+                    : null
+                }
+              />
             ))}
             {sorted.length === 0 && (
               <tr>
                 <td
-                  colSpan={9}
+                  colSpan={10}
                   className="px-4 py-8 text-center text-xs text-dim italic"
                 >
                   No projects match the current filters.
@@ -328,72 +377,183 @@ function Th({
   );
 }
 
-function Row({ row }: { row: LibraryRow }) {
+interface RowProps {
+  row: LibraryRow;
+  expanded: boolean;
+  onToggle: () => void;
+  /** When a unit filter is active, this is the list of unit_type
+   * indices that satisfied the filter — the nested table highlights
+   * exactly those rows. Null when no unit filter is active (in which
+   * case nothing gets highlighted). */
+  matchedUnitIndices: number[] | null;
+}
+function Row({ row, expanded, onToggle, matchedUnitIndices }: RowProps) {
+  const hasUnits = row.unitTypes.length > 0;
   return (
-    <tr
-      className="border-b border-border hover:bg-s2 transition"
-      data-testid={`library-row-${row.projectId}`}
-    >
-      <td className="px-2 py-1.5 font-display font-bold text-text">
-        <Link
-          to={`/project/${row.projectId}`}
-          className="hover:underline"
-        >
-          {row.address}
-        </Link>
-      </td>
-      <td className="px-2 py-1.5 text-muted">{row.juris || '—'}</td>
-      <td className="px-2 py-1.5 text-text">{row.productType || '—'}</td>
-      <td className="px-2 py-1.5 text-center font-mono font-bold text-text">
-        {row.units || '—'}
-      </td>
-      <td className="px-2 py-1.5 text-center">
-        {row.zone ? (
-          <span className="font-mono text-text">{row.zone}</span>
-        ) : (
-          <span className="text-dim">—</span>
-        )}
-      </td>
-      <td className="px-2 py-1.5 text-center">
-        {row.lotWidth && row.lotDepth ? (
-          <span className="font-mono text-text">
-            {fmtDim(row.lotWidth)}×{fmtDim(row.lotDepth)}
+    <>
+      <tr
+        className="border-b border-border hover:bg-s2 transition"
+        data-testid={`library-row-${row.projectId}`}
+      >
+        <td className="px-1 py-1.5 text-center align-middle">
+          {hasUnits ? (
+            <button
+              type="button"
+              onClick={onToggle}
+              aria-expanded={expanded}
+              aria-label={expanded ? 'Collapse unit types' : 'Expand unit types'}
+              className="text-dim hover:text-text font-mono leading-none px-1 select-none"
+              data-testid={`library-caret-${row.projectId}`}
+            >
+              {expanded ? '▾' : '▸'}
+            </button>
+          ) : (
+            <span className="text-dim/40" aria-hidden>
+              ·
+            </span>
+          )}
+        </td>
+        <td className="px-2 py-1.5 font-display font-bold text-text">
+          <Link
+            to={`/project/${row.projectId}`}
+            className="hover:underline"
+          >
+            {row.address}
+          </Link>
+        </td>
+        <td className="px-2 py-1.5 text-muted">{row.juris || '—'}</td>
+        <td className="px-2 py-1.5 text-text">{row.productType || '—'}</td>
+        <td className="px-2 py-1.5 text-center font-mono font-bold text-text">
+          {row.units || '—'}
+        </td>
+        <td className="px-2 py-1.5 text-center">
+          {row.zone ? (
+            <span className="font-mono text-text">{row.zone}</span>
+          ) : (
+            <span className="text-dim">—</span>
+          )}
+        </td>
+        <td className="px-2 py-1.5 text-center">
+          {row.lotWidth && row.lotDepth ? (
+            <span className="font-mono text-text">
+              {fmtDim(row.lotWidth)}×{fmtDim(row.lotDepth)}
+            </span>
+          ) : (
+            <span className="text-dim">—</span>
+          )}
+        </td>
+        <td className="px-2 py-1.5 text-center">
+          {row.alley ? (
+            <span className="font-mono text-text">{row.alley}</span>
+          ) : (
+            <span className="text-dim">—</span>
+          )}
+        </td>
+        <td className="px-2 py-1.5">
+          {row.tags.length === 0 ? (
+            <span className="text-dim">—</span>
+          ) : (
+            <div className="flex flex-wrap gap-1">
+              {row.tags.map((t) => (
+                <span
+                  key={t}
+                  className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-de-bg text-de border border-de-border"
+                >
+                  {t}
+                </span>
+              ))}
+            </div>
+          )}
+        </td>
+        <td className="px-2 py-1.5 text-center">
+          <span
+            className={`text-[9px] font-bold uppercase px-2 py-0.5 rounded border ${STAGE_BADGE[row.stage]}`}
+          >
+            {STAGE_LABEL[row.stage]}
           </span>
-        ) : (
-          <span className="text-dim">—</span>
-        )}
-      </td>
-      <td className="px-2 py-1.5 text-center">
-        {row.alley ? (
-          <span className="font-mono text-text">{row.alley}</span>
-        ) : (
-          <span className="text-dim">—</span>
-        )}
-      </td>
-      <td className="px-2 py-1.5">
-        {row.tags.length === 0 ? (
-          <span className="text-dim">—</span>
-        ) : (
-          <div className="flex flex-wrap gap-1">
-            {row.tags.map((t) => (
-              <span
-                key={t}
-                className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-de-bg text-de border border-de-border"
-              >
-                {t}
-              </span>
-            ))}
-          </div>
-        )}
-      </td>
-      <td className="px-2 py-1.5 text-center">
-        <span
-          className={`text-[9px] font-bold uppercase px-2 py-0.5 rounded border ${STAGE_BADGE[row.stage]}`}
+        </td>
+      </tr>
+      {expanded && hasUnits && (
+        <tr
+          className="border-b border-border bg-bg/40"
+          data-testid={`library-expansion-${row.projectId}`}
         >
-          {STAGE_LABEL[row.stage]}
-        </span>
-      </td>
-    </tr>
+          <td />
+          <td colSpan={9} className="px-2 pb-2 pt-1">
+            <UnitTypeMiniTable
+              projectId={row.projectId}
+              unitTypes={row.unitTypes}
+              matchedIndices={matchedUnitIndices}
+            />
+          </td>
+        </tr>
+      )}
+    </>
+  );
+}
+
+function UnitTypeMiniTable({
+  projectId,
+  unitTypes,
+  matchedIndices,
+}: {
+  projectId: string;
+  unitTypes: LibraryRow['unitTypes'];
+  matchedIndices: number[] | null;
+}) {
+  const matchSet = matchedIndices ? new Set(matchedIndices) : null;
+  return (
+    <table
+      className="w-full text-[11px]"
+      data-testid={`library-unit-table-${projectId}`}
+    >
+      <thead>
+        <tr className="text-dim">
+          <th className="px-2 py-0.5 text-left text-[9px] font-extrabold uppercase tracking-wide">
+            Type
+          </th>
+          <th className="px-2 py-0.5 text-center text-[9px] font-extrabold uppercase tracking-wide">
+            Width
+          </th>
+          <th className="px-2 py-0.5 text-center text-[9px] font-extrabold uppercase tracking-wide">
+            Depth
+          </th>
+          <th className="px-2 py-0.5 text-center text-[9px] font-extrabold uppercase tracking-wide">
+            Qty
+          </th>
+        </tr>
+      </thead>
+      <tbody>
+        {unitTypes.map((u, i) => {
+          const matched = matchSet?.has(i) ?? false;
+          return (
+            <tr
+              key={i}
+              data-testid={`library-unit-row-${projectId}-${i}`}
+              data-matched={matched ? 'true' : undefined}
+              className={
+                matched
+                  ? 'bg-de-bg/40 border-l-2 border-de'
+                  : ''
+              }
+            >
+              <td className="px-2 py-0.5 font-mono text-text">
+                {u.label || <span className="text-dim italic">unnamed</span>}
+              </td>
+              <td className="px-2 py-0.5 text-center font-mono text-text">
+                {u.width_ft != null ? fmtDim(u.width_ft) : <span className="text-dim">—</span>}
+              </td>
+              <td className="px-2 py-0.5 text-center font-mono text-text">
+                {u.depth_ft != null ? fmtDim(u.depth_ft) : <span className="text-dim">—</span>}
+              </td>
+              <td className="px-2 py-0.5 text-center font-mono text-text">
+                {u.qty || <span className="text-dim">—</span>}
+              </td>
+            </tr>
+          );
+        })}
+      </tbody>
+    </table>
   );
 }
 

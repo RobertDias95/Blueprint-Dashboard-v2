@@ -1,4 +1,4 @@
-import type { PermitWithCycles, Project, Stage } from './database.types';
+import type { PermitWithCycles, Project, Stage, UnitType } from './database.types';
 import { effectiveStage } from './permitStage';
 import { multiMatchAddress } from './drawScheduleHelpers';
 
@@ -21,6 +21,9 @@ export interface LibraryRow {
   alley: string;
   tags: string[];
   stage: Stage;
+  /** fix-81: per-structure dims from projects.unit_types. Powers the
+   * per-row caret expansion + the unit-width / unit-depth filters. */
+  unitTypes: UnitType[];
 }
 
 /** Q6.3.a-fix: target ± buffer filter. "50 ± 5" matches every value in
@@ -107,6 +110,7 @@ export function buildLibraryRows(
       alley: proj.alley ?? '',
       tags: Array.isArray(proj.project_tags) ? proj.project_tags : [],
       stage: worstStage(projectPermits),
+      unitTypes: Array.isArray(proj.unit_types) ? proj.unit_types : [],
     });
   }
   return rows;
@@ -118,6 +122,14 @@ export interface LibraryFilters {
   lotwBuf: number;
   lotdTarget: number | null;
   lotdBuf: number;
+  /** fix-81: filter by structure (unit_type) width/depth. A project matches
+   * when at least one of its unit_types lands inside the target ± buf
+   * window. Projects with no unit_types don't match when either unit
+   * filter is active. */
+  unitwTarget: number | null;
+  unitwBuf: number;
+  unitdTarget: number | null;
+  unitdBuf: number;
   zone: string;
   alley: string;
   productType: string;
@@ -125,23 +137,60 @@ export interface LibraryFilters {
   juris: string;
 }
 
-/** Apply the 7 active filters to the matrix rows. */
+/** fix-81: indices of unit_types on `row` that satisfy BOTH active unit
+ * filters. Returns all indices when neither filter is active. Drives row
+ * filtering AND the "highlight matching unit row" visual treatment. */
+export function matchingUnitIndices(
+  row: LibraryRow,
+  filters: LibraryFilters,
+): number[] {
+  const hasUnitFilter =
+    filters.unitwTarget !== null || filters.unitdTarget !== null;
+  if (!hasUnitFilter) {
+    return row.unitTypes.map((_, i) => i);
+  }
+  const out: number[] = [];
+  for (let i = 0; i < row.unitTypes.length; i++) {
+    const u = row.unitTypes[i];
+    if (
+      matchTargetWithBuffer(u.width_ft, filters.unitwTarget, filters.unitwBuf) &&
+      matchTargetWithBuffer(u.depth_ft, filters.unitdTarget, filters.unitdBuf)
+    ) {
+      out.push(i);
+    }
+  }
+  return out;
+}
+
+/** Apply the active filters to the matrix rows. */
 export function filterLibraryRows(
   rows: LibraryRow[],
   filters: LibraryFilters,
 ): LibraryRow[] {
   const zoneQ = filters.zone.trim().toLowerCase();
+  const searchQ = filters.search.trim();
+  const hasUnitFilter =
+    filters.unitwTarget !== null || filters.unitdTarget !== null;
   return rows.filter((r) => {
     if (!matchTargetWithBuffer(r.lotWidth, filters.lotwTarget, filters.lotwBuf)) return false;
     if (!matchTargetWithBuffer(r.lotDepth, filters.lotdTarget, filters.lotdBuf)) return false;
+    if (hasUnitFilter && matchingUnitIndices(r, filters).length === 0) return false;
     if (zoneQ && !r.zone.toLowerCase().includes(zoneQ)) return false;
     if (filters.alley && r.alley !== filters.alley) return false;
     if (filters.productType && r.productType !== filters.productType) return false;
     if (filters.tag && !r.tags.includes(filters.tag)) return false;
     if (filters.juris && r.juris !== filters.juris) return false;
-    if (filters.search.trim() && !multiMatchAddress(filters.search, r.address)) return false;
+    if (searchQ && !matchRowSearch(r, searchQ)) return false;
     return true;
   });
+}
+
+/** fix-81: search hits address OR any unit_type label, so typing
+ * "cottage" surfaces every project that has a "Cottage *" unit. */
+function matchRowSearch(row: LibraryRow, query: string): boolean {
+  if (multiMatchAddress(query, row.address)) return true;
+  const q = query.toLowerCase();
+  return row.unitTypes.some((u) => u.label.toLowerCase().includes(q));
 }
 
 export type SortableColumn =

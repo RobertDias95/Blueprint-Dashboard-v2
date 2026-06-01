@@ -6,6 +6,7 @@ import type {
   UnitType,
 } from '../../lib/database.types';
 import { useUpdateProject } from '../../hooks/useUpdateProject';
+import { nextUnitTypeLabel } from '../../lib/unitTypeNaming';
 import {
   useSetBpDdDates,
   type ProjectOverlapConflict,
@@ -1259,17 +1260,24 @@ function UnitDimensions({ project }: { project: Project }) {
           void writeTypes([next]);
         }}
         onExpand={() => {
-          const seed: UnitType[] =
+          // fix-81: route through nextUnitTypeLabel so the seed letters
+          // come from the same pool that + Add uses downstream.
+          const first: UnitType =
             types.length === 0
-              ? [
-                  { label: 'Type A', width_ft: null, depth_ft: null, qty: 1 },
-                  { label: 'Type B', width_ft: null, depth_ft: null, qty: 1 },
-                ]
-              : [
-                  { ...types[0], label: types[0].label || 'Type A' },
-                  { label: 'Type B', width_ft: null, depth_ft: null, qty: 1 },
-                ];
-          void writeTypes(seed);
+              ? {
+                  label: nextUnitTypeLabel([]),
+                  width_ft: null,
+                  depth_ft: null,
+                  qty: 1,
+                }
+              : { ...types[0], label: types[0].label || nextUnitTypeLabel([]) };
+          const second: UnitType = {
+            label: nextUnitTypeLabel([first.label]),
+            width_ft: null,
+            depth_ft: null,
+            qty: 1,
+          };
+          void writeTypes([first, second]);
         }}
       />
     );
@@ -1292,7 +1300,12 @@ function UnitDimensions({ project }: { project: Project }) {
       onAdd={() => {
         const next = [
           ...types,
-          { label: '', width_ft: null, depth_ft: null, qty: 1 },
+          {
+            label: nextUnitTypeLabel(types.map((t) => t.label)),
+            width_ft: null,
+            depth_ft: null,
+            qty: 1,
+          },
         ];
         void writeTypes(next);
       }}

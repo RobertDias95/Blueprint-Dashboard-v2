@@ -1,4 +1,5 @@
 import type { UnitType } from '../../lib/database.types';
+import { nextUnitTypeLabel } from '../../lib/unitTypeNaming';
 
 // fix-22: sub-editor for projects.unit_types (jsonb array). Each entry is
 // {label, width_ft, depth_ft, qty}. Used in Step 1; v1 captures these
@@ -7,14 +8,24 @@ import type { UnitType } from '../../lib/database.types';
 // Empty inputs (width/depth) read back as null on the wire so the DB
 // keeps clean NULLs rather than zero-as-missing — matches the spec's
 // "treat 0 as missing" guidance for legacy data.
+//
+// fix-81: + Add seeds the next "Type X" letter via nextUnitTypeLabel so
+// the team's intake habit (Type A, B, C, …) is automatic; the user can
+// still rename any row freeform (e.g. "Cottage 1") and the next +Add
+// still picks the next vacant letter, not "Cottage 2".
 
 interface Props {
   value: UnitType[];
   onChange: (next: UnitType[]) => void;
 }
 
-function emptyRow(): UnitType {
-  return { label: '', width_ft: null, depth_ft: null, qty: 0 };
+function nextRow(rows: readonly UnitType[]): UnitType {
+  return {
+    label: nextUnitTypeLabel(rows.map((r) => r.label)),
+    width_ft: null,
+    depth_ft: null,
+    qty: 0,
+  };
 }
 
 function parseNumOrNull(v: string): number | null {
@@ -32,7 +43,7 @@ export default function UnitTypesEditor({ value, onChange }: Props) {
     onChange(next);
   }
   function add() {
-    onChange([...rows, emptyRow()]);
+    onChange([...rows, nextRow(rows)]);
   }
   function remove(i: number) {
     onChange(rows.filter((_, idx) => idx !== i));

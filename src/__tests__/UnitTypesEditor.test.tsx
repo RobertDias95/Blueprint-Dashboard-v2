@@ -28,22 +28,110 @@ describe('<UnitTypesEditor />', () => {
     ).toBe('1');
   });
 
-  it('add inserts an empty row at the end', () => {
+  it('+ Add on an empty list lands "Type A"', () => {
     const onChange = vi.fn();
-    const value: UnitType[] = [
-      { label: 'A', width_ft: 10, depth_ft: 20, qty: 1 },
-    ];
-    render(<UnitTypesEditor value={value} onChange={onChange} />);
+    render(<UnitTypesEditor value={[]} onChange={onChange} />);
     fireEvent.click(screen.getByTestId('unit-types-add'));
-    expect(onChange).toHaveBeenCalledTimes(1);
     const next = onChange.mock.calls[0][0] as UnitType[];
-    expect(next).toHaveLength(2);
-    expect(next[1]).toEqual({
-      label: '',
+    expect(next).toHaveLength(1);
+    expect(next[0]).toEqual({
+      label: 'Type A',
       width_ft: null,
       depth_ft: null,
       qty: 0,
     });
+  });
+
+  it('+ Add after Type A lands "Type B"', () => {
+    const onChange = vi.fn();
+    const value: UnitType[] = [
+      { label: 'Type A', width_ft: 25, depth_ft: 60, qty: 1 },
+    ];
+    render(<UnitTypesEditor value={value} onChange={onChange} />);
+    fireEvent.click(screen.getByTestId('unit-types-add'));
+    const next = onChange.mock.calls[0][0] as UnitType[];
+    expect(next[1].label).toBe('Type B');
+  });
+
+  it('+ Add after [Type A, Type B] lands "Type C" (not "Type B" again)', () => {
+    const onChange = vi.fn();
+    const value: UnitType[] = [
+      { label: 'Type A', width_ft: 25, depth_ft: 60, qty: 1 },
+      { label: 'Type B', width_ft: 30, depth_ft: 70, qty: 1 },
+    ];
+    render(<UnitTypesEditor value={value} onChange={onChange} />);
+    fireEvent.click(screen.getByTestId('unit-types-add'));
+    const next = onChange.mock.calls[0][0] as UnitType[];
+    expect(next[2].label).toBe('Type C');
+  });
+
+  it('deleting Type B from [A, B, C] then + Add reuses "Type B"', () => {
+    // The component receives `value` from the parent, so the test
+    // mounts twice: once with [A, B, C] to fire the remove, then with
+    // the post-remove [A, C] to fire the add. This mirrors how the
+    // parent threads onChange→state→value back to the child.
+    const onChange = vi.fn();
+    const value: UnitType[] = [
+      { label: 'Type A', width_ft: 25, depth_ft: 60, qty: 1 },
+      { label: 'Type B', width_ft: 30, depth_ft: 70, qty: 1 },
+      { label: 'Type C', width_ft: 35, depth_ft: 80, qty: 1 },
+    ];
+    const { rerender } = render(
+      <UnitTypesEditor value={value} onChange={onChange} />,
+    );
+    fireEvent.click(screen.getByTestId('unit-types-remove-1'));
+    const afterRemove = onChange.mock.calls[0][0] as UnitType[];
+    expect(afterRemove.map((u) => u.label)).toEqual(['Type A', 'Type C']);
+
+    onChange.mockClear();
+    rerender(<UnitTypesEditor value={afterRemove} onChange={onChange} />);
+    fireEvent.click(screen.getByTestId('unit-types-add'));
+    const afterAdd = onChange.mock.calls[0][0] as UnitType[];
+    expect(afterAdd[afterAdd.length - 1].label).toBe('Type B');
+  });
+
+  it('+ Add after a full A-Z lands "Type AA" (Excel-style overflow)', () => {
+    const onChange = vi.fn();
+    const value: UnitType[] = Array.from({ length: 26 }, (_, i) => ({
+      label: `Type ${String.fromCharCode(65 + i)}`,
+      width_ft: null,
+      depth_ft: null,
+      qty: 1,
+    }));
+    render(<UnitTypesEditor value={value} onChange={onChange} />);
+    fireEvent.click(screen.getByTestId('unit-types-add'));
+    const next = onChange.mock.calls[0][0] as UnitType[];
+    expect(next[next.length - 1].label).toBe('Type AA');
+  });
+
+  it('renaming "Type A" → "Cottage 1" fires onChange with the new label', () => {
+    const onChange = vi.fn();
+    const value: UnitType[] = [
+      { label: 'Type A', width_ft: 25, depth_ft: 60, qty: 1 },
+    ];
+    render(<UnitTypesEditor value={value} onChange={onChange} />);
+    fireEvent.change(screen.getByTestId('unit-types-label-0'), {
+      target: { value: 'Cottage 1' },
+    });
+    const next = onChange.mock.calls[0][0] as UnitType[];
+    expect(next[0].label).toBe('Cottage 1');
+  });
+
+  it('renamed rows don\'t consume a Type-letter (+ Add still picks the next vacant letter)', () => {
+    const onChange = vi.fn();
+    // Type A renamed to "Cottage 1", Type B left alone. Next letter
+    // should be C (Cottage 1 is invisible to the pool); confirms a
+    // freeform rename doesn't shift the auto-naming.
+    const value: UnitType[] = [
+      { label: 'Cottage 1', width_ft: 25, depth_ft: 60, qty: 1 },
+      { label: 'Type B', width_ft: 30, depth_ft: 70, qty: 1 },
+    ];
+    render(<UnitTypesEditor value={value} onChange={onChange} />);
+    fireEvent.click(screen.getByTestId('unit-types-add'));
+    const next = onChange.mock.calls[0][0] as UnitType[];
+    // "Cottage 1" doesn't match /^Type [A-Z]+$/ → only Type B is in
+    // the used-set → next free letter is A.
+    expect(next[next.length - 1].label).toBe('Type A');
   });
 
   it('remove drops the row at the given index', () => {
