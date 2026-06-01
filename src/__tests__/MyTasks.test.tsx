@@ -4,24 +4,22 @@ import { MemoryRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { ReactNode } from 'react';
 import { useAuthStore } from '../stores/authStore';
-import type { MyTaskNode } from '../lib/database.types';
+import type { MyTaskNode, TeamMember } from '../lib/database.types';
 
-// fix-78: My Tasks reverts to v1's "show all tasks with filters" model. fix-70
-// had walled it down to "primary OR co-assigned" per Bobby's spec at the time;
-// that broke his manager workflows (find every Open Corrections, every task on
-// project X, every task assigned to Miles). These tests pin the new contract:
-// all tenant tasks visible by default, filter chips narrow client-side,
-// localStorage persists filters across remounts.
+// fix-80: My Tasks v1-layout — three-pane kanban (D&E | Permitting | Task
+// Detail) with Not Started / In Progress sub-columns per bucket, top counters,
+// and a v1 filter row. fix-79 adds the lifecycle bucket (de/pm) on the wire;
+// until that lands MyTaskNode doesn't carry it in the typed shape, so fixtures
+// here declare bucket inline. The page reads it defensively (bucket ?? 'de').
+
+type TaskFixture = MyTaskNode & { bucket?: 'de' | 'pm' };
 
 const allTasksSpy = vi.hoisted(() => vi.fn());
+const upsertMutate = vi.hoisted(() => vi.fn());
 const teamRef = vi.hoisted(() => ({
-  current: [
-    { name: 'Bobby', email: 'bobby@x.com' },
-    { name: 'Edmund', email: 'edmund@x.com' },
-    { name: 'Miles', email: 'miles@x.com' },
-  ] as { name: string; email: string | null }[],
+  current: [] as TeamMember[],
 }));
-const tasksRef = vi.hoisted(() => ({ current: [] as MyTaskNode[] }));
+const tasksRef = vi.hoisted(() => ({ current: [] as TaskFixture[] }));
 
 vi.mock('../hooks/useTeamMembers', () => ({
   useTeamMembers: () => ({
@@ -35,7 +33,7 @@ vi.mock('../hooks/useTeamMembers', () => ({
 vi.mock('../hooks/useTaskTree', async (importActual) => {
   const actual = await importActual<typeof import('../hooks/useTaskTree')>();
   return {
-    ...actual, // keep the real resolveUserName
+    ...actual, // keep resolveUserName
     useAllTasks: () => {
       allTasksSpy();
       return {
@@ -45,12 +43,34 @@ vi.mock('../hooks/useTaskTree', async (importActual) => {
         refetch: vi.fn(),
       };
     },
+    useUpsertTask: () => ({
+      mutate: upsertMutate,
+      mutateAsync: vi.fn(),
+      isPending: false,
+      isError: false,
+      error: null,
+      reset: vi.fn(),
+    }),
   };
 });
 
 import MyTasks from '../pages/MyTasks';
 
-function node(over: Partial<MyTaskNode> & Pick<MyTaskNode, 'id'>): MyTaskNode {
+function member(over: Partial<TeamMember> & Pick<TeamMember, 'name' | 'role'>): TeamMember {
+  return {
+    id: `m-${over.name}-${over.role}`,
+    active: true,
+    former: false,
+    email: null,
+    notes: null,
+    updated_at: '2026-01-01T00:00:00Z',
+    active_start_quarter: null,
+    active_end_quarter: null,
+    ...over,
+  } as TeamMember;
+}
+
+function task(over: Partial<TaskFixture> & Pick<TaskFixture, 'id'>): TaskFixture {
   return {
     permit_id: 1,
     project_id: 'p1',
@@ -64,8 +84,9 @@ function node(over: Partial<MyTaskNode> & Pick<MyTaskNode, 'id'>): MyTaskNode {
     target_date: null,
     done_at: null,
     sort_order: 0,
-    primary_assignee: 'Bobby',
+    primary_assignee: null,
     co_assignees: [],
+    bucket: 'de',
     ...over,
   };
 }
@@ -82,91 +103,25 @@ function renderIt() {
   return render(<MyTasks />, { wrapper });
 }
 
-/** A varied fixture set the filter tests can narrow against. Covers: two
- *  projects, two permits, both disciplines, all three statuses, both
- *  primary-assignee and co-assignee paths, and one explicit subtask. */
-function varied(): MyTaskNode[] {
-  return [
-    node({
-      id: 'a-arch-open',
-      project_id: 'p1',
-      project_address: '123 Main St',
-      permit_id: 1,
-      permit_type: 'Building Permit',
-      discipline: 'arch',
-      status: 'Open',
-      text: 'Submit corrections to SDCI',
-      primary_assignee: 'Bobby',
-    }),
-    node({
-      id: 'a-arch-inprog',
-      project_id: 'p1',
-      project_address: '123 Main St',
-      permit_id: 1,
-      permit_type: 'Building Permit',
-      discipline: 'arch',
-      status: 'In Progress',
-      text: 'Review structural drawings',
-      primary_assignee: 'Bobby',
-    }),
-    node({
-      id: 'a-ent-resolved',
-      project_id: 'p1',
-      project_address: '123 Main St',
-      permit_id: 1,
-      permit_type: 'Building Permit',
-      discipline: 'ent',
-      status: 'Resolved',
-      text: 'Submit MUP application',
-      primary_assignee: 'Miles',
-    }),
-    node({
-      id: 'b-ent-open',
-      project_id: 'p2',
-      project_address: '500 Pike St',
-      permit_id: 2,
-      permit_type: 'PAR/Pre-Sub',
-      discipline: 'ent',
-      status: 'Open',
-      text: 'Address ECA corrections',
-      primary_assignee: 'Edmund',
-      co_assignees: ['Bobby'],
-    }),
-    node({
-      id: 'b-arch-open',
-      project_id: 'p2',
-      project_address: '500 Pike St',
-      permit_id: 2,
-      permit_type: 'PAR/Pre-Sub',
-      discipline: 'arch',
-      status: 'Open',
-      text: 'Update site plan',
-      primary_assignee: 'Miles',
-    }),
-    node({
-      id: 'b-ent-sub',
-      parent_task_id: 'b-ent-open',
-      project_id: 'p2',
-      project_address: '500 Pike St',
-      permit_id: 2,
-      permit_type: 'PAR/Pre-Sub',
-      discipline: 'ent',
-      status: 'Open',
-      text: 'Pull steep-slope study',
-      primary_assignee: 'Edmund',
-    }),
-  ];
-}
+/** Stable "today" for overdue math — picked to make 2026-05-20 in the past
+ *  and 2026-06-15 in the future regardless of CI clock drift. The page reads
+ *  today from new Date() so we anchor a fixed Date.now() in beforeEach. */
+const TODAY = '2026-06-01';
 
 beforeEach(() => {
   allTasksSpy.mockReset();
+  upsertMutate.mockReset();
+  // Anchor "today" for overdue math.
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date(`${TODAY}T12:00:00Z`));
   teamRef.current = [
-    { name: 'Bobby', email: 'bobby@x.com' },
-    { name: 'Edmund', email: 'edmund@x.com' },
-    { name: 'Miles', email: 'miles@x.com' },
+    member({ name: 'Bobby', role: 'ent_lead' }),
+    member({ name: 'Edmund', role: 'ent' }),
+    member({ name: 'Trevor', role: 'da' }),
+    member({ name: 'Ainsley', role: 'da' }),
+    member({ name: 'Miles', role: 'dm' }),
   ];
   tasksRef.current = [];
-  // Default: signed in as bobby@x.com → resolves to 'Bobby' for the Me preset.
   useAuthStore.setState({
     user: { email: 'bobby@x.com' } as never,
     activeTenantId: 'test-tenant',
@@ -174,154 +129,305 @@ beforeEach(() => {
   window.localStorage.clear();
 });
 
-describe('MyTasks (fix-78 all-tasks view + filter chips)', () => {
-  it('renders ALL tenant tasks by default (no personal-scope wall)', () => {
-    tasksRef.current = varied();
-    renderIt();
-    // Default status filter is Open + In Progress, so the Resolved task is
-    // hidden by default. Open + In Progress tasks (4 of them) all render.
-    expect(screen.getByTestId('mytask-row-a-arch-open')).toBeInTheDocument();
-    expect(screen.getByTestId('mytask-row-a-arch-inprog')).toBeInTheDocument();
-    expect(screen.getByTestId('mytask-row-b-ent-open')).toBeInTheDocument();
-    expect(screen.getByTestId('mytask-row-b-arch-open')).toBeInTheDocument();
-    // Subtask nested under its parent.
-    expect(screen.getByTestId('mytask-row-b-ent-sub')).toBeInTheDocument();
-    // The Resolved one is excluded by the default Open+InProgress filter.
-    expect(screen.queryByTestId('mytask-row-a-ent-resolved')).toBeNull();
-  });
+/** Varied fixture for counter / partition / filter / detail tests. Mix of:
+ *  - both buckets (de/pm)
+ *  - both disciplines (arch/ent)
+ *  - all three statuses
+ *  - overdue, on-target, no-target dates
+ *  - two projects
+ *  - rostered + co-assigned co-consultants */
+function varied(): TaskFixture[] {
+  return [
+    task({
+      id: 'de-open-overdue',
+      bucket: 'de',
+      project_id: 'p1',
+      project_address: '123 Main St',
+      permit_id: 1,
+      permit_type: 'Building Permit',
+      discipline: 'arch',
+      status: 'Open',
+      text: 'Submit drawings to SDCI',
+      primary_assignee: 'Trevor',
+      target_date: '2026-05-15', // in the past
+    }),
+    task({
+      id: 'de-inprog',
+      bucket: 'de',
+      project_id: 'p1',
+      project_address: '123 Main St',
+      permit_id: 1,
+      permit_type: 'Building Permit',
+      discipline: 'ent',
+      status: 'In Progress',
+      text: 'Address ECA corrections',
+      primary_assignee: 'Bobby',
+      target_date: '2026-06-30', // future
+    }),
+    task({
+      id: 'pm-open',
+      bucket: 'pm',
+      project_id: 'p2',
+      project_address: '500 Pike St',
+      permit_id: 2,
+      permit_type: 'PAR/Pre-Sub',
+      discipline: 'arch',
+      status: 'Open',
+      text: 'Pull steep-slope study',
+      primary_assignee: 'Ainsley',
+      target_date: null,
+    }),
+    task({
+      id: 'pm-inprog',
+      bucket: 'pm',
+      project_id: 'p2',
+      project_address: '500 Pike St',
+      permit_id: 2,
+      permit_type: 'PAR/Pre-Sub',
+      discipline: 'ent',
+      status: 'In Progress',
+      text: 'Update site plan',
+      primary_assignee: 'Edmund',
+      co_assignees: ['Outside Consult LLC'], // not rostered → consultant family
+      target_date: '2026-06-10',
+    }),
+    task({
+      id: 'pm-resolved-past',
+      bucket: 'pm',
+      project_id: 'p2',
+      project_address: '500 Pike St',
+      permit_id: 2,
+      permit_type: 'PAR/Pre-Sub',
+      discipline: 'ent',
+      status: 'Resolved',
+      text: 'Submit MUP application',
+      primary_assignee: 'Miles',
+      target_date: '2026-05-01', // past but Resolved → NOT overdue
+    }),
+  ];
+}
 
-  it('All statuses preset shows every task — the page is no longer a personal wall', () => {
+describe('MyTasks (fix-80 v1 three-pane kanban)', () => {
+  it('counters reflect the FULL filtered set (Active Only hides Resolved cards but the % still counts them)', () => {
     tasksRef.current = varied();
     renderIt();
-    fireEvent.click(screen.getByTestId('mytasks-filter-status-all'));
-    // Includes the Resolved task that the default filter hid.
-    expect(screen.getByTestId('mytask-row-a-ent-resolved')).toBeInTheDocument();
-    // And tasks NOT assigned to Bobby still show (Edmund's, Miles').
-    expect(screen.getByTestId('mytask-row-b-arch-open')).toBeInTheDocument();
-  });
-
-  it('Discipline=Architecture hides ENT tasks', () => {
-    tasksRef.current = varied();
-    renderIt();
-    fireEvent.click(screen.getByTestId('mytasks-filter-discipline-arch'));
-    expect(screen.getByTestId('mytask-row-a-arch-open')).toBeInTheDocument();
-    expect(screen.getByTestId('mytask-row-a-arch-inprog')).toBeInTheDocument();
-    expect(screen.getByTestId('mytask-row-b-arch-open')).toBeInTheDocument();
-    // ENT tasks gone.
-    expect(screen.queryByTestId('mytask-row-b-ent-open')).toBeNull();
-    expect(screen.queryByTestId('mytask-row-b-ent-sub')).toBeNull();
-  });
-
-  it('Status=Open hides In Progress + Resolved', () => {
-    tasksRef.current = varied();
-    renderIt();
-    fireEvent.click(screen.getByTestId('mytasks-filter-status-Open'));
-    expect(screen.getByTestId('mytask-row-a-arch-open')).toBeInTheDocument();
-    expect(screen.queryByTestId('mytask-row-a-arch-inprog')).toBeNull();
-    expect(screen.queryByTestId('mytask-row-a-ent-resolved')).toBeNull();
-  });
-
-  it('Title contains "correction" narrows to matching tasks', () => {
-    tasksRef.current = varied();
-    renderIt();
-    fireEvent.change(screen.getByTestId('mytasks-filter-title'), {
-      target: { value: 'correction' },
-    });
-    // Both tasks with "corrections" in the title (case-insensitive).
-    expect(screen.getByTestId('mytask-row-a-arch-open')).toBeInTheDocument();
-    expect(screen.getByTestId('mytask-row-b-ent-open')).toBeInTheDocument();
-    // Others gone.
-    expect(screen.queryByTestId('mytask-row-a-arch-inprog')).toBeNull();
-    expect(screen.queryByTestId('mytask-row-b-arch-open')).toBeNull();
-  });
-
-  it('Project filter narrows to matching addresses', () => {
-    tasksRef.current = varied();
-    renderIt();
-    fireEvent.change(screen.getByTestId('mytasks-filter-project'), {
-      target: { value: 'Pike' },
-    });
-    // Only the 500 Pike St tasks survive (default Open+InProgress also applies).
-    expect(screen.getByTestId('mytask-row-b-ent-open')).toBeInTheDocument();
-    expect(screen.getByTestId('mytask-row-b-arch-open')).toBeInTheDocument();
-    expect(screen.queryByTestId('mytask-row-a-arch-open')).toBeNull();
-  });
-
-  it('Assignee chip "Miles" surfaces only Miles\'s tasks (as primary OR co-assignee)', () => {
-    tasksRef.current = varied();
-    renderIt();
-    fireEvent.change(screen.getByTestId('mytasks-filter-assignee-select'), {
-      target: { value: 'Miles' },
-    });
-    // Miles is the primary on b-arch-open. (a-ent-resolved is hidden by the
-    // default status filter; that's the right interaction — filters compose.)
-    expect(screen.getByTestId('mytask-row-b-arch-open')).toBeInTheDocument();
-    expect(screen.queryByTestId('mytask-row-a-arch-open')).toBeNull();
-    expect(screen.queryByTestId('mytask-row-b-ent-open')).toBeNull();
-    // Chip is rendered + removable.
+    // 4 not-resolved tasks; 1 overdue (de-open-overdue: 2026-05-15 < 2026-06-01,
+    // status='Open'); 2 distinct projects; 5 total, 1 resolved → 20%.
     expect(
-      screen.getByTestId('mytasks-filter-assignee-chip-Miles'),
-    ).toBeInTheDocument();
-  });
-
-  it('Me preset filters to the signed-in user (primary OR co-assignee)', () => {
-    tasksRef.current = varied();
-    renderIt();
-    fireEvent.click(screen.getByTestId('mytasks-filter-preset-me'));
-    // Bobby is the primary on a-arch-open + a-arch-inprog, and a co-assignee
-    // on b-ent-open (which also drags in the subtask b-ent-sub by nesting).
-    expect(screen.getByTestId('mytask-row-a-arch-open')).toBeInTheDocument();
-    expect(screen.getByTestId('mytask-row-a-arch-inprog')).toBeInTheDocument();
-    expect(screen.getByTestId('mytask-row-b-ent-open')).toBeInTheDocument();
-    // Miles's b-arch-open is hidden.
-    expect(screen.queryByTestId('mytask-row-b-arch-open')).toBeNull();
-  });
-
-  it('empty state when filters exclude everything', () => {
-    tasksRef.current = varied();
-    renderIt();
-    fireEvent.change(screen.getByTestId('mytasks-filter-title'), {
-      target: { value: 'nothing-matches-this' },
-    });
-    expect(screen.getByTestId('mytasks-empty').textContent).toMatch(
-      /no tasks match/i,
+      screen.getByTestId('mytasks-counter-open-value').textContent,
+    ).toBe('4');
+    expect(
+      screen.getByTestId('mytasks-counter-overdue-value').textContent,
+    ).toBe('1');
+    expect(
+      screen.getByTestId('mytasks-counter-projects-value').textContent,
+    ).toBe('2');
+    expect(screen.getByTestId('mytasks-counter-done-text').textContent).toBe(
+      '1/5 · 20%',
     );
   });
 
-  it('filters persist across an unmount + remount via localStorage', () => {
+  it('D&E and Permitting columns partition by bucket; Not Started/In Progress partition by status', () => {
+    tasksRef.current = varied();
+    renderIt();
+    const de = screen.getByTestId('mytasks-bucket-de');
+    const pm = screen.getByTestId('mytasks-bucket-pm');
+    expect(de.querySelector('[data-testid="mytask-card-de-open-overdue"]')).toBeTruthy();
+    expect(de.querySelector('[data-testid="mytask-card-de-inprog"]')).toBeTruthy();
+    expect(de.querySelector('[data-testid="mytask-card-pm-open"]')).toBeNull();
+    expect(pm.querySelector('[data-testid="mytask-card-pm-open"]')).toBeTruthy();
+    expect(pm.querySelector('[data-testid="mytask-card-pm-inprog"]')).toBeTruthy();
+    // Sub-column split by status.
+    const deNotStarted = screen.getByTestId('mytasks-bucket-de-sub-not-started');
+    const deInProgress = screen.getByTestId('mytasks-bucket-de-sub-in-progress');
+    expect(deNotStarted.querySelector('[data-testid="mytask-card-de-open-overdue"]')).toBeTruthy();
+    expect(deInProgress.querySelector('[data-testid="mytask-card-de-inprog"]')).toBeTruthy();
+    // Sub-column counts.
+    expect(
+      screen.getByTestId('mytasks-bucket-de-sub-not-started-count').textContent,
+    ).toBe('1');
+    expect(
+      screen.getByTestId('mytasks-bucket-de-sub-in-progress-count').textContent,
+    ).toBe('1');
+    // Open count on the bucket header.
+    expect(
+      screen.getByTestId('mytasks-bucket-de-open-count').textContent,
+    ).toBe('2 open');
+  });
+
+  it('Active Only default hides Resolved; toggling OFF reveals the Resolved sub-column', () => {
+    tasksRef.current = varied();
+    renderIt();
+    // Resolved hidden by default — no Resolved sub-column rendered.
+    expect(
+      screen.queryByTestId('mytasks-bucket-pm-sub-resolved'),
+    ).toBeNull();
+    expect(screen.queryByTestId('mytask-card-pm-resolved-past')).toBeNull();
+    // Toggle OFF Active Only.
+    fireEvent.click(screen.getByTestId('mytasks-filter-active'));
+    expect(screen.getByTestId('mytasks-bucket-pm-sub-resolved')).toBeInTheDocument();
+    expect(screen.getByTestId('mytask-card-pm-resolved-past')).toBeInTheDocument();
+  });
+
+  it('clicking a card populates the Task Detail pane with the task\'s details', () => {
+    tasksRef.current = varied();
+    renderIt();
+    // Empty state first.
+    expect(screen.getByTestId('mytasks-detail-empty')).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId('mytask-card-de-inprog'));
+    expect(screen.queryByTestId('mytasks-detail-empty')).toBeNull();
+    const detail = screen.getByTestId('mytasks-detail');
+    expect(
+      detail.querySelector('[data-testid="mytasks-detail-text"]')?.textContent,
+    ).toBe('Address ECA corrections');
+    expect(
+      (
+        screen.getByTestId('mytasks-detail-status-select') as HTMLSelectElement
+      ).value,
+    ).toBe('In Progress');
+    expect(
+      screen.getByTestId('mytasks-detail-discipline').textContent,
+    ).toMatch(/entitlements/i);
+    expect(
+      screen.getByTestId('mytasks-detail-bucket').textContent,
+    ).toMatch(/D&E/);
+  });
+
+  it('changing status in the detail pane fires useUpsertTask with the new status', () => {
+    tasksRef.current = varied();
+    renderIt();
+    fireEvent.click(screen.getByTestId('mytask-card-de-inprog'));
+    fireEvent.change(screen.getByTestId('mytasks-detail-status-select'), {
+      target: { value: 'Resolved' },
+    });
+    expect(upsertMutate).toHaveBeenCalledTimes(1);
+    expect(upsertMutate.mock.calls[0][0]).toMatchObject({
+      id: 'de-inprog',
+      status: 'Resolved',
+      text: 'Address ECA corrections',
+    });
+  });
+
+  it('overdue date styling — past target_date + open status renders data-overdue="true"; a resolved task with the same past date does NOT', () => {
+    tasksRef.current = varied();
+    renderIt();
+    expect(
+      screen
+        .getByTestId('mytask-card-de-open-overdue-due')
+        .getAttribute('data-overdue'),
+    ).toBe('true');
+    // Toggle Active Only OFF to render the resolved-past card and assert it
+    // is NOT marked overdue (Resolved short-circuits the rule).
+    fireEvent.click(screen.getByTestId('mytasks-filter-active'));
+    expect(
+      screen
+        .getByTestId('mytask-card-pm-resolved-past-due')
+        .getAttribute('data-overdue'),
+    ).toBe('false');
+  });
+
+  it('ENT dropdown narrows to tasks where an ENT roster name is an assignee', () => {
+    tasksRef.current = varied();
+    renderIt();
+    fireEvent.change(screen.getByTestId('mytasks-filter-role-ent-select'), {
+      target: { value: 'Bobby' },
+    });
+    // Bobby is the primary on de-inprog. The other tasks drop.
+    expect(screen.getByTestId('mytask-card-de-inprog')).toBeInTheDocument();
+    expect(screen.queryByTestId('mytask-card-de-open-overdue')).toBeNull();
+    expect(screen.queryByTestId('mytask-card-pm-open')).toBeNull();
+  });
+
+  it('DA dropdown narrows to tasks where a DA roster name is an assignee', () => {
+    tasksRef.current = varied();
+    renderIt();
+    fireEvent.change(screen.getByTestId('mytasks-filter-role-da-select'), {
+      target: { value: 'Trevor' },
+    });
+    expect(screen.getByTestId('mytask-card-de-open-overdue')).toBeInTheDocument();
+    expect(screen.queryByTestId('mytask-card-de-inprog')).toBeNull();
+  });
+
+  it('CONSULTANT dropdown surfaces tasks whose co-assignees include unrostered names', () => {
+    tasksRef.current = varied();
+    renderIt();
+    fireEvent.change(
+      screen.getByTestId('mytasks-filter-role-consultant-select'),
+      { target: { value: 'Outside Consult LLC' } },
+    );
+    // Only pm-inprog has the co-assignee.
+    expect(screen.getByTestId('mytask-card-pm-inprog')).toBeInTheDocument();
+    expect(screen.queryByTestId('mytask-card-pm-open')).toBeNull();
+    expect(screen.queryByTestId('mytask-card-de-open-overdue')).toBeNull();
+  });
+
+  it('All stages multi-select filters by permit_type', () => {
+    tasksRef.current = varied();
+    renderIt();
+    fireEvent.change(screen.getByTestId('mytasks-filter-stage'), {
+      target: { value: 'PAR/Pre-Sub' },
+    });
+    // Only PAR/Pre-Sub tasks remain (de-* are Building Permit).
+    expect(screen.queryByTestId('mytask-card-de-open-overdue')).toBeNull();
+    expect(screen.queryByTestId('mytask-card-de-inprog')).toBeNull();
+    expect(screen.getByTestId('mytask-card-pm-open')).toBeInTheDocument();
+    expect(screen.getByTestId('mytask-card-pm-inprog')).toBeInTheDocument();
+    // Chip is rendered + removable.
+    expect(
+      screen.getByTestId('mytasks-filter-stage-chip-PAR/Pre-Sub'),
+    ).toBeInTheDocument();
+  });
+
+  it('search input matches text, address, and assignee names (case-insensitive)', () => {
+    tasksRef.current = varied();
+    renderIt();
+    // Match by task text.
+    fireEvent.change(screen.getByTestId('mytasks-filter-search'), {
+      target: { value: 'steep-slope' },
+    });
+    expect(screen.getByTestId('mytask-card-pm-open')).toBeInTheDocument();
+    expect(screen.queryByTestId('mytask-card-de-inprog')).toBeNull();
+    // Clear and match by project address.
+    fireEvent.change(screen.getByTestId('mytasks-filter-search'), {
+      target: { value: 'pike' },
+    });
+    expect(screen.getByTestId('mytask-card-pm-open')).toBeInTheDocument();
+    expect(screen.getByTestId('mytask-card-pm-inprog')).toBeInTheDocument();
+    expect(screen.queryByTestId('mytask-card-de-inprog')).toBeNull();
+    // Match by primary assignee name.
+    fireEvent.change(screen.getByTestId('mytasks-filter-search'), {
+      target: { value: 'bobby' },
+    });
+    expect(screen.getByTestId('mytask-card-de-inprog')).toBeInTheDocument();
+    expect(screen.queryByTestId('mytask-card-de-open-overdue')).toBeNull();
+  });
+
+  it('filters persist across unmount + remount via localStorage (key mytasks.filters.v2)', () => {
     tasksRef.current = varied();
     const { unmount } = renderIt();
-    fireEvent.click(screen.getByTestId('mytasks-filter-discipline-arch'));
-    fireEvent.change(screen.getByTestId('mytasks-filter-title'), {
-      target: { value: 'site' },
+    fireEvent.change(screen.getByTestId('mytasks-filter-stage'), {
+      target: { value: 'PAR/Pre-Sub' },
     });
-    // Only b-arch-open (text "Update site plan") survives.
-    expect(screen.getByTestId('mytask-row-b-arch-open')).toBeInTheDocument();
-    expect(screen.queryByTestId('mytask-row-a-arch-open')).toBeNull();
+    fireEvent.click(screen.getByTestId('mytasks-filter-bydue'));
+    // localStorage carries our v2 key.
+    const stored = JSON.parse(
+      window.localStorage.getItem('mytasks.filters.v2') ?? '{}',
+    );
+    expect(stored.permitTypes).toEqual(['PAR/Pre-Sub']);
+    expect(stored.byDueDate).toBe(false);
 
     unmount();
     renderIt();
-    // After remount, the discipline + title filters restored from localStorage.
-    expect(screen.getByTestId('mytask-row-b-arch-open')).toBeInTheDocument();
-    expect(screen.queryByTestId('mytask-row-a-arch-open')).toBeNull();
+    // After remount the filters re-apply.
     expect(
-      (screen.getByTestId('mytasks-filter-title') as HTMLInputElement).value,
-    ).toBe('site');
-  });
-
-  it('unmapped email DOES NOT hide tasks (fix-78 dropped the personal wall)', () => {
-    useAuthStore.setState({ user: { email: 'stranger@x.com' } as never });
-    tasksRef.current = varied();
-    renderIt();
-    // Page renders normally. The fix-70 no-identity message is gone.
-    expect(screen.queryByTestId('mytasks-no-identity')).toBeNull();
-    expect(screen.getByTestId('mytask-row-a-arch-open')).toBeInTheDocument();
-    // The Me preset button is disabled (no userName to match) but doesn't
-    // throw, doesn't block the page.
+      screen.getByTestId('mytasks-filter-stage-chip-PAR/Pre-Sub'),
+    ).toBeInTheDocument();
     expect(
-      (
-        screen.getByTestId('mytasks-filter-preset-me') as HTMLButtonElement
-      ).disabled,
-    ).toBe(true);
+      screen
+        .getByTestId('mytasks-filter-bydue')
+        .getAttribute('data-on'),
+    ).toBe('false');
+    expect(screen.queryByTestId('mytask-card-de-open-overdue')).toBeNull();
+    expect(screen.getByTestId('mytask-card-pm-open')).toBeInTheDocument();
   });
 });
