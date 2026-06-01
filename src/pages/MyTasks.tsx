@@ -1,60 +1,74 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { useAuthStore } from '../stores/authStore';
 import { useTeamMembers } from '../hooks/useTeamMembers';
-import { useAllTasks, resolveUserName } from '../hooks/useTaskTree';
+import { useAllTasks, useUpsertTask } from '../hooks/useTaskTree';
 import { SkeletonRows } from '../components/Skeleton';
 import QueryError from '../components/QueryError';
-import type { MyTaskNode } from '../lib/database.types';
+import type { MyTaskNode, TeamMember } from '../lib/database.types';
 
-// fix-78: My Tasks reverts to v1's "show all tenant tasks + filter to narrow"
-// model. fix-70 had walled it down to "primary OR co-assigned" per Bobby's
-// spec at the time; that broke his manager workflows (find every Open
-// Corrections, every task on project X, every task assigned to Miles). The
-// page name "My Tasks" stays (the nav slot is fine); the contract is now
-// "filter to make it personal", with an Assignee=Me chip preset for the
-// personal-scope shortcut.
+// fix-80: My Tasks v1-layout rewrite. fix-78 reverted to "all tasks + filter
+// chips"; this brief restores Bobby's v1 mental model — a three-pane kanban
+// (D&E | Permitting | Task Detail) with Not Started / In Progress sub-columns
+// per bucket, top counters, and a v1 filter row (search + ENT/DA/DM/Consultant
+// dropdowns + Active only + By Due Date sort + Reset).
 //
-// The no-identity wall (fix-70's "couldn't match your sign-in email" empty
-// state) is gone — even unmapped users see the full list. Email-mapping for
-// the Me preset stays useful but is no longer a wall.
+// fix-79 adds the lifecycle `bucket` column (de/pm) to permit_tasks; until
+// that lands, MyTaskNode may not carry bucket on the wire. We read it
+// defensively with a 'de' default so the page degrades cleanly on either
+// base, and starts grouping correctly the moment fix-79's RPC ships the field.
 
-const DISCIPLINE_LABEL: Record<'arch' | 'ent', string> = {
-  arch: 'Architecture',
-  ent: 'Entitlements',
+/** Tasks we render. Adds a `bucket` field that may be absent on the pre-fix-79
+ *  wire shape; missing values fall through to 'de'. */
+type Task = MyTaskNode & { bucket?: 'de' | 'pm' };
+
+type DiagBucket = 'de' | 'pm';
+
+interface RoleFilterState {
+  ent: string[];
+  da: string[];
+  dm: string[];
+  consultant: string[];
+}
+
+type RoleQuick = 'all' | 'ent' | 'da' | 'dm' | 'consultant';
+
+interface FilterState {
+  search: string;
+  roles: RoleFilterState;
+  /** Quick role-family chip ("All" / ENT / DA / DM / Consultant). */
+  quickRole: RoleQuick;
+  /** Multi-select on parent permit_type (the "All stages" v1 dropdown). */
+  permitTypes: string[];
+  /** When true (default) Resolved tasks are hidden from sub-columns. */
+  activeOnly: boolean;
+  /** When true (default) cards within a sub-column sort by target_date asc
+   *  NULLS LAST; otherwise by sort_order then created_at desc. */
+  byDueDate: boolean;
+}
+
+const FILTER_STORAGE_KEY = 'mytasks.filters.v2';
+
+const DEFAULT_FILTERS: FilterState = {
+  search: '',
+  roles: { ent: [], da: [], dm: [], consultant: [] },
+  quickRole: 'all',
+  permitTypes: [],
+  activeOnly: true,
+  byDueDate: true,
 };
 
-const STATUS_BG: Record<string, string> = {
+const BUCKET_LABEL: Record<DiagBucket, string> = {
+  de: 'D&E Tasks',
+  pm: 'Permitting Tasks',
+};
+const BUCKET_ACCENT: Record<DiagBucket, string> = {
+  de: 'var(--color-de)',
+  pm: 'var(--color-pm)',
+};
+const STATUS_BG: Record<Task['status'], string> = {
   Open: 'var(--color-s2)',
   'In Progress': 'var(--color-de)',
   Resolved: 'var(--color-pm)',
-};
-
-type DisciplineFilter = 'all' | 'arch' | 'ent';
-type StatusFilter = 'all' | 'open_in_progress' | 'Open' | 'In Progress' | 'Resolved';
-
-interface FilterState {
-  /** Empty array = no assignee filter ("show all"). */
-  assignees: string[];
-  /** Special preset for the signed-in user; mapped to userName at render. */
-  meSelected: boolean;
-  discipline: DisciplineFilter;
-  status: StatusFilter;
-  /** Substring match against project address (case-insensitive). */
-  projectQuery: string;
-  /** Substring match against task text (the "title contains" filter). */
-  titleQuery: string;
-}
-
-const FILTER_STORAGE_KEY = 'mytasks.filters.v1';
-
-const DEFAULT_FILTERS: FilterState = {
-  assignees: [],
-  meSelected: false,
-  discipline: 'all',
-  status: 'open_in_progress',
-  projectQuery: '',
-  titleQuery: '',
 };
 
 function loadFilters(): FilterState {
@@ -64,12 +78,26 @@ function loadFilters(): FilterState {
     if (!raw) return DEFAULT_FILTERS;
     const parsed = JSON.parse(raw) as Partial<FilterState> | null;
     if (!parsed || typeof parsed !== 'object') return DEFAULT_FILTERS;
+    const roles = (parsed.roles ?? {}) as Partial<RoleFilterState>;
     return {
       ...DEFAULT_FILTERS,
       ...parsed,
-      // Defensive: a stored array of strings is required for assignees.
-      assignees: Array.isArray(parsed.assignees)
-        ? parsed.assignees.filter((a): a is string => typeof a === 'string')
+      roles: {
+        ent: Array.isArray(roles.ent)
+          ? roles.ent.filter((s): s is string => typeof s === 'string')
+          : [],
+        da: Array.isArray(roles.da)
+          ? roles.da.filter((s): s is string => typeof s === 'string')
+          : [],
+        dm: Array.isArray(roles.dm)
+          ? roles.dm.filter((s): s is string => typeof s === 'string')
+          : [],
+        consultant: Array.isArray(roles.consultant)
+          ? roles.consultant.filter((s): s is string => typeof s === 'string')
+          : [],
+      },
+      permitTypes: Array.isArray(parsed.permitTypes)
+        ? parsed.permitTypes.filter((s): s is string => typeof s === 'string')
         : [],
     };
   } catch {
@@ -77,13 +105,26 @@ function loadFilters(): FilterState {
   }
 }
 
-export default function MyTasks() {
-  const email = useAuthStore((s) => s.user?.email ?? null);
-  const team = useTeamMembers();
-  const userName = useMemo(
-    () => resolveUserName(email, team.all),
-    [email, team.all],
+function bucketOf(t: Task): DiagBucket {
+  return t.bucket === 'pm' ? 'pm' : 'de';
+}
+
+function todayIso(): string {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+function isOverdue(t: Task, today: string): boolean {
+  return (
+    t.status !== 'Resolved' && !!t.target_date && t.target_date < today
   );
+}
+
+export default function MyTasks() {
+  const team = useTeamMembers();
   const tasksQ = useAllTasks();
 
   const error = team.error ?? tasksQ.error;
@@ -105,38 +146,22 @@ export default function MyTasks() {
 
   return (
     <Body
-      tasks={tasksQ.data ?? []}
-      teamNames={team.all.map((m) => m.name).sort((a, b) => a.localeCompare(b))}
-      userName={userName}
+      tasks={(tasksQ.data ?? []) as Task[]}
+      members={team.all}
     />
   );
 }
 
-interface PermitGroup {
-  permitId: number;
-  permitType: string | null;
-  projectId: string;
-  byDiscipline: Record<'arch' | 'ent', MyTaskNode[]>;
-}
-interface ProjectGroup {
-  projectId: string;
-  address: string;
-  permits: PermitGroup[];
-}
-
 function Body({
   tasks,
-  teamNames,
-  userName,
+  members,
 }: {
-  tasks: MyTaskNode[];
-  teamNames: string[];
-  userName: string;
+  tasks: Task[];
+  members: TeamMember[];
 }) {
   const [filters, setFilters] = useState<FilterState>(() => loadFilters());
+  const [selectedId, setSelectedId] = useState<string | null>(null);
 
-  // Persist filters across reloads (no churn from defaults — also avoids a
-  // first-render write before the user has touched anything).
   useEffect(() => {
     try {
       window.localStorage.setItem(
@@ -144,7 +169,7 @@ function Body({
         JSON.stringify(filters),
       );
     } catch {
-      // localStorage unavailable (private mode, quota) — silently skip.
+      // localStorage unavailable — silently skip.
     }
   }, [filters]);
 
@@ -155,285 +180,406 @@ function Body({
     setFilters(DEFAULT_FILTERS);
   }
 
-  const filtered = useMemo(
-    () => filterTasks(tasks, filters, userName),
-    [tasks, filters, userName],
-  );
-  // Subtask nesting is over the FILTERED set: a parent that filtered out
-  // doesn't pull its children along.
-  const filteredIds = useMemo(
-    () => new Set(filtered.map((t) => t.id)),
-    [filtered],
-  );
-  const childrenByParent = useMemo(() => {
-    const m = new Map<string, MyTaskNode[]>();
-    for (const t of filtered) {
-      if (t.parent_task_id && filteredIds.has(t.parent_task_id)) {
-        const list = m.get(t.parent_task_id) ?? [];
-        list.push(t);
-        m.set(t.parent_task_id, list);
+  // Members grouped by role family — feeds the per-role dropdowns + the
+  // role-family filter math. Bobby is in as both 'ent' and 'ent_lead' in some
+  // tenants; dedup by name within each family. CONSULTANT bucket is derived:
+  // any name that appears as a co_assignee on at least one task and is NOT in
+  // the rostered ent/da/dm sets (fix-80 has no 'consultant' role in
+  // TeamRole — that's the cleanest mapping until the schema gets one).
+  const rosterByRole = useMemo(() => {
+    const ent = uniqueNamesByRole(members, (r) => r === 'ent' || r === 'ent_lead');
+    const da = uniqueNamesByRole(members, (r) => r === 'da');
+    const dm = uniqueNamesByRole(members, (r) => r === 'dm');
+    const rostered = new Set<string>([...ent, ...da, ...dm]);
+    const coNames = new Set<string>();
+    for (const t of tasks) {
+      for (const a of t.co_assignees) {
+        if (!rostered.has(a)) coNames.add(a);
       }
     }
-    return m;
-  }, [filtered, filteredIds]);
-  const topLevel = useMemo(
-    () =>
-      filtered.filter(
-        (t) => !t.parent_task_id || !filteredIds.has(t.parent_task_id),
-      ),
-    [filtered, filteredIds],
+    const consultant = [...coNames].sort((a, b) => a.localeCompare(b));
+    return { ent, da, dm, consultant };
+  }, [members, tasks]);
+
+  // The pool of names each role family can match against (rostered union
+  // co-assignee names, depending on the family).
+  const rolesByName = useMemo(() => {
+    const map = new Map<string, Set<'ent' | 'da' | 'dm' | 'consultant'>>();
+    function add(name: string, role: 'ent' | 'da' | 'dm' | 'consultant') {
+      const set = map.get(name) ?? new Set();
+      set.add(role);
+      map.set(name, set);
+    }
+    for (const m of members) {
+      if (m.role === 'ent' || m.role === 'ent_lead') add(m.name, 'ent');
+      else if (m.role === 'da') add(m.name, 'da');
+      else if (m.role === 'dm') add(m.name, 'dm');
+    }
+    for (const n of rosterByRole.consultant) add(n, 'consultant');
+    return map;
+  }, [members, rosterByRole.consultant]);
+
+  // All filter math runs over the FULL task set; the result drives the
+  // counters AND the column rendering below. Counters that need "total"
+  // semantics use the full filtered set; the column rendering further
+  // narrows by status (Active only).
+  const filtered = useMemo(
+    () => filterTasks(tasks, filters, rolesByName),
+    [tasks, filters, rolesByName],
   );
-  const groups = useMemo(() => groupTasks(topLevel), [topLevel]);
+  const today = useMemo(() => todayIso(), []);
+  const counters = useMemo(() => {
+    let open = 0;
+    let overdue = 0;
+    let resolved = 0;
+    const projects = new Set<string>();
+    for (const t of filtered) {
+      projects.add(t.project_id);
+      if (t.status === 'Resolved') resolved += 1;
+      else {
+        open += 1;
+        if (isOverdue(t, today)) overdue += 1;
+      }
+    }
+    const total = filtered.length;
+    const pct = total === 0 ? 0 : Math.round((resolved / total) * 100);
+    return {
+      open,
+      overdue,
+      projects: projects.size,
+      resolved,
+      total,
+      pct,
+    };
+  }, [filtered, today]);
+
+  // The visible-in-columns set excludes Resolved when activeOnly is ON. The
+  // counters above already used the unrestricted filtered set so the done %
+  // stays meaningful even when Resolved cards are hidden.
+  const visible = useMemo(
+    () =>
+      filters.activeOnly
+        ? filtered.filter((t) => t.status !== 'Resolved')
+        : filtered,
+    [filtered, filters.activeOnly],
+  );
+
+  const permitTypeOptions = useMemo(() => {
+    const set = new Set<string>();
+    for (const t of tasks) if (t.permit_type) set.add(t.permit_type);
+    return [...set].sort((a, b) => a.localeCompare(b));
+  }, [tasks]);
+
+  const selected = useMemo(
+    () => (selectedId ? filtered.find((t) => t.id === selectedId) ?? null : null),
+    [filtered, selectedId],
+  );
 
   return (
-    <div className="space-y-4 p-4" data-testid="mytasks-page">
-      <div className="flex items-baseline gap-2">
-        <h1 className="text-lg font-bold">My Tasks</h1>
-        <span className="text-xs" style={{ color: 'var(--color-muted)' }}>
-          {tasks.length} total · {filtered.length} match
-          {filtered.length === 1 ? '' : 'es'}
-        </span>
-      </div>
-
-      <FilterBar
+    <div className="space-y-3 p-3" data-testid="mytasks-page">
+      <Counters c={counters} />
+      <FilterRow
         filters={filters}
-        teamNames={teamNames}
-        userName={userName}
+        roster={rosterByRole}
+        permitTypeOptions={permitTypeOptions}
         onPatch={patch}
         onReset={resetAll}
       />
-
-      {groups.length === 0 ? (
-        <div
-          className="text-sm italic"
-          style={{ color: 'var(--color-muted)' }}
-          data-testid="mytasks-empty"
-        >
-          No tasks match your filters.
-        </div>
-      ) : (
-        groups.map((proj) => (
-          <div
-            key={proj.projectId}
-            className="rounded border"
-            style={{ borderColor: 'var(--color-border)' }}
-            data-testid={`mytasks-project-${proj.projectId}`}
-          >
-            <div
-              className="px-3 py-2 text-sm font-bold border-b"
-              style={{
-                borderBottomColor: 'var(--color-border)',
-                background: 'var(--color-s2)',
-              }}
-            >
-              <Link
-                to={`/project/${proj.projectId}`}
-                className="hover:underline"
-                style={{ color: 'var(--color-text)' }}
-              >
-                {proj.address}
-              </Link>
-            </div>
-            {proj.permits.map((permit) => (
-              <div
-                key={permit.permitId}
-                className="px-3 py-2 border-b last:border-b-0"
-                style={{ borderBottomColor: 'var(--color-border)' }}
-              >
-                <div
-                  className="text-[11px] font-bold uppercase tracking-wide mb-1"
-                  style={{ color: 'var(--color-muted)' }}
-                >
-                  {permit.permitType ?? 'Permit'}
-                </div>
-                {(['ent', 'arch'] as const).map((disc) => {
-                  const list = permit.byDiscipline[disc];
-                  if (list.length === 0) return null;
-                  return (
-                    <div key={disc} className="mb-2 last:mb-0">
-                      <div
-                        className="text-[10px] font-bold"
-                        style={{ color: 'var(--color-de)' }}
-                      >
-                        {DISCIPLINE_LABEL[disc]}
-                      </div>
-                      {list.map((t) => (
-                        <TaskRow
-                          key={t.id}
-                          task={t}
-                          subtasks={childrenByParent.get(t.id) ?? []}
-                        />
-                      ))}
-                    </div>
-                  );
-                })}
-              </div>
-            ))}
-          </div>
-        ))
-      )}
+      <div
+        className="grid gap-3"
+        style={{ gridTemplateColumns: 'minmax(0,2fr) minmax(0,2fr) minmax(0,1fr)' }}
+        data-testid="mytasks-kanban"
+      >
+        <BucketColumn
+          bucket="de"
+          tasks={visible.filter((t) => bucketOf(t) === 'de')}
+          today={today}
+          byDueDate={filters.byDueDate}
+          activeOnly={filters.activeOnly}
+          selectedId={selectedId}
+          onSelect={setSelectedId}
+        />
+        <BucketColumn
+          bucket="pm"
+          tasks={visible.filter((t) => bucketOf(t) === 'pm')}
+          today={today}
+          byDueDate={filters.byDueDate}
+          activeOnly={filters.activeOnly}
+          selectedId={selectedId}
+          onSelect={setSelectedId}
+        />
+        <TaskDetailPane task={selected} members={members} />
+      </div>
     </div>
   );
 }
 
-function FilterBar({
+function uniqueNamesByRole(
+  members: TeamMember[],
+  match: (role: TeamMember['role']) => boolean,
+): string[] {
+  const set = new Set<string>();
+  for (const m of members) {
+    if (!match(m.role)) continue;
+    if (m.active === false) continue;
+    set.add(m.name);
+  }
+  return [...set].sort((a, b) => a.localeCompare(b));
+}
+
+function Counters({
+  c,
+}: {
+  c: {
+    open: number;
+    overdue: number;
+    projects: number;
+    resolved: number;
+    total: number;
+    pct: number;
+  };
+}) {
+  return (
+    <div
+      className="flex flex-wrap items-center gap-4 px-3 py-2 rounded border"
+      style={{
+        borderColor: 'var(--color-border)',
+        background: 'var(--color-s2)',
+      }}
+      data-testid="mytasks-counters"
+    >
+      <Counter label="OPEN" value={c.open} testid="mytasks-counter-open" />
+      <Counter
+        label="OVERDUE"
+        value={c.overdue}
+        valueColor={c.overdue > 0 ? 'var(--color-co)' : undefined}
+        testid="mytasks-counter-overdue"
+      />
+      <Counter
+        label="PROJECTS"
+        value={c.projects}
+        testid="mytasks-counter-projects"
+      />
+      <div
+        className="flex-1 min-w-[160px] flex items-center gap-2"
+        data-testid="mytasks-counter-done"
+      >
+        <span
+          className="text-[10px] uppercase tracking-wide"
+          style={{ color: 'var(--color-muted)' }}
+        >
+          DONE
+        </span>
+        <div
+          className="flex-1 h-2 rounded overflow-hidden"
+          style={{ background: 'var(--color-bg)' }}
+        >
+          <div
+            style={{
+              width: `${c.pct}%`,
+              height: '100%',
+              background: 'var(--color-pm)',
+              transition: 'width 0.2s',
+            }}
+            data-testid="mytasks-counter-done-bar"
+          />
+        </div>
+        <span
+          className="text-[11px] font-mono"
+          data-testid="mytasks-counter-done-text"
+        >
+          {c.resolved}/{c.total} · {c.pct}%
+        </span>
+      </div>
+    </div>
+  );
+}
+
+function Counter({
+  label,
+  value,
+  valueColor,
+  testid,
+}: {
+  label: string;
+  value: number;
+  valueColor?: string;
+  testid: string;
+}) {
+  return (
+    <div className="flex items-baseline gap-2" data-testid={testid}>
+      <span
+        className="text-[10px] uppercase tracking-wide"
+        style={{ color: 'var(--color-muted)' }}
+      >
+        {label}
+      </span>
+      <span
+        className="text-lg font-bold font-mono"
+        style={{ color: valueColor ?? 'var(--color-text)' }}
+        data-testid={`${testid}-value`}
+      >
+        {value}
+      </span>
+    </div>
+  );
+}
+
+function FilterRow({
   filters,
-  teamNames,
-  userName,
+  roster,
+  permitTypeOptions,
   onPatch,
   onReset,
 }: {
   filters: FilterState;
-  teamNames: string[];
-  userName: string;
+  roster: {
+    ent: string[];
+    da: string[];
+    dm: string[];
+    consultant: string[];
+  };
+  permitTypeOptions: string[];
   onPatch: (p: Partial<FilterState>) => void;
   onReset: () => void;
 }) {
-  const meDisabled = !userName;
   return (
     <div
-      className="flex flex-wrap items-center gap-2 p-2 rounded border"
-      style={{ borderColor: 'var(--color-border)', background: 'var(--color-s2)' }}
-      data-testid="mytasks-filterbar"
+      className="flex flex-wrap items-center gap-2 px-3 py-2 rounded border"
+      style={{ borderColor: 'var(--color-border)' }}
+      data-testid="mytasks-filterrow"
     >
-      {/* Assignee preset chips */}
-      <button
-        type="button"
-        onClick={() => onPatch({ meSelected: false, assignees: [] })}
-        className="text-[11px] px-2 py-1 rounded border"
-        style={presetStyle(!filters.meSelected && filters.assignees.length === 0)}
-        data-testid="mytasks-filter-preset-all"
-      >
-        All
-      </button>
-      <button
-        type="button"
-        onClick={() => onPatch({ meSelected: true, assignees: [] })}
-        disabled={meDisabled}
-        title={
-          meDisabled
-            ? 'Set your email on Settings → Team to use the Me preset'
-            : undefined
+      <input
+        type="text"
+        value={filters.search}
+        onChange={(e) => onPatch({ search: e.target.value })}
+        placeholder="Search tasks, addresses, assignees…"
+        className="text-[12px] px-2 py-1 border rounded outline-none"
+        style={inputStyle()}
+        data-testid="mytasks-filter-search"
+      />
+      <RoleDropdown
+        label="ENT"
+        options={roster.ent}
+        selected={filters.roles.ent}
+        onChange={(next) =>
+          onPatch({ roles: { ...filters.roles, ent: next } })
         }
-        className="text-[11px] px-2 py-1 rounded border disabled:opacity-50"
-        style={presetStyle(filters.meSelected)}
-        data-testid="mytasks-filter-preset-me"
+        testid="mytasks-filter-role-ent"
+      />
+      <RoleDropdown
+        label="DA"
+        options={roster.da}
+        selected={filters.roles.da}
+        onChange={(next) => onPatch({ roles: { ...filters.roles, da: next } })}
+        testid="mytasks-filter-role-da"
+      />
+      <RoleDropdown
+        label="DM"
+        options={roster.dm}
+        selected={filters.roles.dm}
+        onChange={(next) => onPatch({ roles: { ...filters.roles, dm: next } })}
+        testid="mytasks-filter-role-dm"
+      />
+      <RoleDropdown
+        label="Consultant"
+        options={roster.consultant}
+        selected={filters.roles.consultant}
+        onChange={(next) =>
+          onPatch({ roles: { ...filters.roles, consultant: next } })
+        }
+        testid="mytasks-filter-role-consultant"
+      />
+      {/* Quick role-family chip. "All" clears nothing — it just keeps the per-
+          family multi-selects authoritative; picking ENT/DA/etc. quickly
+          limits to tasks with at least one assignee in that family. */}
+      <div
+        className="flex items-center gap-1"
+        data-testid="mytasks-filter-allroles"
       >
-        Me{userName ? ` (${userName})` : ''}
-      </button>
-      {/* Assignee multi-select dropdown — adds chips below */}
+        {(['all', 'ent', 'da', 'dm', 'consultant'] as const).map((r) => (
+          <button
+            key={r}
+            type="button"
+            onClick={() => onPatch({ quickRole: r })}
+            className="text-[11px] px-2 py-0.5 rounded border"
+            style={chipStyle(filters.quickRole === r)}
+            data-testid={`mytasks-filter-allroles-${r}`}
+          >
+            {r === 'all'
+              ? 'All roles'
+              : r === 'consultant'
+                ? 'Consultant'
+                : r.toUpperCase()}
+          </button>
+        ))}
+      </div>
       <select
         value=""
         onChange={(e) => {
           const v = e.target.value;
           if (!v) return;
-          if (filters.assignees.includes(v)) return;
-          onPatch({
-            meSelected: false,
-            assignees: [...filters.assignees, v],
-          });
+          if (filters.permitTypes.includes(v)) return;
+          onPatch({ permitTypes: [...filters.permitTypes, v] });
           e.currentTarget.value = '';
         }}
-        className="text-[11px] px-2 py-1 border rounded"
-        style={selectStyle()}
-        data-testid="mytasks-filter-assignee-select"
+        className="text-[12px] px-2 py-1 border rounded"
+        style={inputStyle()}
+        data-testid="mytasks-filter-stage"
       >
-        <option value="">+ Assignee</option>
-        {teamNames
-          .filter((n) => !filters.assignees.includes(n))
-          .map((n) => (
-            <option key={n} value={n}>
-              {n}
+        <option value="">
+          {filters.permitTypes.length === 0
+            ? 'All stages'
+            : 'Add stage filter…'}
+        </option>
+        {permitTypeOptions
+          .filter((p) => !filters.permitTypes.includes(p))
+          .map((p) => (
+            <option key={p} value={p}>
+              {p}
             </option>
           ))}
       </select>
-      {filters.assignees.map((n) => (
+      {filters.permitTypes.map((p) => (
         <span
-          key={n}
+          key={p}
           className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full"
-          style={chipStyle()}
-          data-testid={`mytasks-filter-assignee-chip-${n}`}
+          style={chipBg()}
+          data-testid={`mytasks-filter-stage-chip-${p}`}
         >
-          {n}
+          {p}
           <button
             type="button"
             onClick={() =>
               onPatch({
-                assignees: filters.assignees.filter((a) => a !== n),
+                permitTypes: filters.permitTypes.filter((x) => x !== p),
               })
             }
             className="text-dim hover:text-text leading-none"
-            title={`Remove ${n}`}
-            data-testid={`mytasks-filter-assignee-remove-${n}`}
+            title={`Remove ${p}`}
+            data-testid={`mytasks-filter-stage-remove-${p}`}
           >
             ×
           </button>
         </span>
       ))}
-
-      <Divider />
-
-      {/* Discipline segmented control */}
-      {(['all', 'arch', 'ent'] as const).map((d) => (
-        <button
-          key={d}
-          type="button"
-          onClick={() => onPatch({ discipline: d })}
-          className="text-[11px] px-2 py-1 rounded border"
-          style={presetStyle(filters.discipline === d)}
-          data-testid={`mytasks-filter-discipline-${d}`}
-        >
-          {d === 'all' ? 'All' : d === 'arch' ? 'Architecture' : 'ENT'}
-        </button>
-      ))}
-
-      <Divider />
-
-      {/* Status segmented control */}
-      {(
-        ['open_in_progress', 'Open', 'In Progress', 'Resolved', 'all'] as const
-      ).map((s) => (
-        <button
-          key={s}
-          type="button"
-          onClick={() => onPatch({ status: s })}
-          className="text-[11px] px-2 py-1 rounded border"
-          style={presetStyle(filters.status === s)}
-          data-testid={`mytasks-filter-status-${s.replace(/\s+/g, '_')}`}
-        >
-          {s === 'open_in_progress'
-            ? 'Open + In Progress'
-            : s === 'all'
-              ? 'All statuses'
-              : s}
-        </button>
-      ))}
-
-      <Divider />
-
-      <input
-        type="text"
-        value={filters.projectQuery}
-        onChange={(e) => onPatch({ projectQuery: e.target.value })}
-        placeholder="Project address…"
-        className="text-[11px] px-2 py-1 border rounded"
-        style={inputStyle()}
-        data-testid="mytasks-filter-project"
+      <Toggle
+        label="Active only"
+        on={filters.activeOnly}
+        onToggle={() => onPatch({ activeOnly: !filters.activeOnly })}
+        testid="mytasks-filter-active"
       />
-      <input
-        type="text"
-        value={filters.titleQuery}
-        onChange={(e) => onPatch({ titleQuery: e.target.value })}
-        placeholder="Title contains…"
-        className="text-[11px] px-2 py-1 border rounded"
-        style={inputStyle()}
-        data-testid="mytasks-filter-title"
+      <Toggle
+        label="By Due Date"
+        on={filters.byDueDate}
+        onToggle={() => onPatch({ byDueDate: !filters.byDueDate })}
+        testid="mytasks-filter-bydue"
       />
       <button
         type="button"
         onClick={onReset}
         className="text-[11px] px-2 py-1 rounded border ml-auto"
-        style={presetStyle(false)}
+        style={chipStyle(false)}
         data-testid="mytasks-filter-reset"
       >
         Reset
@@ -442,33 +588,626 @@ function FilterBar({
   );
 }
 
-function Divider() {
+function RoleDropdown({
+  label,
+  options,
+  selected,
+  onChange,
+  testid,
+}: {
+  label: string;
+  options: string[];
+  selected: string[];
+  onChange: (next: string[]) => void;
+  testid: string;
+}) {
+  const available = options.filter((o) => !selected.includes(o));
   return (
-    <span
-      style={{
-        width: 1,
-        height: 16,
-        background: 'var(--color-border)',
-        margin: '0 4px',
-      }}
-    />
+    <div className="flex items-center gap-1" data-testid={testid}>
+      <select
+        value=""
+        onChange={(e) => {
+          const v = e.target.value;
+          if (!v) return;
+          if (selected.includes(v)) return;
+          onChange([...selected, v]);
+          e.currentTarget.value = '';
+        }}
+        disabled={available.length === 0 && selected.length === options.length}
+        className="text-[12px] px-2 py-1 border rounded"
+        style={inputStyle()}
+        data-testid={`${testid}-select`}
+      >
+        <option value="">{label}</option>
+        {available.map((o) => (
+          <option key={o} value={o}>
+            {o}
+          </option>
+        ))}
+      </select>
+      {selected.map((n) => (
+        <span
+          key={n}
+          className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full"
+          style={chipBg()}
+          data-testid={`${testid}-chip-${n}`}
+        >
+          {n}
+          <button
+            type="button"
+            onClick={() => onChange(selected.filter((x) => x !== n))}
+            className="text-dim hover:text-text leading-none"
+            title={`Remove ${n}`}
+            data-testid={`${testid}-remove-${n}`}
+          >
+            ×
+          </button>
+        </span>
+      ))}
+    </div>
   );
 }
 
-function presetStyle(active: boolean) {
-  return {
-    borderColor: active ? 'var(--color-de)' : 'var(--color-border)',
-    background: active ? 'var(--color-de)' : 'var(--color-bg)',
-    color: active ? '#fff' : 'var(--color-text)',
-  };
+function Toggle({
+  label,
+  on,
+  onToggle,
+  testid,
+}: {
+  label: string;
+  on: boolean;
+  onToggle: () => void;
+  testid: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      className="text-[11px] px-2 py-1 rounded border"
+      style={chipStyle(on)}
+      data-testid={testid}
+      data-on={on ? 'true' : 'false'}
+      aria-pressed={on}
+    >
+      {label}
+    </button>
+  );
 }
-function selectStyle() {
-  return {
-    borderColor: 'var(--color-border)',
-    background: 'var(--color-bg)',
-    color: 'var(--color-text)',
-  };
+
+function BucketColumn({
+  bucket,
+  tasks,
+  today,
+  byDueDate,
+  activeOnly,
+  selectedId,
+  onSelect,
+}: {
+  bucket: DiagBucket;
+  tasks: Task[];
+  today: string;
+  byDueDate: boolean;
+  activeOnly: boolean;
+  selectedId: string | null;
+  onSelect: (id: string) => void;
+}) {
+  const notStarted = useMemo(
+    () => sorted(tasks.filter((t) => t.status === 'Open'), byDueDate),
+    [tasks, byDueDate],
+  );
+  const inProgress = useMemo(
+    () => sorted(tasks.filter((t) => t.status === 'In Progress'), byDueDate),
+    [tasks, byDueDate],
+  );
+  const resolved = useMemo(
+    () => sorted(tasks.filter((t) => t.status === 'Resolved'), byDueDate),
+    [tasks, byDueDate],
+  );
+  const openCount = notStarted.length + inProgress.length;
+  return (
+    <div
+      className="rounded border flex flex-col"
+      style={{
+        borderColor: 'var(--color-border)',
+        background: 'var(--color-surface)',
+      }}
+      data-testid={`mytasks-bucket-${bucket}`}
+    >
+      <div
+        className="px-3 py-2 border-b flex items-baseline justify-between"
+        style={{
+          borderBottomColor: 'var(--color-border)',
+          background: 'var(--color-s2)',
+        }}
+      >
+        <span
+          className="text-sm font-bold"
+          style={{ color: BUCKET_ACCENT[bucket] }}
+        >
+          {BUCKET_LABEL[bucket]}
+        </span>
+        <span
+          className="text-[11px] font-mono"
+          style={{ color: 'var(--color-muted)' }}
+          data-testid={`mytasks-bucket-${bucket}-open-count`}
+        >
+          {openCount} open
+        </span>
+      </div>
+      <div
+        className="grid"
+        style={{
+          gridTemplateColumns: activeOnly ? '1fr 1fr' : '1fr 1fr 1fr',
+        }}
+      >
+        <SubColumn
+          bucket={bucket}
+          kind="not-started"
+          label="NOT STARTED"
+          tasks={notStarted}
+          today={today}
+          selectedId={selectedId}
+          onSelect={onSelect}
+        />
+        <SubColumn
+          bucket={bucket}
+          kind="in-progress"
+          label="IN PROGRESS"
+          tasks={inProgress}
+          today={today}
+          selectedId={selectedId}
+          onSelect={onSelect}
+        />
+        {!activeOnly && (
+          <SubColumn
+            bucket={bucket}
+            kind="resolved"
+            label="RESOLVED"
+            tasks={resolved}
+            today={today}
+            selectedId={selectedId}
+            onSelect={onSelect}
+            dimmed
+          />
+        )}
+      </div>
+    </div>
+  );
 }
+
+function SubColumn({
+  bucket,
+  kind,
+  label,
+  tasks,
+  today,
+  selectedId,
+  onSelect,
+  dimmed,
+}: {
+  bucket: DiagBucket;
+  kind: 'not-started' | 'in-progress' | 'resolved';
+  label: string;
+  tasks: Task[];
+  today: string;
+  selectedId: string | null;
+  onSelect: (id: string) => void;
+  dimmed?: boolean;
+}) {
+  return (
+    <div
+      className="p-2 border-r last:border-r-0"
+      style={{
+        borderRightColor: 'var(--color-border)',
+        opacity: dimmed ? 0.65 : 1,
+      }}
+      data-testid={`mytasks-bucket-${bucket}-sub-${kind}`}
+    >
+      <div
+        className="flex items-baseline justify-between mb-2"
+        style={{ color: 'var(--color-muted)' }}
+      >
+        <span className="text-[10px] uppercase tracking-wide font-bold">
+          {label}
+        </span>
+        <span
+          className="text-[11px] font-mono"
+          data-testid={`mytasks-bucket-${bucket}-sub-${kind}-count`}
+        >
+          {tasks.length}
+        </span>
+      </div>
+      <div className="flex flex-col gap-1.5">
+        {tasks.map((t) => (
+          <TaskCard
+            key={t.id}
+            task={t}
+            today={today}
+            isSelected={selectedId === t.id}
+            onSelect={() => onSelect(t.id)}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function TaskCard({
+  task,
+  today,
+  isSelected,
+  onSelect,
+}: {
+  task: Task;
+  today: string;
+  isSelected: boolean;
+  onSelect: () => void;
+}) {
+  const upsert = useUpsertTask();
+  const overdue = isOverdue(task, today);
+
+  function toggleStatusOnce(e: React.MouseEvent) {
+    e.stopPropagation();
+    // Single click on the checkbox flips Open <-> In Progress. Double-click
+    // marks Resolved (see onDoubleClick handler below).
+    const next: Task['status'] =
+      task.status === 'Open'
+        ? 'In Progress'
+        : task.status === 'In Progress'
+          ? 'Open'
+          : 'Open';
+    upsert.mutate({
+      id: task.id,
+      permitId: task.permit_id,
+      parentTaskId: task.parent_task_id,
+      discipline: task.discipline,
+      bucket: task.bucket,
+      text: task.text,
+      status: next,
+      startDate: task.start_date,
+      targetDate: task.target_date,
+    });
+  }
+  function markResolved(e: React.MouseEvent) {
+    e.stopPropagation();
+    upsert.mutate({
+      id: task.id,
+      permitId: task.permit_id,
+      parentTaskId: task.parent_task_id,
+      discipline: task.discipline,
+      bucket: task.bucket,
+      text: task.text,
+      status: 'Resolved',
+      startDate: task.start_date,
+      targetDate: task.target_date,
+    });
+  }
+
+  return (
+    <div
+      role="button"
+      tabIndex={0}
+      onClick={onSelect}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          onSelect();
+        }
+      }}
+      className="rounded border px-2 py-1.5 cursor-pointer text-[12px]"
+      style={{
+        borderColor: isSelected ? 'var(--color-de)' : 'var(--color-border)',
+        background: isSelected ? 'var(--color-de-bg)' : 'var(--color-bg)',
+        borderWidth: isSelected ? 2 : 1,
+      }}
+      data-testid={`mytask-card-${task.id}`}
+      data-selected={isSelected ? 'true' : 'false'}
+    >
+      <div className="flex items-start gap-1.5">
+        <button
+          type="button"
+          onClick={toggleStatusOnce}
+          onDoubleClick={markResolved}
+          title="Click: flip Open ↔ In Progress · Double-click: Resolved"
+          className="flex-shrink-0 mt-0.5 rounded border cursor-pointer"
+          style={{
+            width: 14,
+            height: 14,
+            background:
+              task.status === 'Resolved'
+                ? 'var(--color-pm)'
+                : task.status === 'In Progress'
+                  ? 'var(--color-de)'
+                  : 'transparent',
+            borderColor:
+              task.status === 'Resolved'
+                ? 'var(--color-pm)'
+                : 'var(--color-border)',
+            color: '#fff',
+            fontSize: 9,
+            lineHeight: '12px',
+          }}
+          data-testid={`mytask-card-${task.id}-status-toggle`}
+        >
+          {task.status === 'Resolved' ? '✓' : ''}
+        </button>
+        <span
+          className="flex-1 truncate"
+          style={{
+            textDecoration: task.status === 'Resolved' ? 'line-through' : 'none',
+          }}
+          data-testid={`mytask-card-${task.id}-text`}
+        >
+          {task.text}
+        </span>
+      </div>
+      <div className="flex items-center justify-between mt-1 gap-2">
+        <span
+          className="text-[10px] truncate"
+          style={{ color: 'var(--color-muted)' }}
+          data-testid={`mytask-card-${task.id}-address`}
+        >
+          {task.project_address}
+        </span>
+        {task.target_date && (
+          <span
+            className="text-[10px] font-mono"
+            style={{
+              color: overdue ? 'var(--color-co)' : 'var(--color-muted)',
+              fontWeight: overdue ? 700 : 400,
+            }}
+            data-testid={`mytask-card-${task.id}-due`}
+            data-overdue={overdue ? 'true' : 'false'}
+          >
+            {task.target_date}
+          </span>
+        )}
+      </div>
+      <div className="flex items-center gap-1 mt-1 flex-wrap">
+        {task.permit_type && (
+          <span
+            className="text-[9px] px-1.5 py-0.5 rounded font-bold uppercase"
+            style={{
+              background: 'var(--color-s2)',
+              color: 'var(--color-text)',
+            }}
+            data-testid={`mytask-card-${task.id}-type`}
+          >
+            {task.permit_type}
+          </span>
+        )}
+        <span
+          className="text-[9px] px-1.5 py-0.5 rounded font-bold"
+          style={{
+            background: STATUS_BG[task.status],
+            color: 'var(--color-text)',
+          }}
+          data-testid={`mytask-card-${task.id}-status`}
+        >
+          {task.status === 'Open' ? 'Not Started' : task.status}
+        </span>
+      </div>
+    </div>
+  );
+}
+
+function TaskDetailPane({
+  task,
+  members,
+}: {
+  task: Task | null;
+  members: TeamMember[];
+}) {
+  const upsert = useUpsertTask();
+
+  function saveStatus(next: Task['status']) {
+    if (!task) return;
+    upsert.mutate({
+      id: task.id,
+      permitId: task.permit_id,
+      parentTaskId: task.parent_task_id,
+      discipline: task.discipline,
+      bucket: task.bucket,
+      text: task.text,
+      status: next,
+      startDate: task.start_date,
+      targetDate: task.target_date,
+    });
+  }
+
+  if (!task) {
+    return (
+      <div
+        className="rounded border p-3 text-sm italic"
+        style={{
+          borderColor: 'var(--color-border)',
+          background: 'var(--color-surface)',
+          color: 'var(--color-muted)',
+        }}
+        data-testid="mytasks-detail-empty"
+      >
+        Click a task to view details.
+      </div>
+    );
+  }
+  return (
+    <div
+      className="rounded border p-3 flex flex-col gap-3"
+      style={{
+        borderColor: 'var(--color-border)',
+        background: 'var(--color-surface)',
+      }}
+      data-testid="mytasks-detail"
+    >
+      <div className="flex items-center gap-1">
+        <Pill
+          label={task.discipline === 'arch' ? 'Architecture' : 'Entitlements'}
+          color={task.discipline === 'arch' ? 'var(--color-jv)' : 'var(--color-de)'}
+          testid="mytasks-detail-discipline"
+        />
+        <Pill
+          label={bucketOf(task) === 'de' ? 'D&E' : 'Permitting'}
+          color={BUCKET_ACCENT[bucketOf(task)]}
+          testid="mytasks-detail-bucket"
+        />
+      </div>
+      <div
+        className="text-sm font-bold"
+        data-testid="mytasks-detail-text"
+      >
+        {task.text}
+      </div>
+      <div className="flex items-center gap-2">
+        <span
+          className="text-[10px] uppercase tracking-wide"
+          style={{ color: 'var(--color-muted)' }}
+        >
+          Status
+        </span>
+        <select
+          value={task.status}
+          onChange={(e) => saveStatus(e.target.value as Task['status'])}
+          className="text-[12px] px-2 py-1 border rounded"
+          style={inputStyle()}
+          data-testid="mytasks-detail-status-select"
+        >
+          {(['Open', 'In Progress', 'Resolved'] as const).map((s) => (
+            <option key={s} value={s}>
+              {s === 'Open' ? 'Not Started' : s}
+            </option>
+          ))}
+        </select>
+      </div>
+      <div
+        className="grid"
+        style={{ gridTemplateColumns: '1fr 1fr', gap: 8 }}
+      >
+        <DateField
+          label="Start"
+          value={task.start_date}
+          testid="mytasks-detail-start"
+        />
+        <DateField
+          label="Target"
+          value={task.target_date}
+          testid="mytasks-detail-target"
+        />
+      </div>
+      <div>
+        <div
+          className="text-[10px] uppercase tracking-wide mb-1"
+          style={{ color: 'var(--color-muted)' }}
+        >
+          Assignees
+        </div>
+        <div className="flex flex-wrap gap-1">
+          {task.primary_assignee && (
+            <span
+              className="text-[11px] px-2 py-0.5 rounded-full font-bold"
+              style={{
+                background: 'var(--color-s2)',
+                color: 'var(--color-text)',
+              }}
+              title="Primary (derived from permit.da / permit.ent_lead)"
+              data-testid="mytasks-detail-primary"
+            >
+              {task.primary_assignee}
+            </span>
+          )}
+          {task.co_assignees.map((n) => (
+            <span
+              key={n}
+              className="text-[11px] px-2 py-0.5 rounded-full"
+              style={chipBg()}
+              data-testid={`mytasks-detail-co-${n}`}
+            >
+              {n}
+            </span>
+          ))}
+          {task.primary_assignee == null && task.co_assignees.length === 0 && (
+            <span
+              className="text-[11px] italic"
+              style={{ color: 'var(--color-muted)' }}
+            >
+              No assignees
+            </span>
+          )}
+        </div>
+      </div>
+      <div className="flex flex-col gap-1 text-[11px]">
+        <Link
+          to={`/project/${task.project_id}`}
+          className="underline"
+          style={{ color: 'var(--color-de)' }}
+          data-testid="mytasks-detail-project-link"
+        >
+          {task.project_address}
+        </Link>
+        {task.permit_type && (
+          <Link
+            to={`/project/${task.project_id}`}
+            className="underline"
+            style={{ color: 'var(--color-muted)' }}
+            data-testid="mytasks-detail-permit-link"
+          >
+            {task.permit_type}
+          </Link>
+        )}
+      </div>
+      {/* members is here so the role tooltips above stay self-contained even
+          when the team roster changes mid-session; nothing else uses it. */}
+      <span hidden>{members.length}</span>
+    </div>
+  );
+}
+
+function DateField({
+  label,
+  value,
+  testid,
+}: {
+  label: string;
+  value: string | null;
+  testid: string;
+}) {
+  return (
+    <div className="flex flex-col gap-0.5" data-testid={testid}>
+      <span
+        className="text-[10px] uppercase tracking-wide"
+        style={{ color: 'var(--color-muted)' }}
+      >
+        {label}
+      </span>
+      <span className="text-[11px] font-mono">
+        {value ?? '—'}
+      </span>
+    </div>
+  );
+}
+
+function Pill({
+  label,
+  color,
+  testid,
+}: {
+  label: string;
+  color: string;
+  testid: string;
+}) {
+  return (
+    <span
+      className="text-[10px] px-2 py-0.5 rounded-full font-bold uppercase"
+      style={{
+        background: color,
+        color: '#fff',
+      }}
+      data-testid={testid}
+    >
+      {label}
+    </span>
+  );
+}
+
 function inputStyle() {
   return {
     borderColor: 'var(--color-border)',
@@ -476,155 +1215,99 @@ function inputStyle() {
     color: 'var(--color-text)',
   };
 }
-function chipStyle() {
+function chipBg() {
   return {
     background: 'var(--color-bg)',
     border: '1px solid var(--color-border)',
     color: 'var(--color-text)',
   };
 }
-
-function TaskRow({
-  task,
-  subtasks,
-  isSub,
-}: {
-  task: MyTaskNode;
-  subtasks?: MyTaskNode[];
-  isSub?: boolean;
-}) {
-  const assignees = [
-    ...(task.primary_assignee ? [task.primary_assignee] : []),
-    ...task.co_assignees,
-  ];
-  return (
-    <div
-      className="py-1"
-      style={isSub ? { paddingLeft: 16 } : undefined}
-      data-testid={`mytask-row-${task.id}`}
-    >
-      <div className="flex items-center gap-2 text-[12px]">
-        <span
-          className="px-1.5 py-0.5 rounded text-[9px] font-bold"
-          style={{
-            background: STATUS_BG[task.status] ?? 'var(--color-s2)',
-            color: 'var(--color-text)',
-          }}
-          data-testid={`mytask-status-${task.id}`}
-        >
-          {task.status}
-        </span>
-        <span
-          style={{
-            flex: 1,
-            textDecoration: task.status === 'Resolved' ? 'line-through' : 'none',
-            opacity: task.status === 'Resolved' ? 0.6 : 1,
-          }}
-        >
-          {task.text}
-        </span>
-        {task.target_date && (
-          <span
-            className="text-[10px]"
-            style={{ color: 'var(--color-muted)' }}
-            data-testid={`mytask-target-${task.id}`}
-          >
-            🎯 {task.target_date}
-          </span>
-        )}
-      </div>
-      {assignees.length > 0 && (
-        <div
-          className="text-[10px] mt-0.5"
-          style={{ color: 'var(--color-muted)' }}
-          data-testid={`mytask-assignees-${task.id}`}
-        >
-          {assignees.join(', ')}
-        </div>
-      )}
-      {(subtasks ?? []).map((s) => (
-        <TaskRow key={s.id} task={s} isSub />
-      ))}
-    </div>
-  );
+function chipStyle(active: boolean) {
+  return {
+    borderColor: active ? 'var(--color-de)' : 'var(--color-border)',
+    background: active ? 'var(--color-de)' : 'var(--color-bg)',
+    color: active ? '#fff' : 'var(--color-text)',
+  };
 }
 
-/** Apply filter chips to the full task set. Exported for testability through
- *  the page render; not exported as a module symbol. */
+function sorted(tasks: Task[], byDueDate: boolean): Task[] {
+  const arr = [...tasks];
+  if (byDueDate) {
+    arr.sort((a, b) => {
+      const ad = a.target_date ?? '￿';
+      const bd = b.target_date ?? '￿';
+      if (ad !== bd) return ad.localeCompare(bd);
+      return a.sort_order - b.sort_order;
+    });
+  } else {
+    arr.sort((a, b) => {
+      if (a.sort_order !== b.sort_order) return a.sort_order - b.sort_order;
+      const ad = a.start_date ?? '';
+      const bd = b.start_date ?? '';
+      return bd.localeCompare(ad);
+    });
+  }
+  return arr;
+}
+
 function filterTasks(
-  tasks: MyTaskNode[],
+  tasks: Task[],
   filters: FilterState,
-  userName: string,
-): MyTaskNode[] {
-  const wantStatus =
-    filters.status === 'all'
-      ? null
-      : filters.status === 'open_in_progress'
-        ? new Set<MyTaskNode['status']>(['Open', 'In Progress'])
-        : new Set<MyTaskNode['status']>([filters.status]);
-  // Assignee match: Me preset → match userName as primary OR co-assignee.
-  // Explicit chips → each chip as primary OR co-assignee. Falls through to
-  // "no assignee filter" when neither is set.
-  const wantNames =
-    filters.meSelected && userName
-      ? new Set<string>([userName])
-      : filters.assignees.length > 0
-        ? new Set<string>(filters.assignees)
-        : null;
-  const projQuery = filters.projectQuery.trim().toLowerCase();
-  const titleQuery = filters.titleQuery.trim().toLowerCase();
+  rolesByName: Map<string, Set<'ent' | 'da' | 'dm' | 'consultant'>>,
+): Task[] {
+  const q = filters.search.trim().toLowerCase();
+  const wantTypes =
+    filters.permitTypes.length > 0
+      ? new Set(filters.permitTypes)
+      : null;
+
+  function nameMatchesAnyRoleFamily(
+    name: string,
+    families: Set<'ent' | 'da' | 'dm' | 'consultant'>,
+  ): boolean {
+    const r = rolesByName.get(name);
+    if (!r) return false;
+    for (const f of families) if (r.has(f)) return true;
+    return false;
+  }
+
+  function taskHasAssigneeFromSet(t: Task, names: Set<string>): boolean {
+    if (t.primary_assignee && names.has(t.primary_assignee)) return true;
+    return t.co_assignees.some((a) => names.has(a));
+  }
+
+  const roleNameSet = new Set<string>([
+    ...filters.roles.ent,
+    ...filters.roles.da,
+    ...filters.roles.dm,
+    ...filters.roles.consultant,
+  ]);
 
   return tasks.filter((t) => {
-    if (
-      filters.discipline !== 'all' &&
-      t.discipline !== filters.discipline
-    ) {
+    if (wantTypes && t.permit_type && !wantTypes.has(t.permit_type)) {
       return false;
     }
-    if (wantStatus && !wantStatus.has(t.status)) return false;
-    if (wantNames) {
-      const hit =
-        (t.primary_assignee && wantNames.has(t.primary_assignee)) ||
-        t.co_assignees.some((a) => wantNames.has(a));
-      if (!hit) return false;
-    }
-    if (projQuery && !t.project_address.toLowerCase().includes(projQuery)) {
+    if (wantTypes && !t.permit_type) return false;
+    if (roleNameSet.size > 0 && !taskHasAssigneeFromSet(t, roleNameSet)) {
       return false;
     }
-    if (titleQuery && !t.text.toLowerCase().includes(titleQuery)) {
-      return false;
+    if (filters.quickRole !== 'all') {
+      const families = new Set<'ent' | 'da' | 'dm' | 'consultant'>([
+        filters.quickRole as 'ent' | 'da' | 'dm' | 'consultant',
+      ]);
+      const candidates = [
+        ...(t.primary_assignee ? [t.primary_assignee] : []),
+        ...t.co_assignees,
+      ];
+      if (!candidates.some((n) => nameMatchesAnyRoleFamily(n, families))) {
+        return false;
+      }
+    }
+    if (q) {
+      const hay =
+        `${t.text} ${t.project_address} ${t.primary_assignee ?? ''} ${t.co_assignees.join(' ')}`.toLowerCase();
+      if (!hay.includes(q)) return false;
     }
     return true;
   });
-}
-
-function groupTasks(tasks: MyTaskNode[]): ProjectGroup[] {
-  const projects = new Map<string, ProjectGroup>();
-  for (const t of tasks) {
-    let proj = projects.get(t.project_id);
-    if (!proj) {
-      proj = {
-        projectId: t.project_id,
-        address: t.project_address,
-        permits: [],
-      };
-      projects.set(t.project_id, proj);
-    }
-    let permit = proj.permits.find((p) => p.permitId === t.permit_id);
-    if (!permit) {
-      permit = {
-        permitId: t.permit_id,
-        permitType: t.permit_type,
-        projectId: t.project_id,
-        byDiscipline: { arch: [], ent: [] },
-      };
-      proj.permits.push(permit);
-    }
-    permit.byDiscipline[t.discipline].push(t);
-  }
-  const out = [...projects.values()].sort((a, b) =>
-    a.address.localeCompare(b.address),
-  );
-  for (const p of out) p.permits.sort((a, b) => a.permitId - b.permitId);
-  return out;
 }
