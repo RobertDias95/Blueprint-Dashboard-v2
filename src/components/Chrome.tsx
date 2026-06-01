@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
 import SettingsModal from './SettingsModal';
 import NotificationBell from './NotificationBell';
+import ErrorTriageBell from './ErrorTriageBell';
 
 // Q9.5.a: top-nav restructured to v1 parity (index.html:573-591).
 //   - Blueprint logo on the left IS the home button (clicks → /dashboard).
@@ -110,6 +111,12 @@ export default function Chrome() {
           {/* fix-27: notification center. Bell lives left of the gear
               per spec; its popover anchors right-aligned. */}
           <NotificationBell />
+          {/* fix-87: error triage badge — sibling to the notification bell,
+              counts distinct unresolved error fingerprints. Click navigates
+              to /settings/errors. */}
+          <span className="ml-1">
+            <ErrorTriageBell />
+          </span>
           <button
             onClick={() => setSettingsOpen(true)}
             className="bg-transparent border border-border text-muted hover:text-text px-3 py-1 rounded-md text-[11px] font-display font-semibold whitespace-nowrap transition ml-1.5"

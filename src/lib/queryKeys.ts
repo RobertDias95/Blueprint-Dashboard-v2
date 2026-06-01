@@ -97,6 +97,14 @@ export const queryKeys = {
   // client-side (Assignee=Me preset, Discipline, Status, Project, Title).
   allTasks: (tenantId: string) =>
     ['permit_tasks', tenantId, 'all'] as const,
+  // fix-87: error triage queries. Bare prefix is shared with realtime
+  // invalidation; the tenant-scoped keys carry the status filter so
+  // Active / Resolved / All can coexist in the cache.
+  errorReportsAll: ['error_reports'] as const,
+  errorGroups: (tenantId: string, status: string[]) =>
+    ['error_reports', tenantId, 'groups', { status }] as const,
+  newErrorCount: (tenantId: string) =>
+    ['error_reports', tenantId, 'newCount'] as const,
 } as const;
 
 /** Map from Postgres table name → bare-prefix query keys to invalidate on
@@ -112,4 +120,7 @@ export const REALTIME_TABLES = {
   // fix-31: scraper writes reviewer rows -> bell badge ticks + Project
   // Overview rollup refreshes live.
   permit_cycle_reviewers: [queryKeys.permitCycleReviewersAll],
+  // fix-87: any insert/update to error_reports refreshes the triage page
+  // + the nav badge across every open tab.
+  error_reports: [queryKeys.errorReportsAll],
 } as const;
