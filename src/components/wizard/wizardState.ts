@@ -6,6 +6,18 @@ import {
 
 const BUILDING_PERMIT = 'Building Permit';
 
+/** fix-88: Units count is required at submit. Returns true when the
+ *  string value parses to a finite number > 0. Empty string, '0', and
+ *  negatives all fail. 2 prod projects (2724 Walnut Ave SW + 1 other)
+ *  were saved with NULL units before this gate existed — Bobby spotted
+ *  the gap when the Proposal section rendered without a Units value. */
+export function unitsIsValid(units: string): boolean {
+  const trimmed = units.trim();
+  if (trimmed === '') return false;
+  const n = Number(trimmed);
+  return Number.isFinite(n) && n > 0;
+}
+
 // fix-22: shared state shape threaded through the 4-step wizard. Step 1
 // fills project-level fields; Step 2 picks which permits to create;
 // Step 3 lets the user override per-permit assignments (ent_lead etc.);

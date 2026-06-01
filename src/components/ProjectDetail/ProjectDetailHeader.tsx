@@ -520,14 +520,28 @@ function ProjectCell({
             Proposal
           </div>
           <div className="flex flex-col gap-1">
-            {project.units != null && (
-              <div className="flex items-baseline gap-1.5">
-                <span className="text-[9px] text-dim min-w-[36px]">Units</span>
+            <div className="flex items-baseline gap-1.5">
+              <span className="text-[9px] text-dim min-w-[36px]">Units</span>
+              {project.units != null && project.units > 0 ? (
                 <span className="text-sm font-extrabold text-text">
                   {project.units}
                 </span>
-              </div>
-            )}
+              ) : (
+                // fix-88: Bobby spotted 2724 Walnut Ave SW (and 1 other)
+                // saved without a unit count — the wizard pre-fix-88
+                // didn't gate this. The badge makes the gap visible at a
+                // glance so the team can backfill the value via Project
+                // Settings (NULL and 0 both flag — 0 isn't a real unit
+                // count for any project type we handle).
+                <span
+                  className="text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded border bg-co-bg text-co border-co-border"
+                  title="This project was saved without a unit count. Open Project Settings to add one."
+                  data-testid="units-missing-badge"
+                >
+                  ⚠ missing
+                </span>
+              )}
+            </div>
             {productType && (
               <div className="flex items-baseline gap-1.5">
                 <span className="text-[9px] text-dim min-w-[36px]">Type</span>
