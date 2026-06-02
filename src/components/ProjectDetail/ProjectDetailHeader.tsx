@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useQueryClient } from '@tanstack/react-query';
 import type {
   Builder,
   PermitWithCycles,
@@ -8,9 +7,6 @@ import type {
 } from '../../lib/database.types';
 import { useUpdateProject } from '../../hooks/useUpdateProject';
 import { nextUnitTypeLabel } from '../../lib/unitTypeNaming';
-import { isOCCConflict } from '../../lib/occ';
-import { queryKeys } from '../../lib/queryKeys';
-import { useAuthStore } from '../../stores/authStore';
 import {
   useSetBpDdDates,
   type ProjectOverlapConflict,
@@ -1253,81 +1249,28 @@ function parseUnitTypes(raw: unknown): UnitType[] {
 
 function UnitDimensions({ project }: { project: Project }) {
   const updateMutation = useUpdateProject();
-  const queryClient = useQueryClient();
-  const tenantId = useAuthStore((s) => s.activeTenantId) ?? '';
   const occMissing = !project.updated_at;
   const types = parseUnitTypes(project.unit_types);
 
-  // fix-98: auto-recover from OCC. The hook's onError handler invalidates
-  // the projects query (async refetch) but rolls back the optimistic
-  // cache to the SNAPSHOT — which still carries the stale updated_at.
-  // A user clicking save again before the refetch lands hits OCC with
-  // the same stale token (Cam's 17-fires-in-an-hour churn pattern).
-  // The retry path here awaits the refetch, reads the freshest project
-  // from the cache, and fires ONE more mutateAsync with the new token.
-  // First attempt is silentOnOcc so a successful auto-retry doesn't
-  // flash an intermediate "modified by someone else" toast; the retry
-  // attempt runs WITHOUT the flag so a real concurrent edit still
-  // surfaces the existing message.
+  // fix-99: OCC auto-recovery moved into useUpdateProject's mutationFn
+  // (silent first attempt → refetch → retry once on stale-token OCC,
+  // toast only on a real concurrent edit). writeTypes is back to a
+  // single mutateAsync call. The trailing .catch swallows any error
+  // (the hook's onError already surfaced the right toast) so the
+  // `void writeTypes(...)` callers below don't trip an
+  // unhandled-promise-rejection — same pattern as DateCell.tryCommit.
   async function writeTypes(next: UnitType[]) {
     if (!project.updated_at) return;
-    try {
-      await updateMutation.mutateAsync({
+    await updateMutation
+      .mutateAsync({
         projectId: project.id,
         expectedUpdatedAt: project.updated_at,
         patch: { unit_types: next },
         fieldLabel: 'Unit Dimensions',
-        silentOnOcc: true,
+      })
+      .catch(() => {
+        /* hook's onError already pushed the user-visible message */
       });
-      return;
-    } catch (err) {
-      if (!isOCCConflict(err)) {
-        // Non-OCC errors: the hook's onError already toasted the
-        // "Could not save project — …" message. Swallow so the void
-        // caller doesn't trip an unhandled-promise-rejection (DateCell's
-        // catch path in fix-26a / fix-86 follows the same pattern).
-        return;
-      }
-      // Pull the server's actual current updated_at before retrying. The
-      // hook's onError already invalidated the query; refetchQueries
-      // awaits the in-flight refetch (or starts one if it hasn't begun).
-      await queryClient.refetchQueries({
-        queryKey: queryKeys.projects(tenantId),
-      });
-      const fresh = queryClient
-        .getQueryData<Project[]>(queryKeys.projects(tenantId))
-        ?.find((p) => p.id === project.id);
-      // No fresh data, missing token, or token unchanged → the refetch
-      // didn't move the cache forward (rare: backend stuck or the user's
-      // own optimistic snapshot rolled the cache right back). Surface
-      // the original OCC error rather than silently retrying with the
-      // same stale token. Push the toast ourselves since the first
-      // attempt was silentOnOcc.
-      if (
-        !fresh?.updated_at ||
-        fresh.updated_at === project.updated_at
-      ) {
-        pushToast(
-          'Unit Dimensions was modified by someone else — your edit was reverted',
-          'warn',
-        );
-        return;
-      }
-      // Retry once. WITHOUT silentOnOcc — if this also OCCs, the
-      // existing hook-level toast fires so the user sees the real
-      // concurrent-edit message and stops clicking. Swallow any error
-      // so the void caller stays unhandled-rejection-free.
-      try {
-        await updateMutation.mutateAsync({
-          projectId: project.id,
-          expectedUpdatedAt: fresh.updated_at,
-          patch: { unit_types: next },
-          fieldLabel: 'Unit Dimensions',
-        });
-      } catch {
-        /* hook's onError already surfaced the message */
-      }
-    }
   }
 
   // Compact mode: empty or single unnamed entry

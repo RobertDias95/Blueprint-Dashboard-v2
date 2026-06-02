@@ -7,14 +7,13 @@ import { useAuthStore } from '../stores/authStore';
 import { OCCConflictError } from '../lib/occ';
 import { queryKeys } from '../lib/queryKeys';
 
-// fix-98: UnitDimensions auto-recovers from OCC churn. Cam was hitting
-// the "Unit Dimensions was modified by someone else" toast 2-3 times in
-// a row on the same project — the cache's expected_updated_at wasn't
-// advancing between clicks because the hook's onError invalidate is
-// async (the rollback restores the stale snapshot while the refetch is
-// in-flight). UnitDimensions now does a silent first save, catches
-// OCCConflictError, awaits the refetch, and retries ONCE with the
-// fresh updated_at.
+// fix-98 + fix-99: UnitDimensions's bespoke OCC-recovery dance moved
+// into useUpdateProject's mutationFn (fix-99) so every caller of the
+// hook inherits the same auto-retry path for free. UnitDimensions.
+// writeTypes is now a single mutateAsync call — these tests pin the
+// resulting user-visible behavior at the COMPONENT layer; the
+// recovery wire itself is exercised at the hook layer in
+// useUpdateProjectFix99.test.tsx.
 
 const T = 'test-tenant-uuid';
 const OLD_TOKEN = '2026-05-15T12:00:00Z';
@@ -102,93 +101,57 @@ beforeEach(() => {
   });
 });
 
-describe('UnitDimensions — fix-98 OCC auto-recovery', () => {
-  it('happy path: the first save fires with silentOnOcc=true and the project\'s current updated_at', async () => {
+describe('UnitDimensions — fix-99 single mutateAsync call (recovery in hook)', () => {
+  it('happy path: writeTypes fires ONE mutateAsync with the project\'s current updated_at and no silentOnOcc flag', async () => {
     updateMutateAsync.mockResolvedValueOnce({
       id: 'p-test',
       updated_at: NEW_TOKEN,
     });
     setup();
-    // Compact mode renders two inputs since unit_types is empty/single-unnamed.
     const wInput = screen.getByTestId('pd-units-compact-w') as HTMLInputElement;
     fireEvent.change(wInput, { target: { value: '40' } });
     fireEvent.blur(wInput);
     await waitFor(() => expect(updateMutateAsync).toHaveBeenCalledTimes(1));
     const call = updateMutateAsync.mock.calls[0][0];
     expect(call.expectedUpdatedAt).toBe(OLD_TOKEN);
-    expect(call.silentOnOcc).toBe(true);
+    // fix-99: writeTypes no longer opts into silentOnOcc — the hook
+    // handles the retry + toast lifecycle on its own.
+    expect(call.silentOnOcc).toBeUndefined();
     expect(call.fieldLabel).toBe('Unit Dimensions');
     expect(call.patch.unit_types[0].width_ft).toBe(40);
   });
 
-  it('OCC → refetch → retry ONCE with the fresh token (and silentOnOcc=false on the retry)', async () => {
-    // First attempt OCCs. Second attempt (post-refetch with fresh token) succeeds.
-    updateMutateAsync
-      .mockRejectedValueOnce(new OCCConflictError(0, 'Unit Dimensions'))
-      .mockResolvedValueOnce({ id: 'p-test', updated_at: NEW_TOKEN });
-
-    const { queryClient } = setup();
-    // Simulate what the hook's invalidateQueries + the refetch chain
-    // would land in the cache (the test mocks the mutation directly so
-    // there's no real network refetch — patch the cache here to mirror
-    // what refetchQueries would deliver).
-    const wInput = screen.getByTestId('pd-units-compact-w') as HTMLInputElement;
-    fireEvent.change(wInput, { target: { value: '40' } });
-    // Defer the cache patch until refetchQueries is awaited inside
-    // writeTypes. queryClient.setQueryData wins the race because the
-    // refetchQueries call resolves immediately when there are no
-    // active observers attached to a real fetchFn.
-    queryClient.setQueryData(queryKeys.projects(T), [
-      projectFixture({ updated_at: NEW_TOKEN }),
-    ]);
-    fireEvent.blur(wInput);
-
-    await waitFor(() => expect(updateMutateAsync).toHaveBeenCalledTimes(2));
-    const first = updateMutateAsync.mock.calls[0][0];
-    const second = updateMutateAsync.mock.calls[1][0];
-    expect(first.expectedUpdatedAt).toBe(OLD_TOKEN);
-    expect(first.silentOnOcc).toBe(true);
-    // Retry pulls the fresh token + drops silentOnOcc so a real
-    // second concurrent edit still surfaces the hook's existing toast.
-    expect(second.expectedUpdatedAt).toBe(NEW_TOKEN);
-    expect(second.silentOnOcc).toBeUndefined();
-    expect(second.patch.unit_types[0].width_ft).toBe(40);
-  });
-
-  it('OCC + refetch returns the SAME stale token → no retry, manually push the OCC toast', async () => {
-    // First attempt OCCs. The refetch lands the same updated_at back
-    // in the cache (backend stuck OR an immediate-rollback race);
-    // there is no fresh token to retry with — surface the OCC error
-    // to the user.
+  it('OCC rejection: writeTypes calls mutateAsync exactly ONCE and pushes no extra toast (hook owns both)', async () => {
+    // fix-99: OCC recovery moved into the hook. From the component's
+    // POV, mutateAsync is called once; the hook may internally retry,
+    // but writeTypes doesn't manage that wire anymore. The toast (if
+    // any) comes from the hook's onError — writeTypes doesn't push.
     updateMutateAsync.mockRejectedValueOnce(
       new OCCConflictError(0, 'Unit Dimensions'),
     );
-    setup(); // cache stays at OLD_TOKEN
+    setup();
     const wInput = screen.getByTestId('pd-units-compact-w') as HTMLInputElement;
     fireEvent.change(wInput, { target: { value: '40' } });
     fireEvent.blur(wInput);
-
     await waitFor(() => expect(updateMutateAsync).toHaveBeenCalledTimes(1));
-    // No retry — the cache didn't move forward.
+    await new Promise((r) => setTimeout(r, 20));
     expect(updateMutateAsync).toHaveBeenCalledTimes(1);
-    await waitFor(() => {
-      expect(toastMock).toHaveBeenCalled();
-    });
-    expect(toastMock.mock.calls[0][0]).toContain(
-      'Unit Dimensions was modified by someone else',
-    );
-    expect(toastMock.mock.calls[0][1]).toBe('warn');
+    // The component-side .catch in writeTypes swallows so the void
+    // caller stays unhandled-rejection-free. The mocked hook itself
+    // doesn't push the toast (the test stubs mutateAsync directly).
+    expect(toastMock).not.toHaveBeenCalled();
   });
 
-  it('NON-OCC error from the first attempt is re-thrown — no refetch, no retry', async () => {
+  it('NON-OCC rejection: writeTypes still only calls mutateAsync once and surfaces no errors to the void caller', async () => {
     updateMutateAsync.mockRejectedValueOnce(new Error('network glitch'));
     setup();
     const wInput = screen.getByTestId('pd-units-compact-w') as HTMLInputElement;
     fireEvent.change(wInput, { target: { value: '40' } });
     fireEvent.blur(wInput);
-
     await waitFor(() => expect(updateMutateAsync).toHaveBeenCalledTimes(1));
-    // No second call — we only auto-recover OCC, not generic errors.
+    // No second call — auto-recovery for OCC lives in the hook now
+    // (and only fires on OCC, never on a generic error). The
+    // .catch in writeTypes prevents an unhandled-promise-rejection.
     await new Promise((r) => setTimeout(r, 20));
     expect(updateMutateAsync).toHaveBeenCalledTimes(1);
   });
