@@ -176,7 +176,7 @@ describe('useCreateProjectWithPermits (fix-22 signature)', () => {
           parking_type: 'attached',
           parking_stalls: 4,
           alley: 'yes',
-          product_type: 'Townhouse',
+          product_types: ['Townhouse'],
           project_tags: ['corner-lot'],
         },
         permits: [
@@ -428,8 +428,10 @@ describe('<NewProjectWizard />', () => {
     fireEvent.change(screen.getByTestId('wizard-units'), {
       target: { value: '2' },
     });
-    fireEvent.change(screen.getByTestId('wizard-entitlement-lead'), {
-      target: { value: 'Bobby' },
+    // fix-91: ENT/DM dropdowns removed from Step 1 (derive on Step 3).
+    // Set the ACQ Target instead so the BP row's expected_issue lands.
+    fireEvent.change(screen.getByTestId('wizard-acq-target'), {
+      target: { value: '2026-09-15' },
     });
     fireEvent.change(screen.getByTestId('wizard-zone'), {
       target: { value: 'LR2' },
@@ -439,14 +441,33 @@ describe('<NewProjectWizard />', () => {
     fireEvent.click(screen.getByTestId('wizard-next')); // -> Step 4
     fireEvent.click(screen.getByTestId('wizard-save'));
 
+    const createCalls = () =>
+      mocks.rpcFn.mock.calls.filter(
+        (c) => c[0] === 'bp_create_project_with_permits',
+      );
     await waitFor(() => {
-      expect(mocks.rpcFn).toHaveBeenCalledTimes(1);
+      expect(createCalls()).toHaveLength(1);
     });
-    const [, args] = mocks.rpcFn.mock.calls[0];
+    const args = createCalls()[0][1] as {
+      p_address: string;
+      p_juris: string;
+      p_project_data: {
+        entitlement_lead: string | null;
+        design_manager: string | null;
+        zone: string | null;
+        product_types: string[];
+      };
+      p_permits: { type: string; task_template_ids: string[]; expected_issue?: string }[];
+    };
     expect(args.p_address).toBe('123 Main');
     expect(args.p_juris).toBe('Seattle');
-    expect(args.p_project_data.entitlement_lead).toBe('Bobby');
+    // fix-91: no DA was picked on Step 3 → ent_lead routes to null.
+    expect(args.p_project_data.entitlement_lead).toBeNull();
+    expect(args.p_project_data.design_manager).toBeNull();
     expect(args.p_project_data.zone).toBe('LR2');
+    // fix-91: BP inherits the Step-1 ACQ Target as its expected_issue.
+    const bpInPayload = args.p_permits.find((p) => p.type === 'Building Permit');
+    expect(bpInPayload?.expected_issue).toBe('2026-09-15');
     // Building Permit was auto-injected even though user didn't visit Step 3.
     const permits = args.p_permits as { type: string; task_template_ids: string[] }[];
     expect(permits.some((p) => p.type === 'Building Permit')).toBe(true);

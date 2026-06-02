@@ -50,7 +50,11 @@ export interface ProjectData {
   parking_type?: string | null;
   parking_stalls?: number | null;
   alley?: string | null;
-  product_type?: string | null;
+  /** fix-91: was product_type (single string), now an array. The RPC
+   *  reads this as a jsonb array and stores it in projects.product_types
+   *  (text[] NOT NULL DEFAULT '{}'). Empty array is the "no types
+   *  selected" representation. */
+  product_types?: string[] | null;
   project_tags?: string[] | null;
   builder_name?: string | null;
   builder_company?: string | null;

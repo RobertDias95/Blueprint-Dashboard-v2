@@ -20,6 +20,9 @@ import {
   type WizardPermit,
   type WizardState,
 } from './wizard/wizardState';
+import { findDmForDa } from './wizard/dmRouting';
+import { useDmDaGroups } from '../hooks/useDmDaGroups';
+import { lookupEntLeadForDa } from '../hooks/useDaTeamRouting';
 
 // fix-22: 4-step Stepper-driven New Project wizard. Replaces v2's
 // previous single-screen wizard with the V1 flow (Project Info →
@@ -61,13 +64,18 @@ function makeBpPermit(state: WizardState): WizardPermit {
     rowId: newPermitRowId(),
     type: BUILDING_PERMIT,
     selected: true,
-    ent_lead: state.entitlement_lead,
-    dm: state.design_manager,
+    // fix-91: Step 1 no longer collects ent_lead / design_manager; the
+    // BP is born blank on both fields and Step 3's DA pick fills
+    // ent_lead via bp_ent_lead_for_da.
+    ent_lead: '',
+    dm: '',
     da: '',
     dual_da: '',
     architect: '',
     num: '',
-    expected_issue: '',
+    // fix-91: inherit the Step-1 ACQ Target as the BP's initial
+    // expected_issue. Per-permit overrides on Step 3 still win.
+    expected_issue: state.acq_target,
     target_submit: '',
     manuallyEdited: {},
     taskTemplateIds: [],
@@ -99,6 +107,11 @@ export default function NewProjectWizard({ open, onClose }: Props) {
   const placeOnDa = usePlaceNewProjectOnDa();
   const jurisQ = useJurisdictions();
   const typesQ = usePermitTypes();
+  // fix-91: derive project-level ent_lead + design_manager on submit
+  // from the BP's DA. dmDaGroups is the source for DM; ent_lead routes
+  // through bp_ent_lead_for_da. Cached in this hook so the submit path
+  // doesn't refetch.
+  const dmDaGroupsQ = useDmDaGroups();
 
   const [step, setStep] = useState<StepIndex>(1);
   const [state, setState] = useState<WizardState>(makeEmptyWizardState);
@@ -191,10 +204,44 @@ export default function NewProjectWizard({ open, onClose }: Props) {
       return;
     }
 
+    // Selected permits + auto-inject Building Permit if Steps 2/3 didn't.
+    let selectedPermits = state.permits.filter((p) => p.selected);
+    if (!selectedPermits.some((p) => p.type === BUILDING_PERMIT)) {
+      selectedPermits = [makeBpPermit(state), ...selectedPermits];
+    }
+
+    // fix-91: derive project-level ent_lead + design_manager from the BP
+    // permit's DA. We still write them to projects.* on submit even
+    // though Step 1 stopped asking — downstream reads (reports, lists,
+    // schedule-health) depend on those project-level columns. The
+    // wizard state's entitlement_lead is whatever Step 3's DA-routing
+    // lookup populated on the BP row; we use it as the project-level
+    // fallback. If the BP row's ent_lead is still blank (DA not in
+    // routing) we run one final lookup here defensively, then accept
+    // whatever the user typed.
+    const bpRow =
+      selectedPermits.find((p) => p.type === BUILDING_PERMIT) ?? null;
+    let derivedEntLead = bpRow?.ent_lead?.trim() ?? '';
+    if (!derivedEntLead && bpRow?.da) {
+      try {
+        const routed = await lookupEntLeadForDa(
+          bpRow.da,
+          state.juris || null,
+        );
+        if (routed) derivedEntLead = routed;
+      } catch {
+        // Lookup failure is non-fatal — submit continues with a blank
+        // project-level ent_lead. The user can fill it in via Project
+        // Settings later.
+      }
+    }
+    const derivedDm =
+      bpRow?.da ? findDmForDa(bpRow.da, dmDaGroupsQ.rows) ?? '' : '';
+
     // Walk WizardState → RPC payload.
     const projectData: ProjectData = {
-      entitlement_lead: strOrNull(state.entitlement_lead),
-      design_manager: strOrNull(state.design_manager),
+      entitlement_lead: strOrNull(derivedEntLead),
+      design_manager: strOrNull(derivedDm),
       acq_lead: strOrNull(state.acq_lead),
       go_date: strOrNull(state.go_date),
       units: intOrNull(state.units),
@@ -205,7 +252,9 @@ export default function NewProjectWizard({ open, onClose }: Props) {
       parking_type: strOrNull(state.parking_type),
       parking_stalls: intOrNull(state.parking_stalls),
       alley: strOrNull(state.alley),
-      product_type: strOrNull(state.product_type),
+      // fix-91: send the multi-select array. Empty array is fine —
+      // the RPC stores it as projects.product_types = '{}'.
+      product_types: state.product_types,
       project_tags: state.project_tags.length > 0 ? state.project_tags : null,
       // fix-22-final / Migration 6 + 7: Builder/Owner contact fields.
       builder_name: strOrNull(state.builder_name),
@@ -213,12 +262,6 @@ export default function NewProjectWizard({ open, onClose }: Props) {
       builder_email: strOrNull(state.builder_email),
       builder_phone: strOrNull(state.builder_phone),
     };
-
-    // Selected permits + auto-inject Building Permit if Steps 2/3 didn't.
-    let selectedPermits = state.permits.filter((p) => p.selected);
-    if (!selectedPermits.some((p) => p.type === BUILDING_PERMIT)) {
-      selectedPermits = [makeBpPermit(state), ...selectedPermits];
-    }
 
     const permitsPayload: PermitInput[] = selectedPermits.map((p) => ({
       type: p.type,
@@ -228,9 +271,15 @@ export default function NewProjectWizard({ open, onClose }: Props) {
       da: strOrNull(p.da) ?? undefined,
       dual_da: strOrNull(p.dual_da) ?? undefined,
       architect: strOrNull(p.architect) ?? undefined,
-      // fix-25c: "ACQ Target Date" input → expected_issue (the column
-      // Schedule Health reads).
-      expected_issue: strOrNull(p.expected_issue) ?? undefined,
+      // fix-25c / fix-91: "ACQ Target" → expected_issue. The BP row
+      // inherited state.acq_target via makeBpPermit; per-permit edits
+      // on Step 3 win. Defense in depth: if the BP somehow lost its
+      // value, fall back to state.acq_target.
+      expected_issue:
+        strOrNull(p.expected_issue) ??
+        (p.type === BUILDING_PERMIT
+          ? strOrNull(state.acq_target) ?? undefined
+          : undefined),
       // fix-25-feat-h: optional Target Submit. For BPs the cascade
       // (bp_set_bp_dd_dates: dd_end + 14) will overwrite this once DD
       // dates land, so an empty string here is fine. Non-BPs rely on

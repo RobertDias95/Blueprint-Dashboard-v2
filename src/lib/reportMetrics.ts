@@ -22,8 +22,10 @@ export interface EnrichedPermit {
   address: string;
   /** Jurisdiction — lives on the project, not the permit, in v2. */
   juris: string;
-  /** fix-22 Mig 3: project-level product_type (moved from permits.*). */
-  productType: string;
+  /** fix-22 Mig 3: project-level product types (moved from permits.*).
+   *  fix-91: now an array — a site can carry multiple types. Joined
+   *  with ', ' for display + the search haystack. */
+  productTypes: string[];
   /** fix-22 Mig 3: project_tags read directly from the joined project. */
   projectTags: string[];
   /** fix-22 Mig 3: go_date moved from permits → projects. */
@@ -129,7 +131,9 @@ export function enrichPermits(
       permit,
       address: project?.address ?? '',
       juris: project?.juris ?? '',
-      productType: project?.product_type ?? '',
+      productTypes: Array.isArray(project?.product_types)
+        ? project.product_types
+        : [],
       projectTags: tags,
       goDate: projectGoDate,
       units: project?.units ?? null,
@@ -387,8 +391,9 @@ export function matchesLedgerSearch(row: ProjectRow, query: string): boolean {
       e.permit.permit_owner,
       e.permit.nickname,
       e.permit.status,
-      // fix-22 Mig 3: product_type now lives on the joined project.
-      e.productType,
+      // fix-22 Mig 3: product types live on the joined project.
+      // fix-91: now an array — join for the search haystack.
+      e.productTypes.join(' '),
     );
   }
   const haystack = parts
@@ -442,8 +447,12 @@ export function filterEnrichedPermits(
     if (filters.status === 'active' && fullyIssued.has(p.project_id)) return false;
     if (filters.status === 'issued' && !fullyIssued.has(p.project_id)) return false;
 
-    if (filters.productTypes.size > 0 && !filters.productTypes.has(e.productType)) {
-      return false;
+    if (filters.productTypes.size > 0) {
+      // fix-91: product types is multi-valued on the project. Match any-of:
+      // a row passes when its productTypes intersect the selected filter
+      // set. Rows with no product types fail when the filter is active.
+      const hit = e.productTypes.some((t) => filters.productTypes.has(t));
+      if (!hit) return false;
     }
 
     if (filters.tags.size > 0) {
@@ -453,7 +462,7 @@ export function filterEnrichedPermits(
 
     if (filters.search.trim()) {
       // Search joins task-style: address, juris, ent_lead, da, dm, type,
-      // product_type, permit_num.
+      // product_types, permit_num.
       const hay = [
         e.address,
         e.juris,
@@ -461,7 +470,7 @@ export function filterEnrichedPermits(
         p.da,
         p.dm,
         p.type,
-        e.productType,
+        e.productTypes.join(' '),
         p.num,
       ]
         .filter((s): s is string => Boolean(s))

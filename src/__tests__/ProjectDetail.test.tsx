@@ -41,7 +41,7 @@ const refs = vi.hoisted(() => {
     parking_type: null,
     parking_stalls: null,
     alley: null,
-    product_type: null,
+    product_types: [],
     project_tags: null,
     builder_name: null,
     builder_company: null,

@@ -25,7 +25,7 @@ const fixtures = vi.hoisted(() => ({
       lot_width: 40,
       lot_depth: 100,
       alley: 'Yes',
-      product_type: 'SFR',
+      product_types: ['SFR'],
       project_tags: ['ECA'],
       // fix-81: three Cottages — narrow + short. Used by the
       // unit-width filter test (25 ± 2 matches all three) and the
@@ -47,7 +47,7 @@ const fixtures = vi.hoisted(() => ({
       lot_width: 60,
       lot_depth: 120,
       alley: 'No',
-      product_type: 'Attached Units',
+      product_types: ['Attached Units'],
       project_tags: ['SIP'],
       // One SFR unit at 40×80 — used by the unit-width filter test
       // (target 40 ± 2 matches this row's unit, none of project a's
@@ -67,7 +67,7 @@ const fixtures = vi.hoisted(() => ({
       lot_width: 80,
       lot_depth: 120,
       alley: 'Yes',
-      product_type: 'SFR',
+      product_types: ['SFR'],
       project_tags: [],
       // No unit_types at all — caret should not render; row drops out
       // of any unit-dim filter.
@@ -102,7 +102,7 @@ const fixtures = vi.hoisted(() => ({
       view_cycle: null,
       kickoff_date: null,
       zone: 'NR',
-      product_type: 'SFR',
+      product_types: ['SFR'],
       project_tags: ['ECA'],
       unit_types: null,
       parking_type: null,
@@ -145,7 +145,7 @@ const fixtures = vi.hoisted(() => ({
       view_cycle: null,
       kickoff_date: null,
       zone: 'R-2',
-      product_type: 'Attached Units',
+      product_types: ['Attached Units'],
       project_tags: ['SIP'],
       unit_types: null,
       parking_type: null,
@@ -188,7 +188,7 @@ const fixtures = vi.hoisted(() => ({
       view_cycle: null,
       kickoff_date: null,
       zone: 'NR',
-      product_type: 'SFR',
+      product_types: ['SFR'],
       project_tags: [],
       unit_types: null,
       parking_type: null,

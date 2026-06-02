@@ -72,10 +72,21 @@ export interface WizardState {
   address: string;
   juris: string;
   notes: string;
+  /** fix-91: derived on submit (not asked in Step 1 anymore). Step 3's
+   *  BP DA pick → bp_ent_lead_for_da looks up the routed ent_lead;
+   *  handleSubmit also writes this to projects.entitlement_lead so the
+   *  project-wholistic column stays populated for reports + lists. */
   entitlement_lead: string;
+  /** fix-91: same story as entitlement_lead — derived from the BP's DA
+   *  via dm_da_groups + written to projects.design_manager on submit. */
   design_manager: string;
   acq_lead: string;
   go_date: string;
+  /** fix-91: BP's expected_issue, captured on Step 1 so Phase B's
+   *  reactive seeding (applySeeding) has an anchor before the user
+   *  reaches Step 3. When Step 3 builds the BP row, it inherits this
+   *  value as its initial expected_issue. Optional. */
+  acq_target: string;
   units: string;
   zone: string;
   lot_width: string;
@@ -84,7 +95,10 @@ export interface WizardState {
   parking_type: string;
   parking_stalls: string;
   alley: string;
-  product_type: string;
+  /** fix-91: array now. A site can legitimately have multiple types
+   *  (SFR + Attached Units + Cottages). Pick list comes from the
+   *  app_config.productTypeOptions key (AdminProjectsTab edits). */
+  product_types: string[];
   project_tags: string[];
   // Step 1 — Builder / Owner (fix-22-final / Migration 6)
   builder_name: string;
@@ -110,6 +124,7 @@ export function makeEmptyWizardState(): WizardState {
     design_manager: '',
     acq_lead: '',
     go_date: '',
+    acq_target: '',
     units: '',
     zone: '',
     lot_width: '',
@@ -118,7 +133,7 @@ export function makeEmptyWizardState(): WizardState {
     parking_type: '',
     parking_stalls: '',
     alley: '',
-    product_type: '',
+    product_types: [],
     project_tags: [],
     builder_name: '',
     builder_company: '',
@@ -165,7 +180,12 @@ export const PRODUCT_TYPE_OPTIONS = [
 export function applySeeding(state: WizardState): WizardState {
   const goDate = state.go_date || '';
   const bp = state.permits.find((p) => p.type === BUILDING_PERMIT);
-  const bpAcq = bp?.expected_issue || '';
+  // fix-91: acq_target is the canonical Step 1 ACQ Target input. Once the
+  // BP row exists (Step 3 onward) its expected_issue mirrors acq_target
+  // and a per-permit edit there overrides; before then the BP row hasn't
+  // been built yet so we fall back to acq_target so seeding can already
+  // start firing for non-BP rows when Step 3 mounts.
+  const bpAcq = bp?.expected_issue || state.acq_target || '';
   const anchors = { goDate, bpAcq };
 
   let changed = false;

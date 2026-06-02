@@ -97,7 +97,7 @@ const INITIAL_FILTERS: LibraryFilters = {
   unitdBuf: 2,
   zone: '',
   alley: '',
-  productType: '',
+  productTypes: [],
   tag: '',
   juris: '',
 };
@@ -237,18 +237,53 @@ function Body({ projects, permits }: BodyProps) {
           </select>
         </FieldLabel>
 
-        <FieldLabel label="Unit Type">
-          <select
-            value={filters.productType}
-            onChange={(e) => update('productType', e.target.value)}
-            className="bg-bg border border-border rounded px-2 py-1 text-[11px] text-text focus:outline-none focus:border-de"
-            data-testid="filter-product-type"
-          >
-            <option value="">Any</option>
-            {PRODUCT_TYPE_OPTIONS.map((t) => (
-              <option key={t}>{t}</option>
+        <FieldLabel label="Product Type">
+          {/* fix-91: multi-select. Pick adds a chip; chip × removes it.
+              Matching is any-of in libraryHelpers.filterLibraryRows. */}
+          <div className="flex flex-wrap items-center gap-1">
+            <select
+              value=""
+              onChange={(e) => {
+                const v = e.target.value;
+                if (!v) return;
+                if (filters.productTypes.includes(v)) return;
+                update('productTypes', [...filters.productTypes, v]);
+                e.currentTarget.value = '';
+              }}
+              className="bg-bg border border-border rounded px-2 py-1 text-[11px] text-text focus:outline-none focus:border-de"
+              data-testid="filter-product-type"
+            >
+              <option value="">Any</option>
+              {PRODUCT_TYPE_OPTIONS.filter(
+                (t) => !filters.productTypes.includes(t),
+              ).map((t) => (
+                <option key={t}>{t}</option>
+              ))}
+            </select>
+            {filters.productTypes.map((t) => (
+              <span
+                key={t}
+                className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full bg-bg border border-border"
+                data-testid={`filter-product-type-chip-${t}`}
+              >
+                {t}
+                <button
+                  type="button"
+                  onClick={() =>
+                    update(
+                      'productTypes',
+                      filters.productTypes.filter((x) => x !== t),
+                    )
+                  }
+                  className="text-dim hover:text-text leading-none"
+                  title={`Remove ${t}`}
+                  data-testid={`filter-product-type-remove-${t}`}
+                >
+                  ×
+                </button>
+              </span>
             ))}
-          </select>
+          </div>
         </FieldLabel>
 
         <FieldLabel label="Tag">
@@ -306,7 +341,7 @@ function Body({ projects, permits }: BodyProps) {
               />
               <Th sort={sort} col="address" onClick={toggleSort} align="left">Address</Th>
               <Th sort={sort} col="juris" onClick={toggleSort} align="left">Juris</Th>
-              <Th sort={sort} col="productType" onClick={toggleSort} align="left">Type</Th>
+              <Th sort={sort} col="productTypes" onClick={toggleSort} align="left">Type</Th>
               <Th sort={sort} col="units" onClick={toggleSort} align="center">Units</Th>
               <Th sort={sort} col="zone" onClick={toggleSort} align="center">Zone</Th>
               <Th sort={sort} col="lotWidth" onClick={toggleSort} align="center">Lot W×D</Th>
@@ -422,7 +457,13 @@ function Row({ row, expanded, onToggle, matchedUnitIndices }: RowProps) {
           </Link>
         </td>
         <td className="px-2 py-1.5 text-muted">{row.juris || '—'}</td>
-        <td className="px-2 py-1.5 text-text">{row.productType || '—'}</td>
+        <td className="px-2 py-1.5 text-text">
+          {row.productTypes.length === 0 ? (
+            <span className="text-dim">—</span>
+          ) : (
+            row.productTypes.join(', ')
+          )}
+        </td>
         <td className="px-2 py-1.5 text-center font-mono font-bold text-text">
           {row.units || '—'}
         </td>

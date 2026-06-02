@@ -68,7 +68,8 @@ interface ProjectScalarFields {
   parking_type: string;
   parking_stalls: string;
   alley: string;
-  product_type: string;
+  /** fix-91: was `product_type: string`, now an array (multi-select). */
+  product_types: string[];
   entitlement_lead: string;
   design_manager: string;
 }
@@ -154,7 +155,9 @@ function initForm(
       parking_stalls:
         project.parking_stalls != null ? String(project.parking_stalls) : '',
       alley: project.alley ?? '',
-      product_type: project.product_type ?? '',
+      product_types: Array.isArray(project.product_types)
+        ? project.product_types
+        : [],
       entitlement_lead: project.entitlement_lead ?? '',
       design_manager: project.design_manager ?? '',
     },
@@ -320,7 +323,7 @@ export default function ProjectSettingsModal({ project, onClose }: Props) {
         parking_type: form.projectFields.parking_type || null,
         parking_stalls: toNumOrNull(form.projectFields.parking_stalls),
         alley: form.projectFields.alley || null,
-        product_type: form.projectFields.product_type || null,
+        product_types: form.projectFields.product_types,
         entitlement_lead: form.projectFields.entitlement_lead.trim() || null,
         design_manager: form.projectFields.design_manager.trim() || null,
         builder_name: form.builder.builder_name.trim() || null,
@@ -576,14 +579,56 @@ export default function ProjectSettingsModal({ project, onClose }: Props) {
                 testid="psm-acq"
               />
             </Field>
-            <Field label="Product Type">
-              <SelectInput
-                value={form.projectFields.product_type}
-                onChange={(v) => setProj('product_type', v)}
-                options={PRODUCT_TYPES}
-                placeholderLabel="— select type —"
-                testid="psm-product-type"
-              />
+            <Field label="Product Types">
+              {/* fix-91: multi-select. Pick adds a chip; chip × removes.
+                  Stored values not in PRODUCT_TYPES still render so
+                  pruning the catalog doesn't strand historical data. */}
+              <div className="flex flex-wrap items-center gap-1">
+                <SelectInput
+                  value=""
+                  onChange={(v) => {
+                    if (!v) return;
+                    if (form.projectFields.product_types.includes(v)) return;
+                    setProj('product_types', [
+                      ...form.projectFields.product_types,
+                      v,
+                    ]);
+                  }}
+                  options={[
+                    '',
+                    ...PRODUCT_TYPES.filter(
+                      (t) => !form.projectFields.product_types.includes(t),
+                    ),
+                  ]}
+                  placeholderLabel="+ Add type"
+                  testid="psm-product-types-select"
+                />
+                {form.projectFields.product_types.map((t) => (
+                  <span
+                    key={t}
+                    className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full bg-bg border border-border"
+                    data-testid={`psm-product-type-chip-${t}`}
+                  >
+                    {t}
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setProj(
+                          'product_types',
+                          form.projectFields.product_types.filter(
+                            (x) => x !== t,
+                          ),
+                        )
+                      }
+                      className="text-dim hover:text-text leading-none"
+                      title={`Remove ${t}`}
+                      data-testid={`psm-product-type-remove-${t}`}
+                    >
+                      ×
+                    </button>
+                  </span>
+                ))}
+              </div>
             </Field>
             <Field label="Notes" full>
               <textarea

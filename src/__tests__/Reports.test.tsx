@@ -38,7 +38,7 @@ const fixtures = vi.hoisted(() => ({
       notes: null,
       go_date: '2026-01-01',
       units: 4,
-      product_type: 'SFR',
+      product_types: ['SFR'],
       project_tags: ['ECA'],
     },
     {
@@ -49,7 +49,7 @@ const fixtures = vi.hoisted(() => ({
       notes: null,
       go_date: '2026-04-01',
       units: 3,
-      product_type: 'Attached Units',
+      product_types: ['Attached Units'],
       project_tags: [],
     },
   ],

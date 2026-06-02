@@ -32,7 +32,7 @@ export function useProjects() {
             'acq_lead, external_team, builder_id, permit_order',
             'entitlement_lead, design_manager, go_date',
             'units, zone, lot_width, lot_depth, unit_types',
-            'parking_type, parking_stalls, alley, product_type, project_tags',
+            'parking_type, parking_stalls, alley, product_types, project_tags',
             'builder_name, builder_company, builder_email, builder_phone',
             'created_at, updated_at',
           ].join(', '),
