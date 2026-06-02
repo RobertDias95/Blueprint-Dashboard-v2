@@ -19,6 +19,12 @@ interface Props {
   entOptions: TeamMember[];
   /** Flat list of DA names from dm_da_groups (deduped). */
   daOptions: string[];
+  /** fix-96-b: DAs that have a routing row for the project's juris
+   *  (specific match OR NULL-juris fallback). Unrouted DAs still
+   *  appear in the dropdown but render disabled — selecting one
+   *  would leave ent_lead unresolved on the server. When omitted
+   *  every DA is treated as routed (back-compat). */
+  routedDas?: Set<string>;
   /** fix-91: derived DM for the row's current DA (null when the DA
    *  isn't in any dm_da_group). Rendered as a read-only chip — the
    *  wizard doesn't ask the user to pick a DM separately. */
@@ -35,6 +41,7 @@ export default function PermitAssignmentRow({
   permit,
   entOptions,
   daOptions,
+  routedDas,
   derivedDm,
   onChange,
   onPickDa,
@@ -92,11 +99,25 @@ export default function PermitAssignmentRow({
           data-testid={`wizard-perm-da-${permit.rowId}`}
         >
           <option value="">— none —</option>
-          {daOptions.map((d) => (
-            <option key={d} value={d}>
-              {d}
-            </option>
-          ))}
+          {daOptions.map((d) => {
+            // fix-96-b: disable DAs with no routing row matching the
+            // project's juris (juris-specific OR NULL fallback). Keep
+            // them in the list so the team's full roster is visible —
+            // disabling beats hiding because the user otherwise can't
+            // tell whether the DA exists at all.
+            const disabled = routedDas !== undefined && !routedDas.has(d);
+            return (
+              <option
+                key={d}
+                value={d}
+                disabled={disabled}
+                data-testid={`wizard-perm-da-${permit.rowId}-opt-${d}`}
+                data-routing-disabled={disabled ? 'true' : 'false'}
+              >
+                {disabled ? `${d} (not routed)` : d}
+              </option>
+            );
+          })}
         </select>
         {/* fix-91: read-only DM chip — derived from the DA via
             dm_da_groups. Renders only when both a DA is set AND that DA

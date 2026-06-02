@@ -1,7 +1,11 @@
 import { useEffect, useMemo } from 'react';
 import { useTeamMembers } from '../../hooks/useTeamMembers';
 import { useDmDaGroups } from '../../hooks/useDmDaGroups';
-import { lookupEntLeadForDa } from '../../hooks/useDaTeamRouting';
+import {
+  daHasRoutingFor,
+  lookupEntLeadForDa,
+  useDaTeamRouting,
+} from '../../hooks/useDaTeamRouting';
 import PermitAssignmentRow from './PermitAssignmentRow';
 import { findDmForDa } from './dmRouting';
 import {
@@ -79,6 +83,12 @@ export default function Step3Permits({ value, onChange }: Props) {
   const teamQ = useTeamMembers();
   const dmDaGroupsQ = useDmDaGroups();
   const dmDaRows = dmDaGroupsQ.rows;
+  // fix-96-b: routing rows for the active tenant. The DA dropdown disables
+  // any DA that has no row matching the project's juris (specific OR
+  // NULL-juris fallback) — mirrors bp_ent_lead_for_da's WHERE clause so
+  // the wizard agrees with the server's pick.
+  const routingQ = useDaTeamRouting();
+  const routingRows = routingQ.data ?? [];
 
   const entOptions = useMemo(
     () => dedupedByName(teamQ.all ?? [], ENT_ROLES),
@@ -95,6 +105,20 @@ export default function Step3Permits({ value, onChange }: Props) {
       .map((m) => m.name)
       .sort((a, b) => a.localeCompare(b));
   }, [teamQ.all]);
+
+  /** fix-96-b: which DAs are routed for the project's juris. A DA appears
+   *  in the dropdown either way (so the user can see Bobby's full team)
+   *  but unrouted DAs render disabled. Recompute when juris or the
+   *  routing rows change. */
+  const routedDaSet = useMemo(() => {
+    const set = new Set<string>();
+    for (const name of daOptions) {
+      if (daHasRoutingFor(name, value.juris || null, routingRows)) {
+        set.add(name);
+      }
+    }
+    return set;
+  }, [daOptions, routingRows, value.juris]);
 
   /** Ensure a Building Permit row exists in value.permits exactly once.
    *  Persisting via useEffect (vs. computing on every render) keeps
@@ -180,6 +204,7 @@ export default function Step3Permits({ value, onChange }: Props) {
             permit={p}
             entOptions={entOptions}
             daOptions={daOptions}
+            routedDas={routedDaSet}
             derivedDm={findDmForDa(p.da, dmDaRows)}
             onChange={(patch) => updatePermit(p.rowId, patch)}
             onPickDa={(da) => onPickDa(p.rowId, da)}
