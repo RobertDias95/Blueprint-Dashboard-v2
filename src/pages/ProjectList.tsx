@@ -533,21 +533,42 @@ function PermitMiniTable({ row }: { row: ProjectRow }) {
               )}
             </td>
             <td
-              className="px-2 py-0.5 text-text"
+              className="px-2 py-0.5 text-text align-top"
               data-testid={`project-view-reviewer-${p.permit.id}`}
             >
+              {/* fix-95: stacked 2-line breakdown so Bobby can read
+                  the "still-outstanding" count at a glance. Header
+                  line carries the total; detail line breaks it into
+                  approved · corrections · outstanding with the same
+                  palette ReviewerRollupChip uses (pm=green, co=amber,
+                  dim=neutral). Zero buckets render explicitly — an
+                  auto-hide would create ambiguity about whether the
+                  cell is stale. not_required reviewers are excluded
+                  from total upstream in summarizeReviewers. */}
               {p.reviewer.total === 0 ? (
                 <span className="text-dim">no reviewers</span>
               ) : (
-                <span className="font-mono">
-                  {p.reviewer.approved} of {p.reviewer.total} signed off
-                  {p.reviewer.correctionsRequired > 0 && (
-                    <span className="text-co">
-                      {' '}
-                      · {p.reviewer.correctionsRequired}⚠
+                <>
+                  <div className="font-mono">
+                    {p.reviewer.total} reviewers
+                  </div>
+                  <div
+                    className="font-mono"
+                    data-testid={`project-view-reviewer-breakdown-${p.permit.id}`}
+                  >
+                    <span className="text-pm">
+                      {p.reviewer.approved} approved
                     </span>
-                  )}
-                </span>
+                    <span className="text-dim"> · </span>
+                    <span className="text-co">
+                      {p.reviewer.correctionsRequired} corrections
+                    </span>
+                    <span className="text-dim"> · </span>
+                    <span className="text-dim">
+                      {p.reviewer.outstanding} outstanding
+                    </span>
+                  </div>
+                </>
               )}
             </td>
           </tr>

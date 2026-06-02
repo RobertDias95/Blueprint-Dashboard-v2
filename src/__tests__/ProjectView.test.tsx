@@ -428,14 +428,21 @@ describe('<ProjectView /> (fix-90)', () => {
     ).toMatch(/Approved/);
   });
 
-  it('expansion of the corrections project shows reviewer rollup "1 of 3 signed off"', () => {
+  it('expansion of the corrections project shows the 4-part reviewer breakdown (fix-95)', () => {
+    // Permit 1's mocked reviewers: 1 corrections_required (Stephen),
+    // 1 approved (Susan), 1 in_review (Mike). fix-95: cell renders as
+    // a 2-line stacked breakdown — header "3 reviewers" + detail
+    // "1 approved · 1 corrections · 1 outstanding".
     renderIt();
     fireEvent.click(screen.getByTestId('project-view-caret-p-a'));
     const reviewer = screen.getByTestId('project-view-reviewer-1');
-    expect(reviewer.textContent).toMatch(/1 of 3 signed off/);
-    // The corrections badge (⚠) renders since reviewer 'Stephen' is at
-    // corrections_required.
-    expect(reviewer.textContent).toMatch(/⚠/);
+    expect(reviewer.textContent).toMatch(/3 reviewers/);
+    const breakdown = screen.getByTestId(
+      'project-view-reviewer-breakdown-1',
+    );
+    expect(breakdown.textContent).toMatch(/1 approved/);
+    expect(breakdown.textContent).toMatch(/1 corrections/);
+    expect(breakdown.textContent).toMatch(/1 outstanding/);
   });
 
   it('clicking the caret again collapses', () => {
