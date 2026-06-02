@@ -526,3 +526,120 @@ describe('useUpsertPermitCycle — fix-76 parent permit updated_at patch', () =>
     expect(rows?.[0].updated_at).toBe('2026-05-01T00:00:00Z');
   });
 });
+
+// fix-89: bp_upsert_permit_cycle_row now enforces the full chronology
+// chain on every save: submitted ≤ intake_accepted ≤ corr_issued ≤
+// resubmitted. The migration is plpgsql; vitest can't exercise the
+// validation directly, but it CAN pin the wire contract — for each new
+// rule, the server emits a specific error message with ERRCODE=22008,
+// and the hook surfaces it via the standard toast + cache-rollback
+// path. These tests guard against either:
+//   * the server changing the error wording (would silently weaken the
+//     fix-87 fingerprint grouping by source),
+//   * the hook regressing its error-surfacing for this RPC.
+//
+// The intake_accepted < submitted regression check stays in the
+// "fix-26a / -73 / -75 OCC + retry" block above as the canonical test
+// for the pre-existing rule.
+describe('useUpsertPermitCycle — fix-89 chronology rejections', () => {
+  // [server error message ROOT (after the `bp_upsert_permit_cycle_row:`
+  // prefix is stripped by the hook), patch that triggers it].
+  const cases: Array<{
+    rule: string;
+    serverMessage: string;
+    patch: Record<string, string>;
+    matcher: RegExp;
+  }> = [
+    {
+      rule: 'intake_accepted < submitted (existing rule — regression)',
+      serverMessage:
+        'bp_upsert_permit_cycle_row: Cycle 0: intake_accepted (2026-04-30) cannot precede submitted (2026-05-01)',
+      patch: { intake_accepted: '2026-04-30' },
+      matcher: /intake_accepted/,
+    },
+    {
+      rule: 'corr_issued < intake_accepted',
+      serverMessage:
+        'bp_upsert_permit_cycle_row: Cycle 0: corr_issued (2026-05-05) cannot precede intake_accepted (2026-05-10)',
+      patch: { intake_accepted: '2026-05-10', corr_issued: '2026-05-05' },
+      matcher: /corr_issued/,
+    },
+    {
+      rule: 'corr_issued < submitted (when intake is null)',
+      serverMessage:
+        'bp_upsert_permit_cycle_row: Cycle 0: corr_issued (2026-04-15) cannot precede submitted (2026-05-01)',
+      patch: { corr_issued: '2026-04-15' },
+      matcher: /corr_issued/,
+    },
+    {
+      rule: 'resubmitted < submitted',
+      serverMessage:
+        'bp_upsert_permit_cycle_row: Cycle 0: resubmitted (2026-04-15) cannot precede submitted (2026-05-01)',
+      patch: { resubmitted: '2026-04-15' },
+      matcher: /resubmitted/,
+    },
+    {
+      rule: 'resubmitted < intake_accepted',
+      serverMessage:
+        'bp_upsert_permit_cycle_row: Cycle 0: resubmitted (2026-05-05) cannot precede intake_accepted (2026-05-10)',
+      patch: { intake_accepted: '2026-05-10', resubmitted: '2026-05-05' },
+      matcher: /resubmitted/,
+    },
+    {
+      rule: 'resubmitted < corr_issued (Bobby 2601 E Galer)',
+      serverMessage:
+        'bp_upsert_permit_cycle_row: Cycle 1: resubmitted (2026-06-12) cannot precede corr_issued (2026-06-19)',
+      patch: { corr_issued: '2026-06-19', resubmitted: '2026-06-12' },
+      matcher: /resubmitted/,
+    },
+  ];
+
+  for (const c of cases) {
+    it(`rejects ${c.rule} — surfaces the error to a toast + rolls back the cache`, async () => {
+      const { queryClient, wrapper } = setupQueryClient();
+      const seeded = seedPermitWithC0(queryClient);
+      const c0 = seeded.permit_cycles![0];
+
+      mocks.setResult({
+        data: null,
+        error: new Error(c.serverMessage),
+      });
+
+      const { result } = renderHook(() => useUpsertPermitCycle(), { wrapper });
+      await act(async () => {
+        await expect(
+          result.current.mutateAsync({
+            op: 'update',
+            permitId: PERMIT_ID,
+            projectId: PROJECT,
+            cycle: c0,
+            patch: c.patch,
+          }),
+        ).rejects.toThrow(c.matcher);
+      });
+
+      // Cache rolled back — no partial write lingers under the optimistic key.
+      const rows = queryClient.getQueryData<PermitWithCycles[]>(
+        queryKeys.permitsByProject(T, PROJECT),
+      );
+      const cycles = rows?.[0].permit_cycles ?? [];
+      expect(cycles).toHaveLength(1);
+      // The seeded c0 had submitted only — every patched field is null again.
+      for (const f of Object.keys(c.patch)) {
+        expect(
+          (cycles[0] as unknown as Record<string, unknown>)[f],
+        ).toBeNull();
+      }
+
+      // Toast surfaces the error with the RPC prefix stripped (fix-26a contract).
+      await waitFor(() => {
+        const err = useToastStore
+          .getState()
+          .toasts.find((t) => t.kind === 'error');
+        expect(err).toBeTruthy();
+        expect(err?.message).not.toMatch(/bp_upsert_permit_cycle_row:/);
+        expect(err?.message).toMatch(c.matcher);
+      });
+    });
+  }
+});
