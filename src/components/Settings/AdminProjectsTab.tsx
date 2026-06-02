@@ -79,7 +79,12 @@ export default function AdminProjectsTab() {
     removalLocked: t.is_builtin === true,
   }));
 
-  const productTypes = readAppConfigStringArray(cfgQ.map, 'productTypes');
+  // fix-92: read the same key that fix-91's wizard + Library filter
+  // consume (app_config.productTypeOptions, seeded by
+  // migrations/fix_91_product_types_array.sql). Pre-fix-92 this was
+  // 'productTypes' — a key no consumer read, so Bobby's edits never
+  // reached the wizard's dropdown.
+  const productTypes = readAppConfigStringArray(cfgQ.map, 'productTypeOptions');
   const projectTags = readAppConfigStringArray(cfgQ.map, 'projectTagOptions');
 
   return (
@@ -131,11 +136,14 @@ export default function AdminProjectsTab() {
           items={productTypes.map((t) => ({ key: t, label: t }))}
           onAdd={(name) => {
             if (productTypes.includes(name)) return;
-            setKey.mutate({ key: 'productTypes', value: [...productTypes, name] });
+            setKey.mutate({
+              key: 'productTypeOptions',
+              value: [...productTypes, name],
+            });
           }}
           onRemove={(name) =>
             setKey.mutate({
-              key: 'productTypes',
+              key: 'productTypeOptions',
               value: productTypes.filter((t) => t !== name),
             })
           }
