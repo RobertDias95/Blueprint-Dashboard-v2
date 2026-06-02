@@ -193,7 +193,15 @@ describe('mutations pass tenant_id from authStore', () => {
         }),
       ).rejects.toThrow(/no active tenant/i);
     });
-    expect(mocks.rpcFn).not.toHaveBeenCalled();
+    // fix-87: the toast-store error path now ALSO calls bp_log_error via
+    // the rpc mock, so a bare not-toHaveBeenCalled assertion now flips
+    // false. Narrow to the mutation RPC we actually care about — that one
+    // must not be called because the guard short-circuits before reaching
+    // the mutation.
+    const mutationCalls = mocks.rpcFn.mock.calls.filter(
+      (c) => c[0] === 'bp_create_project_with_permits',
+    );
+    expect(mutationCalls).toHaveLength(0);
   });
 });
 

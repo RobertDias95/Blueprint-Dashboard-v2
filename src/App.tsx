@@ -1,12 +1,18 @@
 import { useEffect, useState } from 'react';
 import { RouterProvider } from 'react-router-dom';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import {
+  MutationCache,
+  QueryCache,
+  QueryClient,
+  QueryClientProvider,
+} from '@tanstack/react-query';
 import { ReactQueryDevtools } from '@tanstack/react-query-devtools';
 import { router } from './router';
 import { supabase } from './lib/supabase';
 import { useAuthStore, type TenantMembership } from './stores/authStore';
 import { useRealtimeInvalidation } from './hooks/useRealtimeInvalidation';
 import ToastHost from './components/ToastHost';
+import { logError, messageOf } from './lib/errorLogger';
 
 // Q1: app shell. Wires QueryClient + Router + auth bootstrap.
 //
@@ -22,7 +28,62 @@ import ToastHost from './components/ToastHost';
 //   4. authStore.setMemberships defaults activeTenantId to memberships[0].
 //      Phase 2 will add a tenant-switcher; for now first-membership wins.
 
+// fix-87: global onError on the QueryCache + MutationCache catches every
+// query / mutation rejection (including ones whose per-hook handlers only
+// toast — fingerprint dedupes on the server side, so duplicate logs are
+// cheap). RPC errors land here as `{ message, code, details, hint }`
+// from supabase-js; we forward all four to context. The own-RPC re-entry
+// guard inside logError prevents a failing bp_log_error from triggering
+// another bp_log_error via this same path.
+//
+// One filter: skip logging the bp_log_error RPC itself (defense in depth
+// alongside the re-entry guard) and skip the auth queries since a missing
+// session is expected user flow, not an app error.
+function shouldSkipBackendRpcLog(err: unknown, key: unknown): boolean {
+  const k = Array.isArray(key) ? String(key[0] ?? '') : String(key ?? '');
+  if (k.startsWith('auth/')) return true;
+  const m = messageOf(err).toLowerCase();
+  return m.includes('bp_log_error');
+}
+
 const queryClient = new QueryClient({
+  queryCache: new QueryCache({
+    onError: (err, query) => {
+      if (shouldSkipBackendRpcLog(err, query.queryKey)) return;
+      void logError({
+        source: 'backend_rpc',
+        level: 'error',
+        message: messageOf(err),
+        context: {
+          kind: 'query',
+          queryKey: query.queryKey,
+          url:
+            typeof window !== 'undefined'
+              ? window.location?.pathname
+              : undefined,
+        },
+      });
+    },
+  }),
+  mutationCache: new MutationCache({
+    onError: (err, _vars, _ctx, mutation) => {
+      const key = mutation.options.mutationKey;
+      if (shouldSkipBackendRpcLog(err, key)) return;
+      void logError({
+        source: 'backend_rpc',
+        level: 'error',
+        message: messageOf(err),
+        context: {
+          kind: 'mutation',
+          mutationKey: key,
+          url:
+            typeof window !== 'undefined'
+              ? window.location?.pathname
+              : undefined,
+        },
+      });
+    },
+  }),
   defaultOptions: {
     queries: {
       refetchOnWindowFocus: false,

@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { logError } from '../lib/errorLogger';
 
 // Q3 / fix-86: toast store. Match v1's bpToast contract (msg + kind) so call
 // sites read identically across both codebases.
@@ -9,6 +10,14 @@ import { create } from 'zustand';
 // actively reading don't disappear mid-sentence; mouse-leave resumes from
 // the REMAINING time, not a fresh 6 sec. Click anywhere on the toast
 // dismisses it instantly. All visible in ToastHost.
+//
+// fix-87: every error toast ALSO fires a fire-and-forget log to
+// bp_log_error so Settings → Errors collects the same information Bobby
+// would otherwise have to remember + describe out-loud. The log call is
+// async, never blocks the toast itself, and survives even if the RPC
+// fails (the logger swallows its own errors so a network blip can't
+// break the app's UX). Independent of the dismiss timer — every error
+// toast goes to BOTH paths regardless of how the user dismisses it.
 
 export type ToastKind = 'info' | 'success' | 'warn' | 'error';
 
@@ -55,12 +64,29 @@ export const useToastStore = create<ToastState>((set, get) => ({
   push: (message, kind = 'info') => {
     const id = nextId++;
     set((s) => ({ toasts: [...s.toasts, { id, message, kind }] }));
+    // fix-86: schedule auto-dismiss for ALL kinds (errors too — the original
+    // "stay until manually dismissed" behavior caused the 4563 34th Ave W
+    // pile-up). The timer Map drives pause/resume + cleanup on dismiss.
     const handle = setTimeout(() => get().dismiss(id), AUTO_DISMISS_MS);
     timers.set(id, {
       state: 'armed',
       handle,
       expiresAt: Date.now() + AUTO_DISMISS_MS,
     });
+    // fix-87: error toasts ALSO flow to the server error log. We pull
+    // the URL from window.location lazily here (not at module-import
+    // time) so vitest's jsdom URL is correct + we don't pin the SSR
+    // path. Fire-and-forget; logError swallows its own failures so a
+    // bad log call can't break the toast UX or trigger recursive logs
+    // via the QueryClient global onError.
+    if (kind === 'error' && typeof window !== 'undefined') {
+      void logError({
+        source: 'frontend_toast',
+        level: 'error',
+        message,
+        context: { url: window.location?.pathname ?? '' },
+      });
+    }
     return id;
   },
   dismiss: (id) => {
