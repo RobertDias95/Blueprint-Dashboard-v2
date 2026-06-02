@@ -498,7 +498,12 @@ function ProjectCell({
   bp: PermitWithCycles | null;
 }) {
   void bp;
-  const productType = project.product_type ?? '';
+  // fix-91: product_types is an array. A project can carry multiple
+  // (SFR + Attached Units + Cottages on the same parcel). Render each
+  // as a chip. Empty array → "Type" row is hidden.
+  const productTypes = Array.isArray(project.product_types)
+    ? project.product_types
+    : [];
   const tags = Array.isArray(project.project_tags)
     ? (project.project_tags as string[])
     : [];
@@ -543,12 +548,23 @@ function ProjectCell({
                 </span>
               )}
             </div>
-            {productType && (
-              <div className="flex items-baseline gap-1.5">
+            {productTypes.length > 0 && (
+              <div
+                className="flex items-baseline gap-1.5"
+                data-testid="pd-product-types"
+              >
                 <span className="text-[9px] text-dim min-w-[36px]">Type</span>
-                <span className="text-[10px] font-bold text-text">
-                  {productType}
-                </span>
+                <div className="flex flex-wrap gap-1">
+                  {productTypes.map((t) => (
+                    <span
+                      key={t}
+                      className="text-[9px] font-bold px-1.5 py-0.5 rounded border bg-de-bg text-de border-de-border"
+                      data-testid={`pd-product-type-${t}`}
+                    >
+                      {t}
+                    </span>
+                  ))}
+                </div>
               </div>
             )}
             {/* Unit Dimensions section. fix-22 Mig 3: unit_types lives on

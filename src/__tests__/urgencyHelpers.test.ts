@@ -48,7 +48,7 @@ function makePermit(p: Partial<Permit>): Permit {
     view_cycle: null,
     kickoff_date: null,
     zone: null,
-    product_type: null,
+    product_types: [],
     project_tags: null,
     unit_types: null,
     parking_type: null,

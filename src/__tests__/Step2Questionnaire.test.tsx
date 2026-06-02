@@ -182,8 +182,11 @@ describe('<Step2Questionnaire />', () => {
     expect(patch.permits).toHaveLength(1);
     expect(patch.permits![0].type).toBe('Demolition');
     expect(patch.permits![0].selected).toBe(true);
-    expect(patch.permits![0].ent_lead).toBe('Bobby');
-    expect(patch.permits![0].dm).toBe('Jade');
+    // fix-91: Step 1 no longer collects ent_lead / design_manager — they
+    // derive on Step 3 from the BP's DA pick. New permit rows start
+    // blank on both, regardless of what Step 1 set on those fields.
+    expect(patch.permits![0].ent_lead).toBe('');
+    expect(patch.permits![0].dm).toBe('');
   });
 
   it('clicking the locked-on Building Permit checkbox is a no-op', () => {

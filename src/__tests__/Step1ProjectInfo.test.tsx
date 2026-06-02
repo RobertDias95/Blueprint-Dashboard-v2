@@ -96,7 +96,13 @@ function setup(initial: WizardState = makeEmptyWizardState()) {
 }
 
 beforeEach(() => {
-  // Reset any module-scoped singletons each test.
+  // fix-91: tests that mutate appConfigMap (e.g. seeding
+  // productTypeOptions) would otherwise leak the modified map into the
+  // next test that expects the default projectTagOptions. Reset to the
+  // default map shape every test.
+  appConfigMap.current = new Map<string, unknown>([
+    ['projectTagOptions', ['ECA', 'SIP', 'TRAL', 'LBA', 'Short Plat']],
+  ]);
 });
 
 describe('<Step1ProjectInfo />', () => {
@@ -113,15 +119,13 @@ describe('<Step1ProjectInfo />', () => {
     ]);
   });
 
-  it('Entitlement Lead dropdown includes ent+ent_lead, deduped by name', () => {
+  // fix-91: Entitlement Lead + Design Manager dropdowns were removed
+  // from Step 1 — they derive on Step 3 from the BP's DA pick. The
+  // corresponding "no longer in the DOM" check below pins that.
+  it('fix-91: Entitlement Lead + Design Manager dropdowns are gone from Step 1', () => {
     setup();
-    const sel = screen.getByTestId('wizard-entitlement-lead') as HTMLSelectElement;
-    const names = [...sel.options].map((o) => o.value);
-    expect(names).toContain('Bobby'); // ent + ent_lead — must appear ONCE
-    expect(names).toContain('Alex'); // ent only
-    expect(names.filter((n) => n === 'Bobby')).toHaveLength(1); // dedupe
-    expect(names).not.toContain('Trevor'); // da
-    expect(names).not.toContain('Jade'); // dm
+    expect(screen.queryByTestId('wizard-entitlement-lead')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('wizard-design-manager')).not.toBeInTheDocument();
   });
 
   it('Acquisition Lead dropdown includes acq+acq_lead, deduped by name', () => {
@@ -132,15 +136,6 @@ describe('<Step1ProjectInfo />', () => {
     expect(names).toContain('Pat'); // acq only
     expect(names.filter((n) => n === 'Jake')).toHaveLength(1); // dedupe
     expect(names).not.toContain('Bobby');
-  });
-
-  it('Design Manager dropdown filters role=dm and excludes inactive', () => {
-    setup();
-    const sel = screen.getByTestId('wizard-design-manager') as HTMLSelectElement;
-    const names = [...sel.options].map((o) => o.value);
-    expect(names).toContain('Jade');
-    expect(names).toContain('Lindsay');
-    expect(names).not.toContain('OldDM'); // active=false
   });
 
   it('typing into Address fires onChange with the new value', () => {
@@ -172,14 +167,68 @@ describe('<Step1ProjectInfo />', () => {
     expect([...sel.options].map((o) => o.value)).toEqual(['', 'Yes', 'No']);
   });
 
-  it('product_type dropdown uses v1 vocabulary (SFR / Cottages / Attached Units)', () => {
+  it('fix-91: Product Types is a multi-select sourced from app_config.productTypeOptions', () => {
+    appConfigMap.current = new Map<string, unknown>([
+      ['projectTagOptions', ['ECA', 'SIP', 'TRAL']],
+      ['productTypeOptions', ['SFR', 'Attached Units', 'Cottages']],
+    ]);
     setup();
-    const sel = screen.getByTestId('wizard-product-type') as HTMLSelectElement;
-    const names = [...sel.options].map((o) => o.value);
-    expect(names).toContain('SFR');
-    expect(names).toContain('SFR w/ Accessory Units');
-    expect(names).toContain('Attached Units');
-    expect(names).toContain('Cottages');
+    const sel = screen.getByTestId(
+      'wizard-product-type-select',
+    ) as HTMLSelectElement;
+    const optionValues = [...sel.options].map((o) => o.value);
+    expect(optionValues).toContain('SFR');
+    expect(optionValues).toContain('Attached Units');
+    expect(optionValues).toContain('Cottages');
+  });
+
+  it('fix-91: picking a product type appends it to the array', () => {
+    appConfigMap.current = new Map<string, unknown>([
+      ['projectTagOptions', []],
+      ['productTypeOptions', ['SFR', 'Cottages', 'Townhouse']],
+    ]);
+    const { onChange } = setup();
+    const sel = screen.getByTestId(
+      'wizard-product-type-select',
+    ) as HTMLSelectElement;
+    fireEvent.change(sel, { target: { value: 'SFR' } });
+    expect(onChange).toHaveBeenLastCalledWith({ product_types: ['SFR'] });
+  });
+
+  it('fix-91: picking a second product type appends to the existing array', () => {
+    appConfigMap.current = new Map<string, unknown>([
+      ['projectTagOptions', []],
+      ['productTypeOptions', ['SFR', 'Cottages', 'Townhouse']],
+    ]);
+    // Pre-seed product_types so the component already has SFR; picking
+    // Cottages should append (Step1 is controlled, so we mount with the
+    // current state and verify the onChange delta).
+    const init = makeEmptyWizardState();
+    init.product_types = ['SFR'];
+    const { onChange } = setup(init);
+    fireEvent.change(
+      screen.getByTestId('wizard-product-type-select'),
+      { target: { value: 'Cottages' } },
+    );
+    expect(onChange).toHaveBeenLastCalledWith({
+      product_types: ['SFR', 'Cottages'],
+    });
+  });
+
+  it('fix-91: clicking × on a chip removes that product type', () => {
+    const init = makeEmptyWizardState();
+    init.product_types = ['SFR', 'Cottages'];
+    const { onChange } = setup(init);
+    fireEvent.click(screen.getByTestId('wizard-product-type-remove-SFR'));
+    expect(onChange).toHaveBeenLastCalledWith({ product_types: ['Cottages'] });
+  });
+
+  it('fix-91: ACQ Target date input is on Step 1 + writes to wizard state', () => {
+    const { onChange } = setup();
+    fireEvent.change(screen.getByTestId('wizard-acq-target'), {
+      target: { value: '2026-09-15' },
+    });
+    expect(onChange).toHaveBeenLastCalledWith({ acq_target: '2026-09-15' });
   });
 
   it('treats lot_width="0" as missing — shows empty input', () => {

@@ -32,13 +32,18 @@ interface Props {
   onChange: (patch: Partial<WizardState>) => void;
 }
 
-function makePermit(type: string, selected: boolean, defaults: WizardState): WizardPermit {
+function makePermit(type: string, selected: boolean, _defaults: WizardState): WizardPermit {
+  // fix-91: Step 1 no longer collects ent_lead / design_manager — they
+  // derive on Step 3 from each permit's DA pick. Newly added permits
+  // start blank on both. (Param kept for signature parity with the
+  // existing call sites.)
+  void _defaults;
   return {
     rowId: newPermitRowId(),
     type,
     selected,
-    ent_lead: defaults.entitlement_lead,
-    dm: defaults.design_manager,
+    ent_lead: '',
+    dm: '',
     da: '',
     dual_da: '',
     architect: '',

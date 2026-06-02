@@ -125,8 +125,9 @@ function searchHaystack(
     task.text,
     task.assigned_to,
     permit?.type,
-    // fix-22 Mig 3: product_type moved permits → projects.
-    project?.product_type,
+    // fix-22 Mig 3 / fix-91: product types live on projects as an array.
+    // Join for the search haystack.
+    project?.product_types?.join(' '),
     permit?.da,
     permit?.dm,
     permit?.ent_lead,

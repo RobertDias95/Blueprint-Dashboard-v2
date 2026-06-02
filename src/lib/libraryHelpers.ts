@@ -13,7 +13,10 @@ export interface LibraryRow {
   projectId: string;
   address: string;
   juris: string;
-  productType: string;
+  /** fix-91: was `productType: string`, now an array. A site can carry
+   *  multiple product types (SFR + Attached Units + Cottages). The
+   *  filter (also multi-select) matches any-of. */
+  productTypes: string[];
   units: number;
   zone: string;
   lotWidth: number;
@@ -102,7 +105,7 @@ export function buildLibraryRows(
       projectId: proj.id,
       address: proj.address,
       juris: proj.juris ?? '',
-      productType: proj.product_type ?? '',
+      productTypes: Array.isArray(proj.product_types) ? proj.product_types : [],
       units: proj.units ?? 0,
       zone: proj.zone ?? '',
       lotWidth: proj.lot_width ?? 0,
@@ -132,7 +135,9 @@ export interface LibraryFilters {
   unitdBuf: number;
   zone: string;
   alley: string;
-  productType: string;
+  /** fix-91: multi-select. Project matches when its product_types[]
+   *  intersects this list (any-of). Empty array = no filter. */
+  productTypes: string[];
   tag: string;
   juris: string;
 }
@@ -177,7 +182,12 @@ export function filterLibraryRows(
     if (hasUnitFilter && matchingUnitIndices(r, filters).length === 0) return false;
     if (zoneQ && !r.zone.toLowerCase().includes(zoneQ)) return false;
     if (filters.alley && r.alley !== filters.alley) return false;
-    if (filters.productType && r.productType !== filters.productType) return false;
+    if (filters.productTypes.length > 0) {
+      // fix-91: any-of. Project matches when at least one of its
+      // product_types is in the selected filter set.
+      const hit = filters.productTypes.some((t) => r.productTypes.includes(t));
+      if (!hit) return false;
+    }
     if (filters.tag && !r.tags.includes(filters.tag)) return false;
     if (filters.juris && r.juris !== filters.juris) return false;
     if (searchQ && !matchRowSearch(r, searchQ)) return false;
@@ -196,7 +206,7 @@ function matchRowSearch(row: LibraryRow, query: string): boolean {
 export type SortableColumn =
   | 'address'
   | 'juris'
-  | 'productType'
+  | 'productTypes'
   | 'units'
   | 'zone'
   | 'lotWidth'
@@ -227,6 +237,16 @@ export function sortLibraryRows(
   }
   if (col === 'units' || col === 'lotWidth') {
     sorted.sort((a, b) => (a[col] - b[col]) * dir);
+    return sorted;
+  }
+  if (col === 'productTypes') {
+    // fix-91: sort by the joined string of types so a multi-type row
+    // still sorts stably. Empty array sorts last per the '￿' sentinel.
+    sorted.sort((a, b) => {
+      const ka = a.productTypes.length ? a.productTypes.join(', ') : '￿';
+      const kb = b.productTypes.length ? b.productTypes.join(', ') : '￿';
+      return ka.localeCompare(kb) * dir;
+    });
     return sorted;
   }
   sorted.sort((a, b) => a[col].localeCompare(b[col]) * dir);

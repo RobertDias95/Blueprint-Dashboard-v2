@@ -51,7 +51,11 @@ export interface Project {
   parking_type?: string | null;
   parking_stalls?: number | null;
   alley?: string | null;
-  product_type?: string | null;
+  /** fix-91: was `product_type: text`, now an array. A single site can
+   *  legitimately carry multiple product types (SFR + Attached Units +
+   *  Cottages). Always present as an array (NOT NULL DEFAULT '{}'); empty
+   *  means "none selected". */
+  product_types?: string[] | null;
   project_tags?: string[] | null;
   /** fix-22-final Migration 6: builder/owner contact fields. v1 stored
    *  these inside a `builder: {name, company, email, phone}` object;

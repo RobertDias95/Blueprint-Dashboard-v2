@@ -1,6 +1,9 @@
 import { useEffect, useMemo } from 'react';
 import { useTeamMembers } from '../../hooks/useTeamMembers';
+import { useDmDaGroups } from '../../hooks/useDmDaGroups';
+import { lookupEntLeadForDa } from '../../hooks/useDaTeamRouting';
 import PermitAssignmentRow from './PermitAssignmentRow';
+import { findDmForDa } from './dmRouting';
 import {
   newPermitRowId,
   type WizardPermit,
@@ -37,18 +40,24 @@ function makeBpPermit(defaults: WizardState): WizardPermit {
     rowId: newPermitRowId(),
     type: BUILDING_PERMIT,
     selected: true,
-    ent_lead: defaults.entitlement_lead,
-    dm: defaults.design_manager,
+    // fix-91: Step 1 no longer asks for ent_lead / design_manager; they
+    // derive on DA pick. Leave blank here — the user will choose a DA
+    // and onPickDa will route to ent_lead via bp_ent_lead_for_da.
+    ent_lead: '',
+    dm: '',
     da: '',
     dual_da: '',
     architect: '',
     num: '',
-    expected_issue: '',
+    // fix-91: inherit the Step-1 ACQ Target as the BP's initial
+    // expected_issue. The user can still override per-permit on Step 3.
+    expected_issue: defaults.acq_target,
     target_submit: '',
     manuallyEdited: {},
     taskTemplateIds: [],
   };
 }
+
 
 /** Filter + dedupe by name. Same logic the Step 1 ENT dropdown uses,
  *  for the same reason: schema has both ('ent','ent_lead') variants
@@ -68,6 +77,8 @@ function dedupedByName(all: TeamMember[], roles: Set<string>): TeamMember[] {
 
 export default function Step3Permits({ value, onChange }: Props) {
   const teamQ = useTeamMembers();
+  const dmDaGroupsQ = useDmDaGroups();
+  const dmDaRows = dmDaGroupsQ.rows;
 
   const entOptions = useMemo(
     () => dedupedByName(teamQ.all ?? [], ENT_ROLES),
@@ -132,6 +143,28 @@ export default function Step3Permits({ value, onChange }: Props) {
     });
   }
 
+  /** fix-91: DA pick → look up routed ent_lead via bp_ent_lead_for_da
+   *  (fix-72's DA-routing table). The async lookup fires and patches
+   *  the row's ent_lead when it resolves; user can still override
+   *  manually after that. We DON'T patch ent_lead on the synchronous
+   *  da update — that lands first via updatePermit — so the UI shows
+   *  the DA immediately and the ent_lead fills in a tick later.
+   *  Lookup failures (DA not in routing, juris null) silently leave
+   *  ent_lead blank; the user can pick manually. */
+  function onPickDa(rowId: string, da: string) {
+    updatePermit(rowId, { da });
+    if (!da) return;
+    void lookupEntLeadForDa(da, value.juris || null)
+      .then((routed) => {
+        if (!routed) return;
+        updatePermit(rowId, { ent_lead: routed });
+      })
+      .catch(() => {
+        // Lookup errors are swallowed — they shouldn't block the wizard.
+        // The user can still pick the ENT manually.
+      });
+  }
+
   return (
     <div className="space-y-3" data-testid="wizard-step-3">
       <div className="text-[11px] text-muted">
@@ -147,7 +180,9 @@ export default function Step3Permits({ value, onChange }: Props) {
             permit={p}
             entOptions={entOptions}
             daOptions={daOptions}
+            derivedDm={findDmForDa(p.da, dmDaRows)}
             onChange={(patch) => updatePermit(p.rowId, patch)}
+            onPickDa={(da) => onPickDa(p.rowId, da)}
           />
         ))}
       </div>

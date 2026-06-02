@@ -19,14 +19,25 @@ interface Props {
   entOptions: TeamMember[];
   /** Flat list of DA names from dm_da_groups (deduped). */
   daOptions: string[];
+  /** fix-91: derived DM for the row's current DA (null when the DA
+   *  isn't in any dm_da_group). Rendered as a read-only chip — the
+   *  wizard doesn't ask the user to pick a DM separately. */
+  derivedDm?: string | null;
   onChange: (patch: Partial<WizardPermit>) => void;
+  /** fix-91: DA pick is routed through here so Step3 can fire the
+   *  bp_ent_lead_for_da lookup AND the sync `da` update in one go.
+   *  Falls back to onChange({da}) when omitted (for backward compat
+   *  in any future caller that hasn't wired the routing). */
+  onPickDa?: (da: string) => void;
 }
 
 export default function PermitAssignmentRow({
   permit,
   entOptions,
   daOptions,
+  derivedDm,
   onChange,
+  onPickDa,
 }: Props) {
   return (
     <div
@@ -70,7 +81,13 @@ export default function PermitAssignmentRow({
         <span className="text-[9px] uppercase tracking-wide text-dim">DA</span>
         <select
           value={permit.da}
-          onChange={(e) => onChange({ da: e.target.value })}
+          onChange={(e) => {
+            // fix-91: route through onPickDa so Step3 can fire the
+            // bp_ent_lead_for_da lookup alongside the sync da update.
+            // Fallback for callers that haven't wired onPickDa.
+            if (onPickDa) onPickDa(e.target.value);
+            else onChange({ da: e.target.value });
+          }}
           className="bg-surface border border-border rounded-md px-2 py-1 text-xs font-mono text-text focus:outline-none focus:border-de"
           data-testid={`wizard-perm-da-${permit.rowId}`}
         >
@@ -81,6 +98,17 @@ export default function PermitAssignmentRow({
             </option>
           ))}
         </select>
+        {/* fix-91: read-only DM chip — derived from the DA via
+            dm_da_groups. Renders only when both a DA is set AND that DA
+            is in a group; otherwise nothing surfaces. */}
+        {derivedDm && (
+          <span
+            className="text-[9px] text-dim mt-0.5"
+            data-testid={`wizard-perm-dm-${permit.rowId}`}
+          >
+            DM: <span className="text-text font-semibold">{derivedDm}</span>
+          </span>
+        )}
       </label>
 
       <label className="flex flex-col gap-0.5">

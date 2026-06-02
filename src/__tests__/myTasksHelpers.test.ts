@@ -303,7 +303,7 @@ describe('filterTasks', () => {
     // fix-22 Mig 3: product_type moved permits → projects.
     const projWithProduct = makeProject({
       id: ctx.projectsById.values().next().value!.id,
-      product_type: 'SFR + Attached Units',
+      product_types: ['SFR + Attached Units'],
     });
     const ctxWithProductType: FilterContext = {
       permitsById: ctx.permitsById,

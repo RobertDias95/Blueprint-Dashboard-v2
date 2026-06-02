@@ -8,7 +8,6 @@ import BuilderAutocompleteField from '../builder/BuilderAutocompleteField';
 import {
   ALLEY_OPTIONS,
   PARKING_TYPE_OPTIONS,
-  PRODUCT_TYPE_OPTIONS,
   unitsIsValid,
   type WizardState,
 } from './wizardState';
@@ -42,9 +41,7 @@ interface Props {
 }
 
 
-const ENT_ROLES = new Set(['ent', 'ent_lead']);
 const ACQ_ROLES = new Set(['acq', 'acq_lead']);
-const DM_ROLES = new Set(['dm']);
 
 /** Filter active team_members by role set, then dedupe by name so the
  *  legacy/lead role drift in the schema doesn't double-list anyone. */
@@ -91,17 +88,15 @@ export default function Step1ProjectInfo({
     () => readAppConfigStringArray(appConfig.map, 'projectTagOptions'),
     [appConfig.map],
   );
-
-  const ents = useMemo(
-    () => activeMembersByRoles(teamAll, ENT_ROLES),
-    [teamAll],
+  // fix-91: settings-managed product type catalog. Same shape as
+  // projectTagOptions; AdminProjectsTab edits this key.
+  const productTypeOptions = useMemo(
+    () => readAppConfigStringArray(appConfig.map, 'productTypeOptions'),
+    [appConfig.map],
   );
+
   const acqs = useMemo(
     () => activeMembersByRoles(teamAll, ACQ_ROLES),
-    [teamAll],
-  );
-  const dms = useMemo(
-    () => activeMembersByRoles(teamAll, DM_ROLES),
     [teamAll],
   );
 
@@ -136,6 +131,21 @@ export default function Step1ProjectInfo({
     set(
       'project_tags',
       value.project_tags.filter((x) => x !== tag),
+    );
+  }
+  // fix-91: identical pattern to project_tags. Stored values not in the
+  // option list still render so admins curating the option catalog can't
+  // accidentally wipe historical project type assignments.
+  function addProductType(t: string) {
+    const v = t.trim();
+    if (!v) return;
+    if (value.product_types.includes(v)) return;
+    set('product_types', [...value.product_types, v]);
+  }
+  function removeProductType(t: string) {
+    set(
+      'product_types',
+      value.product_types.filter((x) => x !== t),
     );
   }
 
@@ -195,43 +205,11 @@ export default function Step1ProjectInfo({
           </label>
         </div>
 
+        {/* fix-91: Entitlement Lead + Design Manager removed from Step 1.
+            They're derived on Step 3 from the BP's DA pick (ent_lead via
+            bp_ent_lead_for_da; DM via dm_da_groups). Acquisition Lead is
+            kept because it isn't derivable. */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-          <label className="flex flex-col gap-1">
-            <span className="text-[10px] uppercase tracking-wide text-dim">
-              Entitlement Lead <span className="text-co">*</span>
-            </span>
-            <select
-              value={value.entitlement_lead}
-              onChange={(e) => set('entitlement_lead', e.target.value)}
-              className="bg-bg border border-border rounded-md px-3 py-1.5 text-xs font-display text-text focus:outline-none focus:border-de"
-              data-testid="wizard-entitlement-lead"
-            >
-              <option value="">— unassigned —</option>
-              {ents.map((m) => (
-                <option key={m.id} value={m.name}>
-                  {m.name}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="flex flex-col gap-1">
-            <span className="text-[10px] uppercase tracking-wide text-dim">
-              Design Manager
-            </span>
-            <select
-              value={value.design_manager}
-              onChange={(e) => set('design_manager', e.target.value)}
-              className="bg-bg border border-border rounded-md px-3 py-1.5 text-xs font-display text-text focus:outline-none focus:border-de"
-              data-testid="wizard-design-manager"
-            >
-              <option value="">— unassigned —</option>
-              {dms.map((m) => (
-                <option key={m.id} value={m.name}>
-                  {m.name}
-                </option>
-              ))}
-            </select>
-          </label>
           <label className="flex flex-col gap-1">
             <span className="text-[10px] uppercase tracking-wide text-dim">
               Acquisition Lead
@@ -250,9 +228,6 @@ export default function Step1ProjectInfo({
               ))}
             </select>
           </label>
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
           <label className="flex flex-col gap-1">
             <span className="text-[10px] uppercase tracking-wide text-dim">
               Go Date
@@ -265,6 +240,21 @@ export default function Step1ProjectInfo({
               data-testid="wizard-go-date"
             />
           </label>
+          <label className="flex flex-col gap-1">
+            <span className="text-[10px] uppercase tracking-wide text-dim">
+              ACQ Target (BP expected issue)
+            </span>
+            <input
+              type="date"
+              value={value.acq_target}
+              onChange={(e) => set('acq_target', e.target.value)}
+              className="bg-bg border border-border rounded-md px-3 py-1.5 text-xs font-mono text-text focus:outline-none focus:border-de"
+              data-testid="wizard-acq-target"
+            />
+          </label>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
           <label className="flex flex-col gap-1">
             <span className="text-[10px] uppercase tracking-wide text-dim">
               Unit Count <span className="text-co">*</span>
@@ -308,24 +298,12 @@ export default function Step1ProjectInfo({
               data-testid="wizard-zone"
             />
           </label>
-          <label className="flex flex-col gap-1">
-            <span className="text-[10px] uppercase tracking-wide text-dim">
-              Product Type
-            </span>
-            <select
-              value={value.product_type}
-              onChange={(e) => set('product_type', e.target.value)}
-              className="bg-bg border border-border rounded-md px-3 py-1.5 text-xs font-display text-text focus:outline-none focus:border-de"
-              data-testid="wizard-product-type"
-            >
-              <option value="">— select type —</option>
-              {PRODUCT_TYPE_OPTIONS.map((p) => (
-                <option key={p} value={p}>
-                  {p}
-                </option>
-              ))}
-            </select>
-          </label>
+          <ProductTypesField
+            types={value.product_types}
+            options={productTypeOptions}
+            onAdd={addProductType}
+            onRemove={removeProductType}
+          />
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
@@ -513,6 +491,83 @@ export default function Step1ProjectInfo({
         </div>
       </section>
     </div>
+  );
+}
+
+function ProductTypesField({
+  types,
+  options,
+  onAdd,
+  onRemove,
+}: {
+  types: string[];
+  options: string[];
+  onAdd: (t: string) => void;
+  onRemove: (t: string) => void;
+}) {
+  // fix-91: settings-managed multi-select. Same shape + mechanics as
+  // ProjectTagsField. Stored values not in `options` still render as
+  // removable chips so a tenant admin pruning the option catalog
+  // doesn't strand historical data.
+  const available = options.filter((o) => !types.includes(o));
+  return (
+    <label
+      className="flex flex-col gap-1"
+      data-testid="wizard-product-types"
+    >
+      <span className="text-[10px] uppercase tracking-wide text-dim">
+        Product Types
+      </span>
+      <div className="flex flex-wrap gap-1 mb-1 min-h-[20px]">
+        {types.length === 0 ? (
+          <span className="text-[11px] text-dim italic">none</span>
+        ) : (
+          types.map((t) => (
+            <span
+              key={t}
+              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-bg border border-border text-[11px]"
+              data-testid={`wizard-product-type-${t}`}
+            >
+              {t}
+              <button
+                type="button"
+                onClick={() => onRemove(t)}
+                className="text-dim hover:text-text leading-none"
+                title="Remove product type"
+                data-testid={`wizard-product-type-remove-${t}`}
+              >
+                ×
+              </button>
+            </span>
+          ))
+        )}
+      </div>
+      <select
+        value=""
+        onChange={(e) => {
+          const v = e.target.value;
+          if (!v) return;
+          onAdd(v);
+          e.currentTarget.value = '';
+        }}
+        disabled={available.length === 0}
+        className="bg-bg border border-border rounded-md px-2 py-1 text-[11px] font-mono text-text focus:outline-none focus:border-de disabled:opacity-60"
+        data-testid="wizard-product-type-select"
+      >
+        <option value="">
+          {options.length === 0
+            ? 'No options — add them in Settings → Projects'
+            : available.length === 0
+              ? 'All types added'
+              : '+ Add type'}
+        </option>
+        {available.map((o) => (
+          <option key={o} value={o}>
+            {o}
+          </option>
+        ))}
+      </select>
+    </label>
   );
 }
 

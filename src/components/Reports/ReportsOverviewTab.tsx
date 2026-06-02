@@ -110,8 +110,10 @@ function Body({
   }, [enriched]);
 
   const productTypeOptions = useMemo(() => {
+    // fix-91: productTypes is multi-valued on each enriched row. Union
+    // the distinct values across the whole result set for the picklist.
     const set = new Set<string>();
-    for (const e of enriched) if (e.productType) set.add(e.productType);
+    for (const e of enriched) for (const t of e.productTypes) set.add(t);
     return Array.from(set).sort();
   }, [enriched]);
 
