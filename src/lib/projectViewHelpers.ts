@@ -104,9 +104,15 @@ export interface SortState {
 
 export const DEFAULT_SORT: SortState = { col: 'address', asc: true };
 
-/** fix-90: Reviewer rollup compressed to the four numbers the expansion
- *  row actually renders. Keeps the page's render simple + means
- *  buildProjectRows owns the rollup math instead of the JSX. */
+/** fix-90 / fix-95: Reviewer rollup compressed to the four numbers the
+ *  expansion row's cell renders. Keeps the page's render simple + means
+ *  buildProjectRows owns the rollup math instead of the JSX.
+ *
+ *  fix-95: total now EXCLUDES not_required rows (those reviewers are
+ *  "N/A" — they shouldn't count toward Bobby's "how many people still
+ *  need to act" question). outstanding = inReview + pending stays
+ *  algebraically equivalent to total − approved − corrections under the
+ *  new total (rows.length − notRequired). */
 function summarizeReviewers(
   permitId: number,
   reviewersByPermit: Map<number, PermitCycleReviewer[]>,
@@ -128,7 +134,12 @@ function summarizeReviewers(
   const counts = rollupCounts(visible, permitStatus, permitType);
   const outstanding = counts.inReview + counts.pending;
   return {
-    total: counts.total,
+    // fix-95: exclude not_required from the visible total. The shared
+    // rollupCounts helper keeps its own contract (total = rows.length)
+    // for ReviewerRollupChip + Schedule Health; the subtraction lives
+    // here so Project View can answer Bobby's "who's left to act" math
+    // without spilling into the shared component.
+    total: counts.total - counts.notRequired,
     approved: counts.approved,
     correctionsRequired: counts.correctionsRequired,
     outstanding,
