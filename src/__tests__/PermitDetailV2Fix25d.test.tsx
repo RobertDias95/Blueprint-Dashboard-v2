@@ -161,18 +161,20 @@ describe('PermitDetailV2 fix-25-DD — DateCell commits on blur or Enter only', 
     const corrInput = screen
       .getByTestId('pd-cell-cycle1-corr_issued')
       .querySelector('input') as HTMLInputElement;
-    fireEvent.change(corrInput, { target: { value: '2026-06-15' } });
+    fireEvent.change(corrInput, { target: { value: '2026-07-15' } });
     expect(cycleMutateAsync).not.toHaveBeenCalled();
-    // Multiple intermediate changes — still no commits.
-    fireEvent.change(corrInput, { target: { value: '2026-05-15' } });
-    fireEvent.change(corrInput, { target: { value: '2026-04-15' } });
+    // Multiple intermediate changes — still no commits. All chain-valid
+    // (> submitted 2026-05-01) so the fix-97 client check doesn't intercept;
+    // the final 2026-06-15 is what blur commits.
+    fireEvent.change(corrInput, { target: { value: '2026-08-15' } });
+    fireEvent.change(corrInput, { target: { value: '2026-06-15' } });
     expect(cycleMutateAsync).not.toHaveBeenCalled();
     // Blur commits the final value once.
     fireEvent.blur(corrInput);
     expect(cycleMutateAsync).toHaveBeenCalledTimes(1);
     const payload = cycleMutateAsync.mock.calls[0][0];
     expect(payload.op).toBe('update');
-    expect(payload.patch).toEqual({ corr_issued: '2026-04-15' });
+    expect(payload.patch).toEqual({ corr_issued: '2026-06-15' });
   });
 
   it('blurring with no value change does NOT fire a commit (idempotency dedup)', () => {

@@ -13,6 +13,13 @@ import {
   type DateField,
 } from '../../hooks/useUpsertPermitCycle';
 import { useDeletePermitCycle } from '../../hooks/useDeletePermitCycle';
+import {
+  CYCLE_MAX_DATE,
+  CYCLE_MIN_DATE,
+  validateCycleChain,
+  validateYearRange,
+  type CycleChainField,
+} from '../../lib/cycleDateValidation';
 // fix-70: v1-parity task system — discipline buckets, multi-assign, subtasks,
 // status workflow. Replaces the old single-assignee TasksPanel.
 import {
@@ -508,6 +515,22 @@ function applyDraftOverlay(
   return { ...permit, permit_cycles: next };
 }
 
+/** fix-97: only these four fields participate in the chronology chain.
+ *  city_target (the city's scheduled review date) is NOT part of the
+ *  chain — fix-89's server check excludes it deliberately. permit-level
+ *  fields (target_submit, approval_date, actual_issue) get year-range
+ *  validation but no chain. */
+const CHAIN_FIELDS: readonly CycleChainField[] = [
+  'submitted',
+  'intake_accepted',
+  'corr_issued',
+  'resubmitted',
+] as const;
+
+function isChainField(key: string): key is CycleChainField {
+  return (CHAIN_FIELDS as readonly string[]).includes(key);
+}
+
 function DateStrip({
   permit,
   project,
@@ -542,6 +565,17 @@ function DateStrip({
   // its in-flight draft here; the highlight reads the draft, then clears back to
   // committed on blur (mutation fires there) or on cycle-tab switch.
   const [draftOverlay, setDraftOverlay] = useState<DraftOverlay | null>(null);
+  // fix-97: per-field drafts for the visible row, used to compute live
+  // chain-chronology errors (submitted ≤ intake_accepted ≤ corr_issued ≤
+  // resubmitted). draftOverlay tracks only the most recent change (for
+  // highlight purposes) — for the chain check we need every in-flight
+  // value at once so red borders update reactively across cells. Keyed
+  // by the chain field name; reset when viewIdx changes (each cycle row
+  // owns its own chain). The draftOverlay rule is preserved separately
+  // so the highlight system keeps its existing semantics.
+  const [chainDrafts, setChainDrafts] = useState<
+    Partial<Record<CycleChainField, string>>
+  >({});
   // Drop the transient overlay when the viewed cycle changes. React's
   // "adjust state during render" pattern (https://react.dev/learn/you-might-
   // not-need-an-effect#adjusting-some-state-when-a-prop-changes) — avoids an
@@ -550,14 +584,32 @@ function DateStrip({
   if (overlayViewIdx !== viewIdx) {
     setOverlayViewIdx(viewIdx);
     setDraftOverlay(null);
+    setChainDrafts({});
   }
   function handleDraftChange(milestone: HighlightTarget, value: string) {
     setDraftOverlay({ milestone, value });
+    // fix-97: record the draft on the chain map too, but only for the
+    // four chain fields on the currently-viewed cycle row. permit-level
+    // milestones (target_submit, approval_date, actual_issue) and
+    // city_target don't participate in the chronology check.
+    if (
+      milestone.kind === 'cycle' &&
+      milestone.cycleIndex === viewIdx &&
+      isChainField(milestone.key)
+    ) {
+      const key = milestone.key;
+      setChainDrafts((prev) => ({ ...prev, [key]: value }));
+    }
   }
   function handleDraftClear(milestone: HighlightTarget) {
     setDraftOverlay((prev) =>
       prev && isMilestoneHighlighted(prev.milestone, milestone) ? null : prev,
     );
+    // Don't clear chainDrafts on blur — the cell's committed value
+    // flows back through the value prop and overrides the draft in
+    // chainErrorsFor. Clearing here would race a server-rejected commit
+    // (chainDrafts[field] gone → red border gone, but the value never
+    // saved).  Keep the draft until viewIdx changes.
   }
   const highlightTarget = useMemo(
     () => getHighlightedMilestone(applyDraftOverlay(permit, draftOverlay)),
@@ -590,6 +642,21 @@ function DateStrip({
       projectId: permit.project_id,
       cycle,
       patch: { [field]: next || null } as CyclePatch,
+    });
+  }
+
+  /** fix-97: chain errors for a single cycle row, overlaying the
+   *  per-field draft on top of the committed values. Returns a map
+   *  keyed by the chain field. Empty map means the row is clean. */
+  function chainErrorsFor(source: PermitCycle | null | undefined) {
+    return validateCycleChain({
+      submitted: chainDrafts.submitted ?? source?.submitted ?? null,
+      intake_accepted:
+        chainDrafts.intake_accepted ?? source?.intake_accepted ?? null,
+      corr_issued:
+        chainDrafts.corr_issued ?? source?.corr_issued ?? null,
+      resubmitted:
+        chainDrafts.resubmitted ?? source?.resubmitted ?? null,
     });
   }
 
@@ -653,6 +720,13 @@ function DateStrip({
         patch: { [field]: normalized } as CyclePatch,
       });
     }
+    // fix-97: per-field chain errors for the visible design row. The
+    // chain check runs against the display source (legacyShim or cycle 0)
+    // overlaid with any in-flight drafts. Only submitted + intake_accepted
+    // participate on the design row (corr_issued / resubmitted don't
+    // render here), but chainErrorsFor still gets the full proposed
+    // row so the pair check fires correctly.
+    const designErrors = chainErrorsFor(designDisplaySource);
     return (
       <div
         className="grid border-b"
@@ -709,6 +783,7 @@ function DateStrip({
           onDraftChange={handleDraftChange}
           onDraftClear={handleDraftClear}
           onCommit={(v) => commitDesignField('submitted', v)}
+          localError={designErrors.submitted ?? null}
           testid="pd-cell-design-submitted"
         />
         <DateCell
@@ -730,6 +805,7 @@ function DateStrip({
           onCommit={(v) => commitDesignField('intake_accepted', v)}
           // fix-75: snap cycle 1 the moment a valid intake_accepted lands.
           commitOnChange
+          localError={designErrors.intake_accepted ?? null}
           testid="pd-cell-design-intake_accepted"
         />
       </div>
@@ -754,6 +830,11 @@ function DateStrip({
     );
   }
 
+  // fix-97: per-field chain errors for the visible review cycle row,
+  // overlaying any in-flight drafts on the committed cycle. The four
+  // chain fields (submitted, intake_accepted, corr_issued, resubmitted)
+  // pair-check; city_target stays unchecked (not in fix-89's chain).
+  const cycleErrors = chainErrorsFor(cycle);
   return (
     <div
       className="grid border-b"
@@ -777,6 +858,7 @@ function DateStrip({
         onDraftChange={handleDraftChange}
         onDraftClear={handleDraftClear}
         onCommit={(v) => commitCycleField(cycle, 'submitted', v)}
+        localError={cycleErrors.submitted ?? null}
         testid={`pd-cell-cycle${viewIdx}-submitted`}
       />
       <DateCell
@@ -811,6 +893,7 @@ function DateStrip({
         onDraftChange={handleDraftChange}
         onDraftClear={handleDraftClear}
         onCommit={(v) => commitCycleField(cycle, 'corr_issued', v)}
+        localError={cycleErrors.corr_issued ?? null}
         testid={`pd-cell-cycle${viewIdx}-corr_issued`}
       />
       <DateCell
@@ -826,6 +909,7 @@ function DateStrip({
         onDraftChange={handleDraftChange}
         onDraftClear={handleDraftClear}
         onCommit={(v) => commitCycleField(cycle, 'resubmitted', v)}
+        localError={cycleErrors.resubmitted ?? null}
         // fix-75: snap cycle N+1 the moment a valid resubmitted lands.
         commitOnChange
         testid={`pd-cell-cycle${viewIdx}-resubmitted`}
@@ -893,6 +977,7 @@ function DateCell({
   onCommit,
   readOnly,
   commitOnChange,
+  localError,
   testid,
 }: {
   label: string;
@@ -919,6 +1004,13 @@ function DateCell({
    *  YYYY-MM-DD shape so a partial keystroke doesn't fire mid-edit; onBlur
    *  stays as the safety net for paste-and-click cases. */
   commitOnChange?: boolean;
+  /** fix-97: parent-supplied chain-validation message. When non-null the
+   *  cell paints red + renders the message inline + blocks tryCommit so a
+   *  chronology violation never reaches bp_upsert_permit_cycle_row.
+   *  Year-range typos are caught inside tryCommit using
+   *  validateYearRange so the cell is self-defending even without a
+   *  parent that wires the chain check. */
+  localError?: string | null;
   /** fix-23c: cells expose a stable testid so the highlight-rule
    *  integration test can find them by name regardless of where they
    *  live in the design vs cycle-N strips. */
@@ -965,6 +1057,12 @@ function DateCell({
   // cleared on success OR on the first onChange whose value differs from
   // lastRejectedValueRef.
   const [errored, setErrored] = useState(false);
+  // fix-97: year-range error message derived from the current draft.
+  // Updates as the user types so the inline message + red border fire
+  // before they even blur — matches the brief's "reactive" UX. Holds
+  // the user-facing string (e.g. "Year must be between 2020 and 2030")
+  // or null when the value is empty / in range.
+  const yearError = useMemo(() => validateYearRange(draft), [draft]);
   // fix-86: the exact value the last failed commit attempted. When the user
   // types something different, we wipe the errored flag immediately so the
   // input goes neutral and the next save isn't carrying baggage.
@@ -1019,6 +1117,17 @@ function DateCell({
     if (next === lastCommittedRef.current) {
       // Blur with no change → input is in sync with committed; nothing dirty.
       setDirty(false);
+      return;
+    }
+    // fix-97: refuse to fire the mutation when the local guards reject
+    // the value. Year-range is self-contained; localError comes from
+    // the parent's chain-validation pass (DateStrip). Either way we
+    // paint red + leave the typed value in the input + leave dirty=true
+    // so the user sees their entry waiting for correction.
+    if (validateYearRange(next) !== null || localError) {
+      lastCommitFailedRef.current = true;
+      lastRejectedValueRef.current = next;
+      setErrored(true);
       return;
     }
     // fix-26a: capture prev so we can restore the ref if the mutation
@@ -1117,6 +1226,12 @@ function DateCell({
       </div>
       <input
         type="date"
+        // fix-97: native date inputs accept any year (including 0020).
+        // min+max prompts a browser-level rejection on out-of-range
+        // entries before the value ever reaches our state. Belt-and-
+        // suspenders with the tryCommit year check below.
+        min={CYCLE_MIN_DATE}
+        max={CYCLE_MAX_DATE}
         value={draft}
         // fix-25-DD: local-only on change. Calendar nav arrows /
         // intermediate keystrokes only update the visible value;
@@ -1207,16 +1322,36 @@ function DateCell({
           // fix-86: red border out-ranks amber when the last save was
           // rejected (server-side validation). Cleared on retype OR
           // on a successful save.
-          borderColor: errored
-            ? '#dc2626'
-            : dirty
-              ? 'var(--color-co)'
-              : 'var(--color-border)',
-          borderWidth: errored || dirty ? 2 : 1,
+          // fix-97: chain-validation errors (localError) and year-range
+          // typos (yearError) also paint red — both block commit, so
+          // surfacing them with the same visual as a server rejection
+          // teaches the user they need to fix the value before save.
+          borderColor:
+            errored || localError || yearError
+              ? '#dc2626'
+              : dirty
+                ? 'var(--color-co)'
+                : 'var(--color-border)',
+          borderWidth:
+            errored || dirty || localError || yearError ? 2 : 1,
           background: 'var(--color-bg)',
           color: 'var(--color-text)',
         }}
+        data-local-error={localError || yearError ? 'true' : 'false'}
       />
+      {/* fix-97: inline validation message. yearError takes priority
+          (it's an input-shape error — the value can't be saved at all),
+          then chain (localError). Both share the same red typography
+          so the user sees a single source of truth per cell. */}
+      {(yearError || localError) && (
+        <span
+          className="text-[9px] leading-tight"
+          style={{ color: '#dc2626' }}
+          data-testid={testid ? `${testid}-error` : undefined}
+        >
+          {yearError || localError}
+        </span>
+      )}
     </div>
   );
 }
