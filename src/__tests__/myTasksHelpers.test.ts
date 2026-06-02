@@ -299,8 +299,8 @@ describe('filterTasks', () => {
     expect(out.map((t) => t.id).sort()).toEqual(['t-co-1', 't-de-1']);
   });
 
-  it('search matches project.product_type via joined context (e.g. "all SFR tasks")', () => {
-    // fix-22 Mig 3: product_type moved permits → projects.
+  it('search matches project.product_types via joined context (e.g. "all SFR tasks")', () => {
+    // fix-22 Mig 3 / fix-91: the Product Types catalog lives on projects.
     const projWithProduct = makeProject({
       id: ctx.projectsById.values().next().value!.id,
       product_types: ['SFR + Attached Units'],

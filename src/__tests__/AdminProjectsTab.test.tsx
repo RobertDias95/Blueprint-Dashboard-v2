@@ -48,7 +48,11 @@ vi.mock('../hooks/useAppConfig', () => ({
     error: null,
     refetch: vi.fn(),
     map: new Map<string, unknown>([
-      ['productTypes', ['SFR', 'Attached Units']],
+      // fix-92: the catalog editor now reads + writes the
+      // 'productTypeOptions' key (same key the wizard + Library filter
+      // consume). Pre-fix-92 tests stored under 'productTypes' which
+      // matched the broken editor — they're updated alongside.
+      ['productTypeOptions', ['SFR', 'Attached Units']],
       ['projectTagOptions', ['ECA', 'SIP']],
     ]),
   }),
@@ -171,7 +175,7 @@ describe('<AdminProjectsTab /> Q7.3.a', () => {
     });
     fireEvent.click(screen.getByTestId('product-types-list-add-btn'));
     expect(mocks.setKey).toHaveBeenCalledWith({
-      key: 'productTypes',
+      key: 'productTypeOptions',
       value: ['SFR', 'Attached Units', 'Cottages'],
     });
   });
@@ -192,6 +196,49 @@ describe('<AdminProjectsTab /> Q7.3.a', () => {
       key: 'projectTagOptions',
       value: ['SIP'],
     });
+  });
+
+  // fix-92: parity with the projectTagOptions editor — removing a product
+  // type rewrites the JSONB array minus the removed item, and the key
+  // matches the one the wizard + Library filter actually consume.
+  it('removing a product type rewrites the JSONB array minus the removed item', () => {
+    renderIt();
+    fireEvent.click(screen.getByTestId('product-types-list-remove-SFR'));
+    expect(mocks.setKey).toHaveBeenCalledWith({
+      key: 'productTypeOptions',
+      value: ['Attached Units'],
+    });
+  });
+
+  it('Enter key in product-types add-input submits the same as the Add button', () => {
+    renderIt();
+    const input = screen.getByTestId(
+      'product-types-list-add',
+    ) as HTMLInputElement;
+    fireEvent.change(input, { target: { value: 'Townhouse' } });
+    fireEvent.keyDown(input, { key: 'Enter', code: 'Enter' });
+    expect(mocks.setKey).toHaveBeenCalledWith({
+      key: 'productTypeOptions',
+      value: ['SFR', 'Attached Units', 'Townhouse'],
+    });
+  });
+
+  it('fix-92: the editor uses the same app_config key the wizard reads (productTypeOptions)', () => {
+    // Regression guard: pre-fix-92 the editor wrote to 'productTypes'
+    // while Step1ProjectInfo + libraryHelpers read 'productTypeOptions'.
+    // Bobby's edits never reached the wizard's dropdown. This test pins
+    // the contract — every product-type mutation MUST target the
+    // 'productTypeOptions' key.
+    renderIt();
+    fireEvent.change(screen.getByTestId('product-types-list-add'), {
+      target: { value: 'Studio' },
+    });
+    fireEvent.click(screen.getByTestId('product-types-list-add-btn'));
+    fireEvent.click(screen.getByTestId('product-types-list-remove-Attached Units'));
+    const keysUsed = mocks.setKey.mock.calls.map(
+      (c) => (c[0] as { key: string }).key,
+    );
+    expect(new Set(keysUsed)).toEqual(new Set(['productTypeOptions']));
   });
 
   it('non-admin role shows read-only banner + hides add inputs', () => {

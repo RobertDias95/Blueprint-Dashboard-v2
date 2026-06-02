@@ -28,7 +28,7 @@ import type {
 // Three sections:
 //   1. PROJECT INFO — address / juris / acq_lead / archived / notes plus
 //      the 11 moved-to-project fields (go_date, units, zone, lot_*,
-//      parking_*, alley, product_type, entitlement_lead, design_manager).
+//      parking_*, alley, product_types, entitlement_lead, design_manager).
 //      ENT/DM defaults live on projects; per-permit overrides happen in
 //      the Permits section.
 //   2. BUILDER / OWNER — 4 freeform inputs writing directly to
@@ -68,7 +68,7 @@ interface ProjectScalarFields {
   parking_type: string;
   parking_stalls: string;
   alley: string;
-  /** fix-91: was `product_type: string`, now an array (multi-select). */
+  /** fix-91: was a single text column, now an array (multi-select). */
   product_types: string[];
   entitlement_lead: string;
   design_manager: string;

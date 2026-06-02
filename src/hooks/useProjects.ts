@@ -19,11 +19,13 @@ export function useProjects() {
       // fix-22-final / Mig 6 read-surface sweep: explicitly list the 13
       // project-level columns added in Migrations 1+6 (entitlement_lead,
       // design_manager, go_date, units, zone, lot_width, lot_depth,
-      // unit_types, parking_type, parking_stalls, alley, product_type,
+      // unit_types, parking_type, parking_stalls, alley, product_types,
       // project_tags, builder_name, builder_company, builder_email,
       // builder_phone) so Project Overview + Library + Reports can
       // read them. Without these listed, the wizard wrote to projects.*
-      // but every read surface saw blanks.
+      // but every read surface saw blanks. fix-91 (2026-06-02) renamed
+      // the previously-singular Product Type column to its plural
+      // text[] form — see migrations/fix_91_product_types_array.sql.
       const { data, error } = await supabase
         .from('projects')
         .select(

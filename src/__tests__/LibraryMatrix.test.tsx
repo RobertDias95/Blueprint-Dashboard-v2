@@ -10,7 +10,7 @@ import { useAuthStore } from '../stores/authStore';
 
 const T = 'test-tenant-uuid';
 
-// fix-22 Mig 3: physical fields (units/zone/lot_*/alley/product_type/
+// fix-22 Mig 3: physical fields (units/zone/lot_*/alley/product_types/
 // project_tags) live on projects now. Matrix rows read from project.
 const fixtures = vi.hoisted(() => ({
   projects: [

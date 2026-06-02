@@ -42,7 +42,7 @@ const STAGE_BADGE: Record<Stage, string> = {
   is: 'bg-is-bg text-is border-is-border',
 };
 
-// v1's product_type dropdown options (index.html line 9365). Filter is
+// v1's Product Type dropdown options (index.html line 9365). Filter is
 // exact-match so the list must match what's persisted in the column.
 const PRODUCT_TYPE_OPTIONS = [
   'SFR',

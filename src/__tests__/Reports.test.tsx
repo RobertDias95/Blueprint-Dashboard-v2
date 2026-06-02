@@ -26,7 +26,7 @@ vi.mock('recharts', async () => {
   };
 });
 
-// fix-22 Mig 3: go_date / units / product_type / project_tags moved
+// fix-22 Mig 3: go_date / units / product_types / project_tags moved
 // permits → projects. Reports surface reads them from the joined project.
 const fixtures = vi.hoisted(() => ({
   projects: [
