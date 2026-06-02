@@ -49,7 +49,12 @@ function makeBpPermit(defaults: WizardState): WizardPermit {
     // and onPickDa will route to ent_lead via bp_ent_lead_for_da.
     ent_lead: '',
     dm: '',
-    da: '',
+    // fix-96-c: BP DA is now a project-level question (Step 1's
+    // lead_da). Seed it here so the read-only cell renders the right
+    // value on first paint instead of a brief flash of empty; applySeeding
+    // also mirrors lead_da → BP.da defensively for any path that bypasses
+    // makeBpPermit.
+    da: defaults.lead_da,
     dual_da: '',
     architect: '',
     num: '',
@@ -167,6 +172,38 @@ export default function Step3Permits({ value, onChange }: Props) {
     });
   }
 
+  /** fix-96-c: BP row's ent_lead derives on tab-in, not on user pick
+   *  (the BP DA is set on Step 1 now; Step 3's DA cell is read-only).
+   *  When the BP exists + has a DA but no ent_lead yet, fire the same
+   *  bp_ent_lead_for_da lookup the manual-pick path uses. The juris
+   *  + lookup-failure semantics match onPickDa below. */
+  useEffect(() => {
+    const bp = value.permits.find(
+      (p) => p.type === BUILDING_PERMIT && p.selected,
+    );
+    if (!bp || !bp.da || bp.ent_lead) return;
+    const bpRowId = bp.rowId;
+    const bpDa = bp.da;
+    void lookupEntLeadForDa(bpDa, value.juris || null)
+      .then((routed) => {
+        if (!routed) return;
+        updatePermit(bpRowId, { ent_lead: routed });
+      })
+      .catch(() => {
+        // Same as onPickDa — swallow + let the user fill ent_lead
+        // manually if the routing table doesn't cover this DA.
+      });
+    // We deliberately re-run only when the BP's DA changes or the
+    // project juris flips. value.permits identity churns on every
+    // keystroke; gating on (da, juris, BP existence) keeps this from
+    // hammering the RPC.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    value.juris,
+    value.permits.find((p) => p.type === BUILDING_PERMIT && p.selected)?.da,
+    value.permits.find((p) => p.type === BUILDING_PERMIT && p.selected)?.ent_lead,
+  ]);
+
   /** fix-91: DA pick → look up routed ent_lead via bp_ent_lead_for_da
    *  (fix-72's DA-routing table). The async lookup fires and patches
    *  the row's ent_lead when it resolves; user can still override
@@ -174,7 +211,9 @@ export default function Step3Permits({ value, onChange }: Props) {
    *  da update — that lands first via updatePermit — so the UI shows
    *  the DA immediately and the ent_lead fills in a tick later.
    *  Lookup failures (DA not in routing, juris null) silently leave
-   *  ent_lead blank; the user can pick manually. */
+   *  ent_lead blank; the user can pick manually.
+   *  fix-96-c: this path now only fires for NON-BP permits; the BP's
+   *  DA is set on Step 1 and Step 3's BP cell is read-only. */
   function onPickDa(rowId: string, da: string) {
     updatePermit(rowId, { da });
     if (!da) return;
@@ -206,6 +245,8 @@ export default function Step3Permits({ value, onChange }: Props) {
             daOptions={daOptions}
             routedDas={routedDaSet}
             derivedDm={findDmForDa(p.da, dmDaRows)}
+            // fix-96-c: BP DA is set on Step 1, read-only here.
+            daReadOnly={p.type === BUILDING_PERMIT}
             onChange={(patch) => updatePermit(p.rowId, patch)}
             onPickDa={(da) => onPickDa(p.rowId, da)}
           />

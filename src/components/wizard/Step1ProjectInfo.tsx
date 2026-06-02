@@ -3,6 +3,10 @@ import { Link } from 'react-router-dom';
 import { useJurisdictions } from '../../hooks/useJurisdictions';
 import { useTeamMembers } from '../../hooks/useTeamMembers';
 import { useAppConfig, readAppConfigStringArray } from '../../hooks/useAppConfig';
+import {
+  daHasRoutingFor,
+  useDaTeamRouting,
+} from '../../hooks/useDaTeamRouting';
 import UnitTypesEditor from './UnitTypesEditor';
 import BuilderAutocompleteField from '../builder/BuilderAutocompleteField';
 import {
@@ -99,6 +103,27 @@ export default function Step1ProjectInfo({
     () => activeMembersByRoles(teamAll, ACQ_ROLES),
     [teamAll],
   );
+  // fix-96-c: project-level Lead DA picker. Mirrors Step 3's per-permit
+  // DA picker: same active-DA roster, same juris-aware routing filter
+  // (unrouted DAs render disabled). Optional — keep the wizard
+  // friction-free for projects that haven't been assigned a DA yet.
+  const routingQ = useDaTeamRouting();
+  const routingRows = routingQ.data ?? [];
+  const daOptions = useMemo(() => {
+    return teamAll
+      .filter((m) => m.role === 'da' && m.active !== false)
+      .map((m) => m.name)
+      .sort((a, b) => a.localeCompare(b));
+  }, [teamAll]);
+  const routedDaSet = useMemo(() => {
+    const set = new Set<string>();
+    for (const name of daOptions) {
+      if (daHasRoutingFor(name, value.juris || null, routingRows)) {
+        set.add(name);
+      }
+    }
+    return set;
+  }, [daOptions, routingRows, value.juris]);
 
   function set<K extends keyof WizardState>(k: K, v: WizardState[K]) {
     onChange({ [k]: v } as Partial<WizardState>);
@@ -208,8 +233,11 @@ export default function Step1ProjectInfo({
         {/* fix-91: Entitlement Lead + Design Manager removed from Step 1.
             They're derived on Step 3 from the BP's DA pick (ent_lead via
             bp_ent_lead_for_da; DM via dm_da_groups). Acquisition Lead is
-            kept because it isn't derivable. */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+            kept because it isn't derivable.
+            fix-96-c: Lead DA added as a project-level role — the BP's
+            DA is now set here and shown read-only on Step 3. Other
+            permits' DAs stay per-permit on Step 3. */}
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
           <label className="flex flex-col gap-1">
             <span className="text-[10px] uppercase tracking-wide text-dim">
               Acquisition Lead
@@ -226,6 +254,40 @@ export default function Step1ProjectInfo({
                   {m.name}
                 </option>
               ))}
+            </select>
+          </label>
+          <label className="flex flex-col gap-1">
+            <span className="text-[10px] uppercase tracking-wide text-dim">
+              Lead Design Associate
+            </span>
+            <select
+              value={value.lead_da}
+              onChange={(e) => set('lead_da', e.target.value)}
+              className="bg-bg border border-border rounded-md px-3 py-1.5 text-xs font-display text-text focus:outline-none focus:border-de"
+              data-testid="wizard-lead-da"
+            >
+              <option value="">— unassigned —</option>
+              {daOptions.map((d) => {
+                const disabled = !routedDaSet.has(d);
+                return (
+                  <option
+                    key={d}
+                    value={d}
+                    disabled={disabled}
+                    data-testid={`wizard-lead-da-opt-${d}`}
+                    data-routing-disabled={disabled ? 'true' : 'false'}
+                  >
+                    {disabled ? `${d} (not routed)` : d}
+                  </option>
+                );
+              })}
+              {/* Preserve a stored value that's somehow not on the
+                  active DA roster (e.g. former DA editing an older
+                  project — unlikely from this wizard but mirrors the
+                  ENT row's same self-heal). */}
+              {value.lead_da && !daOptions.includes(value.lead_da) && (
+                <option value={value.lead_da}>{value.lead_da}</option>
+              )}
             </select>
           </label>
           <label className="flex flex-col gap-1">

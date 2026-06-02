@@ -29,6 +29,10 @@ interface Props {
    *  isn't in any dm_da_group). Rendered as a read-only chip — the
    *  wizard doesn't ask the user to pick a DM separately. */
   derivedDm?: string | null;
+  /** fix-96-c: BP DA is now a project-level question set on Step 1.
+   *  Render the cell as a static name + "lead DA · set on Step 1" badge
+   *  instead of a select. true for the Building Permit row only. */
+  daReadOnly?: boolean;
   onChange: (patch: Partial<WizardPermit>) => void;
   /** fix-91: DA pick is routed through here so Step3 can fire the
    *  bp_ent_lead_for_da lookup AND the sync `da` update in one go.
@@ -43,6 +47,7 @@ export default function PermitAssignmentRow({
   daOptions,
   routedDas,
   derivedDm,
+  daReadOnly,
   onChange,
   onPickDa,
 }: Props) {
@@ -86,39 +91,64 @@ export default function PermitAssignmentRow({
 
       <label className="flex flex-col gap-0.5">
         <span className="text-[9px] uppercase tracking-wide text-dim">DA</span>
-        <select
-          value={permit.da}
-          onChange={(e) => {
-            // fix-91: route through onPickDa so Step3 can fire the
-            // bp_ent_lead_for_da lookup alongside the sync da update.
-            // Fallback for callers that haven't wired onPickDa.
-            if (onPickDa) onPickDa(e.target.value);
-            else onChange({ da: e.target.value });
-          }}
-          className="bg-surface border border-border rounded-md px-2 py-1 text-xs font-mono text-text focus:outline-none focus:border-de"
-          data-testid={`wizard-perm-da-${permit.rowId}`}
-        >
-          <option value="">— none —</option>
-          {daOptions.map((d) => {
-            // fix-96-b: disable DAs with no routing row matching the
-            // project's juris (juris-specific OR NULL fallback). Keep
-            // them in the list so the team's full roster is visible —
-            // disabling beats hiding because the user otherwise can't
-            // tell whether the DA exists at all.
-            const disabled = routedDas !== undefined && !routedDas.has(d);
-            return (
-              <option
-                key={d}
-                value={d}
-                disabled={disabled}
-                data-testid={`wizard-perm-da-${permit.rowId}-opt-${d}`}
-                data-routing-disabled={disabled ? 'true' : 'false'}
-              >
-                {disabled ? `${d} (not routed)` : d}
-              </option>
-            );
-          })}
-        </select>
+        {daReadOnly ? (
+          // fix-96-c: BP row's DA is project-level (Step 1). Render as a
+          // static value with a small "set on Step 1" hint so the user
+          // knows where to change it. Empty value shows the placeholder
+          // sentinel so the cell still occupies its column.
+          <div
+            className="flex flex-col gap-0.5"
+            data-testid={`wizard-perm-da-${permit.rowId}`}
+            data-readonly="true"
+          >
+            <span
+              className="bg-surface border border-border rounded-md px-2 py-1 text-xs font-mono text-text"
+              data-testid={`wizard-perm-da-${permit.rowId}-value`}
+            >
+              {permit.da || <span className="text-dim italic">— unassigned —</span>}
+            </span>
+            <span
+              className="text-[9px] text-dim italic"
+              data-testid={`wizard-perm-da-${permit.rowId}-source-hint`}
+            >
+              lead DA · set on Step 1
+            </span>
+          </div>
+        ) : (
+          <select
+            value={permit.da}
+            onChange={(e) => {
+              // fix-91: route through onPickDa so Step3 can fire the
+              // bp_ent_lead_for_da lookup alongside the sync da update.
+              // Fallback for callers that haven't wired onPickDa.
+              if (onPickDa) onPickDa(e.target.value);
+              else onChange({ da: e.target.value });
+            }}
+            className="bg-surface border border-border rounded-md px-2 py-1 text-xs font-mono text-text focus:outline-none focus:border-de"
+            data-testid={`wizard-perm-da-${permit.rowId}`}
+          >
+            <option value="">— none —</option>
+            {daOptions.map((d) => {
+              // fix-96-b: disable DAs with no routing row matching the
+              // project's juris (juris-specific OR NULL fallback). Keep
+              // them in the list so the team's full roster is visible —
+              // disabling beats hiding because the user otherwise can't
+              // tell whether the DA exists at all.
+              const disabled = routedDas !== undefined && !routedDas.has(d);
+              return (
+                <option
+                  key={d}
+                  value={d}
+                  disabled={disabled}
+                  data-testid={`wizard-perm-da-${permit.rowId}-opt-${d}`}
+                  data-routing-disabled={disabled ? 'true' : 'false'}
+                >
+                  {disabled ? `${d} (not routed)` : d}
+                </option>
+              );
+            })}
+          </select>
+        )}
         {/* fix-91: read-only DM chip — derived from the DA via
             dm_da_groups. Renders only when both a DA is set AND that DA
             is in a group; otherwise nothing surfaces. */}

@@ -57,6 +57,8 @@ vi.mock('../hooks/useTeamMembers', () => ({
       { id: '5b', name: 'Jake', role: 'acq_lead', active: true, former: false, email: null, notes: null, updated_at: '' },
       { id: '6', name: 'Pat', role: 'acq', active: true, former: false, email: null, notes: null, updated_at: '' },
       { id: '7', name: 'Trevor', role: 'da', active: true, former: false, email: null, notes: null, updated_at: '' },
+      { id: '9', name: 'Cam', role: 'da', active: true, former: false, email: null, notes: null, updated_at: '' },
+      { id: '10', name: 'Shire', role: 'da', active: true, former: false, email: null, notes: null, updated_at: '' },
       { id: '8', name: 'OldDM', role: 'dm', active: false, former: false, email: null, notes: null, updated_at: '' },
     ],
     activeDas: [],
@@ -70,6 +72,30 @@ vi.mock('../hooks/useTeamMembers', () => ({
     refetch: vi.fn(),
   }),
 }));
+
+// fix-96-c: Step 1's Lead DA picker reads da_team_routing to disable
+// DAs that have no routing row for the project's juris. The default
+// fixture routes Trevor for Seattle only and Cam via a NULL fallback;
+// Shire has no routing row at all.
+const routingRowsState = vi.hoisted(() => ({
+  rows: [
+    { da: 'Trevor', jurisdiction: 'Seattle' },
+    { da: 'Cam', jurisdiction: null },
+  ] as { da: string; jurisdiction: string | null }[],
+}));
+vi.mock('../hooks/useDaTeamRouting', async (importActual) => {
+  const actual =
+    await importActual<typeof import('../hooks/useDaTeamRouting')>();
+  return {
+    ...actual,
+    useDaTeamRouting: () => ({
+      data: routingRowsState.rows,
+      isLoading: false,
+      error: null,
+      refetch: vi.fn(),
+    }),
+  };
+});
 
 function setup(initial: WizardState = makeEmptyWizardState()) {
   const onChange = vi.fn();
@@ -103,6 +129,12 @@ beforeEach(() => {
   appConfigMap.current = new Map<string, unknown>([
     ['projectTagOptions', ['ECA', 'SIP', 'TRAL', 'LBA', 'Short Plat']],
   ]);
+  // fix-96-c: reset the routing fixture so tests that mutate it don't
+  // bleed into siblings.
+  routingRowsState.rows = [
+    { da: 'Trevor', jurisdiction: 'Seattle' },
+    { da: 'Cam', jurisdiction: null },
+  ];
 });
 
 describe('<Step1ProjectInfo />', () => {
@@ -391,6 +423,85 @@ describe('<Step1ProjectInfo />', () => {
         { wrapper },
       );
       expect(screen.getByTestId('wizard-units-error')).toBeInTheDocument();
+    });
+  });
+
+  // fix-96-c: project-level Lead DA picker. Mirrors Step 3's DA picker
+  // behavior — same active-DA roster (team_members role='da'), same
+  // juris-aware routing filter (unrouted DAs render disabled with a
+  // "(not routed)" suffix). Optional — the field starts at — unassigned —
+  // and a project can be created without a DA assigned.
+  describe('fix-96-c: Lead DA picker', () => {
+    it('renders the Lead DA select with — unassigned — default', () => {
+      setup();
+      const sel = screen.getByTestId('wizard-lead-da') as HTMLSelectElement;
+      expect(sel.value).toBe('');
+      // First option is the unassigned sentinel.
+      expect(sel.options[0].value).toBe('');
+    });
+
+    it('picking a DA fires onChange with lead_da set', () => {
+      const init = makeEmptyWizardState();
+      init.juris = 'Seattle';
+      const { onChange } = setup(init);
+      fireEvent.change(screen.getByTestId('wizard-lead-da'), {
+        target: { value: 'Trevor' },
+      });
+      expect(onChange).toHaveBeenLastCalledWith({ lead_da: 'Trevor' });
+    });
+
+    it('roster is sourced from team_members where role="da" (alphabetical)', () => {
+      const init = makeEmptyWizardState();
+      init.juris = 'Seattle';
+      setup(init);
+      const sel = screen.getByTestId('wizard-lead-da') as HTMLSelectElement;
+      const names = [...sel.options].map((o) => o.value).filter((v) => v !== '');
+      expect(names).toEqual(['Cam', 'Shire', 'Trevor']);
+    });
+
+    it('a DA routed for the project juris (Trevor + Seattle) is enabled', () => {
+      const init = makeEmptyWizardState();
+      init.juris = 'Seattle';
+      setup(init);
+      const opt = screen.getByTestId(
+        'wizard-lead-da-opt-Trevor',
+      ) as HTMLOptionElement;
+      expect(opt.disabled).toBe(false);
+      expect(opt.getAttribute('data-routing-disabled')).toBe('false');
+      expect(opt.textContent).toBe('Trevor');
+    });
+
+    it('a NULL-juris fallback row (Cam) is enabled for any juris', () => {
+      const init = makeEmptyWizardState();
+      init.juris = 'Bellevue';
+      setup(init);
+      const opt = screen.getByTestId(
+        'wizard-lead-da-opt-Cam',
+      ) as HTMLOptionElement;
+      expect(opt.disabled).toBe(false);
+    });
+
+    it('a DA with no routing row at all (Shire) is disabled + tagged "(not routed)"', () => {
+      const init = makeEmptyWizardState();
+      init.juris = 'Seattle';
+      setup(init);
+      const opt = screen.getByTestId(
+        'wizard-lead-da-opt-Shire',
+      ) as HTMLOptionElement;
+      expect(opt.disabled).toBe(true);
+      expect(opt.getAttribute('data-routing-disabled')).toBe('true');
+      expect(opt.textContent).toContain('(not routed)');
+    });
+
+    it('a juris-specific row (Trevor + Seattle) is disabled for a different juris (Bellevue)', () => {
+      const init = makeEmptyWizardState();
+      init.juris = 'Bellevue';
+      setup(init);
+      const opt = screen.getByTestId(
+        'wizard-lead-da-opt-Trevor',
+      ) as HTMLOptionElement;
+      expect(opt.disabled).toBe(true);
+      expect(opt.textContent).toContain('(not routed)');
     });
   });
 });
