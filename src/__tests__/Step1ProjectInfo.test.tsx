@@ -270,4 +270,78 @@ describe('<Step1ProjectInfo />', () => {
       (screen.getByTestId('wizard-builder-email') as HTMLInputElement).type,
     ).toBe('email');
   });
+
+  // fix-88: Units count is required at submit. Field shows red border +
+  // inline error message after first blur OR after the parent flags
+  // showFieldErrors (post-submit-attempt). 2 prod projects were saved
+  // with NULL units before this gate.
+  describe('fix-88: Units required validation', () => {
+    it('does NOT yell on a fresh form (no blur yet, no submit attempt)', () => {
+      setup();
+      expect(screen.queryByTestId('wizard-units-error')).not.toBeInTheDocument();
+      expect(
+        screen
+          .getByTestId('wizard-units')
+          .getAttribute('data-units-error'),
+      ).toBe('false');
+    });
+
+    it('blurring an empty Units field reveals the inline error', () => {
+      setup();
+      const units = screen.getByTestId('wizard-units');
+      fireEvent.blur(units);
+      expect(screen.getByTestId('wizard-units-error')).toBeInTheDocument();
+      expect(units.getAttribute('data-units-error')).toBe('true');
+      expect(units.getAttribute('aria-invalid')).toBe('true');
+    });
+
+    it('a Step1 mounted with a valid Units value renders no error (sanity)', () => {
+      const init = makeEmptyWizardState();
+      init.units = '4';
+      setup(init);
+      expect(screen.queryByTestId('wizard-units-error')).not.toBeInTheDocument();
+      expect(
+        screen
+          .getByTestId('wizard-units')
+          .getAttribute('data-units-error'),
+      ).toBe('false');
+    });
+
+    it('"0" is treated as invalid (the bad-data trap — units = 0 ≠ real count)', () => {
+      const init = makeEmptyWizardState();
+      init.units = '0';
+      setup(init);
+      fireEvent.blur(screen.getByTestId('wizard-units'));
+      expect(screen.getByTestId('wizard-units-error')).toBeInTheDocument();
+    });
+
+    it('a negative number is invalid', () => {
+      const init = makeEmptyWizardState();
+      init.units = '-2';
+      setup(init);
+      fireEvent.blur(screen.getByTestId('wizard-units'));
+      expect(screen.getByTestId('wizard-units-error')).toBeInTheDocument();
+    });
+
+    it('showFieldErrors=true paints the error even without a blur (post-submit-attempt path)', () => {
+      const onChange = vi.fn();
+      const queryClient = new QueryClient({
+        defaultOptions: { queries: { retry: false } },
+      });
+      const wrapper = ({ children }: { children: ReactNode }) => (
+        <QueryClientProvider client={queryClient}>
+          <MemoryRouter>{children}</MemoryRouter>
+        </QueryClientProvider>
+      );
+      render(
+        <Step1ProjectInfo
+          value={makeEmptyWizardState()}
+          onChange={onChange}
+          showFieldErrors
+        />,
+        { wrapper },
+      );
+      expect(screen.getByTestId('wizard-units-error')).toBeInTheDocument();
+    });
+  });
 });

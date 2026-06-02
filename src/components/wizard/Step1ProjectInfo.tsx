@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useJurisdictions } from '../../hooks/useJurisdictions';
 import { useTeamMembers } from '../../hooks/useTeamMembers';
@@ -9,6 +9,7 @@ import {
   ALLEY_OPTIONS,
   PARKING_TYPE_OPTIONS,
   PRODUCT_TYPE_OPTIONS,
+  unitsIsValid,
   type WizardState,
 } from './wizardState';
 import type {
@@ -33,7 +34,13 @@ import type {
 interface Props {
   value: WizardState;
   onChange: (patch: Partial<WizardState>) => void;
+  /** fix-88: when true, render required-field errors even if the user
+   *  hasn't blurred the field yet. Parent flips this after a submit
+   *  attempt fails on a step-1 field so the visual lines up with the
+   *  banner that just appeared at the top of the wizard. */
+  showFieldErrors?: boolean;
 }
+
 
 const ENT_ROLES = new Set(['ent', 'ent_lead']);
 const ACQ_ROLES = new Set(['acq', 'acq_lead']);
@@ -57,7 +64,18 @@ function activeMembersByRoles(
   return out;
 }
 
-export default function Step1ProjectInfo({ value, onChange }: Props) {
+export default function Step1ProjectInfo({
+  value,
+  onChange,
+  showFieldErrors = false,
+}: Props) {
+  // fix-88: track first blur on Units so the red error visual only kicks
+  // in after the user has interacted with the field (don't yell on a
+  // fresh form mid-typing). showFieldErrors overrides this for the
+  // post-submit-attempt case.
+  const [unitsBlurred, setUnitsBlurred] = useState(false);
+  const unitsBad =
+    (unitsBlurred || showFieldErrors) && !unitsIsValid(value.units);
   const jurisQ = useJurisdictions();
   const teamQ = useTeamMembers();
   const appConfig = useAppConfig();
@@ -249,18 +267,33 @@ export default function Step1ProjectInfo({ value, onChange }: Props) {
           </label>
           <label className="flex flex-col gap-1">
             <span className="text-[10px] uppercase tracking-wide text-dim">
-              Unit Count
+              Unit Count <span className="text-co">*</span>
             </span>
             <input
               type="number"
-              min={0}
+              min={1}
               step={1}
               value={value.units}
               onChange={(e) => set('units', e.target.value)}
+              onBlur={() => setUnitsBlurred(true)}
               placeholder="e.g. 2"
-              className="bg-bg border border-border rounded-md px-3 py-1.5 text-xs font-mono text-text placeholder:text-dim focus:outline-none focus:border-de"
+              aria-invalid={unitsBad || undefined}
+              className={`bg-bg border rounded-md px-3 py-1.5 text-xs font-mono text-text placeholder:text-dim focus:outline-none ${
+                unitsBad
+                  ? 'border-co focus:border-co'
+                  : 'border-border focus:border-de'
+              }`}
               data-testid="wizard-units"
+              data-units-error={unitsBad ? 'true' : 'false'}
             />
+            {unitsBad && (
+              <span
+                className="text-[10px] text-co"
+                data-testid="wizard-units-error"
+              >
+                Units count is required (must be greater than 0)
+              </span>
+            )}
           </label>
           <label className="flex flex-col gap-1">
             <span className="text-[10px] uppercase tracking-wide text-dim">

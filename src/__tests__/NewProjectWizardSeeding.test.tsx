@@ -108,6 +108,8 @@ function fillStep1AndAdvance(go: string) {
   fireEvent.change(screen.getByTestId('wizard-address'), { target: { value: '1 Test St' } });
   fireEvent.change(screen.getByTestId('wizard-juris'), { target: { value: 'Seattle' } });
   fireEvent.change(screen.getByTestId('wizard-go-date'), { target: { value: go } });
+  // fix-88: Units count is now required at the Step-1 gate.
+  fireEvent.change(screen.getByTestId('wizard-units'), { target: { value: '2' } });
   fireEvent.click(screen.getByTestId('wizard-next'));
 }
 

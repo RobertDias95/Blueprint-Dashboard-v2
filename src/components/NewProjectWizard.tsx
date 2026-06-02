@@ -16,6 +16,7 @@ import {
   applySeeding,
   makeEmptyWizardState,
   newPermitRowId,
+  unitsIsValid,
   type WizardPermit,
   type WizardState,
 } from './wizard/wizardState';
@@ -134,6 +135,13 @@ export default function NewProjectWizard({ open, onClose }: Props) {
     if (step === 1) {
       if (!state.address.trim()) return 'Please enter a project address.';
       if (!state.juris.trim()) return 'Please pick a jurisdiction.';
+      // fix-88: Units count is required at submit time. 2 prod projects
+      // (2724 Walnut Ave SW + one other) were saved with NULL units
+      // because the wizard never gated this; the badge on Project
+      // Overview makes the existing ones visible, this gate prevents
+      // any new ones.
+      if (!unitsIsValid(state.units))
+        return 'Units count is required (must be greater than 0).';
       return null;
     }
     if (step === 2) {
@@ -144,7 +152,7 @@ export default function NewProjectWizard({ open, onClose }: Props) {
       return null;
     }
     return null;
-  }, [step, state.address, state.juris]);
+  }, [step, state.address, state.juris, state.units]);
 
   function goNext() {
     setValidationErr(null);
@@ -171,6 +179,15 @@ export default function NewProjectWizard({ open, onClose }: Props) {
     if (!state.juris.trim()) {
       setStep(1);
       setValidationErr('Please pick a jurisdiction.');
+      return;
+    }
+    // fix-88: Units required at submit. Same banner pattern as the other
+    // step-1 fields; Step1ProjectInfo reads validationErr-on-step-1 via
+    // the showFieldErrors prop so the input goes red the moment the user
+    // lands back on the step.
+    if (!unitsIsValid(state.units)) {
+      setStep(1);
+      setValidationErr('Units count is required (must be greater than 0).');
       return;
     }
 
@@ -383,7 +400,17 @@ export default function NewProjectWizard({ open, onClose }: Props) {
             </div>
           )}
 
-          {step === 1 && <Step1ProjectInfo value={state} onChange={patch} />}
+          {step === 1 && (
+            <Step1ProjectInfo
+              value={state}
+              onChange={patch}
+              // fix-88: when the validation banner is showing on step 1,
+              // also paint the field-level required errors red even if
+              // the user hasn't blurred them yet — they need to see at
+              // a glance WHICH field is the problem.
+              showFieldErrors={validationErr !== null}
+            />
+          )}
           {step === 2 && <Step2Questionnaire value={state} onChange={patch} />}
           {step === 3 && <Step3Permits value={state} onChange={patch} />}
           {step === 4 && <Step4TaskReview value={state} onChange={patch} />}

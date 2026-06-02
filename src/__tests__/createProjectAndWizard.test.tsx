@@ -375,6 +375,9 @@ describe('<NewProjectWizard />', () => {
     fireEvent.change(screen.getByTestId('wizard-juris'), {
       target: { value: 'Seattle' },
     });
+    fireEvent.change(screen.getByTestId('wizard-units'), {
+      target: { value: '2' },
+    });
     fireEvent.click(screen.getByTestId('wizard-next'));
     expect(screen.getByTestId('wizard-step-2')).toBeInTheDocument();
     fireEvent.click(screen.getByTestId('wizard-next'));
@@ -393,6 +396,9 @@ describe('<NewProjectWizard />', () => {
     });
     fireEvent.change(screen.getByTestId('wizard-juris'), {
       target: { value: 'Seattle' },
+    });
+    fireEvent.change(screen.getByTestId('wizard-units'), {
+      target: { value: '2' },
     });
     fireEvent.click(screen.getByTestId('wizard-next'));
     expect(screen.getByTestId('wizard-step-2')).toBeInTheDocument();
@@ -418,6 +424,9 @@ describe('<NewProjectWizard />', () => {
     });
     fireEvent.change(screen.getByTestId('wizard-juris'), {
       target: { value: 'Seattle' },
+    });
+    fireEvent.change(screen.getByTestId('wizard-units'), {
+      target: { value: '2' },
     });
     fireEvent.change(screen.getByTestId('wizard-entitlement-lead'), {
       target: { value: 'Bobby' },
@@ -470,6 +479,9 @@ describe('<NewProjectWizard />', () => {
     fireEvent.change(screen.getByTestId('wizard-juris'), {
       target: { value: 'Seattle' },
     });
+    fireEvent.change(screen.getByTestId('wizard-units'), {
+      target: { value: '2' },
+    });
     fireEvent.change(screen.getByTestId('wizard-builder-name'), {
       target: { value: 'Jane Builder' },
     });
@@ -516,6 +528,9 @@ describe('<NewProjectWizard />', () => {
     fireEvent.change(screen.getByTestId('wizard-juris'), {
       target: { value: 'Seattle' },
     });
+    fireEvent.change(screen.getByTestId('wizard-units'), {
+      target: { value: '2' },
+    });
     // Skip Builder section entirely.
     fireEvent.click(screen.getByTestId('wizard-next'));
     fireEvent.click(screen.getByTestId('wizard-next'));
@@ -552,6 +567,9 @@ describe('<NewProjectWizard />', () => {
     fireEvent.change(screen.getByTestId('wizard-juris'), {
       target: { value: 'Seattle' },
     });
+    fireEvent.change(screen.getByTestId('wizard-units'), {
+      target: { value: '2' },
+    });
     fireEvent.click(screen.getByTestId('wizard-next'));
     fireEvent.click(screen.getByTestId('wizard-next'));
     fireEvent.click(screen.getByTestId('wizard-next'));
@@ -580,6 +598,9 @@ describe('<NewProjectWizard />', () => {
     fireEvent.change(screen.getByTestId('wizard-juris'), {
       target: { value: 'Seattle' },
     });
+    fireEvent.change(screen.getByTestId('wizard-units'), {
+      target: { value: '2' },
+    });
     fireEvent.click(screen.getByTestId('wizard-next'));
     fireEvent.click(screen.getByTestId('wizard-next'));
     fireEvent.click(screen.getByTestId('wizard-next'));
@@ -595,5 +616,90 @@ describe('<NewProjectWizard />', () => {
     expect(
       (screen.getByTestId('wizard-address') as HTMLInputElement).value,
     ).toBe('999 Oak Ave');
+  });
+
+  // fix-88: Units is a required step-1 field. 2 prod projects were
+  // saved with NULL units before this gate. Same banner pattern as the
+  // address + juris gates that already existed.
+  describe('fix-88: Units required at Step 1', () => {
+    it('Next on Step 1 with empty Units shows the inline validation banner', () => {
+      renderWizard();
+      fireEvent.change(screen.getByTestId('wizard-address'), {
+        target: { value: '123 Main' },
+      });
+      fireEvent.change(screen.getByTestId('wizard-juris'), {
+        target: { value: 'Seattle' },
+      });
+      // Units left at the empty default → step gate fails.
+      fireEvent.click(screen.getByTestId('wizard-next'));
+      expect(screen.getByTestId('wizard-validation')).toHaveTextContent(
+        /Units count is required/i,
+      );
+      expect(screen.getByTestId('wizard-step-1')).toBeInTheDocument();
+    });
+
+    it('Next on Step 1 with Units=0 also fails the gate', () => {
+      renderWizard();
+      fireEvent.change(screen.getByTestId('wizard-address'), {
+        target: { value: '123 Main' },
+      });
+      fireEvent.change(screen.getByTestId('wizard-juris'), {
+        target: { value: 'Seattle' },
+      });
+      fireEvent.change(screen.getByTestId('wizard-units'), {
+        target: { value: '0' },
+      });
+      fireEvent.click(screen.getByTestId('wizard-next'));
+      expect(screen.getByTestId('wizard-validation')).toHaveTextContent(
+        /Units count is required/i,
+      );
+      expect(screen.getByTestId('wizard-step-1')).toBeInTheDocument();
+    });
+
+    it('typing a positive integer clears the banner and lets Step 2 render on Next', () => {
+      renderWizard();
+      fireEvent.change(screen.getByTestId('wizard-address'), {
+        target: { value: '123 Main' },
+      });
+      fireEvent.change(screen.getByTestId('wizard-juris'), {
+        target: { value: 'Seattle' },
+      });
+      fireEvent.click(screen.getByTestId('wizard-next')); // banner fires
+      expect(screen.getByTestId('wizard-validation')).toBeInTheDocument();
+
+      fireEvent.change(screen.getByTestId('wizard-units'), {
+        target: { value: '4' },
+      });
+      fireEvent.click(screen.getByTestId('wizard-next'));
+      expect(screen.getByTestId('wizard-step-2')).toBeInTheDocument();
+    });
+
+    it('clearing Units after advancing re-blocks Next on Step 1 (defence in depth)', () => {
+      // Walk to step 2 with valid units, jump back to step 1 (tabs only
+      // allow backward), wipe Units, click Next → the gate re-fires.
+      renderWizard();
+      fireEvent.change(screen.getByTestId('wizard-address'), {
+        target: { value: '123 Main' },
+      });
+      fireEvent.change(screen.getByTestId('wizard-juris'), {
+        target: { value: 'Seattle' },
+      });
+      fireEvent.change(screen.getByTestId('wizard-units'), {
+        target: { value: '2' },
+      });
+      fireEvent.click(screen.getByTestId('wizard-next'));
+      expect(screen.getByTestId('wizard-step-2')).toBeInTheDocument();
+      // Back to step 1, wipe Units.
+      fireEvent.click(screen.getByTestId('wizard-step-tab-1'));
+      fireEvent.change(screen.getByTestId('wizard-units'), {
+        target: { value: '' },
+      });
+      // Next must NOT advance — banner appears.
+      fireEvent.click(screen.getByTestId('wizard-next'));
+      expect(screen.getByTestId('wizard-validation')).toHaveTextContent(
+        /Units count is required/i,
+      );
+      expect(screen.getByTestId('wizard-step-1')).toBeInTheDocument();
+    });
   });
 });
