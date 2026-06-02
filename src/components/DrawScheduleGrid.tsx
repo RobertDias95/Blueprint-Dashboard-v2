@@ -280,10 +280,19 @@ function DrawScheduleBody({
   // "Est. Approval" line must call computeProjectedApproval with the BP's
   // scheduleCycleOverride so it matches Schedule Estimator / Schedule
   // Health. Cached as one Map<projectId, projection> per render.
+  //
+  // fix-100: now also stores isActual so the block can switch from
+  // "Est. Approval" → "Approval" once the BP is actually approved.
+  // computeProjectedApproval already returns isActual=true when the
+  // permit carries an approval_date or actual_issue; we just thread
+  // that flag through the cache instead of dropping it on the floor.
   const projectionByProjectId = useMemo(() => {
     type WithCycles = Permit & { permit_cycles?: PermitCycle[] | null };
     const permitsWithCycles = permits as WithCycles[];
-    const m = new Map<string, string | null>();
+    const m = new Map<
+      string,
+      { projection: string; isActual: boolean } | null
+    >();
     const learnedCache = new Map<string, LearnedEstimate | null>();
     function getLearned(type: string, juris: string): LearnedEstimate | null {
       const key = `${type}|${juris}`;
@@ -341,7 +350,12 @@ function DrawScheduleBody({
         // grid block's projected approval date.
         permitReviewers: reviewersByPermitId.get(bp.id) ?? [],
       });
-      m.set(project.id, result.projection ?? null);
+      m.set(
+        project.id,
+        result.projection
+          ? { projection: result.projection, isActual: !!result.isActual }
+          : null,
+      );
     }
     return m;
   }, [projects, permits, permitsByProjectId, projectsById, reviewersByPermitId]);
@@ -1864,10 +1878,18 @@ function DrawScheduleBody({
                             // Estimator / Schedule Health (pre-computed per
                             // project at body scope). fix-DS-fluid-sizing:
                             // label + date split onto two lines.
-                            const projDate = projectionByProjectId.get(
+                            // fix-100: once the BP's approval_date is set,
+                            // computeProjectedApproval returns isActual=true
+                            // and the projection IS the real approval date —
+                            // drop the "Est." prefix. The shorter label also
+                            // helps in space-constrained compact blocks.
+                            const projection = projectionByProjectId.get(
                               row.project_id,
                             );
-                            if (!projDate) return null;
+                            if (!projection) return null;
+                            const label = projection.isActual
+                              ? 'Approval'
+                              : 'Est. Approval';
                             return (
                               <div
                                 style={{
@@ -1878,7 +1900,8 @@ function DrawScheduleBody({
                                   color: sc.text,
                                 }}
                                 data-testid={`block-est-approval-${row.project_id}`}
-                                title={`Est. Approval — ${projDate}`}
+                                data-actual={projection.isActual ? 'true' : 'false'}
+                                title={`${label} — ${projection.projection}`}
                               >
                                 <span
                                   style={{
@@ -1887,7 +1910,7 @@ function DrawScheduleBody({
                                     opacity: 0.7,
                                   }}
                                 >
-                                  Est. Approval
+                                  {label}
                                 </span>
                                 <span
                                   style={{
@@ -1896,7 +1919,7 @@ function DrawScheduleBody({
                                     opacity: 0.95,
                                   }}
                                 >
-                                  {formatProjectionDate(projDate)}
+                                  {formatProjectionDate(projection.projection)}
                                 </span>
                               </div>
                             );
