@@ -8,6 +8,10 @@ import { usePermitTypes } from '../../hooks/usePermitTypes';
 import { useTeamMembers } from '../../hooks/useTeamMembers';
 import { usePermitsByProject } from '../../hooks/usePermitsByProject';
 import {
+  useAppConfig,
+  readAppConfigStringArray,
+} from '../../hooks/useAppConfig';
+import {
   seedExpectedIssue,
   seedTargetSubmit,
 } from '../../lib/permitSeedingDefaults';
@@ -47,13 +51,12 @@ interface Props {
 
 const PARKING_OPTIONS = ['', 'None', 'Surface', 'Garage', 'Both'];
 const ALLEY_OPTIONS = ['', 'Yes', 'No'];
-const PRODUCT_TYPES = [
-  '',
-  'SFR',
-  'SFR w/ Accessory Units',
-  'Attached Units',
-  'Cottages',
-];
+// fix-93: Product Types options no longer hardcoded. The list is now
+// catalog-managed via app_config.productTypeOptions (seeded by
+// migrations/fix_91_product_types_array.sql, edited in
+// Settings → Admin → Project Types). Step1ProjectInfo reads the same
+// key for the wizard's chip picker; this modal mirrors that pattern so
+// catalog additions show up in both places.
 
 /** fix-22 Mig 3: project-level scalar fields that used to live on the BP
  *  permit (rebranded from "BpFields" to make their new home explicit).
@@ -174,6 +177,16 @@ export default function ProjectSettingsModal({ project, onClose }: Props) {
   const teamQ = useTeamMembers();
   // fix-25-feat-d: catalog source for the per-permit Type dropdown
   const permitTypesQ = usePermitTypes();
+  // fix-93: settings-managed Product Types catalog (parity with the
+  // wizard's Step1ProjectInfo). Same key the Library filter + Admin
+  // editor consume; values stored on a project but no longer in the
+  // catalog still render below as removable chips so admins curating
+  // the option list never strand historical data.
+  const appConfigQ = useAppConfig();
+  const productTypeOptions = useMemo(
+    () => readAppConfigStringArray(appConfigQ.map, 'productTypeOptions'),
+    [appConfigQ.map],
+  );
 
   const permits = useMemo(() => permitsQ.data ?? [], [permitsQ.data]);
   const bpPermit = useMemo(
@@ -580,9 +593,11 @@ export default function ProjectSettingsModal({ project, onClose }: Props) {
               />
             </Field>
             <Field label="Product Types">
-              {/* fix-91: multi-select. Pick adds a chip; chip × removes.
-                  Stored values not in PRODUCT_TYPES still render so
-                  pruning the catalog doesn't strand historical data. */}
+              {/* fix-91/fix-93: multi-select. Pick adds a chip; chip ×
+                  removes. Options come from app_config.productTypeOptions
+                  (Settings → Admin → Project Types); stored values no
+                  longer in the catalog still render below so pruning
+                  the option list doesn't strand historical data. */}
               <div className="flex flex-wrap items-center gap-1">
                 <SelectInput
                   value=""
@@ -596,11 +611,19 @@ export default function ProjectSettingsModal({ project, onClose }: Props) {
                   }}
                   options={[
                     '',
-                    ...PRODUCT_TYPES.filter(
+                    ...productTypeOptions.filter(
                       (t) => !form.projectFields.product_types.includes(t),
                     ),
                   ]}
-                  placeholderLabel="+ Add type"
+                  placeholderLabel={
+                    productTypeOptions.length === 0
+                      ? 'No options — add them in Settings → Projects'
+                      : productTypeOptions.every((t) =>
+                            form.projectFields.product_types.includes(t),
+                          )
+                        ? 'All types added'
+                        : '+ Add type'
+                  }
                   testid="psm-product-types-select"
                 />
                 {form.projectFields.product_types.map((t) => (

@@ -39,6 +39,22 @@ vi.mock('../components/builder/BuilderAutocompleteField', () => ({
   default: ({ value }: { value: string }) => <input readOnly value={value} />,
 }));
 vi.mock('../stores/toastStore', () => ({ pushToast: vi.fn() }));
+// fix-93: ProjectSettingsModal now reads productTypeOptions from
+// app_config. Mock the hook so this test (which renders without a
+// QueryClientProvider) doesn't blow up on the unmocked useQuery.
+vi.mock('../hooks/useAppConfig', async (importActual) => {
+  const actual = await importActual<typeof import('../hooks/useAppConfig')>();
+  return {
+    ...actual,
+    useAppConfig: () => ({
+      map: new Map<string, unknown>(),
+      data: [],
+      isLoading: false,
+      error: null,
+      refetch: vi.fn(),
+    }),
+  };
+});
 
 const permitsData = vi.hoisted(() => ({ rows: [] as PermitWithCycles[] }));
 vi.mock('../hooks/usePermitsByProject', () => ({
