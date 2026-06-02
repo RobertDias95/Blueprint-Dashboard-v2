@@ -105,6 +105,11 @@ export const queryKeys = {
     ['error_reports', tenantId, 'groups', { status }] as const,
   newErrorCount: (tenantId: string) =>
     ['error_reports', tenantId, 'newCount'] as const,
+  // fix-96-b: the wizard's DA dropdown reads da_team_routing rows so it
+  // can disable DAs with no routing for the project's juris. The lookup
+  // mirrors bp_ent_lead_for_da's WHERE clause (juris-match OR NULL).
+  daTeamRouting: (tenantId: string) =>
+    ['da_team_routing', tenantId] as const,
 } as const;
 
 /** Map from Postgres table name → bare-prefix query keys to invalidate on

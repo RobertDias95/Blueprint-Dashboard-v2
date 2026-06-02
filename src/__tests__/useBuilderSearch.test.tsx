@@ -121,11 +121,12 @@ describe('useBuilderSearch — fix-24c wire shape', () => {
       expect(mocks.orFn).toHaveBeenCalledTimes(1);
     });
     const filter = mocks.orFn.mock.calls[0][0] as string;
+    // fix-96-a: the needle is now wrapped in PostgREST double quotes so
+    // commas in the user input can't be mis-parsed as OR-clause
+    // boundaries. fix-24c's no-raw-% guarantee still applies.
     expect(filter).toBe(
-      'name.ilike.*boyd*,company.ilike.*boyd*,email.ilike.*boyd*,phone.ilike.*boyd*',
+      'name.ilike."*boyd*",company.ilike."*boyd*",email.ilike."*boyd*",phone.ilike."*boyd*"',
     );
-    // And — critically — no raw `%` in the filter string. This is what
-    // we suspect was breaking Bobby's prod smoke.
     expect(filter).not.toContain('%');
     // The hook returns the row to the caller.
     await waitFor(() => {
@@ -157,10 +158,43 @@ describe('useBuilderSearch — fix-24c wire shape', () => {
       expect(mocks.orFn).toHaveBeenCalledTimes(1);
     });
     const filter = mocks.orFn.mock.calls[0][0] as string;
-    // Each wildcard char in the user's input gets a leading backslash.
+    // Each wildcard char in the user's input gets a leading backslash;
+    // the whole escaped needle is then wrapped in double quotes per
+    // fix-96-a so commas in subsequent searches don't trip the parser.
     expect(filter).toBe(
-      'name.ilike.*a\\_b\\*c\\%d*,company.ilike.*a\\_b\\*c\\%d*,email.ilike.*a\\_b\\*c\\%d*,phone.ilike.*a\\_b\\*c\\%d*',
+      'name.ilike."*a\\_b\\*c\\%d*",company.ilike."*a\\_b\\*c\\%d*",email.ilike."*a\\_b\\*c\\%d*",phone.ilike."*a\\_b\\*c\\%d*"',
     );
+  });
+
+  // ============================================================
+  // fix-96-a: PostgREST .or() comma-escape contract
+  // ============================================================
+  it('fix-96-a: a search term containing a comma is quoted so PostgREST does NOT split on it', async () => {
+    // Bobby's prod repro: "JMS Homes, INC" returned
+    // "failed to parse logic tree (...)" because the literal comma was
+    // read as an OR-clause boundary. The quoted form keeps the value
+    // atomic; the outer `.or()` still has exactly 4 ilike clauses
+    // joined by 3 outer commas.
+    const { wrapper } = setup();
+    renderHook(() => useBuilderSearch('JMS Homes, INC'), { wrapper });
+    await waitFor(() => {
+      expect(mocks.orFn).toHaveBeenCalledTimes(1);
+    });
+    const filter = mocks.orFn.mock.calls[0][0] as string;
+    expect(filter).toContain('"*JMS Homes, INC*"');
+    expect(filter.split('.ilike.').length).toBe(5); // 4 clauses → 5 split parts
+  });
+
+  it('fix-96-a: embedded double quotes inside the search term are escaped by doubling', async () => {
+    const { wrapper } = setup();
+    renderHook(() => useBuilderSearch('O"Brien'), { wrapper });
+    await waitFor(() => {
+      expect(mocks.orFn).toHaveBeenCalledTimes(1);
+    });
+    const filter = mocks.orFn.mock.calls[0][0] as string;
+    // Per PostgREST quoted-value rules, " inside a quoted value
+    // becomes "". The full needle is "*O""Brien*".
+    expect(filter).toContain('"*O""Brien*"');
   });
 
   it('orders by name ascending and caps the result set', async () => {

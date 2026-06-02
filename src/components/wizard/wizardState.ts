@@ -81,6 +81,12 @@ export interface WizardState {
    *  via dm_da_groups + written to projects.design_manager on submit. */
   design_manager: string;
   acq_lead: string;
+  /** fix-96-c: project-level Lead Design Associate. The BP DA is now a
+   *  project-level question (Bobby's call) — Step 1 collects it and
+   *  Step 3 shows the BP row's DA read-only. Other permits' DAs stay
+   *  per-permit on Step 3. Optional — a project can be created without
+   *  a DA assigned yet, and is left blank in that case. */
+  lead_da: string;
   go_date: string;
   /** fix-91: BP's expected_issue, captured on Step 1 so Phase B's
    *  reactive seeding (applySeeding) has an anchor before the user
@@ -123,6 +129,7 @@ export function makeEmptyWizardState(): WizardState {
     entitlement_lead: '',
     design_manager: '',
     acq_lead: '',
+    lead_da: '',
     go_date: '',
     acq_target: '',
     units: '',
@@ -190,9 +197,21 @@ export function applySeeding(state: WizardState): WizardState {
 
   let changed = false;
   const permits = state.permits.map((p) => {
-    // The Building Permit's fields are never auto-seeded here (its ACQ is the
-    // user-entered anchor; its target_submit is engine-derived server-side).
-    if (p.type === BUILDING_PERMIT) return p;
+    if (p.type === BUILDING_PERMIT) {
+      // fix-96-c: BP row's DA mirrors Step 1's lead_da when the row's
+      // own DA hasn't been set yet. The user can't change BP.da on
+      // Step 3 (the cell renders read-only with a "set on Step 1"
+      // badge), so a manual override doesn't enter the picture —
+      // editing flows back through Step 1 → applySeeding re-fires.
+      // target_submit is engine-derived (the wizard form doesn't
+      // capture dd_end so the +21 days math runs server-side; see
+      // migrations/fix_96_target_submit_21_days.sql).
+      if (!p.da && state.lead_da) {
+        changed = true;
+        return { ...p, da: state.lead_da };
+      }
+      return p;
+    }
     const me = p.manuallyEdited ?? {};
     let expected_issue = p.expected_issue;
     let target_submit = p.target_submit;

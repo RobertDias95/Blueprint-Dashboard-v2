@@ -45,6 +45,19 @@ function escapeLike(s: string): string {
   return s.replace(/([\\%_*])/g, '\\$1');
 }
 
+/** fix-96-a: wrap a value for use inside a PostgREST `.or()` filter.
+ *  PostgREST uses commas as the OR-clause separator inside `.or()`, so a
+ *  raw needle containing a comma (Bobby's "JMS Homes, INC" search) gets
+ *  parsed as a new clause boundary — the server responds with
+ *  "failed to parse logic tree (...)". PostgREST's escape hatch is the
+ *  double-quoted value form: anything between `"..."` is treated as a
+ *  literal value regardless of commas / parens / spaces / dots. Embedded
+ *  double quotes are escaped by doubling (`"` → `""`), per the
+ *  PostgREST URL-syntax spec. */
+function quoteForOr(value: string): string {
+  return `"${value.replace(/"/g, '""')}"`;
+}
+
 export function useBuilderSearch(query: string): {
   data: Builder[];
   isLoading: boolean;
@@ -71,12 +84,14 @@ export function useBuilderSearch(query: string): {
       // `%` chars in the filter value at all, which removes the
       // suspected mis-encoding path entirely.
       const needle = `*${escapeLike(debouncedQuery)}*`;
+      // fix-96-a: quote the needle so a literal comma in the search
+      // term (e.g. "JMS Homes, INC") isn't mis-parsed as an OR-clause
+      // boundary. quoteForOr also escapes embedded " by doubling.
+      const v = quoteForOr(needle);
       const { data, error } = await supabase
         .from('builders')
         .select('id, name, company, email, phone, notes, active')
-        .or(
-          `name.ilike.${needle},company.ilike.${needle},email.ilike.${needle},phone.ilike.${needle}`,
-        )
+        .or(`name.ilike.${v},company.ilike.${v},email.ilike.${v},phone.ilike.${v}`)
         .order('name', { ascending: true })
         .limit(SEARCH_LIMIT);
       if (error) throw error;

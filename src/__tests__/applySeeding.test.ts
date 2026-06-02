@@ -142,4 +142,42 @@ describe('applySeeding', () => {
     const s = stateWith('', [perm('Building Permit')]);
     expect(applySeeding(s)).toBe(s);
   });
+
+  // fix-96-c: BP DA is collected on Step 1 (state.lead_da) and the BP
+  // row's DA cell is read-only on Step 3. applySeeding mirrors lead_da
+  // onto BP.da when BP.da hasn't been set yet, so the read-only cell on
+  // Step 3 reflects the project-level pick without an extra round-trip
+  // through the user.
+  describe('fix-96-c: BP DA mirrors state.lead_da', () => {
+    it('fills BP.da from state.lead_da when BP.da is empty', () => {
+      const s: WizardState = {
+        ...stateWith('2026-06-01', [perm('Building Permit')]),
+        lead_da: 'Trevor',
+      };
+      const out = applySeeding(s);
+      const bp = out.permits.find((p) => p.type === 'Building Permit')!;
+      expect(bp.da).toBe('Trevor');
+    });
+
+    it('does not touch BP.da when lead_da is blank (BP stays empty)', () => {
+      const s = stateWith('2026-06-01', [perm('Building Permit')]);
+      const out = applySeeding(s);
+      const bp = out.permits.find((p) => p.type === 'Building Permit')!;
+      expect(bp.da).toBe('');
+    });
+
+    it('does not overwrite an existing BP.da when lead_da is also set', () => {
+      // Shouldn't happen in practice (BP DA isn't editable on Step 3), but
+      // guard against it anyway — never silently overwrite a stored value.
+      const s: WizardState = {
+        ...stateWith('2026-06-01', [
+          perm('Building Permit', { da: 'Cam' }),
+        ]),
+        lead_da: 'Trevor',
+      };
+      const out = applySeeding(s);
+      const bp = out.permits.find((p) => p.type === 'Building Permit')!;
+      expect(bp.da).toBe('Cam');
+    });
+  });
 });
