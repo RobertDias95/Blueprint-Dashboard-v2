@@ -51,7 +51,7 @@ export interface Project {
   parking_type?: string | null;
   parking_stalls?: number | null;
   alley?: string | null;
-  /** fix-91: was `product_type: text`, now an array. A single site can
+  /** fix-91: was a single text column, now an array. A single site can
    *  legitimately carry multiple product types (SFR + Attached Units +
    *  Cottages). Always present as an array (NOT NULL DEFAULT '{}'); empty
    *  means "none selected". */
@@ -191,7 +191,7 @@ export interface Permit {
   // declares them so the compiler surfaces every site that needs to
   // read from the project instead. Removed:
   //   zone, alley, lot_width, lot_depth, units, unit_types,
-  //   parking_type, parking_stalls, product_type, project_tags, go_date,
+  //   parking_type, parking_stalls, product_types, project_tags, go_date,
   //   builder_name, builder_company, builder_email, builder_phone
   // Read them via Project. ent_lead, dm, da, dual_da, architect,
   // kickoff_date STAY on Permit per spec.

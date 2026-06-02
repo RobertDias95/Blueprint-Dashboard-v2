@@ -148,7 +148,7 @@ describe('worstStage', () => {
 
 describe('buildLibraryRows', () => {
   it('builds one row per non-archived project that has at least one permit', () => {
-    // fix-22 Mig 3: physical fields (units/zone/lot_*/alley/product_type/
+    // fix-22 Mig 3: physical fields (units/zone/lot_*/alley/product_types/
     // project_tags) live on the project now. Matrix row reads from project.
     const projects = [
       makeProject({

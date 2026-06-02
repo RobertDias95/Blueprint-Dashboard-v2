@@ -258,7 +258,7 @@ describe('enrichPermits', () => {
 // filterEnrichedPermits
 // ============================================================
 describe('filterEnrichedPermits', () => {
-  // fix-22 Mig 3: go_date / product_type / project_tags live on projects.
+  // fix-22 Mig 3: go_date / product_types / project_tags live on projects.
   const projectsById = new Map<string, Project>([
     [
       'p1',

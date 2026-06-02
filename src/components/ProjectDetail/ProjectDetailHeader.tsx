@@ -27,7 +27,7 @@ import BuilderAutocompleteField from '../builder/BuilderAutocompleteField';
 // Right panel is a 240px fixed-width Builder/Owner card.
 //
 // fix-22 Migration 3 sweep: the 11 physical fields (zone/alley/lot/units/
-// unit_types/parking/product_type/project_tags/go_date) plus the 4 new
+// unit_types/parking/product_types/project_tags/go_date) plus the 4 new
 // builder fields moved permits → projects. This file now reads them off
 // the joined project and writes them via useUpdateProject. Per-permit
 // fields that intentionally stayed on permits (ent_lead, dm, da, dual_da,

@@ -76,7 +76,7 @@ function daysBetween(a: string | null, b: string | null): number | null {
 /** Enrich a permit list with per-permit derived metrics + project joins.
  * Mirrors v1's getRptFiltered enrichment pass (index.html 2948-2987).
  *
- * fix-22 Migration 3 sweep: product_type / project_tags / go_date now
+ * fix-22 Migration 3 sweep: product_types / project_tags / go_date now
  * live on projects (single source of truth). Enrichment reads them off
  * the joined project rather than the permit. */
 export function enrichPermits(
