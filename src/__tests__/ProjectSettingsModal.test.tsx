@@ -190,6 +190,29 @@ const builderFixtures = vi.hoisted(() => ({
   ],
 }));
 
+// fix-93: ProjectSettingsModal now reads product type options from
+// app_config.productTypeOptions instead of a hardcoded const. Mock the
+// hook the same shape Step1ProjectInfo's tests use (a hoisted Map ref
+// so individual tests can override per case).
+const appConfigState = vi.hoisted(() => ({
+  map: new Map<string, unknown>([
+    ['productTypeOptions', ['SFR', 'SFR w/ Accessory Units', 'Attached Units', 'Cottages']],
+  ]),
+}));
+vi.mock('../hooks/useAppConfig', async (importActual) => {
+  const actual = await importActual<typeof import('../hooks/useAppConfig')>();
+  return {
+    ...actual,
+    useAppConfig: () => ({
+      map: appConfigState.map,
+      data: [],
+      isLoading: false,
+      error: null,
+      refetch: vi.fn(),
+    }),
+  };
+});
+
 vi.mock('../hooks/useBuilderSearch', () => ({
   useBuilderSearch: (query: string) => {
     const t = query.trim().toLowerCase();
@@ -226,6 +249,15 @@ beforeEach(() => {
     activeTenantId: T,
     memberships: [{ tenant_id: T, role: 'admin' }],
   });
+  // fix-93: reset the app_config map to the default catalog every test
+  // so a per-test override doesn't leak. Mirrors Step1ProjectInfo's
+  // test pattern.
+  appConfigState.map = new Map<string, unknown>([
+    [
+      'productTypeOptions',
+      ['SFR', 'SFR w/ Accessory Units', 'Attached Units', 'Cottages'],
+    ],
+  ]);
 });
 
 describe('<ProjectSettingsModal /> fix-23d dropdowns', () => {
@@ -440,5 +472,77 @@ describe('<ProjectSettingsModal /> fix-23f builder autocomplete', () => {
     expect((screen.getByTestId('psm-builder-phone') as HTMLInputElement).value).toBe('(206) 555-0199');
     // Menu closes after select.
     expect(screen.queryByTestId('psm-builder-name-menu')).toBeNull();
+  });
+});
+
+// fix-93: Product Types options now come from app_config.productTypeOptions
+// (Settings → Admin → Project Types) instead of a hardcoded const. Pin
+// the contract — picker offerings match the catalog the wizard reads.
+describe('<ProjectSettingsModal /> fix-93 Product Types catalog source', () => {
+  it('offers exactly the options seeded in app_config.productTypeOptions', () => {
+    appConfigState.map = new Map<string, unknown>([
+      ['productTypeOptions', ['SFR', 'Townhouse']],
+    ]);
+    renderModal();
+    const select = screen.getByTestId(
+      'psm-product-types-select',
+    ) as HTMLSelectElement;
+    const offered = [...select.options]
+      .map((o) => o.value)
+      .filter((v) => v !== '');
+    expect(offered).toEqual(['SFR', 'Townhouse']);
+  });
+
+  it('picks update product_types and remove the picked option from the dropdown', () => {
+    appConfigState.map = new Map<string, unknown>([
+      ['productTypeOptions', ['SFR', 'Townhouse', 'Cottages']],
+    ]);
+    renderModal();
+    const select = screen.getByTestId(
+      'psm-product-types-select',
+    ) as HTMLSelectElement;
+    fireEvent.change(select, { target: { value: 'Townhouse' } });
+    expect(screen.getByTestId('psm-product-type-chip-Townhouse')).toBeInTheDocument();
+    // Picked option drops off the picker; the remaining two stay.
+    const after = [...
+      (screen.getByTestId('psm-product-types-select') as HTMLSelectElement)
+        .options,
+    ]
+      .map((o) => o.value)
+      .filter((v) => v !== '');
+    expect(after).toEqual(['SFR', 'Cottages']);
+  });
+
+  it('empty catalog renders the Settings → Projects pointer placeholder', () => {
+    appConfigState.map = new Map<string, unknown>();
+    renderModal();
+    const select = screen.getByTestId(
+      'psm-product-types-select',
+    ) as HTMLSelectElement;
+    expect(select.options[0].textContent).toMatch(
+      /No options.*Settings.*Projects/i,
+    );
+  });
+
+  it('value not in the current catalog still renders as a removable chip (no historical-data strand)', () => {
+    // Seed a project carrying a legacy product type that's since been
+    // pruned from the catalog.
+    appConfigState.map = new Map<string, unknown>([
+      ['productTypeOptions', ['Cottages']],
+    ]);
+    const legacyProject = { ...project, product_types: ['LegacyType'] };
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+    );
+    render(
+      <ProjectSettingsModal project={legacyProject} onClose={() => {}} />,
+      { wrapper },
+    );
+    expect(
+      screen.getByTestId('psm-product-type-chip-LegacyType'),
+    ).toBeInTheDocument();
   });
 });
