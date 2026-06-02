@@ -33,6 +33,13 @@ export interface UpdateProjectInput {
   expectedUpdatedAt: string;
   patch: Partial<Project>;
   fieldLabel?: string;
+  /** fix-98: when true, an OCCConflictError from the server will NOT
+   *  push the "modified by someone else" toast. Rollback + invalidate
+   *  still fire. The caller is expected to handle recovery (refetch +
+   *  retry) and surface its own messaging if the recovery fails. Used
+   *  by UnitDimensions to do a silent first attempt and only toast on
+   *  a confirmed second-attempt failure. */
+  silentOnOcc?: boolean;
 }
 
 interface MutationContext {
@@ -113,12 +120,17 @@ export function useUpdateProject() {
       return { snapshot };
     },
 
-    onError: (error, _input, context) => {
+    onError: (error, input, context) => {
       if (context?.snapshot !== undefined) {
         queryClient.setQueryData(queryKeys.projects(tenantId), context.snapshot);
       }
       if (isOCCConflict(error)) {
-        pushToast(error.message, 'warn');
+        // fix-98: silentOnOcc lets the caller handle recovery (refetch +
+        // retry) without a noisy intermediate toast. Rollback + invalidate
+        // still fire so a follow-up retry has the freshest possible token.
+        if (input.silentOnOcc !== true) {
+          pushToast(error.message, 'warn');
+        }
         queryClient.invalidateQueries({ queryKey: queryKeys.projects(tenantId) });
       } else {
         pushToast(`Could not save project — ${error.message}`, 'error');

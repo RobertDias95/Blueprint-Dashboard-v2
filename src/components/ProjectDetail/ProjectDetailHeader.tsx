@@ -1,4 +1,5 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import type {
   Builder,
   PermitWithCycles,
@@ -7,6 +8,9 @@ import type {
 } from '../../lib/database.types';
 import { useUpdateProject } from '../../hooks/useUpdateProject';
 import { nextUnitTypeLabel } from '../../lib/unitTypeNaming';
+import { isOCCConflict } from '../../lib/occ';
+import { queryKeys } from '../../lib/queryKeys';
+import { useAuthStore } from '../../stores/authStore';
 import {
   useSetBpDdDates,
   type ProjectOverlapConflict,
@@ -1249,17 +1253,81 @@ function parseUnitTypes(raw: unknown): UnitType[] {
 
 function UnitDimensions({ project }: { project: Project }) {
   const updateMutation = useUpdateProject();
+  const queryClient = useQueryClient();
+  const tenantId = useAuthStore((s) => s.activeTenantId) ?? '';
   const occMissing = !project.updated_at;
   const types = parseUnitTypes(project.unit_types);
 
+  // fix-98: auto-recover from OCC. The hook's onError handler invalidates
+  // the projects query (async refetch) but rolls back the optimistic
+  // cache to the SNAPSHOT — which still carries the stale updated_at.
+  // A user clicking save again before the refetch lands hits OCC with
+  // the same stale token (Cam's 17-fires-in-an-hour churn pattern).
+  // The retry path here awaits the refetch, reads the freshest project
+  // from the cache, and fires ONE more mutateAsync with the new token.
+  // First attempt is silentOnOcc so a successful auto-retry doesn't
+  // flash an intermediate "modified by someone else" toast; the retry
+  // attempt runs WITHOUT the flag so a real concurrent edit still
+  // surfaces the existing message.
   async function writeTypes(next: UnitType[]) {
     if (!project.updated_at) return;
-    await updateMutation.mutateAsync({
-      projectId: project.id,
-      expectedUpdatedAt: project.updated_at,
-      patch: { unit_types: next },
-      fieldLabel: 'Unit Dimensions',
-    });
+    try {
+      await updateMutation.mutateAsync({
+        projectId: project.id,
+        expectedUpdatedAt: project.updated_at,
+        patch: { unit_types: next },
+        fieldLabel: 'Unit Dimensions',
+        silentOnOcc: true,
+      });
+      return;
+    } catch (err) {
+      if (!isOCCConflict(err)) {
+        // Non-OCC errors: the hook's onError already toasted the
+        // "Could not save project — …" message. Swallow so the void
+        // caller doesn't trip an unhandled-promise-rejection (DateCell's
+        // catch path in fix-26a / fix-86 follows the same pattern).
+        return;
+      }
+      // Pull the server's actual current updated_at before retrying. The
+      // hook's onError already invalidated the query; refetchQueries
+      // awaits the in-flight refetch (or starts one if it hasn't begun).
+      await queryClient.refetchQueries({
+        queryKey: queryKeys.projects(tenantId),
+      });
+      const fresh = queryClient
+        .getQueryData<Project[]>(queryKeys.projects(tenantId))
+        ?.find((p) => p.id === project.id);
+      // No fresh data, missing token, or token unchanged → the refetch
+      // didn't move the cache forward (rare: backend stuck or the user's
+      // own optimistic snapshot rolled the cache right back). Surface
+      // the original OCC error rather than silently retrying with the
+      // same stale token. Push the toast ourselves since the first
+      // attempt was silentOnOcc.
+      if (
+        !fresh?.updated_at ||
+        fresh.updated_at === project.updated_at
+      ) {
+        pushToast(
+          'Unit Dimensions was modified by someone else — your edit was reverted',
+          'warn',
+        );
+        return;
+      }
+      // Retry once. WITHOUT silentOnOcc — if this also OCCs, the
+      // existing hook-level toast fires so the user sees the real
+      // concurrent-edit message and stops clicking. Swallow any error
+      // so the void caller stays unhandled-rejection-free.
+      try {
+        await updateMutation.mutateAsync({
+          projectId: project.id,
+          expectedUpdatedAt: fresh.updated_at,
+          patch: { unit_types: next },
+          fieldLabel: 'Unit Dimensions',
+        });
+      } catch {
+        /* hook's onError already surfaced the message */
+      }
+    }
   }
 
   // Compact mode: empty or single unnamed entry
@@ -1346,6 +1414,19 @@ function UnitDimensionsCompact({
   const [d, setD] = useState<string>(
     current?.depth_ft != null ? String(current.depth_ft) : '',
   );
+  // fix-98: mirror fix-73's DateCell pattern. useState(prop) anchors to
+  // the first render's value; without re-syncing, an OCC rollback or any
+  // subsequent prop refresh leaves these inputs showing stale typed
+  // values. Sync the local state from the prop on every change EXCEPT
+  // while the user has a live unsaved edit (dirty=true). The dirty flag
+  // clears on blur after the parent's writeTypes resolves the new value
+  // through the prop, so the next prop refresh flows through.
+  const dirtyRef = useRef(false);
+  useEffect(() => {
+    if (dirtyRef.current) return;
+    setW(current?.width_ft != null ? String(current.width_ft) : '');
+    setD(current?.depth_ft != null ? String(current.depth_ft) : '');
+  }, [current?.width_ft, current?.depth_ft]);
   return (
     <div className="flex flex-col gap-1">
       <div className="flex items-center gap-1">
@@ -1354,8 +1435,14 @@ function UnitDimensionsCompact({
           min={0}
           value={w}
           placeholder="W"
-          onChange={(e) => setW(e.target.value)}
-          onBlur={() => onSet('width_ft', Number(w) || 0)}
+          onChange={(e) => {
+            dirtyRef.current = true;
+            setW(e.target.value);
+          }}
+          onBlur={() => {
+            onSet('width_ft', Number(w) || 0);
+            dirtyRef.current = false;
+          }}
           disabled={disabled}
           className="w-9 text-[10px] font-semibold text-text border-0 border-b outline-none bg-transparent text-center disabled:opacity-50"
           style={{ borderBottomColor: 'var(--color-border)' }}
@@ -1367,8 +1454,14 @@ function UnitDimensionsCompact({
           min={0}
           value={d}
           placeholder="D"
-          onChange={(e) => setD(e.target.value)}
-          onBlur={() => onSet('depth_ft', Number(d) || 0)}
+          onChange={(e) => {
+            dirtyRef.current = true;
+            setD(e.target.value);
+          }}
+          onBlur={() => {
+            onSet('depth_ft', Number(d) || 0);
+            dirtyRef.current = false;
+          }}
           disabled={disabled}
           className="w-9 text-[10px] font-semibold text-text border-0 border-b outline-none bg-transparent text-center disabled:opacity-50"
           style={{ borderBottomColor: 'var(--color-border)' }}
@@ -1455,6 +1548,22 @@ function UnitRow({
   const [w, setW] = useState(row.width_ft != null ? String(row.width_ft) : '');
   const [d, setD] = useState(row.depth_ft != null ? String(row.depth_ft) : '');
   const [qty, setQty] = useState(String(row.qty || 1));
+  // fix-98: dirty-flag prop sync (fix-73 pattern). UnitRow is keyed by
+  // array index in the parent, so React reuses the same instance across
+  // re-renders when the underlying row data changes (after a save). The
+  // useState(row.*) initializer captured first-render values; without
+  // re-sync, any prop refresh (OCC rollback, scraper update, sibling
+  // edit) leaves the inputs displaying stale typed values. The dirty
+  // flag preserves the user's live edit; cleared on blur so the next
+  // prop arrival flows through.
+  const dirtyRef = useRef(false);
+  useEffect(() => {
+    if (dirtyRef.current) return;
+    setLabel(row.label);
+    setW(row.width_ft != null ? String(row.width_ft) : '');
+    setD(row.depth_ft != null ? String(row.depth_ft) : '');
+    setQty(String(row.qty || 1));
+  }, [row.label, row.width_ft, row.depth_ft, row.qty]);
   const cellStyle = { borderBottomColor: 'var(--color-border)' } as const;
   const cellClass =
     'text-[9px] font-semibold text-text border-0 border-b outline-none bg-transparent text-center disabled:opacity-50';
@@ -1464,8 +1573,14 @@ function UnitRow({
         type="text"
         value={label}
         placeholder="Label"
-        onChange={(e) => setLabel(e.target.value)}
-        onBlur={() => onChange('label', label)}
+        onChange={(e) => {
+          dirtyRef.current = true;
+          setLabel(e.target.value);
+        }}
+        onBlur={() => {
+          onChange('label', label);
+          dirtyRef.current = false;
+        }}
         disabled={disabled}
         style={{ ...cellStyle, width: 44 }}
         className={`${cellClass} text-left`}
@@ -1475,8 +1590,14 @@ function UnitRow({
         min={0}
         value={w}
         placeholder="W"
-        onChange={(e) => setW(e.target.value)}
-        onBlur={() => onChange('width_ft', w === '' ? null : Number(w) || 0)}
+        onChange={(e) => {
+          dirtyRef.current = true;
+          setW(e.target.value);
+        }}
+        onBlur={() => {
+          onChange('width_ft', w === '' ? null : Number(w) || 0);
+          dirtyRef.current = false;
+        }}
         disabled={disabled}
         style={{ ...cellStyle, width: 26 }}
         className={cellClass}
@@ -1487,8 +1608,14 @@ function UnitRow({
         min={0}
         value={d}
         placeholder="D"
-        onChange={(e) => setD(e.target.value)}
-        onBlur={() => onChange('depth_ft', d === '' ? null : Number(d) || 0)}
+        onChange={(e) => {
+          dirtyRef.current = true;
+          setD(e.target.value);
+        }}
+        onBlur={() => {
+          onChange('depth_ft', d === '' ? null : Number(d) || 0);
+          dirtyRef.current = false;
+        }}
         disabled={disabled}
         style={{ ...cellStyle, width: 26 }}
         className={cellClass}
@@ -1499,8 +1626,14 @@ function UnitRow({
         min={1}
         value={qty}
         placeholder="qty"
-        onChange={(e) => setQty(e.target.value)}
-        onBlur={() => onChange('qty', Number(qty) || 1)}
+        onChange={(e) => {
+          dirtyRef.current = true;
+          setQty(e.target.value);
+        }}
+        onBlur={() => {
+          onChange('qty', Number(qty) || 1);
+          dirtyRef.current = false;
+        }}
         disabled={disabled}
         style={{ ...cellStyle, width: 20 }}
         className={cellClass}
