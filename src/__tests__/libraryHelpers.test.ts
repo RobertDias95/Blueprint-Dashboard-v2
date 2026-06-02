@@ -205,6 +205,10 @@ describe('filterLibraryRows', () => {
     lotwBuf: 2,
     lotdTarget: null,
     lotdBuf: 2,
+    unitwTarget: null,
+    unitwBuf: 2,
+    unitdTarget: null,
+    unitdBuf: 2,
     zone: '',
     alley: '',
     productType: '',
@@ -224,6 +228,7 @@ describe('filterLibraryRows', () => {
       alley: 'Yes',
       tags: ['ECA'],
       stage: 'de' as const,
+      unitTypes: [],
     },
     {
       projectId: 'b',
@@ -237,6 +242,7 @@ describe('filterLibraryRows', () => {
       alley: 'No',
       tags: ['SIP'],
       stage: 'pm' as const,
+      unitTypes: [],
     },
   ];
 
@@ -301,6 +307,7 @@ describe('sortLibraryRows', () => {
     alley: '',
     tags: [],
     stage: r.stage,
+    unitTypes: [],
   }));
 
   it('sorts by address ascending (string compare)', () => {
