@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import { useTeamMembers } from '../../hooks/useTeamMembers';
 import { useDmDaGroups } from '../../hooks/useDmDaGroups';
 import {
@@ -174,34 +174,101 @@ export default function Step3Permits({ value, onChange }: Props) {
 
   /** fix-96-c: BP row's ent_lead derives on tab-in, not on user pick
    *  (the BP DA is set on Step 1 now; Step 3's DA cell is read-only).
-   *  When the BP exists + has a DA but no ent_lead yet, fire the same
-   *  bp_ent_lead_for_da lookup the manual-pick path uses. The juris
-   *  + lookup-failure semantics match onPickDa below. */
+   *  When the BP has a DA, fire the same bp_ent_lead_for_da lookup
+   *  the manual-pick path uses. The juris + lookup-failure semantics
+   *  match onPickDa below.
+   *
+   *  fix-101-c: the routed ent_lead also cascades to every non-BP
+   *  permit whose ent_lead is still empty. Bobby owns PAR / SDOT /
+   *  ECA Waiver across the team — typing his name on every row was
+   *  manual busywork — so the BP's derived ENT pre-fills them in
+   *  one shot. Empty cells only: a user who already picked an ENT
+   *  on a sibling permit (via that permit's DA pick → onPickDa
+   *  derivation, or a manual override) is preserved. The cascade
+   *  re-runs when the BP's DA changes (or juris flips), and re-runs
+   *  in the same way — never overwriting non-empty siblings — so
+   *  later BP DA edits fill in newly-added empty rows without
+   *  clobbering earlier per-permit overrides. The (da, juris) the
+   *  cascade last fired for is tracked via ref so the effect's
+   *  follow-up renders (after onChange lands the new ent_leads
+   *  through React state) don't loop the RPC. */
+  const lastDerivedRef = useRef<{ da: string; juris: string } | null>(null);
   useEffect(() => {
     const bp = value.permits.find(
       (p) => p.type === BUILDING_PERMIT && p.selected,
     );
-    if (!bp || !bp.da || bp.ent_lead) return;
-    const bpRowId = bp.rowId;
+    if (!bp || !bp.da) return;
     const bpDa = bp.da;
+    const bpJuris = value.juris || '';
+    // Idempotency gate: if the cascade already fired for this exact
+    // (da, juris) pair, don't re-fire. This lets the effect re-run
+    // freely on identity-churning value.permits without hammering
+    // the RPC; the gate only opens when the user actually moves
+    // either input.
+    if (
+      lastDerivedRef.current?.da === bpDa &&
+      lastDerivedRef.current?.juris === bpJuris
+    ) {
+      return;
+    }
+    const bpRowId = bp.rowId;
+    /** Patch the BP row + every non-BP permit with an empty ent_lead
+     *  in a single onChange. Returning early when nothing would
+     *  change keeps the wizard idle on no-op rerenders. */
+    const cascade = (entLead: string, overwriteBp: boolean) => {
+      let changed = false;
+      const nextPermits = value.permits.map((p) => {
+        if (p.rowId === bpRowId) {
+          if (!overwriteBp || p.ent_lead === entLead) return p;
+          changed = true;
+          return { ...p, ent_lead: entLead };
+        }
+        if (
+          p.type !== BUILDING_PERMIT &&
+          p.selected &&
+          !p.ent_lead
+        ) {
+          changed = true;
+          return { ...p, ent_lead: entLead };
+        }
+        return p;
+      });
+      if (changed) onChange({ permits: nextPermits });
+    };
+
+    // fix-101-c Path A: BP.ent_lead is already set (e.g. a saved
+    // draft or a prior cascade round). Skip the RPC — just propagate
+    // the existing value to any empty non-BP siblings. Preserves the
+    // fix-96-c contract that says "no spurious lookup when ent_lead
+    // is filled" while still feeding new non-BP rows added later.
+    if (bp.ent_lead) {
+      lastDerivedRef.current = { da: bpDa, juris: bpJuris };
+      cascade(bp.ent_lead, false);
+      return;
+    }
+
+    // Path B: BP.ent_lead empty — fire the lookup, then cascade.
+    lastDerivedRef.current = { da: bpDa, juris: bpJuris };
     void lookupEntLeadForDa(bpDa, value.juris || null)
       .then((routed) => {
         if (!routed) return;
-        updatePermit(bpRowId, { ent_lead: routed });
+        cascade(routed, true);
       })
       .catch(() => {
         // Same as onPickDa — swallow + let the user fill ent_lead
-        // manually if the routing table doesn't cover this DA.
+        // manually if the routing table doesn't cover this DA. Roll
+        // back the dedupe ref so a corrected DA pick (e.g. user
+        // switches to a routed DA) re-fires the lookup.
+        lastDerivedRef.current = null;
       });
-    // We deliberately re-run only when the BP's DA changes or the
-    // project juris flips. value.permits identity churns on every
-    // keystroke; gating on (da, juris, BP existence) keeps this from
-    // hammering the RPC.
+    // value.permits identity churns on every keystroke; the effect
+    // depends on (juris, bp.da) only, and the lastDerivedRef gates
+    // out duplicate fires when the effect re-runs for unrelated
+    // reasons. The BP's existence is implicit in bp.da's truthiness.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     value.juris,
     value.permits.find((p) => p.type === BUILDING_PERMIT && p.selected)?.da,
-    value.permits.find((p) => p.type === BUILDING_PERMIT && p.selected)?.ent_lead,
   ]);
 
   /** fix-91: DA pick → look up routed ent_lead via bp_ent_lead_for_da
