@@ -187,6 +187,12 @@ export default function PermitDetailV2({ permit, project }: Props) {
         viewIdx={viewCycleIdx}
         onSelect={setViewCycleIdx}
       />
+      <EmptyCycleHint
+        permit={permit}
+        cycles={cycles}
+        viewIdx={viewCycleIdx}
+        onAfterDelete={(prevIdx) => setViewCycleIdx(prevIdx)}
+      />
       <SeattleIntakeRow permit={permit} juris={project?.juris ?? null} />
       <DateStrip
         permit={permit}
@@ -209,7 +215,12 @@ export default function PermitDetailV2({ permit, project }: Props) {
           // the panel opens on Permitting. The user can still toggle freely.
           defaultBucket={designCycle?.submitted ? 'pm' : 'de'}
         />
-        <Sidebar permit={permit} cycles={cycles} />
+        <Sidebar
+          permit={permit}
+          cycles={cycles}
+          viewIdx={viewCycleIdx}
+          onSelectCycle={setViewCycleIdx}
+        />
       </div>
     </div>
   );
@@ -411,24 +422,33 @@ function CycleTabBar({
   viewIdx: number;
   onSelect: (idx: number) => void;
 }) {
-  // Always show Design + Cycle 1. Hide trailing empty cycles after that
-  // (v1 :3132 — hide ≥cy2 empties unless they're the viewed one).
-  // Q9.5.f-fix-6 A: tab labels and idx come straight from cycle_index now
-  // — no `i + 1` math, so cycle_index=0 placeholders that snuck in or non-
-  // contiguous indices after a delete display correctly.
+  // fix-109: render EVERY cycle row, regardless of whether its fields
+  // are populated. Pre-fix-109 the bar hid trailing empty cycles when
+  // they weren't being viewed (a v1 carry-over rule from index.html
+  // :3132), so a freshly-created cycle disappeared from the tabs the
+  // moment viewIdx moved off it. Bobby's 6505 21st Ave NW repro:
+  // 5 successive "Add Cycle" clicks → 5 phantom empty cycles, all
+  // invisible because each one was hidden by the filter the moment
+  // the next one was created. Smart Add Cycle (fix-109 part A) now
+  // pre-fills the new cycle's submitted from the previous cycle's
+  // resubmitted/corr_issued so trailing empties are rare; on the
+  // chance one DOES exist, the empty-cycle hint row below the bar
+  // surfaces a Delete affordance instead of silently hiding it.
+  //
+  // Q9.5.f-fix-6 A: tab labels and idx come straight from cycle_index
+  // — no `i + 1` math, so non-contiguous indices (e.g. after a delete)
+  // display correctly.
   const visible = useMemo(() => {
     const out: { idx: number; label: string; empty: boolean }[] = [
       { idx: 0, label: 'Design', empty: false },
     ];
     cycles.forEach((c) => {
-      const realIdx = c.cycle_index;
       const empty =
         !c.submitted && !c.city_target && !c.corr_issued && !c.resubmitted;
-      if (realIdx > 1 && empty && viewIdx !== realIdx) return;
-      out.push({ idx: realIdx, label: `Cycle ${realIdx}`, empty });
+      out.push({ idx: c.cycle_index, label: `Cycle ${c.cycle_index}`, empty });
     });
     return out;
-  }, [cycles, viewIdx]);
+  }, [cycles]);
 
   return (
     <div
@@ -466,6 +486,93 @@ function CycleTabBar({
           </button>
         );
       })}
+    </div>
+  );
+}
+
+// fix-109 (part C): empty-cycle hint + Delete affordance. Renders only
+// when the user is viewing a review cycle (cycle_index > 0) whose
+// fields are all null. That's the orphan-cleanup case Bobby's 6505
+// permit hit: 5 phantom empty cycles created by repeat Add Cycle
+// clicks pre-fix. With smart Add Cycle (part A) seeding new cycles
+// with a submitted date, the hint should rarely surface; when it
+// does, the Delete button removes the row cleanly without forcing
+// the user into the sidebar widget's per-cycle × control.
+function EmptyCycleHint({
+  permit,
+  cycles,
+  viewIdx,
+  onAfterDelete,
+}: {
+  permit: PermitWithCycles;
+  cycles: PermitCycle[];
+  viewIdx: number;
+  /** Called after the cycle is deleted. The argument is the cycle_index
+   *  the parent should switch the view to (the previous cycle, or 0 if
+   *  none exists). */
+  onAfterDelete: (prevIdx: number) => void;
+}) {
+  const removeCycle = useDeletePermitCycle();
+  if (viewIdx <= 0) return null;
+  const cycle = cycles.find((c) => c.cycle_index === viewIdx);
+  if (!cycle) return null;
+  const isEmpty =
+    !cycle.submitted &&
+    !cycle.city_target &&
+    !cycle.corr_issued &&
+    !cycle.resubmitted &&
+    !cycle.intake_accepted;
+  if (!isEmpty) return null;
+  // Drop back to the cycle BEFORE this one, defaulting to Design (0)
+  // when this was the only review cycle.
+  const previousIdx = cycles
+    .map((c) => c.cycle_index)
+    .filter((idx) => idx < viewIdx)
+    .reduce<number>((acc, idx) => (idx > acc ? idx : acc), 0);
+
+  function handleDelete() {
+    if (
+      !window.confirm(
+        `Delete this empty cycle? This can't be undone.`,
+      )
+    ) {
+      return;
+    }
+    removeCycle.mutate(
+      { cycle: cycle!, permitId: permit.id, projectId: permit.project_id },
+      {
+        onSuccess: () => onAfterDelete(previousIdx),
+      },
+    );
+  }
+
+  return (
+    <div
+      className="flex items-center justify-between gap-3 px-3 py-1.5 border-b"
+      style={{
+        background: 'var(--color-co-bg)',
+        borderBottomColor: 'var(--color-border)',
+      }}
+      data-testid={`pd-v2-empty-cycle-hint-${viewIdx}`}
+    >
+      <span className="text-[10px]" style={{ color: 'var(--color-co)' }}>
+        Cycle {viewIdx} has no dates yet. Fill in Submitted on the strip
+        below — or delete this cycle if it was added by mistake.
+      </span>
+      <button
+        type="button"
+        onClick={handleDelete}
+        disabled={removeCycle.isPending}
+        className="text-[10px] font-bold px-2 py-0.5 rounded border cursor-pointer disabled:opacity-50"
+        style={{
+          borderColor: 'var(--color-co-border)',
+          color: 'var(--color-co)',
+          background: 'transparent',
+        }}
+        data-testid={`pd-v2-empty-cycle-delete-${viewIdx}`}
+      >
+        Delete empty cycle
+      </button>
     </div>
   );
 }
@@ -2040,9 +2147,17 @@ function TaskItem({
 function Sidebar({
   permit,
   cycles,
+  viewIdx,
+  onSelectCycle,
 }: {
   permit: PermitWithCycles;
   cycles: PermitCycle[];
+  /** fix-109: the currently viewed cycle (Design=0 or review=1+). The
+   *  smart Add Cycle inside CycleHistory derives the new cycle's
+   *  submitted date from THIS cycle, and the parent's view auto-
+   *  switches to the freshly created cycle. */
+  viewIdx: number;
+  onSelectCycle: (idx: number) => void;
 }) {
   const upsertCycle = useUpsertPermitCycle();
   const removeCycle = useDeletePermitCycle();
@@ -2097,6 +2212,8 @@ function Sidebar({
           cycles={cycles}
           upsertCycle={upsertCycle}
           removeCycle={removeCycle}
+          viewIdx={viewIdx}
+          onSelectCycle={onSelectCycle}
         />
       </SidebarWidget>
 
@@ -2187,16 +2304,47 @@ function CycleHistory({
   cycles,
   upsertCycle,
   removeCycle,
+  viewIdx,
+  onSelectCycle,
 }: {
   permit: PermitWithCycles;
   cycles: PermitCycle[];
   upsertCycle: ReturnType<typeof useUpsertPermitCycle>;
   removeCycle: ReturnType<typeof useDeletePermitCycle>;
+  /** fix-109: the currently viewed cycle; used to source the new
+   *  cycle's submitted date in smart Add Cycle and to advance the
+   *  view to the freshly created cycle after the RPC resolves. */
+  viewIdx: number;
+  onSelectCycle: (idx: number) => void;
 }) {
   const visible = cycles.filter(
     (c) =>
       c.submitted || c.city_target || c.corr_issued || c.resubmitted,
   );
+
+  // fix-109 (smart Add Cycle): the "source" cycle the new submitted
+  // date comes from. Prefer the cycle the user is currently viewing —
+  // that's where their attention is, and resubmitted/corr_issued there
+  // is the chronological seed for the next cycle. When the user is on
+  // Design (viewIdx=0), fall back to the latest review cycle so the
+  // button still works after a cycle 1 fills in. When there are no
+  // review cycles at all (and viewIdx=0), the button stays disabled
+  // and the user adds cycle 1 by setting Initial Submit on Design,
+  // which fires the snap via the existing fix-25a-b path.
+  const sourceCycle =
+    cycles.find((c) => c.cycle_index === viewIdx) ??
+    (cycles.length > 0 ? cycles[cycles.length - 1] : null);
+  const seedDate = sourceCycle?.resubmitted ?? sourceCycle?.corr_issued ?? null;
+  const seedFromCorrIssued =
+    !!sourceCycle &&
+    !sourceCycle.resubmitted &&
+    !!sourceCycle.corr_issued;
+  const addDisabledReason = !sourceCycle
+    ? 'No review cycles yet — set Initial Submit on Design to start.'
+    : !seedDate
+      ? 'Set Resubmitted on this cycle before adding the next one.'
+      : null;
+
   if (visible.length === 0) {
     return (
       <div
@@ -2208,17 +2356,29 @@ function CycleHistory({
     );
   }
 
-  function handleAddCycle() {
+  async function handleAddCycle() {
+    if (addDisabledReason || !seedDate) return;
     const nextIndex = cycles.length
       ? Math.max(...cycles.map((c) => c.cycle_index)) + 1
       : 1;
-    upsertCycle.mutate({
+    // fix-109: write the seeded submitted date alongside the new
+    // cycle_index. This sidesteps the rare bp_upsert_permit_cycle_row
+    // auto-snap failure (Bobby's 6505 21st Ave NW: cycle 1 resubmitted
+    // saved but cycle 2 never created) by making the user-initiated
+    // path explicit + pre-filled instead of relying on the server-side
+    // snap to fire on the previous cycle's resubmitted edit.
+    await upsertCycle.mutateAsync({
       op: 'insert',
       permitId: permit.id,
       projectId: permit.project_id,
       cycleIndex: nextIndex,
-      patch: {},
+      patch: { submitted: seedDate },
     });
+    // Switch the view to the freshly created cycle so the user lands
+    // on it. The auto-advance useEffect in PermitDetailV2 also catches
+    // this on the next render, but the explicit call is immediate +
+    // covers cache-timing edge cases.
+    onSelectCycle(nextIndex);
   }
 
   function handleDelete(cycle: PermitCycle) {
@@ -2293,15 +2453,28 @@ function CycleHistory({
       <button
         type="button"
         onClick={handleAddCycle}
-        className="w-full px-3 py-2 text-[10px] font-bold border-t cursor-pointer"
+        disabled={!!addDisabledReason || upsertCycle.isPending}
+        title={addDisabledReason ?? undefined}
+        className="w-full px-3 py-2 text-[10px] font-bold border-t cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
         style={{
           borderTopColor: 'var(--color-border)',
-          color: 'var(--color-de)',
+          color: addDisabledReason ? 'var(--color-dim)' : 'var(--color-de)',
           background: 'transparent',
         }}
         data-testid="pd-v2-add-cycle"
       >
         + Add cycle
+        {seedDate && (
+          <span
+            className="text-[9px] font-normal block mt-0.5"
+            style={{ color: 'var(--color-dim)' }}
+            data-testid="pd-v2-add-cycle-seed"
+          >
+            {seedFromCorrIssued
+              ? `Pre-filled from corrections date (${seedDate}) — adjust if your team resubmitted on a different day.`
+              : `Pre-filled submitted = ${seedDate}`}
+          </span>
+        )}
       </button>
     </div>
   );
