@@ -256,7 +256,10 @@ describe('ReviewerRollupChip', () => {
     expect(idx('Amy Approved')).toBeLessThan(idx('Zoe Approved'));
   });
 
-  it('popover header shows approved / outstanding breakdown (fix-43)', () => {
+  it('popover header shows approved / corrections / outstanding breakdown (fix-43, fix-103)', () => {
+    // fix-103: legend is now the 2-line breakdown from fix-95 — every
+    // bucket renders explicitly, and outstanding = inReview + pending
+    // (no longer the algebraic "total − approved" remainder).
     const rows: PermitCycleReviewer[] = [
       makeReviewer('A', 'approved'),
       makeReviewer('B', 'approved'),
@@ -274,15 +277,18 @@ describe('ReviewerRollupChip', () => {
     );
     fireEvent.click(screen.getByTestId('reviewer-chip-42'));
     const legend = screen.getByTestId('reviewer-legend-42');
+    expect(legend.textContent).toContain('4 reviewers');
     expect(legend.textContent).toContain('2 approved');
-    expect(legend.textContent).toContain('2 outstanding'); // 4 total − 2 approved
-    expect(legend.textContent).toContain('1 corrections'); // non-terminal → shown
+    expect(legend.textContent).toContain('1 corrections');
+    expect(legend.textContent).toContain('1 outstanding'); // in_review + pending
   });
 
-  it('popover legend drops corrections on terminal permits (fix-42/fix-43)', () => {
-    // Issued Building Permit: the corrections reviewer is resolved (fix-42
-    // mutes it on the chip), so the legend should not list corrections —
-    // it folds into outstanding. approved/outstanding still mirror counts.
+  it('popover legend shows "0 corrections" on terminal permits — the muted reviewers fold into outstanding (fix-42 / fix-103)', () => {
+    // Issued Building Permit: the corrections reviewer is resolved
+    // (fix-42 mutes the ⚠ on the chip). fix-103 now shows "0
+    // corrections" explicitly in the legend and adds that reviewer to
+    // outstanding so the three numbers still sum to the displayed
+    // total.
     const rows: PermitCycleReviewer[] = [
       makeReviewer('A', 'approved'),
       makeReviewer('B', 'approved'),
@@ -299,9 +305,10 @@ describe('ReviewerRollupChip', () => {
     );
     fireEvent.click(screen.getByTestId('reviewer-chip-42'));
     const legend = screen.getByTestId('reviewer-legend-42');
+    expect(legend.textContent).toContain('3 reviewers');
     expect(legend.textContent).toContain('2 approved');
-    expect(legend.textContent).toContain('1 outstanding'); // 3 − 2
-    expect(legend.textContent).not.toContain('corrections');
+    expect(legend.textContent).toContain('0 corrections'); // muted → explicit zero
+    expect(legend.textContent).toContain('1 outstanding'); // muted folds in
   });
 
   it('popover prefixes the discipline (slot) to the reviewer name when present (fix-44)', () => {
@@ -613,5 +620,119 @@ describe('ReviewerRollupChip', () => {
     } finally {
       restore.mockRestore();
     }
+  });
+
+  // ===========================================================
+  // fix-103: popover legend mirrors fix-95's PermitMiniTable cell —
+  // 2-line stacked breakdown (total / approved · corrections ·
+  // outstanding), total excludes not_required reviewers, zeros
+  // render explicitly.
+  // ===========================================================
+  describe('fix-103 popover breakdown', () => {
+    it('total excludes not_required reviewers (3 approved + 2 corrections + 1 in_review + 2 not_required → 6 reviewers)', () => {
+      const rows: PermitCycleReviewer[] = [
+        makeReviewer('A1', 'approved'),
+        makeReviewer('A2', 'approved'),
+        makeReviewer('A3', 'approved'),
+        makeReviewer('C1', 'corrections_required'),
+        makeReviewer('C2', 'corrections_required'),
+        makeReviewer('I1', 'in_review'),
+        makeReviewer('N1', 'not_required'),
+        makeReviewer('N2', 'not_required'),
+      ];
+      render(
+        <ReviewerRollupChip
+          permitId={42}
+          rows={rows}
+          fallbackReviewer={null}
+          permitStatus="Reviews In Process"
+          permitType="Building Permit"
+        />,
+      );
+      fireEvent.click(screen.getByTestId('reviewer-chip-42'));
+      const legend = screen.getByTestId('reviewer-legend-42');
+      // Line 1: 8 rows total − 2 not_required = 6.
+      expect(legend.textContent).toContain('6 reviewers');
+      // Line 2: 3 approved · 2 corrections · 1 outstanding (in_review).
+      expect(legend.textContent).toContain('3 approved');
+      expect(legend.textContent).toContain('2 corrections');
+      expect(legend.textContent).toContain('1 outstanding');
+    });
+
+    it('zeros render explicitly when a bucket is empty (4 approved, 0 corrections, 0 outstanding)', () => {
+      // Bobby's "completion" signal: a permit with 4 approved + nothing
+      // else should read "4 reviewers / 4 approved · 0 corrections · 0
+      // outstanding". Auto-hiding zero buckets would make the legend
+      // ambiguous (is the bucket stale? unconfigured?).
+      const rows: PermitCycleReviewer[] = [
+        makeReviewer('A1', 'approved'),
+        makeReviewer('A2', 'approved'),
+        makeReviewer('A3', 'approved'),
+        makeReviewer('A4', 'approved'),
+      ];
+      render(
+        <ReviewerRollupChip
+          permitId={42}
+          rows={rows}
+          fallbackReviewer={null}
+          permitStatus="Reviews In Process"
+          permitType="Building Permit"
+        />,
+      );
+      fireEvent.click(screen.getByTestId('reviewer-chip-42'));
+      const legend = screen.getByTestId('reviewer-legend-42');
+      expect(legend.textContent).toContain('4 reviewers');
+      expect(legend.textContent).toContain('4 approved');
+      expect(legend.textContent).toContain('0 corrections');
+      expect(legend.textContent).toContain('0 outstanding');
+    });
+
+    it('empty state (no rows): chip renders the dim em-dash and the popover never opens', () => {
+      // The chip's empty-state UX is unchanged by fix-103 — counts.total
+      // === 0 short-circuits to the legacy fallback / dash. The popover
+      // (and its breakdown) doesn't render at all.
+      const { container } = render(
+        <ReviewerRollupChip permitId={42} rows={[]} fallbackReviewer={null} />,
+      );
+      expect(container.textContent).toContain('—');
+      expect(screen.queryByTestId('reviewer-chip-42')).toBeNull();
+      expect(screen.queryByTestId('reviewer-popover-42')).toBeNull();
+      expect(screen.queryByTestId('reviewer-legend-42')).toBeNull();
+    });
+
+    it('color tokens land on the right buckets (text-pm approved, text-co corrections, text-dim outstanding)', () => {
+      // Tailwind utility classes — verifies the breakdown row carries
+      // the fix-95 palette so the two surfaces (Project View cell +
+      // Schedule Health popover) read the same colors at a glance.
+      const rows: PermitCycleReviewer[] = [
+        makeReviewer('A', 'approved'),
+        makeReviewer('B', 'corrections_required'),
+        makeReviewer('C', 'pending'),
+      ];
+      render(
+        <ReviewerRollupChip
+          permitId={42}
+          rows={rows}
+          fallbackReviewer={null}
+          permitStatus="Reviews In Process"
+          permitType="Building Permit"
+        />,
+      );
+      fireEvent.click(screen.getByTestId('reviewer-chip-42'));
+      const breakdown = screen.getByTestId('reviewer-breakdown-42');
+      const spans = breakdown.querySelectorAll('span');
+      const approved = Array.from(spans).find((s) =>
+        s.textContent?.includes('approved'),
+      );
+      const corrections = Array.from(spans).find((s) =>
+        s.textContent?.includes('corrections'),
+      );
+      const outstanding = Array.from(spans).find((s) =>
+        s.textContent?.includes('outstanding'),
+      );
+      expect(approved?.className).toContain('text-pm');
+      expect(corrections?.className).toContain('text-co');
+      expect(outstanding?.className).toContain('text-dim');
+    });
   });
 });

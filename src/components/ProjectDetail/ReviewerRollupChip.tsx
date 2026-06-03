@@ -227,7 +227,7 @@ export default function ReviewerRollupChip({
           cycleIndex={latestIdx ?? 0}
           rows={visibleRows}
           counts={counts}
-          correctionsVisible={!muteCorrections && counts.correctionsRequired > 0}
+          muteCorrections={muteCorrections}
           containerStyle={popover.style}
         />
       )}
@@ -240,14 +240,19 @@ function ReviewerPopover({
   cycleIndex,
   rows,
   counts,
-  correctionsVisible,
+  muteCorrections,
   containerStyle,
 }: {
   permitId: number;
   cycleIndex: number;
   rows: PermitCycleReviewer[];
   counts: ReviewerCounts;
-  correctionsVisible: boolean;
+  /** fix-42: on a terminal-positive permit (e.g. Issued, Approved),
+   *  corrections_required reviewers are real-but-resolved holds the
+   *  city portal didn't auto-close. The chip de-alarms them by folding
+   *  the count into outstanding. The popover legend mirrors that so the
+   *  breakdown still adds up to the displayed total. */
+  muteCorrections: boolean;
   /** fix-64: position + size come from useViewportAwarePopover so the
    *  popup stays on-screen near any viewport edge. Includes position,
    *  top, left, width, maxHeight (capped to viewport), and overflowY:
@@ -262,9 +267,25 @@ function ReviewerPopover({
     if (ra !== rb) return ra - rb;
     return a.reviewer_name.localeCompare(b.reviewer_name);
   });
-  // fix-43: header breakdown doubles as the always-visible legend for the
-  // chip glyphs. Mirrors the chip's (override-aware) counts exactly.
-  const outstanding = counts.total - counts.approved;
+  // fix-103: stacked 2-line breakdown mirrors fix-95's PermitMiniTable cell
+  // (src/pages/ProjectList.tsx) so Project View and Schedule Health speak
+  // the same numbers.
+  //   displayedTotal = rows.length − notRequired (the "who still needs to
+  //                    act" count Bobby actually cares about — N/A
+  //                    reviewers don't count).
+  //   correctionsShown = 0 when muteCorrections (fix-42 de-alarm path); in
+  //                    that case the muted reviewers count toward
+  //                    outstanding instead, so the three numbers still sum
+  //                    to displayedTotal.
+  //   outstanding = inReview + pending [+ corrections when muted].
+  // Zeros render explicitly — "0 corrections" communicates completion,
+  // and auto-hiding a bucket would make the cell read ambiguously.
+  const displayedTotal = counts.total - counts.notRequired;
+  const correctionsShown = muteCorrections ? 0 : counts.correctionsRequired;
+  const outstanding =
+    counts.inReview +
+    counts.pending +
+    (muteCorrections ? counts.correctionsRequired : 0);
   return (
     <div
       className="z-[10000] rounded border shadow-lg"
@@ -287,27 +308,28 @@ function ReviewerPopover({
       >
         <div className="px-2 pt-1.5 text-[9px] font-extrabold uppercase tracking-wider text-text flex items-center justify-between">
           <span>Reviewers — Cycle {cycleIndex}</span>
-          <span className="text-dim font-mono">{counts.total}</span>
+          <span className="text-dim font-mono">{displayedTotal}</span>
         </div>
+        {/* fix-103: stacked breakdown — line 1 carries the total in
+            prose ("N reviewers"), line 2 carries the always-explicit
+            approved · corrections · outstanding split. Mirrors the
+            fix-95 Project View cell verbatim so the two surfaces are
+            readable as the same number. */}
         <div
-          className="px-2 pb-1.5 pt-0.5 text-[9px] font-semibold flex items-center gap-1.5 flex-wrap"
+          className="px-2 pb-1.5 pt-0.5 text-[9px] font-semibold font-mono"
           data-testid={`reviewer-legend-${permitId}`}
         >
-          <span style={{ color: 'var(--color-pm)' }}>
-            {counts.approved} approved
-          </span>
-          <span className="text-dim">·</span>
-          <span style={{ color: 'var(--color-de)' }}>
-            {outstanding} outstanding
-          </span>
-          {correctionsVisible && (
-            <>
-              <span className="text-dim">·</span>
-              <span style={{ color: 'var(--color-co)' }}>
-                {counts.correctionsRequired} corrections
-              </span>
-            </>
-          )}
+          <div className="text-text">{displayedTotal} reviewers</div>
+          <div
+            className="flex items-center gap-1.5 flex-wrap"
+            data-testid={`reviewer-breakdown-${permitId}`}
+          >
+            <span className="text-pm">{counts.approved} approved</span>
+            <span className="text-dim">·</span>
+            <span className="text-co">{correctionsShown} corrections</span>
+            <span className="text-dim">·</span>
+            <span className="text-dim">{outstanding} outstanding</span>
+          </div>
         </div>
       </div>
       <ul className="flex flex-col">
