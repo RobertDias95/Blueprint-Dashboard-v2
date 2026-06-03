@@ -32,7 +32,7 @@ import NpBlockEditPopup from './NpBlockEditPopup';
 import NpResizeConflictPrompt from './NpResizeConflictPrompt';
 import ProjectBlockPopup from './DrawSchedule/ProjectBlockPopup';
 import GapFillPrompt from './GapFillPrompt';
-import DmCascadePrompt from './DmCascadePrompt';
+import EntCascadePrompt from './EntCascadePrompt';
 import {
   DS_STATUS_COLORS,
   NP_BLOCK_COLOR,
@@ -519,19 +519,21 @@ function DrawScheduleBody({
   const [pendingGapFill, setPendingGapFill] = useState<PendingGapFill | null>(
     null,
   );
-  // fix-72: a DA move that implies a DM (ent_lead) change parks here until the
-  // user confirms via DmCascadePrompt. moveArgs is the exact payload for
-  // bp_move_draw_schedule_da; the prompt's buttons then move (+ optionally
-  // cascade ent_lead) or cancel.
-  interface PendingDmCascade {
+  // fix-72: a DA move that implies an Entitlement Lead (ent_lead)
+  // change parks here until the user confirms via EntCascadePrompt.
+  // moveArgs is the exact payload for bp_move_draw_schedule_da; the
+  // prompt's buttons then move (+ optionally cascade ent_lead) or
+  // cancel. fix-102: renamed from PendingDmCascade — the cascade is
+  // ENT, not DM (DMs route through dm_da_groups, not da_team_routing).
+  interface PendingEntCascade {
     moveArgs: MoveDrawScheduleDaInput;
     payload: DragPayload;
     movedAddress: string;
     fromLead: string | null;
     toLead: string;
   }
-  const [pendingDmCascade, setPendingDmCascade] =
-    useState<PendingDmCascade | null>(null);
+  const [pendingEntCascade, setPendingEntCascade] =
+    useState<PendingEntCascade | null>(null);
   const [pendingOverlap, setPendingOverlap] = useState<PendingOverlap | null>(
     null,
   );
@@ -1018,8 +1020,9 @@ function DrawScheduleBody({
     }
 
     if (projected !== null && projected !== currentEntLead) {
-      // Implied DM change — ask before applying (Update DM / Keep / Cancel).
-      setPendingDmCascade({
+      // Implied Entitlement Lead change — ask before applying
+      // (Update Entitlement Lead / Keep / Cancel).
+      setPendingEntCascade({
         moveArgs,
         payload,
         movedAddress: project?.address ?? payload.projectId,
@@ -1030,7 +1033,8 @@ function DrawScheduleBody({
     }
 
     // No implied change (projected matches), OR the DA isn't in the routing
-    // table (null) → move without touching ent_lead (manual DM stays put).
+    // table (null) → move without touching ent_lead (manual override stays
+    // put).
     doMove(moveArgs, payload, false);
   }
 
@@ -2134,25 +2138,26 @@ function DrawScheduleBody({
         />
       )}
 
-      {/* fix-72: DA->DM cascade prompt. Opens before a DA move when the team
-          routing implies a different DM. Update DM = move + cascade ent_lead;
-          Keep current DM = move only; Cancel move = abort. */}
-      {pendingDmCascade && (
-        <DmCascadePrompt
-          movedAddress={pendingDmCascade.movedAddress}
-          newDa={pendingDmCascade.moveArgs.newDa}
-          fromLead={pendingDmCascade.fromLead}
-          toLead={pendingDmCascade.toLead}
+      {/* fix-72 / fix-102: DA → Entitlement Lead cascade prompt. Opens
+          before a DA move when the team routing implies a different
+          ent_lead. Update Entitlement Lead = move + cascade ent_lead;
+          Keep current Entitlement Lead = move only; Cancel move = abort. */}
+      {pendingEntCascade && (
+        <EntCascadePrompt
+          movedAddress={pendingEntCascade.movedAddress}
+          newDa={pendingEntCascade.moveArgs.newDa}
+          fromLead={pendingEntCascade.fromLead}
+          toLead={pendingEntCascade.toLead}
           pending={moveDaMutation.isPending || cascadeEntLead.isPending}
-          onUpdateDm={() => {
-            doMove(pendingDmCascade.moveArgs, pendingDmCascade.payload, true);
-            setPendingDmCascade(null);
+          onUpdateEntLead={() => {
+            doMove(pendingEntCascade.moveArgs, pendingEntCascade.payload, true);
+            setPendingEntCascade(null);
           }}
-          onKeepDm={() => {
-            doMove(pendingDmCascade.moveArgs, pendingDmCascade.payload, false);
-            setPendingDmCascade(null);
+          onKeepEntLead={() => {
+            doMove(pendingEntCascade.moveArgs, pendingEntCascade.payload, false);
+            setPendingEntCascade(null);
           }}
-          onCancel={() => setPendingDmCascade(null)}
+          onCancel={() => setPendingEntCascade(null)}
         />
       )}
 
