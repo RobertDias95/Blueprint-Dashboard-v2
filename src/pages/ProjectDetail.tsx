@@ -2,11 +2,13 @@ import { useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { useProjects } from '../hooks/useProjects';
 import { usePermitsByProject } from '../hooks/usePermitsByProject';
+import { useAllPermitCycleReviewers } from '../hooks/useAllPermitCycleReviewers';
 import { effectiveStage } from '../lib/permitStage';
-import { permitUrgency } from '../lib/urgencyHelpers';
+import { STAGE_LABEL } from '../lib/stageLabel';
 import { useUpdateProject } from '../hooks/useUpdateProject';
 import type {
   PermitCycle,
+  PermitCycleReviewer,
   PermitWithCycles,
   Stage,
 } from '../lib/database.types';
@@ -328,6 +330,22 @@ function PermitsSidebar({
 }) {
   const updateProject = useUpdateProject();
   const [dragOverId, setDragOverId] = useState<number | null>(null);
+  // fix-104: reviewers feed effectiveStage for MPB / Pending / Applied
+  // permits (see fix-54). Pre-fix the sidebar called effectiveStage
+  // without reviewers and the row's stage could disagree with the
+  // right-hand Schedule Health table — same permit, different label.
+  // Index per-permit once at the sidebar level so each SidebarRow
+  // grabs its own list cheaply on render.
+  const reviewersQ = useAllPermitCycleReviewers();
+  const reviewersByPermit = useMemo(() => {
+    const m = new Map<number, PermitCycleReviewer[]>();
+    for (const r of reviewersQ.data ?? []) {
+      const list = m.get(r.permit_id) ?? [];
+      list.push(r);
+      m.set(r.permit_id, list);
+    }
+    return m;
+  }, [reviewersQ.data]);
 
   // Sort by project.permit_order; unordered permits drop to the end.
   const order = useMemo(
@@ -353,8 +371,14 @@ function PermitsSidebar({
     const active: PermitWithCycles[] = [];
     const issued: PermitWithCycles[] = [];
     for (const p of permits) {
+      // fix-104: pass per-permit reviewers so the active/issued split
+      // matches what the row itself + the Schedule Health table see.
       const isIssued =
-        effectiveStage(p, p.permit_cycles ?? [], null) === 'is';
+        effectiveStage(
+          p,
+          p.permit_cycles ?? [],
+          reviewersByPermit.get(p.id) ?? null,
+        ) === 'is';
       (isIssued ? issued : active).push(p);
     }
     const byOrder = (a: PermitWithCycles, b: PermitWithCycles) => {
@@ -377,7 +401,7 @@ function PermitsSidebar({
       return b.id - a.id;
     });
     return { activeSorted: active, issuedSorted: issued };
-  }, [permits, order]);
+  }, [permits, order, reviewersByPermit]);
 
   function commitOrder(nextActiveIds: number[]) {
     if (!project.updated_at) return;
@@ -462,6 +486,7 @@ function PermitsSidebar({
               <SidebarRow
                 key={p.id}
                 permit={p}
+                reviewers={reviewersByPermit.get(p.id) ?? []}
                 selected={p.id === selectedId}
                 dragOver={p.id === dragOverId}
                 draggable
@@ -499,6 +524,7 @@ function PermitsSidebar({
                     <SidebarRow
                       key={p.id}
                       permit={p}
+                      reviewers={reviewersByPermit.get(p.id) ?? []}
                       selected={p.id === selectedId}
                       // Issued rows aren't part of active drag-reorder
                       // (v1 kept them as a static bottom block).
@@ -524,6 +550,7 @@ function PermitsSidebar({
 
 function SidebarRow({
   permit,
+  reviewers,
   selected,
   dragOver,
   draggable,
@@ -535,6 +562,12 @@ function SidebarRow({
   onDrop,
 }: {
   permit: PermitWithCycles;
+  /** fix-104: reviewer rows for THIS permit. Threaded into
+   *  effectiveStage so the sidebar's stage agrees with the Schedule
+   *  Health table (which has always passed reviewers in). Empty
+   *  array is fine for permit types that don't carry rollup-driven
+   *  status — effectiveStage falls through to the cycle-state path. */
+  reviewers: PermitCycleReviewer[];
   selected: boolean;
   dragOver: boolean;
   /** fix-65: issued permits sit in the static bottom group and are not
@@ -548,22 +581,21 @@ function SidebarRow({
   onDrop: (e: React.DragEvent) => void;
 }) {
   const cycles = permit.permit_cycles ?? [];
-  const stage = effectiveStage(permit, cycles);
-  const urgency =
-    stage === 'is' ? 'ok' : permitUrgency(permit, cycles, stage);
+  const stage = effectiveStage(permit, cycles, reviewers);
   const { label: keyLabel, date: keyDate } = pickKeyDate(permit, cycles, stage);
   const displayLabel =
     permit.type === 'Building Permit' && permit.nickname
       ? `Building Permit — ${permit.nickname}`
       : permit.type ?? '—';
-  const dateColor =
-    urgency === 'red'
-      ? '#dc2626'
-      : urgency === 'yellow'
-        ? 'var(--color-co)'
-        : stage === 'is'
-          ? 'var(--color-is)'
-          : 'var(--color-text)';
+  // fix-104: parent stage breadcrumb (e.g. "Building Permit · Permitting")
+  // anchors the card on the stage; the sub-event date line below is then
+  // clearly subordinate. Pre-fix the card showed only the type on the
+  // top line and rendered the dated event in caps below, which read as
+  // the primary stage label (the bug Bobby reported on 10431 SE 19th St).
+  // The pre-fix urgency-driven date color is gone too — the card's own
+  // bg tint / left-border (stage color) already signals stage, and the
+  // sub-event line is text-only secondary detail.
+  const stageBreadcrumb = STAGE_LABEL[stage];
 
   return (
     <div
@@ -602,8 +634,22 @@ function SidebarRow({
             background: STAGE_DOT_COLOR[stage],
           }}
         />
-        <span className="text-[11px] font-bold text-text truncate flex-1 min-w-0">
-          {displayLabel}
+        {/* fix-104: type · stage breadcrumb. The type stays bold (it's
+            still the row's primary identity); the stage gets the muted
+            text-dim treatment so the eye reads "Building Permit FIRST,
+            currently in Permitting" — not two competing labels. */}
+        <span
+          className="text-[11px] truncate flex-1 min-w-0"
+          data-testid={`permits-sidebar-type-${permit.id}`}
+        >
+          <span className="font-bold text-text">{displayLabel}</span>
+          <span
+            className="text-dim font-normal"
+            data-testid={`permits-sidebar-stage-${permit.id}`}
+          >
+            {' · '}
+            {stageBreadcrumb}
+          </span>
         </span>
         {draggable && (
           <span
@@ -659,19 +705,16 @@ function SidebarRow({
         </div>
       )}
       {keyDate && (
-        <div className="flex items-center gap-1.5 mt-0.5">
-          <span
-            className="text-[8px] font-bold uppercase tracking-wide"
-            style={{ color: STAGE_DOT_COLOR[stage] }}
-          >
-            {keyLabel}
-          </span>
-          <span
-            className="text-[10px] font-bold font-mono"
-            style={{ color: dateColor }}
-          >
-            {keyDate}
-          </span>
+        // fix-104: sub-event line — lowercase label, normal weight,
+        // muted color. No more "CORRECTIONS YYYY-MM-DD" reading like
+        // the primary stage; this is now "Corrections: 2026-05-26"
+        // in plain secondary text. The label string still comes from
+        // pickKeyDate so the precedence (per-stage) is unchanged.
+        <div
+          className="text-[10px] text-dim font-mono mt-0.5"
+          data-testid={`permits-sidebar-sub-event-${permit.id}`}
+        >
+          {keyLabel}: {keyDate}
         </div>
       )}
     </div>
