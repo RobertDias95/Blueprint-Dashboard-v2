@@ -60,6 +60,14 @@ export interface ProjectData {
   builder_company?: string | null;
   builder_email?: string | null;
   builder_phone?: string | null;
+  /** fix-107: Step 1's Lead Design Associate. When set, the RPC's BP
+   *  branch calls bp_next_available_da_slot to find the first gap on
+   *  that DA's lane and writes both the BP's dd_start/dd_end and a
+   *  matching draw_schedule row. Leaving this null preserves the
+   *  pre-fix flow — the wizard's post-create bp_place_new_project_on_da
+   *  call then handles placement using whatever DA the first selected
+   *  permit picked (same behavior as today). */
+  lead_da?: string | null;
 }
 
 export interface CreateProjectInput {
