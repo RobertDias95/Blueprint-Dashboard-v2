@@ -1,6 +1,8 @@
--- fix-101 Commit 1: target_submit follows the DD phase, not c0.submitted.
+-- fix-101: target_submit follows the DD phase, not c0.submitted, and
+-- a DD-phase edit always re-claims the field from a stale manual flag.
 --
--- Apply via MCP after merge. This migration is NOT auto-applied by the PR.
+-- Two coupled changes shipped in one migration. Apply via MCP after
+-- merge. This migration is NOT auto-applied by the PR.
 --
 -- ──────────────────────────────────────────────────────────────────────
 -- Bobby's mental model (confirmed): the Building Permit's target_submit
@@ -195,6 +197,95 @@ BEGIN
   RETURN v_updated;
 END;
 $function$;
+
+
+-- ──────────────────────────────────────────────────────────────────────
+-- COMMIT 2 — DD-phase edits clear the manual flag
+--
+-- Rule (per Bobby): "if i manually adjust it okay, but if the last
+-- action was moving the DD phase, then it should auto update based on
+-- our rule." Last action wins, with DD winning a combined edit (the DD
+-- phase IS the structural source of truth; manually retyping a
+-- target_submit in the same statement that moves dd_end is treated as
+-- accidental).
+--
+-- Implementation: widen the existing BEFORE trigger
+-- bp_trg_set_target_submit_manual_flag from UPDATE OF target_submit to
+-- UPDATE OF target_submit, dd_end, dd_start. The function branches on
+-- which columns moved; a dd_end / dd_start change clears the manual
+-- flag unconditionally, and the AFTER UPDATE recompute trigger
+-- (bp_trg_permits_target_submit_upd, unchanged) then runs the engine
+-- on the now-cleared row. A target_submit-only change keeps the
+-- pre-fix-101 semantics (depth>0 → false, depth==0 → true).
+-- ──────────────────────────────────────────────────────────────────────
+
+CREATE OR REPLACE FUNCTION public.bp_trg_set_target_submit_manual_flag()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public', 'pg_temp'
+AS $function$
+DECLARE
+  v_eng_depth   integer;
+  v_dd_changed  boolean := false;
+  v_ts_changed  boolean := false;
+BEGIN
+  IF TG_OP = 'UPDATE' THEN
+    -- fix-101 Commit 2: a DD-phase edit ALWAYS clears the manual flag
+    -- (Bobby's "last action wins" rule, with DD winning a combined
+    -- edit). We branch on which columns moved; the AFTER UPDATE
+    -- recompute trigger then runs the engine on the now-cleared row.
+    v_dd_changed := (NEW.dd_end   IS DISTINCT FROM OLD.dd_end)
+                 OR (NEW.dd_start IS DISTINCT FROM OLD.dd_start);
+    v_ts_changed := NEW.target_submit IS DISTINCT FROM OLD.target_submit;
+  ELSE
+    -- INSERT: only the target_submit value matters; treat as a value change.
+    v_ts_changed := true;
+  END IF;
+
+  -- DD wins (including a combined dd_end + target_submit edit in the
+  -- same UPDATE — Bobby treats those as a single structural action
+  -- where the DD phase is the source of truth).
+  IF v_dd_changed THEN
+    NEW.target_submit_is_manual := false;
+    RETURN NEW;
+  END IF;
+
+  -- Pre-fix-101 short-circuit: a no-op UPDATE on target_submit leaves
+  -- the flag alone so an unrelated UPDATE doesn't reset Bobby's manual
+  -- choice.
+  IF NOT v_ts_changed THEN
+    RETURN NEW;
+  END IF;
+
+  IF NEW.target_submit IS NULL THEN
+    NEW.target_submit_is_manual := false;
+    RETURN NEW;
+  END IF;
+
+  v_eng_depth := COALESCE(
+    NULLIF(current_setting('bp.target_submit_engine_depth', true), '')::int,
+    0
+  );
+
+  IF v_eng_depth > 0 OR pg_trigger_depth() > 1 THEN
+    NEW.target_submit_is_manual := false;
+  ELSE
+    NEW.target_submit_is_manual := true;
+  END IF;
+
+  RETURN NEW;
+END;
+$function$;
+
+-- Widen the trigger to fire on dd_end / dd_start in addition to
+-- target_submit. The function above branches on which column changed.
+DROP TRIGGER IF EXISTS bp_trg_set_target_submit_manual_flag ON public.permits;
+CREATE TRIGGER bp_trg_set_target_submit_manual_flag
+  BEFORE INSERT OR UPDATE OF target_submit, dd_end, dd_start
+  ON public.permits
+  FOR EACH ROW
+  EXECUTE FUNCTION public.bp_trg_set_target_submit_manual_flag();
 
 
 -- ── Optional one-time backfill (DO NOT RUN unless Bobby confirms) ─────
