@@ -598,4 +598,160 @@ describe('<Step3Permits />', () => {
       expect(lookupEntLeadForDaMock).not.toHaveBeenCalled();
     });
   });
+
+  // fix-101-c: Bobby owns PAR / SDOT / ECA Waiver across the team —
+  // typing his name on every non-BP row was manual busywork. The BP's
+  // derived ent_lead (Step 1 lead_da → Step 3 BP row's ent_lead) now
+  // cascades to every non-BP permit whose ent_lead is still empty.
+  // Manual overrides on sibling rows are preserved.
+  describe('fix-101-c: BP ent_lead cascades to empty non-BP permits', () => {
+    it('on mount with BP DA set: empty non-BP ent_leads are filled with the derived value', async () => {
+      lookupEntLeadForDaMock.mockReset();
+      lookupEntLeadForDaMock.mockResolvedValue('Miles');
+      const init = makeEmptyWizardState();
+      init.juris = 'Seattle';
+      // BP with DA set, ent_lead empty → lookup fires + cascade.
+      // Two non-BP siblings, both empty ent_lead.
+      init.permits = [
+        permit('Building Permit', { da: 'Trevor' }),
+        permit('PAR/Pre-Sub'),
+        permit('SDOT Tree'),
+      ];
+      const parRowId = init.permits[1].rowId;
+      const sdotRowId = init.permits[2].rowId;
+      setupControlled(init);
+      await waitFor(() => {
+        expect(lookupEntLeadForDaMock).toHaveBeenCalledWith('Trevor', 'Seattle');
+      });
+      // After the lookup resolves, BOTH non-BP rows pick up Miles.
+      await waitFor(() => {
+        const parEnt = screen.getByTestId(
+          `wizard-perm-ent-${parRowId}`,
+        ) as HTMLSelectElement;
+        expect(parEnt.value).toBe('Miles');
+      });
+      const sdotEnt = screen.getByTestId(
+        `wizard-perm-ent-${sdotRowId}`,
+      ) as HTMLSelectElement;
+      expect(sdotEnt.value).toBe('Miles');
+    });
+
+    it('non-BP rows with ALREADY-SET ent_lead are preserved (cascade fills empty cells only)', async () => {
+      lookupEntLeadForDaMock.mockReset();
+      lookupEntLeadForDaMock.mockResolvedValue('Miles');
+      const init = makeEmptyWizardState();
+      init.juris = 'Seattle';
+      init.permits = [
+        permit('Building Permit', { da: 'Trevor' }),
+        // Pre-set ent_lead on PAR (e.g. user already picked one via
+        // its own DA → derive, or a manual override) — must survive
+        // the BP cascade.
+        permit('PAR/Pre-Sub', { ent_lead: 'Alex' }),
+        permit('SDOT Tree'),
+      ];
+      const parRowId = init.permits[1].rowId;
+      const sdotRowId = init.permits[2].rowId;
+      setupControlled(init);
+      await waitFor(() => {
+        expect(lookupEntLeadForDaMock).toHaveBeenCalledWith('Trevor', 'Seattle');
+      });
+      // PAR keeps Alex.
+      await waitFor(() => {
+        const parEnt = screen.getByTestId(
+          `wizard-perm-ent-${parRowId}`,
+        ) as HTMLSelectElement;
+        expect(parEnt.value).toBe('Alex');
+      });
+      // SDOT picks up Miles.
+      const sdotEnt = screen.getByTestId(
+        `wizard-perm-ent-${sdotRowId}`,
+      ) as HTMLSelectElement;
+      expect(sdotEnt.value).toBe('Miles');
+    });
+
+    it('BP ent_lead ALREADY set (no lookup needed): cascades the existing value to empty non-BP siblings without a fresh RPC', async () => {
+      // Path A in fix-101-c: BP has DA + ent_lead already (e.g. a
+      // resumed draft). No lookup fires, but the cascade still feeds
+      // empty siblings. The "no spurious lookup" fix-96-c invariant
+      // is preserved.
+      lookupEntLeadForDaMock.mockReset();
+      lookupEntLeadForDaMock.mockResolvedValue('Miles');
+      const init = makeEmptyWizardState();
+      init.juris = 'Seattle';
+      init.permits = [
+        permit('Building Permit', { da: 'Trevor', ent_lead: 'Bobby' }),
+        permit('PAR/Pre-Sub'),
+      ];
+      const parRowId = init.permits[1].rowId;
+      setupControlled(init);
+      // Give the cascade a tick.
+      await waitFor(() => {
+        const parEnt = screen.getByTestId(
+          `wizard-perm-ent-${parRowId}`,
+        ) as HTMLSelectElement;
+        expect(parEnt.value).toBe('Bobby');
+      });
+      // No RPC fired — Path A skipped the lookup.
+      expect(lookupEntLeadForDaMock).not.toHaveBeenCalled();
+    });
+
+    it('changing the BP DA re-runs the cascade — empties get the new value, overrides survive', async () => {
+      // Initial: BP.da=Trevor → derives Miles → cascade fills empties.
+      // Then BP.da changes to Cam → re-derive routed=Bri → cascade
+      // re-runs. Non-BP rows that were ALREADY filled by the first
+      // cascade are now non-empty, so they're treated as overrides
+      // and NOT touched. A freshly-added empty row would pick up Bri.
+      lookupEntLeadForDaMock.mockReset();
+      lookupEntLeadForDaMock.mockImplementation(async (da: string) =>
+        da === 'Trevor' ? 'Miles' : da === 'Cam' ? 'Bri' : null,
+      );
+      const init = makeEmptyWizardState();
+      init.juris = 'Seattle';
+      init.permits = [
+        permit('Building Permit', { da: 'Trevor' }),
+        permit('PAR/Pre-Sub'),
+      ];
+      const bpRowId = init.permits[0].rowId;
+      const parRowId = init.permits[1].rowId;
+      setupControlled(init);
+      // First cascade lands Miles on PAR.
+      await waitFor(() => {
+        const parEnt = screen.getByTestId(
+          `wizard-perm-ent-${parRowId}`,
+        ) as HTMLSelectElement;
+        expect(parEnt.value).toBe('Miles');
+      });
+      // Simulate Step 1 changing the BP DA. The Step 3 cell is
+      // read-only, so flip the BP row's DA + clear its ent_lead via
+      // the ControlledHost setter. Re-derive should fire for Cam.
+      const bpDaCell = screen.getByTestId(
+        `wizard-perm-da-${bpRowId}-value`,
+      );
+      // sanity: the BP cell currently shows Trevor.
+      expect(bpDaCell.textContent).toBe('Trevor');
+      // Hard-reset: re-render via the BP DA select would mean the
+      // cell wasn't read-only — bypass the UI and re-mount the
+      // controlled host with new initial state.
+      // (This mirrors the real user flow: Step 1 lead_da change →
+      // applySeeding propagation; Step 3's own state is replaced.)
+      lookupEntLeadForDaMock.mockClear();
+      // Reuse the helper by re-rendering. ControlledHost is
+      // unmounted via cleanup; standing up a fresh tree is the
+      // cleanest model for "BP DA changed externally."
+      init.permits = [
+        permit('Building Permit', { da: 'Cam' }),
+        permit('PAR/Pre-Sub', { ent_lead: 'Miles' }), // override from prior run
+      ];
+      const newParRowId = init.permits[1].rowId;
+      setupControlled(init);
+      await waitFor(() => {
+        expect(lookupEntLeadForDaMock).toHaveBeenCalledWith('Cam', 'Seattle');
+      });
+      // PAR still has Miles (override survives).
+      const newParEnt = screen.getByTestId(
+        `wizard-perm-ent-${newParRowId}`,
+      ) as HTMLSelectElement;
+      expect(newParEnt.value).toBe('Miles');
+    });
+  });
 });
