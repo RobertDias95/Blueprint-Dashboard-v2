@@ -1360,13 +1360,15 @@ describe('<DrawScheduleGrid /> fix-72 DA->DM cascade', () => {
   }
 
   beforeEach(() => {
-    // Isolate from the gap-fill prompt — these tests assert the DM prompt only.
+    // Isolate from the gap-fill prompt — these tests assert the ENT
+    // cascade prompt only (fix-102: was "DM prompt"; renamed for the
+    // role it actually edits).
     moveDaResult.current = {
       ...moveDaResult.current,
       gapExists: false,
       gapDownstreamCount: 0,
     };
-    // p-now's BP currently has DM (ent_lead) = Miles.
+    // p-now's BP currently has Entitlement Lead (ent_lead) = Miles.
     permitsData.current = [pnowBp('Miles')];
   });
 
@@ -1377,22 +1379,22 @@ describe('<DrawScheduleGrid /> fix-72 DA->DM cascade', () => {
     );
   }
 
-  it('a move implying a DM change opens the prompt (from current to projected) and does NOT move yet', async () => {
+  it('a move implying an ENT change opens the prompt (from current to projected) and does NOT move yet', async () => {
     projectedEntLead.current = 'Bri'; // routing says Francesca -> Bri
     renderGrid();
     dragPnowToFrancesca();
-    const body = await screen.findByTestId('dm-cascade-prompt-body');
+    const body = await screen.findByTestId('ent-cascade-prompt-body');
     expect(body.textContent).toMatch(/from\s+Miles\s+to\s+Bri/i);
     // The move is gated on the prompt — nothing fired yet.
     expect(moveDaMutate).not.toHaveBeenCalled();
     expect(cascadeEntLeadMutate).not.toHaveBeenCalled();
   });
 
-  it('"Update DM" moves AND cascades ent_lead for the project', async () => {
+  it('"Update Entitlement Lead" moves AND cascades ent_lead for the project', async () => {
     projectedEntLead.current = 'Bri';
     renderGrid();
     dragPnowToFrancesca();
-    fireEvent.click(await screen.findByTestId('dm-cascade-prompt-update'));
+    fireEvent.click(await screen.findByTestId('ent-cascade-prompt-update'));
     await waitFor(() => expect(moveDaMutate).toHaveBeenCalledTimes(1));
     expect(cascadeEntLeadMutate).toHaveBeenCalledTimes(1);
     expect(cascadeEntLeadMutate.mock.calls[0][0]).toMatchObject({
@@ -1400,11 +1402,11 @@ describe('<DrawScheduleGrid /> fix-72 DA->DM cascade', () => {
     });
   });
 
-  it('"Keep current DM" moves WITHOUT cascading', async () => {
+  it('"Keep current Entitlement Lead" moves WITHOUT cascading', async () => {
     projectedEntLead.current = 'Bri';
     renderGrid();
     dragPnowToFrancesca();
-    fireEvent.click(await screen.findByTestId('dm-cascade-prompt-keep'));
+    fireEvent.click(await screen.findByTestId('ent-cascade-prompt-keep'));
     await waitFor(() => expect(moveDaMutate).toHaveBeenCalledTimes(1));
     expect(cascadeEntLeadMutate).not.toHaveBeenCalled();
   });
@@ -1413,18 +1415,18 @@ describe('<DrawScheduleGrid /> fix-72 DA->DM cascade', () => {
     projectedEntLead.current = 'Bri';
     renderGrid();
     dragPnowToFrancesca();
-    fireEvent.click(await screen.findByTestId('dm-cascade-prompt-cancel'));
+    fireEvent.click(await screen.findByTestId('ent-cascade-prompt-cancel'));
     expect(moveDaMutate).not.toHaveBeenCalled();
     expect(cascadeEntLeadMutate).not.toHaveBeenCalled();
-    expect(screen.queryByTestId('dm-cascade-prompt')).toBeNull();
+    expect(screen.queryByTestId('ent-cascade-prompt')).toBeNull();
   });
 
-  it('no prompt when the projected DM already matches the current DM (silent move)', async () => {
+  it('no prompt when the projected ENT already matches the current ENT (silent move)', async () => {
     projectedEntLead.current = 'Miles'; // == current ent_lead
     renderGrid();
     dragPnowToFrancesca();
     await waitFor(() => expect(moveDaMutate).toHaveBeenCalledTimes(1));
-    expect(screen.queryByTestId('dm-cascade-prompt')).toBeNull();
+    expect(screen.queryByTestId('ent-cascade-prompt')).toBeNull();
     expect(cascadeEntLeadMutate).not.toHaveBeenCalled();
   });
 
@@ -1433,7 +1435,30 @@ describe('<DrawScheduleGrid /> fix-72 DA->DM cascade', () => {
     renderGrid();
     dragPnowToFrancesca();
     await waitFor(() => expect(moveDaMutate).toHaveBeenCalledTimes(1));
-    expect(screen.queryByTestId('dm-cascade-prompt')).toBeNull();
+    expect(screen.queryByTestId('ent-cascade-prompt')).toBeNull();
     expect(cascadeEntLeadMutate).not.toHaveBeenCalled();
+  });
+
+  it('fix-102: every visible string in the cascade modal labels the role as "Entitlement Lead" — never "DM"', async () => {
+    // Regression for the fix-72 mislabel that surfaced in prod. The
+    // cascade reads projects.entitlement_lead and runs through
+    // da_team_routing — both ENT (Miles/Briana), not DM (Brittani/
+    // Derry/Jade/Lindsay). Title + body + buttons must all say
+    // "Entitlement Lead"; no \bDM\b anywhere inside the modal.
+    projectedEntLead.current = 'Bri';
+    renderGrid();
+    dragPnowToFrancesca();
+    const modal = await screen.findByTestId('ent-cascade-prompt');
+    // Title + body + buttons all present + worded correctly.
+    expect(modal.textContent).toContain('Update Entitlement Lead as well?');
+    expect(modal.textContent).toContain(
+      'would also change the Entitlement Lead from',
+    );
+    expect(modal.textContent).toContain('Apply the Entitlement Lead change?');
+    expect(modal.textContent).toContain('Keep current Entitlement Lead');
+    expect(modal.textContent).toContain('Update Entitlement Lead');
+    // No DM anywhere. \bDM\b matches the whole word "DM" but not e.g.
+    // "DMA"; we're checking that the legacy role label is fully gone.
+    expect(modal.textContent ?? '').not.toMatch(/\bDM\b/);
   });
 });
