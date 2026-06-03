@@ -17,13 +17,13 @@ import {
   saveSort,
   DEFAULT_FILTERS,
   STAGE_BADGE,
-  STAGE_LABEL,
   STAGE_ORDER,
   type ProjectRow,
   type ProjectViewFilters,
   type SortState,
   type SortableColumn,
 } from '../lib/projectViewHelpers';
+import { STAGE_LABEL } from '../lib/stageLabel';
 import type { Stage, TeamMember } from '../lib/database.types';
 
 // fix-90: Project View overhaul. Bobby's Monday triage workspace.

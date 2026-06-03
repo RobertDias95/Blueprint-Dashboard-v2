@@ -5,6 +5,7 @@ import {
   type FilterContext,
 } from '../../lib/myTasksHelpers';
 import type { PermitTask } from '../../lib/database.types';
+import { STAGE_LABEL } from '../../lib/stageLabel';
 import TaskCard from './TaskCard';
 
 // Q7.1.b: one stage column (DE or CO). Internal layout splits non-done
@@ -12,10 +13,9 @@ import TaskCard from './TaskCard';
 // v1 layout at index.html line 5041), with a collapsible Completed
 // section below. Each sub-column sorts independently.
 
-const STAGE_LABEL: Record<'de' | 'co', string> = {
-  de: 'D&E',
-  co: 'Corrections',
-};
+// fix-105: STAGE_LABEL is the shared map from src/lib/stageLabel.ts.
+// This column only ever indexes with 'de' or 'co' (props typing pins
+// it) — the shared map's wider Stage union is a strict superset.
 
 // Q9.5.f-fix-2 A: stage-colored dot in the column header matches v1:959.
 const STAGE_COLOR: Record<'de' | 'co', string> = {

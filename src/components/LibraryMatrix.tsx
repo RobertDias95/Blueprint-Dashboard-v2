@@ -17,6 +17,7 @@ import type {
   Project,
   Stage,
 } from '../lib/database.types';
+import { STAGE_LABEL } from '../lib/stageLabel';
 import { SkeletonRows } from './Skeleton';
 import QueryError from './QueryError';
 
@@ -26,13 +27,7 @@ import QueryError from './QueryError';
 // the dead-code Unit W×D column + unit-width filter (spike confirmed
 // no DB column, no JSON data, orphan form fields in v1).
 
-const STAGE_LABEL: Record<Stage, string> = {
-  de: 'D&E',
-  pm: 'Permitting',
-  co: 'Corrections',
-  ap: 'Approved',
-  is: 'Issued',
-};
+// fix-105: STAGE_LABEL is the shared map from src/lib/stageLabel.ts.
 
 const STAGE_BADGE: Record<Stage, string> = {
   de: 'bg-de-bg text-de border-de-border',

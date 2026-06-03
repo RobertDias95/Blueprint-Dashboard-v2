@@ -20,13 +20,9 @@ import {
 
 export const STAGE_ORDER: ReadonlyArray<Stage> = ['de', 'pm', 'co', 'ap', 'is'];
 
-export const STAGE_LABEL: Record<Stage, string> = {
-  de: 'D&E',
-  pm: 'Permitting',
-  co: 'Corrections',
-  ap: 'Approved',
-  is: 'Issued',
-};
+// fix-105: STAGE_LABEL moved to src/lib/stageLabel.ts (single source of
+// truth started by fix-104). Consumers that imported STAGE_LABEL from
+// here now import from '../lib/stageLabel' directly — see ProjectList.
 
 export const STAGE_BADGE: Record<Stage, string> = {
   de: 'bg-de-bg text-de border-de-border',
