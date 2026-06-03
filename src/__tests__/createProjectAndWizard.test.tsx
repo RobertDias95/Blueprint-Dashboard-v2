@@ -297,6 +297,39 @@ describe('useCreateProjectWithPermits (fix-22 signature)', () => {
     expect(response!.project_id).toBe('22222222-2222-2222-2222-222222222222');
   });
 
+  it('fix-107: lead_da threads through project_data to the RPC payload', async () => {
+    // Step 1's Lead DA must reach bp_create_project_with_permits via
+    // p_project_data.lead_da so the BP gets auto-placed at that DA's
+    // first available draw_schedule slot. Hook-level wire test pins
+    // the JSON shape; the slot-finding math lives in the SQL function
+    // (verified in the migration's MCP sandbox dry-run).
+    mocks.setResult({
+      data: [
+        {
+          project_id: '33333333-3333-3333-3333-333333333333',
+          permit_ids: [30000],
+          conflict: false,
+        },
+      ],
+      error: null,
+    });
+    const { wrapper } = setup();
+    const { result } = renderHook(() => useCreateProjectWithPermits(), {
+      wrapper,
+    });
+    await act(async () => {
+      await result.current.mutateAsync({
+        address: '500 Pike St',
+        juris: 'Seattle',
+        project_data: { lead_da: 'Trevor' },
+        permits: [{ type: 'Building Permit', task_template_ids: [] }],
+      });
+    });
+    expect(mocks.rpcFn).toHaveBeenCalledTimes(1);
+    const [, args] = mocks.rpcFn.mock.calls[0];
+    expect(args.p_project_data).toMatchObject({ lead_da: 'Trevor' });
+  });
+
   it('emits an error toast on RPC failure and rejects', async () => {
     mocks.setResult({ data: null, error: new Error('connection refused') });
 

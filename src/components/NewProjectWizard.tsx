@@ -261,6 +261,11 @@ export default function NewProjectWizard({ open, onClose }: Props) {
       builder_company: strOrNull(state.builder_company),
       builder_email: strOrNull(state.builder_email),
       builder_phone: strOrNull(state.builder_phone),
+      // fix-107: thread Step 1's Lead DA. When non-null the RPC calls
+      // bp_next_available_da_slot to auto-place the BP at the DA's
+      // first open slot (no overlap with any draw_schedule or
+      // da_time_blocks block) and writes a matching draw_schedule row.
+      lead_da: strOrNull(state.lead_da),
     };
 
     const permitsPayload: PermitInput[] = selectedPermits.map((p) => ({
