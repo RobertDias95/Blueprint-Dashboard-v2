@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import { effectiveStage } from '../../lib/permitStage';
+import { STAGE_LABEL } from '../../lib/stageLabel';
 import { useAllPermitCycleReviewers } from '../../hooks/useAllPermitCycleReviewers';
 import { usePermits } from '../../hooks/usePermits';
 import { useProjects } from '../../hooks/useProjects';
@@ -39,14 +40,10 @@ import ReviewerRollupChip from './ReviewerRollupChip';
 //        either date missing → "→ In Progress" (blue placeholder)
 //
 // Mirrors v1's `_healthStatusParts` predicate at index.html:3623-3631.
-
-const STAGE_LABEL: Record<Stage, string> = {
-  de: 'D&E',
-  pm: 'Permitting',
-  co: 'Corrections',
-  ap: 'Approved',
-  is: 'Issued',
-};
+//
+// fix-104: STAGE_LABEL moved to src/lib/stageLabel.ts so this table's
+// "PERMITTING" cell and ProjectDetail's PermitsSidebar breadcrumb read
+// the same words for the same stage.
 
 const STAGE_TINT: Record<Stage, string> = {
   de: 'var(--color-de)',
