@@ -37,6 +37,7 @@ import type {
   Stage,
   TaskNode,
 } from '../../lib/database.types';
+import { STAGE_LABEL } from '../../lib/stageLabel';
 import ScheduleEstimator from './ScheduleEstimator';
 
 // Q9.5.e-fix-5: PermitDetailV2 rebuilds the v2 permit edit panel to match
@@ -58,13 +59,9 @@ import ScheduleEstimator from './ScheduleEstimator';
 //   - "▶ NOW" active-cell highlight not ported (visual flourish)
 //   - Add Cycle / Delete Cycle handled by existing Cycles section (unchanged)
 
-const STAGE_LABEL: Record<Stage, string> = {
-  de: 'D&E',
-  pm: 'Permitting',
-  co: 'Corrections',
-  ap: 'Approved',
-  is: 'Issued',
-};
+// fix-105: STAGE_LABEL is the shared map from src/lib/stageLabel.ts.
+// The bg / dot / border-tint maps below stay local — they're per-surface
+// styling concerns, not the stage → display-noun mapping.
 
 const STAGE_BG: Record<Stage, string> = {
   de: 'var(--color-de-bg)',

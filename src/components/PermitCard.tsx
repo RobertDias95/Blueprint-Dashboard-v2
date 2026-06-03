@@ -1,5 +1,6 @@
 import { Link } from 'react-router-dom';
 import type { Permit, Project, Stage } from '../lib/database.types';
+import { STAGE_LABEL } from '../lib/stageLabel';
 import type { UrgencyLevel } from '../lib/urgencyHelpers';
 
 interface PermitCardProps {
@@ -22,13 +23,9 @@ const STAGE_BADGE_CLASS: Record<Stage, string> = {
   is: 'bg-is-bg text-is border-is-border',
 };
 
-const STAGE_LABEL: Record<Stage, string> = {
-  de: 'D&E',
-  pm: 'Permitting',
-  co: 'Corrections',
-  ap: 'Approved',
-  is: 'Issued',
-};
+// fix-105: STAGE_LABEL is the shared map from src/lib/stageLabel.ts.
+// The badge-class map above stays local — it's a per-surface styling
+// concern, not the stage → display-noun mapping.
 
 // Q9.5.c: urgency styling per v1 (.addr-group.urg-* at index.html:179-181).
 // Literal hex values: alert tones distinct from the stage palette.

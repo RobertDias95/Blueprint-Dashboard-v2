@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useUpsertPermitTask } from '../../hooks/useUpsertPermitTask';
-import type { PermitTask } from '../../lib/database.types';
+import type { PermitTask, Stage } from '../../lib/database.types';
 import type { FilterContext } from '../../lib/myTasksHelpers';
+import { STAGE_LABEL } from '../../lib/stageLabel';
 
 // Q9.5.f-fix-2 B: editable task detail. Mirrors v1 renderTaskDetail at
 // index.html:5171-5203 but adapted to v2's unified schema — no priority
@@ -16,11 +17,12 @@ const STAGE_FG: Record<string, string> = {
   co: 'var(--color-co)',
 };
 
-const STAGE_LABEL: Record<string, string> = {
-  de: 'D&E',
-  pm: 'Permitting',
-  co: 'Corrections',
-};
+// fix-105: STAGE_LABEL is the shared map from src/lib/stageLabel.ts.
+// task.bucket is typed as `string` in the schema; the call site casts
+// to Stage so the shared Record<Stage, string> indexes type-safely.
+// The bucket strings in practice ('de', 'pm', 'co') are all valid
+// Stage values; the `?? stage` fallback below handles anything
+// unexpected gracefully (same as the pre-fix behavior).
 
 const COMPLETION_OPTIONS = ['Open', 'In Progress', 'Resolved'] as const;
 
@@ -128,7 +130,7 @@ function Editor({
           className="text-[10px] font-bold uppercase tracking-wide"
           style={{ color: STAGE_FG[stage] ?? 'var(--color-muted)' }}
         >
-          {STAGE_LABEL[stage] ?? stage}
+          {STAGE_LABEL[stage as Stage] ?? stage}
         </span>
         <span className="text-[10px] text-dim flex-1 truncate" title={project?.address}>
           {project?.address ?? '—'}
