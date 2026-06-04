@@ -17,6 +17,8 @@ interface Props {
   entOptions: string[];
   productTypeOptions: string[];
   tagOptions: string[];
+  /** fix-113-a: distinct permit.status values in the unfiltered cohort. */
+  permitStatusOptions: string[];
   resultCount: number;
 }
 
@@ -38,6 +40,7 @@ export default function ReportFilterBar({
   entOptions,
   productTypeOptions,
   tagOptions,
+  permitStatusOptions,
   resultCount,
 }: Props) {
   return (
@@ -105,7 +108,11 @@ export default function ReportFilterBar({
         </>
       )}
 
-      <FieldLabel label="Status">
+      {/* fix-113-a: relabelled "Status" → "Project Status" to make the
+          scope explicit. Same backing logic (buildFullyIssuedProjectIds);
+          options unchanged. Bobby's audit found the project-rollup
+          semantic was the hidden gotcha — naming fixes it. */}
+      <FieldLabel label="Project Status">
         <select
           value={filters.status}
           onChange={(e) =>
@@ -117,6 +124,27 @@ export default function ReportFilterBar({
           <option value="all">All projects</option>
           <option value="active">Active only</option>
           <option value="issued">Fully issued</option>
+        </select>
+      </FieldLabel>
+
+      {/* fix-113-a: NEW per-permit Status filter, decoupled from the
+          project-rollup above. Auto-populated from the cohort so users see
+          exactly the status strings the data carries (24 distinct values
+          in prod). Empty / 'all' = no filter; otherwise exact-match on
+          permit.status. */}
+      <FieldLabel label="Permit Status">
+        <select
+          value={filters.permitStatus}
+          onChange={(e) => onChange('permitStatus', e.target.value)}
+          className="bg-bg border border-border rounded px-2 py-1 text-[11px] text-text focus:outline-none focus:border-de"
+          data-testid="filter-permit-status"
+        >
+          <option value="all">All permits</option>
+          {permitStatusOptions.map((s) => (
+            <option key={s} value={s}>
+              {s}
+            </option>
+          ))}
         </select>
       </FieldLabel>
 

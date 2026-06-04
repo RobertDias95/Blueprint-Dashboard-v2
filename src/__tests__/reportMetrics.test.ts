@@ -91,6 +91,7 @@ const baseFilters: ReportFilters = {
   dateFrom: null,
   dateTo: null,
   status: 'all',
+  permitStatus: 'all',
   search: '',
 };
 
@@ -337,6 +338,79 @@ describe('filterEnrichedPermits', () => {
       status: 'active',
     });
     expect(out.map((e) => e.permit.id)).toEqual([2]);
+  });
+
+  // ── fix-113-a: permit-level status filter (independent of project rollup) ──
+  it("fix-113-a: permitStatus='all' is a no-op (default)", () => {
+    const out = filterEnrichedPermits(enriched, baseFilters);
+    expect(out.map((e) => e.permit.id)).toEqual([1, 2]);
+  });
+
+  it("fix-113-a: permitStatus exact-match gate keeps the matching permits regardless of project rollup", () => {
+    // Re-enrich with status strings on the permits since the shared fixture
+    // doesn't carry status. This proves the filter operates on permit.status
+    // directly (no project-side coupling).
+    const withStatuses = enrichPermits(
+      [
+        makePermit({
+          id: 1,
+          project_id: 'p1',
+          type: 'Building Permit',
+          status: 'Issued',
+          actual_issue: '2026-05-01',
+        }),
+        makePermit({
+          id: 2,
+          project_id: 'p2',
+          type: 'Demolition',
+          status: 'Reviews In Process',
+          actual_issue: null,
+        }),
+      ],
+      projectsById,
+    );
+    expect(
+      filterEnrichedPermits(withStatuses, {
+        ...baseFilters,
+        permitStatus: 'Issued',
+      }).map((e) => e.permit.id),
+    ).toEqual([1]);
+    expect(
+      filterEnrichedPermits(withStatuses, {
+        ...baseFilters,
+        permitStatus: 'Reviews In Process',
+      }).map((e) => e.permit.id),
+    ).toEqual([2]);
+  });
+
+  it("fix-113-a: project + permit filters compose — Active project AND Issued permit", () => {
+    // Project p1 is "fully issued" (only permit has actual_issue set);
+    // project p2 is "active". Setting Project='active' AND Permit='Reviews
+    // In Process' yields p2's Demo. Both gates apply independently.
+    const withStatuses = enrichPermits(
+      [
+        makePermit({
+          id: 1,
+          project_id: 'p1',
+          status: 'Issued',
+          actual_issue: '2026-05-01',
+        }),
+        makePermit({
+          id: 2,
+          project_id: 'p2',
+          status: 'Reviews In Process',
+          actual_issue: null,
+        }),
+      ],
+      projectsById,
+    );
+    expect(
+      filterEnrichedPermits(withStatuses, {
+        ...baseFilters,
+        status: 'active',
+        permitStatus: 'Reviews In Process',
+      }).map((e) => e.permit.id),
+    ).toEqual([2]);
   });
 
   it('tags filter matches any tag in the OR set', () => {

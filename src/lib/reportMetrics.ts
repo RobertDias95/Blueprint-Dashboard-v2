@@ -169,9 +169,17 @@ export interface ReportFilters {
   /** Used only when range === 'custom'. */
   dateFrom: string | null;
   dateTo: string | null;
-  /** 'active' = at least one permit at the address is NOT issued;
+  /** PROJECT-level cohort filter (renamed from "Status" in fix-113-a).
+   *  'active' = at least one permit at the address is NOT issued;
    *  'issued' = every permit at the address has actual_issue. */
   status: 'all' | 'active' | 'issued';
+  /** fix-113-a: PERMIT-level cohort filter. Empty string = no filter.
+   *  When set, drops permits whose `permit.status` doesn't match exactly.
+   *  Decoupled from the project-level `status` filter so a user can ask
+   *  "show me permits with status=Issued anywhere" (independent of whether
+   *  the project they belong to is fully issued). Prod has 24 distinct
+   *  `permits.status` values; UI auto-populates from the cohort. */
+  permitStatus: string;
   /** Multi-token address/permit search. */
   search: string;
 }
@@ -446,6 +454,13 @@ export function filterEnrichedPermits(
 
     if (filters.status === 'active' && fullyIssued.has(p.project_id)) return false;
     if (filters.status === 'issued' && !fullyIssued.has(p.project_id)) return false;
+
+    // fix-113-a: permit-level status filter. Independent from the project
+    // rollup above — a project with a mix of statuses can still surface the
+    // permits the user is looking for here.
+    if (filters.permitStatus && filters.permitStatus !== 'all') {
+      if (p.status !== filters.permitStatus) return false;
+    }
 
     if (filters.productTypes.size > 0) {
       // fix-91: product types is multi-valued on the project. Match any-of:

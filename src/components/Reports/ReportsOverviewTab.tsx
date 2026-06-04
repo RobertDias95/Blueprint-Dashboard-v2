@@ -37,6 +37,9 @@ const DEFAULT_FILTERS: ReportFilters = {
   dateFrom: null,
   dateTo: null,
   status: 'all',
+  // fix-113-a: permit-level cohort filter, decoupled from the project-level
+  // `status` above (now labelled "Project Status" in the UI).
+  permitStatus: 'all',
   search: '',
 };
 
@@ -120,6 +123,18 @@ function Body({
   const tagOptions = useMemo(() => {
     const set = new Set<string>();
     for (const e of enriched) for (const t of e.projectTags) set.add(t);
+    return Array.from(set).sort();
+  }, [enriched]);
+
+  // fix-113-a: distinct permits.status values present in the unfiltered cohort,
+  // sorted alphabetically. Drives the new permit-level Status select; values
+  // are reported as-is (no normalization) so the dropdown always matches the
+  // exact strings the data carries.
+  const permitStatusOptions = useMemo(() => {
+    const set = new Set<string>();
+    for (const e of enriched) {
+      if (e.permit.status) set.add(e.permit.status);
+    }
     return Array.from(set).sort();
   }, [enriched]);
 
@@ -212,6 +227,7 @@ function Body({
         entOptions={entOptions}
         productTypeOptions={productTypeOptions}
         tagOptions={tagOptions}
+        permitStatusOptions={permitStatusOptions}
         resultCount={filtered.length}
       />
 
