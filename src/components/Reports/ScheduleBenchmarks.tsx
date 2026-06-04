@@ -181,9 +181,16 @@ const TIER_BADGE_STYLE: Record<StyleTier, TierBadgeStyle> = {
   },
 };
 
-// Exported for the fix-37 component-contract test: the CROSS-JURIS badge
-// still renders when isCrossJuris is true, even though no live cascade
-// produces that flag anymore (fix-37 dropped the cross-juris tier).
+// fix-113-c: the CROSS-JURIS badge + its dedicated component-contract test
+// (ScheduleBenchmarksCrossJuris.test.tsx) are gone. Post-fix-37 the learner
+// only produces same-juris estimates (computeLearnedSchedule no longer cascades
+// to (type, *)) so isCrossJuris is hard-wired to `false` on every estimate
+// and the badge could never render. Dead surface area was misleading reviewers
+// who grepped the codebase for "cross-juris" expecting a live branch.
+//
+// The LearnedEstimate.isCrossJuris field is preserved on the type for minimal
+// churn elsewhere (Trends Target Submit + ScheduleHealthTable also read it);
+// nuking it across libraries is fix-113+ scope per fix-111 audit.
 export function BenchmarkCard({
   type,
   juris,
@@ -253,28 +260,7 @@ export function BenchmarkCard({
           >
             {badgeLabelFor(tier)}
           </span>
-          {/* fix-35 Bug 4: the learner fell back to (type, *) cross-juris
-              samples because this juris has no own-type approved permits.
-              Surface it so Seattle's numbers aren't silently shown for
-              Bellevue/Phoenix BPs. Display-only — learner logic unchanged. */}
-          {estimate?.isCrossJuris && (
-            <span
-              className="text-[8px] font-bold"
-              style={{
-                padding: '2px 7px',
-                borderRadius: 4,
-                background: 'rgba(139,92,246,.12)',
-                color: '#8b5cf6',
-                border: '1px solid rgba(139,92,246,.4)',
-                letterSpacing: '0.04em',
-                whiteSpace: 'nowrap',
-              }}
-              title={`Based on ${type} data from all jurisdictions — no ${juris} ${type} samples yet. Will differentiate once ${juris} accumulates approved ${type} permits.`}
-              data-testid={`benchmark-card-crossjuris-${type}-${juris}`}
-            >
-              CROSS-JURIS
-            </span>
-          )}
+          {/* fix-113-c: cross-juris badge removed (dead since fix-37). */}
         </div>
       </div>
 

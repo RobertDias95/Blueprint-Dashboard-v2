@@ -181,9 +181,17 @@ export interface ReportFilters {
   /** Used only when range === 'custom'. */
   dateFrom: string | null;
   dateTo: string | null;
-  /** 'active' = at least one permit at the address is NOT issued;
+  /** PROJECT-level cohort filter (renamed from "Status" in fix-113-a).
+   *  'active' = at least one permit at the address is NOT issued;
    *  'issued' = every permit at the address has actual_issue. */
   status: 'all' | 'active' | 'issued';
+  /** fix-113-a: PERMIT-level cohort filter. Empty string = no filter.
+   *  When set, drops permits whose `permit.status` doesn't match exactly.
+   *  Decoupled from the project-level `status` filter so a user can ask
+   *  "show me permits with status=Issued anywhere" (independent of whether
+   *  the project they belong to is fully issued). Prod has 24 distinct
+   *  `permits.status` values; UI auto-populates from the cohort. */
+  permitStatus: string;
   /** Multi-token address/permit search. */
   search: string;
 }
@@ -459,6 +467,13 @@ export function filterEnrichedPermits(
     if (filters.status === 'active' && fullyIssued.has(p.project_id)) return false;
     if (filters.status === 'issued' && !fullyIssued.has(p.project_id)) return false;
 
+    // fix-113-a: permit-level status filter. Independent from the project
+    // rollup above — a project with a mix of statuses can still surface the
+    // permits the user is looking for here.
+    if (filters.permitStatus && filters.permitStatus !== 'all') {
+      if (p.status !== filters.permitStatus) return false;
+    }
+
     if (filters.productTypes.size > 0) {
       // fix-91: product types is multi-valued on the project. Match any-of:
       // a row passes when its productTypes intersect the selected filter
@@ -531,12 +546,17 @@ function avg(values: (number | null)[]): number | null {
 export function computeMetrics(enriched: EnrichedPermit[]): ReportMetrics {
   // Total units: sum across distinct projects. fix-22 Mig 3: units lives
   // on the project (single canonical value); every enriched permit at the
-  // same address carries the same `units`.
-  const seenAddrs = new Set<string>();
+  // same project carries the same `units`.
+  //
+  // fix-113-c: dedup by permit.project_id, not by address. Two distinct
+  // projects with the same address string (slightly different formatting,
+  // abbreviation, trailing whitespace) used to collapse and lose one of
+  // the unit counts. Project IDs are guaranteed unique; addresses are not.
+  const seenProjects = new Set<string>();
   let totalUnits = 0;
   for (const e of enriched) {
-    if (seenAddrs.has(e.address)) continue;
-    seenAddrs.add(e.address);
+    if (seenProjects.has(e.permit.project_id)) continue;
+    seenProjects.add(e.permit.project_id);
     totalUnits += e.units ?? 0;
   }
 

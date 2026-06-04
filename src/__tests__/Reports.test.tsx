@@ -62,7 +62,10 @@ const fixtures = vi.hoisted(() => ({
       type: 'Building Permit',
       stage: 'pm',
       stage_override: null,
-      status: null,
+      // fix-113-a: permit-level status (decoupled from team's actual_issue
+      // stamp). 'Issued' here = the city portal reports the permit as
+      // issued; the team's actual_issue is still null (different signal).
+      status: 'Issued',
       num: 'BP-1',
       da: 'Trevor',
       dm: 'Lindsay',
@@ -108,7 +111,9 @@ const fixtures = vi.hoisted(() => ({
       type: 'Demolition',
       stage: 'de',
       stage_override: null,
-      status: null,
+      // fix-113-a: distinct permit-level status so the permit-status filter
+      // has multiple options to choose from in the dropdown.
+      status: 'Reviews In Process',
       num: 'DM-1',
       da: 'Ahmadi',
       dm: 'Brittani',
@@ -200,12 +205,12 @@ describe('<Reports /> Q7.2.b', () => {
     expect(card.textContent).toContain('7 units'); // 4 + 3 across distinct addresses
   });
 
-  it('IN CORRECTIONS card always renders + ISSUED sub-text reflects actual_issue count', () => {
+  it('fix-113-b: IN CORRECTIONS subtext = "{n} of {total} issued" — names the denominator', () => {
     renderIt();
     const card = screen.getByTestId('metric-in-corrections');
     expect(card.textContent).toContain('0'); // no permits at stage=co
-    // Fixtures: no actual_issue set → 0 permits issued
-    expect(card.textContent).toContain('0 permits issued');
+    // Fixtures: 2 permits, neither has actual_issue → "0 of 2 issued".
+    expect(card.textContent).toContain('0 of 2 issued');
   });
 
   it('fix-112-b: AVG CITY REVIEW renders "—" when no permit has c0.intake_accepted (strict canonical)', () => {
@@ -489,6 +494,28 @@ describe('<Reports /> Q7.2.b', () => {
     expect(screen.getByTestId('report-table-row-p2')).toBeInTheDocument();
   });
 
+  // ─── fix-113-c: deferred fix-111 label cleanups ──────────────────────
+  it('fix-113-c: ReportTable column header reads "Expected Issue (latest)" — the actual semantic', () => {
+    // Pre-fix the column was labelled "ACQ Target" but rendered
+    // max(expected_issue) across the project's permits (per fix-12
+    // comment "acq target proxy until task #63"). Renamed to what's
+    // actually in the cell.
+    renderIt();
+    const table = screen.getByTestId('report-table');
+    expect(table.textContent).toContain('Expected Issue (latest)');
+    expect(table.textContent).not.toContain('ACQ Target');
+  });
+
+  it('fix-113-c: ScheduleBenchmarks renders no CROSS-JURIS badge surface', () => {
+    // The (type, *) cascade was removed in fix-37; the badge JSX is now
+    // gone too. Regression assertion lives in ScheduleBenchmarksCrossJuris
+    // test file; smoke-asserted here so the change is visible in the
+    // page-level Reports test alongside the rest of the fix-113-c sweep.
+    renderIt();
+    const sb = screen.getByTestId('schedule-benchmarks');
+    expect(sb.textContent).not.toMatch(/CROSS-JURIS/);
+  });
+
   // fix-68: the Saved Reports library relocated to Settings -> Reporting.
   // The Reports tab is analytics-only now — the Weekly DA card + the Saved
   // Reports section are gone; CSV export + charts remain.
@@ -500,5 +527,114 @@ describe('<Reports /> Q7.2.b', () => {
     expect(screen.getByTestId('reports-export-csv')).toBeInTheDocument();
     expect(screen.getByTestId('report-filterbar')).toBeInTheDocument();
     expect(screen.getByTestId('chart-permits-by-type')).toBeInTheDocument();
+  });
+
+  // ─── fix-113-a: Project Status / Permit Status split ─────────────────
+  it('fix-113-a: filter bar renders both Project Status and Permit Status controls', () => {
+    renderIt();
+    // Project-level rollup (renamed; same backing logic + options).
+    const projectStatus = screen.getByTestId('filter-status');
+    expect(projectStatus).toBeInTheDocument();
+    // Per-permit cohort filter (new).
+    const permitStatus = screen.getByTestId('filter-permit-status');
+    expect(permitStatus).toBeInTheDocument();
+    // The filterbar HTML still carries the old label text "Project Status"
+    // alongside "Permit Status".
+    const bar = screen.getByTestId('report-filterbar');
+    expect(bar.textContent).toMatch(/Project Status/);
+    expect(bar.textContent).toMatch(/Permit Status/);
+  });
+
+  it('fix-113-a: Permit Status dropdown auto-populates distinct permit.status values from the cohort', () => {
+    renderIt();
+    const select = screen.getByTestId('filter-permit-status') as HTMLSelectElement;
+    const optionTexts = Array.from(select.options).map((o) => o.value);
+    // 'all' sentinel + each distinct cohort status, sorted.
+    expect(optionTexts).toEqual(['all', 'Issued', 'Reviews In Process']);
+  });
+
+  it('fix-113-a: Permit Status="Issued" narrows to permit-level matches (project rollup ignored)', () => {
+    renderIt();
+    // Baseline: 2 permits visible.
+    expect(screen.getByTestId('filter-result-count').textContent).toBe('2 permits');
+    fireEvent.change(screen.getByTestId('filter-permit-status'), {
+      target: { value: 'Issued' },
+    });
+    // Only the BP (status='Issued') survives — note its project is still
+    // "Active" by the project-status rollup (no permit has actual_issue),
+    // proving the permit filter doesn't piggy-back the project filter.
+    expect(screen.getByTestId('filter-result-count').textContent).toBe('1 permit');
+    expect(screen.getByTestId('report-table-row-p1')).toBeInTheDocument();
+    expect(screen.queryByTestId('report-table-row-p2')).not.toBeInTheDocument();
+  });
+
+  it('fix-113-a: Project Status="Active" + Permit Status="Issued" = the issued permit inside an active project', () => {
+    // The brief's demonstration scenario. Project p1 is Active (no permit
+    // has actual_issue set) AND contains 1 Issued permit. Pre-fix the
+    // single conflated Status filter could not express this — choosing
+    // "Active" hid the Issued permit; choosing "Fully Issued" hid the
+    // whole project. Now both can be active simultaneously.
+    renderIt();
+    fireEvent.change(screen.getByTestId('filter-status'), {
+      target: { value: 'active' },
+    });
+    fireEvent.change(screen.getByTestId('filter-permit-status'), {
+      target: { value: 'Issued' },
+    });
+    expect(screen.getByTestId('filter-result-count').textContent).toBe('1 permit');
+    expect(screen.getByTestId('report-table-row-p1')).toBeInTheDocument();
+  });
+
+  it('fix-113-a: Permit Status filter does not affect projects whose permits all carry different statuses', () => {
+    renderIt();
+    fireEvent.change(screen.getByTestId('filter-permit-status'), {
+      target: { value: 'Reviews In Process' },
+    });
+    expect(screen.getByTestId('filter-result-count').textContent).toBe('1 permit');
+    expect(screen.queryByTestId('report-table-row-p1')).not.toBeInTheDocument();
+    expect(screen.getByTestId('report-table-row-p2')).toBeInTheDocument();
+  });
+
+  it('fix-113-b: subtext denominator follows the filtered cohort, not the unfiltered set', () => {
+    // Verify the universal copy reacts to the active filter — picking a
+    // single juris drops the denominator from 2 to 1. The numerator
+    // (issuedCount) is 0 throughout because neither fixture permit has
+    // actual_issue; the test exercises the denominator-tracks-filter
+    // contract that the fix-111 audit flagged as missing.
+    renderIt();
+    expect(screen.getByTestId('metric-in-corrections').textContent).toContain(
+      '0 of 2 issued',
+    );
+    fireEvent.click(screen.getByTestId('filter-juris-btn'));
+    fireEvent.click(screen.getByTestId('filter-juris-opt-Bellevue'));
+    expect(screen.getByTestId('metric-in-corrections').textContent).toContain(
+      '0 of 1 issued',
+    );
+    // And the new Permit Status filter narrows it too.
+    fireEvent.click(screen.getByTestId('filter-clear'));
+    fireEvent.change(screen.getByTestId('filter-permit-status'), {
+      target: { value: 'Issued' },
+    });
+    expect(screen.getByTestId('metric-in-corrections').textContent).toContain(
+      '0 of 1 issued',
+    );
+  });
+
+  it('fix-113-a: Clear resets both Status filters', () => {
+    renderIt();
+    fireEvent.change(screen.getByTestId('filter-status'), {
+      target: { value: 'active' },
+    });
+    fireEvent.change(screen.getByTestId('filter-permit-status'), {
+      target: { value: 'Issued' },
+    });
+    expect(screen.getByTestId('filter-result-count').textContent).toBe('1 permit');
+    fireEvent.click(screen.getByTestId('filter-clear'));
+    expect(screen.getByTestId('filter-result-count').textContent).toBe('2 permits');
+    // Reset to defaults.
+    expect((screen.getByTestId('filter-status') as HTMLSelectElement).value).toBe('all');
+    expect(
+      (screen.getByTestId('filter-permit-status') as HTMLSelectElement).value,
+    ).toBe('all');
   });
 });

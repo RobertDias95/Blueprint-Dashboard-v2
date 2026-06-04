@@ -91,6 +91,7 @@ const baseFilters: ReportFilters = {
   dateFrom: null,
   dateTo: null,
   status: 'all',
+  permitStatus: 'all',
   search: '',
 };
 
@@ -379,6 +380,79 @@ describe('filterEnrichedPermits', () => {
     expect(out.map((e) => e.permit.id)).toEqual([2]);
   });
 
+  // ── fix-113-a: permit-level status filter (independent of project rollup) ──
+  it("fix-113-a: permitStatus='all' is a no-op (default)", () => {
+    const out = filterEnrichedPermits(enriched, baseFilters);
+    expect(out.map((e) => e.permit.id)).toEqual([1, 2]);
+  });
+
+  it("fix-113-a: permitStatus exact-match gate keeps the matching permits regardless of project rollup", () => {
+    // Re-enrich with status strings on the permits since the shared fixture
+    // doesn't carry status. This proves the filter operates on permit.status
+    // directly (no project-side coupling).
+    const withStatuses = enrichPermits(
+      [
+        makePermit({
+          id: 1,
+          project_id: 'p1',
+          type: 'Building Permit',
+          status: 'Issued',
+          actual_issue: '2026-05-01',
+        }),
+        makePermit({
+          id: 2,
+          project_id: 'p2',
+          type: 'Demolition',
+          status: 'Reviews In Process',
+          actual_issue: null,
+        }),
+      ],
+      projectsById,
+    );
+    expect(
+      filterEnrichedPermits(withStatuses, {
+        ...baseFilters,
+        permitStatus: 'Issued',
+      }).map((e) => e.permit.id),
+    ).toEqual([1]);
+    expect(
+      filterEnrichedPermits(withStatuses, {
+        ...baseFilters,
+        permitStatus: 'Reviews In Process',
+      }).map((e) => e.permit.id),
+    ).toEqual([2]);
+  });
+
+  it("fix-113-a: project + permit filters compose — Active project AND Issued permit", () => {
+    // Project p1 is "fully issued" (only permit has actual_issue set);
+    // project p2 is "active". Setting Project='active' AND Permit='Reviews
+    // In Process' yields p2's Demo. Both gates apply independently.
+    const withStatuses = enrichPermits(
+      [
+        makePermit({
+          id: 1,
+          project_id: 'p1',
+          status: 'Issued',
+          actual_issue: '2026-05-01',
+        }),
+        makePermit({
+          id: 2,
+          project_id: 'p2',
+          status: 'Reviews In Process',
+          actual_issue: null,
+        }),
+      ],
+      projectsById,
+    );
+    expect(
+      filterEnrichedPermits(withStatuses, {
+        ...baseFilters,
+        status: 'active',
+        permitStatus: 'Reviews In Process',
+      }).map((e) => e.permit.id),
+    ).toEqual([2]);
+  });
+
   it('tags filter matches any tag in the OR set', () => {
     const out = filterEnrichedPermits(enriched, {
       ...baseFilters,
@@ -464,13 +538,13 @@ describe('computeMetrics', () => {
     ['p2', makeProject({ id: 'p2', address: 'Addr 2', juris: 'Seattle', units: 3 })],
   ]);
 
-  it('totalPermits + totalUnits across DISTINCT addresses', () => {
+  it('totalPermits + totalUnits across DISTINCT projects (deduped by project_id)', () => {
     const enriched = enrichPermits(
       [
-        // Two permits at the same address — units counted once (per project).
+        // Two permits at the same project — units counted once.
         makePermit({ id: 1, project_id: 'p1' }),
         makePermit({ id: 2, project_id: 'p1' }),
-        // Different address.
+        // Different project.
         makePermit({ id: 3, project_id: 'p2' }),
       ],
       projectsById,
@@ -478,6 +552,29 @@ describe('computeMetrics', () => {
     const m = computeMetrics(enriched);
     expect(m.totalPermits).toBe(3);
     expect(m.totalUnits).toBe(7);
+  });
+
+  it("fix-113-c: totalUnits dedups by project_id — two projects sharing an address don't collapse", () => {
+    // Pre-fix dedup key was the address STRING. Two distinct projects at
+    // the same address (e.g., a developer with separate BP and BPMP
+    // structures, or a typo like "1500 Pike St" vs "1500 Pike St."),
+    // collapsed into one unit count and silently dropped the second
+    // project's units. Switched to project_id which is guaranteed unique.
+    const sameAddrProjects = new Map<string, Project>([
+      ['pA', makeProject({ id: 'pA', address: '1500 Pike St', units: 5 })],
+      // Same address string, different project record (test the dedup
+      // collision the fix specifically protects against).
+      ['pB', makeProject({ id: 'pB', address: '1500 Pike St', units: 3 })],
+    ]);
+    const enriched = enrichPermits(
+      [
+        makePermit({ id: 1, project_id: 'pA' }),
+        makePermit({ id: 2, project_id: 'pB' }),
+      ],
+      sameAddrProjects,
+    );
+    // Both projects contribute their unit counts (5 + 3 = 8).
+    expect(computeMetrics(enriched).totalUnits).toBe(8);
   });
 
   it('submit variance: avg + on-time vs late breakdown', () => {
