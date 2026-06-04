@@ -194,6 +194,10 @@ export interface ReportFilters {
   permitStatus: string;
   /** Multi-token address/permit search. */
   search: string;
+  /** fix-115-c: period-comparison mode. 'off' (default) renders single-cohort
+   *  metrics; 'previous_period' / 'previous_year' surface a comparison
+   *  cohort underneath each comparable MetricCard with a signed delta. */
+  compareTo: 'off' | 'previous_period' | 'previous_year';
 }
 
 /** Resolve `range` + custom dates to a [from, to] tuple. Either may be null. */
@@ -217,6 +221,35 @@ export function resolveDateRange(
           ? 365
           : 730;
   return { from: new Date(today.getTime() - days * DAY_MS), to: null };
+}
+
+/** fix-115-c: resolve the active filter to a closed 'YYYY-MM-DD' range
+ *  suitable for deriveComparisonRange. Returns null when no comparison is
+ *  meaningful — `range='all'` (no temporal anchor) or `custom` with at
+ *  least one endpoint missing. For relative ranges ('3mo' / '6mo' / etc.)
+ *  the upper bound is today, lower bound is today − N days. */
+export function resolveClosedStringRange(
+  filters: ReportFilters,
+  today: Date = new Date(),
+): { from: string; to: string } | null {
+  function fmt(d: Date): string {
+    return d.toISOString().slice(0, 10);
+  }
+  if (filters.range === 'all') return null;
+  if (filters.range === 'custom') {
+    if (!filters.dateFrom || !filters.dateTo) return null;
+    return { from: filters.dateFrom, to: filters.dateTo };
+  }
+  const days =
+    filters.range === '3mo'
+      ? 90
+      : filters.range === '6mo'
+        ? 180
+        : filters.range === '1yr'
+          ? 365
+          : 730;
+  const from = new Date(today.getTime() - days * DAY_MS);
+  return { from: fmt(from), to: fmt(today) };
 }
 
 // ============================================================
