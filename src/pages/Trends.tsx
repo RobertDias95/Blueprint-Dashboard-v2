@@ -51,6 +51,11 @@ import {
   type TargetSubmitAnchor,
 } from '../lib/targetSubmitLearner';
 import type { RecencyTier } from '../lib/scheduleBenchmarks';
+import {
+  comparisonLabelFor,
+  deriveComparisonRange,
+  type CompareMode,
+} from '../lib/comparisonCohort';
 import type { PermitWithCycles, Project } from '../lib/database.types';
 
 // fix-25-feat-T → V → BB: Trends — operational performance + volume +
@@ -150,7 +155,17 @@ function TrendsBody({ permits, projects, catalogTypes }: BodyProps) {
     [searchParams, defaultRange],
   );
 
-  function setFilter(patch: Partial<PerfTrendsFilters>) {
+  // fix-114: period-comparison mode. Defaults to 'off'. Persisted via the
+  // `compare` URL param alongside the other filters. Invalid values from
+  // shared URLs collapse to 'off' so a stale link can't render bogus
+  // comparison numbers.
+  const compareTo: CompareMode = useMemo(() => {
+    const raw = searchParams.get('compare');
+    if (raw === 'previous_period' || raw === 'previous_year') return raw;
+    return 'off';
+  }, [searchParams]);
+
+  function setFilter(patch: Partial<PerfTrendsFilters> & { compareTo?: CompareMode }) {
     const next = new URLSearchParams(searchParams);
     if (patch.dateRange) {
       next.set('from', patch.dateRange.from);
@@ -163,6 +178,10 @@ function TrendsBody({ permits, projects, catalogTypes }: BodyProps) {
     if ('permitType' in patch) {
       if (patch.permitType) next.set('type', patch.permitType);
       else next.delete('type');
+    }
+    if ('compareTo' in patch && patch.compareTo !== undefined) {
+      if (patch.compareTo === 'off') next.delete('compare');
+      else next.set('compare', patch.compareTo);
     }
     setSearchParams(next, { replace: true });
   }
@@ -185,29 +204,66 @@ function TrendsBody({ permits, projects, catalogTypes }: BodyProps) {
   }, [permits]);
 
   // ----- Performance helpers (perfTrends) -----
-  const filtered = useMemo(
+  // fix-114: `filteredCurrent` is the active cohort (everything below uses
+  // it). `filteredComparison` is the parallel cohort produced by swapping
+  // only the date range — every other filter (juris / type / status etc.)
+  // is identical so the comparison is apples-to-apples. Comparison is
+  // null when compareTo='off'.
+  const filteredCurrent = useMemo(
     () => filterPermits(permits, projectsById, filters),
     [permits, projectsById, filters],
   );
 
-  const kpiTotal = totalApprovedInWindow(filtered);
-  const kpiAvgClock = avgIntakeToApproval(filtered);
-  const kpiAvgCycles = avgCyclesPerPermit(filtered);
-  const kpiHitRate = targetSubmitHitRate(filtered);
+  const comparisonRange = useMemo(
+    () => deriveComparisonRange(filters.dateRange, compareTo),
+    [filters.dateRange, compareTo],
+  );
 
+  const filteredComparison = useMemo(() => {
+    if (!comparisonRange) return null;
+    return filterPermits(permits, projectsById, {
+      ...filters,
+      dateRange: comparisonRange,
+    });
+  }, [comparisonRange, permits, projectsById, filters]);
+
+  const kpiTotal = totalApprovedInWindow(filteredCurrent);
+  const kpiAvgClock = avgIntakeToApproval(filteredCurrent);
+  const kpiAvgCycles = avgCyclesPerPermit(filteredCurrent);
+  const kpiHitRate = targetSubmitHitRate(filteredCurrent);
+
+  // fix-114: same 4 KPIs on the comparison cohort. Each returns null
+  // when no permits qualify in the prior window — KpiTile renders
+  // "no comparison data" in that case rather than a misleading delta.
+  const cmpTotal = filteredComparison
+    ? totalApprovedInWindow(filteredComparison)
+    : null;
+  const cmpAvgClock = filteredComparison
+    ? avgIntakeToApproval(filteredComparison)
+    : null;
+  const cmpAvgCycles = filteredComparison
+    ? avgCyclesPerPermit(filteredComparison)
+    : null;
+  const cmpHitRate = filteredComparison
+    ? targetSubmitHitRate(filteredComparison)
+    : null;
+
+  // fix-114: timeline / breakdown / variance + the chart series + Volume +
+  // Target Submit all consume `filteredCurrent` only. Comparison is a KPI-row
+  // only feature for this PR. fix-115+ extends comparison into chart series.
   const timeSeries = useMemo(
-    () => intakeToApprovalByMonth(filtered),
-    [filtered],
+    () => intakeToApprovalByMonth(filteredCurrent),
+    [filteredCurrent],
   );
 
   const breakdown = useMemo(
-    () => breakdownByTypeAndJuris(filtered, projectsById),
-    [filtered, projectsById],
+    () => breakdownByTypeAndJuris(filteredCurrent, projectsById),
+    [filteredCurrent, projectsById],
   );
 
   const varianceRows = useMemo(
-    () => submissionToIntakeVariance(filtered, projectsById),
-    [filtered, projectsById],
+    () => submissionToIntakeVariance(filteredCurrent, projectsById),
+    [filteredCurrent, projectsById],
   );
   const submitToIntakeByCohort = useMemo(() => {
     const m = new Map<string, number>();
@@ -226,6 +282,20 @@ function TrendsBody({ permits, projects, catalogTypes }: BodyProps) {
     if (totalN === 0) return null;
     return { avgDays: Math.round(totalDays / totalN), n: totalN };
   }, [varianceRows]);
+
+  // fix-114: parallel weighted-avg on the comparison cohort.
+  const cmpSubmitToIntake = useMemo(() => {
+    if (!filteredComparison) return null;
+    const rows = submissionToIntakeVariance(filteredComparison, projectsById);
+    let totalDays = 0;
+    let totalN = 0;
+    for (const v of rows) {
+      totalDays += v.avgDaysFromSubmittedToIntakeAccepted * v.n;
+      totalN += v.n;
+    }
+    if (totalN === 0) return null;
+    return { avgDays: Math.round(totalDays / totalN), n: totalN };
+  }, [filteredComparison, projectsById]);
 
   const cycleCharts = useMemo(
     () =>
@@ -505,7 +575,43 @@ function TrendsBody({ permits, projects, catalogTypes }: BodyProps) {
             ))}
           </select>
         </div>
+
+        {/* fix-114: period-comparison dropdown. Sits beside the date range
+            so the spatial cue says "this control modifies date". Activates
+            the KPI row's dual-value rendering — every other section stays
+            single-cohort for this PR (charts in fix-115+). */}
+        <div className="flex flex-col gap-1">
+          <span className="text-[9px] uppercase tracking-wide text-dim font-display font-bold">
+            Compare to
+          </span>
+          <select
+            value={compareTo}
+            onChange={(e) =>
+              setFilter({ compareTo: e.target.value as CompareMode })
+            }
+            className="text-[11px] px-2 py-1 border rounded-md bg-surface text-text outline-none focus:border-de"
+            style={{ borderColor: 'var(--color-border)' }}
+            data-testid="trends-compare"
+          >
+            <option value="off">Off</option>
+            <option value="previous_period">Previous period</option>
+            <option value="previous_year">Previous year</option>
+          </select>
+        </div>
       </div>
+
+      {/* fix-114: inline hint when comparison is requested without a date
+          range. In the current Trends UI from/to always have a default value,
+          so this is a safety guard rather than a user-visible path; renders
+          only if both endpoints are missing. */}
+      {compareTo !== 'off' && (!filters.dateRange.from || !filters.dateRange.to) && (
+        <div
+          className="text-[10px] text-co italic px-1"
+          data-testid="trends-compare-hint"
+        >
+          Set a Date range to enable comparison.
+        </div>
+      )}
 
       {/* fix-112-c: the KPI row + City performance + Variance + Breakdown
           sections all route through filterPermits (perfTrends.ts:46-63),
@@ -522,56 +628,102 @@ function TrendsBody({ permits, projects, catalogTypes }: BodyProps) {
       </div>
 
       {/* KPI tile row */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
-        <KpiTile
-          label="Approved permits in window"
-          value={kpiTotal === 0 ? '—' : String(kpiTotal)}
-          testId="trends-kpi-total"
-        />
-        <KpiTile
-          label="Avg submit → intake delay"
-          value={
-            kpiSubmitToIntake === null ? '—' : `${kpiSubmitToIntake.avgDays}d`
-          }
-          sub={
-            kpiSubmitToIntake === null
-              ? undefined
-              : `${kpiSubmitToIntake.n} sample${kpiSubmitToIntake.n === 1 ? '' : 's'}`
-          }
-          tileTitle="Avg days between team submission (c0.submitted) and city intake acceptance (c0.intake_accepted). Low = team ready + city responsive. High = packet issues / fees / city delay."
-          testId="trends-kpi-submit-intake"
-        />
-        <KpiTile
-          label="Avg city clock (intake → approval)"
-          value={kpiAvgClock === null ? '—' : `${kpiAvgClock}d`}
-          testId="trends-kpi-clock"
-        />
-        <KpiTile
-          label="Avg cycles per permit"
-          value={kpiAvgCycles === null ? '—' : kpiAvgCycles.toFixed(1)}
-          testId="trends-kpi-cycles"
-        />
-        <KpiTile
-          label="Target submit hit rate"
-          value={
-            kpiHitRate === null
-              ? '—'
-              : `${kpiHitRate.hit} of ${kpiHitRate.total} (${Math.round(
-                  (kpiHitRate.hit / kpiHitRate.total) * 100,
-                )}%)`
-          }
-          sub={
-            kpiHitRate === null
-              ? undefined
-              : kpiHitRate.avgDaysOff > 0
-                ? `avg ${kpiHitRate.avgDaysOff}d late`
-                : kpiHitRate.avgDaysOff < 0
-                  ? `avg ${Math.abs(kpiHitRate.avgDaysOff)}d early`
-                  : 'on time'
-          }
-          testId="trends-kpi-hitrate"
-        />
-      </div>
+      {(() => {
+        // fix-114: shared comparison label / pct-of-hit-rate helpers — kept
+        // inline so the props passed to each KpiTile read top-to-bottom.
+        const cmpLabel = comparisonLabelFor(compareTo, comparisonRange);
+        const hitRatePct = (rate: typeof kpiHitRate): number | null =>
+          rate === null || rate.total === 0
+            ? null
+            : Math.round((rate.hit / rate.total) * 100);
+        const hitRateText = (rate: typeof kpiHitRate): string =>
+          rate === null
+            ? '—'
+            : `${rate.hit} of ${rate.total} (${Math.round(
+                (rate.hit / rate.total) * 100,
+              )}%)`;
+        return (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
+            <KpiTile
+              label="Approved permits in window"
+              value={kpiTotal === 0 ? '—' : String(kpiTotal)}
+              testId="trends-kpi-total"
+              currentNumeric={kpiTotal}
+              comparisonNumeric={cmpTotal}
+              comparisonValueText={
+                cmpTotal === null ? undefined : String(cmpTotal)
+              }
+              comparisonLabel={cmpLabel || undefined}
+              direction="higher_better"
+            />
+            <KpiTile
+              label="Avg submit → intake delay"
+              value={
+                kpiSubmitToIntake === null ? '—' : `${kpiSubmitToIntake.avgDays}d`
+              }
+              sub={
+                kpiSubmitToIntake === null
+                  ? undefined
+                  : `${kpiSubmitToIntake.n} sample${kpiSubmitToIntake.n === 1 ? '' : 's'}`
+              }
+              tileTitle="Avg days between team submission (c0.submitted) and city intake acceptance (c0.intake_accepted). Low = team ready + city responsive. High = packet issues / fees / city delay."
+              testId="trends-kpi-submit-intake"
+              currentNumeric={kpiSubmitToIntake?.avgDays ?? null}
+              comparisonNumeric={cmpSubmitToIntake?.avgDays ?? null}
+              comparisonValueText={
+                cmpSubmitToIntake === null ? undefined : `${cmpSubmitToIntake.avgDays}d`
+              }
+              comparisonLabel={cmpLabel || undefined}
+              direction="lower_better"
+            />
+            <KpiTile
+              label="Avg city clock (intake → approval)"
+              value={kpiAvgClock === null ? '—' : `${kpiAvgClock}d`}
+              testId="trends-kpi-clock"
+              currentNumeric={kpiAvgClock}
+              comparisonNumeric={cmpAvgClock}
+              comparisonValueText={
+                cmpAvgClock === null ? undefined : `${cmpAvgClock}d`
+              }
+              comparisonLabel={cmpLabel || undefined}
+              direction="lower_better"
+            />
+            <KpiTile
+              label="Avg cycles per permit"
+              value={kpiAvgCycles === null ? '—' : kpiAvgCycles.toFixed(1)}
+              testId="trends-kpi-cycles"
+              currentNumeric={kpiAvgCycles}
+              comparisonNumeric={cmpAvgCycles}
+              comparisonValueText={
+                cmpAvgCycles === null ? undefined : cmpAvgCycles.toFixed(1)
+              }
+              comparisonLabel={cmpLabel || undefined}
+              direction="lower_better"
+            />
+            <KpiTile
+              label="Target submit hit rate"
+              value={hitRateText(kpiHitRate)}
+              sub={
+                kpiHitRate === null
+                  ? undefined
+                  : kpiHitRate.avgDaysOff > 0
+                    ? `avg ${kpiHitRate.avgDaysOff}d late`
+                    : kpiHitRate.avgDaysOff < 0
+                      ? `avg ${Math.abs(kpiHitRate.avgDaysOff)}d early`
+                      : 'on time'
+              }
+              testId="trends-kpi-hitrate"
+              currentNumeric={hitRatePct(kpiHitRate)}
+              comparisonNumeric={hitRatePct(cmpHitRate)}
+              comparisonValueText={
+                cmpHitRate === null ? undefined : hitRateText(cmpHitRate)
+              }
+              comparisonLabel={cmpLabel || undefined}
+              direction="higher_better"
+            />
+          </div>
+        );
+      })()}
 
       {/* § Volume */}
       <Section
@@ -1250,19 +1402,47 @@ function TrendChartCard({
 // Shared building blocks (existing on this page pre-fix-25-feat-BB)
 // ============================================================
 
+// fix-114: KpiTile gains optional comparison-row rendering. Direction
+// drives the delta's color sign: 'higher_better' (more = good, e.g.
+// throughput, hit rate) shows positive deltas green; 'lower_better' (less
+// = good, e.g. time-on-clock) inverts. 'neutral' renders the delta in
+// muted text with no sign coloring.
+type ComparisonDirection = 'higher_better' | 'lower_better' | 'neutral';
+
 function KpiTile({
   label,
   value,
   sub,
   tileTitle,
   testId,
+  currentNumeric,
+  comparisonNumeric,
+  comparisonLabel,
+  comparisonValueText,
+  direction,
 }: {
   label: string;
   value: string;
   sub?: string;
   tileTitle?: string;
   testId?: string;
+  /** Raw numeric value for delta math. When null, no delta computed. */
+  currentNumeric?: number | null;
+  /** Raw numeric value from the comparison cohort. */
+  comparisonNumeric?: number | null;
+  /** Range-stamped label e.g. "vs prev period (Jan 1 – Mar 31)". */
+  comparisonLabel?: string;
+  /** Display string for the comparison value (matches `value` formatting). */
+  comparisonValueText?: string;
+  /** Sign-color semantic for the delta arrow + percentage. */
+  direction?: ComparisonDirection;
 }) {
+  const showComparison = Boolean(comparisonLabel);
+  const hasNumbers =
+    showComparison &&
+    typeof currentNumeric === 'number' &&
+    typeof comparisonNumeric === 'number';
+
   return (
     <div
       className="p-3 rounded-lg border"
@@ -1280,6 +1460,96 @@ function KpiTile({
       {sub && (
         <div className="mt-0.5 text-[10px] text-muted">{sub}</div>
       )}
+      {showComparison && (
+        <ComparisonRow
+          testId={testId ? `${testId}-cmp` : undefined}
+          comparisonLabel={comparisonLabel}
+          comparisonValueText={comparisonValueText}
+          hasNumbers={hasNumbers}
+          currentNumeric={currentNumeric ?? null}
+          comparisonNumeric={comparisonNumeric ?? null}
+          direction={direction ?? 'neutral'}
+        />
+      )}
+    </div>
+  );
+}
+
+function ComparisonRow({
+  testId,
+  comparisonLabel,
+  comparisonValueText,
+  hasNumbers,
+  currentNumeric,
+  comparisonNumeric,
+  direction,
+}: {
+  testId?: string;
+  comparisonLabel?: string;
+  comparisonValueText?: string;
+  hasNumbers: boolean;
+  currentNumeric: number | null;
+  comparisonNumeric: number | null;
+  direction: ComparisonDirection;
+}) {
+  // No comparison data in the prior period — surface that explicitly
+  // instead of a "vs —" line that looks like a bug.
+  if (!hasNumbers) {
+    return (
+      <div
+        className="mt-1.5 text-[10px] text-dim italic border-t pt-1"
+        style={{ borderColor: 'var(--color-border)' }}
+        data-testid={testId}
+      >
+        no comparison data · {comparisonLabel}
+      </div>
+    );
+  }
+
+  const delta = (currentNumeric ?? 0) - (comparisonNumeric ?? 0);
+  const arrow = delta > 0 ? '↑' : delta < 0 ? '↓' : '→';
+  const pct =
+    comparisonNumeric === 0
+      ? null
+      : Math.round((delta / Math.abs(comparisonNumeric ?? 1)) * 100);
+
+  // Color: green when the change is in the "good" direction for this
+  // metric, red when bad, muted when zero or neutral.
+  const goodSign =
+    direction === 'higher_better'
+      ? Math.sign(delta) > 0
+      : direction === 'lower_better'
+        ? Math.sign(delta) < 0
+        : false;
+  const badSign =
+    direction === 'higher_better'
+      ? Math.sign(delta) < 0
+      : direction === 'lower_better'
+        ? Math.sign(delta) > 0
+        : false;
+  const color = goodSign
+    ? 'var(--color-pm)'
+    : badSign
+      ? 'var(--color-co)'
+      : 'var(--color-muted)';
+
+  const deltaSign = delta > 0 ? '+' : '';
+  const pctStr = pct === null ? '—' : `${pct > 0 ? '+' : ''}${pct}%`;
+
+  return (
+    <div
+      className="mt-1.5 text-[10px] border-t pt-1 leading-tight"
+      style={{ borderColor: 'var(--color-border)' }}
+      data-testid={testId}
+    >
+      <div className="text-muted">
+        vs {comparisonValueText ?? comparisonNumeric}
+      </div>
+      <div className="font-bold" style={{ color }} data-testid={testId ? `${testId}-delta` : undefined}>
+        {arrow} {deltaSign}
+        {delta} ({pctStr})
+      </div>
+      <div className="text-dim text-[9px] mt-0.5">{comparisonLabel}</div>
     </div>
   );
 }
