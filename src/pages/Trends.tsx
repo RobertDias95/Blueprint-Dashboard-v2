@@ -56,6 +56,10 @@ import {
   deriveComparisonRange,
   type CompareMode,
 } from '../lib/comparisonCohort';
+import {
+  ComparisonRow,
+  type ComparisonDirection,
+} from '../components/shared/ComparisonRow';
 import type { PermitWithCycles, Project } from '../lib/database.types';
 
 // fix-25-feat-T → V → BB: Trends — operational performance + volume +
@@ -1402,13 +1406,11 @@ function TrendChartCard({
 // Shared building blocks (existing on this page pre-fix-25-feat-BB)
 // ============================================================
 
-// fix-114: KpiTile gains optional comparison-row rendering. Direction
-// drives the delta's color sign: 'higher_better' (more = good, e.g.
-// throughput, hit rate) shows positive deltas green; 'lower_better' (less
-// = good, e.g. time-on-clock) inverts. 'neutral' renders the delta in
-// muted text with no sign coloring.
-type ComparisonDirection = 'higher_better' | 'lower_better' | 'neutral';
-
+// fix-115-b: ComparisonRow + ComparisonDirection moved to
+// src/components/shared/ComparisonRow.tsx so the Reports/Overview surface
+// can consume the same renderer. KpiTile keeps its tile-specific layout
+// (label / value / sub) and delegates the comparison row to the shared
+// component when comparison props are present.
 function KpiTile({
   label,
   value,
@@ -1438,11 +1440,6 @@ function KpiTile({
   direction?: ComparisonDirection;
 }) {
   const showComparison = Boolean(comparisonLabel);
-  const hasNumbers =
-    showComparison &&
-    typeof currentNumeric === 'number' &&
-    typeof comparisonNumeric === 'number';
-
   return (
     <div
       className="p-3 rounded-lg border"
@@ -1465,91 +1462,11 @@ function KpiTile({
           testId={testId ? `${testId}-cmp` : undefined}
           comparisonLabel={comparisonLabel}
           comparisonValueText={comparisonValueText}
-          hasNumbers={hasNumbers}
           currentNumeric={currentNumeric ?? null}
           comparisonNumeric={comparisonNumeric ?? null}
-          direction={direction ?? 'neutral'}
+          direction={direction}
         />
       )}
-    </div>
-  );
-}
-
-function ComparisonRow({
-  testId,
-  comparisonLabel,
-  comparisonValueText,
-  hasNumbers,
-  currentNumeric,
-  comparisonNumeric,
-  direction,
-}: {
-  testId?: string;
-  comparisonLabel?: string;
-  comparisonValueText?: string;
-  hasNumbers: boolean;
-  currentNumeric: number | null;
-  comparisonNumeric: number | null;
-  direction: ComparisonDirection;
-}) {
-  // No comparison data in the prior period — surface that explicitly
-  // instead of a "vs —" line that looks like a bug.
-  if (!hasNumbers) {
-    return (
-      <div
-        className="mt-1.5 text-[10px] text-dim italic border-t pt-1"
-        style={{ borderColor: 'var(--color-border)' }}
-        data-testid={testId}
-      >
-        no comparison data · {comparisonLabel}
-      </div>
-    );
-  }
-
-  const delta = (currentNumeric ?? 0) - (comparisonNumeric ?? 0);
-  const arrow = delta > 0 ? '↑' : delta < 0 ? '↓' : '→';
-  const pct =
-    comparisonNumeric === 0
-      ? null
-      : Math.round((delta / Math.abs(comparisonNumeric ?? 1)) * 100);
-
-  // Color: green when the change is in the "good" direction for this
-  // metric, red when bad, muted when zero or neutral.
-  const goodSign =
-    direction === 'higher_better'
-      ? Math.sign(delta) > 0
-      : direction === 'lower_better'
-        ? Math.sign(delta) < 0
-        : false;
-  const badSign =
-    direction === 'higher_better'
-      ? Math.sign(delta) < 0
-      : direction === 'lower_better'
-        ? Math.sign(delta) > 0
-        : false;
-  const color = goodSign
-    ? 'var(--color-pm)'
-    : badSign
-      ? 'var(--color-co)'
-      : 'var(--color-muted)';
-
-  const deltaSign = delta > 0 ? '+' : '';
-  const pctStr = pct === null ? '—' : `${pct > 0 ? '+' : ''}${pct}%`;
-
-  return (
-    <div
-      className="mt-1.5 text-[10px] border-t pt-1 leading-tight"
-      style={{ borderColor: 'var(--color-border)' }}
-      data-testid={testId}
-    >
-      <div className="text-muted">
-        vs {comparisonValueText ?? comparisonNumeric}
-      </div>
-      <div className="font-bold" style={{ color }} data-testid={testId ? `${testId}-delta` : undefined}>
-        {arrow} {deltaSign}
-        {delta} ({pctStr})
-      </div>
-      <div className="text-dim text-[9px] mt-0.5">{comparisonLabel}</div>
     </div>
   );
 }
