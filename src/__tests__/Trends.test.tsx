@@ -318,4 +318,13 @@ describe('Trends — fix-25-feat-V submit→intake surface', () => {
     const tile = screen.getByTestId('trends-kpi-submit-intake');
     expect(tile.textContent).toMatch(/—/);
   });
+
+  it('fix-110: the timeline chart subtitle reads "(submit → approval/issue, days)" — honest about the COALESCE endpoint', () => {
+    // Pre-fix the subtitle claimed "submit → approval" but the helper
+    // uses approval_date ?? actual_issue. Silent today for Seattle BPs
+    // (none are issue-only) but the wording was incorrect.
+    renderTrends();
+    const card = screen.getByTestId('tr-chart-timeline');
+    expect(card.textContent).toContain('submit → approval/issue, days');
+  });
 });

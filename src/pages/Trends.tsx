@@ -247,19 +247,33 @@ function TrendsBody({ permits, projects, catalogTypes }: BodyProps) {
 
   // ----- Volume helpers (trendsHelpers, v1-parity) -----
   //
-  // Per spec: Volume section uses date range only, ignores juris/type
-  // filters, grouped by jurisdiction. Convert the page's
-  // PerfTrendsFilters → trendsHelpers TrendsFilters via a custom-range
-  // adapter — no new helpers, just a shape bridge.
+  // fix-110: the Volume section now honors the page's Type + Juris
+  // filters in addition to the date range. Pre-fix it only inherited
+  // dateRange (v1 carry-over rationale: "Volume is a context overview
+  // — all types, all jurises, grouped by juris"). That contradicted
+  // the page's filter UI: Bobby picked Type=Building Permit + saw a
+  // timeline chart that included Demolitions / PAR / SDOT Tree, with
+  // Seattle reading 81d in June '26 (n=2 mixed-type) vs. the actual
+  // BP value of 155d in that bucket / 127d all-time. Filter UI now
+  // matches what the chart shows.
+  //
+  // Group stays 'jurisdiction' — the Volume series is still colored
+  // by juris (Seattle / Bellevue / etc.). When filters.juris narrows
+  // to one city, getGroupKeys returns just that one series.
+  //
+  // Convert the page's PerfTrendsFilters → trendsHelpers TrendsFilters
+  // via a custom-range adapter — no new helpers, just a shape bridge.
   const volumeFilters: TrTrendsFilters = useMemo(
     () => ({
       ...TR_DEFAULT_FILTERS,
       range: 'custom',
       dateFrom: filters.dateRange.from.slice(0, 7),
       dateTo: filters.dateRange.to.slice(0, 7),
+      type: filters.permitType ?? '',
+      juris: filters.juris ?? '',
       group: 'jurisdiction',
     }),
-    [filters.dateRange],
+    [filters.dateRange, filters.permitType, filters.juris],
   );
   const volumeMonths = useMemo(
     () => getMonthRange(volumeFilters, permits, projectsById, today),
@@ -570,7 +584,12 @@ function TrendsBody({ permits, projects, catalogTypes }: BodyProps) {
           />
           <TrendChartCard
             title="Avg Permit Timeline by Month"
-            subtitle="(submit → approval, days)"
+            // fix-110: subtitle pedantic-but-honest. The endpoint is
+            // COALESCE(approval_date, actual_issue) — for permits with
+            // only actual_issue stamped (no approval_date), the chart
+            // uses issue. Silent today for Seattle BPs (none are
+            // issue-only) but visible elsewhere.
+            subtitle="(submit → approval/issue, days)"
             chartKind="line"
             series={timelineSeries}
             groupKeys={volumeGroupKeys}
