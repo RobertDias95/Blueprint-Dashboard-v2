@@ -125,11 +125,18 @@ export default function MetricCards({ metrics }: { metrics: ReportMetrics }) {
         testId="metric-avg-correction-cycles"
       />
 
-      {/* 8. IN CORRECTIONS — always shown */}
+      {/* 8. IN CORRECTIONS — always shown.
+          fix-113-b: subtext is now "{n} of {total} issued" — universal
+          format that names both the count and the cohort denominator. The
+          prior "{n} permits issued" was ambiguous once the new Permit Status
+          filter narrowed the cohort: with permitStatus='Reviews In Process'
+          a subtext of "0 permits issued" could read either as "no issued
+          permits anywhere" (false) or "no issued permits in this filtered
+          view" (true). Naming the denominator removes the ambiguity. */}
       <MetricCard
         label="In Corrections"
         value={metrics.inCorrections}
-        subText={`${metrics.issuedCount} permits issued`}
+        subText={`${metrics.issuedCount} of ${metrics.totalPermits} issued`}
         tone="co"
         testId="metric-in-corrections"
       />

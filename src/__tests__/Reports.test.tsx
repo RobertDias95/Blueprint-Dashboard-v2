@@ -205,12 +205,12 @@ describe('<Reports /> Q7.2.b', () => {
     expect(card.textContent).toContain('7 units'); // 4 + 3 across distinct addresses
   });
 
-  it('IN CORRECTIONS card always renders + ISSUED sub-text reflects actual_issue count', () => {
+  it('fix-113-b: IN CORRECTIONS subtext = "{n} of {total} issued" — names the denominator', () => {
     renderIt();
     const card = screen.getByTestId('metric-in-corrections');
     expect(card.textContent).toContain('0'); // no permits at stage=co
-    // Fixtures: no actual_issue set → 0 permits issued
-    expect(card.textContent).toContain('0 permits issued');
+    // Fixtures: 2 permits, neither has actual_issue → "0 of 2 issued".
+    expect(card.textContent).toContain('0 of 2 issued');
   });
 
   it('AVG CITY REVIEW reflects the cycle 1 review math (Jan 27 → Mar 1 = 33d)', () => {
@@ -507,6 +507,31 @@ describe('<Reports /> Q7.2.b', () => {
     expect(screen.getByTestId('filter-result-count').textContent).toBe('1 permit');
     expect(screen.queryByTestId('report-table-row-p1')).not.toBeInTheDocument();
     expect(screen.getByTestId('report-table-row-p2')).toBeInTheDocument();
+  });
+
+  it('fix-113-b: subtext denominator follows the filtered cohort, not the unfiltered set', () => {
+    // Verify the universal copy reacts to the active filter — picking a
+    // single juris drops the denominator from 2 to 1. The numerator
+    // (issuedCount) is 0 throughout because neither fixture permit has
+    // actual_issue; the test exercises the denominator-tracks-filter
+    // contract that the fix-111 audit flagged as missing.
+    renderIt();
+    expect(screen.getByTestId('metric-in-corrections').textContent).toContain(
+      '0 of 2 issued',
+    );
+    fireEvent.click(screen.getByTestId('filter-juris-btn'));
+    fireEvent.click(screen.getByTestId('filter-juris-opt-Bellevue'));
+    expect(screen.getByTestId('metric-in-corrections').textContent).toContain(
+      '0 of 1 issued',
+    );
+    // And the new Permit Status filter narrows it too.
+    fireEvent.click(screen.getByTestId('filter-clear'));
+    fireEvent.change(screen.getByTestId('filter-permit-status'), {
+      target: { value: 'Issued' },
+    });
+    expect(screen.getByTestId('metric-in-corrections').textContent).toContain(
+      '0 of 1 issued',
+    );
   });
 
   it('fix-113-a: Clear resets both Status filters', () => {
