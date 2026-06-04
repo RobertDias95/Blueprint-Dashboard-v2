@@ -128,6 +128,17 @@ function Body({
     [enriched, filters, today],
   );
 
+  // fix-112-a: ScheduleBenchmarks consumes the SAME filtered cohort as every
+  // other surface on this page. Previously it received raw `permits` so the
+  // Type / Juris / ENT / DateRange / Status / Product / Tags / Search filters
+  // all silently bypassed the benchmark cards — Bobby would pick Type=BP +
+  // Juris=Seattle, watch the KPIs / charts / ledger narrow, and the benchmark
+  // cards underneath would still average across the whole dataset.
+  const filteredPermits = useMemo(
+    () => filtered.map((e) => e.permit),
+    [filtered],
+  );
+
   const metrics = useMemo(() => computeMetrics(filtered), [filtered]);
 
   const permitsByType = useMemo(
@@ -265,7 +276,7 @@ function Body({
         />
       </div>
 
-      <ScheduleBenchmarks permits={permits} projects={projects} />
+      <ScheduleBenchmarks permits={filteredPermits} projects={projects} />
 
       <ReportTable permits={filtered} />
     </div>

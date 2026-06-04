@@ -310,6 +310,42 @@ describe('<Reports /> Q7.2.b', () => {
     ).toBeInTheDocument();
   });
 
+  it('fix-112-a: Schedule Benchmarks honors the page Juris filter (was: silently bypassed)', () => {
+    renderIt();
+    // Baseline: both type·juris combos render.
+    expect(
+      screen.getByTestId('benchmark-card-Building Permit-Seattle'),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByTestId('benchmark-card-Demolition-Bellevue'),
+    ).toBeInTheDocument();
+    // Narrow to Bellevue only — Seattle BP cohort drops out of the filtered
+    // permit set, so its benchmark card should disappear. Pre-fix, ScheduleBenchmarks
+    // received raw `permits` and kept the Seattle card visible.
+    fireEvent.click(screen.getByTestId('filter-juris-btn'));
+    fireEvent.click(screen.getByTestId('filter-juris-opt-Bellevue'));
+    expect(
+      screen.queryByTestId('benchmark-card-Building Permit-Seattle'),
+    ).toBeNull();
+    expect(
+      screen.getByTestId('benchmark-card-Demolition-Bellevue'),
+    ).toBeInTheDocument();
+  });
+
+  it('fix-112-a: Schedule Benchmarks honors the page Type filter (was: silently bypassed)', () => {
+    renderIt();
+    // Narrow to type=Demolition — Building Permit cohort drops, leaving only
+    // the Demolition·Bellevue benchmark card.
+    fireEvent.click(screen.getByTestId('filter-type-btn'));
+    fireEvent.click(screen.getByTestId('filter-type-opt-Demolition'));
+    expect(
+      screen.queryByTestId('benchmark-card-Building Permit-Seattle'),
+    ).toBeNull();
+    expect(
+      screen.getByTestId('benchmark-card-Demolition-Bellevue'),
+    ).toBeInTheDocument();
+  });
+
   it('Schedule Benchmarks shows "Insufficient data" when the learner returns null', () => {
     renderIt();
     // Permit 2 (Demolition · Bellevue) has no approval → insufficient.
