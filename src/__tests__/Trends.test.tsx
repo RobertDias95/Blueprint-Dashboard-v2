@@ -327,4 +327,24 @@ describe('Trends — fix-25-feat-V submit→intake surface', () => {
     const card = screen.getByTestId('tr-chart-timeline');
     expect(card.textContent).toContain('submit → approval/issue, days');
   });
+
+  it('fix-112-c: page renders the "Showing approved permits only" affordance', () => {
+    // Trends KPI row + City + Variance + Breakdown all route through
+    // filterPermits (perfTrends.ts:46-63) which gates on
+    // approval_date ?? actual_issue. Make the cohort restriction visible.
+    renderTrends();
+    const banner = screen.getByTestId('trends-approved-only-banner');
+    expect(banner.textContent).toMatch(/Showing approved permits only/i);
+    expect(banner.textContent).toMatch(/in-progress activity is not included/i);
+  });
+
+  it('fix-112-c: Volume subtitle drops the stale juris/type carve-out + signals it includes in-progress', () => {
+    // Pre-fix the subtitle still claimed "juris/type filters do not"
+    // (a fix-110 leftover) and didn't signal the contrast with the
+    // approved-only sections above it.
+    renderTrends();
+    const volume = screen.getByTestId('trends-section-volume');
+    expect(volume.textContent).not.toMatch(/juris\/type filters do not/);
+    expect(volume.textContent).toMatch(/includes in-progress permits/i);
+  });
 });

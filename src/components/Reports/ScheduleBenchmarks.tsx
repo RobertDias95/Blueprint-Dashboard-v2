@@ -4,6 +4,7 @@ import {
   listSourcePermits,
   listTypeJurisCombos,
   type LearnedEstimate,
+  type RecencyTier,
 } from '../../lib/scheduleBenchmarks';
 import type { PermitWithCycles, Project } from '../../lib/database.types';
 import BenchmarkSourceModal from './BenchmarkSourceModal';
@@ -118,23 +119,42 @@ export default function ScheduleBenchmarks({ permits, projects }: Props) {
 // Card render — v1 tile layout per index.html:5395-5500
 // ============================================================
 
-type SourceTier = 'recent' | 'all-time' | 'default';
+// fix-112-c: the badge now reads the actual recencyTier from the learner
+// (last_90d / last_180d / last_365d / all_time / default), not a hardcoded
+// "↑ LAST 120D" string that never matched any real cascade tier
+// (scheduleBenchmarks.ts WINDOW_TIERS_DAYS = [90, 180, 365]).
+type StyleTier = 'recent' | 'all-time' | 'default';
 
-function tierOf(estimate: LearnedEstimate | null): SourceTier {
-  if (!estimate) return 'default';
-  return estimate.isAllTime ? 'all-time' : 'recent';
+function styleTierFor(tier: RecencyTier): StyleTier {
+  if (tier === 'all_time') return 'all-time';
+  if (tier === 'default') return 'default';
+  return 'recent';
 }
 
-const TIER_DOT: Record<SourceTier, string> = {
+function badgeLabelFor(tier: RecencyTier): string {
+  switch (tier) {
+    case 'last_90d':
+      return '↑ LAST 90D';
+    case 'last_180d':
+      return '↑ LAST 180D';
+    case 'last_365d':
+      return '↑ LAST 365D';
+    case 'all_time':
+      return '⚠ ALL-TIME';
+    case 'default':
+      return 'DEFAULT';
+  }
+}
+
+function tierOf(estimate: LearnedEstimate | null): RecencyTier {
+  if (!estimate) return 'default';
+  return estimate.recencyTier;
+}
+
+const TIER_DOT: Record<StyleTier, string> = {
   recent: 'var(--color-pm)',
   'all-time': 'var(--color-co)',
   default: 'var(--color-border)',
-};
-
-const TIER_BADGE_LABEL: Record<SourceTier, string> = {
-  recent: '↑ LAST 120D',
-  'all-time': '⚠ ALL-TIME',
-  default: 'DEFAULT',
 };
 
 interface TierBadgeStyle {
@@ -143,7 +163,7 @@ interface TierBadgeStyle {
   borderColor: string;
 }
 
-const TIER_BADGE_STYLE: Record<SourceTier, TierBadgeStyle> = {
+const TIER_BADGE_STYLE: Record<StyleTier, TierBadgeStyle> = {
   recent: {
     background: 'rgba(16,185,129,.1)',
     color: 'var(--color-pm)',
@@ -178,8 +198,9 @@ export function BenchmarkCard({
   onSelect: () => void;
 }) {
   const tier = tierOf(estimate);
+  const styleTier = styleTierFor(tier);
   const sampleCount = estimate?.sampleCount ?? 0;
-  const badgeStyle = TIER_BADGE_STYLE[tier];
+  const badgeStyle = TIER_BADGE_STYLE[styleTier];
 
   return (
     <div
@@ -204,7 +225,7 @@ export function BenchmarkCard({
               width: 7,
               height: 7,
               marginTop: 5,
-              background: TIER_DOT[tier],
+              background: TIER_DOT[styleTier],
             }}
           />
           <div className="min-w-0 flex flex-col">
@@ -230,7 +251,7 @@ export function BenchmarkCard({
               whiteSpace: 'nowrap',
             }}
           >
-            {TIER_BADGE_LABEL[tier]}
+            {badgeLabelFor(tier)}
           </span>
           {/* fix-35 Bug 4: the learner fell back to (type, *) cross-juris
               samples because this juris has no own-type approved permits.

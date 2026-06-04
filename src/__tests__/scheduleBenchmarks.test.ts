@@ -180,7 +180,12 @@ describe('extractSample', () => {
     expect(s?.cityReview1Days).toBe(45);
   });
 
-  it('fix-53: cityReview1Days falls back to c1.submitted when intake_accepted is null', () => {
+  it('fix-112-b: cityReview1Days = null when c0.intake_accepted is missing (no c1.submitted fallback)', () => {
+    // Pre-fix-112-b the learner fell back to c1.submitted when intake was
+    // null, silently mixing the submit→approval arc into the cycle 1 avg.
+    // Strict canonical drops the fallback — sample still extracts (anchor
+    // for intakeToApprovalDays falls back to c0.submitted) but the per-cycle
+    // cityReview1Days specifically returns null.
     const permit = makePermit({
       approval_date: '2026-06-01',
       permit_cycles: [
@@ -189,22 +194,29 @@ describe('extractSample', () => {
       ],
     });
     const s = extractSample(permit);
-    // No intake_accepted → anchor at c1.submitted 2026-03-01 → 2026-04-01 = 31d.
-    expect(s?.cityReview1Days).toBe(31);
+    expect(s).not.toBeNull();
+    expect(s?.cityReview1Days).toBeNull();
   });
 
-  it('fix-53: uses approval_date as cycle review-end when approval lands mid-cycle (intake-anchored)', () => {
+  it('fix-112-b: cityReview1Days = null when approval lands mid cycle 1 (bracket logic dropped)', () => {
+    // Pre-fix-112-b a permit approved during cycle 1 — no c1.corr_issued —
+    // got cityReview1Days via the mid-cycle-approval bracket. That mixed
+    // per-permit total review time into the per-cycle avg. Whole-permit
+    // city-review is a different metric (per-permit; lives in Reports KPI
+    // Avg City Review + Trends KPI city clock). The cycle 1 tile now
+    // measures pure cycle-1 review time, so no-corrections permits drop.
     const permit = makePermit({
       approval_date: '2026-03-20',
       permit_cycles: [
         makeCycle({ cycle_index: 0, intake_accepted: '2026-02-15' }),
         makeCycle({ cycle_index: 1, submitted: '2026-03-01', corr_issued: null }),
-        // No cycle 2; approval landed during cycle 1's review.
       ],
     });
     const s = extractSample(permit);
-    // intake 2026-02-15 → approval 2026-03-20 = 33 days.
-    expect(s?.cityReview1Days).toBe(33);
+    expect(s).not.toBeNull();
+    expect(s?.cityReview1Days).toBeNull();
+    // The per-permit clock (intakeToApprovalDays) still captures the arc.
+    expect(s?.intakeToApprovalDays).toBe(33); // 2026-02-15 → 2026-03-20
   });
 
   it('corrResponse1Days = corr_issued → resubmitted', () => {
@@ -249,7 +261,13 @@ describe('extractSample', () => {
     expect(s.cityReview1Days).toBe(31); // intake 01-01 → corr 02-01 (NOT 12-20)
   });
 
-  it('fix-53: benchmark cityReview1 == reportMetrics cityReviewDays for the same permit', () => {
+  it('fix-112-b: benchmark cityReview1Days (per-cycle) ≠ reportMetrics cityReviewDays (per-permit) for multi-cycle permits', () => {
+    // Pre-fix-112-b both surfaces happened to coincide because cityReviewDays
+    // used corr_issued as the endpoint. After fix-112-b they're explicitly
+    // different metrics: SB cycle 1 measures cycle-1 review time
+    // (intake → c1.corr_issued); Reports/Trends per-permit measures whole
+    // review time (intake → approval). They agree only for single-cycle,
+    // no-corrections permits — see the cycle 2-cycle case here.
     const permit = makePermit({
       id: 7,
       project_id: 'pX',
@@ -264,10 +282,11 @@ describe('extractSample', () => {
       ['pX', makeProject({ id: 'pX' })],
     ]);
     const enriched = enrichPermits([permit], projectsById)[0];
-    // Both anchor City Review 1 at intake_accepted (2026-02-15 → 2026-04-01).
+    // SB cycle 1 tile = intake → c1.corr_issued = 2026-02-15 → 2026-04-01 = 45d.
     expect(sample.cityReview1Days).toBe(45);
-    expect(enriched.cityReviewDays).toBe(45);
-    expect(sample.cityReview1Days).toBe(enriched.cityReviewDays);
+    // Reports per-permit = intake → approval = 2026-02-15 → 2026-06-01 = 106d.
+    expect(enriched.cityReviewDays).toBe(106);
+    expect(sample.cityReview1Days).not.toBe(enriched.cityReviewDays);
   });
 
   it('approvedInCycle reflects nCycles + 1 (clamped to [1, 4])', () => {

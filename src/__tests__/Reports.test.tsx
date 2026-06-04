@@ -208,10 +208,16 @@ describe('<Reports /> Q7.2.b', () => {
     expect(card.textContent).toContain('0 permits issued');
   });
 
-  it('AVG CITY REVIEW reflects the cycle 1 review math (Jan 27 → Mar 1 = 33d)', () => {
+  it('fix-112-b: AVG CITY REVIEW renders "—" when no permit has c0.intake_accepted (strict canonical)', () => {
+    // Pre-fix the formula chained fallbacks (firstSubmitted as anchor /
+    // actual_issue or corr_issued as endpoint) which let v1-era fixtures
+    // — like this one, with intake stamped on cycle_index=1, no cycle 0 —
+    // still produce a number (33d). Strict canonical = approval_date −
+    // c0.intake_accepted, so a fixture without c0 yields null → "—".
+    // Positive-path coverage lives in reportMetrics.test.ts.
     renderIt();
     const card = screen.getByTestId('metric-city-review');
-    expect(card.textContent).toContain('33');
+    expect(card.textContent).toMatch(/—/);
   });
 
   it('Submit Variance card surfaces on-time count (1) and late count (0)', () => {
@@ -305,6 +311,64 @@ describe('<Reports /> Q7.2.b', () => {
     expect(
       screen.getByTestId('benchmark-card-Building Permit-Seattle'),
     ).toBeInTheDocument();
+    expect(
+      screen.getByTestId('benchmark-card-Demolition-Bellevue'),
+    ).toBeInTheDocument();
+  });
+
+  it('fix-112-a: Schedule Benchmarks honors the page Juris filter (was: silently bypassed)', () => {
+    renderIt();
+    // Baseline: both type·juris combos render.
+    expect(
+      screen.getByTestId('benchmark-card-Building Permit-Seattle'),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByTestId('benchmark-card-Demolition-Bellevue'),
+    ).toBeInTheDocument();
+    // Narrow to Bellevue only — Seattle BP cohort drops out of the filtered
+    // permit set, so its benchmark card should disappear. Pre-fix, ScheduleBenchmarks
+    // received raw `permits` and kept the Seattle card visible.
+    fireEvent.click(screen.getByTestId('filter-juris-btn'));
+    fireEvent.click(screen.getByTestId('filter-juris-opt-Bellevue'));
+    expect(
+      screen.queryByTestId('benchmark-card-Building Permit-Seattle'),
+    ).toBeNull();
+    expect(
+      screen.getByTestId('benchmark-card-Demolition-Bellevue'),
+    ).toBeInTheDocument();
+  });
+
+  it('fix-112-c: Schedule Benchmarks badge no longer renders the invented "↑ LAST 120D" string', () => {
+    // Pre-fix-112-c the badge always showed "↑ LAST 120D" for any non-
+    // all-time estimate, but the learner's actual cascade is 90/180/365
+    // (scheduleBenchmarks.ts WINDOW_TIERS_DAYS). The text "120D" matched
+    // no real tier. Replaced with badgeLabelFor(recencyTier).
+    renderIt();
+    const sb = screen.getByTestId('schedule-benchmarks');
+    expect(sb.textContent).not.toMatch(/120D/);
+  });
+
+  it('fix-112-c: Schedule Benchmarks renders the DEFAULT badge when the learner has no samples', () => {
+    // The fixture permits both fall under "Insufficient data" (BP·Seattle
+    // has its only cycle at cycle_index=1, so extractSample's c0 anchor
+    // is null; Demolition·Bellevue has no approval). Both cards therefore
+    // show recencyTier='default' → "DEFAULT" badge label.
+    renderIt();
+    const bldgCard = screen.getByTestId('benchmark-card-Building Permit-Seattle');
+    const demoCard = screen.getByTestId('benchmark-card-Demolition-Bellevue');
+    expect(bldgCard.textContent).toMatch(/DEFAULT/);
+    expect(demoCard.textContent).toMatch(/DEFAULT/);
+  });
+
+  it('fix-112-a: Schedule Benchmarks honors the page Type filter (was: silently bypassed)', () => {
+    renderIt();
+    // Narrow to type=Demolition — Building Permit cohort drops, leaving only
+    // the Demolition·Bellevue benchmark card.
+    fireEvent.click(screen.getByTestId('filter-type-btn'));
+    fireEvent.click(screen.getByTestId('filter-type-opt-Demolition'));
+    expect(
+      screen.queryByTestId('benchmark-card-Building Permit-Seattle'),
+    ).toBeNull();
     expect(
       screen.getByTestId('benchmark-card-Demolition-Bellevue'),
     ).toBeInTheDocument();
