@@ -498,13 +498,13 @@ describe('computeMetrics', () => {
     ['p2', makeProject({ id: 'p2', address: 'Addr 2', juris: 'Seattle', units: 3 })],
   ]);
 
-  it('totalPermits + totalUnits across DISTINCT addresses', () => {
+  it('totalPermits + totalUnits across DISTINCT projects (deduped by project_id)', () => {
     const enriched = enrichPermits(
       [
-        // Two permits at the same address — units counted once (per project).
+        // Two permits at the same project — units counted once.
         makePermit({ id: 1, project_id: 'p1' }),
         makePermit({ id: 2, project_id: 'p1' }),
-        // Different address.
+        // Different project.
         makePermit({ id: 3, project_id: 'p2' }),
       ],
       projectsById,
@@ -512,6 +512,29 @@ describe('computeMetrics', () => {
     const m = computeMetrics(enriched);
     expect(m.totalPermits).toBe(3);
     expect(m.totalUnits).toBe(7);
+  });
+
+  it("fix-113-c: totalUnits dedups by project_id — two projects sharing an address don't collapse", () => {
+    // Pre-fix dedup key was the address STRING. Two distinct projects at
+    // the same address (e.g., a developer with separate BP and BPMP
+    // structures, or a typo like "1500 Pike St" vs "1500 Pike St."),
+    // collapsed into one unit count and silently dropped the second
+    // project's units. Switched to project_id which is guaranteed unique.
+    const sameAddrProjects = new Map<string, Project>([
+      ['pA', makeProject({ id: 'pA', address: '1500 Pike St', units: 5 })],
+      // Same address string, different project record (test the dedup
+      // collision the fix specifically protects against).
+      ['pB', makeProject({ id: 'pB', address: '1500 Pike St', units: 3 })],
+    ]);
+    const enriched = enrichPermits(
+      [
+        makePermit({ id: 1, project_id: 'pA' }),
+        makePermit({ id: 2, project_id: 'pB' }),
+      ],
+      sameAddrProjects,
+    );
+    // Both projects contribute their unit counts (5 + 3 = 8).
+    expect(computeMetrics(enriched).totalUnits).toBe(8);
   });
 
   it('submit variance: avg + on-time vs late breakdown', () => {

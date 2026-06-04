@@ -1,92 +1,20 @@
 import { describe, it, expect } from 'vitest';
 import { render, screen } from '@testing-library/react';
-import ScheduleBenchmarks, {
-  BenchmarkCard,
-} from '../components/Reports/ScheduleBenchmarks';
-import { SCHEDULE_DEFAULTS, type LearnedEstimate } from '../lib/scheduleBenchmarks';
+import ScheduleBenchmarks from '../components/Reports/ScheduleBenchmarks';
 import type { PermitCycle, PermitWithCycles, Project } from '../lib/database.types';
 
-// fix-35 added a CROSS-JURIS badge on BenchmarkCard when an estimate came
-// from the (type, *) cross-juris fallback. fix-37 removes that fallback, so
-// no live cascade ever sets isCrossJuris=true anymore — Bellevue/Phoenix with
-// no own data now fall to the per-type default and show no badge.
+// fix-37 removed the (type, *) cross-juris fallback from the learner;
+// computeLearnedSchedule no longer borrows another juris's data when a
+// jurisdiction has none of its own. fix-113-c then ripped the now-dead
+// CROSS-JURIS badge branch out of BenchmarkCard.
 //
-// We keep two things:
-//  1. The component contract — the badge still renders WHEN isCrossJuris=true
-//     (so a future re-introduction of cross-juris keeps working).
-//  2. A fix-37 regression — a real Bellevue cohort with no own data yields no
-//     CROSS-JURIS badge.
-
-function mkEstimate(over: Partial<LearnedEstimate> = {}): LearnedEstimate {
-  return {
-    source: 'test',
-    sampleCount: 3,
-    dateRange: '',
-    goToSubmit: null,
-    avgIntakeToApproval: null,
-    cityReview1: SCHEDULE_DEFAULTS.cityReview1,
-    corrResponse1: SCHEDULE_DEFAULTS.corrResponse1,
-    cityReview2: SCHEDULE_DEFAULTS.cityReview2,
-    corrResponse2: SCHEDULE_DEFAULTS.corrResponse2,
-    cityReview3: SCHEDULE_DEFAULTS.cityReview3,
-    corrResponse3: SCHEDULE_DEFAULTS.corrResponse3,
-    cityReview4: SCHEDULE_DEFAULTS.cityReview4,
-    corrResponse4: SCHEDULE_DEFAULTS.corrResponse4,
-    cr1Count: 0,
-    cr2Count: 0,
-    cr3Count: 0,
-    cr4Count: 0,
-    co1Count: 0,
-    co2Count: 0,
-    co3Count: 0,
-    co4Count: 0,
-    avgCycles: null,
-    mostLikelyCycle: 1,
-    cycleDist: { 1: 0, 2: 0, 3: 0, 4: 0 },
-    isAllTime: false,
-    isCrossJuris: false,
-    recencyTier: 'last_180d',
-    ...over,
-  };
-}
-
-describe('BenchmarkCard — CROSS-JURIS badge component contract', () => {
-  it('renders the badge when isCrossJuris=true', () => {
-    render(
-      <BenchmarkCard
-        type="Building Permit"
-        juris="Bellevue"
-        count={3}
-        estimate={mkEstimate({ isCrossJuris: true })}
-        onSelect={() => {}}
-      />,
-    );
-    const badge = screen.getByTestId(
-      'benchmark-card-crossjuris-Building Permit-Bellevue',
-    );
-    expect(badge.textContent).toBe('CROSS-JURIS');
-    expect(badge.getAttribute('title')).toContain('all jurisdictions');
-  });
-
-  it('does not render the badge when isCrossJuris=false', () => {
-    render(
-      <BenchmarkCard
-        type="Building Permit"
-        juris="Seattle"
-        count={3}
-        estimate={mkEstimate({ isCrossJuris: false })}
-        onSelect={() => {}}
-      />,
-    );
-    expect(
-      screen.queryByTestId('benchmark-card-crossjuris-Building Permit-Seattle'),
-    ).toBeNull();
-  });
-});
-
-// ---------------------------------------------------------------------------
-// fix-37 regression — real cohorts never produce the badge anymore
-// ---------------------------------------------------------------------------
+// This file is the regression test for that combined behavior: a real
+// cohort with a single juris having no own samples should produce no
+// CROSS-JURIS badge anywhere in the rendered Schedule Benchmarks.
+//
+// The prior "component contract" assertions (badge renders when
+// isCrossJuris=true) tested a branch that no longer exists in JSX. They
+// were testing dead code and have been removed.
 
 function makeCycle(
   over: Partial<PermitCycle> & Pick<PermitCycle, 'cycle_index'>,
@@ -174,10 +102,12 @@ function approvedBP(args: {
   });
 }
 
-describe('ScheduleBenchmarks — fix-37 no cross-juris fallback', () => {
+describe('ScheduleBenchmarks — no CROSS-JURIS badge ever (fix-37 + fix-113-c)', () => {
   // 3 approved Seattle BPs + one Bellevue BP. Pre-fix-37 the Bellevue card
-  // borrowed Seattle's numbers and showed CROSS-JURIS. Now Bellevue has no
-  // own data → no learned estimate → no badge anywhere.
+  // borrowed Seattle's numbers and showed CROSS-JURIS. Post-fix-37 Bellevue
+  // gets the per-type default with no badge. Post-fix-113-c the badge
+  // element has been removed from BenchmarkCard entirely, so even if a
+  // future regression set isCrossJuris=true it could not render.
   const permits: PermitWithCycles[] = [
     approvedBP({ id: 1, projectId: 'p1', intake: '2026-02-01', submitted: '2026-02-01', corrIssued: '2026-03-01', approval: '2026-05-01' }),
     approvedBP({ id: 2, projectId: 'p2', intake: '2026-02-05', submitted: '2026-02-05', corrIssued: '2026-03-05', approval: '2026-05-05' }),
@@ -201,7 +131,7 @@ describe('ScheduleBenchmarks — fix-37 no cross-juris fallback', () => {
     ).toBeNull();
   });
 
-  it('Seattle (own data) still renders its card with no cross-juris badge', () => {
+  it('Seattle (own data) renders its card with no cross-juris badge', () => {
     render(<ScheduleBenchmarks permits={permits} projects={projects} />);
     expect(
       screen.getByTestId('benchmark-card-Building Permit-Seattle'),
@@ -209,5 +139,15 @@ describe('ScheduleBenchmarks — fix-37 no cross-juris fallback', () => {
     expect(
       screen.queryByTestId('benchmark-card-crossjuris-Building Permit-Seattle'),
     ).toBeNull();
+  });
+
+  it('the entire rendered surface contains no "CROSS-JURIS" string', () => {
+    // fix-113-c structural guarantee: the badge element is gone. This is a
+    // belt-and-suspenders check against a future regression that re-adds the
+    // branch but skips updating the per-card testid above.
+    const { container } = render(
+      <ScheduleBenchmarks permits={permits} projects={projects} />,
+    );
+    expect(container.textContent).not.toMatch(/CROSS-JURIS/);
   });
 });

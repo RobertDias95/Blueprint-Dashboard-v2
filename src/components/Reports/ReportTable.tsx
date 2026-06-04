@@ -142,7 +142,11 @@ const COLS: ColDef[] = [
   { key: null, label: 'GO→Sub', numeric: true, testIdKey: 'go-sub' },
   { key: null, label: 'Sub→Int', numeric: true, testIdKey: 'sub-int' },
   { key: null, label: 'Review', numeric: true, testIdKey: 'review' },
-  { key: null, label: 'ACQ Target' },
+  // fix-113-c: column is fed by latestAcqTarget which is just
+  // max(expected_issue) across the project's permits (per fix-12 comment
+  // "acq target proxy until task #63"). Header read as a real ACQ field;
+  // rename to what's actually in the cell until task #63 ships ACQ targets.
+  { key: null, label: 'Expected Issue (latest)' },
   { key: 'go', label: 'GO' },
   { key: 'approval', label: 'Approval' },
   { key: 'actual', label: 'Actual Issue' },

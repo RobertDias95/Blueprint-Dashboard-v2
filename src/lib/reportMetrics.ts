@@ -534,12 +534,17 @@ function avg(values: (number | null)[]): number | null {
 export function computeMetrics(enriched: EnrichedPermit[]): ReportMetrics {
   // Total units: sum across distinct projects. fix-22 Mig 3: units lives
   // on the project (single canonical value); every enriched permit at the
-  // same address carries the same `units`.
-  const seenAddrs = new Set<string>();
+  // same project carries the same `units`.
+  //
+  // fix-113-c: dedup by permit.project_id, not by address. Two distinct
+  // projects with the same address string (slightly different formatting,
+  // abbreviation, trailing whitespace) used to collapse and lose one of
+  // the unit counts. Project IDs are guaranteed unique; addresses are not.
+  const seenProjects = new Set<string>();
   let totalUnits = 0;
   for (const e of enriched) {
-    if (seenAddrs.has(e.address)) continue;
-    seenAddrs.add(e.address);
+    if (seenProjects.has(e.permit.project_id)) continue;
+    seenProjects.add(e.permit.project_id);
     totalUnits += e.units ?? 0;
   }
 

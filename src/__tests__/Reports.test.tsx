@@ -430,6 +430,28 @@ describe('<Reports /> Q7.2.b', () => {
     expect(screen.getByTestId('report-table-row-p2')).toBeInTheDocument();
   });
 
+  // ─── fix-113-c: deferred fix-111 label cleanups ──────────────────────
+  it('fix-113-c: ReportTable column header reads "Expected Issue (latest)" — the actual semantic', () => {
+    // Pre-fix the column was labelled "ACQ Target" but rendered
+    // max(expected_issue) across the project's permits (per fix-12
+    // comment "acq target proxy until task #63"). Renamed to what's
+    // actually in the cell.
+    renderIt();
+    const table = screen.getByTestId('report-table');
+    expect(table.textContent).toContain('Expected Issue (latest)');
+    expect(table.textContent).not.toContain('ACQ Target');
+  });
+
+  it('fix-113-c: ScheduleBenchmarks renders no CROSS-JURIS badge surface', () => {
+    // The (type, *) cascade was removed in fix-37; the badge JSX is now
+    // gone too. Regression assertion lives in ScheduleBenchmarksCrossJuris
+    // test file; smoke-asserted here so the change is visible in the
+    // page-level Reports test alongside the rest of the fix-113-c sweep.
+    renderIt();
+    const sb = screen.getByTestId('schedule-benchmarks');
+    expect(sb.textContent).not.toMatch(/CROSS-JURIS/);
+  });
+
   // fix-68: the Saved Reports library relocated to Settings -> Reporting.
   // The Reports tab is analytics-only now — the Weekly DA card + the Saved
   // Reports section are gone; CSV export + charts remain.
