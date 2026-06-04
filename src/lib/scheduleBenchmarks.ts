@@ -171,17 +171,15 @@ function daysBetween(a: string | null | undefined, b: string | null | undefined)
 /** fix-53: the date the city's FIRST review actually begins — the "City
  *  Review 1" start anchor. `intake_accepted` (cycle 0, when the city accepted
  *  the application into review) is the true start; fall back to cycle 1's
- *  `submitted` only when intake_accepted hasn't been recorded yet. Anchoring
- *  at submitted (the prior behavior) wrongly absorbed the city intake-queue
- *  (submit → intake-accepted) into City Review 1, so the per-round clocks
- *  over-counted vs the intake-anchored holistic clock.
+ *  `submitted` only when intake_accepted hasn't been recorded yet.
  *
- *  Single source of truth, shared by the learner (extractSample) and the
- *  projection (projectedApproval), and consistent with reportMetrics's
- *  intake-first `reviewStart` — so the Reports benchmark card, the Reports
- *  table, the Schedule Estimator, and the source-permit modal all show the
- *  SAME City Review 1. Cycles 2+ keep starting at their own `submitted`
- *  (already contiguous with cycle 1 via the snap rule). */
+ *  fix-112-b: the learner (extractSample) no longer routes through this
+ *  helper — its cycle-1 review-end logic is now strict (c0.intake_accepted
+ *  → c1.corr_issued, no fallbacks). This helper is preserved for
+ *  projectedApproval.ts, which still needs the c1.submitted fallback to
+ *  project a review start for permits whose intake hasn't been recorded
+ *  yet (the projector explicitly tolerates a softer anchor than the
+ *  analytics surfaces do). */
 export function cityReview1Start(
   c0: { intake_accepted: string | null } | null | undefined,
   c1: { submitted: string | null } | null | undefined,
@@ -245,17 +243,28 @@ export function extractSample(
     }
     return null;
   }
-  const cr1End = reviewEnd(c1, c2);
+  // fix-112-b: cycle 1 no longer routes through reviewEnd (strict canonical
+  // below uses c1.corr_issued only). Cycles 2-4 still use the bracket helper.
   const cr2End = reviewEnd(c2, c3);
   const cr3End = reviewEnd(c3, c4);
   const cr4End = reviewEnd(c4, undefined);
 
-  // fix-53: City Review 1 starts at intake_accepted (city accepted the app
-  // into review), NOT cycle-1 submitted — so it no longer absorbs the
-  // submit→intake queue and the per-round clocks reconcile to the
-  // intake-anchored holistic total. Falls back to c1.submitted when intake
-  // hasn't been recorded. Cycles 2+ unchanged (cN.submitted → end).
-  const cityReview1Days = cr1End ? daysBetween(cityReview1Start(c0, c1), cr1End) : null;
+  // fix-112-b: City Review 1 is now strict — c0.intake_accepted →
+  // c1.corr_issued. Two fallbacks dropped:
+  //   - anchor: no fallback to c1.submitted (submit→approval is a
+  //     different clock, was silently mixing into the avg)
+  //   - endpoint: no fallback to the mid-cycle approval bracket
+  //     (whole-permit review time is a per-permit metric and lives in
+  //     reportMetrics.cityReviewDays + Trends KPI city clock; the
+  //     per-cycle SB tile measures cycle 1 review time specifically)
+  // Permits approved before c1.corr_issued (no-corrections case) no longer
+  // contribute to the cycle 1 avg. Cycles 2+ keep the bracket logic via
+  // reviewEnd() because mid-cycle approval on a corrections-bearing permit
+  // is the only signal that cycle ever had a review end.
+  const cityReview1Days =
+    c0?.intake_accepted && c1?.corr_issued
+      ? daysBetween(c0.intake_accepted, c1.corr_issued)
+      : null;
   const cityReview2Days = cr2End ? daysBetween(c2?.submitted, cr2End) : null;
   const cityReview3Days = cr3End ? daysBetween(c3?.submitted, cr3End) : null;
   const cityReview4Days = cr4End ? daysBetween(c4?.submitted, cr4End) : null;

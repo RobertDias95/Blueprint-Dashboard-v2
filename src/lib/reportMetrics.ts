@@ -97,18 +97,30 @@ export function enrichPermits(
     const ddEndToSubmit = daysBetween(permit.dd_end ?? null, firstSubmitted);
     const submitToIntake = daysBetween(firstSubmitted, firstIntakeAccepted);
 
-    // City review: from review-start to first corr_issued. Review-start
-    // prefers intake_accepted (when city actually started reviewing) over
-    // submitted (when we hit submit). Falls back to actual_issue when no
-    // corrections cycle exists.
-    const reviewStart = firstIntakeAccepted ?? firstSubmitted;
-    const firstCorrCycle = (permit.permit_cycles ?? []).find((c) => c.corr_issued);
+    // fix-112-b: canonical city-review formula — strict.
+    //   anchor   = c0.intake_accepted          (no firstSubmitted fallback —
+    //                                           submit→approval is a different
+    //                                           arc; the old fallback silently
+    //                                           mixed it into the avg)
+    //   endpoint = approval_date ?? actual_issue  (the approval point — same
+    //                                           coalesce the Trends KPI city
+    //                                           clock uses; permits that only
+    //                                           have actual_issue still land)
+    // Both anchors required; out-of-order rows (approval < intake) drop to null
+    // rather than negative-day contribution. Matches perfTrends.avgIntakeToApproval
+    // exactly so the Reports KPI Avg City Review and the Trends KPI city clock
+    // produce identical numbers on the same cohort.
+    //
+    // Pre-fix-112-b this read `(firstCorrCycle.corr_issued ?? actual_issue) −
+    // (firstIntakeAccepted ?? firstSubmitted)`, which conflated three distinct
+    // arcs: submit→issue (no corr_issued case), submit→corr (first cycle), and
+    // intake→approval. Audit fix-111 traced the resulting label-vs-math drift.
+    const c0 = (permit.permit_cycles ?? []).find((c) => c.cycle_index === 0);
+    const c0IntakeAccepted = c0?.intake_accepted ?? null;
+    const approvalPoint = permit.approval_date ?? permit.actual_issue ?? null;
+    const cityReviewRaw = daysBetween(c0IntakeAccepted, approvalPoint);
     const cityReviewDays =
-      firstCorrCycle && reviewStart
-        ? daysBetween(reviewStart, firstCorrCycle.corr_issued)
-        : reviewStart && permit.actual_issue
-          ? daysBetween(reviewStart, permit.actual_issue)
-          : null;
+      cityReviewRaw !== null && cityReviewRaw >= 0 ? cityReviewRaw : null;
 
     // Variance: expected_issue → (approval_date ?? actual_issue).
     const varianceTarget = permit.approval_date ?? permit.actual_issue ?? null;

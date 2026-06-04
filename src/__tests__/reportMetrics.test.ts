@@ -147,51 +147,91 @@ describe('enrichPermits', () => {
     expect(enriched[0].goToSubmit).toBe(90);
   });
 
-  it('cityReviewDays uses intake_accepted as review-start (preferred over submitted)', () => {
-    const cycle = makeCycle({
+  it('fix-112-b: cityReviewDays = (approval_date ?? actual_issue) − c0.intake_accepted', () => {
+    // Canonical city review = strict intake → approval point. No fallback
+    // chain. Matches the Trends KPI city clock so both surfaces agree on
+    // the same cohort.
+    const c0 = makeCycle({
+      cycle_index: 0,
       submitted: '2026-02-01',
       intake_accepted: '2026-02-05',
-      corr_issued: '2026-03-05',
     });
     const enriched = enrichPermits(
-      [makePermit({ permit_cycles: [cycle] })],
+      [
+        makePermit({
+          approval_date: '2026-05-05',
+          permit_cycles: [c0],
+        }),
+      ],
       projectsById,
     );
-    // 2026-02-05 → 2026-03-05 = 28 days.
-    expect(enriched[0].cityReviewDays).toBe(28);
+    // 2026-02-05 → 2026-05-05 = 89 days.
+    expect(enriched[0].cityReviewDays).toBe(89);
   });
 
-  it('cityReviewDays falls back to submitted when intake_accepted missing', () => {
-    const cycle = makeCycle({
+  it('fix-112-b: cityReviewDays = null when c0.intake_accepted is missing (no submitted fallback)', () => {
+    // Pre-fix the formula fell back to firstSubmitted, silently mixing the
+    // submit→approval arc into the city-review average. Strict canonical
+    // drops the fallback — permits without intake_accepted are excluded.
+    const c0 = makeCycle({
+      cycle_index: 0,
       submitted: '2026-02-01',
       intake_accepted: null,
-      corr_issued: '2026-03-04',
     });
     const enriched = enrichPermits(
-      [makePermit({ permit_cycles: [cycle] })],
+      [
+        makePermit({
+          approval_date: '2026-05-05',
+          permit_cycles: [c0],
+        }),
+      ],
       projectsById,
     );
-    // 2026-02-01 → 2026-03-04 = 31 days.
-    expect(enriched[0].cityReviewDays).toBe(31);
+    expect(enriched[0].cityReviewDays).toBeNull();
   });
 
-  it('cityReviewDays falls back to actual_issue when no corrections exist', () => {
-    const cycle = makeCycle({
-      submitted: '2026-02-01',
+  it('fix-112-b: cityReviewDays coalesces to actual_issue when approval_date missing', () => {
+    // Endpoint = approval_date ?? actual_issue (mirrors the Trends KPI). A
+    // permit that was issued without a separate approval_date stamp still
+    // contributes to the avg.
+    const c0 = makeCycle({
+      cycle_index: 0,
       intake_accepted: '2026-02-05',
-      corr_issued: null,
     });
     const enriched = enrichPermits(
       [
         makePermit({
           actual_issue: '2026-04-05',
-          permit_cycles: [cycle],
+          permit_cycles: [c0],
         }),
       ],
       projectsById,
     );
     // 2026-02-05 → 2026-04-05 = 59 days.
     expect(enriched[0].cityReviewDays).toBe(59);
+  });
+
+  it('fix-112-b: cityReviewDays = null when intake on c1 only (canonical anchor is c0)', () => {
+    // Pre-fix the formula keyed off pickFirstSubmittedCycle which would
+    // happily use cycle 1's intake_accepted. The strict canonical only
+    // considers c0.intake_accepted — a v1-era fixture with everything on
+    // cycle_index=1 no longer contributes.
+    const c1 = makeCycle({
+      cycle_index: 1,
+      submitted: '2026-02-01',
+      intake_accepted: '2026-02-05',
+      corr_issued: '2026-03-05',
+    });
+    const enriched = enrichPermits(
+      [
+        makePermit({
+          approval_date: '2026-05-05',
+          permit_cycles: [c1],
+        }),
+      ],
+      projectsById,
+    );
+    expect(enriched[0].cityReviewDays).toBeNull();
   });
 
   it('variance = (approval_date ?? actual_issue) - expected_issue', () => {

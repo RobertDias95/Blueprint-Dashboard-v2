@@ -208,10 +208,16 @@ describe('<Reports /> Q7.2.b', () => {
     expect(card.textContent).toContain('0 permits issued');
   });
 
-  it('AVG CITY REVIEW reflects the cycle 1 review math (Jan 27 → Mar 1 = 33d)', () => {
+  it('fix-112-b: AVG CITY REVIEW renders "—" when no permit has c0.intake_accepted (strict canonical)', () => {
+    // Pre-fix the formula chained fallbacks (firstSubmitted as anchor /
+    // actual_issue or corr_issued as endpoint) which let v1-era fixtures
+    // — like this one, with intake stamped on cycle_index=1, no cycle 0 —
+    // still produce a number (33d). Strict canonical = approval_date −
+    // c0.intake_accepted, so a fixture without c0 yields null → "—".
+    // Positive-path coverage lives in reportMetrics.test.ts.
     renderIt();
     const card = screen.getByTestId('metric-city-review');
-    expect(card.textContent).toContain('33');
+    expect(card.textContent).toMatch(/—/);
   });
 
   it('Submit Variance card surfaces on-time count (1) and late count (0)', () => {
