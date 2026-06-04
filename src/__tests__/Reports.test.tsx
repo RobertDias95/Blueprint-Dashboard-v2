@@ -338,6 +338,28 @@ describe('<Reports /> Q7.2.b', () => {
     ).toBeInTheDocument();
   });
 
+  it('fix-112-c: Schedule Benchmarks badge no longer renders the invented "↑ LAST 120D" string', () => {
+    // Pre-fix-112-c the badge always showed "↑ LAST 120D" for any non-
+    // all-time estimate, but the learner's actual cascade is 90/180/365
+    // (scheduleBenchmarks.ts WINDOW_TIERS_DAYS). The text "120D" matched
+    // no real tier. Replaced with badgeLabelFor(recencyTier).
+    renderIt();
+    const sb = screen.getByTestId('schedule-benchmarks');
+    expect(sb.textContent).not.toMatch(/120D/);
+  });
+
+  it('fix-112-c: Schedule Benchmarks renders the DEFAULT badge when the learner has no samples', () => {
+    // The fixture permits both fall under "Insufficient data" (BP·Seattle
+    // has its only cycle at cycle_index=1, so extractSample's c0 anchor
+    // is null; Demolition·Bellevue has no approval). Both cards therefore
+    // show recencyTier='default' → "DEFAULT" badge label.
+    renderIt();
+    const bldgCard = screen.getByTestId('benchmark-card-Building Permit-Seattle');
+    const demoCard = screen.getByTestId('benchmark-card-Demolition-Bellevue');
+    expect(bldgCard.textContent).toMatch(/DEFAULT/);
+    expect(demoCard.textContent).toMatch(/DEFAULT/);
+  });
+
   it('fix-112-a: Schedule Benchmarks honors the page Type filter (was: silently bypassed)', () => {
     renderIt();
     // Narrow to type=Demolition — Building Permit cohort drops, leaving only

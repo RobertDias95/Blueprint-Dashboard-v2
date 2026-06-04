@@ -507,6 +507,20 @@ function TrendsBody({ permits, projects, catalogTypes }: BodyProps) {
         </div>
       </div>
 
+      {/* fix-112-c: the KPI row + City performance + Variance + Breakdown
+          sections all route through filterPermits (perfTrends.ts:46-63),
+          which silently restricts the cohort to permits with approval_date
+          or actual_issue stamped. Volume + Target Submit sections do not.
+          Make the gate visible so a user adjusting filters knows they're
+          looking at finished work, not team activity. */}
+      <div
+        className="text-[11px] text-dim italic px-1"
+        data-testid="trends-approved-only-banner"
+      >
+        Showing approved permits only — in-progress activity is not included
+        in the KPI row, City performance, Variance, or Breakdown sections.
+      </div>
+
       {/* KPI tile row */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
         <KpiTile
@@ -562,7 +576,12 @@ function TrendsBody({ permits, projects, catalogTypes }: BodyProps) {
       {/* § Volume */}
       <Section
         title="Volume"
-        subtitle="Permit activity over time (date range applies; juris/type filters do not)"
+        // fix-112-c: drop the stale "juris/type filters do not" parenthetical
+        // (post-fix-110 they DO apply). Replace with the in-progress carve-out
+        // so the contrast with the surrounding approved-only sections is
+        // explicit — Volume is the one place on this page that surfaces
+        // permits regardless of approval.
+        subtitle="Permit activity over time — includes in-progress permits (no approval gate)"
         testId="trends-section-volume"
       >
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
