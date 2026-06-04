@@ -46,6 +46,97 @@ function spanDays(from: string, to: string): number {
   return Math.round((t - f) / DAY_MS) + 1;
 }
 
+// fix-115-a: calendar-boundary detectors for the previous_period snap.
+// A range that exactly aligns to a calendar month / quarter / year picks
+// the previous calendar period rather than the length-preserving mirror.
+// Custom ranges (any boundary that doesn't match exactly) keep the
+// fix-114 length-preserving math — Bobby's spec is "snap when the user
+// clearly meant a calendar period, otherwise mirror by length."
+
+/** Last day-of-month for (year, month0). month0 is 0-indexed. */
+function lastDayOfMonth(year: number, month0: number): number {
+  // Day 0 of (month0+1) rolls back to the last day of month0. Handles
+  // leap-year February (e.g. 2024 Feb 29) without an explicit check.
+  return new Date(Date.UTC(year, month0 + 1, 0)).getUTCDate();
+}
+
+function fmt(year: number, month1: number, day: number): string {
+  return `${year}-${String(month1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+}
+
+interface FullMonth {
+  year: number;
+  month0: number;
+}
+function detectFullMonth(from: string, to: string): FullMonth | null {
+  const [yf, mf, df] = from.split('-').map(Number);
+  const [yt, mt, dt] = to.split('-').map(Number);
+  if (yf !== yt || mf !== mt) return null;
+  if (df !== 1) return null;
+  if (dt !== lastDayOfMonth(yf, mf - 1)) return null;
+  return { year: yf, month0: mf - 1 };
+}
+
+interface FullQuarter {
+  year: number;
+  quarter: 1 | 2 | 3 | 4;
+}
+function detectFullQuarter(from: string, to: string): FullQuarter | null {
+  const [yf, mf, df] = from.split('-').map(Number);
+  const [yt, mt, dt] = to.split('-').map(Number);
+  if (yf !== yt) return null;
+  if (df !== 1) return null;
+  if (mf === 1 && mt === 3 && dt === 31) return { year: yf, quarter: 1 };
+  if (mf === 4 && mt === 6 && dt === 30) return { year: yf, quarter: 2 };
+  if (mf === 7 && mt === 9 && dt === 30) return { year: yf, quarter: 3 };
+  if (mf === 10 && mt === 12 && dt === 31) return { year: yf, quarter: 4 };
+  return null;
+}
+
+function detectFullYear(from: string, to: string): number | null {
+  const [yf, mf, df] = from.split('-').map(Number);
+  const [yt, mt, dt] = to.split('-').map(Number);
+  if (yf !== yt) return null;
+  if (mf !== 1 || df !== 1) return null;
+  if (mt !== 12 || dt !== 31) return null;
+  return yf;
+}
+
+function snapPreviousMonth({ year, month0 }: FullMonth): DateRange {
+  let prevYear = year;
+  let prevMonth0 = month0 - 1;
+  if (prevMonth0 < 0) {
+    prevMonth0 = 11;
+    prevYear -= 1;
+  }
+  return {
+    from: fmt(prevYear, prevMonth0 + 1, 1),
+    to: fmt(prevYear, prevMonth0 + 1, lastDayOfMonth(prevYear, prevMonth0)),
+  };
+}
+
+function snapPreviousQuarter({ year, quarter }: FullQuarter): DateRange {
+  const prevQuarter = (quarter === 1 ? 4 : quarter - 1) as 1 | 2 | 3 | 4;
+  const prevYear = quarter === 1 ? year - 1 : year;
+  // First month (1-indexed) of each quarter.
+  const firstMonthByQuarter: Record<1 | 2 | 3 | 4, number> = {
+    1: 1, // Jan
+    2: 4, // Apr
+    3: 7, // Jul
+    4: 10, // Oct
+  };
+  const m1Start = firstMonthByQuarter[prevQuarter];
+  const m1End = m1Start + 2;
+  return {
+    from: fmt(prevYear, m1Start, 1),
+    to: fmt(prevYear, m1End, lastDayOfMonth(prevYear, m1End - 1)),
+  };
+}
+
+function snapPreviousYear(year: number): DateRange {
+  return { from: fmt(year - 1, 1, 1), to: fmt(year - 1, 12, 31) };
+}
+
 /** Compute the comparison range for a given current range + mode.
  *
  *  Returns null when:
@@ -62,11 +153,25 @@ export function deriveComparisonRange(
   if (!currentRange.from || !currentRange.to) return null;
 
   if (mode === 'previous_period') {
+    // fix-115-a: if the current range aligns exactly to a calendar month,
+    // quarter, or year boundary, snap to the corresponding previous period
+    // instead of the length-preserving mirror. The mirror produces e.g.
+    // "May 2 – May 31" for current "June 2026" — technically correct on
+    // 30-day spans but surprising to users picking whole months. Custom
+    // ranges (anything that doesn't match all three boundary checks) keep
+    // the length-preserving math from fix-114.
+    const fullYear = detectFullYear(currentRange.from, currentRange.to);
+    if (fullYear !== null) return snapPreviousYear(fullYear);
+
+    const fullQuarter = detectFullQuarter(currentRange.from, currentRange.to);
+    if (fullQuarter) return snapPreviousQuarter(fullQuarter);
+
+    const fullMonth = detectFullMonth(currentRange.from, currentRange.to);
+    if (fullMonth) return snapPreviousMonth(fullMonth);
+
     // length = (to - from) + 1 inclusive days.
     // prev.to   = from - 1 day
     // prev.from = from - length days
-    //
-    // For Apr 1 → Jun 30 (91 days): prev = Jan 1 → Mar 31. ✓
     const length = spanDays(currentRange.from, currentRange.to);
     const fromDate = parse(currentRange.from);
     const prevTo = addDays(fromDate, -1);

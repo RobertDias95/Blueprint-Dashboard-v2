@@ -383,8 +383,10 @@ describe('Trends — fix-25-feat-V submit→intake surface', () => {
     const deltaSpan = screen.getByTestId('trends-kpi-total-cmp-delta');
     expect(deltaSpan.getAttribute('style')).toMatch(/color: var\(--color-co\)/);
 
-    // Comparison label names the resolved range.
-    expect(cmpRow.textContent).toMatch(/vs prev period \(2026-05-02 . 2026-05-31\)/);
+    // Comparison label names the resolved range. fix-115-a: the full-month
+    // detector snaps Jun 1 – Jun 30 to May 1 – May 31 (calendar-aligned)
+    // instead of the pre-fix-115 length-preserving May 2 – May 31 drift.
+    expect(cmpRow.textContent).toMatch(/vs prev period \(2026-05-01 . 2026-05-31\)/);
   });
 
   it('fix-114: previous_year with no permits in prior period renders "no comparison data"', () => {
