@@ -456,3 +456,150 @@ describe('formatMonthShort', () => {
     expect(formatMonthShort('not-a-month')).toBe('not-a-month');
   });
 });
+
+// ============================================================
+// fix-110: Trends Volume section honors the page-level Type and Juris
+// filters. Pre-fix Trends.tsx built volumeFilters from
+// TR_DEFAULT_FILTERS + dateRange ONLY, so the timeline chart's
+// "Seattle" series averaged BPs alongside Demolitions / PAR /
+// SDOT Tree — Bobby's June '26 read of 81d was actually 2 mixed-type
+// permits, while the BP-specific value was 155d. The fix threads
+// filters.type + filters.juris into volumeFilters; trFilteredPermits
+// now narrows the permit set before buildTimelineSeries averages.
+// These tests pin that contract through the helpers Trends.tsx calls.
+// ============================================================
+describe('fix-110: Volume timeline honors type + juris filters', () => {
+  const project = makeProject({ id: 'p-sea', juris: 'Seattle' });
+  // Two BPs in June '26 with deliberately long timelines + two non-BP
+  // permits with short timelines. Pre-fix the chart averaged across
+  // both kinds; post-fix the type filter selects just the BPs.
+  const bp1 = makePermit({
+    id: 101,
+    project_id: 'p-sea',
+    type: 'Building Permit',
+    approval_date: '2026-06-15',
+    permit_cycles: [
+      makeCycle({ permit_id: 101, cycle_index: 0, submitted: '2026-01-01' }),
+    ],
+  });
+  const bp2 = makePermit({
+    id: 102,
+    project_id: 'p-sea',
+    type: 'Building Permit',
+    approval_date: '2026-06-25',
+    permit_cycles: [
+      makeCycle({ permit_id: 102, cycle_index: 0, submitted: '2026-02-01' }),
+    ],
+  });
+  const demo = makePermit({
+    id: 103,
+    project_id: 'p-sea',
+    type: 'Demolition',
+    approval_date: '2026-06-10',
+    permit_cycles: [
+      makeCycle({ permit_id: 103, cycle_index: 0, submitted: '2026-05-20' }),
+    ],
+  });
+  const par = makePermit({
+    id: 104,
+    project_id: 'p-sea',
+    type: 'PAR/Pre-Sub',
+    approval_date: '2026-06-20',
+    permit_cycles: [
+      makeCycle({ permit_id: 104, cycle_index: 0, submitted: '2026-06-08' }),
+    ],
+  });
+  const projectsById = new Map<string, Project>([['p-sea', project]]);
+  const allPermits = [bp1, bp2, demo, par];
+
+  const baseFilters = {
+    ...DEFAULT_FILTERS,
+    range: 'custom' as const,
+    dateFrom: '2026-06',
+    dateTo: '2026-06',
+    group: 'jurisdiction' as const,
+  };
+
+  it('with type="Building Permit", the timeline averages ONLY BPs', () => {
+    const filters = { ...baseFilters, type: 'Building Permit' };
+    const filtered = trFilteredPermits(allPermits, filters, projectsById);
+    const months = ['2026-06'];
+    const groupKeys = getGroupKeys(filtered, filters, projectsById);
+    const series = buildTimelineSeries(
+      filtered,
+      filters,
+      projectsById,
+      months,
+      groupKeys,
+    );
+    // BPs only: bp1=2026-06-15 − 2026-01-01 = 165; bp2=2026-06-25 −
+    // 2026-02-01 = 144. avg = round((165 + 144) / 2) = 155.
+    expect(series).toEqual([
+      { month: '2026-06', values: { Seattle: 155 } },
+    ]);
+  });
+
+  it('with type="" (default), the timeline averages across ALL types', () => {
+    const filters = { ...baseFilters, type: '' };
+    const filtered = trFilteredPermits(allPermits, filters, projectsById);
+    const months = ['2026-06'];
+    const groupKeys = getGroupKeys(filtered, filters, projectsById);
+    const series = buildTimelineSeries(
+      filtered,
+      filters,
+      projectsById,
+      months,
+      groupKeys,
+    );
+    // All 4: bp1=165, bp2=144, demo (2026-06-10 − 2026-05-20)=21,
+    // par (2026-06-20 − 2026-06-08)=12. avg = round((165+144+21+12)/4)
+    // = round(85.5) = 86.
+    expect(series).toEqual([
+      { month: '2026-06', values: { Seattle: 86 } },
+    ]);
+  });
+
+  it('with juris="Seattle", the Bellevue series drops out of the chart', () => {
+    const bellevueProject = makeProject({ id: 'p-bel', juris: 'Bellevue' });
+    const bellevueBp = makePermit({
+      id: 201,
+      project_id: 'p-bel',
+      type: 'Building Permit',
+      approval_date: '2026-06-15',
+      permit_cycles: [
+        makeCycle({
+          permit_id: 201,
+          cycle_index: 0,
+          submitted: '2026-03-01',
+        }),
+      ],
+    });
+    const projectsById2 = new Map<string, Project>([
+      ['p-sea', project],
+      ['p-bel', bellevueProject],
+    ]);
+    const allPlusBellevue = [...allPermits, bellevueBp];
+    const filters = {
+      ...baseFilters,
+      type: 'Building Permit',
+      juris: 'Seattle',
+    };
+    const filtered = trFilteredPermits(
+      allPlusBellevue,
+      filters,
+      projectsById2,
+    );
+    const months = ['2026-06'];
+    const groupKeys = getGroupKeys(filtered, filters, projectsById2);
+    const series = buildTimelineSeries(
+      filtered,
+      filters,
+      projectsById2,
+      months,
+      groupKeys,
+    );
+    // Only Seattle keys remain; Bellevue's series is gone.
+    expect(groupKeys).toEqual(['Seattle']);
+    expect(series[0].values).toEqual({ Seattle: 155 });
+  });
+});
