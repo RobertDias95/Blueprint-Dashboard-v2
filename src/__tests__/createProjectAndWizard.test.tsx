@@ -330,6 +330,49 @@ describe('useCreateProjectWithPermits (fix-22 signature)', () => {
     expect(args.p_project_data).toMatchObject({ lead_da: 'Trevor' });
   });
 
+  // fix-126: four redesign-concept fields thread through project_data
+  // verbatim. The RPC handles NULLIF on its end. On a reuse=true
+  // redesign the caller is expected to send empty `permits` — the RPC
+  // skips permit creation either way (defensive).
+  it('fix-126: redesign fields (parent FK, trigger, reuse, notes) thread through project_data', async () => {
+    mocks.setResult({
+      data: [
+        {
+          project_id: 'r-1111-1111-1111-111111111111',
+          permit_ids: [],
+          conflict: false,
+        },
+      ],
+      error: null,
+    });
+    const { wrapper } = setup();
+    const { result } = renderHook(() => useCreateProjectWithPermits(), {
+      wrapper,
+    });
+    await act(async () => {
+      await result.current.mutateAsync({
+        address: '500 Pike St [Redesign 1]',
+        juris: 'Seattle',
+        project_data: {
+          redesign_of_project_id: 'parent-uuid-here',
+          redesign_trigger: 'builder',
+          redesign_reuses_original_permit: true,
+          redesign_notes: 'Builder asked for 4-plex layout instead of 3.',
+        },
+        permits: [], // reuse=true → wizard sends empty
+      });
+    });
+    expect(mocks.rpcFn).toHaveBeenCalledTimes(1);
+    const [, args] = mocks.rpcFn.mock.calls[0];
+    expect(args.p_project_data).toMatchObject({
+      redesign_of_project_id: 'parent-uuid-here',
+      redesign_trigger: 'builder',
+      redesign_reuses_original_permit: true,
+      redesign_notes: 'Builder asked for 4-plex layout instead of 3.',
+    });
+    expect(args.p_permits).toEqual([]);
+  });
+
   // fix-122: three new project-level fields. The hook passes them
   // through verbatim into p_project_data — the RPC handles NULLIF on
   // its end (extended in fix_122_b migration). Mirrors fix-107's

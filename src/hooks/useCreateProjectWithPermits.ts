@@ -3,7 +3,7 @@ import { supabase } from '../lib/supabase';
 import { queryKeys } from '../lib/queryKeys';
 import { pushToast } from '../stores/toastStore';
 import { useAuthStore } from '../stores/authStore';
-import type { UnitType } from '../lib/database.types';
+import type { RedesignTrigger, UnitType } from '../lib/database.types';
 
 // fix-22: extended to match the new bp_create_project_with_permits RPC
 // signature (Migration 5). Adds p_project_data with the 13 new project-
@@ -79,6 +79,17 @@ export interface ProjectData {
   /** fix-122: informational closing/escrow date. Display-only — no math,
    *  no cascade, no alerts. */
   closing_date?: string | null;
+  /** fix-126: parent project this row redesigns. NULL = standalone. */
+  redesign_of_project_id?: string | null;
+  /** fix-126: why this redesign exists (controlled vocab). */
+  redesign_trigger?: RedesignTrigger | null;
+  /** fix-126: when true, the RPC SKIPS permit creation entirely — the
+   *  redesign is metadata + draw-schedule block only. The wizard must
+   *  send an empty `permits` array when this is true (the RPC tolerates
+   *  non-empty but logs a NOTICE and still skips). */
+  redesign_reuses_original_permit?: boolean | null;
+  /** fix-126: free-form context. */
+  redesign_notes?: string | null;
 }
 
 export interface CreateProjectInput {
