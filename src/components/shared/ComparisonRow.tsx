@@ -9,6 +9,7 @@
 // without worrying about regression risk on the Trends surface.
 
 import type { ReactNode } from 'react';
+import { formatCompareNumber } from '../../lib/comparisonCohort';
 
 /** Sign-color semantic for a comparison delta:
  *  - higher_better: positive delta is good (green), negative is bad (red).
@@ -67,10 +68,18 @@ export function ComparisonRow({
 
   const delta = (currentNumeric ?? 0) - (comparisonNumeric ?? 0);
   const arrow = delta > 0 ? '↑' : delta < 0 ? '↓' : '→';
+  // fix-124-a: 1-decimal-place rounding via formatCompareNumber. The
+  // raw subtraction above can produce 0.19999999 trash; the percentage
+  // math below amplifies it. Both go through the helper before display.
+  // pct stays integer-clean for round numbers (25 stays "25", not
+  // "25.0") and gains a decimal when there's actually one to show.
   const pct =
     comparisonNumeric === 0
       ? null
-      : Math.round((delta / Math.abs(comparisonNumeric ?? 1)) * 100);
+      : formatCompareNumber(
+          (delta / Math.abs(comparisonNumeric ?? 1)) * 100,
+        );
+  const deltaDisplay = formatCompareNumber(delta);
 
   // Color: green when the change is in the "good" direction for this
   // metric, red when bad, muted when zero or neutral.
@@ -110,7 +119,7 @@ export function ComparisonRow({
         data-testid={testId ? `${testId}-delta` : undefined}
       >
         {arrow} {deltaSign}
-        {delta} ({pctStr})
+        {deltaDisplay} ({pctStr})
       </div>
       <div className="text-dim text-[9px] mt-0.5">{comparisonLabel}</div>
     </div>

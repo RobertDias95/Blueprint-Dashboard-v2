@@ -190,6 +190,22 @@ export function deriveComparisonRange(
   return { from: format(prevFrom), to: format(prevTo) };
 }
 
+/** fix-124-a: 1-decimal-place rounding for comparison deltas and
+ *  percentages. JS subtraction across floats can produce ugly trailing
+ *  digits (0.2 - 0.0 → 0.19999999...) and the existing tooltip math
+ *  `(delta / |cmp|) * 100` is even more exposed since it multiplies the
+ *  precision noise. The standard *10 / 10 trick rounds to 1 decimal
+ *  safely; the return is a NUMBER so callers can interpolate it
+ *  directly — clean integers serialize as integers (25 → "25") so we
+ *  only see the decimal when there's actually one to show.
+ *
+ *  Use this on any comparison delta, percentage, or aggregate-of-
+ *  aggregates value. Do NOT use it on raw integer counts (Total
+ *  Permits = 47 should stay 47, not 47.0). */
+export function formatCompareNumber(value: number): number {
+  return Math.round(value * 10) / 10;
+}
+
 /** Human-readable label for the comparison range badge under each
  *  KpiTile. Mode names "Previous period" / "Previous year" are stable
  *  but the actual range is more informative. */

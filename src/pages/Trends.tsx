@@ -54,6 +54,7 @@ import type { RecencyTier } from '../lib/scheduleBenchmarks';
 import {
   comparisonLabelFor,
   deriveComparisonRange,
+  formatCompareNumber,
   type CompareMode,
 } from '../lib/comparisonCohort';
 import {
@@ -1943,10 +1944,14 @@ function ComparisonTooltip({
         const cmp = row?.[`__cmp__${k}`];
         const curN = typeof cur === 'number' ? cur : null;
         const cmpN = typeof cmp === 'number' ? cmp : null;
-        const delta = curN !== null && cmpN !== null ? curN - cmpN : null;
+        // fix-124-a: 1-decimal-place rounding on the chart-tooltip delta
+        // and percentage. Same precision-noise risk as ComparisonRow; same
+        // formatCompareNumber treatment. Clean integers stay integer-clean.
+        const rawDelta = curN !== null && cmpN !== null ? curN - cmpN : null;
+        const delta = rawDelta !== null ? formatCompareNumber(rawDelta) : null;
         const pct =
-          delta !== null && cmpN !== null && cmpN !== 0
-            ? Math.round((delta / Math.abs(cmpN)) * 100)
+          rawDelta !== null && cmpN !== null && cmpN !== 0
+            ? formatCompareNumber((rawDelta / Math.abs(cmpN)) * 100)
             : null;
         return (
           <div key={k} className="mb-1.5 last:mb-0">

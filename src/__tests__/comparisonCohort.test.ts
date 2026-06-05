@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   comparisonLabelFor,
   deriveComparisonRange,
+  formatCompareNumber,
 } from '../lib/comparisonCohort';
 
 describe('deriveComparisonRange', () => {
@@ -204,5 +205,44 @@ describe('comparisonLabelFor', () => {
         to: '2025-06-30',
       }),
     ).toBe('vs prev year (2025-04-01 – 2025-06-30)');
+  });
+});
+
+// fix-124-a: float precision in JS comparison math leaks into the UI as
+// 0.19999999%; formatCompareNumber kills the trail without losing signal.
+// Pin the noisy float boundaries that motivated this fix.
+describe('formatCompareNumber (fix-124-a)', () => {
+  it('rounds 0.19999999 down to 0.2 (the canonical leak)', () => {
+    expect(formatCompareNumber(0.19999999)).toBe(0.2);
+  });
+
+  it('rounds 67.33333 to 67.3 (mid-precision aggregate)', () => {
+    expect(formatCompareNumber(67.33333)).toBe(67.3);
+  });
+
+  it('rounds 0.30000000000000004 to 0.3 (the JS 0.1 + 0.2 classic)', () => {
+    expect(formatCompareNumber(0.1 + 0.2)).toBe(0.3);
+    expect(formatCompareNumber(0.30000000000000004)).toBe(0.3);
+  });
+
+  it('preserves a clean -2.7 (already 1-decimal)', () => {
+    expect(formatCompareNumber(-2.7)).toBe(-2.7);
+  });
+
+  it('rounds 0 to 0', () => {
+    expect(formatCompareNumber(0)).toBe(0);
+  });
+
+  it('rounds clean integer 25 to 25 (no trailing .0 on whole numbers)', () => {
+    // The helper returns NUMBER, so 25 stringifies to "25", not "25.0".
+    expect(formatCompareNumber(25)).toBe(25);
+    expect(String(formatCompareNumber(25))).toBe('25');
+  });
+
+  it('rounds-half-to-even via the *10 trick (12.45 → 12.5)', () => {
+    // Math.round is round-half-up at the *10 boundary; 12.45 * 10 = 124.5
+    // which rounds up to 125 → 12.5. Pin so a future "use toFixed" refactor
+    // doesn't silently switch the half-rounding rule.
+    expect(formatCompareNumber(12.45)).toBe(12.5);
   });
 });

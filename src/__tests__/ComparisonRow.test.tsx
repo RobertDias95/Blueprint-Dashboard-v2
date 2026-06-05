@@ -159,3 +159,63 @@ describe('ComparisonRow — no-data affordance', () => {
     expect(row.textContent).toMatch(/vs 12 of 20 \(60%\)/);
   });
 });
+
+// fix-124-a: float-precision sanity case. The 100 vs 99.8 pairing was
+// Bobby's repro — pct = (0.2 / 99.8) * 100 = 0.20040080160320646
+// pre-fix; ComparisonRow's old Math.round-to-integer flattened that to
+// "0%" (losing signal); the raw delta also stringified as
+// "0.19999999999999574". Now both round to 1 decimal cleanly.
+describe('ComparisonRow — fix-124-a 1-decimal formatting', () => {
+  it('100 vs 99.8 → "+0.2 (+0.2%)", not the floating-point trail', () => {
+    render(
+      <ComparisonRow
+        testId="cmp"
+        comparisonLabel="vs prev period"
+        comparisonValueText="99.8"
+        currentNumeric={100}
+        comparisonNumeric={99.8}
+        direction="higher_better"
+      />,
+    );
+    const delta = screen.getByTestId('cmp-delta');
+    expect(delta.textContent).toMatch(/\+0\.2/);
+    expect(delta.textContent).toMatch(/\+0\.2%/);
+    // Defense: no 0.19999 / 0.20040 leak.
+    expect(delta.textContent).not.toMatch(/0\.19/);
+    expect(delta.textContent).not.toMatch(/0\.20\d\d/);
+  });
+
+  it('67.333 vs 60 → "+7.3 (+12.2%)" (mid-precision aggregate-of-aggregates)', () => {
+    render(
+      <ComparisonRow
+        testId="cmp"
+        comparisonLabel="vs prev period"
+        comparisonValueText="60"
+        currentNumeric={67.333}
+        comparisonNumeric={60}
+        direction="higher_better"
+      />,
+    );
+    const delta = screen.getByTestId('cmp-delta');
+    expect(delta.textContent).toMatch(/\+7\.3/);
+    expect(delta.textContent).toMatch(/\+12\.2%/);
+  });
+
+  it('clean integers still display without trailing .0 (25 stays "25", not "25.0")', () => {
+    render(
+      <ComparisonRow
+        testId="cmp"
+        comparisonLabel="vs prev period"
+        comparisonValueText="80"
+        currentNumeric={100}
+        comparisonNumeric={80}
+        direction="higher_better"
+      />,
+    );
+    const delta = screen.getByTestId('cmp-delta');
+    expect(delta.textContent).toMatch(/\+20/);
+    expect(delta.textContent).not.toMatch(/20\.0/);
+    expect(delta.textContent).toMatch(/\+25%/);
+    expect(delta.textContent).not.toMatch(/25\.0%/);
+  });
+});
