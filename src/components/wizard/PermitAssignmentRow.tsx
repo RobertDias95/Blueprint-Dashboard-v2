@@ -39,6 +39,14 @@ interface Props {
    *  Falls back to onChange({da}) when omitted (for backward compat
    *  in any future caller that hasn't wired the routing). */
   onPickDa?: (da: string) => void;
+  /** fix-120-c: × Remove handler. When omitted, the remove button
+   *  doesn't render — preserves the previous fixed-row-count
+   *  behavior for any future caller that doesn't wire add/remove. */
+  onRemove?: () => void;
+  /** fix-120-c: remove gating. The wizard requires at least one
+   *  permit row, so the X on the last remaining row renders disabled
+   *  with a tooltip explaining why. */
+  canRemove?: boolean;
 }
 
 export default function PermitAssignmentRow({
@@ -50,12 +58,37 @@ export default function PermitAssignmentRow({
   daReadOnly,
   onChange,
   onPickDa,
+  onRemove,
+  canRemove,
 }: Props) {
   return (
     <div
-      className="border border-border rounded-md bg-bg/40 p-3 grid grid-cols-1 md:grid-cols-6 gap-2"
+      className="relative border border-border rounded-md bg-bg/40 p-3 grid grid-cols-1 md:grid-cols-6 gap-2"
       data-testid={`wizard-perm-row-${permit.rowId}`}
     >
+      {/* fix-120-c: × Remove. Floats top-right so it doesn't compete with
+          the 6-column grid. Disabled state shows the same X glyph muted
+          with a tooltip — keyboard navigation discoverability + clear
+          "why can't I click this" affordance. */}
+      {onRemove && (
+        <button
+          type="button"
+          onClick={() => {
+            if (canRemove !== false) onRemove();
+          }}
+          disabled={canRemove === false}
+          title={
+            canRemove === false
+              ? 'A project needs at least one permit'
+              : 'Remove this permit row'
+          }
+          className="absolute top-1 right-1 text-co hover:text-co/70 disabled:text-dim disabled:cursor-not-allowed text-sm leading-none px-1.5 py-0.5"
+          data-testid={`wizard-perm-remove-${permit.rowId}`}
+          aria-label={`Remove ${permit.type ?? 'permit'} row`}
+        >
+          ×
+        </button>
+      )}
       <div className="flex flex-col gap-0.5">
         <span className="text-[9px] uppercase tracking-wide text-dim">
           Permit Type

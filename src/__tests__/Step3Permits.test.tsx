@@ -284,6 +284,177 @@ describe('<Step3Permits />', () => {
     });
   });
 
+  it('fix-120-b: new non-BP rows added after the cascade has fired auto-fill ent_lead from BP.ent_lead', async () => {
+    // Bobby's spec: "every permit row should default to the project's
+    // ENT lead — Step 1's value." The wizard derives entitlement_lead
+    // from the BP's DA (Step 1's lead_da), so the project ENT default
+    // = current BP.ent_lead. Pre-fix-120-b the cascade was gated by
+    // lastDerivedRef across all paths, so adding a row after the first
+    // cascade fired left the new row empty. Post-fix Path A always
+    // refires on permits-list change.
+    lookupEntLeadForDaMock.mockReset();
+    // Two distinct cohort scenarios: (1) initial cascade fills the
+    // first non-BP row; (2) adding a new row triggers Path A again and
+    // the new row picks up BP.ent_lead too — without an extra RPC.
+    lookupEntLeadForDaMock.mockResolvedValueOnce('Miles');
+
+    function Host() {
+      const [state, setState] = useState<WizardState>(() => {
+        const s = makeEmptyWizardState();
+        s.juris = 'Seattle';
+        s.lead_da = 'Trevor';
+        s.permits = [
+          permit('Building Permit', { da: 'Trevor' }),
+          permit('PAR/Pre-Sub'),
+        ];
+        return s;
+      });
+      const addParRow = () => {
+        setState((s) => ({
+          ...s,
+          permits: [...s.permits, permit('SDOT Tree')],
+        }));
+      };
+      return (
+        <>
+          <button data-testid="host-add-par" onClick={addParRow}>
+            add
+          </button>
+          <Step3Permits
+            value={state}
+            onChange={(patch) => setState((s) => ({ ...s, ...patch }))}
+          />
+        </>
+      );
+    }
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <Host />
+      </QueryClientProvider>,
+    );
+    // Wait for the initial cascade to fill the first PAR row.
+    await waitFor(() => {
+      const parRow = screen
+        .getAllByTestId(/wizard-perm-ent-/)
+        .find((el) => (el as HTMLSelectElement).value === 'Miles');
+      expect(parRow).toBeDefined();
+    });
+    // Host adds a new SDOT Tree row. Path A should re-fire and fill its
+    // ent_lead from BP.ent_lead=Miles WITHOUT another RPC call.
+    const rpcCallsBefore = lookupEntLeadForDaMock.mock.calls.length;
+    fireEvent.click(screen.getByTestId('host-add-par'));
+    await waitFor(() => {
+      const selects = screen.getAllByTestId(/wizard-perm-ent-/);
+      const milesCount = selects.filter(
+        (el) => (el as HTMLSelectElement).value === 'Miles',
+      ).length;
+      // Both non-BP rows (the original PAR + the new SDOT) auto-fill to
+      // Miles; the BP row also carries Miles after the cascade.
+      expect(milesCount).toBeGreaterThanOrEqual(2);
+    });
+    // No second RPC — Path A reuses the cached BP.ent_lead.
+    expect(lookupEntLeadForDaMock.mock.calls.length).toBe(rpcCallsBefore);
+  });
+
+  it('fix-120-b: a per-row ENT override on the original row is preserved when a new row is added', async () => {
+    // Cascade's overwriteBp=false → only fills empty ent_leads on
+    // non-BP siblings. A user override on the original PAR row stays
+    // intact even when adding a row re-fires the cascade.
+    lookupEntLeadForDaMock.mockReset();
+    lookupEntLeadForDaMock.mockResolvedValueOnce('Miles');
+
+    function Host() {
+      const [state, setState] = useState<WizardState>(() => {
+        const s = makeEmptyWizardState();
+        s.juris = 'Seattle';
+        s.lead_da = 'Trevor';
+        s.permits = [
+          permit('Building Permit', { da: 'Trevor' }),
+          permit('PAR/Pre-Sub', { ent_lead: 'Bobby' }),
+        ];
+        return s;
+      });
+      const addRow = () => {
+        setState((s) => ({
+          ...s,
+          permits: [...s.permits, permit('SDOT Tree')],
+        }));
+      };
+      return (
+        <>
+          <button data-testid="host-add" onClick={addRow}>
+            add
+          </button>
+          <Step3Permits
+            value={state}
+            onChange={(patch) => setState((s) => ({ ...s, ...patch }))}
+          />
+        </>
+      );
+    }
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <Host />
+      </QueryClientProvider>,
+    );
+    // Add a new row.
+    fireEvent.click(screen.getByTestId('host-add'));
+    await waitFor(() => {
+      const selects = screen.getAllByTestId(/wizard-perm-ent-/);
+      // At least 3 selects in the DOM (BP + PAR + SDOT).
+      expect(selects.length).toBeGreaterThanOrEqual(3);
+    });
+    // The original PAR's Bobby override stays.
+    const allEntSelects = screen.getAllByTestId(
+      /wizard-perm-ent-/,
+    ) as HTMLSelectElement[];
+    const values = allEntSelects.map((s) => s.value);
+    expect(values).toContain('Bobby');
+  });
+
+  it('fix-120-a: picking a DA on a non-BP row PERSISTS through the async ent_lead lookup (no stale-closure overwrite)', async () => {
+    // Bobby's 6516 37th Ave SW + 5917 41st Ave SW report: picking Cam as
+    // the Demolition DA appeared to "auto-default" back to blank. Root
+    // cause is stale-closure in onPickDa — the synchronous updatePermit
+    // captures value.permits-at-pick-time, fires the {da} patch + queues
+    // an async {ent_lead} patch. By the time the async resolves, React
+    // has committed the {da} change but the closure still maps over the
+    // pre-edit permits, so the {ent_lead} patch silently drops the {da}.
+    //
+    // Pre-fix this test would observe da reverting to '' after the
+    // lookup resolved. Post-fix the ref-based read keeps the {da} edit.
+    lookupEntLeadForDaMock.mockReset();
+    lookupEntLeadForDaMock.mockResolvedValueOnce('Miles');
+    const init = makeEmptyWizardState();
+    init.juris = 'Seattle';
+    init.permits = [permit('Building Permit'), permit('Demolition')];
+    setupControlled(init);
+    const demoRowId = init.permits[1].rowId;
+    const daSel = await screen.findByTestId(`wizard-perm-da-${demoRowId}`);
+    fireEvent.change(daSel, { target: { value: 'Cam' } });
+    // The lookup fires + resolves; ent_lead patches in.
+    await waitFor(() => {
+      const entSel = screen.getByTestId(
+        `wizard-perm-ent-${demoRowId}`,
+      ) as HTMLSelectElement;
+      expect(entSel.value).toBe('Miles');
+    });
+    // CRITICAL ASSERTION: the DA select still shows Cam after the async
+    // ent_lead patch. Pre-fix-120-a the stale closure would have
+    // overwritten the {da:Cam} state with the {da:''} that was in the
+    // closure's captured permits array.
+    const finalDaSel = screen.getByTestId(
+      `wizard-perm-da-${demoRowId}`,
+    ) as HTMLSelectElement;
+    expect(finalDaSel.value).toBe('Cam');
+  });
+
   it('fix-91: picking a DA on a NON-BP row surfaces the derived DM chip from dm_da_groups', async () => {
     lookupEntLeadForDaMock.mockReset();
     lookupEntLeadForDaMock.mockResolvedValueOnce(null);
@@ -752,6 +923,124 @@ describe('<Step3Permits />', () => {
         `wizard-perm-ent-${newParRowId}`,
       ) as HTMLSelectElement;
       expect(newParEnt.value).toBe('Miles');
+    });
+  });
+
+  // ─── fix-120-c: add/remove permit rows ──────────────────────────────
+  describe('fix-120-c: add/remove permit rows', () => {
+    it('renders + Add permit and × Remove buttons', () => {
+      const init = makeEmptyWizardState();
+      init.permits = [permit('Building Permit'), permit('Demolition')];
+      setup(init);
+      expect(screen.getByTestId('wizard-step-3-add-permit')).toBeInTheDocument();
+      expect(
+        screen.getByTestId(`wizard-perm-remove-${init.permits[0].rowId}`),
+      ).toBeInTheDocument();
+      expect(
+        screen.getByTestId(`wizard-perm-remove-${init.permits[1].rowId}`),
+      ).toBeInTheDocument();
+    });
+
+    it('clicking + Add permit appends a new BP row to the permits patch', () => {
+      const init = makeEmptyWizardState();
+      init.permits = [
+        permit('Building Permit'),
+        permit('Demolition'),
+      ];
+      const { onChange } = setup(init);
+      onChange.mockClear();
+      fireEvent.click(screen.getByTestId('wizard-step-3-add-permit'));
+      expect(onChange).toHaveBeenCalledTimes(1);
+      const patch = onChange.mock.calls[0][0] as Partial<WizardState>;
+      expect(patch.permits).toHaveLength(3);
+      const newRow = patch.permits![2];
+      expect(newRow.type).toBe('Building Permit');
+      expect(newRow.selected).toBe(true);
+      expect(newRow.da).toBe('');
+      expect(newRow.ent_lead).toBe(''); // cascade fills on next render
+    });
+
+    it('clicking × Remove on a row drops it from the permits patch', () => {
+      const init = makeEmptyWizardState();
+      init.permits = [
+        permit('Building Permit'),
+        permit('Demolition'),
+        permit('PAR/Pre-Sub'),
+      ];
+      const targetRowId = init.permits[1].rowId; // Demo
+      const { onChange } = setup(init);
+      onChange.mockClear();
+      fireEvent.click(screen.getByTestId(`wizard-perm-remove-${targetRowId}`));
+      expect(onChange).toHaveBeenCalledTimes(1);
+      const patch = onChange.mock.calls[0][0] as Partial<WizardState>;
+      expect(patch.permits).toHaveLength(2);
+      expect(patch.permits!.find((p) => p.rowId === targetRowId)).toBeUndefined();
+      // BP and PAR preserved.
+      expect(patch.permits!.map((p) => p.type)).toEqual([
+        'Building Permit',
+        'PAR/Pre-Sub',
+      ]);
+    });
+
+    it('× Remove on the LAST remaining selected row is disabled (wizard needs at least one permit)', () => {
+      const init = makeEmptyWizardState();
+      init.permits = [permit('Building Permit')];
+      const { onChange } = setup(init);
+      const removeBtn = screen.getByTestId(
+        `wizard-perm-remove-${init.permits[0].rowId}`,
+      ) as HTMLButtonElement;
+      expect(removeBtn).toBeDisabled();
+      // Defensive guard: even if a test forces the click, no patch fires.
+      onChange.mockClear();
+      fireEvent.click(removeBtn);
+      expect(onChange).not.toHaveBeenCalled();
+    });
+
+    it('newly added row inherits BP.ent_lead via the cascade (fix-120-b Path A on permits.length change)', async () => {
+      lookupEntLeadForDaMock.mockReset();
+      lookupEntLeadForDaMock.mockResolvedValueOnce('Miles');
+
+      function Host() {
+        const [state, setState] = useState<WizardState>(() => {
+          const s = makeEmptyWizardState();
+          s.juris = 'Seattle';
+          s.lead_da = 'Trevor';
+          s.permits = [permit('Building Permit', { da: 'Trevor' })];
+          return s;
+        });
+        return (
+          <Step3Permits
+            value={state}
+            onChange={(patch) => setState((s) => ({ ...s, ...patch }))}
+          />
+        );
+      }
+      const queryClient = new QueryClient({
+        defaultOptions: { queries: { retry: false } },
+      });
+      render(
+        <QueryClientProvider client={queryClient}>
+          <Host />
+        </QueryClientProvider>,
+      );
+      // Wait for the initial cascade to fill BP.ent_lead.
+      await waitFor(() => {
+        const entSelects = screen.getAllByTestId(
+          /wizard-perm-ent-/,
+        ) as HTMLSelectElement[];
+        expect(entSelects.some((s) => s.value === 'Miles')).toBe(true);
+      });
+      // Click + Add permit. The cascade re-fires from Path A on the
+      // permits.length change and fills the new row.
+      fireEvent.click(screen.getByTestId('wizard-step-3-add-permit'));
+      await waitFor(() => {
+        const entSelects = screen.getAllByTestId(
+          /wizard-perm-ent-/,
+        ) as HTMLSelectElement[];
+        // Both BP and the new row should now read Miles.
+        const milesCount = entSelects.filter((s) => s.value === 'Miles').length;
+        expect(milesCount).toBeGreaterThanOrEqual(2);
+      });
     });
   });
 });
