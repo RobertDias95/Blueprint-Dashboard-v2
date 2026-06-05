@@ -1,6 +1,7 @@
 import { useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import ReportsOverviewTab from '../components/Reports/ReportsOverviewTab';
+import TeamTab from '../components/Reports/TeamTab';
 import Trends from './Trends';
 
 // fix-trends-subtab (2026-05-28): Reports hosts two analytics sub-tabs —
@@ -9,21 +10,27 @@ import Trends from './Trends';
 // top-nav tab; it's folded back in here. Settings → Reporting (fix-68)
 // remains the home for saved / categorized / custom reports.
 //
-// The active tab lives in the URL (?tab=overview|trends) so it's deep-
-// linkable + back-button friendly. No param (or ?tab=overview) → Overview.
-// The legacy /trends route redirects to /reports?tab=trends.
+// fix-127: third tab "Team" — per-associate volume + phase metrics for
+// DA/DM/ENT. Managerial visibility tool, NOT a performance-review
+// surface. Lives at /reports?tab=team.
+//
+// The active tab lives in the URL (?tab=overview|trends|team) so it's
+// deep-linkable + back-button friendly. No param (or ?tab=overview) →
+// Overview. The legacy /trends route still redirects to /reports?tab=trends.
 
-type ReportsTab = 'overview' | 'trends';
+type ReportsTab = 'overview' | 'trends' | 'team';
 
 const TABS: { id: ReportsTab; label: string }[] = [
   { id: 'overview', label: 'Overview' },
   { id: 'trends', label: 'Trends' },
+  { id: 'team', label: 'Team' },
 ];
 
 export default function Reports() {
   const [searchParams, setSearchParams] = useSearchParams();
   const raw = searchParams.get('tab');
-  const active: ReportsTab = raw === 'trends' ? 'trends' : 'overview';
+  const active: ReportsTab =
+    raw === 'trends' ? 'trends' : raw === 'team' ? 'team' : 'overview';
   const tabRefs = useRef<(HTMLButtonElement | null)[]>([]);
 
   function selectTab(tab: ReportsTab) {
@@ -88,7 +95,13 @@ export default function Reports() {
         aria-labelledby={`reports-tab-${active}`}
         data-testid={`reports-panel-${active}`}
       >
-        {active === 'trends' ? <Trends /> : <ReportsOverviewTab />}
+        {active === 'trends' ? (
+          <Trends />
+        ) : active === 'team' ? (
+          <TeamTab />
+        ) : (
+          <ReportsOverviewTab />
+        )}
       </div>
     </div>
   );
