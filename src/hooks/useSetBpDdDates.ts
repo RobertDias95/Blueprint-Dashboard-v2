@@ -131,26 +131,52 @@ export function useSetBpDdDates() {
       // most common race (Bobby's repro: set DD dates, then edit BP's
       // approval_date → first save OCC-conflicted, blanked the typed value,
       // succeeded on second click). Siblings still rely on the refetch below.
+      //
+      // fix-121: the patch also nulls out target_submit on the BP AND every
+      // sibling permit in the project. Without this, the synchronous patch
+      // surfaces the new dd_start/dd_end immediately while target_submit
+      // sits at its pre-edit value until the invalidate-driven refetch
+      // lands — Bobby's "DD moved but target_submit stayed in July 2026"
+      // repro on 6516 37th Ave SW. Prod cascade IS working (verified: 0
+      // drifted BPs across the whole dataset, all dd_end + learned_offset
+      // engine-aligned), so the gap is purely UI staleness during the
+      // round-trip. Nulling target_submit makes the UI honest: it renders
+      // "—" briefly until the refetch returns the engine-computed value
+      // (cascade fired before bp_set_bp_dd_dates returned, so the refetch
+      // sees the new target_submit). Non-BP siblings get the same treatment
+      // because bp_set_bp_dd_dates' UPDATE bulk-sets dd_start/dd_end across
+      // the whole project, and the cascade updates their target_submits too
+      // (G&C/LSM mirrors + Demolition c0_intake_anchored types).
       if (result.bpUpdatedAt) {
         const bpUpdatedAt = result.bpUpdatedAt;
-        const patchBp = (rows: PermitWithCycles[] | undefined) =>
-          rows?.map((p) =>
-            p.project_id === result.projectId && p.type === 'Building Permit'
-              ? {
-                  ...p,
-                  updated_at: bpUpdatedAt,
-                  dd_start: input.ddStart,
-                  dd_end: input.ddEnd,
-                }
-              : p,
-          );
+        const patchProjectPermits = (
+          rows: PermitWithCycles[] | undefined,
+        ) =>
+          rows?.map((p) => {
+            if (p.project_id !== result.projectId) return p;
+            const base = {
+              ...p,
+              dd_start: input.ddStart,
+              dd_end: input.ddEnd,
+              // fix-121: target_submit cascaded server-side; null out the
+              // cache so the UI shows the placeholder until refetch lands
+              // (typically <100ms) instead of the stale pre-edit value.
+              target_submit: null,
+            };
+            // Only the BP carries the OCC token round-trip — siblings'
+            // updated_at refreshes via invalidate-driven refetch below.
+            if (p.type === 'Building Permit') {
+              return { ...base, updated_at: bpUpdatedAt };
+            }
+            return base;
+          });
         queryClient.setQueryData<PermitWithCycles[]>(
           queryKeys.permits(tenantId),
-          (rows) => patchBp(rows),
+          (rows) => patchProjectPermits(rows),
         );
         queryClient.setQueryData<PermitWithCycles[]>(
           queryKeys.permitsByProject(tenantId, result.projectId),
-          (rows) => patchBp(rows),
+          (rows) => patchProjectPermits(rows),
         );
       }
 
