@@ -1,5 +1,25 @@
 import type { ReportMetrics } from '../../lib/reportMetrics';
 import MetricCard from './MetricCard';
+import MetricInfoTooltip from '../shared/MetricInfoTooltip';
+import { REPORTS_OVERVIEW_METRICS } from '../../lib/metricDefinitions';
+
+// fix-129-c: each MetricCard's label is wrapped in a MetricInfoTooltip
+// so the metric definition + formula + cohort gate are one hover away.
+// The labelSlot prop on MetricCard owns the in-card label rendering;
+// passing a slot replaces the plain label text with the tooltip's
+// label + "?" icon group.
+function tip(slug: keyof typeof REPORTS_OVERVIEW_METRICS) {
+  const def = REPORTS_OVERVIEW_METRICS[slug];
+  return (
+    <MetricInfoTooltip
+      label={def.label}
+      description={def.description}
+      formula={def.formula}
+      cohort={def.cohort}
+      slug={`reports-${slug}`}
+    />
+  );
+}
 
 // Q7.2.b: 11 metric cards composed from a single ReportMetrics object.
 // Conditional rendering per Q9: cards that need underlying data hide
@@ -78,6 +98,7 @@ export default function MetricCards({
       {/* 1. TOTAL PERMITS — always shown */}
       <MetricCard
         label="Total Permits"
+        labelSlot={tip('totalPermits')}
         value={metrics.totalPermits}
         subText={`${metrics.totalUnits} units across projects`}
         testId="metric-total-permits"
@@ -92,6 +113,7 @@ export default function MetricCards({
       {variance !== null && (
         <MetricCard
           label="Submit Variance (avg)"
+          labelSlot={tip('submitVariance')}
           value={varianceDisplay}
           unit="d"
           subText={`${metrics.onTimeSubmits} on-time · ${metrics.lateSubmits} late`}
@@ -112,6 +134,7 @@ export default function MetricCards({
       {/* 3. AVG GO → SUBMIT — always shown (defaults to 0d empty state) */}
       <MetricCard
         label="Avg GO → Submit"
+        labelSlot={tip('avgGoToSubmit')}
         value={metrics.avgGoToSubmit ?? '—'}
         unit={metrics.avgGoToSubmit !== null ? 'd' : undefined}
         subText="D&E phase average"
@@ -123,6 +146,7 @@ export default function MetricCards({
       {metrics.avgGoToDDStart !== null && (
         <MetricCard
           label="Avg GO → DD Start"
+          labelSlot={tip('avgGoToDDStart')}
           value={metrics.avgGoToDDStart}
           unit="d"
           subText="GO to design start"
@@ -134,6 +158,7 @@ export default function MetricCards({
       {/* 5. AVG CITY REVIEW — always shown */}
       <MetricCard
         label="Avg City Review"
+        labelSlot={tip('avgCityReview')}
         value={metrics.avgCityReview ?? '—'}
         unit={metrics.avgCityReview !== null ? 'd' : undefined}
         subText="intake accepted → corrections/issue"
@@ -154,6 +179,7 @@ export default function MetricCards({
       {s2i !== null && (
         <MetricCard
           label="Avg Submit → Intake"
+          labelSlot={tip('avgSubmitToIntake')}
           value={s2i}
           unit="d"
           subText="submit → city accepted intake"
@@ -165,6 +191,7 @@ export default function MetricCards({
       {/* 7. AVG CORRECTION CYCLES — always shown */}
       <MetricCard
         label="Avg Correction Cycles"
+        labelSlot={tip('avgCorrectionCycles')}
         value={metrics.avgCorrectionCycles ?? '—'}
         subText={`${metrics.permitsWithCorrections} permits with corrections`}
         tone="co"
@@ -191,6 +218,7 @@ export default function MetricCards({
           view" (true). Naming the denominator removes the ambiguity. */}
       <MetricCard
         label="In Corrections"
+        labelSlot={tip('inCorrections')}
         value={metrics.inCorrections}
         subText={`${metrics.issuedCount} of ${metrics.totalPermits} issued`}
         tone="co"
@@ -205,6 +233,7 @@ export default function MetricCards({
       {/* 9. AVG SCHEDULE VAR. — always shown (subtext switches by sign) */}
       <MetricCard
         label="Avg Schedule Var."
+        labelSlot={tip('avgScheduleVariance')}
         value={scheduleVarDisplay}
         unit={scheduleVar !== null ? 'd' : undefined}
         subText={
@@ -222,6 +251,7 @@ export default function MetricCards({
       {metrics.avgDDDuration !== null && (
         <MetricCard
           label="Avg DD Duration"
+          labelSlot={tip('avgDDDuration')}
           value={metrics.avgDDDuration}
           unit="d"
           subText="DD Start → DD End"
@@ -234,6 +264,7 @@ export default function MetricCards({
       {metrics.avgDDEndToSubmit !== null && (
         <MetricCard
           label="Avg DD → Submit"
+          labelSlot={tip('avgDDEndToSubmit')}
           value={metrics.avgDDEndToSubmit}
           unit="d"
           subText="DD End to permit intake"
