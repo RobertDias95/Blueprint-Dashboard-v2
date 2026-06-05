@@ -64,6 +64,7 @@ import {
   type ComparisonDirection,
 } from '../components/shared/ComparisonRow';
 import ComparePresetChips from '../components/shared/ComparePresetChips';
+import KpiSplitView from '../components/shared/KpiSplitView';
 import type { PermitWithCycles, Project } from '../lib/database.types';
 
 // fix-25-feat-T → V → BB: Trends — operational performance + volume +
@@ -2235,6 +2236,10 @@ function KpiTile({
   comparisonLabel,
   comparisonValueText,
   direction,
+  currentRangeLabel,
+  comparisonRangeLabel,
+  comparisonModeLabel,
+  labelSlot,
 }: {
   label: string;
   value: string;
@@ -2251,8 +2256,22 @@ function KpiTile({
   comparisonValueText?: string;
   /** Sign-color semantic for the delta arrow + percentage. */
   direction?: ComparisonDirection;
+  /** fix-129-b: split-view inputs. When both range labels are present
+   *  AND comparison is active, the tile renders the side-by-side split
+   *  layout (KpiSplitView) instead of the legacy ComparisonRow. */
+  currentRangeLabel?: string;
+  comparisonRangeLabel?: string;
+  /** fix-129-b: short comparison mode tag ("vs prev period") shown in
+   *  the split's delta strip. */
+  comparisonModeLabel?: string;
+  /** fix-129-b: optional title-row slot (e.g., a MetricInfoTooltip
+   *  wrapping the label). Rendered in place of the plain label text
+   *  when provided. */
+  labelSlot?: React.ReactNode;
 }) {
   const showComparison = Boolean(comparisonLabel);
+  const useSplit =
+    showComparison && !!currentRangeLabel && !!comparisonRangeLabel;
   return (
     <div
       className="p-3 rounded-lg border"
@@ -2264,21 +2283,43 @@ function KpiTile({
       title={tileTitle}
     >
       <div className="text-[9px] uppercase tracking-wide text-dim font-display font-bold">
-        {label}
+        {labelSlot ?? label}
       </div>
-      <div className="mt-1 text-xl font-extrabold text-text">{value}</div>
-      {sub && (
-        <div className="mt-0.5 text-[10px] text-muted">{sub}</div>
-      )}
-      {showComparison && (
-        <ComparisonRow
-          testId={testId ? `${testId}-cmp` : undefined}
-          comparisonLabel={comparisonLabel}
-          comparisonValueText={comparisonValueText}
+      {useSplit ? (
+        <KpiSplitView
+          currentRangeLabel={currentRangeLabel}
+          comparisonRangeLabel={comparisonRangeLabel}
+          currentValueText={value}
+          comparisonValueText={comparisonValueText ?? '—'}
           currentNumeric={currentNumeric ?? null}
           comparisonNumeric={comparisonNumeric ?? null}
           direction={direction}
+          comparisonModeLabel={comparisonModeLabel}
+          testId={testId ? `${testId}-split` : undefined}
         />
+      ) : (
+        <>
+          <div className="mt-1 text-xl font-extrabold text-text">{value}</div>
+          {sub && (
+            <div className="mt-0.5 text-[10px] text-muted">{sub}</div>
+          )}
+          {showComparison && (
+            <ComparisonRow
+              testId={testId ? `${testId}-cmp` : undefined}
+              comparisonLabel={comparisonLabel}
+              comparisonValueText={comparisonValueText}
+              currentNumeric={currentNumeric ?? null}
+              comparisonNumeric={comparisonNumeric ?? null}
+              direction={direction}
+            />
+          )}
+        </>
+      )}
+      {/* fix-129-b: when split renders, keep the sub text below the
+          split so the "n samples" / "n=M" context stays attached to the
+          headline value. */}
+      {useSplit && sub && (
+        <div className="mt-1 text-[10px] text-muted">{sub}</div>
       )}
     </div>
   );
