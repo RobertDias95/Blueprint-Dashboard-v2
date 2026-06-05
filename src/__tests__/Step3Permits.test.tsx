@@ -64,6 +64,25 @@ vi.mock('../hooks/useDmDaGroups', () => ({
   }),
 }));
 
+// fix-130: Step3 now reads the permit_types catalog to drive the per-row
+// type dropdown. Mock with a minimal set covering the types these tests
+// exercise (BP, Demolition, PAR/Pre-Sub, SDOT Tree, ULS).
+vi.mock('../hooks/usePermitTypes', () => ({
+  usePermitTypes: () => ({
+    data: [
+      { name: 'Building Permit', is_builtin: true, notes: null },
+      { name: 'Demolition', is_builtin: true, notes: null },
+      { name: 'PAR/Pre-Sub', is_builtin: true, notes: null },
+      { name: 'SDOT Tree', is_builtin: true, notes: null },
+      { name: 'ULS', is_builtin: true, notes: null },
+      { name: 'IPR', is_builtin: true, notes: null },
+    ],
+    isLoading: false,
+    error: null,
+    refetch: vi.fn(),
+  }),
+}));
+
 vi.mock('../hooks/useTeamMembers', () => ({
   useTeamMembers: () => ({
     all: [
@@ -162,9 +181,18 @@ describe('<Step3Permits />', () => {
       permit('Demolition', { selected: false }),
     ];
     setup(init);
-    expect(screen.getByText('Building Permit')).toBeInTheDocument();
-    expect(screen.getByText('PAR/Pre-Sub')).toBeInTheDocument();
-    expect(screen.queryByText('Demolition')).toBeNull();
+    // fix-130: each row carries a type <select>; assert the selected
+    // VALUE on the SELECT (not its options) matches the expected type
+    // per row. The wizard-perm-type-{rowId} testid is on the <select>
+    // exclusively; the per-option testids include -opt- so we filter
+    // those out.
+    const typeSelects = (screen.getAllByTestId(
+      /wizard-perm-type-/,
+    ) as HTMLElement[]).filter((el) => el.tagName === 'SELECT') as HTMLSelectElement[];
+    const selectedValues = typeSelects.map((s) => s.value);
+    expect(selectedValues).toContain('Building Permit');
+    expect(selectedValues).toContain('PAR/Pre-Sub');
+    expect(selectedValues).not.toContain('Demolition'); // unselected → not rendered
   });
 
   it('ENT dropdown lists ent+ent_lead, deduped by name', () => {
@@ -941,7 +969,11 @@ describe('<Step3Permits />', () => {
       ).toBeInTheDocument();
     });
 
-    it('clicking + Add permit appends a new BP row to the permits patch', () => {
+    it('clicking + Add permit appends a new empty-type row (fix-130: no hardcoded BP)', () => {
+      // Pre-fix-130 the new row hardcoded to Building Permit, which
+      // tricked users into a type they didn't pick. Now the row starts
+      // with type='' and the dropdown shows "— pick a type —" until the
+      // user explicitly commits a type.
       const init = makeEmptyWizardState();
       init.permits = [
         permit('Building Permit'),
@@ -954,10 +986,13 @@ describe('<Step3Permits />', () => {
       const patch = onChange.mock.calls[0][0] as Partial<WizardState>;
       expect(patch.permits).toHaveLength(3);
       const newRow = patch.permits![2];
-      expect(newRow.type).toBe('Building Permit');
+      expect(newRow.type).toBe('');
       expect(newRow.selected).toBe(true);
       expect(newRow.da).toBe('');
-      expect(newRow.ent_lead).toBe(''); // cascade fills on next render
+      expect(newRow.ent_lead).toBe('');
+      expect(newRow.expected_issue).toBe('');
+      expect(newRow.target_submit).toBe('');
+      expect(newRow.manuallyEdited).toEqual({});
     });
 
     it('clicking × Remove on a row drops it from the permits patch', () => {
@@ -1041,6 +1076,77 @@ describe('<Step3Permits />', () => {
         const milesCount = entSelects.filter((s) => s.value === 'Miles').length;
         expect(milesCount).toBeGreaterThanOrEqual(2);
       });
+    });
+  });
+
+  // fix-130: editable permit type + sibling-inheritance seeding.
+  //
+  // Pre-fix-130: the type cell rendered as a static label; clicking
+  // + Add permit hardcoded the new row to Building Permit; newly-added
+  // rows started with blank expected_issue / target_submit.
+  // Post-fix-130: type is a <select> on every row + new rows start with
+  // type=''; applySeeding inherits expected_issue/target_submit from a
+  // same-type sibling before falling back to the per-type formula.
+  describe('fix-130 type dropdown + sibling-inheritance', () => {
+    it('every row renders the type as a <select> with the catalog options', () => {
+      const init = makeEmptyWizardState();
+      init.permits = [
+        permit('Building Permit'),
+        permit('Demolition'),
+      ];
+      setup(init);
+      const bpSel = screen.getByTestId(
+        `wizard-perm-type-${init.permits[0].rowId}`,
+      ) as HTMLSelectElement;
+      const demoSel = screen.getByTestId(
+        `wizard-perm-type-${init.permits[1].rowId}`,
+      ) as HTMLSelectElement;
+      expect(bpSel.tagName).toBe('SELECT');
+      expect(bpSel.value).toBe('Building Permit');
+      expect(demoSel.value).toBe('Demolition');
+      // Catalog options present (the placeholder + the 6 mocked types).
+      const opts = [...bpSel.options].map((o) => o.value);
+      expect(opts).toContain('');
+      expect(opts).toContain('Building Permit');
+      expect(opts).toContain('PAR/Pre-Sub');
+      expect(opts).toContain('SDOT Tree');
+    });
+
+    it('changing a row type fires onChange with the new type', () => {
+      const init = makeEmptyWizardState();
+      init.permits = [permit('Demolition')];
+      const { onChange } = setup(init);
+      onChange.mockClear();
+      fireEvent.change(
+        screen.getByTestId(`wizard-perm-type-${init.permits[0].rowId}`),
+        { target: { value: 'ULS' } },
+      );
+      expect(onChange).toHaveBeenCalled();
+      const patch = onChange.mock.calls[0][0] as Partial<WizardState>;
+      // The patch carries the new type AND clears manuallyEdited so the
+      // next applySeeding pass re-seeds the row.
+      expect(patch.permits?.[0].type).toBe('ULS');
+      expect(patch.permits?.[0].manuallyEdited).toEqual({});
+    });
+
+    it('a freshly-added empty-type row shows the "— pick a type —" placeholder', () => {
+      const init = makeEmptyWizardState();
+      init.permits = [permit('Building Permit')];
+      const { onChange } = setup(init);
+      onChange.mockClear();
+      fireEvent.click(screen.getByTestId('wizard-step-3-add-permit'));
+      const patch = onChange.mock.calls[0][0] as Partial<WizardState>;
+      const newRowId = patch.permits![1].rowId;
+      // Re-render with the patched state via setupControlled so we
+      // can interact with the new row.
+      const init2 = { ...init, permits: patch.permits! };
+      setupControlled(init2);
+      const sel = screen.getByTestId(
+        `wizard-perm-type-${newRowId}`,
+      ) as HTMLSelectElement;
+      expect(sel.value).toBe('');
+      expect(sel.options[0].value).toBe('');
+      expect(sel.options[0].textContent).toMatch(/pick a type/i);
     });
   });
 });

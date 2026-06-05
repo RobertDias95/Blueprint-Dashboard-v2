@@ -306,6 +306,17 @@ export const PRODUCT_TYPE_OPTIONS = [
 // the same state object when nothing changed so callers can skip needless
 // renders. Run this after every wizard-state change (see NewProjectWizard's
 // patch) so GO-date / BP-ACQ / permit add-remove / type changes re-seed.
+//
+// fix-130: extend with "same-type sibling inheritance" before the per-type
+// formula fallback. When a row's expected_issue (or target_submit) is empty
+// AND the user hasn't manually edited it, look across the other selected
+// rows for one with the SAME type that has the field populated; use that
+// value. Bobby's "aligned with the other permits" requirement — adding a
+// second BP should inherit the first BP's ACQ Target Date, not stay blank.
+// Same pattern applies to second Demolitions / second SDOT Trees / etc.
+// Formula fallback still kicks in when no sibling exists. Also extends to
+// additional BPs (the BP whose expected_issue is non-empty acts as anchor;
+// other BPs inherit, then the canonical anchor still wins via bpAcq).
 export function applySeeding(state: WizardState): WizardState {
   const goDate = state.go_date || '';
   const bp = state.permits.find((p) => p.type === BUILDING_PERMIT);
@@ -316,6 +327,27 @@ export function applySeeding(state: WizardState): WizardState {
   // start firing for non-BP rows when Step 3 mounts.
   const bpAcq = bp?.expected_issue || state.acq_target || '';
   const anchors = { goDate, bpAcq };
+
+  /** fix-130: find a same-type sibling with a populated value to
+   *  inherit from. Excludes the row being seeded (rowId match) and
+   *  unselected rows (Step 2 toggles them off). Returns the first match;
+   *  permits array order is stable enough that "first" reads as "the
+   *  one the user touched earliest." */
+  function findSiblingValue(
+    forRowId: string,
+    type: string,
+    pick: (sibling: WizardPermit) => string,
+  ): string | null {
+    if (!type) return null;
+    for (const s of state.permits) {
+      if (s.rowId === forRowId) continue;
+      if (!s.selected) continue;
+      if (s.type !== type) continue;
+      const v = pick(s);
+      if (v && v.trim() !== '') return v;
+    }
+    return null;
+  }
 
   let changed = false;
   const permits = state.permits.map((p) => {
@@ -328,9 +360,30 @@ export function applySeeding(state: WizardState): WizardState {
       // target_submit is engine-derived (the wizard form doesn't
       // capture dd_end so the +21 days math runs server-side; see
       // migrations/fix_96_target_submit_21_days.sql).
+      let next = p;
       if (!p.da && state.lead_da) {
+        next = { ...next, da: state.lead_da };
+      }
+      // fix-130: additional BPs (second, third) inherit expected_issue
+      // from the first BP whose value is set. The "first" BP whose
+      // expected_issue is non-empty is the canonical anchor (Step 1's
+      // acq_target → bp.expected_issue); copying it to siblings
+      // matches Bobby's "aligned with the other permits" requirement
+      // for multi-BP projects.
+      const me = p.manuallyEdited ?? {};
+      if (!me.expected_issue && !p.expected_issue) {
+        const sibling = findSiblingValue(
+          p.rowId,
+          BUILDING_PERMIT,
+          (s) => s.expected_issue,
+        );
+        if (sibling !== null) {
+          next = { ...next, expected_issue: sibling };
+        }
+      }
+      if (next !== p) {
         changed = true;
-        return { ...p, da: state.lead_da };
+        return next;
       }
       return p;
     }
@@ -338,13 +391,33 @@ export function applySeeding(state: WizardState): WizardState {
     let expected_issue = p.expected_issue;
     let target_submit = p.target_submit;
     if (!me.expected_issue) {
-      const seed = seedExpectedIssue(p.type, anchors);
-      // Don't clobber an existing value with nothing when the anchor's unset.
-      if (seed !== null) expected_issue = seed;
+      // fix-130: sibling inheritance first ("aligned with the other
+      // permits"), formula fallback second.
+      const sibling = findSiblingValue(
+        p.rowId,
+        p.type,
+        (s) => s.expected_issue,
+      );
+      if (sibling !== null) {
+        expected_issue = sibling;
+      } else {
+        const seed = seedExpectedIssue(p.type, anchors);
+        // Don't clobber an existing value with nothing when the anchor's unset.
+        if (seed !== null) expected_issue = seed;
+      }
     }
     if (!me.target_submit) {
-      const seed = seedTargetSubmit(p.type, anchors);
-      if (seed !== null) target_submit = seed;
+      const sibling = findSiblingValue(
+        p.rowId,
+        p.type,
+        (s) => s.target_submit,
+      );
+      if (sibling !== null) {
+        target_submit = sibling;
+      } else {
+        const seed = seedTargetSubmit(p.type, anchors);
+        if (seed !== null) target_submit = seed;
+      }
     }
     if (expected_issue === p.expected_issue && target_submit === p.target_submit) {
       return p;

@@ -180,4 +180,91 @@ describe('applySeeding', () => {
       expect(bp.da).toBe('Cam');
     });
   });
+
+  // fix-130: sibling inheritance. Bobby's "aligned with the other permits"
+  // requirement — when a new row is added of a type that already has a
+  // selected sibling with values filled, the new row inherits from the
+  // sibling instead of relying on the per-type formula (which may not
+  // know about user-touched values on the sibling).
+  describe('sibling-inheritance (fix-130)', () => {
+    it('a second BP inherits expected_issue from the first BP', () => {
+      const bp1 = perm('Building Permit', { expected_issue: '2026-11-30' });
+      const bp2 = perm('Building Permit'); // freshly added, empty
+      const out = applySeeding(stateWith('2026-06-01', [bp1, bp2]));
+      const newBp = out.permits.find(
+        (p) => p.rowId === bp2.rowId,
+      )!;
+      expect(newBp.expected_issue).toBe('2026-11-30');
+    });
+
+    it('a second Demolition inherits expected_issue from the first Demolition', () => {
+      // Demolition is BP-anchored (expected_issue = BP ACQ). With a sibling
+      // present, that sibling wins over the formula.
+      const bp = perm('Building Permit', { expected_issue: '2026-11-30' });
+      const demo1 = perm('Demolition', { expected_issue: '2026-10-15' });
+      const demo2 = perm('Demolition');
+      const out = applySeeding(stateWith('2026-06-01', [bp, demo1, demo2]));
+      const newDemo = out.permits.find((p) => p.rowId === demo2.rowId)!;
+      expect(newDemo.expected_issue).toBe('2026-10-15');
+    });
+
+    it('inherits target_submit from a same-type sibling (PAR/Pre-Sub)', () => {
+      const bp = perm('Building Permit');
+      const par1 = perm('PAR/Pre-Sub', { target_submit: '2026-08-15' });
+      const par2 = perm('PAR/Pre-Sub');
+      const out = applySeeding(stateWith('2026-06-01', [bp, par1, par2]));
+      const newPar = out.permits.find((p) => p.rowId === par2.rowId)!;
+      expect(newPar.target_submit).toBe('2026-08-15');
+    });
+
+    it('falls back to the per-type formula when no sibling is present', () => {
+      const bp = perm('Building Permit');
+      const par = perm('PAR/Pre-Sub'); // only one PAR row → no sibling
+      const out = applySeeding(stateWith('2026-06-01', [bp, par]));
+      const seeded = out.permits.find((p) => p.rowId === par.rowId)!;
+      // Formula: PAR target_submit = GO + 3 = 2026-06-04.
+      expect(seeded.target_submit).toBe('2026-06-04');
+      // Formula: PAR expected_issue = GO + 30 = 2026-07-01.
+      expect(seeded.expected_issue).toBe('2026-07-01');
+    });
+
+    it('does NOT overwrite a manually-edited field on the new row', () => {
+      // User added a row, picked Demolition, then manually set
+      // expected_issue. A sibling Demolition exists but the manual edit
+      // wins (manuallyEdited.expected_issue=true).
+      const bp = perm('Building Permit', { expected_issue: '2026-11-30' });
+      const demo1 = perm('Demolition', { expected_issue: '2026-10-15' });
+      const demo2 = perm('Demolition', {
+        expected_issue: '2027-01-15',
+        manuallyEdited: { expected_issue: true },
+      });
+      const out = applySeeding(stateWith('2026-06-01', [bp, demo1, demo2]));
+      const manual = out.permits.find((p) => p.rowId === demo2.rowId)!;
+      expect(manual.expected_issue).toBe('2027-01-15');
+    });
+
+    it('an empty-type row is left untouched (no rule, no sibling-search target)', () => {
+      const bp = perm('Building Permit');
+      const blank = perm('', {});
+      const out = applySeeding(stateWith('2026-06-01', [bp, blank]));
+      const stillBlank = out.permits.find((p) => p.rowId === blank.rowId)!;
+      expect(stillBlank.type).toBe('');
+      expect(stillBlank.expected_issue).toBe('');
+      expect(stillBlank.target_submit).toBe('');
+    });
+
+    it('ignores unselected siblings (Step 2 toggles them off)', () => {
+      const bp = perm('Building Permit');
+      const par1 = perm('PAR/Pre-Sub', {
+        selected: false,
+        target_submit: '2026-08-15',
+      });
+      const par2 = perm('PAR/Pre-Sub');
+      const out = applySeeding(stateWith('2026-06-01', [bp, par1, par2]));
+      const newPar = out.permits.find((p) => p.rowId === par2.rowId)!;
+      // Falls back to formula because the unselected par1 isn't a valid
+      // inheritance source.
+      expect(newPar.target_submit).toBe('2026-06-04');
+    });
+  });
 });
