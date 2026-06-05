@@ -8,8 +8,12 @@ import QueryError from '../components/QueryError';
 import {
   computeTeamMetrics,
   type TeamMemberMetrics,
+  type TeamMetricsResult,
   type TeamRoleSelection,
 } from '../lib/teamPerformance';
+import MetricInfoTooltip from '../components/shared/MetricInfoTooltip';
+import { formatCompareNumber } from '../lib/comparisonCohort';
+import { TEAM_DETAIL_PHASE_METRICS } from '../lib/metricDefinitions';
 
 // fix-131: per-associate drill-down page. Reached from
 // TeamPerformanceTable's name links on the Team tab. Shows a single
@@ -208,10 +212,177 @@ function Body({
       {associate && (
         <>
           <VolumeSummary associate={associate} />
+          <PhasePerformance associate={associate} result={result} />
         </>
       )}
-      {/* 131-c: phase performance summary lands here. */}
       {/* 131-d: project list lands here. */}
+    </div>
+  );
+}
+
+// ============================================================
+// 131-c: phase performance summary — 4 cards with vs-team-avg deltas
+// ============================================================
+//
+// Mirrors the TeamPerformanceTable.PhaseCell treatment but as cards.
+// Each card renders the associate's value, the directional delta vs
+// the team average (green/red/muted with arrow), and the team avg as
+// subtext for context.
+//
+// All four phase metrics are "lower is better" — faster than the team
+// avg colors green, slower colors red, within ±5% reads muted. Same
+// no-signal band as fix-127-c's PhaseCell so the two surfaces agree on
+// when a difference is significant.
+
+const NO_SIGNAL_BAND = 0.05;
+
+function classifyDelta(
+  delta: number,
+  teamAvg: number,
+): 'good' | 'bad' | 'neutral' {
+  if (teamAvg === 0) {
+    return delta === 0 ? 'neutral' : delta > 0 ? 'bad' : 'good';
+  }
+  const pct = Math.abs(delta) / Math.abs(teamAvg);
+  if (pct < NO_SIGNAL_BAND) return 'neutral';
+  return delta < 0 ? 'good' : 'bad';
+}
+
+function PhasePerformance({
+  associate,
+  result,
+}: {
+  associate: TeamMemberMetrics;
+  result: TeamMetricsResult;
+}) {
+  return (
+    <section className="space-y-3" data-testid="team-detail-phase">
+      <div className="text-[10px] uppercase tracking-wide text-dim font-display font-bold">
+        Phase Performance
+      </div>
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <PhaseCard
+          metricKey="avgDdDays"
+          value={associate.avgDdDays}
+          teamAvg={result.teamAvgDdDays}
+          unit="d"
+          testId="team-detail-phase-dd"
+        />
+        <PhaseCard
+          metricKey="avgCityReviewDays"
+          value={associate.avgCityReviewDays}
+          teamAvg={result.teamAvgCityReviewDays}
+          unit="d"
+          testId="team-detail-phase-city-review"
+        />
+        <PhaseCard
+          metricKey="avgCorrectionsCycles"
+          value={associate.avgCorrectionsCycles}
+          teamAvg={result.teamAvgCorrectionsCycles}
+          unit=""
+          testId="team-detail-phase-corrections"
+        />
+        <PhaseCard
+          metricKey="avgIssuanceDays"
+          value={associate.avgIssuanceDays}
+          teamAvg={result.teamAvgIssuanceDays}
+          unit="d"
+          testId="team-detail-phase-issuance"
+        />
+      </div>
+    </section>
+  );
+}
+
+function PhaseCard({
+  metricKey,
+  value,
+  teamAvg,
+  unit,
+  testId,
+}: {
+  metricKey: keyof typeof TEAM_DETAIL_PHASE_METRICS;
+  value: number | null;
+  teamAvg: number | null;
+  unit: string;
+  testId: string;
+}) {
+  const def = TEAM_DETAIL_PHASE_METRICS[metricKey];
+  const labelNode = (
+    <MetricInfoTooltip
+      label={def.label}
+      description={def.description}
+      formula={def.formula}
+      cohort={def.cohort}
+      slug={`team-${metricKey}`}
+    />
+  );
+
+  if (value === null) {
+    return (
+      <div
+        className="bg-surface border border-border rounded-lg px-4 py-3 flex flex-col gap-1"
+        data-testid={testId}
+        data-tone="neutral"
+      >
+        <div className="text-[9px] uppercase tracking-wide text-dim font-display font-bold">
+          {labelNode}
+        </div>
+        <div className="text-2xl font-display font-extrabold text-dim">—</div>
+        <div className="text-[10px] text-dim italic">Not enough data</div>
+      </div>
+    );
+  }
+
+  const delta = teamAvg !== null ? formatCompareNumber(value - teamAvg) : null;
+  const tone =
+    delta === null || teamAvg === null
+      ? 'neutral'
+      : classifyDelta(delta, teamAvg);
+  const color =
+    tone === 'good'
+      ? 'var(--color-pm)'
+      : tone === 'bad'
+        ? 'var(--color-co)'
+        : 'var(--color-muted)';
+  const arrow =
+    delta === null ? '' : delta > 0 ? '↑' : delta < 0 ? '↓' : '→';
+
+  return (
+    <div
+      className="bg-surface border border-border rounded-lg px-4 py-3 flex flex-col gap-1"
+      data-testid={testId}
+      data-tone={tone}
+    >
+      <div className="text-[9px] uppercase tracking-wide text-dim font-display font-bold">
+        {labelNode}
+      </div>
+      <div className="text-2xl font-display font-extrabold text-text">
+        {value}
+        <span className="text-sm font-display font-normal text-muted ml-0.5">
+          {unit}
+        </span>
+      </div>
+      {delta !== null && (
+        <div
+          className="text-[11px] font-bold flex items-center gap-1"
+          style={{ color }}
+          data-testid={`${testId}-delta`}
+        >
+          <span aria-hidden="true">{arrow}</span>
+          <span>
+            {delta > 0 ? '+' : ''}
+            {delta}
+            {unit}
+          </span>
+        </div>
+      )}
+      {teamAvg !== null && (
+        <div className="text-[10px] text-muted">
+          Team avg: {teamAvg}
+          {unit}
+        </div>
+      )}
     </div>
   );
 }

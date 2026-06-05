@@ -272,6 +272,48 @@ export const REPORTS_BARCHART_METRICS: Record<string, MetricDefinition> = {
 };
 
 // ============================================================
+// Team detail phase cards (src/pages/ReportsTeamDetail.tsx)
+// ============================================================
+
+// fix-131-c: per-associate phrasing for the drill-down's four phase
+// cards. The Team tab table reads "DD Phase" / "City Review" /
+// "Corrections" / "Issuance" without explanation; on the drill-down
+// each card carries the tooltip with the formula + cohort gate so a
+// curious manager can verify what they're seeing. computeTeamMetrics
+// in src/lib/teamPerformance.ts:235-272 is the source of truth for
+// the math.
+export const TEAM_DETAIL_PHASE_METRICS: Record<string, MetricDefinition> = {
+  avgDdDays: {
+    label: 'DD Phase',
+    description:
+      "Average days this associate spends in the Design Development phase per permit.",
+    formula: 'avg(dd_end − dd_start) across the associate\'s permits',
+    cohort: 'Only counts permits with both dd_start AND dd_end set.',
+  },
+  avgCityReviewDays: {
+    label: 'City Review',
+    description:
+      "Average days the city took to approve permits credited to this associate, from intake acceptance to approval.",
+    formula:
+      'avg(approval_date − c0.intake_accepted) across the associate\'s permits',
+    cohort: 'Only counts permits with both intake_accepted AND approval_date set.',
+  },
+  avgCorrectionsCycles: {
+    label: 'Corrections',
+    description:
+      'Average number of correction rounds this associate handled per permit.',
+    formula: 'avg(permits.corr_rounds) across the associate\'s permits',
+  },
+  avgIssuanceDays: {
+    label: 'Issuance',
+    description:
+      "Average days between approval and actual issue on this associate's permits.",
+    formula: 'avg(actual_issue − approval_date) across the associate\'s permits',
+    cohort: 'Only counts permits with both approval_date AND actual_issue set.',
+  },
+};
+
+// ============================================================
 // Aggregate roster (for the verification test in 129-d)
 // ============================================================
 
@@ -290,5 +332,11 @@ export const ALL_METRIC_DEFINITIONS: Record<string, MetricDefinition> = {
   ),
   ...Object.fromEntries(
     Object.entries(REPORTS_BARCHART_METRICS).map(([k, v]) => [`bar.${k}`, v]),
+  ),
+  ...Object.fromEntries(
+    Object.entries(TEAM_DETAIL_PHASE_METRICS).map(([k, v]) => [
+      `team.${k}`,
+      v,
+    ]),
   ),
 };
