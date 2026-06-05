@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { formatCompareNumber } from '../../lib/comparisonCohort';
 import type {
   TeamMemberMetrics,
@@ -177,7 +178,17 @@ function Row({
       data-active={row.isActive ? 'true' : 'false'}
     >
       <td className="px-2 py-1.5 font-display font-bold text-text">
-        {row.name}
+        {/* fix-131: name is now a Link to the drill-down page. Role flows
+            through as a query param so a name that appears in multiple
+            roles routes to the right slice. encodeURIComponent handles
+            associate names with spaces / slashes. */}
+        <Link
+          to={`/reports/team/${encodeURIComponent(row.name)}?role=${row.role}`}
+          className="text-de hover:underline"
+          data-testid={`team-row-${row.name}-link`}
+        >
+          {row.name}
+        </Link>
         {!row.isActive && (
           <span
             className="ml-1.5 text-[9px] uppercase tracking-wide text-dim italic"
