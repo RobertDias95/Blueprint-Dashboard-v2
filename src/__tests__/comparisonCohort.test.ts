@@ -28,28 +28,96 @@ describe('deriveComparisonRange', () => {
   });
 
   describe("mode='previous_period'", () => {
-    it('Q2 (Apr 1 – Jun 30) → length-preserving 91-day span ending Mar 31', () => {
-      // Brief described the use case as "Q1 vs Q2" but the implementation
-      // is length-preserving (matches the "last 30 days" use case and any
-      // custom span). Q1 (Jan 1 – Mar 31) is 90 days; Q2 (Apr 1 – Jun 30)
-      // is 91 days — they're not actually mirrors. The length-preserving
-      // result lands on Dec 31 2025 – Mar 31 2026 (91 days inclusive),
-      // shifted one day earlier than the calendar-aligned Q1. The
-      // single-day drift is acceptable; calendar-quarter snapping isn't
-      // generalizable to arbitrary ranges.
+    it('fix-115-a: Q2 (Apr 1 – Jun 30) snaps to Q1 (Jan 1 – Mar 31) calendar-aligned', () => {
+      // Pre-fix-115-a the length-preserving math returned Dec 31 2025 –
+      // Mar 31 2026 (91-day mirror, off by one from the calendar quarter).
+      // The full-quarter detector now snaps to Q1.
       expect(
         deriveComparisonRange(
           { from: '2026-04-01', to: '2026-06-30' },
           'previous_period',
         ),
-      ).toEqual({ from: '2025-12-31', to: '2026-03-31' });
+      ).toEqual({ from: '2026-01-01', to: '2026-03-31' });
     });
 
-    it('exactly-90-day Q2-ish range → calendar-aligned Q1 cleanly', () => {
-      // Apr 1 – Jun 29 is 90 days (= Q1's length). Length-preserving math
-      // lands prev exactly on Q1 (Jan 1 – Mar 31). Demonstrates the brief's
-      // intent works when the user picks a span that matches the previous
-      // calendar period's length.
+    it('fix-115-a: Q1 (Jan 1 – Mar 31 2026) snaps to Q4 of the prior year (Oct 1 – Dec 31 2025)', () => {
+      // Year-boundary quarter rollover.
+      expect(
+        deriveComparisonRange(
+          { from: '2026-01-01', to: '2026-03-31' },
+          'previous_period',
+        ),
+      ).toEqual({ from: '2025-10-01', to: '2025-12-31' });
+    });
+
+    it('fix-115-a: full calendar month (June 2026) snaps to the previous month (May 2026)', () => {
+      // Brief's headline demonstration scenario.
+      expect(
+        deriveComparisonRange(
+          { from: '2026-06-01', to: '2026-06-30' },
+          'previous_period',
+        ),
+      ).toEqual({ from: '2026-05-01', to: '2026-05-31' });
+    });
+
+    it("fix-115-a: Feb 2026 (non-leap, 28d) snaps to Jan 2026 (31d) — month length doesn't matter", () => {
+      // Confirms the snap pulls the previous calendar month's actual
+      // length, not a copy of the current month's length.
+      expect(
+        deriveComparisonRange(
+          { from: '2026-02-01', to: '2026-02-28' },
+          'previous_period',
+        ),
+      ).toEqual({ from: '2026-01-01', to: '2026-01-31' });
+    });
+
+    it('fix-115-a: Feb 2024 (leap year, 29d) snaps to Jan 2024 (31d)', () => {
+      // Confirms leap-year February's last day (29) is detected correctly
+      // via lastDayOfMonth. A naïve "always 28" check would miss this.
+      expect(
+        deriveComparisonRange(
+          { from: '2024-02-01', to: '2024-02-29' },
+          'previous_period',
+        ),
+      ).toEqual({ from: '2024-01-01', to: '2024-01-31' });
+    });
+
+    it('fix-115-a: full year (2026) snaps to the previous year (2025)', () => {
+      expect(
+        deriveComparisonRange(
+          { from: '2026-01-01', to: '2026-12-31' },
+          'previous_period',
+        ),
+      ).toEqual({ from: '2025-01-01', to: '2025-12-31' });
+    });
+
+    it('fix-115-a: January (year-boundary month) snaps to December of the prior year', () => {
+      expect(
+        deriveComparisonRange(
+          { from: '2026-01-01', to: '2026-01-31' },
+          'previous_period',
+        ),
+      ).toEqual({ from: '2025-12-01', to: '2025-12-31' });
+    });
+
+    it('fix-115-a: custom range (Jun 5 – Jun 28) does NOT snap — falls through to length-preserving math', () => {
+      // Boundary detectors require EXACT alignment. A partial-month range
+      // keeps the length-preserving mirror because the user's intent is
+      // ambiguous — they didn't pick a calendar period.
+      // Length = 24 days. prev.to = Jun 4. prev.from = Jun 5 - 24 = May 12.
+      expect(
+        deriveComparisonRange(
+          { from: '2026-06-05', to: '2026-06-28' },
+          'previous_period',
+        ),
+      ).toEqual({ from: '2026-05-12', to: '2026-06-04' });
+    });
+
+    it('fix-115-a: month-start range that does NOT end on month-end falls through to length-preserving', () => {
+      // Apr 1 – Jun 29 is the brief's "exactly-90-day Q2-ish" case. Day-1
+      // start passes the first check but Jun 29 ≠ Jun 30 fails the
+      // full-month / full-quarter detectors. Length-preserving 90-day
+      // mirror lands cleanly on Q1 Jan 1 – Mar 31 by coincidence.
       expect(
         deriveComparisonRange(
           { from: '2026-04-01', to: '2026-06-29' },

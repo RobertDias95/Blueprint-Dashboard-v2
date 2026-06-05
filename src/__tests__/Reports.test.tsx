@@ -637,4 +637,110 @@ describe('<Reports /> Q7.2.b', () => {
       (screen.getByTestId('filter-permit-status') as HTMLSelectElement).value,
     ).toBe('all');
   });
+
+  // ── fix-115-c: Reports/Overview comparison ──────────────────────────
+  it('fix-115-c: compareTo defaults to "off" — no comparison rows render', () => {
+    renderIt();
+    const compareSelect = screen.getByTestId('filter-compare') as HTMLSelectElement;
+    expect(compareSelect.value).toBe('off');
+    // None of the wired cards carry a -cmp child when comparison is off.
+    expect(screen.queryByTestId('metric-total-permits-cmp')).toBeNull();
+    expect(screen.queryByTestId('metric-submit-variance-cmp')).toBeNull();
+    expect(screen.queryByTestId('metric-city-review-cmp')).toBeNull();
+    expect(screen.queryByTestId('metric-avg-correction-cycles-cmp')).toBeNull();
+    expect(screen.queryByTestId('metric-in-corrections-cmp')).toBeNull();
+  });
+
+  it('fix-115-c: previous_period with custom Apr 2026 → calendar-snapped to Mar 2026', () => {
+    renderIt();
+    // Switch range to custom Apr 2026. p2 (goDate=2026-04-01) lands in the
+    // current cohort; p1 (goDate=2026-01-01) does not.
+    fireEvent.change(screen.getByTestId('filter-range'), {
+      target: { value: 'custom' },
+    });
+    fireEvent.change(screen.getByTestId('filter-date-from'), {
+      target: { value: '2026-04-01' },
+    });
+    fireEvent.change(screen.getByTestId('filter-date-to'), {
+      target: { value: '2026-04-30' },
+    });
+    fireEvent.change(screen.getByTestId('filter-compare'), {
+      target: { value: 'previous_period' },
+    });
+    // fix-115-a snap: full month Apr → previous month March (NOT Mar 2 –
+    // Apr 1 length-preserving). Comparison cohort: zero permits (neither
+    // project's go_date lands in March).
+    const tile = screen.getByTestId('metric-total-permits');
+    expect(tile.textContent).toMatch(/1/); // current cohort has 1 permit
+    const cmpRow = screen.getByTestId('metric-total-permits-cmp');
+    expect(cmpRow.textContent).toMatch(/vs 0/);
+    expect(cmpRow.textContent).toMatch(/↑/);
+    expect(cmpRow.textContent).toMatch(/\+1/);
+    // Range label is the snapped March 2026 boundary.
+    expect(cmpRow.textContent).toMatch(/vs prev period \(2026-03-01 . 2026-03-31\)/);
+    // Direction='higher_better' + positive delta → green.
+    const deltaSpan = screen.getByTestId('metric-total-permits-cmp-delta');
+    expect(deltaSpan.getAttribute('style')).toMatch(/color: var\(--color-pm\)/);
+  });
+
+  it('fix-115-c: previous_year with no prior-year data → "no comparison data" on numeric cards', () => {
+    renderIt();
+    fireEvent.change(screen.getByTestId('filter-range'), {
+      target: { value: 'custom' },
+    });
+    fireEvent.change(screen.getByTestId('filter-date-from'), {
+      target: { value: '2026-04-01' },
+    });
+    fireEvent.change(screen.getByTestId('filter-date-to'), {
+      target: { value: '2026-04-30' },
+    });
+    fireEvent.change(screen.getByTestId('filter-compare'), {
+      target: { value: 'previous_year' },
+    });
+    // Apr 2025: neither fixture project has go_date in 2025. cmpMetrics
+    // is non-null (computeMetrics on empty array) but City Review = null
+    // → ComparisonRow renders the "no comparison data" affordance.
+    const cmpRow = screen.getByTestId('metric-city-review-cmp');
+    expect(cmpRow.textContent).toMatch(/no comparison data/i);
+    expect(cmpRow.textContent).toMatch(/vs prev year/);
+  });
+
+  it('fix-115-c: comparison is wired on numeric MetricCards but skipped on ScheduleBenchmarks / ReportTable / chart cards', () => {
+    renderIt();
+    fireEvent.change(screen.getByTestId('filter-range'), {
+      target: { value: 'custom' },
+    });
+    fireEvent.change(screen.getByTestId('filter-date-from'), {
+      target: { value: '2026-04-01' },
+    });
+    fireEvent.change(screen.getByTestId('filter-date-to'), {
+      target: { value: '2026-04-30' },
+    });
+    fireEvent.change(screen.getByTestId('filter-compare'), {
+      target: { value: 'previous_period' },
+    });
+    // Wired (assert presence on at least one numeric card).
+    expect(screen.getByTestId('metric-total-permits-cmp')).toBeInTheDocument();
+    // Skipped surfaces — no -cmp testid on charts, benchmarks, or the table.
+    expect(screen.queryByTestId('chart-permits-by-type-cmp')).toBeNull();
+    expect(screen.queryByTestId('chart-permits-by-juris-cmp')).toBeNull();
+    expect(screen.queryByTestId('chart-go-to-submit-by-type-cmp')).toBeNull();
+    expect(screen.queryByTestId('chart-schedule-variance-by-type-cmp')).toBeNull();
+    expect(screen.queryByTestId('chart-city-review-by-juris-cmp')).toBeNull();
+    expect(screen.queryByTestId('chart-corr-response-by-type-cmp')).toBeNull();
+    expect(screen.queryByTestId('schedule-benchmarks-cmp')).toBeNull();
+    expect(screen.queryByTestId('report-table-cmp')).toBeNull();
+  });
+
+  it('fix-115-c: range=all → no comparison row even when compareTo is set (no temporal anchor)', () => {
+    renderIt();
+    // Default range is 'all'. Picking a comparison mode without a date
+    // range yields no comparison since resolveClosedStringRange returns
+    // null. The card renders single-cohort exactly as it did pre-115.
+    fireEvent.change(screen.getByTestId('filter-compare'), {
+      target: { value: 'previous_period' },
+    });
+    expect(screen.queryByTestId('metric-total-permits-cmp')).toBeNull();
+    expect(screen.queryByTestId('metric-city-review-cmp')).toBeNull();
+  });
 });

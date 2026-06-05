@@ -5,8 +5,13 @@ import {
   computeMetrics,
   enrichPermits,
   filterEnrichedPermits,
+  resolveClosedStringRange,
   type ReportFilters,
 } from '../../lib/reportMetrics';
+import {
+  comparisonLabelFor,
+  deriveComparisonRange,
+} from '../../lib/comparisonCohort';
 import { groupAvgBy, groupCountBy } from '../../lib/chartHelpers';
 import { SkeletonRows } from '../Skeleton';
 import QueryError from '../QueryError';
@@ -41,6 +46,9 @@ const DEFAULT_FILTERS: ReportFilters = {
   // `status` above (now labelled "Project Status" in the UI).
   permitStatus: 'all',
   search: '',
+  // fix-115-c: comparison defaults off so the page renders single-cohort
+  // exactly as it did pre-fix-115. Opt-in via the new Filter Bar dropdown.
+  compareTo: 'off',
 };
 
 export default function ReportsOverviewTab() {
@@ -143,6 +151,40 @@ function Body({
     [enriched, filters, today],
   );
 
+  // fix-115-c: comparison cohort. Reuses Trends' compareTo semantics —
+  // off / previous_period / previous_year — driven by the new filter bar
+  // dropdown. Returns null when no comparison is meaningful (range='all'
+  // has no temporal anchor; custom with at least one endpoint missing).
+  // MetricCards renders single-cohort when comparisonMetrics is null.
+  const comparisonRange = useMemo(() => {
+    const current = resolveClosedStringRange(filters, today);
+    return deriveComparisonRange(current, filters.compareTo);
+  }, [filters, today]);
+
+  const comparisonFiltered = useMemo(() => {
+    if (!comparisonRange) return null;
+    const comparisonFilters: ReportFilters = {
+      ...filters,
+      range: 'custom',
+      dateFrom: comparisonRange.from,
+      dateTo: comparisonRange.to,
+      // Don't recurse — the comparison cohort itself doesn't have a
+      // comparison cohort.
+      compareTo: 'off',
+    };
+    return filterEnrichedPermits(enriched, comparisonFilters, today);
+  }, [enriched, filters, today, comparisonRange]);
+
+  const comparisonMetrics = useMemo(
+    () =>
+      comparisonFiltered === null ? null : computeMetrics(comparisonFiltered),
+    [comparisonFiltered],
+  );
+  const comparisonLabel = useMemo(
+    () => comparisonLabelFor(filters.compareTo, comparisonRange),
+    [filters.compareTo, comparisonRange],
+  );
+
   // fix-112-a: ScheduleBenchmarks consumes the SAME filtered cohort as every
   // other surface on this page. Previously it received raw `permits` so the
   // Type / Juris / ENT / DateRange / Status / Product / Tags / Search filters
@@ -242,7 +284,11 @@ function Body({
         resultCount={filtered.length}
       />
 
-      <MetricCards metrics={metrics} />
+      <MetricCards
+        metrics={metrics}
+        comparisonMetrics={comparisonMetrics}
+        comparisonLabel={comparisonLabel}
+      />
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
         <BarChartCard

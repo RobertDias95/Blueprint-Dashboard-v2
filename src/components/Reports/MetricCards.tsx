@@ -10,8 +10,31 @@ import MetricCard from './MetricCard';
 //   - de for time-from-go metrics (D&E phase)
 //   - co/overdue for late/overdue signals
 //   - pm for done/approved signals
+//
+// fix-115-c: optional period-comparison row under select numeric cards.
+// Wired only on cards where a single-number comparison reads cleanly:
+//   - Total Permits          (higher_better)
+//   - Submit Variance        (neutral — early/late doesn't map cleanly)
+//   - Avg City Review        (lower_better)
+//   - Avg Correction Cycles  (lower_better)
+//   - In Corrections         (lower_better)
+// Skipped: "{n} units across projects" lives as Total Permits' subText
+// (single-line copy doesn't carry a second numeric naturally); "{n} of
+// {total} issued" subText on In Corrections (the n/total format breaks
+// dual-rendering); GO→DD / GO→Submit / DD Duration / DD→Submit / Schedule
+// Variance / Avg Submit → Intake (not in the fix-115-c brief's list).
 
-export default function MetricCards({ metrics }: { metrics: ReportMetrics }) {
+export default function MetricCards({
+  metrics,
+  comparisonMetrics,
+  comparisonLabel,
+}: {
+  metrics: ReportMetrics;
+  comparisonMetrics?: ReportMetrics | null;
+  comparisonLabel?: string;
+}) {
+  const cmp = comparisonMetrics ?? null;
+  const cmpLabel = comparisonLabel || undefined;
   const variance = metrics.avgSubmitVariance;
   const varianceTone =
     variance === null
@@ -58,6 +81,11 @@ export default function MetricCards({ metrics }: { metrics: ReportMetrics }) {
         value={metrics.totalPermits}
         subText={`${metrics.totalUnits} units across projects`}
         testId="metric-total-permits"
+        currentNumeric={metrics.totalPermits}
+        comparisonNumeric={cmp?.totalPermits ?? null}
+        comparisonValueText={cmp ? String(cmp.totalPermits) : undefined}
+        comparisonLabel={cmpLabel}
+        comparisonDirection="higher_better"
       />
 
       {/* 2. SUBMIT VARIANCE — only when we have data */}
@@ -69,6 +97,15 @@ export default function MetricCards({ metrics }: { metrics: ReportMetrics }) {
           subText={`${metrics.onTimeSubmits} on-time · ${metrics.lateSubmits} late`}
           tone={varianceTone}
           testId="metric-submit-variance"
+          currentNumeric={variance}
+          comparisonNumeric={cmp?.avgSubmitVariance ?? null}
+          comparisonValueText={
+            cmp?.avgSubmitVariance === null || cmp?.avgSubmitVariance === undefined
+              ? undefined
+              : `${cmp.avgSubmitVariance > 0 ? '+' : ''}${cmp.avgSubmitVariance}d`
+          }
+          comparisonLabel={cmpLabel}
+          comparisonDirection="neutral"
         />
       )}
 
@@ -102,6 +139,15 @@ export default function MetricCards({ metrics }: { metrics: ReportMetrics }) {
         subText="intake accepted → corrections/issue"
         tone="pm"
         testId="metric-city-review"
+        currentNumeric={metrics.avgCityReview}
+        comparisonNumeric={cmp?.avgCityReview ?? null}
+        comparisonValueText={
+          cmp?.avgCityReview === null || cmp?.avgCityReview === undefined
+            ? undefined
+            : `${cmp.avgCityReview}d`
+        }
+        comparisonLabel={cmpLabel}
+        comparisonDirection="lower_better"
       />
 
       {/* 6. AVG SUBMIT → INTAKE — conditional, color-coded */}
@@ -123,6 +169,16 @@ export default function MetricCards({ metrics }: { metrics: ReportMetrics }) {
         subText={`${metrics.permitsWithCorrections} permits with corrections`}
         tone="co"
         testId="metric-avg-correction-cycles"
+        currentNumeric={metrics.avgCorrectionCycles}
+        comparisonNumeric={cmp?.avgCorrectionCycles ?? null}
+        comparisonValueText={
+          cmp?.avgCorrectionCycles === null ||
+          cmp?.avgCorrectionCycles === undefined
+            ? undefined
+            : String(cmp.avgCorrectionCycles)
+        }
+        comparisonLabel={cmpLabel}
+        comparisonDirection="lower_better"
       />
 
       {/* 8. IN CORRECTIONS — always shown.
@@ -139,6 +195,11 @@ export default function MetricCards({ metrics }: { metrics: ReportMetrics }) {
         subText={`${metrics.issuedCount} of ${metrics.totalPermits} issued`}
         tone="co"
         testId="metric-in-corrections"
+        currentNumeric={metrics.inCorrections}
+        comparisonNumeric={cmp?.inCorrections ?? null}
+        comparisonValueText={cmp ? String(cmp.inCorrections) : undefined}
+        comparisonLabel={cmpLabel}
+        comparisonDirection="lower_better"
       />
 
       {/* 9. AVG SCHEDULE VAR. — always shown (subtext switches by sign) */}
