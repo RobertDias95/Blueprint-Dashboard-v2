@@ -925,4 +925,122 @@ describe('<Step3Permits />', () => {
       expect(newParEnt.value).toBe('Miles');
     });
   });
+
+  // ─── fix-120-c: add/remove permit rows ──────────────────────────────
+  describe('fix-120-c: add/remove permit rows', () => {
+    it('renders + Add permit and × Remove buttons', () => {
+      const init = makeEmptyWizardState();
+      init.permits = [permit('Building Permit'), permit('Demolition')];
+      setup(init);
+      expect(screen.getByTestId('wizard-step-3-add-permit')).toBeInTheDocument();
+      expect(
+        screen.getByTestId(`wizard-perm-remove-${init.permits[0].rowId}`),
+      ).toBeInTheDocument();
+      expect(
+        screen.getByTestId(`wizard-perm-remove-${init.permits[1].rowId}`),
+      ).toBeInTheDocument();
+    });
+
+    it('clicking + Add permit appends a new BP row to the permits patch', () => {
+      const init = makeEmptyWizardState();
+      init.permits = [
+        permit('Building Permit'),
+        permit('Demolition'),
+      ];
+      const { onChange } = setup(init);
+      onChange.mockClear();
+      fireEvent.click(screen.getByTestId('wizard-step-3-add-permit'));
+      expect(onChange).toHaveBeenCalledTimes(1);
+      const patch = onChange.mock.calls[0][0] as Partial<WizardState>;
+      expect(patch.permits).toHaveLength(3);
+      const newRow = patch.permits![2];
+      expect(newRow.type).toBe('Building Permit');
+      expect(newRow.selected).toBe(true);
+      expect(newRow.da).toBe('');
+      expect(newRow.ent_lead).toBe(''); // cascade fills on next render
+    });
+
+    it('clicking × Remove on a row drops it from the permits patch', () => {
+      const init = makeEmptyWizardState();
+      init.permits = [
+        permit('Building Permit'),
+        permit('Demolition'),
+        permit('PAR/Pre-Sub'),
+      ];
+      const targetRowId = init.permits[1].rowId; // Demo
+      const { onChange } = setup(init);
+      onChange.mockClear();
+      fireEvent.click(screen.getByTestId(`wizard-perm-remove-${targetRowId}`));
+      expect(onChange).toHaveBeenCalledTimes(1);
+      const patch = onChange.mock.calls[0][0] as Partial<WizardState>;
+      expect(patch.permits).toHaveLength(2);
+      expect(patch.permits!.find((p) => p.rowId === targetRowId)).toBeUndefined();
+      // BP and PAR preserved.
+      expect(patch.permits!.map((p) => p.type)).toEqual([
+        'Building Permit',
+        'PAR/Pre-Sub',
+      ]);
+    });
+
+    it('× Remove on the LAST remaining selected row is disabled (wizard needs at least one permit)', () => {
+      const init = makeEmptyWizardState();
+      init.permits = [permit('Building Permit')];
+      const { onChange } = setup(init);
+      const removeBtn = screen.getByTestId(
+        `wizard-perm-remove-${init.permits[0].rowId}`,
+      ) as HTMLButtonElement;
+      expect(removeBtn).toBeDisabled();
+      // Defensive guard: even if a test forces the click, no patch fires.
+      onChange.mockClear();
+      fireEvent.click(removeBtn);
+      expect(onChange).not.toHaveBeenCalled();
+    });
+
+    it('newly added row inherits BP.ent_lead via the cascade (fix-120-b Path A on permits.length change)', async () => {
+      lookupEntLeadForDaMock.mockReset();
+      lookupEntLeadForDaMock.mockResolvedValueOnce('Miles');
+
+      function Host() {
+        const [state, setState] = useState<WizardState>(() => {
+          const s = makeEmptyWizardState();
+          s.juris = 'Seattle';
+          s.lead_da = 'Trevor';
+          s.permits = [permit('Building Permit', { da: 'Trevor' })];
+          return s;
+        });
+        return (
+          <Step3Permits
+            value={state}
+            onChange={(patch) => setState((s) => ({ ...s, ...patch }))}
+          />
+        );
+      }
+      const queryClient = new QueryClient({
+        defaultOptions: { queries: { retry: false } },
+      });
+      render(
+        <QueryClientProvider client={queryClient}>
+          <Host />
+        </QueryClientProvider>,
+      );
+      // Wait for the initial cascade to fill BP.ent_lead.
+      await waitFor(() => {
+        const entSelects = screen.getAllByTestId(
+          /wizard-perm-ent-/,
+        ) as HTMLSelectElement[];
+        expect(entSelects.some((s) => s.value === 'Miles')).toBe(true);
+      });
+      // Click + Add permit. The cascade re-fires from Path A on the
+      // permits.length change and fills the new row.
+      fireEvent.click(screen.getByTestId('wizard-step-3-add-permit'));
+      await waitFor(() => {
+        const entSelects = screen.getAllByTestId(
+          /wizard-perm-ent-/,
+        ) as HTMLSelectElement[];
+        // Both BP and the new row should now read Miles.
+        const milesCount = entSelects.filter((s) => s.value === 'Miles').length;
+        expect(milesCount).toBeGreaterThanOrEqual(2);
+      });
+    });
+  });
 });

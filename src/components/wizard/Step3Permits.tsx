@@ -246,16 +246,21 @@ export default function Step3Permits({ value, onChange }: Props) {
       let changed = false;
       const livePermits = valueRef.current.permits;
       const nextPermits = livePermits.map((p) => {
+        // The "lead" BP row (the one whose DA drove this derivation)
+        // only gets overwritten on the explicit Path B branch where we
+        // just discovered its routing.
         if (p.rowId === bpRowId) {
           if (!overwriteBp || p.ent_lead === entLead) return p;
           changed = true;
           return { ...p, ent_lead: entLead };
         }
-        if (
-          p.type !== BUILDING_PERMIT &&
-          p.selected &&
-          !p.ent_lead
-        ) {
+        // fix-120-c: fill ANY other selected row with empty ent_lead —
+        // including additional BPs from a multi-building project added
+        // via the "+ Add permit" button. The dropped `p.type !==
+        // BUILDING_PERMIT` check used to skip multi-BPs (a fix-91-era
+        // assumption that there was at most one BP per project), so the
+        // 4th BP Bobby added stayed empty until the cascade re-fired.
+        if (p.selected && !p.ent_lead) {
           changed = true;
           return { ...p, ent_lead: entLead };
         }
@@ -297,20 +302,21 @@ export default function Step3Permits({ value, onChange }: Props) {
         // switches to a routed DA) re-fires the lookup.
         lastDerivedRef.current = null;
       });
-    // fix-120-b: include permits.length so Path A re-fires when 120-c's
-    // + Add permit / × Remove buttons (or Step 2 toggles) change the row
-    // set. Newly-added rows have empty ent_lead, and Path A's cascade
-    // fills them in idempotently — second-pass renders no-op because no
-    // row qualifies for the fill anymore. value.permits identity churns
-    // on every keystroke; cycling rowIds doesn't materially change the
-    // cohort, so the length signal is the right granularity.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // fix-120-b: include permits.length AND BP.ent_lead so Path A re-fires
+    // when 120-c's + Add permit / × Remove buttons (or Step 2 toggles)
+    // change the row set, or when Path B's RPC resolves BP.ent_lead.
+    // Newly-added rows have empty ent_lead, and Path A's cascade fills
+    // them in idempotently — second-pass renders no-op because no row
+    // qualifies for the fill anymore. value.permits identity churns on
+    // every keystroke; the length signal is the right granularity.
+    /* eslint-disable react-hooks/exhaustive-deps */
   }, [
     value.juris,
     value.permits.find((p) => p.type === BUILDING_PERMIT && p.selected)?.da,
     value.permits.find((p) => p.type === BUILDING_PERMIT && p.selected)?.ent_lead,
     value.permits.length,
   ]);
+  /* eslint-enable react-hooks/exhaustive-deps */
 
   /** fix-91: DA pick → look up routed ent_lead via bp_ent_lead_for_da
    *  (fix-72's DA-routing table). The async lookup fires and patches
@@ -336,6 +342,45 @@ export default function Step3Permits({ value, onChange }: Props) {
       });
   }
 
+  // fix-120-c: + Add permit / × Remove. Bobby's spec was "I sometimes
+  // need a 4th BP (multi-building project) and currently can only do
+  // this in Project Settings post-create." The buttons let him adjust
+  // the row count in the wizard directly. Defaults for a new row:
+  // type=Building Permit (most common request — multi-BP project), DA
+  // empty (user picks), ENT empty (the cascade in Path A will fill it
+  // from BP.ent_lead idempotently on the next render — see fix-120-b).
+  // Min row count = 1: the cascade depends on a selected BP row being
+  // present, and a wizard with zero permits is meaningless. The × on
+  // the last remaining row renders disabled.
+  function addPermit() {
+    const livePermits = valueRef.current.permits;
+    const newRow: WizardPermit = {
+      rowId: newPermitRowId(),
+      type: BUILDING_PERMIT,
+      selected: true,
+      ent_lead: '',
+      dm: '',
+      da: '',
+      dual_da: '',
+      architect: '',
+      num: '',
+      expected_issue: '',
+      target_submit: '',
+      manuallyEdited: {},
+      taskTemplateIds: [],
+    };
+    onChange({ permits: [...livePermits, newRow] });
+  }
+
+  function removePermit(rowId: string) {
+    const livePermits = valueRef.current.permits;
+    // Min 1 selected row — guard against UI races that get past the
+    // disabled button (keyboard activation on a disabled button).
+    const selectedCount = livePermits.filter((p) => p.selected).length;
+    if (selectedCount <= 1) return;
+    onChange({ permits: livePermits.filter((p) => p.rowId !== rowId) });
+  }
+
   return (
     <div className="space-y-3" data-testid="wizard-step-3">
       <div className="text-[11px] text-muted">
@@ -357,9 +402,27 @@ export default function Step3Permits({ value, onChange }: Props) {
             daReadOnly={p.type === BUILDING_PERMIT}
             onChange={(patch) => updatePermit(p.rowId, patch)}
             onPickDa={(da) => onPickDa(p.rowId, da)}
+            // fix-120-c: × Remove. Disabled when this is the last
+            // selected row — the wizard needs at least one permit.
+            onRemove={() => removePermit(p.rowId)}
+            canRemove={selectedPermits.length > 1}
           />
         ))}
       </div>
+      {/* fix-120-c: + Add permit. Pre-fix the row count was fixed by
+          Step 2's permit-type checklist + the auto-injected BP. Bobby
+          needs to add a 4th BP for multi-building projects without
+          leaving the wizard. New rows default to type=Building Permit;
+          the cascade (fix-120-b Path A) fills ENT from BP.ent_lead on
+          the next render so the user doesn't have to retype it. */}
+      <button
+        type="button"
+        onClick={addPermit}
+        className="self-start text-xs font-display font-bold px-3 py-1.5 rounded-md border border-border bg-bg/40 text-text hover:bg-bg transition"
+        data-testid="wizard-step-3-add-permit"
+      >
+        + Add permit
+      </button>
     </div>
   );
 }
