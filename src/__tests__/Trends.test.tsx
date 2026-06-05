@@ -447,14 +447,13 @@ describe('Trends — fix-25-feat-V submit→intake surface', () => {
     expect(delta.getAttribute('style')).toMatch(/color: var\(--color-pm\)/);
   });
 
-  it('fix-114→fix-116: Breakdown table + City performance charts + Target Submit stay single-cohort regardless of compareTo', () => {
-    // Non-regression: fix-116 extended comparison overlay to the Volume
-    // section (tr-chart-{submitted,approved,timeline,goes}) but NOT to:
-    //   - Breakdown table (rows are type×juris, not time-series)
-    //   - Variance section (not time-series)
-    //   - City performance line/bar (trends-chart-clock, trends-chart-citytm —
-    //     they have their own helpers that consume `filteredCurrent` only;
-    //     overlay would be fix-117 scope)
+  it('fix-114→fix-118: Breakdown table + Variance + Target Submit stay single-cohort regardless of compareTo', () => {
+    // Non-regression: fix-118 extended comparison overlay to the City
+    // performance charts (trends-chart-clock, trends-chart-citytm). The
+    // deferred-surface list now shrinks to:
+    //   - Breakdown table (rows are type×juris but it's a TABLE not a chart —
+    //     per-row delta is fix-119+ scope)
+    //   - Variance section (not time-series, distinct semantics)
     //   - Target Submit table (its own learner-recency window)
     const client = new QueryClient({
       defaultOptions: {
@@ -474,8 +473,6 @@ describe('Trends — fix-25-feat-V submit→intake surface', () => {
       </QueryClientProvider>
     );
     render(<Trends />, { wrapper });
-    expect(screen.queryByTestId('trends-chart-clock-cmp-legend')).toBeNull();
-    expect(screen.queryByTestId('trends-chart-citytm-cmp-legend')).toBeNull();
     expect(screen.queryByTestId('trends-breakdown-table-cmp')).toBeNull();
     expect(screen.queryByTestId('trends-section-variance-cmp')).toBeNull();
     expect(screen.queryByTestId('trends-section-target-submit-cmp')).toBeNull();
@@ -583,6 +580,100 @@ describe('Trends — fix-25-feat-V submit→intake surface', () => {
     ).toBeInTheDocument();
     expect(
       screen.getByTestId('tr-chart-approved-cmp-legend-empty'),
+    ).toBeInTheDocument();
+  });
+
+  // ─── fix-118: City performance comparison overlay ──────────────────
+  it('fix-118: compareTo="off" (default) → no cmp legend strip on clock/citytm charts', () => {
+    renderTrends();
+    expect(screen.queryByTestId('trends-chart-clock-cmp-legend')).toBeNull();
+    expect(screen.queryByTestId('trends-chart-citytm-cmp-legend')).toBeNull();
+  });
+
+  it('fix-118: previous_period with current=Jun 2026 → both City performance charts render the comparison legend', () => {
+    // URL: current=Jun 2026; fix-115-a snap → comparison=May 2026. Both
+    // charts in this section share the wire-up pattern from fix-116; only
+    // the data sources differ (intakeToApprovalByMonth vs
+    // breakdownByTypeAndJuris).
+    const client = new QueryClient({
+      defaultOptions: {
+        queries: { retry: false },
+        mutations: { retry: false },
+      },
+    });
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <QueryClientProvider client={client}>
+        <MemoryRouter
+          initialEntries={[
+            '/trends?from=2026-06-01&to=2026-06-30&compare=previous_period',
+          ]}
+        >
+          {children}
+        </MemoryRouter>
+      </QueryClientProvider>
+    );
+    render(<Trends />, { wrapper });
+    expect(
+      screen.getByTestId('trends-chart-clock-cmp-legend'),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByTestId('trends-chart-citytm-cmp-legend'),
+    ).toBeInTheDocument();
+  });
+
+  it('fix-118: clock chart legend names current + snapped comparison ranges', () => {
+    const client = new QueryClient({
+      defaultOptions: {
+        queries: { retry: false },
+        mutations: { retry: false },
+      },
+    });
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <QueryClientProvider client={client}>
+        <MemoryRouter
+          initialEntries={[
+            '/trends?from=2026-06-01&to=2026-06-30&compare=previous_period',
+          ]}
+        >
+          {children}
+        </MemoryRouter>
+      </QueryClientProvider>
+    );
+    render(<Trends />, { wrapper });
+    const legend = screen.getByTestId('trends-chart-clock-cmp-legend');
+    expect(legend.textContent).toContain('2026-06-01 – 2026-06-30');
+    expect(legend.textContent).toContain('2026-05-01 – 2026-05-31');
+    expect(legend.textContent).toMatch(/vs\s+2026-05-01/);
+  });
+
+  it('fix-118: previous_year with empty prior-year cohort → "(no data)" affordance renders on both', () => {
+    // Mirror fix-116's empty-cohort test pattern. The clock chart's
+    // intakeToApprovalByMonth returns [] when no permits in the prior year
+    // qualify; the citytm chart's breakdownByTypeAndJuris does the same.
+    // Both legend strips render "(no data)" rather than crashing.
+    const client = new QueryClient({
+      defaultOptions: {
+        queries: { retry: false },
+        mutations: { retry: false },
+      },
+    });
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <QueryClientProvider client={client}>
+        <MemoryRouter
+          initialEntries={[
+            '/trends?from=2026-06-01&to=2026-06-30&compare=previous_year',
+          ]}
+        >
+          {children}
+        </MemoryRouter>
+      </QueryClientProvider>
+    );
+    render(<Trends />, { wrapper });
+    expect(
+      screen.getByTestId('trends-chart-clock-cmp-legend-empty'),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByTestId('trends-chart-citytm-cmp-legend-empty'),
     ).toBeInTheDocument();
   });
 });

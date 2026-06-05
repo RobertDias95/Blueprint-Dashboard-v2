@@ -319,6 +319,103 @@ function TrendsBody({ permits, projects, catalogTypes }: BodyProps) {
     [breakdown],
   );
 
+  // fix-118: City performance comparison series. Both charts in this
+  // section (clock + citytm) get the same overlay treatment as fix-116's
+  // Volume charts: comparison data is computed on filteredComparison
+  // using the SAME helpers as current, then merged into the chart data
+  // arrays so a second dashed/translucent series can render alongside
+  // the solid current series. Legend strips reuse the local
+  // ComparisonLegendStrip helper extracted in fix-116.
+  const cmpTimeSeries = useMemo(
+    () => (filteredComparison ? intakeToApprovalByMonth(filteredComparison) : null),
+    [filteredComparison],
+  );
+
+  const cmpBreakdown = useMemo(
+    () =>
+      filteredComparison
+        ? breakdownByTypeAndJuris(filteredComparison, projectsById)
+        : null,
+    [filteredComparison, projectsById],
+  );
+
+  const cmpCycleCharts = useMemo(() => {
+    if (!cmpBreakdown) return null;
+    return cmpBreakdown
+      .filter(
+        (r) =>
+          r.avgCityReviewPerCycle !== null &&
+          r.avgTeamTurnaroundPerCycle !== null,
+      )
+      .map((r) => ({
+        label: `${r.juris} · ${r.type}`,
+        'City review': r.avgCityReviewPerCycle ?? 0,
+        'Team turnaround': r.avgTeamTurnaroundPerCycle ?? 0,
+        n: r.n,
+      }));
+  }, [cmpBreakdown]);
+
+  // Bucket-aligned merged data for the clock LineChart. Per fix-116's
+  // policy, comparison values are re-indexed by bucket ORDER (not
+  // calendar month) — the comparison's May 2026 row maps to the same x
+  // position as the current's Jun 2026 row. Tooltip discloses the
+  // comparison's actual month so the re-index is never silent.
+  const clockChartData = useMemo(() => {
+    return timeSeries.map((p, i) => ({
+      month: p.month,
+      avgDays: p.avgDays,
+      n: p.n,
+      cmpAvgDays: cmpTimeSeries?.[i]?.avgDays ?? null,
+      cmpMonth: cmpTimeSeries?.[i]?.month ?? null,
+      cmpN: cmpTimeSeries?.[i]?.n ?? null,
+    }));
+  }, [timeSeries, cmpTimeSeries]);
+
+  // Category union for the citytm chart. Current's labels lead (preserves
+  // the existing rank order); cmp-only labels are appended at the bottom.
+  // Mirrors fix-117's BarChartCard union policy.
+  type CycleChartRow = {
+    label: string;
+    'City review': number | null;
+    'Team turnaround': number | null;
+    n: number | null;
+    'City review (cmp)': number | null;
+    'Team turnaround (cmp)': number | null;
+    cmpN: number | null;
+  };
+  const cycleChartsUnion: CycleChartRow[] = useMemo(() => {
+    if (!cmpCycleCharts) {
+      return cycleCharts.map((r) => ({
+        label: r.label,
+        'City review': r['City review'],
+        'Team turnaround': r['Team turnaround'],
+        n: r.n,
+        'City review (cmp)': null,
+        'Team turnaround (cmp)': null,
+        cmpN: null,
+      }));
+    }
+    const cmpByLabel = new Map(cmpCycleCharts.map((r) => [r.label, r] as const));
+    const currentLabels = cycleCharts.map((r) => r.label);
+    const cmpOnlyLabels = cmpCycleCharts
+      .map((r) => r.label)
+      .filter((l) => !cycleCharts.some((r) => r.label === l));
+    const orderedLabels = [...currentLabels, ...cmpOnlyLabels];
+    return orderedLabels.map((label) => {
+      const cur = cycleCharts.find((r) => r.label === label);
+      const cmp = cmpByLabel.get(label);
+      return {
+        label,
+        'City review': cur?.['City review'] ?? null,
+        'Team turnaround': cur?.['Team turnaround'] ?? null,
+        n: cur?.n ?? null,
+        'City review (cmp)': cmp?.['City review'] ?? null,
+        'Team turnaround (cmp)': cmp?.['Team turnaround'] ?? null,
+        cmpN: cmp?.n ?? null,
+      };
+    });
+  }, [cycleCharts, cmpCycleCharts]);
+
   // ----- Volume helpers (trendsHelpers, v1-parity) -----
   //
   // fix-110: the Volume section now honors the page's Type + Juris
@@ -911,15 +1008,30 @@ function TrendsBody({ permits, projects, catalogTypes }: BodyProps) {
 
       {/* § City performance */}
       <Section title="City performance" testId="trends-section-city">
+        {/* fix-118: legend strip lives OUTSIDE ChartCard so it renders
+            even when the inner chart is in its empty state. ChartCard
+            gates `children` on its `empty` prop; nesting the legend inside
+            would hide it when the comparison cohort is the only one with
+            data (or both are empty but the user still expects the legend
+            disclosure). */}
+        {cmpTimeSeries && (
+          <ComparisonLegendStrip
+            chartKind="line"
+            currentLabel={volumeCurrentRangeLabel}
+            comparisonLabel={volumeComparisonRangeLabel}
+            comparisonHasData={cmpTimeSeries.some((p) => p.avgDays !== null)}
+            testId="trends-chart-clock-cmp-legend"
+          />
+        )}
         <ChartCard
           title="Avg city clock by month (intake → approval)"
           testId="trends-chart-clock"
-          empty={timeSeries.length === 0}
+          empty={timeSeries.length === 0 && !cmpTimeSeries?.length}
           emptyLabel="No approved permits in this window"
         >
           <ResponsiveContainer width="100%" height={260}>
             <LineChart
-              data={timeSeries}
+              data={clockChartData}
               margin={{ top: 10, right: 20, bottom: 10, left: 0 }}
             >
               <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" />
@@ -942,9 +1054,19 @@ function TrendsBody({ permits, projects, catalogTypes }: BodyProps) {
                   border: '1px solid var(--color-border)',
                   fontSize: 11,
                 }}
-                formatter={(value, _name, item) => {
-                  const payload = (item as { payload?: { n?: number } } | undefined)
-                    ?.payload;
+                formatter={(value, name, item) => {
+                  const payload = (
+                    item as { payload?: { n?: number; cmpN?: number; cmpMonth?: string } } | undefined
+                  )?.payload;
+                  if (name === 'cmpAvgDays') {
+                    const cmpMonth = payload?.cmpMonth
+                      ? ` (${payload.cmpMonth})`
+                      : '';
+                    return [
+                      `${value}d · n=${payload?.cmpN ?? 0}`,
+                      `Prev clock${cmpMonth}`,
+                    ];
+                  }
                   return [
                     `${value}d · n=${payload?.n ?? 0}`,
                     'Avg city clock',
@@ -958,19 +1080,42 @@ function TrendsBody({ permits, projects, catalogTypes }: BodyProps) {
                 strokeWidth={2}
                 dot={{ r: 3 }}
               />
+              {cmpTimeSeries && (
+                <Line
+                  type="monotone"
+                  dataKey="cmpAvgDays"
+                  stroke="var(--color-pm)"
+                  strokeWidth={2}
+                  strokeDasharray="4 4"
+                  strokeOpacity={0.6}
+                  dot={{ r: 2, fillOpacity: 0.6 }}
+                  connectNulls
+                />
+              )}
             </LineChart>
           </ResponsiveContainer>
         </ChartCard>
 
+        {/* fix-118: same out-of-ChartCard pattern as the clock legend
+            above — keeps the disclosure visible across the empty state. */}
+        {cmpCycleCharts && (
+          <ComparisonLegendStrip
+            chartKind="bar"
+            currentLabel={volumeCurrentRangeLabel}
+            comparisonLabel={volumeComparisonRangeLabel}
+            comparisonHasData={cmpCycleCharts.length > 0}
+            testId="trends-chart-citytm-cmp-legend"
+          />
+        )}
         <ChartCard
           title="Where's time going? City review vs team turnaround per cycle"
           testId="trends-chart-citytm"
-          empty={cycleCharts.length === 0}
+          empty={cycleChartsUnion.length === 0}
           emptyLabel="No multi-cycle permits in this window"
         >
           <ResponsiveContainer width="100%" height={300}>
             <BarChart
-              data={cycleCharts}
+              data={cycleChartsUnion}
               margin={{ top: 10, right: 20, bottom: 60, left: 0 }}
             >
               <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" />
@@ -1001,6 +1146,26 @@ function TrendsBody({ permits, projects, catalogTypes }: BodyProps) {
               <Legend wrapperStyle={{ fontSize: 11 }} />
               <Bar dataKey="City review" fill="var(--color-de)" />
               <Bar dataKey="Team turnaround" fill="var(--color-co)" />
+              {cmpCycleCharts && (
+                <>
+                  <Bar
+                    dataKey="City review (cmp)"
+                    fill="var(--color-de)"
+                    fillOpacity={0.35}
+                    stroke="var(--color-de)"
+                    strokeDasharray="2 2"
+                    strokeWidth={1}
+                  />
+                  <Bar
+                    dataKey="Team turnaround (cmp)"
+                    fill="var(--color-co)"
+                    fillOpacity={0.35}
+                    stroke="var(--color-co)"
+                    strokeDasharray="2 2"
+                    strokeWidth={1}
+                  />
+                </>
+              )}
             </BarChart>
           </ResponsiveContainer>
         </ChartCard>
