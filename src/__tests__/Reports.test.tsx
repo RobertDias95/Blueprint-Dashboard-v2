@@ -743,4 +743,83 @@ describe('<Reports /> Q7.2.b', () => {
     expect(screen.queryByTestId('metric-total-permits-cmp')).toBeNull();
     expect(screen.queryByTestId('metric-city-review-cmp')).toBeNull();
   });
+
+  // fix-124-b: preset chip row above the ReportFilterBar collapses
+  // multi-click range setup into one. End-to-end: click a chip → filter
+  // state updates (range='custom' + dateFrom + dateTo + compareTo) →
+  // MetricCards re-render against the new cohort.
+  describe('fix-124-b preset chip row', () => {
+    it('renders all 6 chips above the filter bar', () => {
+      renderIt();
+      expect(screen.getByTestId('reports-preset-this_month_vs_last')).toBeInTheDocument();
+      expect(screen.getByTestId('reports-preset-this_quarter_vs_last')).toBeInTheDocument();
+      expect(screen.getByTestId('reports-preset-this_year_vs_last')).toBeInTheDocument();
+      expect(screen.getByTestId('reports-preset-last_30d_vs_prior')).toBeInTheDocument();
+      expect(screen.getByTestId('reports-preset-last_60d_vs_prior')).toBeInTheDocument();
+      expect(screen.getByTestId('reports-preset-last_90d_vs_prior')).toBeInTheDocument();
+    });
+
+    it('clicking "This year vs last" sets range=custom + dateFrom/dateTo + compareTo in one shot', () => {
+      // FIXED_TODAY is 2026-05-15 → this_year_vs_last emits the full 2026.
+      // Year-bounded so TZ shifts within May don't affect the result.
+      renderIt();
+      fireEvent.click(screen.getByTestId('reports-preset-this_year_vs_last'));
+      // ReportFilterBar's controls reflect the new state.
+      const range = screen.getByTestId('filter-range') as HTMLSelectElement;
+      const from = screen.getByTestId('filter-date-from') as HTMLInputElement;
+      const to = screen.getByTestId('filter-date-to') as HTMLInputElement;
+      const compare = screen.getByTestId('filter-compare') as HTMLSelectElement;
+      expect(range.value).toBe('custom');
+      expect(from.value).toBe('2026-01-01');
+      expect(to.value).toBe('2026-12-31');
+      expect(compare.value).toBe('previous_period');
+    });
+
+    it('clicking "This quarter vs last" lands Q2 2026 (FIXED_TODAY=2026-05-15)', () => {
+      // Q2 = Apr 1 – Jun 30. Robust under TZ since May-15 local stays in May UTC.
+      renderIt();
+      fireEvent.click(screen.getByTestId('reports-preset-this_quarter_vs_last'));
+      const from = screen.getByTestId('filter-date-from') as HTMLInputElement;
+      const to = screen.getByTestId('filter-date-to') as HTMLInputElement;
+      expect(from.value).toBe('2026-04-01');
+      expect(to.value).toBe('2026-06-30');
+    });
+
+    it('Custom Range + Compare to dropdowns still work after the chips ship', () => {
+      // Pin that the underlying ReportFilterBar controls are NOT removed.
+      // Manually pick a slice that matches no preset.
+      renderIt();
+      fireEvent.change(screen.getByTestId('filter-range'), {
+        target: { value: 'custom' },
+      });
+      fireEvent.change(screen.getByTestId('filter-date-from'), {
+        target: { value: '2026-05-08' },
+      });
+      fireEvent.change(screen.getByTestId('filter-date-to'), {
+        target: { value: '2026-05-15' },
+      });
+      fireEvent.change(screen.getByTestId('filter-compare'), {
+        target: { value: 'previous_year' },
+      });
+      const from = screen.getByTestId('filter-date-from') as HTMLInputElement;
+      const to = screen.getByTestId('filter-date-to') as HTMLInputElement;
+      const compare = screen.getByTestId('filter-compare') as HTMLSelectElement;
+      expect(from.value).toBe('2026-05-08');
+      expect(to.value).toBe('2026-05-15');
+      expect(compare.value).toBe('previous_year');
+      // No preset chip is highlighted under previous_year.
+      for (const preset of [
+        'this_month_vs_last',
+        'this_quarter_vs_last',
+        'this_year_vs_last',
+        'last_30d_vs_prior',
+        'last_60d_vs_prior',
+        'last_90d_vs_prior',
+      ]) {
+        expect(
+          screen.getByTestId(`reports-preset-${preset}`).getAttribute('data-active'),
+        ).toBe('false');
+      }
+    });
+  });
 });

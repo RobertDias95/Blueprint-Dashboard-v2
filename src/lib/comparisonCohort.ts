@@ -190,6 +190,108 @@ export function deriveComparisonRange(
   return { from: format(prevFrom), to: format(prevTo) };
 }
 
+// fix-124-b: preset chip row date math. The 6 one-click "this vs last"
+// / "last N days vs prior" presets all live above the existing Range +
+// Compare to controls; each chip computes its own from/to here and the
+// surface wires it into its own state model. compareTo is always
+// 'previous_period' — the calendar-snap in deriveComparisonRange handles
+// the month/quarter/year boundary alignment automatically (so e.g.
+// this_quarter_vs_last just emits the current quarter's start/end and
+// lets the snap pick the prior calendar quarter for free).
+
+export type ComparePreset =
+  | 'this_month_vs_last'
+  | 'this_quarter_vs_last'
+  | 'this_year_vs_last'
+  | 'last_30d_vs_prior'
+  | 'last_60d_vs_prior'
+  | 'last_90d_vs_prior';
+
+export interface ComparePresetSpec {
+  preset: ComparePreset;
+  /** Short label that fits on a chip. */
+  label: string;
+  /** Always 'previous_period' — see header note. */
+  compareTo: 'previous_period';
+}
+
+export const COMPARE_PRESETS: readonly ComparePresetSpec[] = [
+  { preset: 'this_month_vs_last',   label: 'This month vs last',   compareTo: 'previous_period' },
+  { preset: 'this_quarter_vs_last', label: 'This quarter vs last', compareTo: 'previous_period' },
+  { preset: 'this_year_vs_last',    label: 'This year vs last',    compareTo: 'previous_period' },
+  { preset: 'last_30d_vs_prior',    label: 'Last 30d vs prior',    compareTo: 'previous_period' },
+  { preset: 'last_60d_vs_prior',    label: 'Last 60d vs prior',    compareTo: 'previous_period' },
+  { preset: 'last_90d_vs_prior',    label: 'Last 90d vs prior',    compareTo: 'previous_period' },
+];
+
+/** Compute the {from, to} slice for a preset given a "today" anchor.
+ *  All dates are UTC-anchored at midday to dodge DST edges (matches the
+ *  same convention as deriveComparisonRange). Inclusive endpoints. */
+export function rangeForPreset(preset: ComparePreset, today: Date): DateRange {
+  const y = today.getUTCFullYear();
+  const m0 = today.getUTCMonth(); // 0-indexed
+  const d = today.getUTCDate();
+  if (preset === 'this_month_vs_last') {
+    return {
+      from: fmt(y, m0 + 1, 1),
+      to: fmt(y, m0 + 1, lastDayOfMonth(y, m0)),
+    };
+  }
+  if (preset === 'this_quarter_vs_last') {
+    const q0 = Math.floor(m0 / 3); // 0..3
+    const firstMonth1 = q0 * 3 + 1;       // 1, 4, 7, 10
+    const lastMonth1 = firstMonth1 + 2;   // 3, 6, 9, 12
+    return {
+      from: fmt(y, firstMonth1, 1),
+      to: fmt(y, lastMonth1, lastDayOfMonth(y, lastMonth1 - 1)),
+    };
+  }
+  if (preset === 'this_year_vs_last') {
+    return { from: fmt(y, 1, 1), to: fmt(y, 12, 31) };
+  }
+  // last_Nd_vs_prior: to = today, from = today - (N-1) days (N-day inclusive).
+  const back = preset === 'last_30d_vs_prior' ? 29
+    : preset === 'last_60d_vs_prior' ? 59
+    : 89;
+  const todayUTC = new Date(Date.UTC(y, m0, d, 12, 0, 0));
+  const fromDate = addDays(todayUTC, -back);
+  return { from: format(fromDate), to: format(todayUTC) };
+}
+
+/** Match the current (range, compareTo) against each preset; first exact
+ *  match wins, or null when none match (user is on a custom slice). The
+ *  caller uses this to highlight the matching chip. */
+export function activeComparePreset(
+  range: DateRange | null,
+  compareTo: CompareMode,
+  today: Date,
+): ComparePreset | null {
+  if (!range || compareTo !== 'previous_period') return null;
+  for (const spec of COMPARE_PRESETS) {
+    const candidate = rangeForPreset(spec.preset, today);
+    if (candidate.from === range.from && candidate.to === range.to) {
+      return spec.preset;
+    }
+  }
+  return null;
+}
+
+/** fix-124-a: 1-decimal-place rounding for comparison deltas and
+ *  percentages. JS subtraction across floats can produce ugly trailing
+ *  digits (0.2 - 0.0 → 0.19999999...) and the existing tooltip math
+ *  `(delta / |cmp|) * 100` is even more exposed since it multiplies the
+ *  precision noise. The standard *10 / 10 trick rounds to 1 decimal
+ *  safely; the return is a NUMBER so callers can interpolate it
+ *  directly — clean integers serialize as integers (25 → "25") so we
+ *  only see the decimal when there's actually one to show.
+ *
+ *  Use this on any comparison delta, percentage, or aggregate-of-
+ *  aggregates value. Do NOT use it on raw integer counts (Total
+ *  Permits = 47 should stay 47, not 47.0). */
+export function formatCompareNumber(value: number): number {
+  return Math.round(value * 10) / 10;
+}
+
 /** Human-readable label for the comparison range badge under each
  *  KpiTile. Mode names "Previous period" / "Previous year" are stable
  *  but the actual range is more informative. */

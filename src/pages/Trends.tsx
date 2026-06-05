@@ -54,12 +54,14 @@ import type { RecencyTier } from '../lib/scheduleBenchmarks';
 import {
   comparisonLabelFor,
   deriveComparisonRange,
+  formatCompareNumber,
   type CompareMode,
 } from '../lib/comparisonCohort';
 import {
   ComparisonRow,
   type ComparisonDirection,
 } from '../components/shared/ComparisonRow';
+import ComparePresetChips from '../components/shared/ComparePresetChips';
 import type { PermitWithCycles, Project } from '../lib/database.types';
 
 // fix-25-feat-T → V → BB: Trends — operational performance + volume +
@@ -688,6 +690,23 @@ function TrendsBody({ permits, projects, catalogTypes }: BodyProps) {
   return (
     <div className="space-y-4" data-testid="trends-page">
       <div className="text-xl font-extrabold text-text">Trends</div>
+
+      {/* fix-124-b: one-click comparison presets above the filter row.
+          "This quarter vs last" went from 4 clicks → 1; the underlying
+          Range + Compare to controls below still own arbitrary slicing. */}
+      <ComparePresetChips
+        currentRange={
+          filters.dateRange.from && filters.dateRange.to
+            ? filters.dateRange
+            : null
+        }
+        compareTo={compareTo}
+        today={today}
+        onApply={(range, presetCompareTo) =>
+          setFilter({ dateRange: range, compareTo: presetCompareTo })
+        }
+        testIdPrefix="trends-preset"
+      />
 
       {/* Filter bar */}
       <div
@@ -1943,10 +1962,14 @@ function ComparisonTooltip({
         const cmp = row?.[`__cmp__${k}`];
         const curN = typeof cur === 'number' ? cur : null;
         const cmpN = typeof cmp === 'number' ? cmp : null;
-        const delta = curN !== null && cmpN !== null ? curN - cmpN : null;
+        // fix-124-a: 1-decimal-place rounding on the chart-tooltip delta
+        // and percentage. Same precision-noise risk as ComparisonRow; same
+        // formatCompareNumber treatment. Clean integers stay integer-clean.
+        const rawDelta = curN !== null && cmpN !== null ? curN - cmpN : null;
+        const delta = rawDelta !== null ? formatCompareNumber(rawDelta) : null;
         const pct =
-          delta !== null && cmpN !== null && cmpN !== 0
-            ? Math.round((delta / Math.abs(cmpN)) * 100)
+          rawDelta !== null && cmpN !== null && cmpN !== 0
+            ? formatCompareNumber((rawDelta / Math.abs(cmpN)) * 100)
             : null;
         return (
           <div key={k} className="mb-1.5 last:mb-0">

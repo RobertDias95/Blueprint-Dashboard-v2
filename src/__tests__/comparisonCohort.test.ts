@@ -1,7 +1,10 @@
 import { describe, it, expect } from 'vitest';
 import {
+  activeComparePreset,
   comparisonLabelFor,
   deriveComparisonRange,
+  formatCompareNumber,
+  rangeForPreset,
 } from '../lib/comparisonCohort';
 
 describe('deriveComparisonRange', () => {
@@ -204,5 +207,173 @@ describe('comparisonLabelFor', () => {
         to: '2025-06-30',
       }),
     ).toBe('vs prev year (2025-04-01 – 2025-06-30)');
+  });
+});
+
+// fix-124-a: float precision in JS comparison math leaks into the UI as
+// 0.19999999%; formatCompareNumber kills the trail without losing signal.
+// Pin the noisy float boundaries that motivated this fix.
+describe('formatCompareNumber (fix-124-a)', () => {
+  it('rounds 0.19999999 down to 0.2 (the canonical leak)', () => {
+    expect(formatCompareNumber(0.19999999)).toBe(0.2);
+  });
+
+  it('rounds 67.33333 to 67.3 (mid-precision aggregate)', () => {
+    expect(formatCompareNumber(67.33333)).toBe(67.3);
+  });
+
+  it('rounds 0.30000000000000004 to 0.3 (the JS 0.1 + 0.2 classic)', () => {
+    expect(formatCompareNumber(0.1 + 0.2)).toBe(0.3);
+    expect(formatCompareNumber(0.30000000000000004)).toBe(0.3);
+  });
+
+  it('preserves a clean -2.7 (already 1-decimal)', () => {
+    expect(formatCompareNumber(-2.7)).toBe(-2.7);
+  });
+
+  it('rounds 0 to 0', () => {
+    expect(formatCompareNumber(0)).toBe(0);
+  });
+
+  it('rounds clean integer 25 to 25 (no trailing .0 on whole numbers)', () => {
+    // The helper returns NUMBER, so 25 stringifies to "25", not "25.0".
+    expect(formatCompareNumber(25)).toBe(25);
+    expect(String(formatCompareNumber(25))).toBe('25');
+  });
+
+  it('rounds-half-to-even via the *10 trick (12.45 → 12.5)', () => {
+    // Math.round is round-half-up at the *10 boundary; 12.45 * 10 = 124.5
+    // which rounds up to 125 → 12.5. Pin so a future "use toFixed" refactor
+    // doesn't silently switch the half-rounding rule.
+    expect(formatCompareNumber(12.45)).toBe(12.5);
+  });
+});
+
+// fix-124-b: preset chip date math + active detection.
+//
+// "today" is anchored at midday-UTC in each test so the math doesn't drift
+// across DST edges (same convention as deriveComparisonRange).
+describe('rangeForPreset (fix-124-b)', () => {
+  function todayAt(y: number, m1: number, d: number): Date {
+    return new Date(Date.UTC(y, m1 - 1, d, 12, 0, 0));
+  }
+
+  describe('this_month_vs_last', () => {
+    it('mid-month 2026-06-05 → 2026-06-01 .. 2026-06-30', () => {
+      expect(rangeForPreset('this_month_vs_last', todayAt(2026, 6, 5))).toEqual({
+        from: '2026-06-01',
+        to: '2026-06-30',
+      });
+    });
+
+    it('Feb on a leap year emits the 29th', () => {
+      expect(rangeForPreset('this_month_vs_last', todayAt(2024, 2, 10))).toEqual({
+        from: '2024-02-01',
+        to: '2024-02-29',
+      });
+    });
+  });
+
+  describe('this_quarter_vs_last (Bobby spec example)', () => {
+    it('2026-06-05 → Q2 2026 (2026-04-01 .. 2026-06-30)', () => {
+      expect(
+        rangeForPreset('this_quarter_vs_last', todayAt(2026, 6, 5)),
+      ).toEqual({ from: '2026-04-01', to: '2026-06-30' });
+    });
+
+    it('Jan → Q1 (Jan 1 – Mar 31)', () => {
+      expect(
+        rangeForPreset('this_quarter_vs_last', todayAt(2026, 1, 15)),
+      ).toEqual({ from: '2026-01-01', to: '2026-03-31' });
+    });
+
+    it('Oct → Q4 (Oct 1 – Dec 31)', () => {
+      expect(
+        rangeForPreset('this_quarter_vs_last', todayAt(2026, 10, 2)),
+      ).toEqual({ from: '2026-10-01', to: '2026-12-31' });
+    });
+  });
+
+  describe('this_year_vs_last', () => {
+    it('any day in 2026 → 2026-01-01 .. 2026-12-31', () => {
+      expect(
+        rangeForPreset('this_year_vs_last', todayAt(2026, 6, 5)),
+      ).toEqual({ from: '2026-01-01', to: '2026-12-31' });
+    });
+  });
+
+  describe('last_30/60/90_d_vs_prior', () => {
+    it('last_30d on 2026-06-05 → 2026-05-07 .. 2026-06-05 (inclusive 30d)', () => {
+      // 2026-06-05 minus 29 days = 2026-05-07; 29 + the endpoint = 30 days inclusive.
+      expect(
+        rangeForPreset('last_30d_vs_prior', todayAt(2026, 6, 5)),
+      ).toEqual({ from: '2026-05-07', to: '2026-06-05' });
+    });
+
+    it('last_60d on 2026-06-05 → 2026-04-07 .. 2026-06-05', () => {
+      expect(
+        rangeForPreset('last_60d_vs_prior', todayAt(2026, 6, 5)),
+      ).toEqual({ from: '2026-04-07', to: '2026-06-05' });
+    });
+
+    it('last_90d on 2026-06-05 → 2026-03-08 .. 2026-06-05', () => {
+      expect(
+        rangeForPreset('last_90d_vs_prior', todayAt(2026, 6, 5)),
+      ).toEqual({ from: '2026-03-08', to: '2026-06-05' });
+    });
+  });
+
+  describe('activeComparePreset', () => {
+    const today = todayAt(2026, 6, 5);
+
+    it('returns null when compareTo is off', () => {
+      expect(
+        activeComparePreset(
+          { from: '2026-04-01', to: '2026-06-30' },
+          'off',
+          today,
+        ),
+      ).toBeNull();
+    });
+
+    it('returns null when compareTo is previous_year (no preset uses it)', () => {
+      expect(
+        activeComparePreset(
+          { from: '2026-04-01', to: '2026-06-30' },
+          'previous_year',
+          today,
+        ),
+      ).toBeNull();
+    });
+
+    it('matches this_quarter_vs_last on (2026-04-01, 2026-06-30, previous_period)', () => {
+      expect(
+        activeComparePreset(
+          { from: '2026-04-01', to: '2026-06-30' },
+          'previous_period',
+          today,
+        ),
+      ).toBe('this_quarter_vs_last');
+    });
+
+    it('matches last_60d_vs_prior on (2026-04-07, 2026-06-05, previous_period)', () => {
+      expect(
+        activeComparePreset(
+          { from: '2026-04-07', to: '2026-06-05' },
+          'previous_period',
+          today,
+        ),
+      ).toBe('last_60d_vs_prior');
+    });
+
+    it('returns null on a custom slice that matches no preset', () => {
+      expect(
+        activeComparePreset(
+          { from: '2026-04-02', to: '2026-06-30' }, // off by one day from this_quarter
+          'previous_period',
+          today,
+        ),
+      ).toBeNull();
+    });
   });
 });

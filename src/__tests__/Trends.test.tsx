@@ -676,4 +676,126 @@ describe('Trends — fix-25-feat-V submit→intake surface', () => {
       screen.getByTestId('trends-chart-citytm-cmp-legend-empty'),
     ).toBeInTheDocument();
   });
+
+  // fix-124-b: preset chip row above the filter bar collapses
+  // "quarter vs last quarter" from 4 clicks to 1. End-to-end test:
+  // click the chip → URL params reflect the new (range, compareTo).
+  describe('fix-124-b preset chip row', () => {
+    it('renders all 6 chips above the filter bar', () => {
+      renderTrends();
+      expect(screen.getByTestId('trends-preset-this_month_vs_last')).toBeInTheDocument();
+      expect(screen.getByTestId('trends-preset-this_quarter_vs_last')).toBeInTheDocument();
+      expect(screen.getByTestId('trends-preset-this_year_vs_last')).toBeInTheDocument();
+      expect(screen.getByTestId('trends-preset-last_30d_vs_prior')).toBeInTheDocument();
+      expect(screen.getByTestId('trends-preset-last_60d_vs_prior')).toBeInTheDocument();
+      expect(screen.getByTestId('trends-preset-last_90d_vs_prior')).toBeInTheDocument();
+    });
+
+    it('clicking a preset updates the From/To inputs + the Compare to dropdown in one shot', () => {
+      // System reminders confirm "today" is 2026-06-05 for this harness,
+      // so "This quarter vs last" should land on Q2 2026 (2026-04-01 to
+      // 2026-06-30) with compareTo=previous_period.
+      renderTrends();
+      fireEvent.click(
+        screen.getByTestId('trends-preset-this_quarter_vs_last'),
+      );
+      const from = screen.getByTestId('trends-from') as HTMLInputElement;
+      const to = screen.getByTestId('trends-to') as HTMLInputElement;
+      const compare = screen.getByTestId('trends-compare') as HTMLSelectElement;
+      expect(from.value).toBe('2026-04-01');
+      expect(to.value).toBe('2026-06-30');
+      expect(compare.value).toBe('previous_period');
+    });
+
+    it('the active chip is filled after the URL state matches it', () => {
+      const client = new QueryClient({
+        defaultOptions: {
+          queries: { retry: false },
+          mutations: { retry: false },
+        },
+      });
+      const wrapper = ({ children }: { children: ReactNode }) => (
+        <QueryClientProvider client={client}>
+          <MemoryRouter
+            initialEntries={[
+              '/trends?from=2026-04-01&to=2026-06-30&compare=previous_period',
+            ]}
+          >
+            {children}
+          </MemoryRouter>
+        </QueryClientProvider>
+      );
+      render(<Trends />, { wrapper });
+      expect(
+        screen.getByTestId('trends-preset-this_quarter_vs_last').getAttribute('data-active'),
+      ).toBe('true');
+    });
+
+    it('manual tweak of the From input drops the active highlight', () => {
+      const client = new QueryClient({
+        defaultOptions: {
+          queries: { retry: false },
+          mutations: { retry: false },
+        },
+      });
+      const wrapper = ({ children }: { children: ReactNode }) => (
+        <QueryClientProvider client={client}>
+          <MemoryRouter
+            initialEntries={[
+              '/trends?from=2026-04-01&to=2026-06-30&compare=previous_period',
+            ]}
+          >
+            {children}
+          </MemoryRouter>
+        </QueryClientProvider>
+      );
+      render(<Trends />, { wrapper });
+      // Start with this_quarter active.
+      expect(
+        screen.getByTestId('trends-preset-this_quarter_vs_last').getAttribute('data-active'),
+      ).toBe('true');
+      // Edit From off by one day → no preset matches.
+      fireEvent.change(screen.getByTestId('trends-from'), {
+        target: { value: '2026-04-02' },
+      });
+      expect(
+        screen.getByTestId('trends-preset-this_quarter_vs_last').getAttribute('data-active'),
+      ).toBe('false');
+    });
+
+    // Power-user controls still work: pin that the underlying Date + Compare
+    // to controls are untouched and continue to drive the filter state.
+    it('Custom Date range + Compare to dropdown still work for arbitrary slicing', () => {
+      renderTrends();
+      // Manually pick a slice that matches no preset.
+      fireEvent.change(screen.getByTestId('trends-from'), {
+        target: { value: '2026-05-15' },
+      });
+      fireEvent.change(screen.getByTestId('trends-to'), {
+        target: { value: '2026-05-21' },
+      });
+      fireEvent.change(screen.getByTestId('trends-compare'), {
+        target: { value: 'previous_year' },
+      });
+      const from = screen.getByTestId('trends-from') as HTMLInputElement;
+      const to = screen.getByTestId('trends-to') as HTMLInputElement;
+      const compare = screen.getByTestId('trends-compare') as HTMLSelectElement;
+      expect(from.value).toBe('2026-05-15');
+      expect(to.value).toBe('2026-05-21');
+      expect(compare.value).toBe('previous_year');
+      // No preset chip is highlighted under previous_year (no preset uses it).
+      for (const preset of [
+        'this_month_vs_last',
+        'this_quarter_vs_last',
+        'this_year_vs_last',
+        'last_30d_vs_prior',
+        'last_60d_vs_prior',
+        'last_90d_vs_prior',
+      ]) {
+        expect(
+          screen.getByTestId(`trends-preset-${preset}`).getAttribute('data-active'),
+        ).toBe('false');
+      }
+    });
+  });
 });
