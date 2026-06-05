@@ -88,6 +88,28 @@ export default function Step3Permits({ value, onChange }: Props) {
   const teamQ = useTeamMembers();
   const dmDaGroupsQ = useDmDaGroups();
   const dmDaRows = dmDaGroupsQ.rows;
+  // fix-120-a: keep a ref pointing at the LATEST value so async lookup
+  // callbacks (onPickDa's bp_ent_lead_for_da resolution + the cascade
+  // effect's Path B) read the current permits array instead of the one
+  // captured at the time the callback was queued. Without this, a sync
+  // updatePermit({da}) followed by an async updatePermit({ent_lead})
+  // wins the race: when the .then fires, React has already committed
+  // the {da} change but the inline `value.permits` reference in the
+  // closure still points at pre-{da}-update permits, so the {ent_lead}
+  // patch is built from stale permits and overwrites the {da} change.
+  //
+  // Bobby's repro on 6516 37th Ave SW + 5917 41st Ave SW: picking Cam
+  // as the Demolition DA caused the dropdown to "auto-default" back to
+  // blank as soon as bp_ent_lead_for_da resolved. Cam isn't special —
+  // his routing (jurisdiction=NULL fallback to Miles) is identical to
+  // Trevor's; the race fires for any DA. Cam was just the one Bobby
+  // tested. Prod confirms: both Demo permits ended up with da=Cam
+  // (set via Project Settings post-create, Bobby's workaround) — the
+  // wizard save path itself was dropping it.
+  const valueRef = useRef(value);
+  useEffect(() => {
+    valueRef.current = value;
+  });
   // fix-96-b: routing rows for the active tenant. The DA dropdown disables
   // any DA that has no row matching the project's juris (specific OR
   // NULL-juris fallback) — mirrors bp_ent_lead_for_da's WHERE clause so
@@ -150,8 +172,12 @@ export default function Step3Permits({ value, onChange }: Props) {
   );
 
   function updatePermit(rowId: string, patch: Partial<WizardPermit>) {
+    // fix-120-a: read permits via valueRef so async callers (.then on
+    // bp_ent_lead_for_da, the cascade effect) merge into the LATEST
+    // permits array, not the one captured when the callback was queued.
+    const currentPermits = valueRef.current.permits;
     onChange({
-      permits: value.permits.map((p) => {
+      permits: currentPermits.map((p) => {
         if (p.rowId !== rowId) return p;
         const next = { ...p, ...patch };
         // fix-Phase-B: track which seed fields the user has hand-edited so
@@ -214,10 +240,15 @@ export default function Step3Permits({ value, onChange }: Props) {
     const bpRowId = bp.rowId;
     /** Patch the BP row + every non-BP permit with an empty ent_lead
      *  in a single onChange. Returning early when nothing would
-     *  change keeps the wizard idle on no-op rerenders. */
+     *  change keeps the wizard idle on no-op rerenders.
+     *
+     *  fix-120-a: read from valueRef so a cascade that resolves after
+     *  the user has already edited a sibling DA preserves that DA edit
+     *  instead of overwriting it with the pre-edit permits snapshot. */
     const cascade = (entLead: string, overwriteBp: boolean) => {
       let changed = false;
-      const nextPermits = value.permits.map((p) => {
+      const livePermits = valueRef.current.permits;
+      const nextPermits = livePermits.map((p) => {
         if (p.rowId === bpRowId) {
           if (!overwriteBp || p.ent_lead === entLead) return p;
           changed = true;

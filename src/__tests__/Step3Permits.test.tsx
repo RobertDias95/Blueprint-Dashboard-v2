@@ -284,6 +284,43 @@ describe('<Step3Permits />', () => {
     });
   });
 
+  it('fix-120-a: picking a DA on a non-BP row PERSISTS through the async ent_lead lookup (no stale-closure overwrite)', async () => {
+    // Bobby's 6516 37th Ave SW + 5917 41st Ave SW report: picking Cam as
+    // the Demolition DA appeared to "auto-default" back to blank. Root
+    // cause is stale-closure in onPickDa — the synchronous updatePermit
+    // captures value.permits-at-pick-time, fires the {da} patch + queues
+    // an async {ent_lead} patch. By the time the async resolves, React
+    // has committed the {da} change but the closure still maps over the
+    // pre-edit permits, so the {ent_lead} patch silently drops the {da}.
+    //
+    // Pre-fix this test would observe da reverting to '' after the
+    // lookup resolved. Post-fix the ref-based read keeps the {da} edit.
+    lookupEntLeadForDaMock.mockReset();
+    lookupEntLeadForDaMock.mockResolvedValueOnce('Miles');
+    const init = makeEmptyWizardState();
+    init.juris = 'Seattle';
+    init.permits = [permit('Building Permit'), permit('Demolition')];
+    setupControlled(init);
+    const demoRowId = init.permits[1].rowId;
+    const daSel = await screen.findByTestId(`wizard-perm-da-${demoRowId}`);
+    fireEvent.change(daSel, { target: { value: 'Cam' } });
+    // The lookup fires + resolves; ent_lead patches in.
+    await waitFor(() => {
+      const entSel = screen.getByTestId(
+        `wizard-perm-ent-${demoRowId}`,
+      ) as HTMLSelectElement;
+      expect(entSel.value).toBe('Miles');
+    });
+    // CRITICAL ASSERTION: the DA select still shows Cam after the async
+    // ent_lead patch. Pre-fix-120-a the stale closure would have
+    // overwritten the {da:Cam} state with the {da:''} that was in the
+    // closure's captured permits array.
+    const finalDaSel = screen.getByTestId(
+      `wizard-perm-da-${demoRowId}`,
+    ) as HTMLSelectElement;
+    expect(finalDaSel.value).toBe('Cam');
+  });
+
   it('fix-91: picking a DA on a NON-BP row surfaces the derived DM chip from dm_da_groups', async () => {
     lookupEntLeadForDaMock.mockReset();
     lookupEntLeadForDaMock.mockResolvedValueOnce(null);
