@@ -64,6 +64,12 @@ import {
   type ComparisonDirection,
 } from '../components/shared/ComparisonRow';
 import ComparePresetChips from '../components/shared/ComparePresetChips';
+import KpiSplitView from '../components/shared/KpiSplitView';
+import MetricInfoTooltip from '../components/shared/MetricInfoTooltip';
+import {
+  TRENDS_KPI_METRICS,
+  TRENDS_CHART_METRICS,
+} from '../lib/metricDefinitions';
 import type { PermitWithCycles, Project } from '../lib/database.types';
 
 // fix-25-feat-T → V → BB: Trends — operational performance + volume +
@@ -926,6 +932,7 @@ function TrendsBody({ permits, projects, catalogTypes }: BodyProps) {
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
             <KpiTile
               label="Approved permits in window"
+              labelSlot={kpiTip('approvedInWindow')}
               value={kpiTotal === 0 ? '—' : String(kpiTotal)}
               testId="trends-kpi-total"
               currentNumeric={kpiTotal}
@@ -935,9 +942,19 @@ function TrendsBody({ permits, projects, catalogTypes }: BodyProps) {
               }
               comparisonLabel={cmpLabel || undefined}
               direction="higher_better"
+              currentRangeLabel={volumeCurrentRangeLabel || undefined}
+              comparisonRangeLabel={volumeComparisonRangeLabel || undefined}
+              comparisonModeLabel={
+                compareTo === 'previous_period'
+                  ? 'vs prev period'
+                  : compareTo === 'previous_year'
+                    ? 'vs prev year'
+                    : undefined
+              }
             />
             <KpiTile
               label="Avg submit → intake delay"
+              labelSlot={kpiTip('avgSubmitToIntakeDelay')}
               value={
                 kpiSubmitToIntake === null ? '—' : `${kpiSubmitToIntake.avgDays}d`
               }
@@ -955,9 +972,19 @@ function TrendsBody({ permits, projects, catalogTypes }: BodyProps) {
               }
               comparisonLabel={cmpLabel || undefined}
               direction="lower_better"
+              currentRangeLabel={volumeCurrentRangeLabel || undefined}
+              comparisonRangeLabel={volumeComparisonRangeLabel || undefined}
+              comparisonModeLabel={
+                compareTo === 'previous_period'
+                  ? 'vs prev period'
+                  : compareTo === 'previous_year'
+                    ? 'vs prev year'
+                    : undefined
+              }
             />
             <KpiTile
               label="Avg city clock (intake → approval)"
+              labelSlot={kpiTip('avgCityClock')}
               value={kpiAvgClock === null ? '—' : `${kpiAvgClock}d`}
               testId="trends-kpi-clock"
               currentNumeric={kpiAvgClock}
@@ -967,9 +994,19 @@ function TrendsBody({ permits, projects, catalogTypes }: BodyProps) {
               }
               comparisonLabel={cmpLabel || undefined}
               direction="lower_better"
+              currentRangeLabel={volumeCurrentRangeLabel || undefined}
+              comparisonRangeLabel={volumeComparisonRangeLabel || undefined}
+              comparisonModeLabel={
+                compareTo === 'previous_period'
+                  ? 'vs prev period'
+                  : compareTo === 'previous_year'
+                    ? 'vs prev year'
+                    : undefined
+              }
             />
             <KpiTile
               label="Avg cycles per permit"
+              labelSlot={kpiTip('avgCyclesPerPermit')}
               value={kpiAvgCycles === null ? '—' : kpiAvgCycles.toFixed(1)}
               testId="trends-kpi-cycles"
               currentNumeric={kpiAvgCycles}
@@ -979,9 +1016,19 @@ function TrendsBody({ permits, projects, catalogTypes }: BodyProps) {
               }
               comparisonLabel={cmpLabel || undefined}
               direction="lower_better"
+              currentRangeLabel={volumeCurrentRangeLabel || undefined}
+              comparisonRangeLabel={volumeComparisonRangeLabel || undefined}
+              comparisonModeLabel={
+                compareTo === 'previous_period'
+                  ? 'vs prev period'
+                  : compareTo === 'previous_year'
+                    ? 'vs prev year'
+                    : undefined
+              }
             />
             <KpiTile
               label="Target submit hit rate"
+              labelSlot={kpiTip('targetSubmitHitRate')}
               value={hitRateText(kpiHitRate)}
               sub={
                 kpiHitRate === null
@@ -1000,6 +1047,15 @@ function TrendsBody({ permits, projects, catalogTypes }: BodyProps) {
               }
               comparisonLabel={cmpLabel || undefined}
               direction="higher_better"
+              currentRangeLabel={volumeCurrentRangeLabel || undefined}
+              comparisonRangeLabel={volumeComparisonRangeLabel || undefined}
+              comparisonModeLabel={
+                compareTo === 'previous_period'
+                  ? 'vs prev period'
+                  : compareTo === 'previous_year'
+                    ? 'vs prev year'
+                    : undefined
+              }
             />
           </div>
         );
@@ -1019,6 +1075,7 @@ function TrendsBody({ permits, projects, catalogTypes }: BodyProps) {
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
           <TrendChartCard
             title="Permits Submitted by Month"
+            titleSlot={chartTip('permitsSubmittedByMonth')}
             chartKind="bar"
             series={submittedSeries}
             groupKeys={volumeGroupKeys}
@@ -1030,6 +1087,7 @@ function TrendsBody({ permits, projects, catalogTypes }: BodyProps) {
           />
           <TrendChartCard
             title="Permits Approved by Month"
+            titleSlot={chartTip('permitsApprovedByMonth')}
             chartKind="bar"
             series={approvedSeries}
             groupKeys={volumeGroupKeys}
@@ -1041,6 +1099,7 @@ function TrendsBody({ permits, projects, catalogTypes }: BodyProps) {
           />
           <TrendChartCard
             title="Avg Permit Timeline by Month"
+            titleSlot={chartTip('permitTimelineByMonth')}
             // fix-110: subtitle pedantic-but-honest. The endpoint is
             // COALESCE(approval_date, actual_issue) — for permits with
             // only actual_issue stamped (no approval_date), the chart
@@ -1058,6 +1117,7 @@ function TrendsBody({ permits, projects, catalogTypes }: BodyProps) {
           />
           <TrendChartCard
             title="GOs by Month"
+            titleSlot={chartTip('gosByMonth')}
             subtitle="(new projects)"
             chartKind="bar"
             series={goSeries}
@@ -1090,6 +1150,7 @@ function TrendsBody({ permits, projects, catalogTypes }: BodyProps) {
         )}
         <ChartCard
           title="Avg city clock by month (intake → approval)"
+          titleSlot={chartTip('cityClockByMonth')}
           testId="trends-chart-clock"
           empty={timeSeries.length === 0 && !cmpTimeSeries?.length}
           emptyLabel="No approved permits in this window"
@@ -1174,6 +1235,7 @@ function TrendsBody({ permits, projects, catalogTypes }: BodyProps) {
         )}
         <ChartCard
           title="Where's time going? City review vs team turnaround per cycle"
+          titleSlot={chartTip('cycleSplit')}
           testId="trends-chart-citytm"
           empty={cycleChartsUnion.length === 0}
           emptyLabel="No multi-cycle permits in this window"
@@ -1253,6 +1315,7 @@ function TrendsBody({ permits, projects, catalogTypes }: BodyProps) {
         )}
         <ChartCard
           title="Avg city review by cycle"
+          titleSlot={chartTip('cityReviewByCycle')}
           subtitle="Avg days per review cycle — surfaces cycle-specific slowdowns"
           testId="trends-chart-cityreview-by-cycle"
           empty={cityReviewByCycleCurrent.every((r) => r.avgDays === null)}
@@ -1329,6 +1392,7 @@ function TrendsBody({ permits, projects, catalogTypes }: BodyProps) {
         )}
         <ChartCard
           title="Avg team response by cycle"
+          titleSlot={chartTip('responseByCycle')}
           subtitle="Avg days per review cycle — surfaces cycle-specific slowdowns"
           testId="trends-chart-response-by-cycle"
           empty={responseByCycleCurrent.every((r) => r.avgDays === null)}
@@ -1804,7 +1868,8 @@ function TrendChartCard({
   comparisonSeries,
   currentLabel,
   comparisonLabel,
-}: TrendChartCardProps) {
+  titleSlot,
+}: TrendChartCardProps & { titleSlot?: React.ReactNode }) {
   const hasComparison = Boolean(comparisonSeries);
   const chartData = series.map((p, i) => {
     const row: Record<string, string | number | null> = {
@@ -1840,7 +1905,7 @@ function TrendChartCard({
       data-testid={testId}
     >
       <div className="mb-3 text-[11px] font-extrabold text-text uppercase tracking-wider">
-        {title}
+        {titleSlot ?? title}
         {subtitle && (
           <span className="ml-2 text-[9px] font-normal text-dim normal-case tracking-normal">
             {subtitle}
@@ -2235,6 +2300,10 @@ function KpiTile({
   comparisonLabel,
   comparisonValueText,
   direction,
+  currentRangeLabel,
+  comparisonRangeLabel,
+  comparisonModeLabel,
+  labelSlot,
 }: {
   label: string;
   value: string;
@@ -2251,8 +2320,22 @@ function KpiTile({
   comparisonValueText?: string;
   /** Sign-color semantic for the delta arrow + percentage. */
   direction?: ComparisonDirection;
+  /** fix-129-b: split-view inputs. When both range labels are present
+   *  AND comparison is active, the tile renders the side-by-side split
+   *  layout (KpiSplitView) instead of the legacy ComparisonRow. */
+  currentRangeLabel?: string;
+  comparisonRangeLabel?: string;
+  /** fix-129-b: short comparison mode tag ("vs prev period") shown in
+   *  the split's delta strip. */
+  comparisonModeLabel?: string;
+  /** fix-129-b: optional title-row slot (e.g., a MetricInfoTooltip
+   *  wrapping the label). Rendered in place of the plain label text
+   *  when provided. */
+  labelSlot?: React.ReactNode;
 }) {
   const showComparison = Boolean(comparisonLabel);
+  const useSplit =
+    showComparison && !!currentRangeLabel && !!comparisonRangeLabel;
   return (
     <div
       className="p-3 rounded-lg border"
@@ -2264,21 +2347,43 @@ function KpiTile({
       title={tileTitle}
     >
       <div className="text-[9px] uppercase tracking-wide text-dim font-display font-bold">
-        {label}
+        {labelSlot ?? label}
       </div>
-      <div className="mt-1 text-xl font-extrabold text-text">{value}</div>
-      {sub && (
-        <div className="mt-0.5 text-[10px] text-muted">{sub}</div>
-      )}
-      {showComparison && (
-        <ComparisonRow
-          testId={testId ? `${testId}-cmp` : undefined}
-          comparisonLabel={comparisonLabel}
-          comparisonValueText={comparisonValueText}
+      {useSplit ? (
+        <KpiSplitView
+          currentRangeLabel={currentRangeLabel}
+          comparisonRangeLabel={comparisonRangeLabel}
+          currentValueText={value}
+          comparisonValueText={comparisonValueText ?? '—'}
           currentNumeric={currentNumeric ?? null}
           comparisonNumeric={comparisonNumeric ?? null}
           direction={direction}
+          comparisonModeLabel={comparisonModeLabel}
+          testId={testId ? `${testId}-split` : undefined}
         />
+      ) : (
+        <>
+          <div className="mt-1 text-xl font-extrabold text-text">{value}</div>
+          {sub && (
+            <div className="mt-0.5 text-[10px] text-muted">{sub}</div>
+          )}
+          {showComparison && (
+            <ComparisonRow
+              testId={testId ? `${testId}-cmp` : undefined}
+              comparisonLabel={comparisonLabel}
+              comparisonValueText={comparisonValueText}
+              currentNumeric={currentNumeric ?? null}
+              comparisonNumeric={comparisonNumeric ?? null}
+              direction={direction}
+            />
+          )}
+        </>
+      )}
+      {/* fix-129-b: when split renders, keep the sub text below the
+          split so the "n samples" / "n=M" context stays attached to the
+          headline value. */}
+      {useSplit && sub && (
+        <div className="mt-1 text-[10px] text-muted">{sub}</div>
       )}
     </div>
   );
@@ -2291,6 +2396,7 @@ function ChartCard({
   empty,
   emptyLabel,
   testId,
+  titleSlot,
 }: {
   title: string;
   /** fix-125: optional dim subtitle rendered under the title. Used by
@@ -2302,6 +2408,10 @@ function ChartCard({
   empty: boolean;
   emptyLabel: string;
   testId?: string;
+  /** fix-129-c: optional pre-rendered title node (e.g., a
+   *  MetricInfoTooltip wrapping the title). Renders in place of the
+   *  plain title text when present. */
+  titleSlot?: React.ReactNode;
 }) {
   return (
     <div
@@ -2313,7 +2423,7 @@ function ChartCard({
       data-testid={testId}
     >
       <div className="text-[11px] font-display font-bold text-text">
-        {title}
+        {titleSlot ?? title}
       </div>
       {subtitle && (
         <div className="text-[10px] text-dim mb-2">{subtitle}</div>
@@ -2327,6 +2437,35 @@ function ChartCard({
         children
       )}
     </div>
+  );
+}
+
+// fix-129-c: factories for KPI tile + chart-title tooltip wrapping. The
+// labelSlot / titleSlot props on KpiTile + ChartCard accept any node;
+// these helpers stamp out the MetricInfoTooltip with the right label +
+// formula + cohort from the metricDefinitions library.
+function kpiTip(slug: keyof typeof TRENDS_KPI_METRICS) {
+  const def = TRENDS_KPI_METRICS[slug];
+  return (
+    <MetricInfoTooltip
+      label={def.label}
+      description={def.description}
+      formula={def.formula}
+      cohort={def.cohort}
+      slug={`trends-${slug}`}
+    />
+  );
+}
+function chartTip(slug: keyof typeof TRENDS_CHART_METRICS) {
+  const def = TRENDS_CHART_METRICS[slug];
+  return (
+    <MetricInfoTooltip
+      label={def.label}
+      description={def.description}
+      formula={def.formula}
+      cohort={def.cohort}
+      slug={`chart-${slug}`}
+    />
   );
 }
 

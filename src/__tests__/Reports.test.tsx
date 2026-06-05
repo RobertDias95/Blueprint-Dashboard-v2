@@ -670,16 +670,26 @@ describe('<Reports /> Q7.2.b', () => {
     // fix-115-a snap: full month Apr → previous month March (NOT Mar 2 –
     // Apr 1 length-preserving). Comparison cohort: zero permits (neither
     // project's go_date lands in March).
+    //
+    // fix-129-b: the comparison treatment moved from a single ComparisonRow
+    // (testid metric-X-cmp) to the horizontal KpiSplitView (testid
+    // metric-X-split with -current / -comparison / -delta cells).
     const tile = screen.getByTestId('metric-total-permits');
     expect(tile.textContent).toMatch(/1/); // current cohort has 1 permit
-    const cmpRow = screen.getByTestId('metric-total-permits-cmp');
-    expect(cmpRow.textContent).toMatch(/vs 0/);
-    expect(cmpRow.textContent).toMatch(/↑/);
-    expect(cmpRow.textContent).toMatch(/\+1/);
-    // Range label is the snapped March 2026 boundary.
-    expect(cmpRow.textContent).toMatch(/vs prev period \(2026-03-01 . 2026-03-31\)/);
+    const split = screen.getByTestId('metric-total-permits-split');
+    expect(split).toBeInTheDocument();
+    // Comparison cell carries the prior-period value (0) and its range label.
+    expect(
+      screen.getByTestId('metric-total-permits-split-comparison').textContent,
+    ).toMatch(/0/);
+    expect(
+      screen.getByTestId('metric-total-permits-split-comparison').textContent,
+    ).toContain('2026-03-01 – 2026-03-31');
+    const deltaSpan = screen.getByTestId('metric-total-permits-split-delta');
+    expect(deltaSpan.textContent).toMatch(/↑/);
+    expect(deltaSpan.textContent).toMatch(/\+1/);
+    expect(deltaSpan.textContent).toMatch(/vs prev period/);
     // Direction='higher_better' + positive delta → green.
-    const deltaSpan = screen.getByTestId('metric-total-permits-cmp-delta');
     expect(deltaSpan.getAttribute('style')).toMatch(/color: var\(--color-pm\)/);
   });
 
@@ -699,10 +709,12 @@ describe('<Reports /> Q7.2.b', () => {
     });
     // Apr 2025: neither fixture project has go_date in 2025. cmpMetrics
     // is non-null (computeMetrics on empty array) but City Review = null
-    // → ComparisonRow renders the "no comparison data" affordance.
-    const cmpRow = screen.getByTestId('metric-city-review-cmp');
-    expect(cmpRow.textContent).toMatch(/no comparison data/i);
-    expect(cmpRow.textContent).toMatch(/vs prev year/);
+    // → KpiSplitView delta strip renders "no comparison data" (the
+    // affordance moved from ComparisonRow to KpiSplitView in fix-129-b).
+    const delta = screen.getByTestId('metric-city-review-split-delta');
+    expect(delta.textContent).toMatch(/no comparison data/i);
+    // The mode tag still surfaces "vs prev year" on the delta strip.
+    expect(delta.textContent).toMatch(/vs prev year/);
   });
 
   it('fix-115-c: comparison is wired on numeric MetricCards but skipped on ScheduleBenchmarks / ReportTable / chart cards', () => {
@@ -719,8 +731,9 @@ describe('<Reports /> Q7.2.b', () => {
     fireEvent.change(screen.getByTestId('filter-compare'), {
       target: { value: 'previous_period' },
     });
-    // Wired (assert presence on at least one numeric card).
-    expect(screen.getByTestId('metric-total-permits-cmp')).toBeInTheDocument();
+    // Wired (assert presence on at least one numeric card). fix-129-b
+    // moved the comparison rendering from -cmp to -split.
+    expect(screen.getByTestId('metric-total-permits-split')).toBeInTheDocument();
     // Skipped surfaces — no -cmp testid on charts, benchmarks, or the table.
     expect(screen.queryByTestId('chart-permits-by-type-cmp')).toBeNull();
     expect(screen.queryByTestId('chart-permits-by-juris-cmp')).toBeNull();
@@ -820,6 +833,81 @@ describe('<Reports /> Q7.2.b', () => {
           screen.getByTestId(`reports-preset-${preset}`).getAttribute('data-active'),
         ).toBe('false');
       }
+    });
+  });
+
+  // fix-129-c: every MetricCard label + BarChartCard title is wrapped
+  // in a MetricInfoTooltip with the right slug. The slugs come from
+  // metricDefinitions.ts. Iterate the expected slugs from the same
+  // source so adding a new metric there triggers the per-row pin
+  // automatically.
+  describe('fix-129-c MetricInfoTooltip wiring', () => {
+    const reportsSlugs = [
+      'totalPermits',
+      'submitVariance',
+      'avgGoToSubmit',
+      'avgCityReview',
+      'avgCorrectionCycles',
+      'inCorrections',
+      'avgScheduleVariance',
+    ];
+    it.each(reportsSlugs)('MetricCard "%s" has a tooltip trigger', (slug) => {
+      renderIt();
+      expect(
+        screen.getByTestId(`metric-tooltip-trigger-reports-${slug}`),
+      ).toBeInTheDocument();
+    });
+
+    const barSlugs = [
+      'permitsByType',
+      'permitsByJuris',
+      'goToSubmitByType',
+      'scheduleVarianceByType',
+      'cityReviewByJuris',
+      'corrResponseByType',
+    ];
+    it.each(barSlugs)('BarChartCard "%s" has a tooltip trigger', (slug) => {
+      renderIt();
+      expect(
+        screen.getByTestId(`metric-tooltip-trigger-bar-${slug}`),
+      ).toBeInTheDocument();
+    });
+  });
+
+  // fix-129-b: horizontal comparison split on the MetricCards. When the
+  // user picks a comparison mode AND a date range, the cards swap from
+  // the legacy ComparisonRow path to the side-by-side KpiSplitView.
+  describe('fix-129-b horizontal split on comparison-active MetricCards', () => {
+    function setRangeAndCompare() {
+      renderIt();
+      fireEvent.change(screen.getByTestId('filter-range'), {
+        target: { value: 'custom' },
+      });
+      fireEvent.change(screen.getByTestId('filter-date-from'), {
+        target: { value: '2026-04-01' },
+      });
+      fireEvent.change(screen.getByTestId('filter-date-to'), {
+        target: { value: '2026-04-30' },
+      });
+      fireEvent.change(screen.getByTestId('filter-compare'), {
+        target: { value: 'previous_period' },
+      });
+    }
+    it('Total Permits card renders KpiSplitView cells with date ranges', () => {
+      setRangeAndCompare();
+      const split = screen.getByTestId('metric-total-permits-split');
+      expect(split).toBeInTheDocument();
+      expect(
+        screen.getByTestId('metric-total-permits-split-current'),
+      ).toBeInTheDocument();
+      expect(
+        screen.getByTestId('metric-total-permits-split-comparison'),
+      ).toBeInTheDocument();
+    });
+    it('legacy ComparisonRow no longer renders on cards that use split', () => {
+      setRangeAndCompare();
+      // The split branch is taken — no -cmp suffix from ComparisonRow.
+      expect(screen.queryByTestId('metric-total-permits-cmp')).toBeNull();
     });
   });
 });

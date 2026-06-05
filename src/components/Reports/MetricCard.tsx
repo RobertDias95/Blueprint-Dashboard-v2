@@ -3,11 +3,20 @@
 // with a unit) + small label above + optional sub-text below.
 //
 // fix-115-c: optional period-comparison row under the subText, using the
-// shared ComparisonRow renderer. Caller passes raw numerics + a direction;
-// the card renders the delta only when both `currentNumeric` and
-// `comparisonLabel` are present. When `comparisonNumeric` is null the row
-// surfaces "no comparison data · {label}" instead of a misleading delta.
+// shared ComparisonRow renderer.
+//
+// fix-129-b: when comparison is active AND a range label pair is
+// supplied, the value row swaps to a side-by-side split (current on
+// left, comparison on right, equal weight, delta strip below) rendered
+// by KpiSplitView. Bobby's complaint: "we draw a little line and it's
+// not the most clear." The split uses the otherwise-wasted right side
+// of the card and gives both numbers equal visual weight. The legacy
+// ComparisonRow path remains for callers that don't pass the range
+// labels (e.g., the In Corrections card whose `comparisonLabel` is the
+// range stamp but doesn't carry separate current/comparison range
+// labels).
 
+import KpiSplitView from '../shared/KpiSplitView';
 import {
   ComparisonRow,
   type ComparisonDirection,
@@ -52,6 +61,19 @@ interface Props {
   comparisonLabel?: string;
   /** Sign-color semantic for the delta. */
   comparisonDirection?: ComparisonDirection;
+  /** fix-129-b: optional split-view inputs. When all three are present
+   *  AND comparison is active, the card renders the horizontal split
+   *  layout (KpiSplitView). Otherwise it falls through to the legacy
+   *  ComparisonRow underneath the existing big-value row. */
+  currentRangeLabel?: string;
+  comparisonRangeLabel?: string;
+  /** fix-129-b: optional title-row slot (e.g., a MetricInfoTooltip
+   *  wrapping the label). Rendered in place of the plain label text
+   *  when provided. */
+  labelSlot?: React.ReactNode;
+  /** fix-129-b: short comparison mode tag ("vs prev period") shown in
+   *  the split's delta strip. Omit to skip the suffix. */
+  comparisonModeLabel?: string;
 }
 
 export default function MetricCard({
@@ -66,40 +88,78 @@ export default function MetricCard({
   comparisonValueText,
   comparisonLabel,
   comparisonDirection,
+  currentRangeLabel,
+  comparisonRangeLabel,
+  labelSlot,
+  comparisonModeLabel,
 }: Props) {
   const showComparison = Boolean(comparisonLabel);
+  // fix-129-b: switch to split-view when comparison is active AND the
+  // caller supplied a range pair. The legacy ComparisonRow remains for
+  // cards whose subText already carries n/total formatting (e.g.,
+  // In Corrections' "12 of 47 issued") that doesn't split cleanly.
+  const useSplit =
+    showComparison && !!currentRangeLabel && !!comparisonRangeLabel;
   return (
     <div
       className="bg-surface border border-border rounded-lg px-4 py-3 flex flex-col gap-1"
       data-testid={testId}
     >
       <div className="text-[9px] uppercase tracking-wide text-dim font-display font-bold">
-        {label}
+        {labelSlot ?? label}
       </div>
-      <div className="flex items-baseline gap-0.5">
-        <span
-          className={`text-2xl font-display font-extrabold ${TONE_CLASS[tone]}`}
-        >
-          {value}
-        </span>
-        {unit && (
-          <span className="text-sm font-display font-normal text-muted">
-            {unit}
-          </span>
-        )}
-      </div>
-      {subText && (
-        <div className="text-[10px] text-muted truncate">{subText}</div>
-      )}
-      {showComparison && (
-        <ComparisonRow
-          testId={testId ? `${testId}-cmp` : undefined}
-          comparisonLabel={comparisonLabel}
-          comparisonValueText={comparisonValueText}
+      {useSplit ? (
+        <KpiSplitView
+          currentRangeLabel={currentRangeLabel}
+          comparisonRangeLabel={comparisonRangeLabel}
+          currentValueText={`${value}${unit ?? ''}`}
+          comparisonValueText={`${comparisonValueText ?? comparisonNumeric ?? '—'}${
+            // Don't double-suffix when comparisonValueText already
+            // includes the unit (e.g., callers pass "67%" verbatim).
+            comparisonValueText && /[a-zA-Z%]$/.test(comparisonValueText)
+              ? ''
+              : unit ?? ''
+          }`}
           currentNumeric={currentNumeric ?? null}
           comparisonNumeric={comparisonNumeric ?? null}
           direction={comparisonDirection}
+          comparisonModeLabel={comparisonModeLabel}
+          testId={testId ? `${testId}-split` : undefined}
         />
+      ) : (
+        <>
+          <div className="flex items-baseline gap-0.5">
+            <span
+              className={`text-2xl font-display font-extrabold ${TONE_CLASS[tone]}`}
+            >
+              {value}
+            </span>
+            {unit && (
+              <span className="text-sm font-display font-normal text-muted">
+                {unit}
+              </span>
+            )}
+          </div>
+          {subText && (
+            <div className="text-[10px] text-muted truncate">{subText}</div>
+          )}
+          {showComparison && (
+            <ComparisonRow
+              testId={testId ? `${testId}-cmp` : undefined}
+              comparisonLabel={comparisonLabel}
+              comparisonValueText={comparisonValueText}
+              currentNumeric={currentNumeric ?? null}
+              comparisonNumeric={comparisonNumeric ?? null}
+              direction={comparisonDirection}
+            />
+          )}
+        </>
+      )}
+      {/* fix-129-b: when split-view renders, the subText still sits
+          below the split rather than being hidden — keeps the "{n} units"
+          / "{n} of {n} issued" context attached to the headline. */}
+      {useSplit && subText && (
+        <div className="text-[10px] text-muted truncate mt-1">{subText}</div>
       )}
     </div>
   );

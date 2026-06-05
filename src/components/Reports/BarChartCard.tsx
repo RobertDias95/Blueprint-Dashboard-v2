@@ -28,6 +28,10 @@ interface Props {
   testId?: string;
   /** Empty-state message; defaults to "No data". */
   emptyState?: string;
+  /** fix-129-c: optional pre-rendered title node (e.g., a
+   *  MetricInfoTooltip wrapping the title). Renders in place of the
+   *  plain title text when present. */
+  titleSlot?: React.ReactNode;
 }
 
 export default function BarChartCard({
@@ -38,6 +42,7 @@ export default function BarChartCard({
   showAverage = true,
   testId,
   emptyState = 'No data',
+  titleSlot,
 }: Props) {
   const colorValue = CHART_COLORS[color];
   const avg =
@@ -51,7 +56,7 @@ export default function BarChartCard({
       data-testid={testId}
     >
       <div className="text-[10px] uppercase tracking-wide text-muted font-display font-bold">
-        {title}
+        {titleSlot ?? title}
       </div>
 
       {data.length === 0 ? (

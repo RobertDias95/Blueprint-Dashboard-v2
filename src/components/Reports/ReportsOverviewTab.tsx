@@ -17,6 +17,8 @@ import { SkeletonRows } from '../Skeleton';
 import QueryError from '../QueryError';
 import ReportFilterBar from './ReportFilterBar';
 import MetricCards from './MetricCards';
+import MetricInfoTooltip from '../shared/MetricInfoTooltip';
+import { REPORTS_BARCHART_METRICS } from '../../lib/metricDefinitions';
 import ComparePresetChips from '../shared/ComparePresetChips';
 import BarChartCard from './BarChartCard';
 import ReportTable from './ReportTable';
@@ -32,6 +34,22 @@ import type { PermitWithCycles, Project } from '../../lib/database.types';
 // pages/Reports.tsx body. Reports.tsx is now a sub-tab shell that renders
 // this under the "Overview" tab and <Trends /> under the "Trends" tab. The
 // content (charts / filter bar / CSV) is unchanged — it just moved here.
+
+// fix-129-c: factory for BarChartCard titleSlot tooltips. Each definition
+// lives in REPORTS_BARCHART_METRICS keyed by slug; the factory builds the
+// MetricInfoTooltip with the right label + formula + cohort + slug.
+function barTip(slug: keyof typeof REPORTS_BARCHART_METRICS) {
+  const def = REPORTS_BARCHART_METRICS[slug];
+  return (
+    <MetricInfoTooltip
+      label={def.label}
+      description={def.description}
+      formula={def.formula}
+      cohort={def.cohort}
+      slug={`bar-${slug}`}
+    />
+  );
+}
 
 const DEFAULT_FILTERS: ReportFilters = {
   types: new Set(),
@@ -313,11 +331,39 @@ function Body({
         metrics={metrics}
         comparisonMetrics={comparisonMetrics}
         comparisonLabel={comparisonLabel}
+        // fix-129-b: thread the resolved current + comparison ranges so
+        // MetricCard can render KpiSplitView when comparison is active.
+        currentRangeLabel={
+          filters.dateFrom && filters.dateTo
+            ? filters.dateFrom === filters.dateTo
+              ? filters.dateFrom
+              : `${filters.dateFrom} – ${filters.dateTo}`
+            : undefined
+        }
+        comparisonRangeLabel={
+          comparisonRange
+            ? comparisonRange.from === comparisonRange.to
+              ? comparisonRange.from
+              : `${comparisonRange.from} – ${comparisonRange.to}`
+            : undefined
+        }
+        comparisonModeLabel={
+          filters.compareTo === 'previous_period'
+            ? 'vs prev period'
+            : filters.compareTo === 'previous_year'
+              ? 'vs prev year'
+              : undefined
+        }
       />
 
+      {/* fix-129-c: each BarChartCard's title is wrapped in a
+          MetricInfoTooltip so the formula + cohort gate are one hover
+          away. The tip(...) factory pulls from metricDefinitions and
+          flows through the titleSlot prop. */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
         <BarChartCard
           title="Permits by Type"
+          titleSlot={barTip('permitsByType')}
           data={permitsByType}
           color="jv"
           showAverage={false}
@@ -325,6 +371,7 @@ function Body({
         />
         <BarChartCard
           title="Permits by Jurisdiction"
+          titleSlot={barTip('permitsByJuris')}
           data={permitsByJuris}
           color="is"
           showAverage={false}
@@ -332,6 +379,7 @@ function Body({
         />
         <BarChartCard
           title="GO → Submit (avg days by type)"
+          titleSlot={barTip('goToSubmitByType')}
           data={goToSubmitByType}
           color="de"
           unit="d"
@@ -339,6 +387,7 @@ function Body({
         />
         <BarChartCard
           title="Schedule Variance by Type (avg days off)"
+          titleSlot={barTip('scheduleVarianceByType')}
           data={scheduleVarianceByType}
           color="co"
           unit="d"
@@ -347,6 +396,7 @@ function Body({
         />
         <BarChartCard
           title="City Review by Jurisdiction (avg days)"
+          titleSlot={barTip('cityReviewByJuris')}
           data={cityReviewByJuris}
           color="pm"
           unit="d"
@@ -355,6 +405,7 @@ function Body({
         />
         <BarChartCard
           title="Correction Response by Type (avg days)"
+          titleSlot={barTip('corrResponseByType')}
           data={corrResponseByType}
           color="overdue"
           unit="d"

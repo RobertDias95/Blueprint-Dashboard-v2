@@ -373,20 +373,28 @@ describe('Trends — fix-25-feat-V submit→intake surface', () => {
     render(<Trends />, { wrapper });
 
     // Approved-permits tile renders both numbers + the delta.
+    //
+    // fix-129-b: the comparison rendering moved from ComparisonRow
+    // (testid trends-kpi-X-cmp) to KpiSplitView (testid
+    // trends-kpi-X-split with -current / -comparison / -delta cells).
     const tile = screen.getByTestId('trends-kpi-total');
     expect(tile.textContent).toMatch(/^.*1/); // current value = 1
-    const cmpRow = screen.getByTestId('trends-kpi-total-cmp');
-    expect(cmpRow.textContent).toContain('vs 2'); // comparison value
-    expect(cmpRow.textContent).toMatch(/↓ -1/); // delta = -1 with arrow
-
+    const split = screen.getByTestId('trends-kpi-total-split');
+    expect(split).toBeInTheDocument();
+    // Comparison cell carries the prior value (2) + its range label.
+    expect(
+      screen.getByTestId('trends-kpi-total-split-comparison').textContent,
+    ).toContain('2');
+    expect(
+      screen.getByTestId('trends-kpi-total-split-comparison').textContent,
+    ).toContain('2026-05-01 – 2026-05-31');
+    // Delta strip: -1 with the down arrow.
+    const deltaSpan = screen.getByTestId('trends-kpi-total-split-delta');
+    expect(deltaSpan.textContent).toMatch(/↓/);
+    expect(deltaSpan.textContent).toMatch(/-1/);
+    expect(deltaSpan.textContent).toMatch(/vs prev period/);
     // Direction='higher_better' + negative delta → red color on the delta line.
-    const deltaSpan = screen.getByTestId('trends-kpi-total-cmp-delta');
     expect(deltaSpan.getAttribute('style')).toMatch(/color: var\(--color-co\)/);
-
-    // Comparison label names the resolved range. fix-115-a: the full-month
-    // detector snaps Jun 1 – Jun 30 to May 1 – May 31 (calendar-aligned)
-    // instead of the pre-fix-115 length-preserving May 2 – May 31 drift.
-    expect(cmpRow.textContent).toMatch(/vs prev period \(2026-05-01 . 2026-05-31\)/);
   });
 
   it('fix-114: previous_year with no permits in prior period renders "no comparison data"', () => {
@@ -413,10 +421,12 @@ describe('Trends — fix-25-feat-V submit→intake surface', () => {
     render(<Trends />, { wrapper });
 
     // The city-clock tile has a real current value (permit 2 contributes)
-    // but the prior-year window is empty → "no comparison data".
-    const cmpRow = screen.getByTestId('trends-kpi-clock-cmp');
-    expect(cmpRow.textContent).toMatch(/no comparison data/i);
-    expect(cmpRow.textContent).toMatch(/vs prev year/);
+    // but the prior-year window is empty → "no comparison data" on the
+    // KpiSplitView delta strip (fix-129-b moved the affordance from
+    // ComparisonRow to KpiSplitView's delta line).
+    const delta = screen.getByTestId('trends-kpi-clock-split-delta');
+    expect(delta.textContent).toMatch(/no comparison data/i);
+    expect(delta.textContent).toMatch(/vs prev year/);
   });
 
   it('fix-114: higher_better + positive delta colors GREEN (--color-pm)', () => {
@@ -441,7 +451,8 @@ describe('Trends — fix-25-feat-V submit→intake surface', () => {
       </QueryClientProvider>
     );
     render(<Trends />, { wrapper });
-    const delta = screen.getByTestId('trends-kpi-total-cmp-delta');
+    // fix-129-b: delta lives on the split's -delta cell now.
+    const delta = screen.getByTestId('trends-kpi-total-split-delta');
     expect(delta.textContent).toMatch(/↑/);
     expect(delta.textContent).toMatch(/\+2/);
     expect(delta.getAttribute('style')).toMatch(/color: var\(--color-pm\)/);
@@ -926,6 +937,44 @@ describe('Trends — fix-25-feat-V submit→intake surface', () => {
       expect(cr.textContent).toMatch(/No multi-cycle review data/i);
       const resp = screen.getByTestId('trends-chart-response-by-cycle');
       expect(resp.textContent).toMatch(/No correction response data/i);
+    });
+  });
+
+  // fix-129-c: every KPI tile + chart title is wrapped in a
+  // MetricInfoTooltip. The trigger testids come from metricDefinitions
+  // via the kpiTip / chartTip factories. Surfacing them as a single
+  // it.each so adding a new metric to the library auto-pins the
+  // wiring.
+  describe('fix-129-c MetricInfoTooltip wiring (Trends)', () => {
+    const kpiSlugs = [
+      'approvedInWindow',
+      'avgSubmitToIntakeDelay',
+      'avgCityClock',
+      'avgCyclesPerPermit',
+      'targetSubmitHitRate',
+    ];
+    it.each(kpiSlugs)('KpiTile "%s" has a tooltip trigger', (slug) => {
+      renderTrends();
+      expect(
+        screen.getByTestId(`metric-tooltip-trigger-trends-${slug}`),
+      ).toBeInTheDocument();
+    });
+
+    const chartSlugs = [
+      'cityClockByMonth',
+      'cycleSplit',
+      'cityReviewByCycle',
+      'responseByCycle',
+      'permitsSubmittedByMonth',
+      'permitsApprovedByMonth',
+      'permitTimelineByMonth',
+      'gosByMonth',
+    ];
+    it.each(chartSlugs)('ChartCard "%s" has a tooltip trigger', (slug) => {
+      renderTrends();
+      expect(
+        screen.getByTestId(`metric-tooltip-trigger-chart-${slug}`),
+      ).toBeInTheDocument();
     });
   });
 });
