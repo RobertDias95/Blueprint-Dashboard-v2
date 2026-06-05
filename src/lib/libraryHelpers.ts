@@ -27,6 +27,12 @@ export interface LibraryRow {
   /** fix-81: per-structure dims from projects.unit_types. Powers the
    * per-row caret expansion + the unit-width / unit-depth filters. */
   unitTypes: UnitType[];
+  /** fix-122: distinct-lots count, null when not entered. Surfaced as
+   *  a Library column + filter (apples-to-apples subdivision search). */
+  numLots: number | null;
+  /** fix-122: corner-lot flag. null = "not answered". Surfaced as a
+   *  Library column + Any/Yes/No filter. */
+  isCornerLot: boolean | null;
 }
 
 /** Q6.3.a-fix: target ± buffer filter. "50 ± 5" matches every value in
@@ -114,6 +120,9 @@ export function buildLibraryRows(
       tags: Array.isArray(proj.project_tags) ? proj.project_tags : [],
       stage: worstStage(projectPermits),
       unitTypes: Array.isArray(proj.unit_types) ? proj.unit_types : [],
+      numLots: proj.num_lots ?? null,
+      isCornerLot:
+        typeof proj.is_corner_lot === 'boolean' ? proj.is_corner_lot : null,
     });
   }
   return rows;
@@ -140,6 +149,16 @@ export interface LibraryFilters {
   productTypes: string[];
   tag: string;
   juris: string;
+  /** fix-122: exact-match Number of Lots filter. null = no filter; a
+   *  picked value (1-20) shows only projects whose num_lots equals
+   *  that number. Rows with NULL num_lots fall out when the filter is
+   *  active — matches the "show me 5-lot subdivisions" intent. */
+  numLots: number | null;
+  /** fix-122: tri-state Corner Lot filter. '' = no filter (Any);
+   *  'Yes' = only is_corner_lot === true; 'No' = only false.
+   *  Rows with NULL is_corner_lot fall out under Yes/No (no implicit
+   *  default — they're literally unanswered). */
+  isCornerLot: '' | 'Yes' | 'No';
 }
 
 /** fix-81: indices of unit_types on `row` that satisfy BOTH active unit
@@ -190,6 +209,14 @@ export function filterLibraryRows(
     }
     if (filters.tag && !r.tags.includes(filters.tag)) return false;
     if (filters.juris && r.juris !== filters.juris) return false;
+    // fix-122: exact-match num_lots — NULLs fall out when a value is
+    // picked. Bobby's "apples-to-apples subdivision" workflow.
+    if (filters.numLots !== null && r.numLots !== filters.numLots) {
+      return false;
+    }
+    // fix-122: tri-state Corner — Yes/No each require a non-null match.
+    if (filters.isCornerLot === 'Yes' && r.isCornerLot !== true) return false;
+    if (filters.isCornerLot === 'No' && r.isCornerLot !== false) return false;
     if (searchQ && !matchRowSearch(r, searchQ)) return false;
     return true;
   });
@@ -211,7 +238,9 @@ export type SortableColumn =
   | 'zone'
   | 'lotWidth'
   | 'alley'
-  | 'stage';
+  | 'stage'
+  | 'numLots'
+  | 'isCornerLot';
 
 export interface SortState {
   col: SortableColumn;
@@ -237,6 +266,34 @@ export function sortLibraryRows(
   }
   if (col === 'units' || col === 'lotWidth') {
     sorted.sort((a, b) => (a[col] - b[col]) * dir);
+    return sorted;
+  }
+  if (col === 'numLots') {
+    // NULL num_lots sort to the end regardless of direction so unfilled
+    // rows don't crowd the matching projects at the top of an "asc" view.
+    sorted.sort((a, b) => {
+      const an = a.numLots;
+      const bn = b.numLots;
+      if (an === null && bn === null) return 0;
+      if (an === null) return 1;
+      if (bn === null) return -1;
+      return (an - bn) * dir;
+    });
+    return sorted;
+  }
+  if (col === 'isCornerLot') {
+    // Tri-state sort: true < false < null. NULL last (same logic as
+    // numLots above — unanswered rows shouldn't dilute the result band).
+    const rank = (v: boolean | null) =>
+      v === true ? 0 : v === false ? 1 : 2;
+    sorted.sort((a, b) => {
+      const ra = rank(a.isCornerLot);
+      const rb = rank(b.isCornerLot);
+      if (ra === 2 && rb === 2) return 0;
+      if (ra === 2) return 1;
+      if (rb === 2) return -1;
+      return (ra - rb) * dir;
+    });
     return sorted;
   }
   if (col === 'productTypes') {
