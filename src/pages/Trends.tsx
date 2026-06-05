@@ -21,9 +21,11 @@ import {
   avgCyclesPerPermit,
   avgIntakeToApproval,
   breakdownByTypeAndJuris,
+  cityReviewByCycle,
   defaultDateRange,
   filterPermits,
   intakeToApprovalByMonth,
+  responseTimeByCycle,
   SPARSE_GATE,
   submissionToIntakeVariance,
   targetSubmitHitRate,
@@ -356,6 +358,50 @@ function TrendsBody({ permits, projects, catalogTypes }: BodyProps) {
         n: r.n,
       }));
   }, [cmpBreakdown]);
+
+  // fix-125: per-cycle breakdown (cycles 1-4) across the WHOLE filtered
+  // cohort, not per (juris × type) like cycleCharts above. Surfaces
+  // "we're slow at cycle 3 vs cycle 2" patterns that disappear in the
+  // per-type rollup. Two charts: city review days/cycle, team response
+  // days/cycle. Comparison cohort runs through the same helpers so the
+  // dashed bars overlay cleanly. Chart-ready rows carry both current
+  // and comparison values + their n's so the tooltip can disclose both.
+  const cityReviewByCycleCurrent = useMemo(
+    () => cityReviewByCycle(filteredCurrent),
+    [filteredCurrent],
+  );
+  const responseByCycleCurrent = useMemo(
+    () => responseTimeByCycle(filteredCurrent),
+    [filteredCurrent],
+  );
+  const cityReviewByCycleCmp = useMemo(
+    () => (filteredComparison ? cityReviewByCycle(filteredComparison) : null),
+    [filteredComparison],
+  );
+  const responseByCycleCmp = useMemo(
+    () => (filteredComparison ? responseTimeByCycle(filteredComparison) : null),
+    [filteredComparison],
+  );
+  const cityReviewByCycleData = useMemo(() => {
+    return cityReviewByCycleCurrent.map((row, i) => ({
+      label: `Cycle ${row.cycle}`,
+      days: row.avgDays ?? 0,
+      hasData: row.avgDays !== null,
+      n: row.n,
+      cmpDays: cityReviewByCycleCmp?.[i]?.avgDays ?? null,
+      cmpN: cityReviewByCycleCmp?.[i]?.n ?? null,
+    }));
+  }, [cityReviewByCycleCurrent, cityReviewByCycleCmp]);
+  const responseByCycleData = useMemo(() => {
+    return responseByCycleCurrent.map((row, i) => ({
+      label: `Cycle ${row.cycle}`,
+      days: row.avgDays ?? 0,
+      hasData: row.avgDays !== null,
+      n: row.n,
+      cmpDays: responseByCycleCmp?.[i]?.avgDays ?? null,
+      cmpN: responseByCycleCmp?.[i]?.n ?? null,
+    }));
+  }, [responseByCycleCurrent, responseByCycleCmp]);
 
   // Bucket-aligned merged data for the clock LineChart. Per fix-116's
   // policy, comparison values are re-indexed by bucket ORDER (not
@@ -1184,6 +1230,161 @@ function TrendsBody({ permits, projects, catalogTypes }: BodyProps) {
                     strokeWidth={1}
                   />
                 </>
+              )}
+            </BarChart>
+          </ResponsiveContainer>
+        </ChartCard>
+
+        {/* fix-125: per-cycle breakdown — avg city review days per
+            review cycle. Sits in the City performance section beside
+            the citytm chart but answers a different question: "which
+            cycle is slowing us down?" instead of "which type×juris is
+            slow?". */}
+        {cityReviewByCycleCmp && (
+          <ComparisonLegendStrip
+            chartKind="bar"
+            currentLabel={volumeCurrentRangeLabel}
+            comparisonLabel={volumeComparisonRangeLabel}
+            comparisonHasData={cityReviewByCycleCmp.some(
+              (r) => r.avgDays !== null,
+            )}
+            testId="trends-chart-cityreview-by-cycle-cmp-legend"
+          />
+        )}
+        <ChartCard
+          title="Avg city review by cycle"
+          subtitle="Avg days per review cycle — surfaces cycle-specific slowdowns"
+          testId="trends-chart-cityreview-by-cycle"
+          empty={cityReviewByCycleCurrent.every((r) => r.avgDays === null)}
+          emptyLabel="No multi-cycle review data in this window"
+        >
+          <ResponsiveContainer width="100%" height={240}>
+            <BarChart
+              data={cityReviewByCycleData}
+              margin={{ top: 10, right: 20, bottom: 20, left: 0 }}
+            >
+              <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" />
+              <XAxis
+                dataKey="label"
+                tick={{ fontSize: 10, fill: 'var(--color-dim)' }}
+              />
+              <YAxis
+                tick={{ fontSize: 10, fill: 'var(--color-dim)' }}
+                label={{
+                  value: 'avg days',
+                  angle: -90,
+                  position: 'insideLeft',
+                  style: { fontSize: 10, fill: 'var(--color-dim)' },
+                }}
+              />
+              <Tooltip
+                contentStyle={{
+                  background: 'var(--color-surface)',
+                  border: '1px solid var(--color-border)',
+                  fontSize: 11,
+                }}
+                formatter={(value, name, item) => {
+                  const payload = (
+                    item as { payload?: { n?: number; cmpN?: number } } | undefined
+                  )?.payload;
+                  if (name === 'cmpDays') {
+                    return [
+                      `${value}d · n=${payload?.cmpN ?? 0} samples`,
+                      'Prev city review',
+                    ];
+                  }
+                  return [
+                    `${value}d · n=${payload?.n ?? 0} samples`,
+                    'City review',
+                  ];
+                }}
+              />
+              <Bar dataKey="days" fill="var(--color-de)" />
+              {cityReviewByCycleCmp && (
+                <Bar
+                  dataKey="cmpDays"
+                  fill="var(--color-de)"
+                  fillOpacity={0.35}
+                  stroke="var(--color-de)"
+                  strokeDasharray="2 2"
+                  strokeWidth={1}
+                />
+              )}
+            </BarChart>
+          </ResponsiveContainer>
+        </ChartCard>
+
+        {/* fix-125: same shape for team response (corrections turnaround)
+            per cycle — the other half of "who's slow on which cycle?". */}
+        {responseByCycleCmp && (
+          <ComparisonLegendStrip
+            chartKind="bar"
+            currentLabel={volumeCurrentRangeLabel}
+            comparisonLabel={volumeComparisonRangeLabel}
+            comparisonHasData={responseByCycleCmp.some(
+              (r) => r.avgDays !== null,
+            )}
+            testId="trends-chart-response-by-cycle-cmp-legend"
+          />
+        )}
+        <ChartCard
+          title="Avg team response by cycle"
+          subtitle="Avg days per review cycle — surfaces cycle-specific slowdowns"
+          testId="trends-chart-response-by-cycle"
+          empty={responseByCycleCurrent.every((r) => r.avgDays === null)}
+          emptyLabel="No correction response data in this window"
+        >
+          <ResponsiveContainer width="100%" height={240}>
+            <BarChart
+              data={responseByCycleData}
+              margin={{ top: 10, right: 20, bottom: 20, left: 0 }}
+            >
+              <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" />
+              <XAxis
+                dataKey="label"
+                tick={{ fontSize: 10, fill: 'var(--color-dim)' }}
+              />
+              <YAxis
+                tick={{ fontSize: 10, fill: 'var(--color-dim)' }}
+                label={{
+                  value: 'avg days',
+                  angle: -90,
+                  position: 'insideLeft',
+                  style: { fontSize: 10, fill: 'var(--color-dim)' },
+                }}
+              />
+              <Tooltip
+                contentStyle={{
+                  background: 'var(--color-surface)',
+                  border: '1px solid var(--color-border)',
+                  fontSize: 11,
+                }}
+                formatter={(value, name, item) => {
+                  const payload = (
+                    item as { payload?: { n?: number; cmpN?: number } } | undefined
+                  )?.payload;
+                  if (name === 'cmpDays') {
+                    return [
+                      `${value}d · n=${payload?.cmpN ?? 0} samples`,
+                      'Prev team response',
+                    ];
+                  }
+                  return [
+                    `${value}d · n=${payload?.n ?? 0} samples`,
+                    'Team response',
+                  ];
+                }}
+              />
+              <Bar dataKey="days" fill="var(--color-co)" />
+              {responseByCycleCmp && (
+                <Bar
+                  dataKey="cmpDays"
+                  fill="var(--color-co)"
+                  fillOpacity={0.35}
+                  stroke="var(--color-co)"
+                  strokeDasharray="2 2"
+                  strokeWidth={1}
+                />
               )}
             </BarChart>
           </ResponsiveContainer>
@@ -2085,12 +2286,18 @@ function KpiTile({
 
 function ChartCard({
   title,
+  subtitle,
   children,
   empty,
   emptyLabel,
   testId,
 }: {
   title: string;
+  /** fix-125: optional dim subtitle rendered under the title. Used by
+   *  the new per-cycle charts to explain what the bars represent
+   *  without crowding the title. Existing call sites that omit it
+   *  render exactly as before. */
+  subtitle?: string;
   children: React.ReactNode;
   empty: boolean;
   emptyLabel: string;
@@ -2105,9 +2312,13 @@ function ChartCard({
       }}
       data-testid={testId}
     >
-      <div className="text-[11px] font-display font-bold text-text mb-2">
+      <div className="text-[11px] font-display font-bold text-text">
         {title}
       </div>
+      {subtitle && (
+        <div className="text-[10px] text-dim mb-2">{subtitle}</div>
+      )}
+      {!subtitle && <div className="mb-2" />}
       {empty ? (
         <div className="h-40 flex items-center justify-center text-dim italic text-xs">
           {emptyLabel}
