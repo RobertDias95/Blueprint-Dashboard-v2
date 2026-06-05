@@ -7,6 +7,7 @@ import { SkeletonRows } from '../components/Skeleton';
 import QueryError from '../components/QueryError';
 import {
   computeTeamMetrics,
+  type TeamMemberMetrics,
   type TeamRoleSelection,
 } from '../lib/teamPerformance';
 
@@ -204,9 +205,146 @@ function Body({
         )}
       </div>
 
-      {/* 131-b: volume summary cards land here. */}
+      {associate && (
+        <>
+          <VolumeSummary associate={associate} />
+        </>
+      )}
       {/* 131-c: phase performance summary lands here. */}
       {/* 131-d: project list lands here. */}
+    </div>
+  );
+}
+
+// ============================================================
+// 131-b: volume summary — Originals row + (conditional) Redesigns row
+// ============================================================
+//
+// One card per volume metric. Mirrors the Reports/Overview MetricCards
+// visual register: small uppercase label + big value + optional
+// subtext. No KpiSplitView — single-cohort drill-down, no comparison
+// cohort to render side-by-side.
+
+function VolumeSummary({ associate }: { associate: TeamMemberMetrics }) {
+  const hasRedesigns =
+    associate.redesignProjectCount > 0 ||
+    associate.redesignUnitCount > 0 ||
+    associate.redesignLotCount > 0 ||
+    associate.redesignPermitCount > 0;
+
+  return (
+    <section className="space-y-3" data-testid="team-detail-volume">
+      <div className="text-[10px] uppercase tracking-wide text-dim font-display font-bold">
+        Originals
+      </div>
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <VolumeCard
+          label="Projects"
+          value={associate.projectCount}
+          subtext={
+            hasRedesigns
+              ? `+${associate.redesignProjectCount} redesigns = ${
+                  associate.projectCount + associate.redesignProjectCount
+                } total`
+              : undefined
+          }
+          testId="team-detail-volume-projects"
+        />
+        <VolumeCard
+          label="Units"
+          value={associate.unitCount}
+          subtext={
+            hasRedesigns
+              ? `+${associate.redesignUnitCount} redesign units = ${
+                  associate.unitCount + associate.redesignUnitCount
+                } total`
+              : undefined
+          }
+          testId="team-detail-volume-units"
+        />
+        <VolumeCard
+          label="Lots"
+          value={associate.lotCount}
+          subtext={
+            hasRedesigns
+              ? `+${associate.redesignLotCount} redesign lots = ${
+                  associate.lotCount + associate.redesignLotCount
+                } total`
+              : undefined
+          }
+          testId="team-detail-volume-lots"
+        />
+        <VolumeCard
+          label="Permits"
+          value={associate.permitCount}
+          subtext={
+            hasRedesigns
+              ? `+${associate.redesignPermitCount} redesign permits = ${
+                  associate.permitCount + associate.redesignPermitCount
+                } total`
+              : undefined
+          }
+          testId="team-detail-volume-permits"
+        />
+      </div>
+      {hasRedesigns && (
+        <>
+          <div className="text-[10px] uppercase tracking-wide text-dim font-display font-bold pt-2">
+            Redesigns
+          </div>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <VolumeCard
+              label="Redesign Projects"
+              value={associate.redesignProjectCount}
+              testId="team-detail-volume-redesign-projects"
+            />
+            <VolumeCard
+              label="Redesign Units"
+              value={associate.redesignUnitCount}
+              testId="team-detail-volume-redesign-units"
+            />
+            <VolumeCard
+              label="Redesign Lots"
+              value={associate.redesignLotCount}
+              testId="team-detail-volume-redesign-lots"
+            />
+            <VolumeCard
+              label="Redesign Permits"
+              value={associate.redesignPermitCount}
+              testId="team-detail-volume-redesign-permits"
+            />
+          </div>
+        </>
+      )}
+    </section>
+  );
+}
+
+function VolumeCard({
+  label,
+  value,
+  subtext,
+  testId,
+}: {
+  label: string;
+  value: number;
+  subtext?: string;
+  testId: string;
+}) {
+  return (
+    <div
+      className="bg-surface border border-border rounded-lg px-4 py-3 flex flex-col gap-1"
+      data-testid={testId}
+    >
+      <div className="text-[9px] uppercase tracking-wide text-dim font-display font-bold">
+        {label}
+      </div>
+      <div className="text-2xl font-display font-extrabold text-text">
+        {value}
+      </div>
+      {subtext && (
+        <div className="text-[10px] text-muted truncate">{subtext}</div>
+      )}
     </div>
   );
 }
