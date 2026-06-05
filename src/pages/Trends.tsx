@@ -61,6 +61,7 @@ import {
   ComparisonRow,
   type ComparisonDirection,
 } from '../components/shared/ComparisonRow';
+import ComparePresetChips from '../components/shared/ComparePresetChips';
 import type { PermitWithCycles, Project } from '../lib/database.types';
 
 // fix-25-feat-T → V → BB: Trends — operational performance + volume +
@@ -689,6 +690,23 @@ function TrendsBody({ permits, projects, catalogTypes }: BodyProps) {
   return (
     <div className="space-y-4" data-testid="trends-page">
       <div className="text-xl font-extrabold text-text">Trends</div>
+
+      {/* fix-124-b: one-click comparison presets above the filter row.
+          "This quarter vs last" went from 4 clicks → 1; the underlying
+          Range + Compare to controls below still own arbitrary slicing. */}
+      <ComparePresetChips
+        currentRange={
+          filters.dateRange.from && filters.dateRange.to
+            ? filters.dateRange
+            : null
+        }
+        compareTo={compareTo}
+        today={today}
+        onApply={(range, presetCompareTo) =>
+          setFilter({ dateRange: range, compareTo: presetCompareTo })
+        }
+        testIdPrefix="trends-preset"
+      />
 
       {/* Filter bar */}
       <div

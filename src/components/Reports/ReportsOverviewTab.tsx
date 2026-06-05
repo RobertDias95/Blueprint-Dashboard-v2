@@ -17,6 +17,7 @@ import { SkeletonRows } from '../Skeleton';
 import QueryError from '../QueryError';
 import ReportFilterBar from './ReportFilterBar';
 import MetricCards from './MetricCards';
+import ComparePresetChips from '../shared/ComparePresetChips';
 import BarChartCard from './BarChartCard';
 import ReportTable from './ReportTable';
 import ScheduleBenchmarks from './ScheduleBenchmarks';
@@ -270,6 +271,30 @@ function Body({
       {/* fix-68: the Saved Reports library moved to Settings -> Reporting
           (a tenant-owned category tree). The Reports tab is analytics-only
           now — Reports & Metrics + the Trends sub-tab. */}
+
+      {/* fix-124-b: one-click comparison presets above the filter bar.
+          Each click sets range='custom' + dateFrom/dateTo + compareTo
+          in one shot; the underlying ReportFilterBar controls below
+          still own arbitrary slicing. */}
+      <ComparePresetChips
+        currentRange={
+          filters.range === 'custom' && filters.dateFrom && filters.dateTo
+            ? { from: filters.dateFrom, to: filters.dateTo }
+            : null
+        }
+        compareTo={filters.compareTo}
+        today={today}
+        onApply={(range, presetCompareTo) =>
+          setFilters((prev) => ({
+            ...prev,
+            range: 'custom',
+            dateFrom: range.from,
+            dateTo: range.to,
+            compareTo: presetCompareTo,
+          }))
+        }
+        testIdPrefix="reports-preset"
+      />
 
       <ReportFilterBar
         filters={filters}
