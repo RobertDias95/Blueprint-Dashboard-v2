@@ -48,13 +48,30 @@ export default function MetricCards({
   metrics,
   comparisonMetrics,
   comparisonLabel,
+  currentRangeLabel,
+  comparisonRangeLabel,
+  comparisonModeLabel,
 }: {
   metrics: ReportMetrics;
   comparisonMetrics?: ReportMetrics | null;
   comparisonLabel?: string;
+  /** fix-129-b: when present (alongside comparisonRangeLabel), the
+   *  per-card render swaps to the KpiSplitView horizontal layout. */
+  currentRangeLabel?: string;
+  comparisonRangeLabel?: string;
+  comparisonModeLabel?: string;
 }) {
   const cmp = comparisonMetrics ?? null;
   const cmpLabel = comparisonLabel || undefined;
+  // fix-129-b: prop spreader for the split-layout inputs. Drops in on
+  // every card that should render the side-by-side split when comparison
+  // is active. Reads cleanly inline + keeps the rest of the per-card
+  // call site unchanged.
+  const splitProps = {
+    currentRangeLabel,
+    comparisonRangeLabel,
+    comparisonModeLabel,
+  };
   const variance = metrics.avgSubmitVariance;
   const varianceTone =
     variance === null
@@ -107,6 +124,7 @@ export default function MetricCards({
         comparisonValueText={cmp ? String(cmp.totalPermits) : undefined}
         comparisonLabel={cmpLabel}
         comparisonDirection="higher_better"
+        {...splitProps}
       />
 
       {/* 2. SUBMIT VARIANCE — only when we have data */}
@@ -128,6 +146,7 @@ export default function MetricCards({
           }
           comparisonLabel={cmpLabel}
           comparisonDirection="neutral"
+          {...splitProps}
         />
       )}
 
@@ -173,6 +192,7 @@ export default function MetricCards({
         }
         comparisonLabel={cmpLabel}
         comparisonDirection="lower_better"
+        {...splitProps}
       />
 
       {/* 6. AVG SUBMIT → INTAKE — conditional, color-coded */}
@@ -206,6 +226,7 @@ export default function MetricCards({
         }
         comparisonLabel={cmpLabel}
         comparisonDirection="lower_better"
+        {...splitProps}
       />
 
       {/* 8. IN CORRECTIONS — always shown.
@@ -228,6 +249,7 @@ export default function MetricCards({
         comparisonValueText={cmp ? String(cmp.inCorrections) : undefined}
         comparisonLabel={cmpLabel}
         comparisonDirection="lower_better"
+        {...splitProps}
       />
 
       {/* 9. AVG SCHEDULE VAR. — always shown (subtext switches by sign) */}

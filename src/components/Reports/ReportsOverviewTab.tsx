@@ -331,6 +331,29 @@ function Body({
         metrics={metrics}
         comparisonMetrics={comparisonMetrics}
         comparisonLabel={comparisonLabel}
+        // fix-129-b: thread the resolved current + comparison ranges so
+        // MetricCard can render KpiSplitView when comparison is active.
+        currentRangeLabel={
+          filters.dateFrom && filters.dateTo
+            ? filters.dateFrom === filters.dateTo
+              ? filters.dateFrom
+              : `${filters.dateFrom} – ${filters.dateTo}`
+            : undefined
+        }
+        comparisonRangeLabel={
+          comparisonRange
+            ? comparisonRange.from === comparisonRange.to
+              ? comparisonRange.from
+              : `${comparisonRange.from} – ${comparisonRange.to}`
+            : undefined
+        }
+        comparisonModeLabel={
+          filters.compareTo === 'previous_period'
+            ? 'vs prev period'
+            : filters.compareTo === 'previous_year'
+              ? 'vs prev year'
+              : undefined
+        }
       />
 
       {/* fix-129-c: each BarChartCard's title is wrapped in a

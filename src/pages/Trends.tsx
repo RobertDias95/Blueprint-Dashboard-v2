@@ -942,6 +942,15 @@ function TrendsBody({ permits, projects, catalogTypes }: BodyProps) {
               }
               comparisonLabel={cmpLabel || undefined}
               direction="higher_better"
+              currentRangeLabel={volumeCurrentRangeLabel || undefined}
+              comparisonRangeLabel={volumeComparisonRangeLabel || undefined}
+              comparisonModeLabel={
+                compareTo === 'previous_period'
+                  ? 'vs prev period'
+                  : compareTo === 'previous_year'
+                    ? 'vs prev year'
+                    : undefined
+              }
             />
             <KpiTile
               label="Avg submit → intake delay"
@@ -963,6 +972,15 @@ function TrendsBody({ permits, projects, catalogTypes }: BodyProps) {
               }
               comparisonLabel={cmpLabel || undefined}
               direction="lower_better"
+              currentRangeLabel={volumeCurrentRangeLabel || undefined}
+              comparisonRangeLabel={volumeComparisonRangeLabel || undefined}
+              comparisonModeLabel={
+                compareTo === 'previous_period'
+                  ? 'vs prev period'
+                  : compareTo === 'previous_year'
+                    ? 'vs prev year'
+                    : undefined
+              }
             />
             <KpiTile
               label="Avg city clock (intake → approval)"
@@ -976,6 +994,15 @@ function TrendsBody({ permits, projects, catalogTypes }: BodyProps) {
               }
               comparisonLabel={cmpLabel || undefined}
               direction="lower_better"
+              currentRangeLabel={volumeCurrentRangeLabel || undefined}
+              comparisonRangeLabel={volumeComparisonRangeLabel || undefined}
+              comparisonModeLabel={
+                compareTo === 'previous_period'
+                  ? 'vs prev period'
+                  : compareTo === 'previous_year'
+                    ? 'vs prev year'
+                    : undefined
+              }
             />
             <KpiTile
               label="Avg cycles per permit"
@@ -989,6 +1016,15 @@ function TrendsBody({ permits, projects, catalogTypes }: BodyProps) {
               }
               comparisonLabel={cmpLabel || undefined}
               direction="lower_better"
+              currentRangeLabel={volumeCurrentRangeLabel || undefined}
+              comparisonRangeLabel={volumeComparisonRangeLabel || undefined}
+              comparisonModeLabel={
+                compareTo === 'previous_period'
+                  ? 'vs prev period'
+                  : compareTo === 'previous_year'
+                    ? 'vs prev year'
+                    : undefined
+              }
             />
             <KpiTile
               label="Target submit hit rate"
@@ -1011,6 +1047,15 @@ function TrendsBody({ permits, projects, catalogTypes }: BodyProps) {
               }
               comparisonLabel={cmpLabel || undefined}
               direction="higher_better"
+              currentRangeLabel={volumeCurrentRangeLabel || undefined}
+              comparisonRangeLabel={volumeComparisonRangeLabel || undefined}
+              comparisonModeLabel={
+                compareTo === 'previous_period'
+                  ? 'vs prev period'
+                  : compareTo === 'previous_year'
+                    ? 'vs prev year'
+                    : undefined
+              }
             />
           </div>
         );
