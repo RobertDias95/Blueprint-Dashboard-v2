@@ -226,17 +226,14 @@ export default function Step3Permits({ value, onChange }: Props) {
     if (!bp || !bp.da) return;
     const bpDa = bp.da;
     const bpJuris = value.juris || '';
-    // Idempotency gate: if the cascade already fired for this exact
-    // (da, juris) pair, don't re-fire. This lets the effect re-run
-    // freely on identity-churning value.permits without hammering
-    // the RPC; the gate only opens when the user actually moves
-    // either input.
-    if (
-      lastDerivedRef.current?.da === bpDa &&
-      lastDerivedRef.current?.juris === bpJuris
-    ) {
-      return;
-    }
+    // fix-120-b: split the idempotency gate. Path A (BP.ent_lead is
+    // already known — fill empty non-BP siblings locally) needs to
+    // ALWAYS fire so that newly-added rows pick up the project's
+    // derived ENT default. cascade(..., overwriteBp=false) is
+    // idempotent over non-empty ent_lead cells, so re-firing on row-
+    // count changes is a no-op for existing rows but fills new ones.
+    // Path B (RPC fire to derive BP.ent_lead from BP.da) keeps the
+    // gate so the same (da, juris) pair doesn't re-issue the RPC.
     const bpRowId = bp.rowId;
     /** Patch the BP row + every non-BP permit with an empty ent_lead
      *  in a single onChange. Returning early when nothing would
@@ -267,18 +264,26 @@ export default function Step3Permits({ value, onChange }: Props) {
       if (changed) onChange({ permits: nextPermits });
     };
 
-    // fix-101-c Path A: BP.ent_lead is already set (e.g. a saved
+    // fix-120-b Path A: BP.ent_lead is already set (e.g. a saved
     // draft or a prior cascade round). Skip the RPC — just propagate
-    // the existing value to any empty non-BP siblings. Preserves the
-    // fix-96-c contract that says "no spurious lookup when ent_lead
-    // is filled" while still feeding new non-BP rows added later.
+    // the existing value to any empty non-BP siblings. Fires on every
+    // permits-list change (row added/removed) so newly-added rows
+    // pick up the project ENT default; idempotent on the second pass
+    // because cascade() returns early when no row needs the fill.
     if (bp.ent_lead) {
-      lastDerivedRef.current = { da: bpDa, juris: bpJuris };
       cascade(bp.ent_lead, false);
       return;
     }
 
     // Path B: BP.ent_lead empty — fire the lookup, then cascade.
+    // Gated by lastDerivedRef so the same (da, juris) pair doesn't
+    // re-issue the RPC on every render.
+    if (
+      lastDerivedRef.current?.da === bpDa &&
+      lastDerivedRef.current?.juris === bpJuris
+    ) {
+      return;
+    }
     lastDerivedRef.current = { da: bpDa, juris: bpJuris };
     void lookupEntLeadForDa(bpDa, value.juris || null)
       .then((routed) => {
@@ -292,14 +297,19 @@ export default function Step3Permits({ value, onChange }: Props) {
         // switches to a routed DA) re-fires the lookup.
         lastDerivedRef.current = null;
       });
-    // value.permits identity churns on every keystroke; the effect
-    // depends on (juris, bp.da) only, and the lastDerivedRef gates
-    // out duplicate fires when the effect re-runs for unrelated
-    // reasons. The BP's existence is implicit in bp.da's truthiness.
+    // fix-120-b: include permits.length so Path A re-fires when 120-c's
+    // + Add permit / × Remove buttons (or Step 2 toggles) change the row
+    // set. Newly-added rows have empty ent_lead, and Path A's cascade
+    // fills them in idempotently — second-pass renders no-op because no
+    // row qualifies for the fill anymore. value.permits identity churns
+    // on every keystroke; cycling rowIds doesn't materially change the
+    // cohort, so the length signal is the right granularity.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     value.juris,
     value.permits.find((p) => p.type === BUILDING_PERMIT && p.selected)?.da,
+    value.permits.find((p) => p.type === BUILDING_PERMIT && p.selected)?.ent_lead,
+    value.permits.length,
   ]);
 
   /** fix-91: DA pick → look up routed ent_lead via bp_ent_lead_for_da
