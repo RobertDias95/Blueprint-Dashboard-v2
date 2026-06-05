@@ -19,6 +19,11 @@ interface Props {
   entOptions: TeamMember[];
   /** Flat list of DA names from dm_da_groups (deduped). */
   daOptions: string[];
+  /** fix-130: permit type catalog (names from permit_types). Drives the
+   *  type <select> on each row — Bobby's spec calls for editable type
+   *  on every row, not just newly-added ones. The questionnaire is a
+   *  starting point, not a lock-in. */
+  typeOptions: string[];
   /** fix-96-b: DAs that have a routing row for the project's juris
    *  (specific match OR NULL-juris fallback). Unrouted DAs still
    *  appear in the dropdown but render disabled — selecting one
@@ -53,6 +58,7 @@ export default function PermitAssignmentRow({
   permit,
   entOptions,
   daOptions,
+  typeOptions,
   routedDas,
   derivedDm,
   daReadOnly,
@@ -89,17 +95,38 @@ export default function PermitAssignmentRow({
           ×
         </button>
       )}
-      <div className="flex flex-col gap-0.5">
+      <label className="flex flex-col gap-0.5">
         <span className="text-[9px] uppercase tracking-wide text-dim">
           Permit Type
         </span>
-        <span
-          className="text-xs font-display font-bold text-text px-2 py-1 rounded bg-s2 border border-border inline-block"
+        {/* fix-130: type is now a dropdown on every row. Each onChange
+            here cascades through Step3's updatePermit, which clears the
+            row's manuallyEdited.expected_issue/target_submit so the
+            applySeeding pass that follows re-seeds under the new type's
+            rule (sibling-inheritance first, formula fallback). Empty
+            string is the "user hasn't picked yet" sentinel — newly-added
+            rows start here and the placeholder option keeps it selected
+            until the user commits a type. */}
+        <select
+          value={permit.type}
+          onChange={(e) => onChange({ type: e.target.value })}
+          className="bg-surface border border-border rounded-md px-2 py-1 text-xs font-mono text-text focus:outline-none focus:border-de"
           data-testid={`wizard-perm-type-${permit.rowId}`}
         >
-          {permit.type}
-        </span>
-      </div>
+          <option value="">— pick a type —</option>
+          {typeOptions.map((t) => (
+            <option key={t} value={t} data-testid={`wizard-perm-type-${permit.rowId}-opt-${t}`}>
+              {t}
+            </option>
+          ))}
+          {/* Preserve a stored type that isn't in the active catalog
+              (admin removed it, or it's from a legacy import) so the
+              row's value stays selectable. */}
+          {permit.type && !typeOptions.includes(permit.type) && (
+            <option value={permit.type}>{permit.type}</option>
+          )}
+        </select>
+      </label>
 
       <label className="flex flex-col gap-0.5">
         <span className="text-[9px] uppercase tracking-wide text-dim">ENT</span>

@@ -103,6 +103,23 @@ function renderWizard() {
   return render(<NewProjectWizard open onClose={vi.fn()} />, { wrapper });
 }
 
+/** fix-130: find a Step 3 permit row whose type-select value matches the
+ *  given type. Replaces the pre-fix-130 getByText('Building Permit')
+ *  lookup that broke when type became a <select> (every row's options
+ *  now contain the same text). */
+function findRowByType(type: string): HTMLElement {
+  const selects = document.querySelectorAll<HTMLSelectElement>(
+    'select[data-testid^="wizard-perm-type-"]',
+  );
+  for (const sel of Array.from(selects)) {
+    if (sel.value === type) {
+      const row = sel.closest('[data-testid^="wizard-perm-row-"]');
+      if (row) return row as HTMLElement;
+    }
+  }
+  throw new Error(`No permit row found with type="${type}"`);
+}
+
 /** Step 1: address + juris + GO date, then advance to Step 2. */
 function fillStep1AndAdvance(go: string) {
   fireEvent.change(screen.getByTestId('wizard-address'), { target: { value: '1 Test St' } });
@@ -139,14 +156,52 @@ describe('NewProjectWizard auto-seeding (fix-Phase-B)', () => {
     fireEvent.click(screen.getByTestId('wizard-q-other-checkbox-Demolition'));
     fireEvent.click(screen.getByTestId('wizard-next')); // -> Step 3
 
-    // Find the Building Permit row + set its ACQ (first date input in the row).
-    const bpLabel = screen.getByText('Building Permit');
-    const bpRow = bpLabel.closest('[data-testid^="wizard-perm-row-"]') as HTMLElement;
+    // fix-130: type is now a <select> on every row, so getByText('Building
+    // Permit') matches every row's option. Find the BP row by walking up
+    // from the type-select whose VALUE is "Building Permit" instead.
+    const bpRow = findRowByType('Building Permit');
     const bpAcqInput = bpRow.querySelector('input[type="date"]') as HTMLInputElement;
     fireEvent.change(bpAcqInput, { target: { value: '2026-12-01' } });
 
     // Both the BP ACQ and the Demolition's seeded expected_issue now show it.
     expect(screen.getAllByDisplayValue('2026-12-01').length).toBeGreaterThanOrEqual(2);
+  });
+
+  // fix-130: Bobby's demonstration case — first BP has ACQ filled,
+  // user clicks + Add permit, picks Building Permit on the new row →
+  // the new row's ACQ inherits the existing BP's value rather than
+  // staying blank.
+  it('fix-130: adding a second BP inherits the first BPs ACQ Target Date', () => {
+    renderWizard();
+    fillStep1AndAdvance('2026-06-01');
+    // Skip Step 2; advance to Step 3 with the auto-injected BP.
+    fireEvent.click(screen.getByTestId('wizard-next'));
+
+    // Set the existing BP's ACQ to 2026-11-30 (Bobby's example date).
+    const bpRow = findRowByType('Building Permit');
+    const bpAcqInput = bpRow.querySelector('input[type="date"]') as HTMLInputElement;
+    fireEvent.change(bpAcqInput, { target: { value: '2026-11-30' } });
+    expect(bpAcqInput.value).toBe('2026-11-30');
+
+    // Click + Add permit, then pick "Building Permit" on the new row.
+    fireEvent.click(screen.getByTestId('wizard-step-3-add-permit'));
+    const newTypeSelects = document.querySelectorAll<HTMLSelectElement>(
+      'select[data-testid^="wizard-perm-type-"]',
+    );
+    // The just-added row's type select has value=''. Find it + pick BP.
+    const newRowSelect = Array.from(newTypeSelects).find((s) => s.value === '');
+    expect(newRowSelect).toBeTruthy();
+    fireEvent.change(newRowSelect!, { target: { value: 'Building Permit' } });
+
+    // After the type pick, applySeeding's sibling-inheritance runs:
+    // the new BP row inherits expected_issue=2026-11-30 from the first BP.
+    // Two BP rows total → both ACQ inputs read 2026-11-30.
+    const allAcqInputs = document.querySelectorAll<HTMLInputElement>(
+      'input[type="date"][data-testid^="wizard-perm-target-"]',
+    );
+    const bpAcqValues = Array.from(allAcqInputs).map((i) => i.value);
+    const matchingCount = bpAcqValues.filter((v) => v === '2026-11-30').length;
+    expect(matchingCount).toBeGreaterThanOrEqual(2);
   });
 
   it('a manually-edited field is not overwritten when GO date changes', () => {
@@ -156,8 +211,9 @@ describe('NewProjectWizard auto-seeding (fix-Phase-B)', () => {
     fireEvent.click(screen.getByTestId('wizard-next')); // -> Step 3
 
     // PAR row: override expected_issue manually (was seeded to 2026-07-01).
-    const parLabel = screen.getByText('PAR/Pre-Sub');
-    const parRow = parLabel.closest('[data-testid^="wizard-perm-row-"]') as HTMLElement;
+    // fix-130: row lookup via selected type-select value (multiple "PAR/Pre-Sub"
+    // texts exist now — one per row's dropdown options).
+    const parRow = findRowByType('PAR/Pre-Sub');
     const parAcqInput = parRow.querySelector('input[type="date"]') as HTMLInputElement;
     fireEvent.change(parAcqInput, { target: { value: '2026-09-09' } });
     expect(screen.getByDisplayValue('2026-09-09')).toBeInTheDocument();

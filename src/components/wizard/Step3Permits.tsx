@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef } from 'react';
 import { useTeamMembers } from '../../hooks/useTeamMembers';
 import { useDmDaGroups } from '../../hooks/useDmDaGroups';
+import { usePermitTypes } from '../../hooks/usePermitTypes';
 import {
   daHasRoutingFor,
   lookupEntLeadForDa,
@@ -88,6 +89,15 @@ export default function Step3Permits({ value, onChange }: Props) {
   const teamQ = useTeamMembers();
   const dmDaGroupsQ = useDmDaGroups();
   const dmDaRows = dmDaGroupsQ.rows;
+  // fix-130: full active permit type catalog drives the per-row type
+  // dropdown. The Step 2 questionnaire seeds the initial set; Step 3
+  // lets the user change any row's type after the fact (Bobby's
+  // "questionnaire is a starting point, not a lock-in").
+  const permitTypesQ = usePermitTypes();
+  const typeOptions = useMemo(
+    () => (permitTypesQ.data ?? []).map((t) => t.name),
+    [permitTypesQ.data],
+  );
   // fix-120-a: keep a ref pointing at the LATEST value so async lookup
   // callbacks (onPickDa's bp_ent_lead_for_da resolution + the cascade
   // effect's Path B) read the current permits array instead of the one
@@ -355,18 +365,24 @@ export default function Step3Permits({ value, onChange }: Props) {
   // fix-120-c: + Add permit / × Remove. Bobby's spec was "I sometimes
   // need a 4th BP (multi-building project) and currently can only do
   // this in Project Settings post-create." The buttons let him adjust
-  // the row count in the wizard directly. Defaults for a new row:
-  // type=Building Permit (most common request — multi-BP project), DA
-  // empty (user picks), ENT empty (the cascade in Path A will fill it
-  // from BP.ent_lead idempotently on the next render — see fix-120-b).
-  // Min row count = 1: the cascade depends on a selected BP row being
-  // present, and a wizard with zero permits is meaningless. The × on
-  // the last remaining row renders disabled.
+  // the row count in the wizard directly. Min row count = 1: the
+  // cascade depends on a selected BP row being present, and a wizard
+  // with zero permits is meaningless. The × on the last remaining row
+  // renders disabled.
+  //
+  // fix-130: type starts empty rather than hardcoded Building Permit.
+  // The pre-fix default tricked users into a BP they didn't pick — Bobby
+  // wants each new row to explicitly own its type choice. The type
+  // dropdown in PermitAssignmentRow shows "— pick a type —" until the
+  // user commits. When the user picks a type, Step3Permits.updatePermit
+  // clears the manuallyEdited.expected_issue / .target_submit flags so
+  // applySeeding's sibling-inheritance-then-formula cascade fills both
+  // fields on the next render.
   function addPermit() {
     const livePermits = valueRef.current.permits;
     const newRow: WizardPermit = {
       rowId: newPermitRowId(),
-      type: BUILDING_PERMIT,
+      type: '',
       selected: true,
       ent_lead: '',
       dm: '',
@@ -437,6 +453,7 @@ export default function Step3Permits({ value, onChange }: Props) {
             permit={p}
             entOptions={entOptions}
             daOptions={daOptions}
+            typeOptions={typeOptions}
             routedDas={routedDaSet}
             derivedDm={findDmForDa(p.da, dmDaRows)}
             // fix-96-c: BP DA is set on Step 1, read-only here.
