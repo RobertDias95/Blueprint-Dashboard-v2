@@ -18,9 +18,13 @@ export function useProjectRedesigns(parentProjectId: string | null | undefined):
   count: number;
 } {
   const projectsQ = useProjects();
-  const all = projectsQ.data ?? [];
+  const data = projectsQ.data;
   const redesigns = useMemo(() => {
     if (!parentProjectId) return [];
+    // Read projectsQ.data inside the memo so the dep array stays on the
+    // stable query reference (rather than the per-render `?? []`
+    // fallback, which would invalidate every render).
+    const all = data ?? [];
     return all
       .filter((p) => p.redesign_of_project_id === parentProjectId)
       .sort((a, b) => {
@@ -32,7 +36,7 @@ export function useProjectRedesigns(parentProjectId: string | null | undefined):
         if (aT !== bT) return aT.localeCompare(bT);
         return a.id.localeCompare(b.id);
       });
-  }, [all, parentProjectId]);
+  }, [data, parentProjectId]);
   return {
     redesigns,
     isLoading: projectsQ.isLoading,

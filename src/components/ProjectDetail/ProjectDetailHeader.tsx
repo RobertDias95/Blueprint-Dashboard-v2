@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { Link } from 'react-router-dom';
 import type {
   Builder,
   PermitWithCycles,
@@ -41,9 +42,20 @@ interface Props {
    *  by default). Mirrors v1's pattern of using the BP as the
    *  project-level anchor for permit-scoped fields. */
   bp: PermitWithCycles | null;
+  /** fix-126: full project list (cached) so the Proposal-section
+   *  "Redesigns (N)" subsection can list this project's children
+   *  without prop drilling all the way to ProjectCell. Defaulted in the
+   *  component so legacy callers that don't pass it (none in v2 today,
+   *  but defensive) render the header exactly as before. */
+  allProjects?: Project[];
 }
 
-export default function ProjectDetailHeader({ project, permits, bp }: Props) {
+export default function ProjectDetailHeader({
+  project,
+  permits,
+  bp,
+  allProjects = [],
+}: Props) {
   return (
     <div
       className="flex border-b border-border"
@@ -61,7 +73,7 @@ export default function ProjectDetailHeader({ project, permits, bp }: Props) {
           }}
         >
           <DDPhaseCell project={project} bp={bp} permits={permits} />
-          <ProjectCell project={project} bp={bp} />
+          <ProjectCell project={project} bp={bp} allProjects={allProjects} />
           <TeamCell project={project} bp={bp} permits={permits} />
         </div>
       </div>
@@ -493,9 +505,11 @@ function TargetSubmitRow({
 function ProjectCell({
   project,
   bp,
+  allProjects,
 }: {
   project: Project;
   bp: PermitWithCycles | null;
+  allProjects: Project[];
 }) {
   void bp;
   // fix-91: product_types is an array. A project can carry multiple
@@ -507,6 +521,20 @@ function ProjectCell({
   const tags = Array.isArray(project.project_tags)
     ? (project.project_tags as string[])
     : [];
+  // fix-126: children of this project (descendant redesigns), sorted by
+  // created_at ascending so "Redesign #1" is the first one spawned.
+  // Filtered in-place from the already-cached projects list.
+  const childRedesigns = useMemo(() => {
+    return allProjects
+      .filter((p) => p.redesign_of_project_id === project.id)
+      .sort((a, b) => {
+        const aT = a.created_at ?? '';
+        const bT = b.created_at ?? '';
+        if (aT !== bT) return aT.localeCompare(bT);
+        return a.id.localeCompare(b.id);
+      });
+  }, [allProjects, project.id]);
+  const [redesignsOpen, setRedesignsOpen] = useState(false);
 
   return (
     <CellShell title="Project" rightBorder>
@@ -599,6 +627,59 @@ function ProjectCell({
                 )}
               </div>
             </div>
+
+            {/* fix-126: expandable Redesigns (N) subsection. Hidden
+                entirely when zero descendants exist (empty state is
+                noise). Collapsed by default — caret toggles open. */}
+            {childRedesigns.length > 0 && (
+              <div
+                className="mt-1 pt-1 border-t"
+                style={{ borderTopColor: 'var(--color-border)' }}
+                data-testid="pd-redesigns-section"
+              >
+                <button
+                  type="button"
+                  onClick={() => setRedesignsOpen((v) => !v)}
+                  className="flex items-center gap-1 text-[10px] font-bold text-co hover:opacity-80 transition"
+                  aria-expanded={redesignsOpen}
+                  data-testid="pd-redesigns-toggle"
+                >
+                  <span className="font-mono">
+                    {redesignsOpen ? '▾' : '▸'}
+                  </span>
+                  Redesigns ({childRedesigns.length})
+                </button>
+                {redesignsOpen && (
+                  <ul
+                    className="mt-1 flex flex-col gap-0.5"
+                    data-testid="pd-redesigns-list"
+                  >
+                    {childRedesigns.map((r, i) => (
+                      <li
+                        key={r.id}
+                        data-testid={`pd-redesign-row-${r.id}`}
+                        className="flex items-baseline justify-between gap-2 text-[10px]"
+                      >
+                        <Link
+                          to={`/project/${r.id}`}
+                          className="font-display font-bold text-de hover:underline truncate"
+                        >
+                          Redesign #{i + 1}
+                        </Link>
+                        <span className="text-dim font-mono truncate">
+                          {r.redesign_trigger ?? '—'}
+                          {r.redesign_reuses_original_permit === true
+                            ? ' · reuse'
+                            : r.redesign_reuses_original_permit === false
+                              ? ' · new permits'
+                              : ''}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            )}
           </div>
         </div>
 

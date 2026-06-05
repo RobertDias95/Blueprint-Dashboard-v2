@@ -91,6 +91,12 @@ function ProjectDetailBody({
   project: NonNullable<ReturnType<typeof useProjects>['data']>[number];
   permits: PermitWithCycles[];
 }) {
+  // fix-126: full projects list is already cached by the page-level
+  // useProjects call; re-issuing it here is free under React Query's
+  // dedupe + lets the "Redesign of [original]" badge + the
+  // "Redesigns (N)" subsection look up siblings without prop drilling.
+  const projectsQ = useProjects();
+  const allProjects = projectsQ.data ?? [];
   // Building Permit is the canonical anchor for project-level fields
   // (matches v1's `bp = ps.filter(p => p.type === 'Building Permit')[0] || ps[0]`).
   const bp = useMemo(() => {
@@ -190,6 +196,15 @@ function ProjectDetailBody({
         <div className="text-[11px] text-muted font-mono mt-0.5">
           {project.juris ?? '—'}
         </div>
+        {/* fix-126: top "Redesign of X" badge when this project IS a
+            redesign of another. Sits directly under the address so the
+            link is obvious. Click navigates to the parent's overview. */}
+        {project.redesign_of_project_id && (
+          <RedesignOfBadge
+            originalId={project.redesign_of_project_id}
+            projects={allProjects}
+          />
+        )}
       </div>
 
       {/* fix-23e: Two-pillbox body layout. The outer page is bounded
@@ -235,6 +250,7 @@ function ProjectDetailBody({
                 project={project}
                 permits={permits}
                 bp={bp}
+                allProjects={allProjects}
               />
               <ScheduleHealthTable permits={permits} />
               <NotesDocsFooter project={project} />
@@ -276,6 +292,36 @@ function ProjectDetailBody({
         </div>
       </div>
     </div>
+  );
+}
+
+// fix-126: "Redesign of [original]" badge shown directly under the
+// project address when this project is itself a redesign. Clicking
+// navigates to the original project's overview. Falls back to a generic
+// "Redesign of (unknown)" label if the parent project isn't in the
+// cached list — defensive (FK should always resolve under RLS, but a
+// soft-deleted parent or a stale cache shouldn't break the UI).
+function RedesignOfBadge({
+  originalId,
+  projects,
+}: {
+  originalId: string;
+  projects: { id: string; address: string }[];
+}) {
+  const original = projects.find((p) => p.id === originalId) ?? null;
+  return (
+    <Link
+      to={`/project/${originalId}`}
+      className="inline-block mt-1 text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full border hover:opacity-80 transition"
+      style={{
+        background: 'var(--color-co-bg)',
+        color: 'var(--color-co)',
+        borderColor: 'var(--color-co-border)',
+      }}
+      data-testid="pd-redesign-of-badge"
+    >
+      ↗ Redesign of {original ? original.address : '(unknown original)'}
+    </Link>
   );
 }
 
