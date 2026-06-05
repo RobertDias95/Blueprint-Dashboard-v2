@@ -368,6 +368,63 @@ export default function Step1ProjectInfo({
           />
         </div>
 
+        {/* fix-122: three new project-level physical/closing fields.
+            Lives in its own row directly above lot_width/lot_depth so it
+            sits beside the other "shape of the site" inputs without
+            forcing a re-flow of the existing units/zone/product-types
+            grid. Number of Lots is a 1-20 dropdown (Bobby's spec — users
+            who need more can edit on Project Overview). Corner Lot is
+            tri-state (blank/yes/no) so we don't silently default
+            historical projects to "no" on the wire. Closing Date is
+            display-only; no math, no cascade. */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+          <label className="flex flex-col gap-1">
+            <span className="text-[10px] uppercase tracking-wide text-dim">
+              Number of Lots
+            </span>
+            <select
+              value={value.num_lots}
+              onChange={(e) => set('num_lots', e.target.value)}
+              className="bg-bg border border-border rounded-md px-3 py-1.5 text-xs font-display text-text focus:outline-none focus:border-de"
+              data-testid="wizard-num-lots"
+            >
+              <option value="">—</option>
+              {Array.from({ length: 20 }, (_, i) => i + 1).map((n) => (
+                <option key={n} value={String(n)}>
+                  {n}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="flex flex-col gap-1">
+            <span className="text-[10px] uppercase tracking-wide text-dim">
+              Corner Lot
+            </span>
+            <select
+              value={value.is_corner_lot}
+              onChange={(e) => set('is_corner_lot', e.target.value)}
+              className="bg-bg border border-border rounded-md px-3 py-1.5 text-xs font-display text-text focus:outline-none focus:border-de"
+              data-testid="wizard-is-corner-lot"
+            >
+              <option value="">—</option>
+              <option value="yes">Yes</option>
+              <option value="no">No</option>
+            </select>
+          </label>
+          <label className="flex flex-col gap-1">
+            <span className="text-[10px] uppercase tracking-wide text-dim">
+              Closing Date
+            </span>
+            <input
+              type="date"
+              value={value.closing_date}
+              onChange={(e) => set('closing_date', e.target.value)}
+              className="bg-bg border border-border rounded-md px-3 py-1.5 text-xs font-mono text-text focus:outline-none focus:border-de"
+              data-testid="wizard-closing-date"
+            />
+          </label>
+        </div>
+
         <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
           <label className="flex flex-col gap-1">
             <span className="text-[10px] uppercase tracking-wide text-dim">

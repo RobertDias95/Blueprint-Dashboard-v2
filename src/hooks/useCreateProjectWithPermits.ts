@@ -68,6 +68,17 @@ export interface ProjectData {
    *  call then handles placement using whatever DA the first selected
    *  permit picked (same behavior as today). */
   lead_da?: string | null;
+  /** fix-122: count of distinct lots. Distinct from `units` —
+   *  a 5-lot subdivision can yield 20 units. CHECK enforces >= 1,
+   *  NULL means "not entered". */
+  num_lots?: number | null;
+  /** fix-122: corner-lot flag. Library uses this to keep apples-to-apples
+   *  comparisons between mid-block and corner sites with identical
+   *  lot_width/lot_depth. */
+  is_corner_lot?: boolean | null;
+  /** fix-122: informational closing/escrow date. Display-only — no math,
+   *  no cascade, no alerts. */
+  closing_date?: string | null;
 }
 
 export interface CreateProjectInput {
