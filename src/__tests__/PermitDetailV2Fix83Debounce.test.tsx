@@ -263,4 +263,53 @@ describe('fix-83: commit-on-change debounce coalesces calendar-arrow spam', () =
       patch: { intake_accepted: '2026-05-15' },
     });
   });
+
+  // fix-119-b: pin the EXACT Bobby-reported scenario from the bug report —
+  // 6 rapid arrow taps from June to January on c0.intake_accepted. fix-83's
+  // 500ms debounce collapses this into one commit; fix-119-a's server WHERE
+  // tightening guarantees a single cycle 1 row at the end. The test exists
+  // both as a regression guard and as a worked example matching the brief.
+  it('fix-119-b: 6 rapid calendar-arrow back-clicks fire EXACTLY ONE commit with the last (oldest) date', () => {
+    renderWithClient(<PermitDetailV2 permit={makePermit()} />);
+    const input = screen
+      .getByTestId('pd-cell-design-intake_accepted')
+      .querySelector('input') as HTMLInputElement;
+
+    // June → May → April → March → February → January, one click per month.
+    // The browser's type=date stepper emits a full valid YYYY-MM-DD on each
+    // arrow tap; pre-fix-83 this fired one snap RPC per click.
+    const dates = [
+      '2026-06-15',
+      '2026-05-15',
+      '2026-04-15',
+      '2026-03-15',
+      '2026-02-15',
+      '2026-01-15',
+    ];
+    for (const d of dates) {
+      fireEvent.change(input, { target: { value: d } });
+      // 80ms between clicks — Bobby's spam was reportedly even faster than this,
+      // but anything under the 500ms debounce window suffices.
+      act(() => {
+        vi.advanceTimersByTime(80);
+      });
+    }
+    // 6 changes × 80ms = 480ms elapsed; still inside the 500ms window so no
+    // commit has fired.
+    expect(cycleMutateAsync).not.toHaveBeenCalled();
+
+    // Cross the 500ms boundary from the LAST change.
+    act(() => {
+      vi.advanceTimersByTime(500);
+    });
+    expect(cycleMutateAsync).toHaveBeenCalledTimes(1);
+    // The save carries the last (oldest) date — Bobby's intended final value.
+    expect(cycleMutateAsync.mock.calls[0][0]).toMatchObject({
+      patch: { intake_accepted: '2026-01-15' },
+    });
+    // (Server-side, fix-119-a's ON CONFLICT … WHERE … IS DISTINCT FROM
+    // EXCLUDED.submitted guarantees the resulting cycle 1.submitted ends up
+    // at 2026-01-15 in a single row with a single updated_at advance.
+    // Verified via MCP sandbox in the fix-119-a commit.)
+  });
 });
