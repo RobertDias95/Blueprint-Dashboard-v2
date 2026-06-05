@@ -21,6 +21,12 @@ import PermitDetailV2 from '../components/ProjectDetail/PermitDetailV2';
 import ProjectSettingsModal from '../components/ProjectDetail/ProjectSettingsModal';
 import DeleteProjectDialog from '../components/ProjectDetail/DeleteProjectDialog';
 import QuickEditPermitModal from '../components/ProjectDetail/QuickEditPermitModal';
+import NewProjectWizard from '../components/NewProjectWizard';
+import {
+  makeRedesignWizardState,
+  type WizardState,
+} from '../components/wizard/wizardState';
+import { useProjectRedesigns } from '../hooks/useProjectRedesigns';
 
 // Q3 + Q4: Single-project view. Q3 wired editable permit-level fields. Q4
 // adds editable cycles (5 date columns + add/delete) and a tasks section
@@ -85,6 +91,12 @@ function ProjectDetailBody({
   project: NonNullable<ReturnType<typeof useProjects>['data']>[number];
   permits: PermitWithCycles[];
 }) {
+  // fix-126: full projects list is already cached by the page-level
+  // useProjects call; re-issuing it here is free under React Query's
+  // dedupe + lets the "Redesign of [original]" badge + the
+  // "Redesigns (N)" subsection look up siblings without prop drilling.
+  const projectsQ = useProjects();
+  const allProjects = projectsQ.data ?? [];
   // Building Permit is the canonical anchor for project-level fields
   // (matches v1's `bp = ps.filter(p => p.type === 'Building Permit')[0] || ps[0]`).
   const bp = useMemo(() => {
@@ -104,6 +116,13 @@ function ProjectDetailBody({
   // button / Delete button / future hotkeys) target the same instances.
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
+  // fix-126: redesign-wizard state. When non-null the New Project wizard
+  // mounts in redesign mode with this seed; settingsOpen is closed first
+  // so the two modals never overlap. The seed embeds the parent project's
+  // address suffixed " [Redesign N]" — see makeRedesignWizardState +
+  // useProjectRedesigns.
+  const [redesignSeed, setRedesignSeed] = useState<WizardState | null>(null);
+  const redesignsQ = useProjectRedesigns(project.id);
   // Q9.5.f-fix-19: Quick Edit popup opened by double-click on a sidebar row.
   const [quickEditPermitId, setQuickEditPermitId] = useState<number | null>(
     null,
@@ -134,6 +153,25 @@ function ProjectDetailBody({
         <ProjectSettingsModal
           project={project}
           onClose={() => setSettingsOpen(false)}
+          onSpawnRedesign={() => {
+            // fix-126: close the settings modal first so the wizard
+            // doesn't overlay it. The seed builds the new wizard state
+            // from this project's site facts + auto-suffixes the
+            // address so the unique-address constraint is satisfied.
+            const seed = makeRedesignWizardState(
+              project,
+              redesignsQ.count,
+            );
+            setSettingsOpen(false);
+            setRedesignSeed(seed);
+          }}
+        />
+      )}
+      {redesignSeed && (
+        <NewProjectWizard
+          open={true}
+          onClose={() => setRedesignSeed(null)}
+          initialState={redesignSeed}
         />
       )}
       {deleteOpen && (
@@ -158,6 +196,15 @@ function ProjectDetailBody({
         <div className="text-[11px] text-muted font-mono mt-0.5">
           {project.juris ?? '—'}
         </div>
+        {/* fix-126: top "Redesign of X" badge when this project IS a
+            redesign of another. Sits directly under the address so the
+            link is obvious. Click navigates to the parent's overview. */}
+        {project.redesign_of_project_id && (
+          <RedesignOfBadge
+            originalId={project.redesign_of_project_id}
+            projects={allProjects}
+          />
+        )}
       </div>
 
       {/* fix-23e: Two-pillbox body layout. The outer page is bounded
@@ -203,6 +250,7 @@ function ProjectDetailBody({
                 project={project}
                 permits={permits}
                 bp={bp}
+                allProjects={allProjects}
               />
               <ScheduleHealthTable permits={permits} />
               <NotesDocsFooter project={project} />
@@ -244,6 +292,36 @@ function ProjectDetailBody({
         </div>
       </div>
     </div>
+  );
+}
+
+// fix-126: "Redesign of [original]" badge shown directly under the
+// project address when this project is itself a redesign. Clicking
+// navigates to the original project's overview. Falls back to a generic
+// "Redesign of (unknown)" label if the parent project isn't in the
+// cached list — defensive (FK should always resolve under RLS, but a
+// soft-deleted parent or a stale cache shouldn't break the UI).
+function RedesignOfBadge({
+  originalId,
+  projects,
+}: {
+  originalId: string;
+  projects: { id: string; address: string }[];
+}) {
+  const original = projects.find((p) => p.id === originalId) ?? null;
+  return (
+    <Link
+      to={`/project/${originalId}`}
+      className="inline-block mt-1 text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full border hover:opacity-80 transition"
+      style={{
+        background: 'var(--color-co-bg)',
+        color: 'var(--color-co)',
+        borderColor: 'var(--color-co-border)',
+      }}
+      data-testid="pd-redesign-of-badge"
+    >
+      ↗ Redesign of {original ? original.address : '(unknown original)'}
+    </Link>
   );
 }
 

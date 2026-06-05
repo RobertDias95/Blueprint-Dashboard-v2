@@ -115,6 +115,7 @@ vi.mock('react-router-dom', async () => {
 
 import { useCreateProjectWithPermits } from '../hooks/useCreateProjectWithPermits';
 import NewProjectWizard from '../components/NewProjectWizard';
+import { makeEmptyWizardState } from '../components/wizard/wizardState';
 
 function setup() {
   const queryClient = new QueryClient({
@@ -328,6 +329,49 @@ describe('useCreateProjectWithPermits (fix-22 signature)', () => {
     expect(mocks.rpcFn).toHaveBeenCalledTimes(1);
     const [, args] = mocks.rpcFn.mock.calls[0];
     expect(args.p_project_data).toMatchObject({ lead_da: 'Trevor' });
+  });
+
+  // fix-126: four redesign-concept fields thread through project_data
+  // verbatim. The RPC handles NULLIF on its end. On a reuse=true
+  // redesign the caller is expected to send empty `permits` — the RPC
+  // skips permit creation either way (defensive).
+  it('fix-126: redesign fields (parent FK, trigger, reuse, notes) thread through project_data', async () => {
+    mocks.setResult({
+      data: [
+        {
+          project_id: 'r-1111-1111-1111-111111111111',
+          permit_ids: [],
+          conflict: false,
+        },
+      ],
+      error: null,
+    });
+    const { wrapper } = setup();
+    const { result } = renderHook(() => useCreateProjectWithPermits(), {
+      wrapper,
+    });
+    await act(async () => {
+      await result.current.mutateAsync({
+        address: '500 Pike St [Redesign 1]',
+        juris: 'Seattle',
+        project_data: {
+          redesign_of_project_id: 'parent-uuid-here',
+          redesign_trigger: 'builder',
+          redesign_reuses_original_permit: true,
+          redesign_notes: 'Builder asked for 4-plex layout instead of 3.',
+        },
+        permits: [], // reuse=true → wizard sends empty
+      });
+    });
+    expect(mocks.rpcFn).toHaveBeenCalledTimes(1);
+    const [, args] = mocks.rpcFn.mock.calls[0];
+    expect(args.p_project_data).toMatchObject({
+      redesign_of_project_id: 'parent-uuid-here',
+      redesign_trigger: 'builder',
+      redesign_reuses_original_permit: true,
+      redesign_notes: 'Builder asked for 4-plex layout instead of 3.',
+    });
+    expect(args.p_permits).toEqual([]);
   });
 
   // fix-122: three new project-level fields. The hook passes them
@@ -882,6 +926,167 @@ describe('<NewProjectWizard />', () => {
         /Units count is required/i,
       );
       expect(screen.getByTestId('wizard-step-1')).toBeInTheDocument();
+    });
+  });
+
+  // fix-126: redesign mode. The wizard opens with an `initialState` seed
+  // that carries redesign_of_project_id (and prefilled site/proposal/
+  // builder fields). Step 1 renders a redesign header + a Redesign
+  // Details section; Step 3 conditionally renders a reuse banner when
+  // reuses=yes and the submit path sends empty permits[] in that case.
+  describe('fix-126: redesign mode', () => {
+    function renderWizardWithSeed(seed: import('../components/wizard/wizardState').WizardState) {
+      const { wrapper: Wrapper } = setup();
+      const utils = render(
+        <Wrapper>
+          <NewProjectWizard
+            open={true}
+            onClose={vi.fn()}
+            initialState={seed}
+          />
+        </Wrapper>,
+      );
+      return utils;
+    }
+
+    function makeRedesignSeed(over: Partial<import('../components/wizard/wizardState').WizardState> = {}): import('../components/wizard/wizardState').WizardState {
+      const empty = makeEmptyWizardState();
+      return {
+        ...empty,
+        // Seeded by the "Spawn Redesign" entry point in real life.
+        address: '500 Pike St [Redesign 1]',
+        juris: 'Seattle',
+        units: '4',
+        redesign_of_project_id: 'parent-uuid',
+        redesign_of_project_address: '500 Pike St',
+        ...over,
+      };
+    }
+
+    it('renders the redesign header on Step 1 with the original address', () => {
+      renderWizardWithSeed(makeRedesignSeed());
+      expect(screen.getByTestId('wizard-redesign-header')).toBeInTheDocument();
+      expect(
+        screen.getByTestId('wizard-redesign-header-original').textContent,
+      ).toBe('500 Pike St');
+    });
+
+    it('Redesign Details section renders trigger + reuse + notes inputs', () => {
+      renderWizardWithSeed(makeRedesignSeed());
+      expect(screen.getByTestId('wizard-section-redesign')).toBeInTheDocument();
+      const trigger = screen.getByTestId('wizard-redesign-trigger') as HTMLSelectElement;
+      expect([...trigger.options].map((o) => o.value)).toEqual([
+        '', 'builder', 'ceo', 'acquisitions', 'design_mgmt',
+        'design_associate', 'city_correction', 'market', 'other',
+      ]);
+      const reuse = screen.getByTestId('wizard-redesign-reuses') as HTMLSelectElement;
+      expect([...reuse.options].map((o) => o.value)).toEqual(['', 'yes', 'no']);
+      expect(screen.getByTestId('wizard-redesign-notes')).toBeInTheDocument();
+    });
+
+    it('non-redesign wizard does NOT render the redesign header or section', () => {
+      // Standard new-project open (no initialState).
+      const { wrapper: Wrapper } = setup();
+      render(
+        <Wrapper>
+          <NewProjectWizard open={true} onClose={vi.fn()} />
+        </Wrapper>,
+      );
+      expect(screen.queryByTestId('wizard-redesign-header')).toBeNull();
+      expect(screen.queryByTestId('wizard-section-redesign')).toBeNull();
+    });
+
+    it('reuse=yes shows the Step 3 reuse banner and hides permit rows', () => {
+      renderWizardWithSeed(
+        makeRedesignSeed({
+          redesign_trigger: 'builder',
+          redesign_reuses_original_permit: 'yes',
+        }),
+      );
+      // Advance through Steps 1 → 2 → 3.
+      fireEvent.click(screen.getByTestId('wizard-next'));
+      fireEvent.click(screen.getByTestId('wizard-next'));
+      // Step 3 reuse banner replaces the permit row UI.
+      expect(
+        screen.getByTestId('wizard-step-3-reuse-banner'),
+      ).toBeInTheDocument();
+      expect(
+        screen.queryByTestId('wizard-step-3-add-permit'),
+      ).toBeNull();
+    });
+
+    it('reuse=no Step 3 renders normal permit rows', () => {
+      renderWizardWithSeed(
+        makeRedesignSeed({
+          redesign_trigger: 'builder',
+          redesign_reuses_original_permit: 'no',
+        }),
+      );
+      fireEvent.click(screen.getByTestId('wizard-next'));
+      fireEvent.click(screen.getByTestId('wizard-next'));
+      expect(
+        screen.queryByTestId('wizard-step-3-reuse-banner'),
+      ).toBeNull();
+      expect(
+        screen.getByTestId('wizard-step-3-add-permit'),
+      ).toBeInTheDocument();
+    });
+
+    it('submit with trigger=builder + reuse=yes sends empty permits + four redesign fields', async () => {
+      mocks.setResult({
+        data: [
+          {
+            project_id: 'redesign-uuid',
+            permit_ids: [],
+            conflict: false,
+          },
+        ],
+        error: null,
+      });
+      renderWizardWithSeed(
+        makeRedesignSeed({
+          redesign_trigger: 'builder',
+          redesign_reuses_original_permit: 'yes',
+          redesign_notes: 'Builder wanted 4-plex',
+        }),
+      );
+      // Advance to Step 4 + submit. No permit changes in Step 3 because
+      // the banner replaces the row UI.
+      fireEvent.click(screen.getByTestId('wizard-next'));
+      fireEvent.click(screen.getByTestId('wizard-next'));
+      fireEvent.click(screen.getByTestId('wizard-next'));
+      fireEvent.click(screen.getByTestId('wizard-save'));
+      await waitFor(() => {
+        expect(mocks.rpcFn).toHaveBeenCalledTimes(1);
+      });
+      const [, args] = mocks.rpcFn.mock.calls[0];
+      expect(args.p_project_data).toMatchObject({
+        redesign_of_project_id: 'parent-uuid',
+        redesign_trigger: 'builder',
+        redesign_reuses_original_permit: true,
+        redesign_notes: 'Builder wanted 4-plex',
+      });
+      expect(args.p_permits).toEqual([]);
+    });
+
+    it('submit with trigger blank shows validation banner + stays on Step 1', () => {
+      renderWizardWithSeed(
+        makeRedesignSeed({
+          redesign_reuses_original_permit: 'yes',
+        }),
+      );
+      // Advance + try to save without picking trigger.
+      fireEvent.click(screen.getByTestId('wizard-next'));
+      fireEvent.click(screen.getByTestId('wizard-next'));
+      fireEvent.click(screen.getByTestId('wizard-next'));
+      fireEvent.click(screen.getByTestId('wizard-save'));
+      // Wizard bounces back to Step 1 with the validation banner.
+      expect(screen.getByTestId('wizard-step-1')).toBeInTheDocument();
+      expect(screen.getByTestId('wizard-validation')).toHaveTextContent(
+        /Trigger Source/i,
+      );
+      // No RPC fired.
+      expect(mocks.rpcFn).not.toHaveBeenCalled();
     });
   });
 });

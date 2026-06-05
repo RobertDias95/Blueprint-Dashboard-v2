@@ -36,6 +36,17 @@ export function useProjects() {
             'units, zone, lot_width, lot_depth, unit_types',
             'parking_type, parking_stalls, alley, product_types, project_tags',
             'builder_name, builder_company, builder_email, builder_phone',
+            // fix-122 read-surface backfill: the Library matrix + the
+            // Project Overview SiteEditor render these columns; they
+            // were added to the table in fix-122 but never to this
+            // select list, so the UI was rendering "—" in prod.
+            'num_lots, is_corner_lot, closing_date',
+            // fix-126: redesign concept columns. Drive the "Redesign of"
+            // top badge + the expandable "Redesigns (N)" subsection on
+            // Project Overview, plus the yellow border on draw schedule
+            // blocks for redesign projects.
+            'redesign_of_project_id, redesign_trigger',
+            'redesign_reuses_original_permit, redesign_notes',
             'created_at, updated_at',
           ].join(', '),
         )

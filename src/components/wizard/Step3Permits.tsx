@@ -150,8 +150,18 @@ export default function Step3Permits({ value, onChange }: Props) {
   /** Ensure a Building Permit row exists in value.permits exactly once.
    *  Persisting via useEffect (vs. computing on every render) keeps
    *  rowIds stable across renders — that's what fixes the scroll-jump
-   *  + focus-loss bug. */
+   *  + focus-loss bug.
+   *
+   *  fix-126: skip the BP injection on a reuse=yes redesign — the
+   *  redesign creates no permits and the Step 3 reuse banner takes
+   *  over the surface. */
   useEffect(() => {
+    if (
+      value.redesign_of_project_id !== '' &&
+      value.redesign_reuses_original_permit === 'yes'
+    ) {
+      return;
+    }
     const hasBp = value.permits.some(
       (p) => p.type === BUILDING_PERMIT && p.selected,
     );
@@ -379,6 +389,37 @@ export default function Step3Permits({ value, onChange }: Props) {
     const selectedCount = livePermits.filter((p) => p.selected).length;
     if (selectedCount <= 1) return;
     onChange({ permits: livePermits.filter((p) => p.rowId !== rowId) });
+  }
+
+  // fix-126: reuse=yes redesign skips Step 3's permit rows entirely.
+  // The redesign is metadata + draw schedule block only; the original
+  // project's permits remain canonical. Banner explains the state so
+  // the user doesn't wonder where the row UI went.
+  const isReuseRedesign =
+    value.redesign_of_project_id !== '' &&
+    value.redesign_reuses_original_permit === 'yes';
+
+  if (isReuseRedesign) {
+    return (
+      <div className="space-y-3" data-testid="wizard-step-3">
+        <div
+          className="text-[12px] px-3 py-3 rounded-md border"
+          style={{
+            background: 'var(--color-co-bg)',
+            borderColor: 'var(--color-co-border)',
+            color: 'var(--color-co)',
+          }}
+          data-testid="wizard-step-3-reuse-banner"
+        >
+          <div className="font-bold mb-1">Reusing original permits</div>
+          <div className="font-display">
+            This redesign reuses the original project's permits. No new
+            permits will be created — the redesign project records the
+            scope change + lands on the draw schedule as its own block.
+          </div>
+        </div>
+      </div>
+    );
   }
 
   return (

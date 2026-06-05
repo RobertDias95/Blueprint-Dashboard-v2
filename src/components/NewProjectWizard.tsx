@@ -23,6 +23,7 @@ import {
 import { findDmForDa } from './wizard/dmRouting';
 import { useDmDaGroups } from '../hooks/useDmDaGroups';
 import { lookupEntLeadForDa } from '../hooks/useDaTeamRouting';
+import type { RedesignTrigger } from '../lib/database.types';
 
 // fix-22: 4-step Stepper-driven New Project wizard. Replaces v2's
 // previous single-screen wizard with the V1 flow (Project Info →
@@ -49,6 +50,14 @@ const BUILDING_PERMIT = 'Building Permit';
 interface Props {
   open: boolean;
   onClose: () => void;
+  /** fix-126: when provided, the wizard initializes with this seed
+   *  instead of an empty state. Used by ProjectDetail's "Spawn
+   *  Redesign" entry point — see makeRedesignWizardState in
+   *  wizardState.ts. The state is reset back to this seed each time
+   *  the wizard opens, so reopening from the same parent yields a
+   *  fresh prefilled form. When omitted the wizard uses
+   *  makeEmptyWizardState (the default new-project flow). */
+  initialState?: WizardState;
 }
 
 type StepIndex = 1 | 2 | 3 | 4;
@@ -109,7 +118,7 @@ function boolFromTri(v: string): boolean | null {
   return null;
 }
 
-export default function NewProjectWizard({ open, onClose }: Props) {
+export default function NewProjectWizard({ open, onClose, initialState }: Props) {
   const navigate = useNavigate();
   const create = useCreateProjectWithPermits();
   const placeOnDa = usePlaceNewProjectOnDa();
@@ -122,7 +131,12 @@ export default function NewProjectWizard({ open, onClose }: Props) {
   const dmDaGroupsQ = useDmDaGroups();
 
   const [step, setStep] = useState<StepIndex>(1);
-  const [state, setState] = useState<WizardState>(makeEmptyWizardState);
+  // fix-126: seed from initialState (redesign mode) or fall back to the
+  // empty new-project shape. The state-init lazy callback is preserved
+  // so the initial render doesn't recompute the empty state every time.
+  const [state, setState] = useState<WizardState>(
+    () => initialState ?? makeEmptyWizardState(),
+  );
   const [validationErr, setValidationErr] = useState<string | null>(null);
   const [conflictExistingId, setConflictExistingId] = useState<string | null>(
     null,
@@ -141,7 +155,10 @@ export default function NewProjectWizard({ open, onClose }: Props) {
   }
 
   function reset() {
-    setState(makeEmptyWizardState());
+    // fix-126: reset back to the seed when one was passed (redesign mode)
+    // so reopening the wizard from the same parent gets a fresh
+    // prefilled form. Otherwise fall back to the empty new-project shape.
+    setState(initialState ?? makeEmptyWizardState());
     setStep(1);
     setValidationErr(null);
     setConflictExistingId(null);
@@ -212,10 +229,28 @@ export default function NewProjectWizard({ open, onClose }: Props) {
       return;
     }
 
+    // fix-126: redesign mode flags. Reuse=yes redesigns send empty
+    // permits[] and the RPC short-circuits permit creation entirely.
+    // Required trigger gate too — wizard validates Trigger Source
+    // before submit (the dropdown defaults to '' so the user has to pick).
+    const isRedesign = state.redesign_of_project_id !== '';
+    const isReuseRedesign =
+      isRedesign && state.redesign_reuses_original_permit === 'yes';
+    if (isRedesign && !state.redesign_trigger) {
+      setStep(1);
+      setValidationErr('Pick a redesign Trigger Source on Step 1.');
+      return;
+    }
+
     // Selected permits + auto-inject Building Permit if Steps 2/3 didn't.
-    let selectedPermits = state.permits.filter((p) => p.selected);
-    if (!selectedPermits.some((p) => p.type === BUILDING_PERMIT)) {
-      selectedPermits = [makeBpPermit(state), ...selectedPermits];
+    // Reuse=yes redesigns SKIP the BP auto-inject — the redesign creates
+    // no permits at all.
+    let selectedPermits: WizardPermit[] = [];
+    if (!isReuseRedesign) {
+      selectedPermits = state.permits.filter((p) => p.selected);
+      if (!selectedPermits.some((p) => p.type === BUILDING_PERMIT)) {
+        selectedPermits = [makeBpPermit(state), ...selectedPermits];
+      }
     }
 
     // fix-91: derive project-level ent_lead + design_manager from the BP
@@ -280,6 +315,16 @@ export default function NewProjectWizard({ open, onClose }: Props) {
       num_lots: intOrNull(state.num_lots),
       is_corner_lot: boolFromTri(state.is_corner_lot),
       closing_date: strOrNull(state.closing_date),
+      // fix-126: redesign payload. Only sent when the wizard was
+      // opened from a "Spawn Redesign" entry point (parent FK is set);
+      // for a fresh project all four columns stay NULL on the row.
+      redesign_of_project_id: strOrNull(state.redesign_of_project_id),
+      redesign_trigger:
+        (strOrNull(state.redesign_trigger) as RedesignTrigger | null) ?? null,
+      redesign_reuses_original_permit: boolFromTri(
+        state.redesign_reuses_original_permit,
+      ),
+      redesign_notes: strOrNull(state.redesign_notes),
     };
 
     const permitsPayload: PermitInput[] = selectedPermits.map((p) => ({

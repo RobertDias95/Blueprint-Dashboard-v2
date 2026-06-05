@@ -79,9 +79,54 @@ export interface Project {
   builder_company?: string | null;
   builder_email?: string | null;
   builder_phone?: string | null;
+  /** fix-126: redesign concept. When set, this project is a redesign
+   *  of the referenced parent project. Site facts (address, lot, juris)
+   *  are shared by convention; the redesign carries its own copies of
+   *  those columns but the original remains canonical for the parcel.
+   *  NULL = standalone project (not a redesign). FK enforced. */
+  redesign_of_project_id?: string | null;
+  /** fix-126: why this redesign exists. Controlled vocab via the DB-side
+   *  redesign_trigger_vocab CHECK constraint; the UI exposes 8 values
+   *  with display labels in REDESIGN_TRIGGER_LABELS (see helpers). NULL
+   *  permitted at insert (wizard may patch later). */
+  redesign_trigger?: RedesignTrigger | null;
+  /** fix-126: when true the redesign is metadata only — no permits get
+   *  created on submit (draw schedule block + project row only). When
+   *  false (or null) the redesign gets its own permit set, same as a
+   *  new project. */
+  redesign_reuses_original_permit?: boolean | null;
+  /** fix-126: free-form context on the redesign (what changed, who
+   *  decided, market signal, etc.). */
+  redesign_notes?: string | null;
   created_at?: string | null;
   updated_at?: string | null;
 }
+
+/** fix-126: controlled-vocab union for projects.redesign_trigger. Mirrors
+ *  the DB-side CHECK constraint. Keep in sync with the migration. */
+export type RedesignTrigger =
+  | 'builder'
+  | 'ceo'
+  | 'acquisitions'
+  | 'design_mgmt'
+  | 'design_associate'
+  | 'city_correction'
+  | 'market'
+  | 'other';
+
+/** fix-126: display labels for the 8 trigger values. Wizard <select> +
+ *  Project Overview "Redesigns (N)" section render these instead of the
+ *  raw enum values. */
+export const REDESIGN_TRIGGER_LABELS: Record<RedesignTrigger, string> = {
+  builder: 'Builder',
+  ceo: 'CEO',
+  acquisitions: 'Acquisitions',
+  design_mgmt: 'Design Mgmt',
+  design_associate: 'Design Associate',
+  city_correction: 'City Correction',
+  market: 'Market',
+  other: 'Other',
+};
 
 /** Q9.5.e-fix-3: builders table row. Used by the Project Detail Builder/Owner
  * cell + the new-project wizard's builder picker. */

@@ -120,6 +120,26 @@ export interface WizardState {
   builder_email: string;
   builder_phone: string;
 
+  // fix-126: redesign payload. Non-empty redesign_of_project_id flips
+  // the wizard into redesign mode (header banner on Step 1, Redesign
+  // Details section, conditional Step 3 reuse banner). All four fields
+  // flow through Step1ProjectInfo's form, then on submit get serialized
+  // into the create RPC's project_data payload.
+  /** Parent project uuid when this is a redesign. '' = not a redesign. */
+  redesign_of_project_id: string;
+  /** Original address kept for header display ("Redesigning 500 Pike St").
+   *  Not sent to the RPC — derived from the redesign_of_project_id. */
+  redesign_of_project_address: string;
+  /** Trigger source. '' = unset; otherwise one of the 8 controlled values
+   *  (matches RedesignTrigger union in database.types.ts). */
+  redesign_trigger: string;
+  /** Tri-state reuse flag. '' = unset, 'yes' / 'no' = user pick. When
+   *  'yes' the wizard sends empty permits[] and the RPC skips permit
+   *  creation entirely. */
+  redesign_reuses_original_permit: string;
+  /** Free-form redesign notes. */
+  redesign_notes: string;
+
   // Step 2 + Step 3 + Step 4 — Permits list
   permits: WizardPermit[];
 }
@@ -157,7 +177,98 @@ export function makeEmptyWizardState(): WizardState {
     builder_company: '',
     builder_email: '',
     builder_phone: '',
+    redesign_of_project_id: '',
+    redesign_of_project_address: '',
+    redesign_trigger: '',
+    redesign_reuses_original_permit: '',
+    redesign_notes: '',
     permits: [],
+  };
+}
+
+/** fix-126: build a wizard state seeded from an existing project, used
+ *  when the user clicks "Spawn Redesign" from a project's Settings modal
+ *  (or the Draw Schedule block popup). Site facts + builder come over;
+ *  team fields (entitlement_lead, design_manager, acq_lead, lead_da) do
+ *  NOT — the redesign may be assigned to different staff.
+ *
+ *  The address is auto-suffixed " [Redesign N]" where N is one more than
+ *  the existing redesign count. `existingRedesignCount` should come from
+ *  the same useProjectRedesigns hook the Project Overview "Redesigns (N)"
+ *  section uses, so the suffix stays unique even if the user spawns two
+ *  redesigns in quick succession.
+ *
+ *  The address column has a global unique index (projects_address_key);
+ *  the suffix is the simplest way to keep redesign rows linked to the
+ *  same conceptual parcel while still satisfying the constraint. Users
+ *  can edit the address freely after the wizard opens. */
+export function makeRedesignWizardState(
+  parentProject: {
+    id: string;
+    address: string;
+    juris?: string | null;
+    units?: number | null;
+    zone?: string | null;
+    lot_width?: number | null;
+    lot_depth?: number | null;
+    num_lots?: number | null;
+    is_corner_lot?: boolean | null;
+    closing_date?: string | null;
+    parking_type?: string | null;
+    parking_stalls?: number | null;
+    alley?: string | null;
+    product_types?: string[] | null;
+    project_tags?: string[] | null;
+    unit_types?: UnitType[] | null;
+    builder_name?: string | null;
+    builder_company?: string | null;
+    builder_email?: string | null;
+    builder_phone?: string | null;
+  },
+  existingRedesignCount: number,
+): WizardState {
+  const base = makeEmptyWizardState();
+  const n = existingRedesignCount + 1;
+  return {
+    ...base,
+    address: `${parentProject.address} [Redesign ${n}]`,
+    juris: parentProject.juris ?? '',
+    units: parentProject.units != null ? String(parentProject.units) : '',
+    num_lots:
+      parentProject.num_lots != null ? String(parentProject.num_lots) : '',
+    is_corner_lot:
+      parentProject.is_corner_lot === true
+        ? 'yes'
+        : parentProject.is_corner_lot === false
+          ? 'no'
+          : '',
+    closing_date: parentProject.closing_date ?? '',
+    zone: parentProject.zone ?? '',
+    lot_width:
+      parentProject.lot_width != null ? String(parentProject.lot_width) : '',
+    lot_depth:
+      parentProject.lot_depth != null ? String(parentProject.lot_depth) : '',
+    unit_types: Array.isArray(parentProject.unit_types)
+      ? parentProject.unit_types
+      : [],
+    parking_type: parentProject.parking_type ?? '',
+    parking_stalls:
+      parentProject.parking_stalls != null
+        ? String(parentProject.parking_stalls)
+        : '',
+    alley: parentProject.alley ?? '',
+    product_types: Array.isArray(parentProject.product_types)
+      ? parentProject.product_types
+      : [],
+    project_tags: Array.isArray(parentProject.project_tags)
+      ? parentProject.project_tags
+      : [],
+    builder_name: parentProject.builder_name ?? '',
+    builder_company: parentProject.builder_company ?? '',
+    builder_email: parentProject.builder_email ?? '',
+    builder_phone: parentProject.builder_phone ?? '',
+    redesign_of_project_id: parentProject.id,
+    redesign_of_project_address: parentProject.address,
   };
 }
 
