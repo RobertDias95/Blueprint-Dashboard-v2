@@ -447,11 +447,15 @@ describe('Trends — fix-25-feat-V submit→intake surface', () => {
     expect(delta.getAttribute('style')).toMatch(/color: var\(--color-pm\)/);
   });
 
-  it('fix-114: charts + Volume + Breakdown stay single-cohort regardless of compareTo', () => {
-    // Non-regression: comparison is a KPI-row-only feature. The charts /
-    // chart series / Breakdown table all consume filteredCurrent (see
-    // src/pages/Trends.tsx — timeSeries, breakdown, varianceRows). No
-    // dual-value rendering on those sections.
+  it('fix-114→fix-116: Breakdown table + City performance charts + Target Submit stay single-cohort regardless of compareTo', () => {
+    // Non-regression: fix-116 extended comparison overlay to the Volume
+    // section (tr-chart-{submitted,approved,timeline,goes}) but NOT to:
+    //   - Breakdown table (rows are type×juris, not time-series)
+    //   - Variance section (not time-series)
+    //   - City performance line/bar (trends-chart-clock, trends-chart-citytm —
+    //     they have their own helpers that consume `filteredCurrent` only;
+    //     overlay would be fix-117 scope)
+    //   - Target Submit table (its own learner-recency window)
     const client = new QueryClient({
       defaultOptions: {
         queries: { retry: false },
@@ -470,14 +474,11 @@ describe('Trends — fix-25-feat-V submit→intake surface', () => {
       </QueryClientProvider>
     );
     render(<Trends />, { wrapper });
-    // None of the chart cards or the breakdown rows carry a comparison
-    // testid. (We sanity-check the chart presence so the test fails
-    // loudly if the markup shifts in a future refactor.)
-    expect(screen.queryByTestId('tr-chart-submitted-cmp')).toBeNull();
-    expect(screen.queryByTestId('tr-chart-approved-cmp')).toBeNull();
-    expect(screen.queryByTestId('tr-chart-timeline-cmp')).toBeNull();
-    expect(screen.queryByTestId('trends-chart-clock-cmp')).toBeNull();
+    expect(screen.queryByTestId('trends-chart-clock-cmp-legend')).toBeNull();
+    expect(screen.queryByTestId('trends-chart-citytm-cmp-legend')).toBeNull();
     expect(screen.queryByTestId('trends-breakdown-table-cmp')).toBeNull();
+    expect(screen.queryByTestId('trends-section-variance-cmp')).toBeNull();
+    expect(screen.queryByTestId('trends-section-target-submit-cmp')).toBeNull();
   });
 
   it('fix-112-c: Volume subtitle drops the stale juris/type carve-out + signals it includes in-progress', () => {
@@ -488,5 +489,100 @@ describe('Trends — fix-25-feat-V submit→intake surface', () => {
     const volume = screen.getByTestId('trends-section-volume');
     expect(volume.textContent).not.toMatch(/juris\/type filters do not/);
     expect(volume.textContent).toMatch(/includes in-progress permits/i);
+  });
+
+  // ─── fix-116: Volume + Timeline chart comparison overlay ────────────
+  it('fix-116: compareTo="off" (default) → no cmp legend strip on any Volume chart', () => {
+    renderTrends();
+    expect(screen.queryByTestId('tr-chart-submitted-cmp-legend')).toBeNull();
+    expect(screen.queryByTestId('tr-chart-approved-cmp-legend')).toBeNull();
+    expect(screen.queryByTestId('tr-chart-timeline-cmp-legend')).toBeNull();
+    expect(screen.queryByTestId('tr-chart-goes-cmp-legend')).toBeNull();
+  });
+
+  it('fix-116: previous_period with current=Jun 2026 → all 4 Volume charts render the comparison legend', () => {
+    // URL: current = June 2026; fix-115-a snap → comparison = May 2026.
+    const client = new QueryClient({
+      defaultOptions: {
+        queries: { retry: false },
+        mutations: { retry: false },
+      },
+    });
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <QueryClientProvider client={client}>
+        <MemoryRouter
+          initialEntries={[
+            '/trends?from=2026-06-01&to=2026-06-30&compare=previous_period',
+          ]}
+        >
+          {children}
+        </MemoryRouter>
+      </QueryClientProvider>
+    );
+    render(<Trends />, { wrapper });
+    // All four Volume charts render the legend strip.
+    expect(screen.getByTestId('tr-chart-submitted-cmp-legend')).toBeInTheDocument();
+    expect(screen.getByTestId('tr-chart-approved-cmp-legend')).toBeInTheDocument();
+    expect(screen.getByTestId('tr-chart-timeline-cmp-legend')).toBeInTheDocument();
+    expect(screen.getByTestId('tr-chart-goes-cmp-legend')).toBeInTheDocument();
+  });
+
+  it('fix-116: legend strip names the current range + the comparison range', () => {
+    const client = new QueryClient({
+      defaultOptions: {
+        queries: { retry: false },
+        mutations: { retry: false },
+      },
+    });
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <QueryClientProvider client={client}>
+        <MemoryRouter
+          initialEntries={[
+            '/trends?from=2026-06-01&to=2026-06-30&compare=previous_period',
+          ]}
+        >
+          {children}
+        </MemoryRouter>
+      </QueryClientProvider>
+    );
+    render(<Trends />, { wrapper });
+    const legend = screen.getByTestId('tr-chart-submitted-cmp-legend');
+    // Current range surfaces as the from–to string.
+    expect(legend.textContent).toContain('2026-06-01 – 2026-06-30');
+    // Comparison range is the calendar-snapped May 2026.
+    expect(legend.textContent).toContain('2026-05-01 – 2026-05-31');
+    // "vs" prefix on the comparison side.
+    expect(legend.textContent).toMatch(/vs\s+2026-05-01/);
+  });
+
+  it('fix-116: previous_year with empty prior-year cohort → legend renders the "(no data)" affordance', () => {
+    // URL: current = June 2026 with permit id=2; prev_year = June 2025
+    // which has no fixture permits in any of the four series helpers'
+    // gates. Empty cohort renders the "(no data)" affordance in the
+    // legend strip rather than crashing.
+    const client = new QueryClient({
+      defaultOptions: {
+        queries: { retry: false },
+        mutations: { retry: false },
+      },
+    });
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <QueryClientProvider client={client}>
+        <MemoryRouter
+          initialEntries={[
+            '/trends?from=2026-06-01&to=2026-06-30&compare=previous_year',
+          ]}
+        >
+          {children}
+        </MemoryRouter>
+      </QueryClientProvider>
+    );
+    render(<Trends />, { wrapper });
+    expect(
+      screen.getByTestId('tr-chart-submitted-cmp-legend-empty'),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByTestId('tr-chart-approved-cmp-legend-empty'),
+    ).toBeInTheDocument();
   });
 });
