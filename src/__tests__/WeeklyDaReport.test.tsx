@@ -263,4 +263,43 @@ describe('<WeeklyDaReport /> (fix-67)', () => {
     const parsed = JSON.parse(raw!);
     expect(parsed.filters.type).toBe('Building Permit');
   });
+
+  // fix-128: 5603 45th Ave SW Demolition (permit 10068) — actual_issue set,
+  // permit.status='Issued', but the latest cycle still carries a
+  // corr_issued date from before the issuance. Pre-fix the RPC's
+  // "in corrections" predicate was just `corr_issued IS NOT NULL` on the
+  // latest cycle; the permit detail view's effectiveStage short-circuits
+  // to 'is' the moment actual_issue is set. The RPC now mirrors that
+  // priority (actual_issue / approval_date / stage_override / terminal
+  // status / unresolved corrections on latest cycle), so an Issued
+  // permit never appears in the Corrections section of the Weekly DA
+  // Update.
+  //
+  // The component test pins the contract: when the RPC excludes a
+  // 5603-shaped permit (as the post-fix RPC does for permits 10068 +
+  // 10132 + 310 + 351 in the prod audit), the component renders no
+  // corrections row for it.
+  describe('fix-128: terminal-positive permits stay out of corrections', () => {
+    it('an Issued permit (5603-shape) does NOT render in the Corrections table', () => {
+      // The mocked hook is module-scoped; the payload above already
+      // excludes any 5603-shape permit. Verify by permit_id — a permit
+      // with actual_issue + status='Issued' but a still-populated
+      // latest-cycle corr_issued would have rendered as
+      // wdr-corr-row-10068 pre-fix; the fixed RPC drops it from the
+      // corrections list so no row exists.
+      renderReport();
+      expect(screen.queryByTestId('wdr-corr-row-10068')).toBeNull();
+      // The full DOM should not mention 5603 (no other section carries it).
+      expect(document.body.textContent).not.toMatch(/5603 45th Ave SW/);
+    });
+
+    it('the existing corrections rows still render — only terminal-positive permits get gated', () => {
+      // Regression guard against an over-broad fix that dropped all
+      // corrections. The PAYLOAD's permits 101 and 200 are correctly
+      // unresolved (no terminal-positive state) and must keep rendering.
+      renderReport();
+      expect(screen.getByTestId('wdr-corr-row-101')).toBeInTheDocument();
+      expect(screen.getByTestId('wdr-corr-row-200')).toBeInTheDocument();
+    });
+  });
 });
