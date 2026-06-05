@@ -3,9 +3,11 @@ import {
   avgCyclesPerPermit,
   avgIntakeToApproval,
   breakdownByTypeAndJuris,
+  cityReviewByCycle,
   defaultDateRange,
   filterPermits,
   intakeToApprovalByMonth,
+  responseTimeByCycle,
   SPARSE_GATE,
   submissionToIntakeVariance,
   targetSubmitHitRate,
@@ -410,5 +412,262 @@ describe('defaultDateRange', () => {
     const r = defaultDateRange(fixedNow);
     expect(r.to).toBe('2026-05-17');
     expect(r.from).toBe('2025-05-17');
+  });
+});
+
+// fix-125: per-review-cycle aggregates. Surfaces "we're slow at cycle 3
+// vs cycle 2" patterns that disappear in the per-(type, juris) rollup.
+//
+// Both helpers reuse extractSample so the per-cycle math matches the
+// per-(type, juris) ScheduleBenchmarks surface exactly. Tests pin the
+// gates that extractSample enforces silently — permits without
+// approval_date AND without actual_issue drop out, and permits without
+// an intake anchor (c0.intake_accepted or c0.submitted) drop too.
+describe('cityReviewByCycle (fix-125)', () => {
+  // Cycle-1-only permit: c0 intake → c1 corr_issued is the strict
+  // cycle-1 review window per extractSample.
+  function mkCycle1OnlyPermit(over: Partial<PermitWithCycles> = {}): PermitWithCycles {
+    return mkPermit({
+      id: over.id ?? 1,
+      approval_date: '2026-07-01',
+      permit_cycles: [
+        mkCycle({ cycle_index: 0, intake_accepted: '2026-05-01' }),
+        // 14-day cycle-1 review window.
+        mkCycle({ cycle_index: 1, corr_issued: '2026-05-15' }),
+      ],
+      ...over,
+    });
+  }
+
+  it('returns 4 entries (cycles 1-4) in order regardless of cohort shape', () => {
+    expect(cityReviewByCycle([]).map((r) => r.cycle)).toEqual([1, 2, 3, 4]);
+  });
+
+  it('cohort with cycle-1 only → cycle 1 has n + avg, cycles 2-4 have n=0 + avg=null', () => {
+    const out = cityReviewByCycle([mkCycle1OnlyPermit()]);
+    expect(out[0]).toMatchObject({ cycle: 1, n: 1, avgDays: 14 });
+    expect(out[1]).toMatchObject({ cycle: 2, n: 0, avgDays: null });
+    expect(out[2]).toMatchObject({ cycle: 3, n: 0, avgDays: null });
+    expect(out[3]).toMatchObject({ cycle: 4, n: 0, avgDays: null });
+  });
+
+  it('averages across multiple permits at the same cycle (1-decimal rounding)', () => {
+    // Three permits with 10, 11, 12 day cycle-1 reviews → avg = 11.0.
+    const a = mkCycle1OnlyPermit({
+      id: 1,
+      approval_date: '2026-07-01',
+      permit_cycles: [
+        mkCycle({ cycle_index: 0, intake_accepted: '2026-05-01' }),
+        mkCycle({ cycle_index: 1, corr_issued: '2026-05-11' }),
+      ],
+    });
+    const b = mkCycle1OnlyPermit({
+      id: 2,
+      approval_date: '2026-07-02',
+      permit_cycles: [
+        mkCycle({ cycle_index: 0, intake_accepted: '2026-05-01' }),
+        mkCycle({ cycle_index: 1, corr_issued: '2026-05-12' }),
+      ],
+    });
+    const c = mkCycle1OnlyPermit({
+      id: 3,
+      approval_date: '2026-07-03',
+      permit_cycles: [
+        mkCycle({ cycle_index: 0, intake_accepted: '2026-05-01' }),
+        mkCycle({ cycle_index: 1, corr_issued: '2026-05-13' }),
+      ],
+    });
+    const out = cityReviewByCycle([a, b, c]);
+    expect(out[0].n).toBe(3);
+    expect(out[0].avgDays).toBe(11);
+  });
+
+  it('cycle 3 slower than cycle 2 reads correctly in the array (Bobby spec case)', () => {
+    // One permit with 7d cycle 2 + 14d cycle 3 — chart should show the
+    // cycle-3 bar taller than the cycle-2 bar.
+    const p = mkPermit({
+      id: 1,
+      approval_date: '2026-07-01',
+      permit_cycles: [
+        mkCycle({ cycle_index: 0, intake_accepted: '2026-05-01' }),
+        // Cycle 1 closed via corr_issued.
+        mkCycle({
+          cycle_index: 1,
+          submitted: '2026-05-15',
+          corr_issued: '2026-05-22',
+          resubmitted: '2026-05-25',
+        }),
+        // Cycle 2: 7-day review (submitted → corr_issued).
+        mkCycle({
+          cycle_index: 2,
+          submitted: '2026-05-25',
+          corr_issued: '2026-06-01',
+          resubmitted: '2026-06-03',
+        }),
+        // Cycle 3: 14-day review.
+        mkCycle({
+          cycle_index: 3,
+          submitted: '2026-06-03',
+          corr_issued: '2026-06-17',
+        }),
+      ],
+    });
+    const out = cityReviewByCycle([p]);
+    expect(out[1].avgDays).toBe(7);
+    expect(out[2].avgDays).toBe(14);
+    expect(out[2].avgDays).toBeGreaterThan(out[1].avgDays!);
+  });
+
+  it('cohort across all 4 cycles aggregates each bucket independently', () => {
+    const p = mkPermit({
+      id: 1,
+      approval_date: '2026-09-01',
+      permit_cycles: [
+        mkCycle({ cycle_index: 0, intake_accepted: '2026-05-01' }),
+        mkCycle({ cycle_index: 1, corr_issued: '2026-05-11' }), // 10d
+        mkCycle({
+          cycle_index: 2,
+          submitted: '2026-06-01',
+          corr_issued: '2026-06-13', // 12d
+          resubmitted: '2026-06-20',
+        }),
+        mkCycle({
+          cycle_index: 3,
+          submitted: '2026-07-01',
+          corr_issued: '2026-07-17', // 16d
+          resubmitted: '2026-07-25',
+        }),
+        mkCycle({
+          cycle_index: 4,
+          submitted: '2026-08-01',
+          corr_issued: '2026-08-19', // 18d
+        }),
+      ],
+    });
+    const out = cityReviewByCycle([p]);
+    expect(out.map((r) => r.avgDays)).toEqual([10, 12, 16, 18]);
+    expect(out.map((r) => r.n)).toEqual([1, 1, 1, 1]);
+  });
+
+  it('permits without approval_date AND without actual_issue are filtered out by extractSample', () => {
+    const unfinished = mkPermit({
+      id: 1,
+      approval_date: null,
+      actual_issue: null,
+      permit_cycles: [
+        mkCycle({ cycle_index: 0, intake_accepted: '2026-05-01' }),
+        mkCycle({ cycle_index: 1, corr_issued: '2026-05-15' }),
+      ],
+    });
+    const out = cityReviewByCycle([unfinished]);
+    expect(out.every((r) => r.n === 0)).toBe(true);
+    expect(out.every((r) => r.avgDays === null)).toBe(true);
+  });
+
+  it('actual_issue alone is enough to qualify the permit (no approval_date)', () => {
+    const issuedNoApproval = mkPermit({
+      id: 1,
+      approval_date: null,
+      actual_issue: '2026-07-01',
+      permit_cycles: [
+        mkCycle({ cycle_index: 0, intake_accepted: '2026-05-01' }),
+        mkCycle({ cycle_index: 1, corr_issued: '2026-05-15' }),
+      ],
+    });
+    const out = cityReviewByCycle([issuedNoApproval]);
+    expect(out[0]).toMatchObject({ cycle: 1, n: 1, avgDays: 14 });
+  });
+});
+
+describe('responseTimeByCycle (fix-125)', () => {
+  it('returns 4 entries in cycle order, all null when no corrections rounds present', () => {
+    const noCorrections = mkPermit({
+      id: 1,
+      approval_date: '2026-07-01',
+      permit_cycles: [
+        mkCycle({ cycle_index: 0, intake_accepted: '2026-05-01' }),
+        // c1 has corr_issued but no resubmitted → no response time.
+        mkCycle({ cycle_index: 1, corr_issued: '2026-05-15' }),
+      ],
+    });
+    const out = responseTimeByCycle([noCorrections]);
+    expect(out.map((r) => r.cycle)).toEqual([1, 2, 3, 4]);
+    expect(out.every((r) => r.n === 0)).toBe(true);
+  });
+
+  it('measures c.corr_issued → c.resubmitted per cycle (team turnaround)', () => {
+    const p = mkPermit({
+      id: 1,
+      approval_date: '2026-09-01',
+      permit_cycles: [
+        mkCycle({ cycle_index: 0, intake_accepted: '2026-05-01' }),
+        // Cycle 1: 5d response (corr_issued → resubmitted).
+        mkCycle({
+          cycle_index: 1,
+          corr_issued: '2026-05-15',
+          resubmitted: '2026-05-20',
+        }),
+        // Cycle 2: 7d response.
+        mkCycle({
+          cycle_index: 2,
+          corr_issued: '2026-06-01',
+          resubmitted: '2026-06-08',
+        }),
+      ],
+    });
+    const out = responseTimeByCycle([p]);
+    expect(out[0]).toMatchObject({ cycle: 1, n: 1, avgDays: 5 });
+    expect(out[1]).toMatchObject({ cycle: 2, n: 1, avgDays: 7 });
+    expect(out[2]).toMatchObject({ cycle: 3, n: 0, avgDays: null });
+    expect(out[3]).toMatchObject({ cycle: 4, n: 0, avgDays: null });
+  });
+
+  it('1-decimal rounding on aggregates (formatCompareNumber)', () => {
+    // Two permits, 6d + 7d → avg 6.5d. 1-decimal output preserves the .5.
+    const a = mkPermit({
+      id: 1,
+      approval_date: '2026-07-01',
+      permit_cycles: [
+        mkCycle({ cycle_index: 0, intake_accepted: '2026-05-01' }),
+        mkCycle({
+          cycle_index: 1,
+          corr_issued: '2026-05-15',
+          resubmitted: '2026-05-21',
+        }),
+      ],
+    });
+    const b = mkPermit({
+      id: 2,
+      approval_date: '2026-07-02',
+      permit_cycles: [
+        mkCycle({ cycle_index: 0, intake_accepted: '2026-05-01' }),
+        mkCycle({
+          cycle_index: 1,
+          corr_issued: '2026-05-15',
+          resubmitted: '2026-05-22',
+        }),
+      ],
+    });
+    const out = responseTimeByCycle([a, b]);
+    expect(out[0].avgDays).toBe(6.5);
+    expect(out[0].n).toBe(2);
+  });
+
+  it('permits without approval_date OR actual_issue are filtered out', () => {
+    const unfinished = mkPermit({
+      id: 1,
+      approval_date: null,
+      actual_issue: null,
+      permit_cycles: [
+        mkCycle({ cycle_index: 0, intake_accepted: '2026-05-01' }),
+        mkCycle({
+          cycle_index: 1,
+          corr_issued: '2026-05-15',
+          resubmitted: '2026-05-20',
+        }),
+      ],
+    });
+    const out = responseTimeByCycle([unfinished]);
+    expect(out.every((r) => r.n === 0)).toBe(true);
   });
 });

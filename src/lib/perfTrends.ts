@@ -1,4 +1,6 @@
 import type { PermitCycle, PermitWithCycles, Project } from './database.types';
+import { extractSample } from './scheduleBenchmarks';
+import { formatCompareNumber } from './comparisonCohort';
 
 // fix-25-feat-T: aggregation helpers for the new top-level Trends
 // surface. Answers Bobby's three operational questions:
@@ -242,6 +244,99 @@ export function breakdownByTypeAndJuris(
       };
     })
     .sort((a, b) => b.n - a.n);
+}
+
+// ============================================================
+// fix-125: per-review-cycle aggregates (cycles 1 through 4)
+// ============================================================
+//
+// Surfaces "we're really slow at cycle 3 vs cycle 2 — why?" on the
+// Trends City performance section. The existing breakdownByTypeAndJuris
+// rolls per-cycle review timing into one number per type×juris combo;
+// the per-cycle helpers below aggregate across the whole filtered
+// cohort so the cycle-specific signal isn't lost in the rollup.
+//
+// Both helpers reuse extractSample (scheduleBenchmarks.ts) for the raw
+// per-cycle day counts so the math stays consistent with the
+// per-(type, juris) tile in ScheduleBenchmarks. extractSample handles
+// the "approval_date or actual_issue" gate AND the intake-anchor gate
+// — permits that don't qualify return null and contribute to no cycle.
+// 1-decimal-place output via formatCompareNumber so the chart hover
+// labels read 7.3d, not 7.333…d (matches fix-124-a's rounding policy).
+
+export interface ByCycleEntry {
+  cycle: 1 | 2 | 3 | 4;
+  /** 1-decimal-rounded average. Null when n=0 — chart renders the bar
+   *  height as 0 and the tooltip discloses "n=0" rather than a
+   *  misleading 0d average. */
+  avgDays: number | null;
+  /** Permits that contributed a non-null, non-negative day value to
+   *  this cycle bucket. */
+  n: number;
+}
+
+type LearnSample = NonNullable<ReturnType<typeof extractSample>>;
+
+function computeByCycle(
+  permits: PermitWithCycles[],
+  pick: (sample: LearnSample) => Array<number | null>,
+): ByCycleEntry[] {
+  const sums: [number, number, number, number] = [0, 0, 0, 0];
+  const counts: [number, number, number, number] = [0, 0, 0, 0];
+  for (const p of permits) {
+    // Reuse the canonical sample extractor so the per-cycle day math
+    // matches ScheduleBenchmarks exactly. Don't pass go_date — the
+    // cycle metrics don't depend on it (only goToSubmitDays does, and
+    // we don't read that here).
+    const sample = extractSample(p);
+    if (!sample) continue;
+    const days = pick(sample);
+    for (let i = 0; i < 4; i++) {
+      const d = days[i];
+      if (d === null || d < 0) continue;
+      sums[i] += d;
+      counts[i] += 1;
+    }
+  }
+  return ([1, 2, 3, 4] as const).map((cycle, i) => ({
+    cycle,
+    avgDays:
+      counts[i] === 0 ? null : formatCompareNumber(sums[i] / counts[i]),
+    n: counts[i],
+  }));
+}
+
+/** fix-125: avg city review days per review cycle across the cohort.
+ *  Returns an array [cycle1, cycle2, cycle3, cycle4] each with
+ *  { avgDays: number | null, n: number }. Null avg when no samples
+ *  contribute to that cycle. Uses extractSample's strict cycle-1 math
+ *  (c0.intake_accepted → c1.corr_issued) and bracket-fallback for
+ *  cycles 2-4 — the SAME definition the per-(type, juris) ScheduleBenchmarks
+ *  surface uses, so cross-checking is meaningful. */
+export function cityReviewByCycle(
+  permits: PermitWithCycles[],
+): ByCycleEntry[] {
+  return computeByCycle(permits, (s) => [
+    s.cityReview1Days,
+    s.cityReview2Days,
+    s.cityReview3Days,
+    s.cityReview4Days,
+  ]);
+}
+
+/** fix-125: avg team response days per review cycle across the cohort.
+ *  Response = c.corr_issued → c.resubmitted for the given cycle (how
+ *  fast the team turned around city corrections). Permits without
+ *  a corrections round for cycle N drop out of cycle N. */
+export function responseTimeByCycle(
+  permits: PermitWithCycles[],
+): ByCycleEntry[] {
+  return computeByCycle(permits, (s) => [
+    s.corrResponse1Days,
+    s.corrResponse2Days,
+    s.corrResponse3Days,
+    s.corrResponse4Days,
+  ]);
 }
 
 // ============================================================

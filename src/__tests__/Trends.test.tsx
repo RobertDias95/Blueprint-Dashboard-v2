@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { ReactNode } from 'react';
@@ -796,6 +796,136 @@ describe('Trends — fix-25-feat-V submit→intake surface', () => {
           screen.getByTestId(`trends-preset-${preset}`).getAttribute('data-active'),
         ).toBe('false');
       }
+    });
+  });
+
+  // fix-125: per-cycle breakdown charts in the City performance section.
+  // Sit beside the existing clock + citytm charts, surface "cycle 3 is
+  // slower than cycle 2" patterns that disappear in the per-(type, juris)
+  // citytm rollup. Both charts get the same comparison overlay treatment
+  // as fix-118's clock + citytm charts.
+  describe('fix-125 per-cycle breakdown charts', () => {
+    it('renders both new chart cards inside the City performance section', () => {
+      renderTrends();
+      const section = screen.getByTestId('trends-section-city');
+      expect(
+        within(section).getByTestId('trends-chart-cityreview-by-cycle'),
+      ).toBeInTheDocument();
+      expect(
+        within(section).getByTestId('trends-chart-response-by-cycle'),
+      ).toBeInTheDocument();
+    });
+
+    it('the by-cycle charts sit AFTER the existing clock + citytm charts (insertion order)', () => {
+      renderTrends();
+      const section = screen.getByTestId('trends-section-city');
+      // Use querySelectorAll order; each child carries a testid that
+      // identifies the chart.
+      const chartIds = Array.from(
+        section.querySelectorAll('[data-testid^="trends-chart-"]'),
+      )
+        .map((el) => el.getAttribute('data-testid'))
+        .filter((id): id is string => !!id && !id.endsWith('-cmp-legend'));
+      // Clock and citytm come first, then the new by-cycle pair.
+      expect(chartIds).toEqual([
+        'trends-chart-clock',
+        'trends-chart-citytm',
+        'trends-chart-cityreview-by-cycle',
+        'trends-chart-response-by-cycle',
+      ]);
+    });
+
+    it('compareTo=off → no comparison legend on either new chart', () => {
+      renderTrends();
+      expect(
+        screen.queryByTestId('trends-chart-cityreview-by-cycle-cmp-legend'),
+      ).toBeNull();
+      expect(
+        screen.queryByTestId('trends-chart-response-by-cycle-cmp-legend'),
+      ).toBeNull();
+    });
+
+    it('compareTo=previous_period with no cohort in prior window → "(no data)" affordance', () => {
+      // Current = May 2026 (1 permit: id=2 with intake May 11 + approval Jun 15).
+      // Prev = Apr 2026 → empty fixture. Legend renders with "(no data)".
+      const client = new QueryClient({
+        defaultOptions: {
+          queries: { retry: false },
+          mutations: { retry: false },
+        },
+      });
+      const wrapper = ({ children }: { children: ReactNode }) => (
+        <QueryClientProvider client={client}>
+          <MemoryRouter
+            initialEntries={[
+              '/trends?from=2026-05-01&to=2026-05-31&compare=previous_period',
+            ]}
+          >
+            {children}
+          </MemoryRouter>
+        </QueryClientProvider>
+      );
+      render(<Trends />, { wrapper });
+      // Both legend strips render when comparison mode is active.
+      expect(
+        screen.getByTestId('trends-chart-cityreview-by-cycle-cmp-legend'),
+      ).toBeInTheDocument();
+      expect(
+        screen.getByTestId('trends-chart-response-by-cycle-cmp-legend'),
+      ).toBeInTheDocument();
+      // Both flag "(no data)" — no permits have multi-cycle data in
+      // April 2026 (the prior window of the May 2026 current window).
+      expect(
+        screen.getByTestId(
+          'trends-chart-cityreview-by-cycle-cmp-legend-empty',
+        ),
+      ).toBeInTheDocument();
+      expect(
+        screen.getByTestId(
+          'trends-chart-response-by-cycle-cmp-legend-empty',
+        ),
+      ).toBeInTheDocument();
+    });
+
+    it('non-regression: existing clock + citytm charts still render under compareTo', () => {
+      const client = new QueryClient({
+        defaultOptions: {
+          queries: { retry: false },
+          mutations: { retry: false },
+        },
+      });
+      const wrapper = ({ children }: { children: ReactNode }) => (
+        <QueryClientProvider client={client}>
+          <MemoryRouter
+            initialEntries={[
+              '/trends?from=2026-06-01&to=2026-06-30&compare=previous_period',
+            ]}
+          >
+            {children}
+          </MemoryRouter>
+        </QueryClientProvider>
+      );
+      render(<Trends />, { wrapper });
+      expect(screen.getByTestId('trends-chart-clock')).toBeInTheDocument();
+      expect(screen.getByTestId('trends-chart-citytm')).toBeInTheDocument();
+      // Their legend strips also render under compareTo.
+      expect(
+        screen.getByTestId('trends-chart-clock-cmp-legend'),
+      ).toBeInTheDocument();
+      expect(
+        screen.getByTestId('trends-chart-citytm-cmp-legend'),
+      ).toBeInTheDocument();
+    });
+
+    it('both charts render an empty state when the cohort has no multi-cycle data', () => {
+      // Default fixture: every permit only has cycle 0 (intake + submit
+      // only; no cycle 1 corr_issued). cityReviewByCycle returns all
+      // nulls; both charts show the empty label.
+      renderTrends();
+      const cr = screen.getByTestId('trends-chart-cityreview-by-cycle');
+      expect(cr.textContent).toMatch(/No multi-cycle review data/i);
+      const resp = screen.getByTestId('trends-chart-response-by-cycle');
+      expect(resp.textContent).toMatch(/No correction response data/i);
     });
   });
 });
