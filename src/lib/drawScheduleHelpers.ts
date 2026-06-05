@@ -40,6 +40,25 @@ export function jurisBorder(juris: string | null | undefined): string {
   return '#16a34a';
 }
 
+/** fix-126: yellow border for redesign blocks. Sits outside the
+ *  jurisdiction-color palette so the visual "this is a redesign" cue
+ *  doesn't compete with the Seattle blue / AZ red signal. Picked
+ *  Tailwind yellow-500 for visibility on both light and dark surfaces.
+ *
+ *  Exported as a named constant so the test suite + any future surfaces
+ *  (matrix view, reports) can reference the same value. */
+export const REDESIGN_BORDER_COLOR = '#eab308';
+
+/** fix-126: pick the right block border color. Redesigns get yellow;
+ *  everything else falls back to the jurisdiction palette. */
+export function blockBorderColor(
+  juris: string | null | undefined,
+  redesignOfProjectId: string | null | undefined,
+): string {
+  if (redesignOfProjectId) return REDESIGN_BORDER_COLOR;
+  return jurisBorder(juris);
+}
+
 /** Returns the Monday of the week containing `d` (00:00 local). */
 export function getMonday(d: Date): Date {
   const dt = new Date(d);

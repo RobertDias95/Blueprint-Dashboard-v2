@@ -48,7 +48,7 @@ import {
   getMonday,
   getQuarterLabel,
   getQuarterWeeks,
-  jurisBorder,
+  blockBorderColor,
   multiMatchAddress,
   weekKeyToQuarterOffset,
   type DropBlock,
@@ -1618,7 +1618,14 @@ function DrawScheduleBody({
                       manualStatus: row.manual_status === true,
                     });
                     const sc = DS_STATUS_COLORS[derivedStatus] ?? DS_STATUS_COLORS.Scheduled;
-                    const borderColor = jurisBorder(project.juris);
+                    // fix-126: redesign blocks get a yellow border to
+                    // distinguish them from juris-colored normals. The
+                    // helper falls back to jurisBorder when the FK is
+                    // null, so non-redesign blocks render identically.
+                    const borderColor = blockBorderColor(
+                      project.juris,
+                      project.redesign_of_project_id,
+                    );
                     // fix-DS-uniform-layout: every non-tail block renders the
                     // same 5-line stack — the visible span only feeds the font
                     // ramp (blockFontPx), not which fields show. Whether the
@@ -1654,13 +1661,32 @@ function DrawScheduleBody({
                           (7 * 86400000),
                       ) + 1,
                     );
+                    // fix-126: redesign blocks reveal the original
+                    // address in the browser tooltip ("Redesign of
+                    // [original]"). A small "R" badge could go in a
+                    // corner but blocks are routinely cramped (1-week
+                    // overflow tails); skip the badge in favor of the
+                    // tooltip + yellow border, per Bobby's "if it
+                    // doesn't fit, skip" call.
+                    const isRedesign = !!project.redesign_of_project_id;
+                    const originalAddress = isRedesign
+                      ? projectsById.get(project.redesign_of_project_id ?? '')
+                          ?.address ?? null
+                      : null;
+                    const redesignTitleSuffix =
+                      isRedesign && originalAddress
+                        ? ` · Redesign of ${originalAddress}`
+                        : isRedesign
+                          ? ' · Redesign'
+                          : '';
                     return (
                       <div
                         key={row.project_id}
                         data-testid={`block-${row.project_id}`}
                         data-tier="default"
                         data-overflow={overflow === 'tail' ? 'tail' : undefined}
-                        title={`${project.address} — ${derivedStatus} (drag to move, click to edit)`}
+                        data-redesign={isRedesign ? 'true' : undefined}
+                        title={`${project.address} — ${derivedStatus}${redesignTitleSuffix} (drag to move, click to edit)`}
                         draggable
                         onMouseEnter={() => {
                           // Q9.5.f-fix-20: highlight every week the block

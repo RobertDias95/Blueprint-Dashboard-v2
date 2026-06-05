@@ -14,6 +14,8 @@ import {
   getQuarterStart,
   getQuarterWeeks,
   jurisBorder,
+  blockBorderColor,
+  REDESIGN_BORDER_COLOR,
   multiMatchAddress,
   planPushDown,
   rangeOverlapsWeeks,
@@ -442,6 +444,29 @@ describe('DS_STATUS_COLORS + jurisBorder', () => {
     expect(jurisBorder('PHOENIX')).toBe('#dc2626');
     expect(jurisBorder('Bellevue')).toBe('#16a34a');
     expect(jurisBorder(null)).toBe('#16a34a');
+  });
+
+  // fix-126: redesign blocks override the juris palette with yellow.
+  describe('blockBorderColor (fix-126)', () => {
+    it('returns yellow when the project is a redesign (regardless of juris)', () => {
+      expect(blockBorderColor('Seattle', 'parent-uuid')).toBe(REDESIGN_BORDER_COLOR);
+      expect(blockBorderColor('Phoenix', 'parent-uuid')).toBe(REDESIGN_BORDER_COLOR);
+      expect(blockBorderColor(null, 'parent-uuid')).toBe(REDESIGN_BORDER_COLOR);
+    });
+
+    it('falls back to juris border when not a redesign (null FK)', () => {
+      expect(blockBorderColor('Seattle', null)).toBe('#1d4ed8');
+      expect(blockBorderColor('Phoenix', null)).toBe('#dc2626');
+      expect(blockBorderColor('Bellevue', null)).toBe('#16a34a');
+    });
+
+    it('treats undefined FK as not-a-redesign', () => {
+      expect(blockBorderColor('Seattle', undefined)).toBe('#1d4ed8');
+    });
+
+    it('treats empty-string FK as not-a-redesign (defensive)', () => {
+      expect(blockBorderColor('Seattle', '')).toBe('#1d4ed8');
+    });
   });
 });
 

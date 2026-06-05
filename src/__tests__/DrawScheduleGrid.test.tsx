@@ -1462,3 +1462,48 @@ describe('<DrawScheduleGrid /> fix-72 DA->DM cascade', () => {
     expect(modal.textContent ?? '').not.toMatch(/\bDM\b/);
   });
 });
+
+// fix-126: redesign blocks get a yellow border + a "Redesign of …"
+// suffix in the title attribute. Non-redesign blocks render exactly as
+// before — the helper falls through to jurisBorder.
+describe('<DrawScheduleGrid /> fix-126 redesign block border', () => {
+  it('non-redesign Seattle block keeps the blue juris border', () => {
+    renderGrid();
+    const block = screen.getByTestId('block-p-now');
+    // jurisBorder('Seattle') → '#1d4ed8' → rgb(29, 78, 216) in the
+    // browser's serialized style string.
+    expect(block.getAttribute('style')).toContain('rgb(29, 78, 216)');
+    // No redesign signal on the block.
+    expect(block.getAttribute('data-redesign')).toBeNull();
+  });
+
+  it('redesign block carries the yellow border + data-redesign attribute + tooltip suffix', () => {
+    // Seed a redesign relationship: p-now is the parent, p-other is its
+    // redesign. Both already have draw_schedule rows.
+    const originalProjects = fixtures.projects.map((p) => ({ ...p }));
+    fixtures.projects = originalProjects.map((p) =>
+      p.id === 'p-other'
+        ? {
+            ...p,
+            redesign_of_project_id: 'p-now',
+            redesign_trigger: 'builder',
+          }
+        : p,
+    );
+    try {
+      renderGrid();
+      const block = screen.getByTestId('block-p-other');
+      // REDESIGN_BORDER_COLOR = '#eab308' → rgb(234, 179, 8).
+      expect(block.getAttribute('style')).toContain('rgb(234, 179, 8)');
+      // Should NOT carry the Bellevue green '#16a34a' → rgb(22, 163, 74).
+      expect(block.getAttribute('style')).not.toContain('rgb(22, 163, 74)');
+      expect(block.getAttribute('data-redesign')).toBe('true');
+      // Tooltip discloses the original address.
+      expect(block.getAttribute('title')).toContain(
+        'Redesign of 500 Pike St',
+      );
+    } finally {
+      fixtures.projects = originalProjects;
+    }
+  });
+});
