@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
 import { usePermits } from '../hooks/usePermits';
 import { useProjects } from '../hooks/useProjects';
@@ -14,6 +14,9 @@ import {
 import MetricInfoTooltip from '../components/shared/MetricInfoTooltip';
 import { formatCompareNumber } from '../lib/comparisonCohort';
 import { TEAM_DETAIL_PHASE_METRICS } from '../lib/metricDefinitions';
+import { worstStage } from '../lib/libraryHelpers';
+import { STAGE_LABEL } from '../lib/stageLabel';
+import type { PermitWithCycles, Project, Stage } from '../lib/database.types';
 
 // fix-131: per-associate drill-down page. Reached from
 // TeamPerformanceTable's name links on the Team tab. Shows a single
@@ -215,8 +218,307 @@ function Body({
           <PhasePerformance associate={associate} result={result} />
         </>
       )}
-      {/* 131-d: project list lands here. */}
+      <ProjectList
+        name={name}
+        role={role}
+        permits={permits}
+        projects={projects}
+      />
     </div>
+  );
+}
+
+// ============================================================
+// 131-d: project list
+// ============================================================
+//
+// Lists every project the associate is credited on (any of their
+// permits' role field matches their name). One row per project — when
+// multiple permits at the same project credit them, the types column
+// joins them. Sortable headers, sticky thead, redesign chip for
+// projects whose redesign_of_project_id is set. Default sort: GO date
+// desc (most recent first).
+
+const STAGE_BADGE: Record<Stage, string> = {
+  de: 'bg-de-bg text-de border-de-border',
+  pm: 'bg-pm-bg text-pm border-pm-border',
+  co: 'bg-co-bg text-co border-co-border',
+  ap: 'bg-jv-bg text-jv border-jv-border',
+  is: 'bg-is-bg text-is border-is-border',
+};
+
+function roleField(role: TeamRoleSelection): 'da' | 'dm' | 'ent_lead' {
+  if (role === 'da') return 'da';
+  if (role === 'dm') return 'dm';
+  return 'ent_lead';
+}
+
+interface ProjectListRow {
+  projectId: string;
+  address: string;
+  juris: string;
+  types: string[];
+  stage: Stage;
+  goDate: string | null;
+  targetSubmit: string | null;
+  approvalDate: string | null;
+  isRedesign: boolean;
+}
+
+type SortKey =
+  | 'address'
+  | 'juris'
+  | 'stage'
+  | 'goDate'
+  | 'targetSubmit'
+  | 'approvalDate';
+
+function buildRows(
+  name: string,
+  role: TeamRoleSelection,
+  permits: PermitWithCycles[],
+  projects: Project[],
+): ProjectListRow[] {
+  const field = roleField(role);
+  const projectsById = new Map<string, Project>();
+  for (const p of projects) projectsById.set(p.id, p);
+
+  // Group the associate's permits by project. The associate may have
+  // multiple permits at a single project (BP + Demo, etc.), so accumulate.
+  const byProjectId = new Map<string, PermitWithCycles[]>();
+  for (const permit of permits) {
+    const credited = (permit[field] ?? '').trim() === name;
+    if (!credited) continue;
+    const list = byProjectId.get(permit.project_id) ?? [];
+    list.push(permit);
+    byProjectId.set(permit.project_id, list);
+  }
+
+  const rows: ProjectListRow[] = [];
+  for (const [projectId, projectPermits] of byProjectId) {
+    const project = projectsById.get(projectId);
+    if (!project) continue;
+    const types = Array.from(
+      new Set(projectPermits.map((p) => p.type).filter((t): t is string => !!t)),
+    ).sort();
+    const stage = worstStage(projectPermits);
+    const maxDate = (dates: (string | null | undefined)[]): string | null => {
+      const valid = dates.filter(
+        (d): d is string => typeof d === 'string' && d.trim() !== '',
+      );
+      if (valid.length === 0) return null;
+      return valid.sort()[valid.length - 1];
+    };
+    rows.push({
+      projectId,
+      address: project.address,
+      juris: project.juris ?? '',
+      types,
+      stage,
+      goDate: project.go_date ?? null,
+      targetSubmit: maxDate(projectPermits.map((p) => p.target_submit)),
+      approvalDate: maxDate(projectPermits.map((p) => p.approval_date)),
+      isRedesign: !!project.redesign_of_project_id,
+    });
+  }
+  return rows;
+}
+
+const STAGE_ORDER: Record<Stage, number> = {
+  de: 0,
+  pm: 1,
+  co: 2,
+  ap: 3,
+  is: 4,
+};
+
+function ProjectList({
+  name,
+  role,
+  permits,
+  projects,
+}: {
+  name: string;
+  role: TeamRoleSelection;
+  permits: PermitWithCycles[];
+  projects: Project[];
+}) {
+  const rows = useMemo(
+    () => buildRows(name, role, permits, projects),
+    [name, role, permits, projects],
+  );
+  const [sortKey, setSortKey] = useState<SortKey>('goDate');
+  const [sortDesc, setSortDesc] = useState(true);
+
+  const sorted = useMemo(() => {
+    const out = [...rows];
+    const dir = sortDesc ? -1 : 1;
+    out.sort((a, b) => {
+      if (sortKey === 'stage') {
+        return (STAGE_ORDER[a.stage] - STAGE_ORDER[b.stage]) * dir;
+      }
+      const av = a[sortKey];
+      const bv = b[sortKey];
+      // Nulls sort to the end regardless of direction.
+      if ((av === null || av === '') && (bv === null || bv === '')) return 0;
+      if (av === null || av === '') return 1;
+      if (bv === null || bv === '') return -1;
+      if (typeof av === 'string' && typeof bv === 'string') {
+        return av.localeCompare(bv) * dir;
+      }
+      return 0;
+    });
+    return out;
+  }, [rows, sortKey, sortDesc]);
+
+  function toggleSort(key: SortKey) {
+    if (key === sortKey) setSortDesc((v) => !v);
+    else {
+      setSortKey(key);
+      setSortDesc(key === 'goDate' || key === 'approvalDate' || key === 'targetSubmit');
+    }
+  }
+
+  if (rows.length === 0) {
+    return (
+      <section
+        className="space-y-2 bg-surface border border-border rounded-lg px-4 py-12 text-center"
+        data-testid="team-detail-project-list"
+      >
+        <div className="text-sm text-text font-display font-bold">
+          {name} has no projects in the system.
+        </div>
+        <div className="text-xs text-dim italic">
+          Maybe try adjusting the active-only filter on the main Team page.
+        </div>
+      </section>
+    );
+  }
+
+  return (
+    <section className="space-y-2" data-testid="team-detail-project-list">
+      <div className="text-[10px] uppercase tracking-wide text-dim font-display font-bold">
+        Projects ({rows.length})
+      </div>
+      <div className="bg-surface border border-border rounded-lg overflow-auto">
+        <table className="w-full text-[11px]">
+          <thead className="bg-s2 sticky top-0 z-10">
+            <tr className="border-b-2 border-border">
+              <ProjectTh col="address" sortKey={sortKey} sortDesc={sortDesc} onClick={toggleSort} align="left">
+                Address
+              </ProjectTh>
+              <ProjectTh col="juris" sortKey={sortKey} sortDesc={sortDesc} onClick={toggleSort} align="left">
+                Juris
+              </ProjectTh>
+              <th className="px-2 py-1.5 text-[9px] uppercase tracking-wide font-display font-bold text-text/80 text-left">
+                Permit Types
+              </th>
+              <ProjectTh col="stage" sortKey={sortKey} sortDesc={sortDesc} onClick={toggleSort}>
+                Status
+              </ProjectTh>
+              <ProjectTh col="goDate" sortKey={sortKey} sortDesc={sortDesc} onClick={toggleSort}>
+                GO Date
+              </ProjectTh>
+              <ProjectTh col="targetSubmit" sortKey={sortKey} sortDesc={sortDesc} onClick={toggleSort}>
+                Target Submit
+              </ProjectTh>
+              <ProjectTh col="approvalDate" sortKey={sortKey} sortDesc={sortDesc} onClick={toggleSort}>
+                Approval
+              </ProjectTh>
+              <th className="px-2 py-1.5 text-[9px] uppercase tracking-wide font-display font-bold text-text/80 text-center">
+                Redesign?
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            {sorted.map((row) => (
+              <tr
+                key={row.projectId}
+                className="border-b border-border hover:bg-s2 transition"
+                data-testid={`team-detail-project-row-${row.projectId}`}
+              >
+                <td className="px-2 py-1.5 font-display font-bold">
+                  <Link
+                    to={`/project/${row.projectId}`}
+                    className="text-de hover:underline"
+                  >
+                    {row.address}
+                  </Link>
+                </td>
+                <td className="px-2 py-1.5 text-muted">{row.juris || '—'}</td>
+                <td className="px-2 py-1.5 text-text">
+                  {row.types.join(', ')}
+                </td>
+                <td className="px-2 py-1.5 text-center">
+                  <span
+                    className={`text-[9px] font-bold uppercase px-2 py-0.5 rounded border ${STAGE_BADGE[row.stage]}`}
+                  >
+                    {STAGE_LABEL[row.stage]}
+                  </span>
+                </td>
+                <td className="px-2 py-1.5 text-center font-mono text-text">
+                  {row.goDate ?? <span className="text-dim">—</span>}
+                </td>
+                <td className="px-2 py-1.5 text-center font-mono text-text">
+                  {row.targetSubmit ?? <span className="text-dim">—</span>}
+                </td>
+                <td className="px-2 py-1.5 text-center font-mono text-text">
+                  {row.approvalDate ?? <span className="text-dim">—</span>}
+                </td>
+                <td className="px-2 py-1.5 text-center">
+                  {row.isRedesign ? (
+                    <span
+                      className="text-[9px] font-bold uppercase px-2 py-0.5 rounded-full border"
+                      style={{
+                        background: 'var(--color-co-bg)',
+                        color: 'var(--color-co)',
+                        borderColor: 'var(--color-co-border)',
+                      }}
+                      data-testid={`team-detail-project-row-${row.projectId}-redesign-chip`}
+                    >
+                      Redesign
+                    </span>
+                  ) : (
+                    <span className="text-dim">—</span>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+}
+
+function ProjectTh({
+  col,
+  sortKey,
+  sortDesc,
+  onClick,
+  align = 'center',
+  children,
+}: {
+  col: SortKey;
+  sortKey: SortKey;
+  sortDesc: boolean;
+  onClick: (col: SortKey) => void;
+  align?: 'left' | 'center';
+  children: React.ReactNode;
+}) {
+  const isActive = sortKey === col;
+  const arrow = isActive ? (sortDesc ? '↓' : '↑') : '↕';
+  return (
+    <th
+      onClick={() => onClick(col)}
+      className={`px-2 py-1.5 text-[9px] uppercase tracking-wide font-display font-bold cursor-pointer select-none whitespace-nowrap text-${align} ${
+        isActive ? 'text-text' : 'text-text/80'
+      }`}
+      data-testid={`team-detail-project-th-${col}`}
+      aria-sort={isActive ? (sortDesc ? 'descending' : 'ascending') : 'none'}
+    >
+      {children} {arrow}
+    </th>
   );
 }
 
