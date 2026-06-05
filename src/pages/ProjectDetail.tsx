@@ -21,6 +21,12 @@ import PermitDetailV2 from '../components/ProjectDetail/PermitDetailV2';
 import ProjectSettingsModal from '../components/ProjectDetail/ProjectSettingsModal';
 import DeleteProjectDialog from '../components/ProjectDetail/DeleteProjectDialog';
 import QuickEditPermitModal from '../components/ProjectDetail/QuickEditPermitModal';
+import NewProjectWizard from '../components/NewProjectWizard';
+import {
+  makeRedesignWizardState,
+  type WizardState,
+} from '../components/wizard/wizardState';
+import { useProjectRedesigns } from '../hooks/useProjectRedesigns';
 
 // Q3 + Q4: Single-project view. Q3 wired editable permit-level fields. Q4
 // adds editable cycles (5 date columns + add/delete) and a tasks section
@@ -104,6 +110,13 @@ function ProjectDetailBody({
   // button / Delete button / future hotkeys) target the same instances.
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
+  // fix-126: redesign-wizard state. When non-null the New Project wizard
+  // mounts in redesign mode with this seed; settingsOpen is closed first
+  // so the two modals never overlap. The seed embeds the parent project's
+  // address suffixed " [Redesign N]" — see makeRedesignWizardState +
+  // useProjectRedesigns.
+  const [redesignSeed, setRedesignSeed] = useState<WizardState | null>(null);
+  const redesignsQ = useProjectRedesigns(project.id);
   // Q9.5.f-fix-19: Quick Edit popup opened by double-click on a sidebar row.
   const [quickEditPermitId, setQuickEditPermitId] = useState<number | null>(
     null,
@@ -134,6 +147,25 @@ function ProjectDetailBody({
         <ProjectSettingsModal
           project={project}
           onClose={() => setSettingsOpen(false)}
+          onSpawnRedesign={() => {
+            // fix-126: close the settings modal first so the wizard
+            // doesn't overlay it. The seed builds the new wizard state
+            // from this project's site facts + auto-suffixes the
+            // address so the unique-address constraint is satisfied.
+            const seed = makeRedesignWizardState(
+              project,
+              redesignsQ.count,
+            );
+            setSettingsOpen(false);
+            setRedesignSeed(seed);
+          }}
+        />
+      )}
+      {redesignSeed && (
+        <NewProjectWizard
+          open={true}
+          onClose={() => setRedesignSeed(null)}
+          initialState={redesignSeed}
         />
       )}
       {deleteOpen && (

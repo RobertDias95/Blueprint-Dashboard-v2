@@ -47,6 +47,12 @@ import type {
 interface Props {
   project: Project;
   onClose: () => void;
+  /** fix-126: optional callback fired when the user clicks the
+   *  "Spawn Redesign" button in the modal footer. Parent (ProjectDetail)
+   *  is responsible for closing this modal AND opening the New Project
+   *  wizard pre-seeded with redesign state. When omitted the button
+   *  doesn't render — preserves the modal's pre-fix-126 shape. */
+  onSpawnRedesign?: () => void;
 }
 
 const PARKING_OPTIONS = ['', 'None', 'Surface', 'Garage', 'Both'];
@@ -171,7 +177,11 @@ function initForm(
   };
 }
 
-export default function ProjectSettingsModal({ project, onClose }: Props) {
+export default function ProjectSettingsModal({
+  project,
+  onClose,
+  onSpawnRedesign,
+}: Props) {
   const permitsQ = usePermitsByProject(project.id);
   const jurisdictionsQ = useJurisdictions();
   const teamQ = useTeamMembers();
@@ -778,6 +788,27 @@ export default function ProjectSettingsModal({ project, onClose }: Props) {
             borderTopColor: 'var(--color-border)',
           }}
         >
+          {/* fix-126: Spawn Redesign entry. Left-aligned so it doesn't
+              compete visually with Save/Cancel. Renders only when the
+              parent passes onSpawnRedesign — keeps the modal's
+              pre-fix-126 footer unchanged for any caller that hasn't
+              wired the redesign flow yet. */}
+          {onSpawnRedesign && (
+            <button
+              type="button"
+              onClick={onSpawnRedesign}
+              className="px-3 py-1 text-[11px] font-bold uppercase tracking-wide rounded border mr-auto"
+              style={{
+                borderColor: 'var(--color-co-border)',
+                background: 'var(--color-co-bg)',
+                color: 'var(--color-co)',
+              }}
+              data-testid="psm-spawn-redesign"
+              title="Open the wizard with this project's site facts prefilled as a redesign"
+            >
+              + Spawn Redesign
+            </button>
+          )}
           <button
             type="button"
             onClick={onClose}

@@ -174,6 +174,11 @@ export default function Step1ProjectInfo({
     );
   }
 
+  // fix-126: redesign mode is gated on redesign_of_project_id being non-empty.
+  // The wizard is opened that way from ProjectDetail's "Spawn Redesign"
+  // button (which uses makeRedesignWizardState to seed the form).
+  const isRedesign = !!value.redesign_of_project_id;
+
   return (
     <div className="space-y-4" data-testid="wizard-step-1">
       {jurisOptions.length === 0 && !jurisQ.isLoading && (
@@ -183,6 +188,27 @@ export default function Step1ProjectInfo({
             Add one in Settings → Projects
           </Link>
           .
+        </div>
+      )}
+
+      {/* fix-126: redesign header. Shows "Redesigning [original address] →"
+          at the top of Step 1 so the user has a clear visual cue that
+          they're not creating a fresh project. */}
+      {isRedesign && (
+        <div
+          className="text-[12px] font-bold px-3 py-2 rounded-md border"
+          style={{
+            background: 'var(--color-co-bg)',
+            borderColor: 'var(--color-co-border)',
+            color: 'var(--color-co)',
+          }}
+          data-testid="wizard-redesign-header"
+        >
+          Redesigning{' '}
+          <span data-testid="wizard-redesign-header-original">
+            {value.redesign_of_project_address || '(unknown original)'}
+          </span>{' '}
+          →
         </div>
       )}
 
@@ -534,6 +560,76 @@ export default function Step1ProjectInfo({
           onRemove={removeTag}
         />
       </section>
+
+      {/* fix-126: Redesign Details — only renders when the wizard is
+          opened from a "Spawn Redesign" entry point. Trigger source
+          (8-value controlled vocab), reuse-permits tri-state, and
+          free-form notes. Reuse=Yes hides Step 3's permit rows in
+          favor of a "this redesign reuses the original's permits"
+          banner and sends an empty permits array on submit. */}
+      {isRedesign && (
+        <section
+          className="bg-s2/60 rounded-lg p-4 space-y-3"
+          data-testid="wizard-section-redesign"
+        >
+          <div className="text-[10px] uppercase tracking-[0.08em] text-co font-display font-bold">
+            Redesign Details
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <label className="flex flex-col gap-1">
+              <span className="text-[10px] uppercase tracking-wide text-dim">
+                Trigger Source <span className="text-co">*</span>
+              </span>
+              <select
+                value={value.redesign_trigger}
+                onChange={(e) => set('redesign_trigger', e.target.value)}
+                className="bg-bg border border-border rounded-md px-3 py-1.5 text-xs font-display text-text focus:outline-none focus:border-de"
+                data-testid="wizard-redesign-trigger"
+              >
+                <option value="">— pick a trigger —</option>
+                <option value="builder">Builder</option>
+                <option value="ceo">CEO</option>
+                <option value="acquisitions">Acquisitions</option>
+                <option value="design_mgmt">Design Mgmt</option>
+                <option value="design_associate">Design Associate</option>
+                <option value="city_correction">City Correction</option>
+                <option value="market">Market</option>
+                <option value="other">Other</option>
+              </select>
+            </label>
+            <label className="flex flex-col gap-1">
+              <span className="text-[10px] uppercase tracking-wide text-dim">
+                Reuses Original Permit
+              </span>
+              <select
+                value={value.redesign_reuses_original_permit}
+                onChange={(e) =>
+                  set('redesign_reuses_original_permit', e.target.value)
+                }
+                className="bg-bg border border-border rounded-md px-3 py-1.5 text-xs font-display text-text focus:outline-none focus:border-de"
+                data-testid="wizard-redesign-reuses"
+              >
+                <option value="">—</option>
+                <option value="yes">Yes</option>
+                <option value="no">No</option>
+              </select>
+            </label>
+          </div>
+          <label className="flex flex-col gap-1">
+            <span className="text-[10px] uppercase tracking-wide text-dim">
+              Notes
+            </span>
+            <textarea
+              value={value.redesign_notes}
+              onChange={(e) => set('redesign_notes', e.target.value)}
+              placeholder="What changed and why?"
+              rows={2}
+              className="bg-bg border border-border rounded-md px-3 py-1.5 text-xs font-display text-text placeholder:text-dim focus:outline-none focus:border-de"
+              data-testid="wizard-redesign-notes"
+            />
+          </label>
+        </section>
+      )}
 
       {/* Builder / Owner section — fix-22-final adds the v1 panel.
           fix-23f wires the 4 fields to BuilderAutocompleteField so a
