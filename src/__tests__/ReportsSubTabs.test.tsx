@@ -64,11 +64,14 @@ describe('Reports sub-tabs (fix-trends-subtab)', () => {
     expect(screen.queryByTestId('trends-stub')).toBeNull();
   });
 
-  it('is a tablist with two tabs (a11y roles)', () => {
+  it('is a tablist with three tabs (a11y roles)', () => {
+    // fix-127 added a third "Team" tab. The tablist contract (role,
+    // tab count) updates here; the per-tab keyboard + click flows are
+    // covered by the surrounding tests + ReportsTeam.test.tsx.
     renderAt('/reports');
     const list = screen.getByTestId('reports-subtab-bar');
     expect(list).toHaveAttribute('role', 'tablist');
-    expect(screen.getAllByRole('tab')).toHaveLength(2);
+    expect(screen.getAllByRole('tab')).toHaveLength(3);
   });
 
   it('clicking Trends updates the URL to ?tab=trends and shows Trends content', () => {
