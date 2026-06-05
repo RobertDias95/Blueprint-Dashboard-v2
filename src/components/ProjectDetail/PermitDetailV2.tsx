@@ -211,9 +211,18 @@ export default function PermitDetailV2({ permit, project }: Props) {
       >
         <TasksPanel
           permitId={permit.id}
-          // fix-79: pre-submit project → open on D&E; once c0 .submitted lands
-          // the panel opens on Permitting. The user can still toggle freely.
-          defaultBucket={designCycle?.submitted ? 'pm' : 'de'}
+          // fix-123: drive the D&E/Permitting phase tabs from c0 intake_accepted
+          // (was c0.submitted pre-fix-123 — Bobby's spec calls out
+          // intake_accepted as the v1 phase boundary). null → D&E,
+          // non-null → Permitting; null↔non-null transitions auto-snap
+          // even after a manual user toggle. Also threaded: whether ANY
+          // active review cycle (cycle_index >= 1) is in corrections (no
+          // resubmitted yet after a corr_issued), so the Permitting-phase
+          // Add input can show "Add correction…" per Bobby's screenshot 1.
+          c0IntakeAccepted={designCycle?.intake_accepted ?? null}
+          inCorrections={cycles.some(
+            (c) => c.cycle_index >= 1 && c.corr_issued && !c.resubmitted,
+          )}
         />
         <Sidebar
           permit={permit}
@@ -1546,13 +1555,20 @@ const STATUS_OPTS = ['Open', 'In Progress', 'Resolved'] as const;
 
 function TasksPanel({
   permitId,
-  defaultBucket,
+  c0IntakeAccepted,
+  inCorrections,
 }: {
   permitId: number;
-  /** fix-79: which lifecycle bucket to show on mount. Parent infers from the
-   *  permit's cycle 0 .submitted state — pre-submit projects open on D&E,
-   *  in-review/post-submit open on Permitting. */
-  defaultBucket: 'de' | 'pm';
+  /** fix-123: cycle 0 intake_accepted. Drives the initial active phase
+   *  (null → D&E, non-null → Permitting) AND the null↔non-null transition
+   *  auto-snap. Was `defaultBucket: 'de' | 'pm'` pre-fix-123 (derived
+   *  from c0.submitted, not intake_accepted). */
+  c0IntakeAccepted: string | null;
+  /** fix-123: whether the permit currently has an open corrections cycle
+   *  (any review cycle with corr_issued but no resubmitted). When true,
+   *  the Permitting-phase Add input shows "Add correction…" instead of
+   *  the generic "Add permitting task…" — matches Bobby's screenshot 1. */
+  inCorrections: boolean;
 }) {
   const treeQ = usePermitTaskTree(permitId);
   const team = useTeamMembers();
@@ -1565,20 +1581,41 @@ function TasksPanel({
   // render without this wrapper).
   const tasks = useMemo(() => treeQ.data ?? [], [treeQ.data]);
 
-  // fix-79: D&E / Permitting toggle. Clicking a bar swaps the active bucket;
-  // the columns below filter to that bucket and "+ Add task" lands new rows
-  // with bucket=activeBucket.
-  const [activeBucket, setActiveBucket] = useState<'de' | 'pm'>(defaultBucket);
+  // fix-79 / fix-123: D&E / Permitting phase tabs. Clicking a tab swaps the
+  // active phase; the columns below filter to that phase's tasks and the
+  // "+ Add task" input lands new rows with bucket=activePhase.
+  const [activeBucket, setActiveBucket] = useState<'de' | 'pm'>(
+    c0IntakeAccepted ? 'pm' : 'de',
+  );
+
+  // fix-123: auto-snap on the c0.intake_accepted null↔non-null transition.
+  // Strictly gated by the transition itself (not "every render") so a user
+  // who manually toggled to D&E on a post-intake permit STAYS on D&E until
+  // intake_accepted actually changes. Bobby's v1 behavior — see PR brief.
+  const prevC0IntakeRef = useRef<string | null>(c0IntakeAccepted);
+  useEffect(() => {
+    const prev = prevC0IntakeRef.current;
+    const curr = c0IntakeAccepted;
+    const wasNull = prev === null;
+    const isNull = curr === null;
+    if (wasNull && !isNull) setActiveBucket('pm');
+    else if (!wasNull && isNull) setActiveBucket('de');
+    prevC0IntakeRef.current = curr;
+  }, [c0IntakeAccepted]);
+
   const bucketTotals = useMemo(() => {
-    const counters: Record<'de' | 'pm', { open: number; total: number }> = {
-      de: { open: 0, total: 0 },
-      pm: { open: 0, total: 0 },
+    // fix-123: chip shows {done}/{total} per Bobby's spec. Pre-fix-123 this
+    // was {open}/{total} — the resolved-count framing matches the v1
+    // "you've completed N of M" mental model better.
+    const counters: Record<'de' | 'pm', { done: number; total: number }> = {
+      de: { done: 0, total: 0 },
+      pm: { done: 0, total: 0 },
     };
     for (const t of tasks) {
       const b = t.bucket;
       if (b !== 'de' && b !== 'pm') continue;
       counters[b].total += 1;
-      if (t.status !== 'Resolved') counters[b].open += 1;
+      if (t.status === 'Resolved') counters[b].done += 1;
     }
     return counters;
   }, [tasks]);
@@ -1587,6 +1624,13 @@ function TasksPanel({
     () => tasks.filter((t) => t.bucket === activeBucket),
     [tasks, activeBucket],
   );
+
+  // fix-123: phase color drives BOTH the active phase tab background AND
+  // the Add task button on each discipline column. D&E = --color-de
+  // (blue); Permitting = --color-co (orange — Bobby's screenshots show
+  // orange for the v1 Permitting tab, not the v2 --color-pm green).
+  const phaseAccent =
+    activeBucket === 'de' ? 'var(--color-de)' : 'var(--color-co)';
 
   return (
     <div className="flex flex-col" data-testid="pd-v2-tasks-panel">
@@ -1608,8 +1652,10 @@ function TasksPanel({
             discipline={d.key}
             title={d.label}
             accent={d.accent}
+            phaseAccent={phaseAccent}
             permitId={permitId}
             activeBucket={activeBucket}
+            inCorrections={inCorrections}
             tasks={visible.filter((t) => t.discipline === d.key)}
             memberNames={memberNames}
             borderLeft={d.key === 'arch'}
@@ -1620,20 +1666,35 @@ function TasksPanel({
   );
 }
 
-/** fix-79: D&E / Permitting toggle bars. Active bar gets an accent border +
- *  bolder text; counts show open/total per bucket. */
+/** fix-79 / fix-123: D&E / Permitting phase tabs. Bobby's v1 hierarchy:
+ *  active tab = SOLID phase color background, white bold text; inactive
+ *  tab = washed (light) phase-color background, muted text. Same size for
+ *  both so the only visual cue is color. Permitting uses --color-co
+ *  (orange) — Bobby's v1 used orange for Permitting, not --color-pm green.
+ *  Count chip shows {done}/{total}, also a fix-123 spec call (was
+ *  {open}/{total} pre-fix-123). */
 function BucketBars({
   active,
   totals,
   onSelect,
 }: {
   active: 'de' | 'pm';
-  totals: Record<'de' | 'pm', { open: number; total: number }>;
+  totals: Record<'de' | 'pm', { done: number; total: number }>;
   onSelect: (b: 'de' | 'pm') => void;
 }) {
   const BARS = [
-    { key: 'de' as const, label: 'D&E', accent: 'var(--color-de)' },
-    { key: 'pm' as const, label: 'Permitting', accent: 'var(--color-pm)' },
+    {
+      key: 'de' as const,
+      label: 'D&E',
+      accent: 'var(--color-de)',
+      washedBg: 'var(--color-de-bg)',
+    },
+    {
+      key: 'pm' as const,
+      label: 'Permitting',
+      accent: 'var(--color-co)',
+      washedBg: 'var(--color-co-bg)',
+    },
   ];
   return (
     <div
@@ -1646,35 +1707,32 @@ function BucketBars({
     >
       {BARS.map((b) => {
         const isActive = active === b.key;
-        const { open, total } = totals[b.key];
+        const { done, total } = totals[b.key];
         return (
           <button
             key={b.key}
             type="button"
             onClick={() => onSelect(b.key)}
-            className="px-3 py-2 text-left cursor-pointer"
+            className="px-4 py-2.5 text-center cursor-pointer transition-colors"
             style={{
-              background: isActive ? 'var(--color-s2)' : 'var(--color-bg)',
+              background: isActive ? b.accent : b.washedBg,
+              color: isActive ? '#fff' : 'var(--color-muted)',
+              fontWeight: isActive ? 800 : 600,
               borderRight:
                 b.key === 'de' ? '1px solid var(--color-border)' : undefined,
-              borderBottom: isActive
-                ? `2px solid ${b.accent}`
-                : '2px solid transparent',
-              color: isActive ? b.accent : 'var(--color-muted)',
-              fontWeight: isActive ? 700 : 500,
             }}
             data-testid={`pd-v2-task-bucket-bar-${b.key}`}
             data-active={isActive ? 'true' : 'false'}
             aria-pressed={isActive}
           >
-            <span className="text-[11px] uppercase tracking-wide">
+            <span className="text-[12px] uppercase tracking-wide">
               {b.label}
             </span>
             <span
               className="ml-2 text-[10px] font-mono"
               data-testid={`pd-v2-task-bucket-count-${b.key}`}
             >
-              {open}/{total}
+              {done}/{total}
             </span>
           </button>
         );
@@ -1687,8 +1745,10 @@ function DisciplineColumn({
   discipline,
   title,
   accent,
+  phaseAccent,
   permitId,
   activeBucket,
+  inCorrections,
   tasks,
   memberNames,
   borderLeft,
@@ -1696,10 +1756,17 @@ function DisciplineColumn({
   discipline: 'arch' | 'ent';
   title: string;
   accent: string;
+  /** fix-123: phase color (blue for de, orange for pm) used by the Add
+   *  task button. The discipline color (`accent`) still owns the column
+   *  header so the two axes stay visually distinct. */
+  phaseAccent: string;
   permitId: number;
   /** fix-79: the lifecycle bucket the user is viewing. New tasks created from
    *  the "+ Add task" input land in this bucket. */
   activeBucket: 'de' | 'pm';
+  /** fix-123: drives the Add input placeholder copy when activeBucket='pm'
+   *  ("Add correction…" vs "Add permitting task…"). */
+  inCorrections: boolean;
   tasks: TaskNode[];
   memberNames: string[];
   borderLeft?: boolean;
@@ -1787,7 +1854,19 @@ function DisciplineColumn({
           onKeyDown={(e) => {
             if (e.key === 'Enter') handleAdd();
           }}
-          placeholder={`Add ${title} task…`}
+          // fix-123: phase-driven placeholder copy (mirrors v1). The
+          // column position + header still conveys discipline; the
+          // placeholder now signals the LIFECYCLE PHASE the new task
+          // will land in. Permitting + open corrections cycle → "Add
+          // correction…" (screenshot 1); plain Permitting → "Add
+          // permitting task…"; D&E → "Add D&E task…" (screenshot 2).
+          placeholder={
+            activeBucket === 'de'
+              ? 'Add D&E task…'
+              : inCorrections
+                ? 'Add correction…'
+                : 'Add permitting task…'
+          }
           className="flex-1 text-[11px] px-2 py-1 border rounded outline-none"
           style={{
             borderColor: 'var(--color-border)',
@@ -1801,7 +1880,11 @@ function DisciplineColumn({
           onClick={handleAdd}
           disabled={!draft.trim()}
           className="text-[11px] px-3 py-1 rounded font-bold transition disabled:opacity-50"
-          style={{ background: accent, color: '#fff' }}
+          // fix-123: Add button takes the PHASE color (blue/orange), not
+          // the discipline color (was `accent` / discipline-blue or
+          // discipline-purple pre-fix-123). Bobby's screenshots show the
+          // button matching the active phase tab, not the column header.
+          style={{ background: phaseAccent, color: '#fff' }}
           data-testid={`pd-v2-task-add-btn-${discipline}`}
         >
           Add

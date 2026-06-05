@@ -1,8 +1,10 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { fireEvent, render, screen } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { useState } from 'react';
 import type { ReactNode } from 'react';
 import type {
+  PermitCycle,
   PermitWithCycles,
   TaskNode,
   TeamMember,
@@ -232,21 +234,22 @@ describe('PermitDetailV2 fix-70 task editor', () => {
   // accent-borders + shows counts, only that bucket's tasks render below, and
   // "+ Add task" defaults new rows to the active bucket.
   describe('fix-79 D&E/Permitting bucket toggle', () => {
-    it('renders both bars with open/total counts and Permitting hidden by default when no c0.submitted', () => {
+    it('renders both bars with done/total counts and Permitting hidden by default when no c0.intake_accepted', () => {
       treeRef.current = [
         makeTask({ id: 't-de-open',   bucket: 'de', status: 'Open',     text: 'Pre-submit task' }),
         makeTask({ id: 't-de-resolved', bucket: 'de', status: 'Resolved', text: 'Done D&E task' }),
         makeTask({ id: 't-pm-open',   bucket: 'pm', status: 'Open',     text: 'Permitting task' }),
       ];
       renderIt();
-      // D&E bar is active by default (the permit fixture has no c0.submitted).
+      // D&E bar is active by default (the permit fixture has no c0.intake_accepted).
       const deBar = screen.getByTestId('pd-v2-task-bucket-bar-de');
       const pmBar = screen.getByTestId('pd-v2-task-bucket-bar-pm');
       expect(deBar.getAttribute('data-active')).toBe('true');
       expect(pmBar.getAttribute('data-active')).toBe('false');
-      // Counts: D&E has 1 open / 2 total, Permitting 1 / 1.
+      // fix-123: chip is {done}/{total} per Bobby's spec (was open/total
+      // pre-fix-123). D&E has 1 resolved / 2 total, Permitting 0 / 1.
       expect(screen.getByTestId('pd-v2-task-bucket-count-de').textContent).toBe('1/2');
-      expect(screen.getByTestId('pd-v2-task-bucket-count-pm').textContent).toBe('1/1');
+      expect(screen.getByTestId('pd-v2-task-bucket-count-pm').textContent).toBe('0/1');
       // D&E tasks render; Permitting task hidden.
       expect(screen.getByTestId('task-row-t-de-open')).toBeInTheDocument();
       expect(screen.queryByTestId('task-row-t-pm-open')).toBeNull();
@@ -285,6 +288,251 @@ describe('PermitDetailV2 fix-70 task editor', () => {
         bucket: 'pm', // ← key assertion: active bucket flowed into the new task
         text: 'New corrections task',
       });
+    });
+  });
+
+  // ============================================================
+  // fix-123: phase tabs snap on c0.intake_accepted null↔non-null
+  // ============================================================
+  describe('fix-123 phase tabs auto-snap + v1 visual hierarchy', () => {
+    function makeCycle(
+      over: Omit<Partial<PermitCycle>, 'cycle_index'> & { cycle_index: number },
+    ): PermitCycle {
+      const { cycle_index, ...rest } = over;
+      return {
+        id: `cy-${cycle_index}`,
+        permit_id: 10009,
+        cycle_index,
+        submitted: null,
+        city_target: null,
+        corr_issued: null,
+        resubmitted: null,
+        intake_accepted: null,
+        created_at: '2026-05-14T12:00:00Z',
+        updated_at: '2026-05-14T12:00:00Z',
+        ...rest,
+      };
+    }
+
+    function renderWithCycles(cycles: PermitCycle[]) {
+      const queryClient = new QueryClient({
+        defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+      });
+      const wrapper = ({ children }: { children: ReactNode }) => (
+        <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+      );
+      return render(
+        <PermitDetailV2 permit={{ ...makePermit(), permit_cycles: cycles }} />,
+        { wrapper },
+      );
+    }
+
+    it('mounts on D&E when c0.intake_accepted is null', () => {
+      renderWithCycles([makeCycle({ cycle_index: 0 })]);
+      expect(
+        screen.getByTestId('pd-v2-task-bucket-bar-de').getAttribute('data-active'),
+      ).toBe('true');
+      expect(
+        screen.getByTestId('pd-v2-task-bucket-bar-pm').getAttribute('data-active'),
+      ).toBe('false');
+    });
+
+    it('mounts on Permitting when c0.intake_accepted is set', () => {
+      renderWithCycles([
+        makeCycle({
+          cycle_index: 0,
+          submitted: '2026-05-20',
+          intake_accepted: '2026-05-22',
+        }),
+      ]);
+      expect(
+        screen.getByTestId('pd-v2-task-bucket-bar-pm').getAttribute('data-active'),
+      ).toBe('true');
+      expect(
+        screen.getByTestId('pd-v2-task-bucket-bar-de').getAttribute('data-active'),
+      ).toBe('false');
+    });
+
+    it('manual click on D&E when mounted on Permitting swaps the active tab (manual toggle, no snap)', () => {
+      renderWithCycles([
+        makeCycle({
+          cycle_index: 0,
+          submitted: '2026-05-20',
+          intake_accepted: '2026-05-22',
+        }),
+      ]);
+      fireEvent.click(screen.getByTestId('pd-v2-task-bucket-bar-de'));
+      expect(
+        screen.getByTestId('pd-v2-task-bucket-bar-de').getAttribute('data-active'),
+      ).toBe('true');
+      expect(
+        screen.getByTestId('pd-v2-task-bucket-bar-pm').getAttribute('data-active'),
+      ).toBe('false');
+    });
+
+    // Auto-snap: a controlled host flips c0.intake_accepted in place
+    // (mirrors what React Query does after a cache write). The snap
+    // useEffect should fire on the null → non-null transition even if
+    // the user had manually toggled to D&E in the meantime — the moment
+    // intake_accepted actually changes wins.
+    it('snaps from D&E → Permitting when c0.intake_accepted goes null → date', () => {
+      function Host() {
+        const [accepted, setAccepted] = useState<string | null>(null);
+        const cycles: PermitCycle[] = [
+          makeCycle({ cycle_index: 0, intake_accepted: accepted }),
+        ];
+        return (
+          <>
+            <button
+              type="button"
+              data-testid="host-accept"
+              onClick={() => setAccepted('2026-05-22')}
+            />
+            <PermitDetailV2 permit={{ ...makePermit(), permit_cycles: cycles }} />
+          </>
+        );
+      }
+      const queryClient = new QueryClient({
+        defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+      });
+      const wrapper = ({ children }: { children: ReactNode }) => (
+        <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+      );
+      render(<Host />, { wrapper });
+      // Mount: D&E active.
+      expect(
+        screen.getByTestId('pd-v2-task-bucket-bar-de').getAttribute('data-active'),
+      ).toBe('true');
+      // Flip c0.intake_accepted → snap fires.
+      fireEvent.click(screen.getByTestId('host-accept'));
+      expect(
+        screen.getByTestId('pd-v2-task-bucket-bar-pm').getAttribute('data-active'),
+      ).toBe('true');
+      expect(
+        screen.getByTestId('pd-v2-task-bucket-bar-de').getAttribute('data-active'),
+      ).toBe('false');
+    });
+
+    it('snaps Permitting → D&E when c0.intake_accepted goes date → null (rare clear)', () => {
+      function Host() {
+        const [accepted, setAccepted] = useState<string | null>('2026-05-22');
+        const cycles: PermitCycle[] = [
+          makeCycle({ cycle_index: 0, intake_accepted: accepted }),
+        ];
+        return (
+          <>
+            <button
+              type="button"
+              data-testid="host-clear"
+              onClick={() => setAccepted(null)}
+            />
+            <PermitDetailV2 permit={{ ...makePermit(), permit_cycles: cycles }} />
+          </>
+        );
+      }
+      const queryClient = new QueryClient({
+        defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+      });
+      const wrapper = ({ children }: { children: ReactNode }) => (
+        <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+      );
+      render(<Host />, { wrapper });
+      expect(
+        screen.getByTestId('pd-v2-task-bucket-bar-pm').getAttribute('data-active'),
+      ).toBe('true');
+      fireEvent.click(screen.getByTestId('host-clear'));
+      expect(
+        screen.getByTestId('pd-v2-task-bucket-bar-de').getAttribute('data-active'),
+      ).toBe('true');
+    });
+
+    // The snap is strictly gated on the null↔non-null transition: if the
+    // user manually toggles to D&E on a post-intake permit AND intake_accepted
+    // doesn't change, they stay on D&E. Pin this so a future refactor
+    // doesn't re-introduce the "every render snaps" footgun.
+    it('does NOT snap back to Permitting when user manually toggles D&E on a post-intake permit', () => {
+      renderWithCycles([
+        makeCycle({
+          cycle_index: 0,
+          intake_accepted: '2026-05-22',
+        }),
+      ]);
+      // Mounts on Permitting; user clicks D&E.
+      fireEvent.click(screen.getByTestId('pd-v2-task-bucket-bar-de'));
+      // No intake_accepted change — the next render must NOT undo the toggle.
+      // (Trigger a render by clicking the same tab again; it's a no-op for
+      // state but a real render cycle.)
+      fireEvent.click(screen.getByTestId('pd-v2-task-bucket-bar-de'));
+      expect(
+        screen.getByTestId('pd-v2-task-bucket-bar-de').getAttribute('data-active'),
+      ).toBe('true');
+    });
+
+    it('Add input placeholder on D&E phase says "Add D&E task…"', () => {
+      renderWithCycles([makeCycle({ cycle_index: 0 })]);
+      const input = screen.getByTestId('pd-v2-task-add-ent') as HTMLInputElement;
+      expect(input.placeholder).toBe('Add D&E task…');
+    });
+
+    it('Add input placeholder on Permitting + open corrections cycle says "Add correction…"', () => {
+      renderWithCycles([
+        makeCycle({
+          cycle_index: 0,
+          submitted: '2026-05-20',
+          intake_accepted: '2026-05-22',
+        }),
+        // Open corrections: corr_issued set, no resubmitted.
+        makeCycle({
+          cycle_index: 1,
+          submitted: '2026-05-22',
+          city_target: '2026-06-15',
+          corr_issued: '2026-06-10',
+          resubmitted: null,
+        }),
+      ]);
+      const input = screen.getByTestId('pd-v2-task-add-ent') as HTMLInputElement;
+      expect(input.placeholder).toBe('Add correction…');
+    });
+
+    it('Add input placeholder on Permitting WITHOUT corrections says "Add permitting task…"', () => {
+      renderWithCycles([
+        makeCycle({
+          cycle_index: 0,
+          submitted: '2026-05-20',
+          intake_accepted: '2026-05-22',
+        }),
+        // Plain in-review cycle: no corr_issued yet.
+        makeCycle({
+          cycle_index: 1,
+          submitted: '2026-05-22',
+          city_target: '2026-06-15',
+        }),
+      ]);
+      const input = screen.getByTestId('pd-v2-task-add-ent') as HTMLInputElement;
+      expect(input.placeholder).toBe('Add permitting task…');
+    });
+
+    it('Add button color matches the active phase (blue on D&E, orange on Permitting)', () => {
+      renderWithCycles([makeCycle({ cycle_index: 0 })]);
+      const btn = screen.getByTestId('pd-v2-task-add-btn-ent');
+      // D&E phase → blue (var(--color-de)).
+      expect((btn as HTMLElement).style.background).toContain('--color-de');
+      // Toggle to Permitting → orange (var(--color-co)).
+      fireEvent.click(screen.getByTestId('pd-v2-task-bucket-bar-pm'));
+      expect((btn as HTMLElement).style.background).toContain('--color-co');
+    });
+
+    it('active phase tab carries the v1 visual treatment (solid color background + white text)', () => {
+      renderWithCycles([makeCycle({ cycle_index: 0 })]);
+      const deBar = screen.getByTestId('pd-v2-task-bucket-bar-de') as HTMLElement;
+      const pmBar = screen.getByTestId('pd-v2-task-bucket-bar-pm') as HTMLElement;
+      // D&E active: solid blue background, white text.
+      expect(deBar.style.background).toContain('--color-de');
+      expect(deBar.style.background).not.toContain('--color-de-bg');
+      expect(deBar.style.color).toBe('rgb(255, 255, 255)');
+      // Permitting inactive: washed orange background, muted text.
+      expect(pmBar.style.background).toContain('--color-co-bg');
+      expect(pmBar.style.color).toContain('--color-muted');
     });
   });
 });
