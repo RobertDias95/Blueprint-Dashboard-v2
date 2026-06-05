@@ -94,6 +94,14 @@ export interface WizardState {
    *  value as its initial expected_issue. Optional. */
   acq_target: string;
   units: string;
+  /** fix-122: count of distinct lots (subdivisions). Stored as a string in
+   *  the wizard form to match the existing numeric-input pattern; empty
+   *  string = unset; the create RPC NULLIFs '' → NULL. */
+  num_lots: string;
+  /** fix-122: corner-lot flag. '' = unset, 'yes' / 'no' = user pick. */
+  is_corner_lot: string;
+  /** fix-122: closing/escrow date. ISO YYYY-MM-DD or ''. */
+  closing_date: string;
   zone: string;
   lot_width: string;
   lot_depth: string;
@@ -133,6 +141,9 @@ export function makeEmptyWizardState(): WizardState {
     go_date: '',
     acq_target: '',
     units: '',
+    num_lots: '',
+    is_corner_lot: '',
+    closing_date: '',
     zone: '',
     lot_width: '',
     lot_depth: '',

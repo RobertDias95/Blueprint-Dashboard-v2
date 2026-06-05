@@ -330,6 +330,45 @@ describe('useCreateProjectWithPermits (fix-22 signature)', () => {
     expect(args.p_project_data).toMatchObject({ lead_da: 'Trevor' });
   });
 
+  // fix-122: three new project-level fields. The hook passes them
+  // through verbatim into p_project_data — the RPC handles NULLIF on
+  // its end (extended in fix_122_b migration). Mirrors fix-107's
+  // lead_da wire test.
+  it('fix-122: num_lots / is_corner_lot / closing_date thread through project_data', async () => {
+    mocks.setResult({
+      data: [
+        {
+          project_id: '44444444-4444-4444-4444-444444444444',
+          permit_ids: [40000],
+          conflict: false,
+        },
+      ],
+      error: null,
+    });
+    const { wrapper } = setup();
+    const { result } = renderHook(() => useCreateProjectWithPermits(), {
+      wrapper,
+    });
+    await act(async () => {
+      await result.current.mutateAsync({
+        address: '700 Cherry St',
+        juris: 'Seattle',
+        project_data: {
+          num_lots: 3,
+          is_corner_lot: true,
+          closing_date: '2026-09-30',
+        },
+        permits: [{ type: 'Building Permit', task_template_ids: [] }],
+      });
+    });
+    const [, args] = mocks.rpcFn.mock.calls[0];
+    expect(args.p_project_data).toMatchObject({
+      num_lots: 3,
+      is_corner_lot: true,
+      closing_date: '2026-09-30',
+    });
+  });
+
   it('emits an error toast on RPC failure and rejects', async () => {
     mocks.setResult({ data: null, error: new Error('connection refused') });
 
@@ -600,6 +639,95 @@ describe('<NewProjectWizard />', () => {
     expect(args.p_project_data.builder_company).toBeNull();
     expect(args.p_project_data.builder_email).toBeNull();
     expect(args.p_project_data.builder_phone).toBeNull();
+  });
+
+  // fix-122: end-to-end wizard flow with the three new fields. The
+  // Step 1 inputs use string-typed values; the submit handler converts
+  // num_lots via intOrNull, is_corner_lot via boolFromTri, closing_date
+  // via strOrNull. Pins the wire shape so the RPC sees clean types.
+  it('fix-122: three new fields flow through wizard submit with correct wire types', async () => {
+    mocks.setResult({
+      data: [
+        {
+          project_id: '77777777-7777-7777-7777-777777777777',
+          permit_ids: [70000],
+          conflict: false,
+        },
+      ],
+      error: null,
+    });
+
+    renderWizard();
+    fireEvent.change(screen.getByTestId('wizard-address'), {
+      target: { value: '900 Subdivision Ln' },
+    });
+    fireEvent.change(screen.getByTestId('wizard-juris'), {
+      target: { value: 'Seattle' },
+    });
+    fireEvent.change(screen.getByTestId('wizard-units'), {
+      target: { value: '20' },
+    });
+    fireEvent.change(screen.getByTestId('wizard-num-lots'), {
+      target: { value: '5' },
+    });
+    fireEvent.change(screen.getByTestId('wizard-is-corner-lot'), {
+      target: { value: 'yes' },
+    });
+    fireEvent.change(screen.getByTestId('wizard-closing-date'), {
+      target: { value: '2026-09-30' },
+    });
+    fireEvent.click(screen.getByTestId('wizard-next'));
+    fireEvent.click(screen.getByTestId('wizard-next'));
+    fireEvent.click(screen.getByTestId('wizard-next'));
+    fireEvent.click(screen.getByTestId('wizard-save'));
+
+    await waitFor(() => {
+      expect(mocks.rpcFn).toHaveBeenCalledTimes(1);
+    });
+    const [, args] = mocks.rpcFn.mock.calls[0];
+    expect(args.p_project_data.num_lots).toBe(5);
+    expect(args.p_project_data.is_corner_lot).toBe(true);
+    expect(args.p_project_data.closing_date).toBe('2026-09-30');
+  });
+
+  // fix-122: defaults flow as null when the user leaves them blank — the
+  // wizard must not silently default Corner to false (the schema lets
+  // historical projects sit at NULL).
+  it('fix-122: blank num_lots / is_corner_lot / closing_date land as null on the wire', async () => {
+    mocks.setResult({
+      data: [
+        {
+          project_id: '88888888-8888-8888-8888-888888888888',
+          permit_ids: [80000],
+          conflict: false,
+        },
+      ],
+      error: null,
+    });
+
+    renderWizard();
+    fireEvent.change(screen.getByTestId('wizard-address'), {
+      target: { value: '901 Skipped Ln' },
+    });
+    fireEvent.change(screen.getByTestId('wizard-juris'), {
+      target: { value: 'Seattle' },
+    });
+    fireEvent.change(screen.getByTestId('wizard-units'), {
+      target: { value: '4' },
+    });
+    // Leave Lots / Corner / Closing untouched.
+    fireEvent.click(screen.getByTestId('wizard-next'));
+    fireEvent.click(screen.getByTestId('wizard-next'));
+    fireEvent.click(screen.getByTestId('wizard-next'));
+    fireEvent.click(screen.getByTestId('wizard-save'));
+
+    await waitFor(() => {
+      expect(mocks.rpcFn).toHaveBeenCalledTimes(1);
+    });
+    const [, args] = mocks.rpcFn.mock.calls[0];
+    expect(args.p_project_data.num_lots).toBeNull();
+    expect(args.p_project_data.is_corner_lot).toBeNull();
+    expect(args.p_project_data.closing_date).toBeNull();
   });
 
   it('on conflict=true: shows view-existing UX and does NOT navigate', async () => {

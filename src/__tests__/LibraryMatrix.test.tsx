@@ -21,6 +21,11 @@ const fixtures = vi.hoisted(() => ({
       archived: false,
       notes: null,
       units: 3,
+      // fix-122: project-level num_lots + is_corner_lot. Project a is
+      // a 1-lot corner; project b is a 5-lot subdivision, not on a
+      // corner; project c is unanswered (null) on both.
+      num_lots: 1,
+      is_corner_lot: true,
       zone: 'NR',
       lot_width: 40,
       lot_depth: 100,
@@ -43,6 +48,8 @@ const fixtures = vi.hoisted(() => ({
       archived: false,
       notes: null,
       units: 5,
+      num_lots: 5,
+      is_corner_lot: false,
       zone: 'R-2',
       lot_width: 60,
       lot_depth: 120,
@@ -398,5 +405,86 @@ describe('<LibraryMatrix />', () => {
     // Toggle off via the caret.
     fireEvent.click(screen.getByTestId('library-caret-a'));
     expect(screen.queryByTestId('library-unit-table-a')).not.toBeInTheDocument();
+  });
+
+  // fix-122: two new Library columns (Lots, Corner) + two new filters.
+  describe('fix-122: Lots / Corner columns + filters', () => {
+    it('renders Lots column with project-level num_lots', () => {
+      renderIt();
+      expect(screen.getByTestId('library-num-lots-a').textContent).toBe('1');
+      expect(screen.getByTestId('library-num-lots-b').textContent).toBe('5');
+      // Project c has no num_lots → em-dash.
+      expect(screen.getByTestId('library-num-lots-c').textContent).toBe('—');
+    });
+
+    it('renders Corner column with project-level is_corner_lot', () => {
+      renderIt();
+      expect(screen.getByTestId('library-corner-a').textContent).toBe('Yes');
+      expect(screen.getByTestId('library-corner-b').textContent).toBe('No');
+      // Project c has no is_corner_lot → em-dash (NULL ≠ confirmed No).
+      expect(screen.getByTestId('library-corner-c').textContent).toBe('—');
+    });
+
+    it('filter-num-lots=5 narrows to the matching subdivision', () => {
+      renderIt();
+      fireEvent.change(screen.getByTestId('filter-num-lots'), {
+        target: { value: '5' },
+      });
+      expect(screen.queryByTestId('library-row-a')).not.toBeInTheDocument();
+      expect(screen.getByTestId('library-row-b')).toBeInTheDocument();
+      // Project c has NULL num_lots → falls out when the filter is set.
+      expect(screen.queryByTestId('library-row-c')).not.toBeInTheDocument();
+    });
+
+    it('filter-corner=Yes keeps only is_corner_lot=true rows; NULL falls out', () => {
+      renderIt();
+      fireEvent.change(screen.getByTestId('filter-corner'), {
+        target: { value: 'Yes' },
+      });
+      expect(screen.getByTestId('library-row-a')).toBeInTheDocument();
+      expect(screen.queryByTestId('library-row-b')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('library-row-c')).not.toBeInTheDocument();
+    });
+
+    it('filter-corner=No keeps only is_corner_lot=false rows', () => {
+      renderIt();
+      fireEvent.change(screen.getByTestId('filter-corner'), {
+        target: { value: 'No' },
+      });
+      expect(screen.getByTestId('library-row-b')).toBeInTheDocument();
+      expect(screen.queryByTestId('library-row-a')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('library-row-c')).not.toBeInTheDocument();
+    });
+
+    it('Clear button resets the Lots + Corner filters too', () => {
+      renderIt();
+      fireEvent.change(screen.getByTestId('filter-num-lots'), {
+        target: { value: '5' },
+      });
+      fireEvent.change(screen.getByTestId('filter-corner'), {
+        target: { value: 'Yes' },
+      });
+      fireEvent.click(screen.getByTestId('filter-clear'));
+      expect(screen.getByTestId('library-count').textContent).toMatch(
+        /^3 projects/,
+      );
+      expect(
+        (screen.getByTestId('filter-num-lots') as HTMLSelectElement).value,
+      ).toBe('');
+      expect(
+        (screen.getByTestId('filter-corner') as HTMLSelectElement).value,
+      ).toBe('');
+    });
+
+    it('Closing Date does NOT render as a column (Library exclusion per spec)', () => {
+      renderIt();
+      // No "Closing" header in the matrix.
+      const ths = Array.from(
+        document.querySelectorAll('[data-testid="library-table"] thead th'),
+      ).map((el) => el.textContent ?? '');
+      for (const t of ths) {
+        expect(t.toLowerCase()).not.toContain('closing');
+      }
+    });
   });
 });

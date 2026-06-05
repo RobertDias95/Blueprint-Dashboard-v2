@@ -100,6 +100,14 @@ function strOrNull(v: string): string | null {
   const t = v.trim();
   return t === '' ? null : t;
 }
+/** fix-122: tri-state Yes/No/blank → boolean | null. The Corner Lot
+ *  select keeps blank as "user hasn't picked" so historical projects
+ *  don't get silently flipped to a false answer on the wire. */
+function boolFromTri(v: string): boolean | null {
+  if (v === 'yes') return true;
+  if (v === 'no') return false;
+  return null;
+}
 
 export default function NewProjectWizard({ open, onClose }: Props) {
   const navigate = useNavigate();
@@ -266,6 +274,12 @@ export default function NewProjectWizard({ open, onClose }: Props) {
       // first open slot (no overlap with any draw_schedule or
       // da_time_blocks block) and writes a matching draw_schedule row.
       lead_da: strOrNull(state.lead_da),
+      // fix-122: three new project-level physical/closing fields.
+      // num_lots: CHECK constraint enforces >=1, so intOrNull's empty
+      // → null is the right "user didn't pick" representation.
+      num_lots: intOrNull(state.num_lots),
+      is_corner_lot: boolFromTri(state.is_corner_lot),
+      closing_date: strOrNull(state.closing_date),
     };
 
     const permitsPayload: PermitInput[] = selectedPermits.map((p) => ({

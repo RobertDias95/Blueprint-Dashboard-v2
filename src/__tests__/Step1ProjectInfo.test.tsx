@@ -504,4 +504,63 @@ describe('<Step1ProjectInfo />', () => {
       expect(opt.textContent).toContain('(not routed)');
     });
   });
+
+  // fix-122: three new project-level fields — num_lots (dropdown 1-20),
+  // is_corner_lot (Yes/No/blank tri-state), closing_date (date input).
+  // All three nullable; defaults show the "—" sentinel; user picks fire
+  // a single onChange patch keyed by the WizardState field name.
+  describe('fix-122: num_lots / is_corner_lot / closing_date inputs', () => {
+    it('Number of Lots dropdown renders blank + 1-20 (21 options)', () => {
+      setup();
+      const sel = screen.getByTestId('wizard-num-lots') as HTMLSelectElement;
+      const values = [...sel.options].map((o) => o.value);
+      expect(values[0]).toBe('');
+      // Tail option is 20, length matches.
+      expect(values).toHaveLength(21);
+      expect(values[20]).toBe('20');
+    });
+
+    it('picking a Lots value fires onChange with the string number', () => {
+      const { onChange } = setup();
+      fireEvent.change(screen.getByTestId('wizard-num-lots'), {
+        target: { value: '5' },
+      });
+      expect(onChange).toHaveBeenLastCalledWith({ num_lots: '5' });
+    });
+
+    it('Corner Lot dropdown is tri-state (blank/yes/no)', () => {
+      setup();
+      const sel = screen.getByTestId(
+        'wizard-is-corner-lot',
+      ) as HTMLSelectElement;
+      expect([...sel.options].map((o) => o.value)).toEqual(['', 'yes', 'no']);
+    });
+
+    it('picking a Corner Lot value fires onChange', () => {
+      const { onChange } = setup();
+      fireEvent.change(screen.getByTestId('wizard-is-corner-lot'), {
+        target: { value: 'yes' },
+      });
+      expect(onChange).toHaveBeenLastCalledWith({ is_corner_lot: 'yes' });
+    });
+
+    it('Closing Date input renders empty by default', () => {
+      setup();
+      const input = screen.getByTestId(
+        'wizard-closing-date',
+      ) as HTMLInputElement;
+      expect(input.type).toBe('date');
+      expect(input.value).toBe('');
+    });
+
+    it('typing a Closing Date fires onChange with the ISO string', () => {
+      const { onChange } = setup();
+      fireEvent.change(screen.getByTestId('wizard-closing-date'), {
+        target: { value: '2026-12-31' },
+      });
+      expect(onChange).toHaveBeenLastCalledWith({
+        closing_date: '2026-12-31',
+      });
+    });
+  });
 });

@@ -196,6 +196,29 @@ describe('buildLibraryRows', () => {
     ];
     expect(buildLibraryRows(projects, [])).toEqual([]);
   });
+
+  // fix-122: row carries num_lots + is_corner_lot from the project.
+  it('fix-122: surfaces num_lots + is_corner_lot on the row', () => {
+    const projects = [
+      makeProject({
+        id: 'p1',
+        num_lots: 7,
+        is_corner_lot: true,
+      }),
+    ];
+    const permits = [makePermit({ project_id: 'p1' })];
+    const rows = buildLibraryRows(projects, permits);
+    expect(rows[0].numLots).toBe(7);
+    expect(rows[0].isCornerLot).toBe(true);
+  });
+
+  it('fix-122: NULL num_lots + is_corner_lot stay null on the row', () => {
+    const projects = [makeProject({ id: 'p1' })];
+    const permits = [makePermit({ project_id: 'p1' })];
+    const rows = buildLibraryRows(projects, permits);
+    expect(rows[0].numLots).toBeNull();
+    expect(rows[0].isCornerLot).toBeNull();
+  });
 });
 
 describe('filterLibraryRows', () => {
@@ -214,6 +237,8 @@ describe('filterLibraryRows', () => {
     productTypes: [],
     tag: '',
     juris: '',
+    numLots: null,
+    isCornerLot: '',
   };
   const rows = [
     {
@@ -229,6 +254,8 @@ describe('filterLibraryRows', () => {
       tags: ['ECA'],
       stage: 'de' as const,
       unitTypes: [],
+      numLots: 1,
+      isCornerLot: true,
     },
     {
       projectId: 'b',
@@ -243,6 +270,8 @@ describe('filterLibraryRows', () => {
       tags: ['SIP'],
       stage: 'pm' as const,
       unitTypes: [],
+      numLots: 5,
+      isCornerLot: false,
     },
   ];
 
@@ -288,6 +317,71 @@ describe('filterLibraryRows', () => {
     });
     expect(filtered.map((r) => r.projectId)).toEqual(['b']);
   });
+
+  // fix-122: exact-match num_lots + tri-state corner. NULL values fall
+  // out when the filter is active — Bobby's "apples-to-apples
+  // subdivision" intent means unanswered rows aren't candidates.
+  describe('fix-122: numLots + isCornerLot filters', () => {
+    const rowsExt = [
+      { ...rows[0], numLots: 5, isCornerLot: true },
+      { ...rows[1], numLots: 1, isCornerLot: false },
+      {
+        ...rows[0],
+        projectId: 'c',
+        address: '900 Cedar Ct',
+        numLots: null as number | null,
+        isCornerLot: null as boolean | null,
+      },
+    ];
+
+    it('numLots=5 picks only the matching row', () => {
+      const out = filterLibraryRows(rowsExt, { ...baseFilters, numLots: 5 });
+      expect(out.map((r) => r.projectId)).toEqual(['a']);
+    });
+
+    it('numLots=null (no filter) leaves all rows', () => {
+      const out = filterLibraryRows(rowsExt, { ...baseFilters, numLots: null });
+      expect(out).toHaveLength(3);
+    });
+
+    it('numLots filter drops NULL-num_lots rows', () => {
+      const out = filterLibraryRows(rowsExt, { ...baseFilters, numLots: 1 });
+      expect(out.map((r) => r.projectId)).toEqual(['b']);
+    });
+
+    it('isCornerLot=Yes keeps only true rows; NULL drops', () => {
+      const out = filterLibraryRows(rowsExt, {
+        ...baseFilters,
+        isCornerLot: 'Yes',
+      });
+      expect(out.map((r) => r.projectId)).toEqual(['a']);
+    });
+
+    it('isCornerLot=No keeps only false rows; NULL drops', () => {
+      const out = filterLibraryRows(rowsExt, {
+        ...baseFilters,
+        isCornerLot: 'No',
+      });
+      expect(out.map((r) => r.projectId)).toEqual(['b']);
+    });
+
+    it('isCornerLot="" (Any) leaves all rows including NULLs', () => {
+      const out = filterLibraryRows(rowsExt, {
+        ...baseFilters,
+        isCornerLot: '',
+      });
+      expect(out).toHaveLength(3);
+    });
+
+    it('numLots + isCornerLot AND together', () => {
+      const out = filterLibraryRows(rowsExt, {
+        ...baseFilters,
+        numLots: 5,
+        isCornerLot: 'Yes',
+      });
+      expect(out.map((r) => r.projectId)).toEqual(['a']);
+    });
+  });
 });
 
 describe('sortLibraryRows', () => {
@@ -308,6 +402,8 @@ describe('sortLibraryRows', () => {
     tags: [],
     stage: r.stage,
     unitTypes: [],
+    numLots: null as number | null,
+    isCornerLot: null as boolean | null,
   }));
 
   it('sorts by address ascending (string compare)', () => {
@@ -328,5 +424,42 @@ describe('sortLibraryRows', () => {
     const out = sortLibraryRows(rows, { col: 'stage', asc: true });
     // Workflow order: de(0) < pm(1) < is(4). Alphabetical would be de, is, pm.
     expect(out.map((r) => r.stage)).toEqual(['de', 'pm', 'is']);
+  });
+
+  // fix-122: numLots + isCornerLot sortable. NULL values land at the
+  // end regardless of direction — unanswered rows shouldn't dilute the
+  // top of an asc view.
+  describe('fix-122: numLots + isCornerLot sort', () => {
+    const lotsRows = [
+      { ...rows[0], numLots: 3 as number | null, isCornerLot: true as boolean | null },
+      { ...rows[1], numLots: 1 as number | null, isCornerLot: null as boolean | null },
+      { ...rows[2], numLots: null as number | null, isCornerLot: false as boolean | null },
+    ];
+
+    it('numLots asc: smallest first, NULLs last', () => {
+      const out = sortLibraryRows(lotsRows, { col: 'numLots', asc: true });
+      expect(out.map((r) => r.numLots)).toEqual([1, 3, null]);
+    });
+
+    it('numLots desc: largest first, NULLs still last', () => {
+      const out = sortLibraryRows(lotsRows, { col: 'numLots', asc: false });
+      expect(out.map((r) => r.numLots)).toEqual([3, 1, null]);
+    });
+
+    it('isCornerLot asc: true < false < null', () => {
+      const out = sortLibraryRows(lotsRows, {
+        col: 'isCornerLot',
+        asc: true,
+      });
+      expect(out.map((r) => r.isCornerLot)).toEqual([true, false, null]);
+    });
+
+    it('isCornerLot desc: false < true < null (NULLs still last)', () => {
+      const out = sortLibraryRows(lotsRows, {
+        col: 'isCornerLot',
+        asc: false,
+      });
+      expect(out.map((r) => r.isCornerLot)).toEqual([false, true, null]);
+    });
   });
 });

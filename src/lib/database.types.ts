@@ -44,6 +44,20 @@ export interface Project {
    *  project's Building Permit; conflicts recorded in audit_log. */
   go_date?: string | null;
   units?: number | null;
+  /** fix-122: count of distinct LOTS (e.g. a 5-lot subdivision). Distinct
+   *  from `units` (a 5-lot subdivision could yield 20 units; a 1-lot
+   *  4-plex has 1 lot + 4 units). Positive integer or null; check
+   *  constraint `num_lots_positive` rejects 0. */
+  num_lots?: number | null;
+  /** fix-122: corner-lot flag. Same dimensions feel very different on a
+   *  corner because unit/parking layout options change — used by the
+   *  Library so a 50x100 corner is comparable apples-to-apples to a
+   *  50x100 mid-block. */
+  is_corner_lot?: boolean | null;
+  /** fix-122: closing/escrow date. Informational only — surfaces "we
+   *  have permits but builder won't issue until closing." No math, no
+   *  cascades, no alerts. */
+  closing_date?: string | null;
   zone?: string | null;
   lot_width?: number | null;
   lot_depth?: number | null;

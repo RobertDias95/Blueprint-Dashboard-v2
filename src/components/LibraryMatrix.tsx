@@ -95,6 +95,10 @@ const INITIAL_FILTERS: LibraryFilters = {
   productTypes: [],
   tag: '',
   juris: '',
+  // fix-122: new Library filters. numLots is exact-match (Bobby's
+  // "show me 5-lot subdivisions" workflow); isCornerLot is tri-state.
+  numLots: null,
+  isCornerLot: '',
 };
 
 function Body({ projects, permits }: BodyProps) {
@@ -232,6 +236,49 @@ function Body({ projects, permits }: BodyProps) {
           </select>
         </FieldLabel>
 
+        {/* fix-122: Number of Lots filter — exact match against the
+            projects.num_lots column. Blank = no filter; picking 1-20
+            shows only projects whose num_lots equals the picked value.
+            NULL num_lots rows fall out under any pick (intentional —
+            Bobby's "apples-to-apples subdivision" workflow). */}
+        <FieldLabel label="Lots">
+          <select
+            value={filters.numLots === null ? '' : String(filters.numLots)}
+            onChange={(e) => {
+              const v = e.target.value;
+              update('numLots', v === '' ? null : Number(v));
+            }}
+            className="bg-bg border border-border rounded px-2 py-1 text-[11px] text-text focus:outline-none focus:border-de"
+            data-testid="filter-num-lots"
+          >
+            <option value="">Any</option>
+            {Array.from({ length: 20 }, (_, i) => i + 1).map((n) => (
+              <option key={n} value={String(n)}>
+                {n}
+              </option>
+            ))}
+          </select>
+        </FieldLabel>
+
+        {/* fix-122: Corner Lot filter — tri-state mirroring Alley. */}
+        <FieldLabel label="Corner">
+          <select
+            value={filters.isCornerLot}
+            onChange={(e) =>
+              update(
+                'isCornerLot',
+                e.target.value as '' | 'Yes' | 'No',
+              )
+            }
+            className="bg-bg border border-border rounded px-2 py-1 text-[11px] text-text focus:outline-none focus:border-de"
+            data-testid="filter-corner"
+          >
+            <option value="">Any</option>
+            <option value="Yes">Yes</option>
+            <option value="No">No</option>
+          </select>
+        </FieldLabel>
+
         <FieldLabel label="Product Type">
           {/* fix-91: multi-select. Pick adds a chip; chip × removes it.
               Matching is any-of in libraryHelpers.filterLibraryRows. */}
@@ -338,9 +385,15 @@ function Body({ projects, permits }: BodyProps) {
               <Th sort={sort} col="juris" onClick={toggleSort} align="left">Juris</Th>
               <Th sort={sort} col="productTypes" onClick={toggleSort} align="left">Type</Th>
               <Th sort={sort} col="units" onClick={toggleSort} align="center">Units</Th>
+              {/* fix-122: Number of Lots — distinct from Units (a 5-lot
+                  subdivision can yield 20 units). */}
+              <Th sort={sort} col="numLots" onClick={toggleSort} align="center">Lots</Th>
               <Th sort={sort} col="zone" onClick={toggleSort} align="center">Zone</Th>
               <Th sort={sort} col="lotWidth" onClick={toggleSort} align="center">Lot W×D</Th>
               <Th sort={sort} col="alley" onClick={toggleSort} align="center">Alley</Th>
+              {/* fix-122: Corner Lot — same dimensions feel very
+                  different on a corner. */}
+              <Th sort={sort} col="isCornerLot" onClick={toggleSort} align="center">Corner</Th>
               <th className="px-2 py-1.5 text-[9px] font-extrabold uppercase tracking-wide text-text text-left">
                 Tags
               </th>
@@ -364,7 +417,7 @@ function Body({ projects, permits }: BodyProps) {
             {sorted.length === 0 && (
               <tr>
                 <td
-                  colSpan={10}
+                  colSpan={12}
                   className="px-4 py-8 text-center text-xs text-dim italic"
                 >
                   No projects match the current filters.
@@ -462,6 +515,18 @@ function Row({ row, expanded, onToggle, matchedUnitIndices }: RowProps) {
         <td className="px-2 py-1.5 text-center font-mono font-bold text-text">
           {row.units || '—'}
         </td>
+        {/* fix-122: Number of Lots column. NULL renders as the dim em
+            dash same as other unset numerics. */}
+        <td
+          className="px-2 py-1.5 text-center font-mono text-text"
+          data-testid={`library-num-lots-${row.projectId}`}
+        >
+          {row.numLots != null ? (
+            row.numLots
+          ) : (
+            <span className="text-dim">—</span>
+          )}
+        </td>
         <td className="px-2 py-1.5 text-center">
           {row.zone ? (
             <span className="font-mono text-text">{row.zone}</span>
@@ -481,6 +546,21 @@ function Row({ row, expanded, onToggle, matchedUnitIndices }: RowProps) {
         <td className="px-2 py-1.5 text-center">
           {row.alley ? (
             <span className="font-mono text-text">{row.alley}</span>
+          ) : (
+            <span className="text-dim">—</span>
+          )}
+        </td>
+        {/* fix-122: Corner column. Tri-state — NULL renders as the dim
+            em dash so unanswered rows are visually distinct from a
+            confirmed No. */}
+        <td
+          className="px-2 py-1.5 text-center"
+          data-testid={`library-corner-${row.projectId}`}
+        >
+          {row.isCornerLot === true ? (
+            <span className="font-mono text-text">Yes</span>
+          ) : row.isCornerLot === false ? (
+            <span className="font-mono text-text">No</span>
           ) : (
             <span className="text-dim">—</span>
           )}
@@ -515,7 +595,7 @@ function Row({ row, expanded, onToggle, matchedUnitIndices }: RowProps) {
           data-testid={`library-expansion-${row.projectId}`}
         >
           <td />
-          <td colSpan={9} className="px-2 pb-2 pt-1">
+          <td colSpan={11} className="px-2 pb-2 pt-1">
             <UnitTypeMiniTable
               projectId={row.projectId}
               unitTypes={row.unitTypes}

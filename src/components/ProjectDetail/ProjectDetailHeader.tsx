@@ -1027,6 +1027,62 @@ function SiteEditor({ project }: { project: Project }) {
         onCommit={(v) => commit('zone', v || null, project.zone, 'Zone')}
       />
       <SiteLotRow project={project} disabled={occMissing} onCommit={commit} />
+      {/* fix-122: Number of Lots (1-20 dropdown, blank = unset). Lives in
+          Site because a subdivision count is a parcel-level fact, not a
+          proposal/scope fact. Users who need >20 can backfill via the
+          wizard or admin tools — the CHECK only enforces >= 1. */}
+      <SiteSelectRow
+        label="Lots"
+        value={project.num_lots != null ? String(project.num_lots) : ''}
+        options={[
+          '',
+          ...Array.from({ length: 20 }, (_, i) => String(i + 1)),
+        ]}
+        disabled={occMissing}
+        onCommit={(v) => {
+          const next = v === '' ? null : Number(v);
+          void commit(
+            'num_lots',
+            Number.isFinite(next as number) ? (next as number | null) : null,
+            project.num_lots,
+            'Number of Lots',
+          );
+        }}
+      />
+      {/* fix-122: Corner Lot tri-state. Mirrors Alley's Yes/No/blank
+          pattern — blank stays a true "user hasn't picked" so historical
+          projects don't get silently flipped to a false answer. */}
+      <SiteSelectRow
+        label="Corner"
+        value={
+          project.is_corner_lot === true
+            ? 'Yes'
+            : project.is_corner_lot === false
+              ? 'No'
+              : ''
+        }
+        options={['', 'Yes', 'No']}
+        disabled={occMissing}
+        onCommit={(v) => {
+          const next = v === 'Yes' ? true : v === 'No' ? false : null;
+          void commit(
+            'is_corner_lot',
+            next,
+            project.is_corner_lot,
+            'Corner Lot',
+          );
+        }}
+      />
+      {/* fix-122: Closing Date — informational only. No math, no
+          cascade, no alerts (Bobby's spec). */}
+      <SiteDateRow
+        label="Closing"
+        value={project.closing_date ?? null}
+        disabled={occMissing}
+        onCommit={(v) =>
+          commit('closing_date', v, project.closing_date, 'Closing Date')
+        }
+      />
       <SiteSelectRow
         label="Alley"
         value={project.alley ?? ''}
@@ -1050,6 +1106,40 @@ function SiteEditor({ project }: { project: Project }) {
         onCommit={(v) =>
           commit('parking_stalls', v, project.parking_stalls, 'Parking Stalls')
         }
+      />
+    </div>
+  );
+}
+
+// fix-122: date input variant of SiteTextRow. Same look-and-feel as the
+// neighbouring text/select/number rows; commits on blur with empty → null.
+function SiteDateRow({
+  label,
+  value,
+  disabled,
+  onCommit,
+}: {
+  label: string;
+  value: string | null;
+  disabled: boolean;
+  onCommit: (next: string | null) => void;
+}) {
+  const [draft, setDraft] = useState<string>(value ?? '');
+  return (
+    <div className="flex items-baseline gap-1.5">
+      <span className="text-[9px] text-dim min-w-[32px]">{label}</span>
+      <input
+        type="date"
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={() => {
+          const trimmed = draft.trim();
+          onCommit(trimmed === '' ? null : trimmed);
+        }}
+        disabled={disabled}
+        className="flex-1 min-w-0 text-[10px] font-semibold text-text border-0 border-b outline-none bg-transparent px-0 py-0.5 disabled:opacity-50"
+        style={{ borderBottomColor: 'var(--color-border)' }}
+        data-testid={`pd-site-${label.toLowerCase()}`}
       />
     </div>
   );
