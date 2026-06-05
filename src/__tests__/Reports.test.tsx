@@ -743,4 +743,143 @@ describe('<Reports /> Q7.2.b', () => {
     expect(screen.queryByTestId('metric-total-permits-cmp')).toBeNull();
     expect(screen.queryByTestId('metric-city-review-cmp')).toBeNull();
   });
+
+  // ─── fix-117: BarChartCards comparison overlay ──────────────────────
+  it('fix-117: compareTo="off" (default) → no cmp legend strip on any of the 6 charts', () => {
+    renderIt();
+    expect(screen.queryByTestId('chart-permits-by-type-cmp-legend')).toBeNull();
+    expect(screen.queryByTestId('chart-permits-by-juris-cmp-legend')).toBeNull();
+    expect(screen.queryByTestId('chart-go-to-submit-by-type-cmp-legend')).toBeNull();
+    expect(
+      screen.queryByTestId('chart-schedule-variance-by-type-cmp-legend'),
+    ).toBeNull();
+    expect(screen.queryByTestId('chart-city-review-by-juris-cmp-legend')).toBeNull();
+    expect(screen.queryByTestId('chart-corr-response-by-type-cmp-legend')).toBeNull();
+  });
+
+  it('fix-117: previous_period with custom Apr 2026 → all 6 charts render the comparison legend', () => {
+    renderIt();
+    fireEvent.change(screen.getByTestId('filter-range'), {
+      target: { value: 'custom' },
+    });
+    fireEvent.change(screen.getByTestId('filter-date-from'), {
+      target: { value: '2026-04-01' },
+    });
+    fireEvent.change(screen.getByTestId('filter-date-to'), {
+      target: { value: '2026-04-30' },
+    });
+    fireEvent.change(screen.getByTestId('filter-compare'), {
+      target: { value: 'previous_period' },
+    });
+    expect(
+      screen.getByTestId('chart-permits-by-type-cmp-legend'),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByTestId('chart-permits-by-juris-cmp-legend'),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByTestId('chart-go-to-submit-by-type-cmp-legend'),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByTestId('chart-schedule-variance-by-type-cmp-legend'),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByTestId('chart-city-review-by-juris-cmp-legend'),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByTestId('chart-corr-response-by-type-cmp-legend'),
+    ).toBeInTheDocument();
+  });
+
+  it('fix-117: legend strip names the current range + the snapped comparison range', () => {
+    renderIt();
+    fireEvent.change(screen.getByTestId('filter-range'), {
+      target: { value: 'custom' },
+    });
+    fireEvent.change(screen.getByTestId('filter-date-from'), {
+      target: { value: '2026-04-01' },
+    });
+    fireEvent.change(screen.getByTestId('filter-date-to'), {
+      target: { value: '2026-04-30' },
+    });
+    fireEvent.change(screen.getByTestId('filter-compare'), {
+      target: { value: 'previous_period' },
+    });
+    const legend = screen.getByTestId('chart-permits-by-type-cmp-legend');
+    expect(legend.textContent).toContain('2026-04-01 – 2026-04-30');
+    // fix-115-a snap: full month Apr → previous month March.
+    expect(legend.textContent).toContain('2026-03-01 – 2026-03-31');
+    expect(legend.textContent).toMatch(/vs\s+2026-03-01/);
+  });
+
+  it('fix-117: comparison cohort with no permits → legend renders the "(no data)" affordance', () => {
+    renderIt();
+    fireEvent.change(screen.getByTestId('filter-range'), {
+      target: { value: 'custom' },
+    });
+    fireEvent.change(screen.getByTestId('filter-date-from'), {
+      target: { value: '2026-04-01' },
+    });
+    fireEvent.change(screen.getByTestId('filter-date-to'), {
+      target: { value: '2026-04-30' },
+    });
+    // previous_year: April 2025 has no fixture permits. Legend should show
+    // "(no data)" rather than crashing or rendering an empty bar set.
+    fireEvent.change(screen.getByTestId('filter-compare'), {
+      target: { value: 'previous_year' },
+    });
+    expect(
+      screen.getByTestId('chart-permits-by-type-cmp-legend-empty'),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByTestId('chart-permits-by-juris-cmp-legend-empty'),
+    ).toBeInTheDocument();
+  });
+
+  it('fix-117: Avg footer surfaces both current + comparison avgs when comparison is active', () => {
+    renderIt();
+    // Use range='1yr' which catches p1's goDate=2026-01-01 (FIXED_TODAY is
+    // 2026-05-15, cutoff = 2025-05-15). p1's BP has goToSubmit=24d
+    // (Jan 1 → Jan 25). Comparison prev-year is empty. The footer should
+    // render "Avg: 24d · vs —" — proves the "vs" branch fires even when
+    // the comparison side is null.
+    fireEvent.change(screen.getByTestId('filter-range'), {
+      target: { value: '1yr' },
+    });
+    fireEvent.change(screen.getByTestId('filter-compare'), {
+      target: { value: 'previous_period' },
+    });
+    const footer = screen.getByTestId('chart-go-to-submit-by-type-avg-footer');
+    expect(footer.textContent).toMatch(/Avg:/);
+    expect(footer.textContent).toMatch(/24d/);
+    expect(footer.textContent).toMatch(/vs/);
+  });
+
+  it('fix-117: non-regression — ScheduleBenchmarks + ReportTable carry no NEW -cmp testids beyond fix-115', () => {
+    renderIt();
+    fireEvent.change(screen.getByTestId('filter-range'), {
+      target: { value: 'custom' },
+    });
+    fireEvent.change(screen.getByTestId('filter-date-from'), {
+      target: { value: '2026-04-01' },
+    });
+    fireEvent.change(screen.getByTestId('filter-date-to'), {
+      target: { value: '2026-04-30' },
+    });
+    fireEvent.change(screen.getByTestId('filter-compare'), {
+      target: { value: 'previous_period' },
+    });
+    // ScheduleBenchmarks stays single-cohort (different cohort semantics —
+    // its own learner-recency window).
+    expect(screen.queryByTestId('schedule-benchmarks-cmp-legend')).toBeNull();
+    expect(screen.queryByTestId('schedule-benchmarks-cmp')).toBeNull();
+    // ReportTable: delta-per-row is a different UX decision deferred to
+    // fix-118+. No comparison markup on the table.
+    expect(screen.queryByTestId('report-table-cmp-legend')).toBeNull();
+    expect(screen.queryByTestId('report-table-cmp')).toBeNull();
+    // MetricCards: fix-115's comparison row is still active on the wired
+    // cards (sanity-check by presence on Total Permits) but fix-117 added
+    // nothing new on those cards.
+    expect(screen.getByTestId('metric-total-permits-cmp')).toBeInTheDocument();
+  });
 });

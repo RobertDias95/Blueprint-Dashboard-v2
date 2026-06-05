@@ -229,6 +229,75 @@ function Body({
     [filtered],
   );
 
+  // fix-117: comparison-cohort data for each of the 6 BarChartCards. Same
+  // helpers (groupCountBy / groupAvgBy) run against the comparison cohort.
+  // Returns null when comparisonFiltered is null so BarChartCard can render
+  // single-cohort exactly as it did pre-117.
+  const permitsByTypeCmp = useMemo(
+    () =>
+      comparisonFiltered === null
+        ? null
+        : groupCountBy(comparisonFiltered, (e) => e.permit.type),
+    [comparisonFiltered],
+  );
+  const permitsByJurisCmp = useMemo(
+    () =>
+      comparisonFiltered === null
+        ? null
+        : groupCountBy(comparisonFiltered, (e) => e.juris),
+    [comparisonFiltered],
+  );
+  const goToSubmitByTypeCmp = useMemo(
+    () =>
+      comparisonFiltered === null
+        ? null
+        : groupAvgBy(comparisonFiltered, (e) => e.permit.type, (e) => e.goToSubmit),
+    [comparisonFiltered],
+  );
+  const scheduleVarianceByTypeCmp = useMemo(
+    () =>
+      comparisonFiltered === null
+        ? null
+        : groupAvgBy(
+            comparisonFiltered,
+            (e) => e.permit.type,
+            (e) => (e.variance === null ? null : Math.abs(e.variance)),
+          ),
+    [comparisonFiltered],
+  );
+  const cityReviewByJurisCmp = useMemo(
+    () =>
+      comparisonFiltered === null
+        ? null
+        : groupAvgBy(comparisonFiltered, (e) => e.juris, (e) => e.cityReviewDays),
+    [comparisonFiltered],
+  );
+  const corrResponseByTypeCmp = useMemo(
+    () =>
+      comparisonFiltered === null
+        ? null
+        : groupAvgBy(
+            comparisonFiltered,
+            (e) => e.permit.type,
+            (e) => e.corrResponseDays,
+          ),
+    [comparisonFiltered],
+  );
+
+  // Short range labels for the BarChartCard comparison legend strips.
+  // Mirrors fix-116's TrendChartCard pattern (Volume section).
+  const currentRangeLabel = useMemo(() => {
+    const r = resolveClosedStringRange(filters, today);
+    if (!r) return '';
+    return r.from === r.to ? r.from : `${r.from} – ${r.to}`;
+  }, [filters, today]);
+  const comparisonRangeLabel = useMemo(() => {
+    if (!comparisonRange) return '';
+    return comparisonRange.from === comparisonRange.to
+      ? comparisonRange.from
+      : `${comparisonRange.from} – ${comparisonRange.to}`;
+  }, [comparisonRange]);
+
   function update<K extends keyof ReportFilters>(key: K, value: ReportFilters[K]) {
     setFilters((prev) => ({ ...prev, [key]: value }));
   }
@@ -297,6 +366,9 @@ function Body({
           color="jv"
           showAverage={false}
           testId="chart-permits-by-type"
+          comparisonData={permitsByTypeCmp}
+          currentLabel={currentRangeLabel}
+          comparisonLabel={comparisonRangeLabel}
         />
         <BarChartCard
           title="Permits by Jurisdiction"
@@ -304,6 +376,9 @@ function Body({
           color="is"
           showAverage={false}
           testId="chart-permits-by-juris"
+          comparisonData={permitsByJurisCmp}
+          currentLabel={currentRangeLabel}
+          comparisonLabel={comparisonRangeLabel}
         />
         <BarChartCard
           title="GO → Submit (avg days by type)"
@@ -311,6 +386,9 @@ function Body({
           color="de"
           unit="d"
           testId="chart-go-to-submit-by-type"
+          comparisonData={goToSubmitByTypeCmp}
+          currentLabel={currentRangeLabel}
+          comparisonLabel={comparisonRangeLabel}
         />
         <BarChartCard
           title="Schedule Variance by Type (avg days off)"
@@ -319,6 +397,9 @@ function Body({
           unit="d"
           emptyState="No issued permits yet"
           testId="chart-schedule-variance-by-type"
+          comparisonData={scheduleVarianceByTypeCmp}
+          currentLabel={currentRangeLabel}
+          comparisonLabel={comparisonRangeLabel}
         />
         <BarChartCard
           title="City Review by Jurisdiction (avg days)"
@@ -327,6 +408,9 @@ function Body({
           unit="d"
           emptyState="No completed reviews yet"
           testId="chart-city-review-by-juris"
+          comparisonData={cityReviewByJurisCmp}
+          currentLabel={currentRangeLabel}
+          comparisonLabel={comparisonRangeLabel}
         />
         <BarChartCard
           title="Correction Response by Type (avg days)"
@@ -335,6 +419,9 @@ function Body({
           unit="d"
           emptyState="No correction rounds completed yet"
           testId="chart-corr-response-by-type"
+          comparisonData={corrResponseByTypeCmp}
+          currentLabel={currentRangeLabel}
+          comparisonLabel={comparisonRangeLabel}
         />
       </div>
 
