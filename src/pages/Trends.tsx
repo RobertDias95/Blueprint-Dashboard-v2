@@ -406,6 +406,120 @@ function TrendsBody({ permits, projects, catalogTypes }: BodyProps) {
     [volumeFiltered, volumeFilters, projectsById, volumeMonths, volumeGroupKeys],
   );
 
+  // fix-116: Volume + Timeline comparison series. Same four helpers run
+  // against `comparisonRange` swapped in for the Volume filter's dateFrom/
+  // dateTo. Group keys come from the CURRENT cohort so the chart color
+  // alignment matches the current bars (otherwise a juris that only
+  // appears in the prior period would render under a different color
+  // index). Bucket positions are taken from the current period; the
+  // comparison series is re-indexed by bucket order in TrendChartCard
+  // (e.g., current Jun 2026 bucket carries the comparison's May 2026
+  // value at the same x position). Tooltip discloses the actual cmp
+  // month so the re-index is never silent.
+  const volumeComparisonFilters: TrTrendsFilters | null = useMemo(() => {
+    if (!comparisonRange) return null;
+    return {
+      ...volumeFilters,
+      dateFrom: comparisonRange.from.slice(0, 7),
+      dateTo: comparisonRange.to.slice(0, 7),
+    };
+  }, [volumeFilters, comparisonRange]);
+
+  const volumeComparisonMonths = useMemo(() => {
+    if (!volumeComparisonFilters) return [];
+    return getMonthRange(volumeComparisonFilters, permits, projectsById, today);
+  }, [volumeComparisonFilters, permits, projectsById, today]);
+
+  const volumeComparisonFiltered = useMemo(() => {
+    if (!volumeComparisonFilters) return null;
+    return trFilteredPermits(permits, volumeComparisonFilters, projectsById);
+  }, [permits, volumeComparisonFilters, projectsById]);
+
+  const cmpSubmittedSeries = useMemo(() => {
+    if (!volumeComparisonFiltered || !volumeComparisonFilters) return null;
+    return buildSubmittedSeries(
+      volumeComparisonFiltered,
+      volumeComparisonFilters,
+      projectsById,
+      volumeComparisonMonths,
+      volumeGroupKeys,
+    );
+  }, [
+    volumeComparisonFiltered,
+    volumeComparisonFilters,
+    projectsById,
+    volumeComparisonMonths,
+    volumeGroupKeys,
+  ]);
+
+  const cmpApprovedSeries = useMemo(() => {
+    if (!volumeComparisonFiltered || !volumeComparisonFilters) return null;
+    return buildApprovedSeries(
+      volumeComparisonFiltered,
+      volumeComparisonFilters,
+      projectsById,
+      volumeComparisonMonths,
+      volumeGroupKeys,
+    );
+  }, [
+    volumeComparisonFiltered,
+    volumeComparisonFilters,
+    projectsById,
+    volumeComparisonMonths,
+    volumeGroupKeys,
+  ]);
+
+  const cmpTimelineSeries = useMemo(() => {
+    if (!volumeComparisonFiltered || !volumeComparisonFilters) return null;
+    return buildTimelineSeries(
+      volumeComparisonFiltered,
+      volumeComparisonFilters,
+      projectsById,
+      volumeComparisonMonths,
+      volumeGroupKeys,
+    );
+  }, [
+    volumeComparisonFiltered,
+    volumeComparisonFilters,
+    projectsById,
+    volumeComparisonMonths,
+    volumeGroupKeys,
+  ]);
+
+  const cmpGoSeries = useMemo(() => {
+    if (!volumeComparisonFiltered || !volumeComparisonFilters) return null;
+    return buildGoSeries(
+      volumeComparisonFiltered,
+      volumeComparisonFilters,
+      projectsById,
+      volumeComparisonMonths,
+      volumeGroupKeys,
+    );
+  }, [
+    volumeComparisonFiltered,
+    volumeComparisonFilters,
+    projectsById,
+    volumeComparisonMonths,
+    volumeGroupKeys,
+  ]);
+
+  // Short range labels for chart legend strips. Show year only when it
+  // differs from the comparison's year (compact display for in-year
+  // comparisons like "Jun 2026 vs May 2026").
+  const volumeCurrentRangeLabel = useMemo(() => {
+    const from = filters.dateRange.from;
+    const to = filters.dateRange.to;
+    if (!from || !to) return '';
+    return from === to ? from : `${from} – ${to}`;
+  }, [filters.dateRange]);
+
+  const volumeComparisonRangeLabel = useMemo(() => {
+    if (!comparisonRange) return '';
+    return comparisonRange.from === comparisonRange.to
+      ? comparisonRange.from
+      : `${comparisonRange.from} – ${comparisonRange.to}`;
+  }, [comparisonRange]);
+
   // ----- Target Submit rows (fix-25-feat-AA) -----
   //
   // One row per (juris × catalog type) for non-mirror anchors. Respects
@@ -748,6 +862,9 @@ function TrendsBody({ permits, projects, catalogTypes }: BodyProps) {
             groupKeys={volumeGroupKeys}
             yLabel="# Permits"
             testId="tr-chart-submitted"
+            comparisonSeries={cmpSubmittedSeries}
+            currentLabel={volumeCurrentRangeLabel}
+            comparisonLabel={volumeComparisonRangeLabel}
           />
           <TrendChartCard
             title="Permits Approved by Month"
@@ -756,6 +873,9 @@ function TrendsBody({ permits, projects, catalogTypes }: BodyProps) {
             groupKeys={volumeGroupKeys}
             yLabel="# Permits"
             testId="tr-chart-approved"
+            comparisonSeries={cmpApprovedSeries}
+            currentLabel={volumeCurrentRangeLabel}
+            comparisonLabel={volumeComparisonRangeLabel}
           />
           <TrendChartCard
             title="Avg Permit Timeline by Month"
@@ -770,6 +890,9 @@ function TrendsBody({ permits, projects, catalogTypes }: BodyProps) {
             groupKeys={volumeGroupKeys}
             yLabel="Avg Days"
             testId="tr-chart-timeline"
+            comparisonSeries={cmpTimelineSeries}
+            currentLabel={volumeCurrentRangeLabel}
+            comparisonLabel={volumeComparisonRangeLabel}
           />
           <TrendChartCard
             title="GOs by Month"
@@ -779,6 +902,9 @@ function TrendsBody({ permits, projects, catalogTypes }: BodyProps) {
             groupKeys={volumeGroupKeys}
             yLabel="# Projects"
             testId="tr-chart-goes"
+            comparisonSeries={cmpGoSeries}
+            currentLabel={volumeCurrentRangeLabel}
+            comparisonLabel={volumeComparisonRangeLabel}
           />
         </div>
       </Section>
@@ -1269,6 +1395,17 @@ interface TrendChartCardProps {
   groupKeys: string[];
   yLabel: string;
   testId: string;
+  // fix-116: comparison overlay. comparisonSeries is bucketed by the
+  // comparison period's own months; this component re-indexes by bucket
+  // ORDER (not calendar month) into the current series' x positions, so
+  // the dashed line / shadow bars sit on top of their current-period
+  // counterparts. The tooltip discloses each bucket's actual comparison
+  // month so the re-index never reads as "May data labelled June".
+  comparisonSeries?: ChartPoint[] | null;
+  /** Short range labels for the comparison legend strip — e.g.
+   *  "2026-06-01 – 2026-06-30" / "2026-05-01 – 2026-05-31". */
+  currentLabel?: string;
+  comparisonLabel?: string;
 }
 
 function TrendChartCard({
@@ -1279,17 +1416,38 @@ function TrendChartCard({
   groupKeys,
   yLabel,
   testId,
+  comparisonSeries,
+  currentLabel,
+  comparisonLabel,
 }: TrendChartCardProps) {
-  const chartData = series.map((p) => {
+  const hasComparison = Boolean(comparisonSeries);
+  const chartData = series.map((p, i) => {
     const row: Record<string, string | number | null> = {
       month: formatMonthShort(p.month),
     };
     for (const k of groupKeys) row[k] = p.values[k] ?? null;
+    if (hasComparison) {
+      const cmp = comparisonSeries?.[i];
+      for (const k of groupKeys) {
+        row[`__cmp__${k}`] = cmp?.values[k] ?? null;
+      }
+      // Disclose the actual comparison month label for tooltip clarity —
+      // critical because the comparison bar is rendered at the current
+      // bucket's x position (which displays the current month label).
+      row.__cmpMonth = cmp ? formatMonthShort(cmp.month) : '';
+    }
     return row;
   });
-  const hasAnyValue = series.some((p) =>
+  const hasAnyCurrentValue = series.some((p) =>
     Object.values(p.values).some((v) => v !== null && v !== 0),
   );
+  const hasAnyComparisonValue =
+    hasComparison &&
+    !!comparisonSeries &&
+    comparisonSeries.some((p) =>
+      Object.values(p.values).some((v) => v !== null && v !== 0),
+    );
+  const hasAnyValue = hasAnyCurrentValue || hasAnyComparisonValue;
 
   return (
     <div
@@ -1304,6 +1462,15 @@ function TrendChartCard({
           </span>
         )}
       </div>
+      {hasComparison && (
+        <ComparisonLegendStrip
+          chartKind={chartKind}
+          currentLabel={currentLabel}
+          comparisonLabel={comparisonLabel}
+          comparisonHasData={hasAnyComparisonValue}
+          testId={`${testId}-cmp-legend`}
+        />
+      )}
       {!hasAnyValue ? (
         <div className="text-xs text-dim italic text-center py-12">
           No data in the selected range
@@ -1338,8 +1505,22 @@ function TrendChartCard({
                     borderRadius: 6,
                     fontSize: 11,
                   }}
+                  content={
+                    hasComparison
+                      ? (props) => (
+                          <ComparisonTooltip
+                            payload={props.payload}
+                            label={props.label}
+                            groupKeys={groupKeys}
+                            currentLabel={currentLabel}
+                            comparisonLabel={comparisonLabel}
+                            yLabel={yLabel}
+                          />
+                        )
+                      : undefined
+                  }
                 />
-                {groupKeys.length > 1 && (
+                {groupKeys.length > 1 && !hasComparison && (
                   <Legend wrapperStyle={{ fontSize: 9, paddingTop: 4 }} />
                 )}
                 {groupKeys.map((k, idx) => (
@@ -1347,9 +1528,28 @@ function TrendChartCard({
                     key={k}
                     dataKey={k}
                     fill={trColor(k, idx)}
-                    stackId={groupKeys.length > 1 ? 'a' : undefined}
+                    stackId={
+                      hasComparison
+                        ? 'current'
+                        : groupKeys.length > 1
+                          ? 'a'
+                          : undefined
+                    }
                   />
                 ))}
+                {hasComparison &&
+                  groupKeys.map((k, idx) => (
+                    <Bar
+                      key={`cmp-${k}`}
+                      dataKey={`__cmp__${k}`}
+                      fill={trColor(k, idx)}
+                      fillOpacity={0.35}
+                      stroke={trColor(k, idx)}
+                      strokeDasharray="2 2"
+                      strokeWidth={1}
+                      stackId="comparison"
+                    />
+                  ))}
               </BarChart>
             ) : (
               <LineChart data={chartData} margin={{ top: 4, right: 8, bottom: 0, left: 0 }}>
@@ -1378,8 +1578,22 @@ function TrendChartCard({
                     borderRadius: 6,
                     fontSize: 11,
                   }}
+                  content={
+                    hasComparison
+                      ? (props) => (
+                          <ComparisonTooltip
+                            payload={props.payload}
+                            label={props.label}
+                            groupKeys={groupKeys}
+                            currentLabel={currentLabel}
+                            comparisonLabel={comparisonLabel}
+                            yLabel={yLabel}
+                          />
+                        )
+                      : undefined
+                  }
                 />
-                {groupKeys.length > 1 && (
+                {groupKeys.length > 1 && !hasComparison && (
                   <Legend wrapperStyle={{ fontSize: 9, paddingTop: 4 }} />
                 )}
                 {groupKeys.map((k, idx) => (
@@ -1393,11 +1607,221 @@ function TrendChartCard({
                     connectNulls
                   />
                 ))}
+                {hasComparison &&
+                  groupKeys.map((k, idx) => (
+                    <Line
+                      key={`cmp-${k}`}
+                      type="monotone"
+                      dataKey={`__cmp__${k}`}
+                      stroke={trColor(k, idx)}
+                      strokeDasharray="4 4"
+                      strokeOpacity={0.6}
+                      strokeWidth={2}
+                      dot={{ r: 2, fill: trColor(k, idx), fillOpacity: 0.6 }}
+                      connectNulls
+                    />
+                  ))}
               </LineChart>
             )}
           </ResponsiveContainer>
         </div>
       )}
+    </div>
+  );
+}
+
+// fix-116: chart-level legend rendered above the canvas when comparison
+// is active. Two swatches keyed by chartKind — solid current + dashed
+// comparison — let users read the chart without hovering. Legend stays
+// in DOM (not SVG) so tests can assert presence via testId.
+function ComparisonLegendStrip({
+  chartKind,
+  currentLabel,
+  comparisonLabel,
+  comparisonHasData,
+  testId,
+}: {
+  chartKind: 'bar' | 'line';
+  currentLabel?: string;
+  comparisonLabel?: string;
+  comparisonHasData: boolean;
+  testId: string;
+}) {
+  return (
+    <div
+      className="mb-2 flex flex-wrap items-center gap-3 text-[10px] text-muted"
+      data-testid={testId}
+    >
+      <span className="flex items-center gap-1.5">
+        <ComparisonSwatch tone="current" chartKind={chartKind} />
+        <span className="text-text font-display font-bold">
+          {currentLabel ?? 'Current'}
+        </span>
+      </span>
+      <span className="flex items-center gap-1.5">
+        <ComparisonSwatch tone="comparison" chartKind={chartKind} />
+        <span className="text-dim font-display">
+          vs {comparisonLabel ?? 'previous period'}
+          {!comparisonHasData && (
+            <span
+              className="ml-2 italic"
+              data-testid={`${testId}-empty`}
+            >
+              (no data)
+            </span>
+          )}
+        </span>
+      </span>
+    </div>
+  );
+}
+
+function ComparisonSwatch({
+  tone,
+  chartKind,
+}: {
+  tone: 'current' | 'comparison';
+  chartKind: 'bar' | 'line';
+}) {
+  const color = 'var(--color-de)';
+  if (chartKind === 'bar') {
+    return tone === 'current' ? (
+      <span
+        style={{
+          display: 'inline-block',
+          width: 10,
+          height: 10,
+          background: color,
+          borderRadius: 1,
+        }}
+      />
+    ) : (
+      <span
+        style={{
+          display: 'inline-block',
+          width: 10,
+          height: 10,
+          background: color,
+          opacity: 0.35,
+          border: `1px dashed ${color}`,
+          borderRadius: 1,
+        }}
+      />
+    );
+  }
+  // Line chart: short horizontal stroke (solid vs dashed).
+  return tone === 'current' ? (
+    <svg width={14} height={8} aria-hidden>
+      <line x1={0} y1={4} x2={14} y2={4} stroke={color} strokeWidth={2} />
+    </svg>
+  ) : (
+    <svg width={14} height={8} aria-hidden>
+      <line
+        x1={0}
+        y1={4}
+        x2={14}
+        y2={4}
+        stroke={color}
+        strokeWidth={2}
+        strokeDasharray="4 4"
+        strokeOpacity={0.6}
+      />
+    </svg>
+  );
+}
+
+// Custom Recharts tooltip used only when comparison is active. Standard
+// recharts tooltip can't disclose the comparison's actual month (it'd just
+// label both bars with the current period's bucket month).
+function ComparisonTooltip({
+  payload,
+  label,
+  groupKeys,
+  currentLabel,
+  comparisonLabel,
+  yLabel,
+}: {
+  // Recharts' TooltipPayload generics complicate the type; keep it loose
+  // since we only read .payload[i] (the row) by index.
+  payload?: ReadonlyArray<{ payload?: unknown }>;
+  label?: string | number;
+  groupKeys: string[];
+  currentLabel?: string;
+  comparisonLabel?: string;
+  yLabel: string;
+}) {
+  if (!payload || payload.length === 0) return null;
+  const row = payload[0]?.payload as Record<string, unknown> | undefined;
+  const cmpMonthLabel =
+    typeof row?.__cmpMonth === 'string' && row.__cmpMonth
+      ? row.__cmpMonth
+      : null;
+  function fmtValue(v: unknown): string {
+    if (v === null || v === undefined) return '—';
+    if (typeof v === 'number') return String(v);
+    return String(v);
+  }
+  return (
+    <div
+      style={{
+        background: 'var(--color-surface)',
+        border: '1px solid var(--color-border)',
+        borderRadius: 6,
+        fontSize: 11,
+        padding: '6px 8px',
+        minWidth: 160,
+      }}
+    >
+      <div className="font-bold text-text mb-1">{label}</div>
+      {groupKeys.map((k) => {
+        const cur = row?.[k];
+        const cmp = row?.[`__cmp__${k}`];
+        const curN = typeof cur === 'number' ? cur : null;
+        const cmpN = typeof cmp === 'number' ? cmp : null;
+        const delta = curN !== null && cmpN !== null ? curN - cmpN : null;
+        const pct =
+          delta !== null && cmpN !== null && cmpN !== 0
+            ? Math.round((delta / Math.abs(cmpN)) * 100)
+            : null;
+        return (
+          <div key={k} className="mb-1.5 last:mb-0">
+            {groupKeys.length > 1 && (
+              <div className="text-[9px] uppercase tracking-wide text-dim font-bold">
+                {k}
+              </div>
+            )}
+            <div className="text-text">
+              {currentLabel ?? 'Current'}: <strong>{fmtValue(cur)}</strong>{' '}
+              <span className="text-dim text-[9px]">{yLabel}</span>
+            </div>
+            <div className="text-dim">
+              {comparisonLabel ?? 'Prev'}
+              {cmpMonthLabel && cmpMonthLabel !== label
+                ? ` (${cmpMonthLabel})`
+                : ''}
+              : <strong>{fmtValue(cmp)}</strong>{' '}
+              <span className="text-dim text-[9px]">{yLabel}</span>
+            </div>
+            {delta !== null && (
+              <div
+                className="text-[10px] font-bold"
+                style={{
+                  color:
+                    delta > 0
+                      ? 'var(--color-pm)'
+                      : delta < 0
+                        ? 'var(--color-co)'
+                        : 'var(--color-muted)',
+                }}
+              >
+                Δ {delta > 0 ? '+' : ''}
+                {delta}
+                {pct === null ? '' : ` (${pct > 0 ? '+' : ''}${pct}%)`}
+              </div>
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }
