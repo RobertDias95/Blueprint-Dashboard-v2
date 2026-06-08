@@ -637,6 +637,119 @@ describe('computeMetrics', () => {
     expect(m.avgGoToSubmit).toBeNull();
     expect(m.onTimeSubmits).toBe(0);
   });
+
+  // fix-140-a: NaN regression guard. Bobby reported "Avg Schedule Var = NaN d"
+  // when a prod row carried a six-digit-year typo (expected_issue =
+  // '202025-11-30'). new Date(...) returns Invalid Date → getTime() = NaN.
+  // Pre-fix, daysBetween's NaN slipped through `avg`'s `!== null` filter and
+  // poisoned the metric. These tests pin BOTH layers of the fix.
+  it('fix-140-a: empty cohort → avgScheduleVariance === null (NaN guard 1/2)', () => {
+    const m = computeMetrics([]);
+    expect(m.avgScheduleVariance).toBeNull();
+    expect(m.avgScheduleVariance).not.toBeNaN();
+  });
+
+  it('fix-140-a: mixed cohort (3 permits, 1 with malformed expected_issue) → avg over the 2 valid ones', () => {
+    const projectsById = new Map<string, Project>([
+      [
+        'p1',
+        {
+          id: 'p1',
+          address: '1 Main',
+          juris: 'Seattle',
+          archived: false,
+          notes: null,
+        } as Project,
+      ],
+    ]);
+    const permits: PermitWithCycles[] = [
+      // Valid: expected 2026-04-01 → approval 2026-04-11 → variance +10d.
+      makePermit({
+        id: 1,
+        project_id: 'p1',
+        expected_issue: '2026-04-01',
+        approval_date: '2026-04-11',
+      }),
+      // Valid: expected 2026-04-01 → approval 2026-04-05 → variance +4d.
+      makePermit({
+        id: 2,
+        project_id: 'p1',
+        expected_issue: '2026-04-01',
+        approval_date: '2026-04-05',
+      }),
+      // Malformed: 6-digit year typo on expected_issue → daysBetween
+      // sees NaN. Pre-fix: this poisoned the avg with NaN. Post-fix:
+      // dropped from the cohort silently. Variance avg = (10+4)/2 = 7.
+      makePermit({
+        id: 3,
+        project_id: 'p1',
+        expected_issue: '202025-11-30',
+        approval_date: '2026-04-05',
+      }),
+    ];
+    const enriched = enrichPermits(permits, projectsById);
+    const m = computeMetrics(enriched);
+    expect(m.avgScheduleVariance).toBe(7);
+    expect(m.avgScheduleVariance).not.toBeNaN();
+  });
+
+  it('fix-140-a: all-malformed cohort → variance is null, not NaN (NaN guard 2/2)', () => {
+    const projectsById = new Map<string, Project>([
+      [
+        'p1',
+        {
+          id: 'p1',
+          address: '1 Main',
+          juris: 'Seattle',
+          archived: false,
+          notes: null,
+        } as Project,
+      ],
+    ]);
+    const permits: PermitWithCycles[] = [
+      makePermit({
+        id: 1,
+        project_id: 'p1',
+        expected_issue: '202025-11-30', // 6-digit year typo
+        approval_date: '2026-04-11',
+      }),
+    ];
+    const enriched = enrichPermits(permits, projectsById);
+    const m = computeMetrics(enriched);
+    expect(m.avgScheduleVariance).toBeNull();
+    expect(m.avgScheduleVariance).not.toBeNaN();
+  });
+
+  // fix-140-b: Avg Permit Timeline shares avgCityReview's value — the
+  // two tiles compute the same number by design. The page-level tests
+  // assert both render; this helper-level test just confirms the
+  // underlying computeMetrics doesn't grow a second field.
+  it('fix-140-b: avgCityReview is the single source for the Permit Timeline display', () => {
+    const projectsById = new Map<string, Project>([
+      [
+        'p1',
+        {
+          id: 'p1',
+          address: '1 Main',
+          juris: 'Seattle',
+          archived: false,
+          notes: null,
+        } as Project,
+      ],
+    ]);
+    const permits: PermitWithCycles[] = [
+      makePermit({
+        id: 1,
+        project_id: 'p1',
+        approval_date: '2026-04-30',
+        permit_cycles: [makeCycle({ cycle_index: 0, intake_accepted: '2026-04-01' })],
+      }),
+    ];
+    const enriched = enrichPermits(permits, projectsById);
+    const m = computeMetrics(enriched);
+    // 29 days between intake (2026-04-01) and approval (2026-04-30).
+    expect(m.avgCityReview).toBe(29);
+  });
 });
 
 // ============================================================

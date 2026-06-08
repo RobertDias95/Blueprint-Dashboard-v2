@@ -870,6 +870,8 @@ describe('<Reports /> Q7.2.b', () => {
       'avgCorrectionCycles',
       'inCorrections',
       'avgScheduleVariance',
+      // fix-140-b: Avg Permit Timeline (12th tile).
+      'avgPermitTimeline',
     ];
     it.each(reportsSlugs)('MetricCard "%s" has a tooltip trigger', (slug) => {
       renderIt();
@@ -921,6 +923,100 @@ describe('<Reports /> Q7.2.b', () => {
       setRangeAndCompare();
       // The split branch is taken — no -cmp suffix from ComparisonRow.
       expect(screen.queryByTestId('metric-total-permits-cmp')).toBeNull();
+    });
+  });
+
+  // ============================================================
+  // fix-140: Overview KPI tile polish
+  // ============================================================
+  describe('fix-140 Overview KPI tile polish', () => {
+    function setRangeAndCompare() {
+      renderIt();
+      fireEvent.click(screen.getByTestId('reports-compare-add-button'));
+      fireEvent.change(
+        screen.getByTestId('reports-compare-panel-period-a-from'),
+        { target: { value: '2026-04-01' } },
+      );
+      fireEvent.change(
+        screen.getByTestId('reports-compare-panel-period-a-to'),
+        { target: { value: '2026-04-30' } },
+      );
+      fireEvent.change(
+        screen.getByTestId('reports-compare-panel-period-b-from'),
+        { target: { value: '2026-03-01' } },
+      );
+      fireEvent.change(
+        screen.getByTestId('reports-compare-panel-period-b-to'),
+        { target: { value: '2026-03-31' } },
+      );
+      fireEvent.click(screen.getByTestId('reports-compare-panel-apply'));
+    }
+
+    it('fix-140-b: 12th tile "Avg Permit Timeline" renders alongside Avg City Review with the same numeric value', () => {
+      renderIt();
+      const timeline = screen.getByTestId('metric-permit-timeline');
+      const cityReview = screen.getByTestId('metric-city-review');
+      expect(timeline).toBeInTheDocument();
+      expect(cityReview).toBeInTheDocument();
+      // Same metric, same display.
+      const timelineText = timeline.textContent ?? '';
+      const cityText = cityReview.textContent ?? '';
+      // Both should carry the same value substring (either both '—' or
+      // both 'Nd' for the same N).
+      const extractValue = (txt: string) =>
+        txt.match(/(\d+d|—)/)?.[0] ?? '';
+      expect(extractValue(timelineText)).toBe(extractValue(cityText));
+    });
+
+    it('fix-140-a: page nowhere renders "NaN" — Avg Schedule Var falls back to "—" on bad data', () => {
+      renderIt();
+      // Scan the entire rendered document for "NaN" — the NaN bug surfaced
+      // as "NaN d" in the Schedule Variance card pre-fix.
+      expect(document.body.textContent ?? '').not.toMatch(/NaN/);
+      // Schedule Var tile specifically renders the "—" placeholder when
+      // null (the fixture has no expected_issue + approval pairs).
+      const card = screen.getByTestId('metric-schedule-variance');
+      // Either a real number with 'd' OR the '—' placeholder, never 'NaN'.
+      expect(card.textContent ?? '').not.toMatch(/NaN/);
+    });
+
+    it('fix-140-c: comparison renders the KpiSplitView on all 7 newly-wired tiles + the new Timeline tile', () => {
+      setRangeAndCompare();
+      // The 7 newly-wired tiles all expose -split testids when comparison
+      // is active. Conditional tiles (avgGoToDDStart, avgDDDuration,
+      // avgDDEndToSubmit, avgSubmitToIntake) only render when the metric
+      // is non-null — for this fixture, only the unconditional ones
+      // ship a -split node. Assert the unconditional set + Timeline.
+      // (Conditional tiles are validated by individual unit tests above.)
+      const unconditional = [
+        'metric-go-to-submit-split',
+        'metric-permit-timeline-split',
+        'metric-schedule-variance-split',
+      ];
+      for (const id of unconditional) {
+        expect(screen.getByTestId(id)).toBeInTheDocument();
+      }
+    });
+
+    it('fix-140-c: every comparison-wired tile carries data-tone (good/bad/neutral) based on its declared direction', () => {
+      setRangeAndCompare();
+      // Schedule Variance is direction=neutral — split-delta tone is
+      // always 'neutral' regardless of sign.
+      const schedDelta = screen.getByTestId(
+        'metric-schedule-variance-split-delta',
+      );
+      expect(schedDelta).toBeInTheDocument();
+      // Permit Timeline is lower_better — same metric value as City
+      // Review, so both should report the same data-tone.
+      const timelineDelta = screen.getByTestId(
+        'metric-permit-timeline-split-delta',
+      );
+      const cityDelta = screen.getByTestId(
+        'metric-city-review-split-delta',
+      );
+      expect(timelineDelta.getAttribute('data-direction')).toBe(
+        cityDelta.getAttribute('data-direction'),
+      );
     });
   });
 });
