@@ -338,13 +338,19 @@ describe('Trends — fix-25-feat-V submit→intake surface', () => {
     expect(banner.textContent).toMatch(/in-progress activity is not included/i);
   });
 
-  // ─── fix-114: period comparison ────────────────────────────────────
-  it('fix-114: Compare to defaults to "off" and no comparison row renders', () => {
+  // ─── fix-114→fix-137: period comparison ────────────────────────────
+  // fix-137 replaced the "Compare to" enum dropdown + ComparePresetChips
+  // row with a single AddComparisonButton that opens an inline panel.
+  // The KpiSplitView output is unchanged — same delta strip + comparison
+  // cell — only the entry-point UI changed.
+  it('fix-137: AddComparisonButton defaults to closed, no comparison active', () => {
     renderTrends();
-    expect(screen.getByTestId('trends-compare')).toBeInTheDocument();
-    const select = screen.getByTestId('trends-compare') as HTMLSelectElement;
-    expect(select.value).toBe('off');
-    // None of the KPI tiles render a comparison row testid.
+    const btn = screen.getByTestId('trends-compare-add-button');
+    expect(btn).toBeInTheDocument();
+    expect(btn.textContent).toMatch(/Add comparison/);
+    expect(btn.getAttribute('data-open')).toBe('false');
+    // No comparison chip; no KPI comparison row testids.
+    expect(screen.queryByTestId('trends-compare-chip')).toBeNull();
     expect(screen.queryByTestId('trends-kpi-total-cmp')).toBeNull();
     expect(screen.queryByTestId('trends-kpi-clock-cmp')).toBeNull();
   });
@@ -392,7 +398,8 @@ describe('Trends — fix-25-feat-V submit→intake surface', () => {
     const deltaSpan = screen.getByTestId('trends-kpi-total-split-delta');
     expect(deltaSpan.textContent).toMatch(/↓/);
     expect(deltaSpan.textContent).toMatch(/-1/);
-    expect(deltaSpan.textContent).toMatch(/vs prev period/);
+    // fix-137: mode-label collapsed from "vs prev period|year" → "vs comparison".
+    expect(deltaSpan.textContent).toMatch(/vs comparison/);
     // Direction='higher_better' + negative delta → red color on the delta line.
     expect(deltaSpan.getAttribute('style')).toMatch(/color: var\(--color-co\)/);
   });
@@ -426,7 +433,8 @@ describe('Trends — fix-25-feat-V submit→intake surface', () => {
     // ComparisonRow to KpiSplitView's delta line).
     const delta = screen.getByTestId('trends-kpi-clock-split-delta');
     expect(delta.textContent).toMatch(/no comparison data/i);
-    expect(delta.textContent).toMatch(/vs prev year/);
+    // fix-137: mode-label "vs prev period|year" → unified "vs comparison".
+    expect(delta.textContent).toMatch(/vs comparison/);
   });
 
   it('fix-114: higher_better + positive delta colors GREEN (--color-pm)', () => {
@@ -688,125 +696,146 @@ describe('Trends — fix-25-feat-V submit→intake surface', () => {
     ).toBeInTheDocument();
   });
 
-  // fix-124-b: preset chip row above the filter bar collapses
-  // "quarter vs last quarter" from 4 clicks to 1. End-to-end test:
-  // click the chip → URL params reflect the new (range, compareTo).
-  describe('fix-124-b preset chip row', () => {
-    it('renders all 6 chips above the filter bar', () => {
+  // fix-137: replaces the old fix-124-b chip-row tests. The 6 presets
+  // now live INSIDE the ComparePanel; clicking the AddComparisonButton
+  // opens the panel + a preset click fills BOTH Period A and Period B,
+  // and Apply commits both to the URL.
+  describe('fix-137 AddComparisonButton + ComparePanel', () => {
+    it('panel opens with the 6 presets when the button is clicked', () => {
       renderTrends();
-      expect(screen.getByTestId('trends-preset-this_month_vs_last')).toBeInTheDocument();
-      expect(screen.getByTestId('trends-preset-this_quarter_vs_last')).toBeInTheDocument();
-      expect(screen.getByTestId('trends-preset-this_year_vs_last')).toBeInTheDocument();
-      expect(screen.getByTestId('trends-preset-last_30d_vs_prior')).toBeInTheDocument();
-      expect(screen.getByTestId('trends-preset-last_60d_vs_prior')).toBeInTheDocument();
-      expect(screen.getByTestId('trends-preset-last_90d_vs_prior')).toBeInTheDocument();
+      // Panel is closed initially.
+      expect(screen.queryByTestId('trends-compare-panel')).toBeNull();
+      fireEvent.click(screen.getByTestId('trends-compare-add-button'));
+      expect(screen.getByTestId('trends-compare-panel')).toBeInTheDocument();
+      // All 6 preset buttons present.
+      expect(
+        screen.getByTestId('trends-compare-panel-preset-this_month_vs_last'),
+      ).toBeInTheDocument();
+      expect(
+        screen.getByTestId('trends-compare-panel-preset-this_quarter_vs_last'),
+      ).toBeInTheDocument();
+      expect(
+        screen.getByTestId('trends-compare-panel-preset-this_year_vs_last'),
+      ).toBeInTheDocument();
+      expect(
+        screen.getByTestId('trends-compare-panel-preset-last_30d_vs_prior'),
+      ).toBeInTheDocument();
+      expect(
+        screen.getByTestId('trends-compare-panel-preset-last_60d_vs_prior'),
+      ).toBeInTheDocument();
+      expect(
+        screen.getByTestId('trends-compare-panel-preset-last_90d_vs_prior'),
+      ).toBeInTheDocument();
     });
 
-    it('clicking a preset updates the From/To inputs + the Compare to dropdown in one shot', () => {
-      // System reminders confirm "today" is 2026-06-05 for this harness,
-      // so "This quarter vs last" should land on Q2 2026 (2026-04-01 to
-      // 2026-06-30) with compareTo=previous_period.
+    it('clicking "This quarter vs last" fills both Period A and Period B (FIXED_TODAY=2026-05-15 → Q2 2026 vs Q1 2026)', () => {
       renderTrends();
+      fireEvent.click(screen.getByTestId('trends-compare-add-button'));
       fireEvent.click(
-        screen.getByTestId('trends-preset-this_quarter_vs_last'),
+        screen.getByTestId('trends-compare-panel-preset-this_quarter_vs_last'),
       );
+      const aFrom = screen.getByTestId(
+        'trends-compare-panel-period-a-from',
+      ) as HTMLInputElement;
+      const aTo = screen.getByTestId(
+        'trends-compare-panel-period-a-to',
+      ) as HTMLInputElement;
+      const bFrom = screen.getByTestId(
+        'trends-compare-panel-period-b-from',
+      ) as HTMLInputElement;
+      const bTo = screen.getByTestId(
+        'trends-compare-panel-period-b-to',
+      ) as HTMLInputElement;
+      // Period A = Q2 2026 (Apr 1 – Jun 30).
+      expect(aFrom.value).toBe('2026-04-01');
+      expect(aTo.value).toBe('2026-06-30');
+      // Period B = Q1 2026 (Jan 1 – Mar 31) via fix-115-a calendar snap.
+      expect(bFrom.value).toBe('2026-01-01');
+      expect(bTo.value).toBe('2026-03-31');
+    });
+
+    it('Apply commits the panel selection to the URL state + closes the panel + shows the chip', () => {
+      renderTrends();
+      fireEvent.click(screen.getByTestId('trends-compare-add-button'));
+      fireEvent.click(
+        screen.getByTestId('trends-compare-panel-preset-this_quarter_vs_last'),
+      );
+      fireEvent.click(screen.getByTestId('trends-compare-panel-apply'));
+      // Panel closes.
+      expect(screen.queryByTestId('trends-compare-panel')).toBeNull();
+      // Chip shows the comparison range in place of the Add button.
+      const chip = screen.getByTestId('trends-compare-chip');
+      expect(chip.textContent).toContain('2026-01-01 – 2026-03-31');
+      // From/To inputs now reflect Period A.
       const from = screen.getByTestId('trends-from') as HTMLInputElement;
       const to = screen.getByTestId('trends-to') as HTMLInputElement;
-      const compare = screen.getByTestId('trends-compare') as HTMLSelectElement;
       expect(from.value).toBe('2026-04-01');
       expect(to.value).toBe('2026-06-30');
-      expect(compare.value).toBe('previous_period');
     });
 
-    it('the active chip is filled after the URL state matches it', () => {
-      const client = new QueryClient({
-        defaultOptions: {
-          queries: { retry: false },
-          mutations: { retry: false },
-        },
-      });
-      const wrapper = ({ children }: { children: ReactNode }) => (
-        <QueryClientProvider client={client}>
-          <MemoryRouter
-            initialEntries={[
-              '/trends?from=2026-04-01&to=2026-06-30&compare=previous_period',
-            ]}
-          >
-            {children}
-          </MemoryRouter>
-        </QueryClientProvider>
-      );
-      render(<Trends />, { wrapper });
-      expect(
-        screen.getByTestId('trends-preset-this_quarter_vs_last').getAttribute('data-active'),
-      ).toBe('true');
-    });
-
-    it('manual tweak of the From input drops the active highlight', () => {
-      const client = new QueryClient({
-        defaultOptions: {
-          queries: { retry: false },
-          mutations: { retry: false },
-        },
-      });
-      const wrapper = ({ children }: { children: ReactNode }) => (
-        <QueryClientProvider client={client}>
-          <MemoryRouter
-            initialEntries={[
-              '/trends?from=2026-04-01&to=2026-06-30&compare=previous_period',
-            ]}
-          >
-            {children}
-          </MemoryRouter>
-        </QueryClientProvider>
-      );
-      render(<Trends />, { wrapper });
-      // Start with this_quarter active.
-      expect(
-        screen.getByTestId('trends-preset-this_quarter_vs_last').getAttribute('data-active'),
-      ).toBe('true');
-      // Edit From off by one day → no preset matches.
-      fireEvent.change(screen.getByTestId('trends-from'), {
-        target: { value: '2026-04-02' },
-      });
-      expect(
-        screen.getByTestId('trends-preset-this_quarter_vs_last').getAttribute('data-active'),
-      ).toBe('false');
-    });
-
-    // Power-user controls still work: pin that the underlying Date + Compare
-    // to controls are untouched and continue to drive the filter state.
-    it('Custom Date range + Compare to dropdown still work for arbitrary slicing', () => {
+    it('Cancel closes the panel without applying', () => {
       renderTrends();
-      // Manually pick a slice that matches no preset.
-      fireEvent.change(screen.getByTestId('trends-from'), {
-        target: { value: '2026-05-15' },
+      fireEvent.click(screen.getByTestId('trends-compare-add-button'));
+      fireEvent.click(
+        screen.getByTestId('trends-compare-panel-preset-this_quarter_vs_last'),
+      );
+      fireEvent.click(screen.getByTestId('trends-compare-panel-cancel'));
+      expect(screen.queryByTestId('trends-compare-panel')).toBeNull();
+      // No chip rendered — comparison is still off.
+      expect(screen.queryByTestId('trends-compare-chip')).toBeNull();
+    });
+
+    it('chip × button removes the comparison', () => {
+      const client = new QueryClient({
+        defaultOptions: {
+          queries: { retry: false },
+          mutations: { retry: false },
+        },
       });
-      fireEvent.change(screen.getByTestId('trends-to'), {
-        target: { value: '2026-05-21' },
+      const wrapper = ({ children }: { children: ReactNode }) => (
+        <QueryClientProvider client={client}>
+          <MemoryRouter
+            initialEntries={[
+              '/trends?from=2026-04-01&to=2026-06-30&cmpFrom=2026-01-01&cmpTo=2026-03-31',
+            ]}
+          >
+            {children}
+          </MemoryRouter>
+        </QueryClientProvider>
+      );
+      render(<Trends />, { wrapper });
+      expect(screen.getByTestId('trends-compare-chip')).toBeInTheDocument();
+      fireEvent.click(screen.getByTestId('trends-compare-remove-button'));
+      // Chip gone, Add button back.
+      expect(screen.queryByTestId('trends-compare-chip')).toBeNull();
+      expect(
+        screen.getByTestId('trends-compare-add-button'),
+      ).toBeInTheDocument();
+    });
+
+    it('legacy URL migration: ?compare=previous_period gets rewritten to ?cmpFrom=X&cmpTo=Y', () => {
+      const client = new QueryClient({
+        defaultOptions: {
+          queries: { retry: false },
+          mutations: { retry: false },
+        },
       });
-      fireEvent.change(screen.getByTestId('trends-compare'), {
-        target: { value: 'previous_year' },
-      });
-      const from = screen.getByTestId('trends-from') as HTMLInputElement;
-      const to = screen.getByTestId('trends-to') as HTMLInputElement;
-      const compare = screen.getByTestId('trends-compare') as HTMLSelectElement;
-      expect(from.value).toBe('2026-05-15');
-      expect(to.value).toBe('2026-05-21');
-      expect(compare.value).toBe('previous_year');
-      // No preset chip is highlighted under previous_year (no preset uses it).
-      for (const preset of [
-        'this_month_vs_last',
-        'this_quarter_vs_last',
-        'this_year_vs_last',
-        'last_30d_vs_prior',
-        'last_60d_vs_prior',
-        'last_90d_vs_prior',
-      ]) {
-        expect(
-          screen.getByTestId(`trends-preset-${preset}`).getAttribute('data-active'),
-        ).toBe('false');
-      }
+      const wrapper = ({ children }: { children: ReactNode }) => (
+        <QueryClientProvider client={client}>
+          <MemoryRouter
+            initialEntries={[
+              '/trends?from=2026-04-01&to=2026-06-30&compare=previous_period',
+            ]}
+          >
+            {children}
+          </MemoryRouter>
+        </QueryClientProvider>
+      );
+      render(<Trends />, { wrapper });
+      // After the one-time migration effect, the chip should show the
+      // resolved Period B range (Q1 2026 via the calendar snap).
+      const chip = screen.getByTestId('trends-compare-chip');
+      expect(chip.textContent).toContain('2026-01-01 – 2026-03-31');
     });
   });
 

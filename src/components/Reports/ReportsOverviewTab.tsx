@@ -5,13 +5,9 @@ import {
   computeMetrics,
   enrichPermits,
   filterEnrichedPermits,
-  resolveClosedStringRange,
   type ReportFilters,
 } from '../../lib/reportMetrics';
-import {
-  comparisonLabelFor,
-  deriveComparisonRange,
-} from '../../lib/comparisonCohort';
+import { comparisonLabelForRange } from '../../lib/comparisonCohort';
 import { groupAvgBy, groupCountBy } from '../../lib/chartHelpers';
 import { SkeletonRows } from '../Skeleton';
 import QueryError from '../QueryError';
@@ -19,7 +15,8 @@ import ReportFilterBar from './ReportFilterBar';
 import MetricCards from './MetricCards';
 import MetricInfoTooltip from '../shared/MetricInfoTooltip';
 import { REPORTS_BARCHART_METRICS } from '../../lib/metricDefinitions';
-import ComparePresetChips from '../shared/ComparePresetChips';
+import AddComparisonButton from '../shared/AddComparisonButton';
+import ComparePanel from '../shared/ComparePanel';
 import BarChartCard from './BarChartCard';
 import ReportTable from './ReportTable';
 import ScheduleBenchmarks from './ScheduleBenchmarks';
@@ -65,9 +62,10 @@ const DEFAULT_FILTERS: ReportFilters = {
   // `status` above (now labelled "Project Status" in the UI).
   permitStatus: 'all',
   search: '',
-  // fix-115-c: comparison defaults off so the page renders single-cohort
-  // exactly as it did pre-fix-115. Opt-in via the new Filter Bar dropdown.
-  compareTo: 'off',
+  // fix-115-c → fix-137: comparison defaults to null so the page
+  // renders single-cohort exactly as it did pre-fix-115. Opt-in via
+  // the AddComparisonButton + ComparePanel below the filter bar.
+  comparisonRange: null,
 };
 
 export default function ReportsOverviewTab() {
@@ -108,6 +106,8 @@ function Body({
 }) {
   const [filters, setFilters] = useState<ReportFilters>(DEFAULT_FILTERS);
   const today = useMemo(() => new Date(), []);
+  // fix-137: compare-panel open state lives on the page (sibling, not popover).
+  const [comparePanelOpen, setComparePanelOpen] = useState(false);
 
   const projectsById = useMemo(
     () => new Map(projects.map((p) => [p.id, p])),
@@ -170,15 +170,10 @@ function Body({
     [enriched, filters, today],
   );
 
-  // fix-115-c: comparison cohort. Reuses Trends' compareTo semantics —
-  // off / previous_period / previous_year — driven by the new filter bar
-  // dropdown. Returns null when no comparison is meaningful (range='all'
-  // has no temporal anchor; custom with at least one endpoint missing).
-  // MetricCards renders single-cohort when comparisonMetrics is null.
-  const comparisonRange = useMemo(() => {
-    const current = resolveClosedStringRange(filters, today);
-    return deriveComparisonRange(current, filters.compareTo);
-  }, [filters, today]);
+  // fix-137: explicit Period B comparison range, sourced directly from
+  // the page filter state (no more deriveComparisonRange call). Null =
+  // single-cohort rendering.
+  const comparisonRange = filters.comparisonRange;
 
   const comparisonFiltered = useMemo(() => {
     if (!comparisonRange) return null;
@@ -189,7 +184,7 @@ function Body({
       dateTo: comparisonRange.to,
       // Don't recurse — the comparison cohort itself doesn't have a
       // comparison cohort.
-      compareTo: 'off',
+      comparisonRange: null,
     };
     return filterEnrichedPermits(enriched, comparisonFilters, today);
   }, [enriched, filters, today, comparisonRange]);
@@ -200,8 +195,8 @@ function Body({
     [comparisonFiltered],
   );
   const comparisonLabel = useMemo(
-    () => comparisonLabelFor(filters.compareTo, comparisonRange),
-    [filters.compareTo, comparisonRange],
+    () => comparisonLabelForRange(comparisonRange),
+    [comparisonRange],
   );
 
   // fix-112-a: ScheduleBenchmarks consumes the SAME filtered cohort as every
@@ -290,28 +285,43 @@ function Body({
           (a tenant-owned category tree). The Reports tab is analytics-only
           now — Reports & Metrics + the Trends sub-tab. */}
 
-      {/* fix-124-b: one-click comparison presets above the filter bar.
-          Each click sets range='custom' + dateFrom/dateTo + compareTo
-          in one shot; the underlying ReportFilterBar controls below
-          still own arbitrary slicing. */}
-      <ComparePresetChips
-        currentRange={
+      {/* fix-137: Add comparison entry-point — replaces the old
+          ComparePresetChips row + the Compare-to dropdown on the
+          filter bar. */}
+      <div className="flex items-center gap-2">
+        <AddComparisonButton
+          isOpen={comparePanelOpen}
+          hasComparison={!!comparisonRange}
+          comparisonRange={comparisonRange}
+          onOpenChange={setComparePanelOpen}
+          onRemoveComparison={() => {
+            update('comparisonRange', null);
+            setComparePanelOpen(false);
+          }}
+          testIdPrefix="reports-compare"
+        />
+      </div>
+      <ComparePanel
+        open={comparePanelOpen}
+        primaryRange={
           filters.range === 'custom' && filters.dateFrom && filters.dateTo
             ? { from: filters.dateFrom, to: filters.dateTo }
             : null
         }
-        compareTo={filters.compareTo}
+        comparisonRange={comparisonRange}
         today={today}
-        onApply={(range, presetCompareTo) =>
+        onApply={(periodA, periodB) => {
           setFilters((prev) => ({
             ...prev,
             range: 'custom',
-            dateFrom: range.from,
-            dateTo: range.to,
-            compareTo: presetCompareTo,
-          }))
-        }
-        testIdPrefix="reports-preset"
+            dateFrom: periodA.from,
+            dateTo: periodA.to,
+            comparisonRange: periodB,
+          }));
+          setComparePanelOpen(false);
+        }}
+        onCancel={() => setComparePanelOpen(false)}
+        testIdPrefix="reports-compare-panel"
       />
 
       <ReportFilterBar
@@ -347,13 +357,7 @@ function Body({
               : `${comparisonRange.from} – ${comparisonRange.to}`
             : undefined
         }
-        comparisonModeLabel={
-          filters.compareTo === 'previous_period'
-            ? 'vs prev period'
-            : filters.compareTo === 'previous_year'
-              ? 'vs prev year'
-              : undefined
-        }
+        comparisonModeLabel={comparisonRange ? 'vs comparison' : undefined}
       />
 
       {/* fix-129-c: each BarChartCard's title is wrapped in a

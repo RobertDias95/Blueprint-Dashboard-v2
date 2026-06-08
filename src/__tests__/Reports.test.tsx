@@ -638,12 +638,17 @@ describe('<Reports /> Q7.2.b', () => {
     ).toBe('all');
   });
 
-  // ── fix-115-c: Reports/Overview comparison ──────────────────────────
-  it('fix-115-c: compareTo defaults to "off" — no comparison rows render', () => {
+  // ── fix-115-c → fix-137: Reports/Overview comparison ────────────────
+  // fix-137 replaced the filter-bar "Compare to" dropdown +
+  // ComparePresetChips row with a single AddComparisonButton +
+  // ComparePanel. Comparison data flow is unchanged.
+  it('fix-137: AddComparisonButton defaults to closed, no comparison rows render', () => {
     renderIt();
-    const compareSelect = screen.getByTestId('filter-compare') as HTMLSelectElement;
-    expect(compareSelect.value).toBe('off');
-    // None of the wired cards carry a -cmp child when comparison is off.
+    const btn = screen.getByTestId('reports-compare-add-button');
+    expect(btn).toBeInTheDocument();
+    expect(btn.textContent).toMatch(/Add comparison/);
+    // No comparison chip; no card -cmp children.
+    expect(screen.queryByTestId('reports-compare-chip')).toBeNull();
     expect(screen.queryByTestId('metric-total-permits-cmp')).toBeNull();
     expect(screen.queryByTestId('metric-submit-variance-cmp')).toBeNull();
     expect(screen.queryByTestId('metric-city-review-cmp')).toBeNull();
@@ -651,34 +656,39 @@ describe('<Reports /> Q7.2.b', () => {
     expect(screen.queryByTestId('metric-in-corrections-cmp')).toBeNull();
   });
 
-  it('fix-115-c: previous_period with custom Apr 2026 → calendar-snapped to Mar 2026', () => {
+  // Helper: open the new ComparePanel + apply Period A + Period B.
+  function applyCompareViaPanel(periodA: { from: string; to: string }, periodB: { from: string; to: string }) {
+    fireEvent.click(screen.getByTestId('reports-compare-add-button'));
+    fireEvent.change(
+      screen.getByTestId('reports-compare-panel-period-a-from'),
+      { target: { value: periodA.from } },
+    );
+    fireEvent.change(
+      screen.getByTestId('reports-compare-panel-period-a-to'),
+      { target: { value: periodA.to } },
+    );
+    fireEvent.change(
+      screen.getByTestId('reports-compare-panel-period-b-from'),
+      { target: { value: periodB.from } },
+    );
+    fireEvent.change(
+      screen.getByTestId('reports-compare-panel-period-b-to'),
+      { target: { value: periodB.to } },
+    );
+    fireEvent.click(screen.getByTestId('reports-compare-panel-apply'));
+  }
+
+  it('fix-137: Apr 2026 vs Mar 2026 via ComparePanel → dual values + delta', () => {
     renderIt();
-    // Switch range to custom Apr 2026. p2 (goDate=2026-04-01) lands in the
-    // current cohort; p1 (goDate=2026-01-01) does not.
-    fireEvent.change(screen.getByTestId('filter-range'), {
-      target: { value: 'custom' },
-    });
-    fireEvent.change(screen.getByTestId('filter-date-from'), {
-      target: { value: '2026-04-01' },
-    });
-    fireEvent.change(screen.getByTestId('filter-date-to'), {
-      target: { value: '2026-04-30' },
-    });
-    fireEvent.change(screen.getByTestId('filter-compare'), {
-      target: { value: 'previous_period' },
-    });
-    // fix-115-a snap: full month Apr → previous month March (NOT Mar 2 –
-    // Apr 1 length-preserving). Comparison cohort: zero permits (neither
-    // project's go_date lands in March).
-    //
-    // fix-129-b: the comparison treatment moved from a single ComparisonRow
-    // (testid metric-X-cmp) to the horizontal KpiSplitView (testid
-    // metric-X-split with -current / -comparison / -delta cells).
+    // Apr 2026 cohort has 1 permit (p2); Mar 2026 has 0 (p1 is Jan).
+    applyCompareViaPanel(
+      { from: '2026-04-01', to: '2026-04-30' },
+      { from: '2026-03-01', to: '2026-03-31' },
+    );
     const tile = screen.getByTestId('metric-total-permits');
     expect(tile.textContent).toMatch(/1/); // current cohort has 1 permit
     const split = screen.getByTestId('metric-total-permits-split');
     expect(split).toBeInTheDocument();
-    // Comparison cell carries the prior-period value (0) and its range label.
     expect(
       screen.getByTestId('metric-total-permits-split-comparison').textContent,
     ).toMatch(/0/);
@@ -688,49 +698,29 @@ describe('<Reports /> Q7.2.b', () => {
     const deltaSpan = screen.getByTestId('metric-total-permits-split-delta');
     expect(deltaSpan.textContent).toMatch(/↑/);
     expect(deltaSpan.textContent).toMatch(/\+1/);
-    expect(deltaSpan.textContent).toMatch(/vs prev period/);
-    // Direction='higher_better' + positive delta → green.
+    // fix-137: mode label collapsed to a unified "vs comparison".
+    expect(deltaSpan.textContent).toMatch(/vs comparison/);
     expect(deltaSpan.getAttribute('style')).toMatch(/color: var\(--color-pm\)/);
   });
 
-  it('fix-115-c: previous_year with no prior-year data → "no comparison data" on numeric cards', () => {
+  it('fix-137: Apr 2026 vs Apr 2025 with no prior-year data → "no comparison data" on numeric cards', () => {
     renderIt();
-    fireEvent.change(screen.getByTestId('filter-range'), {
-      target: { value: 'custom' },
-    });
-    fireEvent.change(screen.getByTestId('filter-date-from'), {
-      target: { value: '2026-04-01' },
-    });
-    fireEvent.change(screen.getByTestId('filter-date-to'), {
-      target: { value: '2026-04-30' },
-    });
-    fireEvent.change(screen.getByTestId('filter-compare'), {
-      target: { value: 'previous_year' },
-    });
-    // Apr 2025: neither fixture project has go_date in 2025. cmpMetrics
-    // is non-null (computeMetrics on empty array) but City Review = null
-    // → KpiSplitView delta strip renders "no comparison data" (the
-    // affordance moved from ComparisonRow to KpiSplitView in fix-129-b).
+    applyCompareViaPanel(
+      { from: '2026-04-01', to: '2026-04-30' },
+      { from: '2025-04-01', to: '2025-04-30' },
+    );
     const delta = screen.getByTestId('metric-city-review-split-delta');
     expect(delta.textContent).toMatch(/no comparison data/i);
-    // The mode tag still surfaces "vs prev year" on the delta strip.
-    expect(delta.textContent).toMatch(/vs prev year/);
+    // fix-137: mode tag collapsed to a unified "vs comparison".
+    expect(delta.textContent).toMatch(/vs comparison/);
   });
 
-  it('fix-115-c: comparison is wired on numeric MetricCards but skipped on ScheduleBenchmarks / ReportTable / chart cards', () => {
+  it('fix-137: comparison wired on numeric MetricCards but skipped on ScheduleBenchmarks / ReportTable / chart cards', () => {
     renderIt();
-    fireEvent.change(screen.getByTestId('filter-range'), {
-      target: { value: 'custom' },
-    });
-    fireEvent.change(screen.getByTestId('filter-date-from'), {
-      target: { value: '2026-04-01' },
-    });
-    fireEvent.change(screen.getByTestId('filter-date-to'), {
-      target: { value: '2026-04-30' },
-    });
-    fireEvent.change(screen.getByTestId('filter-compare'), {
-      target: { value: 'previous_period' },
-    });
+    applyCompareViaPanel(
+      { from: '2026-04-01', to: '2026-04-30' },
+      { from: '2026-03-01', to: '2026-03-31' },
+    );
     // Wired (assert presence on at least one numeric card). fix-129-b
     // moved the comparison rendering from -cmp to -split.
     expect(screen.getByTestId('metric-total-permits-split')).toBeInTheDocument();
@@ -745,82 +735,47 @@ describe('<Reports /> Q7.2.b', () => {
     expect(screen.queryByTestId('report-table-cmp')).toBeNull();
   });
 
-  it('fix-115-c: range=all → no comparison row even when compareTo is set (no temporal anchor)', () => {
+  it('fix-137: panel Apply is disabled until BOTH Period A and Period B are filled', () => {
+    // The new control replaces the old "range=all + compareTo silently
+    // no-ops" branch — the panel's Apply button is now the gate. Users
+    // can't activate a comparison without supplying explicit Period B.
     renderIt();
-    // Default range is 'all'. Picking a comparison mode without a date
-    // range yields no comparison since resolveClosedStringRange returns
-    // null. The card renders single-cohort exactly as it did pre-115.
-    fireEvent.change(screen.getByTestId('filter-compare'), {
-      target: { value: 'previous_period' },
-    });
-    expect(screen.queryByTestId('metric-total-permits-cmp')).toBeNull();
-    expect(screen.queryByTestId('metric-city-review-cmp')).toBeNull();
+    fireEvent.click(screen.getByTestId('reports-compare-add-button'));
+    const apply = screen.getByTestId(
+      'reports-compare-panel-apply',
+    ) as HTMLButtonElement;
+    expect(apply.disabled).toBe(true);
+    // Fill ONLY Period A → still disabled.
+    fireEvent.change(
+      screen.getByTestId('reports-compare-panel-period-a-from'),
+      { target: { value: '2026-04-01' } },
+    );
+    fireEvent.change(
+      screen.getByTestId('reports-compare-panel-period-a-to'),
+      { target: { value: '2026-04-30' } },
+    );
+    expect(apply.disabled).toBe(true);
+    // Fill Period B → enabled.
+    fireEvent.change(
+      screen.getByTestId('reports-compare-panel-period-b-from'),
+      { target: { value: '2026-03-01' } },
+    );
+    fireEvent.change(
+      screen.getByTestId('reports-compare-panel-period-b-to'),
+      { target: { value: '2026-03-31' } },
+    );
+    expect(apply.disabled).toBe(false);
   });
 
-  // fix-124-b: preset chip row above the ReportFilterBar collapses
-  // multi-click range setup into one. End-to-end: click a chip → filter
-  // state updates (range='custom' + dateFrom + dateTo + compareTo) →
-  // MetricCards re-render against the new cohort.
-  describe('fix-124-b preset chip row', () => {
-    it('renders all 6 chips above the filter bar', () => {
+  // fix-137: replaces the old fix-124-b chip-row tests. The 6 presets
+  // now live INSIDE the ComparePanel, opened by the AddComparisonButton.
+  // Apply commits BOTH Period A and Period B to the filter state.
+  describe('fix-137 ComparePanel preset shortcuts', () => {
+    it('clicking the Add comparison button opens the panel with 6 preset shortcuts', () => {
       renderIt();
-      expect(screen.getByTestId('reports-preset-this_month_vs_last')).toBeInTheDocument();
-      expect(screen.getByTestId('reports-preset-this_quarter_vs_last')).toBeInTheDocument();
-      expect(screen.getByTestId('reports-preset-this_year_vs_last')).toBeInTheDocument();
-      expect(screen.getByTestId('reports-preset-last_30d_vs_prior')).toBeInTheDocument();
-      expect(screen.getByTestId('reports-preset-last_60d_vs_prior')).toBeInTheDocument();
-      expect(screen.getByTestId('reports-preset-last_90d_vs_prior')).toBeInTheDocument();
-    });
-
-    it('clicking "This year vs last" sets range=custom + dateFrom/dateTo + compareTo in one shot', () => {
-      // FIXED_TODAY is 2026-05-15 → this_year_vs_last emits the full 2026.
-      // Year-bounded so TZ shifts within May don't affect the result.
-      renderIt();
-      fireEvent.click(screen.getByTestId('reports-preset-this_year_vs_last'));
-      // ReportFilterBar's controls reflect the new state.
-      const range = screen.getByTestId('filter-range') as HTMLSelectElement;
-      const from = screen.getByTestId('filter-date-from') as HTMLInputElement;
-      const to = screen.getByTestId('filter-date-to') as HTMLInputElement;
-      const compare = screen.getByTestId('filter-compare') as HTMLSelectElement;
-      expect(range.value).toBe('custom');
-      expect(from.value).toBe('2026-01-01');
-      expect(to.value).toBe('2026-12-31');
-      expect(compare.value).toBe('previous_period');
-    });
-
-    it('clicking "This quarter vs last" lands Q2 2026 (FIXED_TODAY=2026-05-15)', () => {
-      // Q2 = Apr 1 – Jun 30. Robust under TZ since May-15 local stays in May UTC.
-      renderIt();
-      fireEvent.click(screen.getByTestId('reports-preset-this_quarter_vs_last'));
-      const from = screen.getByTestId('filter-date-from') as HTMLInputElement;
-      const to = screen.getByTestId('filter-date-to') as HTMLInputElement;
-      expect(from.value).toBe('2026-04-01');
-      expect(to.value).toBe('2026-06-30');
-    });
-
-    it('Custom Range + Compare to dropdowns still work after the chips ship', () => {
-      // Pin that the underlying ReportFilterBar controls are NOT removed.
-      // Manually pick a slice that matches no preset.
-      renderIt();
-      fireEvent.change(screen.getByTestId('filter-range'), {
-        target: { value: 'custom' },
-      });
-      fireEvent.change(screen.getByTestId('filter-date-from'), {
-        target: { value: '2026-05-08' },
-      });
-      fireEvent.change(screen.getByTestId('filter-date-to'), {
-        target: { value: '2026-05-15' },
-      });
-      fireEvent.change(screen.getByTestId('filter-compare'), {
-        target: { value: 'previous_year' },
-      });
-      const from = screen.getByTestId('filter-date-from') as HTMLInputElement;
-      const to = screen.getByTestId('filter-date-to') as HTMLInputElement;
-      const compare = screen.getByTestId('filter-compare') as HTMLSelectElement;
-      expect(from.value).toBe('2026-05-08');
-      expect(to.value).toBe('2026-05-15');
-      expect(compare.value).toBe('previous_year');
-      // No preset chip is highlighted under previous_year.
+      expect(screen.queryByTestId('reports-compare-panel')).toBeNull();
+      fireEvent.click(screen.getByTestId('reports-compare-add-button'));
+      expect(screen.getByTestId('reports-compare-panel')).toBeInTheDocument();
       for (const preset of [
         'this_month_vs_last',
         'this_quarter_vs_last',
@@ -830,9 +785,74 @@ describe('<Reports /> Q7.2.b', () => {
         'last_90d_vs_prior',
       ]) {
         expect(
-          screen.getByTestId(`reports-preset-${preset}`).getAttribute('data-active'),
-        ).toBe('false');
+          screen.getByTestId(`reports-compare-panel-preset-${preset}`),
+        ).toBeInTheDocument();
       }
+    });
+
+    it('"This year vs last" preset fills Period A=2026 + Period B=2025', () => {
+      renderIt();
+      fireEvent.click(screen.getByTestId('reports-compare-add-button'));
+      fireEvent.click(
+        screen.getByTestId('reports-compare-panel-preset-this_year_vs_last'),
+      );
+      // Period A inputs filled with this year (2026 — based on FIXED_TODAY=2026-05-15).
+      expect(
+        (screen.getByTestId(
+          'reports-compare-panel-period-a-from',
+        ) as HTMLInputElement).value,
+      ).toBe('2026-01-01');
+      expect(
+        (screen.getByTestId(
+          'reports-compare-panel-period-a-to',
+        ) as HTMLInputElement).value,
+      ).toBe('2026-12-31');
+      // Period B inputs filled with last year (2025) via the calendar snap.
+      expect(
+        (screen.getByTestId(
+          'reports-compare-panel-period-b-from',
+        ) as HTMLInputElement).value,
+      ).toBe('2025-01-01');
+      expect(
+        (screen.getByTestId(
+          'reports-compare-panel-period-b-to',
+        ) as HTMLInputElement).value,
+      ).toBe('2025-12-31');
+    });
+
+    it('Apply after preset commits BOTH ranges to the filter bar + closes the panel', () => {
+      renderIt();
+      fireEvent.click(screen.getByTestId('reports-compare-add-button'));
+      fireEvent.click(
+        screen.getByTestId('reports-compare-panel-preset-this_quarter_vs_last'),
+      );
+      fireEvent.click(screen.getByTestId('reports-compare-panel-apply'));
+      // Panel closes; the chip shows the Period B range; filter-bar
+      // Period A inputs reflect Q2 2026.
+      expect(screen.queryByTestId('reports-compare-panel')).toBeNull();
+      const chip = screen.getByTestId('reports-compare-chip');
+      expect(chip.textContent).toContain('2026-01-01 – 2026-03-31');
+      expect(
+        (screen.getByTestId('filter-date-from') as HTMLInputElement).value,
+      ).toBe('2026-04-01');
+      expect(
+        (screen.getByTestId('filter-date-to') as HTMLInputElement).value,
+      ).toBe('2026-06-30');
+    });
+
+    it('chip × removes the comparison without touching Period A', () => {
+      renderIt();
+      applyCompareViaPanel(
+        { from: '2026-04-01', to: '2026-04-30' },
+        { from: '2026-03-01', to: '2026-03-31' },
+      );
+      expect(screen.getByTestId('reports-compare-chip')).toBeInTheDocument();
+      fireEvent.click(screen.getByTestId('reports-compare-remove-button'));
+      expect(screen.queryByTestId('reports-compare-chip')).toBeNull();
+      // Period A inputs unchanged after removing the comparison.
+      expect(
+        (screen.getByTestId('filter-date-from') as HTMLInputElement).value,
+      ).toBe('2026-04-01');
     });
   });
 
@@ -880,18 +900,11 @@ describe('<Reports /> Q7.2.b', () => {
   describe('fix-129-b horizontal split on comparison-active MetricCards', () => {
     function setRangeAndCompare() {
       renderIt();
-      fireEvent.change(screen.getByTestId('filter-range'), {
-        target: { value: 'custom' },
-      });
-      fireEvent.change(screen.getByTestId('filter-date-from'), {
-        target: { value: '2026-04-01' },
-      });
-      fireEvent.change(screen.getByTestId('filter-date-to'), {
-        target: { value: '2026-04-30' },
-      });
-      fireEvent.change(screen.getByTestId('filter-compare'), {
-        target: { value: 'previous_period' },
-      });
+      // fix-137: range + Period B both committed via the panel Apply.
+      applyCompareViaPanel(
+        { from: '2026-04-01', to: '2026-04-30' },
+        { from: '2026-03-01', to: '2026-03-31' },
+      );
     }
     it('Total Permits card renders KpiSplitView cells with date ranges', () => {
       setRangeAndCompare();
