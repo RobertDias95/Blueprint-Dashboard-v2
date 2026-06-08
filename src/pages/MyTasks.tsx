@@ -285,9 +285,17 @@ function Body({
         onPatch={patch}
         onReset={resetAll}
       />
+      {/* fix-138-b: shrink right sidebar from 1fr (20%) → 0.85fr (≈17%)
+          so the two bucket columns claim more horizontal real estate;
+          v1 register. min-w-0 on each track prevents long task text
+          from pushing IN PROGRESS narrower than NOT STARTED at the
+          inner-grid level. */}
       <div
         className="grid gap-3"
-        style={{ gridTemplateColumns: 'minmax(0,2fr) minmax(0,2fr) minmax(0,1fr)' }}
+        style={{
+          gridTemplateColumns:
+            'minmax(0,2fr) minmax(0,2fr) minmax(0,0.85fr)',
+        }}
         data-testid="mytasks-kanban"
       >
         <BucketColumn
@@ -734,11 +742,18 @@ function BucketColumn({
           {openCount} open
         </span>
       </div>
+      {/* fix-138-b: minmax(0,1fr) on each track so an overflowing task
+          card in NOT STARTED can't elastically widen its column and
+          squish IN PROGRESS. CSS-wise the columns were already 1:1,
+          but min-content auto-tracking was leaking through. */}
       <div
         className="grid"
         style={{
-          gridTemplateColumns: activeOnly ? '1fr 1fr' : '1fr 1fr 1fr',
+          gridTemplateColumns: activeOnly
+            ? 'minmax(0,1fr) minmax(0,1fr)'
+            : 'minmax(0,1fr) minmax(0,1fr) minmax(0,1fr)',
         }}
+        data-testid={`mytasks-bucket-${bucket}-subgrid`}
       >
         <SubColumn
           bucket={bucket}
