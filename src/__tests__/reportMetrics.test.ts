@@ -93,7 +93,7 @@ const baseFilters: ReportFilters = {
   status: 'all',
   permitStatus: 'all',
   search: '',
-  compareTo: 'off',
+  comparisonRange: null,
 };
 
 // ============================================================

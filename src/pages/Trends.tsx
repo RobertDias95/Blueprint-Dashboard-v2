@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import {
   Bar,
@@ -54,16 +54,17 @@ import {
 } from '../lib/targetSubmitLearner';
 import type { RecencyTier } from '../lib/scheduleBenchmarks';
 import {
-  comparisonLabelFor,
-  deriveComparisonRange,
+  comparisonLabelForRange,
   formatCompareNumber,
-  type CompareMode,
+  legacyCompareToRange,
+  type DateRange,
 } from '../lib/comparisonCohort';
 import {
   ComparisonRow,
   type ComparisonDirection,
 } from '../components/shared/ComparisonRow';
-import ComparePresetChips from '../components/shared/ComparePresetChips';
+import AddComparisonButton from '../components/shared/AddComparisonButton';
+import ComparePanel from '../components/shared/ComparePanel';
 import KpiSplitView from '../components/shared/KpiSplitView';
 import MetricInfoTooltip from '../components/shared/MetricInfoTooltip';
 import {
@@ -169,17 +170,43 @@ function TrendsBody({ permits, projects, catalogTypes }: BodyProps) {
     [searchParams, defaultRange],
   );
 
-  // fix-114: period-comparison mode. Defaults to 'off'. Persisted via the
-  // `compare` URL param alongside the other filters. Invalid values from
-  // shared URLs collapse to 'off' so a stale link can't render bogus
-  // comparison numbers.
-  const compareTo: CompareMode = useMemo(() => {
-    const raw = searchParams.get('compare');
-    if (raw === 'previous_period' || raw === 'previous_year') return raw;
-    return 'off';
+  // fix-137: explicit Period B range in the URL via cmpFrom/cmpTo.
+  // null = no comparison. Invalid / partial values collapse to null so a
+  // shared URL can't render bogus comparison numbers.
+  const comparisonRange: DateRange | null = useMemo(() => {
+    const cmpFrom = searchParams.get('cmpFrom');
+    const cmpTo = searchParams.get('cmpTo');
+    if (!cmpFrom || !cmpTo) return null;
+    return { from: cmpFrom, to: cmpTo };
   }, [searchParams]);
 
-  function setFilter(patch: Partial<PerfTrendsFilters> & { compareTo?: CompareMode }) {
+  // fix-137: legacy URL migration. Old bookmarks carrying
+  // ?compare=previous_period (or previous_year) get rewritten to the
+  // explicit cmpFrom/cmpTo shape on first render so the new control
+  // can pick them up. replace, not push, so back-button still works.
+  useEffect(() => {
+    const legacyCompare = searchParams.get('compare');
+    if (!legacyCompare || legacyCompare === 'off') return;
+    if (comparisonRange) return; // already migrated
+    const dateRangeForLegacy: DateRange = {
+      from: searchParams.get('from') ?? defaultRange.from,
+      to: searchParams.get('to') ?? defaultRange.to,
+    };
+    const migrated = legacyCompareToRange(dateRangeForLegacy, legacyCompare);
+    if (!migrated) return;
+    const next = new URLSearchParams(searchParams);
+    next.delete('compare');
+    next.set('cmpFrom', migrated.from);
+    next.set('cmpTo', migrated.to);
+    setSearchParams(next, { replace: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams, defaultRange.from, defaultRange.to]);
+
+  function setFilter(
+    patch: Partial<PerfTrendsFilters> & {
+      comparisonRange?: DateRange | null;
+    },
+  ) {
     const next = new URLSearchParams(searchParams);
     if (patch.dateRange) {
       next.set('from', patch.dateRange.from);
@@ -193,9 +220,16 @@ function TrendsBody({ permits, projects, catalogTypes }: BodyProps) {
       if (patch.permitType) next.set('type', patch.permitType);
       else next.delete('type');
     }
-    if ('compareTo' in patch && patch.compareTo !== undefined) {
-      if (patch.compareTo === 'off') next.delete('compare');
-      else next.set('compare', patch.compareTo);
+    if ('comparisonRange' in patch) {
+      if (patch.comparisonRange) {
+        next.set('cmpFrom', patch.comparisonRange.from);
+        next.set('cmpTo', patch.comparisonRange.to);
+      } else {
+        next.delete('cmpFrom');
+        next.delete('cmpTo');
+      }
+      // Always strip the legacy param on any explicit comparison change.
+      next.delete('compare');
     }
     setSearchParams(next, { replace: true });
   }
@@ -226,11 +260,6 @@ function TrendsBody({ permits, projects, catalogTypes }: BodyProps) {
   const filteredCurrent = useMemo(
     () => filterPermits(permits, projectsById, filters),
     [permits, projectsById, filters],
-  );
-
-  const comparisonRange = useMemo(
-    () => deriveComparisonRange(filters.dateRange, compareTo),
-    [filters.dateRange, compareTo],
   );
 
   const filteredComparison = useMemo(() => {
@@ -739,26 +768,15 @@ function TrendsBody({ permits, projects, catalogTypes }: BodyProps) {
     }
   }
 
+  // fix-137: AddComparisonButton + ComparePanel open state lives on
+  // the page (the panel is a sibling, not a popover). Panel apply
+  // threads Period A into the page's dateRange + Period B into the
+  // page's comparisonRange in one shot.
+  const [comparePanelOpen, setComparePanelOpen] = useState(false);
+
   return (
     <div className="space-y-4" data-testid="trends-page">
       <div className="text-xl font-extrabold text-text">Trends</div>
-
-      {/* fix-124-b: one-click comparison presets above the filter row.
-          "This quarter vs last" went from 4 clicks → 1; the underlying
-          Range + Compare to controls below still own arbitrary slicing. */}
-      <ComparePresetChips
-        currentRange={
-          filters.dateRange.from && filters.dateRange.to
-            ? filters.dateRange
-            : null
-        }
-        compareTo={compareTo}
-        today={today}
-        onApply={(range, presetCompareTo) =>
-          setFilter({ dateRange: range, compareTo: presetCompareTo })
-        }
-        testIdPrefix="trends-preset"
-      />
 
       {/* Filter bar */}
       <div
@@ -862,42 +880,42 @@ function TrendsBody({ permits, projects, catalogTypes }: BodyProps) {
           </select>
         </div>
 
-        {/* fix-114: period-comparison dropdown. Sits beside the date range
-            so the spatial cue says "this control modifies date". Activates
-            the KPI row's dual-value rendering — every other section stays
-            single-cohort for this PR (charts in fix-115+). */}
-        <div className="flex flex-col gap-1">
-          <span className="text-[9px] uppercase tracking-wide text-dim font-display font-bold">
-            Compare to
-          </span>
-          <select
-            value={compareTo}
-            onChange={(e) =>
-              setFilter({ compareTo: e.target.value as CompareMode })
-            }
-            className="text-[11px] px-2 py-1 border rounded-md bg-surface text-text outline-none focus:border-de"
-            style={{ borderColor: 'var(--color-border)' }}
-            data-testid="trends-compare"
-          >
-            <option value="off">Off</option>
-            <option value="previous_period">Previous period</option>
-            <option value="previous_year">Previous year</option>
-          </select>
+        {/* fix-137: replaces the old "Compare to" enum dropdown +
+            ComparePresetChips row. Click "+ Add comparison" → inline
+            panel below opens with Period A + Period B pickers + the 6
+            preset shortcuts that fill both at once. */}
+        <div className="flex flex-col gap-1 justify-end">
+          <AddComparisonButton
+            isOpen={comparePanelOpen}
+            hasComparison={!!comparisonRange}
+            comparisonRange={comparisonRange}
+            onOpenChange={setComparePanelOpen}
+            onRemoveComparison={() => {
+              setFilter({ comparisonRange: null });
+              setComparePanelOpen(false);
+            }}
+            testIdPrefix="trends-compare"
+          />
         </div>
       </div>
 
-      {/* fix-114: inline hint when comparison is requested without a date
-          range. In the current Trends UI from/to always have a default value,
-          so this is a safety guard rather than a user-visible path; renders
-          only if both endpoints are missing. */}
-      {compareTo !== 'off' && (!filters.dateRange.from || !filters.dateRange.to) && (
-        <div
-          className="text-[10px] text-co italic px-1"
-          data-testid="trends-compare-hint"
-        >
-          Set a Date range to enable comparison.
-        </div>
-      )}
+      {/* fix-137: inline compare panel — sits below the filter row. */}
+      <ComparePanel
+        open={comparePanelOpen}
+        primaryRange={
+          filters.dateRange.from && filters.dateRange.to
+            ? filters.dateRange
+            : null
+        }
+        comparisonRange={comparisonRange}
+        today={today}
+        onApply={(periodA, periodB) => {
+          setFilter({ dateRange: periodA, comparisonRange: periodB });
+          setComparePanelOpen(false);
+        }}
+        onCancel={() => setComparePanelOpen(false)}
+        testIdPrefix="trends-compare-panel"
+      />
 
       {/* fix-112-c: the KPI row + City performance + Variance + Breakdown
           sections all route through filterPermits (perfTrends.ts:46-63),
@@ -915,9 +933,11 @@ function TrendsBody({ permits, projects, catalogTypes }: BodyProps) {
 
       {/* KPI tile row */}
       {(() => {
-        // fix-114: shared comparison label / pct-of-hit-rate helpers — kept
-        // inline so the props passed to each KpiTile read top-to-bottom.
-        const cmpLabel = comparisonLabelFor(compareTo, comparisonRange);
+        // fix-114→137: shared comparison label / pct-of-hit-rate helpers
+        // kept inline so the props passed to each KpiTile read
+        // top-to-bottom. cmpLabel uses the new range-only formatter
+        // (no more "previous period" / "previous year" enum).
+        const cmpLabel = comparisonLabelForRange(comparisonRange);
         const hitRatePct = (rate: typeof kpiHitRate): number | null =>
           rate === null || rate.total === 0
             ? null
@@ -944,13 +964,7 @@ function TrendsBody({ permits, projects, catalogTypes }: BodyProps) {
               direction="higher_better"
               currentRangeLabel={volumeCurrentRangeLabel || undefined}
               comparisonRangeLabel={volumeComparisonRangeLabel || undefined}
-              comparisonModeLabel={
-                compareTo === 'previous_period'
-                  ? 'vs prev period'
-                  : compareTo === 'previous_year'
-                    ? 'vs prev year'
-                    : undefined
-              }
+              comparisonModeLabel={comparisonRange ? 'vs comparison' : undefined}
             />
             <KpiTile
               label="Avg submit → intake delay"
@@ -974,13 +988,7 @@ function TrendsBody({ permits, projects, catalogTypes }: BodyProps) {
               direction="lower_better"
               currentRangeLabel={volumeCurrentRangeLabel || undefined}
               comparisonRangeLabel={volumeComparisonRangeLabel || undefined}
-              comparisonModeLabel={
-                compareTo === 'previous_period'
-                  ? 'vs prev period'
-                  : compareTo === 'previous_year'
-                    ? 'vs prev year'
-                    : undefined
-              }
+              comparisonModeLabel={comparisonRange ? 'vs comparison' : undefined}
             />
             <KpiTile
               label="Avg city clock (intake → approval)"
@@ -996,13 +1004,7 @@ function TrendsBody({ permits, projects, catalogTypes }: BodyProps) {
               direction="lower_better"
               currentRangeLabel={volumeCurrentRangeLabel || undefined}
               comparisonRangeLabel={volumeComparisonRangeLabel || undefined}
-              comparisonModeLabel={
-                compareTo === 'previous_period'
-                  ? 'vs prev period'
-                  : compareTo === 'previous_year'
-                    ? 'vs prev year'
-                    : undefined
-              }
+              comparisonModeLabel={comparisonRange ? 'vs comparison' : undefined}
             />
             <KpiTile
               label="Avg cycles per permit"
@@ -1018,13 +1020,7 @@ function TrendsBody({ permits, projects, catalogTypes }: BodyProps) {
               direction="lower_better"
               currentRangeLabel={volumeCurrentRangeLabel || undefined}
               comparisonRangeLabel={volumeComparisonRangeLabel || undefined}
-              comparisonModeLabel={
-                compareTo === 'previous_period'
-                  ? 'vs prev period'
-                  : compareTo === 'previous_year'
-                    ? 'vs prev year'
-                    : undefined
-              }
+              comparisonModeLabel={comparisonRange ? 'vs comparison' : undefined}
             />
             <KpiTile
               label="Target submit hit rate"
@@ -1049,13 +1045,7 @@ function TrendsBody({ permits, projects, catalogTypes }: BodyProps) {
               direction="higher_better"
               currentRangeLabel={volumeCurrentRangeLabel || undefined}
               comparisonRangeLabel={volumeComparisonRangeLabel || undefined}
-              comparisonModeLabel={
-                compareTo === 'previous_period'
-                  ? 'vs prev period'
-                  : compareTo === 'previous_year'
-                    ? 'vs prev year'
-                    : undefined
-              }
+              comparisonModeLabel={comparisonRange ? 'vs comparison' : undefined}
             />
           </div>
         );

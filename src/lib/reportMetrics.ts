@@ -194,10 +194,11 @@ export interface ReportFilters {
   permitStatus: string;
   /** Multi-token address/permit search. */
   search: string;
-  /** fix-115-c: period-comparison mode. 'off' (default) renders single-cohort
-   *  metrics; 'previous_period' / 'previous_year' surface a comparison
-   *  cohort underneath each comparable MetricCard with a signed delta. */
-  compareTo: 'off' | 'previous_period' | 'previous_year';
+  /** fix-115-c → fix-137: period-comparison range. Null = single-cohort
+   *  rendering (default). When set, the page surfaces a comparison
+   *  cohort underneath each comparable MetricCard with a signed delta.
+   *  Period B is explicit — no derive-from-mode magic. */
+  comparisonRange: { from: string; to: string } | null;
 }
 
 /** Resolve `range` + custom dates to a [from, to] tuple. Either may be null. */

@@ -51,24 +51,38 @@ export default function ComparePanel({
   onCancel,
   testIdPrefix = 'compare-panel',
 }: ComparePanelProps) {
+  if (!open) return null;
+  // The panel only mounts when open transitions false → true. Returning
+  // null above means the component fully unmounts on close; the next
+  // open remounts with fresh useState initializers, which seeds local
+  // state from the current props without needing a useEffect re-seed.
+  return (
+    <OpenedPanel
+      primaryRange={primaryRange}
+      comparisonRange={comparisonRange}
+      today={today}
+      onApply={onApply}
+      onCancel={onCancel}
+      testIdPrefix={testIdPrefix}
+    />
+  );
+}
+
+function OpenedPanel({
+  primaryRange,
+  comparisonRange,
+  today,
+  onApply,
+  onCancel,
+  testIdPrefix,
+}: Omit<ComparePanelProps, 'open'> & { testIdPrefix: string }) {
   const [periodA, setPeriodA] = useState<DateRange>(rangeOrEmpty(primaryRange));
   const [periodB, setPeriodB] = useState<DateRange>(rangeOrEmpty(comparisonRange));
   const containerRef = useRef<HTMLDivElement | null>(null);
 
-  // Re-seed local state when the panel transitions from closed → open
-  // (or when the parent's primary/comparison ranges change while open).
-  // Keeping the panel mounted but hidden would defeat the "pre-fill on
-  // open" UX, so we re-seed on open + on subsequent prop changes.
-  useEffect(() => {
-    if (!open) return;
-    setPeriodA(rangeOrEmpty(primaryRange));
-    setPeriodB(rangeOrEmpty(comparisonRange));
-  }, [open, primaryRange, comparisonRange]);
-
   // Escape dismisses. Attached to the container so the keyboard handler
   // runs regardless of which input has focus inside the panel.
   useEffect(() => {
-    if (!open) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         e.stopPropagation();
@@ -77,9 +91,7 @@ export default function ComparePanel({
     };
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
-  }, [open, onCancel]);
-
-  if (!open) return null;
+  }, [onCancel]);
 
   const isValid =
     !!periodA.from && !!periodA.to && !!periodB.from && !!periodB.to;

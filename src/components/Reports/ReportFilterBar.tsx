@@ -148,25 +148,11 @@ export default function ReportFilterBar({
         </select>
       </FieldLabel>
 
-      {/* fix-115-c: period-comparison dropdown — same three options as the
-          Trends page (fix-114). When `range='all'` is active there is no
-          temporal anchor to compare against; ReportsOverviewTab gates the
-          MetricCards' comparison props on that case so picking a mode here
-          without a date range is a no-op rather than a crash. */}
-      <FieldLabel label="Compare to">
-        <select
-          value={filters.compareTo}
-          onChange={(e) =>
-            onChange('compareTo', e.target.value as ReportFilters['compareTo'])
-          }
-          className="bg-bg border border-border rounded px-2 py-1 text-[11px] text-text focus:outline-none focus:border-de"
-          data-testid="filter-compare"
-        >
-          <option value="off">Off</option>
-          <option value="previous_period">Previous period</option>
-          <option value="previous_year">Previous year</option>
-        </select>
-      </FieldLabel>
+      {/* fix-137: the Compare-to dropdown moved out of the filter bar
+          into the new AddComparisonButton + ComparePanel on the page
+          header. Period A is still controlled by the From/To inputs
+          above; Period B is now an explicit choice rather than a
+          derive-from-mode enum. */}
 
       <SetMultiSelect
         label="Product"
