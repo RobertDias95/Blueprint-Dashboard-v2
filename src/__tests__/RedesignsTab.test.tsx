@@ -73,9 +73,12 @@ const fixtures = vi.hoisted(() => ({
     },
   ],
   permits: [
+    // fix-136-b: permit 1 (rp1, redesign) gets DD 30d; new permits 5/6
+    // on op1/op2 (originals) get DD 20d each → redesign avg 30, original
+    // avg 20, delta = +10 → tone='bad' (redesigns slower = co/orange).
     { id: 1, project_id: 'rp1', type: 'Building Permit', stage: 'de', stage_override: null, status: null, num: null,
       da: 'Trevor', dm: 'Jade', ent_lead: 'Bobby', dual_da: null,
-      target_submit: null, dd_start: null, dd_end: null, expected_issue: null, actual_issue: null,
+      target_submit: null, dd_start: '2026-02-01', dd_end: '2026-03-03', expected_issue: null, actual_issue: null,
       approval_date: null, intake_date: null, notes: null, cycle_model: null, view_cycle: null,
       kickoff_date: null, corr_rounds: null, permit_owner: null, architect: null, nickname: null,
       struct_address: null, portal_url: null, updated_at: '2026-01-01T00:00:00Z', permit_cycles: [] },
@@ -94,6 +97,20 @@ const fixtures = vi.hoisted(() => ({
     { id: 4, project_id: 'brp1', type: 'Building Permit', stage: 'de', stage_override: null, status: null, num: null,
       da: 'Ainsley', dm: null, ent_lead: null, dual_da: null,
       target_submit: null, dd_start: null, dd_end: null, expected_issue: null, actual_issue: null,
+      approval_date: null, intake_date: null, notes: null, cycle_model: null, view_cycle: null,
+      kickoff_date: null, corr_rounds: null, permit_owner: null, architect: null, nickname: null,
+      struct_address: null, portal_url: null, updated_at: '2026-01-01T00:00:00Z', permit_cycles: [] },
+    // fix-136-b: original-cohort DD samples — no DA credit so they
+    // don't feed the leaderboards / pre-existing assertions.
+    { id: 5, project_id: 'op1', type: 'Building Permit', stage: 'de', stage_override: null, status: null, num: null,
+      da: null, dm: null, ent_lead: null, dual_da: null,
+      target_submit: null, dd_start: '2026-01-01', dd_end: '2026-01-21', expected_issue: null, actual_issue: null,
+      approval_date: null, intake_date: null, notes: null, cycle_model: null, view_cycle: null,
+      kickoff_date: null, corr_rounds: null, permit_owner: null, architect: null, nickname: null,
+      struct_address: null, portal_url: null, updated_at: '2026-01-01T00:00:00Z', permit_cycles: [] },
+    { id: 6, project_id: 'op2', type: 'Building Permit', stage: 'de', stage_override: null, status: null, num: null,
+      da: null, dm: null, ent_lead: null, dual_da: null,
+      target_submit: null, dd_start: '2026-01-15', dd_end: '2026-02-04', expected_issue: null, actual_issue: null,
       approval_date: null, intake_date: null, notes: null, cycle_model: null, view_cycle: null,
       kickoff_date: null, corr_rounds: null, permit_owner: null, architect: null, nickname: null,
       struct_address: null, portal_url: null, updated_at: '2026-01-01T00:00:00Z', permit_cycles: [] },
@@ -353,6 +370,108 @@ describe('<RedesignsTab /> — fix-134-b', () => {
       const btn = screen.getByTestId('redesigns-export-csv-button');
       expect(btn).toBeDisabled();
       expect(btn.getAttribute('title')).toBe('Nothing to export.');
+    });
+  });
+
+  // ============================================================
+  // fix-136-b: Cycle Time vs Originals section
+  // ============================================================
+  describe('Cycle Time vs Originals section', () => {
+    it('renders the section header + all 4 phase cards', () => {
+      renderRedesigns();
+      const section = screen.getByTestId('redesigns-cycle-section');
+      expect(section).toBeInTheDocument();
+      expect(section.textContent).toMatch(/Cycle Time vs Originals/);
+      // Four cards, one per phase.
+      expect(screen.getByTestId('redesigns-cycle-dd')).toBeInTheDocument();
+      expect(
+        screen.getByTestId('redesigns-cycle-city-review'),
+      ).toBeInTheDocument();
+      expect(
+        screen.getByTestId('redesigns-cycle-corrections'),
+      ).toBeInTheDocument();
+      expect(
+        screen.getByTestId('redesigns-cycle-issuance'),
+      ).toBeInTheDocument();
+    });
+
+    it('sits below the KPI row and above the trigger breakdown (DOM order)', () => {
+      renderRedesigns();
+      const kpiRow = screen.getByTestId('redesigns-kpi-row');
+      const cycleSection = screen.getByTestId('redesigns-cycle-section');
+      const triggerBreakdown = screen.getByTestId(
+        'redesigns-trigger-breakdown',
+      );
+      // KPI row precedes cycle section.
+      expect(
+        kpiRow.compareDocumentPosition(cycleSection) &
+          Node.DOCUMENT_POSITION_FOLLOWING,
+      ).toBeTruthy();
+      // Cycle section precedes trigger breakdown.
+      expect(
+        cycleSection.compareDocumentPosition(triggerBreakdown) &
+          Node.DOCUMENT_POSITION_FOLLOWING,
+      ).toBeTruthy();
+    });
+
+    it('DD card shows redesign + original values and the slower-than delta strip', () => {
+      // Fixture: 1 redesign permit (rp1) DD=30d, 2 original permits
+      // (op1=20, op2=20) → redesign avg 30, original avg 20, delta=+10
+      // → tone="bad" (redesigns slower, lower-is-better metric).
+      renderRedesigns();
+      const card = screen.getByTestId('redesigns-cycle-dd');
+      expect(card.getAttribute('data-tone')).toBe('bad');
+      const redesigns = screen.getByTestId('redesigns-cycle-dd-redesigns');
+      const originals = screen.getByTestId('redesigns-cycle-dd-originals');
+      expect(redesigns.textContent).toContain('30d');
+      expect(redesigns.textContent).toContain('n=1');
+      expect(originals.textContent).toContain('20d');
+      expect(originals.textContent).toContain('n=2');
+      const delta = screen.getByTestId('redesigns-cycle-dd-delta');
+      expect(delta.textContent).toMatch(/\+10d slower than originals/);
+    });
+
+    it('each card has a MetricInfoTooltip trigger', () => {
+      renderRedesigns();
+      expect(
+        screen.getByTestId('metric-tooltip-trigger-cycle-ddPhase'),
+      ).toBeInTheDocument();
+      expect(
+        screen.getByTestId('metric-tooltip-trigger-cycle-cityReview'),
+      ).toBeInTheDocument();
+      expect(
+        screen.getByTestId('metric-tooltip-trigger-cycle-corrections'),
+      ).toBeInTheDocument();
+      expect(
+        screen.getByTestId('metric-tooltip-trigger-cycle-issuance'),
+      ).toBeInTheDocument();
+    });
+
+    it('phases without data show "Not enough data to compare." empty state', () => {
+      renderRedesigns();
+      // No permits have approval_date / corr_rounds / actual_issue in
+      // the fixture → city review, corrections, issuance all empty.
+      expect(
+        screen.getByTestId('redesigns-cycle-city-review-empty').textContent,
+      ).toMatch(/Not enough data to compare/);
+      expect(
+        screen.getByTestId('redesigns-cycle-corrections-empty'),
+      ).toBeInTheDocument();
+      expect(
+        screen.getByTestId('redesigns-cycle-issuance-empty'),
+      ).toBeInTheDocument();
+    });
+
+    it('non-regression: existing KPI tiles + leaderboards + recent table still render', () => {
+      renderRedesigns();
+      expect(screen.getByTestId('redesigns-kpi-total')).toBeInTheDocument();
+      expect(
+        screen.getByTestId('redesigns-builder-leaderboard'),
+      ).toBeInTheDocument();
+      expect(
+        screen.getByTestId('redesigns-da-leaderboard'),
+      ).toBeInTheDocument();
+      expect(screen.getByTestId('redesigns-recent-table')).toBeInTheDocument();
     });
   });
 });

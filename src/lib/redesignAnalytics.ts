@@ -5,6 +5,7 @@ import type {
 } from './database.types';
 import { REDESIGN_TRIGGER_LABELS } from './database.types';
 import { formatCompareNumber } from './comparisonCohort';
+import { daysBetween } from './teamPerformance';
 
 // fix-134: redesign analytics aggregation.
 //
@@ -289,4 +290,146 @@ export function computeRedesignAnalytics(
     entLeaderboard,
     recentRedesigns: cappedRecent,
   };
+}
+
+// ============================================================
+// fix-136-a: redesign vs original cycle-time comparison
+// ============================================================
+//
+// Bobby's original brainstorm question: "are redesigns taking longer
+// than fresh-from-scratch projects?" — the answer drives operational
+// decisions (charge more for redesigns? set different expectations
+// with builders when they trigger one?). fix-134 surfaced trigger /
+// builder / associate analytics; this completes the picture with the
+// cycle-time side-by-side.
+//
+// REUSES daysBetween from teamPerformance.ts so the phase math here
+// matches what's already on every other surface — the snapshot, the
+// trends, the drill-down. If the snapshot says Trevor's avg DD is 30d
+// across a cohort, that same cohort folded into a redesigns-vs-
+// originals split will reconcile to the same numbers.
+
+export interface PhaseComparison {
+  /** Average for the redesign cohort. Null when redesignN = 0. */
+  redesignAvg: number | null;
+  /** Average for the original cohort. Null when originalN = 0. */
+  originalAvg: number | null;
+  /** redesignAvg − originalAvg. Null when either side is null —
+   *  forces the UI to render the "Not enough data to compare"
+   *  affordance rather than a misleading 0 / NaN. */
+  delta: number | null;
+  redesignN: number;
+  originalN: number;
+}
+
+export interface CycleTimeComparison {
+  ddPhase: PhaseComparison;
+  cityReview: PhaseComparison;
+  corrections: PhaseComparison;
+  issuance: PhaseComparison;
+}
+
+/** Pull one numeric value per phase out of a permit. Null = the
+ *  permit doesn't have the underlying field pair set; the caller
+ *  skips it in the avg. */
+const PHASE_VALUE: Record<
+  keyof CycleTimeComparison,
+  (p: PermitWithCycles) => number | null
+> = {
+  ddPhase: (p) => {
+    const d = daysBetween(p.dd_start, p.dd_end);
+    return d !== null && d >= 0 ? d : null;
+  },
+  cityReview: (p) => {
+    const c0 = (p.permit_cycles ?? []).find((c) => c.cycle_index === 0);
+    const d = daysBetween(c0?.intake_accepted, p.approval_date);
+    return d !== null && d >= 0 ? d : null;
+  },
+  corrections: (p) =>
+    typeof p.corr_rounds === 'number' && p.corr_rounds >= 0
+      ? p.corr_rounds
+      : null,
+  issuance: (p) => {
+    const d = daysBetween(p.approval_date, p.actual_issue);
+    return d !== null && d >= 0 ? d : null;
+  },
+};
+
+const PHASE_KEYS: (keyof CycleTimeComparison)[] = [
+  'ddPhase',
+  'cityReview',
+  'corrections',
+  'issuance',
+];
+
+/** fix-136-a: side-by-side phase averages for redesign projects vs
+ *  original projects in the same filter window. The two cohorts use
+ *  the SAME date + juris gates so the comparison is apples-to-apples;
+ *  a date narrow that drops most of the originals also drops the
+ *  corresponding redesigns, so the deltas remain comparable.
+ *
+ *  Not folded into computeRedesignAnalytics — the original cohort's
+ *  numbers are only relevant to this comparison surface, and every
+ *  consumer of computeRedesignAnalytics today (KPI row, leaderboards,
+ *  recent table) is happy with the redesign-only view. */
+export function computeRedesignCycleTimeComparison(
+  permits: PermitWithCycles[],
+  projects: Project[],
+  filters: RedesignAnalyticsFilters,
+): CycleTimeComparison {
+  // Two cohorts, gated by the same filters. A project is in the
+  // redesign cohort iff it has redesign_of_project_id set; otherwise
+  // it's in the original cohort.
+  const redesignIds = new Set<string>();
+  const originalIds = new Set<string>();
+  for (const p of projects) {
+    if (!inWindow(p, filters)) continue;
+    if (p.redesign_of_project_id) redesignIds.add(p.id);
+    else originalIds.add(p.id);
+  }
+
+  // Bucket each cohort's permits — pre-bucketed so we walk permits
+  // once rather than 4x per phase.
+  const redesignPermits: PermitWithCycles[] = [];
+  const originalPermits: PermitWithCycles[] = [];
+  for (const permit of permits) {
+    if (redesignIds.has(permit.project_id)) {
+      redesignPermits.push(permit);
+    } else if (originalIds.has(permit.project_id)) {
+      originalPermits.push(permit);
+    }
+  }
+
+  function avgFor(
+    bucket: PermitWithCycles[],
+    pick: (p: PermitWithCycles) => number | null,
+  ): { avg: number | null; n: number } {
+    const values: number[] = [];
+    for (const p of bucket) {
+      const v = pick(p);
+      if (v !== null) values.push(v);
+    }
+    if (values.length === 0) return { avg: null, n: 0 };
+    const sum = values.reduce((a, b) => a + b, 0);
+    return { avg: formatCompareNumber(sum / values.length), n: values.length };
+  }
+
+  const phases = {} as CycleTimeComparison;
+  for (const key of PHASE_KEYS) {
+    const pick = PHASE_VALUE[key];
+    const r = avgFor(redesignPermits, pick);
+    const o = avgFor(originalPermits, pick);
+    const delta =
+      r.avg === null || o.avg === null
+        ? null
+        : formatCompareNumber(r.avg - o.avg);
+    phases[key] = {
+      redesignAvg: r.avg,
+      originalAvg: o.avg,
+      delta,
+      redesignN: r.n,
+      originalN: o.n,
+    };
+  }
+  return phases;
 }

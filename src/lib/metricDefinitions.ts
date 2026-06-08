@@ -343,6 +343,45 @@ export const REDESIGNS_KPI_METRICS: Record<string, MetricDefinition> = {
 };
 
 // ============================================================
+// fix-136: Redesigns tab Cycle Time vs Originals tiles
+// (src/lib/redesignAnalytics.ts:computeRedesignCycleTimeComparison)
+// ============================================================
+//
+// Bobby's brainstorm question: "are redesigns taking longer than
+// fresh-from-scratch projects?" Each tile shows the answer for one
+// phase, side-by-side with the original-cohort baseline.
+
+export const REDESIGNS_CYCLE_COMPARISON: Record<string, MetricDefinition> = {
+  ddPhase: {
+    label: 'DD Phase',
+    description:
+      'Average days in Design Development on redesign projects vs original projects, within the current filter.',
+    formula: 'avg(dd_end − dd_start) per cohort',
+    cohort: 'Only counts permits with both dd_start AND dd_end set.',
+  },
+  cityReview: {
+    label: 'City Review',
+    description:
+      'Average days the city takes from intake acceptance to approval, on redesigns vs originals.',
+    formula: 'avg(approval_date − c0.intake_accepted) per cohort',
+    cohort: 'Only counts permits with both intake_accepted AND approval_date set.',
+  },
+  corrections: {
+    label: 'Corrections',
+    description:
+      'Average number of correction rounds per permit, on redesigns vs originals.',
+    formula: 'avg(permits.corr_rounds) per cohort',
+  },
+  issuance: {
+    label: 'Issuance',
+    description:
+      'Average days from approval to actual issue, on redesigns vs originals.',
+    formula: 'avg(actual_issue − approval_date) per cohort',
+    cohort: 'Only counts permits with both approval_date AND actual_issue set.',
+  },
+};
+
+// ============================================================
 // Aggregate roster (for the verification test in 129-d)
 // ============================================================
 
@@ -371,6 +410,12 @@ export const ALL_METRIC_DEFINITIONS: Record<string, MetricDefinition> = {
   ...Object.fromEntries(
     Object.entries(REDESIGNS_KPI_METRICS).map(([k, v]) => [
       `redesigns.${k}`,
+      v,
+    ]),
+  ),
+  ...Object.fromEntries(
+    Object.entries(REDESIGNS_CYCLE_COMPARISON).map(([k, v]) => [
+      `cycle.${k}`,
       v,
     ]),
   ),
