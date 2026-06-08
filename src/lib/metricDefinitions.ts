@@ -314,6 +314,35 @@ export const TEAM_DETAIL_PHASE_METRICS: Record<string, MetricDefinition> = {
 };
 
 // ============================================================
+// fix-134: Redesigns tab KPI tiles
+// (src/lib/redesignAnalytics.ts:computeRedesignAnalytics)
+// ============================================================
+
+export const REDESIGNS_KPI_METRICS: Record<string, MetricDefinition> = {
+  totalRedesigns: {
+    label: 'Total Redesigns',
+    description:
+      'Distinct projects in the current filter that were spawned as a redesign of a prior project (projects.redesign_of_project_id IS NOT NULL).',
+    formula: 'count(projects where redesign_of_project_id is set, filtered by go_date + juris)',
+  },
+  reusePermitRate: {
+    label: 'Reuse Permit Rate',
+    description:
+      'Share of redesigns flagged as "reuses the original permit set" — metadata-only redesigns that did NOT spawn a fresh permit cohort.',
+    formula:
+      'count(redesigns where redesign_reuses_original_permit = true) / count(all redesigns in filter)',
+    cohort: 'Excludes the rate calc when no redesigns are in the filter (renders em-dash).',
+  },
+  buildersTriggering: {
+    label: 'Builders Triggering Redesigns',
+    description:
+      'Distinct builders attached to at least one redesign project in the current filter. The builder leaderboard below ranks them.',
+    formula: 'count(distinct projects.builder_name where redesign_of_project_id is set)',
+    cohort: 'Excludes redesigns with no builder_name on file.',
+  },
+};
+
+// ============================================================
 // Aggregate roster (for the verification test in 129-d)
 // ============================================================
 
@@ -336,6 +365,12 @@ export const ALL_METRIC_DEFINITIONS: Record<string, MetricDefinition> = {
   ...Object.fromEntries(
     Object.entries(TEAM_DETAIL_PHASE_METRICS).map(([k, v]) => [
       `team.${k}`,
+      v,
+    ]),
+  ),
+  ...Object.fromEntries(
+    Object.entries(REDESIGNS_KPI_METRICS).map(([k, v]) => [
+      `redesigns.${k}`,
       v,
     ]),
   ),

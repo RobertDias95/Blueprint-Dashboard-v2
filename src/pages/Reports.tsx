@@ -2,6 +2,7 @@ import { useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import ReportsOverviewTab from '../components/Reports/ReportsOverviewTab';
 import TeamTab from '../components/Reports/TeamTab';
+import RedesignsTab from '../components/Reports/RedesignsTab';
 import Trends from './Trends';
 
 // fix-trends-subtab (2026-05-28): Reports hosts two analytics sub-tabs —
@@ -14,23 +15,36 @@ import Trends from './Trends';
 // DA/DM/ENT. Managerial visibility tool, NOT a performance-review
 // surface. Lives at /reports?tab=team.
 //
-// The active tab lives in the URL (?tab=overview|trends|team) so it's
-// deep-linkable + back-button friendly. No param (or ?tab=overview) →
-// Overview. The legacy /trends route still redirects to /reports?tab=trends.
+// fix-134: fourth tab "Redesigns" — trigger-source breakdown, builder
+// leaderboard with redesign rate, per-role associate leaderboards, and
+// a recent-redesigns table. Diagnostic surface for "which builders are
+// triggering all this rework?" (Bobby's brainstorm framing).
+//
+// The active tab lives in the URL (?tab=overview|trends|team|redesigns)
+// so it's deep-linkable + back-button friendly. No param (or
+// ?tab=overview) → Overview. The legacy /trends route still redirects
+// to /reports?tab=trends.
 
-type ReportsTab = 'overview' | 'trends' | 'team';
+type ReportsTab = 'overview' | 'trends' | 'team' | 'redesigns';
 
 const TABS: { id: ReportsTab; label: string }[] = [
   { id: 'overview', label: 'Overview' },
   { id: 'trends', label: 'Trends' },
   { id: 'team', label: 'Team' },
+  { id: 'redesigns', label: 'Redesigns' },
 ];
 
 export default function Reports() {
   const [searchParams, setSearchParams] = useSearchParams();
   const raw = searchParams.get('tab');
   const active: ReportsTab =
-    raw === 'trends' ? 'trends' : raw === 'team' ? 'team' : 'overview';
+    raw === 'trends'
+      ? 'trends'
+      : raw === 'team'
+        ? 'team'
+        : raw === 'redesigns'
+          ? 'redesigns'
+          : 'overview';
   const tabRefs = useRef<(HTMLButtonElement | null)[]>([]);
 
   function selectTab(tab: ReportsTab) {
@@ -99,6 +113,8 @@ export default function Reports() {
           <Trends />
         ) : active === 'team' ? (
           <TeamTab />
+        ) : active === 'redesigns' ? (
+          <RedesignsTab />
         ) : (
           <ReportsOverviewTab />
         )}
