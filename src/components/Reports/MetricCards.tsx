@@ -195,6 +195,31 @@ export default function MetricCards({
         {...splitProps}
       />
 
+      {/* 5b. AVG PERMIT TIMELINE — Bobby's preferred framing for the
+          same canonical intake → approval clock. fix-140-b: surfaces
+          the same metrics.avgCityReview number under a different label;
+          no second computation, no risk of drift. Final-merge decision
+          on whether to keep both tiles or consolidate sits with Bobby. */}
+      <MetricCard
+        label="Avg Permit Timeline"
+        labelSlot={tip('avgPermitTimeline')}
+        value={metrics.avgCityReview ?? '—'}
+        unit={metrics.avgCityReview !== null ? 'd' : undefined}
+        subText="intake accepted → approval"
+        tone="pm"
+        testId="metric-permit-timeline"
+        currentNumeric={metrics.avgCityReview}
+        comparisonNumeric={cmp?.avgCityReview ?? null}
+        comparisonValueText={
+          cmp?.avgCityReview === null || cmp?.avgCityReview === undefined
+            ? undefined
+            : `${cmp.avgCityReview}d`
+        }
+        comparisonLabel={cmpLabel}
+        comparisonDirection="lower_better"
+        {...splitProps}
+      />
+
       {/* 6. AVG SUBMIT → INTAKE — conditional, color-coded */}
       {s2i !== null && (
         <MetricCard

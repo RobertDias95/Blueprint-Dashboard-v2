@@ -118,6 +118,21 @@ export const REPORTS_OVERVIEW_METRICS: Record<string, MetricDefinition> = {
     formula: 'avg(firstSubmitted − dd_end) in days',
     cohort: 'Only counts permits with both dd_end AND firstSubmitted set.',
   },
+  // fix-140-b: Avg Permit Timeline — Bobby's preferred name for the same
+  // canonical intake → approval clock that Avg City Review already
+  // exposes (formula matches fix-112-b's strict definition byte-for-byte).
+  // Surfaced as a separate tile so the metric reads "the time a Building
+  // Permit took" without the user needing to translate "City Review" into
+  // "the timeline from intake to approval." The tile pulls the same
+  // metrics.avgCityReview field — no double-compute. Bobby can decide
+  // post-merge whether to consolidate the two tiles or keep both.
+  avgPermitTimeline: {
+    label: 'Avg Permit Timeline',
+    description:
+      'How long the permit took from city intake acceptance to approval — same canonical clock as Avg City Review, labelled with Bobby\'s preferred framing.',
+    formula: 'avg(approval_date − c0.intake_accepted) in days',
+    cohort: 'Only counts permits with both intake_accepted AND approval_date set.',
+  },
 };
 
 // ============================================================

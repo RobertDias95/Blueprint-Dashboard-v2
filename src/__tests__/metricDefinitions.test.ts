@@ -14,8 +14,11 @@ import {
 // asked for.
 
 describe('metricDefinitions roster (fix-129-c/d)', () => {
-  it('Reports Overview ships 11 definitions', () => {
-    expect(Object.keys(REPORTS_OVERVIEW_METRICS)).toHaveLength(11);
+  it('Reports Overview ships 12 definitions', () => {
+    // fix-140-b added Avg Permit Timeline (12th) — same canonical
+    // intake → approval formula as Avg City Review, surfaced under
+    // Bobby's preferred label as a second tile.
+    expect(Object.keys(REPORTS_OVERVIEW_METRICS)).toHaveLength(12);
   });
 
   it('Trends KPI tiles ship 5 definitions', () => {
@@ -53,7 +56,7 @@ describe('metricDefinitions roster (fix-129-c/d)', () => {
     // fix-134-b added a sixth surface (redesigns KPI tiles, 3 entries).
     // fix-136-b added a seventh surface (cycle-time comparison, 4 entries).
     expect(Object.keys(ALL_METRIC_DEFINITIONS)).toHaveLength(
-      11 + 5 + 8 + 6 + 4 + 3 + 4,
+      12 + 5 + 8 + 6 + 4 + 3 + 4,
     );
   });
 });
@@ -80,6 +83,9 @@ describe('formula text references the source fields (fix-129-d)', () => {
     { key: 'reports.avgScheduleVariance', must: ['approval_date', 'actual_issue', 'expected_issue'] },
     { key: 'reports.avgDDDuration', must: ['dd_end', 'dd_start'] },
     { key: 'reports.avgDDEndToSubmit', must: ['firstSubmitted', 'dd_end'] },
+    // fix-140-b: Avg Permit Timeline — same canonical formula as
+    // avgCityReview (Bobby's preferred label, surfaced as a second tile).
+    { key: 'reports.avgPermitTimeline', must: ['approval_date', 'intake_accepted'] },
 
     // Trends KPI tiles — perfTrends.ts
     { key: 'trends.approvedInWindow', must: ['count', 'approval_date'] },
