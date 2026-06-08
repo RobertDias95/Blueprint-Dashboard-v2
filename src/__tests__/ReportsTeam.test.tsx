@@ -427,23 +427,35 @@ describe('<Reports /> Team tab — fix-127', () => {
 
   it('clicking the Projects column header flips the sort direction', () => {
     renderTeam();
+    // fix-131-a added team-row-{name}-link testids for the drill-down
+    // navigation. Filter to the row testids themselves (TR elements) so
+    // sort-order assertions only see the row order, not the link
+    // children.
+    const rowOrder = () =>
+      Array.from(document.querySelectorAll('tr[data-testid^="team-row-"]')).map(
+        (el) => el.getAttribute('data-testid'),
+      );
     // Default sort = projects desc → Trevor (2) above Ainsley (1).
-    const rowsBefore = Array.from(
-      document.querySelectorAll('[data-testid^="team-row-"]'),
-    ).map((el) => el.getAttribute('data-testid'));
-    expect(rowsBefore).toEqual(['team-row-Trevor', 'team-row-Ainsley']);
+    expect(rowOrder()).toEqual(['team-row-Trevor', 'team-row-Ainsley']);
     // Click → asc.
     fireEvent.click(screen.getByTestId('team-th-projectCount'));
-    const rowsAsc = Array.from(
-      document.querySelectorAll('[data-testid^="team-row-"]'),
-    ).map((el) => el.getAttribute('data-testid'));
-    expect(rowsAsc).toEqual(['team-row-Ainsley', 'team-row-Trevor']);
+    expect(rowOrder()).toEqual(['team-row-Ainsley', 'team-row-Trevor']);
     // Click again → back to desc.
     fireEvent.click(screen.getByTestId('team-th-projectCount'));
-    const rowsDesc = Array.from(
-      document.querySelectorAll('[data-testid^="team-row-"]'),
-    ).map((el) => el.getAttribute('data-testid'));
-    expect(rowsDesc).toEqual(['team-row-Trevor', 'team-row-Ainsley']);
+    expect(rowOrder()).toEqual(['team-row-Trevor', 'team-row-Ainsley']);
+  });
+
+  // fix-131-a: every Team tab row carries a Link to /reports/team/{name}?role={role}
+  // so clicking the name opens the drill-down page.
+  it('fix-131-a: each name cell is a Link to the drill-down route', () => {
+    renderTeam();
+    const trevorLink = screen.getByTestId('team-row-Trevor-link');
+    expect(trevorLink.tagName).toBe('A');
+    expect(trevorLink.getAttribute('href')).toBe('/reports/team/Trevor?role=da');
+    const ainsleyLink = screen.getByTestId('team-row-Ainsley-link');
+    expect(ainsleyLink.getAttribute('href')).toBe(
+      '/reports/team/Ainsley?role=da',
+    );
   });
 
   it('vs-team-avg coloring: associate below team avg renders data-tone="good"', () => {

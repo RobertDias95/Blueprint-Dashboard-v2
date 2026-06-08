@@ -6,6 +6,7 @@ import Dashboard from './pages/Dashboard';
 import ProjectList from './pages/ProjectList';
 import ProjectDetail from './pages/ProjectDetail';
 import Reports from './pages/Reports';
+import ReportsTeamDetail from './pages/ReportsTeamDetail';
 import MyTasks from './pages/MyTasks';
 import DrawSchedule from './pages/DrawSchedule';
 import ActivityPage from './pages/ActivityPage';
@@ -40,6 +41,13 @@ export const router = createBrowserRouter([
       { path: 'projects', element: <ProjectList /> },
       { path: 'project/:id', element: <ProjectDetail /> },
       { path: 'reports', element: <Reports /> },
+      // fix-131: per-associate drill-down on the Team tab. Clicking an
+      // associate's name in TeamPerformanceTable navigates here with the
+      // role as a query param (so a name that appears in multiple roles
+      // — e.g., Bobby as ENT — opens the right slice). URL-encoded name
+      // handles spaces; the page falls back to a "not found" empty
+      // state for any name not in the team_members roster.
+      { path: 'reports/team/:name', element: <ReportsTeamDetail /> },
       // fix-67: Weekly DA Update report. Opened from the "Weekly DA Update"
       // card in the Reporting hub (Settings -> Reporting). URL stays stable.
       { path: 'reports/weekly-da', element: <WeeklyDaReport /> },
