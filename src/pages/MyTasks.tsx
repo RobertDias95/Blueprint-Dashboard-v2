@@ -1,10 +1,14 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useTeamMembers } from '../hooks/useTeamMembers';
 import { useAllTasks, useUpsertTask } from '../hooks/useTaskTree';
 import { SkeletonRows } from '../components/Skeleton';
 import QueryError from '../components/QueryError';
-import type { MyTaskNode, TeamMember } from '../lib/database.types';
+import {
+  WAITING_ON_OPTIONS,
+  type MyTaskNode,
+  type TeamMember,
+} from '../lib/database.types';
 
 // fix-80: My Tasks v1-layout rewrite. fix-78 reverted to "all tasks + filter
 // chips"; this brief restores Bobby's v1 mental model — a three-pane kanban
@@ -1006,6 +1010,27 @@ function TaskCard({
   );
 }
 
+// ============================================================
+// fix-138-c: v1-parity Task Detail panel
+// ============================================================
+//
+// Nine inline-editable fields, top to bottom:
+//   1. Project (link)             6. Start Date (date picker)
+//   2. Permit (link)              7. Target Date (date picker)
+//   3. Assigned To (dropdown)     8. Completed (date picker — set this
+//   4. Waiting On (dropdown)         to mark done)
+//   5. Priority (star toggle)     9. Notes (textarea, blur-commit)
+//
+//  +  "→ Open in Project View" link at the bottom.
+//
+// Inline-editable = no edit modal. Dates / dropdowns / priority commit
+// immediately on change; Notes commits on blur (debounced via local
+// draft state) so the user can type freely without firing the RPC per
+// keystroke.
+//
+// Each row uses a small uppercase label in v1 typography. Key the
+// Editor on task.id so switching tasks throws away the draft state.
+
 function TaskDetailPane({
   task,
   members,
@@ -1013,27 +1038,10 @@ function TaskDetailPane({
   task: Task | null;
   members: TeamMember[];
 }) {
-  const upsert = useUpsertTask();
-
-  function saveStatus(next: Task['status']) {
-    if (!task) return;
-    upsert.mutate({
-      id: task.id,
-      permitId: task.permit_id,
-      parentTaskId: task.parent_task_id,
-      discipline: task.discipline,
-      bucket: task.bucket,
-      text: task.text,
-      status: next,
-      startDate: task.start_date,
-      targetDate: task.target_date,
-    });
-  }
-
   if (!task) {
     return (
       <div
-        className="rounded border p-3 text-sm italic"
+        className="rounded border p-3 text-[11px] italic text-center"
         style={{
           borderColor: 'var(--color-border)',
           background: 'var(--color-surface)',
@@ -1041,20 +1049,105 @@ function TaskDetailPane({
         }}
         data-testid="mytasks-detail-empty"
       >
-        Click a task to view details.
+        Select a task to view details.
       </div>
     );
   }
+  return <TaskDetailEditor key={task.id} task={task} members={members} />;
+}
+
+function TaskDetailEditor({
+  task,
+  members,
+}: {
+  task: Task;
+  members: TeamMember[];
+}) {
+  const upsert = useUpsertTask();
+
+  // Notes is the only multi-line free-form field — debounce-commit on
+  // blur via local draft + onBlur. Every other field commits on change
+  // (single click / single pick).
+  const [notesDraft, setNotesDraft] = useState<string>(task.notes ?? '');
+  const notesInitial = useRef<string>(task.notes ?? '');
+
+  function patch(p: Partial<Parameters<typeof upsert.mutate>[0]>) {
+    upsert.mutate({
+      id: task.id,
+      permitId: task.permit_id,
+      parentTaskId: task.parent_task_id,
+      discipline: task.discipline,
+      bucket: task.bucket,
+      text: task.text,
+      // Preserve current values when not patching them — `undefined`
+      // on optional fields tells the RPC to leave the column alone.
+      ...p,
+    });
+  }
+
+  function commitNotes() {
+    const next = notesDraft;
+    if (next === notesInitial.current) return;
+    if (next.trim() === '') {
+      patch({ notes: null, clearNotes: true });
+    } else {
+      patch({ notes: next });
+    }
+    notesInitial.current = next;
+  }
+
+  function commitDate(
+    field: 'startDate' | 'targetDate' | 'dueDate' | 'completed',
+    value: string,
+  ) {
+    const trimmed = value.trim();
+    if (!trimmed) {
+      // Empty input clears the date.
+      const clearKey = (
+        {
+          startDate: 'clearAssignedTo', // unused — startDate has no clear flag (column is non-mandatory but we just pass null)
+          targetDate: 'clearAssignedTo',
+          dueDate: 'clearDueDate',
+          completed: 'clearCompleted',
+        } as const
+      )[field];
+      if (field === 'startDate' || field === 'targetDate') {
+        // start_date + target_date use the legacy NULL-passthrough.
+        patch({ [field]: null } as Record<typeof field, null>);
+      } else {
+        patch({
+          [field]: null,
+          [clearKey]: true,
+        } as Record<string, unknown>);
+      }
+      return;
+    }
+    patch({ [field]: trimmed } as Record<typeof field, string>);
+  }
+
+  const isResolved = task.status === 'Resolved';
+  const completedValue: string =
+    task.done_at && typeof task.done_at === 'string'
+      ? task.done_at.slice(0, 10)
+      : '';
+
   return (
-    <div
-      className="rounded border p-3 flex flex-col gap-3"
+    <aside
+      className="rounded border flex flex-col"
       style={{
         borderColor: 'var(--color-border)',
         background: 'var(--color-surface)',
+        alignSelf: 'start',
       }}
       data-testid="mytasks-detail"
     >
-      <div className="flex items-center gap-1">
+      <header
+        className="px-2.5 py-1.5 border-b flex items-center gap-1.5"
+        style={{
+          background: 'var(--color-s2)',
+          borderBottomColor: 'var(--color-border)',
+        }}
+      >
         <Pill
           label={task.discipline === 'arch' ? 'Architecture' : 'Entitlements'}
           color={task.discipline === 'arch' ? 'var(--color-jv)' : 'var(--color-de)'}
@@ -1065,138 +1158,229 @@ function TaskDetailPane({
           color={BUCKET_ACCENT[bucketOf(task)]}
           testid="mytasks-detail-bucket"
         />
-      </div>
+      </header>
+
       <div
-        className="text-sm font-bold"
+        className="text-[12px] font-bold px-2.5 py-1.5 border-b"
+        style={{ borderBottomColor: 'var(--color-border)' }}
         data-testid="mytasks-detail-text"
       >
         {task.text}
       </div>
-      <div className="flex items-center gap-2">
-        <span
-          className="text-[10px] uppercase tracking-wide"
-          style={{ color: 'var(--color-muted)' }}
-        >
-          Status
-        </span>
-        <select
-          value={task.status}
-          onChange={(e) => saveStatus(e.target.value as Task['status'])}
-          className="text-[12px] px-2 py-1 border rounded"
-          style={inputStyle()}
-          data-testid="mytasks-detail-status-select"
-        >
-          {(['Open', 'In Progress', 'Resolved'] as const).map((s) => (
-            <option key={s} value={s}>
-              {s === 'Open' ? 'Not Started' : s}
-            </option>
-          ))}
-        </select>
-      </div>
-      <div
-        className="grid"
-        style={{ gridTemplateColumns: '1fr 1fr', gap: 8 }}
-      >
-        <DateField
-          label="Start"
-          value={task.start_date}
-          testid="mytasks-detail-start"
-        />
-        <DateField
-          label="Target"
-          value={task.target_date}
-          testid="mytasks-detail-target"
-        />
-      </div>
-      <div>
-        <div
-          className="text-[10px] uppercase tracking-wide mb-1"
-          style={{ color: 'var(--color-muted)' }}
-        >
-          Assignees
-        </div>
-        <div className="flex flex-wrap gap-1">
-          {task.primary_assignee && (
-            <span
-              className="text-[11px] px-2 py-0.5 rounded-full font-bold"
-              style={{
-                background: 'var(--color-s2)',
-                color: 'var(--color-text)',
-              }}
-              title="Primary (derived from permit.da / permit.ent_lead)"
-              data-testid="mytasks-detail-primary"
-            >
-              {task.primary_assignee}
-            </span>
-          )}
-          {task.co_assignees.map((n) => (
-            <span
-              key={n}
-              className="text-[11px] px-2 py-0.5 rounded-full"
-              style={chipBg()}
-              data-testid={`mytasks-detail-co-${n}`}
-            >
-              {n}
-            </span>
-          ))}
-          {task.primary_assignee == null && task.co_assignees.length === 0 && (
-            <span
-              className="text-[11px] italic"
-              style={{ color: 'var(--color-muted)' }}
-            >
-              No assignees
-            </span>
-          )}
-        </div>
-      </div>
-      <div className="flex flex-col gap-1 text-[11px]">
-        <Link
-          to={`/project/${task.project_id}`}
-          className="underline"
-          style={{ color: 'var(--color-de)' }}
-          data-testid="mytasks-detail-project-link"
-        >
-          {task.project_address}
-        </Link>
-        {task.permit_type && (
+
+      <div className="p-2.5 flex flex-col gap-2">
+        {/* 1 Project */}
+        <FieldRow label="Project">
           <Link
             to={`/project/${task.project_id}`}
-            className="underline"
-            style={{ color: 'var(--color-muted)' }}
-            data-testid="mytasks-detail-permit-link"
+            className="text-[11px] underline truncate"
+            style={{ color: 'var(--color-de)' }}
+            data-testid="task-detail-project"
           >
-            {task.permit_type}
+            {task.project_address}
           </Link>
-        )}
+        </FieldRow>
+
+        {/* 2 Permit (read-only link) */}
+        <FieldRow label="Permit">
+          <Link
+            to={`/project/${task.project_id}`}
+            className="text-[11px] underline"
+            style={{ color: 'var(--color-muted)' }}
+            data-testid="task-detail-permit"
+          >
+            {task.permit_type ?? '—'}
+          </Link>
+        </FieldRow>
+
+        {/* 3 Assigned To */}
+        <FieldRow label="Assigned To">
+          <select
+            value={task.assigned_to ?? ''}
+            onChange={(e) => {
+              const v = e.target.value;
+              if (v === '') {
+                patch({ assignedTo: null, clearAssignedTo: true });
+              } else {
+                patch({ assignedTo: v });
+              }
+            }}
+            className="text-[11px] px-2 py-1 border rounded outline-none"
+            style={inputStyle()}
+            data-testid="task-detail-assigned"
+          >
+            <option value="">—</option>
+            <option value="Entitlements">Entitlements</option>
+            <option value="Architecture">Architecture</option>
+            {members
+              .filter((m) => m.active !== false)
+              .map((m) => m.name)
+              .filter(
+                (n, i, arr) => arr.indexOf(n) === i,
+              )
+              .sort((a, b) => a.localeCompare(b))
+              .map((name) => (
+                <option key={name} value={name}>
+                  {name}
+                </option>
+              ))}
+          </select>
+        </FieldRow>
+
+        {/* 4 Waiting On */}
+        <FieldRow label="Waiting On">
+          <select
+            value={task.waiting_on ?? ''}
+            onChange={(e) => {
+              const v = e.target.value;
+              if (v === '') {
+                patch({ waitingOn: null, clearWaitingOn: true });
+              } else {
+                patch({ waitingOn: v });
+              }
+            }}
+            className="text-[11px] px-2 py-1 border rounded outline-none"
+            style={inputStyle()}
+            data-testid="task-detail-waiting-on"
+          >
+            <option value="">—</option>
+            {WAITING_ON_OPTIONS.map((opt) => (
+              <option key={opt} value={opt}>
+                {opt}
+              </option>
+            ))}
+          </select>
+        </FieldRow>
+
+        {/* 5 Priority — star toggle */}
+        <FieldRow label="Priority">
+          <button
+            type="button"
+            onClick={() => patch({ priority: !task.priority })}
+            className="text-[14px] leading-none px-1"
+            style={{
+              color: task.priority ? 'var(--color-co)' : 'var(--color-muted)',
+              cursor: 'pointer',
+            }}
+            data-testid="task-detail-priority"
+            data-priority={task.priority ? 'true' : 'false'}
+            aria-pressed={!!task.priority}
+            title={task.priority ? 'Priority on' : 'Priority off'}
+          >
+            {task.priority ? '★' : '☆'}
+          </button>
+        </FieldRow>
+
+        {/* 6 Start Date */}
+        <FieldRow label="Start Date">
+          <input
+            type="date"
+            value={task.start_date ?? ''}
+            onChange={(e) => commitDate('startDate', e.target.value)}
+            className="text-[11px] px-2 py-1 border rounded outline-none font-mono"
+            style={inputStyle()}
+            data-testid="task-detail-start"
+          />
+        </FieldRow>
+
+        {/* 7 Target Date */}
+        <FieldRow label="Target Date">
+          <input
+            type="date"
+            value={task.target_date ?? ''}
+            onChange={(e) => commitDate('targetDate', e.target.value)}
+            className="text-[11px] px-2 py-1 border rounded outline-none font-mono"
+            style={inputStyle()}
+            data-testid="task-detail-target"
+          />
+        </FieldRow>
+
+        {/* 8 Completed — setting the date stamps done_at AND moves the
+            task to Resolved (the upsert RPC's completion_status rule
+            doesn't flip status from a date, so do it client-side). */}
+        <FieldRow label="Completed">
+          <input
+            type="date"
+            value={completedValue}
+            onChange={(e) => {
+              const v = e.target.value.trim();
+              if (!v) {
+                patch({
+                  completed: null,
+                  clearCompleted: true,
+                  // Reopen the task — if there's no completion date,
+                  // the task can't still be Resolved.
+                  status: isResolved ? 'Open' : task.status,
+                });
+              } else {
+                patch({
+                  completed: v,
+                  status: 'Resolved',
+                });
+              }
+            }}
+            className="text-[11px] px-2 py-1 border rounded outline-none font-mono"
+            style={inputStyle()}
+            data-testid="task-detail-completed"
+            data-done={isResolved ? 'true' : 'false'}
+          />
+        </FieldRow>
+
+        {/* 9 Notes — multiline, blur-commit */}
+        <div className="flex flex-col gap-0.5">
+          <FieldLabel>Notes</FieldLabel>
+          <textarea
+            value={notesDraft}
+            onChange={(e) => setNotesDraft(e.target.value)}
+            onBlur={commitNotes}
+            rows={3}
+            placeholder="—"
+            className="text-[11px] px-2 py-1 border rounded outline-none resize-vertical"
+            style={inputStyle()}
+            data-testid="task-detail-notes"
+          />
+        </div>
       </div>
-      {/* members is here so the role tooltips above stay self-contained even
-          when the team roster changes mid-session; nothing else uses it. */}
-      <span hidden>{members.length}</span>
+
+      <Link
+        to={`/project/${task.project_id}`}
+        className="text-[10px] font-display font-bold px-2.5 py-1.5 border-t text-center no-underline"
+        style={{
+          background: 'var(--color-s2)',
+          borderTopColor: 'var(--color-border)',
+          color: 'var(--color-muted)',
+        }}
+        data-testid="task-detail-open-project"
+      >
+        → Open in Project View
+      </Link>
+    </aside>
+  );
+}
+
+function FieldRow({
+  label,
+  children,
+}: {
+  label: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="flex flex-col gap-0.5">
+      <FieldLabel>{label}</FieldLabel>
+      {children}
     </div>
   );
 }
 
-function DateField({
-  label,
-  value,
-  testid,
-}: {
-  label: string;
-  value: string | null;
-  testid: string;
-}) {
+function FieldLabel({ children }: { children: React.ReactNode }) {
   return (
-    <div className="flex flex-col gap-0.5" data-testid={testid}>
-      <span
-        className="text-[10px] uppercase tracking-wide"
-        style={{ color: 'var(--color-muted)' }}
-      >
-        {label}
-      </span>
-      <span className="text-[11px] font-mono">
-        {value ?? '—'}
-      </span>
-    </div>
+    <span
+      className="text-[8px] font-bold uppercase tracking-wide"
+      style={{ color: 'var(--color-dim)' }}
+    >
+      {children}
+    </span>
   );
 }
 
