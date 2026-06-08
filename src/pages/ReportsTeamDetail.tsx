@@ -1,5 +1,14 @@
 import { useMemo, useState } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
+import {
+  CartesianGrid,
+  Line,
+  LineChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from 'recharts';
 import { usePermits } from '../hooks/usePermits';
 import { useProjects } from '../hooks/useProjects';
 import { useTeamMembers } from '../hooks/useTeamMembers';
@@ -11,12 +20,22 @@ import {
   type TeamMetricsResult,
   type TeamRoleSelection,
 } from '../lib/teamPerformance';
+import {
+  computeTeamTrends,
+  type PhaseMonthEntry,
+  type TeamTrendsResult,
+} from '../lib/teamTrends';
 import MetricInfoTooltip from '../components/shared/MetricInfoTooltip';
 import { formatCompareNumber } from '../lib/comparisonCohort';
 import { TEAM_DETAIL_PHASE_METRICS } from '../lib/metricDefinitions';
 import { worstStage } from '../lib/libraryHelpers';
 import { STAGE_LABEL } from '../lib/stageLabel';
-import type { PermitWithCycles, Project, Stage } from '../lib/database.types';
+import type {
+  PermitWithCycles,
+  Project,
+  Stage,
+  TeamMember,
+} from '../lib/database.types';
 
 // fix-131: per-associate drill-down page. Reached from
 // TeamPerformanceTable's name links on the Team tab. Shows a single
@@ -216,6 +235,18 @@ function Body({
         <>
           <VolumeSummary associate={associate} />
           <PhasePerformance associate={associate} result={result} />
+          {/* fix-132: monthly trend charts beneath the snapshot cards.
+              Independent of the snapshot — its own range selector,
+              its own cohort gates. Renders only when the associate
+              has at least one credited permit (no point computing
+              trends for an empty cohort). */}
+          <PhaseTrends
+            associateName={name}
+            role={role}
+            permits={permits}
+            projects={projects}
+            teamMembers={teamMembers}
+          />
         </>
       )}
       <ProjectList
@@ -817,6 +848,276 @@ function VolumeCard({
       </div>
       {subtext && (
         <div className="text-[10px] text-muted truncate">{subtext}</div>
+      )}
+    </div>
+  );
+}
+
+// ============================================================
+// 132-b: phase trend charts (monthly)
+// ============================================================
+//
+// 4 line charts in a 2×2 grid, one per phase metric. Each chart shows
+// the associate's monthly avg overlaid against the team avg for the
+// same month — "is Trevor getting faster on DD over time?" patterns
+// surface visually. Range selector at top — independent of the
+// snapshot above; defaults to 6 months.
+
+type TrendRange = 3 | 6 | 12 | 24;
+const TREND_RANGES: TrendRange[] = [3, 6, 12, 24];
+
+const PHASE_DEFS: Array<{
+  key: keyof TeamTrendsResult;
+  metricKey: keyof typeof TEAM_DETAIL_PHASE_METRICS;
+  testId: string;
+  unit: string;
+}> = [
+  { key: 'ddPhase', metricKey: 'avgDdDays', testId: 'team-detail-trend-dd', unit: 'd' },
+  {
+    key: 'cityReview',
+    metricKey: 'avgCityReviewDays',
+    testId: 'team-detail-trend-city-review',
+    unit: 'd',
+  },
+  {
+    key: 'corrections',
+    metricKey: 'avgCorrectionsCycles',
+    testId: 'team-detail-trend-corrections',
+    unit: '',
+  },
+  {
+    key: 'issuance',
+    metricKey: 'avgIssuanceDays',
+    testId: 'team-detail-trend-issuance',
+    unit: 'd',
+  },
+];
+
+/** Subtract N months from a Date and return 'YYYY-MM'. Used to build
+ *  the inclusive monthFrom anchor for the range selector. Pure integer
+ *  math on year/month components to dodge Date-object TZ weirdness. */
+function shiftMonth(today: Date, monthsBack: number): string {
+  const y = today.getFullYear();
+  const m = today.getMonth() + 1;
+  let targetY = y;
+  let targetM = m - monthsBack;
+  while (targetM <= 0) {
+    targetM += 12;
+    targetY -= 1;
+  }
+  return `${String(targetY).padStart(4, '0')}-${String(targetM).padStart(2, '0')}`;
+}
+
+function currentMonth(today: Date): string {
+  const y = today.getFullYear();
+  const m = today.getMonth() + 1;
+  return `${String(y).padStart(4, '0')}-${String(m).padStart(2, '0')}`;
+}
+
+function PhaseTrends({
+  associateName,
+  role,
+  permits,
+  projects,
+  teamMembers,
+}: {
+  associateName: string;
+  role: TeamRoleSelection;
+  permits: PermitWithCycles[];
+  projects: Project[];
+  teamMembers: TeamMember[];
+}) {
+  const [range, setRange] = useState<TrendRange>(6);
+  // Stable "now" anchor for the lifetime of this mount — re-mounts on
+  // navigation (new associate/role) will recompute; pressing a range
+  // button after that shifts the window without drifting.
+  const today = useMemo(() => new Date(), []);
+  const monthTo = useMemo(() => currentMonth(today), [today]);
+  const monthFrom = useMemo(
+    () => shiftMonth(today, range - 1),
+    [today, range],
+  );
+  const trends = useMemo(
+    () =>
+      computeTeamTrends(permits, projects, teamMembers, {
+        role,
+        associateName,
+        monthFrom,
+        monthTo,
+      }),
+    [permits, projects, teamMembers, role, associateName, monthFrom, monthTo],
+  );
+
+  return (
+    <section className="space-y-3" data-testid="team-detail-phase-trends">
+      <div className="flex items-center justify-between flex-wrap gap-2">
+        <div className="text-[10px] uppercase tracking-wide text-dim font-display font-bold">
+          Phase Trend
+        </div>
+        <div
+          role="tablist"
+          aria-label="Trend range"
+          className="flex items-center gap-1"
+          data-testid="team-detail-trend-range"
+        >
+          {TREND_RANGES.map((r) => {
+            const isActive = range === r;
+            return (
+              <button
+                key={r}
+                type="button"
+                role="tab"
+                aria-selected={isActive}
+                onClick={() => setRange(r)}
+                className="text-[10px] font-display font-bold px-2.5 py-1 rounded-md border transition"
+                style={{
+                  background: isActive
+                    ? 'var(--color-de)'
+                    : 'var(--color-surface)',
+                  color: isActive ? '#fff' : 'var(--color-muted)',
+                  borderColor: isActive
+                    ? 'var(--color-de)'
+                    : 'var(--color-border)',
+                }}
+                data-testid={`team-detail-trend-range-${r}`}
+                data-active={isActive ? 'true' : 'false'}
+              >
+                {r} months
+              </button>
+            );
+          })}
+        </div>
+      </div>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+        {PHASE_DEFS.map((def) => (
+          <TrendChart
+            key={def.key}
+            entries={trends[def.key]}
+            metricKey={def.metricKey}
+            associateName={associateName}
+            testId={def.testId}
+            unit={def.unit}
+          />
+        ))}
+      </div>
+    </section>
+  );
+}
+
+interface ChartRow {
+  month: string;
+  associateAvg: number | null;
+  teamAvg: number | null;
+  associateN: number;
+  teamN: number;
+}
+
+function TrendChart({
+  entries,
+  metricKey,
+  associateName,
+  testId,
+  unit,
+}: {
+  entries: PhaseMonthEntry[];
+  metricKey: keyof typeof TEAM_DETAIL_PHASE_METRICS;
+  associateName: string;
+  testId: string;
+  unit: string;
+}) {
+  const def = TEAM_DETAIL_PHASE_METRICS[metricKey];
+  const data: ChartRow[] = entries.map((e) => ({
+    month: e.month,
+    associateAvg: e.associateAvg,
+    teamAvg: e.teamAvg,
+    associateN: e.associateN,
+    teamN: e.teamN,
+  }));
+  // Empty state: no associate data points anywhere in the window.
+  const hasAssociateData = entries.some((e) => e.associateAvg !== null);
+
+  return (
+    <div
+      className="bg-surface border border-border rounded-lg p-3 flex flex-col gap-1"
+      data-testid={testId}
+    >
+      <div className="text-[11px] font-display font-bold text-text">
+        <MetricInfoTooltip
+          label={def.label}
+          description={def.description}
+          formula={def.formula}
+          cohort={def.cohort}
+          slug={`team-trend-${metricKey}`}
+        />
+      </div>
+      {!hasAssociateData ? (
+        <div
+          className="h-40 flex items-center justify-center text-dim italic text-xs text-center px-4"
+          data-testid={`${testId}-empty`}
+        >
+          Not enough data in the {entries.length} month window.
+        </div>
+      ) : (
+        <div style={{ width: '100%', height: 200 }}>
+          <ResponsiveContainer width="100%" height="100%">
+            <LineChart
+              data={data}
+              margin={{ top: 8, right: 12, bottom: 0, left: 0 }}
+            >
+              <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" />
+              <XAxis
+                dataKey="month"
+                tick={{ fontSize: 9, fill: 'var(--color-dim)' }}
+              />
+              <YAxis
+                tick={{ fontSize: 9, fill: 'var(--color-dim)' }}
+                width={28}
+              />
+              <Tooltip
+                contentStyle={{
+                  background: 'var(--color-surface)',
+                  border: '1px solid var(--color-border)',
+                  fontSize: 11,
+                }}
+                formatter={(value, name, item) => {
+                  const payload = (
+                    item as { payload?: ChartRow } | undefined
+                  )?.payload;
+                  if (name === 'teamAvg') {
+                    return [
+                      `${value}${unit} · n=${payload?.teamN ?? 0}`,
+                      'Team avg',
+                    ];
+                  }
+                  return [
+                    `${value}${unit} · n=${payload?.associateN ?? 0}`,
+                    associateName,
+                  ];
+                }}
+              />
+              <Line
+                type="monotone"
+                dataKey="associateAvg"
+                name="associateAvg"
+                stroke="var(--color-de)"
+                strokeWidth={2}
+                dot={{ r: 3 }}
+                connectNulls
+              />
+              <Line
+                type="monotone"
+                dataKey="teamAvg"
+                name="teamAvg"
+                stroke="var(--color-muted)"
+                strokeWidth={2}
+                strokeDasharray="4 4"
+                strokeOpacity={0.7}
+                dot={{ r: 2, fillOpacity: 0.7 }}
+                connectNulls
+              />
+            </LineChart>
+          </ResponsiveContainer>
+        </div>
       )}
     </div>
   );
