@@ -303,7 +303,37 @@ export interface PermitTask {
   parent_task_id?: string | null;
   /** Auto-stamped by trigger when completion_status -> 'Resolved'. */
   done_at?: string | null;
+  /** fix-138-a: free-form external-blocker label. Vocab owned by the
+   *  TypeScript layer (see WAITING_ON_OPTIONS); no DB CHECK so the team
+   *  can expand the list without migrations. Null = no external block. */
+  waiting_on?: string | null;
+  /** fix-138-a: priority flag (star). Defaults to false in the DB. */
+  priority?: boolean | null;
+  /** fix-138-a: free-form notes shown in the task detail panel. */
+  notes?: string | null;
 }
+
+/** fix-138-a: controlled vocab for permit_tasks.waiting_on. Lives in TS
+ *  (no DB CHECK) so the team can extend the list without a migration
+ *  cycle. Matches the same pattern as the existing free-form `cat` +
+ *  `assigned_to` text columns. The fix-139 reporting view will GROUP BY
+ *  this string. */
+export const WAITING_ON_OPTIONS = [
+  'Civil',
+  'Survey',
+  'Structural',
+  'Arborist',
+  'Geotech',
+  'Mechanical',
+  'Electrical',
+  'Plumbing',
+  'Energy',
+  'Stormwater',
+  'Landscape',
+  'Architect',
+  'Other',
+] as const;
+export type WaitingOnOption = (typeof WAITING_ON_OPTIONS)[number];
 
 /** A co-assignee row (explicit; the primary assignee is derived, not stored).
  *  fix-70. */
@@ -333,8 +363,19 @@ export interface TaskNode {
   status: 'Open' | 'In Progress' | 'Resolved';
   start_date: string | null;
   target_date: string | null;
+  /** fix-138-a: separate "due" date (different concept from target). */
+  due_date?: string | null;
   done_at: string | null;
   sort_order: number;
+  /** fix-138-a: explicit `assigned_to` text column. Distinct from
+   *  primary_assignee (derived) and co_assignees (join table). */
+  assigned_to?: string | null;
+  /** fix-138-a: external party blocking this task ('Civil', 'Survey', …). */
+  waiting_on?: string | null;
+  /** fix-138-a: priority star. */
+  priority?: boolean;
+  /** fix-138-a: free-form notes. */
+  notes?: string | null;
   /** Derived: arch -> permit.da, ent -> permit.ent_lead. May be null when the
    *  permit has no DA/ent_lead set. */
   primary_assignee: string | null;
