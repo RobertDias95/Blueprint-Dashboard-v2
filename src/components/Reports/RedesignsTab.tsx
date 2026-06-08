@@ -11,12 +11,18 @@ import ExportCsvButton from '../shared/ExportCsvButton';
 import { rowsToCsv } from '../../lib/reportCsv';
 import {
   computeRedesignAnalytics,
+  computeRedesignCycleTimeComparison,
   type AssociateRedesignEntry,
   type BuilderEntry,
+  type CycleTimeComparison,
+  type PhaseComparison,
   type RecentRedesign,
   type RedesignAnalyticsFilters,
 } from '../../lib/redesignAnalytics';
-import { REDESIGNS_KPI_METRICS } from '../../lib/metricDefinitions';
+import {
+  REDESIGNS_KPI_METRICS,
+  REDESIGNS_CYCLE_COMPARISON,
+} from '../../lib/metricDefinitions';
 
 // fix-134-b: 4th sub-tab on Reports. Surfaces the redesign data fix-126
 // added to the schema so the team can answer "which builders are
@@ -92,6 +98,14 @@ function Body({
 
   const result = useMemo(
     () => computeRedesignAnalytics(permits, projects, filters),
+    [permits, projects, filters],
+  );
+
+  // fix-136-b: redesign vs original cycle-time comparison — same
+  // filters as the rest of the page so a date / juris narrow trims
+  // both cohorts symmetrically.
+  const cycleTime = useMemo(
+    () => computeRedesignCycleTimeComparison(permits, projects, filters),
     [permits, projects, filters],
   );
 
@@ -257,6 +271,11 @@ function Body({
               }
             />
           </div>
+
+          {/* fix-136-b: Cycle Time vs Originals — second tile row.
+              Separate section header differentiates it from the
+              redesign-only KPI row above. */}
+          <CycleTimeSection comparison={cycleTime} />
 
           {/* Trigger Source Breakdown */}
           <div data-testid="redesigns-trigger-breakdown">
@@ -550,4 +569,188 @@ function todayStamp(): string {
   const m = String(d.getMonth() + 1).padStart(2, '0');
   const day = String(d.getDate()).padStart(2, '0');
   return `${y}-${m}-${day}`;
+}
+
+// ============================================================
+// fix-136-b: Cycle Time vs Originals section
+// ============================================================
+//
+// Bobby's brainstorm question: "are redesigns taking longer than
+// fresh-from-scratch projects?" One card per phase, each showing
+// redesign + original avg + delta. Lower is better for all 4 metrics
+// (DD, City Review, Corrections, Issuance), so a positive delta
+// (redesigns slower) is "bad" / co-color, a negative delta
+// (redesigns faster) is "good" / pm-color.
+
+interface PhaseDef {
+  key: keyof CycleTimeComparison;
+  metricKey: keyof typeof REDESIGNS_CYCLE_COMPARISON;
+  testId: string;
+  unit: string;
+}
+
+const CYCLE_PHASE_DEFS: PhaseDef[] = [
+  { key: 'ddPhase', metricKey: 'ddPhase', testId: 'redesigns-cycle-dd', unit: 'd' },
+  {
+    key: 'cityReview',
+    metricKey: 'cityReview',
+    testId: 'redesigns-cycle-city-review',
+    unit: 'd',
+  },
+  {
+    key: 'corrections',
+    metricKey: 'corrections',
+    testId: 'redesigns-cycle-corrections',
+    unit: '',
+  },
+  { key: 'issuance', metricKey: 'issuance', testId: 'redesigns-cycle-issuance', unit: 'd' },
+];
+
+// Within ±5% of the original baseline → "Same as originals" / neutral.
+// fix-124 set this band on the team-tab comparison; reused here so the
+// "no-signal" threshold reads the same across surfaces.
+const NEUTRAL_BAND = 0.05;
+
+function CycleTimeSection({ comparison }: { comparison: CycleTimeComparison }) {
+  return (
+    <section className="space-y-2" data-testid="redesigns-cycle-section">
+      <div className="text-[10px] uppercase tracking-wide text-dim font-display font-bold">
+        Cycle Time vs Originals
+      </div>
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
+        {CYCLE_PHASE_DEFS.map((def) => (
+          <CycleTimeCard
+            key={def.key}
+            phase={comparison[def.key]}
+            metricKey={def.metricKey}
+            testId={def.testId}
+            unit={def.unit}
+          />
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function CycleTimeCard({
+  phase,
+  metricKey,
+  testId,
+  unit,
+}: {
+  phase: PhaseComparison;
+  metricKey: keyof typeof REDESIGNS_CYCLE_COMPARISON;
+  testId: string;
+  unit: string;
+}) {
+  const def = REDESIGNS_CYCLE_COMPARISON[metricKey];
+  const canCompare =
+    phase.redesignAvg !== null && phase.originalAvg !== null && phase.delta !== null;
+  // Tone: bad when delta > +neutral band (redesigns slower), good
+  // when delta < −neutral band (redesigns faster), neutral when
+  // within ±5% of the original baseline. Original-avg gates the
+  // band so a 0-original-avg (i.e., everyone hit 0) doesn't NaN.
+  let tone: 'good' | 'bad' | 'neutral' = 'neutral';
+  if (canCompare && phase.originalAvg !== null && phase.originalAvg > 0) {
+    const ratio = Math.abs(phase.delta!) / phase.originalAvg;
+    if (ratio <= NEUTRAL_BAND) tone = 'neutral';
+    else if (phase.delta! > 0) tone = 'bad';
+    else tone = 'good';
+  } else if (canCompare && phase.delta !== 0) {
+    // Original avg is 0 — anything non-zero on redesigns is "slower"
+    // by definition; anything matching is neutral.
+    tone = phase.delta! > 0 ? 'bad' : 'good';
+  }
+
+  const toneColor =
+    tone === 'bad'
+      ? 'var(--color-co)'
+      : tone === 'good'
+        ? 'var(--color-pm)'
+        : 'var(--color-muted)';
+
+  const formatValue = (v: number | null): string =>
+    v === null ? '—' : `${v}${unit}`;
+
+  return (
+    <div
+      className="bg-surface border border-border rounded-lg p-3 flex flex-col gap-2"
+      data-testid={testId}
+      data-tone={tone}
+    >
+      <div className="text-[10px] uppercase tracking-wide text-dim font-display font-bold">
+        <MetricInfoTooltip
+          label={def.label}
+          description={def.description}
+          formula={def.formula}
+          cohort={def.cohort}
+          slug={`cycle-${metricKey}`}
+        />
+      </div>
+      {!canCompare ? (
+        <div
+          className="text-xs text-dim italic py-2"
+          data-testid={`${testId}-empty`}
+        >
+          Not enough data to compare.
+          {phase.redesignAvg !== null && (
+            <span className="block text-[10px] text-muted mt-1">
+              Redesigns: {formatValue(phase.redesignAvg)} (n={phase.redesignN})
+            </span>
+          )}
+          {phase.originalAvg !== null && (
+            <span className="block text-[10px] text-muted mt-1">
+              Originals: {formatValue(phase.originalAvg)} (n={phase.originalN})
+            </span>
+          )}
+        </div>
+      ) : (
+        <>
+          <div className="grid grid-cols-2 gap-2">
+            <div
+              className="flex flex-col"
+              data-testid={`${testId}-redesigns`}
+            >
+              <span className="text-[9px] uppercase tracking-wide text-dim font-display font-bold">
+                Redesigns
+              </span>
+              <span className="text-xl font-display font-extrabold text-text">
+                {formatValue(phase.redesignAvg)}
+              </span>
+              <span className="text-[10px] text-muted">
+                n={phase.redesignN}
+              </span>
+            </div>
+            <div
+              className="flex flex-col"
+              data-testid={`${testId}-originals`}
+            >
+              <span className="text-[9px] uppercase tracking-wide text-dim font-display font-bold">
+                Originals
+              </span>
+              <span className="text-xl font-display font-extrabold text-muted">
+                {formatValue(phase.originalAvg)}
+              </span>
+              <span className="text-[10px] text-muted">
+                n={phase.originalN}
+              </span>
+            </div>
+          </div>
+          <div
+            className="text-[11px] font-display font-bold pt-1 border-t border-border"
+            style={{ color: toneColor }}
+            data-testid={`${testId}-delta`}
+          >
+            {tone === 'neutral' ? (
+              <>→ Same as originals</>
+            ) : phase.delta! > 0 ? (
+              <>↑ +{phase.delta}{unit} slower than originals</>
+            ) : (
+              <>↓ {phase.delta}{unit} faster than originals</>
+            )}
+          </div>
+        </>
+      )}
+    </div>
+  );
 }

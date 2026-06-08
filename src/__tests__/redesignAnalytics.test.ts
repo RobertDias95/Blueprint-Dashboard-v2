@@ -1,5 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { computeRedesignAnalytics } from '../lib/redesignAnalytics';
+import {
+  computeRedesignAnalytics,
+  computeRedesignCycleTimeComparison,
+} from '../lib/redesignAnalytics';
 import type {
   PermitWithCycles,
   Project,
@@ -356,5 +359,293 @@ describe('computeRedesignAnalytics — empty + edge cases', () => {
       juris: '',
     });
     expect(out.builderLeaderboard.length).toBe(10);
+  });
+});
+
+// ============================================================
+// fix-136-a: redesign vs original cycle-time comparison
+// ============================================================
+
+function mkCycle(
+  over: Partial<import('../lib/database.types').PermitCycle> & {
+    cycle_index: number;
+  },
+): import('../lib/database.types').PermitCycle {
+  const { cycle_index, ...rest } = over;
+  return {
+    id: `c-${Math.random()}`,
+    permit_id: 0,
+    cycle_index,
+    submitted: null,
+    city_target: null,
+    corr_issued: null,
+    resubmitted: null,
+    intake_accepted: null,
+    created_at: '2026-01-01T00:00:00Z',
+    updated_at: '2026-01-01T00:00:00Z',
+    ...rest,
+  };
+}
+
+describe('computeRedesignCycleTimeComparison — DD demonstration', () => {
+  // Brief's fixture: 2 redesigns avg 30d DD, 3 originals avg 25d DD
+  // → delta = +5d, redesignN = 2, originalN = 3.
+  const projects: Project[] = [
+    mkProject({ id: 'op1', address: 'O1', go_date: '2026-01-01' }),
+    mkProject({ id: 'op2', address: 'O2', go_date: '2026-01-15' }),
+    mkProject({ id: 'op3', address: 'O3', go_date: '2026-02-01' }),
+    mkProject({
+      id: 'rp1', address: 'R1', go_date: '2026-02-01',
+      redesign_of_project_id: 'op1',
+    }),
+    mkProject({
+      id: 'rp2', address: 'R2', go_date: '2026-03-01',
+      redesign_of_project_id: 'op2',
+    }),
+  ];
+  // Redesigns: DD 28 + 32 = avg 30d (rounded 1-decimal).
+  // Originals: DD 20 + 25 + 30 = avg 25d.
+  const permits: PermitWithCycles[] = [
+    mkPermit({
+      id: 1, project_id: 'rp1',
+      dd_start: '2026-02-01', dd_end: '2026-03-01', // 28d
+    }),
+    mkPermit({
+      id: 2, project_id: 'rp2',
+      dd_start: '2026-03-01', dd_end: '2026-04-02', // 32d
+    }),
+    mkPermit({
+      id: 3, project_id: 'op1',
+      dd_start: '2026-01-01', dd_end: '2026-01-21', // 20d
+    }),
+    mkPermit({
+      id: 4, project_id: 'op2',
+      dd_start: '2026-01-15', dd_end: '2026-02-09', // 25d
+    }),
+    mkPermit({
+      id: 5, project_id: 'op3',
+      dd_start: '2026-02-01', dd_end: '2026-03-03', // 30d
+    }),
+  ];
+
+  it('redesign avg = 30d, original avg = 25d, delta = +5, redesignN = 2, originalN = 3', () => {
+    const out = computeRedesignCycleTimeComparison(permits, projects, {
+      dateFrom: null, dateTo: null, juris: '',
+    });
+    expect(out.ddPhase.redesignAvg).toBe(30);
+    expect(out.ddPhase.originalAvg).toBe(25);
+    expect(out.ddPhase.delta).toBe(5);
+    expect(out.ddPhase.redesignN).toBe(2);
+    expect(out.ddPhase.originalN).toBe(3);
+  });
+
+  it('other phases default to null when their field pair is absent', () => {
+    // None of the DD-only permits in the demo set approval_date,
+    // intake_accepted, or actual_issue — so all 3 non-DD phases
+    // have no usable values on either side.
+    const out = computeRedesignCycleTimeComparison(permits, projects, {
+      dateFrom: null, dateTo: null, juris: '',
+    });
+    expect(out.cityReview.redesignAvg).toBeNull();
+    expect(out.cityReview.originalAvg).toBeNull();
+    expect(out.cityReview.delta).toBeNull();
+    expect(out.cityReview.redesignN).toBe(0);
+    expect(out.cityReview.originalN).toBe(0);
+  });
+});
+
+describe('computeRedesignCycleTimeComparison — per-phase math', () => {
+  const projects: Project[] = [
+    mkProject({ id: 'op1', address: 'O1', go_date: '2026-01-01' }),
+    mkProject({
+      id: 'rp1', address: 'R1', go_date: '2026-02-01',
+      redesign_of_project_id: 'op1',
+    }),
+  ];
+
+  it('City Review: approval − c0.intake_accepted', () => {
+    const permits: PermitWithCycles[] = [
+      mkPermit({
+        id: 1, project_id: 'rp1',
+        approval_date: '2026-04-01',
+        permit_cycles: [mkCycle({ cycle_index: 0, intake_accepted: '2026-03-01' })], // 31d
+      }),
+      mkPermit({
+        id: 2, project_id: 'op1',
+        approval_date: '2026-04-15',
+        permit_cycles: [mkCycle({ cycle_index: 0, intake_accepted: '2026-03-01' })], // 45d
+      }),
+    ];
+    const out = computeRedesignCycleTimeComparison(permits, projects, {
+      dateFrom: null, dateTo: null, juris: '',
+    });
+    expect(out.cityReview.redesignAvg).toBe(31);
+    expect(out.cityReview.originalAvg).toBe(45);
+    expect(out.cityReview.delta).toBe(-14);
+  });
+
+  it('Corrections: avg(corr_rounds)', () => {
+    const permits: PermitWithCycles[] = [
+      mkPermit({ id: 1, project_id: 'rp1', corr_rounds: 4 }),
+      mkPermit({ id: 2, project_id: 'op1', corr_rounds: 2 }),
+    ];
+    const out = computeRedesignCycleTimeComparison(permits, projects, {
+      dateFrom: null, dateTo: null, juris: '',
+    });
+    expect(out.corrections.redesignAvg).toBe(4);
+    expect(out.corrections.originalAvg).toBe(2);
+    expect(out.corrections.delta).toBe(2);
+  });
+
+  it('Issuance: actual_issue − approval_date', () => {
+    const permits: PermitWithCycles[] = [
+      mkPermit({
+        id: 1, project_id: 'rp1',
+        approval_date: '2026-04-01', actual_issue: '2026-04-15', // 14d
+      }),
+      mkPermit({
+        id: 2, project_id: 'op1',
+        approval_date: '2026-04-01', actual_issue: '2026-04-08', // 7d
+      }),
+    ];
+    const out = computeRedesignCycleTimeComparison(permits, projects, {
+      dateFrom: null, dateTo: null, juris: '',
+    });
+    expect(out.issuance.redesignAvg).toBe(14);
+    expect(out.issuance.originalAvg).toBe(7);
+    expect(out.issuance.delta).toBe(7);
+  });
+});
+
+describe('computeRedesignCycleTimeComparison — empty cohort + filters', () => {
+  it('0 redesigns: redesign side null, original side computes normally', () => {
+    const projects: Project[] = [
+      mkProject({ id: 'op1', address: 'O1', go_date: '2026-01-01' }),
+      mkProject({ id: 'op2', address: 'O2', go_date: '2026-01-15' }),
+    ];
+    const permits: PermitWithCycles[] = [
+      mkPermit({
+        id: 1, project_id: 'op1',
+        dd_start: '2026-01-01', dd_end: '2026-01-21', // 20d
+      }),
+      mkPermit({
+        id: 2, project_id: 'op2',
+        dd_start: '2026-01-15', dd_end: '2026-02-14', // 30d
+      }),
+    ];
+    const out = computeRedesignCycleTimeComparison(permits, projects, {
+      dateFrom: null, dateTo: null, juris: '',
+    });
+    expect(out.ddPhase.redesignAvg).toBeNull();
+    expect(out.ddPhase.redesignN).toBe(0);
+    expect(out.ddPhase.originalAvg).toBe(25);
+    expect(out.ddPhase.originalN).toBe(2);
+    // Delta requires both sides → null when redesign side is empty.
+    expect(out.ddPhase.delta).toBeNull();
+  });
+
+  it('0 originals: original side null, redesign side computes', () => {
+    const projects: Project[] = [
+      mkProject({
+        id: 'rp1', address: 'R1', go_date: '2026-02-01',
+        redesign_of_project_id: 'phantom',
+      }),
+    ];
+    const permits: PermitWithCycles[] = [
+      mkPermit({
+        id: 1, project_id: 'rp1',
+        dd_start: '2026-02-01', dd_end: '2026-03-03', // 30d
+      }),
+    ];
+    const out = computeRedesignCycleTimeComparison(permits, projects, {
+      dateFrom: null, dateTo: null, juris: '',
+    });
+    expect(out.ddPhase.redesignAvg).toBe(30);
+    expect(out.ddPhase.originalAvg).toBeNull();
+    expect(out.ddPhase.delta).toBeNull();
+  });
+
+  it('date filter applies to BOTH cohorts symmetrically', () => {
+    const projects: Project[] = [
+      mkProject({ id: 'op_in', address: 'OI', go_date: '2026-03-01' }),
+      mkProject({ id: 'op_out', address: 'OO', go_date: '2025-01-01' }),
+      mkProject({
+        id: 'rp_in', address: 'RI', go_date: '2026-03-15',
+        redesign_of_project_id: 'op_in',
+      }),
+      mkProject({
+        id: 'rp_out', address: 'RO', go_date: '2025-01-15',
+        redesign_of_project_id: 'op_in',
+      }),
+    ];
+    const permits: PermitWithCycles[] = [
+      mkPermit({
+        id: 1, project_id: 'rp_in',
+        dd_start: '2026-03-15', dd_end: '2026-04-04', // 20d (kept)
+      }),
+      mkPermit({
+        id: 2, project_id: 'rp_out',
+        dd_start: '2025-01-15', dd_end: '2025-02-04', // 20d (dropped — go_date 2025)
+      }),
+      mkPermit({
+        id: 3, project_id: 'op_in',
+        dd_start: '2026-03-01', dd_end: '2026-03-11', // 10d (kept)
+      }),
+      mkPermit({
+        id: 4, project_id: 'op_out',
+        dd_start: '2025-01-01', dd_end: '2025-01-11', // 10d (dropped)
+      }),
+    ];
+    const out = computeRedesignCycleTimeComparison(permits, projects, {
+      dateFrom: '2026-01-01', dateTo: '2026-12-31', juris: '',
+    });
+    expect(out.ddPhase.redesignAvg).toBe(20);
+    expect(out.ddPhase.redesignN).toBe(1);
+    expect(out.ddPhase.originalAvg).toBe(10);
+    expect(out.ddPhase.originalN).toBe(1);
+  });
+
+  it('juris filter narrows BOTH cohorts to matching projects', () => {
+    const projects: Project[] = [
+      mkProject({
+        id: 'op_s', address: 'OS', juris: 'Seattle', go_date: '2026-01-01',
+      }),
+      mkProject({
+        id: 'op_b', address: 'OB', juris: 'Bellevue', go_date: '2026-01-01',
+      }),
+      mkProject({
+        id: 'rp_s', address: 'RS', juris: 'Seattle', go_date: '2026-02-01',
+        redesign_of_project_id: 'op_s',
+      }),
+      mkProject({
+        id: 'rp_b', address: 'RB', juris: 'Bellevue', go_date: '2026-02-01',
+        redesign_of_project_id: 'op_b',
+      }),
+    ];
+    const permits: PermitWithCycles[] = [
+      mkPermit({
+        id: 1, project_id: 'rp_s',
+        dd_start: '2026-02-01', dd_end: '2026-03-03', // 30d kept
+      }),
+      mkPermit({
+        id: 2, project_id: 'rp_b',
+        dd_start: '2026-02-01', dd_end: '2026-02-11', // dropped
+      }),
+      mkPermit({
+        id: 3, project_id: 'op_s',
+        dd_start: '2026-01-01', dd_end: '2026-01-21', // 20d kept
+      }),
+      mkPermit({
+        id: 4, project_id: 'op_b',
+        dd_start: '2026-01-01', dd_end: '2026-01-11', // dropped
+      }),
+    ];
+    const out = computeRedesignCycleTimeComparison(permits, projects, {
+      dateFrom: null, dateTo: null, juris: 'Seattle',
+    });
+    expect(out.ddPhase.redesignN).toBe(1);
+    expect(out.ddPhase.originalN).toBe(1);
+    expect(out.ddPhase.redesignAvg).toBe(30);
+    expect(out.ddPhase.originalAvg).toBe(20);
   });
 });

@@ -51,8 +51,9 @@ describe('metricDefinitions roster (fix-129-c/d)', () => {
   it('aggregate roster total = sum of per-surface totals', () => {
     // fix-131-c added a fifth surface (team detail phase cards, 4 entries).
     // fix-134-b added a sixth surface (redesigns KPI tiles, 3 entries).
+    // fix-136-b added a seventh surface (cycle-time comparison, 4 entries).
     expect(Object.keys(ALL_METRIC_DEFINITIONS)).toHaveLength(
-      11 + 5 + 8 + 6 + 4 + 3,
+      11 + 5 + 8 + 6 + 4 + 3 + 4,
     );
   });
 });
