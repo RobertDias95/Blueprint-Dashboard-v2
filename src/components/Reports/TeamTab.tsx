@@ -5,6 +5,7 @@ import { useTeamMembers } from '../../hooks/useTeamMembers';
 import { SkeletonRows } from '../Skeleton';
 import QueryError from '../QueryError';
 import TeamPerformanceTable from './TeamPerformanceTable';
+import WorkloadBalance from './WorkloadBalance';
 import {
   computeTeamMetrics,
   type TeamMetricsFilters,
@@ -221,6 +222,19 @@ function Body({
           {result.rows.length} associate{result.rows.length === 1 ? '' : 's'}
         </span>
       </div>
+
+      {/* fix-133-b: current workload balance — sits above the
+          historical table so the operational "who has bandwidth right
+          now?" view leads. Driven by the same role + activeOnly
+          filters as the table below; it intentionally ignores the
+          date / juris / includeRedesigns inputs because workload is a
+          snapshot, not a historical query. */}
+      <WorkloadBalance
+        permits={permits}
+        projects={projects}
+        teamMembers={teamMembers}
+        filters={{ role, activeOnly }}
+      />
 
       {result.rows.length === 0 ? (
         <div
