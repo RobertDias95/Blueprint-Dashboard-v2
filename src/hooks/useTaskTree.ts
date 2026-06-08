@@ -88,6 +88,26 @@ export interface UpsertTaskInput {
   startDate?: string | null;
   targetDate?: string | null;
   sortOrder?: number;
+  /** fix-138-a: My Tasks panel fields. Each is 3-state: undefined =
+   *  "leave unchanged", a value = set, the matching `clear*` flag = null.
+   *  The RPC respects all three so the panel can debounce a single field
+   *  edit without churning the others. */
+  assignedTo?: string | null;
+  dueDate?: string | null;
+  waitingOn?: string | null;
+  priority?: boolean;
+  notes?: string | null;
+  /** When set, stamps permit_tasks.done_at; treated as the "Completed" date
+   *  in the panel. */
+  completed?: string | null;
+  /** Explicit clears (NULL the column). Passing a `null` value alone is
+   *  interpreted as "leave unchanged" — set the matching clear flag to
+   *  force the column to NULL. */
+  clearAssignedTo?: boolean;
+  clearDueDate?: boolean;
+  clearWaitingOn?: boolean;
+  clearNotes?: boolean;
+  clearCompleted?: boolean;
 }
 
 export function useUpsertTask() {
@@ -108,6 +128,20 @@ export function useUpsertTask() {
         p_target_date: input.targetDate ?? null,
         p_sort_order: input.sortOrder ?? 0,
         p_bucket: input.bucket ?? null,
+        // fix-138-a: new optional fields. `undefined` → omitted from RPC
+        // call → server-side "leave unchanged"; explicit value → set;
+        // matching clear flag → NULL.
+        p_assigned_to: input.assignedTo ?? null,
+        p_due_date: input.dueDate ?? null,
+        p_waiting_on: input.waitingOn ?? null,
+        p_priority: input.priority ?? null,
+        p_notes: input.notes ?? null,
+        p_completed: input.completed ?? null,
+        p_clear_assigned_to: input.clearAssignedTo ?? false,
+        p_clear_due_date: input.clearDueDate ?? false,
+        p_clear_waiting_on: input.clearWaitingOn ?? false,
+        p_clear_notes: input.clearNotes ?? false,
+        p_clear_completed: input.clearCompleted ?? false,
       });
       if (error) throw error;
       return data as string;
