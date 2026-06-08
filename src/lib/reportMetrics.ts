@@ -65,11 +65,15 @@ export function pickFirstSubmittedCycle(
   return sorted.find((c) => c.submitted) ?? null;
 }
 
-/** Days between two ISO dates (b - a). Returns null if either is missing. */
+/** Days between two ISO dates (b - a). Returns null if either is missing
+ *  OR malformed (e.g. a six-digit year typo like '202025-11-30' produces
+ *  an Invalid Date whose getTime() returns NaN — fix-140-a guards against
+ *  the NaN propagating into the downstream avg). */
 function daysBetween(a: string | null, b: string | null): number | null {
   if (!a || !b) return null;
   const aMs = new Date(`${a}T12:00:00Z`).getTime();
   const bMs = new Date(`${b}T12:00:00Z`).getTime();
+  if (Number.isNaN(aMs) || Number.isNaN(bMs)) return null;
   return Math.round((bMs - aMs) / DAY_MS);
 }
 
@@ -571,7 +575,15 @@ export interface ReportMetrics {
 }
 
 function avg(values: (number | null)[]): number | null {
-  const real = values.filter((v): v is number => v !== null);
+  // fix-140-a: NaN guard. Pre-fix this filtered only on `!== null`, so a
+  // single Invalid Date in the cohort (e.g. a six-digit-year typo) leaked
+  // a NaN into the reduce and the entire metric rendered as "NaN" / "NaN d".
+  // `daysBetween` now returns null on Invalid Dates upstream, but keep the
+  // belt-and-suspenders filter here so any future helper that forgets the
+  // null-on-NaN convention can't poison the metric.
+  const real = values.filter(
+    (v): v is number => v !== null && !Number.isNaN(v),
+  );
   if (real.length === 0) return null;
   return Math.round(real.reduce((a, b) => a + b, 0) / real.length);
 }
