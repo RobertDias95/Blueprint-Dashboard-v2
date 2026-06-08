@@ -1,9 +1,12 @@
 import { describe, it, expect } from 'vitest';
 import {
   activeComparePreset,
+  applyComparePreset,
   comparisonLabelFor,
+  comparisonLabelForRange,
   deriveComparisonRange,
   formatCompareNumber,
+  legacyCompareToRange,
   rangeForPreset,
 } from '../lib/comparisonCohort';
 
@@ -375,5 +378,114 @@ describe('rangeForPreset (fix-124-b)', () => {
         ),
       ).toBeNull();
     });
+  });
+});
+
+// ============================================================
+// fix-137-a: new explicit-Period-B compare model
+// ============================================================
+
+describe('applyComparePreset', () => {
+  // System knows "today" = 2026-05-15 (matches the test harness anchor).
+  const today = new Date('2026-05-15T12:00:00Z');
+
+  it('this_month_vs_last → May 2026 vs Apr 2026', () => {
+    const pair = applyComparePreset('this_month_vs_last', today);
+    expect(pair.periodA).toEqual({ from: '2026-05-01', to: '2026-05-31' });
+    expect(pair.periodB).toEqual({ from: '2026-04-01', to: '2026-04-30' });
+  });
+
+  it('this_quarter_vs_last → Q2 2026 vs Q1 2026 (calendar snap)', () => {
+    const pair = applyComparePreset('this_quarter_vs_last', today);
+    expect(pair.periodA).toEqual({ from: '2026-04-01', to: '2026-06-30' });
+    expect(pair.periodB).toEqual({ from: '2026-01-01', to: '2026-03-31' });
+  });
+
+  it('this_year_vs_last → 2026 vs 2025 (calendar snap)', () => {
+    const pair = applyComparePreset('this_year_vs_last', today);
+    expect(pair.periodA).toEqual({ from: '2026-01-01', to: '2026-12-31' });
+    expect(pair.periodB).toEqual({ from: '2025-01-01', to: '2025-12-31' });
+  });
+
+  it('last_30d_vs_prior → 30-day window ending today vs the 30 days before that', () => {
+    const pair = applyComparePreset('last_30d_vs_prior', today);
+    // 30 days inclusive ending 2026-05-15 → 2026-04-16 ... 2026-05-15.
+    expect(pair.periodA).toEqual({ from: '2026-04-16', to: '2026-05-15' });
+    // Length-mirror (NOT a calendar snap — the window isn't a calendar month).
+    expect(pair.periodB).toEqual({ from: '2026-03-17', to: '2026-04-15' });
+  });
+
+  it('last_60d_vs_prior length-mirrors a 60-day window', () => {
+    const pair = applyComparePreset('last_60d_vs_prior', today);
+    expect(pair.periodA.to).toBe('2026-05-15');
+    expect(pair.periodB.to).toBe(
+      // periodA.from - 1 day
+      '2026-03-16',
+    );
+  });
+
+  it('last_90d_vs_prior length-mirrors a 90-day window', () => {
+    const pair = applyComparePreset('last_90d_vs_prior', today);
+    expect(pair.periodA.to).toBe('2026-05-15');
+    // periodA.from = 90d back inclusive = 2026-02-15; periodB.to = 2026-02-14.
+    expect(pair.periodA.from).toBe('2026-02-15');
+    expect(pair.periodB.to).toBe('2026-02-14');
+  });
+});
+
+describe('legacyCompareToRange — URL bookmark migration', () => {
+  it('"previous_period" + Q2 2026 → Q1 2026 (calendar snap)', () => {
+    const range = legacyCompareToRange(
+      { from: '2026-04-01', to: '2026-06-30' },
+      'previous_period',
+    );
+    expect(range).toEqual({ from: '2026-01-01', to: '2026-03-31' });
+  });
+
+  it('"previous_year" + Apr 2026 → 1-year-prior (365-day shift)', () => {
+    const range = legacyCompareToRange(
+      { from: '2026-04-01', to: '2026-04-30' },
+      'previous_year',
+    );
+    // 365-day shift via the legacy helper.
+    expect(range?.from).toBe('2025-04-01');
+    expect(range?.to).toBe('2025-04-30');
+  });
+
+  it('"off" → null', () => {
+    expect(
+      legacyCompareToRange({ from: '2026-04-01', to: '2026-04-30' }, 'off'),
+    ).toBeNull();
+  });
+
+  it('null compareTo → null', () => {
+    expect(
+      legacyCompareToRange({ from: '2026-04-01', to: '2026-04-30' }, null),
+    ).toBeNull();
+  });
+
+  it('unknown compareTo value → null (defensive)', () => {
+    expect(
+      legacyCompareToRange(
+        { from: '2026-04-01', to: '2026-04-30' },
+        'previous_decade',
+      ),
+    ).toBeNull();
+  });
+
+  it('null currentRange → null', () => {
+    expect(legacyCompareToRange(null, 'previous_period')).toBeNull();
+  });
+});
+
+describe('comparisonLabelForRange', () => {
+  it('formats a range as "vs from – to"', () => {
+    expect(
+      comparisonLabelForRange({ from: '2026-01-01', to: '2026-03-31' }),
+    ).toBe('vs 2026-01-01 – 2026-03-31');
+  });
+
+  it('null range → empty string', () => {
+    expect(comparisonLabelForRange(null)).toBe('');
   });
 });
