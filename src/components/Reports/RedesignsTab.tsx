@@ -7,6 +7,8 @@ import QueryError from '../QueryError';
 import MetricCard from './MetricCard';
 import BarChartCard from './BarChartCard';
 import MetricInfoTooltip from '../shared/MetricInfoTooltip';
+import ExportCsvButton from '../shared/ExportCsvButton';
+import { rowsToCsv } from '../../lib/reportCsv';
 import {
   computeRedesignAnalytics,
   type AssociateRedesignEntry,
@@ -103,8 +105,25 @@ function Body({
       ? '—'
       : `${Math.round(result.reusePermitRate * 100)}%`;
 
+  // fix-135-b: Redesigns tab CSV export — the recent-redesigns rows
+  // (the bottom table). The same `recentRedesigns` array drives both
+  // the table and the export so filter changes flow through both.
+  const csvFilename = `redesigns-${todayStamp()}.csv`;
+  const handleExport = (): string => buildRedesignsCsv(result.recentRedesigns);
+
   return (
     <div className="space-y-4" data-testid="redesigns-tab">
+      {/* Page header — title space on the left + Export CSV on the
+          right, mirroring the Reports Overview tab's header line. */}
+      <div className="flex items-center justify-end">
+        <ExportCsvButton
+          filename={csvFilename}
+          onExport={handleExport}
+          disabled={result.recentRedesigns.length === 0}
+          testId="redesigns-export-csv-button"
+        />
+      </div>
+
       {/* Filter bar — slimmer than the Overview bar; no status / type /
           tag cohorts since this surface is about a single subset of
           projects (the redesigns). */}
@@ -488,4 +507,47 @@ function RecentRedesignsTable({ rows }: { rows: RecentRedesign[] }) {
       </div>
     </div>
   );
+}
+
+// ============================================================
+// fix-135-b: CSV export helpers
+// ============================================================
+
+const REDESIGNS_CSV_COLUMNS = [
+  { key: 'redesignAddress', label: 'Redesign Address' },
+  { key: 'originalAddress', label: 'Original Address' },
+  { key: 'trigger', label: 'Trigger' },
+  { key: 'reusesOriginalPermit', label: 'Reuses Permit?' },
+  { key: 'builderName', label: 'Builder' },
+  { key: 'notes', label: 'Notes' },
+  { key: 'createdAt', label: 'Created At' },
+];
+
+function buildRedesignsCsv(rows: RecentRedesign[]): string {
+  if (rows.length === 0) return '';
+  return rowsToCsv(
+    REDESIGNS_CSV_COLUMNS,
+    rows.map((r) => ({
+      redesignAddress: r.redesignAddress,
+      originalAddress: r.originalAddress ?? '',
+      trigger: r.triggerLabel,
+      reusesOriginalPermit:
+        r.reusesOriginalPermit === true
+          ? 'Yes'
+          : r.reusesOriginalPermit === false
+            ? 'No'
+            : '',
+      builderName: r.builderName ?? '',
+      notes: r.notes ?? '',
+      createdAt: r.createdAt,
+    })),
+  );
+}
+
+function todayStamp(): string {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
 }

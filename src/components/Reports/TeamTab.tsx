@@ -6,9 +6,12 @@ import { SkeletonRows } from '../Skeleton';
 import QueryError from '../QueryError';
 import TeamPerformanceTable from './TeamPerformanceTable';
 import WorkloadBalance from './WorkloadBalance';
+import ExportCsvButton from '../shared/ExportCsvButton';
+import { rowsToCsv } from '../../lib/reportCsv';
 import {
   computeTeamMetrics,
   type TeamMetricsFilters,
+  type TeamMemberMetrics,
   type TeamRoleSelection,
 } from '../../lib/teamPerformance';
 
@@ -104,43 +107,57 @@ function Body({
   const activeTabLabel =
     ROLE_TABS.find((t) => t.id === role)?.pluralLabel ?? 'associates';
 
+  // fix-135-b: Export CSV uses the same `result.rows` that drive the
+  // TeamPerformanceTable below — every active filter (role, activeOnly,
+  // date range, juris, includeRedesigns) flows through automatically.
+  const csvFilename = `team-performance-${role}-${todayStamp()}.csv`;
+  const handleExport = (): string => buildTeamCsv(result.rows);
+
   return (
     <div className="space-y-3" data-testid="team-tab">
-      {/* Role selector — sub-sub-tabs. Same visual register as the
-          Reports tab bar above but in a lighter weight so the
-          hierarchy reads correctly. */}
-      <div
-        role="tablist"
-        aria-label="Team role"
-        className="flex items-center gap-2"
-        data-testid="team-role-tabs"
-      >
-        {ROLE_TABS.map((t) => {
-          const isActive = role === t.id;
-          return (
-            <button
-              key={t.id}
-              type="button"
-              role="tab"
-              aria-selected={isActive}
-              onClick={() => setRole(t.id)}
-              className="text-[11px] font-bold font-display px-3 py-1.5 rounded-md border transition"
-              style={{
-                background: isActive
-                  ? 'var(--color-de)'
-                  : 'var(--color-surface)',
-                color: isActive ? '#fff' : 'var(--color-muted)',
-                borderColor: isActive
-                  ? 'var(--color-de)'
-                  : 'var(--color-border)',
-              }}
-              data-testid={`team-role-tab-${t.id}`}
-              data-active={isActive ? 'true' : 'false'}
-            >
-              {t.label}
-            </button>
-          );
-        })}
+      {/* Role selector + Export CSV button sit on the same row — keeps
+          the export within the same visual register as the Reports
+          Overview tab's CSV button (top-right, header line). */}
+      <div className="flex items-center justify-between flex-wrap gap-2">
+        <div
+          role="tablist"
+          aria-label="Team role"
+          className="flex items-center gap-2"
+          data-testid="team-role-tabs"
+        >
+          {ROLE_TABS.map((t) => {
+            const isActive = role === t.id;
+            return (
+              <button
+                key={t.id}
+                type="button"
+                role="tab"
+                aria-selected={isActive}
+                onClick={() => setRole(t.id)}
+                className="text-[11px] font-bold font-display px-3 py-1.5 rounded-md border transition"
+                style={{
+                  background: isActive
+                    ? 'var(--color-de)'
+                    : 'var(--color-surface)',
+                  color: isActive ? '#fff' : 'var(--color-muted)',
+                  borderColor: isActive
+                    ? 'var(--color-de)'
+                    : 'var(--color-border)',
+                }}
+                data-testid={`team-role-tab-${t.id}`}
+                data-active={isActive ? 'true' : 'false'}
+              >
+                {t.label}
+              </button>
+            );
+          })}
+        </div>
+        <ExportCsvButton
+          filename={csvFilename}
+          onExport={handleExport}
+          disabled={result.rows.length === 0}
+          testId="team-export-csv-button"
+        />
       </div>
 
       {/* Filter row */}
@@ -248,4 +265,64 @@ function Body({
       )}
     </div>
   );
+}
+
+// fix-135-b: CSV column shape for the Team tab export. Mirrors the
+// TeamPerformanceTable column order so a user sorting by Projects in
+// the UI gets a spreadsheet whose column order matches what they were
+// looking at. Phase metrics emit empty strings (not "null") when the
+// associate had no data for that phase, so the spreadsheet's
+// downstream avg/sum formulas don't choke.
+const TEAM_CSV_COLUMNS = [
+  { key: 'name', label: 'Name' },
+  { key: 'role', label: 'Role' },
+  { key: 'active', label: 'Active' },
+  { key: 'projectCount', label: 'Projects' },
+  { key: 'unitCount', label: 'Units' },
+  { key: 'lotCount', label: 'Lots' },
+  { key: 'redesignProjectCount', label: 'Redesign Projects' },
+  { key: 'redesignUnitCount', label: 'Redesign Units' },
+  { key: 'redesignLotCount', label: 'Redesign Lots' },
+  { key: 'permitCount', label: 'Permits' },
+  { key: 'avgDdDays', label: 'DD Phase (d)' },
+  { key: 'avgCityReviewDays', label: 'City Review (d)' },
+  { key: 'avgCorrectionsCycles', label: 'Corrections (cycles)' },
+  { key: 'avgIssuanceDays', label: 'Issuance (d)' },
+];
+
+const ROLE_CSV_LABEL: Record<TeamRoleSelection, string> = {
+  da: 'Design Associate',
+  dm: 'Design Manager',
+  ent: 'Entitlement Lead',
+};
+
+function buildTeamCsv(rows: TeamMemberMetrics[]): string {
+  if (rows.length === 0) return '';
+  return rowsToCsv(
+    TEAM_CSV_COLUMNS,
+    rows.map((r) => ({
+      name: r.name,
+      role: ROLE_CSV_LABEL[r.role],
+      active: r.isActive ? 'Yes' : 'No',
+      projectCount: r.projectCount,
+      unitCount: r.unitCount,
+      lotCount: r.lotCount,
+      redesignProjectCount: r.redesignProjectCount,
+      redesignUnitCount: r.redesignUnitCount,
+      redesignLotCount: r.redesignLotCount,
+      permitCount: r.permitCount,
+      avgDdDays: r.avgDdDays ?? '',
+      avgCityReviewDays: r.avgCityReviewDays ?? '',
+      avgCorrectionsCycles: r.avgCorrectionsCycles ?? '',
+      avgIssuanceDays: r.avgIssuanceDays ?? '',
+    })),
+  );
+}
+
+function todayStamp(): string {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
 }

@@ -26,6 +26,8 @@ import {
   type TeamTrendsResult,
 } from '../lib/teamTrends';
 import MetricInfoTooltip from '../components/shared/MetricInfoTooltip';
+import ExportCsvButton from '../components/shared/ExportCsvButton';
+import { rowsToCsv } from '../lib/reportCsv';
 import { formatCompareNumber } from '../lib/comparisonCohort';
 import { TEAM_DETAIL_PHASE_METRICS } from '../lib/metricDefinitions';
 import { worstStage } from '../lib/libraryHelpers';
@@ -152,6 +154,18 @@ function Body({
     (m) => m.name === name && targetRoles.has(m.role) && m.active !== false,
   );
 
+  // fix-135-b: drill-down CSV export — the project list rows at the
+  // bottom of the page. The same buildRows() that drives ProjectList
+  // also drives the export, so a filter change flows through both
+  // surfaces simultaneously. Declared BEFORE the not-found early
+  // return so React Hooks call order is stable across renders.
+  const projectRows = useMemo(
+    () => buildRows(name, role, permits, projects),
+    [name, role, permits, projects],
+  );
+  const csvFilename = `${slugifyName(name)}-projects-${todayStamp()}.csv`;
+  const handleExport = (): string => buildDrilldownCsv(projectRows);
+
   if (!associate && !memberRosterMatch) {
     return (
       <div className="space-y-4" data-testid="team-detail-page">
@@ -176,15 +190,24 @@ function Body({
 
   return (
     <div className="space-y-4" data-testid="team-detail-page">
-      {/* Back link — preserves the role so Team tab opens on the right
-          sub-tab when the user clicks back. */}
-      <div data-testid="team-detail-back">
-        <Link
-          to={`/reports?tab=team`}
-          className="text-xs font-bold text-de hover:underline"
-        >
-          ← Team Performance
-        </Link>
+      {/* Back link + Export CSV — share the page header line so the
+          export button sits in the same visual position as on the
+          Team tab. */}
+      <div className="flex items-center justify-between flex-wrap gap-2">
+        <div data-testid="team-detail-back">
+          <Link
+            to={`/reports?tab=team`}
+            className="text-xs font-bold text-de hover:underline"
+          >
+            ← Team Performance
+          </Link>
+        </div>
+        <ExportCsvButton
+          filename={csvFilename}
+          onExport={handleExport}
+          disabled={projectRows.length === 0}
+          testId="team-detail-export-csv-button"
+        />
       </div>
 
       {/* Header — large name + role chip + active/inactive chip. */}
@@ -1121,4 +1144,55 @@ function TrendChart({
       )}
     </div>
   );
+}
+
+// ============================================================
+// fix-135-b: CSV export helpers
+// ============================================================
+
+const DRILLDOWN_CSV_COLUMNS = [
+  { key: 'address', label: 'Project Address' },
+  { key: 'juris', label: 'Juris' },
+  { key: 'types', label: 'Permit Types' },
+  { key: 'stage', label: 'Stage' },
+  { key: 'goDate', label: 'GO Date' },
+  { key: 'targetSubmit', label: 'Target Submit' },
+  { key: 'approvalDate', label: 'Approval Date' },
+  { key: 'isRedesign', label: 'Redesign?' },
+];
+
+function buildDrilldownCsv(rows: ProjectListRow[]): string {
+  if (rows.length === 0) return '';
+  return rowsToCsv(
+    DRILLDOWN_CSV_COLUMNS,
+    rows.map((r) => ({
+      address: r.address,
+      juris: r.juris,
+      // Permit types: comma-joined string lands in a single cell;
+      // rowsToCsv quotes the cell automatically because of the comma.
+      types: r.types.join(', '),
+      stage: STAGE_LABEL[r.stage] ?? r.stage,
+      goDate: r.goDate ?? '',
+      targetSubmit: r.targetSubmit ?? '',
+      approvalDate: r.approvalDate ?? '',
+      isRedesign: r.isRedesign ? 'Yes' : 'No',
+    })),
+  );
+}
+
+function slugifyName(name: string): string {
+  const slug = name
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+  return slug || 'associate';
+}
+
+function todayStamp(): string {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
 }

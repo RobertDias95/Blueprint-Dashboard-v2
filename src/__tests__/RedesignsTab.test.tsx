@@ -288,4 +288,71 @@ describe('<RedesignsTab /> — fix-134-b', () => {
     expect(screen.queryByTestId('redesigns-kpi-row')).toBeNull();
     expect(screen.queryByTestId('redesigns-builder-leaderboard')).toBeNull();
   });
+
+  // ============================================================
+  // fix-135-b: Export CSV button on the Redesigns tab
+  // ============================================================
+  describe('Export CSV button (fix-135-b)', () => {
+    let createObjectURLSpy: ReturnType<typeof vi.fn>;
+    let clickSpy: ReturnType<typeof vi.spyOn>;
+    let aHrefSpy: ReturnType<typeof vi.spyOn>;
+    let aDownloadSpy: ReturnType<typeof vi.spyOn>;
+    let capturedDownload = '';
+
+    beforeEach(() => {
+      capturedDownload = '';
+      createObjectURLSpy = vi.fn(() => 'blob:fake-url');
+      (URL as unknown as { createObjectURL: typeof URL.createObjectURL }).createObjectURL =
+        createObjectURLSpy as unknown as typeof URL.createObjectURL;
+      (URL as unknown as { revokeObjectURL: typeof URL.revokeObjectURL }).revokeObjectURL =
+        vi.fn() as unknown as typeof URL.revokeObjectURL;
+      clickSpy = vi
+        .spyOn(HTMLAnchorElement.prototype, 'click')
+        .mockImplementation(() => {});
+      aHrefSpy = vi
+        .spyOn(HTMLAnchorElement.prototype, 'href', 'set')
+        .mockImplementation(() => {});
+      aDownloadSpy = vi
+        .spyOn(HTMLAnchorElement.prototype, 'download', 'set')
+        .mockImplementation(function (this: HTMLAnchorElement, v: string) {
+          capturedDownload = v;
+        });
+    });
+    afterEach(() => {
+      clickSpy.mockRestore();
+      aHrefSpy.mockRestore();
+      aDownloadSpy.mockRestore();
+    });
+
+    it('renders the Export CSV button in the page header', () => {
+      renderRedesigns();
+      const btn = screen.getByTestId('redesigns-export-csv-button');
+      expect(btn).toBeInTheDocument();
+      expect(btn.textContent).toContain('Export CSV');
+      expect(btn.getAttribute('data-disabled')).toBe('false');
+    });
+
+    it('clicking downloads redesigns-{today}.csv', () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date(2026, 5, 8));
+      renderRedesigns();
+      fireEvent.click(screen.getByTestId('redesigns-export-csv-button'));
+      expect(capturedDownload).toBe('redesigns-2026-06-08.csv');
+      expect(createObjectURLSpy).toHaveBeenCalledTimes(1);
+      vi.useRealTimers();
+    });
+
+    it('button disabled when no redesigns match the filter', () => {
+      renderRedesigns();
+      fireEvent.change(screen.getByTestId('redesigns-filter-from'), {
+        target: { value: '2099-01-01' },
+      });
+      fireEvent.change(screen.getByTestId('redesigns-filter-to'), {
+        target: { value: '2099-12-31' },
+      });
+      const btn = screen.getByTestId('redesigns-export-csv-button');
+      expect(btn).toBeDisabled();
+      expect(btn.getAttribute('title')).toBe('Nothing to export.');
+    });
+  });
 });

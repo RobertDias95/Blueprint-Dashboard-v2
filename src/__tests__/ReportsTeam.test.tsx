@@ -631,4 +631,87 @@ describe('<Reports /> Team tab — fix-127', () => {
       ).toBeInTheDocument();
     });
   });
+
+  // ============================================================
+  // fix-135-b: Export CSV button on the Team tab
+  // ============================================================
+  describe('Export CSV button (fix-135-b)', () => {
+    let createObjectURLSpy: ReturnType<typeof vi.fn>;
+    let clickSpy: ReturnType<typeof vi.spyOn>;
+    let aHrefSpy: ReturnType<typeof vi.spyOn>;
+    let aDownloadSpy: ReturnType<typeof vi.spyOn>;
+    let capturedDownload = '';
+
+    beforeEach(() => {
+      capturedDownload = '';
+      createObjectURLSpy = vi.fn(() => 'blob:fake-url');
+      (URL as unknown as { createObjectURL: typeof URL.createObjectURL }).createObjectURL =
+        createObjectURLSpy as unknown as typeof URL.createObjectURL;
+      (URL as unknown as { revokeObjectURL: typeof URL.revokeObjectURL }).revokeObjectURL =
+        vi.fn() as unknown as typeof URL.revokeObjectURL;
+      clickSpy = vi
+        .spyOn(HTMLAnchorElement.prototype, 'click')
+        .mockImplementation(() => {});
+      aHrefSpy = vi
+        .spyOn(HTMLAnchorElement.prototype, 'href', 'set')
+        .mockImplementation(() => {});
+      aDownloadSpy = vi
+        .spyOn(HTMLAnchorElement.prototype, 'download', 'set')
+        .mockImplementation(function (this: HTMLAnchorElement, v: string) {
+          capturedDownload = v;
+        });
+    });
+    afterEach(() => {
+      clickSpy.mockRestore();
+      aHrefSpy.mockRestore();
+      aDownloadSpy.mockRestore();
+    });
+
+    it('renders the Export CSV button on the Team tab next to the role tabs', () => {
+      renderTeam();
+      const btn = screen.getByTestId('team-export-csv-button');
+      expect(btn).toBeInTheDocument();
+      expect(btn.textContent).toContain('Export CSV');
+      // Enabled when there are rows (Trevor + Ainsley = 2 rows).
+      expect(btn.getAttribute('data-disabled')).toBe('false');
+    });
+
+    it('clicking Export CSV downloads team-performance-da-{today}.csv with 2 data rows', () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date(2026, 5, 8)); // 2026-06-08
+      renderTeam();
+      const btn = screen.getByTestId('team-export-csv-button');
+      fireEvent.click(btn);
+      // Filename is set on the anchor's `download` attribute.
+      expect(capturedDownload).toBe('team-performance-da-2026-06-08.csv');
+      // Browser was asked to start a download.
+      expect(createObjectURLSpy).toHaveBeenCalledTimes(1);
+      expect(clickSpy).toHaveBeenCalledTimes(1);
+      vi.useRealTimers();
+    });
+
+    it('switching role to ent bakes the role slug into the filename', () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date(2026, 5, 8));
+      renderTeam();
+      fireEvent.click(screen.getByTestId('team-role-tab-ent'));
+      fireEvent.click(screen.getByTestId('team-export-csv-button'));
+      expect(capturedDownload).toBe('team-performance-ent-2026-06-08.csv');
+      vi.useRealTimers();
+    });
+
+    it('empty cohort → button disabled with the "Nothing to export." title', () => {
+      renderTeam();
+      // Narrow the date filter to an impossible window so result.rows = [].
+      fireEvent.change(screen.getByTestId('team-filter-from'), {
+        target: { value: '2099-01-01' },
+      });
+      fireEvent.change(screen.getByTestId('team-filter-to'), {
+        target: { value: '2099-12-31' },
+      });
+      const btn = screen.getByTestId('team-export-csv-button');
+      expect(btn).toBeDisabled();
+      expect(btn.getAttribute('title')).toBe('Nothing to export.');
+    });
+  });
 });
