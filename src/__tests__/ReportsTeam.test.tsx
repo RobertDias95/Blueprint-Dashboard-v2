@@ -547,4 +547,88 @@ describe('<Reports /> Team tab — fix-127', () => {
     expect(screen.getByTestId('reports-panel-trends')).toBeInTheDocument();
     expect(screen.queryByTestId('team-tab')).toBeNull();
   });
+
+  // ============================================================
+  // fix-133-b: WorkloadBalance section
+  // ============================================================
+  describe('WorkloadBalance section', () => {
+    it('renders above the TeamPerformanceTable on the DA tab', () => {
+      renderTeam();
+      const balance = screen.getByTestId('team-workload-balance');
+      const table = screen.getByTestId('team-performance-table');
+      expect(balance).toBeInTheDocument();
+      // DOM order: workload first, then the historical table.
+      const cmp = balance.compareDocumentPosition(table);
+      // compareDocumentPosition returns DOCUMENT_POSITION_FOLLOWING (4)
+      // when `table` follows `balance`.
+      expect(cmp & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    });
+
+    it('each visible associate gets a workload row + total label', () => {
+      renderTeam();
+      // Default DA cohort post-active-only = Trevor + Ainsley.
+      // Trevor's permits are mostly closed in the fixture (actual_issue
+      // or approval_date set) so his open count is 1 (permit 3 — the
+      // redesign perm, in design via dd_start with no approval).
+      // Ainsley's permit 4 has dd_start + no approval → in design too.
+      expect(
+        screen.getByTestId('team-workload-row-Trevor'),
+      ).toBeInTheDocument();
+      expect(
+        screen.getByTestId('team-workload-row-Ainsley'),
+      ).toBeInTheDocument();
+      // Cam is filtered out by activeOnly.
+      expect(screen.queryByTestId('team-workload-row-Cam')).toBeNull();
+      // Total label present per visible row.
+      expect(
+        screen.getByTestId('team-workload-row-Trevor-total'),
+      ).toBeInTheDocument();
+      expect(
+        screen.getByTestId('team-workload-row-Ainsley-total'),
+      ).toBeInTheDocument();
+    });
+
+    it('team avg label is shown when rows exist', () => {
+      renderTeam();
+      const avg = screen.getByTestId('team-workload-team-avg');
+      expect(avg).toBeInTheDocument();
+      // Trevor has 1 open (redesign perm), Ainsley has 1 open → avg = 1.
+      expect(avg.textContent).toMatch(/Team avg: 1 open/);
+    });
+
+    it('associate name in the workload row links to the drill-down', () => {
+      renderTeam();
+      const link = screen.getByTestId('team-workload-row-Trevor-link');
+      expect(link.tagName).toBe('A');
+      expect(link.getAttribute('href')).toBe('/reports/team/Trevor?role=da');
+    });
+
+    it('switching role updates the workload rows + drill-down href role param', () => {
+      renderTeam();
+      fireEvent.click(screen.getByTestId('team-role-tab-ent'));
+      // Bobby is ENT in the roster but has no OPEN permits in the
+      // fixture (permit 1's actual_issue is set → effectiveStage=is →
+      // out of the open bucket). So WorkloadBalance shows its empty
+      // state under ENT.
+      expect(screen.getByTestId('team-workload-empty')).toBeInTheDocument();
+      expect(
+        screen.getByTestId('team-workload-empty').textContent,
+      ).toMatch(/No active Entitlement Leads in the current filter\./);
+    });
+
+    it('non-regression: TeamPerformanceTable + filter bar still render alongside', () => {
+      renderTeam();
+      expect(screen.getByTestId('team-filter-bar')).toBeInTheDocument();
+      expect(screen.getByTestId('team-performance-table')).toBeInTheDocument();
+      expect(screen.getByTestId('team-row-Trevor')).toBeInTheDocument();
+      expect(screen.getByTestId('team-workload-balance')).toBeInTheDocument();
+    });
+
+    it('MetricInfoTooltip on the section header is wired with slug "team-workload"', () => {
+      renderTeam();
+      expect(
+        screen.getByTestId('metric-tooltip-trigger-team-workload'),
+      ).toBeInTheDocument();
+    });
+  });
 });
