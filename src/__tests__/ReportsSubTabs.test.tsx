@@ -19,6 +19,12 @@ vi.mock('../components/Reports/ReportsOverviewTab', () => ({
 vi.mock('../pages/Trends', () => ({
   default: () => <div data-testid="trends-stub">TRENDS</div>,
 }));
+vi.mock('../components/Reports/TeamTab', () => ({
+  default: () => <div data-testid="team-stub">TEAM</div>,
+}));
+vi.mock('../components/Reports/RedesignsTab', () => ({
+  default: () => <div data-testid="redesigns-stub">REDESIGNS</div>,
+}));
 
 import Reports from '../pages/Reports';
 
@@ -64,14 +70,39 @@ describe('Reports sub-tabs (fix-trends-subtab)', () => {
     expect(screen.queryByTestId('trends-stub')).toBeNull();
   });
 
-  it('is a tablist with three tabs (a11y roles)', () => {
-    // fix-127 added a third "Team" tab. The tablist contract (role,
-    // tab count) updates here; the per-tab keyboard + click flows are
-    // covered by the surrounding tests + ReportsTeam.test.tsx.
+  it('is a tablist with four tabs (a11y roles)', () => {
+    // fix-127 added a third "Team" tab. fix-134 added a fourth
+    // "Redesigns" tab. The tablist contract (role, tab count) updates
+    // here; the per-tab keyboard + click flows are covered by the
+    // surrounding tests + ReportsTeam.test.tsx + RedesignsTab.test.tsx.
     renderAt('/reports');
     const list = screen.getByTestId('reports-subtab-bar');
     expect(list).toHaveAttribute('role', 'tablist');
-    expect(screen.getAllByRole('tab')).toHaveLength(3);
+    expect(screen.getAllByRole('tab')).toHaveLength(4);
+    // Order: Overview / Trends / Team / Redesigns.
+    expect(screen.getByTestId('reports-tab-overview')).toBeInTheDocument();
+    expect(screen.getByTestId('reports-tab-trends')).toBeInTheDocument();
+    expect(screen.getByTestId('reports-tab-team')).toBeInTheDocument();
+    expect(screen.getByTestId('reports-tab-redesigns')).toBeInTheDocument();
+  });
+
+  it('?tab=redesigns selects the Redesigns tab and renders its body', () => {
+    renderAt('/reports?tab=redesigns');
+    expect(screen.getByTestId('reports-tab-redesigns')).toHaveAttribute(
+      'aria-selected',
+      'true',
+    );
+    expect(screen.getByTestId('redesigns-stub')).toBeInTheDocument();
+    expect(screen.queryByTestId('overview-stub')).toBeNull();
+  });
+
+  it('clicking Redesigns updates the URL to ?tab=redesigns', () => {
+    renderAt('/reports');
+    fireEvent.click(screen.getByTestId('reports-tab-redesigns'));
+    expect(screen.getByTestId('loc').textContent).toBe(
+      '/reports?tab=redesigns',
+    );
+    expect(screen.getByTestId('redesigns-stub')).toBeInTheDocument();
   });
 
   it('clicking Trends updates the URL to ?tab=trends and shows Trends content', () => {
