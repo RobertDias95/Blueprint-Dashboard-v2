@@ -553,4 +553,66 @@ describe('<ReportsTeamDetail /> fix-131', () => {
       ).toBeInTheDocument();
     });
   });
+
+  // ============================================================
+  // fix-135-b: Export CSV button on the drill-down page
+  // ============================================================
+  describe('Export CSV button (fix-135-b)', () => {
+    let createObjectURLSpy: ReturnType<typeof vi.fn>;
+    let clickSpy: ReturnType<typeof vi.spyOn>;
+    let aHrefSpy: ReturnType<typeof vi.spyOn>;
+    let aDownloadSpy: ReturnType<typeof vi.spyOn>;
+    let capturedDownload = '';
+
+    beforeEach(() => {
+      capturedDownload = '';
+      createObjectURLSpy = vi.fn(() => 'blob:fake-url');
+      (URL as unknown as { createObjectURL: typeof URL.createObjectURL }).createObjectURL =
+        createObjectURLSpy as unknown as typeof URL.createObjectURL;
+      (URL as unknown as { revokeObjectURL: typeof URL.revokeObjectURL }).revokeObjectURL =
+        vi.fn() as unknown as typeof URL.revokeObjectURL;
+      clickSpy = vi
+        .spyOn(HTMLAnchorElement.prototype, 'click')
+        .mockImplementation(() => {});
+      aHrefSpy = vi
+        .spyOn(HTMLAnchorElement.prototype, 'href', 'set')
+        .mockImplementation(() => {});
+      aDownloadSpy = vi
+        .spyOn(HTMLAnchorElement.prototype, 'download', 'set')
+        .mockImplementation(function (this: HTMLAnchorElement, v: string) {
+          capturedDownload = v;
+        });
+    });
+    afterEach(() => {
+      clickSpy.mockRestore();
+      aHrefSpy.mockRestore();
+      aDownloadSpy.mockRestore();
+    });
+
+    it('renders the Export CSV button next to the back link', () => {
+      renderAt('/reports/team/Trevor?role=da');
+      const btn = screen.getByTestId('team-detail-export-csv-button');
+      expect(btn).toBeInTheDocument();
+      expect(btn.textContent).toContain('Export CSV');
+      // Trevor has 7 projects in this fixture → enabled.
+      expect(btn.getAttribute('data-disabled')).toBe('false');
+    });
+
+    it('clicking downloads {slug}-projects-{today}.csv', () => {
+      vi.setSystemTime(new Date(2026, 5, 8));
+      renderAt('/reports/team/Trevor?role=da');
+      fireEvent.click(
+        screen.getByTestId('team-detail-export-csv-button'),
+      );
+      expect(capturedDownload).toBe('trevor-projects-2026-06-08.csv');
+      expect(createObjectURLSpy).toHaveBeenCalledTimes(1);
+    });
+
+    it('associate with no credited projects → disabled button', () => {
+      renderAt('/reports/team/Cam?role=da');
+      const btn = screen.getByTestId('team-detail-export-csv-button');
+      expect(btn).toBeDisabled();
+      expect(btn.getAttribute('title')).toBe('Nothing to export.');
+    });
+  });
 });

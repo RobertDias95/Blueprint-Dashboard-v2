@@ -154,6 +154,18 @@ function Body({
     (m) => m.name === name && targetRoles.has(m.role) && m.active !== false,
   );
 
+  // fix-135-b: drill-down CSV export — the project list rows at the
+  // bottom of the page. The same buildRows() that drives ProjectList
+  // also drives the export, so a filter change flows through both
+  // surfaces simultaneously. Declared BEFORE the not-found early
+  // return so React Hooks call order is stable across renders.
+  const projectRows = useMemo(
+    () => buildRows(name, role, permits, projects),
+    [name, role, permits, projects],
+  );
+  const csvFilename = `${slugifyName(name)}-projects-${todayStamp()}.csv`;
+  const handleExport = (): string => buildDrilldownCsv(projectRows);
+
   if (!associate && !memberRosterMatch) {
     return (
       <div className="space-y-4" data-testid="team-detail-page">
@@ -175,17 +187,6 @@ function Body({
       </div>
     );
   }
-
-  // fix-135-b: drill-down CSV export — the project list rows at the
-  // bottom of the page. The same buildRows() that drives ProjectList
-  // also drives the export, so a filter change in the URL flows
-  // through both surfaces simultaneously.
-  const projectRows = useMemo(
-    () => buildRows(name, role, permits, projects),
-    [name, role, permits, projects],
-  );
-  const csvFilename = `${slugifyName(name)}-projects-${todayStamp()}.csv`;
-  const handleExport = (): string => buildDrilldownCsv(projectRows);
 
   return (
     <div className="space-y-4" data-testid="team-detail-page">
