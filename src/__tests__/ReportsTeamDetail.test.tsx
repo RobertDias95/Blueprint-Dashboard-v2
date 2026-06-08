@@ -424,4 +424,133 @@ describe('<ReportsTeamDetail /> fix-131', () => {
       );
     });
   });
+
+  // ============================================================
+  // 132-b: phase trend charts
+  // ============================================================
+  describe('PhaseTrends', () => {
+    it('renders the section header with the range tablist + all 4 chart cards', () => {
+      renderAt('/reports/team/Trevor?role=da');
+      expect(
+        screen.getByTestId('team-detail-phase-trends'),
+      ).toBeInTheDocument();
+      // Range tablist with 4 options.
+      expect(
+        screen.getByTestId('team-detail-trend-range-3'),
+      ).toBeInTheDocument();
+      expect(
+        screen.getByTestId('team-detail-trend-range-6'),
+      ).toBeInTheDocument();
+      expect(
+        screen.getByTestId('team-detail-trend-range-12'),
+      ).toBeInTheDocument();
+      expect(
+        screen.getByTestId('team-detail-trend-range-24'),
+      ).toBeInTheDocument();
+      // 4 chart cards.
+      expect(
+        screen.getByTestId('team-detail-trend-dd'),
+      ).toBeInTheDocument();
+      expect(
+        screen.getByTestId('team-detail-trend-city-review'),
+      ).toBeInTheDocument();
+      expect(
+        screen.getByTestId('team-detail-trend-corrections'),
+      ).toBeInTheDocument();
+      expect(
+        screen.getByTestId('team-detail-trend-issuance'),
+      ).toBeInTheDocument();
+    });
+
+    it('default range = 6 months (only one tab is active)', () => {
+      renderAt('/reports/team/Trevor?role=da');
+      expect(
+        screen
+          .getByTestId('team-detail-trend-range-6')
+          .getAttribute('data-active'),
+      ).toBe('true');
+      expect(
+        screen
+          .getByTestId('team-detail-trend-range-3')
+          .getAttribute('data-active'),
+      ).toBe('false');
+      expect(
+        screen
+          .getByTestId('team-detail-trend-range-12')
+          .getAttribute('data-active'),
+      ).toBe('false');
+      expect(
+        screen
+          .getByTestId('team-detail-trend-range-24')
+          .getAttribute('data-active'),
+      ).toBe('false');
+    });
+
+    it('clicking a range button swaps the active selection', () => {
+      renderAt('/reports/team/Trevor?role=da');
+      fireEvent.click(screen.getByTestId('team-detail-trend-range-12'));
+      expect(
+        screen
+          .getByTestId('team-detail-trend-range-12')
+          .getAttribute('data-active'),
+      ).toBe('true');
+      expect(
+        screen
+          .getByTestId('team-detail-trend-range-6')
+          .getAttribute('data-active'),
+      ).toBe('false');
+    });
+
+    it('all 4 charts carry a MetricInfoTooltip for the metric header', () => {
+      renderAt('/reports/team/Trevor?role=da');
+      // Tooltip triggers live inside each chart card. Slugs derived
+      // from `team-trend-${metricKey}` (see TrendChart).
+      expect(
+        screen.getByTestId('metric-tooltip-trigger-team-trend-avgDdDays'),
+      ).toBeInTheDocument();
+      expect(
+        screen.getByTestId(
+          'metric-tooltip-trigger-team-trend-avgCityReviewDays',
+        ),
+      ).toBeInTheDocument();
+      expect(
+        screen.getByTestId(
+          'metric-tooltip-trigger-team-trend-avgCorrectionsCycles',
+        ),
+      ).toBeInTheDocument();
+      expect(
+        screen.getByTestId(
+          'metric-tooltip-trigger-team-trend-avgIssuanceDays',
+        ),
+      ).toBeInTheDocument();
+    });
+
+    it('empty state fires on phases where the associate has no data', () => {
+      // Trevor's redesign permits (tr1, tr2) have no DD endpoints. His
+      // BPs do (avg 30d), so DD has data → no empty state. But Issuance:
+      // Trevor's BPs have approval_date set but no actual_issue → no
+      // issuance data points anywhere → empty.
+      renderAt('/reports/team/Trevor?role=da');
+      expect(
+        screen.getByTestId('team-detail-trend-issuance-empty'),
+      ).toBeInTheDocument();
+      expect(
+        screen.getByTestId('team-detail-trend-issuance-empty').textContent,
+      ).toMatch(/Not enough data in the 6 month window/);
+    });
+
+    it('snapshot phase cards + project list still render alongside the trends (additive)', () => {
+      renderAt('/reports/team/Trevor?role=da');
+      // 131-c snapshot still present.
+      expect(screen.getByTestId('team-detail-phase-dd')).toBeInTheDocument();
+      // 131-d project list still present.
+      expect(
+        screen.getByTestId('team-detail-project-list'),
+      ).toBeInTheDocument();
+      // 132-b trends sandwiched in between.
+      expect(
+        screen.getByTestId('team-detail-phase-trends'),
+      ).toBeInTheDocument();
+    });
+  });
 });
