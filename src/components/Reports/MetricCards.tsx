@@ -31,18 +31,23 @@ function tip(slug: keyof typeof REPORTS_OVERVIEW_METRICS) {
 //   - co/overdue for late/overdue signals
 //   - pm for done/approved signals
 //
-// fix-115-c: optional period-comparison row under select numeric cards.
-// Wired only on cards where a single-number comparison reads cleanly:
+// fix-115-c → fix-140-c: optional period-comparison row on every numeric
+// card. All 12 tiles now thread the same comparison props (currentNumeric,
+// comparisonNumeric, comparisonValueText, comparisonLabel, direction,
+// splitProps); when compareTo + range are both set the cards swap to
+// KpiSplitView. Direction per metric:
 //   - Total Permits          (higher_better)
 //   - Submit Variance        (neutral — early/late doesn't map cleanly)
+//   - Avg GO → Submit        (lower_better)
+//   - Avg GO → DD Start      (lower_better)
 //   - Avg City Review        (lower_better)
+//   - Avg Permit Timeline    (lower_better — same metric as City Review)
+//   - Avg Submit → Intake    (lower_better)
 //   - Avg Correction Cycles  (lower_better)
 //   - In Corrections         (lower_better)
-// Skipped: "{n} units across projects" lives as Total Permits' subText
-// (single-line copy doesn't carry a second numeric naturally); "{n} of
-// {total} issued" subText on In Corrections (the n/total format breaks
-// dual-rendering); GO→DD / GO→Submit / DD Duration / DD→Submit / Schedule
-// Variance / Avg Submit → Intake (not in the fix-115-c brief's list).
+//   - Avg Schedule Var.      (neutral — early/late ambiguity)
+//   - Avg DD Duration        (lower_better)
+//   - Avg DD → Submit        (lower_better)
 
 export default function MetricCards({
   metrics,
@@ -159,6 +164,16 @@ export default function MetricCards({
         subText="D&E phase average"
         tone="de"
         testId="metric-go-to-submit"
+        currentNumeric={metrics.avgGoToSubmit}
+        comparisonNumeric={cmp?.avgGoToSubmit ?? null}
+        comparisonValueText={
+          cmp?.avgGoToSubmit === null || cmp?.avgGoToSubmit === undefined
+            ? undefined
+            : `${cmp.avgGoToSubmit}d`
+        }
+        comparisonLabel={cmpLabel}
+        comparisonDirection="lower_better"
+        {...splitProps}
       />
 
       {/* 4. AVG GO → DD START — conditional */}
@@ -171,6 +186,16 @@ export default function MetricCards({
           subText="GO to design start"
           tone="de"
           testId="metric-go-to-dd-start"
+          currentNumeric={metrics.avgGoToDDStart}
+          comparisonNumeric={cmp?.avgGoToDDStart ?? null}
+          comparisonValueText={
+            cmp?.avgGoToDDStart === null || cmp?.avgGoToDDStart === undefined
+              ? undefined
+              : `${cmp.avgGoToDDStart}d`
+          }
+          comparisonLabel={cmpLabel}
+          comparisonDirection="lower_better"
+          {...splitProps}
         />
       )}
 
@@ -195,6 +220,31 @@ export default function MetricCards({
         {...splitProps}
       />
 
+      {/* 5b. AVG PERMIT TIMELINE — Bobby's preferred framing for the
+          same canonical intake → approval clock. fix-140-b: surfaces
+          the same metrics.avgCityReview number under a different label;
+          no second computation, no risk of drift. Final-merge decision
+          on whether to keep both tiles or consolidate sits with Bobby. */}
+      <MetricCard
+        label="Avg Permit Timeline"
+        labelSlot={tip('avgPermitTimeline')}
+        value={metrics.avgCityReview ?? '—'}
+        unit={metrics.avgCityReview !== null ? 'd' : undefined}
+        subText="intake accepted → approval"
+        tone="pm"
+        testId="metric-permit-timeline"
+        currentNumeric={metrics.avgCityReview}
+        comparisonNumeric={cmp?.avgCityReview ?? null}
+        comparisonValueText={
+          cmp?.avgCityReview === null || cmp?.avgCityReview === undefined
+            ? undefined
+            : `${cmp.avgCityReview}d`
+        }
+        comparisonLabel={cmpLabel}
+        comparisonDirection="lower_better"
+        {...splitProps}
+      />
+
       {/* 6. AVG SUBMIT → INTAKE — conditional, color-coded */}
       {s2i !== null && (
         <MetricCard
@@ -205,6 +255,17 @@ export default function MetricCards({
           subText="submit → city accepted intake"
           tone={s2iTone}
           testId="metric-submit-to-intake"
+          currentNumeric={s2i}
+          comparisonNumeric={cmp?.avgSubmitToIntake ?? null}
+          comparisonValueText={
+            cmp?.avgSubmitToIntake === null ||
+            cmp?.avgSubmitToIntake === undefined
+              ? undefined
+              : `${cmp.avgSubmitToIntake}d`
+          }
+          comparisonLabel={cmpLabel}
+          comparisonDirection="lower_better"
+          {...splitProps}
         />
       )}
 
@@ -267,6 +328,19 @@ export default function MetricCards({
         }
         tone={scheduleVarTone}
         testId="metric-schedule-variance"
+        currentNumeric={scheduleVar}
+        comparisonNumeric={cmp?.avgScheduleVariance ?? null}
+        comparisonValueText={
+          cmp?.avgScheduleVariance === null ||
+          cmp?.avgScheduleVariance === undefined
+            ? undefined
+            : `${cmp.avgScheduleVariance > 0 ? '+' : ''}${cmp.avgScheduleVariance}d`
+        }
+        comparisonLabel={cmpLabel}
+        // Neutral — for schedule variance, "early" vs "late" doesn't map
+        // cleanly to "good" vs "bad" across teams + project types.
+        comparisonDirection="neutral"
+        {...splitProps}
       />
 
       {/* 10. AVG DD DURATION — conditional */}
@@ -279,6 +353,16 @@ export default function MetricCards({
           subText="DD Start → DD End"
           tone="de"
           testId="metric-dd-duration"
+          currentNumeric={metrics.avgDDDuration}
+          comparisonNumeric={cmp?.avgDDDuration ?? null}
+          comparisonValueText={
+            cmp?.avgDDDuration === null || cmp?.avgDDDuration === undefined
+              ? undefined
+              : `${cmp.avgDDDuration}d`
+          }
+          comparisonLabel={cmpLabel}
+          comparisonDirection="lower_better"
+          {...splitProps}
         />
       )}
 
@@ -292,6 +376,17 @@ export default function MetricCards({
           subText="DD End to permit intake"
           tone="co"
           testId="metric-dd-end-to-submit"
+          currentNumeric={metrics.avgDDEndToSubmit}
+          comparisonNumeric={cmp?.avgDDEndToSubmit ?? null}
+          comparisonValueText={
+            cmp?.avgDDEndToSubmit === null ||
+            cmp?.avgDDEndToSubmit === undefined
+              ? undefined
+              : `${cmp.avgDDEndToSubmit}d`
+          }
+          comparisonLabel={cmpLabel}
+          comparisonDirection="lower_better"
+          {...splitProps}
         />
       )}
     </div>
