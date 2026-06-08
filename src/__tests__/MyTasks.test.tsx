@@ -269,10 +269,17 @@ describe('MyTasks (fix-80 v1 three-pane kanban)', () => {
     expect(screen.getByTestId('mytask-card-pm-resolved-past')).toBeInTheDocument();
   });
 
-  it('clicking a card populates the Task Detail pane with the task\'s details', () => {
+  it('empty state copy: "Select a task to view details." renders when no card is clicked', () => {
     tasksRef.current = varied();
     renderIt();
-    // Empty state first.
+    const empty = screen.getByTestId('mytasks-detail-empty');
+    expect(empty).toBeInTheDocument();
+    expect(empty.textContent).toMatch(/Select a task to view details/);
+  });
+
+  it('clicking a card populates the Task Detail pane with the task\'s details (v1-restored 9 fields)', () => {
+    tasksRef.current = varied();
+    renderIt();
     expect(screen.getByTestId('mytasks-detail-empty')).toBeInTheDocument();
     fireEvent.click(screen.getByTestId('mytask-card-de-inprog'));
     expect(screen.queryByTestId('mytasks-detail-empty')).toBeNull();
@@ -281,31 +288,150 @@ describe('MyTasks (fix-80 v1 three-pane kanban)', () => {
       detail.querySelector('[data-testid="mytasks-detail-text"]')?.textContent,
     ).toBe('Address ECA corrections');
     expect(
-      (
-        screen.getByTestId('mytasks-detail-status-select') as HTMLSelectElement
-      ).value,
-    ).toBe('In Progress');
-    expect(
       screen.getByTestId('mytasks-detail-discipline').textContent,
     ).toMatch(/entitlements/i);
     expect(
       screen.getByTestId('mytasks-detail-bucket').textContent,
     ).toMatch(/D&E/);
+    // fix-138-c: all 9 v1 field controls are rendered.
+    expect(screen.getByTestId('task-detail-project')).toBeInTheDocument();
+    expect(screen.getByTestId('task-detail-permit')).toBeInTheDocument();
+    expect(screen.getByTestId('task-detail-assigned')).toBeInTheDocument();
+    expect(screen.getByTestId('task-detail-waiting-on')).toBeInTheDocument();
+    expect(screen.getByTestId('task-detail-priority')).toBeInTheDocument();
+    expect(screen.getByTestId('task-detail-start')).toBeInTheDocument();
+    expect(screen.getByTestId('task-detail-target')).toBeInTheDocument();
+    expect(screen.getByTestId('task-detail-completed')).toBeInTheDocument();
+    expect(screen.getByTestId('task-detail-notes')).toBeInTheDocument();
+    expect(
+      screen.getByTestId('task-detail-open-project'),
+    ).toBeInTheDocument();
   });
 
-  it('changing status in the detail pane fires useUpsertTask with the new status', () => {
-    tasksRef.current = varied();
+  it('fix-138-c: fixture task with waiting_on="Civil" shows "Civil" preselected; changing to "Structural" fires the upsert RPC with waiting_on="Structural"', () => {
+    tasksRef.current = [
+      task({
+        id: 'civil-blocked',
+        bucket: 'de',
+        discipline: 'ent',
+        status: 'In Progress',
+        text: 'Need updated civil drawings',
+        waiting_on: 'Civil',
+      }),
+    ];
     renderIt();
-    fireEvent.click(screen.getByTestId('mytask-card-de-inprog'));
-    fireEvent.change(screen.getByTestId('mytasks-detail-status-select'), {
-      target: { value: 'Resolved' },
+    fireEvent.click(screen.getByTestId('mytask-card-civil-blocked'));
+    const waitingSelect = screen.getByTestId(
+      'task-detail-waiting-on',
+    ) as HTMLSelectElement;
+    expect(waitingSelect.value).toBe('Civil');
+    // Change → upsert fires with the new value.
+    fireEvent.change(waitingSelect, { target: { value: 'Structural' } });
+    expect(upsertMutate).toHaveBeenCalledTimes(1);
+    expect(upsertMutate.mock.calls[0][0]).toMatchObject({
+      id: 'civil-blocked',
+      waitingOn: 'Structural',
+    });
+  });
+
+  it('Waiting On set to "—" (empty) → upsert fires with clearWaitingOn=true', () => {
+    tasksRef.current = [
+      task({
+        id: 't1',
+        bucket: 'de',
+        discipline: 'ent',
+        waiting_on: 'Civil',
+      }),
+    ];
+    renderIt();
+    fireEvent.click(screen.getByTestId('mytask-card-t1'));
+    fireEvent.change(screen.getByTestId('task-detail-waiting-on'), {
+      target: { value: '' },
     });
     expect(upsertMutate).toHaveBeenCalledTimes(1);
     expect(upsertMutate.mock.calls[0][0]).toMatchObject({
-      id: 'de-inprog',
-      status: 'Resolved',
-      text: 'Address ECA corrections',
+      id: 't1',
+      clearWaitingOn: true,
+      waitingOn: null,
     });
+  });
+
+  it('Assigned To change fires the upsert RPC', () => {
+    tasksRef.current = [task({ id: 't1', bucket: 'de', assigned_to: null })];
+    renderIt();
+    fireEvent.click(screen.getByTestId('mytask-card-t1'));
+    fireEvent.change(screen.getByTestId('task-detail-assigned'), {
+      target: { value: 'Trevor' },
+    });
+    expect(upsertMutate).toHaveBeenCalledTimes(1);
+    expect(upsertMutate.mock.calls[0][0]).toMatchObject({
+      id: 't1',
+      assignedTo: 'Trevor',
+    });
+  });
+
+  it('Priority toggle flips false → true on first click and fires the upsert', () => {
+    tasksRef.current = [task({ id: 't1', bucket: 'de' })];
+    renderIt();
+    fireEvent.click(screen.getByTestId('mytask-card-t1'));
+    const star = screen.getByTestId('task-detail-priority');
+    expect(star.getAttribute('data-priority')).toBe('false');
+    fireEvent.click(star);
+    expect(upsertMutate).toHaveBeenCalledTimes(1);
+    expect(upsertMutate.mock.calls[0][0]).toMatchObject({
+      id: 't1',
+      priority: true,
+    });
+  });
+
+  it('Completed date set → upsert fires with status="Resolved" + completed date; clearing reverts to Open', () => {
+    tasksRef.current = [
+      task({ id: 't1', bucket: 'de', status: 'In Progress' }),
+    ];
+    renderIt();
+    fireEvent.click(screen.getByTestId('mytask-card-t1'));
+    fireEvent.change(screen.getByTestId('task-detail-completed'), {
+      target: { value: '2026-06-01' },
+    });
+    expect(upsertMutate).toHaveBeenCalledTimes(1);
+    expect(upsertMutate.mock.calls[0][0]).toMatchObject({
+      id: 't1',
+      completed: '2026-06-01',
+      status: 'Resolved',
+    });
+  });
+
+  it('Notes blur-commit fires the upsert ONCE with the final value (not on every keystroke)', () => {
+    tasksRef.current = [task({ id: 't1', bucket: 'de', notes: null })];
+    renderIt();
+    fireEvent.click(screen.getByTestId('mytask-card-t1'));
+    const notes = screen.getByTestId('task-detail-notes') as HTMLTextAreaElement;
+    // Type three keystrokes — none should fire mutate.
+    fireEvent.change(notes, { target: { value: 'W' } });
+    fireEvent.change(notes, { target: { value: 'Wa' } });
+    fireEvent.change(notes, { target: { value: 'Waiting on civil' } });
+    expect(upsertMutate).not.toHaveBeenCalled();
+    // Blur → single mutate with the final value.
+    fireEvent.blur(notes);
+    expect(upsertMutate).toHaveBeenCalledTimes(1);
+    expect(upsertMutate.mock.calls[0][0]).toMatchObject({
+      id: 't1',
+      notes: 'Waiting on civil',
+    });
+  });
+
+  it('fix-138-b: D&E bucket inner subgrid uses equal-width tracks (minmax(0,1fr) minmax(0,1fr))', () => {
+    tasksRef.current = varied();
+    renderIt();
+    const subgrid = screen.getByTestId('mytasks-bucket-de-subgrid');
+    expect(subgrid.getAttribute('style') ?? '').toMatch(
+      /grid-template-columns:\s*minmax\(0,\s*1fr\)\s+minmax\(0,\s*1fr\)/,
+    );
+    // Permitting bucket too.
+    const pmSubgrid = screen.getByTestId('mytasks-bucket-pm-subgrid');
+    expect(pmSubgrid.getAttribute('style') ?? '').toMatch(
+      /grid-template-columns:\s*minmax\(0,\s*1fr\)\s+minmax\(0,\s*1fr\)/,
+    );
   });
 
   it('overdue date styling — past target_date + open status renders data-overdue="true"; a resolved task with the same past date does NOT', () => {
