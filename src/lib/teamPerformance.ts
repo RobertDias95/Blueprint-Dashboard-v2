@@ -82,7 +82,10 @@ export interface TeamMetricsResult {
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
-function daysBetween(
+/** fix-132: exported so teamTrends.ts can reuse the same date math
+ *  the snapshot uses — no competing definitions of "days between two
+ *  ISO dates." UTC-noon anchor dodges DST + TZ drift. */
+export function daysBetween(
   a: string | null | undefined,
   b: string | null | undefined,
 ): number | null {
@@ -92,8 +95,10 @@ function daysBetween(
   return Math.round((bMs - aMs) / DAY_MS);
 }
 
-/** Pick the per-permit field that credits this role. */
-function fieldFor(role: TeamRoleSelection): 'da' | 'dm' | 'ent_lead' {
+/** Pick the per-permit field that credits this role.
+ *  fix-132: exported so teamTrends.ts can reuse the role-to-field
+ *  mapping verbatim. */
+export function fieldFor(role: TeamRoleSelection): 'da' | 'dm' | 'ent_lead' {
   if (role === 'da') return 'da';
   if (role === 'dm') return 'dm';
   return 'ent_lead';
