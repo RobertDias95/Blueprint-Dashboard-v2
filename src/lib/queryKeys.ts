@@ -110,6 +110,15 @@ export const queryKeys = {
   // mirrors bp_ent_lead_for_da's WHERE clause (juris-match OR NULL).
   daTeamRouting: (tenantId: string) =>
     ['da_team_routing', tenantId] as const,
+  // fix-139: Waiting On foundation. Consultant firms catalog (tenant-scoped,
+  // keyed by the include-inactive flag so the active-only + show-all views
+  // coexist in cache) + per-project external-team assignments.
+  consultantFirmsAll: ['consultant_firms'] as const,
+  consultantFirms: (tenantId: string, includeInactive: boolean) =>
+    ['consultant_firms', tenantId, { includeInactive }] as const,
+  projectExternalTeamAll: ['project_external_teams'] as const,
+  projectExternalTeam: (tenantId: string, projectId: string) =>
+    ['project_external_teams', tenantId, { projectId }] as const,
 } as const;
 
 /** Map from Postgres table name → bare-prefix query keys to invalidate on
