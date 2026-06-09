@@ -1,6 +1,7 @@
 import type { PermitCycle, PermitWithCycles, Project } from './database.types';
 import { extractSample } from './scheduleBenchmarks';
 import { formatCompareNumber } from './comparisonCohort';
+import { cityCourtTimeDays, responseCourtTimeDays } from './reportMetrics';
 
 // fix-25-feat-T: aggregation helpers for the new top-level Trends
 // surface. Answers Bobby's three operational questions:
@@ -72,14 +73,11 @@ export function totalApprovedInWindow(filtered: PermitWithCycles[]): number {
   return filtered.length;
 }
 
-// TODO(fix-142): this Trends "Avg city clock" KPI still uses the OLD
-// intake → approval formula, which fix-141 renamed to "Avg Permit Timeline"
-// on Reports Overview (and split City Review into a distinct sum-over-cycles
-// ball-in-court measure). The two surfaces now drift: Trends shows
-// intake → approval under the "city clock" label while Overview's Avg City
-// Review means something different. fix-142 will rename this tile to "Avg
-// Permit Timeline" and add the two new sibling tiles (city-court / our-court)
-// here too. Left intentionally untouched in fix-141 (out of scope).
+// This is the Avg Permit Timeline metric (renamed from "Avg city clock" in
+// fix-142 to align with Reports Overview). Formula unchanged: intake →
+// approval total elapsed. fix-142 added the two sibling KPIs below
+// (avgCityCourtTime / avgResponseCourtTime) so Trends now exposes the same
+// City Review / Response Time / Permit Timeline split as Overview.
 export function avgIntakeToApproval(
   filtered: PermitWithCycles[],
 ): number | null {
@@ -92,6 +90,40 @@ export function avgIntakeToApproval(
     if (d !== null && d >= 0) deltas.push(d);
   }
   return deltas.length === 0 ? null : Math.round(avg(deltas));
+}
+
+// fix-142: Trends siblings of avgIntakeToApproval. Both reuse the canonical
+// per-permit helpers from reportMetrics.ts so the Trends KPIs and the Reports
+// Overview tiles compute the identical sum-over-cycles math on the same
+// cohort. cityCourtTime = "ball in the city's court"; responseCourtTime =
+// "ball in our court". Permits whose cohort gate fails (null) drop out.
+
+/** Avg City Review (city-court time) across the cohort — mean of the
+ *  per-permit cityCourtTimeDays, ignoring nulls. Null when no permit
+ *  qualifies. */
+export function avgCityCourtTime(
+  filtered: PermitWithCycles[],
+): number | null {
+  const vals: number[] = [];
+  for (const p of filtered) {
+    const d = cityCourtTimeDays(p);
+    if (d !== null) vals.push(d);
+  }
+  return vals.length === 0 ? null : Math.round(avg(vals));
+}
+
+/** Avg Response Time (our-court time) across the cohort — mean of the
+ *  per-permit responseCourtTimeDays, ignoring nulls. Null when no permit
+ *  has a completed correction round-trip. */
+export function avgResponseCourtTime(
+  filtered: PermitWithCycles[],
+): number | null {
+  const vals: number[] = [];
+  for (const p of filtered) {
+    const d = responseCourtTimeDays(p);
+    if (d !== null) vals.push(d);
+  }
+  return vals.length === 0 ? null : Math.round(avg(vals));
 }
 
 export function avgCyclesPerPermit(

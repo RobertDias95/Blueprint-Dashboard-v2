@@ -97,7 +97,7 @@ function daysBetween(a: string | null, b: string | null): number | null {
  *  design phase — it carries intake_accepted but no submitted→corr_issued
  *  ball-in-court arc, so it's excluded here. Shared by cityCourtTimeDays +
  *  responseCourtTimeDays (fix-141). */
-function extractReviewCycles(permit: PermitWithCycles): PermitCycle[] {
+export function extractReviewCycles(permit: PermitWithCycles): PermitCycle[] {
   return [...(permit.permit_cycles ?? [])]
     .filter((c) => c.cycle_index >= 1)
     .sort((a, b) => a.cycle_index - b.cycle_index);
@@ -124,7 +124,7 @@ function permitTimelineDays(permit: PermitWithCycles): number | null {
  *    - else if final cycle + approval: += days(approval_date − submitted)
  *    - else (ongoing/incomplete):    exclude the permit → null
  *  A permit with zero review cycles has no city-court time to measure → null. */
-function cityCourtTimeDays(permit: PermitWithCycles): number | null {
+export function cityCourtTimeDays(permit: PermitWithCycles): number | null {
   const cycles = extractReviewCycles(permit);
   if (cycles.length === 0) return null;
   let cityTime = 0;
@@ -153,7 +153,7 @@ function cityCourtTimeDays(permit: PermitWithCycles): number | null {
  *  this.corr_issued). Requires at least one completed round-trip
  *  (corr_issued on cycle i AND submitted on cycle i+1). A permit approved
  *  on cycle 1 with no second cycle never had a response event → null. */
-function responseCourtTimeDays(permit: PermitWithCycles): number | null {
+export function responseCourtTimeDays(permit: PermitWithCycles): number | null {
   const cycles = extractReviewCycles(permit);
   if (cycles.length < 2) return null;
   let responseTime = 0;
