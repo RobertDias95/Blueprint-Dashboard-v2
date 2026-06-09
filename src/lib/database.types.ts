@@ -303,10 +303,11 @@ export interface PermitTask {
   parent_task_id?: string | null;
   /** Auto-stamped by trigger when completion_status -> 'Resolved'. */
   done_at?: string | null;
-  /** fix-138-a: free-form external-blocker label. Vocab owned by the
-   *  TypeScript layer (see WAITING_ON_OPTIONS); no DB CHECK so the team
-   *  can expand the list without migrations. Null = no external block. */
-  waiting_on?: string | null;
+  /** fix-138-a: external-blocker discipline. Vocab owned by the
+   *  TypeScript layer (see WAITING_ON_OPTIONS / WaitingOnDiscipline); no
+   *  DB CHECK so the team can expand the list without migrations. Null =
+   *  no external block. */
+  waiting_on?: WaitingOnDiscipline | null;
   /** fix-138-a: priority flag (star). Defaults to false in the DB. */
   priority?: boolean | null;
   /** fix-138-a: free-form notes shown in the task detail panel. */
@@ -333,7 +334,42 @@ export const WAITING_ON_OPTIONS = [
   'Architect',
   'Other',
 ] as const;
-export type WaitingOnOption = (typeof WAITING_ON_OPTIONS)[number];
+/** fix-139: the canonical discipline-vocab type, lifted from
+ *  WAITING_ON_OPTIONS. Used by permit_tasks.waiting_on AND the new
+ *  consultant_firms / project_external_teams types so a task's external
+ *  blocker discipline and a project's assigned firm discipline share one
+ *  vocabulary. */
+export type WaitingOnDiscipline = (typeof WAITING_ON_OPTIONS)[number];
+/** @deprecated fix-139: kept as an alias for back-compat — prefer
+ *  WaitingOnDiscipline. Identical type. */
+export type WaitingOnOption = WaitingOnDiscipline;
+
+/** fix-139: a tenant-scoped external consultant firm, one row per
+ *  (firm name, discipline). A firm covering multiple disciplines gets
+ *  multiple rows. */
+export interface ConsultantFirm {
+  id: string;
+  tenant_id: string;
+  name: string;
+  discipline: WaitingOnDiscipline;
+  active: boolean;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+/** fix-139: a (project, discipline) -> firm pairing. `firm_name` is
+ *  populated by bp_get_project_external_team for display; a row only
+ *  exists for assigned disciplines (the UI fills gaps from
+ *  WAITING_ON_OPTIONS). */
+export interface ProjectExternalTeamMember {
+  project_id: string;
+  discipline: WaitingOnDiscipline;
+  firm_id: string | null;
+  firm_name: string | null;
+  tenant_id: string;
+  updated_at: string;
+}
 
 /** A co-assignee row (explicit; the primary assignee is derived, not stored).
  *  fix-70. */
@@ -371,7 +407,7 @@ export interface TaskNode {
    *  primary_assignee (derived) and co_assignees (join table). */
   assigned_to?: string | null;
   /** fix-138-a: external party blocking this task ('Civil', 'Survey', …). */
-  waiting_on?: string | null;
+  waiting_on?: WaitingOnDiscipline | null;
   /** fix-138-a: priority star. */
   priority?: boolean;
   /** fix-138-a: free-form notes. */
