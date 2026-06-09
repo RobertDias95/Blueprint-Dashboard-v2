@@ -140,6 +140,16 @@ export interface WizardState {
   /** Free-form redesign notes. */
   redesign_notes: string;
 
+  // fix-143: Backfill historical project mode. When true, Step 1's role
+  // pickers open to inactive + former team members and the BP gains manual
+  // DD Start / DD End inputs (auto-placement is bypassed). Local wizard state
+  // only — not URL-backed (backfilling is the rare flow). backfill_dd_start /
+  // backfill_dd_end are the raw picker values (ISO YYYY-MM-DD or ''); they're
+  // Monday-snapped on submit and injected into the BP permit's payload.
+  backfill_mode: boolean;
+  backfill_dd_start: string;
+  backfill_dd_end: string;
+
   // Step 2 + Step 3 + Step 4 — Permits list
   permits: WizardPermit[];
 }
@@ -182,6 +192,9 @@ export function makeEmptyWizardState(): WizardState {
     redesign_trigger: '',
     redesign_reuses_original_permit: '',
     redesign_notes: '',
+    backfill_mode: false,
+    backfill_dd_start: '',
+    backfill_dd_end: '',
     permits: [],
   };
 }
