@@ -21,7 +21,7 @@ function tip(slug: keyof typeof REPORTS_OVERVIEW_METRICS) {
   );
 }
 
-// Q7.2.b: 11 metric cards composed from a single ReportMetrics object.
+// Q7.2.b: 13 metric cards composed from a single ReportMetrics object.
 // Conditional rendering per Q9: cards that need underlying data hide
 // when the metric is null; always-show cards display "—".
 //
@@ -31,8 +31,8 @@ function tip(slug: keyof typeof REPORTS_OVERVIEW_METRICS) {
 //   - co/overdue for late/overdue signals
 //   - pm for done/approved signals
 //
-// fix-115-c → fix-140-c: optional period-comparison row on every numeric
-// card. All 12 tiles now thread the same comparison props (currentNumeric,
+// fix-115-c → fix-141: optional period-comparison row on every numeric
+// card. All 13 tiles now thread the same comparison props (currentNumeric,
 // comparisonNumeric, comparisonValueText, comparisonLabel, direction,
 // splitProps); when compareTo + range are both set the cards swap to
 // KpiSplitView. Direction per metric:
@@ -40,8 +40,9 @@ function tip(slug: keyof typeof REPORTS_OVERVIEW_METRICS) {
 //   - Submit Variance        (neutral — early/late doesn't map cleanly)
 //   - Avg GO → Submit        (lower_better)
 //   - Avg GO → DD Start      (lower_better)
-//   - Avg City Review        (lower_better)
-//   - Avg Permit Timeline    (lower_better — same metric as City Review)
+//   - Avg City Review        (lower_better — fix-141: city's-court time)
+//   - Avg Response Time      (lower_better — fix-141: our-court time, NEW)
+//   - Avg Permit Timeline    (lower_better — intake → approval total)
 //   - Avg Submit → Intake    (lower_better)
 //   - Avg Correction Cycles  (lower_better)
 //   - In Corrections         (lower_better)
@@ -205,7 +206,7 @@ export default function MetricCards({
         labelSlot={tip('avgCityReview')}
         value={metrics.avgCityReview ?? '—'}
         unit={metrics.avgCityReview !== null ? 'd' : undefined}
-        subText="intake accepted → corrections/issue"
+        subText="time in city's court"
         tone="pm"
         testId="metric-city-review"
         currentNumeric={metrics.avgCityReview}
@@ -220,25 +221,50 @@ export default function MetricCards({
         {...splitProps}
       />
 
-      {/* 5b. AVG PERMIT TIMELINE — Bobby's preferred framing for the
-          same canonical intake → approval clock. fix-140-b: surfaces
-          the same metrics.avgCityReview number under a different label;
-          no second computation, no risk of drift. Final-merge decision
-          on whether to keep both tiles or consolidate sits with Bobby. */}
+      {/* 5a. AVG RESPONSE TIME — fix-141: conceptual sibling of Avg City
+          Review. City Review = time the ball was in the city's court;
+          Response Time = time it was in ours. The two telescope into the
+          full Permit Timeline. Always shown ("—" when no completed
+          correction round-trip in the cohort). */}
+      <MetricCard
+        label="Avg Response Time"
+        labelSlot={tip('avgResponseTime')}
+        value={metrics.avgResponseTime ?? '—'}
+        unit={metrics.avgResponseTime !== null ? 'd' : undefined}
+        subText="time in our court"
+        tone="co"
+        testId="metric-response-time"
+        currentNumeric={metrics.avgResponseTime}
+        comparisonNumeric={cmp?.avgResponseTime ?? null}
+        comparisonValueText={
+          cmp?.avgResponseTime === null || cmp?.avgResponseTime === undefined
+            ? undefined
+            : `${cmp.avgResponseTime}d`
+        }
+        comparisonLabel={cmpLabel}
+        comparisonDirection="lower_better"
+        {...splitProps}
+      />
+
+      {/* 5b. AVG PERMIT TIMELINE — the canonical intake → approval clock.
+          fix-141: now reads its own metrics.avgPermitTimeline field
+          (renamed permitTimelineDays). Previously it borrowed
+          metrics.avgCityReview as a workaround; the field split lets City
+          Review (city's court) and Permit Timeline (total) diverge cleanly. */}
       <MetricCard
         label="Avg Permit Timeline"
         labelSlot={tip('avgPermitTimeline')}
-        value={metrics.avgCityReview ?? '—'}
-        unit={metrics.avgCityReview !== null ? 'd' : undefined}
+        value={metrics.avgPermitTimeline ?? '—'}
+        unit={metrics.avgPermitTimeline !== null ? 'd' : undefined}
         subText="intake accepted → approval"
         tone="pm"
         testId="metric-permit-timeline"
-        currentNumeric={metrics.avgCityReview}
-        comparisonNumeric={cmp?.avgCityReview ?? null}
+        currentNumeric={metrics.avgPermitTimeline}
+        comparisonNumeric={cmp?.avgPermitTimeline ?? null}
         comparisonValueText={
-          cmp?.avgCityReview === null || cmp?.avgCityReview === undefined
+          cmp?.avgPermitTimeline === null || cmp?.avgPermitTimeline === undefined
             ? undefined
-            : `${cmp.avgCityReview}d`
+            : `${cmp.avgPermitTimeline}d`
         }
         comparisonLabel={cmpLabel}
         comparisonDirection="lower_better"

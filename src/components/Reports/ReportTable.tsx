@@ -574,7 +574,7 @@ function PermitDetailTr({ permit: e }: { permit: EnrichedPermit }) {
         {fmtDays(e.submitToIntake)}
       </td>
       <td className="px-2 py-1 whitespace-nowrap text-dim text-[10px] text-right">
-        {fmtDays(e.cityReviewDays)}
+        {fmtDays(e.permitTimelineDays)}
       </td>
       <td className="px-2 py-1 whitespace-nowrap text-dim text-[10px]">
         {e.permit.expected_issue ?? '—'}

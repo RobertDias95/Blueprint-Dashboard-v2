@@ -72,6 +72,14 @@ export function totalApprovedInWindow(filtered: PermitWithCycles[]): number {
   return filtered.length;
 }
 
+// TODO(fix-142): this Trends "Avg city clock" KPI still uses the OLD
+// intake → approval formula, which fix-141 renamed to "Avg Permit Timeline"
+// on Reports Overview (and split City Review into a distinct sum-over-cycles
+// ball-in-court measure). The two surfaces now drift: Trends shows
+// intake → approval under the "city clock" label while Overview's Avg City
+// Review means something different. fix-142 will rename this tile to "Avg
+// Permit Timeline" and add the two new sibling tiles (city-court / our-court)
+// here too. Left intentionally untouched in fix-141 (out of scope).
 export function avgIntakeToApproval(
   filtered: PermitWithCycles[],
 ): number | null {

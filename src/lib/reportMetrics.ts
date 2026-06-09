@@ -47,9 +47,14 @@ export interface EnrichedPermit {
   ddEndToSubmit: number | null;
   /** firstSubmitted → firstIntakeAccepted in days (city queue lag). */
   submitToIntake: number | null;
-  /** review-start → first corr_issued (or actual_issue if no corrections) in days.
-   * review-start prefers intake_accepted, falls back to submitted. */
-  cityReviewDays: number | null;
+  /** fix-141: renamed from `cityReviewDays`. This is the Avg Permit
+   * Timeline metric — total elapsed (approval_date ?? actual_issue) −
+   * c0.intake_accepted. fix-141 split City Review off into a distinct
+   * sum-over-cycles ball-in-court measure (computeMetrics.avgCityReview via
+   * cityCourtTimeDays); this field keeps the canonical intake → approval
+   * clock the csv export / ReportTable / city-review-by-juris bar still
+   * read. Formula unchanged from fix-112-b — only the name moved. */
+  permitTimelineDays: number | null;
   /** corr_issued → resubmitted on the first cycle that has both, in days. */
   corrResponseDays: number | null;
   /** expected_issue → (approval_date ?? actual_issue) in days. Positive = late. */
@@ -77,6 +82,96 @@ function daysBetween(a: string | null, b: string | null): number | null {
   return Math.round((bMs - aMs) / DAY_MS);
 }
 
+// ============================================================
+// fix-141: City Review redefined + Avg Response Time added.
+//
+// Cycle indexing: cycle 0 = design phase (carries intake_accepted);
+// cycles 1+ = review cycles. Per the auto-derivation rule
+// c1.submitted = c0.intake_accepted, so intake → approval (permitTimeline)
+// telescopes exactly into city-court + response-court time:
+//   permitTimeline = (cityCourtTime) + (responseCourtTime)
+// whenever both are non-null. See reportMetrics.test.ts convergence test.
+// ============================================================
+
+/** Review cycles (cycle_index >= 1), sorted ascending. Cycle 0 is the
+ *  design phase — it carries intake_accepted but no submitted→corr_issued
+ *  ball-in-court arc, so it's excluded here. Shared by cityCourtTimeDays +
+ *  responseCourtTimeDays (fix-141). */
+function extractReviewCycles(permit: PermitWithCycles): PermitCycle[] {
+  return [...(permit.permit_cycles ?? [])]
+    .filter((c) => c.cycle_index >= 1)
+    .sort((a, b) => a.cycle_index - b.cycle_index);
+}
+
+/** fix-141: renamed from the inline `cityReviewDays` computation (fix-112-b).
+ *  This is now the Avg Permit Timeline metric — total elapsed, strict
+ *  canonical: (approval_date ?? actual_issue) − c0.intake_accepted. Both
+ *  anchors required; out-of-order rows (approval < intake) drop to null
+ *  rather than contributing negative days. Matches
+ *  perfTrends.avgIntakeToApproval exactly. fix-141 split this OFF from Avg
+ *  City Review (which is now the sum-over-cycles cityCourtTimeDays below). */
+function permitTimelineDays(permit: PermitWithCycles): number | null {
+  const c0 = (permit.permit_cycles ?? []).find((c) => c.cycle_index === 0);
+  const c0IntakeAccepted = c0?.intake_accepted ?? null;
+  const approvalPoint = permit.approval_date ?? permit.actual_issue ?? null;
+  const raw = daysBetween(c0IntakeAccepted, approvalPoint);
+  return raw !== null && raw >= 0 ? raw : null;
+}
+
+/** fix-141: Avg City Review redefined — "time the ball was in the city's
+ *  court" summed across review cycles. For each review cycle in order:
+ *    - if corr_issued is set:        += days(corr_issued − submitted)
+ *    - else if final cycle + approval: += days(approval_date − submitted)
+ *    - else (ongoing/incomplete):    exclude the permit → null
+ *  A permit with zero review cycles has no city-court time to measure → null. */
+function cityCourtTimeDays(permit: PermitWithCycles): number | null {
+  const cycles = extractReviewCycles(permit);
+  if (cycles.length === 0) return null;
+  let cityTime = 0;
+  for (let i = 0; i < cycles.length; i++) {
+    const c = cycles[i];
+    const isFinal = i === cycles.length - 1;
+    if (c.corr_issued) {
+      const d = daysBetween(c.submitted, c.corr_issued);
+      if (d === null) return null;
+      cityTime += d;
+    } else if (isFinal && permit.approval_date) {
+      const d = daysBetween(c.submitted, permit.approval_date);
+      if (d === null) return null;
+      cityTime += d;
+    } else {
+      // Ongoing cycle (no corr_issued, not closeable via approval) — the
+      // ball is still in the city's court, so the sum is incomplete.
+      return null;
+    }
+  }
+  return cityTime;
+}
+
+/** fix-141: Avg Response Time — "time the ball was in our court" summed
+ *  across consecutive review-cycle pairs: days(next.submitted −
+ *  this.corr_issued). Requires at least one completed round-trip
+ *  (corr_issued on cycle i AND submitted on cycle i+1). A permit approved
+ *  on cycle 1 with no second cycle never had a response event → null. */
+function responseCourtTimeDays(permit: PermitWithCycles): number | null {
+  const cycles = extractReviewCycles(permit);
+  if (cycles.length < 2) return null;
+  let responseTime = 0;
+  for (let i = 0; i < cycles.length - 1; i++) {
+    const cur = cycles[i];
+    const next = cycles[i + 1];
+    if (cur.corr_issued && next.submitted) {
+      const d = daysBetween(cur.corr_issued, next.submitted);
+      if (d === null) return null;
+      responseTime += d;
+    } else {
+      // Ongoing or missing data — no completed round-trip on this pair.
+      return null;
+    }
+  }
+  return responseTime;
+}
+
 /** Enrich a permit list with per-permit derived metrics + project joins.
  * Mirrors v1's getRptFiltered enrichment pass (index.html 2948-2987).
  *
@@ -101,30 +196,14 @@ export function enrichPermits(
     const ddEndToSubmit = daysBetween(permit.dd_end ?? null, firstSubmitted);
     const submitToIntake = daysBetween(firstSubmitted, firstIntakeAccepted);
 
-    // fix-112-b: canonical city-review formula — strict.
-    //   anchor   = c0.intake_accepted          (no firstSubmitted fallback —
-    //                                           submit→approval is a different
-    //                                           arc; the old fallback silently
-    //                                           mixed it into the avg)
-    //   endpoint = approval_date ?? actual_issue  (the approval point — same
-    //                                           coalesce the Trends KPI city
-    //                                           clock uses; permits that only
-    //                                           have actual_issue still land)
-    // Both anchors required; out-of-order rows (approval < intake) drop to null
-    // rather than negative-day contribution. Matches perfTrends.avgIntakeToApproval
-    // exactly so the Reports KPI Avg City Review and the Trends KPI city clock
-    // produce identical numbers on the same cohort.
-    //
-    // Pre-fix-112-b this read `(firstCorrCycle.corr_issued ?? actual_issue) −
-    // (firstIntakeAccepted ?? firstSubmitted)`, which conflated three distinct
-    // arcs: submit→issue (no corr_issued case), submit→corr (first cycle), and
-    // intake→approval. Audit fix-111 traced the resulting label-vs-math drift.
-    const c0 = (permit.permit_cycles ?? []).find((c) => c.cycle_index === 0);
-    const c0IntakeAccepted = c0?.intake_accepted ?? null;
-    const approvalPoint = permit.approval_date ?? permit.actual_issue ?? null;
-    const cityReviewRaw = daysBetween(c0IntakeAccepted, approvalPoint);
-    const cityReviewDays =
-      cityReviewRaw !== null && cityReviewRaw >= 0 ? cityReviewRaw : null;
+    // fix-141: the canonical strict intake → approval clock (fix-112-b) is
+    // now the Avg Permit Timeline metric, extracted into permitTimelineDays().
+    // Avg City Review was redefined as a sum-over-cycles ball-in-court measure
+    // (computeMetrics reads cityCourtTimeDays directly off the permit). This
+    // field keeps the intake → approval value the csv export / ReportTable /
+    // city-review-by-juris bar still consume — formula unchanged from
+    // fix-112-b, only the name moved (cityReviewDays → permitTimelineDays).
+    const permitTimeline = permitTimelineDays(permit);
 
     // Variance: expected_issue → (approval_date ?? actual_issue).
     const varianceTarget = permit.approval_date ?? permit.actual_issue ?? null;
@@ -160,7 +239,7 @@ export function enrichPermits(
       ddDuration,
       ddEndToSubmit,
       submitToIntake,
-      cityReviewDays,
+      permitTimelineDays: permitTimeline,
       corrResponseDays,
       variance,
     };
@@ -407,7 +486,11 @@ export function aggregateByProject(enriched: EnrichedPermit[]): ProjectRow[] {
       avgDDEndToSubmit: meanOrNull(permits.map((e) => e.ddEndToSubmit)),
       avgGoToSubmit: meanOrNull(permits.map((e) => e.goToSubmit)),
       avgSubmitToIntake: meanOrNull(permits.map((e) => e.submitToIntake)),
-      avgCityReview: meanOrNull(permits.map((e) => e.cityReviewDays)),
+      // fix-141: ProjectRow.avgCityReview still surfaces the intake →
+      // approval clock (now permitTimelineDays) for the ReportTable — the
+      // per-project ledger keeps its existing column semantics until fix-142
+      // reconciles the table with the redefined Overview metric.
+      avgCityReview: meanOrNull(permits.map((e) => e.permitTimelineDays)),
       latestAcqTarget: maxDate(permits.map((e) => e.permit.expected_issue)),
       earliestApproval: minDate(permits.map((e) => e.permit.approval_date)),
       earliestActualIssue: minDate(permits.map((e) => e.permit.actual_issue)),
@@ -561,7 +644,18 @@ export interface ReportMetrics {
   lateSubmits: number;
   avgGoToSubmit: number | null;
   avgGoToDDStart: number | null;
+  /** fix-141: REDEFINED. "Time the ball was in the city's court" — sum of
+   *  per-review-cycle durations (cityCourtTimeDays). No longer the
+   *  intake → approval clock (that moved to avgPermitTimeline). */
   avgCityReview: number | null;
+  /** fix-141: intake → approval total elapsed (permitTimelineDays). This is
+   *  what fix-140-b's Avg Permit Timeline tile reads — split off from
+   *  avgCityReview so the two tiles can diverge cleanly. */
+  avgPermitTimeline: number | null;
+  /** fix-141: NEW. "Time the ball was in our court" — sum of
+   *  (corr_issued → next cycle submitted) across review cycles
+   *  (responseCourtTimeDays). */
+  avgResponseTime: number | null;
   avgSubmitToIntake: number | null;
   /** Average corr_rounds across permits where corr_rounds > 0. */
   avgCorrectionCycles: number | null;
@@ -654,7 +748,14 @@ export function computeMetrics(enriched: EnrichedPermit[]): ReportMetrics {
     lateSubmits,
     avgGoToSubmit: avg(enriched.map((e) => e.goToSubmit)),
     avgGoToDDStart: avg(enriched.map((e) => e.goToDDStart)),
-    avgCityReview: avg(enriched.map((e) => e.cityReviewDays)),
+    // fix-141: City Review now = sum-over-cycles city-court time; Permit
+    // Timeline = the old intake → approval clock (the renamed
+    // permitTimelineDays field); Response Time = sum-over-cycles our-court
+    // time. The three are per-metric cohorts — a permit can contribute to
+    // one and not the others.
+    avgCityReview: avg(enriched.map((e) => cityCourtTimeDays(e.permit))),
+    avgPermitTimeline: avg(enriched.map((e) => e.permitTimelineDays)),
+    avgResponseTime: avg(enriched.map((e) => responseCourtTimeDays(e.permit))),
     avgSubmitToIntake: avg(enriched.map((e) => e.submitToIntake)),
     avgCorrectionCycles,
     permitsWithCorrections: corrRoundsSet.length,

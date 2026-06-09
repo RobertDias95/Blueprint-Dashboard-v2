@@ -234,7 +234,9 @@ function Body({
     [filtered],
   );
   const cityReviewByJuris = useMemo(
-    () => groupAvgBy(filtered, (e) => e.juris, (e) => e.cityReviewDays),
+    // fix-141: field renamed cityReviewDays → permitTimelineDays. This bar
+    // (City Review by Jurisdiction) keeps the intake → approval formula.
+    () => groupAvgBy(filtered, (e) => e.juris, (e) => e.permitTimelineDays),
     [filtered],
   );
   const corrResponseByType = useMemo(
