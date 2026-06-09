@@ -197,23 +197,26 @@ describe('SiteEditor — fix-122 Corner Lot row', () => {
   });
 });
 
-describe('SiteEditor — fix-122 Closing Date row', () => {
+// fix-148: Closing Date moved from the Project Site cell to the DD Phase cell
+// (testid project-overview-closing). Behavior (commit closing_date via
+// useUpdateProject, occMissing-disabled) is unchanged — only the location.
+describe('DD Phase — Closing Date row (moved from Project Site, fix-148)', () => {
   it('renders blank when closing_date is null', () => {
     setup();
-    const input = screen.getByTestId('pd-site-closing') as HTMLInputElement;
+    const input = screen.getByTestId('project-overview-closing') as HTMLInputElement;
     expect(input.type).toBe('date');
     expect(input.value).toBe('');
   });
 
   it('renders the stored closing_date', () => {
     setup({ closing_date: '2026-12-31' });
-    const input = screen.getByTestId('pd-site-closing') as HTMLInputElement;
+    const input = screen.getByTestId('project-overview-closing') as HTMLInputElement;
     expect(input.value).toBe('2026-12-31');
   });
 
   it('typing a date and blurring commits the ISO string', async () => {
     setup();
-    const input = screen.getByTestId('pd-site-closing') as HTMLInputElement;
+    const input = screen.getByTestId('project-overview-closing') as HTMLInputElement;
     fireEvent.change(input, { target: { value: '2026-09-30' } });
     fireEvent.blur(input);
     await waitFor(() => expect(updateMutateAsync).toHaveBeenCalledTimes(1));
@@ -225,7 +228,7 @@ describe('SiteEditor — fix-122 Closing Date row', () => {
 
   it('clearing a stored date commits null', async () => {
     setup({ closing_date: '2026-09-30' });
-    const input = screen.getByTestId('pd-site-closing') as HTMLInputElement;
+    const input = screen.getByTestId('project-overview-closing') as HTMLInputElement;
     fireEvent.change(input, { target: { value: '' } });
     fireEvent.blur(input);
     await waitFor(() => expect(updateMutateAsync).toHaveBeenCalledTimes(1));
@@ -236,15 +239,15 @@ describe('SiteEditor — fix-122 Closing Date row', () => {
 
   it('blurring without changes does NOT call mutateAsync', async () => {
     setup({ closing_date: '2026-09-30' });
-    const input = screen.getByTestId('pd-site-closing') as HTMLInputElement;
+    const input = screen.getByTestId('project-overview-closing') as HTMLInputElement;
     fireEvent.blur(input);
     await new Promise((r) => setTimeout(r, 20));
     expect(updateMutateAsync).not.toHaveBeenCalled();
   });
 });
 
-describe('SiteEditor — fix-122 occMissing disables all three new rows', () => {
-  it('all three inputs are disabled when project.updated_at is missing', () => {
+describe('fix-122 occMissing disables the inline rows', () => {
+  it('Lots/Corner (Site) + Closing (DD Phase) are disabled when project.updated_at is missing', () => {
     setup({ updated_at: null });
     expect(
       (screen.getByTestId('pd-site-lots') as HTMLSelectElement).disabled,
@@ -253,7 +256,7 @@ describe('SiteEditor — fix-122 occMissing disables all three new rows', () => 
       (screen.getByTestId('pd-site-corner') as HTMLSelectElement).disabled,
     ).toBe(true);
     expect(
-      (screen.getByTestId('pd-site-closing') as HTMLInputElement).disabled,
+      (screen.getByTestId('project-overview-closing') as HTMLInputElement).disabled,
     ).toBe(true);
   });
 });
