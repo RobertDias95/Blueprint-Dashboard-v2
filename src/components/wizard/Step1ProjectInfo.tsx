@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useJurisdictions } from '../../hooks/useJurisdictions';
 import { useTeamMembers } from '../../hooks/useTeamMembers';
@@ -10,7 +10,8 @@ import {
 import UnitTypesEditor from './UnitTypesEditor';
 import BuilderAutocompleteField from '../builder/BuilderAutocompleteField';
 import { memberLabel, isNonActiveMember } from '../../lib/teamMemberLabel';
-import { quarterToDateRange } from '../../lib/dateUtils';
+import { quarterToDateRange, snapToMonday } from '../../lib/dateUtils';
+import { useNextAvailableDaSlot } from '../../hooks/useNextAvailableDaSlot';
 import {
   ALLEY_OPTIONS,
   PARKING_TYPE_OPTIONS,
@@ -48,6 +49,10 @@ interface Props {
 
 
 const ACQ_ROLES = new Set(['acq', 'acq_lead']);
+// fix-144: default DD duration for the redesign auto-place suggestion — matches
+// bp_create_project_with_permits' c_default_duration_days so the suggested slot
+// lines up with what the server would place.
+const REDESIGN_DD_DURATION_DAYS = 26;
 
 /** Filter team_members by role set, then dedupe by name so the legacy/lead
  *  role drift in the schema doesn't double-list anyone. fix-143: when
@@ -179,6 +184,85 @@ export default function Step1ProjectInfo({
     value.lead_da,
     value.backfill_dd_start,
     value.backfill_dd_end,
+  ]);
+
+  // fix-144: redesign DD phase. When a redesign reuses the original permit the
+  // wizard must create a draw_schedule lane for the redesign project (the
+  // reuses-permit flow skips permit + lane creation otherwise). Auto-place mode
+  // suggests the next open slot on the picked DA's lane; manual mode — and
+  // backfill mode, which forces manual — lets the user type the dates.
+  const redesignReuses =
+    !!value.redesign_of_project_id &&
+    value.redesign_reuses_original_permit === 'yes';
+  const redesignAutoPlace =
+    redesignReuses &&
+    !!value.redesign_dd_da &&
+    !value.redesign_dd_manual_dates &&
+    !backfillMode;
+  const redesignSlotQ = useNextAvailableDaSlot(
+    value.redesign_dd_da,
+    REDESIGN_DD_DURATION_DAYS,
+    redesignAutoPlace,
+  );
+  // Sync the suggested slot into wizard state so submit sends it (the inputs
+  // render read-only in auto mode). Guarded so it only writes on a real change.
+  useEffect(() => {
+    if (!redesignAutoPlace) return;
+    const slot = redesignSlotQ.data;
+    if (!slot) return;
+    const start = snapToMonday(slot.slotStart, 'forward'); // defensive re-snap
+    const end = slot.slotEnd; // already Friday post-fix-141
+    const patch: Partial<WizardState> = {};
+    if (start && start !== value.redesign_dd_start) patch.redesign_dd_start = start;
+    if (end && end !== value.redesign_dd_end) patch.redesign_dd_end = end;
+    if (Object.keys(patch).length > 0) onChange(patch);
+  }, [
+    redesignAutoPlace,
+    redesignSlotQ.data,
+    value.redesign_dd_start,
+    value.redesign_dd_end,
+    onChange,
+  ]);
+
+  // fix-144: tenure warning for the redesign DD DA — mirrors the backfill one.
+  const redesignDdDaMember = useMemo(
+    () =>
+      teamAll.find((m) => m.role === 'da' && m.name === value.redesign_dd_da) ??
+      null,
+    [teamAll, value.redesign_dd_da],
+  );
+  const redesignDdTenureWarning = useMemo(() => {
+    if (!backfillMode || !redesignDdDaMember || !value.redesign_dd_da) return null;
+    const startQ = redesignDdDaMember.active_start_quarter;
+    const endQ = redesignDdDaMember.active_end_quarter;
+    const startRange = quarterToDateRange(startQ);
+    const endRange = quarterToDateRange(endQ);
+    if (!startRange && !endRange) return null;
+    const outside = (d: string): boolean => {
+      if (!d) return false;
+      if (startRange && d < startRange.start) return true;
+      if (endRange && d > endRange.end) return true;
+      return false;
+    };
+    if (
+      !outside(value.redesign_dd_start) &&
+      !outside(value.redesign_dd_end)
+    ) {
+      return null;
+    }
+    const window =
+      startQ && endQ
+        ? `${startQ}–${endQ}`
+        : startQ
+          ? `${startQ} onward`
+          : `ended ${endQ}`;
+    return { name: redesignDdDaMember.name, window };
+  }, [
+    backfillMode,
+    redesignDdDaMember,
+    value.redesign_dd_da,
+    value.redesign_dd_start,
+    value.redesign_dd_end,
   ]);
 
   function set<K extends keyof WizardState>(k: K, v: WizardState[K]) {
@@ -780,6 +864,129 @@ export default function Step1ProjectInfo({
               data-testid="wizard-redesign-notes"
             />
           </label>
+        </section>
+      )}
+
+      {/* fix-144: Redesign DD Phase — only when the redesign reuses the
+          original permit. That flow skips permit + lane creation, so without
+          this the redesign lands with no Draw Schedule lane (12836 N 60th St
+          [Redesign 1], 2026-06-09). DA + DD window here build a manually_placed
+          draw_schedule row for the redesign project. */}
+      {redesignReuses && (
+        <section
+          className="bg-s2/60 rounded-lg p-4 space-y-3"
+          data-testid="wizard-section-redesign-dd"
+        >
+          <div className="text-[10px] uppercase tracking-[0.08em] text-co font-display font-bold">
+            Redesign DD Phase
+          </div>
+          <div className="text-[10px] text-dim -mt-1">
+            This redesign reuses the original permit — set the DA and DD window
+            so it lands on the Draw Schedule.
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <label className="flex flex-col gap-1">
+              <span className="text-[10px] uppercase tracking-wide text-dim">
+                DA <span className="text-co">*</span>
+              </span>
+              <select
+                value={value.redesign_dd_da}
+                onChange={(e) => set('redesign_dd_da', e.target.value)}
+                className="bg-bg border border-border rounded-md px-3 py-1.5 text-xs font-display text-text focus:outline-none focus:border-de"
+                data-testid="wizard-redesign-dd-da"
+              >
+                <option value="">— pick a DA —</option>
+                {daMembers.map((m) => {
+                  const nonActive = isNonActiveMember(m);
+                  return (
+                    <option
+                      key={m.id}
+                      value={m.name}
+                      data-testid={
+                        nonActive
+                          ? `wizard-role-da-option-inactive-${m.id}`
+                          : undefined
+                      }
+                    >
+                      {backfillMode ? memberLabel(m) : m.name}
+                    </option>
+                  );
+                })}
+              </select>
+            </label>
+            {/* Manual-dates toggle — hidden in backfill mode (manual forced). */}
+            {!backfillMode && (
+              <label className="flex items-end gap-2 pb-1.5">
+                <input
+                  type="checkbox"
+                  checked={value.redesign_dd_manual_dates}
+                  onChange={(e) =>
+                    set('redesign_dd_manual_dates', e.target.checked)
+                  }
+                  data-testid="wizard-redesign-dd-manual-toggle"
+                />
+                <span className="text-[11px] text-dim">Use manual dates</span>
+              </label>
+            )}
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <label className="flex flex-col gap-1">
+              <span className="text-[10px] uppercase tracking-wide text-dim">
+                DD Start <span className="text-co">*</span>
+              </span>
+              <input
+                type="date"
+                value={value.redesign_dd_start}
+                onChange={(e) => set('redesign_dd_start', e.target.value)}
+                readOnly={redesignAutoPlace}
+                className={`bg-bg border border-border rounded-md px-3 py-1.5 text-xs font-mono text-text focus:outline-none focus:border-de ${
+                  redesignAutoPlace ? 'opacity-70' : ''
+                }`}
+                data-testid="wizard-redesign-dd-start"
+              />
+            </label>
+            <label className="flex flex-col gap-1">
+              <span className="text-[10px] uppercase tracking-wide text-dim">
+                DD End <span className="text-co">*</span>
+              </span>
+              <input
+                type="date"
+                value={value.redesign_dd_end}
+                onChange={(e) => set('redesign_dd_end', e.target.value)}
+                readOnly={redesignAutoPlace}
+                className={`bg-bg border border-border rounded-md px-3 py-1.5 text-xs font-mono text-text focus:outline-none focus:border-de ${
+                  redesignAutoPlace ? 'opacity-70' : ''
+                }`}
+                data-testid="wizard-redesign-dd-end"
+              />
+            </label>
+          </div>
+          {redesignAutoPlace && (
+            <div
+              className="text-[10px] text-dim"
+              data-testid="wizard-redesign-dd-autoplace-hint"
+            >
+              Auto-placed at {value.redesign_dd_da}'s next open slot. Toggle
+              “Use manual dates” to override.
+            </div>
+          )}
+          {redesignDdTenureWarning && (
+            <div
+              className="text-[11px] px-3 py-2 rounded-md border"
+              style={{
+                background: 'var(--color-co-bg)',
+                borderColor: 'var(--color-co-border)',
+                color: 'var(--color-co)',
+              }}
+              data-testid="wizard-redesign-dd-tenure-warning"
+            >
+              ⚠ This date falls outside{' '}
+              <span className="font-semibold">
+                {redesignDdTenureWarning.name}
+              </span>
+              's tenure ({redesignDdTenureWarning.window}). Continue if intended.
+            </div>
+          )}
         </section>
       )}
 
