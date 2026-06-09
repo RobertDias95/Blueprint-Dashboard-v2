@@ -371,6 +371,37 @@ export interface ProjectExternalTeamMember {
   updated_at: string;
 }
 
+/** fix-140: one row from bp_list_waiting_on_tasks — a task whose waiting_on
+ *  discipline is set, joined to its permit + project + the firm assigned for
+ *  that discipline on that project. firm_* are NULL when the project has no
+ *  firm assigned for the discipline; firm_active is false when the assigned
+ *  firm has been archived (the row still surfaces, labelled "(archived)"). */
+export interface WaitingOnTaskRow {
+  task_id: string;
+  task_text: string;
+  bucket: string;
+  waiting_on: WaitingOnDiscipline;
+  firm_id: string | null;
+  firm_name: string | null;
+  firm_active: boolean | null;
+  project_id: string;
+  project_address: string | null;
+  project_juris: string | null;
+  permit_id: number;
+  permit_type: string | null;
+  assigned_to: string | null;
+  priority: boolean | null;
+  start_date: string | null;
+  due_date: string | null;
+  target_date: string | null;
+  completion_status: string | null;
+  done: boolean | null;
+  done_at: string | null;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 /** A co-assignee row (explicit; the primary assignee is derived, not stored).
  *  fix-70. */
 export interface PermitTaskAssignee {

@@ -54,6 +54,26 @@ vi.mock('../hooks/useTaskTree', async (importActual) => {
   };
 });
 
+// fix-140: the Waiting On view (mounted when ?view=waiting-on) reads
+// bp_list_waiting_on_tasks via useWaitingOnTasks. This suite runs under fake
+// timers; mock the hook to return synchronous inert data so the view renders
+// its empty state with no async query firing under fake timers (which could
+// otherwise leak a post-test state update). groupByDisciplineThenFirm stays
+// real. WaitingOnView's own behavior is covered in WaitingOnView.test.tsx.
+vi.mock('../hooks/useWaitingOnTasks', async (importActual) => {
+  const actual =
+    await importActual<typeof import('../hooks/useWaitingOnTasks')>();
+  return {
+    ...actual,
+    useWaitingOnTasks: () => ({
+      data: [],
+      isLoading: false,
+      error: null,
+      refetch: vi.fn(),
+    }),
+  };
+});
+
 import MyTasks from '../pages/MyTasks';
 
 function member(over: Partial<TeamMember> & Pick<TeamMember, 'name' | 'role'>): TeamMember {
@@ -555,5 +575,59 @@ describe('MyTasks (fix-80 v1 three-pane kanban)', () => {
     ).toBe('false');
     expect(screen.queryByTestId('mytask-card-de-open-overdue')).toBeNull();
     expect(screen.getByTestId('mytask-card-pm-open')).toBeInTheDocument();
+  });
+});
+
+// fix-140: URL-backed view switcher between the existing board and the new
+// Waiting On reporting view.
+describe('MyTasks view switcher (fix-140)', () => {
+  function renderAt(path: string) {
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+    return render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter initialEntries={[path]}>
+          <MyTasks />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+  }
+
+  it('renders both options and defaults to the My Tasks board', () => {
+    renderAt('/my-tasks');
+    expect(screen.getByTestId('my-tasks-view-switcher')).toBeInTheDocument();
+    expect(screen.getByTestId('my-tasks-view-mine')).toBeInTheDocument();
+    expect(screen.getByTestId('my-tasks-view-waiting-on')).toBeInTheDocument();
+    // Default = board (the existing page renders mytasks-page), not the view.
+    expect(screen.getByTestId('mytasks-page')).toBeInTheDocument();
+    expect(screen.queryByTestId('waiting-on-view')).toBeNull();
+    expect(
+      screen.getByTestId('my-tasks-view-mine').getAttribute('aria-pressed'),
+    ).toBe('true');
+  });
+
+  it('clicking Waiting On swaps to the view and sets ?view=waiting-on', () => {
+    renderAt('/my-tasks');
+    fireEvent.click(screen.getByTestId('my-tasks-view-waiting-on'));
+    expect(screen.getByTestId('waiting-on-view')).toBeInTheDocument();
+    expect(screen.queryByTestId('mytasks-page')).toBeNull();
+    expect(
+      screen.getByTestId('my-tasks-view-waiting-on').getAttribute('aria-pressed'),
+    ).toBe('true');
+  });
+
+  it('loads the Waiting On view directly from ?view=waiting-on (bookmark path)', () => {
+    renderAt('/my-tasks?view=waiting-on');
+    expect(screen.getByTestId('waiting-on-view')).toBeInTheDocument();
+    expect(screen.queryByTestId('mytasks-page')).toBeNull();
+  });
+
+  it('switching back to My Tasks unmounts the Waiting On view', () => {
+    renderAt('/my-tasks?view=waiting-on');
+    expect(screen.getByTestId('waiting-on-view')).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId('my-tasks-view-mine'));
+    expect(screen.queryByTestId('waiting-on-view')).toBeNull();
+    expect(screen.getByTestId('mytasks-page')).toBeInTheDocument();
   });
 });

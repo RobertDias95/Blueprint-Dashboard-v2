@@ -119,6 +119,11 @@ export const queryKeys = {
   projectExternalTeamAll: ['project_external_teams'] as const,
   projectExternalTeam: (tenantId: string, projectId: string) =>
     ['project_external_teams', tenantId, { projectId }] as const,
+  // fix-140: My Tasks Waiting On reporting view. Shares the permit_tasks bare
+  // prefix so a task edit (waiting_on change, resolve) invalidates it live.
+  // Keyed by the include-completed flag so the toggle's two states coexist.
+  waitingOnTasks: (tenantId: string, includeCompleted: boolean) =>
+    ['permit_tasks', tenantId, 'waiting-on', { includeCompleted }] as const,
 } as const;
 
 /** Map from Postgres table name → bare-prefix query keys to invalidate on

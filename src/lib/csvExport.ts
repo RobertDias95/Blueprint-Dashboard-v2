@@ -31,7 +31,9 @@ const HEADERS = [
   'Units',
 ] as const;
 
-function quoteCell(v: string | number | null | undefined): string {
+// fix-140: exported so waitingOnCsv.ts reuses the exact same comma/quote/
+// newline escaping (every cell wrapped in quotes, embedded quotes doubled).
+export function quoteCell(v: string | number | null | undefined): string {
   if (v === null || v === undefined) return '""';
   const s = String(v);
   // Escape any embedded " by doubling it (CSV standard).
