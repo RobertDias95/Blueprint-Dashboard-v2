@@ -17,6 +17,7 @@ import {
 } from '../../lib/permitSeedingDefaults';
 import { pushToast } from '../../stores/toastStore';
 import BuilderAutocompleteField from '../builder/BuilderAutocompleteField';
+import ProjectExternalTeamPanel from './ProjectExternalTeamPanel';
 import type {
   Builder,
   PermitWithCycles,
@@ -739,6 +740,13 @@ export default function ProjectSettingsModal({
                 testid="psm-builder-phone"
               />
             </Field>
+          </Section>
+
+          {/* fix-139: External Team — consultant firms per discipline. Writes
+              straight to project_external_teams via its own RPC (not part of
+              the atomic project save below). */}
+          <Section title="External Team" color="var(--color-pm)">
+            <ProjectExternalTeamPanel projectId={project.id} />
           </Section>
 
           <Section title="Permits" color="var(--color-de)">
