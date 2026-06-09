@@ -74,6 +74,14 @@ interface Props {
   /** fix-129-b: short comparison mode tag ("vs prev period") shown in
    *  the split's delta strip. Omit to skip the suffix. */
   comparisonModeLabel?: string;
+  /** fix-142: when set, the card becomes a clickable toggle (pointer
+   *  cursor, role=button, keyboard-activatable) and renders a chevron in
+   *  the label row. Used by the three timeline tiles to toggle the
+   *  per-cycle drawer. */
+  onClick?: () => void;
+  /** fix-142: drives aria-expanded + the chevron glyph (▾ collapsed,
+   *  ▴ expanded). Only meaningful alongside onClick. */
+  expanded?: boolean;
 }
 
 export default function MetricCard({
@@ -92,6 +100,8 @@ export default function MetricCard({
   comparisonRangeLabel,
   labelSlot,
   comparisonModeLabel,
+  onClick,
+  expanded,
 }: Props) {
   const showComparison = Boolean(comparisonLabel);
   // fix-129-b: switch to split-view when comparison is active AND the
@@ -100,13 +110,36 @@ export default function MetricCard({
   // In Corrections' "12 of 47 issued") that doesn't split cleanly.
   const useSplit =
     showComparison && !!currentRangeLabel && !!comparisonRangeLabel;
+  // fix-142: clickable-toggle affordance for the three timeline tiles.
+  const clickable = typeof onClick === 'function';
   return (
     <div
-      className="bg-surface border border-border rounded-lg px-4 py-3 flex flex-col gap-1"
+      className={`bg-surface border border-border rounded-lg px-4 py-3 flex flex-col gap-1${
+        clickable ? ' cursor-pointer hover:border-dim transition-colors' : ''
+      }`}
       data-testid={testId}
+      onClick={onClick}
+      role={clickable ? 'button' : undefined}
+      tabIndex={clickable ? 0 : undefined}
+      aria-expanded={clickable ? expanded : undefined}
+      onKeyDown={
+        clickable
+          ? (e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                onClick!();
+              }
+            }
+          : undefined
+      }
     >
-      <div className="text-[9px] uppercase tracking-wide text-dim font-display font-bold">
-        {labelSlot ?? label}
+      <div className="text-[9px] uppercase tracking-wide text-dim font-display font-bold flex items-center justify-between gap-1">
+        <span>{labelSlot ?? label}</span>
+        {clickable && (
+          <span aria-hidden="true" className="text-[10px] leading-none">
+            {expanded ? '▴' : '▾'}
+          </span>
+        )}
       </div>
       {useSplit ? (
         <KpiSplitView

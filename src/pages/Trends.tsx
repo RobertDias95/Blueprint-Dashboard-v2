@@ -18,8 +18,10 @@ import { usePermitTypes } from '../hooks/usePermitTypes';
 import { SkeletonRows } from '../components/Skeleton';
 import QueryError from '../components/QueryError';
 import {
+  avgCityCourtTime,
   avgCyclesPerPermit,
   avgIntakeToApproval,
+  avgResponseCourtTime,
   breakdownByTypeAndJuris,
   cityReviewByCycle,
   defaultDateRange,
@@ -272,10 +274,13 @@ function TrendsBody({ permits, projects, catalogTypes }: BodyProps) {
 
   const kpiTotal = totalApprovedInWindow(filteredCurrent);
   const kpiAvgClock = avgIntakeToApproval(filteredCurrent);
+  // fix-142: City Review / Response Time siblings of Permit Timeline.
+  const kpiCityReview = avgCityCourtTime(filteredCurrent);
+  const kpiResponse = avgResponseCourtTime(filteredCurrent);
   const kpiAvgCycles = avgCyclesPerPermit(filteredCurrent);
   const kpiHitRate = targetSubmitHitRate(filteredCurrent);
 
-  // fix-114: same 4 KPIs on the comparison cohort. Each returns null
+  // fix-114: same KPIs on the comparison cohort. Each returns null
   // when no permits qualify in the prior window — KpiTile renders
   // "no comparison data" in that case rather than a misleading delta.
   const cmpTotal = filteredComparison
@@ -283,6 +288,12 @@ function TrendsBody({ permits, projects, catalogTypes }: BodyProps) {
     : null;
   const cmpAvgClock = filteredComparison
     ? avgIntakeToApproval(filteredComparison)
+    : null;
+  const cmpCityReview = filteredComparison
+    ? avgCityCourtTime(filteredComparison)
+    : null;
+  const cmpResponse = filteredComparison
+    ? avgResponseCourtTime(filteredComparison)
     : null;
   const cmpAvgCycles = filteredComparison
     ? avgCyclesPerPermit(filteredComparison)
@@ -949,7 +960,7 @@ function TrendsBody({ permits, projects, catalogTypes }: BodyProps) {
                 (rate.hit / rate.total) * 100,
               )}%)`;
         return (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7 gap-3">
             <KpiTile
               label="Approved permits in window"
               labelSlot={kpiTip('approvedInWindow')}
@@ -991,7 +1002,7 @@ function TrendsBody({ permits, projects, catalogTypes }: BodyProps) {
               comparisonModeLabel={comparisonRange ? 'vs comparison' : undefined}
             />
             <KpiTile
-              label="Avg city clock (intake → approval)"
+              label="Avg Permit Timeline"
               labelSlot={kpiTip('avgCityClock')}
               value={kpiAvgClock === null ? '—' : `${kpiAvgClock}d`}
               testId="trends-kpi-clock"
@@ -999,6 +1010,41 @@ function TrendsBody({ permits, projects, catalogTypes }: BodyProps) {
               comparisonNumeric={cmpAvgClock}
               comparisonValueText={
                 cmpAvgClock === null ? undefined : `${cmpAvgClock}d`
+              }
+              comparisonLabel={cmpLabel || undefined}
+              direction="lower_better"
+              currentRangeLabel={volumeCurrentRangeLabel || undefined}
+              comparisonRangeLabel={volumeComparisonRangeLabel || undefined}
+              comparisonModeLabel={comparisonRange ? 'vs comparison' : undefined}
+            />
+            {/* fix-142: City Review + Response Time — the same split Reports
+                Overview surfaces, now on Trends. testids match Overview
+                (metric-city-review / metric-response-time). Both lower_better. */}
+            <KpiTile
+              label="Avg City Review"
+              labelSlot={kpiTip('avgCityReview')}
+              value={kpiCityReview === null ? '—' : `${kpiCityReview}d`}
+              testId="metric-city-review"
+              currentNumeric={kpiCityReview}
+              comparisonNumeric={cmpCityReview}
+              comparisonValueText={
+                cmpCityReview === null ? undefined : `${cmpCityReview}d`
+              }
+              comparisonLabel={cmpLabel || undefined}
+              direction="lower_better"
+              currentRangeLabel={volumeCurrentRangeLabel || undefined}
+              comparisonRangeLabel={volumeComparisonRangeLabel || undefined}
+              comparisonModeLabel={comparisonRange ? 'vs comparison' : undefined}
+            />
+            <KpiTile
+              label="Avg Response Time"
+              labelSlot={kpiTip('avgResponseTime')}
+              value={kpiResponse === null ? '—' : `${kpiResponse}d`}
+              testId="metric-response-time"
+              currentNumeric={kpiResponse}
+              comparisonNumeric={cmpResponse}
+              comparisonValueText={
+                cmpResponse === null ? undefined : `${cmpResponse}d`
               }
               comparisonLabel={cmpLabel || undefined}
               direction="lower_better"
@@ -1139,7 +1185,7 @@ function TrendsBody({ permits, projects, catalogTypes }: BodyProps) {
           />
         )}
         <ChartCard
-          title="Avg city clock by month (intake → approval)"
+          title="Avg Permit Timeline by Month (intake → approval)"
           titleSlot={chartTip('cityClockByMonth')}
           testId="trends-chart-clock"
           empty={timeSeries.length === 0 && !cmpTimeSeries?.length}
@@ -1180,12 +1226,12 @@ function TrendsBody({ permits, projects, catalogTypes }: BodyProps) {
                       : '';
                     return [
                       `${value}d · n=${payload?.cmpN ?? 0}`,
-                      `Prev clock${cmpMonth}`,
+                      `Prev timeline${cmpMonth}`,
                     ];
                   }
                   return [
                     `${value}d · n=${payload?.n ?? 0}`,
-                    'Avg city clock',
+                    'Avg Permit Timeline',
                   ];
                 }}
               />

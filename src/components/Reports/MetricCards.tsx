@@ -57,6 +57,8 @@ export default function MetricCards({
   currentRangeLabel,
   comparisonRangeLabel,
   comparisonModeLabel,
+  onTimelineTileClick,
+  drawerOpen,
 }: {
   metrics: ReportMetrics;
   comparisonMetrics?: ReportMetrics | null;
@@ -66,6 +68,13 @@ export default function MetricCards({
   currentRangeLabel?: string;
   comparisonRangeLabel?: string;
   comparisonModeLabel?: string;
+  /** fix-142: toggles the per-cycle breakdown drawer. Wired to all three
+   *  timeline tiles (City Review / Response Time / Permit Timeline) — any
+   *  of them acts as a unified open/close toggle. */
+  onTimelineTileClick?: () => void;
+  /** fix-142: drawer open state — drives the chevron glyph + aria-expanded
+   *  on the three timeline tiles. */
+  drawerOpen?: boolean;
 }) {
   const cmp = comparisonMetrics ?? null;
   const cmpLabel = comparisonLabel || undefined;
@@ -218,6 +227,8 @@ export default function MetricCards({
         }
         comparisonLabel={cmpLabel}
         comparisonDirection="lower_better"
+        onClick={onTimelineTileClick}
+        expanded={drawerOpen}
         {...splitProps}
       />
 
@@ -243,6 +254,8 @@ export default function MetricCards({
         }
         comparisonLabel={cmpLabel}
         comparisonDirection="lower_better"
+        onClick={onTimelineTileClick}
+        expanded={drawerOpen}
         {...splitProps}
       />
 
@@ -268,6 +281,8 @@ export default function MetricCards({
         }
         comparisonLabel={cmpLabel}
         comparisonDirection="lower_better"
+        onClick={onTimelineTileClick}
+        expanded={drawerOpen}
         {...splitProps}
       />
 

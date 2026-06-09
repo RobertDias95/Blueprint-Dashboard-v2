@@ -1126,4 +1126,87 @@ describe('<Reports /> Q7.2.b', () => {
       expect(cityNum).not.toBe(timelineNum);
     });
   });
+
+  // ============================================================
+  // fix-142: per-cycle breakdown drawer
+  // ============================================================
+  describe('fix-142 per-cycle breakdown drawer', () => {
+    it('drawer is closed by default — timeline tiles aria-expanded=false, drawer aria-hidden', () => {
+      renderIt();
+      expect(
+        screen.getByTestId('metric-city-review').getAttribute('aria-expanded'),
+      ).toBe('false');
+      expect(
+        screen
+          .getByTestId('metric-permit-timeline')
+          .getAttribute('aria-expanded'),
+      ).toBe('false');
+      expect(
+        screen.getByTestId('per-cycle-drawer').getAttribute('aria-hidden'),
+      ).toBe('true');
+    });
+
+    it('all four bucket rows render (Cycle 1, 2, 3, 4+)', () => {
+      renderIt();
+      for (const k of ['1', '2', '3', '4plus']) {
+        expect(screen.getByTestId(`per-cycle-row-${k}`)).toBeInTheDocument();
+      }
+    });
+
+    it('clicking any of the three timeline tiles toggles the same drawer', () => {
+      renderIt();
+      const city = () => screen.getByTestId('metric-city-review');
+      const drawer = () => screen.getByTestId('per-cycle-drawer');
+      // Closed.
+      expect(city().getAttribute('aria-expanded')).toBe('false');
+      // Click City Review → opens.
+      fireEvent.click(city());
+      expect(city().getAttribute('aria-expanded')).toBe('true');
+      expect(drawer().getAttribute('aria-hidden')).toBe('false');
+      // Click Response Time → toggles closed (shared toggle).
+      fireEvent.click(screen.getByTestId('metric-response-time'));
+      expect(city().getAttribute('aria-expanded')).toBe('false');
+      // Click Permit Timeline → toggles back open.
+      fireEvent.click(screen.getByTestId('metric-permit-timeline'));
+      expect(city().getAttribute('aria-expanded')).toBe('true');
+    });
+
+    it('chevron flips ▾ → ▴ when the drawer opens', () => {
+      renderIt();
+      const city = () => screen.getByTestId('metric-city-review');
+      expect(city().textContent).toContain('▾');
+      fireEvent.click(city());
+      expect(city().textContent).toContain('▴');
+    });
+
+    it('Cycle 1 bucket reflects the fixture (city-court 35d, response —, n=1)', () => {
+      // Default fixture permit 1 has one review cycle (index 1) with
+      // corr_issued → city-court = submitted(2026-01-25) → corr_issued
+      // (2026-03-01) = 35d; no next cycle → response "—".
+      renderIt();
+      expect(screen.getByTestId('per-cycle-city-1').textContent).toContain('35');
+      expect(screen.getByTestId('per-cycle-response-1').textContent).toContain('—');
+      expect(screen.getByTestId('per-cycle-row-1').textContent).toContain('n=1');
+    });
+
+    it('comparison: each row cell carries -split-current and -split-comparison children', () => {
+      renderIt();
+      applyCompareViaPanel(
+        { from: '2026-04-01', to: '2026-04-30' },
+        { from: '2026-03-01', to: '2026-03-31' },
+      );
+      expect(
+        screen.getByTestId('per-cycle-city-1-split-current'),
+      ).toBeInTheDocument();
+      expect(
+        screen.getByTestId('per-cycle-city-1-split-comparison'),
+      ).toBeInTheDocument();
+      expect(
+        screen.getByTestId('per-cycle-response-2-split-current'),
+      ).toBeInTheDocument();
+      expect(
+        screen.getByTestId('per-cycle-response-2-split-comparison'),
+      ).toBeInTheDocument();
+    });
+  });
 });

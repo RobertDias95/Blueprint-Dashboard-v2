@@ -969,6 +969,40 @@ describe('Trends — fix-25-feat-V submit→intake surface', () => {
     });
   });
 
+  // fix-142: Trends KPI alignment — "Avg city clock" renamed to "Avg Permit
+  // Timeline" + two new sibling KPI tiles (City Review / Response Time) +
+  // line chart relabel.
+  describe('fix-142 Trends KPI alignment', () => {
+    it('KPI row now ships 7 tiles (was 5) — incl. City Review + Response Time', () => {
+      renderTrends();
+      for (const id of [
+        'trends-kpi-total',
+        'trends-kpi-submit-intake',
+        'trends-kpi-clock',
+        'metric-city-review',
+        'metric-response-time',
+        'trends-kpi-cycles',
+        'trends-kpi-hitrate',
+      ]) {
+        expect(screen.getByTestId(id)).toBeInTheDocument();
+      }
+    });
+
+    it('the Permit Timeline tile reads "Avg Permit Timeline" (no longer "Avg city clock")', () => {
+      renderTrends();
+      const tile = screen.getByTestId('trends-kpi-clock');
+      expect(tile.textContent).toContain('Avg Permit Timeline');
+      expect(tile.textContent).not.toMatch(/Avg city clock/i);
+    });
+
+    it('the City performance line chart title is relabeled to "Avg Permit Timeline"', () => {
+      renderTrends();
+      const chart = screen.getByTestId('trends-chart-clock');
+      expect(chart.textContent).toContain('Avg Permit Timeline by Month');
+      expect(chart.textContent).not.toMatch(/Avg city clock/i);
+    });
+  });
+
   // fix-129-c: every KPI tile + chart title is wrapped in a
   // MetricInfoTooltip. The trigger testids come from metricDefinitions
   // via the kpiTip / chartTip factories. Surfacing them as a single
@@ -979,6 +1013,9 @@ describe('Trends — fix-25-feat-V submit→intake surface', () => {
       'approvedInWindow',
       'avgSubmitToIntakeDelay',
       'avgCityClock',
+      // fix-142: City Review + Response Time KPI siblings.
+      'avgCityReview',
+      'avgResponseTime',
       'avgCyclesPerPermit',
       'targetSubmitHitRate',
     ];
