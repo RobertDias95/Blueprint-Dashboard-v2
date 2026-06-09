@@ -14,11 +14,11 @@ import {
 // asked for.
 
 describe('metricDefinitions roster (fix-129-c/d)', () => {
-  it('Reports Overview ships 12 definitions', () => {
-    // fix-140-b added Avg Permit Timeline (12th) — same canonical
-    // intake → approval formula as Avg City Review, surfaced under
-    // Bobby's preferred label as a second tile.
-    expect(Object.keys(REPORTS_OVERVIEW_METRICS)).toHaveLength(12);
+  it('Reports Overview ships 13 definitions', () => {
+    // fix-140-b added Avg Permit Timeline (12th). fix-141 added Avg Response
+    // Time (13th) and redefined Avg City Review as a sum-over-cycles
+    // ball-in-court measure distinct from the intake → approval timeline.
+    expect(Object.keys(REPORTS_OVERVIEW_METRICS)).toHaveLength(13);
   });
 
   it('Trends KPI tiles ship 5 definitions', () => {
@@ -56,7 +56,7 @@ describe('metricDefinitions roster (fix-129-c/d)', () => {
     // fix-134-b added a sixth surface (redesigns KPI tiles, 3 entries).
     // fix-136-b added a seventh surface (cycle-time comparison, 4 entries).
     expect(Object.keys(ALL_METRIC_DEFINITIONS)).toHaveLength(
-      12 + 5 + 8 + 6 + 4 + 3 + 4,
+      13 + 5 + 8 + 6 + 4 + 3 + 4,
     );
   });
 });
@@ -76,16 +76,18 @@ describe('formula text references the source fields (fix-129-d)', () => {
     { key: 'reports.submitVariance', must: ['firstSubmitted', 'target_submit'] },
     { key: 'reports.avgGoToSubmit', must: ['firstSubmitted', 'go_date'] },
     { key: 'reports.avgGoToDDStart', must: ['dd_start', 'go_date'] },
-    { key: 'reports.avgCityReview', must: ['approval_date', 'intake_accepted'] },
+    // fix-141: City Review redefined → formula now names submitted + corr_issued.
+    { key: 'reports.avgCityReview', must: ['submitted', 'corr_issued'] },
     { key: 'reports.avgSubmitToIntake', must: ['firstSubmitted', 'firstIntakeAccepted'] },
     { key: 'reports.avgCorrectionCycles', must: ['corr_rounds'] },
     { key: 'reports.inCorrections', must: ['effectiveStage'] },
     { key: 'reports.avgScheduleVariance', must: ['approval_date', 'actual_issue', 'expected_issue'] },
     { key: 'reports.avgDDDuration', must: ['dd_end', 'dd_start'] },
     { key: 'reports.avgDDEndToSubmit', must: ['firstSubmitted', 'dd_end'] },
-    // fix-140-b: Avg Permit Timeline — same canonical formula as
-    // avgCityReview (Bobby's preferred label, surfaced as a second tile).
+    // fix-140-b: Avg Permit Timeline — intake → approval clock.
     { key: 'reports.avgPermitTimeline', must: ['approval_date', 'intake_accepted'] },
+    // fix-141: Avg Response Time — our-court time across cycle pairs.
+    { key: 'reports.avgResponseTime', must: ['corr_issued', 'submitted'] },
 
     // Trends KPI tiles — perfTrends.ts
     { key: 'trends.approvedInWindow', must: ['count', 'approval_date'] },

@@ -62,13 +62,15 @@ export const REPORTS_OVERVIEW_METRICS: Record<string, MetricDefinition> = {
     cohort: 'Only counts permits with both go_date AND dd_start set.',
   },
   avgCityReview: {
-    // reportMetrics.ts:644 — avg of enriched.cityReviewDays
-    // = approval_date − c0.intake_accepted (strict canonical, fix-112-b).
+    // fix-141: REDEFINED. avg of cityCourtTimeDays — sum of per-review-cycle
+    // (corr_issued − submitted) durations, final cycle anchored to approval.
     label: 'Avg City Review',
     description:
-      'Average days the city takes to approve a permit, from intake acceptance to approval.',
-    formula: 'avg(approval_date − c0.intake_accepted) in days',
-    cohort: 'Only counts permits with both intake_accepted AND approval_date set.',
+      "Time the permit was in the city's hands — sum of review-cycle durations.",
+    formula:
+      'sum(cycle.corr_issued − cycle.submitted) across review cycles, with final cycle anchored to approval_date',
+    cohort:
+      'Only counts permits where all review cycles have both submitted AND a closing event (corr_issued or approval_date). Excludes ongoing cycles.',
   },
   avgSubmitToIntake: {
     // reportMetrics.ts:645 — firstSubmitted → firstIntakeAccepted.
@@ -118,20 +120,31 @@ export const REPORTS_OVERVIEW_METRICS: Record<string, MetricDefinition> = {
     formula: 'avg(firstSubmitted − dd_end) in days',
     cohort: 'Only counts permits with both dd_end AND firstSubmitted set.',
   },
-  // fix-140-b: Avg Permit Timeline — Bobby's preferred name for the same
-  // canonical intake → approval clock that Avg City Review already
-  // exposes (formula matches fix-112-b's strict definition byte-for-byte).
-  // Surfaced as a separate tile so the metric reads "the time a Building
-  // Permit took" without the user needing to translate "City Review" into
-  // "the timeline from intake to approval." The tile pulls the same
-  // metrics.avgCityReview field — no double-compute. Bobby can decide
-  // post-merge whether to consolidate the two tiles or keep both.
+  // fix-140-b: Avg Permit Timeline — the canonical intake → approval clock.
+  // fix-141: this is now genuinely distinct from Avg City Review (which was
+  // redefined as a sum-over-cycles ball-in-court measure). The tile reads
+  // metrics.avgPermitTimeline (the renamed permitTimelineDays field); City
+  // Review reads metrics.avgCityReview (cityCourtTimeDays). The two diverge
+  // by the team's response time — see the convergence invariant in
+  // reportMetrics.test.ts (cityReview + responseTime = permitTimeline).
   avgPermitTimeline: {
     label: 'Avg Permit Timeline',
     description:
-      'How long the permit took from city intake acceptance to approval — same canonical clock as Avg City Review, labelled with Bobby\'s preferred framing.',
+      'How long the permit took from city intake acceptance to approval — the total end-to-end clock.',
     formula: 'avg(approval_date − c0.intake_accepted) in days',
     cohort: 'Only counts permits with both intake_accepted AND approval_date set.',
+  },
+  // fix-141: Avg Response Time — the conceptual sibling of Avg City Review.
+  // City's court (City Review) + our court (Response Time) telescopes into
+  // the full Permit Timeline.
+  avgResponseTime: {
+    label: 'Avg Response Time',
+    description:
+      'Time the permit was in our hands — sum of (corr_issued → next cycle submitted) across review cycles.',
+    formula:
+      'sum(c[i+1].submitted − c[i].corr_issued) across consecutive review-cycle pairs',
+    cohort:
+      'Only counts permits with at least one completed correction round-trip (cycle 1 corr_issued + cycle 2 submitted). Excludes permits approved on cycle 1 with no corrections.',
   },
 };
 
