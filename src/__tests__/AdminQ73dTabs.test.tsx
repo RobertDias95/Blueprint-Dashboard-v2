@@ -63,6 +63,14 @@ vi.mock('../hooks/useAppConfig', () => ({
 vi.mock('../hooks/useSetAppConfigKey', () => ({
   useSetAppConfigKey: () => ({ mutate: mocks.setKey }),
 }));
+// fix-139: AdminConsultantsTab now also renders ConsultantFirmsEditor, which
+// reads the consultant-firm hooks. Mock them inert (the supabase mock here has
+// no .rpc) so the section renders its normal empty state.
+vi.mock('../hooks/useConsultantFirms', () => ({
+  useConsultantFirms: () => ({ data: [], isLoading: false, error: null, refetch: vi.fn() }),
+  useUpsertConsultantFirm: () => ({ mutate: vi.fn(), isPending: false }),
+  useArchiveConsultantFirm: () => ({ mutate: vi.fn(), isPending: false }),
+}));
 
 import AdminAccountTab from '../components/Settings/AdminAccountTab';
 import AdminScheduleTab from '../components/Settings/AdminScheduleTab';
@@ -281,7 +289,9 @@ describe('<AdminConsultantsTab />', () => {
       memberships: [{ tenant_id: T, role: 'editor' }],
     });
     renderIt(<AdminConsultantsTab />);
-    expect(screen.getByText(/Read-only/i)).toBeInTheDocument();
+    // fix-139: AdminConsultantsTab now also renders ConsultantFirmsEditor,
+    // which shows its own non-admin read-only banner — so there are two.
+    expect(screen.getAllByText(/Read-only/i).length).toBeGreaterThanOrEqual(1);
     expect(
       screen.queryByTestId('consultant-add-type'),
     ).not.toBeInTheDocument();

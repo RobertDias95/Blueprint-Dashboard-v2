@@ -106,6 +106,13 @@ const refs = vi.hoisted(() => ({
   ],
 }));
 
+// fix-139: the modal now renders ProjectExternalTeamPanel, which calls the
+// consultant-firm hooks. Mock them inert so this suite stays isolated.
+vi.mock('../hooks/useConsultantFirms', () => ({
+  useConsultantFirms: () => ({ data: [], isLoading: false, error: null, refetch: vi.fn() }),
+  useProjectExternalTeam: () => ({ data: [], byDiscipline: new Map(), isLoading: false, error: null, refetch: vi.fn() }),
+  useUpsertProjectExternalTeamMember: () => ({ mutate: vi.fn(), isPending: false }),
+}));
 vi.mock('../hooks/usePermitsByProject', () => ({
   usePermitsByProject: () => ({
     data: refs.permits,

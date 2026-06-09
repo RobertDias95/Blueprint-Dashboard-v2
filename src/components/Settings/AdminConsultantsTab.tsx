@@ -5,6 +5,7 @@ import { useIsTenantAdmin } from '../../hooks/useIsTenantAdmin';
 import { SkeletonRows } from '../Skeleton';
 import QueryError from '../QueryError';
 import PillListEditor from './PillListEditor';
+import ConsultantFirmsEditor from './ConsultantFirmsEditor';
 
 // Q7.3.d: Consultants tab. Editor for app_config.consultantTypes —
 // a JSONB array of {type, firms[]} per Q5 design decision (stays JSONB,
@@ -180,6 +181,12 @@ export default function AdminConsultantsTab() {
           </div>
         )}
       </div>
+
+      {/* fix-139: the NEW table-backed Consultant Firms list (consultant_firms)
+          that feeds the project External Team panel keyed by the WAITING_ON
+          disciplines. Separate from the legacy consultantTypes JSONB editor
+          above (which drives the older projects.external_team JSON map). */}
+      <ConsultantFirmsEditor />
     </div>
   );
 }
