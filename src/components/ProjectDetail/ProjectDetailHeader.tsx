@@ -8,6 +8,7 @@ import type {
 } from '../../lib/database.types';
 import { useUpdateProject } from '../../hooks/useUpdateProject';
 import { nextUnitTypeLabel } from '../../lib/unitTypeNaming';
+import { snapToMonday, addDays } from '../../lib/dateUtils';
 import {
   useSetBpDdDates,
   type ProjectOverlapConflict,
@@ -191,11 +192,26 @@ function DDPhaseEditor({
    *  (clear), but rejects partial-null. */
   async function commitDd(opts: { forceNp?: boolean } = {}) {
     if (!bp.updated_at) return;
-    const startNorm = startDraft.trim() || null;
-    const endNorm = endDraft.trim() || null;
+    const rawStart = startDraft.trim() || null;
+    const rawEnd = endDraft.trim() || null;
     // Mid-state: one filled, one empty. Hold off until the user finishes.
-    if ((startNorm === null) !== (endNorm === null)) return;
-    // No-op when nothing changed AND we're not retrying after a prompt.
+    if ((rawStart === null) !== (rawEnd === null)) return;
+    // fix-141: Monday-align before sending (the picker stays unrestricted; the
+    // snap is silent). dd_start forward-snaps to the next Monday — Bobby's
+    // locked direction, and the field the Draw Schedule grid keys lanes off, so
+    // a non-Monday here is what made 6605's lane invisible. dd_end becomes the
+    // Friday of its own end-week (end-week Monday + 4), preserving the Monday+4
+    // convention no matter which weekday the user picked. Clear mode (both
+    // null) passes straight through. bp_set_bp_dd_dates re-date_trunc's these,
+    // so a Monday in is a no-op there — the client just makes it forward.
+    const startNorm = snapToMonday(rawStart, 'forward');
+    let endNorm = rawEnd === null ? null : addDays(snapToMonday(rawEnd, 'back'), 4);
+    // Never let the snapped end fall before the snapped start (tiny same-week
+    // spans) — collapse to the Friday of the start week.
+    if (startNorm && endNorm && endNorm < startNorm) {
+      endNorm = addDays(startNorm, 4);
+    }
+    // No-op when the snapped values match what's stored AND not retrying.
     if (
       !opts.forceNp &&
       startNorm === (bp.dd_start ?? null) &&
