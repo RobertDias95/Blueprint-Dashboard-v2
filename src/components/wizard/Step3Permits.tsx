@@ -72,12 +72,16 @@ function makeBpPermit(defaults: WizardState): WizardPermit {
 /** Filter + dedupe by name. Same logic the Step 1 ENT dropdown uses,
  *  for the same reason: schema has both ('ent','ent_lead') variants
  *  per person and we want a single entry. */
-function dedupedByName(all: TeamMember[], roles: Set<string>): TeamMember[] {
+function dedupedByName(
+  all: TeamMember[],
+  roles: Set<string>,
+  includeInactive: boolean,
+): TeamMember[] {
   const seen = new Set<string>();
   const out: TeamMember[] = [];
   for (const m of all) {
     if (!roles.has(m.role)) continue;
-    if (m.active === false) continue;
+    if (!includeInactive && m.active === false) continue;
     if (seen.has(m.name)) continue;
     seen.add(m.name);
     out.push(m);
@@ -127,21 +131,29 @@ export default function Step3Permits({ value, onChange }: Props) {
   const routingQ = useDaTeamRouting();
   const routingRows = routingQ.data ?? [];
 
+  // fix-143: backfill mode opens the ENT + DA pickers to inactive/former staff.
+  const backfillMode = value.backfill_mode;
   const entOptions = useMemo(
-    () => dedupedByName(teamQ.all ?? [], ENT_ROLES),
-    [teamQ.all],
+    () => dedupedByName(teamQ.all ?? [], ENT_ROLES, backfillMode),
+    [teamQ.all, backfillMode],
   );
 
-  /** Full active DA roster from team_members. Replaces the previous
-   *  useDmDaGroups source which only included DAs on a draw-schedule
-   *  lane (missed Cam + Shire). Sort alphabetically. */
-  const daOptions = useMemo(() => {
-    const all = teamQ.all ?? [];
-    return all
-      .filter((m) => m.role === DA_ROLE && m.active !== false)
-      .map((m) => m.name)
-      .sort((a, b) => a.localeCompare(b));
-  }, [teamQ.all]);
+  /** Full DA roster from team_members (members, not bare names, so backfill
+   *  mode can render the inactive/former suffix). Replaces the previous
+   *  useDmDaGroups source which only included DAs on a draw-schedule lane
+   *  (missed Cam + Shire). fix-143: include inactive/former when backfill. */
+  const daMembers = useMemo(() => {
+    const seen = new Set<string>();
+    const out: TeamMember[] = [];
+    for (const m of teamQ.all ?? []) {
+      if (m.role !== DA_ROLE) continue;
+      if (!backfillMode && m.active === false) continue;
+      if (seen.has(m.name)) continue;
+      seen.add(m.name);
+      out.push(m);
+    }
+    return out.sort((a, b) => a.name.localeCompare(b.name));
+  }, [teamQ.all, backfillMode]);
 
   /** fix-96-b: which DAs are routed for the project's juris. A DA appears
    *  in the dropdown either way (so the user can see Bobby's full team)
@@ -149,13 +161,13 @@ export default function Step3Permits({ value, onChange }: Props) {
    *  routing rows change. */
   const routedDaSet = useMemo(() => {
     const set = new Set<string>();
-    for (const name of daOptions) {
-      if (daHasRoutingFor(name, value.juris || null, routingRows)) {
-        set.add(name);
+    for (const m of daMembers) {
+      if (daHasRoutingFor(m.name, value.juris || null, routingRows)) {
+        set.add(m.name);
       }
     }
     return set;
-  }, [daOptions, routingRows, value.juris]);
+  }, [daMembers, routingRows, value.juris]);
 
   /** Ensure a Building Permit row exists in value.permits exactly once.
    *  Persisting via useEffect (vs. computing on every render) keeps
@@ -452,7 +464,8 @@ export default function Step3Permits({ value, onChange }: Props) {
             key={p.rowId}
             permit={p}
             entOptions={entOptions}
-            daOptions={daOptions}
+            daMembers={daMembers}
+            backfillMode={backfillMode}
             typeOptions={typeOptions}
             routedDas={routedDaSet}
             derivedDm={findDmForDa(p.da, dmDaRows)}
