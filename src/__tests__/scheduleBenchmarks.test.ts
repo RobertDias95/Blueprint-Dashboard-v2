@@ -261,13 +261,14 @@ describe('extractSample', () => {
     expect(s.cityReview1Days).toBe(31); // intake 01-01 → corr 02-01 (NOT 12-20)
   });
 
-  it('fix-112-b: benchmark cityReview1Days (per-cycle) ≠ reportMetrics cityReviewDays (per-permit) for multi-cycle permits', () => {
-    // Pre-fix-112-b both surfaces happened to coincide because cityReviewDays
-    // used corr_issued as the endpoint. After fix-112-b they're explicitly
-    // different metrics: SB cycle 1 measures cycle-1 review time
-    // (intake → c1.corr_issued); Reports/Trends per-permit measures whole
-    // review time (intake → approval). They agree only for single-cycle,
-    // no-corrections permits — see the cycle 2-cycle case here.
+  it('fix-112-b: benchmark cityReview1Days (per-cycle) ≠ reportMetrics permitTimelineDays (per-permit) for multi-cycle permits', () => {
+    // fix-141 renamed the EnrichedPermit field cityReviewDays →
+    // permitTimelineDays (the intake → approval clock). Pre-fix-112-b both
+    // surfaces coincided because the field used corr_issued as the endpoint.
+    // After fix-112-b they're explicitly different metrics: SB cycle 1
+    // measures cycle-1 review time (intake → c1.corr_issued); the per-permit
+    // permit timeline measures whole review time (intake → approval). They
+    // agree only for single-cycle, no-corrections permits.
     const permit = makePermit({
       id: 7,
       project_id: 'pX',
@@ -285,8 +286,8 @@ describe('extractSample', () => {
     // SB cycle 1 tile = intake → c1.corr_issued = 2026-02-15 → 2026-04-01 = 45d.
     expect(sample.cityReview1Days).toBe(45);
     // Reports per-permit = intake → approval = 2026-02-15 → 2026-06-01 = 106d.
-    expect(enriched.cityReviewDays).toBe(106);
-    expect(sample.cityReview1Days).not.toBe(enriched.cityReviewDays);
+    expect(enriched.permitTimelineDays).toBe(106);
+    expect(sample.cityReview1Days).not.toBe(enriched.permitTimelineDays);
   });
 
   it('approvedInCycle reflects nCycles + 1 (clamped to [1, 4])', () => {

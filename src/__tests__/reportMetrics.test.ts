@@ -149,10 +149,11 @@ describe('enrichPermits', () => {
     expect(enriched[0].goToSubmit).toBe(90);
   });
 
-  it('fix-112-b: cityReviewDays = (approval_date ?? actual_issue) − c0.intake_accepted', () => {
-    // Canonical city review = strict intake → approval point. No fallback
-    // chain. Matches the Trends KPI city clock so both surfaces agree on
-    // the same cohort.
+  it('fix-112-b/fix-141: permitTimelineDays = (approval_date ?? actual_issue) − c0.intake_accepted', () => {
+    // fix-141 renamed the field cityReviewDays → permitTimelineDays (the
+    // intake → approval clock split off from the redefined City Review).
+    // Formula is byte-for-byte the fix-112-b canonical — strict intake →
+    // approval point, no fallback chain. Matches the Trends KPI city clock.
     const c0 = makeCycle({
       cycle_index: 0,
       submitted: '2026-02-01',
@@ -168,10 +169,10 @@ describe('enrichPermits', () => {
       projectsById,
     );
     // 2026-02-05 → 2026-05-05 = 89 days.
-    expect(enriched[0].cityReviewDays).toBe(89);
+    expect(enriched[0].permitTimelineDays).toBe(89);
   });
 
-  it('fix-112-b: cityReviewDays = null when c0.intake_accepted is missing (no submitted fallback)', () => {
+  it('fix-112-b/fix-141: permitTimelineDays = null when c0.intake_accepted is missing (no submitted fallback)', () => {
     // Pre-fix the formula fell back to firstSubmitted, silently mixing the
     // submit→approval arc into the city-review average. Strict canonical
     // drops the fallback — permits without intake_accepted are excluded.
@@ -189,10 +190,10 @@ describe('enrichPermits', () => {
       ],
       projectsById,
     );
-    expect(enriched[0].cityReviewDays).toBeNull();
+    expect(enriched[0].permitTimelineDays).toBeNull();
   });
 
-  it('fix-112-b: cityReviewDays coalesces to actual_issue when approval_date missing', () => {
+  it('fix-112-b/fix-141: permitTimelineDays coalesces to actual_issue when approval_date missing', () => {
     // Endpoint = approval_date ?? actual_issue (mirrors the Trends KPI). A
     // permit that was issued without a separate approval_date stamp still
     // contributes to the avg.
@@ -210,10 +211,10 @@ describe('enrichPermits', () => {
       projectsById,
     );
     // 2026-02-05 → 2026-04-05 = 59 days.
-    expect(enriched[0].cityReviewDays).toBe(59);
+    expect(enriched[0].permitTimelineDays).toBe(59);
   });
 
-  it('fix-112-b: cityReviewDays = null when intake on c1 only (canonical anchor is c0)', () => {
+  it('fix-112-b/fix-141: permitTimelineDays = null when intake on c1 only (canonical anchor is c0)', () => {
     // Pre-fix the formula keyed off pickFirstSubmittedCycle which would
     // happily use cycle 1's intake_accepted. The strict canonical only
     // considers c0.intake_accepted — a v1-era fixture with everything on
@@ -233,7 +234,7 @@ describe('enrichPermits', () => {
       ],
       projectsById,
     );
-    expect(enriched[0].cityReviewDays).toBeNull();
+    expect(enriched[0].permitTimelineDays).toBeNull();
   });
 
   it('variance = (approval_date ?? actual_issue) - expected_issue', () => {
@@ -290,7 +291,7 @@ describe('enrichPermits', () => {
   it('returns null for all derived metrics when source dates missing', () => {
     const enriched = enrichPermits([makePermit()], projectsById);
     expect(enriched[0].goToSubmit).toBeNull();
-    expect(enriched[0].cityReviewDays).toBeNull();
+    expect(enriched[0].permitTimelineDays).toBeNull();
     expect(enriched[0].variance).toBeNull();
     expect(enriched[0].ddDuration).toBeNull();
   });
@@ -720,11 +721,13 @@ describe('computeMetrics', () => {
     expect(m.avgScheduleVariance).not.toBeNaN();
   });
 
-  // fix-140-b: Avg Permit Timeline shares avgCityReview's value — the
-  // two tiles compute the same number by design. The page-level tests
-  // assert both render; this helper-level test just confirms the
-  // underlying computeMetrics doesn't grow a second field.
-  it('fix-140-b: avgCityReview is the single source for the Permit Timeline display', () => {
+  // fix-141: Avg Permit Timeline now reads its OWN field (avgPermitTimeline),
+  // split off from avgCityReview. A permit with only a design cycle (c0
+  // intake + approval, no review cycles) contributes to the timeline but
+  // has zero city-court rounds to sum → avgCityReview is null, avgResponseTime
+  // is null. This pins the divergence at the helper level (pre-fix-141 this
+  // same fixture produced avgCityReview === 29).
+  it('fix-141: c0-only permit → avgPermitTimeline=29, avgCityReview=null, avgResponseTime=null', () => {
     const projectsById = new Map<string, Project>([
       [
         'p1',
@@ -748,7 +751,10 @@ describe('computeMetrics', () => {
     const enriched = enrichPermits(permits, projectsById);
     const m = computeMetrics(enriched);
     // 29 days between intake (2026-04-01) and approval (2026-04-30).
-    expect(m.avgCityReview).toBe(29);
+    expect(m.avgPermitTimeline).toBe(29);
+    // No review cycles → no city-court time to measure, no round-trip.
+    expect(m.avgCityReview).toBeNull();
+    expect(m.avgResponseTime).toBeNull();
   });
 });
 
@@ -900,5 +906,149 @@ describe('aggregateByProject', () => {
     const enriched = enrichPermits([a, b, c], projectsById);
     const rows = aggregateByProject(enriched);
     expect(rows[0].latestAcqTarget).toBe('2025-08-15');
+  });
+});
+
+// ============================================================
+// fix-141: City Review redefinition (sum-over-cycles city-court time) +
+// Avg Response Time (sum-over-cycles our-court time). Per the auto-derivation
+// rule c1.submitted = c0.intake_accepted, so every fixture stamps c0 with the
+// intake date matching c1.submitted. City + Response telescopes into the
+// Permit Timeline (intake → approval) whenever both are non-null.
+// ============================================================
+describe('fix-141 City Review redefinition + Response Time', () => {
+  const projectsById = new Map<string, Project>([
+    ['p1', makeProject({ id: 'p1', juris: 'Seattle', units: 1 })],
+  ]);
+
+  // Case #1: 1 review cycle, no corrections, approved cleanly.
+  //   c0 intake = c1 submitted = 2026-04-01; approval 2026-04-30.
+  function permit1Clean(id = 1): PermitWithCycles {
+    return makePermit({
+      id,
+      project_id: 'p1',
+      approval_date: '2026-04-30',
+      permit_cycles: [
+        makeCycle({ id: `${id}-c0`, cycle_index: 0, intake_accepted: '2026-04-01' }),
+        makeCycle({ id: `${id}-c1`, cycle_index: 1, submitted: '2026-04-01' }),
+      ],
+    });
+  }
+
+  // Case #2: 2 cycles, full round-trip, approved on cycle 2.
+  //   c1 2026-04-01 → corr 2026-04-15; c2 2026-04-20 → approval 2026-04-30.
+  function permit2Roundtrip(id = 2): PermitWithCycles {
+    return makePermit({
+      id,
+      project_id: 'p1',
+      approval_date: '2026-04-30',
+      permit_cycles: [
+        makeCycle({ id: `${id}-c0`, cycle_index: 0, intake_accepted: '2026-04-01' }),
+        makeCycle({
+          id: `${id}-c1`,
+          cycle_index: 1,
+          submitted: '2026-04-01',
+          corr_issued: '2026-04-15',
+        }),
+        makeCycle({ id: `${id}-c2`, cycle_index: 2, submitted: '2026-04-20' }),
+      ],
+    });
+  }
+
+  // Case #3: 3 cycles.
+  //   c1 4/1 → corr 4/15; c2 4/20 → corr 4/29; c3 5/3 → approval 5/10.
+  function permit3ThreeCycles(id = 3): PermitWithCycles {
+    return makePermit({
+      id,
+      project_id: 'p1',
+      approval_date: '2026-05-10',
+      permit_cycles: [
+        makeCycle({ id: `${id}-c0`, cycle_index: 0, intake_accepted: '2026-04-01' }),
+        makeCycle({
+          id: `${id}-c1`,
+          cycle_index: 1,
+          submitted: '2026-04-01',
+          corr_issued: '2026-04-15',
+        }),
+        makeCycle({
+          id: `${id}-c2`,
+          cycle_index: 2,
+          submitted: '2026-04-20',
+          corr_issued: '2026-04-29',
+        }),
+        makeCycle({ id: `${id}-c3`, cycle_index: 3, submitted: '2026-05-03' }),
+      ],
+    });
+  }
+
+  // Case #4: 2 cycles, ongoing — no corr_issued anywhere, no approval.
+  function permit4Ongoing(id = 4): PermitWithCycles {
+    return makePermit({
+      id,
+      project_id: 'p1',
+      approval_date: null,
+      permit_cycles: [
+        makeCycle({ id: `${id}-c0`, cycle_index: 0, intake_accepted: '2026-04-01' }),
+        makeCycle({ id: `${id}-c1`, cycle_index: 1, submitted: '2026-04-01' }),
+        makeCycle({ id: `${id}-c2`, cycle_index: 2, submitted: '2026-04-20' }),
+      ],
+    });
+  }
+
+  function metricsFor(permit: PermitWithCycles) {
+    return computeMetrics(enrichPermits([permit], projectsById));
+  }
+
+  it('case 1: clean single cycle → City=29, Response=null, Timeline=29', () => {
+    const m = metricsFor(permit1Clean());
+    expect(m.avgCityReview).toBe(29); // cycle 1 anchors to approval_date
+    expect(m.avgResponseTime).toBeNull(); // no round-trip
+    expect(m.avgPermitTimeline).toBe(29);
+  });
+
+  it('case 2: full round-trip over 2 cycles → City=24, Response=5, Timeline=29', () => {
+    const m = metricsFor(permit2Roundtrip());
+    expect(m.avgCityReview).toBe(24); // 14 (c1) + 10 (c2 → approval)
+    expect(m.avgResponseTime).toBe(5); // c1.corr_issued → c2.submitted
+    expect(m.avgPermitTimeline).toBe(29);
+  });
+
+  it('case 3: three cycles → City=30, Response=9, Timeline=39', () => {
+    const m = metricsFor(permit3ThreeCycles());
+    expect(m.avgCityReview).toBe(30); // 14 + 9 + 7
+    expect(m.avgResponseTime).toBe(9); // 5 + 4
+    expect(m.avgPermitTimeline).toBe(39);
+  });
+
+  it('case 4: ongoing (no corr, no approval) → all three null', () => {
+    const m = metricsFor(permit4Ongoing());
+    expect(m.avgCityReview).toBeNull();
+    expect(m.avgResponseTime).toBeNull();
+    expect(m.avgPermitTimeline).toBeNull();
+  });
+
+  it('case 5: cohort of #1/#2/#3 → City=28, Response=7 (#1 excluded), Timeline=32', () => {
+    const enriched = enrichPermits(
+      [permit1Clean(1), permit2Roundtrip(2), permit3ThreeCycles(3)],
+      projectsById,
+    );
+    const m = computeMetrics(enriched);
+    // (29 + 24 + 30) / 3 = 27.67 → 28
+    expect(m.avgCityReview).toBe(28);
+    // (5 + 9) / 2 = 7 — permit #1 has no round-trip, excluded from cohort.
+    expect(m.avgResponseTime).toBe(7);
+    // (29 + 29 + 39) / 3 = 32.33 → 32
+    expect(m.avgPermitTimeline).toBe(32);
+  });
+
+  it('case 6: convergence invariant — cityReview + responseTime = permitTimeline', () => {
+    // Pin on case #2 (a representative permit where both are non-null).
+    const m = metricsFor(permit2Roundtrip());
+    expect(m.avgCityReview).not.toBeNull();
+    expect(m.avgResponseTime).not.toBeNull();
+    expect(m.avgPermitTimeline).not.toBeNull();
+    expect((m.avgCityReview ?? 0) + (m.avgResponseTime ?? 0)).toBe(
+      m.avgPermitTimeline,
+    );
   });
 });

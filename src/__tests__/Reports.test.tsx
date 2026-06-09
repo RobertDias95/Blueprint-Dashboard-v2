@@ -172,6 +172,35 @@ afterEach(() => {
 });
 
 import Reports from '../pages/Reports';
+import MetricCards from '../components/Reports/MetricCards';
+import type { ReportMetrics } from '../lib/reportMetrics';
+
+// fix-141: a full ReportMetrics literal with neutral defaults so a test can
+// override just the fields under exercise (City Review / Permit Timeline /
+// Response Time) and render MetricCards in isolation with a controlled gap.
+function makeMetrics(over: Partial<ReportMetrics> = {}): ReportMetrics {
+  return {
+    totalPermits: 0,
+    totalUnits: 0,
+    avgSubmitVariance: null,
+    onTimeSubmits: 0,
+    lateSubmits: 0,
+    avgGoToSubmit: null,
+    avgGoToDDStart: null,
+    avgCityReview: null,
+    avgPermitTimeline: null,
+    avgResponseTime: null,
+    avgSubmitToIntake: null,
+    avgCorrectionCycles: null,
+    permitsWithCorrections: 0,
+    inCorrections: 0,
+    issuedCount: 0,
+    avgScheduleVariance: null,
+    avgDDDuration: null,
+    avgDDEndToSubmit: null,
+    ...over,
+  };
+}
 
 function renderIt() {
   const queryClient = new QueryClient({
@@ -213,15 +242,16 @@ describe('<Reports /> Q7.2.b', () => {
     expect(card.textContent).toContain('0 of 2 issued');
   });
 
-  it('fix-112-b: AVG CITY REVIEW renders "—" when no permit has c0.intake_accepted (strict canonical)', () => {
-    // Pre-fix the formula chained fallbacks (firstSubmitted as anchor /
-    // actual_issue or corr_issued as endpoint) which let v1-era fixtures
-    // — like this one, with intake stamped on cycle_index=1, no cycle 0 —
-    // still produce a number (33d). Strict canonical = approval_date −
-    // c0.intake_accepted, so a fixture without c0 yields null → "—".
-    // Positive-path coverage lives in reportMetrics.test.ts.
+  it('fix-141: AVG PERMIT TIMELINE renders "—" when no permit has c0.intake_accepted (strict canonical)', () => {
+    // fix-141 moved the strict intake → approval clock onto the Permit
+    // Timeline tile (permitTimelineDays = approval_date − c0.intake_accepted).
+    // The default fixture stamps intake on cycle_index=1 with no cycle 0, so
+    // permitTimelineDays is null → the Permit Timeline tile shows "—".
+    // (Avg City Review, redefined as sum-over-cycles city-court time, now
+    // DOES produce a number from this fixture's cycle-1 corr_issued — that
+    // divergence is asserted separately below.)
     renderIt();
-    const card = screen.getByTestId('metric-city-review');
+    const card = screen.getByTestId('metric-permit-timeline');
     expect(card.textContent).toMatch(/—/);
   });
 
@@ -872,6 +902,8 @@ describe('<Reports /> Q7.2.b', () => {
       'avgScheduleVariance',
       // fix-140-b: Avg Permit Timeline (12th tile).
       'avgPermitTimeline',
+      // fix-141: Avg Response Time (13th tile).
+      'avgResponseTime',
     ];
     it.each(reportsSlugs)('MetricCard "%s" has a tooltip trigger', (slug) => {
       renderIt();
@@ -952,20 +984,22 @@ describe('<Reports /> Q7.2.b', () => {
       fireEvent.click(screen.getByTestId('reports-compare-panel-apply'));
     }
 
-    it('fix-140-b: 12th tile "Avg Permit Timeline" renders alongside Avg City Review with the same numeric value', () => {
+    it('fix-141: Avg City Review and Avg Permit Timeline no longer carry the same value', () => {
+      // Pre-fix-141 the Permit Timeline tile borrowed metrics.avgCityReview,
+      // so the two tiles were always identical. fix-141 split the fields:
+      // City Review = sum-over-cycles city-court time; Permit Timeline =
+      // intake → approval. The default fixture (cycle-1 corr_issued, no
+      // cycle 0) forces a gap: City Review computes a number while Permit
+      // Timeline is null ("—"). They must no longer match.
       renderIt();
       const timeline = screen.getByTestId('metric-permit-timeline');
       const cityReview = screen.getByTestId('metric-city-review');
       expect(timeline).toBeInTheDocument();
       expect(cityReview).toBeInTheDocument();
-      // Same metric, same display.
-      const timelineText = timeline.textContent ?? '';
-      const cityText = cityReview.textContent ?? '';
-      // Both should carry the same value substring (either both '—' or
-      // both 'Nd' for the same N).
-      const extractValue = (txt: string) =>
-        txt.match(/(\d+d|—)/)?.[0] ?? '';
-      expect(extractValue(timelineText)).toBe(extractValue(cityText));
+      const extractValue = (txt: string) => txt.match(/(\d+d|—)/)?.[0] ?? '';
+      expect(extractValue(timeline.textContent ?? '')).not.toBe(
+        extractValue(cityReview.textContent ?? ''),
+      );
     });
 
     it('fix-140-a: page nowhere renders "NaN" — Avg Schedule Var falls back to "—" on bad data', () => {
@@ -1006,8 +1040,10 @@ describe('<Reports /> Q7.2.b', () => {
         'metric-schedule-variance-split-delta',
       );
       expect(schedDelta).toBeInTheDocument();
-      // Permit Timeline is lower_better — same metric value as City
-      // Review, so both should report the same data-tone.
+      // fix-141: Permit Timeline and City Review are now distinct metrics,
+      // but in this comparison cohort (Apr 2026 = one cycle-less permit;
+      // Mar 2026 = empty) both are null, so both deltas render the neutral
+      // "no comparison data" state with the same data-direction.
       const timelineDelta = screen.getByTestId(
         'metric-permit-timeline-split-delta',
       );
@@ -1017,6 +1053,77 @@ describe('<Reports /> Q7.2.b', () => {
       expect(timelineDelta.getAttribute('data-direction')).toBe(
         cityDelta.getAttribute('data-direction'),
       );
+    });
+  });
+
+  // ============================================================
+  // fix-141: redefine Avg City Review + add Avg Response Time tile
+  // ============================================================
+  describe('fix-141 City Review redefinition + Response Time tile', () => {
+    function setRangeAndCompare() {
+      renderIt();
+      fireEvent.click(screen.getByTestId('reports-compare-add-button'));
+      fireEvent.change(
+        screen.getByTestId('reports-compare-panel-period-a-from'),
+        { target: { value: '2026-04-01' } },
+      );
+      fireEvent.change(
+        screen.getByTestId('reports-compare-panel-period-a-to'),
+        { target: { value: '2026-04-30' } },
+      );
+      fireEvent.change(
+        screen.getByTestId('reports-compare-panel-period-b-from'),
+        { target: { value: '2026-03-01' } },
+      );
+      fireEvent.change(
+        screen.getByTestId('reports-compare-panel-period-b-to'),
+        { target: { value: '2026-03-31' } },
+      );
+      fireEvent.click(screen.getByTestId('reports-compare-panel-apply'));
+    }
+
+    it('renders the 13th tile (Avg Response Time)', () => {
+      renderIt();
+      expect(screen.getByTestId('metric-response-time')).toBeInTheDocument();
+    });
+
+    it('Avg City Review subtext reads "time in city\'s court" (not the old intake → corrections/issue)', () => {
+      renderIt();
+      const card = screen.getByTestId('metric-city-review');
+      expect(card.textContent).toContain("time in city's court");
+      expect(card.textContent).not.toContain('intake accepted → corrections/issue');
+    });
+
+    it('Avg Response Time renders a comparison split when Period A/B are set', () => {
+      setRangeAndCompare();
+      expect(
+        screen.getByTestId('metric-response-time-split'),
+      ).toBeInTheDocument();
+    });
+
+    it('City Review and Permit Timeline show different numbers on a divergent cohort (case #2)', () => {
+      // Cohort case #2: full round-trip over 2 cycles → City Review = 24d
+      // (city-court time), Permit Timeline = 29d (intake → approval). Render
+      // MetricCards directly with the computed values so the numeric gap is
+      // explicit (the shared page fixture only forces a number-vs-"—" gap).
+      render(
+        <MetricCards
+          metrics={makeMetrics({
+            avgCityReview: 24,
+            avgPermitTimeline: 29,
+            avgResponseTime: 5,
+          })}
+        />,
+      );
+      const cityNum = screen
+        .getByTestId('metric-city-review')
+        .textContent?.match(/\d+/)?.[0];
+      const timelineNum = screen
+        .getByTestId('metric-permit-timeline')
+        .textContent?.match(/\d+/)?.[0];
+      expect(cityNum).toBe('24');
+      expect(timelineNum).toBe('29');
+      expect(cityNum).not.toBe(timelineNum);
     });
   });
 });
