@@ -13,6 +13,8 @@ import { SkeletonRows } from '../Skeleton';
 import QueryError from '../QueryError';
 import ReportFilterBar from './ReportFilterBar';
 import MetricCards from './MetricCards';
+import PerCycleDrawer from './PerCycleDrawer';
+import { computePerCycleBuckets } from '../../lib/perCycleMetrics';
 import MetricInfoTooltip from '../shared/MetricInfoTooltip';
 import { REPORTS_BARCHART_METRICS } from '../../lib/metricDefinitions';
 import AddComparisonButton from '../shared/AddComparisonButton';
@@ -108,6 +110,9 @@ function Body({
   const today = useMemo(() => new Date(), []);
   // fix-137: compare-panel open state lives on the page (sibling, not popover).
   const [comparePanelOpen, setComparePanelOpen] = useState(false);
+  // fix-142: per-cycle breakdown drawer — default closed, toggled by the
+  // three timeline tiles.
+  const [drawerOpen, setDrawerOpen] = useState(false);
 
   const projectsById = useMemo(
     () => new Map(projects.map((p) => [p.id, p])),
@@ -211,6 +216,21 @@ function Body({
   );
 
   const metrics = useMemo(() => computeMetrics(filtered), [filtered]);
+
+  // fix-142: per-cycle buckets for the drawer — current cohort + the
+  // comparison cohort (when Period B is set), so each cell can render the
+  // current | comparison | delta mini-split.
+  const perCycleBuckets = useMemo(
+    () => computePerCycleBuckets(filtered),
+    [filtered],
+  );
+  const comparisonPerCycleBuckets = useMemo(
+    () =>
+      comparisonFiltered === null
+        ? null
+        : computePerCycleBuckets(comparisonFiltered),
+    [comparisonFiltered],
+  );
 
   const permitsByType = useMemo(
     () => groupCountBy(filtered, (e) => e.permit.type),
@@ -360,6 +380,17 @@ function Body({
             : undefined
         }
         comparisonModeLabel={comparisonRange ? 'vs comparison' : undefined}
+        onTimelineTileClick={() => setDrawerOpen((o) => !o)}
+        drawerOpen={drawerOpen}
+      />
+
+      {/* fix-142: per-cycle breakdown drawer — between MetricCards and the
+          charts row. Toggled by the three timeline tiles above. */}
+      <PerCycleDrawer
+        open={drawerOpen}
+        buckets={perCycleBuckets}
+        comparisonBuckets={comparisonPerCycleBuckets}
+        comparisonLabel={comparisonLabel ?? null}
       />
 
       {/* fix-129-c: each BarChartCard's title is wrapped in a
