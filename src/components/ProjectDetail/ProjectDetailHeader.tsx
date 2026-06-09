@@ -9,6 +9,7 @@ import type {
 import { useUpdateProject } from '../../hooks/useUpdateProject';
 import { nextUnitTypeLabel } from '../../lib/unitTypeNaming';
 import { snapToMonday, addDays } from '../../lib/dateUtils';
+import ReuseRedesignDdEditor from './ReuseRedesignDdEditor';
 import {
   useSetBpDdDates,
   type ProjectOverlapConflict,
@@ -98,6 +99,16 @@ function DDPhaseCell({
   permits: PermitWithCycles[];
 }) {
   if (!bp) {
+    // fix-145: a reuse-redesign has no BP permit but DOES carry a draw_schedule
+    // lane (fix-144). Render the inline lane editor instead of the dead
+    // "No building permit" placeholder so DA / dates / status stay editable.
+    if (project.redesign_of_project_id && project.redesign_reuses_original_permit) {
+      return (
+        <CellShell title="DD Phase" rightBorder>
+          <ReuseRedesignDdEditor project={project} />
+        </CellShell>
+      );
+    }
     return (
       <CellShell title="DD Phase" rightBorder>
         <div className="text-[11px] text-dim">No building permit</div>
