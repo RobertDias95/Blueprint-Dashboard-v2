@@ -28,6 +28,11 @@ export interface PermitInput {
    *  permits.expected_issue (the column Schedule Health labels
    *  "ACQ Target"). target_submit stays NULL on wizard-created permits. */
   expected_issue?: string;
+  /** fix-143: backfill-mode manual DD dates (BP only). When set, the RPC
+   *  bypasses auto-placement and builds the draw_schedule lane from these
+   *  (already Monday/Friday-snapped client-side). */
+  dd_start?: string;
+  dd_end?: string;
   /** REQUIRED on the new signature. Empty array = create no tasks for
    *  this permit (Bobby's "task toggle behavior" decision). */
   task_template_ids: string[];
@@ -98,6 +103,10 @@ export interface CreateProjectInput {
   notes?: string;
   project_data: ProjectData;
   permits: PermitInput[];
+  /** fix-143: backfill mode → the manually-placed draw_schedule lane built
+   *  from the BP's manual DD dates is flagged manually_placed so future
+   *  auto-rebalancing leaves the deliberately-historical lane alone. */
+  manually_placed?: boolean;
 }
 
 export interface CreateProjectResult {
@@ -124,6 +133,7 @@ export function useCreateProjectWithPermits() {
           p_notes: input.notes ?? null,
           p_project_data: input.project_data,
           p_permits: input.permits,
+          p_manually_placed: input.manually_placed ?? false,
         },
       );
       if (error) throw error;

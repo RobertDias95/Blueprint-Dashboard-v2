@@ -1,5 +1,6 @@
 import type { WizardPermit } from './wizardState';
 import type { TeamMember } from '../../lib/database.types';
+import { memberLabel, isNonActiveMember } from '../../lib/teamMemberLabel';
 
 // fix-22 Step 3 sub-component — one row of per-permit overrides.
 //
@@ -17,8 +18,13 @@ interface Props {
   permit: WizardPermit;
   /** ENT options drawn from team_members where role IN ('ent','ent_lead'). */
   entOptions: TeamMember[];
-  /** Flat list of DA names from dm_da_groups (deduped). */
-  daOptions: string[];
+  /** DA roster (team_members where role='da', deduped by name). fix-143:
+   *  members now, not bare names, so backfill mode can render the inactive/
+   *  former status suffix. */
+  daMembers: TeamMember[];
+  /** fix-143: backfill mode — the ENT + DA pickers list inactive/former
+   *  members with a status suffix and the DA routing gate is dropped. */
+  backfillMode?: boolean;
   /** fix-130: permit type catalog (names from permit_types). Drives the
    *  type <select> on each row — Bobby's spec calls for editable type
    *  on every row, not just newly-added ones. The questionnaire is a
@@ -57,11 +63,12 @@ interface Props {
 export default function PermitAssignmentRow({
   permit,
   entOptions,
-  daOptions,
+  daMembers,
   typeOptions,
   routedDas,
   derivedDm,
   daReadOnly,
+  backfillMode,
   onChange,
   onPickDa,
   onRemove,
@@ -137,11 +144,22 @@ export default function PermitAssignmentRow({
           data-testid={`wizard-perm-ent-${permit.rowId}`}
         >
           <option value="">— none —</option>
-          {entOptions.map((m) => (
-            <option key={m.id} value={m.name}>
-              {m.name}
-            </option>
-          ))}
+          {entOptions.map((m) => {
+            const nonActive = isNonActiveMember(m);
+            return (
+              <option
+                key={m.id}
+                value={m.name}
+                data-testid={
+                  nonActive
+                    ? `wizard-role-ent_lead-option-inactive-${m.id}`
+                    : undefined
+                }
+              >
+                {backfillMode ? memberLabel(m) : m.name}
+              </option>
+            );
+          })}
           {permit.ent_lead &&
             !entOptions.some((m) => m.name === permit.ent_lead) && (
               <option value={permit.ent_lead}>{permit.ent_lead}</option>
@@ -188,22 +206,31 @@ export default function PermitAssignmentRow({
             data-testid={`wizard-perm-da-${permit.rowId}`}
           >
             <option value="">— none —</option>
-            {daOptions.map((d) => {
+            {daMembers.map((m) => {
               // fix-96-b: disable DAs with no routing row matching the
               // project's juris (juris-specific OR NULL fallback). Keep
               // them in the list so the team's full roster is visible —
               // disabling beats hiding because the user otherwise can't
               // tell whether the DA exists at all.
-              const disabled = routedDas !== undefined && !routedDas.has(d);
+              // fix-143: backfill mode lists inactive/former DAs and drops the
+              // routing gate (historical DAs rarely have routing rows).
+              const disabled =
+                !backfillMode && routedDas !== undefined && !routedDas.has(m.name);
+              const base = backfillMode ? memberLabel(m) : m.name;
+              const nonActive = isNonActiveMember(m);
               return (
                 <option
-                  key={d}
-                  value={d}
+                  key={m.id}
+                  value={m.name}
                   disabled={disabled}
-                  data-testid={`wizard-perm-da-${permit.rowId}-opt-${d}`}
+                  data-testid={
+                    nonActive
+                      ? `wizard-role-da-option-inactive-${m.id}`
+                      : `wizard-perm-da-${permit.rowId}-opt-${m.name}`
+                  }
                   data-routing-disabled={disabled ? 'true' : 'false'}
                 >
-                  {disabled ? `${d} (not routed)` : d}
+                  {disabled ? `${base} (not routed)` : base}
                 </option>
               );
             })}

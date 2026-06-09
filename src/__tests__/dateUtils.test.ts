@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { snapToMonday, addDays } from '../lib/dateUtils';
+import { snapToMonday, addDays, quarterToDateRange } from '../lib/dateUtils';
 
 // fix-141: pins snapToMonday so it stays byte-for-byte aligned with the SQL
 // snap_to_monday_forward() helper (migrations/fix_141_*). The week used for the
@@ -109,5 +109,41 @@ describe('addDays', () => {
     expect(addDays(null, 4)).toBeNull();
     expect(addDays('', 4)).toBeNull();
     expect(addDays('garbage', 4)).toBeNull();
+  });
+});
+
+describe('quarterToDateRange', () => {
+  it('maps each quarter to its inclusive ISO bounds', () => {
+    expect(quarterToDateRange('2026-Q1')).toEqual({
+      start: '2026-01-01',
+      end: '2026-03-31',
+    });
+    expect(quarterToDateRange('2026-Q2')).toEqual({
+      start: '2026-04-01',
+      end: '2026-06-30',
+    });
+    expect(quarterToDateRange('2026-Q3')).toEqual({
+      start: '2026-07-01',
+      end: '2026-09-30',
+    });
+    expect(quarterToDateRange('2026-Q4')).toEqual({
+      start: '2026-10-01',
+      end: '2026-12-31',
+    });
+  });
+  it('respects the year', () => {
+    expect(quarterToDateRange('2024-Q1')).toEqual({
+      start: '2024-01-01',
+      end: '2024-03-31',
+    });
+  });
+  it('returns null for invalid quarters', () => {
+    expect(quarterToDateRange('2026-Q5')).toBeNull();
+    expect(quarterToDateRange('2026-Q0')).toBeNull();
+    expect(quarterToDateRange('2026-1')).toBeNull();
+    expect(quarterToDateRange('Q1-2026')).toBeNull();
+    expect(quarterToDateRange('')).toBeNull();
+    expect(quarterToDateRange(null)).toBeNull();
+    expect(quarterToDateRange(undefined)).toBeNull();
   });
 });

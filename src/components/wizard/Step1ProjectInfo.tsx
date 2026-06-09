@@ -9,6 +9,8 @@ import {
 } from '../../hooks/useDaTeamRouting';
 import UnitTypesEditor from './UnitTypesEditor';
 import BuilderAutocompleteField from '../builder/BuilderAutocompleteField';
+import { memberLabel, isNonActiveMember } from '../../lib/teamMemberLabel';
+import { quarterToDateRange } from '../../lib/dateUtils';
 import {
   ALLEY_OPTIONS,
   PARKING_TYPE_OPTIONS,
@@ -47,17 +49,20 @@ interface Props {
 
 const ACQ_ROLES = new Set(['acq', 'acq_lead']);
 
-/** Filter active team_members by role set, then dedupe by name so the
- *  legacy/lead role drift in the schema doesn't double-list anyone. */
-function activeMembersByRoles(
+/** Filter team_members by role set, then dedupe by name so the legacy/lead
+ *  role drift in the schema doesn't double-list anyone. fix-143: when
+ *  includeInactive is true (backfill mode) the active-only filter is dropped so
+ *  inactive + former members can be assigned to historical projects. */
+function membersByRoles(
   all: TeamMember[],
   roles: Set<string>,
+  includeInactive: boolean,
 ): TeamMember[] {
   const seen = new Set<string>();
   const out: TeamMember[] = [];
   for (const m of all) {
     if (!roles.has(m.role)) continue;
-    if (m.active === false) continue;
+    if (!includeInactive && m.active === false) continue;
     if (seen.has(m.name)) continue;
     seen.add(m.name);
     out.push(m);
@@ -99,31 +104,82 @@ export default function Step1ProjectInfo({
     [appConfig.map],
   );
 
+  // fix-143: when backfill mode is on the role pickers open to inactive +
+  // former staff so a historical project can be assigned to them.
+  const backfillMode = value.backfill_mode;
   const acqs = useMemo(
-    () => activeMembersByRoles(teamAll, ACQ_ROLES),
-    [teamAll],
+    () => membersByRoles(teamAll, ACQ_ROLES, backfillMode),
+    [teamAll, backfillMode],
   );
   // fix-96-c: project-level Lead DA picker. Mirrors Step 3's per-permit
-  // DA picker: same active-DA roster, same juris-aware routing filter
-  // (unrouted DAs render disabled). Optional — keep the wizard
-  // friction-free for projects that haven't been assigned a DA yet.
+  // DA picker: same DA roster, same juris-aware routing filter (unrouted DAs
+  // render disabled). Optional — keep the wizard friction-free for projects
+  // that haven't been assigned a DA yet.
+  // fix-143: in backfill mode include inactive/former DAs and drop the routing
+  // gate (historical DAs usually have no da_team_routing rows; the point of
+  // backfill is to assign to them anyway).
   const routingQ = useDaTeamRouting();
   const routingRows = routingQ.data ?? [];
-  const daOptions = useMemo(() => {
-    return teamAll
-      .filter((m) => m.role === 'da' && m.active !== false)
-      .map((m) => m.name)
-      .sort((a, b) => a.localeCompare(b));
-  }, [teamAll]);
+  const daMembers = useMemo(() => {
+    const seen = new Set<string>();
+    const out: TeamMember[] = [];
+    for (const m of teamAll) {
+      if (m.role !== 'da') continue;
+      if (!backfillMode && m.active === false) continue;
+      if (seen.has(m.name)) continue;
+      seen.add(m.name);
+      out.push(m);
+    }
+    return out.sort((a, b) => a.name.localeCompare(b.name));
+  }, [teamAll, backfillMode]);
   const routedDaSet = useMemo(() => {
     const set = new Set<string>();
-    for (const name of daOptions) {
-      if (daHasRoutingFor(name, value.juris || null, routingRows)) {
-        set.add(name);
+    for (const m of daMembers) {
+      if (daHasRoutingFor(m.name, value.juris || null, routingRows)) {
+        set.add(m.name);
       }
     }
     return set;
-  }, [daOptions, routingRows, value.juris]);
+  }, [daMembers, routingRows, value.juris]);
+
+  // fix-143: tenure warning. When backfill mode is on and a lead DA with a
+  // tenure window is picked, warn (don't block) if either entered DD date falls
+  // outside that window. quarterToDateRange turns 'YYYY-Qn' into ISO bounds.
+  const leadDaMember = useMemo(
+    () =>
+      teamAll.find((m) => m.role === 'da' && m.name === value.lead_da) ?? null,
+    [teamAll, value.lead_da],
+  );
+  const tenureWarning = useMemo(() => {
+    if (!backfillMode || !leadDaMember || !value.lead_da) return null;
+    const startQ = leadDaMember.active_start_quarter;
+    const endQ = leadDaMember.active_end_quarter;
+    const startRange = quarterToDateRange(startQ);
+    const endRange = quarterToDateRange(endQ);
+    if (!startRange && !endRange) return null;
+    const outside = (d: string): boolean => {
+      if (!d) return false;
+      if (startRange && d < startRange.start) return true;
+      if (endRange && d > endRange.end) return true;
+      return false;
+    };
+    if (!outside(value.backfill_dd_start) && !outside(value.backfill_dd_end)) {
+      return null;
+    }
+    const window =
+      startQ && endQ
+        ? `${startQ}–${endQ}`
+        : startQ
+          ? `${startQ} onward`
+          : `ended ${endQ}`;
+    return { name: leadDaMember.name, window };
+  }, [
+    backfillMode,
+    leadDaMember,
+    value.lead_da,
+    value.backfill_dd_start,
+    value.backfill_dd_end,
+  ]);
 
   function set<K extends keyof WizardState>(k: K, v: WizardState[K]) {
     onChange({ [k]: v } as Partial<WizardState>);
@@ -212,6 +268,30 @@ export default function Step1ProjectInfo({
         </div>
       )}
 
+      {/* fix-143: Backfill historical project toggle. Top of Step 1 so it's
+          the first decision — flipping it opens the role pickers to inactive +
+          former staff and swaps auto-placement for manual DD dates. */}
+      <label
+        className="flex items-start gap-2 px-3 py-2 rounded-md border border-border bg-bg/40 cursor-pointer"
+        data-testid="wizard-backfill-mode-toggle-label"
+      >
+        <input
+          type="checkbox"
+          checked={value.backfill_mode}
+          onChange={(e) => set('backfill_mode', e.target.checked)}
+          className="mt-0.5"
+          data-testid="wizard-backfill-mode-toggle"
+        />
+        <span className="flex flex-col gap-0.5">
+          <span className="text-[12px] font-semibold text-text">
+            Backfill historical project
+          </span>
+          <span className="text-[10px] text-dim">
+            Allows assigning to inactive team members and manual DD dates.
+          </span>
+        </span>
+      </label>
+
       {/* Project Info section — v1 parity (BG s2 panel, jv-coloured label) */}
       <section
         className="bg-s2/60 rounded-lg p-4 space-y-3"
@@ -275,11 +355,22 @@ export default function Step1ProjectInfo({
               data-testid="wizard-acq-lead"
             >
               <option value="">— unassigned —</option>
-              {acqs.map((m) => (
-                <option key={m.id} value={m.name}>
-                  {m.name}
-                </option>
-              ))}
+              {acqs.map((m) => {
+                const nonActive = isNonActiveMember(m);
+                return (
+                  <option
+                    key={m.id}
+                    value={m.name}
+                    data-testid={
+                      nonActive
+                        ? `wizard-role-acq_lead-option-inactive-${m.id}`
+                        : undefined
+                    }
+                  >
+                    {backfillMode ? memberLabel(m) : m.name}
+                  </option>
+                );
+              })}
             </select>
           </label>
           <label className="flex flex-col gap-1">
@@ -293,27 +384,35 @@ export default function Step1ProjectInfo({
               data-testid="wizard-lead-da"
             >
               <option value="">— unassigned —</option>
-              {daOptions.map((d) => {
-                const disabled = !routedDaSet.has(d);
+              {daMembers.map((m) => {
+                // fix-143: backfill mode lists inactive/former DAs and skips
+                // the routing gate (they rarely have routing rows).
+                const disabled = !backfillMode && !routedDaSet.has(m.name);
+                const base = backfillMode ? memberLabel(m) : m.name;
+                const nonActive = isNonActiveMember(m);
                 return (
                   <option
-                    key={d}
-                    value={d}
+                    key={m.id}
+                    value={m.name}
                     disabled={disabled}
-                    data-testid={`wizard-lead-da-opt-${d}`}
+                    data-testid={
+                      nonActive
+                        ? `wizard-role-da-option-inactive-${m.id}`
+                        : `wizard-lead-da-opt-${m.name}`
+                    }
                     data-routing-disabled={disabled ? 'true' : 'false'}
                   >
-                    {disabled ? `${d} (not routed)` : d}
+                    {disabled ? `${base} (not routed)` : base}
                   </option>
                 );
               })}
               {/* Preserve a stored value that's somehow not on the
-                  active DA roster (e.g. former DA editing an older
-                  project — unlikely from this wizard but mirrors the
-                  ENT row's same self-heal). */}
-              {value.lead_da && !daOptions.includes(value.lead_da) && (
-                <option value={value.lead_da}>{value.lead_da}</option>
-              )}
+                  DA roster (e.g. former DA editing an older project —
+                  mirrors the ENT row's same self-heal). */}
+              {value.lead_da &&
+                !daMembers.some((m) => m.name === value.lead_da) && (
+                  <option value={value.lead_da}>{value.lead_da}</option>
+                )}
             </select>
           </label>
           <label className="flex flex-col gap-1">
@@ -341,6 +440,59 @@ export default function Step1ProjectInfo({
             />
           </label>
         </div>
+
+        {/* fix-143: manual DD dates — backfill mode only. Auto-placement is
+            bypassed because the BP carries explicit dd_start/dd_end (snapped to
+            Monday/Friday on submit, matching fix-141). Required once a lead DA
+            is picked (validated on submit in NewProjectWizard). */}
+        {backfillMode && (
+          <div
+            className="space-y-2"
+            data-testid="wizard-backfill-dd-section"
+          >
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <label className="flex flex-col gap-1">
+                <span className="text-[10px] uppercase tracking-wide text-dim">
+                  DD Start (backfill)
+                </span>
+                <input
+                  type="date"
+                  value={value.backfill_dd_start}
+                  onChange={(e) => set('backfill_dd_start', e.target.value)}
+                  className="bg-bg border border-border rounded-md px-3 py-1.5 text-xs font-mono text-text focus:outline-none focus:border-de"
+                  data-testid="wizard-backfill-dd-start"
+                />
+              </label>
+              <label className="flex flex-col gap-1">
+                <span className="text-[10px] uppercase tracking-wide text-dim">
+                  DD End (backfill)
+                </span>
+                <input
+                  type="date"
+                  value={value.backfill_dd_end}
+                  onChange={(e) => set('backfill_dd_end', e.target.value)}
+                  className="bg-bg border border-border rounded-md px-3 py-1.5 text-xs font-mono text-text focus:outline-none focus:border-de"
+                  data-testid="wizard-backfill-dd-end"
+                />
+              </label>
+            </div>
+            {tenureWarning && (
+              <div
+                className="text-[11px] px-3 py-2 rounded-md border"
+                style={{
+                  background: 'var(--color-co-bg)',
+                  borderColor: 'var(--color-co-border)',
+                  color: 'var(--color-co)',
+                }}
+                data-testid="wizard-backfill-tenure-warning"
+              >
+                ⚠ This date falls outside{' '}
+                <span className="font-semibold">{tenureWarning.name}</span>'s
+                tenure ({tenureWarning.window}). Continue if intended.
+              </div>
+            )}
+          </div>
+        )}
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
           <label className="flex flex-col gap-1">

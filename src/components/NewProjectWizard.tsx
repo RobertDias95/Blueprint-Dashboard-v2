@@ -23,6 +23,7 @@ import {
 import { findDmForDa } from './wizard/dmRouting';
 import { useDmDaGroups } from '../hooks/useDmDaGroups';
 import { lookupEntLeadForDa } from '../hooks/useDaTeamRouting';
+import { snapToMonday, addDays } from '../lib/dateUtils';
 import type { RedesignTrigger } from '../lib/database.types';
 
 // fix-22: 4-step Stepper-driven New Project wizard. Replaces v2's
@@ -229,6 +230,33 @@ export default function NewProjectWizard({ open, onClose, initialState }: Props)
       return;
     }
 
+    // fix-143: backfill mode requires both manual DD dates once a lead DA is
+    // picked — the manually-placed lane can't be built without them.
+    if (
+      state.backfill_mode &&
+      state.lead_da.trim() !== '' &&
+      (!state.backfill_dd_start || !state.backfill_dd_end)
+    ) {
+      setStep(1);
+      setValidationErr(
+        'Backfill mode: enter both DD Start and DD End for the Building Permit.',
+      );
+      return;
+    }
+
+    // fix-143: Monday-align the manual backfill DD dates (matches the fix-141
+    // picker). dd_start → next Monday; dd_end → Friday of its end-week; guard
+    // against a snapped end landing before the start.
+    let backfillDdStart: string | null = null;
+    let backfillDdEnd: string | null = null;
+    if (state.backfill_mode && state.backfill_dd_start && state.backfill_dd_end) {
+      backfillDdStart = snapToMonday(state.backfill_dd_start, 'forward');
+      backfillDdEnd = addDays(snapToMonday(state.backfill_dd_end, 'back'), 4);
+      if (backfillDdStart && backfillDdEnd && backfillDdEnd < backfillDdStart) {
+        backfillDdEnd = addDays(backfillDdStart, 4);
+      }
+    }
+
     // fix-126: redesign mode flags. Reuse=yes redesigns send empty
     // permits[] and the RPC short-circuits permit creation entirely.
     // Required trigger gate too — wizard validates Trigger Source
@@ -350,6 +378,13 @@ export default function NewProjectWizard({ open, onClose, initialState }: Props)
       // this field as their only target_submit anchor.
       target_submit: strOrNull(p.target_submit) ?? undefined,
       task_template_ids: p.taskTemplateIds,
+      // fix-143: inject the snapped manual DD dates onto the BP row only.
+      // Their presence makes the RPC skip auto-placement and build a
+      // manually-placed lane from them instead.
+      dd_start:
+        p.type === BUILDING_PERMIT ? backfillDdStart ?? undefined : undefined,
+      dd_end:
+        p.type === BUILDING_PERMIT ? backfillDdEnd ?? undefined : undefined,
     }));
 
     try {
@@ -359,6 +394,8 @@ export default function NewProjectWizard({ open, onClose, initialState }: Props)
         notes: state.notes.trim() || undefined,
         project_data: projectData,
         permits: permitsPayload,
+        // fix-143: flag the lane manually_placed when manual DD dates built it.
+        manually_placed: !!(backfillDdStart && backfillDdEnd),
       });
 
       if (result.conflict) {

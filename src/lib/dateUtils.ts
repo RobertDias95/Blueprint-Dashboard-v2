@@ -89,3 +89,26 @@ export function snapToMonday(
   d.setUTCDate(d.getUTCDate() + offset);
   return toIso(d);
 }
+
+/** fix-143: parse a `YYYY-Qn` tenure quarter into its inclusive ISO date
+ *  range. '2026-Q1' → { start: '2026-01-01', end: '2026-03-31' }, Q2 → Apr 1–
+ *  Jun 30, Q3 → Jul 1–Sep 30, Q4 → Oct 1–Dec 31. Returns null for anything
+ *  that isn't a 4-digit year + Q1–Q4 (e.g. '2026-Q5', '', null). Used by the
+ *  backfill wizard's tenure warning. */
+export function quarterToDateRange(
+  quarter: string | null | undefined,
+): { start: string; end: string } | null {
+  if (!quarter) return null;
+  const m = /^(\d{4})-Q([1-4])$/.exec(quarter.trim());
+  if (!m) return null;
+  const year = m[1];
+  const q = Number(m[2]);
+  // Inclusive last day of each quarter (Mar 31, Jun 30, Sep 30, Dec 31).
+  const bounds: Record<number, { start: string; end: string }> = {
+    1: { start: `${year}-01-01`, end: `${year}-03-31` },
+    2: { start: `${year}-04-01`, end: `${year}-06-30` },
+    3: { start: `${year}-07-01`, end: `${year}-09-30` },
+    4: { start: `${year}-10-01`, end: `${year}-12-31` },
+  };
+  return bounds[q];
+}
