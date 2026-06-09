@@ -3,6 +3,7 @@ import type { Project } from '../../lib/database.types';
 import { useDrawSchedule } from '../../hooks/useDrawSchedule';
 import { useTeamMembers } from '../../hooks/useTeamMembers';
 import { useUpdateRedesignDdPhase } from '../../hooks/useUpdateRedesignDdPhase';
+import { useOriginalPermitForRedesign } from '../../hooks/useOriginalPermitForRedesign';
 import { snapToMonday, addDays } from '../../lib/dateUtils';
 import { DS_STATUS_LIST } from '../../lib/drawScheduleStatus';
 
@@ -26,6 +27,9 @@ export default function ReuseRedesignDdEditor({ project }: { project: Project })
   const drawQ = useDrawSchedule();
   const teamQ = useTeamMembers();
   const update = useUpdateRedesignDdPhase();
+  // fix-146: the shared original permit — its application status is shown
+  // read-only above the editable lane status. null when the parent has no BP.
+  const inherited = useOriginalPermitForRedesign(project).data;
 
   const row = useMemo(
     () => drawQ.data?.find((r) => r.project_id === project.id) ?? null,
@@ -85,6 +89,26 @@ export default function ReuseRedesignDdEditor({ project }: { project: Project })
 
   return (
     <div className="flex flex-col gap-1.5" data-testid="redesign-dd-editor">
+      {/* fix-146: inherited (read-only) original-permit application status —
+          distinct from the editable lane status below. Shows "—" when the
+          parent BP's status is null; hidden entirely when there's no parent
+          BP (inherited === null). */}
+      {inherited && (
+        <div
+          className="flex items-baseline gap-1.5 text-[11px]"
+          data-testid="redesign-dd-editor-inherited"
+        >
+          <span className="text-[9px] text-dim uppercase tracking-wide flex-shrink-0">
+            Permit Status (inherited)
+          </span>
+          <span
+            className="font-display font-semibold text-text"
+            data-testid="redesign-dd-editor-inherited-value"
+          >
+            {inherited.status ?? '—'}
+          </span>
+        </div>
+      )}
       <div className="flex items-center gap-1.5">
         <span className="text-[9px] text-dim w-12 flex-shrink-0">DA</span>
         <select
@@ -135,7 +159,14 @@ export default function ReuseRedesignDdEditor({ project }: { project: Project })
         />
       </div>
       <div className="flex items-center gap-1.5">
-        <span className="text-[9px] text-dim w-12 flex-shrink-0">Status</span>
+        {/* fix-146: "Lane Status" (not just "Status") to disambiguate from the
+            inherited permit-status line above. */}
+        <span
+          className="text-[9px] text-dim flex-shrink-0"
+          data-testid="redesign-dd-editor-status-label"
+        >
+          Lane Status
+        </span>
         <select
           value={status}
           onChange={(e) => setStatus(e.target.value)}

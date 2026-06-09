@@ -15,9 +15,16 @@ const NOW = '2026-05-15T12:00:00Z';
 
 const ddMutate = vi.hoisted(() => vi.fn());
 const drawRows = vi.hoisted(() => ({ current: [] as DrawScheduleRow[] }));
+// fix-146: controllable inherited-permit result per test.
+const inherited = vi.hoisted(
+  () => ({ current: null as { id: number; type: string; status: string | null; updated_at: string } | null }),
+);
 
 vi.mock('../hooks/useUpdateRedesignDdPhase', () => ({
   useUpdateRedesignDdPhase: () => ({ mutate: ddMutate, isPending: false }),
+}));
+vi.mock('../hooks/useOriginalPermitForRedesign', () => ({
+  useOriginalPermitForRedesign: () => ({ data: inherited.current, isLoading: false }),
 }));
 vi.mock('../hooks/useDrawSchedule', () => ({
   useDrawSchedule: () => ({ data: drawRows.current, isLoading: false }),
@@ -126,6 +133,7 @@ function wrap(node: ReactNode) {
 beforeEach(() => {
   ddMutate.mockReset();
   drawRows.current = [];
+  inherited.current = null;
   useAuthStore.setState({
     activeTenantId: T,
     user: { id: 'u', email: 'u@test', role: 'admin' },
@@ -203,6 +211,54 @@ describe('<ReuseRedesignDdEditor /> behavior', () => {
     expect(save.disabled).toBe(true);
     fireEvent.change(screen.getByTestId('redesign-dd-editor-da'), { target: { value: 'Cam' } });
     expect(save.disabled).toBe(false);
+  });
+});
+
+describe('<ReuseRedesignDdEditor /> inherited permit status (fix-146)', () => {
+  it('renders the inherited line with the parent BP status', () => {
+    drawRows.current = [drawRow()];
+    inherited.current = {
+      id: 10235,
+      type: 'Building Permit',
+      status: 'Pre-Submittal — GO',
+      updated_at: 'p-tok',
+    };
+    wrap(<ReuseRedesignDdEditor project={projectFixture()} />);
+    expect(screen.getByTestId('redesign-dd-editor-inherited')).toBeTruthy();
+    expect(
+      screen.getByTestId('redesign-dd-editor-inherited-value').textContent,
+    ).toBe('Pre-Submittal — GO');
+  });
+
+  it('hides the inherited line when there is no parent BP', () => {
+    drawRows.current = [drawRow()];
+    inherited.current = null;
+    wrap(<ReuseRedesignDdEditor project={projectFixture()} />);
+    expect(screen.queryByTestId('redesign-dd-editor-inherited')).toBeNull();
+    // Editor still renders normally.
+    expect(screen.getByTestId('redesign-dd-editor-da')).toBeTruthy();
+  });
+
+  it('shows an em dash when the inherited status is null', () => {
+    drawRows.current = [drawRow()];
+    inherited.current = {
+      id: 10235,
+      type: 'Building Permit',
+      status: null,
+      updated_at: 'p-tok',
+    };
+    wrap(<ReuseRedesignDdEditor project={projectFixture()} />);
+    expect(
+      screen.getByTestId('redesign-dd-editor-inherited-value').textContent,
+    ).toBe('—');
+  });
+
+  it('labels the editable status dropdown "Lane Status"', () => {
+    drawRows.current = [drawRow()];
+    wrap(<ReuseRedesignDdEditor project={projectFixture()} />);
+    expect(
+      screen.getByTestId('redesign-dd-editor-status-label').textContent,
+    ).toBe('Lane Status');
   });
 });
 
