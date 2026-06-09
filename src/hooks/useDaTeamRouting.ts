@@ -10,10 +10,13 @@ import { useAuthStore } from '../stores/authStore';
 //                                    null when the DA isn't in the routing
 //                                    table. Used before a draw-schedule move to
 //                                    decide whether to prompt for a DM change.
-//   useCascadeEntLead()            — applies the routed ent_lead to every permit
-//                                    on a project (bp_cascade_ent_lead_for_project).
+//   useCascadeEntLead()            — auto-fills the routed ent_lead on a
+//                                    project's permits (bp_cascade_ent_lead_for_project).
 //                                    Called only when the user confirms the move
-//                                    should also update the DM.
+//                                    should also update the DM. fix-147: the
+//                                    cascade only fills permits whose ent_lead is
+//                                    NULL — it never overwrites an explicit pick.
+//                                    Clear ent_lead first to re-trigger the fill.
 //
 // The cascade is a follow-up to bp_move_draw_schedule_da (which is unchanged).
 // ENT task primary is derived from permits.ent_lead at read time (fix-70), so
