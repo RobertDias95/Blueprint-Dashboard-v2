@@ -355,6 +355,19 @@ describe('<ProjectView /> (fix-90)', () => {
     expect(visibleProjectIds()).toEqual(['p-c', 'p-a', 'p-b']);
   });
 
+  it('Target Submit column renders + is sortable (fix-142)', () => {
+    renderIt();
+    // Column header present (mirrors the existing click-to-sort surface).
+    expect(screen.getByTestId('project-view-th-target_submit')).toBeTruthy();
+    // Fixture permits all have target_submit null → cell shows the em dash.
+    expect(
+      screen.getByTestId('project-view-target-submit-p-a').textContent,
+    ).toBe('—');
+    // Clicking sorts without error; all-null projects tie-break by address asc.
+    fireEvent.click(screen.getByTestId('project-view-th-target_submit'));
+    expect(visibleProjectIds()).toEqual(['p-a', 'p-b', 'p-c']);
+  });
+
   it('stage filter "Corrections" narrows to projects with at least one corrections permit', () => {
     renderIt();
     fireEvent.click(screen.getByTestId('project-view-stage-chip-co'));
