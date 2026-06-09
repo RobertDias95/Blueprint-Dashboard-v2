@@ -173,12 +173,38 @@ export const TRENDS_KPI_METRICS: Record<string, MetricDefinition> = {
     cohort: 'Only counts permits with both c0.submitted AND c0.intake_accepted set; negative deltas dropped as bad data.',
   },
   avgCityClock: {
-    // perfTrends.ts:73-85 — avgIntakeToApproval.
-    label: 'Avg city clock (intake → approval)',
+    // perfTrends.ts — avgIntakeToApproval. fix-142: renamed label from
+    // "Avg city clock" → "Avg Permit Timeline" to align with Reports
+    // Overview. Formula + cohort unchanged (intake → approval total).
+    label: 'Avg Permit Timeline',
     description:
-      'How long the city takes from intake acceptance to approval, averaged across the cohort.',
+      'How long permits take end-to-end, from intake acceptance to approval, averaged across the cohort.',
     formula: 'avg(approval_date ?? actual_issue − c0.intake_accepted) in days',
     cohort: 'Only counts permits with both c0.intake_accepted AND approval (or issue) date set.',
+  },
+  // fix-142: Trends siblings of Avg Permit Timeline — the same City Review /
+  // Response Time split Reports Overview surfaces (fix-141), now on Trends.
+  // Formula + cohort text mirror the Reports Overview entries; description
+  // is tweaked for the cohort-average framing of the Trends KPI row.
+  avgCityReview: {
+    // perfTrends.ts:avgCityCourtTime — mean of reportMetrics.cityCourtTimeDays.
+    label: 'Avg City Review',
+    description:
+      "Time the permit was in the city's hands, averaged across the cohort — sum of review-cycle durations per permit.",
+    formula:
+      'sum(cycle.corr_issued − cycle.submitted) across review cycles, with final cycle anchored to approval_date',
+    cohort:
+      'Only counts permits where all review cycles have both submitted AND a closing event (corr_issued or approval_date). Excludes ongoing cycles.',
+  },
+  avgResponseTime: {
+    // perfTrends.ts:avgResponseCourtTime — mean of reportMetrics.responseCourtTimeDays.
+    label: 'Avg Response Time',
+    description:
+      'Time the permit was in our hands, averaged across the cohort — sum of (corr_issued → next cycle submitted) per permit.',
+    formula:
+      'sum(c[i+1].submitted − c[i].corr_issued) across consecutive review-cycle pairs',
+    cohort:
+      'Only counts permits with at least one completed correction round-trip (cycle 1 corr_issued + cycle 2 submitted). Excludes permits approved on cycle 1 with no corrections.',
   },
   avgCyclesPerPermit: {
     // perfTrends.ts:87-107 — count of cycles with any populated date.
@@ -203,9 +229,14 @@ export const TRENDS_KPI_METRICS: Record<string, MetricDefinition> = {
 
 export const TRENDS_CHART_METRICS: Record<string, MetricDefinition> = {
   cityClockByMonth: {
-    label: 'Avg city clock by month (intake → approval)',
+    // fix-142: relabeled "Avg city clock by month" → "Avg Permit Timeline
+    // by Month" to match the renamed KPI tile. The titleSlot (this label)
+    // is what ChartCard actually renders. Data path + formula unchanged
+    // (intake → approval); the parenthetical distinguishes it from the
+    // Volume section's submit-anchored Permit Timeline chart.
+    label: 'Avg Permit Timeline by Month (intake → approval)',
     description:
-      'Monthly trend of city-review duration. Each point = avg days from c0.intake_accepted to approval, bucketed by approval month.',
+      'Monthly trend of permit timeline. Each point = avg days from c0.intake_accepted to approval, bucketed by approval month.',
     formula: 'avg(approval_date − c0.intake_accepted) per approval-month bucket',
   },
   cycleSplit: {

@@ -21,8 +21,10 @@ describe('metricDefinitions roster (fix-129-c/d)', () => {
     expect(Object.keys(REPORTS_OVERVIEW_METRICS)).toHaveLength(13);
   });
 
-  it('Trends KPI tiles ship 5 definitions', () => {
-    expect(Object.keys(TRENDS_KPI_METRICS)).toHaveLength(5);
+  it('Trends KPI tiles ship 7 definitions', () => {
+    // fix-142 added Avg City Review + Avg Response Time as Trends KPI
+    // siblings of Avg Permit Timeline (was "Avg city clock").
+    expect(Object.keys(TRENDS_KPI_METRICS)).toHaveLength(7);
   });
 
   it('Trends chart titles ship 8 definitions', () => {
@@ -56,7 +58,7 @@ describe('metricDefinitions roster (fix-129-c/d)', () => {
     // fix-134-b added a sixth surface (redesigns KPI tiles, 3 entries).
     // fix-136-b added a seventh surface (cycle-time comparison, 4 entries).
     expect(Object.keys(ALL_METRIC_DEFINITIONS)).toHaveLength(
-      13 + 5 + 8 + 6 + 4 + 3 + 4,
+      13 + 7 + 8 + 6 + 4 + 3 + 4,
     );
   });
 });
@@ -93,6 +95,10 @@ describe('formula text references the source fields (fix-129-d)', () => {
     { key: 'trends.approvedInWindow', must: ['count', 'approval_date'] },
     { key: 'trends.avgSubmitToIntakeDelay', must: ['intake_accepted', 'submitted'] },
     { key: 'trends.avgCityClock', must: ['approval_date', 'actual_issue', 'intake_accepted'] },
+    // fix-142: Trends City Review / Response Time siblings — same source
+    // fields as their Reports Overview counterparts.
+    { key: 'trends.avgCityReview', must: ['submitted', 'corr_issued'] },
+    { key: 'trends.avgResponseTime', must: ['corr_issued', 'submitted'] },
     { key: 'trends.avgCyclesPerPermit', must: ['cycles'] },
     { key: 'trends.targetSubmitHitRate', must: ['submitted', 'target_submit'] },
 
