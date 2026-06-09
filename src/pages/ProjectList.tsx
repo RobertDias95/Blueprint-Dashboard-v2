@@ -11,6 +11,7 @@ import {
   buildProjectRows,
   filterProjectRows,
   sortProjectRows,
+  minTargetSubmit,
   loadFilters,
   saveFilters,
   loadSort,
@@ -173,6 +174,7 @@ export default function ProjectList() {
                 <Th sort={sort} col="address" onClick={toggleSort} align="left">Address</Th>
                 <Th sort={sort} col="juris" onClick={toggleSort} align="left">Juris</Th>
                 <Th sort={sort} col="go_date" onClick={toggleSort} align="left">Go Date</Th>
+                <Th sort={sort} col="target_submit" onClick={toggleSort} align="left">Target Submit</Th>
                 <Th sort={sort} col="ent_lead" onClick={toggleSort} align="left">Ent</Th>
                 <Th sort={sort} col="da" onClick={toggleSort} align="left">DA</Th>
                 <Th sort={sort} col="permits" onClick={toggleSort} align="center">Permits</Th>
@@ -455,6 +457,12 @@ function ProjectRowView({
         <td className="px-2 py-1.5 font-mono text-text">
           {row.project.go_date ?? <span className="text-dim">—</span>}
         </td>
+        <td
+          className="px-2 py-1.5 font-mono text-text"
+          data-testid={`project-view-target-submit-${row.project.id}`}
+        >
+          {minTargetSubmit(row) ?? <span className="text-dim">—</span>}
+        </td>
         <td className="px-2 py-1.5 text-text">
           {row.bpAnchor?.ent_lead ?? <span className="text-dim">—</span>}
         </td>
@@ -471,7 +479,7 @@ function ProjectRowView({
           data-testid={`project-view-expansion-${row.project.id}`}
         >
           <td />
-          <td colSpan={6} className="px-2 pb-2 pt-1">
+          <td colSpan={7} className="px-2 pb-2 pt-1">
             <PermitMiniTable row={row} />
           </td>
         </tr>
