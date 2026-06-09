@@ -270,6 +270,28 @@ export default function NewProjectWizard({ open, onClose, initialState }: Props)
       return;
     }
 
+    // fix-144: a redesign that reuses the original permit creates no permits,
+    // so the DD phase here is the ONLY thing that puts it on the Draw Schedule.
+    // Require DA + both dates, then Monday/Friday-snap (fix-141 helpers).
+    let redesignDdStart: string | null = null;
+    let redesignDdEnd: string | null = null;
+    if (isReuseRedesign) {
+      if (
+        !state.redesign_dd_da ||
+        !state.redesign_dd_start ||
+        !state.redesign_dd_end
+      ) {
+        setStep(1);
+        setValidationErr('Redesign DD phase: enter DA, DD Start, and DD End.');
+        return;
+      }
+      redesignDdStart = snapToMonday(state.redesign_dd_start, 'forward');
+      redesignDdEnd = addDays(snapToMonday(state.redesign_dd_end, 'back'), 4);
+      if (redesignDdStart && redesignDdEnd && redesignDdEnd < redesignDdStart) {
+        redesignDdEnd = addDays(redesignDdStart, 4);
+      }
+    }
+
     // Selected permits + auto-inject Building Permit if Steps 2/3 didn't.
     // Reuse=yes redesigns SKIP the BP auto-inject — the redesign creates
     // no permits at all.
@@ -396,6 +418,16 @@ export default function NewProjectWizard({ open, onClose, initialState }: Props)
         permits: permitsPayload,
         // fix-143: flag the lane manually_placed when manual DD dates built it.
         manually_placed: !!(backfillDdStart && backfillDdEnd),
+        // fix-144: redesign-reuses-permit DD phase → the RPC inserts a
+        // manually_placed lane for the redesign project (no permits otherwise).
+        redesign_dd_phase:
+          isReuseRedesign && redesignDdStart && redesignDdEnd
+            ? {
+                da: state.redesign_dd_da,
+                dd_start: redesignDdStart,
+                dd_end: redesignDdEnd,
+              }
+            : undefined,
       });
 
       if (result.conflict) {

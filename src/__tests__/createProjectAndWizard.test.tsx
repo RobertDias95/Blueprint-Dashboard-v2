@@ -1050,16 +1050,30 @@ describe('<NewProjectWizard />', () => {
           redesign_notes: 'Builder wanted 4-plex',
         }),
       );
+      // fix-144: reuse=yes now requires a Redesign DD phase. Toggle manual
+      // dates FIRST (so no auto-place lookahead fires), then pick DA + dates.
+      fireEvent.click(screen.getByTestId('wizard-redesign-dd-manual-toggle'));
+      fireEvent.change(screen.getByTestId('wizard-redesign-dd-da'), {
+        target: { value: 'Trevor' },
+      });
+      fireEvent.change(screen.getByTestId('wizard-redesign-dd-start'), {
+        target: { value: '2026-06-15' },
+      });
+      fireEvent.change(screen.getByTestId('wizard-redesign-dd-end'), {
+        target: { value: '2026-07-17' },
+      });
       // Advance to Step 4 + submit. No permit changes in Step 3 because
       // the banner replaces the row UI.
       fireEvent.click(screen.getByTestId('wizard-next'));
       fireEvent.click(screen.getByTestId('wizard-next'));
       fireEvent.click(screen.getByTestId('wizard-next'));
       fireEvent.click(screen.getByTestId('wizard-save'));
-      await waitFor(() => {
-        expect(mocks.rpcFn).toHaveBeenCalledTimes(1);
-      });
-      const [, args] = mocks.rpcFn.mock.calls[0];
+      const createCall = () =>
+        mocks.rpcFn.mock.calls.find(
+          (c) => c[0] === 'bp_create_project_with_permits',
+        );
+      await waitFor(() => expect(createCall()).toBeTruthy());
+      const args = createCall()![1];
       expect(args.p_project_data).toMatchObject({
         redesign_of_project_id: 'parent-uuid',
         redesign_trigger: 'builder',
@@ -1067,6 +1081,12 @@ describe('<NewProjectWizard />', () => {
         redesign_notes: 'Builder wanted 4-plex',
       });
       expect(args.p_permits).toEqual([]);
+      // fix-144: the redesign DD phase rides along so the RPC builds the lane.
+      expect(args.p_redesign_dd_phase).toMatchObject({
+        da: 'Trevor',
+        dd_start: '2026-06-15',
+        dd_end: '2026-07-17',
+      });
     });
 
     it('submit with trigger blank shows validation banner + stays on Step 1', () => {

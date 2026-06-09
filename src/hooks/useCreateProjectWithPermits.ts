@@ -107,6 +107,11 @@ export interface CreateProjectInput {
    *  from the BP's manual DD dates is flagged manually_placed so future
    *  auto-rebalancing leaves the deliberately-historical lane alone. */
   manually_placed?: boolean;
+  /** fix-144: redesign-reuses-permit DD phase. When set, the RPC inserts a
+   *  manually_placed draw_schedule lane for the redesign project (which
+   *  otherwise gets no lane because permit creation is skipped). Dates are
+   *  Monday/Friday-snapped client-side before sending. */
+  redesign_dd_phase?: { da: string; dd_start: string; dd_end: string };
 }
 
 export interface CreateProjectResult {
@@ -134,6 +139,7 @@ export function useCreateProjectWithPermits() {
           p_project_data: input.project_data,
           p_permits: input.permits,
           p_manually_placed: input.manually_placed ?? false,
+          p_redesign_dd_phase: input.redesign_dd_phase ?? null,
         },
       );
       if (error) throw error;
