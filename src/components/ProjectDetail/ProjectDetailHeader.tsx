@@ -89,6 +89,48 @@ export default function ProjectDetailHeader({
 // (editable, permit-level) + Duration
 // ============================================================
 
+/** fix-148: project-level Closing date, inline-editable. Moved out of the
+ *  overcrowded Project Site cell into DD Phase (closing kicks off the design
+ *  phase, and DD Phase has the room). Renders at the top of all three DD Phase
+ *  states. Writes projects.closing_date via useUpdateProject (OCC). */
+function ClosingRow({ project }: { project: Project }) {
+  const updateMutation = useUpdateProject();
+  const occMissing = !project.updated_at;
+  const [draft, setDraft] = useState<string>(project.closing_date ?? '');
+  async function commit(next: string | null) {
+    if (!project.updated_at) return;
+    if (next === (project.closing_date ?? null)) return;
+    await updateMutation.mutateAsync({
+      projectId: project.id,
+      expectedUpdatedAt: project.updated_at,
+      patch: { closing_date: next } as Partial<Project>,
+      fieldLabel: 'Closing Date',
+    });
+  }
+  return (
+    <div className="flex items-center gap-1.5">
+      <span className="text-[9px] text-dim w-12 flex-shrink-0">Closing</span>
+      <input
+        type="date"
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={() => {
+          const t = draft.trim();
+          void commit(t === '' ? null : t);
+        }}
+        disabled={occMissing}
+        className="text-[11px] font-semibold px-1.5 py-0.5 border rounded outline-none flex-1 disabled:opacity-50"
+        style={{
+          borderColor: 'var(--color-border)',
+          background: 'var(--color-bg)',
+          color: 'var(--color-text)',
+        }}
+        data-testid="project-overview-closing"
+      />
+    </div>
+  );
+}
+
 function DDPhaseCell({
   project,
   bp,
@@ -102,16 +144,23 @@ function DDPhaseCell({
     // fix-145: a reuse-redesign has no BP permit but DOES carry a draw_schedule
     // lane (fix-144). Render the inline lane editor instead of the dead
     // "No building permit" placeholder so DA / dates / status stay editable.
+    // fix-148: Closing date renders above whichever editor mounts.
     if (project.redesign_of_project_id && project.redesign_reuses_original_permit) {
       return (
         <CellShell title="DD Phase" rightBorder>
-          <ReuseRedesignDdEditor project={project} />
+          <div className="flex flex-col gap-1.5">
+            <ClosingRow project={project} />
+            <ReuseRedesignDdEditor project={project} />
+          </div>
         </CellShell>
       );
     }
     return (
       <CellShell title="DD Phase" rightBorder>
-        <div className="text-[11px] text-dim">No building permit</div>
+        <div className="flex flex-col gap-1.5">
+          <ClosingRow project={project} />
+          <div className="text-[11px] text-dim">No building permit</div>
+        </div>
       </CellShell>
     );
   }
@@ -303,6 +352,8 @@ function DDPhaseEditor({
     <>
       <CellShell title="DD Phase" rightBorder>
         <div className="flex flex-col gap-1.5">
+          {/* fix-148: Closing date (moved from Project Site) sits at the top. */}
+          <ClosingRow project={project} />
           <PhaseRow
             label="GO Date"
             value={goDisplay}
@@ -1181,16 +1232,8 @@ function SiteEditor({ project }: { project: Project }) {
           );
         }}
       />
-      {/* fix-122: Closing Date — informational only. No math, no
-          cascade, no alerts (Bobby's spec). */}
-      <SiteDateRow
-        label="Closing"
-        value={project.closing_date ?? null}
-        disabled={occMissing}
-        onCommit={(v) =>
-          commit('closing_date', v, project.closing_date, 'Closing Date')
-        }
-      />
+      {/* fix-148: Closing Date moved to the DD Phase cell (ClosingRow) — it was
+          crowding Project Site, and it fits DD Phase thematically. */}
       <SiteSelectRow
         label="Alley"
         value={project.alley ?? ''}
@@ -1221,38 +1264,6 @@ function SiteEditor({ project }: { project: Project }) {
 
 // fix-122: date input variant of SiteTextRow. Same look-and-feel as the
 // neighbouring text/select/number rows; commits on blur with empty → null.
-function SiteDateRow({
-  label,
-  value,
-  disabled,
-  onCommit,
-}: {
-  label: string;
-  value: string | null;
-  disabled: boolean;
-  onCommit: (next: string | null) => void;
-}) {
-  const [draft, setDraft] = useState<string>(value ?? '');
-  return (
-    <div className="flex items-baseline gap-1.5">
-      <span className="text-[9px] text-dim min-w-[32px]">{label}</span>
-      <input
-        type="date"
-        value={draft}
-        onChange={(e) => setDraft(e.target.value)}
-        onBlur={() => {
-          const trimmed = draft.trim();
-          onCommit(trimmed === '' ? null : trimmed);
-        }}
-        disabled={disabled}
-        className="flex-1 min-w-0 text-[10px] font-semibold text-text border-0 border-b outline-none bg-transparent px-0 py-0.5 disabled:opacity-50"
-        style={{ borderBottomColor: 'var(--color-border)' }}
-        data-testid={`pd-site-${label.toLowerCase()}`}
-      />
-    </div>
-  );
-}
-
 function SiteTextRow({
   label,
   value,
