@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
+import WaitingOnView from '../components/MyTasks/WaitingOnView';
 import { useTeamMembers } from '../hooks/useTeamMembers';
 import { useAllTasks, useUpsertTask } from '../hooks/useTaskTree';
 import { SkeletonRows } from '../components/Skeleton';
@@ -127,7 +128,71 @@ function isOverdue(t: Task, today: string): boolean {
   );
 }
 
+// fix-140: the page is now a thin shell around a URL-backed view switcher.
+// `?view=waiting-on` renders the Waiting On reporting view; anything else
+// (default) renders the existing My Tasks board. The switcher chrome stays
+// mounted across both; only the content area below it swaps.
 export default function MyTasks() {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const view: 'mine' | 'waiting-on' =
+    searchParams.get('view') === 'waiting-on' ? 'waiting-on' : 'mine';
+
+  function setView(next: 'mine' | 'waiting-on') {
+    const params = new URLSearchParams(searchParams);
+    if (next === 'mine') params.delete('view');
+    else params.set('view', 'waiting-on');
+    setSearchParams(params);
+  }
+
+  return (
+    <div data-testid="mytasks-shell">
+      <div className="px-3 pt-3">
+        <ViewSwitcher view={view} onChange={setView} />
+      </div>
+      {view === 'waiting-on' ? <WaitingOnView /> : <MineTasks />}
+    </div>
+  );
+}
+
+/** fix-140: segmented control mirroring the FilterRow "All roles" chip group
+ *  (chipStyle), URL-backed via the parent. */
+function ViewSwitcher({
+  view,
+  onChange,
+}: {
+  view: 'mine' | 'waiting-on';
+  onChange: (v: 'mine' | 'waiting-on') => void;
+}) {
+  return (
+    <div
+      className="inline-flex items-center gap-1"
+      data-testid="my-tasks-view-switcher"
+    >
+      <button
+        type="button"
+        onClick={() => onChange('mine')}
+        className="text-[11px] px-3 py-1 rounded border font-bold"
+        style={chipStyle(view === 'mine')}
+        data-testid="my-tasks-view-mine"
+        aria-pressed={view === 'mine'}
+      >
+        My Tasks
+      </button>
+      <button
+        type="button"
+        onClick={() => onChange('waiting-on')}
+        className="text-[11px] px-3 py-1 rounded border font-bold"
+        style={chipStyle(view === 'waiting-on')}
+        data-testid="my-tasks-view-waiting-on"
+        aria-pressed={view === 'waiting-on'}
+      >
+        Waiting On
+      </button>
+    </div>
+  );
+}
+
+function MineTasks() {
   const team = useTeamMembers();
   const tasksQ = useAllTasks();
 
