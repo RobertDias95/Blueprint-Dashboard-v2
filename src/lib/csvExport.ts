@@ -71,7 +71,7 @@ export function exportEnrichedPermitsToCSV(
       daysOrEmpty(e.ddDuration),
       daysOrEmpty(e.ddEndToSubmit),
       daysOrEmpty(e.submitToIntake),
-      daysOrEmpty(e.cityReviewDays),
+      daysOrEmpty(e.permitTimelineDays), // fix-141: renamed from cityReviewDays
       p.expected_issue ?? '',
       p.approval_date ?? '',
       p.actual_issue ?? '',
