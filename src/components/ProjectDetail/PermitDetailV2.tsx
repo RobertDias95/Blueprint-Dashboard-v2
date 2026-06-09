@@ -37,6 +37,8 @@ import type {
   Stage,
   TaskNode,
 } from '../../lib/database.types';
+import { WAITING_ON_OPTIONS } from '../../lib/database.types';
+import { useProjectExternalTeam } from '../../hooks/useConsultantFirms';
 import { STAGE_LABEL } from '../../lib/stageLabel';
 import ScheduleEstimator from './ScheduleEstimator';
 
@@ -211,6 +213,7 @@ export default function PermitDetailV2({ permit, project }: Props) {
       >
         <TasksPanel
           permitId={permit.id}
+          projectId={permit.project_id}
           // fix-123: drive the D&E/Permitting phase tabs from c0 intake_accepted
           // (was c0.submitted pre-fix-123 — Bobby's spec calls out
           // intake_accepted as the v1 phase boundary). null → D&E,
@@ -1555,10 +1558,14 @@ const STATUS_OPTS = ['Open', 'In Progress', 'Resolved'] as const;
 
 function TasksPanel({
   permitId,
+  projectId,
   c0IntakeAccepted,
   inCorrections,
 }: {
   permitId: number;
+  /** fix-149: threaded down to TaskItem so the Waiting On chip can resolve
+   *  the project's External Team firm for the picked discipline. */
+  projectId: string;
   /** fix-123: cycle 0 intake_accepted. Drives the initial active phase
    *  (null → D&E, non-null → Permitting) AND the null↔non-null transition
    *  auto-snap. Was `defaultBucket: 'de' | 'pm'` pre-fix-123 (derived
@@ -1654,6 +1661,7 @@ function TasksPanel({
             accent={d.accent}
             phaseAccent={phaseAccent}
             permitId={permitId}
+            projectId={projectId}
             activeBucket={activeBucket}
             inCorrections={inCorrections}
             tasks={visible.filter((t) => t.discipline === d.key)}
@@ -1747,6 +1755,7 @@ function DisciplineColumn({
   accent,
   phaseAccent,
   permitId,
+  projectId,
   activeBucket,
   inCorrections,
   tasks,
@@ -1761,6 +1770,8 @@ function DisciplineColumn({
    *  header so the two axes stay visually distinct. */
   phaseAccent: string;
   permitId: number;
+  /** fix-149: passed to each TaskItem for the Waiting On firm lookup. */
+  projectId: string;
   /** fix-79: the lifecycle bucket the user is viewing. New tasks created from
    *  the "+ Add task" input land in this bucket. */
   activeBucket: 'de' | 'pm';
@@ -1821,6 +1832,7 @@ function DisciplineColumn({
             key={t.id}
             task={t}
             permitId={permitId}
+            projectId={projectId}
             memberNames={memberNames}
           />
         ))
@@ -1843,7 +1855,12 @@ function DisciplineColumn({
       {doneOpen &&
         done.map((t) => (
           <div key={t.id} style={{ opacity: 0.65 }}>
-            <TaskItem task={t} permitId={permitId} memberNames={memberNames} />
+            <TaskItem
+              task={t}
+              permitId={permitId}
+              projectId={projectId}
+              memberNames={memberNames}
+            />
           </div>
         ))}
       <div className="flex items-center gap-2 mt-2">
@@ -1897,17 +1914,23 @@ function DisciplineColumn({
 function TaskItem({
   task,
   permitId,
+  projectId,
   memberNames,
   isSubtask,
 }: {
   task: TaskNode;
   permitId: number;
+  /** fix-149: resolves the project's External Team firm for the Waiting On
+   *  discipline (sub-label on the chip). */
+  projectId: string;
   memberNames: string[];
   isSubtask?: boolean;
 }) {
   const upsert = useUpsertTask();
   const remove = useDeleteTask();
   const setAssignees = useSetTaskAssignees();
+  // fix-149: External Team firm assigned for each discipline on this project.
+  const externalTeam = useProjectExternalTeam(projectId);
   const [textDraft, setTextDraft] = useState(task.text);
   const [addingSub, setAddingSub] = useState(false);
   const [subDraft, setSubDraft] = useState('');
@@ -1922,6 +1945,11 @@ function TaskItem({
       status: 'Open' | 'In Progress' | 'Resolved';
       startDate: string | null;
       targetDate: string | null;
+      // fix-149: Waiting On uses the 3-state nullable contract — set waitingOn
+      // to a discipline, or clearWaitingOn=true to NULL it. Other unsent
+      // nullable fields (assignedTo/dueDate/notes…) stay "leave unchanged".
+      waitingOn: string | null;
+      clearWaitingOn: boolean;
     }>,
   ) {
     upsert.mutate({
@@ -1979,6 +2007,10 @@ function TaskItem({
   }
 
   const available = memberNames.filter((n) => !task.co_assignees.includes(n));
+  // fix-149: firm assigned for this task's Waiting On discipline (sub-label).
+  const waitingOnFirm = task.waiting_on
+    ? externalTeam.byDiscipline.get(task.waiting_on)?.firm_name ?? null
+    : null;
 
   return (
     <div
@@ -2129,6 +2161,69 @@ function TaskItem({
             </option>
           ))}
         </select>
+        {/* fix-149: Waiting On — external-blocker discipline + resolved firm.
+            "+ Waiting On" select when unset; a chip (discipline → firm) with a
+            clear × when set. Mirrors the assignee chip vocabulary. */}
+        {task.waiting_on == null ? (
+          <select
+            value=""
+            onChange={(e) => {
+              const v = e.target.value;
+              if (v) save({ waitingOn: v });
+            }}
+            className="text-[10px] px-1 py-0.5 border rounded outline-none"
+            style={{
+              borderColor: 'var(--color-border)',
+              background: 'var(--color-bg)',
+              color: 'var(--color-muted)',
+            }}
+            data-testid={`task-waiting-on-${task.id}`}
+          >
+            <option value="">+ Waiting On</option>
+            {WAITING_ON_OPTIONS.map((d) => (
+              <option
+                key={d}
+                value={d}
+                data-testid={`task-waiting-on-${task.id}-option-${d}`}
+              >
+                {d}
+              </option>
+            ))}
+          </select>
+        ) : (
+          <span
+            className="px-1.5 py-0.5 rounded inline-flex items-center gap-1"
+            style={{
+              background: 'var(--color-bg)',
+              border: '1px solid var(--color-border)',
+              color: 'var(--color-text)',
+            }}
+            title="Waiting on (external discipline)"
+            data-testid={`task-waiting-on-${task.id}`}
+          >
+            {task.waiting_on}
+            {waitingOnFirm && (
+              <>
+                <span style={{ color: 'var(--color-dim)' }}>{' → '}</span>
+                {waitingOnFirm}
+              </>
+            )}
+            <button
+              type="button"
+              onClick={() => save({ waitingOn: null, clearWaitingOn: true })}
+              style={{
+                background: 'transparent',
+                border: 0,
+                cursor: 'pointer',
+                color: 'var(--color-dim)',
+              }}
+              title="Clear waiting on"
+              data-testid={`task-waiting-on-${task.id}-clear`}
+            >
+              ×
+            </button>
+          </span>
+        )}
       </div>
       {/* dates + subtask affordance */}
       <div
@@ -2215,6 +2310,7 @@ function TaskItem({
           key={s.id}
           task={s}
           permitId={permitId}
+          projectId={projectId}
           memberNames={memberNames}
           isSubtask
         />

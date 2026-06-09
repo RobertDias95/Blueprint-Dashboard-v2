@@ -225,9 +225,12 @@ describe('PermitDetailV2 fix-70 task editor', () => {
     expect(screen.queryByTestId('task-bucket-sub-1')).toBeNull();
   });
 
-  it('has NO "Waiting on" element (removed in fix-70)', () => {
+  it('exposes the Waiting On affordance on each task (fix-149, was removed in fix-70)', () => {
+    // fix-149 re-introduces Waiting On to the permit-detail task editor (as an
+    // inline chip resolving the project's External Team firm). Flipped from the
+    // old fix-70 assertion that it was absent.
     renderIt();
-    expect(screen.queryByText(/waiting on/i)).toBeNull();
+    expect(screen.getAllByText(/\+ Waiting On/i).length).toBeGreaterThan(0);
   });
 
   // fix-79: D&E / Permitting toggle bars are a real filter. Active bar
