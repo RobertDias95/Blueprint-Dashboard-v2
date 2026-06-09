@@ -150,6 +150,18 @@ export interface WizardState {
   backfill_dd_start: string;
   backfill_dd_end: string;
 
+  // fix-144: Redesign DD phase fields. Required when
+  // redesign_reuses_original_permit is true. The DA + dates power a
+  // draw_schedule row inserted onto the redesign project (the reuses-permit
+  // flow previously skipped permit AND lane creation, leaving the redesign with
+  // no lane on the Draw Schedule). DA defaults blank (explicit choice every
+  // time). Dates default blank; auto-place mode fills them from
+  // bp_next_available_da_slot unless the manual toggle is on.
+  redesign_dd_da: string;
+  redesign_dd_start: string;
+  redesign_dd_end: string;
+  redesign_dd_manual_dates: boolean;
+
   // Step 2 + Step 3 + Step 4 — Permits list
   permits: WizardPermit[];
 }
@@ -195,6 +207,10 @@ export function makeEmptyWizardState(): WizardState {
     backfill_mode: false,
     backfill_dd_start: '',
     backfill_dd_end: '',
+    redesign_dd_da: '',
+    redesign_dd_start: '',
+    redesign_dd_end: '',
+    redesign_dd_manual_dates: false,
     permits: [],
   };
 }
