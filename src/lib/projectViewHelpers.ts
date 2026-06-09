@@ -89,6 +89,7 @@ export type SortableColumn =
   | 'address'
   | 'juris'
   | 'go_date'
+  | 'target_submit'
   | 'ent_lead'
   | 'da'
   | 'permits';
@@ -262,6 +263,22 @@ function worstStage(row: ProjectRow): Stage {
   return best;
 }
 
+/** fix-142: the project's soonest upcoming Target Submit — min(target_submit)
+ *  across its permits where target_submit IS NOT NULL, over ALL permit types
+ *  (Bobby's "what's next on my plate", not just the BP). Returns null when the
+ *  project has no permits or every permit's target_submit is null; the Target
+ *  Submit column + sort treat that as "—" / NULLS-last. ISO date strings
+ *  compare lexicographically = chronologically, so a plain `<` finds the min. */
+export function minTargetSubmit(row: ProjectRow): string | null {
+  let min: string | null = null;
+  for (const { permit } of row.permits) {
+    const ts = permit.target_submit;
+    if (!ts) continue;
+    if (min === null || ts < min) min = ts;
+  }
+  return min;
+}
+
 export function sortProjectRows(
   rows: ProjectRow[],
   state: SortState,
@@ -271,6 +288,28 @@ export function sortProjectRows(
   const col = state.col;
   if (col === 'permits') {
     sorted.sort((a, b) => (a.permits.length - b.permits.length) * dir);
+    return sorted;
+  }
+  if (col === 'target_submit') {
+    // Per-project min(target_submit). NULLS (no permits or all-null) always
+    // sort LAST, in BOTH directions — only the non-null pair flips with dir.
+    // (The go_date column below uses a '￿' sentinel * dir, which lands nulls
+    // first when descending; Target Submit pins them last so "soonest" and
+    // "latest" both keep undated projects out of the way.) Two-null ties break
+    // by address asc, deterministically. min is precomputed once per row so the
+    // comparator stays O(1) — fine for Blueprint's hundreds-of-projects scale.
+    const keyById = new Map<string, string | null>();
+    for (const r of sorted) keyById.set(r.project.id, minTargetSubmit(r));
+    sorted.sort((a, b) => {
+      const ka = keyById.get(a.project.id) ?? null;
+      const kb = keyById.get(b.project.id) ?? null;
+      if (ka === null && kb === null) {
+        return a.project.address.localeCompare(b.project.address);
+      }
+      if (ka === null) return 1;
+      if (kb === null) return -1;
+      return ka.localeCompare(kb) * dir;
+    });
     return sorted;
   }
   if (col === 'go_date') {
@@ -363,6 +402,7 @@ export function loadSort(): SortState {
       'address',
       'juris',
       'go_date',
+      'target_submit',
       'ent_lead',
       'da',
       'permits',
