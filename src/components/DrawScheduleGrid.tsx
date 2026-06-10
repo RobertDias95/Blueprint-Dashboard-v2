@@ -70,7 +70,7 @@ import type {
   PermitCycle,
   Project,
 } from '../lib/database.types';
-import { deriveBlockStatus } from '../lib/drawScheduleStatus';
+import { deriveLaneStatus } from '../lib/drawScheduleStatus';
 
 // Q6.1: read-only render of all draw_schedule rows. Mirrors v1's
 // renderDrawSchedule layout (index.html lines 7875-8090):
@@ -1611,8 +1611,12 @@ function DrawScheduleBody({
                     // only respected when manual_status is true AND the auto
                     // derive is in the DD phase — the three permit-data
                     // branches always win.
-                    const { status: derivedStatus } = deriveBlockStatus({
-                      permits: permitsByProjectId.get(row.project_id) ?? [],
+                    // fix-150: reuse-redesign lanes (no own permits) chase to
+                    // the parent project's BP so they show the same derived
+                    // status as the parent instead of raw 'Scheduled'.
+                    const { status: derivedStatus } = deriveLaneStatus({
+                      project,
+                      permitsByProjectId,
                       cyclesByPermit,
                       currentStatus: row.status,
                       manualStatus: row.manual_status === true,
@@ -2032,8 +2036,11 @@ function DrawScheduleBody({
           const project = projectById.get(popupProjectId);
           if (!row || !project) return null;
           const projectPermits = permitsByProjectId.get(popupProjectId) ?? [];
-          const { status: derivedStatus, isAuto } = deriveBlockStatus({
-            permits: projectPermits,
+          // fix-150: same parent-chase as the grid blocks so the popup's
+          // displayed status matches the lane for a reuse-redesign.
+          const { status: derivedStatus, isAuto } = deriveLaneStatus({
+            project,
+            permitsByProjectId,
             cyclesByPermit,
             currentStatus: row.status,
             manualStatus: row.manual_status === true,

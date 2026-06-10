@@ -148,3 +148,64 @@ export function deriveBlockStatus(input: DeriveStatusInput): DeriveStatusResult 
   }
   return { status: 'Scheduled', isAuto: true };
 }
+
+/** fix-150: lane-status derivation for the Draw Schedule grid, with a one-hop
+ *  parent chase for reuse-redesigns.
+ *
+ *  A redesign created with redesign_reuses_original_permit=true (fix-126) has
+ *  NO permits of its own, so deriveBlockStatus would fall back to the raw
+ *  'Scheduled' default — while the parent's lane, deriving off the shared
+ *  permit's approval_date / cycles, shows e.g. "Approved" (the 12836 N 60th St
+ *  mismatch Bobby flagged). When the lane's project has no BP AND is a
+ *  reuse-redesign with a parent that DOES have a BP, we derive off the PARENT's
+ *  permits + cycles instead — but keep the redesign lane's OWN currentStatus +
+ *  manualStatus. That means the redesign derives identically to how the parent
+ *  lane derives (the three permit-data branches still always win; a manual lane
+ *  status is respected the same way it is on the parent). Read-time only — no
+ *  writes, no cascade. One hop: a redesign-of-a-redesign chases to its
+ *  immediate parent only.
+ *
+ *  Falls through to the project's own permits (i.e. plain deriveBlockStatus)
+ *  for: non-redesigns, redesigns that have their own permit (reuses=false), and
+ *  redesigns whose parent also has no BP. */
+export interface DeriveLaneStatusInput {
+  project: {
+    id: string;
+    redesign_of_project_id?: string | null;
+    redesign_reuses_original_permit?: boolean | null;
+  };
+  permitsByProjectId: Map<string, Permit[]>;
+  cyclesByPermit: Map<number, PermitCycle[]>;
+  currentStatus: string | null;
+  manualStatus: boolean;
+  today?: Date;
+}
+
+function hasBuildingPermit(permits: Permit[]): boolean {
+  return permits.some((p) => p.type === 'Building Permit');
+}
+
+export function deriveLaneStatus(
+  input: DeriveLaneStatusInput,
+): DeriveStatusResult {
+  const own = input.permitsByProjectId.get(input.project.id) ?? [];
+  let permits = own;
+  if (
+    !hasBuildingPermit(own) &&
+    input.project.redesign_reuses_original_permit === true &&
+    input.project.redesign_of_project_id
+  ) {
+    const parent =
+      input.permitsByProjectId.get(input.project.redesign_of_project_id) ?? [];
+    // Only inherit when the parent actually has a BP to derive from; otherwise
+    // keep the redesign's own (empty) set → falls back to its own status.
+    if (hasBuildingPermit(parent)) permits = parent;
+  }
+  return deriveBlockStatus({
+    permits,
+    cyclesByPermit: input.cyclesByPermit,
+    currentStatus: input.currentStatus,
+    manualStatus: input.manualStatus,
+    today: input.today,
+  });
+}
