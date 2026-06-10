@@ -544,6 +544,20 @@ export interface TaskTemplateSubtask {
   updated_at: string;
 }
 
+// fix-154 — per-type × per-jurisdiction target_submit offset overrides.
+
+/** One row from bp_list_target_submit_formulas. `jurisdiction` NULL is the
+ *  "Base" row for the type (applies when no per-juris override exists). The
+ *  offset is added to the type's in-code anchor (see anchorFor in
+ *  targetSubmitLearner.ts) when the data learner has no samples. May be
+ *  negative (team submits before the anchor). */
+export interface TargetSubmitFormula {
+  type: string;
+  jurisdiction: string | null;
+  offset_days: number;
+  updated_at: string;
+}
+
 // Q7.3.b — team_members + dm_da_groups.
 
 /** Schema enforces `role` as text (no CHECK constraint). Audit shows both
