@@ -1,5 +1,21 @@
 import { useMemo, useState } from 'react';
 import {
+  DndContext,
+  closestCenter,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from '@dnd-kit/core';
+import {
+  SortableContext,
+  sortableKeyboardCoordinates,
+  useSortable,
+  verticalListSortingStrategy,
+} from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
+import {
   scopeKey,
   useTaskTemplates,
   type TaskTemplateWithSubtasks,
@@ -8,34 +24,42 @@ import { useUpsertTaskTemplate } from '../../hooks/useUpsertTaskTemplate';
 import { useDeleteTaskTemplate } from '../../hooks/useDeleteTaskTemplate';
 import { useUpsertTaskTemplateSubtask } from '../../hooks/useUpsertTaskTemplateSubtask';
 import { useDeleteTaskTemplateSubtask } from '../../hooks/useDeleteTaskTemplateSubtask';
+import {
+  reorderTemplateIds,
+  useReorderTaskTemplates,
+} from '../../hooks/useReorderTaskTemplates';
 import { useJurisdictions } from '../../hooks/useJurisdictions';
 import { usePermitTypes } from '../../hooks/usePermitTypes';
+import { useTeamMembers } from '../../hooks/useTeamMembers';
 import { SkeletonRows } from '../Skeleton';
 import QueryError from '../QueryError';
-import type {
-  TaskTemplate,
-  TemplateBucket,
-} from '../../lib/database.types';
+import { WAITING_ON_OPTIONS } from '../../lib/database.types';
+import type { TaskTemplate, TemplateBucket } from '../../lib/database.types';
 
-// Q7.3.c: task templates editor. Three scope selectors at the top
-// (permit_type, jurisdiction with "Base — all jurisdictions" option,
-// bucket) drive the per-scope list rendered below. Each template row
-// surfaces text + cat + assignee + offset fields with inline edit on
-// blur, an "+ subtask" button to nest, and up/down arrows to swap
-// sort_order with the adjacent row.
+// Q7.3.c / fix-153: task templates editor. Three scope selectors at the top
+// (permit_type, jurisdiction with "Base — all jurisdictions" option, stage)
+// drive the per-scope list rendered below. Each template row surfaces text +
+// cat + offset plus the fix-153 trio: Team (resolved to the permit's
+// ent_lead/da at create time), Co-Assignees (multi, team_members + free text),
+// and Waiting On (discipline). A drag handle reorders rows (fix-153 replaced
+// the old up/down arrows); on drop we persist the whole scope's new order via
+// bp_reorder_task_templates.
 //
-// Drag-reorder is deliberately omitted — arrow buttons are reliable,
-// accessible, and a fraction of the DnD wiring. Drag UX can land later
-// via Q7.3.x backlog if Bobby wants it.
+// fix-153: the Corrections ('co') bucket was migrated into Permitting ('pm')
+// and is no longer offered here — only D&E + Permitting are editable scopes.
 //
-// Per-juris overlay: jurisdiction='' means the "Base" set (server
-// stores it as NULL). Same data, different scope key.
+// Per-juris overlay: jurisdiction='' means the "Base" set (server stores it as
+// NULL). Same data, different scope key.
 
 const BUCKETS: { value: TemplateBucket; label: string }[] = [
   { value: 'de', label: 'D&E' },
-  { value: 'pm', label: 'PM' },
-  { value: 'co', label: 'Corrections' },
+  { value: 'pm', label: 'Permitting' },
 ];
+
+// fix-153: the two real team keys bp_create_project_with_permits resolves
+// against the permit (Entitlements → ent_lead, Architecture → da), plus a
+// "(none)" sentinel that clears default_team.
+const TEAM_OPTIONS = ['Entitlements', 'Architecture'] as const;
 
 interface Props {
   readOnly?: boolean;
@@ -45,13 +69,19 @@ export default function TaskTemplateEditor({ readOnly = false }: Props) {
   const tplsQ = useTaskTemplates();
   const typesQ = usePermitTypes();
   const jurisQ = useJurisdictions();
+  const teamQ = useTeamMembers();
   const upsert = useUpsertTaskTemplate();
   const remove = useDeleteTaskTemplate();
   const upsertSub = useUpsertTaskTemplateSubtask();
   const removeSub = useDeleteTaskTemplateSubtask();
+  const reorder = useReorderTaskTemplates();
 
   const typeOptions = typesQ.data ?? [];
   const jurisOptions = jurisQ.data ?? [];
+  const memberNames = useMemo(
+    () => (teamQ.all ?? []).map((m) => m.name).filter(Boolean),
+    [teamQ.all],
+  );
 
   const [permitType, setPermitType] = useState<string>('');
   const [juris, setJuris] = useState<string>(''); // '' = base
@@ -62,6 +92,13 @@ export default function TaskTemplateEditor({ readOnly = false }: Props) {
     if (!effectiveType) return [];
     return tplsQ.byScope.get(scopeKey(effectiveType, juris || null, bucket)) ?? [];
   }, [tplsQ.byScope, effectiveType, juris, bucket]);
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates,
+    }),
+  );
 
   const error = tplsQ.error ?? typesQ.error ?? jurisQ.error;
   if (error) {
@@ -95,7 +132,12 @@ export default function TaskTemplateEditor({ readOnly = false }: Props) {
     });
   }
 
-  function updateField(t: TaskTemplate, patch: Parameters<typeof upsert.mutate>[0] extends { patch: infer P } ? P : never) {
+  function updateField(
+    t: TaskTemplate,
+    patch: Parameters<typeof upsert.mutate>[0] extends { patch: infer P }
+      ? P
+      : never,
+  ) {
     upsert.mutate({ op: 'update', template: t, patch });
   }
 
@@ -103,27 +145,18 @@ export default function TaskTemplateEditor({ readOnly = false }: Props) {
     remove.mutate({ id: t.id, updated_at: t.updated_at });
   }
 
-  /** Swap sort_order with the adjacent template. If the list contains
-   *  duplicate / zero sort_orders (e.g. fresh from migration), the swap
-   *  uses positional indexes via a normalization pass — each row writes
-   *  its new index as sort_order. */
-  function moveTemplate(index: number, direction: -1 | 1) {
-    const target = index + direction;
-    if (target < 0 || target >= list.length) return;
-    const a = list[index];
-    const b = list[target];
-    // Use the array indexes as the new sort_orders. This auto-normalizes
-    // any stale 0-values into distinct positions.
-    upsert.mutate({
-      op: 'update',
-      template: a,
-      patch: { sort_order: target },
-    });
-    upsert.mutate({
-      op: 'update',
-      template: b,
-      patch: { sort_order: index },
-    });
+  // fix-153: on drop, persist the whole scope's new id order via
+  // bp_reorder_task_templates; the query invalidation refetches the
+  // reordered list (same write-then-refetch path as every other edit).
+  function handleDragEnd(e: DragEndEvent) {
+    const { active, over } = e;
+    if (!over || active.id === over.id) return;
+    const next = reorderTemplateIds(
+      list.map((t) => t.id),
+      String(active.id),
+      String(over.id),
+    );
+    reorder.mutate({ ids: next });
   }
 
   return (
@@ -158,7 +191,8 @@ export default function TaskTemplateEditor({ readOnly = false }: Props) {
 
       <div className="text-[10px] uppercase tracking-wide text-muted font-display font-bold flex items-center justify-between">
         <span>
-          {effectiveType} · {juris || 'Base'} · {BUCKETS.find((b) => b.value === bucket)?.label}
+          {effectiveType} · {juris || 'Base'} ·{' '}
+          {BUCKETS.find((b) => b.value === bucket)?.label}
         </span>
         <span className="text-dim">
           {list.length} template{list.length === 1 ? '' : 's'}
@@ -166,42 +200,51 @@ export default function TaskTemplateEditor({ readOnly = false }: Props) {
       </div>
 
       {/* Template rows */}
-      <div className="space-y-2">
-        {list.length === 0 && (
-          <div className="text-xs text-dim italic px-3 py-4 bg-surface border border-border rounded-md text-center">
-            No templates yet for this scope. Add one below.
-          </div>
-        )}
-        {list.map((t, i) => (
-          <TemplateRow
-            key={t.id}
-            template={t}
-            index={i}
-            total={list.length}
-            readOnly={readOnly}
-            onUpdate={(patch) => updateField(t, patch)}
-            onDelete={() => deleteTemplate(t)}
-            onMoveUp={() => moveTemplate(i, -1)}
-            onMoveDown={() => moveTemplate(i, 1)}
-            onAddSubtask={(text) =>
-              upsertSub.mutate({
-                op: 'insert',
-                patch: {
-                  template_id: t.id,
-                  text,
-                  sort_order: t.subtasks.length,
-                },
-              })
-            }
-            onUpdateSubtask={(sub, patch) =>
-              upsertSub.mutate({ op: 'update', subtask: sub, patch })
-            }
-            onDeleteSubtask={(sub) =>
-              removeSub.mutate({ id: sub.id, updated_at: sub.updated_at })
-            }
-          />
-        ))}
-      </div>
+      {list.length === 0 ? (
+        <div className="text-xs text-dim italic px-3 py-4 bg-surface border border-border rounded-md text-center">
+          No templates yet for this scope. Add one below.
+        </div>
+      ) : (
+        <DndContext
+          sensors={sensors}
+          collisionDetection={closestCenter}
+          onDragEnd={handleDragEnd}
+        >
+          <SortableContext
+            items={list.map((t) => t.id)}
+            strategy={verticalListSortingStrategy}
+          >
+            <div className="space-y-2">
+              {list.map((t) => (
+                <TemplateRow
+                  key={t.id}
+                  template={t}
+                  readOnly={readOnly}
+                  memberNames={memberNames}
+                  onUpdate={(patch) => updateField(t, patch)}
+                  onDelete={() => deleteTemplate(t)}
+                  onAddSubtask={(text) =>
+                    upsertSub.mutate({
+                      op: 'insert',
+                      patch: {
+                        template_id: t.id,
+                        text,
+                        sort_order: t.subtasks.length,
+                      },
+                    })
+                  }
+                  onUpdateSubtask={(sub, patch) =>
+                    upsertSub.mutate({ op: 'update', subtask: sub, patch })
+                  }
+                  onDeleteSubtask={(sub) =>
+                    removeSub.mutate({ id: sub.id, updated_at: sub.updated_at })
+                  }
+                />
+              ))}
+            </div>
+          </SortableContext>
+        </DndContext>
+      )}
 
       {!readOnly && (
         <AddTemplateForm onAdd={addTemplate} disabled={!effectiveType} />
@@ -246,25 +289,19 @@ function Selector({
 
 function TemplateRow({
   template,
-  index,
-  total,
   readOnly,
+  memberNames,
   onUpdate,
   onDelete,
-  onMoveUp,
-  onMoveDown,
   onAddSubtask,
   onUpdateSubtask,
   onDeleteSubtask,
 }: {
   template: TaskTemplateWithSubtasks;
-  index: number;
-  total: number;
   readOnly: boolean;
+  memberNames: string[];
   onUpdate: (patch: Record<string, unknown>) => void;
   onDelete: () => void;
-  onMoveUp: () => void;
-  onMoveDown: () => void;
   onAddSubtask: (text: string) => void;
   onUpdateSubtask: (
     sub: TaskTemplateWithSubtasks['subtasks'][number],
@@ -274,6 +311,21 @@ function TemplateRow({
 }) {
   const [adding, setAdding] = useState(false);
   const [subDraft, setSubDraft] = useState('');
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    setActivatorNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: template.id, disabled: readOnly });
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+  };
 
   function submitSubtask() {
     const v = subDraft.trim();
@@ -286,33 +338,29 @@ function TemplateRow({
     setAdding(false);
   }
 
+  const coAssignees = template.default_co_assignees ?? [];
+
   return (
     <div
+      ref={setNodeRef}
+      style={style}
       className="bg-surface border border-border rounded-md p-2"
-      data-testid={`tte-row-${template.id}`}
+      data-testid={`task-template-row-${template.id}`}
     >
+      {/* Row 1: drag handle + task text + cat + offset + actions */}
       <div className="flex items-center gap-2">
         {!readOnly && (
-          <div className="flex flex-col gap-0">
-            <button
-              onClick={onMoveUp}
-              disabled={index === 0}
-              className="text-dim hover:text-text text-[10px] leading-none disabled:opacity-30 px-1"
-              title="Move up"
-              data-testid={`tte-up-${template.id}`}
-            >
-              ▲
-            </button>
-            <button
-              onClick={onMoveDown}
-              disabled={index === total - 1}
-              className="text-dim hover:text-text text-[10px] leading-none disabled:opacity-30 px-1"
-              title="Move down"
-              data-testid={`tte-down-${template.id}`}
-            >
-              ▼
-            </button>
-          </div>
+          <button
+            ref={setActivatorNodeRef}
+            {...attributes}
+            {...listeners}
+            className="text-dim hover:text-text cursor-grab active:cursor-grabbing leading-none px-1 touch-none"
+            title="Drag to reorder"
+            aria-label="Drag to reorder"
+            data-testid={`task-template-row-${template.id}-drag-handle`}
+          >
+            ⠿
+          </button>
         )}
         <InlineField
           value={template.text}
@@ -331,17 +379,6 @@ function TemplateRow({
           className="w-20 text-[11px] text-muted"
           readOnly={readOnly}
           testId={`tte-cat-${template.id}`}
-        />
-        <InlineField
-          value={template.default_assignee ?? ''}
-          onCommit={(v) =>
-            v !== (template.default_assignee ?? '') &&
-            onUpdate({ default_assignee: v || null })
-          }
-          placeholder="assignee"
-          className="w-28 text-[11px] text-muted"
-          readOnly={readOnly}
-          testId={`tte-assignee-${template.id}`}
         />
         <InlineField
           value={
@@ -381,6 +418,61 @@ function TemplateRow({
             ×
           </button>
         )}
+      </div>
+
+      {/* Row 2: Team / Co-Assignees / Waiting On */}
+      <div className="flex flex-wrap items-start gap-3 mt-2 pl-6">
+        <label className="flex flex-col gap-0.5">
+          <span className="text-[9px] uppercase tracking-wide text-dim">
+            Team
+          </span>
+          <select
+            value={template.default_team ?? ''}
+            disabled={readOnly}
+            onChange={(e) =>
+              onUpdate({ default_team: e.target.value || null })
+            }
+            className="bg-bg border border-border rounded px-1.5 py-0.5 text-[11px] text-text focus:outline-none focus:border-de disabled:opacity-60"
+            data-testid={`task-template-row-${template.id}-team`}
+          >
+            <option value="">(none)</option>
+            {TEAM_OPTIONS.map((t) => (
+              <option key={t} value={t}>
+                {t}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        <CoAssigneesField
+          rowId={template.id}
+          values={coAssignees}
+          memberNames={memberNames}
+          readOnly={readOnly}
+          onChange={(next) => onUpdate({ default_co_assignees: next })}
+        />
+
+        <label className="flex flex-col gap-0.5">
+          <span className="text-[9px] uppercase tracking-wide text-dim">
+            Waiting On
+          </span>
+          <select
+            value={template.default_waiting_on ?? ''}
+            disabled={readOnly}
+            onChange={(e) =>
+              onUpdate({ default_waiting_on: e.target.value || null })
+            }
+            className="bg-bg border border-border rounded px-1.5 py-0.5 text-[11px] text-text focus:outline-none focus:border-de disabled:opacity-60"
+            data-testid={`task-template-row-${template.id}-waiting-on`}
+          >
+            <option value="">(none)</option>
+            {WAITING_ON_OPTIONS.map((d) => (
+              <option key={d} value={d}>
+                {d}
+              </option>
+            ))}
+          </select>
+        </label>
       </div>
 
       {(template.subtasks.length > 0 || adding) && (
@@ -436,6 +528,100 @@ function TemplateRow({
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+/** fix-153: co-assignees editor. Renders applied names as removable chips and
+ *  an input that adds a new name on Enter. A <datalist> of team_members gives
+ *  autocomplete; any free-text name is accepted (non-member fallback). */
+function CoAssigneesField({
+  rowId,
+  values,
+  memberNames,
+  readOnly,
+  onChange,
+}: {
+  rowId: string;
+  values: string[];
+  memberNames: string[];
+  readOnly: boolean;
+  onChange: (next: string[]) => void;
+}) {
+  const [draft, setDraft] = useState('');
+  const listId = `co-assignee-options-${rowId}`;
+
+  function add(name: string) {
+    const v = name.trim();
+    if (!v || values.includes(v)) {
+      setDraft('');
+      return;
+    }
+    onChange([...values, v]);
+    setDraft('');
+  }
+  function removeAt(name: string) {
+    onChange(values.filter((n) => n !== name));
+  }
+
+  return (
+    <div
+      className="flex flex-col gap-0.5 min-w-[12rem]"
+      data-testid={`task-template-row-${rowId}-co-assignees`}
+    >
+      <span className="text-[9px] uppercase tracking-wide text-dim">
+        Co-Assignees
+      </span>
+      <div className="flex flex-wrap items-center gap-1">
+        {values.map((name) => (
+          <span
+            key={name}
+            className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-bg border border-border text-[10px] text-text"
+            data-testid={`task-template-row-${rowId}-co-assignee-${name}`}
+          >
+            {name}
+            {!readOnly && (
+              <button
+                type="button"
+                onClick={() => removeAt(name)}
+                className="text-dim hover:text-co leading-none"
+                title={`Remove ${name}`}
+                data-testid={`task-template-row-${rowId}-co-assignee-remove-${name}`}
+              >
+                ×
+              </button>
+            )}
+          </span>
+        ))}
+        {!readOnly && (
+          <>
+            <input
+              type="text"
+              list={listId}
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  add(draft);
+                } else if (e.key === 'Backspace' && !draft && values.length) {
+                  removeAt(values[values.length - 1]);
+                }
+              }}
+              placeholder="+ name"
+              className="w-20 px-1 py-0.5 text-[10px] bg-bg border border-border rounded outline-none focus:border-de"
+              data-testid={`task-template-row-${rowId}-co-assignees-input`}
+            />
+            <datalist id={listId}>
+              {memberNames
+                .filter((n) => !values.includes(n))
+                .map((n) => (
+                  <option key={n} value={n} />
+                ))}
+            </datalist>
+          </>
+        )}
+      </div>
     </div>
   );
 }

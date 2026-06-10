@@ -3,9 +3,10 @@ import { render, screen, fireEvent } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { useAuthStore } from '../stores/authStore';
 
-// Q7.3.c: smoke tests for AdminPermitsTab + TaskTemplateEditor. Hooks
-// mocked for synchronous render; mutate fns captured via vi.hoisted
-// handles for assertion.
+// Q7.3.c / fix-153: smoke tests for AdminPermitsTab + TaskTemplateEditor.
+// Hooks mocked for synchronous render; mutate fns captured via vi.hoisted
+// handles for assertion. The fix-153 team / co-assignee / waiting-on / drag
+// behaviors live in taskTemplateEditor.test.tsx.
 
 const T = 'test-tenant-uuid';
 const NOW = '2026-05-11T12:00:00Z';
@@ -15,20 +16,27 @@ const mocks = vi.hoisted(() => ({
   deleteTpl: vi.fn(),
   upsertSub: vi.fn(),
   deleteSub: vi.fn(),
+  reorderTpl: vi.fn(),
 }));
 
 const fixtures = vi.hoisted(() => {
   const NOW = '2026-05-11T12:00:00Z';
+  const base = {
+    default_team: null as string | null,
+    default_co_assignees: [] as string[],
+    default_waiting_on: null as string | null,
+    default_target_offset: null as number | null,
+  };
   const templates = [
     {
       id: 't1', permit_type: 'Building Permit', jurisdiction: null, bucket: 'de',
-      text: 'Survey', default_assignee: null, default_target_offset: null,
+      text: 'Survey', ...base,
       cat: 'reports', sort_order: 0, updated_at: NOW,
       subtasks: [],
     },
     {
       id: 't2', permit_type: 'Building Permit', jurisdiction: null, bucket: 'de',
-      text: 'Energy', default_assignee: 'Architecture', default_target_offset: 14,
+      text: 'Energy', ...base, default_team: 'Architecture', default_target_offset: 14,
       cat: 'forms', sort_order: 1, updated_at: NOW,
       subtasks: [
         { id: 's1', template_id: 't2', text: 'NEEA form', sort_order: 0, updated_at: NOW },
@@ -36,8 +44,8 @@ const fixtures = vi.hoisted(() => {
     },
     {
       id: 't3', permit_type: 'Building Permit', jurisdiction: 'Seattle', bucket: 'de',
-      text: 'Seattle-specific drainage review', default_assignee: null,
-      default_target_offset: null, cat: 'forms', sort_order: 0, updated_at: NOW,
+      text: 'Seattle-specific drainage review', ...base,
+      cat: 'forms', sort_order: 0, updated_at: NOW,
       subtasks: [],
     },
   ];
@@ -88,11 +96,25 @@ vi.mock('../hooks/usePermitTypes', () => ({
     refetch: vi.fn(),
   }),
 }));
+vi.mock('../hooks/useTeamMembers', () => ({
+  useTeamMembers: () => ({
+    all: [
+      { id: 'm1', name: 'Jordan', role: 'da', active: true, former: false, email: null, notes: null, updated_at: '' },
+      { id: 'm2', name: 'Sarah', role: 'ent', active: true, former: false, email: null, notes: null, updated_at: '' },
+    ],
+    activeDas: [], formerDas: [], dms: [], ents: [], acqs: [],
+    isLoading: false, error: null, data: [], refetch: vi.fn(),
+  }),
+}));
 vi.mock('../hooks/useUpsertTaskTemplate', () => ({
   useUpsertTaskTemplate: () => ({ mutate: mocks.upsertTpl }),
 }));
 vi.mock('../hooks/useDeleteTaskTemplate', () => ({
   useDeleteTaskTemplate: () => ({ mutate: mocks.deleteTpl }),
+}));
+vi.mock('../hooks/useReorderTaskTemplates', async (importActual) => ({
+  ...(await importActual<typeof import('../hooks/useReorderTaskTemplates')>()),
+  useReorderTaskTemplates: () => ({ mutate: mocks.reorderTpl }),
 }));
 vi.mock('../hooks/useUpsertTaskTemplateSubtask', () => ({
   useUpsertTaskTemplateSubtask: () => ({ mutate: mocks.upsertSub }),
@@ -122,7 +144,7 @@ function renderIt() {
   );
 }
 
-describe('<AdminPermitsTab /> Q7.3.c', () => {
+describe('<AdminPermitsTab /> Q7.3.c + fix-153', () => {
   it('renders the editor + 3 scope selectors + initial-scope templates', () => {
     renderIt();
     expect(screen.getByTestId('admin-permits-tab')).toBeInTheDocument();
@@ -131,9 +153,17 @@ describe('<AdminPermitsTab /> Q7.3.c', () => {
     expect(screen.getByTestId('tte-juris')).toBeInTheDocument();
     expect(screen.getByTestId('tte-bucket')).toBeInTheDocument();
     // Default scope: Building Permit · Base · de → 2 templates (t1, t2)
-    expect(screen.getByTestId('tte-row-t1')).toBeInTheDocument();
-    expect(screen.getByTestId('tte-row-t2')).toBeInTheDocument();
-    expect(screen.queryByTestId('tte-row-t3')).not.toBeInTheDocument();
+    expect(screen.getByTestId('task-template-row-t1')).toBeInTheDocument();
+    expect(screen.getByTestId('task-template-row-t2')).toBeInTheDocument();
+    expect(screen.queryByTestId('task-template-row-t3')).not.toBeInTheDocument();
+  });
+
+  it('fix-153: the Stage selector offers only D&E + Permitting (no Corrections)', () => {
+    renderIt();
+    const stage = screen.getByTestId('tte-bucket') as HTMLSelectElement;
+    const optionValues = Array.from(stage.options).map((o) => o.value);
+    expect(optionValues).toEqual(['de', 'pm']);
+    expect(stage.textContent).not.toMatch(/Corrections/i);
   });
 
   it('switching juris to Seattle swaps in the per-juris template (t3)', () => {
@@ -141,18 +171,18 @@ describe('<AdminPermitsTab /> Q7.3.c', () => {
     fireEvent.change(screen.getByTestId('tte-juris'), {
       target: { value: 'Seattle' },
     });
-    expect(screen.getByTestId('tte-row-t3')).toBeInTheDocument();
-    expect(screen.queryByTestId('tte-row-t1')).not.toBeInTheDocument();
-    expect(screen.queryByTestId('tte-row-t2')).not.toBeInTheDocument();
+    expect(screen.getByTestId('task-template-row-t3')).toBeInTheDocument();
+    expect(screen.queryByTestId('task-template-row-t1')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('task-template-row-t2')).not.toBeInTheDocument();
   });
 
-  it('switching bucket to PM yields zero templates + empty-state message', () => {
+  it('switching bucket to Permitting yields zero templates + empty-state message', () => {
     renderIt();
     fireEvent.change(screen.getByTestId('tte-bucket'), {
       target: { value: 'pm' },
     });
-    expect(screen.queryByTestId('tte-row-t1')).not.toBeInTheDocument();
-    expect(screen.queryByTestId('tte-row-t2')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('task-template-row-t1')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('task-template-row-t2')).not.toBeInTheDocument();
     expect(screen.getByText(/No templates yet/i)).toBeInTheDocument();
   });
 
@@ -176,7 +206,6 @@ describe('<AdminPermitsTab /> Q7.3.c', () => {
 
   it('editing template text fires update with the new value on Enter', () => {
     renderIt();
-    // Click the inline text → input swap → type → Enter
     fireEvent.click(screen.getByTestId('tte-text-t1'));
     const input = screen.getAllByTestId('tte-text-t1').pop() as HTMLInputElement;
     fireEvent.change(input, { target: { value: 'Survey + flagging' } });
@@ -219,28 +248,16 @@ describe('<AdminPermitsTab /> Q7.3.c', () => {
     });
   });
 
-  it('up arrow fires two upserts to swap sort_orders', () => {
+  it('fix-153: each row exposes a drag handle (no up/down arrows)', () => {
     renderIt();
-    // t2 is at index 1; clicking ▲ moves it to index 0.
-    fireEvent.click(screen.getByTestId('tte-up-t2'));
-    expect(mocks.upsertTpl).toHaveBeenCalledWith({
-      op: 'update',
-      template: expect.objectContaining({ id: 't2' }),
-      patch: { sort_order: 0 },
-    });
-    expect(mocks.upsertTpl).toHaveBeenCalledWith({
-      op: 'update',
-      template: expect.objectContaining({ id: 't1' }),
-      patch: { sort_order: 1 },
-    });
-  });
-
-  it('up arrow on the top row is disabled (no fire)', () => {
-    renderIt();
-    const upBtn = screen.getByTestId('tte-up-t1') as HTMLButtonElement;
-    expect(upBtn.disabled).toBe(true);
-    fireEvent.click(upBtn);
-    expect(mocks.upsertTpl).not.toHaveBeenCalled();
+    expect(
+      screen.getByTestId('task-template-row-t1-drag-handle'),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByTestId('task-template-row-t2-drag-handle'),
+    ).toBeInTheDocument();
+    expect(screen.queryByTestId('tte-up-t2')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('tte-down-t2')).not.toBeInTheDocument();
   });
 
   it('+ sub opens subtask input; Enter commits a new subtask', () => {
@@ -265,7 +282,7 @@ describe('<AdminPermitsTab /> Q7.3.c', () => {
     });
   });
 
-  it('non-admin role hides + sub / × / arrows / add-form (read-only)', () => {
+  it('non-admin role hides + sub / × / drag-handle / add-form (read-only)', () => {
     useAuthStore.setState({
       activeTenantId: T,
       memberships: [{ tenant_id: T, role: 'editor' }],
@@ -274,12 +291,13 @@ describe('<AdminPermitsTab /> Q7.3.c', () => {
     expect(screen.getByText(/Read-only/i)).toBeInTheDocument();
     expect(screen.queryByTestId('tte-add')).not.toBeInTheDocument();
     expect(screen.queryByTestId('tte-remove-t1')).not.toBeInTheDocument();
-    expect(screen.queryByTestId('tte-up-t2')).not.toBeInTheDocument();
+    expect(
+      screen.queryByTestId('task-template-row-t2-drag-handle'),
+    ).not.toBeInTheDocument();
     expect(screen.queryByTestId('tte-add-sub-t1')).not.toBeInTheDocument();
     expect(screen.queryByTestId('tte-sub-remove-s1')).not.toBeInTheDocument();
     // Clicking the inline text in read-only mode should NOT open the edit input.
     fireEvent.click(screen.getByTestId('tte-text-t1'));
-    // Verify input variant didn't render (only span variant present).
     const matches = screen.getAllByTestId('tte-text-t1');
     expect(matches.every((el) => el.tagName !== 'INPUT')).toBe(true);
   });

@@ -517,7 +517,18 @@ export interface TaskTemplate {
   jurisdiction: string | null;
   bucket: TemplateBucket;
   text: string;
-  default_assignee: string | null;
+  /** fix-153: a TEAM key, not a person — 'Entitlements' / 'Architecture'
+   *  (or a legacy literal name). Resolved to the specific permit's
+   *  ent_lead / da at task-create time by bp_create_project_with_permits.
+   *  Renamed from default_assignee. */
+  default_team: string | null;
+  /** fix-153: extra named co-assignees seeded onto permit_tasks.co_assignees
+   *  at create time. Stored as text[]; defaults to []. May contain team_member
+   *  names or free-text. */
+  default_co_assignees: string[];
+  /** fix-153: discipline that seeds permit_tasks.waiting_on at create time.
+   *  Same controlled vocab as WAITING_ON_OPTIONS; null = no default block. */
+  default_waiting_on: WaitingOnDiscipline | null;
   default_target_offset: number | null;
   cat: string | null;
   sort_order: number | null;

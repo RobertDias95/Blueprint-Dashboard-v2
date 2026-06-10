@@ -19,7 +19,9 @@ type EditableField =
   | 'jurisdiction'
   | 'bucket'
   | 'text'
-  | 'default_assignee'
+  | 'default_team'
+  | 'default_co_assignees'
+  | 'default_waiting_on'
   | 'default_target_offset'
   | 'cat'
   | 'sort_order';
@@ -46,14 +48,16 @@ interface Row {
 function buildPayload(
   base: Partial<TaskTemplate>,
   patch: TaskTemplatePatch,
-): Record<string, string | number | null> {
+): Record<string, string | number | null | string[]> {
   const merged = { ...base, ...patch };
   return {
     permit_type: merged.permit_type ?? '',
     jurisdiction: merged.jurisdiction ?? '',
     bucket: merged.bucket ?? 'de',
     text: merged.text ?? '',
-    default_assignee: merged.default_assignee ?? null,
+    default_team: merged.default_team ?? null,
+    default_co_assignees: merged.default_co_assignees ?? [],
+    default_waiting_on: merged.default_waiting_on ?? null,
     default_target_offset: merged.default_target_offset ?? null,
     cat: merged.cat ?? null,
     sort_order: merged.sort_order ?? 0,
@@ -80,7 +84,10 @@ export function useUpsertTaskTemplate() {
           jurisdiction: (payload.jurisdiction as string) || null,
           bucket: payload.bucket as TaskTemplate['bucket'],
           text: payload.text as string,
-          default_assignee: payload.default_assignee as string | null,
+          default_team: payload.default_team as string | null,
+          default_co_assignees: payload.default_co_assignees as string[],
+          default_waiting_on:
+            payload.default_waiting_on as TaskTemplate['default_waiting_on'],
           default_target_offset: payload.default_target_offset as number | null,
           cat: payload.cat as string | null,
           sort_order: payload.sort_order as number,
