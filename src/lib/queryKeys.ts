@@ -124,6 +124,11 @@ export const queryKeys = {
   // Keyed by the include-completed flag so the toggle's two states coexist.
   waitingOnTasks: (tenantId: string, includeCompleted: boolean) =>
     ['permit_tasks', tenantId, 'waiting-on', { includeCompleted }] as const,
+  // fix-154: per-type × per-jurisdiction target_submit offset overrides.
+  // Read via bp_list_target_submit_formulas; edited in Settings → Permits.
+  targetSubmitFormulasAll: ['target_submit_formulas'] as const,
+  targetSubmitFormulas: (tenantId: string) =>
+    ['target_submit_formulas', tenantId] as const,
 } as const;
 
 /** Map from Postgres table name → bare-prefix query keys to invalidate on

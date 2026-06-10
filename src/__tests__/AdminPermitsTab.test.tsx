@@ -122,6 +122,23 @@ vi.mock('../hooks/useUpsertTaskTemplateSubtask', () => ({
 vi.mock('../hooks/useDeleteTaskTemplateSubtask', () => ({
   useDeleteTaskTemplateSubtask: () => ({ mutate: mocks.deleteSub }),
 }));
+// fix-154: the tab now also renders TargetSubmitFormulasEditor.
+vi.mock('../hooks/useTargetSubmitFormulas', async (importActual) => ({
+  ...(await importActual<typeof import('../hooks/useTargetSubmitFormulas')>()),
+  useTargetSubmitFormulas: () => ({
+    formulas: [],
+    byScope: new Map(),
+    isLoading: false,
+    error: null,
+    refetch: vi.fn(),
+  }),
+}));
+vi.mock('../hooks/useUpsertTargetSubmitFormula', () => ({
+  useUpsertTargetSubmitFormula: () => ({ mutate: vi.fn() }),
+}));
+vi.mock('../hooks/useDeleteTargetSubmitFormula', () => ({
+  useDeleteTargetSubmitFormula: () => ({ mutate: vi.fn() }),
+}));
 
 import AdminPermitsTab from '../components/Settings/AdminPermitsTab';
 

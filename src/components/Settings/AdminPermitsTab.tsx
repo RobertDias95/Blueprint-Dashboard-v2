@@ -1,10 +1,11 @@
 import TaskTemplateEditor from './TaskTemplateEditor';
+import TargetSubmitFormulasEditor from './TargetSubmitFormulasEditor';
 import { useIsTenantAdmin } from '../../hooks/useIsTenantAdmin';
 
-// Q7.3.c: Settings → Permits & Templates tab. Thin wrapper around
-// TaskTemplateEditor — the heavy editor handles its own selectors, list
-// rendering, and CRUD. Future additions (e.g., bulk-clone-juris, import
-// from CSV) would land here without bloating the editor.
+// Q7.3.c: Settings → Permits & Templates tab. Wraps the per-scope task
+// template editor plus (fix-154) the per-type × per-jurisdiction target_submit
+// formula offsets. Each editor handles its own selectors, list rendering, and
+// CRUD.
 
 export default function AdminPermitsTab() {
   const isAdmin = useIsTenantAdmin();
@@ -26,6 +27,9 @@ export default function AdminPermitsTab() {
           applies to ALL juris where no specific override exists.
         </p>
         <TaskTemplateEditor readOnly={!isAdmin} />
+      </div>
+      <div className="bg-surface border border-border rounded-lg p-4">
+        <TargetSubmitFormulasEditor readOnly={!isAdmin} />
       </div>
     </div>
   );
