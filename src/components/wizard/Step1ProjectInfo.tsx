@@ -224,6 +224,18 @@ export default function Step1ProjectInfo({
     onChange,
   ]);
 
+  // fix-152: in redesign mode the GO Date means "trigger date" (when this
+  // redesign entity became a GO). Default it to today ONCE when redesign mode
+  // is active and no date is set yet — never re-write, so a user edit (or the
+  // seed) is never clobbered. (eslint-disable: intentionally fires only on the
+  // isRedesign transition, not on every go_date keystroke.)
+  useEffect(() => {
+    if (value.redesign_of_project_id && value.go_date === '') {
+      onChange({ go_date: new Date().toISOString().slice(0, 10) });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [value.redesign_of_project_id]);
+
   // fix-144: tenure warning for the redesign DD DA — mirrors the backfill one.
   const redesignDdDaMember = useMemo(
     () =>
@@ -457,6 +469,10 @@ export default function Step1ProjectInfo({
               })}
             </select>
           </label>
+          {/* fix-152: project-level Lead DA hidden in redesign mode — the
+              Redesign DD Phase DA (fix-144) is the only DA that matters for a
+              reuses-permit redesign, so this picker is duplicative noise. */}
+          {!isRedesign && (
           <label className="flex flex-col gap-1">
             <span className="text-[10px] uppercase tracking-wide text-dim">
               Lead Design Associate
@@ -499,9 +515,12 @@ export default function Step1ProjectInfo({
                 )}
             </select>
           </label>
+          )}
           <label className="flex flex-col gap-1">
             <span className="text-[10px] uppercase tracking-wide text-dim">
-              Go Date
+              {/* fix-152: GO Date = the redesign's trigger date in redesign
+                  mode (stored in the same projects.go_date column). */}
+              {isRedesign ? 'Redesign GO Date' : 'Go Date'}
             </span>
             <input
               type="date"
@@ -511,6 +530,9 @@ export default function Step1ProjectInfo({
               data-testid="wizard-go-date"
             />
           </label>
+          {/* fix-152: ACQ Target hidden in redesign mode (the redesign's ACQ
+              Target is unset; not re-confirmed from parent). */}
+          {!isRedesign && (
           <label className="flex flex-col gap-1">
             <span className="text-[10px] uppercase tracking-wide text-dim">
               ACQ Target (BP expected issue)
@@ -523,6 +545,7 @@ export default function Step1ProjectInfo({
               data-testid="wizard-acq-target"
             />
           </label>
+          )}
         </div>
 
         {/* fix-143: manual DD dates — backfill mode only. Auto-placement is
@@ -609,6 +632,8 @@ export default function Step1ProjectInfo({
               </span>
             )}
           </label>
+          {/* fix-152: Zone inherited from parent in redesign mode — hidden. */}
+          {!isRedesign && (
           <label className="flex flex-col gap-1">
             <span className="text-[10px] uppercase tracking-wide text-dim">
               Zone
@@ -622,6 +647,7 @@ export default function Step1ProjectInfo({
               data-testid="wizard-zone"
             />
           </label>
+          )}
           <ProductTypesField
             types={value.product_types}
             options={productTypeOptions}
@@ -638,7 +664,10 @@ export default function Step1ProjectInfo({
             who need more can edit on Project Overview). Corner Lot is
             tri-state (blank/yes/no) so we don't silently default
             historical projects to "no" on the wire. Closing Date is
-            display-only; no math, no cascade. */}
+            display-only; no math, no cascade.
+            fix-152: this whole row (lots / corner / closing) is inherited from
+            the parent in redesign mode — hidden. */}
+        {!isRedesign && (
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
           <label className="flex flex-col gap-1">
             <span className="text-[10px] uppercase tracking-wide text-dim">
@@ -686,7 +715,11 @@ export default function Step1ProjectInfo({
             />
           </label>
         </div>
+        )}
 
+        {/* fix-152: lot dimensions + parking are inherited from the parent in
+            redesign mode — hidden. */}
+        {!isRedesign && (
         <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
           <label className="flex flex-col gap-1">
             <span className="text-[10px] uppercase tracking-wide text-dim">
@@ -750,8 +783,12 @@ export default function Step1ProjectInfo({
             />
           </label>
         </div>
+        )}
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          {/* fix-152: Alley inherited from parent in redesign mode — hidden.
+              Notes stays (a redesign legitimately has its own notes). */}
+          {!isRedesign && (
           <label className="flex flex-col gap-1">
             <span className="text-[10px] uppercase tracking-wide text-dim">
               Alley
@@ -770,6 +807,7 @@ export default function Step1ProjectInfo({
               ))}
             </select>
           </label>
+          )}
           <label className="flex flex-col gap-1">
             <span className="text-[10px] uppercase tracking-wide text-dim">
               Notes (optional)
@@ -789,12 +827,15 @@ export default function Step1ProjectInfo({
           onChange={(next: UnitType[]) => set('unit_types', next)}
         />
 
-        <ProjectTagsField
-          tags={value.project_tags}
-          options={projectTagOptions}
-          onAdd={addTag}
-          onRemove={removeTag}
-        />
+        {/* fix-152: Project Tags inherited from parent in redesign mode. */}
+        {!isRedesign && (
+          <ProjectTagsField
+            tags={value.project_tags}
+            options={projectTagOptions}
+            onAdd={addTag}
+            onRemove={removeTag}
+          />
+        )}
       </section>
 
       {/* fix-126: Redesign Details — only renders when the wizard is
