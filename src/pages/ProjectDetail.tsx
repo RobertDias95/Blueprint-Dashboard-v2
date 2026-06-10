@@ -10,8 +10,10 @@ import type {
   PermitCycle,
   PermitCycleReviewer,
   PermitWithCycles,
+  RedesignTrigger,
   Stage,
 } from '../lib/database.types';
+import { REDESIGN_TRIGGER_LABELS } from '../lib/database.types';
 import { SkeletonRows } from '../components/Skeleton';
 import QueryError from '../components/QueryError';
 import ProjectDetailHeader from '../components/ProjectDetail/ProjectDetailHeader';
@@ -26,7 +28,10 @@ import {
   makeRedesignWizardState,
   type WizardState,
 } from '../components/wizard/wizardState';
-import { useProjectRedesigns } from '../hooks/useProjectRedesigns';
+import {
+  useProjectRedesigns,
+  useProjectRedesignsWithPermits,
+} from '../hooks/useProjectRedesigns';
 
 // Q3 + Q4: Single-project view. Q3 wired editable permit-level fields. Q4
 // adds editable cycles (5 date columns + add/delete) and a tasks section
@@ -123,6 +128,15 @@ function ProjectDetailBody({
   // useProjectRedesigns.
   const [redesignSeed, setRedesignSeed] = useState<WizardState | null>(null);
   const redesignsQ = useProjectRedesigns(project.id);
+  // fix-151: redesigns + their permits. Drives the Redesigns sidebar section
+  // and the Schedule Health lineage aggregation (parent + all redesign permits
+  // → one holistic health computation). Empty for projects with no redesigns,
+  // so non-redesign parents behave exactly as before.
+  const redesignsWithPermitsQ = useProjectRedesignsWithPermits(project.id);
+  const lineagePermits = useMemo<PermitWithCycles[]>(() => {
+    const redesignPermits = redesignsWithPermitsQ.data.flatMap((r) => r.permits);
+    return redesignPermits.length > 0 ? [...permits, ...redesignPermits] : permits;
+  }, [permits, redesignsWithPermitsQ.data]);
   // Q9.5.f-fix-19: Quick Edit popup opened by double-click on a sidebar row.
   const [quickEditPermitId, setQuickEditPermitId] = useState<number | null>(
     null,
@@ -252,7 +266,9 @@ function ProjectDetailBody({
                 bp={bp}
                 allProjects={allProjects}
               />
-              <ScheduleHealthTable permits={permits} />
+              {/* fix-151: Schedule Health computes across the whole lineage
+                  (parent + all redesign permits), not just the parent's. */}
+              <ScheduleHealthTable permits={lineagePermits} />
               <NotesDocsFooter project={project} />
             </div>
           ) : (
@@ -621,8 +637,87 @@ function PermitsSidebar({
             )}
           </>
         )}
+        {/* fix-151: redesigns of this project + their permits, surfaced below
+            the parent's permits so the lineage is visible from one place. */}
+        <RedesignsSidebarSection parentId={project.id} />
       </div>
     </aside>
+  );
+}
+
+// fix-151: "Redesigns (n)" section at the bottom of the permits sidebar. Each
+// redesign row links to that redesign's project overview (permits navigate via
+// local selection state on each project's own page, so there's no per-permit
+// deep route — the permit rows here link to the redesign project too). A
+// reuses-permit redesign shows a "Reuses parent's permits" sub-label instead of
+// permit rows. One hop (useProjectRedesignsWithPermits doesn't recurse).
+function RedesignsSidebarSection({ parentId }: { parentId: string }) {
+  const { data } = useProjectRedesignsWithPermits(parentId);
+  if (data.length === 0) return null;
+  return (
+    <div data-testid="project-overview-redesigns-section">
+      <div
+        className="px-3 py-1.5 text-[10px] font-extrabold uppercase tracking-wider flex items-center gap-1.5 border-y"
+        style={{
+          background: 'var(--color-co-bg)',
+          color: 'var(--color-co)',
+          borderTopColor: 'var(--color-co-border)',
+          borderBottomColor: 'var(--color-co-border)',
+        }}
+      >
+        <span aria-hidden="true">↳</span>
+        <span>Redesigns ({data.length})</span>
+      </div>
+      {data.map((r, i) => {
+        const reuses = r.project.redesign_reuses_original_permit === true;
+        const trig = r.project.redesign_trigger;
+        const triggerLabel = trig
+          ? REDESIGN_TRIGGER_LABELS[trig as RedesignTrigger] ?? trig
+          : null;
+        return (
+          <div
+            key={r.project.id}
+            className="border-b"
+            style={{ borderBottomColor: 'var(--color-border)' }}
+          >
+            <Link
+              to={`/project/${r.project.id}`}
+              className="block px-3 py-1.5 hover:bg-s2 transition"
+              data-testid={`project-overview-redesign-row-${r.project.id}`}
+            >
+              <span className="text-[11px] font-bold text-text">
+                Redesign {i + 1}
+              </span>
+              {triggerLabel && (
+                <span className="text-[10px] text-dim"> · {triggerLabel}</span>
+              )}
+            </Link>
+            {reuses ? (
+              <div className="px-3 pb-1.5 -mt-0.5 text-[10px] italic text-dim">
+                Reuses parent's permits
+              </div>
+            ) : (
+              r.permits.map((p) => (
+                <Link
+                  key={p.id}
+                  to={`/project/${r.project.id}`}
+                  className="block pl-6 pr-3 py-1 hover:bg-s2 transition"
+                  data-testid={`project-overview-redesign-permit-${p.id}`}
+                >
+                  <span className="text-[10px] text-text">{p.type}</span>
+                  <span className="text-[10px] text-dim">
+                    {' · '}
+                    {STAGE_LABEL[
+                      effectiveStage(p, p.permit_cycles ?? [], null)
+                    ] ?? '—'}
+                  </span>
+                </Link>
+              ))
+            )}
+          </div>
+        );
+      })}
+    </div>
   );
 }
 
