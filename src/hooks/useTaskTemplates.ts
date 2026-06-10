@@ -51,7 +51,8 @@ export function useTaskTemplates(): TaskTemplatesResult {
             .from('task_templates')
             .select(
               'id, permit_type, jurisdiction, bucket, text, ' +
-                'default_assignee, default_target_offset, cat, ' +
+                'default_team, default_co_assignees, default_waiting_on, ' +
+                'default_target_offset, cat, ' +
                 'sort_order, updated_at',
             );
           if (error) throw error;
