@@ -34,7 +34,6 @@ import ProjectBlockPopup from './DrawSchedule/ProjectBlockPopup';
 import GapFillPrompt from './GapFillPrompt';
 import EntCascadePrompt from './EntCascadePrompt';
 import {
-  DS_STATUS_COLORS,
   NP_BLOCK_COLOR,
   addWeeksToWeekKey,
   blockFontPx,
@@ -70,7 +69,7 @@ import type {
   PermitCycle,
   Project,
 } from '../lib/database.types';
-import { deriveLaneStatus } from '../lib/drawScheduleStatus';
+import { deriveLaneStatus, STATUS_PRESENTATION } from '../lib/drawScheduleStatus';
 
 // Q6.1: read-only render of all draw_schedule rows. Mirrors v1's
 // renderDrawSchedule layout (index.html lines 7875-8090):
@@ -1621,7 +1620,13 @@ function DrawScheduleBody({
                       currentStatus: row.status,
                       manualStatus: row.manual_status === true,
                     });
-                    const sc = DS_STATUS_COLORS[derivedStatus] ?? DS_STATUS_COLORS.Scheduled;
+                    // fix-160: label AND color come from the ONE presentation
+                    // record keyed by the single derived status — so the block's
+                    // text and its shade can never disagree.
+                    const pres =
+                      STATUS_PRESENTATION[derivedStatus] ??
+                      STATUS_PRESENTATION.Scheduled;
+                    const sc = pres.colors;
                     // fix-126: redesign blocks get a yellow border to
                     // distinguish them from juris-colored normals. The
                     // helper falls back to jurisBorder when the FK is
@@ -1903,7 +1908,7 @@ function DrawScheduleBody({
                               }}
                               data-testid={`block-status-${row.project_id}`}
                             >
-                              {derivedStatus}
+                              {pres.label}
                             </span>
                           )}
                           {(() => {

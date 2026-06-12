@@ -27,18 +27,36 @@ export interface DsStatusColor {
   text: string;
 }
 
-// Mirrors v1 DS_STATUS_COLORS at index.html:7307-7316. v1 also has
-// 'Submitted' as an alias of 'Under Review'; we collapse to a single
-// status because the v1 deriver never emits 'Submitted' anyway.
-export const DS_STATUS_COLORS: Record<DsStatus, DsStatusColor> = {
-  Scheduled: { bg: '#ffffff', border: '#cacaca', text: '#1a2540' },
-  Schematic: { bg: '#5a84c0', border: '#3d6aad', text: '#1a2540' },
-  'DD / Permit Set': { bg: '#5d6aac', border: '#4a5499', text: '#ffffff' },
-  'Pending Consultants': { bg: '#02267e', border: '#011a5c', text: '#ffffff' },
-  'Under Review': { bg: '#5cb8b2', border: '#3a9e98', text: '#1a2540' },
-  Corrections: { bg: '#5cb8b2', border: '#3a9e98', text: '#1a2540' },
-  Approved: { bg: '#5abf75', border: '#3aa55e', text: '#ffffff' },
+export interface DsStatusPresentation {
+  /** The word the block's status pill shows. */
+  label: string;
+  /** The block's background / border / text colors. */
+  colors: DsStatusColor;
+}
+
+// fix-160: STATUS_PRESENTATION is the SINGLE source binding each derived status
+// to BOTH its label and its block colors. Bobby's rule: a block's text and its
+// shade MUST come from one derived status — any divergence (label says Approved,
+// block paints white) is a bug class. Keying both off this one record makes that
+// structurally impossible: DsStatus is a closed union, so adding a status to
+// DS_STATUS_LIST forces a {label, colors} entry here (no parallel label/color
+// maps to forget). Colors mirror v1 DS_STATUS_COLORS (index.html:7307-7316); v1's
+// 'Submitted' alias is dropped — the deriver never emits it.
+export const STATUS_PRESENTATION: Record<DsStatus, DsStatusPresentation> = {
+  Scheduled: { label: 'Scheduled', colors: { bg: '#ffffff', border: '#cacaca', text: '#1a2540' } },
+  Schematic: { label: 'Schematic', colors: { bg: '#5a84c0', border: '#3d6aad', text: '#1a2540' } },
+  'DD / Permit Set': { label: 'DD / Permit Set', colors: { bg: '#5d6aac', border: '#4a5499', text: '#ffffff' } },
+  'Pending Consultants': { label: 'Pending Consultants', colors: { bg: '#02267e', border: '#011a5c', text: '#ffffff' } },
+  'Under Review': { label: 'Under Review', colors: { bg: '#5cb8b2', border: '#3a9e98', text: '#1a2540' } },
+  Corrections: { label: 'Corrections', colors: { bg: '#5cb8b2', border: '#3a9e98', text: '#1a2540' } },
+  Approved: { label: 'Approved', colors: { bg: '#5abf75', border: '#3aa55e', text: '#ffffff' } },
 };
+
+// Colors view of the canonical record. Kept (derived, never a separate literal)
+// for the grid color lookup + the popup swatches so existing imports are stable.
+export const DS_STATUS_COLORS: Record<DsStatus, DsStatusColor> = Object.fromEntries(
+  DS_STATUS_LIST.map((s) => [s, STATUS_PRESENTATION[s].colors]),
+) as Record<DsStatus, DsStatusColor>;
 
 export interface DeriveStatusInput {
   /** All permits at this project (filter by project_id upstream). */
@@ -93,32 +111,39 @@ function isStatus(v: string | null): v is DsStatus {
 export function deriveBlockStatus(input: DeriveStatusInput): DeriveStatusResult {
   const today = toMidnight(input.today ?? new Date());
   const bps = input.permits.filter((p) => p.type === 'Building Permit');
+  // fix-160: derive off the Building Permits when any exist; otherwise off ALL
+  // the project's permits. A reuse=false redesign whose only permit is a PPR (or
+  // any BP-less project) used to fall straight to 'Scheduled' → its block painted
+  // white even when the PPR is approved and the block already shows the approval
+  // date. Now the same permit-data branches run on that PPR, so an approved
+  // PPR-only project derives 'Approved' (green) — text and shade agree.
+  const src = bps.length > 0 ? bps : input.permits;
 
-  // No BPs → can't derive from permit data. Fall through to manual / Scheduled.
-  if (bps.length === 0) {
+  // No permits at all → can't derive. Fall through to manual / Scheduled.
+  if (src.length === 0) {
     if (input.manualStatus && isStatus(input.currentStatus)) {
       return { status: input.currentStatus, isAuto: false };
     }
     return { status: 'Scheduled', isAuto: true };
   }
 
-  // Branch 1: any BP has an open corrections cycle (corr_issued set,
+  // Branch 1: any permit has an open corrections cycle (corr_issued set,
   // resubmitted unset). Always wins, even over manualStatus.
-  const anyCorrections = bps.some((bp) => {
-    const cycles = input.cyclesByPermit.get(bp.id) ?? [];
+  const anyCorrections = src.some((p) => {
+    const cycles = input.cyclesByPermit.get(p.id) ?? [];
     return cycles.some((c) => !!c.corr_issued && !c.resubmitted);
   });
   if (anyCorrections) return { status: 'Corrections', isAuto: true };
 
-  // Branch 2: every BP has either approval_date or actual_issue. Always wins.
-  const allApproved = bps.every(
-    (bp) => !!bp.approval_date || !!bp.actual_issue,
+  // Branch 2: every permit has either approval_date or actual_issue. Always wins.
+  const allApproved = src.every(
+    (p) => !!p.approval_date || !!p.actual_issue,
   );
   if (allApproved) return { status: 'Approved', isAuto: true };
 
-  // Branch 3: any BP has at least one submitted cycle. Always wins.
-  const anySubmitted = bps.some((bp) => {
-    const cycles = input.cyclesByPermit.get(bp.id) ?? [];
+  // Branch 3: any permit has at least one submitted cycle. Always wins.
+  const anySubmitted = src.some((p) => {
+    const cycles = input.cyclesByPermit.get(p.id) ?? [];
     return cycles.some((c) => !!c.submitted);
   });
   if (anySubmitted) return { status: 'Under Review', isAuto: true };
@@ -131,7 +156,7 @@ export function deriveBlockStatus(input: DeriveStatusInput): DeriveStatusResult 
   }
 
   // Branch 4: derive DD-phase status from dates against today.
-  const bp = bps[0];
+  const bp = src[0];
   const ddEnd = parseDate(bp.dd_end);
   if (ddEnd && ddEnd < today) {
     return { status: 'Pending Consultants', isAuto: true };
