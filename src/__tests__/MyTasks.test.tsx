@@ -630,4 +630,99 @@ describe('MyTasks view switcher (fix-140)', () => {
     expect(screen.queryByTestId('waiting-on-view')).toBeNull();
     expect(screen.getByTestId('mytasks-page')).toBeInTheDocument();
   });
+
+  // ── fix-155: BOT badge + filter + priority/auto sort ───────────────────
+  function withAuto(): TaskFixture[] {
+    return [
+      task({
+        id: 'human-1',
+        bucket: 'pm',
+        permit_id: 1,
+        project_id: 'p1',
+        project_address: '1 Human Way',
+        permit_type: 'Building Permit',
+        discipline: 'ent',
+        status: 'Open',
+        text: 'Human task',
+        primary_assignee: 'Bobby',
+      }),
+      task({
+        id: 'auto-corr',
+        bucket: 'pm',
+        permit_id: 1,
+        project_id: 'p1',
+        project_address: '1 Human Way',
+        permit_type: 'Building Permit',
+        discipline: 'ent',
+        status: 'Open',
+        text: 'Corrections issued (cycle 1) — send to consultants — BLD-1',
+        primary_assignee: 'Bobby',
+        is_auto_generated: true,
+        auto_event: 'corr_issued',
+        priority: true,
+      }),
+    ];
+  }
+
+  it('fix-155: BOT badge renders on auto rows, not on human rows', () => {
+    tasksRef.current = withAuto();
+    renderIt();
+    expect(screen.getByTestId('bot-badge-auto-corr')).toBeInTheDocument();
+    expect(screen.queryByTestId('bot-badge-human-1')).toBeNull();
+  });
+
+  it('fix-155: BOT quick-filter narrows to auto-tasks only', () => {
+    tasksRef.current = withAuto();
+    renderIt();
+    expect(screen.getByTestId('mytask-card-human-1')).toBeInTheDocument();
+    expect(screen.getByTestId('mytask-card-auto-corr')).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId('mytasks-filter-bot'));
+    expect(screen.queryByTestId('mytask-card-human-1')).toBeNull();
+    expect(screen.getByTestId('mytask-card-auto-corr')).toBeInTheDocument();
+  });
+
+  it('fix-155: priority tasks sort above non-priority within a sub-column', () => {
+    // Both Open + pm → same sub-column. The priority auto-task has a LATER
+    // target_date, so under by-due sorting alone it would come second; priority
+    // is the top sort key, so it bubbles above the earlier-due non-priority one.
+    tasksRef.current = [
+      task({
+        id: 'np-1',
+        bucket: 'pm',
+        permit_id: 1,
+        project_id: 'p1',
+        project_address: '1 Way',
+        permit_type: 'Building Permit',
+        discipline: 'ent',
+        status: 'Open',
+        text: 'no priority',
+        primary_assignee: 'Bobby',
+        target_date: '2026-06-05',
+      }),
+      task({
+        id: 'pr-auto',
+        bucket: 'pm',
+        permit_id: 1,
+        project_id: 'p1',
+        project_address: '1 Way',
+        permit_type: 'Building Permit',
+        discipline: 'ent',
+        status: 'Open',
+        text: 'priority auto',
+        primary_assignee: 'Bobby',
+        target_date: '2026-06-30',
+        is_auto_generated: true,
+        auto_event: 'corr_issued',
+        priority: true,
+      }),
+    ];
+    renderIt();
+    const auto = screen.getByTestId('mytask-card-pr-auto');
+    const human = screen.getByTestId('mytask-card-np-1');
+    // auto precedes human in document order.
+    expect(
+      auto.compareDocumentPosition(human) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+  });
 });

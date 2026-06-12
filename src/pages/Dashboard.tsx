@@ -4,6 +4,7 @@ import { useProjects } from '../hooks/useProjects';
 import { usePermits } from '../hooks/usePermits';
 import { useDrawSchedule } from '../hooks/useDrawSchedule';
 import { useAllPermitCycleReviewers } from '../hooks/useAllPermitCycleReviewers';
+import { useNumberEntrySweep } from '../hooks/useNumberEntrySweep';
 import {
   bucketPermits,
   hideIssuedAtAddress,
@@ -58,6 +59,8 @@ export default function Dashboard() {
   // fix-54: reviewer rows feed the wholistic rollup that overrides the
   // matrix bucket + Project Overview status pill for MPB permits.
   const reviewersQ = useAllPermitCycleReviewers();
+  // fix-155: fire the numberless-permit sweep once/day (self-guarded).
+  useNumberEntrySweep();
   const [search, setSearch] = useState('');
   const [wizardOpen, setWizardOpen] = useState(false);
   const [filters, setFilters] = useState<DashFilters>(EMPTY_DASH_FILTERS);

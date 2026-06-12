@@ -39,6 +39,7 @@ import type {
 } from '../../lib/database.types';
 import { WAITING_ON_OPTIONS } from '../../lib/database.types';
 import { useProjectExternalTeam } from '../../hooks/useConsultantFirms';
+import BotBadge from '../shared/BotBadge';
 import { STAGE_LABEL } from '../../lib/stageLabel';
 import ScheduleEstimator from './ScheduleEstimator';
 
@@ -2023,6 +2024,11 @@ function TaskItem({
       data-testid={`task-row-${task.id}`}
     >
       <div className="flex items-start gap-1.5">
+        {task.is_auto_generated && (
+          <span className="mt-0.5">
+            <BotBadge taskId={task.id} event={task.auto_event} />
+          </span>
+        )}
         <input
           type="text"
           value={textDraft}
