@@ -538,4 +538,117 @@ describe('PermitDetailV2 fix-70 task editor', () => {
       expect(pmBar.style.color).toContain('--color-muted');
     });
   });
+
+  // ============================================================
+  // fix-156: BOT task parity — Permit Detail render + derived assignment
+  // ============================================================
+  describe('fix-156 BOT task parity', () => {
+    function cycle0(intakeAccepted: string | null): PermitCycle {
+      return {
+        id: 'cy-0', permit_id: 10009, cycle_index: 0, submitted: null,
+        city_target: null, corr_issued: null, resubmitted: null,
+        intake_accepted: intakeAccepted, created_at: '2026-05-14T12:00:00Z',
+        updated_at: '2026-05-14T12:00:00Z',
+      } as PermitCycle;
+    }
+    function renderPermit(over: Partial<PermitWithCycles>) {
+      const queryClient = new QueryClient({
+        defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+      });
+      const wrapper = ({ children }: { children: ReactNode }) => (
+        <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+      );
+      return render(
+        <PermitDetailV2 permit={{ ...makePermit(), ...over }} />,
+        { wrapper },
+      );
+    }
+
+    // Prod shape A: permit 199 — number_entry, bucket=de (fix-156), cycle_idx=NULL,
+    // on a numberless permit whose tab defaults to D&E.
+    it('renders a number_entry BOT task (bucket=de, cycle_idx=NULL) on a D&E-default permit, with badge + DERIVED primary', () => {
+      treeRef.current = [
+        makeTask({
+          id: '93c131e3',
+          bucket: 'de',
+          discipline: 'ent',
+          // (cycle_idx is a permit_tasks column but not part of the TaskNode
+          // read shape — the RPCs don't return it and the row render never
+          // reads it; the render difference is bucket + the permit's tab.)
+          is_auto_generated: true,
+          auto_event: 'number_entry',
+          text: 'Enter permit number — was this submitted? — SDOT Tree @ 4506 14th Ave SW',
+          // derived from permit.ent_lead ('Edmund'); no static assigned_to.
+          primary_assignee: 'Edmund',
+        }),
+      ];
+      renderPermit({ id: 199, num: null, permit_cycles: [cycle0(null)] });
+      // Visible on the DEFAULT D&E tab (the fix-156 bug: it was bucket=pm, hidden).
+      expect(screen.getByTestId('task-row-93c131e3')).toBeInTheDocument();
+      expect(screen.getByTestId('bot-badge-93c131e3')).toBeInTheDocument();
+      // Assignment is derived (shown as the primary chip), follows permit.ent_lead.
+      expect(screen.getByTestId('task-primary-93c131e3').textContent).toBe('Edmund');
+      expect(
+        (screen.getByTestId('task-text-93c131e3') as HTMLInputElement).value,
+      ).toBe('Enter permit number — was this submitted? — SDOT Tree @ 4506 14th Ave SW');
+    });
+
+    // Prod shape B: permit 240 — resubmitted, bucket=pm, cycle_idx=1, on a permit
+    // whose tab defaults to Permitting (c0.intake_accepted set). Already rendered
+    // correctly pre-fix-156; this guards the parity.
+    it('renders a resubmitted BOT task (bucket=pm, cycle_idx=1) on a Permitting-default permit', () => {
+      treeRef.current = [
+        makeTask({
+          id: '176a6005',
+          bucket: 'pm',
+          discipline: 'ent',
+          is_auto_generated: true,
+          auto_event: 'resubmitted',
+          text: 'Verify: city accepted resubmission (cycle 1) — 7125875-CN',
+          primary_assignee: 'Edmund',
+        }),
+      ];
+      renderPermit({ id: 240, num: '7125875-CN', permit_cycles: [cycle0('2026-03-13')] });
+      expect(screen.getByTestId('task-row-176a6005')).toBeInTheDocument();
+      expect(screen.getByTestId('bot-badge-176a6005')).toBeInTheDocument();
+      expect(
+        (screen.getByTestId('task-text-176a6005') as HTMLInputElement).value,
+      ).toBe('Verify: city accepted resubmission (cycle 1) — 7125875-CN');
+    });
+
+    it('completing a BOT task fires the upsert with status="Resolved" (full parity action)', () => {
+      treeRef.current = [
+        makeTask({
+          id: 'bot-c', bucket: 'de', discipline: 'ent', is_auto_generated: true,
+          auto_event: 'number_entry', text: 'Enter permit number…', primary_assignee: 'Edmund',
+        }),
+      ];
+      renderPermit({ id: 199, permit_cycles: [cycle0(null)] });
+      fireEvent.change(screen.getByTestId('task-status-bot-c'), {
+        target: { value: 'Resolved' },
+      });
+      expect(upsertMutate).toHaveBeenCalledTimes(1);
+      expect(upsertMutate.mock.calls[0][0]).toMatchObject({
+        id: 'bot-c',
+        status: 'Resolved',
+      });
+    });
+
+    it('priority BOT task (corr_issued) sorts above a non-priority task in the same column', () => {
+      treeRef.current = [
+        makeTask({ id: 'plain', bucket: 'pm', discipline: 'ent', text: 'plain', sort_order: 0 }),
+        makeTask({
+          id: 'bot-prio', bucket: 'pm', discipline: 'ent', text: 'corr', sort_order: 1,
+          priority: true, is_auto_generated: true, auto_event: 'corr_issued',
+        }),
+      ];
+      renderPermit({ id: 240, permit_cycles: [cycle0('2026-03-13')] }); // pm default
+      const prio = screen.getByTestId('task-row-bot-prio');
+      const plain = screen.getByTestId('task-row-plain');
+      // priority task precedes the plain one despite a higher sort_order.
+      expect(
+        prio.compareDocumentPosition(plain) & Node.DOCUMENT_POSITION_FOLLOWING,
+      ).toBeTruthy();
+    });
+  });
 });

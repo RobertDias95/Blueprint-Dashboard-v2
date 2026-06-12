@@ -725,4 +725,60 @@ describe('MyTasks view switcher (fix-140)', () => {
         Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
   });
+
+  it('fix-156: ENT filter matches a BOT task via DERIVED primary_assignee (assigned_to null)', () => {
+    tasksRef.current = [
+      task({
+        id: 'bot-ent',
+        bucket: 'de',
+        discipline: 'ent',
+        text: 'Enter permit number — was this submitted? — SDOT Tree @ X',
+        // derived from permit.ent_lead; fix-156 wrote no static assigned_to.
+        primary_assignee: 'Edmund',
+        assigned_to: null,
+        is_auto_generated: true,
+        auto_event: 'number_entry',
+      }),
+      task({
+        id: 'other',
+        bucket: 'de',
+        discipline: 'ent',
+        text: 'human task',
+        primary_assignee: 'Bobby',
+      }),
+    ];
+    renderIt();
+    // Filter ENT → Edmund. The BOT task matches via its derived primary.
+    fireEvent.change(screen.getByTestId('mytasks-filter-role-ent-select'), {
+      target: { value: 'Edmund' },
+    });
+    expect(screen.getByTestId('mytask-card-bot-ent')).toBeInTheDocument();
+    expect(screen.queryByTestId('mytask-card-other')).toBeNull();
+  });
+
+  it('fix-156: editing notes on a BOT task fires the upsert (full parity)', () => {
+    tasksRef.current = [
+      task({
+        id: 'bot-notes',
+        bucket: 'de',
+        discipline: 'ent',
+        text: 'Enter permit number…',
+        primary_assignee: 'Edmund',
+        is_auto_generated: true,
+        auto_event: 'number_entry',
+      }),
+    ];
+    renderIt();
+    fireEvent.click(screen.getByTestId('mytask-card-bot-notes'));
+    const notes = screen.getByTestId('task-detail-notes');
+    fireEvent.change(notes, {
+      target: { value: 'called the city — awaiting number' },
+    });
+    fireEvent.blur(notes);
+    expect(upsertMutate).toHaveBeenCalledTimes(1);
+    expect(upsertMutate.mock.calls[0][0]).toMatchObject({
+      id: 'bot-notes',
+      notes: 'called the city — awaiting number',
+    });
+  });
 });
