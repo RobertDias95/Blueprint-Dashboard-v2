@@ -1787,7 +1787,13 @@ function DisciplineColumn({
   const [draft, setDraft] = useState('');
   const [doneOpen, setDoneOpen] = useState(false);
 
-  const active = tasks.filter((t) => t.status !== 'Resolved');
+  // fix-156: priority tasks (incl. corr_issued auto-tasks, which set
+  // priority=true) bubble to the top of the column — parity with My Tasks'
+  // priority sort. Stable otherwise: the RPC already orders by sort_order,
+  // created_at, and V8's sort is stable, so equal-priority rows keep that order.
+  const active = tasks
+    .filter((t) => t.status !== 'Resolved')
+    .sort((a, b) => (b.priority ? 1 : 0) - (a.priority ? 1 : 0));
   const done = tasks.filter((t) => t.status === 'Resolved');
 
   function handleAdd() {
