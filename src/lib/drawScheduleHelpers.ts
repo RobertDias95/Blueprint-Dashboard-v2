@@ -2,24 +2,15 @@
 // getMonday / dateToWeekKey / getQuarterWeeks (index.html lines 7307-7370).
 // Week-keys are 'YYYY-MM-DD' strings representing the Monday of that week.
 
-export interface StatusColor {
-  bg: string;
-  border: string;
-  text: string;
-}
+import type { DsStatusColor } from './drawScheduleStatus';
 
-/** v1 status → block color (index.html line 7307). Order is also the
- * canonical order for status filters. */
-export const DS_STATUS_COLORS: Record<string, StatusColor> = {
-  Scheduled: { bg: '#ffffff', border: '#cacaca', text: '#1a2540' },
-  Schematic: { bg: '#5a84c0', border: '#3d6aad', text: '#1a2540' },
-  'DD / Permit Set': { bg: '#5d6aac', border: '#4a5499', text: '#ffffff' },
-  'Pending Consultants': { bg: '#02267e', border: '#011a5c', text: '#ffffff' },
-  Submitted: { bg: '#5cb8b2', border: '#3a9e98', text: '#1a2540' },
-  'Under Review': { bg: '#5cb8b2', border: '#3a9e98', text: '#1a2540' },
-  Corrections: { bg: '#5cb8b2', border: '#3a9e98', text: '#1a2540' },
-  Approved: { bg: '#5abf75', border: '#3aa55e', text: '#ffffff' },
-};
+// fix-160: the status→color map moved into drawScheduleStatus.ts as part of
+// STATUS_PRESENTATION (the SINGLE source for a status's label AND color). It is
+// re-exported here (derived, not a second literal) so existing importers are
+// unchanged; the duplicate literal that lived here — and its dead 'Submitted'
+// key — are gone, so label and color can no longer drift apart.
+export type StatusColor = DsStatusColor;
+export { DS_STATUS_COLORS } from './drawScheduleStatus';
 
 /** Q6.2.c: NP block colors (Vacation/Training/Redesign/Corrections/Other).
  * v1 used the same flat grey for every type (index.html line 8035). */

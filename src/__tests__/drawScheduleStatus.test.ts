@@ -1,5 +1,10 @@
 import { describe, it, expect } from 'vitest';
-import { deriveBlockStatus } from '../lib/drawScheduleStatus';
+import {
+  deriveBlockStatus,
+  DS_STATUS_LIST,
+  DS_STATUS_COLORS,
+  STATUS_PRESENTATION,
+} from '../lib/drawScheduleStatus';
 import type { Permit, PermitCycle } from '../lib/database.types';
 
 // Q9.5.g: precedence chain tests for deriveBlockStatus. One test per
@@ -312,5 +317,100 @@ describe('deriveBlockStatus', () => {
       today: TODAY,
     });
     expect(result).toEqual({ status: 'Scheduled', isAuto: true });
+  });
+});
+
+describe('STATUS_PRESENTATION — single label+color source (fix-160)', () => {
+  it('every derived status has exactly one {label, colors} entry (no parallel maps)', () => {
+    for (const s of DS_STATUS_LIST) {
+      const pres = STATUS_PRESENTATION[s];
+      expect(pres).toBeDefined();
+      expect(pres.label).toBe(s); // the pill shows the status word verbatim
+      expect(pres.colors.bg).toMatch(/^#[0-9a-f]{6}$/i);
+      expect(pres.colors.border).toMatch(/^#[0-9a-f]{6}$/i);
+      expect(pres.colors.text).toMatch(/^#[0-9a-f]{6}$/i);
+    }
+    // Exhaustive: no extra keys beyond the vocab, none missing.
+    expect(Object.keys(STATUS_PRESENTATION).sort()).toEqual([...DS_STATUS_LIST].sort());
+  });
+
+  it('DS_STATUS_COLORS is the colors view of STATUS_PRESENTATION (derived, not a 2nd literal)', () => {
+    for (const s of DS_STATUS_LIST) {
+      expect(DS_STATUS_COLORS[s]).toEqual(STATUS_PRESENTATION[s].colors);
+    }
+  });
+
+  it('Approved is green, Scheduled is white', () => {
+    expect(STATUS_PRESENTATION.Approved.colors.bg).toBe('#5abf75');
+    expect(STATUS_PRESENTATION.Scheduled.colors.bg).toBe('#ffffff');
+  });
+});
+
+describe('deriveBlockStatus — no-BP projects derive off their own permits (fix-160)', () => {
+  const TODAY_160 = new Date(2026, 4, 13);
+
+  it('PPR-only project that is approved → Approved (was Scheduled/white before fix-160)', () => {
+    const result = deriveBlockStatus({
+      permits: [
+        permit(1, {
+          type: 'PPR',
+          approval_date: '2026-05-11',
+          actual_issue: '2026-05-22',
+        }),
+      ],
+      cyclesByPermit: new Map(),
+      currentStatus: 'Scheduled',
+      manualStatus: false,
+      today: TODAY_160,
+    });
+    expect(result).toEqual({ status: 'Approved', isAuto: true });
+  });
+
+  it('PPR-only project with NO approval data → still Scheduled (no false positives)', () => {
+    const result = deriveBlockStatus({
+      permits: [permit(1, { type: 'PPR' })],
+      cyclesByPermit: new Map(),
+      currentStatus: null,
+      manualStatus: false,
+      today: TODAY_160,
+    });
+    expect(result.status).toBe('Scheduled');
+  });
+
+  it('a Building Permit still takes precedence over a non-BP (derives off the BP only)', () => {
+    const result = deriveBlockStatus({
+      permits: [
+        permit(1, { type: 'Building Permit' }), // BP, not approved
+        permit(2, { type: 'PPR', approval_date: '2026-05-11' }), // approved PPR — ignored
+      ],
+      cyclesByPermit: new Map(),
+      currentStatus: null,
+      manualStatus: false,
+      today: TODAY_160,
+    });
+    // The BP (no approval) drives it, so it is NOT 'Approved'.
+    expect(result.status).not.toBe('Approved');
+  });
+
+  it('override unchanged: no-BP project with manual status set + no permit data → respects manual', () => {
+    const result = deriveBlockStatus({
+      permits: [permit(1, { type: 'PPR' })],
+      cyclesByPermit: new Map(),
+      currentStatus: 'Schematic',
+      manualStatus: true,
+      today: TODAY_160,
+    });
+    expect(result).toEqual({ status: 'Schematic', isAuto: false });
+  });
+
+  it('override unchanged: a non-BP approval still beats a stale manual status (data branch wins)', () => {
+    const result = deriveBlockStatus({
+      permits: [permit(1, { type: 'PPR', approval_date: '2026-05-11' })],
+      cyclesByPermit: new Map(),
+      currentStatus: 'Schematic',
+      manualStatus: true, // stale manual choice — the Approved branch overrides it
+      today: TODAY_160,
+    });
+    expect(result).toEqual({ status: 'Approved', isAuto: true });
   });
 });
