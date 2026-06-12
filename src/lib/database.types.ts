@@ -411,6 +411,15 @@ export interface PermitTaskAssignee {
   created_at: string;
 }
 
+/** fix-155: lifecycle events the scraper / daily sweep fire a verification
+ *  task at. Mirrors permit_tasks.auto_event (NULL for human tasks). */
+export type AutoEvent =
+  | 'intake_submitted'
+  | 'intake_accepted'
+  | 'corr_issued'
+  | 'resubmitted'
+  | 'number_entry';
+
 /** fix-70: a task as returned by bp_list_permit_tasks / bp_my_tasks. The
  *  `status` field is the permit_tasks.completion_status value
  *  ('Open' | 'In Progress' | 'Resolved'); `primary_assignee` is DERIVED from
@@ -443,6 +452,14 @@ export interface TaskNode {
   priority?: boolean;
   /** fix-138-a: free-form notes. */
   notes?: string | null;
+  /** fix-155: true for lifecycle auto-tasks (scraper-/sweep-generated). The
+   *  team verifies these; they are never auto-completed. Drives the BOT badge
+   *  and the BOT filter in My Tasks. Absent (treated as false) on older wire
+   *  shapes. */
+  is_auto_generated?: boolean;
+  /** fix-155: which lifecycle event spawned this auto-task. null on human
+   *  tasks and on pre-fix-155 wire shapes. */
+  auto_event?: AutoEvent | null;
   /** Derived: arch -> permit.da, ent -> permit.ent_lead. May be null when the
    *  permit has no DA/ent_lead set. */
   primary_assignee: string | null;

@@ -3,7 +3,12 @@ import { useUpdatePermit } from '../../hooks/useUpdatePermit';
 import { usePermitTypes } from '../../hooks/usePermitTypes';
 import { useTeamMembers } from '../../hooks/useTeamMembers';
 import { pushToast } from '../../stores/toastStore';
-import type { Permit, PermitWithCycles } from '../../lib/database.types';
+import { supabase } from '../../lib/supabase';
+import type {
+  Permit,
+  PermitWithCycles,
+  TaskNode,
+} from '../../lib/database.types';
 
 // Q9.5.f-fix-19: v1 Quick Edit Permit popup (index.html:1325-1355). Opens on
 // double-click of a permit sidebar row. Edits the 5 most-touched fields
@@ -91,6 +96,27 @@ export default function QuickEditPermitModal({ permit, onClose }: Props) {
         fieldLabel: 'Permit',
       });
       pushToast('Permit updated.', 'success');
+      // fix-155: when a number is newly entered, surface (don't auto-complete)
+      // any open number_entry auto-task for this permit. The system suggests;
+      // the human verifies the submission and closes the task — that's the
+      // accountability contract.
+      if (typeof patch.num === 'string' && patch.num && !original.num) {
+        void (async () => {
+          const { data, error } = await supabase.rpc('bp_list_permit_tasks', {
+            p_permit_id: permit.id,
+          });
+          if (error || !Array.isArray(data)) return;
+          const openNumberEntry = (data as TaskNode[]).some(
+            (t) => t.auto_event === 'number_entry' && t.status !== 'Resolved',
+          );
+          if (openNumberEntry) {
+            pushToast(
+              'Number added — an "Enter permit number" task is still open for this permit. Verify the submission, then close it in My Tasks.',
+              'info',
+            );
+          }
+        })();
+      }
       onClose();
     } catch {
       // useUpdatePermit's onError already surfaces the OCC / network error.

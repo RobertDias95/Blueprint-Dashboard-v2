@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import WaitingOnView from '../components/MyTasks/WaitingOnView';
+import BotBadge from '../components/shared/BotBadge';
 import { useTeamMembers } from '../hooks/useTeamMembers';
 import { useAllTasks, useUpsertTask } from '../hooks/useTaskTree';
 import { SkeletonRows } from '../components/Skeleton';
@@ -49,6 +50,8 @@ interface FilterState {
   /** When true (default) cards within a sub-column sort by target_date asc
    *  NULLS LAST; otherwise by sort_order then created_at desc. */
   byDueDate: boolean;
+  /** fix-155: when true, show only lifecycle auto-tasks (is_auto_generated). */
+  botOnly: boolean;
 }
 
 const FILTER_STORAGE_KEY = 'mytasks.filters.v2';
@@ -60,6 +63,7 @@ const DEFAULT_FILTERS: FilterState = {
   permitTypes: [],
   activeOnly: true,
   byDueDate: true,
+  botOnly: false,
 };
 
 const BUCKET_LABEL: Record<DiagBucket, string> = {
@@ -652,6 +656,13 @@ function FilterRow({
         onToggle={() => onPatch({ byDueDate: !filters.byDueDate })}
         testid="mytasks-filter-bydue"
       />
+      {/* fix-155: BOT quick-filter — narrows to lifecycle auto-tasks. */}
+      <Toggle
+        label="🤖 BOT"
+        on={filters.botOnly}
+        onToggle={() => onPatch({ botOnly: !filters.botOnly })}
+        testid="mytasks-filter-bot"
+      />
       <button
         type="button"
         onClick={onReset}
@@ -1048,6 +1059,9 @@ function TaskCard({
         )}
       </div>
       <div className="flex items-center gap-1 mt-1 flex-wrap">
+        {task.is_auto_generated && (
+          <BotBadge taskId={task.id} event={task.auto_event} />
+        )}
         {task.permit_type && (
           <span
             className="text-[9px] px-1.5 py-0.5 rounded font-bold uppercase"
@@ -1496,8 +1510,16 @@ function chipStyle(active: boolean) {
 
 function sorted(tasks: Task[], byDueDate: boolean): Task[] {
   const arr = [...tasks];
+  // fix-155: priority tasks bubble to the top of each sub-column, then the
+  // existing by-due / by-order ordering applies within the priority and
+  // non-priority groups. corr_issued auto-tasks set priority=true, so they
+  // surface alongside any human-starred priority tasks per existing handling.
+  const byPriority = (a: Task, b: Task) =>
+    (b.priority ? 1 : 0) - (a.priority ? 1 : 0);
   if (byDueDate) {
     arr.sort((a, b) => {
+      const p = byPriority(a, b);
+      if (p !== 0) return p;
       const ad = a.target_date ?? '￿';
       const bd = b.target_date ?? '￿';
       if (ad !== bd) return ad.localeCompare(bd);
@@ -1505,6 +1527,8 @@ function sorted(tasks: Task[], byDueDate: boolean): Task[] {
     });
   } else {
     arr.sort((a, b) => {
+      const p = byPriority(a, b);
+      if (p !== 0) return p;
       if (a.sort_order !== b.sort_order) return a.sort_order - b.sort_order;
       const ad = a.start_date ?? '';
       const bd = b.start_date ?? '';
@@ -1548,6 +1572,8 @@ function filterTasks(
   ]);
 
   return tasks.filter((t) => {
+    // fix-155: BOT filter — keep only lifecycle auto-tasks when active.
+    if (filters.botOnly && !t.is_auto_generated) return false;
     if (wantTypes && t.permit_type && !wantTypes.has(t.permit_type)) {
       return false;
     }
