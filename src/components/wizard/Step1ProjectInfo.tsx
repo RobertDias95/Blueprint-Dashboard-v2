@@ -191,11 +191,12 @@ export default function Step1ProjectInfo({
   // reuses-permit flow skips permit + lane creation otherwise). Auto-place mode
   // suggests the next open slot on the picked DA's lane; manual mode — and
   // backfill mode, which forces manual — lets the user type the dates.
-  const redesignReuses =
-    !!value.redesign_of_project_id &&
-    value.redesign_reuses_original_permit === 'yes';
+  // fix-158: the Redesign DD Phase section (DA + dates + auto/manual placement)
+  // drives the draw_schedule lane for EVERY redesign — the reuses branch (no
+  // permits) and the own-permits branch alike. Pre-fix-158 it only rendered for
+  // reuses=yes, so an own-permits redesign got no DA picker and no lane.
   const redesignAutoPlace =
-    redesignReuses &&
+    !!value.redesign_of_project_id &&
     !!value.redesign_dd_da &&
     !value.redesign_dd_manual_dates &&
     !backfillMode;
@@ -908,12 +909,13 @@ export default function Step1ProjectInfo({
         </section>
       )}
 
-      {/* fix-144: Redesign DD Phase — only when the redesign reuses the
-          original permit. That flow skips permit + lane creation, so without
-          this the redesign lands with no Draw Schedule lane (12836 N 60th St
-          [Redesign 1], 2026-06-09). DA + DD window here build a manually_placed
-          draw_schedule row for the redesign project. */}
-      {redesignReuses && (
+      {/* fix-144/fix-158: Redesign DD Phase — renders for EVERY redesign. The
+          DA + DD window build the redesign project's Draw Schedule lane. The
+          reuses branch creates no permits, so this is its ONLY path onto the
+          schedule; the own-permits branch (fix-158) also places its lane from
+          here, since the BP-based auto/manual path misses non-BP permits and
+          redesigns no longer carry a project-level Lead DA (fix-152). */}
+      {isRedesign && (
         <section
           className="bg-s2/60 rounded-lg p-4 space-y-3"
           data-testid="wizard-section-redesign-dd"
@@ -922,8 +924,8 @@ export default function Step1ProjectInfo({
             Redesign DD Phase
           </div>
           <div className="text-[10px] text-dim -mt-1">
-            This redesign reuses the original permit — set the DA and DD window
-            so it lands on the Draw Schedule.
+            Set the DA and DD window for this redesign so it lands on the Draw
+            Schedule.
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             <label className="flex flex-col gap-1">

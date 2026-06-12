@@ -6,6 +6,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { useAuthStore } from '../stores/authStore';
 import {
   makeEmptyWizardState,
+  makeRedesignWizardState,
   type WizardState,
 } from '../components/wizard/wizardState';
 
@@ -192,9 +193,10 @@ beforeEach(() => {
 });
 
 describe('Redesign DD phase — Step 1 section', () => {
-  it('does not render when redesign does NOT reuse the original permit', () => {
+  it('fix-158: renders for the own-permits branch (reuses=no) too — that branch also needs a DA + lane', () => {
     render(<StepHarness initial={redesignState({ redesign_reuses_original_permit: 'no' })} />);
-    expect(screen.queryByTestId('wizard-section-redesign-dd')).toBeNull();
+    expect(screen.getByTestId('wizard-section-redesign-dd')).toBeTruthy();
+    expect(screen.getByTestId('wizard-redesign-dd-da')).toBeTruthy();
   });
 
   it('renders when reuse=yes, with a blank DA default', () => {
@@ -307,5 +309,46 @@ describe('Redesign DD phase — full wizard submit', () => {
       dd_start: '2026-06-15',
       dd_end: '2026-07-17',
     });
+  });
+
+  it('fix-158: own-permits redesign (reuses=no) sends redesign_dd_phase AND applies the DA to the created permits, and skips placeOnDa', async () => {
+    renderWizard(
+      redesignState({
+        redesign_reuses_original_permit: 'no',
+        // manual dates (avoid the auto-place lookahead) + a DA + window
+        redesign_dd_manual_dates: true,
+        redesign_dd_da: 'Trevor',
+        redesign_dd_start: '2026-06-15', // Monday
+        redesign_dd_end: '2026-07-17', // Friday
+      }),
+    );
+    gotoStep4AndSave();
+
+    await waitFor(() => expect(createCall()).toBeTruthy());
+    // The lane is placed from the Redesign DD Phase (not the BP-based path).
+    expect(createCall()!.p_redesign_dd_phase).toEqual({
+      da: 'Trevor',
+      dd_start: '2026-06-15',
+      dd_end: '2026-07-17',
+    });
+    // The section DA is respected on the created permits (auto-injected BP).
+    const args = createCall() as unknown as {
+      p_permits: { type: string; da?: string }[];
+    };
+    expect(args.p_permits.length).toBeGreaterThan(0);
+    expect(args.p_permits.every((p) => p.da === 'Trevor')).toBe(true);
+    // The RPC creates the lane, so the post-create frontier placement is skipped.
+    expect(placeOnDa).not.toHaveBeenCalled();
+  });
+
+  it('fix-158: makeRedesignWizardState seeds redesign_dd_da from the parent BP DA (blank when none)', () => {
+    const withDa = makeRedesignWizardState(
+      { id: 'p', address: '500 Pike St', juris: 'Seattle' },
+      0,
+      'Marc',
+    );
+    expect(withDa.redesign_dd_da).toBe('Marc');
+    const noDa = makeRedesignWizardState({ id: 'p', address: 'X' }, 0, null);
+    expect(noDa.redesign_dd_da).toBe('');
   });
 });

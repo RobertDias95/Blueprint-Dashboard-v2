@@ -175,6 +175,8 @@ function ProjectDetailBody({
             const seed = makeRedesignWizardState(
               project,
               redesignsQ.count,
+              // fix-158: seed the Redesign DD Phase DA with the parent's BP DA.
+              bp?.da ?? null,
             );
             setSettingsOpen(false);
             setRedesignSeed(seed);
