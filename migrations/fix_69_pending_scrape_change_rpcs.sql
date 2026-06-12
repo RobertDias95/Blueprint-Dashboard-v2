@@ -20,9 +20,16 @@
 --                                    runs_skipped, last_run_at }
 --
 -- Definitions below are pulled VERBATIM from prod via pg_get_functiondef
--- (live def is canon). Grants match the live ACL: authenticated + service_role
--- (NOT anon / PUBLIC — consistent with fix-157's default privileges). The
--- REVOKE/GRANT are explicit so a fresh apply reproduces the live grant state.
+-- (live def is canon). Grants match the live ACL at the time this was written:
+-- authenticated + service_role (NOT anon / PUBLIC — consistent with fix-157's
+-- default privileges). The REVOKE/GRANT are explicit so a fresh apply reproduces
+-- that grant state.
+--
+-- SUPERSEDED BY fix_162_pending_scrape_rpc_gate.sql (2026-06-12): the stray
+-- `authenticated` grant was a cross-tenant write risk (these are SECURITY DEFINER
+-- with a caller-supplied p_tenant_id and no internal gate). fix-162 revokes
+-- authenticated (final ACL = service_role only) and adds the service-path tenant
+-- gate inside both functions. Apply fix-162 after this file.
 
 CREATE OR REPLACE FUNCTION public.bp_set_pending_scrape_change(p_tenant_id uuid, p_permit_id integer, p_blob jsonb)
  RETURNS void
