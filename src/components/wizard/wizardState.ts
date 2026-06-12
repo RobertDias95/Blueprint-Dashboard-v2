@@ -255,11 +255,16 @@ export function makeRedesignWizardState(
     builder_phone?: string | null;
   },
   existingRedesignCount: number,
+  // fix-158: the parent's primary Building Permit DA. Seeds the Redesign DD
+  // Phase DA picker so the common case (the redesign stays with the same DA)
+  // is one click; the user can still change it.
+  parentBpDa?: string | null,
 ): WizardState {
   const base = makeEmptyWizardState();
   const n = existingRedesignCount + 1;
   return {
     ...base,
+    redesign_dd_da: parentBpDa?.trim() ? parentBpDa.trim() : '',
     address: `${parentProject.address} [Redesign ${n}]`,
     juris: parentProject.juris ?? '',
     units: parentProject.units != null ? String(parentProject.units) : '',

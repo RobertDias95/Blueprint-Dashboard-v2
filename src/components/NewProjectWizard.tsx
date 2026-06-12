@@ -270,12 +270,14 @@ export default function NewProjectWizard({ open, onClose, initialState }: Props)
       return;
     }
 
-    // fix-144: a redesign that reuses the original permit creates no permits,
-    // so the DD phase here is the ONLY thing that puts it on the Draw Schedule.
-    // Require DA + both dates, then Monday/Friday-snap (fix-141 helpers).
+    // fix-144/fix-158: the Redesign DD Phase builds the redesign's Draw Schedule
+    // lane — for the reuses branch (no permits, its only path onto the schedule)
+    // AND the own-permits branch (fix-158: the BP-based path misses non-BP
+    // permits / ent-less redesigns). Require DA + both dates for EVERY redesign,
+    // then Monday/Friday-snap (fix-141 helpers).
     let redesignDdStart: string | null = null;
     let redesignDdEnd: string | null = null;
-    if (isReuseRedesign) {
+    if (isRedesign) {
       if (
         !state.redesign_dd_da ||
         !state.redesign_dd_start ||
@@ -382,7 +384,14 @@ export default function NewProjectWizard({ open, onClose, initialState }: Props)
       num: p.num.trim() || undefined,
       ent_lead: strOrNull(p.ent_lead) ?? undefined,
       dm: strOrNull(p.dm) ?? undefined,
-      da: strOrNull(p.da) ?? undefined,
+      // fix-158: an own-permits redesign's DA comes from the Redesign DD Phase
+      // section (the single DA for the redesign). Apply it to the created
+      // permits so the permit DA matches the lane DA the RPC places from the
+      // same section — keeping the BP↔lane DA sync trigger consistent.
+      da:
+        isRedesign && state.redesign_dd_da
+          ? state.redesign_dd_da
+          : strOrNull(p.da) ?? undefined,
       dual_da: strOrNull(p.dual_da) ?? undefined,
       architect: strOrNull(p.architect) ?? undefined,
       // fix-25c / fix-91: "ACQ Target" → expected_issue. The BP row
@@ -418,10 +427,11 @@ export default function NewProjectWizard({ open, onClose, initialState }: Props)
         permits: permitsPayload,
         // fix-143: flag the lane manually_placed when manual DD dates built it.
         manually_placed: !!(backfillDdStart && backfillDdEnd),
-        // fix-144: redesign-reuses-permit DD phase → the RPC inserts a
-        // manually_placed lane for the redesign project (no permits otherwise).
+        // fix-144/fix-158: Redesign DD phase → the RPC places a manually_placed
+        // lane for the redesign project. Sent for EVERY redesign: the reuses
+        // branch (no permits) and the own-permits branch alike.
         redesign_dd_phase:
-          isReuseRedesign && redesignDdStart && redesignDdEnd
+          isRedesign && redesignDdStart && redesignDdEnd
             ? {
                 da: state.redesign_dd_da,
                 dd_start: redesignDdStart,
@@ -438,8 +448,14 @@ export default function NewProjectWizard({ open, onClose, initialState }: Props)
       // Q9.5.f-fix-20 carry-over: auto-place on the first selected
       // permit's DA. Same UX semantics as before — silent fallback to
       // unscheduled lane if no DA was chosen.
+      // fix-158: a redesign already had its lane placed by the RPC from the
+      // Redesign DD Phase (redesign_dd_phase), so skip this — placeOnDa would
+      // only early-return on the existing lane, or worse re-place at the DA's
+      // frontier instead of the entered DD dates.
+      const redesignLanePlaced =
+        isRedesign && !!redesignDdStart && !!redesignDdEnd;
       const firstDa = selectedPermits.find((p) => p.da && p.da.trim() !== '')?.da;
-      if (firstDa) {
+      if (firstDa && !redesignLanePlaced) {
         try {
           await placeOnDa.mutateAsync({
             projectId: result.project_id,
