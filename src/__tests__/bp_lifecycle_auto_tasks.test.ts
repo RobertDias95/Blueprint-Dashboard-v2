@@ -29,6 +29,7 @@ const EVENTS: AutoEvent[] = [
   'corr_issued',
   'resubmitted',
   'number_entry',
+  'scrape_reconcile',
 ];
 
 function nullifTrim(v: string | null | undefined): string | null {
@@ -59,18 +60,39 @@ interface BuiltTask {
 /** Mirror of bp_create_lifecycle_task: title + flags + bucket per event.
  *  fix-156: bucket = lifecycle phase (number_entry => 'de' pre-submission, the
  *  rest => 'pm' post-submission); assigned_to is never written. */
+/** fix-159: extra inputs only scrape_reconcile uses. */
+interface ReconcileOpts {
+  observedStatus?: string;
+  dbStatus?: string;
+  /** cycle-0 intake_accepted set? Drives bucket pm vs de. */
+  c0IntakeAccepted?: boolean;
+}
+
+/** left(btrim(v), 60) — matches the SQL title cap. */
+function cap60(v: string | undefined): string {
+  return (v ?? '').trim().slice(0, 60);
+}
+
 function buildLifecycleTask(
   event: string,
   permit: SeedPermit,
   project: SeedProject,
   cycleIdx: number | null,
+  opts: ReconcileOpts = {},
 ): BuiltTask {
   if (!(EVENTS as string[]).includes(event)) {
     throw new Error(`bp_create_lifecycle_task: unknown event ${event}`);
   }
   const numLabel = nullifTrim(permit.num) ?? 'no number yet';
   const cyc = cycleIdx == null ? '?' : String(cycleIdx);
-  const bucket: 'de' | 'pm' = event === 'number_entry' ? 'de' : 'pm';
+  const bucket: 'de' | 'pm' =
+    event === 'number_entry'
+      ? 'de'
+      : event === 'scrape_reconcile'
+        ? opts.c0IntakeAccepted
+          ? 'pm'
+          : 'de'
+        : 'pm';
   let title = '';
   let cityCheck = false;
   let priority = false;
@@ -95,8 +117,23 @@ function buildLifecycleTask(
         nullifTrim(permit.type) ?? 'permit'
       } @ ${nullifTrim(project.address) ?? 'project'}`;
       break;
+    case 'scrape_reconcile':
+      title = `Reconcile: portal shows ${cap60(opts.observedStatus) || '?'} — dashboard shows ${
+        cap60(opts.dbStatus) || '?'
+      } — ${numLabel}`;
+      priority = true;
+      break;
   }
   return { title, cityCheck, priority, bucket, assignedTo: null };
+}
+
+/** Mirror of the fix-159 re-fire rule: a new scrape_reconcile is SUPPRESSED iff
+ *  an OPEN (completion_status <> 'Resolved') reconcile already exists for the
+ *  permit. Once the prior one is Resolved it drops out → a fresh one is allowed. */
+function reconcileSuppressed(
+  existingReconciles: { completion_status: string }[],
+): boolean {
+  return existingReconciles.some((t) => t.completion_status !== 'Resolved');
 }
 
 /** Mirror of the READ-time assignee derivation in bp_list_tasks /
@@ -247,6 +284,80 @@ describe('bp_create_lifecycle_task — idempotency key (fix-155)', () => {
 
   it('non-cyclic events collapse NULL cycle_idx to -1', () => {
     expect(dedupeKey('t', 1, 'number_entry', null)).toBe('t|1|number_entry|-1');
+  });
+});
+
+describe('scrape_reconcile event (fix-159)', () => {
+  // The functions below mirror the SQL (no live DB in CI — the fix-153 pattern).
+  // Canonical verification = a rolled-back MCP probe against PROD on permit 10222
+  // (003169-26PA). VERBATIM output (2026-06-12, entire probe rolled back):
+  //   create reconcile           -> id
+  //   title                      = "Reconcile: portal shows In Process — dashboard shows Pre-Submittal — GO — 003169-26PA"
+  //   bucket/priority/city/event = pm / true / false / scrape_reconcile
+  //     (pm because permit 10222 HAS cycle-0 intake_accepted; a permit without it
+  //      gets de — both branches asserted in the bucket test below)
+  //   re-fire while OPEN          -> NULL    (suppressed by permit_tasks_scrape_reconcile_open_uniq;
+  //                                           confirms the partial-index ON CONFLICT inference works)
+  //   re-fire after RESOLVED      -> NEW-ID  (re-fireable)
+  //   intake_submitted dup        -> id / NULL (the original five events keep one-ever)
+
+  it('title: portal X — dashboard Y — num; priority on, city-check off', () => {
+    const t = buildLifecycleTask('scrape_reconcile', NUMBERED, PROJ, null, {
+      observedStatus: 'In Process',
+      dbStatus: 'Pre-Submittal — GO',
+    });
+    expect(t.title).toBe(
+      'Reconcile: portal shows In Process — dashboard shows Pre-Submittal — GO — BLD-155-A',
+    );
+    expect(t.priority).toBe(true);
+    expect(t.cityCheck).toBe(false);
+  });
+
+  it('caps long statuses at 60 chars and falls back to "?" when missing', () => {
+    const longStatus = 'X'.repeat(80);
+    const t = buildLifecycleTask('scrape_reconcile', NUMBERED, PROJ, null, {
+      observedStatus: longStatus,
+    });
+    expect(t.title).toBe(
+      `Reconcile: portal shows ${'X'.repeat(60)} — dashboard shows ? — BLD-155-A`,
+    );
+  });
+
+  it('bucket follows the permit phase: pm when cycle-0 intake accepted, else de', () => {
+    expect(
+      buildLifecycleTask('scrape_reconcile', NUMBERED, PROJ, null, {
+        observedStatus: 'In Process',
+        c0IntakeAccepted: true,
+      }).bucket,
+    ).toBe('pm');
+    expect(
+      buildLifecycleTask('scrape_reconcile', NUMBERED, PROJ, null, {
+        observedStatus: 'In Process',
+        c0IntakeAccepted: false,
+      }).bucket,
+    ).toBe('de');
+  });
+
+  it('re-fire: an OPEN reconcile suppresses a new one; a Resolved one does not', () => {
+    expect(reconcileSuppressed([])).toBe(false); // none yet → create
+    expect(reconcileSuppressed([{ completion_status: 'Open' }])).toBe(true);
+    expect(reconcileSuppressed([{ completion_status: 'In Progress' }])).toBe(true);
+    expect(reconcileSuppressed([{ completion_status: 'Resolved' }])).toBe(false); // re-fire
+    // a resolved one + (impossible-but-defensive) no open one → allowed
+    expect(
+      reconcileSuppressed([
+        { completion_status: 'Resolved' },
+        { completion_status: 'Resolved' },
+      ]),
+    ).toBe(false);
+  });
+
+  it('is a known event (does not raise)', () => {
+    expect(() =>
+      buildLifecycleTask('scrape_reconcile', NUMBERED, PROJ, null, {
+        observedStatus: 'X',
+      }),
+    ).not.toThrow();
   });
 });
 

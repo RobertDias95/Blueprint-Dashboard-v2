@@ -418,7 +418,10 @@ export type AutoEvent =
   | 'intake_accepted'
   | 'corr_issued'
   | 'resubmitted'
-  | 'number_entry';
+  | 'number_entry'
+  // fix-159: fired after N consecutive scraper guard-skips with a pending
+  // portal change — "portal shows X, dashboard shows Y, reconcile".
+  | 'scrape_reconcile';
 
 /** fix-70: a task as returned by bp_list_permit_tasks / bp_my_tasks. The
  *  `status` field is the permit_tasks.completion_status value

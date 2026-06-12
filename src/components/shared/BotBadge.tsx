@@ -14,6 +14,8 @@ const EVENT_LABEL: Record<AutoEvent, string> = {
   resubmitted: 'Auto-task: verify the city accepted the resubmission.',
   number_entry:
     'Auto-task: enter the permit number once the permit has been submitted.',
+  scrape_reconcile:
+    'Auto-task: the portal and dashboard disagree — reconcile the status (the manual-edit guard kept blocking the scraper).',
 };
 
 export default function BotBadge({
