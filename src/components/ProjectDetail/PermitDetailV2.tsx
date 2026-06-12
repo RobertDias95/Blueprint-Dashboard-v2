@@ -40,6 +40,7 @@ import type {
 import { WAITING_ON_OPTIONS } from '../../lib/database.types';
 import { useProjectExternalTeam } from '../../hooks/useConsultantFirms';
 import BotBadge from '../shared/BotBadge';
+import PendingScrapeChip from '../shared/PendingScrapeChip';
 import { STAGE_LABEL } from '../../lib/stageLabel';
 import ScheduleEstimator from './ScheduleEstimator';
 
@@ -346,6 +347,9 @@ function HeaderStrip({
           {permit.num}
         </span>
       )}
+      {/* fix-159: pending-portal-change chip — surfaces when the scraper's
+          manual-edit guard has been blocking a known portal status change. */}
+      <PendingScrapeChip extras={permit.extras} permitId={permit.id} />
     </div>
   );
 }

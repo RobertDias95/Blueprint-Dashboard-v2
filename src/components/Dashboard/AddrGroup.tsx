@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { effectiveStage } from '../../lib/permitStage';
 import { permitUrgency, type UrgencyLevel } from '../../lib/urgencyHelpers';
 import { derivePermitStatus } from '../../lib/permitStatus';
+import PendingScrapeChip from '../shared/PendingScrapeChip';
 import type {
   Permit,
   PermitCycle,
@@ -385,6 +386,9 @@ function ExpandedRow({
               {permit.num}
             </span>
           )}
+          {/* fix-159: pending-portal-change chip (tooltip explains the
+              guard-skipped change) right where Bobby first scans the matrix. */}
+          <PendingScrapeChip extras={permit.extras} permitId={permit.id} />
         </div>
         {team && (
           <span className="text-[10px] text-muted truncate">{team}</span>
