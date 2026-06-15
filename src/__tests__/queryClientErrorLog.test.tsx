@@ -16,21 +16,33 @@ import {
 // `logError` import in isolation.
 
 const logErrorMock = vi.hoisted(() => vi.fn().mockResolvedValue(undefined));
-vi.mock('../lib/errorLogger', () => ({
-  logError: logErrorMock,
-  messageOf: (e: unknown) => (e instanceof Error ? e.message : String(e)),
-}));
+// fix-165: keep the REAL classifier (sqlStateOf / isUserInputValidationError)
+// so the filter under test matches App.tsx's shouldSkipBackendRpcLog exactly;
+// only logError is stubbed so we can assert call counts.
+vi.mock('../lib/errorLogger', async (importActual) => {
+  const actual = await importActual<typeof import('../lib/errorLogger')>();
+  return { ...actual, logError: logErrorMock };
+});
 
-import { logError, messageOf } from '../lib/errorLogger';
+import {
+  logError,
+  messageOf,
+  isUserInputValidationError,
+} from '../lib/errorLogger';
+
+// Mirrors App.tsx's shouldSkipBackendRpcLog verbatim.
+function shouldSkip(err: unknown, key: unknown): boolean {
+  const k = Array.isArray(key) ? String(key[0] ?? '') : String(key ?? '');
+  if (k.startsWith('auth/')) return true;
+  if (isUserInputValidationError(err)) return true;
+  return messageOf(err).toLowerCase().includes('bp_log_error');
+}
 
 function makeClient(): QueryClient {
   return new QueryClient({
     queryCache: new QueryCache({
       onError: (err, query) => {
-        const k = Array.isArray(query.queryKey)
-          ? String(query.queryKey[0] ?? '')
-          : String(query.queryKey ?? '');
-        if (k.startsWith('auth/')) return;
+        if (shouldSkip(err, query.queryKey)) return;
         void logError({
           source: 'backend_rpc',
           level: 'error',
@@ -41,6 +53,7 @@ function makeClient(): QueryClient {
     }),
     mutationCache: new MutationCache({
       onError: (err, _v, _c, mutation) => {
+        if (shouldSkip(err, mutation.options.mutationKey)) return;
         void logError({
           source: 'backend_rpc',
           level: 'error',
@@ -107,6 +120,52 @@ describe('QueryClient global onError (fix-87)', () => {
     expect(arg.message).toBe('mutation died');
     expect(arg.context.kind).toBe('mutation');
     expect(arg.context.mutationKey).toEqual(['save-something']);
+  });
+
+  // fix-165: a chronology rejection (SQLSTATE 22008) is user input, not a
+  // system error — the global backend_rpc path must NOT log it.
+  it('a mutation rejecting with SQLSTATE 22008 is skipped (user-input validation)', async () => {
+    const client = makeClient();
+    const { result } = renderHook(
+      () =>
+        useMutation({
+          mutationKey: ['bp_upsert_permit_cycle_row'],
+          mutationFn: () =>
+            Promise.reject(
+              Object.assign(
+                new Error(
+                  'bp_upsert_permit_cycle_row: Cycle 1: resubmitted (2026-02-15) cannot precede submitted (2026-03-15)',
+                ),
+                { code: '22008' },
+              ),
+            ),
+        }),
+      { wrapper: wrapperFor(client) },
+    );
+
+    result.current.mutate();
+    // It still rejects; we just don't log it.
+    await new Promise((r) => setTimeout(r, 30));
+    expect(logErrorMock).not.toHaveBeenCalled();
+  });
+
+  it('a mutation rejecting with a non-22008 code still logs (genuine system error)', async () => {
+    const client = makeClient();
+    const { result } = renderHook(
+      () =>
+        useMutation({
+          mutationKey: ['save-something'],
+          mutationFn: () =>
+            Promise.reject(
+              Object.assign(new Error('deadlock detected'), { code: '40P01' }),
+            ),
+        }),
+      { wrapper: wrapperFor(client) },
+    );
+
+    result.current.mutate();
+    await waitFor(() => expect(logErrorMock).toHaveBeenCalledTimes(1));
+    expect(logErrorMock.mock.calls[0][0].source).toBe('backend_rpc');
   });
 
   it('auth-key query failures are skipped (user logged out is not an app error)', async () => {

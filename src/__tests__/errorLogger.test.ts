@@ -10,7 +10,13 @@ vi.mock('../lib/supabase', () => ({
   supabase: { rpc: rpcMock },
 }));
 
-import { logError, messageOf } from '../lib/errorLogger';
+import {
+  logError,
+  messageOf,
+  sqlStateOf,
+  isUserInputValidationError,
+  USER_INPUT_SQLSTATES,
+} from '../lib/errorLogger';
 
 beforeEach(() => {
   rpcMock.mockReset();
@@ -101,5 +107,42 @@ describe('errorLogger', () => {
     expect(messageOf(null)).toBe('unknown error');
     expect(messageOf(undefined)).toBe('unknown error');
     expect(messageOf({ code: 42 })).toBe('{"code":42}');
+  });
+});
+
+// fix-165: SQLSTATE classification — user-input validation rejections
+// (the fix-89 chronology guard, SQLSTATE 22008) must be surfaced inline
+// but kept out of Error Reports.
+describe('errorLogger — SQLSTATE classification (fix-165)', () => {
+  it('sqlStateOf reads a string `code` off a supabase-js error', () => {
+    expect(sqlStateOf({ message: 'bad date', code: '22008' })).toBe('22008');
+    expect(sqlStateOf({ message: 'occ', code: 'P0001' })).toBe('P0001');
+  });
+
+  it('sqlStateOf returns undefined for errors without a string code', () => {
+    expect(sqlStateOf(new Error('plain'))).toBeUndefined();
+    expect(sqlStateOf({ message: 'no code' })).toBeUndefined();
+    expect(sqlStateOf({ code: 22008 })).toBeUndefined(); // numeric, not a SQLSTATE string
+    expect(sqlStateOf(null)).toBeUndefined();
+    expect(sqlStateOf('boom')).toBeUndefined();
+  });
+
+  it('isUserInputValidationError is true ONLY for known user-input SQLSTATEs', () => {
+    expect(USER_INPUT_SQLSTATES.has('22008')).toBe(true);
+    // The chronology rejection the user typed — surfaced, not logged.
+    expect(
+      isUserInputValidationError({
+        message:
+          'bp_upsert_permit_cycle_row: Cycle 1: resubmitted (2026-02-15) cannot precede submitted (2026-03-15)',
+        code: '22008',
+      }),
+    ).toBe(true);
+  });
+
+  it('isUserInputValidationError is false for system errors (keeps them logging)', () => {
+    expect(isUserInputValidationError(new Error('mutation died'))).toBe(false);
+    expect(isUserInputValidationError({ message: 'x', code: 'P0001' })).toBe(false);
+    expect(isUserInputValidationError({ message: 'occ conflict' })).toBe(false);
+    expect(isUserInputValidationError(undefined)).toBe(false);
   });
 });

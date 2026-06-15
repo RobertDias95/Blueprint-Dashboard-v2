@@ -2,6 +2,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../lib/supabase';
 import { queryKeys } from '../lib/queryKeys';
 import { OCCConflictError, isOCCConflict } from '../lib/occ';
+import { isUserInputValidationError } from '../lib/errorLogger';
 import { pushToast } from '../stores/toastStore';
 import { useAuthStore } from '../stores/authStore';
 import type { PermitCycle, PermitWithCycles } from '../lib/database.types';
@@ -343,7 +344,15 @@ export function useUpsertPermitCycle() {
           /^bp_upsert_permit_cycle_row:\s*/,
           '',
         );
-        pushToast(`Could not save cycle — ${cleaned}`, 'error');
+        // fix-165: a chronology rejection (SQLSTATE 22008, the fix-89 guard) is
+        // user input, not a system error — show it inline but don't log it to
+        // Error Reports. `log: false` keeps it out of the frontend_toast path;
+        // the global MutationCache.onError skips the backend_rpc path too
+        // (shouldSkipBackendRpcLog), so neither path creates a row.
+        const isUserValidation = isUserInputValidationError(error);
+        pushToast(`Could not save cycle — ${cleaned}`, 'error', {
+          log: !isUserValidation,
+        });
       }
     },
 

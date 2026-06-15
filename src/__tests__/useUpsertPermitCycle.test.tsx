@@ -594,6 +594,83 @@ describe('useUpsertPermitCycle — fix-89 chronology rejections', () => {
     },
   ];
 
+  // fix-165: a chronology rejection carries SQLSTATE 22008. The hook still
+  // surfaces the inline toast, but passes { log: false } so the toast store
+  // skips the frontend_toast log (paired with App.tsx skipping backend_rpc) —
+  // no Error Reports row for a user typing an out-of-order date.
+  it('a 22008 rejection pushes the toast with { log: false } (not logged)', async () => {
+    const { queryClient, wrapper } = setupQueryClient();
+    const seeded = seedPermitWithC0(queryClient);
+    const c0 = seeded.permit_cycles![0];
+
+    mocks.setResult({
+      data: null,
+      error: Object.assign(
+        new Error(
+          'bp_upsert_permit_cycle_row: Cycle 0: resubmitted (2026-04-15) cannot precede submitted (2026-05-01)',
+        ),
+        { code: '22008' },
+      ),
+    });
+
+    const pushSpy = vi.spyOn(useToastStore.getState(), 'push');
+    const { result } = renderHook(() => useUpsertPermitCycle(), { wrapper });
+    await act(async () => {
+      await expect(
+        result.current.mutateAsync({
+          op: 'update',
+          permitId: PERMIT_ID,
+          projectId: PROJECT,
+          cycle: c0,
+          patch: { resubmitted: '2026-04-15' },
+        }),
+      ).rejects.toThrow(/resubmitted/);
+    });
+
+    await waitFor(() => {
+      const call = pushSpy.mock.calls.find(([, kind]) => kind === 'error');
+      expect(call).toBeTruthy();
+      expect(call![0]).not.toMatch(/bp_upsert_permit_cycle_row:/); // fix-26a
+      expect(call![2]).toEqual({ log: false }); // fix-165
+    });
+    pushSpy.mockRestore();
+  });
+
+  it('a non-22008 rejection pushes the error toast WITHOUT log suppression', async () => {
+    const { queryClient, wrapper } = setupQueryClient();
+    const seeded = seedPermitWithC0(queryClient);
+    const c0 = seeded.permit_cycles![0];
+
+    mocks.setResult({
+      data: null,
+      error: Object.assign(new Error('Insert failed: deadlock detected'), {
+        code: '40P01',
+      }),
+    });
+
+    const pushSpy = vi.spyOn(useToastStore.getState(), 'push');
+    const { result } = renderHook(() => useUpsertPermitCycle(), { wrapper });
+    await act(async () => {
+      await expect(
+        result.current.mutateAsync({
+          op: 'update',
+          permitId: PERMIT_ID,
+          projectId: PROJECT,
+          cycle: c0,
+          patch: { resubmitted: '2026-04-15' },
+        }),
+      ).rejects.toThrow(/deadlock/);
+    });
+
+    await waitFor(() => {
+      const call = pushSpy.mock.calls.find(([, kind]) => kind === 'error');
+      expect(call).toBeTruthy();
+      // log not suppressed → { log: true } (genuine system error still logs).
+      expect(call![2]).toEqual({ log: true });
+    });
+    pushSpy.mockRestore();
+  });
+
   for (const c of cases) {
     it(`rejects ${c.rule} — surfaces the error to a toast + rolls back the cache`, async () => {
       const { queryClient, wrapper } = setupQueryClient();
