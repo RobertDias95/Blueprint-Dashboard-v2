@@ -61,8 +61,18 @@ export interface WizardPermit {
   target_submit: string;
   /** fix-Phase-B: which seed fields the user has hand-edited. Auto-seeding
    *  (see applySeeding) never overwrites a field flagged true here. New rows
-   *  start with {} so both fields are seedable until touched. */
-  manuallyEdited: { expected_issue?: boolean; target_submit?: boolean };
+   *  start with {} so both fields are seedable until touched.
+   *
+   *  fix-166: `ent_lead` joins the map. true = the user explicitly chose an
+   *  ENT for this permit (via the ENT picker), so a later DA change must NOT
+   *  overwrite it. false / absent = the value is blank or was auto-derived
+   *  from a DA, so changing the DA re-derives it. Mirrors fix-147's
+   *  "cascade respects explicit ent_lead" for the wizard's section-3 rows. */
+  manuallyEdited: {
+    expected_issue?: boolean;
+    target_submit?: boolean;
+    ent_lead?: boolean;
+  };
   /** Set in Step 4. Empty array = create no tasks for this permit. */
   taskTemplateIds: string[];
 }
