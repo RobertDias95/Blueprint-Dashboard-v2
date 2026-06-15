@@ -12,7 +12,7 @@ import { supabase } from './lib/supabase';
 import { useAuthStore, type TenantMembership } from './stores/authStore';
 import { useRealtimeInvalidation } from './hooks/useRealtimeInvalidation';
 import ToastHost from './components/ToastHost';
-import { logError, messageOf } from './lib/errorLogger';
+import { logError, messageOf, isUserInputValidationError } from './lib/errorLogger';
 
 // Q1: app shell. Wires QueryClient + Router + auth bootstrap.
 //
@@ -36,12 +36,20 @@ import { logError, messageOf } from './lib/errorLogger';
 // guard inside logError prevents a failing bp_log_error from triggering
 // another bp_log_error via this same path.
 //
-// One filter: skip logging the bp_log_error RPC itself (defense in depth
+// Filters: skip logging the bp_log_error RPC itself (defense in depth
 // alongside the re-entry guard) and skip the auth queries since a missing
 // session is expected user flow, not an app error.
+//
+// fix-165: also skip user-input validation rejections (SQLSTATE 22008 — the
+// fix-89 chronology guard in bp_upsert_permit_cycle_row). A user typing an
+// out-of-order date isn't a system error: nothing was saved, they already see
+// an inline toast + red cell, and logging it floods Error Reports with noise.
+// The paired suppression on the toast side (toastStore `log: false`) keeps the
+// re-entry guard from simply letting the frontend_toast path log it instead.
 function shouldSkipBackendRpcLog(err: unknown, key: unknown): boolean {
   const k = Array.isArray(key) ? String(key[0] ?? '') : String(key ?? '');
   if (k.startsWith('auth/')) return true;
+  if (isUserInputValidationError(err)) return true;
   const m = messageOf(err).toLowerCase();
   return m.includes('bp_log_error');
 }

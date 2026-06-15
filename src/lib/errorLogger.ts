@@ -29,6 +29,35 @@ export interface LogErrorInput {
   context?: Record<string, unknown>;
 }
 
+// fix-165: Postgres SQLSTATEs that represent USER-INPUT validation
+// rejections, not system faults. fix-89's chronology chain in
+// bp_upsert_permit_cycle_row RAISEs 22008 (datetime_field_overflow) when a
+// user types an out-of-order date — nothing is saved, and they already see an
+// inline toast + red cell. These must NOT be logged to Error Reports
+// (Settings → Errors), where they read as system bugs and drown the real
+// signal. Keep the set narrow: only codes a user can self-correct belong here.
+export const USER_INPUT_SQLSTATES: ReadonlySet<string> = new Set(['22008']);
+
+/** Extract a Postgres SQLSTATE from a supabase-js error
+ *  (`{ message, code, details, hint }`). Returns undefined for errors that
+ *  don't carry a string `code` (plain Errors, OCC conflicts, etc.). */
+export function sqlStateOf(e: unknown): string | undefined {
+  if (e && typeof e === 'object' && 'code' in e) {
+    const c = (e as { code?: unknown }).code;
+    if (typeof c === 'string') return c;
+  }
+  return undefined;
+}
+
+/** True when the error is a known user-input validation rejection (see
+ *  USER_INPUT_SQLSTATES). The caller should surface it inline (toast / red
+ *  field) but skip logging it to error_reports. Conservative by design: an
+ *  unrecognized code returns false so genuine system errors keep logging. */
+export function isUserInputValidationError(e: unknown): boolean {
+  const code = sqlStateOf(e);
+  return code !== undefined && USER_INPUT_SQLSTATES.has(code);
+}
+
 /** Internal re-entry guard. A failure in the log RPC itself must not
  *  cascade into another log call (default QueryClient onError would fire
  *  on the supabase.rpc rejection, which would call logError, which would

@@ -27,9 +27,18 @@ export interface Toast {
   kind: ToastKind;
 }
 
+/** fix-165: per-toast options. `log` (default true) controls whether an
+ *  error toast ALSO writes to error_reports via bp_log_error. Callers
+ *  surfacing a user-input validation rejection (e.g. a chronology date error)
+ *  pass `{ log: false }` so the user still sees the toast but the noise stays
+ *  out of Error Reports. */
+export interface ToastOptions {
+  log?: boolean;
+}
+
 interface ToastState {
   toasts: Toast[];
-  push: (message: string, kind?: ToastKind) => number;
+  push: (message: string, kind?: ToastKind, opts?: ToastOptions) => number;
   dismiss: (id: number) => void;
   /** fix-86: hover-pause. Clears the auto-dismiss timer and records how much
    * time is left so resume() can re-arm with the same budget. */
@@ -61,7 +70,7 @@ function clearTimerFor(id: number) {
 
 export const useToastStore = create<ToastState>((set, get) => ({
   toasts: [],
-  push: (message, kind = 'info') => {
+  push: (message, kind = 'info', opts) => {
     const id = nextId++;
     set((s) => ({ toasts: [...s.toasts, { id, message, kind }] }));
     // fix-86: schedule auto-dismiss for ALL kinds (errors too — the original
@@ -79,7 +88,15 @@ export const useToastStore = create<ToastState>((set, get) => ({
     // path. Fire-and-forget; logError swallows its own failures so a
     // bad log call can't break the toast UX or trigger recursive logs
     // via the QueryClient global onError.
-    if (kind === 'error' && typeof window !== 'undefined') {
+    // fix-165: `{ log: false }` shows the error toast but suppresses the
+    // server log — used for user-input validation rejections (chronology
+    // date errors) that are noise in Error Reports. Defaults to true so
+    // every other error toast keeps logging exactly as before.
+    if (
+      kind === 'error' &&
+      (opts?.log ?? true) &&
+      typeof window !== 'undefined'
+    ) {
       void logError({
         source: 'frontend_toast',
         level: 'error',
@@ -118,6 +135,10 @@ export const useToastStore = create<ToastState>((set, get) => ({
 }));
 
 /** Convenience helper for non-React code (mutation onError handlers, etc.). */
-export function pushToast(message: string, kind: ToastKind = 'info') {
-  return useToastStore.getState().push(message, kind);
+export function pushToast(
+  message: string,
+  kind: ToastKind = 'info',
+  opts?: ToastOptions,
+) {
+  return useToastStore.getState().push(message, kind, opts);
 }
