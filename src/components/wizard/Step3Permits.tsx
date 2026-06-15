@@ -224,6 +224,12 @@ export default function Step3Permits({ value, onChange }: Props) {
         }
         if ('expected_issue' in patch) me.expected_issue = true;
         if ('target_submit' in patch) me.target_submit = true;
+        // fix-166: an ent_lead patch routed through updatePermit comes from the
+        // ENT picker (PermitAssignmentRow's onChange) — an explicit user pick.
+        // Flag it so a later DA change in onPickDa won't auto-overwrite it. The
+        // auto-derive path writes ent_lead via setDerivedEntLead (flag=false),
+        // NOT through here, so it stays re-derivable.
+        if ('ent_lead' in patch) me.ent_lead = true;
         next.manuallyEdited = me;
         return next;
       }),
@@ -350,6 +356,23 @@ export default function Step3Permits({ value, onChange }: Props) {
   ]);
   /* eslint-enable react-hooks/exhaustive-deps */
 
+  /** fix-166: write an auto-derived ent_lead onto a row and flag it as
+   *  NON-manual (manuallyEdited.ent_lead = false). Routing this separately
+   *  from updatePermit is the whole point: updatePermit marks ent_lead as a
+   *  manual pick, but a DA-derived value must stay re-derivable when the DA
+   *  changes again. Reads + writes via valueRef so a lookup that resolves
+   *  after later edits merges into the live permits array (fix-120-a). */
+  function setDerivedEntLead(rowId: string, entLead: string) {
+    const livePermits = valueRef.current.permits;
+    onChange({
+      permits: livePermits.map((p) => {
+        if (p.rowId !== rowId) return p;
+        const me = { ...(p.manuallyEdited ?? {}), ent_lead: false };
+        return { ...p, ent_lead: entLead, manuallyEdited: me };
+      }),
+    });
+  }
+
   /** fix-91: DA pick → look up routed ent_lead via bp_ent_lead_for_da
    *  (fix-72's DA-routing table). The async lookup fires and patches
    *  the row's ent_lead when it resolves; user can still override
@@ -359,14 +382,27 @@ export default function Step3Permits({ value, onChange }: Props) {
    *  Lookup failures (DA not in routing, juris null) silently leave
    *  ent_lead blank; the user can pick manually.
    *  fix-96-c: this path now only fires for NON-BP permits; the BP's
-   *  DA is set on Step 1 and Step 3's BP cell is read-only. */
+   *  DA is set on Step 1 and Step 3's BP cell is read-only.
+   *
+   *  fix-166: the auto-fill is now CONDITIONAL — it must not stomp an
+   *  ent_lead the user explicitly chose. Bobby's 220 N 58th St repro: a
+   *  demo permit with ENT=Briana flipped to Miles when he set DA=Cam
+   *  (Cam routes to Miles). We only auto-fill when the cell is blank OR its
+   *  current value was itself auto-derived from a previous DA
+   *  (manuallyEdited.ent_lead !== true). An explicit pick is preserved; an
+   *  auto-derived value re-derives. Same intent as fix-147 on the
+   *  project-settings cascade, applied to the wizard's per-permit rows. */
   function onPickDa(rowId: string, da: string) {
     updatePermit(rowId, { da });
     if (!da) return;
     void lookupEntLeadForDa(da, value.juris || null)
       .then((routed) => {
         if (!routed) return;
-        updatePermit(rowId, { ent_lead: routed });
+        const row = valueRef.current.permits.find((p) => p.rowId === rowId);
+        if (!row) return;
+        // Preserve an explicit ENT pick; auto-fill blank / auto-derived cells.
+        if (row.ent_lead && row.manuallyEdited?.ent_lead === true) return;
+        setDerivedEntLead(rowId, routed);
       })
       .catch(() => {
         // Lookup errors are swallowed — they shouldn't block the wizard.

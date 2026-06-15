@@ -954,6 +954,108 @@ describe('<Step3Permits />', () => {
     });
   });
 
+  // fix-166: setting/changing a permit's DA must not overwrite an ent_lead
+  // the user explicitly picked. Bobby's 220 N 58th St repro: a Demolition
+  // permit with ENT=Briana flipped to Miles when he set DA=Cam (Cam routes
+  // to Miles). Same class as fix-147 (project-settings cascade), now applied
+  // to the wizard's section-3 rows. Auto-fill stays for blank / auto-derived
+  // cells; an explicit pick is preserved.
+  describe('fix-166: DA change respects an explicit ent_lead pick', () => {
+    it('an explicitly-picked ENT is preserved when the DA changes', async () => {
+      // Trevor + Cam both routed so the DA select is selectable.
+      routingRowsState.rows = [
+        { da: 'Trevor', jurisdiction: null },
+        { da: 'Cam', jurisdiction: null },
+      ];
+      lookupEntLeadForDaMock.mockReset();
+      lookupEntLeadForDaMock.mockResolvedValue('Miles'); // Cam → Miles
+      const init = makeEmptyWizardState();
+      init.juris = 'Seattle';
+      // BP has no DA → the BP-derive cascade stays idle and can't interfere.
+      init.permits = [permit('Building Permit'), permit('Demolition')];
+      setupControlled(init);
+      const demoRowId = init.permits[1].rowId;
+      // User explicitly picks ENT = Alex on the Demolition row.
+      fireEvent.change(screen.getByTestId(`wizard-perm-ent-${demoRowId}`), {
+        target: { value: 'Alex' },
+      });
+      // Then sets DA = Cam (which routes to Miles).
+      fireEvent.change(screen.getByTestId(`wizard-perm-da-${demoRowId}`), {
+        target: { value: 'Cam' },
+      });
+      expect(lookupEntLeadForDaMock).toHaveBeenCalledWith('Cam', 'Seattle');
+      // Give the async lookup a tick — it should resolve but NOT overwrite.
+      await new Promise((r) => setTimeout(r, 25));
+      const entSel = screen.getByTestId(
+        `wizard-perm-ent-${demoRowId}`,
+      ) as HTMLSelectElement;
+      expect(entSel.value).toBe('Alex'); // preserved, not Miles
+    });
+
+    it('a blank ENT auto-fills from the DA routing (convenience preserved)', async () => {
+      routingRowsState.rows = [{ da: 'Cam', jurisdiction: null }];
+      lookupEntLeadForDaMock.mockReset();
+      lookupEntLeadForDaMock.mockResolvedValue('Miles');
+      const init = makeEmptyWizardState();
+      init.juris = 'Seattle';
+      init.permits = [permit('Building Permit'), permit('Demolition')];
+      setupControlled(init);
+      const demoRowId = init.permits[1].rowId;
+      // ENT starts blank; picking Cam auto-fills Miles.
+      fireEvent.change(screen.getByTestId(`wizard-perm-da-${demoRowId}`), {
+        target: { value: 'Cam' },
+      });
+      await waitFor(() => {
+        const entSel = screen.getByTestId(
+          `wizard-perm-ent-${demoRowId}`,
+        ) as HTMLSelectElement;
+        expect(entSel.value).toBe('Miles');
+      });
+    });
+
+    it('an auto-derived ENT re-derives when the DA changes (auto is not an explicit pick)', async () => {
+      routingRowsState.rows = [
+        { da: 'Trevor', jurisdiction: null },
+        { da: 'Cam', jurisdiction: null },
+      ];
+      lookupEntLeadForDaMock.mockReset();
+      lookupEntLeadForDaMock.mockImplementation(async (da: string) =>
+        da === 'Trevor' ? 'Miles' : da === 'Cam' ? 'Bri' : null,
+      );
+      const init = makeEmptyWizardState();
+      init.juris = 'Seattle';
+      init.permits = [permit('Building Permit'), permit('Demolition')];
+      setupControlled(init);
+      const demoRowId = init.permits[1].rowId;
+      // First DA pick auto-derives Miles (ent_lead was blank).
+      fireEvent.change(screen.getByTestId(`wizard-perm-da-${demoRowId}`), {
+        target: { value: 'Trevor' },
+      });
+      await waitFor(() => {
+        expect(
+          (
+            screen.getByTestId(
+              `wizard-perm-ent-${demoRowId}`,
+            ) as HTMLSelectElement
+          ).value,
+        ).toBe('Miles');
+      });
+      // Changing the DA re-derives — the Miles value was auto, not explicit.
+      fireEvent.change(screen.getByTestId(`wizard-perm-da-${demoRowId}`), {
+        target: { value: 'Cam' },
+      });
+      await waitFor(() => {
+        expect(
+          (
+            screen.getByTestId(
+              `wizard-perm-ent-${demoRowId}`,
+            ) as HTMLSelectElement
+          ).value,
+        ).toBe('Bri');
+      });
+    });
+  });
+
   // ─── fix-120-c: add/remove permit rows ──────────────────────────────
   describe('fix-120-c: add/remove permit rows', () => {
     it('renders + Add permit and × Remove buttons', () => {
