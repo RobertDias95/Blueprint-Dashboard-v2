@@ -278,11 +278,15 @@ function TrendsBody({ permits, projects, catalogTypes }: BodyProps) {
     });
   }, [comparisonRange, permits, projectsById, filters]);
 
+  // fix-171 (effect B): subtract held days from the Trends turnaround KPIs +
+  // breakdown. One indexed map reused across current + comparison cohorts.
+  const holdsMap = useMemo(() => holdsByProjectId(holdsQ.data), [holdsQ.data]);
+
   const kpiTotal = totalApprovedInWindow(filteredCurrent);
-  const kpiAvgClock = avgIntakeToApproval(filteredCurrent);
+  const kpiAvgClock = avgIntakeToApproval(filteredCurrent, holdsMap);
   // fix-142: City Review / Response Time siblings of Permit Timeline.
-  const kpiCityReview = avgCityCourtTime(filteredCurrent);
-  const kpiResponse = avgResponseCourtTime(filteredCurrent);
+  const kpiCityReview = avgCityCourtTime(filteredCurrent, holdsMap);
+  const kpiResponse = avgResponseCourtTime(filteredCurrent, holdsMap);
   const kpiAvgCycles = avgCyclesPerPermit(filteredCurrent);
   const kpiHitRate = targetSubmitHitRate(filteredCurrent);
 
@@ -293,13 +297,13 @@ function TrendsBody({ permits, projects, catalogTypes }: BodyProps) {
     ? totalApprovedInWindow(filteredComparison)
     : null;
   const cmpAvgClock = filteredComparison
-    ? avgIntakeToApproval(filteredComparison)
+    ? avgIntakeToApproval(filteredComparison, holdsMap)
     : null;
   const cmpCityReview = filteredComparison
-    ? avgCityCourtTime(filteredComparison)
+    ? avgCityCourtTime(filteredComparison, holdsMap)
     : null;
   const cmpResponse = filteredComparison
-    ? avgResponseCourtTime(filteredComparison)
+    ? avgResponseCourtTime(filteredComparison, holdsMap)
     : null;
   const cmpAvgCycles = filteredComparison
     ? avgCyclesPerPermit(filteredComparison)
@@ -317,8 +321,8 @@ function TrendsBody({ permits, projects, catalogTypes }: BodyProps) {
   );
 
   const breakdown = useMemo(
-    () => breakdownByTypeAndJuris(filteredCurrent, projectsById),
-    [filteredCurrent, projectsById],
+    () => breakdownByTypeAndJuris(filteredCurrent, projectsById, holdsMap),
+    [filteredCurrent, projectsById, holdsMap],
   );
 
   const varianceRows = useMemo(
@@ -390,9 +394,9 @@ function TrendsBody({ permits, projects, catalogTypes }: BodyProps) {
   const cmpBreakdown = useMemo(
     () =>
       filteredComparison
-        ? breakdownByTypeAndJuris(filteredComparison, projectsById)
+        ? breakdownByTypeAndJuris(filteredComparison, projectsById, holdsMap)
         : null,
-    [filteredComparison, projectsById],
+    [filteredComparison, projectsById, holdsMap],
   );
 
   const cmpCycleCharts = useMemo(() => {

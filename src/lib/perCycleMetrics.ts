@@ -1,5 +1,11 @@
-import type { PermitCycle } from './database.types';
+import type { PermitCycle, ProjectHold } from './database.types';
 import { extractReviewCycles, type EnrichedPermit } from './reportMetrics';
+import { accountableDays } from './holdOverlap';
+
+// fix-171 (effect B): per-cycle buckets subtract held days too (they mirror
+// reportMetrics' court-time math). accountableDays === daysBetween when there
+// are no holds → no-hold cohorts byte-identical.
+type Holds = ProjectHold[] | undefined;
 
 // fix-142: per-cycle breakdown for the Reports Overview drawer. Surfaces
 // Bobby's mental model — "cycle 1, cycle 2, cycle 3 averages feed the total."
@@ -17,17 +23,6 @@ import { extractReviewCycles, type EnrichedPermit } from './reportMetrics';
 // design phase excluded), not by raw cycle_index — in normal contiguous data
 // position 0 = cycle_index 1, but bucketing by position keeps the telescoping
 // identity intact even if an index is skipped in bad data.
-
-const DAY_MS = 24 * 60 * 60 * 1000;
-
-/** NaN-safe day delta (b − a). Mirrors reportMetrics.daysBetween. */
-function daysBetween(a: string | null, b: string | null): number | null {
-  if (!a || !b) return null;
-  const aMs = new Date(`${a}T12:00:00Z`).getTime();
-  const bMs = new Date(`${b}T12:00:00Z`).getTime();
-  if (Number.isNaN(aMs) || Number.isNaN(bMs)) return null;
-  return Math.round((bMs - aMs) / DAY_MS);
-}
 
 function avgOrNull(vals: number[]): number | null {
   if (vals.length === 0) return null;
@@ -58,30 +53,36 @@ function cityAt(
   cycles: PermitCycle[],
   pos: number,
   approvalDate: string | null,
+  holds?: Holds,
 ): number | null {
   const c = cycles[pos];
   if (!c) return null;
   const isFinal = pos === cycles.length - 1;
-  if (c.corr_issued) return daysBetween(c.submitted, c.corr_issued);
-  if (isFinal && approvalDate) return daysBetween(c.submitted, approvalDate);
+  if (c.corr_issued) return accountableDays(holds, c.submitted, c.corr_issued);
+  if (isFinal && approvalDate) return accountableDays(holds, c.submitted, approvalDate);
   return null;
 }
 
 /** Response (our-court) time for the cycle at `pos`: the gap from this
  *  cycle's corr_issued to the next cycle's submitted. Null when there's no
  *  next cycle or the round-trip is incomplete. */
-function responseAt(cycles: PermitCycle[], pos: number): number | null {
+function responseAt(
+  cycles: PermitCycle[],
+  pos: number,
+  holds?: Holds,
+): number | null {
   const cur = cycles[pos];
   const next = cycles[pos + 1];
   if (!cur || !next) return null;
   if (!cur.corr_issued || !next.submitted) return null;
-  return daysBetween(cur.corr_issued, next.submitted);
+  return accountableDays(holds, cur.corr_issued, next.submitted);
 }
 
 /** Always returns exactly 4 buckets in order (Cycle 1, 2, 3, 4+). Empty
  *  buckets carry null averages + permitCount 0. */
 export function computePerCycleBuckets(
   enriched: EnrichedPermit[],
+  holdsByProjectId?: Map<string, ProjectHold[]>,
 ): PerCycleBucket[] {
   // Single-cycle buckets (positions 0,1,2 → Cycle 1,2,3).
   const single = [0, 1, 2].map((pos) => {
@@ -92,9 +93,10 @@ export function computePerCycleBuckets(
       const cycles = extractReviewCycles(e.permit);
       if (cycles.length <= pos) continue; // permit never reached this cycle
       reached += 1;
-      const city = cityAt(cycles, pos, e.permit.approval_date ?? null);
+      const holds = holdsByProjectId?.get(e.permit.project_id);
+      const city = cityAt(cycles, pos, e.permit.approval_date ?? null, holds);
       if (city !== null) cityVals.push(city);
-      const resp = responseAt(cycles, pos);
+      const resp = responseAt(cycles, pos, holds);
       if (resp !== null) responseVals.push(resp);
     }
     return {
@@ -117,17 +119,18 @@ export function computePerCycleBuckets(
     if (cycles.length < 4) continue;
     reached4 += 1;
     const approval = e.permit.approval_date ?? null;
+    const holds = holdsByProjectId?.get(e.permit.project_id);
     let citySum = 0;
     let cityHits = 0;
     let respSum = 0;
     let respHits = 0;
     for (let pos = 3; pos < cycles.length; pos++) {
-      const city = cityAt(cycles, pos, approval);
+      const city = cityAt(cycles, pos, approval, holds);
       if (city !== null) {
         citySum += city;
         cityHits += 1;
       }
-      const resp = responseAt(cycles, pos);
+      const resp = responseAt(cycles, pos, holds);
       if (resp !== null) {
         respSum += resp;
         respHits += 1;

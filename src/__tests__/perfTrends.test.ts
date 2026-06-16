@@ -671,3 +671,41 @@ describe('responseTimeByCycle (fix-125)', () => {
     expect(out.every((r) => r.n === 0)).toBe(true);
   });
 });
+
+// fix-171 (effect B): Trends turnaround KPIs subtract held days.
+import { avgCityCourtTime, avgResponseCourtTime } from '../lib/perfTrends';
+import type { ProjectHold } from '../lib/database.types';
+describe('fix-171 Trends KPIs — held days subtracted', () => {
+  function ptHold(start: string, end: string | null): ProjectHold {
+    return {
+      id: `h-${start}`, tenant_id: 't1', project_id: 'p1', reason: 'MHA', note: null,
+      hold_start: start, hold_end: end, created_by: null, created_at: '', updated_at: '',
+    };
+  }
+  const permit = mkPermit({
+    id: 1,
+    project_id: 'p1',
+    approval_date: '2026-06-01',
+    permit_cycles: [
+      mkCycle({ cycle_index: 0, intake_accepted: '2026-01-01', submitted: '2026-01-01' }),
+      mkCycle({ cycle_index: 1, submitted: '2026-02-01', corr_issued: '2026-04-01' }),
+      mkCycle({ cycle_index: 2, submitted: '2026-05-01' }),
+    ],
+  });
+  const holds = new Map([['p1', [ptHold('2026-04-10', '2026-04-20')]]]);
+
+  it('avgResponseCourtTime drops by the held days; no-hold unchanged', () => {
+    expect(avgResponseCourtTime([permit])).toBe(30); // 04-01 → 05-01
+    expect(avgResponseCourtTime([permit], holds)).toBe(20);
+  });
+
+  it('avgIntakeToApproval subtracts held days', () => {
+    // 2026-01-01 → 2026-06-01 = 151 raw; 10 held → 141.
+    expect(avgIntakeToApproval([permit])).toBe(151);
+    expect(avgIntakeToApproval([permit], holds)).toBe(141);
+  });
+
+  it('avgCityCourtTime no-hold call is byte-identical', () => {
+    expect(avgCityCourtTime([permit], undefined)).toBe(avgCityCourtTime([permit]));
+  });
+});
