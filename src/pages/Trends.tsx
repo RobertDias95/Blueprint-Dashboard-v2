@@ -14,6 +14,10 @@ import {
 } from 'recharts';
 import { usePermits } from '../hooks/usePermits';
 import { useProjects } from '../hooks/useProjects';
+import {
+  useAllProjectHolds,
+  holdsByProjectId,
+} from '../hooks/useProjectHolds';
 import { usePermitTypes } from '../hooks/usePermitTypes';
 import { SkeletonRows } from '../components/Skeleton';
 import QueryError from '../components/QueryError';
@@ -157,6 +161,8 @@ interface BodyProps {
 
 function TrendsBody({ permits, projects, catalogTypes }: BodyProps) {
   const [searchParams, setSearchParams] = useSearchParams();
+  // fix-171 (effect E for target_submit): drop held samples from the learner.
+  const holdsQ = useAllProjectHolds();
   const today = useMemo(() => new Date(), []);
   const defaultRange = useMemo(() => defaultDateRange(today), [today]);
 
@@ -727,8 +733,9 @@ function TrendsBody({ permits, projects, catalogTypes }: BodyProps) {
         jurisOptions,
         filters,
         today,
+        holdsByProjectId(holdsQ.data),
       ),
-    [permits, projectsById, catalogTypes, jurisOptions, filters, today],
+    [permits, projectsById, catalogTypes, jurisOptions, filters, today, holdsQ.data],
   );
 
   type SortKey =
@@ -1746,6 +1753,7 @@ function buildTargetSubmitRows(
   jurisOptions: string[],
   filters: PerfTrendsFilters,
   today: Date,
+  holdsByProjectIdMap?: Map<string, import('../lib/database.types').ProjectHold[]>,
 ): TargetSubmitRow[] {
   // Mirror types (G&C / LSM) don't have a learner — anchorFor returns
   // 'mirror_bp' and they're excluded here. Catalog types with no entry
@@ -1770,6 +1778,7 @@ function buildTargetSubmitRows(
         projectsMap,
         { type, juris },
         today,
+        holdsByProjectIdMap,
       );
       // Skip rows that don't even have a hardcoded fallback (custom types).
       if (result.value === null && !(type in HARDCODED_TARGET_SUBMIT_OFFSETS)) {

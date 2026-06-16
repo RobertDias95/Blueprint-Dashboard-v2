@@ -1433,3 +1433,36 @@ describe('computeLearnedTargetSubmit (fix-25-feat-AA)', () => {
     expect(result.value).toBeLessThan(30);
   });
 });
+
+// fix-171 (effect E for target_submit): held samples are dropped from the learner.
+import type { ProjectHold } from '../lib/database.types';
+function tsHold(start: string, end: string | null): ProjectHold {
+  return {
+    id: `h-${start}`, tenant_id: 't1', project_id: 'p1', reason: 'MHA', note: null,
+    hold_start: start, hold_end: end, created_by: null, created_at: '', updated_at: '',
+  };
+}
+describe('fix-171 extractTargetSubmitSample — held-sample exclusion', () => {
+  function bp() {
+    return makePermit({
+      type: 'Building Permit',
+      dd_end: '2026-03-15',
+      permit_cycles: [makeCycle({ cycle_index: 0, submitted: '2026-04-05' })],
+    });
+  }
+  it('keeps the sample when there are no holds (common case)', () => {
+    expect(extractTargetSubmitSample(bp(), makeProject(), undefined)).not.toBeNull();
+    expect(extractTargetSubmitSample(bp(), makeProject(), undefined, [])).not.toBeNull();
+  });
+  it('drops the sample when a hold overlapped the anchor→submit span', () => {
+    // span 2026-03-15 .. 2026-04-05; hold 2026-03-20..2026-03-25 overlaps
+    expect(
+      extractTargetSubmitSample(bp(), makeProject(), undefined, [tsHold('2026-03-20', '2026-03-25')]),
+    ).toBeNull();
+  });
+  it('keeps the sample when the hold did not overlap the span', () => {
+    expect(
+      extractTargetSubmitSample(bp(), makeProject(), undefined, [tsHold('2026-01-01', '2026-02-01')]),
+    ).not.toBeNull();
+  });
+});
