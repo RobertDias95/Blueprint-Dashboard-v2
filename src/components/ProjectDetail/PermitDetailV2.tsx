@@ -42,6 +42,7 @@ import { useProjectExternalTeam } from '../../hooks/useConsultantFirms';
 import BotBadge from '../shared/BotBadge';
 import PendingScrapeChip from '../shared/PendingScrapeChip';
 import { STAGE_LABEL } from '../../lib/stageLabel';
+import { LandUsePhaseBadge } from './LandUsePhaseBadge';
 import ScheduleEstimator from './ScheduleEstimator';
 
 // Q9.5.e-fix-5: PermitDetailV2 rebuilds the v2 permit edit panel to match
@@ -318,6 +319,8 @@ function HeaderStrip({
           </option>
         ))}
       </select>
+      {/* fix-169: land-use phase badge — only renders for *-LU permits. */}
+      <LandUsePhaseBadge permit={permit} />
       <input
         type="text"
         value={statusDraft}
