@@ -2,6 +2,10 @@ import { useMemo, useState } from 'react';
 import { usePermits } from '../../hooks/usePermits';
 import { useProjects } from '../../hooks/useProjects';
 import {
+  useAllProjectHolds,
+  holdsByProjectId,
+} from '../../hooks/useProjectHolds';
+import {
   computeMetrics,
   enrichPermits,
   filterEnrichedPermits,
@@ -119,9 +123,14 @@ function Body({
     [projects],
   );
 
+  // fix-171 (effect B): subtract held days from the turnaround tiles. One fetch,
+  // indexed by project; threaded into enrich + both computeMetrics cohorts.
+  const holdsQ = useAllProjectHolds();
+  const holdsMap = useMemo(() => holdsByProjectId(holdsQ.data), [holdsQ.data]);
+
   const enriched = useMemo(
-    () => enrichPermits(permits, projectsById),
-    [permits, projectsById],
+    () => enrichPermits(permits, projectsById, holdsMap),
+    [permits, projectsById, holdsMap],
   );
 
   const typeOptions = useMemo(() => {
@@ -196,8 +205,10 @@ function Body({
 
   const comparisonMetrics = useMemo(
     () =>
-      comparisonFiltered === null ? null : computeMetrics(comparisonFiltered),
-    [comparisonFiltered],
+      comparisonFiltered === null
+        ? null
+        : computeMetrics(comparisonFiltered, holdsMap),
+    [comparisonFiltered, holdsMap],
   );
   const comparisonLabel = useMemo(
     () => comparisonLabelForRange(comparisonRange),
@@ -215,7 +226,10 @@ function Body({
     [filtered],
   );
 
-  const metrics = useMemo(() => computeMetrics(filtered), [filtered]);
+  const metrics = useMemo(
+    () => computeMetrics(filtered, holdsMap),
+    [filtered, holdsMap],
+  );
 
   // fix-142: per-cycle buckets for the drawer — current cohort + the
   // comparison cohort (when Period B is set), so each cell can render the

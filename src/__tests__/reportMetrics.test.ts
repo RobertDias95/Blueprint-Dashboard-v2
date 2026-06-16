@@ -1052,3 +1052,73 @@ describe('fix-141 City Review redefinition + Response Time', () => {
     );
   });
 });
+
+// fix-171 (On-Hold Phase 2, effect B): turnaround tiles subtract held days.
+import {
+  cityCourtTimeDays,
+  responseCourtTimeDays,
+} from '../lib/reportMetrics';
+import type { ProjectHold } from '../lib/database.types';
+
+function hold(start: string, end: string | null): ProjectHold {
+  return {
+    id: `h-${start}`,
+    tenant_id: 't1',
+    project_id: 'p1',
+    reason: 'MHA',
+    note: null,
+    hold_start: start,
+    hold_end: end,
+    created_by: null,
+    created_at: '',
+    updated_at: '',
+  };
+}
+
+describe('fix-171 effect B — held days subtracted from turnaround tiles', () => {
+  it('cityCourtTimeDays: a hold inside the review window reduces the city-court time', () => {
+    const p = makePermit({
+      permit_cycles: [makeCycle({ cycle_index: 1, submitted: '2026-03-01', corr_issued: '2026-04-01' })],
+    });
+    expect(cityCourtTimeDays(p)).toBe(31); // raw
+    // hold 2026-03-10..2026-03-20 = 10 held days inside the window
+    expect(cityCourtTimeDays(p, [hold('2026-03-10', '2026-03-20')])).toBe(21);
+  });
+
+  it('responseCourtTimeDays: a hold during our response window reduces our time', () => {
+    const p = makePermit({
+      permit_cycles: [
+        makeCycle({ cycle_index: 1, submitted: '2026-02-01', corr_issued: '2026-04-01' }),
+        makeCycle({ id: 'c2', cycle_index: 2, submitted: '2026-05-01' }),
+      ],
+    });
+    expect(responseCourtTimeDays(p)).toBe(30); // 2026-04-01 → 2026-05-01
+    // held 2026-04-10..2026-04-20 = 10 days
+    expect(responseCourtTimeDays(p, [hold('2026-04-10', '2026-04-20')])).toBe(20);
+  });
+
+  it('no holds → byte-identical (the common case)', () => {
+    const p = makePermit({
+      permit_cycles: [makeCycle({ cycle_index: 1, submitted: '2026-03-01', corr_issued: '2026-04-01' })],
+    });
+    expect(cityCourtTimeDays(p, [])).toBe(cityCourtTimeDays(p));
+    expect(cityCourtTimeDays(p, undefined)).toBe(31);
+  });
+
+  it('computeMetrics threads holdsByProjectId into the City Review / Response tiles', () => {
+    const p = makePermit({
+      permit_cycles: [
+        makeCycle({ cycle_index: 1, submitted: '2026-02-01', corr_issued: '2026-04-01' }),
+        makeCycle({ id: 'c2', cycle_index: 2, submitted: '2026-05-01' }),
+      ],
+    });
+    const projectsById = new Map([['p1', makeProject({ id: 'p1' })]]);
+    const enriched = enrichPermits([p], projectsById);
+    const holdsMap = new Map([['p1', [hold('2026-04-10', '2026-04-20')]]]);
+    const without = computeMetrics(enriched);
+    const withHold = computeMetrics(enriched, holdsMap);
+    // Response time (our court) drops by the 10 held days; no-hold reference holds.
+    expect(without.avgResponseTime).toBe(30);
+    expect(withHold.avgResponseTime).toBe(20);
+  });
+});
