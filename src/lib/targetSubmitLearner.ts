@@ -1,4 +1,4 @@
-import type { PermitWithCycles, Project } from './database.types';
+import type { PermitWithCycles, Project, ProjectHold } from './database.types';
 import {
   WINDOW_TIERS_DAYS,
   MIN_SAMPLES_FOR_LEARNER,
@@ -6,6 +6,7 @@ import {
   recencyWeight,
   type RecencyTier,
 } from './scheduleBenchmarks';
+import { intervalOverlapsHold } from './holdOverlap';
 
 // fix-25-feat-AA: target_submit learner. Replaces fix-25-feat-J's
 // hardcoded offsets (BP=+21d, Demo=+37d, ECA=+10d, etc.) with an
@@ -159,6 +160,11 @@ export function extractTargetSubmitSample(
   permit: PermitWithCycles,
   project: Project | undefined,
   bpSibling: PermitWithCycles | undefined,
+  // fix-171 (effect E for target_submit): the project's holds. A sample whose
+  // anchor→submit span overlapped a hold is dropped so a parked clock doesn't
+  // skew the learned offset (mirrors filterHeldLearningSamples). Omitted / no
+  // holds → kept, so the common case is unchanged.
+  holds?: ProjectHold[],
 ): TargetSubmitSample | null {
   if (!permit.type) return null;
   const anchor = anchorFor(permit.type);
@@ -168,6 +174,7 @@ export function extractTargetSubmitSample(
   const c0 = (permit.permit_cycles ?? []).find((c) => c.cycle_index === 0);
   const submittedAt = c0?.submitted ?? null;
   if (!submittedAt) return null;
+  if (intervalOverlapsHold(holds, anchorDate, submittedAt)) return null;
   const days = daysBetween(anchorDate, submittedAt);
   // Symmetric hard cap — drop extreme outliers (data errors) on both
   // sides. Negative values within the cap are real signal (team
@@ -197,6 +204,7 @@ function collectSamples(
   permits: PermitWithCycles[],
   projects: Map<string, Project>,
   filter: CohortFilter,
+  holdsByProjectId?: Map<string, ProjectHold[]>,
 ): TargetSubmitSample[] {
   // Index BPs by project_id once for the bp_c0_intake / bp_c1_resub /
   // bp_actual_issue anchors. ORDER BY id ASC matches the engine's
@@ -214,7 +222,12 @@ function collectSamples(
     const project = projects.get(p.project_id);
     if (filter.juris !== null && (project?.juris ?? '') !== filter.juris) continue;
     const bp = bpByProject.get(p.project_id);
-    const sample = extractTargetSubmitSample(p, project, bp);
+    const sample = extractTargetSubmitSample(
+      p,
+      project,
+      bp,
+      holdsByProjectId?.get(p.project_id),
+    );
     if (sample) out.push(sample);
   }
   return out;
@@ -288,16 +301,21 @@ export function computeLearnedTargetSubmit(
   projects: Map<string, Project>,
   filter: { type: string; juris: string },
   today: Date = new Date(),
+  // fix-171: per-project holds — held samples are dropped from the offset
+  // average. Omitted → unchanged.
+  holdsByProjectId?: Map<string, ProjectHold[]>,
 ): CascadeResult {
   const anchor = anchorFor(filter.type);
   if (anchor === 'mirror_bp') {
     return { value: null, source: 'default', sampleCount: 0, isCrossJuris: false };
   }
   // (type, juris) only.
-  const scoped = collectSamples(permits, projects, {
-    type: filter.type,
-    juris: filter.juris,
-  });
+  const scoped = collectSamples(
+    permits,
+    projects,
+    { type: filter.type, juris: filter.juris },
+    holdsByProjectId,
+  );
   const scopedResult = cascadeForCohort(scoped, false, today);
   if (scopedResult) return scopedResult;
   // Hardcoded per-type default — no cross-juris borrowing.
