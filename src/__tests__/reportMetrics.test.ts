@@ -1122,3 +1122,40 @@ describe('fix-171 effect B — held days subtracted from turnaround tiles', () =
     expect(withHold.avgResponseTime).toBe(20);
   });
 });
+
+// fix-173: Avg Approval → Issue (approval_date → actual_issue), hold-aware.
+describe('fix-173 avgApprovalToIssue', () => {
+  const projectsById = new Map([['p1', makeProject({ id: 'p1' })]]);
+
+  it('averages actual_issue − approval_date across the cohort', () => {
+    const permits = [
+      makePermit({ id: 1, project_id: 'p1', approval_date: '2026-06-01', actual_issue: '2026-06-15' }), // 14
+      makePermit({ id: 2, project_id: 'p1', approval_date: '2026-06-01', actual_issue: '2026-06-11' }), // 10
+    ];
+    const m = computeMetrics(enrichPermits(permits, projectsById));
+    expect(m.avgApprovalToIssue).toBe(12); // (14 + 10) / 2
+  });
+
+  it("a held permit's value drops by the held days; no-hold unchanged", () => {
+    const permits = [
+      makePermit({ id: 1, project_id: 'p1', approval_date: '2026-06-01', actual_issue: '2026-06-15' }), // 14 raw
+    ];
+    const enriched = enrichPermits(permits, projectsById);
+    expect(computeMetrics(enriched).avgApprovalToIssue).toBe(14);
+    // hold 2026-06-03..2026-06-08 = 5 held days inside the window → 9
+    const holdsMap = new Map([['p1', [hold('2026-06-03', '2026-06-08')]]]);
+    expect(
+      computeMetrics(enrichPermits(permits, projectsById, holdsMap), holdsMap).avgApprovalToIssue,
+    ).toBe(9);
+    // empty map → identical
+    expect(computeMetrics(enrichPermits(permits, projectsById, new Map()), new Map()).avgApprovalToIssue).toBe(14);
+  });
+
+  it('excludes permits missing approval_date or actual_issue', () => {
+    const permits = [
+      makePermit({ id: 1, project_id: 'p1', approval_date: '2026-06-01', actual_issue: null }), // excluded
+      makePermit({ id: 2, project_id: 'p1', approval_date: null, actual_issue: '2026-06-15' }), // excluded
+    ];
+    expect(computeMetrics(enrichPermits(permits, projectsById)).avgApprovalToIssue).toBeNull();
+  });
+});

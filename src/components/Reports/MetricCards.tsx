@@ -122,6 +122,12 @@ export default function MetricCards({
           ? 'co'
           : 'pm';
 
+  // fix-173: Approval→Issue. Issuance is a heavier step than intake (fees,
+  // paperwork), so the tiers are wider: green <7d, amber 7-13d, red ≥14d.
+  const a2i = metrics.avgApprovalToIssue;
+  const a2iTone: Parameters<typeof MetricCard>[0]['tone'] =
+    a2i === null ? 'default' : a2i >= 14 ? 'overdue' : a2i >= 7 ? 'co' : 'pm';
+
   return (
     <div
       className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3"
@@ -303,6 +309,31 @@ export default function MetricCards({
             cmp?.avgSubmitToIntake === undefined
               ? undefined
               : `${cmp.avgSubmitToIntake}d`
+          }
+          comparisonLabel={cmpLabel}
+          comparisonDirection="lower_better"
+          {...splitProps}
+        />
+      )}
+
+      {/* fix-173: AVG APPROVAL → ISSUE — conditional, color-coded. Sibling of
+          Submit → Intake; hold-aware (held days subtracted). */}
+      {a2i !== null && (
+        <MetricCard
+          label="Avg Approval → Issue"
+          labelSlot={tip('avgApprovalToIssue')}
+          value={a2i}
+          unit="d"
+          subText="approved → permit issued"
+          tone={a2iTone}
+          testId="metric-approval-to-issue"
+          currentNumeric={a2i}
+          comparisonNumeric={cmp?.avgApprovalToIssue ?? null}
+          comparisonValueText={
+            cmp?.avgApprovalToIssue === null ||
+            cmp?.avgApprovalToIssue === undefined
+              ? undefined
+              : `${cmp.avgApprovalToIssue}d`
           }
           comparisonLabel={cmpLabel}
           comparisonDirection="lower_better"
