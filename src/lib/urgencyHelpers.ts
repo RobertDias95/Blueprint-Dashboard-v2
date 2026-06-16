@@ -54,7 +54,13 @@ export function permitUrgency(
   cycles: PermitCycle[],
   stage: Stage,
   now: Date = new Date(),
+  activeHold = false,
 ): UrgencyLevel {
+  // fix-170 (On-Hold Phase 2, effect D): a project with an ACTIVE hold is
+  // parked — it isn't flagged overdue/late while held. A closed/past hold does
+  // NOT suppress current urgency (its days are credited via the turnaround
+  // math, not by hiding today's lateness).
+  if (activeHold) return 'ok';
   if (stage === 'de') {
     const bd = businessDaysUntil(permit.target_submit, now);
     if (bd === null) return 'ok';
@@ -119,7 +125,10 @@ export function cardUrgency(
   permits: Array<{ permit: Permit; cycles: PermitCycle[] }>,
   stage: Stage,
   now: Date = new Date(),
+  activeHold = false,
 ): UrgencyLevel {
+  // fix-170: a held project's whole card drops to 'ok' (no red/yellow).
+  if (activeHold) return 'ok';
   const levels: UrgencyLevel[] = ['red', 'yellow', 'ok'];
   let worst = 2; // index into levels
   for (const { permit, cycles } of permits) {

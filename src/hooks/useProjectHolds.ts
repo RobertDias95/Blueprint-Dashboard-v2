@@ -39,6 +39,50 @@ export function activeHold(holds: ProjectHold[] | undefined): ProjectHold | null
   return holds?.find((h) => h.hold_end === null) ?? null;
 }
 
+// fix-170 (On-Hold Phase 2): aggregate read path. Holds are rare (a handful per
+// tenant), so the dashboard / estimator-learning / projection surfaces fetch ALL
+// of the tenant's holds once and index them by project. Shares the project_holds
+// bare prefix so a hold open/lift/edit invalidates this live.
+export function useAllProjectHolds() {
+  const tenantId = useAuthStore((s) => s.activeTenantId);
+  return useQuery<ProjectHold[]>({
+    queryKey: queryKeys.allProjectHolds(tenantId ?? ''),
+    enabled: !!tenantId,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('project_holds')
+        .select(
+          'id, tenant_id, project_id, reason, note, hold_start, hold_end, created_by, created_at, updated_at',
+        )
+        .order('hold_start', { ascending: false });
+      if (error) throw error;
+      return (data ?? []) as unknown as ProjectHold[];
+    },
+  });
+}
+
+/** Index holds by project_id (all holds, active + closed). */
+export function holdsByProjectId(
+  holds: ProjectHold[] | undefined,
+): Map<string, ProjectHold[]> {
+  const m = new Map<string, ProjectHold[]>();
+  for (const h of holds ?? []) {
+    const list = m.get(h.project_id) ?? [];
+    list.push(h);
+    m.set(h.project_id, list);
+  }
+  return m;
+}
+
+/** Set of project ids that currently have an ACTIVE (open) hold. */
+export function activeHoldProjectIds(
+  holds: ProjectHold[] | undefined,
+): Set<string> {
+  const s = new Set<string>();
+  for (const h of holds ?? []) if (h.hold_end === null) s.add(h.project_id);
+  return s;
+}
+
 export interface SetProjectHoldInput {
   projectId: string;
   reason: string;

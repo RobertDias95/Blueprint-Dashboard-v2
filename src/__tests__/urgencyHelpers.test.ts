@@ -281,3 +281,41 @@ describe('cardUrgency', () => {
     expect(cardUrgency([], 'de')).toBe('ok');
   });
 });
+
+// fix-170 (On-Hold Phase 2, effect D): an ACTIVE hold suppresses urgency.
+describe('fix-170 active-hold suppression', () => {
+  it('permitUrgency: an overdue de permit is red normally but ok when actively held', () => {
+    const p = makePermit({ target_submit: '2026-05-01' }); // past → red
+    expect(permitUrgency(p, [], 'de')).toBe('red');
+    expect(permitUrgency(p, [], 'de', undefined, true)).toBe('ok');
+  });
+
+  it('permitUrgency: an overdue corrections permit is red normally but ok when held', () => {
+    const cyc: PermitCycle = {
+      id: 'c1',
+      permit_id: 1,
+      cycle_index: 1,
+      submitted: '2026-04-01',
+      city_target: null,
+      corr_issued: '2026-04-10', // 10+ business days ago → red
+      resubmitted: null,
+      intake_accepted: null,
+      created_at: '',
+      updated_at: '',
+    };
+    const p = makePermit({});
+    expect(permitUrgency(p, [cyc], 'co')).toBe('red');
+    expect(permitUrgency(p, [cyc], 'co', undefined, true)).toBe('ok');
+  });
+
+  it('cardUrgency: a held group is never red/yellow', () => {
+    const p = makePermit({ target_submit: '2026-05-01' }); // red
+    expect(cardUrgency([{ permit: p, cycles: [] }], 'de')).toBe('red');
+    expect(cardUrgency([{ permit: p, cycles: [] }], 'de', undefined, true)).toBe('ok');
+  });
+
+  it('a CLOSED hold (activeHold=false) does NOT suppress — still red', () => {
+    const p = makePermit({ target_submit: '2026-05-01' });
+    expect(permitUrgency(p, [], 'de', undefined, false)).toBe('red');
+  });
+});

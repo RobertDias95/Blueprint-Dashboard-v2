@@ -35,6 +35,8 @@ interface AddrGroupProps {
   reviewersByPermit: Map<number, PermitCycleReviewer[]>;
   /** Worst-of-group urgency for the left-border + bg tint. */
   cardUrgency: UrgencyLevel;
+  /** fix-170: project has an ACTIVE hold → per-row urgency colors suppressed. */
+  activeHold?: boolean;
   keyDateLabel: string;
   getKeyDate: (p: Permit) => string | null;
   isOpen: boolean;
@@ -88,6 +90,7 @@ export default function AddrGroup({
   cyclesByPermit,
   reviewersByPermit,
   cardUrgency,
+  activeHold = false,
   keyDateLabel,
   getKeyDate,
   isOpen,
@@ -230,6 +233,8 @@ export default function AddrGroup({
               p,
               cyclesByPermit.get(p.id) ?? [],
               stage,
+              undefined,
+              activeHold,
             );
             return (
               <span
@@ -290,6 +295,7 @@ export default function AddrGroup({
               reviewers={reviewersByPermit.get(p.id) ?? []}
               keyDate={getKeyDate(p)}
               keyDateLabel={keyDateLabel}
+              activeHold={activeHold}
             />
           ))}
         </div>
@@ -334,6 +340,7 @@ function ExpandedRow({
   reviewers,
   keyDate,
   keyDateLabel,
+  activeHold = false,
 }: {
   permit: Permit;
   projectId: string;
@@ -342,8 +349,9 @@ function ExpandedRow({
   reviewers: PermitCycleReviewer[];
   keyDate: string | null;
   keyDateLabel: string;
+  activeHold?: boolean;
 }) {
-  const urgency = permitUrgency(permit, cycles, stage);
+  const urgency = permitUrgency(permit, cycles, stage, undefined, activeHold);
   const team = [permit.ent_lead, permit.da, permit.dual_da, permit.dm]
     .filter(Boolean)
     .join(' · ');

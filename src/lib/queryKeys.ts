@@ -134,6 +134,10 @@ export const queryKeys = {
   projectHoldsAll: ['project_holds'] as const,
   projectHolds: (tenantId: string, projectId: string) =>
     ['project_holds', tenantId, { projectId }] as const,
+  // fix-170: all of a tenant's holds (active + closed), for the dashboard +
+  // estimator surfaces. Shares the project_holds bare prefix for realtime.
+  allProjectHolds: (tenantId: string) =>
+    ['project_holds', tenantId, 'all'] as const,
 } as const;
 
 /** Map from Postgres table name → bare-prefix query keys to invalidate on
