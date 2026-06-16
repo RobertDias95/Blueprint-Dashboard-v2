@@ -229,3 +229,32 @@ describe('computePerCycleBuckets', () => {
     expect(totals.avgResponseTime).toBe(mean); // (5 + 9)/2 = 7
   });
 });
+
+// fix-171 (effect B): per-cycle buckets subtract held days too.
+import type { ProjectHold } from '../lib/database.types';
+describe('fix-171 computePerCycleBuckets — held days subtracted', () => {
+  function pcHold(start: string, end: string | null): ProjectHold {
+    return {
+      id: `h-${start}`, tenant_id: 't1', project_id: 'p1', reason: 'MHA', note: null,
+      hold_start: start, hold_end: end, created_by: null, created_at: '', updated_at: '',
+    };
+  }
+  it('Cycle 1 response time drops by the held days; no-hold unchanged', () => {
+    const p = makePermit({
+      project_id: 'p1',
+      permit_cycles: [
+        makeCycle({ cycle_index: 1, submitted: '2026-02-01', corr_issued: '2026-04-01' }),
+        makeCycle({ id: 'c2', cycle_index: 2, submitted: '2026-05-01' }),
+      ],
+    });
+    const enriched = enrichPermits([p], new Map([['p1', makeProject({ id: 'p1' })]]));
+    const without = computePerCycleBuckets(enriched);
+    const withHold = computePerCycleBuckets(
+      enriched,
+      new Map([['p1', [pcHold('2026-04-10', '2026-04-20')]]]),
+    );
+    // Cycle 1 response = 2026-04-01 → 2026-05-01 = 30 raw; 10 held → 20.
+    expect(without[0].avgResponseTime).toBe(30);
+    expect(withHold[0].avgResponseTime).toBe(20);
+  });
+});

@@ -1,7 +1,18 @@
-import type { PermitCycle, PermitWithCycles, Project } from './database.types';
+import type {
+  PermitCycle,
+  PermitWithCycles,
+  Project,
+  ProjectHold,
+} from './database.types';
 import { extractSample } from './scheduleBenchmarks';
 import { formatCompareNumber } from './comparisonCohort';
 import { cityCourtTimeDays, responseCourtTimeDays } from './reportMetrics';
+import { accountableDays } from './holdOverlap';
+
+// fix-171 (effect B): the Trends turnaround KPI cards + breakdown subtract held
+// days. accountableDays === daysBetween with no holds → no-hold cohorts
+// byte-identical.
+type HoldsMap = Map<string, ProjectHold[]> | undefined;
 
 // fix-25-feat-T: aggregation helpers for the new top-level Trends
 // surface. Answers Bobby's three operational questions:
@@ -80,13 +91,14 @@ export function totalApprovedInWindow(filtered: PermitWithCycles[]): number {
 // City Review / Response Time / Permit Timeline split as Overview.
 export function avgIntakeToApproval(
   filtered: PermitWithCycles[],
+  holdsByProjectId?: HoldsMap,
 ): number | null {
   const deltas: number[] = [];
   for (const p of filtered) {
-    const intake = cycle0(p)?.intake_accepted;
+    const intake = cycle0(p)?.intake_accepted ?? null;
     const approval = p.approval_date ?? p.actual_issue ?? null;
     if (!intake || !approval) continue;
-    const d = daysBetween(intake, approval);
+    const d = accountableDays(holdsByProjectId?.get(p.project_id), intake, approval);
     if (d !== null && d >= 0) deltas.push(d);
   }
   return deltas.length === 0 ? null : Math.round(avg(deltas));
@@ -103,10 +115,11 @@ export function avgIntakeToApproval(
  *  qualifies. */
 export function avgCityCourtTime(
   filtered: PermitWithCycles[],
+  holdsByProjectId?: HoldsMap,
 ): number | null {
   const vals: number[] = [];
   for (const p of filtered) {
-    const d = cityCourtTimeDays(p);
+    const d = cityCourtTimeDays(p, holdsByProjectId?.get(p.project_id));
     if (d !== null) vals.push(d);
   }
   return vals.length === 0 ? null : Math.round(avg(vals));
@@ -117,10 +130,11 @@ export function avgCityCourtTime(
  *  has a completed correction round-trip. */
 export function avgResponseCourtTime(
   filtered: PermitWithCycles[],
+  holdsByProjectId?: HoldsMap,
 ): number | null {
   const vals: number[] = [];
   for (const p of filtered) {
-    const d = responseCourtTimeDays(p);
+    const d = responseCourtTimeDays(p, holdsByProjectId?.get(p.project_id));
     if (d !== null) vals.push(d);
   }
   return vals.length === 0 ? null : Math.round(avg(vals));
@@ -237,6 +251,7 @@ export interface BreakdownRow {
 export function breakdownByTypeAndJuris(
   filtered: PermitWithCycles[],
   projectsById: Map<string, Project>,
+  holdsByProjectId?: HoldsMap,
 ): BreakdownRow[] {
   const buckets = new Map<string, PermitWithCycles[]>();
   for (const p of filtered) {
@@ -254,11 +269,12 @@ export function breakdownByTypeAndJuris(
       const cityReviews: number[] = [];
       const teamTurns: number[] = [];
       for (const p of group) {
+        const holds = holdsByProjectId?.get(p.project_id);
         for (const c of (p.permit_cycles ?? []) as PermitCycle[]) {
           if (c.cycle_index < 1) continue;
-          const cr = daysBetween(c.submitted, c.corr_issued);
+          const cr = accountableDays(holds, c.submitted, c.corr_issued);
           if (cr !== null && cr >= 0) cityReviews.push(cr);
-          const tt = daysBetween(c.corr_issued, c.resubmitted);
+          const tt = accountableDays(holds, c.corr_issued, c.resubmitted);
           if (tt !== null && tt >= 0) teamTurns.push(tt);
         }
       }
@@ -274,7 +290,7 @@ export function breakdownByTypeAndJuris(
         juris,
         type,
         n: group.length,
-        avgIntakeToApproval: avgIntakeToApproval(group),
+        avgIntakeToApproval: avgIntakeToApproval(group, holdsByProjectId),
         avgCycles: avgCyclesPerPermit(group),
         avgCityReviewPerCycle:
           cityReviews.length === 0 ? null : Math.round(avg(cityReviews)),

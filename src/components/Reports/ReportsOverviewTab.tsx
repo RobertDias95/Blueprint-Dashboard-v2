@@ -235,15 +235,15 @@ function Body({
   // comparison cohort (when Period B is set), so each cell can render the
   // current | comparison | delta mini-split.
   const perCycleBuckets = useMemo(
-    () => computePerCycleBuckets(filtered),
-    [filtered],
+    () => computePerCycleBuckets(filtered, holdsMap),
+    [filtered, holdsMap],
   );
   const comparisonPerCycleBuckets = useMemo(
     () =>
       comparisonFiltered === null
         ? null
-        : computePerCycleBuckets(comparisonFiltered),
-    [comparisonFiltered],
+        : computePerCycleBuckets(comparisonFiltered, holdsMap),
+    [comparisonFiltered, holdsMap],
   );
 
   const permitsByType = useMemo(
