@@ -162,6 +162,35 @@ export function accountableDays(
 }
 
 /**
+ * Days a project has been parked under its CURRENT active (open) hold — i.e.
+ * (today − hold_start) for the active hold, clamped ≥ 0; 0 when none is active.
+ * Drives projection shifting (effect C): a future projected date is pushed out
+ * by this much so it stays realistic while the project is paused. A CLOSED hold
+ * does NOT shift a future projection (its time already elapsed and is credited
+ * on the measured side via accountableDays — avoids double-counting).
+ */
+export function activeHoldElapsedDays(
+  holds:
+    | ReadonlyArray<Pick<ProjectHold, 'hold_start' | 'hold_end'>>
+    | ReadonlyArray<HoldWindow>
+    | null
+    | undefined,
+  today?: Date | string,
+): number {
+  const windows = holdWindows(holds);
+  const tIdx = todayIndex(today);
+  let max = 0;
+  for (const w of windows) {
+    if (w.end !== null) continue; // only the active hold
+    const hs = dayIndex(w.start);
+    if (hs === null) continue;
+    const d = tIdx - hs;
+    if (d > max) max = d;
+  }
+  return max;
+}
+
+/**
  * True when [start, end] overlaps ANY hold window (active or closed). Drives
  * estimator-learning sample exclusion (effect E) — a sample whose measured
  * interval touched a hold is dropped so a parked permit never skews the model.

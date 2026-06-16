@@ -7,6 +7,8 @@ import {
   useAllProjectHolds,
   holdsByProjectId,
 } from '../../hooks/useProjectHolds';
+import { activeHoldElapsedDays } from '../../lib/holdOverlap';
+import { addDays } from '../../lib/dateUtils';
 import {
   computeLearnedSchedule,
   filterHeldLearningSamples,
@@ -169,6 +171,16 @@ export default function ScheduleEstimator({ permit }: Props) {
     .filter((c) => c.cycle_index !== 0)
     .sort((a, b) => a.cycle_index - b.cycle_index);
 
+  // fix-170 (effect C): an actively-held project's clock is paused — push the
+  // estimated-approval date out by the days we've been parked so the estimate
+  // stays realistic. Only the headline projection shifts (intermediate round
+  // dates are left as-is). 0 when not held → no change (common case).
+  const heldShiftDays = useMemo(
+    () =>
+      activeHoldElapsedDays(holdsByProjectId(holdsQ.data).get(permit.project_id)),
+    [holdsQ.data, permit.project_id],
+  );
+
   return (
     <div
       className="border rounded-lg overflow-hidden"
@@ -198,7 +210,7 @@ export default function ScheduleEstimator({ permit }: Props) {
         )}
       </div>
       <div className="p-3 flex flex-col gap-2">
-        <HeadlineProjection result={result} />
+        <HeadlineProjection result={result} shiftDays={heldShiftDays} />
         {result.targetCycle === 0 && result.ulsAnchors && (
           <UlsAnchorBlock anchors={result.ulsAnchors} />
         )}
@@ -211,13 +223,25 @@ export default function ScheduleEstimator({ permit }: Props) {
   );
 }
 
-function HeadlineProjection({ result }: { result: ProjectedApprovalResult }) {
+function HeadlineProjection({
+  result,
+  shiftDays = 0,
+}: {
+  result: ProjectedApprovalResult;
+  shiftDays?: number;
+}) {
   const label = result.isActual
     ? 'Actual / Approved'
     : result.isProjected
       ? 'Estimated Approval'
       : 'Projection';
   const color = result.isActual ? 'var(--color-is)' : 'var(--color-pm)';
+  // fix-170 (effect C): shift a PROJECTED date out by the active-hold elapsed
+  // days. Never shift an actual/approved date (the event already happened).
+  const shifted =
+    !result.isActual && result.projection && shiftDays > 0
+      ? addDays(result.projection, shiftDays) ?? result.projection
+      : result.projection;
   return (
     <div>
       <div
@@ -225,12 +249,16 @@ function HeadlineProjection({ result }: { result: ProjectedApprovalResult }) {
         style={{ color: 'var(--color-dim)' }}
       >
         {label}
+        {shiftDays > 0 && !result.isActual && (
+          <span style={{ color: 'var(--color-co)' }}> · +{shiftDays}d on hold</span>
+        )}
       </div>
       <div
         className="text-sm font-mono font-bold mt-0.5"
         style={{ color }}
+        data-testid="pd-v2-estimate-projection"
       >
-        {result.projection ?? '—'}
+        {shifted ?? '—'}
       </div>
     </div>
   );
