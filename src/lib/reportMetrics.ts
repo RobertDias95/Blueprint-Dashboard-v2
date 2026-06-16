@@ -59,6 +59,11 @@ export interface EnrichedPermit {
   ddEndToSubmit: number | null;
   /** firstSubmitted → firstIntakeAccepted in days (city queue lag). */
   submitToIntake: number | null;
+  /** fix-173: approval_date → actual_issue in days (final issuance step). Like
+   *  every other tile it's hold-aware (held days subtracted) — this is exactly
+   *  where On-Hold applies (e.g. waiting on closing before paying issuance fees),
+   *  so parked time shouldn't inflate it. */
+  approvalToIssue: number | null;
   /** fix-141: renamed from `cityReviewDays`. This is the Avg Permit
    * Timeline metric — total elapsed (approval_date ?? actual_issue) −
    * c0.intake_accepted. fix-141 split City Review off into a distinct
@@ -212,6 +217,12 @@ export function enrichPermits(
     const ddDuration = accDays(holds, permit.dd_start ?? null, permit.dd_end ?? null);
     const ddEndToSubmit = accDays(holds, permit.dd_end ?? null, firstSubmitted);
     const submitToIntake = accDays(holds, firstSubmitted, firstIntakeAccepted);
+    // fix-173: final issuance step, hold-aware (held days subtracted).
+    const approvalToIssue = accDays(
+      holds,
+      permit.approval_date ?? null,
+      permit.actual_issue ?? null,
+    );
 
     // fix-141: the canonical strict intake → approval clock (fix-112-b) is
     // now the Avg Permit Timeline metric, extracted into permitTimelineDays().
@@ -256,6 +267,7 @@ export function enrichPermits(
       ddDuration,
       ddEndToSubmit,
       submitToIntake,
+      approvalToIssue,
       permitTimelineDays: permitTimeline,
       corrResponseDays,
       variance,
@@ -674,6 +686,9 @@ export interface ReportMetrics {
    *  (responseCourtTimeDays). */
   avgResponseTime: number | null;
   avgSubmitToIntake: number | null;
+  /** fix-173: avg(actual_issue − approval_date) in days, hold-aware. The final
+   *  issuance step — sibling of avgSubmitToIntake. */
+  avgApprovalToIssue: number | null;
   /** Average corr_rounds across permits where corr_rounds > 0. */
   avgCorrectionCycles: number | null;
   permitsWithCorrections: number;
@@ -787,6 +802,8 @@ export function computeMetrics(
       ),
     ),
     avgSubmitToIntake: avg(enriched.map((e) => e.submitToIntake)),
+    // fix-173: held-aware approval→issue (computed per-permit in enrichPermits).
+    avgApprovalToIssue: avg(enriched.map((e) => e.approvalToIssue)),
     avgCorrectionCycles,
     permitsWithCorrections: corrRoundsSet.length,
     inCorrections,

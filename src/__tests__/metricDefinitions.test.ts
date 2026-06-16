@@ -14,11 +14,12 @@ import {
 // asked for.
 
 describe('metricDefinitions roster (fix-129-c/d)', () => {
-  it('Reports Overview ships 13 definitions', () => {
+  it('Reports Overview ships 14 definitions', () => {
     // fix-140-b added Avg Permit Timeline (12th). fix-141 added Avg Response
     // Time (13th) and redefined Avg City Review as a sum-over-cycles
     // ball-in-court measure distinct from the intake → approval timeline.
-    expect(Object.keys(REPORTS_OVERVIEW_METRICS)).toHaveLength(13);
+    // fix-173 added Avg Approval → Issue (14th).
+    expect(Object.keys(REPORTS_OVERVIEW_METRICS)).toHaveLength(14);
   });
 
   it('Trends KPI tiles ship 7 definitions', () => {
@@ -57,8 +58,9 @@ describe('metricDefinitions roster (fix-129-c/d)', () => {
     // fix-131-c added a fifth surface (team detail phase cards, 4 entries).
     // fix-134-b added a sixth surface (redesigns KPI tiles, 3 entries).
     // fix-136-b added a seventh surface (cycle-time comparison, 4 entries).
+    // fix-173 added a 14th Reports Overview metric (Avg Approval → Issue).
     expect(Object.keys(ALL_METRIC_DEFINITIONS)).toHaveLength(
-      13 + 7 + 8 + 6 + 4 + 3 + 4,
+      14 + 7 + 8 + 6 + 4 + 3 + 4,
     );
   });
 });
@@ -81,6 +83,8 @@ describe('formula text references the source fields (fix-129-d)', () => {
     // fix-141: City Review redefined → formula now names submitted + corr_issued.
     { key: 'reports.avgCityReview', must: ['submitted', 'corr_issued'] },
     { key: 'reports.avgSubmitToIntake', must: ['firstSubmitted', 'firstIntakeAccepted'] },
+    // fix-173: Approval → Issue final issuance step.
+    { key: 'reports.avgApprovalToIssue', must: ['actual_issue', 'approval_date'] },
     { key: 'reports.avgCorrectionCycles', must: ['corr_rounds'] },
     { key: 'reports.inCorrections', must: ['effectiveStage'] },
     { key: 'reports.avgScheduleVariance', must: ['approval_date', 'actual_issue', 'expected_issue'] },

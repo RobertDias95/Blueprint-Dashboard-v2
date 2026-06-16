@@ -191,6 +191,7 @@ function makeMetrics(over: Partial<ReportMetrics> = {}): ReportMetrics {
     avgPermitTimeline: null,
     avgResponseTime: null,
     avgSubmitToIntake: null,
+    avgApprovalToIssue: null,
     avgCorrectionCycles: null,
     permitsWithCorrections: 0,
     inCorrections: 0,

@@ -80,6 +80,14 @@ export const REPORTS_OVERVIEW_METRICS: Record<string, MetricDefinition> = {
     formula: 'avg(firstIntakeAccepted − firstSubmitted) in days',
     cohort: 'Only counts permits with both firstSubmitted AND firstIntakeAccepted set.',
   },
+  avgApprovalToIssue: {
+    // fix-173: reportMetrics.ts — approval_date → actual_issue.
+    label: 'Avg Approval → Issue',
+    description:
+      'Final issuance step: average days between city approval and the permit actually issuing. Hold-aware — time the project spent On Hold (e.g. waiting on closing before paying issuance fees) is subtracted.',
+    formula: 'avg(actual_issue − approval_date) in days, minus any held days',
+    cohort: 'Only counts permits with both approval_date AND actual_issue set.',
+  },
   avgCorrectionCycles: {
     // reportMetrics.ts:617-625 — avg(corr_rounds) where corr_rounds > 0.
     label: 'Avg Correction Cycles',
