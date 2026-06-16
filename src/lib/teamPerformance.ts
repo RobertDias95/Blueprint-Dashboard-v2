@@ -1,9 +1,14 @@
 import type {
   PermitWithCycles,
   Project,
+  ProjectHold,
   TeamMember,
 } from './database.types';
 import { formatCompareNumber } from './comparisonCohort';
+import { accountableDays } from './holdOverlap';
+
+// fix-172 (On-Hold Phase 2, effect B): the per-associate phase tiles subtract
+// held days. accountableDays === daysBetween with no holds → byte-identical.
 
 // fix-127: team performance aggregations.
 //
@@ -133,6 +138,8 @@ export function computeTeamMetrics(
   projects: Project[],
   teamMembers: TeamMember[],
   filters: TeamMetricsFilters,
+  // fix-172: per-project holds. Omitted / no holds → byte-identical.
+  holdsByProjectId?: Map<string, ProjectHold[]>,
 ): TeamMetricsResult {
   const projectsById = new Map<string, Project>();
   for (const p of projects) projectsById.set(p.id, p);
@@ -255,15 +262,16 @@ export function computeTeamMetrics(
     const correctionsCycles: number[] = [];
     const issuanceDays: number[] = [];
     for (const p of phasePermits) {
-      const dd = daysBetween(p.dd_start, p.dd_end);
+      const holds = holdsByProjectId?.get(p.project_id);
+      const dd = accountableDays(holds, p.dd_start, p.dd_end);
       if (dd !== null && dd >= 0) ddDays.push(dd);
       const c0 = (p.permit_cycles ?? []).find((c) => c.cycle_index === 0);
-      const cr = daysBetween(c0?.intake_accepted, p.approval_date);
+      const cr = accountableDays(holds, c0?.intake_accepted ?? null, p.approval_date);
       if (cr !== null && cr >= 0) cityReviewDays.push(cr);
       if (typeof p.corr_rounds === 'number' && p.corr_rounds >= 0) {
         correctionsCycles.push(p.corr_rounds);
       }
-      const iss = daysBetween(p.approval_date, p.actual_issue);
+      const iss = accountableDays(holds, p.approval_date, p.actual_issue);
       if (iss !== null && iss >= 0) issuanceDays.push(iss);
     }
 

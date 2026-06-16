@@ -11,6 +11,10 @@ import {
 } from 'recharts';
 import { usePermits } from '../hooks/usePermits';
 import { useProjects } from '../hooks/useProjects';
+import {
+  useAllProjectHolds,
+  holdsByProjectId,
+} from '../hooks/useProjectHolds';
 import { useTeamMembers } from '../hooks/useTeamMembers';
 import { SkeletonRows } from '../components/Skeleton';
 import QueryError from '../components/QueryError';
@@ -117,25 +121,35 @@ function Body({
   projects: NonNullable<ReturnType<typeof useProjects>['data']>;
   teamMembers: NonNullable<ReturnType<typeof useTeamMembers>['all']>;
 }) {
+  // fix-172 (effect B): subtract held days from the per-associate phase tiles +
+  // their vs-team-avg baseline (same map as the Team tab).
+  const holdsQ = useAllProjectHolds();
+  const holdsMap = useMemo(() => holdsByProjectId(holdsQ.data), [holdsQ.data]);
   // Compute team metrics across the whole role cohort so the
   // vs-team-avg deltas use the same baseline as the Team tab. Pull
   // the associate's row by name; if missing, the page renders the
   // "not found" empty state.
   const result = useMemo(
     () =>
-      computeTeamMetrics(permits, projects, teamMembers, {
-        role,
-        // The drill-down shows the user's data regardless of active —
-        // they clicked through, so respect their intent. The
-        // activeOnly toggle gates the LIST on the Team tab, not the
-        // detail page.
-        activeOnly: false,
-        dateFrom: null,
-        dateTo: null,
-        juris: '',
-        includeRedesigns: true,
-      }),
-    [permits, projects, teamMembers, role],
+      computeTeamMetrics(
+        permits,
+        projects,
+        teamMembers,
+        {
+          role,
+          // The drill-down shows the user's data regardless of active —
+          // they clicked through, so respect their intent. The
+          // activeOnly toggle gates the LIST on the Team tab, not the
+          // detail page.
+          activeOnly: false,
+          dateFrom: null,
+          dateTo: null,
+          juris: '',
+          includeRedesigns: true,
+        },
+        holdsMap,
+      ),
+    [permits, projects, teamMembers, role, holdsMap],
   );
 
   const associate = result.rows.find((r) => r.name === name) ?? null;

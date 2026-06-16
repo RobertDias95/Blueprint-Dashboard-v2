@@ -2,6 +2,10 @@ import { useMemo, useState } from 'react';
 import { usePermits } from '../../hooks/usePermits';
 import { useProjects } from '../../hooks/useProjects';
 import { useTeamMembers } from '../../hooks/useTeamMembers';
+import {
+  useAllProjectHolds,
+  holdsByProjectId,
+} from '../../hooks/useProjectHolds';
 import { SkeletonRows } from '../Skeleton';
 import QueryError from '../QueryError';
 import TeamPerformanceTable from './TeamPerformanceTable';
@@ -74,6 +78,9 @@ function Body({
   projects: NonNullable<ReturnType<typeof useProjects>['data']>;
   teamMembers: NonNullable<ReturnType<typeof useTeamMembers>['all']>;
 }) {
+  // fix-172 (effect B): subtract held days from the per-associate phase tiles.
+  const holdsQ = useAllProjectHolds();
+  const holdsMap = useMemo(() => holdsByProjectId(holdsQ.data), [holdsQ.data]);
   const [role, setRole] = useState<TeamRoleSelection>('da');
   const [activeOnly, setActiveOnly] = useState(true);
   const [dateFrom, setDateFrom] = useState<string>('');
@@ -100,8 +107,8 @@ function Body({
   );
 
   const result = useMemo(
-    () => computeTeamMetrics(permits, projects, teamMembers, filters),
-    [permits, projects, teamMembers, filters],
+    () => computeTeamMetrics(permits, projects, teamMembers, filters, holdsMap),
+    [permits, projects, teamMembers, filters, holdsMap],
   );
 
   const activeTabLabel =

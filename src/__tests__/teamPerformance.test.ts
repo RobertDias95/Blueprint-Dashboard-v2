@@ -492,3 +492,36 @@ describe('computeTeamMetrics — team averages', () => {
     expect(out.teamAvgDdDays).toBe(15);
   });
 });
+
+// fix-172 (effect B): per-associate phase tiles subtract held days.
+import type { ProjectHold } from '../lib/database.types';
+describe('fix-172 computeTeamMetrics — held days subtracted', () => {
+  function tpHold(start: string, end: string | null): ProjectHold {
+    return {
+      id: `h-${start}`, tenant_id: 't1', project_id: 'p1', reason: 'MHA', note: null,
+      hold_start: start, hold_end: end, created_by: null, created_at: '', updated_at: '',
+    };
+  }
+  const projects = [mkProject({ id: 'p1', address: '1', units: 1 })];
+  const permits: PermitWithCycles[] = [
+    mkPermit({
+      id: 1,
+      project_id: 'p1',
+      da: 'Trevor',
+      approval_date: '2026-06-01',
+      permit_cycles: [mkCycle({ cycle_index: 0, intake_accepted: '2026-01-01' })], // 151d
+    }),
+  ];
+  const team: TeamMember[] = [mkMember({ name: 'Trevor', role: 'da' })];
+
+  it('avgCityReviewDays drops by the held days; no-hold byte-identical', () => {
+    expect(computeTeamMetrics(permits, projects, team, baseFilters).rows[0].avgCityReviewDays).toBe(151);
+    const holds = new Map([['p1', [tpHold('2026-02-01', '2026-02-11')]]]); // 10 held days
+    const withHold = computeTeamMetrics(permits, projects, team, baseFilters, holds);
+    expect(withHold.rows[0].avgCityReviewDays).toBe(141);
+    // empty map → unchanged
+    expect(
+      computeTeamMetrics(permits, projects, team, baseFilters, new Map()).rows[0].avgCityReviewDays,
+    ).toBe(151);
+  });
+});
