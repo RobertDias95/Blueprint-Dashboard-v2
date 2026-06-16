@@ -26,6 +26,14 @@ vi.mock('../hooks/useConsultantFirms', () => ({
   useProjectExternalTeam: () => ({ data: [], byDiscipline: new Map(), isLoading: false, error: null, refetch: vi.fn() }),
   useUpsertProjectExternalTeamMember: () => ({ mutate: vi.fn(), isPending: false }),
 }));
+// fix-167: modal renders ProjectHoldPanel — mock its hooks inert.
+vi.mock('../hooks/useProjectHolds', () => ({
+  useProjectHolds: () => ({ data: [], isLoading: false, error: null }),
+  activeHold: () => null,
+  useSetProjectHold: () => ({ mutate: vi.fn(), isPending: false }),
+  useLiftProjectHold: () => ({ mutate: vi.fn(), isPending: false }),
+  useUpdateProjectHold: () => ({ mutate: vi.fn(), isPending: false }),
+}));
 vi.mock('../hooks/useJurisdictions', () => ({
   useJurisdictions: () => ({ data: [] }),
 }));

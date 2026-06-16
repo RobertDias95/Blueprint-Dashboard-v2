@@ -129,6 +129,11 @@ export const queryKeys = {
   targetSubmitFormulasAll: ['target_submit_formulas'] as const,
   targetSubmitFormulas: (tenantId: string) =>
     ['target_submit_formulas', tenantId] as const,
+  // fix-167: project On-Hold history. Bare prefix participates in realtime
+  // invalidation; the tenant+project key scopes one project's hold list.
+  projectHoldsAll: ['project_holds'] as const,
+  projectHolds: (tenantId: string, projectId: string) =>
+    ['project_holds', tenantId, { projectId }] as const,
 } as const;
 
 /** Map from Postgres table name → bare-prefix query keys to invalidate on
@@ -147,4 +152,7 @@ export const REALTIME_TABLES = {
   // fix-87: any insert/update to error_reports refreshes the triage page
   // + the nav badge across every open tab.
   error_reports: [queryKeys.errorReportsAll],
+  // fix-167: a hold opened/lifted/edited (any tab) refreshes the badge +
+  // history live.
+  project_holds: [queryKeys.projectHoldsAll],
 } as const;

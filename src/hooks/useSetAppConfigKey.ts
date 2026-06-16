@@ -58,6 +58,8 @@ function humanizeKey(key: string): string {
       return 'project tags';
     case 'consultantTypes':
       return 'consultants';
+    case 'holdReasonOptions':
+      return 'hold reasons';
     case 'learnThresholds':
       return 'learning thresholds';
     default:

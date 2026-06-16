@@ -102,6 +102,25 @@ export interface Project {
   updated_at?: string | null;
 }
 
+/** fix-167: a project On-Hold interval. A project may have many holds over
+ *  time (history); the ACTIVE hold is the one with `hold_end === null`, and
+ *  there is at most one active hold per project (DB partial unique index).
+ *  Phase 1 records + displays these; they change NO calculations (Phase 2
+ *  wires the clock/projection math). `reason` references the editable
+ *  app_config `holdReasonOptions` list. Dates are ISO 'YYYY-MM-DD'. */
+export interface ProjectHold {
+  id: string;
+  tenant_id: string;
+  project_id: string;
+  reason: string;
+  note: string | null;
+  hold_start: string;
+  hold_end: string | null;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 /** fix-126: controlled-vocab union for projects.redesign_trigger. Mirrors
  *  the DB-side CHECK constraint. Keep in sync with the migration. */
 export type RedesignTrigger =

@@ -86,6 +86,9 @@ export default function AdminProjectsTab() {
   // reached the wizard's dropdown.
   const productTypes = readAppConfigStringArray(cfgQ.map, 'productTypeOptions');
   const projectTags = readAppConfigStringArray(cfgQ.map, 'projectTagOptions');
+  // fix-167: editable Hold Reasons list — the source for the project On-Hold
+  // reason dropdown. Same app_config mechanism as Product Types / Project Tags.
+  const holdReasons = readAppConfigStringArray(cfgQ.map, 'holdReasonOptions');
 
   return (
     <div className="space-y-6" data-testid="admin-projects-tab">
@@ -175,6 +178,32 @@ export default function AdminProjectsTab() {
           emptyState="No project tags yet. Used across Reports + project metadata."
           readOnly={!isAdmin}
           testIdPrefix="project-tags-list"
+        />
+      </Section>
+
+      {/* fix-167: Hold Reasons — the dropdown source for putting a project On
+          Hold. Phase 1 is data + display only (no calculation effects). */}
+      <Section title="Hold Reasons">
+        <PillListEditor
+          label="Hold Reasons"
+          items={holdReasons.map((r) => ({ key: r, label: r }))}
+          onAdd={(name) => {
+            if (holdReasons.includes(name)) return;
+            setKey.mutate({
+              key: 'holdReasonOptions',
+              value: [...holdReasons, name],
+            });
+          }}
+          onRemove={(name) =>
+            setKey.mutate({
+              key: 'holdReasonOptions',
+              value: holdReasons.filter((r) => r !== name),
+            })
+          }
+          placeholder="Add hold reason…"
+          emptyState="No hold reasons yet. Used when putting a project On Hold."
+          readOnly={!isAdmin}
+          testIdPrefix="hold-reasons-list"
         />
       </Section>
     </div>

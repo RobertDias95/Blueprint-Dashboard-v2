@@ -18,6 +18,7 @@ import {
 import { pushToast } from '../../stores/toastStore';
 import BuilderAutocompleteField from '../builder/BuilderAutocompleteField';
 import ProjectExternalTeamPanel from './ProjectExternalTeamPanel';
+import { ProjectHoldPanel } from './ProjectHold';
 import type {
   Builder,
   PermitWithCycles,
@@ -685,6 +686,14 @@ export default function ProjectSettingsModal({
                 <span>Archived (hide from active project lists)</span>
               </label>
             </Field>
+          </Section>
+
+          {/* fix-167: On Hold — check to put the project on hold (reason +
+              optional note + backdatable start), uncheck to lift (end date).
+              Independent of the atomic project save below — writes go straight
+              through the hold RPCs. Phase 1: data + display only, no math. */}
+          <Section title="On Hold" color="var(--color-co)">
+            <ProjectHoldPanel projectId={project.id} />
           </Section>
 
           {/* fix-23f: the 4 plain Builder Inputs are now
