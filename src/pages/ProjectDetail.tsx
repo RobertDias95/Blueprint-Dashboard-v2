@@ -22,6 +22,7 @@ import NotesDocsFooter from '../components/ProjectDetail/NotesDocsFooter';
 import PermitDetailV2 from '../components/ProjectDetail/PermitDetailV2';
 import ProjectSettingsModal from '../components/ProjectDetail/ProjectSettingsModal';
 import { ProjectHoldBadge } from '../components/ProjectDetail/ProjectHold';
+import { LandUsePhaseBadge } from '../components/ProjectDetail/LandUsePhaseBadge';
 import DeleteProjectDialog from '../components/ProjectDetail/DeleteProjectDialog';
 import QuickEditPermitModal from '../components/ProjectDetail/QuickEditPermitModal';
 import NewProjectWizard from '../components/NewProjectWizard';
@@ -839,6 +840,9 @@ function SidebarRow({
           </span>
         )}
       </div>
+      {/* fix-169: land-use phase badge — only for *-LU permits, answers
+          "why hasn't this issued?" on the overview. Null for everything else. */}
+      <LandUsePhaseBadge permit={permit} />
       <div className="text-[10px] truncate">
         {permit.num ? (
           permit.portal_url ? (

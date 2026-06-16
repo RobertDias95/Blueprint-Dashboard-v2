@@ -247,6 +247,14 @@ export interface Permit {
   actual_issue: string | null;
   approval_date: string | null;
   intake_date: string | null;
+  /** fix-169: land-use (LU) middle-phase milestones — set only on Seattle
+   *  land-use records (*-LU: ULS/LBA/short-plat); NULL on every other permit.
+   *  The land-use phase deriver (src/lib/landUsePhase.ts) reads these to drive
+   *  the phase badge. Populated by the scraper (fix-78); NULL until then.
+   *  ISO 'YYYY-MM-DD'. */
+  design_review_date?: string | null;
+  decision_published_date?: string | null;
+  publication_end_date?: string | null;
   notes: string | null;
   cycle_model: string | null;
   view_cycle: number | null;
