@@ -5,6 +5,8 @@ import { useAllPermitCycleReviewers } from '../../hooks/useAllPermitCycleReviewe
 import { usePermits } from '../../hooks/usePermits';
 import { useProjects } from '../../hooks/useProjects';
 import { usePermitTypeDefaults } from '../../hooks/usePermitTypeDefaults';
+import { useProjectHolds } from '../../hooks/useProjectHolds';
+import { hasActiveHold } from '../../lib/holdOverlap';
 import { useUpdateProjectWithPermits } from '../../hooks/useUpdateProjectWithPermits';
 import { computeLearnedSchedule, type LearnedEstimate } from '../../lib/scheduleBenchmarks';
 import { computeProjectedApproval } from '../../lib/projectedApproval';
@@ -82,6 +84,12 @@ export default function ScheduleHealthTable({ permits }: Props) {
     return m;
   }, [reviewersQ.data]);
 
+  // fix-170 (On-Hold Phase 2, effect D): a project with an ACTIVE hold isn't
+  // flagged Behind / At Risk — the schedule-health badge shows "On Hold"
+  // instead. All permits in this table share one project.
+  const holdsQ = useProjectHolds(permits[0]?.project_id ?? null);
+  const activeHold = hasActiveHold(holdsQ.data);
+
   if (permits.length === 0) {
     return (
       <div className="text-xs text-dim italic px-3 py-3.5">
@@ -138,6 +146,7 @@ export default function ScheduleHealthTable({ permits }: Props) {
               allPermits={allPermitsQ.data ?? []}
               projectsById={projectsById}
               typeDefaultsOverride={typeDefaultsQ.byType}
+              activeHold={activeHold}
             />
           ))}
         </tbody>
@@ -152,12 +161,14 @@ function Row({
   allPermits,
   projectsById,
   typeDefaultsOverride,
+  activeHold,
 }: {
   permit: PermitWithCycles;
   reviewers: PermitCycleReviewer[];
   allPermits: PermitWithCycles[];
   projectsById: Map<string, import('../../lib/database.types').Project>;
   typeDefaultsOverride: Map<string, number>;
+  activeHold: boolean;
 }) {
   const stage = effectiveStage(permit, permit.permit_cycles ?? [], reviewers);
   // fix-31: legacy fallback display for permit types whose adapter
@@ -359,7 +370,7 @@ function Row({
       </td>
       {/* 8. Schedule Health */}
       <td className="px-2 py-2 align-middle text-center border-l" style={borderL}>
-        <HealthBadge diff={diff} />
+        <HealthBadge diff={diff} activeHold={activeHold} />
       </td>
     </tr>
   );
@@ -614,7 +625,32 @@ function healthParts(diff: number): HealthStatus {
   };
 }
 
-function HealthBadge({ diff }: { diff: number | null }) {
+function HealthBadge({
+  diff,
+  activeHold = false,
+}: {
+  diff: number | null;
+  activeHold?: boolean;
+}) {
+  // fix-170: an actively-held project is parked — show "On Hold" rather than
+  // Behind / At Risk so the schedule-health column doesn't scream red while
+  // the project is legitimately paused.
+  if (activeHold) {
+    return (
+      <span
+        className="text-[9px] font-bold px-2 py-0.5 rounded border"
+        style={{
+          background: 'var(--color-co-bg)',
+          color: 'var(--color-co)',
+          borderColor: 'var(--color-co-border)',
+        }}
+        data-testid="schedule-health-on-hold"
+        title="Project is on hold — schedule health is paused"
+      >
+        ⏸ On Hold
+      </span>
+    );
+  }
   if (diff === null) {
     return (
       <span

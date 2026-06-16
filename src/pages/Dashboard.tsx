@@ -11,6 +11,10 @@ import {
   type BucketInput,
 } from '../lib/permitStage';
 import { cardUrgency } from '../lib/urgencyHelpers';
+import {
+  useAllProjectHolds,
+  activeHoldProjectIds,
+} from '../hooks/useProjectHolds';
 import type {
   DrawScheduleRow,
   Permit,
@@ -59,6 +63,13 @@ export default function Dashboard() {
   // fix-54: reviewer rows feed the wholistic rollup that overrides the
   // matrix bucket + Project Overview status pill for MPB permits.
   const reviewersQ = useAllPermitCycleReviewers();
+  // fix-170 (On-Hold Phase 2, effect D): projects with an ACTIVE hold are not
+  // flagged overdue/late on the dashboard. One fetch, indexed to a project-id set.
+  const holdsQ = useAllProjectHolds();
+  const activeHeld = useMemo(
+    () => activeHoldProjectIds(holdsQ.data),
+    [holdsQ.data],
+  );
   // fix-155: fire the numberless-permit sweep once/day (self-guarded).
   useNumberEntrySweep();
   const [search, setSearch] = useState('');
@@ -263,6 +274,7 @@ export default function Dashboard() {
           projectById={projectById}
           cyclesByPermit={cyclesByPermit}
           reviewersByPermit={reviewersByPermit}
+          activeHeld={activeHeld}
           ctx={dashCtx}
         />
         <StageGroup
@@ -296,6 +308,7 @@ export default function Dashboard() {
           projectById={projectById}
           cyclesByPermit={cyclesByPermit}
           reviewersByPermit={reviewersByPermit}
+          activeHeld={activeHeld}
           ctx={dashCtx}
         />
       </div>
@@ -313,6 +326,7 @@ export default function Dashboard() {
           cyclesByPermit={cyclesByPermit}
           reviewersByPermit={reviewersByPermit}
           loading={isLoading}
+          activeHeld={activeHeld}
           ctx={dashCtx}
         />
         <BottomStrip
@@ -327,6 +341,7 @@ export default function Dashboard() {
           cyclesByPermit={cyclesByPermit}
           reviewersByPermit={reviewersByPermit}
           loading={isLoading}
+          activeHeld={activeHeld}
           ctx={dashCtx}
         />
       </div>
@@ -357,6 +372,8 @@ interface StageGroupProps {
   projectById: Map<string, Project>;
   cyclesByPermit: Map<number, PermitCycle[]>;
   reviewersByPermit: Map<number, PermitCycleReviewer[]>;
+  /** fix-170: project ids with an active hold — suppress urgency colors. */
+  activeHeld: Set<string>;
   ctx: DashContext;
 }
 
@@ -381,6 +398,7 @@ function StageGroup({
   projectById,
   cyclesByPermit,
   reviewersByPermit,
+  activeHeld,
   ctx,
 }: StageGroupProps) {
   return (
@@ -436,6 +454,7 @@ function StageGroup({
                     cyclesByPermit={cyclesByPermit}
                     reviewersByPermit={reviewersByPermit}
                     projectById={projectById}
+                    activeHeld={activeHeld}
                     keyDateLabel={sub.keyDateLabel}
                     getKeyDate={sub.getKeyDate}
                     ctx={ctx}
@@ -461,6 +480,7 @@ interface BottomStripProps {
   projectById: Map<string, Project>;
   cyclesByPermit: Map<number, PermitCycle[]>;
   reviewersByPermit: Map<number, PermitCycleReviewer[]>;
+  activeHeld: Set<string>;
   loading: boolean;
   ctx: DashContext;
 }
@@ -487,6 +507,7 @@ function BottomStrip({
   projectById,
   cyclesByPermit,
   reviewersByPermit,
+  activeHeld,
   loading,
   ctx,
 }: BottomStripProps) {
@@ -535,6 +556,7 @@ function BottomStrip({
                 cyclesByPermit={cyclesByPermit}
                 reviewersByPermit={reviewersByPermit}
                 projectById={projectById}
+                activeHeld={activeHeld}
                 keyDateLabel={keyDateLabel}
                 getKeyDate={getKeyDate}
                 ctx={ctx}
@@ -594,6 +616,7 @@ interface SubBucketGroupsProps {
   cyclesByPermit: Map<number, PermitCycle[]>;
   reviewersByPermit: Map<number, PermitCycleReviewer[]>;
   projectById: Map<string, Project>;
+  activeHeld: Set<string>;
   keyDateLabel: string;
   getKeyDate: (p: Permit) => string | null;
   ctx: DashContext;
@@ -605,6 +628,7 @@ function SubBucketGroups({
   cyclesByPermit,
   reviewersByPermit,
   projectById,
+  activeHeld,
   keyDateLabel,
   getKeyDate,
   ctx,
@@ -631,8 +655,10 @@ function SubBucketGroups({
         permit: p,
         cycles: cyclesByPermit.get(p.id) ?? [],
       }));
-      const u = cardUrgency(inputs, stage);
       const first = ps[0];
+      // fix-170: a held project's card is never urgency-colored.
+      const held = activeHeld.has(first.project_id);
+      const u = cardUrgency(inputs, stage, undefined, held);
       const project = projectById.get(first.project_id);
       entries.push({
         address: addr,
@@ -651,7 +677,7 @@ function SubBucketGroups({
       return a.address.localeCompare(b.address);
     });
     return entries;
-  }, [permits, projectById, cyclesByPermit, stage]);
+  }, [permits, projectById, cyclesByPermit, stage, activeHeld]);
 
   return (
     <>
@@ -666,6 +692,7 @@ function SubBucketGroups({
           cyclesByPermit={cyclesByPermit}
           reviewersByPermit={reviewersByPermit}
           cardUrgency={g.urgency}
+          activeHold={activeHeld.has(g.projectId)}
           keyDateLabel={keyDateLabel}
           getKeyDate={getKeyDate}
           isOpen={ctx.openAddresses.has(g.address)}
