@@ -423,20 +423,22 @@ function TrendsBody({ permits, projects, catalogTypes }: BodyProps) {
   // dashed bars overlay cleanly. Chart-ready rows carry both current
   // and comparison values + their n's so the tooltip can disclose both.
   const cityReviewByCycleCurrent = useMemo(
-    () => cityReviewByCycle(filteredCurrent),
-    [filteredCurrent],
+    () => cityReviewByCycle(filteredCurrent, holdsMap),
+    [filteredCurrent, holdsMap],
   );
   const responseByCycleCurrent = useMemo(
-    () => responseTimeByCycle(filteredCurrent),
-    [filteredCurrent],
+    () => responseTimeByCycle(filteredCurrent, holdsMap),
+    [filteredCurrent, holdsMap],
   );
   const cityReviewByCycleCmp = useMemo(
-    () => (filteredComparison ? cityReviewByCycle(filteredComparison) : null),
-    [filteredComparison],
+    () =>
+      filteredComparison ? cityReviewByCycle(filteredComparison, holdsMap) : null,
+    [filteredComparison, holdsMap],
   );
   const responseByCycleCmp = useMemo(
-    () => (filteredComparison ? responseTimeByCycle(filteredComparison) : null),
-    [filteredComparison],
+    () =>
+      filteredComparison ? responseTimeByCycle(filteredComparison, holdsMap) : null,
+    [filteredComparison, holdsMap],
   );
   const cityReviewByCycleData = useMemo(() => {
     return cityReviewByCycleCurrent.map((row, i) => ({

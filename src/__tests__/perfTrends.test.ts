@@ -709,3 +709,41 @@ describe('fix-171 Trends KPIs — held days subtracted', () => {
     expect(avgCityCourtTime([permit], undefined)).toBe(avgCityCourtTime([permit]));
   });
 });
+
+// fix-172 (effect B): the per-cycle Trends bars SUBTRACT held days (display
+// convention), via the forked display-only extractor.
+describe('fix-172 per-cycle bars — held days subtracted', () => {
+  function bHold(start: string, end: string | null): ProjectHold {
+    return {
+      id: `h-${start}`, tenant_id: 't1', project_id: 'p1', reason: 'MHA', note: null,
+      hold_start: start, hold_end: end, created_by: null, created_at: '', updated_at: '',
+    };
+  }
+  // Approved permit with a cycle-1 corrections round-trip.
+  const permit = mkPermit({
+    id: 1,
+    project_id: 'p1',
+    approval_date: '2026-07-01',
+    permit_cycles: [
+      mkCycle({ cycle_index: 0, intake_accepted: '2026-01-01', submitted: '2026-01-01' }),
+      mkCycle({ cycle_index: 1, submitted: '2026-02-01', corr_issued: '2026-03-01', resubmitted: '2026-04-01' }),
+      mkCycle({ cycle_index: 2, submitted: '2026-05-01' }),
+    ],
+  });
+
+  it('Cycle 1 response bar drops by the held days; no-hold byte-identical', () => {
+    // corrResponse1 = 2026-03-01 → 2026-04-01 = 31 raw
+    expect(responseTimeByCycle([permit])[0].avgDays).toBe(31);
+    const holds = new Map([['p1', [bHold('2026-03-10', '2026-03-20')]]]); // 10 held days
+    expect(responseTimeByCycle([permit], holds)[0].avgDays).toBe(21);
+    // empty map → identical
+    expect(responseTimeByCycle([permit], new Map())[0].avgDays).toBe(31);
+  });
+
+  it('Cycle 1 city-review bar subtracts a hold inside the review window', () => {
+    // cityReview1 = c0.intake 2026-01-01 → c1.corr_issued 2026-03-01 = 59 raw
+    expect(cityReviewByCycle([permit])[0].avgDays).toBe(59);
+    const holds = new Map([['p1', [bHold('2026-02-01', '2026-02-15')]]]); // 14 held days
+    expect(cityReviewByCycle([permit], holds)[0].avgDays).toBe(45);
+  });
+});

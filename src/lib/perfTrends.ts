@@ -4,7 +4,6 @@ import type {
   Project,
   ProjectHold,
 } from './database.types';
-import { extractSample } from './scheduleBenchmarks';
 import { formatCompareNumber } from './comparisonCohort';
 import { cityCourtTimeDays, responseCourtTimeDays } from './reportMetrics';
 import { accountableDays } from './holdOverlap';
@@ -331,20 +330,90 @@ export interface ByCycleEntry {
   n: number;
 }
 
-type LearnSample = NonNullable<ReturnType<typeof extractSample>>;
+// fix-172 (effect B): the per-cycle Trends BARS are display turnaround, so they
+// follow the display convention (SUBTRACT held days via accountableDays) — not
+// the learner's drop-the-sample rule. The learner's extractSample returns raw
+// daysBetween counts, so we fork a display-only per-cycle extractor that mirrors
+// extractSample's gate + per-cycle math (strict cycle-1 + the cycles-2-4
+// review-end bracket) but measures accountable duration. With no holds it's
+// byte-identical (accountableDays === daysBetween).
+interface PerCycleDisplaySample {
+  cityReview1Days: number | null;
+  cityReview2Days: number | null;
+  cityReview3Days: number | null;
+  cityReview4Days: number | null;
+  corrResponse1Days: number | null;
+  corrResponse2Days: number | null;
+  corrResponse3Days: number | null;
+  corrResponse4Days: number | null;
+}
+
+function extractPerCycleDisplayDays(
+  permit: PermitWithCycles,
+  holds?: ProjectHold[],
+): PerCycleDisplaySample | null {
+  // Same cohort gate as the learner's extractSample so the bars average over
+  // the identical set of permits (reached approval + has an intake anchor).
+  if (!permit.approval_date && !permit.actual_issue) return null;
+  const cycles = (permit.permit_cycles ?? [])
+    .slice()
+    .sort((a, b) => a.cycle_index - b.cycle_index);
+  const c0 = cycles.find((c) => c.cycle_index === 0);
+  const c1 = cycles.find((c) => c.cycle_index === 1);
+  const c2 = cycles.find((c) => c.cycle_index === 2);
+  const c3 = cycles.find((c) => c.cycle_index === 3);
+  const c4 = cycles.find((c) => c.cycle_index === 4);
+  const intakeAnchor = c0?.intake_accepted ?? c0?.submitted ?? null;
+  if (!intakeAnchor) return null;
+  const approvalDate = permit.approval_date ?? permit.actual_issue ?? null;
+  const acc = (a: string | null | undefined, b: string | null | undefined) =>
+    accountableDays(holds, a ?? null, b ?? null);
+  // Mirror extractSample.reviewEnd: corr_issued, else mid-cycle approval bracket.
+  function reviewEnd(
+    thisCyc: { submitted: string | null; corr_issued: string | null } | undefined,
+    nextCyc: { submitted: string | null } | undefined,
+  ): string | null {
+    if (thisCyc?.corr_issued) return thisCyc.corr_issued;
+    if (
+      approvalDate &&
+      thisCyc?.submitted &&
+      approvalDate >= thisCyc.submitted &&
+      (!nextCyc?.submitted || approvalDate < nextCyc.submitted)
+    ) {
+      return approvalDate;
+    }
+    return null;
+  }
+  const cr2End = reviewEnd(c2, c3);
+  const cr3End = reviewEnd(c3, c4);
+  const cr4End = reviewEnd(c4, undefined);
+  return {
+    cityReview1Days:
+      c0?.intake_accepted && c1?.corr_issued
+        ? acc(c0.intake_accepted, c1.corr_issued)
+        : null,
+    cityReview2Days: cr2End ? acc(c2?.submitted, cr2End) : null,
+    cityReview3Days: cr3End ? acc(c3?.submitted, cr3End) : null,
+    cityReview4Days: cr4End ? acc(c4?.submitted, cr4End) : null,
+    corrResponse1Days: acc(c1?.corr_issued, c1?.resubmitted),
+    corrResponse2Days: acc(c2?.corr_issued, c2?.resubmitted),
+    corrResponse3Days: acc(c3?.corr_issued, c3?.resubmitted),
+    corrResponse4Days: acc(c4?.corr_issued, c4?.resubmitted),
+  };
+}
 
 function computeByCycle(
   permits: PermitWithCycles[],
-  pick: (sample: LearnSample) => Array<number | null>,
+  pick: (sample: PerCycleDisplaySample) => Array<number | null>,
+  holdsByProjectId?: HoldsMap,
 ): ByCycleEntry[] {
   const sums: [number, number, number, number] = [0, 0, 0, 0];
   const counts: [number, number, number, number] = [0, 0, 0, 0];
   for (const p of permits) {
-    // Reuse the canonical sample extractor so the per-cycle day math
-    // matches ScheduleBenchmarks exactly. Don't pass go_date — the
-    // cycle metrics don't depend on it (only goToSubmitDays does, and
-    // we don't read that here).
-    const sample = extractSample(p);
+    const sample = extractPerCycleDisplayDays(
+      p,
+      holdsByProjectId?.get(p.project_id),
+    );
     if (!sample) continue;
     const days = pick(sample);
     for (let i = 0; i < 4; i++) {
@@ -371,13 +440,18 @@ function computeByCycle(
  *  surface uses, so cross-checking is meaningful. */
 export function cityReviewByCycle(
   permits: PermitWithCycles[],
+  holdsByProjectId?: HoldsMap,
 ): ByCycleEntry[] {
-  return computeByCycle(permits, (s) => [
-    s.cityReview1Days,
-    s.cityReview2Days,
-    s.cityReview3Days,
-    s.cityReview4Days,
-  ]);
+  return computeByCycle(
+    permits,
+    (s) => [
+      s.cityReview1Days,
+      s.cityReview2Days,
+      s.cityReview3Days,
+      s.cityReview4Days,
+    ],
+    holdsByProjectId,
+  );
 }
 
 /** fix-125: avg team response days per review cycle across the cohort.
@@ -386,13 +460,18 @@ export function cityReviewByCycle(
  *  a corrections round for cycle N drop out of cycle N. */
 export function responseTimeByCycle(
   permits: PermitWithCycles[],
+  holdsByProjectId?: HoldsMap,
 ): ByCycleEntry[] {
-  return computeByCycle(permits, (s) => [
-    s.corrResponse1Days,
-    s.corrResponse2Days,
-    s.corrResponse3Days,
-    s.corrResponse4Days,
-  ]);
+  return computeByCycle(
+    permits,
+    (s) => [
+      s.corrResponse1Days,
+      s.corrResponse2Days,
+      s.corrResponse3Days,
+      s.corrResponse4Days,
+    ],
+    holdsByProjectId,
+  );
 }
 
 // ============================================================
