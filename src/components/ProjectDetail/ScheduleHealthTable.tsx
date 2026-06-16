@@ -5,10 +5,17 @@ import { useAllPermitCycleReviewers } from '../../hooks/useAllPermitCycleReviewe
 import { usePermits } from '../../hooks/usePermits';
 import { useProjects } from '../../hooks/useProjects';
 import { usePermitTypeDefaults } from '../../hooks/usePermitTypeDefaults';
-import { useProjectHolds } from '../../hooks/useProjectHolds';
+import {
+  useAllProjectHolds,
+  holdsByProjectId,
+} from '../../hooks/useProjectHolds';
 import { hasActiveHold } from '../../lib/holdOverlap';
 import { useUpdateProjectWithPermits } from '../../hooks/useUpdateProjectWithPermits';
-import { computeLearnedSchedule, type LearnedEstimate } from '../../lib/scheduleBenchmarks';
+import {
+  computeLearnedSchedule,
+  filterHeldLearningSamples,
+  type LearnedEstimate,
+} from '../../lib/scheduleBenchmarks';
 import { computeProjectedApproval } from '../../lib/projectedApproval';
 import { derivePermitStatus } from '../../lib/permitStatus';
 import { pushToast } from '../../stores/toastStore';
@@ -84,11 +91,17 @@ export default function ScheduleHealthTable({ permits }: Props) {
     return m;
   }, [reviewersQ.data]);
 
-  // fix-170 (On-Hold Phase 2, effect D): a project with an ACTIVE hold isn't
-  // flagged Behind / At Risk — the schedule-health badge shows "On Hold"
-  // instead. All permits in this table share one project.
-  const holdsQ = useProjectHolds(permits[0]?.project_id ?? null);
-  const activeHold = hasActiveHold(holdsQ.data);
+  // fix-170: all the tenant's holds, indexed by project. Effect D — a project
+  // with an ACTIVE hold shows "On Hold" rather than Behind/At Risk. Effect E —
+  // held permits are dropped from the learner's training set so a parked
+  // turnaround doesn't skew the per-(type,juris) averages.
+  const holdsQ = useAllProjectHolds();
+  const holdsMap = useMemo(() => holdsByProjectId(holdsQ.data), [holdsQ.data]);
+  const activeHold = hasActiveHold(holdsMap.get(permits[0]?.project_id ?? ''));
+  const learningPermits = useMemo(
+    () => filterHeldLearningSamples(allPermitsQ.data ?? [], holdsMap),
+    [allPermitsQ.data, holdsMap],
+  );
 
   if (permits.length === 0) {
     return (
@@ -144,6 +157,7 @@ export default function ScheduleHealthTable({ permits }: Props) {
               permit={p}
               reviewers={reviewersByPermit.get(p.id) ?? []}
               allPermits={allPermitsQ.data ?? []}
+              learningPermits={learningPermits}
               projectsById={projectsById}
               typeDefaultsOverride={typeDefaultsQ.byType}
               activeHold={activeHold}
@@ -159,6 +173,7 @@ function Row({
   permit,
   reviewers,
   allPermits,
+  learningPermits,
   projectsById,
   typeDefaultsOverride,
   activeHold,
@@ -166,6 +181,9 @@ function Row({
   permit: PermitWithCycles;
   reviewers: PermitCycleReviewer[];
   allPermits: PermitWithCycles[];
+  /** fix-170: hold-filtered subset for the learner (siblings still use the
+   *  full allPermits so a held BP sibling is still found for ULS projection). */
+  learningPermits: PermitWithCycles[];
   projectsById: Map<string, import('../../lib/database.types').Project>;
   typeDefaultsOverride: Map<string, number>;
   activeHold: boolean;
@@ -190,12 +208,12 @@ function Row({
     const juris = projectsById.get(permit.project_id)?.juris ?? '';
     if (!permit.type || !juris) return null;
     return computeLearnedSchedule(
-      allPermits,
+      learningPermits,
       permit.type,
       juris,
       projectsByIdRef,
     );
-  }, [allPermits, permit.type, permit.project_id, projectsByIdRef, projectsById]);
+  }, [learningPermits, permit.type, permit.project_id, projectsByIdRef, projectsById]);
   // Q9.5.f-fix-11: ULS branch needs sibling permits + their cycles +
   // per-permit learned data to compute the BP-anchor formula. Scope to
   // the same project — that's where v1 looks for the BP.
@@ -216,10 +234,10 @@ function Row({
         m.set(s.id, null);
         continue;
       }
-      m.set(s.id, computeLearnedSchedule(allPermits, s.type, juris, projectsByIdRef));
+      m.set(s.id, computeLearnedSchedule(learningPermits, s.type, juris, projectsByIdRef));
     }
     return m;
-  }, [siblings, allPermits, permit.project_id, projectsById, projectsByIdRef]);
+  }, [siblings, learningPermits, permit.project_id, projectsById, projectsByIdRef]);
   // Q9.5.f-fix-17 A: bidirectional cycle override. ScheduleEstimator
   // writes the user's +/- pick to permit.extras.scheduleCycleOverride;
   // this row reads it back so both widgets project the same date.
