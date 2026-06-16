@@ -2,9 +2,21 @@ import type {
   PermitCycle,
   PermitWithCycles,
   Project,
+  ProjectHold,
 } from './database.types';
 import { multiMatchAddress } from './drawScheduleHelpers';
 import { effectiveStage } from './permitStage';
+import { accountableDays } from './holdOverlap';
+
+// fix-171 (On-Hold Phase 2, effect B): the displayed turnaround tiles subtract
+// held days so a parked project doesn't inflate "our time". Each measurement
+// swaps daysBetween(a, b) → accountableDays(holds, a, b), where `holds` is the
+// permit's project's holds. accountableDays === daysBetween when there are no
+// holds, so no-hold projects (the common case) are byte-identical.
+type Holds = ProjectHold[] | undefined;
+function accDays(holds: Holds, a: string | null, b: string | null): number | null {
+  return accountableDays(holds, a, b);
+}
 
 // Q7.2.a: pure helpers for the Reports view. Mirrors v1's getRptFiltered
 // (index.html 2905-2988) + renderReports metric computations (5499-5540)
@@ -70,17 +82,9 @@ export function pickFirstSubmittedCycle(
   return sorted.find((c) => c.submitted) ?? null;
 }
 
-/** Days between two ISO dates (b - a). Returns null if either is missing
- *  OR malformed (e.g. a six-digit year typo like '202025-11-30' produces
- *  an Invalid Date whose getTime() returns NaN — fix-140-a guards against
- *  the NaN propagating into the downstream avg). */
-function daysBetween(a: string | null, b: string | null): number | null {
-  if (!a || !b) return null;
-  const aMs = new Date(`${a}T12:00:00Z`).getTime();
-  const bMs = new Date(`${b}T12:00:00Z`).getTime();
-  if (Number.isNaN(aMs) || Number.isNaN(bMs)) return null;
-  return Math.round((bMs - aMs) / DAY_MS);
-}
+// fix-171: the local daysBetween was fully replaced by accDays/accountableDays
+// (identical when there are no holds; NaN/malformed dates still resolve to null
+// via holdOverlap's dayIndex guard).
 
 // ============================================================
 // fix-141: City Review redefined + Avg Response Time added.
@@ -110,11 +114,14 @@ export function extractReviewCycles(permit: PermitWithCycles): PermitCycle[] {
  *  rather than contributing negative days. Matches
  *  perfTrends.avgIntakeToApproval exactly. fix-141 split this OFF from Avg
  *  City Review (which is now the sum-over-cycles cityCourtTimeDays below). */
-function permitTimelineDays(permit: PermitWithCycles): number | null {
+function permitTimelineDays(
+  permit: PermitWithCycles,
+  holds?: Holds,
+): number | null {
   const c0 = (permit.permit_cycles ?? []).find((c) => c.cycle_index === 0);
   const c0IntakeAccepted = c0?.intake_accepted ?? null;
   const approvalPoint = permit.approval_date ?? permit.actual_issue ?? null;
-  const raw = daysBetween(c0IntakeAccepted, approvalPoint);
+  const raw = accDays(holds, c0IntakeAccepted, approvalPoint);
   return raw !== null && raw >= 0 ? raw : null;
 }
 
@@ -124,7 +131,10 @@ function permitTimelineDays(permit: PermitWithCycles): number | null {
  *    - else if final cycle + approval: += days(approval_date − submitted)
  *    - else (ongoing/incomplete):    exclude the permit → null
  *  A permit with zero review cycles has no city-court time to measure → null. */
-export function cityCourtTimeDays(permit: PermitWithCycles): number | null {
+export function cityCourtTimeDays(
+  permit: PermitWithCycles,
+  holds?: Holds,
+): number | null {
   const cycles = extractReviewCycles(permit);
   if (cycles.length === 0) return null;
   let cityTime = 0;
@@ -132,11 +142,11 @@ export function cityCourtTimeDays(permit: PermitWithCycles): number | null {
     const c = cycles[i];
     const isFinal = i === cycles.length - 1;
     if (c.corr_issued) {
-      const d = daysBetween(c.submitted, c.corr_issued);
+      const d = accDays(holds, c.submitted, c.corr_issued);
       if (d === null) return null;
       cityTime += d;
     } else if (isFinal && permit.approval_date) {
-      const d = daysBetween(c.submitted, permit.approval_date);
+      const d = accDays(holds, c.submitted, permit.approval_date);
       if (d === null) return null;
       cityTime += d;
     } else {
@@ -153,7 +163,10 @@ export function cityCourtTimeDays(permit: PermitWithCycles): number | null {
  *  this.corr_issued). Requires at least one completed round-trip
  *  (corr_issued on cycle i AND submitted on cycle i+1). A permit approved
  *  on cycle 1 with no second cycle never had a response event → null. */
-export function responseCourtTimeDays(permit: PermitWithCycles): number | null {
+export function responseCourtTimeDays(
+  permit: PermitWithCycles,
+  holds?: Holds,
+): number | null {
   const cycles = extractReviewCycles(permit);
   if (cycles.length < 2) return null;
   let responseTime = 0;
@@ -161,7 +174,7 @@ export function responseCourtTimeDays(permit: PermitWithCycles): number | null {
     const cur = cycles[i];
     const next = cycles[i + 1];
     if (cur.corr_issued && next.submitted) {
-      const d = daysBetween(cur.corr_issued, next.submitted);
+      const d = accDays(holds, cur.corr_issued, next.submitted);
       if (d === null) return null;
       responseTime += d;
     } else {
@@ -181,20 +194,24 @@ export function responseCourtTimeDays(permit: PermitWithCycles): number | null {
 export function enrichPermits(
   permits: PermitWithCycles[],
   projectsById: Map<string, Project>,
+  // fix-171 (effect B): per-project holds. When omitted (or a project has no
+  // holds) every measurement equals the raw daysBetween — byte-identical.
+  holdsByProjectId?: Map<string, ProjectHold[]>,
 ): EnrichedPermit[] {
   return permits.map<EnrichedPermit>((permit) => {
     const project = projectsById.get(permit.project_id);
     const projectGoDate = project?.go_date ?? null;
+    const holds = holdsByProjectId?.get(permit.project_id);
 
     const firstSub = pickFirstSubmittedCycle(permit.permit_cycles ?? []);
     const firstSubmitted = firstSub?.submitted ?? null;
     const firstIntakeAccepted = firstSub?.intake_accepted ?? null;
 
-    const goToSubmit = daysBetween(projectGoDate, firstSubmitted);
-    const goToDDStart = daysBetween(projectGoDate, permit.dd_start ?? null);
-    const ddDuration = daysBetween(permit.dd_start ?? null, permit.dd_end ?? null);
-    const ddEndToSubmit = daysBetween(permit.dd_end ?? null, firstSubmitted);
-    const submitToIntake = daysBetween(firstSubmitted, firstIntakeAccepted);
+    const goToSubmit = accDays(holds, projectGoDate, firstSubmitted);
+    const goToDDStart = accDays(holds, projectGoDate, permit.dd_start ?? null);
+    const ddDuration = accDays(holds, permit.dd_start ?? null, permit.dd_end ?? null);
+    const ddEndToSubmit = accDays(holds, permit.dd_end ?? null, firstSubmitted);
+    const submitToIntake = accDays(holds, firstSubmitted, firstIntakeAccepted);
 
     // fix-141: the canonical strict intake → approval clock (fix-112-b) is
     // now the Avg Permit Timeline metric, extracted into permitTimelineDays().
@@ -203,18 +220,18 @@ export function enrichPermits(
     // field keeps the intake → approval value the csv export / ReportTable /
     // city-review-by-juris bar still consume — formula unchanged from
     // fix-112-b, only the name moved (cityReviewDays → permitTimelineDays).
-    const permitTimeline = permitTimelineDays(permit);
+    const permitTimeline = permitTimelineDays(permit, holds);
 
     // Variance: expected_issue → (approval_date ?? actual_issue).
     const varianceTarget = permit.approval_date ?? permit.actual_issue ?? null;
-    const variance = daysBetween(permit.expected_issue ?? null, varianceTarget);
+    const variance = accDays(holds, permit.expected_issue ?? null, varianceTarget);
 
     // Correction response: first cycle with BOTH corr_issued + resubmitted.
     const corrCycle = (permit.permit_cycles ?? []).find(
       (c) => c.corr_issued && c.resubmitted,
     );
     const corrResponseDays =
-      corrCycle ? daysBetween(corrCycle.corr_issued, corrCycle.resubmitted) : null;
+      corrCycle ? accDays(holds, corrCycle.corr_issued, corrCycle.resubmitted) : null;
 
     const tags = Array.isArray(project?.project_tags)
       ? (project.project_tags as string[]).filter(
@@ -683,7 +700,12 @@ function avg(values: (number | null)[]): number | null {
 }
 
 /** Compute the 11 v1 metric cards from a filtered, enriched permit set. */
-export function computeMetrics(enriched: EnrichedPermit[]): ReportMetrics {
+export function computeMetrics(
+  enriched: EnrichedPermit[],
+  // fix-171 (effect B): per-project holds for the sum-over-cycles court-time
+  // tiles (City Review / Response Time). Omitted → raw, byte-identical.
+  holdsByProjectId?: Map<string, ProjectHold[]>,
+): ReportMetrics {
   // Total units: sum across distinct projects. fix-22 Mig 3: units lives
   // on the project (single canonical value); every enriched permit at the
   // same project carries the same `units`.
@@ -753,9 +775,17 @@ export function computeMetrics(enriched: EnrichedPermit[]): ReportMetrics {
     // permitTimelineDays field); Response Time = sum-over-cycles our-court
     // time. The three are per-metric cohorts — a permit can contribute to
     // one and not the others.
-    avgCityReview: avg(enriched.map((e) => cityCourtTimeDays(e.permit))),
+    avgCityReview: avg(
+      enriched.map((e) =>
+        cityCourtTimeDays(e.permit, holdsByProjectId?.get(e.permit.project_id)),
+      ),
+    ),
     avgPermitTimeline: avg(enriched.map((e) => e.permitTimelineDays)),
-    avgResponseTime: avg(enriched.map((e) => responseCourtTimeDays(e.permit))),
+    avgResponseTime: avg(
+      enriched.map((e) =>
+        responseCourtTimeDays(e.permit, holdsByProjectId?.get(e.permit.project_id)),
+      ),
+    ),
     avgSubmitToIntake: avg(enriched.map((e) => e.submitToIntake)),
     avgCorrectionCycles,
     permitsWithCorrections: corrRoundsSet.length,
