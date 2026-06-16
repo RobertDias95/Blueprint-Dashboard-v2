@@ -5,6 +5,7 @@ import {
   hasActiveHold,
   intervalOverlapsHold,
   holdWindows,
+  activeHoldElapsedDays,
 } from '../lib/holdOverlap';
 import type { ProjectHold } from '../lib/database.types';
 
@@ -157,6 +158,27 @@ describe('accountableDays', () => {
   it('zero / negative raw intervals preserved as-is', () => {
     expect(accountableDays([], '2026-06-01', '2026-06-01')).toBe(0);
     expect(accountableDays([], '2026-07-01', '2026-06-01')).toBe(-30);
+  });
+});
+
+describe('activeHoldElapsedDays (effect C projection shift)', () => {
+  it('returns today − hold_start for an active hold', () => {
+    expect(activeHoldElapsedDays([w('2026-06-10', null)], TODAY)).toBe(10);
+  });
+  it('0 when there is no active hold (closed holds do not shift projections)', () => {
+    expect(activeHoldElapsedDays([w('2026-06-01', '2026-06-10')], TODAY)).toBe(0);
+    expect(activeHoldElapsedDays([], TODAY)).toBe(0);
+    expect(activeHoldElapsedDays(null, TODAY)).toBe(0);
+  });
+  it('uses the longest-running active hold and never goes negative', () => {
+    expect(
+      activeHoldElapsedDays(
+        [w('2026-06-18', null), w('2026-06-05', null)],
+        TODAY,
+      ),
+    ).toBe(15);
+    // active hold starting in the future → clamped to 0
+    expect(activeHoldElapsedDays([w('2026-07-01', null)], TODAY)).toBe(0);
   });
 });
 
