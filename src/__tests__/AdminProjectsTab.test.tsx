@@ -54,6 +54,8 @@ vi.mock('../hooks/useAppConfig', () => ({
       // matched the broken editor — they're updated alongside.
       ['productTypeOptions', ['SFR', 'Attached Units']],
       ['projectTagOptions', ['ECA', 'SIP']],
+      // fix-167: Hold Reasons editable list.
+      ['holdReasonOptions', ['MHA', 'Financing / capital decision']],
     ]),
   }),
   readAppConfigStringArray: (map: Map<string, unknown>, key: string) => {
@@ -100,13 +102,16 @@ function renderIt() {
 }
 
 describe('<AdminProjectsTab /> Q7.3.a', () => {
-  it('renders all 4 catalog sections + jurisdiction + permit-type rows', () => {
+  it('renders all 5 catalog sections + jurisdiction + permit-type rows', () => {
     renderIt();
     expect(screen.getByTestId('admin-projects-tab')).toBeInTheDocument();
     expect(screen.getByTestId('juris-list')).toBeInTheDocument();
     expect(screen.getByTestId('permit-types-list')).toBeInTheDocument();
     expect(screen.getByTestId('product-types-list')).toBeInTheDocument();
     expect(screen.getByTestId('project-tags-list')).toBeInTheDocument();
+    // fix-167: Hold Reasons editor.
+    expect(screen.getByTestId('hold-reasons-list')).toBeInTheDocument();
+    expect(screen.getByTestId('hold-reasons-list-pill-MHA')).toBeInTheDocument();
     expect(screen.getByTestId('juris-list-pill-Bellevue')).toBeInTheDocument();
     expect(screen.getByTestId('juris-list-pill-Seattle')).toBeInTheDocument();
     expect(screen.getByTestId('permit-types-list-pill-Building Permit')).toBeInTheDocument();
@@ -166,6 +171,27 @@ describe('<AdminProjectsTab /> Q7.3.a', () => {
     expect(
       screen.getByTestId('permit-types-list-remove-IPR'),
     ).toBeInTheDocument();
+  });
+
+  it('fix-167: adding a hold reason extends holdReasonOptions via bp_set_app_config_key', () => {
+    renderIt();
+    fireEvent.change(screen.getByTestId('hold-reasons-list-add'), {
+      target: { value: 'Permit appeal pending' },
+    });
+    fireEvent.click(screen.getByTestId('hold-reasons-list-add-btn'));
+    expect(mocks.setKey).toHaveBeenCalledWith({
+      key: 'holdReasonOptions',
+      value: ['MHA', 'Financing / capital decision', 'Permit appeal pending'],
+    });
+  });
+
+  it('fix-167: removing a hold reason rewrites holdReasonOptions without it', () => {
+    renderIt();
+    fireEvent.click(screen.getByTestId('hold-reasons-list-remove-MHA'));
+    expect(mocks.setKey).toHaveBeenCalledWith({
+      key: 'holdReasonOptions',
+      value: ['Financing / capital decision'],
+    });
   });
 
   it('adding a product type extends the existing array via bp_set_app_config_key', () => {

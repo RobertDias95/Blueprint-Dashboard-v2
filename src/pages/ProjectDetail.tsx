@@ -21,6 +21,7 @@ import ScheduleHealthTable from '../components/ProjectDetail/ScheduleHealthTable
 import NotesDocsFooter from '../components/ProjectDetail/NotesDocsFooter';
 import PermitDetailV2 from '../components/ProjectDetail/PermitDetailV2';
 import ProjectSettingsModal from '../components/ProjectDetail/ProjectSettingsModal';
+import { ProjectHoldBadge } from '../components/ProjectDetail/ProjectHold';
 import DeleteProjectDialog from '../components/ProjectDetail/DeleteProjectDialog';
 import QuickEditPermitModal from '../components/ProjectDetail/QuickEditPermitModal';
 import NewProjectWizard from '../components/NewProjectWizard';
@@ -221,6 +222,9 @@ function ProjectDetailBody({
             projects={allProjects}
           />
         )}
+        {/* fix-167: "On Hold — <reason>" badge — the answer to "why hasn't
+            this issued?". Renders only when an active hold exists. */}
+        <ProjectHoldBadge projectId={project.id} />
       </div>
 
       {/* fix-23e: Two-pillbox body layout. The outer page is bounded
