@@ -1,4 +1,5 @@
-import type { PermitWithCycles, Project } from './database.types';
+import type { PermitWithCycles, Project, ProjectHold } from './database.types';
+import { intervalOverlapsHold } from './holdOverlap';
 
 // Q7.2.a: learned schedule benchmarks. Ports v1's computeLearnedSchedule
 // (index.html 5349-5370) + _extractSample (5218-5280) + _buildEstimate
@@ -772,6 +773,34 @@ export function computeLearnedSchedule(
 ): LearnedEstimate | null {
   // (type, juris) only. No signal → caller uses defaultDaysForType(type).
   return computeForFilter(permits, projectsById, type, juris, today, false);
+}
+
+// fix-170 (On-Hold Phase 2, effect E): keep held permits out of estimator
+// learning. A learning sample is one APPROVED permit measured intake→approval;
+// if that span overlapped a hold on its project, the parked time inflates the
+// turnaround and would skew the learned per-(type,juris) averages — so we drop
+// the sample. Implemented as an INPUT filter (rather than threading holds into
+// every internal collector) so it composes with computeLearnedSchedule /
+// listSourcePermits / the cross-juris paths uniformly. A non-approved permit
+// isn't a sample (extractSample gates on approval), so it's kept untouched;
+// projects with no hold are returned as-is, so the common case is unchanged.
+export function filterHeldLearningSamples(
+  permits: PermitWithCycles[],
+  holdsByProjectId: Map<string, ProjectHold[]> | null | undefined,
+  today: Date = new Date(),
+): PermitWithCycles[] {
+  if (!holdsByProjectId || holdsByProjectId.size === 0) return permits;
+  return permits.filter((p) => {
+    const holds = holdsByProjectId.get(p.project_id);
+    if (!holds || holds.length === 0) return true;
+    const approval = p.approval_date ?? p.actual_issue ?? null;
+    if (!approval) return true; // not an approved sample → keep
+    const c0 = (p.permit_cycles ?? []).find((c) => c.cycle_index === 0);
+    const intakeAnchor = c0?.intake_accepted ?? c0?.submitted ?? null;
+    if (!intakeAnchor) return true;
+    // Drop the sample when the project was held during the measured span.
+    return !intervalOverlapsHold(holds, intakeAnchor, approval, today);
+  });
 }
 
 /** Q9.5.f-fix-3 4.B: one row per contributing permit for the source modal.

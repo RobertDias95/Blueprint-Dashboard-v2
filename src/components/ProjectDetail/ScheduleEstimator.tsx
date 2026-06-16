@@ -4,7 +4,12 @@ import { useProjects } from '../../hooks/useProjects';
 import { useAllPermitCycleReviewers } from '../../hooks/useAllPermitCycleReviewers';
 import { useUpdatePermit } from '../../hooks/useUpdatePermit';
 import {
+  useAllProjectHolds,
+  holdsByProjectId,
+} from '../../hooks/useProjectHolds';
+import {
   computeLearnedSchedule,
+  filterHeldLearningSamples,
   type LearnedEstimate,
 } from '../../lib/scheduleBenchmarks';
 import {
@@ -53,6 +58,15 @@ export default function ScheduleEstimator({ permit }: Props) {
   );
   const allPermits = allPermitsQ.data ?? [];
 
+  // fix-170 (effect E): drop held permits from the learner's training set so a
+  // parked turnaround never skews the per-(type,juris) averages. No holds → the
+  // same array back (common case unchanged).
+  const holdsQ = useAllProjectHolds();
+  const learningPermits = useMemo(
+    () => filterHeldLearningSamples(allPermits, holdsByProjectId(holdsQ.data)),
+    [allPermits, holdsQ.data],
+  );
+
   const siblings = useMemo(
     () => allPermits.filter((p) => p.project_id === permit.project_id),
     [allPermits, permit.project_id],
@@ -70,12 +84,12 @@ export default function ScheduleEstimator({ permit }: Props) {
   const learnedEstimate = useMemo(() => {
     if (!permit.type || !projectJuris) return null;
     return computeLearnedSchedule(
-      allPermits,
+      learningPermits,
       permit.type,
       projectJuris,
       projectsById,
     );
-  }, [allPermits, permit.type, projectJuris, projectsById]);
+  }, [learningPermits, permit.type, projectJuris, projectsById]);
 
   const siblingLearnedByPermitId = useMemo(() => {
     const m = new Map<number, LearnedEstimate | null>();
@@ -86,11 +100,11 @@ export default function ScheduleEstimator({ permit }: Props) {
       }
       m.set(
         s.id,
-        computeLearnedSchedule(allPermits, s.type, projectJuris, projectsById),
+        computeLearnedSchedule(learningPermits, s.type, projectJuris, projectsById),
       );
     }
     return m;
-  }, [siblings, allPermits, projectJuris, projectsById]);
+  }, [siblings, learningPermits, projectJuris, projectsById]);
 
   const permitReviewers = useMemo(
     () => (reviewersQ.data ?? []).filter((r) => r.permit_id === permit.id),
