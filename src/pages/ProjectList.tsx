@@ -25,6 +25,14 @@ import {
   type SortableColumn,
 } from '../lib/projectViewHelpers';
 import { STAGE_LABEL } from '../lib/stageLabel';
+import { useScopeMode } from '../hooks/useSelfScope';
+import {
+  permitMatchesSelf,
+  projectMatchesSelf,
+  type RosterIdentity,
+  type ScopeMode,
+} from '../lib/selfScope';
+import ScopeToggle from '../components/shared/ScopeToggle';
 import type { Stage, TeamMember } from '../lib/database.types';
 
 // fix-90: Project View overhaul. Bobby's Monday triage workspace.
@@ -81,7 +89,22 @@ export default function ProjectList() {
     () => filterProjectRows(allRows, filters),
     [allRows, filters],
   );
-  const sorted = useMemo(() => sortProjectRows(filtered, sort), [filtered, sort]);
+  // fix-176: role-aware "My work" scope, layered on top of the manual filters.
+  // ent_lead/dm -> projects they're on (project-level role); da -> projects
+  // carrying a permit assigned to them. Unmapped users / "Everyone" = no-op.
+  const { mode: scopeMode, setMode: setScopeMode, identity } =
+    useScopeMode('projects');
+  const scoped = useMemo(() => {
+    const name = identity.name;
+    if (scopeMode !== 'mine' || !name) return filtered;
+    if (identity.scope === 'permit') {
+      return filtered.filter((r) =>
+        r.permits.some((p) => permitMatchesSelf(p.permit, name)),
+      );
+    }
+    return filtered.filter((r) => projectMatchesSelf(r.project, name));
+  }, [filtered, scopeMode, identity.name, identity.scope]);
+  const sorted = useMemo(() => sortProjectRows(scoped, sort), [scoped, sort]);
 
   const jurisOptions = useMemo(() => {
     const set = new Set<string>();
@@ -145,6 +168,9 @@ export default function ProjectList() {
         totalCount={allRows.length}
         matchCount={sorted.length}
         onAddProject={() => setWizardOpen(true)}
+        scopeMode={scopeMode}
+        onScopeChange={setScopeMode}
+        identity={identity}
       />
       <NewProjectWizard open={wizardOpen} onClose={() => setWizardOpen(false)} />
 
@@ -211,6 +237,9 @@ function FilterRow({
   totalCount,
   matchCount,
   onAddProject,
+  scopeMode,
+  onScopeChange,
+  identity,
 }: {
   filters: ProjectViewFilters;
   jurisOptions: string[];
@@ -221,6 +250,9 @@ function FilterRow({
   totalCount: number;
   matchCount: number;
   onAddProject: () => void;
+  scopeMode: ScopeMode;
+  onScopeChange: (mode: ScopeMode) => void;
+  identity: RosterIdentity;
 }) {
   return (
     <div
@@ -228,6 +260,12 @@ function FilterRow({
       style={{ borderColor: 'var(--color-border)' }}
       data-testid="project-view-filterrow"
     >
+      <ScopeToggle
+        mode={scopeMode}
+        onChange={onScopeChange}
+        name={identity.name}
+        testid="project-view-scope"
+      />
       <input
         type="text"
         value={filters.search}

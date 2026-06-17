@@ -31,6 +31,9 @@ import StageFilters, {
 } from '../components/Dashboard/StageFilters';
 import { SkeletonRows } from '../components/Skeleton';
 import QueryError from '../components/QueryError';
+import { useScopeMode } from '../hooks/useSelfScope';
+import { permitMatchesSelf, projectMatchesSelf } from '../lib/selfScope';
+import ScopeToggle from '../components/shared/ScopeToggle';
 
 // Q9.5.e2: cross-bucket interactivity. `DashContext` lifts `highlightedAddress`
 // + `openAddresses` to the Dashboard root so toggling open/highlight on one
@@ -77,6 +80,10 @@ export default function Dashboard() {
   const [filters, setFilters] = useState<DashFilters>(EMPTY_DASH_FILTERS);
   const [highlightedAddress, setHighlightedAddress] = useState<string | null>(null);
   const [openAddresses, setOpenAddresses] = useState<Set<string>>(new Set());
+  // fix-176: role-aware "My work" default, remembered per-user. ent_lead/dm ->
+  // permits on projects they lead; da -> permits assigned to them.
+  const { mode: scopeMode, setMode: setScopeMode, identity } =
+    useScopeMode('dashboard');
 
   const toggleAddress = useCallback((addr: string) => {
     let didOpen = false;
@@ -178,12 +185,24 @@ export default function Dashboard() {
     // Q9.5.f Item 2: per-permit ENT/DA/DM/Type filter on top of the
     // project-level search filter. Empty filter Sets are no-ops; specific
     // values exclude permits whose dimension is null per v1 :4949-4951.
+    // fix-176: "My work" scope. For a project-scope user (ent_lead/dm) keep a
+    // project's permits only when they lead that project; for a permit-scope
+    // user (da) keep only the permits assigned to them. mode!=='mine' or an
+    // unmapped user (name=null) is a no-op.
+    const selfName = scopeMode === 'mine' ? identity.name : null;
+    const selfScope = identity.scope;
     const filteredInputs: BucketInput[] = [];
     for (const project of projects) {
       const projectPermits = permitsByProjectId.get(project.id) ?? [];
       if (!matchesSearch(project, projectPermits.map((b) => b.permit))) continue;
+      if (selfName && selfScope === 'project' && !projectMatchesSelf(project, selfName)) {
+        continue;
+      }
       for (const b of projectPermits) {
         if (!permitPassesDashFilters(b.permit, filters)) continue;
+        if (selfName && selfScope === 'permit' && !permitMatchesSelf(b.permit, selfName)) {
+          continue;
+        }
         filteredInputs.push(b);
       }
     }
@@ -205,7 +224,17 @@ export default function Dashboard() {
       cyclesByPermit,
       reviewersByPermit: reviewersByPermitId,
     };
-  }, [projectsQ.data, permitsQ.data, drawQ.data, reviewersQ.data, search, filters]);
+  }, [
+    projectsQ.data,
+    permitsQ.data,
+    drawQ.data,
+    reviewersQ.data,
+    search,
+    filters,
+    scopeMode,
+    identity.name,
+    identity.scope,
+  ]);
 
   if (error) {
     return (
@@ -224,6 +253,12 @@ export default function Dashboard() {
   return (
     <div className="space-y-4">
       <div className="flex items-center gap-3 flex-wrap">
+        <ScopeToggle
+          mode={scopeMode}
+          onChange={setScopeMode}
+          name={identity.name}
+          testid="dashboard-scope"
+        />
         <input
           type="text"
           value={search}
