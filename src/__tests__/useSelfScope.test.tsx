@@ -4,17 +4,26 @@ import { useAuthStore } from '../stores/authStore';
 import type { User } from '@supabase/supabase-js';
 import type { TeamRole } from '../lib/database.types';
 
-// fix-176: useScopeMode defaults each view to the logged-in user's own work
-// (role-aware), persists the manual switch per-user, and remembers it on
-// remount. Drive it via a mocked roster + the real authStore.
+// fix-176: useScopeMode defaults each view to the logged-in user's own work,
+// persists the manual switch per-user, and remembers it on remount.
+// fix-179: scope is decided by REAL project-level assignments (mocked projects),
+// not the roster role column — drive it via a mocked roster + projects + authStore.
 
 const teamState = vi.hoisted(() => ({
   all: [] as { name: string; role: TeamRole; email: string | null }[],
   isLoading: false,
 }));
 
+const projectsState = vi.hoisted(() => ({
+  data: [] as { entitlement_lead: string | null; design_manager: string | null }[],
+  isLoading: false,
+}));
+
 vi.mock('../hooks/useTeamMembers', () => ({
   useTeamMembers: () => teamState,
+}));
+vi.mock('../hooks/useProjects', () => ({
+  useProjects: () => projectsState,
 }));
 
 import { useScopeMode } from '../hooks/useSelfScope';
@@ -23,6 +32,15 @@ const ROSTER = [
   { name: 'Miles', role: 'ent_lead' as TeamRole, email: 'miles@blueprintcap.com' },
   { name: 'Brittani', role: 'dm' as TeamRole, email: 'brittani@blueprintcap.com' },
   { name: 'Cam', role: 'da' as TeamRole, email: 'cameron@blueprintcap.com' },
+  // Bobby holds the ent_lead ROLE but leads no project below → permit scope.
+  { name: 'Bobby', role: 'ent_lead' as TeamRole, email: 'robertd@blueprintcap.com' },
+];
+
+// Miles leads a project (entitlement_lead); Brittani is a design_manager.
+// Cam + Bobby lead NO project → permit scope.
+const PROJECTS = [
+  { entitlement_lead: 'Miles', design_manager: null },
+  { entitlement_lead: null, design_manager: 'Brittani' },
 ];
 
 function loginAs(id: string, email: string | null) {
@@ -33,11 +51,13 @@ beforeEach(() => {
   window.localStorage.clear();
   teamState.all = ROSTER;
   teamState.isLoading = false;
+  projectsState.data = PROJECTS;
+  projectsState.isLoading = false;
   useAuthStore.setState({ user: null });
 });
 
-describe('useScopeMode — role-aware self-default', () => {
-  it('ent_lead user defaults to MINE with project scope', () => {
+describe('useScopeMode — assignment-driven self-default', () => {
+  it('a project lead defaults to MINE with project scope', () => {
     loginAs('u-miles', 'miles@blueprintcap.com');
     const { result } = renderHook(() => useScopeMode('projects'));
     expect(result.current.mode).toBe('mine');
@@ -46,18 +66,28 @@ describe('useScopeMode — role-aware self-default', () => {
     expect(result.current.ready).toBe(true);
   });
 
-  it('design manager defaults to MINE with project scope', () => {
+  it('a design_manager lead defaults to MINE with project scope', () => {
     loginAs('u-britt', 'brittani@blueprintcap.com');
     const { result } = renderHook(() => useScopeMode('dashboard'));
     expect(result.current.mode).toBe('mine');
     expect(result.current.identity.scope).toBe('project');
   });
 
-  it('design associate defaults to MINE with permit scope', () => {
+  it('a permit-only assignee defaults to MINE with permit scope', () => {
     loginAs('u-cam', 'cameron@blueprintcap.com');
     const { result } = renderHook(() => useScopeMode('mytasks'));
     expect(result.current.mode).toBe('mine');
     expect(result.current.identity.name).toBe('Cam');
+    expect(result.current.identity.scope).toBe('permit');
+  });
+
+  // fix-179: the motivating bug — Bobby has the ent_lead ROLE but leads no
+  // project, so he is PERMIT scope and his "My Work" is no longer empty.
+  it('Bobby (ent_lead role, leads 0 projects) defaults to MINE with permit scope', () => {
+    loginAs('u-bobby', 'robertd@blueprintcap.com');
+    const { result } = renderHook(() => useScopeMode('dashboard'));
+    expect(result.current.mode).toBe('mine');
+    expect(result.current.identity.name).toBe('Bobby');
     expect(result.current.identity.scope).toBe('permit');
   });
 

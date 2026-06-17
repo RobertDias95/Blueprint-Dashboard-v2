@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import {
   resolveRosterIdentity,
+  deriveSelfScope,
   projectMatchesSelf,
   permitMatchesSelf,
   taskMatchesSelf,
@@ -10,16 +11,23 @@ import {
 } from '../lib/selfScope';
 import type { TeamRole } from '../lib/database.types';
 
-// fix-176: the login -> roster -> discipline resolution + role-aware scope. The
-// crux is that permit/project fields store NAMES while users log in by email;
-// team_members.email bridges the two. These pin the bridge + Bobby's scope rule.
+// fix-176: login -> roster name bridge (team_members.email). fix-179: the SCOPE
+// tier is decided by REAL project-level assignments, not the roster role column —
+// a per-permit lead (e.g. Bobby: 'ent_lead' role but leads 0 projects) is
+// permit-scoped, not project-scoped.
 
 function m(name: string, role: TeamRole, email: string | null) {
   return { name, role, email };
 }
 
+function proj(entitlement_lead: string | null, design_manager: string | null = null) {
+  return { entitlement_lead, design_manager };
+}
+
 // Mirrors the prod fill (fix_176_team_member_emails): a person can hold several
-// rows; every row carries the same email.
+// rows; every row carries the same email. NOTE the role column here deliberately
+// does NOT match the scope outcome (Bobby is 'ent_lead' yet permit-scoped) —
+// that's the whole point of fix-179.
 const ROSTER = [
   m('Miles', 'ent', 'miles@blueprintcap.com'),
   m('Miles', 'ent_lead', 'miles@blueprintcap.com'),
@@ -34,61 +42,90 @@ const ROSTER = [
   m('Trevor', 'da', null),
 ];
 
-describe('resolveRosterIdentity — login -> roster name + role-aware scope', () => {
-  it('ent_lead holder -> PROJECT scope', () => {
-    const id = resolveRosterIdentity('miles@blueprintcap.com', ROSTER);
+// Prod-shaped: Miles / Briana lead projects (entitlement_lead); Brittani is a
+// design_manager on a project. Bobby / Cam / Shire lead NO project (they're
+// per-permit only) → permit scope.
+const PROJECTS = [
+  proj('Miles', null),
+  proj('Briana', null),
+  proj(null, 'Brittani'),
+  proj('Miles', 'Brittani'),
+];
+
+describe('resolveRosterIdentity — assignment-driven scope (fix-179)', () => {
+  it('a project-level entitlement_lead -> PROJECT scope', () => {
+    const id = resolveRosterIdentity('miles@blueprintcap.com', ROSTER, PROJECTS);
     expect(id.name).toBe('Miles');
     expect(id.scope).toBe('project');
     expect(id.roles.sort()).toEqual(['ent', 'ent_lead']);
   });
 
-  it('design manager (dm) -> PROJECT scope', () => {
-    const id = resolveRosterIdentity('brittani@blueprintcap.com', ROSTER);
+  it('a project-level design_manager -> PROJECT scope', () => {
+    const id = resolveRosterIdentity('brittani@blueprintcap.com', ROSTER, PROJECTS);
     expect(id.name).toBe('Brittani');
     expect(id.scope).toBe('project');
-    expect(id.roles).toEqual(['dm']);
   });
 
-  it('design associate (da only) -> PERMIT scope', () => {
-    const id = resolveRosterIdentity('cameron@blueprintcap.com', ROSTER);
+  it('mapped name with only permit assignments (leads no project) -> PERMIT scope', () => {
+    const id = resolveRosterIdentity('cameron@blueprintcap.com', ROSTER, PROJECTS);
     expect(id.name).toBe('Cam');
     expect(id.scope).toBe('permit');
-    expect(id.roles).toEqual(['da']);
+  });
+
+  // The motivating bug: Bobby holds the 'ent_lead' ROLE but leads ZERO projects
+  // at the project level → must be PERMIT scope, not project (which matched
+  // nothing and left his "My Work" empty under fix-176).
+  it('Bobby-shaped: ent_lead role but 0 project-level lead rows -> PERMIT scope', () => {
+    const id = resolveRosterIdentity('robertd@blueprintcap.com', ROSTER, PROJECTS);
+    expect(id.name).toBe('Bobby');
+    expect(id.roles).toContain('ent_lead');
+    expect(id.scope).toBe('permit');
   });
 
   it('email match is case/space-insensitive', () => {
-    const id = resolveRosterIdentity('  MILES@BlueprintCap.com ', ROSTER);
+    const id = resolveRosterIdentity('  MILES@BlueprintCap.com ', ROSTER, PROJECTS);
     expect(id.name).toBe('Miles');
     expect(id.scope).toBe('project');
   });
 
   it('a login with no roster row -> name=null, scope=all (safe fallback)', () => {
-    const id = resolveRosterIdentity('lucas@blueprintcap.com', ROSTER);
+    const id = resolveRosterIdentity('lucas@blueprintcap.com', ROSTER, PROJECTS);
     expect(id.name).toBeNull();
     expect(id.roles).toEqual([]);
     expect(id.scope).toBe('all');
   });
 
   it('empty/null email -> all', () => {
-    expect(resolveRosterIdentity(null, ROSTER).scope).toBe('all');
-    expect(resolveRosterIdentity('', ROSTER).scope).toBe('all');
+    expect(resolveRosterIdentity(null, ROSTER, PROJECTS).scope).toBe('all');
+    expect(resolveRosterIdentity('', ROSTER, PROJECTS).scope).toBe('all');
   });
 
   it('never matches a roster row whose email is null', () => {
-    // No login email is empty, but guard the inverse: a null-email roster row
-    // must not be hit by an empty needle.
-    const id = resolveRosterIdentity('', ROSTER);
+    const id = resolveRosterIdentity('', ROSTER, PROJECTS);
     expect(id.name).toBeNull();
   });
 
-  it('project scope wins the union when a person is both ent_lead AND da', () => {
-    const roster = [
-      m('Hybrid', 'da', 'hybrid@x.com'),
-      m('Hybrid', 'ent_lead', 'hybrid@x.com'),
-    ];
-    const id = resolveRosterIdentity('hybrid@x.com', roster);
-    expect(id.scope).toBe('project');
-    expect(id.roles.sort()).toEqual(['da', 'ent_lead']);
+  it('a project-lead with no projects loaded yet resolves to permit (until projects land)', () => {
+    // Transient: before the projects query resolves, even Miles reads permit —
+    // the view re-derives once projects load. Pinned so the behavior is intended.
+    const id = resolveRosterIdentity('miles@blueprintcap.com', ROSTER, []);
+    expect(id.name).toBe('Miles');
+    expect(id.scope).toBe('permit');
+  });
+});
+
+describe('deriveSelfScope (fix-179)', () => {
+  it('project when the name leads ≥1 project', () => {
+    expect(deriveSelfScope('Miles', PROJECTS)).toBe('project');
+    expect(deriveSelfScope('Brittani', PROJECTS)).toBe('project');
+  });
+  it('permit when mapped but leads no project', () => {
+    expect(deriveSelfScope('Bobby', PROJECTS)).toBe('permit');
+    expect(deriveSelfScope('Cam', PROJECTS)).toBe('permit');
+  });
+  it('all when name is null/empty (unmapped)', () => {
+    expect(deriveSelfScope(null, PROJECTS)).toBe('all');
+    expect(deriveSelfScope('', PROJECTS)).toBe('all');
   });
 });
 
