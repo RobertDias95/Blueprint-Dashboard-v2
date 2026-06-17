@@ -4,16 +4,14 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { ReactNode } from 'react';
 import { useAuthStore } from '../stores/authStore';
 
-// fix-24b: useUpdateProject — wire-shape test focused on the
-// builder-catalog auto-promote follow-up. The project update half
-// is unchanged from fix-3; this suite pins the new catalog upsert
-// behaviour:
-//   - fires when patch.builder_name has non-empty trimmed value
-//   - skips when builder_name is missing / empty / whitespace
-//   - uses onConflict:'name,company' + ignoreDuplicates:true so
-//     existing catalog entries aren't overwritten
-//   - swallows upsert failures (best-effort; project save already
-//     committed)
+// fix-174: useUpdateProject must NEVER upsert into the builders catalog. The
+// fix-24b auto-promote was removed — the Project Overview Builder/Owner cell
+// commits each field on blur, so a partial/in-progress name got promoted on
+// every intermediate blur and littered the catalog with fragments ("boy",
+// "stas"). Catalog growth now happens ONLY via the form-submit RPCs
+// (bp_create_project_with_permits / bp_update_project_with_permits). This suite
+// pins the no-side-effect contract: a project update with builder fields fires
+// the projects UPDATE and NO builders upsert.
 
 const T = 'test-tenant-uuid';
 
@@ -114,12 +112,13 @@ beforeEach(() => {
   });
 });
 
-describe('useUpdateProject — fix-24b builder auto-promote', () => {
-  it('auto-promotes a typed builder when patch.builder_name has a non-empty trimmed value', async () => {
+describe('useUpdateProject — fix-174 no builder auto-promote', () => {
+  it('does NOT upsert a builder even when the patch carries full builder fields (the project update still fires)', async () => {
     const { wrapper } = setup();
     const { result } = renderHook(() => useUpdateProject(), { wrapper });
+    let resolved: unknown = null;
     await act(async () => {
-      await result.current.mutateAsync({
+      resolved = await result.current.mutateAsync({
         projectId: 'p-1',
         expectedUpdatedAt: '2026-05-14T12:00:00Z',
         patch: {
@@ -130,25 +129,33 @@ describe('useUpdateProject — fix-24b builder auto-promote', () => {
         },
       });
     });
-    // The catalog upsert fired against the builders table.
-    expect(mocks.upsertFn).toHaveBeenCalledTimes(1);
-    const [table, payload, options] = mocks.upsertFn.mock.calls[0];
-    expect(table).toBe('builders');
-    expect(payload).toEqual({
-      name: 'Jane Builder',
-      company: 'Acme Homes',
-      email: 'jane@acme.test',
-      phone: '(206) 555-0100',
-      tenant_id: T,
-    });
-    // ON CONFLICT (name, company) DO NOTHING semantics from PostgREST.
-    expect(options).toMatchObject({
-      onConflict: 'name,company',
-      ignoreDuplicates: true,
-    });
+    // Project save persisted…
+    expect(resolved).toMatchObject({ id: 'p-1' });
+    expect(mocks.fromFn).toHaveBeenCalledWith('projects');
+    // …and crucially NO builders catalog write happened.
+    expect(mocks.upsertFn).not.toHaveBeenCalled();
+    expect(mocks.fromFn).not.toHaveBeenCalledWith('builders');
   });
 
-  it('does NOT auto-promote when builder_name is missing from the patch', async () => {
+  it('does NOT upsert a builder for a partial single-field builder_name commit (the per-blur fragment path)', async () => {
+    const { wrapper } = setup();
+    const { result } = renderHook(() => useUpdateProject(), { wrapper });
+    await act(async () => {
+      await result.current.mutateAsync({
+        projectId: 'p-1',
+        expectedUpdatedAt: '2026-05-14T12:00:00Z',
+        // Exactly what the Project Overview Builder/Owner name field commits
+        // on blur — a fragment like "boy" must NOT become a catalog row.
+        patch: { builder_name: 'boy' },
+        fieldLabel: 'Builder Name',
+      });
+    });
+    expect(mocks.upsertFn).not.toHaveBeenCalled();
+    // The project's own builder_name string is still saved (its own data).
+    expect(mocks.updateFn).toHaveBeenCalledWith({ builder_name: 'boy' });
+  });
+
+  it('does NOT upsert for a non-builder patch (unchanged behavior)', async () => {
     const { wrapper } = setup();
     const { result } = renderHook(() => useUpdateProject(), { wrapper });
     await act(async () => {
@@ -158,92 +165,6 @@ describe('useUpdateProject — fix-24b builder auto-promote', () => {
         patch: { zone: 'LR2' },
       });
     });
-    expect(mocks.upsertFn).not.toHaveBeenCalled();
-  });
-
-  it('does NOT auto-promote when builder_name is empty / whitespace-only', async () => {
-    const { wrapper } = setup();
-    const { result } = renderHook(() => useUpdateProject(), { wrapper });
-    await act(async () => {
-      await result.current.mutateAsync({
-        projectId: 'p-1',
-        expectedUpdatedAt: '2026-05-14T12:00:00Z',
-        patch: {
-          builder_name: '   ',
-          builder_company: 'Should not matter',
-          builder_email: '',
-          builder_phone: null,
-        },
-      });
-    });
-    expect(mocks.upsertFn).not.toHaveBeenCalled();
-  });
-
-  it('passes empty company/email/phone as null (not empty string) so PostgREST sees nullable columns correctly', async () => {
-    const { wrapper } = setup();
-    const { result } = renderHook(() => useUpdateProject(), { wrapper });
-    await act(async () => {
-      await result.current.mutateAsync({
-        projectId: 'p-1',
-        expectedUpdatedAt: '2026-05-14T12:00:00Z',
-        patch: {
-          builder_name: 'Solo Builder',
-          builder_company: '',
-          builder_email: '   ',
-          builder_phone: null,
-        },
-      });
-    });
-    expect(mocks.upsertFn).toHaveBeenCalledTimes(1);
-    const [, payload] = mocks.upsertFn.mock.calls[0];
-    expect(payload).toEqual({
-      name: 'Solo Builder',
-      company: null,
-      email: null,
-      phone: null,
-      tenant_id: T,
-    });
-  });
-
-  it('swallows the catalog upsert error (best-effort; the project save itself still succeeds)', async () => {
-    mocks.setBuildersResult({
-      data: null,
-      error: new Error('PostgREST 23505: duplicate or RLS denied'),
-    });
-    const { wrapper } = setup();
-    const { result } = renderHook(() => useUpdateProject(), { wrapper });
-    // Should NOT throw despite the catalog upsert failing.
-    let resolved: unknown = null;
-    await act(async () => {
-      resolved = await result.current.mutateAsync({
-        projectId: 'p-1',
-        expectedUpdatedAt: '2026-05-14T12:00:00Z',
-        patch: {
-          builder_name: 'Jane Builder',
-          builder_company: 'Acme Homes',
-        },
-      });
-    });
-    expect(resolved).toMatchObject({ id: 'p-1' });
-    expect(mocks.upsertFn).toHaveBeenCalledTimes(1);
-  });
-
-  it('skips the catalog upsert when no active tenant is set (RLS would reject it anyway)', async () => {
-    useAuthStore.setState({ activeTenantId: null, memberships: [] });
-    const { wrapper } = setup();
-    const { result } = renderHook(() => useUpdateProject(), { wrapper });
-    await act(async () => {
-      await result.current.mutateAsync({
-        projectId: 'p-1',
-        expectedUpdatedAt: '2026-05-14T12:00:00Z',
-        patch: {
-          builder_name: 'Jane Builder',
-          builder_company: 'Acme Homes',
-        },
-      });
-    });
-    // Project update still fires; catalog upsert skipped.
-    expect(mocks.fromFn).toHaveBeenCalledWith('projects');
     expect(mocks.upsertFn).not.toHaveBeenCalled();
   });
 });
