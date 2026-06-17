@@ -1,4 +1,8 @@
 import type { Permit, PermitCycle } from './database.types';
+import {
+  isTerminalIssuedStatus,
+  isTerminalApprovedStatus,
+} from './permitTerminalStatus';
 
 // Q9.5.g: Auto-derive a draw_schedule block's status from the current BP
 // permit data. Mirrors v1 dsAutoStatus at index.html:8404-8445. The
@@ -108,6 +112,24 @@ function isStatus(v: string | null): v is DsStatus {
   return DS_STATUS_LIST.includes(v as DsStatus);
 }
 
+/** fix-177: a permit the city has finished with — physically issued
+ *  (actual_issue) OR a terminal-positive portal status (reusing the canonical
+ *  fix-31c/d sets: Issued / Conceptually Approved / Approved / Completed /
+ *  Closed / Ready for Issuance). Once a permit is done, a dangling open-
+ *  corrections cycle (corr_issued with no resubmitted — common when the final
+ *  cycle is never formally closed at issuance) is stale: the lane must read
+ *  done, not "Corrections". approval_date alone is intentionally NOT "done"
+ *  here — an approved-but-not-issued permit that re-enters corrections should
+ *  still surface as Corrections (Branch 2 below still maps approval_date →
+ *  Approved once no open corrections remain). */
+function permitIsDone(p: Permit): boolean {
+  return (
+    !!p.actual_issue ||
+    isTerminalIssuedStatus(p.status) ||
+    isTerminalApprovedStatus(p.status)
+  );
+}
+
 export function deriveBlockStatus(input: DeriveStatusInput): DeriveStatusResult {
   const today = toMidnight(input.today ?? new Date());
   const bps = input.permits.filter((p) => p.type === 'Building Permit');
@@ -127,17 +149,25 @@ export function deriveBlockStatus(input: DeriveStatusInput): DeriveStatusResult 
     return { status: 'Scheduled', isAuto: true };
   }
 
-  // Branch 1: any permit has an open corrections cycle (corr_issued set,
-  // resubmitted unset). Always wins, even over manualStatus.
+  // Branch 1: any NON-terminal permit has an open corrections cycle (corr_issued
+  // set, resubmitted unset). Wins even over manualStatus. fix-177: a permit the
+  // city has already finished (Issued / Demo Completed / terminal-positive
+  // status) is excluded — its dangling last cycle is moot and must not paint the
+  // lane "Corrections" (e.g. 1917 3rd Ave W: BP Issued 2026-01-29 with a never-
+  // closed corr cycle from 2026-01-20).
   const anyCorrections = src.some((p) => {
+    if (permitIsDone(p)) return false;
     const cycles = input.cyclesByPermit.get(p.id) ?? [];
     return cycles.some((c) => !!c.corr_issued && !c.resubmitted);
   });
   if (anyCorrections) return { status: 'Corrections', isAuto: true };
 
-  // Branch 2: every permit has either approval_date or actual_issue. Always wins.
+  // Branch 2: every permit is approved/issued. Always wins. fix-177: a terminal-
+  // positive portal status counts as done even with no recorded approval/issue
+  // date (e.g. SDOT "Conceptually Approved"), so it reads Approved instead of
+  // falling through to Under Review — same precedence effectiveStage uses.
   const allApproved = src.every(
-    (p) => !!p.approval_date || !!p.actual_issue,
+    (p) => !!p.approval_date || permitIsDone(p),
   );
   if (allApproved) return { status: 'Approved', isAuto: true };
 
