@@ -82,14 +82,14 @@ describe('LandUsePhaseBadge', () => {
     expect(badge.textContent).toContain('In Publication until 2026-06-30');
   });
 
-  it('renders "Recorded" when issued', () => {
+  // fix-178: the badge is now limbo-only. Recorded is terminal → suppressed.
+  it('renders NOTHING when Recorded (terminal — covered elsewhere)', () => {
     render(<LandUsePhaseBadge permit={permit({ actual_issue: '2026-06-18' })} today={TODAY} />);
-    const badge = screen.getByTestId('landuse-phase-badge-42');
-    expect(badge.getAttribute('data-phase')).toBe('recorded');
-    expect(badge.textContent).toContain('Recorded');
+    expect(screen.queryByTestId('landuse-phase-badge-42')).not.toBeInTheDocument();
   });
 
-  it('falls back to the cycle-derived phase when no milestones are set', () => {
+  // fix-178: In Review is already shown by the cycle/stage layer → suppressed.
+  it('renders NOTHING for a cycle-derived In Review phase (no limbo milestone)', () => {
     render(
       <LandUsePhaseBadge
         permit={permit({
@@ -111,7 +111,69 @@ describe('LandUsePhaseBadge', () => {
         today={TODAY}
       />,
     );
+    expect(screen.queryByTestId('landuse-phase-badge-42')).not.toBeInTheDocument();
+  });
+});
+
+// fix-178 Part C: the badge surfaces ONLY the limbo phases the cycle/stage
+// tracker doesn't already cover. Design Review / In Publication / Decision
+// Published → badge; In Review / Corrections / Final Review / Recorded → none.
+describe('LandUsePhaseBadge — limbo-only gate (fix-178)', () => {
+  function luCycle(over: Record<string, unknown> = {}) {
+    return {
+      id: 'c',
+      permit_id: 42,
+      cycle_index: 0,
+      submitted: null,
+      city_target: null,
+      corr_issued: null,
+      resubmitted: null,
+      intake_accepted: null,
+      created_at: '',
+      updated_at: '',
+      ...over,
+    };
+  }
+
+  it('SHOWS the badge for Decision Published (publication window closed)', () => {
+    render(
+      <LandUsePhaseBadge
+        permit={permit({
+          decision_published_date: '2026-05-20',
+          publication_end_date: '2026-06-03', // before TODAY → window closed
+        })}
+        today={TODAY}
+      />,
+    );
     const badge = screen.getByTestId('landuse-phase-badge-42');
-    expect(badge.getAttribute('data-phase')).toBe('in_review');
+    expect(badge.getAttribute('data-phase')).toBe('decision_published');
+  });
+
+  it('SUPPRESSES the badge for Corrections (cycle layer already shows it)', () => {
+    render(
+      <LandUsePhaseBadge
+        permit={permit({
+          permit_cycles: [
+            luCycle({ submitted: '2026-02-01', corr_issued: '2026-03-01', resubmitted: null }),
+          ],
+        })}
+        today={TODAY}
+      />,
+    );
+    expect(screen.queryByTestId('landuse-phase-badge-42')).not.toBeInTheDocument();
+  });
+
+  it('SUPPRESSES the badge for Final Review (cycle resumed after publication)', () => {
+    render(
+      <LandUsePhaseBadge
+        permit={permit({
+          decision_published_date: '2026-04-01',
+          publication_end_date: '2026-04-15',
+          permit_cycles: [luCycle({ cycle_index: 1, submitted: '2026-05-01' })],
+        })}
+        today={TODAY}
+      />,
+    );
+    expect(screen.queryByTestId('landuse-phase-badge-42')).not.toBeInTheDocument();
   });
 });

@@ -33,7 +33,19 @@ import {
   type ScopeMode,
 } from '../lib/selfScope';
 import ScopeToggle from '../components/shared/ScopeToggle';
-import type { Stage, TeamMember } from '../lib/database.types';
+import {
+  useAllProjectHolds,
+  activeHoldProjectIds,
+  activeHoldByProjectId,
+} from '../hooks/useProjectHolds';
+import HoldFilter from '../components/shared/HoldFilter';
+import { HoldBadge } from '../components/shared/HoldBadge';
+import {
+  passesHoldFilter,
+  HOLD_FILTER_DEFAULT,
+  type HoldFilterMode,
+} from '../lib/holdFilter';
+import type { ProjectHold, Stage, TeamMember } from '../lib/database.types';
 
 // fix-90: Project View overhaul. Bobby's Monday triage workspace.
 //
@@ -104,7 +116,32 @@ export default function ProjectList() {
     }
     return filtered.filter((r) => projectMatchesSelf(r.project, name));
   }, [filtered, scopeMode, identity.name, identity.scope]);
-  const sorted = useMemo(() => sortProjectRows(scoped, sort), [scoped, sort]);
+
+  // fix-178: three-way hold filter (project-level), layered after the scope
+  // filter. Default 'all'; no persistence.
+  const holdsQ = useAllProjectHolds();
+  const activeHeld = useMemo(
+    () => activeHoldProjectIds(holdsQ.data),
+    [holdsQ.data],
+  );
+  const activeHoldMap = useMemo(
+    () => activeHoldByProjectId(holdsQ.data),
+    [holdsQ.data],
+  );
+  const [holdMode, setHoldMode] = useState<HoldFilterMode>(HOLD_FILTER_DEFAULT);
+  const holdScoped = useMemo(
+    () =>
+      holdMode === 'all'
+        ? scoped
+        : scoped.filter((r) =>
+            passesHoldFilter(activeHeld.has(r.project.id), holdMode),
+          ),
+    [scoped, holdMode, activeHeld],
+  );
+  const sorted = useMemo(
+    () => sortProjectRows(holdScoped, sort),
+    [holdScoped, sort],
+  );
 
   const jurisOptions = useMemo(() => {
     const set = new Set<string>();
@@ -171,6 +208,8 @@ export default function ProjectList() {
         scopeMode={scopeMode}
         onScopeChange={setScopeMode}
         identity={identity}
+        holdMode={holdMode}
+        onHoldChange={setHoldMode}
       />
       <NewProjectWizard open={wizardOpen} onClose={() => setWizardOpen(false)} />
 
@@ -211,6 +250,7 @@ export default function ProjectList() {
                 <ProjectRowView
                   key={row.project.id}
                   row={row}
+                  hold={activeHoldMap.get(row.project.id) ?? null}
                   expanded={expandedById.get(row.project.id) ?? false}
                   onToggle={() => toggleExpanded(row.project.id)}
                 />
@@ -240,6 +280,8 @@ function FilterRow({
   scopeMode,
   onScopeChange,
   identity,
+  holdMode,
+  onHoldChange,
 }: {
   filters: ProjectViewFilters;
   jurisOptions: string[];
@@ -253,6 +295,8 @@ function FilterRow({
   scopeMode: ScopeMode;
   onScopeChange: (mode: ScopeMode) => void;
   identity: RosterIdentity;
+  holdMode: HoldFilterMode;
+  onHoldChange: (mode: HoldFilterMode) => void;
 }) {
   return (
     <div
@@ -265,6 +309,11 @@ function FilterRow({
         onChange={onScopeChange}
         name={identity.name}
         testid="project-view-scope"
+      />
+      <HoldFilter
+        mode={holdMode}
+        onChange={onHoldChange}
+        testid="project-view-hold-filter"
       />
       <input
         type="text"
@@ -450,10 +499,12 @@ function Th({
 
 function ProjectRowView({
   row,
+  hold,
   expanded,
   onToggle,
 }: {
   row: ProjectRow;
+  hold: Pick<ProjectHold, 'reason' | 'hold_start' | 'note'> | null;
   expanded: boolean;
   onToggle: () => void;
 }) {
@@ -483,13 +534,17 @@ function ProjectRowView({
           )}
         </td>
         <td className="px-2 py-1.5 font-display font-bold text-text">
-          <Link
-            to={`/project/${row.project.id}`}
-            className="hover:underline"
-            data-testid={`project-view-link-${row.project.id}`}
-          >
-            {row.project.address}
-          </Link>
+          <div className="flex items-center gap-2 flex-wrap">
+            <Link
+              to={`/project/${row.project.id}`}
+              className="hover:underline"
+              data-testid={`project-view-link-${row.project.id}`}
+            >
+              {row.project.address}
+            </Link>
+            {/* fix-178: on-hold badge inline with the address. */}
+            <HoldBadge hold={hold} testid={`project-view-hold-${row.project.id}`} />
+          </div>
         </td>
         <td className="px-2 py-1.5 text-muted">{row.project.juris ?? '—'}</td>
         <td className="px-2 py-1.5 font-mono text-text">

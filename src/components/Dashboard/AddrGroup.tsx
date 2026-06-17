@@ -4,11 +4,13 @@ import { effectiveStage } from '../../lib/permitStage';
 import { permitUrgency, type UrgencyLevel } from '../../lib/urgencyHelpers';
 import { derivePermitStatus } from '../../lib/permitStatus';
 import PendingScrapeChip from '../shared/PendingScrapeChip';
+import { HoldBadge } from '../shared/HoldBadge';
 import type {
   Permit,
   PermitCycle,
   PermitCycleReviewer,
   PermitWithCycles,
+  ProjectHold,
   Stage,
 } from '../../lib/database.types';
 
@@ -37,6 +39,8 @@ interface AddrGroupProps {
   cardUrgency: UrgencyLevel;
   /** fix-170: project has an ACTIVE hold → per-row urgency colors suppressed. */
   activeHold?: boolean;
+  /** fix-178: the project's active hold (for the on-hold card badge), or null. */
+  hold?: Pick<ProjectHold, 'reason' | 'hold_start' | 'note'> | null;
   keyDateLabel: string;
   getKeyDate: (p: Permit) => string | null;
   isOpen: boolean;
@@ -91,6 +95,7 @@ export default function AddrGroup({
   reviewersByPermit,
   cardUrgency,
   activeHold = false,
+  hold = null,
   keyDateLabel,
   getKeyDate,
   isOpen,
@@ -223,6 +228,13 @@ export default function AddrGroup({
             ))}
           </div>
         </div>
+        {/* fix-178: on-hold badge — a held project is visually flagged so it
+            doesn't masquerade as a normal (red-zone) urgency card. */}
+        {hold && (
+          <div className="flex items-center" style={{ marginBottom: 6, paddingLeft: 16 }}>
+            <HoldBadge hold={hold} testid={`addr-group-hold-${projectId}`} />
+          </div>
+        )}
         {/* Permit-type pill row */}
         <div
           className="flex items-center flex-wrap"

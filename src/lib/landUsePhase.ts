@@ -39,6 +39,23 @@ export const LAND_USE_PHASE_LABEL: Record<LandUsePhase, string> = {
   recorded: 'Recorded',
 };
 
+// fix-178: the "limbo" phases the cycle/stage tracker does NOT already cover.
+// The badge surfaces ONLY these — Design Review, the publication window (In
+// Publication / Decision Published) — so it stops duplicating info the cycle
+// layer already shows (Intake / In Review / Corrections) and stops cluttering
+// terminal/final states (Final Review / Recorded). Pure display gate; the
+// deriver still returns the full phase for any other consumer.
+export const LAND_USE_LIMBO_PHASES: ReadonlySet<LandUsePhase> = new Set<LandUsePhase>([
+  'design_review',
+  'decision_published',
+  'in_publication',
+]);
+
+/** fix-178: true when the phase is one the badge should surface (limbo only). */
+export function isLandUseLimboPhase(phase: LandUsePhase): boolean {
+  return LAND_USE_LIMBO_PHASES.has(phase);
+}
+
 /** Land-use permit subtypes. ULS is the in-codebase Seattle LU type (also a
  *  NO_ISSUANCE type); LBA + short-plat are the other *-LU subtypes (scraper
  *  fix-77). A Seattle land-use record number ends in '-LU', so we also match

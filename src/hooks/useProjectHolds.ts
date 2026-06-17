@@ -83,6 +83,17 @@ export function activeHoldProjectIds(
   return s;
 }
 
+/** fix-178: map project_id → its ACTIVE hold (the open row). Lets the dashboard
+ *  / project-list badge show the hold reason from the one bulk holds fetch
+ *  (useAllProjectHolds) without a per-project query. */
+export function activeHoldByProjectId(
+  holds: ProjectHold[] | undefined,
+): Map<string, ProjectHold> {
+  const m = new Map<string, ProjectHold>();
+  for (const h of holds ?? []) if (h.hold_end === null) m.set(h.project_id, h);
+  return m;
+}
+
 export interface SetProjectHoldInput {
   projectId: string;
   reason: string;

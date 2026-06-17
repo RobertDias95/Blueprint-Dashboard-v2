@@ -259,6 +259,18 @@ const fixtures = vi.hoisted(() => ({
     { id: '3', name: 'Trevor', role: 'da', active: true, former: false, email: null, notes: null, updated_at: '' },
     { id: '4', name: 'Cam', role: 'da', active: true, former: false, email: null, notes: null, updated_at: '' },
   ],
+  // fix-178: p-b has an ACTIVE hold; p-a has only a CLOSED past hold (must NOT
+  // count as held). p-c has none.
+  holds: [
+    {
+      id: 'h-b', tenant_id: 'test-tenant-uuid', project_id: 'p-b', reason: 'Financing', note: 'waiting on closing',
+      hold_start: '2026-05-01', hold_end: null, created_by: null, created_at: '', updated_at: '',
+    },
+    {
+      id: 'h-a', tenant_id: 'test-tenant-uuid', project_id: 'p-a', reason: 'MHA', note: null,
+      hold_start: '2026-03-01', hold_end: '2026-03-20', created_by: null, created_at: '', updated_at: '',
+    },
+  ],
 }));
 
 vi.mock('../hooks/useProjects', () => ({
@@ -292,6 +304,20 @@ vi.mock('../hooks/useTeamMembers', () => ({
     isLoading: false, error: null, data: [], refetch: vi.fn(),
   }),
 }));
+// fix-178: ProjectList now reads holds (badge + filter). Mock only the bulk
+// hook; keep the real pure helpers (activeHoldProjectIds / activeHoldByProjectId).
+vi.mock('../hooks/useProjectHolds', async (importActual) => {
+  const actual = await importActual<typeof import('../hooks/useProjectHolds')>();
+  return {
+    ...actual,
+    useAllProjectHolds: () => ({
+      data: fixtures.holds,
+      isLoading: false,
+      error: null,
+      refetch: vi.fn(),
+    }),
+  };
+});
 // The page mounts NewProjectWizard. Stub it inert so the wizard's data
 // hooks don't have to be mocked here.
 vi.mock('../components/NewProjectWizard', () => ({
@@ -487,5 +513,37 @@ describe('<ProjectView /> (fix-90)', () => {
     fireEvent.click(screen.getByTestId('project-view-empty-reset'));
     // After reset every project is back.
     expect(visibleProjectIds().length).toBe(3);
+  });
+});
+
+// fix-178 Part B: hold badge + three-way hold filter on the Project List.
+describe('<ProjectView /> hold badge + filter (fix-178)', () => {
+  it('badges the held project (active hold) and NOT one with only a closed past hold', () => {
+    renderIt();
+    // p-b has an active hold → badge present with its reason.
+    const badge = screen.getByTestId('project-view-hold-p-b');
+    expect(badge.textContent).toContain('On Hold');
+    expect(badge.textContent).toContain('Financing');
+    // p-a's only hold is closed → no badge.
+    expect(screen.queryByTestId('project-view-hold-p-a')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('project-view-hold-p-c')).not.toBeInTheDocument();
+  });
+
+  it("default 'All' shows everything", () => {
+    renderIt();
+    expect(visibleProjectIds().sort()).toEqual(['p-a', 'p-b', 'p-c']);
+  });
+
+  it("'Only Holds' shows just the actively-held project", () => {
+    renderIt();
+    fireEvent.click(screen.getByTestId('project-view-hold-filter-only'));
+    expect(visibleProjectIds()).toEqual(['p-b']);
+  });
+
+  it("'Exclude Holds' hides the actively-held project (closed-hold project stays)", () => {
+    renderIt();
+    fireEvent.click(screen.getByTestId('project-view-hold-filter-exclude'));
+    // p-b drops; p-a (closed hold) + p-c remain.
+    expect(visibleProjectIds().sort()).toEqual(['p-a', 'p-c']);
   });
 });
