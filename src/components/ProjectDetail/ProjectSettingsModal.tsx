@@ -83,6 +83,9 @@ interface ProjectScalarFields {
   product_types: string[];
   entitlement_lead: string;
   design_manager: string;
+  /** fix-175: per-project point-of-contact (NOT a builder catalog field). */
+  poc_name: string;
+  poc_email: string;
 }
 
 interface BpRoleFields {
@@ -94,6 +97,9 @@ interface BuilderFlatFields {
   builder_company: string;
   builder_email: string;
   builder_phone: string;
+  /** fix-175: owner LLC address — autofills on pick, saved to the builders
+   *  catalog (and projects.builder_address cache) via the update RPC. */
+  builder_address: string;
 }
 
 interface PermitRow {
@@ -155,6 +161,7 @@ function initForm(
       builder_company: project.builder_company ?? '',
       builder_email: project.builder_email ?? '',
       builder_phone: project.builder_phone ?? '',
+      builder_address: project.builder_address ?? '',
     },
     projectFields: {
       go_date: project.go_date ?? '',
@@ -171,6 +178,8 @@ function initForm(
         : [],
       entitlement_lead: project.entitlement_lead ?? '',
       design_manager: project.design_manager ?? '',
+      poc_name: project.poc_name ?? '',
+      poc_email: project.poc_email ?? '',
     },
     bpRole: {
       da: bp?.da ?? '',
@@ -273,6 +282,8 @@ export default function ProjectSettingsModal({
         builder_company: b.company ?? '',
         builder_email: b.email ?? '',
         builder_phone: b.phone ?? '',
+        // fix-175: carry the entity address across (POC stays per-project).
+        builder_address: b.address ?? '',
       },
     }));
   }
@@ -355,6 +366,11 @@ export default function ProjectSettingsModal({
         builder_company: form.builder.builder_company.trim() || null,
         builder_email: form.builder.builder_email.trim() || null,
         builder_phone: form.builder.builder_phone.trim() || null,
+        // fix-175: owner LLC address (-> builders catalog upsert + project
+        // cache) + per-project point-of-contact.
+        builder_address: form.builder.builder_address.trim() || null,
+        poc_name: form.projectFields.poc_name.trim() || null,
+        poc_email: form.projectFields.poc_email.trim() || null,
       };
 
       // The dedicated "BP Design Associate" field (form.bpRole.da) is folded
@@ -747,6 +763,42 @@ export default function ProjectSettingsModal({
                 inputClassName={inputCls}
                 inputStyle={inputStyle}
                 testid="psm-builder-phone"
+              />
+            </Field>
+            {/* fix-175: owner LLC address — autofills on pick, saved to the
+                builders catalog via the update RPC. */}
+            <Field label="LLC Address">
+              <BuilderAutocompleteField
+                field="address"
+                label="LLC Address"
+                value={form.builder.builder_address}
+                onChange={(v) => setBuilderField('builder_address', v)}
+                onSelectBuilder={fillFromBuilder}
+                inputClassName={inputCls}
+                inputStyle={inputStyle}
+                testid="psm-builder-address"
+              />
+            </Field>
+            {/* fix-175: per-project point-of-contact. NOT a builder catalog
+                field (no autocomplete) — the contact can differ deal-to-deal. */}
+            <Field label="Point of Contact">
+              <input
+                type="text"
+                value={form.projectFields.poc_name}
+                onChange={(e) => setProj('poc_name', e.target.value)}
+                className={inputCls}
+                style={inputStyle}
+                data-testid="psm-poc-name"
+              />
+            </Field>
+            <Field label="Contact Email">
+              <input
+                type="email"
+                value={form.projectFields.poc_email}
+                onChange={(e) => setProj('poc_email', e.target.value)}
+                className={inputCls}
+                style={inputStyle}
+                data-testid="psm-poc-email"
               />
             </Field>
           </Section>

@@ -79,6 +79,16 @@ export interface Project {
   builder_company?: string | null;
   builder_email?: string | null;
   builder_phone?: string | null;
+  /** fix-175: owner LLC address. Denormalized display cache of the builder
+   *  entity's address (canonical copy lives on builders.address), mirroring
+   *  the builder_name/company/email/phone pattern so the Overview cell can
+   *  read/write it via the plain projects UPDATE path. */
+  builder_address?: string | null;
+  /** fix-175: per-project point-of-contact. Unlike the builder entity fields
+   *  these are NOT promoted to the builders catalog — the contact can differ
+   *  deal-to-deal, so they live only on the project. */
+  poc_name?: string | null;
+  poc_email?: string | null;
   /** fix-126: redesign concept. When set, this project is a redesign
    *  of the referenced parent project. Site facts (address, lot, juris)
    *  are shared by convention; the redesign carries its own copies of
@@ -155,6 +165,9 @@ export interface Builder {
   company: string | null;
   email: string | null;
   phone: string | null;
+  /** fix-175: owner LLC address on the builder entity. Travels across that
+   *  owner's projects via autofill-on-pick. */
+  address: string | null;
   notes: string | null;
   active: boolean | null;
 }

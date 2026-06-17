@@ -90,7 +90,7 @@ export function useBuilderSearch(query: string): {
       const v = quoteForOr(needle);
       const { data, error } = await supabase
         .from('builders')
-        .select('id, name, company, email, phone, notes, active')
+        .select('id, name, company, email, phone, address, notes, active')
         .or(`name.ilike.${v},company.ilike.${v},email.ilike.${v},phone.ilike.${v}`)
         .order('name', { ascending: true })
         .limit(SEARCH_LIMIT);

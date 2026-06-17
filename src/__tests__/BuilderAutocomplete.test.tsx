@@ -57,6 +57,7 @@ function builder(over: Partial<Builder>): Builder {
     company: null,
     email: null,
     phone: null,
+    address: null,
     notes: null,
     active: true,
     ...over,

@@ -129,6 +129,11 @@ export interface WizardState {
   builder_company: string;
   builder_email: string;
   builder_phone: string;
+  /** fix-175: owner LLC address (catalog/entity field — autofills on pick). */
+  builder_address: string;
+  /** fix-175: per-project point-of-contact (NOT a builder catalog field). */
+  poc_name: string;
+  poc_email: string;
 
   // fix-126: redesign payload. Non-empty redesign_of_project_id flips
   // the wizard into redesign mode (header banner on Step 1, Redesign
@@ -209,6 +214,9 @@ export function makeEmptyWizardState(): WizardState {
     builder_company: '',
     builder_email: '',
     builder_phone: '',
+    builder_address: '',
+    poc_name: '',
+    poc_email: '',
     redesign_of_project_id: '',
     redesign_of_project_address: '',
     redesign_trigger: '',
@@ -263,6 +271,9 @@ export function makeRedesignWizardState(
     builder_company?: string | null;
     builder_email?: string | null;
     builder_phone?: string | null;
+    builder_address?: string | null;
+    poc_name?: string | null;
+    poc_email?: string | null;
   },
   existingRedesignCount: number,
   // fix-158: the parent's primary Building Permit DA. Seeds the Redesign DD
@@ -311,6 +322,9 @@ export function makeRedesignWizardState(
     builder_company: parentProject.builder_company ?? '',
     builder_email: parentProject.builder_email ?? '',
     builder_phone: parentProject.builder_phone ?? '',
+    builder_address: parentProject.builder_address ?? '',
+    poc_name: parentProject.poc_name ?? '',
+    poc_email: parentProject.poc_email ?? '',
     redesign_of_project_id: parentProject.id,
     redesign_of_project_address: parentProject.address,
   };

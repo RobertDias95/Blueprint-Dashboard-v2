@@ -296,6 +296,9 @@ export default function Step1ProjectInfo({
       builder_company: b.company ?? '',
       builder_email: b.email ?? '',
       builder_phone: b.phone ?? '',
+      // fix-175: carry the entity address across — POC is per-project, so
+      // picking a builder never touches poc_name/poc_email.
+      builder_address: b.address ?? '',
     });
   }
 
@@ -1103,6 +1106,54 @@ export default function Step1ProjectInfo({
               placeholder="(206) 555-0100"
               inputClassName="bg-bg border border-border rounded-md px-3 py-1.5 text-xs font-display text-text placeholder:text-dim focus:outline-none focus:border-de w-full"
               testid="wizard-builder-phone"
+            />
+          </label>
+          {/* fix-175: owner LLC address — autofills on pick, saved to the
+              builder catalog. Full-width row under the 4-up contact grid. */}
+          <label className="flex flex-col gap-1 md:col-span-2">
+            <span className="text-[10px] uppercase tracking-wide text-dim">
+              LLC Address
+            </span>
+            <BuilderAutocompleteField
+              field="address"
+              label="LLC Address"
+              value={value.builder_address}
+              onChange={(v) => set('builder_address', v)}
+              onSelectBuilder={fillFromBuilder}
+              placeholder="Owner / LLC mailing address"
+              inputClassName="bg-bg border border-border rounded-md px-3 py-1.5 text-xs font-display text-text placeholder:text-dim focus:outline-none focus:border-de w-full"
+              testid="wizard-builder-address"
+            />
+          </label>
+        </div>
+        {/* fix-175: per-project point-of-contact. NOT a builder catalog
+            field — the contact can differ deal-to-deal, so it's plain
+            project-level input (no autocomplete). */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <label className="flex flex-col gap-1">
+            <span className="text-[10px] uppercase tracking-wide text-dim">
+              Point of Contact
+            </span>
+            <input
+              type="text"
+              value={value.poc_name}
+              onChange={(e) => set('poc_name', e.target.value)}
+              placeholder="Contact name"
+              className="bg-bg border border-border rounded-md px-3 py-1.5 text-xs font-display text-text placeholder:text-dim focus:outline-none focus:border-de w-full"
+              data-testid="wizard-poc-name"
+            />
+          </label>
+          <label className="flex flex-col gap-1">
+            <span className="text-[10px] uppercase tracking-wide text-dim">
+              Contact Email
+            </span>
+            <input
+              type="email"
+              value={value.poc_email}
+              onChange={(e) => set('poc_email', e.target.value)}
+              placeholder="contact@email.com"
+              className="bg-bg border border-border rounded-md px-3 py-1.5 text-xs font-display text-text placeholder:text-dim focus:outline-none focus:border-de w-full"
+              data-testid="wizard-poc-email"
             />
           </label>
         </div>

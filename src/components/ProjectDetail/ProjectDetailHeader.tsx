@@ -923,6 +923,10 @@ function BuilderOwnerCell({ project }: { project: Project }) {
   const [company, setCompany] = useState(project.builder_company ?? '');
   const [email, setEmail] = useState(project.builder_email ?? '');
   const [phone, setPhone] = useState(project.builder_phone ?? '');
+  // fix-175: owner LLC address (denormalized project cache) + per-project POC.
+  const [address, setAddress] = useState(project.builder_address ?? '');
+  const [pocName, setPocName] = useState(project.poc_name ?? '');
+  const [pocEmail, setPocEmail] = useState(project.poc_email ?? '');
 
   async function commit<K extends keyof Project>(
     field: K,
@@ -951,10 +955,14 @@ function BuilderOwnerCell({ project }: { project: Project }) {
     const nextCompany = b.company ?? '';
     const nextEmail = b.email ?? '';
     const nextPhone = b.phone ?? '';
+    // fix-175: the entity address travels on pick; POC is per-project and is
+    // intentionally left untouched.
+    const nextAddress = b.address ?? '';
     setName(nextName);
     setCompany(nextCompany);
     setEmail(nextEmail);
     setPhone(nextPhone);
+    setAddress(nextAddress);
     if (!project.updated_at) return;
     void updateProject.mutateAsync({
       projectId: project.id,
@@ -964,6 +972,7 @@ function BuilderOwnerCell({ project }: { project: Project }) {
         builder_company: nextCompany || null,
         builder_email: nextEmail || null,
         builder_phone: nextPhone || null,
+        builder_address: nextAddress || null,
       },
       fieldLabel: 'Builder',
     });
@@ -1052,6 +1061,54 @@ function BuilderOwnerCell({ project }: { project: Project }) {
           inputClassName={inputClass}
           inputStyle={inputStyle}
           testid="pd-builder-phone"
+        />
+      </div>
+      {/* fix-175: owner LLC address — autofills on pick from the builder
+          entity; commits to the project (denormalized cache). */}
+      <div>
+        <span className={labelStyle}>LLC Address</span>
+        <BuilderAutocompleteField
+          field="address"
+          label="LLC Address"
+          value={address}
+          onChange={setAddress}
+          onSelectBuilder={fillFromBuilder}
+          onBlur={() => commit('builder_address', address, project.builder_address, 'LLC Address')}
+          placeholder="Owner / LLC address"
+          disabled={occMissing}
+          inputClassName={inputClass}
+          inputStyle={inputStyle}
+          testid="pd-builder-address"
+        />
+      </div>
+      {/* fix-175: per-project point-of-contact. Plain inputs (no catalog
+          autocomplete) — the contact can differ deal-to-deal. */}
+      <div>
+        <span className={labelStyle}>Point of Contact</span>
+        <input
+          type="text"
+          value={pocName}
+          onChange={(e) => setPocName(e.target.value)}
+          onBlur={() => commit('poc_name', pocName, project.poc_name, 'Point of Contact')}
+          placeholder="Contact name"
+          disabled={occMissing}
+          className={inputClass}
+          style={inputStyle}
+          data-testid="pd-poc-name"
+        />
+      </div>
+      <div>
+        <span className={labelStyle}>Contact Email</span>
+        <input
+          type="email"
+          value={pocEmail}
+          onChange={(e) => setPocEmail(e.target.value)}
+          onBlur={() => commit('poc_email', pocEmail, project.poc_email, 'Contact Email')}
+          placeholder="contact@email.com"
+          disabled={occMissing}
+          className={emailInputClass}
+          style={emailInputStyle}
+          data-testid="pd-poc-email"
         />
       </div>
     </div>

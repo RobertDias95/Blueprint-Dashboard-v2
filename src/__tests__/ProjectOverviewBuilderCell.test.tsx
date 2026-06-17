@@ -62,6 +62,7 @@ function builder(over: Partial<Builder>): Builder {
     company: null,
     email: null,
     phone: null,
+    address: null,
     notes: null,
     active: true,
     ...over,
@@ -158,6 +159,8 @@ describe('Project Overview <BuilderOwnerCell /> — fix-24d', () => {
         company: "Jake'sD Corporation",
         email: 'jakesbd@comcast.net',
         phone: '(206) 387-6534',
+        // fix-175: entity LLC address travels on pick.
+        address: '123 Main St, Seattle WA',
       }),
     ];
     renderCell();
@@ -172,13 +175,19 @@ describe('Project Overview <BuilderOwnerCell /> — fix-24d', () => {
     const call = mutateAsync.mock.calls[0][0];
     expect(call.projectId).toBe('p-24d');
     expect(call.expectedUpdatedAt).toBe(NOW);
+    // fix-175: builder_address rides along in the single atomic patch; POC
+    // (per-project) is intentionally NOT included.
     expect(call.patch).toEqual({
       builder_name: 'Boyd Lybeck',
       builder_company: "Jake'sD Corporation",
       builder_email: 'jakesbd@comcast.net',
       builder_phone: '(206) 387-6534',
+      builder_address: '123 Main St, Seattle WA',
     });
     expect(call.fieldLabel).toBe('Builder');
+    expect(
+      (screen.getByTestId('pd-builder-address') as HTMLInputElement).value,
+    ).toBe('123 Main St, Seattle WA');
 
     // All 4 inputs reflect the picked builder.
     expect((screen.getByTestId('pd-builder-name') as HTMLInputElement).value).toBe('Boyd Lybeck');
@@ -220,6 +229,55 @@ describe('Project Overview <BuilderOwnerCell /> — fix-24d', () => {
     fireEvent.focus(screen.getByTestId('pd-builder-name'));
     fireEvent.blur(screen.getByTestId('pd-builder-name'));
     // Wait a tick to ensure no async save sneaks through.
+    await new Promise((r) => setTimeout(r, 0));
+    expect(mutateAsync).not.toHaveBeenCalled();
+  });
+
+  // fix-175 — owner LLC address + per-project point-of-contact.
+  it('editing LLC Address commits builder_address on blur', async () => {
+    searchResults.current = [];
+    renderCell();
+    fireEvent.change(screen.getByTestId('pd-builder-address'), {
+      target: { value: '900 Olive Way, Seattle' },
+    });
+    fireEvent.blur(screen.getByTestId('pd-builder-address'));
+    await waitFor(() => {
+      expect(mutateAsync).toHaveBeenCalledTimes(1);
+    });
+    const call = mutateAsync.mock.calls[0][0];
+    expect(call.patch).toEqual({ builder_address: '900 Olive Way, Seattle' });
+    expect(call.fieldLabel).toBe('LLC Address');
+  });
+
+  it('editing Point of Contact name + email each commit the per-project poc_* field on blur', async () => {
+    renderCell();
+    fireEvent.change(screen.getByTestId('pd-poc-name'), {
+      target: { value: 'Dana Contact' },
+    });
+    fireEvent.blur(screen.getByTestId('pd-poc-name'));
+    await waitFor(() => {
+      expect(mutateAsync).toHaveBeenCalledTimes(1);
+    });
+    expect(mutateAsync.mock.calls[0][0].patch).toEqual({ poc_name: 'Dana Contact' });
+    expect(mutateAsync.mock.calls[0][0].fieldLabel).toBe('Point of Contact');
+
+    fireEvent.change(screen.getByTestId('pd-poc-email'), {
+      target: { value: 'dana@deal.test' },
+    });
+    fireEvent.blur(screen.getByTestId('pd-poc-email'));
+    await waitFor(() => {
+      expect(mutateAsync).toHaveBeenCalledTimes(2);
+    });
+    expect(mutateAsync.mock.calls[1][0].patch).toEqual({ poc_email: 'dana@deal.test' });
+    expect(mutateAsync.mock.calls[1][0].fieldLabel).toBe('Contact Email');
+  });
+
+  it('blank POC + address are optional — blurring empty fields fires no save', async () => {
+    renderCell();
+    fireEvent.focus(screen.getByTestId('pd-poc-name'));
+    fireEvent.blur(screen.getByTestId('pd-poc-name'));
+    fireEvent.focus(screen.getByTestId('pd-builder-address'));
+    fireEvent.blur(screen.getByTestId('pd-builder-address'));
     await new Promise((r) => setTimeout(r, 0));
     expect(mutateAsync).not.toHaveBeenCalled();
   });
