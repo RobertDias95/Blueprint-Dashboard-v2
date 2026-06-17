@@ -1,6 +1,7 @@
 import { useCallback, useMemo, useState } from 'react';
 import { useAuthStore } from '../stores/authStore';
 import { useTeamMembers } from './useTeamMembers';
+import { useProjects } from './useProjects';
 import {
   initialScopeMode,
   loadScopeMode,
@@ -21,20 +22,32 @@ export interface UseSelfScopeResult {
   isLoading: boolean;
 }
 
-/** Current user's roster identity (role-aware scope), resolved by matching the
- *  auth email against team_members. Unmapped users resolve to name=null /
- *  scope='all'. */
+/** Current user's roster identity (assignment-driven scope), resolved by matching
+ *  the auth email against team_members and then deciding scope from the loaded
+ *  projects (fix-179). Unmapped users resolve to name=null / scope='all'.
+ *
+ *  useProjects() here subscribes to the SAME cached projects query the Dashboard /
+ *  Project List already drive — React Query dedupes, so this adds no extra fetch
+ *  where the data is already available. */
 export function useSelfScope(): UseSelfScopeResult {
   const email = useAuthStore((s) => s.user?.email ?? null);
   const userId = useAuthStore((s) => s.user?.id ?? null);
   const team = useTeamMembers();
+  const projectsQ = useProjects();
 
   const identity = useMemo(
-    () => resolveRosterIdentity(email, team.all),
-    [email, team.all],
+    () => resolveRosterIdentity(email, team.all, projectsQ.data ?? []),
+    [email, team.all, projectsQ.data],
   );
 
-  return { identity, userId, isLoading: team.isLoading };
+  // Wait for BOTH roster + projects before the scope is trustworthy: a
+  // project-lead resolves to 'permit' until projects land, so gating here
+  // prevents defaulting them to permit-scope for a frame.
+  return {
+    identity,
+    userId,
+    isLoading: team.isLoading || projectsQ.isLoading,
+  };
 }
 
 export interface UseScopeModeResult {

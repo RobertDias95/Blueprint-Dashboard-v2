@@ -6,18 +6,23 @@ import type {
 } from './database.types';
 
 // fix-176: default the Dashboard / Project Overview / My-tab to the logged-in
-// user's own work, role-aware, switchable + remembered per-user.
+// user's own work, switchable + remembered per-user.
 //
-// The crux (resolved in Step 0): permit/project role fields store roster NAMES
+// The crux (resolved in fix-176): permit/project role fields store roster NAMES
 // ("Miles", "Cam"), but users log in by email. The bridge is team_members:
 // a roster row carries name + email + role (discipline). fix-176's data
 // migration filled team_members.email for the login accounts, so matching the
-// auth email against team_members yields the user's roster name(s) + role(s).
+// auth email against team_members yields the user's roster name(s).
 //
-// Scope tier (Bobby's rule):
-//   * holds ent_lead OR dm  -> PROJECT scope (whole projects they're on)
-//   * holds da only         -> PERMIT scope (just the permits assigned to them)
-//   * no roster match        -> 'all' (no self-default; safe fallback)
+// fix-179: the scope tier is decided by REAL ASSIGNMENTS, not the roster role
+// column. The role column was wrong for per-permit leads — e.g. Bobby holds the
+// 'ent_lead' role but leads ZERO projects at the project level (he's the ent_lead
+// on 49 permits), so role-driven project-scope matched nothing and his "My Work"
+// was empty. Now:
+//   * name leads >=1 project (entitlement_lead / design_manager) -> PROJECT scope
+//   * name is mapped but leads no project                         -> PERMIT scope
+//   * no roster match                                             -> 'all'
+// The role column is left in place; it's just no longer the scope decider.
 
 export type SelfScopeKind = 'project' | 'permit' | 'all';
 
@@ -31,32 +36,40 @@ export interface RosterIdentity {
   /** Roster name that matches permit.da / project.entitlement_lead etc.
    *  null when the login has no roster row (-> scope 'all'). */
   name: string | null;
-  /** Every discipline the user holds (a person can hold several rows, e.g.
-   *  ent + ent_lead). */
+  /** Every roster discipline the user holds (kept for reference; fix-179 no
+   *  longer uses it to decide scope). */
   roles: TeamRole[];
-  /** Derived default scope per Bobby's rule. */
+  /** fix-179: scope derived from real assignments — 'project' when the name
+   *  leads ≥1 project, 'permit' when mapped but leads none, 'all' when unmapped. */
   scope: SelfScopeKind;
 }
-
-/** Disciplines that work at the PROJECT level (entitlement_lead / design_manager
- *  columns). Holding any of these makes the default project-scoped. */
-const PROJECT_ROLES: ReadonlySet<TeamRole> = new Set<TeamRole>([
-  'ent_lead',
-  'dm',
-]);
 
 /** Case/whitespace-insensitive name+email compare. Empty/null never matches. */
 function norm(s: string | null | undefined): string {
   return (s ?? '').trim().toLowerCase();
 }
 
+/** fix-179: decide a mapped user's scope from REAL project-level assignments
+ *  (reusing the unchanged projectMatchesSelf predicate): project-scope iff the
+ *  name leads at least one project (entitlement_lead / design_manager), else
+ *  permit-scope. An unmapped name (null) is always 'all'. */
+export function deriveSelfScope(
+  name: string | null,
+  projects: ReadonlyArray<Pick<Project, 'entitlement_lead' | 'design_manager'>>,
+): SelfScopeKind {
+  if (!norm(name)) return 'all';
+  return projects.some((p) => projectMatchesSelf(p, name)) ? 'project' : 'permit';
+}
+
 /** Resolve the logged-in user's roster identity from the team_members roster by
  *  matching the auth email. A person may hold multiple rows — collect every
- *  role, and take the (consistent) name from the first match. Returns an
- *  all-scope identity with name=null when nothing matches. */
+ *  role, and take the (consistent) name from the first match. The scope is then
+ *  decided from real project-level assignments (fix-179), NOT the role column.
+ *  Returns an all-scope identity with name=null when nothing matches. */
 export function resolveRosterIdentity(
   email: string | null | undefined,
   members: ReadonlyArray<{ name: string; email: string | null; role: TeamRole }>,
+  projects: ReadonlyArray<Pick<Project, 'entitlement_lead' | 'design_manager'>>,
 ): RosterIdentity {
   const target = norm(email);
   if (!target) return { name: null, roles: [], scope: 'all' };
@@ -67,15 +80,7 @@ export function resolveRosterIdentity(
   const name = matches[0].name;
   const roles = [...new Set(matches.map((m) => m.role))];
 
-  const hasProjectRole = roles.some((r) => PROJECT_ROLES.has(r));
-  const hasDa = roles.includes('da');
-  const scope: SelfScopeKind = hasProjectRole
-    ? 'project'
-    : hasDa
-      ? 'permit'
-      : 'all';
-
-  return { name, roles, scope };
+  return { name, roles, scope: deriveSelfScope(name, projects) };
 }
 
 /** Project-scope match: the person is on a PROJECT-level role for this project. */

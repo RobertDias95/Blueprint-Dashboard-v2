@@ -30,6 +30,13 @@ vi.mock('../hooks/useTeamMembers', () => ({
   }),
 }));
 
+// fix-179: useScopeMode now consults useProjects (assignment-driven scope). The
+// My tab doesn't use the project/permit distinction, so an empty list is fine —
+// mock it inert so no network call fires from the scope hook.
+vi.mock('../hooks/useProjects', () => ({
+  useProjects: () => ({ data: [], isLoading: false, error: null, refetch: vi.fn() }),
+}));
+
 vi.mock('../hooks/useTaskTree', async (importActual) => {
   const actual = await importActual<typeof import('../hooks/useTaskTree')>();
   return {
