@@ -93,14 +93,22 @@ export function projectMatchesSelf(
   return norm(project.entitlement_lead) === n || norm(project.design_manager) === n;
 }
 
-/** Permit-scope match: the person is the DA (or dual DA) on this permit. */
+/** Permit-scope match: the person is assigned to this permit in ANY role —
+ *  ent_lead, dm, da, or dual_da. fix-180: was da/dual_da only (built for DAs in
+ *  fix-176), which missed permit-level entitlement leads like Bobby (ent_lead on
+ *  49 permits, da on 0) — his permit-scoped "My Work" was blank. */
 export function permitMatchesSelf(
-  permit: Pick<Permit, 'da' | 'dual_da'>,
+  permit: Pick<Permit, 'ent_lead' | 'dm' | 'da' | 'dual_da'>,
   name: string | null,
 ): boolean {
   const n = norm(name);
   if (!n) return false;
-  return norm(permit.da) === n || norm(permit.dual_da) === n;
+  return (
+    norm(permit.ent_lead) === n ||
+    norm(permit.dm) === n ||
+    norm(permit.da) === n ||
+    norm(permit.dual_da) === n
+  );
 }
 
 /** Task-scope match (My tab): the person is the primary or a co-assignee. */

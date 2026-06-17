@@ -137,11 +137,23 @@ describe('scope match predicates', () => {
     expect(projectMatchesSelf({ entitlement_lead: 'Miles', design_manager: null }, null)).toBe(false);
   });
 
-  it('permitMatchesSelf matches da OR dual_da', () => {
-    expect(permitMatchesSelf({ da: 'Cam', dual_da: null }, 'Cam')).toBe(true);
-    expect(permitMatchesSelf({ da: 'Trevor', dual_da: 'Cam' }, 'cam')).toBe(true);
-    expect(permitMatchesSelf({ da: 'Trevor', dual_da: null }, 'Cam')).toBe(false);
-    expect(permitMatchesSelf({ da: null, dual_da: null }, 'Cam')).toBe(false);
+  // fix-180: a permit is "mine" if my name is in ANY of its role fields —
+  // ent_lead / dm / da / dual_da. Bobby is a permit-level ent_lead (da on 0).
+  it('permitMatchesSelf matches ent_lead / dm / da / dual_da (case-insensitive)', () => {
+    const none = { ent_lead: null, dm: null, da: null, dual_da: null };
+    // ent_lead — the Bobby case that was previously missed.
+    expect(permitMatchesSelf({ ...none, ent_lead: 'Bobby' }, 'Bobby')).toBe(true);
+    expect(permitMatchesSelf({ ...none, ent_lead: 'Bobby' }, 'bobby')).toBe(true);
+    // dm
+    expect(permitMatchesSelf({ ...none, dm: 'Brittani' }, 'brittani')).toBe(true);
+    // da + dual_da (DAs unchanged)
+    expect(permitMatchesSelf({ ...none, da: 'Cam' }, 'Cam')).toBe(true);
+    expect(permitMatchesSelf({ ...none, da: 'Trevor', dual_da: 'Cam' }, 'cam')).toBe(true);
+    // name in none of the four roles → false
+    expect(permitMatchesSelf({ ...none, da: 'Trevor', ent_lead: 'Miles' }, 'Cam')).toBe(false);
+    expect(permitMatchesSelf(none, 'Cam')).toBe(false);
+    // null/empty name never matches
+    expect(permitMatchesSelf({ ...none, ent_lead: 'Bobby' }, null)).toBe(false);
   });
 
   it('taskMatchesSelf matches primary or co-assignee', () => {
