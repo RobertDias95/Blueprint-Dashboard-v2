@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import type { AutoEvent } from '../lib/database.types';
+import { NO_ISSUANCE_PERMIT_TYPES } from '../lib/permitTypeTaxonomy';
 
 // fix-155/fix-156: contract spec for the lifecycle auto-task engine.
 //
@@ -30,6 +31,7 @@ const EVENTS: AutoEvent[] = [
   'resubmitted',
   'number_entry',
   'scrape_reconcile',
+  'results_ready',
 ];
 
 function nullifTrim(v: string | null | undefined): string | null {
@@ -60,12 +62,15 @@ interface BuiltTask {
 /** Mirror of bp_create_lifecycle_task: title + flags + bucket per event.
  *  fix-156: bucket = lifecycle phase (number_entry => 'de' pre-submission, the
  *  rest => 'pm' post-submission); assigned_to is never written. */
-/** fix-159: extra inputs only scrape_reconcile uses. */
+/** fix-159: extra inputs only scrape_reconcile uses. fix-181: `basis` for the
+ *  results_ready title branch. */
 interface ReconcileOpts {
   observedStatus?: string;
   dbStatus?: string;
   /** cycle-0 intake_accepted set? Drives bucket pm vs de. */
   c0IntakeAccepted?: boolean;
+  /** fix-181: 'issued' (issuance types) vs 'approved' (no-issuance types). */
+  basis?: 'issued' | 'approved';
 }
 
 /** left(btrim(v), 60) — matches the SQL title cap. */
@@ -123,8 +128,42 @@ function buildLifecycleTask(
       } — ${numLabel}`;
       priority = true;
       break;
+    case 'results_ready':
+      // fix-181: type-aware title; basis comes from the trigger context.
+      title =
+        opts.basis === 'approved'
+          ? `Permit approved — send out results — ${numLabel}`
+          : `Permit issued — send out approved plans / results — ${numLabel}`;
+      priority = true;
+      break;
   }
   return { title, cityCheck, priority, bucket, assignedTo: null };
+}
+
+// fix-181: mirror of the bp_permit_results_ready_autotask trigger's fire rule.
+// Issuance types fire on actual_issue NULL->non-null; no-issuance types fire on
+// approval_date NULL->non-null. AFTER UPDATE only (an INSERT has no OLD row and
+// the trigger isn't attached to INSERT) — so a fresh row never fires here.
+interface ResultsPermitRow {
+  type: string | null;
+  actual_issue: string | null;
+  approval_date: string | null;
+}
+function resultsReadyFire(
+  oldRow: ResultsPermitRow,
+  newRow: ResultsPermitRow,
+): { fire: boolean; basis?: 'issued' | 'approved' } {
+  const noIssuance = NO_ISSUANCE_PERMIT_TYPES.has((newRow.type ?? '').trim());
+  if (noIssuance) {
+    if (oldRow.approval_date == null && newRow.approval_date != null) {
+      return { fire: true, basis: 'approved' };
+    }
+    return { fire: false };
+  }
+  if (oldRow.actual_issue == null && newRow.actual_issue != null) {
+    return { fire: true, basis: 'issued' };
+  }
+  return { fire: false };
 }
 
 /** Mirror of the fix-159 re-fire rule: a new scrape_reconcile is SUPPRESSED iff
@@ -400,5 +439,107 @@ describe('bp_generate_number_entry_tasks — eligibility predicate (fix-155)', (
         ),
       ).toBe(false);
     }
+  });
+});
+
+describe('results_ready event + trigger (fix-181)', () => {
+  // The trigger (bp_permit_results_ready_autotask) + event live in SQL; no live
+  // DB in CI, so these pure mirrors guard the contract. Canonical verification =
+  // a rolled-back MCP probe against PROD (2026-06-17, entire probe rolled back):
+  //   service_role (scraper) path:
+  //     BP 164 actual_issue NULL->set -> 1 task, "Permit issued — send out
+  //       approved plans / results — 7133442-CN", discipline=ent bucket=pm
+  //       priority=true is_auto_generated=true; second actual_issue update -> still 1 (dedupe)
+  //     ULS 173 approval_date NULL->set -> 1 task, "Permit approved — send out
+  //       results — 3043725-LU"; later actual_issue set -> still 1 (no-issuance
+  //       branch ignores actual_issue + dedupe)
+  //     BP 168 status-only update -> 0 tasks (trigger AFTER UPDATE OF
+  //       actual_issue,approval_date doesn't fire)
+  //   authenticated-member (manual) path: BP 164 actual_issue NULL->set -> 1 task
+  //     (tenant gate passes: tenant in auth_tenant_ids()).
+
+  it('issued title (issuance type), priority on, bucket pm, no assignee written', () => {
+    const t = buildLifecycleTask('results_ready', NUMBERED, PROJ, null, { basis: 'issued' });
+    expect(t.title).toBe('Permit issued — send out approved plans / results — BLD-155-A');
+    expect(t.priority).toBe(true);
+    expect(t.bucket).toBe('pm');
+    expect(t.assignedTo).toBeNull(); // discipline='ent' -> derives to permit.ent_lead at read time
+  });
+
+  it('approved title (no-issuance type)', () => {
+    const t = buildLifecycleTask('results_ready', NUMBERED, PROJ, null, { basis: 'approved' });
+    expect(t.title).toBe('Permit approved — send out results — BLD-155-A');
+    expect(t.priority).toBe(true);
+  });
+
+  it('defaults to the issued title when no basis given', () => {
+    const t = buildLifecycleTask('results_ready', NUMBERED, PROJ, null);
+    expect(t.title).toBe('Permit issued — send out approved plans / results — BLD-155-A');
+  });
+
+  it('is a known event (does not raise)', () => {
+    expect(() => buildLifecycleTask('results_ready', NUMBERED, PROJ, null)).not.toThrow();
+  });
+
+  it('dedupes one-per-permit (cycle_idx NULL -> -1 slot)', () => {
+    expect(dedupeKey('t', 1, 'results_ready', null)).toBe('t|1|results_ready|-1');
+    expect(dedupeKey('t', 1, 'results_ready', null)).toBe(
+      dedupeKey('t', 1, 'results_ready', null),
+    );
+  });
+
+  // ---- trigger fire rule (resultsReadyFire mirror) ----
+  const BP = (over: Partial<ResultsPermitRow> = {}): ResultsPermitRow => ({
+    type: 'Building Permit', actual_issue: null, approval_date: null, ...over,
+  });
+  const ULS = (over: Partial<ResultsPermitRow> = {}): ResultsPermitRow => ({
+    type: 'ULS', actual_issue: null, approval_date: null, ...over,
+  });
+
+  it('issuance type: actual_issue NULL -> set fires (basis issued)', () => {
+    expect(resultsReadyFire(BP(), BP({ actual_issue: '2026-06-17' }))).toEqual({
+      fire: true, basis: 'issued',
+    });
+  });
+
+  it('issuance type: approval_date alone does NOT fire (waits for actual_issue)', () => {
+    expect(resultsReadyFire(BP(), BP({ approval_date: '2026-06-17' })).fire).toBe(false);
+  });
+
+  it('issuance type: re-setting an already-set actual_issue does NOT fire again', () => {
+    expect(
+      resultsReadyFire(
+        BP({ actual_issue: '2026-06-17' }),
+        BP({ actual_issue: '2026-06-18' }),
+      ).fire,
+    ).toBe(false);
+  });
+
+  it('no-issuance type: approval_date NULL -> set fires (basis approved)', () => {
+    expect(resultsReadyFire(ULS(), ULS({ approval_date: '2026-06-17' }))).toEqual({
+      fire: true, basis: 'approved',
+    });
+  });
+
+  it('no-issuance type: an actual_issue change does NOT fire (only approval_date matters)', () => {
+    expect(
+      resultsReadyFire(
+        ULS({ approval_date: '2026-06-17' }),
+        ULS({ approval_date: '2026-06-17', actual_issue: '2026-06-20' }),
+      ).fire,
+    ).toBe(false);
+  });
+
+  it('no transition (status churn / unrelated update) does NOT fire', () => {
+    expect(resultsReadyFire(BP(), BP()).fire).toBe(false);
+    expect(resultsReadyFire(ULS(), ULS()).fire).toBe(false);
+  });
+
+  it('parity guard: the canonical NO_ISSUANCE set the trigger hardcodes is exactly these 4', () => {
+    // The SQL trigger hardcodes ('SDOT Tree','PAR/Pre-Sub','ECA Waiver','ULS').
+    // If this set changes, update the trigger (and the scraper) to match.
+    expect([...NO_ISSUANCE_PERMIT_TYPES].sort()).toEqual(
+      ['ECA Waiver', 'PAR/Pre-Sub', 'SDOT Tree', 'ULS'],
+    );
   });
 });

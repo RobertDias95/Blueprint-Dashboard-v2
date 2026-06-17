@@ -461,7 +461,11 @@ export type AutoEvent =
   | 'number_entry'
   // fix-159: fired after N consecutive scraper guard-skips with a pending
   // portal change — "portal shows X, dashboard shows Y, reconcile".
-  | 'scrape_reconcile';
+  | 'scrape_reconcile'
+  // fix-181: fired when a permit reaches "results available" — issued
+  // (actual_issue set) for issuance types, or approved (approval_date set) for
+  // no-issuance types — so the ent lead sends out the approved plans / results.
+  | 'results_ready';
 
 /** fix-70: a task as returned by bp_list_permit_tasks / bp_my_tasks. The
  *  `status` field is the permit_tasks.completion_status value

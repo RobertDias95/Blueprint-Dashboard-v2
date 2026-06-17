@@ -16,6 +16,8 @@ const EVENT_LABEL: Record<AutoEvent, string> = {
     'Auto-task: enter the permit number once the permit has been submitted.',
   scrape_reconcile:
     'Auto-task: the portal and dashboard disagree — reconcile the status (the manual-edit guard kept blocking the scraper).',
+  results_ready:
+    'Auto-task: the permit is issued / approved — send out the approved plans / results.',
 };
 
 export default function BotBadge({
