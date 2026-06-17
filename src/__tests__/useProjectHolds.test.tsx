@@ -22,6 +22,8 @@ import {
   useLiftProjectHold,
   useUpdateProjectHold,
   activeHold,
+  activeHoldProjectIds,
+  activeHoldByProjectId,
 } from '../hooks/useProjectHolds';
 import type { ProjectHold } from '../lib/database.types';
 
@@ -129,5 +131,35 @@ describe('fix-167 activeHold helper', () => {
     expect(activeHold(rows)?.id).toBe('active');
     expect(activeHold([rows[0]])).toBeNull();
     expect(activeHold(undefined)).toBeNull();
+  });
+});
+
+// fix-178: the dashboard / project-list badge + filter key off ONLY the active
+// (open) hold. A closed past hold must NOT count as "on hold".
+describe('fix-178 active-hold indexing for badge + filter', () => {
+  const closedPast: ProjectHold = {
+    id: 'closed', tenant_id: T, project_id: 'p1', reason: 'MHA', note: null,
+    hold_start: '2026-05-01', hold_end: '2026-05-10',
+    created_by: null, created_at: '', updated_at: '',
+  };
+  const activeP2: ProjectHold = {
+    id: 'active', tenant_id: T, project_id: 'p2', reason: 'Financing', note: 'waiting on closing',
+    hold_start: '2026-06-01', hold_end: null,
+    created_by: null, created_at: '', updated_at: '',
+  };
+
+  it('activeHoldProjectIds includes only projects with an OPEN hold', () => {
+    const ids = activeHoldProjectIds([closedPast, activeP2]);
+    expect(ids.has('p2')).toBe(true);
+    // p1's only hold is closed → not on hold.
+    expect(ids.has('p1')).toBe(false);
+  });
+
+  it('activeHoldByProjectId maps the open hold (with its reason) and skips closed ones', () => {
+    const map = activeHoldByProjectId([closedPast, activeP2]);
+    expect(map.get('p2')?.reason).toBe('Financing');
+    expect(map.get('p2')?.note).toBe('waiting on closing');
+    expect(map.has('p1')).toBe(false);
+    expect(map.size).toBe(1);
   });
 });

@@ -7,6 +7,7 @@ import {
   useUpdateProjectHold,
 } from '../../hooks/useProjectHolds';
 import { useAppConfig, readAppConfigStringArray } from '../../hooks/useAppConfig';
+import { HoldBadge } from '../shared/HoldBadge';
 
 // fix-167: project On-Hold — Phase 1 UI (data + display only; NO calculation
 // effects). A project carries at most one ACTIVE hold (hold_end === null) plus
@@ -22,22 +23,16 @@ function todayIso(): string {
 }
 
 /** "On Hold — <reason>" badge. Renders only when an active hold exists. Lands on
- *  the project header so the hold is the first thing seen. */
+ *  the project header so the hold is the first thing seen. fix-178: delegates to
+ *  the shared presentational HoldBadge (one visual source); this wrapper keeps
+ *  the per-project fetch for the ProjectDetail header. */
 export function ProjectHoldBadge({ projectId }: { projectId: string }) {
   const holdsQ = useProjectHolds(projectId);
   const active = activeHold(holdsQ.data);
   if (!active) return null;
   return (
     <div className="mt-1">
-      <span
-        className="inline-block text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded border bg-co-bg text-co border-co-border"
-        title={`On hold since ${active.hold_start}${
-          active.note ? ` — ${active.note}` : ''
-        }`}
-        data-testid="project-hold-badge"
-      >
-        ⏸ On Hold — {active.reason}
-      </span>
+      <HoldBadge hold={active} testid="project-hold-badge" />
     </div>
   );
 }

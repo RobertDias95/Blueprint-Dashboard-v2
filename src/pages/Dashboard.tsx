@@ -14,13 +14,21 @@ import { cardUrgency } from '../lib/urgencyHelpers';
 import {
   useAllProjectHolds,
   activeHoldProjectIds,
+  activeHoldByProjectId,
 } from '../hooks/useProjectHolds';
+import HoldFilter from '../components/shared/HoldFilter';
+import {
+  passesHoldFilter,
+  HOLD_FILTER_DEFAULT,
+  type HoldFilterMode,
+} from '../lib/holdFilter';
 import type {
   DrawScheduleRow,
   Permit,
   PermitCycle,
   PermitCycleReviewer,
   Project,
+  ProjectHold,
   Stage,
 } from '../lib/database.types';
 import AddrGroup from '../components/Dashboard/AddrGroup';
@@ -34,6 +42,7 @@ import QueryError from '../components/QueryError';
 import { useScopeMode } from '../hooks/useSelfScope';
 import { permitMatchesSelf, projectMatchesSelf } from '../lib/selfScope';
 import ScopeToggle from '../components/shared/ScopeToggle';
+import { distinctProjectCount } from '../lib/dashboardCounts';
 
 // Q9.5.e2: cross-bucket interactivity. `DashContext` lifts `highlightedAddress`
 // + `openAddresses` to the Dashboard root so toggling open/highlight on one
@@ -45,6 +54,8 @@ interface DashContext {
   openAddresses: Set<string>;
   toggleAddress: (addr: string) => void;
   setHighlight: (addr: string | null) => void;
+  /** fix-178: project_id → active hold, for the on-hold card badge. */
+  activeHoldMap: Map<string, ProjectHold>;
 }
 
 // Q2: Dashboard matrix. Project-keyed render — iterates `projects`, looks
@@ -73,10 +84,18 @@ export default function Dashboard() {
     () => activeHoldProjectIds(holdsQ.data),
     [holdsQ.data],
   );
+  // fix-178: project_id -> active hold, for the on-hold badge on each card.
+  const activeHoldMap = useMemo(
+    () => activeHoldByProjectId(holdsQ.data),
+    [holdsQ.data],
+  );
   // fix-155: fire the numberless-permit sweep once/day (self-guarded).
   useNumberEntrySweep();
   const [search, setSearch] = useState('');
   const [wizardOpen, setWizardOpen] = useState(false);
+  // fix-178: three-way hold filter (All / Only holds / Exclude holds). Default
+  // 'all'; no persistence (resets each load).
+  const [holdMode, setHoldMode] = useState<HoldFilterMode>(HOLD_FILTER_DEFAULT);
   const [filters, setFilters] = useState<DashFilters>(EMPTY_DASH_FILTERS);
   const [highlightedAddress, setHighlightedAddress] = useState<string | null>(null);
   const [openAddresses, setOpenAddresses] = useState<Set<string>>(new Set());
@@ -114,8 +133,9 @@ export default function Dashboard() {
       openAddresses,
       toggleAddress,
       setHighlight: setHighlightedAddress,
+      activeHoldMap,
     }),
-    [highlightedAddress, openAddresses, toggleAddress],
+    [highlightedAddress, openAddresses, toggleAddress, activeHoldMap],
   );
 
   const isLoading = projectsQ.isLoading || permitsQ.isLoading || drawQ.isLoading;
@@ -195,6 +215,9 @@ export default function Dashboard() {
     for (const project of projects) {
       const projectPermits = permitsByProjectId.get(project.id) ?? [];
       if (!matchesSearch(project, projectPermits.map((b) => b.permit))) continue;
+      // fix-178: hold filter is project-level (a permit is held iff its project
+      // is). Drop the whole project's permits when it fails the hold filter.
+      if (!passesHoldFilter(activeHeld.has(project.id), holdMode)) continue;
       if (selfName && selfScope === 'project' && !projectMatchesSelf(project, selfName)) {
         continue;
       }
@@ -234,6 +257,8 @@ export default function Dashboard() {
     scopeMode,
     identity.name,
     identity.scope,
+    holdMode,
+    activeHeld,
   ]);
 
   if (error) {
@@ -272,6 +297,8 @@ export default function Dashboard() {
           filters={filters}
           onChange={setFilters}
         />
+        {/* fix-178: three-way hold filter */}
+        <HoldFilter mode={holdMode} onChange={setHoldMode} testid="dashboard-hold-filter" />
         <button
           type="button"
           onClick={() => setWizardOpen(true)}
@@ -448,6 +475,20 @@ function StageGroup({
         <span className="text-xs font-display font-extrabold uppercase tracking-wide text-text flex-1">
           {title}
         </span>
+        {(() => {
+          const projects = distinctProjectCount(
+            subBuckets.flatMap((s) => s.permits),
+          );
+          return (
+            <span
+              className="text-[10px] font-display font-bold text-dim mr-1"
+              title={`${projects} projects · ${totalCount} permits`}
+              data-testid={`dash-group-count-${stage}`}
+            >
+              {projects} proj
+            </span>
+          );
+        })()}
         <span className="text-2xl font-display font-black text-text">
           {totalCount}
         </span>
@@ -464,6 +505,13 @@ function StageGroup({
                 />
                 <span className="text-[11px] font-display font-bold text-text flex-1">
                   {sub.title}
+                </span>
+                <span
+                  className="text-[10px] font-display font-bold text-dim"
+                  title={`${distinctProjectCount(sub.permits)} projects · ${sub.permits.length} permits`}
+                  data-testid={`dash-subbucket-projcount-${sub.title}`}
+                >
+                  {distinctProjectCount(sub.permits)} proj ·
                 </span>
                 <span className="text-xs font-display font-black text-text">
                   {sub.permits.length}
@@ -559,6 +607,13 @@ function BottomStrip({
       >
         <span className="text-[11px] font-display font-extrabold uppercase tracking-wide text-text">
           {title}
+        </span>
+        <span
+          className="text-[10px] font-display font-bold text-dim"
+          title={`${distinctProjectCount(permits)} projects · ${permits.length} permits`}
+          data-testid={`dash-strip-projcount-${stage}`}
+        >
+          {distinctProjectCount(permits)} proj ·
         </span>
         <span className="text-base font-display font-black text-text">
           {permits.length}
@@ -728,6 +783,7 @@ function SubBucketGroups({
           reviewersByPermit={reviewersByPermit}
           cardUrgency={g.urgency}
           activeHold={activeHeld.has(g.projectId)}
+          hold={ctx.activeHoldMap.get(g.projectId) ?? null}
           keyDateLabel={keyDateLabel}
           getKeyDate={getKeyDate}
           isOpen={ctx.openAddresses.has(g.address)}

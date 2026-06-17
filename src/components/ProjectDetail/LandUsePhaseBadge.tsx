@@ -1,6 +1,7 @@
 import type { PermitWithCycles } from '../../lib/database.types';
 import {
   deriveLandUsePhase,
+  isLandUseLimboPhase,
   type LandUsePhase,
 } from '../../lib/landUsePhase';
 
@@ -37,6 +38,11 @@ export function LandUsePhaseBadge({
     today,
   });
   if (!result) return null;
+  // fix-178: surface the badge ONLY in the limbo phases the cycle/stage tracker
+  // doesn't already cover (Design Review / Decision Published / In Publication).
+  // In Review + Corrections are shown by the cycle layer; Final Review + Recorded
+  // are terminal — badging them is duplicate noise.
+  if (!isLandUseLimboPhase(result.phase)) return null;
 
   const c = PHASE_COLOR[result.phase];
   const text =
