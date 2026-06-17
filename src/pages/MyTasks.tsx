@@ -4,6 +4,9 @@ import WaitingOnView from '../components/MyTasks/WaitingOnView';
 import BotBadge from '../components/shared/BotBadge';
 import { useTeamMembers } from '../hooks/useTeamMembers';
 import { useAllTasks, useUpsertTask } from '../hooks/useTaskTree';
+import { useScopeMode } from '../hooks/useSelfScope';
+import { taskMatchesSelf, type ScopeMode } from '../lib/selfScope';
+import ScopeToggle from '../components/shared/ScopeToggle';
 import { SkeletonRows } from '../components/Skeleton';
 import QueryError from '../components/QueryError';
 import {
@@ -234,6 +237,11 @@ function Body({
 }) {
   const [filters, setFilters] = useState<FilterState>(() => loadFilters());
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  // fix-176: default the My tab to the logged-in user's own tasks (assignee or
+  // co-assignee), switchable to Everyone + remembered per-user. Role-agnostic
+  // here — "mine" on the My tab is "tasks assigned to me" for ent/dm/da alike.
+  const { mode: scopeMode, setMode: setScopeMode, identity } =
+    useScopeMode('mytasks');
 
   useEffect(() => {
     try {
@@ -296,9 +304,17 @@ function Body({
   // counters AND the column rendering below. Counters that need "total"
   // semantics use the full filtered set; the column rendering further
   // narrows by status (Active only).
+  // fix-176: narrow to the user's own tasks first when "My work" is active,
+  // then apply the manual filters. Roster/permit-type option lists upstream
+  // still read the FULL task set so the dropdowns don't collapse.
+  const scopedTasks = useMemo(() => {
+    const name = identity.name;
+    if (scopeMode !== 'mine' || !name) return tasks;
+    return tasks.filter((t) => taskMatchesSelf(t, name));
+  }, [tasks, scopeMode, identity.name]);
   const filtered = useMemo(
-    () => filterTasks(tasks, filters, rolesByName),
-    [tasks, filters, rolesByName],
+    () => filterTasks(scopedTasks, filters, rolesByName),
+    [scopedTasks, filters, rolesByName],
   );
   const today = useMemo(() => todayIso(), []);
   const counters = useMemo(() => {
@@ -357,6 +373,9 @@ function Body({
         permitTypeOptions={permitTypeOptions}
         onPatch={patch}
         onReset={resetAll}
+        scopeMode={scopeMode}
+        onScopeChange={setScopeMode}
+        selfName={identity.name}
       />
       {/* fix-138-b: shrink right sidebar from 1fr (20%) → 0.85fr (≈17%)
           so the two bucket columns claim more horizontal real estate;
@@ -512,6 +531,9 @@ function FilterRow({
   permitTypeOptions,
   onPatch,
   onReset,
+  scopeMode,
+  onScopeChange,
+  selfName,
 }: {
   filters: FilterState;
   roster: {
@@ -523,6 +545,9 @@ function FilterRow({
   permitTypeOptions: string[];
   onPatch: (p: Partial<FilterState>) => void;
   onReset: () => void;
+  scopeMode: ScopeMode;
+  onScopeChange: (mode: ScopeMode) => void;
+  selfName: string | null;
 }) {
   return (
     <div
@@ -530,6 +555,12 @@ function FilterRow({
       style={{ borderColor: 'var(--color-border)' }}
       data-testid="mytasks-filterrow"
     >
+      <ScopeToggle
+        mode={scopeMode}
+        onChange={onScopeChange}
+        name={selfName}
+        testid="mytasks-scope"
+      />
       <input
         type="text"
         value={filters.search}
