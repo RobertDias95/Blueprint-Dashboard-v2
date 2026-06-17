@@ -18,14 +18,18 @@ import type { Project } from '../lib/database.types';
 //   - Project Tags chip editor
 //   - Future: permits sidebar reorder (writes projects.permit_order)
 //
-// fix-24b: when the patch contains a non-empty builder_name, we also
-// upsert the typed builder into the public.builders catalog so it shows
-// up in future autocomplete searches. ON CONFLICT (name, company)
-// DO NOTHING preserves existing curated entries. Best-effort: if the
-// catalog upsert fails (network blip, RLS), we log and swallow — the
-// project save itself already committed and the user got their success
-// toast. The wizard's bp_create_project_with_permits path does the
-// equivalent server-side and atomically.
+// fix-174: this hook NO LONGER auto-promotes builders into the catalog.
+// fix-24b added a best-effort upsert whenever a patch carried a non-empty
+// builder_name — but the Project Overview Builder/Owner cell commits each
+// field on blur, so a partial/in-progress name ("boy", "stas") got committed
+// and promoted on every intermediate blur, littering the builders catalog with
+// fragments (same class as the date-field intermediate-value bug). A builder
+// must only enter the catalog on an EXPLICIT, COMPLETE commit, which the two
+// form-submit RPCs already do server-side + atomically:
+//   - new project: bp_create_project_with_permits
+//   - settings-modal save: bp_update_project_with_permits
+// The overview cell still SAVES builder_name to the project (its own data);
+// it just no longer creates a shared catalog row from a not-yet-finalized field.
 //
 // fix-99: OCC auto-recovery is now the default. mutationFn does a first
 // attempt with the caller's expectedUpdatedAt; on OCCConflictError, it
@@ -43,10 +47,6 @@ import type { Project } from '../lib/database.types';
 // silentOnOcc is preserved as an escape hatch for callers that want to
 // suppress the OCC toast AND skip the auto-retry (i.e. handle recovery
 // themselves). Default is auto-retry on.
-//
-// TODO (fix-24f or later): consolidate both project-write paths into a
-// single bp_update_project_with_builder_promote RPC so this stops
-// being two non-atomic client writes.
 
 export interface UpdateProjectInput {
   projectId: string;
@@ -70,12 +70,11 @@ interface MutationContext {
 
 /** Single-attempt project update. Returns the persisted row on success,
  *  throws OCCConflictError on a 0-row update, throws any other supabase
- *  error verbatim. The builder catalog auto-promote (fix-24b) runs from
- *  inside here so it fires for whichever attempt actually persists. */
+ *  error verbatim. fix-174: no builder-catalog side effect — a builder only
+ *  enters the catalog via the form-submit RPCs (see header comment). */
 async function tryUpdateProject(
   input: UpdateProjectInput,
   expectedUpdatedAt: string,
-  tenantId: string,
 ): Promise<Project> {
   const { projectId, patch, fieldLabel } = input;
   const { data, error } = await supabase
@@ -88,45 +87,7 @@ async function tryUpdateProject(
   if (!data || data.length === 0) {
     throw new OCCConflictError(0, fieldLabel ?? 'Project');
   }
-  await maybePromoteBuilder(patch, tenantId);
   return data[0] as Project;
-}
-
-/** fix-24b: when the patch carries a non-empty builder_name, upsert
- *  the typed builder into the catalog so future autocomplete sees them.
- *  Best-effort — any failure is logged and swallowed; the project save
- *  itself already committed. RLS scopes by tenant. */
-async function maybePromoteBuilder(
-  patch: Partial<Project>,
-  tenantId: string,
-): Promise<void> {
-  const typedName =
-    typeof patch.builder_name === 'string' ? patch.builder_name.trim() : '';
-  if (typedName === '' || tenantId === '') return;
-  const company =
-    typeof patch.builder_company === 'string'
-      ? patch.builder_company.trim() || null
-      : null;
-  const email =
-    typeof patch.builder_email === 'string'
-      ? patch.builder_email.trim() || null
-      : null;
-  const phone =
-    typeof patch.builder_phone === 'string'
-      ? patch.builder_phone.trim() || null
-      : null;
-  const { error: promoteError } = await supabase.from('builders').upsert(
-    { name: typedName, company, email, phone, tenant_id: tenantId },
-    // ignoreDuplicates so the existing catalog row's email/phone
-    // aren't overwritten by whatever the user typed this time.
-    { onConflict: 'name,company', ignoreDuplicates: true },
-  );
-  if (promoteError) {
-    console.warn(
-      '[useUpdateProject] builder auto-promote failed:',
-      promoteError.message,
-    );
-  }
 }
 
 /** fix-99: after an OCC failure, refetch the projects query and read
@@ -158,7 +119,7 @@ export function useUpdateProject() {
   return useMutation<Project, Error, UpdateProjectInput, MutationContext>({
     mutationFn: async (input) => {
       try {
-        return await tryUpdateProject(input, input.expectedUpdatedAt, tenantId);
+        return await tryUpdateProject(input, input.expectedUpdatedAt);
       } catch (err) {
         // silentOnOcc=true → caller wants to handle recovery itself.
         // Don't auto-retry; let the error propagate. (Non-OCC errors
@@ -181,7 +142,7 @@ export function useUpdateProject() {
         // to onError so the user finally sees what's going on. We do
         // NOT chain a second auto-retry — exactly one attempt after the
         // refresh.
-        return await tryUpdateProject(input, freshToken, tenantId);
+        return await tryUpdateProject(input, freshToken);
       }
     },
 
