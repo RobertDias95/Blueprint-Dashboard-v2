@@ -414,3 +414,119 @@ describe('deriveBlockStatus — no-BP projects derive off their own permits (fix
     expect(result).toEqual({ status: 'Approved', isAuto: true });
   });
 });
+
+describe('deriveBlockStatus — terminal permit short-circuits stale Corrections (fix-177)', () => {
+  const TODAY_177 = new Date(2026, 4, 13);
+
+  // The real prod repro: 1917 3rd Ave W (bc510fd7-...). BP 10199 Issued
+  // 2026-01-29; its latest cycle has corr_issued 2026-01-20 with resubmitted
+  // NULL (a never-closed final cycle). The lane painted "Corrections"; it must
+  // read Approved because the permit is terminally Issued.
+  it('(a) BP Issued + dangling corr_issued/null-resubmitted cycle → Approved, NOT Corrections', () => {
+    const bp = permit(10199, {
+      status: 'Issued',
+      approval_date: '2026-01-29',
+      actual_issue: '2026-01-29',
+    });
+    const cyclesByPermit = new Map([
+      [
+        10199,
+        [
+          cycle(10199, { cycle_index: 2, corr_issued: '2026-01-20', resubmitted: '2026-01-20' }),
+          // dangling final cycle — corr issued, never resubmitted/closed
+          cycle(10199, { cycle_index: 3, submitted: '2026-01-20', corr_issued: '2026-01-20', resubmitted: null }),
+        ],
+      ],
+    ]);
+    const result = deriveBlockStatus({
+      permits: [bp],
+      cyclesByPermit,
+      currentStatus: 'Scheduled',
+      manualStatus: false,
+      today: TODAY_177,
+    });
+    expect(result).toEqual({ status: 'Approved', isAuto: true });
+  });
+
+  // A BP-less project whose only permit is a Demo that's Completed. src = all
+  // permits → the Demo drives it. Its dangling cycle must not show Corrections.
+  it('(b) Demo Completed + dangling corr cycle (BP-less project) → Approved (done)', () => {
+    const demo = permit(10200, { type: 'Demolition', status: 'Completed' });
+    const cyclesByPermit = new Map([
+      [10200, [cycle(10200, { corr_issued: '2025-11-18', resubmitted: null })]],
+    ]);
+    const result = deriveBlockStatus({
+      permits: [demo],
+      cyclesByPermit,
+      currentStatus: null,
+      manualStatus: false,
+      today: TODAY_177,
+    });
+    expect(result).toEqual({ status: 'Approved', isAuto: true });
+  });
+
+  // The genuine case the fix must NOT break: an open correction on a permit the
+  // city has NOT finished (no issue, non-terminal status) still reads Corrections.
+  it('(c) non-terminal permit with corr_issued/null-resubmitted → still Corrections', () => {
+    const bp = permit(1, { status: 'Corrections Required' });
+    const cyclesByPermit = new Map([
+      [1, [cycle(1, { corr_issued: '2026-05-01', resubmitted: null })]],
+    ]);
+    const result = deriveBlockStatus({
+      permits: [bp],
+      cyclesByPermit,
+      currentStatus: null,
+      manualStatus: false,
+      today: TODAY_177,
+    });
+    expect(result).toEqual({ status: 'Corrections', isAuto: true });
+  });
+
+  // status_override / manual_status path is unchanged: a manual DD-phase choice
+  // is still respected (the fix only touches the terminal/Corrections branches).
+  it('(d) manual_status still wins in the DD phase (no regression)', () => {
+    const bp = permit(1, { dd_start: '2026-05-01' }); // in DD window, no cycles
+    const result = deriveBlockStatus({
+      permits: [bp],
+      cyclesByPermit: new Map(),
+      currentStatus: 'Pending Consultants',
+      manualStatus: true,
+      today: TODAY_177,
+    });
+    expect(result).toEqual({ status: 'Pending Consultants', isAuto: false });
+  });
+
+  // Terminal-positive STATUS with no recorded date (SDOT "Conceptually Approved")
+  // + a dangling cycle must read Approved, not fall through to Under Review.
+  it('terminal status without a date + dangling cycle → Approved (not Under Review)', () => {
+    const bp = permit(1, { status: 'Conceptually Approved' });
+    const cyclesByPermit = new Map([
+      [1, [cycle(1, { submitted: '2026-04-01', corr_issued: '2026-04-20', resubmitted: null })]],
+    ]);
+    const result = deriveBlockStatus({
+      permits: [bp],
+      cyclesByPermit,
+      currentStatus: null,
+      manualStatus: false,
+      today: TODAY_177,
+    });
+    expect(result).toEqual({ status: 'Approved', isAuto: true });
+  });
+
+  // An approved-but-not-issued permit that re-enters corrections still surfaces
+  // Corrections — approval_date alone is NOT treated as "done" by the fix.
+  it('approval_date set but not issued + open corrections → still Corrections', () => {
+    const bp = permit(1, { approval_date: '2026-03-01', status: 'Corrections Required' });
+    const cyclesByPermit = new Map([
+      [1, [cycle(1, { corr_issued: '2026-04-20', resubmitted: null })]],
+    ]);
+    const result = deriveBlockStatus({
+      permits: [bp],
+      cyclesByPermit,
+      currentStatus: null,
+      manualStatus: false,
+      today: TODAY_177,
+    });
+    expect(result).toEqual({ status: 'Corrections', isAuto: true });
+  });
+});
