@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { render, screen, within, fireEvent } from '@testing-library/react';
+import { render, screen, within, fireEvent, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { ReactNode } from 'react';
 import { useAuthStore } from '../stores/authStore';
@@ -158,15 +158,11 @@ vi.mock('../hooks/useTeamMembers', () => ({
 }));
 
 // fix-36: the modal now saves through one atomic RPC hook.
+// fix-175: hoist the mutateAsync so a test can assert the patch it receives.
+const updateWithPermitsMock = vi.hoisted(() => ({ mutateAsync: vi.fn() }));
 vi.mock('../hooks/useUpdateProjectWithPermits', () => ({
   useUpdateProjectWithPermits: () => ({
-    mutateAsync: vi.fn().mockResolvedValue({
-      conflict: false,
-      conflictKind: null,
-      conflictId: null,
-      projectUpdatedAt: null,
-      permits: [],
-    }),
+    mutateAsync: updateWithPermitsMock.mutateAsync,
     isPending: false,
   }),
 }));
@@ -182,6 +178,7 @@ const builderFixtures = vi.hoisted(() => ({
       company: 'Crafted Design Build',
       email: 'boyd@crafted.test',
       phone: '(206) 555-0199',
+      address: '742 Crafted Ave, Seattle',
       notes: null,
       active: true,
     },
@@ -191,6 +188,7 @@ const builderFixtures = vi.hoisted(() => ({
       company: 'Acme Homes',
       email: 'jane@acme.test',
       phone: null,
+      address: null,
       notes: null,
       active: true,
     },
@@ -252,6 +250,14 @@ function renderModal() {
 }
 
 beforeEach(() => {
+  updateWithPermitsMock.mutateAsync.mockReset();
+  updateWithPermitsMock.mutateAsync.mockResolvedValue({
+    conflict: false,
+    conflictKind: null,
+    conflictId: null,
+    projectUpdatedAt: null,
+    permits: [],
+  });
   useAuthStore.setState({
     activeTenantId: T,
     memberships: [{ tenant_id: T, role: 'admin' }],
@@ -472,13 +478,39 @@ describe('<ProjectSettingsModal /> fix-23f builder autocomplete', () => {
 
     fireEvent.click(option);
 
-    // All four siblings filled from the picked builder.
+    // All siblings filled from the picked builder — fix-175 adds LLC Address.
     expect((screen.getByTestId('psm-builder-name') as HTMLInputElement).value).toBe('Boyd Livek');
     expect((screen.getByTestId('psm-builder-co') as HTMLInputElement).value).toBe('Crafted Design Build');
     expect((screen.getByTestId('psm-builder-email') as HTMLInputElement).value).toBe('boyd@crafted.test');
     expect((screen.getByTestId('psm-builder-phone') as HTMLInputElement).value).toBe('(206) 555-0199');
+    expect((screen.getByTestId('psm-builder-address') as HTMLInputElement).value).toBe('742 Crafted Ave, Seattle');
     // Menu closes after select.
     expect(screen.queryByTestId('psm-builder-name-menu')).toBeNull();
+  });
+
+  // fix-175: the modal save folds the LLC address + per-project POC into the
+  // single bp_update_project_with_permits patch.
+  it('saves builder_address + poc_name/poc_email in the project patch', async () => {
+    renderModal();
+    fireEvent.change(screen.getByTestId('psm-builder-address'), {
+      target: { value: '900 Olive Way' },
+    });
+    fireEvent.change(screen.getByTestId('psm-poc-name'), {
+      target: { value: 'Dana Deal' },
+    });
+    fireEvent.change(screen.getByTestId('psm-poc-email'), {
+      target: { value: 'dana@deal.test' },
+    });
+    fireEvent.click(screen.getByTestId('psm-save'));
+
+    await waitFor(() => {
+      expect(updateWithPermitsMock.mutateAsync).toHaveBeenCalled();
+    });
+    const patch =
+      updateWithPermitsMock.mutateAsync.mock.calls[0][0].projectPatch;
+    expect(patch.builder_address).toBe('900 Olive Way');
+    expect(patch.poc_name).toBe('Dana Deal');
+    expect(patch.poc_email).toBe('dana@deal.test');
   });
 });
 

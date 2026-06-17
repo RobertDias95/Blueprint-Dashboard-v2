@@ -356,6 +356,10 @@ export default function NewProjectWizard({ open, onClose, initialState }: Props)
       builder_company: strOrNull(state.builder_company),
       builder_email: strOrNull(state.builder_email),
       builder_phone: strOrNull(state.builder_phone),
+      // fix-175: owner LLC address (-> builders catalog) + per-project POC.
+      builder_address: strOrNull(state.builder_address),
+      poc_name: strOrNull(state.poc_name),
+      poc_email: strOrNull(state.poc_email),
       // fix-107: thread Step 1's Lead DA. When non-null the RPC calls
       // bp_next_available_da_slot to auto-place the BP at the DA's
       // first open slot (no overlap with any draw_schedule or

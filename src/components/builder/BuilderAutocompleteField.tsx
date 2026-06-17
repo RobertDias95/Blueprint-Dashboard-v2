@@ -20,7 +20,7 @@ import type { Builder } from '../../lib/database.types';
 //   - No autocomplete on the input element (autoComplete="off") so the
 //     browser's own credential/contact suggestions don't fight ours.
 
-type BuilderField = 'name' | 'company' | 'email' | 'phone';
+type BuilderField = 'name' | 'company' | 'email' | 'phone' | 'address';
 
 interface Props {
   value: string;

@@ -65,6 +65,12 @@ export interface ProjectData {
   builder_company?: string | null;
   builder_email?: string | null;
   builder_phone?: string | null;
+  /** fix-175: owner LLC address — the RPC writes it to projects.builder_address
+   *  AND upserts it onto the builders catalog row (address travels on pick). */
+  builder_address?: string | null;
+  /** fix-175: per-project point-of-contact (NOT promoted to the catalog). */
+  poc_name?: string | null;
+  poc_email?: string | null;
   /** fix-107: Step 1's Lead Design Associate. When set, the RPC's BP
    *  branch calls bp_next_available_da_slot to find the first gap on
    *  that DA's lane and writes both the BP's dd_start/dd_end and a

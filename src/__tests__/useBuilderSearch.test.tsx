@@ -207,14 +207,15 @@ describe('useBuilderSearch — fix-24c wire shape', () => {
     expect(mocks.limitFn).toHaveBeenCalledWith(20);
   });
 
-  it('selects the columns the autocomplete UI needs (id, name, company, email, phone, notes, active)', async () => {
+  it('selects the columns the autocomplete UI needs (id, name, company, email, phone, address, notes, active)', async () => {
     const { wrapper } = setup();
     renderHook(() => useBuilderSearch('lyb'), { wrapper });
     await waitFor(() => {
       expect(mocks.selectFn).toHaveBeenCalled();
     });
+    // fix-175: address added so a picked builder carries the entity LLC address.
     expect(mocks.selectFn).toHaveBeenCalledWith(
-      'id, name, company, email, phone, notes, active',
+      'id, name, company, email, phone, address, notes, active',
     );
     expect(mocks.fromFn).toHaveBeenCalledWith('builders');
   });

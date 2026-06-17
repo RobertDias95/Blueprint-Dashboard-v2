@@ -631,6 +631,16 @@ describe('<NewProjectWizard />', () => {
     fireEvent.change(screen.getByTestId('wizard-builder-phone'), {
       target: { value: '(206) 555-0100' },
     });
+    // fix-175: owner LLC address (-> catalog) + per-project point-of-contact.
+    fireEvent.change(screen.getByTestId('wizard-builder-address'), {
+      target: { value: '123 Owner LLC Way, Seattle' },
+    });
+    fireEvent.change(screen.getByTestId('wizard-poc-name'), {
+      target: { value: 'Dana Deal' },
+    });
+    fireEvent.change(screen.getByTestId('wizard-poc-email'), {
+      target: { value: 'dana@deal.test' },
+    });
     fireEvent.click(screen.getByTestId('wizard-next')); // -> 2
     fireEvent.click(screen.getByTestId('wizard-next')); // -> 3
     fireEvent.click(screen.getByTestId('wizard-next')); // -> 4
@@ -644,6 +654,9 @@ describe('<NewProjectWizard />', () => {
     expect(args.p_project_data.builder_company).toBe('Acme Builders LLC');
     expect(args.p_project_data.builder_email).toBe('jane@acme.test');
     expect(args.p_project_data.builder_phone).toBe('(206) 555-0100');
+    expect(args.p_project_data.builder_address).toBe('123 Owner LLC Way, Seattle');
+    expect(args.p_project_data.poc_name).toBe('Dana Deal');
+    expect(args.p_project_data.poc_email).toBe('dana@deal.test');
   });
 
   it('omits empty Builder fields (renders as null on the wire)', async () => {
@@ -683,6 +696,10 @@ describe('<NewProjectWizard />', () => {
     expect(args.p_project_data.builder_company).toBeNull();
     expect(args.p_project_data.builder_email).toBeNull();
     expect(args.p_project_data.builder_phone).toBeNull();
+    // fix-175: address + POC are optional too — empty -> null on the wire.
+    expect(args.p_project_data.builder_address).toBeNull();
+    expect(args.p_project_data.poc_name).toBeNull();
+    expect(args.p_project_data.poc_email).toBeNull();
   });
 
   // fix-122: end-to-end wizard flow with the three new fields. The
