@@ -117,7 +117,7 @@ function enrichedFixture(): EnrichedPermit[] {
         id: 1, project_id: 'p1', type: 'Building Permit', num: 'BP-1',
         ent_lead: 'Miles', da: 'Trevor', status: 'Reviews In Process',
         permit_cycles: [],
-      } as EnrichedPermit['permit'],
+      } as unknown as EnrichedPermit['permit'],
     },
   ];
 }
