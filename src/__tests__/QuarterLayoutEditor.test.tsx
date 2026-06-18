@@ -17,6 +17,7 @@ const mocks = vi.hoisted(() => ({
   reorder: vi.fn(),
   clone: vi.fn(),
   seed: vi.fn(),
+  append: vi.fn(),
 }));
 
 const state = vi.hoisted(() => ({
@@ -47,6 +48,10 @@ vi.mock('../hooks/useReorderQuarterLayout', async (orig) => ({
 vi.mock('../hooks/useBuildQuarterLayout', () => ({
   useCloneQuarterLayout: () => ({ mutate: mocks.clone, isPending: false }),
   useSeedQuarterLayoutFromCurrent: () => ({ mutate: mocks.seed, isPending: false }),
+}));
+vi.mock('../hooks/useAddQuarterLayoutColumn', () => ({
+  useAppendQuarterLayoutColumn: () => ({ mutate: mocks.append, isPending: false }),
+  useInsertQuarterLayoutColumn: () => ({ mutate: vi.fn(), isPending: false }),
 }));
 
 import QuarterLayoutEditor from '../components/Settings/QuarterLayoutEditor';
@@ -122,23 +127,26 @@ describe('<QuarterLayoutEditor /> populated', () => {
     expect(preview.textContent).toContain('standalone');
   });
 
-  it('adds a DA column at the end via upsert insert', () => {
+  it('adds a DA column via the server-append RPC (NO client position — fix-182d)', () => {
     renderIt();
     fireEvent.change(screen.getByTestId('ql-add-da-select'), {
       target: { value: 'Trevor' },
     });
-    expect(mocks.upsert).toHaveBeenCalledWith({
-      op: 'insert',
-      data: expect.objectContaining({ col_kind: 'da', da_name: 'Trevor', position: 3 }),
+    expect(mocks.append).toHaveBeenCalledWith({
+      quarter: quarterOffsetToString(0),
+      col: expect.objectContaining({ col_kind: 'da', da_name: 'Trevor' }),
     });
+    // The collision-prone client position must NOT be sent.
+    expect(mocks.append.mock.calls[0][0].col).not.toHaveProperty('position');
+    expect(mocks.upsert).not.toHaveBeenCalled();
   });
 
-  it('inserts an OPEN lane via upsert insert', () => {
+  it('inserts an OPEN lane via the server-append RPC', () => {
     renderIt();
     fireEvent.click(screen.getByTestId('ql-add-open'));
-    expect(mocks.upsert).toHaveBeenCalledWith({
-      op: 'insert',
-      data: expect.objectContaining({ col_kind: 'open', da_name: null, position: 3 }),
+    expect(mocks.append).toHaveBeenCalledWith({
+      quarter: quarterOffsetToString(0),
+      col: expect.objectContaining({ col_kind: 'open', da_name: null }),
     });
   });
 
