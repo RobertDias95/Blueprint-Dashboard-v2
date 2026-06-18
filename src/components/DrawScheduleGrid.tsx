@@ -19,6 +19,8 @@ import { useUpsertDaTimeBlock } from '../hooks/useUpsertDaTimeBlock';
 import { useDeleteDaTimeBlock } from '../hooks/useDeleteDaTimeBlock';
 import { useTeamMembers } from '../hooks/useTeamMembers';
 import { useAllPermitCycleReviewers } from '../hooks/useAllPermitCycleReviewers';
+import { useQuarterLayout } from '../hooks/useQuarterLayout';
+import { buildDrawColumns } from '../lib/quarterLayoutHelpers';
 import {
   isMemberActiveInQuarter,
   quarterOffsetToString,
@@ -498,6 +500,11 @@ function DrawScheduleBody({
   // Q9.5.f-fix-20: reverse lookup DM by DA name. Used when routing a DA
   // move through bp_move_draw_schedule_da, which writes permits.dm to keep
   // the dashboard's DM groupings coherent.
+  // fix-182c (locked decision #6): dmByDa + the move/ent cascade ALWAYS read
+  // the CURRENT structure (dm_da_groups / da_team_routing), never the
+  // per-quarter layout. A drag-move reflects who manages a DA *today* (the move
+  // writes permits.dm/ent_lead for live routing); the per-quarter layout is a
+  // frozen visual snapshot, not a routing source. So this stays on `groups`.
   const dmByDa = useMemo(() => {
     const m = new Map<string, string>();
     for (const g of groups) {
@@ -505,6 +512,39 @@ function DrawScheduleBody({
     }
     return m;
   }, [groups]);
+
+  // fix-182c: per-quarter saved layout. If the viewed quarter has >=1 saved
+  // rows -> LAYOUT MODE (columns/headers/order come from the layout); else the
+  // existing dm_da_groups + active-quarter path is used UNCHANGED.
+  const layoutQ = useQuarterLayout(currentQuarter);
+  const layoutRows = layoutQ.rows;
+  const isLayoutMode = layoutRows.length > 0;
+
+  // Unified column model consumed by all three render bands (DM header, DA
+  // header, DA columns). buildDrawColumns produces the same shape for both
+  // modes; the fallback path renders byte-for-byte as before.
+  const { renderGroups, renderColumns } = useMemo(
+    () =>
+      buildDrawColumns({
+        isLayoutMode,
+        layoutRows,
+        fallbackGroups: filteredGroups,
+        inactiveDas: inactiveButForcedDAs,
+        forcedDas: forcedDAs,
+      }),
+    [isLayoutMode, layoutRows, filteredGroups, inactiveButForcedDAs, forcedDAs],
+  );
+
+  // DA names that actually have a rendered column this quarter (drives
+  // blocksByDa). In layout mode this is the layout's DA set + orphan lanes; in
+  // fallback it's filteredGroups' DAs — identical to the prior `allDas`.
+  const visibleDaNames = useMemo(
+    () =>
+      renderColumns
+        .filter((c) => c.kind === 'da' && c.daName)
+        .map((c) => c.daName as string),
+    [renderColumns],
+  );
 
   // Q9.5.f-fix-20: pending gap-fill prompt. Set after a successful DA-move
   // when downstream blocks on the OLD DA remained.
@@ -1128,9 +1168,8 @@ function DrawScheduleBody({
   }
   // Per-DA list of project blocks visible this quarter, after search filter.
   const blocksByDa = useMemo(() => {
-    const allDas = filteredGroups.flatMap((g) => g.das);
     const map = new Map<string, { row: DrawScheduleRow; project: Project }[]>();
-    for (const da of allDas) map.set(da, []);
+    for (const da of visibleDaNames) map.set(da, []);
     for (const row of draw) {
       const da = row.da_assigned;
       if (!da || !map.has(da)) continue;
@@ -1152,7 +1191,7 @@ function DrawScheduleBody({
       );
     }
     return map;
-  }, [draw, projectById, filteredGroups, weeks, search]);
+  }, [draw, projectById, visibleDaNames, weeks, search]);
 
   // Q6.2.c: NP blocks grouped by DA, filtered to current quarter. Same
   // overlap predicate as project blocks; render-only (no drag, no drop).
@@ -1206,6 +1245,7 @@ function DrawScheduleBody({
         setQuarterOffset={setQuarterOffset}
         search={search}
         setSearch={setSearch}
+        isLayoutMode={isLayoutMode}
       />
 
       <div
@@ -1223,17 +1263,18 @@ function DrawScheduleBody({
             style={{ width: labelW, minWidth: labelW }}
             className="border-r border-border"
           />
-          {filteredGroups.map((g) => (
+          {renderGroups.map((g) => (
             <div
-              key={g.dm}
-              // fix-48: grow proportional to the DM's DA count (basis 0) and
-              // floor at das.length * DA_MIN_W so this header stays aligned
-              // with the sum of its DA columns once they hit the min and the
-              // grid scrolls.
-              style={{ flex: `${g.das.length} 1 0`, minWidth: g.das.length * DA_MIN_W }}
+              key={g.key}
+              // fix-48: grow proportional to the group's column count (basis 0)
+              // and floor at colCount * DA_MIN_W so this header stays aligned
+              // with the sum of its columns once they hit the min and the grid
+              // scrolls. fix-182c: a null header (standalone column / orphan
+              // lane) renders a blank cell so alignment is preserved.
+              style={{ flex: `${g.colCount} 1 0`, minWidth: g.colCount * DA_MIN_W }}
               className="text-center px-1 py-1 border-r-2 border-border text-[11px] font-extrabold uppercase truncate text-text"
             >
-              {g.dm}
+              {g.header ?? ''}
             </div>
           ))}
         </div>
@@ -1244,33 +1285,33 @@ function DrawScheduleBody({
             style={{ width: labelW, minWidth: labelW }}
             className="border-r border-border"
           />
-          {filteredGroups.flatMap((g) =>
-            g.das.map((da, i) => {
-              const isInactive = inactiveButForcedDAs.has(da);
-              return (
-                <div
-                  key={`${g.dm}-${da}`}
-                  data-testid={`da-header-${da}`}
-                  data-inactive={isInactive ? 'true' : undefined}
-                  title={
-                    isInactive
-                      ? `${da} is not active this quarter — visible because they have a block here`
-                      : da
-                  }
-                  // fix-48: flex to share width (basis 0), floor at DA_MIN_W so
-                  // many DAs shrink to the min and then the grid scrolls.
-                  style={{ flexGrow: 1, flexShrink: 1, flexBasis: 0, minWidth: DA_MIN_W }}
-                  className={`text-center px-1 py-1 text-[10px] font-bold truncate ${
-                    i === g.das.length - 1
-                      ? 'border-r-2 border-border'
-                      : 'border-r border-border'
-                  } ${isInactive ? 'italic opacity-60' : ''}`}
-                >
-                  {da}
-                </div>
-              );
-            }),
-          )}
+          {renderColumns.map((c) => {
+            const isInactive = c.inactive;
+            return (
+              <div
+                key={c.key}
+                data-testid={
+                  c.daName ? `da-header-${c.daName}` : `da-header-open-${c.key}`
+                }
+                data-inactive={isInactive ? 'true' : undefined}
+                title={
+                  isInactive
+                    ? `${c.label} is not active this quarter — visible because they have a block here`
+                    : c.label
+                }
+                // fix-48: flex to share width (basis 0), floor at DA_MIN_W so
+                // many columns shrink to the min and then the grid scrolls.
+                style={{ flexGrow: 1, flexShrink: 1, flexBasis: 0, minWidth: DA_MIN_W }}
+                className={`text-center px-1 py-1 text-[10px] font-bold truncate ${
+                  c.isLastInGroup
+                    ? 'border-r-2 border-border'
+                    : 'border-r border-border'
+                } ${isInactive ? 'italic opacity-60' : ''}`}
+              >
+                {c.label}
+              </div>
+            );
+          })}
         </div>
 
         {/* Body grid. onMouseLeave clears the hover-week highlight when the
@@ -1321,14 +1362,39 @@ function DrawScheduleBody({
           </div>
 
           {/* DA columns */}
-          {filteredGroups.flatMap((g) =>
-            g.das.map((da, daIdx) => {
-              const isLast = daIdx === g.das.length - 1;
-              const blocks = blocksByDa.get(da) ?? [];
-              const daNpBlocks = npBlocksByDa.get(da) ?? [];
+          {renderColumns.map((col) => {
+            const isLast = col.isLastInGroup;
+            // fix-182c: OPEN placeholder lane — empty column, holds no blocks
+            // and is not a drop target (no DA to assign; locked #8). Week cells
+            // render for grid alignment only.
+            if (col.kind === 'open' || col.daName === null) {
               return (
                 <div
-                  key={`${g.dm}-${da}-col`}
+                  key={col.key}
+                  data-testid={`da-col-open-${col.key}`}
+                  style={{ flexGrow: 1, flexShrink: 1, flexBasis: 0, minWidth: DA_MIN_W }}
+                  className={`relative ${
+                    isLast ? 'border-r-2 border-border' : 'border-r border-border'
+                  }`}
+                >
+                  {weeks.map((wk) => (
+                    <div
+                      key={wk}
+                      style={{ height: rowH }}
+                      className={`border-b border-border ${
+                        wk === currentWeek ? 'bg-de/[0.04]' : ''
+                      }`}
+                    />
+                  ))}
+                </div>
+              );
+            }
+            const da = col.daName;
+            const blocks = blocksByDa.get(da) ?? [];
+            const daNpBlocks = npBlocksByDa.get(da) ?? [];
+            return (
+                <div
+                  key={col.key}
                   data-testid={`da-col-${da}`}
                   // fix-48: same flex + DA_MIN_W floor as the DA header so the
                   // body column stays aligned with its header at every width.
@@ -2024,8 +2090,7 @@ function DrawScheduleBody({
                   })}
                 </div>
               );
-            }),
-          )}
+          })}
         </div>
       </div>
 
@@ -2277,11 +2342,13 @@ function Toolbar({
   setQuarterOffset,
   search,
   setSearch,
+  isLayoutMode,
 }: {
   quarterOffset: number;
   setQuarterOffset: (n: number) => void;
   search: string;
   setSearch: (s: string) => void;
+  isLayoutMode: boolean;
 }) {
   return (
     <div className="flex items-center gap-3 flex-wrap flex-shrink-0">
@@ -2313,6 +2380,17 @@ function Toolbar({
         >
           ▸
         </button>
+        {/* fix-182c: flag quarters rendered from a saved per-quarter layout
+            vs the current/default team structure. */}
+        {isLayoutMode && (
+          <span
+            data-testid="quarter-layout-tag"
+            title="This quarter renders a saved layout (Settings → Team → Draw Schedule Layout)"
+            className="text-[9px] uppercase tracking-wide px-1.5 py-0.5 rounded border border-de/40 bg-de/10 text-de font-display font-bold"
+          >
+            saved layout
+          </span>
+        )}
       </div>
 
       <input
