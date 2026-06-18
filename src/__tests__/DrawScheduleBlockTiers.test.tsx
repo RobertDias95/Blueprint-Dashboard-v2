@@ -372,19 +372,19 @@ describe('Draw Schedule block layout (fix-DS-uniform-layout)', () => {
     expect(screen.queryByTestId('block-status-p1')).toBeNull();
   });
 
-  it('DA columns auto-fit: each header flexes to share width with a 90px floor', () => {
-    // fix-DS-fit-and-wrap: DA columns flex 1 1 0 so they share the viewport
-    // width, never shrinking below DA_MIN_W (90px) before the grid scrolls.
+  it('DA columns auto-fit: shared grid template floors each column track at 90px', () => {
+    // fix-182d: DA columns share the viewport width via one grid-template-columns
+    // (minmax(DA_MIN_W, 1fr)), never shrinking below 90px before the grid scrolls.
+    // (Replaces the old per-cell flex 1 1 0 + min-width:90px sizing.)
     refs.draw.current = [row({ project_id: 'p1', da_assigned: 'A1', start_week: W[3], end_week: W[5] })];
     refs.projects.current = [project('p1', '500 Pike St')];
     renderGrid();
-    const header = screen.getByTestId('da-header-A1');
-    expect(header.style.minWidth).toBe('90px');
-    // flexGrow + flexShrink both 1, basis 0 → columns share the row evenly.
-    // (Longhands, not the `flex` shorthand, so jsdom's CSSOM exposes them.)
-    expect(header.style.flexGrow).toBe('1');
-    expect(header.style.flexShrink).toBe('1');
-    expect(header.style.flexBasis).toBe('0px');
+    const body = screen.getByTestId('ds-band-body');
+    expect(body.style.gridTemplateColumns).toContain('minmax(90px, 1fr)');
+    // Header band shares the identical template => stays aligned with the body.
+    expect(screen.getByTestId('ds-band-da').style.gridTemplateColumns).toBe(
+      body.style.gridTemplateColumns,
+    );
   });
 
   it('NP block label wraps instead of clipping mid-word (fix-DS-fit-and-wrap)', () => {

@@ -43,6 +43,10 @@ import {
   useCloneQuarterLayout,
   useSeedQuarterLayoutFromCurrent,
 } from '../hooks/useBuildQuarterLayout';
+import {
+  useAppendQuarterLayoutColumn,
+  useInsertQuarterLayoutColumn,
+} from '../hooks/useAddQuarterLayoutColumn';
 
 function wrapper({ children }: { children: ReactNode }) {
   const qc = new QueryClient({
@@ -204,5 +208,46 @@ describe('useCloneQuarterLayout / useSeedQuarterLayoutFromCurrent', () => {
       p_force: false,
     });
     expect(pushToast).toHaveBeenCalledWith(expect.stringContaining('12 columns'), 'success');
+  });
+});
+
+// fix-182d: collision-proof inserts. The position is decided server-side, so
+// the hooks must send the column fields only (NO client position) under the
+// RPC names that compute/shift the position.
+describe('useAppendQuarterLayoutColumn / useInsertQuarterLayoutColumn (fix-182d)', () => {
+  it('append wires bp_append_quarter_layout_column with the column only (no position)', async () => {
+    mocks.setResult({ data: [{ out_id: 'id-1', updated_at: NOW, out_position: 7 }], error: null });
+    const { result } = renderHook(() => useAppendQuarterLayoutColumn(), { wrapper });
+    let pos = -1;
+    await act(async () => {
+      pos = await result.current.mutateAsync({
+        quarter: '2025-Q3',
+        col: { col_kind: 'da', da_name: 'Erick', group_label: 'Jade', label_override: null },
+      });
+    });
+    expect(pos).toBe(7); // server-assigned position is returned
+    expect(mocks.rpcFn).toHaveBeenCalledWith('bp_append_quarter_layout_column', {
+      p_quarter: '2025-Q3',
+      p_col: expect.objectContaining({ col_kind: 'da', da_name: 'Erick' }),
+    });
+    const sentCol = mocks.rpcFn.mock.calls[0][1].p_col;
+    expect(sentCol).not.toHaveProperty('position');
+  });
+
+  it('insert wires bp_insert_quarter_layout_column with the target position', async () => {
+    mocks.setResult({ data: [{ out_id: 'id-2', updated_at: NOW, out_position: 1 }], error: null });
+    const { result } = renderHook(() => useInsertQuarterLayoutColumn(), { wrapper });
+    await act(async () => {
+      await result.current.mutateAsync({
+        quarter: '2025-Q3',
+        atPosition: 1,
+        col: { col_kind: 'open', da_name: null, group_label: null, label_override: 'OPEN' },
+      });
+    });
+    expect(mocks.rpcFn).toHaveBeenCalledWith('bp_insert_quarter_layout_column', {
+      p_quarter: '2025-Q3',
+      p_at_position: 1,
+      p_col: expect.objectContaining({ col_kind: 'open' }),
+    });
   });
 });

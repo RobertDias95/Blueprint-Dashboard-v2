@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { useDrawSchedule } from '../hooks/useDrawSchedule';
 import { useProjects } from '../hooks/useProjects';
 import { usePermits } from '../hooks/usePermits';
@@ -1235,6 +1235,27 @@ function DrawScheduleBody({
       .sort((a, b) => a.project.address.localeCompare(b.project.address));
   }, [draw, projectById, search]);
 
+  // fix-182d: all three render bands (DM header, DA header, body columns) share
+  // ONE grid-template-columns so column/group boundaries align pixel-perfectly.
+  // Under the old per-band flex layout the DM-header band had one border per
+  // GROUP while the columns band had one per COLUMN, so flex-basis:0 distributed
+  // free space differently and group boundaries drifted (worsening left→right).
+  // A track per column (minmax(DA_MIN_W, 1fr)) makes track lines identical in
+  // every band regardless of borders; `width:max-content` + `minWidth:100%`
+  // reproduces the old "fill when few columns, scroll when many" behavior.
+  const gridBandStyle = useMemo<CSSProperties>(() => {
+    const n = renderColumns.length;
+    return {
+      display: 'grid',
+      gridTemplateColumns:
+        n > 0
+          ? `${labelW}px repeat(${n}, minmax(${DA_MIN_W}px, 1fr))`
+          : `${labelW}px`,
+      width: 'max-content',
+      minWidth: '100%',
+    };
+  }, [renderColumns.length, labelW]);
+
   return (
     // fix-47: fill the parent's height as a flex column so the grid card can
     // flex-1 into the available space (Toolbar + Unscheduled stay their
@@ -1253,25 +1274,23 @@ function DrawScheduleBody({
         className="relative bg-surface border border-border rounded-xl overflow-auto flex-1 min-h-0"
         data-testid="draw-schedule-grid"
       >
-        {/* DM header row.
-            fix-48: min-w-full + w-max — fill the card when DAs are few (flex
-            grow), but grow to content (and scroll) when many columns hit
-            DA_MIN_W, so the header background extends across the full scroll
-            width and stays aligned with the body. */}
-        <div className="flex min-w-full w-max sticky top-0 z-20 bg-s2 border-b border-border">
-          <div
-            style={{ width: labelW, minWidth: labelW }}
-            className="border-r border-border"
-          />
-          {renderGroups.map((g) => (
+        {/* DM (manager-header) band. fix-182d: a CSS grid sharing
+            gridBandStyle with the DA-header + body bands so a group's right
+            edge always lands on the same track line as its last DA column. Each
+            group cell spans `colCount` tracks. A null header (standalone /
+            orphan lane) renders a blank cell so alignment is preserved. */}
+        <div
+          data-testid="ds-band-dm"
+          style={gridBandStyle}
+          className="sticky top-0 z-20 bg-s2 border-b border-border"
+        >
+          <div className="border-r border-border" />
+          {renderGroups.map((g, gi) => (
             <div
               key={g.key}
-              // fix-48: grow proportional to the group's column count (basis 0)
-              // and floor at colCount * DA_MIN_W so this header stays aligned
-              // with the sum of its columns once they hit the min and the grid
-              // scrolls. fix-182c: a null header (standalone column / orphan
-              // lane) renders a blank cell so alignment is preserved.
-              style={{ flex: `${g.colCount} 1 0`, minWidth: g.colCount * DA_MIN_W }}
+              data-testid={`ds-group-${gi}`}
+              data-span={g.colCount}
+              style={{ gridColumn: `span ${g.colCount}` }}
               className="text-center px-1 py-1 border-r-2 border-border text-[11px] font-extrabold uppercase truncate text-text"
             >
               {g.header ?? ''}
@@ -1279,12 +1298,13 @@ function DrawScheduleBody({
           ))}
         </div>
 
-        {/* DA header row. fix-48: same min-w-full + w-max as the DM row. */}
-        <div className="flex min-w-full w-max sticky top-[26px] z-[19] bg-s2 border-b-2 border-border">
-          <div
-            style={{ width: labelW, minWidth: labelW }}
-            className="border-r border-border"
-          />
+        {/* DA (column-header) band — same shared grid template. */}
+        <div
+          data-testid="ds-band-da"
+          style={gridBandStyle}
+          className="sticky top-[26px] z-[19] bg-s2 border-b-2 border-border"
+        >
+          <div className="border-r border-border" />
           {renderColumns.map((c) => {
             const isInactive = c.inactive;
             return (
@@ -1299,9 +1319,8 @@ function DrawScheduleBody({
                     ? `${c.label} is not active this quarter — visible because they have a block here`
                     : c.label
                 }
-                // fix-48: flex to share width (basis 0), floor at DA_MIN_W so
-                // many columns shrink to the min and then the grid scrolls.
-                style={{ flexGrow: 1, flexShrink: 1, flexBasis: 0, minWidth: DA_MIN_W }}
+                // fix-182d: width comes from the shared grid track (one per
+                // column); no per-cell flex sizing.
                 className={`text-center px-1 py-1 text-[10px] font-bold truncate ${
                   c.isLastInGroup
                     ? 'border-r-2 border-border'
@@ -1319,13 +1338,13 @@ function DrawScheduleBody({
             empty cells) drive the active range while inside. */}
         <div
           ref={bodyGridRef}
-          className="flex min-w-full w-max relative"
+          data-testid="ds-band-body"
+          style={{ ...gridBandStyle, position: 'relative' }}
           onMouseLeave={clearHover}
         >
-          {/* Week labels column */}
+          {/* Week labels column (grid track 1) */}
           <div
             data-testid="week-label-col"
-            style={{ width: labelW, minWidth: labelW }}
             className="border-r border-border"
           >
             {weeks.map((wk) => {
@@ -1372,7 +1391,7 @@ function DrawScheduleBody({
                 <div
                   key={col.key}
                   data-testid={`da-col-open-${col.key}`}
-                  style={{ flexGrow: 1, flexShrink: 1, flexBasis: 0, minWidth: DA_MIN_W }}
+                  // fix-182d: width from the shared grid track.
                   className={`relative ${
                     isLast ? 'border-r-2 border-border' : 'border-r border-border'
                   }`}
@@ -1396,9 +1415,8 @@ function DrawScheduleBody({
                 <div
                   key={col.key}
                   data-testid={`da-col-${da}`}
-                  // fix-48: same flex + DA_MIN_W floor as the DA header so the
-                  // body column stays aligned with its header at every width.
-                  style={{ flexGrow: 1, flexShrink: 1, flexBasis: 0, minWidth: DA_MIN_W }}
+                  // fix-182d: width comes from the shared grid track (one per
+                  // column) so the body column lines up with its header.
                   className={`relative ${
                     isLast
                       ? 'border-r-2 border-border'

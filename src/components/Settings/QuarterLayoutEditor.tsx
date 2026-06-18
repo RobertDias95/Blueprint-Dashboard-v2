@@ -28,6 +28,7 @@ import {
   useCloneQuarterLayout,
   useSeedQuarterLayoutFromCurrent,
 } from '../../hooks/useBuildQuarterLayout';
+import { useAppendQuarterLayoutColumn } from '../../hooks/useAddQuarterLayoutColumn';
 import {
   buildQuarterOptions,
   quarterOffsetToString,
@@ -65,6 +66,7 @@ export default function QuarterLayoutEditor({ das, dms, readOnly = false }: Prop
   const reorder = useReorderQuarterLayout();
   const clone = useCloneQuarterLayout();
   const seed = useSeedQuarterLayoutFromCurrent();
+  const append = useAppendQuarterLayoutColumn();
 
   const sensors = useSensors(
     useSensor(PointerSensor),
@@ -104,32 +106,21 @@ export default function QuarterLayoutEditor({ das, dms, readOnly = false }: Prop
     reorder.mutate({ quarter, ids: next });
   }
 
+  // fix-182d: adds ALWAYS append server-side (position computed in the RPC),
+  // never from rows.length — this is what prevents the rapid-double-add
+  // duplicate-key collision.
   function addDaColumn(daName: string) {
     if (!daName) return;
-    upsert.mutate({
-      op: 'insert',
-      data: {
-        quarter,
-        position: rows.length,
-        col_kind: 'da',
-        da_name: daName,
-        group_label: null,
-        label_override: null,
-      },
+    append.mutate({
+      quarter,
+      col: { col_kind: 'da', da_name: daName, group_label: null, label_override: null },
     });
   }
 
   function addOpenLane() {
-    upsert.mutate({
-      op: 'insert',
-      data: {
-        quarter,
-        position: rows.length,
-        col_kind: 'open',
-        da_name: null,
-        group_label: null,
-        label_override: 'OPEN',
-      },
+    append.mutate({
+      quarter,
+      col: { col_kind: 'open', da_name: null, group_label: null, label_override: 'OPEN' },
     });
   }
 
@@ -264,6 +255,7 @@ export default function QuarterLayoutEditor({ das, dms, readOnly = false }: Prop
               daNames={daNames}
               onAddDa={addDaColumn}
               onAddOpen={addOpenLane}
+              disabled={append.isPending}
             />
           )}
         </>
@@ -329,15 +321,18 @@ function AddControls({
   daNames,
   onAddDa,
   onAddOpen,
+  disabled,
 }: {
   daNames: string[];
   onAddDa: (da: string) => void;
   onAddOpen: () => void;
+  disabled: boolean;
 }) {
   return (
     <div className="flex flex-wrap gap-2 pt-1">
       <select
         defaultValue=""
+        disabled={disabled}
         onChange={(e) => {
           const v = e.target.value;
           if (v) {
@@ -345,7 +340,7 @@ function AddControls({
             e.currentTarget.value = '';
           }
         }}
-        className="text-xs px-2 py-1 border border-border rounded bg-bg text-text"
+        className="text-xs px-2 py-1 border border-border rounded bg-bg text-text disabled:opacity-50"
         data-testid="ql-add-da-select"
       >
         <option value="">+ Add DA column…</option>
@@ -357,7 +352,8 @@ function AddControls({
       </select>
       <button
         onClick={onAddOpen}
-        className="px-3 py-1 text-xs rounded-md border border-border bg-bg text-dim font-display"
+        disabled={disabled}
+        className="px-3 py-1 text-xs rounded-md border border-border bg-bg text-dim font-display disabled:opacity-50"
         data-testid="ql-add-open"
       >
         + Insert OPEN lane

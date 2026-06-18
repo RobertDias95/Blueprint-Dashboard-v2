@@ -1295,10 +1295,10 @@ describe('<DrawScheduleGrid /> fix-48 labels + DA width', () => {
     vi.stubGlobal('ResizeObserver', SyncResizeObserver);
     try {
       renderGrid();
-      const col = screen.getByTestId('week-label-col');
-      expect(parseInt(col.style.width, 10)).toBeGreaterThan(88);
-      // Header spacer + body gutter stay in lockstep (same derived width).
-      expect(col.style.width).toBe(col.style.minWidth);
+      // fix-182d: the gutter is the shared grid's first track = round(88*scale).
+      const body = screen.getByTestId('ds-band-body');
+      const firstTrack = body.style.gridTemplateColumns.split(' ')[0];
+      expect(parseInt(firstTrack, 10)).toBeGreaterThan(88);
       // The range label is forced onto one line at any font size.
       const label = screen.getByTestId('week-label-2026-05-04');
       expect(label.style.whiteSpace).toBe('nowrap');
@@ -1309,32 +1309,31 @@ describe('<DrawScheduleGrid /> fix-48 labels + DA width', () => {
     }
   });
 
-  it('A: gutter is the original 88px at base scale (unmeasured viewport)', () => {
+  it('A: gutter is the original 88px first track at base scale (unmeasured viewport)', () => {
     renderGrid();
-    const col = screen.getByTestId('week-label-col');
-    expect(col.style.width).toBe('88px');
+    const body = screen.getByTestId('ds-band-body');
+    expect(body.style.gridTemplateColumns.startsWith('88px')).toBe(true);
   });
 
-  it('B: DA header + body columns share a DA_MIN_W (90px) floor', () => {
-    // Independent of measurement — the min-width is a constant floor so that
-    // many DAs shrink to it and then the grid scrolls (overflow-auto card).
+  it('B: every DA column track floors at DA_MIN_W (90px) so many DAs scroll', () => {
+    // fix-182d: the floor lives in the shared grid template's per-column track
+    // (minmax(90px, 1fr)), not a per-cell min-width.
     // fix-DS-fit-and-wrap: lowered 150 → 90 so a full roster fits the viewport.
     renderGrid();
-    for (const da of ['Trevor', 'Ahmadi', 'Fisk']) {
-      expect(screen.getByTestId(`da-header-${da}`).style.minWidth).toBe('90px');
-      expect(screen.getByTestId(`da-col-${da}`).style.minWidth).toBe('90px');
-    }
+    expect(screen.getByTestId('ds-band-body').style.gridTemplateColumns).toContain(
+      'minmax(90px, 1fr)',
+    );
   });
 
-  it('B: DA header and body column share the same flex sizing (stay aligned)', () => {
+  it('B: all three bands share ONE grid template (header ↔ body stay aligned)', () => {
+    // fix-182d: identical grid-template-columns on the DM-header, DA-header, and
+    // body bands => column/group boundaries line up at every width.
     renderGrid();
-    // Same flex longhands on header + body => identical width at every size.
-    const header = screen.getByTestId('da-header-Trevor');
-    const col = screen.getByTestId('da-col-Trevor');
-    expect(col.style.flexGrow).toBe(header.style.flexGrow);
-    expect(col.style.flexShrink).toBe(header.style.flexShrink);
-    expect(col.style.flexBasis).toBe(header.style.flexBasis);
-    expect(header.style.flexGrow).toBe('1');
+    const dm = screen.getByTestId('ds-band-dm');
+    const da = screen.getByTestId('ds-band-da');
+    const body = screen.getByTestId('ds-band-body');
+    expect(da.style.gridTemplateColumns).toBe(body.style.gridTemplateColumns);
+    expect(dm.style.gridTemplateColumns).toBe(body.style.gridTemplateColumns);
   });
 });
 
@@ -1593,5 +1592,29 @@ describe('<DrawScheduleGrid /> saved-layout mode (fix-182c)', () => {
   it('renders the in-layout DA Ahmadi with its block', () => {
     renderGrid();
     expect(screen.getByTestId('block-p-other')).toBeInTheDocument();
+  });
+
+  // fix-182d Part 2: the three render bands share ONE grid template, and each
+  // manager-header group spans exactly its column count — so a group's right
+  // edge always lands on the same track line as its last DA column (alignment).
+  it('aligns all three bands on one shared grid template', () => {
+    renderGrid();
+    const dm = screen.getByTestId('ds-band-dm');
+    const da = screen.getByTestId('ds-band-da');
+    const body = screen.getByTestId('ds-band-body');
+    const tpl = dm.style.gridTemplateColumns;
+    // Ana(2) + Qisheng + OPEN + Trevor orphan = 5 column tracks.
+    expect(tpl).toContain('repeat(5');
+    expect(da.style.gridTemplateColumns).toBe(tpl);
+    expect(body.style.gridTemplateColumns).toBe(tpl);
+  });
+
+  it('spans each manager header across exactly its column count, summing to the total', () => {
+    renderGrid();
+    expect(screen.getByTestId('ds-group-0')).toHaveAttribute('data-span', '2'); // Ana
+    const spans = screen
+      .getAllByTestId(/^ds-group-/)
+      .map((el) => Number(el.getAttribute('data-span')));
+    expect(spans.reduce((a, b) => a + b, 0)).toBe(5);
   });
 });
