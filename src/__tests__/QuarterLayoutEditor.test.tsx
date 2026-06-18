@@ -207,4 +207,24 @@ describe('<QuarterLayoutEditor /> populated', () => {
     expect(screen.queryByTestId('ql-add-da-select')).not.toBeInTheDocument();
     expect(screen.queryByTestId('ql-add-open')).not.toBeInTheDocument();
   });
+
+  // fix-183: the editor flags a column whose DA is inactive in the selected
+  // quarter (per Active Quarters), agreeing with the dimmed grid column.
+  it('flags a column whose DA is inactive in the selected quarter', () => {
+    state.rows = [
+      { id: 'rx', quarter: 'Q', position: 0, col_kind: 'da', da_name: 'Trevor', group_label: null, label_override: null, updated_at: NOW },
+    ];
+    const endedTrevor: TeamMember[] = [
+      { ...DAS[0], active_end_quarter: quarterOffsetToString(-1) }, // ended last quarter
+    ];
+    const qc = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+    render(
+      <QueryClientProvider client={qc}>
+        <QuarterLayoutEditor das={endedTrevor} dms={DMS} readOnly={false} />
+      </QueryClientProvider>,
+    );
+    expect(screen.getByTestId('ql-inactive-rx')).toBeInTheDocument();
+  });
 });

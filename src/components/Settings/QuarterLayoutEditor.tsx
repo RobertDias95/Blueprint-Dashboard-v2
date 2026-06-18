@@ -31,6 +31,7 @@ import {
 import { useAppendQuarterLayoutColumn } from '../../hooks/useAddQuarterLayoutColumn';
 import {
   buildQuarterOptions,
+  isMemberActiveInQuarter,
   quarterOffsetToString,
   quarterStringToOffset,
 } from '../../lib/teamQuarterHelpers';
@@ -94,6 +95,26 @@ export default function QuarterLayoutEditor({ das, dms, readOnly = false }: Prop
     for (const r of rows) if (r.group_label) s.add(r.group_label);
     return Array.from(s).sort((a, b) => a.localeCompare(b));
   }, [dms, rows]);
+
+  // fix-183: which DAs are inactive (per active-quarters) in the selected
+  // quarter — so the editor flags a column the grid would dim, keeping the two
+  // in agreement. A DA with no team_members row defaults active.
+  const inactiveDaNames = useMemo(() => {
+    const s = new Set<string>();
+    for (const d of das) {
+      if (d.role !== 'da') continue;
+      if (
+        !isMemberActiveInQuarter(
+          d.active_start_quarter,
+          d.active_end_quarter,
+          quarter,
+        )
+      ) {
+        s.add(d.name);
+      }
+    }
+    return s;
+  }, [das, quarter]);
 
   function handleDragEnd(e: DragEndEvent) {
     const { active, over } = e;
@@ -217,6 +238,11 @@ export default function QuarterLayoutEditor({ das, dms, readOnly = false }: Prop
                     row={row}
                     readOnly={readOnly}
                     daNames={daNames}
+                    inactiveInQuarter={
+                      row.col_kind === 'da' &&
+                      !!row.da_name &&
+                      inactiveDaNames.has(row.da_name)
+                    }
                     onChangeDa={(da) =>
                       da !== row.da_name &&
                       upsert.mutate({ op: 'update', row, patch: { da_name: da } })
@@ -366,6 +392,7 @@ function ColumnRow({
   row,
   readOnly,
   daNames,
+  inactiveInQuarter,
   onChangeDa,
   onChangeGroup,
   onChangeLabel,
@@ -374,6 +401,7 @@ function ColumnRow({
   row: DrawScheduleQuarterLayoutRow;
   readOnly: boolean;
   daNames: string[];
+  inactiveInQuarter: boolean;
   onChangeDa: (da: string) => void;
   onChangeGroup: (label: string) => void;
   onChangeLabel: (label: string) => void;
@@ -422,6 +450,18 @@ function ColumnRow({
       >
         {isOpen ? 'OPEN' : 'DA'}
       </span>
+
+      {/* fix-183: flag a column whose DA isn't on the team in this quarter, so
+          the editor agrees with the dimmed grid column. */}
+      {inactiveInQuarter && (
+        <span
+          className="text-[9px] uppercase tracking-wide text-co font-bold whitespace-nowrap"
+          title="Not on the team this quarter (per Active Quarters) — the Draw Schedule dims this column"
+          data-testid={`ql-inactive-${row.id}`}
+        >
+          inactive
+        </span>
+      )}
 
       {isOpen ? (
         <input

@@ -1617,4 +1617,22 @@ describe('<DrawScheduleGrid /> saved-layout mode (fix-182c)', () => {
       .map((el) => Number(el.getAttribute('data-span')));
     expect(spans.reduce((a, b) => a + b, 0)).toBe(5);
   });
+
+  // fix-183: a saved-layout column whose DA is inactive in the viewed quarter is
+  // DIMMED (data-inactive) so the grid can't contradict the active-quarters
+  // editor. Fisk's window ends 2026-Q1; the viewed quarter (offset 0) is 2026-Q2.
+  it('dims a layout column whose DA is inactive in the viewed quarter', () => {
+    teamMembersData.current = [
+      {
+        id: 'tm-fisk', name: 'Fisk', role: 'da',
+        active_start_quarter: null, active_end_quarter: '2026-Q1',
+        updated_at: NOW, active: true, former: false, email: null, notes: null,
+      },
+    ];
+    renderGrid();
+    // Still rendered (layout mode never hides), but dimmed.
+    expect(screen.getByTestId('da-header-Fisk')).toHaveAttribute('data-inactive', 'true');
+    // Ahmadi has no team_members row -> defaults active -> not dimmed.
+    expect(screen.getByTestId('da-header-Ahmadi')).not.toHaveAttribute('data-inactive');
+  });
 });
