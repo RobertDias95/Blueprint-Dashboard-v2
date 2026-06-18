@@ -84,6 +84,11 @@ vi.mock('../hooks/useUpsertDmDaGroup', () => ({
 vi.mock('../hooks/useDeleteDmDaGroup', () => ({
   useDeleteDmDaGroup: () => ({ mutate: mocks.deleteGroup }),
 }));
+// QuarterLayoutEditor (fix-182b) has its own test; stub it here so this tab
+// test stays focused on the roster + structure editors.
+vi.mock('../components/Settings/QuarterLayoutEditor', () => ({
+  default: () => null,
+}));
 
 import AdminTeamTab from '../components/Settings/AdminTeamTab';
 

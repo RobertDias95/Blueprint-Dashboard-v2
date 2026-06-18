@@ -1,6 +1,7 @@
 import PillListEditor from './PillListEditor';
 import TeamStructureEditor from './TeamStructureEditor';
 import TeamActiveQuartersEditor from './TeamActiveQuartersEditor';
+import QuarterLayoutEditor from './QuarterLayoutEditor';
 import { useTeamMembers } from '../../hooks/useTeamMembers';
 import { useUpsertTeamMember } from '../../hooks/useUpsertTeamMember';
 import { useDeleteTeamMember } from '../../hooks/useDeleteTeamMember';
@@ -146,6 +147,14 @@ export default function AdminTeamTab() {
         <TeamStructureEditor
           dms={teamQ.dms}
           activeDas={teamQ.activeDas}
+          readOnly={!isAdmin}
+        />
+      </Section>
+
+      <Section title="Draw Schedule Layout (per quarter)">
+        <QuarterLayoutEditor
+          das={[...teamQ.activeDas, ...teamQ.formerDas]}
+          dms={teamQ.dms}
           readOnly={!isAdmin}
         />
       </Section>
