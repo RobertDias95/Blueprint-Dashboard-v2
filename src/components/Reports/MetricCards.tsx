@@ -1,6 +1,9 @@
-import type { ReportMetrics } from '../../lib/reportMetrics';
+import { useState } from 'react';
+import type { ReportMetrics, EnrichedPermit } from '../../lib/reportMetrics';
 import MetricCard from './MetricCard';
 import MetricInfoTooltip from '../shared/MetricInfoTooltip';
+import MetricDrillIn from './MetricDrillIn';
+import { buildDrillIn } from '../../lib/metricDrillIn';
 import { REPORTS_OVERVIEW_METRICS } from '../../lib/metricDefinitions';
 
 // fix-129-c: each MetricCard's label is wrapped in a MetricInfoTooltip
@@ -59,6 +62,8 @@ export default function MetricCards({
   comparisonModeLabel,
   onTimelineTileClick,
   drawerOpen,
+  enriched,
+  filterContext,
 }: {
   metrics: ReportMetrics;
   comparisonMetrics?: ReportMetrics | null;
@@ -75,7 +80,26 @@ export default function MetricCards({
   /** fix-142: drawer open state — drives the chevron glyph + aria-expanded
    *  on the three timeline tiles. */
   drawerOpen?: boolean;
+  /** fix-184a: the SAME filtered population the cards averaged. When present,
+   *  Phase A cards become clickable to drill into their contributing permits.
+   *  Omitted → cards render exactly as before (no drill affordance). */
+  enriched?: EnrichedPermit[];
+  /** fix-184a: active filter context for the drill-in header (e.g.
+   *  "Seattle · Building Permit"). */
+  filterContext?: string;
 }) {
+  // fix-184a: which metric's drill-in panel is open (null = none).
+  const [drillKey, setDrillKey] = useState<string | null>(null);
+  const drillable = !!enriched;
+  /** Props that turn a Phase A card into a drill-in trigger. No-op when no
+   *  population was passed (drill stays off). */
+  function drillProps(key: string) {
+    if (!drillable) return {};
+    return { onClick: () => setDrillKey(key), drill: true as const };
+  }
+  const drillData =
+    drillKey && enriched ? buildDrillIn(drillKey, enriched) : null;
+
   const cmp = comparisonMetrics ?? null;
   const cmpLabel = comparisonLabel || undefined;
   // fix-129-b: prop spreader for the split-layout inputs. Drops in on
@@ -129,6 +153,7 @@ export default function MetricCards({
     a2i === null ? 'default' : a2i >= 14 ? 'overdue' : a2i >= 7 ? 'co' : 'pm';
 
   return (
+    <>
     <div
       className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3"
       data-testid="report-metric-cards"
@@ -140,6 +165,7 @@ export default function MetricCards({
         value={metrics.totalPermits}
         subText={`${metrics.totalUnits} units across projects`}
         testId="metric-total-permits"
+        {...drillProps('totalPermits')}
         currentNumeric={metrics.totalPermits}
         comparisonNumeric={cmp?.totalPermits ?? null}
         comparisonValueText={cmp ? String(cmp.totalPermits) : undefined}
@@ -158,6 +184,7 @@ export default function MetricCards({
           subText={`${metrics.onTimeSubmits} on-time · ${metrics.lateSubmits} late`}
           tone={varianceTone}
           testId="metric-submit-variance"
+          {...drillProps('submitVariance')}
           currentNumeric={variance}
           comparisonNumeric={cmp?.avgSubmitVariance ?? null}
           comparisonValueText={
@@ -180,6 +207,7 @@ export default function MetricCards({
         subText="D&E phase average"
         tone="de"
         testId="metric-go-to-submit"
+        {...drillProps('avgGoToSubmit')}
         currentNumeric={metrics.avgGoToSubmit}
         comparisonNumeric={cmp?.avgGoToSubmit ?? null}
         comparisonValueText={
@@ -202,6 +230,7 @@ export default function MetricCards({
           subText="GO to design start"
           tone="de"
           testId="metric-go-to-dd-start"
+          {...drillProps('avgGoToDDStart')}
           currentNumeric={metrics.avgGoToDDStart}
           comparisonNumeric={cmp?.avgGoToDDStart ?? null}
           comparisonValueText={
@@ -302,6 +331,7 @@ export default function MetricCards({
           subText="submit → city accepted intake"
           tone={s2iTone}
           testId="metric-submit-to-intake"
+          {...drillProps('avgSubmitToIntake')}
           currentNumeric={s2i}
           comparisonNumeric={cmp?.avgSubmitToIntake ?? null}
           comparisonValueText={
@@ -327,6 +357,7 @@ export default function MetricCards({
           subText="approved → permit issued"
           tone={a2iTone}
           testId="metric-approval-to-issue"
+          {...drillProps('avgApprovalToIssue')}
           currentNumeric={a2i}
           comparisonNumeric={cmp?.avgApprovalToIssue ?? null}
           comparisonValueText={
@@ -349,6 +380,7 @@ export default function MetricCards({
         subText={`${metrics.permitsWithCorrections} permits with corrections`}
         tone="co"
         testId="metric-avg-correction-cycles"
+        {...drillProps('avgCorrectionCycles')}
         currentNumeric={metrics.avgCorrectionCycles}
         comparisonNumeric={cmp?.avgCorrectionCycles ?? null}
         comparisonValueText={
@@ -377,6 +409,7 @@ export default function MetricCards({
         subText={`${metrics.issuedCount} of ${metrics.totalPermits} issued`}
         tone="co"
         testId="metric-in-corrections"
+        {...drillProps('inCorrections')}
         currentNumeric={metrics.inCorrections}
         comparisonNumeric={cmp?.inCorrections ?? null}
         comparisonValueText={cmp ? String(cmp.inCorrections) : undefined}
@@ -400,6 +433,7 @@ export default function MetricCards({
         }
         tone={scheduleVarTone}
         testId="metric-schedule-variance"
+        {...drillProps('avgScheduleVariance')}
         currentNumeric={scheduleVar}
         comparisonNumeric={cmp?.avgScheduleVariance ?? null}
         comparisonValueText={
@@ -425,6 +459,7 @@ export default function MetricCards({
           subText="DD Start → DD End"
           tone="de"
           testId="metric-dd-duration"
+          {...drillProps('avgDDDuration')}
           currentNumeric={metrics.avgDDDuration}
           comparisonNumeric={cmp?.avgDDDuration ?? null}
           comparisonValueText={
@@ -448,6 +483,7 @@ export default function MetricCards({
           subText="DD End to permit intake"
           tone="co"
           testId="metric-dd-end-to-submit"
+          {...drillProps('avgDDEndToSubmit')}
           currentNumeric={metrics.avgDDEndToSubmit}
           comparisonNumeric={cmp?.avgDDEndToSubmit ?? null}
           comparisonValueText={
@@ -462,5 +498,13 @@ export default function MetricCards({
         />
       )}
     </div>
+    {drillData && (
+      <MetricDrillIn
+        data={drillData}
+        filterContext={filterContext}
+        onClose={() => setDrillKey(null)}
+      />
+    )}
+    </>
   );
 }

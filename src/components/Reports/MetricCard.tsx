@@ -82,6 +82,10 @@ interface Props {
   /** fix-142: drives aria-expanded + the chevron glyph (▾ collapsed,
    *  ▴ expanded). Only meaningful alongside onClick. */
   expanded?: boolean;
+  /** fix-184a: when set (alongside onClick), the card is a drill-in trigger
+   *  (opens a modal) rather than an expand toggle — it shows a "⤢" glyph and
+   *  no aria-expanded, so the affordance reads as "open detail". */
+  drill?: boolean;
 }
 
 export default function MetricCard({
@@ -102,6 +106,7 @@ export default function MetricCard({
   comparisonModeLabel,
   onClick,
   expanded,
+  drill,
 }: Props) {
   const showComparison = Boolean(comparisonLabel);
   // fix-129-b: switch to split-view when comparison is active AND the
@@ -121,7 +126,7 @@ export default function MetricCard({
       onClick={onClick}
       role={clickable ? 'button' : undefined}
       tabIndex={clickable ? 0 : undefined}
-      aria-expanded={clickable ? expanded : undefined}
+      aria-expanded={clickable && !drill ? expanded : undefined}
       onKeyDown={
         clickable
           ? (e) => {
@@ -137,7 +142,7 @@ export default function MetricCard({
         <span>{labelSlot ?? label}</span>
         {clickable && (
           <span aria-hidden="true" className="text-[10px] leading-none">
-            {expanded ? '▴' : '▾'}
+            {drill ? '⤢' : expanded ? '▴' : '▾'}
           </span>
         )}
       </div>

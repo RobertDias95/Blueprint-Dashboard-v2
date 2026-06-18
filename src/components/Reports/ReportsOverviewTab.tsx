@@ -231,6 +231,19 @@ function Body({
     [filtered, holdsMap],
   );
 
+  // fix-184a: short active-filter context for the metric drill-in header
+  // (e.g. "Seattle · Building Permit · Reviews In Process").
+  const filterContext = useMemo(() => {
+    const parts: string[] = [];
+    if (filters.jurisdictions.size) parts.push([...filters.jurisdictions].join(', '));
+    if (filters.types.size) parts.push([...filters.types].join(', '));
+    if (filters.ents.size) parts.push([...filters.ents].join(', '));
+    if (filters.permitStatus && filters.permitStatus !== 'all') {
+      parts.push(filters.permitStatus);
+    }
+    return parts.join(' · ');
+  }, [filters]);
+
   // fix-142: per-cycle buckets for the drawer — current cohort + the
   // comparison cohort (when Period B is set), so each cell can render the
   // current | comparison | delta mini-split.
@@ -396,6 +409,8 @@ function Body({
         comparisonModeLabel={comparisonRange ? 'vs comparison' : undefined}
         onTimelineTileClick={() => setDrawerOpen((o) => !o)}
         drawerOpen={drawerOpen}
+        enriched={filtered}
+        filterContext={filterContext}
       />
 
       {/* fix-142: per-cycle breakdown drawer — between MetricCards and the
