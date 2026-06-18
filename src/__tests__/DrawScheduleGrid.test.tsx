@@ -114,6 +114,22 @@ vi.mock('../hooks/useDmDaGroups', () => ({
   }),
 }));
 
+// fix-182c: useQuarterLayout reads a mutable ref. Default [] -> isLayoutMode
+// false -> the grid renders the unchanged fallback for every existing test. The
+// layout-mode describe sets rows to exercise the saved-layout render path.
+const quarterLayoutRows: { current: import('../lib/database.types').DrawScheduleQuarterLayoutRow[] } = {
+  current: [],
+};
+vi.mock('../hooks/useQuarterLayout', () => ({
+  useQuarterLayout: () => ({
+    rows: quarterLayoutRows.current,
+    data: quarterLayoutRows.current,
+    isLoading: false,
+    error: null,
+    refetch: vi.fn(),
+  }),
+}));
+
 // Q6.2.c: NP blocks (vacation/training overlay). One on Trevor, one on
 // Ahmadi, one on Marc — covers a couple DAs across both groups.
 vi.mock('../hooks/useDaTimeBlocks', () => ({
@@ -335,6 +351,7 @@ beforeEach(() => {
   shiftUpMutate.mockClear();
   resizeNpMutate.mockClear();
   teamMembersData.current = [];
+  quarterLayoutRows.current = [];
   resizeNpResult.current = {
     blockId: 'np-trevor',
     updatedAt: '2026-05-16T18:00:00Z',
@@ -1505,5 +1522,76 @@ describe('<DrawScheduleGrid /> fix-126 redesign block border', () => {
     } finally {
       fixtures.projects = originalProjects;
     }
+  });
+});
+
+// fix-182c: LAYOUT MODE — when the viewed quarter has a saved layout, columns /
+// manager headers / order come from it (not dm_da_groups). Fixtures' blocks
+// (Trevor 'p-now', Ahmadi 'p-other') sit in the current quarter's week range.
+describe('<DrawScheduleGrid /> saved-layout mode (fix-182c)', () => {
+  const NOW = '2026-06-01T00:00:00Z';
+  function layoutRow(
+    position: number,
+    partial: Partial<import('../lib/database.types').DrawScheduleQuarterLayoutRow>,
+  ): import('../lib/database.types').DrawScheduleQuarterLayoutRow {
+    return {
+      id: `ql-${position}`,
+      quarter: 'X',
+      position,
+      col_kind: 'da',
+      da_name: null,
+      group_label: null,
+      label_override: null,
+      updated_at: NOW,
+      ...partial,
+    };
+  }
+
+  beforeEach(() => {
+    // Ana manages Ahmadi + Fisk; Qisheng standalone; one OPEN lane.
+    // Trevor (has block p-now) is NOT in the layout -> orphan forced lane.
+    quarterLayoutRows.current = [
+      layoutRow(0, { col_kind: 'da', da_name: 'Ahmadi', group_label: 'Ana' }),
+      layoutRow(1, { col_kind: 'da', da_name: 'Fisk', group_label: 'Ana' }),
+      layoutRow(2, { col_kind: 'da', da_name: 'Qisheng', group_label: null }),
+      layoutRow(3, { col_kind: 'open', da_name: null, label_override: 'OPEN' }),
+    ];
+  });
+
+  it('flags the view with the "saved layout" tag', () => {
+    renderGrid();
+    expect(screen.getByTestId('quarter-layout-tag')).toBeInTheDocument();
+  });
+
+  it('renders the layout columns in saved order under the "Ana" manager group', () => {
+    renderGrid();
+    expect(screen.getByText('Ana')).toBeInTheDocument();
+    expect(screen.getByTestId('da-col-Ahmadi')).toBeInTheDocument();
+    expect(screen.getByTestId('da-col-Fisk')).toBeInTheDocument();
+    expect(screen.getByTestId('da-col-Qisheng')).toBeInTheDocument();
+    // A fallback DA not in this layout and with no block is NOT a column.
+    expect(screen.queryByTestId('da-col-Francesca')).not.toBeInTheDocument();
+  });
+
+  it('renders an OPEN lane that holds no blocks and is not a drop target', () => {
+    renderGrid();
+    const openCol = screen.getByTestId(/^da-col-open-/);
+    expect(openCol).toBeInTheDocument();
+    expect(openCol.querySelector('[data-testid^="drop-cell"]')).toBeNull();
+    expect(openCol.querySelector('[data-testid^="block-"]')).toBeNull();
+  });
+
+  it('shows an orphan/straddling block DA as a dimmed forced lane (work never hidden)', () => {
+    renderGrid();
+    const header = screen.getByTestId('da-header-Trevor');
+    expect(header).toHaveAttribute('data-inactive', 'true');
+    expect(screen.getByTestId('da-col-Trevor')).toBeInTheDocument();
+    // The block itself still renders in that lane.
+    expect(screen.getByTestId('block-p-now')).toBeInTheDocument();
+  });
+
+  it('renders the in-layout DA Ahmadi with its block', () => {
+    renderGrid();
+    expect(screen.getByTestId('block-p-other')).toBeInTheDocument();
   });
 });

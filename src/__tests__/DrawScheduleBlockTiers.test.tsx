@@ -90,6 +90,9 @@ vi.mock('../hooks/useDmDaGroups', () => ({
     groups: [{ dm: 'DM1', das: ['A1', 'A2', 'A3', 'A4', 'A5'] }],
   }),
 }));
+vi.mock('../hooks/useQuarterLayout', () => ({
+  useQuarterLayout: () => ({ rows: [], data: [], isLoading: false, error: null, refetch: vi.fn() }),
+}));
 vi.mock('../hooks/useDaTimeBlocks', () => ({
   useDaTimeBlocks: () => ({ data: refs.np.current, isLoading: false, error: null, refetch: vi.fn() }),
 }));

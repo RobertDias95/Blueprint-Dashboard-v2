@@ -1,0 +1,146 @@
+import { describe, it, expect } from 'vitest';
+import { buildDrawColumns } from '../lib/quarterLayoutHelpers';
+import type { DrawScheduleQuarterLayoutRow } from '../lib/database.types';
+
+// fix-182c: the Draw Schedule grid's column model. The render bands (DM header,
+// DA header, columns) all derive from buildDrawColumns; this pins the
+// layout-mode build, the fallback (no-layout) equivalence, OPEN lanes, group
+// spans / standalone columns, and the orphan/straddling forced-visible rule.
+
+const NOW = '2026-06-18T00:00:00Z';
+function row(
+  position: number,
+  partial: Partial<DrawScheduleQuarterLayoutRow>,
+): DrawScheduleQuarterLayoutRow {
+  return {
+    id: `r${position}`,
+    quarter: '2025-Q3',
+    position,
+    col_kind: 'da',
+    da_name: null,
+    group_label: null,
+    label_override: null,
+    updated_at: NOW,
+    ...partial,
+  };
+}
+
+describe('buildDrawColumns — fallback (no saved layout)', () => {
+  const fallbackGroups = [
+    { dm: 'Lindsay', das: ['Francesca', 'Ainsley'] },
+    { dm: 'Jade', das: ['Nidhi'] },
+  ];
+
+  it('reproduces dm_da_groups order + manager headers exactly', () => {
+    const { renderGroups, renderColumns } = buildDrawColumns({
+      isLayoutMode: false,
+      layoutRows: [],
+      fallbackGroups,
+      inactiveDas: new Set(),
+      forcedDas: new Set(),
+    });
+    expect(renderGroups.map((g) => [g.header, g.colCount])).toEqual([
+      ['Lindsay', 2],
+      ['Jade', 1],
+    ]);
+    expect(renderColumns.map((c) => c.daName)).toEqual(['Francesca', 'Ainsley', 'Nidhi']);
+    expect(renderColumns.every((c) => c.kind === 'da')).toBe(true);
+    // group boundaries -> heavier border on the last col of each group
+    expect(renderColumns.map((c) => c.isLastInGroup)).toEqual([false, true, true]);
+  });
+
+  it('dims inactive-but-forced DAs (existing treatment), ignores forcedDas for new lanes', () => {
+    const { renderColumns } = buildDrawColumns({
+      isLayoutMode: false,
+      layoutRows: [],
+      fallbackGroups,
+      inactiveDas: new Set(['Ainsley']),
+      // An orphan here must NOT create a new lane in fallback mode (byte-for-byte).
+      forcedDas: new Set(['Ghost']),
+    });
+    expect(renderColumns.find((c) => c.daName === 'Ainsley')?.inactive).toBe(true);
+    expect(renderColumns.find((c) => c.daName === 'Francesca')?.inactive).toBe(false);
+    expect(renderColumns.some((c) => c.daName === 'Ghost')).toBe(false);
+  });
+});
+
+describe('buildDrawColumns — layout mode', () => {
+  // A past quarter: Ana manages Ahmadi+Fisk, Qisheng standalone, an OPEN lane.
+  const layoutRows = [
+    row(0, { col_kind: 'da', da_name: 'Ahmadi', group_label: 'Ana' }),
+    row(1, { col_kind: 'da', da_name: 'Fisk', group_label: 'Ana' }),
+    row(2, { col_kind: 'da', da_name: 'Qisheng', group_label: null }),
+    row(3, { col_kind: 'open', da_name: null, group_label: null, label_override: 'OPEN' }),
+  ];
+
+  it('builds columns in saved order with manager spans + standalone', () => {
+    const { renderGroups, renderColumns } = buildDrawColumns({
+      isLayoutMode: true,
+      layoutRows,
+      fallbackGroups: [],
+      inactiveDas: new Set(),
+      forcedDas: new Set(),
+    });
+    // Ana spans 2; Qisheng standalone (null header); OPEN standalone (null).
+    expect(renderGroups.map((g) => [g.header, g.colCount])).toEqual([
+      ['Ana', 2],
+      [null, 1],
+      [null, 1],
+    ]);
+    expect(renderColumns.map((c) => c.label)).toEqual(['Ahmadi', 'Fisk', 'Qisheng', 'OPEN']);
+    expect(renderColumns.map((c) => c.kind)).toEqual(['da', 'da', 'da', 'open']);
+  });
+
+  it('OPEN lane has no da_name (holds no blocks) and uses its label override', () => {
+    const { renderColumns } = buildDrawColumns({
+      isLayoutMode: true,
+      layoutRows: [row(0, { col_kind: 'open', da_name: null, label_override: 'Spare' })],
+      fallbackGroups: [],
+      inactiveDas: new Set(),
+      forcedDas: new Set(),
+    });
+    expect(renderColumns[0]).toMatchObject({ kind: 'open', daName: null, label: 'Spare' });
+  });
+
+  it('defaults an OPEN lane label to "OPEN" when blank', () => {
+    const { renderColumns } = buildDrawColumns({
+      isLayoutMode: true,
+      layoutRows: [row(0, { col_kind: 'open', da_name: null, label_override: null })],
+      fallbackGroups: [],
+      inactiveDas: new Set(),
+      forcedDas: new Set(),
+    });
+    expect(renderColumns[0].label).toBe('OPEN');
+  });
+
+  it('appends an orphan/straddling block DA as a dimmed forced-visible lane (never hidden)', () => {
+    const { renderGroups, renderColumns } = buildDrawColumns({
+      isLayoutMode: true,
+      layoutRows,
+      fallbackGroups: [],
+      inactiveDas: new Set(),
+      // Marc has an in-range block this quarter but is NOT in the layout.
+      forcedDas: new Set(['Marc', 'Fisk']), // Fisk already in layout -> not duplicated
+    });
+    const marc = renderColumns.find((c) => c.daName === 'Marc');
+    expect(marc).toBeDefined();
+    expect(marc?.inactive).toBe(true);
+    expect(marc?.isLastInGroup).toBe(true);
+    // appended after the layout columns, as its own standalone (null) group
+    expect(renderColumns[renderColumns.length - 1].daName).toBe('Marc');
+    expect(renderGroups[renderGroups.length - 1].header).toBeNull();
+    // Fisk (already a layout column) is not re-added
+    expect(renderColumns.filter((c) => c.daName === 'Fisk')).toHaveLength(1);
+  });
+
+  it('treats a da row with a null da_name defensively as an OPEN lane', () => {
+    const { renderColumns } = buildDrawColumns({
+      isLayoutMode: true,
+      layoutRows: [row(0, { col_kind: 'da', da_name: null })],
+      fallbackGroups: [],
+      inactiveDas: new Set(),
+      forcedDas: new Set(),
+    });
+    expect(renderColumns[0]).toMatchObject({ kind: 'open', daName: null });
+  });
+});
