@@ -64,6 +64,13 @@ export interface DrawColumnModelInput {
   inactiveDas: Set<string>;
   /** DAs with an in-range block this quarter — used to surface orphan lanes. */
   forcedDas: Set<string>;
+  /** fix-183: "is this DA on the team in the viewed quarter?" — same predicate
+   *  the fallback path uses (isMemberActiveInQuarter; a DA with no team_members
+   *  row defaults active). In LAYOUT mode a 'da' column whose DA is inactive
+   *  that quarter is dimmed, so a saved layout can't silently contradict the
+   *  active-quarters editor. Omitted (undefined) => treat every DA as active
+   *  (back-compat). */
+  isDaActiveInQuarter?: (daName: string) => boolean;
 }
 
 /** Build the grid's column model. Layout mode: columns/headers/order come from
@@ -75,8 +82,14 @@ export function buildDrawColumns(input: DrawColumnModelInput): {
   renderGroups: RenderGroup[];
   renderColumns: RenderCol[];
 } {
-  const { isLayoutMode, layoutRows, fallbackGroups, inactiveDas, forcedDas } =
-    input;
+  const {
+    isLayoutMode,
+    layoutRows,
+    fallbackGroups,
+    inactiveDas,
+    forcedDas,
+    isDaActiveInQuarter,
+  } = input;
   const renderGroups: RenderGroup[] = [];
   const renderColumns: RenderCol[] = [];
 
@@ -90,12 +103,18 @@ export function buildDrawColumns(input: DrawColumnModelInput): {
         const row = layoutRows[idx];
         const isOpen = row.col_kind === 'open' || !row.da_name;
         if (!isOpen && row.da_name) daInLayout.add(row.da_name);
+        // fix-183: dim a 'da' column whose DA is inactive in the viewed quarter
+        // (matches the active-quarters editor). OPEN lanes are never dimmed.
+        const inactive =
+          !isOpen && !!row.da_name && isDaActiveInQuarter
+            ? !isDaActiveInQuarter(row.da_name)
+            : false;
         renderColumns.push({
           key: `lc-${row.id}`,
           daName: isOpen ? null : row.da_name,
           kind: isOpen ? 'open' : 'da',
           label: isOpen ? row.label_override?.trim() || 'OPEN' : (row.da_name ?? ''),
-          inactive: false,
+          inactive,
           isLastInGroup: j === span.count - 1,
         });
         idx += 1;

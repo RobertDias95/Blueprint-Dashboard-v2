@@ -143,4 +143,43 @@ describe('buildDrawColumns — layout mode', () => {
     });
     expect(renderColumns[0]).toMatchObject({ kind: 'open', daName: null });
   });
+
+  // fix-183: dim a layout 'da' column whose DA is inactive in the viewed quarter.
+  it('marks a layout da column inactive when isDaActiveInQuarter is false', () => {
+    const { renderColumns } = buildDrawColumns({
+      isLayoutMode: true,
+      layoutRows,
+      fallbackGroups: [],
+      inactiveDas: new Set(),
+      forcedDas: new Set(),
+      isDaActiveInQuarter: (da) => da !== 'Fisk', // Fisk departed this quarter
+    });
+    expect(renderColumns.find((c) => c.daName === 'Fisk')?.inactive).toBe(true);
+    expect(renderColumns.find((c) => c.daName === 'Ahmadi')?.inactive).toBe(false);
+    // OPEN lane is never dimmed by membership.
+    expect(renderColumns.find((c) => c.kind === 'open')?.inactive).toBe(false);
+  });
+
+  it('leaves all layout columns active when no predicate is supplied (back-compat)', () => {
+    const { renderColumns } = buildDrawColumns({
+      isLayoutMode: true,
+      layoutRows,
+      fallbackGroups: [],
+      inactiveDas: new Set(),
+      forcedDas: new Set(),
+    });
+    expect(renderColumns.filter((c) => c.kind === 'da').every((c) => !c.inactive)).toBe(true);
+  });
+
+  it('does not let the predicate change fallback-mode dimming', () => {
+    const { renderColumns } = buildDrawColumns({
+      isLayoutMode: false,
+      layoutRows: [],
+      fallbackGroups: [{ dm: 'Lindsay', das: ['Francesca'] }],
+      inactiveDas: new Set(),
+      forcedDas: new Set(),
+      isDaActiveInQuarter: () => false, // ignored in fallback
+    });
+    expect(renderColumns[0].inactive).toBe(false);
+  });
 });

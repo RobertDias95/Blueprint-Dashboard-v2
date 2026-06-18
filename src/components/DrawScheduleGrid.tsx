@@ -520,9 +520,26 @@ function DrawScheduleBody({
   const layoutRows = layoutQ.rows;
   const isLayoutMode = layoutRows.length > 0;
 
+  // fix-183: "is this DA on the team in the viewed quarter?" — the same
+  // membership predicate the fallback filter uses (a DA with no team_members
+  // row defaults active). Reuses daMemberByName + currentQuarter; no new query.
+  const isDaActiveInQuarter = useMemo(() => {
+    return (daName: string): boolean => {
+      const tm = daMemberByName.get(daName);
+      if (!tm) return true;
+      return isMemberActiveInQuarter(
+        tm.active_start_quarter,
+        tm.active_end_quarter,
+        currentQuarter,
+      );
+    };
+  }, [daMemberByName, currentQuarter]);
+
   // Unified column model consumed by all three render bands (DM header, DA
   // header, DA columns). buildDrawColumns produces the same shape for both
-  // modes; the fallback path renders byte-for-byte as before.
+  // modes; the fallback path renders byte-for-byte as before. In layout mode a
+  // 'da' column whose DA is inactive that quarter is dimmed (fix-183) so the
+  // grid can't contradict the active-quarters editor.
   const { renderGroups, renderColumns } = useMemo(
     () =>
       buildDrawColumns({
@@ -531,8 +548,16 @@ function DrawScheduleBody({
         fallbackGroups: filteredGroups,
         inactiveDas: inactiveButForcedDAs,
         forcedDas: forcedDAs,
+        isDaActiveInQuarter,
       }),
-    [isLayoutMode, layoutRows, filteredGroups, inactiveButForcedDAs, forcedDAs],
+    [
+      isLayoutMode,
+      layoutRows,
+      filteredGroups,
+      inactiveButForcedDAs,
+      forcedDAs,
+      isDaActiveInQuarter,
+    ],
   );
 
   // DA names that actually have a rendered column this quarter (drives
