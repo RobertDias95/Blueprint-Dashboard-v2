@@ -665,6 +665,27 @@ export interface DmDaGroupRow {
   updated_at: string;
 }
 
+/** fix-182a: per-quarter saved Draw Schedule column layout. One row = one
+ *  column, left-to-right by `position` (0..n) within a (tenant, quarter).
+ *  `col_kind='da'` => a person column (da_name set); `col_kind='open'` =>
+ *  placeholder lane (da_name NULL). `group_label` set => manager header
+ *  spanning the contiguous run of columns sharing that label (free text — it
+ *  need not be a `dm`-role member); NULL => standalone column. Frozen history:
+ *  rename RPCs do NOT cascade here. Nothing reads this yet (Phase A is data +
+ *  backend only); Phase C wires the render. Writes go through
+ *  bp_upsert_quarter_layout_row / bp_delete_quarter_layout_row /
+ *  bp_reorder_quarter_layout / bp_clone_quarter_layout. */
+export interface DrawScheduleQuarterLayoutRow {
+  id: string;
+  quarter: string; // 'YYYY-Qn'
+  position: number;
+  col_kind: 'da' | 'open';
+  da_name: string | null;
+  group_label: string | null;
+  label_override: string | null;
+  updated_at: string;
+}
+
 // Q7.3.a — admin catalog types.
 
 /** Global catalog. PK=name; legacy `profiles.role='admin'` write gate.
