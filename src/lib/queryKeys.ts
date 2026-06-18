@@ -138,6 +138,12 @@ export const queryKeys = {
   // estimator surfaces. Shares the project_holds bare prefix for realtime.
   allProjectHolds: (tenantId: string) =>
     ['project_holds', tenantId, 'all'] as const,
+  // fix-182b: per-quarter saved Draw Schedule column layout (Settings editor).
+  // Keyed by quarter so each quarter's layout caches independently. Nothing on
+  // the live grid reads this yet (Phase C).
+  drawScheduleQuarterLayoutAll: ['draw_schedule_quarter_layout'] as const,
+  drawScheduleQuarterLayout: (tenantId: string, quarter: string) =>
+    ['draw_schedule_quarter_layout', tenantId, { quarter }] as const,
 } as const;
 
 /** Map from Postgres table name → bare-prefix query keys to invalidate on
