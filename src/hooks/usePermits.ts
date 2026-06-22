@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { supabase } from '../lib/supabase';
 import { queryKeys } from '../lib/queryKeys';
 import { useAuthStore } from '../stores/authStore';
+import { fetchAllRows } from '../lib/fetchAllRows';
 import type { PermitWithCycles } from '../lib/database.types';
 
 // Q2: All permits with their cycles attached via Supabase nested select.
@@ -16,13 +17,17 @@ export function usePermits() {
   return useQuery<PermitWithCycles[]>({
     queryKey: queryKeys.permits(tenantId ?? ''),
     enabled: !!tenantId,
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from('permits')
-        .select('*, permit_cycles(*)')
-        .order('id', { ascending: true });
-      if (error) throw error;
-      return (data ?? []) as PermitWithCycles[];
-    },
+    // fix-189: paginate the top-level permits select so neither permits nor the
+    // nested permit_cycles (831 rows and climbing — the embed rides along per
+    // permit row) is ever silently truncated at the 1000-row cap as the company
+    // grows. `id` is already a unique total order, so page boundaries are stable.
+    queryFn: () =>
+      fetchAllRows<PermitWithCycles>((from, to) =>
+        supabase
+          .from('permits')
+          .select('*, permit_cycles(*)')
+          .order('id', { ascending: true })
+          .range(from, to),
+      ),
   });
 }
