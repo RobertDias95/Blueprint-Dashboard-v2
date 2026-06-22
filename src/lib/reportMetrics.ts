@@ -190,6 +190,136 @@ export function responseCourtTimeDays(
   return responseTime;
 }
 
+// ============================================================
+// fix-184b: Avg Permit Timeline COMPOSITION — show HOW the total is built.
+//
+// The Permit Timeline tile shows one number (intake_accepted → approval). This
+// decomposes that number, per permit, into the pieces that add up to it:
+//   permitTimeline = cityCourt + ourCourt + residual   (exact, by construction)
+//   - cityCourt : Σ(submitted → corr_issued) over review cycles, final cycle
+//                 anchored to the approval point. SAME arcs City Review sums.
+//   - ourCourt  : Σ(corr_issued → next.submitted) over consecutive review
+//                 cycles. SAME arcs Response Time sums.
+//   - residual  : the remainder = intake_accepted → first-review-submittal gap,
+//                 plus any arc the cycle walk can't attribute (incomplete
+//                 cycles, final-corr → approval tail, a permit with zero review
+//                 cycles dumping its whole timeline here).
+//
+// Why this is NOT just the City Review + Response Time card averages: those two
+// tiles average a STRICTER cohort — a permit drops out entirely if ANY cycle is
+// ongoing (cityCourtTimeDays / responseCourtTimeDays return null), and Response
+// Time needs ≥2 review cycles. So their cohorts differ from each other AND from
+// the timeline cohort, and their averages do NOT sum to the timeline (e.g. 48 +
+// 32 ≠ 70). Here we decompose the SAME cohort the timeline tile averages
+// (permitTimelineDays != null) WITHOUT the null gate — a missing arc just
+// contributes 0 and rolls into the honest residual — so the per-permit parts
+// sum exactly, and therefore so do the cohort means (averaging is linear):
+//   avg(cityCourt) + avg(ourCourt) + avg(residual) == avgPermitTimeline.
+// ============================================================
+
+/** One permit's intake → approval timeline split into its building blocks.
+ *  cityCourt + ourCourt + residual === timeline, always (residual is the
+ *  remainder). All values are hold-aware (held days subtracted) — they reuse
+ *  the same accDays the timeline + court tiles use, so the windows reconcile. */
+export interface TimelineParts {
+  /** Total intake_accepted → (approval_date ?? actual_issue), hold-aware.
+   *  Identical to EnrichedPermit.permitTimelineDays. */
+  timeline: number;
+  /** Time the ball was in the city's court (submitted → corr_issued arcs). */
+  cityCourt: number;
+  /** Time the ball was in our court (corr_issued → next submitted arcs). */
+  ourCourt: number;
+  /** Everything else: intake → first submittal, plus any unattributable arc. */
+  residual: number;
+}
+
+/** Decompose one permit's Avg Permit Timeline into city-court / our-court /
+ *  residual. Returns null when the permit isn't in the timeline cohort (no
+ *  intake_accepted → approval clock). Unlike cityCourtTimeDays /
+ *  responseCourtTimeDays, an incomplete/missing arc does NOT drop the permit —
+ *  it simply doesn't contribute, and the unattributed time lands in `residual`,
+ *  so the three parts always sum back to the timeline. */
+export function decomposePermitTimeline(
+  permit: PermitWithCycles,
+  holds?: Holds,
+): TimelineParts | null {
+  const timeline = permitTimelineDays(permit, holds);
+  if (timeline === null) return null;
+  const approvalPoint = permit.approval_date ?? permit.actual_issue ?? null;
+  const cycles = extractReviewCycles(permit);
+
+  // City's court: submitted → corr_issued per review cycle; the final review
+  // cycle anchors to the approval point when no corr_issued was stamped (mirror
+  // of cityCourtTimeDays, but a null arc contributes 0 instead of bailing).
+  let cityCourt = 0;
+  for (let i = 0; i < cycles.length; i++) {
+    const c = cycles[i];
+    const isFinal = i === cycles.length - 1;
+    if (c.corr_issued) {
+      const d = accDays(holds, c.submitted, c.corr_issued);
+      if (d !== null) cityCourt += d;
+    } else if (isFinal && approvalPoint) {
+      const d = accDays(holds, c.submitted, approvalPoint);
+      if (d !== null) cityCourt += d;
+    }
+  }
+
+  // Our court: corr_issued → next cycle's submitted (mirror of
+  // responseCourtTimeDays, again non-bailing).
+  let ourCourt = 0;
+  for (let i = 0; i < cycles.length - 1; i++) {
+    const cur = cycles[i];
+    const next = cycles[i + 1];
+    if (cur.corr_issued && next.submitted) {
+      const d = accDays(holds, cur.corr_issued, next.submitted);
+      if (d !== null) ourCourt += d;
+    }
+  }
+
+  return { timeline, cityCourt, ourCourt, residual: timeline - cityCourt - ourCourt };
+}
+
+/** Cohort-level composition of the Avg Permit Timeline tile. Aggregates the
+ *  per-permit decomposition over the SAME cohort the tile averages, so `timeline`
+ *  equals computeMetrics(...).avgPermitTimeline and the three parts add up to it.
+ *  `residual` is derived from the rounded means (timeline − city − our) so the
+ *  three displayed integers sum to the displayed total exactly — rounding noise
+ *  lands in the residual, which is the "everything else" bucket by definition. */
+export interface TimelineComposition {
+  /** Permits contributing (timeline cohort size). */
+  n: number;
+  /** avg(timeline) — matches the Avg Permit Timeline tile. Null when n=0. */
+  timeline: number | null;
+  cityCourt: number | null;
+  ourCourt: number | null;
+  residual: number | null;
+}
+
+export function computeTimelineComposition(
+  enriched: EnrichedPermit[],
+  holdsByProjectId?: Map<string, ProjectHold[]>,
+): TimelineComposition {
+  const parts = enriched
+    .map((e) =>
+      decomposePermitTimeline(
+        e.permit,
+        holdsByProjectId?.get(e.permit.project_id),
+      ),
+    )
+    .filter((p): p is TimelineParts => p !== null);
+  if (parts.length === 0) {
+    return { n: 0, timeline: null, cityCourt: null, ourCourt: null, residual: null };
+  }
+  const timeline = avg(parts.map((p) => p.timeline));
+  const cityCourt = avg(parts.map((p) => p.cityCourt));
+  const ourCourt = avg(parts.map((p) => p.ourCourt));
+  // Derive residual from the rounded means so city + our + residual === timeline
+  // exactly at display time (the per-permit raw identity already holds; this
+  // just keeps the three rendered integers reconciled).
+  const residual = (timeline ?? 0) - (cityCourt ?? 0) - (ourCourt ?? 0);
+  return { n: parts.length, timeline, cityCourt, ourCourt, residual };
+}
+
 /** Enrich a permit list with per-permit derived metrics + project joins.
  * Mirrors v1's getRptFiltered enrichment pass (index.html 2948-2987).
  *

@@ -1190,6 +1190,20 @@ describe('<Reports /> Q7.2.b', () => {
       expect(screen.getByTestId('per-cycle-row-1').textContent).toContain('n=1');
     });
 
+    // fix-184b: composition summary on the Avg Permit Timeline drawer only.
+    it('composition summary shows when opened via Permit Timeline, not via City Review', () => {
+      renderIt();
+      expect(screen.queryByTestId('timeline-composition')).toBeNull();
+      // Open via Permit Timeline → composition present.
+      fireEvent.click(screen.getByTestId('metric-permit-timeline'));
+      expect(screen.getByTestId('timeline-composition')).toBeInTheDocument();
+      // Close, then open via City Review → composition absent, table still there.
+      fireEvent.click(screen.getByTestId('metric-permit-timeline'));
+      fireEvent.click(screen.getByTestId('metric-city-review'));
+      expect(screen.queryByTestId('timeline-composition')).toBeNull();
+      expect(screen.getByTestId('per-cycle-row-1')).toBeInTheDocument();
+    });
+
     it('comparison: each row cell carries -split-current and -split-comparison children', () => {
       renderIt();
       applyCompareViaPanel(
