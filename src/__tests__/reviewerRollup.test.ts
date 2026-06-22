@@ -2,8 +2,10 @@ import { describe, expect, it } from 'vitest';
 import {
   bucketStatus,
   currentCycleIndex,
+  isOutstandingReviewerStatus,
   isReviewerRollupDriven,
   latestCycleIndex,
+  OUTSTANDING_REVIEWER_STATUSES,
   reviewerVerdictForCycle,
   reviewerVerdictForLatestCycle,
   rollupCounts,
@@ -449,6 +451,60 @@ describe('currentCycleIndex (fix-185)', () => {
 
   it('returns null when neither cycles nor reviewers are available', () => {
     expect(currentCycleIndex([], [])).toBeNull();
+  });
+});
+
+// fix-186: an in-progress reviewer ALWAYS keeps the permit under review, even
+// when other disciplines already returned corrections. Pins the precedence
+// (in-progress > corrections > approved) + the centralized status set.
+describe('fix-186 verdict precedence + in-progress status set', () => {
+  it('OUTSTANDING_REVIEWER_STATUSES is exactly the in-progress set', () => {
+    expect([...OUTSTANDING_REVIEWER_STATUSES].sort()).toEqual(
+      ['assigned', 'in_process', 'in_review', 'pending'].sort(),
+    );
+    for (const s of ['in_review', 'in_process', 'assigned', 'pending'] as const) {
+      expect(isOutstandingReviewerStatus(s)).toBe(true);
+    }
+    for (const s of ['approved', 'corrections_required', 'not_required'] as const) {
+      expect(isOutstandingReviewerStatus(s)).toBe(false);
+    }
+  });
+
+  it('demo BLD2026-0536: 2 corrections + 1 in_review → in_review (round not done)', () => {
+    const rows = [
+      makeReviewer({ reviewer_name: 'engineering', current_status: 'corrections_required' }),
+      makeReviewer({ reviewer_name: 'planning', current_status: 'corrections_required' }),
+      makeReviewer({ reviewer_name: 'trees', current_status: 'in_review' }),
+    ];
+    expect(reviewerVerdictForLatestCycle(rows)).toBe('in_review');
+    expect(reviewerVerdictForCycle(rows, 1)).toBe('in_review');
+  });
+
+  it('all reviewers acted + ≥1 corrections (no in-progress) → corrections_required', () => {
+    const rows = [
+      makeReviewer({ reviewer_name: 'a', current_status: 'approved' }),
+      makeReviewer({ reviewer_name: 'b', current_status: 'corrections_required' }),
+      makeReviewer({ reviewer_name: 'c', current_status: 'corrections_required' }),
+    ];
+    expect(reviewerVerdictForLatestCycle(rows)).toBe('corrections_required');
+  });
+
+  it('all approved (no in-progress, no corrections) → approved', () => {
+    const rows = [
+      makeReviewer({ reviewer_name: 'a', current_status: 'approved' }),
+      makeReviewer({ reviewer_name: 'b', current_status: 'approved' }),
+    ];
+    expect(reviewerVerdictForLatestCycle(rows)).toBe('approved');
+  });
+
+  it('a single in-progress reviewer outweighs many corrections', () => {
+    const rows = [
+      ...Array.from({ length: 5 }, (_, i) =>
+        makeReviewer({ reviewer_name: `C${i}`, current_status: 'corrections_required' }),
+      ),
+      makeReviewer({ reviewer_name: 'lone', current_status: 'assigned' }),
+    ];
+    expect(reviewerVerdictForLatestCycle(rows)).toBe('in_review');
   });
 });
 

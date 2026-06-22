@@ -7,7 +7,7 @@ import type {
 import { effectiveStage } from './permitStage';
 import { multiMatchAddress } from './drawScheduleHelpers';
 import {
-  latestCycleIndex,
+  currentCycleIndex,
   rollupCounts,
   rowsForCycle,
 } from './reviewerRollup';
@@ -42,9 +42,13 @@ export interface ProjectPermitRow {
     approved: number;
     correctionsRequired: number;
     outstanding: number;
-    /** Cycle index the counts came from; null when no reviewer rows for
-     *  this permit (caller renders fallback). */
+    /** fix-186: the permit's CURRENT cycle index (from permit_cycles), i.e. the
+     *  cycle the counts came from. null when the permit has no cycles. */
     cycleIndex: number | null;
+    /** fix-186: the current cycle has no reviewer rows yet but an earlier cycle
+     *  does — the round hasn't been assigned. The cell shows "Cycle N — not yet
+     *  assigned" instead of "no reviewers" (or a stale earlier cycle). */
+    awaitingCurrentCycle: boolean;
   };
 }
 
@@ -115,19 +119,37 @@ function summarizeReviewers(
   reviewersByPermit: Map<number, PermitCycleReviewer[]>,
   permitStatus: string | null,
   permitType: string | null,
+  // fix-186: the permit's cycles, so the rollup reads the CURRENT cycle's
+  // reviewers (not the latest reviewer-ROW cycle, which can lag a cycle behind).
+  cycles: ReadonlyArray<{ cycle_index: number }>,
 ): ProjectPermitRow['reviewer'] {
   const rows = reviewersByPermit.get(permitId) ?? [];
-  const latest = latestCycleIndex(rows);
-  if (latest === null) {
+  const current = currentCycleIndex(cycles, rows);
+  if (current === null) {
     return {
       total: 0,
       approved: 0,
       correctionsRequired: 0,
       outstanding: 0,
       cycleIndex: null,
+      awaitingCurrentCycle: false,
     };
   }
-  const visible = rowsForCycle(rows, latest);
+  const visible = rowsForCycle(rows, current);
+  if (visible.length === 0) {
+    // fix-186: no reviewer rows on the current cycle. If the permit has rows on
+    // an earlier cycle, the current round simply hasn't been assigned yet —
+    // flag it so the cell reads "Cycle N — not yet assigned" rather than the
+    // ambiguous "no reviewers" (which should mean "never had any").
+    return {
+      total: 0,
+      approved: 0,
+      correctionsRequired: 0,
+      outstanding: 0,
+      cycleIndex: current,
+      awaitingCurrentCycle: rows.length > 0,
+    };
+  }
   const counts = rollupCounts(visible, permitStatus, permitType);
   const outstanding = counts.inReview + counts.pending;
   return {
@@ -140,7 +162,8 @@ function summarizeReviewers(
     approved: counts.approved,
     correctionsRequired: counts.correctionsRequired,
     outstanding,
-    cycleIndex: latest,
+    cycleIndex: current,
+    awaitingCurrentCycle: false,
   };
 }
 
@@ -190,6 +213,7 @@ export function buildProjectRows(
           reviewersByPermit,
           permit.status,
           permit.type,
+          permit.permit_cycles ?? [],
         ),
       };
     });

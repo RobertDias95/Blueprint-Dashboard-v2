@@ -36,6 +36,22 @@ export function rowsForCycle(
   return rows.filter((r) => r.cycle_index === cycleIndex);
 }
 
+// fix-186: the single source of truth for "this discipline has NOT finished
+// its review" — the round is still in flight. Any reviewer at one of these on
+// the current cycle keeps the permit UNDER REVIEW (verdict 'in_review'), even
+// when other disciplines have already returned corrections. The complement —
+// 'approved' / 'corrections_required' — is "acted"; 'not_required' is N/A. This
+// set is what makes the verdict precedence in-progress > corrections > approved
+// (reviewerVerdictForLatestCycle below) explicit and regression-safe.
+export const OUTSTANDING_REVIEWER_STATUSES: ReadonlySet<ReviewerStatus> =
+  new Set(['in_review', 'in_process', 'assigned', 'pending']);
+
+/** fix-186: true when a reviewer is still in progress (not yet acted) — see
+ *  OUTSTANDING_REVIEWER_STATUSES. */
+export function isOutstandingReviewerStatus(status: ReviewerStatus): boolean {
+  return OUTSTANDING_REVIEWER_STATUSES.has(status);
+}
+
 /** Bucket statuses for the chip. "in_process", "in_review", "assigned"
  *  collapse into a single "in review" bucket since they all signal
  *  "actively under review." "pending" + "not_required" stay separate
@@ -153,11 +169,14 @@ export function isReviewerRollupDriven(
 
 /** Wholistic rollup verdict from the latest cycle's reviewer rows.
  *
- *  Rule (Bobby, 2026-05-26):
- *    - OUTSTANDING = any reviewer at in_review / in_process / assigned /
- *      pending. ACTED = corrections_required / approved.
+ *  Rule (Bobby, 2026-05-26; fix-186 centralized the status set):
+ *    - OUTSTANDING = any reviewer at one of OUTSTANDING_REVIEWER_STATUSES
+ *      (in_review / in_process / assigned / pending). ACTED =
+ *      corrections_required / approved.
  *    - any outstanding → 'in_review' (even if some disciplines have already
- *      issued corrections individually — the round isn't done).
+ *      issued corrections individually — the round isn't done). An in-progress
+ *      reviewer ALWAYS keeps the permit under review; corrections only wins once
+ *      every reviewer has acted.
  *    - else, any corrections_required → 'corrections_required'.
  *    - else (all approved) → 'approved'.
  *
@@ -182,9 +201,11 @@ export function reviewerVerdictForLatestCycle(
   let outstanding = false;
   let corrections = false;
   for (const r of cycleRows) {
-    const b = bucketStatus(r.current_status);
-    if (b === 'in_review' || b === 'pending') outstanding = true;
-    else if (b === 'corrections') corrections = true;
+    // fix-186: use the centralized in-progress set so the precedence is
+    // explicit. An in-progress reviewer makes the round outstanding; a
+    // corrections_required reviewer only counts once nobody is still in flight.
+    if (isOutstandingReviewerStatus(r.current_status)) outstanding = true;
+    else if (r.current_status === 'corrections_required') corrections = true;
   }
   if (outstanding) return 'in_review';
   if (corrections) return 'corrections_required';

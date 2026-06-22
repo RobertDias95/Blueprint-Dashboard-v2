@@ -647,7 +647,18 @@ function PermitMiniTable({ row }: { row: ProjectRow }) {
                   cell is stale. not_required reviewers are excluded
                   from total upstream in summarizeReviewers. */}
               {p.reviewer.total === 0 ? (
-                <span className="text-dim">no reviewers</span>
+                p.reviewer.awaitingCurrentCycle ? (
+                  // fix-186: current cycle exists but has no reviewer rows yet
+                  // (an earlier cycle did) — the round just hasn't been assigned.
+                  <span
+                    className="text-dim"
+                    data-testid={`project-view-reviewer-unassigned-${p.permit.id}`}
+                  >
+                    Cycle {p.reviewer.cycleIndex} — not yet assigned
+                  </span>
+                ) : (
+                  <span className="text-dim">no reviewers</span>
+                )
               ) : (
                 <>
                   <div className="font-mono">

@@ -318,6 +318,10 @@ function Row({
           fallbackReviewer={fallbackReviewer}
           permitStatus={permit.status}
           permitType={permit.type}
+          // fix-186: follow the permit's CURRENT cycle so the chip doesn't lag a
+          // cycle behind once the permit advances past the last cycle that has
+          // reviewer rows.
+          cycles={permit.permit_cycles ?? []}
         />
       </td>
       {/* 3. Stage */}
