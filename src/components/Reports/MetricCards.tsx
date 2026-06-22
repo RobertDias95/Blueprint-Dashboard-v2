@@ -75,8 +75,10 @@ export default function MetricCards({
   comparisonModeLabel?: string;
   /** fix-142: toggles the per-cycle breakdown drawer. Wired to all three
    *  timeline tiles (City Review / Response Time / Permit Timeline) — any
-   *  of them acts as a unified open/close toggle. */
-  onTimelineTileClick?: () => void;
+   *  of them acts as a unified open/close toggle.
+   *  fix-184b: now receives WHICH tile was clicked so the page can show the
+   *  composition summary only when the drawer is opened via Permit Timeline. */
+  onTimelineTileClick?: (key: 'avgCityReview' | 'avgResponseTime' | 'avgPermitTimeline') => void;
   /** fix-142: drawer open state — drives the chevron glyph + aria-expanded
    *  on the three timeline tiles. */
   drawerOpen?: boolean;
@@ -262,7 +264,7 @@ export default function MetricCards({
         }
         comparisonLabel={cmpLabel}
         comparisonDirection="lower_better"
-        onClick={onTimelineTileClick}
+        onClick={onTimelineTileClick ? () => onTimelineTileClick('avgCityReview') : undefined}
         expanded={drawerOpen}
         {...splitProps}
       />
@@ -289,7 +291,7 @@ export default function MetricCards({
         }
         comparisonLabel={cmpLabel}
         comparisonDirection="lower_better"
-        onClick={onTimelineTileClick}
+        onClick={onTimelineTileClick ? () => onTimelineTileClick('avgResponseTime') : undefined}
         expanded={drawerOpen}
         {...splitProps}
       />
@@ -316,7 +318,7 @@ export default function MetricCards({
         }
         comparisonLabel={cmpLabel}
         comparisonDirection="lower_better"
-        onClick={onTimelineTileClick}
+        onClick={onTimelineTileClick ? () => onTimelineTileClick('avgPermitTimeline') : undefined}
         expanded={drawerOpen}
         {...splitProps}
       />

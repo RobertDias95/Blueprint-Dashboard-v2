@@ -7,6 +7,7 @@ import {
 } from '../../hooks/useProjectHolds';
 import {
   computeMetrics,
+  computeTimelineComposition,
   enrichPermits,
   filterEnrichedPermits,
   type ReportFilters,
@@ -116,7 +117,14 @@ function Body({
   const [comparePanelOpen, setComparePanelOpen] = useState(false);
   // fix-142: per-cycle breakdown drawer — default closed, toggled by the
   // three timeline tiles.
-  const [drawerOpen, setDrawerOpen] = useState(false);
+  // fix-184b: track WHICH timeline tile opened the drawer (null = closed) so
+  // the Avg Permit Timeline composition summary renders only for that tile;
+  // City Review / Response Time keep their fix-142 drawer unchanged. All three
+  // tiles still share a single open/closed state (drawerOpen derives from it).
+  const [openTile, setOpenTile] = useState<
+    'avgCityReview' | 'avgResponseTime' | 'avgPermitTimeline' | null
+  >(null);
+  const drawerOpen = openTile !== null;
 
   const projectsById = useMemo(
     () => new Map(projects.map((p) => [p.id, p])),
@@ -257,6 +265,14 @@ function Body({
         ? null
         : computePerCycleBuckets(comparisonFiltered, holdsMap),
     [comparisonFiltered, holdsMap],
+  );
+
+  // fix-184b: composition of the Avg Permit Timeline tile — the same cohort
+  // the tile averages, split into city-court / our-court / residual so the
+  // drawer can show how the total was reached. timeline === metrics.avgPermitTimeline.
+  const timelineComposition = useMemo(
+    () => computeTimelineComposition(filtered, holdsMap),
+    [filtered, holdsMap],
   );
 
   const permitsByType = useMemo(
@@ -407,7 +423,12 @@ function Body({
             : undefined
         }
         comparisonModeLabel={comparisonRange ? 'vs comparison' : undefined}
-        onTimelineTileClick={() => setDrawerOpen((o) => !o)}
+        // fix-184b: preserve fix-142's shared-toggle — any timeline tile click
+        // closes an open drawer; opening from closed records WHICH tile so the
+        // composition summary shows only for Avg Permit Timeline.
+        onTimelineTileClick={(key) =>
+          setOpenTile((prev) => (prev === null ? key : null))
+        }
         drawerOpen={drawerOpen}
         enriched={filtered}
         filterContext={filterContext}
@@ -420,6 +441,8 @@ function Body({
         buckets={perCycleBuckets}
         comparisonBuckets={comparisonPerCycleBuckets}
         comparisonLabel={comparisonLabel ?? null}
+        composition={timelineComposition}
+        showComposition={openTile === 'avgPermitTimeline'}
       />
 
       {/* fix-129-c: each BarChartCard's title is wrapped in a
