@@ -95,6 +95,80 @@ describe('ReviewerRollupChip', () => {
     expect(screen.queryByTestId('reviewer-chip-42')).toBeNull();
   });
 
+  // fix-186: the chip follows the permit's CURRENT cycle (from `cycles`), not
+  // the latest reviewer-ROW cycle, so it can't lag a cycle behind.
+  describe('fix-186 current-cycle scoping', () => {
+    it('shows the CURRENT cycle reviewers when cycles are supplied', () => {
+      const rows: PermitCycleReviewer[] = [
+        makeReviewer('Old', 'corrections_required', 1),
+        makeReviewer('NewA', 'approved', 2),
+        makeReviewer('NewB', 'in_review', 2),
+      ];
+      render(
+        <ReviewerRollupChip
+          permitId={42}
+          rows={rows}
+          fallbackReviewer={null}
+          cycles={[{ cycle_index: 1 }, { cycle_index: 2 }]}
+        />,
+      );
+      const chip = screen.getByTestId('reviewer-chip-42');
+      // Cycle 2 has 2 reviewers (1 approved, 1 in_review) — NOT the stale cycle 1.
+      expect(chip.getAttribute('title')).toContain('Cycle 2');
+      expect(chip.textContent).toContain('2');
+      expect(chip.textContent).toContain('1✓');
+      expect(chip.textContent).not.toContain('⚠'); // no corrections on cycle 2
+    });
+
+    it('current cycle has NO reviewer rows (earlier cycle does) → "not yet assigned"', () => {
+      const rows: PermitCycleReviewer[] = [
+        makeReviewer('Old1', 'corrections_required', 1),
+        makeReviewer('Old2', 'approved', 1),
+      ];
+      render(
+        <ReviewerRollupChip
+          permitId={42}
+          rows={rows}
+          fallbackReviewer="Legacy Name"
+          cycles={[{ cycle_index: 1 }, { cycle_index: 2 }]}
+        />,
+      );
+      const el = screen.getByTestId('reviewer-not-assigned-42');
+      expect(el.textContent).toBe('Cycle 2 — not yet assigned');
+      // The stale cycle-1 chip + the legacy fallback must NOT render.
+      expect(screen.queryByTestId('reviewer-chip-42')).toBeNull();
+      expect(screen.queryByTestId('reviewer-fallback-42')).toBeNull();
+    });
+
+    it('no reviewer rows at all + cycles → legacy fallback, NOT "not yet assigned"', () => {
+      render(
+        <ReviewerRollupChip
+          permitId={42}
+          rows={[]}
+          fallbackReviewer="Griffin Cronk"
+          cycles={[{ cycle_index: 1 }, { cycle_index: 2 }]}
+        />,
+      );
+      expect(screen.queryByTestId('reviewer-not-assigned-42')).toBeNull();
+      expect(screen.getByTestId('reviewer-fallback-42').textContent).toBe(
+        'Griffin Cronk',
+      );
+    });
+
+    it('without cycles, keeps legacy latest-reviewer-row behavior', () => {
+      const rows: PermitCycleReviewer[] = [
+        makeReviewer('Old', 'approved', 1),
+        makeReviewer('New', 'corrections_required', 2),
+      ];
+      render(
+        <ReviewerRollupChip permitId={42} rows={rows} fallbackReviewer={null} />,
+      );
+      // Legacy path: latest reviewer-row cycle (2) drives the chip.
+      const chip = screen.getByTestId('reviewer-chip-42');
+      expect(chip.getAttribute('title')).toContain('Cycle 2');
+    });
+  });
+
   it('terminal-positive + no-issuance type suppresses the ⚠ corrections pill (fix-31b/fix-41)', () => {
     // Mirrors SDOTTRLA0002310: reviewer's individual event stream ends
     // at corrections_required, but it's a Conceptually Approved SDOT Tree

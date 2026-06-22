@@ -3,6 +3,7 @@ import type { CSSProperties } from 'react';
 import type { PermitCycleReviewer } from '../../lib/database.types';
 import {
   bucketStatus,
+  currentCycleIndex,
   latestCycleIndex,
   rollupCounts,
   rowsForCycle,
@@ -82,6 +83,14 @@ interface Props {
    *  ECA Waiver / ULS). Threaded through to rollupCounts, which owns the
    *  gate. Issuance-bearing types show real per-reviewer counts. */
   permitType?: string | null;
+  /** fix-186: the permit's cycles. When supplied, the chip displays the
+   *  CURRENT (latest) cycle's reviewers — currentCycleIndex(cycles) — instead of
+   *  the latest reviewer-ROW cycle, so it can't lag a cycle behind once the
+   *  permit has advanced. If the current cycle has no reviewer rows yet (but an
+   *  earlier cycle does), the chip shows a neutral "Cycle N — not yet assigned"
+   *  rather than silently rendering the stale earlier cycle. Omit to keep the
+   *  legacy latest-reviewer-row behavior. */
+  cycles?: ReadonlyArray<{ cycle_index: number }>;
 }
 
 export default function ReviewerRollupChip({
@@ -90,6 +99,7 @@ export default function ReviewerRollupChip({
   fallbackReviewer,
   permitStatus,
   permitType,
+  cycles,
 }: Props) {
   const [open, setOpen] = useState(false);
   const chipRef = useRef<HTMLButtonElement>(null);
@@ -107,9 +117,20 @@ export default function ReviewerRollupChip({
     maxHeight: 320,
   });
 
-  const latestIdx = latestCycleIndex(rows);
+  // fix-186: when cycles are supplied, follow the permit's CURRENT cycle (so the
+  // chip can't lag behind once the permit advanced to a cycle that has no
+  // reviewer rows yet). Without cycles, keep the legacy latest-reviewer-row
+  // behavior.
+  const latestIdx = cycles
+    ? currentCycleIndex(cycles, rows)
+    : latestCycleIndex(rows);
   const visibleRows = latestIdx === null ? [] : rowsForCycle(rows, latestIdx);
   const counts = rollupCounts(visibleRows, permitStatus, permitType);
+  // fix-186: the current cycle exists but has no reviewer rows yet, while an
+  // EARLIER cycle does — the round hasn't been assigned. Show a neutral state
+  // instead of the stale earlier cycle's reviewers.
+  const awaitingCurrentCycle =
+    !!cycles && counts.total === 0 && latestIdx !== null && rows.length > 0;
 
   // fix-42 (2026-05-21): on a terminal-positive permit, a reviewer still
   // sitting at corrections_required is necessarily RESOLVED — the permit
@@ -160,6 +181,20 @@ export default function ReviewerRollupChip({
   }
 
   if (counts.total === 0) {
+    // fix-186: current cycle has no reviewers yet but an earlier cycle did —
+    // the round just hasn't been assigned. Surface that explicitly rather than
+    // showing the stale earlier cycle or a bare dash.
+    if (awaitingCurrentCycle) {
+      return (
+        <span
+          className="text-[10px] text-dim italic"
+          data-testid={`reviewer-not-assigned-${permitId}`}
+          title={`Cycle ${latestIdx} reviewers not yet assigned`}
+        >
+          Cycle {latestIdx} — not yet assigned
+        </span>
+      );
+    }
     if (!fallbackReviewer) {
       return (
         <span className="text-[10px] text-dim italic">—</span>
