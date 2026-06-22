@@ -7,6 +7,7 @@ import {
 } from '../../lib/permitHelpers';
 import { useUpdatePermit } from '../../hooks/useUpdatePermit';
 import { usePermitTasks } from '../../hooks/usePermitTasks';
+import { useAllPermitCycleReviewers } from '../../hooks/useAllPermitCycleReviewers';
 import {
   useUpsertPermitCycle,
   type CyclePatch,
@@ -134,7 +135,24 @@ export default function PermitDetailV2({ permit, project }: Props) {
       (permit.permit_cycles ?? []).find((c) => c.cycle_index === 0) ?? null,
     [permit.permit_cycles],
   );
-  const stage = effectiveStage(permit, cycles);
+  // fix-188: compute the stage with the CANONICAL inputs — the permit's FULL
+  // cycles (incl. the design cycle 0) AND its reviewer rows — so the detail
+  // pane's stage badge agrees with the Permits sidebar (fix-104) + Schedule
+  // Health, both of which pass reviewers into effectiveStage. Pre-fix this used
+  // effectiveStage(permit, cycles) with cycle 0 filtered out AND no reviewers,
+  // so for an MPB (Pending/Applied) permit it fell through to computeStage and
+  // could read "Corrections" off a cycle's corr_issued while an in-progress
+  // reviewer should keep it under review — disagreeing with the other surfaces.
+  const reviewersQ = useAllPermitCycleReviewers();
+  const permitReviewers = useMemo(
+    () => (reviewersQ.data ?? []).filter((r) => r.permit_id === permit.id),
+    [reviewersQ.data, permit.id],
+  );
+  const stage = effectiveStage(
+    permit,
+    permit.permit_cycles ?? [],
+    permitReviewers,
+  );
   // Q9.5.f-fix-6 C: derive the permit's current phase + which cycle index
   // contains it. Drives both the initial viewed-cycle tab AND the date-
   // strip cell highlight.
@@ -233,6 +251,7 @@ export default function PermitDetailV2({ permit, project }: Props) {
         <Sidebar
           permit={permit}
           cycles={cycles}
+          stage={stage}
           viewIdx={viewCycleIdx}
           onSelectCycle={setViewCycleIdx}
         />
@@ -2345,11 +2364,17 @@ function TaskItem({
 function Sidebar({
   permit,
   cycles,
+  stage,
   viewIdx,
   onSelectCycle,
 }: {
   permit: PermitWithCycles;
   cycles: PermitCycle[];
+  /** fix-188: the canonical (reviewer-aware) stage computed once by the parent.
+   *  Pre-fix the Sidebar recomputed effectiveStage(permit, cycles) WITHOUT
+   *  reviewers, which could disagree with the header badge + the other
+   *  surfaces. Only used here for the Corr. Round card's accent color. */
+  stage: Stage;
   /** fix-109: the currently viewed cycle (Design=0 or review=1+). The
    *  smart Add Cycle inside CycleHistory derives the new cycle's
    *  submitted date from THIS cycle, and the parent's view auto-
@@ -2359,7 +2384,6 @@ function Sidebar({
 }) {
   const upsertCycle = useUpsertPermitCycle();
   const removeCycle = useDeletePermitCycle();
-  const stage = effectiveStage(permit, cycles);
   const corrRounds = cycles.filter((c) => c.corr_issued).length;
   // Corrections counts come from permit_tasks via usePermitTasks. Read once.
   const tasksQ = usePermitTasks(permit.id);
