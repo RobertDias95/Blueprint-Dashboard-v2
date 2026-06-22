@@ -191,6 +191,43 @@ export function reviewerVerdictForLatestCycle(
   return 'approved';
 }
 
+/** fix-185: wholistic verdict scoped to a SPECIFIC cycle index — the permit's
+ *  current (latest) review cycle, taken from permit_cycles, NOT inferred from
+ *  the reviewer rows. Earlier-cycle reviewer rows that were never pruned after a
+ *  resubmittal (e.g. a resubmitted cycle 1 still carrying corrections_required
+ *  rows) are historical and must not drive the live status. Returns null when
+ *  the current cycle has no actionable reviewer rows, so the caller falls back
+ *  to the cycle-date state (submitted + no corr_issued → under review).
+ *
+ *  Reuses the canonical reviewerVerdictForLatestCycle rule on the cycle-scoped
+ *  slice — identical outstanding/corrections/approved logic, just pinned to one
+ *  cycle index instead of the max seen among the rows. */
+export function reviewerVerdictForCycle(
+  rows: PermitCycleReviewer[],
+  cycleIndex: number,
+): ReviewerVerdict | null {
+  return reviewerVerdictForLatestCycle(rowsForCycle(rows, cycleIndex));
+}
+
+/** fix-185: the permit's current (latest) review cycle index, read from its
+ *  cycles — the canonical "which cycle is live." This is what scopes the
+ *  reviewer rollup (reviewerVerdictForCycle) so stale earlier-cycle reviewer
+ *  rows can't drive the status/bucket. Falls back to the latest reviewer-row
+ *  cycle only when no cycles are available (defensive — the status/bucket call
+ *  sites always pass cycles). Returns null when neither is available. */
+export function currentCycleIndex(
+  cycles: ReadonlyArray<{ cycle_index: number }>,
+  reviewers: PermitCycleReviewer[],
+): number | null {
+  if (cycles.length > 0) {
+    return cycles.reduce(
+      (max, c) => (c.cycle_index > max ? c.cycle_index : max),
+      cycles[0].cycle_index,
+    );
+  }
+  return latestCycleIndex(reviewers);
+}
+
 /** Compact human-readable label for a single status. Used in the
  *  popover detail list. */
 export function statusLabel(status: ReviewerStatus): string {

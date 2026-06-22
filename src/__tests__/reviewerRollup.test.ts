@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import {
   bucketStatus,
+  currentCycleIndex,
   isReviewerRollupDriven,
   latestCycleIndex,
+  reviewerVerdictForCycle,
   reviewerVerdictForLatestCycle,
   rollupCounts,
   rowsForCycle,
@@ -396,6 +398,57 @@ describe('reviewerVerdictForLatestCycle (fix-54)', () => {
       makeReviewer({ reviewer_name: 'Y', current_status: 'not_required' }),
     ];
     expect(reviewerVerdictForLatestCycle(rows)).toBeNull();
+  });
+});
+
+// fix-185: the rollup must read ONLY the permit's current (latest) cycle's
+// reviewers — stale rows on an already-resubmitted earlier cycle are historical.
+describe('reviewerVerdictForCycle (fix-185)', () => {
+  it('scopes the verdict to the given cycle, ignoring other cycles', () => {
+    const rows = [
+      // Cycle 1 (historical): all corrections.
+      makeReviewer({ reviewer_name: 'a', cycle_index: 1, current_status: 'corrections_required' }),
+      makeReviewer({ reviewer_name: 'b', cycle_index: 1, current_status: 'corrections_required' }),
+      // Cycle 2 (current): under review.
+      makeReviewer({ reviewer_name: 'a', cycle_index: 2, current_status: 'in_review' }),
+    ];
+    expect(reviewerVerdictForCycle(rows, 2)).toBe('in_review');
+    expect(reviewerVerdictForCycle(rows, 1)).toBe('corrections_required');
+  });
+
+  it('returns null when the requested cycle has no actionable rows', () => {
+    const rows = [
+      makeReviewer({ reviewer_name: 'a', cycle_index: 1, current_status: 'corrections_required' }),
+    ];
+    // Current cycle (2) has no reviewer rows → caller falls back to cycle dates.
+    expect(reviewerVerdictForCycle(rows, 2)).toBeNull();
+    // not_required-only rows on the requested cycle also yield null.
+    expect(
+      reviewerVerdictForCycle(
+        [makeReviewer({ cycle_index: 2, current_status: 'not_required' })],
+        2,
+      ),
+    ).toBeNull();
+  });
+});
+
+describe('currentCycleIndex (fix-185)', () => {
+  it('returns the max cycle_index from the permit cycles (not the reviewer rows)', () => {
+    const cycles = [{ cycle_index: 0 }, { cycle_index: 1 }, { cycle_index: 2 }];
+    const reviewers = [makeReviewer({ cycle_index: 1 })]; // lagging a cycle behind
+    expect(currentCycleIndex(cycles, reviewers)).toBe(2);
+  });
+
+  it('falls back to the latest reviewer cycle when no cycles are supplied', () => {
+    const reviewers = [
+      makeReviewer({ reviewer_name: 'a', cycle_index: 1 }),
+      makeReviewer({ reviewer_name: 'b', cycle_index: 3 }),
+    ];
+    expect(currentCycleIndex([], reviewers)).toBe(3);
+  });
+
+  it('returns null when neither cycles nor reviewers are available', () => {
+    expect(currentCycleIndex([], [])).toBeNull();
   });
 });
 

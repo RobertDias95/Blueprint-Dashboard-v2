@@ -8,9 +8,9 @@ import {
 } from './permitHelpers';
 import { isTerminalPositiveStatus } from './permitTerminalStatus';
 import {
+  currentCycleIndex,
   isReviewerRollupDriven,
-  latestCycleIndex,
-  reviewerVerdictForLatestCycle,
+  reviewerVerdictForCycle,
 } from './reviewerRollup';
 
 // fix-25e: derive a user-facing status pill ("Corr Required (Cycle 2)" +
@@ -131,8 +131,16 @@ export function derivePermitStatus(
   // rule here when reviewers are available; fall through to the chain
   // logic when they aren't.
   if (reviewers && reviewers.length > 0 && isReviewerRollupDriven(permit.status)) {
-    const verdict = reviewerVerdictForLatestCycle(reviewers);
-    const latestIdx = latestCycleIndex(reviewers);
+    // fix-185: scope the verdict + label to the permit's CURRENT (latest)
+    // cycle, not the max cycle among reviewer rows. Stale earlier-cycle
+    // reviewer rows (e.g. a resubmitted cycle 1 whose corrections rows were
+    // never pruned) must not surface a "Corr Required (Cycle 1)" pill while
+    // cycle 2 is the live, under-review cycle. When the current cycle has no
+    // reviewer rows the verdict is null → fall through to the chain rule, which
+    // reads the live cycle's dates (cycle 2 city_target → "City Target (Cycle 2)").
+    const latestIdx = currentCycleIndex(permit.permit_cycles ?? [], reviewers);
+    const verdict =
+      latestIdx === null ? null : reviewerVerdictForCycle(reviewers, latestIdx);
     if (verdict && latestIdx !== null) {
       const cyc = (permit.permit_cycles ?? []).find(
         (c) => c.cycle_index === latestIdx,

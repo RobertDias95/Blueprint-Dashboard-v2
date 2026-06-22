@@ -428,3 +428,88 @@ describe('effectiveStage — wholistic reviewer rollup (fix-54)', () => {
     ).toBe('ap');
   });
 });
+
+// fix-185 (2026-06-22): status/bucket follows cycle progression. The reviewer
+// rollup must consider ONLY the permit's current (latest) cycle. Stale rows on
+// an already-resubmitted earlier cycle are historical and must not force "co".
+describe('effectiveStage — reviewer rollup scoped to current cycle (fix-185)', () => {
+  // 224 2nd Ave N (Edmonds) BLD2026-0126: cycle 1 is closed (corr_issued +
+  // resubmitted), cycle 2 is the live under-review cycle with NO reviewer rows;
+  // the only reviewer rows sit on cycle 1 and were never pruned.
+  const edmondsCycles = [
+    cycle({ cycle_index: 0, submitted: '2026-02-02', intake_accepted: '2026-03-04' }),
+    cycle({
+      cycle_index: 1,
+      submitted: '2026-02-03',
+      city_target: '2026-05-10',
+      corr_issued: '2026-04-13',
+      resubmitted: '2026-05-19',
+    }),
+    cycle({ cycle_index: 2, submitted: '2026-05-19', city_target: '2026-06-22' }),
+  ];
+  const staleCycle1Reviewers = [
+    reviewer({ reviewer_name: 'engineering', cycle_index: 1, current_status: 'corrections_required' }),
+    reviewer({ reviewer_name: 'planning', cycle_index: 1, current_status: 'corrections_required' }),
+    reviewer({ reviewer_name: 'stormwater', cycle_index: 1, current_status: 'corrections_required' }),
+    reviewer({ reviewer_name: 'building', cycle_index: 1, current_status: 'approved' }),
+    reviewer({ reviewer_name: 'fire', cycle_index: 1, current_status: 'approved' }),
+    reviewer({ reviewer_name: 'trees', cycle_index: 1, current_status: 'in_review' }),
+  ];
+
+  it('latest cycle resubmitted-in-review + stale earlier-cycle corrections reviewers → "pm"', () => {
+    expect(
+      effectiveStage(makePermit({ status: 'Applied' }), edmondsCycles, staleCycle1Reviewers),
+    ).toBe('pm');
+  });
+
+  it('stays "pm" even if every stale cycle-1 reviewer reads corrections_required', () => {
+    // The transient state of cycle-1 reviewers must not matter at all — they
+    // are on a resubmitted (historical) cycle.
+    const allCorrections = staleCycle1Reviewers.map((r) => ({
+      ...r,
+      current_status: 'corrections_required' as const,
+    }));
+    expect(
+      effectiveStage(makePermit({ status: 'Applied' }), edmondsCycles, allCorrections),
+    ).toBe('pm');
+  });
+
+  it('latest cycle genuinely in corrections (corr_issued, not resubmitted, reviewers on it) → "co"', () => {
+    const cycles = [
+      cycle({ cycle_index: 0, submitted: '2026-02-02', intake_accepted: '2026-03-04' }),
+      cycle({
+        cycle_index: 1,
+        submitted: '2026-02-03',
+        corr_issued: '2026-04-13',
+        resubmitted: '2026-05-19',
+      }),
+      cycle({
+        cycle_index: 2,
+        submitted: '2026-05-19',
+        corr_issued: '2026-06-10',
+      }),
+    ];
+    const reviewers = [
+      reviewer({ reviewer_name: 'engineering', cycle_index: 2, current_status: 'corrections_required' }),
+      reviewer({ reviewer_name: 'building', cycle_index: 2, current_status: 'approved' }),
+    ];
+    expect(effectiveStage(makePermit({ status: 'Applied' }), cycles, reviewers)).toBe('co');
+  });
+
+  it('current cycle has no reviewer rows → falls back to cycle-date state ("pm")', () => {
+    // Same as the Edmonds case but with NO reviewers at all → computeStage path.
+    expect(
+      effectiveStage(makePermit({ status: 'Applied' }), edmondsCycles, []),
+    ).toBe('pm');
+  });
+
+  it('stage_override still wins over the (now cycle-scoped) reviewer rollup', () => {
+    expect(
+      effectiveStage(
+        makePermit({ status: 'Applied', stage_override: 'co' }),
+        edmondsCycles,
+        staleCycle1Reviewers,
+      ),
+    ).toBe('co');
+  });
+});

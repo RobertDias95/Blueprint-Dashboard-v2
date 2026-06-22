@@ -751,3 +751,89 @@ describe('derivePermitStatus — wholistic reviewer rollup (fix-54)', () => {
     expect(r.label).toBe(APPROVED_NOT_ISSUED_LABEL);
   });
 });
+
+// fix-185 (2026-06-22): the status pill follows cycle progression — the rollup
+// reads ONLY the current (latest) cycle's reviewers. Stale rows on an
+// already-resubmitted earlier cycle must not surface "Corr Required (Cycle 1)."
+describe('derivePermitStatus — reviewer rollup scoped to current cycle (fix-185)', () => {
+  // 224 2nd Ave N (Edmonds) BLD2026-0126.
+  const edmondsCycles = [
+    cyc({ cycle_index: 0, submitted: '2026-02-02', intake_accepted: '2026-03-04' }),
+    cyc({
+      cycle_index: 1,
+      submitted: '2026-02-03',
+      city_target: '2026-05-10',
+      corr_issued: '2026-04-13',
+      resubmitted: '2026-05-19',
+    }),
+    cyc({ cycle_index: 2, submitted: '2026-05-19', city_target: '2026-06-22' }),
+  ];
+  const staleCycle1Reviewers = [
+    reviewer({ reviewer_name: 'engineering', cycle_index: 1, current_status: 'corrections_required' }),
+    reviewer({ reviewer_name: 'planning', cycle_index: 1, current_status: 'corrections_required' }),
+    reviewer({ reviewer_name: 'stormwater', cycle_index: 1, current_status: 'corrections_required' }),
+    reviewer({ reviewer_name: 'building', cycle_index: 1, current_status: 'approved' }),
+    reviewer({ reviewer_name: 'fire', cycle_index: 1, current_status: 'approved' }),
+    reviewer({ reviewer_name: 'trees', cycle_index: 1, current_status: 'in_review' }),
+  ];
+
+  it('latest cycle under review + stale cycle-1 reviewers → live cycle-2 label, NOT "Corr Required (Cycle 1)"', () => {
+    const r = derivePermitStatus(
+      makePermit({ status: 'Applied', permit_cycles: edmondsCycles }),
+      staleCycle1Reviewers,
+    );
+    // Current cycle (2) has no reviewer rows → verdict null → chain rule reads
+    // the live cycle's city_target.
+    expect(r).toEqual({
+      label: 'City Target (Cycle 2)',
+      date: '2026-06-22',
+      derived: true,
+    });
+  });
+
+  it('does not regress to a cycle-1 corrections pill regardless of stale-row state', () => {
+    const allCorrections = staleCycle1Reviewers.map((r) => ({
+      ...r,
+      current_status: 'corrections_required' as const,
+    }));
+    const r = derivePermitStatus(
+      makePermit({ status: 'Applied', permit_cycles: edmondsCycles }),
+      allCorrections,
+    );
+    expect(r.label).toBe('City Target (Cycle 2)');
+  });
+
+  it('latest cycle genuinely in corrections (reviewers on the current cycle) → "Corr Required (Cycle 2)"', () => {
+    const cycles = [
+      cyc({ cycle_index: 0, submitted: '2026-02-02', intake_accepted: '2026-03-04' }),
+      cyc({
+        cycle_index: 1,
+        submitted: '2026-02-03',
+        corr_issued: '2026-04-13',
+        resubmitted: '2026-05-19',
+      }),
+      cyc({ cycle_index: 2, submitted: '2026-05-19', corr_issued: '2026-06-10' }),
+    ];
+    const reviewers = [
+      reviewer({ reviewer_name: 'engineering', cycle_index: 2, current_status: 'corrections_required' }),
+      reviewer({ reviewer_name: 'building', cycle_index: 2, current_status: 'approved' }),
+    ];
+    const r = derivePermitStatus(
+      makePermit({ status: 'Applied', permit_cycles: cycles }),
+      reviewers,
+    );
+    expect(r).toEqual({
+      label: 'Corr Required (Cycle 2)',
+      date: '2026-06-10',
+      derived: true,
+    });
+  });
+
+  it('current cycle has no reviewers → falls back to chain rule (live cycle-2 city_target)', () => {
+    const r = derivePermitStatus(
+      makePermit({ status: 'Applied', permit_cycles: edmondsCycles }),
+      [],
+    );
+    expect(r.label).toBe('City Target (Cycle 2)');
+  });
+});

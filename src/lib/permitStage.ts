@@ -10,8 +10,9 @@ import {
   isTerminalIssuedStatus,
 } from './permitTerminalStatus';
 import {
+  currentCycleIndex,
   isReviewerRollupDriven,
-  reviewerVerdictForLatestCycle,
+  reviewerVerdictForCycle,
 } from './reviewerRollup';
 
 // Q2: Pure stage-classification helpers. Ported from v1's
@@ -71,8 +72,18 @@ export function effectiveStage(
   // computeStage. Apply the wholistic verdict instead when reviewers are
   // available. Seattle's wholistic Accela strings are not in
   // isReviewerRollupDriven's set, so this branch never fires for them.
+  //
+  // fix-185: scope the verdict to the permit's CURRENT (latest) cycle. The
+  // reviewer rows can lag a cycle behind — e.g. cycle 1 corrections rows that
+  // were never pruned after the cycle-1 resubmittal, while cycle 2 (the live
+  // cycle) is under review with no reviewer rows yet. Keying off the reviewer
+  // rows' max cycle let those stale rows mislabel the permit "Corrections."
+  // When the current cycle has no reviewer rows the verdict is null and we fall
+  // through to computeStage, which reads the live cycle dates (cycle 2 submitted,
+  // no corr_issued → "pm").
   if (reviewers && reviewers.length > 0 && isReviewerRollupDriven(p.status)) {
-    const verdict = reviewerVerdictForLatestCycle(reviewers);
+    const idx = currentCycleIndex(cycles, reviewers);
+    const verdict = idx === null ? null : reviewerVerdictForCycle(reviewers, idx);
     if (verdict === 'in_review') return 'pm';
     if (verdict === 'corrections_required') return 'co';
     if (verdict === 'approved') return 'ap';
