@@ -13,12 +13,16 @@ import {
 import { SkeletonRows } from '../Skeleton';
 import QueryError from '../QueryError';
 
-// fix-139: Settings → Consultant Firms. The NEW table-backed firms list
-// (consultant_firms) that feeds the project External Team panel keyed by
-// WAITING_ON_OPTIONS disciplines. Lives alongside the legacy
-// app_config.consultantTypes JSONB editor (AdminConsultantsTab) — that older
-// editor drives the separate projects.external_team JSON map and is untouched
-// here.
+// fix-139: Settings → Consultant Firms. The table-backed firms list
+// (consultant_firms) keyed by WAITING_ON_OPTIONS disciplines.
+//
+// fix-195 (DEAD PATH — do not extend): the project External Team panel was
+// repointed to the projects.external_team blob (the single source My Tasks +
+// the Overview editor already use); it NO LONGER reads consultant_firms or
+// project_external_teams. This registry editor + its table are now orphaned —
+// nothing reads what it writes. Left in place this PR (tables not dropped) for a
+// later cleanup; the panel's firm <datalist> now sources existing firm names
+// straight from the blobs, so this catalog is no longer needed.
 //
 // Inline add/edit form (matches the rest of the Settings tabs, which use
 // inline inputs rather than modals). Archive is a soft-delete via the RPC with

@@ -106,12 +106,14 @@ const refs = vi.hoisted(() => ({
   ],
 }));
 
-// fix-139: the modal now renders ProjectExternalTeamPanel, which calls the
-// consultant-firm hooks. Mock them inert so this suite stays isolated.
-vi.mock('../hooks/useConsultantFirms', () => ({
-  useConsultantFirms: () => ({ data: [], isLoading: false, error: null, refetch: vi.fn() }),
-  useProjectExternalTeam: () => ({ data: [], byDiscipline: new Map(), isLoading: false, error: null, refetch: vi.fn() }),
-  useUpsertProjectExternalTeamMember: () => ({ mutate: vi.fn(), isPending: false }),
+// fix-195: the modal renders ProjectExternalTeamPanel, which now reads/writes
+// the projects.external_team blob via useProjects + useUpdateProject. Mock them
+// inert so this suite stays isolated (the modal itself uses neither directly).
+vi.mock('../hooks/useProjects', () => ({
+  useProjects: () => ({ data: [], isLoading: false, error: null, refetch: vi.fn() }),
+}));
+vi.mock('../hooks/useUpdateProject', () => ({
+  useUpdateProject: () => ({ mutateAsync: vi.fn().mockResolvedValue({}), isPending: false }),
 }));
 vi.mock('../hooks/usePermitsByProject', () => ({
   usePermitsByProject: () => ({

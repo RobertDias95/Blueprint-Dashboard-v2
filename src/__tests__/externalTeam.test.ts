@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   resolveExternalFirm,
   asExternalTeamBlob,
+  distinctExternalFirms,
 } from '../lib/externalTeam';
 import { WAITING_ON_OPTIONS } from '../lib/database.types';
 
@@ -44,6 +45,33 @@ describe('asExternalTeamBlob', () => {
     expect(asExternalTeamBlob(undefined)).toBeNull();
     expect(asExternalTeamBlob([])).toBeNull();
     expect(asExternalTeamBlob('x')).toBeNull();
+  });
+});
+
+describe('distinctExternalFirms (fix-195 datalist source)', () => {
+  it('collects the distinct firm names across all projects blobs, sorted + deduped', () => {
+    const projects = [
+      { external_team: { Civil: 'Facet' } },
+      { external_team: { Surveyor: 'Emerald' } },
+      { external_team: { Structural: 'SSS', Surveyor: 'Emerald' } }, // dup Emerald
+      { external_team: {} },
+      { external_team: null },
+      {}, // missing
+    ];
+    expect(distinctExternalFirms(projects)).toEqual(['Emerald', 'Facet', 'SSS']);
+  });
+
+  it('trims + case-folds duplicates (keeps first-seen display), skips blanks', () => {
+    const projects = [
+      { external_team: { Civil: ' Emerald ' } },
+      { external_team: { Surveyor: 'emerald' } }, // same firm, different case
+      { external_team: { Structural: '   ' } }, // blank → skipped
+    ];
+    expect(distinctExternalFirms(projects)).toEqual(['Emerald']);
+  });
+
+  it('empty input → empty list', () => {
+    expect(distinctExternalFirms([])).toEqual([]);
   });
 });
 

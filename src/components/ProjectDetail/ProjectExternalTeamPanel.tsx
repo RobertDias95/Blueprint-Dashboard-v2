@@ -1,36 +1,39 @@
 import { useMemo, useState } from 'react';
+import { useProjects } from '../../hooks/useProjects';
+import { useUpdateProject } from '../../hooks/useUpdateProject';
 import {
-  useConsultantFirms,
-  useProjectExternalTeam,
-  useUpsertProjectExternalTeamMember,
-} from '../../hooks/useConsultantFirms';
+  asExternalTeamBlob,
+  distinctExternalFirms,
+  type ExternalTeamBlob,
+} from '../../lib/externalTeam';
 import {
   WAITING_ON_OPTIONS,
-  type ConsultantFirm,
   type WaitingOnDiscipline,
 } from '../../lib/database.types';
 
-// fix-139 / fix-193: Project Settings → External Team. Writes go straight to
-// project_external_teams via bp_upsert_project_external_team_member (optimistic
-// cache patch) — the same store the editor has always used, canonical
-// WAITING_ON_OPTIONS vocabulary (fix-190d: "Surveyor", not "Survey"). No second
-// source is introduced.
+// fix-139 / fix-193 / fix-195: Project Settings → External Team.
 //
-// fix-193 show-rules (was: one row per all 13 disciplines, blank or not):
+// fix-195: ONE store. Reads/writes projects.external_team — the JSON blob
+// { <discipline>: <firmName> } that My Tasks → Waiting + the Project Overview
+// "External" editor already use (resolveExternalFirm). The old normalized
+// project_external_teams table + consultant_firms registry are retired here: the
+// panel no longer touches them. Writes go through useUpdateProject (the same
+// read-modify-write the Overview editor uses), OCC-safe + optimistic. Firms are
+// free text (no registry) — a <datalist> of the distinct firm names already used
+// across all projects' blobs makes existing firms one-click reusable.
+//
+// fix-193 show-rules (UNCHANGED):
 //   - The COMMON FOUR (Civil / Surveyor / Structural / Arborist) ALWAYS render
-//     as fill-in slots even when unassigned — they're near-always needed, so the
-//     empty slot doubles as the reminder to fill it in.
+//     as fill-in slots even when unassigned — the empty slot doubles as the
+//     reminder to fill it in.
 //   - Every OTHER discipline renders ONLY when it has a firm assigned, OR when
-//     the user surfaces it via the "+ Add discipline" control below.
-//   - When the project has NO external firms assigned at all, a reminder/CTA
-//     banner sits above the slots (there's almost always a surveyor / structural
-//     / arborist to capture).
+//     the user surfaces it via the "+ Add discipline" control.
+//   - When the project has NO external firm assigned at all, a reminder/CTA
+//     banner sits above the slots.
 //
-// Setting a firm to "— none —" (or clicking Clear) upserts firm_id=null, which
-// the RPC turns into a DELETE of the pairing. Archived firms are excluded (the
-// dropdown reads the active-only firms list) so they stop being assignable —
-// but any existing assignment to a now-archived firm is left intact (fix-139
-// trade-off, documented in the migration).
+// Canonical WAITING_ON_OPTIONS vocabulary (fix-190d: "Surveyor", not "Survey") —
+// the blob keys ARE these terms, so a task waiting on "Surveyor" resolves to
+// external_team["Surveyor"].
 
 // fix-193: the near-always-needed disciplines, always shown as slots.
 const COMMON_DISCIPLINES: readonly WaitingOnDiscipline[] = [
@@ -40,42 +43,49 @@ const COMMON_DISCIPLINES: readonly WaitingOnDiscipline[] = [
   'Arborist',
 ];
 
+const FIRM_DATALIST_ID = 'project-external-team-firm-options';
+
 interface Props {
   projectId: string;
 }
 
 export default function ProjectExternalTeamPanel({ projectId }: Props) {
-  const firmsQ = useConsultantFirms(); // active only
-  const { byDiscipline } = useProjectExternalTeam(projectId);
-  const upsert = useUpsertProjectExternalTeamMember();
+  const projectsQ = useProjects();
+  const updateMutation = useUpdateProject();
 
-  // Group active firms by discipline so each row's dropdown only offers its
-  // own discipline's firms.
-  const firmsByDiscipline = useMemo(() => {
-    const map = new Map<WaitingOnDiscipline, ConsultantFirm[]>();
-    for (const d of WAITING_ON_OPTIONS) map.set(d, []);
-    for (const firm of firmsQ.data ?? []) {
-      const list = map.get(firm.discipline);
-      if (list) list.push(firm);
-    }
-    return map;
-  }, [firmsQ.data]);
+  const project = useMemo(
+    () => (projectsQ.data ?? []).find((p) => p.id === projectId) ?? null,
+    [projectsQ.data, projectId],
+  );
+  const blob = useMemo<ExternalTeamBlob>(
+    () => asExternalTeamBlob(project?.external_team) ?? {},
+    [project?.external_team],
+  );
 
-  // Which disciplines currently have a firm assigned (from the same store the
-  // dropdowns write to). Drives the "show others only when assigned" rule and
-  // the empty-state banner.
+  // fix-195: distinct firm names across ALL projects' blobs → the datalist.
+  const firmSuggestions = useMemo(
+    () => distinctExternalFirms(projectsQ.data ?? []),
+    [projectsQ.data],
+  );
+
+  // Which disciplines currently have a firm assigned (from the blob). Drives the
+  // "show others only when assigned" rule + the empty-state banner.
   const assignedDisciplines = useMemo(() => {
     const s = new Set<WaitingOnDiscipline>();
     for (const d of WAITING_ON_OPTIONS) {
-      if (byDiscipline.get(d)?.firm_id) s.add(d);
+      const firm = blob[d];
+      if (typeof firm === 'string' && firm.trim() !== '') s.add(d);
     }
     return s;
-  }, [byDiscipline]);
+  }, [blob]);
 
   // fix-193: disciplines the user explicitly surfaced via "+ Add discipline".
-  // Local-only (resets on close) — once a firm is assigned the row persists on
-  // its own via assignedDisciplines, so there's nothing to store server-side.
+  // Local-only — once a firm is assigned the row persists via assignedDisciplines.
   const [added, setAdded] = useState<Set<WaitingOnDiscipline>>(new Set());
+
+  // Per-field text drafts so typing doesn't fire a write per keystroke; commit
+  // on blur / Enter. Absent key → the input falls back to the saved blob value.
+  const [drafts, setDrafts] = useState<Record<string, string>>({});
 
   const shownDisciplines = useMemo(
     () =>
@@ -94,6 +104,43 @@ export default function ProjectExternalTeamPanel({ projectId }: Props) {
   );
 
   const noneAssigned = assignedDisciplines.size === 0;
+  const occMissing = !project?.updated_at;
+
+  async function writeFirm(discipline: WaitingOnDiscipline, firm: string) {
+    if (!project?.updated_at) return;
+    const next: ExternalTeamBlob = { ...blob };
+    const t = firm.trim();
+    const prev = (blob[discipline] ?? '').trim();
+    if (t === prev) return; // no-op — nothing changed
+    if (t) next[discipline] = t;
+    else delete next[discipline];
+    await updateMutation.mutateAsync({
+      projectId,
+      expectedUpdatedAt: project.updated_at,
+      patch: { external_team: next },
+      fieldLabel: `${discipline} consultant`,
+    });
+  }
+
+  function dropDraft(discipline: WaitingOnDiscipline) {
+    setDrafts((prev) => {
+      if (!(discipline in prev)) return prev;
+      const rest = { ...prev };
+      delete rest[discipline];
+      return rest;
+    });
+  }
+
+  function commit(discipline: WaitingOnDiscipline) {
+    const draft = drafts[discipline];
+    dropDraft(discipline);
+    if (draft !== undefined) void writeFirm(discipline, draft);
+  }
+
+  function clear(discipline: WaitingOnDiscipline) {
+    dropDraft(discipline);
+    void writeFirm(discipline, '');
+  }
 
   return (
     <div
@@ -104,8 +151,7 @@ export default function ProjectExternalTeamPanel({ projectId }: Props) {
         Consultant firms responsible for each discipline on this project.
       </p>
 
-      {/* fix-193: empty-state reminder — almost every project needs at least a
-          surveyor / structural / arborist, so nudge the user to set them up. */}
+      {/* fix-193: empty-state reminder. */}
       {noneAssigned && (
         <div
           className="text-[10px] rounded border px-2 py-1.5 mb-1"
@@ -124,11 +170,16 @@ export default function ProjectExternalTeamPanel({ projectId }: Props) {
         </div>
       )}
 
+      {/* fix-195: shared firm suggestions (distinct firms across all blobs). */}
+      <datalist id={FIRM_DATALIST_ID} data-testid="project-external-team-firm-datalist">
+        {firmSuggestions.map((f) => (
+          <option key={f} value={f} />
+        ))}
+      </datalist>
+
       {shownDisciplines.map((discipline) => {
-        const options = firmsByDiscipline.get(discipline) ?? [];
-        const assigned = byDiscipline.get(discipline) ?? null;
-        const hasFirms = options.length > 0;
-        const selectedId = assigned?.firm_id ?? '';
+        const saved = blob[discipline] ?? '';
+        const value = drafts[discipline] ?? saved;
         return (
           <div
             key={discipline}
@@ -138,32 +189,27 @@ export default function ProjectExternalTeamPanel({ projectId }: Props) {
             <span className="text-[11px] text-text w-24 shrink-0">
               {discipline}
             </span>
-            <select
-              value={selectedId}
-              disabled={!hasFirms}
-              onChange={(e) => {
-                const firmId = e.target.value || null;
-                const firmName =
-                  options.find((f) => f.id === firmId)?.name ?? null;
-                upsert.mutate({ projectId, discipline, firmId, firmName });
+            <input
+              type="text"
+              list={FIRM_DATALIST_ID}
+              value={value}
+              disabled={occMissing || updateMutation.isPending}
+              placeholder="Firm name"
+              onChange={(e) =>
+                setDrafts((prev) => ({ ...prev, [discipline]: e.target.value }))
+              }
+              onBlur={() => commit(discipline)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
               }}
               className="flex-1 px-2 py-1 text-[11px] border rounded bg-surface text-text outline-none focus:border-de disabled:opacity-50"
               style={{ borderColor: 'var(--color-border)' }}
-              data-testid={`project-external-team-firm-select-${discipline}`}
-            >
-              <option value="">— none —</option>
-              {options.map((firm) => (
-                <option key={firm.id} value={firm.id}>
-                  {firm.name}
-                </option>
-              ))}
-            </select>
-            {selectedId ? (
+              data-testid={`project-external-team-firm-input-${discipline}`}
+            />
+            {saved ? (
               <button
                 type="button"
-                onClick={() =>
-                  upsert.mutate({ projectId, discipline, firmId: null })
-                }
+                onClick={() => clear(discipline)}
                 className="text-dim hover:text-co text-[12px] leading-none px-1"
                 title={`Clear ${discipline} firm`}
                 data-testid={`project-external-team-clear-${discipline}`}
@@ -173,22 +219,11 @@ export default function ProjectExternalTeamPanel({ projectId }: Props) {
             ) : (
               <span className="w-[18px] shrink-0" aria-hidden="true" />
             )}
-            {!hasFirms && (
-              <span
-                className="text-[9px] text-dim italic shrink-0"
-                data-testid={`project-external-team-empty-${discipline}`}
-              >
-                Add a {discipline} firm in Settings → Consultant Firms.
-              </span>
-            )}
           </div>
         );
       })}
 
-      {/* fix-193: surface an as-yet-unshown discipline (Geotech, Mechanical,
-          Electrical, Plumbing, Energy, Stormwater, Landscape, Architect, Other).
-          Picking one renders its slot so a firm can be assigned; once assigned
-          the row persists on its own. */}
+      {/* fix-193: surface an as-yet-unshown discipline. */}
       {addableDisciplines.length > 0 && (
         <div className="flex items-center gap-2 mt-0.5">
           <span className="w-24 shrink-0" aria-hidden="true" />
