@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, fireEvent } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { ReactNode } from 'react';
@@ -45,6 +45,14 @@ vi.mock('../components/ProjectDetail/NotesDocsFooter', () => ({
 }));
 vi.mock('../components/ProjectDetail/ProjectSettingsModal', () => ({ default: () => null }));
 vi.mock('../components/ProjectDetail/DeleteProjectDialog', () => ({ default: () => null }));
+// fix-193: stub the redesign edit/delete dialogs so opening one doesn't pull in
+// the draw-schedule/team hooks; behavior is covered in RedesignDeleteEdit.test.
+vi.mock('../components/ProjectDetail/DeleteRedesignDialog', () => ({
+  default: () => <div data-testid="stub-delete-redesign" />,
+}));
+vi.mock('../components/ProjectDetail/EditRedesignModal', () => ({
+  default: () => <div data-testid="stub-edit-redesign" />,
+}));
 vi.mock('../components/ProjectDetail/QuickEditPermitModal', () => ({ default: () => null }));
 vi.mock('../components/ProjectDetail/PermitDetailV2', () => ({ default: () => null }));
 
@@ -121,7 +129,25 @@ describe('<ProjectDetail /> Redesigns section (fix-151)', () => {
     expect(screen.getByTestId('project-overview-redesign-permit-10248')).toBeTruthy();
   });
 
-  it('renders a reuses-permit redesign with the "Reuses parent\'s permits" sub-label and no permit rows', () => {
+  it('fix-193: a reuses-permit redesign keeps the note AND renders its PPR placeholder with a readable label', () => {
+    refs.projects = [
+      project({ id: PARENT }),
+      project({ id: 'r1', redesign_of_project_id: PARENT, redesign_reuses_original_permit: true }),
+    ];
+    refs.allPermits = [
+      permit(1, PARENT),
+      // The redesign's own placeholder permit: type PPR, no number yet.
+      permit(10321, 'r1', { type: 'PPR', num: null }),
+    ];
+    renderPage();
+    const section = screen.getByTestId('project-overview-redesigns-section');
+    expect(section.textContent).toContain("Reuses parent's permits");
+    const pprRow = screen.getByTestId('project-overview-redesign-permit-10321');
+    expect(pprRow.textContent).toContain('PPR');
+    expect(pprRow.textContent).toMatch(/Pre-Submittal|no number yet/i);
+  });
+
+  it('a reuses-permit redesign with no permits at all shows just the note', () => {
     refs.projects = [
       project({ id: PARENT }),
       project({ id: 'r1', redesign_of_project_id: PARENT, redesign_reuses_original_permit: true }),
@@ -155,6 +181,20 @@ describe('<ProjectDetail /> Redesigns section (fix-151)', () => {
     expect(
       screen.getByTestId('project-overview-redesign-row-r1').getAttribute('href'),
     ).toBe('/project/r1');
+  });
+
+  it('fix-193: each redesign row has edit + delete actions; delete opens the dialog', () => {
+    refs.projects = [
+      project({ id: PARENT }),
+      project({ id: 'r1', redesign_of_project_id: PARENT }),
+    ];
+    refs.allPermits = [permit(1, PARENT)];
+    renderPage();
+    expect(screen.getByTestId('project-overview-redesign-edit-r1')).toBeTruthy();
+    const del = screen.getByTestId('project-overview-redesign-delete-r1');
+    expect(screen.queryByTestId('stub-delete-redesign')).toBeNull();
+    fireEvent.click(del);
+    expect(screen.getByTestId('stub-delete-redesign')).toBeTruthy();
   });
 
   it('redesign permit links to the redesign project (no per-permit deep route)', () => {
