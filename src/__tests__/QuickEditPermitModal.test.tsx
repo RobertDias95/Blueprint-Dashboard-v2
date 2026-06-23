@@ -138,6 +138,63 @@ describe('<QuickEditPermitModal />', () => {
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
+  // fix-194: "Sub-permit of…" marker.
+  const sibling = (id: number, num: string): PermitWithCycles =>
+    permit({ id, num, parent_permit_id: null });
+
+  it('hides the Sub-permit selector when the project has no eligible parent', () => {
+    render(<QuickEditPermitModal permit={permit()} siblings={[permit()]} onClose={vi.fn()} />);
+    // only self in siblings → no parent options
+    expect(screen.queryByTestId('qe-parent-permit')).toBeNull();
+  });
+
+  it('lists same-project siblings (excluding self + other sub-permits) as parents', () => {
+    const self = permit({ id: 204, num: 'BLD2026-0320' });
+    const sibs = [
+      self,
+      sibling(202, 'BLD2026-0319'),
+      permit({ id: 206, num: 'BLD2026-0399', parent_permit_id: 202 }), // already a child — excluded
+    ];
+    render(<QuickEditPermitModal permit={self} siblings={sibs} onClose={vi.fn()} />);
+    const sel = screen.getByTestId('qe-parent-permit') as HTMLSelectElement;
+    const optionValues = Array.from(sel.options).map((o) => o.value);
+    expect(optionValues).toEqual(['', '202']); // standalone + the one eligible parent
+  });
+
+  it('setting a parent marks the permit a sub-permit (patch carries parent_permit_id)', async () => {
+    mutateAsync.mockResolvedValue({});
+    const self = permit({ id: 204, num: 'BLD2026-0320' });
+    render(
+      <QuickEditPermitModal
+        permit={self}
+        siblings={[self, sibling(202, 'BLD2026-0319')]}
+        onClose={vi.fn()}
+      />,
+    );
+    fireEvent.change(screen.getByTestId('qe-parent-permit'), { target: { value: '202' } });
+    fireEvent.click(screen.getByTestId('qe-save'));
+    await screen.findByTestId('quick-edit-permit-modal');
+    expect(mutateAsync.mock.calls[0][0].patch).toEqual({ parent_permit_id: 202 });
+  });
+
+  it('clearing the parent restores standalone (patch sets parent_permit_id null)', async () => {
+    mutateAsync.mockResolvedValue({});
+    const self = permit({ id: 204, num: 'BLD2026-0320', parent_permit_id: 202 });
+    render(
+      <QuickEditPermitModal
+        permit={self}
+        siblings={[self, sibling(202, 'BLD2026-0319')]}
+        onClose={vi.fn()}
+      />,
+    );
+    // Pre-filled to the current parent.
+    expect((screen.getByTestId('qe-parent-permit') as HTMLSelectElement).value).toBe('202');
+    fireEvent.change(screen.getByTestId('qe-parent-permit'), { target: { value: '' } });
+    fireEvent.click(screen.getByTestId('qe-save'));
+    await screen.findByTestId('quick-edit-permit-modal');
+    expect(mutateAsync.mock.calls[0][0].patch).toEqual({ parent_permit_id: null });
+  });
+
   it('OCC conflict (mutateAsync rejects) keeps the modal open', async () => {
     mutateAsync.mockRejectedValue(new Error('OCC conflict'));
     const onClose = vi.fn();

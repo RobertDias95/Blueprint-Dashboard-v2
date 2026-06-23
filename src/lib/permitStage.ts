@@ -14,6 +14,7 @@ import {
   isReviewerRollupDriven,
   reviewerVerdictForCycle,
 } from './reviewerRollup';
+import { isSubPermit } from './subPermit';
 
 // Q2: Pure stage-classification helpers. Ported from v1's
 // computeStage/effectiveStage and DE early/late split (see v1 index.html
@@ -52,6 +53,13 @@ export function effectiveStage(
   cycles: PermitCycle[],
   reviewers?: PermitCycleReviewer[] | null,
 ): Stage {
+  // fix-194: a sub/child permit is a placeholder reviewed under its parent. It
+  // has NO independent review stage — short-circuit to the terminal 'is' (parked,
+  // not in active review) WITHOUT reading its own cycles/reviewers. Children are
+  // excluded from every metric/bucket via isSubPermit() and rendered separately
+  // with a "Sub-permit · reviewed under <parent #>" badge, so this value only
+  // ever acts as a stable terminal fallback.
+  if (isSubPermit(p)) return 'is';
   if (p.actual_issue) return 'is';
   if (p.approval_date) return 'ap';
   // fix-31c → fix-31d: portal-side terminal status trumps stale cycle
@@ -151,6 +159,9 @@ export function bucketPermits(
   };
 
   for (const { permit, cycles, reviewers } of inputs) {
+    // fix-194: sub/child permits are placeholders — never bucket them onto the
+    // Dashboard (they'd inflate column counts + distinct-project counts).
+    if (isSubPermit(permit)) continue;
     const stage = effectiveStage(permit, cycles, reviewers);
     if (stage === 'de') {
       const ds = drawByProjectId.get(permit.project_id);

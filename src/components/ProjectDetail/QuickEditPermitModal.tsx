@@ -17,6 +17,9 @@ import type {
 
 interface Props {
   permit: PermitWithCycles;
+  /** fix-194: the project's OTHER permits, for the "Sub-permit of…" selector.
+   *  Same-project only (the marker enforces same-project app-side). */
+  siblings?: PermitWithCycles[];
   onClose: () => void;
 }
 
@@ -27,6 +30,8 @@ interface FormState {
   num: string;
   struct_address: string;
   portal_url: string;
+  /** fix-194: parent permit id as a string ('' = standalone). */
+  parent_permit_id: string;
 }
 
 function initForm(permit: PermitWithCycles): FormState {
@@ -37,6 +42,8 @@ function initForm(permit: PermitWithCycles): FormState {
     num: permit.num ?? '',
     struct_address: permit.struct_address ?? '',
     portal_url: permit.portal_url ?? '',
+    parent_permit_id:
+      permit.parent_permit_id != null ? String(permit.parent_permit_id) : '',
   };
 }
 
@@ -50,10 +57,15 @@ function diff(original: FormState, current: FormState): Partial<Permit> {
     out.struct_address = current.struct_address.trim() || null;
   if (current.portal_url !== original.portal_url)
     out.portal_url = current.portal_url.trim() || null;
+  // fix-194: setting this makes the permit a sub/child; clearing restores
+  // standalone. '' → null, otherwise the numeric parent id.
+  if (current.parent_permit_id !== original.parent_permit_id)
+    out.parent_permit_id =
+      current.parent_permit_id === '' ? null : Number(current.parent_permit_id);
   return out;
 }
 
-export default function QuickEditPermitModal({ permit, onClose }: Props) {
+export default function QuickEditPermitModal({ permit, siblings = [], onClose }: Props) {
   const [original, setOriginal] = useState<FormState>(() => initForm(permit));
   const [form, setForm] = useState<FormState>(() => initForm(permit));
   const updatePermit = useUpdatePermit();
@@ -131,6 +143,14 @@ export default function QuickEditPermitModal({ permit, onClose }: Props) {
     .filter((t) => t.role === 'da' && t.active !== false)
     .map((t) => t.name);
   const permitTypes = (permitTypesQ.data ?? []).map((t) => t.name);
+
+  // fix-194: "Sub-permit of…" candidates — the project's OTHER permits, minus
+  // self and minus other sub-permits (a parent must be a real reviewing permit,
+  // not another placeholder — avoids parent→child chains). Same project is
+  // guaranteed by the caller passing only same-project siblings.
+  const parentOptions = siblings.filter(
+    (s) => s.id !== permit.id && s.parent_permit_id == null,
+  );
 
   return (
     <div
@@ -237,6 +257,33 @@ export default function QuickEditPermitModal({ permit, onClose }: Props) {
               data-testid="qe-num"
             />
           </QeField>
+
+          {/* fix-194: mark this permit as a sub/child reviewed under a sibling.
+              Hidden when there's no eligible parent (single-permit project). */}
+          {parentOptions.length > 0 && (
+            <QeField
+              label="Sub-permit of"
+              hint="(placeholder reviewed under another permit)"
+            >
+              <select
+                value={form.parent_permit_id}
+                onChange={(e) =>
+                  setForm((f) => ({ ...f, parent_permit_id: e.target.value }))
+                }
+                className={qeInputCls}
+                style={qeInputStyle}
+                data-testid="qe-parent-permit"
+              >
+                <option value="">— Standalone (not a sub-permit) —</option>
+                {parentOptions.map((s) => (
+                  <option key={s.id} value={String(s.id)}>
+                    {s.num ? s.num : s.type ?? 'Permit'}
+                    {s.num && s.type ? ` · ${s.type}` : ''}
+                  </option>
+                ))}
+              </select>
+            </QeField>
+          )}
 
           <QeField label="Structure Address">
             <input

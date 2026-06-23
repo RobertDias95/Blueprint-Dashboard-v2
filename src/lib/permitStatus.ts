@@ -12,6 +12,10 @@ import {
   isReviewerRollupDriven,
   reviewerVerdictForCycle,
 } from './reviewerRollup';
+import { isSubPermit } from './subPermit';
+
+/** fix-194: canonical placeholder status for a sub/child permit. */
+export const SUB_PERMIT_LABEL = 'Sub-permit';
 
 // fix-25e: derive a user-facing status pill ("Corr Required (Cycle 2)" +
 // date) from cycle state instead of displaying permits.status raw. The
@@ -89,6 +93,13 @@ export function derivePermitStatus(
   permit: PermitWithCycles,
   reviewers?: PermitCycleReviewer[] | null,
 ): PermitStatus {
+  // fix-194: a sub/child permit carries NO independent review status — it's a
+  // placeholder reviewed under its parent. Short-circuit to a terminal
+  // placeholder WITHOUT reading its own cycles/reviewers. (The sidebar shows the
+  // "reviewed under <parent #>" badge; this label backs any other surface.)
+  if (isSubPermit(permit)) {
+    return { label: SUB_PERMIT_LABEL, date: null, derived: false };
+  }
   // fix-52: "Approved — Not Issued" for a Building Permit / Demolition the
   // city has approved (approval_date set) but not yet issued (actual_issue
   // null). Sits BELOW "Issued" in precedence — actual_issue being set excludes
