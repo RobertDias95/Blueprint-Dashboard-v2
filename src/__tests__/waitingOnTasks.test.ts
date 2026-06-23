@@ -59,9 +59,9 @@ describe('groupByDisciplineThenFirm', () => {
     expect(groups[0].firms[0].tasks).toHaveLength(1);
   });
 
-  it('disciplines are ordered alphabetically (Architect < Civil < Survey)', () => {
+  it('disciplines are ordered alphabetically (Architect < Civil < Surveyor)', () => {
     const rows = [
-      makeRow({ waiting_on: 'Survey' }),
+      makeRow({ waiting_on: 'Surveyor' }),
       makeRow({ waiting_on: 'Architect' }),
       makeRow({ waiting_on: 'Civil' }),
     ];
@@ -69,7 +69,7 @@ describe('groupByDisciplineThenFirm', () => {
     expect(groups.map((g) => g.discipline)).toEqual([
       'Architect',
       'Civil',
-      'Survey',
+      'Surveyor',
     ]);
   });
 

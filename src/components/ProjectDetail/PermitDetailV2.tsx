@@ -39,7 +39,7 @@ import type {
   TaskNode,
 } from '../../lib/database.types';
 import { WAITING_ON_OPTIONS } from '../../lib/database.types';
-import { useProjectExternalTeam } from '../../hooks/useConsultantFirms';
+import { useProjectExternalTeamBlob } from '../../hooks/useProjectExternalTeamBlob';
 import BotBadge from '../shared/BotBadge';
 import PendingScrapeChip from '../shared/PendingScrapeChip';
 import { STAGE_LABEL } from '../../lib/stageLabel';
@@ -1962,8 +1962,10 @@ function TaskItem({
   const upsert = useUpsertTask();
   const remove = useDeleteTask();
   const setAssignees = useSetTaskAssignees();
-  // fix-149: External Team firm assigned for each discipline on this project.
-  const externalTeam = useProjectExternalTeam(projectId);
+  // fix-149 / fix-190d: External Team firm assigned for each discipline on this
+  // project — resolved from projects.external_team (the store the editor writes),
+  // the single source My Tasks → Waiting also reads.
+  const externalTeam = useProjectExternalTeamBlob(projectId);
   const [textDraft, setTextDraft] = useState(task.text);
   const [addingSub, setAddingSub] = useState(false);
   const [subDraft, setSubDraft] = useState('');
@@ -2041,9 +2043,7 @@ function TaskItem({
 
   const available = memberNames.filter((n) => !task.co_assignees.includes(n));
   // fix-149: firm assigned for this task's Waiting On discipline (sub-label).
-  const waitingOnFirm = task.waiting_on
-    ? externalTeam.byDiscipline.get(task.waiting_on)?.firm_name ?? null
-    : null;
+  const waitingOnFirm = externalTeam.resolve(task.waiting_on);
 
   return (
     <div
