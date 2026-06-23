@@ -555,8 +555,13 @@ export default function Step1ProjectInfo({
         {/* fix-143: manual DD dates — backfill mode only. Auto-placement is
             bypassed because the BP carries explicit dd_start/dd_end (snapped to
             Monday/Friday on submit, matching fix-141). Required once a lead DA
-            is picked (validated on submit in NewProjectWizard). */}
-        {backfillMode && (
+            is picked (validated on submit in NewProjectWizard).
+            fix-191: hidden on the redesign path — the original permit already
+            had these dates, and the Redesign DD Phase section below is the
+            single source for a redesign's DD window. Backfill mode can still be
+            toggled on a redesign (to open the role pickers to former staff)
+            without resurfacing these redundant top-level inputs. */}
+        {backfillMode && !isRedesign && (
           <div
             className="space-y-2"
             data-testid="wizard-backfill-dd-section"
@@ -717,6 +722,34 @@ export default function Step1ProjectInfo({
               className="bg-bg border border-border rounded-md px-3 py-1.5 text-xs font-mono text-text focus:outline-none focus:border-de"
               data-testid="wizard-closing-date"
             />
+          </label>
+        </div>
+        )}
+
+        {/* fix-191: a redesign's scope can differ from the original, so keep
+            Number of Lots editable on the redesign path (seeded from the
+            parent in makeRedesignWizardState). The sibling site-shape fields
+            (corner / closing / lot dims / parking) stay inherited-and-hidden;
+            only lots + units are user-tunable per Bobby's spec. */}
+        {isRedesign && (
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+          <label className="flex flex-col gap-1">
+            <span className="text-[10px] uppercase tracking-wide text-dim">
+              Number of Lots
+            </span>
+            <select
+              value={value.num_lots}
+              onChange={(e) => set('num_lots', e.target.value)}
+              className="bg-bg border border-border rounded-md px-3 py-1.5 text-xs font-display text-text focus:outline-none focus:border-de"
+              data-testid="wizard-num-lots"
+            >
+              <option value="">—</option>
+              {Array.from({ length: 20 }, (_, i) => i + 1).map((n) => (
+                <option key={n} value={String(n)}>
+                  {n}
+                </option>
+              ))}
+            </select>
           </label>
         </div>
         )}

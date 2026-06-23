@@ -135,7 +135,9 @@ const HIDDEN_TESTIDS = [
   'wizard-zone',
   'wizard-lead-da',
   'wizard-acq-target',
-  'wizard-num-lots',
+  // fix-191: wizard-num-lots is NO LONGER hidden on the redesign path — a
+  // redesign's lot count can differ from the original, so it stays editable
+  // (seeded from the parent). See the dedicated test below.
   'wizard-is-corner-lot',
   'wizard-closing-date',
   'wizard-alley',
@@ -177,6 +179,37 @@ describe('Step 1 — redesign mode trims Project Info', () => {
     expect(screen.getByTestId('wizard-juris')).toBeTruthy();
     expect(screen.getByTestId('wizard-units')).toBeTruthy();
     expect(screen.getByTestId('wizard-notes')).toBeTruthy();
+  });
+
+  it('fix-191: keeps Number of Lots visible + editable, seeded from the parent', () => {
+    // redesignState seeds num_lots: '1' (inherited from the original).
+    render(<StepHarness initial={redesignState({ num_lots: '2' })} />);
+    const lots = screen.getByTestId('wizard-num-lots') as HTMLSelectElement;
+    expect(lots).toBeTruthy();
+    expect(lots.value).toBe('2'); // pre-filled from the original
+    // …and a redesign's scope can differ — the user can change it.
+    fireEvent.change(lots, { target: { value: '5' } });
+    expect((screen.getByTestId('wizard-num-lots') as HTMLSelectElement).value).toBe('5');
+  });
+
+  it('fix-191: Units stays seeded from the parent and editable', () => {
+    render(<StepHarness initial={redesignState({ units: '3' })} />);
+    const units = screen.getByTestId('wizard-units') as HTMLInputElement;
+    expect(units.value).toBe('3'); // inherited from the original
+    fireEvent.change(units, { target: { value: '4' } });
+    expect((screen.getByTestId('wizard-units') as HTMLInputElement).value).toBe('4');
+  });
+
+  it('fix-191: hides the top-level backfill DD inputs on the redesign path even when backfill mode is on', () => {
+    render(<StepHarness initial={redesignState({ backfill_mode: true })} />);
+    // The redundant project-info DD inputs are gone…
+    expect(screen.queryByTestId('wizard-backfill-dd-section')).toBeNull();
+    expect(screen.queryByTestId('wizard-backfill-dd-start')).toBeNull();
+    expect(screen.queryByTestId('wizard-backfill-dd-end')).toBeNull();
+    // …but the Redesign DD Phase section (the single source) is still present.
+    expect(screen.getByTestId('wizard-redesign-dd-da')).toBeTruthy();
+    expect(screen.getByTestId('wizard-redesign-dd-start')).toBeTruthy();
+    expect(screen.getByTestId('wizard-redesign-dd-end')).toBeTruthy();
   });
 
   it('relabels GO Date → "Redesign GO Date"', () => {
