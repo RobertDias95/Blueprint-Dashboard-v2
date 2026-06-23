@@ -30,3 +30,26 @@ export function resolveExternalFirm(
   const firm = blob[discipline];
   return typeof firm === 'string' && firm.trim() !== '' ? firm : null;
 }
+
+/** fix-195: the distinct firm names already used across every project's
+ *  external_team blob — sorted, deduped (case-preserving, trimmed). Since firms
+ *  are free text in the blob (no registry), this backs the external-team
+ *  editor's firm <datalist> so existing firms (Emerald, Facet, SSS, …) are
+ *  one-click reusable while new names can still be typed. */
+export function distinctExternalFirms(
+  projects: ReadonlyArray<{ external_team?: unknown }>,
+): string[] {
+  const seen = new Map<string, string>(); // lowercased key -> first-seen display
+  for (const p of projects) {
+    const blob = asExternalTeamBlob(p.external_team);
+    if (!blob) continue;
+    for (const v of Object.values(blob)) {
+      if (typeof v !== 'string') continue;
+      const t = v.trim();
+      if (!t) continue;
+      const key = t.toLowerCase();
+      if (!seen.has(key)) seen.set(key, t);
+    }
+  }
+  return Array.from(seen.values()).sort((a, b) => a.localeCompare(b));
+}

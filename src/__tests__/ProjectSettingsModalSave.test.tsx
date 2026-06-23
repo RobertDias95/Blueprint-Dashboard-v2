@@ -13,11 +13,13 @@ const pushToastSpy = vi.hoisted(() => vi.fn());
 vi.mock('../hooks/useUpdateProjectWithPermits', () => ({
   useUpdateProjectWithPermits: () => ({ mutateAsync, isPending: false }),
 }));
-// fix-139: modal renders ProjectExternalTeamPanel — mock its hooks inert.
-vi.mock('../hooks/useConsultantFirms', () => ({
-  useConsultantFirms: () => ({ data: [], isLoading: false, error: null, refetch: vi.fn() }),
-  useProjectExternalTeam: () => ({ data: [], byDiscipline: new Map(), isLoading: false, error: null, refetch: vi.fn() }),
-  useUpsertProjectExternalTeamMember: () => ({ mutate: vi.fn(), isPending: false }),
+// fix-195: modal renders ProjectExternalTeamPanel (blob-backed) — mock its
+// useProjects + useUpdateProject inert so this suite stays isolated.
+vi.mock('../hooks/useProjects', () => ({
+  useProjects: () => ({ data: [], isLoading: false, error: null, refetch: vi.fn() }),
+}));
+vi.mock('../hooks/useUpdateProject', () => ({
+  useUpdateProject: () => ({ mutateAsync: vi.fn().mockResolvedValue({}), isPending: false }),
 }));
 // fix-167: modal renders ProjectHoldPanel — mock its hooks inert.
 vi.mock('../hooks/useProjectHolds', () => ({

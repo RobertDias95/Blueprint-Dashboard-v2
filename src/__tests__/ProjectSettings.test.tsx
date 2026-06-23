@@ -1,6 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { ReactNode } from 'react';
 import { useAuthStore } from '../stores/authStore';
 import { WAITING_ON_OPTIONS } from '../lib/database.types';
@@ -8,193 +7,161 @@ import { WAITING_ON_OPTIONS } from '../lib/database.types';
 const T = 'test-tenant-uuid';
 const PROJ = 'proj-1';
 
-// fix-139: Project Settings → External Team panel. Renders one row per
-// WAITING_ON_OPTIONS discipline; each row's dropdown is filtered to that
-// discipline's active firms. Mocks supabase.rpc: list returns a small firms
-// catalog, get returns one existing assignment (Civil → Prism), and upsert is
-// spied so we can assert the assign / clear wire-shape.
+// fix-195: Project Settings → External Team panel now reads/writes the
+// projects.external_team BLOB (the single source My Tasks + the Overview editor
+// use) — NOT the retired normalized project_external_teams / consultant_firms
+// tables. Firms are free text backed by a <datalist> of the distinct firm names
+// across all projects' blobs. We mock useProjects (the blob source) +
+// useUpdateProject (the write path) and assert the blob read/write + fix-193
+// show-rules.
 
-const FIRMS = [
-  { id: 'firm-civil-1', tenant_id: T, name: 'Prism', discipline: 'Civil', active: true, notes: null, created_at: '', updated_at: '' },
-  { id: 'firm-civil-2', tenant_id: T, name: 'Atwell', discipline: 'Civil', active: true, notes: null, created_at: '', updated_at: '' },
-  { id: 'firm-str-1', tenant_id: T, name: 'SSS', discipline: 'Structural', active: true, notes: null, created_at: '', updated_at: '' },
-];
-const ASSIGNMENTS = [
-  { project_id: PROJ, discipline: 'Civil', firm_id: 'firm-civil-1', firm_name: 'Prism', tenant_id: T, updated_at: '' },
-];
+const updateSpy = vi.hoisted(() => vi.fn().mockResolvedValue({}));
+const PROJECTS_REF = vi.hoisted(() => ({ rows: [] as Record<string, unknown>[] }));
 
-const rpcSpy = vi.hoisted(() => vi.fn());
-const FIRMS_REF = vi.hoisted(() => ({ rows: [] as unknown[] }));
-const ASSIGN_REF = vi.hoisted(() => ({ rows: [] as unknown[] }));
-const builder = vi.hoisted(() => ({
-  rpc: (name: string, args: Record<string, unknown>) => {
-    rpcSpy(name, args);
-    if (name === 'bp_list_consultant_firms')
-      return Promise.resolve({ data: FIRMS_REF.rows, error: null });
-    if (name === 'bp_get_project_external_team')
-      return Promise.resolve({ data: ASSIGN_REF.rows, error: null });
-    return Promise.resolve({ data: [], error: null });
-  },
+vi.mock('../hooks/useProjects', () => ({
+  useProjects: () => ({
+    data: PROJECTS_REF.rows,
+    isLoading: false,
+    error: null,
+    refetch: vi.fn(),
+  }),
 }));
-
-vi.mock('../lib/supabase', () => ({ supabase: builder }));
+vi.mock('../hooks/useUpdateProject', () => ({
+  useUpdateProject: () => ({ mutateAsync: updateSpy, isPending: false }),
+}));
 
 import ProjectExternalTeamPanel from '../components/ProjectDetail/ProjectExternalTeamPanel';
 
+function project(over: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    id: PROJ,
+    address: '224 2nd Ave N',
+    juris: 'Seattle',
+    external_team: {},
+    updated_at: '2026-06-23T00:00:00Z',
+    ...over,
+  };
+}
+
 function renderPanel() {
-  const queryClient = new QueryClient({
-    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
-  });
-  const wrapper = ({ children }: { children: ReactNode }) => (
-    <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
-  );
+  const wrapper = ({ children }: { children: ReactNode }) => <>{children}</>;
   return render(<ProjectExternalTeamPanel projectId={PROJ} />, { wrapper });
 }
 
 beforeEach(() => {
-  rpcSpy.mockClear();
-  FIRMS_REF.rows = FIRMS;
-  ASSIGN_REF.rows = ASSIGNMENTS;
+  updateSpy.mockClear();
+  PROJECTS_REF.rows = [project({ external_team: { Civil: 'Prism' } })];
   useAuthStore.setState({
     activeTenantId: T,
     memberships: [{ tenant_id: T, role: 'admin' }],
   });
 });
 
-describe('Project Settings → External Team', () => {
+describe('Project Settings → External Team (fix-195 blob)', () => {
   // fix-193: always show the common four as slots; hide unassigned others.
   it('always renders the common four as slots and hides unassigned others', () => {
     renderPanel();
-    expect(
-      screen.getByTestId('project-external-team-section'),
-    ).toBeInTheDocument();
+    expect(screen.getByTestId('project-external-team-section')).toBeInTheDocument();
     for (const d of ['Civil', 'Surveyor', 'Structural', 'Arborist']) {
-      expect(
-        screen.getByTestId(`project-external-team-row-${d}`),
-      ).toBeInTheDocument();
+      expect(screen.getByTestId(`project-external-team-row-${d}`)).toBeInTheDocument();
     }
-    // Unassigned non-common disciplines are hidden until added/assigned.
-    expect(
-      screen.queryByTestId('project-external-team-row-Energy'),
-    ).toBeNull();
-    expect(
-      screen.queryByTestId('project-external-team-row-Geotech'),
-    ).toBeNull();
+    expect(screen.queryByTestId('project-external-team-row-Energy')).toBeNull();
+    expect(screen.queryByTestId('project-external-team-row-Geotech')).toBeNull();
     expect(WAITING_ON_OPTIONS.length).toBe(13);
   });
 
-  // fix-193: a non-common discipline renders on its own once a firm is assigned.
-  it('renders a non-common discipline when it has a firm assigned', async () => {
-    ASSIGN_REF.rows = [
-      { project_id: PROJ, discipline: 'Geotech', firm_id: 'firm-geo', firm_name: 'GeoCo', tenant_id: T, updated_at: '' },
-    ];
+  // fix-195: the panel reads the REAL blob assignment into the right slot.
+  it('shows the blob assignment in its discipline slot (Civil → Prism)', () => {
     renderPanel();
-    await waitFor(() =>
-      expect(
-        screen.getByTestId('project-external-team-row-Geotech'),
-      ).toBeInTheDocument(),
-    );
+    const civil = screen.getByTestId('project-external-team-firm-input-Civil') as HTMLInputElement;
+    expect(civil.value).toBe('Prism');
+  });
+
+  // fix-195: real prod case — 8816 38th Ave SW: Surveyor=Emerald + Structural=SSS.
+  it('shows two assigned disciplines from a multi-key blob', () => {
+    PROJECTS_REF.rows = [project({ external_team: { Surveyor: 'Emerald', Structural: 'SSS' } })];
+    renderPanel();
+    expect((screen.getByTestId('project-external-team-firm-input-Surveyor') as HTMLInputElement).value).toBe('Emerald');
+    expect((screen.getByTestId('project-external-team-firm-input-Structural') as HTMLInputElement).value).toBe('SSS');
+  });
+
+  // fix-193: a non-common discipline renders once it has a blob assignment.
+  it('renders a non-common discipline when the blob assigns it', () => {
+    PROJECTS_REF.rows = [project({ external_team: { Geotech: 'GeoCo' } })];
+    renderPanel();
+    expect(screen.getByTestId('project-external-team-row-Geotech')).toBeInTheDocument();
+    expect((screen.getByTestId('project-external-team-firm-input-Geotech') as HTMLInputElement).value).toBe('GeoCo');
   });
 
   // fix-193: the "+ Add discipline" control surfaces a hidden discipline.
   it('+ Add discipline surfaces a hidden discipline as a slot', async () => {
     renderPanel();
-    expect(
-      screen.queryByTestId('project-external-team-row-Energy'),
-    ).toBeNull();
-    fireEvent.change(
-      screen.getByTestId('project-external-team-add-discipline'),
-      { target: { value: 'Energy' } },
-    );
+    expect(screen.queryByTestId('project-external-team-row-Energy')).toBeNull();
+    fireEvent.change(screen.getByTestId('project-external-team-add-discipline'), {
+      target: { value: 'Energy' },
+    });
     await waitFor(() =>
-      expect(
-        screen.getByTestId('project-external-team-row-Energy'),
-      ).toBeInTheDocument(),
+      expect(screen.getByTestId('project-external-team-row-Energy')).toBeInTheDocument(),
     );
   });
 
-  // fix-193: empty-state reminder when no external firm is assigned at all.
-  it('shows the empty-state CTA only when nothing is assigned', async () => {
-    ASSIGN_REF.rows = [];
+  // fix-193: empty-state CTA only when nothing is assigned.
+  it('shows the empty-state CTA only when the blob is empty', () => {
+    PROJECTS_REF.rows = [project({ external_team: {} })];
     renderPanel();
-    expect(
-      screen.getByTestId('project-external-team-empty-cta'),
-    ).toBeInTheDocument();
+    expect(screen.getByTestId('project-external-team-empty-cta')).toBeInTheDocument();
   });
 
-  it('hides the empty-state CTA once a firm is assigned', async () => {
-    // default ASSIGNMENTS has Civil → Prism (loads async via the get RPC).
-    renderPanel();
-    await waitFor(() =>
-      expect(
-        screen.queryByTestId('project-external-team-empty-cta'),
-      ).toBeNull(),
-    );
+  it('hides the empty-state CTA once the blob has an assignment', () => {
+    renderPanel(); // default has Civil → Prism
+    expect(screen.queryByTestId('project-external-team-empty-cta')).toBeNull();
   });
 
-  it('the Civil dropdown only lists Civil firms (not Structural)', async () => {
+  // fix-195: writing a firm patches the blob key via useUpdateProject (merge,
+  // not clobber — the existing Civil key survives).
+  it('typing a firm + blur patches the blob key (Surveyor=Emerald, Civil kept)', async () => {
     renderPanel();
-    const civil = screen.getByTestId(
-      'project-external-team-firm-select-Civil',
-    );
-    await waitFor(() =>
-      expect(within(civil).getByText('Prism')).toBeInTheDocument(),
-    );
-    expect(within(civil).getByText('Atwell')).toBeInTheDocument();
-    expect(within(civil).queryByText('SSS')).toBeNull();
-    // Structural dropdown has SSS but not the Civil firms.
-    const structural = screen.getByTestId(
-      'project-external-team-firm-select-Structural',
-    );
-    expect(within(structural).getByText('SSS')).toBeInTheDocument();
-    expect(within(structural).queryByText('Prism')).toBeNull();
+    const surveyor = screen.getByTestId('project-external-team-firm-input-Surveyor');
+    fireEvent.change(surveyor, { target: { value: 'Emerald' } });
+    fireEvent.blur(surveyor);
+    await waitFor(() => expect(updateSpy).toHaveBeenCalledTimes(1));
+    const call = updateSpy.mock.calls[0][0];
+    expect(call.projectId).toBe(PROJ);
+    expect(call.expectedUpdatedAt).toBe('2026-06-23T00:00:00Z');
+    expect(call.patch).toEqual({ external_team: { Civil: 'Prism', Surveyor: 'Emerald' } });
   });
 
-  it('selecting a firm fires the upsert RPC with firm_id set', async () => {
+  // fix-195: clearing removes the discipline's key from the blob.
+  it('Clear removes the discipline key from the blob', async () => {
     renderPanel();
-    const civil = screen.getByTestId(
-      'project-external-team-firm-select-Civil',
-    );
-    await waitFor(() =>
-      expect(within(civil).getByText('Atwell')).toBeInTheDocument(),
-    );
-    fireEvent.change(civil, { target: { value: 'firm-civil-2' } });
-    await waitFor(() =>
-      expect(rpcSpy).toHaveBeenCalledWith(
-        'bp_upsert_project_external_team_member',
-        { p_project_id: PROJ, p_discipline: 'Civil', p_firm_id: 'firm-civil-2' },
-      ),
-    );
-  });
-
-  it('Clear fires the upsert RPC with firm_id null (DELETE path)', async () => {
-    renderPanel();
-    // Civil has an existing assignment (Prism) → clear button renders.
-    const clearBtn = await screen.findByTestId(
-      'project-external-team-clear-Civil',
-    );
+    const clearBtn = screen.getByTestId('project-external-team-clear-Civil');
     fireEvent.click(clearBtn);
-    await waitFor(() =>
-      expect(rpcSpy).toHaveBeenCalledWith(
-        'bp_upsert_project_external_team_member',
-        { p_project_id: PROJ, p_discipline: 'Civil', p_firm_id: null },
-      ),
-    );
+    await waitFor(() => expect(updateSpy).toHaveBeenCalledTimes(1));
+    expect(updateSpy.mock.calls[0][0].patch).toEqual({ external_team: {} });
   });
 
-  it('disables the dropdown + shows helper text for an added discipline with no firms', async () => {
+  // No write when the value is unchanged (blur with no edit is a no-op).
+  it('blur with no change does not write', async () => {
     renderPanel();
-    // 'Energy' has no firms in the catalog — surface it via the add control.
-    fireEvent.change(
-      screen.getByTestId('project-external-team-add-discipline'),
-      { target: { value: 'Energy' } },
-    );
-    const select = (await screen.findByTestId(
-      'project-external-team-firm-select-Energy',
-    )) as HTMLSelectElement;
-    await waitFor(() => expect(select).toBeDisabled());
-    expect(
-      screen.getByTestId('project-external-team-empty-Energy').textContent,
-    ).toMatch(/Add a Energy firm in Settings/i);
+    const civil = screen.getByTestId('project-external-team-firm-input-Civil');
+    fireEvent.blur(civil);
+    await new Promise((r) => setTimeout(r, 0));
+    expect(updateSpy).not.toHaveBeenCalled();
+  });
+
+  // fix-195: the firm datalist offers the distinct firm names across ALL blobs.
+  it('the firm datalist lists the distinct firms used across all projects', () => {
+    PROJECTS_REF.rows = [
+      project({ id: PROJ, external_team: { Civil: 'Facet' } }),
+      project({ id: 'p2', external_team: { Surveyor: 'Emerald' } }),
+      project({ id: 'p3', external_team: { Structural: 'SSS', Surveyor: 'Emerald' } }),
+    ];
+    renderPanel();
+    const datalist = screen.getByTestId('project-external-team-firm-datalist');
+    const values = within(datalist)
+      .queryAllByRole('option', { hidden: true })
+      .map((o) => (o as HTMLOptionElement).value);
+    // Deduped (Emerald once) + sorted.
+    expect(values).toEqual(['Emerald', 'Facet', 'SSS']);
   });
 });
