@@ -62,17 +62,74 @@ beforeEach(() => {
 });
 
 describe('Project Settings → External Team', () => {
-  it('renders one row per WAITING_ON_OPTIONS discipline (13 rows)', () => {
+  // fix-193: always show the common four as slots; hide unassigned others.
+  it('always renders the common four as slots and hides unassigned others', () => {
     renderPanel();
     expect(
       screen.getByTestId('project-external-team-section'),
     ).toBeInTheDocument();
-    for (const d of WAITING_ON_OPTIONS) {
+    for (const d of ['Civil', 'Surveyor', 'Structural', 'Arborist']) {
       expect(
         screen.getByTestId(`project-external-team-row-${d}`),
       ).toBeInTheDocument();
     }
+    // Unassigned non-common disciplines are hidden until added/assigned.
+    expect(
+      screen.queryByTestId('project-external-team-row-Energy'),
+    ).toBeNull();
+    expect(
+      screen.queryByTestId('project-external-team-row-Geotech'),
+    ).toBeNull();
     expect(WAITING_ON_OPTIONS.length).toBe(13);
+  });
+
+  // fix-193: a non-common discipline renders on its own once a firm is assigned.
+  it('renders a non-common discipline when it has a firm assigned', async () => {
+    ASSIGN_REF.rows = [
+      { project_id: PROJ, discipline: 'Geotech', firm_id: 'firm-geo', firm_name: 'GeoCo', tenant_id: T, updated_at: '' },
+    ];
+    renderPanel();
+    await waitFor(() =>
+      expect(
+        screen.getByTestId('project-external-team-row-Geotech'),
+      ).toBeInTheDocument(),
+    );
+  });
+
+  // fix-193: the "+ Add discipline" control surfaces a hidden discipline.
+  it('+ Add discipline surfaces a hidden discipline as a slot', async () => {
+    renderPanel();
+    expect(
+      screen.queryByTestId('project-external-team-row-Energy'),
+    ).toBeNull();
+    fireEvent.change(
+      screen.getByTestId('project-external-team-add-discipline'),
+      { target: { value: 'Energy' } },
+    );
+    await waitFor(() =>
+      expect(
+        screen.getByTestId('project-external-team-row-Energy'),
+      ).toBeInTheDocument(),
+    );
+  });
+
+  // fix-193: empty-state reminder when no external firm is assigned at all.
+  it('shows the empty-state CTA only when nothing is assigned', async () => {
+    ASSIGN_REF.rows = [];
+    renderPanel();
+    expect(
+      screen.getByTestId('project-external-team-empty-cta'),
+    ).toBeInTheDocument();
+  });
+
+  it('hides the empty-state CTA once a firm is assigned', async () => {
+    // default ASSIGNMENTS has Civil → Prism (loads async via the get RPC).
+    renderPanel();
+    await waitFor(() =>
+      expect(
+        screen.queryByTestId('project-external-team-empty-cta'),
+      ).toBeNull(),
+    );
   });
 
   it('the Civil dropdown only lists Civil firms (not Structural)', async () => {
@@ -125,12 +182,16 @@ describe('Project Settings → External Team', () => {
     );
   });
 
-  it('disables the dropdown + shows helper text for a discipline with no firms', async () => {
+  it('disables the dropdown + shows helper text for an added discipline with no firms', async () => {
     renderPanel();
-    // 'Energy' has no firms in the catalog.
-    const select = screen.getByTestId(
+    // 'Energy' has no firms in the catalog — surface it via the add control.
+    fireEvent.change(
+      screen.getByTestId('project-external-team-add-discipline'),
+      { target: { value: 'Energy' } },
+    );
+    const select = (await screen.findByTestId(
       'project-external-team-firm-select-Energy',
-    ) as HTMLSelectElement;
+    )) as HTMLSelectElement;
     await waitFor(() => expect(select).toBeDisabled());
     expect(
       screen.getByTestId('project-external-team-empty-Energy').textContent,

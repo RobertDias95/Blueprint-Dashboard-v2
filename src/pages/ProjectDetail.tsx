@@ -10,6 +10,7 @@ import type {
   PermitCycle,
   PermitCycleReviewer,
   PermitWithCycles,
+  Project,
   RedesignTrigger,
   Stage,
 } from '../lib/database.types';
@@ -24,6 +25,8 @@ import ProjectSettingsModal from '../components/ProjectDetail/ProjectSettingsMod
 import { ProjectHoldBadge } from '../components/ProjectDetail/ProjectHold';
 import { LandUsePhaseBadge } from '../components/ProjectDetail/LandUsePhaseBadge';
 import DeleteProjectDialog from '../components/ProjectDetail/DeleteProjectDialog';
+import DeleteRedesignDialog from '../components/ProjectDetail/DeleteRedesignDialog';
+import EditRedesignModal from '../components/ProjectDetail/EditRedesignModal';
 import QuickEditPermitModal from '../components/ProjectDetail/QuickEditPermitModal';
 import NewProjectWizard from '../components/NewProjectWizard';
 import {
@@ -652,14 +655,45 @@ function PermitsSidebar({
   );
 }
 
+// fix-193: a redesign's own placeholder permit is a PPR with no number yet
+// (created even for a reuses-permit redesign so it has a row of its own). Give
+// it a readable label so the redesign never looks empty. Scoped to the redesign
+// sidebar context — only a num-less PPR gets the special label; every other
+// permit keeps its type + stage. (Leaves unrelated num-less permits elsewhere
+// untouched.)
+function redesignPermitLabel(p: PermitWithCycles): {
+  primary: string;
+  secondary: string;
+} {
+  if (!p.num && p.type === 'PPR') {
+    return { primary: 'PPR', secondary: 'Pre-Submittal · no number yet' };
+  }
+  return {
+    primary: p.type ?? '—',
+    secondary:
+      STAGE_LABEL[effectiveStage(p, p.permit_cycles ?? [], null)] ?? '—',
+  };
+}
+
 // fix-151: "Redesigns (n)" section at the bottom of the permits sidebar. Each
 // redesign row links to that redesign's project overview (permits navigate via
 // local selection state on each project's own page, so there's no per-permit
 // deep route — the permit rows here link to the redesign project too). A
-// reuses-permit redesign shows a "Reuses parent's permits" sub-label instead of
-// permit rows. One hop (useProjectRedesignsWithPermits doesn't recurse).
+// reuses-permit redesign shows a "Reuses parent's permits" note AND its own
+// placeholder permit (fix-193) so the redesign isn't visually empty. One hop
+// (useProjectRedesignsWithPermits doesn't recurse).
 function RedesignsSidebarSection({ parentId }: { parentId: string }) {
   const { data } = useProjectRedesignsWithPermits(parentId);
+  // fix-193: per-redesign edit / delete targets (the redesign + its sidebar
+  // "Redesign N" label). Null = no dialog open.
+  const [editTarget, setEditTarget] = useState<{
+    project: Project;
+    label: string;
+  } | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<{
+    project: Project;
+    label: string;
+  } | null>(null);
   if (data.length === 0) return null;
   return (
     <div data-testid="project-overview-redesigns-section">
@@ -681,49 +715,95 @@ function RedesignsSidebarSection({ parentId }: { parentId: string }) {
         const triggerLabel = trig
           ? REDESIGN_TRIGGER_LABELS[trig as RedesignTrigger] ?? trig
           : null;
+        const rowLabel = `Redesign ${i + 1}`;
         return (
           <div
             key={r.project.id}
             className="border-b"
             style={{ borderBottomColor: 'var(--color-border)' }}
           >
-            <Link
-              to={`/project/${r.project.id}`}
-              className="block px-3 py-1.5 hover:bg-s2 transition"
-              data-testid={`project-overview-redesign-row-${r.project.id}`}
-            >
-              <span className="text-[11px] font-bold text-text">
-                Redesign {i + 1}
-              </span>
-              {triggerLabel && (
-                <span className="text-[10px] text-dim"> · {triggerLabel}</span>
-              )}
-            </Link>
-            {reuses ? (
+            {/* fix-193: row header = link to the redesign + edit / delete
+                actions. The buttons sit OUTSIDE the Link (no nested
+                interactives). */}
+            <div className="flex items-center gap-1 px-3 py-1.5 hover:bg-s2 transition">
+              <Link
+                to={`/project/${r.project.id}`}
+                className="flex-1 min-w-0"
+                data-testid={`project-overview-redesign-row-${r.project.id}`}
+              >
+                <span className="text-[11px] font-bold text-text">
+                  {rowLabel}
+                </span>
+                {triggerLabel && (
+                  <span className="text-[10px] text-dim"> · {triggerLabel}</span>
+                )}
+              </Link>
+              <button
+                type="button"
+                onClick={() =>
+                  setEditTarget({ project: r.project, label: rowLabel })
+                }
+                className="text-dim hover:text-co text-[11px] leading-none px-1 shrink-0"
+                title={`Edit ${rowLabel}`}
+                data-testid={`project-overview-redesign-edit-${r.project.id}`}
+              >
+                ✎
+              </button>
+              <button
+                type="button"
+                onClick={() =>
+                  setDeleteTarget({ project: r.project, label: rowLabel })
+                }
+                className="text-dim hover:text-de text-[12px] leading-none px-1 shrink-0"
+                title={`Delete ${rowLabel}`}
+                data-testid={`project-overview-redesign-delete-${r.project.id}`}
+              >
+                ✕
+              </button>
+            </div>
+            {/* fix-193: a reuses-permit redesign keeps the "Reuses parent's
+                permits" note, but we ALSO list its own permits below (its PPR
+                placeholder) so the redesign isn't empty. A non-reuse redesign
+                just lists its own permits. */}
+            {reuses && (
               <div className="px-3 pb-1.5 -mt-0.5 text-[10px] italic text-dim">
                 Reuses parent's permits
               </div>
-            ) : (
-              r.permits.map((p) => (
+            )}
+            {r.permits.map((p) => {
+              const label = redesignPermitLabel(p);
+              return (
                 <Link
                   key={p.id}
                   to={`/project/${r.project.id}`}
                   className="block pl-6 pr-3 py-1 hover:bg-s2 transition"
                   data-testid={`project-overview-redesign-permit-${p.id}`}
                 >
-                  <span className="text-[10px] text-text">{p.type}</span>
+                  <span className="text-[10px] text-text">{label.primary}</span>
                   <span className="text-[10px] text-dim">
                     {' · '}
-                    {STAGE_LABEL[
-                      effectiveStage(p, p.permit_cycles ?? [], null)
-                    ] ?? '—'}
+                    {label.secondary}
                   </span>
                 </Link>
-              ))
-            )}
+              );
+            })}
           </div>
         );
       })}
+      {editTarget && (
+        <EditRedesignModal
+          redesign={editTarget.project}
+          label={editTarget.label}
+          onClose={() => setEditTarget(null)}
+        />
+      )}
+      {deleteTarget && (
+        <DeleteRedesignDialog
+          redesign={deleteTarget.project}
+          label={deleteTarget.label}
+          onClose={() => setDeleteTarget(null)}
+        />
+      )}
     </div>
   );
 }
