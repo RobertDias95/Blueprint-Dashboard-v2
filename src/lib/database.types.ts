@@ -241,6 +241,14 @@ export interface PermitCycleReviewer {
 export interface Permit {
   id: number;
   project_id: string;
+  /** fix-194: sub/child-permit marker. When set, this permit is a placeholder
+   *  reviewed under the referenced sibling permit (SAME project — enforced
+   *  app-side; the marker UI only offers same-project permits). A child carries
+   *  no independent review stage/status and is excluded from every dashboard
+   *  metric/rollup via isSubPermit() (src/lib/subPermit.ts). The scraper still
+   *  scrapes it normally; its scraped cycles/reviewers are simply ignored.
+   *  NULL = standalone / parent permit. */
+  parent_permit_id?: number | null;
   type: string | null;
   stage: string | null;
   stage_override: string | null;

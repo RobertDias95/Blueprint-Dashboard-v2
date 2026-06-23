@@ -638,3 +638,49 @@ describe('<ProjectDetail /> fix-104 SidebarRow stage hierarchy', () => {
     expect(sidebarStage).not.toContain('CORRECTIONS');
   });
 });
+
+describe('<ProjectDetail /> fix-194 sub-permit sidebar nesting', () => {
+  it('renders a child nested with the "Sub-permit · reviewed under <parent #>" badge and no stage breadcrumb', () => {
+    refs.setPermits([
+      { ...refs.permits[0], id: 1, type: 'Building Permit', num: 'BLD2026-0319' },
+      {
+        ...refs.permits[1],
+        id: 2,
+        type: 'Building Permit',
+        num: 'BLD2026-0320',
+        parent_permit_id: 1,
+      },
+    ]);
+    renderAt();
+    // The parent renders a normal stage breadcrumb…
+    expect(screen.getByTestId('permits-sidebar-stage-1')).toBeTruthy();
+    // …the child renders the sub-permit badge and NO stage breadcrumb.
+    const badge = screen.getByTestId('permits-sidebar-subpermit-2');
+    expect(badge.textContent).toBe('Sub-permit · reviewed under BLD2026-0319');
+    expect(screen.queryByTestId('permits-sidebar-stage-2')).toBeNull();
+    // The child's row carries the data-sub-permit marker.
+    expect(
+      screen.getByTestId('permits-sidebar-row-2').getAttribute('data-sub-permit'),
+    ).toBe('true');
+  });
+
+  it('a sub-permit is NOT counted in the "Permits (n)" header (only standalone/parent permits)', () => {
+    refs.setPermits([
+      { ...refs.permits[0], id: 1, type: 'Building Permit', num: 'BLD2026-0319' },
+      { ...refs.permits[1], id: 2, parent_permit_id: 1, num: 'BLD2026-0320' },
+    ]);
+    renderAt();
+    // Header counts the 1 standalone permit, not the nested child.
+    expect(screen.getByTestId('permits-sidebar-count').textContent).toContain('Permits (1)');
+    // Both rows still exist (parent + nested child)…
+    expect(screen.getByTestId('permits-sidebar-row-1')).toBeTruthy();
+    expect(screen.getByTestId('permits-sidebar-row-2')).toBeTruthy();
+    // …but only the child carries the sub-permit marker.
+    expect(
+      screen.getByTestId('permits-sidebar-row-2').getAttribute('data-sub-permit'),
+    ).toBe('true');
+    expect(
+      screen.getByTestId('permits-sidebar-row-1').getAttribute('data-sub-permit'),
+    ).toBeNull();
+  });
+});

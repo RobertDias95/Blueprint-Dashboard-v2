@@ -7,6 +7,7 @@ import type {
 import { multiMatchAddress } from './drawScheduleHelpers';
 import { effectiveStage } from './permitStage';
 import { accountableDays } from './holdOverlap';
+import { isNotSubPermit } from './subPermit';
 
 // fix-171 (On-Hold Phase 2, effect B): the displayed turnaround tiles subtract
 // held days so a parked project doesn't inflate "our time". Each measurement
@@ -333,7 +334,10 @@ export function enrichPermits(
   // holds) every measurement equals the raw daysBetween — byte-identical.
   holdsByProjectId?: Map<string, ProjectHold[]>,
 ): EnrichedPermit[] {
-  return permits.map<EnrichedPermit>((permit) => {
+  // fix-194: sub/child placeholder permits are excluded from ALL report metrics
+  // (totalUnits, in-corrections, issued count, per-project rollups, permit
+  // counts) in one place — every downstream report consumes this enriched list.
+  return permits.filter(isNotSubPermit).map<EnrichedPermit>((permit) => {
     const project = projectsById.get(permit.project_id);
     const projectGoDate = project?.go_date ?? null;
     const holds = holdsByProjectId?.get(permit.project_id);

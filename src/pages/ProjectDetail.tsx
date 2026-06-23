@@ -1,10 +1,11 @@
-import { useMemo, useState } from 'react';
+import { Fragment, useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { useProjects } from '../hooks/useProjects';
 import { usePermitsByProject } from '../hooks/usePermitsByProject';
 import { useAllPermitCycleReviewers } from '../hooks/useAllPermitCycleReviewers';
 import { effectiveStage } from '../lib/permitStage';
 import { STAGE_LABEL } from '../lib/stageLabel';
+import { isSubPermit, subPermitBadgeLabel } from '../lib/subPermit';
 import { useUpdateProject } from '../hooks/useUpdateProject';
 import type {
   PermitCycle,
@@ -205,6 +206,7 @@ function ProjectDetailBody({
       {quickEditPermit && (
         <QuickEditPermitModal
           permit={quickEditPermit}
+          siblings={permits}
           onClose={() => setQuickEditPermitId(null)}
         />
       )}
@@ -471,10 +473,34 @@ function PermitsSidebar({
   // issue`); migrating to effectiveStage also picks up the rare case
   // where a permit has stage_override='is' / terminal portal status but
   // no actual_issue yet.
+  // fix-194: index sub/child permits by their parent so each renders nested
+  // under its parent row (and never as a standalone active/issued row). A
+  // child's "reviewed under <parent #>" label needs the parent's num.
+  const childrenByParent = useMemo(() => {
+    const m = new Map<number, PermitWithCycles[]>();
+    for (const p of permits) {
+      if (!isSubPermit(p)) continue;
+      const pid = p.parent_permit_id as number;
+      const list = m.get(pid) ?? [];
+      list.push(p);
+      m.set(pid, list);
+    }
+    for (const list of m.values()) list.sort((a, b) => a.id - b.id);
+    return m;
+  }, [permits]);
+  const numById = useMemo(() => {
+    const m = new Map<number, string | null>();
+    for (const p of permits) m.set(p.id, p.num);
+    return m;
+  }, [permits]);
+
   const { activeSorted, issuedSorted } = useMemo(() => {
     const active: PermitWithCycles[] = [];
     const issued: PermitWithCycles[] = [];
     for (const p of permits) {
+      // fix-194: children are rendered nested under their parent, not as their
+      // own active/issued row.
+      if (isSubPermit(p)) continue;
       // fix-104: pass per-permit reviewers so the active/issued split
       // matches what the row itself + the Schedule Health table see.
       const isIssued =
@@ -574,8 +600,13 @@ function PermitsSidebar({
           borderBottomColor: 'var(--color-border)',
         }}
       >
-        <span className="text-[11px] font-extrabold text-text uppercase tracking-wider">
-          Permits ({permits.length})
+        <span
+          className="text-[11px] font-extrabold text-text uppercase tracking-wider"
+          data-testid="permits-sidebar-count"
+        >
+          {/* fix-194: count standalone/parent permits — sub-permit placeholders
+              nest under their parent and don't inflate the header count. */}
+          Permits ({activeSorted.length + issuedSorted.length})
         </span>
       </header>
       <div className="flex-1 overflow-y-auto" data-testid="permits-sidebar-list">
@@ -585,22 +616,42 @@ function PermitsSidebar({
           </div>
         ) : (
           <>
-            {/* fix-65: ACTIVE group. Drag-reorder lives here. */}
+            {/* fix-65: ACTIVE group. Drag-reorder lives here.
+                fix-194: each parent renders its sub-permit children nested
+                directly beneath it. */}
             {activeSorted.map((p) => (
-              <SidebarRow
-                key={p.id}
-                permit={p}
-                reviewers={reviewersByPermit.get(p.id) ?? []}
-                selected={p.id === selectedId}
-                dragOver={p.id === dragOverId}
-                draggable
-                onSelect={() => onSelect(p.id)}
-                onQuickEdit={() => onQuickEdit(p.id)}
-                onDragStart={(e) => onDragStart(e, p.id)}
-                onDragOver={(e) => onDragOver(e, p.id)}
-                onDragLeave={onDragLeave}
-                onDrop={(e) => onDrop(e, p.id)}
-              />
+              <Fragment key={p.id}>
+                <SidebarRow
+                  permit={p}
+                  reviewers={reviewersByPermit.get(p.id) ?? []}
+                  selected={p.id === selectedId}
+                  dragOver={p.id === dragOverId}
+                  draggable
+                  onSelect={() => onSelect(p.id)}
+                  onQuickEdit={() => onQuickEdit(p.id)}
+                  onDragStart={(e) => onDragStart(e, p.id)}
+                  onDragOver={(e) => onDragOver(e, p.id)}
+                  onDragLeave={onDragLeave}
+                  onDrop={(e) => onDrop(e, p.id)}
+                />
+                {(childrenByParent.get(p.id) ?? []).map((c) => (
+                  <SidebarRow
+                    key={c.id}
+                    permit={c}
+                    reviewers={[]}
+                    selected={c.id === selectedId}
+                    dragOver={false}
+                    draggable={false}
+                    parentNum={numById.get(p.id) ?? null}
+                    onSelect={() => onSelect(c.id)}
+                    onQuickEdit={() => onQuickEdit(c.id)}
+                    onDragStart={() => {}}
+                    onDragOver={() => {}}
+                    onDragLeave={() => {}}
+                    onDrop={() => {}}
+                  />
+                ))}
+              </Fragment>
             ))}
             {/* fix-65: ✓ ISSUED divider + group. Rendered only when there
                 IS at least one issued permit so a fully-active project
@@ -625,22 +676,41 @@ function PermitsSidebar({
                   data-testid="permits-sidebar-issued-group"
                 >
                   {issuedSorted.map((p) => (
-                    <SidebarRow
-                      key={p.id}
-                      permit={p}
-                      reviewers={reviewersByPermit.get(p.id) ?? []}
-                      selected={p.id === selectedId}
-                      // Issued rows aren't part of active drag-reorder
-                      // (v1 kept them as a static bottom block).
-                      dragOver={false}
-                      draggable={false}
-                      onSelect={() => onSelect(p.id)}
-                      onQuickEdit={() => onQuickEdit(p.id)}
-                      onDragStart={() => {}}
-                      onDragOver={() => {}}
-                      onDragLeave={() => {}}
-                      onDrop={() => {}}
-                    />
+                    <Fragment key={p.id}>
+                      <SidebarRow
+                        permit={p}
+                        reviewers={reviewersByPermit.get(p.id) ?? []}
+                        selected={p.id === selectedId}
+                        // Issued rows aren't part of active drag-reorder
+                        // (v1 kept them as a static bottom block).
+                        dragOver={false}
+                        draggable={false}
+                        onSelect={() => onSelect(p.id)}
+                        onQuickEdit={() => onQuickEdit(p.id)}
+                        onDragStart={() => {}}
+                        onDragOver={() => {}}
+                        onDragLeave={() => {}}
+                        onDrop={() => {}}
+                      />
+                      {/* fix-194: sub-permit children nested under an issued parent. */}
+                      {(childrenByParent.get(p.id) ?? []).map((c) => (
+                        <SidebarRow
+                          key={c.id}
+                          permit={c}
+                          reviewers={[]}
+                          selected={c.id === selectedId}
+                          dragOver={false}
+                          draggable={false}
+                          parentNum={numById.get(p.id) ?? null}
+                          onSelect={() => onSelect(c.id)}
+                          onQuickEdit={() => onQuickEdit(c.id)}
+                          onDragStart={() => {}}
+                          onDragOver={() => {}}
+                          onDragLeave={() => {}}
+                          onDrop={() => {}}
+                        />
+                      ))}
+                    </Fragment>
                   ))}
                 </div>
               </>
@@ -814,6 +884,7 @@ function SidebarRow({
   selected,
   dragOver,
   draggable,
+  parentNum,
   onSelect,
   onQuickEdit,
   onDragStart,
@@ -822,6 +893,9 @@ function SidebarRow({
   onDrop,
 }: {
   permit: PermitWithCycles;
+  /** fix-194: when this permit is a sub/child, the parent's permit number for
+   *  the "reviewed under <parent #>" badge. Undefined for normal rows. */
+  parentNum?: string | null;
   /** fix-104: reviewer rows for THIS permit. Threaded into
    *  effectiveStage so the sidebar's stage agrees with the Schedule
    *  Health table (which has always passed reviewers in). Empty
@@ -847,6 +921,52 @@ function SidebarRow({
     permit.type === 'Building Permit' && permit.nickname
       ? `Building Permit — ${permit.nickname}`
       : permit.type ?? '—';
+
+  // fix-194: a sub/child permit renders as an indented placeholder — type +
+  // permit # + a "Sub-permit · reviewed under <parent #>" badge, NO stage dot /
+  // breadcrumb / review timeline (it carries no review state of its own). Still
+  // selectable + double-click-editable so the parent link can be cleared.
+  if (isSubPermit(permit)) {
+    return (
+      <div
+        onClick={onSelect}
+        onDoubleClick={onQuickEdit}
+        className="w-full pl-7 pr-3 py-2 border-b cursor-pointer transition flex flex-col gap-0.5"
+        style={{
+          borderBottomColor: 'var(--color-border)',
+          background: selected ? 'var(--color-s3)' : 'transparent',
+          borderLeft: '3px solid transparent',
+        }}
+        data-testid={`permits-sidebar-row-${permit.id}`}
+        data-sub-permit="true"
+      >
+        <div className="flex items-center gap-1.5 min-w-0">
+          <span className="text-dim flex-shrink-0 text-[11px] leading-none" aria-hidden="true">
+            ↳
+          </span>
+          <span
+            className="text-[11px] truncate flex-1 min-w-0 font-bold text-text"
+            data-testid={`permits-sidebar-type-${permit.id}`}
+          >
+            {displayLabel}
+          </span>
+        </div>
+        <div
+          className="text-[9px] text-dim italic truncate pl-[18px]"
+          data-testid={`permits-sidebar-subpermit-${permit.id}`}
+        >
+          {subPermitBadgeLabel(parentNum)}
+        </div>
+        {permit.num && (
+          <div className="text-[10px] truncate pl-[18px]">
+            <span className="text-text font-mono" data-testid={`permits-sidebar-num-${permit.id}`}>
+              {permit.num}
+            </span>
+          </div>
+        )}
+      </div>
+    );
+  }
   // fix-104: parent stage breadcrumb (e.g. "Building Permit · Permitting")
   // anchors the card on the stage; the sub-event date line below is then
   // clearly subordinate. Pre-fix the card showed only the type on the

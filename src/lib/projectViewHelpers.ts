@@ -11,6 +11,7 @@ import {
   rollupCounts,
   rowsForCycle,
 } from './reviewerRollup';
+import { isSubPermit } from './subPermit';
 
 // fix-90: pure helpers for the Project View overhaul. The page composes
 // projects + permits + reviewers into rows, applies multi-select filters
@@ -174,6 +175,9 @@ export function buildProjectRows(
 ): ProjectRow[] {
   const permitsByProject = new Map<string, PermitWithCycles[]>();
   for (const p of permits) {
+    // fix-194: exclude sub/child placeholder permits from the Project List
+    // rollups (stage set, reviewer chips, DA/ENT sets, permit count).
+    if (isSubPermit(p)) continue;
     const list = permitsByProject.get(p.project_id) ?? [];
     list.push(p);
     permitsByProject.set(p.project_id, list);

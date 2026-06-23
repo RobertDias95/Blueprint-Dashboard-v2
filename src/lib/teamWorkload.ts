@@ -6,6 +6,7 @@ import type {
 import { effectiveStage } from './permitStage';
 import { fieldFor, type TeamRoleSelection } from './teamPerformance';
 import { formatCompareNumber } from './comparisonCohort';
+import { isSubPermit } from './subPermit';
 
 // fix-133: current workload balance per associate.
 //
@@ -105,6 +106,8 @@ export function computeTeamWorkload(
   const buckets = new Map<string, Bucket>();
 
   for (const permit of permits) {
+    // fix-194: sub/child placeholder permits never count toward workload.
+    if (isSubPermit(permit)) continue;
     const credit = (permit[field] ?? '').trim();
     if (!credit) continue;
     // Gate the bucket on open-only — use effectiveStage so the

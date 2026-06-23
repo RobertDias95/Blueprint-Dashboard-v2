@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { effectiveStage } from '../../lib/permitStage';
 import { STAGE_LABEL } from '../../lib/stageLabel';
+import { isNotSubPermit } from '../../lib/subPermit';
 import { useAllPermitCycleReviewers } from '../../hooks/useAllPermitCycleReviewers';
 import { usePermits } from '../../hooks/usePermits';
 import { useProjects } from '../../hooks/useProjects';
@@ -103,7 +104,14 @@ export default function ScheduleHealthTable({ permits }: Props) {
     [allPermitsQ.data, holdsMap],
   );
 
-  if (permits.length === 0) {
+  // fix-194: a sub/child placeholder permit is reviewed under its parent — it
+  // has no review schedule of its own, so it never gets a Schedule Health row.
+  const reviewablePermits = useMemo(
+    () => permits.filter(isNotSubPermit),
+    [permits],
+  );
+
+  if (reviewablePermits.length === 0) {
     return (
       <div className="text-xs text-dim italic px-3 py-3.5">
         No permits on this project. Add one in the Settings modal.
@@ -151,7 +159,7 @@ export default function ScheduleHealthTable({ permits }: Props) {
           </tr>
         </thead>
         <tbody>
-          {permits.map((p) => (
+          {reviewablePermits.map((p) => (
             <Row
               key={p.id}
               permit={p}

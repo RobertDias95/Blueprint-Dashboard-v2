@@ -11,6 +11,7 @@ import {
   holisticOwner,
   type AttributionRole,
 } from './volumeAttribution';
+import { isNotSubPermit } from './subPermit';
 
 // fix-134: redesign analytics aggregation.
 //
@@ -221,7 +222,8 @@ export function computeRedesignAnalytics(
       const owner = holisticOwner(
         role,
         proj,
-        permitsByProject.get(proj.id) ?? [],
+        // fix-194: ignore sub/child placeholder permits when picking the owner.
+        (permitsByProject.get(proj.id) ?? []).filter(isNotSubPermit),
       );
       if (!owner) continue;
       const set = m.get(owner) ?? new Set<string>();
