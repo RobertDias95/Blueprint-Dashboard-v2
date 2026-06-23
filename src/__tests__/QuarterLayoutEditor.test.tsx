@@ -208,6 +208,78 @@ describe('<QuarterLayoutEditor /> populated', () => {
     expect(screen.queryByTestId('ql-add-open')).not.toBeInTheDocument();
   });
 
+  // fix-190a: solo-DM columns.
+  it('adds a DM (solo) column via append with col_kind=dm + da_name + group_label = the DM', () => {
+    renderIt();
+    fireEvent.change(screen.getByTestId('ql-add-dm-select'), {
+      target: { value: 'Brittani' },
+    });
+    expect(mocks.append).toHaveBeenCalledWith({
+      quarter: quarterOffsetToString(0),
+      col: expect.objectContaining({
+        col_kind: 'dm',
+        da_name: 'Brittani',
+        group_label: 'Brittani',
+      }),
+    });
+    expect(mocks.append.mock.calls[0][0].col).not.toHaveProperty('position');
+  });
+
+  it('renders a DM dropdown for a col_kind=dm row and the type control reads "dm"', () => {
+    state.rows = [
+      { id: 'rdm', quarter: 'Q', position: 0, col_kind: 'dm', da_name: 'Brittani', group_label: 'Brittani', label_override: null, updated_at: NOW },
+    ];
+    renderIt();
+    expect((screen.getByTestId('ql-type-rdm') as HTMLSelectElement).value).toBe('dm');
+    expect(screen.getByTestId('ql-dm-rdm')).toBeInTheDocument();
+    // No DA dropdown on a DM row.
+    expect(screen.queryByTestId('ql-da-rdm')).not.toBeInTheDocument();
+  });
+
+  it('picking a DM sets col_kind + da_name + group_label together', () => {
+    state.rows = [
+      { id: 'rdm', quarter: 'Q', position: 0, col_kind: 'dm', da_name: 'Brittani', group_label: 'Brittani', label_override: null, updated_at: NOW },
+    ];
+    const dms2: TeamMember[] = [
+      ...DMS,
+      { id: 'dm-2', name: 'Jade', role: 'dm', active: true, former: false, email: null, notes: null, updated_at: NOW, active_start_quarter: null, active_end_quarter: null },
+    ];
+    const qc = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+    render(
+      <QueryClientProvider client={qc}>
+        <QuarterLayoutEditor das={DAS} dms={dms2} readOnly={false} />
+      </QueryClientProvider>,
+    );
+    fireEvent.change(screen.getByTestId('ql-dm-rdm'), { target: { value: 'Jade' } });
+    expect(mocks.upsert).toHaveBeenCalledWith({
+      op: 'update',
+      row: expect.objectContaining({ id: 'rdm' }),
+      patch: { col_kind: 'dm', da_name: 'Jade', group_label: 'Jade' },
+    });
+  });
+
+  it('converting a DA column to DM defaults the lane owner + header to a DM', () => {
+    renderIt();
+    fireEvent.change(screen.getByTestId('ql-type-r0'), { target: { value: 'dm' } });
+    expect(mocks.upsert).toHaveBeenCalledWith({
+      op: 'update',
+      row: expect.objectContaining({ id: 'r0' }),
+      patch: { col_kind: 'dm', da_name: 'Brittani', group_label: 'Brittani' },
+    });
+  });
+
+  it('converting a DA column to OPEN clears the lane owner', () => {
+    renderIt();
+    fireEvent.change(screen.getByTestId('ql-type-r0'), { target: { value: 'open' } });
+    expect(mocks.upsert).toHaveBeenCalledWith({
+      op: 'update',
+      row: expect.objectContaining({ id: 'r0' }),
+      patch: { col_kind: 'open', da_name: null },
+    });
+  });
+
   // fix-183: the editor flags a column whose DA is inactive in the selected
   // quarter (per Active Quarters), agreeing with the dimmed grid column.
   it('flags a column whose DA is inactive in the selected quarter', () => {

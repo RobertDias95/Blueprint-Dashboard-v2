@@ -668,18 +668,20 @@ export interface DmDaGroupRow {
 /** fix-182a: per-quarter saved Draw Schedule column layout. One row = one
  *  column, left-to-right by `position` (0..n) within a (tenant, quarter).
  *  `col_kind='da'` => a person column (da_name set); `col_kind='open'` =>
- *  placeholder lane (da_name NULL). `group_label` set => manager header
- *  spanning the contiguous run of columns sharing that label (free text — it
- *  need not be a `dm`-role member); NULL => standalone column. Frozen history:
- *  rename RPCs do NOT cascade here. Nothing reads this yet (Phase A is data +
- *  backend only); Phase C wires the render. Writes go through
+ *  placeholder lane (da_name NULL); `col_kind='dm'` (fix-190a) => a DM working a
+ *  lane SOLO — no DA beneath them — with the DM's name in da_name (the lane-owner
+ *  name the grid matches blocks on, like a 'da' column) and usually
+ *  group_label=<DM> for a 1-wide manager header. `group_label` set => manager
+ *  header spanning the contiguous run of columns sharing that label (free text —
+ *  it need not be a `dm`-role member); NULL => standalone column. Frozen history:
+ *  rename RPCs do NOT cascade here. Writes go through
  *  bp_upsert_quarter_layout_row / bp_delete_quarter_layout_row /
  *  bp_reorder_quarter_layout / bp_clone_quarter_layout. */
 export interface DrawScheduleQuarterLayoutRow {
   id: string;
   quarter: string; // 'YYYY-Qn'
   position: number;
-  col_kind: 'da' | 'open';
+  col_kind: 'da' | 'open' | 'dm';
   da_name: string | null;
   group_label: string | null;
   label_override: string | null;

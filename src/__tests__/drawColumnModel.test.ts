@@ -183,3 +183,70 @@ describe('buildDrawColumns — layout mode', () => {
     expect(renderColumns[0].inactive).toBe(false);
   });
 });
+
+// fix-190a: DM-solo columns — a DM working a lane with no DA beneath them.
+describe('buildDrawColumns — DM-solo column (fix-190a)', () => {
+  it('renders a solo DM as its own header with a "(DM)" sub-row, block-matched by the DM name', () => {
+    const { renderGroups, renderColumns } = buildDrawColumns({
+      isLayoutMode: true,
+      layoutRows: [
+        row(0, { col_kind: 'dm', da_name: 'Jade', group_label: 'Jade' }),
+      ],
+      fallbackGroups: [],
+      inactiveDas: new Set(),
+      forcedDas: new Set(),
+    });
+    // 1-wide manager header = the DM's name.
+    expect(renderGroups.map((g) => [g.header, g.colCount])).toEqual([['Jade', 1]]);
+    expect(renderColumns).toHaveLength(1);
+    expect(renderColumns[0]).toMatchObject({
+      kind: 'dm',
+      daName: 'Jade', // block matching keys off this (= the DM name)
+      label: '(DM)', // DA-header sub-row shows no person name
+      inactive: false,
+    });
+  });
+
+  it('a DM-solo lane is NEVER dimmed by the DA-active predicate (a DM is generally active)', () => {
+    const { renderColumns } = buildDrawColumns({
+      isLayoutMode: true,
+      layoutRows: [row(0, { col_kind: 'dm', da_name: 'Jade', group_label: 'Jade' })],
+      fallbackGroups: [],
+      inactiveDas: new Set(),
+      forcedDas: new Set(),
+      isDaActiveInQuarter: () => false, // would dim a DA — must NOT dim the DM lane
+    });
+    expect(renderColumns[0].inactive).toBe(false);
+  });
+
+  it('does not duplicate a DM-solo lane as an orphan when it has an in-range block', () => {
+    const { renderColumns } = buildDrawColumns({
+      isLayoutMode: true,
+      layoutRows: [row(0, { col_kind: 'dm', da_name: 'Jade', group_label: 'Jade' })],
+      fallbackGroups: [],
+      inactiveDas: new Set(),
+      // Jade owns a block this quarter — already represented by her 'dm' column.
+      forcedDas: new Set(['Jade']),
+    });
+    expect(renderColumns.filter((c) => c.daName === 'Jade')).toHaveLength(1);
+  });
+
+  it('a DM column sits in its own group beside DA columns (mixed layout)', () => {
+    const { renderGroups, renderColumns } = buildDrawColumns({
+      isLayoutMode: true,
+      layoutRows: [
+        row(0, { col_kind: 'da', da_name: 'Ahmadi', group_label: 'Ana' }),
+        row(1, { col_kind: 'dm', da_name: 'Jade', group_label: 'Jade' }),
+      ],
+      fallbackGroups: [],
+      inactiveDas: new Set(),
+      forcedDas: new Set(),
+    });
+    expect(renderGroups.map((g) => [g.header, g.colCount])).toEqual([
+      ['Ana', 1],
+      ['Jade', 1],
+    ]);
+    expect(renderColumns.map((c) => c.kind)).toEqual(['da', 'dm']);
+    expect(renderColumns.map((c) => c.label)).toEqual(['Ahmadi', '(DM)']);
+  });
+});

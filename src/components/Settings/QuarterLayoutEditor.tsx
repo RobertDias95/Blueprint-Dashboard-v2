@@ -96,6 +96,15 @@ export default function QuarterLayoutEditor({ das, dms, readOnly = false }: Prop
     return Array.from(s).sort((a, b) => a.localeCompare(b));
   }, [dms, rows]);
 
+  // fix-190a: DM dropdown options for solo-DM columns — every role='dm' name,
+  // plus any name already on a 'dm' column this quarter (so a departed DM on a
+  // backfilled quarter still shows).
+  const dmNames = useMemo(() => {
+    const s = new Set<string>(dms.map((d) => d.name));
+    for (const r of rows) if (r.col_kind === 'dm' && r.da_name) s.add(r.da_name);
+    return Array.from(s).sort((a, b) => a.localeCompare(b));
+  }, [dms, rows]);
+
   // fix-183: which DAs are inactive (per active-quarters) in the selected
   // quarter — so the editor flags a column the grid would dim, keeping the two
   // in agreement. A DA with no team_members row defaults active.
@@ -135,6 +144,16 @@ export default function QuarterLayoutEditor({ das, dms, readOnly = false }: Prop
     append.mutate({
       quarter,
       col: { col_kind: 'da', da_name: daName, group_label: null, label_override: null },
+    });
+  }
+
+  // fix-190a: a solo-DM column — the DM's name is both the lane owner (da_name,
+  // for block matching) and the manager header (group_label) over its 1-wide column.
+  function addDmColumn(dmName: string) {
+    if (!dmName) return;
+    append.mutate({
+      quarter,
+      col: { col_kind: 'dm', da_name: dmName, group_label: dmName, label_override: null },
     });
   }
 
@@ -238,10 +257,59 @@ export default function QuarterLayoutEditor({ das, dms, readOnly = false }: Prop
                     row={row}
                     readOnly={readOnly}
                     daNames={daNames}
+                    dmNames={dmNames}
                     inactiveInQuarter={
                       row.col_kind === 'da' &&
                       !!row.da_name &&
                       inactiveDaNames.has(row.da_name)
+                    }
+                    onChangeType={(kind) => {
+                      if (kind === row.col_kind) return;
+                      if (kind === 'open') {
+                        upsert.mutate({
+                          op: 'update',
+                          row,
+                          patch: { col_kind: 'open', da_name: null },
+                        });
+                      } else if (kind === 'da') {
+                        // Keep the current name if it's a valid DA; else default
+                        // to the first DA so the row stays constraint-valid.
+                        const da =
+                          row.da_name && daNames.includes(row.da_name)
+                            ? row.da_name
+                            : daNames[0];
+                        if (da) {
+                          upsert.mutate({
+                            op: 'update',
+                            row,
+                            patch: { col_kind: 'da', da_name: da },
+                          });
+                        }
+                      } else {
+                        // fix-190a: → solo DM. Default the lane owner + manager
+                        // header to a DM so the row is immediately valid.
+                        const dm =
+                          row.da_name && dmNames.includes(row.da_name)
+                            ? row.da_name
+                            : dmNames[0];
+                        if (dm) {
+                          upsert.mutate({
+                            op: 'update',
+                            row,
+                            patch: { col_kind: 'dm', da_name: dm, group_label: dm },
+                          });
+                        }
+                      }
+                    }}
+                    onChangeDm={(dm) =>
+                      (dm !== row.da_name || row.col_kind !== 'dm') &&
+                      // fix-190a: picking a DM sets the lane owner AND the
+                      // 1-wide manager header to that DM.
+                      upsert.mutate({
+                        op: 'update',
+                        row,
+                        patch: { col_kind: 'dm', da_name: dm, group_label: dm },
+                      })
                     }
                     onChangeDa={(da) =>
                       da !== row.da_name &&
@@ -279,7 +347,9 @@ export default function QuarterLayoutEditor({ das, dms, readOnly = false }: Prop
           {!readOnly && (
             <AddControls
               daNames={daNames}
+              dmNames={dmNames}
               onAddDa={addDaColumn}
+              onAddDm={addDmColumn}
               onAddOpen={addOpenLane}
               disabled={append.isPending}
             />
@@ -345,12 +415,16 @@ function EmptyState({
 
 function AddControls({
   daNames,
+  dmNames,
   onAddDa,
+  onAddDm,
   onAddOpen,
   disabled,
 }: {
   daNames: string[];
+  dmNames: string[];
   onAddDa: (da: string) => void;
+  onAddDm: (dm: string) => void;
   onAddOpen: () => void;
   disabled: boolean;
 }) {
@@ -376,6 +450,27 @@ function AddControls({
           </option>
         ))}
       </select>
+      {/* fix-190a: add a solo-DM column (a DM working a lane with no DA beneath). */}
+      <select
+        defaultValue=""
+        disabled={disabled || dmNames.length === 0}
+        onChange={(e) => {
+          const v = e.target.value;
+          if (v) {
+            onAddDm(v);
+            e.currentTarget.value = '';
+          }
+        }}
+        className="text-xs px-2 py-1 border border-border rounded bg-bg text-text disabled:opacity-50"
+        data-testid="ql-add-dm-select"
+      >
+        <option value="">+ Add DM (solo) column…</option>
+        {dmNames.map((d) => (
+          <option key={d} value={d}>
+            {d}
+          </option>
+        ))}
+      </select>
       <button
         onClick={onAddOpen}
         disabled={disabled}
@@ -392,8 +487,11 @@ function ColumnRow({
   row,
   readOnly,
   daNames,
+  dmNames,
   inactiveInQuarter,
+  onChangeType,
   onChangeDa,
+  onChangeDm,
   onChangeGroup,
   onChangeLabel,
   onRemove,
@@ -401,8 +499,11 @@ function ColumnRow({
   row: DrawScheduleQuarterLayoutRow;
   readOnly: boolean;
   daNames: string[];
+  dmNames: string[];
   inactiveInQuarter: boolean;
+  onChangeType: (kind: DrawScheduleQuarterLayoutRow['col_kind']) => void;
   onChangeDa: (da: string) => void;
+  onChangeDm: (dm: string) => void;
   onChangeGroup: (label: string) => void;
   onChangeLabel: (label: string) => void;
   onRemove: () => void;
@@ -422,6 +523,7 @@ function ColumnRow({
     opacity: isDragging ? 0.5 : 1,
   };
   const isOpen = row.col_kind === 'open';
+  const isDm = row.col_kind === 'dm';
 
   return (
     <div
@@ -443,13 +545,23 @@ function ColumnRow({
           ⠿
         </button>
       )}
-      <span
-        className={`text-[9px] uppercase font-bold px-1.5 py-0.5 rounded ${
-          isOpen ? 'bg-surface-2 text-dim' : 'bg-co-bg text-co'
+      {/* fix-190a: per-column TYPE control (DA / DM solo / OPEN). */}
+      <select
+        value={row.col_kind}
+        disabled={readOnly}
+        onChange={(e) =>
+          onChangeType(e.target.value as DrawScheduleQuarterLayoutRow['col_kind'])
+        }
+        className={`text-[9px] uppercase font-bold px-1 py-1 rounded border border-border bg-bg disabled:opacity-50 ${
+          isOpen ? 'text-dim' : 'text-co'
         }`}
+        title="Column type"
+        data-testid={`ql-type-${row.id}`}
       >
-        {isOpen ? 'OPEN' : 'DA'}
-      </span>
+        <option value="da">DA</option>
+        <option value="dm">DM</option>
+        <option value="open">OPEN</option>
+      </select>
 
       {/* fix-183: flag a column whose DA isn't on the team in this quarter, so
           the editor agrees with the dimmed grid column. */}
@@ -473,6 +585,20 @@ function ColumnRow({
           className="text-xs px-2 py-1 border border-border rounded bg-bg text-text flex-1 min-w-0 disabled:opacity-50"
           data-testid={`ql-label-${row.id}`}
         />
+      ) : isDm ? (
+        <select
+          value={row.da_name ?? ''}
+          disabled={readOnly}
+          onChange={(e) => onChangeDm(e.target.value)}
+          className="text-xs px-2 py-1 border border-border rounded bg-bg text-text flex-1 min-w-0 disabled:opacity-50"
+          data-testid={`ql-dm-${row.id}`}
+        >
+          {dmNames.map((d) => (
+            <option key={d} value={d}>
+              {d}
+            </option>
+          ))}
+        </select>
       ) : (
         <select
           value={row.da_name ?? ''}
