@@ -4,24 +4,20 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { ReactNode } from 'react';
 import type {
   PermitWithCycles,
-  ProjectExternalTeamMember,
   TaskNode,
   TeamMember,
-  WaitingOnDiscipline,
 } from '../lib/database.types';
 
-// fix-149: inline Waiting On chip on the permit-detail task editor. Mirrors the
-// My Tasks Waiting On field (same WAITING_ON_OPTIONS vocab, same useUpsertTask
-// 3-state wiring) and resolves the project's External Team firm as a sub-label.
+// fix-149 / fix-190d: inline Waiting On chip on the permit-detail task editor.
+// Mirrors the My Tasks Waiting On field (same WAITING_ON_OPTIONS vocab, same
+// useUpsertTask 3-state wiring) and resolves the firm from projects.external_team
+// (the store the editor writes) — the single source My Tasks → Waiting also reads.
 
 const upsertMutate = vi.hoisted(() => vi.fn());
 const treeRef = vi.hoisted(() => ({ current: [] as TaskNode[] }));
 const teamRef = vi.hoisted(() => ({ current: [] as Partial<TeamMember>[] }));
-const byDiscipline = vi.hoisted(
-  () => ({
-    current: new Map<WaitingOnDiscipline, ProjectExternalTeamMember | null>(),
-  }),
-);
+// fix-190d: project.external_team blob (discipline -> firm name) for the resolver.
+const blobRef = vi.hoisted(() => ({ current: {} as Record<string, string> }));
 
 vi.mock('../hooks/useUpdatePermit', () => ({
   useUpdatePermit: () => ({ mutateAsync: vi.fn(), mutate: vi.fn(), isPending: false }),
@@ -53,11 +49,13 @@ vi.mock('../hooks/useTaskTree', () => ({
   useDeleteTask: () => ({ mutate: vi.fn(), isPending: false }),
   useSetTaskAssignees: () => ({ mutate: vi.fn(), isPending: false }),
 }));
-vi.mock('../hooks/useConsultantFirms', () => ({
-  useProjectExternalTeam: () => ({
-    data: [],
-    byDiscipline: byDiscipline.current,
-    isLoading: false, error: null, refetch: vi.fn(),
+vi.mock('../hooks/useProjectExternalTeamBlob', () => ({
+  useProjectExternalTeamBlob: () => ({
+    blob: blobRef.current,
+    resolve: (d: string | null | undefined) => {
+      const firm = d ? blobRef.current[d] : undefined;
+      return typeof firm === 'string' && firm.trim() !== '' ? firm : null;
+    },
   }),
 }));
 
@@ -99,7 +97,7 @@ function renderIt() {
 beforeEach(() => {
   upsertMutate.mockReset();
   teamRef.current = [{ name: 'Ainsley' }, { name: 'Edmund' }];
-  byDiscipline.current = new Map();
+  blobRef.current = {};
   treeRef.current = [makeTask({ id: 'task-1' })];
 });
 
@@ -123,18 +121,17 @@ describe('Permit detail task — Waiting On chip (fix-149)', () => {
     });
   });
 
-  it('shows "Civil → Prism" when the project has an External Team firm for the discipline', () => {
-    byDiscipline.current = new Map([
-      ['Civil', { project_id: 'p-test', discipline: 'Civil', firm_id: 'f1', firm_name: 'Prism', tenant_id: 't', updated_at: '' }],
-    ]);
-    treeRef.current = [makeTask({ id: 'task-1', waiting_on: 'Civil' })];
+  it('shows "Surveyor → Emerald" from the project external_team blob', () => {
+    // fix-190d: resolves from projects.external_team (the store the editor writes).
+    blobRef.current = { Surveyor: 'Emerald' };
+    treeRef.current = [makeTask({ id: 'task-1', waiting_on: 'Surveyor' })];
     renderIt();
     const chip = screen.getByTestId('task-waiting-on-task-1');
-    expect(chip.textContent).toContain('Civil → Prism');
+    expect(chip.textContent).toContain('Surveyor → Emerald');
   });
 
   it('shows just "Civil" when no External Team firm is assigned', () => {
-    byDiscipline.current = new Map(); // nothing assigned
+    blobRef.current = {}; // nothing assigned
     treeRef.current = [makeTask({ id: 'task-1', waiting_on: 'Civil' })];
     renderIt();
     const chip = screen.getByTestId('task-waiting-on-task-1');
@@ -161,7 +158,7 @@ describe('Permit detail task — Waiting On chip (fix-149)', () => {
     expect(screen.getByTestId('task-waiting-on-task-1-option-Structural')).toBeTruthy();
     expect(screen.queryByTestId('task-waiting-on-task-1-clear')).toBeNull();
     // set → clear testid present
-    treeRef.current = [makeTask({ id: 'task-1', waiting_on: 'Survey' })];
+    treeRef.current = [makeTask({ id: 'task-1', waiting_on: 'Surveyor' })];
     renderIt();
     expect(screen.getByTestId('task-waiting-on-task-1-clear')).toBeTruthy();
   });

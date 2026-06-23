@@ -6,6 +6,8 @@ import type {
   Project,
   UnitType,
 } from '../../lib/database.types';
+import { WAITING_ON_OPTIONS } from '../../lib/database.types';
+import { asExternalTeamBlob } from '../../lib/externalTeam';
 import { useUpdateProject } from '../../hooks/useUpdateProject';
 import { nextUnitTypeLabel } from '../../lib/unitTypeNaming';
 import { snapToMonday, addDays } from '../../lib/dateUtils';
@@ -829,68 +831,67 @@ function TeamCell({
   );
 }
 
-// Q9.5.e-fix-3: External team editor — 3 selects (Civil / Surveyor /
-// Structural) sourced from app_config.consultantTypes. Each select writes
-// the full external_team JSON back to projects via useUpdateProject (OCC).
+// Q9.5.e-fix-3 / fix-190d: External team editor. The DISCIPLINE rows are the
+// shared canonical vocabulary (WAITING_ON_OPTIONS, survey term = "Surveyor") so
+// this editor and the waiting-on picker offer the identical list — a task
+// waiting on a discipline resolves to external_team[discipline] (the blob this
+// editor writes). Per-discipline firm OPTIONS come from app_config.consultantTypes
+// (matched by discipline name); each select writes the full external_team JSON
+// back to projects via useUpdateProject (OCC). The firm value stays a free-text
+// name in the blob (no firm registry yet).
 function ExternalTeamEditor({ project }: { project: Project }) {
   const cfgQ = useAppConfig();
   const updateMutation = useUpdateProject();
-  const consultants = useMemo(
-    () => readConsultantTypes(cfgQ.map),
-    [cfgQ.map],
-  );
-  const external =
-    project.external_team && typeof project.external_team === 'object'
-      ? (project.external_team as Record<string, string>)
-      : {};
+  const firmsByDiscipline = useMemo(() => {
+    const m = new Map<string, string[]>();
+    for (const ct of readConsultantTypes(cfgQ.map)) m.set(ct.type, ct.firms);
+    return m;
+  }, [cfgQ.map]);
+  const external = asExternalTeamBlob(project.external_team) ?? {};
   const occMissing = !project.updated_at;
 
-  if (consultants.length === 0) {
-    return (
-      <div className="text-[10px] text-dim italic">
-        No consultant types configured. Settings → Consultants.
-      </div>
-    );
-  }
-
-  async function setFirm(consultantType: string, firm: string) {
+  async function setFirm(discipline: string, firm: string) {
     if (!project.updated_at) return;
     const next: Record<string, string> = { ...external };
-    if (firm) next[consultantType] = firm;
-    else delete next[consultantType];
+    if (firm) next[discipline] = firm;
+    else delete next[discipline];
     await updateMutation.mutateAsync({
       projectId: project.id,
       expectedUpdatedAt: project.updated_at,
       patch: { external_team: next },
-      fieldLabel: `${consultantType} consultant`,
+      fieldLabel: `${discipline} consultant`,
     });
   }
 
   return (
     <div className="flex flex-col gap-1.5">
-      {consultants.map((ct) => {
-        const val = external[ct.type] ?? '';
+      {WAITING_ON_OPTIONS.map((discipline) => {
+        const val = external[discipline] ?? '';
+        const firms = firmsByDiscipline.get(discipline) ?? [];
         return (
-          <div key={ct.type} className="flex flex-col gap-0.5">
+          <div key={discipline} className="flex flex-col gap-0.5">
             <span className="text-[8px] font-bold text-dim uppercase tracking-wide">
-              {ct.type}
+              {discipline}
             </span>
             <select
               value={val}
-              onChange={(e) => void setFirm(ct.type, e.target.value)}
+              onChange={(e) => void setFirm(discipline, e.target.value)}
               disabled={occMissing || updateMutation.isPending}
               className={`text-[10px] border-0 border-b outline-none bg-transparent w-full px-0 py-0.5 cursor-pointer disabled:opacity-50 ${
                 val ? 'font-bold text-text' : 'font-normal text-dim'
               }`}
               style={{ borderBottomColor: 'var(--color-border)' }}
-              data-testid={`pd-ext-${ct.type.toLowerCase()}`}
+              data-testid={`pd-ext-${discipline.toLowerCase()}`}
             >
               <option value="">unassigned</option>
-              {ct.firms.map((f) => (
+              {firms.map((f) => (
                 <option key={f} value={f}>
                   {f}
                 </option>
               ))}
+              {/* fix-190d: keep an already-saved firm visible even if it isn't in
+                  the configured list (the blob name is free text). */}
+              {val && !firms.includes(val) && <option value={val}>{val}</option>}
             </select>
           </div>
         );

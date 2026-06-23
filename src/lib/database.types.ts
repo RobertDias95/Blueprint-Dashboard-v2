@@ -361,7 +361,9 @@ export interface PermitTask {
  *  this string. */
 export const WAITING_ON_OPTIONS = [
   'Civil',
-  'Survey',
+  // fix-190d: canonical survey term is 'Surveyor' (matches the external-team
+  // blob keys the editor writes). Was 'Survey' — migrated permit_tasks.waiting_on.
+  'Surveyor',
   'Structural',
   'Arborist',
   'Geotech',
@@ -493,7 +495,7 @@ export interface TaskNode {
   /** fix-138-a: explicit `assigned_to` text column. Distinct from
    *  primary_assignee (derived) and co_assignees (join table). */
   assigned_to?: string | null;
-  /** fix-138-a: external party blocking this task ('Civil', 'Survey', …). */
+  /** fix-138-a: external party blocking this task ('Civil', 'Surveyor', …). */
   waiting_on?: WaitingOnDiscipline | null;
   /** fix-138-a: priority star. */
   priority?: boolean;

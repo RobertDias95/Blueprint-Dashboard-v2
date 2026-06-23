@@ -1,19 +1,28 @@
+import { useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '../lib/supabase';
 import { queryKeys } from '../lib/queryKeys';
 import { useAuthStore } from '../stores/authStore';
+import { useProjects } from './useProjects';
+import { asExternalTeamBlob, resolveExternalFirm } from '../lib/externalTeam';
 import type {
   WaitingOnDiscipline,
   WaitingOnTaskRow,
 } from '../lib/database.types';
 
-// fix-140: My Tasks Waiting On reporting view. Reads bp_list_waiting_on_tasks
-// (every task with waiting_on set, joined to its project's assigned firm for
-// that discipline) and groups the rows discipline -> firm for the view.
+// fix-140 / fix-190d: My Tasks "Waiting On" reporting view. bp_list_waiting_on_tasks
+// still enumerates every task with waiting_on set (+ its project/permit/sort), but
+// the firm is now resolved from projects.external_team — the SAME store the
+// external-team editor writes — via resolveExternalFirm, NOT from the empty
+// normalized project_external_teams/consultant_firms tables the RPC's join uses.
+// (One term, one store, one resolver — the firm columns the RPC returns are
+// superseded here.) firm_id carries the firm NAME (the blob has no firm registry
+// yet) so the discipline -> firm grouping keys on it; firm_active stays true.
 
 export function useWaitingOnTasks(opts: { includeCompleted: boolean }) {
   const tenantId = useAuthStore((s) => s.activeTenantId);
-  return useQuery<WaitingOnTaskRow[]>({
+  const projectsQ = useProjects();
+  const tasksQ = useQuery<WaitingOnTaskRow[]>({
     // Key carries the flag so the active-only + include-completed views coexist
     // in cache (toggling doesn't refetch the other from scratch).
     queryKey: queryKeys.waitingOnTasks(tenantId ?? '', opts.includeCompleted),
@@ -26,6 +35,28 @@ export function useWaitingOnTasks(opts: { includeCompleted: boolean }) {
       return (data ?? []) as WaitingOnTaskRow[];
     },
   });
+
+  // Overlay the firm from each task's project external_team blob (single source).
+  const data = useMemo<WaitingOnTaskRow[]>(() => {
+    const blobByProject = new Map<string, ReturnType<typeof asExternalTeamBlob>>();
+    for (const p of projectsQ.data ?? []) {
+      blobByProject.set(p.id, asExternalTeamBlob(p.external_team));
+    }
+    return (tasksQ.data ?? []).map((row) => {
+      const firm = resolveExternalFirm(blobByProject.get(row.project_id), row.waiting_on);
+      return { ...row, firm_id: firm, firm_name: firm, firm_active: true };
+    });
+  }, [tasksQ.data, projectsQ.data]);
+
+  return {
+    data,
+    isLoading: tasksQ.isLoading || projectsQ.isLoading,
+    error: tasksQ.error ?? projectsQ.error,
+    refetch: () => {
+      void tasksQ.refetch();
+      void projectsQ.refetch();
+    },
+  };
 }
 
 // ============================================================
