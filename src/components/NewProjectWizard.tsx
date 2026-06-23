@@ -230,9 +230,18 @@ export default function NewProjectWizard({ open, onClose, initialState }: Props)
       return;
     }
 
+    // fix-126: redesign mode flag — hoisted here so the backfill-DD path below
+    // can opt out. A redesign's DD window is owned solely by the Redesign DD
+    // Phase section (fix-191), so the top-level backfill DD inputs are hidden
+    // on the redesign path and must never feed the BP row on submit.
+    const isRedesign = state.redesign_of_project_id !== '';
+
     // fix-143: backfill mode requires both manual DD dates once a lead DA is
     // picked — the manually-placed lane can't be built without them.
+    // fix-191: never on a redesign (those inputs are hidden; lead_da is blank
+    // on a redesign anyway, so this guard is belt-and-suspenders).
     if (
+      !isRedesign &&
       state.backfill_mode &&
       state.lead_da.trim() !== '' &&
       (!state.backfill_dd_start || !state.backfill_dd_end)
@@ -247,9 +256,16 @@ export default function NewProjectWizard({ open, onClose, initialState }: Props)
     // fix-143: Monday-align the manual backfill DD dates (matches the fix-141
     // picker). dd_start → next Monday; dd_end → Friday of its end-week; guard
     // against a snapped end landing before the start.
+    // fix-191: skipped on a redesign — the Redesign DD Phase is the single
+    // source there, so stale backfill values never reach the BP permit.
     let backfillDdStart: string | null = null;
     let backfillDdEnd: string | null = null;
-    if (state.backfill_mode && state.backfill_dd_start && state.backfill_dd_end) {
+    if (
+      !isRedesign &&
+      state.backfill_mode &&
+      state.backfill_dd_start &&
+      state.backfill_dd_end
+    ) {
       backfillDdStart = snapToMonday(state.backfill_dd_start, 'forward');
       backfillDdEnd = addDays(snapToMonday(state.backfill_dd_end, 'back'), 4);
       if (backfillDdStart && backfillDdEnd && backfillDdEnd < backfillDdStart) {
@@ -261,7 +277,7 @@ export default function NewProjectWizard({ open, onClose, initialState }: Props)
     // permits[] and the RPC short-circuits permit creation entirely.
     // Required trigger gate too — wizard validates Trigger Source
     // before submit (the dropdown defaults to '' so the user has to pick).
-    const isRedesign = state.redesign_of_project_id !== '';
+    // (isRedesign is hoisted above for the backfill-DD opt-out.)
     const isReuseRedesign =
       isRedesign && state.redesign_reuses_original_permit === 'yes';
     if (isRedesign && !state.redesign_trigger) {
