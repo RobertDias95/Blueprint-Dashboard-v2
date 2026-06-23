@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildDrawColumns } from '../lib/quarterLayoutHelpers';
+import { buildDrawColumns, deriveTopSpans } from '../lib/quarterLayoutHelpers';
 import type { DrawScheduleQuarterLayoutRow } from '../lib/database.types';
 
 // fix-182c: the Draw Schedule grid's column model. The render bands (DM header,
@@ -20,6 +20,7 @@ function row(
     da_name: null,
     group_label: null,
     label_override: null,
+    top_label: null,
     updated_at: NOW,
     ...partial,
   };
@@ -248,5 +249,136 @@ describe('buildDrawColumns — DM-solo column (fix-190a)', () => {
     ]);
     expect(renderColumns.map((c) => c.kind)).toEqual(['da', 'dm']);
     expect(renderColumns.map((c) => c.label)).toEqual(['Ahmadi', '(DM)']);
+  });
+});
+
+// fix-190b: top (regional/ent) tier.
+describe('deriveTopSpans (fix-190b)', () => {
+  function tl(...labels: (string | null)[]) {
+    return deriveTopSpans(labels.map((l) => ({ top_label: l })));
+  }
+
+  it('merges contiguous same labels ACROSS DM groups into one span', () => {
+    // Miles spans the first two columns even if they're in different DM groups.
+    expect(tl('Miles', 'Miles', 'Briana')).toEqual([
+      { label: 'Miles', count: 2 },
+      { label: 'Briana', count: 1 },
+    ]);
+  });
+
+  it('treats NULL / empty / whitespace as a blank spacer (merged) gap', () => {
+    expect(tl(null, '', '   ', 'Miles')).toEqual([
+      { label: null, count: 3 },
+      { label: 'Miles', count: 1 },
+    ]);
+  });
+
+  it('a non-null label broken by a NULL gap does NOT merge across the gap', () => {
+    expect(tl('Miles', null, 'Miles')).toEqual([
+      { label: 'Miles', count: 1 },
+      { label: null, count: 1 },
+      { label: 'Miles', count: 1 },
+    ]);
+  });
+
+  it('colCounts always sum to the number of columns', () => {
+    const spans = tl('A', 'A', null, 'B', null, null);
+    expect(spans.reduce((s, g) => s + g.count, 0)).toBe(6);
+  });
+});
+
+describe('buildDrawColumns — renderTopGroups (fix-190b)', () => {
+  it('returns [] (no top band) when no column has a top_label', () => {
+    const { renderTopGroups } = buildDrawColumns({
+      isLayoutMode: true,
+      layoutRows: [
+        row(0, { col_kind: 'da', da_name: 'Ahmadi', group_label: 'Ana' }),
+        row(1, { col_kind: 'da', da_name: 'Fisk', group_label: 'Ana' }),
+      ],
+      fallbackGroups: [],
+      inactiveDas: new Set(),
+      forcedDas: new Set(),
+    });
+    expect(renderTopGroups).toEqual([]);
+  });
+
+  it('fallback mode never has a top tier', () => {
+    const { renderTopGroups } = buildDrawColumns({
+      isLayoutMode: false,
+      layoutRows: [],
+      fallbackGroups: [{ dm: 'Lindsay', das: ['Francesca'] }],
+      inactiveDas: new Set(),
+      forcedDas: new Set(),
+    });
+    expect(renderTopGroups).toEqual([]);
+  });
+
+  it('a top span covers the sum of the DM groups beneath it (Miles over Lindsay + a solo DM)', () => {
+    // Lindsay manages Francesca + Ainsley; Jade is a solo DM. Miles spans all
+    // three columns (across the Lindsay group AND the Jade solo lane). Briana
+    // spans Brittani's single column.
+    const { renderGroups, renderTopGroups, renderColumns } = buildDrawColumns({
+      isLayoutMode: true,
+      layoutRows: [
+        row(0, { col_kind: 'da', da_name: 'Francesca', group_label: 'Lindsay', top_label: 'Miles' }),
+        row(1, { col_kind: 'da', da_name: 'Ainsley', group_label: 'Lindsay', top_label: 'Miles' }),
+        row(2, { col_kind: 'dm', da_name: 'Jade', group_label: 'Jade', top_label: 'Miles' }),
+        row(3, { col_kind: 'da', da_name: 'Bob', group_label: 'Brittani', top_label: 'Briana' }),
+      ],
+      fallbackGroups: [],
+      inactiveDas: new Set(),
+      forcedDas: new Set(),
+    });
+    // DM groups: Lindsay(2), Jade(1), Brittani(1).
+    expect(renderGroups.map((g) => [g.header, g.colCount])).toEqual([
+      ['Lindsay', 2],
+      ['Jade', 1],
+      ['Brittani', 1],
+    ]);
+    // Top spans: Miles(3) across Lindsay+Jade, Briana(1) over Brittani.
+    expect(renderTopGroups.map((g) => [g.header, g.colCount])).toEqual([
+      ['Miles', 3],
+      ['Briana', 1],
+    ]);
+    // Top spans sum to the column count.
+    expect(renderTopGroups.reduce((s, g) => s + g.colCount, 0)).toBe(renderColumns.length);
+  });
+
+  it('mixed: columns without a top_label become a blank spacer span, alignment preserved', () => {
+    const { renderTopGroups, renderColumns } = buildDrawColumns({
+      isLayoutMode: true,
+      layoutRows: [
+        row(0, { col_kind: 'da', da_name: 'Francesca', group_label: 'Lindsay', top_label: 'Miles' }),
+        row(1, { col_kind: 'da', da_name: 'Qisheng', group_label: null }), // no top_label
+        row(2, { col_kind: 'open', da_name: null, label_override: 'OPEN' }), // no top_label
+      ],
+      fallbackGroups: [],
+      inactiveDas: new Set(),
+      forcedDas: new Set(),
+    });
+    expect(renderTopGroups.map((g) => [g.header, g.colCount])).toEqual([
+      ['Miles', 1],
+      [null, 2], // blank spacer over the two un-labeled columns
+    ]);
+    expect(renderTopGroups.reduce((s, g) => s + g.colCount, 0)).toBe(renderColumns.length);
+  });
+
+  it('orphan forced lanes get a blank spacer in the top band (still sums)', () => {
+    const { renderTopGroups, renderColumns } = buildDrawColumns({
+      isLayoutMode: true,
+      layoutRows: [
+        row(0, { col_kind: 'da', da_name: 'Francesca', group_label: 'Lindsay', top_label: 'Miles' }),
+      ],
+      fallbackGroups: [],
+      inactiveDas: new Set(),
+      forcedDas: new Set(['Marc']), // orphan with an in-range block, appended as a dimmed lane
+    });
+    // Miles over the layout column, then a blank spacer over the orphan lane.
+    expect(renderTopGroups.map((g) => [g.header, g.colCount])).toEqual([
+      ['Miles', 1],
+      [null, 1],
+    ]);
+    expect(renderColumns).toHaveLength(2);
+    expect(renderTopGroups.reduce((s, g) => s + g.colCount, 0)).toBe(2);
   });
 });

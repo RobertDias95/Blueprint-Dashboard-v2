@@ -685,6 +685,12 @@ export interface DrawScheduleQuarterLayoutRow {
   da_name: string | null;
   group_label: string | null;
   label_override: string | null;
+  /** fix-190b: top (regional/ent) tier above the DM groups — free text (e.g.
+   *  "Miles, WA | Briana, AZ"). Contiguous columns sharing the same non-empty
+   *  top_label form one top-tier span ACROSS DM groups. NULL/empty = no top
+   *  header for this column (default; back-compat — a quarter with no top_labels
+   *  renders with no top band). */
+  top_label: string | null;
   updated_at: string;
 }
 

@@ -540,7 +540,7 @@ function DrawScheduleBody({
   // modes; the fallback path renders byte-for-byte as before. In layout mode a
   // 'da' column whose DA is inactive that quarter is dimmed (fix-183) so the
   // grid can't contradict the active-quarters editor.
-  const { renderGroups, renderColumns } = useMemo(
+  const { renderGroups, renderColumns, renderTopGroups } = useMemo(
     () =>
       buildDrawColumns({
         isLayoutMode,
@@ -559,6 +559,11 @@ function DrawScheduleBody({
       isDaActiveInQuarter,
     ],
   );
+  // fix-190b: render the top (regional/ent) tier band only when the viewed
+  // quarter has at least one top_label. When false (two-tier + every
+  // un-versioned quarter today) the grid is byte-for-byte unchanged — no band,
+  // and the DM/DA bands keep their original sticky offsets (0 / 26px).
+  const hasTopTier = renderTopGroups.length > 0;
 
   // DA names that actually have a rendered column this quarter (drives
   // blocksByDa). In layout mode this is the layout's DA set + orphan lanes; in
@@ -1302,15 +1307,47 @@ function DrawScheduleBody({
         className="relative bg-surface border border-border rounded-xl overflow-auto flex-1 min-h-0"
         data-testid="draw-schedule-grid"
       >
+        {/* fix-190b: TOP (regional/ent) tier band — ABOVE the DM band, sharing
+            the same gridBandStyle so each top span's edges land on the same
+            track lines as the DM groups + columns beneath it. Each span uses
+            grid-column: span <colCount> (sum of the DM groups under it); a null
+            label is a blank, non-bordered spacer so alignment holds. Rendered
+            ONLY when hasTopTier — otherwise the grid is unchanged. */}
+        {hasTopTier && (
+          <div
+            data-testid="ds-band-top"
+            style={{ ...gridBandStyle, top: 0 }}
+            className="sticky z-[21] bg-s2 border-b border-border"
+          >
+            <div className="border-r border-border" />
+            {renderTopGroups.map((g, gi) => (
+              <div
+                key={g.key}
+                data-testid={`ds-top-${gi}`}
+                data-span={g.colCount}
+                style={{ gridColumn: `span ${g.colCount}` }}
+                className={
+                  g.header
+                    ? 'text-center px-1 py-1 border-r-2 border-border text-[11px] font-extrabold uppercase truncate text-text'
+                    : '' /* blank spacer: no border, no text */
+                }
+              >
+                {g.header ?? ''}
+              </div>
+            ))}
+          </div>
+        )}
+
         {/* DM (manager-header) band. fix-182d: a CSS grid sharing
             gridBandStyle with the DA-header + body bands so a group's right
             edge always lands on the same track line as its last DA column. Each
             group cell spans `colCount` tracks. A null header (standalone /
-            orphan lane) renders a blank cell so alignment is preserved. */}
+            orphan lane) renders a blank cell so alignment is preserved.
+            fix-190b: sits below the top band when present (sticky offset 26px). */}
         <div
           data-testid="ds-band-dm"
-          style={gridBandStyle}
-          className="sticky top-0 z-20 bg-s2 border-b border-border"
+          style={{ ...gridBandStyle, top: hasTopTier ? 26 : 0 }}
+          className="sticky z-20 bg-s2 border-b border-border"
         >
           <div className="border-r border-border" />
           {renderGroups.map((g, gi) => (
@@ -1326,11 +1363,13 @@ function DrawScheduleBody({
           ))}
         </div>
 
-        {/* DA (column-header) band — same shared grid template. */}
+        {/* DA (column-header) band — same shared grid template.
+            fix-190b: sticky offset shifts down by one band when the top tier
+            shows (52px) so all three header bands stack without overlap. */}
         <div
           data-testid="ds-band-da"
-          style={gridBandStyle}
-          className="sticky top-[26px] z-[19] bg-s2 border-b-2 border-border"
+          style={{ ...gridBandStyle, top: hasTopTier ? 52 : 26 }}
+          className="sticky z-[19] bg-s2 border-b-2 border-border"
         >
           <div className="border-r border-border" />
           {renderColumns.map((c) => {

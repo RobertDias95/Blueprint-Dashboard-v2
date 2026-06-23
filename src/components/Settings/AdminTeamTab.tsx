@@ -155,6 +155,7 @@ export default function AdminTeamTab() {
         <QuarterLayoutEditor
           das={[...teamQ.activeDas, ...teamQ.formerDas]}
           dms={teamQ.dms}
+          ents={teamQ.ents}
           readOnly={!isAdmin}
         />
       </Section>

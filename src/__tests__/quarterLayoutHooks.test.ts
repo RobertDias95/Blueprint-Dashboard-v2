@@ -78,6 +78,7 @@ describe('useUpsertQuarterLayoutRow', () => {
           da_name: 'Marc',
           group_label: 'Brittani',
           label_override: null,
+          top_label: null,
         },
       });
     });
@@ -96,7 +97,7 @@ describe('useUpsertQuarterLayoutRow', () => {
         op: 'update',
         row: {
           id: 'id-9', quarter: '2026-Q2', position: 0, col_kind: 'da',
-          da_name: 'Marc', group_label: null, label_override: null, updated_at: NOW,
+          da_name: 'Marc', group_label: null, label_override: null, top_label: null, updated_at: NOW,
         },
         patch: { group_label: 'Ana' },
       });
@@ -118,7 +119,7 @@ describe('useUpsertQuarterLayoutRow', () => {
           op: 'update',
           row: {
             id: 'id-9', quarter: '2026-Q2', position: 0, col_kind: 'open',
-            da_name: null, group_label: null, label_override: 'OPEN', updated_at: NOW,
+            da_name: null, group_label: null, label_override: 'OPEN', top_label: null, updated_at: NOW,
           },
           patch: { label_override: 'X' },
         });
@@ -247,6 +248,22 @@ describe('useAppendQuarterLayoutColumn / useInsertQuarterLayoutColumn (fix-182d)
     expect(mocks.rpcFn).toHaveBeenCalledWith('bp_append_quarter_layout_column', {
       p_quarter: '2025-Q3',
       p_col: expect.objectContaining({ col_kind: 'dm', da_name: 'Jade', group_label: 'Jade' }),
+    });
+  });
+
+  // fix-190b: top_label rides along on append (server stores it verbatim).
+  it('append carries top_label through to the RPC', async () => {
+    mocks.setResult({ data: [{ out_id: 'id-t', updated_at: NOW, out_position: 4 }], error: null });
+    const { result } = renderHook(() => useAppendQuarterLayoutColumn(), { wrapper });
+    await act(async () => {
+      await result.current.mutateAsync({
+        quarter: '2025-Q3',
+        col: { col_kind: 'da', da_name: 'Francesca', group_label: 'Lindsay', label_override: null, top_label: 'Miles' },
+      });
+    });
+    expect(mocks.rpcFn).toHaveBeenCalledWith('bp_append_quarter_layout_column', {
+      p_quarter: '2025-Q3',
+      p_col: expect.objectContaining({ col_kind: 'da', da_name: 'Francesca', top_label: 'Miles' }),
     });
   });
 

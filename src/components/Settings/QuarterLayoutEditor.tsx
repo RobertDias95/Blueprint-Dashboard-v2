@@ -54,10 +54,13 @@ interface Props {
   das: TeamMember[];
   /** role='dm' members — datalist suggestions for the group header field. */
   dms: TeamMember[];
+  /** fix-190b: role='ent' members — datalist suggestions for the top-tier
+   *  (regional/ent) header field, alongside the DMs. Optional (defaults []). */
+  ents?: TeamMember[];
   readOnly?: boolean;
 }
 
-export default function QuarterLayoutEditor({ das, dms, readOnly = false }: Props) {
+export default function QuarterLayoutEditor({ das, dms, ents = [], readOnly = false }: Props) {
   const quarterOptions = useMemo(() => buildQuarterOptions(), []);
   const [quarter, setQuarter] = useState<string>(() => quarterOffsetToString(0));
 
@@ -95,6 +98,17 @@ export default function QuarterLayoutEditor({ das, dms, readOnly = false }: Prop
     for (const r of rows) if (r.group_label) s.add(r.group_label);
     return Array.from(s).sort((a, b) => a.localeCompare(b));
   }, [dms, rows]);
+
+  // fix-190b: top-tier (regional/ent) datalist suggestions — ent leads + DMs +
+  // any top_label already in use. Values are free text (e.g.
+  // "Miles, WA | Briana, AZ"); the datalist is just convenience.
+  const topSuggestions = useMemo(() => {
+    const s = new Set<string>();
+    for (const e of ents) s.add(e.name);
+    for (const d of dms) s.add(d.name);
+    for (const r of rows) if (r.top_label) s.add(r.top_label);
+    return Array.from(s).sort((a, b) => a.localeCompare(b));
+  }, [ents, dms, rows]);
 
   // fix-190a: DM dropdown options for solo-DM columns — every role='dm' name,
   // plus any name already on a 'dm' column this quarter (so a departed DM on a
@@ -241,6 +255,13 @@ export default function QuarterLayoutEditor({ das, dms, readOnly = false }: Prop
             ))}
           </datalist>
 
+          {/* fix-190b: shared datalist for the top-tier (regional/ent) field. */}
+          <datalist id="ql-top-suggestions">
+            {topSuggestions.map((t) => (
+              <option key={t} value={t} />
+            ))}
+          </datalist>
+
           <DndContext
             sensors={sensors}
             collisionDetection={closestCenter}
@@ -319,6 +340,13 @@ export default function QuarterLayoutEditor({ das, dms, readOnly = false }: Prop
                       const next = label.trim() === '' ? null : label.trim();
                       if (next !== row.group_label) {
                         upsert.mutate({ op: 'update', row, patch: { group_label: next } });
+                      }
+                    }}
+                    onChangeTop={(label) => {
+                      // fix-190b: empty = NULL = no top header for this column.
+                      const next = label.trim() === '' ? null : label.trim();
+                      if (next !== row.top_label) {
+                        upsert.mutate({ op: 'update', row, patch: { top_label: next } });
                       }
                     }}
                     onChangeLabel={(label) => {
@@ -493,6 +521,7 @@ function ColumnRow({
   onChangeDa,
   onChangeDm,
   onChangeGroup,
+  onChangeTop,
   onChangeLabel,
   onRemove,
 }: {
@@ -505,6 +534,7 @@ function ColumnRow({
   onChangeDa: (da: string) => void;
   onChangeDm: (dm: string) => void;
   onChangeGroup: (label: string) => void;
+  onChangeTop: (label: string) => void;
   onChangeLabel: (label: string) => void;
   onRemove: () => void;
 }) {
@@ -624,6 +654,18 @@ function ColumnRow({
         onBlur={(e) => onChangeGroup(e.target.value)}
         className="text-xs px-2 py-1 border border-border rounded bg-bg text-text flex-1 min-w-0 disabled:opacity-50"
         data-testid={`ql-group-${row.id}`}
+      />
+
+      {/* fix-190b: top-tier (regional/ent) header — free text; blank = none. */}
+      <input
+        key={`top-${row.updated_at}`}
+        list="ql-top-suggestions"
+        defaultValue={row.top_label ?? ''}
+        placeholder="Top tier (blank = none)"
+        disabled={readOnly}
+        onBlur={(e) => onChangeTop(e.target.value)}
+        className="text-xs px-2 py-1 border border-border rounded bg-bg text-text flex-1 min-w-0 disabled:opacity-50"
+        data-testid={`ql-top-${row.id}`}
       />
 
       {!readOnly && (
