@@ -284,6 +284,9 @@ const TEAM_CSV_COLUMNS = [
   { key: 'name', label: 'Name' },
   { key: 'role', label: 'Role' },
   { key: 'active', label: 'Active' },
+  // fix-192: accumulated totals (original + redesign) lead; the redesign
+  // columns break out the redesign share. Delegate Permits = permits the
+  // person assists on with no lot/unit credit.
   { key: 'projectCount', label: 'Projects' },
   { key: 'unitCount', label: 'Units' },
   { key: 'lotCount', label: 'Lots' },
@@ -291,6 +294,7 @@ const TEAM_CSV_COLUMNS = [
   { key: 'redesignUnitCount', label: 'Redesign Units' },
   { key: 'redesignLotCount', label: 'Redesign Lots' },
   { key: 'permitCount', label: 'Permits' },
+  { key: 'delegatePermitCount', label: 'Delegate Permits' },
   { key: 'avgDdDays', label: 'DD Phase (d)' },
   { key: 'avgCityReviewDays', label: 'City Review (d)' },
   { key: 'avgCorrectionsCycles', label: 'Corrections (cycles)' },
@@ -311,13 +315,16 @@ function buildTeamCsv(rows: TeamMemberMetrics[]): string {
       name: r.name,
       role: ROLE_CSV_LABEL[r.role],
       active: r.isActive ? 'Yes' : 'No',
-      projectCount: r.projectCount,
-      unitCount: r.unitCount,
-      lotCount: r.lotCount,
+      // Accumulated totals (original + redesign) — match the table's headline
+      // columns so a CSV mirrors what the user saw.
+      projectCount: r.totalProjectCount,
+      unitCount: r.totalUnitCount,
+      lotCount: r.totalLotCount,
       redesignProjectCount: r.redesignProjectCount,
       redesignUnitCount: r.redesignUnitCount,
       redesignLotCount: r.redesignLotCount,
-      permitCount: r.permitCount,
+      permitCount: r.totalPermitCount,
+      delegatePermitCount: r.delegatePermitCount,
       avgDdDays: r.avgDdDays ?? '',
       avgCityReviewDays: r.avgCityReviewDays ?? '',
       avgCorrectionsCycles: r.avgCorrectionsCycles ?? '',

@@ -18,13 +18,14 @@ import type {
 
 type SortKey =
   | 'name'
-  | 'projectCount'
-  | 'unitCount'
-  | 'lotCount'
+  | 'totalProjectCount'
+  | 'totalUnitCount'
+  | 'totalLotCount'
   | 'redesignProjectCount'
   | 'redesignUnitCount'
   | 'redesignLotCount'
-  | 'permitCount'
+  | 'totalPermitCount'
+  | 'delegatePermitCount'
   | 'avgDdDays'
   | 'avgCityReviewDays'
   | 'avgCorrectionsCycles'
@@ -35,7 +36,7 @@ interface Props {
 }
 
 export default function TeamPerformanceTable({ result }: Props) {
-  const [sortKey, setSortKey] = useState<SortKey>('projectCount');
+  const [sortKey, setSortKey] = useState<SortKey>('totalProjectCount');
   const [sortDesc, setSortDesc] = useState(true);
 
   const sorted = useMemo(() => {
@@ -75,13 +76,16 @@ export default function TeamPerformanceTable({ result }: Props) {
             <Th col="name" sortKey={sortKey} sortDesc={sortDesc} onClick={toggleSort} align="left">
               Name
             </Th>
-            <Th col="projectCount" sortKey={sortKey} sortDesc={sortDesc} onClick={toggleSort}>
+            {/* fix-192: the headline volume columns are the ACCUMULATED totals
+                (original + redesign) — how Bobby grades volume. The Redesign
+                columns break out how much of that total is redesign work. */}
+            <Th col="totalProjectCount" sortKey={sortKey} sortDesc={sortDesc} onClick={toggleSort}>
               Projects
             </Th>
-            <Th col="unitCount" sortKey={sortKey} sortDesc={sortDesc} onClick={toggleSort}>
+            <Th col="totalUnitCount" sortKey={sortKey} sortDesc={sortDesc} onClick={toggleSort}>
               Units
             </Th>
-            <Th col="lotCount" sortKey={sortKey} sortDesc={sortDesc} onClick={toggleSort}>
+            <Th col="totalLotCount" sortKey={sortKey} sortDesc={sortDesc} onClick={toggleSort}>
               Lots
             </Th>
             <Th col="redesignProjectCount" sortKey={sortKey} sortDesc={sortDesc} onClick={toggleSort}>
@@ -93,8 +97,13 @@ export default function TeamPerformanceTable({ result }: Props) {
             <Th col="redesignLotCount" sortKey={sortKey} sortDesc={sortDesc} onClick={toggleSort}>
               Redesign Lots
             </Th>
-            <Th col="permitCount" sortKey={sortKey} sortDesc={sortDesc} onClick={toggleSort}>
+            <Th col="totalPermitCount" sortKey={sortKey} sortDesc={sortDesc} onClick={toggleSort}>
               Permits
+            </Th>
+            {/* fix-192: delegate permits — assists on specific permits, no
+                lot/unit credit. */}
+            <Th col="delegatePermitCount" sortKey={sortKey} sortDesc={sortDesc} onClick={toggleSort}>
+              Delegate Permits
             </Th>
             <Th col="avgDdDays" sortKey={sortKey} sortDesc={sortDesc} onClick={toggleSort}>
               DD Phase
@@ -198,9 +207,9 @@ function Row({
           </span>
         )}
       </td>
-      <NumCell value={row.projectCount} testId={`team-cell-${row.name}-projectCount`} />
-      <NumCell value={row.unitCount} testId={`team-cell-${row.name}-unitCount`} />
-      <NumCell value={row.lotCount} testId={`team-cell-${row.name}-lotCount`} />
+      <NumCell value={row.totalProjectCount} testId={`team-cell-${row.name}-projectCount`} />
+      <NumCell value={row.totalUnitCount} testId={`team-cell-${row.name}-unitCount`} />
+      <NumCell value={row.totalLotCount} testId={`team-cell-${row.name}-lotCount`} />
       <NumCell
         value={row.redesignProjectCount}
         testId={`team-cell-${row.name}-redesignProjectCount`}
@@ -213,7 +222,11 @@ function Row({
         value={row.redesignLotCount}
         testId={`team-cell-${row.name}-redesignLotCount`}
       />
-      <NumCell value={row.permitCount} testId={`team-cell-${row.name}-permitCount`} />
+      <NumCell value={row.totalPermitCount} testId={`team-cell-${row.name}-permitCount`} />
+      <NumCell
+        value={row.delegatePermitCount}
+        testId={`team-cell-${row.name}-delegatePermitCount`}
+      />
       <PhaseCell
         value={row.avgDdDays}
         teamAvg={teamAvgDdDays}

@@ -213,6 +213,89 @@ describe('computeTeamMetrics — Bobby fixture (5 originals + 2 redesigns vs 3 o
   });
 });
 
+describe('fix-192 computeTeamMetrics — accumulation + lead-vs-delegate', () => {
+  // 5053 25th Ave SW: same DA (Trevor) owns the original (2 lots / 6 units)
+  // AND the redesign (2 lots / 6 units). Accumulated total = 4 lots / 12 units.
+  const original = mkProject({ id: 'orig', address: '5053', num_lots: 2, units: 6 });
+  const redesign = mkProject({
+    id: 'rd', address: '5053 [Redesign 1]', num_lots: 2, units: 6,
+    redesign_of_project_id: 'orig',
+  });
+  const team: TeamMember[] = [
+    mkMember({ name: 'Trevor', role: 'da' }),
+    mkMember({ name: 'Cam', role: 'da' }),
+  ];
+
+  it('the owner accrues original + redesign volume (4 lots / 12 units), not 2/6', () => {
+    const permits: PermitWithCycles[] = [
+      mkPermit({ id: 1, project_id: 'orig', type: 'Building Permit', da: 'Trevor' }),
+      mkPermit({ id: 2, project_id: 'rd', type: 'Building Permit', da: 'Trevor' }),
+    ];
+    const out = computeTeamMetrics(permits, [original, redesign], team, baseFilters);
+    const trevor = out.rows.find((r) => r.name === 'Trevor')!;
+    // Originals split.
+    expect(trevor.unitCount).toBe(6);
+    expect(trevor.lotCount).toBe(2);
+    // Redesign split.
+    expect(trevor.redesignUnitCount).toBe(6);
+    expect(trevor.redesignLotCount).toBe(2);
+    // Accumulated totals — how Bobby grades volume.
+    expect(trevor.totalUnitCount).toBe(12);
+    expect(trevor.totalLotCount).toBe(4);
+    expect(trevor.totalProjectCount).toBe(2);
+  });
+
+  it('the holistic DA carries the volume; a permit delegate (Cam) gets a permit count + ZERO volume', () => {
+    // Original project: BP da=Nicky… but here Trevor draws the BP and Cam is on
+    // the Demolition (the delegate). Trevor owns the 6 units; Cam owns nothing.
+    const permits: PermitWithCycles[] = [
+      mkPermit({ id: 10, project_id: 'orig', type: 'Building Permit', da: 'Trevor' }),
+      mkPermit({ id: 11, project_id: 'orig', type: 'Demolition', da: 'Cam' }),
+    ];
+    const out = computeTeamMetrics(permits, [original], team, baseFilters);
+
+    const trevor = out.rows.find((r) => r.name === 'Trevor')!;
+    expect(trevor.totalUnitCount).toBe(6);
+    expect(trevor.totalLotCount).toBe(2);
+    expect(trevor.permitCount).toBe(2); // both permits sit on his owned project
+    expect(trevor.delegatePermitCount).toBe(0);
+
+    const cam = out.rows.find((r) => r.name === 'Cam')!;
+    // Delegate: measured ONLY by permits touched — zero lot/unit/project volume.
+    expect(cam.unitCount).toBe(0);
+    expect(cam.lotCount).toBe(0);
+    expect(cam.totalUnitCount).toBe(0);
+    expect(cam.totalLotCount).toBe(0);
+    expect(cam.projectCount).toBe(0);
+    expect(cam.delegatePermitCount).toBe(1);
+  });
+
+  it('no double-counting: a project credited once even with multiple DAs across its permits', () => {
+    const permits: PermitWithCycles[] = [
+      mkPermit({ id: 20, project_id: 'orig', type: 'Building Permit', da: 'Trevor' }),
+      mkPermit({ id: 21, project_id: 'orig', type: 'Demolition', da: 'Cam' }),
+    ];
+    const out = computeTeamMetrics(permits, [original], team, {
+      ...baseFilters,
+      activeOnly: false,
+    });
+    const totalUnitsCredited = out.rows.reduce((s, r) => s + r.totalUnitCount, 0);
+    expect(totalUnitsCredited).toBe(6); // the project's 6 units, not 12
+  });
+
+  it('dual_da is a delegate — permit count only, no volume', () => {
+    const permits: PermitWithCycles[] = [
+      mkPermit({ id: 30, project_id: 'orig', type: 'Building Permit', da: 'Trevor', dual_da: 'Cam' }),
+    ];
+    const out = computeTeamMetrics(permits, [original], team, baseFilters);
+    const cam = out.rows.find((r) => r.name === 'Cam')!;
+    expect(cam.totalUnitCount).toBe(0);
+    expect(cam.delegatePermitCount).toBe(1);
+    const trevor = out.rows.find((r) => r.name === 'Trevor')!;
+    expect(trevor.totalUnitCount).toBe(6);
+  });
+});
+
 describe('computeTeamMetrics — phase metrics + includeRedesigns', () => {
   // Trevor on 2 originals + 1 redesign.
   // Originals dd_days: 10, 20 → avg 15

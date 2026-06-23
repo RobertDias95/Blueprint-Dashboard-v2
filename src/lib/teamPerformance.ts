@@ -6,6 +6,10 @@ import type {
 } from './database.types';
 import { formatCompareNumber } from './comparisonCohort';
 import { accountableDays } from './holdOverlap';
+import {
+  attributePersonVolume,
+  type PersonAttribution,
+} from './volumeAttribution';
 
 // fix-172 (On-Hold Phase 2, effect B): the per-associate phase tiles subtract
 // held days. accountableDays === daysBetween with no holds → byte-identical.
@@ -37,7 +41,9 @@ export interface TeamMemberMetrics {
   name: string;
   role: TeamRoleSelection;
   isActive: boolean;
-  // Volume — originals only (projects with redesign_of_project_id IS NULL)
+  // Volume — originals only (projects with redesign_of_project_id IS NULL).
+  // fix-192: credited to the HOLISTIC owner only (the project's primary DA /
+  // project-level DM / ent), never to permit-level delegates.
   projectCount: number;
   unitCount: number;
   lotCount: number;
@@ -47,6 +53,17 @@ export interface TeamMemberMetrics {
   redesignUnitCount: number;
   redesignLotCount: number;
   redesignPermitCount: number;
+  // fix-192: ACCUMULATED totals = original + redesign. A redesign carries real
+  // volume and counts AGAIN toward its owner (never deduped to the original),
+  // so these are how Bobby grades volume (e.g. 5053: 4 lots / 12 units).
+  totalProjectCount: number;
+  totalUnitCount: number;
+  totalLotCount: number;
+  totalPermitCount: number;
+  // fix-192: permits this person touches ONLY as a delegate (dual_da, a
+  // secondary permit's da, or a divergent permit ent_lead) — NO lot/unit
+  // credit, measured purely by count.
+  delegatePermitCount: number;
   // Phase — averages across associate's permits (per the includeRedesigns
   // filter — when false, only original-project permits contribute). Null
   // when no permits in the cohort had the underlying day pair.
@@ -144,7 +161,6 @@ export function computeTeamMetrics(
   const projectsById = new Map<string, Project>();
   for (const p of projects) projectsById.set(p.id, p);
 
-  const field = fieldFor(filters.role);
   const targetRoles = rolesMatchingSelection(filters.role);
   // Build a name → TeamMember map. The DB has duplicate names across
   // role variants (e.g. Bobby is both 'ent' and 'ent_lead'); prefer
@@ -183,37 +199,15 @@ export function computeTeamMetrics(
     return true;
   };
 
-  // Group permits by associate name. Each group splits into original
-  // vs redesign sides based on the project's redesign_of_project_id.
-  interface Bucket {
-    original: PermitWithCycles[];
-    redesign: PermitWithCycles[];
-    originalProjectIds: Set<string>;
-    redesignProjectIds: Set<string>;
-  }
-  const buckets = new Map<string, Bucket>();
-  for (const permit of permits) {
-    const name = (permit[field] ?? '').trim();
-    if (!name) continue;
-    const proj = projectsById.get(permit.project_id);
-    if (!proj) continue;
-    if (!projectInWindow(proj)) continue;
-    const isRedesign = !!proj.redesign_of_project_id;
-    const bucket = buckets.get(name) ?? {
-      original: [],
-      redesign: [],
-      originalProjectIds: new Set(),
-      redesignProjectIds: new Set(),
-    };
-    if (isRedesign) {
-      bucket.redesign.push(permit);
-      bucket.redesignProjectIds.add(proj.id);
-    } else {
-      bucket.original.push(permit);
-      bucket.originalProjectIds.add(proj.id);
-    }
-    buckets.set(name, bucket);
-  }
+  // fix-192: per-associate attribution via the ONE canonical rule
+  // (volumeAttribution). Lead credit (project + volume + permits) goes only to
+  // the project's holistic owner; delegates accrue a permit count, no volume.
+  // Each project — original AND redesign — is credited on its own (accumulation).
+  const buckets: Map<string, PersonAttribution> = attributePersonVolume(
+    permits,
+    projects,
+    { role: filters.role, includeProject: projectInWindow },
+  );
 
   // Compute volume counts on the project IDs, NOT on the permits — a
   // project with 2 permits should only contribute its units/lots once.
@@ -252,10 +246,11 @@ export function computeTeamMetrics(
 
     if (filters.activeOnly && !isActive) continue;
 
-    // Pick which permits feed phase metrics.
+    // Pick which permits feed phase metrics — the LEAD's owned-project permits
+    // (delegate permits never feed phase timing, only the count).
     const phasePermits = filters.includeRedesigns
-      ? [...bucket.original, ...bucket.redesign]
-      : bucket.original;
+      ? [...bucket.leadOriginalPermits, ...bucket.leadRedesignPermits]
+      : bucket.leadOriginalPermits;
 
     const ddDays: number[] = [];
     const cityReviewDays: number[] = [];
@@ -275,18 +270,35 @@ export function computeTeamMetrics(
       if (iss !== null && iss >= 0) issuanceDays.push(iss);
     }
 
+    const projectCount = bucket.originalProjectIds.size;
+    const unitCount = sumByIds(bucket.originalProjectIds, (p) => p.units);
+    const lotCount = sumByIds(bucket.originalProjectIds, (p) => p.num_lots);
+    const permitCount = bucket.leadOriginalPermits.length;
+    const redesignProjectCount = bucket.redesignProjectIds.size;
+    const redesignUnitCount = sumByIds(bucket.redesignProjectIds, (p) => p.units);
+    const redesignLotCount = sumByIds(bucket.redesignProjectIds, (p) => p.num_lots);
+    const redesignPermitCount = bucket.leadRedesignPermits.length;
+
     rows.push({
       name,
       role: filters.role,
       isActive,
-      projectCount: bucket.originalProjectIds.size,
-      unitCount: sumByIds(bucket.originalProjectIds, (p) => p.units),
-      lotCount: sumByIds(bucket.originalProjectIds, (p) => p.num_lots),
-      permitCount: bucket.original.length,
-      redesignProjectCount: bucket.redesignProjectIds.size,
-      redesignUnitCount: sumByIds(bucket.redesignProjectIds, (p) => p.units),
-      redesignLotCount: sumByIds(bucket.redesignProjectIds, (p) => p.num_lots),
-      redesignPermitCount: bucket.redesign.length,
+      projectCount,
+      unitCount,
+      lotCount,
+      permitCount,
+      redesignProjectCount,
+      redesignUnitCount,
+      redesignLotCount,
+      redesignPermitCount,
+      // fix-192: accumulated totals — a redesign's volume counts AGAIN on top
+      // of the original, never deduped back.
+      totalProjectCount: projectCount + redesignProjectCount,
+      totalUnitCount: unitCount + redesignUnitCount,
+      totalLotCount: lotCount + redesignLotCount,
+      totalPermitCount: permitCount + redesignPermitCount,
+      // fix-192: delegate-only permit count (no lot/unit credit).
+      delegatePermitCount: bucket.delegatePermitIds.size,
       avgDdDays: avgOrNull(ddDays),
       avgCityReviewDays: avgOrNull(cityReviewDays),
       avgCorrectionsCycles: avgOrNull(correctionsCycles),
@@ -308,10 +320,11 @@ export function computeTeamMetrics(
     return avgOrNull(values);
   };
 
-  // Default sort: projects desc, then name asc as tiebreaker.
+  // Default sort: accumulated total projects desc (fix-192 — the headline
+  // volume), then name asc as tiebreaker.
   rows.sort((a, b) => {
-    if (a.projectCount !== b.projectCount) {
-      return b.projectCount - a.projectCount;
+    if (a.totalProjectCount !== b.totalProjectCount) {
+      return b.totalProjectCount - a.totalProjectCount;
     }
     return a.name.localeCompare(b.name);
   });
