@@ -18,7 +18,9 @@ export function useQuarterLayout(quarter: string | null) {
       const { data, error } = await supabase
         .from('draw_schedule_quarter_layout')
         .select(
-          'id, quarter, position, col_kind, da_name, group_label, label_override, updated_at',
+          // fix-190c: include top_label (fix-190b added the column + render but
+          // the select omitted it, so the editor/grid never received it).
+          'id, quarter, position, col_kind, da_name, group_label, label_override, top_label, updated_at',
         )
         .eq('quarter', quarter as string)
         .order('position', { ascending: true });

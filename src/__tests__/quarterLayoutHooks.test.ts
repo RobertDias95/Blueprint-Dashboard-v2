@@ -47,6 +47,11 @@ import {
   useAppendQuarterLayoutColumn,
   useInsertQuarterLayoutColumn,
 } from '../hooks/useAddQuarterLayoutColumn';
+import {
+  useReplaceQuarterLayout,
+  isReplaceConflict,
+  layoutFingerprint,
+} from '../hooks/useReplaceQuarterLayout';
 
 function wrapper({ children }: { children: ReactNode }) {
   const qc = new QueryClient({
@@ -282,5 +287,62 @@ describe('useAppendQuarterLayoutColumn / useInsertQuarterLayoutColumn (fix-182d)
       p_at_position: 1,
       p_col: expect.objectContaining({ col_kind: 'open' }),
     });
+  });
+});
+
+// fix-190c: atomic whole-quarter replace (the Save path).
+describe('useReplaceQuarterLayout + helpers (fix-190c)', () => {
+  it('wires bp_replace_quarter_layout with quarter, rows array, + expected fingerprint', async () => {
+    mocks.setResult({ data: 3, error: null });
+    const { result } = renderHook(() => useReplaceQuarterLayout(), { wrapper });
+    const rows = [
+      { col_kind: 'da' as const, da_name: 'Marc', group_label: 'Brittani', label_override: null, top_label: 'Miles' },
+      { col_kind: 'open' as const, da_name: null, group_label: null, label_override: 'OPEN', top_label: null },
+    ];
+    let count = -1;
+    await act(async () => {
+      count = await result.current.mutateAsync({
+        quarter: '2026-Q2',
+        rows,
+        expectedFingerprint: NOW,
+      });
+    });
+    expect(count).toBe(3);
+    expect(mocks.rpcFn).toHaveBeenCalledWith('bp_replace_quarter_layout', {
+      p_quarter: '2026-Q2',
+      p_rows: rows,
+      p_expected_fingerprint: NOW,
+    });
+  });
+
+  it('passes a null fingerprint through (skip OCC for an empty baseline)', async () => {
+    mocks.setResult({ data: 0, error: null });
+    const { result } = renderHook(() => useReplaceQuarterLayout(), { wrapper });
+    await act(async () => {
+      await result.current.mutateAsync({ quarter: '2026-Q2', rows: [], expectedFingerprint: null });
+    });
+    expect(mocks.rpcFn).toHaveBeenCalledWith('bp_replace_quarter_layout', {
+      p_quarter: '2026-Q2',
+      p_rows: [],
+      p_expected_fingerprint: null,
+    });
+  });
+
+  it('isReplaceConflict detects SQLSTATE 40001 only', () => {
+    expect(isReplaceConflict({ code: '40001', message: 'x' })).toBe(true);
+    expect(isReplaceConflict({ code: '23505' })).toBe(false);
+    expect(isReplaceConflict(new Error('nope'))).toBe(false);
+    expect(isReplaceConflict(null)).toBe(false);
+  });
+
+  it('layoutFingerprint returns max(updated_at), or null when empty', () => {
+    expect(layoutFingerprint([])).toBeNull();
+    expect(
+      layoutFingerprint([
+        { updated_at: '2026-06-01T00:00:00Z' },
+        { updated_at: '2026-06-23T10:00:00Z' },
+        { updated_at: '2026-06-10T00:00:00Z' },
+      ]),
+    ).toBe('2026-06-23T10:00:00Z');
   });
 });

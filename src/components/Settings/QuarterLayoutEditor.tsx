@@ -1,4 +1,5 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { useBlocker } from 'react-router-dom';
 import {
   DndContext,
   closestCenter,
@@ -18,46 +19,109 @@ import { CSS } from '@dnd-kit/utilities';
 import type { TeamMember, DrawScheduleQuarterLayoutRow } from '../../lib/database.types';
 import { deriveGroupSpans } from '../../lib/quarterLayoutHelpers';
 import { useQuarterLayout } from '../../hooks/useQuarterLayout';
-import { useUpsertQuarterLayoutRow } from '../../hooks/useUpsertQuarterLayoutRow';
-import { useDeleteQuarterLayoutRow } from '../../hooks/useDeleteQuarterLayoutRow';
-import {
-  reorderLayoutIds,
-  useReorderQuarterLayout,
-} from '../../hooks/useReorderQuarterLayout';
+import { reorderLayoutIds } from '../../hooks/useReorderQuarterLayout';
 import {
   useCloneQuarterLayout,
   useSeedQuarterLayoutFromCurrent,
 } from '../../hooks/useBuildQuarterLayout';
-import { useAppendQuarterLayoutColumn } from '../../hooks/useAddQuarterLayoutColumn';
+import {
+  useReplaceQuarterLayout,
+  isReplaceConflict,
+  layoutFingerprint,
+  type ReplaceColumn,
+} from '../../hooks/useReplaceQuarterLayout';
 import {
   buildQuarterOptions,
   isMemberActiveInQuarter,
   quarterOffsetToString,
   quarterStringToOffset,
 } from '../../lib/teamQuarterHelpers';
+import { pushToast } from '../../stores/toastStore';
 import { SkeletonRows } from '../Skeleton';
 import QueryError from '../QueryError';
 
 // fix-182b: per-quarter Draw Schedule column-layout editor (Settings → Team).
 // Builds/edits the saved column order for a quarter so historical quarters can
-// be backfilled and future ones arranged. NOTHING here affects the live grid
-// yet — Phase C wires the render. Reads/writes draw_schedule_quarter_layout via
-// the Phase A RPCs (+ the Phase B seed helper).
+// be backfilled and future ones arranged.
 //
-// Each column is a DA (col_kind='da') or an OPEN placeholder lane
-// (col_kind='open', no person). A free-text group_label is the manager header
-// spanning the contiguous run of columns sharing it (blank = standalone). The
-// preview strip mirrors the grid's span logic so the admin sees the grouping.
+// fix-190c: edits are BUFFERED. The editor copies the loaded server rows into a
+// local DRAFT; every change (field edit, type/DA/DM/group/top, add, delete,
+// drag-reorder) mutates the draft ONLY — no RPC. The whole quarter persists
+// atomically on an explicit Save (bp_replace_quarter_layout), and the user is
+// warned before leaving a quarter (or the page) with unsaved changes. This
+// fixes the bug where sitting on the wrong quarter silently rewrote it via the
+// old per-edit RPC writes.
+//
+// Each column is a DA (col_kind='da'), a solo DM (col_kind='dm', fix-190a), or
+// an OPEN placeholder lane (col_kind='open', no person). group_label is the
+// manager header; top_label (fix-190b) is the regional/ent tier above it.
 
 interface Props {
   /** role='da' members (active + former) for the DA dropdown. */
   das: TeamMember[];
-  /** role='dm' members — datalist suggestions for the group header field. */
+  /** role='dm' members — DM dropdown + group-header datalist. */
   dms: TeamMember[];
-  /** fix-190b: role='ent' members — datalist suggestions for the top-tier
-   *  (regional/ent) header field, alongside the DMs. Optional (defaults []). */
+  /** fix-190b: role='ent' members — top-tier datalist suggestions. Optional. */
   ents?: TeamMember[];
   readOnly?: boolean;
+}
+
+/** A column being edited locally. Mirrors the persisted column fields; `id` is
+ *  the server row id for loaded rows or a synthetic `tmp-N` for added ones
+ *  (used only for React keys + drag identity — never sent to the server). */
+interface DraftRow {
+  id: string;
+  col_kind: DrawScheduleQuarterLayoutRow['col_kind'];
+  da_name: string | null;
+  group_label: string | null;
+  label_override: string | null;
+  top_label: string | null;
+}
+
+function toDraftRow(r: DrawScheduleQuarterLayoutRow): DraftRow {
+  return {
+    id: r.id,
+    col_kind: r.col_kind,
+    da_name: r.da_name,
+    group_label: r.group_label,
+    label_override: r.label_override,
+    top_label: r.top_label,
+  };
+}
+
+/** Normalize a text field for comparison/save: trimmed, blank → null. */
+function blankToNull(s: string | null): string | null {
+  const t = (s ?? '').trim();
+  return t === '' ? null : t;
+}
+
+function toReplaceColumn(r: DraftRow): ReplaceColumn {
+  return {
+    col_kind: r.col_kind,
+    da_name: blankToNull(r.da_name),
+    group_label: blankToNull(r.group_label),
+    label_override: blankToNull(r.label_override),
+    top_label: blankToNull(r.top_label),
+  };
+}
+
+/** Order-sensitive content signature (ignores ids/positions/updated_at) used for
+ *  the dirty check. Normalizes text fields so "  " vs null isn't a phantom diff. */
+function rowsSig(
+  rows: Pick<
+    DraftRow,
+    'col_kind' | 'da_name' | 'group_label' | 'label_override' | 'top_label'
+  >[],
+): string {
+  return JSON.stringify(
+    rows.map((r) => [
+      r.col_kind,
+      (r.da_name ?? '').trim(),
+      (r.group_label ?? '').trim(),
+      (r.label_override ?? '').trim(),
+      (r.top_label ?? '').trim(),
+    ]),
+  );
 }
 
 export default function QuarterLayoutEditor({ das, dms, ents = [], readOnly = false }: Props) {
@@ -65,63 +129,79 @@ export default function QuarterLayoutEditor({ das, dms, ents = [], readOnly = fa
   const [quarter, setQuarter] = useState<string>(() => quarterOffsetToString(0));
 
   const layoutQ = useQuarterLayout(quarter);
-  const upsert = useUpsertQuarterLayoutRow();
-  const remove = useDeleteQuarterLayoutRow();
-  const reorder = useReorderQuarterLayout();
   const clone = useCloneQuarterLayout();
   const seed = useSeedQuarterLayoutFromCurrent();
-  const append = useAppendQuarterLayoutColumn();
+  const replace = useReplaceQuarterLayout();
 
   const sensors = useSensors(
     useSensor(PointerSensor),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
   );
 
-  const rows = layoutQ.rows;
-  const groupSpans = useMemo(() => deriveGroupSpans(rows), [rows]);
+  // fix-190c: local draft + the loaded snapshot signature / OCC fingerprint.
+  const serverRows = layoutQ.rows;
+  const [draft, setDraft] = useState<DraftRow[]>([]);
+  // The loaded server snapshot's content signature. State (not a ref) so the
+  // dirty check can read it during render without tripping the no-refs-in-render
+  // rule, and so adopting a new snapshot re-renders the dirty UI.
+  const [snapshotSig, setSnapshotSig] = useState<string>(() => rowsSig([]));
+  const [loadedFingerprint, setLoadedFingerprint] = useState<string | null>(null);
+  const tmpCounter = useRef(0);
+
+  // Adopt server rows into the draft on quarter switch (always) or when a fresh
+  // fetch lands while the draft is clean (post-save / clone / seed / refetch).
+  // A dirty draft is NOT clobbered by a background refetch.
+  const prevQuarterRef = useRef<string | null>(null);
+  const prevDataUpdatedAtRef = useRef<number>(0);
+  function adoptServer(rows: DrawScheduleQuarterLayoutRow[]) {
+    setDraft(rows.map(toDraftRow));
+    setSnapshotSig(rowsSig(rows));
+    setLoadedFingerprint(layoutFingerprint(rows));
+  }
+  useEffect(() => {
+    const quarterChanged = prevQuarterRef.current !== quarter;
+    const dataChanged = layoutQ.dataUpdatedAt !== prevDataUpdatedAtRef.current;
+    if (!quarterChanged && !dataChanged) return;
+    const clean = rowsSig(draft) === snapshotSig;
+    if (quarterChanged || clean) adoptServer(serverRows);
+    prevQuarterRef.current = quarter;
+    prevDataUpdatedAtRef.current = layoutQ.dataUpdatedAt;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [quarter, layoutQ.dataUpdatedAt, serverRows, draft]);
+
+  const dirty = !readOnly && rowsSig(draft) !== snapshotSig;
+
+  const groupSpans = useMemo(() => deriveGroupSpans(draft), [draft]);
   const prevQuarter = useMemo(
     () => quarterOffsetToString(quarterStringToOffset(quarter) - 1),
     [quarter],
   );
 
-  // DA dropdown options: every role='da' name, plus any name already on a
-  // column this quarter (so a departed DA on a backfilled quarter still shows).
+  // Dropdown / datalist options: roster names + whatever the DRAFT already uses
+  // (so a departed person on a backfilled quarter still shows).
   const daNames = useMemo(() => {
     const s = new Set<string>(das.map((d) => d.name));
-    for (const r of rows) if (r.da_name) s.add(r.da_name);
+    for (const r of draft) if (r.da_name) s.add(r.da_name);
     return Array.from(s).sort((a, b) => a.localeCompare(b));
-  }, [das, rows]);
-
-  // Group-header suggestions: DM names + group_labels already in use.
+  }, [das, draft]);
   const groupSuggestions = useMemo(() => {
     const s = new Set<string>(dms.map((d) => d.name));
-    for (const r of rows) if (r.group_label) s.add(r.group_label);
+    for (const r of draft) if (r.group_label) s.add(r.group_label);
     return Array.from(s).sort((a, b) => a.localeCompare(b));
-  }, [dms, rows]);
-
-  // fix-190b: top-tier (regional/ent) datalist suggestions — ent leads + DMs +
-  // any top_label already in use. Values are free text (e.g.
-  // "Miles, WA | Briana, AZ"); the datalist is just convenience.
+  }, [dms, draft]);
   const topSuggestions = useMemo(() => {
     const s = new Set<string>();
     for (const e of ents) s.add(e.name);
     for (const d of dms) s.add(d.name);
-    for (const r of rows) if (r.top_label) s.add(r.top_label);
+    for (const r of draft) if (r.top_label) s.add(r.top_label);
     return Array.from(s).sort((a, b) => a.localeCompare(b));
-  }, [ents, dms, rows]);
-
-  // fix-190a: DM dropdown options for solo-DM columns — every role='dm' name,
-  // plus any name already on a 'dm' column this quarter (so a departed DM on a
-  // backfilled quarter still shows).
+  }, [ents, dms, draft]);
   const dmNames = useMemo(() => {
     const s = new Set<string>(dms.map((d) => d.name));
-    for (const r of rows) if (r.col_kind === 'dm' && r.da_name) s.add(r.da_name);
+    for (const r of draft) if (r.col_kind === 'dm' && r.da_name) s.add(r.da_name);
     return Array.from(s).sort((a, b) => a.localeCompare(b));
-  }, [dms, rows]);
+  }, [dms, draft]);
 
-  // fix-183: which DAs are inactive (per active-quarters) in the selected
-  // quarter — so the editor flags a column the grid would dim, keeping the two
-  // in agreement. A DA with no team_members row defaults active.
   const inactiveDaNames = useMemo(() => {
     const s = new Set<string>();
     for (const d of das) {
@@ -139,62 +219,132 @@ export default function QuarterLayoutEditor({ das, dms, ents = [], readOnly = fa
     return s;
   }, [das, quarter]);
 
+  // ---- draft mutators (no RPC) -------------------------------------------
+  function patchRow(id: string, patch: Partial<DraftRow>) {
+    setDraft((d) => d.map((r) => (r.id === id ? { ...r, ...patch } : r)));
+  }
+  function removeRow(id: string) {
+    setDraft((d) => d.filter((r) => r.id !== id));
+  }
+  function appendRow(col: Omit<DraftRow, 'id'>) {
+    tmpCounter.current += 1;
+    setDraft((d) => [...d, { id: `tmp-${tmpCounter.current}`, ...col }]);
+  }
+  function reorderDraft(activeId: string, overId: string) {
+    setDraft((d) => {
+      const ids = reorderLayoutIds(d.map((r) => r.id), activeId, overId);
+      const byId = new Map(d.map((r) => [r.id, r]));
+      return ids.map((id) => byId.get(id)!);
+    });
+  }
+
   function handleDragEnd(e: DragEndEvent) {
     const { active, over } = e;
     if (!over || active.id === over.id) return;
-    const next = reorderLayoutIds(
-      rows.map((r) => r.id),
-      String(active.id),
-      String(over.id),
-    );
-    reorder.mutate({ quarter, ids: next });
+    reorderDraft(String(active.id), String(over.id));
   }
 
-  // fix-182d: adds ALWAYS append server-side (position computed in the RPC),
-  // never from rows.length — this is what prevents the rapid-double-add
-  // duplicate-key collision.
   function addDaColumn(daName: string) {
     if (!daName) return;
-    append.mutate({
-      quarter,
-      col: { col_kind: 'da', da_name: daName, group_label: null, label_override: null },
-    });
+    appendRow({ col_kind: 'da', da_name: daName, group_label: null, label_override: null, top_label: null });
   }
-
-  // fix-190a: a solo-DM column — the DM's name is both the lane owner (da_name,
-  // for block matching) and the manager header (group_label) over its 1-wide column.
   function addDmColumn(dmName: string) {
     if (!dmName) return;
-    append.mutate({
-      quarter,
-      col: { col_kind: 'dm', da_name: dmName, group_label: dmName, label_override: null },
-    });
+    appendRow({ col_kind: 'dm', da_name: dmName, group_label: dmName, label_override: null, top_label: null });
+  }
+  function addOpenLane() {
+    appendRow({ col_kind: 'open', da_name: null, group_label: null, label_override: 'OPEN', top_label: null });
   }
 
-  function addOpenLane() {
-    append.mutate({
-      quarter,
-      col: { col_kind: 'open', da_name: null, group_label: null, label_override: 'OPEN' },
-    });
+  // ---- save / discard -----------------------------------------------------
+  function handleSave() {
+    replace.mutate(
+      {
+        quarter,
+        rows: draft.map(toReplaceColumn),
+        expectedFingerprint: loadedFingerprint,
+      },
+      {
+        onSuccess: async () => {
+          pushToast('Saved Draw Schedule layout', 'success');
+          // Adopt the freshly-saved server state as the new snapshot (new
+          // updated_at → new OCC fingerprint) so the draft is clean again. The
+          // adopt-effect's clean-gate won't do this on its own — the draft still
+          // differs from the OLD snapshot until we reset it here.
+          const res = await layoutQ.refetch();
+          adoptServer(res.data ?? []);
+        },
+        onError: async (err) => {
+          if (isReplaceConflict(err)) {
+            pushToast(
+              `${quarter} changed elsewhere — reloaded the latest version`,
+              'warn',
+            );
+            const res = await layoutQ.refetch();
+            adoptServer(res.data ?? []);
+          } else {
+            pushToast(`Could not save layout — ${err.message}`, 'error');
+          }
+        },
+      },
+    );
   }
+  function handleDiscard() {
+    adoptServer(serverRows);
+  }
+
+  // ---- unsaved-changes guards --------------------------------------------
+  // (a) quarter switch while dirty → confirm; cancel keeps the current quarter.
+  function handleQuarterChange(next: string) {
+    if (next === quarter) return;
+    if (dirty && !window.confirm(`Discard unsaved changes to ${quarter}?`)) {
+      return; // controlled <select> snaps back to `quarter`
+    }
+    setQuarter(next);
+  }
+  // (b) tab close / reload while dirty.
+  useEffect(() => {
+    if (!dirty) return;
+    const handler = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = '';
+    };
+    window.addEventListener('beforeunload', handler);
+    return () => window.removeEventListener('beforeunload', handler);
+  }, [dirty]);
+  // (c) in-app route change while dirty (data router → useBlocker).
+  const blocker = useBlocker(
+    ({ currentLocation, nextLocation }) =>
+      dirty && currentLocation.pathname !== nextLocation.pathname,
+  );
+  useEffect(() => {
+    if (blocker.state !== 'blocked') return;
+    if (window.confirm('Discard unsaved Draw Schedule layout changes?')) {
+      blocker.proceed();
+    } else {
+      blocker.reset();
+    }
+  }, [blocker]);
+
+  const showBootstrap = draft.length === 0 && !dirty;
 
   return (
     <div className="space-y-3" data-testid="quarter-layout-editor">
       <p className="text-xs text-muted">
         Build a saved column layout for a specific quarter — column order,
-        manager grouping, and OPEN placeholder lanes. This does not change the
-        live Draw Schedule yet; it captures how a quarter should look so past
-        quarters can be reproduced exactly.
+        manager grouping, OPEN placeholder lanes, and the regional/ent top tier.
+        Changes are staged locally and only take effect when you press{' '}
+        <span className="font-bold text-text">Save</span>.
       </p>
 
-      {/* Quarter picker */}
-      <div className="flex items-center gap-2">
+      {/* Quarter picker + Save/Discard toolbar. */}
+      <div className="flex items-center flex-wrap gap-2">
         <label className="text-[10px] uppercase tracking-wide text-dim">
           Quarter
         </label>
         <select
           value={quarter}
-          onChange={(e) => setQuarter(e.target.value)}
+          onChange={(e) => handleQuarterChange(e.target.value)}
           className="text-xs px-2 py-1 border border-border rounded bg-bg text-text"
           data-testid="ql-quarter-select"
         >
@@ -204,6 +354,37 @@ export default function QuarterLayoutEditor({ das, dms, ents = [], readOnly = fa
             </option>
           ))}
         </select>
+        <span className="text-sm font-bold text-text" data-testid="ql-quarter-label">
+          {quarter}
+        </span>
+        {dirty && (
+          <span
+            className="text-[10px] font-bold text-co whitespace-nowrap"
+            data-testid="ql-unsaved-indicator"
+          >
+            ● Unsaved changes
+          </span>
+        )}
+        {!readOnly && (
+          <div className="flex items-center gap-2 ml-auto">
+            <button
+              onClick={handleDiscard}
+              disabled={!dirty || replace.isPending}
+              className="px-3 py-1 text-xs rounded-md border border-border bg-bg text-dim font-display disabled:opacity-40"
+              data-testid="ql-discard"
+            >
+              Discard
+            </button>
+            <button
+              onClick={handleSave}
+              disabled={!dirty || replace.isPending}
+              className="px-3 py-1.5 text-xs rounded-md border border-de bg-de text-white font-display font-bold disabled:opacity-40"
+              data-testid="ql-save"
+            >
+              {replace.isPending ? 'Saving…' : 'Save'}
+            </button>
+          </div>
+        )}
       </div>
 
       {layoutQ.error ? (
@@ -214,15 +395,13 @@ export default function QuarterLayoutEditor({ das, dms, ents = [], readOnly = fa
         />
       ) : layoutQ.isLoading ? (
         <SkeletonRows count={3} rowClassName="h-9" />
-      ) : rows.length === 0 ? (
+      ) : showBootstrap ? (
         <EmptyState
           quarter={quarter}
           prevQuarter={prevQuarter}
           readOnly={readOnly}
           busy={clone.isPending || seed.isPending}
-          onDuplicatePrev={() =>
-            clone.mutate({ from: prevQuarter, to: quarter })
-          }
+          onDuplicatePrev={() => clone.mutate({ from: prevQuarter, to: quarter })}
           onSeedCurrent={() => seed.mutate({ quarter })}
         />
       ) : (
@@ -248,14 +427,11 @@ export default function QuarterLayoutEditor({ das, dms, ents = [], readOnly = fa
             ))}
           </div>
 
-          {/* Single shared datalist for every row's manager-header field. */}
           <datalist id="ql-group-suggestions">
             {groupSuggestions.map((g) => (
               <option key={g} value={g} />
             ))}
           </datalist>
-
-          {/* fix-190b: shared datalist for the top-tier (regional/ent) field. */}
           <datalist id="ql-top-suggestions">
             {topSuggestions.map((t) => (
               <option key={t} value={t} />
@@ -268,11 +444,11 @@ export default function QuarterLayoutEditor({ das, dms, ents = [], readOnly = fa
             onDragEnd={handleDragEnd}
           >
             <SortableContext
-              items={rows.map((r) => r.id)}
+              items={draft.map((r) => r.id)}
               strategy={verticalListSortingStrategy}
             >
               <div className="space-y-1.5">
-                {rows.map((row) => (
+                {draft.map((row) => (
                   <ColumnRow
                     key={row.id}
                     row={row}
@@ -287,85 +463,39 @@ export default function QuarterLayoutEditor({ das, dms, ents = [], readOnly = fa
                     onChangeType={(kind) => {
                       if (kind === row.col_kind) return;
                       if (kind === 'open') {
-                        upsert.mutate({
-                          op: 'update',
-                          row,
-                          patch: { col_kind: 'open', da_name: null },
-                        });
+                        patchRow(row.id, { col_kind: 'open', da_name: null });
                       } else if (kind === 'da') {
-                        // Keep the current name if it's a valid DA; else default
-                        // to the first DA so the row stays constraint-valid.
                         const da =
                           row.da_name && daNames.includes(row.da_name)
                             ? row.da_name
                             : daNames[0];
-                        if (da) {
-                          upsert.mutate({
-                            op: 'update',
-                            row,
-                            patch: { col_kind: 'da', da_name: da },
-                          });
-                        }
+                        if (da) patchRow(row.id, { col_kind: 'da', da_name: da });
                       } else {
-                        // fix-190a: → solo DM. Default the lane owner + manager
-                        // header to a DM so the row is immediately valid.
                         const dm =
                           row.da_name && dmNames.includes(row.da_name)
                             ? row.da_name
                             : dmNames[0];
                         if (dm) {
-                          upsert.mutate({
-                            op: 'update',
-                            row,
-                            patch: { col_kind: 'dm', da_name: dm, group_label: dm },
+                          patchRow(row.id, {
+                            col_kind: 'dm',
+                            da_name: dm,
+                            group_label: dm,
                           });
                         }
                       }
                     }}
                     onChangeDm={(dm) =>
-                      (dm !== row.da_name || row.col_kind !== 'dm') &&
-                      // fix-190a: picking a DM sets the lane owner AND the
-                      // 1-wide manager header to that DM.
-                      upsert.mutate({
-                        op: 'update',
-                        row,
-                        patch: { col_kind: 'dm', da_name: dm, group_label: dm },
+                      patchRow(row.id, {
+                        col_kind: 'dm',
+                        da_name: dm,
+                        group_label: dm,
                       })
                     }
-                    onChangeDa={(da) =>
-                      da !== row.da_name &&
-                      upsert.mutate({ op: 'update', row, patch: { da_name: da } })
-                    }
-                    onChangeGroup={(label) => {
-                      const next = label.trim() === '' ? null : label.trim();
-                      if (next !== row.group_label) {
-                        upsert.mutate({ op: 'update', row, patch: { group_label: next } });
-                      }
-                    }}
-                    onChangeTop={(label) => {
-                      // fix-190b: empty = NULL = no top header for this column.
-                      const next = label.trim() === '' ? null : label.trim();
-                      if (next !== row.top_label) {
-                        upsert.mutate({ op: 'update', row, patch: { top_label: next } });
-                      }
-                    }}
-                    onChangeLabel={(label) => {
-                      const next = label.trim() === '' ? null : label.trim();
-                      if (next !== row.label_override) {
-                        upsert.mutate({
-                          op: 'update',
-                          row,
-                          patch: { label_override: next },
-                        });
-                      }
-                    }}
-                    onRemove={() =>
-                      remove.mutate({
-                        id: row.id,
-                        updated_at: row.updated_at,
-                        quarter,
-                      })
-                    }
+                    onChangeDa={(da) => patchRow(row.id, { da_name: da })}
+                    onChangeGroup={(label) => patchRow(row.id, { group_label: label })}
+                    onChangeTop={(label) => patchRow(row.id, { top_label: label })}
+                    onChangeLabel={(label) => patchRow(row.id, { label_override: label })}
+                    onRemove={() => removeRow(row.id)}
                   />
                 ))}
               </div>
@@ -379,7 +509,6 @@ export default function QuarterLayoutEditor({ das, dms, ents = [], readOnly = fa
               onAddDa={addDaColumn}
               onAddDm={addDmColumn}
               onAddOpen={addOpenLane}
-              disabled={append.isPending}
             />
           )}
         </>
@@ -447,20 +576,17 @@ function AddControls({
   onAddDa,
   onAddDm,
   onAddOpen,
-  disabled,
 }: {
   daNames: string[];
   dmNames: string[];
   onAddDa: (da: string) => void;
   onAddDm: (dm: string) => void;
   onAddOpen: () => void;
-  disabled: boolean;
 }) {
   return (
     <div className="flex flex-wrap gap-2 pt-1">
       <select
         defaultValue=""
-        disabled={disabled}
         onChange={(e) => {
           const v = e.target.value;
           if (v) {
@@ -468,7 +594,7 @@ function AddControls({
             e.currentTarget.value = '';
           }
         }}
-        className="text-xs px-2 py-1 border border-border rounded bg-bg text-text disabled:opacity-50"
+        className="text-xs px-2 py-1 border border-border rounded bg-bg text-text"
         data-testid="ql-add-da-select"
       >
         <option value="">+ Add DA column…</option>
@@ -481,7 +607,7 @@ function AddControls({
       {/* fix-190a: add a solo-DM column (a DM working a lane with no DA beneath). */}
       <select
         defaultValue=""
-        disabled={disabled || dmNames.length === 0}
+        disabled={dmNames.length === 0}
         onChange={(e) => {
           const v = e.target.value;
           if (v) {
@@ -501,8 +627,7 @@ function AddControls({
       </select>
       <button
         onClick={onAddOpen}
-        disabled={disabled}
-        className="px-3 py-1 text-xs rounded-md border border-border bg-bg text-dim font-display disabled:opacity-50"
+        className="px-3 py-1 text-xs rounded-md border border-border bg-bg text-dim font-display"
         data-testid="ql-add-open"
       >
         + Insert OPEN lane
@@ -525,12 +650,12 @@ function ColumnRow({
   onChangeLabel,
   onRemove,
 }: {
-  row: DrawScheduleQuarterLayoutRow;
+  row: DraftRow;
   readOnly: boolean;
   daNames: string[];
   dmNames: string[];
   inactiveInQuarter: boolean;
-  onChangeType: (kind: DrawScheduleQuarterLayoutRow['col_kind']) => void;
+  onChangeType: (kind: DraftRow['col_kind']) => void;
   onChangeDa: (da: string) => void;
   onChangeDm: (dm: string) => void;
   onChangeGroup: (label: string) => void;
@@ -579,9 +704,7 @@ function ColumnRow({
       <select
         value={row.col_kind}
         disabled={readOnly}
-        onChange={(e) =>
-          onChangeType(e.target.value as DrawScheduleQuarterLayoutRow['col_kind'])
-        }
+        onChange={(e) => onChangeType(e.target.value as DraftRow['col_kind'])}
         className={`text-[9px] uppercase font-bold px-1 py-1 rounded border border-border bg-bg disabled:opacity-50 ${
           isOpen ? 'text-dim' : 'text-co'
         }`}
@@ -593,8 +716,6 @@ function ColumnRow({
         <option value="open">OPEN</option>
       </select>
 
-      {/* fix-183: flag a column whose DA isn't on the team in this quarter, so
-          the editor agrees with the dimmed grid column. */}
       {inactiveInQuarter && (
         <span
           className="text-[9px] uppercase tracking-wide text-co font-bold whitespace-nowrap"
@@ -607,11 +728,10 @@ function ColumnRow({
 
       {isOpen ? (
         <input
-          key={row.updated_at}
-          defaultValue={row.label_override ?? ''}
+          value={row.label_override ?? ''}
           placeholder="OPEN"
           disabled={readOnly}
-          onBlur={(e) => onChangeLabel(e.target.value)}
+          onChange={(e) => onChangeLabel(e.target.value)}
           className="text-xs px-2 py-1 border border-border rounded bg-bg text-text flex-1 min-w-0 disabled:opacity-50"
           data-testid={`ql-label-${row.id}`}
         />
@@ -646,24 +766,22 @@ function ColumnRow({
       )}
 
       <input
-        key={`grp-${row.updated_at}`}
         list="ql-group-suggestions"
-        defaultValue={row.group_label ?? ''}
+        value={row.group_label ?? ''}
         placeholder="Manager (blank = standalone)"
         disabled={readOnly}
-        onBlur={(e) => onChangeGroup(e.target.value)}
+        onChange={(e) => onChangeGroup(e.target.value)}
         className="text-xs px-2 py-1 border border-border rounded bg-bg text-text flex-1 min-w-0 disabled:opacity-50"
         data-testid={`ql-group-${row.id}`}
       />
 
       {/* fix-190b: top-tier (regional/ent) header — free text; blank = none. */}
       <input
-        key={`top-${row.updated_at}`}
         list="ql-top-suggestions"
-        defaultValue={row.top_label ?? ''}
+        value={row.top_label ?? ''}
         placeholder="Top tier (blank = none)"
         disabled={readOnly}
-        onBlur={(e) => onChangeTop(e.target.value)}
+        onChange={(e) => onChangeTop(e.target.value)}
         className="text-xs px-2 py-1 border border-border rounded bg-bg text-text flex-1 min-w-0 disabled:opacity-50"
         data-testid={`ql-top-${row.id}`}
       />
