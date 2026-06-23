@@ -35,9 +35,12 @@ export function deriveGroupSpans(
 /** One rendered grid column. */
 export interface RenderCol {
   key: string;
-  /** null = OPEN placeholder lane (no person, holds no blocks). */
+  /** null = OPEN placeholder lane (no person, holds no blocks). For 'da' AND
+   *  'dm' this is the lane-owner name the grid matches blocks on. */
   daName: string | null;
-  kind: 'da' | 'open';
+  /** fix-190a: 'dm' = a DM working the lane solo (block-matching + drag behave
+   *  exactly like 'da'; the DA-header sub-row shows "(DM)" instead of a name). */
+  kind: 'da' | 'open' | 'dm';
   /** Label shown in the DA-header row. */
   label: string;
   /** Dimmed treatment (forced-visible / orphan). */
@@ -102,18 +105,30 @@ export function buildDrawColumns(input: DrawColumnModelInput): {
       for (let j = 0; j < span.count; j += 1) {
         const row = layoutRows[idx];
         const isOpen = row.col_kind === 'open' || !row.da_name;
+        // fix-190a: a 'dm' column is a solo-DM lane — it matches blocks by its
+        // lane-owner name (da_name = the DM) exactly like a 'da' column, so it
+        // joins daInLayout to suppress orphan duplication.
+        const isDm = !isOpen && row.col_kind === 'dm';
         if (!isOpen && row.da_name) daInLayout.add(row.da_name);
         // fix-183: dim a 'da' column whose DA is inactive in the viewed quarter
         // (matches the active-quarters editor). OPEN lanes are never dimmed.
+        // fix-190a: a 'dm' lane is owned by the DM (generally active) — never
+        // dimmed as if it were an absent DA.
         const inactive =
-          !isOpen && !!row.da_name && isDaActiveInQuarter
+          !isOpen && !isDm && !!row.da_name && isDaActiveInQuarter
             ? !isDaActiveInQuarter(row.da_name)
             : false;
         renderColumns.push({
           key: `lc-${row.id}`,
           daName: isOpen ? null : row.da_name,
-          kind: isOpen ? 'open' : 'da',
-          label: isOpen ? row.label_override?.trim() || 'OPEN' : (row.da_name ?? ''),
+          kind: isOpen ? 'open' : isDm ? 'dm' : 'da',
+          // fix-190a: solo-DM lane shows "(DM)" in the DA-header sub-row, not a
+          // person name (the DM's name is already its manager header above).
+          label: isOpen
+            ? row.label_override?.trim() || 'OPEN'
+            : isDm
+              ? '(DM)'
+              : (row.da_name ?? ''),
           inactive,
           isLastInGroup: j === span.count - 1,
         });

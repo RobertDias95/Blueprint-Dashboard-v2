@@ -234,6 +234,22 @@ describe('useAppendQuarterLayoutColumn / useInsertQuarterLayoutColumn (fix-182d)
     expect(sentCol).not.toHaveProperty('position');
   });
 
+  // fix-190a: a solo-DM column appends like any other — col_kind passes through.
+  it('append carries a col_kind=dm column (DM as lane owner + header)', async () => {
+    mocks.setResult({ data: [{ out_id: 'id-dm', updated_at: NOW, out_position: 3 }], error: null });
+    const { result } = renderHook(() => useAppendQuarterLayoutColumn(), { wrapper });
+    await act(async () => {
+      await result.current.mutateAsync({
+        quarter: '2025-Q3',
+        col: { col_kind: 'dm', da_name: 'Jade', group_label: 'Jade', label_override: null },
+      });
+    });
+    expect(mocks.rpcFn).toHaveBeenCalledWith('bp_append_quarter_layout_column', {
+      p_quarter: '2025-Q3',
+      p_col: expect.objectContaining({ col_kind: 'dm', da_name: 'Jade', group_label: 'Jade' }),
+    });
+  });
+
   it('insert wires bp_insert_quarter_layout_column with the target position', async () => {
     mocks.setResult({ data: [{ out_id: 'id-2', updated_at: NOW, out_position: 1 }], error: null });
     const { result } = renderHook(() => useInsertQuarterLayoutColumn(), { wrapper });

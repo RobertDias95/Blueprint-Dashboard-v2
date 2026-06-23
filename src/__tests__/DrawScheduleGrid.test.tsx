@@ -1594,6 +1594,28 @@ describe('<DrawScheduleGrid /> saved-layout mode (fix-182c)', () => {
     expect(screen.getByTestId('block-p-other')).toBeInTheDocument();
   });
 
+  // fix-190a: a DM-solo column — its own 1-wide manager header (the DM name), a
+  // "(DM)" sub-row instead of a person name, and it holds the block assigned to
+  // that lane owner (block matching is by da_name = the DM name, like a DA lane).
+  it('renders a DM-solo column: own header + "(DM)" sub-row, holding the owner block', () => {
+    // Use Trevor (owns block p-now in the fixtures) as the solo lane owner.
+    quarterLayoutRows.current = [
+      layoutRow(0, { col_kind: 'dm', da_name: 'Trevor', group_label: 'Trevor' }),
+    ];
+    renderGrid();
+    // 1-wide manager header = the DM's name.
+    expect(screen.getByTestId('ds-group-0').textContent).toContain('Trevor');
+    // DA-header sub-row shows "(DM)", not the person name.
+    const header = screen.getByTestId('da-header-Trevor');
+    expect(header.textContent).toContain('(DM)');
+    expect(header).not.toHaveAttribute('data-inactive', 'true');
+    // The block assigned to that lane owner renders in the column.
+    expect(screen.getByTestId('da-col-Trevor')).toBeInTheDocument();
+    expect(screen.getByTestId('block-p-now')).toBeInTheDocument();
+    // Not duplicated as an orphan lane.
+    expect(screen.getAllByTestId('da-col-Trevor')).toHaveLength(1);
+  });
+
   // fix-182d Part 2: the three render bands share ONE grid template, and each
   // manager-header group spans exactly its column count — so a group's right
   // edge always lands on the same track line as its last DA column (alignment).

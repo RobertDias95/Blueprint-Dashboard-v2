@@ -566,7 +566,10 @@ function DrawScheduleBody({
   const visibleDaNames = useMemo(
     () =>
       renderColumns
-        .filter((c) => c.kind === 'da' && c.daName)
+        // fix-190a: include 'dm' (solo-DM) lanes too — they hold blocks matched
+        // by their lane-owner name (da_name = the DM) exactly like 'da' lanes.
+        // OPEN lanes (daName === null) are excluded.
+        .filter((c) => c.daName != null)
         .map((c) => c.daName as string),
     [renderColumns],
   );
