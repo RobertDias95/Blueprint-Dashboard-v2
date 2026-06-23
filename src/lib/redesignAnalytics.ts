@@ -6,6 +6,11 @@ import type {
 import { REDESIGN_TRIGGER_LABELS } from './database.types';
 import { formatCompareNumber } from './comparisonCohort';
 import { daysBetween } from './teamPerformance';
+import {
+  groupPermitsByProject,
+  holisticOwner,
+  type AttributionRole,
+} from './volumeAttribution';
 
 // fix-134: redesign analytics aggregation.
 //
@@ -134,7 +139,6 @@ export function computeRedesignAnalytics(
   const redesigns = projects.filter(
     (p) => !!p.redesign_of_project_id && inWindow(p, filters),
   );
-  const redesignIds = new Set(redesigns.map((p) => p.id));
 
   // Step 2: KPI totals.
   const totalRedesigns = redesigns.length;
@@ -205,29 +209,31 @@ export function computeRedesignAnalytics(
   });
   const cappedBuilders = builderLeaderboard.slice(0, LEADERBOARD_CAP);
 
-  // Step 5: associate leaderboards. Walk permits, pick the ones tied
-  // to redesign projects in the window, then group their da/dm/ent_lead
-  // names. Each role uses a separate map so a permit with all three
-  // fields filled contributes to all three boards.
-  const collect = (
-    field: 'da' | 'dm' | 'ent_lead',
-  ): Map<string, Set<string>> => {
+  // Step 5: associate leaderboards. fix-192: credit each redesign project to
+  // its HOLISTIC owner (the canonical attribution rule) — the primary DA / the
+  // project-level DM / ent — NOT every permit's da/dm/ent_lead. This stops a
+  // delegate on a secondary permit getting redesign credit for the whole
+  // project. Each redesign project contributes exactly one owner per role.
+  const permitsByProject = groupPermitsByProject(permits);
+  const collect = (role: AttributionRole): Map<string, Set<string>> => {
     const m = new Map<string, Set<string>>();
-    for (const permit of permits) {
-      if (!redesignIds.has(permit.project_id)) continue;
-      const name = (permit[field] ?? '').trim();
-      if (!name) continue;
-      const set = m.get(name) ?? new Set<string>();
-      set.add(permit.project_id);
-      m.set(name, set);
+    for (const proj of redesigns) {
+      const owner = holisticOwner(
+        role,
+        proj,
+        permitsByProject.get(proj.id) ?? [],
+      );
+      if (!owner) continue;
+      const set = m.get(owner) ?? new Set<string>();
+      set.add(proj.id);
+      m.set(owner, set);
     }
     return m;
   };
   const buildLeaderboard = (
-    field: 'da' | 'dm' | 'ent_lead',
-    role: 'da' | 'dm' | 'ent',
+    role: AttributionRole,
   ): AssociateRedesignEntry[] => {
-    const collected = collect(field);
+    const collected = collect(role);
     const entries: AssociateRedesignEntry[] = [];
     for (const [name, ids] of collected) {
       entries.push({
@@ -245,9 +251,9 @@ export function computeRedesignAnalytics(
     });
     return entries.slice(0, LEADERBOARD_CAP);
   };
-  const daLeaderboard = buildLeaderboard('da', 'da');
-  const dmLeaderboard = buildLeaderboard('dm', 'dm');
-  const entLeaderboard = buildLeaderboard('ent_lead', 'ent');
+  const daLeaderboard = buildLeaderboard('da');
+  const dmLeaderboard = buildLeaderboard('dm');
+  const entLeaderboard = buildLeaderboard('ent');
 
   // Step 6: recent redesigns table. created_at falls back to updated_at
   // when missing (older fixtures may not carry created_at).

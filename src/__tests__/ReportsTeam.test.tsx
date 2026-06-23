@@ -391,13 +391,14 @@ describe('<Reports /> Team tab — fix-127', () => {
     expect(screen.getByTestId('team-row-Jade')).toBeInTheDocument();
   });
 
-  it('Trevor row shows originals=2, units=6, redesignProjects=1, redesignUnits=6', () => {
+  it('fix-192: Trevor headline columns show ACCUMULATED totals (projects=3, units=12), with the redesign breakout beside them', () => {
     // Trevor: p1 (4u) + p2 (2u) originals = 2 projects, 6 units.
     // Redesign: p3 (6u, FK→p1) = 1 redesign project, 6 redesign units.
+    // Accumulated: 3 projects, 12 units — the redesign volume counts AGAIN.
     renderTeam();
     const trevor = screen.getByTestId('team-row-Trevor');
-    expect(trevor.querySelector('[data-testid="team-cell-Trevor-projectCount"]')?.textContent).toBe('2');
-    expect(trevor.querySelector('[data-testid="team-cell-Trevor-unitCount"]')?.textContent).toBe('6');
+    expect(trevor.querySelector('[data-testid="team-cell-Trevor-projectCount"]')?.textContent).toBe('3');
+    expect(trevor.querySelector('[data-testid="team-cell-Trevor-unitCount"]')?.textContent).toBe('12');
     expect(trevor.querySelector('[data-testid="team-cell-Trevor-redesignProjectCount"]')?.textContent).toBe('1');
     expect(trevor.querySelector('[data-testid="team-cell-Trevor-redesignUnitCount"]')?.textContent).toBe('6');
   });
@@ -435,13 +436,13 @@ describe('<Reports /> Team tab — fix-127', () => {
       Array.from(document.querySelectorAll('tr[data-testid^="team-row-"]')).map(
         (el) => el.getAttribute('data-testid'),
       );
-    // Default sort = projects desc → Trevor (2) above Ainsley (1).
+    // Default sort = total projects desc → Trevor (3) above Ainsley (1).
     expect(rowOrder()).toEqual(['team-row-Trevor', 'team-row-Ainsley']);
     // Click → asc.
-    fireEvent.click(screen.getByTestId('team-th-projectCount'));
+    fireEvent.click(screen.getByTestId('team-th-totalProjectCount'));
     expect(rowOrder()).toEqual(['team-row-Ainsley', 'team-row-Trevor']);
     // Click again → back to desc.
-    fireEvent.click(screen.getByTestId('team-th-projectCount'));
+    fireEvent.click(screen.getByTestId('team-th-totalProjectCount'));
     expect(rowOrder()).toEqual(['team-row-Trevor', 'team-row-Ainsley']);
   });
 
