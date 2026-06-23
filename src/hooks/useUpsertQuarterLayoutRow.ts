@@ -13,7 +13,13 @@ import type { DrawScheduleQuarterLayoutRow } from '../lib/database.types';
 
 type EditableCol = Pick<
   DrawScheduleQuarterLayoutRow,
-  'quarter' | 'position' | 'col_kind' | 'da_name' | 'group_label' | 'label_override'
+  | 'quarter'
+  | 'position'
+  | 'col_kind'
+  | 'da_name'
+  | 'group_label'
+  | 'label_override'
+  | 'top_label'
 >;
 
 export type UpsertQuarterLayoutInput =
@@ -49,6 +55,10 @@ export function useUpsertQuarterLayoutRow() {
             da_name: input.row.da_name,
             group_label: input.row.group_label,
             label_override: input.row.label_override,
+            // fix-190b: include top_label in the merged full-row payload so an
+            // edit to any other field doesn't null the column's top tier (the
+            // RPC replaces every field).
+            top_label: input.row.top_label,
             ...input.patch,
           };
       const { data, error } = await supabase.rpc('bp_upsert_quarter_layout_row', {

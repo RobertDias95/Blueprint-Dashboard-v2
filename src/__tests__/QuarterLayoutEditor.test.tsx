@@ -66,9 +66,9 @@ const DMS: TeamMember[] = [
 
 function rowsFixture(): DrawScheduleQuarterLayoutRow[] {
   return [
-    { id: 'r0', quarter: 'Q', position: 0, col_kind: 'da', da_name: 'Marc', group_label: 'Brittani', label_override: null, updated_at: NOW },
-    { id: 'r1', quarter: 'Q', position: 1, col_kind: 'da', da_name: 'Fisk', group_label: 'Brittani', label_override: null, updated_at: NOW },
-    { id: 'r2', quarter: 'Q', position: 2, col_kind: 'open', da_name: null, group_label: null, label_override: 'OPEN', updated_at: NOW },
+    { id: 'r0', quarter: 'Q', position: 0, col_kind: 'da', da_name: 'Marc', group_label: 'Brittani', label_override: null, top_label: null, updated_at: NOW },
+    { id: 'r1', quarter: 'Q', position: 1, col_kind: 'da', da_name: 'Fisk', group_label: 'Brittani', label_override: null, top_label: null, updated_at: NOW },
+    { id: 'r2', quarter: 'Q', position: 2, col_kind: 'open', da_name: null, group_label: null, label_override: 'OPEN', top_label: null, updated_at: NOW },
   ];
 }
 
@@ -180,6 +180,32 @@ describe('<QuarterLayoutEditor /> populated', () => {
     });
   });
 
+  // fix-190b: per-column top-tier (regional/ent) field.
+  it('sets a top-tier label via upsert update {top_label}', () => {
+    renderIt();
+    fireEvent.blur(screen.getByTestId('ql-top-r0'), {
+      target: { value: 'Miles, WA | Briana, AZ' },
+    });
+    expect(mocks.upsert).toHaveBeenCalledWith({
+      op: 'update',
+      row: expect.objectContaining({ id: 'r0' }),
+      patch: { top_label: 'Miles, WA | Briana, AZ' },
+    });
+  });
+
+  it('clears a top-tier label to null on blank', () => {
+    state.rows = [
+      { id: 'rt', quarter: 'Q', position: 0, col_kind: 'da', da_name: 'Marc', group_label: 'Brittani', label_override: null, top_label: 'Miles', updated_at: NOW },
+    ];
+    renderIt();
+    fireEvent.blur(screen.getByTestId('ql-top-rt'), { target: { value: '   ' } });
+    expect(mocks.upsert).toHaveBeenCalledWith({
+      op: 'update',
+      row: expect.objectContaining({ id: 'rt' }),
+      patch: { top_label: null },
+    });
+  });
+
   it('edits an OPEN lane label via upsert update {label_override}', () => {
     renderIt();
     fireEvent.blur(screen.getByTestId('ql-label-r2'), { target: { value: 'Spare' } });
@@ -227,7 +253,7 @@ describe('<QuarterLayoutEditor /> populated', () => {
 
   it('renders a DM dropdown for a col_kind=dm row and the type control reads "dm"', () => {
     state.rows = [
-      { id: 'rdm', quarter: 'Q', position: 0, col_kind: 'dm', da_name: 'Brittani', group_label: 'Brittani', label_override: null, updated_at: NOW },
+      { id: 'rdm', quarter: 'Q', position: 0, col_kind: 'dm', da_name: 'Brittani', group_label: 'Brittani', label_override: null, top_label: null, updated_at: NOW },
     ];
     renderIt();
     expect((screen.getByTestId('ql-type-rdm') as HTMLSelectElement).value).toBe('dm');
@@ -238,7 +264,7 @@ describe('<QuarterLayoutEditor /> populated', () => {
 
   it('picking a DM sets col_kind + da_name + group_label together', () => {
     state.rows = [
-      { id: 'rdm', quarter: 'Q', position: 0, col_kind: 'dm', da_name: 'Brittani', group_label: 'Brittani', label_override: null, updated_at: NOW },
+      { id: 'rdm', quarter: 'Q', position: 0, col_kind: 'dm', da_name: 'Brittani', group_label: 'Brittani', label_override: null, top_label: null, updated_at: NOW },
     ];
     const dms2: TeamMember[] = [
       ...DMS,
@@ -284,7 +310,7 @@ describe('<QuarterLayoutEditor /> populated', () => {
   // quarter (per Active Quarters), agreeing with the dimmed grid column.
   it('flags a column whose DA is inactive in the selected quarter', () => {
     state.rows = [
-      { id: 'rx', quarter: 'Q', position: 0, col_kind: 'da', da_name: 'Trevor', group_label: null, label_override: null, updated_at: NOW },
+      { id: 'rx', quarter: 'Q', position: 0, col_kind: 'da', da_name: 'Trevor', group_label: null, label_override: null, top_label: null, updated_at: NOW },
     ];
     const endedTrevor: TeamMember[] = [
       { ...DAS[0], active_end_quarter: quarterOffsetToString(-1) }, // ended last quarter

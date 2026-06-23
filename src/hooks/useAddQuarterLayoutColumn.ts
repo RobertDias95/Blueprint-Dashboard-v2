@@ -16,7 +16,9 @@ import type { DrawScheduleQuarterLayoutRow } from '../lib/database.types';
 export type NewColumn = Pick<
   DrawScheduleQuarterLayoutRow,
   'col_kind' | 'da_name' | 'group_label' | 'label_override'
->;
+> &
+  // fix-190b: top_label optional on new columns (default no top header).
+  Partial<Pick<DrawScheduleQuarterLayoutRow, 'top_label'>>;
 
 function colPayload(col: NewColumn) {
   return {
@@ -24,6 +26,7 @@ function colPayload(col: NewColumn) {
     da_name: col.da_name,
     group_label: col.group_label,
     label_override: col.label_override,
+    top_label: col.top_label ?? null,
   };
 }
 

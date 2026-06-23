@@ -28,6 +28,28 @@ export function deriveGroupSpans(
   return out;
 }
 
+/** fix-190b: top (regional/ent) tier spans. Like deriveGroupSpans but keyed on
+ *  top_label and it spans ACROSS DM groups (it ignores group_label entirely).
+ *  Empty/whitespace top_label is normalized to null. Contiguous columns sharing
+ *  the same non-null label merge into one top span; contiguous null columns
+ *  merge into ONE blank spacer span (label null) so the band has one gap region
+ *  rather than N tiny cells. The colCounts always sum to rows.length. */
+export function deriveTopSpans(
+  rows: { top_label: string | null }[],
+): GroupSpan[] {
+  const out: GroupSpan[] = [];
+  for (const r of rows) {
+    const label = r.top_label && r.top_label.trim() !== '' ? r.top_label : null;
+    const last = out[out.length - 1];
+    if (last && last.label === label) {
+      last.count += 1;
+    } else {
+      out.push({ label, count: 1 });
+    }
+  }
+  return out;
+}
+
 // fix-182c: the unified column model the Draw Schedule grid renders from. Both
 // modes (saved per-quarter layout, or the current dm_da_groups fallback)
 // produce the same shape, so the fallback path renders byte-for-byte as before.
@@ -84,6 +106,10 @@ export interface DrawColumnModelInput {
 export function buildDrawColumns(input: DrawColumnModelInput): {
   renderGroups: RenderGroup[];
   renderColumns: RenderCol[];
+  /** fix-190b: top-tier (regional/ent) spans across the DM groups. Empty when
+   *  no column in the viewed quarter has a top_label — the grid then omits the
+   *  top band entirely (byte-for-byte unchanged). Always empty in fallback mode. */
+  renderTopGroups: RenderGroup[];
 } {
   const {
     isLayoutMode,
@@ -95,6 +121,9 @@ export function buildDrawColumns(input: DrawColumnModelInput): {
   } = input;
   const renderGroups: RenderGroup[] = [];
   const renderColumns: RenderCol[] = [];
+  // fix-190b: per-column top_label aligned 1:1 with renderColumns (layout
+  // columns in position order, then any appended orphan lanes as null).
+  const topLabels: (string | null)[] = [];
 
   if (isLayoutMode) {
     const spans = deriveGroupSpans(layoutRows);
@@ -132,6 +161,7 @@ export function buildDrawColumns(input: DrawColumnModelInput): {
           inactive,
           isLastInGroup: j === span.count - 1,
         });
+        topLabels.push(row.top_label ?? null);
         idx += 1;
       }
     });
@@ -151,11 +181,22 @@ export function buildDrawColumns(input: DrawColumnModelInput): {
         inactive: true,
         isLastInGroup: true,
       });
+      topLabels.push(null); // orphan lanes never carry a top header
     }
-    return { renderGroups, renderColumns };
+    // fix-190b: top-tier spans across the DM groups. Only emit them when at
+    // least one column actually has a top_label — otherwise the grid omits the
+    // top band and renders exactly as a two-tier quarter does today.
+    const renderTopGroups = topLabels.some((l) => l && l.trim() !== '')
+      ? deriveTopSpans(topLabels.map((l) => ({ top_label: l }))).map((s, ti) => ({
+          key: `tg-${ti}`,
+          header: s.label,
+          colCount: s.count,
+        }))
+      : [];
+    return { renderGroups, renderColumns, renderTopGroups };
   }
 
-  // FALLBACK: today's exact structure.
+  // FALLBACK: today's exact structure — no top tier.
   for (const g of fallbackGroups) {
     renderGroups.push({ key: `fg-${g.dm}`, header: g.dm, colCount: g.das.length });
     g.das.forEach((da, i) => {
@@ -169,5 +210,5 @@ export function buildDrawColumns(input: DrawColumnModelInput): {
       });
     });
   }
-  return { renderGroups, renderColumns };
+  return { renderGroups, renderColumns, renderTopGroups: [] };
 }

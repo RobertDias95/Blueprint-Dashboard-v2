@@ -1541,6 +1541,7 @@ describe('<DrawScheduleGrid /> saved-layout mode (fix-182c)', () => {
       da_name: null,
       group_label: null,
       label_override: null,
+      top_label: null,
       updated_at: NOW,
       ...partial,
     };
@@ -1638,6 +1639,46 @@ describe('<DrawScheduleGrid /> saved-layout mode (fix-182c)', () => {
       .getAllByTestId(/^ds-group-/)
       .map((el) => Number(el.getAttribute('data-span')));
     expect(spans.reduce((a, b) => a + b, 0)).toBe(5);
+  });
+
+  // fix-190b: the top (regional/ent) tier band.
+  it('GATE: a quarter with NO top_labels renders no top band (byte-for-byte)', () => {
+    renderGrid(); // default fixtures have no top_label
+    expect(screen.queryByTestId('ds-band-top')).toBeNull();
+    // DM band keeps its original sticky offset (top:0) when there's no top band.
+    expect(screen.getByTestId('ds-band-dm').style.top).toBe('0px');
+  });
+
+  it('renders a 3rd top band whose spans cover the DM groups beneath them', () => {
+    // Miles spans Ahmadi + Fisk (the Ana group); Briana spans Qisheng; the OPEN
+    // lane has no top_label (blank spacer). Trevor (orphan) blank spacer too.
+    quarterLayoutRows.current = [
+      layoutRow(0, { col_kind: 'da', da_name: 'Ahmadi', group_label: 'Ana', top_label: 'Miles' }),
+      layoutRow(1, { col_kind: 'da', da_name: 'Fisk', group_label: 'Ana', top_label: 'Miles' }),
+      layoutRow(2, { col_kind: 'da', da_name: 'Qisheng', group_label: null, top_label: 'Briana' }),
+      layoutRow(3, { col_kind: 'open', da_name: null, label_override: 'OPEN' }),
+    ];
+    renderGrid();
+    const top = screen.getByTestId('ds-band-top');
+    expect(top).toBeInTheDocument();
+    expect(top.textContent).toContain('Miles');
+    expect(top.textContent).toContain('Briana');
+    // Miles spans 2 (Ahmadi+Fisk).
+    expect(screen.getByTestId('ds-top-0')).toHaveAttribute('data-span', '2');
+    expect(screen.getByTestId('ds-top-1')).toHaveAttribute('data-span', '1'); // Briana over Qisheng
+    // All three bands share the same grid template (alignment).
+    const tpl = top.style.gridTemplateColumns;
+    expect(screen.getByTestId('ds-band-dm').style.gridTemplateColumns).toBe(tpl);
+    expect(screen.getByTestId('ds-band-da').style.gridTemplateColumns).toBe(tpl);
+    // Sticky stack shifts down a band when the top tier shows.
+    expect(top.style.top).toBe('0px');
+    expect(screen.getByTestId('ds-band-dm').style.top).toBe('26px');
+    expect(screen.getByTestId('ds-band-da').style.top).toBe('52px');
+    // Top spans sum to the total column count (Ana 2 + Qisheng + OPEN + Trevor orphan = 5).
+    const topSpans = screen
+      .getAllByTestId(/^ds-top-/)
+      .map((el) => Number(el.getAttribute('data-span')));
+    expect(topSpans.reduce((a, b) => a + b, 0)).toBe(5);
   });
 
   // fix-183: a saved-layout column whose DA is inactive in the viewed quarter is
