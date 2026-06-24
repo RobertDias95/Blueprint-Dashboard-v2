@@ -5,10 +5,10 @@ import { pushToast } from '../stores/toastStore';
 import { useAuthStore } from '../stores/authStore';
 
 // Q7.3.a: bp_set_app_config_key — single-key JSONB upsert. Used for
-// productTypeOptions, projectTagOptions, consultantTypes (Q7.3.d),
-// wizQuestions, etc. The full value is replaced per call; clients build
-// the new array locally and pass it in. Server uses ON CONFLICT (key)
-// DO UPDATE.
+// productTypeOptions, projectTagOptions, wizQuestions, holdReasonOptions, etc.
+// The full value is replaced per call; clients build the new array locally and
+// pass it in. Server uses ON CONFLICT (key) DO UPDATE. (fix-197: the
+// consultantTypes key + its editor were removed — nothing read it.)
 
 export interface SetAppConfigKeyInput {
   key: string;
@@ -56,8 +56,6 @@ function humanizeKey(key: string): string {
       return 'product types';
     case 'projectTagOptions':
       return 'project tags';
-    case 'consultantTypes':
-      return 'consultants';
     case 'holdReasonOptions':
       return 'hold reasons';
     case 'learnThresholds':

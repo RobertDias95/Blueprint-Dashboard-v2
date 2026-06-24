@@ -5,7 +5,6 @@ import AdminTeamTab from './Settings/AdminTeamTab';
 import AdminProjectsTab from './Settings/AdminProjectsTab';
 import AdminPermitsTab from './Settings/AdminPermitsTab';
 import AdminScheduleTab from './Settings/AdminScheduleTab';
-import AdminConsultantsTab from './Settings/AdminConsultantsTab';
 import AdminReportingTab from './Settings/AdminReportingTab';
 import { useIsTenantAdmin } from '../hooks/useIsTenantAdmin';
 
@@ -33,7 +32,6 @@ type SectionId =
   | 'projects'
   | 'permits'
   | 'schedule'
-  | 'consultants'
   | 'reporting';
 
 const SECTIONS: Section[] = [
@@ -70,13 +68,6 @@ const SECTIONS: Section[] = [
     icon: '📅',
     label: 'Schedule',
     desc: 'Per-juris learning windows',
-    adminOnly: true,
-  },
-  {
-    id: 'consultants',
-    icon: '🤝',
-    label: 'Consultants',
-    desc: 'External consultant types + firms',
     adminOnly: true,
   },
   {
@@ -207,7 +198,6 @@ export default function SettingsModal({
             {effectiveActive === 'projects' && <AdminProjectsTab />}
             {effectiveActive === 'permits' && <AdminPermitsTab />}
             {effectiveActive === 'schedule' && <AdminScheduleTab />}
-            {effectiveActive === 'consultants' && <AdminConsultantsTab />}
             {effectiveActive === 'reporting' && (
               <AdminReportingTab onAfterRun={onClose} />
             )}

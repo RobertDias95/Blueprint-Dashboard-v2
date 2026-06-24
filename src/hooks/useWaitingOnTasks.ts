@@ -13,11 +13,12 @@ import type {
 // fix-140 / fix-190d: My Tasks "Waiting On" reporting view. bp_list_waiting_on_tasks
 // still enumerates every task with waiting_on set (+ its project/permit/sort), but
 // the firm is now resolved from projects.external_team — the SAME store the
-// external-team editor writes — via resolveExternalFirm, NOT from the empty
-// normalized project_external_teams/consultant_firms tables the RPC's join uses.
-// (One term, one store, one resolver — the firm columns the RPC returns are
-// superseded here.) firm_id carries the firm NAME (the blob has no firm registry
-// yet) so the discipline -> firm grouping keys on it; firm_active stays true.
+// external-team editor writes — via resolveExternalFirm. (fix-197: the old
+// normalized project_external_teams/consultant_firms tables the RPC's join once
+// used were dropped; the RPC's firm columns are superseded here regardless.)
+// One term, one store, one resolver. firm_id carries the firm NAME (the blob has
+// no firm registry) so the discipline -> firm grouping keys on it; firm_active
+// stays true.
 
 export function useWaitingOnTasks(opts: { includeCompleted: boolean }) {
   const tenantId = useAuthStore((s) => s.activeTenantId);

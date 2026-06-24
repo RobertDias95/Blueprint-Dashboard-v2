@@ -48,33 +48,16 @@ vi.mock('../hooks/useAppConfig', () => ({
     isLoading: false,
     error: null,
     refetch: vi.fn(),
-    map: new Map<string, unknown>([
-      [
-        'consultantTypes',
-        [
-          { type: 'Civil', firms: ['Facet', 'Atwell'] },
-          { type: 'Surveyor', firms: ['Emerald'] },
-        ],
-      ],
-    ]),
+    map: new Map<string, unknown>(),
   }),
   readAppConfigStringArray: () => [],
 }));
 vi.mock('../hooks/useSetAppConfigKey', () => ({
   useSetAppConfigKey: () => ({ mutate: mocks.setKey }),
 }));
-// fix-139: AdminConsultantsTab now also renders ConsultantFirmsEditor, which
-// reads the consultant-firm hooks. Mock them inert (the supabase mock here has
-// no .rpc) so the section renders its normal empty state.
-vi.mock('../hooks/useConsultantFirms', () => ({
-  useConsultantFirms: () => ({ data: [], isLoading: false, error: null, refetch: vi.fn() }),
-  useUpsertConsultantFirm: () => ({ mutate: vi.fn(), isPending: false }),
-  useArchiveConsultantFirm: () => ({ mutate: vi.fn(), isPending: false }),
-}));
 
 import AdminAccountTab from '../components/Settings/AdminAccountTab';
 import AdminScheduleTab from '../components/Settings/AdminScheduleTab';
-import AdminConsultantsTab from '../components/Settings/AdminConsultantsTab';
 
 function renderIt(tab: React.ReactNode) {
   const queryClient = new QueryClient({
@@ -203,100 +186,7 @@ describe('<AdminScheduleTab />', () => {
   });
 });
 
-describe('<AdminConsultantsTab />', () => {
-  it('renders one card per consultant type with the firm pills', () => {
-    renderIt(<AdminConsultantsTab />);
-    expect(screen.getByTestId('admin-consultants-tab')).toBeInTheDocument();
-    expect(screen.getByTestId('consultant-card-Civil')).toBeInTheDocument();
-    expect(screen.getByTestId('consultant-card-Surveyor')).toBeInTheDocument();
-    expect(
-      screen.getByTestId('consultant-firms-Civil-pill-Facet'),
-    ).toBeInTheDocument();
-    expect(
-      screen.getByTestId('consultant-firms-Civil-pill-Atwell'),
-    ).toBeInTheDocument();
-    expect(
-      screen.getByTestId('consultant-firms-Surveyor-pill-Emerald'),
-    ).toBeInTheDocument();
-  });
-
-  it('Adding a new type appends to the JSONB array via bp_set_app_config_key', () => {
-    renderIt(<AdminConsultantsTab />);
-    fireEvent.change(screen.getByTestId('consultant-add-type'), {
-      target: { value: 'Landscape Architect' },
-    });
-    fireEvent.click(screen.getByTestId('consultant-add-type-btn'));
-    expect(mocks.setKey).toHaveBeenCalledWith({
-      key: 'consultantTypes',
-      value: [
-        { type: 'Civil', firms: ['Facet', 'Atwell'] },
-        { type: 'Surveyor', firms: ['Emerald'] },
-        { type: 'Landscape Architect', firms: [] },
-      ],
-    });
-  });
-
-  it('Duplicate type add is silently ignored', () => {
-    renderIt(<AdminConsultantsTab />);
-    fireEvent.change(screen.getByTestId('consultant-add-type'), {
-      target: { value: 'Civil' },
-    });
-    fireEvent.click(screen.getByTestId('consultant-add-type-btn'));
-    expect(mocks.setKey).not.toHaveBeenCalled();
-  });
-
-  it('Removing a type drops it from the array', () => {
-    renderIt(<AdminConsultantsTab />);
-    fireEvent.click(screen.getByTestId('consultant-remove-type-Surveyor'));
-    expect(mocks.setKey).toHaveBeenCalledWith({
-      key: 'consultantTypes',
-      value: [{ type: 'Civil', firms: ['Facet', 'Atwell'] }],
-    });
-  });
-
-  it('Adding a firm appends to the right type only', () => {
-    renderIt(<AdminConsultantsTab />);
-    fireEvent.change(screen.getByTestId('consultant-firms-Civil-add'), {
-      target: { value: 'Coughlin' },
-    });
-    fireEvent.click(screen.getByTestId('consultant-firms-Civil-add-btn'));
-    expect(mocks.setKey).toHaveBeenCalledWith({
-      key: 'consultantTypes',
-      value: [
-        { type: 'Civil', firms: ['Facet', 'Atwell', 'Coughlin'] },
-        { type: 'Surveyor', firms: ['Emerald'] },
-      ],
-    });
-  });
-
-  it('Removing a firm drops it from the right type only', () => {
-    renderIt(<AdminConsultantsTab />);
-    fireEvent.click(
-      screen.getByTestId('consultant-firms-Civil-remove-Facet'),
-    );
-    expect(mocks.setKey).toHaveBeenCalledWith({
-      key: 'consultantTypes',
-      value: [
-        { type: 'Civil', firms: ['Atwell'] },
-        { type: 'Surveyor', firms: ['Emerald'] },
-      ],
-    });
-  });
-
-  it('Non-admin hides the add-type form + Remove Type buttons', () => {
-    useAuthStore.setState({
-      activeTenantId: T,
-      memberships: [{ tenant_id: T, role: 'editor' }],
-    });
-    renderIt(<AdminConsultantsTab />);
-    // fix-139: AdminConsultantsTab now also renders ConsultantFirmsEditor,
-    // which shows its own non-admin read-only banner — so there are two.
-    expect(screen.getAllByText(/Read-only/i).length).toBeGreaterThanOrEqual(1);
-    expect(
-      screen.queryByTestId('consultant-add-type'),
-    ).not.toBeInTheDocument();
-    expect(
-      screen.queryByTestId('consultant-remove-type-Civil'),
-    ).not.toBeInTheDocument();
-  });
-});
+// fix-197: the <AdminConsultantsTab /> describe was removed — that Settings
+// tab (the app_config.consultantTypes editor + the dead consultant_firms
+// registry editor) was dropped once external team consolidated onto the
+// projects.external_team blob and nothing read consultantTypes anymore.
