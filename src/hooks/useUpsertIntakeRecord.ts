@@ -118,6 +118,9 @@ export function useUpsertIntakeRecord() {
       queryClient.invalidateQueries({
         queryKey: queryKeys.intakeRecords(tenantId),
       });
+      // fix-199: a real-permit row's date now syncs to the linked permit
+      // (bp_upsert_intake_records_row reverse sync) — refresh permit surfaces.
+      queryClient.invalidateQueries({ queryKey: queryKeys.permitsAll });
     },
     onError: (error) => {
       if (isOCCConflict(error)) {

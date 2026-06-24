@@ -9,6 +9,8 @@ import {
   getWeekMondayKey,
   groupByWeek,
   intakeStatus,
+  intakeTargetGapDays,
+  isIntakeTargetGapFlagged,
   isPermitSubmitted,
   isUrgent,
   partitionIntakes,
@@ -404,9 +406,13 @@ function IntakeTable({
       className="bg-surface border border-border rounded-md overflow-hidden"
       data-testid={testId}
     >
-      <div className="grid grid-cols-[100px_1fr_120px_100px_110px_84px] gap-0 bg-s2 border-b border-border px-3 py-1.5">
+      <div className="grid grid-cols-[100px_96px_1fr_120px_100px_110px_84px] gap-0 bg-s2 border-b border-border px-3 py-1.5">
         <div className="text-[8px] font-bold text-dim uppercase tracking-wide">
           Intake Date
+        </div>
+        {/* fix-199: target_submit beside the intake date — discrepancy spotting. */}
+        <div className="text-[8px] font-bold text-dim uppercase tracking-wide">
+          Target
         </div>
         <div className="text-[8px] font-bold text-dim uppercase tracking-wide">
           Address
@@ -482,9 +488,13 @@ function IntakeRow({
   const badge = STATUS_BADGE[status];
   const typeColor = TYPE_COLOR[record.permit_type ?? ''] ?? 'text-muted';
   const url = record.portal_url || record.link || '';
+  // fix-199: target_submit vs intake gap (from the linked permit).
+  const targetSubmit = permit?.target_submit ?? null;
+  const gap = intakeTargetGapDays(record.intake_date, targetSubmit);
+  const gapFlagged = isIntakeTargetGapFlagged(gap);
   return (
     <div
-      className={`grid grid-cols-[100px_1fr_120px_100px_110px_84px] gap-0 px-3 py-1.5 border-b border-border last:border-b-0 items-center ${
+      className={`grid grid-cols-[100px_96px_1fr_120px_100px_110px_84px] gap-0 px-3 py-1.5 border-b border-border last:border-b-0 items-center ${
         status === 'reschedule' ? 'bg-co-bg/30' : ''
       } ${swapSelected ? 'ring-2 ring-jv ring-inset' : ''}`}
       data-testid={`intake-row-${record.id}`}
@@ -496,6 +506,27 @@ function IntakeRow({
         }
         testId={`intake-date-${record.id}`}
       />
+      {/* fix-199: target submit + gap flag (read-only; from the linked permit). */}
+      <div
+        className="text-[9px] font-mono pr-1.5 truncate"
+        style={{ color: gapFlagged ? 'var(--color-co)' : 'var(--color-muted)' }}
+        title={
+          targetSubmit && gap !== null
+            ? `Target submit ${targetSubmit} — intake is ${Math.abs(gap)}d ${gap >= 0 ? 'after' : 'before'}`
+            : 'No linked permit target submit'
+        }
+        data-testid={`intake-target-${record.id}`}
+      >
+        {targetSubmit ? (
+          <>
+            {gapFlagged && '⚠ '}
+            {targetSubmit}
+            {gap !== null && ` (${gap >= 0 ? '+' : ''}${gap}d)`}
+          </>
+        ) : (
+          <span className="text-dim">—</span>
+        )}
+      </div>
       <InlineText
         value={record.address ?? ''}
         onCommit={(v) =>
