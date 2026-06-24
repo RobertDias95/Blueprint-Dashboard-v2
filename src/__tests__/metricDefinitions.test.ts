@@ -22,10 +22,11 @@ describe('metricDefinitions roster (fix-129-c/d)', () => {
     expect(Object.keys(REPORTS_OVERVIEW_METRICS)).toHaveLength(14);
   });
 
-  it('Trends KPI tiles ship 7 definitions', () => {
+  it('Trends KPI tiles ship 8 definitions', () => {
     // fix-142 added Avg City Review + Avg Response Time as Trends KPI
     // siblings of Avg Permit Timeline (was "Avg city clock").
-    expect(Object.keys(TRENDS_KPI_METRICS)).toHaveLength(7);
+    // fix-200 added Total Projects (GO-cohort distinct projects).
+    expect(Object.keys(TRENDS_KPI_METRICS)).toHaveLength(8);
   });
 
   it('Trends chart titles ship 8 definitions', () => {
@@ -59,8 +60,9 @@ describe('metricDefinitions roster (fix-129-c/d)', () => {
     // fix-134-b added a sixth surface (redesigns KPI tiles, 3 entries).
     // fix-136-b added a seventh surface (cycle-time comparison, 4 entries).
     // fix-173 added a 14th Reports Overview metric (Avg Approval → Issue).
+    // fix-200 added Total Projects to the Trends KPI surface (7 → 8).
     expect(Object.keys(ALL_METRIC_DEFINITIONS)).toHaveLength(
-      14 + 7 + 8 + 6 + 4 + 3 + 4,
+      14 + 8 + 8 + 6 + 4 + 3 + 4,
     );
   });
 });
@@ -96,7 +98,9 @@ describe('formula text references the source fields (fix-129-d)', () => {
     { key: 'reports.avgResponseTime', must: ['corr_issued', 'submitted'] },
 
     // Trends KPI tiles — perfTrends.ts
-    { key: 'trends.approvedInWindow', must: ['count', 'approval_date'] },
+    // fix-200: cohort GO-anchored — Total Permits + Total Projects by go_date.
+    { key: 'trends.approvedInWindow', must: ['count', 'go_date'] },
+    { key: 'trends.totalProjects', must: ['distinct', 'go_date'] },
     { key: 'trends.avgSubmitToIntakeDelay', must: ['intake_accepted', 'submitted'] },
     { key: 'trends.avgCityClock', must: ['approval_date', 'actual_issue', 'intake_accepted'] },
     // fix-142: Trends City Review / Response Time siblings — same source

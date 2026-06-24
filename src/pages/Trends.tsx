@@ -35,7 +35,8 @@ import {
   SPARSE_GATE,
   submissionToIntakeVariance,
   targetSubmitHitRate,
-  totalApprovedInWindow,
+  totalPermitsInWindow,
+  totalProjectsInWindow,
   type PerfTrendsFilters,
 } from '../lib/perfTrends';
 import {
@@ -282,7 +283,9 @@ function TrendsBody({ permits, projects, catalogTypes }: BodyProps) {
   // breakdown. One indexed map reused across current + comparison cohorts.
   const holdsMap = useMemo(() => holdsByProjectId(holdsQ.data), [holdsQ.data]);
 
-  const kpiTotal = totalApprovedInWindow(filteredCurrent);
+  const kpiTotal = totalPermitsInWindow(filteredCurrent);
+  // fix-200: Total Projects — distinct projects that went GO in the window.
+  const kpiProjects = totalProjectsInWindow(filteredCurrent);
   const kpiAvgClock = avgIntakeToApproval(filteredCurrent, holdsMap);
   // fix-142: City Review / Response Time siblings of Permit Timeline.
   const kpiCityReview = avgCityCourtTime(filteredCurrent, holdsMap);
@@ -294,7 +297,10 @@ function TrendsBody({ permits, projects, catalogTypes }: BodyProps) {
   // when no permits qualify in the prior window — KpiTile renders
   // "no comparison data" in that case rather than a misleading delta.
   const cmpTotal = filteredComparison
-    ? totalApprovedInWindow(filteredComparison)
+    ? totalPermitsInWindow(filteredComparison)
+    : null;
+  const cmpProjects = filteredComparison
+    ? totalProjectsInWindow(filteredComparison)
     : null;
   const cmpAvgClock = filteredComparison
     ? avgIntakeToApproval(filteredComparison, holdsMap)
@@ -941,18 +947,20 @@ function TrendsBody({ permits, projects, catalogTypes }: BodyProps) {
         testIdPrefix="trends-compare-panel"
       />
 
-      {/* fix-112-c: the KPI row + City performance + Variance + Breakdown
-          sections all route through filterPermits (perfTrends.ts:46-63),
-          which silently restricts the cohort to permits with approval_date
-          or actual_issue stamped. Volume + Target Submit sections do not.
-          Make the gate visible so a user adjusting filters knows they're
-          looking at finished work, not team activity. */}
+      {/* fix-200: the KPI row + City performance + Variance + Breakdown
+          sections all route through filterPermits, which now anchors the cohort
+          on the project's GO date (projects.go_date) — "the projects that went
+          GO in this window." Permits whose project has no go_date are excluded.
+          Volume + Target Submit sections bucket by their own dates and are not
+          gated this way. Make the basis visible so a user adjusting the period
+          knows they're comparing the same GO cohort across periods. */}
       <div
         className="text-[11px] text-dim italic px-1"
         data-testid="trends-approved-only-banner"
       >
-        Showing approved permits only — in-progress activity is not included
-        in the KPI row, City performance, Variance, or Breakdown sections.
+        Cohort = projects that went GO in this window (by GO date) — the KPI row,
+        City performance, Variance, and Breakdown sections compare the same
+        GO-cohort across periods. Projects without a GO date are excluded.
       </div>
 
       {/* KPI tile row */}
@@ -973,9 +981,27 @@ function TrendsBody({ permits, projects, catalogTypes }: BodyProps) {
                 (rate.hit / rate.total) * 100,
               )}%)`;
         return (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-8 gap-3">
+            {/* fix-200: Total Projects (distinct projects that went GO in the
+                window) sits beside Total Permits. */}
             <KpiTile
-              label="Approved permits in window"
+              label="Total Projects"
+              labelSlot={kpiTip('totalProjects')}
+              value={kpiProjects === 0 ? '—' : String(kpiProjects)}
+              testId="trends-kpi-projects"
+              currentNumeric={kpiProjects}
+              comparisonNumeric={cmpProjects}
+              comparisonValueText={
+                cmpProjects === null ? undefined : String(cmpProjects)
+              }
+              comparisonLabel={cmpLabel || undefined}
+              direction="higher_better"
+              currentRangeLabel={volumeCurrentRangeLabel || undefined}
+              comparisonRangeLabel={volumeComparisonRangeLabel || undefined}
+              comparisonModeLabel={comparisonRange ? 'vs comparison' : undefined}
+            />
+            <KpiTile
+              label="Total Permits"
               labelSlot={kpiTip('approvedInWindow')}
               value={kpiTotal === 0 ? '—' : String(kpiTotal)}
               testId="trends-kpi-total"

@@ -11,7 +11,8 @@ import {
   SPARSE_GATE,
   submissionToIntakeVariance,
   targetSubmitHitRate,
-  totalApprovedInWindow,
+  totalPermitsInWindow,
+  totalProjectsInWindow,
   type PerfTrendsFilters,
 } from '../lib/perfTrends';
 import type {
@@ -89,27 +90,30 @@ const FULL_WINDOW: PerfTrendsFilters = {
   dateRange: { from: '2020-01-01', to: '2030-12-31' },
 };
 
-describe('filterPermits', () => {
+describe('filterPermits (fix-200: GO-date anchored)', () => {
   const projectsById = new Map<string, Project>([
-    ['p1', mkProject({ id: 'p1', juris: 'Seattle' })],
-    ['p2', mkProject({ id: 'p2', juris: 'Bellevue' })],
+    ['pA', mkProject({ id: 'pA', juris: 'Seattle', go_date: '2026-05-01' })],
+    ['pB', mkProject({ id: 'pB', juris: 'Bellevue', go_date: '2026-06-01' })],
+    ['pNoGo', mkProject({ id: 'pNoGo', juris: 'Seattle', go_date: null })],
+    ['pEarly', mkProject({ id: 'pEarly', juris: 'Seattle', go_date: '2026-04-30' })],
+    ['pLate', mkProject({ id: 'pLate', juris: 'Seattle', go_date: '2026-06-02' })],
   ]);
 
-  it('excludes permits without an approval_date / actual_issue', () => {
+  it('excludes permits whose project has no go_date (even if approved/issued)', () => {
     const out = filterPermits(
-      [mkPermit({ approval_date: null, actual_issue: null })],
+      [mkPermit({ project_id: 'pNoGo', approval_date: '2026-05-15', actual_issue: '2026-05-20' })],
       projectsById,
       FULL_WINDOW,
     );
     expect(out).toHaveLength(0);
   });
 
-  it('inclusive on both date-range bounds', () => {
+  it('membership is by project.go_date, inclusive on both bounds', () => {
     const permits = [
-      mkPermit({ id: 1, approval_date: '2026-05-01' }),
-      mkPermit({ id: 2, approval_date: '2026-06-01' }),
-      mkPermit({ id: 3, approval_date: '2026-04-30' }),
-      mkPermit({ id: 4, approval_date: '2026-06-02' }),
+      mkPermit({ id: 1, project_id: 'pA' }), // go 2026-05-01 (in)
+      mkPermit({ id: 2, project_id: 'pB' }), // go 2026-06-01 (in)
+      mkPermit({ id: 3, project_id: 'pEarly' }), // go 2026-04-30 (out)
+      mkPermit({ id: 4, project_id: 'pLate' }), // go 2026-06-02 (out)
     ];
     const out = filterPermits(permits, projectsById, {
       dateRange: { from: '2026-05-01', to: '2026-06-01' },
@@ -117,23 +121,36 @@ describe('filterPermits', () => {
     expect(out.map((p) => p.id).sort()).toEqual([1, 2]);
   });
 
+  it('a project with GO in period A is in A regardless of approval date; moving the period changes membership', () => {
+    // Went GO in May, approved much later (Sept) — still in May's cohort.
+    const permits = [mkPermit({ id: 1, project_id: 'pA', approval_date: '2026-09-01' })];
+    const periodA = filterPermits(permits, projectsById, {
+      dateRange: { from: '2026-05-01', to: '2026-05-31' },
+    });
+    expect(periodA.map((p) => p.id)).toEqual([1]);
+    // June period — GO is in May, so it drops out.
+    const periodB = filterPermits(permits, projectsById, {
+      dateRange: { from: '2026-06-01', to: '2026-06-30' },
+    });
+    expect(periodB).toHaveLength(0);
+  });
+
   it('juris filter scopes to that juris only', () => {
     const permits = [
-      mkPermit({ id: 1, project_id: 'p1', approval_date: '2026-05-01' }),
-      mkPermit({ id: 2, project_id: 'p2', approval_date: '2026-05-02' }),
+      mkPermit({ id: 1, project_id: 'pA' }), // Seattle
+      mkPermit({ id: 2, project_id: 'pB' }), // Bellevue
     ];
     const out = filterPermits(permits, projectsById, {
       ...FULL_WINDOW,
       juris: 'Seattle',
     });
-    expect(out).toHaveLength(1);
-    expect(out[0].id).toBe(1);
+    expect(out.map((p) => p.id)).toEqual([1]);
   });
 
   it('permitType filter scopes to that type only', () => {
     const permits = [
-      mkPermit({ id: 1, type: 'Building Permit', approval_date: '2026-05-01' }),
-      mkPermit({ id: 2, type: 'Demolition', approval_date: '2026-05-02' }),
+      mkPermit({ id: 1, project_id: 'pA', type: 'Building Permit' }),
+      mkPermit({ id: 2, project_id: 'pA', type: 'Demolition' }),
     ];
     const out = filterPermits(permits, projectsById, {
       ...FULL_WINDOW,
@@ -143,12 +160,26 @@ describe('filterPermits', () => {
   });
 });
 
-describe('totalApprovedInWindow', () => {
+describe('totalPermitsInWindow', () => {
   it('returns 0 on empty input', () => {
-    expect(totalApprovedInWindow([])).toBe(0);
+    expect(totalPermitsInWindow([])).toBe(0);
   });
-  it('returns count of permits already filtered', () => {
-    expect(totalApprovedInWindow([mkPermit(), mkPermit()])).toBe(2);
+  it('returns the count of permits already filtered', () => {
+    expect(totalPermitsInWindow([mkPermit(), mkPermit()])).toBe(2);
+  });
+});
+
+describe('totalProjectsInWindow (fix-200)', () => {
+  it('counts DISTINCT project_ids among the filtered permits', () => {
+    const permits = [
+      mkPermit({ id: 1, project_id: 'pA' }),
+      mkPermit({ id: 2, project_id: 'pA' }), // same project (BP + Demo) → counted once
+      mkPermit({ id: 3, project_id: 'pB' }),
+    ];
+    expect(totalProjectsInWindow(permits)).toBe(2); // pA, pB
+  });
+  it('returns 0 on empty input', () => {
+    expect(totalProjectsInWindow([])).toBe(0);
   });
 });
 
