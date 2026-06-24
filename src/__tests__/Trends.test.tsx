@@ -125,10 +125,14 @@ const PERMITS: PermitWithCycles[] = [
   }),
 ];
 
+// fix-200: the comparison cohort is anchored on projects.go_date. Each project's
+// go_date matches its permit's old approval month so the existing period-
+// membership assertions (id=2 in June, id=1 & id=3 in May) hold under the new
+// GO basis.
 const PROJECTS: Project[] = [
-  mkProject({ id: 'p1', juris: 'Seattle' }),
-  mkProject({ id: 'p2', juris: 'Seattle' }),
-  mkProject({ id: 'p3', juris: 'Seattle' }),
+  mkProject({ id: 'p1', juris: 'Seattle', go_date: '2026-05-30' }),
+  mkProject({ id: 'p2', juris: 'Seattle', go_date: '2026-06-15' }),
+  mkProject({ id: 'p3', juris: 'Seattle', go_date: '2026-05-20' }),
 ];
 
 vi.mock('../hooks/usePermits', () => ({
@@ -328,14 +332,14 @@ describe('Trends — fix-25-feat-V submit→intake surface', () => {
     expect(card.textContent).toContain('submit → approval/issue, days');
   });
 
-  it('fix-112-c: page renders the "Showing approved permits only" affordance', () => {
+  it('fix-200: page renders the GO-cohort basis affordance', () => {
     // Trends KPI row + City + Variance + Breakdown all route through
-    // filterPermits (perfTrends.ts:46-63) which gates on
-    // approval_date ?? actual_issue. Make the cohort restriction visible.
+    // filterPermits, now anchored on the project's GO date. Make the basis
+    // visible so the user knows the same GO-cohort is compared across periods.
     renderTrends();
     const banner = screen.getByTestId('trends-approved-only-banner');
-    expect(banner.textContent).toMatch(/Showing approved permits only/i);
-    expect(banner.textContent).toMatch(/in-progress activity is not included/i);
+    expect(banner.textContent).toMatch(/went GO/i);
+    expect(banner.textContent).toMatch(/without a GO date are excluded/i);
   });
 
   // ─── fix-114→fix-137: period comparison ────────────────────────────
@@ -973,9 +977,10 @@ describe('Trends — fix-25-feat-V submit→intake surface', () => {
   // Timeline" + two new sibling KPI tiles (City Review / Response Time) +
   // line chart relabel.
   describe('fix-142 Trends KPI alignment', () => {
-    it('KPI row now ships 7 tiles (was 5) — incl. City Review + Response Time', () => {
+    it('KPI row ships 8 tiles — incl. Total Projects (fix-200) + City Review + Response Time', () => {
       renderTrends();
       for (const id of [
+        'trends-kpi-projects',
         'trends-kpi-total',
         'trends-kpi-submit-intake',
         'trends-kpi-clock',
@@ -986,6 +991,17 @@ describe('Trends — fix-25-feat-V submit→intake surface', () => {
       ]) {
         expect(screen.getByTestId(id)).toBeInTheDocument();
       }
+    });
+
+    // fix-200: Total Projects = distinct projects with go_date in range.
+    it('Total Projects shows the distinct GO-cohort project count', () => {
+      // Default window (2025–2027) covers all 3 fixture projects' go_dates.
+      renderTrends();
+      const projectsTile = screen.getByTestId('trends-kpi-projects');
+      expect(projectsTile.textContent).toContain('Total Projects');
+      expect(projectsTile.textContent).toMatch(/\b3\b/); // p1, p2, p3
+      // Total Permits is also 3 here (one permit per project).
+      expect(screen.getByTestId('trends-kpi-total').textContent).toContain('Total Permits');
     });
 
     it('the Permit Timeline tile reads "Avg Permit Timeline" (no longer "Avg city clock")', () => {
@@ -1011,6 +1027,7 @@ describe('Trends — fix-25-feat-V submit→intake surface', () => {
   describe('fix-129-c MetricInfoTooltip wiring (Trends)', () => {
     const kpiSlugs = [
       'approvedInWindow',
+      'totalProjects',
       'avgSubmitToIntakeDelay',
       'avgCityClock',
       // fix-142: City Review + Response Time KPI siblings.

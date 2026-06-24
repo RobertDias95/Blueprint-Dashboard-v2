@@ -48,14 +48,20 @@ export const SPARSE_GATE = 3;
 // Filter application
 // ============================================================
 
-/** Apply the date-range / juris / permit-type filter to the permits
- *  list. Date-range uses each permit's approval_date as the anchor
- *  (matches the "approved in window" semantics Bobby wants). Permits
- *  without approval_date are excluded — they haven't completed the
- *  city clock yet so they don't belong in performance averages.
+/** fix-200: apply the date-range / juris / permit-type filter, anchoring cohort
+ *  membership on the PROJECT'S GO DATE (projects.go_date). Bobby's mental model
+ *  = the Draw Schedule: "the projects that went GO this quarter, how did their
+ *  phases compare to last quarter's." So period A vs B is decided by go_date
+ *  falling in the window, NOT by when a permit was approved/issued. Every metric
+ *  below consumes this same GO-anchored cohort, so they all describe the same
+ *  set of projects.
  *
- *  Variance + breakdown helpers below use this same filtered set so
- *  the table / charts stay consistent with the KPI tile counts. */
+ *  Permits whose project has NO go_date fall out of the cohort (they never went
+ *  GO, so they're not part of "this quarter's starts").
+ *
+ *  Pre-fix-200 this gated on `approval_date ?? actual_issue` ("approved in
+ *  window") — that compared whatever finished in the window, not the same cohort
+ *  across periods. */
 export function filterPermits(
   permits: PermitWithCycles[],
   projectsById: Map<string, Project>,
@@ -63,14 +69,12 @@ export function filterPermits(
 ): PermitWithCycles[] {
   const { from, to } = filters.dateRange;
   return permits.filter((p) => {
-    const approval = p.approval_date ?? p.actual_issue ?? null;
-    if (!approval) return false;
-    if (approval < from || approval > to) return false;
+    const proj = projectsById.get(p.project_id);
+    const go = proj?.go_date ?? null;
+    if (!go) return false;
+    if (go < from || go > to) return false;
     if (filters.permitType && p.type !== filters.permitType) return false;
-    if (filters.juris) {
-      const proj = projectsById.get(p.project_id);
-      if (proj?.juris !== filters.juris) return false;
-    }
+    if (filters.juris && proj?.juris !== filters.juris) return false;
     return true;
   });
 }
@@ -79,8 +83,22 @@ export function filterPermits(
 // KPI aggregations
 // ============================================================
 
-export function totalApprovedInWindow(filtered: PermitWithCycles[]): number {
+/** Total Permits in the GO cohort — count of permits whose project went GO in
+ *  the window. (fix-200 renamed from totalApprovedInWindow; the cohort is now
+ *  GO-anchored, not approval-anchored.) */
+export function totalPermitsInWindow(filtered: PermitWithCycles[]): number {
   return filtered.length;
+}
+
+/** fix-200: Total Projects in the GO cohort — distinct project_ids among the
+ *  filtered permits. Every permit of a project shares that project's go_date, so
+ *  this is "the number of distinct projects that went GO in the window" — the
+ *  same by-GO-date basis as the GOs-by-month series, de-duplicated to projects.
+ *  Sits beside Total Permits. */
+export function totalProjectsInWindow(filtered: PermitWithCycles[]): number {
+  const ids = new Set<string>();
+  for (const p of filtered) ids.add(p.project_id);
+  return ids.size;
 }
 
 // This is the Avg Permit Timeline metric (renamed from "Avg city clock" in

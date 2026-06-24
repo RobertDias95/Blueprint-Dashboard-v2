@@ -161,14 +161,22 @@ export const REPORTS_OVERVIEW_METRICS: Record<string, MetricDefinition> = {
 // ============================================================
 
 export const TRENDS_KPI_METRICS: Record<string, MetricDefinition> = {
+  // fix-200: the cohort is now GO-anchored (projects.go_date in window), so this
+  // counts permits whose project went GO in the window — "Total Permits".
   approvedInWindow: {
-    // perfTrends.ts:69 — filtered.length on the filterPermits cohort
-    // (which gates on approval_date ?? actual_issue being set + in window).
-    label: 'Approved permits in window',
+    label: 'Total Permits',
     description:
-      'Number of permits whose approval (or issue) date falls inside the current date range.',
-    formula: 'count(permits where (approval_date ?? actual_issue) ∈ [from, to])',
-    cohort: 'Only counts permits with approval_date or actual_issue set.',
+      'Number of permits belonging to projects that went GO (projects.go_date) inside the current date range.',
+    formula: 'count(permits where project.go_date ∈ [from, to])',
+    cohort: 'Only counts permits whose project has a go_date in the window.',
+  },
+  // fix-200: distinct projects in the same GO-anchored cohort.
+  totalProjects: {
+    label: 'Total Projects',
+    description:
+      'Number of distinct projects that went GO (projects.go_date) inside the current date range — the same GO-cohort as Total Permits, de-duplicated to projects.',
+    formula: 'count(distinct project_id where project.go_date ∈ [from, to])',
+    cohort: 'Only counts projects with a go_date in the window.',
   },
   avgSubmitToIntakeDelay: {
     // Trends.tsx KPI uses submissionToIntakeVariance — perfTrends.ts:261-289.
