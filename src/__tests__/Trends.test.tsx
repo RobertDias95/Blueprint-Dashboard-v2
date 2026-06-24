@@ -1019,6 +1019,48 @@ describe('Trends — fix-25-feat-V submit→intake surface', () => {
     });
   });
 
+  // fix-201: every KPI tile is clickable → opens the MetricDrillIn modal with the
+  // current-window GO-cohort rows.
+  describe('fix-201 KPI tile drill-in', () => {
+    it('Total Projects tile opens the drill-in; row count == the tile number (3)', () => {
+      renderTrends();
+      const tile = screen.getByTestId('trends-kpi-projects');
+      expect(tile.getAttribute('role')).toBe('button'); // clickable affordance
+      fireEvent.click(tile);
+      const modal = screen.getByTestId('metric-drillin-modal');
+      expect(within(modal).getByText('Total Projects')).toBeInTheDocument();
+      // 3 distinct projects → 3 rows; footer "3 permits contributing".
+      expect(screen.getByTestId('metric-drillin-count').textContent).toMatch(/\b3\b/);
+      // Close.
+      fireEvent.click(screen.getByTestId('metric-drillin-close'));
+      expect(screen.queryByTestId('metric-drillin-modal')).toBeNull();
+    });
+
+    it('Total Permits tile opens its drill-in (one row per permit)', () => {
+      renderTrends();
+      fireEvent.click(screen.getByTestId('trends-kpi-total'));
+      const modal = screen.getByTestId('metric-drillin-modal');
+      expect(within(modal).getByText('Total Permits')).toBeInTheDocument();
+      expect(screen.getByTestId('metric-drillin-count').textContent).toMatch(/\b3\b/);
+    });
+
+    it('Avg Permit Timeline tile opens a value drill-in with rows + a stats footer', () => {
+      renderTrends();
+      fireEvent.click(screen.getByTestId('trends-kpi-clock'));
+      const modal = screen.getByTestId('metric-drillin-modal');
+      expect(within(modal).getByText('Avg Permit Timeline')).toBeInTheDocument();
+      // value metric → min/median/max footer present.
+      expect(screen.getByTestId('metric-drillin-stats')).toBeInTheDocument();
+    });
+
+    it('keyboard: Enter on a focused tile opens the drill-in', () => {
+      renderTrends();
+      const tile = screen.getByTestId('trends-kpi-total');
+      fireEvent.keyDown(tile, { key: 'Enter' });
+      expect(screen.getByTestId('metric-drillin-modal')).toBeInTheDocument();
+    });
+  });
+
   // fix-129-c: every KPI tile + chart title is wrapped in a
   // MetricInfoTooltip. The trigger testids come from metricDefinitions
   // via the kpiTip / chartTip factories. Surfacing them as a single

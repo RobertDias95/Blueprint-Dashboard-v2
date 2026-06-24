@@ -1,7 +1,10 @@
 import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import type { DrillInData, MetricDrillInRow } from '../../lib/metricDrillIn';
-import { REPORTS_OVERVIEW_METRICS } from '../../lib/metricDefinitions';
+import {
+  REPORTS_OVERVIEW_METRICS,
+  type MetricDefinition,
+} from '../../lib/metricDefinitions';
 
 // fix-184a: generalized metric drill-in modal. Reuses the BenchmarkSourceModal
 // shell + date-timeline row pattern, but is metric-agnostic: it renders the
@@ -15,12 +18,21 @@ interface Props {
   data: DrillInData;
   /** Active filter context for the header, e.g. "Seattle · Building Permit". */
   filterContext?: string;
+  /** fix-201: explicit metric definition for the formula/cohort sub-labels.
+   *  Lets non-Overview surfaces (e.g. Trends KPI tiles, whose keys live in
+   *  TRENDS_KPI_METRICS) reuse this modal. Falls back to the Overview library. */
+  metricDef?: MetricDefinition;
   onClose: () => void;
 }
 
-export default function MetricDrillIn({ data, filterContext, onClose }: Props) {
+export default function MetricDrillIn({
+  data,
+  filterContext,
+  metricDef,
+  onClose,
+}: Props) {
   const [desc, setDesc] = useState(true);
-  const def = REPORTS_OVERVIEW_METRICS[data.key];
+  const def = metricDef ?? REPORTS_OVERVIEW_METRICS[data.key];
 
   const rows = useMemo(() => {
     const copy = [...data.rows];
@@ -190,6 +202,19 @@ function DrillRow({
           <>
             <span>·</span>
             <span className="font-mono">{row.lead}</span>
+          </>
+        )}
+        {/* fix-201: value-metric secondary (e.g. hit/miss on the hit-rate
+            drill-in) — count metrics already render secondary by the value. */}
+        {!isCount && row.secondary && (
+          <>
+            <span>·</span>
+            <span
+              className="font-mono font-bold"
+              data-testid={`metric-drillin-secondary-${row.permitId}`}
+            >
+              {row.secondary}
+            </span>
           </>
         )}
       </div>
