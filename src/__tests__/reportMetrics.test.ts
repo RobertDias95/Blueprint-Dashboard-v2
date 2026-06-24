@@ -326,6 +326,9 @@ describe('filterEnrichedPermits', () => {
       }),
     ],
   ]);
+  // fix-204: the windowed cohort anchors on the project's DD start, so the BP
+  // carries dd_start aligned with each project's go_date here (p1 → 2026-04-01,
+  // p2 → 2025-12-01) to preserve the date-window test expectations.
   const enriched = enrichPermits(
     [
       makePermit({
@@ -333,6 +336,7 @@ describe('filterEnrichedPermits', () => {
         project_id: 'p1',
         type: 'Building Permit',
         ent_lead: 'Bobby',
+        dd_start: '2026-04-01',
         actual_issue: '2026-05-01',
       }),
       makePermit({
@@ -340,6 +344,7 @@ describe('filterEnrichedPermits', () => {
         project_id: 'p2',
         type: 'Demolition',
         ent_lead: 'Miles',
+        dd_start: '2025-12-01',
         actual_issue: null,
       }),
     ],
@@ -471,8 +476,9 @@ describe('filterEnrichedPermits', () => {
     expect(out.map((e) => e.permit.id)).toEqual([1]);
   });
 
-  it('range=3mo filters by go_date >= today - 90 days', () => {
-    // today=2026-05-15. cutoff = 2026-02-14. p1.go=2026-04-01 (in), p2.go=2025-12-01 (out).
+  it('range=3mo filters by project DD start >= today - 90 days', () => {
+    // today=2026-05-15. cutoff = 2026-02-14. p1 dd_start=2026-04-01 (in),
+    // p2 dd_start=2025-12-01 (out).
     const out = filterEnrichedPermits(
       enriched,
       { ...baseFilters, range: '3mo' },
@@ -491,28 +497,27 @@ describe('filterEnrichedPermits', () => {
     expect(out.map((e) => e.permit.id)).toEqual([1]);
   });
 
-  // ── fix-203: null-go_date leak fix ──────────────────────────────────
-  // Pre-fix the date gate was `if (from && e.goDate)`, so a permit whose
-  // project has NO go_date was never excluded — it leaked into EVERY window
-  // (and thus into both the current and comparison Overview cohorts). The fix
-  // excludes null-go_date permits whenever a date window is active, matching
-  // Trends' filterPermits.
-  describe('fix-203: null-go_date exclusion under a window', () => {
-    const nullGoProjects = new Map<string, Project>([
-      ['p1', makeProject({ id: 'p1', juris: 'Seattle', go_date: '2026-04-01' })],
-      // p3 has NO go_date — the leaky straggler.
-      ['p3', makeProject({ id: 'p3', juris: 'Seattle', go_date: null })],
+  // ── fix-204: null-DD-start exclusion (re-anchored from go_date) ──────
+  // fix-203 anchored this gate on go_date (excluding null go_date under a
+  // window); fix-204 moved the anchor to the project's DD start. A permit
+  // whose project has NO DD start is excluded whenever a date window is active
+  // (it never leaks into a window), but kept when range='all'.
+  describe('fix-204: null-DD-start exclusion under a window', () => {
+    const projects = new Map<string, Project>([
+      ['p1', makeProject({ id: 'p1', juris: 'Seattle' })],
+      // p3 has NO dd_start on any permit — the leaky straggler.
+      ['p3', makeProject({ id: 'p3', juris: 'Seattle' })],
     ]);
-    const withNullGo = enrichPermits(
+    const withNullDd = enrichPermits(
       [
-        makePermit({ id: 1, project_id: 'p1', type: 'Building Permit' }),
-        makePermit({ id: 3, project_id: 'p3', type: 'Building Permit' }),
+        makePermit({ id: 1, project_id: 'p1', type: 'Building Permit', dd_start: '2026-04-01' }),
+        makePermit({ id: 3, project_id: 'p3', type: 'Building Permit', dd_start: null }),
       ],
-      nullGoProjects,
+      projects,
     );
 
-    it('excludes the null-go_date permit when a custom window is active', () => {
-      const out = filterEnrichedPermits(withNullGo, {
+    it('excludes the null-DD-start permit when a custom window is active', () => {
+      const out = filterEnrichedPermits(withNullDd, {
         ...baseFilters,
         range: 'custom',
         dateFrom: '2026-03-01',
@@ -521,10 +526,10 @@ describe('filterEnrichedPermits', () => {
       expect(out.map((e) => e.permit.id)).toEqual([1]);
     });
 
-    it('excludes the null-go_date permit from a NON-overlapping window too (no leak across periods)', () => {
-      // p1.go=2026-04-01 is OUT of this comparison window; p3 (null go) must
-      // also be OUT — pre-fix it would have leaked in.
-      const out = filterEnrichedPermits(withNullGo, {
+    it('excludes the null-DD-start permit from a NON-overlapping window too (no leak across periods)', () => {
+      // p1 dd_start=2026-04-01 is OUT of this comparison window; p3 (null dd)
+      // must also be OUT — pre-fix it would have leaked in.
+      const out = filterEnrichedPermits(withNullDd, {
         ...baseFilters,
         range: 'custom',
         dateFrom: '2025-09-30',
@@ -533,10 +538,40 @@ describe('filterEnrichedPermits', () => {
       expect(out.map((e) => e.permit.id)).toEqual([]);
     });
 
-    it("range='all' (no window) keeps the null-go_date permit", () => {
-      const out = filterEnrichedPermits(withNullGo, { ...baseFilters, range: 'all' });
+    it("range='all' (no window) keeps the null-DD-start permit", () => {
+      const out = filterEnrichedPermits(withNullDd, { ...baseFilters, range: 'all' });
       expect(out.map((e) => e.permit.id)).toEqual([1, 3]);
     });
+  });
+
+  // fix-204: a project rides its BP DD start — a Demo with no dd_start of its
+  // own is pulled into (or out of) the window by the project's BP anchor.
+  it('fix-204: a Demo with no dd_start rides the project BP DD start into the window', () => {
+    const projects = new Map<string, Project>([
+      ['p1', makeProject({ id: 'p1', juris: 'Seattle' })],
+    ]);
+    const enrichedMixed = enrichPermits(
+      [
+        makePermit({ id: 1, project_id: 'p1', type: 'Building Permit', dd_start: '2026-04-01' }),
+        makePermit({ id: 2, project_id: 'p1', type: 'Demolition', dd_start: null }),
+      ],
+      projects,
+    );
+    const inWindow = filterEnrichedPermits(enrichedMixed, {
+      ...baseFilters,
+      range: 'custom',
+      dateFrom: '2026-03-01',
+      dateTo: '2026-06-30',
+    });
+    expect(inWindow.map((e) => e.permit.id).sort()).toEqual([1, 2]);
+    // A window before the BP DD start excludes the whole project (both permits).
+    const before = filterEnrichedPermits(enrichedMixed, {
+      ...baseFilters,
+      range: 'custom',
+      dateFrom: '2025-01-01',
+      dateTo: '2025-12-31',
+    });
+    expect(before).toEqual([]);
   });
 });
 

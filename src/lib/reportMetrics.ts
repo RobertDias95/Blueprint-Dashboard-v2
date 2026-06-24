@@ -8,6 +8,7 @@ import { multiMatchAddress } from './drawScheduleHelpers';
 import { effectiveStage } from './permitStage';
 import { accountableDays } from './holdOverlap';
 import { isNotSubPermit } from './subPermit';
+import { buildProjectDdStartMap } from './projectDdStart';
 
 // fix-171 (On-Hold Phase 2, effect B): the displayed turnaround tiles subtract
 // held days so a parked project doesn't inflate "our time". Each measurement
@@ -732,6 +733,9 @@ export function filterEnrichedPermits(
 ): EnrichedPermit[] {
   const { from, to } = resolveDateRange(filters, today);
   const fullyIssued = buildFullyIssuedProjectIds(enriched);
+  // fix-204: the windowed cohort anchors on the project's DD start (when it
+  // started drawing), shared with Trends via buildProjectDdStartMap.
+  const ddStartByProject = buildProjectDdStartMap(enriched.map((e) => e.permit));
 
   return enriched.filter((e) => {
     const p = e.permit;
@@ -739,19 +743,23 @@ export function filterEnrichedPermits(
     if (filters.jurisdictions.size > 0 && !filters.jurisdictions.has(e.juris)) return false;
     if (filters.ents.size > 0 && !filters.ents.has(p.ent_lead ?? '')) return false;
 
-    // fix-22 Mig 3: go_date is on the project now (carried on the enriched
-    // permit as `e.goDate`).
-    // fix-203: a windowed cohort is anchored on go_date — a permit whose project
-    // has NO go_date is EXCLUDED whenever a date range is applied (mirrors Trends
-    // filterPermits' `if (!go) return false`). Pre-fix the gate was
-    // `if (from && e.goDate)`, which never dropped a null go_date, so the same
-    // null-go_date permits leaked into EVERY window (fix-202). When no window is
-    // active (range='all' → from/to null) nothing is date-filtered, as before.
+    // fix-204: a windowed cohort is anchored on the PROJECT's DD start (the
+    // project's BP dd_start, else its earliest permit dd_start). A permit whose
+    // project has NO dd_start is EXCLUDED whenever a date range is applied — so
+    // all of a project's permits sit in the same quarter (its dd_start quarter)
+    // and a project never splits across windows. When no window is active
+    // (range='all' → from/to null) nothing is date-filtered.
+    //
+    // fix-203 had anchored this on go_date (excluding null go_date under a
+    // window); fix-204 moved the anchor to dd_start because the GO→DD-start gap
+    // misattributed the quarter. Metric VALUES (incl. the GO→* formulas) still
+    // measure from go_date — only cohort membership moved.
     if (from || to) {
-      if (!e.goDate) return false;
-      const go = new Date(`${e.goDate}T00:00:00`);
-      if (from && go < from) return false;
-      if (to && go > to) return false;
+      const ddStart = ddStartByProject.get(p.project_id) ?? null;
+      if (!ddStart) return false;
+      const dd = new Date(`${ddStart}T00:00:00`);
+      if (from && dd < from) return false;
+      if (to && dd > to) return false;
     }
 
     if (filters.status === 'active' && fullyIssued.has(p.project_id)) return false;

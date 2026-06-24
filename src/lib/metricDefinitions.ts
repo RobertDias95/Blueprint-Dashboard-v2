@@ -36,6 +36,11 @@ export const REPORTS_OVERVIEW_METRICS: Record<string, MetricDefinition> = {
     description:
       'Number of permits in the current filter, plus total units across the distinct projects they belong to.',
     formula: 'count(permits in filter) · sum(project.units) over distinct projects',
+    // fix-204: when a date range is active, cohort membership anchors on the
+    // project's DD start (when it started drawing) — every permit of a project
+    // sits in the same window; projects without a DD start are excluded.
+    cohort:
+      'With a date range active, only counts permits whose project started drawing (DD start) in the window.',
   },
   submitVariance: {
     // reportMetrics.ts:597-614 — actual firstSubmitted − target_submit, averaged.
@@ -161,22 +166,23 @@ export const REPORTS_OVERVIEW_METRICS: Record<string, MetricDefinition> = {
 // ============================================================
 
 export const TRENDS_KPI_METRICS: Record<string, MetricDefinition> = {
-  // fix-200: the cohort is now GO-anchored (projects.go_date in window), so this
-  // counts permits whose project went GO in the window — "Total Permits".
+  // fix-200 / fix-204: the cohort is anchored on the project's DD start (when it
+  // started drawing) in the window, so this counts permits whose project started
+  // drawing in the window — "Total Permits".
   approvedInWindow: {
     label: 'Total Permits',
     description:
-      'Number of permits belonging to projects that went GO (projects.go_date) inside the current date range.',
-    formula: 'count(permits where project.go_date ∈ [from, to])',
-    cohort: 'Only counts permits whose project has a go_date in the window.',
+      'Number of permits belonging to projects that started drawing (project DD start) inside the current date range.',
+    formula: 'count(permits where project.dd_start ∈ [from, to])',
+    cohort: 'Only counts permits whose project has a DD start in the window.',
   },
-  // fix-200: distinct projects in the same GO-anchored cohort.
+  // fix-200 / fix-204: distinct projects in the same DD-start-anchored cohort.
   totalProjects: {
     label: 'Total Projects',
     description:
-      'Number of distinct projects that went GO (projects.go_date) inside the current date range — the same GO-cohort as Total Permits, de-duplicated to projects.',
-    formula: 'count(distinct project_id where project.go_date ∈ [from, to])',
-    cohort: 'Only counts projects with a go_date in the window.',
+      'Number of distinct projects that started drawing (project DD start) inside the current date range — the same DD-start cohort as Total Permits, de-duplicated to projects.',
+    formula: 'count(distinct project_id where project.dd_start ∈ [from, to])',
+    cohort: 'Only counts projects with a DD start in the window.',
   },
   avgSubmitToIntakeDelay: {
     // Trends.tsx KPI uses submissionToIntakeVariance — perfTrends.ts:261-289.

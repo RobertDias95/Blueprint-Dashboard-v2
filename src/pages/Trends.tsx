@@ -289,7 +289,8 @@ function TrendsBody({ permits, projects, catalogTypes }: BodyProps) {
   const holdsMap = useMemo(() => holdsByProjectId(holdsQ.data), [holdsQ.data]);
 
   const kpiTotal = totalPermitsInWindow(filteredCurrent);
-  // fix-200: Total Projects — distinct projects that went GO in the window.
+  // fix-200 / fix-204: Total Projects — distinct projects that started drawing
+  // (DD start) in the window.
   const kpiProjects = totalProjectsInWindow(filteredCurrent);
   const kpiAvgClock = avgIntakeToApproval(filteredCurrent, holdsMap);
   // fix-142: City Review / Response Time siblings of Permit Timeline.
@@ -963,20 +964,21 @@ function TrendsBody({ permits, projects, catalogTypes }: BodyProps) {
         testIdPrefix="trends-compare-panel"
       />
 
-      {/* fix-200: the KPI row + City performance + Variance + Breakdown
-          sections all route through filterPermits, which now anchors the cohort
-          on the project's GO date (projects.go_date) — "the projects that went
-          GO in this window." Permits whose project has no go_date are excluded.
-          Volume + Target Submit sections bucket by their own dates and are not
-          gated this way. Make the basis visible so a user adjusting the period
-          knows they're comparing the same GO cohort across periods. */}
+      {/* fix-200 / fix-204: the KPI row + City performance + Variance + Breakdown
+          sections all route through filterPermits, which anchors the cohort on
+          the project's DD start (when it started drawing) — "the projects that
+          started drawing in this window." Permits whose project has no DD start
+          are excluded. Volume + Target Submit sections bucket by their own dates
+          and are not gated this way. Make the basis visible so a user adjusting
+          the period knows they're comparing the same DD-start cohort across
+          periods. */}
       <div
         className="text-[11px] text-dim italic px-1"
         data-testid="trends-approved-only-banner"
       >
-        Cohort = projects that went GO in this window (by GO date) — the KPI row,
-        City performance, Variance, and Breakdown sections compare the same
-        GO-cohort across periods. Projects without a GO date are excluded.
+        Cohort = projects that started drawing (DD start) in this window — the KPI
+        row, City performance, Variance, and Breakdown sections compare the same
+        DD-start cohort across periods. Projects without a DD start are excluded.
       </div>
 
       {/* KPI tile row */}
@@ -998,8 +1000,8 @@ function TrendsBody({ permits, projects, catalogTypes }: BodyProps) {
               )}%)`;
         return (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-8 gap-3">
-            {/* fix-200: Total Projects (distinct projects that went GO in the
-                window) sits beside Total Permits. */}
+            {/* fix-200 / fix-204: Total Projects (distinct projects that started
+                drawing — DD start — in the window) sits beside Total Permits. */}
             <KpiTile
               label="Total Projects"
               labelSlot={kpiTip('totalProjects')}
