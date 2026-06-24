@@ -99,7 +99,7 @@ const ZERO_METRICS: ReportMetrics = {
   avgPermitTimeline: null, avgResponseTime: null, avgSubmitToIntake: null,
   avgApprovalToIssue: null, avgCorrectionCycles: null, permitsWithCorrections: 0,
   inCorrections: 0, issuedCount: 0, avgScheduleVariance: null, avgDDDuration: null,
-  avgDDEndToSubmit: null,
+  avgDDEndToSubmit: null, sampleSizes: {},
 };
 
 function enrichedFixture(): EnrichedPermit[] {

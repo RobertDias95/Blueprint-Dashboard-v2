@@ -741,11 +741,17 @@ export function filterEnrichedPermits(
 
     // fix-22 Mig 3: go_date is on the project now (carried on the enriched
     // permit as `e.goDate`).
-    if (from && e.goDate) {
-      if (new Date(`${e.goDate}T00:00:00`) < from) return false;
-    }
-    if (to && e.goDate) {
-      if (new Date(`${e.goDate}T00:00:00`) > to) return false;
+    // fix-203: a windowed cohort is anchored on go_date — a permit whose project
+    // has NO go_date is EXCLUDED whenever a date range is applied (mirrors Trends
+    // filterPermits' `if (!go) return false`). Pre-fix the gate was
+    // `if (from && e.goDate)`, which never dropped a null go_date, so the same
+    // null-go_date permits leaked into EVERY window (fix-202). When no window is
+    // active (range='all' → from/to null) nothing is date-filtered, as before.
+    if (from || to) {
+      if (!e.goDate) return false;
+      const go = new Date(`${e.goDate}T00:00:00`);
+      if (from && go < from) return false;
+      if (to && go > to) return false;
     }
 
     if (filters.status === 'active' && fullyIssued.has(p.project_id)) return false;
@@ -832,6 +838,13 @@ export interface ReportMetrics {
   avgScheduleVariance: number | null;
   avgDDDuration: number | null;
   avgDDEndToSubmit: number | null;
+  /** fix-203: per-metric SAMPLE SIZE — the count of permits that actually fed
+   *  each number (an average silently drops permits missing its end date, so a
+   *  completion metric's n can be far below the cohort). Keyed by the card slug;
+   *  the denominator is `totalPermits` (the cohort size). Reconciles with the
+   *  fix-184 drill-in row count for the Phase-A metrics. For count metrics
+   *  (totalPermits / inCorrections / issuedCount) n == the count itself. */
+  sampleSizes: Record<string, number>;
 }
 
 function avg(values: (number | null)[]): number | null {
@@ -846,6 +859,13 @@ function avg(values: (number | null)[]): number | null {
   );
   if (real.length === 0) return null;
   return Math.round(real.reduce((a, b) => a + b, 0) / real.length);
+}
+
+/** fix-203: count of non-null (non-NaN) values — the SAME gate `avg()` uses to
+ *  pick what feeds an average. So `countSamples(xs)` is the sample size behind
+ *  `avg(xs)`. */
+function countSamples(values: (number | null)[]): number {
+  return values.filter((v): v is number => v !== null && !Number.isNaN(v)).length;
 }
 
 /** Compute the 11 v1 metric cards from a filtered, enriched permit set. */
@@ -911,39 +931,68 @@ export function computeMetrics(
     if (e.permit.actual_issue) issuedCount++;
   }
 
+  // fix-203: build each average metric's value array ONCE so its sample size
+  // (countSamples) is the exact set its average (avg) used. The three court-time
+  // tiles are per-metric cohorts — a permit can contribute to one and not the
+  // others (City Review = sum-over-cycles city-court; Permit Timeline = the
+  // intake → approval clock; Response Time = sum-over-cycles our-court).
+  const goToSubmit = enriched.map((e) => e.goToSubmit);
+  const goToDDStart = enriched.map((e) => e.goToDDStart);
+  const cityReview = enriched.map((e) =>
+    cityCourtTimeDays(e.permit, holdsByProjectId?.get(e.permit.project_id)),
+  );
+  const permitTimeline = enriched.map((e) => e.permitTimelineDays);
+  const responseTime = enriched.map((e) =>
+    responseCourtTimeDays(e.permit, holdsByProjectId?.get(e.permit.project_id)),
+  );
+  const submitToIntake = enriched.map((e) => e.submitToIntake);
+  const approvalToIssue = enriched.map((e) => e.approvalToIssue);
+  const scheduleVariance = enriched.map((e) => e.variance);
+  const ddDuration = enriched.map((e) => e.ddDuration);
+  const ddEndToSubmit = enriched.map((e) => e.ddEndToSubmit);
+
+  // fix-203: per-metric sample sizes. Keys match the MetricCards card slugs +
+  // the fix-184 drill-in keys so the n= label reconciles with the drill-in.
+  const sampleSizes: Record<string, number> = {
+    totalPermits: enriched.length,
+    totalUnits: seenProjects.size,
+    submitVariance: submitVariances.length,
+    avgGoToSubmit: countSamples(goToSubmit),
+    avgGoToDDStart: countSamples(goToDDStart),
+    avgCityReview: countSamples(cityReview),
+    avgPermitTimeline: countSamples(permitTimeline),
+    avgResponseTime: countSamples(responseTime),
+    avgSubmitToIntake: countSamples(submitToIntake),
+    avgApprovalToIssue: countSamples(approvalToIssue),
+    avgCorrectionCycles: corrRoundsSet.length,
+    inCorrections,
+    issuedCount,
+    avgScheduleVariance: countSamples(scheduleVariance),
+    avgDDDuration: countSamples(ddDuration),
+    avgDDEndToSubmit: countSamples(ddEndToSubmit),
+  };
+
   return {
     totalPermits: enriched.length,
     totalUnits,
     avgSubmitVariance,
     onTimeSubmits,
     lateSubmits,
-    avgGoToSubmit: avg(enriched.map((e) => e.goToSubmit)),
-    avgGoToDDStart: avg(enriched.map((e) => e.goToDDStart)),
-    // fix-141: City Review now = sum-over-cycles city-court time; Permit
-    // Timeline = the old intake → approval clock (the renamed
-    // permitTimelineDays field); Response Time = sum-over-cycles our-court
-    // time. The three are per-metric cohorts — a permit can contribute to
-    // one and not the others.
-    avgCityReview: avg(
-      enriched.map((e) =>
-        cityCourtTimeDays(e.permit, holdsByProjectId?.get(e.permit.project_id)),
-      ),
-    ),
-    avgPermitTimeline: avg(enriched.map((e) => e.permitTimelineDays)),
-    avgResponseTime: avg(
-      enriched.map((e) =>
-        responseCourtTimeDays(e.permit, holdsByProjectId?.get(e.permit.project_id)),
-      ),
-    ),
-    avgSubmitToIntake: avg(enriched.map((e) => e.submitToIntake)),
+    avgGoToSubmit: avg(goToSubmit),
+    avgGoToDDStart: avg(goToDDStart),
+    avgCityReview: avg(cityReview),
+    avgPermitTimeline: avg(permitTimeline),
+    avgResponseTime: avg(responseTime),
+    avgSubmitToIntake: avg(submitToIntake),
     // fix-173: held-aware approval→issue (computed per-permit in enrichPermits).
-    avgApprovalToIssue: avg(enriched.map((e) => e.approvalToIssue)),
+    avgApprovalToIssue: avg(approvalToIssue),
     avgCorrectionCycles,
     permitsWithCorrections: corrRoundsSet.length,
     inCorrections,
     issuedCount,
-    avgScheduleVariance: avg(enriched.map((e) => e.variance)),
-    avgDDDuration: avg(enriched.map((e) => e.ddDuration)),
-    avgDDEndToSubmit: avg(enriched.map((e) => e.ddEndToSubmit)),
+    avgScheduleVariance: avg(scheduleVariance),
+    avgDDDuration: avg(ddDuration),
+    avgDDEndToSubmit: avg(ddEndToSubmit),
+    sampleSizes,
   };
 }

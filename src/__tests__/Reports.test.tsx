@@ -199,6 +199,7 @@ function makeMetrics(over: Partial<ReportMetrics> = {}): ReportMetrics {
     avgScheduleVariance: null,
     avgDDDuration: null,
     avgDDEndToSubmit: null,
+    sampleSizes: {},
     ...over,
   };
 }
@@ -1125,6 +1126,78 @@ describe('<Reports /> Q7.2.b', () => {
       expect(cityNum).toBe('24');
       expect(timelineNum).toBe('29');
       expect(cityNum).not.toBe(timelineNum);
+    });
+  });
+
+  // ============================================================
+  // fix-203: per-metric n= sample-size annotation
+  // ============================================================
+  describe('fix-203 n= sample size on Overview cards', () => {
+    it('renders the n= line on a completion card; n=0 shows "—" not a borrowed number', () => {
+      // Recent immature cohort: 9 permits, but 0 reached approval → Avg Permit
+      // Timeline must read "—" with n=0 of 9 (the maturity story), NOT a value.
+      render(
+        <MetricCards
+          metrics={makeMetrics({
+            totalPermits: 9,
+            avgPermitTimeline: null,
+            sampleSizes: { totalPermits: 9, avgPermitTimeline: 0 },
+          })}
+        />,
+      );
+      const card = screen.getByTestId('metric-permit-timeline');
+      // Value is the em-dash placeholder, not a number.
+      expect(card.textContent).toContain('—');
+      expect(card.textContent).not.toMatch(/\d+d/);
+      // n= line present and reads "n=0 of 9".
+      expect(
+        screen.getByTestId('metric-permit-timeline-n').textContent,
+      ).toBe('n=0 of 9');
+    });
+
+    it('count metric shows bare n= (n equals the cohort); comparison appends " · vs n="', () => {
+      render(
+        <MetricCards
+          metrics={makeMetrics({
+            totalPermits: 9,
+            sampleSizes: { totalPermits: 9 },
+          })}
+          comparisonMetrics={makeMetrics({
+            totalPermits: 20,
+            sampleSizes: { totalPermits: 20 },
+          })}
+          comparisonLabel="vs prev period"
+        />,
+      );
+      // n equals total for a count metric → bare "n=9", plus the comparison n.
+      expect(screen.getByTestId('metric-total-permits-n').textContent).toBe(
+        'n=9 · vs n=20',
+      );
+    });
+
+    it('a completion card still renders (to show its comparison) when CURRENT n=0 — pre-fix it vanished', () => {
+      // avgSubmitToIntake is a conditional card. Current null (n=0) but the
+      // comparison has data → the card must show, with current "—".
+      render(
+        <MetricCards
+          metrics={makeMetrics({
+            totalPermits: 9,
+            avgSubmitToIntake: null,
+            sampleSizes: { totalPermits: 9, avgSubmitToIntake: 0 },
+          })}
+          comparisonMetrics={makeMetrics({
+            totalPermits: 20,
+            avgSubmitToIntake: 4,
+            sampleSizes: { totalPermits: 20, avgSubmitToIntake: 12 },
+          })}
+          comparisonLabel="vs prev period"
+        />,
+      );
+      const card = screen.getByTestId('metric-submit-to-intake');
+      expect(card).toBeInTheDocument();
+      expect(screen.getByTestId('metric-submit-to-intake-n').textContent).toBe(
+        'n=0 of 9 · vs n=12 of 20',
+      );
     });
   });
 

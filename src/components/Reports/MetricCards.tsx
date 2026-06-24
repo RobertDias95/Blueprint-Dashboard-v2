@@ -113,6 +113,31 @@ export default function MetricCards({
     comparisonRangeLabel,
     comparisonModeLabel,
   };
+
+  // fix-203: per-metric sample-size annotation. n = the count of permits that
+  // actually fed the number (averages silently drop permits missing the end
+  // date); the denominator is the cohort size (totalPermits). Reconciles with
+  // the fix-184 drill-in row count. "n=5 of 20" — or "n=5" when the whole cohort
+  // contributed (count metrics) — plus " · vs n=… " for the comparison period.
+  const sampleText = (slug: string): string | undefined => {
+    const curN = metrics.sampleSizes?.[slug];
+    if (curN === undefined) return undefined;
+    const fmt = (n: number, total: number) =>
+      n >= total ? `n=${n}` : `n=${n} of ${total}`;
+    let s = fmt(curN, metrics.totalPermits);
+    if (cmp) {
+      const cmpN = cmp.sampleSizes?.[slug];
+      if (cmpN !== undefined) s += ` · vs ${fmt(cmpN, cmp.totalPermits)}`;
+    }
+    return s;
+  };
+  // fix-203: a completion card shows when EITHER period has data — so a metric
+  // whose CURRENT (immature) cohort is empty (n=0 → "—") still renders to show
+  // its comparison. (Pre-fix the card vanished when current was null, hiding the
+  // comparison too.)
+  const showCard = (cur: number | null, cmpVal: number | null | undefined) =>
+    cur !== null || (cmp != null && cmpVal != null);
+
   const variance = metrics.avgSubmitVariance;
   const varianceTone =
     variance === null
@@ -166,6 +191,7 @@ export default function MetricCards({
         labelSlot={tip('totalPermits')}
         value={metrics.totalPermits}
         subText={`${metrics.totalUnits} units across projects`}
+        sampleText={sampleText('totalPermits')}
         testId="metric-total-permits"
         {...drillProps('totalPermits')}
         currentNumeric={metrics.totalPermits}
@@ -176,14 +202,15 @@ export default function MetricCards({
         {...splitProps}
       />
 
-      {/* 2. SUBMIT VARIANCE — only when we have data */}
-      {variance !== null && (
+      {/* 2. SUBMIT VARIANCE — shown when either period has data (fix-203) */}
+      {showCard(variance, cmp?.avgSubmitVariance) && (
         <MetricCard
           label="Submit Variance (avg)"
           labelSlot={tip('submitVariance')}
           value={varianceDisplay}
-          unit="d"
+          unit={variance !== null ? 'd' : undefined}
           subText={`${metrics.onTimeSubmits} on-time · ${metrics.lateSubmits} late`}
+          sampleText={sampleText('submitVariance')}
           tone={varianceTone}
           testId="metric-submit-variance"
           {...drillProps('submitVariance')}
@@ -207,6 +234,7 @@ export default function MetricCards({
         value={metrics.avgGoToSubmit ?? '—'}
         unit={metrics.avgGoToSubmit !== null ? 'd' : undefined}
         subText="D&E phase average"
+        sampleText={sampleText('avgGoToSubmit')}
         tone="de"
         testId="metric-go-to-submit"
         {...drillProps('avgGoToSubmit')}
@@ -222,14 +250,15 @@ export default function MetricCards({
         {...splitProps}
       />
 
-      {/* 4. AVG GO → DD START — conditional */}
-      {metrics.avgGoToDDStart !== null && (
+      {/* 4. AVG GO → DD START — shown when either period has data (fix-203) */}
+      {showCard(metrics.avgGoToDDStart, cmp?.avgGoToDDStart) && (
         <MetricCard
           label="Avg GO → DD Start"
           labelSlot={tip('avgGoToDDStart')}
-          value={metrics.avgGoToDDStart}
-          unit="d"
+          value={metrics.avgGoToDDStart ?? '—'}
+          unit={metrics.avgGoToDDStart !== null ? 'd' : undefined}
           subText="GO to design start"
+          sampleText={sampleText('avgGoToDDStart')}
           tone="de"
           testId="metric-go-to-dd-start"
           {...drillProps('avgGoToDDStart')}
@@ -253,6 +282,7 @@ export default function MetricCards({
         value={metrics.avgCityReview ?? '—'}
         unit={metrics.avgCityReview !== null ? 'd' : undefined}
         subText="time in city's court"
+        sampleText={sampleText('avgCityReview')}
         tone="pm"
         testId="metric-city-review"
         currentNumeric={metrics.avgCityReview}
@@ -280,6 +310,7 @@ export default function MetricCards({
         value={metrics.avgResponseTime ?? '—'}
         unit={metrics.avgResponseTime !== null ? 'd' : undefined}
         subText="time in our court"
+        sampleText={sampleText('avgResponseTime')}
         tone="co"
         testId="metric-response-time"
         currentNumeric={metrics.avgResponseTime}
@@ -307,6 +338,7 @@ export default function MetricCards({
         value={metrics.avgPermitTimeline ?? '—'}
         unit={metrics.avgPermitTimeline !== null ? 'd' : undefined}
         subText="intake accepted → approval"
+        sampleText={sampleText('avgPermitTimeline')}
         tone="pm"
         testId="metric-permit-timeline"
         currentNumeric={metrics.avgPermitTimeline}
@@ -323,14 +355,15 @@ export default function MetricCards({
         {...splitProps}
       />
 
-      {/* 6. AVG SUBMIT → INTAKE — conditional, color-coded */}
-      {s2i !== null && (
+      {/* 6. AVG SUBMIT → INTAKE — shown when either period has data (fix-203) */}
+      {showCard(s2i, cmp?.avgSubmitToIntake) && (
         <MetricCard
           label="Avg Submit → Intake"
           labelSlot={tip('avgSubmitToIntake')}
-          value={s2i}
-          unit="d"
+          value={s2i ?? '—'}
+          unit={s2i !== null ? 'd' : undefined}
           subText="submit → city accepted intake"
+          sampleText={sampleText('avgSubmitToIntake')}
           tone={s2iTone}
           testId="metric-submit-to-intake"
           {...drillProps('avgSubmitToIntake')}
@@ -350,13 +383,14 @@ export default function MetricCards({
 
       {/* fix-173: AVG APPROVAL → ISSUE — conditional, color-coded. Sibling of
           Submit → Intake; hold-aware (held days subtracted). */}
-      {a2i !== null && (
+      {showCard(a2i, cmp?.avgApprovalToIssue) && (
         <MetricCard
           label="Avg Approval → Issue"
           labelSlot={tip('avgApprovalToIssue')}
-          value={a2i}
-          unit="d"
+          value={a2i ?? '—'}
+          unit={a2i !== null ? 'd' : undefined}
           subText="approved → permit issued"
+          sampleText={sampleText('avgApprovalToIssue')}
           tone={a2iTone}
           testId="metric-approval-to-issue"
           {...drillProps('avgApprovalToIssue')}
@@ -380,6 +414,7 @@ export default function MetricCards({
         labelSlot={tip('avgCorrectionCycles')}
         value={metrics.avgCorrectionCycles ?? '—'}
         subText={`${metrics.permitsWithCorrections} permits with corrections`}
+        sampleText={sampleText('avgCorrectionCycles')}
         tone="co"
         testId="metric-avg-correction-cycles"
         {...drillProps('avgCorrectionCycles')}
@@ -409,6 +444,7 @@ export default function MetricCards({
         labelSlot={tip('inCorrections')}
         value={metrics.inCorrections}
         subText={`${metrics.issuedCount} of ${metrics.totalPermits} issued`}
+        sampleText={sampleText('inCorrections')}
         tone="co"
         testId="metric-in-corrections"
         {...drillProps('inCorrections')}
@@ -433,6 +469,7 @@ export default function MetricCards({
               ? 'ahead of forecast'
               : 'behind forecast'
         }
+        sampleText={sampleText('avgScheduleVariance')}
         tone={scheduleVarTone}
         testId="metric-schedule-variance"
         {...drillProps('avgScheduleVariance')}
@@ -451,14 +488,15 @@ export default function MetricCards({
         {...splitProps}
       />
 
-      {/* 10. AVG DD DURATION — conditional */}
-      {metrics.avgDDDuration !== null && (
+      {/* 10. AVG DD DURATION — shown when either period has data (fix-203) */}
+      {showCard(metrics.avgDDDuration, cmp?.avgDDDuration) && (
         <MetricCard
           label="Avg DD Duration"
           labelSlot={tip('avgDDDuration')}
-          value={metrics.avgDDDuration}
-          unit="d"
+          value={metrics.avgDDDuration ?? '—'}
+          unit={metrics.avgDDDuration !== null ? 'd' : undefined}
           subText="DD Start → DD End"
+          sampleText={sampleText('avgDDDuration')}
           tone="de"
           testId="metric-dd-duration"
           {...drillProps('avgDDDuration')}
@@ -475,14 +513,15 @@ export default function MetricCards({
         />
       )}
 
-      {/* 11. AVG DD→SUBMIT — conditional */}
-      {metrics.avgDDEndToSubmit !== null && (
+      {/* 11. AVG DD→SUBMIT — shown when either period has data (fix-203) */}
+      {showCard(metrics.avgDDEndToSubmit, cmp?.avgDDEndToSubmit) && (
         <MetricCard
           label="Avg DD → Submit"
           labelSlot={tip('avgDDEndToSubmit')}
-          value={metrics.avgDDEndToSubmit}
-          unit="d"
+          value={metrics.avgDDEndToSubmit ?? '—'}
+          unit={metrics.avgDDEndToSubmit !== null ? 'd' : undefined}
           subText="DD End to permit intake"
+          sampleText={sampleText('avgDDEndToSubmit')}
           tone="co"
           testId="metric-dd-end-to-submit"
           {...drillProps('avgDDEndToSubmit')}
