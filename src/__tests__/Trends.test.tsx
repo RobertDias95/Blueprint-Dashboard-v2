@@ -86,6 +86,7 @@ const PERMITS: PermitWithCycles[] = [
     id: 1,
     project_id: 'p1',
     type: 'Building Permit',
+    dd_start: '2026-05-30',
     approval_date: '2026-05-30',
     permit_cycles: [
       mkCycle({
@@ -100,6 +101,7 @@ const PERMITS: PermitWithCycles[] = [
     id: 2,
     project_id: 'p2',
     type: 'Building Permit',
+    dd_start: '2026-06-15',
     approval_date: '2026-06-15',
     permit_cycles: [
       mkCycle({
@@ -114,6 +116,7 @@ const PERMITS: PermitWithCycles[] = [
     id: 3,
     project_id: 'p3',
     type: 'Demolition',
+    dd_start: '2026-05-20',
     approval_date: '2026-05-20',
     permit_cycles: [
       mkCycle({
@@ -125,10 +128,11 @@ const PERMITS: PermitWithCycles[] = [
   }),
 ];
 
-// fix-200: the comparison cohort is anchored on projects.go_date. Each project's
-// go_date matches its permit's old approval month so the existing period-
-// membership assertions (id=2 in June, id=1 & id=3 in May) hold under the new
-// GO basis.
+// fix-200 / fix-204: the cohort is anchored on the project's DD start. Each
+// permit's dd_start (set above) matches its old approval month so the existing
+// period-membership assertions (id=2 in June, id=1 & id=3 in May) hold under the
+// new DD-start basis. go_date stays on the projects for the GO→* / GOs-by-month
+// series, which still measure from GO.
 const PROJECTS: Project[] = [
   mkProject({ id: 'p1', juris: 'Seattle', go_date: '2026-05-30' }),
   mkProject({ id: 'p2', juris: 'Seattle', go_date: '2026-06-15' }),
@@ -332,14 +336,15 @@ describe('Trends — fix-25-feat-V submit→intake surface', () => {
     expect(card.textContent).toContain('submit → approval/issue, days');
   });
 
-  it('fix-200: page renders the GO-cohort basis affordance', () => {
+  it('fix-204: page renders the DD-start-cohort basis affordance', () => {
     // Trends KPI row + City + Variance + Breakdown all route through
-    // filterPermits, now anchored on the project's GO date. Make the basis
-    // visible so the user knows the same GO-cohort is compared across periods.
+    // filterPermits, now anchored on the project's DD start. Make the basis
+    // visible so the user knows the same DD-start cohort is compared across
+    // periods.
     renderTrends();
     const banner = screen.getByTestId('trends-approved-only-banner');
-    expect(banner.textContent).toMatch(/went GO/i);
-    expect(banner.textContent).toMatch(/without a GO date are excluded/i);
+    expect(banner.textContent).toMatch(/started drawing/i);
+    expect(banner.textContent).toMatch(/without a DD start are excluded/i);
   });
 
   // ─── fix-114→fix-137: period comparison ────────────────────────────
@@ -993,9 +998,9 @@ describe('Trends — fix-25-feat-V submit→intake surface', () => {
       }
     });
 
-    // fix-200: Total Projects = distinct projects with go_date in range.
-    it('Total Projects shows the distinct GO-cohort project count', () => {
-      // Default window (2025–2027) covers all 3 fixture projects' go_dates.
+    // fix-200 / fix-204: Total Projects = distinct projects with DD start in range.
+    it('Total Projects shows the distinct DD-start-cohort project count', () => {
+      // Default window (2025–2027) covers all 3 fixture projects' dd_starts.
       renderTrends();
       const projectsTile = screen.getByTestId('trends-kpi-projects');
       expect(projectsTile.textContent).toContain('Total Projects');
@@ -1020,7 +1025,7 @@ describe('Trends — fix-25-feat-V submit→intake surface', () => {
   });
 
   // fix-201: every KPI tile is clickable → opens the MetricDrillIn modal with the
-  // current-window GO-cohort rows.
+  // current-window DD-start-cohort rows.
   describe('fix-201 KPI tile drill-in', () => {
     it('Total Projects tile opens the drill-in; row count == the tile number (3)', () => {
       renderTrends();

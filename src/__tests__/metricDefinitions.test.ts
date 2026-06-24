@@ -98,9 +98,10 @@ describe('formula text references the source fields (fix-129-d)', () => {
     { key: 'reports.avgResponseTime', must: ['corr_issued', 'submitted'] },
 
     // Trends KPI tiles — perfTrends.ts
-    // fix-200: cohort GO-anchored — Total Permits + Total Projects by go_date.
-    { key: 'trends.approvedInWindow', must: ['count', 'go_date'] },
-    { key: 'trends.totalProjects', must: ['distinct', 'go_date'] },
+    // fix-200 / fix-204: cohort DD-start-anchored — Total Permits + Total
+    // Projects by project dd_start.
+    { key: 'trends.approvedInWindow', must: ['count', 'dd_start'] },
+    { key: 'trends.totalProjects', must: ['distinct', 'dd_start'] },
     { key: 'trends.avgSubmitToIntakeDelay', must: ['intake_accepted', 'submitted'] },
     { key: 'trends.avgCityClock', must: ['approval_date', 'actual_issue', 'intake_accepted'] },
     // fix-142: Trends City Review / Response Time siblings — same source

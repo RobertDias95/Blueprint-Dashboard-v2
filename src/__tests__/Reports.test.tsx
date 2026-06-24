@@ -72,7 +72,10 @@ const fixtures = vi.hoisted(() => ({
       ent_lead: 'Bobby',
       dual_da: null,
       target_submit: '2026-02-01',
-      dd_start: null,
+      // fix-204: cohort windows on the project DD start now. Mirror each
+      // permit's dd_start to its project go_date so the existing date-range
+      // membership tests (3mo, custom comparison) hold under the new anchor.
+      dd_start: '2026-01-01',
       dd_end: null,
       expected_issue: '2026-05-01',
       actual_issue: null,
@@ -120,7 +123,7 @@ const fixtures = vi.hoisted(() => ({
       ent_lead: 'Miles',
       dual_da: null,
       target_submit: null,
-      dd_start: null,
+      dd_start: '2026-04-01', // fix-204: mirrors p2 go_date for cohort windowing
       dd_end: null,
       expected_issue: null,
       actual_issue: null,
@@ -313,10 +316,10 @@ describe('<Reports /> Q7.2.b', () => {
     expect(screen.getByTestId('filter-result-count').textContent).toBe('2 permits');
   });
 
-  it('Time range = 3mo shows only permits with go_date in last 90 days', () => {
+  it('Time range = 3mo shows only permits with project DD start in last 90 days', () => {
     renderIt();
     // today=2026-05-15, cutoff=2026-02-14.
-    // permit 1 go=2026-01-01 (out), permit 2 go=2026-04-01 (in).
+    // permit 1 dd_start=2026-01-01 (out), permit 2 dd_start=2026-04-01 (in).
     fireEvent.change(screen.getByTestId('filter-range'), {
       target: { value: '3mo' },
     });

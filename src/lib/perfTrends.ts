@@ -8,6 +8,7 @@ import { formatCompareNumber } from './comparisonCohort';
 import { cityCourtTimeDays, responseCourtTimeDays } from './reportMetrics';
 import { accountableDays } from './holdOverlap';
 import { isNotSubPermit } from './subPermit';
+import { buildProjectDdStartMap } from './projectDdStart';
 
 // fix-171 (effect B): the Trends turnaround KPI cards + breakdown subtract held
 // days. accountableDays === daysBetween with no holds → no-hold cohorts
@@ -49,34 +50,38 @@ export const SPARSE_GATE = 3;
 // Filter application
 // ============================================================
 
-/** fix-200: apply the date-range / juris / permit-type filter, anchoring cohort
- *  membership on the PROJECT'S GO DATE (projects.go_date). Bobby's mental model
- *  = the Draw Schedule: "the projects that went GO this quarter, how did their
- *  phases compare to last quarter's." So period A vs B is decided by go_date
- *  falling in the window, NOT by when a permit was approved/issued. Every metric
- *  below consumes this same GO-anchored cohort, so they all describe the same
- *  set of projects.
+/** fix-200 / fix-204: apply the date-range / juris / permit-type filter,
+ *  anchoring cohort membership on the PROJECT'S DD START (when it started
+ *  drawing) — projectDdStart.ts: the project's Building Permit dd_start, else
+ *  the earliest dd_start among its permits. Bobby's mental model = the Draw
+ *  Schedule: "the projects that started drawing this quarter, how did their
+ *  phases compare to last quarter's." So period A vs B is decided by the
+ *  project's dd_start falling in the window — every permit of a project shares
+ *  one dd_start, so a project never splits across periods, and every metric
+ *  below consumes this same DD-start cohort.
  *
- *  Permits whose project has NO go_date fall out of the cohort (they never went
- *  GO, so they're not part of "this quarter's starts").
+ *  Permits whose project has NO dd_start fall out of a windowed cohort (no draw
+ *  schedule yet → not part of "this quarter's starts").
  *
- *  Pre-fix-200 this gated on `approval_date ?? actual_issue` ("approved in
- *  window") — that compared whatever finished in the window, not the same cohort
- *  across periods. */
+ *  fix-200 had anchored on go_date; fix-204 moved to dd_start because the
+ *  GO→DD-start gap (2 weeks … 6 months, by draw-schedule load) misattributed
+ *  which quarter a project belonged to. Metric VALUES are unchanged — the
+ *  GO→* formulas still measure from go_date; only cohort membership moved. */
 export function filterPermits(
   permits: PermitWithCycles[],
   projectsById: Map<string, Project>,
   filters: PerfTrendsFilters,
 ): PermitWithCycles[] {
   const { from, to } = filters.dateRange;
+  const ddStartByProject = buildProjectDdStartMap(permits);
   return permits.filter((p) => {
     // fix-201: sub/child placeholder permits never count toward the cohort
     // (consistent with the fix-194 "no surface counts children" rule).
     if (!isNotSubPermit(p)) return false;
     const proj = projectsById.get(p.project_id);
-    const go = proj?.go_date ?? null;
-    if (!go) return false;
-    if (go < from || go > to) return false;
+    const ddStart = ddStartByProject.get(p.project_id) ?? null;
+    if (!ddStart) return false;
+    if (ddStart < from || ddStart > to) return false;
     if (filters.permitType && p.type !== filters.permitType) return false;
     if (filters.juris && proj?.juris !== filters.juris) return false;
     return true;
@@ -87,18 +92,18 @@ export function filterPermits(
 // KPI aggregations
 // ============================================================
 
-/** Total Permits in the GO cohort — count of permits whose project went GO in
- *  the window. (fix-200 renamed from totalApprovedInWindow; the cohort is now
- *  GO-anchored, not approval-anchored.) */
+/** Total Permits in the DD-start cohort — count of permits whose project started
+ *  drawing in the window. (fix-200 renamed from totalApprovedInWindow; fix-204
+ *  re-anchored the cohort from go_date to project dd_start.) */
 export function totalPermitsInWindow(filtered: PermitWithCycles[]): number {
   return filtered.length;
 }
 
-/** fix-200: Total Projects in the GO cohort — distinct project_ids among the
- *  filtered permits. Every permit of a project shares that project's go_date, so
- *  this is "the number of distinct projects that went GO in the window" — the
- *  same by-GO-date basis as the GOs-by-month series, de-duplicated to projects.
- *  Sits beside Total Permits. */
+/** fix-200 / fix-204: Total Projects in the DD-start cohort — distinct
+ *  project_ids among the filtered permits. Every permit of a project shares that
+ *  project's dd_start anchor, so this is "the number of distinct projects that
+ *  started drawing in the window", de-duplicated to projects. Sits beside Total
+ *  Permits. */
 export function totalProjectsInWindow(filtered: PermitWithCycles[]): number {
   const ids = new Set<string>();
   for (const p of filtered) ids.add(p.project_id);

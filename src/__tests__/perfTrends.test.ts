@@ -90,30 +90,39 @@ const FULL_WINDOW: PerfTrendsFilters = {
   dateRange: { from: '2020-01-01', to: '2030-12-31' },
 };
 
-describe('filterPermits (fix-200: GO-date anchored)', () => {
+describe('filterPermits (fix-204: DD-start anchored)', () => {
+  // juris still lives on the project; the cohort window now anchors on the
+  // project's DD start (the BP dd_start, set on each permit below) — fix-204.
   const projectsById = new Map<string, Project>([
-    ['pA', mkProject({ id: 'pA', juris: 'Seattle', go_date: '2026-05-01' })],
-    ['pB', mkProject({ id: 'pB', juris: 'Bellevue', go_date: '2026-06-01' })],
-    ['pNoGo', mkProject({ id: 'pNoGo', juris: 'Seattle', go_date: null })],
-    ['pEarly', mkProject({ id: 'pEarly', juris: 'Seattle', go_date: '2026-04-30' })],
-    ['pLate', mkProject({ id: 'pLate', juris: 'Seattle', go_date: '2026-06-02' })],
+    ['pA', mkProject({ id: 'pA', juris: 'Seattle' })],
+    ['pB', mkProject({ id: 'pB', juris: 'Bellevue' })],
+    ['pNoDd', mkProject({ id: 'pNoDd', juris: 'Seattle' })],
+    ['pEarly', mkProject({ id: 'pEarly', juris: 'Seattle' })],
+    ['pLate', mkProject({ id: 'pLate', juris: 'Seattle' })],
   ]);
 
-  it('excludes permits whose project has no go_date (even if approved/issued)', () => {
+  it('excludes permits whose project has no DD start (even if approved/issued)', () => {
     const out = filterPermits(
-      [mkPermit({ project_id: 'pNoGo', approval_date: '2026-05-15', actual_issue: '2026-05-20' })],
+      [
+        mkPermit({
+          project_id: 'pNoDd',
+          dd_start: null,
+          approval_date: '2026-05-15',
+          actual_issue: '2026-05-20',
+        }),
+      ],
       projectsById,
       FULL_WINDOW,
     );
     expect(out).toHaveLength(0);
   });
 
-  it('membership is by project.go_date, inclusive on both bounds', () => {
+  it('membership is by project DD start, inclusive on both bounds', () => {
     const permits = [
-      mkPermit({ id: 1, project_id: 'pA' }), // go 2026-05-01 (in)
-      mkPermit({ id: 2, project_id: 'pB' }), // go 2026-06-01 (in)
-      mkPermit({ id: 3, project_id: 'pEarly' }), // go 2026-04-30 (out)
-      mkPermit({ id: 4, project_id: 'pLate' }), // go 2026-06-02 (out)
+      mkPermit({ id: 1, project_id: 'pA', dd_start: '2026-05-01' }), // in
+      mkPermit({ id: 2, project_id: 'pB', dd_start: '2026-06-01' }), // in
+      mkPermit({ id: 3, project_id: 'pEarly', dd_start: '2026-04-30' }), // out
+      mkPermit({ id: 4, project_id: 'pLate', dd_start: '2026-06-02' }), // out
     ];
     const out = filterPermits(permits, projectsById, {
       dateRange: { from: '2026-05-01', to: '2026-06-01' },
@@ -121,24 +130,57 @@ describe('filterPermits (fix-200: GO-date anchored)', () => {
     expect(out.map((p) => p.id).sort()).toEqual([1, 2]);
   });
 
-  it('a project with GO in period A is in A regardless of approval date; moving the period changes membership', () => {
-    // Went GO in May, approved much later (Sept) — still in May's cohort.
-    const permits = [mkPermit({ id: 1, project_id: 'pA', approval_date: '2026-09-01' })];
+  it('a project with DD start in period A is in A regardless of approval date; moving the period changes membership', () => {
+    // Started drawing in May, approved much later (Sept) — still in May's cohort.
+    const permits = [
+      mkPermit({ id: 1, project_id: 'pA', dd_start: '2026-05-10', approval_date: '2026-09-01' }),
+    ];
     const periodA = filterPermits(permits, projectsById, {
       dateRange: { from: '2026-05-01', to: '2026-05-31' },
     });
     expect(periodA.map((p) => p.id)).toEqual([1]);
-    // June period — GO is in May, so it drops out.
+    // June period — DD start is in May, so it drops out.
     const periodB = filterPermits(permits, projectsById, {
       dateRange: { from: '2026-06-01', to: '2026-06-30' },
     });
     expect(periodB).toHaveLength(0);
   });
 
+  it('a whole project rides its BP DD start: a Demo with no dd_start of its own joins the BP cohort', () => {
+    // pA's BP starts drawing 2026-05-01; the Demo carries no dd_start but
+    // inherits the project's BP anchor via the map, so both sit in May.
+    const permits = [
+      mkPermit({ id: 1, project_id: 'pA', type: 'Building Permit', dd_start: '2026-05-01' }),
+      mkPermit({ id: 2, project_id: 'pA', type: 'Demolition', dd_start: null }),
+    ];
+    const out = filterPermits(permits, projectsById, {
+      dateRange: { from: '2026-05-01', to: '2026-05-31' },
+    });
+    expect(out.map((p) => p.id).sort()).toEqual([1, 2]);
+  });
+
+  it('falls back to the earliest permit dd_start when the project has no BP', () => {
+    // No Building Permit; the earliest dd_start among the permits anchors it.
+    const permits = [
+      mkPermit({ id: 1, project_id: 'pA', type: 'Demolition', dd_start: '2026-05-20' }),
+      mkPermit({ id: 2, project_id: 'pA', type: 'ULS', dd_start: '2026-05-05' }),
+    ];
+    // Window catches only the earliest (2026-05-05) → both ride it, both in.
+    const inWindow = filterPermits(permits, projectsById, {
+      dateRange: { from: '2026-05-01', to: '2026-05-10' },
+    });
+    expect(inWindow.map((p) => p.id).sort()).toEqual([1, 2]);
+    // A window after the earliest dd_start excludes the whole project.
+    const after = filterPermits(permits, projectsById, {
+      dateRange: { from: '2026-05-21', to: '2026-05-31' },
+    });
+    expect(after).toHaveLength(0);
+  });
+
   it('juris filter scopes to that juris only', () => {
     const permits = [
-      mkPermit({ id: 1, project_id: 'pA' }), // Seattle
-      mkPermit({ id: 2, project_id: 'pB' }), // Bellevue
+      mkPermit({ id: 1, project_id: 'pA', dd_start: '2026-05-01' }), // Seattle
+      mkPermit({ id: 2, project_id: 'pB', dd_start: '2026-06-01' }), // Bellevue
     ];
     const out = filterPermits(permits, projectsById, {
       ...FULL_WINDOW,
@@ -149,8 +191,8 @@ describe('filterPermits (fix-200: GO-date anchored)', () => {
 
   it('permitType filter scopes to that type only', () => {
     const permits = [
-      mkPermit({ id: 1, project_id: 'pA', type: 'Building Permit' }),
-      mkPermit({ id: 2, project_id: 'pA', type: 'Demolition' }),
+      mkPermit({ id: 1, project_id: 'pA', type: 'Building Permit', dd_start: '2026-05-01' }),
+      mkPermit({ id: 2, project_id: 'pA', type: 'Demolition', dd_start: null }),
     ];
     const out = filterPermits(permits, projectsById, {
       ...FULL_WINDOW,
