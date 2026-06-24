@@ -490,6 +490,54 @@ describe('filterEnrichedPermits', () => {
     });
     expect(out.map((e) => e.permit.id)).toEqual([1]);
   });
+
+  // ── fix-203: null-go_date leak fix ──────────────────────────────────
+  // Pre-fix the date gate was `if (from && e.goDate)`, so a permit whose
+  // project has NO go_date was never excluded — it leaked into EVERY window
+  // (and thus into both the current and comparison Overview cohorts). The fix
+  // excludes null-go_date permits whenever a date window is active, matching
+  // Trends' filterPermits.
+  describe('fix-203: null-go_date exclusion under a window', () => {
+    const nullGoProjects = new Map<string, Project>([
+      ['p1', makeProject({ id: 'p1', juris: 'Seattle', go_date: '2026-04-01' })],
+      // p3 has NO go_date — the leaky straggler.
+      ['p3', makeProject({ id: 'p3', juris: 'Seattle', go_date: null })],
+    ]);
+    const withNullGo = enrichPermits(
+      [
+        makePermit({ id: 1, project_id: 'p1', type: 'Building Permit' }),
+        makePermit({ id: 3, project_id: 'p3', type: 'Building Permit' }),
+      ],
+      nullGoProjects,
+    );
+
+    it('excludes the null-go_date permit when a custom window is active', () => {
+      const out = filterEnrichedPermits(withNullGo, {
+        ...baseFilters,
+        range: 'custom',
+        dateFrom: '2026-03-01',
+        dateTo: '2026-06-30',
+      });
+      expect(out.map((e) => e.permit.id)).toEqual([1]);
+    });
+
+    it('excludes the null-go_date permit from a NON-overlapping window too (no leak across periods)', () => {
+      // p1.go=2026-04-01 is OUT of this comparison window; p3 (null go) must
+      // also be OUT — pre-fix it would have leaked in.
+      const out = filterEnrichedPermits(withNullGo, {
+        ...baseFilters,
+        range: 'custom',
+        dateFrom: '2025-09-30',
+        dateTo: '2025-12-31',
+      });
+      expect(out.map((e) => e.permit.id)).toEqual([]);
+    });
+
+    it("range='all' (no window) keeps the null-go_date permit", () => {
+      const out = filterEnrichedPermits(withNullGo, { ...baseFilters, range: 'all' });
+      expect(out.map((e) => e.permit.id)).toEqual([1, 3]);
+    });
+  });
 });
 
 // ============================================================
@@ -637,6 +685,64 @@ describe('computeMetrics', () => {
     expect(m.totalUnits).toBe(0);
     expect(m.avgGoToSubmit).toBeNull();
     expect(m.onTimeSubmits).toBe(0);
+  });
+
+  // fix-203: sampleSizes — per-metric n, the SAME denominator each average
+  // used. The n= label on each Overview card reads from this.
+  it('fix-203: empty input → every sampleSize is 0', () => {
+    const s = computeMetrics([]).sampleSizes;
+    expect(s.totalPermits).toBe(0);
+    expect(s.avgPermitTimeline).toBe(0);
+    expect(s.avgApprovalToIssue).toBe(0);
+    expect(s.avgCityReview).toBe(0);
+  });
+
+  it('fix-203: a completion metric n = the count of permits that reached its end date (not the cohort size)', () => {
+    // 3 BP permits in the cohort; only ONE has a full intake→approval arc, so
+    // Avg Permit Timeline's n must be 1 even though totalPermits is 3 — the
+    // maturity bias the n= label is meant to surface.
+    const enriched = enrichPermits(
+      [
+        makePermit({
+          id: 1,
+          project_id: 'p1',
+          approval_date: '2026-05-01',
+          permit_cycles: [
+            makeCycle({ cycle_index: 0, intake_accepted: '2026-03-01' }),
+          ],
+        }),
+        // No intake_accepted → drops out of the timeline average.
+        makePermit({ id: 2, project_id: 'p2', approval_date: '2026-05-01' }),
+        // No approval → drops out too.
+        makePermit({
+          id: 3,
+          project_id: 'p1',
+          permit_cycles: [
+            makeCycle({ cycle_index: 0, intake_accepted: '2026-03-01' }),
+          ],
+        }),
+      ],
+      projectsById,
+    );
+    const m = computeMetrics(enriched);
+    expect(m.sampleSizes.totalPermits).toBe(3);
+    expect(m.sampleSizes.avgPermitTimeline).toBe(1);
+    // n is exactly the average's denominator: avg is non-null iff n > 0.
+    expect(m.avgPermitTimeline).not.toBeNull();
+  });
+
+  it('fix-203: count-metric sampleSizes equal the counts themselves', () => {
+    const enriched = enrichPermits(
+      [
+        makePermit({ id: 1, project_id: 'p1', actual_issue: '2026-05-01' }),
+        makePermit({ id: 2, project_id: 'p2', actual_issue: null }),
+      ],
+      projectsById,
+    );
+    const m = computeMetrics(enriched);
+    expect(m.sampleSizes.totalPermits).toBe(m.totalPermits);
+    expect(m.sampleSizes.issuedCount).toBe(m.issuedCount);
+    expect(m.sampleSizes.inCorrections).toBe(m.inCorrections);
   });
 
   // fix-140-a: NaN regression guard. Bobby reported "Avg Schedule Var = NaN d"

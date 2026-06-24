@@ -43,6 +43,11 @@ interface Props {
   unit?: string;
   /** Small text under the value. */
   subText?: string;
+  /** fix-203: per-metric sample-size annotation (e.g. "n=5 of 20 · vs n=10 of
+   *  25"). Rendered as a compact muted line at the bottom of the card in both
+   *  the single- and split-comparison layouts. Reconciles with the drill-in row
+   *  count for the metric/period. */
+  sampleText?: string;
   /** Color tone for the value. */
   tone?: Tone;
   /** Test ID for assertions. */
@@ -93,6 +98,7 @@ export default function MetricCard({
   value,
   unit,
   subText,
+  sampleText,
   tone = 'default',
   testId,
   currentNumeric,
@@ -198,6 +204,16 @@ export default function MetricCard({
           / "{n} of {n} issued" context attached to the headline. */}
       {useSplit && subText && (
         <div className="text-[10px] text-muted truncate mt-1">{subText}</div>
+      )}
+      {/* fix-203: per-metric sample size — how many permits actually fed the
+          number (and the comparison period's n). Shown in both layouts. */}
+      {sampleText && (
+        <div
+          className="text-[10px] text-dim font-mono truncate"
+          data-testid={testId ? `${testId}-n` : undefined}
+        >
+          {sampleText}
+        </div>
       )}
     </div>
   );
