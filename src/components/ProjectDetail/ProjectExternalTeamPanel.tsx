@@ -1,15 +1,13 @@
 import { useMemo, useState } from 'react';
 import { useProjects } from '../../hooks/useProjects';
 import { useUpdateProject } from '../../hooks/useUpdateProject';
+import { useExternalTeamShowRules } from '../../hooks/useExternalTeamShowRules';
 import {
   asExternalTeamBlob,
   distinctExternalFirms,
   type ExternalTeamBlob,
 } from '../../lib/externalTeam';
-import {
-  WAITING_ON_OPTIONS,
-  type WaitingOnDiscipline,
-} from '../../lib/database.types';
+import type { WaitingOnDiscipline } from '../../lib/database.types';
 
 // fix-139 / fix-193 / fix-195: Project Settings → External Team.
 //
@@ -34,14 +32,6 @@ import {
 // Canonical WAITING_ON_OPTIONS vocabulary (fix-190d: "Surveyor", not "Survey") —
 // the blob keys ARE these terms, so a task waiting on "Surveyor" resolves to
 // external_team["Surveyor"].
-
-// fix-193: the near-always-needed disciplines, always shown as slots.
-const COMMON_DISCIPLINES: readonly WaitingOnDiscipline[] = [
-  'Civil',
-  'Surveyor',
-  'Structural',
-  'Arborist',
-];
 
 const FIRM_DATALIST_ID = 'project-external-team-firm-options';
 
@@ -68,42 +58,15 @@ export default function ProjectExternalTeamPanel({ projectId }: Props) {
     [projectsQ.data],
   );
 
-  // Which disciplines currently have a firm assigned (from the blob). Drives the
-  // "show others only when assigned" rule + the empty-state banner.
-  const assignedDisciplines = useMemo(() => {
-    const s = new Set<WaitingOnDiscipline>();
-    for (const d of WAITING_ON_OPTIONS) {
-      const firm = blob[d];
-      if (typeof firm === 'string' && firm.trim() !== '') s.add(d);
-    }
-    return s;
-  }, [blob]);
-
-  // fix-193: disciplines the user explicitly surfaced via "+ Add discipline".
-  // Local-only — once a firm is assigned the row persists via assignedDisciplines.
-  const [added, setAdded] = useState<Set<WaitingOnDiscipline>>(new Set());
+  // fix-196: the show-rules (common four + assigned + added, addable, empty CTA)
+  // come from the SHARED hook so this panel and the Overview editor can't drift.
+  const { shownDisciplines, addableDisciplines, noneAssigned, addDiscipline } =
+    useExternalTeamShowRules(blob);
 
   // Per-field text drafts so typing doesn't fire a write per keystroke; commit
   // on blur / Enter. Absent key → the input falls back to the saved blob value.
   const [drafts, setDrafts] = useState<Record<string, string>>({});
 
-  const shownDisciplines = useMemo(
-    () =>
-      WAITING_ON_OPTIONS.filter(
-        (d) =>
-          COMMON_DISCIPLINES.includes(d) ||
-          assignedDisciplines.has(d) ||
-          added.has(d),
-      ),
-    [assignedDisciplines, added],
-  );
-
-  const addableDisciplines = useMemo(
-    () => WAITING_ON_OPTIONS.filter((d) => !shownDisciplines.includes(d)),
-    [shownDisciplines],
-  );
-
-  const noneAssigned = assignedDisciplines.size === 0;
   const occMissing = !project?.updated_at;
 
   async function writeFirm(discipline: WaitingOnDiscipline, firm: string) {
@@ -231,12 +194,7 @@ export default function ProjectExternalTeamPanel({ projectId }: Props) {
             value=""
             onChange={(e) => {
               const d = e.target.value as WaitingOnDiscipline;
-              if (!d) return;
-              setAdded((prev) => {
-                const next = new Set(prev);
-                next.add(d);
-                return next;
-              });
+              if (d) addDiscipline(d);
             }}
             className="flex-1 px-2 py-1 text-[11px] border rounded bg-surface text-dim outline-none focus:border-de"
             style={{ borderColor: 'var(--color-border)' }}
