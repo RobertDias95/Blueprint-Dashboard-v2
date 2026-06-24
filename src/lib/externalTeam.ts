@@ -11,8 +11,67 @@
 // picker speak the same words and a task waiting on "Surveyor" matches the
 // blob's "Surveyor" key.
 
+import {
+  WAITING_ON_OPTIONS,
+  type WaitingOnDiscipline,
+} from './database.types';
+
 /** projects.external_team shape: discipline name -> firm name. */
 export type ExternalTeamBlob = Record<string, string>;
+
+// fix-193 / fix-196: the external-team SHOW-RULES, shared so the Settings panel
+// (ProjectExternalTeamPanel) and the Project Overview editor (ExternalTeamEditor)
+// can't drift. The near-always-needed COMMON FOUR always render as fill-in
+// slots; every other discipline shows only when it has a firm OR the user
+// surfaced it via "+ Add discipline"; an empty-state CTA shows when nothing is
+// assigned. One source of the rules (bidirectional principle).
+
+/** fix-193: the near-always-needed disciplines, ALWAYS shown as slots. */
+export const EXTERNAL_TEAM_COMMON_DISCIPLINES: readonly WaitingOnDiscipline[] = [
+  'Civil',
+  'Surveyor',
+  'Structural',
+  'Arborist',
+];
+
+export interface ExternalTeamShowRules {
+  /** Disciplines with a non-empty firm in the blob. */
+  assignedDisciplines: Set<WaitingOnDiscipline>;
+  /** Disciplines to render as slots: common four ∪ assigned ∪ user-added. */
+  shownDisciplines: WaitingOnDiscipline[];
+  /** Disciplines not yet shown — the "+ Add discipline" options. */
+  addableDisciplines: WaitingOnDiscipline[];
+  /** True when the project has NO external firm assigned at all (→ show CTA). */
+  noneAssigned: boolean;
+}
+
+/** fix-196: pure show-rule decision given the project's blob + the disciplines
+ *  the user has locally surfaced via "+ Add discipline". Both external-team
+ *  editors consume this (via useExternalTeamShowRules) so they share one rule. */
+export function externalTeamShowRules(
+  blob: ExternalTeamBlob | null | undefined,
+  added: ReadonlySet<WaitingOnDiscipline>,
+): ExternalTeamShowRules {
+  const assignedDisciplines = new Set<WaitingOnDiscipline>();
+  for (const d of WAITING_ON_OPTIONS) {
+    const firm = blob?.[d];
+    if (typeof firm === 'string' && firm.trim() !== '') assignedDisciplines.add(d);
+  }
+  const shownDisciplines = WAITING_ON_OPTIONS.filter(
+    (d) =>
+      EXTERNAL_TEAM_COMMON_DISCIPLINES.includes(d) ||
+      assignedDisciplines.has(d) ||
+      added.has(d),
+  );
+  const shownSet = new Set(shownDisciplines);
+  const addableDisciplines = WAITING_ON_OPTIONS.filter((d) => !shownSet.has(d));
+  return {
+    assignedDisciplines,
+    shownDisciplines,
+    addableDisciplines,
+    noneAssigned: assignedDisciplines.size === 0,
+  };
+}
 
 /** Normalize an unknown external_team value to a typed blob (or null). */
 export function asExternalTeamBlob(value: unknown): ExternalTeamBlob | null {

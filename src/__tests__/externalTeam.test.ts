@@ -3,8 +3,10 @@ import {
   resolveExternalFirm,
   asExternalTeamBlob,
   distinctExternalFirms,
+  externalTeamShowRules,
+  EXTERNAL_TEAM_COMMON_DISCIPLINES,
 } from '../lib/externalTeam';
-import { WAITING_ON_OPTIONS } from '../lib/database.types';
+import { WAITING_ON_OPTIONS, type WaitingOnDiscipline } from '../lib/database.types';
 
 // fix-190d: the single resolver from a project's external_team blob to the firm
 // working a discipline — the one source both My Tasks → Waiting and the per-task
@@ -72,6 +74,58 @@ describe('distinctExternalFirms (fix-195 datalist source)', () => {
 
   it('empty input → empty list', () => {
     expect(distinctExternalFirms([])).toEqual([]);
+  });
+});
+
+describe('externalTeamShowRules (fix-196 shared show-rules)', () => {
+  const NONE = new Set<WaitingOnDiscipline>();
+
+  it('the common four are always shown, even on an empty blob', () => {
+    const r = externalTeamShowRules({}, NONE);
+    expect(r.shownDisciplines).toEqual(['Civil', 'Surveyor', 'Structural', 'Arborist']);
+    expect(EXTERNAL_TEAM_COMMON_DISCIPLINES).toEqual([
+      'Civil',
+      'Surveyor',
+      'Structural',
+      'Arborist',
+    ]);
+    expect(r.noneAssigned).toBe(true);
+  });
+
+  it('an assigned non-common discipline becomes shown (224 2nd Ave N: only Surveyor set → common four, NOT all 13)', () => {
+    const r = externalTeamShowRules({ Surveyor: 'Emerald' }, NONE);
+    // Surveyor is common anyway; assert a NON-common assigned one surfaces:
+    const r2 = externalTeamShowRules({ Geotech: 'GeoCo' }, NONE);
+    expect(r2.shownDisciplines).toContain('Geotech');
+    expect(r2.noneAssigned).toBe(false);
+    // 224 case: Surveyor set → exactly the common four are shown (not 13).
+    expect(r.shownDisciplines).toEqual(['Civil', 'Surveyor', 'Structural', 'Arborist']);
+    expect(r.shownDisciplines).toHaveLength(4);
+    expect(r.noneAssigned).toBe(false);
+  });
+
+  it('a user-added discipline becomes shown + drops out of addable', () => {
+    const r = externalTeamShowRules({}, new Set<WaitingOnDiscipline>(['Energy']));
+    expect(r.shownDisciplines).toContain('Energy');
+    expect(r.addableDisciplines).not.toContain('Energy');
+  });
+
+  it('addable = WAITING_ON_OPTIONS minus shown', () => {
+    const r = externalTeamShowRules({ Geotech: 'GeoCo' }, NONE);
+    const shown = new Set(r.shownDisciplines);
+    for (const d of WAITING_ON_OPTIONS) {
+      expect(shown.has(d) || r.addableDisciplines.includes(d)).toBe(true);
+      expect(shown.has(d) && r.addableDisciplines.includes(d)).toBe(false);
+    }
+    expect(r.addableDisciplines).not.toContain('Geotech');
+    expect(r.addableDisciplines).not.toContain('Civil');
+  });
+
+  it('blank / whitespace firm values do not count as assigned', () => {
+    const r = externalTeamShowRules({ Geotech: '   ', Energy: '' }, NONE);
+    expect(r.assignedDisciplines.has('Geotech')).toBe(false);
+    expect(r.shownDisciplines).not.toContain('Geotech');
+    expect(r.noneAssigned).toBe(true);
   });
 });
 

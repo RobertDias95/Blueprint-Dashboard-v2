@@ -6,9 +6,15 @@ import type {
   Project,
   UnitType,
 } from '../../lib/database.types';
-import { WAITING_ON_OPTIONS } from '../../lib/database.types';
-import { asExternalTeamBlob } from '../../lib/externalTeam';
+import type { WaitingOnDiscipline } from '../../lib/database.types';
+import {
+  asExternalTeamBlob,
+  distinctExternalFirms,
+  type ExternalTeamBlob,
+} from '../../lib/externalTeam';
 import { useUpdateProject } from '../../hooks/useUpdateProject';
+import { useProjects } from '../../hooks/useProjects';
+import { useExternalTeamShowRules } from '../../hooks/useExternalTeamShowRules';
 import { nextUnitTypeLabel } from '../../lib/unitTypeNaming';
 import { snapToMonday, addDays } from '../../lib/dateUtils';
 import ReuseRedesignDdEditor from './ReuseRedesignDdEditor';
@@ -19,7 +25,6 @@ import {
 } from '../../hooks/useSetBpDdDates';
 import { useResolveDaOverlap } from '../../hooks/useResolveDaOverlap';
 import { useDrawSchedule } from '../../hooks/useDrawSchedule';
-import { useAppConfig, readConsultantTypes } from '../../hooks/useAppConfig';
 import { useUpdateProjectWithPermits } from '../../hooks/useUpdateProjectWithPermits';
 import { pushToast } from '../../stores/toastStore';
 import OverlapPrompt from '../OverlapPrompt';
@@ -831,29 +836,45 @@ function TeamCell({
   );
 }
 
-// Q9.5.e-fix-3 / fix-190d: External team editor. The DISCIPLINE rows are the
-// shared canonical vocabulary (WAITING_ON_OPTIONS, survey term = "Surveyor") so
-// this editor and the waiting-on picker offer the identical list — a task
-// waiting on a discipline resolves to external_team[discipline] (the blob this
-// editor writes). Per-discipline firm OPTIONS come from app_config.consultantTypes
-// (matched by discipline name); each select writes the full external_team JSON
-// back to projects via useUpdateProject (OCC). The firm value stays a free-text
-// name in the blob (no firm registry yet).
+// Q9.5.e-fix-3 / fix-190d / fix-195 / fix-196: External team editor on the
+// Project Overview. Reads/writes the projects.external_team BLOB (the single
+// source — My Tasks → Waiting + the Settings panel use the same store), keyed by
+// the canonical WAITING_ON_OPTIONS disciplines (survey term = "Surveyor"). Each
+// edit writes the full external_team JSON back via useUpdateProject (OCC).
+//
+// fix-196: applies the SHARED show-rules (useExternalTeamShowRules) so this
+// editor and the Settings panel can't drift — common four always shown; other
+// disciplines only when assigned or surfaced via "+ Add discipline"; empty-state
+// CTA when nothing assigned. Firm field is free text backed by a <datalist> of
+// the distinct firm names already used across all projects' blobs (no registry).
+const PD_EXT_FIRM_DATALIST_ID = 'pd-ext-firm-options';
+
 function ExternalTeamEditor({ project }: { project: Project }) {
-  const cfgQ = useAppConfig();
   const updateMutation = useUpdateProject();
-  const firmsByDiscipline = useMemo(() => {
-    const m = new Map<string, string[]>();
-    for (const ct of readConsultantTypes(cfgQ.map)) m.set(ct.type, ct.firms);
-    return m;
-  }, [cfgQ.map]);
-  const external = asExternalTeamBlob(project.external_team) ?? {};
+  const projectsQ = useProjects();
+  const external = useMemo<ExternalTeamBlob>(
+    () => asExternalTeamBlob(project.external_team) ?? {},
+    [project.external_team],
+  );
+  const firmSuggestions = useMemo(
+    () => distinctExternalFirms(projectsQ.data ?? []),
+    [projectsQ.data],
+  );
+  const { shownDisciplines, addableDisciplines, noneAssigned, addDiscipline } =
+    useExternalTeamShowRules(external);
   const occMissing = !project.updated_at;
 
-  async function setFirm(discipline: string, firm: string) {
+  // Local text drafts so typing doesn't fire a write per keystroke — commit on
+  // blur / Enter. Absent key → the input falls back to the saved blob value.
+  const [drafts, setDrafts] = useState<Record<string, string>>({});
+
+  async function writeFirm(discipline: WaitingOnDiscipline, firm: string) {
     if (!project.updated_at) return;
-    const next: Record<string, string> = { ...external };
-    if (firm) next[discipline] = firm;
+    const t = firm.trim();
+    const prev = (external[discipline] ?? '').trim();
+    if (t === prev) return; // no-op
+    const next: ExternalTeamBlob = { ...external };
+    if (t) next[discipline] = t;
     else delete next[discipline];
     await updateMutation.mutateAsync({
       projectId: project.id,
@@ -863,39 +884,96 @@ function ExternalTeamEditor({ project }: { project: Project }) {
     });
   }
 
+  function commit(discipline: WaitingOnDiscipline) {
+    const draft = drafts[discipline];
+    setDrafts((prev) => {
+      if (!(discipline in prev)) return prev;
+      const rest = { ...prev };
+      delete rest[discipline];
+      return rest;
+    });
+    if (draft !== undefined) void writeFirm(discipline, draft);
+  }
+
   return (
-    <div className="flex flex-col gap-1.5">
-      {WAITING_ON_OPTIONS.map((discipline) => {
-        const val = external[discipline] ?? '';
-        const firms = firmsByDiscipline.get(discipline) ?? [];
+    <div className="flex flex-col gap-1.5" data-testid="pd-ext-section">
+      {/* fix-196: empty-state reminder — most projects need at least a
+          surveyor / structural / arborist. */}
+      {noneAssigned && (
+        <div
+          className="text-[8px] leading-tight rounded border px-1.5 py-1"
+          style={{
+            background: 'var(--color-co-bg)',
+            borderColor: 'var(--color-co-border)',
+            color: 'var(--color-co)',
+          }}
+          data-testid="pd-ext-empty-cta"
+        >
+          No external team yet — add a Surveyor / Structural / Arborist below.
+        </div>
+      )}
+
+      <datalist id={PD_EXT_FIRM_DATALIST_ID} data-testid="pd-ext-firm-datalist">
+        {firmSuggestions.map((f) => (
+          <option key={f} value={f} />
+        ))}
+      </datalist>
+
+      {shownDisciplines.map((discipline) => {
+        const saved = external[discipline] ?? '';
+        const value = drafts[discipline] ?? saved;
         return (
-          <div key={discipline} className="flex flex-col gap-0.5">
+          <div
+            key={discipline}
+            className="flex flex-col gap-0.5"
+            data-testid={`pd-ext-row-${discipline}`}
+          >
             <span className="text-[8px] font-bold text-dim uppercase tracking-wide">
               {discipline}
             </span>
-            <select
-              value={val}
-              onChange={(e) => void setFirm(discipline, e.target.value)}
+            <input
+              type="text"
+              list={PD_EXT_FIRM_DATALIST_ID}
+              value={value}
               disabled={occMissing || updateMutation.isPending}
-              className={`text-[10px] border-0 border-b outline-none bg-transparent w-full px-0 py-0.5 cursor-pointer disabled:opacity-50 ${
-                val ? 'font-bold text-text' : 'font-normal text-dim'
+              placeholder="unassigned"
+              onChange={(e) =>
+                setDrafts((prev) => ({ ...prev, [discipline]: e.target.value }))
+              }
+              onBlur={() => commit(discipline)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
+              }}
+              className={`text-[10px] border-0 border-b outline-none bg-transparent w-full px-0 py-0.5 disabled:opacity-50 placeholder:font-normal placeholder:text-dim ${
+                saved ? 'font-bold text-text' : 'font-normal text-text'
               }`}
               style={{ borderBottomColor: 'var(--color-border)' }}
               data-testid={`pd-ext-${discipline.toLowerCase()}`}
-            >
-              <option value="">unassigned</option>
-              {firms.map((f) => (
-                <option key={f} value={f}>
-                  {f}
-                </option>
-              ))}
-              {/* fix-190d: keep an already-saved firm visible even if it isn't in
-                  the configured list (the blob name is free text). */}
-              {val && !firms.includes(val) && <option value={val}>{val}</option>}
-            </select>
+            />
           </div>
         );
       })}
+
+      {/* fix-196: surface an as-yet-unshown discipline. */}
+      {addableDisciplines.length > 0 && (
+        <select
+          value=""
+          onChange={(e) => {
+            const d = e.target.value as WaitingOnDiscipline;
+            if (d) addDiscipline(d);
+          }}
+          className="text-[9px] border-0 border-b outline-none bg-transparent w-full px-0 py-0.5 cursor-pointer text-dim"
+          style={{ borderBottomColor: 'var(--color-border)' }}
+          data-testid="pd-ext-add-discipline"
+        >
+          <option value="">+ Add discipline…</option>
+          {addableDisciplines.map((d) => (
+            <option key={d} value={d}>
+              {d}
+            </option>
+          ))}
+        </select>
+      )}
     </div>
   );
 }
