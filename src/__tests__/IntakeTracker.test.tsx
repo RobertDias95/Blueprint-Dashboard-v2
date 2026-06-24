@@ -336,4 +336,37 @@ describe('<IntakeTracker />', () => {
     expect(screen.getByTestId('intake-empty')).toBeInTheDocument();
     expect(screen.getByText(/No intakes match the current search/i)).toBeInTheDocument();
   });
+
+  // fix-199: the Target column surfaces the linked permit's target_submit + a
+  // gap flag (intake far from the planned submission).
+  it('renders target_submit + the gap flag from the linked permit', () => {
+    // permit 200 (linked to intake 2, intake_date 2026-05-13): target far back
+    // → large gap → flagged. permit 300 (intake 3, 2026-05-14): close → no flag.
+    const p200 = fixtures.permits.find((p) => p.id === 200)! as {
+      target_submit: string | null;
+    };
+    const p300 = fixtures.permits.find((p) => p.id === 300)! as {
+      target_submit: string | null;
+    };
+    const o200 = p200.target_submit;
+    const o300 = p300.target_submit;
+    p200.target_submit = '2026-04-01'; // 42d before the 2026-05-13 intake → ⚠
+    p300.target_submit = '2026-05-10'; // 4d before the 2026-05-14 intake → no flag
+    try {
+      renderIt();
+      const t2 = screen.getByTestId('intake-target-2');
+      expect(t2.textContent).toContain('2026-04-01');
+      expect(t2.textContent).toContain('+42d');
+      expect(t2.textContent).toContain('⚠');
+      const t3 = screen.getByTestId('intake-target-3');
+      expect(t3.textContent).toContain('2026-05-10');
+      expect(t3.textContent).toContain('+4d');
+      expect(t3.textContent).not.toContain('⚠');
+      // Placeholder row (intake 4, no linked permit) → em dash, no target.
+      expect(screen.getByTestId('intake-target-4').textContent).toBe('—');
+    } finally {
+      p200.target_submit = o200;
+      p300.target_submit = o300;
+    }
+  });
 });

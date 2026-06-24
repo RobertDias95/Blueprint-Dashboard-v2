@@ -1,5 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { effectiveStage } from '../../lib/permitStage';
+import {
+  intakeTargetGapDays,
+  isIntakeTargetGapFlagged,
+} from '../../lib/intakeHelpers';
+import { queryKeys } from '../../lib/queryKeys';
+import { useAuthStore } from '../../stores/authStore';
 import {
   getHighlightedMilestone,
   isMilestoneHighlighted,
@@ -392,6 +399,8 @@ function SeattleIntakeRow({
   juris: string | null;
 }) {
   const updateMutation = useUpdatePermit();
+  const queryClient = useQueryClient();
+  const tenantId = useAuthStore((s) => s.activeTenantId) ?? '';
   const [draft, setDraft] = useState(permit.intake_date ?? '');
   if (juris !== 'Seattle') return null;
   if (permit.type !== 'Building Permit' && permit.type !== 'Demolition') {
@@ -403,14 +412,29 @@ function SeattleIntakeRow({
     if (!permit.updated_at) return;
     const normalized = draft || null;
     if (normalized === (permit.intake_date ?? null)) return;
-    updateMutation.mutate({
-      permitId: permit.id,
-      projectId: permit.project_id,
-      expectedUpdatedAt: permit.updated_at,
-      patch: { intake_date: normalized } as Partial<Permit>,
-      fieldLabel: 'Seattle Intake',
-    });
+    updateMutation.mutate(
+      {
+        permitId: permit.id,
+        projectId: permit.project_id,
+        expectedUpdatedAt: permit.updated_at,
+        patch: { intake_date: normalized } as Partial<Permit>,
+        fieldLabel: 'Seattle Intake',
+      },
+      {
+        // fix-199: the permits trigger maintains this permit's intake_records
+        // slot — refresh the tracker so it reflects the new/cleared slot.
+        onSuccess: () =>
+          queryClient.invalidateQueries({
+            queryKey: queryKeys.intakeRecords(tenantId),
+          }),
+      },
+    );
   }
+
+  // fix-199: surface target_submit beside the intake date + flag a large gap so
+  // a slot scheduled too far from the planned submission stands out.
+  const gap = intakeTargetGapDays(permit.intake_date, permit.target_submit);
+  const gapFlagged = isIntakeTargetGapFlagged(gap);
 
   return (
     <div
@@ -441,8 +465,31 @@ function SeattleIntakeRow({
         }}
         data-testid="pd-v2-seattle-intake-input"
       />
+      {/* fix-199: target submit + gap flag for discrepancy spotting. */}
+      {permit.target_submit && (
+        <span
+          className="text-[9px] whitespace-nowrap"
+          style={{ color: gapFlagged ? 'var(--color-co)' : 'var(--color-muted)' }}
+          title={
+            gap !== null
+              ? `Intake is ${gap >= 0 ? gap : -gap} day${Math.abs(gap) === 1 ? '' : 's'} ${gap >= 0 ? 'after' : 'before'} target submit`
+              : 'Target submit'
+          }
+          data-testid="pd-v2-seattle-intake-target"
+        >
+          {gapFlagged && '⚠ '}
+          Target: {permit.target_submit}
+          {gap !== null && (
+            <span className="font-mono">
+              {' '}
+              ({gap >= 0 ? '+' : ''}
+              {gap}d)
+            </span>
+          )}
+        </span>
+      )}
       <span className="text-[9px] text-muted">
-        Scheduled intake with Seattle portal — syncs to Intake Tracker
+        Scheduled intake with Seattle portal — synced to the Intake Tracker
       </span>
     </div>
   );

@@ -170,6 +170,34 @@ export function intakeStatus(
   return 'real';
 }
 
+// fix-199: target_submit vs Seattle intake date — discrepancy spotting. The
+// intake slot is when the team submits to Seattle; target_submit is the planned
+// submission. A large gap means the slot is scheduled too early/late for where
+// the project actually is. Surfaced on the Project Overview Seattle Intake row +
+// the Intake Tracker row.
+
+/** Days from a permit's `target_submit` to its `intake_date` — positive when the
+ *  intake is AFTER the target submit. Null when either date is missing. UTC-noon
+ *  anchor dodges DST / TZ drift. */
+export function intakeTargetGapDays(
+  intakeDate: string | null | undefined,
+  targetSubmit: string | null | undefined,
+): number | null {
+  if (!intakeDate || !targetSubmit) return null;
+  const t = new Date(`${targetSubmit}T12:00:00Z`).getTime();
+  const i = new Date(`${intakeDate}T12:00:00Z`).getTime();
+  return Math.round((i - t) / 86400000);
+}
+
+/** The |gap| (days) beyond which the intake-vs-target-submit discrepancy is
+ *  visually flagged. */
+export const INTAKE_TARGET_GAP_FLAG_DAYS = 14;
+
+/** True when the intake-vs-target gap is wide enough to flag. */
+export function isIntakeTargetGapFlagged(gapDays: number | null): boolean {
+  return gapDays !== null && Math.abs(gapDays) > INTAKE_TARGET_GAP_FLAG_DAYS;
+}
+
 /** Load coloring for the 8-week count strip. v1 uses green for high
  * counts, amber for low-but-nonzero, dim for zero. */
 export type WeekCountTone = 'empty' | 'light' | 'normal' | 'heavy';

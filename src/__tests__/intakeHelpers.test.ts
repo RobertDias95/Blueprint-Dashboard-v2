@@ -4,6 +4,9 @@ import {
   getWeekMondayKey,
   groupByWeek,
   intakeStatus,
+  intakeTargetGapDays,
+  isIntakeTargetGapFlagged,
+  INTAKE_TARGET_GAP_FLAG_DAYS,
   isPermitSubmitted,
   isUrgent,
   partitionIntakes,
@@ -346,5 +349,33 @@ describe('searchIntakes', () => {
 
   it('records with null address are filtered out when query is active', () => {
     expect(searchIntakes(records, 'pike').some((r) => r.id === 3)).toBe(false);
+  });
+});
+
+// fix-199: target_submit vs Seattle intake-date gap (discrepancy spotting).
+describe('intakeTargetGapDays', () => {
+  it('positive when the intake is AFTER the target submit', () => {
+    expect(intakeTargetGapDays('2026-11-11', '2026-11-01')).toBe(10);
+  });
+  it('negative when the intake is BEFORE the target submit', () => {
+    expect(intakeTargetGapDays('2026-11-01', '2026-11-15')).toBe(-14);
+  });
+  it('0 when equal', () => {
+    expect(intakeTargetGapDays('2026-11-11', '2026-11-11')).toBe(0);
+  });
+  it('null when either date is missing', () => {
+    expect(intakeTargetGapDays(null, '2026-11-01')).toBeNull();
+    expect(intakeTargetGapDays('2026-11-01', null)).toBeNull();
+    expect(intakeTargetGapDays(null, null)).toBeNull();
+  });
+});
+
+describe('isIntakeTargetGapFlagged', () => {
+  it(`flags |gap| > ${INTAKE_TARGET_GAP_FLAG_DAYS} days`, () => {
+    expect(isIntakeTargetGapFlagged(INTAKE_TARGET_GAP_FLAG_DAYS)).toBe(false); // boundary: not flagged
+    expect(isIntakeTargetGapFlagged(INTAKE_TARGET_GAP_FLAG_DAYS + 1)).toBe(true);
+    expect(isIntakeTargetGapFlagged(-(INTAKE_TARGET_GAP_FLAG_DAYS + 1))).toBe(true);
+    expect(isIntakeTargetGapFlagged(0)).toBe(false);
+    expect(isIntakeTargetGapFlagged(null)).toBe(false);
   });
 });
