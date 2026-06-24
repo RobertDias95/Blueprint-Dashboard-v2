@@ -803,9 +803,10 @@ export default function ProjectSettingsModal({
             </Field>
           </Section>
 
-          {/* fix-139: External Team — consultant firms per discipline. Writes
-              straight to project_external_teams via its own RPC (not part of
-              the atomic project save below). */}
+          {/* fix-139 / fix-195: External Team — consultant firms per discipline.
+              Reads/writes the projects.external_team blob (the single source —
+              fix-197 dropped the old normalized table), independent of the
+              atomic project save below. */}
           <Section title="External Team" color="var(--color-pm)">
             <ProjectExternalTeamPanel projectId={project.id} />
           </Section>
