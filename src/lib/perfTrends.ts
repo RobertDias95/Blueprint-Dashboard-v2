@@ -7,6 +7,7 @@ import type {
 import { formatCompareNumber } from './comparisonCohort';
 import { cityCourtTimeDays, responseCourtTimeDays } from './reportMetrics';
 import { accountableDays } from './holdOverlap';
+import { isNotSubPermit } from './subPermit';
 
 // fix-171 (effect B): the Trends turnaround KPI cards + breakdown subtract held
 // days. accountableDays === daysBetween with no holds → no-hold cohorts
@@ -69,6 +70,9 @@ export function filterPermits(
 ): PermitWithCycles[] {
   const { from, to } = filters.dateRange;
   return permits.filter((p) => {
+    // fix-201: sub/child placeholder permits never count toward the cohort
+    // (consistent with the fix-194 "no surface counts children" rule).
+    if (!isNotSubPermit(p)) return false;
     const proj = projectsById.get(p.project_id);
     const go = proj?.go_date ?? null;
     if (!go) return false;

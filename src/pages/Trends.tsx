@@ -74,10 +74,15 @@ import AddComparisonButton from '../components/shared/AddComparisonButton';
 import ComparePanel from '../components/shared/ComparePanel';
 import KpiSplitView from '../components/shared/KpiSplitView';
 import MetricInfoTooltip from '../components/shared/MetricInfoTooltip';
+import MetricDrillIn from '../components/Reports/MetricDrillIn';
 import {
   TRENDS_KPI_METRICS,
   TRENDS_CHART_METRICS,
 } from '../lib/metricDefinitions';
+import {
+  buildTrendsDrillIn,
+  type TrendsDrillInKey,
+} from '../lib/trendsDrillIn';
 import type { PermitWithCycles, Project } from '../lib/database.types';
 
 // fix-25-feat-T → V → BB: Trends — operational performance + volume +
@@ -292,6 +297,17 @@ function TrendsBody({ permits, projects, catalogTypes }: BodyProps) {
   const kpiResponse = avgResponseCourtTime(filteredCurrent, holdsMap);
   const kpiAvgCycles = avgCyclesPerPermit(filteredCurrent);
   const kpiHitRate = targetSubmitHitRate(filteredCurrent);
+
+  // fix-201: KPI tile drill-in — clicking a tile lists the exact CURRENT-window
+  // rows feeding it (the GO cohort). One modal, reused from Reports Overview.
+  const [drillKey, setDrillKey] = useState<TrendsDrillInKey | null>(null);
+  const drillData = useMemo(
+    () =>
+      drillKey
+        ? buildTrendsDrillIn(drillKey, filteredCurrent, projectsById, holdsMap)
+        : null,
+    [drillKey, filteredCurrent, projectsById, holdsMap],
+  );
 
   // fix-114: same KPIs on the comparison cohort. Each returns null
   // when no permits qualify in the prior window — KpiTile renders
@@ -989,6 +1005,7 @@ function TrendsBody({ permits, projects, catalogTypes }: BodyProps) {
               labelSlot={kpiTip('totalProjects')}
               value={kpiProjects === 0 ? '—' : String(kpiProjects)}
               testId="trends-kpi-projects"
+              onDrillIn={kpiProjects > 0 ? () => setDrillKey('totalProjects') : undefined}
               currentNumeric={kpiProjects}
               comparisonNumeric={cmpProjects}
               comparisonValueText={
@@ -1005,6 +1022,7 @@ function TrendsBody({ permits, projects, catalogTypes }: BodyProps) {
               labelSlot={kpiTip('approvedInWindow')}
               value={kpiTotal === 0 ? '—' : String(kpiTotal)}
               testId="trends-kpi-total"
+              onDrillIn={kpiTotal > 0 ? () => setDrillKey('approvedInWindow') : undefined}
               currentNumeric={kpiTotal}
               comparisonNumeric={cmpTotal}
               comparisonValueText={
@@ -1029,6 +1047,7 @@ function TrendsBody({ permits, projects, catalogTypes }: BodyProps) {
               }
               tileTitle="Avg days between team submission (c0.submitted) and city intake acceptance (c0.intake_accepted). Low = team ready + city responsive. High = packet issues / fees / city delay."
               testId="trends-kpi-submit-intake"
+              onDrillIn={kpiSubmitToIntake ? () => setDrillKey('avgSubmitToIntakeDelay') : undefined}
               currentNumeric={kpiSubmitToIntake?.avgDays ?? null}
               comparisonNumeric={cmpSubmitToIntake?.avgDays ?? null}
               comparisonValueText={
@@ -1045,6 +1064,7 @@ function TrendsBody({ permits, projects, catalogTypes }: BodyProps) {
               labelSlot={kpiTip('avgCityClock')}
               value={kpiAvgClock === null ? '—' : `${kpiAvgClock}d`}
               testId="trends-kpi-clock"
+              onDrillIn={kpiAvgClock !== null ? () => setDrillKey('avgCityClock') : undefined}
               currentNumeric={kpiAvgClock}
               comparisonNumeric={cmpAvgClock}
               comparisonValueText={
@@ -1064,6 +1084,7 @@ function TrendsBody({ permits, projects, catalogTypes }: BodyProps) {
               labelSlot={kpiTip('avgCityReview')}
               value={kpiCityReview === null ? '—' : `${kpiCityReview}d`}
               testId="metric-city-review"
+              onDrillIn={kpiCityReview !== null ? () => setDrillKey('avgCityReview') : undefined}
               currentNumeric={kpiCityReview}
               comparisonNumeric={cmpCityReview}
               comparisonValueText={
@@ -1080,6 +1101,7 @@ function TrendsBody({ permits, projects, catalogTypes }: BodyProps) {
               labelSlot={kpiTip('avgResponseTime')}
               value={kpiResponse === null ? '—' : `${kpiResponse}d`}
               testId="metric-response-time"
+              onDrillIn={kpiResponse !== null ? () => setDrillKey('avgResponseTime') : undefined}
               currentNumeric={kpiResponse}
               comparisonNumeric={cmpResponse}
               comparisonValueText={
@@ -1096,6 +1118,7 @@ function TrendsBody({ permits, projects, catalogTypes }: BodyProps) {
               labelSlot={kpiTip('avgCyclesPerPermit')}
               value={kpiAvgCycles === null ? '—' : kpiAvgCycles.toFixed(1)}
               testId="trends-kpi-cycles"
+              onDrillIn={kpiAvgCycles !== null ? () => setDrillKey('avgCyclesPerPermit') : undefined}
               currentNumeric={kpiAvgCycles}
               comparisonNumeric={cmpAvgCycles}
               comparisonValueText={
@@ -1111,6 +1134,7 @@ function TrendsBody({ permits, projects, catalogTypes }: BodyProps) {
               label="Target submit hit rate"
               labelSlot={kpiTip('targetSubmitHitRate')}
               value={hitRateText(kpiHitRate)}
+              onDrillIn={kpiHitRate ? () => setDrillKey('targetSubmitHitRate') : undefined}
               sub={
                 kpiHitRate === null
                   ? undefined
@@ -1135,6 +1159,19 @@ function TrendsBody({ permits, projects, catalogTypes }: BodyProps) {
           </div>
         );
       })()}
+
+      {/* fix-201: KPI tile drill-in modal (current window's GO cohort). */}
+      {drillData && drillKey && (
+        <MetricDrillIn
+          data={drillData}
+          metricDef={TRENDS_KPI_METRICS[drillKey]}
+          filterContext={
+            [filters.juris, filters.permitType].filter(Boolean).join(' · ') ||
+            undefined
+          }
+          onClose={() => setDrillKey(null)}
+        />
+      )}
 
       {/* § Volume */}
       <Section
@@ -2381,6 +2418,7 @@ function KpiTile({
   comparisonRangeLabel,
   comparisonModeLabel,
   labelSlot,
+  onDrillIn,
 }: {
   label: string;
   value: string;
@@ -2409,22 +2447,47 @@ function KpiTile({
    *  wrapping the label). Rendered in place of the plain label text
    *  when provided. */
   labelSlot?: React.ReactNode;
+  /** fix-201: when set, the tile is a drill-in trigger — opens MetricDrillIn
+   *  with the rows feeding this tile for the current window. Pass undefined to
+   *  keep the tile non-interactive (e.g. an empty "—" cohort). */
+  onDrillIn?: () => void;
 }) {
   const showComparison = Boolean(comparisonLabel);
   const useSplit =
     showComparison && !!currentRangeLabel && !!comparisonRangeLabel;
+  const drillable = typeof onDrillIn === 'function';
   return (
     <div
-      className="p-3 rounded-lg border"
+      className={`p-3 rounded-lg border${
+        drillable ? ' cursor-pointer hover:border-dim transition-colors' : ''
+      }`}
       style={{
         background: 'var(--color-surface)',
         borderColor: 'var(--color-border)',
       }}
       data-testid={testId}
       title={tileTitle}
+      onClick={onDrillIn}
+      role={drillable ? 'button' : undefined}
+      tabIndex={drillable ? 0 : undefined}
+      onKeyDown={
+        drillable
+          ? (e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                onDrillIn!();
+              }
+            }
+          : undefined
+      }
     >
-      <div className="text-[9px] uppercase tracking-wide text-dim font-display font-bold">
-        {labelSlot ?? label}
+      <div className="text-[9px] uppercase tracking-wide text-dim font-display font-bold flex items-center justify-between gap-1">
+        <span>{labelSlot ?? label}</span>
+        {drillable && (
+          <span aria-hidden="true" className="text-[10px] leading-none text-dim">
+            ⤢
+          </span>
+        )}
       </div>
       {useSplit ? (
         <KpiSplitView
