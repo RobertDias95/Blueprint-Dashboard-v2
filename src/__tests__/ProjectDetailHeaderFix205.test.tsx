@@ -122,18 +122,24 @@ describe('fix-205: per-row Stories', () => {
   });
 });
 
-describe('fix-205: Label = product-type dropdown', () => {
-  it('multiple product types → a Label dropdown whose options include the product types', () => {
+describe('fix-209: Label = product-type-ONLY dropdown', () => {
+  it('options are EXACTLY the product types (plus a "Pick type…" placeholder) — no legacy/custom values', () => {
     setup({
       product_types: ['SFR', 'Duplex'],
-      unit_types: NAMED_ROW,
+      unit_types: NAMED_ROW, // legacy label "Type A"
     });
     const select = screen.getByTestId('pd-unit-label-select') as HTMLSelectElement;
     const opts = Array.from(select.options).map((o) => o.value);
-    expect(opts).toContain('SFR');
-    expect(opts).toContain('Duplex');
-    // Current off-list label is preserved as an option (no data loss).
-    expect(opts).toContain('Type A');
+    // The placeholder ('') + exactly the two product types — and nothing else.
+    expect(opts).toEqual(['', 'SFR', 'Duplex']);
+    expect(opts).not.toContain('Type A');
+  });
+
+  it('a row with a non-type stored label shows the select UNSELECTED (the "Pick type…" placeholder)', () => {
+    setup({ product_types: ['SFR', 'Duplex'], unit_types: NAMED_ROW });
+    const select = screen.getByTestId('pd-unit-label-select') as HTMLSelectElement;
+    // "Type A" is not a product type → nothing real is selected.
+    expect(select.value).toBe('');
   });
 
   it('picking a product type from the dropdown saves it as the label', async () => {
@@ -146,9 +152,30 @@ describe('fix-205: Label = product-type dropdown', () => {
     );
   });
 
-  it('single product type → no dropdown (freeform input with the type as placeholder)', () => {
+  it('saving an UNPICKED multi-type row (legacy label, dimension edited) persists "" — never auto-resolves', async () => {
+    setup({ product_types: ['SFR', 'Duplex'], unit_types: NAMED_ROW });
+    const wInput = screen.getByTestId('pd-unit-w') as HTMLInputElement;
+    fireEvent.change(wInput, { target: { value: '21' } });
+    fireEvent.blur(wInput);
+    await waitFor(() => expect(updateMutateAsync).toHaveBeenCalledTimes(1));
+    const row = updateMutateAsync.mock.calls[0][0].patch.unit_types[0];
+    expect(row.width_ft).toBe(21);
+    expect(row.label).toBe(''); // "Type A" was never a product type → blanked
+  });
+
+  it('single product type → no dropdown (freeform input; blank→type auto-fill covered below)', () => {
     setup({ product_types: ['SFR'], unit_types: NAMED_ROW });
     expect(screen.queryByTestId('pd-unit-label-select')).not.toBeInTheDocument();
+  });
+});
+
+describe('fix-209: narrower Qty + Stories inputs', () => {
+  it('Qty and Sty share the narrow w-7 width class', () => {
+    setup({ product_types: ['SFR'], unit_types: NAMED_ROW });
+    expect(screen.getByTestId('pd-unit-qty').className).toContain('w-7');
+    expect(screen.getByTestId('pd-unit-stories').className).toContain('w-7');
+    // W/D are left as-is (no w-7).
+    expect(screen.getByTestId('pd-unit-w').className).not.toContain('w-7');
   });
 });
 

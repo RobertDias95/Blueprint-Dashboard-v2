@@ -60,7 +60,9 @@ const fixtures = vi.hoisted(() => ({
       lot_width: 60,
       lot_depth: 120,
       alley: 'No',
-      product_types: ['Attached Units'],
+      // fix-209: b is the MULTI-product-type fixture (its unit label "SFR 1"
+      // is a legacy/non-type value → the Label select reads unselected).
+      product_types: ['SFR', 'Duplex'],
       project_tags: ['SIP'],
       // One SFR unit at 40×80 — used by the unit-width filter test
       // (target 40 ± 2 matches this row's unit, none of project a's
@@ -550,12 +552,58 @@ describe('<LibraryMatrix />', () => {
     it('single-product-type project renders a freeform Label input with the type as placeholder (auto-label)', () => {
       // Project a has the single product type SFR → no dropdown; the Label is a
       // text input whose placeholder is the auto-label (parity with Project
-      // Overview). The multi-type dropdown rules are covered by the shared
-      // resolveUnitLabel tests + ProjectDetailHeaderFix205.
+      // Overview). The multi-type dropdown rules are covered below + by the
+      // shared resolveUnitLabel tests + ProjectDetailHeaderFix205.
       expandA();
       const label = screen.getByTestId('library-unit-a-0-label');
       expect(label.tagName.toLowerCase()).toBe('input');
       expect((label as HTMLInputElement).placeholder).toBe('SFR');
+    });
+  });
+
+  // fix-209: product-type-only Label dropdown + narrower Qty/Sty — mirrored
+  // exactly from Project Overview (byte-identical behavior, one store).
+  describe('fix-209: product-type-only Label + narrow Qty/Sty', () => {
+    function expandB() {
+      renderIt();
+      fireEvent.click(screen.getByTestId('library-caret-b'));
+    }
+    function expandA() {
+      renderIt();
+      fireEvent.click(screen.getByTestId('library-caret-a'));
+    }
+
+    it('multi-product-type project renders a <select> whose options are EXACTLY the product types', () => {
+      expandB(); // project b → product_types ['SFR', 'Duplex']
+      const select = screen.getByTestId('library-unit-b-0-label') as HTMLSelectElement;
+      expect(select.tagName.toLowerCase()).toBe('select');
+      const opts = Array.from(select.options).map((o) => o.value);
+      expect(opts).toEqual(['', 'SFR', 'Duplex']); // placeholder + the two types
+    });
+
+    it('a non-type stored label ("SFR 1") shows the select UNSELECTED (Pick type…)', () => {
+      expandB();
+      const select = screen.getByTestId('library-unit-b-0-label') as HTMLSelectElement;
+      expect(select.value).toBe('');
+    });
+
+    it('saving an UNPICKED multi-type row (dimension edited) persists "" for the label', () => {
+      expandB();
+      const wInput = screen.getByTestId('library-unit-b-0-w') as HTMLInputElement;
+      fireEvent.change(wInput, { target: { value: '41' } });
+      fireEvent.blur(wInput);
+      expect(updateMutateAsync).toHaveBeenCalledTimes(1);
+      const row = updateMutateAsync.mock.calls[0][0].patch.unit_types[0];
+      expect(row.width_ft).toBe(41);
+      expect(row.label).toBe(''); // legacy "SFR 1" never was a product type
+    });
+
+    it('Qty + Sty use the narrow w-7 class; W/D keep w-12', () => {
+      expandA();
+      expect(screen.getByTestId('library-unit-a-0-qty').className).toContain('w-7');
+      expect(screen.getByTestId('library-unit-a-0-stories').className).toContain('w-7');
+      expect(screen.getByTestId('library-unit-a-0-w').className).toContain('w-12');
+      expect(screen.getByTestId('library-unit-a-0-w').className).not.toContain('w-7');
     });
   });
 

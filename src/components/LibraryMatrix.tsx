@@ -782,16 +782,16 @@ function LibraryUnitRow({
 
   const multiType = productTypes.length >= 2;
   const singleType = productTypes.length === 1 ? productTypes[0] : null;
-  const labelOptions = (() => {
-    const opts = [...productTypes];
-    const cur = label.trim();
-    if (cur && !opts.includes(cur)) opts.unshift(cur);
-    return opts;
-  })();
+  // fix-209: product-type-ONLY select. Show a real type only when the stored
+  // label is one of them; otherwise nothing is selected ("Pick type…").
+  const selectValue = productTypes.includes(label) ? label : '';
 
   const idBase = `library-unit-${projectId}-${index}`;
   const numClass =
     'w-12 bg-transparent border-0 border-b border-border text-center font-mono text-text text-[11px] outline-none focus:border-de disabled:opacity-50';
+  // fix-209: Qty + Sty are single-digit (occasionally 2) — narrow + equal
+  // (w-7 ≈ 28px). W/D keep numClass (w-12).
+  const narrowNumClass = numClass.replace('w-12', 'w-7');
 
   return (
     <tr
@@ -802,7 +802,7 @@ function LibraryUnitRow({
       <td className="px-2 py-0.5 font-mono text-text">
         {multiType ? (
           <select
-            value={label}
+            value={selectValue}
             disabled={disabled}
             onChange={(e) => {
               const v = e.target.value;
@@ -814,8 +814,8 @@ function LibraryUnitRow({
             className="bg-transparent border-0 border-b border-border text-text text-[11px] outline-none focus:border-de disabled:opacity-50"
             data-testid={`${idBase}-label`}
           >
-            {!label && <option value="">Pick type…</option>}
-            {labelOptions.map((t) => (
+            <option value="">Pick type…</option>
+            {productTypes.map((t) => (
               <option key={t} value={t}>
                 {t}
               </option>
@@ -898,7 +898,7 @@ function LibraryUnitRow({
             if (v !== row.qty) onChange('qty', v);
             dirtyRef.current = false;
           }}
-          className={numClass}
+          className={narrowNumClass}
           data-testid={`${idBase}-qty`}
         />
       </td>
@@ -919,7 +919,7 @@ function LibraryUnitRow({
             if (v !== (row.stories ?? null)) onChange('stories', v);
             dirtyRef.current = false;
           }}
-          className={numClass}
+          className={narrowNumClass}
           data-testid={`${idBase}-stories`}
         />
       </td>
