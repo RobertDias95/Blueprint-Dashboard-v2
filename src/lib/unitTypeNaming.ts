@@ -32,3 +32,20 @@ export function nextUnitTypeLabel(existingLabels: readonly string[]): string {
   // hand back a generic blank-friendly fallback rather than throwing.
   return 'Type';
 }
+
+// fix-205: "unnamed" fix. A unit-type row with an empty label reads as
+// "unnamed" everywhere it's displayed. When the project carries exactly ONE
+// product type, that type IS the label (Bobby: a lone SFR's unit row should
+// say "SFR", not "unnamed"). With multiple product types we can't auto-pick, so
+// a blank label stays blank (the caller renders the "unnamed" placeholder or a
+// dropdown to choose). A non-empty stored label is always preserved verbatim —
+// we never clobber an existing "Type A" / "Cottage 1".
+export function resolveUnitLabel(
+  label: string | null | undefined,
+  productTypes: readonly string[] | null | undefined,
+): string {
+  const trimmed = (label ?? '').trim();
+  if (trimmed) return trimmed;
+  const types = (productTypes ?? []).filter((t) => typeof t === 'string' && t.trim());
+  return types.length === 1 ? types[0] : '';
+}

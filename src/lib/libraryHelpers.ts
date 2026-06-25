@@ -159,6 +159,25 @@ export interface LibraryFilters {
    *  Rows with NULL is_corner_lot fall out under Yes/No (no implicit
    *  default — they're literally unanswered). */
   isCornerLot: '' | 'Yes' | 'No';
+  /** fix-205: Stories tier filter on a project's unit_types. '' = no filter;
+   *  '1'/'2'/'3' = at least one unit_type has exactly that many stories;
+   *  '4+' = at least one has 4 or more. Like the unit width/depth filters it
+   *  acts on the unit_types rows (and highlights the matching ones); rows
+   *  whose units have no stories fall out when a tier is picked. */
+  stories: '' | '1' | '2' | '3' | '4+';
+}
+
+/** fix-205: does a unit-type's `stories` satisfy the picked tier? Empty tier
+ *  matches everything; a picked tier requires a non-null stories that equals it
+ *  ('1'–'3') or is ≥ 4 ('4+'). */
+export function matchStoriesTier(
+  stories: number | null | undefined,
+  tier: LibraryFilters['stories'],
+): boolean {
+  if (tier === '') return true;
+  if (stories == null) return false;
+  if (tier === '4+') return stories >= 4;
+  return stories === Number(tier);
 }
 
 /** fix-81: indices of unit_types on `row` that satisfy BOTH active unit
@@ -168,8 +187,11 @@ export function matchingUnitIndices(
   row: LibraryRow,
   filters: LibraryFilters,
 ): number[] {
+  // fix-205: stories joins width/depth as a per-unit filter dimension.
   const hasUnitFilter =
-    filters.unitwTarget !== null || filters.unitdTarget !== null;
+    filters.unitwTarget !== null ||
+    filters.unitdTarget !== null ||
+    filters.stories !== '';
   if (!hasUnitFilter) {
     return row.unitTypes.map((_, i) => i);
   }
@@ -178,7 +200,8 @@ export function matchingUnitIndices(
     const u = row.unitTypes[i];
     if (
       matchTargetWithBuffer(u.width_ft, filters.unitwTarget, filters.unitwBuf) &&
-      matchTargetWithBuffer(u.depth_ft, filters.unitdTarget, filters.unitdBuf)
+      matchTargetWithBuffer(u.depth_ft, filters.unitdTarget, filters.unitdBuf) &&
+      matchStoriesTier(u.stories, filters.stories)
     ) {
       out.push(i);
     }
@@ -194,7 +217,9 @@ export function filterLibraryRows(
   const zoneQ = filters.zone.trim().toLowerCase();
   const searchQ = filters.search.trim();
   const hasUnitFilter =
-    filters.unitwTarget !== null || filters.unitdTarget !== null;
+    filters.unitwTarget !== null ||
+    filters.unitdTarget !== null ||
+    filters.stories !== '';
   return rows.filter((r) => {
     if (!matchTargetWithBuffer(r.lotWidth, filters.lotwTarget, filters.lotwBuf)) return false;
     if (!matchTargetWithBuffer(r.lotDepth, filters.lotdTarget, filters.lotdBuf)) return false;

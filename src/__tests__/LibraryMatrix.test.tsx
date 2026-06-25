@@ -35,10 +35,14 @@ const fixtures = vi.hoisted(() => ({
       // fix-81: three Cottages — narrow + short. Used by the
       // unit-width filter test (25 ± 2 matches all three) and the
       // search-by-unit-name test ("cottage" surfaces this project).
+      // fix-205: cottages carry stories=2; a-3 is a BLANK-label unit (4
+      // stories) used by the "unnamed → single product type" + stories
+      // filter tests.
       unit_types: [
-        { label: 'Cottage 1', width_ft: 25, depth_ft: 60, qty: 1 },
-        { label: 'Cottage 2', width_ft: 25, depth_ft: 60, qty: 1 },
-        { label: 'Cottage 3', width_ft: 25, depth_ft: 60, qty: 1 },
+        { label: 'Cottage 1', width_ft: 25, depth_ft: 60, qty: 1, stories: 2 },
+        { label: 'Cottage 2', width_ft: 25, depth_ft: 60, qty: 1, stories: 2 },
+        { label: 'Cottage 3', width_ft: 25, depth_ft: 60, qty: 1, stories: 2 },
+        { label: '', width_ft: 30, depth_ft: 50, qty: 1, stories: 4 },
       ],
     },
     {
@@ -60,7 +64,7 @@ const fixtures = vi.hoisted(() => ({
       // (target 40 ± 2 matches this row's unit, none of project a's
       // 25-wide cottages).
       unit_types: [
-        { label: 'SFR 1', width_ft: 40, depth_ft: 80, qty: 1 },
+        { label: 'SFR 1', width_ft: 40, depth_ft: 80, qty: 1, stories: 3 },
       ],
     },
     {
@@ -405,6 +409,57 @@ describe('<LibraryMatrix />', () => {
     // Toggle off via the caret.
     fireEvent.click(screen.getByTestId('library-caret-a'));
     expect(screen.queryByTestId('library-unit-table-a')).not.toBeInTheDocument();
+  });
+
+  // fix-205: Stories column + "unnamed" fix + Stories filter.
+  describe('fix-205: stories + unnamed', () => {
+    it('expand shows a Stories column with each unit_type stories value', () => {
+      renderIt();
+      fireEvent.click(screen.getByTestId('library-caret-a'));
+      const table = screen.getByTestId('library-unit-table-a');
+      expect(table.textContent).toContain('Stories');
+      // Cottage rows carry stories=2.
+      expect(screen.getByTestId('library-unit-row-a-0').textContent).toContain('2');
+    });
+
+    it('a blank-label unit resolves to the single product type instead of "unnamed"', () => {
+      renderIt();
+      fireEvent.click(screen.getByTestId('library-caret-a'));
+      // a-3 has label '' and the project's single product type is SFR.
+      const blankRow = screen.getByTestId('library-unit-row-a-3');
+      expect(blankRow.textContent).toContain('SFR');
+      expect(blankRow.textContent).not.toContain('unnamed');
+    });
+
+    it('Stories filter = 4+ narrows to projects with a 4+-story unit, auto-expands + highlights it', () => {
+      renderIt();
+      fireEvent.change(screen.getByTestId('filter-stories'), {
+        target: { value: '4+' },
+      });
+      // Project a has the 4-story unit (a-3); b's SFR is 3, c has no units.
+      expect(screen.getByTestId('library-row-a')).toBeInTheDocument();
+      expect(screen.queryByTestId('library-row-b')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('library-row-c')).not.toBeInTheDocument();
+      // Auto-expanded; only the 4-story unit is flagged matched.
+      expect(screen.getByTestId('library-unit-table-a')).toBeInTheDocument();
+      expect(
+        screen.getByTestId('library-unit-row-a-3').getAttribute('data-matched'),
+      ).toBe('true');
+      expect(
+        screen.getByTestId('library-unit-row-a-0').getAttribute('data-matched'),
+      ).not.toBe('true');
+    });
+
+    it('Stories filter = 2 narrows to projects with a 2-story unit', () => {
+      renderIt();
+      fireEvent.change(screen.getByTestId('filter-stories'), {
+        target: { value: '2' },
+      });
+      // Only project a's cottages are 2-story.
+      expect(screen.getByTestId('library-row-a')).toBeInTheDocument();
+      expect(screen.queryByTestId('library-row-b')).not.toBeInTheDocument();
+      expect(screen.getByTestId('library-count').textContent).toMatch(/^1 project/);
+    });
   });
 
   // fix-122: two new Library columns (Lots, Corner) + two new filters.

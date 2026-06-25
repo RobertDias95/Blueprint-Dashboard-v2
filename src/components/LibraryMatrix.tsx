@@ -18,6 +18,7 @@ import type {
   Stage,
 } from '../lib/database.types';
 import { STAGE_LABEL } from '../lib/stageLabel';
+import { resolveUnitLabel } from '../lib/unitTypeNaming';
 import { SkeletonRows } from './Skeleton';
 import QueryError from './QueryError';
 
@@ -99,6 +100,8 @@ const INITIAL_FILTERS: LibraryFilters = {
   // "show me 5-lot subdivisions" workflow); isCornerLot is tri-state.
   numLots: null,
   isCornerLot: '',
+  // fix-205: Stories tier filter on a project's unit_types.
+  stories: '',
 };
 
 function Body({ projects, permits }: BodyProps) {
@@ -112,7 +115,9 @@ function Body({ projects, permits }: BodyProps) {
     () => new Map(),
   );
   const unitFilterActive =
-    filters.unitwTarget !== null || filters.unitdTarget !== null;
+    filters.unitwTarget !== null ||
+    filters.unitdTarget !== null ||
+    filters.stories !== '';
 
   const allRows = useMemo(
     () => buildLibraryRows(projects, permits),
@@ -276,6 +281,29 @@ function Body({ projects, permits }: BodyProps) {
             <option value="">Any</option>
             <option value="Yes">Yes</option>
             <option value="No">No</option>
+          </select>
+        </FieldLabel>
+
+        {/* fix-205: Stories tier filter — matches a project that has at least
+            one unit_type with the picked stories (4+ = 4 or more). Highlights
+            the matching unit rows in the expand, like the W/D filters. */}
+        <FieldLabel label="Stories">
+          <select
+            value={filters.stories}
+            onChange={(e) =>
+              update(
+                'stories',
+                e.target.value as LibraryFilters['stories'],
+              )
+            }
+            className="bg-bg border border-border rounded px-2 py-1 text-[11px] text-text focus:outline-none focus:border-de"
+            data-testid="filter-stories"
+          >
+            <option value="">Any</option>
+            <option value="1">1</option>
+            <option value="2">2</option>
+            <option value="3">3</option>
+            <option value="4+">4+</option>
           </select>
         </FieldLabel>
 
@@ -599,6 +627,7 @@ function Row({ row, expanded, onToggle, matchedUnitIndices }: RowProps) {
             <UnitTypeMiniTable
               projectId={row.projectId}
               unitTypes={row.unitTypes}
+              productTypes={row.productTypes}
               matchedIndices={matchedUnitIndices}
             />
           </td>
@@ -611,10 +640,14 @@ function Row({ row, expanded, onToggle, matchedUnitIndices }: RowProps) {
 function UnitTypeMiniTable({
   projectId,
   unitTypes,
+  productTypes,
   matchedIndices,
 }: {
   projectId: string;
   unitTypes: LibraryRow['unitTypes'];
+  /** fix-205: drives the "unnamed" → single-product-type fallback for a
+   *  blank-label row. */
+  productTypes: string[];
   matchedIndices: number[] | null;
 }) {
   const matchSet = matchedIndices ? new Set(matchedIndices) : null;
@@ -637,11 +670,18 @@ function UnitTypeMiniTable({
           <th className="px-2 py-0.5 text-center text-[9px] font-extrabold uppercase tracking-wide">
             Qty
           </th>
+          {/* fix-205: Stories column alongside Width/Depth/Qty. */}
+          <th className="px-2 py-0.5 text-center text-[9px] font-extrabold uppercase tracking-wide">
+            Stories
+          </th>
         </tr>
       </thead>
       <tbody>
         {unitTypes.map((u, i) => {
           const matched = matchSet?.has(i) ?? false;
+          // fix-205: a blank label resolves to the project's single product
+          // type (so "unnamed" only shows when it genuinely can't be inferred).
+          const resolvedLabel = resolveUnitLabel(u.label, productTypes);
           return (
             <tr
               key={i}
@@ -654,7 +694,9 @@ function UnitTypeMiniTable({
               }
             >
               <td className="px-2 py-0.5 font-mono text-text">
-                {u.label || <span className="text-dim italic">unnamed</span>}
+                {resolvedLabel || (
+                  <span className="text-dim italic">unnamed</span>
+                )}
               </td>
               <td className="px-2 py-0.5 text-center font-mono text-text">
                 {u.width_ft != null ? fmtDim(u.width_ft) : <span className="text-dim">—</span>}
@@ -664,6 +706,9 @@ function UnitTypeMiniTable({
               </td>
               <td className="px-2 py-0.5 text-center font-mono text-text">
                 {u.qty || <span className="text-dim">—</span>}
+              </td>
+              <td className="px-2 py-0.5 text-center font-mono text-text">
+                {u.stories != null ? u.stories : <span className="text-dim">—</span>}
               </td>
             </tr>
           );

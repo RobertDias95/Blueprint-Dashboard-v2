@@ -14,6 +14,10 @@ export interface UnitType {
   width_ft: number | null;
   depth_ft: number | null;
   qty: number;
+  /** fix-205: stories for this unit-type structure (1–4+). Optional — older
+   *  rows predate the field. Stored in the same projects.unit_types JSONB
+   *  array (no migration). null/absent = not entered ("—"). */
+  stories?: number | null;
 }
 
 export interface Project {
