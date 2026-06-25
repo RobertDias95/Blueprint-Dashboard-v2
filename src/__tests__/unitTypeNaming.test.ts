@@ -6,12 +6,23 @@ import {
   resolveUnitTypesForSave,
 } from '../lib/unitTypeNaming';
 
-// fix-205: resolveUnitLabel — the "unnamed" fix. A blank label resolves to the
-// project's single product type; with 0 or 2+ types it stays blank.
+// fix-205 → fix-209: resolveUnitLabel. One product type → that type is the
+// auto-label (custom freeform preserved). 2+ product types → product-type-ONLY:
+// the value must be a product type, else it resolves to '' (unpicked).
 describe('resolveUnitLabel', () => {
-  it('keeps a non-empty label verbatim (never clobbered)', () => {
+  it('one product type: preserves a custom label, but auto-fills a blank to the type', () => {
     expect(resolveUnitLabel('Type A', ['SFR'])).toBe('Type A');
-    expect(resolveUnitLabel('Cottage 1', ['SFR', 'Duplex'])).toBe('Cottage 1');
+    expect(resolveUnitLabel('', ['SFR'])).toBe('SFR');
+  });
+
+  it('fix-209: 2+ product types — keeps the label only if it IS a product type', () => {
+    expect(resolveUnitLabel('SFR', ['SFR', 'Duplex'])).toBe('SFR');
+    expect(resolveUnitLabel('Duplex', ['SFR', 'Duplex'])).toBe('Duplex');
+  });
+
+  it('fix-209: 2+ product types — a legacy/custom label is unpicked → ""', () => {
+    expect(resolveUnitLabel('Cottage 1', ['SFR', 'Duplex'])).toBe('');
+    expect(resolveUnitLabel('Type A', ['SFR', 'Accessory Unit'])).toBe('');
   });
 
   it('blank label + a single product type → that type', () => {

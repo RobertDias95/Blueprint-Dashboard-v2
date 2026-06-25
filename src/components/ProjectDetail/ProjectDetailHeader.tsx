@@ -1865,23 +1865,21 @@ function UnitRow({
   const cellStyle = { borderBottomColor: 'var(--color-border)' } as const;
   const cellClass =
     'text-[9px] font-semibold text-text border-0 border-b outline-none bg-transparent text-center disabled:opacity-50';
-  // fix-205: Label is product-type-driven. Several types → a dropdown to pick
-  // per row (current off-list label preserved as an option so we never lose
-  // it). One type → the type is the auto-label (shown as the placeholder; a
-  // blank label persists as that type on save). No types → freeform as before.
+  // fix-205 → fix-209: Label is product-type-driven. Several types → a
+  // product-type-ONLY dropdown (options are EXACTLY the project's product types;
+  // a legacy/custom label shows the "Pick type…" placeholder unselected, forcing
+  // a real choice). One type → the type is the auto-label (shown as the
+  // placeholder; a blank persists as that type on save). No types → freeform.
   const multiType = productTypes.length >= 2;
   const singleType = productTypes.length === 1 ? productTypes[0] : null;
-  const labelOptions = (() => {
-    const opts = [...productTypes];
-    const cur = label.trim();
-    if (cur && !opts.includes(cur)) opts.unshift(cur);
-    return opts;
-  })();
+  // Select shows a real type only when the stored label is one of them;
+  // otherwise nothing is selected (the "Pick type…" placeholder).
+  const selectValue = productTypes.includes(label) ? label : '';
   return (
     <div className="flex items-center gap-1">
       {multiType ? (
         <select
-          value={label}
+          value={selectValue}
           onChange={(e) => {
             dirtyRef.current = true;
             const v = e.target.value;
@@ -1894,8 +1892,8 @@ function UnitRow({
           className={`${cellClass} text-left`}
           data-testid="pd-unit-label-select"
         >
-          {!label && <option value="">Pick type…</option>}
-          {labelOptions.map((t) => (
+          <option value="">Pick type…</option>
+          {productTypes.map((t) => (
             <option key={t} value={t}>
               {t}
             </option>
@@ -1959,6 +1957,8 @@ function UnitRow({
         data-testid="pd-unit-d"
       />
       <span className="text-[8px] text-dim">×</span>
+      {/* fix-209: Qty + Sty are single-digit (occasionally 2) — narrow + equal
+          (w-7 ≈ 28px). W/D widths are left as-is. */}
       <input
         type="number"
         min={1}
@@ -1973,8 +1973,9 @@ function UnitRow({
           dirtyRef.current = false;
         }}
         disabled={disabled}
-        style={{ ...cellStyle, width: 18 }}
-        className={cellClass}
+        style={cellStyle}
+        className={`${cellClass} w-7`}
+        data-testid="pd-unit-qty"
       />
       {/* fix-205: Stories ("Sty") — 1–4+, blank = not entered. */}
       <input
@@ -1992,8 +1993,8 @@ function UnitRow({
           dirtyRef.current = false;
         }}
         disabled={disabled}
-        style={{ ...cellStyle, width: 30 }}
-        className={cellClass}
+        style={cellStyle}
+        className={`${cellClass} w-7`}
         data-testid="pd-unit-stories"
       />
       <button

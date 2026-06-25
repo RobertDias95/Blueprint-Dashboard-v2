@@ -35,20 +35,28 @@ export function nextUnitTypeLabel(existingLabels: readonly string[]): string {
   return 'Type';
 }
 
-// fix-205: "unnamed" fix. A unit-type row with an empty label reads as
-// "unnamed" everywhere it's displayed. When the project carries exactly ONE
-// product type, that type IS the label (Bobby: a lone SFR's unit row should
-// say "SFR", not "unnamed"). With multiple product types we can't auto-pick, so
-// a blank label stays blank (the caller renders the "unnamed" placeholder or a
-// dropdown to choose). A non-empty stored label is always preserved verbatim —
-// we never clobber an existing "Type A" / "Cottage 1".
+// fix-205 → fix-209: resolve a unit-type row's Label against the project's
+// product types. The rule depends on how many product types the project carries:
+//   • exactly ONE  → that type IS the label. A blank auto-fills to it; a custom
+//     freeform label (e.g. "Type A") is preserved. (Bobby: a lone SFR's row
+//     should say "SFR", not "unnamed".)
+//   • TWO or more  → the Label is product-type-ONLY (fix-209). The value must be
+//     one of the project's product types; anything else (blank, or a legacy/
+//     custom value like "Type A" / "Ex. SFR") is "unpicked" and resolves to ''
+//     — forcing the user to choose a real type. We deliberately do NOT carry a
+//     custom value forward or auto-pick a type for them.
+//   • ZERO         → freeform; the stored label is preserved.
 export function resolveUnitLabel(
   label: string | null | undefined,
   productTypes: readonly string[] | null | undefined,
 ): string {
   const trimmed = (label ?? '').trim();
-  if (trimmed) return trimmed;
   const types = (productTypes ?? []).filter((t) => typeof t === 'string' && t.trim());
+  if (types.length >= 2) {
+    // Product-type-only: keep it only if it's an exact product type, else blank.
+    return types.includes(trimmed) ? trimmed : '';
+  }
+  if (trimmed) return trimmed;
   return types.length === 1 ? types[0] : '';
 }
 
