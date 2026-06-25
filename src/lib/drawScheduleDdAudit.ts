@@ -11,7 +11,46 @@
 // Every non-sub BP shares the primary's window; sub-permits never anchor or
 // diverge it.
 
+import { snapToMonday, addDays } from './dateUtils';
+
 const BUILDING_PERMIT = 'Building Permit';
+
+// fix-210: pure-TS mirror of the redesign-permit-DD derivation in
+// bp_create_project_with_permits. A redesign sends its DD window only in
+// p_redesign_dd_phase, so the new Building Permit must be given the SAME window
+// that drives the draw-schedule block:
+//   permit.dd_start = snap_to_monday_forward(phase.dd_start)  (= block.dd_start)
+//   permit.dd_end   = phase.dd_end                            (= block.dd_end)
+//   permit.target_submit fallback = dd_end + 21
+// The dd_end change fires the permits AFTER trigger, so the target_submit engine
+// (bp_recompute_target_submits) then overwrites the fallback with the canonical
+// learned-offset value; the explicit +21 just guarantees it's never NULL.
+export interface RedesignDdPhase {
+  dd_start: string;
+  dd_end: string;
+}
+
+export interface RedesignPermitDd {
+  /** = block.dd_start = snap_to_monday_forward(phase.dd_start). */
+  ddStart: string | null;
+  /** = block.dd_end = the raw phase dd_end. */
+  ddEnd: string | null;
+  /** Fallback only — the target_submit engine recomputes the canonical value
+   *  (dd_end + learned offset) once the dd_end write fires its trigger. */
+  targetSubmitFallback: string | null;
+}
+
+/** The DD window a redesign create must write onto its Building Permit(s) so the
+ *  permit and the draw-schedule block agree (and the Project Overview DD strip,
+ *  which reads the PERMIT, is populated). */
+export function redesignPermitDd(phase: RedesignDdPhase): RedesignPermitDd {
+  const ddEnd = phase.dd_end || null;
+  return {
+    ddStart: snapToMonday(phase.dd_start, 'forward'),
+    ddEnd,
+    targetSubmitFallback: addDays(ddEnd, 21),
+  };
+}
 
 export interface AuditPermit {
   id: number;
