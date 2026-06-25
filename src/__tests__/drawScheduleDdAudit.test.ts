@@ -4,6 +4,7 @@ import {
   unifyBpDdWindow,
   mondayOf,
   findDrawScheduleDdMismatches,
+  redesignPermitDd,
   type AuditPermit,
   type DrawBlock,
 } from '../lib/drawScheduleDdAudit';
@@ -129,5 +130,28 @@ describe('findDrawScheduleDdMismatches (detector RPC mirror)', () => {
     expect(ids).not.toContain('nodd');
     // Only the two genuine offenders surface.
     expect(ids.sort()).toEqual(['divergent', 'offweek']);
+  });
+});
+
+// fix-210: the redesign create writes the DD window to the PERMIT (not just the
+// block). Mirror of the bp_create_project_with_permits redesign step.
+describe('redesignPermitDd', () => {
+  it('permit window = block window: dd_start snapped forward to Monday, dd_end raw', () => {
+    // 2026-01-19 is a Monday → snap_to_monday_forward is a no-op (= block dd_start).
+    const out = redesignPermitDd({ dd_start: '2026-01-19', dd_end: '2026-01-23' });
+    expect(out.ddStart).toBe('2026-01-19');
+    expect(out.ddEnd).toBe('2026-01-23');
+  });
+
+  it('snaps a mid-week dd_start FORWARD to the next Monday', () => {
+    // 2026-01-21 is a Wednesday → next Monday is 2026-01-26.
+    const out = redesignPermitDd({ dd_start: '2026-01-21', dd_end: '2026-01-30' });
+    expect(out.ddStart).toBe('2026-01-26');
+    expect(out.ddEnd).toBe('2026-01-30');
+  });
+
+  it('target_submit fallback = dd_end + 21 (engine then overwrites with the canonical offset)', () => {
+    const out = redesignPermitDd({ dd_start: '2026-01-19', dd_end: '2026-01-23' });
+    expect(out.targetSubmitFallback).toBe('2026-02-13'); // 1/23 + 21
   });
 });
