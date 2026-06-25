@@ -15,7 +15,7 @@ import {
 import { useUpdateProject } from '../../hooks/useUpdateProject';
 import { useProjects } from '../../hooks/useProjects';
 import { useExternalTeamShowRules } from '../../hooks/useExternalTeamShowRules';
-import { nextUnitTypeLabel } from '../../lib/unitTypeNaming';
+import { nextUnitTypeLabel, resolveUnitLabel } from '../../lib/unitTypeNaming';
 import { snapToMonday, addDays } from '../../lib/dateUtils';
 import ReuseRedesignDdEditor from './ReuseRedesignDdEditor';
 import {
@@ -1589,6 +1589,10 @@ function parseUnitTypes(raw: unknown): UnitType[] {
             ? u.d
             : null,
       qty: typeof u.qty === 'number' && u.qty > 0 ? u.qty : 1,
+      // fix-205: carry stories through so edits round-trip it (JSONB, no
+      // migration). Absent/invalid → null ("not entered").
+      stories:
+        typeof u.stories === 'number' && u.stories > 0 ? u.stories : null,
     }));
 }
 
@@ -1596,6 +1600,13 @@ function UnitDimensions({ project }: { project: Project }) {
   const updateMutation = useUpdateProject();
   const occMissing = !project.updated_at;
   const types = parseUnitTypes(project.unit_types);
+  // fix-205: the project's product types drive the per-row Label (auto when
+  // there's exactly one type; a dropdown when several).
+  const productTypes = Array.isArray(project.product_types)
+    ? project.product_types.filter(
+        (t): t is string => typeof t === 'string' && t.trim().length > 0,
+      )
+    : [];
 
   // fix-99: OCC auto-recovery moved into useUpdateProject's mutationFn
   // (silent first attempt → refetch → retry once on stale-token OCC,
@@ -1606,11 +1617,18 @@ function UnitDimensions({ project }: { project: Project }) {
   // unhandled-promise-rejection — same pattern as DateCell.tryCommit.
   async function writeTypes(next: UnitType[]) {
     if (!project.updated_at) return;
+    // fix-205: resolve "unnamed" rows on save — a blank label + a single
+    // product type persists as that type (so the Library expand stops showing
+    // "unnamed"). Multi-type blanks are left empty for the user to pick.
+    const resolved = next.map((r) => ({
+      ...r,
+      label: resolveUnitLabel(r.label, productTypes),
+    }));
     await updateMutation
       .mutateAsync({
         projectId: project.id,
         expectedUpdatedAt: project.updated_at,
-        patch: { unit_types: next },
+        patch: { unit_types: resolved },
         fieldLabel: 'Unit Dimensions',
       })
       .catch(() => {
@@ -1641,6 +1659,7 @@ function UnitDimensions({ project }: { project: Project }) {
                   width_ft: null,
                   depth_ft: null,
                   qty: 1,
+                  stories: null,
                 }
               : { ...types[0], label: types[0].label || nextUnitTypeLabel([]) };
           const second: UnitType = {
@@ -1648,6 +1667,7 @@ function UnitDimensions({ project }: { project: Project }) {
             width_ft: null,
             depth_ft: null,
             qty: 1,
+            stories: null,
           };
           void writeTypes([first, second]);
         }}
@@ -1658,6 +1678,7 @@ function UnitDimensions({ project }: { project: Project }) {
   return (
     <UnitDimensionsExpanded
       types={types}
+      productTypes={productTypes}
       disabled={occMissing}
       onUpdate={(idx, field, val) => {
         const next = types.map((t, i) =>
@@ -1677,6 +1698,7 @@ function UnitDimensions({ project }: { project: Project }) {
             width_ft: null,
             depth_ft: null,
             qty: 1,
+            stories: null,
           },
         ];
         void writeTypes(next);
@@ -1773,12 +1795,14 @@ function UnitDimensionsCompact({
 
 function UnitDimensionsExpanded({
   types,
+  productTypes,
   disabled,
   onUpdate,
   onRemove,
   onAdd,
 }: {
   types: UnitType[];
+  productTypes: string[];
   disabled: boolean;
   onUpdate: (
     idx: number,
@@ -1790,18 +1814,22 @@ function UnitDimensionsExpanded({
 }) {
   return (
     <div className="flex flex-col gap-0.5">
-      <div className="flex gap-1 text-[8px] text-dim pb-0.5">
-        <span style={{ width: 44 }}>Label</span>
-        <span className="text-center" style={{ width: 26 }}>W</span>
-        <span style={{ width: 10 }} />
-        <span className="text-center" style={{ width: 26 }}>D</span>
-        <span style={{ width: 8 }} />
-        <span className="text-center" style={{ width: 20 }}>Qty</span>
+      {/* fix-205: wider W/D so a decimal (e.g. 147.5) is visible inline; Qty
+          narrowed to one digit; new Stories ("Sty") column. */}
+      <div className="flex items-center gap-1 text-[8px] text-dim pb-0.5">
+        <span style={{ width: 60 }}>Label</span>
+        <span className="text-center" style={{ width: 38 }}>W</span>
+        <span style={{ width: 6 }} />
+        <span className="text-center" style={{ width: 38 }}>D</span>
+        <span style={{ width: 6 }} />
+        <span className="text-center" style={{ width: 18 }}>Qty</span>
+        <span className="text-center" style={{ width: 30 }}>Sty</span>
       </div>
       {types.map((ut, i) => (
         <UnitRow
           key={i}
           row={ut}
+          productTypes={productTypes}
           disabled={disabled}
           onChange={(field, val) => onUpdate(i, field, val)}
           onRemove={() => onRemove(i)}
@@ -1823,11 +1851,13 @@ function UnitDimensionsExpanded({
 
 function UnitRow({
   row,
+  productTypes,
   disabled,
   onChange,
   onRemove,
 }: {
   row: UnitType;
+  productTypes: string[];
   disabled: boolean;
   onChange: (field: keyof UnitType, val: string | number | null) => void;
   onRemove: () => void;
@@ -1836,6 +1866,9 @@ function UnitRow({
   const [w, setW] = useState(row.width_ft != null ? String(row.width_ft) : '');
   const [d, setD] = useState(row.depth_ft != null ? String(row.depth_ft) : '');
   const [qty, setQty] = useState(String(row.qty || 1));
+  const [stories, setStories] = useState(
+    row.stories != null ? String(row.stories) : '',
+  );
   // fix-98: dirty-flag prop sync (fix-73 pattern). UnitRow is keyed by
   // array index in the parent, so React reuses the same instance across
   // re-renders when the underlying row data changes (after a save). The
@@ -1851,31 +1884,69 @@ function UnitRow({
     setW(row.width_ft != null ? String(row.width_ft) : '');
     setD(row.depth_ft != null ? String(row.depth_ft) : '');
     setQty(String(row.qty || 1));
-  }, [row.label, row.width_ft, row.depth_ft, row.qty]);
+    setStories(row.stories != null ? String(row.stories) : '');
+  }, [row.label, row.width_ft, row.depth_ft, row.qty, row.stories]);
   const cellStyle = { borderBottomColor: 'var(--color-border)' } as const;
   const cellClass =
     'text-[9px] font-semibold text-text border-0 border-b outline-none bg-transparent text-center disabled:opacity-50';
+  // fix-205: Label is product-type-driven. Several types → a dropdown to pick
+  // per row (current off-list label preserved as an option so we never lose
+  // it). One type → the type is the auto-label (shown as the placeholder; a
+  // blank label persists as that type on save). No types → freeform as before.
+  const multiType = productTypes.length >= 2;
+  const singleType = productTypes.length === 1 ? productTypes[0] : null;
+  const labelOptions = (() => {
+    const opts = [...productTypes];
+    const cur = label.trim();
+    if (cur && !opts.includes(cur)) opts.unshift(cur);
+    return opts;
+  })();
   return (
     <div className="flex items-center gap-1">
-      <input
-        type="text"
-        value={label}
-        placeholder="Label"
-        onChange={(e) => {
-          dirtyRef.current = true;
-          setLabel(e.target.value);
-        }}
-        onBlur={() => {
-          onChange('label', label);
-          dirtyRef.current = false;
-        }}
-        disabled={disabled}
-        style={{ ...cellStyle, width: 44 }}
-        className={`${cellClass} text-left`}
-      />
+      {multiType ? (
+        <select
+          value={label}
+          onChange={(e) => {
+            dirtyRef.current = true;
+            const v = e.target.value;
+            setLabel(v);
+            onChange('label', v);
+            dirtyRef.current = false;
+          }}
+          disabled={disabled}
+          style={{ ...cellStyle, width: 60 }}
+          className={`${cellClass} text-left`}
+          data-testid="pd-unit-label-select"
+        >
+          {!label && <option value="">Pick type…</option>}
+          {labelOptions.map((t) => (
+            <option key={t} value={t}>
+              {t}
+            </option>
+          ))}
+        </select>
+      ) : (
+        <input
+          type="text"
+          value={label}
+          placeholder={singleType ?? 'Label'}
+          onChange={(e) => {
+            dirtyRef.current = true;
+            setLabel(e.target.value);
+          }}
+          onBlur={() => {
+            onChange('label', label);
+            dirtyRef.current = false;
+          }}
+          disabled={disabled}
+          style={{ ...cellStyle, width: 60 }}
+          className={`${cellClass} text-left`}
+        />
+      )}
       <input
         type="number"
         min={0}
+        step="0.5"
         value={w}
         placeholder="W"
         onChange={(e) => {
@@ -1887,13 +1958,15 @@ function UnitRow({
           dirtyRef.current = false;
         }}
         disabled={disabled}
-        style={{ ...cellStyle, width: 26 }}
+        style={{ ...cellStyle, width: 38 }}
         className={cellClass}
+        data-testid="pd-unit-w"
       />
       <span className="text-[8px] text-dim">×</span>
       <input
         type="number"
         min={0}
+        step="0.5"
         value={d}
         placeholder="D"
         onChange={(e) => {
@@ -1905,8 +1978,9 @@ function UnitRow({
           dirtyRef.current = false;
         }}
         disabled={disabled}
-        style={{ ...cellStyle, width: 26 }}
+        style={{ ...cellStyle, width: 38 }}
         className={cellClass}
+        data-testid="pd-unit-d"
       />
       <span className="text-[8px] text-dim">×</span>
       <input
@@ -1923,8 +1997,28 @@ function UnitRow({
           dirtyRef.current = false;
         }}
         disabled={disabled}
-        style={{ ...cellStyle, width: 20 }}
+        style={{ ...cellStyle, width: 18 }}
         className={cellClass}
+      />
+      {/* fix-205: Stories ("Sty") — 1–4+, blank = not entered. */}
+      <input
+        type="number"
+        min={1}
+        value={stories}
+        placeholder="Sty"
+        onChange={(e) => {
+          dirtyRef.current = true;
+          setStories(e.target.value);
+        }}
+        onBlur={() => {
+          const n = stories === '' ? null : Math.max(1, Number(stories) || 0) || null;
+          onChange('stories', n);
+          dirtyRef.current = false;
+        }}
+        disabled={disabled}
+        style={{ ...cellStyle, width: 30 }}
+        className={cellClass}
+        data-testid="pd-unit-stories"
       />
       <button
         type="button"

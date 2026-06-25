@@ -3,11 +3,14 @@ import {
   buildLibraryRows,
   extractTags,
   filterLibraryRows,
+  matchingUnitIndices,
+  matchStoriesTier,
   matchTargetWithBuffer,
   pickBpForProject,
   sortLibraryRows,
   worstStage,
   type LibraryFilters,
+  type LibraryRow,
 } from '../lib/libraryHelpers';
 import type { PermitWithCycles, Project } from '../lib/database.types';
 
@@ -239,6 +242,7 @@ describe('filterLibraryRows', () => {
     juris: '',
     numLots: null,
     isCornerLot: '',
+    stories: '',
   };
   const rows = [
     {
@@ -381,6 +385,94 @@ describe('filterLibraryRows', () => {
       });
       expect(out.map((r) => r.projectId)).toEqual(['a']);
     });
+  });
+});
+
+// fix-205: Stories tier filter on a project's unit_types.
+describe('fix-205: stories filter', () => {
+  const EMPTY_FILTERS: LibraryFilters = {
+    search: '',
+    lotwTarget: null,
+    lotwBuf: 2,
+    lotdTarget: null,
+    lotdBuf: 2,
+    unitwTarget: null,
+    unitwBuf: 2,
+    unitdTarget: null,
+    unitdBuf: 2,
+    zone: '',
+    alley: '',
+    productTypes: [],
+    tag: '',
+    juris: '',
+    numLots: null,
+    isCornerLot: '',
+    stories: '',
+  };
+  function mkRow(id: string, stories: (number | null)[]): LibraryRow {
+    return {
+      projectId: id,
+      address: `${id} St`,
+      juris: 'Seattle',
+      productTypes: ['SFR'],
+      units: stories.length,
+      zone: '',
+      lotWidth: 0,
+      lotDepth: 0,
+      alley: '',
+      tags: [],
+      stage: 'de',
+      unitTypes: stories.map((s, i) => ({
+        label: `Type ${i}`,
+        width_ft: null,
+        depth_ft: null,
+        qty: 1,
+        stories: s,
+      })),
+      numLots: null,
+      isCornerLot: null,
+    };
+  }
+
+  describe('matchStoriesTier', () => {
+    it("'' matches anything (incl. null)", () => {
+      expect(matchStoriesTier(null, '')).toBe(true);
+      expect(matchStoriesTier(3, '')).toBe(true);
+    });
+    it('exact tiers 1–3 require an equal, non-null stories', () => {
+      expect(matchStoriesTier(2, '2')).toBe(true);
+      expect(matchStoriesTier(3, '2')).toBe(false);
+      expect(matchStoriesTier(null, '2')).toBe(false);
+    });
+    it("'4+' matches 4 or more", () => {
+      expect(matchStoriesTier(4, '4+')).toBe(true);
+      expect(matchStoriesTier(6, '4+')).toBe(true);
+      expect(matchStoriesTier(3, '4+')).toBe(false);
+    });
+  });
+
+  it('filters projects to those with a unit at the picked stories tier', () => {
+    const rows = [mkRow('a', [2, 3]), mkRow('b', [1]), mkRow('c', [4])];
+    expect(
+      filterLibraryRows(rows, { ...EMPTY_FILTERS, stories: '3' }).map((r) => r.projectId),
+    ).toEqual(['a']);
+    expect(
+      filterLibraryRows(rows, { ...EMPTY_FILTERS, stories: '4+' }).map((r) => r.projectId),
+    ).toEqual(['c']);
+  });
+
+  it('a project whose units have no stories drops out when a tier is picked', () => {
+    const rows = [mkRow('a', [null, null])];
+    expect(filterLibraryRows(rows, { ...EMPTY_FILTERS, stories: '2' })).toHaveLength(0);
+    // …but stays under "Any".
+    expect(filterLibraryRows(rows, { ...EMPTY_FILTERS, stories: '' })).toHaveLength(1);
+  });
+
+  it('matchingUnitIndices highlights only the units at the tier', () => {
+    const row = mkRow('a', [2, 4, 4]);
+    expect(matchingUnitIndices(row, { ...EMPTY_FILTERS, stories: '4+' })).toEqual([1, 2]);
+    // No tier → all indices.
+    expect(matchingUnitIndices(row, EMPTY_FILTERS)).toEqual([0, 1, 2]);
   });
 });
 
