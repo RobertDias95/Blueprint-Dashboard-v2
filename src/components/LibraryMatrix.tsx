@@ -1,7 +1,8 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useProjects } from '../hooks/useProjects';
 import { usePermits } from '../hooks/usePermits';
+import { useUpdateProject } from '../hooks/useUpdateProject';
 import {
   buildLibraryRows,
   filterLibraryRows,
@@ -16,9 +17,10 @@ import type {
   PermitWithCycles,
   Project,
   Stage,
+  UnitType,
 } from '../lib/database.types';
 import { STAGE_LABEL } from '../lib/stageLabel';
-import { resolveUnitLabel } from '../lib/unitTypeNaming';
+import { resolveUnitTypesForSave } from '../lib/unitTypeNaming';
 import { SkeletonRows } from './Skeleton';
 import QueryError from './QueryError';
 
@@ -107,6 +109,25 @@ const INITIAL_FILTERS: LibraryFilters = {
 function Body({ projects, permits }: BodyProps) {
   const [filters, setFilters] = useState<LibraryFilters>(INITIAL_FILTERS);
   const [sort, setSort] = useState<SortState>({ col: 'address', asc: true });
+  // fix-206: the unit table is editable through the SAME write path as Project
+  // Overview (useUpdateProject patch { unit_types } with the project's OCC
+  // token). One store — the optimistic projects-cache patch reflects on Project
+  // Overview immediately, and a Project Overview edit reflects here, with no
+  // second store or sync engine.
+  const updateProject = useUpdateProject();
+  function writeUnitTypes(row: LibraryRow, next: UnitType[]) {
+    if (!row.updatedAt) return; // occMissing → editing disabled (parity w/ PO)
+    void updateProject
+      .mutateAsync({
+        projectId: row.projectId,
+        expectedUpdatedAt: row.updatedAt,
+        patch: { unit_types: resolveUnitTypesForSave(next, row.productTypes) },
+        fieldLabel: 'Unit Dimensions',
+      })
+      .catch(() => {
+        /* useUpdateProject.onError already surfaced the toast + rolled back */
+      });
+  }
   // fix-81: per-row caret state. Map value: true=explicitly open,
   // false=explicitly closed. Missing key = "auto" (driven by unit
   // filter). Component-local; expansion isn't precious enough to
@@ -440,6 +461,7 @@ function Body({ projects, permits }: BodyProps) {
                     ? matchingUnitIndices(r, filters)
                     : null
                 }
+                onWriteUnitTypes={(next) => writeUnitTypes(r, next)}
               />
             ))}
             {sorted.length === 0 && (
@@ -497,8 +519,16 @@ interface RowProps {
    * exactly those rows. Null when no unit filter is active (in which
    * case nothing gets highlighted). */
   matchedUnitIndices: number[] | null;
+  /** fix-206: persist an edited unit_types array for this project. */
+  onWriteUnitTypes: (next: UnitType[]) => void;
 }
-function Row({ row, expanded, onToggle, matchedUnitIndices }: RowProps) {
+function Row({
+  row,
+  expanded,
+  onToggle,
+  matchedUnitIndices,
+  onWriteUnitTypes,
+}: RowProps) {
   const hasUnits = row.unitTypes.length > 0;
   return (
     <>
@@ -629,6 +659,8 @@ function Row({ row, expanded, onToggle, matchedUnitIndices }: RowProps) {
               unitTypes={row.unitTypes}
               productTypes={row.productTypes}
               matchedIndices={matchedUnitIndices}
+              disabled={!row.updatedAt}
+              onWriteUnitTypes={onWriteUnitTypes}
             />
           </td>
         </tr>
@@ -637,20 +669,33 @@ function Row({ row, expanded, onToggle, matchedUnitIndices }: RowProps) {
   );
 }
 
+// fix-206: the unit table is EDITABLE inline. Each cell writes through the same
+// useUpdateProject path as Project Overview (one store), reusing resolveUnitLabel
+// for the product-type Label rules so the two editors behave identically.
 function UnitTypeMiniTable({
   projectId,
   unitTypes,
   productTypes,
   matchedIndices,
+  disabled,
+  onWriteUnitTypes,
 }: {
   projectId: string;
   unitTypes: LibraryRow['unitTypes'];
   /** fix-205: drives the "unnamed" → single-product-type fallback for a
-   *  blank-label row. */
+   *  blank-label row (now via the Label input's placeholder / dropdown). */
   productTypes: string[];
   matchedIndices: number[] | null;
+  /** fix-206: occMissing (no OCC token) → inputs read-only (parity w/ PO). */
+  disabled: boolean;
+  onWriteUnitTypes: (next: UnitType[]) => void;
 }) {
   const matchSet = matchedIndices ? new Set(matchedIndices) : null;
+  function commit(idx: number, field: keyof UnitType, val: string | number | null) {
+    onWriteUnitTypes(
+      unitTypes.map((t, i) => (i === idx ? { ...t, [field]: val } : t)),
+    );
+  }
   return (
     <table
       className="w-full text-[11px]"
@@ -677,44 +722,208 @@ function UnitTypeMiniTable({
         </tr>
       </thead>
       <tbody>
-        {unitTypes.map((u, i) => {
-          const matched = matchSet?.has(i) ?? false;
-          // fix-205: a blank label resolves to the project's single product
-          // type (so "unnamed" only shows when it genuinely can't be inferred).
-          const resolvedLabel = resolveUnitLabel(u.label, productTypes);
-          return (
-            <tr
-              key={i}
-              data-testid={`library-unit-row-${projectId}-${i}`}
-              data-matched={matched ? 'true' : undefined}
-              className={
-                matched
-                  ? 'bg-de-bg/40 border-l-2 border-de'
-                  : ''
-              }
-            >
-              <td className="px-2 py-0.5 font-mono text-text">
-                {resolvedLabel || (
-                  <span className="text-dim italic">unnamed</span>
-                )}
-              </td>
-              <td className="px-2 py-0.5 text-center font-mono text-text">
-                {u.width_ft != null ? fmtDim(u.width_ft) : <span className="text-dim">—</span>}
-              </td>
-              <td className="px-2 py-0.5 text-center font-mono text-text">
-                {u.depth_ft != null ? fmtDim(u.depth_ft) : <span className="text-dim">—</span>}
-              </td>
-              <td className="px-2 py-0.5 text-center font-mono text-text">
-                {u.qty || <span className="text-dim">—</span>}
-              </td>
-              <td className="px-2 py-0.5 text-center font-mono text-text">
-                {u.stories != null ? u.stories : <span className="text-dim">—</span>}
-              </td>
-            </tr>
-          );
-        })}
+        {unitTypes.map((u, i) => (
+          <LibraryUnitRow
+            key={i}
+            row={u}
+            projectId={projectId}
+            index={i}
+            productTypes={productTypes}
+            disabled={disabled}
+            matched={matchSet?.has(i) ?? false}
+            onChange={(field, val) => commit(i, field, val)}
+          />
+        ))}
       </tbody>
     </table>
+  );
+}
+
+// fix-206: one editable unit_types row in the Library table. Mirrors the
+// Project Overview UnitRow (fix-205) semantics exactly — product-type Label
+// (dropdown when several types, freeform auto-labelled when one), W/D decimals
+// (step 0.5), Qty, Stories — but laid out as table cells and keeping the
+// fix-205 matched-highlight + testids. The fix-73/98 dirty-flag prop sync keeps
+// a mid-typed value from being clobbered by an external cache refresh (the
+// optimistic projects-cache patch from this or the Project Overview editor).
+function LibraryUnitRow({
+  row,
+  projectId,
+  index,
+  productTypes,
+  disabled,
+  matched,
+  onChange,
+}: {
+  row: UnitType;
+  projectId: string;
+  index: number;
+  productTypes: string[];
+  disabled: boolean;
+  matched: boolean;
+  onChange: (field: keyof UnitType, val: string | number | null) => void;
+}) {
+  const [label, setLabel] = useState(row.label);
+  const [w, setW] = useState(row.width_ft != null ? String(row.width_ft) : '');
+  const [d, setD] = useState(row.depth_ft != null ? String(row.depth_ft) : '');
+  const [qty, setQty] = useState(String(row.qty || 1));
+  const [stories, setStories] = useState(
+    row.stories != null ? String(row.stories) : '',
+  );
+  const dirtyRef = useRef(false);
+  useEffect(() => {
+    if (dirtyRef.current) return;
+    setLabel(row.label);
+    setW(row.width_ft != null ? String(row.width_ft) : '');
+    setD(row.depth_ft != null ? String(row.depth_ft) : '');
+    setQty(String(row.qty || 1));
+    setStories(row.stories != null ? String(row.stories) : '');
+  }, [row.label, row.width_ft, row.depth_ft, row.qty, row.stories]);
+
+  const multiType = productTypes.length >= 2;
+  const singleType = productTypes.length === 1 ? productTypes[0] : null;
+  const labelOptions = (() => {
+    const opts = [...productTypes];
+    const cur = label.trim();
+    if (cur && !opts.includes(cur)) opts.unshift(cur);
+    return opts;
+  })();
+
+  const idBase = `library-unit-${projectId}-${index}`;
+  const numClass =
+    'w-12 bg-transparent border-0 border-b border-border text-center font-mono text-text text-[11px] outline-none focus:border-de disabled:opacity-50';
+
+  return (
+    <tr
+      data-testid={`library-unit-row-${projectId}-${index}`}
+      data-matched={matched ? 'true' : undefined}
+      className={matched ? 'bg-de-bg/40 border-l-2 border-de' : ''}
+    >
+      <td className="px-2 py-0.5 font-mono text-text">
+        {multiType ? (
+          <select
+            value={label}
+            disabled={disabled}
+            onChange={(e) => {
+              const v = e.target.value;
+              dirtyRef.current = true;
+              setLabel(v);
+              if (v !== row.label) onChange('label', v);
+              dirtyRef.current = false;
+            }}
+            className="bg-transparent border-0 border-b border-border text-text text-[11px] outline-none focus:border-de disabled:opacity-50"
+            data-testid={`${idBase}-label`}
+          >
+            {!label && <option value="">Pick type…</option>}
+            {labelOptions.map((t) => (
+              <option key={t} value={t}>
+                {t}
+              </option>
+            ))}
+          </select>
+        ) : (
+          <input
+            type="text"
+            value={label}
+            placeholder={singleType ?? 'Label'}
+            disabled={disabled}
+            onChange={(e) => {
+              dirtyRef.current = true;
+              setLabel(e.target.value);
+            }}
+            onBlur={() => {
+              if (label !== row.label) onChange('label', label);
+              dirtyRef.current = false;
+            }}
+            className="w-24 bg-transparent border-0 border-b border-border text-text text-[11px] outline-none focus:border-de placeholder:text-dim disabled:opacity-50"
+            data-testid={`${idBase}-label`}
+          />
+        )}
+      </td>
+      <td className="px-2 py-0.5 text-center">
+        <input
+          type="number"
+          min={0}
+          step="0.5"
+          value={w}
+          placeholder="—"
+          disabled={disabled}
+          onChange={(e) => {
+            dirtyRef.current = true;
+            setW(e.target.value);
+          }}
+          onBlur={() => {
+            const v = w === '' ? null : Number(w) || 0;
+            if (v !== (row.width_ft ?? null)) onChange('width_ft', v);
+            dirtyRef.current = false;
+          }}
+          className={numClass}
+          data-testid={`${idBase}-w`}
+        />
+      </td>
+      <td className="px-2 py-0.5 text-center">
+        <input
+          type="number"
+          min={0}
+          step="0.5"
+          value={d}
+          placeholder="—"
+          disabled={disabled}
+          onChange={(e) => {
+            dirtyRef.current = true;
+            setD(e.target.value);
+          }}
+          onBlur={() => {
+            const v = d === '' ? null : Number(d) || 0;
+            if (v !== (row.depth_ft ?? null)) onChange('depth_ft', v);
+            dirtyRef.current = false;
+          }}
+          className={numClass}
+          data-testid={`${idBase}-d`}
+        />
+      </td>
+      <td className="px-2 py-0.5 text-center">
+        <input
+          type="number"
+          min={1}
+          value={qty}
+          placeholder="1"
+          disabled={disabled}
+          onChange={(e) => {
+            dirtyRef.current = true;
+            setQty(e.target.value);
+          }}
+          onBlur={() => {
+            const v = Number(qty) || 1;
+            if (v !== row.qty) onChange('qty', v);
+            dirtyRef.current = false;
+          }}
+          className={numClass}
+          data-testid={`${idBase}-qty`}
+        />
+      </td>
+      <td className="px-2 py-0.5 text-center">
+        <input
+          type="number"
+          min={1}
+          value={stories}
+          placeholder="—"
+          disabled={disabled}
+          onChange={(e) => {
+            dirtyRef.current = true;
+            setStories(e.target.value);
+          }}
+          onBlur={() => {
+            const v =
+              stories === '' ? null : Math.max(1, Number(stories) || 0) || null;
+            if (v !== (row.stories ?? null)) onChange('stories', v);
+            dirtyRef.current = false;
+          }}
+          className={numClass}
+          data-testid={`${idBase}-stories`}
+        />
+      </td>
+    </tr>
   );
 }
 

@@ -44,6 +44,8 @@ const fixtures = vi.hoisted(() => ({
         { label: 'Cottage 3', width_ft: 25, depth_ft: 60, qty: 1, stories: 2 },
         { label: '', width_ft: 30, depth_ft: 50, qty: 1, stories: 4 },
       ],
+      // fix-206: OCC token so the editable Library unit table is enabled.
+      updated_at: '2026-06-25T10:00:00Z',
     },
     {
       id: 'b',
@@ -66,6 +68,7 @@ const fixtures = vi.hoisted(() => ({
       unit_types: [
         { label: 'SFR 1', width_ft: 40, depth_ft: 80, qty: 1, stories: 3 },
       ],
+      updated_at: '2026-06-25T10:00:00Z',
     },
     {
       id: 'c',
@@ -219,6 +222,12 @@ const fixtures = vi.hoisted(() => ({
   ],
 }));
 
+// fix-206: capture the editable-table write path.
+const updateMutateAsync = vi.hoisted(() => vi.fn());
+vi.mock('../hooks/useUpdateProject', () => ({
+  useUpdateProject: () => ({ mutateAsync: updateMutateAsync, isPending: false }),
+}));
+
 vi.mock('../hooks/useProjects', () => ({
   useProjects: () => ({
     data: fixtures.projects,
@@ -239,6 +248,8 @@ vi.mock('../hooks/usePermits', () => ({
 import LibraryMatrix from '../components/LibraryMatrix';
 
 beforeEach(() => {
+  updateMutateAsync.mockReset();
+  updateMutateAsync.mockResolvedValue({ id: 'a', updated_at: '2026-06-25T11:00:00Z' });
   useAuthStore.setState({
     activeTenantId: T,
     memberships: [{ tenant_id: T, role: 'admin' }],
@@ -350,12 +361,22 @@ describe('<LibraryMatrix />', () => {
     fireEvent.click(screen.getByTestId('library-caret-a'));
     const miniTable = screen.getByTestId('library-unit-table-a');
     expect(miniTable).toBeInTheDocument();
-    // All three Cottage rows visible with the right label + dims.
-    expect(screen.getByTestId('library-unit-row-a-0').textContent).toContain('Cottage 1');
-    expect(screen.getByTestId('library-unit-row-a-0').textContent).toContain('25');
-    expect(screen.getByTestId('library-unit-row-a-0').textContent).toContain('60');
-    expect(screen.getByTestId('library-unit-row-a-1').textContent).toContain('Cottage 2');
-    expect(screen.getByTestId('library-unit-row-a-2').textContent).toContain('Cottage 3');
+    // fix-206: cells are now editable inputs — assert their values.
+    expect(
+      (screen.getByTestId('library-unit-a-0-label') as HTMLInputElement).value,
+    ).toBe('Cottage 1');
+    expect(
+      (screen.getByTestId('library-unit-a-0-w') as HTMLInputElement).value,
+    ).toBe('25');
+    expect(
+      (screen.getByTestId('library-unit-a-0-d') as HTMLInputElement).value,
+    ).toBe('60');
+    expect(
+      (screen.getByTestId('library-unit-a-1-label') as HTMLInputElement).value,
+    ).toBe('Cottage 2');
+    expect(
+      (screen.getByTestId('library-unit-a-2-label') as HTMLInputElement).value,
+    ).toBe('Cottage 3');
   });
 
   it('projects with no unit_types do not render an expand caret', () => {
@@ -417,18 +438,28 @@ describe('<LibraryMatrix />', () => {
       renderIt();
       fireEvent.click(screen.getByTestId('library-caret-a'));
       const table = screen.getByTestId('library-unit-table-a');
-      expect(table.textContent).toContain('Stories');
-      // Cottage rows carry stories=2.
-      expect(screen.getByTestId('library-unit-row-a-0').textContent).toContain('2');
+      expect(table.textContent).toContain('Stories'); // column header
+      // Cottage rows carry stories=2 (now an editable input value).
+      expect(
+        (screen.getByTestId('library-unit-a-0-stories') as HTMLInputElement)
+          .value,
+      ).toBe('2');
     });
 
-    it('a blank-label unit resolves to the single product type instead of "unnamed"', () => {
+    it('a blank-label unit auto-labels via the single product type (placeholder), never "unnamed"', () => {
       renderIt();
       fireEvent.click(screen.getByTestId('library-caret-a'));
-      // a-3 has label '' and the project's single product type is SFR.
-      const blankRow = screen.getByTestId('library-unit-row-a-3');
-      expect(blankRow.textContent).toContain('SFR');
-      expect(blankRow.textContent).not.toContain('unnamed');
+      // a-3 has label '' and the project's single product type is SFR: the
+      // editable Label input shows the type as its placeholder (auto-label),
+      // and the row never renders the word "unnamed".
+      const labelInput = screen.getByTestId(
+        'library-unit-a-3-label',
+      ) as HTMLInputElement;
+      expect(labelInput.value).toBe('');
+      expect(labelInput.placeholder).toBe('SFR');
+      expect(
+        screen.getByTestId('library-unit-row-a-3').textContent,
+      ).not.toContain('unnamed');
     });
 
     it('Stories filter = 4+ narrows to projects with a 4+-story unit, auto-expands + highlights it', () => {
@@ -459,6 +490,72 @@ describe('<LibraryMatrix />', () => {
       expect(screen.getByTestId('library-row-a')).toBeInTheDocument();
       expect(screen.queryByTestId('library-row-b')).not.toBeInTheDocument();
       expect(screen.getByTestId('library-count').textContent).toMatch(/^1 project/);
+    });
+  });
+
+  // fix-206: the unit table is editable through the SAME useUpdateProject path
+  // as Project Overview (one store → bidirectional by construction).
+  describe('fix-206: editable unit table', () => {
+    function expandA() {
+      renderIt();
+      fireEvent.click(screen.getByTestId('library-caret-a'));
+    }
+
+    it('editing a unit width persists via useUpdateProject with the project OCC token + resolved rows', () => {
+      expandA();
+      const wInput = screen.getByTestId('library-unit-a-0-w') as HTMLInputElement;
+      fireEvent.change(wInput, { target: { value: '27.5' } });
+      fireEvent.blur(wInput);
+      expect(updateMutateAsync).toHaveBeenCalledTimes(1);
+      const call = updateMutateAsync.mock.calls[0][0];
+      expect(call.projectId).toBe('a');
+      expect(call.expectedUpdatedAt).toBe('2026-06-25T10:00:00Z');
+      // Decimal persists; the edited row carries the new width.
+      expect(call.patch.unit_types[0].width_ft).toBe(27.5);
+      // Other rows untouched; labels preserved (resolveUnitTypesForSave).
+      expect(call.patch.unit_types[0].label).toBe('Cottage 1');
+      expect(call.patch.unit_types).toHaveLength(4);
+    });
+
+    it('editing stories persists the new stories value', () => {
+      expandA();
+      const sty = screen.getByTestId('library-unit-a-0-stories') as HTMLInputElement;
+      fireEvent.change(sty, { target: { value: '3' } });
+      fireEvent.blur(sty);
+      expect(updateMutateAsync).toHaveBeenCalledTimes(1);
+      expect(updateMutateAsync.mock.calls[0][0].patch.unit_types[0].stories).toBe(3);
+    });
+
+    it('a blank-label row saved under a single product type persists that type (no "unnamed")', () => {
+      expandA();
+      // a-3 has a blank label; editing its depth triggers a save that resolves
+      // the label to the project's single product type (SFR).
+      const dInput = screen.getByTestId('library-unit-a-3-d') as HTMLInputElement;
+      fireEvent.change(dInput, { target: { value: '52' } });
+      fireEvent.blur(dInput);
+      expect(updateMutateAsync).toHaveBeenCalledTimes(1);
+      const row = updateMutateAsync.mock.calls[0][0].patch.unit_types[3];
+      expect(row.depth_ft).toBe(52);
+      expect(row.label).toBe('SFR');
+    });
+
+    it('a no-op blur (unchanged value) does not fire a write', () => {
+      expandA();
+      const wInput = screen.getByTestId('library-unit-a-0-w') as HTMLInputElement;
+      // Blur without changing the value (still 25).
+      fireEvent.blur(wInput);
+      expect(updateMutateAsync).not.toHaveBeenCalled();
+    });
+
+    it('single-product-type project renders a freeform Label input with the type as placeholder (auto-label)', () => {
+      // Project a has the single product type SFR → no dropdown; the Label is a
+      // text input whose placeholder is the auto-label (parity with Project
+      // Overview). The multi-type dropdown rules are covered by the shared
+      // resolveUnitLabel tests + ProjectDetailHeaderFix205.
+      expandA();
+      const label = screen.getByTestId('library-unit-a-0-label');
+      expect(label.tagName.toLowerCase()).toBe('input');
+      expect((label as HTMLInputElement).placeholder).toBe('SFR');
     });
   });
 

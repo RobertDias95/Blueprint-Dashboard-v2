@@ -15,7 +15,11 @@ import {
 import { useUpdateProject } from '../../hooks/useUpdateProject';
 import { useProjects } from '../../hooks/useProjects';
 import { useExternalTeamShowRules } from '../../hooks/useExternalTeamShowRules';
-import { nextUnitTypeLabel, resolveUnitLabel } from '../../lib/unitTypeNaming';
+import {
+  nextUnitTypeLabel,
+  parseUnitTypes,
+  resolveUnitTypesForSave,
+} from '../../lib/unitTypeNaming';
 import { snapToMonday, addDays } from '../../lib/dateUtils';
 import ReuseRedesignDdEditor from './ReuseRedesignDdEditor';
 import {
@@ -1566,35 +1570,10 @@ function SiteLotRow({
 // ============================================================
 // fix-22 Mig 3: Unit Dimensions editor — unit_types moved permits →
 // projects. Writes via useUpdateProject.
+// fix-206: parseUnitTypes + resolveUnitTypesForSave now live in
+// lib/unitTypeNaming so the Library matrix shares the identical read/write
+// shape (one store, two editable views).
 // ============================================================
-
-function parseUnitTypes(raw: unknown): UnitType[] {
-  if (!Array.isArray(raw)) return [];
-  return raw
-    .filter((u): u is Record<string, unknown> => !!u && typeof u === 'object')
-    .map((u) => ({
-      label: typeof u.label === 'string' ? u.label : '',
-      // Support both v1's {w,d} shape and the new {width_ft,depth_ft} shape
-      // the wizard writes. Keep the canonical UnitType shape going out.
-      width_ft:
-        typeof u.width_ft === 'number'
-          ? u.width_ft
-          : typeof u.w === 'number'
-            ? u.w
-            : null,
-      depth_ft:
-        typeof u.depth_ft === 'number'
-          ? u.depth_ft
-          : typeof u.d === 'number'
-            ? u.d
-            : null,
-      qty: typeof u.qty === 'number' && u.qty > 0 ? u.qty : 1,
-      // fix-205: carry stories through so edits round-trip it (JSONB, no
-      // migration). Absent/invalid → null ("not entered").
-      stories:
-        typeof u.stories === 'number' && u.stories > 0 ? u.stories : null,
-    }));
-}
 
 function UnitDimensions({ project }: { project: Project }) {
   const updateMutation = useUpdateProject();
@@ -1617,13 +1596,10 @@ function UnitDimensions({ project }: { project: Project }) {
   // unhandled-promise-rejection — same pattern as DateCell.tryCommit.
   async function writeTypes(next: UnitType[]) {
     if (!project.updated_at) return;
-    // fix-205: resolve "unnamed" rows on save — a blank label + a single
-    // product type persists as that type (so the Library expand stops showing
-    // "unnamed"). Multi-type blanks are left empty for the user to pick.
-    const resolved = next.map((r) => ({
-      ...r,
-      label: resolveUnitLabel(r.label, productTypes),
-    }));
+    // fix-205/206: resolve "unnamed" rows on save — a blank label + a single
+    // product type persists as that type. Shared helper so a Library save and a
+    // Project Overview save produce identical rows.
+    const resolved = resolveUnitTypesForSave(next, productTypes);
     await updateMutation
       .mutateAsync({
         projectId: project.id,

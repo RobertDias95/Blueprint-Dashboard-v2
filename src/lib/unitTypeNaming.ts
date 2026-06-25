@@ -1,3 +1,5 @@
+import type { UnitType } from './database.types';
+
 // fix-81: shared "next Type X" computation for unit-types editors. The
 // wizard's UnitTypesEditor and the Project Overview's UnitDimensions both
 // auto-name newly-added rows; both call this. Deletes vacate letters
@@ -48,4 +50,44 @@ export function resolveUnitLabel(
   if (trimmed) return trimmed;
   const types = (productTypes ?? []).filter((t) => typeof t === 'string' && t.trim());
   return types.length === 1 ? types[0] : '';
+}
+
+// fix-22 → fix-206: canonical parse of the projects.unit_types JSONB array into
+// the typed UnitType[] shape. Supports both v1's {w,d} keys and the new
+// {width_ft,depth_ft} the editors write; defaults qty to 1 and stories to null.
+// Shared by the Project Overview editor (ProjectDetailHeader) and the Library
+// matrix (buildLibraryRows) so both surfaces read + write the identical shape —
+// the whole point of fix-206 (one store, two editable views).
+export function parseUnitTypes(raw: unknown): UnitType[] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .filter((u): u is Record<string, unknown> => !!u && typeof u === 'object')
+    .map((u) => ({
+      label: typeof u.label === 'string' ? u.label : '',
+      width_ft:
+        typeof u.width_ft === 'number'
+          ? u.width_ft
+          : typeof u.w === 'number'
+            ? u.w
+            : null,
+      depth_ft:
+        typeof u.depth_ft === 'number'
+          ? u.depth_ft
+          : typeof u.d === 'number'
+            ? u.d
+            : null,
+      qty: typeof u.qty === 'number' && u.qty > 0 ? u.qty : 1,
+      stories: typeof u.stories === 'number' && u.stories > 0 ? u.stories : null,
+    }));
+}
+
+// fix-206: normalize a unit_types array for persistence — resolve each row's
+// "unnamed" label against the project's product types (blank + single type →
+// that type). Shared by both editors so a save from the Library and a save from
+// Project Overview produce byte-identical rows.
+export function resolveUnitTypesForSave(
+  rows: readonly UnitType[],
+  productTypes: readonly string[] | null | undefined,
+): UnitType[] {
+  return rows.map((r) => ({ ...r, label: resolveUnitLabel(r.label, productTypes) }));
 }

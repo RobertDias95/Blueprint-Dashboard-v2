@@ -260,6 +260,7 @@ describe('filterLibraryRows', () => {
       unitTypes: [],
       numLots: 1,
       isCornerLot: true,
+      updatedAt: null,
     },
     {
       projectId: 'b',
@@ -276,6 +277,7 @@ describe('filterLibraryRows', () => {
       unitTypes: [],
       numLots: 5,
       isCornerLot: false,
+      updatedAt: null,
     },
   ];
 
@@ -431,6 +433,7 @@ describe('fix-205: stories filter', () => {
       })),
       numLots: null,
       isCornerLot: null,
+      updatedAt: '2026-06-25T00:00:00Z',
     };
   }
 
@@ -496,6 +499,7 @@ describe('sortLibraryRows', () => {
     unitTypes: [],
     numLots: null as number | null,
     isCornerLot: null as boolean | null,
+    updatedAt: null as string | null,
   }));
 
   it('sorts by address ascending (string compare)', () => {
