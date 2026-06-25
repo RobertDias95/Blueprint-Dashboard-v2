@@ -1,6 +1,7 @@
 import type { PermitWithCycles, Project, Stage, UnitType } from './database.types';
 import { effectiveStage } from './permitStage';
 import { multiMatchAddress } from './drawScheduleHelpers';
+import { parseUnitTypes } from './unitTypeNaming';
 
 // Q6.3.a: pure helpers for the Library matrix view (Settings → Library tab).
 // Mirrors v1's renderMatrix (index.html lines 5680-5778). The matrix shows
@@ -33,6 +34,12 @@ export interface LibraryRow {
   /** fix-122: corner-lot flag. null = "not answered". Surfaced as a
    *  Library column + Any/Yes/No filter. */
   isCornerLot: boolean | null;
+  /** fix-206: the project's OCC token (projects.updated_at). The Library unit
+   *  table is now editable and writes via the SAME useUpdateProject path as
+   *  Project Overview; this carries the expectedUpdatedAt for that write. Null
+   *  when the project row predates the OCC trigger (then editing is disabled,
+   *  mirroring Project Overview's occMissing gate). */
+  updatedAt: string | null;
 }
 
 /** Q6.3.a-fix: target ± buffer filter. "50 ± 5" matches every value in
@@ -119,10 +126,14 @@ export function buildLibraryRows(
       alley: proj.alley ?? '',
       tags: Array.isArray(proj.project_tags) ? proj.project_tags : [],
       stage: worstStage(projectPermits),
-      unitTypes: Array.isArray(proj.unit_types) ? proj.unit_types : [],
+      // fix-206: parse into the canonical UnitType[] (shared with the Project
+      // Overview editor) so the now-editable Library table reads + writes the
+      // identical shape.
+      unitTypes: parseUnitTypes(proj.unit_types),
       numLots: proj.num_lots ?? null,
       isCornerLot:
         typeof proj.is_corner_lot === 'boolean' ? proj.is_corner_lot : null,
+      updatedAt: proj.updated_at ?? null,
     });
   }
   return rows;

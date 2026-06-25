@@ -1,5 +1,10 @@
 import { describe, it, expect } from 'vitest';
-import { nextUnitTypeLabel, resolveUnitLabel } from '../lib/unitTypeNaming';
+import {
+  nextUnitTypeLabel,
+  parseUnitTypes,
+  resolveUnitLabel,
+  resolveUnitTypesForSave,
+} from '../lib/unitTypeNaming';
 
 // fix-205: resolveUnitLabel — the "unnamed" fix. A blank label resolves to the
 // project's single product type; with 0 or 2+ types it stays blank.
@@ -27,6 +32,56 @@ describe('resolveUnitLabel', () => {
   it('ignores empty/whitespace product-type entries when counting', () => {
     // One real type after filtering blanks → resolves to it.
     expect(resolveUnitLabel('', ['SFR', '', '  '])).toBe('SFR');
+  });
+});
+
+// fix-206: parseUnitTypes + resolveUnitTypesForSave are now shared by the
+// Project Overview editor and the Library matrix (one store).
+describe('parseUnitTypes', () => {
+  it('returns [] for non-array input', () => {
+    expect(parseUnitTypes(null)).toEqual([]);
+    expect(parseUnitTypes(undefined)).toEqual([]);
+    expect(parseUnitTypes('x')).toEqual([]);
+  });
+
+  it('coalesces v1 {w,d} into {width_ft,depth_ft} and defaults qty/stories', () => {
+    expect(parseUnitTypes([{ label: 'A', w: 20, d: 30 }])).toEqual([
+      { label: 'A', width_ft: 20, depth_ft: 30, qty: 1, stories: null },
+    ]);
+  });
+
+  it('keeps canonical rows, carries stories, defaults a bad qty to 1', () => {
+    expect(
+      parseUnitTypes([
+        { label: 'B', width_ft: 17.5, depth_ft: 33.75, qty: 0, stories: 3 },
+      ]),
+    ).toEqual([
+      { label: 'B', width_ft: 17.5, depth_ft: 33.75, qty: 1, stories: 3 },
+    ]);
+  });
+});
+
+describe('resolveUnitTypesForSave', () => {
+  it('resolves each blank label against a single product type, preserves the rest', () => {
+    const out = resolveUnitTypesForSave(
+      [
+        { label: '', width_ft: 96, depth_ft: 147.5, qty: 1, stories: 2 },
+        { label: 'Type B', width_ft: 20, depth_ft: 30, qty: 2, stories: null },
+      ],
+      ['SFR'],
+    );
+    expect(out[0].label).toBe('SFR');
+    expect(out[1].label).toBe('Type B');
+    // Non-label fields untouched.
+    expect(out[0].depth_ft).toBe(147.5);
+  });
+
+  it('leaves blanks blank when multiple product types (no auto-pick)', () => {
+    const out = resolveUnitTypesForSave(
+      [{ label: '', width_ft: null, depth_ft: null, qty: 1, stories: null }],
+      ['SFR', 'Duplex'],
+    );
+    expect(out[0].label).toBe('');
   });
 });
 
