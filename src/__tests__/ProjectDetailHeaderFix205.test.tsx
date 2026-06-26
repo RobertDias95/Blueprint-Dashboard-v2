@@ -163,9 +163,12 @@ describe('fix-209: Label = product-type-ONLY dropdown', () => {
     expect(row.label).toBe(''); // "Type A" was never a product type → blanked
   });
 
-  it('single product type → no dropdown (freeform input; blank→type auto-fill covered below)', () => {
-    setup({ product_types: ['SFR'], unit_types: NAMED_ROW });
-    expect(screen.queryByTestId('pd-unit-label-select')).not.toBeInTheDocument();
+  it('fix-212: single product type renders the dropdown with the type auto-selected — even over a legacy label', () => {
+    setup({ product_types: ['SFR'], unit_types: NAMED_ROW }); // stored "Type A"
+    const select = screen.getByTestId('pd-unit-label-select') as HTMLSelectElement;
+    expect(select.value).toBe('SFR'); // authoritative, not "Type A"
+    const opts = Array.from(select.options).map((o) => o.value);
+    expect(opts).toEqual(['', 'SFR']);
   });
 });
 
@@ -196,14 +199,15 @@ describe('fix-205: "unnamed" fix on save (single product type)', () => {
     expect(row.width_ft).toBe(96);
   });
 
-  it('does NOT clobber an existing non-empty label on save', async () => {
-    setup({ product_types: ['SFR'], unit_types: NAMED_ROW });
+  it('fix-212: a single product type OVERRIDES a legacy custom label on save → the type', async () => {
+    setup({ product_types: ['SFR'], unit_types: NAMED_ROW }); // stored "Type A"
     const wInput = screen.getByTestId('pd-unit-w') as HTMLInputElement;
     fireEvent.change(wInput, { target: { value: '21' } });
     fireEvent.blur(wInput);
     await waitFor(() => expect(updateMutateAsync).toHaveBeenCalledTimes(1));
+    // The single product type is authoritative — "Type A" persists as "SFR".
     expect(updateMutateAsync.mock.calls[0][0].patch.unit_types[0].label).toBe(
-      'Type A',
+      'SFR',
     );
   });
 });

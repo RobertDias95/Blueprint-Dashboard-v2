@@ -10,9 +10,10 @@ import {
 // auto-label (custom freeform preserved). 2+ product types → product-type-ONLY:
 // the value must be a product type, else it resolves to '' (unpicked).
 describe('resolveUnitLabel', () => {
-  it('one product type: preserves a custom label, but auto-fills a blank to the type', () => {
-    expect(resolveUnitLabel('Type A', ['SFR'])).toBe('Type A');
+  it('fix-212: one product type is AUTHORITATIVE — blank AND a legacy custom both resolve to the type', () => {
+    expect(resolveUnitLabel('Type A', ['SFR'])).toBe('SFR'); // custom overridden
     expect(resolveUnitLabel('', ['SFR'])).toBe('SFR');
+    expect(resolveUnitLabel('Cottage 1', ['Attached Units'])).toBe('Attached Units');
   });
 
   it('fix-209: 2+ product types — keeps the label only if it IS a product type', () => {
@@ -73,7 +74,7 @@ describe('parseUnitTypes', () => {
 });
 
 describe('resolveUnitTypesForSave', () => {
-  it('resolves each blank label against a single product type, preserves the rest', () => {
+  it('fix-212: single product type is authoritative — EVERY row (blank or legacy custom) → the type', () => {
     const out = resolveUnitTypesForSave(
       [
         { label: '', width_ft: 96, depth_ft: 147.5, qty: 1, stories: 2 },
@@ -82,7 +83,7 @@ describe('resolveUnitTypesForSave', () => {
       ['SFR'],
     );
     expect(out[0].label).toBe('SFR');
-    expect(out[1].label).toBe('Type B');
+    expect(out[1].label).toBe('SFR'); // "Type B" overridden by the single type
     // Non-label fields untouched.
     expect(out[0].depth_ft).toBe(147.5);
   });
