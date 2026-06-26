@@ -954,13 +954,13 @@ describe('<Step3Permits />', () => {
     });
   });
 
-  // fix-166: setting/changing a permit's DA must not overwrite an ent_lead
-  // the user explicitly picked. Bobby's 220 N 58th St repro: a Demolition
-  // permit with ENT=Briana flipped to Miles when he set DA=Cam (Cam routes
-  // to Miles). Same class as fix-147 (project-settings cascade), now applied
-  // to the wizard's section-3 rows. Auto-fill stays for blank / auto-derived
-  // cells; an explicit pick is preserved.
-  describe('fix-166: DA change respects an explicit ent_lead pick', () => {
+  // fix-166 → fix-211: setting/changing a permit's DA must NEVER overwrite a
+  // non-empty ent_lead. Bobby's repro: a Demolition permit with ENT=Briana
+  // flipped to Miles every time he set DA=Cam (Cam routes to Miles). fix-166 had
+  // only guarded explicit picks; fix-211 makes the rule blank-only — any
+  // non-empty ENT is preserved, regardless of how it got there. Auto-fill stays
+  // for the blank case; clearing ENT re-enables the fill.
+  describe('fix-211: DA change never overwrites a non-empty ent_lead', () => {
     it('an explicitly-picked ENT is preserved when the DA changes', async () => {
       // Trevor + Cam both routed so the DA select is selectable.
       routingRowsState.rows = [
@@ -1013,7 +1013,7 @@ describe('<Step3Permits />', () => {
       });
     });
 
-    it('an auto-derived ENT re-derives when the DA changes (auto is not an explicit pick)', async () => {
+    it('fix-211: an auto-derived ENT is NOT re-derived on a later DA change (blank-only)', async () => {
       routingRowsState.rows = [
         { da: 'Trevor', jurisdiction: null },
         { da: 'Cam', jurisdiction: null },
@@ -1027,7 +1027,7 @@ describe('<Step3Permits />', () => {
       init.permits = [permit('Building Permit'), permit('Demolition')];
       setupControlled(init);
       const demoRowId = init.permits[1].rowId;
-      // First DA pick auto-derives Miles (ent_lead was blank).
+      // First DA pick auto-fills Miles (ent_lead was blank).
       fireEvent.change(screen.getByTestId(`wizard-perm-da-${demoRowId}`), {
         target: { value: 'Trevor' },
       });
@@ -1040,7 +1040,64 @@ describe('<Step3Permits />', () => {
           ).value,
         ).toBe('Miles');
       });
-      // Changing the DA re-derives — the Miles value was auto, not explicit.
+      // Changing the DA must NOT overwrite the now-non-empty ENT (fix-211).
+      fireEvent.change(screen.getByTestId(`wizard-perm-da-${demoRowId}`), {
+        target: { value: 'Cam' },
+      });
+      expect(lookupEntLeadForDaMock).toHaveBeenCalledWith('Cam', 'Seattle');
+      await new Promise((r) => setTimeout(r, 25));
+      expect(
+        (
+          screen.getByTestId(`wizard-perm-ent-${demoRowId}`) as HTMLSelectElement
+        ).value,
+      ).toBe('Miles'); // stays Miles, not Bri
+    });
+
+    it('fix-211 repro: a pre-set (unflagged) ENT=Briana is preserved when DA=Cam is picked', async () => {
+      // The exact bug: ENT is already non-empty but was NOT flagged as a manual
+      // pick (it came from initial state / an earlier path). The old fix-166
+      // guard (manuallyEdited.ent_lead === true) missed this and overwrote it.
+      routingRowsState.rows = [{ da: 'Cam', jurisdiction: null }];
+      lookupEntLeadForDaMock.mockReset();
+      lookupEntLeadForDaMock.mockResolvedValue('Miles'); // Cam → Miles
+      const init = makeEmptyWizardState();
+      init.juris = 'Seattle';
+      init.permits = [
+        permit('Building Permit'),
+        // ent_lead set, manuallyEdited left empty (unflagged) — mirrors the repro.
+        permit('Demolition', { ent_lead: 'Briana', manuallyEdited: {} }),
+      ];
+      setupControlled(init);
+      const demoRowId = init.permits[1].rowId;
+      fireEvent.change(screen.getByTestId(`wizard-perm-da-${demoRowId}`), {
+        target: { value: 'Cam' },
+      });
+      expect(lookupEntLeadForDaMock).toHaveBeenCalledWith('Cam', 'Seattle');
+      await new Promise((r) => setTimeout(r, 25));
+      expect(
+        (
+          screen.getByTestId(`wizard-perm-ent-${demoRowId}`) as HTMLSelectElement
+        ).value,
+      ).toBe('Briana'); // preserved, NOT flipped to Miles
+    });
+
+    it('fix-211: clearing ENT then picking a DA fills again from routing', async () => {
+      routingRowsState.rows = [{ da: 'Cam', jurisdiction: null }];
+      lookupEntLeadForDaMock.mockReset();
+      lookupEntLeadForDaMock.mockResolvedValue('Miles');
+      const init = makeEmptyWizardState();
+      init.juris = 'Seattle';
+      init.permits = [
+        permit('Building Permit'),
+        permit('Demolition', { ent_lead: 'Briana', manuallyEdited: {} }),
+      ];
+      setupControlled(init);
+      const demoRowId = init.permits[1].rowId;
+      // Clear ENT back to blank.
+      fireEvent.change(screen.getByTestId(`wizard-perm-ent-${demoRowId}`), {
+        target: { value: '' },
+      });
+      // Now pick a DA → the blank cell fills from routing again.
       fireEvent.change(screen.getByTestId(`wizard-perm-da-${demoRowId}`), {
         target: { value: 'Cam' },
       });
@@ -1051,7 +1108,7 @@ describe('<Step3Permits />', () => {
               `wizard-perm-ent-${demoRowId}`,
             ) as HTMLSelectElement
           ).value,
-        ).toBe('Bri');
+        ).toBe('Miles');
       });
     });
   });

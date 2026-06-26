@@ -384,14 +384,16 @@ export default function Step3Permits({ value, onChange }: Props) {
    *  fix-96-c: this path now only fires for NON-BP permits; the BP's
    *  DA is set on Step 1 and Step 3's BP cell is read-only.
    *
-   *  fix-166: the auto-fill is now CONDITIONAL — it must not stomp an
-   *  ent_lead the user explicitly chose. Bobby's 220 N 58th St repro: a
-   *  demo permit with ENT=Briana flipped to Miles when he set DA=Cam
-   *  (Cam routes to Miles). We only auto-fill when the cell is blank OR its
-   *  current value was itself auto-derived from a previous DA
-   *  (manuallyEdited.ent_lead !== true). An explicit pick is preserved; an
-   *  auto-derived value re-derives. Same intent as fix-147 on the
-   *  project-settings cascade, applied to the wizard's per-permit rows. */
+   *  fix-166 → fix-211: the auto-fill is BLANK-ONLY — it must NEVER replace a
+   *  non-empty ENT. Bobby's repro: a Demolition permit with ENT=Briana flipped
+   *  to Miles every time he set DA=Cam (Cam routes to Miles). fix-166 had only
+   *  guarded explicit picks (manuallyEdited.ent_lead === true), so an ENT that
+   *  wasn't flagged manual (e.g. an earlier auto-derived value, or one set via a
+   *  path that didn't flag it) still got stomped. The routing now fills ENT only
+   *  when the cell is currently blank; any non-empty ENT is left untouched
+   *  regardless of how it got there. To re-derive, clear ENT first, then pick a
+   *  DA. Same "fill blanks, never overwrite" rule as fix-147's project-settings
+   *  cascade, applied to the wizard's per-permit rows. */
   function onPickDa(rowId: string, da: string) {
     updatePermit(rowId, { da });
     if (!da) return;
@@ -400,8 +402,8 @@ export default function Step3Permits({ value, onChange }: Props) {
         if (!routed) return;
         const row = valueRef.current.permits.find((p) => p.rowId === rowId);
         if (!row) return;
-        // Preserve an explicit ENT pick; auto-fill blank / auto-derived cells.
-        if (row.ent_lead && row.manuallyEdited?.ent_lead === true) return;
+        // fix-211: blank-only — never overwrite a non-empty ENT.
+        if (row.ent_lead) return;
         setDerivedEntLead(rowId, routed);
       })
       .catch(() => {
