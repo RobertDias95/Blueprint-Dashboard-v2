@@ -18,6 +18,7 @@ import { useExternalTeamShowRules } from '../../hooks/useExternalTeamShowRules';
 import {
   nextUnitTypeLabel,
   parseUnitTypes,
+  resolveUnitLabel,
   resolveUnitTypesForSave,
 } from '../../lib/unitTypeNaming';
 import { snapToMonday, addDays } from '../../lib/dateUtils';
@@ -1865,19 +1866,17 @@ function UnitRow({
   const cellStyle = { borderBottomColor: 'var(--color-border)' } as const;
   const cellClass =
     'text-[9px] font-semibold text-text border-0 border-b outline-none bg-transparent text-center disabled:opacity-50';
-  // fix-205 → fix-209: Label is product-type-driven. Several types → a
-  // product-type-ONLY dropdown (options are EXACTLY the project's product types;
-  // a legacy/custom label shows the "Pick type…" placeholder unselected, forcing
-  // a real choice). One type → the type is the auto-label (shown as the
-  // placeholder; a blank persists as that type on save). No types → freeform.
-  const multiType = productTypes.length >= 2;
-  const singleType = productTypes.length === 1 ? productTypes[0] : null;
-  // Select shows a real type only when the stored label is one of them;
-  // otherwise nothing is selected (the "Pick type…" placeholder).
-  const selectValue = productTypes.includes(label) ? label : '';
+  // fix-205 → fix-209 → fix-212: Label is product-type-driven whenever the
+  // project has ANY product type. The shown/selected value is the RESOLVED label
+  // (resolveUnitLabel): with several types it's the value only if it's a product
+  // type (else the "Pick type…" placeholder); with EXACTLY ONE type it's always
+  // that type — authoritatively overriding a legacy custom like "Type A". No
+  // product types → freeform input.
+  const hasProductTypes = productTypes.length >= 1;
+  const selectValue = resolveUnitLabel(label, productTypes);
   return (
     <div className="flex items-center gap-1">
-      {multiType ? (
+      {hasProductTypes ? (
         <select
           value={selectValue}
           onChange={(e) => {
@@ -1903,7 +1902,7 @@ function UnitRow({
         <input
           type="text"
           value={label}
-          placeholder={singleType ?? 'Label'}
+          placeholder="Label"
           onChange={(e) => {
             dirtyRef.current = true;
             setLabel(e.target.value);

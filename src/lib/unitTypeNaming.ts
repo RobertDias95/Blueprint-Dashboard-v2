@@ -35,11 +35,13 @@ export function nextUnitTypeLabel(existingLabels: readonly string[]): string {
   return 'Type';
 }
 
-// fix-205 → fix-209: resolve a unit-type row's Label against the project's
-// product types. The rule depends on how many product types the project carries:
-//   • exactly ONE  → that type IS the label. A blank auto-fills to it; a custom
-//     freeform label (e.g. "Type A") is preserved. (Bobby: a lone SFR's row
-//     should say "SFR", not "unnamed".)
+// fix-205 → fix-209 → fix-212: resolve a unit-type row's Label against the
+// project's product types. The rule depends on how many product types the
+// project carries:
+//   • exactly ONE  → that type IS the label, AUTHORITATIVELY. Both a blank AND a
+//     legacy/custom value (e.g. "Type A") resolve to the type. fix-212: a single
+//     product type now overrides a custom label too — units are distinguished by
+//     W/D/Stories, not the label, so a lone-SFR project's rows all read "SFR".
 //   • TWO or more  → the Label is product-type-ONLY (fix-209). The value must be
 //     one of the project's product types; anything else (blank, or a legacy/
 //     custom value like "Type A" / "Ex. SFR") is "unpicked" and resolves to ''
@@ -56,8 +58,10 @@ export function resolveUnitLabel(
     // Product-type-only: keep it only if it's an exact product type, else blank.
     return types.includes(trimmed) ? trimmed : '';
   }
-  if (trimmed) return trimmed;
-  return types.length === 1 ? types[0] : '';
+  // fix-212: a single product type is authoritative — it wins over any custom.
+  if (types.length === 1) return types[0];
+  // No product types → freeform; preserve whatever was typed.
+  return trimmed;
 }
 
 // fix-22 → fix-206: canonical parse of the projects.unit_types JSONB array into

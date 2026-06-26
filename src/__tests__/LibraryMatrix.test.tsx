@@ -363,10 +363,11 @@ describe('<LibraryMatrix />', () => {
     fireEvent.click(screen.getByTestId('library-caret-a'));
     const miniTable = screen.getByTestId('library-unit-table-a');
     expect(miniTable).toBeInTheDocument();
-    // fix-206: cells are now editable inputs — assert their values.
+    // fix-206 cells are editable; fix-212: project a is single-type (SFR), so the
+    // Label is a product-type dropdown showing the type (overriding "Cottage N").
     expect(
-      (screen.getByTestId('library-unit-a-0-label') as HTMLInputElement).value,
-    ).toBe('Cottage 1');
+      (screen.getByTestId('library-unit-a-0-label') as HTMLSelectElement).value,
+    ).toBe('SFR');
     expect(
       (screen.getByTestId('library-unit-a-0-w') as HTMLInputElement).value,
     ).toBe('25');
@@ -374,11 +375,11 @@ describe('<LibraryMatrix />', () => {
       (screen.getByTestId('library-unit-a-0-d') as HTMLInputElement).value,
     ).toBe('60');
     expect(
-      (screen.getByTestId('library-unit-a-1-label') as HTMLInputElement).value,
-    ).toBe('Cottage 2');
+      (screen.getByTestId('library-unit-a-1-label') as HTMLSelectElement).value,
+    ).toBe('SFR');
     expect(
-      (screen.getByTestId('library-unit-a-2-label') as HTMLInputElement).value,
-    ).toBe('Cottage 3');
+      (screen.getByTestId('library-unit-a-2-label') as HTMLSelectElement).value,
+    ).toBe('SFR');
   });
 
   it('projects with no unit_types do not render an expand caret', () => {
@@ -448,17 +449,15 @@ describe('<LibraryMatrix />', () => {
       ).toBe('2');
     });
 
-    it('a blank-label unit auto-labels via the single product type (placeholder), never "unnamed"', () => {
+    it('fix-212: a blank-label unit shows the single product type in the dropdown, never "unnamed"', () => {
       renderIt();
       fireEvent.click(screen.getByTestId('library-caret-a'));
-      // a-3 has label '' and the project's single product type is SFR: the
-      // editable Label input shows the type as its placeholder (auto-label),
-      // and the row never renders the word "unnamed".
-      const labelInput = screen.getByTestId(
+      // a-3 has label '' and the project's single product type is SFR: the Label
+      // is a dropdown auto-selected to SFR; the row never renders "unnamed".
+      const labelSelect = screen.getByTestId(
         'library-unit-a-3-label',
-      ) as HTMLInputElement;
-      expect(labelInput.value).toBe('');
-      expect(labelInput.placeholder).toBe('SFR');
+      ) as HTMLSelectElement;
+      expect(labelSelect.value).toBe('SFR');
       expect(
         screen.getByTestId('library-unit-row-a-3').textContent,
       ).not.toContain('unnamed');
@@ -514,8 +513,9 @@ describe('<LibraryMatrix />', () => {
       expect(call.expectedUpdatedAt).toBe('2026-06-25T10:00:00Z');
       // Decimal persists; the edited row carries the new width.
       expect(call.patch.unit_types[0].width_ft).toBe(27.5);
-      // Other rows untouched; labels preserved (resolveUnitTypesForSave).
-      expect(call.patch.unit_types[0].label).toBe('Cottage 1');
+      // fix-212: project a is single-type (SFR) → resolveUnitTypesForSave makes
+      // every row's label the type, overriding the legacy "Cottage N".
+      expect(call.patch.unit_types[0].label).toBe('SFR');
       expect(call.patch.unit_types).toHaveLength(4);
     });
 
@@ -549,15 +549,15 @@ describe('<LibraryMatrix />', () => {
       expect(updateMutateAsync).not.toHaveBeenCalled();
     });
 
-    it('single-product-type project renders a freeform Label input with the type as placeholder (auto-label)', () => {
-      // Project a has the single product type SFR → no dropdown; the Label is a
-      // text input whose placeholder is the auto-label (parity with Project
-      // Overview). The multi-type dropdown rules are covered below + by the
-      // shared resolveUnitLabel tests + ProjectDetailHeaderFix205.
+    it('fix-212: single-product-type project renders the Label dropdown auto-selected to the type', () => {
+      // Project a has the single product type SFR → a product-type dropdown with
+      // the type auto-selected (overriding "Cottage N"), parity with Project
+      // Overview. Multi-type rules are covered below + the shared
+      // resolveUnitLabel tests + ProjectDetailHeaderFix205.
       expandA();
       const label = screen.getByTestId('library-unit-a-0-label');
-      expect(label.tagName.toLowerCase()).toBe('input');
-      expect((label as HTMLInputElement).placeholder).toBe('SFR');
+      expect(label.tagName.toLowerCase()).toBe('select');
+      expect((label as HTMLSelectElement).value).toBe('SFR');
     });
   });
 

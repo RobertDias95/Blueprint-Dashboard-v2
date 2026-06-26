@@ -20,7 +20,10 @@ import type {
   UnitType,
 } from '../lib/database.types';
 import { STAGE_LABEL } from '../lib/stageLabel';
-import { resolveUnitTypesForSave } from '../lib/unitTypeNaming';
+import {
+  resolveUnitLabel,
+  resolveUnitTypesForSave,
+} from '../lib/unitTypeNaming';
 import { SkeletonRows } from './Skeleton';
 import QueryError from './QueryError';
 
@@ -780,11 +783,12 @@ function LibraryUnitRow({
     setStories(row.stories != null ? String(row.stories) : '');
   }, [row.label, row.width_ft, row.depth_ft, row.qty, row.stories]);
 
-  const multiType = productTypes.length >= 2;
-  const singleType = productTypes.length === 1 ? productTypes[0] : null;
-  // fix-209: product-type-ONLY select. Show a real type only when the stored
-  // label is one of them; otherwise nothing is selected ("Pick type…").
-  const selectValue = productTypes.includes(label) ? label : '';
+  // fix-209 → fix-212: product-type-driven Label whenever the project has ANY
+  // product type. The shown/selected value is the RESOLVED label — with several
+  // types it's the value only if it's a product type (else "Pick type…"); with
+  // EXACTLY ONE type it's always that type, overriding a legacy custom.
+  const hasProductTypes = productTypes.length >= 1;
+  const selectValue = resolveUnitLabel(label, productTypes);
 
   const idBase = `library-unit-${projectId}-${index}`;
   const numClass =
@@ -800,7 +804,7 @@ function LibraryUnitRow({
       className={matched ? 'bg-de-bg/40 border-l-2 border-de' : ''}
     >
       <td className="px-2 py-0.5 font-mono text-text">
-        {multiType ? (
+        {hasProductTypes ? (
           <select
             value={selectValue}
             disabled={disabled}
@@ -825,7 +829,7 @@ function LibraryUnitRow({
           <input
             type="text"
             value={label}
-            placeholder={singleType ?? 'Label'}
+            placeholder="Label"
             disabled={disabled}
             onChange={(e) => {
               dirtyRef.current = true;
