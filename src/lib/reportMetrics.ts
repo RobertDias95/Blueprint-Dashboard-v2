@@ -38,8 +38,10 @@ export interface EnrichedPermit {
    *  test so the Reports Overview "In Corrections" count + drill-in agree with
    *  the Dashboard and the weekly report. Empty when enrichPermits is called
    *  without a reviewers map (the count then falls back to the corr_issued half,
-   *  byte-identical to the pre-fix behavior). */
-  reviewers: PermitCycleReviewer[];
+   *  byte-identical to the pre-fix behavior). Optional so existing EnrichedPermit
+   *  fixtures/literals don't have to enumerate it — isPermitInCorrections treats
+   *  an absent value as "no reviewers". */
+  reviewers?: PermitCycleReviewer[];
   /** Project address — joined from projects table. */
   address: string;
   /** Jurisdiction — lives on the project, not the permit, in v2. */
