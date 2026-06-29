@@ -29,7 +29,12 @@ import ReportTable from './ReportTable';
 import ScheduleBenchmarks from './ScheduleBenchmarks';
 import { exportEnrichedPermitsToCSV } from '../../lib/csvExport';
 import { pushToast } from '../../stores/toastStore';
-import type { PermitWithCycles, Project } from '../../lib/database.types';
+import { useAllPermitCycleReviewers } from '../../hooks/useAllPermitCycleReviewers';
+import type {
+  PermitCycleReviewer,
+  PermitWithCycles,
+  Project,
+} from '../../lib/database.types';
 
 // Q7.2.b: Reports Overview — FilterBar → MetricCards → 6 charts → Benchmarks
 // → Table + CSV export. Q9.5.d: header restyle + Export CSV button.
@@ -136,9 +141,23 @@ function Body({
   const holdsQ = useAllProjectHolds();
   const holdsMap = useMemo(() => holdsByProjectId(holdsQ.data), [holdsQ.data]);
 
+  // fix-214: reviewer rows feed the unified hybrid "In Corrections" test so the
+  // Overview count + drill-in agree with the Dashboard bucket and the weekly
+  // report (reviewer-rollup == corrections cases, not just corr_issued).
+  const reviewersQ = useAllPermitCycleReviewers();
+  const reviewersByPermitId = useMemo(() => {
+    const m = new Map<number, PermitCycleReviewer[]>();
+    for (const r of reviewersQ.data ?? []) {
+      const list = m.get(r.permit_id) ?? [];
+      list.push(r);
+      m.set(r.permit_id, list);
+    }
+    return m;
+  }, [reviewersQ.data]);
+
   const enriched = useMemo(
-    () => enrichPermits(permits, projectsById, holdsMap),
-    [permits, projectsById, holdsMap],
+    () => enrichPermits(permits, projectsById, holdsMap, reviewersByPermitId),
+    [permits, projectsById, holdsMap, reviewersByPermitId],
   );
 
   const typeOptions = useMemo(() => {

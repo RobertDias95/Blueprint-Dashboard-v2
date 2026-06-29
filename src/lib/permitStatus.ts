@@ -7,6 +7,7 @@ import {
   type HighlightTarget,
 } from './permitHelpers';
 import { isTerminalPositiveStatus } from './permitTerminalStatus';
+import { isPermitInCorrections } from './permitStage';
 import {
   currentCycleIndex,
   isReviewerRollupDriven,
@@ -156,11 +157,27 @@ export function derivePermitStatus(
       const cyc = (permit.permit_cycles ?? []).find(
         (c) => c.cycle_index === latestIdx,
       );
+      // fix-214: the unified hybrid corrections test takes precedence — a
+      // corr_issued on the current cycle (or a reviewer-rollup == corrections)
+      // is "Corr Required", EVEN with a lingering in_review reviewer. corr_issued
+      // is the cycle-completion authority and waives the dangling reviewer (224
+      // 2nd Ave N: a permanently-in_review Trees reviewer must not mask the
+      // issued corrections). Shared with effectiveStage + the weekly report.
+      // Subsumes the old verdict === 'corrections_required' branch.
+      if (isPermitInCorrections(permit, permit.permit_cycles ?? [], reviewers)) {
+        return {
+          label:
+            latestIdx >= 1
+              ? `Corr Required (Cycle ${latestIdx})`
+              : 'Corr Required',
+          date: cyc?.corr_issued ?? null,
+          derived: true,
+        };
+      }
       if (verdict === 'in_review') {
-        // Round in flight — surface the city_target (or fall back to
-        // submitted) of the current cycle. Explicitly skip corr_issued
-        // even if some disciplines have already issued one: the round
-        // isn't done.
+        // Round genuinely in flight (no corr_issued on this cycle — that path
+        // returned above) — surface the city_target (or fall back to submitted)
+        // of the current cycle.
         if (cyc?.city_target) {
           return {
             label:
@@ -180,18 +197,6 @@ export function derivePermitStatus(
           };
         }
         // No cycle dates yet — fall through to the chain rule.
-      } else if (verdict === 'corrections_required') {
-        // Round complete with at least one corrections_required — the
-        // existing chain rule would also land here, but pin the label
-        // explicitly so it doesn't drift if scraping skipped corr_issued.
-        return {
-          label:
-            latestIdx >= 1
-              ? `Corr Required (Cycle ${latestIdx})`
-              : 'Corr Required',
-          date: cyc?.corr_issued ?? null,
-          derived: true,
-        };
       } else if (verdict === 'approved') {
         // Round complete with all-approved — the city's round work is
         // done. permit.approval_date won't be set yet (that's the portal

@@ -89,14 +89,91 @@ export function effectiveStage(
   // When the current cycle has no reviewer rows the verdict is null and we fall
   // through to computeStage, which reads the live cycle dates (cycle 2 submitted,
   // no corr_issued → "pm").
+  // fix-214: THE unified "in corrections" test — corr_issued on the current cycle
+  // OR reviewer-rollup == corrections, with corr_issued authoritative (it waives a
+  // dangling in_review reviewer). Same rule the status pill (derivePermitStatus),
+  // the Reports Overview (reportMetrics), and the weekly report's SQL mirror
+  // (bp_permit_in_corrections) use — so every surface agrees. Runs BEFORE the
+  // in_review/approved rollup so a corr_issued can't be masked by a lingering
+  // reviewer (224 2nd Ave N: a permanently-in_review Trees reviewer).
+  if (isPermitInCorrections(p, cycles, reviewers)) return 'co';
+  // Non-corrections reviewer rollup (rollup-driven statuses only): an in-flight
+  // round → 'pm', all disciplines approved → 'ap'. Corrections handled above.
   if (reviewers && reviewers.length > 0 && isReviewerRollupDriven(p.status)) {
     const idx = currentCycleIndex(cycles, reviewers);
     const verdict = idx === null ? null : reviewerVerdictForCycle(reviewers, idx);
     if (verdict === 'in_review') return 'pm';
-    if (verdict === 'corrections_required') return 'co';
     if (verdict === 'approved') return 'ap';
   }
   return computeStage(p, cycles);
+}
+
+// fix-214 (2026-06-29): the SINGLE canonical "is this permit in corrections?"
+// test, shared by every surface that buckets/filters by corrections — the
+// Dashboard matrix (effectiveStage above), the Project Overview status pill
+// (derivePermitStatus), and the Reports Overview count + drill-in (reportMetrics
+// / metricDrillIn). Its SQL twin is public.bp_permit_in_corrections(), called by
+// bp_get_weekly_da_report; KEEP THE TWO IN LOCKSTEP so the dashboard and the
+// weekly report can never re-drift (the exact bug this fix closes).
+//
+// Hybrid rule (Bobby, 2026-06-29 + addenda):
+//   1. A manual stage_override is the authoritative escape hatch: 'co' ⇒ in
+//      corrections; any other valid stage ('de'/'pm'/'ap'/'is') ⇒ not.
+//   2. Resolved/terminal (actual_issue, approval_date, terminal-positive status)
+//      ⇒ NOT in corrections.
+//   3. Otherwise, on the permit's CURRENT (latest) cycle (fix-185 — stale
+//      earlier-cycle rows must not drive it):
+//        a. corr_issued IS NOT NULL and the cycle isn't resubmitted ⇒ CORRECTIONS.
+//           corr_issued is the cycle-completion authority: the city closed the
+//           cycle by issuing corrections, so ANY reviewer still 'in_review' is
+//           treated as waived/resolved — it does NOT keep the permit "Under
+//           Review". This survives re-scrapes (the scraper rewrites reviewer rows
+//           but never the corr_issued date).
+//        b. else the reviewer rollup == corrections (every reviewer responded,
+//           none outstanding, ≥1 corrections_required) ⇒ CORRECTIONS. Gated on
+//           isReviewerRollupDriven (Pending/Applied) exactly like the dashboard's
+//           existing reviewer override — ported verbatim, not reinvented.
+//   Anything else ⇒ not in corrections.
+export function isPermitInCorrections(
+  p: Permit,
+  cycles: PermitCycle[],
+  reviewers?: PermitCycleReviewer[] | null,
+): boolean {
+  if (isSubPermit(p)) return false;
+
+  // 1. Manual override wins on every surface.
+  const ov = (p.stage_override ?? '').trim();
+  if (ov === 'co') return true;
+  if (ov === 'de' || ov === 'pm' || ov === 'ap' || ov === 'is') return false;
+
+  // 2. Resolved / terminal → not in corrections.
+  if (p.actual_issue) return false;
+  if (p.approval_date) return false;
+  if (isTerminalIssuedStatus(p.status) || isTerminalApprovedStatus(p.status)) {
+    return false;
+  }
+
+  // 3. Evaluate the permit's CURRENT (latest) review cycle.
+  const idx = currentCycleIndex(cycles, reviewers ?? []);
+  if (idx === null) return false;
+  const cyc = cycles.find((c) => c.cycle_index === idx) ?? null;
+
+  // 3a. corr_issued half (universal, authoritative): the current cycle has
+  // corr_issued and hasn't been resubmitted (resubmittal answers the round).
+  if (cyc?.corr_issued && !cyc.resubmitted) return true;
+
+  // 3b. reviewer half (gated on rollup-driven Pending/Applied, like the
+  // dashboard's existing override): current-cycle rollup verdict == corrections.
+  if (
+    reviewers &&
+    reviewers.length > 0 &&
+    isReviewerRollupDriven(p.status) &&
+    reviewerVerdictForCycle(reviewers, idx) === 'corrections_required'
+  ) {
+    return true;
+  }
+
+  return false;
 }
 
 const DE_LATE_STATUSES: ReadonlySet<string> = new Set([

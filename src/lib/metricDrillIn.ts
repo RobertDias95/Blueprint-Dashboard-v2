@@ -1,5 +1,5 @@
 import type { EnrichedPermit } from './reportMetrics';
-import { effectiveStage } from './permitStage';
+import { effectiveStage, isPermitInCorrections } from './permitStage';
 import { REPORTS_OVERVIEW_METRICS } from './metricDefinitions';
 
 // fix-184a: the per-metric drill-in. Each Overview card maps to a descriptor
@@ -84,13 +84,17 @@ export const METRIC_DRILLINS: Record<string, MetricDescriptor> = {
     value: () => null,
     dates: () => [],
     secondary: (e) =>
-      e.permit.status ?? effectiveStage(e.permit, e.permit.permit_cycles ?? []),
+      e.permit.status ??
+      effectiveStage(e.permit, e.permit.permit_cycles ?? [], e.reviewers),
   },
   inCorrections: {
     unit: '',
     isCount: true,
+    // fix-214: same unified hybrid test the count uses (reportMetrics) so the
+    // drill-in list and the n= reconcile — reviewer-only corrections (no
+    // corr_issued) now appear here too, not just corr_issued rows.
     cohort: (e) =>
-      effectiveStage(e.permit, e.permit.permit_cycles ?? []) === 'co',
+      isPermitInCorrections(e.permit, e.permit.permit_cycles ?? [], e.reviewers),
     value: () => null,
     dates: () => [],
     secondary: (e) => {
