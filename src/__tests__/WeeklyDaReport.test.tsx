@@ -264,6 +264,59 @@ describe('<WeeklyDaReport /> (fix-67)', () => {
     expect(parsed.filters.type).toBe('Building Permit');
   });
 
+  // fix-215: the report must open on the CURRENT week's Monday so its 14-day
+  // window catches near-term items. A stale persisted week (the old bug) is
+  // ignored; only window + filters carry across reloads.
+  describe('fix-215: defaults Week of to the current week', () => {
+    it('initializes weekStart to the current week\'s Monday (today snapped back)', () => {
+      vi.useFakeTimers();
+      // Wednesday 2026-06-24 → that week\'s Monday is 2026-06-22.
+      vi.setSystemTime(new Date(2026, 5, 24, 9, 0, 0));
+      renderReport();
+      // The field shows the current week\'s Monday…
+      const week = screen.getByTestId('wdr-week-start') as HTMLInputElement;
+      expect(week.value).toBe('2026-06-22');
+      // …and that\'s what the RPC hook was called with on first render.
+      expect(reportHookSpy.mock.calls[0][0]).toBe('2026-06-22');
+    });
+
+    it('ignores a stale persisted week and still opens on the current week', () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date(2026, 5, 24, 9, 0, 0));
+      // Simulate a returning user whose localStorage carries an old week.
+      localStorage.setItem(
+        'bp_weekly_da_report_filters',
+        JSON.stringify({ weekStart: '2026-05-04', windowDays: 14, filters: {} }),
+      );
+      renderReport();
+      const week = screen.getByTestId('wdr-week-start') as HTMLInputElement;
+      expect(week.value).toBe('2026-06-22'); // current week, NOT the stale 05-04
+      expect(reportHookSpy.mock.calls[0][0]).toBe('2026-06-22');
+    });
+
+    it('the Week of field stays user-editable', () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date(2026, 5, 24, 9, 0, 0));
+      renderReport();
+      reportHookSpy.mockClear();
+      fireEvent.change(screen.getByTestId('wdr-week-start'), {
+        target: { value: '2026-07-13' },
+      });
+      const week = screen.getByTestId('wdr-week-start') as HTMLInputElement;
+      expect(week.value).toBe('2026-07-13');
+      const lastCall = reportHookSpy.mock.calls[reportHookSpy.mock.calls.length - 1];
+      expect(lastCall[0]).toBe('2026-07-13');
+    });
+
+    it('keeps the window default at 14', () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date(2026, 5, 24, 9, 0, 0));
+      renderReport();
+      expect((screen.getByTestId('wdr-window-days') as HTMLInputElement).value).toBe('14');
+      expect(reportHookSpy.mock.calls[0][1]).toBe(14);
+    });
+  });
+
   // fix-128: 5603 45th Ave SW Demolition (permit 10068) — actual_issue set,
   // permit.status='Issued', but the latest cycle still carries a
   // corr_issued date from before the issuance. Pre-fix the RPC's

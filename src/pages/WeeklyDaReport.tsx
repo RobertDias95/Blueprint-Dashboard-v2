@@ -12,6 +12,7 @@ import { usePermits } from '../hooks/usePermits';
 import { useProjects } from '../hooks/useProjects';
 import { SkeletonRows } from '../components/Skeleton';
 import QueryError from '../components/QueryError';
+import { snapToMonday } from '../lib/dateUtils';
 import type {
   WeeklyDaReportFilters,
   WeeklyDaReportGroup,
@@ -27,26 +28,22 @@ import type {
 const FILTER_STORAGE_KEY = 'bp_weekly_da_report_filters';
 const WINDOW_DEFAULT = 14;
 
+// fix-215: weekStart is intentionally NOT persisted — the report must always
+// open on the CURRENT week (see currentWeekMonday) so its window catches
+// near-term items. Only the window size + filter selections carry across reloads.
 interface PersistedState {
-  weekStart: string;
   windowDays: number;
   filters: WeeklyDaReportFilters;
 }
 
-/** Monday of the week containing `d` (ISO Mon–Sun week), as YYYY-MM-DD. */
-function mondayOf(d: Date): string {
-  const copy = new Date(d.getFullYear(), d.getMonth(), d.getDate());
-  const dow = copy.getDay(); // 0 Sun .. 6 Sat
-  const diff = dow === 0 ? -6 : 1 - dow; // back up to Monday
-  copy.setDate(copy.getDate() + diff);
-  return toISODate(copy);
-}
-
-function toISODate(d: Date): string {
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${y}-${m}-${day}`;
+/** The current week's Monday — today snapped back to the Monday on or before it
+ *  (ISO Mon–Sun week), as YYYY-MM-DD. fix-215: the Weekly DA Update always opens
+ *  here so the 14-day window catches near-term items (a stale persisted week was
+ *  silently dropping e.g. a 07/07 upcoming intake). Uses the shared snapToMonday
+ *  (lib/dateUtils) rather than hand-rolled date math; it only returns null for
+ *  malformed input, so new Date() always yields a string. */
+function currentWeekMonday(): string {
+  return snapToMonday(new Date(), 'back') as string;
 }
 
 function loadPersisted(): PersistedState | null {
@@ -56,8 +53,6 @@ function loadPersisted(): PersistedState | null {
     const parsed = JSON.parse(raw);
     if (parsed && typeof parsed === 'object') {
       return {
-        weekStart:
-          typeof parsed.weekStart === 'string' ? parsed.weekStart : mondayOf(new Date()),
         windowDays:
           typeof parsed.windowDays === 'number' ? parsed.windowDays : WINDOW_DEFAULT,
         filters:
@@ -83,9 +78,9 @@ function fmtDate(iso: string | null | undefined): string {
 
 export default function WeeklyDaReport() {
   const persisted = useMemo(() => loadPersisted(), []);
-  const [weekStart, setWeekStart] = useState(
-    () => persisted?.weekStart ?? mondayOf(new Date()),
-  );
+  // fix-215: always default to the CURRENT week's Monday. The field stays
+  // user-editable; we deliberately do NOT restore a persisted (stale) week.
+  const [weekStart, setWeekStart] = useState(() => currentWeekMonday());
   const [windowDays, setWindowDays] = useState(
     () => persisted?.windowDays ?? WINDOW_DEFAULT,
   );
@@ -93,18 +88,19 @@ export default function WeeklyDaReport() {
     () => persisted?.filters ?? {},
   );
 
-  // Persist filter set so a returning user keeps their last view (mirrors
-  // the Activity page's localStorage persistence).
+  // Persist the window size + filter set so a returning user keeps their last
+  // view (mirrors the Activity page). weekStart is intentionally excluded — it
+  // always resets to the current week on load (fix-215).
   useEffect(() => {
     try {
       localStorage.setItem(
         FILTER_STORAGE_KEY,
-        JSON.stringify({ weekStart, windowDays, filters }),
+        JSON.stringify({ windowDays, filters }),
       );
     } catch {
       // ignore
     }
-  }, [weekStart, windowDays, filters]);
+  }, [windowDays, filters]);
 
   // Filter dropdown options come from the app-wide permits/projects caches
   // (already loaded elsewhere) — cheap + keeps the report self-contained.
