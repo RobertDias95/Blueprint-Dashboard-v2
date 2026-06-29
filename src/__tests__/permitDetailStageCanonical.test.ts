@@ -106,10 +106,14 @@ describe('fix-188 divergence — why the detail pane must pass reviewers', () =>
     expect(effectiveStage(permit(), cycles)).toBe('co');
   });
 
-  it('WITH reviewers (canonical, post-fix detail pane) → pm (under review)', () => {
-    // Trees still in_review → round not complete → under review, matching the
-    // sidebar + Schedule Health. This is the inconsistency fix-188 removes.
-    expect(effectiveStage(permit(), cycles, reviewers)).toBe('pm');
+  it('fix-214: WITH reviewers → co (corr_issued is authoritative, waives the dangling Trees reviewer)', () => {
+    // fix-188 made the detail pane pass reviewers so it agreed with the sidebar
+    // (both read "pm" while Trees stayed in_review). fix-214 supersedes that
+    // outcome: corr_issued on the current cycle now wins over a lingering
+    // in_review reviewer, so EVERY surface — detail pane, sidebar, Schedule
+    // Health, weekly report — reads "co". The surfaces still agree; the agreed
+    // value flipped from pm → co (the 224 2nd Ave N decision).
+    expect(effectiveStage(permit(), cycles, reviewers)).toBe('co');
   });
 
   it('genuinely in corrections (corr_issued + all reviewers acted) → co on BOTH paths', () => {

@@ -1,11 +1,12 @@
 import type {
   PermitCycle,
+  PermitCycleReviewer,
   PermitWithCycles,
   Project,
   ProjectHold,
 } from './database.types';
 import { multiMatchAddress } from './drawScheduleHelpers';
-import { effectiveStage } from './permitStage';
+import { isPermitInCorrections } from './permitStage';
 import { accountableDays } from './holdOverlap';
 import { isNotSubPermit } from './subPermit';
 import { buildProjectDdStartMap } from './projectDdStart';
@@ -32,6 +33,13 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 
 export interface EnrichedPermit {
   permit: PermitWithCycles;
+  /** fix-214: the permit's reviewer rows (latest + earlier cycles), indexed in
+   *  from useAllPermitCycleReviewers. Feeds the hybrid `isPermitInCorrections`
+   *  test so the Reports Overview "In Corrections" count + drill-in agree with
+   *  the Dashboard and the weekly report. Empty when enrichPermits is called
+   *  without a reviewers map (the count then falls back to the corr_issued half,
+   *  byte-identical to the pre-fix behavior). */
+  reviewers: PermitCycleReviewer[];
   /** Project address — joined from projects table. */
   address: string;
   /** Jurisdiction — lives on the project, not the permit, in v2. */
@@ -334,6 +342,10 @@ export function enrichPermits(
   // fix-171 (effect B): per-project holds. When omitted (or a project has no
   // holds) every measurement equals the raw daysBetween — byte-identical.
   holdsByProjectId?: Map<string, ProjectHold[]>,
+  // fix-214: per-permit reviewer rows (from useAllPermitCycleReviewers). When
+  // omitted, each EnrichedPermit.reviewers is [] and the "In Corrections" count
+  // falls back to the corr_issued half — byte-identical to the pre-fix behavior.
+  reviewersByPermitId?: Map<number, PermitCycleReviewer[]>,
 ): EnrichedPermit[] {
   // fix-194: sub/child placeholder permits are excluded from ALL report metrics
   // (totalUnits, in-corrections, issued count, per-project rollups, permit
@@ -387,6 +399,7 @@ export function enrichPermits(
 
     return {
       permit,
+      reviewers: reviewersByPermitId?.get(permit.id) ?? [],
       address: project?.address ?? '',
       juris: project?.juris ?? '',
       productTypes: Array.isArray(project?.product_types)
@@ -930,12 +943,17 @@ export function computeMetrics(
             10,
         ) / 10;
 
-  // Stage rollups (uses effectiveStage like v1).
+  // fix-214: "In Corrections" now uses the unified hybrid test (corr_issued OR
+  // reviewer-rollup == corrections) with the permit's reviewer rows, so this
+  // count agrees with the Dashboard bucket + the weekly report. When enrichPermits
+  // was called without a reviewers map, e.reviewers is [] and this reduces to the
+  // corr_issued half — byte-identical to the prior effectiveStage('co') behavior.
   let inCorrections = 0;
   let issuedCount = 0;
   for (const e of enriched) {
-    const stage = effectiveStage(e.permit, e.permit.permit_cycles ?? []);
-    if (stage === 'co') inCorrections++;
+    if (isPermitInCorrections(e.permit, e.permit.permit_cycles ?? [], e.reviewers)) {
+      inCorrections++;
+    }
     if (e.permit.actual_issue) issuedCount++;
   }
 

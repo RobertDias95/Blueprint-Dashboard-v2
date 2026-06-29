@@ -553,10 +553,10 @@ function reviewer(
 }
 
 describe('derivePermitStatus — wholistic reviewer rollup (fix-54)', () => {
-  it('MPB Pending + outstanding reviewer overrides scraper-stamped corr_issued → City Target label', () => {
-    // Regression 26 110231 BS. Cycle has corr_issued (premature) AND
-    // outstanding reviewers — the round isn't done, so the status should
-    // surface the cycle's city_target, NOT "Corr Required."
+  it('fix-214: corr_issued is authoritative — outstanding reviewer no longer surfaces City Target → "Corr Required"', () => {
+    // 224 2nd Ave N: cycle has corr_issued AND a lingering in_review reviewer.
+    // Pre-fix-214 the pill showed the cycle's city_target ("not done yet"); the
+    // hybrid makes corr_issued win → "Corr Required (Cycle 1)" with the corr date.
     const r = derivePermitStatus(
       makePermit({
         status: 'Pending',
@@ -565,7 +565,7 @@ describe('derivePermitStatus — wholistic reviewer rollup (fix-54)', () => {
             cycle_index: 1,
             submitted: '2026-04-10',
             city_target: '2026-05-30',
-            corr_issued: '2026-05-15', // scraper-stamped, premature
+            corr_issued: '2026-05-15',
           }),
         ],
       }),
@@ -574,18 +574,18 @@ describe('derivePermitStatus — wholistic reviewer rollup (fix-54)', () => {
         reviewer({ reviewer_name: 'A2', current_status: 'approved' }),
         reviewer({ reviewer_name: 'C1', current_status: 'corrections_required' }),
         reviewer({ reviewer_name: 'C2', current_status: 'corrections_required' }),
-        reviewer({ reviewer_name: 'R1', current_status: 'in_review' }),
+        reviewer({ reviewer_name: 'Trees', current_status: 'in_review' }),
         reviewer({ reviewer_name: 'R2', current_status: 'in_review' }),
       ],
     );
     expect(r).toEqual({
-      label: 'City Target (Cycle 1)',
-      date: '2026-05-30',
+      label: 'Corr Required (Cycle 1)',
+      date: '2026-05-15',
       derived: true,
     });
   });
 
-  it('MPB Pending + outstanding reviewer + no city_target → falls back to "Submitted (Cycle N)"', () => {
+  it('fix-214: corr_issued + outstanding reviewer + no city_target → "Corr Required" (not "Submitted")', () => {
     const r = derivePermitStatus(
       makePermit({
         status: 'Pending',
@@ -603,8 +603,8 @@ describe('derivePermitStatus — wholistic reviewer rollup (fix-54)', () => {
       ],
     );
     expect(r).toEqual({
-      label: 'Submitted (Cycle 1)',
-      date: '2026-04-10',
+      label: 'Corr Required (Cycle 1)',
+      date: '2026-05-15',
       derived: true,
     });
   });
@@ -719,7 +719,7 @@ describe('derivePermitStatus — wholistic reviewer rollup (fix-54)', () => {
     });
   });
 
-  it('MPB Applied (alternate coarse status) also triggers the override', () => {
+  it('fix-214: MPB Applied + in_review reviewer + corr_issued → "Corr Required" (corr_issued wins)', () => {
     const r = derivePermitStatus(
       makePermit({
         status: 'Applied',
@@ -729,6 +729,25 @@ describe('derivePermitStatus — wholistic reviewer rollup (fix-54)', () => {
             submitted: '2026-04-10',
             city_target: '2026-05-30',
             corr_issued: '2026-05-15',
+          }),
+        ],
+      }),
+      [reviewer({ reviewer_name: 'R', current_status: 'in_review' })],
+    );
+    expect(r.label).toBe('Corr Required (Cycle 1)');
+  });
+
+  it('fix-214: MPB Applied + in_review reviewer + NO corr_issued → still surfaces City Target (under review)', () => {
+    // The waiver is specific to corr_issued; without it, an in_review reviewer
+    // keeps the pill on the cycle's city_target (unchanged from fix-54).
+    const r = derivePermitStatus(
+      makePermit({
+        status: 'Applied',
+        permit_cycles: [
+          cyc({
+            cycle_index: 1,
+            submitted: '2026-04-10',
+            city_target: '2026-05-30',
           }),
         ],
       }),

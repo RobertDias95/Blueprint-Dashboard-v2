@@ -3,6 +3,7 @@ import {
   computeStage,
   effectiveStage,
   classifyDeBucket,
+  isPermitInCorrections,
 } from '../lib/permitStage';
 import type {
   Permit,
@@ -297,11 +298,13 @@ function reviewer(
 }
 
 describe('effectiveStage — wholistic reviewer rollup (fix-54)', () => {
-  it('MPB Pending + outstanding reviewer overrides scraper-stamped corr_issued → "pm"', () => {
-    // Regression: 26 110231 BS (Bellevue BP). Cycle 1 has corr_issued
-    // (scraper stamped after one discipline issued), but 2 disciplines
-    // are still in_review. Wholistically the round isn't done → "pm"
-    // (Under Review), NOT "co".
+  it('fix-214: corr_issued is authoritative — a lingering in_review reviewer no longer masks it → "co"', () => {
+    // 224 2nd Ave N (Edmonds 0126/0131): cycle 1 has corr_issued (the city
+    // closed the round by issuing corrections), but the Trees reviewer is
+    // PERMANENTLY in_review (the city never assigned a tree reviewer) and the
+    // others are mixed. Pre-fix-214 the wholistic rollup held it at "pm" forever;
+    // Bobby's hybrid makes corr_issued win → "co" (Corrections). Matches the
+    // weekly report, which always keyed on corr_issued.
     const cycles = [
       cycle({
         cycle_index: 1,
@@ -314,12 +317,12 @@ describe('effectiveStage — wholistic reviewer rollup (fix-54)', () => {
       reviewer({ reviewer_name: 'A2', current_status: 'approved' }),
       reviewer({ reviewer_name: 'C1', current_status: 'corrections_required' }),
       reviewer({ reviewer_name: 'C2', current_status: 'corrections_required' }),
-      reviewer({ reviewer_name: 'R1', current_status: 'in_review' }),
+      reviewer({ reviewer_name: 'Trees', current_status: 'in_review' }),
       reviewer({ reviewer_name: 'R2', current_status: 'in_review' }),
     ];
     expect(
       effectiveStage(makePermit({ status: 'Pending' }), cycles, reviewers),
-    ).toBe('pm');
+    ).toBe('co');
   });
 
   it('MPB Pending + every reviewer acted with ≥1 corrections → "co"', () => {
@@ -359,7 +362,9 @@ describe('effectiveStage — wholistic reviewer rollup (fix-54)', () => {
     ).toBe('ap');
   });
 
-  it('MPB Applied (alternate coarse status) also triggers the override', () => {
+  it('fix-214: MPB Applied + in_review reviewer + corr_issued → "co" (corr_issued wins)', () => {
+    // Same hybrid as the 224 case, with the alternate coarse status 'Applied':
+    // a dangling in_review reviewer is waived once corr_issued is set.
     const reviewers = [
       reviewer({ reviewer_name: 'R', current_status: 'in_review' }),
     ];
@@ -373,6 +378,21 @@ describe('effectiveStage — wholistic reviewer rollup (fix-54)', () => {
             corr_issued: '2026-05-15',
           }),
         ],
+        reviewers,
+      ),
+    ).toBe('co');
+  });
+
+  it('fix-214: MPB Applied + in_review reviewer + NO corr_issued → still "pm" (under review)', () => {
+    // The waiver is specific to corr_issued. With no corr_issued on the cycle, an
+    // in_review reviewer keeps the permit under review — unchanged from fix-54.
+    const reviewers = [
+      reviewer({ reviewer_name: 'R', current_status: 'in_review' }),
+    ];
+    expect(
+      effectiveStage(
+        makePermit({ status: 'Applied' }),
+        [cycle({ cycle_index: 1, submitted: '2026-04-10' })],
         reviewers,
       ),
     ).toBe('pm');
@@ -511,5 +531,84 @@ describe('effectiveStage — reviewer rollup scoped to current cycle (fix-185)',
         staleCycle1Reviewers,
       ),
     ).toBe('co');
+  });
+});
+
+// fix-214 (2026-06-29): the unified hybrid "in corrections" test, shared by the
+// dashboard bucket (effectiveStage), the status pill (derivePermitStatus), the
+// Reports Overview (reportMetrics), and the weekly report's SQL mirror
+// (bp_permit_in_corrections). These cases mirror the rolled-back prod probe on
+// bp_permit_in_corrections so the TS + SQL layers are proven to agree.
+describe('isPermitInCorrections (fix-214 hybrid — TS ⇄ SQL parity)', () => {
+  it('A. 224-like: corr_issued + a perpetual in_review reviewer + others mixed → CORRECTIONS', () => {
+    const cycles = [cycle({ cycle_index: 1, submitted: '2026-06-01', corr_issued: '2026-06-18' })];
+    const reviewers = [
+      reviewer({ reviewer_name: 'Trees', current_status: 'in_review' }),
+      reviewer({ reviewer_name: 'Bldg', current_status: 'approved' }),
+      reviewer({ reviewer_name: 'Eng', current_status: 'corrections_required' }),
+    ];
+    expect(isPermitInCorrections(makePermit({ status: 'Applied' }), cycles, reviewers)).toBe(true);
+  });
+
+  it('B. reviewer-corrections only (no corr_issued, all responded, ≥1 corrections) → CORRECTIONS', () => {
+    const cycles = [cycle({ cycle_index: 1, submitted: '2026-06-01' })];
+    const reviewers = [
+      reviewer({ reviewer_name: 'Eng', current_status: 'corrections_required' }),
+      reviewer({ reviewer_name: 'Bldg', current_status: 'approved' }),
+    ];
+    expect(isPermitInCorrections(makePermit({ status: 'Applied' }), cycles, reviewers)).toBe(true);
+  });
+
+  it('C. resubmitted (corr_issued answered) → NOT corrections', () => {
+    const cycles = [
+      cycle({ cycle_index: 1, submitted: '2026-06-01', corr_issued: '2026-06-18', resubmitted: '2026-06-25' }),
+    ];
+    expect(isPermitInCorrections(makePermit({ status: 'Applied' }), cycles, [])).toBe(false);
+  });
+
+  it('D. approved (approval_date set, even with corr_issued) → NOT corrections', () => {
+    const cycles = [cycle({ cycle_index: 1, submitted: '2026-06-01', corr_issued: '2026-06-18' })];
+    expect(
+      isPermitInCorrections(makePermit({ status: 'Applied', approval_date: '2026-06-20' }), cycles, []),
+    ).toBe(false);
+  });
+
+  it('E. under review (no corr_issued, a reviewer still in_review) → NOT corrections', () => {
+    const cycles = [cycle({ cycle_index: 1, submitted: '2026-06-01' })];
+    const reviewers = [reviewer({ reviewer_name: 'Eng', current_status: 'in_review' })];
+    expect(isPermitInCorrections(makePermit({ status: 'Applied' }), cycles, reviewers)).toBe(false);
+  });
+
+  it('F. reviewer-corrections but a NON-rollup-driven status (no corr_issued) → NOT corrections (gated)', () => {
+    const cycles = [cycle({ cycle_index: 1, submitted: '2026-06-01' })];
+    const reviewers = [reviewer({ reviewer_name: 'Eng', current_status: 'corrections_required' })];
+    expect(
+      isPermitInCorrections(makePermit({ status: 'Reviews In Process' }), cycles, reviewers),
+    ).toBe(false);
+  });
+
+  it('G. stage_override="co" alone → CORRECTIONS (manual escape hatch)', () => {
+    expect(isPermitInCorrections(makePermit({ status: 'Applied', stage_override: 'co' }), [], [])).toBe(true);
+  });
+
+  it('H. stage_override="pm" + corr_issued → NOT corrections (override authoritative)', () => {
+    const cycles = [cycle({ cycle_index: 1, submitted: '2026-06-01', corr_issued: '2026-06-18' })];
+    expect(
+      isPermitInCorrections(makePermit({ status: 'Applied', stage_override: 'pm' }), cycles, []),
+    ).toBe(false);
+  });
+
+  it('terminal-positive status (Ready for Issuance) + corr_issued → NOT corrections', () => {
+    const cycles = [cycle({ cycle_index: 1, submitted: '2026-06-01', corr_issued: '2026-06-18' })];
+    expect(
+      isPermitInCorrections(makePermit({ status: 'Ready for Issuance' }), cycles, []),
+    ).toBe(false);
+  });
+
+  it('corr_issued on a non-rollup (Seattle Accela) status with no reviewers → CORRECTIONS (universal half)', () => {
+    const cycles = [cycle({ cycle_index: 1, submitted: '2026-06-01', corr_issued: '2026-06-18' })];
+    expect(
+      isPermitInCorrections(makePermit({ status: 'Reviews In Process' }), cycles, []),
+    ).toBe(true);
   });
 });
