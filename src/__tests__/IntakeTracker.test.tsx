@@ -301,18 +301,39 @@ describe('<IntakeTracker />', () => {
     expect(screen.queryByTestId('week-action-needed-2026-06-15')).not.toBeInTheDocument();
   });
 
-  it('renders portal_url as a clickable ↗ icon next to the permit# cell', () => {
-    // Q6.3.c: permit# is now its own inline-edit text cell; the portal_url
-    // is rendered as a separate ↗ link icon. Asserts the link target +
-    // that the link exists only when portal_url is set.
+  it('fix-213: a row with a portal URL renders the Permit # itself as the portal link', () => {
+    // fix-213: the permit number IS the hyperlink to the city portal (no more
+    // standalone ↗ icon). Asserts href + new-tab + safe rel on the anchor, and
+    // that the anchor text is the permit number.
     renderIt();
-    const link = screen.getByTestId('intake-portal-link-2');
+    const link = screen.getByTestId('intake-num-2');
+    expect(link.tagName).toBe('A');
     expect(link.getAttribute('href')).toBe('https://city.example/200');
     expect(link.getAttribute('target')).toBe('_blank');
-    // The link icon renders ↗; the permit# itself ('BP-200') lives in
-    // the adjacent inline-text cell.
-    expect(screen.getByTestId('intake-num-2').textContent).toMatch(/BP-200/);
-    expect(screen.queryByTestId('intake-portal-link-3')).not.toBeInTheDocument();
+    expect(link.getAttribute('rel')).toBe('noopener noreferrer');
+    expect(link.textContent).toMatch(/BP-200/);
+  });
+
+  it('fix-213: a row with NO portal URL renders the Permit # as plain text (no anchor / dead link)', () => {
+    renderIt();
+    // intake 3 (BP-300) and placeholder intake 4 (BP-400) have portal_url=null.
+    const num3 = screen.getByTestId('intake-num-3');
+    expect(num3.tagName).not.toBe('A');
+    expect(num3.getAttribute('href')).toBeNull();
+    expect(num3.textContent).toMatch(/BP-300/);
+    const num4 = screen.getByTestId('intake-num-4');
+    expect(num4.tagName).not.toBe('A');
+    expect(num4.getAttribute('href')).toBeNull();
+  });
+
+  it('fix-213: the × remove and 🔀 swap Actions controls still render per row', () => {
+    renderIt();
+    expect(screen.getByTestId('intake-remove-2')).toBeInTheDocument();
+    expect(screen.getByTestId('intake-swap-2')).toBeInTheDocument();
+    // The Actions portal-URL control is now a compact labeled button, not the
+    // raw URL string: row 2 has a URL → "✎ URL"; row 3 has none → "+ URL".
+    expect(screen.getByTestId('intake-url-2').textContent).toMatch(/URL/);
+    expect(screen.getByTestId('intake-url-3').textContent).toContain('+ URL');
   });
 
   it('address search narrows visible rows + week strip + past', () => {

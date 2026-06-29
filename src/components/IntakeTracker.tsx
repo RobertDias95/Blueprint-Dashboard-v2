@@ -536,29 +536,14 @@ function IntakeRow({
         className="text-[11px] font-display font-semibold text-text truncate"
         testId={`intake-addr-${record.id}`}
       />
-      <div className="text-[10px] font-mono flex items-center gap-1">
-        <InlineText
-          value={record.permit_num ?? ''}
-          onCommit={(v) =>
-            v !== (record.permit_num ?? '') && onPatch(record, { permit_num: v || null })
-          }
-          placeholder="permit#"
-          className="text-[10px] font-mono flex-1 min-w-0"
-          testId={`intake-num-${record.id}`}
-        />
-        {url && (
-          <a
-            href={url}
-            target="_blank"
-            rel="noreferrer"
-            className="text-de hover:underline"
-            title="Open city portal"
-            data-testid={`intake-portal-link-${record.id}`}
-          >
-            ↗
-          </a>
-        )}
-      </div>
+      <PermitNumCell
+        record={record}
+        url={url}
+        onCommit={(v) =>
+          v !== (record.permit_num ?? '') && onPatch(record, { permit_num: v || null })
+        }
+        testId={`intake-num-${record.id}`}
+      />
       <InlineSelect
         value={record.permit_type ?? ''}
         options={typeOptions}
@@ -597,13 +582,11 @@ function IntakeRow({
         >
           🔀
         </button>
-        <InlineText
-          value={record.portal_url ?? ''}
+        <PortalUrlEditor
+          record={record}
           onCommit={(v) =>
             v !== (record.portal_url ?? '') && onPatch(record, { portal_url: v || null })
           }
-          placeholder="url"
-          className="text-[9px] font-mono w-14 min-w-0"
           testId={`intake-url-${record.id}`}
         />
         <button
@@ -619,6 +602,154 @@ function IntakeRow({
         </button>
       </div>
     </div>
+  );
+}
+
+// fix-213: the Permit # cell. When the row carries a portal URL, the permit
+// number IS the hyperlink to the city portal (styled like the Activity page's
+// permit-number link), with a small ✎ toggle so the number stays editable.
+// When there's no portal URL (e.g. an OPEN/placeholder row), it's plain
+// click-to-edit text — never a dead link.
+function PermitNumCell({
+  record,
+  url,
+  onCommit,
+  testId,
+}: {
+  record: IntakeRecord;
+  url: string;
+  onCommit: (v: string) => void;
+  testId: string;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(record.permit_num ?? '');
+  function start() {
+    setDraft(record.permit_num ?? '');
+    setEditing(true);
+  }
+  function commit() {
+    onCommit(draft);
+    setEditing(false);
+  }
+  if (editing) {
+    return (
+      <input
+        autoFocus
+        type="text"
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={commit}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') {
+            e.preventDefault();
+            commit();
+          } else if (e.key === 'Escape') {
+            e.preventDefault();
+            setDraft(record.permit_num ?? '');
+            setEditing(false);
+          }
+        }}
+        placeholder="permit#"
+        className="text-[10px] font-mono w-full min-w-0 bg-bg border border-de rounded px-1 py-0 outline-none"
+        data-testid={testId}
+      />
+    );
+  }
+  if (url) {
+    return (
+      <div className="flex items-center gap-1 min-w-0">
+        <a
+          href={url}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="font-mono text-[10px] text-text font-bold underline decoration-dotted decoration-muted underline-offset-2 hover:decoration-solid hover:text-de transition-colors truncate min-w-0"
+          title="Open city portal (new tab)"
+          aria-label={`Open ${record.permit_num || 'permit'} in city portal (new tab)`}
+          data-testid={testId}
+        >
+          {record.permit_num || 'View ↗'}
+        </a>
+        <button
+          onClick={start}
+          className="text-dim hover:text-text text-[9px] leading-none shrink-0"
+          title="Edit permit #"
+          data-testid={`intake-num-edit-${record.id}`}
+        >
+          ✎
+        </button>
+      </div>
+    );
+  }
+  return (
+    <span
+      onClick={start}
+      className={`text-[10px] font-mono cursor-text hover:bg-bg/40 rounded px-0.5 ${
+        record.permit_num ? '' : 'text-dim italic'
+      }`}
+      title="Click to edit"
+      data-testid={testId}
+    >
+      {record.permit_num || 'permit#'}
+    </span>
+  );
+}
+
+// fix-213: the Actions-column portal-URL control. The portal link itself now
+// lives on the Permit #, so this is just the edit affordance — a compact
+// labeled button (✎ URL / + URL) that toggles to a text input, instead of
+// dumping the raw URL string into the row.
+function PortalUrlEditor({
+  record,
+  onCommit,
+  testId,
+}: {
+  record: IntakeRecord;
+  onCommit: (v: string) => void;
+  testId: string;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(record.portal_url ?? '');
+  function start() {
+    setDraft(record.portal_url ?? '');
+    setEditing(true);
+  }
+  function commit() {
+    onCommit(draft);
+    setEditing(false);
+  }
+  if (editing) {
+    return (
+      <input
+        autoFocus
+        type="text"
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={commit}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') {
+            e.preventDefault();
+            commit();
+          } else if (e.key === 'Escape') {
+            e.preventDefault();
+            setDraft(record.portal_url ?? '');
+            setEditing(false);
+          }
+        }}
+        placeholder="https://…"
+        className="text-[9px] font-mono w-24 min-w-0 bg-bg border border-de rounded px-1 py-0 outline-none"
+        data-testid={testId}
+      />
+    );
+  }
+  return (
+    <button
+      onClick={start}
+      className="text-[9px] px-1.5 py-0.5 rounded border border-border bg-surface text-muted hover:text-text whitespace-nowrap"
+      title={record.portal_url ? 'Edit portal URL' : 'Add portal URL'}
+      data-testid={testId}
+    >
+      {record.portal_url ? '✎ URL' : '+ URL'}
+    </button>
   );
 }
 
