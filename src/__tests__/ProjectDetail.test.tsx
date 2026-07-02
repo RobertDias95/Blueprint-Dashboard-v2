@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
-import { MemoryRouter, Route, Routes } from 'react-router-dom';
+import { MemoryRouter, Route, Routes, useNavigate } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { ReactNode } from 'react';
 import { useAuthStore } from '../stores/authStore';
@@ -191,11 +191,12 @@ beforeEach(() => {
     activeTenantId: T,
     memberships: [{ tenant_id: T, role: 'admin' }],
   });
-  // Reset to the default 2-permit fixture between tests.
-  refs.setPermits([
-    { ...refs.permits[0] },
-    { ...refs.permits[1] },
-  ]);
+  // Reset to the default 2-permit fixture between tests (fresh array ref).
+  refs.permitsFor = [{ ...refs.permits[0] }, { ...refs.permits[1] }];
+  // jsdom doesn't implement scrollIntoView; the fix-217 deep-link scroll effect
+  // calls it. Default to a no-op so any deep-link selection doesn't throw; tests
+  // that assert the scroll reassign their own spy.
+  (Element.prototype as { scrollIntoView?: unknown }).scrollIntoView = vi.fn();
 });
 
 // fix-217: My Tasks → "Open in Project View" deep-links to ?permit=<id>. The
@@ -235,6 +236,84 @@ describe('<ProjectDetail /> fix-217 permit deep-link', () => {
     renderAt(`/project/${PROJECT_ID}?permit=999`);
     expect(screen.getByTestId('project-overview-pane')).toBeInTheDocument();
     expect(screen.queryByTestId('permit-edit-pane')).toBeNull();
+  });
+});
+
+// fix-218: the deep-link must select the permit AFTER the async permit list
+// loads. The fix-217 tests used synchronous mocked data, hiding the bug: in prod
+// `permits` is empty at mount, so ?permit=<id> resolved to null and never
+// selected once the data arrived. These tests simulate the async load.
+describe('<ProjectDetail /> fix-218 deep-link after async permit load', () => {
+  it('selects the deep-linked permit once permits finish loading (empty first, data later)', () => {
+    const scrollSpy = vi.fn();
+    (Element.prototype as { scrollIntoView?: unknown }).scrollIntoView = scrollSpy;
+    // Permits not loaded yet on mount (usePermitsByProject resolves async).
+    refs.permitsFor = [];
+    const result = renderAt(`/project/${PROJECT_ID}?permit=2`);
+    // Nothing resolvable yet → project overview, NOT the permit (the repro).
+    expect(screen.getByTestId('project-overview-pane')).toBeInTheDocument();
+    expect(screen.queryByTestId('permit-edit-pane')).toBeNull();
+    // Permits arrive on a later render (fresh array ref, as a real load would).
+    refs.permitsFor = [{ ...refs.permits[0] }, { ...refs.permits[1] }];
+    result.rerender(
+      <Routes>
+        <Route path="/project/:id" element={<ProjectDetail />} />
+      </Routes>,
+    );
+    // Now the deep-link applies: permit 2 selected + pane scrolled into view.
+    expect(screen.getByTestId('permit-edit-pane')).toBeInTheDocument();
+    expect(screen.queryByTestId('project-overview-pane')).toBeNull();
+    expect(screen.getByTestId('permits-sidebar-row-2').style.background).toBe(
+      'var(--color-s3)',
+    );
+    expect(scrollSpy).toHaveBeenCalled();
+  });
+
+  it('a manual "← Back to overview" after a deep-link is not re-forced (applied once)', () => {
+    // Permits loaded synchronously → permit 2 selected on mount.
+    renderAt(`/project/${PROJECT_ID}?permit=2`);
+    expect(screen.getByTestId('permit-edit-pane')).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId('permit-edit-back-overview'));
+    // The param is unchanged, but it was already applied → stays on overview.
+    expect(screen.getByTestId('project-overview-pane')).toBeInTheDocument();
+    expect(screen.queryByTestId('permit-edit-pane')).toBeNull();
+  });
+
+  it('switching ?permit= to another valid id re-selects that permit', () => {
+    function Nav() {
+      const nav = useNavigate();
+      return (
+        <button
+          data-testid="nav-to-permit-1"
+          onClick={() => nav(`/project/${PROJECT_ID}?permit=1`)}
+        />
+      );
+    }
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter initialEntries={[`/project/${PROJECT_ID}?permit=2`]}>
+          <Nav />
+          <Routes>
+            <Route path="/project/:id" element={<ProjectDetail />} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+    // Initially permit 2 is selected.
+    expect(screen.getByTestId('permits-sidebar-row-2').style.background).toBe(
+      'var(--color-s3)',
+    );
+    // Navigate to ?permit=1 → the new param value re-selects permit 1.
+    fireEvent.click(screen.getByTestId('nav-to-permit-1'));
+    expect(screen.getByTestId('permits-sidebar-row-1').style.background).toBe(
+      'var(--color-s3)',
+    );
+    expect(screen.getByTestId('permits-sidebar-row-2').style.background).toBe(
+      'transparent',
+    );
   });
 });
 
