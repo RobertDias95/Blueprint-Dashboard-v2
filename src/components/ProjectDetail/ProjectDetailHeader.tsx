@@ -23,6 +23,7 @@ import {
 } from '../../lib/unitTypeNaming';
 import { snapToMonday, addDays } from '../../lib/dateUtils';
 import ReuseRedesignDdEditor from './ReuseRedesignDdEditor';
+import ReuseEditor from './ReuseEditor';
 import {
   useSetBpDdDates,
   type ProjectOverlapConflict,
@@ -685,6 +686,10 @@ function ProjectCell({
                 </div>
               </div>
             )}
+            {/* fix-216: Reuse provenance badge + set/change/clear editor.
+                Parallel to the Redesigns section; one field shared with the
+                wizard + reports. */}
+            <ReuseEditor project={project} allProjects={allProjects} />
             {/* Unit Dimensions section. fix-22 Mig 3: unit_types lives on
                 projects now, writes via useUpdateProject. */}
             <div className="flex items-baseline gap-1.5 mt-0.5">
