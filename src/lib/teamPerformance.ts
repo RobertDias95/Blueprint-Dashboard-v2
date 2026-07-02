@@ -64,6 +64,15 @@ export interface TeamMemberMetrics {
   // secondary permit's da, or a divergent permit ent_lead) — NO lot/unit
   // credit, measured purely by count.
   delegatePermitCount: number;
+  // fix-216: REUSE context (NOT a change to volume credit). Of this owner's LEAD
+  // projects (original + redesign, the same accumulated cohort as
+  // totalProjectCount), how many were templated off another project
+  // (reused_from_project_id set), and that as a rate. Attributed to the SAME
+  // holistic owner as volume so it reconciles with the volume columns.
+  reuseProjectCount: number;
+  /** reuseProjectCount / totalProjectCount as a percentage (0–100, 1 decimal).
+   *  Null when the owner has no lead projects. */
+  reuseRate: number | null;
   // Phase — averages across associate's permits (per the includeRedesigns
   // filter — when false, only original-project permits contribute). Null
   // when no permits in the cohort had the underlying day pair.
@@ -279,6 +288,24 @@ export function computeTeamMetrics(
     const redesignLotCount = sumByIds(bucket.redesignProjectIds, (p) => p.num_lots);
     const redesignPermitCount = bucket.leadRedesignPermits.length;
 
+    // fix-216: reuse count over the SAME accumulated lead cohort as
+    // totalProjectCount (original ∪ redesign) — a reuse can itself be a redesign.
+    const countReuse = (ids: Set<string>): number => {
+      let n = 0;
+      for (const id of ids) {
+        if (projectsById.get(id)?.reused_from_project_id) n += 1;
+      }
+      return n;
+    };
+    const reuseProjectCount =
+      countReuse(bucket.originalProjectIds) +
+      countReuse(bucket.redesignProjectIds);
+    const totalProjectCount = projectCount + redesignProjectCount;
+    const reuseRate =
+      totalProjectCount > 0
+        ? formatCompareNumber((reuseProjectCount / totalProjectCount) * 100)
+        : null;
+
     rows.push({
       name,
       role: filters.role,
@@ -293,12 +320,15 @@ export function computeTeamMetrics(
       redesignPermitCount,
       // fix-192: accumulated totals — a redesign's volume counts AGAIN on top
       // of the original, never deduped back.
-      totalProjectCount: projectCount + redesignProjectCount,
+      totalProjectCount,
       totalUnitCount: unitCount + redesignUnitCount,
       totalLotCount: lotCount + redesignLotCount,
       totalPermitCount: permitCount + redesignPermitCount,
       // fix-192: delegate-only permit count (no lot/unit credit).
       delegatePermitCount: bucket.delegatePermitIds.size,
+      // fix-216: reuse context (does not affect volume credit above).
+      reuseProjectCount,
+      reuseRate,
       avgDdDays: avgOrNull(ddDays),
       avgCityReviewDays: avgOrNull(cityReviewDays),
       avgCorrectionsCycles: avgOrNull(correctionsCycles),

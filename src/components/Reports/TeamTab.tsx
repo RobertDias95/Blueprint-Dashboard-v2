@@ -295,6 +295,9 @@ const TEAM_CSV_COLUMNS = [
   { key: 'redesignLotCount', label: 'Redesign Lots' },
   { key: 'permitCount', label: 'Permits' },
   { key: 'delegatePermitCount', label: 'Delegate Permits' },
+  // fix-216: reuse context (not volume credit).
+  { key: 'reuseProjectCount', label: 'Reuse' },
+  { key: 'reuseRate', label: 'Reuse Rate (%)' },
   { key: 'avgDdDays', label: 'DD Phase (d)' },
   { key: 'avgCityReviewDays', label: 'City Review (d)' },
   { key: 'avgCorrectionsCycles', label: 'Corrections (cycles)' },
@@ -325,6 +328,8 @@ function buildTeamCsv(rows: TeamMemberMetrics[]): string {
       redesignLotCount: r.redesignLotCount,
       permitCount: r.totalPermitCount,
       delegatePermitCount: r.delegatePermitCount,
+      reuseProjectCount: r.reuseProjectCount,
+      reuseRate: r.reuseRate ?? '',
       avgDdDays: r.avgDdDays ?? '',
       avgCityReviewDays: r.avgCityReviewDays ?? '',
       avgCorrectionsCycles: r.avgCorrectionsCycles ?? '',

@@ -26,6 +26,8 @@ type SortKey =
   | 'redesignLotCount'
   | 'totalPermitCount'
   | 'delegatePermitCount'
+  | 'reuseProjectCount'
+  | 'reuseRate'
   | 'avgDdDays'
   | 'avgCityReviewDays'
   | 'avgCorrectionsCycles'
@@ -104,6 +106,15 @@ export default function TeamPerformanceTable({ result }: Props) {
                 lot/unit credit. */}
             <Th col="delegatePermitCount" sortKey={sortKey} sortDesc={sortDesc} onClick={toggleSort}>
               Delegate Permits
+            </Th>
+            {/* fix-216: reuse CONTEXT alongside volume — how many of this owner's
+                projects were templated off a proven plan, and that rate. Does
+                NOT change volume/lot/unit credit. */}
+            <Th col="reuseProjectCount" sortKey={sortKey} sortDesc={sortDesc} onClick={toggleSort}>
+              Reuse
+            </Th>
+            <Th col="reuseRate" sortKey={sortKey} sortDesc={sortDesc} onClick={toggleSort}>
+              Reuse Rate
             </Th>
             <Th col="avgDdDays" sortKey={sortKey} sortDesc={sortDesc} onClick={toggleSort}>
               DD Phase
@@ -227,6 +238,15 @@ function Row({
         value={row.delegatePermitCount}
         testId={`team-cell-${row.name}-delegatePermitCount`}
       />
+      {/* fix-216: reuse context — count + rate (no vs-team-avg coloring). */}
+      <NumCell
+        value={row.reuseProjectCount}
+        testId={`team-cell-${row.name}-reuseProjectCount`}
+      />
+      <RateCell
+        value={row.reuseRate}
+        testId={`team-cell-${row.name}-reuseRate`}
+      />
       <PhaseCell
         value={row.avgDdDays}
         teamAvg={teamAvgDdDays}
@@ -268,6 +288,29 @@ function NumCell({
       data-testid={testId}
     >
       {value || <span className="text-dim">—</span>}
+    </td>
+  );
+}
+
+// fix-216: reuse rate — a percentage (0–100) or null. Rendered plainly (context,
+// not a graded metric, so no vs-team-avg color treatment).
+function RateCell({
+  value,
+  testId,
+}: {
+  value: number | null;
+  testId: string;
+}) {
+  return (
+    <td
+      className="px-2 py-1.5 text-center font-mono text-text"
+      data-testid={testId}
+    >
+      {value === null ? (
+        <span className="text-dim">—</span>
+      ) : (
+        `${value}%`
+      )}
     </td>
   );
 }
