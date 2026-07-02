@@ -101,6 +101,11 @@ export interface ProjectData {
   redesign_reuses_original_permit?: boolean | null;
   /** fix-126: free-form context. */
   redesign_notes?: string | null;
+  /** fix-216: REUSE provenance — the source project this NEW project was
+   *  templated off. Copy-once (product_types + unit_types were copied into the
+   *  form on select); the RPC stores it on projects.reused_from_project_id.
+   *  NULL = not a reuse. Distinct from redesign_of_project_id. */
+  reused_from_project_id?: string | null;
 }
 
 export interface CreateProjectInput {

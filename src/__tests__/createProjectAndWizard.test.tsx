@@ -374,6 +374,36 @@ describe('useCreateProjectWithPermits (fix-22 signature)', () => {
     expect(args.p_permits).toEqual([]);
   });
 
+  // fix-216: reused_from_project_id threads through project_data verbatim so
+  // the RPC can store the reuse provenance link (the copied product/units are
+  // sent as ordinary product_types + unit_types).
+  it('fix-216: reused_from_project_id threads through project_data', async () => {
+    mocks.setResult({
+      data: [
+        { project_id: '55555555-5555-5555-5555-555555555555', permit_ids: [50000], conflict: false },
+      ],
+      error: null,
+    });
+    const { wrapper } = setup();
+    const { result } = renderHook(() => useCreateProjectWithPermits(), { wrapper });
+    await act(async () => {
+      await result.current.mutateAsync({
+        address: '77 Reuse Way',
+        juris: 'Seattle',
+        project_data: {
+          reused_from_project_id: 'source-uuid-here',
+          product_types: ['SFR'],
+        },
+        permits: [],
+      });
+    });
+    const [, args] = mocks.rpcFn.mock.calls[0];
+    expect(args.p_project_data).toMatchObject({
+      reused_from_project_id: 'source-uuid-here',
+      product_types: ['SFR'],
+    });
+  });
+
   // fix-122: three new project-level fields. The hook passes them
   // through verbatim into p_project_data — the RPC handles NULLIF on
   // its end (extended in fix_122_b migration). Mirrors fix-107's

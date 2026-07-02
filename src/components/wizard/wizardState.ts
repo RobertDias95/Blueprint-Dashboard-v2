@@ -155,6 +155,17 @@ export interface WizardState {
   /** Free-form redesign notes. */
   redesign_notes: string;
 
+  // fix-216: REUSE. Distinct from redesign — a NEW project templated off a
+  // DIFFERENT existing project. Non-empty reused_from_project_id records the
+  // provenance link (persisted) + drives the per-DA reuse metric; selecting a
+  // source ALSO one-time copies its product_types + unit_types into this form
+  // (the user then owns + can edit them — copy-once, not a live link).
+  /** Source project uuid this project is reused from. '' = not a reuse. */
+  reused_from_project_id: string;
+  /** Source address kept for the "Reuse of <address>" chip. Display-only —
+   *  NOT sent to the RPC (derived from reused_from_project_id). */
+  reused_from_project_address: string;
+
   // fix-143: Backfill historical project mode. When true, Step 1's role
   // pickers open to inactive + former team members and the BP gains manual
   // DD Start / DD End inputs (auto-placement is bypassed). Local wizard state
@@ -222,6 +233,8 @@ export function makeEmptyWizardState(): WizardState {
     redesign_trigger: '',
     redesign_reuses_original_permit: '',
     redesign_notes: '',
+    reused_from_project_id: '',
+    reused_from_project_address: '',
     backfill_mode: false,
     backfill_dd_start: '',
     backfill_dd_end: '',
