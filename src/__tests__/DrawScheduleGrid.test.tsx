@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import {
   render,
   screen,
@@ -338,6 +338,14 @@ vi.mock('../hooks/useResizeDaTimeBlock', () => ({
 import DrawScheduleGrid from '../components/DrawScheduleGrid';
 
 beforeEach(() => {
+  // The grid renders a QUARTER-relative view off the system clock, and every
+  // fixture below lives in Q2 2026 (May). Pin "today" to a fixed Q2 date so the
+  // suite is deterministic regardless of the real calendar — otherwise the
+  // Q2→Q3 rollover (July 1) drops the May blocks out of the rendered quarter and
+  // ~51 layout assertions fail. Fake ONLY Date (toFake:['Date']) so setTimeout /
+  // waitFor keep using real timers.
+  vi.useFakeTimers({ toFake: ['Date'] });
+  vi.setSystemTime(new Date(2026, 5, 15, 12, 0, 0)); // 2026-06-15, mid-Q2
   useAuthStore.setState({
     activeTenantId: T,
     memberships: [{ tenant_id: T, role: 'admin' }],
@@ -370,6 +378,10 @@ beforeEach(() => {
     gapDownstreamCount: 2,
     gapAfterWeek: '2026-05-04',
   };
+});
+
+afterEach(() => {
+  vi.useRealTimers();
 });
 
 /** Synthesize an HTML5 drag-and-drop sequence in jsdom (which doesn't natively

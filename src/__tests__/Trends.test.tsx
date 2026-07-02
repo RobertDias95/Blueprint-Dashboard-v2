@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -188,9 +188,19 @@ function renderTrends() {
 }
 
 beforeEach(() => {
-  // Date-range default uses `new Date()` — tests above hardcode a wide
-  // explicit range via search params so the system clock doesn't affect
-  // which rows fall in window.
+  // Date-range default uses `new Date()` — most tests hardcode a wide explicit
+  // range via search params so the system clock doesn't affect which rows fall
+  // in window. A couple rely on the DEFAULT 12-month-ending-today window, whose
+  // fixtures live in Q2 2026 (May/June). Pin "today" to a fixed Q2 date so those
+  // stay in-window regardless of the real calendar (the Q2→Q3 rollover otherwise
+  // slid the 2026-05/06 approval dates relative to the default window). Fake only
+  // Date so timers stay real.
+  vi.useFakeTimers({ toFake: ['Date'] });
+  vi.setSystemTime(new Date(2026, 5, 15, 12, 0, 0)); // 2026-06-15, mid-Q2
+});
+
+afterEach(() => {
+  vi.useRealTimers();
 });
 
 describe('Trends — fix-25-feat-V submit→intake surface', () => {
