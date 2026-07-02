@@ -608,3 +608,60 @@ describe('fix-172 computeTeamMetrics — held days subtracted', () => {
     ).toBe(151);
   });
 });
+
+// fix-216: per-DA REUSE context metric. Counts (and rates) the owner's lead
+// projects that were templated off another project. Must attribute to the SAME
+// holistic owner as volume, and must NOT alter volume/lot/unit credit.
+describe('computeTeamMetrics — fix-216 reuse metric', () => {
+  // Ainsley owns 4 projects via the BP da; 2 carry reused_from_project_id.
+  const projects: Project[] = [
+    mkProject({ id: 'a1', address: '1 A', units: 3 }),
+    mkProject({ id: 'a2', address: '2 A', units: 4, reused_from_project_id: 'src-1' }),
+    mkProject({ id: 'a3', address: '3 A', units: 2, reused_from_project_id: 'src-2' }),
+    mkProject({ id: 'a4', address: '4 A', units: 5 }),
+  ];
+  const permits: PermitWithCycles[] = [
+    mkPermit({ id: 1, project_id: 'a1', da: 'Ainsley' }),
+    // a2: Ainsley owns the BP; a delegate DA on a 2nd permit must NOT get reuse credit.
+    mkPermit({ id: 2, project_id: 'a2', da: 'Ainsley' }),
+    mkPermit({ id: 3, project_id: 'a2', type: 'Demolition', da: 'Cam' }),
+    mkPermit({ id: 4, project_id: 'a3', da: 'Ainsley' }),
+    mkPermit({ id: 5, project_id: 'a4', da: 'Ainsley' }),
+  ];
+  const team: TeamMember[] = [
+    mkMember({ name: 'Ainsley', role: 'da', active: true }),
+    mkMember({ name: 'Cam', role: 'da', active: true }),
+  ];
+
+  it('counts reuse among the owner\'s lead projects with the right rate', () => {
+    const out = computeTeamMetrics(permits, projects, team, baseFilters);
+    const ainsley = out.rows.find((r) => r.name === 'Ainsley')!;
+    expect(ainsley.totalProjectCount).toBe(4);
+    expect(ainsley.reuseProjectCount).toBe(2);
+    expect(ainsley.reuseRate).toBe(50); // 2/4 = 50%
+    // Volume credit is unchanged by reuse: 3+4+2+5 = 14 units.
+    expect(ainsley.totalUnitCount).toBe(14);
+  });
+
+  it('reuse is attributed to the holistic owner, not a permit-level delegate', () => {
+    const out = computeTeamMetrics(permits, projects, team, baseFilters);
+    const cam = out.rows.find((r) => r.name === 'Cam');
+    // Cam is only a delegate on a2's Demolition — no lead projects, so no reuse.
+    expect(cam?.reuseProjectCount ?? 0).toBe(0);
+    expect(cam?.totalProjectCount ?? 0).toBe(0);
+    expect(cam?.delegatePermitCount).toBe(1);
+  });
+
+  it('reuseRate is null for an owner with no lead projects (guards /0)', () => {
+    // Only a delegate → filtered/zero; assert via a solo owner with 0 reuse too.
+    const out = computeTeamMetrics(
+      [mkPermit({ id: 9, project_id: 'a1', da: 'Ainsley' })],
+      [mkProject({ id: 'a1', address: '1 A', units: 1 })],
+      team,
+      baseFilters,
+    );
+    const ainsley = out.rows.find((r) => r.name === 'Ainsley')!;
+    expect(ainsley.reuseProjectCount).toBe(0);
+    expect(ainsley.reuseRate).toBe(0); // 0/1 = 0%, not null (has a lead project)
+  });
+});
