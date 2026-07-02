@@ -8,6 +8,7 @@ import {
   useDaTeamRouting,
 } from '../../hooks/useDaTeamRouting';
 import UnitTypesEditor from './UnitTypesEditor';
+import ReuseSourcePicker, { type ReuseSource } from './ReuseSourcePicker';
 import BuilderAutocompleteField from '../builder/BuilderAutocompleteField';
 import { memberLabel, isNonActiveMember } from '../../lib/teamMemberLabel';
 import { quarterToDateRange, snapToMonday } from '../../lib/dateUtils';
@@ -87,6 +88,11 @@ export default function Step1ProjectInfo({
   const [unitsBlurred, setUnitsBlurred] = useState(false);
   const unitsBad =
     (unitsBlurred || showFieldErrors) && !unitsIsValid(value.units);
+  // fix-216: reuse mode is open when the toggle is checked OR a source is
+  // already selected (e.g. re-entering Step 1). Local UI state only.
+  const [reuseOpen, setReuseOpen] = useState(
+    () => !!value.reused_from_project_id,
+  );
   const jurisQ = useJurisdictions();
   const teamQ = useTeamMembers();
   const appConfig = useAppConfig();
@@ -282,6 +288,25 @@ export default function Step1ProjectInfo({
     onChange({ [k]: v } as Partial<WizardState>);
   }
 
+  // fix-216: reuse. Selecting a source records the provenance link AND one-time
+  // copies its product_types + unit_types into the form (the user then owns +
+  // can edit them — copy-once, not a live link). Whatever they submit is
+  // authoritative.
+  function onReuseSelect(source: ReuseSource) {
+    onChange({
+      reused_from_project_id: source.id,
+      reused_from_project_address: source.address,
+      product_types: [...source.product_types],
+      unit_types: source.unit_types.map((u) => ({ ...u })),
+    });
+  }
+  // Clearing removes the LINK only — the copied product_types + unit_types stay
+  // as the project's own values (nothing is un-copied).
+  function clearReuse() {
+    onChange({ reused_from_project_id: '', reused_from_project_address: '' });
+    setReuseOpen(false);
+  }
+
   // Treat 0 as missing for legacy numerics so the user re-enters real values.
   function numStr(v: string): string {
     return v === '0' || v === '0.00' ? '' : v;
@@ -391,6 +416,75 @@ export default function Step1ProjectInfo({
           </span>
         </span>
       </label>
+
+      {/* fix-216: Reuse an existing plan. Hidden in redesign mode (a redesign
+          already seeds site facts from its parent). Toggling on reveals a
+          typeahead; picking a source copies its product types + unit types
+          into the form as a starting point and records the reuse link. */}
+      {!isRedesign && (
+        <div
+          className="rounded-md border border-border bg-bg/40 px-3 py-2 space-y-2"
+          data-testid="wizard-reuse-block"
+        >
+          <label
+            className="flex items-start gap-2 cursor-pointer"
+            data-testid="wizard-reuse-toggle-label"
+          >
+            <input
+              type="checkbox"
+              checked={reuseOpen}
+              onChange={(e) => {
+                setReuseOpen(e.target.checked);
+                if (!e.target.checked && value.reused_from_project_id) {
+                  clearReuse();
+                }
+              }}
+              className="mt-0.5"
+              data-testid="wizard-reuse-toggle"
+            />
+            <span className="flex flex-col gap-0.5">
+              <span className="text-[12px] font-semibold text-text">
+                Reuse an existing plan?
+              </span>
+              <span className="text-[10px] text-dim">
+                Copy a proven project's product type + unit dimensions as a
+                starting point. You can edit everything before creating.
+              </span>
+            </span>
+          </label>
+
+          {reuseOpen && value.reused_from_project_id && (
+            <div
+              className="flex items-center justify-between gap-2 rounded-md border px-2 py-1.5"
+              style={{
+                borderColor: 'var(--color-de)',
+                background: 'var(--color-de-bg, var(--color-bg))',
+              }}
+              data-testid="wizard-reuse-selected"
+            >
+              <span className="text-[11px] text-text">
+                Reuse of{' '}
+                <span className="font-semibold" data-testid="wizard-reuse-selected-address">
+                  {value.reused_from_project_address || '(source)'}
+                </span>
+                {' '}— product type + units copied below.
+              </span>
+              <button
+                type="button"
+                onClick={clearReuse}
+                className="text-[10px] px-2 py-0.5 rounded border border-border bg-surface text-muted hover:text-text"
+                data-testid="wizard-reuse-clear"
+              >
+                Clear
+              </button>
+            </div>
+          )}
+
+          {reuseOpen && !value.reused_from_project_id && (
+            <ReuseSourcePicker onSelect={onReuseSelect} />
+          )}
+        </div>
+      )}
 
       {/* Project Info section — v1 parity (BG s2 panel, jv-coloured label) */}
       <section

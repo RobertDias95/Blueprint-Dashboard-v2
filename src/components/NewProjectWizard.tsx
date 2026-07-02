@@ -397,6 +397,10 @@ export default function NewProjectWizard({ open, onClose, initialState }: Props)
         state.redesign_reuses_original_permit,
       ),
       redesign_notes: strOrNull(state.redesign_notes),
+      // fix-216: reuse provenance link. Product types + unit types were already
+      // copied into the form on source-select (copy-once); here we persist only
+      // the link so the DA reuse metric + the "Reuse of <address>" badge work.
+      reused_from_project_id: strOrNull(state.reused_from_project_id),
     };
 
     const permitsPayload: PermitInput[] = selectedPermits.map((p) => ({
