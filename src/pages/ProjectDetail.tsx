@@ -129,21 +129,26 @@ function ProjectDetailBody({
   // Q9.5.e-fix-1: default to project-overview view (null selection)
   // per v1 spatial pattern (index.html:3611). Sidebar click sets a
   // permit; "← Back to overview" link clears back to null.
-  // fix-217: seed the initial selection from the deep-link param so the target
-  // permit is on screen the moment Project View mounts.
-  const [selectedPermitId, setSelectedPermitId] = useState<number | null>(
-    permitParamId,
-  );
-  // fix-217: re-apply the deep-link when the ?permit= param changes (e.g. opening
-  // a different task's "Open in Project View" while already on this project). Uses
-  // the React in-render "adjust state on prop change" pattern (same as the
-  // fix-63/64 dirty-flag sync) rather than a setState-in-effect, so there's no
-  // cascading-render. An absent/invalid param (permitParamId null) never forces a
-  // selection, so a manual "← Back to overview" is preserved.
-  const [appliedPermitParam, setAppliedPermitParam] = useState(permitParam);
-  if (permitParam !== appliedPermitParam) {
-    setAppliedPermitParam(permitParam);
-    if (permitParamId !== null) setSelectedPermitId(permitParamId);
+  const [selectedPermitId, setSelectedPermitId] = useState<number | null>(null);
+  // fix-217 → fix-218: apply the deep-link (?permit=) selection when the id
+  // RESOLVES to a real permit — NOT merely when the raw param string changes.
+  // usePermitsByProject loads async, so on mount `permits` is empty and
+  // permitParamId is null; it flips null→<id> on a LATER render with the param
+  // string UNCHANGED. fix-217 keyed on the string, so that later resolution never
+  // fired and the user stayed on the overview (repro: 548 3rd Ave N, permit 200).
+  // We instead remember the param value we've already applied a selection for:
+  // apply once when permitParamId is non-null and differs from the applied value.
+  // This is the React in-render "adjust state on change" pattern (fix-63/64), not
+  // a setState-in-effect (no cascading-render). Applying ONCE per param value
+  // preserves a manual "← Back to overview" (we don't re-force it every render);
+  // a NEW ?permit= value re-selects; an absent/invalid param never selects
+  // (permitParamId null) → overview fallback.
+  const [appliedDeepLinkParam, setAppliedDeepLinkParam] = useState<
+    string | null
+  >(null);
+  if (permitParamId !== null && permitParam !== appliedDeepLinkParam) {
+    setAppliedDeepLinkParam(permitParam);
+    setSelectedPermitId(permitParamId);
   }
   const selectedPermit =
     selectedPermitId !== null
