@@ -173,4 +173,12 @@ describe('<TaskDetailPanel />', () => {
     fireEvent.blur(textarea);
     expect(upsertMutate).not.toHaveBeenCalled();
   });
+
+  // fix-217: "Open in Project View" deep-links to the task's PERMIT so Project
+  // View auto-selects + scrolls to it (its tasks/corrections on screen).
+  it('fix-217: "Open in Project View" links to /project/<id>?permit=<permitId>', () => {
+    renderPanel(); // task.permit_id 11 → permit 11 on project p1
+    const link = screen.getByTestId('mt-detail-open-project');
+    expect(link.getAttribute('href')).toBe('/project/p1?permit=11');
+  });
 });

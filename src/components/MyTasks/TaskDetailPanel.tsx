@@ -248,7 +248,11 @@ function Editor({
 
         {project && (
           <Link
-            to={`/project/${project.id}`}
+            // fix-217: deep-link to the task's PERMIT so Project View auto-selects
+            // + scrolls to it (its tasks/corrections on screen), instead of the
+            // project top. `permit` is always set when `project` resolves here;
+            // the guard keeps the link project-top-only if that ever changes.
+            to={`/project/${project.id}${permit ? `?permit=${permit.id}` : ''}`}
             className="mt-1 text-[11px] px-3 py-1.5 rounded border text-center font-display font-bold transition no-underline"
             style={{
               background: 'var(--color-s2)',

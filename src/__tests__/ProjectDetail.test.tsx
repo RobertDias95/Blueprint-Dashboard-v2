@@ -198,6 +198,46 @@ beforeEach(() => {
   ]);
 });
 
+// fix-217: My Tasks → "Open in Project View" deep-links to ?permit=<id>. The
+// Project View reads it, auto-selects that permit (same path the sidebar uses),
+// and scrolls its detail pane into view.
+describe('<ProjectDetail /> fix-217 permit deep-link', () => {
+  it('auto-selects + scrolls to the permit named in ?permit= on mount', () => {
+    const scrollSpy = vi.fn();
+    const orig = (Element.prototype as { scrollIntoView?: unknown }).scrollIntoView;
+    Element.prototype.scrollIntoView = scrollSpy;
+    try {
+      renderAt(`/project/${PROJECT_ID}?permit=2`);
+      // A permit is selected → the detail pane renders, overview does not.
+      expect(screen.getByTestId('permit-edit-pane')).toBeInTheDocument();
+      expect(screen.queryByTestId('project-overview-pane')).toBeNull();
+      // It's permit 2 specifically (selected row carries the s3 background).
+      expect(screen.getByTestId('permits-sidebar-row-2').style.background).toBe(
+        'var(--color-s3)',
+      );
+      expect(screen.getByTestId('permits-sidebar-row-1').style.background).toBe(
+        'transparent',
+      );
+      // And the detail pane was scrolled into view.
+      expect(scrollSpy).toHaveBeenCalled();
+    } finally {
+      (Element.prototype as { scrollIntoView?: unknown }).scrollIntoView = orig;
+    }
+  });
+
+  it('falls back to the project overview when there is no ?permit= (project-level task)', () => {
+    renderAt(`/project/${PROJECT_ID}`);
+    expect(screen.getByTestId('project-overview-pane')).toBeInTheDocument();
+    expect(screen.queryByTestId('permit-edit-pane')).toBeNull();
+  });
+
+  it('falls back to the overview when ?permit= is not a permit on this project', () => {
+    renderAt(`/project/${PROJECT_ID}?permit=999`);
+    expect(screen.getByTestId('project-overview-pane')).toBeInTheDocument();
+    expect(screen.queryByTestId('permit-edit-pane')).toBeNull();
+  });
+});
+
 describe('<ProjectDetail /> fix-23e two-pillbox layout', () => {
   it('renders left and right pillboxes with overflow-y-auto each', () => {
     renderAt();
