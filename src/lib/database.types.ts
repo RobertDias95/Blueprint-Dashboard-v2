@@ -117,9 +117,10 @@ export interface Project {
    *  ONCE from that source at creation (or via Settings). This is a copy-once
    *  link, NOT a live mirror: the project owns its own values afterward and
    *  manual edits always win. Distinct from redesign_of_project_id (a new
-   *  version of the SAME project). Self-FK ON DELETE SET NULL; CHECK id <>
-   *  reused_from_project_id. Optional in the type because prod backfills the
-   *  column via migration — reads tolerate undefined as "not a reuse". */
+   *  version of the SAME project). Live on prod (self-FK ON DELETE SET NULL;
+   *  CHECK id <> reused_from_project_id; indexed). Optional `?` to match every
+   *  other nullable Project column here (Project literals in fixtures omit it);
+   *  the value is `string | null` at runtime. */
   reused_from_project_id?: string | null;
   created_at?: string | null;
   updated_at?: string | null;
