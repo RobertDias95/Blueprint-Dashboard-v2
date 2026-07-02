@@ -1,5 +1,5 @@
-import { Fragment, useMemo, useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
+import { Link, useParams, useSearchParams } from 'react-router-dom';
 import { useProjects } from '../hooks/useProjects';
 import { usePermitsByProject } from '../hooks/usePermitsByProject';
 import { useAllPermitCycleReviewers } from '../hooks/useAllPermitCycleReviewers';
@@ -114,14 +114,50 @@ function ProjectDetailBody({
     return permits.find((p) => p.type === 'Building Permit') ?? permits[0] ?? null;
   }, [permits]);
 
+  // fix-217: deep-link target permit from ?permit=<id> (My Tasks → "Open in
+  // Project View"). Resolves to a real permit id on this project, else null (an
+  // absent/invalid param — e.g. a project-level task — falls back to the project
+  // overview, the pre-fix behavior).
+  const [searchParams] = useSearchParams();
+  const permitParam = searchParams.get('permit');
+  const permitParamId = useMemo(() => {
+    if (!permitParam) return null;
+    const n = Number(permitParam);
+    return Number.isInteger(n) && permits.some((p) => p.id === n) ? n : null;
+  }, [permitParam, permits]);
+
   // Q9.5.e-fix-1: default to project-overview view (null selection)
   // per v1 spatial pattern (index.html:3611). Sidebar click sets a
   // permit; "← Back to overview" link clears back to null.
-  const [selectedPermitId, setSelectedPermitId] = useState<number | null>(null);
+  // fix-217: seed the initial selection from the deep-link param so the target
+  // permit is on screen the moment Project View mounts.
+  const [selectedPermitId, setSelectedPermitId] = useState<number | null>(
+    permitParamId,
+  );
+  // fix-217: re-apply the deep-link when the ?permit= param changes (e.g. opening
+  // a different task's "Open in Project View" while already on this project). Uses
+  // the React in-render "adjust state on prop change" pattern (same as the
+  // fix-63/64 dirty-flag sync) rather than a setState-in-effect, so there's no
+  // cascading-render. An absent/invalid param (permitParamId null) never forces a
+  // selection, so a manual "← Back to overview" is preserved.
+  const [appliedPermitParam, setAppliedPermitParam] = useState(permitParam);
+  if (permitParam !== appliedPermitParam) {
+    setAppliedPermitParam(permitParam);
+    if (permitParamId !== null) setSelectedPermitId(permitParamId);
+  }
   const selectedPermit =
     selectedPermitId !== null
       ? permits.find((p) => p.id === selectedPermitId) ?? null
       : null;
+
+  // fix-217: the permit-detail pane, scrolled into view once the deep-linked
+  // permit is selected + rendered (effect runs after commit → ref populated).
+  const deepLinkPaneRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (selectedPermitId !== null && selectedPermitId === permitParamId) {
+      deepLinkPaneRef.current?.scrollIntoView({ block: 'start' });
+    }
+  }, [selectedPermitId, permitParamId]);
   // Q9.5.f-fix-16 D + E: Project Settings modal + Delete confirmation
   // dialog are owned at the page level so all four entry points (Settings
   // button / Delete button / future hotkeys) target the same instances.
@@ -291,6 +327,7 @@ function ProjectDetailBody({
             // Tasks + Sidebar widgets, all rendered in their natural
             // height. The pillbox's overflow-y-auto handles the scroll.
             <div
+              ref={deepLinkPaneRef}
               className="flex flex-col min-h-0"
               data-testid="permit-edit-pane"
             >
