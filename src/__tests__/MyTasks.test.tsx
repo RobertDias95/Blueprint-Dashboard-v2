@@ -335,6 +335,43 @@ describe('MyTasks (fix-80 v1 three-pane kanban)', () => {
     ).toBeInTheDocument();
   });
 
+  // fix-219: the LIVE My Tasks detail panel's "Open in Project View" must deep-
+  // link to the task's PERMIT (?permit=<permit_id>), not the project top. fix-217/
+  // 218 only hardened the unused TaskDetailPanel component, so the param never
+  // reached prod. This asserts the real, rendered panel. The link is built
+  // straight from task.permit_id + task.project_id on the MyTaskNode (no permit-
+  // object lookup), so it can never silently drop the param on a map miss.
+  it('fix-219: "Open in Project View" deep-links to the task\'s permit (?permit=<permit_id>)', () => {
+    tasksRef.current = varied();
+    renderIt();
+    fireEvent.click(screen.getByTestId('mytask-card-de-inprog')); // p1 / permit 1
+    const link = screen.getByTestId('task-detail-open-project');
+    expect(link.getAttribute('href')).toBe('/project/p1?permit=1');
+  });
+
+  it('fix-219: the deep-link param is present even for a permit the app has no lookup for (built from task.permit_id)', () => {
+    // A task whose permit_id would miss any permitsById cache — the MyTaskNode
+    // still carries permit_id + project_id, so the link is unaffected.
+    tasksRef.current = [
+      task({
+        id: 'orphan',
+        bucket: 'de',
+        project_id: 'proj-1953',
+        project_address: '1953 10th Ave W',
+        permit_id: 223,
+        permit_type: 'Building Permit',
+        discipline: 'ent',
+        status: 'Open',
+        text: 'Submit SCL EDG Application',
+      }),
+    ];
+    renderIt();
+    fireEvent.click(screen.getByTestId('mytask-card-orphan'));
+    expect(
+      screen.getByTestId('task-detail-open-project').getAttribute('href'),
+    ).toBe('/project/proj-1953?permit=223');
+  });
+
   it('fix-138-c: fixture task with waiting_on="Civil" shows "Civil" preselected; changing to "Structural" fires the upsert RPC with waiting_on="Structural"', () => {
     tasksRef.current = [
       task({

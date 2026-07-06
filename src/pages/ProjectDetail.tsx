@@ -120,10 +120,15 @@ function ProjectDetailBody({
   // overview, the pre-fix behavior).
   const [searchParams] = useSearchParams();
   const permitParam = searchParams.get('permit');
+  // fix-219: resolve the ?permit= value TYPE-ROBUSTLY. permit.id is typed
+  // `number` but the URL param is a string, and a strict === against a coerced
+  // Number silently misses if the runtime id shape ever differs. Match by
+  // String coercion on both sides and return the permit's OWN id (whatever its
+  // runtime type) so downstream selection comparisons stay self-consistent.
   const permitParamId = useMemo(() => {
     if (!permitParam) return null;
-    const n = Number(permitParam);
-    return Number.isInteger(n) && permits.some((p) => p.id === n) ? n : null;
+    const match = permits.find((p) => String(p.id) === String(permitParam));
+    return match ? match.id : null;
   }, [permitParam, permits]);
 
   // Q9.5.e-fix-1: default to project-overview view (null selection)

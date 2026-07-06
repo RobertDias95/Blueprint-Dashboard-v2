@@ -1453,7 +1453,13 @@ function TaskDetailEditor({
       </div>
 
       <Link
-        to={`/project/${task.project_id}`}
+        // fix-217/218/219: deep-link to the task's PERMIT so Project View
+        // auto-selects + scrolls to it, instead of the project top. This is the
+        // LIVE My Tasks detail panel (fix-217/218 hardened the unused
+        // TaskDetailPanel component). Build the param straight from
+        // task.permit_id — the permit pk on the MyTaskNode — so it never
+        // depends on resolving a permit object out of a lookup map.
+        to={`/project/${task.project_id}${task.permit_id != null ? `?permit=${task.permit_id}` : ''}`}
         className="text-[10px] font-display font-bold px-2.5 py-1.5 border-t text-center no-underline"
         style={{
           background: 'var(--color-s2)',
