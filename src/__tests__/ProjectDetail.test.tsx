@@ -317,6 +317,58 @@ describe('<ProjectDetail /> fix-218 deep-link after async permit load', () => {
   });
 });
 
+// fix-219: the deep-link resolution must be TYPE-ROBUST. permit.id is typed
+// `number` but the URL param is always a string; the pre-fix code matched with a
+// strict === against a coerced Number, which silently missed if a runtime id
+// shape ever differed. These pin the String-coerced match + a realistic 5-permit
+// async flow (the prod repro: project 1953 10th Ave W, permit 223 of 5).
+describe('<ProjectDetail /> fix-219 type-robust permit deep-link', () => {
+  it('selects the permit when its id is a STRING and ?permit= matches by value', () => {
+    // Runtime id arrives as a string '223'; the URL param is '223'. A strict
+    // number === would miss; the String-coerced match selects it.
+    refs.setPermits([
+      { ...refs.permits[0], id: '223', type: 'Building Permit' },
+      { ...refs.permits[1], id: '224', type: 'Demolition' },
+    ]);
+    renderAt(`/project/${PROJECT_ID}?permit=223`);
+    expect(screen.getByTestId('permit-edit-pane')).toBeInTheDocument();
+    expect(screen.queryByTestId('project-overview-pane')).toBeNull();
+    expect(screen.getByTestId('permits-sidebar-row-223').style.background).toBe(
+      'var(--color-s3)',
+    );
+    expect(screen.getByTestId('permits-sidebar-row-224').style.background).toBe(
+      'transparent',
+    );
+  });
+
+  it('selects ?permit=223 on a 5-permit project after the permits load async', () => {
+    const scrollSpy = vi.fn();
+    (Element.prototype as { scrollIntoView?: unknown }).scrollIntoView = scrollSpy;
+    const five = () =>
+      [221, 222, 223, 224, 225].map((id) => ({ ...refs.permits[0], id }));
+    // Empty on mount (async load) → overview, not the deep-linked permit.
+    refs.permitsFor = [];
+    const result = renderAt(`/project/${PROJECT_ID}?permit=223`);
+    expect(screen.getByTestId('project-overview-pane')).toBeInTheDocument();
+    // All 5 arrive on a later render (fresh array ref).
+    refs.permitsFor = five();
+    result.rerender(
+      <Routes>
+        <Route path="/project/:id" element={<ProjectDetail />} />
+      </Routes>,
+    );
+    // Permit 223 (of 5) is selected + scrolled into view.
+    expect(screen.getByTestId('permit-edit-pane')).toBeInTheDocument();
+    expect(screen.getByTestId('permits-sidebar-row-223').style.background).toBe(
+      'var(--color-s3)',
+    );
+    expect(screen.getByTestId('permits-sidebar-row-221').style.background).toBe(
+      'transparent',
+    );
+    expect(scrollSpy).toHaveBeenCalled();
+  });
+});
+
 describe('<ProjectDetail /> fix-23e two-pillbox layout', () => {
   it('renders left and right pillboxes with overflow-y-auto each', () => {
     renderAt();
