@@ -19,6 +19,7 @@ import { useUpsertDaTimeBlock } from '../hooks/useUpsertDaTimeBlock';
 import { useDeleteDaTimeBlock } from '../hooks/useDeleteDaTimeBlock';
 import { useTeamMembers } from '../hooks/useTeamMembers';
 import { useAllPermitCycleReviewers } from '../hooks/useAllPermitCycleReviewers';
+import { useIsTenantAdmin } from '../hooks/useIsTenantAdmin';
 import { useQuarterLayout } from '../hooks/useQuarterLayout';
 import { buildDrawColumns } from '../lib/quarterLayoutHelpers';
 import {
@@ -412,6 +413,12 @@ function DrawScheduleBody({
   // body label column so they stay in lockstep. At textScale === 1 (unmeasured
   // / jsdom) this is exactly the original LABEL_W (88) — layout unchanged.
   const labelW = Math.round(LABEL_W * textScale);
+
+  // fix-220: draw-schedule editing is admin-only (server-enforced via RLS +
+  // RPC guards). Non-admins get a fully read-only grid — every drag/resize/
+  // status/NP affordance below is gated on canEdit, and the write RPCs would
+  // raise 42501 / hit an RLS denial even if a control leaked through.
+  const canEdit = useIsTenantAdmin();
 
   const updateMutation = useUpdateDrawSchedule();
   const moveDaMutation = useMoveDrawScheduleDa();
@@ -1300,6 +1307,7 @@ function DrawScheduleBody({
         search={search}
         setSearch={setSearch}
         isLayoutMode={isLayoutMode}
+        canEdit={canEdit}
       />
 
       <div
@@ -1499,11 +1507,13 @@ function DrawScheduleBody({
                       key={wk}
                       data-testid={`drop-cell-${da}-${wk}`}
                       style={{ height: rowH }}
-                      className={`border-b border-border cursor-pointer ${
-                        wk === currentWeek ? 'bg-de/[0.04]' : ''
-                      }`}
+                      className={`border-b border-border ${
+                        canEdit ? 'cursor-pointer' : ''
+                      } ${wk === currentWeek ? 'bg-de/[0.04]' : ''}`}
                       onMouseEnter={() => hoverRange(wk, wk)}
                       onClick={(e) => {
+                        // fix-220: add-NP is an admin-only mutation.
+                        if (!canEdit) return;
                         // Ignore clicks while a drag is active (the drop
                         // handler already fired) — opening the popup mid-drag
                         // is jarring.
@@ -1519,9 +1529,12 @@ function DrawScheduleBody({
                       onDragOver={(e) => {
                         // preventDefault is what tells the browser this is a
                         // valid drop target. Without it, onDrop never fires.
+                        if (!canEdit) return;
                         e.preventDefault();
                       }}
                       onDrop={(e) => {
+                        // fix-220: moving a block is an admin-only mutation.
+                        if (!canEdit) return;
                         e.preventDefault();
                         const raw = e.dataTransfer.getData('application/json');
                         if (!raw) return;
@@ -1597,6 +1610,9 @@ function DrawScheduleBody({
                             // add-popup handler. Suppressed during drag /
                             // resize so the release click doesn't reopen.
                             e.stopPropagation();
+                            // fix-220: editing an NP block is admin-only; the
+                            // hover tooltip still shows its details read-only.
+                            if (!canEdit) return;
                             if (draggingProjectId !== null) return;
                             if (npResizing !== null) return;
                             setNpPopup({
@@ -1657,7 +1673,8 @@ function DrawScheduleBody({
                             {labelText}
                           </span>
                           {/* fix-25-feat-a: top edge resize handle (start_week) */}
-                          {isFirstSegment && (
+                          {/* fix-220: resize is an admin-only mutation. */}
+                          {canEdit && isFirstSegment && (
                             <div
                               data-testid={`np-resize-top-${np.id}`}
                               draggable={false}
@@ -1695,7 +1712,8 @@ function DrawScheduleBody({
                             />
                           )}
                           {/* fix-25-feat-a: bottom edge resize handle (end_week) */}
-                          {isLastSegment && (
+                          {/* fix-220: resize is an admin-only mutation. */}
+                          {canEdit && isLastSegment && (
                             <div
                               data-testid={`np-resize-bottom-${np.id}`}
                               draggable={false}
@@ -1846,8 +1864,12 @@ function DrawScheduleBody({
                         data-tier="default"
                         data-overflow={overflow === 'tail' ? 'tail' : undefined}
                         data-redesign={isRedesign ? 'true' : undefined}
-                        title={`${project.address} — ${derivedStatus}${redesignTitleSuffix} (drag to move, click to edit)`}
-                        draggable
+                        title={`${project.address} — ${derivedStatus}${redesignTitleSuffix}${
+                          canEdit
+                            ? ' (drag to move, click to edit)'
+                            : ' (view only)'
+                        }`}
+                        draggable={canEdit}
                         onMouseEnter={() => {
                           // Q9.5.f-fix-20: highlight every week the block
                           // spans in the left column. Range is the row's
@@ -1860,6 +1882,11 @@ function DrawScheduleBody({
                           }
                         }}
                         onDragStart={(e) => {
+                          // fix-220: moving a block is an admin-only mutation.
+                          if (!canEdit) {
+                            e.preventDefault();
+                            return;
+                          }
                           const payload: DragPayload = {
                             projectId: row.project_id,
                             durationWeeks,
@@ -1898,7 +1925,7 @@ function DrawScheduleBody({
                           borderRadius: 4,
                           overflow: 'hidden',
                           zIndex: 5,
-                          cursor: 'grab',
+                          cursor: canEdit ? 'grab' : 'pointer',
                           // Bug A: during a drag, SIBLING blocks let drops
                           // pass through to the cell underneath. The drag
                           // source keeps pointer-events:auto — setting it to
@@ -2123,6 +2150,8 @@ function DrawScheduleBody({
                             handle itself is not draggable, and we stop
                             propagation so it doesn't trigger the parent's
                             HTML5 drag. */}
+                        {/* fix-220: resize is an admin-only mutation. */}
+                        {canEdit && (
                         <div
                           data-testid={`resize-handle-${row.project_id}`}
                           draggable={false}
@@ -2170,6 +2199,7 @@ function DrawScheduleBody({
                                 : 'auto',
                           }}
                         />
+                        )}
                       </div>
                     );
                   })}
@@ -2207,6 +2237,7 @@ function DrawScheduleBody({
               permits={projectPermits}
               displayedStatus={derivedStatus}
               isAutoDerived={isAuto}
+              readOnly={!canEdit}
               onClose={() => setPopupProjectId(null)}
             />
           );
@@ -2428,12 +2459,14 @@ function Toolbar({
   search,
   setSearch,
   isLayoutMode,
+  canEdit,
 }: {
   quarterOffset: number;
   setQuarterOffset: (n: number) => void;
   search: string;
   setSearch: (s: string) => void;
   isLayoutMode: boolean;
+  canEdit: boolean;
 }) {
   return (
     <div className="flex items-center gap-3 flex-wrap flex-shrink-0">
@@ -2487,9 +2520,19 @@ function Toolbar({
         data-testid="schedule-search"
       />
 
-      <span className="text-[10px] text-muted font-mono ml-auto">
-        Drag a block to move it. Drag the bottom edge to resize.
-      </span>
+      {canEdit ? (
+        <span className="text-[10px] text-muted font-mono ml-auto">
+          Drag a block to move it. Drag the bottom edge to resize.
+        </span>
+      ) : (
+        <span
+          data-testid="ds-view-only-badge"
+          title="Draw-schedule editing is restricted to admins. You have read-only access."
+          className="text-[9px] uppercase tracking-wide px-1.5 py-0.5 rounded border border-border bg-s2 text-muted font-display font-bold ml-auto"
+        >
+          👁 View only
+        </span>
+      )}
     </div>
   );
 }

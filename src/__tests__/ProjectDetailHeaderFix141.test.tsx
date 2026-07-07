@@ -139,6 +139,10 @@ beforeEach(() => {
   useAuthStore.setState({
     activeTenantId: T,
     user: { id: 'u', email: 'u@test', role: 'admin' },
+    // fix-220: DD dates mirror onto the draw_schedule lane (admin-only). The
+    // snap tests drive the DD inputs, so the caller must be a tenant admin
+    // (useIsTenantAdmin reads memberships, not user.role).
+    memberships: [{ tenant_id: T, role: 'admin' }],
   } as never);
 });
 

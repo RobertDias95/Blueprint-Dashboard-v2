@@ -1711,3 +1711,51 @@ describe('<DrawScheduleGrid /> saved-layout mode (fix-182c)', () => {
     expect(screen.getByTestId('da-header-Ahmadi')).not.toHaveAttribute('data-inactive');
   });
 });
+
+// fix-220: draw-schedule editing is admin-only. Non-admins get a fully
+// read-only grid; the server (RLS + RPC guards) is the real enforcement, this
+// asserts the UI removes the affordances so editors never even fire a write.
+describe('<DrawScheduleGrid /> — fix-220 admin-only editing', () => {
+  it('admin sees editable affordances and no view-only badge', () => {
+    // beforeEach already sets role: 'admin'.
+    renderGrid();
+    expect(screen.queryByTestId('ds-view-only-badge')).toBeNull();
+    expect(screen.getByTestId('block-p-now')).toHaveAttribute('draggable', 'true');
+    expect(screen.getByTestId('resize-handle-p-now')).toBeInTheDocument();
+  });
+
+  it('editor: block is not draggable, resize handle is gone, view-only badge shows', () => {
+    useAuthStore.setState({
+      activeTenantId: T,
+      memberships: [{ tenant_id: T, role: 'editor' }],
+    });
+    renderGrid();
+    expect(screen.getByTestId('ds-view-only-badge')).toBeInTheDocument();
+    expect(screen.getByTestId('block-p-now')).toHaveAttribute('draggable', 'false');
+    expect(screen.queryByTestId('resize-handle-p-now')).toBeNull();
+  });
+
+  it('editor: a drag-drop onto another lane does NOT fire a move mutation', () => {
+    useAuthStore.setState({
+      activeTenantId: T,
+      memberships: [{ tenant_id: T, role: 'editor' }],
+    });
+    renderGrid();
+    const block = screen.getByTestId('block-p-now');
+    // Any empty cell on a different DA lane is a would-be drop target.
+    const cell = screen.getByTestId('drop-cell-Ahmadi-2026-05-11');
+    simulateDragDrop(block, cell);
+    expect(moveDaMutate).not.toHaveBeenCalled();
+    expect(updateMutate).not.toHaveBeenCalled();
+  });
+
+  it('editor: clicking an empty cell does NOT open the add-NP popup', () => {
+    useAuthStore.setState({
+      activeTenantId: T,
+      memberships: [{ tenant_id: T, role: 'editor' }],
+    });
+    renderGrid();
+    fireEvent.click(screen.getByTestId('drop-cell-Ahmadi-2026-05-11'));
+    expect(screen.queryByTestId('np-edit-popup')).toBeNull();
+  });
+});

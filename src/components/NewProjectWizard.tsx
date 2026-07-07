@@ -8,6 +8,7 @@ import {
 import { useJurisdictions } from '../hooks/useJurisdictions';
 import { usePermitTypes } from '../hooks/usePermitTypes';
 import { usePlaceNewProjectOnDa } from '../hooks/usePlaceNewProjectOnDa';
+import { useIsTenantAdmin } from '../hooks/useIsTenantAdmin';
 import Step1ProjectInfo from './wizard/Step1ProjectInfo';
 import Step2Questionnaire from './wizard/Step2Questionnaire';
 import Step3Permits from './wizard/Step3Permits';
@@ -123,6 +124,11 @@ export default function NewProjectWizard({ open, onClose, initialState }: Props)
   const navigate = useNavigate();
   const create = useCreateProjectWithPermits();
   const placeOnDa = usePlaceNewProjectOnDa();
+  // fix-220: manual DA placement writes draw_schedule, an admin-only mutation.
+  // Project creation itself stays open to editors (the create RPC lays the
+  // initial lane); for non-admins we simply skip the secondary explicit
+  // placement, which would otherwise hit an RLS denial and toast an error.
+  const canEditSchedule = useIsTenantAdmin();
   const jurisQ = useJurisdictions();
   const typesQ = usePermitTypes();
   // fix-91: derive project-level ent_lead + design_manager on submit
@@ -479,7 +485,7 @@ export default function NewProjectWizard({ open, onClose, initialState }: Props)
       const redesignLanePlaced =
         isRedesign && !!redesignDdStart && !!redesignDdEnd;
       const firstDa = selectedPermits.find((p) => p.da && p.da.trim() !== '')?.da;
-      if (firstDa && !redesignLanePlaced) {
+      if (firstDa && !redesignLanePlaced && canEditSchedule) {
         try {
           await placeOnDa.mutateAsync({
             projectId: result.project_id,

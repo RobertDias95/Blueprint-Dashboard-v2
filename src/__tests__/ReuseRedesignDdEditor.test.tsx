@@ -137,6 +137,10 @@ beforeEach(() => {
   useAuthStore.setState({
     activeTenantId: T,
     user: { id: 'u', email: 'u@test', role: 'admin' },
+    // fix-220: the DD-phase editor writes draw_schedule (admin-only). These
+    // behavior tests exercise the editing path, so put the caller in an admin
+    // membership (useIsTenantAdmin reads memberships, not user.role).
+    memberships: [{ tenant_id: T, role: 'admin' }],
   } as never);
 });
 
