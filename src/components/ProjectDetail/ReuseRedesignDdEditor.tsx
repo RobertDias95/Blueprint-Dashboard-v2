@@ -3,6 +3,7 @@ import type { Project } from '../../lib/database.types';
 import { useDrawSchedule } from '../../hooks/useDrawSchedule';
 import { useTeamMembers } from '../../hooks/useTeamMembers';
 import { useUpdateRedesignDdPhase } from '../../hooks/useUpdateRedesignDdPhase';
+import { useIsTenantAdmin } from '../../hooks/useIsTenantAdmin';
 import { useOriginalPermitForRedesign } from '../../hooks/useOriginalPermitForRedesign';
 import { snapToMonday, addDays } from '../../lib/dateUtils';
 import { DS_STATUS_LIST } from '../../lib/drawScheduleStatus';
@@ -27,6 +28,9 @@ export default function ReuseRedesignDdEditor({ project }: { project: Project })
   const drawQ = useDrawSchedule();
   const teamQ = useTeamMembers();
   const update = useUpdateRedesignDdPhase();
+  // fix-220: this editor writes the draw_schedule lane (bp_update_redesign_dd_phase),
+  // an admin-only mutation. Non-admins see the lane values read-only.
+  const canEdit = useIsTenantAdmin();
   // fix-146: the shared original permit — its application status is shown
   // read-only above the editable lane status. null when the parent has no BP.
   const inherited = useOriginalPermitForRedesign(project).data;
@@ -68,10 +72,11 @@ export default function ReuseRedesignDdEditor({ project }: { project: Project })
     start !== (row?.dd_start ?? '') ||
     end !== (row?.dd_end ?? '') ||
     status !== (row?.status ?? 'Scheduled');
-  const canSave = dirty && !!da && !!start && !!end && !update.isPending;
+  const canSave =
+    canEdit && dirty && !!da && !!start && !!end && !update.isPending;
 
   function save() {
-    if (!da || !start || !end) return;
+    if (!canEdit || !da || !start || !end) return;
     // Snap on save so the payload is always Monday/Friday even if the user
     // didn't blur the inputs. dd_start → next Monday; dd_end → Friday of its
     // end-week. The RPC re-snaps dd_start defensively (idempotent).
@@ -114,6 +119,7 @@ export default function ReuseRedesignDdEditor({ project }: { project: Project })
         <select
           value={da}
           onChange={(e) => setDa(e.target.value)}
+          disabled={!canEdit}
           className={inputClass}
           style={inputStyle}
           data-testid="redesign-dd-editor-da"
@@ -138,6 +144,7 @@ export default function ReuseRedesignDdEditor({ project }: { project: Project })
             const s = snapToMonday(start, 'forward');
             if (s) setStart(s);
           }}
+          disabled={!canEdit}
           className={inputClass}
           style={inputStyle}
           data-testid="redesign-dd-editor-start"
@@ -153,6 +160,7 @@ export default function ReuseRedesignDdEditor({ project }: { project: Project })
             const e2 = addDays(snapToMonday(end, 'back'), 4);
             if (e2) setEnd(e2);
           }}
+          disabled={!canEdit}
           className={inputClass}
           style={inputStyle}
           data-testid="redesign-dd-editor-end"
@@ -170,6 +178,7 @@ export default function ReuseRedesignDdEditor({ project }: { project: Project })
         <select
           value={status}
           onChange={(e) => setStatus(e.target.value)}
+          disabled={!canEdit}
           className={inputClass}
           style={inputStyle}
           data-testid="redesign-dd-editor-status"
@@ -185,15 +194,24 @@ export default function ReuseRedesignDdEditor({ project }: { project: Project })
           ))}
         </select>
       </div>
-      <button
-        type="button"
-        onClick={save}
-        disabled={!canSave}
-        className="self-start text-[10px] font-display font-bold px-2 py-0.5 rounded border border-border bg-bg/40 text-text hover:bg-bg transition disabled:opacity-40 disabled:cursor-not-allowed"
-        data-testid="redesign-dd-editor-save"
-      >
-        Save
-      </button>
+      {canEdit ? (
+        <button
+          type="button"
+          onClick={save}
+          disabled={!canSave}
+          className="self-start text-[10px] font-display font-bold px-2 py-0.5 rounded border border-border bg-bg/40 text-text hover:bg-bg transition disabled:opacity-40 disabled:cursor-not-allowed"
+          data-testid="redesign-dd-editor-save"
+        >
+          Save
+        </button>
+      ) : (
+        <span
+          className="self-start text-[9px] text-dim italic"
+          data-testid="redesign-dd-editor-view-only"
+        >
+          👁 View only — draw-schedule editing is admin-only.
+        </span>
+      )}
     </div>
   );
 }

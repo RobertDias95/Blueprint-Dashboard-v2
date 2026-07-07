@@ -34,6 +34,10 @@ interface Props {
   displayedStatus: DsStatus;
   /** Auto-vs-manual badge text in the header. */
   isAutoDerived: boolean;
+  /** fix-220: non-admins get a read-only popup — status pills, duration and
+   *  resync (all draw_schedule writes) are hidden; the "Open Project" link
+   *  and status readout remain so the block is still inspectable. */
+  readOnly?: boolean;
   onClose: () => void;
 }
 
@@ -43,6 +47,7 @@ export default function ProjectBlockPopup({
   permits,
   displayedStatus,
   isAutoDerived,
+  readOnly = false,
   onClose,
 }: Props) {
   const mutation = useUpdateDsRow();
@@ -184,7 +189,20 @@ export default function ProjectBlockPopup({
           </span>
         </div>
 
-        {STATUS_ORDER.map((s) => {
+        {readOnly && (
+          <div
+            data-testid="ds-popup-view-only"
+            style={{ fontSize: 11, color: 'var(--color-muted)', padding: '2px 2px 4px' }}
+          >
+            Status: <strong>{displayedStatus}</strong>
+            <div style={{ fontSize: 9, color: 'var(--color-dim)', marginTop: 2 }}>
+              👁 View only — draw-schedule editing is admin-only.
+            </div>
+          </div>
+        )}
+
+        {!readOnly &&
+          STATUS_ORDER.map((s) => {
           const col = DS_STATUS_COLORS[s];
           const isCur = s === displayedStatus;
           return (
@@ -211,8 +229,9 @@ export default function ProjectBlockPopup({
               {s}
             </button>
           );
-        })}
+          })}
 
+        {!readOnly && (
         <div
           style={{
             borderTop: '1px solid var(--color-border)',
@@ -265,6 +284,7 @@ export default function ProjectBlockPopup({
             Set
           </button>
         </div>
+        )}
 
         <div
           style={{
@@ -292,6 +312,7 @@ export default function ProjectBlockPopup({
           >
             → Open Project
           </Link>
+          {!readOnly && (
           <button
             type="button"
             onClick={() => void handleResync()}
@@ -312,6 +333,7 @@ export default function ProjectBlockPopup({
           >
             ↻ Resync from project dates
           </button>
+          )}
         </div>
       </div>
     </>

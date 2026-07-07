@@ -30,6 +30,7 @@ import {
   type NpOverlapConflict,
 } from '../../hooks/useSetBpDdDates';
 import { useResolveDaOverlap } from '../../hooks/useResolveDaOverlap';
+import { useIsTenantAdmin } from '../../hooks/useIsTenantAdmin';
 import { useDrawSchedule } from '../../hooks/useDrawSchedule';
 import { useUpdateProjectWithPermits } from '../../hooks/useUpdateProjectWithPermits';
 import { pushToast } from '../../stores/toastStore';
@@ -229,6 +230,9 @@ function DDPhaseEditor({
   const setBpDdDates = useSetBpDdDates();
   const resolveOverlap = useResolveDaOverlap();
   const drawScheduleQ = useDrawSchedule();
+  // fix-220: DD dates mirror onto the draw_schedule lane (bp_set_bp_dd_dates),
+  // an admin-only mutation. Non-admins see the DD fields read-only.
+  const canEdit = useIsTenantAdmin();
   const occMissing = !bp.updated_at;
   const [startDraft, setStartDraft] = useState(bp.dd_start ?? '');
   const [endDraft, setEndDraft] = useState(bp.dd_end ?? '');
@@ -264,6 +268,7 @@ function DDPhaseEditor({
   /** Commit DD dates. The RPC accepts (a) both filled, (b) both null
    *  (clear), but rejects partial-null. */
   async function commitDd(opts: { forceNp?: boolean } = {}) {
+    if (!canEdit) return; // fix-220: admin-only draw_schedule write
     if (!bp.updated_at) return;
     const rawStart = startDraft.trim() || null;
     const rawEnd = endDraft.trim() || null;
@@ -384,7 +389,7 @@ function DDPhaseEditor({
               value={startDraft}
               onChange={(e) => setStartDraft(e.target.value)}
               onBlur={() => void commitDd()}
-              disabled={occMissing}
+              disabled={occMissing || !canEdit}
               className="text-[11px] font-semibold px-1.5 py-0.5 border rounded outline-none flex-1 disabled:opacity-50"
               style={{
                 borderColor: 'var(--color-border)',
@@ -401,7 +406,7 @@ function DDPhaseEditor({
               value={endDraft}
               onChange={(e) => setEndDraft(e.target.value)}
               onBlur={() => void commitDd()}
-              disabled={occMissing}
+              disabled={occMissing || !canEdit}
               className="text-[11px] font-semibold px-1.5 py-0.5 border rounded outline-none flex-1 disabled:opacity-50"
               style={{
                 borderColor: 'var(--color-border)',
