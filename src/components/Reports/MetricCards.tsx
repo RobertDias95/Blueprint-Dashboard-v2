@@ -443,7 +443,7 @@ export default function MetricCards({
         label="In Corrections"
         labelSlot={tip('inCorrections')}
         value={metrics.inCorrections}
-        subText={`${metrics.issuedCount} of ${metrics.totalPermits} issued`}
+        subText={`${metrics.issuedCount} of ${metrics.totalPermits} issued / approved`}
         sampleText={sampleText('inCorrections')}
         tone="co"
         testId="metric-in-corrections"

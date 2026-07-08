@@ -714,6 +714,53 @@ describe('computeMetrics', () => {
     expect(computeMetrics(enriched).issuedCount).toBe(1);
   });
 
+  it('fix-221: approved-not-issued counts as issued; in-review + sub-permit + terminal do NOT', () => {
+    const enriched = enrichPermits(
+      [
+        // actually issued → counts
+        makePermit({ id: 1, project_id: 'p1', actual_issue: '2026-05-01' }),
+        // approved but not issued → counts (effective issued via approval_date)
+        makePermit({
+          id: 2,
+          project_id: 'p2',
+          approval_date: '2026-04-15',
+          actual_issue: null,
+          status: 'Ready for Issuance',
+        }),
+        // truly in review → does NOT count
+        makePermit({
+          id: 3,
+          project_id: 'p1',
+          approval_date: null,
+          actual_issue: null,
+          status: 'Reviews In Process',
+        }),
+        // approved but terminal (withdrawn) → does NOT count
+        makePermit({
+          id: 4,
+          project_id: 'p2',
+          approval_date: '2026-04-01',
+          actual_issue: null,
+          status: 'Withdrawn',
+        }),
+        // sub-permit approved-not-issued → excluded upstream (enrichPermits)
+        makePermit({
+          id: 5,
+          project_id: 'p1',
+          approval_date: '2026-04-10',
+          actual_issue: null,
+          parent_permit_id: 1,
+        }),
+      ],
+      projectsById,
+    );
+    const m = computeMetrics(enriched);
+    // ids 1 (issued) + 2 (approved-not-issued) = 2.
+    expect(m.issuedCount).toBe(2);
+    // sub-permit never enters the cohort at all.
+    expect(m.totalPermits).toBe(4);
+  });
+
   it('empty input → all averages null, counts 0', () => {
     const m = computeMetrics([]);
     expect(m.totalPermits).toBe(0);

@@ -7,6 +7,7 @@ import type {
 } from './database.types';
 import { multiMatchAddress } from './drawScheduleHelpers';
 import { isPermitInCorrections } from './permitStage';
+import { isEffectivelyIssued } from './effectiveIssued';
 import { accountableDays } from './holdOverlap';
 import { isNotSubPermit } from './subPermit';
 import { buildProjectDdStartMap } from './projectDdStart';
@@ -736,7 +737,9 @@ function buildFullyIssuedProjectIds(
   }
   const out = new Set<string>();
   for (const [pid, list] of byProject) {
-    if (list.every((e) => e.permit.actual_issue)) out.add(pid);
+    // fix-221: a project is "fully issued" when every permit has effectively
+    // issued — actually issued OR approved-awaiting-issuance (counts as done).
+    if (list.every((e) => isEffectivelyIssued(e.permit))) out.add(pid);
   }
   return out;
 }
@@ -956,7 +959,11 @@ export function computeMetrics(
     if (isPermitInCorrections(e.permit, e.permit.permit_cycles ?? [], e.reviewers)) {
       inCorrections++;
     }
-    if (e.permit.actual_issue) issuedCount++;
+    // fix-221: "effective issued" — an approved-not-issued permit (approval_date
+    // set, no actual_issue, non-terminal status) counts as issued using its
+    // approval_date. Bobby's call: these ARE done for our purposes. Actually-
+    // issued permits are unchanged (still counted via actual_issue).
+    if (isEffectivelyIssued(e.permit)) issuedCount++;
   }
 
   // fix-203: build each average metric's value array ONCE so its sample size
