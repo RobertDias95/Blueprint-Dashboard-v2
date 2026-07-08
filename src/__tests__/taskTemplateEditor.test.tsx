@@ -80,8 +80,11 @@ vi.mock('../hooks/useTeamMembers', () => ({
     all: [
       { id: 'm1', name: 'Jordan', role: 'da', active: true, former: false, email: null, notes: null, updated_at: '' },
       { id: 'm2', name: 'Sarah', role: 'ent', active: true, former: false, email: null, notes: null, updated_at: '' },
+      // fix-222: Bobby holds BOTH ent + ent_lead — the picker must show him once.
+      { id: 'm3', name: 'Bobby', role: 'ent', active: true, former: false, email: null, notes: null, updated_at: '' },
+      { id: 'm4', name: 'Bobby', role: 'ent_lead', active: true, former: false, email: null, notes: null, updated_at: '' },
     ],
-    activeDas: [], formerDas: [], dms: [], ents: [], acqs: [],
+    activeDas: [], formerDas: [], dms: [], ents: [], acqs: [], schematics: [],
     isLoading: false, error: null, data: [], refetch: vi.fn(),
   }),
 }));
@@ -132,16 +135,65 @@ describe('TaskTemplateEditor — fix-153 capabilities', () => {
     expect(labels).toEqual(['D&E', 'Permitting']);
   });
 
+  it('fix-222: the Team dropdown offers exactly the 3 new taxonomy values', () => {
+    renderEditor();
+    const team = screen.getByTestId(
+      'task-template-row-t1-team',
+    ) as HTMLSelectElement;
+    const labels = Array.from(team.options).map((o) => o.textContent);
+    expect(labels).toEqual([
+      '(none)',
+      'Entitlements',
+      'Design Associate',
+      'Schematic Team',
+    ]);
+    expect(labels).not.toContain('Architecture');
+  });
+
   it('selecting a Team persists default_team', () => {
     renderEditor();
     fireEvent.change(screen.getByTestId('task-template-row-t1-team'), {
-      target: { value: 'Architecture' },
+      target: { value: 'Design Associate' },
     });
     expect(mocks.upsertTpl).toHaveBeenCalledWith({
       op: 'update',
       template: expect.objectContaining({ id: 't1' }),
-      patch: { default_team: 'Architecture' },
+      patch: { default_team: 'Design Associate' },
     });
+  });
+
+  it('fix-222: co-assignee people picker shows each person once (deduped)', () => {
+    const { container } = renderEditor();
+    const datalist = container.querySelector(
+      '#co-assignee-options-t1',
+    ) as HTMLDataListElement;
+    const values = Array.from(datalist.querySelectorAll('option')).map(
+      (o) => (o as HTMLOptionElement).value,
+    );
+    // Bobby (ent + ent_lead) appears once, not twice.
+    expect(values.filter((v) => v === 'Bobby')).toHaveLength(1);
+    // The dynamic role labels are also offered.
+    expect(values).toContain('Design Manager');
+  });
+
+  it('fix-222: selecting a dynamic role stores a role token', () => {
+    renderEditor();
+    const input = screen.getByTestId(
+      'task-template-row-t1-co-assignees-input',
+    ) as HTMLInputElement;
+    fireEvent.change(input, { target: { value: 'Design Manager' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+    expect(mocks.upsertTpl).toHaveBeenCalledWith({
+      op: 'update',
+      template: expect.objectContaining({ id: 't1' }),
+      patch: { default_co_assignees: ['role:design_manager'] },
+    });
+  });
+
+  it('fix-222: the retired cat field is no longer rendered', () => {
+    renderEditor();
+    expect(screen.queryByTestId('tte-cat-t1')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('tte-cat-t2')).not.toBeInTheDocument();
   });
 
   it('clearing a Team to (none) persists null', () => {

@@ -52,6 +52,7 @@ vi.mock('../hooks/useTeamMembers', () => ({
     dms: fixtures.members.filter((m) => m.role === 'dm'),
     ents: fixtures.members.filter((m) => m.role === 'ent'),
     acqs: fixtures.members.filter((m) => m.role === 'acq'),
+    schematics: fixtures.members.filter((m) => m.role === 'schematic'),
     isLoading: false,
     error: null,
     refetch: vi.fn(),

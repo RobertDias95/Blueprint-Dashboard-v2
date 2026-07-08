@@ -331,6 +331,37 @@ describe('useCreateProjectWithPermits (fix-22 signature)', () => {
     expect(args.p_project_data).toMatchObject({ lead_da: 'Trevor' });
   });
 
+  it('fix-222: schematic_designer threads through project_data to the RPC payload', async () => {
+    // Step 1's Schematic Designer must reach the RPC as
+    // p_project_data.schematic_designer (a jsonb array) so it persists on
+    // projects.schematic_designer and 'Schematic Team' template tasks route to it.
+    mocks.setResult({
+      data: [
+        {
+          project_id: '44444444-4444-4444-4444-444444444444',
+          permit_ids: [40000],
+          conflict: false,
+        },
+      ],
+      error: null,
+    });
+    const { wrapper } = setup();
+    const { result } = renderHook(() => useCreateProjectWithPermits(), {
+      wrapper,
+    });
+    await act(async () => {
+      await result.current.mutateAsync({
+        address: '600 Union St',
+        juris: 'Seattle',
+        project_data: { schematic_designer: ['Ana'] },
+        permits: [{ type: 'Building Permit', task_template_ids: [] }],
+      });
+    });
+    expect(mocks.rpcFn).toHaveBeenCalledTimes(1);
+    const [, args] = mocks.rpcFn.mock.calls[0];
+    expect(args.p_project_data).toMatchObject({ schematic_designer: ['Ana'] });
+  });
+
   // fix-126: four redesign-concept fields thread through project_data
   // verbatim. The RPC handles NULLIF on its end. On a reuse=true
   // redesign the caller is expected to send empty `permits` — the RPC

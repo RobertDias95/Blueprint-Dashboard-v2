@@ -16,6 +16,9 @@ export interface TeamMembersResult {
   dms: TeamMember[];
   ents: TeamMember[];
   acqs: TeamMember[];
+  /** fix-222: the Schematic Team roster — sources the New Project wizard's
+   *  Schematic Designer picker + the Schematic Team admin section. */
+  schematics: TeamMember[];
 }
 
 export function useTeamMembers() {
@@ -48,6 +51,7 @@ export function useTeamMembers() {
       dms: ofRole('dm'),
       ents: ofRole('ent'),
       acqs: ofRole('acq'),
+      schematics: ofRole('schematic'),
     };
   }, [q.data]);
 

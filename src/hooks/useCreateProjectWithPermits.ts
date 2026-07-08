@@ -46,6 +46,10 @@ export interface ProjectData {
   entitlement_lead?: string | null;
   design_manager?: string | null;
   acq_lead?: string | null;
+  /** fix-222: the project's Schematic Designer(s). Sent as a jsonb array; the
+   *  RPC stores it in projects.schematic_designer (text[]). A single picker
+   *  today, so this is a 0- or 1-element array. */
+  schematic_designer?: string[] | null;
   go_date?: string | null;
   units?: number | null;
   zone?: string | null;

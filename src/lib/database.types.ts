@@ -43,6 +43,11 @@ export interface Project {
    *  PAR/SDOT/ECA routing pattern is preserved on permits.ent_lead. */
   entitlement_lead?: string | null;
   design_manager?: string | null;
+  /** fix-222: the project's Schematic Designer(s), sourced from the Schematic
+   *  Team roster in the New Project wizard. Persisted as text[] (single now,
+   *  multiple allowed). 'Schematic Team' template tasks + the "Schematic
+   *  Designer" co-assignee token route to these names. */
+  schematic_designer?: string[] | null;
   /** fix-22 Migration 1+2: physical/scheduling fields moved from permits
    *  → projects as the single source of truth. Backfilled from each
    *  project's Building Permit; conflicts recorded in audit_log. */
@@ -592,7 +597,11 @@ export interface TaskTemplate {
    *  Same controlled vocab as WAITING_ON_OPTIONS; null = no default block. */
   default_waiting_on: WaitingOnDiscipline | null;
   default_target_offset: number | null;
-  cat: string | null;
+  /** fix-222: RETIRED from the settings UI — no cat label/picker is shown or
+   *  edited anymore. The nullable column stays in place and is still carried
+   *  verbatim through fetch/upsert so existing values persist (the create RPC
+   *  still copies it onto permit_tasks.cat). Optional to reflect it's vestigial. */
+  cat?: string | null;
   sort_order: number | null;
   updated_at: string;
 }
@@ -632,7 +641,10 @@ export type TeamRole =
   | 'ent'
   | 'ent_lead'
   | 'acq'
-  | 'acq_lead';
+  | 'acq_lead'
+  // fix-222: Schematic Team roster — sources the New Project wizard's
+  // "Schematic Designer" picker + routes 'Schematic Team' template tasks.
+  | 'schematic';
 
 /** Tenant-scoped roster. `active` flags currently-working members;
  * `former` flags DAs (and only DAs in v1's UX) who used to be on the

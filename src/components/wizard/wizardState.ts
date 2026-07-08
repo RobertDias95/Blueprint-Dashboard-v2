@@ -91,6 +91,11 @@ export interface WizardState {
    *  via dm_da_groups + written to projects.design_manager on submit. */
   design_manager: string;
   acq_lead: string;
+  /** fix-222: project-level Schematic Designer, picked from the Schematic Team
+   *  roster. Persisted to projects.schematic_designer (as a 1-element array for
+   *  now; the column allows multiple). 'Schematic Team' template tasks + the
+   *  "Schematic Designer" co-assignee token route to this person. */
+  schematic_designer: string;
   /** fix-96-c: project-level Lead Design Associate. The BP DA is now a
    *  project-level question (Bobby's call) — Step 1 collects it and
    *  Step 3 shows the BP row's DA read-only. Other permits' DAs stay
@@ -205,6 +210,7 @@ export function makeEmptyWizardState(): WizardState {
     entitlement_lead: '',
     design_manager: '',
     acq_lead: '',
+    schematic_designer: '',
     lead_da: '',
     go_date: '',
     acq_target: '',
