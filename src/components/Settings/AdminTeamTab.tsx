@@ -37,6 +37,8 @@ const ROLE_LABEL: Record<TeamRole, string> = {
   ent_lead: 'Entitlement Leads',
   acq: 'Acquisition Leads',
   acq_lead: 'Acquisition Leads',
+  // fix-222: Schematic Team roster.
+  schematic: 'Schematic Team',
 };
 
 export default function AdminTeamTab() {
@@ -93,6 +95,10 @@ export default function AdminTeamTab() {
   const dmItems = teamQ.dms.map((m) => ({ key: m.name, label: m.name }));
   const entItems = teamQ.ents.map((m) => ({ key: m.name, label: m.name }));
   const acqItems = teamQ.acqs.map((m) => ({ key: m.name, label: m.name }));
+  const schematicItems = teamQ.schematics.map((m) => ({
+    key: m.name,
+    label: m.name,
+  }));
   const formerItems = teamQ.formerDas.map((d) => ({
     key: d.name,
     label: d.name,
@@ -183,6 +189,23 @@ export default function AdminTeamTab() {
           placeholder="Add Acquisition Lead…"
           readOnly={!isAdmin}
           testIdPrefix="team-acq"
+        />
+      </Section>
+
+      {/* fix-222: Schematic Team roster — feeds the wizard's Schematic Designer
+          picker and routes 'Schematic Team' template tasks. */}
+      <Section title={ROLE_LABEL.schematic}>
+        <PillListEditor
+          label={ROLE_LABEL.schematic}
+          items={schematicItems}
+          onAdd={(name) => addMember('schematic', name)}
+          onRemove={(name) => hardDelete('schematic', name)}
+          onRename={(oldName, newName) =>
+            renameSimple('schematic', oldName, newName)
+          }
+          placeholder="Add Schematic Designer…"
+          readOnly={!isAdmin}
+          testIdPrefix="team-schematic"
         />
       </Section>
 

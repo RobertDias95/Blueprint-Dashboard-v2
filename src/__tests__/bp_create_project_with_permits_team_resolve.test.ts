@@ -1,76 +1,123 @@
 import { describe, it, expect } from 'vitest';
+import {
+  resolveTeamAssignee,
+  resolveCoAssignee,
+  resolveCoAssignees,
+  roleToken,
+} from '../lib/taskTeam';
+import { findDmForDa } from '../components/wizard/dmRouting';
+import type { DmDaGroupRow } from '../lib/database.types';
 
-// fix-153: contract spec for the team-resolution that bp_create_project_with_permits
-// applies when seeding permit_tasks from task_templates.
-//
-// The resolution itself is SQL (a CASE on tt.default_team inside the INSERT-SELECT,
-// see migrations/fix_153_task_templates_team_co_assignees_waiting_on.sql). There is
-// no live database in CI, so the canonical verification was a transactional,
-// rolled-back MCP probe against PROD on 2026-06-10. Its verbatim output:
-//
-//   [arch task]       assigned=Trevor       co={Jordan,Sarah}  waiting=Civil
-//   [ent task]        assigned=Maria        co={}              waiting=<null>
-//   [literal task]    assigned=Bob Literal  co={}              waiting=<null>
-//   [unassigned task] assigned=<null>       co={}              waiting=<null>
-//
-//   (permit: type=ZZTEST, da=Trevor, ent_lead=Maria — entire probe rolled back)
-//
-// The pure function below mirrors that SQL CASE exactly so the documented contract
-// is regression-guarded in the test suite. If the SQL ever changes, update both.
+// fix-153 + fix-222: contract spec for the team + co-assignee resolution that
+// bp_create_project_with_permits applies when seeding permit_tasks from
+// task_templates. The resolution is SQL (migrations/fix_222_task_template_overhaul.sql:
+// the CASE on tt.default_team + the unnest/CASE token transform inside the
+// INSERT-SELECT). No live DB in CI, so these pure helpers (src/lib/taskTeam.ts)
+// are THE tested source of truth and the SQL mirrors them — keep in lockstep.
 
-interface SeedPermit {
-  da: string | null;
-  ent_lead: string | null;
-}
+describe('fix-222 default_team → assigned_to routing', () => {
+  const ctx = {
+    entLead: 'Maria',
+    da: 'Trevor',
+    schematicDesigners: ['Ana'],
+  };
 
-/** Mirror of the SQL:
- *   CASE tt.default_team
- *     WHEN 'Entitlements' THEN NULLIF(v_permit->>'ent_lead','')
- *     WHEN 'Architecture' THEN NULLIF(v_permit->>'da','')
- *     ELSE NULLIF(tt.default_team,'')
- *   END
- */
-function resolveAssignee(
-  defaultTeam: string | null,
-  permit: SeedPermit,
-): string | null {
-  const nullif = (v: string | null) => (v && v.trim() !== '' ? v : null);
-  switch (defaultTeam) {
-    case 'Entitlements':
-      return nullif(permit.ent_lead);
-    case 'Architecture':
-      return nullif(permit.da);
-    default:
-      return nullif(defaultTeam);
-  }
-}
-
-describe('bp_create_project_with_permits — team resolution (fix-153)', () => {
-  const demo: SeedPermit = { da: 'Trevor', ent_lead: 'Maria' };
-
-  it("'Architecture' resolves to the permit's da (per-permit DA override)", () => {
-    expect(resolveAssignee('Architecture', demo)).toBe('Trevor');
-    // A different permit (e.g. BP) with its own da cascades naturally.
-    expect(resolveAssignee('Architecture', { da: 'Qisheng', ent_lead: 'Maria' }))
-      .toBe('Qisheng');
+  it("'Entitlements' → the permit's ent_lead", () => {
+    expect(resolveTeamAssignee('Entitlements', ctx)).toBe('Maria');
   });
 
-  it("'Entitlements' resolves to the permit's ent_lead", () => {
-    expect(resolveAssignee('Entitlements', demo)).toBe('Maria');
+  it("'Design Associate' → the permit's da", () => {
+    expect(resolveTeamAssignee('Design Associate', ctx)).toBe('Trevor');
+    expect(
+      resolveTeamAssignee('Design Associate', { ...ctx, da: 'Qisheng' }),
+    ).toBe('Qisheng');
   });
 
-  it('a literal (legacy) name passes through unchanged', () => {
-    expect(resolveAssignee('Bob Literal', demo)).toBe('Bob Literal');
+  it("'Schematic Team' → the project's schematic designer", () => {
+    expect(resolveTeamAssignee('Schematic Team', ctx)).toBe('Ana');
+    expect(
+      resolveTeamAssignee('Schematic Team', { ...ctx, schematicDesigners: [] }),
+    ).toBeNull();
   });
 
-  it('a NULL team stays NULL (manual assignment expected later)', () => {
-    expect(resolveAssignee(null, demo)).toBeNull();
+  it("legacy 'Architecture' still routes to da (pre-migration safety)", () => {
+    expect(resolveTeamAssignee('Architecture', ctx)).toBe('Trevor');
   });
 
-  it("resolves to NULL when the team's field on the permit is unset", () => {
-    expect(resolveAssignee('Architecture', { da: null, ent_lead: 'Maria' }))
-      .toBeNull();
-    expect(resolveAssignee('Entitlements', { da: 'Trevor', ent_lead: '' }))
-      .toBeNull();
+  it('a literal (legacy) name passes through; null stays null', () => {
+    expect(resolveTeamAssignee('Bob Literal', ctx)).toBe('Bob Literal');
+    expect(resolveTeamAssignee(null, ctx)).toBeNull();
+  });
+
+  it("resolves to null when the team's field is unset", () => {
+    expect(
+      resolveTeamAssignee('Design Associate', { ...ctx, da: null }),
+    ).toBeNull();
+    expect(
+      resolveTeamAssignee('Entitlements', { ...ctx, entLead: null }),
+    ).toBeNull();
+  });
+});
+
+describe('fix-222 dynamic co-assignee token resolution', () => {
+  // A real dm_da_groups shape: DA → DM pairing (quarter-agnostic canonical map).
+  const dmRows: DmDaGroupRow[] = [
+    { id: '1', dm_name: 'Lindsay', da_name: 'Trevor', updated_at: 'x' },
+    { id: '2', dm_name: 'Derry', da_name: 'Nicky', updated_at: 'x' },
+  ] as DmDaGroupRow[];
+
+  it("'Design Manager' token resolves to the correct DM for two different DAs via dm_da_groups", () => {
+    // Permit A: DA Trevor → DM Lindsay.
+    const ctxA = {
+      da: 'Trevor',
+      dm: findDmForDa('Trevor', dmRows),
+      schematicDesigners: [],
+    };
+    expect(resolveCoAssignee(roleToken('design_manager'), ctxA)).toEqual([
+      'Lindsay',
+    ]);
+
+    // Permit B: DA Nicky → DM Derry. Same template token, different DM —
+    // never hardcoded to a named DM.
+    const ctxB = {
+      da: 'Nicky',
+      dm: findDmForDa('Nicky', dmRows),
+      schematicDesigners: [],
+    };
+    expect(resolveCoAssignee(roleToken('design_manager'), ctxB)).toEqual([
+      'Derry',
+    ]);
+  });
+
+  it("'Design Associate' → the project's DA; 'Schematic Designer' → the schematic designer(s)", () => {
+    const ctx = { da: 'Trevor', dm: 'Lindsay', schematicDesigners: ['Ana', 'Bo'] };
+    expect(resolveCoAssignee(roleToken('design_associate'), ctx)).toEqual([
+      'Trevor',
+    ]);
+    expect(resolveCoAssignee(roleToken('schematic_designer'), ctx)).toEqual([
+      'Ana',
+      'Bo',
+    ]);
+  });
+
+  it('a plain person name passes through; unresolvable role → nothing', () => {
+    const ctx = { da: null, dm: null, schematicDesigners: [] };
+    expect(resolveCoAssignee('Jordan', ctx)).toEqual(['Jordan']);
+    expect(resolveCoAssignee(roleToken('design_manager'), ctx)).toEqual([]);
+  });
+
+  it('resolveCoAssignees flattens + dedupes a mixed list', () => {
+    const ctx = { da: 'Trevor', dm: 'Lindsay', schematicDesigners: ['Ana'] };
+    const out = resolveCoAssignees(
+      [
+        'Jordan',
+        roleToken('design_associate'), // → Trevor
+        roleToken('design_manager'), // → Lindsay
+        'Jordan', // dup person
+        roleToken('schematic_designer'), // → Ana
+      ],
+      ctx,
+    );
+    expect(out).toEqual(['Jordan', 'Trevor', 'Lindsay', 'Ana']);
   });
 });

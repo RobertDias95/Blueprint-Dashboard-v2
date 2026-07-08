@@ -360,6 +360,11 @@ export default function NewProjectWizard({ open, onClose, initialState }: Props)
       entitlement_lead: strOrNull(derivedEntLead),
       design_manager: strOrNull(derivedDm),
       acq_lead: strOrNull(state.acq_lead),
+      // fix-222: Schematic Designer → projects.schematic_designer (text[]).
+      // Single picker today, so a 0- or 1-element array.
+      schematic_designer: state.schematic_designer.trim()
+        ? [state.schematic_designer.trim()]
+        : [],
       go_date: strOrNull(state.go_date),
       units: intOrNull(state.units),
       zone: strOrNull(state.zone),

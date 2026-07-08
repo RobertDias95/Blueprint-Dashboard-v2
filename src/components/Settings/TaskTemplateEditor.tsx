@@ -35,15 +35,27 @@ import { SkeletonRows } from '../Skeleton';
 import QueryError from '../QueryError';
 import { WAITING_ON_OPTIONS } from '../../lib/database.types';
 import type { TaskTemplate, TemplateBucket } from '../../lib/database.types';
+import {
+  TEAM_OPTIONS,
+  DYNAMIC_ROLES,
+  DYNAMIC_ROLE_LABELS,
+  roleToken,
+  coAssigneeLabel,
+  isRoleToken,
+} from '../../lib/taskTeam';
 
 // Q7.3.c / fix-153: task templates editor. Three scope selectors at the top
 // (permit_type, jurisdiction with "Base — all jurisdictions" option, stage)
 // drive the per-scope list rendered below. Each template row surfaces text +
-// cat + offset plus the fix-153 trio: Team (resolved to the permit's
-// ent_lead/da at create time), Co-Assignees (multi, team_members + free text),
-// and Waiting On (discipline). A drag handle reorders rows (fix-153 replaced
-// the old up/down arrows); on drop we persist the whole scope's new order via
-// bp_reorder_task_templates.
+// offset plus the fix-153 trio: Team (resolved to the permit's ent_lead/da/
+// schematic designer at create time), Co-Assignees (a specific person OR a
+// dynamic role token, fix-222), and Waiting On (discipline). A drag handle
+// reorders rows (fix-153 replaced the old up/down arrows); on drop we persist
+// the whole scope's new order via bp_reorder_task_templates.
+//
+// fix-222: the `cat` category label is RETIRED — no longer read/written/shown.
+// The team dropdown is now Entitlements / Design Associate / Schematic Team
+// (retired 'Architecture'); TEAM_OPTIONS lives in lib/taskTeam.ts.
 //
 // fix-153: the Corrections ('co') bucket was migrated into Permitting ('pm')
 // and is no longer offered here — only D&E + Permitting are editable scopes.
@@ -55,11 +67,6 @@ const BUCKETS: { value: TemplateBucket; label: string }[] = [
   { value: 'de', label: 'D&E' },
   { value: 'pm', label: 'Permitting' },
 ];
-
-// fix-153: the two real team keys bp_create_project_with_permits resolves
-// against the permit (Entitlements → ent_lead, Architecture → da), plus a
-// "(none)" sentinel that clears default_team.
-const TEAM_OPTIONS = ['Entitlements', 'Architecture'] as const;
 
 interface Props {
   readOnly?: boolean;
@@ -78,8 +85,13 @@ export default function TaskTemplateEditor({ readOnly = false }: Props) {
 
   const typeOptions = typesQ.data ?? [];
   const jurisOptions = jurisQ.data ?? [];
+  // fix-222: dedupe by person — team_members has a row PER role, so someone
+  // holding both ent + ent_lead (or acq + acq_lead) would otherwise appear
+  // 2–3× in the co-assignee picker. One entry per distinct name.
   const memberNames = useMemo(
-    () => (teamQ.all ?? []).map((m) => m.name).filter(Boolean),
+    () => [
+      ...new Set((teamQ.all ?? []).map((m) => m.name).filter(Boolean)),
+    ],
     [teamQ.all],
   );
 
@@ -371,16 +383,6 @@ function TemplateRow({
           testId={`tte-text-${template.id}`}
         />
         <InlineField
-          value={template.cat ?? ''}
-          onCommit={(v) =>
-            v !== (template.cat ?? '') && onUpdate({ cat: v || null })
-          }
-          placeholder="cat"
-          className="w-20 text-[11px] text-muted"
-          readOnly={readOnly}
-          testId={`tte-cat-${template.id}`}
-        />
-        <InlineField
           value={
             template.default_target_offset !== null
               ? String(template.default_target_offset)
@@ -532,9 +534,12 @@ function TemplateRow({
   );
 }
 
-/** fix-153: co-assignees editor. Renders applied names as removable chips and
- *  an input that adds a new name on Enter. A <datalist> of team_members gives
- *  autocomplete; any free-text name is accepted (non-member fallback). */
+/** fix-153/fix-222: co-assignees editor. Each chip is a SPECIFIC PERSON or a
+ *  DYNAMIC ROLE token (Design Associate / Design Manager / Schematic Designer)
+ *  that resolves per-project at task-create time. Applied entries render as
+ *  removable chips (role chips styled distinctly); a <datalist> autocompletes
+ *  team members (deduped by person) + the role labels, and any free-text name
+ *  is accepted. Role labels map to a `role:<role>` token on add. */
 function CoAssigneesField({
   rowId,
   values,
@@ -551,8 +556,17 @@ function CoAssigneesField({
   const [draft, setDraft] = useState('');
   const listId = `co-assignee-options-${rowId}`;
 
-  function add(name: string) {
-    const v = name.trim();
+  // Map a role's friendly label → its token, so typing/selecting the label
+  // stores the dynamic token instead of a literal name.
+  const labelToToken = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const r of DYNAMIC_ROLES) {
+      m.set(DYNAMIC_ROLE_LABELS[r].toLowerCase(), roleToken(r));
+    }
+    return m;
+  }, []);
+
+  function addValue(v: string) {
     if (!v || values.includes(v)) {
       setDraft('');
       return;
@@ -560,8 +574,17 @@ function CoAssigneesField({
     onChange([...values, v]);
     setDraft('');
   }
-  function removeAt(name: string) {
-    onChange(values.filter((n) => n !== name));
+  function add(raw: string) {
+    const v = raw.trim();
+    if (!v) {
+      setDraft('');
+      return;
+    }
+    // A typed/selected role label becomes its dynamic token.
+    addValue(labelToToken.get(v.toLowerCase()) ?? v);
+  }
+  function removeAt(value: string) {
+    onChange(values.filter((n) => n !== value));
   }
 
   return (
@@ -573,26 +596,39 @@ function CoAssigneesField({
         Co-Assignees
       </span>
       <div className="flex flex-wrap items-center gap-1">
-        {values.map((name) => (
-          <span
-            key={name}
-            className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-bg border border-border text-[10px] text-text"
-            data-testid={`task-template-row-${rowId}-co-assignee-${name}`}
-          >
-            {name}
-            {!readOnly && (
-              <button
-                type="button"
-                onClick={() => removeAt(name)}
-                className="text-dim hover:text-co leading-none"
-                title={`Remove ${name}`}
-                data-testid={`task-template-row-${rowId}-co-assignee-remove-${name}`}
-              >
-                ×
-              </button>
-            )}
-          </span>
-        ))}
+        {values.map((value) => {
+          const role = isRoleToken(value);
+          return (
+            <span
+              key={value}
+              className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] ${
+                role
+                  ? 'bg-de/10 border border-de/40 text-de'
+                  : 'bg-bg border border-border text-text'
+              }`}
+              title={
+                role
+                  ? 'Dynamic — resolves to this project’s person at task creation'
+                  : undefined
+              }
+              data-testid={`task-template-row-${rowId}-co-assignee-${value}`}
+            >
+              {role ? '⟳ ' : ''}
+              {coAssigneeLabel(value)}
+              {!readOnly && (
+                <button
+                  type="button"
+                  onClick={() => removeAt(value)}
+                  className="text-dim hover:text-co leading-none"
+                  title={`Remove ${coAssigneeLabel(value)}`}
+                  data-testid={`task-template-row-${rowId}-co-assignee-remove-${value}`}
+                >
+                  ×
+                </button>
+              )}
+            </span>
+          );
+        })}
         {!readOnly && (
           <>
             <input
@@ -608,11 +644,16 @@ function CoAssigneesField({
                   removeAt(values[values.length - 1]);
                 }
               }}
-              placeholder="+ name"
-              className="w-20 px-1 py-0.5 text-[10px] bg-bg border border-border rounded outline-none focus:border-de"
+              placeholder="+ person / role"
+              className="w-24 px-1 py-0.5 text-[10px] bg-bg border border-border rounded outline-none focus:border-de"
               data-testid={`task-template-row-${rowId}-co-assignees-input`}
             />
             <datalist id={listId}>
+              {DYNAMIC_ROLES.filter(
+                (r) => !values.includes(roleToken(r)),
+              ).map((r) => (
+                <option key={r} value={DYNAMIC_ROLE_LABELS[r]} />
+              ))}
               {memberNames
                 .filter((n) => !values.includes(n))
                 .map((n) => (

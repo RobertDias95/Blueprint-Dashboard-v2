@@ -50,6 +50,8 @@ interface Props {
 
 
 const ACQ_ROLES = new Set(['acq', 'acq_lead']);
+// fix-222: Schematic Team roster for the Schematic Designer picker.
+const SCHEMATIC_ROLES = new Set(['schematic']);
 // fix-144: default DD duration for the redesign auto-place suggestion — matches
 // bp_create_project_with_permits' c_default_duration_days so the suggested slot
 // lines up with what the server would place.
@@ -120,6 +122,12 @@ export default function Step1ProjectInfo({
   const backfillMode = value.backfill_mode;
   const acqs = useMemo(
     () => membersByRoles(teamAll, ACQ_ROLES, backfillMode),
+    [teamAll, backfillMode],
+  );
+  // fix-222: project-level Schematic Designer picker, sourced from the Schematic
+  // Team roster (team_members.role = 'schematic').
+  const schematics = useMemo(
+    () => membersByRoles(teamAll, SCHEMATIC_ROLES, backfillMode),
     [teamAll, backfillMode],
   );
   // fix-96-c: project-level Lead DA picker. Mirrors Step 3's per-permit
@@ -565,6 +573,38 @@ export default function Step1ProjectInfo({
                   </option>
                 );
               })}
+            </select>
+          </label>
+          {/* fix-222: project-level Schematic Designer. Sourced from the
+              Schematic Team roster; persisted to projects.schematic_designer so
+              'Schematic Team' template tasks route to this person. */}
+          <label className="flex flex-col gap-1">
+            <span className="text-[10px] uppercase tracking-wide text-dim">
+              Schematic Designer
+            </span>
+            <select
+              value={value.schematic_designer}
+              onChange={(e) => set('schematic_designer', e.target.value)}
+              className="bg-bg border border-border rounded-md px-3 py-1.5 text-xs font-display text-text focus:outline-none focus:border-de"
+              data-testid="wizard-schematic-designer"
+            >
+              <option value="">— unassigned —</option>
+              {schematics.map((m) => (
+                <option
+                  key={m.id}
+                  value={m.name}
+                  data-testid={`wizard-schematic-designer-opt-${m.name}`}
+                >
+                  {backfillMode ? memberLabel(m) : m.name}
+                </option>
+              ))}
+              {/* Self-heal a stored value no longer on the roster. */}
+              {value.schematic_designer &&
+                !schematics.some((m) => m.name === value.schematic_designer) && (
+                  <option value={value.schematic_designer}>
+                    {value.schematic_designer}
+                  </option>
+                )}
             </select>
           </label>
           {/* fix-152: project-level Lead DA hidden in redesign mode — the
