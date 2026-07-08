@@ -596,7 +596,11 @@ export interface TaskTemplate {
   /** fix-153: discipline that seeds permit_tasks.waiting_on at create time.
    *  Same controlled vocab as WAITING_ON_OPTIONS; null = no default block. */
   default_waiting_on: WaitingOnDiscipline | null;
-  default_target_offset: number | null;
+  /** fix-223: RETIRED from the settings UI — it was unused (null on every
+   *  template, no anchor, nothing computed a date from it). Dropped from the
+   *  fetch select + upsert payload; the nullable column stays in place, unused.
+   *  Optional to reflect it's vestigial (same treatment as `cat`). */
+  default_target_offset?: number | null;
   /** fix-222: RETIRED from the settings UI — no cat label/picker is shown or
    *  edited anymore. The nullable column stays in place and is still carried
    *  verbatim through fetch/upsert so existing values persist (the create RPC

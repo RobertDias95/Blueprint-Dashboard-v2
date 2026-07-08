@@ -196,6 +196,12 @@ describe('TaskTemplateEditor — fix-153 capabilities', () => {
     expect(screen.queryByTestId('tte-cat-t2')).not.toBeInTheDocument();
   });
 
+  it('fix-223: the retired offset field is no longer rendered', () => {
+    renderEditor();
+    expect(screen.queryByTestId('tte-offset-t1')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('tte-offset-t2')).not.toBeInTheDocument();
+  });
+
   it('clearing a Team to (none) persists null', () => {
     renderEditor();
     fireEvent.change(screen.getByTestId('task-template-row-t2-team'), {

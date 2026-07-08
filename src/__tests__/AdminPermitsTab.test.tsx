@@ -243,17 +243,10 @@ describe('<AdminPermitsTab /> Q7.3.c + fix-153', () => {
     expect(mocks.upsertTpl).not.toHaveBeenCalled();
   });
 
-  it('changing the offset commits as an integer', () => {
+  it('fix-223: the retired offset field is no longer rendered', () => {
     renderIt();
-    fireEvent.click(screen.getByTestId('tte-offset-t1'));
-    const input = screen.getAllByTestId('tte-offset-t1').pop() as HTMLInputElement;
-    fireEvent.change(input, { target: { value: '21' } });
-    fireEvent.keyDown(input, { key: 'Enter' });
-    expect(mocks.upsertTpl).toHaveBeenCalledWith({
-      op: 'update',
-      template: expect.objectContaining({ id: 't1' }),
-      patch: { default_target_offset: 21 },
-    });
+    expect(screen.queryByTestId('tte-offset-t1')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('tte-offset-t2')).not.toBeInTheDocument();
   });
 
   it('× on a template fires bp_delete_task_template_row', () => {

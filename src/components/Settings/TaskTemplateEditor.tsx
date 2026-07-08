@@ -46,13 +46,17 @@ import {
 
 // Q7.3.c / fix-153: task templates editor. Three scope selectors at the top
 // (permit_type, jurisdiction with "Base — all jurisdictions" option, stage)
-// drive the per-scope list rendered below. Each template row surfaces text +
-// offset plus the fix-153 trio: Team (resolved to the permit's ent_lead/da/
+// drive the per-scope list rendered below. Each template row surfaces the task
+// text plus the fix-153 trio: Team (resolved to the permit's ent_lead/da/
 // schematic designer at create time), Co-Assignees (a specific person OR a
 // dynamic role token, fix-222), and Waiting On (discipline). A drag handle
 // reorders rows (fix-153 replaced the old up/down arrows); on drop we persist
 // the whole scope's new order via bp_reorder_task_templates.
 //
+// fix-223: the `default_target_offset` field is RETIRED (it was unused — null on
+// every template, no anchor, nothing computed a date from it). Same treatment as
+// the fix-222 `cat` retirement: dropped from the UI + fetch + upsert, column left
+// in place.
 // fix-222: the `cat` category label is RETIRED — no longer read/written/shown.
 // The team dropdown is now Entitlements / Design Associate / Schematic Team
 // (retired 'Architecture'); TEAM_OPTIONS lives in lib/taskTeam.ts.
@@ -359,7 +363,7 @@ function TemplateRow({
       className="bg-surface border border-border rounded-md p-2"
       data-testid={`task-template-row-${template.id}`}
     >
-      {/* Row 1: drag handle + task text + cat + offset + actions */}
+      {/* Row 1: drag handle + task text + actions */}
       <div className="flex items-center gap-2">
         {!readOnly && (
           <button
@@ -381,24 +385,6 @@ function TemplateRow({
           className="flex-1 text-xs font-display"
           readOnly={readOnly}
           testId={`tte-text-${template.id}`}
-        />
-        <InlineField
-          value={
-            template.default_target_offset !== null
-              ? String(template.default_target_offset)
-              : ''
-          }
-          onCommit={(v) => {
-            const n = v === '' ? null : parseInt(v, 10);
-            if (n !== template.default_target_offset && !Number.isNaN(n)) {
-              onUpdate({ default_target_offset: n });
-            }
-          }}
-          placeholder="offset"
-          className="w-14 text-[11px] text-muted text-right"
-          readOnly={readOnly}
-          numeric
-          testId={`tte-offset-${template.id}`}
         />
         {!readOnly && (
           <button
