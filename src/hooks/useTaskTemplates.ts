@@ -50,9 +50,11 @@ export function useTaskTemplates(): TaskTemplatesResult {
           const { data, error } = await supabase
             .from('task_templates')
             .select(
+              // fix-223: default_target_offset retired — no longer selected.
+              // fix-222: cat retained in the select so existing values persist.
               'id, permit_type, jurisdiction, bucket, text, ' +
                 'default_team, default_co_assignees, default_waiting_on, ' +
-                'default_target_offset, cat, ' +
+                'cat, ' +
                 'sort_order, updated_at',
             );
           if (error) throw error;

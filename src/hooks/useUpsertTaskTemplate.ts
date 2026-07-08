@@ -22,7 +22,6 @@ type EditableField =
   | 'default_team'
   | 'default_co_assignees'
   | 'default_waiting_on'
-  | 'default_target_offset'
   | 'cat'
   | 'sort_order';
 
@@ -58,7 +57,8 @@ function buildPayload(
     default_team: merged.default_team ?? null,
     default_co_assignees: merged.default_co_assignees ?? [],
     default_waiting_on: merged.default_waiting_on ?? null,
-    default_target_offset: merged.default_target_offset ?? null,
+    // fix-223: default_target_offset retired — not sent. The RPC's NULLIF path
+    // leaves the (already-null) column untouched; the column stays in place.
     cat: merged.cat ?? null,
     sort_order: merged.sort_order ?? 0,
   };
@@ -88,7 +88,6 @@ export function useUpsertTaskTemplate() {
           default_co_assignees: payload.default_co_assignees as string[],
           default_waiting_on:
             payload.default_waiting_on as TaskTemplate['default_waiting_on'],
-          default_target_offset: payload.default_target_offset as number | null,
           cat: payload.cat as string | null,
           sort_order: payload.sort_order as number,
           updated_at: row.updated_at,
