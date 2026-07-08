@@ -32,7 +32,9 @@ export function useProjects() {
           [
             'id, address, juris, archived, notes',
             'acq_lead, external_team, builder_id, permit_order',
-            'entitlement_lead, design_manager, go_date',
+            // fix-222: schematic_designer text[] (added to the DB in
+            // fix_222_task_template_overhaul.sql — now safe to select).
+            'entitlement_lead, design_manager, schematic_designer, go_date',
             'units, zone, lot_width, lot_depth, unit_types',
             'parking_type, parking_stalls, alley, product_types, project_tags',
             'builder_name, builder_company, builder_email, builder_phone',
