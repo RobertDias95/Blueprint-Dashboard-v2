@@ -854,6 +854,9 @@ export interface WeeklyDaReportRow {
   corr_issued?: string | null;
   /** Present on upcoming-intake rows: the permit's target_submit date. */
   target_submit?: string | null;
+  /** fix-221: present on approved-awaiting-issuance rows: the permit's
+   *  approval_date (when the city finished review). */
+  approval_date?: string | null;
 }
 
 /** One DA's section of the report. `da` is the grouping key
@@ -863,6 +866,10 @@ export interface WeeklyDaReportGroup {
   name: string;
   corrections: WeeklyDaReportRow[];
   upcoming_intakes: WeeklyDaReportRow[];
+  /** fix-221: permits the city approved but hasn't issued (Issuance Prep).
+   *  Optional so a client running before the RPC migration lands still parses
+   *  (defaults to [] at the render site). */
+  approved_awaiting_issuance?: WeeklyDaReportRow[];
 }
 
 /** Full payload returned by bp_get_weekly_da_report. */

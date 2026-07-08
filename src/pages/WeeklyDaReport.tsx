@@ -348,6 +348,61 @@ function DaSection({
         </table>
       )}
 
+      {/* fix-221: approved-but-not-issued permits used to vanish from the
+          weekly report (the corrections gate drops anything with an
+          approval_date, and upcoming-intakes requires approval_date IS NULL).
+          Surface them here so the ones closest to the finish line stay watched. */}
+      {(() => {
+        const awaiting = group.approved_awaiting_issuance ?? [];
+        return (
+          <>
+            <h3 className="text-[12px] font-bold text-text uppercase tracking-wide mb-1">
+              Approved – Awaiting Issuance ({awaiting.length})
+            </h3>
+            {awaiting.length === 0 ? (
+              <div className="text-[11px] text-dim italic mb-4">None.</div>
+            ) : (
+              <table className="w-full border-collapse text-[11px] mb-4">
+                <thead>
+                  <tr className="text-left" style={{ background: 'var(--color-s2)' }}>
+                    <Th>Address</Th>
+                    <Th>Permit Type / #</Th>
+                    <Th>Approved</Th>
+                    <Th>Juris</Th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {awaiting.map((row) => (
+                    <tr
+                      key={row.permit_id}
+                      className="report-row border-b align-top"
+                      style={{ borderColor: 'var(--color-border)' }}
+                      data-testid={`wdr-awaiting-row-${row.permit_id}`}
+                    >
+                      <Td>
+                        <Link
+                          to={`/project/${row.project_id}?permit=${row.permit_id}`}
+                          className="text-de hover:underline"
+                        >
+                          {row.address ?? '—'}
+                        </Link>
+                      </Td>
+                      <Td>
+                        <PermitTypeNum row={row} />
+                      </Td>
+                      <Td className="font-mono whitespace-nowrap">
+                        {fmtDate(row.approval_date)}
+                      </Td>
+                      <Td>{row.juris ?? '—'}</Td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </>
+        );
+      })()}
+
       <h3 className="text-[12px] font-bold text-text uppercase tracking-wide mb-1">
         Upcoming Intakes ({group.upcoming_intakes.length})
       </h3>

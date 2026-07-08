@@ -95,6 +95,22 @@ const PAYLOAD: WeeklyDaReportPayload = {
           target_submit: '2026-06-02',
         },
       ],
+      approved_awaiting_issuance: [
+        {
+          permit_id: 103,
+          project_id: 'pr1',
+          address: '77 Issuance Prep Ln',
+          juris: 'Seattle',
+          type: 'Demolition',
+          num: 'DM-103',
+          portal_url: null,
+          cycle_index: 3,
+          ent_lead: 'Miles',
+          da: 'Fisk',
+          note_body: '',
+          approval_date: '2026-05-10',
+        },
+      ],
     },
     {
       da: 'Unassigned',
@@ -180,6 +196,22 @@ describe('<WeeklyDaReport /> (fix-67)', () => {
     // Section headers carry the counts.
     expect(fisk.textContent).toMatch(/Corrections \(1\)/);
     expect(fisk.textContent).toMatch(/Upcoming Intakes \(1\)/);
+  });
+
+  it('fix-221: renders the Approved – Awaiting Issuance section with a deep-link, and handles groups without the field', () => {
+    renderReport();
+    const fisk = screen.getByTestId('wdr-da-Fisk');
+    const unassigned = screen.getByTestId('wdr-da-Unassigned');
+    // Fisk has one awaiting-issuance permit — the row renders...
+    const row = screen.getByTestId('wdr-awaiting-row-103');
+    expect(row).toBeInTheDocument();
+    expect(fisk.textContent).toMatch(/Approved – Awaiting Issuance \(1\)/);
+    // ...and its address deep-links to the permit in Project View (fix-219).
+    const link = row.querySelector('a') as HTMLAnchorElement;
+    expect(link).toHaveAttribute('href', '/project/pr1?permit=103');
+    // A group with no approved_awaiting_issuance field defaults to "None."
+    // (the RPC omits it before the fix-221 migration lands).
+    expect(unassigned.textContent).toMatch(/Approved – Awaiting Issuance \(0\)/);
   });
 
   it('seeds a Notes textarea from the server note_body', () => {

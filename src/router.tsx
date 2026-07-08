@@ -11,6 +11,7 @@ import MyTasks from './pages/MyTasks';
 import DrawSchedule from './pages/DrawSchedule';
 import ActivityPage from './pages/ActivityPage';
 import WeeklyDaReport from './pages/WeeklyDaReport';
+import ApprovedAwaitingIssuanceReport from './pages/ApprovedAwaitingIssuanceReport';
 import ReportingHubPage from './pages/ReportingHubPage';
 import CustomReport from './pages/CustomReport';
 import ReportBuilder from './pages/ReportBuilder';
@@ -51,6 +52,12 @@ export const router = createBrowserRouter([
       // fix-67: Weekly DA Update report. Opened from the "Weekly DA Update"
       // card in the Reporting hub (Settings -> Reporting). URL stays stable.
       { path: 'reports/weekly-da', element: <WeeklyDaReport /> },
+      // fix-221: Approved – Awaiting Issuance builtin report. Opened from its
+      // card in the Reporting hub; rows deep-link to the permit in Project View.
+      {
+        path: 'reports/approved-awaiting',
+        element: <ApprovedAwaitingIssuanceReport />,
+      },
       // fix-68: Reporting hub (Reports Phase 2). Also surfaced as a Settings
       // modal section; this route makes the hub deep-linkable.
       { path: 'settings/reporting', element: <ReportingHubPage /> },
