@@ -18,6 +18,10 @@ export interface CoAssigneeEditorProps {
   /** Replace the whole assignee set (maps to bp_set_task_assignees). */
   onChange: (next: string[]) => void;
   readOnly?: boolean;
+  /** fix-228: the task's resolved PRIMARY owner. A co-assignee that resolves to
+   *  the same person is a display duplicate — its chip is hidden and it's kept
+   *  out of the add picker (the stored set is untouched; de-dupe is visual). */
+  primaryPerson?: string | null;
   /** Prefix for data-testids so both views stay addressable. */
   testIdPrefix: string;
 }
@@ -28,9 +32,17 @@ export default function CoAssigneeEditor({
   memberNames,
   onChange,
   readOnly = false,
+  primaryPerson = null,
   testIdPrefix,
 }: CoAssigneeEditorProps) {
-  const available = memberNames.filter((n) => !values.includes(n));
+  // fix-228: hide a co-assignee that IS the primary owner (display-only; the
+  // stored entry stays in the set so writes preserve it).
+  const isPrimaryDup = (entry: string): boolean =>
+    primaryPerson != null && coAssigneeDisplayName(entry, ctx) === primaryPerson;
+  const visibleValues = values.filter((v) => !isPrimaryDup(v));
+  const available = memberNames.filter(
+    (n) => !values.includes(n) && n !== primaryPerson,
+  );
 
   function add(name: string) {
     const v = name.trim();
@@ -46,7 +58,7 @@ export default function CoAssigneeEditor({
       className="flex flex-wrap items-center gap-1"
       data-testid={`${testIdPrefix}-co-assignees`}
     >
-      {values.length === 0 && (
+      {visibleValues.length === 0 && (
         <span
           className="text-[10px] italic"
           style={{ color: 'var(--color-dim)' }}
@@ -55,7 +67,7 @@ export default function CoAssigneeEditor({
           Unassigned
         </span>
       )}
-      {values.map((entry) => {
+      {visibleValues.map((entry) => {
         const display = coAssigneeDisplayName(entry, ctx);
         return (
           <span

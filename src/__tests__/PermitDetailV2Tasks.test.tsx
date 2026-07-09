@@ -150,13 +150,14 @@ beforeEach(() => {
 });
 
 describe('PermitDetailV2 fix-70 task editor', () => {
-  it('renders the task in its discipline column with the derived primary + co-assignee chip', () => {
+  it('renders the task with the labeled PRIMARY (fix-228 default → the DA) + co-assignee chip', () => {
     renderIt();
     expect(screen.getByTestId('task-row-task-1')).toBeInTheDocument();
-    // Primary is derived (ent -> permit.ent_lead = 'Edmund').
-    expect(screen.getByTestId('task-primary-task-1').textContent).toBe('Edmund');
-    // Explicit co-assignee chip.
-    expect(screen.getByTestId('task-assignee-task-1-Bobby')).toBeInTheDocument();
+    // fix-228: primary is resolved from assigned_to; unset → DEFAULT = the DA
+    // ('Ainsley'), NOT the discipline-derived ent_lead.
+    expect(screen.getByTestId('pb-task-1-primary').textContent).toBe('Ainsley');
+    // Explicit co-assignee chip (shared CoAssigneeEditor).
+    expect(screen.getByTestId('pb-task-1-co-assignee-Bobby')).toBeInTheDocument();
   });
 
   it('flipping the discipline dropdown moves the task to the other column (upsert with new discipline)', () => {
@@ -187,7 +188,7 @@ describe('PermitDetailV2 fix-70 task editor', () => {
 
   it('adding a co-assignee replaces the assignee set (existing + new)', () => {
     renderIt();
-    fireEvent.change(screen.getByTestId('task-assign-task-1'), {
+    fireEvent.change(screen.getByTestId('pb-task-1-co-assignee-add'), {
       target: { value: 'Carol' },
     });
     expect(setAssigneesMutate).toHaveBeenCalledTimes(1);
@@ -199,11 +200,58 @@ describe('PermitDetailV2 fix-70 task editor', () => {
 
   it('removing a co-assignee replaces the set without that name', () => {
     renderIt();
-    fireEvent.click(screen.getByTestId('task-unassign-task-1-Bobby'));
+    fireEvent.click(screen.getByTestId('pb-task-1-co-assignee-remove-Bobby'));
     expect(setAssigneesMutate.mock.calls[0][0]).toMatchObject({
       taskId: 'task-1',
       assignees: [],
     });
+  });
+
+  // fix-228: PRIMARY owner selector — writes assigned_to (team key / person).
+  it('the primary selector offers the fix-222 taxonomy + Design Manager', () => {
+    renderIt();
+    const opts = Array.from(
+      (screen.getByTestId('pb-task-1-primary-select') as HTMLSelectElement).options,
+    ).map((o) => o.value);
+    for (const k of ['Design Associate', 'Entitlements', 'Schematic Team', 'Design Manager']) {
+      expect(opts).toContain(k);
+    }
+  });
+
+  it('picking "Entitlements" writes assigned_to via upsert (resolves to ent_lead)', () => {
+    renderIt();
+    // The Entitlements option is labeled with the resolved person (ent_lead).
+    fireEvent.change(screen.getByTestId('pb-task-1-primary-select'), {
+      target: { value: 'Entitlements' },
+    });
+    expect(upsertMutate).toHaveBeenCalledTimes(1);
+    expect(upsertMutate.mock.calls[0][0]).toMatchObject({
+      id: 'task-1',
+      assignedTo: 'Entitlements',
+    });
+  });
+
+  it('picking a specific person writes that person to assigned_to', () => {
+    renderIt();
+    fireEvent.change(screen.getByTestId('pb-task-1-primary-select'), {
+      target: { value: 'Carol' },
+    });
+    expect(upsertMutate.mock.calls[0][0]).toMatchObject({
+      id: 'task-1',
+      assignedTo: 'Carol',
+    });
+  });
+
+  it('a person who is the PRIMARY is not also rendered as a co-assignee chip', () => {
+    // assigned_to='Ainsley' (the DA) + co_assignees=[Ainsley, Bobby] → primary
+    // Ainsley, co-assignee Bobby only (Ainsley de-duped).
+    treeRef.current = [
+      makeTask({ id: 'task-1', discipline: 'ent', assigned_to: 'Ainsley', co_assignees: ['Ainsley', 'Bobby'] }),
+    ];
+    renderIt();
+    expect(screen.getByTestId('pb-task-1-primary').textContent).toBe('Ainsley');
+    expect(screen.getByTestId('pb-task-1-co-assignee-Bobby')).toBeInTheDocument();
+    expect(screen.queryByTestId('pb-task-1-co-assignee-Ainsley')).toBeNull();
   });
 
   it('+ subtask creates a child task with the parent id set', () => {
@@ -566,7 +614,7 @@ describe('PermitDetailV2 fix-70 task editor', () => {
 
     // Prod shape A: permit 199 — number_entry, bucket=de (fix-156), cycle_idx=NULL,
     // on a numberless permit whose tab defaults to D&E.
-    it('renders a number_entry BOT task (bucket=de, cycle_idx=NULL) on a D&E-default permit, with badge + DERIVED primary', () => {
+    it('renders a number_entry BOT task (bucket=de, cycle_idx=NULL) on a D&E-default permit, with badge + primary', () => {
       treeRef.current = [
         makeTask({
           id: '93c131e3',
@@ -578,16 +626,14 @@ describe('PermitDetailV2 fix-70 task editor', () => {
           is_auto_generated: true,
           auto_event: 'number_entry',
           text: 'Enter permit number — was this submitted? — SDOT Tree @ 4506 14th Ave SW',
-          // derived from permit.ent_lead ('Edmund'); no static assigned_to.
-          primary_assignee: 'Edmund',
         }),
       ];
       renderPermit({ id: 199, num: null, permit_cycles: [cycle0(null)] });
       // Visible on the DEFAULT D&E tab (the fix-156 bug: it was bucket=pm, hidden).
       expect(screen.getByTestId('task-row-93c131e3')).toBeInTheDocument();
       expect(screen.getByTestId('bot-badge-93c131e3')).toBeInTheDocument();
-      // Assignment is derived (shown as the primary chip), follows permit.ent_lead.
-      expect(screen.getByTestId('task-primary-93c131e3').textContent).toBe('Edmund');
+      // fix-228: primary resolves from assigned_to; unset → DEFAULT = the DA.
+      expect(screen.getByTestId('pb-93c131e3-primary').textContent).toBe('Ainsley');
       expect(
         (screen.getByTestId('task-text-93c131e3') as HTMLInputElement).value,
       ).toBe('Enter permit number — was this submitted? — SDOT Tree @ 4506 14th Ave SW');

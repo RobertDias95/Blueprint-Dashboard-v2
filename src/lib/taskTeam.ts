@@ -148,6 +148,102 @@ export function coAssigneeDisplayName(
   return resolved[0] ?? coAssigneeLabel(entry);
 }
 
+// ---------------------------------------------------------------------------
+// 4. fix-228: PRIMARY owner (permit_tasks.assigned_to) — a labeled owner on a
+//    LIVE task, selectable as a team key / dynamic role / specific person and
+//    resolved to a person for DISPLAY. Brings the live task editors up to parity
+//    with the fix-222 template taxonomy. The stored value lives in assigned_to;
+//    both task views (permit bar + My Tasks) resolve it through these helpers so
+//    they can't drift (bidirectional principle — the client twin of the fix-222
+//    taxonomy; display is client-side, no SQL twin needed).
+// ---------------------------------------------------------------------------
+
+/** The primary-owner selector's team/role options (fix-222 taxonomy + Design
+ *  Manager). Design Associate leads — it is the DEFAULT (→ the project's DA). */
+export const PRIMARY_TEAM_OPTIONS = [
+  'Design Associate',
+  'Entitlements',
+  'Schematic Team',
+  'Design Manager',
+] as const;
+export type PrimaryTeamKey = (typeof PRIMARY_TEAM_OPTIONS)[number];
+
+export interface PrimaryResolutionContext {
+  /** the project's / permit's DA (the default primary) */
+  da: string | null;
+  /** the permit's entitlement lead */
+  entLead: string | null;
+  /** the DM paired with the DA in dm_da_groups (already looked up) */
+  dm: string | null;
+  /** the project's schematic designer(s) */
+  schematicDesigners: string[];
+}
+
+/** Normalize a stored assigned_to to its canonical selector KEY, or null when it
+ *  is a specific person or unset. 'Architecture' (legacy, pre-fix-222) maps to
+ *  'Design Associate' so the label matches the new taxonomy (fix-228 point 4:
+ *  remap on read — no backfill required). */
+export function normalizePrimaryTeamKey(
+  assignedTo: string | null | undefined,
+): PrimaryTeamKey | null {
+  const raw = (assignedTo ?? '').trim();
+  if (raw === '') return null;
+  if (raw === 'Architecture') return 'Design Associate';
+  return (PRIMARY_TEAM_OPTIONS as readonly string[]).includes(raw)
+    ? (raw as PrimaryTeamKey)
+    : null;
+}
+
+/** True when assigned_to names a SPECIFIC PERSON (not a team key / role / unset). */
+export function isPrimaryPerson(assignedTo: string | null | undefined): boolean {
+  const raw = (assignedTo ?? '').trim();
+  return raw !== '' && raw !== 'Architecture' && normalizePrimaryTeamKey(raw) === null;
+}
+
+/** Resolve a team/role KEY to its person for a project (null when no one fills
+ *  that role yet). Exported so the selector can label each option with who it
+ *  resolves to. */
+export function resolvePrimaryTeamPerson(
+  key: PrimaryTeamKey,
+  ctx: PrimaryResolutionContext,
+): string | null {
+  switch (key) {
+    case 'Design Associate':
+      return ctx.da ?? null;
+    case 'Entitlements':
+      return ctx.entLead ?? null;
+    case 'Schematic Team':
+      return ctx.schematicDesigners[0] ?? null;
+    case 'Design Manager':
+      return ctx.dm ?? null;
+  }
+}
+
+/** Resolve a task's stored assigned_to to the PRIMARY owner's display person.
+ *  Empty/unset defaults to the DA. A team/role key resolves to that role's
+ *  person on THIS project, falling back to the friendly key label when the role
+ *  has no one yet (so it never renders blank). A specific person resolves to
+ *  itself. */
+export function resolvePrimaryAssignee(
+  assignedTo: string | null | undefined,
+  ctx: PrimaryResolutionContext,
+): string | null {
+  const raw = (assignedTo ?? '').trim();
+  if (raw === '') return ctx.da ?? null; // DEFAULT = the DA
+  const key = normalizePrimaryTeamKey(raw);
+  if (key === null) return raw; // a specific person
+  return resolvePrimaryTeamPerson(key, ctx) ?? key; // person, else friendly label
+}
+
+/** The value the primary <select> shows as selected for a stored assigned_to:
+ *  the team key, the person string, or 'Design Associate' when unset (the DA
+ *  default). */
+export function primarySelectValue(assignedTo: string | null | undefined): string {
+  const raw = (assignedTo ?? '').trim();
+  if (raw === '') return 'Design Associate';
+  return normalizePrimaryTeamKey(raw) ?? raw;
+}
+
 /** Resolve a template's default_team to the single `assigned_to` person for a
  *  project. Mirrors the CASE in bp_create_project_with_permits. */
 export function resolveTeamAssignee(

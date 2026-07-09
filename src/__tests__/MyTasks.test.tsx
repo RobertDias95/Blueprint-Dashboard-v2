@@ -38,6 +38,13 @@ vi.mock('../hooks/useProjects', () => ({
   useProjects: () => ({ data: [], isLoading: false, error: null, refetch: vi.fn() }),
 }));
 
+// fix-228: the detail editor reads permits (ent_lead) + projects (schematic)
+// to resolve the PRIMARY owner. Inert map is fine — DA/DM resolve from
+// permit_da + dm_da_groups; ent_lead/schematic just fall back when absent.
+vi.mock('../hooks/usePermits', () => ({
+  usePermits: () => ({ data: [], isLoading: false, error: null, refetch: vi.fn() }),
+}));
+
 vi.mock('../hooks/useTaskTree', async (importActual) => {
   const actual = await importActual<typeof import('../hooks/useTaskTree')>();
   return {
@@ -465,6 +472,48 @@ describe('MyTasks (fix-80 v1 three-pane kanban)', () => {
     const roleChip = screen.getByTestId('task-detail-co-assignee-role:design_manager');
     expect(roleChip.textContent).toContain('Lindsay');
     expect(screen.queryByTestId('task-detail-co-assignees-empty')).toBeNull();
+  });
+
+  it('fix-228: shows the labeled PRIMARY owner (default → the DA), matching the permit bar', () => {
+    tasksRef.current = [task({ id: 't1', bucket: 'de', permit_da: 'Trevor', assigned_to: null })];
+    renderIt();
+    fireEvent.click(screen.getByTestId('mytask-card-t1'));
+    // Unset assigned_to → DEFAULT primary = the DA (Trevor).
+    expect(screen.getByTestId('task-detail-primary').textContent).toBe('Trevor');
+  });
+
+  it('fix-228: picking "Design Manager" resolves the primary to the project DM (dm_da_groups)', () => {
+    tasksRef.current = [
+      task({ id: 't1', bucket: 'de', permit_da: 'Trevor', assigned_to: 'Design Manager' }),
+    ];
+    renderIt();
+    fireEvent.click(screen.getByTestId('mytask-card-t1'));
+    // DA Trevor → DM Lindsay via the mocked dm_da_groups.
+    expect(screen.getByTestId('task-detail-primary').textContent).toBe('Lindsay');
+  });
+
+  it('fix-228: changing the primary selector writes assigned_to through the task upsert', () => {
+    tasksRef.current = [task({ id: 't1', bucket: 'de', permit_da: 'Trevor', assigned_to: null })];
+    renderIt();
+    fireEvent.click(screen.getByTestId('mytask-card-t1'));
+    fireEvent.change(screen.getByTestId('task-detail-primary-select'), {
+      target: { value: 'Entitlements' },
+    });
+    expect(upsertMutate).toHaveBeenCalledTimes(1);
+    expect(upsertMutate.mock.calls[0][0]).toMatchObject({ id: 't1', assignedTo: 'Entitlements' });
+  });
+
+  it('fix-228: a person who is the primary is not duplicated as a co-assignee chip', () => {
+    // permit_da='Trevor', assigned_to unset → primary Trevor; co_assignees
+    // [Trevor, Miles] → only Miles shows.
+    tasksRef.current = [
+      task({ id: 't1', bucket: 'de', permit_da: 'Trevor', co_assignees: ['Trevor', 'Miles'] }),
+    ];
+    renderIt();
+    fireEvent.click(screen.getByTestId('mytask-card-t1'));
+    expect(screen.getByTestId('task-detail-primary').textContent).toBe('Trevor');
+    expect(screen.getByTestId('task-detail-co-assignee-Miles')).toBeInTheDocument();
+    expect(screen.queryByTestId('task-detail-co-assignee-Trevor')).toBeNull();
   });
 
   it('fix-224: editing the target date re-sends the current start date (no cross-field erase)', () => {

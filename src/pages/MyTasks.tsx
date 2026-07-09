@@ -10,8 +10,15 @@ import {
 } from '../hooks/useTaskTree';
 import { useDmDaGroups } from '../hooks/useDmDaGroups';
 import { findDmForDa } from '../components/wizard/dmRouting';
+import { usePermits } from '../hooks/usePermits';
+import { useProjects } from '../hooks/useProjects';
 import CoAssigneeEditor from '../components/CoAssigneeEditor';
-import type { ResolutionContext } from '../lib/taskTeam';
+import PrimaryAssigneeEditor from '../components/PrimaryAssigneeEditor';
+import {
+  resolvePrimaryAssignee,
+  type ResolutionContext,
+  type PrimaryResolutionContext,
+} from '../lib/taskTeam';
 import { useScopeMode } from '../hooks/useSelfScope';
 import { taskMatchesSelf, type ScopeMode } from '../lib/selfScope';
 import ScopeToggle from '../components/shared/ScopeToggle';
@@ -1283,16 +1290,41 @@ function TaskDetailEditor({
   const upsert = useUpsertTask();
   const setAssignees = useSetTaskAssignees();
   const dmRows = useDmDaGroups().rows;
+  // fix-228: ent_lead + schematic designers for PRIMARY-owner resolution come
+  // from the (cached) permits/projects the app already loads, joined by
+  // permit_id / project_id (bp_list_tasks doesn't carry them). DA + DM resolve
+  // from permit_da + dm_da_groups as the permit bar does.
+  const permitsQ = usePermits();
+  const projectsQ = useProjects();
+  const entLead = useMemo(
+    () =>
+      permitsQ.data?.find((p) => p.id === task.permit_id)?.ent_lead ?? null,
+    [permitsQ.data, task.permit_id],
+  );
+  const schematicDesigners = useMemo(
+    () =>
+      projectsQ.data?.find((p) => p.id === task.project_id)?.schematic_designer ??
+      [],
+    [projectsQ.data, task.project_id],
+  );
 
   // fix-224: assignment = co_assignees (the permit_task_assignees join table),
   // the SAME store the permit bar writes. Role tokens resolve to people for
-  // display via the permit's DA (+ dm_da_groups); da comes from bp_list_tasks
-  // (permit_da) once the fix-224 migration lands, else tokens show their label.
+  // display via the permit's DA (+ dm_da_groups).
   const assigneeCtx: ResolutionContext = {
     da: task.permit_da ?? null,
     dm: findDmForDa(task.permit_da ?? '', dmRows),
-    schematicDesigners: [],
+    schematicDesigners,
   };
+  // fix-228: the PRIMARY owner (assigned_to, fix-222 taxonomy) resolves to a
+  // person the SAME way as the permit bar — default = the DA.
+  const primaryCtx: PrimaryResolutionContext = {
+    da: task.permit_da ?? null,
+    entLead,
+    dm: findDmForDa(task.permit_da ?? '', dmRows),
+    schematicDesigners,
+  };
+  const primaryPerson = resolvePrimaryAssignee(task.assigned_to, primaryCtx);
   const memberNames = [
     ...new Set(
       members.filter((m) => m.active !== false).map((m) => m.name).filter(Boolean),
@@ -1431,13 +1463,30 @@ function TaskDetailEditor({
           </Link>
         </FieldRow>
 
-        {/* 3 Assignees (fix-224: co_assignees join table — the single source,
-            shared with the permit bar; never blank when the set is non-empty). */}
-        <FieldRow label="Assignees">
+        {/* fix-228: labeled PRIMARY owner (assigned_to, fix-222 taxonomy) —
+            selectable as Design Associate (default → DA) / Entitlements /
+            Schematic Team / Design Manager / a specific person; resolves to a
+            person the same way the permit bar does. */}
+        <FieldRow label="Primary">
+          <PrimaryAssigneeEditor
+            value={task.assigned_to}
+            ctx={primaryCtx}
+            memberNames={memberNames}
+            disabled={upsert.isPending}
+            onChange={(next) => patch({ assignedTo: next })}
+            testIdPrefix="task-detail"
+          />
+        </FieldRow>
+
+        {/* 3 Co-assignees (fix-224: co_assignees join table — the single source,
+            shared with the permit bar). fix-228: a co-assignee equal to the
+            primary is de-duped in the editor. */}
+        <FieldRow label="Co-assignees">
           <CoAssigneeEditor
             values={task.co_assignees}
             ctx={assigneeCtx}
             memberNames={memberNames}
+            primaryPerson={primaryPerson}
             onChange={(next) =>
               setAssignees.mutate({
                 taskId: task.id,
