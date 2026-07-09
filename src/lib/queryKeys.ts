@@ -34,6 +34,8 @@ export const queryKeys = {
   // fix-31: per-reviewer status table (replaces the placeholder "tasks" column
   // on Project Overview with a real rollup of city-side review state).
   permitCycleReviewersAll: ['permit_cycle_reviewers'] as const,
+  // fix-225: DA handoff ledger — bare prefix for broad invalidation.
+  projectDaHandoffsAll: ['project_da_handoffs'] as const,
   // Tenant-scoped keys used by queries and per-tenant invalidation.
   projects: (tenantId: string) => ['projects', tenantId] as const,
   permits: (tenantId: string) => ['permits', tenantId] as const,
@@ -44,6 +46,12 @@ export const queryKeys = {
   permitTasksFor: (tenantId: string, permitId: number) =>
     ['permit_tasks', tenantId, { permitId }] as const,
   drawSchedule: (tenantId: string) => ['draw_schedule', tenantId] as const,
+  // fix-225: DA handoff ledger (project reassignments). Per-project + a
+  // tenant-wide "which projects have handoffs" set for the board marker.
+  projectDaHandoffs: (tenantId: string, projectId: string) =>
+    ['project_da_handoffs', tenantId, { projectId }] as const,
+  projectDaHandoffsSet: (tenantId: string) =>
+    ['project_da_handoffs', tenantId, 'set'] as const,
   intakeRecords: (tenantId: string) => ['intake_records', tenantId] as const,
   dmDaGroups: (tenantId: string) => ['dm_da_groups', tenantId] as const,
   daTimeBlocks: (tenantId: string) => ['da_time_blocks', tenantId] as const,
