@@ -1,8 +1,10 @@
+import { useMemo } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../lib/supabase';
 import { queryKeys } from '../lib/queryKeys';
 import { pushToast } from '../stores/toastStore';
 import { useAuthStore } from '../stores/authStore';
+import { buildDaCoCreditMap } from '../lib/volumeAttribution';
 import type { ProjectDaHandoff } from '../lib/database.types';
 
 // fix-225: DA project handoff (Phase 1 — ownership-only reassign). Reads the
@@ -56,6 +58,38 @@ export function useProjectsWithHandoffs() {
     },
   });
   return { ...q, projectIds: new Set(q.data ?? []) };
+}
+
+/** fix-226: DA co-credit map for the Team reports — project_id → the set of DAs
+ *  (from_da + to_da of every handoff) that should EACH be credited that project
+ *  in their per-DA volume/throughput. Empty (byte-identical to pre-fix-226) when
+ *  there are no handoffs or before the fix-225 table exists. */
+export function useDaCoCreditMap() {
+  const tenantId = useAuthStore((s) => s.activeTenantId);
+  const q = useQuery<
+    Pick<ProjectDaHandoff, 'project_id' | 'from_da' | 'to_da'>[]
+  >({
+    queryKey: queryKeys.projectDaHandoffsRows(tenantId ?? ''),
+    enabled: !!tenantId,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('project_da_handoffs')
+        .select('project_id, from_da, to_da');
+      if (error) {
+        if (error.code === MISSING_TABLE) return [];
+        throw error;
+      }
+      return (data ?? []) as Pick<
+        ProjectDaHandoff,
+        'project_id' | 'from_da' | 'to_da'
+      >[];
+    },
+  });
+  // Memo on q.data so the map identity is stable between renders (react-query
+  // hands back the same data ref until it changes) — keeps the downstream
+  // computeTeamMetrics useMemo from recomputing every render.
+  const coCreditMap = useMemo(() => buildDaCoCreditMap(q.data ?? []), [q.data]);
+  return { ...q, coCreditMap };
 }
 
 function invalidateAfterHandoff(qc: ReturnType<typeof useQueryClient>) {

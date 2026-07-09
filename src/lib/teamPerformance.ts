@@ -64,6 +64,10 @@ export interface TeamMemberMetrics {
   // secondary permit's da, or a divergent permit ent_lead) — NO lot/unit
   // credit, measured purely by count.
   delegatePermitCount: number;
+  // fix-226: of this person's lead projects (original ∪ redesign), how many are
+  // CO-CREDITED via a DA handoff — shared with another DA (both carry the full
+  // volume). Always 0 for DM/ENT (co-credit is DA-scoped). Drives the ✳ marker.
+  sharedProjectCount: number;
   // fix-216: REUSE context (NOT a change to volume credit). Of this owner's LEAD
   // projects (original + redesign, the same accumulated cohort as
   // totalProjectCount), how many were templated off another project
@@ -166,6 +170,9 @@ export function computeTeamMetrics(
   filters: TeamMetricsFilters,
   // fix-172: per-project holds. Omitted / no holds → byte-identical.
   holdsByProjectId?: Map<string, ProjectHold[]>,
+  // fix-226: DA co-credit map (project_id → {from_da, to_da} of its handoffs).
+  // Omitted / empty → byte-identical to pre-fix-226. Only affects role='da'.
+  coCreditDaByProject?: Map<string, Set<string>>,
 ): TeamMetricsResult {
   const projectsById = new Map<string, Project>();
   for (const p of projects) projectsById.set(p.id, p);
@@ -215,7 +222,13 @@ export function computeTeamMetrics(
   const buckets: Map<string, PersonAttribution> = attributePersonVolume(
     permits,
     projects,
-    { role: filters.role, includeProject: projectInWindow },
+    {
+      role: filters.role,
+      includeProject: projectInWindow,
+      // fix-226: co-credit both DAs on handed-off projects (DA role only —
+      // attributePersonVolume ignores this for dm/ent).
+      coCreditDaByProject,
+    },
   );
 
   // Compute volume counts on the project IDs, NOT on the permits — a
@@ -326,6 +339,8 @@ export function computeTeamMetrics(
       totalPermitCount: permitCount + redesignPermitCount,
       // fix-192: delegate-only permit count (no lot/unit credit).
       delegatePermitCount: bucket.delegatePermitIds.size,
+      // fix-226: how many of this person's lead projects are DA-handoff shared.
+      sharedProjectCount: bucket.sharedProjectIds.size,
       // fix-216: reuse context (does not affect volume credit above).
       reuseProjectCount,
       reuseRate,
