@@ -14,6 +14,11 @@ import {
 // It resolves to a person for DISPLAY through the fix-222 taxonomy (taskTeam) so
 // the two views agree. Distinct from the co-assignees (CoAssigneeEditor) — this
 // is the labeled OWNER; those are additional helpers.
+//
+// fix-229: the resolved person is shown ONCE. In edit mode ONLY the <select>
+// renders — its selected option already reads "<role> · <person>" (e.g.
+// "Design Associate · Nidhi"), so the old duplicate resolved-person chip is
+// gone. The chip renders only in readOnly mode (where there is no select).
 
 export interface PrimaryAssigneeEditorProps {
   /** The task's stored assigned_to ('' / null = default → the DA). */
@@ -57,11 +62,9 @@ export default function PrimaryAssigneeEditor({
     return person ? `${key} · ${person}` : key;
   };
 
-  return (
-    <div
-      className="flex items-center gap-1 flex-wrap"
-      data-testid={`${testIdPrefix}-primary-wrap`}
-    >
+  // fix-229: readOnly → just the resolved-person chip (no select to carry it).
+  if (readOnly) {
+    return (
       <span
         className="px-1.5 py-0.5 rounded font-bold text-[10px]"
         style={{ background: 'var(--color-s2)', color: 'var(--color-text)' }}
@@ -70,36 +73,40 @@ export default function PrimaryAssigneeEditor({
       >
         {display ?? 'Unassigned'}
       </span>
-      {!readOnly && (
-        <select
-          value={selected}
-          disabled={disabled}
-          onChange={(e) => onChange(e.target.value)}
-          className="text-[10px] px-1 py-0.5 border rounded outline-none"
-          style={{
-            borderColor: 'var(--color-border)',
-            background: 'var(--color-bg)',
-            color: 'var(--color-muted)',
-          }}
-          title="Change primary owner"
-          data-testid={`${testIdPrefix}-primary-select`}
-        >
-          <optgroup label="Team / role">
-            {PRIMARY_TEAM_OPTIONS.map((k) => (
-              <option key={k} value={k}>
-                {teamOptionLabel(k)}
-              </option>
-            ))}
-          </optgroup>
-          <optgroup label="Specific person">
-            {persons.map((n) => (
-              <option key={n} value={n}>
-                {n}
-              </option>
-            ))}
-          </optgroup>
-        </select>
-      )}
-    </div>
+    );
+  }
+
+  // fix-229: edit mode → ONLY the select. Its selected option shows the
+  // resolved "<role> · <person>", so the person is never rendered twice.
+  return (
+    <select
+      value={selected}
+      disabled={disabled}
+      onChange={(e) => onChange(e.target.value)}
+      className="text-[10px] px-1 py-0.5 border rounded outline-none max-w-[180px]"
+      style={{
+        borderColor: 'var(--color-border)',
+        background: 'var(--color-bg)',
+        color: 'var(--color-text)',
+      }}
+      title="Primary owner — click to change"
+      aria-label="Primary owner"
+      data-testid={`${testIdPrefix}-primary-select`}
+    >
+      <optgroup label="Team / role">
+        {PRIMARY_TEAM_OPTIONS.map((k) => (
+          <option key={k} value={k}>
+            {teamOptionLabel(k)}
+          </option>
+        ))}
+      </optgroup>
+      <optgroup label="Specific person">
+        {persons.map((n) => (
+          <option key={n} value={n}>
+            {n}
+          </option>
+        ))}
+      </optgroup>
+    </select>
   );
 }

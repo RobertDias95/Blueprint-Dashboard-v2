@@ -41,7 +41,7 @@ describe('PrimaryAssigneeEditor (fix-228)', () => {
     expect(labels).toContain('Design Manager · Derry');
   });
 
-  it('default (unset) shows the DA as the resolved primary + selects Design Associate', () => {
+  it('fix-229: default (unset) shows the DA ONCE via the select (no duplicate chip)', () => {
     render(
       <PrimaryAssigneeEditor
         value={null}
@@ -51,10 +51,12 @@ describe('PrimaryAssigneeEditor (fix-228)', () => {
         testIdPrefix="t"
       />,
     );
-    expect(screen.getByTestId('t-primary').textContent).toBe('Jade');
-    expect((screen.getByTestId('t-primary-select') as HTMLSelectElement).value).toBe(
-      'Design Associate',
-    );
+    const sel = screen.getByTestId('t-primary-select') as HTMLSelectElement;
+    expect(sel.value).toBe('Design Associate');
+    // The selected option carries the resolved person ("Design Associate · Jade").
+    expect(sel.selectedOptions[0].textContent).toContain('Jade');
+    // No separate resolved-person chip in edit mode.
+    expect(screen.queryByTestId('t-primary')).toBeNull();
   });
 
   it('picking a team key fires onChange with that key', () => {
@@ -84,7 +86,6 @@ describe('PrimaryAssigneeEditor (fix-228)', () => {
         testIdPrefix="t"
       />,
     );
-    expect(screen.getByTestId('t-primary').textContent).toBe('Gone');
     expect((screen.getByTestId('t-primary-select') as HTMLSelectElement).value).toBe('Gone');
   });
 
