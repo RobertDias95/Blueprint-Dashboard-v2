@@ -46,6 +46,7 @@ import {
 } from '../../lib/taskTeam';
 import CoAssigneeEditor from '../CoAssigneeEditor';
 import PrimaryAssigneeEditor from '../PrimaryAssigneeEditor';
+import TaskDateField from '../TaskDateField';
 import type {
   Permit,
   PermitCycle,
@@ -2238,16 +2239,14 @@ function TaskItem({
           ×
         </button>
       </div>
-      {/* fix-228: labeled PRIMARY owner (assigned_to, fix-222 taxonomy) +
-          CO-ASSIGNEES (fix-224 shared editor). A co-assignee equal to the
-          primary is de-duped in the editor. */}
+      {/* fix-228/229 line (b): the primary control leads (owner is understood
+          from position — no "Primary" label) + a light "Co" label before the
+          co-assignee chips (fix-224 shared editor; a co-assignee equal to the
+          primary is de-duped). */}
       <div
         className="flex flex-wrap items-center gap-1.5 text-[10px]"
         style={{ color: 'var(--color-muted)' }}
       >
-        <span className="uppercase tracking-wide" style={{ color: 'var(--color-dim)' }}>
-          Primary
-        </span>
         <PrimaryAssigneeEditor
           value={task.assigned_to}
           ctx={primaryCtx}
@@ -2273,29 +2272,54 @@ function TaskItem({
           testIdPrefix={`pb-${task.id}`}
         />
       </div>
+      {/* fix-229 line (c): one calm, muted meta line — Start / Target /
+          Waiting-On / Done, with "+ subtask" pushed to the right. */}
       <div
-        className="flex flex-wrap items-center gap-1 text-[10px]"
+        className="flex flex-wrap items-center gap-2 text-[10px]"
         style={{ color: 'var(--color-muted)' }}
       >
-        {/* fix-149: Waiting On — external-blocker discipline + resolved firm.
-            "+ Waiting On" select when unset; a chip (discipline → firm) with a
-            clear × when set. Mirrors the assignee chip vocabulary. */}
-        {task.waiting_on == null ? (
+        <span className="inline-flex items-center gap-1">
+          <span style={{ color: 'var(--color-dim)' }}>Start</span>
+          <TaskDateField
+            value={task.start_date}
+            onChange={(v) => save({ startDate: v })}
+            disabled={upsert.isPending}
+            ariaLabel="Start date"
+            testId={`task-start-${task.id}`}
+          />
+        </span>
+        <span className="inline-flex items-center gap-1">
+          <span style={{ color: 'var(--color-dim)' }}>Target</span>
+          <TaskDateField
+            value={task.target_date}
+            onChange={(v) => save({ targetDate: v })}
+            disabled={upsert.isPending}
+            ariaLabel="Target date"
+            testId={`task-target-${task.id}`}
+          />
+        </span>
+        {/* fix-229: Waiting-On — ONE consistent inline control whether set or
+            empty (a single select), with the resolved firm as a muted suffix. */}
+        <span className="inline-flex items-center gap-1">
+          <span style={{ color: 'var(--color-dim)' }}>Waiting</span>
           <select
-            value=""
+            value={task.waiting_on ?? ''}
             onChange={(e) => {
               const v = e.target.value;
-              if (v) save({ waitingOn: v });
+              if (v === '') save({ waitingOn: null, clearWaitingOn: true });
+              else save({ waitingOn: v });
             }}
             className="text-[10px] px-1 py-0.5 border rounded outline-none"
             style={{
               borderColor: 'var(--color-border)',
               background: 'var(--color-bg)',
-              color: 'var(--color-muted)',
+              color: task.waiting_on ? 'var(--color-text)' : 'var(--color-dim)',
             }}
+            title="Waiting on (external discipline)"
+            aria-label="Waiting on"
             data-testid={`task-waiting-on-${task.id}`}
           >
-            <option value="">+ Waiting On</option>
+            <option value="">—</option>
             {WAITING_ON_OPTIONS.map((d) => (
               <option
                 key={d}
@@ -2306,76 +2330,15 @@ function TaskItem({
               </option>
             ))}
           </select>
-        ) : (
-          <span
-            className="px-1.5 py-0.5 rounded inline-flex items-center gap-1"
-            style={{
-              background: 'var(--color-bg)',
-              border: '1px solid var(--color-border)',
-              color: 'var(--color-text)',
-            }}
-            title="Waiting on (external discipline)"
-            data-testid={`task-waiting-on-${task.id}`}
-          >
-            {task.waiting_on}
-            {waitingOnFirm && (
-              <>
-                <span style={{ color: 'var(--color-dim)' }}>{' → '}</span>
-                {waitingOnFirm}
-              </>
-            )}
-            <button
-              type="button"
-              onClick={() => save({ waitingOn: null, clearWaitingOn: true })}
-              style={{
-                background: 'transparent',
-                border: 0,
-                cursor: 'pointer',
-                color: 'var(--color-dim)',
-              }}
-              title="Clear waiting on"
-              data-testid={`task-waiting-on-${task.id}-clear`}
+          {task.waiting_on && waitingOnFirm && (
+            <span
+              style={{ color: 'var(--color-dim)' }}
+              data-testid={`task-waiting-on-${task.id}-firm`}
             >
-              ×
-            </button>
-          </span>
-        )}
-      </div>
-      {/* dates + subtask affordance */}
-      <div
-        className="flex flex-wrap items-center gap-2 text-[10px]"
-        style={{ color: 'var(--color-muted)' }}
-      >
-        <label className="inline-flex items-center gap-1">
-          Start
-          <input
-            type="date"
-            value={task.start_date ?? ''}
-            onChange={(e) => save({ startDate: e.target.value || null })}
-            className="text-[10px] px-1 py-0.5 border rounded outline-none"
-            style={{
-              borderColor: 'var(--color-border)',
-              background: 'var(--color-bg)',
-              color: 'var(--color-text)',
-            }}
-            data-testid={`task-start-${task.id}`}
-          />
-        </label>
-        <label className="inline-flex items-center gap-1">
-          Target
-          <input
-            type="date"
-            value={task.target_date ?? ''}
-            onChange={(e) => save({ targetDate: e.target.value || null })}
-            className="text-[10px] px-1 py-0.5 border rounded outline-none"
-            style={{
-              borderColor: 'var(--color-border)',
-              background: 'var(--color-bg)',
-              color: 'var(--color-text)',
-            }}
-            data-testid={`task-target-${task.id}`}
-          />
-        </label>
+              → {waitingOnFirm}
+            </span>
+          )}
+        </span>
         <span data-testid={`task-done-${task.id}`}>
           Done: {task.done_at ? task.done_at.slice(0, 10) : '—'}
         </span>
@@ -2383,7 +2346,7 @@ function TaskItem({
           <button
             type="button"
             onClick={() => setAddingSub((v) => !v)}
-            className="cursor-pointer underline"
+            className="cursor-pointer underline ml-auto"
             style={{ background: 'transparent', border: 0, color: 'var(--color-de)' }}
             data-testid={`task-add-subtask-${task.id}`}
           >

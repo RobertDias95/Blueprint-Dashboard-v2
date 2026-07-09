@@ -145,6 +145,13 @@ function renderIt() {
   return render(<MyTasks />, { wrapper });
 }
 
+// fix-229: the primary shows ONCE in the select's selected option (e.g.
+// "Design Associate · Trevor") — no separate resolved-person chip.
+function primaryDetailText(): string {
+  const s = screen.getByTestId('task-detail-primary-select') as HTMLSelectElement;
+  return s.selectedOptions[0]?.textContent ?? '';
+}
+
 /** Stable "today" for overdue math — picked to make 2026-05-20 in the past
  *  and 2026-06-15 in the future regardless of CI clock drift. The page reads
  *  today from new Date() so we anchor a fixed Date.now() in beforeEach. */
@@ -344,9 +351,11 @@ describe('MyTasks (fix-80 v1 three-pane kanban)', () => {
     expect(screen.getByTestId('task-detail-co-assignees')).toBeInTheDocument();
     expect(screen.getByTestId('task-detail-waiting-on')).toBeInTheDocument();
     expect(screen.getByTestId('task-detail-priority')).toBeInTheDocument();
-    expect(screen.getByTestId('task-detail-start')).toBeInTheDocument();
-    expect(screen.getByTestId('task-detail-target')).toBeInTheDocument();
-    expect(screen.getByTestId('task-detail-completed')).toBeInTheDocument();
+    // fix-229: dates use the shared TaskDateField — the always-present wrapper
+    // is `<testId>-field` (an empty date shows a muted "—" until clicked).
+    expect(screen.getByTestId('task-detail-start-field')).toBeInTheDocument();
+    expect(screen.getByTestId('task-detail-target-field')).toBeInTheDocument();
+    expect(screen.getByTestId('task-detail-completed-field')).toBeInTheDocument();
     expect(screen.getByTestId('task-detail-notes')).toBeInTheDocument();
     expect(
       screen.getByTestId('task-detail-open-project'),
@@ -474,12 +483,14 @@ describe('MyTasks (fix-80 v1 three-pane kanban)', () => {
     expect(screen.queryByTestId('task-detail-co-assignees-empty')).toBeNull();
   });
 
-  it('fix-228: shows the labeled PRIMARY owner (default → the DA), matching the permit bar', () => {
+  it('fix-228/229: shows the PRIMARY owner (default → the DA) once, in the select', () => {
     tasksRef.current = [task({ id: 't1', bucket: 'de', permit_da: 'Trevor', assigned_to: null })];
     renderIt();
     fireEvent.click(screen.getByTestId('mytask-card-t1'));
-    // Unset assigned_to → DEFAULT primary = the DA (Trevor).
-    expect(screen.getByTestId('task-detail-primary').textContent).toBe('Trevor');
+    // Unset assigned_to → DEFAULT primary = the DA (Trevor), shown in the select
+    // ("Design Associate · Trevor"); no separate resolved-person chip.
+    expect(primaryDetailText()).toContain('Trevor');
+    expect(screen.queryByTestId('task-detail-primary')).toBeNull();
   });
 
   it('fix-228: picking "Design Manager" resolves the primary to the project DM (dm_da_groups)', () => {
@@ -489,7 +500,7 @@ describe('MyTasks (fix-80 v1 three-pane kanban)', () => {
     renderIt();
     fireEvent.click(screen.getByTestId('mytask-card-t1'));
     // DA Trevor → DM Lindsay via the mocked dm_da_groups.
-    expect(screen.getByTestId('task-detail-primary').textContent).toBe('Lindsay');
+    expect(primaryDetailText()).toContain('Lindsay');
   });
 
   it('fix-228: changing the primary selector writes assigned_to through the task upsert', () => {
@@ -511,7 +522,7 @@ describe('MyTasks (fix-80 v1 three-pane kanban)', () => {
     ];
     renderIt();
     fireEvent.click(screen.getByTestId('mytask-card-t1'));
-    expect(screen.getByTestId('task-detail-primary').textContent).toBe('Trevor');
+    expect(primaryDetailText()).toContain('Trevor');
     expect(screen.getByTestId('task-detail-co-assignee-Miles')).toBeInTheDocument();
     expect(screen.queryByTestId('task-detail-co-assignee-Trevor')).toBeNull();
   });
@@ -522,6 +533,8 @@ describe('MyTasks (fix-80 v1 three-pane kanban)', () => {
     ];
     renderIt();
     fireEvent.click(screen.getByTestId('mytask-card-t1'));
+    // fix-229: target is empty → reveal the picker from the muted "—" first.
+    fireEvent.click(screen.getByTestId('task-detail-target-empty'));
     fireEvent.change(screen.getByTestId('task-detail-target'), {
       target: { value: '2026-06-01' },
     });
@@ -571,6 +584,8 @@ describe('MyTasks (fix-80 v1 three-pane kanban)', () => {
     ];
     renderIt();
     fireEvent.click(screen.getByTestId('mytask-card-t1'));
+    // fix-229: completed is empty → reveal the picker from the muted "—" first.
+    fireEvent.click(screen.getByTestId('task-detail-completed-empty'));
     fireEvent.change(screen.getByTestId('task-detail-completed'), {
       target: { value: '2026-06-01' },
     });

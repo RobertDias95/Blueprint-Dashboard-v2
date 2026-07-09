@@ -149,13 +149,22 @@ beforeEach(() => {
   ];
 });
 
+// fix-229: the primary shows ONCE (in the select's selected option, e.g.
+// "Design Associate · Ainsley"); no separate resolved-person chip in edit mode.
+function primarySelText(prefix: string): string {
+  const s = screen.getByTestId(`${prefix}-primary-select`) as HTMLSelectElement;
+  return s.selectedOptions[0]?.textContent ?? '';
+}
+
 describe('PermitDetailV2 fix-70 task editor', () => {
   it('renders the task with the labeled PRIMARY (fix-228 default → the DA) + co-assignee chip', () => {
     renderIt();
     expect(screen.getByTestId('task-row-task-1')).toBeInTheDocument();
-    // fix-228: primary is resolved from assigned_to; unset → DEFAULT = the DA
-    // ('Ainsley'), NOT the discipline-derived ent_lead.
-    expect(screen.getByTestId('pb-task-1-primary').textContent).toBe('Ainsley');
+    // fix-228/229: primary resolves from assigned_to; unset → DEFAULT = the DA
+    // ('Ainsley'). fix-229: shown once, in the select ("Design Associate · Ainsley").
+    expect(primarySelText('pb-task-1')).toContain('Ainsley');
+    // No duplicate resolved-person chip in edit mode.
+    expect(screen.queryByTestId('pb-task-1-primary')).toBeNull();
     // Explicit co-assignee chip (shared CoAssigneeEditor).
     expect(screen.getByTestId('pb-task-1-co-assignee-Bobby')).toBeInTheDocument();
   });
@@ -249,9 +258,21 @@ describe('PermitDetailV2 fix-70 task editor', () => {
       makeTask({ id: 'task-1', discipline: 'ent', assigned_to: 'Ainsley', co_assignees: ['Ainsley', 'Bobby'] }),
     ];
     renderIt();
-    expect(screen.getByTestId('pb-task-1-primary').textContent).toBe('Ainsley');
+    expect(primarySelText('pb-task-1')).toContain('Ainsley');
     expect(screen.getByTestId('pb-task-1-co-assignee-Bobby')).toBeInTheDocument();
     expect(screen.queryByTestId('pb-task-1-co-assignee-Ainsley')).toBeNull();
+  });
+
+  // fix-229: an empty date renders a muted "—" (no loud mm/dd/yyyy), not a
+  // native date input, until clicked.
+  it('an empty date shows a muted "—" placeholder, not a mm/dd/yyyy input', () => {
+    renderIt(); // task-1 has start_date/target_date null
+    const startEmpty = screen.getByTestId('task-start-task-1-empty');
+    expect(startEmpty.textContent).toBe('—');
+    expect(screen.queryByTestId('task-start-task-1')).toBeNull(); // no input yet
+    // clicking reveals the date input
+    fireEvent.click(startEmpty);
+    expect(screen.getByTestId('task-start-task-1')).toBeInTheDocument();
   });
 
   it('+ subtask creates a child task with the parent id set', () => {
@@ -273,12 +294,13 @@ describe('PermitDetailV2 fix-70 task editor', () => {
     expect(screen.queryByTestId('task-bucket-sub-1')).toBeNull();
   });
 
-  it('exposes the Waiting On affordance on each task (fix-149, was removed in fix-70)', () => {
-    // fix-149 re-introduces Waiting On to the permit-detail task editor (as an
-    // inline chip resolving the project's External Team firm). Flipped from the
-    // old fix-70 assertion that it was absent.
+  it('exposes the Waiting On affordance on each task (fix-149; fix-229 single select)', () => {
+    // fix-149 re-introduces Waiting On; fix-229 makes it ONE consistent inline
+    // select (whether set or empty) on the meta line — not a chip-vs-dropdown.
     renderIt();
-    expect(screen.getAllByText(/\+ Waiting On/i).length).toBeGreaterThan(0);
+    const sel = screen.getByTestId('task-waiting-on-task-1') as HTMLSelectElement;
+    expect(sel.tagName).toBe('SELECT');
+    expect(screen.getByTestId('task-waiting-on-task-1-option-Civil')).toBeTruthy();
   });
 
   // fix-79: D&E / Permitting toggle bars are a real filter. Active bar
@@ -633,7 +655,7 @@ describe('PermitDetailV2 fix-70 task editor', () => {
       expect(screen.getByTestId('task-row-93c131e3')).toBeInTheDocument();
       expect(screen.getByTestId('bot-badge-93c131e3')).toBeInTheDocument();
       // fix-228: primary resolves from assigned_to; unset → DEFAULT = the DA.
-      expect(screen.getByTestId('pb-93c131e3-primary').textContent).toBe('Ainsley');
+      expect(primarySelText('pb-93c131e3')).toContain('Ainsley');
       expect(
         (screen.getByTestId('task-text-93c131e3') as HTMLInputElement).value,
       ).toBe('Enter permit number — was this submitted? — SDOT Tree @ 4506 14th Ave SW');

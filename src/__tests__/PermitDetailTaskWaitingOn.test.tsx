@@ -121,28 +121,31 @@ describe('Permit detail task — Waiting On chip (fix-149)', () => {
     });
   });
 
-  it('shows "Surveyor → Emerald" from the project external_team blob', () => {
+  it('shows "→ Emerald" firm suffix from the project external_team blob when set', () => {
     // fix-190d: resolves from projects.external_team (the store the editor writes).
+    // fix-229: the control is a single select (value=discipline) + a muted firm
+    // suffix span, not a chip.
     blobRef.current = { Surveyor: 'Emerald' };
     treeRef.current = [makeTask({ id: 'task-1', waiting_on: 'Surveyor' })];
     renderIt();
-    const chip = screen.getByTestId('task-waiting-on-task-1');
-    expect(chip.textContent).toContain('Surveyor → Emerald');
+    expect((screen.getByTestId('task-waiting-on-task-1') as HTMLSelectElement).value).toBe('Surveyor');
+    expect(screen.getByTestId('task-waiting-on-task-1-firm').textContent).toContain('Emerald');
   });
 
-  it('shows just "Civil" when no External Team firm is assigned', () => {
+  it('shows no firm suffix when no External Team firm is assigned', () => {
     blobRef.current = {}; // nothing assigned
     treeRef.current = [makeTask({ id: 'task-1', waiting_on: 'Civil' })];
     renderIt();
-    const chip = screen.getByTestId('task-waiting-on-task-1');
-    expect(chip.textContent).toContain('Civil');
-    expect(chip.textContent).not.toContain('→');
+    expect((screen.getByTestId('task-waiting-on-task-1') as HTMLSelectElement).value).toBe('Civil');
+    expect(screen.queryByTestId('task-waiting-on-task-1-firm')).toBeNull();
   });
 
-  it('clearing fires useUpsertTask with clearWaitingOn=true', () => {
+  it('selecting "—" clears via useUpsertTask with clearWaitingOn=true', () => {
     treeRef.current = [makeTask({ id: 'task-1', waiting_on: 'Civil' })];
     renderIt();
-    fireEvent.click(screen.getByTestId('task-waiting-on-task-1-clear'));
+    fireEvent.change(screen.getByTestId('task-waiting-on-task-1'), {
+      target: { value: '' },
+    });
     expect(upsertMutate).toHaveBeenCalledTimes(1);
     expect(upsertMutate.mock.calls[0][0]).toMatchObject({
       id: 'task-1',
@@ -151,15 +154,15 @@ describe('Permit detail task — Waiting On chip (fix-149)', () => {
     });
   });
 
-  it('resolves the documented testIds (option when unset, clear when set)', () => {
+  it('unset → the SAME select (value="", "—" + options), no firm suffix', () => {
+    // fix-229: whether set or empty, Waiting-On is one select — never a chip on
+    // one row and a dropdown on another. The SET case (select value=discipline +
+    // firm suffix) is covered by the "→ Emerald firm suffix" test above.
     renderIt();
-    // unset → select + per-discipline option testids
-    expect(screen.getByTestId('task-waiting-on-task-1')).toBeTruthy();
+    const unset = screen.getByTestId('task-waiting-on-task-1') as HTMLSelectElement;
+    expect(unset.tagName).toBe('SELECT');
+    expect(unset.value).toBe('');
     expect(screen.getByTestId('task-waiting-on-task-1-option-Structural')).toBeTruthy();
-    expect(screen.queryByTestId('task-waiting-on-task-1-clear')).toBeNull();
-    // set → clear testid present
-    treeRef.current = [makeTask({ id: 'task-1', waiting_on: 'Surveyor' })];
-    renderIt();
-    expect(screen.getByTestId('task-waiting-on-task-1-clear')).toBeTruthy();
+    expect(screen.queryByTestId('task-waiting-on-task-1-firm')).toBeNull();
   });
 });

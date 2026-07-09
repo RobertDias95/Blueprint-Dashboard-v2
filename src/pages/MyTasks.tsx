@@ -14,6 +14,7 @@ import { usePermits } from '../hooks/usePermits';
 import { useProjects } from '../hooks/useProjects';
 import CoAssigneeEditor from '../components/CoAssigneeEditor';
 import PrimaryAssigneeEditor from '../components/PrimaryAssigneeEditor';
+import TaskDateField from '../components/TaskDateField';
 import {
   resolvePrimaryAssignee,
   type ResolutionContext,
@@ -1463,11 +1464,13 @@ function TaskDetailEditor({
           </Link>
         </FieldRow>
 
-        {/* fix-228: labeled PRIMARY owner (assigned_to, fix-222 taxonomy) —
+        {/* fix-228/229: the PRIMARY owner (assigned_to, fix-222 taxonomy) —
             selectable as Design Associate (default → DA) / Entitlements /
             Schematic Team / Design Manager / a specific person; resolves to a
-            person the same way the permit bar does. */}
-        <FieldRow label="Primary">
+            person the same way the permit bar does. fix-229: the field label
+            ("Assignee") aids scanning in this vertical form; the select's option
+            already shows "<role> · <person>" so the person isn't shown twice. */}
+        <FieldRow label="Assignee">
           <PrimaryAssigneeEditor
             value={task.assigned_to}
             ctx={primaryCtx}
@@ -1542,27 +1545,28 @@ function TaskDetailEditor({
           </button>
         </FieldRow>
 
-        {/* 6 Start Date */}
+        {/* 6 Start Date — fix-229: empty renders a muted "—" that reveals the
+            picker (no loud mm/dd/yyyy), shared TaskDateField. */}
         <FieldRow label="Start Date">
-          <input
-            type="date"
-            value={task.start_date ?? ''}
-            onChange={(e) => commitDate('startDate', e.target.value)}
-            className="text-[11px] px-2 py-1 border rounded outline-none font-mono"
-            style={inputStyle()}
-            data-testid="task-detail-start"
+          <TaskDateField
+            value={task.start_date}
+            onChange={(v) => commitDate('startDate', v ?? '')}
+            ariaLabel="Start date"
+            testId="task-detail-start"
+            inputClassName="text-[11px] px-2 py-1 border rounded outline-none font-mono"
+            inputStyle={inputStyle()}
           />
         </FieldRow>
 
         {/* 7 Target Date */}
         <FieldRow label="Target Date">
-          <input
-            type="date"
-            value={task.target_date ?? ''}
-            onChange={(e) => commitDate('targetDate', e.target.value)}
-            className="text-[11px] px-2 py-1 border rounded outline-none font-mono"
-            style={inputStyle()}
-            data-testid="task-detail-target"
+          <TaskDateField
+            value={task.target_date}
+            onChange={(v) => commitDate('targetDate', v ?? '')}
+            ariaLabel="Target date"
+            testId="task-detail-target"
+            inputClassName="text-[11px] px-2 py-1 border rounded outline-none font-mono"
+            inputStyle={inputStyle()}
           />
         </FieldRow>
 
@@ -1570,11 +1574,9 @@ function TaskDetailEditor({
             task to Resolved (the upsert RPC's completion_status rule
             doesn't flip status from a date, so do it client-side). */}
         <FieldRow label="Completed">
-          <input
-            type="date"
-            value={completedValue}
-            onChange={(e) => {
-              const v = e.target.value.trim();
+          <TaskDateField
+            value={completedValue || null}
+            onChange={(v) => {
               if (!v) {
                 patch({
                   completed: null,
@@ -1584,16 +1586,13 @@ function TaskDetailEditor({
                   status: isResolved ? 'Open' : task.status,
                 });
               } else {
-                patch({
-                  completed: v,
-                  status: 'Resolved',
-                });
+                patch({ completed: v, status: 'Resolved' });
               }
             }}
-            className="text-[11px] px-2 py-1 border rounded outline-none font-mono"
-            style={inputStyle()}
-            data-testid="task-detail-completed"
-            data-done={isResolved ? 'true' : 'false'}
+            ariaLabel="Completed date"
+            testId="task-detail-completed"
+            inputClassName="text-[11px] px-2 py-1 border rounded outline-none font-mono"
+            inputStyle={inputStyle()}
           />
         </FieldRow>
 
