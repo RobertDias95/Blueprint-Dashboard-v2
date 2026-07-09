@@ -16,6 +16,7 @@ type TaskFixture = MyTaskNode & { bucket?: 'de' | 'pm' };
 
 const allTasksSpy = vi.hoisted(() => vi.fn());
 const upsertMutate = vi.hoisted(() => vi.fn());
+const setAssigneesMutate = vi.hoisted(() => vi.fn());
 const teamRef = vi.hoisted(() => ({
   current: [] as TeamMember[],
 }));
@@ -58,8 +59,15 @@ vi.mock('../hooks/useTaskTree', async (importActual) => {
       error: null,
       reset: vi.fn(),
     }),
+    // fix-224: assignment goes through the join-table RPC.
+    useSetTaskAssignees: () => ({ mutate: setAssigneesMutate }),
   };
 });
+
+// fix-224: the detail editor resolves co-assignee role tokens via dm_da_groups.
+vi.mock('../hooks/useDmDaGroups', () => ({
+  useDmDaGroups: () => ({ rows: [{ da_name: 'Trevor', dm_name: 'Lindsay' }] }),
+}));
 
 // fix-140: the Waiting On view (mounted when ?view=waiting-on) reads
 // bp_list_waiting_on_tasks via useWaitingOnTasks. This suite runs under fake
@@ -323,7 +331,10 @@ describe('MyTasks (fix-80 v1 three-pane kanban)', () => {
     // fix-138-c: all 9 v1 field controls are rendered.
     expect(screen.getByTestId('task-detail-project')).toBeInTheDocument();
     expect(screen.getByTestId('task-detail-permit')).toBeInTheDocument();
-    expect(screen.getByTestId('task-detail-assigned')).toBeInTheDocument();
+    // fix-224: the single-owner "Assigned To" select is retired; assignment is
+    // now the co-assignee editor (join table).
+    expect(screen.queryByTestId('task-detail-assigned')).toBeNull();
+    expect(screen.getByTestId('task-detail-co-assignees')).toBeInTheDocument();
     expect(screen.getByTestId('task-detail-waiting-on')).toBeInTheDocument();
     expect(screen.getByTestId('task-detail-priority')).toBeInTheDocument();
     expect(screen.getByTestId('task-detail-start')).toBeInTheDocument();
@@ -420,18 +431,75 @@ describe('MyTasks (fix-80 v1 three-pane kanban)', () => {
     });
   });
 
-  it('Assigned To change fires the upsert RPC', () => {
-    tasksRef.current = [task({ id: 't1', bucket: 'de', assigned_to: null })];
+  it('fix-224: adding an assignee writes the co_assignees join table (bp_set_task_assignees), not assigned_to', () => {
+    tasksRef.current = [task({ id: 't1', bucket: 'de', co_assignees: [] })];
     renderIt();
     fireEvent.click(screen.getByTestId('mytask-card-t1'));
-    fireEvent.change(screen.getByTestId('task-detail-assigned'), {
+    fireEvent.change(screen.getByTestId('task-detail-co-assignee-add'), {
       target: { value: 'Trevor' },
     });
+    expect(setAssigneesMutate).toHaveBeenCalledTimes(1);
+    expect(setAssigneesMutate.mock.calls[0][0]).toMatchObject({
+      taskId: 't1',
+      permitId: 1,
+      assignees: ['Trevor'],
+    });
+    // assignment does NOT go through the task upsert.
+    expect(upsertMutate).not.toHaveBeenCalled();
+  });
+
+  it('fix-224: co_assignees render as chips (never blank when non-empty); a role token resolves to the person', () => {
+    tasksRef.current = [
+      task({
+        id: 't1',
+        bucket: 'de',
+        permit_da: 'Trevor',
+        co_assignees: ['Miles', 'role:design_manager'],
+      }),
+    ];
+    renderIt();
+    fireEvent.click(screen.getByTestId('mytask-card-t1'));
+    // plain person chip
+    expect(screen.getByTestId('task-detail-co-assignee-Miles')).toBeInTheDocument();
+    // role token chip resolves to the DM for DA Trevor (Lindsay via dm_da_groups)
+    const roleChip = screen.getByTestId('task-detail-co-assignee-role:design_manager');
+    expect(roleChip.textContent).toContain('Lindsay');
+    expect(screen.queryByTestId('task-detail-co-assignees-empty')).toBeNull();
+  });
+
+  it('fix-224: editing the target date re-sends the current start date (no cross-field erase)', () => {
+    tasksRef.current = [
+      task({ id: 't1', bucket: 'de', start_date: '2026-05-01', target_date: null }),
+    ];
+    renderIt();
+    fireEvent.click(screen.getByTestId('mytask-card-t1'));
+    fireEvent.change(screen.getByTestId('task-detail-target'), {
+      target: { value: '2026-06-01' },
+    });
     expect(upsertMutate).toHaveBeenCalledTimes(1);
+    // the patch carries BOTH dates — start_date is preserved, not nulled.
     expect(upsertMutate.mock.calls[0][0]).toMatchObject({
       id: 't1',
-      assignedTo: 'Trevor',
+      startDate: '2026-05-01',
+      targetDate: '2026-06-01',
     });
+  });
+
+  it('fix-224: "By Project" groups the task list into per-project sections', () => {
+    tasksRef.current = [
+      task({ id: 'a', bucket: 'de', project_id: 'p1', project_address: '111 Oak St' }),
+      task({ id: 'b', bucket: 'pm', project_id: 'p1', project_address: '111 Oak St' }),
+      task({ id: 'c', bucket: 'de', project_id: 'p2', project_address: '222 Pine Ave' }),
+    ];
+    renderIt();
+    // default: kanban buckets, no project grouping
+    expect(screen.queryByTestId('mytasks-by-project')).toBeNull();
+    fireEvent.click(screen.getByTestId('mytasks-filter-byproject'));
+    // now grouped by project — the bucket columns are gone, project sections show
+    expect(screen.getByTestId('mytasks-by-project')).toBeInTheDocument();
+    expect(screen.queryByTestId('mytasks-bucket-de')).toBeNull();
+    expect(screen.getByTestId('mytasks-project-group-111 Oak St')).toBeInTheDocument();
+    expect(screen.getByTestId('mytasks-project-group-222 Pine Ave')).toBeInTheDocument();
   });
 
   it('Priority toggle flips false → true on first click and fires the upsert', () => {

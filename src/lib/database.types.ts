@@ -525,6 +525,12 @@ export interface MyTaskNode extends TaskNode {
   project_id: string;
   project_address: string;
   permit_type: string | null;
+  /** fix-224: the permit's DA — lets My Tasks resolve fix-222 co-assignee role
+   *  tokens (design_associate / design_manager via dm_da_groups) for display,
+   *  the same way the permit bar does. Optional: emitted by bp_list_tasks after
+   *  the fix-224 migration; undefined before it lands (tokens fall back to their
+   *  label). */
+  permit_da?: string | null;
 }
 
 export interface DrawScheduleRow {
