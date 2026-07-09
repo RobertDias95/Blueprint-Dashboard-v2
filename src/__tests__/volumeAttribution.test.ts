@@ -4,6 +4,7 @@ import {
   holisticOwner,
   delegateAssignments,
   attributePersonVolume,
+  buildDaCoCreditMap,
 } from '../lib/volumeAttribution';
 import type { PermitWithCycles, Project } from '../lib/database.types';
 
@@ -197,3 +198,92 @@ function sumVol(projects: Project[], ids: Set<string>, key: 'units' | 'num_lots'
   for (const p of projects) if (ids.has(p.id)) t += p[key] ?? 0;
   return t;
 }
+
+// fix-226: DA co-credit (DA handoff Phase 2). A project handed off DA-A → DA-B
+// counts for BOTH DAs in their individual per-DA metrics (co-credit, not split);
+// the holistic owner is unchanged so an org roll-up still counts it once.
+describe('buildDaCoCreditMap', () => {
+  it('unions from_da + to_da per project and drops blanks', () => {
+    const map = buildDaCoCreditMap([
+      { project_id: 'p1', from_da: 'Trevor', to_da: 'Nicky' },
+      { project_id: 'p1', from_da: 'Nicky', to_da: 'Marc' }, // 2nd handoff on p1
+      { project_id: 'p2', from_da: null, to_da: 'Ainsley' }, // no prior owner
+      { project_id: 'p3', from_da: '  ', to_da: 'Cam' }, // blank from_da dropped
+    ]);
+    expect([...map.get('p1')!].sort()).toEqual(['Marc', 'Nicky', 'Trevor']);
+    expect([...map.get('p2')!]).toEqual(['Ainsley']);
+    expect([...map.get('p3')!]).toEqual(['Cam']);
+  });
+});
+
+describe('attributePersonVolume — DA co-credit', () => {
+  // A project owned (post-reassign) by DA-B, handed off from DA-A. permits.da is
+  // now DA-B; the ledger records A→B.
+  const project = mkProject({ id: 'shared', address: '900 Shared Ave', num_lots: 3, units: 9 });
+  const permits = [
+    mkPermit({ id: 1, project_id: 'shared', type: 'Building Permit', da: 'DA-B' }),
+  ];
+  const coCredit = buildDaCoCreditMap([
+    { project_id: 'shared', from_da: 'DA-A', to_da: 'DA-B' },
+  ]);
+
+  it('credits the handed-off project to BOTH DAs with full volume + shared flag', () => {
+    const buckets = attributePersonVolume(permits, [project], {
+      role: 'da',
+      coCreditDaByProject: coCredit,
+    });
+    const a = buckets.get('DA-A')!;
+    const b = buckets.get('DA-B')!;
+    // Both carry the project + its full volume (co-credit, not split).
+    for (const who of [a, b]) {
+      expect(who.originalProjectIds.has('shared')).toBe(true);
+      expect(sumVol([project], who.originalProjectIds, 'num_lots')).toBe(3);
+      expect(sumVol([project], who.originalProjectIds, 'units')).toBe(9);
+      expect(who.sharedProjectIds.has('shared')).toBe(true);
+    }
+    // The permit list isn't doubled onto the owner (DA-B): exactly one permit.
+    expect(b.leadOriginalPermits.length).toBe(1);
+    expect(a.leadOriginalPermits.length).toBe(1);
+  });
+
+  it('org roll-up unchanged: the holistic owner is still the single current DA', () => {
+    // holisticOwner is what an org total iterates — it never sees co-credit, so
+    // the project lands on exactly one owner (DA-B) at the company level.
+    expect(holisticOwner('da', project, permits)).toBe('DA-B');
+  });
+
+  it('a project with NO handoff shows only under its owner (no shared flag)', () => {
+    const solo = mkProject({ id: 'solo', address: '11 Solo St', num_lots: 1, units: 2 });
+    const soloPermits = [mkPermit({ id: 9, project_id: 'solo', type: 'Building Permit', da: 'DA-B' })];
+    const buckets = attributePersonVolume([...permits, ...soloPermits], [project, solo], {
+      role: 'da',
+      coCreditDaByProject: coCredit,
+    });
+    const b = buckets.get('DA-B')!;
+    expect(b.originalProjectIds.has('solo')).toBe(true);
+    expect(b.sharedProjectIds.has('solo')).toBe(false); // solo isn't shared
+    // DA-A is credited ONLY the shared project, never solo.
+    expect(buckets.get('DA-A')!.originalProjectIds.has('solo')).toBe(false);
+  });
+
+  it('co-credit is DA-scoped — the DM/ENT roles ignore the map', () => {
+    const withDm = mkProject({
+      id: 'shared', address: '900 Shared Ave', num_lots: 3, units: 9,
+      design_manager: 'DM-Owner',
+    });
+    const buckets = attributePersonVolume(permits, [withDm], {
+      role: 'dm',
+      coCreditDaByProject: coCredit,
+    });
+    // Only the real DM owner is credited; DA-A / DA-B get nothing under 'dm'.
+    expect(buckets.get('DM-Owner')!.originalProjectIds.has('shared')).toBe(true);
+    expect(buckets.has('DA-A')).toBe(false);
+    expect(buckets.get('DM-Owner')!.sharedProjectIds.size).toBe(0);
+  });
+
+  it('with no co-credit map, behavior is unchanged (from_da absent)', () => {
+    const buckets = attributePersonVolume(permits, [project], { role: 'da' });
+    expect(buckets.has('DA-A')).toBe(false);
+    expect(buckets.get('DA-B')!.sharedProjectIds.size).toBe(0);
+  });
+});

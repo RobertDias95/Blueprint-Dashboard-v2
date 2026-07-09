@@ -665,3 +665,62 @@ describe('computeTeamMetrics — fix-216 reuse metric', () => {
     expect(ainsley.reuseRate).toBe(0); // 0/1 = 0%, not null (has a lead project)
   });
 });
+
+// fix-226: DA co-credit — a project handed off DA-A → DA-B shows in BOTH DAs'
+// per-DA metrics; the org total counts it once; the shared count surfaces it.
+describe('computeTeamMetrics — DA co-credit (fix-226)', () => {
+  const team = [
+    mkMember({ name: 'Trevor', role: 'da' }),
+    mkMember({ name: 'Nicky', role: 'da' }),
+    mkMember({ name: 'Ainsley', role: 'da' }),
+  ];
+  // One shared project (handed off Trevor → Nicky; permits.da is now Nicky) and
+  // one solo project owned by Ainsley.
+  const shared = mkProject({ id: 'sp', address: '900 Shared', units: 9, num_lots: 3 });
+  const solo = mkProject({ id: 'so', address: '11 Solo', units: 2, num_lots: 1 });
+  const projects = [shared, solo];
+  const permits = [
+    mkPermit({ id: 1, project_id: 'sp', da: 'Nicky' }),
+    mkPermit({ id: 2, project_id: 'so', da: 'Ainsley' }),
+  ];
+  const coCredit = new Map<string, Set<string>>([
+    ['sp', new Set(['Trevor', 'Nicky'])],
+  ]);
+
+  it('a handed-off project appears in BOTH the original and new DA metrics', () => {
+    const out = computeTeamMetrics(permits, projects, team, baseFilters, undefined, coCredit);
+    const trevor = out.rows.find((r) => r.name === 'Trevor')!;
+    const nicky = out.rows.find((r) => r.name === 'Nicky')!;
+    // Both credited the full volume (9 units / 3 lots), not split.
+    expect(trevor.projectCount).toBe(1);
+    expect(trevor.unitCount).toBe(9);
+    expect(trevor.lotCount).toBe(3);
+    expect(nicky.projectCount).toBe(1);
+    expect(nicky.unitCount).toBe(9);
+    expect(nicky.lotCount).toBe(3);
+    // Both see it flagged shared.
+    expect(trevor.sharedProjectCount).toBe(1);
+    expect(nicky.sharedProjectCount).toBe(1);
+  });
+
+  it('the org roll-up counts the shared project once (sum of holistic owners)', () => {
+    // With NO co-credit map the buckets ARE the holistic-owner attribution an org
+    // total iterates: the project lands on exactly one owner (Nicky), never Trevor.
+    const org = computeTeamMetrics(permits, projects, team, baseFilters);
+    const nicky = org.rows.find((r) => r.name === 'Nicky')!;
+    expect(nicky.projectCount).toBe(1);
+    expect(nicky.unitCount).toBe(9);
+    expect(org.rows.find((r) => r.name === 'Trevor')).toBeUndefined();
+    // Company-wide unit total = 9 (shared) + 2 (solo) = 11 — counted once.
+    const orgUnits = org.rows.reduce((s, r) => s + r.unitCount, 0);
+    expect(orgUnits).toBe(11);
+  });
+
+  it('a project with no handoff shows only under its owner; no shared flag', () => {
+    const out = computeTeamMetrics(permits, projects, team, baseFilters, undefined, coCredit);
+    const ainsley = out.rows.find((r) => r.name === 'Ainsley')!;
+    expect(ainsley.projectCount).toBe(1);
+    expect(ainsley.unitCount).toBe(2);
+    expect(ainsley.sharedProjectCount).toBe(0); // solo is not shared
+  });
+});

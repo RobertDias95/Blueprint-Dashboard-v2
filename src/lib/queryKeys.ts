@@ -52,6 +52,10 @@ export const queryKeys = {
     ['project_da_handoffs', tenantId, { projectId }] as const,
   projectDaHandoffsSet: (tenantId: string) =>
     ['project_da_handoffs', tenantId, 'set'] as const,
+  // fix-226: full ledger rows (project_id + from_da + to_da) for the per-DA
+  // co-credit map on the Team reports. Shares the bare prefix for invalidation.
+  projectDaHandoffsRows: (tenantId: string) =>
+    ['project_da_handoffs', tenantId, 'rows'] as const,
   intakeRecords: (tenantId: string) => ['intake_records', tenantId] as const,
   dmDaGroups: (tenantId: string) => ['dm_da_groups', tenantId] as const,
   daTimeBlocks: (tenantId: string) => ['da_time_blocks', tenantId] as const,

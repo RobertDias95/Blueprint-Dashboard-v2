@@ -15,6 +15,7 @@ import {
   useAllProjectHolds,
   holdsByProjectId,
 } from '../hooks/useProjectHolds';
+import { useDaCoCreditMap } from '../hooks/useProjectDaHandoffs';
 import { useTeamMembers } from '../hooks/useTeamMembers';
 import { SkeletonRows } from '../components/Skeleton';
 import QueryError from '../components/QueryError';
@@ -34,7 +35,10 @@ import ExportCsvButton from '../components/shared/ExportCsvButton';
 import { rowsToCsv } from '../lib/reportCsv';
 import { formatCompareNumber } from '../lib/comparisonCohort';
 import { TEAM_DETAIL_PHASE_METRICS } from '../lib/metricDefinitions';
-import { worstStage } from '../lib/libraryHelpers';
+import {
+  buildRows,
+  type ProjectListRow,
+} from '../lib/teamDetailRows';
 import { STAGE_LABEL } from '../lib/stageLabel';
 import type {
   PermitWithCycles,
@@ -125,6 +129,9 @@ function Body({
   // their vs-team-avg baseline (same map as the Team tab).
   const holdsQ = useAllProjectHolds();
   const holdsMap = useMemo(() => holdsByProjectId(holdsQ.data), [holdsQ.data]);
+  // fix-226: DA co-credit — a handed-off project shows in both DAs' metrics +
+  // its drill-in project list carries the ✳ shared marker.
+  const { coCreditMap } = useDaCoCreditMap();
   // Compute team metrics across the whole role cohort so the
   // vs-team-avg deltas use the same baseline as the Team tab. Pull
   // the associate's row by name; if missing, the page renders the
@@ -148,8 +155,9 @@ function Body({
           includeRedesigns: true,
         },
         holdsMap,
+        coCreditMap,
       ),
-    [permits, projects, teamMembers, role, holdsMap],
+    [permits, projects, teamMembers, role, holdsMap, coCreditMap],
   );
 
   const associate = result.rows.find((r) => r.name === name) ?? null;
@@ -174,8 +182,8 @@ function Body({
   // surfaces simultaneously. Declared BEFORE the not-found early
   // return so React Hooks call order is stable across renders.
   const projectRows = useMemo(
-    () => buildRows(name, role, permits, projects),
-    [name, role, permits, projects],
+    () => buildRows(name, role, permits, projects, coCreditMap),
+    [name, role, permits, projects, coCreditMap],
   );
   const csvFilename = `${slugifyName(name)}-projects-${todayStamp()}.csv`;
   const handleExport = (): string => buildDrilldownCsv(projectRows);
@@ -266,6 +274,22 @@ function Body({
             (no credited permits in window)
           </span>
         )}
+        {/* fix-226: co-credit chip — how many of this DA's projects are shared
+            via a handoff. DA role only (sharedProjectCount is 0 for dm/ent). */}
+        {associate && associate.sharedProjectCount > 0 && (
+          <span
+            className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full border"
+            style={{
+              background: 'var(--color-de-bg)',
+              color: 'var(--color-de)',
+              borderColor: 'var(--color-de-border)',
+            }}
+            title="Projects co-credited via a DA reassignment (shared with another DA)"
+            data-testid="team-detail-shared-count"
+          >
+            ✳ {associate.sharedProjectCount} shared
+          </span>
+        )}
       </div>
 
       {associate && (
@@ -291,6 +315,7 @@ function Body({
         role={role}
         permits={permits}
         projects={projects}
+        coCredit={coCreditMap}
       />
     </div>
   );
@@ -315,24 +340,6 @@ const STAGE_BADGE: Record<Stage, string> = {
   is: 'bg-is-bg text-is border-is-border',
 };
 
-function roleField(role: TeamRoleSelection): 'da' | 'dm' | 'ent_lead' {
-  if (role === 'da') return 'da';
-  if (role === 'dm') return 'dm';
-  return 'ent_lead';
-}
-
-interface ProjectListRow {
-  projectId: string;
-  address: string;
-  juris: string;
-  types: string[];
-  stage: Stage;
-  goDate: string | null;
-  targetSubmit: string | null;
-  approvalDate: string | null;
-  isRedesign: boolean;
-}
-
 type SortKey =
   | 'address'
   | 'juris'
@@ -340,57 +347,6 @@ type SortKey =
   | 'goDate'
   | 'targetSubmit'
   | 'approvalDate';
-
-function buildRows(
-  name: string,
-  role: TeamRoleSelection,
-  permits: PermitWithCycles[],
-  projects: Project[],
-): ProjectListRow[] {
-  const field = roleField(role);
-  const projectsById = new Map<string, Project>();
-  for (const p of projects) projectsById.set(p.id, p);
-
-  // Group the associate's permits by project. The associate may have
-  // multiple permits at a single project (BP + Demo, etc.), so accumulate.
-  const byProjectId = new Map<string, PermitWithCycles[]>();
-  for (const permit of permits) {
-    const credited = (permit[field] ?? '').trim() === name;
-    if (!credited) continue;
-    const list = byProjectId.get(permit.project_id) ?? [];
-    list.push(permit);
-    byProjectId.set(permit.project_id, list);
-  }
-
-  const rows: ProjectListRow[] = [];
-  for (const [projectId, projectPermits] of byProjectId) {
-    const project = projectsById.get(projectId);
-    if (!project) continue;
-    const types = Array.from(
-      new Set(projectPermits.map((p) => p.type).filter((t): t is string => !!t)),
-    ).sort();
-    const stage = worstStage(projectPermits);
-    const maxDate = (dates: (string | null | undefined)[]): string | null => {
-      const valid = dates.filter(
-        (d): d is string => typeof d === 'string' && d.trim() !== '',
-      );
-      if (valid.length === 0) return null;
-      return valid.sort()[valid.length - 1];
-    };
-    rows.push({
-      projectId,
-      address: project.address,
-      juris: project.juris ?? '',
-      types,
-      stage,
-      goDate: project.go_date ?? null,
-      targetSubmit: maxDate(projectPermits.map((p) => p.target_submit)),
-      approvalDate: maxDate(projectPermits.map((p) => p.approval_date)),
-      isRedesign: !!project.redesign_of_project_id,
-    });
-  }
-  return rows;
-}
 
 const STAGE_ORDER: Record<Stage, number> = {
   de: 0,
@@ -405,16 +361,19 @@ function ProjectList({
   role,
   permits,
   projects,
+  coCredit,
 }: {
   name: string;
   role: TeamRoleSelection;
   permits: PermitWithCycles[];
   projects: Project[];
+  coCredit?: Map<string, Set<string>>;
 }) {
   const rows = useMemo(
-    () => buildRows(name, role, permits, projects),
-    [name, role, permits, projects],
+    () => buildRows(name, role, permits, projects, coCredit),
+    [name, role, permits, projects, coCredit],
   );
+  const hasShared = rows.some((r) => r.isShared);
   const [sortKey, setSortKey] = useState<SortKey>('goDate');
   const [sortDesc, setSortDesc] = useState(true);
 
@@ -465,8 +424,18 @@ function ProjectList({
 
   return (
     <section className="space-y-2" data-testid="team-detail-project-list">
-      <div className="text-[10px] uppercase tracking-wide text-dim font-display font-bold">
-        Projects ({rows.length})
+      <div className="flex items-center gap-2 flex-wrap">
+        <div className="text-[10px] uppercase tracking-wide text-dim font-display font-bold">
+          Projects ({rows.length})
+        </div>
+        {hasShared && (
+          <span
+            className="text-[9px] text-dim italic"
+            data-testid="team-detail-shared-legend"
+          >
+            ✳ = co-credited (DA reassigned — shared with another DA)
+          </span>
+        )}
       </div>
       <div className="bg-surface border border-border rounded-lg overflow-auto">
         <table className="w-full text-[11px]">
@@ -504,8 +473,18 @@ function ProjectList({
                 key={row.projectId}
                 className="border-b border-border hover:bg-s2 transition"
                 data-testid={`team-detail-project-row-${row.projectId}`}
+                data-shared={row.isShared ? 'true' : undefined}
               >
                 <td className="px-2 py-1.5 font-display font-bold">
+                  {row.isShared && (
+                    <span
+                      className="text-de mr-0.5"
+                      title="Co-credited — DA reassigned (shared with another DA)"
+                      data-testid={`team-detail-project-row-${row.projectId}-shared`}
+                    >
+                      ✳
+                    </span>
+                  )}
                   <Link
                     to={`/project/${row.projectId}`}
                     className="text-de hover:underline"
@@ -1173,6 +1152,8 @@ const DRILLDOWN_CSV_COLUMNS = [
   { key: 'targetSubmit', label: 'Target Submit' },
   { key: 'approvalDate', label: 'Approval Date' },
   { key: 'isRedesign', label: 'Redesign?' },
+  // fix-226: co-credit flag — this project was DA-reassigned (shared).
+  { key: 'isShared', label: 'Shared (DA reassigned)?' },
 ];
 
 function buildDrilldownCsv(rows: ProjectListRow[]): string {
@@ -1190,6 +1171,7 @@ function buildDrilldownCsv(rows: ProjectListRow[]): string {
       targetSubmit: r.targetSubmit ?? '',
       approvalDate: r.approvalDate ?? '',
       isRedesign: r.isRedesign ? 'Yes' : 'No',
+      isShared: r.isShared ? 'Yes' : 'No',
     })),
   );
 }
