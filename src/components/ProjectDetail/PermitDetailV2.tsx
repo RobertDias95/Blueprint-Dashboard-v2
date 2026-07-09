@@ -37,6 +37,9 @@ import {
   useSetTaskAssignees,
 } from '../../hooks/useTaskTree';
 import { useTeamMembers } from '../../hooks/useTeamMembers';
+import { useDmDaGroups } from '../../hooks/useDmDaGroups';
+import { findDmForDa } from '../wizard/dmRouting';
+import { coAssigneeDisplayName, type ResolutionContext } from '../../lib/taskTeam';
 import type {
   Permit,
   PermitCycle,
@@ -242,6 +245,10 @@ export default function PermitDetailV2({ permit, project }: Props) {
         <TasksPanel
           permitId={permit.id}
           projectId={permit.project_id}
+          // fix-224: the permit's DA lets each task resolve co-assignee role
+          // tokens (design_associate / design_manager via dm_da_groups) to the
+          // actual person for display.
+          permitDa={permit.da}
           // fix-123: drive the D&E/Permitting phase tabs from c0 intake_accepted
           // (was c0.submitted pre-fix-123 — Bobby's spec calls out
           // intake_accepted as the v1 phase boundary). null → D&E,
@@ -1633,6 +1640,7 @@ const STATUS_OPTS = ['Open', 'In Progress', 'Resolved'] as const;
 function TasksPanel({
   permitId,
   projectId,
+  permitDa,
   c0IntakeAccepted,
   inCorrections,
 }: {
@@ -1640,6 +1648,9 @@ function TasksPanel({
   /** fix-149: threaded down to TaskItem so the Waiting On chip can resolve
    *  the project's External Team firm for the picked discipline. */
   projectId: string;
+  /** fix-224: the permit's DA — threaded to TaskItem for co-assignee role-token
+   *  resolution (design_associate / design_manager). */
+  permitDa: string | null;
   /** fix-123: cycle 0 intake_accepted. Drives the initial active phase
    *  (null → D&E, non-null → Permitting) AND the null↔non-null transition
    *  auto-snap. Was `defaultBucket: 'de' | 'pm'` pre-fix-123 (derived
@@ -1736,6 +1747,7 @@ function TasksPanel({
             phaseAccent={phaseAccent}
             permitId={permitId}
             projectId={projectId}
+            permitDa={permitDa}
             activeBucket={activeBucket}
             inCorrections={inCorrections}
             tasks={visible.filter((t) => t.discipline === d.key)}
@@ -1830,6 +1842,7 @@ function DisciplineColumn({
   phaseAccent,
   permitId,
   projectId,
+  permitDa,
   activeBucket,
   inCorrections,
   tasks,
@@ -1839,6 +1852,8 @@ function DisciplineColumn({
   discipline: 'arch' | 'ent';
   title: string;
   accent: string;
+  /** fix-224: permit DA for co-assignee role-token resolution. */
+  permitDa: string | null;
   /** fix-123: phase color (blue for de, orange for pm) used by the Add
    *  task button. The discipline color (`accent`) still owns the column
    *  header so the two axes stay visually distinct. */
@@ -1913,6 +1928,7 @@ function DisciplineColumn({
             task={t}
             permitId={permitId}
             projectId={projectId}
+            permitDa={permitDa}
             memberNames={memberNames}
           />
         ))
@@ -1939,6 +1955,7 @@ function DisciplineColumn({
               task={t}
               permitId={permitId}
               projectId={projectId}
+              permitDa={permitDa}
               memberNames={memberNames}
             />
           </div>
@@ -1995,6 +2012,7 @@ function TaskItem({
   task,
   permitId,
   projectId,
+  permitDa,
   memberNames,
   isSubtask,
 }: {
@@ -2003,12 +2021,22 @@ function TaskItem({
   /** fix-149: resolves the project's External Team firm for the Waiting On
    *  discipline (sub-label on the chip). */
   projectId: string;
+  /** fix-224: permit DA for co-assignee role-token resolution. */
+  permitDa: string | null;
   memberNames: string[];
   isSubtask?: boolean;
 }) {
   const upsert = useUpsertTask();
   const remove = useDeleteTask();
   const setAssignees = useSetTaskAssignees();
+  const dmRows = useDmDaGroups().rows;
+  // fix-224: resolve co-assignee role tokens (design_associate / design_manager)
+  // to the actual person for THIS permit, shared with My Tasks via taskTeam.
+  const assigneeCtx: ResolutionContext = {
+    da: permitDa,
+    dm: findDmForDa(permitDa ?? '', dmRows),
+    schematicDesigners: [],
+  };
   // fix-149 / fix-190d: External Team firm assigned for each discipline on this
   // project — resolved from projects.external_team (the store the editor writes),
   // the single source My Tasks → Waiting also reads.
@@ -2196,7 +2224,11 @@ function TaskItem({
             {task.primary_assignee}
           </span>
         )}
-        {task.co_assignees.map((name) => (
+        {task.co_assignees.map((name) => {
+          // fix-224: render the RESOLVED display name (role tokens → person),
+          // but keep add/remove keyed on the raw stored entry.
+          const display = coAssigneeDisplayName(name, assigneeCtx);
+          return (
           <span
             key={name}
             className="px-1.5 py-0.5 rounded inline-flex items-center gap-1"
@@ -2207,7 +2239,7 @@ function TaskItem({
             }}
             data-testid={`task-assignee-${task.id}-${name}`}
           >
-            {name}
+            {display}
             <button
               type="button"
               onClick={() => removeAssignee(name)}
@@ -2217,13 +2249,14 @@ function TaskItem({
                 cursor: 'pointer',
                 color: 'var(--color-dim)',
               }}
-              title={`Remove ${name}`}
+              title={`Remove ${display}`}
               data-testid={`task-unassign-${task.id}-${name}`}
             >
               ×
             </button>
           </span>
-        ))}
+          );
+        })}
         <select
           value=""
           onChange={(e) => {
@@ -2396,6 +2429,7 @@ function TaskItem({
           task={s}
           permitId={permitId}
           projectId={projectId}
+          permitDa={permitDa}
           memberNames={memberNames}
           isSubtask
         />

@@ -3,7 +3,15 @@ import { Link, useSearchParams } from 'react-router-dom';
 import WaitingOnView from '../components/MyTasks/WaitingOnView';
 import BotBadge from '../components/shared/BotBadge';
 import { useTeamMembers } from '../hooks/useTeamMembers';
-import { useAllTasks, useUpsertTask } from '../hooks/useTaskTree';
+import {
+  useAllTasks,
+  useUpsertTask,
+  useSetTaskAssignees,
+} from '../hooks/useTaskTree';
+import { useDmDaGroups } from '../hooks/useDmDaGroups';
+import { findDmForDa } from '../components/wizard/dmRouting';
+import CoAssigneeEditor from '../components/CoAssigneeEditor';
+import type { ResolutionContext } from '../lib/taskTeam';
 import { useScopeMode } from '../hooks/useSelfScope';
 import { taskMatchesSelf, type ScopeMode } from '../lib/selfScope';
 import ScopeToggle from '../components/shared/ScopeToggle';
@@ -55,6 +63,9 @@ interface FilterState {
   byDueDate: boolean;
   /** fix-155: when true, show only lifecycle auto-tasks (is_auto_generated). */
   botOnly: boolean;
+  /** fix-224 (Jade): when true, group the task list by PROJECT (one section per
+   *  project address) instead of the D&E / Permitting kanban columns. */
+  groupByProject: boolean;
 }
 
 const FILTER_STORAGE_KEY = 'mytasks.filters.v2';
@@ -67,6 +78,7 @@ const DEFAULT_FILTERS: FilterState = {
   activeOnly: true,
   byDueDate: true,
   botOnly: false,
+  groupByProject: false,
 };
 
 const BUCKET_LABEL: Record<DiagBucket, string> = {
@@ -390,24 +402,37 @@ function Body({
         }}
         data-testid="mytasks-kanban"
       >
-        <BucketColumn
-          bucket="de"
-          tasks={visible.filter((t) => bucketOf(t) === 'de')}
-          today={today}
-          byDueDate={filters.byDueDate}
-          activeOnly={filters.activeOnly}
-          selectedId={selectedId}
-          onSelect={setSelectedId}
-        />
-        <BucketColumn
-          bucket="pm"
-          tasks={visible.filter((t) => bucketOf(t) === 'pm')}
-          today={today}
-          byDueDate={filters.byDueDate}
-          activeOnly={filters.activeOnly}
-          selectedId={selectedId}
-          onSelect={setSelectedId}
-        />
+        {filters.groupByProject ? (
+          <ProjectGroupedView
+            className="col-span-2"
+            tasks={visible}
+            today={today}
+            byDueDate={filters.byDueDate}
+            selectedId={selectedId}
+            onSelect={setSelectedId}
+          />
+        ) : (
+          <>
+            <BucketColumn
+              bucket="de"
+              tasks={visible.filter((t) => bucketOf(t) === 'de')}
+              today={today}
+              byDueDate={filters.byDueDate}
+              activeOnly={filters.activeOnly}
+              selectedId={selectedId}
+              onSelect={setSelectedId}
+            />
+            <BucketColumn
+              bucket="pm"
+              tasks={visible.filter((t) => bucketOf(t) === 'pm')}
+              today={today}
+              byDueDate={filters.byDueDate}
+              activeOnly={filters.activeOnly}
+              selectedId={selectedId}
+              onSelect={setSelectedId}
+            />
+          </>
+        )}
         <TaskDetailPane task={selected} members={members} />
       </div>
     </div>
@@ -687,6 +712,13 @@ function FilterRow({
         onToggle={() => onPatch({ byDueDate: !filters.byDueDate })}
         testid="mytasks-filter-bydue"
       />
+      {/* fix-224 (Jade): group the list by project instead of the D&E/PM kanban. */}
+      <Toggle
+        label="By Project"
+        on={filters.groupByProject}
+        onToggle={() => onPatch({ groupByProject: !filters.groupByProject })}
+        testid="mytasks-filter-byproject"
+      />
       {/* fix-155: BOT quick-filter — narrows to lifecycle auto-tasks. */}
       <Toggle
         label="🤖 BOT"
@@ -958,6 +990,81 @@ function SubColumn({
   );
 }
 
+/** fix-224 (Jade): group the flat visible task list into one section per
+ *  project (address header + its tasks, sorted by the active sort). Spans the
+ *  two kanban tracks; the detail pane stays to the right. */
+function ProjectGroupedView({
+  className,
+  tasks,
+  today,
+  byDueDate,
+  selectedId,
+  onSelect,
+}: {
+  className?: string;
+  tasks: Task[];
+  today: string;
+  byDueDate: boolean;
+  selectedId: string | null;
+  onSelect: (id: string) => void;
+}) {
+  const groups = useMemo(() => {
+    const byProject = new Map<string, { address: string; tasks: Task[] }>();
+    for (const t of tasks) {
+      const g = byProject.get(t.project_id) ?? {
+        address: t.project_address,
+        tasks: [],
+      };
+      g.tasks.push(t);
+      byProject.set(t.project_id, g);
+    }
+    return [...byProject.values()]
+      .map((g) => ({ ...g, tasks: sorted(g.tasks, byDueDate) }))
+      .sort((a, b) => a.address.localeCompare(b.address));
+  }, [tasks, byDueDate]);
+
+  return (
+    <div className={`${className ?? ''} flex flex-col gap-3`} data-testid="mytasks-by-project">
+      {groups.length === 0 && (
+        <div className="text-[11px] italic" style={{ color: 'var(--color-dim)' }}>
+          No tasks match the current filters.
+        </div>
+      )}
+      {groups.map((g) => (
+        <div
+          key={g.address}
+          className="rounded border"
+          style={{ borderColor: 'var(--color-border)', background: 'var(--color-surface)' }}
+          data-testid={`mytasks-project-group-${g.address}`}
+        >
+          <div
+            className="px-3 py-2 border-b flex items-baseline justify-between"
+            style={{ borderBottomColor: 'var(--color-border)', background: 'var(--color-s2)' }}
+          >
+            <span className="text-sm font-bold" style={{ color: 'var(--color-text)' }}>
+              {g.address}
+            </span>
+            <span className="text-[11px] font-mono" style={{ color: 'var(--color-muted)' }}>
+              {g.tasks.length} task{g.tasks.length === 1 ? '' : 's'}
+            </span>
+          </div>
+          <div className="p-2 flex flex-col gap-1.5">
+            {g.tasks.map((t) => (
+              <TaskCard
+                key={t.id}
+                task={t}
+                today={today}
+                isSelected={selectedId === t.id}
+                onSelect={() => onSelect(t.id)}
+              />
+            ))}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function TaskCard({
   task,
   today,
@@ -1174,6 +1281,23 @@ function TaskDetailEditor({
   members: TeamMember[];
 }) {
   const upsert = useUpsertTask();
+  const setAssignees = useSetTaskAssignees();
+  const dmRows = useDmDaGroups().rows;
+
+  // fix-224: assignment = co_assignees (the permit_task_assignees join table),
+  // the SAME store the permit bar writes. Role tokens resolve to people for
+  // display via the permit's DA (+ dm_da_groups); da comes from bp_list_tasks
+  // (permit_da) once the fix-224 migration lands, else tokens show their label.
+  const assigneeCtx: ResolutionContext = {
+    da: task.permit_da ?? null,
+    dm: findDmForDa(task.permit_da ?? '', dmRows),
+    schematicDesigners: [],
+  };
+  const memberNames = [
+    ...new Set(
+      members.filter((m) => m.active !== false).map((m) => m.name).filter(Boolean),
+    ),
+  ].sort((a, b) => a.localeCompare(b));
 
   // Notes is the only multi-line free-form field — debounce-commit on
   // blur via local draft + onBlur. Every other field commits on change
@@ -1189,8 +1313,14 @@ function TaskDetailEditor({
       discipline: task.discipline,
       bucket: task.bucket,
       text: task.text,
-      // Preserve current values when not patching them — `undefined`
-      // on optional fields tells the RPC to leave the column alone.
+      // fix-224: ALWAYS re-send the current start/target dates (the same way the
+      // permit-bar editor does) because the update RPC OVERWRITES those two
+      // columns. Without this, editing one date (or any other field) would null
+      // the untouched date — the cross-view date-erase Jade + Erick reported.
+      // The edited field in `p` still overrides these.
+      startDate: task.start_date,
+      targetDate: task.target_date,
+      // Other optional fields stay 3-state (undefined = leave unchanged).
       ...p,
     });
   }
@@ -1213,18 +1343,16 @@ function TaskDetailEditor({
     const trimmed = value.trim();
     if (!trimmed) {
       // Empty input clears the date.
-      const clearKey = (
-        {
-          startDate: 'clearAssignedTo', // unused — startDate has no clear flag (column is non-mandatory but we just pass null)
-          targetDate: 'clearAssignedTo',
-          dueDate: 'clearDueDate',
-          completed: 'clearCompleted',
-        } as const
-      )[field];
       if (field === 'startDate' || field === 'targetDate') {
-        // start_date + target_date use the legacy NULL-passthrough.
+        // fix-224: start_date/target_date are OVERWRITE columns — passing null
+        // for the edited field clears it, while patch() re-sends the OTHER
+        // date's current value so it survives.
         patch({ [field]: null } as Record<typeof field, null>);
       } else {
+        // due_date / completed are 3-state — an explicit clear flag is needed.
+        const clearKey = (
+          { dueDate: 'clearDueDate', completed: 'clearCompleted' } as const
+        )[field];
         patch({
           [field]: null,
           [clearKey]: true,
@@ -1303,38 +1431,22 @@ function TaskDetailEditor({
           </Link>
         </FieldRow>
 
-        {/* 3 Assigned To */}
-        <FieldRow label="Assigned To">
-          <select
-            value={task.assigned_to ?? ''}
-            onChange={(e) => {
-              const v = e.target.value;
-              if (v === '') {
-                patch({ assignedTo: null, clearAssignedTo: true });
-              } else {
-                patch({ assignedTo: v });
-              }
-            }}
-            className="text-[11px] px-2 py-1 border rounded outline-none"
-            style={inputStyle()}
-            data-testid="task-detail-assigned"
-          >
-            <option value="">—</option>
-            <option value="Entitlements">Entitlements</option>
-            <option value="Architecture">Architecture</option>
-            {members
-              .filter((m) => m.active !== false)
-              .map((m) => m.name)
-              .filter(
-                (n, i, arr) => arr.indexOf(n) === i,
-              )
-              .sort((a, b) => a.localeCompare(b))
-              .map((name) => (
-                <option key={name} value={name}>
-                  {name}
-                </option>
-              ))}
-          </select>
+        {/* 3 Assignees (fix-224: co_assignees join table — the single source,
+            shared with the permit bar; never blank when the set is non-empty). */}
+        <FieldRow label="Assignees">
+          <CoAssigneeEditor
+            values={task.co_assignees}
+            ctx={assigneeCtx}
+            memberNames={memberNames}
+            onChange={(next) =>
+              setAssignees.mutate({
+                taskId: task.id,
+                permitId: task.permit_id,
+                assignees: next,
+              })
+            }
+            testIdPrefix="task-detail"
+          />
         </FieldRow>
 
         {/* 4 Waiting On */}

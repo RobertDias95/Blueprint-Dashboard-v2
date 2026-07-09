@@ -134,6 +134,20 @@ export function resolveCoAssignees(
   return out;
 }
 
+/** fix-224: the display name for a single stored co-assignee entry, resolving a
+ *  dynamic role token to the actual person for THIS project. A plain name shows
+ *  as-is; a role token resolves to its person (first, if multiple) or falls back
+ *  to the role's friendly label when the project has no one in that role yet.
+ *  Used by both task views (My Tasks + the permit bar) so a role-token co-
+ *  assignee renders as the resolved person everywhere. */
+export function coAssigneeDisplayName(
+  entry: string,
+  ctx: ResolutionContext,
+): string {
+  const resolved = resolveCoAssignee(entry, ctx);
+  return resolved[0] ?? coAssigneeLabel(entry);
+}
+
 /** Resolve a template's default_team to the single `assigned_to` person for a
  *  project. Mirrors the CASE in bp_create_project_with_permits. */
 export function resolveTeamAssignee(
