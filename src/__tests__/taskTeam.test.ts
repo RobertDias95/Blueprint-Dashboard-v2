@@ -12,6 +12,7 @@ import {
   isPrimaryPerson,
   resolvePrimaryAssignee,
   primarySelectValue,
+  defaultPrimaryTeamKey,
   type PrimaryResolutionContext,
 } from '../lib/taskTeam';
 
@@ -142,5 +143,50 @@ describe('fix-228 primary owner', () => {
     expect(primarySelectValue(null)).toBe('Design Associate');
     expect(primarySelectValue('Entitlements')).toBe('Entitlements');
     expect(primarySelectValue('Erick')).toBe('Erick');
+  });
+});
+
+// fix-230: the UNSET default primary follows the task's COLUMN/discipline
+// (regression fix — fix-228 always defaulted to the DA regardless of column).
+describe('fix-230 discipline-aware default primary', () => {
+  // 5107 S Hudson St / 7120510-CN shape: DA=Ainsley, ent_lead=Miles.
+  const ctx: PrimaryResolutionContext = {
+    da: 'Ainsley',
+    entLead: 'Miles',
+    dm: 'Derry',
+    schematicDesigners: ['Shire'],
+  };
+
+  it('defaultPrimaryTeamKey: ent → Entitlements, arch/other/unknown → Design Associate', () => {
+    expect(defaultPrimaryTeamKey('ent')).toBe('Entitlements');
+    expect(defaultPrimaryTeamKey('arch')).toBe('Design Associate');
+    expect(defaultPrimaryTeamKey(null)).toBe('Design Associate');
+    expect(defaultPrimaryTeamKey(undefined)).toBe('Design Associate');
+  });
+
+  it('an UNSET ENT-discipline task defaults its primary to the ent_lead (Miles), not the DA', () => {
+    expect(resolvePrimaryAssignee(null, ctx, 'ent')).toBe('Miles');
+    expect(resolvePrimaryAssignee('', ctx, 'ent')).toBe('Miles');
+    expect(primarySelectValue(null, 'ent')).toBe('Entitlements');
+  });
+
+  it('an UNSET ARCH-discipline task defaults its primary to the DA (Ainsley)', () => {
+    expect(resolvePrimaryAssignee(null, ctx, 'arch')).toBe('Ainsley');
+    expect(primarySelectValue(null, 'arch')).toBe('Design Associate');
+  });
+
+  it('omitting discipline keeps the DA default (back-compat with pre-fix-230 callers)', () => {
+    expect(resolvePrimaryAssignee(null, ctx)).toBe('Ainsley');
+    expect(primarySelectValue(null)).toBe('Design Associate');
+  });
+
+  it('an EXPLICITLY-set assigned_to is untouched by discipline', () => {
+    // A person, a team key, and a role all resolve the same regardless of column.
+    expect(resolvePrimaryAssignee('Erick', ctx, 'ent')).toBe('Erick');
+    expect(resolvePrimaryAssignee('Erick', ctx, 'arch')).toBe('Erick');
+    expect(resolvePrimaryAssignee('Design Associate', ctx, 'ent')).toBe('Ainsley');
+    expect(resolvePrimaryAssignee('Entitlements', ctx, 'arch')).toBe('Miles');
+    expect(primarySelectValue('Erick', 'ent')).toBe('Erick');
+    expect(primarySelectValue('Entitlements', 'arch')).toBe('Entitlements');
   });
 });

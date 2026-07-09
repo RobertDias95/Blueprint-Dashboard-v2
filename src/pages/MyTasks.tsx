@@ -1325,7 +1325,7 @@ function TaskDetailEditor({
     dm: findDmForDa(task.permit_da ?? '', dmRows),
     schematicDesigners,
   };
-  const primaryPerson = resolvePrimaryAssignee(task.assigned_to, primaryCtx);
+  const primaryPerson = resolvePrimaryAssignee(task.assigned_to, primaryCtx, task.discipline);
   const memberNames = [
     ...new Set(
       members.filter((m) => m.active !== false).map((m) => m.name).filter(Boolean),
@@ -1473,6 +1473,7 @@ function TaskDetailEditor({
         <FieldRow label="Assignee">
           <PrimaryAssigneeEditor
             value={task.assigned_to}
+            discipline={task.discipline}
             ctx={primaryCtx}
             memberNames={memberNames}
             disabled={upsert.isPending}
