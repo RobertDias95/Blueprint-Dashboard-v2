@@ -503,6 +503,28 @@ describe('MyTasks (fix-80 v1 three-pane kanban)', () => {
     expect(primaryDetailText()).toContain('Lindsay');
   });
 
+  it('fix-230: an unset ENT-discipline task defaults its primary select to Entitlements (not Design Associate)', () => {
+    tasksRef.current = [
+      task({ id: 't1', bucket: 'de', discipline: 'ent', permit_da: 'Trevor', assigned_to: null }),
+    ];
+    renderIt();
+    fireEvent.click(screen.getByTestId('mytask-card-t1'));
+    // fix-230: ent column → default team 'Entitlements' (→ ent_lead), NOT the DA.
+    const sel = screen.getByTestId('task-detail-primary-select') as HTMLSelectElement;
+    expect(sel.value).toBe('Entitlements');
+  });
+
+  it('fix-230: an unset ARCH-discipline task defaults its primary select to Design Associate (→ the DA)', () => {
+    tasksRef.current = [
+      task({ id: 't1', bucket: 'de', discipline: 'arch', permit_da: 'Trevor', assigned_to: null }),
+    ];
+    renderIt();
+    fireEvent.click(screen.getByTestId('mytask-card-t1'));
+    const sel = screen.getByTestId('task-detail-primary-select') as HTMLSelectElement;
+    expect(sel.value).toBe('Design Associate');
+    expect(primaryDetailText()).toContain('Trevor');
+  });
+
   it('fix-228: changing the primary selector writes assigned_to through the task upsert', () => {
     tasksRef.current = [task({ id: 't1', bucket: 'de', permit_da: 'Trevor', assigned_to: null })];
     renderIt();

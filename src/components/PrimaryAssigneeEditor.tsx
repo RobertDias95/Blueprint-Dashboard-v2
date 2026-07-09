@@ -21,8 +21,11 @@ import {
 // gone. The chip renders only in readOnly mode (where there is no select).
 
 export interface PrimaryAssigneeEditorProps {
-  /** The task's stored assigned_to ('' / null = default → the DA). */
+  /** The task's stored assigned_to ('' / null = default → the discipline's team). */
   value: string | null | undefined;
+  /** fix-230: the task's column/discipline ('ent'/'arch') — drives the UNSET
+   *  default (ent → Entitlements/ent_lead, else → Design Associate/DA). */
+  discipline?: string | null;
   /** Per-project context resolving team/role keys to people. */
   ctx: PrimaryResolutionContext;
   /** Roster names offered as "specific person" options (deduped by the caller). */
@@ -37,6 +40,7 @@ export interface PrimaryAssigneeEditorProps {
 
 export default function PrimaryAssigneeEditor({
   value,
+  discipline,
   ctx,
   memberNames,
   onChange,
@@ -44,8 +48,8 @@ export default function PrimaryAssigneeEditor({
   disabled = false,
   testIdPrefix,
 }: PrimaryAssigneeEditorProps) {
-  const display = resolvePrimaryAssignee(value, ctx);
-  const selected = primarySelectValue(value);
+  const display = resolvePrimaryAssignee(value, ctx, discipline);
+  const selected = primarySelectValue(value, discipline);
 
   // Offer every roster name as a "specific person"; include the current person
   // value even if it's off-roster so the select can reflect it.

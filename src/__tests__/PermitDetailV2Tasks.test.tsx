@@ -157,12 +157,13 @@ function primarySelText(prefix: string): string {
 }
 
 describe('PermitDetailV2 fix-70 task editor', () => {
-  it('renders the task with the labeled PRIMARY (fix-228 default → the DA) + co-assignee chip', () => {
+  it('renders the task with the labeled PRIMARY (fix-230 default follows discipline) + co-assignee chip', () => {
     renderIt();
     expect(screen.getByTestId('task-row-task-1')).toBeInTheDocument();
-    // fix-228/229: primary resolves from assigned_to; unset → DEFAULT = the DA
-    // ('Ainsley'). fix-229: shown once, in the select ("Design Associate · Ainsley").
-    expect(primarySelText('pb-task-1')).toContain('Ainsley');
+    // fix-230: task-1 is discipline='ent', so an UNSET primary defaults to
+    // 'Entitlements' → the permit's ent_lead ('Edmund'), NOT the DA. Shown once
+    // in the select ("Entitlements · Edmund").
+    expect(primarySelText('pb-task-1')).toContain('Edmund');
     // No duplicate resolved-person chip in edit mode.
     expect(screen.queryByTestId('pb-task-1-primary')).toBeNull();
     // Explicit co-assignee chip (shared CoAssigneeEditor).
@@ -261,6 +262,23 @@ describe('PermitDetailV2 fix-70 task editor', () => {
     expect(primarySelText('pb-task-1')).toContain('Ainsley');
     expect(screen.getByTestId('pb-task-1-co-assignee-Bobby')).toBeInTheDocument();
     expect(screen.queryByTestId('pb-task-1-co-assignee-Ainsley')).toBeNull();
+  });
+
+  // fix-230: the UNSET default primary follows the task's column/discipline.
+  it('an unset ARCH-discipline task defaults its primary to the DA (not ent_lead)', () => {
+    treeRef.current = [makeTask({ id: 'task-1', discipline: 'arch', co_assignees: [] })];
+    renderIt();
+    // arch column → 'Design Associate' → permit.da ('Ainsley').
+    expect(primarySelText('pb-task-1')).toContain('Ainsley');
+    expect(primarySelText('pb-task-1')).not.toContain('Edmund');
+  });
+
+  it('an unset ENT-discipline task defaults its primary to the ent_lead (not the DA)', () => {
+    treeRef.current = [makeTask({ id: 'task-1', discipline: 'ent', co_assignees: [] })];
+    renderIt();
+    // ent column → 'Entitlements' → permit.ent_lead ('Edmund').
+    expect(primarySelText('pb-task-1')).toContain('Edmund');
+    expect(primarySelText('pb-task-1')).not.toContain('Ainsley');
   });
 
   // fix-229: an empty date renders a muted "—" (no loud mm/dd/yyyy), not a
@@ -654,8 +672,9 @@ describe('PermitDetailV2 fix-70 task editor', () => {
       // Visible on the DEFAULT D&E tab (the fix-156 bug: it was bucket=pm, hidden).
       expect(screen.getByTestId('task-row-93c131e3')).toBeInTheDocument();
       expect(screen.getByTestId('bot-badge-93c131e3')).toBeInTheDocument();
-      // fix-228: primary resolves from assigned_to; unset → DEFAULT = the DA.
-      expect(primarySelText('pb-93c131e3')).toContain('Ainsley');
+      // fix-230: unset primary follows the task's discipline — this ent task
+      // defaults to 'Entitlements' → the permit's ent_lead ('Edmund').
+      expect(primarySelText('pb-93c131e3')).toContain('Edmund');
       expect(
         (screen.getByTestId('task-text-93c131e3') as HTMLInputElement).value,
       ).toBe('Enter permit number — was this submitted? — SDOT Tree @ 4506 14th Ave SW');

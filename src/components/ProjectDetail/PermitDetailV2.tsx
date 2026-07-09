@@ -2080,7 +2080,7 @@ function TaskItem({
     dm: findDmForDa(permitDa ?? '', dmRows),
     schematicDesigners: projectSchematicDesigners,
   };
-  const primaryPerson = resolvePrimaryAssignee(task.assigned_to, primaryCtx);
+  const primaryPerson = resolvePrimaryAssignee(task.assigned_to, primaryCtx, task.discipline);
   // fix-149 / fix-190d: External Team firm assigned for each discipline on this
   // project — resolved from projects.external_team (the store the editor writes),
   // the single source My Tasks → Waiting also reads.
@@ -2249,6 +2249,7 @@ function TaskItem({
       >
         <PrimaryAssigneeEditor
           value={task.assigned_to}
+          discipline={task.discipline}
           ctx={primaryCtx}
           memberNames={memberNames}
           disabled={upsert.isPending}

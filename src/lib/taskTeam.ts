@@ -219,28 +219,43 @@ export function resolvePrimaryTeamPerson(
   }
 }
 
+/** fix-230: the DEFAULT primary team key for an UNSET task, following the task's
+ *  COLUMN/discipline — an Entitlements-column task ('ent') owns via the ENT lead;
+ *  everything else (Architecture/permitting, or unknown) via the DA. Fixes the
+ *  fix-228 regression where an unset primary always defaulted to the DA. */
+export function defaultPrimaryTeamKey(
+  discipline: string | null | undefined,
+): PrimaryTeamKey {
+  return discipline === 'ent' ? 'Entitlements' : 'Design Associate';
+}
+
 /** Resolve a task's stored assigned_to to the PRIMARY owner's display person.
- *  Empty/unset defaults to the DA. A team/role key resolves to that role's
- *  person on THIS project, falling back to the friendly key label when the role
- *  has no one yet (so it never renders blank). A specific person resolves to
- *  itself. */
+ *  Empty/unset defaults to the discipline's team (fix-230: 'ent' → ent_lead,
+ *  else → the DA). A team/role key resolves to that role's person on THIS
+ *  project, falling back to the friendly key label when the role has no one yet
+ *  (so it never renders blank). A specific person resolves to itself. */
 export function resolvePrimaryAssignee(
   assignedTo: string | null | undefined,
   ctx: PrimaryResolutionContext,
+  discipline?: string | null,
 ): string | null {
   const raw = (assignedTo ?? '').trim();
-  if (raw === '') return ctx.da ?? null; // DEFAULT = the DA
+  // fix-230: unset → the discipline's default team's person (DA / ent_lead).
+  if (raw === '') return resolvePrimaryTeamPerson(defaultPrimaryTeamKey(discipline), ctx);
   const key = normalizePrimaryTeamKey(raw);
   if (key === null) return raw; // a specific person
   return resolvePrimaryTeamPerson(key, ctx) ?? key; // person, else friendly label
 }
 
 /** The value the primary <select> shows as selected for a stored assigned_to:
- *  the team key, the person string, or 'Design Associate' when unset (the DA
- *  default). */
-export function primarySelectValue(assignedTo: string | null | undefined): string {
+ *  the team key, the person string, or — when unset — the discipline's default
+ *  team key (fix-230: 'ent' → 'Entitlements', else → 'Design Associate'). */
+export function primarySelectValue(
+  assignedTo: string | null | undefined,
+  discipline?: string | null,
+): string {
   const raw = (assignedTo ?? '').trim();
-  if (raw === '') return 'Design Associate';
+  if (raw === '') return defaultPrimaryTeamKey(discipline);
   return normalizePrimaryTeamKey(raw) ?? raw;
 }
 
