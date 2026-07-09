@@ -1,0 +1,105 @@
+import {
+  PRIMARY_TEAM_OPTIONS,
+  primarySelectValue,
+  resolvePrimaryAssignee,
+  resolvePrimaryTeamPerson,
+  type PrimaryResolutionContext,
+} from '../lib/taskTeam';
+
+// fix-228: the single shared PRIMARY-owner editor used by BOTH live task views
+// (the permit-detail task bar + My Tasks). The primary is stored in
+// permit_tasks.assigned_to and can be a team key (Design Associate — the DEFAULT
+// → the DA, Entitlements → ent_lead, Schematic Team → schematic designer),
+// Design Manager (→ the DM for this DA via dm_da_groups), or a specific person.
+// It resolves to a person for DISPLAY through the fix-222 taxonomy (taskTeam) so
+// the two views agree. Distinct from the co-assignees (CoAssigneeEditor) — this
+// is the labeled OWNER; those are additional helpers.
+
+export interface PrimaryAssigneeEditorProps {
+  /** The task's stored assigned_to ('' / null = default → the DA). */
+  value: string | null | undefined;
+  /** Per-project context resolving team/role keys to people. */
+  ctx: PrimaryResolutionContext;
+  /** Roster names offered as "specific person" options (deduped by the caller). */
+  memberNames: string[];
+  /** Persist the new assigned_to (team key / role / person). */
+  onChange: (next: string) => void;
+  readOnly?: boolean;
+  disabled?: boolean;
+  /** Prefix for data-testids: chip `<prefix>-primary`, select `<prefix>-primary-select`. */
+  testIdPrefix: string;
+}
+
+export default function PrimaryAssigneeEditor({
+  value,
+  ctx,
+  memberNames,
+  onChange,
+  readOnly = false,
+  disabled = false,
+  testIdPrefix,
+}: PrimaryAssigneeEditorProps) {
+  const display = resolvePrimaryAssignee(value, ctx);
+  const selected = primarySelectValue(value);
+
+  // Offer every roster name as a "specific person"; include the current person
+  // value even if it's off-roster so the select can reflect it.
+  const persons = [...memberNames];
+  if (
+    !(PRIMARY_TEAM_OPTIONS as readonly string[]).includes(selected) &&
+    !persons.includes(selected)
+  ) {
+    persons.unshift(selected);
+  }
+
+  const teamOptionLabel = (key: (typeof PRIMARY_TEAM_OPTIONS)[number]): string => {
+    const person = resolvePrimaryTeamPerson(key, ctx);
+    return person ? `${key} · ${person}` : key;
+  };
+
+  return (
+    <div
+      className="flex items-center gap-1 flex-wrap"
+      data-testid={`${testIdPrefix}-primary-wrap`}
+    >
+      <span
+        className="px-1.5 py-0.5 rounded font-bold text-[10px]"
+        style={{ background: 'var(--color-s2)', color: 'var(--color-text)' }}
+        title="Primary owner"
+        data-testid={`${testIdPrefix}-primary`}
+      >
+        {display ?? 'Unassigned'}
+      </span>
+      {!readOnly && (
+        <select
+          value={selected}
+          disabled={disabled}
+          onChange={(e) => onChange(e.target.value)}
+          className="text-[10px] px-1 py-0.5 border rounded outline-none"
+          style={{
+            borderColor: 'var(--color-border)',
+            background: 'var(--color-bg)',
+            color: 'var(--color-muted)',
+          }}
+          title="Change primary owner"
+          data-testid={`${testIdPrefix}-primary-select`}
+        >
+          <optgroup label="Team / role">
+            {PRIMARY_TEAM_OPTIONS.map((k) => (
+              <option key={k} value={k}>
+                {teamOptionLabel(k)}
+              </option>
+            ))}
+          </optgroup>
+          <optgroup label="Specific person">
+            {persons.map((n) => (
+              <option key={n} value={n}>
+                {n}
+              </option>
+            ))}
+          </optgroup>
+        </select>
+      )}
+    </div>
+  );
+}

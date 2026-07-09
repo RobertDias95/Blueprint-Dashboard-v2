@@ -79,6 +79,46 @@ describe('CoAssigneeEditor (fix-224)', () => {
     expect(onChange).toHaveBeenCalledWith(['Bo']);
   });
 
+  // fix-228: a co-assignee equal to the PRIMARY owner is display-de-duped.
+  it('hides a co-assignee chip that IS the primary, and keeps it out of the add picker', () => {
+    const onChange = vi.fn();
+    render(
+      <CoAssigneeEditor
+        values={['Miles', 'Bo']}
+        ctx={ctx}
+        memberNames={['Miles', 'Bo']}
+        primaryPerson="Miles"
+        onChange={onChange}
+        testIdPrefix="t"
+      />,
+    );
+    // Miles (the primary) is hidden; Bo still shows.
+    expect(screen.queryByTestId('t-co-assignee-Miles')).toBeNull();
+    expect(screen.getByTestId('t-co-assignee-Bo')).toBeInTheDocument();
+    // The add picker no longer offers Miles.
+    const opts = Array.from(
+      (screen.getByTestId('t-co-assignee-add') as HTMLSelectElement).options,
+    ).map((o) => o.value);
+    expect(opts).not.toContain('Miles');
+  });
+
+  it('de-dupe is display-only: removing the OTHER co-assignee keeps the primary in the stored set', () => {
+    const onChange = vi.fn();
+    render(
+      <CoAssigneeEditor
+        values={['Miles', 'Bo']}
+        ctx={ctx}
+        memberNames={['Miles', 'Bo']}
+        primaryPerson="Miles"
+        onChange={onChange}
+        testIdPrefix="t"
+      />,
+    );
+    fireEvent.click(screen.getByTestId('t-co-assignee-remove-Bo'));
+    // The stored set still contains Miles (hidden, not dropped).
+    expect(onChange).toHaveBeenCalledWith(['Miles']);
+  });
+
   it('readOnly hides the add picker + remove buttons', () => {
     render(
       <CoAssigneeEditor

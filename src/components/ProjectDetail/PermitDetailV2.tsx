@@ -39,7 +39,13 @@ import {
 import { useTeamMembers } from '../../hooks/useTeamMembers';
 import { useDmDaGroups } from '../../hooks/useDmDaGroups';
 import { findDmForDa } from '../wizard/dmRouting';
-import { coAssigneeDisplayName, type ResolutionContext } from '../../lib/taskTeam';
+import {
+  resolvePrimaryAssignee,
+  type ResolutionContext,
+  type PrimaryResolutionContext,
+} from '../../lib/taskTeam';
+import CoAssigneeEditor from '../CoAssigneeEditor';
+import PrimaryAssigneeEditor from '../PrimaryAssigneeEditor';
 import type {
   Permit,
   PermitCycle,
@@ -249,6 +255,11 @@ export default function PermitDetailV2({ permit, project }: Props) {
           // tokens (design_associate / design_manager via dm_da_groups) to the
           // actual person for display.
           permitDa={permit.da}
+          // fix-228: ent_lead + schematic designers complete the PRIMARY-owner
+          // resolution context (Entitlements → ent_lead, Schematic Team →
+          // schematic designer) so the primary selector resolves fully.
+          permitEntLead={permit.ent_lead}
+          projectSchematicDesigners={project?.schematic_designer ?? []}
           // fix-123: drive the D&E/Permitting phase tabs from c0 intake_accepted
           // (was c0.submitted pre-fix-123 — Bobby's spec calls out
           // intake_accepted as the v1 phase boundary). null → D&E,
@@ -1641,6 +1652,8 @@ function TasksPanel({
   permitId,
   projectId,
   permitDa,
+  permitEntLead,
+  projectSchematicDesigners,
   c0IntakeAccepted,
   inCorrections,
 }: {
@@ -1651,6 +1664,10 @@ function TasksPanel({
   /** fix-224: the permit's DA — threaded to TaskItem for co-assignee role-token
    *  resolution (design_associate / design_manager). */
   permitDa: string | null;
+  /** fix-228: the permit's ent lead + the project's schematic designers —
+   *  complete the PRIMARY-owner resolution context threaded to each TaskItem. */
+  permitEntLead: string | null;
+  projectSchematicDesigners: string[];
   /** fix-123: cycle 0 intake_accepted. Drives the initial active phase
    *  (null → D&E, non-null → Permitting) AND the null↔non-null transition
    *  auto-snap. Was `defaultBucket: 'de' | 'pm'` pre-fix-123 (derived
@@ -1748,6 +1765,8 @@ function TasksPanel({
             permitId={permitId}
             projectId={projectId}
             permitDa={permitDa}
+            permitEntLead={permitEntLead}
+            projectSchematicDesigners={projectSchematicDesigners}
             activeBucket={activeBucket}
             inCorrections={inCorrections}
             tasks={visible.filter((t) => t.discipline === d.key)}
@@ -1843,6 +1862,8 @@ function DisciplineColumn({
   permitId,
   projectId,
   permitDa,
+  permitEntLead,
+  projectSchematicDesigners,
   activeBucket,
   inCorrections,
   tasks,
@@ -1854,6 +1875,9 @@ function DisciplineColumn({
   accent: string;
   /** fix-224: permit DA for co-assignee role-token resolution. */
   permitDa: string | null;
+  /** fix-228: ent lead + schematic designers for PRIMARY-owner resolution. */
+  permitEntLead: string | null;
+  projectSchematicDesigners: string[];
   /** fix-123: phase color (blue for de, orange for pm) used by the Add
    *  task button. The discipline color (`accent`) still owns the column
    *  header so the two axes stay visually distinct. */
@@ -1929,6 +1953,8 @@ function DisciplineColumn({
             permitId={permitId}
             projectId={projectId}
             permitDa={permitDa}
+            permitEntLead={permitEntLead}
+            projectSchematicDesigners={projectSchematicDesigners}
             memberNames={memberNames}
           />
         ))
@@ -1956,6 +1982,8 @@ function DisciplineColumn({
               permitId={permitId}
               projectId={projectId}
               permitDa={permitDa}
+              permitEntLead={permitEntLead}
+              projectSchematicDesigners={projectSchematicDesigners}
               memberNames={memberNames}
             />
           </div>
@@ -2013,6 +2041,8 @@ function TaskItem({
   permitId,
   projectId,
   permitDa,
+  permitEntLead,
+  projectSchematicDesigners,
   memberNames,
   isSubtask,
 }: {
@@ -2023,6 +2053,9 @@ function TaskItem({
   projectId: string;
   /** fix-224: permit DA for co-assignee role-token resolution. */
   permitDa: string | null;
+  /** fix-228: ent lead + schematic designers for PRIMARY-owner resolution. */
+  permitEntLead: string | null;
+  projectSchematicDesigners: string[];
   memberNames: string[];
   isSubtask?: boolean;
 }) {
@@ -2030,13 +2063,23 @@ function TaskItem({
   const remove = useDeleteTask();
   const setAssignees = useSetTaskAssignees();
   const dmRows = useDmDaGroups().rows;
-  // fix-224: resolve co-assignee role tokens (design_associate / design_manager)
-  // to the actual person for THIS permit, shared with My Tasks via taskTeam.
+  // fix-224: resolve co-assignee role tokens (design_associate / design_manager /
+  // schematic_designer) to the actual person for THIS permit, shared with My
+  // Tasks via taskTeam.
   const assigneeCtx: ResolutionContext = {
     da: permitDa,
     dm: findDmForDa(permitDa ?? '', dmRows),
-    schematicDesigners: [],
+    schematicDesigners: projectSchematicDesigners,
   };
+  // fix-228: the PRIMARY-owner resolution context (adds ent lead) + the resolved
+  // primary person (default = the DA). Shared taxonomy with My Tasks.
+  const primaryCtx: PrimaryResolutionContext = {
+    da: permitDa,
+    entLead: permitEntLead,
+    dm: findDmForDa(permitDa ?? '', dmRows),
+    schematicDesigners: projectSchematicDesigners,
+  };
+  const primaryPerson = resolvePrimaryAssignee(task.assigned_to, primaryCtx);
   // fix-149 / fix-190d: External Team firm assigned for each discipline on this
   // project — resolved from projects.external_team (the store the editor writes),
   // the single source My Tasks → Waiting also reads.
@@ -2060,6 +2103,9 @@ function TaskItem({
       // nullable fields (assignedTo/dueDate/notes…) stay "leave unchanged".
       waitingOn: string | null;
       clearWaitingOn: boolean;
+      // fix-228: the PRIMARY owner (team key / role / person) written to
+      // assigned_to. Absent → "leave unchanged".
+      assignedTo: string;
     }>,
   ) {
     upsert.mutate({
@@ -2100,23 +2146,6 @@ function TaskItem({
     setSubDraft('');
     setAddingSub(false);
   }
-  function removeAssignee(name: string) {
-    setAssignees.mutate({
-      taskId: task.id,
-      permitId,
-      assignees: task.co_assignees.filter((a) => a !== name),
-    });
-  }
-  function addAssignee(name: string) {
-    if (!name || task.co_assignees.includes(name)) return;
-    setAssignees.mutate({
-      taskId: task.id,
-      permitId,
-      assignees: [...task.co_assignees, name],
-    });
-  }
-
-  const available = memberNames.filter((n) => !task.co_assignees.includes(n));
   // fix-149: firm assigned for this task's Waiting On discipline (sub-label).
   const waitingOnFirm = externalTeam.resolve(task.waiting_on);
 
@@ -2209,76 +2238,45 @@ function TaskItem({
           ×
         </button>
       </div>
-      {/* assignees: derived primary (read-only) + removable co-assignee chips */}
+      {/* fix-228: labeled PRIMARY owner (assigned_to, fix-222 taxonomy) +
+          CO-ASSIGNEES (fix-224 shared editor). A co-assignee equal to the
+          primary is de-duped in the editor. */}
+      <div
+        className="flex flex-wrap items-center gap-1.5 text-[10px]"
+        style={{ color: 'var(--color-muted)' }}
+      >
+        <span className="uppercase tracking-wide" style={{ color: 'var(--color-dim)' }}>
+          Primary
+        </span>
+        <PrimaryAssigneeEditor
+          value={task.assigned_to}
+          ctx={primaryCtx}
+          memberNames={memberNames}
+          disabled={upsert.isPending}
+          onChange={(next) => save({ assignedTo: next })}
+          testIdPrefix={`pb-${task.id}`}
+        />
+        <span
+          className="uppercase tracking-wide ml-1"
+          style={{ color: 'var(--color-dim)' }}
+        >
+          Co
+        </span>
+        <CoAssigneeEditor
+          values={task.co_assignees}
+          ctx={assigneeCtx}
+          memberNames={memberNames}
+          primaryPerson={primaryPerson}
+          onChange={(next) =>
+            setAssignees.mutate({ taskId: task.id, permitId, assignees: next })
+          }
+          testIdPrefix={`pb-${task.id}`}
+        />
+      </div>
       <div
         className="flex flex-wrap items-center gap-1 text-[10px]"
         style={{ color: 'var(--color-muted)' }}
       >
-        {task.primary_assignee && (
-          <span
-            className="px-1.5 py-0.5 rounded font-bold"
-            style={{ background: 'var(--color-s2)', color: 'var(--color-text)' }}
-            title="Primary (derived from the permit's DA / ENT lead)"
-            data-testid={`task-primary-${task.id}`}
-          >
-            {task.primary_assignee}
-          </span>
-        )}
-        {task.co_assignees.map((name) => {
-          // fix-224: render the RESOLVED display name (role tokens → person),
-          // but keep add/remove keyed on the raw stored entry.
-          const display = coAssigneeDisplayName(name, assigneeCtx);
-          return (
-          <span
-            key={name}
-            className="px-1.5 py-0.5 rounded inline-flex items-center gap-1"
-            style={{
-              background: 'var(--color-bg)',
-              border: '1px solid var(--color-border)',
-              color: 'var(--color-text)',
-            }}
-            data-testid={`task-assignee-${task.id}-${name}`}
-          >
-            {display}
-            <button
-              type="button"
-              onClick={() => removeAssignee(name)}
-              style={{
-                background: 'transparent',
-                border: 0,
-                cursor: 'pointer',
-                color: 'var(--color-dim)',
-              }}
-              title={`Remove ${display}`}
-              data-testid={`task-unassign-${task.id}-${name}`}
-            >
-              ×
-            </button>
-          </span>
-          );
-        })}
-        <select
-          value=""
-          onChange={(e) => {
-            addAssignee(e.target.value);
-            e.currentTarget.value = '';
-          }}
-          className="text-[10px] px-1 py-0.5 border rounded outline-none"
-          style={{
-            borderColor: 'var(--color-border)',
-            background: 'var(--color-bg)',
-            color: 'var(--color-muted)',
-          }}
-          data-testid={`task-assign-${task.id}`}
-          disabled={available.length === 0}
-        >
-          <option value="">+ Assign</option>
-          {available.map((n) => (
-            <option key={n} value={n}>
-              {n}
-            </option>
-          ))}
-        </select>
         {/* fix-149: Waiting On — external-blocker discipline + resolved firm.
             "+ Waiting On" select when unset; a chip (discipline → firm) with a
             clear × when set. Mirrors the assignee chip vocabulary. */}
@@ -2430,6 +2428,8 @@ function TaskItem({
           permitId={permitId}
           projectId={projectId}
           permitDa={permitDa}
+          permitEntLead={permitEntLead}
+          projectSchematicDesigners={projectSchematicDesigners}
           memberNames={memberNames}
           isSubtask
         />
