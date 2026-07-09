@@ -28,6 +28,11 @@ vi.mock('../hooks/useProjects', () => ({
 vi.mock('../hooks/useUpdateProject', () => ({
   useUpdateProject: () => ({ mutateAsync: vi.fn().mockResolvedValue({}), isPending: false }),
 }));
+// fix-227: modal renders ProjectExternalTeamPanel — mock the directory inert.
+vi.mock('../hooks/useExternalTeamDirectory', () => ({
+  useExternalTeamDirectory: () => ({ data: [], isLoading: false, error: null, refetch: vi.fn() }),
+  useUpsertDirectoryFirm: () => ({ mutate: vi.fn(), mutateAsync: vi.fn(), isPending: false }),
+}));
 // fix-167: modal renders ProjectHoldPanel — mock its hooks inert.
 vi.mock('../hooks/useProjectHolds', () => ({
   useProjectHolds: () => ({ data: [], isLoading: false, error: null }),

@@ -9,12 +9,13 @@ import type {
 import type { WaitingOnDiscipline } from '../../lib/database.types';
 import {
   asExternalTeamBlob,
-  distinctExternalFirms,
+  directoryFirmNamesForDiscipline,
   type ExternalTeamBlob,
 } from '../../lib/externalTeam';
 import { useUpdateProject } from '../../hooks/useUpdateProject';
-import { useProjects } from '../../hooks/useProjects';
 import { useExternalTeamShowRules } from '../../hooks/useExternalTeamShowRules';
+import { useExternalTeamDirectory } from '../../hooks/useExternalTeamDirectory';
+import ExternalFirmSelect from './ExternalFirmSelect';
 import {
   nextUnitTypeLabel,
   parseUnitTypes,
@@ -860,28 +861,21 @@ function TeamCell({
 // fix-196: applies the SHARED show-rules (useExternalTeamShowRules) so this
 // editor and the Settings panel can't drift — common four always shown; other
 // disciplines only when assigned or surfaced via "+ Add discipline"; empty-state
-// CTA when nothing assigned. Firm field is free text backed by a <datalist> of
-// the distinct firm names already used across all projects' blobs (no registry).
-const PD_EXT_FIRM_DATALIST_ID = 'pd-ext-firm-options';
-
+// CTA when nothing assigned. fix-227: the firm field is a DROPDOWN sourced from
+// the central External Team directory (shared ExternalFirmSelect), same as the
+// Settings panel; picking still writes the blob, "+ Add new firm…" also inserts
+// into the directory. Existing free-text blob firms not in the directory show.
 function ExternalTeamEditor({ project }: { project: Project }) {
   const updateMutation = useUpdateProject();
-  const projectsQ = useProjects();
+  const directoryQ = useExternalTeamDirectory();
   const external = useMemo<ExternalTeamBlob>(
     () => asExternalTeamBlob(project.external_team) ?? {},
     [project.external_team],
   );
-  const firmSuggestions = useMemo(
-    () => distinctExternalFirms(projectsQ.data ?? []),
-    [projectsQ.data],
-  );
+  const directory = directoryQ.data ?? [];
   const { shownDisciplines, addableDisciplines, noneAssigned, addDiscipline } =
     useExternalTeamShowRules(external);
   const occMissing = !project.updated_at;
-
-  // Local text drafts so typing doesn't fire a write per keystroke — commit on
-  // blur / Enter. Absent key → the input falls back to the saved blob value.
-  const [drafts, setDrafts] = useState<Record<string, string>>({});
 
   async function writeFirm(discipline: WaitingOnDiscipline, firm: string) {
     if (!project.updated_at) return;
@@ -897,17 +891,6 @@ function ExternalTeamEditor({ project }: { project: Project }) {
       patch: { external_team: next },
       fieldLabel: `${discipline} consultant`,
     });
-  }
-
-  function commit(discipline: WaitingOnDiscipline) {
-    const draft = drafts[discipline];
-    setDrafts((prev) => {
-      if (!(discipline in prev)) return prev;
-      const rest = { ...prev };
-      delete rest[discipline];
-      return rest;
-    });
-    if (draft !== undefined) void writeFirm(discipline, draft);
   }
 
   return (
@@ -928,15 +911,8 @@ function ExternalTeamEditor({ project }: { project: Project }) {
         </div>
       )}
 
-      <datalist id={PD_EXT_FIRM_DATALIST_ID} data-testid="pd-ext-firm-datalist">
-        {firmSuggestions.map((f) => (
-          <option key={f} value={f} />
-        ))}
-      </datalist>
-
       {shownDisciplines.map((discipline) => {
         const saved = external[discipline] ?? '';
-        const value = drafts[discipline] ?? saved;
         return (
           <div
             key={discipline}
@@ -946,24 +922,14 @@ function ExternalTeamEditor({ project }: { project: Project }) {
             <span className="text-[8px] font-bold text-dim uppercase tracking-wide">
               {discipline}
             </span>
-            <input
-              type="text"
-              list={PD_EXT_FIRM_DATALIST_ID}
-              value={value}
+            <ExternalFirmSelect
+              discipline={discipline}
+              value={saved}
+              firms={directoryFirmNamesForDiscipline(directory, discipline)}
               disabled={occMissing || updateMutation.isPending}
-              placeholder="unassigned"
-              onChange={(e) =>
-                setDrafts((prev) => ({ ...prev, [discipline]: e.target.value }))
-              }
-              onBlur={() => commit(discipline)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
-              }}
-              className={`text-[10px] border-0 border-b outline-none bg-transparent w-full px-0 py-0.5 disabled:opacity-50 placeholder:font-normal placeholder:text-dim ${
-                saved ? 'font-bold text-text' : 'font-normal text-text'
-              }`}
-              style={{ borderBottomColor: 'var(--color-border)' }}
-              data-testid={`pd-ext-${discipline.toLowerCase()}`}
+              variant="compact"
+              testIdBase={`pd-ext-${discipline.toLowerCase()}`}
+              onCommit={(firm) => void writeFirm(discipline, firm)}
             />
           </div>
         );

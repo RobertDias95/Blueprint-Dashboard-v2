@@ -13,6 +13,7 @@
 
 import {
   WAITING_ON_OPTIONS,
+  type ExternalTeamDirectoryFirm,
   type WaitingOnDiscipline,
 } from './database.types';
 
@@ -109,6 +110,52 @@ export function distinctExternalFirms(
       const key = t.toLowerCase();
       if (!seen.has(key)) seen.set(key, t);
     }
+  }
+  return Array.from(seen.values()).sort((a, b) => a.localeCompare(b));
+}
+
+// fix-227: the central External Team directory (external_team_directory) feeds
+// the per-project firm picker's dropdown. These pure helpers group + list the
+// directory firms by discipline so the Settings panel and both per-project
+// editors read one shared vocabulary (bidirectional principle) — no editor
+// re-derives the grouping on its own.
+
+/** Group directory firms by discipline, each list sorted by name (A→Z, active
+ *  before inactive). `activeOnly` (default false) drops deactivated firms. */
+export function directoryFirmsByDiscipline(
+  firms: ReadonlyArray<ExternalTeamDirectoryFirm> | null | undefined,
+  opts?: { activeOnly?: boolean },
+): Map<string, ExternalTeamDirectoryFirm[]> {
+  const activeOnly = opts?.activeOnly ?? false;
+  const m = new Map<string, ExternalTeamDirectoryFirm[]>();
+  for (const f of firms ?? []) {
+    if (activeOnly && !f.active) continue;
+    const arr = m.get(f.discipline);
+    if (arr) arr.push(f);
+    else m.set(f.discipline, [f]);
+  }
+  for (const arr of m.values()) {
+    arr.sort((a, b) => {
+      if (a.active !== b.active) return a.active ? -1 : 1;
+      return a.name.localeCompare(b.name);
+    });
+  }
+  return m;
+}
+
+/** The ACTIVE directory firm names for a discipline (sorted, deduped display).
+ *  Backs the per-project picker's dropdown options for that discipline. */
+export function directoryFirmNamesForDiscipline(
+  firms: ReadonlyArray<ExternalTeamDirectoryFirm> | null | undefined,
+  discipline: string,
+): string[] {
+  const seen = new Map<string, string>(); // lower -> first-seen display
+  for (const f of firms ?? []) {
+    if (!f.active || f.discipline !== discipline) continue;
+    const t = f.name.trim();
+    if (!t) continue;
+    const key = t.toLowerCase();
+    if (!seen.has(key)) seen.set(key, t);
   }
   return Array.from(seen.values()).sort((a, b) => a.localeCompare(b));
 }

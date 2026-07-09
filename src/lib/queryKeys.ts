@@ -28,6 +28,9 @@ export const queryKeys = {
   // Q9.5.e-fix-3
   buildersAll: ['builders'] as const,
   projectDocumentsAll: ['project_documents'] as const,
+  // fix-227: central External Team directory (firms by discipline) that feeds
+  // the per-project external-team picker.
+  externalTeamDirectoryAll: ['external_team_directory'] as const,
   // fix-27: notification center reads audit_log via bp_fetch_scraper_activity
   // RPC. Bare-prefix key participates in realtime invalidation on audit_log.
   scraperActivityAll: ['scraper_activity'] as const,
@@ -73,6 +76,9 @@ export const queryKeys = {
     ['task_template_subtasks', tenantId] as const,
   // Q9.5.e-fix-3
   builders: (tenantId: string) => ['builders', tenantId] as const,
+  // fix-227: External Team directory, tenant-scoped.
+  externalTeamDirectory: (tenantId: string) =>
+    ['external_team_directory', tenantId] as const,
   projectDocuments: (tenantId: string, projectId: string) =>
     ['project_documents', tenantId, { projectId }] as const,
   // fix-27: notification center activity feed.
@@ -168,4 +174,7 @@ export const REALTIME_TABLES = {
   // fix-167: a hold opened/lifted/edited (any tab) refreshes the badge +
   // history live.
   project_holds: [queryKeys.projectHoldsAll],
+  // fix-227: a directory firm added/renamed/(de)activated (Settings, any tab)
+  // refreshes the per-project picker options live.
+  external_team_directory: [queryKeys.externalTeamDirectoryAll],
 } as const;
