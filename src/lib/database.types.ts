@@ -677,6 +677,20 @@ export interface TeamMember {
   active_end_quarter: string | null;
 }
 
+/** fix-225: DA project handoff ledger row (project_da_handoffs). Each row = one
+ *  ownership reassign of a project from `from_da` to `to_da`. Powers undo, the
+ *  "shared" marker, and Phase-2 co-credit. Ownership only — the draw_schedule
+ *  board block stays frozen under the original DA. */
+export interface ProjectDaHandoff {
+  id: string;
+  project_id: string;
+  from_da: string | null;
+  to_da: string;
+  effective_date: string | null;
+  note: string | null;
+  created_at: string;
+}
+
 /** Flat (dm_name, da_name) pair table. Q7.3.0 added updated_at for OCC. */
 export interface DmDaGroupRow {
   id: string;

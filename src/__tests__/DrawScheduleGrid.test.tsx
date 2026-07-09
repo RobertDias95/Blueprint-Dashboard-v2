@@ -113,6 +113,11 @@ vi.mock('../hooks/useDmDaGroups', () => ({
     groups: fixtures.groups,
   }),
 }));
+// fix-225: shared (DA-reassigned) project ids for the board marker.
+const sharedIdsRef = vi.hoisted(() => ({ current: new Set<string>() }));
+vi.mock('../hooks/useProjectDaHandoffs', () => ({
+  useProjectsWithHandoffs: () => ({ projectIds: sharedIdsRef.current }),
+}));
 
 // fix-182c: useQuarterLayout reads a mutable ref. Default [] -> isLayoutMode
 // false -> the grid renders the unchanged fallback for every existing test. The
@@ -1757,5 +1762,22 @@ describe('<DrawScheduleGrid /> — fix-220 admin-only editing', () => {
     renderGrid();
     fireEvent.click(screen.getByTestId('drop-cell-Ahmadi-2026-05-11'));
     expect(screen.queryByTestId('np-edit-popup')).toBeNull();
+  });
+});
+
+// fix-225: the "shared" marker (DA-reassigned / ownership handoff) on a block.
+describe('<DrawScheduleGrid /> — fix-225 shared marker', () => {
+  afterEach(() => {
+    sharedIdsRef.current = new Set<string>();
+  });
+
+  it('a project with a DA handoff shows data-shared + an asterisk on its block', () => {
+    sharedIdsRef.current = new Set<string>(['p-now']);
+    renderGrid();
+    const shared = screen.getByTestId('block-p-now');
+    expect(shared).toHaveAttribute('data-shared', 'true');
+    expect(screen.getByTestId('block-address-p-now').textContent).toContain('✳');
+    // a project with no handoff has no marker
+    expect(screen.getByTestId('block-p-other')).not.toHaveAttribute('data-shared');
   });
 });

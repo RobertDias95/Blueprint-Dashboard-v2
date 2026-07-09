@@ -3,6 +3,7 @@ import { useDrawSchedule } from '../hooks/useDrawSchedule';
 import { useProjects } from '../hooks/useProjects';
 import { usePermits } from '../hooks/usePermits';
 import { useDmDaGroups } from '../hooks/useDmDaGroups';
+import { useProjectsWithHandoffs } from '../hooks/useProjectDaHandoffs';
 import { useUpdateDrawSchedule } from '../hooks/useUpdateDrawSchedule';
 import { useResolveDaOverlap } from '../hooks/useResolveDaOverlap';
 import {
@@ -419,6 +420,10 @@ function DrawScheduleBody({
   // status/NP affordance below is gated on canEdit, and the write RPCs would
   // raise 42501 / hit an RLS denial even if a control leaked through.
   const canEdit = useIsTenantAdmin();
+  // fix-225: projects reassigned to a different DA (ownership handoff) show a
+  // "shared" asterisk on their board block — the block stays under the ORIGINAL
+  // DA, so the marker signals the work was split.
+  const sharedProjectIds = useProjectsWithHandoffs().projectIds;
 
   const updateMutation = useUpdateDrawSchedule();
   const moveDaMutation = useMoveDrawScheduleDa();
@@ -1847,6 +1852,7 @@ function DrawScheduleBody({
                     // tooltip + yellow border, per Bobby's "if it
                     // doesn't fit, skip" call.
                     const isRedesign = !!project.redesign_of_project_id;
+                    const isShared = sharedProjectIds.has(row.project_id);
                     const originalAddress = isRedesign
                       ? projectsById.get(project.redesign_of_project_id ?? '')
                           ?.address ?? null
@@ -1864,7 +1870,8 @@ function DrawScheduleBody({
                         data-tier="default"
                         data-overflow={overflow === 'tail' ? 'tail' : undefined}
                         data-redesign={isRedesign ? 'true' : undefined}
-                        title={`${project.address} — ${derivedStatus}${redesignTitleSuffix}${
+                        data-shared={isShared ? 'true' : undefined}
+                        title={`${project.address} — ${derivedStatus}${isShared ? ' · Shared (DA reassigned)' : ''}${redesignTitleSuffix}${
                           canEdit
                             ? ' (drag to move, click to edit)'
                             : ' (view only)'
@@ -1981,6 +1988,7 @@ function DrawScheduleBody({
                           title={project.address}
                           data-testid={`block-address-${row.project_id}`}
                         >
+                          {isShared ? '✳ ' : ''}
                           {shortLabel}
                         </span>
 

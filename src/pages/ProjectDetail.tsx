@@ -30,6 +30,9 @@ import DeleteRedesignDialog from '../components/ProjectDetail/DeleteRedesignDial
 import EditRedesignModal from '../components/ProjectDetail/EditRedesignModal';
 import QuickEditPermitModal from '../components/ProjectDetail/QuickEditPermitModal';
 import NewProjectWizard from '../components/NewProjectWizard';
+import ReassignDaModal from '../components/ProjectDetail/ReassignDaModal';
+import { useIsTenantAdmin } from '../hooks/useIsTenantAdmin';
+import { useProjectDaHandoffs } from '../hooks/useProjectDaHandoffs';
 import {
   makeRedesignWizardState,
   type WizardState,
@@ -179,6 +182,10 @@ function ProjectDetailBody({
   // address suffixed " [Redesign N]" — see makeRedesignWizardState +
   // useProjectRedesigns.
   const [redesignSeed, setRedesignSeed] = useState<WizardState | null>(null);
+  // fix-225: DA reassign (ownership handoff) — admin-only modal + shared marker.
+  const [reassignOpen, setReassignOpen] = useState(false);
+  const isAdmin = useIsTenantAdmin();
+  const handoffsQ = useProjectDaHandoffs(project.id);
   const redesignsQ = useProjectRedesigns(project.id);
   // fix-151: redesigns + their permits. Drives the Redesigns sidebar section
   // and the Schedule Health lineage aggregation (parent + all redesign permits
@@ -213,6 +220,8 @@ function ProjectDetailBody({
       <ProjectPageChrome
         onDelete={() => setDeleteOpen(true)}
         onSettings={() => setSettingsOpen(true)}
+        onReassignDa={() => setReassignOpen(true)}
+        canReassign={isAdmin}
       />
 
       {settingsOpen && (
@@ -240,6 +249,22 @@ function ProjectDetailBody({
           open={true}
           onClose={() => setRedesignSeed(null)}
           initialState={redesignSeed}
+        />
+      )}
+      {reassignOpen && (
+        <ReassignDaModal
+          projectId={project.id}
+          projectAddress={project.address}
+          currentDa={bp?.da ?? null}
+          onClose={() => setReassignOpen(false)}
+          onUseRedesign={() => {
+            // fix-225: the new-block case is a Redesign — reuse the exact
+            // wizard-seed path the Settings modal's "Spawn Redesign" uses.
+            setReassignOpen(false);
+            setRedesignSeed(
+              makeRedesignWizardState(project, redesignsQ.count, bp?.da ?? null),
+            );
+          }}
         />
       )}
       {deleteOpen && (
@@ -277,6 +302,22 @@ function ProjectDetailBody({
         {/* fix-167: "On Hold — <reason>" badge — the answer to "why hasn't
             this issued?". Renders only when an active hold exists. */}
         <ProjectHoldBadge projectId={project.id} />
+        {/* fix-225: "shared" marker — this project's work was split across DAs
+            via a reassign (ownership handoff), so it isn't solely one DA's. */}
+        {handoffsQ.data && handoffsQ.data.length > 0 && (
+          <span
+            className="inline-block mt-1 ml-1 text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full border align-middle"
+            style={{
+              borderColor: 'var(--color-jv-border)',
+              background: 'var(--color-jv-bg)',
+              color: 'var(--color-jv)',
+            }}
+            title={`DA reassigned — work shared (was ${handoffsQ.data[0].from_da ?? 'unassigned'}, now ${handoffsQ.data[0].to_da})`}
+            data-testid="pd-shared-badge"
+          >
+            ✳ Shared
+          </span>
+        )}
       </div>
 
       {/* fix-23e: Two-pillbox body layout. The outer page is bounded
@@ -406,9 +447,14 @@ function RedesignOfBadge({
 function ProjectPageChrome({
   onDelete,
   onSettings,
+  onReassignDa,
+  canReassign,
 }: {
   onDelete: () => void;
   onSettings: () => void;
+  /** fix-225: admin-only "Reassign DA" (ownership handoff). */
+  onReassignDa: () => void;
+  canReassign: boolean;
 }) {
   return (
     <div
@@ -430,6 +476,16 @@ function ProjectPageChrome({
         Project Overview
       </div>
       <div className="flex items-center gap-2">
+        {canReassign && (
+          <button
+            onClick={onReassignDa}
+            className="px-3 py-1 rounded-md text-xs font-bold border border-border bg-s2 text-text hover:bg-s3 transition"
+            data-testid="project-reassign-da-btn"
+            title="Move ownership to a different DA (board stays put)"
+          >
+            ⇄ Reassign DA
+          </button>
+        )}
         <button
           onClick={onSettings}
           className="px-3 py-1 rounded-md text-xs font-bold border border-border bg-s2 text-text hover:bg-s3 transition"
