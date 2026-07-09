@@ -13,6 +13,13 @@ import { queryKeys } from '../lib/queryKeys';
 // hook) so the real recovery wire is exercised end-to-end, and
 // verifies that a stale-token write recovers without a toast.
 
+// fix-227: the header renders ExternalTeamEditor — mock the directory inert so
+// this test's bespoke supabase mock only sees the builder write path.
+vi.mock('../hooks/useExternalTeamDirectory', () => ({
+  useExternalTeamDirectory: () => ({ data: [], isLoading: false, error: null, refetch: vi.fn() }),
+  useUpsertDirectoryFirm: () => ({ mutate: vi.fn(), mutateAsync: vi.fn(), isPending: false }),
+}));
+
 const T = 'test-tenant-uuid';
 const OLD_TOKEN = '2026-05-15T12:00:00Z';
 const NEW_TOKEN = '2026-05-15T12:05:00Z';

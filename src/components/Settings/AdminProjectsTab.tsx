@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import PillListEditor from './PillListEditor';
+import ExternalTeamDirectoryEditor from './ExternalTeamDirectoryEditor';
 import { useJurisdictions } from '../../hooks/useJurisdictions';
 import { usePermitTypes } from '../../hooks/usePermitTypes';
 import { useAppConfig, readAppConfigStringArray } from '../../hooks/useAppConfig';
@@ -205,6 +206,12 @@ export default function AdminProjectsTab() {
           readOnly={!isAdmin}
           testIdPrefix="hold-reasons-list"
         />
+      </Section>
+
+      {/* fix-227: central External Team directory (firms by discipline) that
+          feeds the per-project external-team picker's dropdown. */}
+      <Section title="External Team Directory">
+        <ExternalTeamDirectoryEditor readOnly={!isAdmin} />
       </Section>
     </div>
   );

@@ -191,6 +191,23 @@ export interface Builder {
   active: boolean | null;
 }
 
+/** fix-227: one firm in the central External Team directory — a master list of
+ *  consultant firms by discipline that POPULATES the per-project external-team
+ *  picker's dropdown. The per-project blob (projects.external_team) stays the
+ *  source of truth; this only supplies reusable options. `discipline` uses the
+ *  canonical WAITING_ON_OPTIONS vocab (e.g. "Surveyor"). */
+export interface ExternalTeamDirectoryFirm {
+  id: string;
+  discipline: string;
+  name: string;
+  contact_name: string | null;
+  contact_email: string | null;
+  contact_phone: string | null;
+  notes: string | null;
+  active: boolean;
+  created_at: string;
+}
+
 /** Q9.5.e-fix-3: project_documents row. updated_at added by fix-3 migration
  * for row-level OCC via bp_upsert_project_document_row. */
 export interface ProjectDocument {

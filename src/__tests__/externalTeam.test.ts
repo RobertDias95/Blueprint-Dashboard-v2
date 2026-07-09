@@ -4,9 +4,28 @@ import {
   asExternalTeamBlob,
   distinctExternalFirms,
   externalTeamShowRules,
+  directoryFirmsByDiscipline,
+  directoryFirmNamesForDiscipline,
   EXTERNAL_TEAM_COMMON_DISCIPLINES,
 } from '../lib/externalTeam';
-import { WAITING_ON_OPTIONS, type WaitingOnDiscipline } from '../lib/database.types';
+import {
+  WAITING_ON_OPTIONS,
+  type ExternalTeamDirectoryFirm,
+  type WaitingOnDiscipline,
+} from '../lib/database.types';
+
+function mkFirm(over: Partial<ExternalTeamDirectoryFirm> & { discipline: string; name: string }): ExternalTeamDirectoryFirm {
+  return {
+    id: `${over.discipline}-${over.name}`,
+    contact_name: null,
+    contact_email: null,
+    contact_phone: null,
+    notes: null,
+    active: true,
+    created_at: '2026-01-01T00:00:00Z',
+    ...over,
+  };
+}
 
 // fix-190d: the single resolver from a project's external_team blob to the firm
 // working a discipline — the one source both My Tasks → Waiting and the per-task
@@ -133,5 +152,50 @@ describe('canonical vocabulary (fix-190d)', () => {
   it('WAITING_ON_OPTIONS uses "Surveyor", never "Survey"', () => {
     expect(WAITING_ON_OPTIONS).toContain('Surveyor');
     expect(WAITING_ON_OPTIONS).not.toContain('Survey');
+  });
+});
+
+// fix-227: the central directory helpers that feed the per-project picker.
+describe('directoryFirmsByDiscipline (fix-227)', () => {
+  const firms = [
+    mkFirm({ discipline: 'Surveyor', name: 'Emerald' }),
+    mkFirm({ discipline: 'Surveyor', name: 'Bush' }),
+    mkFirm({ discipline: 'Surveyor', name: 'OldCo', active: false }),
+    mkFirm({ discipline: 'Civil', name: 'Facet' }),
+  ];
+
+  it('groups by discipline, active-before-inactive then A→Z by name', () => {
+    const m = directoryFirmsByDiscipline(firms);
+    expect(m.get('Surveyor')!.map((f) => f.name)).toEqual(['Bush', 'Emerald', 'OldCo']);
+    expect(m.get('Civil')!.map((f) => f.name)).toEqual(['Facet']);
+  });
+
+  it('activeOnly drops deactivated firms', () => {
+    const m = directoryFirmsByDiscipline(firms, { activeOnly: true });
+    expect(m.get('Surveyor')!.map((f) => f.name)).toEqual(['Bush', 'Emerald']);
+  });
+
+  it('handles null / empty input', () => {
+    expect(directoryFirmsByDiscipline(null).size).toBe(0);
+    expect(directoryFirmsByDiscipline([]).size).toBe(0);
+  });
+});
+
+describe('directoryFirmNamesForDiscipline (fix-227 dropdown options)', () => {
+  const firms = [
+    mkFirm({ discipline: 'Surveyor', name: 'Emerald' }),
+    mkFirm({ discipline: 'Surveyor', name: 'Bush' }),
+    mkFirm({ discipline: 'Surveyor', name: 'emerald' }), // case-dupe → one
+    mkFirm({ discipline: 'Surveyor', name: 'OldCo', active: false }), // inactive → out
+    mkFirm({ discipline: 'Civil', name: 'Facet' }), // other discipline → out
+  ];
+
+  it('returns the ACTIVE firm names for a discipline, deduped + sorted', () => {
+    expect(directoryFirmNamesForDiscipline(firms, 'Surveyor')).toEqual(['Bush', 'Emerald']);
+  });
+
+  it('returns [] for a discipline with no active firms', () => {
+    expect(directoryFirmNamesForDiscipline(firms, 'Structural')).toEqual([]);
+    expect(directoryFirmNamesForDiscipline(null, 'Surveyor')).toEqual([]);
   });
 });

@@ -1,24 +1,29 @@
-import { useMemo, useState } from 'react';
+import { useMemo } from 'react';
 import { useProjects } from '../../hooks/useProjects';
 import { useUpdateProject } from '../../hooks/useUpdateProject';
 import { useExternalTeamShowRules } from '../../hooks/useExternalTeamShowRules';
+import { useExternalTeamDirectory } from '../../hooks/useExternalTeamDirectory';
 import {
   asExternalTeamBlob,
-  distinctExternalFirms,
+  directoryFirmNamesForDiscipline,
   type ExternalTeamBlob,
 } from '../../lib/externalTeam';
+import ExternalFirmSelect from './ExternalFirmSelect';
 import type { WaitingOnDiscipline } from '../../lib/database.types';
 
-// fix-139 / fix-193 / fix-195: Project Settings → External Team.
+// fix-139 / fix-193 / fix-195 / fix-227: Project Settings → External Team.
 //
 // fix-195: ONE store. Reads/writes projects.external_team — the JSON blob
 // { <discipline>: <firmName> } that My Tasks → Waiting + the Project Overview
-// "External" editor already use (resolveExternalFirm). The old normalized
-// project_external_teams table + consultant_firms registry are retired here: the
-// panel no longer touches them. Writes go through useUpdateProject (the same
-// read-modify-write the Overview editor uses), OCC-safe + optimistic. Firms are
-// free text (no registry) — a <datalist> of the distinct firm names already used
-// across all projects' blobs makes existing firms one-click reusable.
+// "External" editor already use (resolveExternalFirm). Writes go through
+// useUpdateProject (the same read-modify-write the Overview editor uses),
+// OCC-safe + optimistic.
+//
+// fix-227: the firm field is now a DROPDOWN sourced from the central External
+// Team directory (external_team_directory) for that discipline, via the shared
+// ExternalFirmSelect. Picking a firm still writes the blob (unchanged); an
+// inline "+ Add new firm…" inserts into the directory so it's reusable. Existing
+// free-text blob firms not in the directory still render + stay selected.
 //
 // fix-193 show-rules (UNCHANGED):
 //   - The COMMON FOUR (Civil / Surveyor / Structural / Arborist) ALWAYS render
@@ -33,8 +38,6 @@ import type { WaitingOnDiscipline } from '../../lib/database.types';
 // the blob keys ARE these terms, so a task waiting on "Surveyor" resolves to
 // external_team["Surveyor"].
 
-const FIRM_DATALIST_ID = 'project-external-team-firm-options';
-
 interface Props {
   projectId: string;
 }
@@ -42,6 +45,7 @@ interface Props {
 export default function ProjectExternalTeamPanel({ projectId }: Props) {
   const projectsQ = useProjects();
   const updateMutation = useUpdateProject();
+  const directoryQ = useExternalTeamDirectory();
 
   const project = useMemo(
     () => (projectsQ.data ?? []).find((p) => p.id === projectId) ?? null,
@@ -52,20 +56,12 @@ export default function ProjectExternalTeamPanel({ projectId }: Props) {
     [project?.external_team],
   );
 
-  // fix-195: distinct firm names across ALL projects' blobs → the datalist.
-  const firmSuggestions = useMemo(
-    () => distinctExternalFirms(projectsQ.data ?? []),
-    [projectsQ.data],
-  );
+  const directory = directoryQ.data ?? [];
 
   // fix-196: the show-rules (common four + assigned + added, addable, empty CTA)
   // come from the SHARED hook so this panel and the Overview editor can't drift.
   const { shownDisciplines, addableDisciplines, noneAssigned, addDiscipline } =
     useExternalTeamShowRules(blob);
-
-  // Per-field text drafts so typing doesn't fire a write per keystroke; commit
-  // on blur / Enter. Absent key → the input falls back to the saved blob value.
-  const [drafts, setDrafts] = useState<Record<string, string>>({});
 
   const occMissing = !project?.updated_at;
 
@@ -85,23 +81,7 @@ export default function ProjectExternalTeamPanel({ projectId }: Props) {
     });
   }
 
-  function dropDraft(discipline: WaitingOnDiscipline) {
-    setDrafts((prev) => {
-      if (!(discipline in prev)) return prev;
-      const rest = { ...prev };
-      delete rest[discipline];
-      return rest;
-    });
-  }
-
-  function commit(discipline: WaitingOnDiscipline) {
-    const draft = drafts[discipline];
-    dropDraft(discipline);
-    if (draft !== undefined) void writeFirm(discipline, draft);
-  }
-
   function clear(discipline: WaitingOnDiscipline) {
-    dropDraft(discipline);
     void writeFirm(discipline, '');
   }
 
@@ -133,16 +113,8 @@ export default function ProjectExternalTeamPanel({ projectId }: Props) {
         </div>
       )}
 
-      {/* fix-195: shared firm suggestions (distinct firms across all blobs). */}
-      <datalist id={FIRM_DATALIST_ID} data-testid="project-external-team-firm-datalist">
-        {firmSuggestions.map((f) => (
-          <option key={f} value={f} />
-        ))}
-      </datalist>
-
       {shownDisciplines.map((discipline) => {
         const saved = blob[discipline] ?? '';
-        const value = drafts[discipline] ?? saved;
         return (
           <div
             key={discipline}
@@ -152,22 +124,14 @@ export default function ProjectExternalTeamPanel({ projectId }: Props) {
             <span className="text-[11px] text-text w-24 shrink-0">
               {discipline}
             </span>
-            <input
-              type="text"
-              list={FIRM_DATALIST_ID}
-              value={value}
+            <ExternalFirmSelect
+              discipline={discipline}
+              value={saved}
+              firms={directoryFirmNamesForDiscipline(directory, discipline)}
               disabled={occMissing || updateMutation.isPending}
-              placeholder="Firm name"
-              onChange={(e) =>
-                setDrafts((prev) => ({ ...prev, [discipline]: e.target.value }))
-              }
-              onBlur={() => commit(discipline)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
-              }}
-              className="flex-1 px-2 py-1 text-[11px] border rounded bg-surface text-text outline-none focus:border-de disabled:opacity-50"
-              style={{ borderColor: 'var(--color-border)' }}
-              data-testid={`project-external-team-firm-input-${discipline}`}
+              variant="panel"
+              testIdBase={`project-external-team-firm-${discipline}`}
+              onCommit={(firm) => void writeFirm(discipline, firm)}
             />
             {saved ? (
               <button
