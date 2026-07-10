@@ -259,6 +259,71 @@ export function primarySelectValue(
   return normalizePrimaryTeamKey(raw) ?? raw;
 }
 
+// ---------------------------------------------------------------------------
+// fix-231: shared assignee <select> option builder (primary + co-assignee).
+//
+// Both editors assemble their option list from the same two parts: DYNAMIC
+// role/team-labeled options that resolve to a person for this project (e.g.
+// "Entitlements · Miles") + STATIC roster people (bare "Miles"). When a role
+// option and a bare roster option resolve to the SAME person, that person was
+// listed twice. This one dedupe pass — shared so BOTH editors inherit it — keeps
+// the role-labeled option (more informative) and drops the bare duplicate.
+// ---------------------------------------------------------------------------
+
+/** A dynamic, role/team-labeled option that resolves to a person for a project. */
+export interface AssigneeRoleOption {
+  /** Value stored when picked (a team key / role token). */
+  value: string;
+  /** Display label, e.g. "Entitlements · Miles". */
+  label: string;
+  /** The person this option would assign — the dedupe identity. */
+  resolvedPerson: string | null;
+}
+
+export interface BuiltAssigneeOptions {
+  /** The role/team options, order preserved (never dropped for a bare name). */
+  roleOptions: AssigneeRoleOption[];
+  /** The bare roster people, order preserved, with duplicates removed. */
+  personOptions: string[];
+}
+
+/** fix-231: assemble a deduped assignee-select option model shared by the
+ *  primary + co-assignee editors.
+ *
+ *  Dedupe identity = the resolved person NAME (trimmed) — the same string the
+ *  editors compare/store assignees by (no new normalization). A bare roster
+ *  person is dropped when a role option already resolves to them ("keep the
+ *  role, drop the bare static") OR when an earlier roster entry already used the
+ *  name ("two statics collide → keep the first"). A role option is NEVER dropped
+ *  for a bare name. `keepValue` (the currently-selected value) is never deduped
+ *  away, so the <select> can still reflect an explicitly-stored person even when
+ *  a role also resolves to them. Order is otherwise preserved. */
+export function buildAssigneeOptions(input: {
+  roleOptions: AssigneeRoleOption[];
+  personNames: string[];
+  keepValue?: string | null;
+}): BuiltAssigneeOptions {
+  const claimedByRole = new Set<string>();
+  for (const r of input.roleOptions) {
+    const p = (r.resolvedPerson ?? '').trim();
+    if (p) claimedByRole.add(p);
+  }
+  const keep = (input.keepValue ?? '').trim();
+  const seen = new Set<string>();
+  const personOptions: string[] = [];
+  for (const raw of input.personNames) {
+    const name = raw.trim();
+    if (!name) continue;
+    if (seen.has(name)) continue; // static-vs-static collision → keep the first
+    // Drop a bare person already covered by a resolving role option — UNLESS it
+    // is the current selection (must remain selectable so the select reflects it).
+    if (claimedByRole.has(name) && name !== keep) continue;
+    seen.add(name);
+    personOptions.push(raw);
+  }
+  return { roleOptions: input.roleOptions, personOptions };
+}
+
 /** Resolve a template's default_team to the single `assigned_to` person for a
  *  project. Mirrors the CASE in bp_create_project_with_permits. */
 export function resolveTeamAssignee(

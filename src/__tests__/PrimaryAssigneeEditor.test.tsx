@@ -89,6 +89,29 @@ describe('PrimaryAssigneeEditor (fix-228)', () => {
     expect((screen.getByTestId('t-primary-select') as HTMLSelectElement).value).toBe('Gone');
   });
 
+  it('fix-231: a person a role option resolves to is listed ONCE (the role-labeled one), not twice', () => {
+    // Miles is the ENT lead (Entitlements → Miles) AND is in the roster — the
+    // pre-fix-231 bug listed Miles twice ("Entitlements · Miles" + bare "Miles").
+    render(
+      <PrimaryAssigneeEditor
+        value={null}
+        ctx={ctx}
+        memberNames={['Jade', 'Miles', 'Erick']}
+        onChange={vi.fn()}
+        testIdPrefix="t"
+      />,
+    );
+    const select = screen.getByTestId('t-primary-select') as HTMLSelectElement;
+    const options = Array.from(select.options);
+    // Miles appears in exactly one option, and it is the role-labeled one.
+    const milesOptions = options.filter((o) => (o.textContent ?? '').includes('Miles'));
+    expect(milesOptions.map((o) => o.textContent)).toEqual(['Entitlements · Miles']);
+    // No bare "Miles" person option survives (value would be 'Miles').
+    expect(options.map((o) => o.value)).not.toContain('Miles');
+    // A roster person NOT covered by any role is still offered bare.
+    expect(options.map((o) => o.value)).toContain('Erick');
+  });
+
   it('readOnly renders the chip but no select', () => {
     render(
       <PrimaryAssigneeEditor

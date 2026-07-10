@@ -3,6 +3,7 @@ import {
   primarySelectValue,
   resolvePrimaryAssignee,
   resolvePrimaryTeamPerson,
+  buildAssigneeOptions,
   type PrimaryResolutionContext,
 } from '../lib/taskTeam';
 
@@ -51,20 +52,34 @@ export default function PrimaryAssigneeEditor({
   const display = resolvePrimaryAssignee(value, ctx, discipline);
   const selected = primarySelectValue(value, discipline);
 
-  // Offer every roster name as a "specific person"; include the current person
-  // value even if it's off-roster so the select can reflect it.
-  const persons = [...memberNames];
-  if (
-    !(PRIMARY_TEAM_OPTIONS as readonly string[]).includes(selected) &&
-    !persons.includes(selected)
-  ) {
-    persons.unshift(selected);
-  }
-
   const teamOptionLabel = (key: (typeof PRIMARY_TEAM_OPTIONS)[number]): string => {
     const person = resolvePrimaryTeamPerson(key, ctx);
     return person ? `${key} · ${person}` : key;
   };
+
+  // Offer every roster name as a "specific person"; include the current person
+  // value even if it's off-roster so the select can reflect it.
+  const rosterNames = [...memberNames];
+  if (
+    !(PRIMARY_TEAM_OPTIONS as readonly string[]).includes(selected) &&
+    !rosterNames.includes(selected)
+  ) {
+    rosterNames.unshift(selected);
+  }
+
+  // fix-231: dedupe via the shared builder — a bare roster person that a "Team /
+  // role" option already resolves to (e.g. "Entitlements · Miles" + roster
+  // "Miles") is dropped, keeping the role-labeled one. The current selection is
+  // always kept so the select can still reflect an explicitly-stored person.
+  const { roleOptions, personOptions: persons } = buildAssigneeOptions({
+    roleOptions: PRIMARY_TEAM_OPTIONS.map((k) => ({
+      value: k,
+      label: teamOptionLabel(k),
+      resolvedPerson: resolvePrimaryTeamPerson(k, ctx),
+    })),
+    personNames: rosterNames,
+    keepValue: selected,
+  });
 
   // fix-229: readOnly → just the resolved-person chip (no select to carry it).
   if (readOnly) {
@@ -98,9 +113,9 @@ export default function PrimaryAssigneeEditor({
       data-testid={`${testIdPrefix}-primary-select`}
     >
       <optgroup label="Team / role">
-        {PRIMARY_TEAM_OPTIONS.map((k) => (
-          <option key={k} value={k}>
-            {teamOptionLabel(k)}
+        {roleOptions.map((o) => (
+          <option key={o.value} value={o.value}>
+            {o.label}
           </option>
         ))}
       </optgroup>
