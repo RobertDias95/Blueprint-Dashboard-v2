@@ -1,4 +1,8 @@
-import { coAssigneeDisplayName, type ResolutionContext } from '../lib/taskTeam';
+import {
+  coAssigneeDisplayName,
+  buildAssigneeOptions,
+  type ResolutionContext,
+} from '../lib/taskTeam';
 
 // fix-224: the single shared co-assignee editor used by BOTH task views (My
 // Tasks + the permit-detail task bar). Assignment lives in ONE place — the
@@ -40,9 +44,16 @@ export default function CoAssigneeEditor({
   const isPrimaryDup = (entry: string): boolean =>
     primaryPerson != null && coAssigneeDisplayName(entry, ctx) === primaryPerson;
   const visibleValues = values.filter((v) => !isPrimaryDup(v));
-  const available = memberNames.filter(
-    (n) => !values.includes(n) && n !== primaryPerson,
-  );
+  // fix-231: the "+ Assign" picker offers bare roster names (no role-labeled
+  // options), so route it through the SAME shared dedupe both editors use. With
+  // no role options this only collapses any duplicate roster names (defensive);
+  // the shared builder guarantees the two selects can never diverge.
+  const { personOptions: available } = buildAssigneeOptions({
+    roleOptions: [],
+    personNames: memberNames.filter(
+      (n) => !values.includes(n) && n !== primaryPerson,
+    ),
+  });
 
   function add(name: string) {
     const v = name.trim();

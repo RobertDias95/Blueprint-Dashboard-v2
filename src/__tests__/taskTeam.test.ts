@@ -13,6 +13,8 @@ import {
   resolvePrimaryAssignee,
   primarySelectValue,
   defaultPrimaryTeamKey,
+  buildAssigneeOptions,
+  type AssigneeRoleOption,
   type PrimaryResolutionContext,
 } from '../lib/taskTeam';
 
@@ -188,5 +190,75 @@ describe('fix-230 discipline-aware default primary', () => {
     expect(resolvePrimaryAssignee('Entitlements', ctx, 'arch')).toBe('Miles');
     expect(primarySelectValue('Erick', 'ent')).toBe('Erick');
     expect(primarySelectValue('Entitlements', 'arch')).toBe('Entitlements');
+  });
+});
+
+// fix-231: shared dedupe for the assignee <select> option list. A role-labeled
+// option that resolves to a person also in the static roster must not list that
+// person twice — keep the role-labeled one, drop the bare static.
+describe('fix-231 buildAssigneeOptions dedupe', () => {
+  const roleOpts: AssigneeRoleOption[] = [
+    { value: 'Entitlements', label: 'Entitlements · Miles', resolvedPerson: 'Miles' },
+    { value: 'Design Associate', label: 'Design Associate · Jade', resolvedPerson: 'Jade' },
+  ];
+
+  it('drops a bare roster person a role option already resolves to; keeps the role option', () => {
+    const { roleOptions, personOptions } = buildAssigneeOptions({
+      roleOptions: roleOpts,
+      personNames: ['Miles', 'Jade', 'Erick'],
+    });
+    // Miles + Jade are covered by role options → not repeated as bare persons.
+    expect(personOptions).toEqual(['Erick']);
+    // The informative role-labeled options survive untouched.
+    expect(roleOptions.map((o) => o.label)).toEqual([
+      'Entitlements · Miles',
+      'Design Associate · Jade',
+    ]);
+    // Miles appears exactly once across the whole option set, and it's the role one.
+    const all = [...roleOptions.map((o) => o.label), ...personOptions];
+    expect(all.filter((l) => l.includes('Miles'))).toEqual(['Entitlements · Miles']);
+  });
+
+  it('never drops a role option in favor of a bare name', () => {
+    const { roleOptions } = buildAssigneeOptions({
+      roleOptions: roleOpts,
+      personNames: ['Miles'],
+    });
+    expect(roleOptions).toHaveLength(2); // both role options intact
+  });
+
+  it('two colliding static entries → keep the first, drop the later duplicate', () => {
+    const { personOptions } = buildAssigneeOptions({
+      roleOptions: [],
+      personNames: ['Erick', 'Jade', 'Erick', ' Jade '],
+    });
+    expect(personOptions).toEqual(['Erick', 'Jade']);
+  });
+
+  it('keepValue: a bare person that IS the current selection is kept even if a role resolves to them', () => {
+    // The user explicitly stored the person "Miles"; the select must still offer
+    // that bare option so it can reflect the stored value.
+    const { personOptions } = buildAssigneeOptions({
+      roleOptions: roleOpts,
+      personNames: ['Miles', 'Erick'],
+      keepValue: 'Miles',
+    });
+    expect(personOptions).toEqual(['Miles', 'Erick']);
+  });
+
+  it('a role option with no resolved person claims nobody (no false dedupe)', () => {
+    const { personOptions } = buildAssigneeOptions({
+      roleOptions: [{ value: 'Schematic Team', label: 'Schematic Team', resolvedPerson: null }],
+      personNames: ['Miles', 'Jade'],
+    });
+    expect(personOptions).toEqual(['Miles', 'Jade']);
+  });
+
+  it('empty role options → the roster passes through unchanged (co-assignee path)', () => {
+    const { personOptions } = buildAssigneeOptions({
+      roleOptions: [],
+      personNames: ['Miles', 'Jade', 'Erick'],
+    });
+    expect(personOptions).toEqual(['Miles', 'Jade', 'Erick']);
   });
 });
