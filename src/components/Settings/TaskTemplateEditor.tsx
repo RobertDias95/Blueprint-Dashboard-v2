@@ -30,7 +30,7 @@ import {
 } from '../../hooks/useReorderTaskTemplates';
 import { useJurisdictions } from '../../hooks/useJurisdictions';
 import { usePermitTypes } from '../../hooks/usePermitTypes';
-import { useTeamMembers } from '../../hooks/useTeamMembers';
+import { useTeamMembers, activeMemberNamesOf } from '../../hooks/useTeamMembers';
 import { SkeletonRows } from '../Skeleton';
 import QueryError from '../QueryError';
 import { WAITING_ON_OPTIONS } from '../../lib/database.types';
@@ -89,13 +89,11 @@ export default function TaskTemplateEditor({ readOnly = false }: Props) {
 
   const typeOptions = typesQ.data ?? [];
   const jurisOptions = jurisQ.data ?? [];
-  // fix-222: dedupe by person — team_members has a row PER role, so someone
-  // holding both ent + ent_lead (or acq + acq_lead) would otherwise appear
-  // 2–3× in the co-assignee picker. One entry per distinct name.
+  // fix-222 (dedupe by person — team_members has a row PER role) + fix-233
+  // (CURRENT members only, active + non-former): the co-assignee picker offers
+  // one entry per distinct active name.
   const memberNames = useMemo(
-    () => [
-      ...new Set((teamQ.all ?? []).map((m) => m.name).filter(Boolean)),
-    ],
+    () => activeMemberNamesOf(teamQ.all),
     [teamQ.all],
   );
 

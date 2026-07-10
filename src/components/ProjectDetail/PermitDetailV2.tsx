@@ -36,7 +36,7 @@ import {
   useDeleteTask,
   useSetTaskAssignees,
 } from '../../hooks/useTaskTree';
-import { useTeamMembers } from '../../hooks/useTeamMembers';
+import { useTeamMembers, activeMemberNamesOf } from '../../hooks/useTeamMembers';
 import { useDmDaGroups } from '../../hooks/useDmDaGroups';
 import { findDmForDa } from '../wizard/dmRouting';
 import {
@@ -1682,8 +1682,10 @@ function TasksPanel({
 }) {
   const treeQ = usePermitTaskTree(permitId);
   const team = useTeamMembers();
+  // fix-233: the assignee pickers offer CURRENT team members only (active +
+  // non-former) — departed staff never appear as selectable options.
   const memberNames = useMemo(
-    () => team.all.map((m) => m.name).sort((a, b) => a.localeCompare(b)),
+    () => activeMemberNamesOf(team.all),
     [team.all],
   );
   // Stable reference so the bucket-totals + visible memos below don't churn

@@ -19,6 +19,28 @@ export interface TeamMembersResult {
   /** fix-222: the Schematic Team roster — sources the New Project wizard's
    *  Schematic Designer picker + the Schematic Team admin section. */
   schematics: TeamMember[];
+  /** fix-233: the distinct display names of CURRENT team members (active and not
+   *  former), sorted A→Z — the single source for the task assignee people-pickers
+   *  so departed staff never appear as selectable options. */
+  activeMemberNames: string[];
+}
+
+/** fix-233: derive the distinct names of CURRENT team members (active = true AND
+ *  former = false), sorted A→Z, deduped (team_members has one row per role, so a
+ *  person holding several roles would otherwise repeat). A missing `active` is
+ *  treated as active (defensive). The ONE definition the task assignee dropdowns
+ *  (primary + co-assignee) source their roster from. */
+export function activeMemberNamesOf(
+  members: readonly TeamMember[] | null | undefined,
+): string[] {
+  return [
+    ...new Set(
+      (members ?? [])
+        .filter((m) => m.active !== false && m.former !== true)
+        .map((m) => m.name)
+        .filter(Boolean),
+    ),
+  ].sort((a, b) => a.localeCompare(b));
 }
 
 export function useTeamMembers() {
@@ -52,6 +74,7 @@ export function useTeamMembers() {
       ents: ofRole('ent'),
       acqs: ofRole('acq'),
       schematics: ofRole('schematic'),
+      activeMemberNames: activeMemberNamesOf(all),
     };
   }, [q.data]);
 

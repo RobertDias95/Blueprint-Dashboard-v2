@@ -34,12 +34,16 @@ vi.mock('../hooks/usePermitTasks', () => ({
 vi.mock('../components/ProjectDetail/ScheduleEstimator', () => ({
   default: () => <div data-testid="stub-schedule-estimator" />,
 }));
-vi.mock('../hooks/useTeamMembers', () => ({
-  useTeamMembers: () => ({
-    all: teamRef.current,
-    isLoading: false, error: null, refetch: vi.fn(),
-  }),
-}));
+vi.mock('../hooks/useTeamMembers', async (importActual) => {
+  const actual = await importActual<typeof import('../hooks/useTeamMembers')>();
+  return {
+    ...actual, // keep the real activeMemberNamesOf helper (fix-233)
+    useTeamMembers: () => ({
+      all: teamRef.current,
+      isLoading: false, error: null, refetch: vi.fn(),
+    }),
+  };
+});
 vi.mock('../hooks/useTaskTree', () => ({
   usePermitTaskTree: () => ({
     data: treeRef.current,
