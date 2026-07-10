@@ -20,6 +20,11 @@ import {
   type ResolutionContext,
   type PrimaryResolutionContext,
 } from '../lib/taskTeam';
+import {
+  nextCheckboxStatus,
+  checkboxVisual,
+  TASK_STATUS_OPTIONS,
+} from '../lib/taskStatus';
 import { useScopeMode } from '../hooks/useSelfScope';
 import { taskMatchesSelf, type ScopeMode } from '../lib/selfScope';
 import ScopeToggle from '../components/shared/ScopeToggle';
@@ -1086,17 +1091,18 @@ function TaskCard({
 }) {
   const upsert = useUpsertTask();
   const overdue = isOverdue(task, today);
+  const visual = checkboxVisual(task.status);
 
-  function toggleStatusOnce(e: React.MouseEvent) {
+  // fix-235: the checkbox advances FORWARD only — Open → In Progress →
+  // Resolved — and stops at Resolved (a further click is a no-op so a
+  // completed task can't be accidentally un-completed). Backward moves go
+  // through the detail-pane status dropdown. Both controls share the same
+  // transition rules via taskStatus.ts; the done/done_at write-path
+  // unification is enforced by the bp_trg_task_done_at DB trigger.
+  function advanceStatus(e: React.MouseEvent) {
     e.stopPropagation();
-    // Single click on the checkbox flips Open <-> In Progress. Double-click
-    // marks Resolved (see onDoubleClick handler below).
-    const next: Task['status'] =
-      task.status === 'Open'
-        ? 'In Progress'
-        : task.status === 'In Progress'
-          ? 'Open'
-          : 'Open';
+    const next = nextCheckboxStatus(task.status);
+    if (!next) return; // Resolved is terminal on the checkbox
     upsert.mutate({
       id: task.id,
       permitId: task.permit_id,
@@ -1105,20 +1111,6 @@ function TaskCard({
       bucket: task.bucket,
       text: task.text,
       status: next,
-      startDate: task.start_date,
-      targetDate: task.target_date,
-    });
-  }
-  function markResolved(e: React.MouseEvent) {
-    e.stopPropagation();
-    upsert.mutate({
-      id: task.id,
-      permitId: task.permit_id,
-      parentTaskId: task.parent_task_id,
-      discipline: task.discipline,
-      bucket: task.bucket,
-      text: task.text,
-      status: 'Resolved',
       startDate: task.start_date,
       targetDate: task.target_date,
     });
@@ -1147,30 +1139,34 @@ function TaskCard({
       <div className="flex items-start gap-1.5">
         <button
           type="button"
-          onClick={toggleStatusOnce}
-          onDoubleClick={markResolved}
-          title="Click: flip Open ↔ In Progress · Double-click: Resolved"
-          className="flex-shrink-0 mt-0.5 rounded border cursor-pointer"
+          onClick={advanceStatus}
+          disabled={visual === 'checked'}
+          title={
+            visual === 'checked'
+              ? 'Resolved — use the status dropdown to reopen'
+              : 'Click to advance: Open → In Progress → Resolved'
+          }
+          className="flex-shrink-0 mt-0.5 rounded border"
           style={{
             width: 14,
             height: 14,
             background:
-              task.status === 'Resolved'
+              visual === 'checked'
                 ? 'var(--color-pm)'
-                : task.status === 'In Progress'
+                : visual === 'partial'
                   ? 'var(--color-de)'
                   : 'transparent',
             borderColor:
-              task.status === 'Resolved'
-                ? 'var(--color-pm)'
-                : 'var(--color-border)',
+              visual === 'checked' ? 'var(--color-pm)' : 'var(--color-border)',
             color: '#fff',
             fontSize: 9,
             lineHeight: '12px',
+            cursor: visual === 'checked' ? 'default' : 'pointer',
           }}
           data-testid={`mytask-card-${task.id}-status-toggle`}
+          data-status-visual={visual}
         >
-          {task.status === 'Resolved' ? '✓' : ''}
+          {visual === 'checked' ? '✓' : ''}
         </button>
         <span
           className="flex-1 truncate"
@@ -1566,6 +1562,27 @@ function TaskDetailEditor({
             inputClassName="text-[11px] px-2 py-1 border rounded outline-none font-mono"
             inputStyle={inputStyle()}
           />
+        </FieldRow>
+
+        {/* fix-235: Status dropdown — the ONLY control that can move a task
+            backward (e.g. Resolved → In Progress). Writes the same
+            completion_status field the row checkbox advances; the DB trigger
+            keeps done/done_at in sync. */}
+        <FieldRow label="Status">
+          <select
+            value={task.status}
+            onChange={(e) => patch({ status: e.target.value as Task['status'] })}
+            disabled={upsert.isPending}
+            className="text-[11px] px-2 py-1 border rounded outline-none"
+            style={inputStyle()}
+            data-testid="task-detail-status"
+          >
+            {TASK_STATUS_OPTIONS.map((opt) => (
+              <option key={opt.value} value={opt.value}>
+                {opt.label}
+              </option>
+            ))}
+          </select>
         </FieldRow>
 
         {/* 8 Completed — setting the date stamps done_at AND moves the
