@@ -5,6 +5,10 @@ import {
   groupByDisciplineThenFirm,
   type WaitingOnFirmGroup,
 } from '../../hooks/useWaitingOnTasks';
+import { useAllTasks } from '../../hooks/useTaskTree';
+import { useScopeMode } from '../../hooks/useSelfScope';
+import { taskMatchesSelf } from '../../lib/selfScope';
+import ScopeToggle from '../shared/ScopeToggle';
 import { exportAllToCsv, exportFirmToCsv } from '../../lib/waitingOnCsv';
 import { SkeletonRows } from '../Skeleton';
 import QueryError from '../QueryError';
@@ -14,6 +18,17 @@ import type { WaitingOnTaskRow } from '../../lib/database.types';
 // waiting_on discipline to the firm assigned for that discipline on the task's
 // project, then groups discipline -> firm. Read-only here — the project-address
 // column links to the project page for editing (per the brief).
+//
+// fix-236: the section now offers the SAME personal/holistic scope toggle the
+// My Tasks board uses (fix-176/179). It shares the 'mytasks' persistence key +
+// role-aware default with the board, so a user's Mine/All choice stays
+// consistent across both sub-views. "Mine" reuses the board's EXACT ownership
+// definition (taskMatchesSelf over the resolved primary + co-assignees): the
+// waiting-on RPC only carries the raw assigned_to token, so ownership is
+// resolved by cross-referencing each row's task_id against the full task set
+// (bp_list_tasks — already cached by the board) rather than string-matching
+// that token. An unmapped login (no roster name) sees the holistic view and no
+// toggle, exactly as on the board.
 
 const STATUS_BG: Record<string, string> = {
   Open: 'var(--color-s2)',
@@ -24,8 +39,36 @@ const STATUS_BG: Record<string, string> = {
 export default function WaitingOnView() {
   const [includeCompleted, setIncludeCompleted] = useState(false);
   const tasksQ = useWaitingOnTasks({ includeCompleted });
-  const rows = useMemo(() => tasksQ.data ?? [], [tasksQ.data]);
+
+  // fix-236: Mine/All scope, shared with the board (same hook, key, default).
+  const { mode: scopeMode, setMode: setScopeMode, identity } =
+    useScopeMode('mytasks');
+  const allTasksQ = useAllTasks();
+  // We only need the full task set (and only surface its load/error) when the
+  // user is actually scoping to their own work; the holistic view is unaffected.
+  const scoping = scopeMode === 'mine' && !!identity.name;
+
+  // Task ids the current user owns, by the board's ownership rule (primary or
+  // co-assignee). null = not scoping → show everything.
+  const selfTaskIds = useMemo(() => {
+    if (!scoping) return null;
+    const ids = new Set<string>();
+    for (const t of allTasksQ.data ?? []) {
+      if (taskMatchesSelf(t, identity.name)) ids.add(t.id);
+    }
+    return ids;
+  }, [scoping, identity.name, allTasksQ.data]);
+
+  const rows = useMemo(() => {
+    const all = tasksQ.data ?? [];
+    return selfTaskIds ? all.filter((r) => selfTaskIds.has(r.task_id)) : all;
+  }, [tasksQ.data, selfTaskIds]);
   const groups = useMemo(() => groupByDisciplineThenFirm(rows), [rows]);
+
+  // Wait on the full task set too when scoping so there's no flash of an empty
+  // "Mine" list before ownership resolves; surface its error the same way.
+  const isLoading = tasksQ.isLoading || (scoping && allTasksQ.isLoading);
+  const error = tasksQ.error ?? (scoping ? allTasksQ.error : null);
 
   // Collapsed disciplines — local per-visit state, default all expanded.
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
@@ -38,13 +81,16 @@ export default function WaitingOnView() {
     });
   }
 
-  if (tasksQ.error) {
+  if (error) {
     return (
       <div className="p-3" data-testid="waiting-on-view">
         <QueryError
           title="Waiting On failed to load"
-          error={tasksQ.error}
-          onRetry={() => tasksQ.refetch()}
+          error={error}
+          onRetry={() => {
+            tasksQ.refetch();
+            if (scoping) allTasksQ.refetch();
+          }}
         />
       </div>
     );
@@ -54,7 +100,17 @@ export default function WaitingOnView() {
     <div className="p-3 space-y-3" data-testid="waiting-on-view">
       {/* Header */}
       <div className="flex items-center justify-between flex-wrap gap-2">
-        <h2 className="text-sm font-display font-bold text-text">Waiting On</h2>
+        <div className="flex items-center gap-3">
+          <h2 className="text-sm font-display font-bold text-text">Waiting On</h2>
+          {/* fix-236: same Mine/All control as the board (hidden for unmapped
+              logins, which have no roster name to scope to). */}
+          <ScopeToggle
+            mode={scopeMode}
+            onChange={setScopeMode}
+            name={identity.name}
+            testid="waiting-on-scope"
+          />
+        </div>
         <div className="flex items-center gap-3">
           <label className="flex items-center gap-1 text-[11px] text-muted">
             <input
@@ -82,7 +138,7 @@ export default function WaitingOnView() {
         </div>
       </div>
 
-      {tasksQ.isLoading ? (
+      {isLoading ? (
         <SkeletonRows count={4} rowClassName="h-10" />
       ) : groups.length === 0 ? (
         <div
