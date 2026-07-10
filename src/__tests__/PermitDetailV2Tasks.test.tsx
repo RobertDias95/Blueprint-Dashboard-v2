@@ -200,6 +200,50 @@ describe('PermitDetailV2 fix-70 task editor', () => {
     });
   });
 
+  // fix-235: click-to-advance checkbox on the permit task row.
+  it('checkbox advances an Open task to "In Progress"', () => {
+    treeRef.current = [makeTask({ id: 'task-1', status: 'Open', co_assignees: [] })];
+    renderIt();
+    fireEvent.click(screen.getByTestId('task-check-task-1'));
+    expect(upsertMutate.mock.calls[0][0]).toMatchObject({
+      id: 'task-1',
+      status: 'In Progress',
+    });
+  });
+
+  it('checkbox advances an "In Progress" task to Resolved', () => {
+    treeRef.current = [
+      makeTask({ id: 'task-1', status: 'In Progress', co_assignees: [] }),
+    ];
+    renderIt();
+    fireEvent.click(screen.getByTestId('task-check-task-1'));
+    expect(upsertMutate.mock.calls[0][0]).toMatchObject({
+      id: 'task-1',
+      status: 'Resolved',
+    });
+  });
+
+  it('checkbox on a Resolved task is terminal — no write fires', () => {
+    treeRef.current = [
+      makeTask({ id: 'task-1', status: 'Resolved', co_assignees: [] }),
+    ];
+    renderIt();
+    // Resolved tasks live in the collapsed "Completed" section — expand it.
+    fireEvent.click(screen.getByText(/Completed \(1\)/));
+    const box = screen.getByTestId('task-check-task-1');
+    expect(box.getAttribute('data-status-visual')).toBe('checked');
+    fireEvent.click(box);
+    expect(upsertMutate).not.toHaveBeenCalled();
+  });
+
+  it('the status dropdown (backward control) labels Open as "Not started"', () => {
+    treeRef.current = [makeTask({ id: 'task-1', status: 'Open', co_assignees: [] })];
+    renderIt();
+    const sel = screen.getByTestId('task-status-task-1') as HTMLSelectElement;
+    const openOpt = Array.from(sel.options).find((o) => o.value === 'Open');
+    expect(openOpt?.textContent).toBe('Not started');
+  });
+
   it('adding a co-assignee replaces the assignee set (existing + new)', () => {
     renderIt();
     fireEvent.change(screen.getByTestId('pb-task-1-co-assignee-add'), {

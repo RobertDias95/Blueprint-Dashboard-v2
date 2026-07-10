@@ -47,6 +47,11 @@ import {
 import CoAssigneeEditor from '../CoAssigneeEditor';
 import PrimaryAssigneeEditor from '../PrimaryAssigneeEditor';
 import TaskDateField from '../TaskDateField';
+import {
+  nextCheckboxStatus,
+  checkboxVisual,
+  TASK_STATUS_OPTIONS,
+} from '../../lib/taskStatus';
 import type {
   Permit,
   PermitCycle,
@@ -1647,8 +1652,6 @@ const DISCIPLINES = [
   { key: 'ent' as const, label: 'Entitlements', accent: 'var(--color-de)' },
   { key: 'arch' as const, label: 'Architecture', accent: 'var(--color-jv)' },
 ];
-const STATUS_OPTS = ['Open', 'In Progress', 'Resolved'] as const;
-
 function TasksPanel({
   permitId,
   projectId,
@@ -2168,6 +2171,46 @@ function TaskItem({
             <BotBadge taskId={task.id} event={task.auto_event} />
           </span>
         )}
+        {/* fix-235: click-to-advance checkbox — Open → In Progress → Resolved,
+            forward-only (Resolved is terminal; reopen via the Status dropdown).
+            Shares transition rules with My Tasks via taskStatus.ts. */}
+        <button
+          type="button"
+          onClick={() => {
+            const next = nextCheckboxStatus(task.status);
+            if (next) save({ status: next });
+          }}
+          disabled={checkboxVisual(task.status) === 'checked' || upsert.isPending}
+          title={
+            checkboxVisual(task.status) === 'checked'
+              ? 'Resolved — use the status dropdown to reopen'
+              : 'Click to advance: Open → In Progress → Resolved'
+          }
+          className="flex-shrink-0 mt-0.5 rounded-sm border"
+          style={{
+            width: 13,
+            height: 13,
+            background:
+              checkboxVisual(task.status) === 'checked'
+                ? 'var(--color-pm)'
+                : checkboxVisual(task.status) === 'partial'
+                  ? 'var(--color-de)'
+                  : 'transparent',
+            borderColor:
+              checkboxVisual(task.status) === 'checked'
+                ? 'var(--color-pm)'
+                : 'var(--color-border)',
+            color: '#fff',
+            fontSize: 9,
+            lineHeight: '11px',
+            cursor:
+              checkboxVisual(task.status) === 'checked' ? 'default' : 'pointer',
+          }}
+          data-testid={`task-check-${task.id}`}
+          data-status-visual={checkboxVisual(task.status)}
+        >
+          {checkboxVisual(task.status) === 'checked' ? '✓' : ''}
+        </button>
         <input
           type="text"
           value={textDraft}
@@ -2217,9 +2260,9 @@ function TaskItem({
           }}
           data-testid={`task-status-${task.id}`}
         >
-          {STATUS_OPTS.map((s) => (
-            <option key={s} value={s}>
-              {s}
+          {TASK_STATUS_OPTIONS.map((opt) => (
+            <option key={opt.value} value={opt.value}>
+              {opt.label}
             </option>
           ))}
         </select>

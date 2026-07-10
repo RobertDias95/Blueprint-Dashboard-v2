@@ -623,6 +623,64 @@ describe('MyTasks (fix-80 v1 three-pane kanban)', () => {
     });
   });
 
+  // fix-235: row checkbox advances forward-only and stops at Resolved.
+  it('checkbox on an Open task advances to "In Progress"', () => {
+    tasksRef.current = [task({ id: 't1', bucket: 'de', status: 'Open' })];
+    renderIt();
+    fireEvent.click(screen.getByTestId('mytask-card-t1-status-toggle'));
+    expect(upsertMutate).toHaveBeenCalledTimes(1);
+    expect(upsertMutate.mock.calls[0][0]).toMatchObject({
+      id: 't1',
+      status: 'In Progress',
+    });
+  });
+
+  it('checkbox on an "In Progress" task advances to Resolved', () => {
+    tasksRef.current = [task({ id: 't1', bucket: 'de', status: 'In Progress' })];
+    renderIt();
+    fireEvent.click(screen.getByTestId('mytask-card-t1-status-toggle'));
+    expect(upsertMutate).toHaveBeenCalledTimes(1);
+    expect(upsertMutate.mock.calls[0][0]).toMatchObject({
+      id: 't1',
+      status: 'Resolved',
+    });
+  });
+
+  it('checkbox on a Resolved task is terminal — clicking does NOT fire a write', () => {
+    tasksRef.current = [task({ id: 't1', bucket: 'de', status: 'Resolved' })];
+    renderIt();
+    // Active-only hides Resolved cards by default; reveal them first.
+    fireEvent.click(screen.getByTestId('mytasks-filter-active'));
+    const box = screen.getByTestId('mytask-card-t1-status-toggle');
+    expect(box.getAttribute('data-status-visual')).toBe('checked');
+    fireEvent.click(box);
+    expect(upsertMutate).not.toHaveBeenCalled();
+  });
+
+  it('detail Status dropdown can move a Resolved task backward to "In Progress"', () => {
+    tasksRef.current = [task({ id: 't1', bucket: 'de', status: 'Resolved' })];
+    renderIt();
+    fireEvent.click(screen.getByTestId('mytasks-filter-active')); // reveal Resolved
+    fireEvent.click(screen.getByTestId('mytask-card-t1'));
+    fireEvent.change(screen.getByTestId('task-detail-status'), {
+      target: { value: 'In Progress' },
+    });
+    expect(upsertMutate).toHaveBeenCalledTimes(1);
+    expect(upsertMutate.mock.calls[0][0]).toMatchObject({
+      id: 't1',
+      status: 'In Progress',
+    });
+  });
+
+  it('detail Status dropdown labels Open as "Not started"', () => {
+    tasksRef.current = [task({ id: 't1', bucket: 'de', status: 'Open' })];
+    renderIt();
+    fireEvent.click(screen.getByTestId('mytask-card-t1'));
+    const sel = screen.getByTestId('task-detail-status') as HTMLSelectElement;
+    const openOpt = Array.from(sel.options).find((o) => o.value === 'Open');
+    expect(openOpt?.textContent).toBe('Not started');
+  });
+
   it('Notes blur-commit fires the upsert ONCE with the final value (not on every keystroke)', () => {
     tasksRef.current = [task({ id: 't1', bucket: 'de', notes: null })];
     renderIt();
