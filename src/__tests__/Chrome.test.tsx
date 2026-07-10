@@ -29,13 +29,16 @@ vi.mock('../lib/supabase', () => {
   };
 });
 
+// fix-234: role is configurable per test so we can assert the admin-only
+// Reports tab appears for admins and is hidden for editors.
+const authState = vi.hoisted(() => ({ role: 'admin' as 'admin' | 'editor' }));
 vi.mock('../stores/authStore', () => ({
   useAuthStore: (selector: (s: unknown) => unknown) =>
     selector({
       session: null,
       user: { email: 'bobby@example.com' },
       initialized: true,
-      memberships: [{ tenant_id: 'test-tenant', role: 'admin' }],
+      memberships: [{ tenant_id: 'test-tenant', role: authState.role }],
       activeTenantId: 'test-tenant',
       setSession: vi.fn(),
       setInitialized: vi.fn(),
@@ -55,6 +58,7 @@ import Chrome from '../components/Chrome';
 describe('<Chrome /> Q9.5.a top-nav restructure', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    authState.role = 'admin';
   });
 
   function renderIt() {
@@ -83,6 +87,27 @@ describe('<Chrome /> Q9.5.a top-nav restructure', () => {
     const links = Array.from(nav.querySelectorAll('a'));
     const labels = links.map((a) => a.textContent?.trim());
     expect(labels).toEqual(expected);
+  });
+
+  // fix-234: the Reports tab is admin-only.
+  it('an admin sees the Reports nav tab', () => {
+    authState.role = 'admin';
+    renderIt();
+    const labels = Array.from(
+      screen.getByTestId('chrome-nav').querySelectorAll('a'),
+    ).map((a) => a.textContent?.trim());
+    expect(labels).toContain('Reports');
+  });
+
+  it('an editor (non-admin) does NOT see the Reports nav tab', () => {
+    authState.role = 'editor';
+    renderIt();
+    const labels = Array.from(
+      screen.getByTestId('chrome-nav').querySelectorAll('a'),
+    ).map((a) => a.textContent?.trim());
+    expect(labels).not.toContain('Reports');
+    // The other tabs still render.
+    expect(labels).toEqual(['Draw Schedule', 'Project View', 'My Tasks']);
   });
 
   it('does NOT render a Trends nav tab (fix-trends-subtab)', () => {

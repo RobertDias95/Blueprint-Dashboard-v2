@@ -1,5 +1,6 @@
 import { createBrowserRouter, Navigate } from 'react-router-dom';
 import AuthGuard from './components/AuthGuard';
+import AdminRoute from './components/AdminRoute';
 import Chrome from './components/Chrome';
 import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
@@ -41,33 +42,43 @@ export const router = createBrowserRouter([
       { path: 'draw-schedule', element: <DrawSchedule /> },
       { path: 'projects', element: <ProjectList /> },
       { path: 'project/:id', element: <ProjectDetail /> },
-      { path: 'reports', element: <Reports /> },
+      // fix-234: the Reports hub + every report route is admin-only. A non-admin
+      // navigating directly to any /reports path (or the Settings → Reporting
+      // hub, which renders report data) is redirected to /dashboard by
+      // AdminRoute. The nav tab is also hidden in Chrome for non-admins.
+      { path: 'reports', element: <AdminRoute><Reports /></AdminRoute> },
       // fix-131: per-associate drill-down on the Team tab. Clicking an
       // associate's name in TeamPerformanceTable navigates here with the
       // role as a query param (so a name that appears in multiple roles
       // — e.g., Bobby as ENT — opens the right slice). URL-encoded name
       // handles spaces; the page falls back to a "not found" empty
       // state for any name not in the team_members roster.
-      { path: 'reports/team/:name', element: <ReportsTeamDetail /> },
+      { path: 'reports/team/:name', element: <AdminRoute><ReportsTeamDetail /></AdminRoute> },
       // fix-67: Weekly DA Update report. Opened from the "Weekly DA Update"
       // card in the Reporting hub (Settings -> Reporting). URL stays stable.
-      { path: 'reports/weekly-da', element: <WeeklyDaReport /> },
+      { path: 'reports/weekly-da', element: <AdminRoute><WeeklyDaReport /></AdminRoute> },
       // fix-221: Approved – Awaiting Issuance builtin report. Opened from its
       // card in the Reporting hub; rows deep-link to the permit in Project View.
       {
         path: 'reports/approved-awaiting',
-        element: <ApprovedAwaitingIssuanceReport />,
+        element: (
+          <AdminRoute>
+            <ApprovedAwaitingIssuanceReport />
+          </AdminRoute>
+        ),
       },
       // fix-68: Reporting hub (Reports Phase 2). Also surfaced as a Settings
-      // modal section; this route makes the hub deep-linkable.
-      { path: 'settings/reporting', element: <ReportingHubPage /> },
+      // modal section; this route makes the hub deep-linkable. fix-234: renders
+      // report data → admin-only, same as the Reports tab.
+      { path: 'settings/reporting', element: <AdminRoute><ReportingHubPage /></AdminRoute> },
       // fix-87: Error triage page. Reached via the nav warning-triangle
-      // badge or a direct URL share when triaging a specific group.
+      // badge or a direct URL share when triaging a specific group. (Not report
+      // data — left ungated.)
       { path: 'settings/errors', element: <ErrorsPage /> },
       // fix-69: report builder Phase 3 — freeform builder + custom viewer.
-      { path: 'reports/builder', element: <ReportBuilder /> },
-      { path: 'reports/builder/:id', element: <ReportBuilder /> },
-      { path: 'reports/custom/:id', element: <CustomReport /> },
+      { path: 'reports/builder', element: <AdminRoute><ReportBuilder /></AdminRoute> },
+      { path: 'reports/builder/:id', element: <AdminRoute><ReportBuilder /></AdminRoute> },
+      { path: 'reports/custom/:id', element: <AdminRoute><CustomReport /></AdminRoute> },
       // fix-trends-subtab: Trends folded into Reports as a sub-tab. Keep the
       // legacy /trends URL working by redirecting to the Reports Trends tab.
       { path: 'trends', element: <Navigate to="/reports?tab=trends" replace /> },

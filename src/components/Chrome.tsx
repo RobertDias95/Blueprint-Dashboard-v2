@@ -3,6 +3,7 @@ import { NavLink, Outlet, useNavigate } from 'react-router-dom';
 import SettingsModal from './SettingsModal';
 import NotificationBell from './NotificationBell';
 import ErrorTriageBell from './ErrorTriageBell';
+import { useIsTenantAdmin } from '../hooks/useIsTenantAdmin';
 
 // Q9.5.a: top-nav restructured to v1 parity (index.html:573-591).
 //   - Blueprint logo on the left IS the home button (clicks → /dashboard).
@@ -37,6 +38,12 @@ const NAV_ITEMS: NavItem[] = [
 export default function Chrome() {
   const navigate = useNavigate();
   const [settingsOpen, setSettingsOpen] = useState(false);
+  // fix-234: the Reports tab is admin-only — hide it for non-admins (the route
+  // itself is also guarded by AdminRoute, so a direct URL is redirected too).
+  const isAdmin = useIsTenantAdmin();
+  const navItems = isAdmin
+    ? NAV_ITEMS
+    : NAV_ITEMS.filter((item) => item.to !== '/reports');
 
   return (
     <div className="min-h-screen flex flex-col">
@@ -85,7 +92,7 @@ export default function Chrome() {
         {/* Right: nav tabs + divider + gear */}
         <div className="flex items-center ml-auto h-full">
           <nav className="flex items-center gap-0 h-full" data-testid="chrome-nav">
-            {NAV_ITEMS.map((item) => (
+            {navItems.map((item) => (
               <NavLink
                 key={item.to}
                 to={item.to}
