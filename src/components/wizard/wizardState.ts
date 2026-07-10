@@ -362,12 +362,10 @@ export const PARKING_TYPE_OPTIONS = [
 
 export const ALLEY_OPTIONS = ['Yes', 'No'] as const;
 
-export const PRODUCT_TYPE_OPTIONS = [
-  'SFR',
-  'SFR w/ Accessory Units',
-  'Attached Units',
-  'Cottages',
-] as const;
+// fix-232: the old hardcoded PRODUCT_TYPE_OPTIONS export (a stale list carrying
+// 'SFR w/ Accessory Units' / 'Attached Units') was dead — no consumer imported
+// it, and every product-type option list now reads app_config.productTypeOptions
+// (the canonical registry). Removed to keep a single source of truth.
 
 /** V1 parity: short helpful hints rendered under each permit name in
  *  the Step 2 questionnaire. Sourced from Blueprint-Dashboard-/index.html

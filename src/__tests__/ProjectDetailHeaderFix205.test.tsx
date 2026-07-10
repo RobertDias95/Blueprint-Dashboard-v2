@@ -172,6 +172,27 @@ describe('fix-209: Label = product-type-ONLY dropdown', () => {
   });
 });
 
+describe('fix-232: proposal unit-row label is dropdown-only (no free-text)', () => {
+  it('with product types, the label is the dropdown — there is NO free-text label input', () => {
+    setup({ product_types: ['SFR', 'Duplex'], unit_types: NAMED_ROW });
+    expect(screen.getByTestId('pd-unit-label-select')).toBeInTheDocument();
+    // No read-only fallback + no free-typing: the ONLY label control is the select.
+    expect(screen.queryByTestId('pd-unit-label-readonly')).toBeNull();
+  });
+
+  it('with NO product types, the label is READ-ONLY (no free-text) but still DISPLAYS the stored value', () => {
+    // fix-232: the old free-text fallback is gone — a no-product-type project
+    // can't type an ad-hoc label. The stored value is shown read-only (item 3:
+    // not silently blanked); the user adds a product type to enable the picker.
+    setup({ product_types: [], unit_types: [{ label: 'Legacy Combo', width_ft: 20, depth_ft: 30, qty: 1 }] });
+    const ro = screen.getByTestId('pd-unit-label-readonly');
+    expect(ro.tagName).toBe('SPAN'); // not an <input> — cannot be free-typed
+    expect(ro.textContent).toBe('Legacy Combo'); // backward display of the stored value
+    // The editable dropdown is absent when there are no product types to pick.
+    expect(screen.queryByTestId('pd-unit-label-select')).toBeNull();
+  });
+});
+
 describe('fix-209: narrower Qty + Stories inputs', () => {
   it('Qty and Sty share the narrow w-7 width class', () => {
     setup({ product_types: ['SFR'], unit_types: NAMED_ROW });

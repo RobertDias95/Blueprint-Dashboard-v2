@@ -24,6 +24,7 @@ import {
   resolveUnitLabel,
   resolveUnitTypesForSave,
 } from '../lib/unitTypeNaming';
+import { useAppConfig, readAppConfigStringArray } from '../hooks/useAppConfig';
 import { SkeletonRows } from './Skeleton';
 import QueryError from './QueryError';
 
@@ -45,12 +46,12 @@ const STAGE_BADGE: Record<Stage, string> = {
 
 // v1's Product Type dropdown options (index.html line 9365). Filter is
 // exact-match so the list must match what's persisted in the column.
-const PRODUCT_TYPE_OPTIONS = [
-  'SFR',
-  'SFR w/ Accessory Units',
-  'Attached Units',
-  'Cottages',
-];
+// fix-232: the Product Type filter reads the canonical registry
+// (app_config.productTypeOptions) — the SAME single source the project + wizard
+// editors use — instead of a hardcoded list. The old constant carried the stale
+// legacy values ('SFR w/ Accessory Units', 'Attached Units') that drifted onto
+// projects; sourcing from the registry keeps every product-type option list in
+// lockstep. (Read from useAppConfig inside Body.)
 
 // v1's tag dropdown (index.html line 9377). Matches v1's `array.includes`
 // predicate on each row's project_tags array.
@@ -111,6 +112,13 @@ const INITIAL_FILTERS: LibraryFilters = {
 
 function Body({ projects, permits }: BodyProps) {
   const [filters, setFilters] = useState<LibraryFilters>(INITIAL_FILTERS);
+  // fix-232: product-type filter options come from the canonical registry
+  // (app_config.productTypeOptions) — single source of truth.
+  const appConfig = useAppConfig();
+  const productTypeOptions = useMemo(
+    () => readAppConfigStringArray(appConfig.map, 'productTypeOptions'),
+    [appConfig.map],
+  );
   const [sort, setSort] = useState<SortState>({ col: 'address', asc: true });
   // fix-206: the unit table is editable through the SAME write path as Project
   // Overview (useUpdateProject patch { unit_types } with the project's OCC
@@ -348,11 +356,11 @@ function Body({ projects, permits }: BodyProps) {
               data-testid="filter-product-type"
             >
               <option value="">Any</option>
-              {PRODUCT_TYPE_OPTIONS.filter(
-                (t) => !filters.productTypes.includes(t),
-              ).map((t) => (
-                <option key={t}>{t}</option>
-              ))}
+              {productTypeOptions
+                .filter((t) => !filters.productTypes.includes(t))
+                .map((t) => (
+                  <option key={t}>{t}</option>
+                ))}
             </select>
             {filters.productTypes.map((t) => (
               <span

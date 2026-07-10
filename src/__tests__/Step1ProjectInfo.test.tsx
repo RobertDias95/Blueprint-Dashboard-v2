@@ -247,6 +247,20 @@ describe('<Step1ProjectInfo />', () => {
     });
   });
 
+  it('fix-232: the product-type control is a dropdown (no free-text); an off-registry stored value still renders as a chip', () => {
+    appConfigMap.current = new Map<string, unknown>([
+      ['productTypeOptions', ['SFR', 'Cottages']],
+    ]);
+    const init = makeEmptyWizardState();
+    init.product_types = ['LegacyCombo']; // off-registry — pruned from the catalog
+    setup(init);
+    const sel = screen.getByTestId('wizard-product-type-select');
+    // Dropdown-only: a SELECT, never a free-text input.
+    expect(sel.tagName).toBe('SELECT');
+    // The pruned/off-registry stored value still displays (item 3 — no strand).
+    expect(screen.getByTestId('wizard-product-type-LegacyCombo')).toBeInTheDocument();
+  });
+
   it('fix-91: clicking × on a chip removes that product type', () => {
     const init = makeEmptyWizardState();
     init.product_types = ['SFR', 'Cottages'];

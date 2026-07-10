@@ -1846,8 +1846,12 @@ function UnitRow({
   // project has ANY product type. The shown/selected value is the RESOLVED label
   // (resolveUnitLabel): with several types it's the value only if it's a product
   // type (else the "Pick type…" placeholder); with EXACTLY ONE type it's always
-  // that type — authoritatively overriding a legacy custom like "Type A". No
-  // product types → freeform input.
+  // that type — authoritatively overriding a legacy custom like "Type A".
+  // fix-232: the label is DROPDOWN-ONLY — the old free-text fallback (when a
+  // project had no product types) is gone, so no ad-hoc/off-registry value can be
+  // typed onto a unit row. With no product types there's nothing valid to pick,
+  // so the stored label renders READ-ONLY (not blanked — item 3) and the user
+  // adds a product type (project field) to enable the picker.
   const hasProductTypes = productTypes.length >= 1;
   const selectValue = resolveUnitLabel(label, productTypes);
   return (
@@ -1875,22 +1879,18 @@ function UnitRow({
           ))}
         </select>
       ) : (
-        <input
-          type="text"
-          value={label}
-          placeholder="Label"
-          onChange={(e) => {
-            dirtyRef.current = true;
-            setLabel(e.target.value);
-          }}
-          onBlur={() => {
-            onChange('label', label);
-            dirtyRef.current = false;
-          }}
-          disabled={disabled}
+        <span
           style={{ ...cellStyle, width: 60 }}
-          className={`${cellClass} text-left`}
-        />
+          className={`${cellClass} text-left inline-block truncate ${label ? '' : 'text-dim'}`}
+          title={
+            label
+              ? `${label} — add a product type to change`
+              : 'Add a product type to label units'
+          }
+          data-testid="pd-unit-label-readonly"
+        >
+          {label || '—'}
+        </span>
       )}
       <input
         type="number"

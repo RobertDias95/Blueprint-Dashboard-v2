@@ -6,8 +6,10 @@ import { useAuthStore } from '../stores/authStore';
 
 // Q7.3.a: read all app_config rows for the active tenant. The shape is a
 // tenant-scoped JSONB key/value store; the hook returns a Map<key, value>
-// for ergonomic per-key lookup. Specific keys (productTypes, projectTagOptions,
-// consultantTypes, etc.) are read by component code via the same Map.
+// for ergonomic per-key lookup. Specific keys (productTypeOptions,
+// projectTagOptions, holdReasonOptions, etc.) are read by component code via the
+// same Map. (fix-232: the canonical product-type key is 'productTypeOptions';
+// the legacy 'productTypes' key is orphaned — no reader — and can be deleted.)
 
 interface Row {
   key: string;
@@ -38,8 +40,8 @@ export function useAppConfig() {
 }
 
 /** Helper: safely read an app_config key as a string array. v2 stores
- * `productTypes`, `projectTagOptions`, `permitTypes`, etc. as JSONB string
- * arrays. Returns [] when the key is missing or shape is wrong. */
+ * `productTypeOptions`, `projectTagOptions`, `holdReasonOptions`, etc. as JSONB
+ * string arrays. Returns [] when the key is missing or shape is wrong. */
 export function readAppConfigStringArray(
   map: Map<string, unknown>,
   key: string,
