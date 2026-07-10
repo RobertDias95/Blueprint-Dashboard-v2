@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import WaitingOnView from '../components/MyTasks/WaitingOnView';
 import BotBadge from '../components/shared/BotBadge';
-import { useTeamMembers } from '../hooks/useTeamMembers';
+import { useTeamMembers, activeMemberNamesOf } from '../hooks/useTeamMembers';
 import {
   useAllTasks,
   useUpsertTask,
@@ -1326,11 +1326,8 @@ function TaskDetailEditor({
     schematicDesigners,
   };
   const primaryPerson = resolvePrimaryAssignee(task.assigned_to, primaryCtx, task.discipline);
-  const memberNames = [
-    ...new Set(
-      members.filter((m) => m.active !== false).map((m) => m.name).filter(Boolean),
-    ),
-  ].sort((a, b) => a.localeCompare(b));
+  // fix-233: CURRENT team members only (active + non-former) — one shared source.
+  const memberNames = activeMemberNamesOf(members);
 
   // Notes is the only multi-line free-form field — debounce-commit on
   // blur via local draft + onBlur. Every other field commits on change

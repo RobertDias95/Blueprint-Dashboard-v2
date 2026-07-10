@@ -35,14 +35,18 @@ vi.mock('../hooks/usePermitTasks', () => ({
 vi.mock('../components/ProjectDetail/ScheduleEstimator', () => ({
   default: () => <div data-testid="stub-schedule-estimator" />,
 }));
-vi.mock('../hooks/useTeamMembers', () => ({
-  useTeamMembers: () => ({
-    all: teamRef.current,
-    isLoading: false,
-    error: null,
-    refetch: vi.fn(),
-  }),
-}));
+vi.mock('../hooks/useTeamMembers', async (importActual) => {
+  const actual = await importActual<typeof import('../hooks/useTeamMembers')>();
+  return {
+    ...actual, // keep the real activeMemberNamesOf helper (fix-233)
+    useTeamMembers: () => ({
+      all: teamRef.current,
+      isLoading: false,
+      error: null,
+      refetch: vi.fn(),
+    }),
+  };
+});
 vi.mock('../hooks/useTaskTree', () => ({
   usePermitTaskTree: () => ({
     data: treeRef.current,
@@ -279,6 +283,62 @@ describe('PermitDetailV2 fix-70 task editor', () => {
     // ent column → 'Entitlements' → permit.ent_lead ('Edmund').
     expect(primarySelText('pb-task-1')).toContain('Edmund');
     expect(primarySelText('pb-task-1')).not.toContain('Ainsley');
+  });
+
+  // fix-233: the assignee dropdowns offer CURRENT team members only.
+  describe('fix-233 active-only assignee options', () => {
+    // Ground-truth shape: Chad ended (active=false); Gena is current (active=true).
+    const roster: Partial<TeamMember>[] = [
+      { name: 'Ainsley', active: true },
+      { name: 'Bobby', active: true },
+      { name: 'Chad', active: false },
+      { name: 'Gena', active: true },
+    ];
+
+    it('an inactive member is absent from the primary + co-assignee pickers; an active one is present', () => {
+      teamRef.current = roster;
+      treeRef.current = [makeTask({ id: 'task-1', discipline: 'arch', co_assignees: [] })];
+      renderIt();
+      const primaryOpts = Array.from(
+        (screen.getByTestId('pb-task-1-primary-select') as HTMLSelectElement).options,
+      ).map((o) => o.value);
+      expect(primaryOpts).toContain('Gena');
+      expect(primaryOpts).not.toContain('Chad');
+
+      const coOpts = Array.from(
+        (screen.getByTestId('pb-task-1-co-assignee-add') as HTMLSelectElement).options,
+      ).map((o) => o.value);
+      expect(coOpts).toContain('Gena');
+      expect(coOpts).not.toContain('Chad');
+    });
+
+    it('a task already assigned to a now-inactive person still shows them as the current selection (backward display)', () => {
+      teamRef.current = roster;
+      treeRef.current = [
+        makeTask({ id: 'task-1', discipline: 'arch', assigned_to: 'Chad', co_assignees: [] }),
+      ];
+      renderIt();
+      // The stored inactive owner is still reflected as selected (not blanked)…
+      expect(
+        (screen.getByTestId('pb-task-1-primary-select') as HTMLSelectElement).value,
+      ).toBe('Chad');
+      // …but Chad is not offered for a NEW pick in the co-assignee picker.
+      expect(
+        Array.from(
+          (screen.getByTestId('pb-task-1-co-assignee-add') as HTMLSelectElement).options,
+        ).map((o) => o.value),
+      ).not.toContain('Chad');
+    });
+
+    it('an inactive co-assignee already on the task still renders as a chip', () => {
+      teamRef.current = roster;
+      treeRef.current = [
+        makeTask({ id: 'task-1', discipline: 'arch', co_assignees: ['Chad'] }),
+      ];
+      renderIt();
+      // The stored inactive co-assignee still shows (fix-224 chip), not blanked.
+      expect(screen.getByTestId('pb-task-1-co-assignee-Chad')).toBeInTheDocument();
+    });
   });
 
   // fix-229: an empty date renders a muted "—" (no loud mm/dd/yyyy), not a

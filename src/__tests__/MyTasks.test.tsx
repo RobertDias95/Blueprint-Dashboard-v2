@@ -22,14 +22,18 @@ const teamRef = vi.hoisted(() => ({
 }));
 const tasksRef = vi.hoisted(() => ({ current: [] as TaskFixture[] }));
 
-vi.mock('../hooks/useTeamMembers', () => ({
-  useTeamMembers: () => ({
-    all: teamRef.current,
-    isLoading: false,
-    error: null,
-    refetch: vi.fn(),
-  }),
-}));
+vi.mock('../hooks/useTeamMembers', async (importActual) => {
+  const actual = await importActual<typeof import('../hooks/useTeamMembers')>();
+  return {
+    ...actual, // keep the real activeMemberNamesOf helper (fix-233)
+    useTeamMembers: () => ({
+      all: teamRef.current,
+      isLoading: false,
+      error: null,
+      refetch: vi.fn(),
+    }),
+  };
+});
 
 // fix-179: useScopeMode now consults useProjects (assignment-driven scope). The
 // My tab doesn't use the project/permit distinction, so an empty list is fine —

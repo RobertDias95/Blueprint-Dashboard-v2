@@ -96,16 +96,20 @@ vi.mock('../hooks/usePermitTypes', () => ({
     refetch: vi.fn(),
   }),
 }));
-vi.mock('../hooks/useTeamMembers', () => ({
-  useTeamMembers: () => ({
-    all: [
-      { id: 'm1', name: 'Jordan', role: 'da', active: true, former: false, email: null, notes: null, updated_at: '' },
-      { id: 'm2', name: 'Sarah', role: 'ent', active: true, former: false, email: null, notes: null, updated_at: '' },
-    ],
-    activeDas: [], formerDas: [], dms: [], ents: [], acqs: [],
-    isLoading: false, error: null, data: [], refetch: vi.fn(),
-  }),
-}));
+vi.mock('../hooks/useTeamMembers', async (importActual) => {
+  const actual = await importActual<typeof import('../hooks/useTeamMembers')>();
+  return {
+    ...actual, // keep the real activeMemberNamesOf helper (fix-233)
+    useTeamMembers: () => ({
+      all: [
+        { id: 'm1', name: 'Jordan', role: 'da', active: true, former: false, email: null, notes: null, updated_at: '' },
+        { id: 'm2', name: 'Sarah', role: 'ent', active: true, former: false, email: null, notes: null, updated_at: '' },
+      ],
+      activeDas: [], formerDas: [], dms: [], ents: [], acqs: [],
+      isLoading: false, error: null, data: [], refetch: vi.fn(),
+    }),
+  };
+});
 vi.mock('../hooks/useUpsertTaskTemplate', () => ({
   useUpsertTaskTemplate: () => ({ mutate: mocks.upsertTpl }),
 }));
