@@ -247,11 +247,20 @@ vi.mock('../hooks/usePermits', () => ({
   }),
 }));
 
+// fix-232: the Product Type filter reads app_config.productTypeOptions (the
+// canonical registry). Mock useAppConfig; keep the real readAppConfigStringArray.
+const appConfigMap = vi.hoisted(() => ({ current: new Map<string, unknown>() }));
+vi.mock('../hooks/useAppConfig', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../hooks/useAppConfig')>();
+  return { ...actual, useAppConfig: () => ({ map: appConfigMap.current }) };
+});
+
 import LibraryMatrix from '../components/LibraryMatrix';
 
 beforeEach(() => {
   updateMutateAsync.mockReset();
   updateMutateAsync.mockResolvedValue({ id: 'a', updated_at: '2026-06-25T11:00:00Z' });
+  appConfigMap.current = new Map<string, unknown>();
   useAuthStore.setState({
     activeTenantId: T,
     memberships: [{ tenant_id: T, role: 'admin' }],
@@ -270,6 +279,29 @@ function renderIt() {
     </QueryClientProvider>,
   );
 }
+
+describe('fix-232: Product Type filter reads the productTypeOptions registry', () => {
+  it('offers exactly the registry options (not the old hardcoded stale list)', () => {
+    appConfigMap.current = new Map<string, unknown>([
+      ['productTypeOptions', ['SFR', 'Duplex', 'Cottages']],
+    ]);
+    renderIt();
+    const select = screen.getByTestId('filter-product-type') as HTMLSelectElement;
+    const offered = [...select.options].map((o) => o.value).filter((v) => v !== '');
+    expect(offered).toEqual(['SFR', 'Duplex', 'Cottages']);
+    // The stale legacy values are gone from the option list.
+    expect(offered).not.toContain('Attached Units');
+    expect(offered).not.toContain('SFR w/ Accessory Units');
+  });
+
+  it('offers nothing when the registry is empty (no hardcoded fallback)', () => {
+    appConfigMap.current = new Map<string, unknown>();
+    renderIt();
+    const select = screen.getByTestId('filter-product-type') as HTMLSelectElement;
+    const offered = [...select.options].map((o) => o.value).filter((v) => v !== '');
+    expect(offered).toEqual([]);
+  });
+});
 
 describe('<LibraryMatrix />', () => {
   it('renders one row per non-archived project that has a permit', () => {

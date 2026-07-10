@@ -586,4 +586,16 @@ describe('<ProjectSettingsModal /> fix-93 Product Types catalog source', () => {
       screen.getByTestId('psm-product-type-chip-LegacyType'),
     ).toBeInTheDocument();
   });
+
+  // fix-232: the project product-type control is a dropdown ONLY — no free-text
+  // entry, so no ad-hoc/off-registry value can be typed onto a project.
+  it('is a dropdown (SELECT), not a free-text input', () => {
+    appConfigState.map = new Map<string, unknown>([
+      ['productTypeOptions', ['SFR', 'Cottages']],
+    ]);
+    renderModal();
+    const control = screen.getByTestId('psm-product-types-select');
+    expect(control.tagName).toBe('SELECT');
+    expect((control as HTMLInputElement).type).not.toBe('text');
+  });
 });

@@ -80,11 +80,11 @@ export default function AdminProjectsTab() {
     removalLocked: t.is_builtin === true,
   }));
 
-  // fix-92: read the same key that fix-91's wizard + Library filter
-  // consume (app_config.productTypeOptions, seeded by
-  // migrations/fix_91_product_types_array.sql). Pre-fix-92 this was
-  // 'productTypes' — a key no consumer read, so Bobby's edits never
-  // reached the wizard's dropdown.
+  // fix-92 / fix-232: 'productTypeOptions' is the CANONICAL, single-source
+  // product-type registry — this editor writes it, and every product-type option
+  // list in the app (project field, wizard, unit-row label source, Library
+  // filter) reads it. The legacy app_config 'productTypes' key is orphaned (no
+  // code reads it) and can be deleted server-side.
   const productTypes = readAppConfigStringArray(cfgQ.map, 'productTypeOptions');
   const projectTags = readAppConfigStringArray(cfgQ.map, 'projectTagOptions');
   // fix-167: editable Hold Reasons list — the source for the project On-Hold
