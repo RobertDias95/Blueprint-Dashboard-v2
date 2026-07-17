@@ -104,10 +104,10 @@ describe('AddrGroup ExpandedRow (fix-notes-2)', () => {
     renderGroup(
       new Map([[7, { entTask: 'Order survey', archTask: 'Redline plans', note: null }]]),
     );
-    expect(screen.getByTestId('permit-waiting-on-slot-entitlement').textContent).toContain(
+    expect(screen.getByTestId('permit-waiting-on-slot-ent').textContent).toContain(
       'Order survey',
     );
-    expect(screen.getByTestId('permit-waiting-on-slot-architecture').textContent).toContain(
+    expect(screen.getByTestId('permit-waiting-on-slot-arch').textContent).toContain(
       'Redline plans',
     );
   });

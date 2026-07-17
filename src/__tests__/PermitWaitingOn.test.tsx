@@ -12,11 +12,11 @@ describe('PermitWaitingOn', () => {
         summary={{ entTask: 'Order survey', archTask: 'Redline plans', note: null }}
       />,
     );
-    const ent = screen.getByTestId('permit-waiting-on-slot-entitlement');
-    const arch = screen.getByTestId('permit-waiting-on-slot-architecture');
-    expect(ent.textContent).toContain('Entitlement');
+    const ent = screen.getByTestId('permit-waiting-on-slot-ent');
+    const arch = screen.getByTestId('permit-waiting-on-slot-arch');
+    expect(ent.textContent).toContain('ENT');
     expect(ent.textContent).toContain('Order survey');
-    expect(arch.textContent).toContain('Architecture');
+    expect(arch.textContent).toContain('ARCH');
     expect(arch.textContent).toContain('Redline plans');
     expect(screen.queryByTestId('permit-waiting-on-empty')).toBeNull();
   });
@@ -28,10 +28,10 @@ describe('PermitWaitingOn', () => {
       />,
     );
     expect(
-      screen.getByTestId('permit-waiting-on-slot-entitlement').textContent,
+      screen.getByTestId('permit-waiting-on-slot-ent').textContent,
     ).toContain('Order survey');
     const note = screen.getByTestId('permit-waiting-on-slot-note');
-    expect(note.textContent).toContain('Note');
+    expect(note.textContent).toContain('NOTE');
     expect(note.textContent).toContain('Waiting on builder');
   });
 
@@ -42,7 +42,7 @@ describe('PermitWaitingOn', () => {
     expect(screen.getByTestId('permit-waiting-on-slot-note').textContent).toContain(
       'Holding for ECA',
     );
-    expect(screen.queryByTestId('permit-waiting-on-slot-entitlement')).toBeNull();
+    expect(screen.queryByTestId('permit-waiting-on-slot-ent')).toBeNull();
   });
 
   it('shows "Nothing pending" when there is nothing', () => {
