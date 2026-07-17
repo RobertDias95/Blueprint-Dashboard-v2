@@ -29,6 +29,9 @@ export const queryKeys = {
   buildersAll: ['builders'] as const,
   // fix-notes-1: unified notes log (project-holistic + per-permit scopes).
   notesAll: ['notes'] as const,
+  // fix-notes-2: dashboard expanded-permit "waiting on" summaries. Own bare
+  // prefix so BOTH permit_tasks and notes realtime changes can invalidate it.
+  dashboardPermitCardsAll: ['dashboard_permit_cards'] as const,
   // fix-227: central External Team directory (firms by discipline) that feeds
   // the per-project external-team picker.
   externalTeamDirectoryAll: ['external_team_directory'] as const,
@@ -84,6 +87,13 @@ export const queryKeys = {
   // by permit client-side), so the future dashboard card reuses the same cache.
   notes: (tenantId: string, projectId: string) =>
     ['notes', tenantId, { projectId }] as const,
+  // fix-notes-2: active-note search index for the Project List. Under the
+  // notes prefix so any note change invalidates it automatically.
+  projectNoteSearch: (tenantId: string) =>
+    ['notes', tenantId, 'search-index'] as const,
+  // fix-notes-2: per-permit dashboard "waiting on" summaries.
+  dashboardPermitCards: (tenantId: string) =>
+    ['dashboard_permit_cards', tenantId] as const,
   // fix-27: notification center activity feed.
   scraperActivity: (tenantId: string, days: number) =>
     ['scraper_activity', tenantId, { days }] as const,
@@ -165,7 +175,8 @@ export const REALTIME_TABLES = {
   projects: [queryKeys.projectsAll, queryKeys.permitsAll],
   permits: [queryKeys.permitsAll, queryKeys.projectsAll],
   permit_cycles: [queryKeys.permitsAll, queryKeys.permitCyclesAll],
-  permit_tasks: [queryKeys.permitTasksAll],
+  // fix-notes-2: a task change also refreshes the dashboard "waiting on" cards.
+  permit_tasks: [queryKeys.permitTasksAll, queryKeys.dashboardPermitCardsAll],
   draw_schedule: [queryKeys.drawScheduleAll, queryKeys.permitsAll],
   intake_records: [queryKeys.intakeRecordsAll],
   // fix-31: scraper writes reviewer rows -> bell badge ticks + Project
@@ -181,6 +192,7 @@ export const REALTIME_TABLES = {
   // refreshes the per-project picker options live.
   external_team_directory: [queryKeys.externalTeamDirectoryAll],
   // fix-notes-1: a note added/edited/completed in any tab refreshes every
-  // mounted NotesPanel live.
-  notes: [queryKeys.notesAll],
+  // mounted NotesPanel live. fix-notes-2: also the dashboard "waiting on" cards
+  // (the search index lives under the notes prefix, so it refreshes too).
+  notes: [queryKeys.notesAll, queryKeys.dashboardPermitCardsAll],
 } as const;

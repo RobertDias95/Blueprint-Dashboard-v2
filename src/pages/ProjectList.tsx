@@ -5,6 +5,7 @@ import { useProjects } from '../hooks/useProjects';
 import { usePermits } from '../hooks/usePermits';
 import { useTeamMembers } from '../hooks/useTeamMembers';
 import { useAllPermitCycleReviewers } from '../hooks/useAllPermitCycleReviewers';
+import { useProjectNoteSearchIndex } from '../hooks/useNotes';
 import { SkeletonRows } from '../components/Skeleton';
 import QueryError from '../components/QueryError';
 import {
@@ -67,6 +68,10 @@ export default function ProjectList() {
   const permitsQ = usePermits();
   const reviewersQ = useAllPermitCycleReviewers();
   const teamQ = useTeamMembers();
+  // fix-notes-2: active-note bodies keyed by project, so search finds a project
+  // by its note text. Non-blocking — search still works (address/tags/legacy
+  // notes) while this loads.
+  const noteSearchQ = useProjectNoteSearchIndex();
 
   const isLoading =
     projectsQ.isLoading || permitsQ.isLoading || reviewersQ.isLoading;
@@ -98,8 +103,8 @@ export default function ProjectList() {
     [projectsQ.data, permitsQ.data, reviewersQ.data],
   );
   const filtered = useMemo(
-    () => filterProjectRows(allRows, filters),
-    [allRows, filters],
+    () => filterProjectRows(allRows, filters, noteSearchQ.data),
+    [allRows, filters, noteSearchQ.data],
   );
   // fix-176: role-aware "My work" scope, layered on top of the manual filters.
   // ent_lead/dm -> projects they're on (project-level role); da -> projects

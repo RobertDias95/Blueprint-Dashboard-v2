@@ -2,14 +2,14 @@ import { useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import { effectiveStage } from '../../lib/permitStage';
 import { permitUrgency, type UrgencyLevel } from '../../lib/urgencyHelpers';
-import { derivePermitStatus } from '../../lib/permitStatus';
 import PendingScrapeChip from '../shared/PendingScrapeChip';
 import { HoldBadge } from '../shared/HoldBadge';
+import PermitWaitingOn from './PermitWaitingOn';
+import { useDashboardPermitCards } from '../../hooks/useDashboardPermitCards';
 import type {
   Permit,
   PermitCycle,
   PermitCycleReviewer,
-  PermitWithCycles,
   ProjectHold,
   Stage,
 } from '../../lib/database.types';
@@ -304,7 +304,6 @@ export default function AddrGroup({
               projectId={projectId}
               stage={stage}
               cycles={cyclesByPermit.get(p.id) ?? []}
-              reviewers={reviewersByPermit.get(p.id) ?? []}
               keyDate={getKeyDate(p)}
               keyDateLabel={keyDateLabel}
               activeHold={activeHold}
@@ -349,7 +348,6 @@ function ExpandedRow({
   projectId,
   stage,
   cycles,
-  reviewers,
   keyDate,
   keyDateLabel,
   activeHold = false,
@@ -358,15 +356,14 @@ function ExpandedRow({
   projectId: string;
   stage: Stage;
   cycles: PermitCycle[];
-  reviewers: PermitCycleReviewer[];
   keyDate: string | null;
   keyDateLabel: string;
   activeHold?: boolean;
 }) {
   const urgency = permitUrgency(permit, cycles, stage, undefined, activeHold);
-  const team = [permit.ent_lead, permit.da, permit.dual_da, permit.dm]
-    .filter(Boolean)
-    .join(' · ');
+  // fix-notes-2: the "what's this waiting on?" summary. One shared tenant-wide
+  // query (deduped across every ExpandedRow); an absent permit → Nothing pending.
+  const cardsQ = useDashboardPermitCards();
   const dateColor =
     urgency === 'red'
       ? '#dc2626'
@@ -410,28 +407,10 @@ function ExpandedRow({
               guard-skipped change) right where Bobby first scans the matrix. */}
           <PendingScrapeChip extras={permit.extras} permitId={permit.id} />
         </div>
-        {team && (
-          <span className="text-[10px] text-muted truncate">{team}</span>
-        )}
-        {(() => {
-          // fix-25e: derived status takes precedence over the stored
-          // permits.status when cycle data exists. Falls back to the
-          // stored value (or "Pre-Submittal — GO") for fresh permits.
-          // fix-54: reviewers feed the wholistic-rollup override for MPB.
-          const status = derivePermitStatus(permit as PermitWithCycles, reviewers);
-          return (
-            // fix-52: for "Approved — Not Issued" the portal status rides as a
-            // tooltip (ready-vs-held nuance) without changing this tight inline
-            // pill's layout.
-            <span
-              className="text-[10px] text-dim truncate"
-              title={status.detail ? `Portal: ${status.detail}` : undefined}
-            >
-              {status.label}
-              {status.date ? ` · ${status.date}` : ''}
-            </span>
-          );
-        })()}
+        {/* fix-notes-2: replaced the team-names + phase/stage lines with the
+            "what's this waiting on?" summary — next open task(s) by owner group
+            and/or the newest active note (max 2, tasks first). */}
+        <PermitWaitingOn summary={cardsQ.data?.get(permit.id)} />
       </div>
       <div className="text-right flex flex-col items-end gap-0.5 flex-shrink-0">
         <span className="text-[8px] uppercase tracking-wide text-dim">
