@@ -240,6 +240,10 @@ export function buildProjectRows(
 export function filterProjectRows(
   rows: ProjectRow[],
   filters: ProjectViewFilters,
+  /** fix-notes-2: project_id → concatenated active-note bodies (holistic +
+   *  permit notes). Appended to the free-text search haystack so searching a
+   *  note's text finds the project. Omit for note-agnostic filtering. */
+  noteTextByProject?: Map<string, string>,
 ): ProjectRow[] {
   const searchQ = filters.search.trim();
   const stageSet = new Set(filters.stages);
@@ -265,7 +269,11 @@ export function filterProjectRows(
     }
     if (searchQ) {
       const tagHay = (r.project.project_tags ?? []).join(' ');
-      const haystack = `${r.project.address} ${tagHay} ${r.project.notes ?? ''}`;
+      // fix-notes-2: legacy project.notes is kept (now unwritten) AND the
+      // active-note bodies from the notes table are appended, so both old and
+      // new note text find the project.
+      const noteHay = noteTextByProject?.get(r.project.id) ?? '';
+      const haystack = `${r.project.address} ${tagHay} ${r.project.notes ?? ''} ${noteHay}`;
       if (!multiMatchAddress(searchQ, haystack)) return false;
     }
     return true;
