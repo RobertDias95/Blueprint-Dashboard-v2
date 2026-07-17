@@ -119,7 +119,6 @@ interface FormState {
   address: string;
   juris: string;
   acq_lead: string;
-  notes: string;
   archived: boolean;
   /** fix-22 Mig 3: project-level scalar fields. */
   projectFields: ProjectScalarFields;
@@ -154,7 +153,6 @@ function initForm(
     address: project.address ?? '',
     juris: project.juris ?? '',
     acq_lead: project.acq_lead ?? '',
-    notes: project.notes ?? '',
     archived: !!project.archived,
     builder: {
       builder_name: project.builder_name ?? '',
@@ -349,7 +347,9 @@ export default function ProjectSettingsModal({
         address: form.address.trim(),
         juris: form.juris.trim() || null,
         acq_lead: form.acq_lead.trim() || null,
-        notes: form.notes,
+        // fix-notes-1: projects.notes is no longer written — the unified
+        // notes log (NotesPanel on the overview) is the source of truth.
+        // Omitting the key leaves the legacy column untouched.
         archived: form.archived,
         go_date: form.projectFields.go_date || null,
         units: toNumOrNull(form.projectFields.units),
@@ -680,16 +680,6 @@ export default function ProjectSettingsModal({
                   </span>
                 ))}
               </div>
-            </Field>
-            <Field label="Notes" full>
-              <textarea
-                value={form.notes}
-                onChange={(e) => set('notes', e.target.value)}
-                rows={3}
-                className={`${inputCls} resize-y`}
-                style={inputStyle}
-                data-testid="psm-notes"
-              />
             </Field>
             <Field label="" full>
               <label className="flex items-center gap-2 text-[12px] text-text cursor-pointer">

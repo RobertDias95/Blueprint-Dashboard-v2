@@ -20,7 +20,7 @@ import { SkeletonRows } from '../components/Skeleton';
 import QueryError from '../components/QueryError';
 import ProjectDetailHeader from '../components/ProjectDetail/ProjectDetailHeader';
 import ScheduleHealthTable from '../components/ProjectDetail/ScheduleHealthTable';
-import NotesDocsFooter from '../components/ProjectDetail/NotesDocsFooter';
+import NotesPanel from '../components/ProjectDetail/NotesPanel';
 import PermitDetailV2 from '../components/ProjectDetail/PermitDetailV2';
 import ProjectSettingsModal from '../components/ProjectDetail/ProjectSettingsModal';
 import { ProjectHoldBadge } from '../components/ProjectDetail/ProjectHold';
@@ -368,7 +368,9 @@ function ProjectDetailBody({
               {/* fix-151: Schedule Health computes across the whole lineage
                   (parent + all redesign permits), not just the parent's. */}
               <ScheduleHealthTable permits={lineagePermits} />
-              <NotesDocsFooter project={project} />
+              {/* fix-notes-1: holistic project notes log (permit_id NULL).
+                  Replaces the old single-textarea + Documents footer. */}
+              <NotesPanel projectId={project.id} />
             </div>
           ) : (
             // Permit selected → per-permit widgets stack inside the

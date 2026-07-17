@@ -208,15 +208,19 @@ export interface ExternalTeamDirectoryFirm {
   created_at: string;
 }
 
-/** Q9.5.e-fix-3: project_documents row. updated_at added by fix-3 migration
- * for row-level OCC via bp_upsert_project_document_row. */
-export interface ProjectDocument {
+/** fix-notes-1: unified notes row as returned by bp_list_project_notes
+ * (author_name resolved server-side — profiles RLS is read-own-only).
+ * permit_id NULL = holistic project note; set = per-permit note. */
+export interface Note {
   id: string;
   project_id: string;
-  name: string;
-  url: string | null;
-  uploaded_by: string | null;
-  uploaded_at: string | null;
+  permit_id: number | null;
+  body: string;
+  completed: boolean;
+  completed_at: string | null;
+  created_by: string | null;
+  author_name: string | null;
+  created_at: string;
   updated_at: string;
 }
 
