@@ -8,11 +8,13 @@ import {
 // permit row. Shows at most two owner-group-labeled items (tasks before
 // notes) or a muted "Nothing pending" done-signal. Pure — takes the summary
 // as a prop; the ordering/slot rules live in computeCardSlots.
+// fix-notes-5: slots are DISCIPLINE groups (ENT / ARCH / NOTE) — see
+// dashboardCardSummary.ts.
 
 const SLOT_COLOR: Record<CardSlotLabel, string> = {
-  Entitlement: 'var(--color-de)',
-  Architecture: 'var(--color-pm)',
-  Note: 'var(--color-dim, #9ca3af)',
+  ENT: 'var(--color-de)',
+  ARCH: 'var(--color-pm)',
+  NOTE: 'var(--color-dim, #9ca3af)',
 };
 
 export default function PermitWaitingOn({
