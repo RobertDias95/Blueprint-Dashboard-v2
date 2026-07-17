@@ -136,8 +136,8 @@ vi.mock('../components/ProjectDetail/ScheduleHealthTable', () => ({
   default: () => <div data-testid="stub-schedule-health-table" />,
 }));
 
-vi.mock('../components/ProjectDetail/NotesDocsFooter', () => ({
-  default: () => <div data-testid="stub-notes-docs-footer" />,
+vi.mock('../components/ProjectDetail/NotesPanel', () => ({
+  default: () => <div data-testid="stub-notes-panel" />,
 }));
 
 vi.mock('../components/ProjectDetail/ProjectSettingsModal', () => ({

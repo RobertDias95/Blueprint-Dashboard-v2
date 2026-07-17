@@ -46,6 +46,7 @@ import {
 } from '../../lib/taskTeam';
 import CoAssigneeEditor from '../CoAssigneeEditor';
 import PrimaryAssigneeEditor from '../PrimaryAssigneeEditor';
+import NotesPanel from './NotesPanel';
 import TaskDateField from '../TaskDateField';
 import {
   nextCheckboxStatus,
@@ -287,6 +288,10 @@ export default function PermitDetailV2({ permit, project }: Props) {
           onSelectCycle={setViewCycleIdx}
         />
       </div>
+      {/* fix-notes-1: this permit's running notes log, at the bottom of the
+          detail pane. Same panel as the Project Overview holistic log, scoped
+          by permit_id. */}
+      <NotesPanel projectId={permit.project_id} permitId={permit.id} />
     </div>
   );
 }

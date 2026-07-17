@@ -150,7 +150,9 @@ export function useCreateProjectWithPermits() {
           p_tenant_id: tenantId,
           p_address: input.address,
           p_juris: input.juris,
-          p_notes: input.notes ?? null,
+          // fix-notes-1: the legacy projects.notes column is no longer
+          // written — the wizard's note lands in the unified notes log below.
+          p_notes: null,
           p_project_data: input.project_data,
           p_permits: input.permits,
           p_manually_placed: input.manually_placed ?? false,
@@ -160,6 +162,23 @@ export function useCreateProjectWithPermits() {
       if (error) throw error;
       const row = (data as CreateProjectResult[])[0];
       if (!row) throw new Error('RPC returned no row');
+      // fix-notes-1: a wizard note becomes the project's first holistic note.
+      // Non-fatal: the project exists either way; a failed note insert warns
+      // instead of failing the whole creation.
+      const noteBody = (input.notes ?? '').trim();
+      if (noteBody && !row.conflict) {
+        const { error: noteError } = await supabase.from('notes').insert({
+          project_id: row.project_id,
+          permit_id: null,
+          body: noteBody,
+        });
+        if (noteError) {
+          pushToast(
+            `Project created, but its note could not be saved — ${noteError.message}`,
+            'warn',
+          );
+        }
+      }
       return row;
     },
 
@@ -168,6 +187,8 @@ export function useCreateProjectWithPermits() {
       queryClient.invalidateQueries({ queryKey: queryKeys.projectsAll });
       queryClient.invalidateQueries({ queryKey: queryKeys.permitsAll });
       queryClient.invalidateQueries({ queryKey: queryKeys.permitTasksAll });
+      // fix-notes-1: the wizard note (if any) lands in the notes log.
+      queryClient.invalidateQueries({ queryKey: queryKeys.notesAll });
       if (!result.conflict) {
         pushToast('Project created', 'success');
       }

@@ -19,15 +19,25 @@ const mocks = vi.hoisted(() => {
     error: null,
   };
   const rpcFn = vi.fn();
+  // fix-notes-1: the create hook now inserts the wizard note into the unified
+  // notes table after the RPC succeeds — the mock captures that insert.
+  const insertFn = vi.fn();
   const builder = {
     rpc: (name: string, args: Record<string, unknown>) => {
       rpcFn(name, args);
       return Promise.resolve(resolveResult);
     },
+    from: (table: string) => ({
+      insert: (row: Record<string, unknown>) => {
+        insertFn(table, row);
+        return Promise.resolve({ error: null });
+      },
+    }),
   };
   return {
     builder,
     rpcFn,
+    insertFn,
     setResult: (r: { data: unknown; error: Error | null }) => {
       resolveResult = r;
     },
@@ -131,6 +141,7 @@ function setup() {
 
 beforeEach(() => {
   mocks.rpcFn.mockClear();
+  mocks.insertFn.mockClear();
   navigate.mockClear();
   useToastStore.getState().clear();
   useAuthStore.setState({
@@ -197,7 +208,14 @@ describe('useCreateProjectWithPermits (fix-22 signature)', () => {
     expect(args.p_tenant_id).toBe(T);
     expect(args.p_address).toBe('123 Main St');
     expect(args.p_juris).toBe('Seattle');
-    expect(args.p_notes).toBe('first project');
+    // fix-notes-1: the legacy projects.notes column is no longer written;
+    // the wizard note becomes the project's first holistic note instead.
+    expect(args.p_notes).toBeNull();
+    expect(mocks.insertFn).toHaveBeenCalledWith('notes', {
+      project_id: '11111111-1111-1111-1111-111111111111',
+      permit_id: null,
+      body: 'first project',
+    });
     expect(args.p_project_data).toMatchObject({
       entitlement_lead: 'Bobby',
       design_manager: 'Jade',

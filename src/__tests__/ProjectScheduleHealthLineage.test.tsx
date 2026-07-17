@@ -46,7 +46,7 @@ vi.mock('../components/ProjectDetail/ScheduleHealthTable', () => ({
     return <div data-testid="stub-schedule-health-table" />;
   },
 }));
-vi.mock('../components/ProjectDetail/NotesDocsFooter', () => ({ default: () => null }));
+vi.mock('../components/ProjectDetail/NotesPanel', () => ({ default: () => null }));
 vi.mock('../components/ProjectDetail/ProjectSettingsModal', () => ({ default: () => null }));
 vi.mock('../components/ProjectDetail/DeleteProjectDialog', () => ({ default: () => null }));
 vi.mock('../components/ProjectDetail/QuickEditPermitModal', () => ({ default: () => null }));
