@@ -94,6 +94,10 @@ export const queryKeys = {
   // fix-notes-2: per-permit dashboard "waiting on" summaries.
   dashboardPermitCards: (tenantId: string) =>
     ['dashboard_permit_cards', tenantId] as const,
+  // fix-notes-3: tenant-wide notes read for the Weekly Updates report. Under
+  // the notes prefix so a write (which invalidates queryKeys.notesAll) or a
+  // realtime notes change refreshes it.
+  allNotes: (tenantId: string) => ['notes', tenantId, 'all-notes'] as const,
   // fix-27: notification center activity feed.
   scraperActivity: (tenantId: string, days: number) =>
     ['scraper_activity', tenantId, { days }] as const,
