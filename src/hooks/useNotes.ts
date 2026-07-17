@@ -58,6 +58,24 @@ export function useProjectNoteSearchIndex() {
   });
 }
 
+// fix-notes-3: tenant-wide bulk read for the Weekly Updates report (all
+// projects' notes in ONE round trip via bp_list_all_notes — a per-project
+// fan-out would be one query per project). Same public.notes single source;
+// the report groups client-side. Keyed under the notes prefix so a write
+// through the hooks below (or a realtime notes change) refreshes it too.
+export function useAllNotes() {
+  const tenantId = useAuthStore((s) => s.activeTenantId);
+  return useQuery<Note[]>({
+    queryKey: queryKeys.allNotes(tenantId ?? ''),
+    enabled: !!tenantId,
+    queryFn: async () => {
+      const { data, error } = await supabase.rpc('bp_list_all_notes');
+      if (error) throw error;
+      return (data ?? []) as Note[];
+    },
+  });
+}
+
 export interface AddNoteInput {
   projectId: string;
   /** null/omitted = holistic project note; a permit id = per-permit note. */
@@ -67,7 +85,6 @@ export interface AddNoteInput {
 
 export function useAddNote() {
   const queryClient = useQueryClient();
-  const tenantId = useAuthStore((s) => s.activeTenantId) ?? '';
   return useMutation<void, Error, AddNoteInput>({
     mutationFn: async (input) => {
       const { error } = await supabase.from('notes').insert({
@@ -77,10 +94,11 @@ export function useAddNote() {
       });
       if (error) throw error;
     },
-    onSuccess: (_v, input) => {
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.notes(tenantId, input.projectId),
-      });
+    onSuccess: () => {
+      // fix-notes-3: invalidate the whole notes prefix (single source), so a
+      // write from ANY surface — permit NotesPanel, Project Overview, or the
+      // Weekly Updates report — refreshes every mounted notes query.
+      queryClient.invalidateQueries({ queryKey: queryKeys.notesAll });
     },
     onError: (error) => {
       pushToast(`Could not add note — ${error.message}`, 'error');
@@ -97,7 +115,6 @@ export interface UpdateNoteInput {
 
 export function useUpdateNote() {
   const queryClient = useQueryClient();
-  const tenantId = useAuthStore((s) => s.activeTenantId) ?? '';
   return useMutation<void, Error, UpdateNoteInput>({
     mutationFn: async (input) => {
       const patch: Record<string, unknown> = {};
@@ -109,10 +126,11 @@ export function useUpdateNote() {
         .eq('id', input.id);
       if (error) throw error;
     },
-    onSuccess: (_v, input) => {
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.notes(tenantId, input.projectId),
-      });
+    onSuccess: () => {
+      // fix-notes-3: invalidate the whole notes prefix (single source), so a
+      // write from ANY surface — permit NotesPanel, Project Overview, or the
+      // Weekly Updates report — refreshes every mounted notes query.
+      queryClient.invalidateQueries({ queryKey: queryKeys.notesAll });
     },
     onError: (error) => {
       pushToast(`Could not save note — ${error.message}`, 'error');

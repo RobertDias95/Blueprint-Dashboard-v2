@@ -1,5 +1,6 @@
 import type { ComponentType } from 'react';
 import WeeklyDaReport from '../pages/WeeklyDaReport';
+import WeeklyUpdatesReport from '../pages/WeeklyUpdatesReport';
 import ApprovedAwaitingIssuanceReport from '../pages/ApprovedAwaitingIssuanceReport';
 
 // fix-68: builtin report registry. Maps a saved_reports.builtin_key to its
@@ -24,6 +25,12 @@ export const BUILTIN_REPORT_COMPONENTS: Record<string, BuiltinReportDef> = {
     component: WeeklyDaReport,
     route: '/reports/weekly-da',
     label: 'Weekly DA Update',
+  },
+  // fix-notes-3: grouped, editable project/permit notes (public.notes source).
+  weekly_updates: {
+    component: WeeklyUpdatesReport,
+    route: '/reports/weekly-updates',
+    label: 'Weekly Updates',
   },
   // fix-221: Approved – Awaiting Issuance. Every approved-not-issued permit
   // (Seattle "Issuance Prep") with days-since-approval, deep-linking to Project View.

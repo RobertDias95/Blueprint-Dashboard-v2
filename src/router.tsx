@@ -12,6 +12,7 @@ import MyTasks from './pages/MyTasks';
 import DrawSchedule from './pages/DrawSchedule';
 import ActivityPage from './pages/ActivityPage';
 import WeeklyDaReport from './pages/WeeklyDaReport';
+import WeeklyUpdatesReport from './pages/WeeklyUpdatesReport';
 import ApprovedAwaitingIssuanceReport from './pages/ApprovedAwaitingIssuanceReport';
 import ReportingHubPage from './pages/ReportingHubPage';
 import CustomReport from './pages/CustomReport';
@@ -57,6 +58,9 @@ export const router = createBrowserRouter([
       // fix-67: Weekly DA Update report. Opened from the "Weekly DA Update"
       // card in the Reporting hub (Settings -> Reporting). URL stays stable.
       { path: 'reports/weekly-da', element: <AdminRoute><WeeklyDaReport /></AdminRoute> },
+      // fix-notes-3: Weekly Updates — grouped, editable project/permit notes
+      // (public.notes single source). Opened from its card in the Reporting hub.
+      { path: 'reports/weekly-updates', element: <AdminRoute><WeeklyUpdatesReport /></AdminRoute> },
       // fix-221: Approved – Awaiting Issuance builtin report. Opened from its
       // card in the Reporting hub; rows deep-link to the permit in Project View.
       {
