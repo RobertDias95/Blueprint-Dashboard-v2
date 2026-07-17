@@ -32,6 +32,32 @@ export function useProjectNotes(projectId: string | undefined) {
   });
 }
 
+interface NoteSearchRow {
+  project_id: string;
+  body: string;
+}
+
+/** fix-notes-2: project_id → concatenated active-note bodies (holistic +
+ *  permit notes), so the Project List free-text search finds a project by its
+ *  note text. Keyed under the notes prefix so any note change invalidates it. */
+export function useProjectNoteSearchIndex() {
+  const tenantId = useAuthStore((s) => s.activeTenantId);
+  return useQuery<Map<string, string>>({
+    queryKey: queryKeys.projectNoteSearch(tenantId ?? ''),
+    enabled: !!tenantId,
+    queryFn: async () => {
+      const { data, error } = await supabase.rpc('bp_project_note_search_index');
+      if (error) throw error;
+      const map = new Map<string, string>();
+      for (const row of (data ?? []) as NoteSearchRow[]) {
+        const prev = map.get(row.project_id);
+        map.set(row.project_id, prev ? `${prev} ${row.body}` : row.body);
+      }
+      return map;
+    },
+  });
+}
+
 export interface AddNoteInput {
   projectId: string;
   /** null/omitted = holistic project note; a permit id = per-permit note. */
