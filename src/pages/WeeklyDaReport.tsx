@@ -7,7 +7,7 @@ import {
 } from 'react';
 import { Link } from 'react-router-dom';
 import { useWeeklyDaReport } from '../hooks/useWeeklyDaReport';
-import { useUpsertReportNote } from '../hooks/useUpsertReportNote';
+import { useAddNote, useUpdateNote } from '../hooks/useNotes';
 import { usePermits } from '../hooks/usePermits';
 import { useProjects } from '../hooks/useProjects';
 import { SkeletonRows } from '../components/Skeleton';
@@ -340,7 +340,12 @@ function DaSection({
                   {fmtDate(row.corr_issued)}
                 </Td>
                 <td className="px-2 py-1 w-[40%]">
-                  <NoteEditor permitId={row.permit_id} noteBody={row.note_body} />
+                  <NoteEditor
+                    permitId={row.permit_id}
+                    projectId={row.project_id}
+                    noteId={row.note_id ?? null}
+                    noteBody={row.note_body}
+                  />
                 </td>
               </tr>
             ))}
@@ -470,33 +475,62 @@ function PermitTypeNum({ row }: { row: WeeklyDaReportRow }) {
 
 // ===========================================================
 // NoteEditor — autosizing, debounced, stale-prop-synced textarea.
+// fix-notes-4: bound to the permit's NEWEST ACTIVE unified note
+// (public.notes) instead of the old report_notes table. Edits update THAT
+// note via the fix-notes-1 useUpdateNote hook; when the permit has no
+// active note yet, the first save creates one via useAddNote (permit-
+// scoped). Single source: an edit here shows on the permit NotesPanel,
+// the dashboard card, and the Weekly Updates report via the shared
+// notes-prefix invalidation (and vice-versa via realtime).
 // ===========================================================
 
 function NoteEditor({
   permitId,
+  projectId,
+  noteId,
   noteBody,
 }: {
   permitId: number;
+  projectId: string;
+  /** public.notes.id of the newest active note, or null (create on save). */
+  noteId: string | null;
   noteBody: string;
 }) {
   const [draft, setDraft] = useState(noteBody);
+  // dirty lives twice on purpose: the STATE copy gates the in-render upstream
+  // sync below (render may not read refs — react-hooks/refs), while the REF
+  // copy is what the debounce timer / blur handlers consult (event context).
+  // Both flip together in onChange/flush.
+  const dirtyRef = useRef(false);
+  const [dirty, setDirty] = useState(false);
   // React 19 in-render setState pattern (same as fix-63/64): keep the draft
   // synced when the upstream note_body changes (a refetch or a DA switch
   // remounting with a new permit). Track a {permitId, noteBody} snapshot;
   // reset the draft synchronously in-render when either moves.
+  // fix-notes-4: EXCEPT while the user has un-flushed keystrokes (dirty) —
+  // the notes hooks invalidate this report's query on save, so an upstream
+  // refetch can now land mid-typing; the dirty guard keeps the draft.
   const [snap, setSnap] = useState<{ id: number; value: string }>({
     id: permitId,
     value: noteBody,
   });
   if (snap.id !== permitId || snap.value !== noteBody) {
     setSnap({ id: permitId, value: noteBody });
-    setDraft(noteBody);
+    if (!dirty) setDraft(noteBody);
   }
 
-  const mut = useUpsertReportNote();
+  const addNote = useAddNote();
+  const updateNote = useUpdateNote();
   const taRef = useRef<HTMLTextAreaElement>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const dirty = useRef(false);
+  // The note this editor created on its first save, until a refetch delivers
+  // it as the upstream noteId prop. Read/written ONLY in event context
+  // (flush / mutation callbacks) — flush resolves the target note as
+  // `noteId ?? createdIdRef.current`, which also stops a stale debounce
+  // timer (whose closure predates the create) from creating a duplicate.
+  const createdIdRef = useRef<string | null>(null);
+  const pendingCreate = useRef(false);
+  const latestBody = useRef('');
 
   // Autosize to content (min 3 rows via the rows attr). Touches DOM style
   // only — no setState — so it's lint-clean inside a layout effect.
@@ -519,23 +553,54 @@ function NoteEditor({
       clearTimeout(timer.current);
       timer.current = null;
     }
-    dirty.current = false;
-    mut.mutate({ permitId, body: value });
+    dirtyRef.current = false;
+    setDirty(false);
+    // Never persist an empty body (mirrors NotesPanel's commit rule) — the
+    // note keeps its last saved text; complete it from a notes surface to
+    // clear it out of the report.
+    const body = value.trim();
+    if (!body) return;
+    latestBody.current = body;
+    const id = noteId ?? createdIdRef.current;
+    if (id) {
+      updateNote.mutate({ id, projectId, body });
+      return;
+    }
+    if (pendingCreate.current) return; // create in flight — reconciled below
+    pendingCreate.current = true;
+    addNote.mutate(
+      { projectId, permitId, body },
+      {
+        onSuccess: (newId) => {
+          createdIdRef.current = newId;
+          pendingCreate.current = false;
+          // Keystrokes flushed while the create was in flight — bring the
+          // created note up to the latest text.
+          if (latestBody.current !== body) {
+            updateNote.mutate({ id: newId, projectId, body: latestBody.current });
+          }
+        },
+        onError: () => {
+          pendingCreate.current = false;
+        },
+      },
+    );
   }
 
   function onChange(e: React.ChangeEvent<HTMLTextAreaElement>) {
     const v = e.target.value;
     setDraft(v);
-    dirty.current = true;
+    dirtyRef.current = true;
+    setDirty(true);
     if (timer.current) clearTimeout(timer.current);
     // Debounce: save ~500ms after the user stops typing.
     timer.current = setTimeout(() => {
-      if (dirty.current) flush(v);
+      if (dirtyRef.current) flush(v);
     }, 500);
   }
 
   function onBlur() {
-    if (dirty.current) flush(draft);
+    if (dirtyRef.current) flush(draft);
   }
 
   return (

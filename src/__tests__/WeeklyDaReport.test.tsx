@@ -11,13 +11,18 @@ import type { WeeklyDaReportPayload } from '../lib/database.types';
 //   - report body renders DA groups (Unassigned last) with corrections +
 //     upcoming-intake rows
 //   - changing a filter passes the new filter object to useWeeklyDaReport
-//   - typing in a Notes textarea fires the debounced upsert (~500ms)
+//   - typing in a Notes textarea saves (debounced ~500ms) through the
+//     unified notes hooks: update when the permit has an active note,
+//     create (then update) when it doesn't — fix-notes-4
 //   - the print button calls window.print()
 //   - the filter form + header carry the print-hide class (print CSS hides
 //     them); a print-only title block is present
 
 const reportHookSpy = vi.hoisted(() => vi.fn());
-const upsertMutate = vi.hoisted(() => vi.fn());
+// fix-notes-4: the note box writes through the unified fix-notes-1 hooks.
+// addMutate simulates the create resolving with the new note's id.
+const addMutate = vi.hoisted(() => vi.fn());
+const updateMutate = vi.hoisted(() => vi.fn());
 
 vi.mock('../hooks/useWeeklyDaReport', () => ({
   WEEKLY_DA_REPORT_WINDOW_DEFAULT: 14,
@@ -32,8 +37,9 @@ vi.mock('../hooks/useWeeklyDaReport', () => ({
   },
 }));
 
-vi.mock('../hooks/useUpsertReportNote', () => ({
-  useUpsertReportNote: () => ({ mutate: upsertMutate, isPending: false }),
+vi.mock('../hooks/useNotes', () => ({
+  useAddNote: () => ({ mutate: addMutate, isPending: false }),
+  useUpdateNote: () => ({ mutate: updateMutate, isPending: false }),
 }));
 
 vi.mock('../hooks/usePermits', () => ({
@@ -76,6 +82,7 @@ const PAYLOAD: WeeklyDaReportPayload = {
           ent_lead: 'Miles',
           da: 'Fisk',
           note_body: 'Waiting on structural revisions.',
+          note_id: 'note-101',
           corr_issued: '2026-05-20',
         },
       ],
@@ -92,6 +99,7 @@ const PAYLOAD: WeeklyDaReportPayload = {
           ent_lead: 'Miles',
           da: 'Fisk',
           note_body: '',
+          note_id: null,
           target_submit: '2026-06-02',
         },
       ],
@@ -108,6 +116,7 @@ const PAYLOAD: WeeklyDaReportPayload = {
           ent_lead: 'Miles',
           da: 'Fisk',
           note_body: '',
+          note_id: null,
           approval_date: '2026-05-10',
         },
       ],
@@ -128,6 +137,7 @@ const PAYLOAD: WeeklyDaReportPayload = {
           ent_lead: null,
           da: null,
           note_body: '',
+          note_id: null,
           corr_issued: '2026-05-19',
         },
       ],
@@ -149,7 +159,8 @@ function renderReport() {
 beforeEach(() => {
   localStorage.clear();
   reportHookSpy.mockClear();
-  upsertMutate.mockClear();
+  addMutate.mockClear();
+  updateMutate.mockClear();
 });
 
 afterEach(() => {
@@ -231,23 +242,69 @@ describe('<WeeklyDaReport /> (fix-67)', () => {
     expect(lastCall[2]).toEqual({ da: 'Fisk' });
   });
 
-  it('fires the debounced upsert ~500ms after typing in a note', () => {
+  it('typing on a permit with NO active note creates one (debounced ~500ms) via useAddNote', () => {
     vi.useFakeTimers();
     renderReport();
     // Notes live on CORRECTIONS rows only. Permit 200 (Unassigned
-    // corrections) starts with an empty note.
+    // corrections) starts with an empty note (note_id null).
     const note = screen.getByTestId('wdr-note-200') as HTMLTextAreaElement;
     fireEvent.change(note, { target: { value: 'Call the city Monday.' } });
     // Not saved immediately.
-    expect(upsertMutate).not.toHaveBeenCalled();
+    expect(addMutate).not.toHaveBeenCalled();
     act(() => {
       vi.advanceTimersByTime(500);
     });
-    expect(upsertMutate).toHaveBeenCalledTimes(1);
-    expect(upsertMutate).toHaveBeenCalledWith({
+    expect(addMutate).toHaveBeenCalledTimes(1);
+    expect(addMutate.mock.calls[0][0]).toEqual({
+      projectId: 'pr1',
       permitId: 200,
       body: 'Call the city Monday.',
     });
+    expect(updateMutate).not.toHaveBeenCalled();
+  });
+
+  it('editing a permit WITH an active note updates THAT note via useUpdateNote', () => {
+    vi.useFakeTimers();
+    renderReport();
+    const note = screen.getByTestId('wdr-note-101') as HTMLTextAreaElement;
+    fireEvent.change(note, { target: { value: 'Structural received 7/20.' } });
+    act(() => vi.advanceTimersByTime(500));
+    expect(updateMutate).toHaveBeenCalledTimes(1);
+    expect(updateMutate.mock.calls[0][0]).toEqual({
+      id: 'note-101',
+      projectId: 'pr1',
+      body: 'Structural received 7/20.',
+    });
+    expect(addMutate).not.toHaveBeenCalled();
+  });
+
+  it('after a create resolves, further edits UPDATE the created note (no duplicate create)', () => {
+    vi.useFakeTimers();
+    // The create resolves with the new note's id.
+    addMutate.mockImplementation((_input, opts) => opts?.onSuccess?.('new-note-id'));
+    renderReport();
+    const note = screen.getByTestId('wdr-note-200') as HTMLTextAreaElement;
+    fireEvent.change(note, { target: { value: 'First save' } });
+    act(() => vi.advanceTimersByTime(500));
+    expect(addMutate).toHaveBeenCalledTimes(1);
+    fireEvent.change(note, { target: { value: 'Second save' } });
+    act(() => vi.advanceTimersByTime(500));
+    expect(addMutate).toHaveBeenCalledTimes(1); // no second create
+    expect(updateMutate).toHaveBeenCalledWith({
+      id: 'new-note-id',
+      projectId: 'pr1',
+      body: 'Second save',
+    });
+  });
+
+  it('an empty draft is never persisted (no create, no update)', () => {
+    vi.useFakeTimers();
+    renderReport();
+    const note = screen.getByTestId('wdr-note-101') as HTMLTextAreaElement;
+    fireEvent.change(note, { target: { value: '   ' } });
+    act(() => vi.advanceTimersByTime(500));
+    expect(addMutate).not.toHaveBeenCalled();
+    expect(updateMutate).not.toHaveBeenCalled();
   });
 
   it('debounce coalesces rapid keystrokes into one save', () => {
@@ -260,10 +317,14 @@ describe('<WeeklyDaReport /> (fix-67)', () => {
     act(() => vi.advanceTimersByTime(200));
     fireEvent.change(note, { target: { value: 'abc' } });
     // Still within debounce — no save yet.
-    expect(upsertMutate).not.toHaveBeenCalled();
+    expect(addMutate).not.toHaveBeenCalled();
     act(() => vi.advanceTimersByTime(500));
-    expect(upsertMutate).toHaveBeenCalledTimes(1);
-    expect(upsertMutate).toHaveBeenCalledWith({ permitId: 200, body: 'abc' });
+    expect(addMutate).toHaveBeenCalledTimes(1);
+    expect(addMutate.mock.calls[0][0]).toEqual({
+      projectId: 'pr1',
+      permitId: 200,
+      body: 'abc',
+    });
   });
 
   it('print button calls window.print()', () => {

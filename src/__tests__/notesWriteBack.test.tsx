@@ -17,7 +17,12 @@ const mocks = vi.hoisted(() => {
   const updateFn = vi.fn();
   const builder = {
     from: () => ({
-      insert: () => Promise.resolve({ error: null }),
+      insert: () => ({
+        select: () => ({
+          single: () =>
+            Promise.resolve({ data: { id: 'created-note-id' }, error: null }),
+        }),
+      }),
       update: (patch: Record<string, unknown>) => ({
         eq: () => {
           updateFn(patch);
