@@ -85,14 +85,22 @@ export interface AddNoteInput {
 
 export function useAddNote() {
   const queryClient = useQueryClient();
-  return useMutation<void, Error, AddNoteInput>({
+  // fix-notes-4: resolves to the new note's id so an editor bound to
+  // "the newest active note" (Weekly DA Update's per-permit box) can keep
+  // updating the note it just created instead of creating duplicates.
+  return useMutation<string, Error, AddNoteInput>({
     mutationFn: async (input) => {
-      const { error } = await supabase.from('notes').insert({
-        project_id: input.projectId,
-        permit_id: input.permitId ?? null,
-        body: input.body,
-      });
+      const { data, error } = await supabase
+        .from('notes')
+        .insert({
+          project_id: input.projectId,
+          permit_id: input.permitId ?? null,
+          body: input.body,
+        })
+        .select('id')
+        .single();
       if (error) throw error;
+      return (data as { id: string }).id;
     },
     onSuccess: () => {
       // fix-notes-3: invalidate the whole notes prefix (single source), so a

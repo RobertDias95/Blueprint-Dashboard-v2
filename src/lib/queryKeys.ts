@@ -104,6 +104,9 @@ export const queryKeys = {
   // fix-31: per-reviewer status table.
   permitCycleReviewers: (tenantId: string) =>
     ['permit_cycle_reviewers', tenantId] as const,
+  // fix-notes-4: bare prefix — a notes realtime change refetches any open
+  // Weekly DA Update report (its per-permit note box now reads public.notes).
+  weeklyDaReportAll: ['weekly_da_report'] as const,
   // fix-67: Weekly DA Update report. Keyed by the filter/window inputs so
   // changing the week or a filter refetches; tenant-scoped like the rest.
   weeklyDaReport: (
@@ -198,5 +201,11 @@ export const REALTIME_TABLES = {
   // fix-notes-1: a note added/edited/completed in any tab refreshes every
   // mounted NotesPanel live. fix-notes-2: also the dashboard "waiting on" cards
   // (the search index lives under the notes prefix, so it refreshes too).
-  notes: [queryKeys.notesAll, queryKeys.dashboardPermitCardsAll],
+  // fix-notes-4: + the Weekly DA Update report, whose per-permit note box
+  // reads the newest active public.notes note.
+  notes: [
+    queryKeys.notesAll,
+    queryKeys.dashboardPermitCardsAll,
+    queryKeys.weeklyDaReportAll,
+  ],
 } as const;

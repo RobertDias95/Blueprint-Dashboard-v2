@@ -878,18 +878,6 @@ export interface IntakeRecord {
 // fix-67: Weekly DA Update report (Reports hub Phase 1).
 // ===========================================================
 
-/** One persistent free-text note per permit. The note IS the
- *  carry-forward: it shows whenever the permit appears in the report and
- *  is edited in place. Backed by public.report_notes (one row per
- *  permit_id). */
-export interface ReportNote {
-  permit_id: number;
-  tenant_id: string;
-  body: string;
-  created_at: string;
-  updated_at: string;
-}
-
 /** A single permit row in either report section. Corrections rows carry
  *  `corr_issued`; upcoming-intake rows carry `target_submit`. Both share
  *  the rest of the shape. Shapes match the jsonb the
@@ -905,8 +893,12 @@ export interface WeeklyDaReportRow {
   cycle_index: number | null;
   ent_lead: string | null;
   da: string | null;
-  /** The persistent note for this permit ('' when none). */
+  /** fix-notes-4: the permit's NEWEST ACTIVE unified note (public.notes) —
+   *  '' when none. Replaces the old report_notes single-note-per-permit. */
   note_body: string;
+  /** fix-notes-4: id of that note (public.notes.id), null when the permit has
+   *  no active note yet — the editor creates one on first save. */
+  note_id: string | null;
   /** Present on corrections rows: latest cycle's corr_issued date. */
   corr_issued?: string | null;
   /** Present on upcoming-intake rows: the permit's target_submit date. */

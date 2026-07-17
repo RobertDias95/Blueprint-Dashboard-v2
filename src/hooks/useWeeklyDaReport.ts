@@ -9,7 +9,8 @@ import type {
 
 // fix-67: Weekly DA Update report (Reports hub Phase 1). Reads via the
 // bp_get_weekly_da_report RPC, which joins permits + projects + the latest
-// cycle + report_notes server-side and returns a DA-grouped payload. RLS /
+// cycle + each permit's newest ACTIVE unified note (public.notes — fix-notes-4,
+// replacing the old report_notes table) and returns a DA-grouped payload. RLS /
 // the RPC's explicit tenant filter scope rows to the caller's tenant.
 //
 // The data is cheap, so we lean toward auto-refresh: the query key folds in

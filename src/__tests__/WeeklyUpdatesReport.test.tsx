@@ -61,7 +61,12 @@ const mocks = vi.hoisted(() => {
     from: () => ({
       insert: (row: Record<string, unknown>) => {
         insertFn(row);
-        return Promise.resolve({ error: null });
+        return {
+          select: () => ({
+            single: () =>
+              Promise.resolve({ data: { id: 'created-note-id' }, error: null }),
+          }),
+        };
       },
       update: (patch: Record<string, unknown>) => ({
         eq: (col: string, val: string) => {
