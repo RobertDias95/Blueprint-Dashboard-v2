@@ -43,10 +43,19 @@ vi.mock('../hooks/useProjects', () => ({
 }));
 
 // fix-228: the detail editor reads permits (ent_lead) + projects (schematic)
-// to resolve the PRIMARY owner. Inert map is fine — DA/DM resolve from
-// permit_da + dm_da_groups; ent_lead/schematic just fall back when absent.
+// to resolve the PRIMARY owner. fix-238b: the Everyone-view role/person filter
+// now resolves ownership the SAME way (useTaskOwnership → permits.ent_lead/da),
+// so ref-back the mock — role-filter tests set permit context; the default []
+// keeps every other test's ownership derived purely from permit_da / literal
+// assigned_to (no permit needed).
+const permitsRef = vi.hoisted(() => ({ current: [] as unknown[] }));
 vi.mock('../hooks/usePermits', () => ({
-  usePermits: () => ({ data: [], isLoading: false, error: null, refetch: vi.fn() }),
+  usePermits: () => ({
+    data: permitsRef.current,
+    isLoading: false,
+    error: null,
+    refetch: vi.fn(),
+  }),
 }));
 
 vi.mock('../hooks/useTaskTree', async (importActual) => {
@@ -175,6 +184,7 @@ beforeEach(() => {
     member({ name: 'Miles', role: 'dm' }),
   ];
   tasksRef.current = [];
+  permitsRef.current = [];
   useAuthStore.setState({
     user: { email: 'bobby@x.com' } as never,
     activeTenantId: 'test-tenant',
@@ -259,6 +269,16 @@ function varied(): TaskFixture[] {
     }),
   ];
 }
+
+/** fix-238b: the permits behind varied() — permit 1 (Building Permit) → DA
+ *  Trevor / ent lead Bobby; permit 2 (PAR/Pre-Sub) → DA Ainsley / ent lead
+ *  Edmund. The role/person filter resolves an unset-assigned task's owner from
+ *  these, exactly as My Work does. Cast loose: useTaskOwnership reads only
+ *  id/da/dm/ent_lead. */
+const VARIED_PERMITS: unknown[] = [
+  { id: 1, da: 'Trevor', dm: null, ent_lead: 'Bobby' },
+  { id: 2, da: 'Ainsley', dm: null, ent_lead: 'Edmund' },
+];
 
 describe('MyTasks (fix-80 v1 three-pane kanban)', () => {
   it('counters reflect the FULL filtered set (Active Only hides Resolved cards but the % still counts them)', () => {
@@ -737,11 +757,15 @@ describe('MyTasks (fix-80 v1 three-pane kanban)', () => {
 
   it('ENT dropdown narrows to tasks where an ENT roster name is an assignee', () => {
     tasksRef.current = varied();
+    // fix-238b: ownership now resolves via the permit's ent_lead/da (the same
+    // path My Work uses) — permit 1's ent_lead is Bobby, so the unset-assigned
+    // ent task de-inprog resolves to Bobby.
+    permitsRef.current = VARIED_PERMITS;
     renderIt();
     fireEvent.change(screen.getByTestId('mytasks-filter-role-ent-select'), {
       target: { value: 'Bobby' },
     });
-    // Bobby is the primary on de-inprog. The other tasks drop.
+    // Bobby is the resolved owner of de-inprog (ent, permit 1). The others drop.
     expect(screen.getByTestId('mytask-card-de-inprog')).toBeInTheDocument();
     expect(screen.queryByTestId('mytask-card-de-open-overdue')).toBeNull();
     expect(screen.queryByTestId('mytask-card-pm-open')).toBeNull();
@@ -749,12 +773,88 @@ describe('MyTasks (fix-80 v1 three-pane kanban)', () => {
 
   it('DA dropdown narrows to tasks where a DA roster name is an assignee', () => {
     tasksRef.current = varied();
+    permitsRef.current = VARIED_PERMITS;
     renderIt();
     fireEvent.change(screen.getByTestId('mytasks-filter-role-da-select'), {
       target: { value: 'Trevor' },
     });
+    // de-open-overdue (arch, permit 1) resolves to DA Trevor; de-inprog (ent)
+    // resolves to the ent lead, not the DA.
     expect(screen.getByTestId('mytask-card-de-open-overdue')).toBeInTheDocument();
     expect(screen.queryByTestId('mytask-card-de-inprog')).toBeNull();
+  });
+
+  // fix-238b: the reported bug — Everyone-view person/role filter now resolves
+  // assigned_to ROLE placeholders (Design Manager → the project's DM) the SAME
+  // way My Work does. Two 4040/4060 E Via Estrella arch tasks are assigned to
+  // "Design Manager"; Derry is the DM.
+  describe('fix-238b: Everyone-view filter resolves assigned_to roles', () => {
+    function viaEstrella(): TaskFixture[] {
+      return [
+        task({
+          id: 'via-4040',
+          permit_id: 1,
+          bucket: 'de',
+          discipline: 'arch',
+          project_address: '4040 E Via Estrella',
+          text: 'Window & Door Schedule Review',
+          assigned_to: 'Design Manager',
+          permit_da: 'Qisheng',
+          primary_assignee: 'Qisheng', // server-derived arch → DA (the old, wrong owner)
+        }),
+        task({
+          id: 'via-4060',
+          permit_id: 2,
+          bucket: 'de',
+          discipline: 'arch',
+          project_address: '4060 E Via Estrella',
+          text: 'Window & Door Schedule Review',
+          assigned_to: 'Design Manager',
+          permit_da: 'Qisheng',
+          primary_assignee: 'Qisheng',
+        }),
+      ];
+    }
+    beforeEach(() => {
+      // Roster: Qisheng is the DA, Derry the DM (so both dropdowns list them).
+      teamRef.current = [
+        member({ name: 'Qisheng', role: 'da' }),
+        member({ name: 'Derry', role: 'dm' }),
+      ];
+      // Both permits: DA Qisheng, DM Derry. (Production resolves the DM via
+      // dm_da_groups(DA); here the permit.dm fallback stands in.)
+      permitsRef.current = [
+        { id: 1, da: 'Qisheng', dm: 'Derry', ent_lead: 'Miles' },
+        { id: 2, da: 'Qisheng', dm: 'Derry', ent_lead: 'Miles' },
+      ];
+      tasksRef.current = viaEstrella();
+    });
+
+    it('DM person filter (Derry) surfaces the "Design Manager" tasks — the bug', () => {
+      renderIt();
+      // Before fix: primary_assignee is the DA, so a Derry filter showed 0.
+      fireEvent.change(screen.getByTestId('mytasks-filter-role-dm-select'), {
+        target: { value: 'Derry' },
+      });
+      expect(screen.getByTestId('mytask-card-via-4040')).toBeInTheDocument();
+      expect(screen.getByTestId('mytask-card-via-4060')).toBeInTheDocument();
+    });
+
+    it('DA person filter (Qisheng) still shows them via the arch blanket', () => {
+      renderIt();
+      fireEvent.change(screen.getByTestId('mytasks-filter-role-da-select'), {
+        target: { value: 'Qisheng' },
+      });
+      expect(screen.getByTestId('mytask-card-via-4040')).toBeInTheDocument();
+      expect(screen.getByTestId('mytask-card-via-4060')).toBeInTheDocument();
+    });
+
+    it('DM quick role-family chip returns the DM-assigned tasks', () => {
+      renderIt();
+      fireEvent.click(screen.getByTestId('mytasks-filter-allroles-dm'));
+      expect(screen.getByTestId('mytask-card-via-4040')).toBeInTheDocument();
+      expect(screen.getByTestId('mytask-card-via-4060')).toBeInTheDocument();
+    });
   });
 
   it('CONSULTANT dropdown surfaces tasks whose co-assignees include unrostered names', () => {
@@ -989,14 +1089,22 @@ describe('MyTasks view switcher (fix-140)', () => {
     ).toBeTruthy();
   });
 
-  it('fix-156: ENT filter matches a BOT task via DERIVED primary_assignee (assigned_to null)', () => {
+  it('fix-156: ENT filter matches a BOT task via DERIVED ent lead (assigned_to null)', () => {
+    // fix-238b: "derived owner" now means the CLIENT resolver deriving from the
+    // permit's ent_lead (assigned_to is still null). bot-ent sits on permit 1
+    // (ent lead Edmund); the human 'other' on permit 2 (ent lead Bobby).
+    permitsRef.current = [
+      { id: 1, da: null, dm: null, ent_lead: 'Edmund' },
+      { id: 2, da: null, dm: null, ent_lead: 'Bobby' },
+    ];
     tasksRef.current = [
       task({
         id: 'bot-ent',
+        permit_id: 1,
         bucket: 'de',
         discipline: 'ent',
         text: 'Enter permit number — was this submitted? — SDOT Tree @ X',
-        // derived from permit.ent_lead; fix-156 wrote no static assigned_to.
+        // No static assigned_to — the owner derives from permit 1's ent lead.
         primary_assignee: 'Edmund',
         assigned_to: null,
         is_auto_generated: true,
@@ -1004,6 +1112,7 @@ describe('MyTasks view switcher (fix-140)', () => {
       }),
       task({
         id: 'other',
+        permit_id: 2,
         bucket: 'de',
         discipline: 'ent',
         text: 'human task',
@@ -1011,7 +1120,7 @@ describe('MyTasks view switcher (fix-140)', () => {
       }),
     ];
     renderIt();
-    // Filter ENT → Edmund. The BOT task matches via its derived primary.
+    // Filter ENT → Edmund. The BOT task matches via its derived ent lead.
     fireEvent.change(screen.getByTestId('mytasks-filter-role-ent-select'), {
       target: { value: 'Edmund' },
     });
