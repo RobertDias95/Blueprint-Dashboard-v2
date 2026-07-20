@@ -561,9 +561,11 @@ describe('MyTasks (fix-80 v1 three-pane kanban)', () => {
     fireEvent.click(screen.getByTestId('mytask-card-t1'));
     // fix-229: target is empty → reveal the picker from the muted "—" first.
     fireEvent.click(screen.getByTestId('task-detail-target-empty'));
-    fireEvent.change(screen.getByTestId('task-detail-target'), {
-      target: { value: '2026-06-01' },
-    });
+    const targetInput = screen.getByTestId('task-detail-target');
+    fireEvent.change(targetInput, { target: { value: '2026-06-01' } });
+    // fix-237: typing buffers locally — no mutation until blur/Enter commits.
+    expect(upsertMutate).not.toHaveBeenCalled();
+    fireEvent.blur(targetInput);
     expect(upsertMutate).toHaveBeenCalledTimes(1);
     // the patch carries BOTH dates — start_date is preserved, not nulled.
     expect(upsertMutate.mock.calls[0][0]).toMatchObject({
@@ -612,9 +614,10 @@ describe('MyTasks (fix-80 v1 three-pane kanban)', () => {
     fireEvent.click(screen.getByTestId('mytask-card-t1'));
     // fix-229: completed is empty → reveal the picker from the muted "—" first.
     fireEvent.click(screen.getByTestId('task-detail-completed-empty'));
-    fireEvent.change(screen.getByTestId('task-detail-completed'), {
-      target: { value: '2026-06-01' },
-    });
+    const completedInput = screen.getByTestId('task-detail-completed');
+    fireEvent.change(completedInput, { target: { value: '2026-06-01' } });
+    // fix-237: commit on blur, not per keystroke.
+    fireEvent.blur(completedInput);
     expect(upsertMutate).toHaveBeenCalledTimes(1);
     expect(upsertMutate.mock.calls[0][0]).toMatchObject({
       id: 't1',
