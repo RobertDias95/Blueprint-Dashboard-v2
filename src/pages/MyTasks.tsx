@@ -26,7 +26,8 @@ import {
   TASK_STATUS_OPTIONS,
 } from '../lib/taskStatus';
 import { useScopeMode } from '../hooks/useSelfScope';
-import { taskMatchesSelf, type ScopeMode } from '../lib/selfScope';
+import { type ScopeMode } from '../lib/selfScope';
+import { useTaskOwnership } from '../hooks/useTaskOwnership';
 import ScopeToggle from '../components/shared/ScopeToggle';
 import { SkeletonRows } from '../components/Skeleton';
 import QueryError from '../components/QueryError';
@@ -267,6 +268,10 @@ function Body({
   // here — "mine" on the My tab is "tasks assigned to me" for ent/dm/da alike.
   const { mode: scopeMode, setMode: setScopeMode, identity } =
     useScopeMode('mytasks');
+  // fix-238: ownership resolver — resolves each task's assigned_to role
+  // placeholder (Design Manager / Schematic Team / …) to a person the same way
+  // the task chip does, so "Mine" routes a role-assigned task to the right list.
+  const { matches: taskMatches } = useTaskOwnership();
 
   useEffect(() => {
     try {
@@ -335,8 +340,8 @@ function Body({
   const scopedTasks = useMemo(() => {
     const name = identity.name;
     if (scopeMode !== 'mine' || !name) return tasks;
-    return tasks.filter((t) => taskMatchesSelf(t, name));
-  }, [tasks, scopeMode, identity.name]);
+    return tasks.filter((t) => taskMatches(t, name));
+  }, [tasks, scopeMode, identity.name, taskMatches]);
   const filtered = useMemo(
     () => filterTasks(scopedTasks, filters, rolesByName),
     [scopedTasks, filters, rolesByName],

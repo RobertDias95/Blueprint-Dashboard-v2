@@ -5,6 +5,8 @@ import {
   projectMatchesSelf,
   permitMatchesSelf,
   taskMatchesSelf,
+  taskMatchesSelfResolved,
+  type TaskOwnershipContext,
   loadScopeMode,
   saveScopeMode,
   initialScopeMode,
@@ -161,6 +163,89 @@ describe('scope match predicates', () => {
     expect(taskMatchesSelf({ primary_assignee: 'X', co_assignees: ['Y', 'Cam'] }, 'cam')).toBe(true);
     expect(taskMatchesSelf({ primary_assignee: 'X', co_assignees: ['Y'] }, 'Cam')).toBe(false);
     expect(taskMatchesSelf({ primary_assignee: null, co_assignees: [] }, 'Cam')).toBe(false);
+  });
+});
+
+// fix-238: resolved ownership — assigned_to ROLE placeholders (Design Manager /
+// Schematic Team / …) map to the person who fills that role on the task's
+// project, exactly the way the task chip resolves its displayed owner.
+describe('taskMatchesSelfResolved — role → person + DA arch blanket', () => {
+  // Project 4040/4060 E Via Estrella shape: DA Qisheng, DM Derry, Schematic Sam,
+  // Ent lead Miles.
+  const ctx: TaskOwnershipContext = {
+    da: 'Qisheng',
+    dm: 'Derry',
+    entLead: 'Miles',
+    schematicDesigners: ['Sam'],
+  };
+  const arch = {
+    assigned_to: null as string | null,
+    discipline: 'arch' as const,
+    co_assignees: [] as string[],
+    permit_da: 'Qisheng',
+  };
+  const ent = { ...arch, discipline: 'ent' as const };
+
+  it('the reported bug: a task switched to "Design Manager" routes to the DM (Derry)', () => {
+    const task = { ...arch, assigned_to: 'Design Manager' };
+    expect(taskMatchesSelfResolved(task, 'Derry', ctx)).toBe(true);
+    // …and (arch) still shows for the DA via the blanket rule — not lost.
+    expect(taskMatchesSelfResolved(task, 'Qisheng', ctx)).toBe(true);
+    // …but not to some unrelated person.
+    expect(taskMatchesSelfResolved(task, 'Miles', ctx)).toBe(false);
+  });
+
+  it('"Schematic Team" routes to the schematic designer', () => {
+    const task = { ...arch, assigned_to: 'Schematic Team' };
+    expect(taskMatchesSelfResolved(task, 'Sam', ctx)).toBe(true);
+    expect(taskMatchesSelfResolved(task, 'Qisheng', ctx)).toBe(true); // arch blanket
+  });
+
+  it('"Design Associate" and an unset arch task route to the DA', () => {
+    expect(
+      taskMatchesSelfResolved({ ...arch, assigned_to: 'Design Associate' }, 'Qisheng', ctx),
+    ).toBe(true);
+    expect(taskMatchesSelfResolved(arch, 'Qisheng', ctx)).toBe(true);
+  });
+
+  it('a literal person in assigned_to routes to that person', () => {
+    const task = { ...arch, assigned_to: 'Priya' };
+    expect(taskMatchesSelfResolved(task, 'priya', ctx)).toBe(true); // case-insensitive
+    // arch blanket still routes the DA in too.
+    expect(taskMatchesSelfResolved(task, 'Qisheng', ctx)).toBe(true);
+  });
+
+  it('a co-assignee sees the task', () => {
+    const task = { ...ent, assigned_to: 'Miles', co_assignees: ['Priya', 'Sam'] };
+    expect(taskMatchesSelfResolved(task, 'Sam', ctx)).toBe(true);
+  });
+
+  it('entitlement tasks route by assignment only — NO DA blanket', () => {
+    // "Entitlements" → the ent lead (Miles).
+    expect(
+      taskMatchesSelfResolved({ ...ent, assigned_to: 'Entitlements' }, 'Miles', ctx),
+    ).toBe(true);
+    // The DA does NOT see an ENT task assigned to the ent lead (blanket is arch-only).
+    expect(
+      taskMatchesSelfResolved({ ...ent, assigned_to: 'Entitlements' }, 'Qisheng', ctx),
+    ).toBe(false);
+    // An ent task reassigned to a specific person leaves the ent lead's list.
+    expect(
+      taskMatchesSelfResolved({ ...ent, assigned_to: 'Priya' }, 'Miles', ctx),
+    ).toBe(false);
+    expect(
+      taskMatchesSelfResolved({ ...ent, assigned_to: 'Priya' }, 'Priya', ctx),
+    ).toBe(true);
+  });
+
+  it('an unset ent task routes to the ent lead (discipline default)', () => {
+    expect(taskMatchesSelfResolved(ent, 'Miles', ctx)).toBe(true);
+    expect(taskMatchesSelfResolved(ent, 'Qisheng', ctx)).toBe(false);
+  });
+
+  it('a null/empty user never matches', () => {
+    expect(taskMatchesSelfResolved({ ...arch, assigned_to: 'Design Manager' }, null, ctx)).toBe(false);
+    expect(taskMatchesSelfResolved({ ...arch, assigned_to: 'Design Manager' }, '', ctx)).toBe(false);
   });
 });
 
