@@ -343,8 +343,8 @@ function Body({
     return tasks.filter((t) => taskMatches(t, name));
   }, [tasks, scopeMode, identity.name, taskMatches]);
   const filtered = useMemo(
-    () => filterTasks(scopedTasks, filters, rolesByName),
-    [scopedTasks, filters, rolesByName],
+    () => filterTasks(scopedTasks, filters, rolesByName, taskMatches),
+    [scopedTasks, filters, rolesByName, taskMatches],
   );
   const today = useMemo(() => todayIso(), []);
   const counters = useMemo(() => {
@@ -1759,6 +1759,13 @@ function filterTasks(
   tasks: Task[],
   filters: FilterState,
   rolesByName: Map<string, Set<'ent' | 'da' | 'dm' | 'consultant'>>,
+  // fix-238b: the SAME ownership resolver "My Work" uses. Both the person
+  // dropdowns and the quick role-family chips now resolve a task's owner(s)
+  // through it (assigned_to role → person incl. DM/Schematic, co-assignees, the
+  // DA arch-blanket) instead of the server-derived primary_assignee — so
+  // filtering by a person P returns EXACTLY the tasks in P's My Work, and the
+  // two surfaces can't diverge. Derry (a DM) now surfaces "Design Manager" tasks.
+  taskMatches: (t: Task, name: string) => boolean,
 ): Task[] {
   const q = filters.search.trim().toLowerCase();
   const wantTypes =
@@ -1766,27 +1773,25 @@ function filterTasks(
       ? new Set(filters.permitTypes)
       : null;
 
-  function nameMatchesAnyRoleFamily(
-    name: string,
-    families: Set<'ent' | 'da' | 'dm' | 'consultant'>,
-  ): boolean {
-    const r = rolesByName.get(name);
-    if (!r) return false;
-    for (const f of families) if (r.has(f)) return true;
-    return false;
-  }
-
-  function taskHasAssigneeFromSet(t: Task, names: Set<string>): boolean {
-    if (t.primary_assignee && names.has(t.primary_assignee)) return true;
-    return t.co_assignees.some((a) => names.has(a));
-  }
-
   const roleNameSet = new Set<string>([
     ...filters.roles.ent,
     ...filters.roles.da,
     ...filters.roles.dm,
     ...filters.roles.consultant,
   ]);
+  const roleNames = [...roleNameSet];
+
+  // fix-238b: the roster people who belong to the active quick role-family — a
+  // task "resolves to" that family iff it resolves to one of these people (via
+  // the shared owner resolver). Computed once, not per task.
+  const quickFamily =
+    filters.quickRole === 'all' ? null : filters.quickRole;
+  const quickRolePeople: string[] = [];
+  if (quickFamily) {
+    for (const [name, families] of rolesByName) {
+      if (families.has(quickFamily)) quickRolePeople.push(name);
+    }
+  }
 
   return tasks.filter((t) => {
     // fix-155: BOT filter — keep only lifecycle auto-tasks when active.
@@ -1795,18 +1800,11 @@ function filterTasks(
       return false;
     }
     if (wantTypes && !t.permit_type) return false;
-    if (roleNameSet.size > 0 && !taskHasAssigneeFromSet(t, roleNameSet)) {
+    if (roleNames.length > 0 && !roleNames.some((n) => taskMatches(t, n))) {
       return false;
     }
     if (filters.quickRole !== 'all') {
-      const families = new Set<'ent' | 'da' | 'dm' | 'consultant'>([
-        filters.quickRole as 'ent' | 'da' | 'dm' | 'consultant',
-      ]);
-      const candidates = [
-        ...(t.primary_assignee ? [t.primary_assignee] : []),
-        ...t.co_assignees,
-      ];
-      if (!candidates.some((n) => nameMatchesAnyRoleFamily(n, families))) {
+      if (!quickRolePeople.some((n) => taskMatches(t, n))) {
         return false;
       }
     }
