@@ -69,6 +69,17 @@ vi.mock('../hooks/useProjects', () => ({
   useProjects: () => ({ data: [], isLoading: false, error: null, refetch: vi.fn() }),
 }));
 
+// fix-238: the shared ownership resolver (useTaskOwnership) reads permits +
+// dm_da_groups to resolve assigned_to role placeholders to people. The scope
+// fixtures below use LITERAL person assignees (no role placeholder), so inert
+// data is enough — no context is needed to resolve a bare name to itself.
+vi.mock('../hooks/usePermits', () => ({
+  usePermits: () => ({ data: [], isLoading: false, error: null, refetch: vi.fn() }),
+}));
+vi.mock('../hooks/useDmDaGroups', () => ({
+  useDmDaGroups: () => ({ rows: [] }),
+}));
+
 vi.mock('../hooks/useTeamMembers', async (orig) => {
   const real = await orig<typeof import('../hooks/useTeamMembers')>();
   return {
@@ -284,11 +295,14 @@ describe('WaitingOnView scope filter (fix-236)', () => {
     // Ownership per the board's rule: Bobby is primary on t1 and a co-assignee
     // on t2; t3/t4 belong to others. So "Mine" keeps only t1 + t2 (both Civil /
     // Emerald) and drops t3 (no-firm Civil) and t4 (Structural).
+    // fix-238: ownership resolves from the REAL assigned_to (a literal person
+    // here) + co_assignees, not the server-derived primary_assignee. Bobby is
+    // the assignee of t1 and a co-assignee of t2; t3/t4 belong to others.
     allTasksRef.current = [
-      ownedTask({ id: 't1', primary_assignee: 'Bobby' }),
-      ownedTask({ id: 't2', primary_assignee: 'Trevor', co_assignees: ['Bobby'] }),
-      ownedTask({ id: 't3', primary_assignee: 'Trevor' }),
-      ownedTask({ id: 't4', primary_assignee: 'Ainsley' }),
+      ownedTask({ id: 't1', assigned_to: 'Bobby' }),
+      ownedTask({ id: 't2', assigned_to: 'Trevor', co_assignees: ['Bobby'] }),
+      ownedTask({ id: 't3', assigned_to: 'Trevor' }),
+      ownedTask({ id: 't4', assigned_to: 'Ainsley' }),
     ];
     useAuthStore.setState({
       user: { id: 'u-bobby', email: 'bobby@x.com' } as never,

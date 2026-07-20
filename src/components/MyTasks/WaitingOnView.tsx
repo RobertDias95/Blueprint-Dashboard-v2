@@ -7,7 +7,7 @@ import {
 } from '../../hooks/useWaitingOnTasks';
 import { useAllTasks } from '../../hooks/useTaskTree';
 import { useScopeMode } from '../../hooks/useSelfScope';
-import { taskMatchesSelf } from '../../lib/selfScope';
+import { useTaskOwnership } from '../../hooks/useTaskOwnership';
 import ScopeToggle from '../shared/ScopeToggle';
 import { exportAllToCsv, exportFirmToCsv } from '../../lib/waitingOnCsv';
 import { SkeletonRows } from '../Skeleton';
@@ -44,20 +44,23 @@ export default function WaitingOnView() {
   const { mode: scopeMode, setMode: setScopeMode, identity } =
     useScopeMode('mytasks');
   const allTasksQ = useAllTasks();
+  // fix-238: SAME ownership resolver the board uses (assigned_to role → person
+  // + co-assignee + DA arch blanket), so "Mine" here can't drift from the board.
+  const { matches: taskMatches } = useTaskOwnership();
   // We only need the full task set (and only surface its load/error) when the
   // user is actually scoping to their own work; the holistic view is unaffected.
   const scoping = scopeMode === 'mine' && !!identity.name;
 
-  // Task ids the current user owns, by the board's ownership rule (primary or
-  // co-assignee). null = not scoping → show everything.
+  // Task ids the current user owns, by the board's ownership rule. null = not
+  // scoping → show everything.
   const selfTaskIds = useMemo(() => {
     if (!scoping) return null;
     const ids = new Set<string>();
     for (const t of allTasksQ.data ?? []) {
-      if (taskMatchesSelf(t, identity.name)) ids.add(t.id);
+      if (taskMatches(t, identity.name)) ids.add(t.id);
     }
     return ids;
-  }, [scoping, identity.name, allTasksQ.data]);
+  }, [scoping, identity.name, allTasksQ.data, taskMatches]);
 
   const rows = useMemo(() => {
     const all = tasksQ.data ?? [];

@@ -4,6 +4,11 @@ import type {
   Project,
   TeamRole,
 } from './database.types';
+import {
+  resolveCoAssignee,
+  resolvePrimaryAssignee,
+  type ResolutionContext,
+} from './taskTeam';
 
 // fix-176: default the Dashboard / Project Overview / My-tab to the logged-in
 // user's own work, switchable + remembered per-user.
@@ -111,7 +116,12 @@ export function permitMatchesSelf(
   );
 }
 
-/** Task-scope match (My tab): the person is the primary or a co-assignee. */
+/** Task-scope match (My tab): the person is the primary or a co-assignee.
+ *  Legacy shape — matches on the server-DERIVED `primary_assignee` (arch→da,
+ *  ent→ent_lead) only. Superseded on the My Tasks board + Waiting On view by
+ *  taskMatchesSelfResolved, which resolves the overloaded `assigned_to` role
+ *  placeholders (Design Manager / Schematic Team / …) to real people. Kept for
+ *  callers that only have the derived primary + co-assignees. */
 export function taskMatchesSelf(
   task: Pick<MyTaskNode, 'primary_assignee' | 'co_assignees'>,
   name: string | null,
@@ -120,6 +130,78 @@ export function taskMatchesSelf(
   if (!n) return false;
   if (norm(task.primary_assignee) === n) return true;
   return (task.co_assignees ?? []).some((a) => norm(a) === n);
+}
+
+/** fix-238: the per-project role context needed to resolve a task's owner(s).
+ *  Populated the SAME way the task chip resolves its displayed owner, so a
+ *  task always routes to the person it is shown as. */
+export interface TaskOwnershipContext {
+  /** permit.da for this task's permit (the Design Associate). Drives rule 3
+   *  (the arch blanket) and the 'Design Associate' assignment target. */
+  da: string | null;
+  /** The Design Manager for this task — resolved dm_da_groups(da) the way the
+   *  chip is, with project.design_manager / permit.dm as fallbacks. */
+  dm: string | null;
+  /** The Entitlement lead — permit.ent_lead, with project.entitlement_lead as
+   *  a fallback. */
+  entLead: string | null;
+  /** project.schematic_designer(s). */
+  schematicDesigners: string[];
+}
+
+/** fix-238: does task T belong in user U's My Tasks? U matches when ANY of:
+ *   1. ASSIGNMENT — assigned_to resolves to U. The overloaded assigned_to text
+ *      column holds a ROLE placeholder ("Design Manager", "Schematic Team",
+ *      "Entitlements", "Design Associate", "Architecture"), a LITERAL person, or
+ *      null. resolvePrimaryAssignee maps a role to the person who fills it on
+ *      THIS project (the same mapping the task chip shows), a literal name to
+ *      itself, and an unset value to the discipline's default lead (ent→entLead,
+ *      else da). This is what fixes the reported bug: a task switched to "Design
+ *      Manager" now routes to the DM (Derry), not the DA.
+ *   2. CO-ASSIGNEE — U is one of the task's co-assignees (person names; role
+ *      tokens resolved for safety).
+ *   3. DA BLANKET (arch only) — U is the project's DA and the task is an
+ *      architecture task; the DA sees EVERY arch task on their permit whatever
+ *      the assignee. Entitlement tasks have no blanket rule. */
+export function taskMatchesSelfResolved(
+  task: Pick<
+    MyTaskNode,
+    'assigned_to' | 'discipline' | 'co_assignees' | 'permit_da'
+  >,
+  name: string | null,
+  ctx: TaskOwnershipContext,
+): boolean {
+  const n = norm(name);
+  if (!n) return false;
+
+  // Rule 3 — DA blanket (arch only).
+  if (task.discipline === 'arch' && norm(task.permit_da) === n) return true;
+
+  // Rule 1 — ASSIGNMENT (role placeholder / literal person / unset default).
+  const primary = resolvePrimaryAssignee(
+    task.assigned_to,
+    {
+      da: ctx.da,
+      entLead: ctx.entLead,
+      dm: ctx.dm,
+      schematicDesigners: ctx.schematicDesigners,
+    },
+    task.discipline,
+  );
+  if (norm(primary) === n) return true;
+
+  // Rule 2 — CO-ASSIGNEE.
+  const coCtx: ResolutionContext = {
+    da: ctx.da,
+    dm: ctx.dm,
+    schematicDesigners: ctx.schematicDesigners,
+  };
+  for (const entry of task.co_assignees ?? []) {
+    for (const person of resolveCoAssignee(entry, coCtx)) {
+      if (norm(person) === n) return true;
+    }
+  }
+  return false;
 }
 
 // ---- per-user persistence of the Mine/All choice ----
