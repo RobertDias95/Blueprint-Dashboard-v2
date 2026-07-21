@@ -41,6 +41,7 @@ import { useDmDaGroups } from '../../hooks/useDmDaGroups';
 import { findDmForDa } from '../wizard/dmRouting';
 import {
   resolvePrimaryAssignee,
+  disciplineForTeam,
   type ResolutionContext,
   type PrimaryResolutionContext,
 } from '../../lib/taskTeam';
@@ -2138,6 +2139,15 @@ function TaskItem({
       assignedTo: string;
     }>,
   ) {
+    // fix-244: a task's COLUMN follows its TEAM. When the primary owner is set
+    // to a team/role (Entitlements → 'ent'; the design roles → 'arch'), re-derive
+    // discipline so the task moves columns instantly. A specific person leaves
+    // the column unchanged (disciplineForTeam → null). An explicit discipline in
+    // the patch (the Discipline dropdown) still wins via the `...patch` spread.
+    const teamDiscipline =
+      patch.assignedTo !== undefined
+        ? disciplineForTeam(patch.assignedTo)
+        : null;
     upsert.mutate({
       id: task.id,
       permitId,
@@ -2145,7 +2155,7 @@ function TaskItem({
       // fix-79: pass the renamed discipline + preserve the existing bucket
       // (edits don't move tasks between D&E and Permitting; the user moves
       // them by toggling the BucketBars + re-creating, intentionally).
-      discipline: task.discipline,
+      discipline: teamDiscipline ?? task.discipline,
       bucket: task.bucket,
       text: task.text,
       status: task.status,
