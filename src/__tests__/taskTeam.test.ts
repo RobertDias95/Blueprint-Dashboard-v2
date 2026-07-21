@@ -14,6 +14,8 @@ import {
   primarySelectValue,
   defaultPrimaryTeamKey,
   buildAssigneeOptions,
+  disciplineForTeam,
+  ARCH_TEAMS,
   type AssigneeRoleOption,
   type PrimaryResolutionContext,
 } from '../lib/taskTeam';
@@ -28,6 +30,40 @@ describe('fix-222 TEAM taxonomy', () => {
       'Schematic Team',
     ]);
     expect(TEAM_OPTIONS as readonly string[]).not.toContain('Architecture');
+  });
+});
+
+// fix-244: a task's Design-view column follows its team.
+describe('fix-244 disciplineForTeam', () => {
+  it("Entitlements → 'ent'", () => {
+    expect(disciplineForTeam('Entitlements')).toBe('ent');
+  });
+
+  it("the three design roles → 'arch'", () => {
+    expect(disciplineForTeam('Design Associate')).toBe('arch');
+    expect(disciplineForTeam('Design Manager')).toBe('arch');
+    expect(disciplineForTeam('Schematic Team')).toBe('arch');
+  });
+
+  it("legacy 'Architecture' → 'arch'", () => {
+    expect(disciplineForTeam('Architecture')).toBe('arch');
+    expect(ARCH_TEAMS as readonly string[]).toContain('Architecture');
+  });
+
+  it('a specific person / unknown / blank / null → null (no team signal)', () => {
+    // A person's name is not a team — leave the column unchanged.
+    expect(disciplineForTeam('Miles')).toBeNull();
+    expect(disciplineForTeam('Nidhi')).toBeNull();
+    expect(disciplineForTeam('')).toBeNull();
+    expect(disciplineForTeam('   ')).toBeNull();
+    expect(disciplineForTeam(null)).toBeNull();
+    expect(disciplineForTeam(undefined)).toBeNull();
+  });
+
+  it('every non-Entitlements TEAM_OPTIONS key maps to arch (rule: other-than-Entitlements → Architecture)', () => {
+    for (const team of TEAM_OPTIONS) {
+      expect(disciplineForTeam(team)).toBe(team === 'Entitlements' ? 'ent' : 'arch');
+    }
   });
 });
 

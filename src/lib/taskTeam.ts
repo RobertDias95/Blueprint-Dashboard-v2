@@ -324,6 +324,44 @@ export function buildAssigneeOptions(input: {
   return { roleOptions: input.roleOptions, personOptions };
 }
 
+// ---------------------------------------------------------------------------
+// fix-244: a task's COLUMN follows its TEAM.
+//   team = Entitlements                                          -> 'ent'
+//   team ∈ {Design Associate, Design Manager, Schematic Team}    -> 'arch'
+//   ('Architecture' legacy, pre-fix-222)                         -> 'arch'
+// This is the single source of truth for discipline_for_team, shared by:
+//   - the SEEDING path (SQL twin bp_discipline_for_team in
+//     migrations/fix_244_*.sql — KEEP IN LOCKSTEP), and
+//   - the LIVE re-bucket in the permit-detail task editor (when the primary
+//     owner is set to a team/role, the task moves to that team's column).
+// A specific PERSON or an unknown/blank team yields null — "no team signal" —
+// so callers keep the task's current column; seeding then defaults null to
+// 'ent' (matching bp_list_permit_tasks' COALESCE(discipline,'ent')). Do NOT
+// force an unknown/null team to 'arch'.
+// ---------------------------------------------------------------------------
+
+/** The team/role keys whose column is Architecture ('arch'). Includes the
+ *  legacy 'Architecture' key so a pre-fix-222 value still routes correctly. */
+export const ARCH_TEAMS = [
+  'Design Associate',
+  'Design Manager',
+  'Schematic Team',
+  'Architecture',
+] as const;
+
+/** discipline_for_team: map a task's team/role to its Design-view column.
+ *  Returns 'ent' for Entitlements, 'arch' for the design roles, and null for a
+ *  specific person / unknown / blank (no team signal — caller keeps current). */
+export function disciplineForTeam(
+  team: string | null | undefined,
+): 'ent' | 'arch' | null {
+  const t = (team ?? '').trim();
+  if (t === '') return null;
+  if (t === 'Entitlements') return 'ent';
+  if ((ARCH_TEAMS as readonly string[]).includes(t)) return 'arch';
+  return null; // a specific person / unknown value → no team signal
+}
+
 /** Resolve a template's default_team to the single `assigned_to` person for a
  *  project. Mirrors the CASE in bp_create_project_with_permits. */
 export function resolveTeamAssignee(

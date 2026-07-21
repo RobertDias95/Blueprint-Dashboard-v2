@@ -300,6 +300,72 @@ describe('PermitDetailV2 fix-70 task editor', () => {
     });
   });
 
+  // fix-244: changing the PRIMARY owner to a team/role re-buckets the task's
+  // Design-view column live (column = team). A person leaves the column as-is.
+  describe('fix-244 live re-bucket on primary-team change', () => {
+    it("picking a design role ('Design Associate') moves an ENT task to arch", () => {
+      // task-1 is discipline='ent'; picking a design team re-derives → 'arch'.
+      treeRef.current = [makeTask({ id: 'task-1', discipline: 'ent', co_assignees: [] })];
+      renderIt();
+      fireEvent.change(screen.getByTestId('pb-task-1-primary-select'), {
+        target: { value: 'Design Associate' },
+      });
+      expect(upsertMutate.mock.calls[0][0]).toMatchObject({
+        id: 'task-1',
+        assignedTo: 'Design Associate',
+        discipline: 'arch',
+      });
+    });
+
+    it("picking 'Schematic Team' also moves the task to arch", () => {
+      treeRef.current = [makeTask({ id: 'task-1', discipline: 'ent', co_assignees: [] })];
+      renderIt();
+      fireEvent.change(screen.getByTestId('pb-task-1-primary-select'), {
+        target: { value: 'Schematic Team' },
+      });
+      expect(upsertMutate.mock.calls[0][0]).toMatchObject({
+        assignedTo: 'Schematic Team',
+        discipline: 'arch',
+      });
+    });
+
+    it("picking 'Entitlements' moves an arch task back to ent", () => {
+      treeRef.current = [makeTask({ id: 'task-1', discipline: 'arch', co_assignees: [] })];
+      renderIt();
+      fireEvent.change(screen.getByTestId('pb-task-1-primary-select'), {
+        target: { value: 'Entitlements' },
+      });
+      expect(upsertMutate.mock.calls[0][0]).toMatchObject({
+        assignedTo: 'Entitlements',
+        discipline: 'ent',
+      });
+    });
+
+    it('picking a specific PERSON leaves the discipline unchanged', () => {
+      treeRef.current = [makeTask({ id: 'task-1', discipline: 'arch', co_assignees: [] })];
+      renderIt();
+      fireEvent.change(screen.getByTestId('pb-task-1-primary-select'), {
+        target: { value: 'Carol' },
+      });
+      expect(upsertMutate.mock.calls[0][0]).toMatchObject({
+        assignedTo: 'Carol',
+        discipline: 'arch', // unchanged — a person is not a team
+      });
+    });
+
+    it('the Discipline dropdown still wins (explicit column pick)', () => {
+      treeRef.current = [makeTask({ id: 'task-1', discipline: 'ent', co_assignees: [] })];
+      renderIt();
+      fireEvent.change(screen.getByTestId('task-bucket-task-1'), {
+        target: { value: 'arch' },
+      });
+      expect(upsertMutate.mock.calls[0][0]).toMatchObject({
+        id: 'task-1',
+        discipline: 'arch',
+      });
+    });
+  });
+
   it('a person who is the PRIMARY is not also rendered as a co-assignee chip', () => {
     // assigned_to='Ainsley' (the DA) + co_assignees=[Ainsley, Bobby] → primary
     // Ainsley, co-assignee Bobby only (Ainsley de-duped).
