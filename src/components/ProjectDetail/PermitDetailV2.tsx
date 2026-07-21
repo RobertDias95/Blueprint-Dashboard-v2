@@ -1185,6 +1185,19 @@ function isValidIsoDate(s: string): boolean {
   return !Number.isNaN(new Date(s + 'T12:00:00Z').getTime());
 }
 
+/** fix-243: today's date in the user's LOCAL timezone as YYYY-MM-DD. Used to
+ *  pre-fill a manually-created task's Start date. Local (getFullYear/getMonth/
+ *  getDate) rather than UTC so a task added late evening in a negative-offset
+ *  zone still stamps today's calendar date, matching the other local todayIso
+ *  helpers in the codebase (useNumberEntrySweep, reportCsv). */
+function todayLocalIso(): string {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
 function DateCell({
   label,
   value,
@@ -1925,12 +1938,18 @@ function DisciplineColumn({
     // fix-79: pass the renamed `discipline` arg + the explicit lifecycle
     // `bucket` so a task added while viewing Permitting lands in Permitting
     // rather than getting the trigger's c0.submitted default.
+    // fix-243: default a MANUALLY-created task's Start date to today (local),
+    // so the field is already populated. This lives only in the manual add
+    // handler — auto-generated / lifecycle tasks (bp_create_lifecycle_task) and
+    // template-seeded tasks use separate creation paths and keep their own
+    // dates. The value is fully editable / clearable after creation.
     upsert.mutate({
       permitId,
       discipline,
       bucket: activeBucket,
       text,
       status: 'Open',
+      startDate: todayLocalIso(),
     });
     setDraft('');
   }

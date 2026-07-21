@@ -409,6 +409,77 @@ describe('PermitDetailV2 fix-70 task editor', () => {
     });
   });
 
+  // fix-243: a MANUALLY-created task (the column "Add …" input) pre-fills its
+  // Start date with today's LOCAL date. Auto-generated / lifecycle tasks use
+  // separate creation paths (bp_create_lifecycle_task, seeding) and are not
+  // touched by this — the default lives only in the column add handler.
+  describe('fix-243 manual add defaults Start to today', () => {
+    function localTodayIso(): string {
+      const d = new Date();
+      const y = d.getFullYear();
+      const m = String(d.getMonth() + 1).padStart(2, '0');
+      const day = String(d.getDate()).padStart(2, '0');
+      return `${y}-${m}-${day}`;
+    }
+
+    it('adding a task via the D&E (ent) add-box sets startDate = today', () => {
+      treeRef.current = [];
+      renderIt();
+      const input = screen.getByTestId('pd-v2-task-add-ent') as HTMLInputElement;
+      fireEvent.change(input, { target: { value: 'New D&E task' } });
+      fireEvent.keyDown(input, { key: 'Enter' });
+      expect(upsertMutate).toHaveBeenCalledTimes(1);
+      expect(upsertMutate.mock.calls[0][0]).toMatchObject({
+        permitId: 10009,
+        discipline: 'ent',
+        text: 'New D&E task',
+        startDate: localTodayIso(),
+      });
+    });
+
+    it('adding a task via the Architecture (arch) add-box also sets startDate = today', () => {
+      treeRef.current = [];
+      renderIt();
+      const input = screen.getByTestId('pd-v2-task-add-arch') as HTMLInputElement;
+      fireEvent.change(input, { target: { value: 'New arch task' } });
+      fireEvent.keyDown(input, { key: 'Enter' });
+      expect(upsertMutate.mock.calls[0][0]).toMatchObject({
+        discipline: 'arch',
+        text: 'New arch task',
+        startDate: localTodayIso(),
+      });
+    });
+
+    it('adding a task while Permitting is active still sets startDate = today (bucket=pm)', () => {
+      treeRef.current = [];
+      renderIt();
+      fireEvent.click(screen.getByTestId('pd-v2-task-bucket-bar-pm'));
+      const input = screen.getByTestId('pd-v2-task-add-ent') as HTMLInputElement;
+      fireEvent.change(input, { target: { value: 'New corrections task' } });
+      fireEvent.keyDown(input, { key: 'Enter' });
+      expect(upsertMutate.mock.calls[0][0]).toMatchObject({
+        bucket: 'pm',
+        text: 'New corrections task',
+        startDate: localTodayIso(),
+      });
+    });
+
+    it('a subtask (a different creation path) is NOT given a today Start', () => {
+      // Proves the default is scoped to the manual COLUMN add handler, not all
+      // client task creation — auto/lifecycle/template paths stay untouched.
+      renderIt();
+      fireEvent.click(screen.getByTestId('task-add-subtask-task-1'));
+      const input = screen.getByTestId('task-subtask-input-task-1');
+      fireEvent.change(input, { target: { value: 'Order survey' } });
+      fireEvent.click(screen.getByTestId('task-subtask-add-task-1'));
+      expect(upsertMutate.mock.calls[0][0]).toMatchObject({
+        parentTaskId: 'task-1',
+        text: 'Order survey',
+      });
+      expect(upsertMutate.mock.calls[0][0].startDate).toBeUndefined();
+    });
+  });
+
   it('renders an existing subtask nested under its parent', () => {
     renderIt();
     expect(screen.getByTestId('task-row-sub-1')).toBeInTheDocument();
