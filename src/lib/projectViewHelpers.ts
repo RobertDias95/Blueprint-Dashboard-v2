@@ -1,4 +1,5 @@
 import type {
+  Permit,
   PermitCycleReviewer,
   PermitWithCycles,
   Project,
@@ -68,6 +69,10 @@ export interface ProjectRow {
   entLeads: Set<string>;
   /** Distinct da values across the project's permits. */
   das: Set<string>;
+  /** fix-245: did the project have ANY permit (sub OR non-sub) before the
+   *  sub-permit exclusion below? Distinguishes a permit-less shell (keep ACTIVE)
+   *  from a project whose only permits are subs (hidden). See projectIsActive. */
+  hasAnyPermit: boolean;
 }
 
 export interface ProjectViewFilters {
@@ -174,7 +179,11 @@ export function buildProjectRows(
   reviewers: PermitCycleReviewer[],
 ): ProjectRow[] {
   const permitsByProject = new Map<string, PermitWithCycles[]>();
+  // fix-245: track which projects have ANY permit (before excluding subs) so the
+  // Active filter can tell a permit-less shell (active) from a sub-only project.
+  const projectsWithAnyPermit = new Set<string>();
   for (const p of permits) {
+    projectsWithAnyPermit.add(p.project_id);
     // fix-194: exclude sub/child placeholder permits from the Project List
     // rollups (stage set, reviewer chips, DA/ENT sets, permit count).
     if (isSubPermit(p)) continue;
@@ -232,9 +241,50 @@ export function buildProjectRows(
       stages,
       entLeads,
       das,
+      hasAnyPermit: projectsWithAnyPermit.has(project.id),
     });
   }
   return rows;
+}
+
+// ---- fix-245: "Active" filter (hide fully-issued / done projects) ----
+
+/** The permit statuses that mean a permit is DONE (issued or later) for the
+ *  Active filter. Centralized here as the single source of truth. Deliberately
+ *  NARROWER than effectiveStage's 'is' (which folds 'Approved' / 'Conceptually
+ *  Approved' in) and than isEffectivelyIssued (which counts approved-not-issued
+ *  as done): per Bobby, a permit that is Approved / Ready-to-Issue but NOT yet
+ *  issued keeps its project ACTIVE. */
+export const PROJECT_DONE_STATUSES: ReadonlySet<string> = new Set([
+  'Issued',
+  'Completed',
+  'Finaled',
+  'Closed',
+  'Withdrawn',
+]);
+
+/** fix-245: is a single permit DONE (issued or later)?
+ *   - physically issued (actual_issue set) — this also covers SDOT
+ *     "Conceptually Approved" records, which all carry an issue date; OR
+ *   - portal status is terminal-done (PROJECT_DONE_STATUSES).
+ *  Callers pass NON-sub permits (buildProjectRows already excludes subs). */
+export function isPermitDone(
+  permit: Pick<Permit, 'actual_issue' | 'status'>,
+): boolean {
+  if (permit.actual_issue != null) return true;
+  const s = (permit.status ?? '').trim();
+  return s !== '' && PROJECT_DONE_STATUSES.has(s);
+}
+
+/** fix-245: is the project ACTIVE (kept visible when the Active toggle is on)?
+ *  ACTIVE iff the project has NO permits at all (a fresh / redesign shell — keep
+ *  it visible) OR at least one of its non-sub permits is not yet done. A project
+ *  whose only permits are sub-permits (row.permits empty but hasAnyPermit true),
+ *  or whose every non-sub permit is done, is NOT active (hidden). row.permits
+ *  already excludes sub-permits (fix-194). */
+export function projectIsActive(row: ProjectRow): boolean {
+  if (!row.hasAnyPermit) return true;
+  return row.permits.some((p) => !isPermitDone(p.permit));
 }
 
 export function filterProjectRows(
