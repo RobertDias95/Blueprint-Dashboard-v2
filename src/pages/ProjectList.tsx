@@ -12,6 +12,7 @@ import {
   buildProjectRows,
   filterProjectRows,
   sortProjectRows,
+  projectIsActive,
   minTargetSubmit,
   loadFilters,
   saveFilters,
@@ -143,9 +144,18 @@ export default function ProjectList() {
           ),
     [scoped, holdMode, activeHeld],
   );
+  // fix-245: "Active" filter (default ON) hides fully-issued / done projects so
+  // the current pipeline stands out. Component-local, resets ON each load (same
+  // no-persistence pattern as the hold filter). Intersects with every other
+  // filter; matchCount below reflects it via `sorted.length`.
+  const [activeOnly, setActiveOnly] = useState(true);
+  const activeScoped = useMemo(
+    () => (activeOnly ? holdScoped.filter(projectIsActive) : holdScoped),
+    [holdScoped, activeOnly],
+  );
   const sorted = useMemo(
-    () => sortProjectRows(holdScoped, sort),
-    [holdScoped, sort],
+    () => sortProjectRows(activeScoped, sort),
+    [activeScoped, sort],
   );
 
   const jurisOptions = useMemo(() => {
@@ -215,6 +225,8 @@ export default function ProjectList() {
         identity={identity}
         holdMode={holdMode}
         onHoldChange={setHoldMode}
+        activeOnly={activeOnly}
+        onActiveChange={setActiveOnly}
       />
       <NewProjectWizard open={wizardOpen} onClose={() => setWizardOpen(false)} />
 
@@ -287,6 +299,8 @@ function FilterRow({
   identity,
   holdMode,
   onHoldChange,
+  activeOnly,
+  onActiveChange,
 }: {
   filters: ProjectViewFilters;
   jurisOptions: string[];
@@ -302,6 +316,8 @@ function FilterRow({
   identity: RosterIdentity;
   holdMode: HoldFilterMode;
   onHoldChange: (mode: HoldFilterMode) => void;
+  activeOnly: boolean;
+  onActiveChange: (next: boolean) => void;
 }) {
   return (
     <div
@@ -320,6 +336,20 @@ function FilterRow({
         onChange={onHoldChange}
         testid="project-view-hold-filter"
       />
+      {/* fix-245: Active toggle (default ON). Pressed = hide fully-issued
+          (done) projects so the current pipeline stands out; unpressed = show
+          everything. Sits beside the hold filter. */}
+      <button
+        type="button"
+        onClick={() => onActiveChange(!activeOnly)}
+        className="text-[11px] px-3 py-1 rounded border font-bold"
+        style={chipStyle(activeOnly)}
+        data-testid="project-view-active-toggle"
+        aria-pressed={activeOnly}
+        title="Active only — hide fully-issued (done) projects"
+      >
+        Active
+      </button>
       <input
         type="text"
         value={filters.search}
