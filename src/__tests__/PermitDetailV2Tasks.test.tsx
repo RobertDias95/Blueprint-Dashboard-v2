@@ -980,3 +980,33 @@ describe('PermitDetailV2 fix-70 task editor', () => {
     });
   });
 });
+
+// fix-notes-6: Notes reflow under the tasks + top-level task cards.
+describe('PermitDetailV2 fix-notes-6 — Notes reflow + task cards', () => {
+  it('Notes render inside the left task column (directly under tasks), not in the sidebar', () => {
+    treeRef.current = []; // 0 tasks → Notes should sit high alongside the tasks
+    renderIt();
+    const notes = screen.getByTestId('notes-panel');
+    const tasksPanel = screen.getByTestId('pd-v2-tasks-panel');
+    // The left column wraps BOTH the tasks panel and the notes panel, so Notes
+    // follow the tasks directly (no dead space below a tall sidebar).
+    const leftCol = tasksPanel.parentElement as HTMLElement;
+    expect(leftCol).toContainElement(notes);
+    // The sidebar (Schedule Estimator stub) is NOT in that left column.
+    expect(leftCol).not.toContainElement(
+      screen.getByTestId('stub-schedule-estimator'),
+    );
+  });
+
+  it('a top-level task renders as a card (border + rounded); a subtask nests inside, not its own card', () => {
+    renderIt(); // default fixture: task-1 with subtask sub-1
+    const card = screen.getByTestId('task-row-task-1');
+    expect(card.className).toContain('rounded-lg');
+    expect(card.className).toContain('border');
+    const sub = screen.getByTestId('task-row-sub-1');
+    // The subtask is NOT its own card…
+    expect(sub.className).not.toContain('rounded-lg');
+    // …and it nests INSIDE the parent task's card.
+    expect(card).toContainElement(sub);
+  });
+});
