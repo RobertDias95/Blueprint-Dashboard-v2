@@ -256,9 +256,16 @@ export default function PermitDetailV2({ permit, project }: Props) {
           borderTop: '1px solid var(--color-border)',
         }}
       >
-        <TasksPanel
-          permitId={permit.id}
-          projectId={permit.project_id}
+        {/* fix-notes-6: the left column stacks the tasks + this permit's Notes
+            so Notes sit DIRECTLY below the task content — no dead space when a
+            permit has few/no tasks (previously Notes rendered below the whole
+            grid, so the tall sidebar stretched the row and pushed Notes way
+            down). Any extra height now falls BELOW the notes, beside the
+            sidebar. min-w-0 lets the inner 1fr/1fr task grid shrink. */}
+        <div className="flex flex-col min-w-0">
+          <TasksPanel
+            permitId={permit.id}
+            projectId={permit.project_id}
           // fix-224: the permit's DA lets each task resolve co-assignee role
           // tokens (design_associate / design_manager via dm_da_groups) to the
           // actual person for display.
@@ -280,7 +287,12 @@ export default function PermitDetailV2({ permit, project }: Props) {
           inCorrections={cycles.some(
             (c) => c.cycle_index >= 1 && c.corr_issued && !c.resubmitted,
           )}
-        />
+          />
+          {/* fix-notes-1 / fix-notes-6: this permit's running notes log, now
+              directly under the task columns (was below the whole grid). Same
+              panel as the Project Overview holistic log, scoped by permit_id. */}
+          <NotesPanel projectId={permit.project_id} permitId={permit.id} />
+        </div>
         <Sidebar
           permit={permit}
           cycles={cycles}
@@ -289,10 +301,6 @@ export default function PermitDetailV2({ permit, project }: Props) {
           onSelectCycle={setViewCycleIdx}
         />
       </div>
-      {/* fix-notes-1: this permit's running notes log, at the bottom of the
-          detail pane. Same panel as the Project Overview holistic log, scoped
-          by permit_id. */}
-      <NotesPanel projectId={permit.project_id} permitId={permit.id} />
     </div>
   );
 }
@@ -1957,7 +1965,8 @@ function DisciplineColumn({
 
   return (
     <div
-      className="p-3 flex flex-col gap-1.5"
+      // fix-notes-6 (Part B): gap-2 spaces the task cards below.
+      className="p-3 flex flex-col gap-2"
       style={
         borderLeft ? { borderLeft: '1px solid var(--color-border)' } : undefined
       }
@@ -2191,7 +2200,17 @@ function TaskItem({
 
   return (
     <div
-      className="flex flex-col gap-1 py-1"
+      // fix-notes-6 (Part B): each TOP-LEVEL task renders as its own card
+      // (border + rounded + padding) so one task reads as clearly separate from
+      // the next; the column's gap spaces the cards. Subtasks are NOT cards —
+      // they nest INSIDE the parent card, indented with a left rule (below).
+      // Reuses the same border/radius/token vocabulary as the My Tasks + Project
+      // View task lists. Presentation only — no control/behavior change.
+      className={
+        isSubtask
+          ? 'flex flex-col gap-1 py-1'
+          : 'flex flex-col gap-1 rounded-lg border border-border bg-bg p-2'
+      }
       style={
         isSubtask
           ? { paddingLeft: 16, borderLeft: '2px solid var(--color-border)' }
