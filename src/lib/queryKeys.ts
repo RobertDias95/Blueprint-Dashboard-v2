@@ -158,6 +158,16 @@ export const queryKeys = {
   targetSubmitFormulasAll: ['target_submit_formulas'] as const,
   targetSubmitFormulas: (tenantId: string) =>
     ['target_submit_formulas', tenantId] as const,
+  // fix-249: display-only history benchmark (median anchor→submit days) behind
+  // bp_target_submit_benchmark. Read-only — never feeds a date, so it has no
+  // realtime invalidation; it just sits next to the target for comparison.
+  targetSubmitBenchmarksAll: ['target_submit_benchmark'] as const,
+  targetSubmitBenchmark: (
+    tenantId: string,
+    type: string,
+    juris: string,
+    anchor: string,
+  ) => ['target_submit_benchmark', tenantId, { type, juris, anchor }] as const,
   // fix-167: project On-Hold history. Bare prefix participates in realtime
   // invalidation; the tenant+project key scopes one project's hold list.
   projectHoldsAll: ['project_holds'] as const,

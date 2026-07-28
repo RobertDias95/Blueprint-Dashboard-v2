@@ -92,10 +92,19 @@ export default function PermitTypeDefaultsEditor() {
       <h2 className="text-sm font-display font-bold text-text mb-1">
         Schedule Estimator Defaults — Per Permit Type
       </h2>
+      {/* fix-249: these values used to sit BELOW the learner and were
+          therefore unreachable. They are now consulted first — they are
+          policy, not fallback. */}
       <p className="text-[11px] text-muted mb-3">
-        Fallback day-counts used when the learner has no approved samples
-        for a permit type / jurisdiction combo. Edits apply tenant-wide.
-        Range {MIN_DAYS}–{MAX_DAYS} days.
+        Day-counts for the schedule estimator, applied ahead of the learner.
+        Edits apply tenant-wide. Range {MIN_DAYS}–{MAX_DAYS} days.
+      </p>
+      <p className="text-[11px] text-muted mb-3">
+        <span className="font-semibold">Cycle 1 Resub Offset</span> also sets
+        the projected BP cycle-1 resubmit that IPR and ULS targets hang off.
+        Left blank it falls back to Intake&nbsp;→&nbsp;Approval ÷ 3, and any
+        target built on it is flagged <em>projected</em> — an estimate off an
+        event that hasn't happened yet.
       </p>
       <table className="w-full text-xs">
         <thead>

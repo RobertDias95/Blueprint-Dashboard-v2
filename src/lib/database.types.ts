@@ -302,6 +302,13 @@ export interface Permit {
   ent_lead: string | null;
   dual_da: string | null;
   target_submit: string | null;
+  /** True when target_submit was hand-typed. The engine never overwrites a
+   *  manual date — bp_recompute_target_submits skips these rows outright. */
+  target_submit_is_manual?: boolean | null;
+  /** fix-249: true when target_submit was derived from a PROJECTED anchor —
+   *  a BP milestone (cycle-1 resubmit / intake / issue) that hasn't happened
+   *  yet. The UI marks these so a projection isn't read as a firm date. */
+  target_submit_is_projected?: boolean | null;
   dd_start: string | null;
   dd_end: string | null;
   expected_issue: string | null;
