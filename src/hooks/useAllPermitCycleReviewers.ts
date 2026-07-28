@@ -31,7 +31,11 @@ export function useAllPermitCycleReviewers() {
           .from('permit_cycle_reviewers')
           .select('*')
           .order('cycle_index', { ascending: false })
-          .order('reviewer_name', { ascending: true })
+          // fix-251: reviewer_name is nullable (unassigned pending slots).
+          // nullsFirst is pinned explicitly so page boundaries stay stable
+          // regardless of PostgREST's default — this ordering feeds a
+          // paginated fetch, and `id` below is the unique tiebreaker.
+          .order('reviewer_name', { ascending: true, nullsFirst: false })
           .order('id', { ascending: true })
           .range(from, to),
       ),

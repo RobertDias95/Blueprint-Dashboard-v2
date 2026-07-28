@@ -13,17 +13,18 @@ import type {
 //   - no rows AND no fallback: render the dim placeholder dash
 
 function makeReviewer(
-  reviewer_name: string,
+  reviewer_name: string | null,
   current_status: ReviewerStatus,
   cycle_index = 1,
+  discipline: string | null = null,
 ): PermitCycleReviewer {
   return {
-    id: `r-${reviewer_name}-${cycle_index}`,
+    id: `r-${reviewer_name ?? 'unassigned'}-${discipline ?? ''}-${cycle_index}`,
     tenant_id: 'tenant-0',
     permit_id: 42,
     cycle_index,
     reviewer_name,
-    discipline: null,
+    discipline,
     current_status,
     last_event_date: '2026-05-15',
     created_at: '2026-05-19T12:00:00Z',
@@ -64,6 +65,114 @@ describe('ReviewerRollupChip', () => {
     expect(popover.textContent).toContain('Shimika Dowlen');
     expect(popover.textContent).toContain('Approved');
     expect(popover.textContent).toContain('Corrections');
+  });
+
+  // fix-251: scraper fix-scraper-250 emits actively-pending reviewer slots with
+  // no human assigned (reviewer_name = NULL). The popover used to call
+  // a.reviewer_name.localeCompare(...) unguarded and threw, taking the whole
+  // popover down.
+  describe('unassigned reviewer slots (null reviewer_name)', () => {
+    it('opens the popover without throwing when a row has a null name', () => {
+      const rows: PermitCycleReviewer[] = [
+        makeReviewer('Aaron Blunt', 'approved'),
+        makeReviewer(null, 'pending'),
+      ];
+      render(
+        <ReviewerRollupChip permitId={42} rows={rows} fallbackReviewer={null} />,
+      );
+      expect(() =>
+        fireEvent.click(screen.getByTestId('reviewer-chip-42')),
+      ).not.toThrow();
+      expect(screen.getByTestId('reviewer-popover-42')).toBeTruthy();
+    });
+
+    it('renders an unnamed slot as "Unassigned", keeping its discipline', () => {
+      const rows: PermitCycleReviewer[] = [
+        makeReviewer(null, 'pending', 1, 'Drainage'),
+      ];
+      render(
+        <ReviewerRollupChip permitId={42} rows={rows} fallbackReviewer={null} />,
+      );
+      fireEvent.click(screen.getByTestId('reviewer-chip-42'));
+      const popover = screen.getByTestId('reviewer-popover-42');
+      expect(popover.textContent).toContain('Drainage');
+      expect(popover.textContent).toContain('Unassigned');
+    });
+
+    it('marks unnamed slots as visually distinct from a person', () => {
+      const rows: PermitCycleReviewer[] = [
+        makeReviewer('Aaron Blunt', 'pending'),
+        makeReviewer(null, 'pending'),
+      ];
+      render(
+        <ReviewerRollupChip permitId={42} rows={rows} fallbackReviewer={null} />,
+      );
+      fireEvent.click(screen.getByTestId('reviewer-chip-42'));
+      const popover = screen.getByTestId('reviewer-popover-42');
+      const flags = Array.from(
+        popover.querySelectorAll('[data-unassigned]'),
+      ).map((el) => el.getAttribute('data-unassigned'));
+      expect(flags).toContain('true');
+      expect(flags).toContain('false');
+    });
+
+    it('counts unnamed pending slots in total AND outstanding', () => {
+      // The 7128829-CN shape (verified on prod 2026-07-28): one assigned +
+      // one corrections_required today, plus five unnamed pending slots the
+      // scraper is about to add. Must read 7 reviewers / 6 outstanding.
+      const rows: PermitCycleReviewer[] = [
+        makeReviewer('Deborah McGarry', 'assigned'),
+        makeReviewer('Mark Chubb', 'corrections_required'),
+        makeReviewer(null, 'pending', 1, 'Drainage'),
+        makeReviewer(null, 'pending', 1, 'Land Use'),
+        makeReviewer(null, 'pending', 1, 'Structural'),
+        makeReviewer(null, 'pending', 1, 'Energy'),
+        makeReviewer(null, 'pending', 1, 'Zoning'),
+      ];
+      render(
+        <ReviewerRollupChip permitId={42} rows={rows} fallbackReviewer={null} />,
+      );
+      const chip = screen.getByTestId('reviewer-chip-42');
+      expect(chip.textContent).toContain('7');
+
+      fireEvent.click(screen.getByTestId('reviewer-chip-42'));
+      const popover = screen.getByTestId('reviewer-popover-42');
+      // 1 assigned + 5 pending = 6 outstanding; corrections shown separately.
+      expect(popover.textContent).toContain('6');
+      // Every unnamed slot is listed, not collapsed or dropped.
+      expect(popover.textContent).toContain('Drainage');
+      expect(popover.textContent).toContain('Zoning');
+    });
+
+    it('sorts unnamed slots last within their status group', () => {
+      const rows: PermitCycleReviewer[] = [
+        makeReviewer(null, 'pending', 1, 'Drainage'),
+        makeReviewer('Zoe Adams', 'pending'),
+        makeReviewer('Aaron Blunt', 'pending'),
+      ];
+      render(
+        <ReviewerRollupChip permitId={42} rows={rows} fallbackReviewer={null} />,
+      );
+      fireEvent.click(screen.getByTestId('reviewer-chip-42'));
+      const popover = screen.getByTestId('reviewer-popover-42');
+      const text = popover.textContent ?? '';
+      expect(text.indexOf('Aaron Blunt')).toBeLessThan(text.indexOf('Zoe Adams'));
+      expect(text.indexOf('Zoe Adams')).toBeLessThan(text.indexOf('Unassigned'));
+    });
+
+    it('handles an all-unnamed roster', () => {
+      const rows: PermitCycleReviewer[] = [
+        makeReviewer(null, 'pending', 1, 'Drainage'),
+        makeReviewer(null, 'pending', 1, 'Land Use'),
+      ];
+      render(
+        <ReviewerRollupChip permitId={42} rows={rows} fallbackReviewer={null} />,
+      );
+      expect(() =>
+        fireEvent.click(screen.getByTestId('reviewer-chip-42')),
+      ).not.toThrow();
+      expect(screen.getByTestId('reviewer-chip-42').textContent).toContain('2');
+    });
   });
 
   it('filters the popover to the latest cycle when multiple cycles present', () => {

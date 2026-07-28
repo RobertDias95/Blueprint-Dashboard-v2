@@ -1,8 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import {
   bucketStatus,
+  compareReviewerNames,
   currentCycleIndex,
   isOutstandingReviewerStatus,
+  isUnassignedReviewer,
+  reviewerDisplayName,
+  UNASSIGNED_REVIEWER_LABEL,
   isReviewerRollupDriven,
   latestCycleIndex,
   OUTSTANDING_REVIEWER_STATUSES,
@@ -522,5 +526,74 @@ describe('statusLabel', () => {
     for (const [status, label] of cases) {
       expect(statusLabel(status)).toBe(label);
     }
+  });
+});
+
+// fix-251: the city opens a review slot before naming a human for it, so
+// reviewer_name arrives NULL (scraper fix-scraper-250). An unnamed slot is an
+// ACTIVELY PENDING review — it must count exactly like a named one.
+describe('fix-251 unassigned reviewer slots', () => {
+  it('detects an unnamed slot, including a whitespace-only name', () => {
+    expect(isUnassignedReviewer({ reviewer_name: null })).toBe(true);
+    expect(isUnassignedReviewer({ reviewer_name: '   ' })).toBe(true);
+    expect(isUnassignedReviewer({ reviewer_name: 'Mark Chubb' })).toBe(false);
+  });
+
+  it('renders a null name as the Unassigned label, never null', () => {
+    expect(reviewerDisplayName({ reviewer_name: null })).toBe(
+      UNASSIGNED_REVIEWER_LABEL,
+    );
+    expect(reviewerDisplayName({ reviewer_name: 'Mark Chubb' })).toBe(
+      'Mark Chubb',
+    );
+  });
+
+  it('compares mixed null/named without throwing, unnamed sorting last', () => {
+    const rows = [
+      { reviewer_name: null },
+      { reviewer_name: 'Zoe' },
+      { reviewer_name: null },
+      { reviewer_name: 'Aaron' },
+    ];
+    expect(() => [...rows].sort(compareReviewerNames)).not.toThrow();
+    expect([...rows].sort(compareReviewerNames).map((r) => r.reviewer_name))
+      .toEqual(['Aaron', 'Zoe', null, null]);
+  });
+
+  it('is stable for two unnamed slots (returns 0, not an arbitrary order)', () => {
+    expect(
+      compareReviewerNames({ reviewer_name: null }, { reviewer_name: null }),
+    ).toBe(0);
+  });
+
+  it('counts unnamed pending slots in total and pending', () => {
+    // 7128829-CN's post-scrape shape, verified against prod 2026-07-28.
+    const rows = [
+      makeReviewer({ reviewer_name: 'Deborah McGarry', current_status: 'assigned' }),
+      makeReviewer({ reviewer_name: 'Mark Chubb', current_status: 'corrections_required' }),
+      ...Array.from({ length: 5 }, (_, i) =>
+        makeReviewer({
+          reviewer_name: null,
+          discipline: `D${i}`,
+          current_status: 'pending',
+        }),
+      ),
+    ];
+    const counts = rollupCounts(rows);
+    expect(counts.total).toBe(7);
+    expect(counts.pending).toBe(5);
+    expect(counts.correctionsRequired).toBe(1);
+    // outstanding as the chip computes it: inReview + pending (+assigned,
+    // which buckets into pending) — 6 of the 7 still owe an action.
+    expect(counts.inReview + counts.pending).toBe(6);
+    expect(counts.notRequired).toBe(0);
+  });
+
+  it('keeps unnamed slots outstanding for the verdict', () => {
+    const rows = [
+      makeReviewer({ reviewer_name: 'A', current_status: 'approved' }),
+      makeReviewer({ reviewer_name: null, current_status: 'pending' }),
+    ];
+    expect(reviewerVerdictForLatestCycle(rows)).toBe('in_review');
   });
 });

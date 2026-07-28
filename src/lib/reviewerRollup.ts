@@ -17,6 +17,49 @@ export interface ReviewerCounts {
   notRequired: number;
 }
 
+// fix-251: the city can open a review slot before naming a human for it, so
+// reviewer_name arrives NULL (scraper fix-scraper-250). Such a slot is an
+// ACTIVELY PENDING review — it counts toward total and outstanding exactly
+// like a named one. Nothing in this module keys off the name (the counts are
+// driven purely by current_status), so the counts were already correct; these
+// two helpers exist so the *display* layer never touches a null name directly.
+
+/** Label for an unassigned reviewer slot. */
+export const UNASSIGNED_REVIEWER_LABEL = 'Unassigned';
+
+/** True when the city has opened this slot but not yet named a reviewer. */
+export function isUnassignedReviewer(row: {
+  reviewer_name: string | null;
+}): boolean {
+  return row.reviewer_name == null || row.reviewer_name.trim() === '';
+}
+
+/** What to print for a reviewer slot. Never returns null, so callers can't
+ *  crash on `.localeCompare` / `.trim()` / `.toLowerCase()`. */
+export function reviewerDisplayName(row: {
+  reviewer_name: string | null;
+}): string {
+  return isUnassignedReviewer(row)
+    ? UNASSIGNED_REVIEWER_LABEL
+    : (row.reviewer_name as string);
+}
+
+/** Alphabetical comparator that tolerates unnamed slots. Unnamed slots sort
+ *  LAST within their status group — they're real outstanding work, but a name
+ *  is the more useful thing to scan, so named reviewers lead. Stable for two
+ *  unnamed rows (returns 0, and Array.prototype.sort is stable). */
+export function compareReviewerNames(
+  a: { reviewer_name: string | null },
+  b: { reviewer_name: string | null },
+): number {
+  const aUnnamed = isUnassignedReviewer(a);
+  const bUnnamed = isUnassignedReviewer(b);
+  if (aUnnamed && bUnnamed) return 0;
+  if (aUnnamed) return 1;
+  if (bUnnamed) return -1;
+  return (a.reviewer_name as string).localeCompare(b.reviewer_name as string);
+}
+
 /** Pick the latest cycle_index in the row set. Used by the Project
  *  Overview rollup which displays "current cycle" reviewer status. */
 export function latestCycleIndex(rows: PermitCycleReviewer[]): number | null {
