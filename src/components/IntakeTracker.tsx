@@ -5,6 +5,7 @@ import { usePermitTypes } from '../hooks/usePermitTypes';
 import { useUpsertIntakeRecord } from '../hooks/useUpsertIntakeRecord';
 import { useDeleteIntakeRecord } from '../hooks/useDeleteIntakeRecord';
 import { useSwapIntakeDates } from '../hooks/useSwapIntakeDates';
+import BufferedDateInput from './BufferedDateInput';
 import {
   getWeekMondayKey,
   groupByWeek,
@@ -827,15 +828,22 @@ function InlineDate({
   onCommit: (v: string) => void;
   testId?: string;
 }) {
-  // For dates we just render the native date input — no click-to-edit
-  // mode swap since dates are short and the input is small.
+  // fix-258: was `onChange={(e) => onCommit(e.target.value)}` — a raw native
+  // date input committing on EVERY intermediate state. Editing 2026-08-04 saved
+  // the transient 2026-07-04 (month decremented mid-edit); the row then fell
+  // outside the displayed week and the permit appeared to VANISH from the list,
+  // while the mutation's refetch re-synced this controlled input and snapped the
+  // picker shut. One cause, both of Miles's symptoms — and the OCC toast storm,
+  // which was per-keystroke commits racing each other's refetches.
+  //
+  // Buffering now comes from the shared <BufferedDateInput> (fix-73 / fix-237 /
+  // fix-258 all being the same bug in three hand-rolled copies).
   return (
-    <input
-      type="date"
-      value={value ?? ''}
-      onChange={(e) => onCommit(e.target.value)}
+    <BufferedDateInput
+      value={value}
+      onCommit={(v) => onCommit(v ?? '')}
       className="text-[10px] font-mono text-text bg-transparent border border-transparent hover:border-border focus:border-de rounded px-0.5 py-0 outline-none w-full"
-      data-testid={testId}
+      testId={testId}
     />
   );
 }
