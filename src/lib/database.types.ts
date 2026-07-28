@@ -268,7 +268,12 @@ export interface PermitCycleReviewer {
   tenant_id: string;
   permit_id: number;
   cycle_index: number;
-  reviewer_name: string;
+  /** fix-251: NULL when the city has opened a review slot but not yet named a
+   *  human for it (scraper fix-scraper-250). An unnamed slot is still an
+   *  ACTIVELY PENDING review and must count as outstanding — do not filter
+   *  these rows out. Anything calling .localeCompare/.trim/.toLowerCase on
+   *  this must guard for null; use reviewerDisplayName() to render. */
+  reviewer_name: string | null;
   /** "Land Use", "Plan Review", etc. when the adapter knows it; null when
    *  the adapter can only see the reviewer's name without their role. */
   discipline: string | null;

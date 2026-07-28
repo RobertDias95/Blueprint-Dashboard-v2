@@ -5,6 +5,9 @@ import {
   bucketStatus,
   currentCycleIndex,
   latestCycleIndex,
+  compareReviewerNames,
+  isUnassignedReviewer,
+  reviewerDisplayName,
   rollupCounts,
   rowsForCycle,
   statusLabel,
@@ -300,7 +303,9 @@ function ReviewerPopover({
     const ra = SORT_RANK[bucketStatus(a.current_status)];
     const rb = SORT_RANK[bucketStatus(b.current_status)];
     if (ra !== rb) return ra - rb;
-    return a.reviewer_name.localeCompare(b.reviewer_name);
+    // fix-251: reviewer_name is nullable now (unassigned pending slots).
+    // A bare .localeCompare threw here and took the whole popover down.
+    return compareReviewerNames(a, b);
   });
   // fix-103: stacked 2-line breakdown mirrors fix-95's PermitMiniTable cell
   // (src/pages/ProjectList.tsx) so Project View and Schedule Health speak
@@ -393,20 +398,35 @@ function ReviewerPopover({
                     dimmed and the assignee emphasized. Current data has
                     discipline NULL everywhere, so this renders exactly as
                     before (bare name) until PR2's slot data flows. */}
+                {/* fix-251: an unnamed slot still shows its discipline —
+                    "Drainage — Unassigned" — and renders italic/dimmed so it
+                    reads as a slot awaiting an assignee rather than as a
+                    person. It is NOT hidden: the city has opened this review
+                    and it counts as outstanding. */}
                 <div
                   className="text-[11px] font-bold text-text truncate"
                   title={
                     r.discipline
-                      ? `${r.discipline} — ${r.reviewer_name}`
-                      : r.reviewer_name
+                      ? `${r.discipline} — ${reviewerDisplayName(r)}`
+                      : reviewerDisplayName(r)
                   }
+                  data-unassigned={isUnassignedReviewer(r) ? 'true' : 'false'}
                 >
                   {r.discipline && (
                     <span className="text-dim font-semibold">
                       {r.discipline} —{' '}
                     </span>
                   )}
-                  {r.reviewer_name}
+                  {isUnassignedReviewer(r) ? (
+                    <span
+                      className="italic font-semibold"
+                      style={{ color: 'var(--color-dim)' }}
+                    >
+                      {reviewerDisplayName(r)}
+                    </span>
+                  ) : (
+                    reviewerDisplayName(r)
+                  )}
                 </div>
               </div>
               <div className="flex flex-col items-end flex-shrink-0">
