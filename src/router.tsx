@@ -14,6 +14,7 @@ import ActivityPage from './pages/ActivityPage';
 import WeeklyDaReport from './pages/WeeklyDaReport';
 import WeeklyUpdatesReport from './pages/WeeklyUpdatesReport';
 import ApprovedAwaitingIssuanceReport from './pages/ApprovedAwaitingIssuanceReport';
+import PhaseDurationsReport from './pages/PhaseDurationsReport';
 import ReportingHubPage from './pages/ReportingHubPage';
 import CustomReport from './pages/CustomReport';
 import ReportBuilder from './pages/ReportBuilder';
@@ -68,6 +69,16 @@ export const router = createBrowserRouter([
         element: (
           <AdminRoute>
             <ApprovedAwaitingIssuanceReport />
+          </AdminRoute>
+        ),
+      },
+      // fix-253: Phase Durations — city review vs our turnaround, per type,
+      // jurisdiction and cycle. Read-only evidence for the phase model.
+      {
+        path: 'reports/phase-durations',
+        element: (
+          <AdminRoute>
+            <PhaseDurationsReport />
           </AdminRoute>
         ),
       },
