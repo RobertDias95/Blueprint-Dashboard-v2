@@ -46,6 +46,7 @@ import {
   type PrimaryResolutionContext,
 } from '../../lib/taskTeam';
 import CoAssigneeEditor from '../CoAssigneeEditor';
+import TargetSubmitBenchmarkNote from './TargetSubmitBenchmarkNote';
 import PrimaryAssigneeEditor from '../PrimaryAssigneeEditor';
 import NotesPanel from './NotesPanel';
 import TaskDateField from '../TaskDateField';
@@ -992,6 +993,18 @@ function DateStrip({
           onCommit={(v) =>
             commitPermit('target_submit', v || null, permit.target_submit, 'Target Submit')
           }
+          /** fix-249: policy drives the date; history sits underneath it for
+           *  comparison. Also marks the date as a projection when it hangs off
+           *  a BP milestone that hasn't happened yet. */
+          footnote={
+            <TargetSubmitBenchmarkNote
+              type={permit.type}
+              juris={project?.juris}
+              isProjected={permit.target_submit_is_projected}
+              isManual={permit.target_submit_is_manual}
+              testid="pd-target-submit-benchmark"
+            />
+          }
           testid="pd-cell-target_submit"
         />
         <DateCell
@@ -1219,6 +1232,7 @@ function DateCell({
   readOnly,
   commitOnChange,
   localError,
+  footnote,
   testid,
 }: {
   label: string;
@@ -1252,6 +1266,11 @@ function DateCell({
    *  validateYearRange so the cell is self-defending even without a
    *  parent that wires the chain check. */
   localError?: string | null;
+  /** fix-249: optional line rendered under the input — used by Target Submit
+   *  to show the display-only history benchmark and the projection marker.
+   *  Suppressed while an error message is showing so the cell never stacks
+   *  two competing sub-labels. */
+  footnote?: React.ReactNode;
   /** fix-23c: cells expose a stable testid so the highlight-rule
    *  integration test can find them by name regardless of where they
    *  live in the design vs cycle-N strips. */
@@ -1593,6 +1612,9 @@ function DateCell({
           {yearError || localError}
         </span>
       )}
+      {/* fix-249: benchmark / projection note. Errors win the slot — a cell
+          that can't save shouldn't also be explaining its history. */}
+      {footnote && !yearError && !localError && footnote}
     </div>
   );
 }
