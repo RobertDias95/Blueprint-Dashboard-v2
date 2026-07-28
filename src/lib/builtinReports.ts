@@ -2,6 +2,7 @@ import type { ComponentType } from 'react';
 import WeeklyDaReport from '../pages/WeeklyDaReport';
 import WeeklyUpdatesReport from '../pages/WeeklyUpdatesReport';
 import ApprovedAwaitingIssuanceReport from '../pages/ApprovedAwaitingIssuanceReport';
+import PhaseDurationsReport from '../pages/PhaseDurationsReport';
 
 // fix-68: builtin report registry. Maps a saved_reports.builtin_key to its
 // rendering component + the route that runs it. The Reporting hub (Settings
@@ -31,6 +32,13 @@ export const BUILTIN_REPORT_COMPONENTS: Record<string, BuiltinReportDef> = {
     component: WeeklyUpdatesReport,
     route: '/reports/weekly-updates',
     label: 'Weekly Updates',
+  },
+  // fix-253: city-review vs our-turnaround durations per type/juris/cycle.
+  // Read-only evidence for the phase model; feeds no date.
+  phase_durations: {
+    component: PhaseDurationsReport,
+    route: '/reports/phase-durations',
+    label: 'Phase Durations',
   },
   // fix-221: Approved – Awaiting Issuance. Every approved-not-issued permit
   // (Seattle "Issuance Prep") with days-since-approval, deep-linking to Project View.

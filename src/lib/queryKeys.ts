@@ -168,6 +168,10 @@ export const queryKeys = {
     juris: string,
     anchor: string,
   ) => ['target_submit_benchmark', tenantId, { type, juris, anchor }] as const,
+  // fix-253: learned phase durations (city review vs our turnaround, per cycle).
+  // Read-only analysis surface behind bp_phase_duration_grid; no realtime.
+  phaseDurationGrid: (tenantId: string, recentDays: number) =>
+    ['phase_duration_grid', tenantId, { recentDays }] as const,
   // fix-167: project On-Hold history. Bare prefix participates in realtime
   // invalidation; the tenant+project key scopes one project's hold list.
   projectHoldsAll: ['project_holds'] as const,
