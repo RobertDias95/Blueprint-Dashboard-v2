@@ -114,7 +114,19 @@ export function useUpsertIntakeRecord() {
       if (row.conflict) throw new OCCConflictError(0, 'Intake');
       return { ...input.record, ...input.patch, updated_at: row.updated_at };
     },
-    onSuccess: () => {
+    onSuccess: (result) => {
+      // fix-258: write the fresh OCC token straight into the cache before the
+      // invalidate-driven refetch lands. Without this, a second edit made
+      // inside that window still carries the STALE updated_at, so the RPC
+      // reports a conflict and the user gets "Intake was modified by someone
+      // else — your edit was reverted" for their own edit. Miles saw three of
+      // those in six minutes. Twelve other hooks already do this; both intake
+      // hooks did not. Mirrors useSetBpDdDates.
+      queryClient.setQueryData<IntakeRecord[]>(
+        queryKeys.intakeRecords(tenantId),
+        (rows) =>
+          rows?.map((r) => (r.id === result.id ? { ...r, ...result } : r)),
+      );
       queryClient.invalidateQueries({
         queryKey: queryKeys.intakeRecords(tenantId),
       });

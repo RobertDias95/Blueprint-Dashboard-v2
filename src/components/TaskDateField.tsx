@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from 'react';
+import { useState } from 'react';
+import BufferedDateInput from './BufferedDateInput';
 
 // fix-229: a calm date field for the live task editors. An EMPTY date renders as
 // a muted "—" (no loud native mm/dd/yyyy); clicking it reveals the date picker.
@@ -13,6 +14,13 @@ import { useEffect, useRef, useState } from 'react';
 // on the D&E/Permitting task rows). This now mirrors the cycle DateCell pattern
 // (fix-73): keep a local draft, refuse to overwrite it from a refetch while the
 // user is mid-edit (dirty), and commit ONCE on blur/Enter — never per keystroke.
+//
+// fix-258: that buffering now lives in the shared <BufferedDateInput> (the same
+// bug turned up a third time, in IntakeTracker, because the pattern had been
+// hand-rolled in each place). This component keeps its own chrome — the muted
+// "—" placeholder that reveals the picker — and delegates the input behaviour.
+// Observable behaviour is unchanged except that Escape now reverts the draft,
+// which the shared control adds everywhere.
 
 export interface TaskDateFieldProps {
   /** 'YYYY-MM-DD' or null/'' when unset. */
@@ -41,63 +49,23 @@ export default function TaskDateField({
 }: TaskDateFieldProps) {
   const committed = value ?? '';
   const [open, setOpen] = useState(false);
-  // fix-237: local draft is the input's source of truth while editing.
-  const [draft, setDraft] = useState(committed);
-  // fix-237: dirty gates the value-prop sync effect below. Once the user has
-  // typed but not yet committed, a background refetch (from a sibling save, an
-  // OCC retry, or this cell's own optimistic invalidate) must NOT overwrite the
-  // draft — that was the year-clobber symptom.
-  const [dirty, setDirty] = useState(false);
-  // Tracks the last committed string so blur without a real change is a no-op
-  // (no phantom mutation, no toast).
-  const lastCommittedRef = useRef(committed);
-
-  // fix-237: pull server truth into the draft only when the user is NOT
-  // mid-edit. lastCommittedRef always advances so the dedupe in commit()
-  // compares against the freshest committed value even while dirty.
-  useEffect(() => {
-    const incoming = value ?? '';
-    lastCommittedRef.current = incoming;
-    if (dirty) return;
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setDraft(incoming);
-  }, [value, dirty]);
 
   const hasValue = !!(committed && committed.trim() !== '');
   const showInput = hasValue || open;
 
-  function commit() {
-    setOpen(false);
-    // Dedupe: nothing typed / same as committed → clear dirty, fire nothing.
-    if (draft === lastCommittedRef.current) {
-      setDirty(false);
-      return;
-    }
-    lastCommittedRef.current = draft;
-    setDirty(false);
-    onChange(draft || null);
-  }
-
   return (
     <span className="inline-flex items-center" data-testid={`${testId}-field`}>
       {showInput ? (
-        <input
-          type="date"
-          value={draft}
+        <BufferedDateInput
+          value={value}
           disabled={disabled}
           autoFocus={open && !hasValue}
-          // fix-237: local-only on change — buffer the keystroke, mark dirty,
-          // fire NO mutation. Commit happens on blur/Enter.
-          onChange={(e) => {
-            setDraft(e.target.value);
-            setDirty(true);
-          }}
-          onBlur={commit}
-          onKeyDown={(e) => {
-            // Enter routes through blur so commit + dedupe live in one place.
-            if (e.key === 'Enter') e.currentTarget.blur();
-          }}
-          aria-label={ariaLabel}
+          // fix-237/258: buffered — commits ONCE on blur/Enter, never per
+          // keystroke. onEditEnd fires on every blur (changed or not), which is
+          // what closes the revealed picker exactly as before.
+          onCommit={onChange}
+          onEditEnd={() => setOpen(false)}
+          ariaLabel={ariaLabel}
           className={
             inputClassName ??
             'text-[10px] px-1 py-0.5 border rounded outline-none'
@@ -109,7 +77,7 @@ export default function TaskDateField({
               color: 'var(--color-text)',
             }
           }
-          data-testid={testId}
+          testId={testId}
         />
       ) : (
         <button

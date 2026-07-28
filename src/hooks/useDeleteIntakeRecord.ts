@@ -4,6 +4,7 @@ import { queryKeys } from '../lib/queryKeys';
 import { OCCConflictError, isOCCConflict } from '../lib/occ';
 import { pushToast } from '../stores/toastStore';
 import { useAuthStore } from '../stores/authStore';
+import type { IntakeRecord } from '../lib/database.types';
 
 // Q6.3.c: bp_delete_intake_records_row (Q5.5.C). OCC delete + idempotent
 // on missing rows (server returns deleted=true, conflict=false).
@@ -27,7 +28,15 @@ export function useDeleteIntakeRecord() {
       const row = (data as Row[])[0];
       if (row?.conflict) throw new OCCConflictError(0, 'Intake');
     },
-    onSuccess: () => {
+    onSuccess: (_void, variables) => {
+      // fix-258: drop the row from the cache immediately rather than waiting
+      // for the invalidate-driven refetch. Without this the deleted row stays
+      // on screen for the round-trip and can be edited again, sending an OCC
+      // token for a row that no longer exists.
+      queryClient.setQueryData<IntakeRecord[]>(
+        queryKeys.intakeRecords(tenantId),
+        (rows) => rows?.filter((r) => r.id !== variables.id),
+      );
       queryClient.invalidateQueries({
         queryKey: queryKeys.intakeRecords(tenantId),
       });
