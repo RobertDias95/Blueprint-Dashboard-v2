@@ -28,6 +28,7 @@ import type {
   Stage,
 } from '../../lib/database.types';
 import ReviewerRollupChip from './ReviewerRollupChip';
+import InlineErrorBoundary from '../InlineErrorBoundary';
 
 // Q9.5.e-fix-4: 8-column Schedule Health table per v1 §4.2.1 (B) and the
 // _healthRow / _healthRowShell render at index.html:3646-3678. Columns:
@@ -320,17 +321,29 @@ function Row({
           permits.extras.latest_reviewer single-name display when the
           permit's adapter hasn't done per-reviewer extraction yet. */}
       <td className="px-2 py-2 align-middle text-center border-l" style={borderL}>
-        <ReviewerRollupChip
-          permitId={permit.id}
-          rows={reviewers}
-          fallbackReviewer={fallbackReviewer}
-          permitStatus={permit.status}
-          permitType={permit.type}
-          // fix-186: follow the permit's CURRENT cycle so the chip doesn't lag a
-          // cycle behind once the permit advances past the last cycle that has
-          // reviewer rows.
-          cycles={permit.permit_cycles ?? []}
-        />
+        {/* fix-260: blast-radius limiter. This chip renders scraped reviewer
+            rows whose shape we don't fully control — a null reviewer_name once
+            threw inside Array.sort and took the whole ProjectDetail route down
+            (React Router catches route render errors before the app-level
+            fix-87 boundary, so the user got its raw error page and nothing was
+            logged). Now one unrenderable chip costs one cell, and the incident
+            still reaches Settings → Errors. */}
+        <InlineErrorBoundary
+          label="reviewers"
+          testId={`reviewer-chip-error-${permit.id}`}
+        >
+          <ReviewerRollupChip
+            permitId={permit.id}
+            rows={reviewers}
+            fallbackReviewer={fallbackReviewer}
+            permitStatus={permit.status}
+            permitType={permit.type}
+            // fix-186: follow the permit's CURRENT cycle so the chip doesn't lag a
+            // cycle behind once the permit advances past the last cycle that has
+            // reviewer rows.
+            cycles={permit.permit_cycles ?? []}
+          />
+        </InlineErrorBoundary>
       </td>
       {/* 3. Stage */}
       <td className="px-2 py-2 align-middle text-center border-l" style={borderL}>
