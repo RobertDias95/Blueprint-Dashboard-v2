@@ -6,6 +6,7 @@ import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
 import ProjectList from './pages/ProjectList';
 import ProjectDetail from './pages/ProjectDetail';
+import RouteErrorFallback from './components/RouteErrorFallback';
 import Reports from './pages/Reports';
 import ReportsTeamDetail from './pages/ReportsTeamDetail';
 import MyTasks from './pages/MyTasks';
@@ -43,7 +44,16 @@ export const router = createBrowserRouter([
       { path: 'dashboard', element: <Dashboard /> },
       { path: 'draw-schedule', element: <DrawSchedule /> },
       { path: 'projects', element: <ProjectList /> },
-      { path: 'project/:id', element: <ProjectDetail /> },
+      // fix-260: errorElement scoped to ProjectDetail only (no broad routing
+      // refactor). Without it React Router swallows a route render crash into
+      // its built-in "Unexpected Application Error" page and logs NOTHING —
+      // the app-level fix-87 boundary sits outside the router and never sees
+      // it. This routes the crash through logError instead.
+      {
+        path: 'project/:id',
+        element: <ProjectDetail />,
+        errorElement: <RouteErrorFallback />,
+      },
       // fix-234: the Reports hub + every report route is admin-only. A non-admin
       // navigating directly to any /reports path (or the Settings → Reporting
       // hub, which renders report data) is redirected to /dashboard by

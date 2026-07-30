@@ -46,15 +46,24 @@ export function reviewerDisplayName(row: {
 
 /** Alphabetical comparator that tolerates unnamed slots. Unnamed slots sort
  *  LAST within their status group — they're real outstanding work, but a name
- *  is the more useful thing to scan, so named reviewers lead. Stable for two
- *  unnamed rows (returns 0, and Array.prototype.sort is stable). */
+ *  is the more useful thing to scan, so named reviewers lead.
+ *
+ *  fix-260: two unnamed slots now fall back to DISCIPLINE rather than returning
+ *  0. Returning 0 left them in arbitrary fetch order, which matters more than
+ *  it first appears: 16 cycles on prod carry more than one nameless slot, and
+ *  many nameless slots are process steps whose discipline IS their identity —
+ *  "Appeal Period", "Wrap-up", "MUP Processing", "Design Review Meeting and
+ *  Report". Ordering them by discipline is the only thing that makes that list
+ *  read consistently between renders. */
 export function compareReviewerNames(
-  a: { reviewer_name: string | null },
-  b: { reviewer_name: string | null },
+  a: { reviewer_name: string | null; discipline?: string | null },
+  b: { reviewer_name: string | null; discipline?: string | null },
 ): number {
   const aUnnamed = isUnassignedReviewer(a);
   const bUnnamed = isUnassignedReviewer(b);
-  if (aUnnamed && bUnnamed) return 0;
+  if (aUnnamed && bUnnamed) {
+    return (a.discipline ?? '').localeCompare(b.discipline ?? '');
+  }
   if (aUnnamed) return 1;
   if (bUnnamed) return -1;
   return (a.reviewer_name as string).localeCompare(b.reviewer_name as string);
