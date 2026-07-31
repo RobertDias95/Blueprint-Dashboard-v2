@@ -59,6 +59,10 @@ import {
 } from '../lib/drawScheduleHelpers';
 import { computeProjectedApproval } from '../lib/projectedApproval';
 import {
+  useAllProjectHolds,
+  holdsByProjectId as holdsIndexByProjectId,
+} from '../hooks/useProjectHolds';
+import {
   computeLearnedSchedule,
   type LearnedEstimate,
 } from '../lib/scheduleBenchmarks';
@@ -243,6 +247,14 @@ function DrawScheduleBody({
   search,
   setSearch,
 }: BodyProps) {
+  // fix-262: holds feed BOTH the projected-approval shift (below) and the
+  // cancelled-block treatment. Holds are rare, so one tenant-wide fetch indexed
+  // by project — the same pattern Dashboard / Project List already use.
+  const holdsQ = useAllProjectHolds();
+  const holdsByProjectId = useMemo(
+    () => holdsIndexByProjectId(holdsQ.data),
+    [holdsQ.data],
+  );
   // Q9.5.g: lookup tables for deriveBlockStatus per block render.
   // permitsByProjectId groups permits at each project (deriveBlockStatus
   // filters to BPs internally). cyclesByPermit indexes the cycles array
@@ -337,6 +349,10 @@ function DrawScheduleBody({
       const bpCycles = (bp.permit_cycles ?? []) as PermitCycle[];
       const result = computeProjectedApproval({
         permit: bp,
+        // fix-262: the block's date is now hold-aware, like the Schedule
+        // Estimator's. Before this the grid showed an Est. Approval that
+        // ignored an open hold entirely.
+        holds: holdsByProjectId.get(project.id),
         cycles: bpCycles
           .filter((c) => c.cycle_index !== 0)
           .sort((a, b) => a.cycle_index - b.cycle_index),

@@ -99,7 +99,11 @@ export default function ScheduleHealthTable({ permits }: Props) {
   // turnaround doesn't skew the per-(type,juris) averages.
   const holdsQ = useAllProjectHolds();
   const holdsMap = useMemo(() => holdsByProjectId(holdsQ.data), [holdsQ.data]);
-  const activeHold = hasActiveHold(holdsMap.get(permits[0]?.project_id ?? ''));
+  // fix-170: the badge is masked to "On Hold" when a hold is open. fix-262: the
+  // DATE next to it now respects the hold too — before this the column showed an
+  // un-shifted Est. Approval beside an "On Hold" badge.
+  const projectHolds = holdsMap.get(permits[0]?.project_id ?? '');
+  const activeHold = hasActiveHold(projectHolds);
   const learningPermits = useMemo(
     () => filterHeldLearningSamples(allPermitsQ.data ?? [], holdsMap),
     [allPermitsQ.data, holdsMap],
@@ -170,6 +174,7 @@ export default function ScheduleHealthTable({ permits }: Props) {
               projectsById={projectsById}
               typeDefaultsOverride={typeDefaultsQ.byType}
               activeHold={activeHold}
+              projectHolds={projectHolds}
             />
           ))}
         </tbody>
@@ -186,6 +191,7 @@ function Row({
   projectsById,
   typeDefaultsOverride,
   activeHold,
+  projectHolds,
 }: {
   permit: PermitWithCycles;
   reviewers: PermitCycleReviewer[];
@@ -196,6 +202,9 @@ function Row({
   projectsById: Map<string, import('../../lib/database.types').Project>;
   typeDefaultsOverride: Map<string, number>;
   activeHold: boolean;
+  /** fix-262: this project's holds, threaded into computeProjectedApproval so
+   *  the Estimated Approval date is pushed out while the project is parked. */
+  projectHolds: import('../../lib/database.types').ProjectHold[] | undefined;
 }) {
   const stage = effectiveStage(permit, permit.permit_cycles ?? [], reviewers);
   // fix-31: legacy fallback display for permit types whose adapter
@@ -261,6 +270,8 @@ function Row({
     () =>
       computeProjectedApproval({
         permit,
+        // fix-262 (fix-170 effect C): hold-aware projection.
+        holds: projectHolds,
         cycles: (permit.permit_cycles ?? [])
           .filter((c) => c.cycle_index !== 0)
           .sort((a, b) => a.cycle_index - b.cycle_index),
@@ -280,7 +291,7 @@ function Row({
         // prediction. Already loaded above for the chip rollup — reuse.
         permitReviewers: reviewers,
       }),
-    [permit, learnedEstimate, projectGoDate, siblings, siblingCyclesByPermitId, siblingLearnedByPermitId, cycleOverride, typeDefaultsOverride, reviewers],
+    [permit, projectHolds, learnedEstimate, projectGoDate, siblings, siblingCyclesByPermitId, siblingLearnedByPermitId, cycleOverride, typeDefaultsOverride, reviewers],
   );
   const projection = projectedResult.projection;
   const isActual = projectedResult.isActual;
