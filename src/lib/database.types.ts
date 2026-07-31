@@ -148,6 +148,26 @@ export interface ProjectHold {
   created_by: string | null;
   created_at: string;
   updated_at: string;
+  /** fix-262: which KIND of park this row records.
+   *   'hold'      — paused, but the project is still ACTIVE.
+   *   'cancelled' — no longer active: the step after hold, before delete.
+   *  At most one OPEN row (hold_end === null) of EITHER kind per project.
+   *  Optional on the hand-typed interface so pre-fix-262 fixtures stay valid;
+   *  the column is NOT NULL DEFAULT 'hold' in the DB, so a missing value reads
+   *  as a hold. */
+  kind?: ProjectHoldKind;
+}
+
+/** fix-262: the two kinds a project_holds row can be. Mirrors the DB CHECK. */
+export type ProjectHoldKind = 'hold' | 'cancelled';
+
+/** fix-262: a row's kind, defaulting to 'hold' for rows written before the
+ *  column existed (and for fixtures that omit it). Use this rather than reading
+ *  `.kind` directly so the default is applied in exactly one place. */
+export function holdKind(
+  h: Pick<ProjectHold, 'kind'> | null | undefined,
+): ProjectHoldKind {
+  return h?.kind === 'cancelled' ? 'cancelled' : 'hold';
 }
 
 /** fix-126: controlled-vocab union for projects.redesign_trigger. Mirrors
@@ -403,6 +423,12 @@ export interface PermitTask {
   parent_task_id?: string | null;
   /** Auto-stamped by trigger when completion_status -> 'Resolved'. */
   done_at?: string | null;
+  /** fix-262: the completion_status this task held immediately before a project
+   *  cancel swept it to 'Cancelled'. NULL unless the task is currently cancelled
+   *  BY A SWEEP. There is no task history table and bp_trg_task_done_at clears
+   *  done_at on any non-Resolved status, so this column is the entire restore
+   *  mechanism — bp_restore_project reads it, restores it, then NULLs it. */
+  prior_completion_status?: string | null;
   /** fix-138-a: external-blocker discipline. Vocab owned by the
    *  TypeScript layer (see WAITING_ON_OPTIONS / WaitingOnDiscipline); no
    *  DB CHECK so the team can expand the list without migrations. Null =
@@ -519,7 +545,10 @@ export interface TaskNode {
    *  on the permit detail tasks panel and the bucket filter in My Tasks. */
   bucket: 'de' | 'pm';
   text: string;
-  status: 'Open' | 'In Progress' | 'Resolved';
+  /** fix-262: 'Cancelled' joins the union — written only by a project cancel's
+   *  server-side sweep, cleared only by bp_restore_project. Read predicates
+   *  should go through taskStatus.isTaskLive rather than testing != 'Resolved'. */
+  status: 'Open' | 'In Progress' | 'Resolved' | 'Cancelled';
   start_date: string | null;
   target_date: string | null;
   /** fix-138-a: separate "due" date (different concept from target). */

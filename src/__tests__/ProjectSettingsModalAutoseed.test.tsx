@@ -40,6 +40,9 @@ vi.mock('../hooks/useProjectHolds', () => ({
   useSetProjectHold: () => ({ mutate: vi.fn(), isPending: false }),
   useLiftProjectHold: () => ({ mutate: vi.fn(), isPending: false }),
   useUpdateProjectHold: () => ({ mutate: vi.fn(), isPending: false }),
+  // fix-262: the panel is now the project STATUS control (hold + cancelled).
+  useSetProjectCancel: () => ({ mutate: vi.fn(), isPending: false }),
+  useRestoreProject: () => ({ mutate: vi.fn(), isPending: false }),
 }));
 vi.mock('../hooks/useJurisdictions', () => ({
   useJurisdictions: () => ({ data: [] }),

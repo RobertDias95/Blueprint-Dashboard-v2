@@ -54,6 +54,8 @@ import {
   nextCheckboxStatus,
   checkboxVisual,
   TASK_STATUS_OPTIONS,
+  isTaskCancelled,
+  writableStatus,
 } from '../../lib/taskStatus';
 import type {
   Permit,
@@ -2179,6 +2181,10 @@ function TaskItem({
       patch.assignedTo !== undefined
         ? disciplineForTeam(patch.assignedTo)
         : null;
+    // fix-262: a task parked by a project cancel is read-only. Editing it would
+    // overwrite the 'Cancelled' status and strand prior_completion_status,
+    // breaking the restore. The controls are disabled; this is the backstop.
+    if (isTaskCancelled(task.status)) return;
     upsert.mutate({
       id: task.id,
       permitId,
@@ -2189,7 +2195,7 @@ function TaskItem({
       discipline: teamDiscipline ?? task.discipline,
       bucket: task.bucket,
       text: task.text,
-      status: task.status,
+      status: writableStatus(task.status),
       startDate: task.start_date,
       targetDate: task.target_date,
       sortOrder: task.sort_order,
@@ -2253,9 +2259,14 @@ function TaskItem({
           type="button"
           onClick={() => {
             const next = nextCheckboxStatus(task.status);
-            if (next) save({ status: next });
+            if (next) save({ status: writableStatus(next) });
           }}
-          disabled={checkboxVisual(task.status) === 'checked' || upsert.isPending}
+          disabled={
+            checkboxVisual(task.status) === 'checked' ||
+            // fix-262: a cancelled task is inert until the project comes back.
+            isTaskCancelled(task.status) ||
+            upsert.isPending
+          }
           title={
             checkboxVisual(task.status) === 'checked'
               ? 'Resolved — use the status dropdown to reopen'

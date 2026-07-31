@@ -39,6 +39,8 @@ import {
   useAllProjectHolds,
   activeHoldProjectIds,
   activeHoldByProjectId,
+  cancelledProjectIds,
+  cancelByProjectId,
 } from '../hooks/useProjectHolds';
 import HoldFilter from '../components/shared/HoldFilter';
 import { HoldBadge } from '../components/shared/HoldBadge';
@@ -134,6 +136,13 @@ export default function ProjectList() {
     () => activeHoldByProjectId(holdsQ.data),
     [holdsQ.data],
   );
+  // fix-262: the cancelled set, kept separate from the held set — a hold is
+  // still an active project, a cancel is not.
+  const cancelledIds = useMemo(
+    () => cancelledProjectIds(holdsQ.data),
+    [holdsQ.data],
+  );
+  const cancelMap = useMemo(() => cancelByProjectId(holdsQ.data), [holdsQ.data]);
   const [holdMode, setHoldMode] = useState<HoldFilterMode>(HOLD_FILTER_DEFAULT);
   const holdScoped = useMemo(
     () =>
@@ -148,10 +157,16 @@ export default function ProjectList() {
   // the current pipeline stands out. Component-local, resets ON each load (same
   // no-persistence pattern as the hold filter). Intersects with every other
   // filter; matchCount below reflects it via `sorted.length`.
+  // fix-262: cancelled projects are NOT active, so the same toggle hides them.
+  // "Active" ON (the default) hides them; turning it OFF is the show-inactive
+  // path that reveals them.
   const [activeOnly, setActiveOnly] = useState(true);
   const activeScoped = useMemo(
-    () => (activeOnly ? holdScoped.filter(projectIsActive) : holdScoped),
-    [holdScoped, activeOnly],
+    () =>
+      activeOnly
+        ? holdScoped.filter((r) => projectIsActive(r, cancelledIds))
+        : holdScoped,
+    [holdScoped, activeOnly, cancelledIds],
   );
   const sorted = useMemo(
     () => sortProjectRows(activeScoped, sort),
@@ -267,7 +282,13 @@ export default function ProjectList() {
                 <ProjectRowView
                   key={row.project.id}
                   row={row}
-                  hold={activeHoldMap.get(row.project.id) ?? null}
+                  // fix-262: one badge slot, either kind. The cancel map is
+                  // consulted first — a project is never both.
+                  hold={
+                    cancelMap.get(row.project.id) ??
+                    activeHoldMap.get(row.project.id) ??
+                    null
+                  }
                   expanded={expandedById.get(row.project.id) ?? false}
                   onToggle={() => toggleExpanded(row.project.id)}
                 />

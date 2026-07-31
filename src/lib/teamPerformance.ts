@@ -68,6 +68,11 @@ export interface TeamMemberMetrics {
   // CO-CREDITED via a DA handoff — shared with another DA (both carry the full
   // volume). Always 0 for DM/ENT (co-credit is DA-scoped). Drives the ✳ marker.
   sharedProjectCount: number;
+  // fix-262: of this person's lead projects (original ∪ redesign, the same
+  // accumulated cohort as totalProjectCount), how many are CANCELLED. This is a
+  // QUALIFIER shown BESIDE the volume numbers — "12 projects, 2 cancelled" —
+  // never a deduction from them. Every count above is unchanged by cancellation.
+  cancelledProjectCount: number;
   // fix-216: REUSE context (NOT a change to volume credit). Of this owner's LEAD
   // projects (original + redesign, the same accumulated cohort as
   // totalProjectCount), how many were templated off another project
@@ -173,6 +178,10 @@ export function computeTeamMetrics(
   // fix-226: DA co-credit map (project_id → {from_da, to_da} of its handoffs).
   // Omitted / empty → byte-identical to pre-fix-226. Only affects role='da'.
   coCreditDaByProject?: Map<string, Set<string>>,
+  // fix-262: project ids that are CANCELLED. Tags the qualifier column only —
+  // no volume number changes. Omitted → every cancelledProjectCount is 0 and
+  // the result is byte-identical to pre-fix-262.
+  cancelledProjects?: ReadonlySet<string>,
 ): TeamMetricsResult {
   const projectsById = new Map<string, Project>();
   for (const p of projects) projectsById.set(p.id, p);
@@ -228,6 +237,8 @@ export function computeTeamMetrics(
       // fix-226: co-credit both DAs on handed-off projects (DA role only —
       // attributePersonVolume ignores this for dm/ent).
       coCreditDaByProject,
+      // fix-262: tags cancelled lead projects; changes no count.
+      cancelledProjects,
     },
   );
 
@@ -341,6 +352,8 @@ export function computeTeamMetrics(
       delegatePermitCount: bucket.delegatePermitIds.size,
       // fix-226: how many of this person's lead projects are DA-handoff shared.
       sharedProjectCount: bucket.sharedProjectIds.size,
+      // fix-262: cancelled qualifier — sits beside the volume, never inside it.
+      cancelledProjectCount: bucket.cancelledProjectIds.size,
       // fix-216: reuse context (does not affect volume credit above).
       reuseProjectCount,
       reuseRate,

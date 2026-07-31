@@ -158,3 +158,50 @@ describe('fix-245 projectIsActive', () => {
     expect(projectIsActive(row)).toBe(false);
   });
 });
+
+// ── fix-262: CANCELLED composes into the same predicate ─────────────────────
+// Bobby: "A hold is still an ACTIVE project. A cancelled project is no longer
+// active." So cancellation short-circuits the fix-245 permit-done rules, and a
+// HOLD deliberately does not reach this predicate at all.
+describe('fix-262 projectIsActive — cancelled is NOT active', () => {
+  it('a cancelled project is inactive even though every permit is still open', () => {
+    const row = rowFor('c1', [
+      mkPermit({ project_id: 'c1', status: 'Corrections Required' }),
+    ]);
+    // ...active by the fix-245 rules alone
+    expect(projectIsActive(row)).toBe(true);
+    // ...but not once it is cancelled
+    expect(projectIsActive(row, new Set(['c1']))).toBe(false);
+  });
+
+  it('a permit-less cancelled shell is inactive (the hasAnyPermit escape does not apply)', () => {
+    const row = rowFor('c2', []);
+    expect(projectIsActive(row)).toBe(true);
+    expect(projectIsActive(row, new Set(['c2']))).toBe(false);
+  });
+
+  it('an unrelated cancelled id changes nothing', () => {
+    const row = rowFor('c3', [
+      mkPermit({ project_id: 'c3', status: 'Corrections Required' }),
+    ]);
+    expect(projectIsActive(row, new Set(['someone-else']))).toBe(true);
+  });
+
+  it('an empty cancelled set is identical to omitting it (pre-fix-262 behaviour)', () => {
+    const open = rowFor('c4', [mkPermit({ project_id: 'c4', status: 'Under Review' })]);
+    const done = rowFor('c5', [
+      mkPermit({ project_id: 'c5', status: 'Issued', actual_issue: '2026-05-01' }),
+    ]);
+    expect(projectIsActive(open, new Set())).toBe(projectIsActive(open));
+    expect(projectIsActive(done, new Set())).toBe(projectIsActive(done));
+  });
+
+  it('a project on HOLD is still ACTIVE — holds are never passed to this predicate', () => {
+    // The Project List builds its cancelled set from cancelledProjectIds(), which
+    // is kind='cancelled' only, so a held project can never appear here.
+    const row = rowFor('c6', [
+      mkPermit({ project_id: 'c6', status: 'Corrections Required' }),
+    ]);
+    expect(projectIsActive(row, new Set(['not-c6']))).toBe(true);
+  });
+});

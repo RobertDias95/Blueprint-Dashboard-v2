@@ -24,6 +24,10 @@ import {
   nextCheckboxStatus,
   checkboxVisual,
   TASK_STATUS_OPTIONS,
+  isTaskLive,
+  isTaskCancelled,
+  writableStatus,
+  type TaskWriteStatus,
 } from '../lib/taskStatus';
 import { useScopeMode } from '../hooks/useSelfScope';
 import { type ScopeMode } from '../lib/selfScope';
@@ -107,6 +111,8 @@ const STATUS_BG: Record<Task['status'], string> = {
   Open: 'var(--color-s2)',
   'In Progress': 'var(--color-de)',
   Resolved: 'var(--color-pm)',
+  // fix-262: parked by a project cancel — muted, never a live-work colour.
+  Cancelled: 'var(--color-s2)',
 };
 
 function loadFilters(): FilterState {
@@ -156,8 +162,10 @@ function todayIso(): string {
 }
 
 function isOverdue(t: Task, today: string): boolean {
+  // fix-262: isTaskLive, not `!== 'Resolved'` — a task parked by a project
+  // cancel is not overdue, it is not in play at all.
   return (
-    t.status !== 'Resolved' && !!t.target_date && t.target_date < today
+    isTaskLive(t.status) && !!t.target_date && t.target_date < today
   );
 }
 
@@ -351,22 +359,30 @@ function Body({
     let open = 0;
     let overdue = 0;
     let resolved = 0;
+    let cancelled = 0;
     const projects = new Set<string>();
     for (const t of filtered) {
       projects.add(t.project_id);
-      if (t.status === 'Resolved') resolved += 1;
-      else {
+      // fix-262: a cancelled task counts as neither open nor resolved — it is
+      // excluded from the done-% denominator below too, so the percentage keeps
+      // meaning "of the work still on the books, how much is finished".
+      if (isTaskCancelled(t.status)) {
+        cancelled += 1;
+      } else if (t.status === 'Resolved') {
+        resolved += 1;
+      } else {
         open += 1;
         if (isOverdue(t, today)) overdue += 1;
       }
     }
-    const total = filtered.length;
+    const total = filtered.length - cancelled;
     const pct = total === 0 ? 0 : Math.round((resolved / total) * 100);
     return {
       open,
       overdue,
       projects: projects.size,
       resolved,
+      cancelled,
       total,
       pct,
     };
@@ -377,9 +393,12 @@ function Body({
   // stays meaningful even when Resolved cards are hidden.
   const visible = useMemo(
     () =>
+      // fix-262: cancelled tasks are hidden from the working columns in BOTH
+      // modes. "Show resolved" reveals finished work, not abandoned work; a
+      // cancelled task returns when the project is brought back.
       filters.activeOnly
-        ? filtered.filter((t) => t.status !== 'Resolved')
-        : filtered,
+        ? filtered.filter((t) => isTaskLive(t.status))
+        : filtered.filter((t) => !isTaskCancelled(t.status)),
     [filtered, filters.activeOnly],
   );
 
@@ -1115,7 +1134,7 @@ function TaskCard({
       discipline: task.discipline,
       bucket: task.bucket,
       text: task.text,
-      status: next,
+      status: writableStatus(next),
       startDate: task.start_date,
       targetDate: task.target_date,
     });
@@ -1576,7 +1595,7 @@ function TaskDetailEditor({
         <FieldRow label="Status">
           <select
             value={task.status}
-            onChange={(e) => patch({ status: e.target.value as Task['status'] })}
+            onChange={(e) => patch({ status: e.target.value as TaskWriteStatus })}
             disabled={upsert.isPending}
             className="text-[11px] px-2 py-1 border rounded outline-none"
             style={inputStyle()}
@@ -1603,7 +1622,7 @@ function TaskDetailEditor({
                   clearCompleted: true,
                   // Reopen the task — if there's no completion date,
                   // the task can't still be Resolved.
-                  status: isResolved ? 'Open' : task.status,
+                  status: isResolved ? 'Open' : writableStatus(task.status),
                 });
               } else {
                 patch({ completed: v, status: 'Resolved' });

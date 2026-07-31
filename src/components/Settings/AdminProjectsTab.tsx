@@ -90,6 +90,9 @@ export default function AdminProjectsTab() {
   // fix-167: editable Hold Reasons list — the source for the project On-Hold
   // reason dropdown. Same app_config mechanism as Product Types / Project Tags.
   const holdReasons = readAppConfigStringArray(cfgQ.map, 'holdReasonOptions');
+  // fix-262: cancel reasons are a SEPARATE vocabulary from hold reasons —
+  // "builder pulled out" and "waiting on survey" answer different questions.
+  const cancelReasons = readAppConfigStringArray(cfgQ.map, 'cancelReasonOptions');
 
   return (
     <div className="space-y-6" data-testid="admin-projects-tab">
@@ -205,6 +208,33 @@ export default function AdminProjectsTab() {
           emptyState="No hold reasons yet. Used when putting a project On Hold."
           readOnly={!isAdmin}
           testIdPrefix="hold-reasons-list"
+        />
+      </Section>
+
+      {/* fix-262: Cancel Reasons — the dropdown source for CANCELLING a project
+          ("the step after hold, but before delete"). Deliberately its own list;
+          a cancel reason is never a hold reason. */}
+      <Section title="Cancel Reasons">
+        <PillListEditor
+          label="Cancel Reasons"
+          items={cancelReasons.map((r) => ({ key: r, label: r }))}
+          onAdd={(name) => {
+            if (cancelReasons.includes(name)) return;
+            setKey.mutate({
+              key: 'cancelReasonOptions',
+              value: [...cancelReasons, name],
+            });
+          }}
+          onRemove={(name) =>
+            setKey.mutate({
+              key: 'cancelReasonOptions',
+              value: cancelReasons.filter((r) => r !== name),
+            })
+          }
+          placeholder="Add cancel reason…"
+          emptyState="No cancel reasons yet. Used when cancelling a project."
+          readOnly={!isAdmin}
+          testIdPrefix="cancel-reasons-list"
         />
       </Section>
 

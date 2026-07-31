@@ -14,6 +14,7 @@ import { useProjects } from '../hooks/useProjects';
 import {
   useAllProjectHolds,
   holdsByProjectId,
+  cancelledProjectIds,
 } from '../hooks/useProjectHolds';
 import { useDaCoCreditMap } from '../hooks/useProjectDaHandoffs';
 import { useTeamMembers } from '../hooks/useTeamMembers';
@@ -129,6 +130,7 @@ function Body({
   // their vs-team-avg baseline (same map as the Team tab).
   const holdsQ = useAllProjectHolds();
   const holdsMap = useMemo(() => holdsByProjectId(holdsQ.data), [holdsQ.data]);
+  const cancelledIds = useMemo(() => cancelledProjectIds(holdsQ.data), [holdsQ.data]);
   // fix-226: DA co-credit — a handed-off project shows in both DAs' metrics +
   // its drill-in project list carries the ✳ shared marker.
   const { coCreditMap } = useDaCoCreditMap();
@@ -156,6 +158,8 @@ function Body({
         },
         holdsMap,
         coCreditMap,
+        // fix-262: cancelled qualifier. Volume numbers are unaffected.
+        cancelledIds,
       ),
     [permits, projects, teamMembers, role, holdsMap, coCreditMap],
   );
