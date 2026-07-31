@@ -1829,12 +1829,19 @@ describe('fix-262 draw schedule — cancelled block', () => {
   });
 
   it('the block keeps its full width (same span as when not cancelled)', () => {
+    // fix-263: compare GEOMETRY only. This assertion originally compared the
+    // whole style string, which also pinned the paint — and fix-263
+    // deliberately changes the paint (hatch fill, cancelled border). The claim
+    // it exists to protect is that a cancelled block is not shrunk or moved.
+    const geom = (el: Element) =>
+      (el.getAttribute('style') ?? '').match(
+        /height:[^;]+|left:[^;]+|right:[^;]+|top:[^;]+/g,
+      );
     renderGrid();
-    const before = screen.getByTestId('block-p-now').getAttribute('style');
-    screen.getByTestId('block-p-now'); // anchor
+    const before = geom(screen.getByTestId('block-p-now'));
     cleanupAndRerenderWithCancel();
-    const after = screen.getByTestId('block-p-now').getAttribute('style');
-    expect(after).toBe(before);
+    const after = geom(screen.getByTestId('block-p-now'));
+    expect(after).toEqual(before);
   });
 
   function cleanupAndRerenderWithCancel() {
@@ -1867,5 +1874,149 @@ describe('fix-262 draw schedule — cancelled block', () => {
     holdRows.current = [{ ...cancelRow('p-now'), kind: 'hold' as const }];
     renderGrid();
     expect(screen.queryByTestId('block-cancelled-p-now')).toBeNull();
+  });
+});
+
+// ── fix-263: block treatment for parked projects ───────────────────────────
+// fix-262 shipped the cancelled block with the default 'Scheduled' treatment —
+// white fill plus a grey "Scheduled" pill — so a cancelled project read as
+// PENDING, the opposite of terminal. Held projects had no treatment at all.
+//
+// The constraint that drove the design: flat grey is already the Vacation / NP
+// overlay (drawScheduleHelpers.NP_BLOCK_COLOR = #cacaca), so a flat-grey
+// cancelled block is ambiguous across twelve columns. Cancelled uses a 45-degree
+// two-grey HATCH; the texture is what makes it unmistakable.
+describe('fix-263 draw schedule — parked block treatment', () => {
+  function parkRow(projectId: string, kind: 'hold' | 'cancelled', reason: string) {
+    return {
+      id: `${kind}-${projectId}`,
+      tenant_id: T,
+      project_id: projectId,
+      reason,
+      note: null,
+      hold_start: '2026-05-11',
+      hold_end: null,
+      kind,
+      created_by: null,
+      created_at: '2026-05-11T00:00:00Z',
+      updated_at: '2026-05-11T00:00:00Z',
+    };
+  }
+
+  afterEach(() => {
+    holdRows.current = [];
+  });
+
+  // ---- CANCELLED -------------------------------------------------------
+  it('cancelled: paints the hatch, not the phase fill', () => {
+    holdRows.current = [parkRow('p-now', 'cancelled', 'Builder pulled out')];
+    renderGrid();
+    const style = screen.getByTestId('block-p-now').getAttribute('style') ?? '';
+    expect(style).toContain('var(--hatch-cancelled)');
+    expect(style).toContain('var(--color-cancelled-border)');
+  });
+
+  it('cancelled: the address is struck through', () => {
+    holdRows.current = [parkRow('p-now', 'cancelled', 'Builder pulled out')];
+    renderGrid();
+    const addr = screen.getByTestId('block-address-p-now').getAttribute('style') ?? '';
+    expect(addr).toContain('line-through');
+  });
+
+  it('cancelled: the phase pill is REMOVED — a cancelled project has no live phase', () => {
+    // Prove the pill is there first, so the assertion below is meaningful and
+    // not just a testid that never existed on this block.
+    renderGrid();
+    expect(screen.getByTestId('block-status-p-now')).toBeTruthy();
+    document.body.innerHTML = '';
+
+    holdRows.current = [parkRow('p-now', 'cancelled', 'Builder pulled out')];
+    renderGrid();
+    expect(screen.queryByTestId('block-status-p-now')).toBeNull();
+  });
+
+  it('cancelled: the CANCELLED date line still renders (fix-262 behaviour kept)', () => {
+    holdRows.current = [parkRow('p-now', 'cancelled', 'Builder pulled out')];
+    renderGrid();
+    const slot = screen.getByTestId('block-cancelled-p-now');
+    expect(slot.textContent).toContain('CANCELLED');
+    expect(slot.textContent).toContain('05-11-26');
+  });
+
+  // ---- HELD ------------------------------------------------------------
+  it('held: paints amber from the shared hold token', () => {
+    holdRows.current = [parkRow('p-now', 'hold', 'MHA')];
+    renderGrid();
+    const style = screen.getByTestId('block-p-now').getAttribute('style') ?? '';
+    expect(style).toContain('var(--color-hold-bg)');
+    expect(style).toContain('var(--color-hold-border)');
+  });
+
+  it('held: KEEPS the phase pill — a held project is still active', () => {
+    holdRows.current = [parkRow('p-now', 'hold', 'MHA')];
+    renderGrid();
+    expect(screen.getByTestId('block-status-p-now')).toBeTruthy();
+  });
+
+  it('held: the address is NOT struck through', () => {
+    holdRows.current = [parkRow('p-now', 'hold', 'MHA')];
+    renderGrid();
+    const addr = screen.getByTestId('block-address-p-now').getAttribute('style') ?? '';
+    expect(addr).not.toContain('line-through');
+  });
+
+  it('held: renders the reason so the amber is never unexplained', () => {
+    holdRows.current = [parkRow('p-now', 'hold', 'Financing / capital decision')];
+    renderGrid();
+    const slot = screen.getByTestId('block-held-p-now');
+    expect(slot.textContent).toContain('On hold');
+    expect(slot.textContent).toContain('Financing / capital decision');
+  });
+
+  it('held and cancelled never both apply to one block', () => {
+    holdRows.current = [parkRow('p-now', 'cancelled', 'Builder pulled out')];
+    renderGrid();
+    expect(screen.queryByTestId('block-held-p-now')).toBeNull();
+    expect(screen.getByTestId('block-cancelled-p-now')).toBeTruthy();
+  });
+
+  // ---- REGRESSION LOCK: the normal path is untouched --------------------
+  it('neither: an unparked block is byte-identical to before fix-263', () => {
+    holdRows.current = [];
+    renderGrid();
+    const style = screen.getByTestId('block-p-now').getAttribute('style') ?? '';
+    // no park tokens anywhere
+    expect(style).not.toContain('--color-hold');
+    expect(style).not.toContain('--hatch-cancelled');
+    expect(style).not.toContain('--color-cancelled');
+    // still the derived phase fill, still the phase pill, no strike
+    expect(style).toContain('background: rgb(255, 255, 255)');
+    expect(screen.getByTestId('block-status-p-now')).toBeTruthy();
+    const addr = screen.getByTestId('block-address-p-now').getAttribute('style') ?? '';
+    expect(addr).not.toContain('line-through');
+    expect(screen.queryByTestId('block-held-p-now')).toBeNull();
+    expect(screen.queryByTestId('block-cancelled-p-now')).toBeNull();
+  });
+
+  it('neither: parking ONE project leaves its neighbours untouched', () => {
+    holdRows.current = [parkRow('p-now', 'cancelled', 'Builder pulled out')];
+    renderGrid();
+    const other = screen.getByTestId('block-p-other').getAttribute('style') ?? '';
+    expect(other).not.toContain('--hatch-cancelled');
+    expect(other).not.toContain('--color-hold-bg');
+    expect(screen.getByTestId('block-status-p-other')).toBeTruthy();
+  });
+
+  it('the parked block keeps its full width AND height', () => {
+    renderGrid();
+    const before = screen.getByTestId('block-p-now').getAttribute('style') ?? '';
+    const beforeGeom = before.match(/height:[^;]+|left:[^;]+|right:[^;]+|top:[^;]+/g);
+    document.body.innerHTML = '';
+
+    holdRows.current = [parkRow('p-now', 'cancelled', 'Builder pulled out')];
+    renderGrid();
+    const after = screen.getByTestId('block-p-now').getAttribute('style') ?? '';
+    const afterGeom = after.match(/height:[^;]+|left:[^;]+|right:[^;]+|top:[^;]+/g);
+    expect(afterGeom).toEqual(beforeGeom);
   });
 });

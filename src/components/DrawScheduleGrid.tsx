@@ -62,6 +62,7 @@ import {
   useAllProjectHolds,
   holdsByProjectId as holdsIndexByProjectId,
   cancelByProjectId,
+  activeHoldByProjectId,
 } from '../hooks/useProjectHolds';
 import {
   computeLearnedSchedule,
@@ -78,7 +79,13 @@ import type {
   PermitCycle,
   Project,
 } from '../lib/database.types';
-import { deriveLaneStatus, STATUS_PRESENTATION } from '../lib/drawScheduleStatus';
+import {
+  deriveLaneStatus,
+  STATUS_PRESENTATION,
+  DS_PARK_PRESENTATION,
+  type DsParkKind,
+} from '../lib/drawScheduleStatus';
+import { holdKind } from '../lib/database.types';
 
 // Q6.1: read-only render of all draw_schedule rows. Mirrors v1's
 // renderDrawSchedule layout (index.html lines 7875-8090):
@@ -260,6 +267,9 @@ function DrawScheduleBody({
   // (consumed DA capacity is the whole point of this view) — only the date
   // column and the block's chrome change. There is deliberately no filter here.
   const cancelMap = useMemo(() => cancelByProjectId(holdsQ.data), [holdsQ.data]);
+  // fix-263: held projects get their own block treatment too (fix-262 gave them
+  // none). Same bulk fetch, indexed by kind — a project is never in both maps.
+  const heldMap = useMemo(() => activeHoldByProjectId(holdsQ.data), [holdsQ.data]);
   // Q9.5.g: lookup tables for deriveBlockStatus per block render.
   // permitsByProjectId groups permits at each project (deriveBlockStatus
   // filters to BPs internally). cyclesByPermit indexes the cycles array
@@ -1822,6 +1832,24 @@ function DrawScheduleBody({
                       STATUS_PRESENTATION[derivedStatus] ??
                       STATUS_PRESENTATION.Scheduled;
                     const sc = pres.colors;
+                    // fix-263: PARK overlay. A parked project keeps its full
+                    // width and height — the DA's consumed capacity is the whole
+                    // point of this view — but its chrome changes so the state
+                    // is readable at a glance instead of inheriting the phase
+                    // fill. `park` is null for the overwhelming majority of
+                    // blocks, and every branch below is guarded on it, so the
+                    // normal path is untouched.
+                    const parkRow =
+                      cancelMap.get(row.project_id) ??
+                      heldMap.get(row.project_id) ??
+                      null;
+                    const parkKind: DsParkKind | null = parkRow
+                      ? (holdKind(parkRow) as DsParkKind)
+                      : null;
+                    const park = parkKind ? DS_PARK_PRESENTATION[parkKind] : null;
+                    // Text colour follows the park when parked; the phase colour
+                    // otherwise. One variable so every child line stays in sync.
+                    const bodyText = park ? park.text : sc.text;
                     // fix-126: redesign blocks get a yellow border to
                     // distinguish them from juris-colored normals. The
                     // helper falls back to jurisBorder when the FK is
@@ -1947,9 +1975,16 @@ function DrawScheduleBody({
                           left: 2,
                           right: 2,
                           height,
-                          background: sc.bg,
-                          color: sc.text,
-                          border: `2px solid ${borderColor}`,
+                          // fix-263: a parked block paints from the PARK palette
+                          // (amber for hold, 45-degree two-grey hatch for
+                          // cancelled) instead of the derived phase fill. Flat
+                          // grey is already the Vacation / NP overlay, so
+                          // cancelled uses a TEXTURE rather than another grey.
+                          background: park ? park.background : sc.bg,
+                          color: bodyText,
+                          border: park
+                            ? `2px solid ${park.border}`
+                            : `2px solid ${borderColor}`,
                           borderRadius: 4,
                           overflow: 'hidden',
                           zIndex: 5,
@@ -2004,7 +2039,13 @@ function DrawScheduleBody({
                             overflow: 'hidden',
                             textOverflow: 'ellipsis',
                             maxWidth: '100%',
-                            color: sc.text,
+                            color: bodyText,
+                            // fix-263: a cancelled project's address is struck
+                            // through — the single strongest "this is over" cue,
+                            // and it survives every font size in the ramp.
+                            textDecoration: park?.strikeAddress
+                              ? 'line-through'
+                              : 'none',
                           }}
                           title={project.address}
                           data-testid={`block-address-${row.project_id}`}
@@ -2044,7 +2085,7 @@ function DrawScheduleBody({
                               fontSize: Math.round(9 * textScale),
                               fontWeight: 800,
                               lineHeight: 1,
-                              color: sc.text,
+                              color: bodyText,
                               background: 'transparent',
                               border: 'none',
                               cursor: 'pointer',
@@ -2096,7 +2137,12 @@ function DrawScheduleBody({
                               — show instead. Taller non-overflow blocks keep the
                               pill (helps users still learning the color code,
                               and they have room for it). */}
-                          {!isCompact && (
+                          {/* fix-263: a CANCELLED project has no live phase, so
+                              the phase chip is removed entirely — leaving it is
+                              precisely what made the fix-262 block read as
+                              pending. A HOLD keeps it: a held project is still
+                              ACTIVE and its phase still means something. */}
+                          {!isCompact && (park?.showPhasePill ?? true) && (
                             <span
                               style={{
                                 // fix-DS-pill-and-date: shrink the status pill
@@ -2109,8 +2155,8 @@ function DrawScheduleBody({
                                 padding: '0px 3px',
                                 borderRadius: 2,
                                 background: 'rgba(255,255,255,0.55)',
-                                color: sc.border,
-                                border: `1px solid ${sc.border}`,
+                                color: park ? park.border : sc.border,
+                                border: `1px solid ${park ? park.border : sc.border}`,
                                 whiteSpace: 'nowrap',
                               }}
                               data-testid={`block-status-${row.project_id}`}
@@ -2135,6 +2181,53 @@ function DrawScheduleBody({
                             // approval that will never come and shows the
                             // CANCELLED date instead. Same label-flip mechanism
                             // fix-100 already used for Est. Approval → Approval.
+                            // fix-263: a HELD project keeps its Est. Approval
+                            // (fix-262 PART A already pushes that date out by
+                            // the days parked) and gains a line naming WHY it is
+                            // parked, so the amber is never unexplained.
+                            const heldRow = heldMap.get(row.project_id);
+                            if (heldRow) {
+                              const proj = projectionByProjectId.get(
+                                row.project_id,
+                              );
+                              return (
+                                <div
+                                  style={{
+                                    display: 'flex',
+                                    flexDirection: 'column',
+                                    alignItems: 'center',
+                                    lineHeight: 1.1,
+                                    color: park ? park.subtext : sc.text,
+                                    maxWidth: '100%',
+                                  }}
+                                  data-testid={`block-held-${row.project_id}`}
+                                  title={`On hold since ${heldRow.hold_start} — ${heldRow.reason}`}
+                                >
+                                  <span
+                                    style={{
+                                      fontSize: Math.max(7, detailFont - 1),
+                                      fontWeight: 700,
+                                      whiteSpace: 'nowrap',
+                                      overflow: 'hidden',
+                                      textOverflow: 'ellipsis',
+                                      maxWidth: '100%',
+                                    }}
+                                  >
+                                    ⏸ On hold — {heldRow.reason}
+                                  </span>
+                                  {proj?.projection && (
+                                    <span
+                                      style={{
+                                        fontSize: detailFont,
+                                        fontWeight: 800,
+                                      }}
+                                    >
+                                      {formatProjectionDate(proj.projection)}
+                                    </span>
+                                  )}
+                                </div>
+                              );
+                            }
                             const cancelRow = cancelMap.get(row.project_id);
                             if (cancelRow) {
                               return (
@@ -2144,8 +2237,10 @@ function DrawScheduleBody({
                                     flexDirection: 'column',
                                     alignItems: 'center',
                                     lineHeight: 1.1,
-                                    color: sc.text,
-                                    opacity: 0.85,
+                                    // fix-263: park colours, and full opacity —
+                                    // the hatch already mutes the block, so the
+                                    // fix-262 0.85 made the date hard to read.
+                                    color: park ? park.subtext : sc.text,
                                   }}
                                   data-testid={`block-cancelled-${row.project_id}`}
                                   title={`Cancelled ${cancelRow.hold_start} — ${cancelRow.reason}`}
@@ -2163,7 +2258,6 @@ function DrawScheduleBody({
                                     style={{
                                       fontSize: detailFont,
                                       fontWeight: 800,
-                                      opacity: 0.95,
                                     }}
                                   >
                                     {formatProjectionDate(cancelRow.hold_start)}
