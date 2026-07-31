@@ -37,6 +37,41 @@
   --color-is-bg:     #cffafe;
   --color-is-border: #67e8f9;
 
+  /* fix-263: PARK palette — the two states a project can be parked in
+     (project_holds.kind). Defined here, once, because they are consumed by
+     three surfaces that must never drift: the Draw Schedule block, the shared
+     HoldBadge, and the Draw Schedule legend.
+
+     HOLD is amber. Before fix-263 HoldBadge borrowed the CORRECTIONS palette
+     (--color-co-*), which meant "on hold" and "in corrections" painted the same
+     colour — two concepts, one colour. These tokens give hold its own, and
+     HoldBadge now points at them, so the badge and the block are the same amber
+     by construction rather than by coincidence.
+
+     CANCELLED is a 45-degree two-grey HATCH, not a flat fill. Flat grey is
+     already spoken for by the Vacation / NP overlay (#cacaca, see
+     drawScheduleHelpers.NP_BLOCK_COLOR); across twelve columns a flat-grey
+     cancelled block is ambiguous at a glance. The texture is what makes it
+     unmistakable, and it survives the smallest row height the grid produces. */
+  --color-hold-bg:      #fac775;
+  --color-hold-border:  #854f0b;
+  --color-hold-text:    #412402;
+  --color-hold-subtext: #633806;
+
+  --color-cancelled-a:      #d3d1c7;
+  --color-cancelled-b:      #b4b2a9;
+  --color-cancelled-border: #5f5e5a;
+  --color-cancelled-text:   #2c2c2a;
+  /* 5px stripes. Referenced by the block fill and the legend swatch so the
+     chip is literally the same paint as the thing it explains. */
+  --hatch-cancelled: repeating-linear-gradient(
+    45deg,
+    var(--color-cancelled-a) 0,
+    var(--color-cancelled-a) 5px,
+    var(--color-cancelled-b) 5px,
+    var(--color-cancelled-b) 10px
+  );
+
   /* Team accents (index.html:54-56) */
   --color-ent:      #0284c7;
   --color-arch:     #ea580c;

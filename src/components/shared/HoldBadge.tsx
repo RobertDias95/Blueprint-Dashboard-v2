@@ -12,6 +12,12 @@ import { holdKind, type ProjectHold } from '../../lib/database.types';
 //   hold      → amber ⏸  "still active, just paused"
 //   cancelled → muted ✕, struck reason, "no longer active"
 // A cancelled badge deliberately reads as terminal at a glance.
+//
+// fix-263: both kinds now paint from the shared PARK tokens in index.css, the
+// same ones the Draw Schedule block and legend use — one concept, one colour,
+// enforced by there being a single definition. Before this the hold badge
+// borrowed the CORRECTIONS palette (bg-co-bg / text-co / border-co-border), so
+// "on hold" and "in corrections" were the same amber; they are now distinct.
 
 export function HoldBadge({
   hold,
@@ -32,9 +38,9 @@ export function HoldBadge({
       <span
         className="inline-block text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded border whitespace-nowrap"
         style={{
-          background: 'var(--color-s2)',
-          color: 'var(--color-dim)',
-          borderColor: 'var(--color-border)',
+          background: 'var(--hatch-cancelled)',
+          color: 'var(--color-cancelled-text)',
+          borderColor: 'var(--color-cancelled-border)',
           textDecoration: 'line-through',
           textDecorationThickness: '1px',
         }}
@@ -48,7 +54,12 @@ export function HoldBadge({
 
   return (
     <span
-      className="inline-block text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded border bg-co-bg text-co border-co-border whitespace-nowrap"
+      className="inline-block text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded border whitespace-nowrap"
+      style={{
+        background: 'var(--color-hold-bg)',
+        color: 'var(--color-hold-text)',
+        borderColor: 'var(--color-hold-border)',
+      }}
       title={`On hold since ${hold.hold_start}${hold.note ? ` — ${hold.note}` : ''}`}
       data-testid={testid}
     >

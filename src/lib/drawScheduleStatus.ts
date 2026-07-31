@@ -56,6 +56,67 @@ export const STATUS_PRESENTATION: Record<DsStatus, DsStatusPresentation> = {
   Approved: { label: 'Approved', colors: { bg: '#5abf75', border: '#3aa55e', text: '#ffffff' } },
 };
 
+// ---------------------------------------------------------------------------
+// fix-263: PARK presentation — the OVERLAY treatment for a parked project.
+// ---------------------------------------------------------------------------
+// A park (project_holds.kind: 'hold' | 'cancelled') is NOT a DsStatus. It is an
+// orthogonal axis that sits on top of whatever phase the lane derived, so it
+// deliberately lives in its own record rather than being bolted into
+// STATUS_PRESENTATION — adding it there would imply a project can be "in the
+// Cancelled phase", which is exactly the confusion fix-263 is fixing.
+//
+// Unlike STATUS_PRESENTATION (literal v1-parity hexes) these resolve through CSS
+// variables. That is deliberate and NOT an inconsistency: the same paint has to
+// reach the shared HoldBadge, which cannot import draw-schedule tokens. One
+// definition in index.css, three consumers (block, badge, legend).
+//
+// fix-262 shipped the cancelled block with the default 'Scheduled' treatment —
+// white fill plus a grey "Scheduled" pill — so a cancelled project read as
+// PENDING, the opposite of terminal. The pill is a PHASE chip; a cancelled
+// project has no live phase, which is why `showPhasePill` is false for it and
+// true for a hold (a held project is still ACTIVE and its phase still means
+// something).
+export interface DsParkPresentation {
+  /** CSS `background` value — a flat colour for hold, a hatch for cancelled. */
+  background: string;
+  border: string;
+  /** Title / primary text colour. */
+  text: string;
+  /** Secondary line (reason, date) colour. */
+  subtext: string;
+  /** Does the derived-phase pill still make sense in this state? */
+  showPhasePill: boolean;
+  /** Is the address struck through? */
+  strikeAddress: boolean;
+  /** Legend label. */
+  label: string;
+}
+
+export type DsParkKind = 'hold' | 'cancelled';
+
+export const DS_PARK_PRESENTATION: Record<DsParkKind, DsParkPresentation> = {
+  hold: {
+    background: 'var(--color-hold-bg)',
+    border: 'var(--color-hold-border)',
+    text: 'var(--color-hold-text)',
+    subtext: 'var(--color-hold-subtext)',
+    // A held project is still ACTIVE — its phase is still meaningful.
+    showPhasePill: true,
+    strikeAddress: false,
+    label: 'On hold',
+  },
+  cancelled: {
+    background: 'var(--hatch-cancelled)',
+    border: 'var(--color-cancelled-border)',
+    text: 'var(--color-cancelled-text)',
+    subtext: 'var(--color-cancelled-text)',
+    // No live phase — see the note above.
+    showPhasePill: false,
+    strikeAddress: true,
+    label: 'Cancelled',
+  },
+};
+
 // Colors view of the canonical record. Kept (derived, never a separate literal)
 // for the grid color lookup + the popup swatches so existing imports are stable.
 export const DS_STATUS_COLORS: Record<DsStatus, DsStatusColor> = Object.fromEntries(
