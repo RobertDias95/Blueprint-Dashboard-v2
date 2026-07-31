@@ -15,6 +15,7 @@ import {
   useAllProjectHolds,
   activeHoldProjectIds,
   activeHoldByProjectId,
+  cancelByProjectId,
 } from '../hooks/useProjectHolds';
 import HoldFilter from '../components/shared/HoldFilter';
 import {
@@ -56,6 +57,8 @@ interface DashContext {
   setHighlight: (addr: string | null) => void;
   /** fix-178: project_id → active hold, for the on-hold card badge. */
   activeHoldMap: Map<string, ProjectHold>;
+  /** fix-262: project_id -> open CANCEL row. Rendered in the same badge slot. */
+  cancelMap: Map<string, ProjectHold>;
 }
 
 // Q2: Dashboard matrix. Project-keyed render — iterates `projects`, looks
@@ -85,6 +88,8 @@ export default function Dashboard() {
     [holdsQ.data],
   );
   // fix-178: project_id -> active hold, for the on-hold badge on each card.
+  // fix-262: cancelled projects carry their own badge from the same bulk fetch.
+  const cancelMap = useMemo(() => cancelByProjectId(holdsQ.data), [holdsQ.data]);
   const activeHoldMap = useMemo(
     () => activeHoldByProjectId(holdsQ.data),
     [holdsQ.data],
@@ -134,8 +139,9 @@ export default function Dashboard() {
       toggleAddress,
       setHighlight: setHighlightedAddress,
       activeHoldMap,
+      cancelMap,
     }),
-    [highlightedAddress, openAddresses, toggleAddress, activeHoldMap],
+    [highlightedAddress, openAddresses, toggleAddress, activeHoldMap, cancelMap],
   );
 
   const isLoading = projectsQ.isLoading || permitsQ.isLoading || drawQ.isLoading;
@@ -783,7 +789,11 @@ function SubBucketGroups({
           reviewersByPermit={reviewersByPermit}
           cardUrgency={g.urgency}
           activeHold={activeHeld.has(g.projectId)}
-          hold={ctx.activeHoldMap.get(g.projectId) ?? null}
+          hold={
+            ctx.cancelMap.get(g.projectId) ??
+            ctx.activeHoldMap.get(g.projectId) ??
+            null
+          }
           keyDateLabel={keyDateLabel}
           getKeyDate={getKeyDate}
           isOpen={ctx.openAddresses.has(g.address)}

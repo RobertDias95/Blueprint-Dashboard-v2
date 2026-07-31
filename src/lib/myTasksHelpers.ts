@@ -1,4 +1,5 @@
 import type { Permit, PermitTask, Project } from './database.types';
+import { isTaskCancelled } from './taskStatus';
 
 // Q7.1.a: pure helpers for the My Tasks view. Mirrors v1's renderMyTasks
 // logic (index.html lines 4917-5045) under v2's unified data model:
@@ -12,7 +13,12 @@ import type { Permit, PermitTask, Project } from './database.types';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
-export type TaskState = 'not-started' | 'in-progress' | 'complete';
+export type TaskState =
+  | 'not-started'
+  | 'in-progress'
+  | 'complete'
+  /** fix-262: parked by a project cancel — neither open nor done. */
+  | 'cancelled';
 
 /** Derive a task's visual state from the unified completion_status + done +
  * start_date fields. v1 had separate DE/CO rules; under v2 the same
@@ -20,11 +26,15 @@ export type TaskState = 'not-started' | 'in-progress' | 'complete';
  * 'Resolved' / 'In Progress' / 'Open' uniformly.
  *
  * Precedence:
- *   1. done OR completion_status === 'Resolved' → complete
- *   2. completion_status === 'In Progress' OR start_date is set → in-progress
- *   3. otherwise → not-started
+ *   1. fix-262: completion_status === 'Cancelled' → cancelled. Checked FIRST,
+ *      ahead of the `done` flag, because a swept task carries done=false and
+ *      would otherwise fall through to not-started and read as open work.
+ *   2. done OR completion_status === 'Resolved' → complete
+ *   3. completion_status === 'In Progress' OR start_date is set → in-progress
+ *   4. otherwise → not-started
  */
 export function deriveTaskState(task: PermitTask): TaskState {
+  if (isTaskCancelled(task.completion_status)) return 'cancelled';
   if (task.done || task.completion_status === 'Resolved') return 'complete';
   if (task.completion_status === 'In Progress' || task.start_date) {
     return 'in-progress';

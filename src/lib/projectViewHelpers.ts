@@ -282,7 +282,18 @@ export function isPermitDone(
  *  whose only permits are sub-permits (row.permits empty but hasAnyPermit true),
  *  or whose every non-sub permit is done, is NOT active (hidden). row.permits
  *  already excludes sub-permits (fix-194). */
-export function projectIsActive(row: ProjectRow): boolean {
+export function projectIsActive(
+  row: ProjectRow,
+  /** fix-262: project ids with an OPEN cancel row. A CANCELLED project is not
+   *  active — Bobby: "A hold is still an ACTIVE project. A cancelled project is
+   *  no longer active." This composes with (and short-circuits) the fix-245
+   *  permit-done rules: a cancelled project is inactive even if every one of its
+   *  permits is still open, and a permit-less cancelled shell is inactive too.
+   *  A project on HOLD is deliberately NOT passed here — a hold is still active.
+   *  Omitted → pre-fix-262 behaviour exactly. */
+  cancelledIds?: ReadonlySet<string>,
+): boolean {
+  if (cancelledIds?.has(row.project.id)) return false;
   if (!row.hasAnyPermit) return true;
   return row.permits.some((p) => !isPermitDone(p.permit));
 }

@@ -59,6 +59,11 @@ import {
 } from '../lib/drawScheduleHelpers';
 import { computeProjectedApproval } from '../lib/projectedApproval';
 import {
+  useAllProjectHolds,
+  holdsByProjectId as holdsIndexByProjectId,
+  cancelByProjectId,
+} from '../hooks/useProjectHolds';
+import {
   computeLearnedSchedule,
   type LearnedEstimate,
 } from '../lib/scheduleBenchmarks';
@@ -243,6 +248,18 @@ function DrawScheduleBody({
   search,
   setSearch,
 }: BodyProps) {
+  // fix-262: holds feed BOTH the projected-approval shift (below) and the
+  // cancelled-block treatment. Holds are rare, so one tenant-wide fetch indexed
+  // by project — the same pattern Dashboard / Project List already use.
+  const holdsQ = useAllProjectHolds();
+  const holdsByProjectId = useMemo(
+    () => holdsIndexByProjectId(holdsQ.data),
+    [holdsQ.data],
+  );
+  // fix-262: cancelled projects. Their blocks STAY on the board at full width
+  // (consumed DA capacity is the whole point of this view) — only the date
+  // column and the block's chrome change. There is deliberately no filter here.
+  const cancelMap = useMemo(() => cancelByProjectId(holdsQ.data), [holdsQ.data]);
   // Q9.5.g: lookup tables for deriveBlockStatus per block render.
   // permitsByProjectId groups permits at each project (deriveBlockStatus
   // filters to BPs internally). cyclesByPermit indexes the cycles array
@@ -337,6 +354,10 @@ function DrawScheduleBody({
       const bpCycles = (bp.permit_cycles ?? []) as PermitCycle[];
       const result = computeProjectedApproval({
         permit: bp,
+        // fix-262: the block's date is now hold-aware, like the Schedule
+        // Estimator's. Before this the grid showed an Est. Approval that
+        // ignored an open hold entirely.
+        holds: holdsByProjectId.get(project.id),
         cycles: bpCycles
           .filter((c) => c.cycle_index !== 0)
           .sort((a, b) => a.cycle_index - b.cycle_index),
@@ -2108,6 +2129,48 @@ function DrawScheduleBody({
                             // and the projection IS the real approval date —
                             // drop the "Est." prefix. The shorter label also
                             // helps in space-constrained compact blocks.
+                            // fix-262: a CANCELLED project keeps its block at
+                            // full width — the DA's consumed capacity is the
+                            // point — but the date column stops forecasting an
+                            // approval that will never come and shows the
+                            // CANCELLED date instead. Same label-flip mechanism
+                            // fix-100 already used for Est. Approval → Approval.
+                            const cancelRow = cancelMap.get(row.project_id);
+                            if (cancelRow) {
+                              return (
+                                <div
+                                  style={{
+                                    display: 'flex',
+                                    flexDirection: 'column',
+                                    alignItems: 'center',
+                                    lineHeight: 1.1,
+                                    color: sc.text,
+                                    opacity: 0.85,
+                                  }}
+                                  data-testid={`block-cancelled-${row.project_id}`}
+                                  title={`Cancelled ${cancelRow.hold_start} — ${cancelRow.reason}`}
+                                >
+                                  <span
+                                    style={{
+                                      fontSize: Math.max(7, detailFont - 1),
+                                      fontWeight: 700,
+                                      letterSpacing: '0.04em',
+                                    }}
+                                  >
+                                    ✕ CANCELLED
+                                  </span>
+                                  <span
+                                    style={{
+                                      fontSize: detailFont,
+                                      fontWeight: 800,
+                                      opacity: 0.95,
+                                    }}
+                                  >
+                                    {formatProjectionDate(cancelRow.hold_start)}
+                                  </span>
+                                </div>
+                              );
+                            }
                             const projection = projectionByProjectId.get(
                               row.project_id,
                             );

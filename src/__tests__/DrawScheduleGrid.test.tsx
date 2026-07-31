@@ -113,6 +113,20 @@ vi.mock('../hooks/useDmDaGroups', () => ({
     groups: fixtures.groups,
   }),
 }));
+// fix-262: project_holds feed BOTH the hold-aware projected approval (PART A)
+// and the cancelled-block treatment. Mutable ref, default empty so every
+// pre-existing test in this file renders exactly as before.
+const holdRows = vi.hoisted(() => ({
+  current: [] as import('../lib/database.types').ProjectHold[],
+}));
+vi.mock('../hooks/useProjectHolds', async (importActual) => {
+  const actual = await importActual<typeof import('../hooks/useProjectHolds')>();
+  return {
+    ...actual, // keep the real indexers — they are what we're exercising
+    useAllProjectHolds: () => ({ data: holdRows.current, isLoading: false, error: null }),
+  };
+});
+
 // fix-225: shared (DA-reassigned) project ids for the board marker.
 const sharedIdsRef = vi.hoisted(() => ({ current: new Set<string>() }));
 vi.mock('../hooks/useProjectDaHandoffs', () => ({
@@ -1779,5 +1793,79 @@ describe('<DrawScheduleGrid /> — fix-225 shared marker', () => {
     expect(screen.getByTestId('block-address-p-now').textContent).toContain('✳');
     // a project with no handoff has no marker
     expect(screen.getByTestId('block-p-other')).not.toHaveAttribute('data-shared');
+  });
+});
+
+// ── fix-262: cancelled projects stay on the board ───────────────────────────
+// Bobby: the block STAYS at full width even though the project is no longer
+// active — the DA's consumed capacity is the entire point of this view. Only
+// the date column changes: a CANCELLED date replaces estimated/actual approval,
+// using the same label-flip mechanism fix-100 introduced for Est. Approval.
+describe('fix-262 draw schedule — cancelled block', () => {
+  function cancelRow(projectId: string) {
+    return {
+      id: `c-${projectId}`,
+      tenant_id: T,
+      project_id: projectId,
+      reason: 'Builder pulled out',
+      note: null,
+      hold_start: '2026-05-11',
+      hold_end: null,
+      kind: 'cancelled' as const,
+      created_by: null,
+      created_at: '2026-05-11T00:00:00Z',
+      updated_at: '2026-05-11T00:00:00Z',
+    };
+  }
+
+  afterEach(() => {
+    holdRows.current = [];
+  });
+
+  it('still renders the block — a cancelled project is never removed from the board', () => {
+    holdRows.current = [cancelRow('p-now')];
+    renderGrid();
+    expect(screen.getByTestId('block-p-now')).toBeTruthy();
+  });
+
+  it('the block keeps its full width (same span as when not cancelled)', () => {
+    renderGrid();
+    const before = screen.getByTestId('block-p-now').getAttribute('style');
+    screen.getByTestId('block-p-now'); // anchor
+    cleanupAndRerenderWithCancel();
+    const after = screen.getByTestId('block-p-now').getAttribute('style');
+    expect(after).toBe(before);
+  });
+
+  function cleanupAndRerenderWithCancel() {
+    // fresh render with the cancel applied
+    holdRows.current = [cancelRow('p-now')];
+    document.body.innerHTML = '';
+    renderGrid();
+  }
+
+  it('shows the CANCELLED date in place of Est. Approval', () => {
+    renderGrid();
+    // not cancelled yet -> no cancelled slot
+    expect(screen.queryByTestId('block-cancelled-p-now')).toBeNull();
+    cleanupAndRerenderWithCancel();
+    const slot = screen.getByTestId('block-cancelled-p-now');
+    expect(slot.textContent).toContain('CANCELLED');
+    // formatProjectionDate renders MM-DD-YY
+    expect(slot.textContent).toContain('05-11-26');
+    // and the projection slot is gone for that project
+    expect(screen.queryByTestId('block-est-approval-p-now')).toBeNull();
+  });
+
+  it('only the cancelled project is affected — siblings keep their projection', () => {
+    holdRows.current = [cancelRow('p-now')];
+    renderGrid();
+    expect(screen.queryByTestId('block-cancelled-p-other')).toBeNull();
+  });
+
+  it('a HELD project keeps its Est. Approval slot (it is still active)', () => {
+    holdRows.current = [{ ...cancelRow('p-now'), kind: 'hold' as const }];
+    renderGrid();
+    expect(screen.queryByTestId('block-cancelled-p-now')).toBeNull();
   });
 });

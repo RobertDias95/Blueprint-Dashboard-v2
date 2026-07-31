@@ -8,7 +8,9 @@ import type {
   Permit,
   PermitCycle,
   PermitCycleReviewer,
+  ProjectHold,
 } from './database.types';
+import { activeHoldElapsedDays, type HoldWindow } from './holdOverlap';
 
 // Q9.5.f-fix-11: full port of v1's projectPermitApproval + getULSAnchorDates
 // (index.html:4308-4543). Adds three pieces that fix-10 missed:
@@ -112,6 +114,25 @@ export interface ProjectedApprovalInput {
    *  isn't available (the projection falls back to the pre-fix-32
    *  cycle-walk behavior unchanged). */
   permitReviewers?: PermitCycleReviewer[];
+  /** fix-262 (fix-170 effect C, completed): the PROJECT's holds. An actively-held
+   *  project's clock is paused, so a PROJECTED approval date is pushed out by the
+   *  days already parked under the open hold (activeHoldElapsedDays). A CLOSED
+   *  hold does not shift a future date — its days already elapsed and are credited
+   *  on the measured side by accountableDays, so shifting here would double-count.
+   *  An ACTUAL date (approval_date / actual_issue) is never shifted: the event
+   *  happened. Omitted / no holds → shift is 0 and every projection is byte-
+   *  identical to pre-fix-262 behaviour.
+   *
+   *  fix-171 wired this arithmetic through every other duration module but never
+   *  through this one; the shift lived only in ScheduleEstimator's presentation
+   *  layer, so the draw-schedule block date and Schedule Health's date ignored
+   *  holds entirely. It now lives here, once, for every caller. */
+  holds?:
+    | ReadonlyArray<Pick<ProjectHold, 'hold_start' | 'hold_end'>>
+    | ReadonlyArray<HoldWindow>
+    | null;
+  /** Injected "today" for deterministic tests; forwarded to activeHoldElapsedDays. */
+  today?: Date | string;
 }
 
 export interface ProjectedApprovalRounds {
@@ -142,6 +163,10 @@ export interface ProjectedApprovalResult {
   targetCycle?: number;
   /** Per-round projected dates so the widget can render them inline. */
   rounds?: ProjectedApprovalRounds;
+  /** fix-262: days the headline projection was pushed out because the project is
+   *  under an ACTIVE hold. 0 when not held (or when the date is actual). Exposed
+   *  so a surface can annotate the date ("+34d on hold") without recomputing. */
+  heldShiftDays?: number;
   /** ULS-specific anchor data (rendered in the widget when the permit is ULS). */
   ulsAnchors?: {
     bpApprovalAnchor: string;
@@ -309,7 +334,9 @@ function getULSAnchorDates(
       (siblingCyclesByPermitId.get(bp.id) ?? []).find(
         (c) => c.cycle_index === 0,
       )?.intake_accepted ?? null;
-    const bpProjection = computeProjectedApproval({
+    // fix-262: core (unshifted) on purpose — the outer wrapper shifts the ULS
+    // result once; shifting the BP anchor here too would double-count the hold.
+    const bpProjection = computeProjectedApprovalCore({
       permit: bp,
       cycles: bpCycles,
       learnedEstimate: bpLearned,
@@ -334,7 +361,12 @@ function getULSAnchorDates(
   return { targetSubmit: ulsTargetSubmit, estApproval, bpApprovalAnchor, cy1Resub };
 }
 
-export function computeProjectedApproval(
+/** fix-262: the unshifted projection walk. Everything that was
+ *  `computeProjectedApproval` before fix-262 lives here, byte-for-byte. The
+ *  exported wrapper below applies the active-hold shift EXACTLY ONCE, at the
+ *  outer boundary — the ULS branch recurses into this core so a BP anchor is
+ *  never shifted twice on its way into the ULS date. */
+function computeProjectedApprovalCore(
   input: ProjectedApprovalInput,
 ): ProjectedApprovalResult {
   const { permit, cycles, learnedEstimate, projectGoDate } = input;
@@ -700,5 +732,37 @@ export function computeProjectedApproval(
     isProjected: true,
     targetCycle,
     rounds,
+  };
+}
+
+/**
+ * Projected approval for a permit, hold-aware.
+ *
+ * fix-262 completes fix-170's "effect C" for this module. The projection walk is
+ * unchanged (see {@link computeProjectedApprovalCore}); this wrapper pushes the
+ * HEADLINE date out by the days the project has already spent under an ACTIVE
+ * hold, using the canonical {@link activeHoldElapsedDays} — the same helper the
+ * Schedule Estimator has used since fix-170. Rules:
+ *
+ *   - ACTUAL dates (approval_date / actual_issue) never shift. The event
+ *     happened; a hold cannot move it.
+ *   - Only the headline `projection` shifts. Intermediate `rounds` dates are
+ *     left alone, preserving the behaviour ScheduleEstimator shipped with.
+ *   - A CLOSED hold contributes nothing (activeHoldElapsedDays only reads open
+ *     holds), so its days aren't double-counted against accountableDays.
+ *   - No holds passed, or none active → shift 0 → byte-identical to pre-fix-262.
+ */
+export function computeProjectedApproval(
+  input: ProjectedApprovalInput,
+): ProjectedApprovalResult {
+  const result = computeProjectedApprovalCore(input);
+  const shiftDays = activeHoldElapsedDays(input.holds, input.today);
+  if (result.isActual || !result.projection || shiftDays <= 0) {
+    return { ...result, heldShiftDays: 0 };
+  }
+  return {
+    ...result,
+    projection: addDays(result.projection, shiftDays),
+    heldShiftDays: shiftDays,
   };
 }

@@ -7,8 +7,6 @@ import {
   useAllProjectHolds,
   holdsByProjectId,
 } from '../../hooks/useProjectHolds';
-import { activeHoldElapsedDays } from '../../lib/holdOverlap';
-import { addDays } from '../../lib/dateUtils';
 import {
   computeLearnedSchedule,
   filterHeldLearningSamples,
@@ -113,10 +111,19 @@ export default function ScheduleEstimator({ permit }: Props) {
     [reviewersQ.data, permit.id],
   );
 
+  // fix-262: the project's holds now go INTO the projection instead of being
+  // applied as a display shift afterwards, so this widget, the draw-schedule
+  // block and Schedule Health all read the same hold-aware date.
+  const permitHolds = useMemo(
+    () => holdsByProjectId(holdsQ.data).get(permit.project_id),
+    [holdsQ.data, permit.project_id],
+  );
+
   const result: ProjectedApprovalResult = useMemo(
     () =>
       computeProjectedApproval({
         permit,
+        holds: permitHolds,
         cycles: (permit.permit_cycles ?? [])
           .filter((c) => c.cycle_index !== 0)
           .sort((a, b) => a.cycle_index - b.cycle_index),
@@ -134,7 +141,7 @@ export default function ScheduleEstimator({ permit }: Props) {
         // fix-32: reviewer-corrections rule feeds into targetCycle.
         permitReviewers,
       }),
-    [permit, learnedEstimate, projectGoDate, siblings, siblingCyclesByPermitId, siblingLearnedByPermitId, cycleOverride, permitReviewers],
+    [permit, permitHolds, learnedEstimate, projectGoDate, siblings, siblingCyclesByPermitId, siblingLearnedByPermitId, cycleOverride, permitReviewers],
   );
 
   function adjustOverride(delta: number) {
@@ -171,15 +178,11 @@ export default function ScheduleEstimator({ permit }: Props) {
     .filter((c) => c.cycle_index !== 0)
     .sort((a, b) => a.cycle_index - b.cycle_index);
 
-  // fix-170 (effect C): an actively-held project's clock is paused — push the
-  // estimated-approval date out by the days we've been parked so the estimate
-  // stays realistic. Only the headline projection shifts (intermediate round
-  // dates are left as-is). 0 when not held → no change (common case).
-  const heldShiftDays = useMemo(
-    () =>
-      activeHoldElapsedDays(holdsByProjectId(holdsQ.data).get(permit.project_id)),
-    [holdsQ.data, permit.project_id],
-  );
+  // fix-170 (effect C) / fix-262: the shift now happens INSIDE
+  // computeProjectedApproval (holds are passed in above), so `result.projection`
+  // is already hold-aware. This value is only the badge annotation — applying it
+  // to the date again here would double-count the hold.
+  const heldShiftDays = result.heldShiftDays ?? 0;
 
   return (
     <div
@@ -236,12 +239,9 @@ function HeadlineProjection({
       ? 'Estimated Approval'
       : 'Projection';
   const color = result.isActual ? 'var(--color-is)' : 'var(--color-pm)';
-  // fix-170 (effect C): shift a PROJECTED date out by the active-hold elapsed
-  // days. Never shift an actual/approved date (the event already happened).
-  const shifted =
-    !result.isActual && result.projection && shiftDays > 0
-      ? addDays(result.projection, shiftDays) ?? result.projection
-      : result.projection;
+  // fix-262: result.projection arrives already hold-shifted from
+  // computeProjectedApproval. shiftDays is the annotation only.
+  const shifted = result.projection;
   return (
     <div>
       <div

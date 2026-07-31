@@ -5,6 +5,7 @@ import { useTeamMembers } from '../../hooks/useTeamMembers';
 import {
   useAllProjectHolds,
   holdsByProjectId,
+  cancelledProjectIds,
 } from '../../hooks/useProjectHolds';
 import { useDaCoCreditMap } from '../../hooks/useProjectDaHandoffs';
 import { SkeletonRows } from '../Skeleton';
@@ -82,6 +83,7 @@ function Body({
   // fix-172 (effect B): subtract held days from the per-associate phase tiles.
   const holdsQ = useAllProjectHolds();
   const holdsMap = useMemo(() => holdsByProjectId(holdsQ.data), [holdsQ.data]);
+  const cancelledIds = useMemo(() => cancelledProjectIds(holdsQ.data), [holdsQ.data]);
   // fix-226: DA co-credit — a handed-off project counts for BOTH DAs.
   const { coCreditMap } = useDaCoCreditMap();
   const [role, setRole] = useState<TeamRoleSelection>('da');
@@ -118,8 +120,10 @@ function Body({
         filters,
         holdsMap,
         coCreditMap,
+        // fix-262: cancelled qualifier. Volume numbers are unaffected.
+        cancelledIds,
       ),
-    [permits, projects, teamMembers, filters, holdsMap, coCreditMap],
+    [permits, projects, teamMembers, filters, holdsMap, coCreditMap, cancelledIds],
   );
 
   const activeTabLabel =

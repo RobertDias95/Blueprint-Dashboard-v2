@@ -12,14 +12,55 @@
 // TS mirror of that trigger, used by the tests to prove the contract without a
 // live DB.
 
-export type TaskStatus = 'Open' | 'In Progress' | 'Resolved';
+export type TaskStatus = 'Open' | 'In Progress' | 'Resolved' | 'Cancelled';
 
-/** Forward order the checkbox advances through. */
+/** fix-262: the three statuses a HUMAN drives. 'Cancelled' is deliberately not
+ *  here — it is written only by bp_set_project_cancel's sweep and cleared only
+ *  by bp_restore_project, so it never appears in the checkbox cycle or the
+ *  status dropdown. */
 export const TASK_STATUS_ORDER: readonly TaskStatus[] = [
   'Open',
   'In Progress',
   'Resolved',
 ] as const;
+
+/** fix-262: a task parked by a project cancel. Not "done" — the work was never
+ *  finished — but not open either: it must not appear in any open-work list,
+ *  and it must come BACK to its exact prior state when the project is restored.
+ *  Every "is this task live?" predicate should go through {@link isTaskLive}. */
+export const TASK_STATUS_CANCELLED = 'Cancelled' as const;
+
+/** fix-262: is this task part of the team's live workload?
+ *
+ *  Before fix-262 every surface asked `status !== 'Resolved'`, which would have
+ *  read a cancelled task as OPEN. This is the single predicate that answers the
+ *  question correctly, and the surfaces listed in the fix-262 PR body all route
+ *  through it. */
+export function isTaskLive(status: string | null | undefined): boolean {
+  const s = status ?? 'Open';
+  return s !== 'Resolved' && s !== TASK_STATUS_CANCELLED;
+}
+
+/** fix-262: true when a project cancel parked this task. */
+export function isTaskCancelled(status: string | null | undefined): boolean {
+  return status === TASK_STATUS_CANCELLED;
+}
+
+/** fix-262: the statuses a HUMAN write path is allowed to send. 'Cancelled' is
+ *  excluded by construction — it is set only by bp_set_project_cancel's sweep
+ *  and cleared only by bp_restore_project, so no task-edit control may write it
+ *  and none may write OVER it (which would strand prior_completion_status and
+ *  break the restore). Task controls are disabled while a task is cancelled;
+ *  this type is the compiler-level backstop for that rule. */
+export type TaskWriteStatus = Exclude<TaskStatus, 'Cancelled'>;
+
+/** Narrow a status for a write path. Callers must already have refused to edit
+ *  a cancelled task (see isTaskCancelled); this keeps the types honest and
+ *  degrades to 'Open' rather than emitting an unwritable value if one slips
+ *  through. */
+export function writableStatus(status: TaskStatus): TaskWriteStatus {
+  return status === TASK_STATUS_CANCELLED ? 'Open' : status;
+}
 
 /**
  * Checkbox click = FORWARD-only advance: Open → In Progress → Resolved.
@@ -29,16 +70,21 @@ export const TASK_STATUS_ORDER: readonly TaskStatus[] = [
  * through the status dropdown (see {@link TASK_STATUS_OPTIONS}).
  */
 export function nextCheckboxStatus(current: TaskStatus): TaskStatus | null {
+  // fix-262: a cancelled task is inert. The checkbox must not move it — the
+  // only way out is restoring the project, which returns it to its prior state.
+  if (current === TASK_STATUS_CANCELLED) return null;
   if (current === 'Open') return 'In Progress';
   if (current === 'In Progress') return 'Resolved';
   return null; // Resolved → no forward move
 }
 
 /** 3-state visual for the checkbox: empty (Open) / partial (In Progress) /
- *  checked (Resolved). */
-export type CheckboxVisual = 'empty' | 'partial' | 'checked';
+ *  checked (Resolved). fix-262 adds a 4th, 'cancelled' — struck through and
+ *  non-interactive, so a parked task never reads as either open or done. */
+export type CheckboxVisual = 'empty' | 'partial' | 'checked' | 'cancelled';
 
 export function checkboxVisual(status: TaskStatus): CheckboxVisual {
+  if (status === TASK_STATUS_CANCELLED) return 'cancelled';
   if (status === 'Resolved') return 'checked';
   if (status === 'In Progress') return 'partial';
   return 'empty';
@@ -49,13 +95,15 @@ export function checkboxVisual(status: TaskStatus): CheckboxVisual {
  * 'Open' shows as "Not started" per product copy; the stored value stays
  * 'Open'.
  */
-export const TASK_STATUS_OPTIONS: readonly { value: TaskStatus; label: string }[] = [
+export const TASK_STATUS_OPTIONS: readonly { value: TaskWriteStatus; label: string }[] = [
   { value: 'Open', label: 'Not started' },
   { value: 'In Progress', label: 'In Progress' },
   { value: 'Resolved', label: 'Resolved' },
 ] as const;
 
 export function statusLabel(status: TaskStatus): string {
+  // fix-262: 'Cancelled' is not a dropdown option, so give it a label here.
+  if (status === TASK_STATUS_CANCELLED) return 'Cancelled';
   return TASK_STATUS_OPTIONS.find((o) => o.value === status)?.label ?? status;
 }
 
@@ -67,6 +115,12 @@ export function statusLabel(status: TaskStatus): string {
  *   - already 'Resolved' → 'Resolved': done=true, done_at preserved.
  *   - → 'Open' / 'In Progress': done=false, done_at cleared.
  * `now` is injected so tests stay deterministic.
+ *
+ * fix-262: 'Cancelled' falls through the same non-Resolved branch — done=false,
+ * done_at cleared. THIS IS EXACTLY WHY the cancel sweep only ever touches tasks
+ * that are 'Open' or 'In Progress': those already carry done=false/done_at=null,
+ * so the trigger firing costs nothing. Sweeping a RESOLVED task would run it
+ * through this branch and silently destroy its done_at.
  */
 export function applyDoneTrigger(input: {
   prevStatus: TaskStatus | null;

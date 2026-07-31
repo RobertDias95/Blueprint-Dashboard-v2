@@ -195,6 +195,47 @@ describe('computeTeamMetrics — Bobby fixture (5 originals + 2 redesigns vs 3 o
     expect(trevor!.redesignPermitCount).toBe(2);
   });
 
+  // ── fix-262: cancelled is a QUALIFIER beside the volume, not inside it ──
+  it("cancelling two of Trevor projects changes NO volume number", () => {
+    const before = computeTeamMetrics(permits, projects, team, baseFilters);
+    const after = computeTeamMetrics(
+      permits, projects, team, baseFilters, undefined, undefined,
+      new Set(['tp2', 'tr1']),
+    );
+    const b = before.rows.find((r) => r.name === 'Trevor')!;
+    const a = after.rows.find((r) => r.name === 'Trevor')!;
+    // every volume field byte-identical
+    expect(a.projectCount).toBe(b.projectCount);
+    expect(a.unitCount).toBe(b.unitCount);
+    expect(a.lotCount).toBe(b.lotCount);
+    expect(a.permitCount).toBe(b.permitCount);
+    expect(a.redesignProjectCount).toBe(b.redesignProjectCount);
+    expect(a.redesignUnitCount).toBe(b.redesignUnitCount);
+    expect(a.totalProjectCount).toBe(b.totalProjectCount);
+    expect(a.totalUnitCount).toBe(b.totalUnitCount);
+    expect(a.totalLotCount).toBe(b.totalLotCount);
+    expect(a.totalPermitCount).toBe(b.totalPermitCount);
+    expect(a.delegatePermitCount).toBe(b.delegatePermitCount);
+    expect(a.reuseProjectCount).toBe(b.reuseProjectCount);
+  });
+
+  it('reports the cancelled count separately — "7 projects, 2 cancelled"', () => {
+    const out = computeTeamMetrics(
+      permits, projects, team, baseFilters, undefined, undefined,
+      new Set(['tp2', 'tr1']),
+    );
+    const trevor = out.rows.find((r) => r.name === 'Trevor')!;
+    expect(trevor.totalProjectCount).toBe(7);
+    expect(trevor.cancelledProjectCount).toBe(2); // one original + one redesign
+    const ainsley = out.rows.find((r) => r.name === 'Ainsley')!;
+    expect(ainsley.cancelledProjectCount).toBe(0);
+  });
+
+  it('omitting the cancelled set leaves every count at 0 (pre-fix-262)', () => {
+    const out = computeTeamMetrics(permits, projects, team, baseFilters);
+    for (const row of out.rows) expect(row.cancelledProjectCount).toBe(0);
+  });
+
   it('Ainsley row shows 3 originals + 5 units + 0 redesigns', () => {
     const out = computeTeamMetrics(permits, projects, team, baseFilters);
     const ainsley = out.rows.find((r) => r.name === 'Ainsley');

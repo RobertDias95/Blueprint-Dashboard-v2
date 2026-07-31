@@ -11,6 +11,8 @@ const holdsState = vi.hoisted(() => ({ rows: [] as ProjectHold[] }));
 const setMutate = vi.hoisted(() => vi.fn());
 const liftMutate = vi.hoisted(() => vi.fn());
 const updateMutate = vi.hoisted(() => vi.fn());
+const cancelMutate = vi.hoisted(() => vi.fn());
+const restoreMutate = vi.hoisted(() => vi.fn());
 
 vi.mock('../hooks/useProjectHolds', async (importActual) => {
   const actual =
@@ -25,6 +27,9 @@ vi.mock('../hooks/useProjectHolds', async (importActual) => {
     useSetProjectHold: () => ({ mutate: setMutate, isPending: false }),
     useLiftProjectHold: () => ({ mutate: liftMutate, isPending: false }),
     useUpdateProjectHold: () => ({ mutate: updateMutate, isPending: false }),
+    // fix-262: the panel is now the project STATUS control (hold + cancelled).
+    useSetProjectCancel: () => ({ mutate: cancelMutate, isPending: false }),
+    useRestoreProject: () => ({ mutate: restoreMutate, isPending: false }),
   };
 });
 
@@ -32,6 +37,7 @@ vi.mock('../hooks/useAppConfig', () => ({
   useAppConfig: () => ({
     map: new Map([
       ['holdReasonOptions', ['MHA', 'Financing / capital decision']],
+      ['cancelReasonOptions', ['Builder pulled out', 'Land deal fell through']],
     ]),
   }),
   readAppConfigStringArray: (map: Map<string, unknown>, key: string) =>
@@ -119,9 +125,12 @@ describe('fix-167 ProjectHoldPanel — set / lift / edit', () => {
     fireEvent.change(screen.getByTestId('hold-edit-reason-select'), {
       target: { value: 'Financing / capital decision' },
     });
-    fireEvent.change(screen.getByTestId('hold-edit-start-input'), {
-      target: { value: '2026-06-01' },
-    });
+    // fix-262: this is a BufferedDateInput now (it feeds a server write), so
+    // the value commits on BLUR, not per keystroke. Typing alone must NOT move
+    // hold_start — that is the whole point of the buffered control.
+    const startInput = screen.getByTestId('hold-edit-start-input');
+    fireEvent.change(startInput, { target: { value: '2026-06-01' } });
+    fireEvent.blur(startInput);
     fireEvent.click(screen.getByTestId('hold-save-btn'));
     expect(updateMutate).toHaveBeenCalledTimes(1);
     expect(updateMutate.mock.calls[0][0]).toMatchObject({

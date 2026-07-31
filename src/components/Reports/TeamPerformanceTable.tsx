@@ -26,6 +26,7 @@ type SortKey =
   | 'redesignLotCount'
   | 'totalPermitCount'
   | 'delegatePermitCount'
+  | 'cancelledProjectCount'
   | 'reuseProjectCount'
   | 'reuseRate'
   | 'avgDdDays'
@@ -106,6 +107,13 @@ export default function TeamPerformanceTable({ result }: Props) {
                 lot/unit credit. */}
             <Th col="delegatePermitCount" sortKey={sortKey} sortDesc={sortDesc} onClick={toggleSort}>
               Delegate Permits
+            </Th>
+            {/* fix-262: cancelled QUALIFIER. Sits beside the volume columns and
+                is read with them — "12 projects, 2 cancelled". The volume
+                columns to the left are NOT reduced by it: volume is what the
+                person did, active is what they're doing now. */}
+            <Th col="cancelledProjectCount" sortKey={sortKey} sortDesc={sortDesc} onClick={toggleSort}>
+              Cancelled
             </Th>
             {/* fix-216: reuse CONTEXT alongside volume — how many of this owner's
                 projects were templated off a proven plan, and that rate. Does
@@ -237,6 +245,12 @@ function Row({
       <NumCell
         value={row.delegatePermitCount}
         testId={`team-cell-${row.name}-delegatePermitCount`}
+      />
+      {/* fix-262: cancelled qualifier — muted when zero so it reads as context,
+          not as an alarm on every row. */}
+      <NumCell
+        value={row.cancelledProjectCount}
+        testId={`team-cell-${row.name}-cancelledProjectCount`}
       />
       {/* fix-216: reuse context — count + rate (no vs-team-avg coloring). */}
       <NumCell

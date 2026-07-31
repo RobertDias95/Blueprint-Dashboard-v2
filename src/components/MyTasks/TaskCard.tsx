@@ -194,6 +194,10 @@ const STATE_PILL: Record<TaskState, { label: string; cls: string }> = {
   'not-started': { label: '○ Not Started', cls: 'text-dim hover:text-text' },
   'in-progress': { label: '◐ In Progress', cls: 'text-de font-semibold hover:opacity-80' },
   complete: { label: '● Done', cls: 'text-pm hover:opacity-80' },
+  // fix-262: parked by a project cancel. Struck through and muted so it reads
+  // as neither open nor done. (This file is dead code — the live board is
+  // MyTasks.tsx — but the shared TaskState union is not, so it must compile.)
+  cancelled: { label: '✕ Cancelled', cls: 'text-dim line-through' },
 };
 
 function StatusPill({
