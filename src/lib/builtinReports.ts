@@ -187,9 +187,9 @@ export const BUILTIN_REPORT_CATALOG: Record<
       included: [
         'Projects whose draw block is in a pre-submittal phase — Scheduled, Schematic, DD / Permit Set or Pending Consultants — and that have an address. Redesigns count in their own right.',
         'Their target send date (the end of the DD phase) must still be ahead of us.',
-        'Exception: a target send date that has already passed still shows IF the "Structural - Transmitted" task is open and not yet started. Those appear at the top of Upcoming, marked OVERDUE.',
+        'Exception: a target send date that has already passed still shows IF the project has a structural task that is open and not yet started. Those appear at the top of Upcoming, marked OVERDUE.',
         'Once that task is started, the project moves to Transmitted instead — sent, awaiting return.',
-        'Any structural task that is NOT the transmit task shows under Corrections, whatever phase the project is in.',
+        'The project\'s PHASE decides which section a structural task lands in, not what the task is called. On a pre-submittal project it is the design handoff (Upcoming or Transmitted); on a project past submittal it is a correction.',
       ],
       excluded: [
         'Projects whose permits have all issued or closed. This overrides everything else, including an open transmit task.',
@@ -204,7 +204,9 @@ export const BUILTIN_REPORT_CATALOG: Record<
         'Empty sections vanish from the email completely, so most weeks show two or three of the five.',
         'Composing a draft records nothing — previewing is free. Only "Mark as sent" updates what the consultant is treated as knowing. Skip it and everything shows as new again next week.',
         'Held projects stay on the list, labelled, so the consultant knows a project is parked rather than wondering why it went quiet.',
-        'Only 4 of 124 projects currently carry a transmit task. Until a project has one, it will drop off silently the moment its target send date passes.',
+        'Name the task whatever you like — the report reads the project\'s phase, not the task name. Only that a structural task EXISTS and whether it has been started matters.',
+        'Only a handful of projects currently carry a structural task. Until a project has one, it will drop off silently the moment its target send date passes.',
+        'A project with no draw block at all is treated as permitting, so its structural work shows under Corrections. Putting an unknown into a "coming to you" list is the worse mistake.',
       ],
     },
   },

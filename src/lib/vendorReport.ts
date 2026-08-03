@@ -478,39 +478,50 @@ export function vendorSentPayload(
 // blur — the DA owns the transmit task, and a correction is a different animal
 // at a different point in the project's life.
 //
-// TOLD APART BY TEXT, because permit_tasks has NO template_id — there is no FK
-// back to task_templates at all (verified on prod: only a sparse v1-era
-// `legacy_id` on 4 rows). So this matches strings, and the strings have drifted.
-// Everything not matching falls through to CORRECTIONS, which is the safe
-// default: a misfiled task is cosmetic, nothing is lost or double-counted.
+// fix-271: TOLD APART BY THE PROJECT'S PHASE, not the task's name.
+//
+// fix-268 matched task TEXT against a list. Four naming variants exist in the
+// wild and the list misfiled two projects: 7336 132nd Ave NE and 7708 131st Ave
+// NE both sit at pre-submittal with tasks named plainly "Structural", so they
+// landed in CORRECTIONS — permitting work on projects that have never been
+// submitted, neither of which even has a permit number.
+//
+// Bobby: "corrections are for projects within permitting phase, not the design
+// phase/cycle." So the draw block decides:
+//
+//   PRE-SUBMITTAL (Scheduled / Schematic / DD / Permit Set / Pending
+//   Consultants)                → a structural task is the DESIGN HANDOFF
+//                                 → Upcoming or Transmitted
+//   ANYTHING ELSE (Under Review / Corrections / Approved)
+//                                → a structural task is a CORRECTION
+//
+// A DA can now name the task whatever they like; the report does not care. That
+// naming dependence was the whole fragility, so the text list is GONE — do not
+// reintroduce one.
 
-/** fix-268: task texts that mean "the package went out to this vendor".
+/** fix-271: projects whose draw block is in a PRE-SUBMITTAL phase, i.e. still in
+ *  the design cycle. Reuses {@link VENDOR_PIPELINE_STATUSES} so "what counts as
+ *  pre-submittal" has exactly one definition shared with the pipeline gate.
  *
- *  The FIRST entry is the live template text, verified on prod 2026-08-03
- *  (task_templates.text = 'Structural - Transmitted', bucket 'de', default_team
- *  'Design Associate'). The rest are legacy variants observed on real tasks.
- *  Matched case-insensitively and trimmed.
+ *  A project with NO DRAW BLOCK is deliberately absent from this set, so its
+ *  structural tasks read as CORRECTIONS. There is no design phase we can see,
+ *  and putting an unknown into a vendor-facing "coming to you" list is the worse
+ *  error: an over-listed correction is noise, an invented commitment is not.
  *
- *  Deliberately NOT matched, and why:
- *    'Structural'      — too generic; it is used for correction work too
- *                        (7336 132nd Ave NE carries one In Progress right now).
- *    'Structural CR1'  — CR = correction round. Permitting phase by definition.
- *  Both land in CORRECTIONS, which is the honest place for an ambiguous task. */
-export const VENDOR_TRANSMIT_TASK_TEXTS: Record<string, readonly string[]> = {
-  [VENDOR_KEY_STRUCTURAL]: [
-    'structural - transmitted', // the live template
-    'sent to structural', // legacy variant, 2 rows on prod
-  ],
-};
-
-/** fix-268: is this task the vendor's design-phase transmit task? */
-export function isTransmitTask(
-  text: string | null | undefined,
-  vendorKey: string,
-): boolean {
-  const t = norm(text)?.toLowerCase();
-  if (!t) return false;
-  return (VENDOR_TRANSMIT_TASK_TEXTS[vendorKey] ?? []).includes(t);
+ *  A block with a BLANK status IS treated as design, matching fix-266's rule
+ *  that a blank status cannot prove a project is past submittal. Zero prod rows
+ *  are blank today, so this is a decision about future data. */
+export function designPhaseProjectIds(
+  draw: ReadonlyArray<Pick<DrawScheduleRow, 'project_id' | 'status'>>,
+): Set<string> {
+  const out = new Set<string>();
+  for (const block of draw) {
+    const status = norm(block.status);
+    if (status === null || VENDOR_PIPELINE_STATUSES.has(status)) {
+      out.add(block.project_id);
+    }
+  }
+  return out;
 }
 
 export interface VendorTransmitRow {
@@ -531,13 +542,15 @@ export interface VendorTransmitRow {
  *  UPCOMING pipeline. Resolved means received, and the project leaves both
  *  sections.
  *
- *  Expect this to be EMPTY until the DAs work through a cycle — both live
- *  'Structural - Transmitted' tasks on prod have start_date NULL today. That is
- *  the section doing its job, not a bug, and empty sections are omitted. */
+ *  fix-271: which tasks count is now decided by the PROJECT'S PHASE — on a
+ *  pre-submittal project every structural task is the design handoff, whatever
+ *  it is called. */
 export function buildVendorTransmitRows(
   tasks: ReadonlyArray<WaitingOnTaskRow>,
   projects: ReadonlyArray<Project>,
   vendorKey: string,
+  /** fix-271: from {@link designPhaseProjectIds}. */
+  designPhaseIds: ReadonlySet<string>,
   cancelledIds?: ReadonlySet<string>,
 ): VendorTransmitRow[] {
   const projectById = new Map<string, Project>();
@@ -545,7 +558,7 @@ export function buildVendorTransmitRows(
 
   const rows: VendorTransmitRow[] = [];
   for (const t of tasks) {
-    if (!isTransmitTask(t.task_text, vendorKey)) continue;
+    if (!designPhaseIds.has(t.project_id)) continue; // permitting → corrections
     if (!isTaskLive(t.completion_status)) continue; // Resolved = received
     if (norm(t.start_date) === null) continue; // not sent yet
     if (isCancelledProject(t.project_id, cancelledIds)) continue;
@@ -575,8 +588,8 @@ export function transmitStartedProjectIds(
 
 /** fix-269: where a project stands on the design-phase handoff.
  *
- *  'none'     — no transmit task at all. Most of the pipeline today; the DAs are
- *               still adopting the task.
+ *  'none'     — no structural task on a pre-submittal project. Most of the
+ *               pipeline today; the DAs are still adopting the task.
  *  'open'     — a transmit task exists but has not started. Nothing sent yet.
  *  'started'  — sent, not yet back. The project is in TRANSMITTED.
  *  'resolved' — received. Structural is done with the design phase. */
@@ -598,6 +611,10 @@ export function transmitStateByProject(
   tasks: ReadonlyArray<WaitingOnTaskRow>,
   projects: ReadonlyArray<Project>,
   vendorKey: string,
+  /** fix-271: from {@link designPhaseProjectIds}. Only pre-submittal projects
+   *  have a design handoff at all; a structural task anywhere else is a
+   *  correction and says nothing about the design phase. */
+  designPhaseIds: ReadonlySet<string>,
   cancelledIds?: ReadonlySet<string>,
 ): Map<string, TransmitState> {
   const projectById = new Map<string, Project>();
@@ -610,7 +627,7 @@ export function transmitStateByProject(
   };
   const out = new Map<string, TransmitState>();
   for (const t of tasks) {
-    if (!isTransmitTask(t.task_text, vendorKey)) continue;
+    if (!designPhaseIds.has(t.project_id)) continue;
     if (isCancelledProject(t.project_id, cancelledIds)) continue;
     if (!vendorOwnsTask(t, projectById.get(t.project_id), vendorKey)) continue;
 
@@ -657,9 +674,12 @@ export interface VendorCorrectionRow {
   taskId: string;
   projectId: string;
   address: string;
+  juris: string | null;
+  /** fix-271: the permit type. Corrections are permit-scoped, so this is already
+   *  to hand, and it is what distinguishes a PPR or a Demolition from the
+   *  Building Permit most rows will be. Replaced the task text, which was the
+   *  very string fix-271 stopped trusting and which read as noise to a vendor. */
   permit: string | null;
-  /** What the vendor needs to do — the task text. */
-  need: string;
   /** When it went to them (permit_tasks.start_date). Blank when unset. */
   sent: string | null;
   /** When it is expected back (permit_tasks.target_date). Blank when unset. */
@@ -689,14 +709,18 @@ export interface VendorCorrectionRow {
  *  Resolved and fix-262 'Cancelled' tasks are both excluded via isTaskLive.
  *  Rows with missing dates are KEPT with a blank cell, never dropped.
  *
- *  fix-268: TRANSMIT tasks are excluded — they are the DESIGN-phase handoff and
- *  belong to section 4. Design and permitting never blur. Everything else that
- *  is waiting on this vendor still lands here, which is the safe default for a
- *  text match against strings that have already drifted. */
+ *  fix-271: PHASE decides, not the task's name. A structural task on a project
+ *  whose draw block is PAST SUBMITTAL is a correction; the same task on a
+ *  pre-submittal project is the design handoff and belongs to section 4. Design
+ *  and permitting never blur. A project with no draw block at all lands here —
+ *  see {@link designPhaseProjectIds} for why that is the safer default. */
 export function buildVendorCorrectionRows(
   tasks: ReadonlyArray<WaitingOnTaskRow>,
   projects: ReadonlyArray<Project>,
   vendorKey: string,
+  /** fix-271: from {@link designPhaseProjectIds}. Tasks on these projects are
+   *  design-phase and are handled by sections 3 and 4 instead. */
+  designPhaseIds: ReadonlySet<string>,
   cancelledIds?: ReadonlySet<string>,
 ): VendorCorrectionRow[] {
   const discipline = VENDOR_DISCIPLINE[vendorKey];
@@ -708,9 +732,7 @@ export function buildVendorCorrectionRows(
   const rows: VendorCorrectionRow[] = [];
   for (const t of tasks) {
     if (!isTaskLive(t.completion_status)) continue;
-    // fix-268: the design-phase handoff is section 4's, in every state — a
-    // transmit task must never also appear as a permitting correction.
-    if (isTransmitTask(t.task_text, vendorKey)) continue;
+    if (designPhaseIds.has(t.project_id)) continue; // design → sections 3 / 4
     if (isCancelledProject(t.project_id, cancelledIds)) continue;
 
     const project = projectById.get(t.project_id);
@@ -724,8 +746,8 @@ export function buildVendorCorrectionRows(
       taskId: t.task_id,
       projectId: t.project_id,
       address: (project?.address ?? t.project_address ?? '').trim(),
+      juris: norm(project?.juris ?? t.project_juris ?? null),
       permit: norm(t.permit_type),
-      need: (t.task_text ?? '').trim(),
       sent: norm(t.start_date),
       // target_date is the canonical "expected back". due_date is deliberately
       // ignored: it is unset on every single waiting-on task on prod, and a
