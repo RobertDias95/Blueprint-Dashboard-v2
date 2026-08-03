@@ -1,0 +1,147 @@
+-- fix-273 (2026-08-03): revoke TRUNCATE from anon/authenticated across public.
+--
+-- ############################################################################
+-- ## NOT APPLIED. Written for review. This changes privileges on 58 prod     ##
+-- ## tables including permits and projects — the highest-blast-radius change ##
+-- ## in this codebase. Apply with MCP apply_migration once reviewed.         ##
+-- ############################################################################
+--
+-- THE FINDING
+-- Surfaced while building fix-272: draw_schedule_audit granted ALL — including
+-- TRUNCATE — to anon and authenticated. Sweeping the schema showed it is not one
+-- table. 58 tables, most with BOTH roles, including permits, projects,
+-- permit_tasks, permit_cycles, profiles, tenant_memberships, tenants, audit_log,
+-- user_activity, draw_schedule, draw_schedule_audit, saved_reports and 18
+-- _*_backup_* tables.
+--
+-- ★ RLS DOES NOT GOVERN TRUNCATE. Row-level policies filter rows for SELECT /
+-- INSERT / UPDATE / DELETE. TRUNCATE is a TABLE-level operation and bypasses
+-- them entirely. A role holding it empties the table however good the policies
+-- are — and the table stays empty.
+--
+-- NOT CURRENTLY EXPLOITABLE, precisely:
+--   * PostgREST exposes no TRUNCATE verb, so the published anon key cannot
+--     reach it over the REST API. Verified: the app and the scraper both go
+--     exclusively through PostgREST.
+--   * Reaching it requires either a DIRECT POSTGRES CONNECTION authenticating
+--     as anon/authenticated, or a SECURITY INVOKER function running dynamic SQL
+--     that a client can call. Neither exists today — verified by scanning every
+--     function body in every schema on prod for TRUNCATE: zero hits.
+--   * It becomes real the day someone adds either one. This migration removes
+--     the privilege so that day is uneventful.
+--
+-- VERIFIED SAFE TO REMOVE: no TRUNCATE anywhere in the v2 repo (only the REVOKE
+-- statements in fix-265 and fix-272), none in the scraper repo, and none in any
+-- database function or procedure.
+--
+-- CAUSE: Supabase's ALTER DEFAULT PRIVILEGES grants ALL on new tables to anon,
+-- authenticated and service_role. fix-157 and fix-163 hardened FUNCTIONS, not
+-- tables — visible in pg_default_acl today, where the FUNCTION default for role
+-- postgres reads {postgres=X, authenticated=X, service_role=X} with anon already
+-- removed, while the TABLE default still reads anon=arwdDxtm (the D is TRUNCATE).
+--
+-- SCOPE IS DELIBERATELY NARROW. DELETE / SELECT / INSERT / UPDATE are left
+-- ALONE: RLS does govern those, and verified on prod every one of the 53 tables
+-- anon holds grants on has RLS enabled with policies that gate on
+-- auth_tenant_ids() / auth.uid(), which are empty for anon. Those over-grants
+-- are a defence-in-depth concern, not a live hole, and folding them in here
+-- would make the blast radius unreviewable. See the fix-273 PR body.
+
+BEGIN;
+
+-- ---------------------------------------------------------------------------
+-- A. Revoke TRUNCATE on everything that exists today
+-- ---------------------------------------------------------------------------
+-- Schema-wide rather than 58 enumerated names ON PURPOSE: an enumeration
+-- silently misses anything created between writing this file and applying it.
+-- Idempotent — revoking a privilege that is already absent is a no-op.
+--
+-- service_role is deliberately NOT named. The scraper authenticates as
+-- service_role and must be unaffected; it keeps TRUNCATE along with everything
+-- else. (It does not use it — but that is its business, not this migration's.)
+REVOKE TRUNCATE ON ALL TABLES IN SCHEMA public FROM PUBLIC, anon, authenticated;
+
+-- ---------------------------------------------------------------------------
+-- B. Stop new tables inheriting it
+-- ---------------------------------------------------------------------------
+-- Without this the problem regrows on the next CREATE TABLE and we do this again
+-- in three months. Verified rather than assumed: all 67 tables in public are
+-- owned by `postgres`, and apply_migration itself connects as `postgres`, so
+-- this is the role that creates tables here.
+ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public
+  REVOKE TRUNCATE ON TABLES FROM PUBLIC, anon, authenticated;
+
+-- KNOWN RESIDUAL GAP, stated rather than papered over. pg_default_acl carries a
+-- SECOND table default granted by `supabase_admin`, also with anon=arwdDxtm. We
+-- cannot alter it: current_user is `postgres`, which is neither a superuser nor
+-- a member of supabase_admin, so
+--     ALTER DEFAULT PRIVILEGES FOR ROLE supabase_admin ...
+-- would fail with permission denied and take this whole migration down with it.
+--
+-- Practical impact is nil for our workflow: every table in public is owned by
+-- postgres, and both apply_migration and the dashboard SQL editor connect as
+-- postgres, so the postgres default is the one that fires. The supabase_admin
+-- default would only apply to a table created BY supabase_admin — i.e. by
+-- Supabase's own platform tooling. If that ever happens, statement A above is
+-- the remedy: re-run it and the new table is covered.
+
+COMMIT;
+
+-- ---------------------------------------------------------------------------
+-- VERIFICATION — run this any time to confirm the state
+-- ---------------------------------------------------------------------------
+-- Expect ZERO rows. Any row is a table that regained TRUNCATE.
+--
+--   select table_name, string_agg(distinct grantee, ', ') as roles
+--   from information_schema.role_table_grants
+--   where table_schema = 'public'
+--     and privilege_type = 'TRUNCATE'
+--     and grantee in ('anon','authenticated')
+--   group by table_name
+--   order by table_name;
+--
+-- And confirm service_role was untouched — expect a healthy count (67 today):
+--
+--   select count(distinct table_name)
+--   from information_schema.role_table_grants
+--   where table_schema = 'public'
+--     and privilege_type = 'TRUNCATE'
+--     and grantee = 'service_role';
+--
+-- And confirm the default no longer leaks — expect no `D` in the anon entry:
+--
+--   select d.defaclacl::text
+--   from pg_default_acl d join pg_namespace n on n.oid = d.defaclnamespace
+--   where n.nspname = 'public' and d.defaclobjtype = 'r'
+--     and pg_get_userbyid(d.defaclrole) = 'postgres';
+
+-- ---------------------------------------------------------------------------
+-- AFFECTED TABLES (58), captured 2026-08-03 before applying — for audit
+-- ---------------------------------------------------------------------------
+-- Both anon AND authenticated (53):
+--   _dd3056_fix_backup_20260717, _fix22_permits_dropped_cols_snapshot,
+--   _intake_date_fix_backup_20260728, _mbp_3626_recorr_backup_20260717,
+--   _mbp_3626_recorr_backup_20260717b, _mbp_premature_corr_backup_20260713,
+--   _notes_junk_backup_20260717, _orphaned_producttypes_key_backup_20260710,
+--   _permit_type_fix_backup_20260728, _productype_remap_backup_20260710,
+--   _report_notes_backup_20260717, _scraper254_kirkland_backup_20260728,
+--   _scraper255_kirkland_backup_20260728,
+--   _scraper257_seattle_corr_backup_20260728,
+--   _seattle_cycle_fix_backup_20260728,
+--   _seattle_reviewer_orphan_backup_20260728, _target_submit_backup_20260728,
+--   _target_submit_formula_backup_20260728, app_config, app_sweeps, audit_log,
+--   builders, da_team_routing, da_time_blocks, dm_da_groups, draw_schedule,
+--   draw_schedule_audit, draw_schedule_quarter_layout, error_reports,
+--   intake_records, jurisdictions, permit_cycle_reviewers, permit_cycles,
+--   permit_schedule_overrides, permit_task_assignees, permit_tasks,
+--   permit_type_defaults, permit_types, permits, profiles, project_documents,
+--   projects, report_categories, report_notes, saved_reports,
+--   target_submit_formulas, task_subtasks, task_template_subtasks,
+--   task_templates, team_members, tenant_memberships, tenants, user_activity
+--
+-- authenticated ONLY (5) — the tables later migrations partially hardened:
+--   bp_versions, external_team_directory, notes, project_da_handoffs,
+--   project_holds
+--
+-- NOT affected: permit_task_audit (fix-272 already revoked correctly), and
+-- anything owned outside public.
