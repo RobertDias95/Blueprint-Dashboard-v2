@@ -16,6 +16,7 @@ import WeeklyDaReport from './pages/WeeklyDaReport';
 import WeeklyUpdatesReport from './pages/WeeklyUpdatesReport';
 import ApprovedAwaitingIssuanceReport from './pages/ApprovedAwaitingIssuanceReport';
 import PhaseDurationsReport from './pages/PhaseDurationsReport';
+import VendorScheduleForecastReport from './pages/VendorScheduleForecastReport';
 import ReportingHubPage from './pages/ReportingHubPage';
 import CustomReport from './pages/CustomReport';
 import ReportBuilder from './pages/ReportBuilder';
@@ -89,6 +90,16 @@ export const router = createBrowserRouter([
         element: (
           <AdminRoute>
             <PhaseDurationsReport />
+          </AdminRoute>
+        ),
+      },
+      // fix-265: Vendor Schedule Forecast — the weekly note to the structural
+      // engineer. Composes an Outlook draft; "Mark as sent" is separate.
+      {
+        path: 'reports/vendor-forecast',
+        element: (
+          <AdminRoute>
+            <VendorScheduleForecastReport />
           </AdminRoute>
         ),
       },

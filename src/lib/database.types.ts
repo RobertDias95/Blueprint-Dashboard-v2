@@ -127,6 +127,16 @@ export interface Project {
    *  other nullable Project column here (Project literals in fixtures omit it);
    *  the value is `string | null` at runtime. */
   reused_from_project_id?: string | null;
+  /** fix-265: the free-text qualifier on that reuse relationship — what Gena
+   *  writes by hand today ("Units are Similar to 13515 27th? XL?", "7315 Jones
+   *  Ave NW (W/O GAR)"). reused_from_project_id carries the LINK; this carries
+   *  the nuance that makes the link useful to an outside engineer. Surfaced in
+   *  the vendor schedule forecast. NOT redesign_notes, which is redesign-scoped.
+   *  Added by migrations/fix_265_vendor_schedule_forecast.sql — optional here
+   *  because that migration is not applied yet, and because the shared
+   *  useProjects() select deliberately does not fetch it (see
+   *  useVendorReportExtras). */
+  reuse_notes?: string | null;
   created_at?: string | null;
   updated_at?: string | null;
 }
@@ -614,6 +624,29 @@ export interface DrawScheduleRow {
   status_override: string | null;
   /** Q5.5.C: required for row-level OCC on the draw_schedule write path. */
   updated_at: string;
+  /** fix-265: opt this block OUT of every vendor-facing report. Default false
+   *  (everything is IN) — Bobby: "maybe we have the ability to take things off
+   *  that don't count... we can use that as a learning module", so it is a
+   *  per-block manual switch rather than a category rule, and what actually gets
+   *  excluded is meant to teach us what the rule should be. Optional here
+   *  because migrations/fix_265_vendor_schedule_forecast.sql is not applied yet;
+   *  useDrawSchedule selects '*', so it appears on its own once it is. */
+  exclude_from_vendor_reports?: boolean | null;
+}
+
+/** fix-265: one row of the vendor send ledger (public.vendor_report_state) —
+ *  what an external vendor was LAST told about one project. Drives the New /
+ *  Changed sections of the vendor schedule forecast. Written ONLY by
+ *  bp_mark_vendor_report_sent, never by composing a draft. */
+export interface VendorReportStateRow {
+  tenant_id: string;
+  vendor_key: string;
+  project_id: string;
+  sent_start_week: string | null;
+  sent_dd_end: string | null;
+  sent_status: string | null;
+  sent_at: string;
+  sent_by: string | null;
 }
 
 /** Q6.2.c: DA non-project blocks (vacation, training, redesign, etc.).
