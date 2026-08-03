@@ -109,7 +109,36 @@ vi.mock('../hooks/useWaitingOnTasks', async (importActual) => {
   };
 });
 
+// fix-264: the board drops tasks belonging to a CANCELLED project. Partial mock
+// so the real cancelledProjectIds runs over a settable holds list.
+const holdsRef = vi.hoisted(() => ({ current: [] as unknown[] }));
+vi.mock('../hooks/useProjectHolds', async (importActual) => {
+  const actual = await importActual<typeof import('../hooks/useProjectHolds')>();
+  return {
+    ...actual,
+    useAllProjectHolds: () => ({
+      data: holdsRef.current,
+      isLoading: false,
+      error: null,
+      refetch: vi.fn(),
+    }),
+  };
+});
+
 import MyTasks from '../pages/MyTasks';
+
+/** An OPEN project_holds row of either kind. */
+function openHold(projectId: string, kind: 'hold' | 'cancelled') {
+  return {
+    id: `h-${projectId}`,
+    project_id: projectId,
+    kind,
+    reason: 'because',
+    note: null,
+    hold_start: '2026-05-01',
+    hold_end: null,
+  };
+}
 
 function member(over: Partial<TeamMember> & Pick<TeamMember, 'name' | 'role'>): TeamMember {
   return {
@@ -185,6 +214,7 @@ beforeEach(() => {
   ];
   tasksRef.current = [];
   permitsRef.current = [];
+  holdsRef.current = [];
   useAuthStore.setState({
     user: { email: 'bobby@x.com' } as never,
     activeTenantId: 'test-tenant',
@@ -279,6 +309,51 @@ const VARIED_PERMITS: unknown[] = [
   { id: 1, da: 'Trevor', dm: null, ent_lead: 'Bobby' },
   { id: 2, da: 'Ainsley', dm: null, ent_lead: 'Edmund' },
 ];
+
+// fix-264: cancelled projects fall off the board. fix-262's server sweep already
+// parked their Open/In-Progress tasks, but it deliberately leaves RESOLVED tasks
+// alone — so without a project-level filter a cancelled project still showed a
+// card under "show resolved" and still counted in the "Projects" tile.
+describe('MyTasks — cancelled projects (fix-264)', () => {
+  it('drops every card from a cancelled project, resolved ones included', () => {
+    tasksRef.current = varied();
+    holdsRef.current = [openHold('p2', 'cancelled')];
+    renderIt();
+    // Reveal Resolved — the cancelled project's resolved task must stay gone.
+    fireEvent.click(screen.getByTestId('mytasks-filter-active'));
+
+    expect(screen.queryByTestId('mytask-card-pm-open')).toBeNull();
+    expect(screen.queryByTestId('mytask-card-pm-inprog')).toBeNull();
+    expect(screen.queryByTestId('mytask-card-pm-resolved-past')).toBeNull();
+    // p1's cards untouched.
+    expect(screen.getByTestId('mytask-card-de-open-overdue')).toBeInTheDocument();
+    expect(screen.getByTestId('mytask-card-de-inprog')).toBeInTheDocument();
+  });
+
+  it('counters are computed from the filtered set, not the raw one', () => {
+    tasksRef.current = varied();
+    holdsRef.current = [openHold('p2', 'cancelled')];
+    renderIt();
+    // Only p1's two tasks survive: both open, one overdue, one project, none
+    // resolved. Compare against the un-cancelled baseline of 4/1/2 and 1/5 · 20%.
+    expect(screen.getByTestId('mytasks-counter-open-value').textContent).toBe('2');
+    expect(screen.getByTestId('mytasks-counter-overdue-value').textContent).toBe('1');
+    expect(screen.getByTestId('mytasks-counter-projects-value').textContent).toBe('1');
+    expect(screen.getByTestId('mytasks-counter-done-text').textContent).toBe('0/2 · 0%');
+  });
+
+  it('a HELD project keeps every card and stays in the counters', () => {
+    tasksRef.current = varied();
+    holdsRef.current = [openHold('p1', 'hold'), openHold('p2', 'hold')];
+    renderIt();
+    expect(screen.getByTestId('mytask-card-de-open-overdue')).toBeInTheDocument();
+    expect(screen.getByTestId('mytask-card-pm-open')).toBeInTheDocument();
+    // Byte-identical to the no-holds baseline above.
+    expect(screen.getByTestId('mytasks-counter-open-value').textContent).toBe('4');
+    expect(screen.getByTestId('mytasks-counter-projects-value').textContent).toBe('2');
+    expect(screen.getByTestId('mytasks-counter-done-text').textContent).toBe('1/5 · 20%');
+  });
+});
 
 describe('MyTasks (fix-80 v1 three-pane kanban)', () => {
   it('counters reflect the FULL filtered set (Active Only hides Resolved cards but the % still counts them)', () => {

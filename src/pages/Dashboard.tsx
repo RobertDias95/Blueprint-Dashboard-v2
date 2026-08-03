@@ -16,7 +16,9 @@ import {
   activeHoldProjectIds,
   activeHoldByProjectId,
   cancelByProjectId,
+  cancelledProjectIds,
 } from '../hooks/useProjectHolds';
+import { isCancelledProject } from '../lib/projectViewHelpers';
 import HoldFilter from '../components/shared/HoldFilter';
 import {
   passesHoldFilter,
@@ -87,8 +89,18 @@ export default function Dashboard() {
     () => activeHoldProjectIds(holdsQ.data),
     [holdsQ.data],
   );
+  // fix-264: cancelled projects fall OFF the pipeline entirely — Bobby: "no need
+  // to see it if it isn't active/nothing being done on it." Same set the Project
+  // List's Active toggle uses (fix-262); holds are deliberately not in it.
+  const cancelledIds = useMemo(
+    () => cancelledProjectIds(holdsQ.data),
+    [holdsQ.data],
+  );
   // fix-178: project_id -> active hold, for the on-hold badge on each card.
   // fix-262: cancelled projects carry their own badge from the same bulk fetch.
+  // fix-264: that badge now only renders on Project List / Project Detail — a
+  // cancelled project never reaches a dashboard card. The map stays wired so
+  // nothing breaks in the window between the holds fetch and the projects fetch.
   const cancelMap = useMemo(() => cancelByProjectId(holdsQ.data), [holdsQ.data]);
   const activeHoldMap = useMemo(
     () => activeHoldByProjectId(holdsQ.data),
@@ -219,6 +231,13 @@ export default function Dashboard() {
     const selfScope = identity.scope;
     const filteredInputs: BucketInput[] = [];
     for (const project of projects) {
+      // fix-264: a CANCELLED project is off the pipeline unconditionally — no
+      // cards, and (because every bucket header counts the permits that survive
+      // this loop) no contribution to the "N proj · M" badges either. There is
+      // deliberately no "show cancelled" control here: the Project List's Active
+      // toggle is the one place you go to find an inactive project and bring it
+      // back. A project on HOLD is untouched — it is still active work.
+      if (isCancelledProject(project.id, cancelledIds)) continue;
       const projectPermits = permitsByProjectId.get(project.id) ?? [];
       if (!matchesSearch(project, projectPermits.map((b) => b.permit))) continue;
       // fix-178: hold filter is project-level (a permit is held iff its project
@@ -265,6 +284,7 @@ export default function Dashboard() {
     identity.scope,
     holdMode,
     activeHeld,
+    cancelledIds,
   ]);
 
   if (error) {

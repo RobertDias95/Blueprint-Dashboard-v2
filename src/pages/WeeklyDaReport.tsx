@@ -10,6 +10,11 @@ import { useWeeklyDaReport } from '../hooks/useWeeklyDaReport';
 import { useAddNote, useUpdateNote } from '../hooks/useNotes';
 import { usePermits } from '../hooks/usePermits';
 import { useProjects } from '../hooks/useProjects';
+import {
+  useAllProjectHolds,
+  cancelledProjectIds,
+} from '../hooks/useProjectHolds';
+import { excludeCancelledFromDaReport } from '../lib/weeklyDaReport';
 import { SkeletonRows } from '../components/Skeleton';
 import QueryError from '../components/QueryError';
 import { snapToMonday } from '../lib/dateUtils';
@@ -145,7 +150,16 @@ export default function WeeklyDaReport() {
     setFilters({});
   }
 
-  const das = reportQ.data?.das ?? [];
+  // fix-264: cancelled projects come off the DA's sheet.
+  const holdsQ = useAllProjectHolds();
+  const cancelledIds = useMemo(
+    () => cancelledProjectIds(holdsQ.data),
+    [holdsQ.data],
+  );
+  const das = useMemo(
+    () => excludeCancelledFromDaReport(reportQ.data?.das ?? [], cancelledIds),
+    [reportQ.data, cancelledIds],
+  );
 
   return (
     <div className="space-y-4 report-print-root" data-testid="weekly-da-report">

@@ -4,6 +4,8 @@ import { supabase } from '../lib/supabase';
 import { queryKeys } from '../lib/queryKeys';
 import { useAuthStore } from '../stores/authStore';
 import { useProjects } from './useProjects';
+import { useAllProjectHolds, cancelledProjectIds } from './useProjectHolds';
+import { excludeCancelled } from '../lib/projectViewHelpers';
 import { asExternalTeamBlob, resolveExternalFirm } from '../lib/externalTeam';
 import type {
   WaitingOnDiscipline,
@@ -37,17 +39,29 @@ export function useWaitingOnTasks(opts: { includeCompleted: boolean }) {
     },
   });
 
+  // fix-264: "waiting on" is live work — you are chasing a consultant for
+  // something. A CANCELLED project isn't waiting on anybody, so its rows drop
+  // out here, through the same predicate + set the board and the Dashboard use.
+  // The RPC can't know about the cancel (it predates project_holds), and its
+  // rows carry project_id, so the filter belongs here rather than in a migration.
+  // Holds stay: a held project is still waiting on its consultant.
+  const holdsQ = useAllProjectHolds();
+  const cancelledIds = useMemo(
+    () => cancelledProjectIds(holdsQ.data),
+    [holdsQ.data],
+  );
+
   // Overlay the firm from each task's project external_team blob (single source).
   const data = useMemo<WaitingOnTaskRow[]>(() => {
     const blobByProject = new Map<string, ReturnType<typeof asExternalTeamBlob>>();
     for (const p of projectsQ.data ?? []) {
       blobByProject.set(p.id, asExternalTeamBlob(p.external_team));
     }
-    return (tasksQ.data ?? []).map((row) => {
+    return excludeCancelled(tasksQ.data ?? [], cancelledIds).map((row) => {
       const firm = resolveExternalFirm(blobByProject.get(row.project_id), row.waiting_on);
       return { ...row, firm_id: firm, firm_name: firm, firm_active: true };
     });
-  }, [tasksQ.data, projectsQ.data]);
+  }, [tasksQ.data, projectsQ.data, cancelledIds]);
 
   return {
     data,

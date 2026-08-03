@@ -6,6 +6,9 @@ import { MemoryRouter } from 'react-router-dom';
 
 const permitsData = vi.hoisted(() => ({ current: [] as unknown[] }));
 const projectsData = vi.hoisted(() => ({ current: [] as unknown[] }));
+// fix-264: the report reads the tenant's holds so cancelled projects drop off.
+// Partial mock — the real cancelledProjectIds runs over this list.
+const holdsData = vi.hoisted(() => ({ current: [] as unknown[] }));
 
 vi.mock('../hooks/usePermits', () => ({
   usePermits: () => ({
@@ -24,7 +27,33 @@ vi.mock('../hooks/useProjects', () => ({
   }),
 }));
 
+vi.mock('../hooks/useProjectHolds', async (importActual) => {
+  const actual = await importActual<typeof import('../hooks/useProjectHolds')>();
+  return {
+    ...actual,
+    useAllProjectHolds: () => ({
+      data: holdsData.current,
+      isLoading: false,
+      error: null,
+      refetch: vi.fn(),
+    }),
+  };
+});
+
 import ApprovedAwaitingIssuanceReport from '../pages/ApprovedAwaitingIssuanceReport';
+
+/** An OPEN project_holds row of either kind. */
+function openHold(projectId: string, kind: 'hold' | 'cancelled') {
+  return {
+    id: `h-${projectId}`,
+    project_id: projectId,
+    kind,
+    reason: 'because',
+    note: null,
+    hold_start: '2026-06-01',
+    hold_end: null,
+  };
+}
 
 function permit(over: Record<string, unknown>) {
   return {
@@ -57,6 +86,7 @@ beforeEach(() => {
     { id: 'p2', address: '750 Oak Way', juris: 'Bellevue' },
   ];
   permitsData.current = [];
+  holdsData.current = [];
 });
 
 afterEach(() => {
@@ -88,6 +118,33 @@ describe('<ApprovedAwaitingIssuanceReport /> (fix-221)', () => {
     // Excluded permits absent.
     expect(screen.queryByTestId('aai-row-3')).toBeNull();
     expect(screen.queryByTestId('aai-row-4')).toBeNull();
+  });
+
+  // fix-264: this report is a chase-list, so a cancelled project's approved
+  // permit comes off it — but a HELD project's does not.
+  it('drops a CANCELLED project and keeps a HELD one', () => {
+    permitsData.current = [
+      permit({ id: 1, project_id: 'p1', approval_date: '2026-06-30', status: 'Ready for Issuance' }),
+      permit({ id: 2, project_id: 'p2', approval_date: '2026-05-08', status: 'Awaiting Information' }),
+    ];
+    holdsData.current = [openHold('p1', 'cancelled'), openHold('p2', 'hold')];
+    renderPage();
+
+    expect(screen.queryByTestId('aai-row-1')).toBeNull();
+    expect(screen.getByTestId('aai-row-2')).toBeInTheDocument();
+    // The count reflects the filtered set, not the raw one.
+    expect(screen.getByTestId('aai-count').textContent).toMatch(/1 permit awaiting issuance/);
+  });
+
+  it('a LIFTED cancel puts the project back on the report', () => {
+    permitsData.current = [
+      permit({ id: 1, project_id: 'p1', approval_date: '2026-06-30', status: 'Ready for Issuance' }),
+    ];
+    // hold_end set = the project was brought back; cancelledProjectIds is
+    // open-rows-only, so it must not match.
+    holdsData.current = [{ ...openHold('p1', 'cancelled'), hold_end: '2026-07-01' }];
+    renderPage();
+    expect(screen.getByTestId('aai-row-1')).toBeInTheDocument();
   });
 
   it('shows the empty state when nothing is awaiting issuance', () => {

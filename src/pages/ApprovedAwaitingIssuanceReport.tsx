@@ -2,6 +2,10 @@ import { useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { usePermits } from '../hooks/usePermits';
 import { useProjects } from '../hooks/useProjects';
+import {
+  useAllProjectHolds,
+  cancelledProjectIds,
+} from '../hooks/useProjectHolds';
 import { SkeletonRows } from '../components/Skeleton';
 import QueryError from '../components/QueryError';
 import {
@@ -44,14 +48,22 @@ export default function ApprovedAwaitingIssuanceReport() {
     return m;
   }, [projectsQ.data]);
 
+  // fix-264: cancelled projects drop off this queue (see the builder's doc).
+  const holdsQ = useAllProjectHolds();
+  const cancelledIds = useMemo(
+    () => cancelledProjectIds(holdsQ.data),
+    [holdsQ.data],
+  );
+
   const rows = useMemo(
     () =>
       buildApprovedAwaitingRows(
         permitsQ.data ?? [],
         projectsById,
         todayIso(),
+        cancelledIds,
       ),
-    [permitsQ.data, projectsById],
+    [permitsQ.data, projectsById, cancelledIds],
   );
 
   const error = permitsQ.error ?? projectsQ.error;

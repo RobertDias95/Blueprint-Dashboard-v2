@@ -146,7 +146,37 @@ const PAYLOAD: WeeklyDaReportPayload = {
   ],
 };
 
+// fix-264: cancelled projects come off the DA's sheet. Partial mock so the real
+// cancelledProjectIds runs over a settable holds list.
+const holdsData = vi.hoisted(() => ({ current: [] as unknown[] }));
+vi.mock('../hooks/useProjectHolds', async (importActual) => {
+  const actual = await importActual<typeof import('../hooks/useProjectHolds')>();
+  return {
+    ...actual,
+    useAllProjectHolds: () => ({
+      data: holdsData.current,
+      isLoading: false,
+      error: null,
+      refetch: vi.fn(),
+    }),
+  };
+});
+
 import WeeklyDaReport from '../pages/WeeklyDaReport';
+import { excludeCancelledFromDaReport } from '../lib/weeklyDaReport';
+
+/** An OPEN project_holds row of either kind. */
+function openHold(projectId: string, kind: 'hold' | 'cancelled') {
+  return {
+    id: `h-${projectId}`,
+    project_id: projectId,
+    kind,
+    reason: 'because',
+    note: null,
+    hold_start: '2026-05-01',
+    hold_end: null,
+  };
+}
 
 function renderReport() {
   return render(
@@ -161,11 +191,63 @@ beforeEach(() => {
   reportHookSpy.mockClear();
   addMutate.mockClear();
   updateMutate.mockClear();
+  holdsData.current = [];
 });
 
 afterEach(() => {
   localStorage.clear();
   vi.useRealTimers();
+});
+
+// fix-264: the DA's sheet is a work queue — cancelled projects come off it, in
+// all three sections; holds stay because that DA still owns the work.
+describe('<WeeklyDaReport /> — cancelled projects (fix-264)', () => {
+  it('strips a cancelled project from every section and drops a DA left with nothing', () => {
+    // pr1 carries Fisk's correction (101) + awaiting-issuance (103) AND the whole
+    // Unassigned group (200). pr2 carries Fisk's upcoming intake (102).
+    holdsData.current = [openHold('pr1', 'cancelled')];
+    renderReport();
+
+    expect(screen.queryByTestId('wdr-corr-row-101')).toBeNull();
+    expect(screen.queryByTestId('wdr-awaiting-row-103')).toBeNull();
+    expect(screen.queryByTestId('wdr-corr-row-200')).toBeNull();
+    // Fisk survives on the pr2 intake alone, with a recomputed section count.
+    const fisk = screen.getByTestId('wdr-da-Fisk');
+    expect(screen.getByTestId('wdr-upc-row-102')).toBeInTheDocument();
+    expect(fisk.textContent).toMatch(/Corrections \(0\)/);
+    expect(fisk.textContent).toMatch(/Upcoming Intakes \(1\)/);
+    // Unassigned had only the cancelled project — no empty heading left behind.
+    expect(screen.queryByTestId('wdr-da-Unassigned')).toBeNull();
+  });
+
+  it('leaves a HELD project completely alone', () => {
+    holdsData.current = [openHold('pr1', 'hold'), openHold('pr2', 'hold')];
+    renderReport();
+    expect(screen.getByTestId('wdr-corr-row-101')).toBeInTheDocument();
+    expect(screen.getByTestId('wdr-awaiting-row-103')).toBeInTheDocument();
+    expect(screen.getByTestId('wdr-corr-row-200')).toBeInTheDocument();
+    expect(screen.getByTestId('wdr-upc-row-102')).toBeInTheDocument();
+    expect(screen.getByTestId('wdr-da-Unassigned')).toBeInTheDocument();
+  });
+
+  it('shows the empty state when every DA is wiped out', () => {
+    holdsData.current = [openHold('pr1', 'cancelled'), openHold('pr2', 'cancelled')];
+    renderReport();
+    expect(screen.getByTestId('wdr-empty')).toBeInTheDocument();
+    expect(screen.queryByTestId('wdr-body')).toBeNull();
+  });
+
+  it('excludeCancelledFromDaReport keeps the optional awaiting section absent when it was absent', () => {
+    const [, unassigned] = excludeCancelledFromDaReport(
+      PAYLOAD.das,
+      new Set(['pr2']), // leaves both groups non-empty
+    );
+    expect('approved_awaiting_issuance' in unassigned).toBe(false);
+  });
+
+  it('excludeCancelledFromDaReport is a no-op (same reference) for an empty set', () => {
+    expect(excludeCancelledFromDaReport(PAYLOAD.das, new Set())).toBe(PAYLOAD.das);
+  });
 });
 
 describe('<WeeklyDaReport /> (fix-67)', () => {
