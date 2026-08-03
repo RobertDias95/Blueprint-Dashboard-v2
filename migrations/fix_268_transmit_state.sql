@@ -1,9 +1,10 @@
 -- fix-268 (2026-08-03): design-phase transmit state for the vendor forecast.
 --
--- ############################################################################
--- ## NOT APPLIED. Written for review. Apply with MCP apply_migration (which   ##
--- ## records provenance AND statement text) once Bobby has read section C.    ##
--- ############################################################################
+-- APPLIED to prod (eibnmwthkcuumyclyxoe) on 2026-08-03 via MCP apply_migration
+-- as `fix_268_transmit_state`, which records the provenance row AND the full
+-- statement text. Bobby approved section C (the system-wide start_date trigger)
+-- before it was applied. This file is the repo-of-record backstop and matches
+-- what was applied byte for byte.
 --
 -- WHY
 -- The vendor forecast could say what is COMING to the structural engineer, but
