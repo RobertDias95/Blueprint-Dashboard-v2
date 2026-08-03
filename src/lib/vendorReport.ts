@@ -90,13 +90,44 @@ function norm(v: string | null | undefined): string | null {
   return t === '' ? null : t;
 }
 
+/** fix-266: the draw statuses a vendor's PIPELINE covers — the PRE-SUBMITTAL
+ *  phases.
+ *
+ *  The forecast tells the structural engineer what is coming toward them. Their
+ *  involvement ends when the drawings go to the city: once a project is
+ *  Submitted / Under Review / Corrections / Approved, there is nothing for them
+ *  to schedule against. So membership here is a PHASE question, and this
+ *  allow-list is the answer — deliberately an allow-list rather than a deny-list
+ *  so a new status added to the draw schedule later is OUT until someone decides
+ *  it is pre-submittal, rather than silently appearing in a vendor-facing email.
+ *
+ *  This replaced a date-based attempt. fix-265 filtered only on "DD end already
+ *  past", which could not fire on the 84-of-124 blocks where dd_end is NULL — so
+ *  the pipeline rendered 66 rows of which 39 were finished Approved work, the
+ *  oldest starting 2025-02-10. The date was the wrong instrument for a phase
+ *  question; the dd_end test is kept below as an additional gate because it is
+ *  still correct wherever dd_end exists.
+ *
+ *  'Corrections' is absent for two reasons that agree: it is post-submittal, and
+ *  design-phase corrections are already visible on the schedule, so repeating
+ *  them here is noise (Bobby was explicit). Excluding 'Under Review' costs the
+ *  vendor nothing either — a live structural correction on an Under Review
+ *  project still reaches them through section 4, which this gate does not touch.
+ */
+export const VENDOR_PIPELINE_STATUSES: ReadonlySet<string> = new Set([
+  'Scheduled',
+  'Schematic',
+  'DD / Permit Set',
+  'Pending Consultants',
+]);
+
 /** fix-265: is this draw block visible to a vendor at all?
  *
- *  IN  — any block linked to a project with an address. Redesigns count.
- *  OUT — status 'Corrections' (design-phase corrections are already visible on
- *        the schedule, so repeating them here is noise — Bobby was explicit);
- *        blocks opted out via exclude_from_vendor_reports; CANCELLED projects
- *        (fix-264); anything whose DD end is already past.
+ *  IN  — any block linked to a project with an address, at a pre-submittal
+ *        status ({@link VENDOR_PIPELINE_STATUSES}). Redesigns count.
+ *  OUT — post-submittal statuses (Submitted / Under Review / Corrections /
+ *        Approved); blocks opted out via exclude_from_vendor_reports; CANCELLED
+ *        projects (fix-264); anything whose DD end is already past.
  *
  *  Non-project blocks (Vacation / PTO / training / the out-of-office floater)
  *  need no clause: they live in a SEPARATE table, da_time_blocks, and never
@@ -108,6 +139,11 @@ function norm(v: string | null | undefined): string | null {
  *  deliberately — dropping rows for absent data would hide work from the vendor,
  *  and the blank cell in the email is what prompts the data entry. (Falling back
  *  to end_week here was measured and would collapse the list from 66 rows to 5.)
+ *
+ *  A block with NO status is likewise KEPT, on the same principle: we cannot
+ *  prove it is past submittal, and silently dropping a project the vendor needs
+ *  to hear about is worse than one extra row they can ignore. Zero prod rows are
+ *  affected today — all 124 carry one of the seven known statuses.
  */
 export function drawBlockIsVendorVisible(
   block: Pick<DrawScheduleRow, 'status' | 'dd_end'> & {
@@ -121,7 +157,10 @@ export function drawBlockIsVendorVisible(
   if (!norm(project.address)) return false;
   if (isCancelledProject(project.id, cancelledIds)) return false;
   if (block.exclude_from_vendor_reports === true) return false;
-  if (norm(block.status) === 'Corrections') return false;
+  // fix-266: pre-submittal phases only. A blank status is kept (see the doc
+  // above); anything named that is not on the allow-list is out.
+  const status = norm(block.status);
+  if (status !== null && !VENDOR_PIPELINE_STATUSES.has(status)) return false;
   const ddEnd = norm(block.dd_end);
   if (ddEnd !== null && ddEnd < todayIso) return false;
   return true;
