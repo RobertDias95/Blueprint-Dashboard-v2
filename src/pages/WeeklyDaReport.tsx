@@ -14,7 +14,7 @@ import {
   useAllProjectHolds,
   cancelledProjectIds,
 } from '../hooks/useProjectHolds';
-import { excludeCancelled } from '../lib/projectViewHelpers';
+import { excludeCancelledFromDaReport } from '../lib/weeklyDaReport';
 import { SkeletonRows } from '../components/Skeleton';
 import QueryError from '../components/QueryError';
 import { snapToMonday } from '../lib/dateUtils';
@@ -79,43 +79,6 @@ function fmtDate(iso: string | null | undefined): string {
     day: 'numeric',
     year: 'numeric',
   });
-}
-
-/** fix-264: strip CANCELLED projects out of the report payload.
- *
- *  The Weekly DA Update is the sheet a DA works from — corrections to answer,
- *  intakes to submit, issuances to chase. A cancelled project has none of that,
- *  so its rows come out of all three sections and a DA whose whole section was
- *  cancelled work drops off rather than printing an empty heading.
- *
- *  Filtered client-side rather than in bp_get_weekly_da_report: the RPC predates
- *  project_holds and every row already carries project_id, so this needs no
- *  migration and stays on the SAME cancelled set as the Dashboard / board.
- *  HELD projects are untouched — that DA still owns the work. */
-export function excludeCancelledFromDaReport(
-  groups: WeeklyDaReportGroup[],
-  cancelledIds: ReadonlySet<string>,
-): WeeklyDaReportGroup[] {
-  if (cancelledIds.size === 0) return groups;
-  const live = (rows: WeeklyDaReportRow[] | undefined) =>
-    excludeCancelled(rows ?? [], cancelledIds);
-  return groups
-    .map((g) => ({
-      ...g,
-      corrections: live(g.corrections),
-      upcoming_intakes: live(g.upcoming_intakes),
-      // fix-221's section is optional in the payload — keep it absent if it was
-      // absent, so a client ahead of the RPC migration still renders.
-      ...(g.approved_awaiting_issuance === undefined
-        ? {}
-        : { approved_awaiting_issuance: live(g.approved_awaiting_issuance) }),
-    }))
-    .filter(
-      (g) =>
-        g.corrections.length > 0 ||
-        g.upcoming_intakes.length > 0 ||
-        (g.approved_awaiting_issuance?.length ?? 0) > 0,
-    );
 }
 
 export default function WeeklyDaReport() {

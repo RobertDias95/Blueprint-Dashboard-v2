@@ -162,9 +162,8 @@ vi.mock('../hooks/useProjectHolds', async (importActual) => {
   };
 });
 
-import WeeklyDaReport, {
-  excludeCancelledFromDaReport,
-} from '../pages/WeeklyDaReport';
+import WeeklyDaReport from '../pages/WeeklyDaReport';
+import { excludeCancelledFromDaReport } from '../lib/weeklyDaReport';
 
 /** An OPEN project_holds row of either kind. */
 function openHold(projectId: string, kind: 'hold' | 'cancelled') {
