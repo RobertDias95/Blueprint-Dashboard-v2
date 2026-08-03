@@ -176,3 +176,63 @@ describe('<AdminReportingTab /> (fix-68)', () => {
     expect(screen.getByTestId('reporting-empty')).toBeInTheDocument();
   });
 });
+
+// fix-270: the report's own rules, on its card. Not a fifth button — Run /
+// Rename / Move / Delete already fills that row — but an expandable under the
+// description, collapsed by default.
+describe('AdminReportingTab — "How it works" (fix-270)', () => {
+  function openWeekly() {
+    renderTab();
+    fireEvent.click(screen.getByTestId('reporting-cat-cat-weekly'));
+  }
+
+  const TOGGLE = 'reporting-report-rep-wda-howitworks-toggle';
+  const PANEL = 'reporting-report-rep-wda-howitworks-panel';
+
+  it('renders collapsed by default', () => {
+    openWeekly();
+    expect(screen.getByTestId(TOGGLE)).toBeInTheDocument();
+    expect(screen.queryByTestId(PANEL)).toBeNull();
+  });
+
+  it('expands in place and collapses again', () => {
+    openWeekly();
+    const toggle = screen.getByTestId(TOGGLE);
+    fireEvent.click(toggle);
+    const panel = screen.getByTestId(PANEL);
+    expect(panel).toBeInTheDocument();
+    expect(panel.textContent).toContain("What's included");
+    expect(panel.textContent).toContain("What's left out");
+    fireEvent.click(toggle);
+    expect(screen.queryByTestId(PANEL)).toBeNull();
+  });
+
+  it('is keyboard operable and wired for screen readers', () => {
+    openWeekly();
+    const toggle = screen.getByTestId(TOGGLE);
+    // A native <button> gets Enter/Space activation for free — the thing worth
+    // asserting is that it IS one, and that it announces its state.
+    expect(toggle.tagName).toBe('BUTTON');
+    expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    fireEvent.click(toggle);
+    expect(screen.getByTestId(TOGGLE)).toHaveAttribute('aria-expanded', 'true');
+    expect(toggle.getAttribute('aria-controls')).toBe(PANEL);
+    expect(screen.getByTestId(PANEL).id).toBe(PANEL);
+  });
+
+  it('shows the real rules, not the card description', () => {
+    openWeekly();
+    fireEvent.click(screen.getByTestId(TOGGLE));
+    const panel = screen.getByTestId(PANEL);
+    // The held-project rule is the one nobody knew about.
+    expect(panel.textContent).toMatch(/on hold/i);
+    expect(panel.textContent).not.toContain('Per-DA one-pager.');
+  });
+
+  it('a custom report has no How it works at all', () => {
+    openWeekly();
+    expect(
+      screen.queryByTestId('reporting-report-rep-custom-howitworks-toggle'),
+    ).toBeNull();
+  });
+});

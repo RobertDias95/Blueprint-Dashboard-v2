@@ -7,7 +7,10 @@ import {
   useUpsertSavedReport,
   useDeleteSavedReport,
 } from '../../hooks/useReportHub';
-import { builtinReportDef } from '../../lib/builtinReports';
+import {
+  builtinReportDef,
+  builtinReportHowItWorks,
+} from '../../lib/builtinReports';
 import { SkeletonRows } from '../Skeleton';
 import QueryError from '../QueryError';
 import type { ReportCategory, SavedReport } from '../../lib/database.types';
@@ -508,6 +511,9 @@ function ReportCard({
               {report.description}
             </div>
           )}
+          {/* fix-270: the rules, under the description rather than as a fifth
+              button — Run / Rename / Move / Delete is already a crowded row. */}
+          <HowItWorksDisclosure report={report} />
         </div>
         <div className="flex flex-col items-end gap-1 flex-shrink-0">
           {/* Reorder */}
@@ -596,6 +602,71 @@ function ReportCard({
           </select>
         </div>
       )}
+    </div>
+  );
+}
+
+/** fix-270: "How it works ▾" — the report's own rules, under its description.
+ *
+ *  Deliberately NOT a fifth button: Run / Rename / Move / Delete already fills
+ *  that row. This expands in place, collapsed by default, and the open state is
+ *  NOT persisted — it is reference material you consult, not a preference.
+ *
+ *  A native <button> so it is keyboard-operable for free (Enter and Space), with
+ *  aria-expanded and aria-controls wiring the panel to its trigger. Custom
+ *  reports and any builtin without a catalog entry render nothing at all. */
+function HowItWorksDisclosure({ report }: { report: SavedReport }) {
+  const [open, setOpen] = useState(false);
+  const howItWorks = builtinReportHowItWorks(report.builtin_key);
+  if (!howItWorks) return null;
+
+  const panelId = `reporting-report-${report.id}-howitworks-panel`;
+  return (
+    <div className="mt-1">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        aria-controls={panelId}
+        className="text-[10px] font-bold text-de hover:underline"
+        data-testid={`reporting-report-${report.id}-howitworks-toggle`}
+      >
+        How it works {open ? '▴' : '▾'}
+      </button>
+      {open && (
+        <div
+          id={panelId}
+          className="mt-1.5 space-y-1.5 border-l-2 pl-2.5"
+          style={{ borderLeftColor: 'var(--color-border)' }}
+          data-testid={`reporting-report-${report.id}-howitworks-panel`}
+        >
+          <HowItWorksList label="What's included" items={howItWorks.included} />
+          <HowItWorksList label="What's left out" items={howItWorks.excluded} />
+          {howItWorks.notes && howItWorks.notes.length > 0 && (
+            <HowItWorksList label="Worth knowing" items={howItWorks.notes} />
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function HowItWorksList({ label, items }: { label: string; items: string[] }) {
+  return (
+    <div>
+      <div className="text-[9px] font-bold uppercase tracking-wide text-dim">
+        {label}
+      </div>
+      <ul className="mt-0.5 space-y-0.5">
+        {items.map((item) => (
+          <li
+            key={item}
+            className="text-[11px] text-muted leading-snug pl-2.5 -indent-2.5"
+          >
+            • {item}
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }
