@@ -6,7 +6,7 @@ import type {
   WaitingOnTaskRow,
 } from './database.types';
 import { asExternalTeamBlob, resolveExternalFirm } from './externalTeam';
-import { isTaskLive } from './taskStatus';
+import { isTaskCancelled, isTaskLive } from './taskStatus';
 import { isCancelledProject, isPermitDone } from './projectViewHelpers';
 
 // fix-265: the Vendor Schedule Forecast — the weekly note Blueprint owes its
@@ -54,10 +54,23 @@ export interface VendorLedgerRow {
 export type VendorBucket = 'new' | 'changed' | 'unchanged';
 
 /** The three fields the vendor is told about a project. Comparing this triple
- *  against the ledger is the whole of change detection. */
+ *  against the ledger is the whole of change detection.
+ *
+ *  fix-269: `targetSend` was `ddEnd`. Renamed because Bobby's semantic makes the
+ *  old name a lie — "The end of the DD phase is when we are targeting to provide
+ *  documents to the external consultant." It is a commitment we are making, not
+ *  a date we observed, and it is `dd_end` falling back to `end_week`.
+ *
+ *  The LEDGER tracks this same value (vendor_report_state.sent_dd_end), so what
+ *  the vendor is shown and what CHANGES compares are always the same number. If
+ *  the ledger tracked raw dd_end while the email showed the fallback, a project
+ *  whose end_week moved would show a new target send that was never flagged as a
+ *  change — and the Changes section exists precisely to catch that movement.
+ *  Zero migration risk: the prod ledger is empty (never sent). */
 export interface VendorScheduleFacts {
   startWeek: string | null;
-  ddEnd: string | null;
+  /** dd_end, falling back to end_week when dd_end is NULL. */
+  targetSend: string | null;
   status: string | null;
 }
 
@@ -66,6 +79,11 @@ export interface VendorScheduleRow extends VendorScheduleFacts {
   address: string;
   juris: string | null;
   bucket: VendorBucket;
+  /** fix-269: the target send date has passed and nothing has gone out. The row
+   *  stays in UPCOMING — it is still upcoming work — but sorts first and carries
+   *  a visible marker. This is the single most useful thing the vendor can be
+   *  told: "you were told this was coming on the 27th; it has not gone out." */
+  overdue: boolean;
   /** What the vendor was previously told — null for a 'new' row. Rendered as
    *  OLD → NEW in the Changes section: Tawny needs the delta to re-plan, which
    *  is the entire justification for that section existing. */
@@ -149,11 +167,29 @@ export const VENDOR_PIPELINE_STATUSES: ReadonlySet<string> = new Set([
  *  fix-268 adds the end_week FALLBACK. Draw status goes stale — a block sits at
  *  "Pending Consultants" long after the project has moved on — and with dd_end
  *  NULL on most rows nothing caught it. So when dd_end is absent we fall back to
- *  end_week for the same already-past test. dd_end stays PRIMARY: where it
- *  exists, end_week is never consulted and no row changes. (fix-265 measured
- *  end_week as a REPLACEMENT and rejected it — 66 rows to 5. As a fallback under
- *  the fix-266 status gate it is a different instrument: it only speaks where
- *  dd_end is silent.)
+ *  end_week. dd_end stays PRIMARY: where it exists, end_week is never consulted.
+ *  (fix-265 measured end_week as a REPLACEMENT and rejected it — 66 rows to 5.
+ *  As a fallback under the fix-266 status gate it only speaks where dd_end is.)
+ *
+ *  fix-269 REVERSES WHAT THE DATE DECIDES. Bobby: "The end of the DD phase is
+ *  when we are targeting to provide documents to the external consultant." So a
+ *  passed target send date does NOT mean finished — with nothing sent, IT MEANS
+ *  LATE, and that is the most useful thing the vendor can be told.
+ *
+ *  THE TRANSMIT TASK IS THE LIVENESS SIGNAL; the date decides presentation:
+ *
+ *    transmit state       | target send | result
+ *    ---------------------|-------------|---------------------------------
+ *    none                 | future      | UPCOMING
+ *    none                 | past        | DROP — no liveness signal at all
+ *    open, not started    | future      | UPCOMING
+ *    open, not started    | past        | UPCOMING, flagged OVERDUE
+ *    started, unresolved  | any         | TRANSMITTED (not here)
+ *    resolved             | any         | DROP — received; design phase done
+ *
+ *  all-permits-done still OVERRIDES all of this (applied by the caller): an
+ *  issued project drops even with an open transmit task, because a task nobody
+ *  closed is not evidence the work is live.
  */
 export function drawBlockIsVendorVisible(
   block: Pick<DrawScheduleRow, 'status' | 'dd_end' | 'end_week'> & {
@@ -162,6 +198,10 @@ export function drawBlockIsVendorVisible(
   project: Pick<Project, 'id' | 'address'> | undefined,
   cancelledIds: ReadonlySet<string> | undefined,
   todayIso: string,
+  /** fix-269: this project's transmit-task state. Defaults to 'none', which is
+   *  the pre-fix-269 behaviour for the ~all of the pipeline that has no transmit
+   *  task yet. */
+  transmitState: TransmitState = 'none',
 ): boolean {
   if (!project) return false;
   if (!norm(project.address)) return false;
@@ -171,10 +211,38 @@ export function drawBlockIsVendorVisible(
   // above); anything named that is not on the allow-list is out.
   const status = norm(block.status);
   if (status !== null && !VENDOR_PIPELINE_STATUSES.has(status)) return false;
-  // fix-268: dd_end primary, end_week only when dd_end is absent.
-  const pastMarker = norm(block.dd_end) ?? norm(block.end_week);
-  if (pastMarker !== null && pastMarker < todayIso) return false;
+  // fix-269: sent and awaiting return → it is in TRANSMITTED, not here.
+  if (transmitState === 'started') return false;
+  // fix-269: received → structural is finished with the design phase.
+  if (transmitState === 'resolved') return false;
+  // fix-268/269: a passed target send only drops the row when there is NO
+  // transmit task to say the work is still live. With one open, it is overdue.
+  const targetSend = vendorTargetSend(block);
+  if (targetSend !== null && targetSend < todayIso && transmitState === 'none') {
+    return false;
+  }
   return true;
+}
+
+/** fix-269: the TARGET SEND date — dd_end, falling back to end_week. The date we
+ *  are committing to hand documents over, not a date we observed. */
+export function vendorTargetSend(
+  block: Pick<DrawScheduleRow, 'dd_end' | 'end_week'>,
+): string | null {
+  return norm(block.dd_end) ?? norm(block.end_week);
+}
+
+/** fix-269: is this row late — target send passed with nothing sent? Only
+ *  meaningful when the project has an open, unstarted transmit task; without one
+ *  there is no evidence the work is still live and the row is dropped instead. */
+export function vendorRowIsOverdue(
+  block: Pick<DrawScheduleRow, 'dd_end' | 'end_week'>,
+  transmitState: TransmitState,
+  todayIso: string,
+): boolean {
+  if (transmitState !== 'open') return false;
+  const targetSend = vendorTargetSend(block);
+  return targetSend !== null && targetSend < todayIso;
 }
 
 /** fix-268: projects where every non-sub permit is DONE.
@@ -236,10 +304,11 @@ export interface BuildVendorScheduleInput {
   /** fix-268: projects whose permits have ALL issued — finished, whatever the
    *  draw block still says. From {@link allPermitsDoneProjectIds}. */
   allPermitsDoneIds?: ReadonlySet<string>;
-  /** fix-268: projects whose transmit task has STARTED. They have moved from
-   *  "coming to you" (section 3) to "with you" (section 4) and must appear in
-   *  exactly one of the two. From {@link transmitStartedProjectIds}. */
-  transmitStartedIds?: ReadonlySet<string>;
+  /** fix-269: each project's design-phase handoff state, from
+   *  {@link transmitStateByProject}. THE liveness signal — it decides membership
+   *  and the target-send date only decides presentation. Replaces fix-268's
+   *  started-ids set, which could only say "sent", not "late" or "received". */
+  transmitState?: ReadonlyMap<string, TransmitState>;
   todayIso: string;
 }
 
@@ -255,7 +324,7 @@ export function buildVendorScheduleRows(
     cancelledIds,
     holdsByProject,
     allPermitsDoneIds,
-    transmitStartedIds,
+    transmitState,
     todayIso,
   } = input;
 
@@ -268,18 +337,20 @@ export function buildVendorScheduleRows(
   const rows: VendorScheduleRow[] = [];
   for (const block of draw) {
     const project = projectById.get(block.project_id);
-    if (!drawBlockIsVendorVisible(block, project, cancelledIds, todayIso)) continue;
-    // fix-268: the permits already issued — structural finished long ago.
+    // fix-268: the permits already issued — structural finished long ago. This
+    // OVERRIDES the transmit signal: a task nobody bothered to close is not
+    // evidence the work is live, so it is checked before anything else.
     if (allPermitsDoneIds?.has(block.project_id)) continue;
-    // fix-268: already sent. It is in TRANSMITTED, so it is not in UPCOMING —
-    // a project is "coming to you" or "with you", never both.
-    if (transmitStartedIds?.has(block.project_id)) continue;
+    const state = transmitState?.get(block.project_id) ?? 'none';
+    if (!drawBlockIsVendorVisible(block, project, cancelledIds, todayIso, state)) {
+      continue;
+    }
     // drawBlockIsVendorVisible already proved project is defined + addressed.
     const p = project as Project;
 
     const facts: VendorScheduleFacts = {
       startWeek: norm(block.start_week),
-      ddEnd: norm(block.dd_end),
+      targetSend: vendorTargetSend(block),
       status: norm(block.status),
     };
 
@@ -291,12 +362,12 @@ export function buildVendorScheduleRows(
     } else {
       const prior: VendorScheduleFacts = {
         startWeek: norm(sent.sent_start_week),
-        ddEnd: norm(sent.sent_dd_end),
+        targetSend: norm(sent.sent_dd_end),
         status: norm(sent.sent_status),
       };
       const differs =
         prior.startWeek !== facts.startWeek ||
-        prior.ddEnd !== facts.ddEnd ||
+        prior.targetSend !== facts.targetSend ||
         prior.status !== facts.status;
       bucket = differs ? 'changed' : 'unchanged';
       if (differs) previous = prior;
@@ -320,10 +391,16 @@ export function buildVendorScheduleRows(
           (p as unknown as { reuse_notes?: string | null }).reuse_notes ?? null,
         ) ?? null,
       holdReason: norm(holdsByProject?.get(p.id)?.reason ?? null),
+      overdue: vendorRowIsOverdue(block, state, todayIso),
     });
   }
 
+  // fix-269: OVERDUE first — a package that should already have gone out is the
+  // thing the vendor most needs to see, and burying it mid-list by start week
+  // would waste the signal. Within each group, soonest start week first with
+  // address as a stable tiebreak (unchanged).
   rows.sort((a, b) => {
+    if (a.overdue !== b.overdue) return a.overdue ? -1 : 1;
     const sa = a.startWeek ?? '9999-99-99';
     const sb = b.startWeek ?? '9999-99-99';
     if (sa !== sb) return sa < sb ? -1 : 1;
@@ -375,7 +452,10 @@ export function vendorSentPayload(
   return rows.map((r) => ({
     project_id: r.projectId,
     start_week: r.startWeek,
-    dd_end: r.ddEnd,
+    // fix-269: the TARGET SEND date, which is what the row actually showed.
+    // The ledger column is still named sent_dd_end; what it stores is whatever
+    // the vendor was told, so change detection and the email never diverge.
+    dd_end: r.targetSend,
     status: r.status,
   }));
 }
@@ -491,6 +571,62 @@ export function transmitStartedProjectIds(
   rows: ReadonlyArray<VendorTransmitRow>,
 ): Set<string> {
   return new Set(rows.map((r) => r.projectId));
+}
+
+/** fix-269: where a project stands on the design-phase handoff.
+ *
+ *  'none'     — no transmit task at all. Most of the pipeline today; the DAs are
+ *               still adopting the task.
+ *  'open'     — a transmit task exists but has not started. Nothing sent yet.
+ *  'started'  — sent, not yet back. The project is in TRANSMITTED.
+ *  'resolved' — received. Structural is done with the design phase. */
+export type TransmitState = 'none' | 'open' | 'started' | 'resolved';
+
+/** fix-269: each project's transmit state, for the vendor whose report this is.
+ *
+ *  PRECEDENCE when a project carries several transmit tasks: started > open >
+ *  resolved. Live work outranks finished work — a project with one package out
+ *  and another not yet sent is 'started' (something IS with them), and one with
+ *  an old resolved task plus a fresh open one is 'open' (a new package is due),
+ *  never 'resolved'. Only a project whose transmit tasks are ALL resolved reads
+ *  as resolved and drops.
+ *
+ *  Ownership is the same firm-when-known / discipline-when-not rule the other
+ *  sections use, so a task belonging to a different structural firm cannot make
+ *  a project look live to this vendor. */
+export function transmitStateByProject(
+  tasks: ReadonlyArray<WaitingOnTaskRow>,
+  projects: ReadonlyArray<Project>,
+  vendorKey: string,
+  cancelledIds?: ReadonlySet<string>,
+): Map<string, TransmitState> {
+  const projectById = new Map<string, Project>();
+  for (const p of projects) projectById.set(p.id, p);
+
+  const rank: Record<Exclude<TransmitState, 'none'>, number> = {
+    resolved: 1,
+    open: 2,
+    started: 3,
+  };
+  const out = new Map<string, TransmitState>();
+  for (const t of tasks) {
+    if (!isTransmitTask(t.task_text, vendorKey)) continue;
+    if (isCancelledProject(t.project_id, cancelledIds)) continue;
+    if (!vendorOwnsTask(t, projectById.get(t.project_id), vendorKey)) continue;
+
+    // fix-262 'Cancelled' tasks are inert — they say nothing about liveness.
+    let state: Exclude<TransmitState, 'none'>;
+    if (isTaskCancelled(t.completion_status)) continue;
+    else if (!isTaskLive(t.completion_status)) state = 'resolved';
+    else if (norm(t.start_date) !== null) state = 'started';
+    else state = 'open';
+
+    const prev = out.get(t.project_id);
+    if (prev === undefined || rank[state] > rank[prev as Exclude<TransmitState, 'none'>]) {
+      out.set(t.project_id, state);
+    }
+  }
+  return out;
 }
 
 /** fix-265/268: does this vendor own the task's project for this discipline?

@@ -22,7 +22,7 @@ import {
   splitVendorSections,
   buildVendorCorrectionRows,
   buildVendorTransmitRows,
-  transmitStartedProjectIds,
+  transmitStateByProject,
   allPermitsDoneProjectIds,
   vendorSentPayload,
   lastSentAt,
@@ -125,9 +125,17 @@ export default function VendorScheduleForecastReport() {
       ),
     [waitingQ.data, projects, vendorKey, cancelledIds],
   );
-  const transmitStartedIds = useMemo(
-    () => transmitStartedProjectIds(transmitted),
-    [transmitted],
+  // fix-269: THE liveness signal. Decides membership in UPCOMING; the target
+  // send date only decides how the row is presented.
+  const transmitState = useMemo(
+    () =>
+      transmitStateByProject(
+        waitingQ.data ?? [],
+        projects,
+        vendorKey,
+        cancelledIds,
+      ),
+    [waitingQ.data, projects, vendorKey, cancelledIds],
   );
 
   const rows = useMemo(
@@ -139,7 +147,7 @@ export default function VendorScheduleForecastReport() {
         cancelledIds,
         holdsByProject,
         allPermitsDoneIds,
-        transmitStartedIds,
+        transmitState,
         todayIso: today,
       }),
     [
@@ -149,7 +157,7 @@ export default function VendorScheduleForecastReport() {
       cancelledIds,
       holdsByProject,
       allPermitsDoneIds,
-      transmitStartedIds,
+      transmitState,
       today,
     ],
   );
@@ -498,7 +506,9 @@ function ScheduleTable({
           <th className={TH}>Start week</th>
           <th className={TH}>Address</th>
           <th className={TH}>Jurisdiction</th>
-          <th className={TH}>DD end</th>
+          {/* fix-269: dd_end is a TARGET SEND date — the date we are committing
+              to hand documents over, not one we observed. */}
+          <th className={TH}>Target send</th>
           <th className={TH}>Reuse</th>
         </tr>
       </thead>
@@ -519,6 +529,16 @@ function ScheduleTable({
             </td>
             <td className={TD}>
               {r.address}
+              {/* fix-269: target send passed with nothing sent. Text marker, not
+                  colour — it has to read the same in Outlook as it does here. */}
+              {r.overdue ? (
+                <span
+                  className="ml-1 text-[10px] font-bold text-text"
+                  data-testid={`vsf-overdue-${idPrefix}-${r.projectId}`}
+                >
+                  [OVERDUE — target send was {r.targetSend}, not yet sent]
+                </span>
+              ) : null}
               {r.holdReason ? (
                 <span
                   className="ml-1 text-[10px] font-bold"
@@ -541,9 +561,9 @@ function ScheduleTable({
             </td>
             <td className={TD}>
               {showDelta && r.previous ? (
-                <Delta from={r.previous.ddEnd} to={r.ddEnd} />
+                <Delta from={r.previous.targetSend} to={r.targetSend} />
               ) : (
-                <Cell value={r.ddEnd} />
+                <Cell value={r.targetSend} />
               )}
             </td>
             <td className={TD}>
