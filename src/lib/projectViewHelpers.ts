@@ -276,6 +276,48 @@ export function isPermitDone(
   return s !== '' && PROJECT_DONE_STATUSES.has(s);
 }
 
+/** fix-264: THE cancelled rule, in one place.
+ *
+ *  fix-262 established that a cancelled project is no longer active, but it
+ *  composed that rule into {@link projectIsActive} — a ProjectRow predicate only
+ *  the Project List can reach. Every other live-work surface (Dashboard, My
+ *  Tasks, the weekly reports) holds raw `Project`s / permit rows, so it would
+ *  have had to re-implement "is this cancelled" locally. This is that rule,
+ *  lifted out so there is exactly ONE definition and projectIsActive delegates
+ *  to it rather than duplicating it.
+ *
+ *  The set always comes from `cancelledProjectIds(holds)` (hooks/useProjectHolds)
+ *  — open cancel rows only. HOLDS are deliberately never in it: a held project is
+ *  still active and stays on every surface. Omitted set → false (nothing hidden),
+ *  so a caller that hasn't loaded holds yet renders pre-fix-262 behaviour rather
+ *  than flickering rows away. */
+export function isCancelledProject(
+  projectId: string,
+  cancelledIds?: ReadonlySet<string>,
+): boolean {
+  return cancelledIds?.has(projectId) ?? false;
+}
+
+/** fix-264: drop cancelled projects from a list of anything project-keyed.
+ *
+ *  Works on `Project[]` (keyed by `id`) and on permit/task/report rows (keyed by
+ *  `project_id`) — the live-work surfaces hold one shape or the other, and both
+ *  route through {@link isCancelledProject}. Returns the SAME array reference
+ *  when nothing is cancelled, so the no-holds common case adds no re-render. */
+export function excludeCancelled<T extends { id: string } | { project_id: string }>(
+  rows: T[],
+  cancelledIds?: ReadonlySet<string>,
+): T[] {
+  if (!cancelledIds || cancelledIds.size === 0) return rows;
+  return rows.filter(
+    (r) =>
+      !isCancelledProject(
+        'project_id' in r ? r.project_id : r.id,
+        cancelledIds,
+      ),
+  );
+}
+
 /** fix-245: is the project ACTIVE (kept visible when the Active toggle is on)?
  *  ACTIVE iff the project has NO permits at all (a fresh / redesign shell — keep
  *  it visible) OR at least one of its non-sub permits is not yet done. A project
@@ -290,10 +332,11 @@ export function projectIsActive(
    *  permit-done rules: a cancelled project is inactive even if every one of its
    *  permits is still open, and a permit-less cancelled shell is inactive too.
    *  A project on HOLD is deliberately NOT passed here — a hold is still active.
-   *  Omitted → pre-fix-262 behaviour exactly. */
+   *  Omitted → pre-fix-262 behaviour exactly. fix-264: the cancelled half is now
+   *  {@link isCancelledProject}, shared with every other live-work surface. */
   cancelledIds?: ReadonlySet<string>,
 ): boolean {
-  if (cancelledIds?.has(row.project.id)) return false;
+  if (isCancelledProject(row.project.id, cancelledIds)) return false;
   if (!row.hasAnyPermit) return true;
   return row.permits.some((p) => !isPermitDone(p.permit));
 }

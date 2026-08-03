@@ -3,6 +3,11 @@ import { Link } from 'react-router-dom';
 import { useProjects } from '../hooks/useProjects';
 import { usePermits } from '../hooks/usePermits';
 import { useAllNotes, useAddNote, useUpdateNote } from '../hooks/useNotes';
+import {
+  useAllProjectHolds,
+  cancelledProjectIds,
+} from '../hooks/useProjectHolds';
+import { excludeCancelled } from '../lib/projectViewHelpers';
 import NoteRow from '../components/notes/NoteRow';
 import AddNoteBox from '../components/notes/AddNoteBox';
 import { SkeletonRows } from '../components/Skeleton';
@@ -48,10 +53,21 @@ export default function WeeklyUpdatesReport() {
   const projectsQ = useProjects();
   const permitsQ = usePermits();
   const notesQ = useAllNotes();
+  // fix-264: this is Bobby's Monday "what's moving" pass — a cancelled project
+  // has nothing moving, so it leaves the report the same way it leaves the
+  // Dashboard. Its notes stay on the project page; this is a live-work view.
+  const holdsQ = useAllProjectHolds();
+  const cancelledIds = useMemo(
+    () => cancelledProjectIds(holdsQ.data),
+    [holdsQ.data],
+  );
   const [onlyWithNotes, setOnlyWithNotes] = useState(false);
 
   const groups = useMemo<ProjectGroup[]>(() => {
-    const projects = (projectsQ.data ?? []).filter((p) => !p.archived);
+    const projects = excludeCancelled(
+      (projectsQ.data ?? []).filter((p) => !p.archived),
+      cancelledIds,
+    );
     const permits = permitsQ.data ?? [];
     const notes = notesQ.data ?? []; // already created_at DESC (newest first)
 
@@ -108,7 +124,7 @@ export default function WeeklyUpdatesReport() {
       });
 
     return onlyWithNotes ? out.filter((g) => g.hasActiveNotes) : out;
-  }, [projectsQ.data, permitsQ.data, notesQ.data, onlyWithNotes]);
+  }, [projectsQ.data, permitsQ.data, notesQ.data, onlyWithNotes, cancelledIds]);
 
   const error = projectsQ.error ?? permitsQ.error ?? notesQ.error;
   if (error) {

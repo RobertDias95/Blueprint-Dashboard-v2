@@ -1,5 +1,6 @@
 import type { Permit, Project } from './database.types';
 import { isApprovedNotIssued } from './effectiveIssued';
+import { isCancelledProject } from './projectViewHelpers';
 import { daysBetween } from './teamPerformance';
 
 // fix-221: pure builder for the "Approved – Awaiting Issuance" report. Given the
@@ -26,9 +27,16 @@ export function buildApprovedAwaitingRows(
   permits: Permit[],
   projectsById: Map<string, Project>,
   todayIso: string,
+  /** fix-264: project ids with an OPEN cancel row (cancelledProjectIds). This
+   *  report is a work queue — "go chase these issuances" — so a cancelled
+   *  project's approved permit is not on it; nobody is picking that permit up.
+   *  A HELD project stays: the hold lifts and the issuance is still wanted.
+   *  Omitted → pre-fix-264 behaviour exactly. */
+  cancelledIds?: ReadonlySet<string>,
 ): ApprovedAwaitingRow[] {
   const rows: ApprovedAwaitingRow[] = [];
   for (const p of permits) {
+    if (isCancelledProject(p.project_id, cancelledIds)) continue;
     if (!isApprovedNotIssued(p)) continue;
     const project = projectsById.get(p.project_id);
     rows.push({

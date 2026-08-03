@@ -29,6 +29,11 @@ import {
   writableStatus,
   type TaskWriteStatus,
 } from '../lib/taskStatus';
+import {
+  useAllProjectHolds,
+  cancelledProjectIds,
+} from '../hooks/useProjectHolds';
+import { excludeCancelled } from '../lib/projectViewHelpers';
 import { useScopeMode } from '../hooks/useSelfScope';
 import { type ScopeMode } from '../lib/selfScope';
 import { useTaskOwnership } from '../hooks/useTaskOwnership';
@@ -236,6 +241,23 @@ function ViewSwitcher({
 function MineTasks() {
   const team = useTeamMembers();
   const tasksQ = useAllTasks();
+  // fix-264: tasks on a CANCELLED project leave the board entirely. fix-262's
+  // server-side sweep already flipped that project's Open / In Progress tasks to
+  // 'Cancelled' (and the columns hide those), but it deliberately left RESOLVED
+  // tasks alone — so a cancelled project could still surface a card under "show
+  // resolved" and still count toward the "N projects" counter, which reads the
+  // pre-column filtered set. Filtering at the PROJECT level here closes both,
+  // and keeps this board on the same predicate as every other live-work surface
+  // instead of inferring project state from task status.
+  const holdsQ = useAllProjectHolds();
+  const cancelledIds = useMemo(
+    () => cancelledProjectIds(holdsQ.data),
+    [holdsQ.data],
+  );
+  const liveTasks = useMemo(
+    () => excludeCancelled((tasksQ.data ?? []) as Task[], cancelledIds),
+    [tasksQ.data, cancelledIds],
+  );
 
   const error = team.error ?? tasksQ.error;
   if (error) {
@@ -256,7 +278,7 @@ function MineTasks() {
 
   return (
     <Body
-      tasks={(tasksQ.data ?? []) as Task[]}
+      tasks={liveTasks}
       members={team.all}
     />
   );

@@ -88,7 +88,36 @@ vi.mock('../hooks/usePermits', () => ({
   usePermits: () => ({ data: fixtures.permits, isLoading: false, error: null, refetch: vi.fn() }),
 }));
 
+// fix-264: cancelled projects leave the Monday pass. Partial mock so the real
+// cancelledProjectIds runs over a settable holds list.
+const holdsData = vi.hoisted(() => ({ current: [] as unknown[] }));
+vi.mock('../hooks/useProjectHolds', async (importActual) => {
+  const actual = await importActual<typeof import('../hooks/useProjectHolds')>();
+  return {
+    ...actual,
+    useAllProjectHolds: () => ({
+      data: holdsData.current,
+      isLoading: false,
+      error: null,
+      refetch: vi.fn(),
+    }),
+  };
+});
+
 import WeeklyUpdatesReport from '../pages/WeeklyUpdatesReport';
+
+/** An OPEN project_holds row of either kind. */
+function openHold(projectId: string, kind: 'hold' | 'cancelled') {
+  return {
+    id: `h-${projectId}`,
+    project_id: projectId,
+    kind,
+    reason: 'because',
+    note: null,
+    hold_start: '2026-06-01',
+    hold_end: null,
+  };
+}
 
 function renderIt() {
   const queryClient = new QueryClient({
@@ -107,7 +136,24 @@ beforeEach(() => {
   mocks.updateFn.mockClear();
   mocks.eqFn.mockClear();
   mocks.setAllNotes(fixtures.notes);
+  holdsData.current = [];
   useAuthStore.setState({ activeTenantId: T, memberships: [{ tenant_id: T, role: 'admin' }] });
+});
+
+// fix-264: cancelled = nothing moving = off the Monday pass. Hold ≠ cancel.
+describe('WeeklyUpdatesReport — cancelled projects (fix-264)', () => {
+  it('hides a CANCELLED project and keeps a HELD one', async () => {
+    holdsData.current = [openHold('p1', 'cancelled'), openHold('p2', 'hold')];
+    renderIt();
+    await screen.findByTestId('weekly-updates-project-p2');
+    expect(screen.queryByTestId('weekly-updates-project-p1')).toBeNull();
+  });
+
+  it('brings the project back once the cancel is lifted', async () => {
+    holdsData.current = [{ ...openHold('p1', 'cancelled'), hold_end: '2026-07-20' }];
+    renderIt();
+    await screen.findByTestId('weekly-updates-project-p1');
+  });
 });
 
 describe('WeeklyUpdatesReport grouping', () => {
