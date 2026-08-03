@@ -154,6 +154,18 @@ function reuseCell(row: VendorScheduleRow): string {
   return parts.length ? parts.join(' &middot; ') : BLANK;
 }
 
+/** fix-269: the overdue marker. TEXT, deliberately — no colour, no class, no
+ *  background. Outlook strips or mangles most of that, and a signal the vendor
+ *  cannot see is worse than none. Bold is the only emphasis Word renders
+ *  reliably, and the words carry the meaning on their own. */
+function overdueMarker(row: VendorScheduleRow): string {
+  if (!row.overdue) return '';
+  return (
+    ` <strong>[OVERDUE &mdash; target send was ${esc(row.targetSend ?? '')}` +
+    `, not yet sent]</strong>`
+  );
+}
+
 function scheduleTable(
   rows: ReadonlyArray<VendorScheduleRow>,
   opts: { showDelta: boolean },
@@ -163,7 +175,10 @@ function scheduleTable(
     `<th style="${TH}">Start week</th>` +
     `<th style="${TH}">Address</th>` +
     `<th style="${TH}">Jurisdiction</th>` +
-    `<th style="${TH}">DD end</th>` +
+    // fix-269: dd_end is a TARGET SEND date — "when we are targeting to provide
+    // documents to the external consultant" — so the column says so. It is a
+    // commitment we are making, not a date we observed.
+    `<th style="${TH}">Target send</th>` +
     `<th style="${TH}">Reuse</th>` +
     `</tr>`;
   const body = rows
@@ -172,7 +187,9 @@ function scheduleTable(
       const start =
         opts.showDelta && prev ? delta(prev.startWeek, r.startWeek) : cell(r.startWeek);
       const ddEnd =
-        opts.showDelta && prev ? delta(prev.ddEnd, r.ddEnd) : cell(r.ddEnd);
+        opts.showDelta && prev
+          ? delta(prev.targetSend, r.targetSend)
+          : cell(r.targetSend);
       // Status only earns a column in the Changes section, where it moved.
       const statusNote =
         opts.showDelta && prev && (prev.status ?? '') !== (r.status ?? '')
@@ -184,7 +201,7 @@ function scheduleTable(
       return (
         `<tr>` +
         `<td style="${TD}">${start}</td>` +
-        `<td style="${TD}">${cell(r.address)}${holdSuffix(r)}${statusNote}</td>` +
+        `<td style="${TD}">${cell(r.address)}${overdueMarker(r)}${holdSuffix(r)}${statusNote}</td>` +
         `<td style="${TD}">${cell(r.juris)}</td>` +
         `<td style="${TD}">${ddEnd}</td>` +
         `<td style="${TD}">${reuseCell(r)}</td>` +

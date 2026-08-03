@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+﻿import { describe, it, expect } from 'vitest';
 import {
   buildEmlFile,
   buildVendorEmailHtml,
@@ -16,7 +16,7 @@ import type {
   VendorTransmitRow,
 } from '../lib/vendorReport';
 
-// fix-265: the email side. Two things matter here — the HTML must survive
+// fix-265: the email side. Two things matter here â€” the HTML must survive
 // Outlook (tables + inline styles, never flexbox/grid/external CSS), and the
 // .eml must open as an EDITABLE UNSENT DRAFT from Bobby's own account.
 
@@ -25,9 +25,10 @@ function row(over: Partial<VendorScheduleRow> & { projectId: string }): VendorSc
     address: '100 A St',
     juris: 'Seattle',
     startWeek: '2026-08-10',
-    ddEnd: '2026-09-18',
+    targetSend: '2026-09-18',
     status: 'Scheduled',
     bucket: 'new',
+    overdue: false,
     previous: null,
     reuseFromAddress: null,
     reuseNotes: null,
@@ -77,7 +78,7 @@ function transmit(
   };
 }
 
-describe('fix-265 email HTML — Outlook safety', () => {
+describe('fix-265 email HTML â€” Outlook safety', () => {
   it('uses tables with inline styles and no layout CSS Outlook cannot render', () => {
     const out = html({
       sections: { newRows: [row({ projectId: 'p1' })], changedRows: [], pipelineRows: [row({ projectId: 'p1' })] },
@@ -85,7 +86,7 @@ describe('fix-265 email HTML — Outlook safety', () => {
     });
     expect(out).toContain('<table');
     expect(out).toContain('border-collapse');
-    // Word is the render engine — these silently collapse the layout.
+    // Word is the render engine â€” these silently collapse the layout.
     expect(out).not.toMatch(/display\s*:\s*flex/i);
     expect(out).not.toMatch(/display\s*:\s*grid/i);
     expect(out).not.toContain('<link');
@@ -103,7 +104,7 @@ describe('fix-265 email HTML — Outlook safety', () => {
         changedRows: [
           row({
             projectId: 'p2',
-            previous: { startWeek: '2026-08-10', ddEnd: null, status: 'Scheduled' },
+            previous: { startWeek: '2026-08-10', targetSend: null, status: 'Scheduled' },
           }),
         ],
         pipelineRows: [row({ projectId: 'p3' })],
@@ -127,7 +128,7 @@ describe('fix-265 email HTML — Outlook safety', () => {
     }
   });
 
-  it('omits an empty section entirely — no stray heading', () => {
+  it('omits an empty section entirely â€” no stray heading', () => {
     const out = html({
       sections: { newRows: [row({ projectId: 'p1' })], changedRows: [], pipelineRows: [] },
     });
@@ -179,7 +180,7 @@ describe('fix-265 email HTML — Outlook safety', () => {
           row({
             projectId: 'p1',
             startWeek: '2026-08-24',
-            previous: { startWeek: '2026-08-10', ddEnd: '2026-09-18', status: 'Scheduled' },
+            previous: { startWeek: '2026-08-10', targetSend: '2026-09-18', status: 'Scheduled' },
           }),
         ],
       },
@@ -199,7 +200,7 @@ describe('fix-265 email HTML — Outlook safety', () => {
           row({
             projectId: 'p1',
             status: 'Under Review',
-            previous: { startWeek: '2026-08-10', ddEnd: '2026-09-18', status: 'Scheduled' },
+            previous: { startWeek: '2026-08-10', targetSend: '2026-09-18', status: 'Scheduled' },
           }),
         ],
       },
@@ -211,12 +212,52 @@ describe('fix-265 email HTML — Outlook safety', () => {
   it('renders a missing value as a visible blank, not an omitted cell', () => {
     const out = html({
       sections: {
-        newRows: [row({ projectId: 'p1', ddEnd: null, juris: null })],
+        newRows: [row({ projectId: 'p1', targetSend: null, juris: null })],
         changedRows: [],
         pipelineRows: [],
       },
     });
     expect(out).toContain('&mdash;');
+  });
+
+  // fix-269: the overdue marker must survive Outlook. Word strips or mangles
+  // colour, classes and backgrounds — a signal the vendor cannot see is worse
+  // than none — so it is TEXT.
+  it('the OVERDUE marker is text, with no class and no colour', () => {
+    const out = html({
+      sections: {
+        newRows: [],
+        changedRows: [],
+        pipelineRows: [
+          row({ projectId: 'p1', overdue: true, targetSend: '2026-03-27' }),
+        ],
+      },
+    });
+    expect(out).toContain('OVERDUE');
+    expect(out).toContain('target send was 2026-03-27');
+    expect(out).toContain('not yet sent');
+    // No class hooks anywhere in the document, and no colour on the marker.
+    expect(out).not.toMatch(/class=/);
+    const marker = out.slice(out.indexOf('OVERDUE') - 120, out.indexOf('OVERDUE'));
+    expect(marker).not.toMatch(/color\s*:/i);
+    expect(marker).not.toMatch(/background/i);
+    // <strong> is the only emphasis Word renders reliably.
+    expect(out).toContain('<strong>[OVERDUE');
+  });
+
+  it('an on-time row carries no marker', () => {
+    const out = html({
+      sections: { newRows: [], changedRows: [], pipelineRows: [row({ projectId: 'p1' })] },
+    });
+    expect(out).not.toContain('OVERDUE');
+  });
+
+  it('the date column is labelled Target send, not DD end', () => {
+    const out = html({
+      sections: { newRows: [row({ projectId: 'p1' })], changedRows: [], pipelineRows: [] },
+    });
+    expect(out).toContain('Target send');
+    expect(out).not.toContain('DD end');
   });
 
   it('labels a held project so the vendor knows it is parked', () => {
@@ -338,7 +379,7 @@ describe('fix-265 .eml draft', () => {
   });
 
   it('round-trips the body, em dashes and arrows included', () => {
-    const body = '<p>DD end &mdash; moved &rarr; 2026-09-18 — ok</p>';
+    const body = '<p>DD end &mdash; moved &rarr; 2026-09-18 â€” ok</p>';
     const out = buildEmlFile({ to, cc, subject: 's', html: body });
     const b64 = out.split('\r\n\r\n')[1].replace(/\r\n/g, '');
     const decoded = new TextDecoder().decode(
@@ -359,9 +400,9 @@ describe('fix-265 .eml draft', () => {
     expect(encodeBase64Utf8('ab')).toBe(btoa('ab')); // padding
     expect(encodeBase64Utf8('a')).toBe(btoa('a'));
     const decoded = new TextDecoder().decode(
-      Uint8Array.from(atob(encodeBase64Utf8('— ünïcode →')), (c) => c.charCodeAt(0)),
+      Uint8Array.from(atob(encodeBase64Utf8('â€” Ã¼nÃ¯code â†’')), (c) => c.charCodeAt(0)),
     );
-    expect(decoded).toBe('— ünïcode →');
+    expect(decoded).toBe('â€” Ã¼nÃ¯code â†’');
   });
 
   it('drops a Cc header entirely when nobody has an address', () => {
@@ -390,3 +431,4 @@ describe('fix-265 subject + filename', () => {
     );
   });
 });
+

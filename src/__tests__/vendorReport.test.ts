@@ -1,11 +1,12 @@
-import { describe, it, expect } from 'vitest';
+﻿import { describe, it, expect } from 'vitest';
 import {
   VENDOR_KEY_STRUCTURAL,
   VENDOR_PIPELINE_STATUSES,
   buildVendorTransmitRows,
-  transmitStartedProjectIds,
+  transmitStateByProject,
   allPermitsDoneProjectIds,
   isTransmitTask,
+  type TransmitState,
   buildVendorScheduleRows,
   splitVendorSections,
   buildVendorCorrectionRows,
@@ -26,7 +27,7 @@ import type {
 // The feature replaces a hand-written weekly email that was late about half the
 // time and only ever carried NEW projects, while 57 start-week and 91 end-week
 // moves went untold. So the two things these tests guard hardest are (a) change
-// detection against the ledger, and (b) the running-list rule — that already-sent
+// detection against the ledger, and (b) the running-list rule â€” that already-sent
 // rows never fall off the pipeline.
 
 const TODAY = '2026-08-03';
@@ -77,7 +78,7 @@ function build(opts: {
   cancelledIds?: Set<string>;
   holdsByProject?: Map<string, ProjectHold>;
   allPermitsDoneIds?: Set<string>;
-  transmitStartedIds?: Set<string>;
+  transmitState?: Map<string, TransmitState>;
 }) {
   return buildVendorScheduleRows({
     draw: opts.draw,
@@ -86,7 +87,7 @@ function build(opts: {
     cancelledIds: opts.cancelledIds,
     holdsByProject: opts.holdsByProject,
     allPermitsDoneIds: opts.allPermitsDoneIds,
-    transmitStartedIds: opts.transmitStartedIds,
+    transmitState: opts.transmitState,
     todayIso: TODAY,
   });
 }
@@ -94,7 +95,7 @@ function build(opts: {
 // fix-266: the pipeline is a PHASE question, not a date question. Structural's
 // involvement ends when the drawings go to the city, so only pre-submittal
 // statuses belong. Before this, the pipeline rendered 66 prod rows of which 39
-// were finished Approved work (oldest start 2025-02-10) — the dd_end filter
+// were finished Approved work (oldest start 2025-02-10) â€” the dd_end filter
 // could not fire because dd_end is NULL on 84 of 124 blocks.
 describe('fix-266 pipeline is pre-submittal only', () => {
   const p = project({ id: 'p1' });
@@ -124,7 +125,7 @@ describe('fix-266 pipeline is pre-submittal only', () => {
 
   it('the allow-list is exactly the four pre-submittal phases', () => {
     // Pinned so adding a status to the draw schedule cannot quietly widen what
-    // goes out to a vendor — a new status is OUT until someone decides it is
+    // goes out to a vendor â€” a new status is OUT until someone decides it is
     // pre-submittal.
     expect([...VENDOR_PIPELINE_STATUSES].sort()).toEqual([
       'DD / Permit Set',
@@ -134,14 +135,14 @@ describe('fix-266 pipeline is pre-submittal only', () => {
     ]);
   });
 
-  it('KEEPS a block with no status — we cannot prove it is past submittal', () => {
+  it('KEEPS a block with no status â€” we cannot prove it is past submittal', () => {
     // Same principle as the blank dd_end: silently dropping a project the vendor
     // needs to hear about is worse than one extra row. Zero prod rows today.
     expect(visible(null)).toBe(true);
     expect(visible('   ')).toBe(true);
   });
 
-  it('keeps the dd_end gate as well — it still fires within an allowed status', () => {
+  it('keeps the dd_end gate as well â€” it still fires within an allowed status', () => {
     // fix-266 ADDS a gate, it does not replace one.
     expect(
       drawBlockIsVendorVisible(
@@ -200,8 +201,8 @@ describe('fix-266 pipeline is pre-submittal only', () => {
 // fix-268: the design-phase handoff. A project is "coming to you" (section 3) or
 // "with you" (section 4), never both, and it leaves both when the transmit task
 // is Resolved. Told apart from corrections by TASK TEXT, because permit_tasks has
-// no template_id — verified on prod.
-describe('fix-268 transmit task ⇄ pipeline', () => {
+// no template_id â€” verified on prod.
+describe('fix-268 transmit task â‡„ pipeline', () => {
   const withSss = project({
     id: 'p1',
     address: '554 N 75th St',
@@ -229,7 +230,7 @@ describe('fix-268 transmit task ⇄ pipeline', () => {
     const rows = build({
       draw: [block({ project_id: 'p1' })],
       projects: [withSss],
-      transmitStartedIds: transmitStartedProjectIds(transmitted),
+      transmitState: transmitStateByProject(tasks, [withSss], VENDOR_KEY_STRUCTURAL),
     });
     return {
       transmitted,
@@ -239,7 +240,7 @@ describe('fix-268 transmit task ⇄ pipeline', () => {
   }
 
   it('NOT STARTED: project is in PIPELINE, not in TRANSMITTED', () => {
-    // A transmit task that exists but has not started is not "with them" —
+    // A transmit task that exists but has not started is not "with them" â€”
     // nothing was sent.
     const s = sections([transmitTask({ start_date: null })]);
     expect(s.transmitted).toHaveLength(0);
@@ -256,12 +257,15 @@ describe('fix-268 transmit task ⇄ pipeline', () => {
     expect(s.pipeline).toHaveLength(0);
   });
 
-  it('RESOLVED: in neither — received, and it leaves design-phase tracking', () => {
+  it('RESOLVED: in neither — received, so it leaves design-phase tracking', () => {
+    // fix-269 changed this: under fix-268 a resolved transmit still sat in
+    // UPCOMING. Resolved means received, so structural is finished with the
+    // design phase and the project is not "coming to them" either.
     const s = sections([
       transmitTask({ start_date: '2026-09-18', completion_status: 'Resolved' }),
     ]);
     expect(s.transmitted).toHaveLength(0);
-    expect(s.pipeline.map((r) => r.projectId)).toEqual(['p1']);
+    expect(s.pipeline).toHaveLength(0);
     // ...and it is not a correction either.
     expect(s.corrections).toHaveLength(0);
   });
@@ -350,6 +354,197 @@ describe('fix-268 transmit task ⇄ pipeline', () => {
   });
 });
 
+// fix-269: DD end is a TARGET SEND date — "when we are targeting to provide
+// documents to the external consultant". So a passed date with nothing sent does
+// not mean finished, it means LATE. The TRANSMIT TASK is the liveness signal;
+// the date only decides presentation.
+describe('fix-269 transmit task is the liveness signal', () => {
+  const withSss = project({
+    id: 'p1',
+    address: '4060 E Via Estrella',
+    juris: 'Phoenix',
+    external_team: { Structural: 'SSS' },
+  } as Partial<Project> & { id: string });
+
+  const FUTURE = '2026-09-18';
+  const PAST = '2026-03-27'; // four months before TODAY (2026-08-03)
+
+  function txTask(over: Partial<WaitingOnTaskRow> = {}) {
+    return task({
+      task_id: 't1',
+      project_id: 'p1',
+      task_text: 'Structural - Transmitted',
+      start_date: null,
+      completion_status: 'Open',
+      ...over,
+    });
+  }
+
+  /** Build UPCOMING for one block + a given set of transmit tasks. */
+  function upcoming(targetSend: string | null, tasks: WaitingOnTaskRow[]) {
+    return build({
+      draw: [block({ project_id: 'p1', dd_end: targetSend, end_week: null })],
+      projects: [withSss],
+      transmitState: transmitStateByProject(tasks, [withSss], VENDOR_KEY_STRUCTURAL),
+    });
+  }
+
+  // ---- the decision table, one case per row ----
+
+  it('none + FUTURE target → UPCOMING', () => {
+    const rows = upcoming(FUTURE, []);
+    expect(rows.map((r) => r.projectId)).toEqual(['p1']);
+    expect(rows[0].overdue).toBe(false);
+  });
+
+  it('none + PAST target → DROP (no liveness signal at all)', () => {
+    expect(upcoming(PAST, [])).toHaveLength(0);
+  });
+
+  it('open, not started + FUTURE target → UPCOMING, not flagged', () => {
+    const rows = upcoming(FUTURE, [txTask()]);
+    expect(rows.map((r) => r.projectId)).toEqual(['p1']);
+    expect(rows[0].overdue).toBe(false);
+  });
+
+  it('open, not started + PAST target → UPCOMING, flagged OVERDUE', () => {
+    // THE Via Estrella shape: target send four months ago, nothing sent, project
+    // demonstrably live. Currently invisible; this is the whole point of fix-269.
+    const rows = upcoming(PAST, [txTask()]);
+    expect(rows.map((r) => r.projectId)).toEqual(['p1']);
+    expect(rows[0].overdue).toBe(true);
+    expect(rows[0].targetSend).toBe(PAST);
+  });
+
+  it.each([[FUTURE], [PAST]])(
+    'started, unresolved + %s target → not in UPCOMING (it is in TRANSMITTED)',
+    (target) => {
+      expect(upcoming(target, [txTask({ start_date: '2026-07-01' })])).toHaveLength(0);
+    },
+  );
+
+  it.each([[FUTURE], [PAST]])(
+    'resolved + %s target → DROP',
+    (target) => {
+      expect(
+        upcoming(target, [
+          txTask({ start_date: '2026-07-01', completion_status: 'Resolved' }),
+        ]),
+      ).toHaveLength(0);
+    },
+  );
+
+  // ---- interactions ----
+
+  it('all-permits-done OVERRIDES an open transmit task', () => {
+    // A task nobody closed is not evidence the work is live.
+    const rows = build({
+      draw: [block({ project_id: 'p1', dd_end: PAST, end_week: null })],
+      projects: [withSss],
+      transmitState: transmitStateByProject([txTask()], [withSss], VENDOR_KEY_STRUCTURAL),
+      allPermitsDoneIds: new Set(['p1']),
+    });
+    expect(rows).toHaveLength(0);
+  });
+
+  it('OVERDUE rows sort ahead of on-time rows', () => {
+    const late = project({ id: 'late', address: 'ZZZ Late St' } as Partial<Project> & { id: string });
+    const ontime = project({ id: 'ontime', address: 'AAA Early St' } as Partial<Project> & { id: string });
+    const rows = build({
+      // The overdue row has both a LATER start week and an alphabetically later
+      // address, so only the overdue rule can put it first.
+      draw: [
+        block({ project_id: 'ontime', start_week: '2026-08-01', dd_end: FUTURE, end_week: null }),
+        block({ project_id: 'late', start_week: '2026-09-01', dd_end: PAST, end_week: null }),
+      ],
+      projects: [late, ontime],
+      transmitState: new Map<string, TransmitState>([['late', 'open']]),
+    });
+    expect(rows.map((r) => r.projectId)).toEqual(['late', 'ontime']);
+    expect(rows[0].overdue).toBe(true);
+  });
+
+  it('REGRESSION LOCK: a project with NO transmit task behaves exactly as before', () => {
+    // Most of the pipeline today. Both sides of the date, unchanged from fix-268.
+    expect(upcoming(FUTURE, []).map((r) => r.projectId)).toEqual(['p1']);
+    expect(upcoming(PAST, [])).toHaveLength(0);
+    // ...and a block with no target send at all is still kept.
+    expect(
+      build({
+        draw: [block({ project_id: 'p1', dd_end: null, end_week: null })],
+        projects: [withSss],
+      }).map((r) => r.projectId),
+    ).toEqual(['p1']);
+  });
+
+  it('the end_week fallback still supplies the target send', () => {
+    const rows = build({
+      draw: [block({ project_id: 'p1', dd_end: null, end_week: PAST })],
+      projects: [withSss],
+      transmitState: transmitStateByProject([txTask()], [withSss], VENDOR_KEY_STRUCTURAL),
+    });
+    expect(rows[0].overdue).toBe(true);
+    expect(rows[0].targetSend).toBe(PAST);
+  });
+
+  it('a task on a project the vendor does not own gives no liveness signal', () => {
+    const other = project({
+      id: 'p1',
+      address: '4060 E Via Estrella',
+      external_team: { Structural: 'Other Engineers' },
+    } as Partial<Project> & { id: string });
+    const state = transmitStateByProject([txTask()], [other], VENDOR_KEY_STRUCTURAL);
+    expect(state.size).toBe(0);
+  });
+
+  describe('transmitStateByProject precedence — live work outranks finished', () => {
+    it('started beats open', () => {
+      const state = transmitStateByProject(
+        [txTask({ task_id: 'a' }), txTask({ task_id: 'b', start_date: '2026-07-01' })],
+        [withSss],
+        VENDOR_KEY_STRUCTURAL,
+      );
+      expect(state.get('p1')).toBe('started');
+    });
+
+    it('open beats resolved — a fresh package is due even if an old one came back', () => {
+      const state = transmitStateByProject(
+        [
+          txTask({ task_id: 'a', start_date: '2026-01-01', completion_status: 'Resolved' }),
+          txTask({ task_id: 'b' }),
+        ],
+        [withSss],
+        VENDOR_KEY_STRUCTURAL,
+      );
+      expect(state.get('p1')).toBe('open');
+    });
+
+    it('all resolved reads as resolved', () => {
+      const state = transmitStateByProject(
+        [txTask({ task_id: 'a', start_date: '2026-01-01', completion_status: 'Resolved' })],
+        [withSss],
+        VENDOR_KEY_STRUCTURAL,
+      );
+      expect(state.get('p1')).toBe('resolved');
+    });
+
+    it('a fix-262 Cancelled task is inert — it says nothing about liveness', () => {
+      const state = transmitStateByProject(
+        [txTask({ task_id: 'a', completion_status: 'Cancelled' })],
+        [withSss],
+        VENDOR_KEY_STRUCTURAL,
+      );
+      expect(state.size).toBe(0);
+    });
+
+    it('no transmit task → no entry (defaults to none)', () => {
+      expect(
+        transmitStateByProject([], [withSss], VENDOR_KEY_STRUCTURAL).size,
+      ).toBe(0);
+    });
+  });
+});
+
 // fix-268: draw status goes stale. If the permits issued, structural finished
 // long ago whatever the block still says.
 describe('fix-268 issued permits leave the pipeline', () => {
@@ -363,7 +558,7 @@ describe('fix-268 issued permits leave the pipeline', () => {
     } as never;
   }
 
-  it('all non-sub permits done → project id returned', () => {
+  it('all non-sub permits done â†’ project id returned', () => {
     const ids = allPermitsDoneProjectIds([
       permit({ project_id: 'p1', actual_issue: '2026-05-22', status: 'Completed' }),
     ]);
@@ -380,7 +575,7 @@ describe('fix-268 issued permits leave the pipeline', () => {
     expect(ids.size).toBe(0);
   });
 
-  it('sub-permits do not count — an open sub cannot keep a finished project in', () => {
+  it('sub-permits do not count â€” an open sub cannot keep a finished project in', () => {
     const ids = allPermitsDoneProjectIds([
       permit({ project_id: 'p1', actual_issue: '2026-05-22', status: 'Completed' }),
       permit({ project_id: 'p1', actual_issue: null, parent_permit_id: 7 }),
@@ -416,19 +611,19 @@ describe('fix-268 end_week fallback', () => {
     );
   }
 
-  it('dd_end NULL + PAST end_week → excluded', () => {
+  it('dd_end NULL + PAST end_week â†’ excluded', () => {
     expect(visible(null, '2026-06-08')).toBe(false);
   });
 
-  it('dd_end NULL + FUTURE end_week → KEPT (do not over-filter)', () => {
+  it('dd_end NULL + FUTURE end_week â†’ KEPT (do not over-filter)', () => {
     expect(visible(null, '2026-09-14')).toBe(true);
   });
 
-  it('dd_end NULL + no end_week either → KEPT', () => {
+  it('dd_end NULL + no end_week either â†’ KEPT', () => {
     expect(visible(null, null)).toBe(true);
   });
 
-  it('dd_end PRESENT → the fallback does NOT fire', () => {
+  it('dd_end PRESENT â†’ the fallback does NOT fire', () => {
     // A future dd_end wins even though end_week is long past: dd_end is primary
     // and where it exists this rule must change nothing.
     expect(visible('2026-09-18', '2025-01-01')).toBe(true);
@@ -444,7 +639,7 @@ describe('fix-265 inclusion rule', () => {
     expect(drawBlockIsVendorVisible(block({ project_id: 'p1' }), p, new Set(), TODAY)).toBe(true);
   });
 
-  it('excludes design-phase Corrections blocks — already visible on the schedule', () => {
+  it('excludes design-phase Corrections blocks â€” already visible on the schedule', () => {
     expect(
       drawBlockIsVendorVisible(
         block({ project_id: 'p1', status: 'Corrections' }),
@@ -483,7 +678,7 @@ describe('fix-265 inclusion rule', () => {
     ).toBe(false);
   });
 
-  it('KEEPS a block with no DD end — a blank is not a reason to hide work', () => {
+  it('KEEPS a block with no DD end â€” a blank is not a reason to hide work', () => {
     // dd_end is NULL on 84 of 124 prod rows. Dropping those would hide most of
     // the pipeline from the vendor; the blank cell prompts the data entry.
     expect(
@@ -498,7 +693,7 @@ describe('fix-265 inclusion rule', () => {
 
   it('excludes a block whose project is missing or address-less', () => {
     // Non-project blocks (Vacation / PTO / training / the OOO floater) live in a
-    // SEPARATE table, da_time_blocks, and never reach draw_schedule at all — all
+    // SEPARATE table, da_time_blocks, and never reach draw_schedule at all â€” all
     // 124 prod draw rows resolve to a project. This is the defensive backstop.
     expect(drawBlockIsVendorVisible(block({ project_id: 'ghost' }), undefined, new Set(), TODAY)).toBe(false);
     expect(
@@ -526,13 +721,13 @@ describe('fix-265 bucketing against the ledger', () => {
   const p2 = project({ id: 'p2', address: '200 B St' });
   const p3 = project({ id: 'p3', address: '300 C St' });
 
-  it('no ledger row → NEW', () => {
+  it('no ledger row â†’ NEW', () => {
     const rows = build({ draw: [block({ project_id: 'p1' })], projects: [p1] });
     expect(rows[0].bucket).toBe('new');
     expect(rows[0].previous).toBeNull();
   });
 
-  it('identical ledger row → UNCHANGED, with no previous', () => {
+  it('identical ledger row â†’ UNCHANGED, with no previous', () => {
     const rows = build({
       draw: [block({ project_id: 'p1' })],
       projects: [p1],
@@ -546,7 +741,7 @@ describe('fix-265 bucketing against the ledger', () => {
     ['start week', { sent_start_week: '2026-07-06' }],
     ['DD end', { sent_dd_end: '2026-08-28' }],
     ['status', { sent_status: 'Pending Consultants' }],
-  ])('a moved %s → CHANGED, carrying the old value', (_label, patch) => {
+  ])('a moved %s â†’ CHANGED, carrying the old value', (_label, patch) => {
     const rows = build({
       draw: [block({ project_id: 'p1' })],
       projects: [p1],
@@ -567,22 +762,47 @@ describe('fix-265 bucketing against the ledger', () => {
   });
 
   it('blank and NULL compare equal — an untouched row never reads as changed', () => {
+    // fix-269: target send is dd_end ?? end_week, so BOTH must be blank for the
+    // fact itself to be blank.
     const rows = build({
-      draw: [block({ project_id: 'p1', dd_end: null })],
+      draw: [block({ project_id: 'p1', dd_end: null, end_week: null })],
       projects: [p1],
       ledger: [ledger({ project_id: 'p1', sent_dd_end: '' })],
     });
     expect(rows[0].bucket).toBe('unchanged');
   });
 
-  it('blank → a value IS a change (the vendor learns a date they did not have)', () => {
+  it('fix-269: the ledger tracks the TARGET SEND, so an end_week move is a change', () => {
+    // The ledger must hold whatever the vendor was SHOWN. If it tracked raw
+    // dd_end while the email showed the end_week fallback, a project whose
+    // end_week moved would display a new target send that was never flagged —
+    // and Changes exists precisely to catch that movement.
+    const rows = build({
+      draw: [block({ project_id: 'p1', dd_end: null, end_week: '2026-10-05' })],
+      projects: [p1],
+      ledger: [ledger({ project_id: 'p1', sent_dd_end: '2026-09-14' })],
+    });
+    expect(rows[0].targetSend).toBe('2026-10-05');
+    expect(rows[0].bucket).toBe('changed');
+    expect(rows[0].previous?.targetSend).toBe('2026-09-14');
+  });
+
+  it('fix-269: the send payload records the target send, not raw dd_end', () => {
+    const rows = build({
+      draw: [block({ project_id: 'p1', dd_end: null, end_week: '2026-10-05' })],
+      projects: [p1],
+    });
+    expect(vendorSentPayload(rows)[0].dd_end).toBe('2026-10-05');
+  });
+
+  it('blank â†’ a value IS a change (the vendor learns a date they did not have)', () => {
     const rows = build({
       draw: [block({ project_id: 'p1', dd_end: '2026-09-18' })],
       projects: [p1],
       ledger: [ledger({ project_id: 'p1', sent_dd_end: null })],
     });
     expect(rows[0].bucket).toBe('changed');
-    expect(rows[0].previous?.ddEnd).toBeNull();
+    expect(rows[0].previous?.targetSend).toBeNull();
   });
 
   it('sorts by start week, then address', () => {
@@ -598,16 +818,16 @@ describe('fix-265 bucketing against the ledger', () => {
   });
 });
 
-describe('fix-265 sections — the RUNNING LIST rule', () => {
+describe('fix-265 sections â€” the RUNNING LIST rule', () => {
   const p1 = project({ id: 'p1', address: '100 A St' });
   const p2 = project({ id: 'p2', address: '200 B St' });
   const p3 = project({ id: 'p3', address: '300 C St' });
 
   const rows = build({
     draw: [
-      block({ project_id: 'p1' }), // never sent      → new
-      block({ project_id: 'p2', start_week: '2026-08-17' }), // moved → changed
-      block({ project_id: 'p3' }), // sent, unchanged → pipeline only
+      block({ project_id: 'p1' }), // never sent      â†’ new
+      block({ project_id: 'p2', start_week: '2026-08-17' }), // moved â†’ changed
+      block({ project_id: 'p3' }), // sent, unchanged â†’ pipeline only
     ],
     projects: [p1, p2, p3],
     ledger: [
@@ -688,14 +908,14 @@ describe('fix-265 send cycle', () => {
       '2026-07-20T17:00:00Z',
     );
 
-    // Week 1: it moves — but nobody sends the email that week.
+    // Week 1: it moves â€” but nobody sends the email that week.
     const wk1 = [block({ project_id: 'p1', start_week: '2026-08-17' })];
     const skipped = splitVendorSections(build({ draw: wk1, projects: [p1], ledger: state }));
     expect(skipped.changedRows).toHaveLength(1);
 
     // Week 2: it moves AGAIN. Because the ledger still holds the last COMMUNICATED
     // value (not last week's computed value), the delta shown is the full move
-    // from what the vendor actually knows — the week-1 change is not lost.
+    // from what the vendor actually knows â€” the week-1 change is not lost.
     const wk2 = [block({ project_id: 'p1', start_week: '2026-08-24' })];
     const caught = splitVendorSections(build({ draw: wk2, projects: [p1], ledger: state }));
     expect(caught.changedRows).toHaveLength(1);
@@ -745,7 +965,7 @@ describe('fix-265 reuse columns', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Section 4 — corrections with the vendor
+// Section 4 â€” corrections with the vendor
 // ---------------------------------------------------------------------------
 
 function task(over: Partial<WaitingOnTaskRow> & { task_id: string }): WaitingOnTaskRow {
@@ -859,3 +1079,4 @@ describe('fix-265 corrections section', () => {
     expect(JSON.stringify(rows[0])).not.toContain('2026-12-25');
   });
 });
+

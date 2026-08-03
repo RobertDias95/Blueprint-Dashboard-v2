@@ -356,12 +356,14 @@ describe('<VendorScheduleForecastReport /> transmit state (fix-268)', () => {
   });
 
   it('a RESOLVED transmit appears in neither section', () => {
+    // fix-269 changed this: received means structural is finished with the
+    // design phase, so the project leaves UPCOMING too.
     waitingRef.current = [
       transmitTask({ start_date: '2026-09-18', completion_status: 'Resolved' }),
     ];
     renderPage();
     expect(screen.queryByTestId('vsf-transmitted')).toBeNull();
-    expect(screen.getByTestId('vsf-pipeline-row-p-new')).toBeInTheDocument();
+    expect(screen.queryByTestId('vsf-pipeline-row-p-new')).toBeNull();
   });
 
   it('a non-transmit structural task stays in CORRECTIONS', () => {
@@ -392,6 +394,38 @@ describe('<VendorScheduleForecastReport /> transmit state (fix-268)', () => {
     drawRef.current = [
       block({ project_id: 'p-new', dd_end: null, end_week: '2026-06-08' }),
     ];
+    renderPage();
+    expect(screen.queryByTestId('vsf-pipeline-row-p-new')).toBeNull();
+  });
+
+  // fix-269: the Via Estrella shape, end to end through the page.
+  it('an open unstarted transmit with a target send FOUR MONTHS past shows, flagged', () => {
+    drawRef.current = [
+      block({
+        project_id: 'p-new',
+        status: 'Pending Consultants',
+        dd_end: '2026-03-27',
+        end_week: '2026-03-23',
+      }),
+    ];
+    waitingRef.current = [transmitTask({ start_date: null })];
+    renderPage();
+    const row = screen.getByTestId('vsf-pipeline-row-p-new');
+    expect(row).toBeInTheDocument();
+    const marker = screen.getByTestId('vsf-overdue-pipeline-p-new');
+    expect(marker.textContent).toContain('OVERDUE');
+    expect(marker.textContent).toContain('2026-03-27');
+    // The date column shows the target send.
+    expect(row.textContent).toContain('2026-03-27');
+  });
+
+  it('the same block with NO transmit task stays invisible', () => {
+    // Regression lock on the majority case: without a liveness signal a passed
+    // target send still drops the row, exactly as fix-268 shipped it.
+    drawRef.current = [
+      block({ project_id: 'p-new', dd_end: '2026-03-27', end_week: '2026-03-23' }),
+    ];
+    waitingRef.current = [];
     renderPage();
     expect(screen.queryByTestId('vsf-pipeline-row-p-new')).toBeNull();
   });
