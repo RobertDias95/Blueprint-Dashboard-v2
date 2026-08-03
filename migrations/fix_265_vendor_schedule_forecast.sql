@@ -1,11 +1,10 @@
 -- fix-265 (2026-08-03): Vendor Schedule Forecast — the send ledger + the two
 -- columns the report needs.
 --
--- ############################################################################
--- ## NOT APPLIED. This migration is written for review and has deliberately  ##
--- ## NOT been run against prod. Apply with MCP apply_migration (which records ##
--- ## provenance AND statement text) once reviewed.                           ##
--- ############################################################################
+-- APPLIED to prod (eibnmwthkcuumyclyxoe) on 2026-08-03 via MCP apply_migration
+-- as `fix_265_vendor_schedule_forecast`, which records the provenance row AND
+-- the full statement text. This file is the repo-of-record backstop and matches
+-- what was applied byte for byte.
 --
 -- WHY THIS EXISTS
 -- Blueprint sends a weekly schedule forecast to its structural engineer (SSS).
@@ -286,5 +285,24 @@ ON CONFLICT (key) DO NOTHING;
 -- ---------------------------------------------------------------------------
 REVOKE EXECUTE ON FUNCTION public.bp_mark_vendor_report_sent(uuid, text, jsonb) FROM PUBLIC, anon;
 GRANT  EXECUTE ON FUNCTION public.bp_mark_vendor_report_sent(uuid, text, jsonb) TO authenticated, service_role;
+
+-- ---------------------------------------------------------------------------
+-- G. Grant tightening (applied as fix_265_vendor_report_state_tighten_grants)
+-- ---------------------------------------------------------------------------
+-- READ THIS BEFORE COPYING SECTION C's REVOKE INTO A NEW MIGRATION.
+--
+-- `REVOKE ALL ... FROM PUBLIC, anon` (the fix-262 idiom, section C above) is NOT
+-- sufficient on this project. There is an ALTER DEFAULT PRIVILEGES rule granting
+-- ALL on new public tables to `authenticated`; it fires at CREATE TABLE, and the
+-- REVOKE never named that role. Post-apply verification caught it:
+-- has_table_privilege('authenticated', 'vendor_report_state', 'INSERT') was true.
+--
+-- No exposure resulted (RLS was on and `authenticated` has only a SELECT policy,
+-- so the write was already refused), but the grants did not match the stated
+-- model. Applied as a separate migration immediately after, kept here so this
+-- file remains the repo-of-record for the table's real state.
+REVOKE INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER
+  ON TABLE public.vendor_report_state FROM authenticated;
+GRANT SELECT ON TABLE public.vendor_report_state TO authenticated;
 
 COMMIT;
