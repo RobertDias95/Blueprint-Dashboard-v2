@@ -43,8 +43,8 @@ function correction(
   return {
     projectId: 'p1',
     address: '100 A St',
+    juris: 'Seattle',
     permit: 'Building Permit',
-    need: 'Structural backgrounds',
     sent: '2026-07-27',
     expectedBack: '2026-08-14',
     firm: 'SSS',

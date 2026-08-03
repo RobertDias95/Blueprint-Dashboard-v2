@@ -277,8 +277,11 @@ describe('<VendorScheduleForecastReport /> sections (fix-265)', () => {
     renderPage();
     expect(screen.getByTestId('vsf-corrections-count').textContent).toBe('(1)');
     const row = screen.getByTestId('vsf-correction-row-t1');
-    expect(row.textContent).toContain('Structural backgrounds');
-    expect(row.textContent).toContain('—'); // blank, not dropped
+    // fix-271: permit type, not the task text. p1 has no draw block in this
+    // fixture, so it counts as permitting.
+    expect(row.textContent).toContain('Building Permit');
+    expect(row.textContent).not.toContain('Structural backgrounds');
+    expect(row.textContent).toContain('—'); // blank dates, row not dropped
     expect(screen.queryByTestId('vsf-correction-row-t2')).toBeNull();
   });
 
@@ -366,7 +369,11 @@ describe('<VendorScheduleForecastReport /> transmit state (fix-268)', () => {
     expect(screen.queryByTestId('vsf-pipeline-row-p-new')).toBeNull();
   });
 
-  it('a non-transmit structural task stays in CORRECTIONS', () => {
+  // fix-271: this used to assert the opposite. Under text matching, a task named
+  // "Structural CR1" on a PRE-SUBMITTAL project landed in CORRECTIONS — the
+  // 7708/7336 misfiling. Phase decides now, so on a Scheduled project it is the
+  // design handoff whatever it is called.
+  it('a differently-named structural task on a pre-submittal project is DESIGN', () => {
     waitingRef.current = [
       transmitTask({
         task_id: 'cr1',
@@ -376,10 +383,30 @@ describe('<VendorScheduleForecastReport /> transmit state (fix-268)', () => {
       }),
     ];
     renderPage();
-    expect(screen.getByTestId('vsf-correction-row-cr1')).toBeInTheDocument();
+    expect(screen.queryByTestId('vsf-correction-row-cr1')).toBeNull();
+    // Started → Transmitted, and therefore out of the pipeline.
+    expect(screen.getByTestId('vsf-transmitted-row-p-new')).toBeInTheDocument();
+    expect(screen.queryByTestId('vsf-pipeline-row-p-new')).toBeNull();
+  });
+
+  it('the SAME task on a post-submittal project is a correction', () => {
+    drawRef.current = [block({ project_id: 'p-new', status: 'Under Review' })];
+    waitingRef.current = [
+      transmitTask({
+        task_id: 'cr1',
+        task_text: 'Structural CR1',
+        completion_status: 'In Progress',
+        start_date: '2026-07-20',
+        permit_type: 'PPR',
+      }),
+    ];
+    renderPage();
+    const row = screen.getByTestId('vsf-correction-row-cr1');
+    expect(row).toBeInTheDocument();
+    // fix-271 columns: permit type in, task text out.
+    expect(row.textContent).toContain('PPR');
+    expect(row.textContent).not.toContain('Structural CR1');
     expect(screen.queryByTestId('vsf-transmitted')).toBeNull();
-    // ...and it does not pull the project out of the pipeline.
-    expect(screen.getByTestId('vsf-pipeline-row-p-new')).toBeInTheDocument();
   });
 
   it('a project whose permits have all issued leaves the pipeline', () => {

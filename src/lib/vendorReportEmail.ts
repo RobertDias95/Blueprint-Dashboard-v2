@@ -212,12 +212,19 @@ function scheduleTable(
   return `<table style="${TABLE}" cellpadding="0" cellspacing="0" border="0">${head}${body}</table>`;
 }
 
+/** fix-271: Address · Jurisdiction · Permit type · Sent · Expected back.
+ *
+ *  The old "What's needed" column carried the raw task text — the very string
+ *  fix-271 stopped trusting to classify anything, and noise to a vendor who has
+ *  no idea what our internal task names mean. Permit type replaces it: already
+ *  to hand on a permit-scoped row, and it distinguishes a PPR or a Demolition
+ *  from the Building Permit most rows will be. */
 function correctionsTable(rows: ReadonlyArray<VendorCorrectionRow>): string {
   const head =
     `<tr>` +
     `<th style="${TH}">Address</th>` +
-    `<th style="${TH}">Permit</th>` +
-    `<th style="${TH}">What's needed</th>` +
+    `<th style="${TH}">Jurisdiction</th>` +
+    `<th style="${TH}">Permit type</th>` +
     `<th style="${TH}">Sent</th>` +
     `<th style="${TH}">Expected back</th>` +
     `</tr>`;
@@ -226,8 +233,8 @@ function correctionsTable(rows: ReadonlyArray<VendorCorrectionRow>): string {
       (r) =>
         `<tr>` +
         `<td style="${TD}">${cell(r.address)}</td>` +
+        `<td style="${TD}">${cell(r.juris)}</td>` +
         `<td style="${TD}">${cell(r.permit)}</td>` +
-        `<td style="${TD}">${cell(r.need)}</td>` +
         `<td style="${TD}">${cell(r.sent)}</td>` +
         `<td style="${TD}">${cell(r.expectedBack)}</td>` +
         `</tr>`,

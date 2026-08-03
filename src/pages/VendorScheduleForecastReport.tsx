@@ -23,6 +23,7 @@ import {
   buildVendorCorrectionRows,
   buildVendorTransmitRows,
   transmitStateByProject,
+  designPhaseProjectIds,
   allPermitsDoneProjectIds,
   vendorSentPayload,
   lastSentAt,
@@ -113,6 +114,13 @@ export default function VendorScheduleForecastReport() {
     [permitsQ.data],
   );
 
+  // fix-271: the project's draw phase, not the task's name, decides whether a
+  // structural task is a design handoff or a permitting correction.
+  const designPhaseIds = useMemo(
+    () => designPhaseProjectIds(drawQ.data ?? []),
+    [drawQ.data],
+  );
+
   // fix-268: section 4 — the design-phase handoff. Built BEFORE the schedule
   // rows, because a started transmit moves its project out of the pipeline.
   const transmitted = useMemo(
@@ -121,9 +129,10 @@ export default function VendorScheduleForecastReport() {
         waitingQ.data ?? [],
         projects,
         vendorKey,
+        designPhaseIds,
         cancelledIds,
       ),
-    [waitingQ.data, projects, vendorKey, cancelledIds],
+    [waitingQ.data, projects, vendorKey, designPhaseIds, cancelledIds],
   );
   // fix-269: THE liveness signal. Decides membership in UPCOMING; the target
   // send date only decides how the row is presented.
@@ -133,9 +142,10 @@ export default function VendorScheduleForecastReport() {
         waitingQ.data ?? [],
         projects,
         vendorKey,
+        designPhaseIds,
         cancelledIds,
       ),
-    [waitingQ.data, projects, vendorKey, cancelledIds],
+    [waitingQ.data, projects, vendorKey, designPhaseIds, cancelledIds],
   );
 
   const rows = useMemo(
@@ -170,9 +180,10 @@ export default function VendorScheduleForecastReport() {
         waitingQ.data ?? [],
         projects,
         vendorKey,
+        designPhaseIds,
         cancelledIds,
       ),
-    [waitingQ.data, projects, vendorKey, cancelledIds],
+    [waitingQ.data, projects, vendorKey, designPhaseIds, cancelledIds],
   );
 
   const recipients = useMemo(
@@ -624,10 +635,12 @@ function CorrectionsTable({ rows }: { rows: VendorCorrectionRow[] }) {
   return (
     <table className="w-full border-collapse mb-4">
       <thead>
+        {/* fix-271: task text dropped — it is the string we stopped trusting,
+            and it reads as noise to the vendor. Permit type replaces it. */}
         <tr style={{ background: 'var(--color-s2)' }}>
           <th className={TH}>Address</th>
-          <th className={TH}>Permit</th>
-          <th className={TH}>What&apos;s needed</th>
+          <th className={TH}>Jurisdiction</th>
+          <th className={TH}>Permit type</th>
           <th className={TH}>Sent</th>
           <th className={TH}>Expected back</th>
         </tr>
@@ -644,10 +657,10 @@ function CorrectionsTable({ rows }: { rows: VendorCorrectionRow[] }) {
               <Cell value={r.address} />
             </td>
             <td className={TD}>
-              <Cell value={r.permit} />
+              <Cell value={r.juris} />
             </td>
             <td className={TD}>
-              <Cell value={r.need} />
+              <Cell value={r.permit} />
             </td>
             <td className={TD}>
               <Cell value={r.sent} />

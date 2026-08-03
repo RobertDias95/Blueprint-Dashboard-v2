@@ -4,8 +4,8 @@ import {
   VENDOR_PIPELINE_STATUSES,
   buildVendorTransmitRows,
   transmitStateByProject,
+  designPhaseProjectIds,
   allPermitsDoneProjectIds,
-  isTransmitTask,
   type TransmitState,
   buildVendorScheduleRows,
   splitVendorSections,
@@ -193,6 +193,7 @@ describe('fix-266 pipeline is pre-submittal only', () => {
       [task({ task_id: 't1', project_id: 'p1' })],
       [underReview],
       VENDOR_KEY_STRUCTURAL,
+      designPhaseProjectIds([block({ project_id: 'p1', status: 'Under Review' })]),
     );
     expect(corrections.map((r) => r.taskId)).toEqual(['t1']);
   });
@@ -221,21 +222,36 @@ describe('fix-268 transmit task â‡„ pipeline', () => {
     });
   }
 
-  function sections(tasks: WaitingOnTaskRow[]) {
-    const transmitted = buildVendorTransmitRows(
-      tasks,
-      [withSss],
-      VENDOR_KEY_STRUCTURAL,
-    );
-    const rows = build({
-      draw: [block({ project_id: 'p1' })],
-      projects: [withSss],
-      transmitState: transmitStateByProject(tasks, [withSss], VENDOR_KEY_STRUCTURAL),
-    });
+  /** fix-271: the block's status drives the design/permitting split, so the
+   *  fixture builds the design set from the same block the pipeline sees. */
+  function sections(tasks: WaitingOnTaskRow[], status = 'Scheduled') {
+    const draw = [block({ project_id: 'p1', status })];
+    const designIds = designPhaseProjectIds(draw);
     return {
-      transmitted,
-      pipeline: splitVendorSections(rows).pipelineRows,
-      corrections: buildVendorCorrectionRows(tasks, [withSss], VENDOR_KEY_STRUCTURAL),
+      transmitted: buildVendorTransmitRows(
+        tasks,
+        [withSss],
+        VENDOR_KEY_STRUCTURAL,
+        designIds,
+      ),
+      pipeline: splitVendorSections(
+        build({
+          draw,
+          projects: [withSss],
+          transmitState: transmitStateByProject(
+            tasks,
+            [withSss],
+            VENDOR_KEY_STRUCTURAL,
+            designIds,
+          ),
+        }),
+      ).pipelineRows,
+      corrections: buildVendorCorrectionRows(
+        tasks,
+        [withSss],
+        VENDOR_KEY_STRUCTURAL,
+        designIds,
+      ),
     };
   }
 
@@ -276,57 +292,6 @@ describe('fix-268 transmit task â‡„ pipeline', () => {
     expect(s.corrections).toHaveLength(0);
   });
 
-  it('a NON-transmit structural task is a CORRECTION, never TRANSMITTED', () => {
-    const s = sections([
-      task({
-        task_id: 'c1',
-        project_id: 'p1',
-        task_text: 'Structural CR1',
-        completion_status: 'In Progress',
-        start_date: '2026-07-20',
-      }),
-    ]);
-    expect(s.transmitted).toHaveLength(0);
-    expect(s.corrections.map((r) => r.taskId)).toEqual(['c1']);
-    // ...and it does NOT pull the project out of the pipeline.
-    expect(s.pipeline.map((r) => r.projectId)).toEqual(['p1']);
-  });
-
-  // The four live text variants on prod. None may crash; each must land
-  // somewhere defensible. Everything unmatched falls to CORRECTIONS, which is
-  // the safe default for a string match against text that has already drifted.
-  it.each([
-    ['Structural - Transmitted', 'transmitted'], // the live template
-    ['Sent to Structural', 'transmitted'], // legacy variant
-    ['Structural', 'corrections'], // too generic to claim
-    ['Structural CR1', 'corrections'], // CR = correction round
-  ])('legacy text %s lands in %s', (text, where) => {
-    const s = sections([
-      task({
-        task_id: 'x1',
-        project_id: 'p1',
-        task_text: text,
-        completion_status: 'In Progress',
-        start_date: '2026-07-20',
-      }),
-    ]);
-    if (where === 'transmitted') {
-      expect(s.transmitted.map((r) => r.taskId)).toEqual(['x1']);
-      expect(s.corrections).toHaveLength(0);
-    } else {
-      expect(s.corrections.map((r) => r.taskId)).toEqual(['x1']);
-      expect(s.transmitted).toHaveLength(0);
-    }
-  });
-
-  it('isTransmitTask is case- and whitespace-insensitive, and never matches junk', () => {
-    expect(isTransmitTask('  STRUCTURAL - TRANSMITTED  ', VENDOR_KEY_STRUCTURAL)).toBe(true);
-    expect(isTransmitTask(null, VENDOR_KEY_STRUCTURAL)).toBe(false);
-    expect(isTransmitTask('', VENDOR_KEY_STRUCTURAL)).toBe(false);
-    expect(isTransmitTask('Landscape - Transmitted', VENDOR_KEY_STRUCTURAL)).toBe(false);
-    expect(isTransmitTask('Structural - Transmitted', 'civil')).toBe(false);
-  });
-
   it('a transmit task on a project the vendor does not own is ignored', () => {
     const other = project({
       id: 'p1',
@@ -338,6 +303,7 @@ describe('fix-268 transmit task â‡„ pipeline', () => {
         [transmitTask({ start_date: '2026-09-18' })],
         [other],
         VENDOR_KEY_STRUCTURAL,
+        new Set(['p1']),
       ),
     ).toHaveLength(0);
   });
@@ -349,8 +315,158 @@ describe('fix-268 transmit task â‡„ pipeline', () => {
         [withSss],
         VENDOR_KEY_STRUCTURAL,
         new Set(['p1']),
+        new Set(['p1']),
       ),
     ).toHaveLength(0);
+  });
+});
+
+// fix-271: the PROJECT'S PHASE decides design-vs-permitting, not the task's name.
+//
+// fix-268 matched task TEXT against a list. Four naming variants exist in the
+// wild and the list misfiled two projects — 7336 132nd Ave NE and 7708 131st Ave
+// NE, both pre-submittal with tasks named plainly "Structural", both landing in
+// CORRECTIONS as permitting work on projects never submitted. Neither has a
+// permit number. Bobby: "corrections are for projects within permitting phase,
+// not the design phase/cycle."
+describe('fix-271 phase decides transmit vs corrections', () => {
+  const withSss = project({
+    id: 'p1',
+    address: '7708 131st Ave NE',
+    juris: 'Kirkland',
+    external_team: { Structural: 'SSS' },
+  } as Partial<Project> & { id: string });
+
+  function split(status: string | null, over: Partial<WaitingOnTaskRow> = {}) {
+    const draw = status === null ? [] : [block({ project_id: 'p1', status })];
+    const designIds = designPhaseProjectIds(draw);
+    const tasks = [
+      task({
+        task_id: 't1',
+        project_id: 'p1',
+        task_text: 'Structural',
+        start_date: null,
+        completion_status: 'Open',
+        ...over,
+      }),
+    ];
+    return {
+      designIds,
+      transmitted: buildVendorTransmitRows(tasks, [withSss], VENDOR_KEY_STRUCTURAL, designIds),
+      corrections: buildVendorCorrectionRows(tasks, [withSss], VENDOR_KEY_STRUCTURAL, designIds),
+      state: transmitStateByProject(tasks, [withSss], VENDOR_KEY_STRUCTURAL, designIds).get('p1'),
+    };
+  }
+
+  // ---- THE BUG THIS FIXES ----
+
+  it('THE 7708 SHAPE: a task named "Structural" on a pre-submittal project is DESIGN, not a correction', () => {
+    const s = split('DD / Permit Set');
+    expect(s.corrections).toHaveLength(0);
+    expect(s.state).toBe('open'); // unstarted → stays in Upcoming
+  });
+
+  it('THE 7336 SHAPE: the same task, started, is TRANSMITTED', () => {
+    const s = split('Pending Consultants', { start_date: '2026-06-30' });
+    expect(s.transmitted.map((r) => r.taskId)).toEqual(['t1']);
+    expect(s.corrections).toHaveLength(0);
+    expect(s.state).toBe('started');
+  });
+
+  it('resolving it removes the project from BOTH sections', () => {
+    const s = split('Pending Consultants', {
+      start_date: '2026-06-30',
+      completion_status: 'Resolved',
+    });
+    expect(s.transmitted).toHaveLength(0);
+    expect(s.corrections).toHaveLength(0);
+    expect(s.state).toBe('resolved'); // and 'resolved' drops it from Upcoming
+  });
+
+  // ---- TEXT IS IRRELEVANT ON BOTH SIDES ----
+
+  it.each([
+    ['Structural'],
+    ['Structural - Transmitted'],
+    ['Sent to Structural'],
+    ['Structural CR1'],
+    ['literally anything a DA types'],
+  ])('%s on a PRE-SUBMITTAL project is design, whatever it is called', (text) => {
+    const s = split('Scheduled', { task_text: text, start_date: '2026-06-30' });
+    expect(s.transmitted.map((r) => r.taskId)).toEqual(['t1']);
+    expect(s.corrections).toHaveLength(0);
+  });
+
+  it.each([
+    ['Structural'],
+    ['Structural - Transmitted'], // the old template text — now a correction here
+    ['Sent to Structural'],
+    ['Structural CR1'],
+    ['literally anything a DA types'],
+  ])('%s on a POST-SUBMITTAL project is a correction, whatever it is called', (text) => {
+    const s = split('Under Review', { task_text: text, start_date: '2026-06-30' });
+    expect(s.corrections.map((r) => r.taskId)).toEqual(['t1']);
+    expect(s.transmitted).toHaveLength(0);
+    expect(s.state).toBeUndefined(); // no design-phase signal at all
+  });
+
+  it.each([['Under Review'], ['Corrections'], ['Approved'], ['Submitted']])(
+    'post-submittal status %s puts structural work in corrections',
+    (status) => {
+      expect(split(status).corrections).toHaveLength(1);
+      expect(split(status).transmitted).toHaveLength(0);
+    },
+  );
+
+  it.each([['Scheduled'], ['Schematic'], ['DD / Permit Set'], ['Pending Consultants']])(
+    'pre-submittal status %s keeps structural work on the design side',
+    (status) => {
+      expect(split(status).corrections).toHaveLength(0);
+    },
+  );
+
+  // ---- EDGES ----
+
+  it('NO DRAW BLOCK → corrections', () => {
+    // No design phase we can see. An over-listed correction is noise; an
+    // invented "coming to you" commitment is worse.
+    const s = split(null);
+    expect(s.corrections.map((r) => r.taskId)).toEqual(['t1']);
+    expect(s.transmitted).toHaveLength(0);
+  });
+
+  it('a BLANK status counts as design, matching the fix-266 pipeline rule', () => {
+    const s = split('   ');
+    expect(s.corrections).toHaveLength(0);
+    expect(s.state).toBe('open');
+  });
+
+  it('designPhaseProjectIds is exactly the pre-submittal set', () => {
+    const ids = designPhaseProjectIds([
+      block({ project_id: 'a', status: 'Scheduled' }),
+      block({ project_id: 'b', status: 'Schematic' }),
+      block({ project_id: 'c', status: 'DD / Permit Set' }),
+      block({ project_id: 'd', status: 'Pending Consultants' }),
+      block({ project_id: 'e', status: null }),
+      block({ project_id: 'f', status: 'Under Review' }),
+      block({ project_id: 'g', status: 'Corrections' }),
+      block({ project_id: 'h', status: 'Approved' }),
+    ]);
+    expect([...ids].sort()).toEqual(['a', 'b', 'c', 'd', 'e']);
+  });
+
+  it('corrections rows carry the permit type and NOT the task text', () => {
+    const s = split('Under Review', {
+      task_text: 'Pending SSS Backgrounds',
+      permit_type: 'PPR',
+    });
+    const row = s.corrections[0];
+    expect(row.permit).toBe('PPR');
+    expect(row.juris).toBe('Kirkland');
+    // The task text is gone from the row shape entirely — it is the string we
+    // stopped trusting, and noise to a vendor.
+    expect(JSON.stringify(row)).not.toContain('Pending SSS Backgrounds');
+    expect(row).not.toHaveProperty('need');
   });
 });
 
@@ -369,6 +485,10 @@ describe('fix-269 transmit task is the liveness signal', () => {
   const FUTURE = '2026-09-18';
   const PAST = '2026-03-27'; // four months before TODAY (2026-08-03)
 
+  /** fix-271: p1's block defaults to 'Scheduled', so it is in the design phase
+   *  and its structural tasks are the handoff. */
+  const DESIGN_P1: ReadonlySet<string> = new Set(['p1']);
+
   function txTask(over: Partial<WaitingOnTaskRow> = {}) {
     return task({
       task_id: 't1',
@@ -385,7 +505,7 @@ describe('fix-269 transmit task is the liveness signal', () => {
     return build({
       draw: [block({ project_id: 'p1', dd_end: targetSend, end_week: null })],
       projects: [withSss],
-      transmitState: transmitStateByProject(tasks, [withSss], VENDOR_KEY_STRUCTURAL),
+      transmitState: transmitStateByProject(tasks, [withSss], VENDOR_KEY_STRUCTURAL, DESIGN_P1),
     });
   }
 
@@ -441,7 +561,7 @@ describe('fix-269 transmit task is the liveness signal', () => {
     const rows = build({
       draw: [block({ project_id: 'p1', dd_end: PAST, end_week: null })],
       projects: [withSss],
-      transmitState: transmitStateByProject([txTask()], [withSss], VENDOR_KEY_STRUCTURAL),
+      transmitState: transmitStateByProject([txTask()], [withSss], VENDOR_KEY_STRUCTURAL, DESIGN_P1),
       allPermitsDoneIds: new Set(['p1']),
     });
     expect(rows).toHaveLength(0);
@@ -481,7 +601,7 @@ describe('fix-269 transmit task is the liveness signal', () => {
     const rows = build({
       draw: [block({ project_id: 'p1', dd_end: null, end_week: PAST })],
       projects: [withSss],
-      transmitState: transmitStateByProject([txTask()], [withSss], VENDOR_KEY_STRUCTURAL),
+      transmitState: transmitStateByProject([txTask()], [withSss], VENDOR_KEY_STRUCTURAL, DESIGN_P1),
     });
     expect(rows[0].overdue).toBe(true);
     expect(rows[0].targetSend).toBe(PAST);
@@ -493,7 +613,7 @@ describe('fix-269 transmit task is the liveness signal', () => {
       address: '4060 E Via Estrella',
       external_team: { Structural: 'Other Engineers' },
     } as Partial<Project> & { id: string });
-    const state = transmitStateByProject([txTask()], [other], VENDOR_KEY_STRUCTURAL);
+    const state = transmitStateByProject([txTask()], [other], VENDOR_KEY_STRUCTURAL, DESIGN_P1);
     expect(state.size).toBe(0);
   });
 
@@ -503,6 +623,7 @@ describe('fix-269 transmit task is the liveness signal', () => {
         [txTask({ task_id: 'a' }), txTask({ task_id: 'b', start_date: '2026-07-01' })],
         [withSss],
         VENDOR_KEY_STRUCTURAL,
+        DESIGN_P1,
       );
       expect(state.get('p1')).toBe('started');
     });
@@ -515,6 +636,7 @@ describe('fix-269 transmit task is the liveness signal', () => {
         ],
         [withSss],
         VENDOR_KEY_STRUCTURAL,
+        DESIGN_P1,
       );
       expect(state.get('p1')).toBe('open');
     });
@@ -524,6 +646,7 @@ describe('fix-269 transmit task is the liveness signal', () => {
         [txTask({ task_id: 'a', start_date: '2026-01-01', completion_status: 'Resolved' })],
         [withSss],
         VENDOR_KEY_STRUCTURAL,
+        DESIGN_P1,
       );
       expect(state.get('p1')).toBe('resolved');
     });
@@ -533,13 +656,14 @@ describe('fix-269 transmit task is the liveness signal', () => {
         [txTask({ task_id: 'a', completion_status: 'Cancelled' })],
         [withSss],
         VENDOR_KEY_STRUCTURAL,
+        DESIGN_P1,
       );
       expect(state.size).toBe(0);
     });
 
     it('no transmit task → no entry (defaults to none)', () => {
       expect(
-        transmitStateByProject([], [withSss], VENDOR_KEY_STRUCTURAL).size,
+        transmitStateByProject([], [withSss], VENDOR_KEY_STRUCTURAL, DESIGN_P1).size,
       ).toBe(0);
     });
   });
@@ -1009,11 +1133,16 @@ describe('fix-265 corrections section', () => {
   } as Partial<Project> & { id: string });
   const withNoFirm = project({ id: 'p3', address: '300 C St' });
 
+  /** fix-271: these projects are all POST-submittal (no design set membership),
+   *  so their structural tasks are corrections regardless of what they read. */
+  const NO_DESIGN: ReadonlySet<string> = new Set<string>();
+
   function rowsFor(tasks: WaitingOnTaskRow[], cancelled?: Set<string>) {
     return buildVendorCorrectionRows(
       tasks,
       [withSss, withOther, withNoFirm],
       VENDOR_KEY_STRUCTURAL,
+      NO_DESIGN,
       cancelled,
     );
   }
@@ -1079,4 +1208,5 @@ describe('fix-265 corrections section', () => {
     expect(JSON.stringify(rows[0])).not.toContain('2026-12-25');
   });
 });
+
 
