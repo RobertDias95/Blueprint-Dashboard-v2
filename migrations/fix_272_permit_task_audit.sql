@@ -1,9 +1,12 @@
 -- fix-272 (2026-08-03): capture consultant date-change history.
 --
--- ############################################################################
--- ## NOT APPLIED. Written for review. Apply with MCP apply_migration (which   ##
--- ## records provenance AND statement text) once reviewed.                    ##
--- ############################################################################
+-- APPLIED to prod (eibnmwthkcuumyclyxoe) on 2026-08-03 via MCP apply_migration
+-- as `fix_272_permit_task_audit`, which records the provenance row AND the full
+-- statement text. This file is the repo-of-record backstop and matches what was
+-- applied byte for byte.
+--
+-- CAPTURE BEGINS AT THE APPLY TIMESTAMP. Everything before it has counts in
+-- user_activity but no magnitudes, permanently.
 --
 -- WHY, AND WHY IT IS TIME-SENSITIVE
 -- Bobby wants to measure consultant slippage: "say we put a target of 1.15, then
