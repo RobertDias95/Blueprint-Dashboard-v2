@@ -3,6 +3,7 @@ import WeeklyDaReport from '../pages/WeeklyDaReport';
 import WeeklyUpdatesReport from '../pages/WeeklyUpdatesReport';
 import ApprovedAwaitingIssuanceReport from '../pages/ApprovedAwaitingIssuanceReport';
 import PhaseDurationsReport from '../pages/PhaseDurationsReport';
+import VendorScheduleForecastReport from '../pages/VendorScheduleForecastReport';
 
 // fix-68: builtin report registry. Maps a saved_reports.builtin_key to its
 // rendering component + the route that runs it. The Reporting hub (Settings
@@ -46,6 +47,15 @@ export const BUILTIN_REPORT_COMPONENTS: Record<string, BuiltinReportDef> = {
     component: ApprovedAwaitingIssuanceReport,
     route: '/reports/approved-awaiting',
     label: 'Approved – Awaiting Issuance',
+  },
+  // fix-265: the weekly schedule forecast Blueprint owes its structural
+  // engineer — new projects, schedule changes, the running pipeline, and the
+  // corrections currently sitting with them. Composes an Outlook draft; sending
+  // stays a separate, explicit action.
+  vendor_schedule_forecast: {
+    component: VendorScheduleForecastReport,
+    route: '/reports/vendor-forecast',
+    label: 'Vendor Schedule Forecast',
   },
 };
 

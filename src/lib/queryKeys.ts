@@ -187,6 +187,16 @@ export const queryKeys = {
   drawScheduleQuarterLayoutAll: ['draw_schedule_quarter_layout'] as const,
   drawScheduleQuarterLayout: (tenantId: string, quarter: string) =>
     ['draw_schedule_quarter_layout', tenantId, { quarter }] as const,
+  // fix-265: the vendor send ledger — what each external vendor was last told.
+  // Bare prefix participates in realtime so a "Mark as sent" in one tab moves
+  // rows out of New/Changed in another.
+  vendorReportStateAll: ['vendor_report_state'] as const,
+  vendorReportState: (tenantId: string, vendorKey: string) =>
+    ['vendor_report_state', tenantId, { vendorKey }] as const,
+  // fix-265: reuse columns the shared useProjects() select deliberately does not
+  // carry (see useVendorReportExtras for why they are fetched separately).
+  vendorProjectExtras: (tenantId: string) =>
+    ['vendor_project_extras', tenantId] as const,
 } as const;
 
 /** Map from Postgres table name → bare-prefix query keys to invalidate on
@@ -209,6 +219,9 @@ export const REALTIME_TABLES = {
   // fix-167: a hold opened/lifted/edited (any tab) refreshes the badge +
   // history live.
   project_holds: [queryKeys.projectHoldsAll],
+  // fix-265: a vendor send recorded in one tab re-buckets the forecast in every
+  // other tab, so a second person can't re-send the same "new" projects.
+  vendor_report_state: [queryKeys.vendorReportStateAll],
   // fix-227: a directory firm added/renamed/(de)activated (Settings, any tab)
   // refreshes the per-project picker options live.
   external_team_directory: [queryKeys.externalTeamDirectoryAll],
