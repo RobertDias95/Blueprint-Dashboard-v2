@@ -1,10 +1,14 @@
 -- fix-273 (2026-08-03): revoke TRUNCATE from anon/authenticated across public.
 --
--- ############################################################################
--- ## NOT APPLIED. Written for review. This changes privileges on 58 prod     ##
--- ## tables including permits and projects — the highest-blast-radius change ##
--- ## in this codebase. Apply with MCP apply_migration once reviewed.         ##
--- ############################################################################
+-- APPLIED to prod (eibnmwthkcuumyclyxoe) on 2026-08-03 via MCP apply_migration
+-- as `fix_273_revoke_truncate`, which records the provenance row AND the full
+-- statement text. This file is the repo-of-record backstop and matches what was
+-- applied byte for byte.
+--
+-- Reviewed before applying because it changes privileges on 58 prod tables
+-- including permits and projects. Post-apply state verified: 58 -> 0 tables with
+-- TRUNCATE for anon/authenticated, service_role untouched on all 67, and
+-- SELECT/INSERT/UPDATE/DELETE unchanged.
 --
 -- THE FINDING
 -- Surfaced while building fix-272: draw_schedule_audit granted ALL — including
