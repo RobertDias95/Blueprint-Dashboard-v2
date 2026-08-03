@@ -2,6 +2,10 @@ import { describe, it, expect } from 'vitest';
 import {
   VENDOR_KEY_STRUCTURAL,
   VENDOR_PIPELINE_STATUSES,
+  buildVendorTransmitRows,
+  transmitStartedProjectIds,
+  allPermitsDoneProjectIds,
+  isTransmitTask,
   buildVendorScheduleRows,
   splitVendorSections,
   buildVendorCorrectionRows,
@@ -72,6 +76,8 @@ function build(opts: {
   ledger?: VendorLedgerRow[];
   cancelledIds?: Set<string>;
   holdsByProject?: Map<string, ProjectHold>;
+  allPermitsDoneIds?: Set<string>;
+  transmitStartedIds?: Set<string>;
 }) {
   return buildVendorScheduleRows({
     draw: opts.draw,
@@ -79,6 +85,8 @@ function build(opts: {
     ledger: opts.ledger ?? [],
     cancelledIds: opts.cancelledIds,
     holdsByProject: opts.holdsByProject,
+    allPermitsDoneIds: opts.allPermitsDoneIds,
+    transmitStartedIds: opts.transmitStartedIds,
     todayIso: TODAY,
   });
 }
@@ -186,6 +194,246 @@ describe('fix-266 pipeline is pre-submittal only', () => {
       VENDOR_KEY_STRUCTURAL,
     );
     expect(corrections.map((r) => r.taskId)).toEqual(['t1']);
+  });
+});
+
+// fix-268: the design-phase handoff. A project is "coming to you" (section 3) or
+// "with you" (section 4), never both, and it leaves both when the transmit task
+// is Resolved. Told apart from corrections by TASK TEXT, because permit_tasks has
+// no template_id — verified on prod.
+describe('fix-268 transmit task ⇄ pipeline', () => {
+  const withSss = project({
+    id: 'p1',
+    address: '554 N 75th St',
+    external_team: { Structural: 'SSS' },
+  } as Partial<Project> & { id: string });
+
+  function transmitTask(over: Partial<WaitingOnTaskRow> = {}) {
+    return task({
+      task_id: 't1',
+      project_id: 'p1',
+      task_text: 'Structural - Transmitted',
+      start_date: null,
+      target_date: null,
+      completion_status: 'Open',
+      ...over,
+    });
+  }
+
+  function sections(tasks: WaitingOnTaskRow[]) {
+    const transmitted = buildVendorTransmitRows(
+      tasks,
+      [withSss],
+      VENDOR_KEY_STRUCTURAL,
+    );
+    const rows = build({
+      draw: [block({ project_id: 'p1' })],
+      projects: [withSss],
+      transmitStartedIds: transmitStartedProjectIds(transmitted),
+    });
+    return {
+      transmitted,
+      pipeline: splitVendorSections(rows).pipelineRows,
+      corrections: buildVendorCorrectionRows(tasks, [withSss], VENDOR_KEY_STRUCTURAL),
+    };
+  }
+
+  it('NOT STARTED: project is in PIPELINE, not in TRANSMITTED', () => {
+    // A transmit task that exists but has not started is not "with them" —
+    // nothing was sent.
+    const s = sections([transmitTask({ start_date: null })]);
+    expect(s.transmitted).toHaveLength(0);
+    expect(s.pipeline.map((r) => r.projectId)).toEqual(['p1']);
+  });
+
+  it('STARTED: in TRANSMITTED, ABSENT from PIPELINE', () => {
+    const s = sections([
+      transmitTask({ start_date: '2026-09-18', target_date: '2026-10-02' }),
+    ]);
+    expect(s.transmitted.map((r) => r.projectId)).toEqual(['p1']);
+    expect(s.transmitted[0].sent).toBe('2026-09-18');
+    expect(s.transmitted[0].expectedBack).toBe('2026-10-02');
+    expect(s.pipeline).toHaveLength(0);
+  });
+
+  it('RESOLVED: in neither — received, and it leaves design-phase tracking', () => {
+    const s = sections([
+      transmitTask({ start_date: '2026-09-18', completion_status: 'Resolved' }),
+    ]);
+    expect(s.transmitted).toHaveLength(0);
+    expect(s.pipeline.map((r) => r.projectId)).toEqual(['p1']);
+    // ...and it is not a correction either.
+    expect(s.corrections).toHaveLength(0);
+  });
+
+  it('a started transmit task never ALSO shows as a correction', () => {
+    // Design phase and permitting phase never blur.
+    const s = sections([transmitTask({ start_date: '2026-09-18' })]);
+    expect(s.corrections).toHaveLength(0);
+  });
+
+  it('a NON-transmit structural task is a CORRECTION, never TRANSMITTED', () => {
+    const s = sections([
+      task({
+        task_id: 'c1',
+        project_id: 'p1',
+        task_text: 'Structural CR1',
+        completion_status: 'In Progress',
+        start_date: '2026-07-20',
+      }),
+    ]);
+    expect(s.transmitted).toHaveLength(0);
+    expect(s.corrections.map((r) => r.taskId)).toEqual(['c1']);
+    // ...and it does NOT pull the project out of the pipeline.
+    expect(s.pipeline.map((r) => r.projectId)).toEqual(['p1']);
+  });
+
+  // The four live text variants on prod. None may crash; each must land
+  // somewhere defensible. Everything unmatched falls to CORRECTIONS, which is
+  // the safe default for a string match against text that has already drifted.
+  it.each([
+    ['Structural - Transmitted', 'transmitted'], // the live template
+    ['Sent to Structural', 'transmitted'], // legacy variant
+    ['Structural', 'corrections'], // too generic to claim
+    ['Structural CR1', 'corrections'], // CR = correction round
+  ])('legacy text %s lands in %s', (text, where) => {
+    const s = sections([
+      task({
+        task_id: 'x1',
+        project_id: 'p1',
+        task_text: text,
+        completion_status: 'In Progress',
+        start_date: '2026-07-20',
+      }),
+    ]);
+    if (where === 'transmitted') {
+      expect(s.transmitted.map((r) => r.taskId)).toEqual(['x1']);
+      expect(s.corrections).toHaveLength(0);
+    } else {
+      expect(s.corrections.map((r) => r.taskId)).toEqual(['x1']);
+      expect(s.transmitted).toHaveLength(0);
+    }
+  });
+
+  it('isTransmitTask is case- and whitespace-insensitive, and never matches junk', () => {
+    expect(isTransmitTask('  STRUCTURAL - TRANSMITTED  ', VENDOR_KEY_STRUCTURAL)).toBe(true);
+    expect(isTransmitTask(null, VENDOR_KEY_STRUCTURAL)).toBe(false);
+    expect(isTransmitTask('', VENDOR_KEY_STRUCTURAL)).toBe(false);
+    expect(isTransmitTask('Landscape - Transmitted', VENDOR_KEY_STRUCTURAL)).toBe(false);
+    expect(isTransmitTask('Structural - Transmitted', 'civil')).toBe(false);
+  });
+
+  it('a transmit task on a project the vendor does not own is ignored', () => {
+    const other = project({
+      id: 'p1',
+      address: '554 N 75th St',
+      external_team: { Structural: 'Other Engineers' },
+    } as Partial<Project> & { id: string });
+    expect(
+      buildVendorTransmitRows(
+        [transmitTask({ start_date: '2026-09-18' })],
+        [other],
+        VENDOR_KEY_STRUCTURAL,
+      ),
+    ).toHaveLength(0);
+  });
+
+  it('a transmit task on a CANCELLED project is ignored', () => {
+    expect(
+      buildVendorTransmitRows(
+        [transmitTask({ start_date: '2026-09-18' })],
+        [withSss],
+        VENDOR_KEY_STRUCTURAL,
+        new Set(['p1']),
+      ),
+    ).toHaveLength(0);
+  });
+});
+
+// fix-268: draw status goes stale. If the permits issued, structural finished
+// long ago whatever the block still says.
+describe('fix-268 issued permits leave the pipeline', () => {
+  function permit(over: Record<string, unknown>) {
+    return {
+      project_id: 'p1',
+      actual_issue: null,
+      status: 'Reviews In Process',
+      parent_permit_id: null,
+      ...over,
+    } as never;
+  }
+
+  it('all non-sub permits done → project id returned', () => {
+    const ids = allPermitsDoneProjectIds([
+      permit({ project_id: 'p1', actual_issue: '2026-05-22', status: 'Completed' }),
+    ]);
+    expect([...ids]).toEqual(['p1']);
+  });
+
+  it('one open permit keeps the project OUT of the done set', () => {
+    // 5811 Greenwood: Demo/PAR/SDOT issued but the Building Permit is still in
+    // review. A demolition permit issuing says nothing about structural.
+    const ids = allPermitsDoneProjectIds([
+      permit({ project_id: 'p1', actual_issue: '2026-06-09', status: 'Issued' }),
+      permit({ project_id: 'p1', actual_issue: null, status: 'Reviews In Process' }),
+    ]);
+    expect(ids.size).toBe(0);
+  });
+
+  it('sub-permits do not count — an open sub cannot keep a finished project in', () => {
+    const ids = allPermitsDoneProjectIds([
+      permit({ project_id: 'p1', actual_issue: '2026-05-22', status: 'Completed' }),
+      permit({ project_id: 'p1', actual_issue: null, parent_permit_id: 7 }),
+    ]);
+    expect([...ids]).toEqual(['p1']);
+  });
+
+  it('a project with NO permits is not "done" (vacuous-truth trap)', () => {
+    expect(allPermitsDoneProjectIds([]).size).toBe(0);
+  });
+
+  it('an all-issued project is dropped from the pipeline', () => {
+    const rows = build({
+      draw: [block({ project_id: 'p1' }), block({ project_id: 'p2' })],
+      projects: [project({ id: 'p1' }), project({ id: 'p2' })],
+      allPermitsDoneIds: new Set(['p1']),
+    });
+    expect(rows.map((r) => r.projectId)).toEqual(['p2']);
+  });
+});
+
+// fix-268: dd_end is NULL on most blocks, so nothing caught a stale block whose
+// scheduled window had long since elapsed.
+describe('fix-268 end_week fallback', () => {
+  const p = project({ id: 'p1' });
+
+  function visible(dd_end: string | null, end_week: string | null) {
+    return drawBlockIsVendorVisible(
+      block({ project_id: 'p1', dd_end, end_week }),
+      p,
+      new Set(),
+      TODAY,
+    );
+  }
+
+  it('dd_end NULL + PAST end_week → excluded', () => {
+    expect(visible(null, '2026-06-08')).toBe(false);
+  });
+
+  it('dd_end NULL + FUTURE end_week → KEPT (do not over-filter)', () => {
+    expect(visible(null, '2026-09-14')).toBe(true);
+  });
+
+  it('dd_end NULL + no end_week either → KEPT', () => {
+    expect(visible(null, null)).toBe(true);
+  });
+
+  it('dd_end PRESENT → the fallback does NOT fire', () => {
+    // A future dd_end wins even though end_week is long past: dd_end is primary
+    // and where it exists this rule must change nothing.
+    expect(visible('2026-09-18', '2025-01-01')).toBe(true);
+    // ...and a past dd_end still excludes even with a future end_week.
+    expect(visible('2026-08-02', '2027-01-01')).toBe(false);
   });
 });
 

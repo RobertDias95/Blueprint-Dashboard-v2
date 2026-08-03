@@ -10,7 +10,11 @@ import {
   missingRecipientEmails,
   readVendorRecipients,
 } from '../lib/vendorReportEmail';
-import type { VendorCorrectionRow, VendorScheduleRow } from '../lib/vendorReport';
+import type {
+  VendorCorrectionRow,
+  VendorScheduleRow,
+  VendorTransmitRow,
+} from '../lib/vendorReport';
 
 // fix-265: the email side. Two things matter here — the HTML must survive
 // Outlook (tables + inline styles, never flexbox/grid/external CSS), and the
@@ -52,11 +56,25 @@ const EMPTY_SECTIONS = { newRows: [], changedRows: [], pipelineRows: [] };
 function html(over: Partial<Parameters<typeof buildVendorEmailHtml>[0]> = {}) {
   return buildVendorEmailHtml({
     sections: EMPTY_SECTIONS,
+    transmitted: [],
     corrections: [],
     vendorLabel: 'SSS Engineering',
     weekOf: '2026-08-03',
     ...over,
   });
+}
+
+function transmit(
+  over: Partial<VendorTransmitRow> & { taskId: string },
+): VendorTransmitRow {
+  return {
+    projectId: 'p1',
+    address: '100 A St',
+    juris: 'Seattle',
+    sent: '2026-07-27',
+    expectedBack: '2026-08-14',
+    ...over,
+  };
 }
 
 describe('fix-265 email HTML — Outlook safety', () => {
@@ -75,9 +93,31 @@ describe('fix-265 email HTML — Outlook safety', () => {
     expect(out).not.toMatch(/class=/);
   });
 
-  it('emits all four sections in the agreed order, even when empty', () => {
-    const out = html();
-    const order = ['New to the schedule', 'Schedule changes', 'Upcoming pipeline', 'Corrections'];
+  // fix-268: empty sections are OMITTED. Most weeks two or three of the five
+  // are empty (TRANSMITTED until the DAs work a cycle), and a run of headings
+  // over blank space reads as a broken email.
+  it('emits the five sections in the agreed order when all are populated', () => {
+    const out = html({
+      sections: {
+        newRows: [row({ projectId: 'p1' })],
+        changedRows: [
+          row({
+            projectId: 'p2',
+            previous: { startWeek: '2026-08-10', ddEnd: null, status: 'Scheduled' },
+          }),
+        ],
+        pipelineRows: [row({ projectId: 'p3' })],
+      },
+      transmitted: [transmit({ taskId: 't1' })],
+      corrections: [correction({ taskId: 'c1' })],
+    });
+    const order = [
+      'New to the schedule',
+      'Schedule changes',
+      'Upcoming pipeline',
+      'Transmitted',
+      'Corrections',
+    ];
     let cursor = -1;
     for (const heading of order) {
       const at = out.indexOf(heading);
@@ -85,10 +125,49 @@ describe('fix-265 email HTML — Outlook safety', () => {
       expect(at, `${heading} in order`).toBeGreaterThan(cursor);
       cursor = at;
     }
-    // An empty section says so rather than vanishing — the vendor can tell an
-    // empty week from a broken email.
-    expect(out).toContain('No new projects this week.');
-    expect(out).toContain('No corrections are currently with you.');
+  });
+
+  it('omits an empty section entirely — no stray heading', () => {
+    const out = html({
+      sections: { newRows: [row({ projectId: 'p1' })], changedRows: [], pipelineRows: [] },
+    });
+    expect(out).toContain('New to the schedule');
+    expect(out).not.toContain('Schedule changes');
+    expect(out).not.toContain('Upcoming pipeline');
+    expect(out).not.toContain('Transmitted');
+    expect(out).not.toContain('Corrections');
+  });
+
+  it('says so once when every section is empty', () => {
+    const out = html();
+    expect(out).toContain('Nothing to report this week.');
+    expect(out).not.toContain('New to the schedule');
+    expect(out).not.toContain('Corrections');
+  });
+
+  it('renders TRANSMITTED with address / jurisdiction / sent / expected back', () => {
+    const out = html({
+      transmitted: [
+        transmit({
+          taskId: 't1',
+          address: '554 N 75th St',
+          juris: 'Seattle',
+          sent: '2026-09-18',
+          expectedBack: '2026-10-02',
+        }),
+      ],
+    });
+    expect(out).toContain('Transmitted');
+    expect(out).toContain('554 N 75th St');
+    expect(out).toContain('2026-09-18');
+    expect(out).toContain('2026-10-02');
+  });
+
+  it('a transmitted row with no expected-back date still renders, blank', () => {
+    const out = html({
+      transmitted: [transmit({ taskId: 't1', expectedBack: null })],
+    });
+    expect(out).toContain('&mdash;');
   });
 
   it('renders BOTH old and new in the changes section', () => {

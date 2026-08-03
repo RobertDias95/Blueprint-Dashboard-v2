@@ -21,11 +21,16 @@ import {
   buildVendorScheduleRows,
   splitVendorSections,
   buildVendorCorrectionRows,
+  buildVendorTransmitRows,
+  transmitStartedProjectIds,
+  allPermitsDoneProjectIds,
   vendorSentPayload,
   lastSentAt,
   type VendorCorrectionRow,
   type VendorScheduleRow,
+  type VendorTransmitRow,
 } from '../lib/vendorReport';
+import { usePermits } from '../hooks/usePermits';
 import {
   buildEmlFile,
   buildVendorEmailHtml,
@@ -64,6 +69,7 @@ export default function VendorScheduleForecastReport() {
   const vendorKey = VENDOR_KEY_STRUCTURAL;
 
   const projectsQ = useProjects();
+  const permitsQ = usePermits();
   const drawQ = useDrawSchedule();
   const holdsQ = useAllProjectHolds();
   const ledgerQ = useVendorReportState(vendorKey);
@@ -100,6 +106,30 @@ export default function VendorScheduleForecastReport() {
     }));
   }, [projectsQ.data, extrasQ.data]);
 
+  // fix-268: projects whose permits have all issued — finished, whatever the
+  // draw block still says.
+  const allPermitsDoneIds = useMemo(
+    () => allPermitsDoneProjectIds(permitsQ.data ?? []),
+    [permitsQ.data],
+  );
+
+  // fix-268: section 4 — the design-phase handoff. Built BEFORE the schedule
+  // rows, because a started transmit moves its project out of the pipeline.
+  const transmitted = useMemo(
+    () =>
+      buildVendorTransmitRows(
+        waitingQ.data ?? [],
+        projects,
+        vendorKey,
+        cancelledIds,
+      ),
+    [waitingQ.data, projects, vendorKey, cancelledIds],
+  );
+  const transmitStartedIds = useMemo(
+    () => transmitStartedProjectIds(transmitted),
+    [transmitted],
+  );
+
   const rows = useMemo(
     () =>
       buildVendorScheduleRows({
@@ -108,9 +138,20 @@ export default function VendorScheduleForecastReport() {
         ledger: ledgerQ.data ?? [],
         cancelledIds,
         holdsByProject,
+        allPermitsDoneIds,
+        transmitStartedIds,
         todayIso: today,
       }),
-    [drawQ.data, projects, ledgerQ.data, cancelledIds, holdsByProject, today],
+    [
+      drawQ.data,
+      projects,
+      ledgerQ.data,
+      cancelledIds,
+      holdsByProject,
+      allPermitsDoneIds,
+      transmitStartedIds,
+      today,
+    ],
   );
 
   const sections = useMemo(() => splitVendorSections(rows), [rows]);
@@ -139,11 +180,12 @@ export default function VendorScheduleForecastReport() {
     () =>
       buildVendorEmailHtml({
         sections,
+        transmitted,
         corrections,
         vendorLabel: recipients.label,
         weekOf: today,
       }),
-    [sections, corrections, recipients.label, today],
+    [sections, transmitted, corrections, recipients.label, today],
   );
 
   const subject = buildVendorEmailSubject(recipients.label, today);
@@ -293,11 +335,14 @@ export default function VendorScheduleForecastReport() {
         <SkeletonRows count={8} rowClassName="h-7" />
       ) : (
         <>
+          {/* fix-268: five sections, and an EMPTY ONE IS OMITTED ENTIRELY.
+              Most weeks two or three are empty — TRANSMITTED stays empty until
+              the DAs work a cycle — and a run of headers over blank space reads
+              as broken. The screen and the email drop the same sections. */}
           <Section
             title="New to the schedule"
             count={sections.newRows.length}
             testid="vsf-new"
-            empty="No new projects this week."
           >
             <ScheduleTable rows={sections.newRows} showDelta={false} idPrefix="new" />
           </Section>
@@ -306,7 +351,6 @@ export default function VendorScheduleForecastReport() {
             title="Schedule changes"
             count={sections.changedRows.length}
             testid="vsf-changed"
-            empty="No schedule changes this week."
           >
             <ScheduleTable
               rows={sections.changedRows}
@@ -319,7 +363,6 @@ export default function VendorScheduleForecastReport() {
             title="Upcoming pipeline"
             count={sections.pipelineRows.length}
             testid="vsf-pipeline"
-            empty="Nothing currently scheduled."
           >
             <ScheduleTable
               rows={sections.pipelineRows}
@@ -329,13 +372,30 @@ export default function VendorScheduleForecastReport() {
           </Section>
 
           <Section
-            title="Corrections — with you now"
+            title="Transmitted — with you now"
+            count={transmitted.length}
+            testid="vsf-transmitted"
+          >
+            <TransmittedTable rows={transmitted} />
+          </Section>
+
+          <Section
+            title="Corrections — permitting phase"
             count={corrections.length}
             testid="vsf-corrections"
-            empty="No corrections are currently with this vendor."
           >
             <CorrectionsTable rows={corrections} />
           </Section>
+
+          {sections.newRows.length === 0 &&
+          sections.changedRows.length === 0 &&
+          sections.pipelineRows.length === 0 &&
+          transmitted.length === 0 &&
+          corrections.length === 0 ? (
+            <p className="text-[12px] text-dim italic" data-testid="vsf-all-empty">
+              Nothing to report this week.
+            </p>
+          ) : null}
         </>
       )}
     </div>
@@ -365,19 +425,21 @@ function Banner({
   );
 }
 
+/** fix-268: renders nothing at all when the section is empty — heading, count
+ *  and body together. A stray header over blank space reads as a broken report,
+ *  and on a quiet week most of these are empty. */
 function Section({
   title,
   count,
   testid,
-  empty,
   children,
 }: {
   title: string;
   count: number;
   testid: string;
-  empty: string;
   children: React.ReactNode;
 }) {
+  if (count === 0) return null;
   return (
     <section data-testid={testid}>
       <h2 className="text-[13px] font-display font-extrabold text-text mb-1.5">
@@ -386,13 +448,7 @@ function Section({
           ({count})
         </span>
       </h2>
-      {count === 0 ? (
-        <p className="text-[12px] text-dim italic mb-4" data-testid={`${testid}-empty`}>
-          {empty}
-        </p>
-      ) : (
-        children
-      )}
+      {children}
     </section>
   );
 }
@@ -496,6 +552,46 @@ function ScheduleTable({
               ) : (
                 <Blank />
               )}
+            </td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
+/** fix-268: section 4 — sent, awaiting return. No permit column: a transmit is a
+ *  project-level design handoff, not permit-scoped work. */
+function TransmittedTable({ rows }: { rows: VendorTransmitRow[] }) {
+  return (
+    <table className="w-full border-collapse mb-4">
+      <thead>
+        <tr style={{ background: 'var(--color-s2)' }}>
+          <th className={TH}>Address</th>
+          <th className={TH}>Jurisdiction</th>
+          <th className={TH}>Sent</th>
+          <th className={TH}>Expected back</th>
+        </tr>
+      </thead>
+      <tbody>
+        {rows.map((r) => (
+          <tr
+            key={r.taskId}
+            className="border-t"
+            style={{ borderColor: 'var(--color-border)' }}
+            data-testid={`vsf-transmitted-row-${r.projectId}`}
+          >
+            <td className={TD}>
+              <Cell value={r.address} />
+            </td>
+            <td className={TD}>
+              <Cell value={r.juris} />
+            </td>
+            <td className={TD}>
+              <Cell value={r.sent} />
+            </td>
+            <td className={TD}>
+              <Cell value={r.expectedBack} />
             </td>
           </tr>
         ))}

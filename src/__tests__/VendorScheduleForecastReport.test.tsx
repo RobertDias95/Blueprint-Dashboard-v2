@@ -10,6 +10,7 @@ import { MemoryRouter } from 'react-router-dom';
 // week's email — which is exactly the failure the feature exists to fix.
 
 const projectsRef = vi.hoisted(() => ({ current: [] as unknown[] }));
+const permitsRef = vi.hoisted(() => ({ current: [] as unknown[] }));
 const drawRef = vi.hoisted(() => ({ current: [] as unknown[] }));
 const holdsRef = vi.hoisted(() => ({ current: [] as unknown[] }));
 const ledgerRef = vi.hoisted(() => ({ current: [] as unknown[] }));
@@ -26,6 +27,9 @@ const markSentMutate = vi.hoisted(() => vi.fn());
 
 vi.mock('../hooks/useProjects', () => ({
   useProjects: () => ({ data: projectsRef.current, isLoading: false, error: null, refetch: vi.fn() }),
+}));
+vi.mock('../hooks/usePermits', () => ({
+  usePermits: () => ({ data: permitsRef.current, isLoading: false, error: null, refetch: vi.fn() }),
 }));
 vi.mock('../hooks/useDrawSchedule', () => ({
   useDrawSchedule: () => ({ data: drawRef.current, isLoading: false, error: null, refetch: vi.fn() }),
@@ -148,6 +152,7 @@ beforeEach(() => {
     },
   ];
   holdsRef.current = [];
+  permitsRef.current = [];
   waitingRef.current = [];
   extrasRef.current = {
     reusedFromProjectId: new Map(),
@@ -237,8 +242,9 @@ describe('<VendorScheduleForecastReport /> sections (fix-265)', () => {
       block({ project_id: 'p-same', dd_end: '2026-08-01' }),
     ];
     renderPage();
-    expect(screen.getByTestId('vsf-pipeline-count').textContent).toBe('(0)');
-    expect(screen.getByTestId('vsf-pipeline-empty')).toBeInTheDocument();
+    // fix-268: an empty section is omitted entirely — heading, count and all.
+    expect(screen.queryByTestId('vsf-pipeline')).toBeNull();
+    expect(screen.getByTestId('vsf-all-empty')).toBeInTheDocument();
   });
 
   it('shows the corrections section with blanks for missing dates', () => {
@@ -293,6 +299,112 @@ describe('<VendorScheduleForecastReport /> sections (fix-265)', () => {
     expect(screen.getByTestId('vsf-no-recipients')).toBeInTheDocument();
     expect(screen.getByTestId('vsf-missing-emails').textContent).toContain('Shire Mahdi');
     expect(screen.getByTestId('vsf-compose')).toBeDisabled();
+  });
+});
+
+// fix-268: design-phase transmit state, and empty sections disappearing.
+describe('<VendorScheduleForecastReport /> transmit state (fix-268)', () => {
+  const SSS_PROJECT = {
+    id: 'p-new',
+    address: '554 N 75th St',
+    juris: 'Seattle',
+    archived: false,
+    external_team: { Structural: 'SSS' },
+  };
+
+  function transmitTask(over: Record<string, unknown> = {}) {
+    return {
+      task_id: 'tx1',
+      task_text: 'Structural - Transmitted',
+      waiting_on: 'Structural',
+      project_id: 'p-new',
+      project_address: '554 N 75th St',
+      project_juris: 'Seattle',
+      permit_id: 1,
+      permit_type: 'Building Permit',
+      start_date: null,
+      target_date: null,
+      due_date: null,
+      completion_status: 'Open',
+      ...over,
+    };
+  }
+
+  beforeEach(() => {
+    projectsRef.current = [SSS_PROJECT];
+    drawRef.current = [block({ project_id: 'p-new' })];
+    ledgerRef.current = [];
+  });
+
+  it('a STARTED transmit moves the project out of PIPELINE into TRANSMITTED', () => {
+    waitingRef.current = [
+      transmitTask({ start_date: '2026-09-18', target_date: '2026-10-02' }),
+    ];
+    renderPage();
+    expect(screen.getByTestId('vsf-transmitted-row-p-new')).toBeInTheDocument();
+    expect(screen.queryByTestId('vsf-pipeline-row-p-new')).toBeNull();
+    const row = screen.getByTestId('vsf-transmitted-row-p-new');
+    expect(row.textContent).toContain('2026-09-18');
+    expect(row.textContent).toContain('2026-10-02');
+  });
+
+  it('an UNSTARTED transmit leaves the project in PIPELINE and shows no section 4', () => {
+    waitingRef.current = [transmitTask({ start_date: null })];
+    renderPage();
+    expect(screen.getByTestId('vsf-pipeline-row-p-new')).toBeInTheDocument();
+    expect(screen.queryByTestId('vsf-transmitted')).toBeNull();
+  });
+
+  it('a RESOLVED transmit appears in neither section', () => {
+    waitingRef.current = [
+      transmitTask({ start_date: '2026-09-18', completion_status: 'Resolved' }),
+    ];
+    renderPage();
+    expect(screen.queryByTestId('vsf-transmitted')).toBeNull();
+    expect(screen.getByTestId('vsf-pipeline-row-p-new')).toBeInTheDocument();
+  });
+
+  it('a non-transmit structural task stays in CORRECTIONS', () => {
+    waitingRef.current = [
+      transmitTask({
+        task_id: 'cr1',
+        task_text: 'Structural CR1',
+        completion_status: 'In Progress',
+        start_date: '2026-07-20',
+      }),
+    ];
+    renderPage();
+    expect(screen.getByTestId('vsf-correction-row-cr1')).toBeInTheDocument();
+    expect(screen.queryByTestId('vsf-transmitted')).toBeNull();
+    // ...and it does not pull the project out of the pipeline.
+    expect(screen.getByTestId('vsf-pipeline-row-p-new')).toBeInTheDocument();
+  });
+
+  it('a project whose permits have all issued leaves the pipeline', () => {
+    permitsRef.current = [
+      { project_id: 'p-new', actual_issue: '2026-05-22', status: 'Completed', parent_permit_id: null },
+    ];
+    renderPage();
+    expect(screen.queryByTestId('vsf-pipeline-row-p-new')).toBeNull();
+  });
+
+  it('a stale block with no dd_end and a past end_week leaves the pipeline', () => {
+    drawRef.current = [
+      block({ project_id: 'p-new', dd_end: null, end_week: '2026-06-08' }),
+    ];
+    renderPage();
+    expect(screen.queryByTestId('vsf-pipeline-row-p-new')).toBeNull();
+  });
+
+  it('empty sections are omitted — no stray headers', () => {
+    waitingRef.current = [];
+    renderPage();
+    // Only the pipeline has anything this week.
+    expect(screen.getByTestId('vsf-pipeline')).toBeInTheDocument();
+    expect(screen.queryByTestId('vsf-changed')).toBeNull();
+    expect(screen.queryByTestId('vsf-transmitted')).toBeNull();
+    expect(screen.queryByTestId('vsf-corrections')).toBeNull();
+    expect(screen.queryByTestId('vsf-all-empty')).toBeNull();
   });
 });
 
