@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   VENDOR_KEY_STRUCTURAL,
+  VENDOR_PIPELINE_STATUSES,
   buildVendorScheduleRows,
   splitVendorSections,
   buildVendorCorrectionRows,
@@ -81,6 +82,112 @@ function build(opts: {
     todayIso: TODAY,
   });
 }
+
+// fix-266: the pipeline is a PHASE question, not a date question. Structural's
+// involvement ends when the drawings go to the city, so only pre-submittal
+// statuses belong. Before this, the pipeline rendered 66 prod rows of which 39
+// were finished Approved work (oldest start 2025-02-10) — the dd_end filter
+// could not fire because dd_end is NULL on 84 of 124 blocks.
+describe('fix-266 pipeline is pre-submittal only', () => {
+  const p = project({ id: 'p1' });
+
+  function visible(status: string | null) {
+    return drawBlockIsVendorVisible(
+      block({ project_id: 'p1', status }),
+      p,
+      new Set(),
+      TODAY,
+    );
+  }
+
+  it.each([['Scheduled'], ['Schematic'], ['DD / Permit Set'], ['Pending Consultants']])(
+    'INCLUDES the pre-submittal status %s',
+    (status) => {
+      expect(visible(status)).toBe(true);
+    },
+  );
+
+  it.each([['Submitted'], ['Under Review'], ['Corrections'], ['Approved']])(
+    'EXCLUDES the post-submittal status %s',
+    (status) => {
+      expect(visible(status)).toBe(false);
+    },
+  );
+
+  it('the allow-list is exactly the four pre-submittal phases', () => {
+    // Pinned so adding a status to the draw schedule cannot quietly widen what
+    // goes out to a vendor — a new status is OUT until someone decides it is
+    // pre-submittal.
+    expect([...VENDOR_PIPELINE_STATUSES].sort()).toEqual([
+      'DD / Permit Set',
+      'Pending Consultants',
+      'Scheduled',
+      'Schematic',
+    ]);
+  });
+
+  it('KEEPS a block with no status — we cannot prove it is past submittal', () => {
+    // Same principle as the blank dd_end: silently dropping a project the vendor
+    // needs to hear about is worse than one extra row. Zero prod rows today.
+    expect(visible(null)).toBe(true);
+    expect(visible('   ')).toBe(true);
+  });
+
+  it('keeps the dd_end gate as well — it still fires within an allowed status', () => {
+    // fix-266 ADDS a gate, it does not replace one.
+    expect(
+      drawBlockIsVendorVisible(
+        block({ project_id: 'p1', status: 'Scheduled', dd_end: '2026-08-02' }),
+        p,
+        new Set(),
+        TODAY,
+      ),
+    ).toBe(false);
+  });
+
+  it('drops Approved and Under Review rows from every schedule section', () => {
+    const rows = build({
+      draw: [
+        block({ project_id: 'p1', status: 'Scheduled' }),
+        block({ project_id: 'p2', status: 'Approved' }),
+        block({ project_id: 'p3', status: 'Under Review' }),
+      ],
+      projects: [
+        project({ id: 'p1', address: '100 A St' }),
+        project({ id: 'p2', address: '200 B St' }),
+        project({ id: 'p3', address: '300 C St' }),
+      ],
+    });
+    const sections = splitVendorSections(rows);
+    expect(sections.pipelineRows.map((r) => r.projectId)).toEqual(['p1']);
+    expect(sections.newRows.map((r) => r.projectId)).toEqual(['p1']);
+  });
+
+  it('an Under Review project with a live structural correction STILL reaches section 4', () => {
+    // This is why excluding Under Review from the pipeline costs nothing: the
+    // corrections section is a task-level view and this gate does not touch it.
+    const underReview = project({
+      id: 'p1',
+      address: '100 A St',
+      external_team: { Structural: 'SSS' },
+    } as Partial<Project> & { id: string });
+
+    const sections = splitVendorSections(
+      build({
+        draw: [block({ project_id: 'p1', status: 'Under Review' })],
+        projects: [underReview],
+      }),
+    );
+    expect(sections.pipelineRows).toHaveLength(0);
+
+    const corrections = buildVendorCorrectionRows(
+      [task({ task_id: 't1', project_id: 'p1' })],
+      [underReview],
+      VENDOR_KEY_STRUCTURAL,
+    );
+    expect(corrections.map((r) => r.taskId)).toEqual(['t1']);
+  });
+});
 
 describe('fix-265 inclusion rule', () => {
   const p = project({ id: 'p1' });

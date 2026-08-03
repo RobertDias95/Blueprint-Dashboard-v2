@@ -215,6 +215,21 @@ describe('<VendorScheduleForecastReport /> sections (fix-265)', () => {
     expect(screen.getAllByTestId('vsf-hold-p-same')[0].textContent).toContain('Waiting on survey');
   });
 
+  // fix-266: post-submittal work is off the pipeline — structural's involvement
+  // ends when the drawings go to the city.
+  it('excludes Approved and Under Review from the rendered pipeline', () => {
+    drawRef.current = [
+      block({ project_id: 'p-new', status: 'Scheduled' }),
+      block({ project_id: 'p-moved', status: 'Approved' }),
+      block({ project_id: 'p-same', status: 'Under Review' }),
+    ];
+    renderPage();
+    expect(screen.getByTestId('vsf-pipeline-count').textContent).toBe('(1)');
+    expect(screen.getByTestId('vsf-pipeline-row-p-new')).toBeInTheDocument();
+    expect(screen.queryByTestId('vsf-pipeline-row-p-moved')).toBeNull();
+    expect(screen.queryByTestId('vsf-pipeline-row-p-same')).toBeNull();
+  });
+
   it('excludes Corrections-status blocks, excluded blocks and past-DD blocks', () => {
     drawRef.current = [
       block({ project_id: 'p-new', status: 'Corrections' }),
