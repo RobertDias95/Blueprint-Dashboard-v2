@@ -1,12 +1,13 @@
 import type {
   DrawScheduleRow,
+  Permit,
   Project,
   ProjectHold,
   WaitingOnTaskRow,
 } from './database.types';
 import { asExternalTeamBlob, resolveExternalFirm } from './externalTeam';
 import { isTaskLive } from './taskStatus';
-import { isCancelledProject } from './projectViewHelpers';
+import { isCancelledProject, isPermitDone } from './projectViewHelpers';
 
 // fix-265: the Vendor Schedule Forecast — the weekly note Blueprint owes its
 // external engineers, computed instead of hand-written.
@@ -144,9 +145,18 @@ export const VENDOR_PIPELINE_STATUSES: ReadonlySet<string> = new Set([
  *  prove it is past submittal, and silently dropping a project the vendor needs
  *  to hear about is worse than one extra row they can ignore. Zero prod rows are
  *  affected today — all 124 carry one of the seven known statuses.
+ *
+ *  fix-268 adds the end_week FALLBACK. Draw status goes stale — a block sits at
+ *  "Pending Consultants" long after the project has moved on — and with dd_end
+ *  NULL on most rows nothing caught it. So when dd_end is absent we fall back to
+ *  end_week for the same already-past test. dd_end stays PRIMARY: where it
+ *  exists, end_week is never consulted and no row changes. (fix-265 measured
+ *  end_week as a REPLACEMENT and rejected it — 66 rows to 5. As a fallback under
+ *  the fix-266 status gate it is a different instrument: it only speaks where
+ *  dd_end is silent.)
  */
 export function drawBlockIsVendorVisible(
-  block: Pick<DrawScheduleRow, 'status' | 'dd_end'> & {
+  block: Pick<DrawScheduleRow, 'status' | 'dd_end' | 'end_week'> & {
     exclude_from_vendor_reports?: boolean | null;
   },
   project: Pick<Project, 'id' | 'address'> | undefined,
@@ -161,9 +171,56 @@ export function drawBlockIsVendorVisible(
   // above); anything named that is not on the allow-list is out.
   const status = norm(block.status);
   if (status !== null && !VENDOR_PIPELINE_STATUSES.has(status)) return false;
-  const ddEnd = norm(block.dd_end);
-  if (ddEnd !== null && ddEnd < todayIso) return false;
+  // fix-268: dd_end primary, end_week only when dd_end is absent.
+  const pastMarker = norm(block.dd_end) ?? norm(block.end_week);
+  if (pastMarker !== null && pastMarker < todayIso) return false;
   return true;
+}
+
+/** fix-268: projects where every non-sub permit is DONE.
+ *
+ *  If a project's permits have all issued (or reached a terminal status), the
+ *  structural work finished long ago whatever the draw block still says — the
+ *  strong signal, same principle as the scraper's fix-scraper-252 actual_issue
+ *  rule. Reuses {@link isPermitDone} / PROJECT_DONE_STATUSES (fix-245) rather
+ *  than inventing a second definition of "finished".
+ *
+ *  ALL non-sub permits, deliberately — not "the Building Permit issued", and not
+ *  "any permit issued". Measured against the four stale rows Bobby reported:
+ *    - "BP issued" catches ZERO of them, and cannot fire at all on
+ *      7603 8th Ave NW [Redesign 1], which has no Building Permit — a rule that
+ *      is structurally unable to fire on a whole class of project is not a rule.
+ *    - "ANY permit issued" would drop 4040 E Via Estrella and 5811 Greenwood on
+ *      the strength of a DEMOLITION permit while their Building Permits are
+ *      still open (Pre-Submittal / Reviews In Process). A demo issuing says
+ *      nothing about structural being done.
+ *    - "ALL done" is the conservative reading: it can only fire when there is
+ *      nothing open left at all, so it can never hide live work.
+ *
+ *  A project with NO permits is NOT done — a permit-less shell is a project that
+ *  has not started, not one that has finished (vacuous-truth trap).
+ */
+export function allPermitsDoneProjectIds(
+  permits: ReadonlyArray<
+    Pick<Permit, 'project_id' | 'actual_issue' | 'status'> & {
+      parent_permit_id?: number | null;
+    }
+  >,
+): Set<string> {
+  const total = new Map<string, number>();
+  const done = new Map<string, number>();
+  for (const p of permits) {
+    // Sub-permits are reviewed under their parent (fix-194) — not their own
+    // signal, and counting them would let an open sub keep a finished project in.
+    if (p.parent_permit_id != null) continue;
+    total.set(p.project_id, (total.get(p.project_id) ?? 0) + 1);
+    if (isPermitDone(p)) done.set(p.project_id, (done.get(p.project_id) ?? 0) + 1);
+  }
+  const out = new Set<string>();
+  for (const [projectId, n] of total) {
+    if (n > 0 && (done.get(projectId) ?? 0) === n) out.add(projectId);
+  }
+  return out;
 }
 
 export interface BuildVendorScheduleInput {
@@ -176,6 +233,13 @@ export interface BuildVendorScheduleInput {
   cancelledIds?: ReadonlySet<string>;
   /** Open HOLD rows by project (activeHoldByProjectId) — labelled, not hidden. */
   holdsByProject?: ReadonlyMap<string, ProjectHold>;
+  /** fix-268: projects whose permits have ALL issued — finished, whatever the
+   *  draw block still says. From {@link allPermitsDoneProjectIds}. */
+  allPermitsDoneIds?: ReadonlySet<string>;
+  /** fix-268: projects whose transmit task has STARTED. They have moved from
+   *  "coming to you" (section 3) to "with you" (section 4) and must appear in
+   *  exactly one of the two. From {@link transmitStartedProjectIds}. */
+  transmitStartedIds?: ReadonlySet<string>;
   todayIso: string;
 }
 
@@ -184,7 +248,16 @@ export interface BuildVendorScheduleInput {
 export function buildVendorScheduleRows(
   input: BuildVendorScheduleInput,
 ): VendorScheduleRow[] {
-  const { draw, projects, ledger, cancelledIds, holdsByProject, todayIso } = input;
+  const {
+    draw,
+    projects,
+    ledger,
+    cancelledIds,
+    holdsByProject,
+    allPermitsDoneIds,
+    transmitStartedIds,
+    todayIso,
+  } = input;
 
   const projectById = new Map<string, Project>();
   for (const p of projects) projectById.set(p.id, p);
@@ -196,6 +269,11 @@ export function buildVendorScheduleRows(
   for (const block of draw) {
     const project = projectById.get(block.project_id);
     if (!drawBlockIsVendorVisible(block, project, cancelledIds, todayIso)) continue;
+    // fix-268: the permits already issued — structural finished long ago.
+    if (allPermitsDoneIds?.has(block.project_id)) continue;
+    // fix-268: already sent. It is in TRANSMITTED, so it is not in UPCOMING —
+    // a project is "coming to you" or "with you", never both.
+    if (transmitStartedIds?.has(block.project_id)) continue;
     // drawBlockIsVendorVisible already proved project is defined + addressed.
     const p = project as Project;
 
@@ -303,7 +381,140 @@ export function vendorSentPayload(
 }
 
 // ---------------------------------------------------------------------------
-// Section 4 — corrections currently sitting with the vendor
+// fix-268: the DESIGN-phase handoff — the transmit task
+// ---------------------------------------------------------------------------
+//
+// Bobby: "the DD end phase is really around 9/18, and that's when we're planning
+// on sending backgrounds out. How do we know when they are sent? That way they
+// can be tracked from sent to received."
+//
+// Every project carries a base task "Structural - Transmitted" (team = Design
+// Associate). THAT TASK IS THE HANDOFF:
+//    start_date  = when the package was sent
+//    target_date = when we expect it back
+//    Resolved    = received; the project leaves design-phase tracking entirely
+//
+// DESIGN phase is the transmit task. PERMITTING phase is corrections. They never
+// blur — the DA owns the transmit task, and a correction is a different animal
+// at a different point in the project's life.
+//
+// TOLD APART BY TEXT, because permit_tasks has NO template_id — there is no FK
+// back to task_templates at all (verified on prod: only a sparse v1-era
+// `legacy_id` on 4 rows). So this matches strings, and the strings have drifted.
+// Everything not matching falls through to CORRECTIONS, which is the safe
+// default: a misfiled task is cosmetic, nothing is lost or double-counted.
+
+/** fix-268: task texts that mean "the package went out to this vendor".
+ *
+ *  The FIRST entry is the live template text, verified on prod 2026-08-03
+ *  (task_templates.text = 'Structural - Transmitted', bucket 'de', default_team
+ *  'Design Associate'). The rest are legacy variants observed on real tasks.
+ *  Matched case-insensitively and trimmed.
+ *
+ *  Deliberately NOT matched, and why:
+ *    'Structural'      — too generic; it is used for correction work too
+ *                        (7336 132nd Ave NE carries one In Progress right now).
+ *    'Structural CR1'  — CR = correction round. Permitting phase by definition.
+ *  Both land in CORRECTIONS, which is the honest place for an ambiguous task. */
+export const VENDOR_TRANSMIT_TASK_TEXTS: Record<string, readonly string[]> = {
+  [VENDOR_KEY_STRUCTURAL]: [
+    'structural - transmitted', // the live template
+    'sent to structural', // legacy variant, 2 rows on prod
+  ],
+};
+
+/** fix-268: is this task the vendor's design-phase transmit task? */
+export function isTransmitTask(
+  text: string | null | undefined,
+  vendorKey: string,
+): boolean {
+  const t = norm(text)?.toLowerCase();
+  if (!t) return false;
+  return (VENDOR_TRANSMIT_TASK_TEXTS[vendorKey] ?? []).includes(t);
+}
+
+export interface VendorTransmitRow {
+  taskId: string;
+  projectId: string;
+  address: string;
+  juris: string | null;
+  /** permit_tasks.start_date — when it went out. */
+  sent: string | null;
+  /** permit_tasks.target_date — when we expect it back. */
+  expectedBack: string | null;
+}
+
+/** fix-268: packages SENT and awaiting return — section 4.
+ *
+ *  STARTED means start_date is set. A transmit task that exists but has not
+ *  started is not "with them": nothing was sent, so its project stays in the
+ *  UPCOMING pipeline. Resolved means received, and the project leaves both
+ *  sections.
+ *
+ *  Expect this to be EMPTY until the DAs work through a cycle — both live
+ *  'Structural - Transmitted' tasks on prod have start_date NULL today. That is
+ *  the section doing its job, not a bug, and empty sections are omitted. */
+export function buildVendorTransmitRows(
+  tasks: ReadonlyArray<WaitingOnTaskRow>,
+  projects: ReadonlyArray<Project>,
+  vendorKey: string,
+  cancelledIds?: ReadonlySet<string>,
+): VendorTransmitRow[] {
+  const projectById = new Map<string, Project>();
+  for (const p of projects) projectById.set(p.id, p);
+
+  const rows: VendorTransmitRow[] = [];
+  for (const t of tasks) {
+    if (!isTransmitTask(t.task_text, vendorKey)) continue;
+    if (!isTaskLive(t.completion_status)) continue; // Resolved = received
+    if (norm(t.start_date) === null) continue; // not sent yet
+    if (isCancelledProject(t.project_id, cancelledIds)) continue;
+    if (!vendorOwnsTask(t, projectById.get(t.project_id), vendorKey)) continue;
+
+    const project = projectById.get(t.project_id);
+    rows.push({
+      taskId: t.task_id,
+      projectId: t.project_id,
+      address: (project?.address ?? t.project_address ?? '').trim(),
+      juris: norm(project?.juris ?? t.project_juris ?? null),
+      sent: norm(t.start_date),
+      expectedBack: norm(t.target_date),
+    });
+  }
+  rows.sort((a, b) => (a.sent ?? '').localeCompare(b.sent ?? '') || a.address.localeCompare(b.address));
+  return rows;
+}
+
+/** fix-268: projects whose transmit task has STARTED and not come back. These
+ *  drop out of the UPCOMING pipeline — they are in TRANSMITTED instead. */
+export function transmitStartedProjectIds(
+  rows: ReadonlyArray<VendorTransmitRow>,
+): Set<string> {
+  return new Set(rows.map((r) => r.projectId));
+}
+
+/** fix-265/268: does this vendor own the task's project for this discipline?
+ *
+ *  Firm-when-known, discipline-when-not — see buildVendorCorrectionRows for the
+ *  measurement behind the fallback. Shared so sections 4 and 5 can never drift
+ *  apart on who a task belongs to. */
+function vendorOwnsTask(
+  task: Pick<WaitingOnTaskRow, 'waiting_on'>,
+  project: Project | undefined,
+  vendorKey: string,
+): boolean {
+  const discipline = VENDOR_DISCIPLINE[vendorKey];
+  if (!discipline) return false;
+  if (norm(task.waiting_on) !== discipline) return false;
+  const firm = resolveExternalFirm(
+    asExternalTeamBlob(project?.external_team),
+    discipline,
+  );
+  return firm === null || firm === VENDOR_FIRM[vendorKey];
+}
+
+// ---------------------------------------------------------------------------
+// Section 5 — corrections currently sitting with the vendor
 // ---------------------------------------------------------------------------
 
 export interface VendorCorrectionRow {
@@ -340,7 +551,12 @@ export interface VendorCorrectionRow {
  *  filled in — after which the strict match takes over on its own.
  *
  *  Resolved and fix-262 'Cancelled' tasks are both excluded via isTaskLive.
- *  Rows with missing dates are KEPT with a blank cell, never dropped. */
+ *  Rows with missing dates are KEPT with a blank cell, never dropped.
+ *
+ *  fix-268: TRANSMIT tasks are excluded — they are the DESIGN-phase handoff and
+ *  belong to section 4. Design and permitting never blur. Everything else that
+ *  is waiting on this vendor still lands here, which is the safe default for a
+ *  text match against strings that have already drifted. */
 export function buildVendorCorrectionRows(
   tasks: ReadonlyArray<WaitingOnTaskRow>,
   projects: ReadonlyArray<Project>,
@@ -348,7 +564,6 @@ export function buildVendorCorrectionRows(
   cancelledIds?: ReadonlySet<string>,
 ): VendorCorrectionRow[] {
   const discipline = VENDOR_DISCIPLINE[vendorKey];
-  const firmName = VENDOR_FIRM[vendorKey];
   if (!discipline) return [];
 
   const projectById = new Map<string, Project>();
@@ -357,16 +572,17 @@ export function buildVendorCorrectionRows(
   const rows: VendorCorrectionRow[] = [];
   for (const t of tasks) {
     if (!isTaskLive(t.completion_status)) continue;
-    if (norm(t.waiting_on) !== discipline) continue;
+    // fix-268: the design-phase handoff is section 4's, in every state — a
+    // transmit task must never also appear as a permitting correction.
+    if (isTransmitTask(t.task_text, vendorKey)) continue;
     if (isCancelledProject(t.project_id, cancelledIds)) continue;
 
     const project = projectById.get(t.project_id);
+    if (!vendorOwnsTask(t, project, vendorKey)) continue;
     const firm = resolveExternalFirm(
       asExternalTeamBlob(project?.external_team),
       discipline,
     );
-    // Firm recorded as someone else → not ours. Unrecorded → ours by fallback.
-    if (firm !== null && firm !== firmName) continue;
 
     rows.push({
       taskId: t.task_id,

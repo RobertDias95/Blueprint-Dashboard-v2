@@ -2,6 +2,7 @@ import type {
   VendorCorrectionRow,
   VendorScheduleRow,
   VendorSections,
+  VendorTransmitRow,
 } from './vendorReport';
 
 // fix-265: the email side of the Vendor Schedule Forecast.
@@ -218,14 +219,35 @@ function correctionsTable(rows: ReadonlyArray<VendorCorrectionRow>): string {
   return `<table style="${TABLE}" cellpadding="0" cellspacing="0" border="0">${head}${body}</table>`;
 }
 
-function emptyNote(text: string): string {
-  return `<p style="font-family:Segoe UI,Arial,sans-serif;font-size:13px;color:#666;margin:0 0 18px 0;">${esc(
-    text,
-  )}</p>`;
+/** fix-268: TRANSMITTED — packages sent, awaiting return. Four columns; no
+ *  permit column, because a transmit is a project-level design handoff rather
+ *  than permit-scoped work. */
+function transmittedTable(rows: ReadonlyArray<VendorTransmitRow>): string {
+  const head =
+    `<tr>` +
+    `<th style="${TH}">Address</th>` +
+    `<th style="${TH}">Jurisdiction</th>` +
+    `<th style="${TH}">Sent</th>` +
+    `<th style="${TH}">Expected back</th>` +
+    `</tr>`;
+  const body = rows
+    .map(
+      (r) =>
+        `<tr>` +
+        `<td style="${TD}">${cell(r.address)}</td>` +
+        `<td style="${TD}">${cell(r.juris)}</td>` +
+        `<td style="${TD}">${cell(r.sent)}</td>` +
+        `<td style="${TD}">${cell(r.expectedBack)}</td>` +
+        `</tr>`,
+    )
+    .join('');
+  return `<table style="${TABLE}" cellpadding="0" cellspacing="0" border="0">${head}${body}</table>`;
 }
 
 export interface VendorEmailInput {
   sections: VendorSections;
+  /** fix-268: section 4 — sent, awaiting return. */
+  transmitted: ReadonlyArray<VendorTransmitRow>;
   corrections: ReadonlyArray<VendorCorrectionRow>;
   /** Human label for the vendor, e.g. "SSS Engineering". */
   vendorLabel: string;
@@ -233,38 +255,65 @@ export interface VendorEmailInput {
   weekOf: string;
 }
 
-/** fix-265: the email body. Outlook-safe by construction — tables with inline
- *  styles only. Sections are always emitted in the agreed order (new, changes,
- *  pipeline, corrections) with an explicit "nothing this week" line rather than
- *  being dropped, so the vendor can tell an empty section from a broken email. */
+/** fix-268: the five sections, in the agreed order. Each carries its own rows so
+ *  the empty ones can be dropped by a single rule rather than four call sites. */
+export function vendorEmailSections(
+  input: VendorEmailInput,
+): { heading: string; html: string; count: number }[] {
+  const { sections, transmitted, corrections } = input;
+  return [
+    {
+      heading: 'New to the schedule',
+      count: sections.newRows.length,
+      html: scheduleTable(sections.newRows, { showDelta: false }),
+    },
+    {
+      heading: 'Schedule changes',
+      count: sections.changedRows.length,
+      html: scheduleTable(sections.changedRows, { showDelta: true }),
+    },
+    {
+      heading: 'Upcoming pipeline',
+      count: sections.pipelineRows.length,
+      html: scheduleTable(sections.pipelineRows, { showDelta: false }),
+    },
+    {
+      heading: 'Transmitted — with you now',
+      count: transmitted.length,
+      html: transmittedTable(transmitted),
+    },
+    {
+      heading: 'Corrections — permitting phase',
+      count: corrections.length,
+      html: correctionsTable(corrections),
+    },
+  ];
+}
+
+/** fix-265/268: the email body. Outlook-safe by construction — tables with
+ *  inline styles only.
+ *
+ *  fix-268: an EMPTY SECTION IS OMITTED ENTIRELY, heading and all. Most weeks
+ *  two or three of the five are empty (TRANSMITTED will be empty until the DAs
+ *  work a cycle), and a run of headings over blank space makes the email look
+ *  broken to the vendor. If every section is empty the body says so once. */
 export function buildVendorEmailHtml(input: VendorEmailInput): string {
-  const { sections, corrections, vendorLabel, weekOf } = input;
+  const { vendorLabel, weekOf } = input;
   const intro =
     `<p style="font-family:Segoe UI,Arial,sans-serif;font-size:13px;margin:0 0 16px 0;">` +
     `Hi ${esc(vendorLabel || 'team')}, here is this week's schedule forecast ` +
     `(week of ${esc(formatWeekOf(weekOf))}).</p>`;
 
-  return (
-    `<div style="font-family:Segoe UI,Arial,sans-serif;color:#222;">` +
-    intro +
-    `<h2 style="${H2}">New to the schedule</h2>` +
-    (sections.newRows.length
-      ? scheduleTable(sections.newRows, { showDelta: false })
-      : emptyNote('No new projects this week.')) +
-    `<h2 style="${H2}">Schedule changes</h2>` +
-    (sections.changedRows.length
-      ? scheduleTable(sections.changedRows, { showDelta: true })
-      : emptyNote('No schedule changes this week.')) +
-    `<h2 style="${H2}">Upcoming pipeline</h2>` +
-    (sections.pipelineRows.length
-      ? scheduleTable(sections.pipelineRows, { showDelta: false })
-      : emptyNote('Nothing currently scheduled.')) +
-    `<h2 style="${H2}">Corrections &mdash; with you now</h2>` +
-    (corrections.length
-      ? correctionsTable(corrections)
-      : emptyNote('No corrections are currently with you.')) +
-    `</div>`
-  );
+  const present = vendorEmailSections(input).filter((s) => s.count > 0);
+
+  const body = present.length
+    ? present
+        .map((s) => `<h2 style="${H2}">${esc(s.heading)}</h2>${s.html}`)
+        .join('')
+    : `<p style="font-family:Segoe UI,Arial,sans-serif;font-size:13px;color:#666;margin:0 0 18px 0;">` +
+      `Nothing to report this week.</p>`;
+
+  return `<div style="font-family:Segoe UI,Arial,sans-serif;color:#222;">${intro}${body}</div>`;
 }
 
 /** "Aug 3, 2026" from an ISO date, or the input back if unparseable. */

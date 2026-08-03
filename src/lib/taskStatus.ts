@@ -136,3 +136,37 @@ export function applyDoneTrigger(input: {
   }
   return { done: false, done_at: null };
 }
+
+/**
+ * fix-268: pure mirror of the bp_trg_task_start_date DB trigger (see
+ * migrations/fix_268_transmit_state.sql). CI has no live database, so this
+ * mirror IS the tested contract — keep the two in lockstep.
+ *
+ * Gives start_date a consequence so "mark it started" can mean "package sent"
+ * for the vendor forecast, where a transmit task's start_date is the sent date.
+ *
+ * ★ SYSTEM-WIDE: the trigger fires for EVERY task, not just structural ones.
+ *
+ *   - stamps `today` on the FIRST transition into 'In Progress'
+ *   - stamps on a transition straight into 'Resolved' too (a task can go
+ *     Open → Resolved directly and was still clearly sent at some point)
+ *   - NEVER overwrites an existing start_date — a date a human entered is
+ *     theirs, and this must never argue with it
+ *   - transition-based: re-saving a row already In Progress does NOT stamp,
+ *     which is what makes it idempotent on repeat writes
+ *   - 'Cancelled' (the fix-262 sweep) never stamps
+ *
+ * `prevStatus: null` models an INSERT.
+ */
+export function applyStartDateTrigger(input: {
+  prevStatus: TaskStatus | null;
+  nextStatus: TaskStatus;
+  prevStartDate: string | null;
+  today: string;
+}): { start_date: string | null } {
+  const { prevStatus, nextStatus, prevStartDate, today } = input;
+  if (prevStartDate != null) return { start_date: prevStartDate };
+  const isTransition = prevStatus === null || prevStatus !== nextStatus;
+  const stamps = nextStatus === 'In Progress' || nextStatus === 'Resolved';
+  return { start_date: isTransition && stamps ? today : null };
+}
