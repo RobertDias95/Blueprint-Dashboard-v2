@@ -16,7 +16,7 @@ import type {
   VendorTransmitRow,
 } from '../lib/vendorReport';
 
-// fix-265: the email side. Two things matter here â€” the HTML must survive
+// fix-265: the email side. Two things matter here — the HTML must survive
 // Outlook (tables + inline styles, never flexbox/grid/external CSS), and the
 // .eml must open as an EDITABLE UNSENT DRAFT from Bobby's own account.
 
@@ -78,7 +78,125 @@ function transmit(
   };
 }
 
-describe('fix-265 email HTML â€” Outlook safety', () => {
+// fix-274: the email stacks three DIFFERENT table shapes, and each one used to
+// auto-size its columns from its own content — so nothing lined up when read one
+// after another. Every named column now has ONE width wherever it appears, and
+// Address absorbs the remainder.
+describe('fix-274 column widths line up across the three table shapes', () => {
+  const FULL = html({
+    sections: {
+      newRows: [row({ projectId: 'p1' })],
+      changedRows: [],
+      pipelineRows: [row({ projectId: 'p2' })],
+    },
+    transmitted: [transmit({ taskId: 't1' })],
+    corrections: [correction({ taskId: 'c1' })],
+  });
+
+  /** Header cells of the Nth <table>, as [label, widthPct] pairs. */
+  function headerWidths(doc: string, tableIndex: number): [string, number][] {
+    const head = doc.split('<table').slice(1)[tableIndex];
+    const out: [string, number][] = [];
+    const re = /<th style="([^"]*)">([^<]*)<\/th>/g;
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(head)) !== null) {
+      const w = /width:(\d+(?:\.\d+)?)%/.exec(m[1]);
+      out.push([m[2], w ? Number(w[1]) : NaN]);
+    }
+    return out;
+  }
+
+  // Section order is New, Upcoming, Transmitted, Corrections (Changes is empty
+  // and therefore omitted), so the schedule shape is tables 0 and 1.
+  const SCHEDULE = 0;
+  const UPCOMING = 1;
+  const TRANSMITTED = 2;
+  const CORRECTIONS = 3;
+
+  function widthOf(tableIndex: number, label: string): number {
+    const found = headerWidths(FULL, tableIndex).find(([l]) => l === label);
+    if (!found) throw new Error(`no "${label}" column in table ${tableIndex}`);
+    return found[1];
+  }
+
+  it('renders exactly the three expected shapes', () => {
+    expect(headerWidths(FULL, SCHEDULE).map(([l]) => l)).toEqual([
+      'Start week', 'Address', 'Jurisdiction', 'Target send', 'Reuse',
+    ]);
+    expect(headerWidths(FULL, TRANSMITTED).map(([l]) => l)).toEqual([
+      'Address', 'Jurisdiction', 'Sent', 'Expected back',
+    ]);
+    expect(headerWidths(FULL, CORRECTIONS).map(([l]) => l)).toEqual([
+      'Address', 'Jurisdiction', 'Permit type', 'Sent', 'Expected back',
+    ]);
+  });
+
+  it('EVERY header cell in EVERY table carries a width', () => {
+    for (const i of [SCHEDULE, UPCOMING, TRANSMITTED, CORRECTIONS]) {
+      for (const [label, w] of headerWidths(FULL, i)) {
+        expect(Number.isFinite(w), `table ${i} "${label}" has no width`).toBe(true);
+      }
+    }
+  });
+
+  it('JURISDICTION is identical in all three shapes', () => {
+    const a = widthOf(SCHEDULE, 'Jurisdiction');
+    expect(widthOf(TRANSMITTED, 'Jurisdiction')).toBe(a);
+    expect(widthOf(CORRECTIONS, 'Jurisdiction')).toBe(a);
+  });
+
+  it('EVERY DATE COLUMN is the same width, in every shape', () => {
+    // Start week / Target send / Sent / Expected back read as one column type to
+    // the eye — these are the ones that look broken when they drift.
+    const d = widthOf(SCHEDULE, 'Start week');
+    expect(widthOf(SCHEDULE, 'Target send')).toBe(d);
+    expect(widthOf(TRANSMITTED, 'Sent')).toBe(d);
+    expect(widthOf(TRANSMITTED, 'Expected back')).toBe(d);
+    expect(widthOf(CORRECTIONS, 'Sent')).toBe(d);
+    expect(widthOf(CORRECTIONS, 'Expected back')).toBe(d);
+  });
+
+  it('the two schedule tables (New and Upcoming) are identical', () => {
+    expect(headerWidths(FULL, UPCOMING)).toEqual(headerWidths(FULL, SCHEDULE));
+  });
+
+  it('each table sums to exactly 100%', () => {
+    for (const i of [SCHEDULE, UPCOMING, TRANSMITTED, CORRECTIONS]) {
+      const total = headerWidths(FULL, i).reduce((s, [, w]) => s + w, 0);
+      expect(total, `table ${i} widths sum`).toBe(100);
+    }
+  });
+
+  it('ADDRESS is the column that flexes — deliberately', () => {
+    // Different column counts mean something must absorb the remainder. Address
+    // holds the longest, most variable content, so a difference there is far
+    // less noticeable than dates failing to line up. If this test starts failing
+    // because someone equalised Address, they have inverted the fix.
+    const s = widthOf(SCHEDULE, 'Address');
+    const t = widthOf(TRANSMITTED, 'Address');
+    const c = widthOf(CORRECTIONS, 'Address');
+    expect(new Set([s, t, c]).size).toBeGreaterThan(1);
+    // Transmitted has the fewest columns, so its Address is the widest.
+    expect(t).toBeGreaterThan(c);
+    expect(c).toBeGreaterThan(s);
+  });
+
+  it('uses table-layout:fixed — without it the widths are advisory', () => {
+    expect(FULL).toContain('table-layout:fixed');
+  });
+
+  it('widths are PERCENTAGES, never pixels, so reading-pane width does not matter', () => {
+    expect(FULL).toMatch(/width:\d+%/);
+    expect(FULL).not.toMatch(/width:\d+px/);
+  });
+
+  it('no colgroup — Word supports it inconsistently', () => {
+    expect(FULL).not.toContain('<colgroup');
+    expect(FULL).not.toContain('<col ');
+  });
+});
+
+describe('fix-265 email HTML — Outlook safety', () => {
   it('uses tables with inline styles and no layout CSS Outlook cannot render', () => {
     const out = html({
       sections: { newRows: [row({ projectId: 'p1' })], changedRows: [], pipelineRows: [row({ projectId: 'p1' })] },
@@ -86,7 +204,7 @@ describe('fix-265 email HTML â€” Outlook safety', () => {
     });
     expect(out).toContain('<table');
     expect(out).toContain('border-collapse');
-    // Word is the render engine â€” these silently collapse the layout.
+    // Word is the render engine — these silently collapse the layout.
     expect(out).not.toMatch(/display\s*:\s*flex/i);
     expect(out).not.toMatch(/display\s*:\s*grid/i);
     expect(out).not.toContain('<link');
@@ -128,7 +246,7 @@ describe('fix-265 email HTML â€” Outlook safety', () => {
     }
   });
 
-  it('omits an empty section entirely â€” no stray heading', () => {
+  it('omits an empty section entirely — no stray heading', () => {
     const out = html({
       sections: { newRows: [row({ projectId: 'p1' })], changedRows: [], pipelineRows: [] },
     });
@@ -379,7 +497,7 @@ describe('fix-265 .eml draft', () => {
   });
 
   it('round-trips the body, em dashes and arrows included', () => {
-    const body = '<p>DD end &mdash; moved &rarr; 2026-09-18 â€” ok</p>';
+    const body = '<p>DD end &mdash; moved &rarr; 2026-09-18 — ok</p>';
     const out = buildEmlFile({ to, cc, subject: 's', html: body });
     const b64 = out.split('\r\n\r\n')[1].replace(/\r\n/g, '');
     const decoded = new TextDecoder().decode(
@@ -400,9 +518,9 @@ describe('fix-265 .eml draft', () => {
     expect(encodeBase64Utf8('ab')).toBe(btoa('ab')); // padding
     expect(encodeBase64Utf8('a')).toBe(btoa('a'));
     const decoded = new TextDecoder().decode(
-      Uint8Array.from(atob(encodeBase64Utf8('â€” Ã¼nÃ¯code â†’')), (c) => c.charCodeAt(0)),
+      Uint8Array.from(atob(encodeBase64Utf8('— Ã¼nÃ¯code â†’')), (c) => c.charCodeAt(0)),
     );
-    expect(decoded).toBe('â€” Ã¼nÃ¯code â†’');
+    expect(decoded).toBe('— Ã¼nÃ¯code â†’');
   });
 
   it('drops a Cc header entirely when nobody has an address', () => {
