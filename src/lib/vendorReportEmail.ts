@@ -118,10 +118,54 @@ const TD = 'padding:6px 10px;border:1px solid #ddd;font-size:13px;vertical-align
 const TH =
   'padding:6px 10px;border:1px solid #ddd;font-size:12px;text-align:left;' +
   'background:#f4f4f4;font-weight:bold;';
+// fix-274: table-layout:fixed is what makes the widths below MEAN anything.
+// Without it both browsers and Word silently re-auto-size a column the moment
+// its content is wider than the declared width, which is exactly how three
+// stacked tables end up ragged.
 const TABLE =
-  'border-collapse:collapse;width:100%;margin:0 0 18px 0;' +
+  'border-collapse:collapse;width:100%;margin:0 0 18px 0;table-layout:fixed;' +
   'font-family:Segoe UI,Arial,sans-serif;';
 const H2 = 'font-family:Segoe UI,Arial,sans-serif;font-size:15px;margin:22px 0 8px 0;';
+
+// ---------------------------------------------------------------------------
+// fix-274: column widths, shared across the three table shapes
+// ---------------------------------------------------------------------------
+//
+// The email stacks three DIFFERENT table shapes:
+//   schedule     Start week · Address · Jurisdiction · Target send · Reuse   (5)
+//   transmitted  Address · Jurisdiction · Sent · Expected back               (4)
+//   corrections  Address · Jurisdiction · Permit type · Sent · Expected back (5)
+//
+// Each <table> auto-sized its own columns from its own content, so nothing lined
+// up when read one after another. Every NAMED column now has ONE width used
+// everywhere it appears: Jurisdiction is always 13%, every date column is always
+// 15%, Permit type 14%, Reuse 18%.
+//
+// ★ ADDRESS ABSORBS THE REMAINDER, AND THAT IS DELIBERATE. The three shapes have
+// different column counts, so something has to flex. Address is the right thing
+// to flex: it holds the longest and most variable content, and a slightly
+// different Address width between sections is far less noticeable than date
+// columns that fail to line up. DO NOT "fix" this later by equalising Address
+// and letting the dates float — that inverts the whole point of the change.
+//
+// Percentages, not pixels, so it survives whatever width the reading pane is.
+const W_DATE = 15;
+const W_JURIS = 13;
+const W_PERMIT_TYPE = 14;
+const W_REUSE = 18;
+// Address = 100 - (everything else in that shape).
+const W_ADDRESS_SCHEDULE = 100 - W_DATE - W_JURIS - W_DATE - W_REUSE; // 39
+const W_ADDRESS_TRANSMITTED = 100 - W_JURIS - W_DATE - W_DATE; // 57
+const W_ADDRESS_CORRECTIONS = 100 - W_JURIS - W_PERMIT_TYPE - W_DATE - W_DATE; // 43
+
+/** fix-274: a header cell with its width INLINE.
+ *
+ *  Deliberately not <colgroup>: Word's rendering engine supports it
+ *  inconsistently, and it is the classic way column widths silently do nothing
+ *  in Outlook specifically while looking perfect in every browser you test. */
+function th(label: string, widthPct: number): string {
+  return `<th style="${TH}width:${widthPct}%;">${label}</th>`;
+}
 
 /** OLD → NEW for one fact. Unchanged facts render as the plain value so the eye
  *  goes straight to what actually moved. */
@@ -172,14 +216,14 @@ function scheduleTable(
 ): string {
   const head =
     `<tr>` +
-    `<th style="${TH}">Start week</th>` +
-    `<th style="${TH}">Address</th>` +
-    `<th style="${TH}">Jurisdiction</th>` +
+    th('Start week', W_DATE) +
+    th('Address', W_ADDRESS_SCHEDULE) +
+    th('Jurisdiction', W_JURIS) +
     // fix-269: dd_end is a TARGET SEND date — "when we are targeting to provide
     // documents to the external consultant" — so the column says so. It is a
     // commitment we are making, not a date we observed.
-    `<th style="${TH}">Target send</th>` +
-    `<th style="${TH}">Reuse</th>` +
+    th('Target send', W_DATE) +
+    th('Reuse', W_REUSE) +
     `</tr>`;
   const body = rows
     .map((r) => {
@@ -222,11 +266,11 @@ function scheduleTable(
 function correctionsTable(rows: ReadonlyArray<VendorCorrectionRow>): string {
   const head =
     `<tr>` +
-    `<th style="${TH}">Address</th>` +
-    `<th style="${TH}">Jurisdiction</th>` +
-    `<th style="${TH}">Permit type</th>` +
-    `<th style="${TH}">Sent</th>` +
-    `<th style="${TH}">Expected back</th>` +
+    th('Address', W_ADDRESS_CORRECTIONS) +
+    th('Jurisdiction', W_JURIS) +
+    th('Permit type', W_PERMIT_TYPE) +
+    th('Sent', W_DATE) +
+    th('Expected back', W_DATE) +
     `</tr>`;
   const body = rows
     .map(
@@ -249,10 +293,10 @@ function correctionsTable(rows: ReadonlyArray<VendorCorrectionRow>): string {
 function transmittedTable(rows: ReadonlyArray<VendorTransmitRow>): string {
   const head =
     `<tr>` +
-    `<th style="${TH}">Address</th>` +
-    `<th style="${TH}">Jurisdiction</th>` +
-    `<th style="${TH}">Sent</th>` +
-    `<th style="${TH}">Expected back</th>` +
+    th('Address', W_ADDRESS_TRANSMITTED) +
+    th('Jurisdiction', W_JURIS) +
+    th('Sent', W_DATE) +
+    th('Expected back', W_DATE) +
     `</tr>`;
   const body = rows
     .map(

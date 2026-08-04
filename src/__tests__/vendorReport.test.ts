@@ -27,7 +27,7 @@ import type {
 // The feature replaces a hand-written weekly email that was late about half the
 // time and only ever carried NEW projects, while 57 start-week and 91 end-week
 // moves went untold. So the two things these tests guard hardest are (a) change
-// detection against the ledger, and (b) the running-list rule â€” that already-sent
+// detection against the ledger, and (b) the running-list rule — that already-sent
 // rows never fall off the pipeline.
 
 const TODAY = '2026-08-03';
@@ -95,7 +95,7 @@ function build(opts: {
 // fix-266: the pipeline is a PHASE question, not a date question. Structural's
 // involvement ends when the drawings go to the city, so only pre-submittal
 // statuses belong. Before this, the pipeline rendered 66 prod rows of which 39
-// were finished Approved work (oldest start 2025-02-10) â€” the dd_end filter
+// were finished Approved work (oldest start 2025-02-10) — the dd_end filter
 // could not fire because dd_end is NULL on 84 of 124 blocks.
 describe('fix-266 pipeline is pre-submittal only', () => {
   const p = project({ id: 'p1' });
@@ -125,7 +125,7 @@ describe('fix-266 pipeline is pre-submittal only', () => {
 
   it('the allow-list is exactly the four pre-submittal phases', () => {
     // Pinned so adding a status to the draw schedule cannot quietly widen what
-    // goes out to a vendor â€” a new status is OUT until someone decides it is
+    // goes out to a vendor — a new status is OUT until someone decides it is
     // pre-submittal.
     expect([...VENDOR_PIPELINE_STATUSES].sort()).toEqual([
       'DD / Permit Set',
@@ -135,14 +135,14 @@ describe('fix-266 pipeline is pre-submittal only', () => {
     ]);
   });
 
-  it('KEEPS a block with no status â€” we cannot prove it is past submittal', () => {
+  it('KEEPS a block with no status — we cannot prove it is past submittal', () => {
     // Same principle as the blank dd_end: silently dropping a project the vendor
     // needs to hear about is worse than one extra row. Zero prod rows today.
     expect(visible(null)).toBe(true);
     expect(visible('   ')).toBe(true);
   });
 
-  it('keeps the dd_end gate as well â€” it still fires within an allowed status', () => {
+  it('keeps the dd_end gate as well — it still fires within an allowed status', () => {
     // fix-266 ADDS a gate, it does not replace one.
     expect(
       drawBlockIsVendorVisible(
@@ -202,7 +202,7 @@ describe('fix-266 pipeline is pre-submittal only', () => {
 // fix-268: the design-phase handoff. A project is "coming to you" (section 3) or
 // "with you" (section 4), never both, and it leaves both when the transmit task
 // is Resolved. Told apart from corrections by TASK TEXT, because permit_tasks has
-// no template_id â€” verified on prod.
+// no template_id — verified on prod.
 describe('fix-268 transmit task â‡„ pipeline', () => {
   const withSss = project({
     id: 'p1',
@@ -256,7 +256,7 @@ describe('fix-268 transmit task â‡„ pipeline', () => {
   }
 
   it('NOT STARTED: project is in PIPELINE, not in TRANSMITTED', () => {
-    // A transmit task that exists but has not started is not "with them" â€”
+    // A transmit task that exists but has not started is not "with them" —
     // nothing was sent.
     const s = sections([transmitTask({ start_date: null })]);
     expect(s.transmitted).toHaveLength(0);
@@ -699,7 +699,7 @@ describe('fix-268 issued permits leave the pipeline', () => {
     expect(ids.size).toBe(0);
   });
 
-  it('sub-permits do not count â€” an open sub cannot keep a finished project in', () => {
+  it('sub-permits do not count — an open sub cannot keep a finished project in', () => {
     const ids = allPermitsDoneProjectIds([
       permit({ project_id: 'p1', actual_issue: '2026-05-22', status: 'Completed' }),
       permit({ project_id: 'p1', actual_issue: null, parent_permit_id: 7 }),
@@ -763,7 +763,7 @@ describe('fix-265 inclusion rule', () => {
     expect(drawBlockIsVendorVisible(block({ project_id: 'p1' }), p, new Set(), TODAY)).toBe(true);
   });
 
-  it('excludes design-phase Corrections blocks â€” already visible on the schedule', () => {
+  it('excludes design-phase Corrections blocks — already visible on the schedule', () => {
     expect(
       drawBlockIsVendorVisible(
         block({ project_id: 'p1', status: 'Corrections' }),
@@ -802,7 +802,7 @@ describe('fix-265 inclusion rule', () => {
     ).toBe(false);
   });
 
-  it('KEEPS a block with no DD end â€” a blank is not a reason to hide work', () => {
+  it('KEEPS a block with no DD end — a blank is not a reason to hide work', () => {
     // dd_end is NULL on 84 of 124 prod rows. Dropping those would hide most of
     // the pipeline from the vendor; the blank cell prompts the data entry.
     expect(
@@ -817,7 +817,7 @@ describe('fix-265 inclusion rule', () => {
 
   it('excludes a block whose project is missing or address-less', () => {
     // Non-project blocks (Vacation / PTO / training / the OOO floater) live in a
-    // SEPARATE table, da_time_blocks, and never reach draw_schedule at all â€” all
+    // SEPARATE table, da_time_blocks, and never reach draw_schedule at all — all
     // 124 prod draw rows resolve to a project. This is the defensive backstop.
     expect(drawBlockIsVendorVisible(block({ project_id: 'ghost' }), undefined, new Set(), TODAY)).toBe(false);
     expect(
@@ -942,7 +942,7 @@ describe('fix-265 bucketing against the ledger', () => {
   });
 });
 
-describe('fix-265 sections â€” the RUNNING LIST rule', () => {
+describe('fix-265 sections — the RUNNING LIST rule', () => {
   const p1 = project({ id: 'p1', address: '100 A St' });
   const p2 = project({ id: 'p2', address: '200 B St' });
   const p3 = project({ id: 'p3', address: '300 C St' });
@@ -1032,14 +1032,14 @@ describe('fix-265 send cycle', () => {
       '2026-07-20T17:00:00Z',
     );
 
-    // Week 1: it moves â€” but nobody sends the email that week.
+    // Week 1: it moves — but nobody sends the email that week.
     const wk1 = [block({ project_id: 'p1', start_week: '2026-08-17' })];
     const skipped = splitVendorSections(build({ draw: wk1, projects: [p1], ledger: state }));
     expect(skipped.changedRows).toHaveLength(1);
 
     // Week 2: it moves AGAIN. Because the ledger still holds the last COMMUNICATED
     // value (not last week's computed value), the delta shown is the full move
-    // from what the vendor actually knows â€” the week-1 change is not lost.
+    // from what the vendor actually knows — the week-1 change is not lost.
     const wk2 = [block({ project_id: 'p1', start_week: '2026-08-24' })];
     const caught = splitVendorSections(build({ draw: wk2, projects: [p1], ledger: state }));
     expect(caught.changedRows).toHaveLength(1);
@@ -1089,7 +1089,7 @@ describe('fix-265 reuse columns', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Section 4 â€” corrections with the vendor
+// Section 4 — corrections with the vendor
 // ---------------------------------------------------------------------------
 
 function task(over: Partial<WaitingOnTaskRow> & { task_id: string }): WaitingOnTaskRow {
