@@ -313,6 +313,46 @@ export interface PermitCycleReviewer {
   updated_at: string;
 }
 
+// fix-276: one row per numbered comment on a jurisdiction correction letter.
+// Produced by the file_indexer in the scraper repo, which reads the on-prem
+// Building Permits share and upserts here under service_role. The dashboard is
+// a READER ONLY — `authenticated` holds SELECT and nothing else, so there is
+// deliberately no write hook for this table.
+//
+// Hand-typed like the rest of this file. Narrow on purpose: these are the
+// columns the Corrections panel consumes, not the full table (tenant_id,
+// permit_id, source_folder, content_hash and the timestamps are not read).
+export interface CorrectionItem {
+  id: string;
+  project_id: string;
+  /** The structure this letter is about, when the jurisdiction issues per
+   *  building: 'SFR 1', 'DUPLEX 2'. NULL for Seattle, which issues one letter
+   *  per discipline for the whole project — 1,881 of 2,194 production rows are
+   *  NULL, so the building grouping level must be conditional. */
+  building: string | null;
+  /** 'Zoning', 'Drainage', 'OS', … NULL when neither the filename nor the
+   *  letter text named one (113 production rows, including every row on
+   *  10431 SE 19th St). Render via correctionDisciplineLabel(). */
+  discipline: string | null;
+  /** Review round. Nullable in the schema; non-null on every production row
+   *  today. Rows without one still have to render, so they group into an
+   *  "Unknown cycle" bucket rather than being dropped. */
+  cycle: number | null;
+  /** ISO date (YYYY-MM-DD) — a `date` column, so no timezone shifting. */
+  letter_date: string | null;
+  reviewer: string | null;
+  item_no: number;
+  subject: string | null;
+  body: string | null;
+  /** '; '-joined code citations, e.g. 'SMC 23.44.014; SMC 23.45.518'. */
+  codes: string | null;
+  /** Discipline-specific bucket from the indexer's 38-rule taxonomy. */
+  category: string | null;
+  /** Cross-jurisdiction rollup of `category` — the comparable axis. */
+  theme: string | null;
+  source_file: string;
+}
+
 export interface Permit {
   id: number;
   project_id: string;

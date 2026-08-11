@@ -197,6 +197,14 @@ export const queryKeys = {
   // carry (see useVendorReportExtras for why they are fetched separately).
   vendorProjectExtras: (tenantId: string) =>
     ['vendor_project_extras', tenantId] as const,
+  // fix-276: indexed correction-letter items, per project. Read-only — the rows
+  // are written by the file_indexer on Bobby's PC (scraper repo), not by this
+  // app and not by the scraper, so there is no realtime channel to hang the
+  // bare prefix off. It exists so a manual invalidation (or a subscription, if
+  // correction_items is ever added to the publication) has a key to target.
+  correctionItemsAll: ['correction_items'] as const,
+  correctionItems: (tenantId: string, projectId: string) =>
+    ['correction_items', tenantId, { projectId }] as const,
 } as const;
 
 /** Map from Postgres table name → bare-prefix query keys to invalidate on

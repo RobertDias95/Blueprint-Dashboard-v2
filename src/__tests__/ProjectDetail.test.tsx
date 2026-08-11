@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, within } from '@testing-library/react';
 import { MemoryRouter, Route, Routes, useNavigate } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { ReactNode } from 'react';
@@ -138,6 +138,13 @@ vi.mock('../components/ProjectDetail/ScheduleHealthTable', () => ({
 
 vi.mock('../components/ProjectDetail/NotesPanel', () => ({
   default: () => <div data-testid="stub-notes-panel" />,
+}));
+
+// fix-276: CorrectionsPanel reads public.correction_items through the live
+// Supabase client. Stub it here like every other overview child — otherwise
+// this structural test fires a real network request at production.
+vi.mock('../components/ProjectDetail/CorrectionsPanel', () => ({
+  default: () => <div data-testid="stub-corrections-panel" />,
 }));
 
 vi.mock('../components/ProjectDetail/ProjectSettingsModal', () => ({
@@ -853,5 +860,38 @@ describe('<ProjectDetail /> fix-194 sub-permit sidebar nesting', () => {
     expect(
       screen.getByTestId('permits-sidebar-row-1').getAttribute('data-sub-permit'),
     ).toBeNull();
+  });
+});
+
+// fix-276: the read-only Corrections section belongs to the PROJECT overview,
+// between Schedule Health and Notes. It is not a per-permit widget — the
+// indexed comments are keyed on project_id, not permit_id.
+describe('<ProjectDetail /> fix-276 Corrections section composition', () => {
+  it('renders inside the project overview pane', () => {
+    renderAt();
+    const overview = screen.getByTestId('project-overview-pane');
+    expect(
+      within(overview).getByTestId('stub-corrections-panel'),
+    ).toBeInTheDocument();
+  });
+
+  it('sits between Schedule Health and Notes', () => {
+    renderAt();
+    const overview = screen.getByTestId('project-overview-pane');
+    const order = Array.from(
+      overview.querySelectorAll('[data-testid]'),
+    ).map((el) => el.getAttribute('data-testid'));
+    expect(order.indexOf('stub-schedule-health-table')).toBeLessThan(
+      order.indexOf('stub-corrections-panel'),
+    );
+    expect(order.indexOf('stub-corrections-panel')).toBeLessThan(
+      order.indexOf('stub-notes-panel'),
+    );
+  });
+
+  it('does NOT render in the per-permit detail pane', () => {
+    renderAt(`/project/${PROJECT_ID}?permit=2`);
+    expect(screen.getByTestId('permit-edit-pane')).toBeInTheDocument();
+    expect(screen.queryByTestId('stub-corrections-panel')).toBeNull();
   });
 });
