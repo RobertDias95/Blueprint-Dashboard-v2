@@ -28,6 +28,7 @@ const rows: CorrectionReportRow[] = TRIPLES.split(';').flatMap((t) => {
     return {
       id: `r${n}`,
       project_id: 'dravus',
+      permit_id: null,
       building: building || null,
       discipline: discipline || null,
       cycle: Number(cycle),
@@ -43,6 +44,8 @@ const rows: CorrectionReportRow[] = TRIPLES.split(';').flatMap((t) => {
       address: '403 W Dravus St',
       juris: 'Seattle',
       architect: null,
+      permit_type: null,
+      permit_da: null,
     } satisfies CorrectionReportRow;
   });
 });

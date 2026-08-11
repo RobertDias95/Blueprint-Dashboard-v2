@@ -325,6 +325,13 @@ export interface PermitCycleReviewer {
 export interface CorrectionItem {
   id: string;
   project_id: string;
+  /** fix-279: the permit this letter belongs to, resolved by the indexer
+   *  (fix-278). Set on 49.8% of production rows — east-side letters join on
+   *  building = struct_address, Seattle ones on the permit number in the Accela
+   *  header. NULL where the letter named no permit, or named one ambiguously:
+   *  the indexer refuses to guess. Any permit-level slice therefore covers
+   *  about half the corpus, which the report states rather than hides. */
+  permit_id: number | null;
   /** The structure this letter is about, when the jurisdiction issues per
    *  building: 'SFR 1', 'DUPLEX 2'. NULL for Seattle, which issues one letter
    *  per discipline for the whole project — 1,881 of 2,194 production rows are
@@ -351,6 +358,37 @@ export interface CorrectionItem {
   /** Cross-jurisdiction rollup of `category` — the comparable axis. */
   theme: string | null;
   source_file: string;
+}
+
+// fix-279: a row of public.correction_missing_worklist — an expected correction
+// letter with nothing found on the share.
+//
+// ★ "NO LETTER FOUND" IS NOT "NOT FILED". The reconciliation cannot tell a
+// letter that was never saved from one saved under a filename the indexer's
+// parser does not recognise. Every row carries `status_note` saying exactly
+// that, and the UI must repeat it — getting this wording wrong sends someone
+// chasing a colleague over a file that exists.
+//
+// The view is security_invoker, so RLS on permits/projects still applies and
+// this is a plain authenticated SELECT.
+export interface CorrectionMissingWorklistRow {
+  tenant_id: string;
+  project_id: string;
+  permit_id: number;
+  permit_num: string | null;
+  permit_type: string | null;
+  address: string;
+  juris: string | null;
+  cycle: number;
+  /** Disciplines the scraper saw reviewing that round, '; '-joined. NULL when
+   *  the scraper never captured one — about a quarter of rows. */
+  disciplines_expected: string | null;
+  /** The date the city issued that round's corrections. */
+  corr_issued: string | null;
+  /** How long we have been missing it. NULL when there is no issue date. */
+  days_since_corr_issued: number | null;
+  project_parked: boolean;
+  status_note: string;
 }
 
 export interface Permit {

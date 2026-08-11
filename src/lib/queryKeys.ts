@@ -209,6 +209,13 @@ export const queryKeys = {
   // Shares the bare prefix so one invalidation covers both readers.
   allCorrectionItems: (tenantId: string) =>
     ['correction_items', tenantId, 'all'] as const,
+  // fix-279: the missing-letter worklist view. Its own prefix, not the
+  // correction_items one: it is driven by permits.corr_rounds and permit_cycles
+  // as much as by correction_items, so an indexer run is not the only thing
+  // that can change it.
+  correctionMissingWorklistAll: ['correction_missing_worklist'] as const,
+  correctionMissingWorklist: (tenantId: string) =>
+    ['correction_missing_worklist', tenantId] as const,
 } as const;
 
 /** Map from Postgres table name → bare-prefix query keys to invalidate on

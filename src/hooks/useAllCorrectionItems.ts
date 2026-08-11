@@ -30,8 +30,8 @@ import type { CorrectionItem } from '../lib/database.types';
  *  the plumbing columns (tenant_id, timestamps) would be dead weight on every
  *  page of every load. */
 const SELECT_COLUMNS =
-  'id,project_id,building,discipline,cycle,letter_date,reviewer,item_no,' +
-  'subject,body,codes,category,theme,source_file';
+  'id,project_id,permit_id,building,discipline,cycle,letter_date,reviewer,' +
+  'item_no,subject,body,codes,category,theme,source_file';
 
 /** The shape fetchAllRows needs back from one page.
  *

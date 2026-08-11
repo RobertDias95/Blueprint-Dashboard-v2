@@ -3,6 +3,11 @@ import {
   UNSPECIFIED_DISCIPLINE,
   correctionDisciplineLabel,
 } from './correctionItems';
+import {
+  segmentByKey,
+  segmentValues,
+  type SegmentProject,
+} from './correctionsSegments';
 
 // fix-277: the Corrections report — every indexed correction-letter comment,
 // across every project, with the repeat analysis the per-project panel could
@@ -36,6 +41,12 @@ export interface CorrectionReportRow extends CorrectionItem {
   juris: string;
   /** From permits.architect. Almost always absent — see architectCoverage(). */
   architect: string | null;
+  /** fix-279: from the LINKED permit, so null on the ~50% of rows with no
+   *  permit_id. Deliberately separate from the project-level fields above: a
+   *  slice on either of these covers half the corpus, and
+   *  `permitLinkCoverage` is what tells the reader so. */
+  permit_type: string | null;
+  permit_da: string | null;
 }
 
 export interface ProjectFacts {
@@ -52,21 +63,35 @@ export interface ProjectFacts {
  * scopes both reads to the same tenant, so a miss means the project was deleted
  * between the two queries.
  */
+export interface PermitFacts {
+  id: number;
+  type: string | null;
+  da: string | null;
+}
+
 export function joinCorrectionRows(
   items: readonly CorrectionItem[],
   projects: readonly ProjectFacts[],
   architectByProjectId: ReadonlyMap<string, string> = new Map(),
+  permitsById: ReadonlyMap<number, PermitFacts> = new Map(),
 ): CorrectionReportRow[] {
   const byId = new Map(projects.map((p) => [p.id, p]));
   const out: CorrectionReportRow[] = [];
   for (const item of items) {
     const project = byId.get(item.project_id);
     if (!project) continue;
+    // fix-279: null when the item has no permit_id at all, AND when it has one
+    // we cannot resolve. Both mean the same thing to a permit-level slice —
+    // this row cannot answer the question — so both are excluded from it and
+    // counted in the coverage figure.
+    const permit = item.permit_id == null ? undefined : permitsById.get(item.permit_id);
     out.push({
       ...item,
       address: project.address,
       juris: (project.juris ?? '').trim() || UNKNOWN_JURISDICTION,
       architect: architectByProjectId.get(item.project_id) ?? null,
+      permit_type: (permit?.type ?? '').trim() || null,
+      permit_da: (permit?.da ?? '').trim() || null,
     });
   }
   return out;
@@ -94,6 +119,15 @@ export interface CorrectionFilters {
   /** ISO yyyy-mm-dd, inclusive. '' = unbounded. */
   from: string;
   to: string;
+  /** fix-279: PERMIT-LEVEL. Only ~50% of items carry a permit link, so either
+   *  of these narrows the corpus by half before it narrows anything else. The
+   *  page discloses the coverage whenever one is set. */
+  permitType: string;
+  da: string;
+  /** fix-279: project attributes, keyed by SegmentDef.key. Kept as an open map
+   *  rather than twelve named fields so adding a segment is one entry in
+   *  SEGMENTS and nothing else. */
+  segments: Record<string, string>;
 }
 
 export const EMPTY_FILTERS: CorrectionFilters = {
@@ -104,13 +138,26 @@ export const EMPTY_FILTERS: CorrectionFilters = {
   architect: '',
   from: '',
   to: '',
+  permitType: '',
+  da: '',
+  segments: {},
 };
+
+export function activeSegmentEntries(f: CorrectionFilters): Array<[string, string]> {
+  return Object.entries(f.segments ?? {}).filter(([, v]) => v !== '');
+}
 
 export function filtersAreEmpty(f: CorrectionFilters): boolean {
   return (
     !f.juris && !f.discipline && !f.theme && !f.cycle && !f.architect &&
-    !f.from && !f.to
+    !f.from && !f.to && !f.permitType && !f.da &&
+    activeSegmentEntries(f).length === 0
   );
+}
+
+/** True when a filter is set that only permit-linked rows can satisfy. */
+export function hasPermitLevelFilter(f: CorrectionFilters): boolean {
+  return Boolean(f.permitType || f.da);
 }
 
 /** Apply the filter bar.
@@ -122,17 +169,41 @@ export function filtersAreEmpty(f: CorrectionFilters): boolean {
 export function filterCorrectionRows(
   rows: readonly CorrectionReportRow[],
   f: CorrectionFilters,
+  /** fix-279: needed only when a segment filter is active. */
+  projectsById: ReadonlyMap<string, SegmentProject> = new Map(),
+  /** fix-279: prevalence passes 'scope' to compute its denominator over the
+   *  slice BEFORE theme narrowing — see computePrevalence's header. */
+  mode: 'all' | 'scope' = 'all',
 ): CorrectionReportRow[] {
   const hasDateBound = Boolean(f.from || f.to);
+  const segs = activeSegmentEntries(f);
   return rows.filter((r) => {
     if (f.juris && r.juris !== f.juris) return false;
     if (f.discipline && correctionDisciplineLabel(r.discipline) !== f.discipline) {
       return false;
     }
-    if (f.theme && correctionThemeLabel(r.theme) !== f.theme) return false;
+    // Skipped in 'scope' mode so a theme filter cannot shrink the prevalence
+    // denominator — otherwise every category inside the theme reads high, and a
+    // single-theme slice would read 100%.
+    if (mode !== 'scope' && f.theme && correctionThemeLabel(r.theme) !== f.theme) {
+      return false;
+    }
     if (f.cycle && String(r.cycle ?? '') !== f.cycle) return false;
     if (f.architect && correctionArchitectLabel(r.architect) !== f.architect) {
       return false;
+    }
+    // Permit-level: an unlinked row cannot satisfy these, and is excluded
+    // rather than passed through. permitLinkCoverage reports how many.
+    if (f.permitType && (r.permit_type ?? '') !== f.permitType) return false;
+    if (f.da && (r.permit_da ?? '') !== f.da) return false;
+    if (segs.length > 0) {
+      const project = projectsById.get(r.project_id);
+      if (!project) return false;
+      for (const [key, wanted] of segs) {
+        const seg = segmentByKey(key);
+        if (!seg) continue;
+        if (!segmentValues(seg, project).includes(wanted)) return false;
+      }
     }
     if (hasDateBound) {
       const d = r.letter_date;
@@ -427,6 +498,49 @@ export const CORRECTIONS_CSV_COLUMNS = [
   { key: 'codes', label: 'Codes' },
   { key: 'source_file', label: 'Source letter' },
 ] as const;
+
+/** fix-279: the active filters, in words.
+ *
+ * A shared CSV with no record of how it was filtered is worse than no CSV: the
+ * recipient reads "63%" as the whole business when it was Bellevue, 4–5 units,
+ * cycle 2. Every export carries this, and so does the on-screen header.
+ */
+export function describeFilters(f: CorrectionFilters): string[] {
+  const out: string[] = [];
+  const add = (label: string, value: string) => {
+    if (value) out.push(`${label}: ${value}`);
+  };
+  add('Jurisdiction', f.juris);
+  add('Discipline', f.discipline);
+  add('Theme', f.theme);
+  add('Cycle', f.cycle);
+  add('Architect', f.architect);
+  add('Permit type', f.permitType);
+  add('DA', f.da);
+  if (f.from || f.to) {
+    add('Letter date', `${f.from || 'any'} to ${f.to || 'any'}`);
+  }
+  for (const [key, value] of activeSegmentEntries(f)) {
+    add(segmentByKey(key)?.label ?? key, value);
+  }
+  return out.length > 0 ? out : ['No filters — all corrections'];
+}
+
+/** CSV preamble: the filter set, then a blank line, so the columns still parse
+ *  as a normal table below it in Excel. */
+export function correctionsCsvPreamble(
+  f: CorrectionFilters,
+  extra: string[] = [],
+): string {
+  const lines = [
+    'Blueprint — Corrections report',
+    ...extra,
+    'Filters applied:',
+    ...describeFilters(f).map((d) => `  ${d}`),
+    '',
+  ];
+  return lines.map((l) => `"${l.replace(/"/g, '""')}"`).join('\r\n') + '\r\n';
+}
 
 export function correctionsCsvRows(
   rows: readonly CorrectionReportRow[],

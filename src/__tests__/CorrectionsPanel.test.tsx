@@ -81,6 +81,7 @@ function row(over: Partial<CorrectionItem>): CorrectionItem {
   return {
     id: `ci-${seq}`,
     project_id: PROJECT_ID,
+    permit_id: null,
     building: null,
     discipline: null,
     cycle: 1,
