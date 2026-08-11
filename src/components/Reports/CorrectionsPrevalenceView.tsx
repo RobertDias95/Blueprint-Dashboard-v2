@@ -11,6 +11,11 @@ import {
   type SegmentProject,
 } from '../../lib/correctionsPrevalence';
 import type { CorrectionReportRow } from '../../lib/correctionsReport';
+import {
+  comparePrevalence,
+  type PrevalenceComparisonRow,
+} from '../../lib/correctionPeriods';
+import CorrectionCommentList from './CorrectionCommentList';
 
 // fix-279: PREVALENCE — "we get this correction 65% of the time."
 //
@@ -32,6 +37,13 @@ interface Props {
   projectsById: ReadonlyMap<string, SegmentProject>;
   /** True when a theme filter is narrowing the rows but not the denominator. */
   scopeNote: string | null;
+  /** fix-281: rows in the preceding window of equal length, already filtered
+   *  the same way. Null when the period is unbounded — "all time" has no
+   *  previous, and inventing one would put a meaningless number on screen. */
+  previousRows: CorrectionReportRow[] | null;
+  currentPeriodLabel: string;
+  previousPeriodLabel: string | null;
+  today: string;
 }
 
 export default function CorrectionsPrevalenceView({
@@ -39,16 +51,41 @@ export default function CorrectionsPrevalenceView({
   displayRows,
   projectsById,
   scopeNote,
+  previousRows,
+  currentPeriodLabel,
+  previousPeriodLabel,
+  today,
 }: Props) {
   const [level, setLevel] = useState<PrevalenceLevel>('category');
   const [banded, setBanded] = useState(true);
   const [breakdownKey, setBreakdownKey] = useState('');
-  const [expanded, setExpanded] = useState<string | null>(null);
+  // fix-281: a SET, not one label. Several rows open at once is an explicit
+  // requirement — comparing the wording behind two categories is the point.
+  const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
+  const toggle = (label: string) =>
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(label)) next.delete(label);
+      else next.add(label);
+      return next;
+    });
 
   const result = useMemo(
     () => computePrevalence(scopeRows, displayRows, level),
     [scopeRows, displayRows, level],
   );
+
+  // fix-281: this period against the one before it, keyed by label so the table
+  // can look each row up. Empty when there is no preceding window.
+  const comparison = useMemo(() => {
+    if (!previousRows) return new Map<string, PrevalenceComparisonRow>();
+    const labels = result.rows.map((r) => r.label);
+    return new Map(
+      comparePrevalence(displayRows, previousRows, level, labels).map((c) => [
+        c.label, c,
+      ]),
+    );
+  }, [previousRows, displayRows, level, result.rows]);
   const bands = useMemo(() => bandPrevalence(result.rows), [result.rows]);
   const seg = breakdownKey ? segmentByKey(breakdownKey) : null;
 
@@ -89,7 +126,7 @@ export default function CorrectionsPrevalenceView({
             value={level}
             onChange={(e) => {
               setLevel(e.target.value as PrevalenceLevel);
-              setExpanded(null);
+              setExpanded(new Set());
             }}
             className="bg-bg border border-border rounded px-2 py-1 text-xs font-display text-text focus:outline-none focus:border-de"
             data-testid="prevalence-level"
@@ -149,7 +186,12 @@ export default function CorrectionsPrevalenceView({
               scopeRows={scopeRows}
               projectsById={projectsById}
               expanded={expanded}
-              onToggle={setExpanded}
+              onToggle={toggle}
+              comparison={comparison}
+              currentPeriodLabel={currentPeriodLabel}
+              previousPeriodLabel={previousPeriodLabel}
+              displayRows={displayRows}
+              today={today}
             />
           </div>
         ))
@@ -162,7 +204,12 @@ export default function CorrectionsPrevalenceView({
           scopeRows={scopeRows}
           projectsById={projectsById}
           expanded={expanded}
-          onToggle={setExpanded}
+          onToggle={toggle}
+          comparison={comparison}
+          currentPeriodLabel={currentPeriodLabel}
+          previousPeriodLabel={previousPeriodLabel}
+          displayRows={displayRows}
+          today={today}
         />
       )}
     </div>
@@ -171,6 +218,7 @@ export default function CorrectionsPrevalenceView({
 
 function PrevalenceTable({
   rows, denominator, level, seg, scopeRows, projectsById, expanded, onToggle,
+  comparison, currentPeriodLabel, previousPeriodLabel, displayRows, today,
 }: {
   rows: PrevalenceRow[];
   denominator: number;
@@ -178,8 +226,13 @@ function PrevalenceTable({
   seg: ReturnType<typeof segmentByKey>;
   scopeRows: CorrectionReportRow[];
   projectsById: ReadonlyMap<string, SegmentProject>;
-  expanded: string | null;
-  onToggle: (label: string | null) => void;
+  expanded: Set<string>;
+  onToggle: (label: string) => void;
+  comparison: Map<string, PrevalenceComparisonRow>;
+  currentPeriodLabel: string;
+  previousPeriodLabel: string | null;
+  displayRows: CorrectionReportRow[];
+  today: string;
 }) {
   const lowScope = denominator < LOW_CONFIDENCE_N;
   return (
@@ -202,25 +255,35 @@ function PrevalenceTable({
               Projects affected
             </th>
             <th className="text-right py-1.5 font-display font-bold">Items</th>
+            {previousPeriodLabel && (
+              // "Up 8 points" is meaningless without both windows named, so the
+              // header names them and every cell shows both counts.
+              <th
+                className="text-right py-1.5 font-display font-bold pl-3"
+                data-testid="prevalence-comparison-header"
+                title={`${currentPeriodLabel} compared with the immediately preceding window of equal length (${previousPeriodLabel})`}
+              >
+                vs {previousPeriodLabel}
+              </th>
+            )}
           </tr>
         </thead>
         <tbody>
           {rows.map((r) => {
-            const isOpen = expanded === r.label;
+            const isOpen = expanded.has(r.label);
+            const cmp = comparison.get(r.label);
             return (
               <>
                 <tr
                   key={r.label}
-                  className={`border-b border-border/40 ${seg ? 'cursor-pointer hover:bg-s2' : ''}`}
-                  onClick={seg ? () => onToggle(isOpen ? null : r.label) : undefined}
+                  className="border-b border-border/40 cursor-pointer hover:bg-s2"
+                  onClick={() => onToggle(r.label)}
                   data-testid={`prevalence-row-${r.label}`}
                 >
                   <td className="py-1.5 text-text">
-                    {seg && (
-                      <span className="text-dim mr-1" aria-hidden="true">
-                        {isOpen ? '▾' : '▸'}
-                      </span>
-                    )}
+                    <span className="text-dim mr-1" aria-hidden="true">
+                      {isOpen ? '▾' : '▸'}
+                    </span>
                     {r.label}
                   </td>
                   {level === 'category' && (
@@ -238,17 +301,47 @@ function PrevalenceTable({
                     {r.projects} of {denominator}
                   </td>
                   <td className="py-1.5 text-right text-muted">{r.items}</td>
-                </tr>
-                {isOpen && seg && (
-                  <tr key={`${r.label}-breakdown`}>
-                    <td colSpan={level === 'category' ? 5 : 4} className="p-0">
-                      <SegmentBreakdown
-                        scopeRows={scopeRows}
-                        projectsById={projectsById}
-                        segKey={seg.key}
-                        level={level}
-                        label={r.label}
+                  {previousPeriodLabel && (
+                    <td className="py-1.5 pl-3 text-right" data-testid={`prevalence-delta-${r.label}`}>
+                      <ComparisonCell
+                        cmp={cmp}
+                        currentPeriodLabel={currentPeriodLabel}
+                        previousPeriodLabel={previousPeriodLabel}
                       />
+                    </td>
+                  )}
+                </tr>
+                {isOpen && (
+                  <tr key={`${r.label}-expanded`}>
+                    <td
+                      colSpan={
+                        (level === 'category' ? 5 : 4) + (previousPeriodLabel ? 1 : 0)
+                      }
+                      className="p-0"
+                    >
+                      <div
+                        style={{ background: 'var(--color-bg)' }}
+                        data-testid={`prevalence-expanded-${r.label}`}
+                      >
+                        {seg && (
+                          <SegmentBreakdown
+                            scopeRows={scopeRows}
+                            projectsById={projectsById}
+                            segKey={seg.key}
+                            level={level}
+                            label={r.label}
+                          />
+                        )}
+                        {/* fix-281: the reason the row expands at all. Mounted
+                            only while open, so 137 comments behind one row cost
+                            nothing until someone asks for them. */}
+                        <CorrectionCommentList
+                          rows={displayRows}
+                          level={level}
+                          label={r.label}
+                          today={today}
+                        />
+                      </div>
                     </td>
                   </tr>
                 )}
@@ -323,5 +416,64 @@ function SegmentBreakdown({
         </tbody>
       </table>
     </div>
+  );
+}
+
+/** fix-281: this period against the one before it.
+ *
+ * ★ Never a bare delta. Both underlying counts are always on screen, and where
+ * either window has fewer than LOW_CONFIDENCE_N projects the delta is withheld
+ * entirely — a swing from 1-of-3 to 2-of-4 is +16.7 points and means nothing,
+ * but printed next to a real movement it reads identically.
+ */
+function ComparisonCell({
+  cmp,
+  currentPeriodLabel,
+  previousPeriodLabel,
+}: {
+  cmp: PrevalenceComparisonRow | undefined;
+  currentPeriodLabel: string;
+  previousPeriodLabel: string;
+}) {
+  if (!cmp) return <span className="text-dim">—</span>;
+  const { current, previous, deltaPoints, direction } = cmp;
+
+  const counts = (
+    <span className="text-[10px] text-dim block" data-testid="comparison-counts">
+      {current.projects}/{current.denominator} vs {previous.projects}/
+      {previous.denominator}
+    </span>
+  );
+
+  if (deltaPoints == null) {
+    return (
+      <span
+        title={
+          `Too few projects to compare: ${currentPeriodLabel} has ` +
+          `${current.denominator}, ${previousPeriodLabel} has ${previous.denominator}. ` +
+          `A percentage on that many projects is noise.`
+        }
+        data-suppressed="true"
+      >
+        <span className="text-[11px] text-dim italic">not comparable</span>
+        {counts}
+      </span>
+    );
+  }
+
+  const arrow = direction === 'up' ? '▲' : direction === 'down' ? '▼' : '=';
+  // Deliberately NOT colour-coded good/bad: a correction becoming more common
+  // is bad, but this table also carries themes where the direction is neutral,
+  // and guessing which is which would editorialise the data.
+  return (
+    <span
+      title={`${current.pct}% in ${currentPeriodLabel}, ${previous.pct}% in ${previousPeriodLabel}`}
+      data-direction={direction}
+    >
+      <span className="text-[11px] font-semibold text-text">
+        {arrow} {deltaPoints > 0 ? '+' : ''}{deltaPoints} pts
+      </span>
+      {counts}
+    </span>
   );
 }

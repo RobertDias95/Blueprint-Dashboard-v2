@@ -15,6 +15,14 @@ import {
   type SegmentProject,
 } from '../lib/correctionsPrevalence';
 import PrevalenceView from '../components/Reports/CorrectionsPrevalenceView';
+import {
+  PERIOD_PRESETS,
+  dateSanity,
+  precedingPeriod,
+  resolvePeriod,
+  rowsInPeriod,
+  type PeriodPreset,
+} from '../lib/correctionPeriods';
 import MissingLetterWorklist from '../components/Reports/CorrectionsMissingWorklist';
 import { correctionDisciplineLabel } from '../lib/correctionItems';
 import {
@@ -79,6 +87,12 @@ export default function CorrectionsReport() {
   const projectsQ = useProjects();
   const permitsQ = usePermits();
 
+  // fix-281: one notion of "now" for the whole page — the presets, the
+  // preceding window and the implausible-date test all read the same value, so
+  // they cannot disagree by a day at midnight.
+  const today = useMemo(() => new Date().toISOString().slice(0, 10), []);
+  const [period, setPeriod] = useState<PeriodPreset>('all');
+
   const [filters, setFilters] = useState<CorrectionFilters>(EMPTY_FILTERS);
   const [view, setView] = useState<View>('prevalence');
   const [shown, setShown] = useState(ITEMS_PAGE);
@@ -125,16 +139,44 @@ export default function CorrectionsReport() {
   // Options come off the UNFILTERED set so the dropdowns don't collapse as you
   // narrow — picking Bellevue must not empty the discipline list.
   const options = useMemo(() => correctionFilterOptions(allRows), [allRows]);
-  const rows = useMemo(
-    () => filterCorrectionRows(allRows, filters, projectsById),
-    [allRows, filters, projectsById],
+  // fix-281: the period narrows BEFORE the filter bar's own from/to, and a
+  // preset overrides them — two date controls fighting each other would be
+  // unreadable, so choosing a preset is what sets the window.
+  const resolved = useMemo(
+    () => resolvePeriod(period, today, { from: filters.from, to: filters.to }),
+    [period, today, filters.from, filters.to],
   );
+  const previous = useMemo(() => precedingPeriod(resolved), [resolved]);
+
+  const periodRows = useMemo(
+    () => (period === 'all' && !filters.from && !filters.to
+      ? allRows
+      : rowsInPeriod(allRows, resolved, today)),
+    [allRows, period, resolved, today, filters.from, filters.to],
+  );
+
+  const rows = useMemo(
+    () => filterCorrectionRows(periodRows, filters, projectsById),
+    [periodRows, filters, projectsById],
+  );
+  // The preceding window, filtered identically so the two sides differ only by
+  // their dates. Null on an unbounded period — "all time" has no previous.
+  const previousRows = useMemo(() => {
+    if (!previous) return null;
+    return filterCorrectionRows(
+      rowsInPeriod(allRows, previous, today), filters, projectsById);
+  }, [previous, allRows, today, filters, projectsById]);
+
+  // fix-281: 10 of the 2,194 letter dates are impossible — five in the future,
+  // all from one letter, and five before 2025, all from another. Counted and
+  // shown; never corrected.
+  const sanity = useMemo(() => dateSanity(allRows, today), [allRows, today]);
   // fix-279: the prevalence DENOMINATOR set — every filter except theme. See
   // computePrevalence: letting a theme filter shrink the denominator would make
   // every category inside that theme read high, and a single-theme slice 100%.
   const scopeRows = useMemo(
-    () => filterCorrectionRows(allRows, filters, projectsById, 'scope'),
-    [allRows, filters, projectsById],
+    () => filterCorrectionRows(periodRows, filters, projectsById, 'scope'),
+    [periodRows, filters, projectsById],
   );
   const prevalenceScopeNote = filters.theme
     ? `Rows are limited to the “${filters.theme}” theme, but the denominator stays ` +
@@ -249,6 +291,16 @@ export default function CorrectionsReport() {
         coverage={architectCov}
         segmentOptions={segmentOptions}
         permitOptions={permitOptions}
+        period={period}
+        onPeriod={(p) => {
+          setPeriod(p);
+          // A preset owns the window, so it clears any hand-typed bounds rather
+          // than silently competing with them.
+          if (p !== 'custom') patch({ from: '', to: '' });
+          setShown(ITEMS_PAGE);
+        }}
+        periodLabel={resolved.label}
+        sanity={sanity}
       />
 
       {/* fix-279: the active filter set, restated in words. The same string
@@ -349,6 +401,10 @@ export default function CorrectionsReport() {
               displayRows={rows}
               projectsById={projectsById}
               scopeNote={prevalenceScopeNote}
+              previousRows={previousRows}
+              currentPeriodLabel={resolved.label}
+              previousPeriodLabel={previous ? previous.label : null}
+              today={today}
             />
           )}
           {view === 'missing' && <MissingLetterWorklist />}
@@ -390,6 +446,10 @@ function FilterBar({
   coverage,
   segmentOptions,
   permitOptions,
+  period,
+  onPeriod,
+  periodLabel,
+  sanity,
 }: {
   filters: CorrectionFilters;
   options: ReturnType<typeof correctionFilterOptions>;
@@ -398,6 +458,10 @@ function FilterBar({
   coverage: ReturnType<typeof architectCoverage>;
   segmentOptions: Record<string, string[]>;
   permitOptions: { types: string[]; das: string[] };
+  period: PeriodPreset;
+  onPeriod: (p: PeriodPreset) => void;
+  periodLabel: string;
+  sanity: ReturnType<typeof dateSanity>;
 }) {
   return (
     <div
@@ -458,6 +522,32 @@ function FilterBar({
           ))}
         </select>
       </label>
+      {/* fix-281: period presets. 2026 YTD first — it is the window the
+          business is actually trying to improve. */}
+      <div className="flex flex-col gap-1">
+        <span className="text-[10px] uppercase tracking-wide text-dim">Period</span>
+        <div className="flex gap-1" data-testid="corrections-period-presets">
+          {PERIOD_PRESETS.map((p) => (
+            <button
+              key={p.key}
+              type="button"
+              onClick={() => onPeriod(p.key)}
+              className={`px-2 py-1 rounded text-[11px] font-bold border transition ${
+                period === p.key
+                  ? 'bg-de text-white border-de'
+                  : 'bg-surface text-muted border-border hover:bg-s3'
+              }`}
+              data-testid={`corrections-period-${p.key}`}
+              data-active={period === p.key ? 'true' : 'false'}
+            >
+              {p.label}
+            </button>
+          ))}
+        </div>
+        <span className="text-[10px] text-dim" data-testid="corrections-period-label">
+          {periodLabel}
+        </span>
+      </div>
       <label className="flex flex-col gap-1">
         <span className="text-[10px] uppercase tracking-wide text-dim">
           Letter date from
@@ -498,6 +588,22 @@ function FilterBar({
           Architect is recorded on {coverage.withArchitect} of {coverage.total}{' '}
           indexed comments ({coverage.pct}%). Filtering by one will hide almost
           everything until more projects carry it.
+        </div>
+      )}
+
+      {/* fix-281: the dates that are not real. Counted and visible, never
+          corrected — a wrong date guessed into a plausible one is worse than an
+          outlier you can still chase back to its letter. */}
+      {sanity.implausible > 0 && (
+        <div
+          className="basis-full text-[10px] text-dim italic"
+          data-testid="corrections-date-sanity"
+          title="Excluded from every period window and from the period comparison. They still appear in the drill-down, flagged, because the letter still says something."
+        >
+          {sanity.implausible} of {sanity.total} comments carry an implausible
+          letter date ({sanity.future} in the future, {sanity.tooOld} before{' '}
+          2025). They are excluded from period windows and comparisons, flagged
+          where they appear, and never corrected.
         </div>
       )}
 
