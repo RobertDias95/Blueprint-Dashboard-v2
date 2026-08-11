@@ -205,6 +205,10 @@ export const queryKeys = {
   correctionItemsAll: ['correction_items'] as const,
   correctionItems: (tenantId: string, projectId: string) =>
     ['correction_items', tenantId, { projectId }] as const,
+  // fix-277: every correction item for the tenant, for the Corrections report.
+  // Shares the bare prefix so one invalidation covers both readers.
+  allCorrectionItems: (tenantId: string) =>
+    ['correction_items', tenantId, 'all'] as const,
 } as const;
 
 /** Map from Postgres table name → bare-prefix query keys to invalidate on

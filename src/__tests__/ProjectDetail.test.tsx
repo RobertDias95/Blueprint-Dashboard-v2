@@ -140,13 +140,6 @@ vi.mock('../components/ProjectDetail/NotesPanel', () => ({
   default: () => <div data-testid="stub-notes-panel" />,
 }));
 
-// fix-276: CorrectionsPanel reads public.correction_items through the live
-// Supabase client. Stub it here like every other overview child — otherwise
-// this structural test fires a real network request at production.
-vi.mock('../components/ProjectDetail/CorrectionsPanel', () => ({
-  default: () => <div data-testid="stub-corrections-panel" />,
-}));
-
 vi.mock('../components/ProjectDetail/ProjectSettingsModal', () => ({
   default: () => null,
 }));
@@ -866,32 +859,35 @@ describe('<ProjectDetail /> fix-194 sub-permit sidebar nesting', () => {
 // fix-276: the read-only Corrections section belongs to the PROJECT overview,
 // between Schedule Health and Notes. It is not a per-permit widget — the
 // indexed comments are keyed on project_id, not permit_id.
-describe('<ProjectDetail /> fix-276 Corrections section composition', () => {
-  it('renders inside the project overview pane', () => {
+// fix-277: the fix-276 Corrections section is GONE from the project overview —
+// it moved to the Corrections report in the Reporting hub. This test is the
+// inverse of the three it replaces: it fails if the panel is ever re-mounted
+// here without that being a deliberate decision.
+//
+// Note there is NO vi.mock for CorrectionsPanel in this file any more. That is
+// load-bearing: if ProjectDetail imported it again, the unmocked component would
+// mount, reach for the live Supabase client, and this assertion would fail on
+// the rendered panel rather than passing silently.
+describe('<ProjectDetail /> fix-277 Corrections section removed from the overview', () => {
+  it('the project overview renders header, schedule health and notes — and no corrections', () => {
     renderAt();
     const overview = screen.getByTestId('project-overview-pane');
-    expect(
-      within(overview).getByTestId('stub-corrections-panel'),
-    ).toBeInTheDocument();
-  });
-
-  it('sits between Schedule Health and Notes', () => {
-    renderAt();
-    const overview = screen.getByTestId('project-overview-pane');
-    const order = Array.from(
-      overview.querySelectorAll('[data-testid]'),
-    ).map((el) => el.getAttribute('data-testid'));
-    expect(order.indexOf('stub-schedule-health-table')).toBeLessThan(
-      order.indexOf('stub-corrections-panel'),
-    );
-    expect(order.indexOf('stub-corrections-panel')).toBeLessThan(
-      order.indexOf('stub-notes-panel'),
-    );
-  });
-
-  it('does NOT render in the per-permit detail pane', () => {
-    renderAt(`/project/${PROJECT_ID}?permit=2`);
-    expect(screen.getByTestId('permit-edit-pane')).toBeInTheDocument();
+    expect(within(overview).getByTestId('stub-project-header')).toBeInTheDocument();
+    expect(within(overview).getByTestId('stub-schedule-health-table')).toBeInTheDocument();
+    expect(within(overview).getByTestId('stub-notes-panel')).toBeInTheDocument();
+    expect(screen.queryByTestId('corrections-panel')).toBeNull();
     expect(screen.queryByTestId('stub-corrections-panel')).toBeNull();
+  });
+
+  it('schedule health sits directly before notes, with nothing between them', () => {
+    renderAt();
+    const overview = screen.getByTestId('project-overview-pane');
+    const order = Array.from(overview.querySelectorAll('[data-testid]')).map((el) =>
+      el.getAttribute('data-testid'),
+    );
+    const health = order.indexOf('stub-schedule-health-table');
+    const notes = order.indexOf('stub-notes-panel');
+    expect(health).toBeGreaterThanOrEqual(0);
+    expect(notes).toBe(health + 1);
   });
 });

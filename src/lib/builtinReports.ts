@@ -4,6 +4,7 @@ import WeeklyUpdatesReport from '../pages/WeeklyUpdatesReport';
 import ApprovedAwaitingIssuanceReport from '../pages/ApprovedAwaitingIssuanceReport';
 import PhaseDurationsReport from '../pages/PhaseDurationsReport';
 import VendorScheduleForecastReport from '../pages/VendorScheduleForecastReport';
+import CorrectionsReport from '../pages/CorrectionsReport';
 
 // fix-68: builtin report registry. Maps a saved_reports.builtin_key to its
 // rendering component + the route that runs it. The Reporting hub (Settings
@@ -56,6 +57,14 @@ export const BUILTIN_REPORT_COMPONENTS: Record<string, BuiltinReportDef> = {
     component: VendorScheduleForecastReport,
     route: '/reports/vendor-forecast',
     label: 'Vendor Schedule Forecast',
+  },
+  // fix-277: every indexed correction-letter comment across every project, with
+  // the consecutive-cycle repeat rate. Replaces the per-project panel fix-276
+  // put on Project Overview.
+  corrections: {
+    component: CorrectionsReport,
+    route: '/reports/corrections',
+    label: 'Corrections',
   },
 };
 
@@ -228,6 +237,37 @@ export const BUILTIN_REPORT_CATALOG: Record<
       notes: [
         'This keys off OUR approval date, not the word the city portal uses. A permit the portal calls "Approved" will NOT appear unless an approval date is recorded here — and one the portal calls "Ready for Issuance" or "Awaiting Information" WILL appear if it has one. The two do not line up, and this report follows ours.',
         'Permits in this state count as ISSUED in throughput and completion figures elsewhere: the decision was that for our purposes they are done.',
+      ],
+    },
+  },
+  // fix-277 / seeded by migrations/fix_277_seed_corrections_report.sql.
+  // Filed at Pipeline position 2, NOT 1: the phase_durations note below already
+  // reserves Pipeline/1 for the day someone gives that report a placement, and
+  // quietly taking its slot would make that note wrong.
+  corrections: {
+    name: 'Corrections',
+    category: 'Pipeline',
+    position: 2,
+    howItWorks: {
+      included: [
+        'Every comment the indexer has read off a correction letter, across every project — 2,194 comments on 93 projects today.',
+        'A comment is one numbered item on one letter: its discipline, its round, who wrote it and what it asked for.',
+        'The repeat view treats a topic — a building, a discipline and a category together — as repeating when the city raised it in one round and again in the very next round.',
+        'A topic can only count as a repeat if the project actually went on to another round. A comment on the newest round has nothing after it yet.',
+        'Counts by theme and by discipline follow the filters, so every number on the page and every row in the item list describe the same slice.',
+      ],
+      excluded: [
+        'Projects the indexer has never been run against. Most projects have nothing here yet — it is a manual run on one PC, not something that happens on its own.',
+        'Letters the indexer could not read: scans with no text in them, and files named in a way it does not recognise as a correction letter.',
+        'Comments with no round recorded are left out of the repeat maths, because "again in the next round" means nothing without a round. They still appear in the counts and the item list.',
+        'Once you set a date range, comments with no date on their letter drop out rather than being shown as though they fell inside it.',
+      ],
+      notes: [
+        'The repeat rule here is stricter than the one the project page used to show: it needs the VERY NEXT round, not just some later one. Raised in round 1 and again in round 3 means it was fixed once and came back — a different problem from one the city had to write twice running.',
+        'A topic belongs to its project. The same discipline and category on two different projects is two projects sharing a problem, not a repeat.',
+        'Architect is barely recorded — 72 of the 2,194 comments, spread over 3 projects. The filter works, but until more projects carry an architect it will hide nearly everything. The page says so above the filters.',
+        'The date shown is the date on the letter, not the day the indexer read it.',
+        'This report changes nothing. The indexer owns the data end to end, and it only refreshes when someone runs it.',
       ],
     },
   },
