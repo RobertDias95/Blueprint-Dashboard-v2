@@ -47,6 +47,9 @@ vi.mock('../components/ProjectDetail/ScheduleHealthTable', () => ({
   },
 }));
 vi.mock('../components/ProjectDetail/NotesPanel', () => ({ default: () => null }));
+// fix-276: stub the corrections reader — it would otherwise hit the live
+// Supabase client from this structural test.
+vi.mock('../components/ProjectDetail/CorrectionsPanel', () => ({ default: () => null }));
 vi.mock('../components/ProjectDetail/ProjectSettingsModal', () => ({ default: () => null }));
 vi.mock('../components/ProjectDetail/DeleteProjectDialog', () => ({ default: () => null }));
 vi.mock('../components/ProjectDetail/QuickEditPermitModal', () => ({ default: () => null }));
