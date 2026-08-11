@@ -84,16 +84,31 @@ describe('fix-267 builtin registry ⇄ hub catalog', () => {
     }
   });
 
-  it('pins the seeded set — matches what prod holds + what the migration inserts', () => {
-    // Prod (verified 2026-08-03) holds exactly these four builtin rows.
-    // phase_durations is deliberately absent: see the comment on its catalog
-    // entry — that null is a FLAG for unreviewed drift, not a settled decision.
+  it('pins the seeded set — matches what prod holds + what the migrations insert', () => {
+    // Prod holds exactly these five builtin rows: four verified 2026-08-03,
+    // plus `corrections` seeded by fix_277_seed_corrections_report.sql on
+    // 2026-08-11. phase_durations is deliberately absent: see the comment on
+    // its catalog entry — that null is a FLAG for unreviewed drift, not a
+    // settled decision.
     expect(seededBuiltinKeys()).toEqual([
       'approved_awaiting_issuance',
+      'corrections',
       'vendor_schedule_forecast',
       'weekly_da_update',
       'weekly_updates',
     ]);
+  });
+
+  // fix-277: the report that replaced the per-project Corrections panel.
+  it('corrections is filed where its migration puts it', () => {
+    expect(BUILTIN_REPORT_CATALOG.corrections?.name).toBe('Corrections');
+    expect(BUILTIN_REPORT_CATALOG.corrections?.category).toBe('Pipeline');
+    // NOT 1 — Pipeline/1 stays reserved for phase_durations, which the
+    // builtinReports comment names as the slot to seed it into.
+    expect(BUILTIN_REPORT_CATALOG.corrections?.position).toBe(2);
+    expect(BUILTIN_REPORT_COMPONENTS.corrections.route).toBe(
+      '/reports/corrections',
+    );
   });
 
   it('vendor_schedule_forecast is filed where the migration puts it', () => {
@@ -133,7 +148,7 @@ describe('fix-270 how-it-works', () => {
     ).toEqual([]);
   });
 
-  it('all four hub-placed builtins have non-empty included AND excluded lists', () => {
+  it('every hub-placed builtin has non-empty included AND excluded lists', () => {
     for (const key of seededBuiltinKeys()) {
       const h = BUILTIN_REPORT_CATALOG[key]?.howItWorks;
       expect(h?.included.length, `${key}.included`).toBeGreaterThan(0);

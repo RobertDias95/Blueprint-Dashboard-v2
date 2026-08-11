@@ -17,6 +17,7 @@ import WeeklyUpdatesReport from './pages/WeeklyUpdatesReport';
 import ApprovedAwaitingIssuanceReport from './pages/ApprovedAwaitingIssuanceReport';
 import PhaseDurationsReport from './pages/PhaseDurationsReport';
 import VendorScheduleForecastReport from './pages/VendorScheduleForecastReport';
+import CorrectionsReport from './pages/CorrectionsReport';
 import ReportingHubPage from './pages/ReportingHubPage';
 import CustomReport from './pages/CustomReport';
 import ReportBuilder from './pages/ReportBuilder';
@@ -100,6 +101,16 @@ export const router = createBrowserRouter([
         element: (
           <AdminRoute>
             <VendorScheduleForecastReport />
+          </AdminRoute>
+        ),
+      },
+      // fix-277: Corrections — every indexed correction-letter comment across
+      // every project, with the consecutive-cycle repeat rate. Read-only.
+      {
+        path: 'reports/corrections',
+        element: (
+          <AdminRoute>
+            <CorrectionsReport />
           </AdminRoute>
         ),
       },

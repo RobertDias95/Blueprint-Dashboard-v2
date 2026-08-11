@@ -21,7 +21,6 @@ import QueryError from '../components/QueryError';
 import ProjectDetailHeader from '../components/ProjectDetail/ProjectDetailHeader';
 import ScheduleHealthTable from '../components/ProjectDetail/ScheduleHealthTable';
 import NotesPanel from '../components/ProjectDetail/NotesPanel';
-import CorrectionsPanel from '../components/ProjectDetail/CorrectionsPanel';
 import PermitDetailV2 from '../components/ProjectDetail/PermitDetailV2';
 import ProjectSettingsModal from '../components/ProjectDetail/ProjectSettingsModal';
 import { ProjectHoldBadge } from '../components/ProjectDetail/ProjectHold';
@@ -369,13 +368,14 @@ function ProjectDetailBody({
               {/* fix-151: Schedule Health computes across the whole lineage
                   (parent + all redesign permits), not just the parent's. */}
               <ScheduleHealthTable permits={lineagePermits} />
-              {/* fix-276: read-only correction-letter comments, indexed off the
-                  on-prem share. Sits directly under Schedule Health because it
-                  answers the follow-up that table provokes — "why is this
-                  project still in corrections?" — and above Notes, which is the
-                  team's own commentary rather than the city's. Renders an empty
-                  state for the projects with nothing indexed (most of them). */}
-              <CorrectionsPanel projectId={project.id} />
+              {/* fix-277: the fix-276 CorrectionsPanel used to sit here. It made
+                  the overview long without answering an overview-level question
+                  — a 96-item letter dump is analysis, not orientation. The
+                  component, its hook and its helpers all still exist and are
+                  still tested; the analysis surface is now the Corrections
+                  report in the Reporting hub, which reads across every project
+                  instead of one. Re-mount this here only if the ask changes back
+                  to per-project browsing. */}
               {/* fix-notes-1: holistic project notes log (permit_id NULL).
                   Replaces the old single-textarea + Documents footer. */}
               <NotesPanel projectId={project.id} />
