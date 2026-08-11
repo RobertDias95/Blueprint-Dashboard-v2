@@ -33,11 +33,23 @@ export function useReportBuilderCatalog() {
   });
 }
 
-export function useCustomReport(id: string | undefined) {
+/**
+ * Run a saved report.
+ *
+ * fix-282: `enabled` exists so the caller can withhold the RPC until it knows
+ * the row is actually spec-driven. bp_run_saved_report reads saved_reports.spec,
+ * and a builtin's spec is `{}` — running one throws "spec.entity is required"
+ * without exception. The gate is the caller's, not this hook's, because only
+ * the caller has the row.
+ */
+export function useCustomReport(
+  id: string | undefined,
+  opts?: { enabled?: boolean },
+) {
   const tenantId = useAuthStore((s) => s.activeTenantId);
   return useQuery<CustomReportResult>({
     queryKey: queryKeys.customReport(tenantId ?? '', id ?? ''),
-    enabled: !!tenantId && !!id,
+    enabled: !!tenantId && !!id && (opts?.enabled ?? true),
     queryFn: async () => {
       const { data, error } = await supabase.rpc('bp_run_saved_report', {
         p_id: id,

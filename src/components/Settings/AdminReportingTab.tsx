@@ -8,8 +8,9 @@ import {
   useDeleteSavedReport,
 } from '../../hooks/useReportHub';
 import {
-  builtinReportDef,
   builtinReportHowItWorks,
+  resolveSavedReportTarget,
+  unknownBuiltinMessage,
 } from '../../lib/builtinReports';
 import { SkeletonRows } from '../Skeleton';
 import QueryError from '../QueryError';
@@ -46,6 +47,10 @@ export default function AdminReportingTab({ onAfterRun }: Props) {
 
   const [selected, setSelected] = useState<string>(ALL);
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  // fix-282: set when Run hits a builtin this bundle cannot render.
+  const [staleBuiltin, setStaleBuiltin] = useState<
+    { key: string; name: string } | null
+  >(null);
 
   const categories = useMemo(
     () => hubQ.data?.categories ?? [],
@@ -150,9 +155,18 @@ export default function AdminReportingTab({ onAfterRun }: Props) {
   function runReport(r: SavedReport) {
     // fix-69: builtins route to their registered component; custom reports
     // run through the generic Custom Report viewer.
-    const def = builtinReportDef(r.builtin_key);
+    //
+    // fix-282: ...and a builtin this bundle does not know goes NOWHERE. It used
+    // to fall into the custom branch, which runs bp_run_saved_report against a
+    // builtin's empty spec and throws "spec.entity is required" every time.
+    const target = resolveSavedReportTarget(r.builtin_key);
+    if (target.kind === 'unknown') {
+      setStaleBuiltin({ key: target.key, name: r.name });
+      return; // no navigation, no RPC — neither could succeed
+    }
+    setStaleBuiltin(null);
     onAfterRun?.();
-    navigate(def ? def.route : `/reports/custom/${r.id}`);
+    navigate(target.kind === 'builtin' ? target.def.route : `/reports/custom/${r.id}`);
   }
 
   function renameReport(r: SavedReport) {
@@ -288,6 +302,48 @@ export default function AdminReportingTab({ onAfterRun }: Props) {
               </button>
             </span>
           </div>
+
+          {/* fix-282: a builtin this bundle cannot render. Shown here rather than
+              as a toast because the fix is an action the user has to take, and a
+              message that disappears after four seconds does not survive being
+              read. */}
+          {staleBuiltin && (
+            <div
+              className="mb-3 rounded-md border px-3 py-2 flex items-start gap-3"
+              style={{
+                borderColor: 'var(--color-wa)',
+                background: 'color-mix(in srgb, var(--color-wa) 10%, transparent)',
+              }}
+              role="alert"
+              data-testid="reporting-stale-builtin"
+            >
+              <div className="min-w-0 flex-1">
+                <p className="text-[11px] font-bold text-text">
+                  “{staleBuiltin.name}” can’t open in this tab
+                </p>
+                <p className="text-[11px] text-muted mt-0.5">
+                  {unknownBuiltinMessage(staleBuiltin.key)}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => window.location.reload()}
+                className="flex-shrink-0 text-[11px] font-display font-bold px-2.5 py-1 rounded border border-de bg-de text-white hover:opacity-90 transition"
+                data-testid="reporting-stale-builtin-reload"
+              >
+                Refresh
+              </button>
+              <button
+                type="button"
+                onClick={() => setStaleBuiltin(null)}
+                className="flex-shrink-0 text-[11px] text-dim hover:text-text transition px-1"
+                aria-label="Dismiss"
+                data-testid="reporting-stale-builtin-dismiss"
+              >
+                ✕
+              </button>
+            </div>
+          )}
 
           {visibleReports.length === 0 ? (
             <div
