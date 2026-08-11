@@ -27,8 +27,8 @@ import type { CorrectionItem } from '../lib/database.types';
  *  of the table (the indexer owns its own schema) can't quietly start shipping
  *  extracted letter text this UI has no use for. */
 const SELECT_COLUMNS =
-  'id,project_id,building,discipline,cycle,letter_date,reviewer,item_no,' +
-  'subject,body,codes,category,theme,source_file';
+  'id,project_id,permit_id,building,discipline,cycle,letter_date,reviewer,' +
+  'item_no,subject,body,codes,category,theme,source_file';
 
 export function useCorrectionItems(projectId: string | undefined) {
   const tenantId = useAuthStore((s) => s.activeTenantId);

@@ -78,6 +78,7 @@ function item(over: Partial<CorrectionItem> = {}): CorrectionItem {
   return {
     id: `ci-${seq}`,
     project_id: 'p1',
+    permit_id: null,
     building: null,
     discipline: 'Zoning',
     cycle: 1,
@@ -173,9 +174,14 @@ describe('fix-277 the three views', () => {
     ];
   });
 
-  it('opens on the repeat view and lists the repeating topic', async () => {
+  it('lists the repeating topic on the repeat view', async () => {
     renderPage();
     await screen.findByTestId('corrections-summary');
+    // fix-279 moved the default to Prevalence — the question the business
+    // actually asked. Repeat rate is one click away and unchanged.
+    expect(screen.getByTestId('corrections-view-prevalence'))
+      .toHaveAttribute('data-active', 'true');
+    fireEvent.click(screen.getByTestId('corrections-view-repeats'));
     expect(screen.getByTestId('corrections-view-repeats')).toHaveAttribute('data-active', 'true');
     const repeats = screen.getByTestId('corrections-repeats');
     expect(within(repeats).getByTestId('corrections-repeat-row-p1')).toHaveTextContent('10044 37th Ave SW');
@@ -220,6 +226,8 @@ describe('fix-277 the three views', () => {
   it('clicking a repeat topic drills into its items', async () => {
     renderPage();
     await screen.findByTestId('corrections-summary');
+    // fix-279: reach the repeat view first — Prevalence is the landing view now.
+    fireEvent.click(screen.getByTestId('corrections-view-repeats'));
     fireEvent.click(screen.getByTestId('corrections-repeat-row-p1'));
     expect(screen.getByTestId('corrections-view-items')).toHaveAttribute('data-active', 'true');
     // Filtered to that topic's discipline.

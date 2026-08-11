@@ -7,6 +7,15 @@ import { SkeletonRows } from '../components/Skeleton';
 import QueryError from '../components/QueryError';
 import ExportCsvButton from '../components/shared/ExportCsvButton';
 import { rowsToCsv, reportCsvFilename } from '../lib/reportCsv';
+import {
+  NOT_RECORDED,
+  SEGMENTS,
+  permitLinkCoverage,
+  segmentValues,
+  type SegmentProject,
+} from '../lib/correctionsPrevalence';
+import PrevalenceView from '../components/Reports/CorrectionsPrevalenceView';
+import MissingLetterWorklist from '../components/Reports/CorrectionsMissingWorklist';
 import { correctionDisciplineLabel } from '../lib/correctionItems';
 import {
   CORRECTIONS_CSV_COLUMNS,
@@ -15,11 +24,14 @@ import {
   correctionArchitectLabel,
   correctionFilterOptions,
   correctionThemeLabel,
+  correctionsCsvPreamble,
   correctionsCsvRows,
   countsByDiscipline,
   countsByTheme,
+  describeFilters,
   filterCorrectionRows,
   filtersAreEmpty,
+  hasPermitLevelFilter,
   joinCorrectionRows,
   summarizeReport,
   type CorrectionFilters,
@@ -39,12 +51,23 @@ import {
 // The filter bar drives all three, so a number in one view and a row in another
 // always describe the same slice.
 
-type View = 'repeats' | 'counts' | 'items';
+type View = 'prevalence' | 'repeats' | 'counts' | 'items' | 'missing';
 
-const VIEWS: Array<{ key: View; label: string }> = [
-  { key: 'repeats', label: 'Repeat rate' },
-  { key: 'counts', label: 'By theme & discipline' },
-  { key: 'items', label: 'Items' },
+// fix-279: prevalence leads. It is the question the business actually asked
+// ("we get this correction 65% of the time" -> fix the template); repeat rate
+// answers a different one ("when we get it we fail to close it 25% of the
+// time" -> fix the response process). They are separate views on purpose:
+// shown in one column without labels they would send template work at exactly
+// the wrong categories.
+const VIEWS: Array<{ key: View; label: string; hint: string }> = [
+  { key: 'prevalence', label: 'Prevalence',
+    hint: 'How often we get each correction — what to fix in the template' },
+  { key: 'repeats', label: 'Repeat rate',
+    hint: 'When we get it, how often it comes back — where the response breaks' },
+  { key: 'counts', label: 'By theme & discipline', hint: 'Where the volume sits' },
+  { key: 'items', label: 'Items', hint: 'The individual comments' },
+  { key: 'missing', label: 'No letter found',
+    hint: 'Corrections the tool says exist that we have not found on the share' },
 ];
 
 /** The drill-down is the long tail of a 2,194-row corpus; rendering it all at
@@ -57,7 +80,7 @@ export default function CorrectionsReport() {
   const permitsQ = usePermits();
 
   const [filters, setFilters] = useState<CorrectionFilters>(EMPTY_FILTERS);
-  const [view, setView] = useState<View>('repeats');
+  const [view, setView] = useState<View>('prevalence');
   const [shown, setShown] = useState(ITEMS_PAGE);
 
   // permits.architect is the only architect the schema carries. One value per
@@ -72,28 +95,91 @@ export default function CorrectionsReport() {
     return m;
   }, [permitsQ.data]);
 
+  // fix-279: permit facts for the permit-level slices. Keyed by permit id, so
+  // an item with no permit_id simply finds nothing — which is the honest
+  // outcome for ~50% of the corpus.
+  const permitsById = useMemo(() => {
+    const m = new Map<number, { id: number; type: string | null; da: string | null }>();
+    for (const p of permitsQ.data ?? []) m.set(p.id, { id: p.id, type: p.type, da: p.da });
+    return m;
+  }, [permitsQ.data]);
+
+  // fix-279: project attributes for the segment filters and breakdowns.
+  const projectsById = useMemo(() => {
+    const m = new Map<string, SegmentProject>();
+    for (const p of projectsQ.data ?? []) m.set(p.id, p as SegmentProject);
+    return m;
+  }, [projectsQ.data]);
+
   const allRows = useMemo(
     () =>
       joinCorrectionRows(
         itemsQ.data ?? [],
         projectsQ.data ?? [],
         architectByProjectId,
+        permitsById,
       ),
-    [itemsQ.data, projectsQ.data, architectByProjectId],
+    [itemsQ.data, projectsQ.data, architectByProjectId, permitsById],
   );
 
   // Options come off the UNFILTERED set so the dropdowns don't collapse as you
   // narrow — picking Bellevue must not empty the discipline list.
   const options = useMemo(() => correctionFilterOptions(allRows), [allRows]);
   const rows = useMemo(
-    () => filterCorrectionRows(allRows, filters),
-    [allRows, filters],
+    () => filterCorrectionRows(allRows, filters, projectsById),
+    [allRows, filters, projectsById],
   );
+  // fix-279: the prevalence DENOMINATOR set — every filter except theme. See
+  // computePrevalence: letting a theme filter shrink the denominator would make
+  // every category inside that theme read high, and a single-theme slice 100%.
+  const scopeRows = useMemo(
+    () => filterCorrectionRows(allRows, filters, projectsById, 'scope'),
+    [allRows, filters, projectsById],
+  );
+  const prevalenceScopeNote = filters.theme
+    ? `Rows are limited to the “${filters.theme}” theme, but the denominator stays ` +
+      'the whole filtered slice — otherwise every category inside a theme would ' +
+      'read near 100%.'
+    : null;
+
+  // fix-279: how much of the slice can answer a permit-level question at all.
+  const permitCoverage = useMemo(() => permitLinkCoverage(rows), [rows]);
+  const permitFilterActive = hasPermitLevelFilter(filters);
 
   const summary = useMemo(() => summarizeReport(rows), [rows]);
   const themes = useMemo(() => countsByTheme(rows), [rows]);
   const disciplines = useMemo(() => countsByDiscipline(rows), [rows]);
-  const coverage = useMemo(() => architectCoverage(allRows), [allRows]);
+  const architectCov = useMemo(() => architectCoverage(allRows), [allRows]);
+  // fix-279: values for each segment dropdown, taken off the projects that
+  // actually have corrections — offering a zone nobody in the corpus uses would
+  // be a filter that always returns nothing.
+  const segmentOptions = useMemo(() => {
+    const projectIds = new Set(allRows.map((r) => r.project_id));
+    const out: Record<string, string[]> = {};
+    for (const seg of SEGMENTS) {
+      const vals = new Set<string>();
+      for (const id of projectIds) {
+        const p = projectsById.get(id);
+        if (p) for (const v of segmentValues(seg, p)) vals.add(v);
+      }
+      out[seg.key] = [...vals].sort((a, b) =>
+        a === NOT_RECORDED ? 1 : b === NOT_RECORDED ? -1 : a.localeCompare(b, undefined, { numeric: true }),
+      );
+    }
+    return out;
+  }, [allRows, projectsById]);
+  const permitOptions = useMemo(() => {
+    const types = new Set<string>();
+    const das = new Set<string>();
+    for (const r of allRows) {
+      if (r.permit_type) types.add(r.permit_type);
+      if (r.permit_da) das.add(r.permit_da);
+    }
+    return {
+      types: [...types].sort((a, b) => a.localeCompare(b)),
+      das: [...das].sort((a, b) => a.localeCompare(b)),
+    };
+  }, [allRows]);
 
   const error = itemsQ.error ?? projectsQ.error ?? permitsQ.error;
   if (error) {
@@ -126,18 +212,26 @@ export default function CorrectionsReport() {
           </h1>
           <p className="text-[11px] text-muted max-w-3xl">
             Every comment the cities have written on our correction letters,
-            pulled off the file server by the indexer. A{' '}
-            <span className="font-semibold">topic</span> is a building,
-            discipline and category together; a{' '}
-            <span className="font-semibold">repeat</span> is a topic raised in
-            one cycle and raised again in the very next one. Read-only — nothing
-            here changes a permit.
+            pulled off the file server by the indexer. Two different questions,
+            two separate views:{' '}
+            <span className="font-semibold">prevalence</span> is how often we
+            get a correction at all (fix the template);{' '}
+            <span className="font-semibold">repeat rate</span> is how often it
+            comes back the next cycle when we do (fix the response). They move
+            in opposite directions for the same category, so they are never
+            shown as one number. Read-only — nothing here changes a permit.
           </p>
         </div>
         <ExportCsvButton
           filename={reportCsvFilename('corrections')}
           onExport={() =>
-            rowsToCsv([...CORRECTIONS_CSV_COLUMNS], correctionsCsvRows(rows))
+            // fix-279: the filter set rides along, so a shared file cannot be
+            // read as the whole business when it was one jurisdiction and one
+            // unit band.
+            correctionsCsvPreamble(filters, [
+              `View: ${VIEWS.find((v) => v.key === view)?.label ?? view}`,
+              `Rows: ${rows.length} items across ${summary.projects} projects`,
+            ]) + rowsToCsv([...CORRECTIONS_CSV_COLUMNS], correctionsCsvRows(rows))
           }
           disabled={rows.length === 0}
           testId="corrections-export-csv"
@@ -152,8 +246,45 @@ export default function CorrectionsReport() {
           setFilters(EMPTY_FILTERS);
           setShown(ITEMS_PAGE);
         }}
-        coverage={coverage}
+        coverage={architectCov}
+        segmentOptions={segmentOptions}
+        permitOptions={permitOptions}
       />
+
+      {/* fix-279: the active filter set, restated in words. The same string
+          goes into every CSV — see correctionsCsvPreamble. */}
+      {!filtersAreEmpty(filters) && (
+        <div
+          className="text-[10px] text-dim"
+          data-testid="corrections-active-filters"
+        >
+          Showing: {describeFilters(filters).join(' · ')}
+        </div>
+      )}
+
+      {/* fix-279: permit-linked slices cover about half the corpus. Say so
+          rather than letting two different totals appear on one page with no
+          explanation. */}
+      {permitFilterActive && (
+        <div
+          className="text-[11px] px-3 py-2 rounded-md border"
+          style={{
+            background: 'var(--color-co-bg)',
+            borderColor: 'var(--color-co-border)',
+            color: 'var(--color-hold-text)',
+          }}
+          data-testid="corrections-permit-coverage"
+        >
+          <strong>Permit-level filter active.</strong> Only{' '}
+          {permitCoverage.linked} of {permitCoverage.total} items in this slice
+          carry a permit link ({permitCoverage.pct}%); the remaining{' '}
+          {permitCoverage.total - permitCoverage.linked} are{' '}
+          <strong>excluded</strong> from every figure below. The indexer links a
+          letter to a permit only when it can do so unambiguously, so an
+          unlinked item is not evidence of anything — it just cannot answer a
+          per-permit question.
+        </div>
+      )}
 
       {isLoading ? (
         <SkeletonRows count={8} rowClassName="h-9" />
@@ -165,12 +296,23 @@ export default function CorrectionsReport() {
           Nothing indexed yet. Correction letters are read off the file server by
           the indexer, which runs by hand.
         </div>
-      ) : rows.length === 0 ? (
+      ) : rows.length === 0 && view !== 'missing' ? (
+        // fix-279: 'missing' is exempt — it is about letters that are ABSENT
+        // from correction_items, so an empty filtered row set says nothing
+        // about whether that view has anything to show.
         <div
           className="py-8 text-center text-dim italic text-xs"
           data-testid="corrections-report-no-match"
         >
-          No corrections match these filters.
+          No corrections match these filters.{' '}
+          <button
+            type="button"
+            onClick={() => setView('missing')}
+            className="underline text-de not-italic font-bold"
+            data-testid="corrections-no-match-to-missing"
+          >
+            Show corrections with no letter found
+          </button>
         </div>
       ) : (
         <>
@@ -189,12 +331,27 @@ export default function CorrectionsReport() {
                 }`}
                 data-testid={`corrections-view-${v.key}`}
                 data-active={view === v.key ? 'true' : 'false'}
+                title={v.hint}
               >
                 {v.label}
               </button>
             ))}
           </div>
+          {/* The hint below the tabs, not only in a tooltip: prevalence and
+              repeat rate are easy to conflate and a hover is not a label. */}
+          <div className="text-[10px] text-dim -mt-2" data-testid="corrections-view-hint">
+            {VIEWS.find((v) => v.key === view)?.hint}
+          </div>
 
+          {view === 'prevalence' && (
+            <PrevalenceView
+              scopeRows={scopeRows}
+              displayRows={rows}
+              projectsById={projectsById}
+              scopeNote={prevalenceScopeNote}
+            />
+          )}
+          {view === 'missing' && <MissingLetterWorklist />}
           {view === 'repeats' && (
             <RepeatsView
               summary={summary}
@@ -231,12 +388,16 @@ function FilterBar({
   onChange,
   onReset,
   coverage,
+  segmentOptions,
+  permitOptions,
 }: {
   filters: CorrectionFilters;
   options: ReturnType<typeof correctionFilterOptions>;
   onChange: (next: Partial<CorrectionFilters>) => void;
   onReset: () => void;
   coverage: ReturnType<typeof architectCoverage>;
+  segmentOptions: Record<string, string[]>;
+  permitOptions: { types: string[]; das: string[] };
 }) {
   return (
     <div
@@ -339,6 +500,52 @@ function FilterBar({
           everything until more projects carry it.
         </div>
       )}
+
+      {/* fix-279: SEGMENTS. Project attributes, in their own row so the twelve
+          of them do not bury the six content filters above. */}
+      <div className="basis-full border-t pt-2 mt-1" style={{ borderTopColor: 'var(--color-border)' }}>
+        <div className="text-[10px] uppercase tracking-wide text-dim mb-1.5">
+          Segment by project
+        </div>
+        <div className="flex flex-wrap gap-3 items-end">
+          {SEGMENTS.filter((seg) => seg.key !== 'juris').map((seg) => (
+            <Select
+              key={seg.key}
+              label={seg.label}
+              value={filters.segments[seg.key] ?? ''}
+              onChange={(v) =>
+                onChange({ segments: { ...filters.segments, [seg.key]: v } })
+              }
+              options={segmentOptions[seg.key] ?? []}
+              allLabel={`Any ${seg.label.toLowerCase()}`}
+              testId={`corrections-segment-${seg.key}`}
+            />
+          ))}
+          {/* Permit-level, visually grouped with a warning: these two cover
+              about half the corpus and the page says so when either is set. */}
+          <Select
+            label="Permit type ⚠"
+            value={filters.permitType}
+            onChange={(v) => onChange({ permitType: v })}
+            options={permitOptions.types}
+            allLabel="Any permit type"
+            testId="corrections-filter-permit-type"
+          />
+          <Select
+            label="DA ⚠"
+            value={filters.da}
+            onChange={(v) => onChange({ da: v })}
+            options={permitOptions.das}
+            allLabel="Any DA"
+            testId="corrections-filter-da"
+          />
+        </div>
+        <div className="text-[10px] text-dim italic mt-1">
+          ⚠ Permit type and DA come from the linked permit. Only about half the
+          comments carry a permit link, so either filter excludes the rest — the
+          page states the exact coverage when one is active.
+        </div>
+      </div>
     </div>
   );
 }

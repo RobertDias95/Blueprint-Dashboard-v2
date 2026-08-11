@@ -34,6 +34,7 @@ function row(over: Partial<CorrectionReportRow> = {}): CorrectionReportRow {
   return {
     id: `ci-${seq}`,
     project_id: 'p1',
+    permit_id: null,
     building: null,
     discipline: 'Zoning',
     cycle: 1,
@@ -49,6 +50,8 @@ function row(over: Partial<CorrectionReportRow> = {}): CorrectionReportRow {
     address: '100 Main St',
     juris: 'Seattle',
     architect: null,
+    permit_type: null,
+    permit_da: null,
     ...over,
   };
 }
