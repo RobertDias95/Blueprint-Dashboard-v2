@@ -20,6 +20,18 @@ vi.mock('../hooks/useExternalTeamDirectory', () => ({
   useUpsertDirectoryFirm: () => ({ mutate: vi.fn(), mutateAsync: vi.fn(), isPending: false }),
 }));
 
+// fix-285: the header now also renders the Notes panel and the Design Plan of
+// Record card. Both issue their own reads, which would consume this file's
+// QUEUED supabase responses and starve the OCC retry of the one it needs.
+// Stubbed for the same reason fix-227 stubbed the directory above: the subject
+// here is BuilderOwnerCell's write path, and the assertion below is unchanged.
+vi.mock('../components/ProjectDetail/NotesPanel', () => ({
+  default: () => <div data-testid="stub-notes-panel" />,
+}));
+vi.mock('../components/ProjectDetail/PlanOfRecordCard', () => ({
+  default: () => <div data-testid="stub-plan-of-record-card" />,
+}));
+
 const T = 'test-tenant-uuid';
 const OLD_TOKEN = '2026-05-15T12:00:00Z';
 const NEW_TOKEN = '2026-05-15T12:05:00Z';

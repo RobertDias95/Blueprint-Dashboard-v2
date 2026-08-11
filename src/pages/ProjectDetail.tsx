@@ -20,7 +20,6 @@ import { SkeletonRows } from '../components/Skeleton';
 import QueryError from '../components/QueryError';
 import ProjectDetailHeader from '../components/ProjectDetail/ProjectDetailHeader';
 import ScheduleHealthTable from '../components/ProjectDetail/ScheduleHealthTable';
-import NotesPanel from '../components/ProjectDetail/NotesPanel';
 import PermitDetailV2 from '../components/ProjectDetail/PermitDetailV2';
 import ProjectSettingsModal from '../components/ProjectDetail/ProjectSettingsModal';
 import { ProjectHoldBadge } from '../components/ProjectDetail/ProjectHold';
@@ -376,9 +375,11 @@ function ProjectDetailBody({
                   report in the Reporting hub, which reads across every project
                   instead of one. Re-mount this here only if the ask changes back
                   to per-project browsing. */}
-              {/* fix-notes-1: holistic project notes log (permit_id NULL).
-                  Replaces the old single-textarea + Documents footer. */}
-              <NotesPanel projectId={project.id} />
+              {/* fix-285: NotesPanel moved INTO ProjectDetailHeader's grid.
+                  It used to sit here as a full-width footer under Schedule
+                  Health, leaving a large empty area under DD Phase and Project;
+                  it now fills that area instead. Same panel, same hook, same
+                  data — only the position changed. */}
             </div>
           ) : (
             // Permit selected → per-permit widgets stack inside the

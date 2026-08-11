@@ -869,25 +869,36 @@ describe('<ProjectDetail /> fix-194 sub-permit sidebar nesting', () => {
 // mount, reach for the live Supabase client, and this assertion would fail on
 // the rendered panel rather than passing silently.
 describe('<ProjectDetail /> fix-277 Corrections section removed from the overview', () => {
-  it('the project overview renders header, schedule health and notes — and no corrections', () => {
+  it('the project overview renders header and schedule health — and no corrections', () => {
     renderAt();
     const overview = screen.getByTestId('project-overview-pane');
     expect(within(overview).getByTestId('stub-project-header')).toBeInTheDocument();
     expect(within(overview).getByTestId('stub-schedule-health-table')).toBeInTheDocument();
-    expect(within(overview).getByTestId('stub-notes-panel')).toBeInTheDocument();
     expect(screen.queryByTestId('corrections-panel')).toBeNull();
     expect(screen.queryByTestId('stub-corrections-panel')).toBeNull();
   });
 
-  it('schedule health sits directly before notes, with nothing between them', () => {
+  // fix-285: Notes is no longer a child of this pane. It moved INTO the header's
+  // grid, filling the empty area under DD Phase and Project instead of sitting
+  // as a full-width footer. The header is stubbed in this file, so the panel is
+  // not reachable from here at all — the assertion that it is composed in the
+  // right place now lives in ProjectOverviewLayout.test.tsx, against the real
+  // header. This test keeps the fix-277 guarantee it was written for.
+  it('notes is NOT a direct child of the overview pane any more', () => {
+    renderAt();
+    const overview = screen.getByTestId('project-overview-pane');
+    expect(within(overview).queryByTestId('stub-notes-panel')).toBeNull();
+  });
+
+  it('schedule health sits directly after the header, with nothing between them', () => {
     renderAt();
     const overview = screen.getByTestId('project-overview-pane');
     const order = Array.from(overview.querySelectorAll('[data-testid]')).map((el) =>
       el.getAttribute('data-testid'),
     );
+    const header = order.indexOf('stub-project-header');
     const health = order.indexOf('stub-schedule-health-table');
-    const notes = order.indexOf('stub-notes-panel');
-    expect(health).toBeGreaterThanOrEqual(0);
-    expect(notes).toBe(health + 1);
+    expect(header).toBeGreaterThanOrEqual(0);
+    expect(health).toBe(header + 1);
   });
 });
