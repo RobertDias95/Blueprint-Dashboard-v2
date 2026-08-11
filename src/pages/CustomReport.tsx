@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import { Link, useNavigate, useParams } from 'react-router-dom';
+import { Link, Navigate, useNavigate, useParams } from 'react-router-dom';
 import {
   useCustomReport,
   useReportBuilderCatalog,
@@ -12,6 +12,10 @@ import ReportResultTable, {
   type ResultColumnMeta,
 } from '../components/Reports/ReportResultTable';
 import { downloadCsv, reportCsvFilename, rowsToCsv } from '../lib/reportCsv';
+import {
+  resolveSavedReportTarget,
+  unknownBuiltinMessage,
+} from '../lib/builtinReports';
 import type { ReportColumnType } from '../lib/database.types';
 
 // fix-69: Custom Report viewer. Runs a saved custom report and renders its
@@ -25,9 +29,16 @@ export default function CustomReport() {
 
   const detailQ = useSavedReport(id);
   const catalogQ = useReportBuilderCatalog();
-  const runQ = useCustomReport(id);
 
   const detail = detailQ.data ?? null;
+
+  // fix-282: this route is reachable by bookmark, back-button and deep link, so
+  // it cannot assume the hub sent us here with a custom report. Resolve what the
+  // row actually is BEFORE running anything: a builtin has no spec to run, and
+  // firing bp_run_saved_report at one is a guaranteed "spec.entity is required".
+  const target = resolveSavedReportTarget(detail?.builtin_key);
+  const runnable = !detailQ.isLoading && !!detail && target.kind === 'custom';
+  const runQ = useCustomReport(id, { enabled: runnable });
 
   // Resolve column meta (label + type) from the catalog for the saved spec's
   // columns, preserving spec order. Falls back to deriving keys from the
@@ -66,7 +77,50 @@ export default function CustomReport() {
       />
     );
   }
-  if (runQ.isLoading || detailQ.isLoading) {
+  if (detailQ.isLoading) {
+    return <SkeletonRows count={5} rowClassName="h-10" />;
+  }
+
+  // fix-282: a builtin reached through the custom route. Known ones belong at
+  // their own route — send them there rather than failing.
+  if (target.kind === 'builtin') {
+    return <Navigate to={target.def.route} replace />;
+  }
+  // Unknown: this bundle predates the report. Say so, plainly, with the key.
+  if (target.kind === 'unknown') {
+    return (
+      <div
+        className="max-w-xl mx-auto mt-10 rounded-lg border border-border bg-surface p-5 text-center"
+        role="alert"
+        data-testid="custom-report-unknown-builtin"
+      >
+        <h1 className="text-sm font-display font-bold text-text">
+          {detail?.name ?? 'This report'} can’t open in this tab
+        </h1>
+        <p className="text-[11px] text-muted mt-1.5">
+          {unknownBuiltinMessage(target.key)}
+        </p>
+        <div className="mt-4 flex items-center justify-center gap-2">
+          <button
+            type="button"
+            onClick={() => window.location.reload()}
+            className="text-[11px] font-display font-bold px-3 py-1.5 rounded border border-de bg-de text-white hover:opacity-90 transition"
+            data-testid="custom-report-unknown-reload"
+          >
+            Refresh
+          </button>
+          <Link
+            to="/settings/reporting"
+            className="text-[11px] font-display font-bold px-3 py-1.5 rounded border border-border text-text hover:bg-s2 transition"
+          >
+            ← Reporting
+          </Link>
+        </div>
+      </div>
+    );
+  }
+
+  if (runQ.isLoading) {
     return <SkeletonRows count={5} rowClassName="h-10" />;
   }
 

@@ -373,3 +373,54 @@ export function builtinReportDef(
   if (!key) return null;
   return BUILTIN_REPORT_COMPONENTS[key] ?? null;
 }
+
+// ---------------------------------------------------------------------------
+// fix-282: a saved report has THREE shapes, not two
+// ---------------------------------------------------------------------------
+//
+// THE BUG THIS EXISTS TO PREVENT. `builtinReportDef` returns null for two very
+// different situations — "this is a custom report" and "this is a builtin I do
+// not recognise" — and every caller that wrote `def ? def.route : customRoute`
+// silently merged them. It sent unknown builtins down the custom-report path.
+//
+// That path runs `bp_run_saved_report`, which reads saved_reports.spec. Every
+// builtin row has `spec = {}` — correctly so, a builtin renders from a
+// component, not a spec — so the RPC hits `spec.entity is required` and throws,
+// 100% of the time. It is an RPC that cannot succeed.
+//
+// The unknown case is not exotic. It is the normal state of a browser holding a
+// bundle from before the newest builtin shipped: the seed migration adds the
+// saved_reports row the moment it runs, but a client keeps its cached JS until
+// it reloads. That window produced the production error this ticket fixes
+// (builtin_key 'corrections', which IS registered above — the reporting client
+// simply predated it).
+//
+// So the three cases are named, and the type makes the third impossible to
+// fold back into the second.
+
+export type SavedReportTarget =
+  /** builtin_key is null — a real custom report, spec-driven. */
+  | { kind: 'custom' }
+  /** builtin_key is registered in this bundle. */
+  | { kind: 'builtin'; key: string; def: BuiltinReportDef }
+  /** builtin_key is set but absent from this bundle: newer server than client.
+   *  NOT runnable here — no component to render, and no spec to run. */
+  | { kind: 'unknown'; key: string };
+
+export function resolveSavedReportTarget(
+  key: string | null | undefined,
+): SavedReportTarget {
+  if (!key) return { kind: 'custom' };
+  const def = BUILTIN_REPORT_COMPONENTS[key];
+  return def ? { kind: 'builtin', key, def } : { kind: 'unknown', key };
+}
+
+/** The message shown when a builtin cannot be rendered by this bundle. The key
+ *  is included deliberately: it is the one piece of information that turns a
+ *  support report into a diagnosis. */
+export function unknownBuiltinMessage(key: string): string {
+  return (
+    `This report ("${key}") needs a newer version of the app than the one ` +
+    'loaded in this tab. Please refresh to update.'
+  );
+}
