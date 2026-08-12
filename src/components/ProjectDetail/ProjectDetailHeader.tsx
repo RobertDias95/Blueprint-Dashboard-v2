@@ -38,6 +38,8 @@ import { pushToast } from '../../stores/toastStore';
 import OverlapPrompt from '../OverlapPrompt';
 import NpWarningPrompt from '../NpWarningPrompt';
 import BuilderAutocompleteField from '../builder/BuilderAutocompleteField';
+import PlanOfRecordCard from './PlanOfRecordCard';
+import NotesPanel from './NotesPanel';
 
 // Q9.5.e: 4-column header top strip per v1 §4.2.1. Left card holds an
 // inner 3-column grid (DD Phase 0.75fr / Project 1.5fr / Team 1.75fr)
@@ -75,26 +77,73 @@ export default function ProjectDetailHeader({
 }: Props) {
   return (
     <div
-      className="flex border-b border-border"
+      className="border-b border-border px-4 pt-2 pb-2"
+      style={{ background: 'var(--color-s2)' }}
       data-testid="project-detail-header"
     >
+      {/* fix-285: five columns, two rows. Notes fills what used to be dead
+          space under DD Phase and Project instead of sitting as a full-width
+          footer, and the Design Plan of Record card takes the slot between Team
+          and Builder/Owner.
+
+              [ DD Phase ] [ Project ] [ Team    ] [ Plan of ] [ Builder ]
+              [ Notes .............. ] [(stacked)] [ Record  ] [ / Owner ]
+
+          Team, Plan of Record and Builder/Owner each span both rows, which is
+          what lets the preview be tall enough to read — the point of the card.
+          Grid AREAS rather than nested flex so the two-row spans are declared
+          once and cannot drift out of step with the column count. */}
       <div
-        className="flex-1 px-4 pt-2 pb-2"
-        style={{ background: 'var(--color-s2)' }}
+        className="grid gap-2.5 items-start"
+        style={{
+          gridTemplateColumns: '0.85fr 1.05fr 1.15fr 1.15fr 0.85fr',
+          gridTemplateAreas: '"dd proj team por builder" "notes notes team por builder"',
+        }}
+        data-testid="project-overview-grid"
       >
-        <div
-          className="grid border rounded-lg overflow-hidden bg-surface"
-          style={{
-            gridTemplateColumns: '0.75fr 1.5fr 1.75fr',
-            borderColor: 'var(--color-border)',
-          }}
-        >
+        <BoxedCell area="dd">
           <DDPhaseCell project={project} bp={bp} permits={permits} />
+        </BoxedCell>
+        <BoxedCell area="proj">
           <ProjectCell project={project} bp={bp} allProjects={allProjects} />
+        </BoxedCell>
+        {/* Internal and External stack vertically inside this column now. */}
+        <div style={{ gridArea: 'team' }} data-testid="project-overview-team-col">
           <TeamCell project={project} bp={bp} permits={permits} />
         </div>
+        <div style={{ gridArea: 'por' }}>
+          <PlanOfRecordCard projectId={project.id} />
+        </div>
+        <div style={{ gridArea: 'builder' }}>
+          <BuilderOwnerCell project={project} />
+        </div>
+        {/* fix-285: same panel, same data, same behaviour — only the position
+            changes. It is rendered here rather than by ProjectDetail so it can
+            participate in the grid. */}
+        <div style={{ gridArea: 'notes' }} data-testid="project-overview-notes-col">
+          <NotesPanel projectId={project.id} />
+        </div>
       </div>
-      <BuilderOwnerCell project={project} />
+    </div>
+  );
+}
+
+/** The bordered white box the DD Phase and Project cells used to inherit from
+ *  their shared container. Now that each cell is its own grid area, each needs
+ *  its own frame. */
+function BoxedCell({
+  area,
+  children,
+}: {
+  area: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div
+      className="border rounded-md overflow-hidden bg-surface"
+      style={{ gridArea: area, borderColor: 'var(--color-border)' }}
+    >
+      {children}
     </div>
   );
 }
@@ -818,37 +867,46 @@ function TeamCell({
   const dm = bp?.dm ?? project.design_manager ?? null;
   void permits;
 
+  // fix-285: Internal and External STACK vertically now — two cards in one
+  // column — rather than sitting side by side in a 2-col grid. Side by side,
+  // each got half of a narrow column and the External discipline selects were
+  // squeezed; stacked, both get the full column width.
   return (
-    <CellShell title="Team">
-      <div
-        className="grid border rounded-md overflow-hidden"
-        style={{
-          gridTemplateColumns: '1fr 1fr',
-          borderColor: 'var(--color-border)',
-        }}
-      >
-        <div
-          className="p-2 border-r"
-          style={{ borderColor: 'var(--color-border)' }}
-        >
-          <div className="text-[9px] font-extrabold text-text uppercase tracking-wider mb-1">
-            Internal
+    <div
+      className="border rounded-md overflow-hidden bg-surface"
+      style={{ borderColor: 'var(--color-border)' }}
+      data-testid="project-overview-team"
+    >
+      <CellShell title="Team">
+        <div className="flex flex-col gap-2.5">
+          <div
+            className="border rounded-md p-2"
+            style={{ borderColor: 'var(--color-border)' }}
+            data-testid="project-overview-team-internal"
+          >
+            <div className="text-[9px] font-extrabold text-text uppercase tracking-wider mb-1">
+              Internal
+            </div>
+            <div className="flex flex-col gap-1">
+              <TeamRow label="ENT" value={ent} />
+              <TeamRow label="DA" value={da} />
+              <TeamRow label="DM" value={dm} />
+              <TeamRow label="ACQ" value={project.acq_lead ?? '—'} />
+            </div>
           </div>
-          <div className="flex flex-col gap-1">
-            <TeamRow label="ENT" value={ent} />
-            <TeamRow label="DA" value={da} />
-            <TeamRow label="DM" value={dm} />
-            <TeamRow label="ACQ" value={project.acq_lead ?? '—'} />
+          <div
+            className="border rounded-md p-2"
+            style={{ borderColor: 'var(--color-border)' }}
+            data-testid="project-overview-team-external"
+          >
+            <div className="text-[9px] font-extrabold text-text uppercase tracking-wider mb-1.5">
+              External
+            </div>
+            <ExternalTeamEditor project={project} />
           </div>
         </div>
-        <div className="p-2">
-          <div className="text-[9px] font-extrabold text-text uppercase tracking-wider mb-1.5">
-            External
-          </div>
-          <ExternalTeamEditor project={project} />
-        </div>
-      </div>
-    </CellShell>
+      </CellShell>
+    </div>
   );
 }
 

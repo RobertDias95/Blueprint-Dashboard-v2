@@ -360,6 +360,56 @@ export interface CorrectionItem {
   source_file: string;
 }
 
+// fix-285: a row of public.project_plan_of_record — the current design set for
+// one project. EXACTLY ONE ROW PER PROJECT, guaranteed by the view's
+// `distinct on (project_id)`, so this is queried with `.maybeSingle()`.
+//
+// ★ THE PRECEDENCE IS NOT THIS REPO'S TO DECIDE. fix-284 owns it:
+// design_guidance (1) < schematic (2) < marketing (3), furthest stage present
+// wins REGARDLESS OF FILE DATES. The view has already applied it. Nothing here
+// re-derives a winner, re-ranks, or falls back to "newest" — a second
+// implementation of that rule is a second answer waiting to disagree.
+//
+// Distinct from `is_current` on project_file_index, which means "newest
+// renderable file WITHIN one set_type". This is "the set_type that outranks
+// the others present".
+//
+// Read-only: `authenticated` has SELECT and nothing else, and the view is
+// security_invoker so RLS still scopes rows to the caller's tenant.
+export interface ProjectPlanOfRecordRow {
+  project_id: string;
+  tenant_id: string;
+  /** project_file_index.id of the winning row. */
+  file_index_id: string;
+  /** 'design_guidance' | 'schematic' | 'marketing'. Typed as a union because
+   *  the CHECK constraint on project_file_index enumerates exactly these, and
+   *  the view drops anything ranking 0. */
+  set_type: PlanOfRecordStage;
+  /** 1 | 2 | 3 — fix-284's fixed order, carried through so the UI can order or
+   *  compare without knowing the rule. */
+  stage_rank: number;
+  file_name: string;
+  /** Full UNC path on the share. Shown verbatim and selectable — it is how a
+   *  person actually opens the file. */
+  unc_path: string;
+  /** NULL for design guidance, which is a loose PDF at the project root rather
+   *  than something inside a named folder (fix-284). */
+  folder_name: string | null;
+  modified_at: string;
+  size_kb: number | null;
+  /** Object path in the PRIVATE plan-thumbnails bucket, {project_id}/{set_type}.jpg.
+   *  ★ NEVER a URL. The bucket is private; a URL is signed at read time and
+   *  expires. Constructing a public URL from this would 400 — and if it ever
+   *  stopped 400ing, it would mean drawing content had been made world-readable. */
+  thumb_path: string | null;
+  /** 'ok' | 'failed' | null(never attempted). Anything but 'ok' degrades the
+   *  card to name/date/path — never a broken image, never an error. */
+  thumb_status: 'ok' | 'failed' | null;
+  thumb_generated_at: string | null;
+}
+
+export type PlanOfRecordStage = 'design_guidance' | 'schematic' | 'marketing';
+
 // fix-279: a row of public.correction_missing_worklist — an expected correction
 // letter with nothing found on the share.
 //

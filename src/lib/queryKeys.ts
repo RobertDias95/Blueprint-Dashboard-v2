@@ -205,6 +205,17 @@ export const queryKeys = {
   correctionItemsAll: ['correction_items'] as const,
   correctionItems: (tenantId: string, projectId: string) =>
     ['correction_items', tenantId, { projectId }] as const,
+  // fix-285: the Design Plan of Record view, per project. Same read-only
+  // posture as correction_items — written by the file_indexer, once a day.
+  planOfRecordAll: ['plan_of_record'] as const,
+  planOfRecord: (tenantId: string, projectId: string) =>
+    ['plan_of_record', tenantId, { projectId }] as const,
+  // Keyed by the storage OBJECT PATH, not the project: the signature belongs to
+  // the object, and two projects can never share one (the path starts with the
+  // project id). Separate from the row key so re-signing an expired URL does
+  // not refetch the row.
+  planOfRecordThumb: (tenantId: string, objectPath: string) =>
+    ['plan_of_record_thumb', tenantId, { objectPath }] as const,
   // fix-277: every correction item for the tenant, for the Corrections report.
   // Shares the bare prefix so one invalidation covers both readers.
   allCorrectionItems: (tenantId: string) =>
