@@ -1090,8 +1090,13 @@ export default function Step1ProjectInfo({
           className="bg-s2/60 rounded-lg p-4 space-y-3"
           data-testid="wizard-section-redesign-dd"
         >
+          {/* fix-296: "DD Phase" was internal shorthand nobody new could read.
+              NOT "Redesign Milestones", though: this section collects only the
+              DA and the draw window, not the GO/closing/target-submit dates the
+              Milestones card is named for. "Draw Schedule" is what it actually
+              builds, and it is the word the team already uses. */}
           <div className="text-[10px] uppercase tracking-[0.08em] text-co font-display font-bold">
-            Redesign DD Phase
+            Redesign Draw Schedule
           </div>
           <div className="text-[10px] text-dim -mt-1">
             Set the DA and DD window for this redesign so it lands on the Draw
