@@ -504,7 +504,33 @@ export function applySeeding(state: WizardState): WizardState {
   return changed ? { ...state, permits } : state;
 }
 
-export const PERMIT_DESCRIPTIONS: Record<string, string> = {
+/**
+ * fix-288: the SEED for app_config.permitTypeDescriptions — no longer the live
+ * source.
+ *
+ * ★ THIS IS A FALLBACK, NOT THE CATALOGUE. Descriptions now live in
+ * `app_config.permitTypeDescriptions` so editing one is a Settings change
+ * rather than a deploy; read them with `usePermitDescriptions()`. This constant
+ * is what that key was seeded with, and what the wizard falls back to if the
+ * key is ever missing — so the help text can never vanish entirely.
+ *
+ * ★ TWO KEYS WERE REMOVED HERE BECAUSE THEY MATCHED NO PERMIT TYPE:
+ *
+ *     'PPR (Post-Permit Revision)'   the live type is 'PPR'
+ *     'SDOT'                         the live type is 'SDOT Tree'
+ *
+ * Neither had ever rendered. A key that matches nothing looks EXACTLY like a
+ * type that simply has no description, which is why both survived since v2
+ * launched. `permitDescriptionKeys.test.ts` now asserts every key names a real
+ * type, so the next one fails CI instead of disappearing quietly.
+ *
+ * (The fix-288 brief named `'Grading \\ Clearing'` — with a backslash — as the
+ * never-rendering key. That has never existed in this repo: `git log -S` over
+ * the whole history finds nothing, and the key here has always been
+ * 'Grading / Clearing', which matches the live type. The two above are the real
+ * instances of the bug it describes.)
+ */
+export const PERMIT_DESCRIPTION_SEED: Record<string, string> = {
   'Building Permit':
     'Required for new construction or major structural work',
   Demolition: 'Tearing down an existing structure before construction',
@@ -514,11 +540,8 @@ export const PERMIT_DESCRIPTIONS: Record<string, string> = {
   'ECA Waiver': 'Environmentally Critical Area on site',
   ULS: 'Utility local service connections — water/sewer/storm',
   LSM: 'Lot size modification or boundary adjustment',
-  'PPR (Post-Permit Revision)':
-    'Changes to approved plans during/after construction',
   PPR: 'Pre-application or post-permit design revisions',
   'PAR/Pre-Sub': 'Pre-application review submission',
-  SDOT: 'Seattle Dept of Transportation permit — ROW, curbs, trees',
   'SDOT Tree':
     'Seattle Dept of Transportation tree review — ROW, curbs, trees',
 };

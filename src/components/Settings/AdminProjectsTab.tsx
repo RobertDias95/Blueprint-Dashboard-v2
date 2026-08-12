@@ -6,8 +6,6 @@ import { usePermitTypes } from '../../hooks/usePermitTypes';
 import { useAppConfig, readAppConfigStringArray } from '../../hooks/useAppConfig';
 import { useUpsertJurisdiction } from '../../hooks/useUpsertJurisdiction';
 import { useDeleteJurisdiction } from '../../hooks/useDeleteJurisdiction';
-import { useUpsertPermitType } from '../../hooks/useUpsertPermitType';
-import { useDeletePermitType } from '../../hooks/useDeletePermitType';
 import { useSetAppConfigKey } from '../../hooks/useSetAppConfigKey';
 import { useIsTenantAdmin } from '../../hooks/useIsTenantAdmin';
 import { SkeletonRows } from '../Skeleton';
@@ -32,8 +30,6 @@ export default function AdminProjectsTab() {
 
   const upsertJuris = useUpsertJurisdiction();
   const deleteJuris = useDeleteJurisdiction();
-  const upsertType = useUpsertPermitType();
-  const deleteType = useDeletePermitType();
   const setKey = useSetAppConfigKey();
 
   const error = jurisQ.error ?? typesQ.error ?? cfgQ.error;
@@ -122,19 +118,20 @@ export default function AdminProjectsTab() {
         />
       </Section>
 
+      {/* fix-288: the Permit Types pill list used to sit here. It could add and
+          remove but not rename, carried no wizard descriptions, and guarded
+          deletion only by is_builtin -- so a type still named by 143 permits
+          could be removed from this tab without a word. It is replaced by the
+          full editor on Settings → Permits & Templates, and deliberately NOT
+          duplicated: two editors for one catalogue would mean the delete guard
+          could be walked around by using the other tab. */}
       <Section title="Permit Types">
-        <PillListEditor
-          label="Permit Types"
-          items={typeItems}
-          onAdd={(name) =>
-            upsertType.mutate({ name, is_builtin: false, notes: null })
-          }
-          onRemove={(name) => deleteType.mutate({ name })}
-          placeholder="Add permit type…"
-          emptyState="No permit types yet."
-          readOnly={!isAdmin}
-          testIdPrefix="permit-types-list"
-        />
+        <p className="text-[11px] text-muted" data-testid="permit-types-moved">
+          Permit types moved to <strong className="text-text">Permits &amp;
+          Templates</strong>, where they can also be renamed and given the
+          description shown in the project wizard.{' '}
+          {typeItems.length} type{typeItems.length === 1 ? '' : 's'} configured.
+        </p>
       </Section>
 
       <Section title="Product Types">
