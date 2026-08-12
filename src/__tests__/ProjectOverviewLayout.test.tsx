@@ -90,12 +90,30 @@ describe('fix-285 the five-column overview row', () => {
     expect(order).toEqual(['dd', 'proj', 'team', 'por', 'builder']);
   });
 
-  it('declares two rows, with notes spanning DD Phase and Project', () => {
+  // fix-290 changed this deliberately. Notes used to span DD Phase AND Project;
+  // Project now spans both rows instead, because it carries two stacked
+  // sections and the half-height slot is what squeezed Site out of view. Notes
+  // keeps the full height under DD Phase.
+  it('declares two rows, with Project spanning both and Notes under DD Phase', () => {
     renderHeader();
     const grid = screen.getByTestId('project-overview-grid');
     const areas = grid.style.gridTemplateAreas.replace(/\s+/g, ' ');
     expect(areas).toContain('dd proj team por builder');
-    expect(areas).toContain('notes notes team por builder');
+    expect(areas).toContain('notes proj team por builder');
+    // The regression this guards: Notes must not reclaim Project's second row.
+    expect(areas).not.toContain('notes notes');
+  });
+
+  it('gives Project both rows so its second section has somewhere to go', () => {
+    renderHeader();
+    const areas = screen
+      .getByTestId('project-overview-grid')
+      .style.gridTemplateAreas.replace(/\s+/g, ' ');
+    const rows = areas.split('"').filter((r) => r.trim());
+    expect(rows).toHaveLength(2);
+    for (const row of rows) {
+      expect(row.trim().split(/\s+/)[1]).toBe('proj');
+    }
   });
 
   it('has five columns', () => {

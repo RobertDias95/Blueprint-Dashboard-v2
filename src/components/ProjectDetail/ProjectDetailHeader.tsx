@@ -39,6 +39,7 @@ import OverlapPrompt from '../OverlapPrompt';
 import NpWarningPrompt from '../NpWarningPrompt';
 import BuilderAutocompleteField from '../builder/BuilderAutocompleteField';
 import PlanOfRecordCard from './PlanOfRecordCard';
+import { OverviewCard, OverviewSection } from './OverviewCard';
 import NotesPanel from './NotesPanel';
 
 // Q9.5.e: 4-column header top strip per v1 §4.2.1. Left card holds an
@@ -81,32 +82,41 @@ export default function ProjectDetailHeader({
       style={{ background: 'var(--color-s2)' }}
       data-testid="project-detail-header"
     >
-      {/* fix-285: five columns, two rows. Notes fills what used to be dead
-          space under DD Phase and Project instead of sitting as a full-width
-          footer, and the Design Plan of Record card takes the slot between Team
-          and Builder/Owner.
+      {/* fix-285: five columns, two rows. The Design Plan of Record card takes
+          the slot between Team and Builder/Owner.
 
               [ DD Phase ] [ Project ] [ Team    ] [ Plan of ] [ Builder ]
-              [ Notes .............. ] [(stacked)] [ Record  ] [ / Owner ]
+              [ Notes    ] [(stacked)] [(stacked)] [ Record  ] [ / Owner ]
 
-          Team, Plan of Record and Builder/Owner each span both rows, which is
-          what lets the preview be tall enough to read — the point of the card.
+          fix-290: Notes now sits under DD PHASE ONLY, not spanning DD Phase and
+          Project. Project spans both rows instead, because it carries two
+          stacked sections (Proposal and Site) and the old half-height slot is
+          what squeezed Site out of view. Notes gains the height it was missing
+          without losing width, which was the other half of the complaint.
+
+          Team, Project, Plan of Record and Builder/Owner each span both rows.
           Grid AREAS rather than nested flex so the two-row spans are declared
-          once and cannot drift out of step with the column count. */}
+          once and cannot drift out of step with the column count.
+
+          fix-290 widths: Team was much wider than its content needed and
+          Project was wide enough to hide its own second section. Both narrow;
+          the room goes to Notes (under DD Phase) and to the Plan of Record
+          preview, which is the only card whose content is genuinely
+          resolution-bound. */}
       <div
         className="grid gap-2.5 items-start"
         style={{
-          gridTemplateColumns: '0.85fr 1.05fr 1.15fr 1.15fr 0.85fr',
-          gridTemplateAreas: '"dd proj team por builder" "notes notes team por builder"',
+          gridTemplateColumns: '0.90fr 1.00fr 0.86fr 1.10fr 0.84fr',
+          gridTemplateAreas: '"dd proj team por builder" "notes proj team por builder"',
         }}
         data-testid="project-overview-grid"
       >
-        <BoxedCell area="dd">
+        <div style={{ gridArea: 'dd' }}>
           <DDPhaseCell project={project} bp={bp} permits={permits} />
-        </BoxedCell>
-        <BoxedCell area="proj">
+        </div>
+        <div style={{ gridArea: 'proj' }}>
           <ProjectCell project={project} bp={bp} allProjects={allProjects} />
-        </BoxedCell>
+        </div>
         {/* Internal and External stack vertically inside this column now. */}
         <div style={{ gridArea: 'team' }} data-testid="project-overview-team-col">
           <TeamCell project={project} bp={bp} permits={permits} />
@@ -121,32 +131,18 @@ export default function ProjectDetailHeader({
             changes. It is rendered here rather than by ProjectDetail so it can
             participate in the grid. */}
         <div style={{ gridArea: 'notes' }} data-testid="project-overview-notes-col">
-          <NotesPanel projectId={project.id} />
+          <NotesPanel projectId={project.id} variant="card" />
         </div>
       </div>
     </div>
   );
 }
 
-/** The bordered white box the DD Phase and Project cells used to inherit from
- *  their shared container. Now that each cell is its own grid area, each needs
- *  its own frame. */
-function BoxedCell({
-  area,
-  children,
-}: {
-  area: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <div
-      className="border rounded-md overflow-hidden bg-surface"
-      style={{ gridArea: area, borderColor: 'var(--color-border)' }}
-    >
-      {children}
-    </div>
-  );
-}
+// fix-290: BoxedCell and CellShell are gone. Between them they were half of the
+// reason the five cards looked like five different things — BoxedCell drew the
+// frame, CellShell drew a centred title inside the padding, and Team wrapped
+// both in a THIRD bordered box. OverviewCard now draws frame and banner
+// together, so there is one answer instead of three that could drift.
 
 // ============================================================
 // DD Phase cell — GO date (read-only, project-level) + DD Start/End
@@ -211,21 +207,25 @@ function DDPhaseCell({
     // fix-148: Closing date renders above whichever editor mounts.
     if (project.redesign_of_project_id && project.redesign_reuses_original_permit) {
       return (
-        <CellShell title="DD Phase" rightBorder>
-          <div className="flex flex-col gap-1.5">
-            <ClosingRow project={project} />
-            <ReuseRedesignDdEditor project={project} />
-          </div>
-        </CellShell>
+        <OverviewCard title="DD Phase" testId="pd-dd-phase-card">
+          <OverviewSection>
+            <div className="flex flex-col gap-1.5">
+              <ClosingRow project={project} />
+              <ReuseRedesignDdEditor project={project} />
+            </div>
+          </OverviewSection>
+        </OverviewCard>
       );
     }
     return (
-      <CellShell title="DD Phase" rightBorder>
-        <div className="flex flex-col gap-1.5">
-          <ClosingRow project={project} />
-          <div className="text-[11px] text-dim">No building permit</div>
-        </div>
-      </CellShell>
+      <OverviewCard title="DD Phase" testId="pd-dd-phase-card">
+        <OverviewSection>
+          <div className="flex flex-col gap-1.5">
+            <ClosingRow project={project} />
+            <div className="text-[11px] text-dim">No building permit</div>
+          </div>
+        </OverviewSection>
+      </OverviewCard>
     );
   }
   return <DDPhaseEditor project={project} bp={bp} permits={permits} />;
@@ -418,7 +418,8 @@ function DDPhaseEditor({
 
   return (
     <>
-      <CellShell title="DD Phase" rightBorder>
+      <OverviewCard title="DD Phase" testId="pd-dd-phase-card">
+       <OverviewSection>
         <div className="flex flex-col gap-1.5">
           {/* fix-148: Closing date (moved from Project Site) sits at the top. */}
           <ClosingRow project={project} />
@@ -475,7 +476,8 @@ function DDPhaseEditor({
             </div>
           )}
         </div>
-      </CellShell>
+       </OverviewSection>
+      </OverviewCard>
       {pendingOverlap && (
         <OverlapPrompt
           anchorAddress={pendingOverlap.anchorAddress}
@@ -683,22 +685,16 @@ function ProjectCell({
   const [redesignsOpen, setRedesignsOpen] = useState(false);
 
   return (
-    <CellShell title="Project" rightBorder>
-      <div
-        className="grid border rounded-md overflow-hidden"
-        style={{
-          gridTemplateColumns: '1fr 1fr',
-          borderColor: 'var(--color-border)',
-        }}
-      >
-        {/* Proposal */}
-        <div
-          className="p-2 border-r"
-          style={{ borderColor: 'var(--color-border)' }}
-        >
-          <div className="text-[9px] font-extrabold text-text uppercase tracking-wider mb-1.5">
-            Proposal
-          </div>
+    // fix-290: ★ THE REGRESSION THIS TICKET EXISTS FOR.
+    //
+    // Proposal and Site used to sit SIDE BY SIDE in a `1fr 1fr` grid inside one
+    // fifth of the screen. Each half was then ~10% of the viewport, and Site --
+    // Zone, Lot, Lots, Corner, Alley, Parking, Stalls -- was squeezed to the
+    // point of being unreadable. The data never stopped being fetched or
+    // rendered; it stopped being LEGIBLE, which from the desk is the same thing
+    // as gone. Stacking them gives each the card's full width.
+    <OverviewCard title="Project" testId="pd-project-card">
+      <OverviewSection title="Proposal" testId="pd-project-proposal">
           <div className="flex flex-col gap-1">
             <div className="flex items-baseline gap-1.5">
               <span className="text-[9px] text-dim min-w-[36px]">Units</span>
@@ -831,18 +827,15 @@ function ProjectCell({
               </div>
             )}
           </div>
-        </div>
+      </OverviewSection>
 
-        {/* Site — fix-22 Mig 3: zone/alley/lot/parking moved to projects;
-            writes via useUpdateProject. */}
-        <div className="p-2">
-          <div className="text-[9px] font-extrabold text-text uppercase tracking-wider mb-1.5">
-            Site
-          </div>
-          <SiteEditor project={project} />
-        </div>
-      </div>
-    </CellShell>
+      {/* Site — fix-22 Mig 3: zone/alley/lot/parking moved to projects; writes
+          via useUpdateProject. fix-290 restored it to a legible width by
+          stacking it under Proposal instead of halving the column. */}
+      <OverviewSection title="Site" testId="pd-project-site">
+        <SiteEditor project={project} />
+      </OverviewSection>
+    </OverviewCard>
   );
 }
 
@@ -871,42 +864,24 @@ function TeamCell({
   // column — rather than sitting side by side in a 2-col grid. Side by side,
   // each got half of a narrow column and the External discipline selects were
   // squeezed; stacked, both get the full column width.
+  // fix-290: the two blocks are now the card's own stacked SECTIONS rather than
+  // two bordered boxes nested inside a third. Same order, same content, one
+  // frame instead of three — and Consultants can be added as a third section
+  // without touching anything here but the JSX.
   return (
-    <div
-      className="border rounded-md overflow-hidden bg-surface"
-      style={{ borderColor: 'var(--color-border)' }}
-      data-testid="project-overview-team"
-    >
-      <CellShell title="Team">
-        <div className="flex flex-col gap-2.5">
-          <div
-            className="border rounded-md p-2"
-            style={{ borderColor: 'var(--color-border)' }}
-            data-testid="project-overview-team-internal"
-          >
-            <div className="text-[9px] font-extrabold text-text uppercase tracking-wider mb-1">
-              Internal
-            </div>
-            <div className="flex flex-col gap-1">
-              <TeamRow label="ENT" value={ent} />
-              <TeamRow label="DA" value={da} />
-              <TeamRow label="DM" value={dm} />
-              <TeamRow label="ACQ" value={project.acq_lead ?? '—'} />
-            </div>
-          </div>
-          <div
-            className="border rounded-md p-2"
-            style={{ borderColor: 'var(--color-border)' }}
-            data-testid="project-overview-team-external"
-          >
-            <div className="text-[9px] font-extrabold text-text uppercase tracking-wider mb-1.5">
-              External
-            </div>
-            <ExternalTeamEditor project={project} />
-          </div>
+    <OverviewCard title="Team" testId="project-overview-team">
+      <OverviewSection title="Internal" testId="project-overview-team-internal">
+        <div className="flex flex-col gap-1">
+          <TeamRow label="ENT" value={ent} />
+          <TeamRow label="DA" value={da} />
+          <TeamRow label="DM" value={dm} />
+          <TeamRow label="ACQ" value={project.acq_lead ?? '—'} />
         </div>
-      </CellShell>
-    </div>
+      </OverviewSection>
+      <OverviewSection title="External" testId="project-overview-team-external">
+        <ExternalTeamEditor project={project} />
+      </OverviewSection>
+    </OverviewCard>
   );
 }
 
@@ -1105,18 +1080,13 @@ function BuilderOwnerCell({ project }: { project: Project }) {
   const emailInputStyle = { ...inputStyle, color: 'var(--color-de)' };
 
   return (
-    <div
-      className="flex-shrink-0 px-4 py-2 border-l flex flex-col gap-1.5"
-      style={{
-        width: 240,
-        borderLeftColor: 'var(--color-border)',
-        background: 'var(--color-surface)',
-      }}
-      data-testid="pd-builder-cell"
-    >
-      <div className="text-[10px] font-extrabold text-text uppercase tracking-wider">
-        Builder / Owner
-      </div>
+    // fix-290: was a fixed 240px column with a left border — a holdover from the
+    // pre-fix-285 flex row, and the last card not to look like the others. It is
+    // now a grid column like every other card, so its width comes from the grid
+    // rather than from a number nothing else knows about.
+    <OverviewCard title="Builder / Owner" testId="pd-builder-cell">
+     <OverviewSection>
+      <div className="flex flex-col gap-1.5">
       <div>
         <span className={labelStyle}>Owner</span>
         <BuilderAutocompleteField
@@ -1229,35 +1199,15 @@ function BuilderOwnerCell({ project }: { project: Project }) {
           data-testid="pd-poc-email"
         />
       </div>
-    </div>
+      </div>
+     </OverviewSection>
+    </OverviewCard>
   );
 }
 
 // ============================================================
 // Helpers
 // ============================================================
-
-function CellShell({
-  title,
-  rightBorder,
-  children,
-}: {
-  title: string;
-  rightBorder?: boolean;
-  children: React.ReactNode;
-}) {
-  return (
-    <div
-      className={`p-2.5 ${rightBorder ? 'border-r' : ''}`}
-      style={rightBorder ? { borderColor: 'var(--color-border)' } : undefined}
-    >
-      <div className="text-[10px] font-extrabold text-text uppercase tracking-wider text-center mb-2">
-        {title}
-      </div>
-      {children}
-    </div>
-  );
-}
 
 function PhaseRow({
   label,

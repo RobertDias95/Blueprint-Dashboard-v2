@@ -12,6 +12,7 @@ import {
   stageLabel,
 } from '../../lib/planOfRecord';
 import { pushToast } from '../../stores/toastStore';
+import { OverviewCard, OverviewSection } from './OverviewCard';
 import type {
   PlanOfRecordStage,
   ProjectPlanOfRecordRow,
@@ -48,22 +49,12 @@ export default function PlanOfRecordCard({ projectId }: Props) {
   const row = q.data ?? null;
 
   return (
-    <section
-      className="border rounded-md overflow-hidden bg-surface flex flex-col"
-      style={{ borderColor: 'var(--color-border)' }}
-      data-testid="plan-of-record-card"
-    >
-      <header
-        className="px-2 py-1 border-b text-[9px] font-extrabold uppercase tracking-wider text-muted text-center"
-        style={{
-          background: 'var(--color-s2)',
-          borderBottomColor: 'var(--color-border)',
-        }}
-      >
-        Design Plan of Record
-      </header>
-
-      <div className="p-2.5">
+    // fix-290: this card's own banner was the one that looked right, so it is
+    // the one OverviewCard generalised. It now RENDERS that shared component
+    // rather than a private copy of it — otherwise "all five cards match" would
+    // hold only until somebody edited one of the two.
+    <OverviewCard title="Design Plan of Record" testId="plan-of-record-card">
+      <OverviewSection>
         {q.isLoading ? (
           <div
             className="h-[220px] rounded border animate-pulse"
@@ -96,12 +87,12 @@ export default function PlanOfRecordCard({ projectId }: Props) {
         ) : (
           <PlanOfRecordBody row={row} onEnlarge={() => setLightbox(true)} />
         )}
-      </div>
+      </OverviewSection>
 
       {lightbox && row && (
         <Lightbox row={row} onClose={() => setLightbox(false)} />
       )}
-    </section>
+    </OverviewCard>
   );
 }
 
