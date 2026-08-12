@@ -42,6 +42,16 @@ vi.mock('../hooks/useProjects', () => ({
   useProjects: () => ({ data: [], isLoading: false, error: null, refetch: vi.fn() }),
 }));
 
+// fix-294: the task-detail Notes box is now the permit's NotesPanel, so its
+// data hooks have to be inert here. addNoteMutate lets a test assert the box
+// writes to the PERMIT rather than to permit_tasks.notes.
+const addNoteMutate = vi.hoisted(() => vi.fn());
+vi.mock('../hooks/useNotes', () => ({
+  useProjectNotes: () => ({ data: [], isLoading: false, error: null, refetch: vi.fn() }),
+  useAddNote: () => ({ mutate: addNoteMutate, isPending: false }),
+  useUpdateNote: () => ({ mutate: vi.fn(), isPending: false }),
+}));
+
 // fix-228: the detail editor reads permits (ent_lead) + projects (schematic)
 // to resolve the PRIMARY owner. fix-238b: the Everyone-view role/person filter
 // now resolves ownership the SAME way (useTaskOwnership → permits.ent_lead/da),
@@ -455,7 +465,11 @@ describe('MyTasks (fix-80 v1 three-pane kanban)', () => {
     expect(screen.getByTestId('task-detail-start-field')).toBeInTheDocument();
     expect(screen.getByTestId('task-detail-target-field')).toBeInTheDocument();
     expect(screen.getByTestId('task-detail-completed-field')).toBeInTheDocument();
-    expect(screen.getByTestId('task-detail-notes')).toBeInTheDocument();
+    // fix-294: field 9 is no longer a private task-notes textarea. It is the
+    // PERMIT's notes panel — the same one Project Overview and the permit
+    // detail mount — so a note typed here is visible to everybody.
+    expect(screen.getByTestId('task-detail-permit-notes')).toBeInTheDocument();
+    expect(screen.getByTestId('notes-panel')).toBeInTheDocument();
     expect(
       screen.getByTestId('task-detail-open-project'),
     ).toBeInTheDocument();
@@ -779,23 +793,20 @@ describe('MyTasks (fix-80 v1 three-pane kanban)', () => {
     expect(openOpt?.textContent).toBe('Not started');
   });
 
-  it('Notes blur-commit fires the upsert ONCE with the final value (not on every keystroke)', () => {
+  // fix-294: the blur-commit textarea this test guarded is GONE. It wrote
+  // permit_tasks.notes, which only this panel ever rendered — so its output was
+  // invisible to everyone but the author. The replacement is the permit's own
+  // NotesPanel; what is worth pinning now is that the task upsert can no longer
+  // carry a `notes` field at all.
+  it('the task detail can no longer write permit_tasks.notes', () => {
     tasksRef.current = [task({ id: 't1', bucket: 'de', notes: null })];
     renderIt();
     fireEvent.click(screen.getByTestId('mytask-card-t1'));
-    const notes = screen.getByTestId('task-detail-notes') as HTMLTextAreaElement;
-    // Type three keystrokes — none should fire mutate.
-    fireEvent.change(notes, { target: { value: 'W' } });
-    fireEvent.change(notes, { target: { value: 'Wa' } });
-    fireEvent.change(notes, { target: { value: 'Waiting on civil' } });
-    expect(upsertMutate).not.toHaveBeenCalled();
-    // Blur → single mutate with the final value.
-    fireEvent.blur(notes);
-    expect(upsertMutate).toHaveBeenCalledTimes(1);
-    expect(upsertMutate.mock.calls[0][0]).toMatchObject({
-      id: 't1',
-      notes: 'Waiting on civil',
-    });
+    expect(screen.queryByTestId('task-detail-notes')).toBeNull();
+    expect(screen.getByTestId('task-detail-permit-notes')).toBeInTheDocument();
+    for (const call of upsertMutate.mock.calls) {
+      expect(call[0]).not.toHaveProperty('notes');
+    }
   });
 
   it('fix-138-b: D&E bucket inner subgrid uses equal-width tracks (minmax(0,1fr) minmax(0,1fr))', () => {
@@ -1203,7 +1214,7 @@ describe('MyTasks view switcher (fix-140)', () => {
     expect(screen.queryByTestId('mytask-card-other')).toBeNull();
   });
 
-  it('fix-156: editing notes on a BOT task fires the upsert (full parity)', () => {
+  it('fix-156/fix-294: a BOT task gets the same permit notes panel (full parity)', () => {
     tasksRef.current = [
       task({
         id: 'bot-notes',
@@ -1217,15 +1228,122 @@ describe('MyTasks view switcher (fix-140)', () => {
     ];
     renderIt();
     fireEvent.click(screen.getByTestId('mytask-card-bot-notes'));
-    const notes = screen.getByTestId('task-detail-notes');
-    fireEvent.change(notes, {
-      target: { value: 'called the city — awaiting number' },
-    });
-    fireEvent.blur(notes);
-    expect(upsertMutate).toHaveBeenCalledTimes(1);
-    expect(upsertMutate.mock.calls[0][0]).toMatchObject({
-      id: 'bot-notes',
-      notes: 'called the city — awaiting number',
-    });
+    // fix-294: parity is now about the PERMIT notes panel — a BOT task gets the
+    // same shared notes surface as a human one, rather than the same private
+    // field nobody could read.
+    expect(screen.getByTestId('task-detail-permit-notes')).toBeInTheDocument();
+    expect(screen.getByTestId('notes-panel')).toBeInTheDocument();
+    expect(screen.queryByTestId('task-detail-notes')).toBeNull();
+  });
+});
+
+// ------------------------------------------------------------- fix-294 -----
+
+// Two problems, both about the same thing: My Tasks showing something
+// differently from everywhere else, or showing a control whose output goes
+// nowhere.
+
+describe('fix-294 subtasks nest under their parent', () => {
+  it('renders a subtask inside its parent group, not as a sibling row', () => {
+    tasksRef.current = [
+      task({ id: 'p', text: 'Parent task', primary_assignee: 'Trevor' }),
+      task({ id: 'c', text: 'Child task', parent_task_id: 'p', primary_assignee: 'Trevor' }),
+    ];
+    renderIt();
+    const group = screen.getByTestId('mytask-group-p');
+    expect(group).toContainElement(screen.getByTestId('mytask-card-p'));
+    expect(group).toContainElement(screen.getByTestId('mytask-card-c'));
+    // ...and the child is not its own top-level group.
+    expect(screen.queryByTestId('mytask-group-c')).toBeNull();
+  });
+
+  it('marks the subtask as a subtask and the parent as not', () => {
+    tasksRef.current = [
+      task({ id: 'p', primary_assignee: 'Trevor' }),
+      task({ id: 'c', parent_task_id: 'p', primary_assignee: 'Trevor' }),
+    ];
+    renderIt();
+    expect(screen.getByTestId('mytask-card-p')).toHaveAttribute('data-subtask', 'false');
+    expect(screen.getByTestId('mytask-card-c')).toHaveAttribute('data-subtask', 'true');
+  });
+
+  it('orders the parent above its subtask', () => {
+    tasksRef.current = [
+      task({ id: 'c', parent_task_id: 'p', primary_assignee: 'Trevor' }),
+      task({ id: 'p', primary_assignee: 'Trevor' }),
+    ];
+    renderIt();
+    const parent = screen.getByTestId('mytask-card-p');
+    const child = screen.getByTestId('mytask-card-c');
+    expect(
+      parent.compareDocumentPosition(child) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+  });
+
+  // ★ The case that must not regress. My Tasks filters, so a subtask assigned
+  // to you whose parent belongs to somebody else is routinely visible without
+  // it. Nesting it under an absent parent would delete it from your list.
+  it('still shows a subtask whose parent is not in the visible set', () => {
+    // The real shape after any filter: the child is here, the parent is not.
+    // Nesting it under an absent parent would delete it from the board.
+    tasksRef.current = [
+      task({ id: 'c', text: 'My child task', parent_task_id: 'absent-parent',
+             primary_assignee: 'Trevor' }),
+    ];
+    renderIt();
+    expect(screen.getByTestId('mytask-card-c')).toBeInTheDocument();
+    // Promoted to top level, so it reads as an ordinary row rather than a
+    // stray indent under nothing.
+    expect(screen.getByTestId('mytask-card-c')).toHaveAttribute('data-subtask', 'false');
+    expect(screen.getByTestId('mytask-group-c')).toBeInTheDocument();
+  });
+
+  it('nests inside the group-by-project view too', () => {
+    tasksRef.current = [
+      task({ id: 'p', primary_assignee: 'Trevor' }),
+      task({ id: 'c', parent_task_id: 'p', primary_assignee: 'Trevor' }),
+    ];
+    renderIt();
+    fireEvent.click(screen.getByTestId('mytasks-filter-byproject'));
+    const group = screen.getByTestId('mytask-group-p');
+    expect(group).toContainElement(screen.getByTestId('mytask-card-c'));
+  });
+});
+
+describe('fix-294 the notes box writes where people can see it', () => {
+  beforeEach(() => {
+    addNoteMutate.mockClear();
+  });
+
+  it('is the permit notes panel, not a private task field', () => {
+    tasksRef.current = [task({ id: 'a', permit_id: 42, primary_assignee: 'Trevor' })];
+    renderIt();
+    fireEvent.click(screen.getByTestId('mytask-card-a'));
+    expect(screen.getByTestId('task-detail-permit-notes')).toBeInTheDocument();
+    expect(screen.getByTestId('notes-panel')).toBeInTheDocument();
+    // ★ The old write surface is gone — not hidden, gone.
+    expect(screen.queryByTestId('task-detail-notes')).toBeNull();
+  });
+
+  it('never writes permit_tasks.notes again', () => {
+    tasksRef.current = [task({ id: 'a', permit_id: 42, primary_assignee: 'Trevor' })];
+    renderIt();
+    fireEvent.click(screen.getByTestId('mytask-card-a'));
+    // Exercise the panel; whatever it does must not be a task upsert carrying
+    // a `notes` field.
+    for (const call of upsertMutate.mock.calls) {
+      expect(call[0]).not.toHaveProperty('notes');
+    }
+  });
+
+  it('scopes the panel to the task own permit', () => {
+    // permit_tasks.permit_id is NOT NULL (0 of 1,057 rows lack one), so there
+    // is no "task without a permit" case to handle — the panel always has a
+    // permit to write against.
+    tasksRef.current = [task({ id: 'a', permit_id: 42, primary_assignee: 'Trevor' })];
+    renderIt();
+    fireEvent.click(screen.getByTestId('mytask-card-a'));
+    expect(screen.getByTestId('task-detail-permit-notes')).toBeInTheDocument();
+    expect(screen.getByTestId('notes-panel')).toBeInTheDocument();
   });
 });
