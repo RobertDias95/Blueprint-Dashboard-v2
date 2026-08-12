@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import { useProjectNotes, useAddNote, useUpdateNote } from '../../hooks/useNotes';
 import NoteRow from '../notes/NoteRow';
 import AddNoteBox from '../notes/AddNoteBox';
+import { OverviewCard, OverviewSection } from './OverviewCard';
 
 // fix-notes-1: unified Notes log — ONE reusable panel for both scopes:
 //   * Project Overview  -> <NotesPanel projectId={...} />            (holistic)
@@ -17,9 +18,25 @@ interface Props {
   /** A permit id scopes the panel to that permit's log; omit/null = the
    *  holistic project log (notes.permit_id IS NULL). */
   permitId?: number | null;
+  /** fix-290: how the panel frames itself.
+   *
+   *  'card'   — a full OverviewCard with the shared banner, for the Project
+   *             Overview grid, where it sits beside DD Phase and Project and
+   *             has to look like them.
+   *  'inline' — the original border-top block with a small heading, for the
+   *             permit detail, where it is a section of a larger panel and a
+   *             banner would claim a prominence it does not have there.
+   *
+   *  ★ Defaults to 'inline' so the permit-detail mount is unchanged by this
+   *  ticket. The overview opts in. */
+  variant?: 'card' | 'inline';
 }
 
-export default function NotesPanel({ projectId, permitId = null }: Props) {
+export default function NotesPanel({
+  projectId,
+  permitId = null,
+  variant = 'inline',
+}: Props) {
   const notesQ = useProjectNotes(projectId);
   const addNote = useAddNote();
   const updateNote = useUpdateNote();
@@ -48,16 +65,8 @@ export default function NotesPanel({ projectId, permitId = null }: Props) {
     [scoped],
   );
 
-  return (
-    <div
-      className="border-t p-3 flex flex-col gap-2"
-      style={{ borderTopColor: 'var(--color-border)' }}
-      data-testid="notes-panel"
-    >
-      <div className="text-[9px] font-extrabold text-text uppercase tracking-wider">
-        Notes
-      </div>
-
+  const body = (
+    <>
       <AddNoteBox
         testidPrefix="notes-panel"
         isPending={addNote.isPending}
@@ -122,6 +131,31 @@ export default function NotesPanel({ projectId, permitId = null }: Props) {
           )}
         </div>
       )}
+    </>
+  );
+
+  // fix-290: same body, two frames. The panel decides nothing about its own
+  // contents from `variant` — only what wraps them — so the two mounts can
+  // never drift in behaviour, only in chrome.
+  if (variant === 'card') {
+    return (
+      <OverviewCard title="Notes" testId="notes-panel">
+        <OverviewSection>
+          <div className="flex flex-col gap-2">{body}</div>
+        </OverviewSection>
+      </OverviewCard>
+    );
+  }
+  return (
+    <div
+      className="border-t p-3 flex flex-col gap-2"
+      style={{ borderTopColor: 'var(--color-border)' }}
+      data-testid="notes-panel"
+    >
+      <div className="text-[9px] font-extrabold text-text uppercase tracking-wider">
+        Notes
+      </div>
+      {body}
     </div>
   );
 }
