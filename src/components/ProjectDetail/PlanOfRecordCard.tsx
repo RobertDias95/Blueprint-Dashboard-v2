@@ -9,9 +9,7 @@ import {
   formatModified,
   hasThumbnail,
   missingThumbnailReason,
-  parentFolder,
   stageLabel,
-  uncToFileUrl,
 } from '../../lib/planOfRecord';
 import { pushToast } from '../../stores/toastStore';
 import type {
@@ -160,8 +158,8 @@ function PlanOfRecordBody({
         </div>
       )}
 
-      {/* Selectable, monospace, wrapping. This is how somebody actually gets to
-          the file when Open is blocked by the browser. */}
+      {/* Selectable, monospace, wrapping. fix-289: this is now the ONLY route
+          to the file, since the browser will not open a UNC path for us. */}
       <div
         className="font-mono text-[9px] text-muted rounded border px-1.5 py-1 mt-1.5 break-all leading-relaxed select-all"
         style={{
@@ -258,6 +256,18 @@ function Preview({
 
 // ------------------------------------------------------------------ actions --
 
+// ★ fix-289: THERE IS NO "OPEN" BUTTON, AND ONE MUST NOT BE ADDED BACK.
+//
+// Chrome and Edge silently refuse to navigate from an https page to a file:
+// URL or a UNC path. Nothing is thrown and no dialog appears — the click just
+// does nothing, which is worse than not offering it at all. This is a browser
+// security boundary, not a bug to route around: a file: anchor and
+// window.open() are both blocked, and a custom protocol handler would need
+// software installed on every machine that ever views this page.
+//
+// The clipboard is NOT restricted, so copying is the one thing that reliably
+// works. Copy path plus the visible, selectable path above it is the whole
+// mechanism, and the hint says where the copied text is meant to go.
 function PathActions({ row }: { row: ProjectPlanOfRecordRow }) {
   async function copy(text: string, what: string) {
     try {
@@ -269,35 +279,18 @@ function PathActions({ row }: { row: ProjectPlanOfRecordRow }) {
   }
 
   return (
-    <div className="flex flex-wrap gap-1.5 mt-1.5">
-      {/* Opening a UNC path from an https page is blocked by most browsers, so
-          Copy path sits right beside it and always works. */}
-      <a
-        href={uncToFileUrl(row.unc_path)}
-        target="_blank"
-        rel="noreferrer"
-        className="text-[10px] font-bold px-2 py-0.5 rounded border border-de bg-de text-white hover:opacity-90 transition"
-        data-testid="plan-of-record-open"
-      >
-        Open
-      </a>
+    <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
       <button
         type="button"
         onClick={() => copy(row.unc_path, 'Path')}
-        className="text-[10px] font-bold px-2 py-0.5 rounded border border-border bg-surface text-text hover:bg-s2 transition"
+        className="text-[10px] font-bold px-2 py-0.5 rounded border border-de bg-de text-white hover:opacity-90 transition"
         data-testid="plan-of-record-copy"
       >
         Copy path
       </button>
-      <button
-        type="button"
-        onClick={() => copy(parentFolder(row.unc_path), 'Folder path')}
-        title={parentFolder(row.unc_path)}
-        className="text-[10px] font-bold px-2 py-0.5 rounded border border-border bg-surface text-text hover:bg-s2 transition"
-        data-testid="plan-of-record-folder"
-      >
-        Show in folder
-      </button>
+      <span className="text-[9.5px] text-dim" data-testid="plan-of-record-copy-hint">
+        paste into File Explorer to open
+      </span>
     </div>
   );
 }

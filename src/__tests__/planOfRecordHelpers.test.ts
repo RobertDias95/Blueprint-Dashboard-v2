@@ -6,9 +6,7 @@ import {
   formatModified,
   hasThumbnail,
   missingThumbnailReason,
-  parentFolder,
   stageLabel,
-  uncToFileUrl,
 } from '../lib/planOfRecord';
 
 // fix-285: the pure helpers behind the Design Plan of Record card.
@@ -85,39 +83,32 @@ describe('formatModified', () => {
   });
 });
 
-describe('parentFolder', () => {
-  it('returns the directory holding the file', () => {
-    expect(parentFolder(UNC)).toContain('10044 - Marketing Plans');
-    expect(parentFolder(UNC)).not.toContain('set.pdf');
+// ★ fix-289: `uncToFileUrl` and `parentFolder` were DELETED from
+// src/lib/planOfRecord.ts along with the Open and "Show in folder" buttons they
+// fed, so the suites that exercised them are gone with them. This test asserts
+// the module no longer exports either one — a re-added helper is the first step
+// back toward a button that silently does nothing when clicked.
+describe('fix-289 no file:/UNC navigation helper survives', () => {
+  it('exports neither uncToFileUrl nor parentFolder', async () => {
+    const mod = await import('../lib/planOfRecord');
+    expect('uncToFileUrl' in mod).toBe(false);
+    expect('parentFolder' in mod).toBe(false);
   });
 
-  it('handles a file loose at the project root (design guidance)', () => {
-    const root = '\\\\bpc-file\\Share\\Building Permits\\1 A St\\1 - DG.pdf';
-    expect(parentFolder(root)).toBe('\\\\bpc-file\\Share\\Building Permits\\1 A St');
-  });
-
-  it('is safe on empty input', () => {
-    expect(parentFolder('')).toBe('');
-    expect(parentFolder(null)).toBe('');
-  });
-});
-
-describe('uncToFileUrl', () => {
-  it('builds a file: URL from a UNC path', () => {
-    const url = uncToFileUrl('\\\\bpc-file\\Share\\a.pdf');
-    expect(url).toBe('file://bpc-file/Share/a.pdf');
-  });
-
-  it('escapes spaces and punctuation so the URL stays valid', () => {
-    const url = uncToFileUrl(UNC);
-    expect(url.startsWith('file://bpc-file/')).toBe(true);
-    expect(url).not.toContain(' ');
-    expect(url).not.toContain('\\');
-  });
-
-  it('is blank on empty input rather than "file://"', () => {
-    expect(uncToFileUrl('')).toBe('');
-    expect(uncToFileUrl(null)).toBe('');
+  it('no exported helper returns a file: URL for a UNC path', async () => {
+    const mod = await import('../lib/planOfRecord');
+    for (const value of Object.values(mod)) {
+      if (typeof value !== 'function') continue;
+      let out: unknown;
+      try {
+        out = (value as (s: string) => unknown)(UNC);
+      } catch {
+        continue; // helpers that take a row, not a string
+      }
+      if (typeof out === 'string') {
+        expect(out.toLowerCase().startsWith('file:')).toBe(false);
+      }
+    }
   });
 });
 

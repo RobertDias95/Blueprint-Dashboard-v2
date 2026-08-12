@@ -69,34 +69,17 @@ export function formatModified(iso: string | null | undefined): string {
   });
 }
 
-/** The directory the file sits in — everything before the last backslash.
- *
- *  Used by "Show in folder". Design guidance has folder_name NULL because it is
- *  loose at the project root, so this is derived from the path rather than read
- *  off the column.
- */
-export function parentFolder(uncPath: string | null | undefined): string {
-  if (!uncPath) return '';
-  const i = uncPath.lastIndexOf('\\');
-  return i > 1 ? uncPath.slice(0, i) : uncPath;
-}
-
-/**
- * A `file:` URL for a UNC path, for the Open button.
- *
- * `\\bpc-file\SoleilData\x\y.pdf` → `file://bpc-file/SoleilData/x/y.pdf`
- *
- * ★ Browsers block navigation to file: URLs from an https page, so this is NOT
- * a link that "just works" — it is what goes on the clipboard and into the
- * href for the browsers and shells that do honour it. The card therefore also
- * offers Copy path, which always works, and the empty/failed states never
- * depend on this succeeding.
- */
-export function uncToFileUrl(uncPath: string | null | undefined): string {
-  if (!uncPath) return '';
-  const stripped = uncPath.replace(/^\\\\/, '');
-  return `file://${stripped.split('\\').map(encodeURIComponent).join('/')}`;
-}
+// ★ fix-289: `uncToFileUrl` AND `parentFolder` WERE DELETED HERE, DELIBERATELY.
+//
+// They existed only to feed the card's Open and "Show in folder" buttons, and
+// those buttons could not work: Chrome and Edge block navigation from an https
+// page to a file: URL or a UNC path, silently. The helper was not wrong — it
+// minted a correct file: URL — but a correct URL the browser refuses to follow
+// is a button that does nothing.
+//
+// If a future ask is "let me open the file from the dashboard", the answer is
+// not a file: URL, a window.open, or a custom protocol handler. It is serving
+// the PDF over https (the thumbnail already is, via a signed Storage URL).
 
 /** True when the row has a usable, successfully-rendered thumbnail.
  *
