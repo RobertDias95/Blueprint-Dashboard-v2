@@ -149,19 +149,18 @@ function PlanOfRecordBody({
         </div>
       )}
 
-      {/* Selectable, monospace, wrapping. fix-289: this is now the ONLY route
-          to the file, since the browser will not open a UNC path for us. */}
-      <div
-        className="font-mono text-[9px] text-muted rounded border px-1.5 py-1 mt-1.5 break-all leading-relaxed select-all"
-        style={{
-          background: 'var(--color-s2)',
-          borderColor: 'var(--color-border)',
-        }}
-        data-testid="plan-of-record-path"
-      >
-        {row.unc_path}
-      </div>
+      {/* ★ fix-295: THE PATH IS NO LONGER ON THE CARD FACE.
+          It rendered the full UNC string, wrapped to three or four lines, and
+          was the tallest single element on the card -- a third of its height
+          spent on something nobody acts on. The room goes to the preview, which
+          is the only content here whose usefulness is bound by resolution.
 
+          It is NOT gone: it still renders inside the lightbox, where there is
+          space and where somebody who deliberately opened the file is far more
+          likely to want it. And Copy path stays exactly where it was -- fix-289
+          established that browsers will not open a UNC path from https, so it
+          is the only route from this card to the actual file. Removing it would
+          strand the card. */}
       <PathActions row={row} />
     </>
   );
@@ -198,7 +197,7 @@ function Preview({
   if (!usable || thumbQ.error || (!thumbQ.isLoading && !thumbQ.data)) {
     return (
       <div
-        className="rounded border border-dashed flex items-center justify-center text-center px-3 py-8 min-h-[160px] text-[10px] text-dim leading-relaxed"
+        className="rounded border border-dashed flex items-center justify-center text-center px-3 py-8 min-h-[260px] text-[10px] text-dim leading-relaxed"
         style={{ borderColor: 'var(--color-border)' }}
         data-testid="plan-of-record-no-preview"
       >
@@ -210,7 +209,7 @@ function Preview({
   if (thumbQ.isLoading) {
     return (
       <div
-        className="rounded border animate-pulse min-h-[160px]"
+        className="rounded border animate-pulse min-h-[260px]"
         style={{
           borderColor: 'var(--color-border)',
           background: 'var(--color-s2)',
@@ -296,6 +295,21 @@ function Lightbox({
   onClose: () => void;
 }) {
   const thumbQ = usePlanOfRecordThumbnail(hasThumbnail(row) ? row.thumb_path : null);
+  // ★ fix-295: THE ENLARGE IS CAPPED, AND NOT BY THIS REPO.
+  //
+  // The thumbnails are rendered by the SCRAPER (file_indexer/thumbnails.py,
+  // MAX_WIDTH = 900, JPEG_QUALITY = 80) and stored in the plan-thumbnails
+  // bucket. 900px is the whole source. Displaying it wider upscales a JPEG, so
+  // the enlarge gets bigger and LESS readable -- the opposite of what was asked
+  // for. Sharp at 900 beats blurry at 1800.
+  //
+  // So the dialog takes the viewport, and the IMAGE is capped at its own
+  // natural width. Read from the loaded bitmap rather than hardcoded to 900:
+  // when the scraper ticket raises MAX_WIDTH and re-renders, this widens on its
+  // own with no change here. Empty space beside a 900px image in a wider dialog
+  // is the correct and honest result -- it is the render resolution showing
+  // through, and it is the signal that the fix belongs upstream.
+  const [naturalWidth, setNaturalWidth] = useState<number | null>(null);
 
   const meta = [formatModified(row.modified_at), formatFileSize(row.size_kb)]
     .filter(Boolean)
@@ -313,7 +327,7 @@ function Lightbox({
       data-testid="plan-of-record-lightbox"
     >
       <div
-        className="bg-surface rounded-lg p-3.5 w-full max-w-3xl max-h-full overflow-y-auto"
+        className="bg-surface rounded-lg p-3.5 w-full max-w-[min(96vw,1400px)] max-h-full overflow-y-auto"
         onClick={(e) => e.stopPropagation()}
         role="dialog"
         aria-modal="true"
@@ -346,8 +360,16 @@ function Lightbox({
           <img
             src={thumbQ.data}
             alt={`Page 1 of ${row.file_name}`}
-            className="block w-full h-auto rounded border"
-            style={{ borderColor: 'var(--color-border)' }}
+            className="block w-full h-auto rounded border mx-auto"
+            onLoad={(e) =>
+              setNaturalWidth(e.currentTarget.naturalWidth || null)
+            }
+            style={{
+              borderColor: 'var(--color-border)',
+              // The whole no-upscale rule, in one line. width:100% via the
+              // class fills the dialog; this stops it past the source width.
+              maxWidth: naturalWidth ? `${naturalWidth}px` : undefined,
+            }}
             data-testid="plan-of-record-lightbox-img"
           />
         ) : (
@@ -359,12 +381,15 @@ function Lightbox({
           </div>
         )}
 
+        {/* fix-295: the path lives HERE now, not on the card face. Same
+            monospace, selectable treatment it always had. */}
         <div
           className="font-mono text-[9px] text-muted rounded border px-1.5 py-1 mt-2.5 break-all leading-relaxed select-all"
           style={{
             background: 'var(--color-s2)',
             borderColor: 'var(--color-border)',
           }}
+          data-testid="plan-of-record-lightbox-path"
         >
           {row.unc_path}
         </div>

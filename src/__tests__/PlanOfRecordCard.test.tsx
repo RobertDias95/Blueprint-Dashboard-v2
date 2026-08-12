@@ -174,11 +174,25 @@ describe('fix-285 the file card', () => {
     expect(meta).toHaveTextContent('17 MB');
   });
 
-  it('shows the FULL UNC path, selectable and monospace', async () => {
+  // ★ fix-295: the path is OFF the card face. It wrapped to three or four
+  // lines and was the tallest single element on the card -- a third of its
+  // height spent on a string nobody acts on. The room went to the preview.
+  it('does NOT show the UNC path on the card face', async () => {
     state.row = row();
     renderCard();
-    const path = await screen.findByTestId('plan-of-record-path');
-    expect(path).toHaveTextContent('bpc-file');
+    await screen.findByTestId('plan-of-record-filename');
+    expect(screen.queryByTestId('plan-of-record-path')).toBeNull();
+    // ...and the card does not smuggle it back in as loose text.
+    expect(screen.queryByText(UNC)).toBeNull();
+  });
+
+  // It is moved, not deleted -- the lightbox has room, and somebody who has
+  // deliberately opened the file is far likelier to want it.
+  it('shows the FULL UNC path inside the lightbox, selectable and monospace', async () => {
+    state.row = row();
+    renderCard();
+    fireEvent.click(await screen.findByTestId('plan-of-record-preview'));
+    const path = screen.getByTestId('plan-of-record-lightbox-path');
     expect(path.textContent).toBe(UNC);
     expect(path.className).toContain('font-mono');
     expect(path.className).toContain('select-all');
@@ -249,9 +263,9 @@ describe('fix-285 the empty state is a real case, not a hypothetical', () => {
     state.row = null;
     renderCard();
     await screen.findByTestId('plan-of-record-empty');
-    expect(screen.queryByTestId('plan-of-record-path')).toBeNull();
     expect(screen.queryByTestId('plan-of-record-copy')).toBeNull();
     expect(screen.queryByTestId('plan-of-record-preview')).toBeNull();
+    expect(screen.queryByTestId('plan-of-record-filename')).toBeNull();
   });
 
   it('does not read like an error', async () => {
@@ -273,7 +287,9 @@ describe('fix-285 a missing thumbnail degrades to the file card', () => {
     expect(screen.queryByTestId('plan-of-record-preview-img')).toBeNull();
     // Everything else still works.
     expect(screen.getByTestId('plan-of-record-filename')).toBeInTheDocument();
-    expect(screen.getByTestId('plan-of-record-path')).toHaveTextContent('bpc-file');
+    expect(screen.getByTestId('plan-of-record-meta')).toBeInTheDocument();
+    // fix-295: the path is no longer on the face, so Copy path is what has to
+    // survive a failed render -- it is the only route from here to the file.
     expect(screen.getByTestId('plan-of-record-copy')).toBeInTheDocument();
   });
 
@@ -440,5 +456,88 @@ describe('fix-285 a failed row fetch stays calm', () => {
     const err = await screen.findByTestId('plan-of-record-error');
     expect(err).toHaveTextContent(/could not be loaded/i);
     expect(screen.getByTestId('plan-of-record-retry')).toBeInTheDocument();
+  });
+});
+
+// ------------------------------------------------------------- fix-295 -----
+
+// The card works; it was too small to do its job and spent a third of its
+// height on a string nobody reads. Three changes: drop the path from the face,
+// enlarge the preview, and enlarge the lightbox WITHOUT upscaling the image.
+
+describe('fix-295 the path moved off the card face', () => {
+  it('keeps Copy path, which is the only route from the card to the file', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.assign(navigator, { clipboard: { writeText } });
+    state.row = row();
+    renderCard();
+    fireEvent.click(await screen.findByTestId('plan-of-record-copy'));
+    // ★ Still the FULL UNC path, even though it is no longer displayed.
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith(UNC));
+  });
+
+  it('still offers no Open or Show in folder (fix-289 stays fixed)', async () => {
+    state.row = row();
+    renderCard();
+    await screen.findByTestId('plan-of-record-copy');
+    expect(screen.queryByTestId('plan-of-record-open')).toBeNull();
+    expect(screen.queryByTestId('plan-of-record-folder')).toBeNull();
+  });
+});
+
+describe('fix-295 the enlarge is capped by the render, not by the viewport', () => {
+  /** Fire a load event carrying a natural width, the way a real bitmap would. */
+  function loadWith(img: HTMLElement, naturalWidth: number) {
+    Object.defineProperty(img, 'naturalWidth', {
+      value: naturalWidth,
+      configurable: true,
+    });
+    fireEvent.load(img);
+  }
+
+  // ★ THE ASSERTION THE BRIEF ASKS FOR. The thumbnails come from the scraper
+  // (file_indexer/thumbnails.py, MAX_WIDTH = 900). Displaying one wider than
+  // its source upscales a JPEG, so the enlarge gets bigger and LESS readable --
+  // the opposite of the request. This is what stops a future change quietly
+  // reintroducing that.
+  it('never renders the image wider than its natural width', async () => {
+    state.row = row();
+    renderCard();
+    fireEvent.click(await screen.findByTestId('plan-of-record-preview'));
+    const img = screen.getByTestId('plan-of-record-lightbox-img');
+    loadWith(img, 900);
+    expect(img.style.maxWidth).toBe('900px');
+  });
+
+  // Read from the loaded bitmap rather than hardcoded, so when the companion
+  // scraper ticket raises MAX_WIDTH and re-renders, the lightbox widens on its
+  // own with no change here.
+  it('follows the source width rather than a hardcoded 900', async () => {
+    state.row = row();
+    renderCard();
+    fireEvent.click(await screen.findByTestId('plan-of-record-preview'));
+    const img = screen.getByTestId('plan-of-record-lightbox-img');
+    loadWith(img, 1600);
+    expect(img.style.maxWidth).toBe('1600px');
+  });
+
+  it('sets no cap before the image has loaded, rather than guessing one', async () => {
+    state.row = row();
+    renderCard();
+    fireEvent.click(await screen.findByTestId('plan-of-record-preview'));
+    expect(
+      screen.getByTestId('plan-of-record-lightbox-img').style.maxWidth,
+    ).toBe('');
+  });
+
+  it('applies no transform, filter or zoom to fake extra resolution', async () => {
+    state.row = row();
+    renderCard();
+    fireEvent.click(await screen.findByTestId('plan-of-record-preview'));
+    const img = screen.getByTestId('plan-of-record-lightbox-img');
+    loadWith(img, 900);
+    expect(img.style.transform).toBe('');
+    expect(img.style.filter).toBe('');
+    expect(img.style.imageRendering).toBe('');
   });
 });
