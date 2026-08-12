@@ -1,4 +1,6 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { nestSubtasks, type TaskGroup } from '../lib/taskNesting';
+import NotesPanel from '../components/ProjectDetail/NotesPanel';
+import { useEffect, useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import WaitingOnView from '../components/MyTasks/WaitingOnView';
 import BotBadge from '../components/shared/BotBadge';
@@ -1035,13 +1037,13 @@ function SubColumn({
         </span>
       </div>
       <div className="flex flex-col gap-1.5">
-        {tasks.map((t) => (
-          <TaskCard
-            key={t.id}
-            task={t}
+        {nestSubtasks(tasks).map((g) => (
+          <TaskGroupRows
+            key={g.task.id}
+            group={g}
             today={today}
-            isSelected={selectedId === t.id}
-            onSelect={() => onSelect(t.id)}
+            selectedId={selectedId}
+            onSelect={onSelect}
           />
         ))}
       </div>
@@ -1108,17 +1110,55 @@ function ProjectGroupedView({
             </span>
           </div>
           <div className="p-2 flex flex-col gap-1.5">
-            {g.tasks.map((t) => (
-              <TaskCard
-                key={t.id}
-                task={t}
+            {nestSubtasks(g.tasks).map((grp) => (
+              <TaskGroupRows
+                key={grp.task.id}
+                group={grp}
                 today={today}
-                isSelected={selectedId === t.id}
-                onSelect={() => onSelect(t.id)}
+                selectedId={selectedId}
+                onSelect={onSelect}
               />
             ))}
           </div>
         </div>
+      ))}
+    </div>
+  );
+}
+
+/** fix-294: one parent card followed by its subtasks, as a single visual group.
+ *  Both list renderers use this so the two views cannot drift apart. */
+function TaskGroupRows({
+  group,
+  today,
+  selectedId,
+  onSelect,
+}: {
+  group: TaskGroup<Task>;
+  today: string;
+  selectedId: string | null;
+  onSelect: (id: string) => void;
+}) {
+  return (
+    <div
+      className="flex flex-col gap-1.5"
+      data-testid={`mytask-group-${group.task.id}`}
+    >
+      <TaskCard
+        task={group.task}
+        today={today}
+        isSelected={selectedId === group.task.id}
+        onSelect={() => onSelect(group.task.id)}
+      />
+      {group.subtasks.map((s) => (
+        <TaskCard
+          key={s.id}
+          task={s}
+          today={today}
+          isSelected={selectedId === s.id}
+          onSelect={() => onSelect(s.id)}
+          isSubtask
+        />
       ))}
     </div>
   );
@@ -1129,11 +1169,16 @@ function TaskCard({
   today,
   isSelected,
   onSelect,
+  // fix-294: a subtask renders indented under its parent with a left rule,
+  // matching how Project Overview has always drawn them (PermitDetailV2's
+  // TaskItem). Same task, same shape, whichever screen you are on.
+  isSubtask = false,
 }: {
   task: Task;
   today: string;
   isSelected: boolean;
   onSelect: () => void;
+  isSubtask?: boolean;
 }) {
   const upsert = useUpsertTask();
   const overdue = isOverdue(task, today);
@@ -1178,8 +1223,13 @@ function TaskCard({
         borderColor: isSelected ? 'var(--color-de)' : 'var(--color-border)',
         background: isSelected ? 'var(--color-de-bg)' : 'var(--color-bg)',
         borderWidth: isSelected ? 2 : 1,
+        // fix-294: indent + a left rule, the same vocabulary the Overview uses.
+        ...(isSubtask
+          ? { marginLeft: 14, borderLeftWidth: 2, borderLeftColor: 'var(--color-border)' }
+          : null),
       }}
       data-testid={`mytask-card-${task.id}`}
+      data-subtask={isSubtask ? 'true' : 'false'}
       data-selected={isSelected ? 'true' : 'false'}
     >
       <div className="flex items-start gap-1.5">
@@ -1374,8 +1424,11 @@ function TaskDetailEditor({
   // Notes is the only multi-line free-form field — debounce-commit on
   // blur via local draft + onBlur. Every other field commits on change
   // (single click / single pick).
-  const [notesDraft, setNotesDraft] = useState<string>(task.notes ?? '');
-  const notesInitial = useRef<string>(task.notes ?? '');
+  // fix-294: the notesDraft / notesInitial / commitNotes trio is GONE with the
+  // box it fed. permit_tasks.notes is frozen -- nothing in the app writes it
+  // any more -- so leaving the commit path here would be a loaded gun: the next
+  // person to add a "Notes" field would find a working writer for a column
+  // nothing reads.
 
   function patch(p: Partial<Parameters<typeof upsert.mutate>[0]>) {
     upsert.mutate({
@@ -1395,17 +1448,6 @@ function TaskDetailEditor({
       // Other optional fields stay 3-state (undefined = leave unchanged).
       ...p,
     });
-  }
-
-  function commitNotes() {
-    const next = notesDraft;
-    if (next === notesInitial.current) return;
-    if (next.trim() === '') {
-      patch({ notes: null, clearNotes: true });
-    } else {
-      patch({ notes: next });
-    }
-    notesInitial.current = next;
   }
 
   function commitDate(
@@ -1657,19 +1699,26 @@ function TaskDetailEditor({
           />
         </FieldRow>
 
-        {/* 9 Notes — multiline, blur-commit */}
-        <div className="flex flex-col gap-0.5">
-          <FieldLabel>Notes</FieldLabel>
-          <textarea
-            value={notesDraft}
-            onChange={(e) => setNotesDraft(e.target.value)}
-            onBlur={commitNotes}
-            rows={3}
-            placeholder="—"
-            className="text-[11px] px-2 py-1 border rounded outline-none resize-vertical"
-            style={inputStyle()}
-            data-testid="task-detail-notes"
-          />
+        {/* ★ fix-294: 9 Notes — now the PERMIT's notes, not a private field.
+            This box used to write permit_tasks.notes, which was rendered on
+            exactly one screen: this panel. Nothing on Project Overview, the
+            permit detail, or any report ever read it back, so 19 real
+            operational notes ("Holding for MHA", "Pending Builder Signature",
+            paths to picked-up redlines) were invisible to everyone but the
+            person who typed them. Those 19 were migrated onto their permits;
+            permit_tasks.notes is now frozen and unwritten, the same treatment
+            fix-notes-1 gave the legacy per-permit notes columns.
+
+            It is the same NotesPanel the permit detail and Project Overview
+            mount, scoped to this task's permit — so a note typed here appears
+            where people actually look, and one typed there appears here. */}
+        {/* No "task has no permit" fallback, deliberately: permit_tasks.permit_id
+            is NOT NULL and 0 of the 1,057 production rows are without one, so a
+            branch for it would be a state that cannot occur — the same kind of
+            invented emptiness this ticket is removing. */}
+        <div className="flex flex-col gap-0.5" data-testid="task-detail-permit-notes">
+          <FieldLabel>Notes on this permit</FieldLabel>
+          <NotesPanel projectId={task.project_id} permitId={task.permit_id} />
         </div>
       </div>
 
