@@ -102,11 +102,23 @@ export default function ProjectDetailHeader({
           Project was wide enough to hide its own second section. Both narrow;
           the room goes to Notes (under DD Phase) and to the Plan of Record
           preview, which is the only card whose content is genuinely
-          resolution-bound. */}
+          resolution-bound.
+
+          ★ fix-295 widened `por` again, 1.10fr -> 1.58fr, and the room comes
+          from TEAM (0.86 -> 0.74) and BUILDER/OWNER (0.84 -> 0.72) -- both text
+          that reflows -- plus a shaving off DD Phase (0.90 -> 0.86). NOT from
+          Project: fix-290 already narrowed that to the point where it hid its
+          own Site section, and undoing that would re-create the bug fix-290
+          existed to fix.
+
+          At 1440px the Plan of Record column goes from ~320px to ~444px, and at
+          1920px from ~437px to ~606px -- judged by rendering both, not by
+          arithmetic alone. The preview is the only content on this row bound by
+          resolution; everything else reflows. */}
       <div
         className="grid gap-2.5 items-start"
         style={{
-          gridTemplateColumns: '0.90fr 1.00fr 0.86fr 1.10fr 0.84fr',
+          gridTemplateColumns: '0.86fr 1.00fr 0.74fr 1.58fr 0.72fr',
           gridTemplateAreas: '"dd proj team por builder" "notes proj team por builder"',
         }}
         data-testid="project-overview-grid"

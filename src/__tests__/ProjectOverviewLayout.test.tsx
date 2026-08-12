@@ -121,6 +121,28 @@ describe('fix-285 the five-column overview row', () => {
     const grid = screen.getByTestId('project-overview-grid');
     expect(grid.style.gridTemplateColumns.trim().split(/\s+/)).toHaveLength(5);
   });
+
+  // fix-295: the Plan of Record column is the widest of the five. Its preview
+  // is the only content on this row whose usefulness is bound by resolution --
+  // everything else is text that reflows -- so the room went to it, taken from
+  // Team and Builder/Owner and NOT from Project (fix-290 already narrowed that
+  // to the point where it hid its own Site section).
+  it('gives the Plan of Record column the most width', () => {
+    renderHeader();
+    const cols = screen
+      .getByTestId('project-overview-grid')
+      .style.gridTemplateColumns.trim()
+      .split(/\s+/)
+      .map((c) => parseFloat(c));
+    const [dd, proj, team, por, builder] = cols;
+    expect(por).toBeGreaterThan(proj);
+    expect(por).toBeGreaterThan(team);
+    expect(por).toBeGreaterThan(builder);
+    expect(por).toBeGreaterThan(dd);
+    // ...and Project keeps the width fix-290 gave it, so its Site section
+    // cannot be squeezed back out of view.
+    expect(proj).toBeGreaterThanOrEqual(1);
+  });
 });
 
 describe('fix-285 Notes moved up', () => {
