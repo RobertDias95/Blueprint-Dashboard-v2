@@ -26,9 +26,13 @@ import type { CorrectionItem } from '../lib/database.types';
 /** Columns the Corrections panel reads. Explicit rather than `*` so a widening
  *  of the table (the indexer owns its own schema) can't quietly start shipping
  *  extracted letter text this UI has no use for. */
+//
+// fix-283a: the flag comes back here too, so any consumer of one project's rows
+// can apply isRealCorrection() rather than counting drawing text.
 const SELECT_COLUMNS =
   'id,project_id,permit_id,building,discipline,cycle,letter_date,reviewer,' +
-  'item_no,subject,body,codes,category,theme,source_file';
+  'item_no,subject,body,codes,category,theme,source_file,' +
+  'is_correction,exclusion_reason';
 
 export function useCorrectionItems(projectId: string | undefined) {
   const tenantId = useAuthStore((s) => s.activeTenantId);

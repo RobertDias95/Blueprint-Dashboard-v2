@@ -358,6 +358,22 @@ export interface CorrectionItem {
   /** Cross-jurisdiction rollup of `category` — the comparable axis. */
   theme: string | null;
   source_file: string;
+  /** fix-283a: false when the indexer decided this row is not a review comment
+   *  — drawing text captured from the other column of a two-column letter,
+   *  letter boilerplate, or an item the reviewer marked informational. 141 of
+   *  2,194 production rows.
+   *
+   *  ★ DEFAULTS TRUE IN THE DATABASE, so an unclassified row counts as a
+   *  correction and the filter can only ever remove rows deliberately. Typed
+   *  optional because rows fetched by a caller that does not select it are a
+   *  legitimate shape — treat a missing value as `true`, which is what
+   *  isRealCorrection() does. */
+  is_correction?: boolean;
+  /** fix-283a: which rule excluded the row — 'explicit' | 'boilerplate' |
+   *  'drawing_text' | 'scrambled'. NULL whenever is_correction is true, and a
+   *  CHECK constraint keeps the pair consistent. The rules live in the
+   *  scraper's file_indexer/corrections_filter.py; this repo only reads. */
+  exclusion_reason?: string | null;
 }
 
 // fix-285: a row of public.project_plan_of_record — the current design set for

@@ -391,3 +391,119 @@ describe('fix-277 CSV export', () => {
     expect(screen.getByTestId('corrections-export-csv')).toHaveAttribute('data-disabled', 'false');
   });
 });
+
+// ------------------------------------------------------ fix-283a: excluded ---
+
+// Roughly a quarter of correction_items was suspected of not being corrections
+// at all — Seattle's two-column letters put drawing text through the extractor
+// alongside the reviewer's comments. The indexer now flags those rows; this
+// report must stop counting them, WITHOUT hiding that it did.
+
+describe('fix-283a the report excludes rows the indexer flagged', () => {
+  it('asks the database for the flag', async () => {
+    state.rows = [item()];
+    renderPage();
+    await screen.findByTestId('corrections-summary');
+    expect(state.select).toContain('is_correction');
+    expect(state.select).toContain('exclusion_reason');
+  });
+
+  it('leaves flagged rows out of every headline count', async () => {
+    state.rows = [
+      item({ project_id: 'p1' }),
+      item({ project_id: 'p1' }),
+      item({ project_id: 'p2', is_correction: false, exclusion_reason: 'drawing_text' }),
+      item({ project_id: 'p2', is_correction: false, exclusion_reason: 'explicit' }),
+    ];
+    renderPage();
+    const summary = await screen.findByTestId('corrections-summary');
+    // Two real comments, and — the point of the ticket — ONE project, not two.
+    expect(within(summary).getByTestId('corrections-stat-items')).toHaveTextContent('2');
+    expect(within(summary).getByTestId('corrections-stat-projects')).toHaveTextContent('1');
+  });
+
+  // ★ The brief's specific requirement: the denominator becomes "projects with
+  // at least one CORRECTION", recomputed rather than carried over. p2's only
+  // rows are excluded, so it must leave the denominator entirely.
+  it('recomputes the prevalence denominator, not just the numerators', async () => {
+    state.rows = [
+      item({ project_id: 'p1' }),
+      item({ project_id: 'p2', is_correction: false, exclusion_reason: 'boilerplate' }),
+    ];
+    renderPage();
+    const denom = await screen.findByTestId('prevalence-denominator');
+    expect(denom).toHaveTextContent('1');
+    expect(denom).not.toHaveTextContent('2');
+  });
+
+  it('says how many rows it dropped, on every view and without being asked', async () => {
+    state.rows = [
+      item(),
+      item({ is_correction: false, exclusion_reason: 'drawing_text' }),
+      item({ is_correction: false, exclusion_reason: 'drawing_text' }),
+      item({ is_correction: false, exclusion_reason: 'explicit' }),
+    ];
+    renderPage();
+    const note = await screen.findByTestId('corrections-exclusion-note');
+    expect(within(note).getByTestId('corrections-excluded-count')).toHaveTextContent('3');
+    expect(note).toHaveTextContent(/2 drawing text/i);
+    expect(note).toHaveTextContent(/1 marked not a correction/i);
+  });
+
+  it('shows nothing at all when nothing was excluded', async () => {
+    state.rows = [item(), item()];
+    renderPage();
+    await screen.findByTestId('corrections-summary');
+    expect(screen.queryByTestId('corrections-exclusion-note')).toBeNull();
+  });
+
+  it('lists the excluded rows, with their text, grouped by reason', async () => {
+    state.rows = [
+      item(),
+      item({
+        subject: 'ALL VERTICAL FENESTRATION U-VALUE TO BE 0.28',
+        body: '',
+        is_correction: false,
+        exclusion_reason: 'drawing_text',
+      }),
+    ];
+    renderPage();
+    fireEvent.click(await screen.findByTestId('corrections-exclusion-show'));
+    const group = await screen.findByTestId('corrections-excluded-drawing_text');
+    expect(group).toHaveTextContent('Drawing text');
+    // The TEXT is the evidence — a label and a count alone would let a wrong
+    // rule hide behind a plausible name.
+    expect(group).toHaveTextContent(/ALL VERTICAL FENESTRATION/);
+  });
+
+  // A row whose flag was never selected, or which predates the migration, is a
+  // correction. Nothing about this filter may be able to shrink a count by
+  // accident — under-counting is the failure it exists to fix.
+  it('counts a row with no flag at all', async () => {
+    const noFlag = item();
+    delete (noFlag as Partial<CorrectionItem>).is_correction;
+    state.rows = [noFlag];
+    renderPage();
+    const summary = await screen.findByTestId('corrections-summary');
+    expect(within(summary).getByTestId('corrections-stat-items')).toHaveTextContent('1');
+    expect(screen.queryByTestId('corrections-exclusion-note')).toBeNull();
+  });
+
+  it('keeps the excluded rows out of the item drill-down', async () => {
+    state.rows = [
+      item({ subject: 'A real correction' }),
+      item({
+        subject: 'CAPTURED DRAWING TEXT',
+        is_correction: false,
+        exclusion_reason: 'drawing_text',
+      }),
+    ];
+    renderPage();
+    await screen.findByTestId('corrections-summary');
+    const tabs = screen.getByTestId('corrections-view-tabs');
+    fireEvent.click(within(tabs).getByText('Items'));
+    const items = await screen.findByTestId('corrections-items');
+    expect(items).toHaveTextContent('A real correction');
+    expect(items).not.toHaveTextContent('CAPTURED DRAWING TEXT');
+  });
+});
