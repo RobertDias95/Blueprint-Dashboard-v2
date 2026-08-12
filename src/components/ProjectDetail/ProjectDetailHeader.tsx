@@ -219,23 +219,33 @@ function DDPhaseCell({
     // fix-148: Closing date renders above whichever editor mounts.
     if (project.redesign_of_project_id && project.redesign_reuses_original_permit) {
       return (
-        <OverviewCard title="DD Phase" testId="pd-dd-phase-card">
-          <OverviewSection>
+        <OverviewCard title="Milestones" testId="pd-milestones-card">
+          <OverviewSection title="Key dates">
             <div className="flex flex-col gap-1.5">
               <ClosingRow project={project} />
-              <ReuseRedesignDdEditor project={project} />
             </div>
+          </OverviewSection>
+          <OverviewSection title="Draw window">
+            {/* fix-145: a reuse-redesign has no BP permit but DOES carry a
+                draw_schedule lane, so the inline lane editor renders here --
+                DA, dates and status are one control acting on one block. */}
+            <ReuseRedesignDdEditor project={project} />
           </OverviewSection>
         </OverviewCard>
       );
     }
     return (
-      <OverviewCard title="DD Phase" testId="pd-dd-phase-card">
-        <OverviewSection>
+      <OverviewCard title="Milestones" testId="pd-milestones-card">
+        <OverviewSection title="Key dates">
           <div className="flex flex-col gap-1.5">
             <ClosingRow project={project} />
-            <div className="text-[11px] text-dim">No building permit</div>
           </div>
+        </OverviewSection>
+        <OverviewSection title="Draw window">
+          {/* The draw block hangs off the building permit, so there is no
+              window to show until one exists. Said plainly under the heading it
+              belongs to rather than as a loose line among the dates. */}
+          <div className="text-[11px] text-dim">No building permit</div>
         </OverviewSection>
       </OverviewCard>
     );
@@ -430,8 +440,17 @@ function DDPhaseEditor({
 
   return (
     <>
-      <OverviewCard title="DD Phase" testId="pd-dd-phase-card">
-       <OverviewSection>
+      <OverviewCard title="Milestones" testId="pd-milestones-card">
+       {/* ★ fix-296: two sections, because these are two different kinds of
+           date and reading them as one list is what made "Start"/"End"
+           ambiguous in the first place.
+
+           KEY DATES first, deliberately, though the brief listed the design
+           window first: it preserves today's reading order (Closing, GO,
+           Target Submit have always been at the top), and these are the dates
+           the card is now NAMED for. The draw block then reads as a unit with
+           its own duration underneath. */}
+       <OverviewSection title="Key dates">
         <div className="flex flex-col gap-1.5">
           {/* fix-148: Closing date (moved from Project Site) sits at the top. */}
           <ClosingRow project={project} />
@@ -441,12 +460,14 @@ function DDPhaseEditor({
             dashed
             title="GO date is set on the Project Settings page"
           />
-          {/* fix-66: BP-anchored Target Submit, editable in place. Sits
-              between GO Date and Start, matching the Start/End input
-              rhythm. */}
+          {/* fix-66: BP-anchored Target Submit, editable in place. */}
           <TargetSubmitRow project={project} bp={targetSubmitBp} />
+        </div>
+       </OverviewSection>
+       <OverviewSection title="Draw window">
+        <div className="flex flex-col gap-1.5">
           <div className="flex items-center gap-1.5">
-            <span className="text-[9px] text-dim w-12 flex-shrink-0">Start</span>
+            <span className="text-[9px] text-dim w-16 flex-shrink-0">Draw Start</span>
             <input
               type="date"
               value={startDraft}
@@ -463,7 +484,7 @@ function DDPhaseEditor({
             />
           </div>
           <div className="flex items-center gap-1.5">
-            <span className="text-[9px] text-dim w-12 flex-shrink-0">End</span>
+            <span className="text-[9px] text-dim w-16 flex-shrink-0">Draw End</span>
             <input
               type="date"
               value={endDraft}
@@ -481,7 +502,7 @@ function DDPhaseEditor({
           </div>
           {dur && (
             <div className="flex items-center gap-1.5">
-              <span className="text-[9px] text-dim w-12 flex-shrink-0">
+              <span className="text-[9px] text-dim w-16 flex-shrink-0">
                 Duration
               </span>
               <span className="text-[11px] font-bold text-text">{dur}</span>

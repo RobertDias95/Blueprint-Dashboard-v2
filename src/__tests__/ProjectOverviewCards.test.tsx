@@ -191,7 +191,9 @@ describe('fix-290 the Site block is back on the Project card', () => {
 /** The five cards of the overview row, plus Notes, which the mockup also draws
  *  as a card. Keyed by the banner text each must show. */
 const CARDS: Array<[string, string]> = [
-  ['pd-dd-phase-card', 'DD Phase'],
+  // fix-296: DD Phase -> Milestones. Internal shorthand that did not survive
+  // a new person reading it.
+  ['pd-milestones-card', 'Milestones'],
   ['pd-project-card', 'Project'],
   ['project-overview-team', 'Team'],
   ['plan-of-record-card', 'Design Plan of Record'],
