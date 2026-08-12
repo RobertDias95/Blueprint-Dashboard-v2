@@ -26,6 +26,12 @@ import {
 import MissingLetterWorklist from '../components/Reports/CorrectionsMissingWorklist';
 import { correctionDisciplineLabel } from '../lib/correctionItems';
 import {
+  EXCLUSION_HINT,
+  countExclusions,
+  partitionCorrections,
+  type ExclusionCount,
+} from '../lib/correctionsExclusion';
+import {
   CORRECTIONS_CSV_COLUMNS,
   EMPTY_FILTERS,
   architectCoverage,
@@ -59,7 +65,7 @@ import {
 // The filter bar drives all three, so a number in one view and a row in another
 // always describe the same slice.
 
-type View = 'prevalence' | 'repeats' | 'counts' | 'items' | 'missing';
+type View = 'prevalence' | 'repeats' | 'counts' | 'items' | 'missing' | 'excluded';
 
 // fix-279: prevalence leads. It is the question the business actually asked
 // ("we get this correction 65% of the time" -> fix the template); repeat rate
@@ -76,11 +82,21 @@ const VIEWS: Array<{ key: View; label: string; hint: string }> = [
   { key: 'items', label: 'Items', hint: 'The individual comments' },
   { key: 'missing', label: 'No letter found',
     hint: 'Corrections the tool says exist that we have not found on the share' },
+  // fix-283a: last, because it is about the data rather than the work — but a
+  // tab of its own, not a footnote. The filter is heuristic, and the only way
+  // anyone can tell it is wrong is by reading what it took out.
+  { key: 'excluded', label: 'Excluded',
+    hint: 'Rows the indexer judged not to be corrections, and why' },
 ];
 
 /** The drill-down is the long tail of a 2,194-row corpus; rendering it all at
  *  once is a wall, not a report. */
 const ITEMS_PAGE = 100;
+
+/** fix-283a: how many excluded rows to show per reason. Enough to judge the
+ *  rule by, short of rendering all 141 — the count beside each heading is the
+ *  real total, and it is stated when the list is cut. */
+const EXCLUDED_PER_REASON = 25;
 
 export default function CorrectionsReport() {
   const itemsQ = useAllCorrectionItems();
@@ -125,7 +141,18 @@ export default function CorrectionsReport() {
     return m;
   }, [projectsQ.data]);
 
-  const allRows = useMemo(
+  // ★ fix-283a: THE FILTER POINT, AND THERE IS ONLY ONE.
+  //
+  // Every figure on this page — prevalence, its denominator, repeat rates,
+  // theme and discipline counts, the CSV, the item list — is derived from
+  // `allRows`. Splitting here means all of them recompute from real
+  // corrections without any of them knowing the filter exists, which is what
+  // the brief asks for: the prevalence denominator becomes "projects with at
+  // least one CORRECTION", recomputed rather than adjusted.
+  //
+  // The excluded rows are kept in hand, not dropped, so the page can say how
+  // many it removed and why.
+  const joinedRows = useMemo(
     () =>
       joinCorrectionRows(
         itemsQ.data ?? [],
@@ -134,6 +161,14 @@ export default function CorrectionsReport() {
         permitsById,
       ),
     [itemsQ.data, projectsQ.data, architectByProjectId, permitsById],
+  );
+  const { included: allRows, excluded: excludedRows } = useMemo(
+    () => partitionCorrections(joinedRows),
+    [joinedRows],
+  );
+  const exclusionCounts = useMemo(
+    () => countExclusions(excludedRows),
+    [excludedRows],
   );
 
   // Options come off the UNFILTERED set so the dropdowns don't collapse as you
@@ -273,6 +308,18 @@ export default function CorrectionsReport() {
             correctionsCsvPreamble(filters, [
               `View: ${VIEWS.find((v) => v.key === view)?.label ?? view}`,
               `Rows: ${rows.length} items across ${summary.projects} projects`,
+              // fix-283a: an exported file outlives the page that explains it.
+              // Without this line the numbers look like the old ones on the
+              // old basis, and they are neither.
+              ...(excludedRows.length
+                ? [
+                    `Excludes ${excludedRows.length} indexed rows judged not to be ` +
+                      `corrections (${exclusionCounts
+                        .map((c) => `${c.count} ${c.label.toLowerCase()}`)
+                        .join(', ')}). Counts are NOT comparable with reports ` +
+                      'produced before this filter existed.',
+                  ]
+                : []),
             ]) + rowsToCsv([...CORRECTIONS_CSV_COLUMNS], correctionsCsvRows(rows))
           }
           disabled={rows.length === 0}
@@ -369,6 +416,16 @@ export default function CorrectionsReport() {
       ) : (
         <>
           <SummaryStrip summary={summary} />
+          {/* fix-283a: shown on every view, not only the Excluded tab. A filter
+              that silently removes 141 rows reads as "this is the whole
+              corpus"; this is the sentence that stops it. */}
+          <ExclusionNote
+            excluded={excludedRows.length}
+            included={allRows.length}
+            counts={exclusionCounts}
+            onShow={() => setView('excluded')}
+            active={view === 'excluded'}
+          />
 
           <div className="flex gap-1" data-testid="corrections-view-tabs">
             {VIEWS.map((v) => (
@@ -408,6 +465,9 @@ export default function CorrectionsReport() {
             />
           )}
           {view === 'missing' && <MissingLetterWorklist />}
+          {view === 'excluded' && (
+            <ExcludedView rows={excludedRows} counts={exclusionCounts} />
+          )}
           {view === 'repeats' && (
             <RepeatsView
               summary={summary}
@@ -1004,5 +1064,143 @@ function ItemRow({ row }: { row: CorrectionReportRow }) {
         </tr>
       )}
     </>
+  );
+}
+
+// ------------------------------------------------------- fix-283a: excluded --
+
+/** The always-visible "N excluded" line.
+ *
+ *  ★ NOT A TOOLTIP AND NOT ONLY ON THE EXCLUDED TAB. The brief's requirement is
+ *  that the filter be noticeable if it is wrong, and a figure somebody has to
+ *  go looking for does not meet that. It renders on every view, states the
+ *  count and the reasons in words, and links to the rows themselves.
+ *
+ *  Renders NOTHING when nothing was excluded — a permanent "0 excluded" is
+ *  noise, and its absence is not ambiguous. */
+function ExclusionNote({
+  excluded,
+  included,
+  counts,
+  onShow,
+  active,
+}: {
+  excluded: number;
+  included: number;
+  counts: ExclusionCount[];
+  onShow: () => void;
+  active: boolean;
+}) {
+  if (excluded === 0) return null;
+  const total = excluded + included;
+  const pct = total > 0 ? Math.round((excluded / total) * 1000) / 10 : 0;
+  return (
+    <div
+      className="rounded-md border border-border bg-s2 px-3 py-2 text-[11px] text-muted flex flex-wrap items-center gap-x-2 gap-y-1"
+      data-testid="corrections-exclusion-note"
+    >
+      <span>
+        Every figure below excludes{' '}
+        <strong className="text-text" data-testid="corrections-excluded-count">
+          {excluded.toLocaleString()}
+        </strong>{' '}
+        of {total.toLocaleString()} indexed rows ({pct}%) that the indexer judged
+        not to be corrections:
+      </span>
+      <span className="text-dim">
+        {counts.map((c) => `${c.count} ${c.label.toLowerCase()}`).join(' · ')}
+      </span>
+      {!active && (
+        <button
+          type="button"
+          onClick={onShow}
+          className="underline text-de font-bold"
+          data-testid="corrections-exclusion-show"
+        >
+          See what was excluded
+        </button>
+      )}
+    </div>
+  );
+}
+
+/** The excluded rows themselves, grouped by the rule that caught them.
+ *
+ *  Shows the TEXT, because the text is the evidence. A reason and a count alone
+ *  would let a wrong rule hide behind a plausible label — the only way to judge
+ *  "drawing text" is to read what was called drawing text. */
+function ExcludedView({
+  rows,
+  counts,
+}: {
+  rows: CorrectionReportRow[];
+  counts: ExclusionCount[];
+}) {
+  if (rows.length === 0) {
+    return (
+      <div
+        className="text-xs text-dim italic py-6 text-center"
+        data-testid="corrections-excluded-empty"
+      >
+        Nothing has been excluded — every indexed row reads as a correction.
+      </div>
+    );
+  }
+  return (
+    <div className="space-y-4" data-testid="corrections-excluded">
+      <p className="text-[11px] text-muted leading-relaxed max-w-[70ch]">
+        These rows are still in the database and are excluded from every count
+        on this page. The detection is a heuristic and will get some wrong — if
+        one of these is a real correction, that is worth saying, because the
+        rules live in the indexer and can be changed.
+      </p>
+      {counts.map((c) => {
+        const group = rows.filter(
+          (r) => (r.exclusion_reason || 'unknown') === c.reason,
+        );
+        return (
+          <section key={c.reason} data-testid={`corrections-excluded-${c.reason}`}>
+            <h3 className="text-xs font-display font-bold text-text">
+              {c.label}{' '}
+              <span className="text-dim font-normal">
+                · {c.count.toLocaleString()}
+              </span>
+            </h3>
+            {EXCLUSION_HINT[c.reason] && (
+              <p className="text-[10.5px] text-dim mt-0.5 mb-1.5 max-w-[70ch]">
+                {EXCLUSION_HINT[c.reason]}
+              </p>
+            )}
+            <ul className="space-y-1">
+              {group.slice(0, EXCLUDED_PER_REASON).map((r) => (
+                <li
+                  key={r.id}
+                  className="text-[11px] border border-border rounded px-2 py-1 bg-surface"
+                  data-testid={`corrections-excluded-row-${r.id}`}
+                >
+                  <Link
+                    to={`/project/${r.project_id}`}
+                    className="text-de hover:underline font-bold"
+                  >
+                    {r.address}
+                  </Link>
+                  <span className="text-dim"> · {r.source_file}</span>
+                  <div className="text-muted mt-0.5 line-clamp-2">
+                    {((r.subject ?? '') + ' ' + (r.body ?? '')).trim() || (
+                      <span className="italic text-dim">(no text)</span>
+                    )}
+                  </div>
+                </li>
+              ))}
+            </ul>
+            {group.length > EXCLUDED_PER_REASON && (
+              <div className="text-[10px] text-dim mt-1">
+                Showing {EXCLUDED_PER_REASON} of {group.length.toLocaleString()}.
+              </div>
+            )}
+          </section>
+        );
+      })}
+    </div>
   );
 }

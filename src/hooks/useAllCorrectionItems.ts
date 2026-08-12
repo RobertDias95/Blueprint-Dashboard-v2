@@ -29,9 +29,17 @@ import type { CorrectionItem } from '../lib/database.types';
  *  corpus, so the letter text it does not use (source_folder, content_hash) and
  *  the plumbing columns (tenant_id, timestamps) would be dead weight on every
  *  page of every load. */
+//
+// ★ fix-283a: is_correction / exclusion_reason are SELECTED BUT NOT FILTERED
+// ON. The report has to show how many rows the filter dropped and why, so the
+// excluded rows must arrive; the split happens in the page, against
+// partitionCorrections. Filtering here would make "141 excluded" unknowable
+// without a second round trip, and a filter nobody can see is exactly what the
+// brief says not to build.
 const SELECT_COLUMNS =
   'id,project_id,permit_id,building,discipline,cycle,letter_date,reviewer,' +
-  'item_no,subject,body,codes,category,theme,source_file';
+  'item_no,subject,body,codes,category,theme,source_file,' +
+  'is_correction,exclusion_reason';
 
 /** The shape fetchAllRows needs back from one page.
  *
