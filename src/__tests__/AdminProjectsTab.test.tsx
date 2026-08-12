@@ -102,11 +102,10 @@ function renderIt() {
 }
 
 describe('<AdminProjectsTab /> Q7.3.a', () => {
-  it('renders all 5 catalog sections + jurisdiction + permit-type rows', () => {
+  it('renders the catalog sections + jurisdiction rows', () => {
     renderIt();
     expect(screen.getByTestId('admin-projects-tab')).toBeInTheDocument();
     expect(screen.getByTestId('juris-list')).toBeInTheDocument();
-    expect(screen.getByTestId('permit-types-list')).toBeInTheDocument();
     expect(screen.getByTestId('product-types-list')).toBeInTheDocument();
     expect(screen.getByTestId('project-tags-list')).toBeInTheDocument();
     // fix-167: Hold Reasons editor.
@@ -114,8 +113,23 @@ describe('<AdminProjectsTab /> Q7.3.a', () => {
     expect(screen.getByTestId('hold-reasons-list-pill-MHA')).toBeInTheDocument();
     expect(screen.getByTestId('juris-list-pill-Bellevue')).toBeInTheDocument();
     expect(screen.getByTestId('juris-list-pill-Seattle')).toBeInTheDocument();
-    expect(screen.getByTestId('permit-types-list-pill-Building Permit')).toBeInTheDocument();
-    expect(screen.getByTestId('permit-types-list-pill-IPR')).toBeInTheDocument();
+  });
+
+  // fix-288: the Permit Types PILL LIST is gone from this tab — it could add and
+  // remove but not rename, carried no wizard descriptions, and guarded deletion
+  // only by is_builtin, so a type still named by 143 permits could be removed
+  // from here without a word. The full editor lives on Permits & Templates and
+  // is deliberately NOT duplicated: two editors for one catalogue would let the
+  // delete guard be walked around by using the other tab.
+  it('fix-288: no longer edits permit types, and says where they went', () => {
+    renderIt();
+    expect(screen.queryByTestId('permit-types-list')).toBeNull();
+    expect(screen.queryByTestId('permit-types-list-pill-Building Permit')).toBeNull();
+    const note = screen.getByTestId('permit-types-moved');
+    expect(note).toHaveTextContent(/Permits & Templates/);
+    // ...and it still reports the size of the catalogue, so the section is not
+    // a dead end.
+    expect(note).toHaveTextContent('2 types configured');
   });
 
   it('adding a jurisdiction calls bp_upsert_jurisdiction with default learn window', () => {
@@ -160,17 +174,15 @@ describe('<AdminProjectsTab /> Q7.3.a', () => {
     });
   });
 
-  it('built-in permit types render a badge and lock removal', () => {
+  // fix-288: built-in badging and removal locking moved with the editor to
+  // Settings → Permits & Templates, where PermitTypeEditor.test.tsx covers
+  // them alongside the usage-count delete guard that this tab never had.
+  it('fix-288: offers no permit-type add or remove control at all', () => {
     renderIt();
-    const builtin = screen.getByTestId('permit-types-list-pill-Building Permit');
-    expect(builtin.textContent).toMatch(/built-in/i);
-    expect(
-      screen.queryByTestId('permit-types-list-remove-Building Permit'),
-    ).not.toBeInTheDocument();
-    // Non-builtin still has the remove button.
-    expect(
-      screen.getByTestId('permit-types-list-remove-IPR'),
-    ).toBeInTheDocument();
+    expect(screen.queryByTestId('permit-types-list-add')).toBeNull();
+    expect(screen.queryByTestId('permit-types-list-remove-IPR')).toBeNull();
+    expect(mocks.upsertType).not.toHaveBeenCalled();
+    expect(mocks.deleteType).not.toHaveBeenCalled();
   });
 
   it('fix-167: adding a hold reason extends holdReasonOptions via bp_set_app_config_key', () => {

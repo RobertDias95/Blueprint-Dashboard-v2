@@ -1,3 +1,4 @@
+import PermitTypeEditor from './PermitTypeEditor';
 import TaskTemplateEditor from './TaskTemplateEditor';
 import TargetSubmitFormulasEditor from './TargetSubmitFormulasEditor';
 import { useIsTenantAdmin } from '../../hooks/useIsTenantAdmin';
@@ -14,9 +15,20 @@ export default function AdminPermitsTab() {
     <div className="space-y-3" data-testid="admin-permits-tab">
       {!isAdmin && (
         <div className="bg-surface-2 border border-border rounded-lg px-4 py-2 text-xs text-muted">
-          Read-only — you need tenant admin to edit task templates.
+          Read-only — you need tenant admin to edit permit types or task templates.
         </div>
       )}
+      {/* fix-288: the permit-type catalogue, in the tab where every other
+          permit-shaped setting lives. It was previously a bare add/remove pill
+          list on the Projects tab, which is where Bobby went looking for it and
+          did not find it -- and which had no rename, no descriptions, and no
+          usage guard on delete. */}
+      <div className="bg-surface border border-border rounded-lg p-4">
+        <h2 className="text-sm font-display font-bold text-text mb-1">
+          Permit Types
+        </h2>
+        <PermitTypeEditor readOnly={!isAdmin} />
+      </div>
       <div className="bg-surface border border-border rounded-lg p-4">
         <h2 className="text-sm font-display font-bold text-text mb-1">
           Task Templates

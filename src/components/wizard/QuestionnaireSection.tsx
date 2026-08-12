@@ -1,4 +1,4 @@
-import { PERMIT_DESCRIPTIONS } from './wizardState';
+import { usePermitDescriptions } from '../../hooks/usePermitDescriptions';
 
 // fix-22 Step 2 sub-component — renders one bucket (Commonly / Sometimes
 // / Other) as a list of checkboxes with optional usage% badges and a
@@ -38,6 +38,11 @@ export default function QuestionnaireSection({
   onToggle,
   testIdPrefix,
 }: Props) {
+  // fix-288: descriptions come from app_config now, so editing one is a
+  // Settings change rather than a deploy. Read here rather than threaded down
+  // from Step2Questionnaire — four call sites would each have to pass it, and
+  // this ticket must not touch the bucketing logic above.
+  const descriptions = usePermitDescriptions();
   if (items.length === 0) return null;
   return (
     <div data-testid={`${testIdPrefix}-section`}>
@@ -83,12 +88,12 @@ export default function QuestionnaireSection({
                     </span>
                   )}
                 </div>
-                {PERMIT_DESCRIPTIONS[it.type] && (
+                {descriptions[it.type] && (
                   <div
                     className="text-[10px] text-dim mt-0.5"
                     data-testid={`${testIdPrefix}-desc-${it.type}`}
                   >
-                    {PERMIT_DESCRIPTIONS[it.type]}
+                    {descriptions[it.type]}
                   </div>
                 )}
               </div>
