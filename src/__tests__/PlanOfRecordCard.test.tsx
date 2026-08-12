@@ -184,12 +184,12 @@ describe('fix-285 the file card', () => {
     expect(path.className).toContain('select-all');
   });
 
-  it('offers Open, Copy path and Show in folder', async () => {
+  it('offers Copy path, with a hint saying where to paste it', async () => {
     state.row = row();
     renderCard();
-    expect(await screen.findByTestId('plan-of-record-open')).toBeInTheDocument();
-    expect(screen.getByTestId('plan-of-record-copy')).toBeInTheDocument();
-    expect(screen.getByTestId('plan-of-record-folder')).toBeInTheDocument();
+    expect(await screen.findByTestId('plan-of-record-copy')).toBeInTheDocument();
+    expect(screen.getByTestId('plan-of-record-copy-hint'))
+      .toHaveTextContent(/paste into File Explorer/i);
   });
 
   it('copies the path to the clipboard', async () => {
@@ -201,16 +201,28 @@ describe('fix-285 the file card', () => {
     await waitFor(() => expect(writeText).toHaveBeenCalledWith(UNC));
   });
 
-  it('"Show in folder" copies the PARENT directory, not the file', async () => {
-    const writeText = vi.fn().mockResolvedValue(undefined);
-    Object.assign(navigator, { clipboard: { writeText } });
+  // ★ fix-289: the whole point of the ticket. Chrome and Edge silently refuse
+  // to navigate from https to file:/UNC, so a button offering it does nothing
+  // when clicked. These two assertions are what stop it being reintroduced.
+  it('offers NO Open button and NO "Show in folder" button', async () => {
     state.row = row();
     renderCard();
-    fireEvent.click(await screen.findByTestId('plan-of-record-folder'));
-    await waitFor(() => {
-      expect(writeText).toHaveBeenCalledWith(expect.stringContaining('Marketing Plans'));
-      expect(writeText).not.toHaveBeenCalledWith(expect.stringContaining('.pdf'));
-    });
+    await screen.findByTestId('plan-of-record-copy');
+    expect(screen.queryByTestId('plan-of-record-open')).toBeNull();
+    expect(screen.queryByTestId('plan-of-record-folder')).toBeNull();
+    expect(screen.queryByText('Open')).toBeNull();
+    expect(screen.queryByText(/show in folder/i)).toBeNull();
+  });
+
+  it('renders no link to a file: URL or a UNC path anywhere in the card', async () => {
+    state.row = row();
+    const { container } = renderCard();
+    await screen.findByTestId('plan-of-record-copy');
+    for (const a of Array.from(container.querySelectorAll('a[href]'))) {
+      const href = a.getAttribute('href') ?? '';
+      expect(href.toLowerCase().startsWith('file:')).toBe(false);
+      expect(href.startsWith('\\\\')).toBe(false);
+    }
   });
 });
 
@@ -238,7 +250,7 @@ describe('fix-285 the empty state is a real case, not a hypothetical', () => {
     renderCard();
     await screen.findByTestId('plan-of-record-empty');
     expect(screen.queryByTestId('plan-of-record-path')).toBeNull();
-    expect(screen.queryByTestId('plan-of-record-open')).toBeNull();
+    expect(screen.queryByTestId('plan-of-record-copy')).toBeNull();
     expect(screen.queryByTestId('plan-of-record-preview')).toBeNull();
   });
 
@@ -262,7 +274,7 @@ describe('fix-285 a missing thumbnail degrades to the file card', () => {
     // Everything else still works.
     expect(screen.getByTestId('plan-of-record-filename')).toBeInTheDocument();
     expect(screen.getByTestId('plan-of-record-path')).toHaveTextContent('bpc-file');
-    expect(screen.getByTestId('plan-of-record-open')).toBeInTheDocument();
+    expect(screen.getByTestId('plan-of-record-copy')).toBeInTheDocument();
   });
 
   it('a not-yet-generated thumbnail says so plainly', async () => {
