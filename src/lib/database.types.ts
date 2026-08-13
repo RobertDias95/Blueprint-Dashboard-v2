@@ -914,6 +914,14 @@ export interface TeamMember {
    *  chronological compare. */
   active_start_quarter: string | null;
   active_end_quarter: string | null;
+  /** fix-298: this person sees the company-wide board IN ADDITION TO their own
+   *  role scope. ★ A FLAG, NOT A ROLE — additive, never a replacement. Bobby is
+   *  ent_lead, Gena is dm, Dave is schematic, and each keeps their base scope;
+   *  modelling oversight as a role would strip Gena's DM view to give her the
+   *  wide one. One row per (name, role), so a person's flag is ORed across
+   *  their rows — see resolveBoardViewer. Optional so fixtures predating
+   *  fix-298 still typecheck. */
+  is_oversight?: boolean | null;
 }
 
 /** fix-225: DA project handoff ledger row (project_da_handoffs). Each row = one

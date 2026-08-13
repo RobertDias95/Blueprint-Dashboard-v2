@@ -84,8 +84,12 @@ describe('<Chrome /> Q9.5.a top-nav restructure', () => {
     // outside the <nav>, so we scope this assertion to <nav> children.
     // fix-297: Library is its own top-level tab now, sitting immediately
     // after the page it was a sub-tab of.
+    // fix-298: My Board sits immediately BEFORE My Tasks. That pairing is
+    // deliberate — those are the two screens people confuse, and putting them
+    // adjacent is what makes "My Tasks is strictly my tasks, My Board is where
+    // my work sits" legible from the nav alone.
     const expected = [
-      'Draw Schedule', 'Library', 'Project View', 'My Tasks', 'Reports',
+      'Draw Schedule', 'Library', 'Project View', 'My Board', 'My Tasks', 'Reports',
     ];
     const nav = screen.getByTestId('chrome-nav');
     const links = Array.from(nav.querySelectorAll('a'));
@@ -113,8 +117,11 @@ describe('<Chrome /> Q9.5.a top-nav restructure', () => {
     // The other tabs still render. fix-297: ★ Library is among them — it is
     // NOT admin-gated, matching Draw Schedule, because it has been reachable
     // by everyone for as long as it has existed.
+    // fix-298: My Board is NOT admin-gated either — everyone has their own
+    // board, and it is the screen this feature exists to give the people who
+    // currently see a blank My Tasks.
     expect(labels).toEqual([
-      'Draw Schedule', 'Library', 'Project View', 'My Tasks',
+      'Draw Schedule', 'Library', 'Project View', 'My Board', 'My Tasks',
     ]);
   });
 

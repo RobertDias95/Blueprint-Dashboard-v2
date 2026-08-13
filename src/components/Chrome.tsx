@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
 import SettingsModal from './SettingsModal';
 import NotificationBell from './NotificationBell';
+import BoardBell from './BoardBell';
 import ErrorTriageBell from './ErrorTriageBell';
 import { useIsTenantAdmin } from '../hooks/useIsTenantAdmin';
 
@@ -33,6 +34,9 @@ const NAV_ITEMS: NavItem[] = [
   // Sits immediately after the page it came from so the move is obvious.
   { to: '/library', label: 'Library', activeColor: '#5a84c0' },
   { to: '/projects', label: 'Project View', activeColor: 'var(--color-pm, #059669)' },
+  // fix-298: My Board sits beside My Tasks because that is the pair people
+  // confuse. My Tasks = strictly my tasks; My Board = where my work sits.
+  { to: '/board', label: 'My Board', activeColor: 'var(--color-de, #2563eb)' },
   { to: '/my-tasks', label: 'My Tasks', activeColor: 'var(--color-co, #d97706)' },
   { to: '/reports', label: 'Reports', activeColor: 'var(--color-jv, #7c3aed)' },
   // fix-trends-subtab: Trends moved out of the top nav and back into Reports
@@ -121,6 +125,7 @@ export default function Chrome() {
           />
           {/* fix-27: notification center. Bell lives left of the gear
               per spec; its popover anchors right-aligned. */}
+          <BoardBell />
           <NotificationBell />
           {/* fix-87: error triage badge — sibling to the notification bell,
               counts distinct unresolved error fingerprints. Click navigates
