@@ -82,7 +82,11 @@ describe('<Chrome /> Q9.5.a top-nav restructure', () => {
     // Reports as a sub-tab, so the nav is the 4 v1-parity tabs only.
     // fix-28: NotificationBell is also a <Link> (to /activity) but lives
     // outside the <nav>, so we scope this assertion to <nav> children.
-    const expected = ['Draw Schedule', 'Project View', 'My Tasks', 'Reports'];
+    // fix-297: Library is its own top-level tab now, sitting immediately
+    // after the page it was a sub-tab of.
+    const expected = [
+      'Draw Schedule', 'Library', 'Project View', 'My Tasks', 'Reports',
+    ];
     const nav = screen.getByTestId('chrome-nav');
     const links = Array.from(nav.querySelectorAll('a'));
     const labels = links.map((a) => a.textContent?.trim());
@@ -106,8 +110,12 @@ describe('<Chrome /> Q9.5.a top-nav restructure', () => {
       screen.getByTestId('chrome-nav').querySelectorAll('a'),
     ).map((a) => a.textContent?.trim());
     expect(labels).not.toContain('Reports');
-    // The other tabs still render.
-    expect(labels).toEqual(['Draw Schedule', 'Project View', 'My Tasks']);
+    // The other tabs still render. fix-297: ★ Library is among them — it is
+    // NOT admin-gated, matching Draw Schedule, because it has been reachable
+    // by everyone for as long as it has existed.
+    expect(labels).toEqual([
+      'Draw Schedule', 'Library', 'Project View', 'My Tasks',
+    ]);
   });
 
   it('does NOT render a Trends nav tab (fix-trends-subtab)', () => {

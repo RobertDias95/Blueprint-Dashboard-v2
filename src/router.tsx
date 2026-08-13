@@ -11,6 +11,7 @@ import Reports from './pages/Reports';
 import ReportsTeamDetail from './pages/ReportsTeamDetail';
 import MyTasks from './pages/MyTasks';
 import DrawSchedule from './pages/DrawSchedule';
+import LibraryMatrix from './components/LibraryMatrix';
 import ActivityPage from './pages/ActivityPage';
 import WeeklyDaReport from './pages/WeeklyDaReport';
 import WeeklyUpdatesReport from './pages/WeeklyUpdatesReport';
@@ -26,8 +27,13 @@ import ErrorsPage from './pages/Errors';
 // Q2: routes wired to real read-side pages.
 // Q9.5.a: structural realignment to v1's top-nav.
 //   - /draw-schedule promoted to top-level (was a Settings sub-tab in
-//     v2's misaligned shape). Hosts 3 sub-tabs: Draw Schedule / Library
-//     / Seattle Intakes.
+//     v2's misaligned shape). fix-297: it now hosts TWO sub-tabs, Draw
+//     Schedule / Seattle Intakes -- Library moved out to /library.
+//   - fix-297: /library is its own top-level route. It is the per-project
+//     matrix (units, lots, product types, stage), used on its own rather
+//     than while reading the schedule, and as a useState sub-tab it had NO
+//     URL at all -- nobody could bookmark it, link to it, or send it to
+//     anyone. That, more than the tidiness, is what this fixes.
 //   - /settings removed as a route — System Settings is a MODAL opened
 //     from the gear button in Chrome, not a page. Legacy /settings URLs
 //     redirect to /dashboard since the modal is stateful inside Chrome.
@@ -45,6 +51,15 @@ export const router = createBrowserRouter([
       { index: true, element: <Navigate to="/dashboard" replace /> },
       { path: 'dashboard', element: <Dashboard /> },
       { path: 'draw-schedule', element: <DrawSchedule /> },
+      // ★ NOT wrapped in AdminRoute, deliberately: /draw-schedule is not
+      // either, and the Library has been reachable by everyone for as long as
+      // it has existed. Gating it here would silently take a screen away from
+      // the people already using it -- the kind of change nobody notices until
+      // somebody cannot do their job. LibraryMatrix's own root is already
+      // `space-y-3`, the same shape ProjectList uses, so it needs no page
+      // wrapper: Chrome's <main className="flex-1 p-6"> supplies the padding
+      // and the matrix keeps its own overflow-x-auto.
+      { path: 'library', element: <LibraryMatrix /> },
       { path: 'projects', element: <ProjectList /> },
       // fix-260: errorElement scoped to ProjectDetail only (no broad routing
       // refactor). Without it React Router swallows a route render crash into
