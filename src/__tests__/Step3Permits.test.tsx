@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { settle } from '../test/settle';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { useState } from 'react';
 import type { ReactNode } from 'react';
@@ -295,7 +296,7 @@ describe('<Step3Permits />', () => {
     // pick-driven lookup contract still applies to non-BP rows — they
     // exercise onPickDa as before.
     lookupEntLeadForDaMock.mockReset();
-    lookupEntLeadForDaMock.mockResolvedValueOnce('Bobby');
+    lookupEntLeadForDaMock.mockResolvedValue('Bobby');
     const init = makeEmptyWizardState();
     init.juris = 'Seattle';
     init.permits = [permit('Building Permit'), permit('PAR/Pre-Sub')];
@@ -324,7 +325,7 @@ describe('<Step3Permits />', () => {
     // Two distinct cohort scenarios: (1) initial cascade fills the
     // first non-BP row; (2) adding a new row triggers Path A again and
     // the new row picks up BP.ent_lead too — without an extra RPC.
-    lookupEntLeadForDaMock.mockResolvedValueOnce('Miles');
+    lookupEntLeadForDaMock.mockResolvedValue('Miles');
 
     function Host() {
       const [state, setState] = useState<WizardState>(() => {
@@ -392,7 +393,7 @@ describe('<Step3Permits />', () => {
     // non-BP siblings. A user override on the original PAR row stays
     // intact even when adding a row re-fires the cascade.
     lookupEntLeadForDaMock.mockReset();
-    lookupEntLeadForDaMock.mockResolvedValueOnce('Miles');
+    lookupEntLeadForDaMock.mockResolvedValue('Miles');
 
     function Host() {
       const [state, setState] = useState<WizardState>(() => {
@@ -458,7 +459,7 @@ describe('<Step3Permits />', () => {
     // Pre-fix this test would observe da reverting to '' after the
     // lookup resolved. Post-fix the ref-based read keeps the {da} edit.
     lookupEntLeadForDaMock.mockReset();
-    lookupEntLeadForDaMock.mockResolvedValueOnce('Miles');
+    lookupEntLeadForDaMock.mockResolvedValue('Miles');
     const init = makeEmptyWizardState();
     init.juris = 'Seattle';
     init.permits = [permit('Building Permit'), permit('Demolition')];
@@ -485,7 +486,7 @@ describe('<Step3Permits />', () => {
 
   it('fix-91: picking a DA on a NON-BP row surfaces the derived DM chip from dm_da_groups', async () => {
     lookupEntLeadForDaMock.mockReset();
-    lookupEntLeadForDaMock.mockResolvedValueOnce(null);
+    lookupEntLeadForDaMock.mockResolvedValue(null);
     const init = makeEmptyWizardState();
     init.juris = 'Seattle';
     init.permits = [permit('Building Permit'), permit('PAR/Pre-Sub')];
@@ -503,7 +504,7 @@ describe('<Step3Permits />', () => {
 
   it('fix-91: picking empty DA on a non-BP row skips the DM chip', async () => {
     lookupEntLeadForDaMock.mockReset();
-    lookupEntLeadForDaMock.mockResolvedValueOnce(null);
+    lookupEntLeadForDaMock.mockResolvedValue(null);
     const init = makeEmptyWizardState();
     init.juris = 'Seattle';
     init.permits = [permit('Building Permit'), permit('PAR/Pre-Sub')];
@@ -529,7 +530,7 @@ describe('<Step3Permits />', () => {
 
   it('fix-91: lookup failure leaves ent_lead blank on a non-BP row (user can pick manually)', async () => {
     lookupEntLeadForDaMock.mockReset();
-    lookupEntLeadForDaMock.mockRejectedValueOnce(new Error('routing table down'));
+    lookupEntLeadForDaMock.mockRejectedValue(new Error('routing table down'));
     const init = makeEmptyWizardState();
     init.juris = 'Seattle';
     init.permits = [permit('Building Permit'), permit('PAR/Pre-Sub')];
@@ -538,7 +539,7 @@ describe('<Step3Permits />', () => {
     fireEvent.change(screen.getByTestId(`wizard-perm-da-${targetRowId}`), {
       target: { value: 'Trevor' },
     });
-    await new Promise((r) => setTimeout(r, 20));
+    await settle();
     const entSel = screen.getByTestId(
       `wizard-perm-ent-${targetRowId}`,
     ) as HTMLSelectElement;
@@ -586,7 +587,7 @@ describe('<Step3Permits />', () => {
       { da: 'Trevor', jurisdiction: null },
     ];
     lookupEntLeadForDaMock.mockReset();
-    lookupEntLeadForDaMock.mockResolvedValueOnce('Miles');
+    lookupEntLeadForDaMock.mockResolvedValue('Miles');
 
     const init = makeEmptyWizardState();
     init.juris = 'Seattle';
@@ -793,7 +794,7 @@ describe('<Step3Permits />', () => {
       setupControlled(init);
       // Give any side-effect a tick to potentially fire; assert that it
       // didn't.
-      await new Promise((r) => setTimeout(r, 30));
+      await settle();
       expect(lookupEntLeadForDaMock).not.toHaveBeenCalled();
     });
   });
@@ -854,18 +855,24 @@ describe('<Step3Permits />', () => {
       await waitFor(() => {
         expect(lookupEntLeadForDaMock).toHaveBeenCalledWith('Trevor', 'Seattle');
       });
-      // PAR keeps Alex.
+      // fix-300: SDOT is filled ASYNCHRONOUSLY by the cascade, so it is waited
+      // for. It used to be a bare `expect` after the PAR waitFor -- but that
+      // waitFor gates on nothing: PAR was pre-set to Alex and is true on the
+      // first poll, so it returned immediately and the SDOT assertion raced the
+      // lookup. This is the same defect as the five sleeps, in its other form:
+      // an async value asserted synchronously.
       await waitFor(() => {
-        const parEnt = screen.getByTestId(
-          `wizard-perm-ent-${parRowId}`,
+        const sdotEnt = screen.getByTestId(
+          `wizard-perm-ent-${sdotRowId}`,
         ) as HTMLSelectElement;
-        expect(parEnt.value).toBe('Alex');
+        expect(sdotEnt.value).toBe('Miles');
       });
-      // SDOT picks up Miles.
-      const sdotEnt = screen.getByTestId(
-        `wizard-perm-ent-${sdotRowId}`,
+      // PAR keeps Alex -- checked AFTER the cascade has demonstrably run, so
+      // this is now a real invariant rather than a check on an idle component.
+      const parEnt = screen.getByTestId(
+        `wizard-perm-ent-${parRowId}`,
       ) as HTMLSelectElement;
-      expect(sdotEnt.value).toBe('Miles');
+      expect(parEnt.value).toBe('Alex');
     });
 
     it('BP ent_lead ALREADY set (no lookup needed): cascades the existing value to empty non-BP siblings without a fresh RPC', async () => {
@@ -985,7 +992,7 @@ describe('<Step3Permits />', () => {
       });
       expect(lookupEntLeadForDaMock).toHaveBeenCalledWith('Cam', 'Seattle');
       // Give the async lookup a tick — it should resolve but NOT overwrite.
-      await new Promise((r) => setTimeout(r, 25));
+      await settle();
       const entSel = screen.getByTestId(
         `wizard-perm-ent-${demoRowId}`,
       ) as HTMLSelectElement;
@@ -1045,7 +1052,7 @@ describe('<Step3Permits />', () => {
         target: { value: 'Cam' },
       });
       expect(lookupEntLeadForDaMock).toHaveBeenCalledWith('Cam', 'Seattle');
-      await new Promise((r) => setTimeout(r, 25));
+      await settle();
       expect(
         (
           screen.getByTestId(`wizard-perm-ent-${demoRowId}`) as HTMLSelectElement
@@ -1073,7 +1080,7 @@ describe('<Step3Permits />', () => {
         target: { value: 'Cam' },
       });
       expect(lookupEntLeadForDaMock).toHaveBeenCalledWith('Cam', 'Seattle');
-      await new Promise((r) => setTimeout(r, 25));
+      await settle();
       expect(
         (
           screen.getByTestId(`wizard-perm-ent-${demoRowId}`) as HTMLSelectElement
@@ -1192,7 +1199,7 @@ describe('<Step3Permits />', () => {
 
     it('newly added row inherits BP.ent_lead via the cascade (fix-120-b Path A on permits.length change)', async () => {
       lookupEntLeadForDaMock.mockReset();
-      lookupEntLeadForDaMock.mockResolvedValueOnce('Miles');
+      lookupEntLeadForDaMock.mockResolvedValue('Miles');
 
       function Host() {
         const [state, setState] = useState<WizardState>(() => {
