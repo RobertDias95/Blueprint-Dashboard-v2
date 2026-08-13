@@ -22,6 +22,20 @@ import { isSubPermit } from './subPermit';
 
 export const STAGE_ORDER: ReadonlyArray<Stage> = ['de', 'pm', 'co', 'ap', 'is'];
 
+/** fix-302: the DA multi-select's pseudo-option for "nobody is assigned".
+ *
+ *  `permits.da` is how work is routed, and the per-user notification centre
+ *  routes on it — so a blank DA is not a cosmetic gap, it is work that reaches
+ *  nobody. Before fix-302 the only way to find one was to write SQL: `das`
+ *  collected non-empty names only, so an unassigned permit contributed nothing
+ *  and the filter could not select it. Four bugs this year had this shape — a
+ *  missing value looking identical to an absent one.
+ *
+ *  The em-dashes are load-bearing: this string sits in the same option list as
+ *  roster names, and no person can be named "— Unassigned —", so the sentinel
+ *  cannot collide with a real DA. */
+export const UNASSIGNED_DA = '— Unassigned —';
+
 // fix-105: STAGE_LABEL moved to src/lib/stageLabel.ts (single source of
 // truth started by fix-104). Consumers that imported STAGE_LABEL from
 // here now import from '../lib/stageLabel' directly — see ProjectList.
@@ -67,7 +81,10 @@ export interface ProjectRow {
   /** Distinct ent_lead values across the project's permits (excluding
    *  null/empty). Drives the ent multi-select. */
   entLeads: Set<string>;
-  /** Distinct da values across the project's permits. */
+  /** Distinct da values across the project's permits. fix-302: a project with
+   *  at least one non-sub permit carrying NO da also gets {@link UNASSIGNED_DA},
+   *  so "what has nobody on it" is answerable from the existing DA filter
+   *  rather than from SQL. */
   das: Set<string>;
   /** fix-245: did the project have ANY permit (sub OR non-sub) before the
    *  sub-permit exclusion below? Distinguishes a permit-less shell (keep ACTIVE)
@@ -217,7 +234,14 @@ export function buildProjectRows(
       );
       stages.add(stage);
       if (permit.ent_lead) entLeads.add(permit.ent_lead);
+      // fix-302: an ABSENT da is a value the filter has to be able to name.
+      // Before this, `das` only ever collected non-empty names, so a permit
+      // with no DA contributed nothing and the DA filter could not reach it —
+      // the gap was invisible on the one screen built for triage. Sub-permits
+      // cannot reach here (fix-194 drops them above), so every blank counted
+      // is a real unrouted permit.
       if (permit.da) das.add(permit.da);
+      else das.add(UNASSIGNED_DA);
       return {
         permit,
         stage,
