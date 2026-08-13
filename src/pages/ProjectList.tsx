@@ -21,6 +21,7 @@ import {
   DEFAULT_FILTERS,
   STAGE_BADGE,
   STAGE_ORDER,
+  UNASSIGNED_DA,
   type ProjectRow,
   type ProjectViewFilters,
   type SortState,
@@ -183,8 +184,13 @@ export default function ProjectList() {
     () => uniqueNamesByRole(teamQ.all ?? [], (r) => r === 'ent' || r === 'ent_lead'),
     [teamQ.all],
   );
+  // fix-302: "— Unassigned —" leads the DA list rather than trailing it. A
+  // permit nobody is on is the one the triage screen most needs to surface,
+  // and burying it under 20 roster names would keep it as silent as the SQL
+  // it replaces. It composes with the Active toggle, so the default view
+  // answers "what live work has no designer" in two clicks.
   const daOptions = useMemo(
-    () => uniqueNamesByRole(teamQ.all ?? [], (r) => r === 'da'),
+    () => [UNASSIGNED_DA, ...uniqueNamesByRole(teamQ.all ?? [], (r) => r === 'da')],
     [teamQ.all],
   );
 
