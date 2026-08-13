@@ -245,11 +245,14 @@ describe('fix-302 the backfill', () => {
 
   it('touches `da` only — no other column is written', () => {
     const { rows } = applyBackfill(fixture);
+    const withoutDa = (r: BackfillRow): Partial<BackfillRow> => {
+      const copy: Partial<BackfillRow> = { ...r };
+      delete copy.da;
+      return copy;
+    };
     for (const before of fixture) {
       const after = rows.find((r) => r.id === before.id)!;
-      const { da: _daA, ...restAfter } = after;
-      const { da: _daB, ...restBefore } = before;
-      expect(restAfter).toEqual(restBefore);
+      expect(withoutDa(after)).toEqual(withoutDa(before));
     }
   });
 });
