@@ -73,6 +73,7 @@ const mocks = vi.hoisted(() => {
 vi.mock('../lib/supabase', () => ({ supabase: mocks.chain }));
 
 import { useBuilderSearch } from '../hooks/useBuilderSearch';
+import { settle } from '../test/settle';
 
 function setup() {
   const queryClient = new QueryClient({
@@ -139,15 +140,17 @@ describe('useBuilderSearch — fix-24c wire shape', () => {
     useAuthStore.setState({ activeTenantId: null, memberships: [] });
     const { wrapper } = setup();
     renderHook(() => useBuilderSearch('boyd'), { wrapper });
-    // Give react-query a chance to fire if it were going to.
-    await new Promise((r) => setTimeout(r, 20));
+    // fix-300b: drain, then assert the query never fired. The sibling tests
+    // below prove orFn IS called when the hook is enabled, so this is not a
+    // vacuous negative.
+    await settle();
     expect(mocks.orFn).not.toHaveBeenCalled();
   });
 
   it('skips the query when the trimmed input is empty', async () => {
     const { wrapper } = setup();
     renderHook(() => useBuilderSearch('   '), { wrapper });
-    await new Promise((r) => setTimeout(r, 20));
+    await settle();
     expect(mocks.orFn).not.toHaveBeenCalled();
   });
 

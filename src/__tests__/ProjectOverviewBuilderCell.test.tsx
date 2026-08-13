@@ -54,6 +54,7 @@ vi.mock('../hooks/useAppConfig', () => ({
 }));
 
 import ProjectDetailHeader from '../components/ProjectDetail/ProjectDetailHeader';
+import { settle } from '../test/settle';
 
 function builder(over: Partial<Builder>): Builder {
   return {
@@ -228,8 +229,8 @@ describe('Project Overview <BuilderOwnerCell /> — fix-24d', () => {
     // Focus + blur with the original value — should be a no-op.
     fireEvent.focus(screen.getByTestId('pd-builder-name'));
     fireEvent.blur(screen.getByTestId('pd-builder-name'));
-    // Wait a tick to ensure no async save sneaks through.
-    await new Promise((r) => setTimeout(r, 0));
+    // fix-300b: drain, then assert no save snuck through.
+    await settle();
     expect(mutateAsync).not.toHaveBeenCalled();
   });
 
@@ -278,7 +279,7 @@ describe('Project Overview <BuilderOwnerCell /> — fix-24d', () => {
     fireEvent.blur(screen.getByTestId('pd-poc-name'));
     fireEvent.focus(screen.getByTestId('pd-builder-address'));
     fireEvent.blur(screen.getByTestId('pd-builder-address'));
-    await new Promise((r) => setTimeout(r, 0));
+    await settle();
     expect(mutateAsync).not.toHaveBeenCalled();
   });
 });

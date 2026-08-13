@@ -68,6 +68,7 @@ vi.mock('../lib/supabase', () => ({ supabase: mocks.builder }));
 import { useProjects } from '../hooks/useProjects';
 import { useCreateProjectWithPermits } from '../hooks/useCreateProjectWithPermits';
 import AuthGuard from '../components/AuthGuard';
+import { settle } from '../test/settle';
 
 function makeWrapper() {
   const queryClient = new QueryClient({
@@ -123,8 +124,8 @@ describe('hooks are gated on activeTenantId', () => {
     useAuthStore.setState({ activeTenantId: null, memberships: [] });
     const { Wrapper } = makeWrapper();
     renderHook(() => useProjects(), { wrapper: Wrapper });
-    // Give react-query a tick to attempt the query (it shouldn't, due to enabled: false).
-    await new Promise((r) => setTimeout(r, 10));
+    // fix-300b: drain, then assert the query never fired (enabled: false).
+    await settle();
     expect(mocks.fromFn).not.toHaveBeenCalled();
   });
 

@@ -41,6 +41,7 @@ vi.mock('../hooks/useAppConfig', () => ({
 vi.mock('../stores/toastStore', () => ({ pushToast: toastMock }));
 
 import ProjectDetailHeader from '../components/ProjectDetail/ProjectDetailHeader';
+import { settle } from '../test/settle';
 
 function projectFixture(over: Partial<Record<string, unknown>> = {}) {
   return {
@@ -134,7 +135,7 @@ describe('UnitDimensions — fix-99 single mutateAsync call (recovery in hook)',
     fireEvent.change(wInput, { target: { value: '40' } });
     fireEvent.blur(wInput);
     await waitFor(() => expect(updateMutateAsync).toHaveBeenCalledTimes(1));
-    await new Promise((r) => setTimeout(r, 20));
+    await settle();
     expect(updateMutateAsync).toHaveBeenCalledTimes(1);
     // The component-side .catch in writeTypes swallows so the void
     // caller stays unhandled-rejection-free. The mocked hook itself
@@ -152,7 +153,7 @@ describe('UnitDimensions — fix-99 single mutateAsync call (recovery in hook)',
     // No second call — auto-recovery for OCC lives in the hook now
     // (and only fires on OCC, never on a generic error). The
     // .catch in writeTypes prevents an unhandled-promise-rejection.
-    await new Promise((r) => setTimeout(r, 20));
+    await settle();
     expect(updateMutateAsync).toHaveBeenCalledTimes(1);
   });
 });
@@ -238,7 +239,7 @@ describe('UnitDimensionsCompact — fix-98 dirty-flag prop sync', () => {
       }),
     );
     // Without the dirty flag the input would revert to '30'.
-    await new Promise((r) => setTimeout(r, 0));
+    await settle();
     expect(
       (screen.getByTestId('pd-units-compact-w') as HTMLInputElement).value,
     ).toBe('99');

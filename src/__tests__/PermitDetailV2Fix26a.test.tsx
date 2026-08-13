@@ -43,6 +43,7 @@ vi.mock('../components/ProjectDetail/ScheduleEstimator', () => ({
 }));
 
 import PermitDetailV2 from '../components/ProjectDetail/PermitDetailV2';
+import { settle } from '../test/settle';
 
 function makeCycle(over: Partial<PermitCycle> & Pick<PermitCycle, 'cycle_index'>): PermitCycle {
   return {
@@ -154,8 +155,9 @@ describe('PermitDetailV2 fix-26a — DateCell error handling', () => {
     fireEvent.change(intakeInput, { target: { value: '2026-05-20' } });
     fireEvent.blur(intakeInput);
     await waitFor(() => expect(cycleMutateAsync).toHaveBeenCalledTimes(1));
-    // Give the catch a tick to run before the test ends.
-    await new Promise((r) => setTimeout(r, 0));
+    // fix-300b: drain the rejection so tryCommit's .catch runs before the
+    // test ends — otherwise its setState lands on a torn-down tree.
+    await settle();
   });
 
   it('entering a corrected value after rejection fires a fresh mutation', async () => {
@@ -177,7 +179,7 @@ describe('PermitDetailV2 fix-26a — DateCell error handling', () => {
     fireEvent.change(intakeInput, { target: { value: '2026-05-20' } });
     fireEvent.blur(intakeInput);
     await waitFor(() => expect(cycleMutateAsync).toHaveBeenCalledTimes(1));
-    await new Promise((r) => setTimeout(r, 0));
+    await settle();
     // Corrected value — different from the bad one, so dedup never kicks in
     // regardless of whether the catch reset the ref. Verifies the cell
     // remains responsive after a rejection.
@@ -233,7 +235,7 @@ describe('PermitDetailV2 fix-26a — DateCell error handling', () => {
         makeCycle({ cycle_index: 0, submitted: '2026-05-15', intake_accepted: null }),
       ]));
     });
-    await new Promise((r) => setTimeout(r, 0));
+    await settle();
 
     // Cell visually reverted to '' (DOM input.value == ''). Re-typing the
     // same value triggers a real DOM change; tryCommit proceeds on blur
@@ -258,7 +260,7 @@ describe('PermitDetailV2 fix-26a — DateCell error handling', () => {
     await waitFor(() => expect(cycleMutateAsync).toHaveBeenCalledTimes(1));
     // A second blur with no further change — ref still equals draft so dedup blocks.
     fireEvent.blur(intakeInput);
-    await new Promise((r) => setTimeout(r, 0));
+    await settle();
     expect(cycleMutateAsync).toHaveBeenCalledTimes(1);
   });
 });

@@ -46,6 +46,7 @@ vi.mock('../components/ProjectDetail/ScheduleEstimator', () => ({
 }));
 
 import PermitDetailV2 from '../components/ProjectDetail/PermitDetailV2';
+import { settle } from '../test/settle';
 
 function makeCycle(
   over: Partial<PermitCycle> & Pick<PermitCycle, 'cycle_index'>,
@@ -155,7 +156,7 @@ describe('PermitDetailV2 fix-97 — cycle date input validation', () => {
       expect(intakeInput.getAttribute('data-local-error')).toBe('true');
       // Blur attempts to commit; the year guard blocks the mutation.
       fireEvent.blur(intakeInput);
-      await new Promise((r) => setTimeout(r, 0));
+      await settle();
       expect(cycleMutateAsync).not.toHaveBeenCalled();
     });
 
@@ -173,7 +174,7 @@ describe('PermitDetailV2 fix-97 — cycle date input validation', () => {
       // produce when the OS locale tab-completes a partial year string.
       fireEvent.change(intakeInput, { target: { value: '0002-02-02' } });
       fireEvent.blur(intakeInput);
-      await new Promise((r) => setTimeout(r, 0));
+      await settle();
       expect(cycleMutateAsync).not.toHaveBeenCalled();
       expect(
         screen.getByTestId('pd-cell-design-intake_accepted-error').textContent,
@@ -193,7 +194,7 @@ describe('PermitDetailV2 fix-97 — cycle date input validation', () => {
       // commitOnChange path: the intake_accepted cell fires after a 500ms
       // debounce on a valid value (fix-83). Blur shortcuts the timer.
       fireEvent.blur(intakeInput);
-      await new Promise((r) => setTimeout(r, 0));
+      await settle();
       expect(cycleMutateAsync).toHaveBeenCalledTimes(1);
       expect(cycleMutateAsync.mock.calls[0][0].patch).toEqual({
         intake_accepted: '2026-03-15',
@@ -235,7 +236,7 @@ describe('PermitDetailV2 fix-97 — cycle date input validation', () => {
         .querySelector('input') as HTMLInputElement;
       fireEvent.change(intakeInput, { target: { value: '2026-03-02' } });
       fireEvent.blur(intakeInput);
-      await new Promise((r) => setTimeout(r, 0));
+      await settle();
       expect(cycleMutateAsync).not.toHaveBeenCalled();
     });
 
@@ -270,7 +271,7 @@ describe('PermitDetailV2 fix-97 — cycle date input validation', () => {
         screen.queryByTestId('pd-cell-cycle1-corr_issued-error'),
       ).toBeNull();
       fireEvent.blur(corrInput);
-      await new Promise((r) => setTimeout(r, 0));
+      await settle();
       expect(cycleMutateAsync).toHaveBeenCalledTimes(1);
       expect(cycleMutateAsync.mock.calls[0][0].patch).toEqual({
         corr_issued: '2026-03-20',
@@ -295,7 +296,7 @@ describe('PermitDetailV2 fix-97 — cycle date input validation', () => {
         screen.queryByTestId('pd-cell-cycle1-corr_issued-error'),
       ).toBeNull();
       fireEvent.blur(corrInput);
-      await new Promise((r) => setTimeout(r, 0));
+      await settle();
       expect(cycleMutateAsync).toHaveBeenCalledTimes(1);
     });
 
@@ -337,7 +338,7 @@ describe('PermitDetailV2 fix-97 — cycle date input validation', () => {
       // resubmitted cell auto-commits via commitOnChange (fix-75) after
       // the 500ms debounce; blur shortcuts the timer to fire now.
       fireEvent.blur(resubInput);
-      await new Promise((r) => setTimeout(r, 0));
+      await settle();
       expect(cycleMutateAsync).toHaveBeenCalledTimes(1);
       const payload = cycleMutateAsync.mock.calls[0][0];
       expect(payload.op).toBe('update');
