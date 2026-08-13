@@ -10,6 +10,7 @@ import RouteErrorFallback from './components/RouteErrorFallback';
 import Reports from './pages/Reports';
 import ReportsTeamDetail from './pages/ReportsTeamDetail';
 import MyTasks from './pages/MyTasks';
+import MyBoard from './pages/MyBoard';
 import DrawSchedule from './pages/DrawSchedule';
 import LibraryMatrix from './components/LibraryMatrix';
 import ActivityPage from './pages/ActivityPage';
@@ -145,6 +146,10 @@ export const router = createBrowserRouter([
       // legacy /trends URL working by redirecting to the Reports Trends tab.
       { path: 'trends', element: <Navigate to="/reports?tab=trends" replace /> },
       { path: 'my-tasks', element: <MyTasks /> },
+      // fix-298 Phase 1: My Board — the read-only planner. Deliberately its
+      // own route and page: My Tasks is strictly MY TASKS, My Board is where
+      // my work sits. Different questions, different screens.
+      { path: 'board', element: <MyBoard /> },
       // fix-28: scraper activity feed. NotificationBell links here;
       // page owns search / category / ent filters + per-row read state.
       { path: 'activity', element: <ActivityPage /> },
