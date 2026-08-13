@@ -168,7 +168,8 @@ describe('useSetBpDdDates', () => {
         .getState()
         .toasts.find((t) => t.kind === 'success');
       expect(success).toBeTruthy();
-      expect(success?.message).toMatch(/DD dates saved/);
+      // fix-296b: toast copy renamed with the card's Draw Start / Draw End.
+      expect(success?.message).toMatch(/Draw dates saved/);
       expect(success?.message).toMatch(/4 permits/);
     });
   });

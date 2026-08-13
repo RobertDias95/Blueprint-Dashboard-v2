@@ -49,7 +49,8 @@ export function useUpdateRedesignDdPhase() {
     onSuccess: () => {
       // Bare prefix → Draw Schedule + Project Overview both refresh.
       qc.invalidateQueries({ queryKey: queryKeys.drawScheduleAll });
-      pushToast('Redesign DD phase updated', 'success');
+      // fix-296b: toast copy only — the hook, RPC and columns keep their names.
+      pushToast('Redesign draw schedule updated', 'success');
     },
     onError: (err) => {
       if (isOCCConflict(err)) {
@@ -57,7 +58,10 @@ export function useUpdateRedesignDdPhase() {
         qc.invalidateQueries({ queryKey: queryKeys.drawScheduleAll });
         return;
       }
-      pushToast(`Failed to update redesign DD phase — ${err.message}`, 'error');
+      pushToast(
+        `Failed to update redesign draw schedule — ${err.message}`,
+        'error',
+      );
     },
   });
 }

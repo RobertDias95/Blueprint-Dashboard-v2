@@ -254,7 +254,7 @@ export default function NewProjectWizard({ open, onClose, initialState }: Props)
     ) {
       setStep(1);
       setValidationErr(
-        'Backfill mode: enter both DD Start and DD End for the Building Permit.',
+        'Backfill mode: enter both Draw Start and Draw End for the Building Permit.',
       );
       return;
     }
@@ -306,7 +306,9 @@ export default function NewProjectWizard({ open, onClose, initialState }: Props)
         !state.redesign_dd_end
       ) {
         setStep(1);
-        setValidationErr('Redesign DD phase: enter DA, DD Start, and DD End.');
+        setValidationErr(
+          'Redesign draw schedule: enter DA, Draw Start, and Draw End.',
+        );
         return;
       }
       redesignDdStart = snapToMonday(state.redesign_dd_start, 'forward');

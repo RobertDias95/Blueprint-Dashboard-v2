@@ -313,7 +313,8 @@ const TEAM_CSV_COLUMNS = [
   // fix-216: reuse context (not volume credit).
   { key: 'reuseProjectCount', label: 'Reuse' },
   { key: 'reuseRate', label: 'Reuse Rate (%)' },
-  { key: 'avgDdDays', label: 'DD Phase (d)' },
+  // fix-296b: was 'DD Phase (d)' — matches the table header.
+  { key: 'avgDdDays', label: 'Draw (d)' },
   { key: 'avgCityReviewDays', label: 'City Review (d)' },
   { key: 'avgCorrectionsCycles', label: 'Corrections (cycles)' },
   { key: 'avgIssuanceDays', label: 'Issuance (d)' },

@@ -420,7 +420,7 @@ export default function Step1ProjectInfo({
             Backfill historical project
           </span>
           <span className="text-[10px] text-dim">
-            Allows assigning to inactive team members and manual DD dates.
+            Allows assigning to inactive team members and manual draw dates.
           </span>
         </span>
       </label>
@@ -703,7 +703,7 @@ export default function Step1ProjectInfo({
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               <label className="flex flex-col gap-1">
                 <span className="text-[10px] uppercase tracking-wide text-dim">
-                  DD Start (backfill)
+                  Draw Start (backfill)
                 </span>
                 <input
                   type="date"
@@ -715,7 +715,7 @@ export default function Step1ProjectInfo({
               </label>
               <label className="flex flex-col gap-1">
                 <span className="text-[10px] uppercase tracking-wide text-dim">
-                  DD End (backfill)
+                  Draw End (backfill)
                 </span>
                 <input
                   type="date"
@@ -1099,7 +1099,7 @@ export default function Step1ProjectInfo({
             Redesign Draw Schedule
           </div>
           <div className="text-[10px] text-dim -mt-1">
-            Set the DA and DD window for this redesign so it lands on the Draw
+            Set the DA and draw window for this redesign so it lands on the Draw
             Schedule.
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -1150,7 +1150,7 @@ export default function Step1ProjectInfo({
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             <label className="flex flex-col gap-1">
               <span className="text-[10px] uppercase tracking-wide text-dim">
-                DD Start <span className="text-co">*</span>
+                Draw Start <span className="text-co">*</span>
               </span>
               <input
                 type="date"
@@ -1165,7 +1165,7 @@ export default function Step1ProjectInfo({
             </label>
             <label className="flex flex-col gap-1">
               <span className="text-[10px] uppercase tracking-wide text-dim">
-                DD End <span className="text-co">*</span>
+                Draw End <span className="text-co">*</span>
               </span>
               <input
                 type="date"

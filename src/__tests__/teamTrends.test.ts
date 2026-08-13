@@ -164,7 +164,9 @@ describe('computeTeamTrends — Trevor demonstration', () => {
   ];
   const team: TeamMember[] = [mkMember({ name: 'Trevor', role: 'da' })];
 
-  it('DD Phase: 3 month buckets show 3 / 5 / 2 days respectively', () => {
+  // fix-296b: the metric is called "Draw" now (was "DD Phase"). The numbers
+  // below are unchanged on purpose — a label change must not move a value.
+  it('Draw: 3 month buckets show 3 / 5 / 2 days respectively', () => {
     const out = computeTeamTrends(permits, projects, team, {
       role: 'da',
       associateName: 'Trevor',

@@ -124,8 +124,11 @@ export default function TeamPerformanceTable({ result }: Props) {
             <Th col="reuseRate" sortKey={sortKey} sortDesc={sortDesc} onClick={toggleSort}>
               Reuse Rate
             </Th>
+            {/* fix-296b: was "DD Phase". This column averages dd_end − dd_start,
+                the two dates the project overview calls Draw Start / Draw End
+                since fix-296. Header only — the sort key is untouched. */}
             <Th col="avgDdDays" sortKey={sortKey} sortDesc={sortDesc} onClick={toggleSort}>
-              DD Phase
+              Draw
             </Th>
             <Th col="avgCityReviewDays" sortKey={sortKey} sortDesc={sortDesc} onClick={toggleSort}>
               City Review

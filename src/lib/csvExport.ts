@@ -5,7 +5,9 @@ import type { EnrichedPermit } from './reportMetrics';
 // The "ENT", "DA", "DM" columns pull from permits; ACQ excluded because
 // permits don't carry an acq column (task #63 schema decision).
 
-const HEADERS = [
+// fix-296b: exported so the rename guard can assert the header row without
+// driving a real download.
+export const CSV_HEADERS = [
   'Address',
   'Type',
   'Permit #',
@@ -19,8 +21,10 @@ const HEADERS = [
   'Submitted',
   'Intake Accepted',
   'GO → Submit (d)',
-  'DD Duration (d)',
-  'DD End → Submit (d)',
+  // fix-296b: were 'DD Duration (d)' / 'DD End → Submit (d)'. Same dates the
+  // rest of the app now calls Draw Start / Draw End.
+  'Draw Duration (d)',
+  'Draw End → Submit (d)',
   'Submit → Intake (d)',
   'City Review (d)',
   'Expected Issue',
@@ -49,7 +53,7 @@ export function exportEnrichedPermitsToCSV(
   filename?: string,
 ): { rowsExported: number; bytes: number; filename: string } {
   const lines: string[] = [];
-  lines.push(HEADERS.map((h) => quoteCell(h)).join(','));
+  lines.push(CSV_HEADERS.map((h) => quoteCell(h)).join(','));
 
   for (const e of rows) {
     const p = e.permit;
