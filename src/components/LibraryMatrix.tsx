@@ -28,11 +28,18 @@ import { useAppConfig, readAppConfigStringArray } from '../hooks/useAppConfig';
 import { SkeletonRows } from './Skeleton';
 import QueryError from './QueryError';
 
-// Q6.3.a: Library matrix view (Settings → Library tab). Per-project
+// Q6.3.a: Library matrix view. Per-project
 // lot/unit-dim matrix used to match new lots against past projects.
 // Mirrors v1's renderMatrix layout (index.html lines 5717-5772) minus
 // the dead-code Unit W×D column + unit-width filter (spike confirmed
 // no DB column, no JSON data, orphan form fields in v1).
+//
+// ★ WHERE IT LIVES: its own top-level route, /library, wired in router.tsx and
+// reachable from the main nav. It was a Settings sub-tab once (hence the
+// original Q6.3.a note), then a sub-tab of Draw Schedule, and the comment kept
+// claiming Settings through both moves. fix-297 moved it out and corrected
+// this: a stale "where does this live" comment is what sent an earlier ticket
+// looking in the wrong place entirely.
 
 // fix-105: STAGE_LABEL is the shared map from src/lib/stageLabel.ts.
 

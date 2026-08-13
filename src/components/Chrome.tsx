@@ -8,7 +8,8 @@ import { useIsTenantAdmin } from '../hooks/useIsTenantAdmin';
 // Q9.5.a: top-nav restructured to v1 parity (index.html:573-591).
 //   - Blueprint logo on the left IS the home button (clicks → /dashboard).
 //     No separate "Dashboard" nav item.
-//   - 4 nav tabs in v1 order: Draw Schedule | Project View | My Tasks |
+//   - nav tabs in v1 order: Draw Schedule | Library (fix-297) | Project
+//     View | My Tasks |
 //     Reports. Each tab has a stage-themed active underline color.
 //   - Vertical divider (1px × 24px, var(--border)) before the gear button.
 //   - ⚙ Settings button (outlined chip style) opens the System Settings
@@ -28,6 +29,9 @@ interface NavItem {
 
 const NAV_ITEMS: NavItem[] = [
   { to: '/draw-schedule', label: 'Draw Schedule', activeColor: '#5a84c0' },
+  // fix-297: Library was a sub-tab of Draw Schedule, which gave it no URL.
+  // Sits immediately after the page it came from so the move is obvious.
+  { to: '/library', label: 'Library', activeColor: '#5a84c0' },
   { to: '/projects', label: 'Project View', activeColor: 'var(--color-pm, #059669)' },
   { to: '/my-tasks', label: 'My Tasks', activeColor: 'var(--color-co, #d97706)' },
   { to: '/reports', label: 'Reports', activeColor: 'var(--color-jv, #7c3aed)' },

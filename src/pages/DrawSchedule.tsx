@@ -1,16 +1,20 @@
 import { useState } from 'react';
 import DrawScheduleGrid from '../components/DrawScheduleGrid';
-import LibraryMatrix from '../components/LibraryMatrix';
 import IntakeTracker from '../components/IntakeTracker';
 import StatusLegend from '../components/DrawSchedule/StatusLegend';
 
-// Q9.5.a: Draw Schedule promoted to top-level route. 3 sub-tabs match v1
-// index.html:9257-9261 — Draw Schedule / Library / Seattle Intakes.
+// Q9.5.a: Draw Schedule promoted to top-level route. v1 had 3 sub-tabs
+// (index.html:9257-9261) — Draw Schedule / Library / Seattle Intakes.
+//
+// fix-297: TWO now. Library moved to its own top-level route at /library: it
+// is not a view of the draw schedule, it was used on its own, and as a
+// useState sub-tab it had no URL to bookmark or share. The sub-tab bar stays —
+// Seattle Intakes still needs somewhere to live and the pattern still holds.
 // Sub-tabs are visually the same pattern as Reports' Overview/Trends
 // (12px/700 system-sans, var(--color-de) underline active, var(--color-muted) inactive).
 // Q9.5.b: typography simplified — was Syne in earlier v1; now system-sans.
 
-type DSTab = 'schedule' | 'library' | 'intake';
+type DSTab = 'schedule' | 'intake';
 
 export default function DrawSchedule() {
   const [tab, setTab] = useState<DSTab>('schedule');
@@ -25,9 +29,6 @@ export default function DrawSchedule() {
         <SubTab active={tab === 'schedule'} onClick={() => setTab('schedule')} testId="ds-tab-schedule">
           Draw Schedule
         </SubTab>
-        <SubTab active={tab === 'library'} onClick={() => setTab('library')} testId="ds-tab-library">
-          Library
-        </SubTab>
         <SubTab active={tab === 'intake'} onClick={() => setTab('intake')} testId="ds-tab-intake">
           Seattle Intakes
         </SubTab>
@@ -41,11 +42,6 @@ export default function DrawSchedule() {
           <div className="flex-1 overflow-y-auto overflow-x-hidden">
             <DrawScheduleGrid />
           </div>
-        </div>
-      )}
-      {tab === 'library' && (
-        <div className="flex-1 overflow-y-auto px-[18px] py-4">
-          <LibraryMatrix />
         </div>
       )}
       {tab === 'intake' && (
