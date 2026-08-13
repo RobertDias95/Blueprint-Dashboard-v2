@@ -180,7 +180,7 @@ export default function ReassignDaModal({
             >
               Use Redesign
             </button>{' '}
-            — that spins up a new block + DD window.
+            — that spins up a new block + draw window.
           </div>
 
           {/* Handoff history + undo */}

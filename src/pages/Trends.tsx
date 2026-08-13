@@ -976,9 +976,10 @@ function TrendsBody({ permits, projects, catalogTypes }: BodyProps) {
         className="text-[11px] text-dim italic px-1"
         data-testid="trends-approved-only-banner"
       >
-        Cohort = projects that started drawing (DD start) in this window — the KPI
-        row, City performance, Variance, and Breakdown sections compare the same
-        DD-start cohort across periods. Projects without a DD start are excluded.
+        Cohort = projects that started drawing (Draw Start) in this window — the
+        KPI row, City performance, Variance, and Breakdown sections compare the
+        same Draw-Start cohort across periods. Projects without a Draw Start are
+        excluded.
       </div>
 
       {/* KPI tile row */}

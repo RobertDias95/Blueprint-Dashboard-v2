@@ -195,7 +195,7 @@ export const BUILTIN_REPORT_CATALOG: Record<
     howItWorks: {
       included: [
         'Projects whose draw block is in a pre-submittal phase — Scheduled, Schematic, DD / Permit Set or Pending Consultants — and that have an address. Redesigns count in their own right.',
-        'Their target send date (the end of the DD phase) must still be ahead of us.',
+        'Their target send date (Draw End) must still be ahead of us.',
         'Exception: a target send date that has already passed still shows IF the project has a structural task that is open and not yet started. Those appear at the top of Upcoming, marked OVERDUE.',
         'Once that task is started, the project moves to Transmitted instead — sent, awaiting return.',
         'The project\'s PHASE decides which section a structural task lands in, not what the task is called. On a pre-submittal project it is the design handoff (Upcoming or Transmitted); on a project past submittal it is a correction.',

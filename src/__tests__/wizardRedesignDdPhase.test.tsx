@@ -277,12 +277,14 @@ describe('Redesign DD phase — full wizard submit', () => {
       | { p_redesign_dd_phase?: { da: string; dd_start: string; dd_end: string } }
       | undefined;
 
-  it('blocks submit when the DD phase is blank', async () => {
+  it('blocks submit when the draw window is blank', async () => {
     renderWizard(redesignState());
     gotoStep4AndSave();
     await waitFor(() =>
+      // fix-296b: the message reads "Redesign draw schedule" now — the section
+      // heading it names was renamed in fix-296.
       expect(screen.getByTestId('wizard-validation').textContent).toMatch(
-        /Redesign DD phase/i,
+        /Redesign draw schedule/i,
       ),
     );
     expect(createCall()).toBeFalsy();

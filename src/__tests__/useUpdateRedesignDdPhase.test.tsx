@@ -76,7 +76,7 @@ describe('useUpdateRedesignDdPhase', () => {
       p_status: 'Scheduled',
       p_expected_updated_at: 'stale-token',
     });
-    expect(pushToast).toHaveBeenCalledWith('Redesign DD phase updated', 'success');
+    expect(pushToast).toHaveBeenCalledWith('Redesign draw schedule updated', 'success');
   });
 
   it('surfaces the OCC warn toast when the RPC reports a conflict', async () => {
@@ -94,7 +94,7 @@ describe('useUpdateRedesignDdPhase', () => {
     );
     // The success toast must NOT fire on a conflict.
     expect(pushToast).not.toHaveBeenCalledWith(
-      'Redesign DD phase updated',
+      'Redesign draw schedule updated',
       'success',
     );
   });

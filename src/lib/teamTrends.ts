@@ -94,8 +94,9 @@ type PhaseAccessor = {
 
 const PHASE_ACCESSORS: Record<keyof TeamTrendsResult, PhaseAccessor> = {
   ddPhase: {
-    // Anchor on dd_end's month — the DD Phase metric measures
-    // dd_start → dd_end. Permits without both endpoints skip.
+    // Anchor on dd_end's month — the Draw metric (fix-296b; "DD Phase"
+    // before that) measures dd_start → dd_end. Permits without both
+    // endpoints skip. The series key stays ddPhase — identifier, not label.
     anchor: (p) => monthOf(p.dd_end),
     value: (p) => {
       const d = daysBetween(p.dd_start, p.dd_end);

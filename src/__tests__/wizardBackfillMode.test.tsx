@@ -15,7 +15,7 @@ import {
 //   - Role pickers (acq_lead + lead_da on Step 1; ent + per-permit da on
 //     Step 3) open to inactive + former members with a status suffix. (DM has
 //     no picker — it's derived from the DA — so there are 3 pickable roles.)
-//   - Manual DD Start / DD End inputs (BP only), Monday/Friday-snapped on
+//   - Manual Draw Start / Draw End inputs (BP only), Monday/Friday-snapped on
 //     submit, replace auto-placement; required once a lead DA is picked.
 //   - Soft tenure warning when a DD date falls outside the DA's tenure.
 //   - The created draw_schedule lane is flagged manually_placed.
@@ -408,7 +408,8 @@ describe('Full wizard — submit', () => {
 
     await waitFor(() =>
       expect(screen.getByTestId('wizard-validation').textContent).toMatch(
-        /DD Start and DD End/i,
+        // fix-296b: the message says Draw Start / Draw End now.
+        /Draw Start and Draw End/i,
       ),
     );
     expect(createArgs()).toBeFalsy();
