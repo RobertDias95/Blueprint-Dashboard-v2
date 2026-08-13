@@ -53,6 +53,7 @@ vi.mock('../lib/supabase', () => ({
 vi.mock('../hooks/useIsTenantAdmin', () => ({ useIsTenantAdmin: () => true }));
 
 import CustomReport from '../pages/CustomReport';
+import { settle } from '../test/settle';
 
 const BASE: SavedReportDetail = {
   id: 'c3baa3d3-b400-4833-852d-ada190b186da',
@@ -106,8 +107,9 @@ describe('fix-282 an UNKNOWN builtin never fires the RPC', () => {
     renderRoute();
     await screen.findByTestId('custom-report-unknown-builtin');
     expect(ranTheReport()).toBe(false);
-    // Give react-query a beat to do the wrong thing, and confirm it doesn't.
-    await new Promise((r) => setTimeout(r, 50));
+    // fix-300b: drain everything react-query has queued, then confirm it did
+    // not take the chance to run the report. No duration is guessed.
+    await settle();
     expect(ranTheReport()).toBe(false);
     // The detail lookup DID happen — that is how we knew to stop.
     expect(state.calls).toContain('bp_get_saved_report');
@@ -141,7 +143,7 @@ describe('fix-282 a KNOWN builtin is redirected, not run', () => {
   it('★ still never calls bp_run_saved_report', async () => {
     renderRoute();
     await screen.findByTestId('corrections-page');
-    await new Promise((r) => setTimeout(r, 50));
+    await settle();
     expect(ranTheReport()).toBe(false);
   });
 });

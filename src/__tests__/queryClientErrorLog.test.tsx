@@ -144,8 +144,13 @@ describe('QueryClient global onError (fix-87)', () => {
     );
 
     result.current.mutate();
-    // It still rejects; we just don't log it.
-    await new Promise((r) => setTimeout(r, 30));
+    // fix-300b: "we don't log it" passes vacuously if it is asserted before
+    // the mutation has even failed — which is exactly what a 30ms guess buys
+    // you on a starved worker. Anchor on the rejection actually landing
+    // (isError is the observable proving the global onError ran), THEN assert
+    // that the handler chose not to log. settle() alone is not enough here:
+    // it would drain the microtasks but prove nothing about ordering.
+    await waitFor(() => expect(result.current.isError).toBe(true));
     expect(logErrorMock).not.toHaveBeenCalled();
   });
 
@@ -170,7 +175,7 @@ describe('QueryClient global onError (fix-87)', () => {
 
   it('auth-key query failures are skipped (user logged out is not an app error)', async () => {
     const client = makeClient();
-    renderHook(
+    const { result } = renderHook(
       () =>
         useQuery({
           queryKey: ['auth/session'],
@@ -179,8 +184,11 @@ describe('QueryClient global onError (fix-87)', () => {
       { wrapper: wrapperFor(client) },
     );
 
-    // The query still rejects; we just shouldn't log it.
-    await new Promise((r) => setTimeout(r, 30));
+    // fix-300b: same shape as the 22008 case above — wait for the query to
+    // actually reach its error state, so "we shouldn't log it" is a statement
+    // about a rejection that has demonstrably been handled rather than one
+    // that may not have started.
+    await waitFor(() => expect(result.current.isError).toBe(true));
     expect(logErrorMock).not.toHaveBeenCalled();
   });
 });

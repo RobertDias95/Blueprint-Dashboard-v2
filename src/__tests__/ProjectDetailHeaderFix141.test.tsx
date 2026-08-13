@@ -47,6 +47,7 @@ vi.mock('../stores/toastStore', () => ({
 }));
 
 import ProjectDetailHeader from '../components/ProjectDetail/ProjectDetailHeader';
+import { settle } from '../test/settle';
 
 function projectFixture(over: Partial<Project> = {}): Project {
   return {
@@ -176,8 +177,8 @@ describe('<ProjectDetailHeader /> DD Phase Monday-snap (fix-141)', () => {
     );
     const end = screen.getByTestId('pd-bp-dd_end') as HTMLInputElement;
     fireEvent.blur(end);
-    // give any async path a tick
-    await new Promise((r) => setTimeout(r, 0));
+    // fix-300b: drain any async commit path, then assert none of it fired.
+    await settle();
     expect(ddMutateAsync).not.toHaveBeenCalled();
   });
 

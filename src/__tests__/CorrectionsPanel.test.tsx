@@ -56,6 +56,7 @@ vi.mock('../lib/supabase', () => {
 });
 
 import CorrectionsPanel from '../components/ProjectDetail/CorrectionsPanel';
+import { settle } from '../test/settle';
 
 function wrapper() {
   const qc = new QueryClient({
@@ -182,7 +183,7 @@ describe('fix-276 the corrections read is narrow and project-scoped', () => {
     useAuthStore.setState({ activeTenantId: null, memberships: [] });
     state.rows = SEATTLE;
     renderPanel();
-    await new Promise((r) => setTimeout(r, 30));
+    await settle();
     expect(state.calls).toBe(0);
   });
 });

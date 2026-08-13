@@ -27,6 +27,7 @@ vi.mock('../stores/toastStore', () => ({
 }));
 
 import QuickEditPermitModal from '../components/ProjectDetail/QuickEditPermitModal';
+import { settle } from '../test/settle';
 
 function permit(over: Partial<PermitWithCycles> = {}): PermitWithCycles {
   return {
@@ -201,8 +202,10 @@ describe('<QuickEditPermitModal />', () => {
     render(<QuickEditPermitModal permit={permit()} onClose={onClose} />);
     fireEvent.change(screen.getByTestId('qe-num'), { target: { value: 'changed' } });
     fireEvent.click(screen.getByTestId('qe-save'));
-    // Wait a tick for the rejected promise to settle.
-    await new Promise((r) => setTimeout(r, 0));
+    // fix-300b: drain the rejection so the component's .catch has actually
+    // run — otherwise "onClose was not called" would pass before the code
+    // that might wrongly call it ever executed.
+    await settle();
     expect(mutateAsync).toHaveBeenCalledTimes(1);
     expect(onClose).not.toHaveBeenCalled();
   });

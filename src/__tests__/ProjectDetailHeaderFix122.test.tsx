@@ -34,6 +34,7 @@ vi.mock('../hooks/useAppConfig', () => ({
 vi.mock('../stores/toastStore', () => ({ pushToast: vi.fn() }));
 
 import ProjectDetailHeader from '../components/ProjectDetail/ProjectDetailHeader';
+import { settle } from '../test/settle';
 
 function projectFixture(over: Partial<Record<string, unknown>> = {}) {
   return {
@@ -241,7 +242,7 @@ describe('DD Phase — Closing Date row (moved from Project Site, fix-148)', () 
     setup({ closing_date: '2026-09-30' });
     const input = screen.getByTestId('project-overview-closing') as HTMLInputElement;
     fireEvent.blur(input);
-    await new Promise((r) => setTimeout(r, 20));
+    await settle();
     expect(updateMutateAsync).not.toHaveBeenCalled();
   });
 });
