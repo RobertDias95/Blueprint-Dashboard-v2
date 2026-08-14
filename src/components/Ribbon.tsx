@@ -239,13 +239,13 @@ function RibbonItem({
   collapsed: boolean;
   pathname: string;
 }) {
-  const active = isLinkActive(link.to, pathname);
+  const active = isLinkActive(link.to, pathname, link.exact);
   return (
     <NavLink
       to={link.to}
       data-testid={`ribbon-link-${link.to}`}
       data-active={active ? 'true' : 'false'}
-      title={link.label}
+      title={link.hint ?? link.label}
       className={itemClass(active)}
       style={itemStyle(collapsed)}
     >
@@ -309,14 +309,14 @@ function RibbonGroupItem({
       {open && !collapsed && (
         <div data-testid={`ribbon-kids-${group.id}`} style={{ padding: '1px 0 4px' }}>
           {group.children.map((child) => {
-            const active = isLinkActive(child.to, pathname);
+            const active = isLinkActive(child.to, pathname, child.exact);
             return (
               <NavLink
                 key={child.to}
                 to={child.to}
                 data-testid={`ribbon-link-${child.to}`}
                 data-active={active ? 'true' : 'false'}
-                title={child.label}
+                title={child.hint ?? child.label}
                 className={`flex items-center gap-2 rounded-lg whitespace-nowrap no-underline transition ${
                   active ? 'bg-s2 text-de font-semibold' : 'text-muted hover:bg-s2'
                 }`}

@@ -1,0 +1,564 @@
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { render, screen, fireEvent } from '@testing-library/react';
+import {
+  createMemoryRouter,
+  RouterProvider,
+  MemoryRouter,
+  useLocation,
+} from 'react-router-dom';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import routerSrc from '../router.tsx?raw';
+import {
+  RIBBON_ENTRIES,
+  ROUTES_INTENTIONALLY_NOT_IN_RIBBON,
+  allRibbonRoutes,
+  groupContainsActive,
+  isLinkActive,
+  ribbonExemptPaths,
+  visibleEntries,
+  type RibbonEntry,
+} from '../lib/ribbonNav';
+import {
+  buildWaitingOnCsv,
+  exportAllToCsv,
+  exportFirmToCsv,
+} from '../lib/waitingOnCsv';
+import type { WaitingOnTaskRow } from '../lib/database.types';
+
+// fix-315 — put back the two screens the ribbon dropped.
+//
+// fix-313 wrote the ribbon's entry list BY ENUMERATION and two destinations
+// were left off it. Both routes still existed and still rendered; they were
+// simply unreachable by clicking, and nothing failed — no test, no type error,
+// no console warning. The only detector was Bobby noticing weeks later.
+//
+//   1. /reports — the live-metrics overview. The list named the seven CHILDREN
+//      and not the parent.
+//   2. WaitingOnView — stranded when /my-tasks was redirected to /board.
+//
+// The third section of this file is the guard, and it is the part that matters
+// most: a silent omission should be a failing test, not a support question.
+
+const authState = vi.hoisted(() => ({ role: 'admin' as 'admin' | 'editor' }));
+vi.mock('../stores/authStore', () => ({
+  useAuthStore: (selector: (s: unknown) => unknown) =>
+    selector({
+      session: null,
+      user: { id: 'u1', email: 'bobby@example.com' },
+      initialized: true,
+      memberships: [{ tenant_id: 't1', role: authState.role }],
+      activeTenantId: 't1',
+    }),
+}));
+
+vi.mock('../lib/supabase', () => {
+  const chain = { on: vi.fn().mockReturnThis(), subscribe: vi.fn().mockReturnThis() };
+  return {
+    supabase: {
+      auth: {
+        signOut: vi.fn().mockResolvedValue({ error: null }),
+        getSession: vi.fn().mockResolvedValue({ data: { session: null }, error: null }),
+        onAuthStateChange: vi.fn(() => ({ data: { subscription: { unsubscribe: vi.fn() } } })),
+      },
+      from: () => ({ select: vi.fn().mockResolvedValue({ data: [], error: null }) }),
+      rpc: vi.fn().mockResolvedValue({ data: [], error: null }),
+      channel: vi.fn(() => chain),
+      removeChannel: vi.fn().mockResolvedValue(undefined),
+    },
+    supabaseUrl: 'http://test.local',
+  };
+});
+
+import Ribbon from '../components/Ribbon';
+
+beforeEach(() => {
+  authState.role = 'admin';
+  window.localStorage.clear();
+});
+
+function renderRibbon(initial = '/dashboard') {
+  const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  return render(
+    <QueryClientProvider client={qc}>
+      <MemoryRouter initialEntries={[initial]}>
+        <Ribbon onAddProject={() => {}} onOpenSettings={() => {}} />
+      </MemoryRouter>
+    </QueryClientProvider>,
+  );
+}
+
+/** Ribbon inside a real router, so navigation can be asserted on the resolved
+ *  location rather than on an href string (the fix-306 discipline). */
+function renderRoutable(initial = '/dashboard') {
+  function Probe() {
+    const { pathname, search } = useLocation();
+    return <div data-testid="where">{pathname + search}</div>;
+  }
+  const router = createMemoryRouter(
+    [
+      {
+        path: '*',
+        element: (
+          <>
+            <Ribbon onAddProject={() => {}} onOpenSettings={() => {}} />
+            <Probe />
+          </>
+        ),
+      },
+    ],
+    { initialEntries: [initial] },
+  );
+  const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  return render(
+    <QueryClientProvider client={qc}>
+      <RouterProvider router={router} />
+    </QueryClientProvider>,
+  );
+}
+
+// ---------------------------------------------------------------------------
+// 1. /reports — the live-metrics overview
+// ---------------------------------------------------------------------------
+
+describe('fix-315 §1: the Reports overview is reachable again', () => {
+  // ★ THE ACCEPTANCE TEST — the resolved route, not a link.
+  it('★ clicking Reports → Overview navigates to /reports', () => {
+    renderRoutable();
+    fireEvent.click(screen.getByTestId('ribbon-group-toggle-reports'));
+    fireEvent.click(screen.getByTestId('ribbon-link-/reports'));
+    expect(screen.getByTestId('where').textContent).toBe('/reports');
+  });
+
+  it('and /reports is a real route, declared in router.tsx', () => {
+    expect(routerSrc).toContain("path: 'reports'");
+    expect(allRibbonRoutes()).toContain('/reports');
+  });
+
+  // ★ The other half of the acceptance test: the route the entry reaches is
+  // the one that mounts <Reports />, which is where MetricCards lives. The
+  // cards' own rendering is pinned by Reports.test.tsx ("renders FilterBar +
+  // MetricCards + 4 charts", asserting report-metric-cards) — re-mounting that
+  // whole page here would duplicate it without adding a claim. What was NOT
+  // asserted anywhere until now is the LINK between the ribbon entry and that
+  // page, which is precisely what went missing.
+  it('★ and that route is the one mounting <Reports />, the metric-cards page', () => {
+    expect(routerSrc).toMatch(
+      /path: 'reports', element: <AdminRoute><Reports \/><\/AdminRoute>/,
+    );
+    expect(routerSrc).toContain("import Reports from './pages/Reports'");
+  });
+
+  it('sits FIRST among the group’s children, above the runnable reports', () => {
+    const group = RIBBON_ENTRIES.find(
+      (e) => e.kind === 'group' && e.group.id === 'reports',
+    );
+    const kids = group!.kind === 'group' ? group!.group.children : [];
+    expect(kids[0]!.to).toBe('/reports');
+    expect(kids[0]!.label).toBe('Overview');
+    // The seven fix-313 entries are all still there, in order.
+    expect(kids.slice(1).map((k) => k.to)).toEqual([
+      '/reports/weekly-da',
+      '/reports/weekly-updates',
+      '/reports/approved-awaiting',
+      '/reports/phase-durations',
+      '/reports/vendor-forecast',
+      '/reports/corrections',
+      '/settings/reporting',
+    ]);
+  });
+
+  // ★ The brief's constraint on the interaction, asserted rather than asserted
+  // about: opening the group to reach Corrections must not drag you through
+  // the metrics page.
+  it('★ expanding the group does NOT navigate anywhere', () => {
+    renderRoutable('/dashboard');
+    fireEvent.click(screen.getByTestId('ribbon-group-toggle-reports'));
+    expect(screen.getByTestId('where').textContent).toBe('/dashboard');
+    // ...and the children are now reachable directly.
+    fireEvent.click(screen.getByTestId('ribbon-link-/reports/corrections'));
+    expect(screen.getByTestId('where').textContent).toBe('/reports/corrections');
+  });
+
+  // ★ The reason the Overview entry is `exact`. Without it, /reports would
+  // prefix-match every child and two entries would claim to be where you are.
+  it('★ the Overview entry does not light up while you are reading a child', () => {
+    renderRibbon('/reports/corrections');
+    fireEvent.click(screen.getByTestId('ribbon-group-toggle-reports'));
+    expect(screen.getByTestId('ribbon-link-/reports').dataset.active).toBe('false');
+    expect(screen.getByTestId('ribbon-link-/reports/corrections').dataset.active).toBe(
+      'true',
+    );
+  });
+
+  it('...and does light up on /reports itself', () => {
+    renderRibbon('/reports');
+    fireEvent.click(screen.getByTestId('ribbon-group-toggle-reports'));
+    expect(screen.getByTestId('ribbon-link-/reports').dataset.active).toBe('true');
+  });
+
+  it('the exact matcher is exact, and the prefix matcher still is not', () => {
+    expect(isLinkActive('/reports', '/reports', true)).toBe(true);
+    expect(isLinkActive('/reports', '/reports/corrections', true)).toBe(false);
+    // Unchanged for everything else — a parent still owns its children.
+    expect(isLinkActive('/library', '/library/42')).toBe(true);
+  });
+
+  // ★ Trends has been moved twice already; confirm it is still reachable.
+  it('★ Trends is reachable through the overview at /reports?tab=trends', () => {
+    renderRoutable('/reports?tab=trends');
+    expect(screen.getByTestId('where').textContent).toBe('/reports?tab=trends');
+    // The legacy /trends URL still redirects there.
+    expect(routerSrc).toContain('/reports?tab=trends');
+    // And the group shows as active on the Trends URL, not just the bare one.
+    const group = RIBBON_ENTRIES.find(
+      (e) => e.kind === 'group' && e.group.id === 'reports',
+    );
+    expect(group!.kind === 'group' && groupContainsActive(group!.group, '/reports')).toBe(
+      true,
+    );
+  });
+
+  // ★ The gate must cover the new entry too.
+  it('★ a non-admin sees neither the group nor the overview entry', () => {
+    authState.role = 'editor';
+    renderRibbon();
+    expect(screen.queryByTestId('ribbon-group-reports')).toBeNull();
+    expect(screen.queryByTestId('ribbon-link-/reports')).toBeNull();
+    const routes = visibleEntries(false).flatMap((e) =>
+      e.kind === 'group' ? e.group.children.map((c) => c.to) : e.kind === 'link' ? [e.link.to] : [],
+    );
+    expect(routes.some((r) => r.startsWith('/reports'))).toBe(false);
+    // Not vacuous — an admin does get it.
+    const adminRoutes = visibleEntries(true).flatMap((e) =>
+      e.kind === 'group' ? e.group.children.map((c) => c.to) : [],
+    );
+    expect(adminRoutes).toContain('/reports');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 2. Waiting On
+// ---------------------------------------------------------------------------
+
+describe('fix-315 §2: Waiting On is reachable again', () => {
+  it('★ the entry resolves to /waiting-on, under Entitlements', () => {
+    renderRoutable();
+    fireEvent.click(screen.getByTestId('ribbon-group-toggle-entitlements'));
+    fireEvent.click(screen.getByTestId('ribbon-link-/waiting-on'));
+    expect(screen.getByTestId('where').textContent).toBe('/waiting-on');
+  });
+
+  it('and /waiting-on is a real route mounting the untouched component', () => {
+    expect(routerSrc).toContain("path: 'waiting-on'");
+    expect(routerSrc).toContain('<WaitingOnView />');
+    expect(routerSrc).toContain(
+      "import WaitingOnView from './components/MyTasks/WaitingOnView'",
+    );
+  });
+
+  it('sits beside Draw Schedule, Library and Activity', () => {
+    const ent = RIBBON_ENTRIES.find(
+      (e) => e.kind === 'group' && e.group.id === 'entitlements',
+    );
+    const kids = ent!.kind === 'group' ? ent!.group.children.map((c) => c.to) : [];
+    expect(kids).toEqual([
+      '/draw-schedule',
+      '/library',
+      '/waiting-on',
+      '/activity',
+    ]);
+  });
+
+  // ★ NOT merged with the Consultant forecast — different questions, and the
+  // brief is explicit that both stay.
+  it('★ the Consultant forecast is still its own, separate entry', () => {
+    const routes = allRibbonRoutes();
+    expect(routes).toContain('/waiting-on');
+    expect(routes).toContain('/reports/vendor-forecast');
+    // They live in different groups, so they are never adjacent in the ribbon.
+    const ent = RIBBON_ENTRIES.find((e) => e.kind === 'group' && e.group.id === 'entitlements');
+    const rep = RIBBON_ENTRIES.find((e) => e.kind === 'group' && e.group.id === 'reports');
+    const entKids = ent!.kind === 'group' ? ent!.group.children.map((c) => c.to) : [];
+    const repKids = rep!.kind === 'group' ? rep!.group.children.map((c) => c.to) : [];
+    expect(entKids).toContain('/waiting-on');
+    expect(repKids).toContain('/reports/vendor-forecast');
+    // The hover text is what separates them where the labels could be confused.
+    const wo = entKids.includes('/waiting-on')
+      ? (ent!.kind === 'group' ? ent!.group.children.find((c) => c.to === '/waiting-on') : undefined)
+      : undefined;
+    expect(wo!.hint).toMatch(/owes us/i);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The CSV export — the part of Waiting On that would have been quietly lost
+// ---------------------------------------------------------------------------
+
+function row(over: Partial<WaitingOnTaskRow> = {}): WaitingOnTaskRow {
+  return {
+    task_id: 't1',
+    // The real column names — waiting_on is the discipline, firm_active is the
+    // archived flag, completion_status is the status, priority is a boolean
+    // rendered Yes/No. Written from lib/waitingOnCsv.ts rather than guessed.
+    waiting_on: 'Structural',
+    firm_id: 'f1',
+    firm_name: 'Acme Structural',
+    firm_active: true,
+    project_id: 'p1',
+    project_address: '3921 43rd Ave S',
+    project_juris: 'Seattle',
+    permit_type: 'Building Permit',
+    task_text: 'Return the stamped set',
+    assigned_to: 'Miles',
+    priority: true,
+    start_date: '2026-08-01',
+    due_date: '2026-08-20',
+    target_date: '2026-08-18',
+    completion_status: 'Open',
+    created_at: '2026-07-01T00:00:00Z',
+    updated_at: '2026-08-10T00:00:00Z',
+    notes: 'Chased twice',
+    ...over,
+  } as unknown as WaitingOnTaskRow;
+}
+
+/** Run a download-triggering export and hand back the CSV it would have sent,
+ *  so the assertion is on CONTENT rather than on a button having been clicked. */
+function captureDownload(run: () => { rowsExported: number; filename: string }) {
+  const origCreate = URL.createObjectURL;
+  const origRevoke = URL.revokeObjectURL;
+  let blob: Blob | null = null;
+  URL.createObjectURL = ((b: Blob) => {
+    blob = b;
+    return 'blob:stub';
+  }) as typeof URL.createObjectURL;
+  URL.revokeObjectURL = (() => {}) as typeof URL.revokeObjectURL;
+  const click = vi
+    .spyOn(HTMLAnchorElement.prototype, 'click')
+    .mockImplementation(() => {});
+  try {
+    const result = run();
+    return { result, blob: blob as Blob | null };
+  } finally {
+    URL.createObjectURL = origCreate;
+    URL.revokeObjectURL = origRevoke;
+    click.mockRestore();
+  }
+}
+
+describe('fix-315: both CSV exports still produce their 16-column output', () => {
+  // ★ Assert the generated CSV CONTENT, not that a button exists. This is the
+  // capability the ticket exists to restore — one consultant's open items,
+  // sendable — and "the button renders" would not have caught its loss either.
+  it('★ all-rows export: 16 columns, header + one row per task', () => {
+    const csv = buildWaitingOnCsv([row(), row({ task_id: 't2', firm_name: 'Beta Civil' })]);
+    const lines = csv.split('\n');
+    expect(lines).toHaveLength(3);
+
+    const header = lines[0]!.split(',');
+    expect(header).toHaveLength(16);
+    expect(header[0]).toBe('"Discipline"');
+    expect(header[1]).toBe('"Firm Name"');
+    expect(header[2]).toBe('"Firm Status"');
+    expect(header[15]).toBe('"Notes"');
+
+    const first = lines[1]!.split(',');
+    expect(first).toHaveLength(16);
+    expect(first[0]).toBe('"Structural"');
+    expect(first[1]).toBe('"Acme Structural"');
+    expect(first[2]).toBe('"Active"');
+    expect(lines[2]).toContain('"Beta Civil"');
+  });
+
+  it('an archived firm reads Archived, and a firm-less row reads blank', () => {
+    expect(
+      buildWaitingOnCsv([row({ firm_active: false } as Partial<WaitingOnTaskRow>)]).split(
+        '\n',
+      )[1],
+    ).toContain('"Archived"');
+    const orphan = buildWaitingOnCsv([
+      row({ firm_id: null, firm_name: null } as Partial<WaitingOnTaskRow>),
+    ]).split('\n')[1]!;
+    // Firm Status blank — not "Active", which would be a claim about a firm
+    // that is not there.
+    expect(orphan.split(',')[2]).toBe('""');
+  });
+
+  it('★ the ALL export really writes those rows out, through the download path', () => {
+    const rows = [row(), row({ task_id: 't2', firm_name: 'Beta Civil' })];
+    const { result, blob } = captureDownload(() => exportAllToCsv(rows));
+    expect(result.rowsExported).toBe(2);
+    expect(result.filename).toMatch(/^waiting-on-\d{4}-\d{2}-\d{2}\.csv$/);
+    expect(blob).not.toBeNull();
+    return blob!.text().then((text) => {
+      expect(text.split('\n')).toHaveLength(3);
+      expect(text.split('\n')[0]!.split(',')).toHaveLength(16);
+      expect(text).toContain('"Acme Structural"');
+      expect(text).toContain('"Beta Civil"');
+    });
+  });
+
+  // ★ The per-firm export is the point of the screen: send ONE consultant
+  // their own open items. Asserted on the bytes, including that the other
+  // firm's rows are absent.
+  it('★ per-firm export carries only that firm’s rows, with the same 16 columns', () => {
+    const rows = [
+      row({ task_id: 't1', firm_id: 'f1', firm_name: 'Acme Structural' }),
+      row({ task_id: 't2', firm_id: 'f2', firm_name: 'Beta Civil' }),
+      row({ task_id: 't3', firm_id: 'f1', firm_name: 'Acme Structural' }),
+    ];
+    const { result, blob } = captureDownload(() =>
+      exportFirmToCsv(rows, { discipline: 'Structural', firmId: 'f1' }),
+    );
+    expect(result.rowsExported).toBe(2);
+    return blob!.text().then((text) => {
+      const lines = text.split('\n');
+      expect(lines).toHaveLength(3); // header + 2 Acme rows
+      expect(lines[0]!.split(',')).toHaveLength(16);
+      expect(text).not.toContain('Beta Civil');
+    });
+  });
+
+  it('the firm-less group exports too — firmId null is a real group', () => {
+    const rows = [
+      row({ task_id: 't1', firm_id: null, firm_name: null } as Partial<WaitingOnTaskRow>),
+      row({ task_id: 't2', firm_id: 'f1' }),
+    ];
+    const { result } = captureDownload(() =>
+      exportFirmToCsv(rows, { discipline: 'Structural', firmId: null }),
+    );
+    expect(result.rowsExported).toBe(1);
+  });
+
+  it('a comma or a quote in the notes cannot break the row apart', () => {
+    const csv = buildWaitingOnCsv([row({ notes: 'Chased, twice; said "next week"' })]);
+    // Still one data line, and the escaping is CSV-standard doubled quotes.
+    expect(csv.split('\n')).toHaveLength(2);
+    expect(csv).toContain('"Chased, twice; said ""next week"""');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// ★ 3. THE GUARD — the general defect
+// ---------------------------------------------------------------------------
+
+/** Every non-parameterised, non-index route declared in router.tsx. */
+function declaredRoutes(src: string): string[] {
+  const out: string[] = [];
+  const re = /path:\s*'([^']+)'/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(src)) !== null) {
+    const p = m[1]!;
+    if (p === '*' || p === '/') continue;
+    if (p.includes(':')) continue; // parameterised — not a browsing destination
+    out.push(p.startsWith('/') ? p : `/${p}`);
+  }
+  return [...new Set(out)];
+}
+
+/** The routes a coverage check must account for, given a set of ribbon routes. */
+function uncovered(routes: string[], ribbon: string[], exempt: string[]): string[] {
+  return routes.filter((r) => !ribbon.includes(r) && !exempt.includes(r));
+}
+
+describe('fix-315 §3: the ribbon cannot silently drop a route again', () => {
+  it('★ every declared route is either in the ribbon or explicitly exempt', () => {
+    const missing = uncovered(
+      declaredRoutes(routerSrc),
+      allRibbonRoutes(),
+      ribbonExemptPaths(),
+    );
+    expect(
+      missing,
+      `these routes are reachable by URL but not by clicking, and are not listed in ROUTES_INTENTIONALLY_NOT_IN_RIBBON: ${missing.join(', ')}`,
+    ).toEqual([]);
+  });
+
+  // ★ PROVE THE GUARD WORKS by removing an entry, rather than trusting it.
+  // A test that would pass whatever the code did is worse than no test, and
+  // this whole ticket exists because a silent omission went undetected.
+  it('★★ and it FAILS when an entry is removed from the ribbon', () => {
+    const withoutWaitingOn = allRibbonRoutes().filter((r) => r !== '/waiting-on');
+    const missing = uncovered(
+      declaredRoutes(routerSrc),
+      withoutWaitingOn,
+      ribbonExemptPaths(),
+    );
+    expect(missing).toEqual(['/waiting-on']);
+
+    // The same for the entry that started this ticket.
+    const withoutReports = allRibbonRoutes().filter((r) => r !== '/reports');
+    expect(
+      uncovered(declaredRoutes(routerSrc), withoutReports, ribbonExemptPaths()),
+    ).toEqual(['/reports']);
+  });
+
+  it('★ and it fails when a route is added to router.tsx with no home', () => {
+    const invented = [...declaredRoutes(routerSrc), '/brand-new-screen'];
+    expect(uncovered(invented, allRibbonRoutes(), ribbonExemptPaths())).toEqual([
+      '/brand-new-screen',
+    ]);
+  });
+
+  it('every exemption carries a reason, so removing an entry is said out loud', () => {
+    expect(ROUTES_INTENTIONALLY_NOT_IN_RIBBON.length).toBeGreaterThan(0);
+    for (const entry of ROUTES_INTENTIONALLY_NOT_IN_RIBBON) {
+      expect(entry.path.startsWith('/'), entry.path).toBe(true);
+      // Not a placeholder — a sentence someone had to mean.
+      expect(entry.why.length, entry.path).toBeGreaterThan(25);
+    }
+  });
+
+  it('the exemption list does not quietly excuse something the ribbon DOES have', () => {
+    // A path in both lists is a contradiction, and the kind that hides a bug.
+    for (const p of ribbonExemptPaths()) {
+      expect(allRibbonRoutes(), `${p} is both exempt and in the ribbon`).not.toContain(p);
+    }
+  });
+
+  it('the route parser finds the real routes, so the guard is not vacuous', () => {
+    const routes = declaredRoutes(routerSrc);
+    // If the regex broke, everything would be "covered" and the guard silent.
+    expect(routes).toContain('/dashboard');
+    expect(routes).toContain('/reports');
+    expect(routes).toContain('/waiting-on');
+    expect(routes.length).toBeGreaterThan(12);
+    // Parameterised routes are excluded on purpose — you cannot click to
+    // /project/:id, you arrive from a row.
+    expect(routes.some((r) => r.includes(':'))).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Prior contracts
+// ---------------------------------------------------------------------------
+
+describe('fix-315: fix-313 survives', () => {
+  it('the top level is unchanged', () => {
+    renderRibbon();
+    const labels = Array.from(
+      screen.getByTestId('ribbon-nav').querySelectorAll('a'),
+    ).map((a) => a.getAttribute('title'));
+    expect(labels).toEqual(['Pipeline', 'My Board', 'Project View']);
+  });
+
+  it('/my-tasks still redirects to /board — Waiting On did not un-merge it', () => {
+    expect(routerSrc).toMatch(
+      /path: 'my-tasks', element: <Navigate to="\/board" replace \/>/,
+    );
+    expect(allRibbonRoutes()).not.toContain('/my-tasks');
+  });
+
+  it('collapse still persists, and the groups still open independently', () => {
+    const first = renderRibbon();
+    fireEvent.click(screen.getByTestId('ribbon-collapse'));
+    first.unmount();
+    renderRibbon();
+    expect(screen.getByTestId('ribbon').dataset.collapsed).toBe('true');
+  });
+
+  it('the entries are still typed as the same three kinds', () => {
+    const kinds = new Set(RIBBON_ENTRIES.map((e: RibbonEntry) => e.kind));
+    expect([...kinds].sort()).toEqual(['group', 'link', 'separator']);
+  });
+});
