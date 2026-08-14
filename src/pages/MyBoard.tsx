@@ -6,10 +6,12 @@ import { useAllPermitTasks } from '../hooks/useAllPermitTasks';
 import { useTeamMembers } from '../hooks/useTeamMembers';
 import { useSelfScope } from '../hooks/useSelfScope';
 import { useAllProjectHolds, cancelledProjectIds } from '../hooks/useProjectHolds';
+import { useScraperActivity } from '../hooks/useScraperActivity';
 import {
   buildForecast,
   buildQueue,
   resolveBoardViewer,
+  systemHealth,
   todayIso,
   type BoardInput,
   type BoardSection,
@@ -237,6 +239,8 @@ export default function MyBoard() {
   const team = useTeamMembers();
   const holdsQ = useAllProjectHolds();
   const { identity } = useSelfScope();
+  // fix-298 Phase 2: the scraper feed the old nav bell used to own.
+  const activityQ = useScraperActivity();
 
   const viewer = useMemo(
     () => resolveBoardViewer(identity.name, team.all),
@@ -257,6 +261,17 @@ export default function MyBoard() {
 
   const forecast = useMemo(() => buildForecast(input), [input]);
   const queue = useMemo(() => buildQueue(input), [input]);
+  const health = useMemo(
+    () =>
+      systemHealth(
+        permitsQ.data ?? [],
+        activityQ.data ?? [],
+        input.today,
+        undefined,
+        input.cancelledIds,
+      ),
+    [permitsQ.data, activityQ.data, input.today, input.cancelledIds],
+  );
 
   const loading =
     permitsQ.isLoading || projectsQ.isLoading || tasksQ.isLoading || team.isLoading;
@@ -368,6 +383,44 @@ export default function MyBoard() {
                 data={queue.waiting_on_city}
                 testid="board-sec-waiting-city"
               />
+
+              {/* fix-298 Phase 2: system health — OVERSIGHT ONLY.
+                  This is where the old scraper-activity bell went. It is not
+                  project work, so it sits below the queue rather than in it,
+                  and it renders COUNTS rather than a list: a to-do list of 120
+                  stale permits would be noise, the shape of the staleness is
+                  the actual signal. Hidden entirely for everyone else. */}
+              {viewer.isOversight && (
+                <div data-testid="board-sec-health-wrap">
+                  <SectionHeader
+                    label="System health"
+                    total={health.portalFailures + health.unowned}
+                    capped={false}
+                    testid="board-sec-health"
+                  />
+                  <div className="px-3.5 py-2 text-[10px] text-muted leading-relaxed">
+                    <div data-testid="health-portal-failures">
+                      <b className="text-text">{health.portalFailures}</b> portal fetch
+                      failures in the feed
+                    </div>
+                    <div data-testid="health-unowned">
+                      <b className="text-text">{health.unowned}</b> active permits with
+                      nobody on them
+                    </div>
+                    <div data-testid="health-stale">
+                      <b className="text-text">{health.staleMedium}</b> untouched 14d+ ·{' '}
+                      <b className="text-text">{health.staleLong}</b> untouched 30d+
+                    </div>
+                    <Link
+                      to="/activity"
+                      className="text-de hover:underline"
+                      data-testid="health-activity-link"
+                    >
+                      Full scraper activity →
+                    </Link>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         </div>

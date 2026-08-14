@@ -741,6 +741,64 @@ const GUARD_ACTIONS = new Set([
   'scrape_reviewer_skipped_recent_manual_edit',
 ]);
 
+// ---------------------------------------------------------------------------
+// fix-298 Phase 2 — system health, for the OVERSIGHT layer only.
+//
+// Scraper activity is not project work; it is "is the pipeline being
+// maintained". That question belongs to Bobby, Gena and Dave, so it folded out
+// of its own nav bell and into an oversight-gated section here.
+//
+// ★ Rendered as COUNTS, not a queue, and at horizons that make each number
+// mean something. Measured 2026-08-14: "untouched ≥ 3 days" — the company-wide
+// permitUntouched threshold — flags 120 of 259 active permits. That is half
+// the book and it is not a work list; it is the same failure as measuring
+// reviewer silence from submission. 14 days flags 73, 30 days flags 33, so the
+// section shows the SHAPE of the staleness rather than pretending to a
+// to-do list.
+// ---------------------------------------------------------------------------
+export interface SystemHealth {
+  /** Portal fetches that failed outright in the feed's window. */
+  portalFailures: number;
+  /** Active permits untouched for ≥ reviewerSilentDays. */
+  staleMedium: number;
+  /** Active permits untouched for ≥ 30 days. */
+  staleLong: number;
+  /** Active permits with nobody on them at all (no DA and no entitlement lead). */
+  unowned: number;
+}
+
+const STALE_LONG_DAYS = 30;
+
+export function systemHealth(
+  permits: ReadonlyArray<PermitWithCycles>,
+  activity: ReadonlyArray<{ action: string }>,
+  today: string,
+  thresholds: BoardThresholds = DEFAULT_BOARD_THRESHOLDS,
+  cancelledIds?: ReadonlySet<string>,
+): SystemHealth {
+  let staleMedium = 0;
+  let staleLong = 0;
+  let unowned = 0;
+  for (const p of permits) {
+    if (isSubPermit(p)) continue;
+    if (isCancelledProject(p.project_id, cancelledIds)) continue;
+    const touched = (p.updated_at ?? '').slice(0, 10);
+    const age = touched ? daysBetween(touched, today) : 0;
+    if (age >= thresholds.reviewerSilentDays) staleMedium += 1;
+    if (age >= STALE_LONG_DAYS) staleLong += 1;
+    const hasDa = (p.da ?? '').trim() !== '';
+    const hasEnt = (p.ent_lead ?? '').trim() !== '';
+    if (!hasDa && !hasEnt) unowned += 1;
+  }
+  return {
+    portalFailures: activity.filter((a) => a.action === 'scrape_workflow_fetch_failed')
+      .length,
+    staleMedium,
+    staleLong,
+    unowned,
+  };
+}
+
 export function suppressionCounts(
   rows: ReadonlyArray<{ action: string; ent_lead: string | null }>,
   viewer: BoardViewer,

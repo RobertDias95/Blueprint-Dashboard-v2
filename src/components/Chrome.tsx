@@ -1,7 +1,6 @@
 import { useState } from 'react';
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
 import SettingsModal from './SettingsModal';
-import NotificationBell from './NotificationBell';
 import BoardBell from './BoardBell';
 import ErrorTriageBell from './ErrorTriageBell';
 import { useIsTenantAdmin } from '../hooks/useIsTenantAdmin';
@@ -123,10 +122,14 @@ export default function Chrome() {
             className="bg-border flex-shrink-0 mx-2"
             style={{ width: 1, height: 24 }}
           />
-          {/* fix-27: notification center. Bell lives left of the gear
-              per spec; its popover anchors right-aligned. */}
+          {/* fix-298 Phase 2: ONE bell. Phase 1 left two side by side — the
+              old scraper-activity bell (fix-27/28) and this one — with the
+              same icon and different meanings, which is a coin toss for the
+              reader. Scraper activity is SYSTEM HEALTH, so it folded into the
+              board as an oversight-only section (Bobby, Gena, Dave). The
+              /activity page is untouched and still routable; it just no
+              longer holds a permanent seat in the nav. */}
           <BoardBell />
-          <NotificationBell />
           {/* fix-87: error triage badge — sibling to the notification bell,
               counts distinct unresolved error fingerprints. Click navigates
               to /settings/errors. */}

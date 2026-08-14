@@ -285,6 +285,48 @@ describe('fix-298: the bell', () => {
   });
 });
 
+describe('fix-298 Phase 2: one bell — scraper activity is oversight-only', () => {
+  it('★ a non-oversight user never sees the system-health section', () => {
+    state.name = 'Miles';
+    state.members = [{ name: 'Miles', role: 'ent_lead', is_oversight: false }];
+    renderBoard();
+    expect(screen.queryByTestId('board-sec-health-wrap')).toBeNull();
+    expect(screen.queryByTestId('health-activity-link')).toBeNull();
+  });
+
+  it('an oversight user sees it, with the counts and a link to /activity', () => {
+    state.name = 'Gena';
+    state.members = [{ name: 'Gena', role: 'dm', is_oversight: true }];
+    state.activity = [
+      { action: 'scrape_workflow_fetch_failed', ent_lead: null },
+      { action: 'scrape_workflow_fetch_failed', ent_lead: null },
+      { action: 'scrape_change_applied', ent_lead: 'Miles' },
+    ];
+    renderBoard();
+    expect(screen.getByTestId('board-sec-health-wrap')).toBeTruthy();
+    expect(screen.getByTestId('health-portal-failures').textContent).toContain('2');
+    // ★ /activity keeps working as a route — it just lost its nav seat.
+    expect(screen.getByTestId('health-activity-link').getAttribute('href')).toBe(
+      '/activity',
+    );
+  });
+
+  it('counts unowned and stale permits from the permit book, not the feed', () => {
+    state.name = 'Gena';
+    state.members = [{ name: 'Gena', role: 'dm', is_oversight: true }];
+    state.projects = [mkProject('p1', 'A St')];
+    state.permits = [
+      // nobody on it at all
+      mkPermit({ da: null, ent_lead: null, updated_at: '2026-08-13T12:00:00Z' }),
+      // owned, but untouched for months
+      mkPermit({ da: 'Fisk', ent_lead: 'Miles', updated_at: '2026-05-01T12:00:00Z' }),
+    ];
+    renderBoard();
+    expect(screen.getByTestId('health-unowned').textContent).toContain('1');
+    expect(screen.getByTestId('health-stale').textContent).toContain('1');
+  });
+});
+
 describe('fix-298: My Board is not My Tasks', () => {
   it('links to My Tasks rather than absorbing it', () => {
     renderBoard();
