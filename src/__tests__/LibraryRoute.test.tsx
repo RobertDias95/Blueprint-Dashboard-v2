@@ -45,7 +45,7 @@ vi.mock('../components/IntakeTracker', () => ({
 // normally is what we must avoid: createBrowserRouter pulls in AuthGuard ->
 // the Supabase client and never settles under jsdom.
 import routerSrc from '../router.tsx?raw';
-import chromeSrc from '../components/Chrome.tsx?raw';
+import { RIBBON_ENTRIES, visibleEntries } from '../lib/ribbonNav';
 import DrawSchedule from '../pages/DrawSchedule';
 import LibraryMatrix from '../components/LibraryMatrix';
 
@@ -115,21 +115,45 @@ describe('fix-297 /library is a real route', () => {
 
 // ------------------------------------------------------------------- the nav --
 
-describe('fix-297 the nav reaches it', () => {
-  it('lists Library immediately after Draw Schedule', () => {
-    const drawAt = chromeSrc.indexOf("to: '/draw-schedule'");
-    const libAt = chromeSrc.indexOf("to: '/library'");
-    const projectsAt = chromeSrc.indexOf("to: '/projects'");
+// ★ fix-313 retargeted these two. They used to grep Chrome.tsx's SOURCE TEXT
+// for `to: '/library'` and for the shape of the Reports filter — which passes
+// or fails on how the code is written rather than on what it does. The ribbon
+// exposes its structure as data, so they now assert the real model: the same
+// two facts, checked against the values the component actually renders from.
+describe('fix-297 the nav reaches it (fix-313: from the ribbon)', () => {
+  it('lists Library immediately after Draw Schedule, inside Entitlements', () => {
+    const ent = RIBBON_ENTRIES.find(
+      (e) => e.kind === 'group' && e.group.id === 'entitlements',
+    );
+    expect(ent, 'the Entitlements group is missing').toBeTruthy();
+    const kids =
+      ent!.kind === 'group' ? ent!.group.children.map((c) => c.to) : [];
+    const drawAt = kids.indexOf('/draw-schedule');
+    const libAt = kids.indexOf('/library');
     expect(drawAt).toBeGreaterThan(-1);
-    expect(libAt).toBeGreaterThan(drawAt);
-    expect(libAt).toBeLessThan(projectsAt);
+    expect(libAt).toBe(drawAt + 1);
   });
 
-  // The rendered order (and that a non-admin still sees it) is asserted in
-  // Chrome.test.tsx, which drives the real component.
   it('is not filtered out for non-admins the way Reports is', () => {
-    expect(chromeSrc).toMatch(/filter\(\(item\) => item\.to !== '\/reports'\)/);
-    expect(chromeSrc).not.toMatch(/item\.to !== '\/library'/);
+    const nonAdmin = visibleEntries(false);
+    const routes: string[] = [];
+    for (const e of nonAdmin) {
+      if (e.kind === 'link') routes.push(e.link.to);
+      if (e.kind === 'group') routes.push(...e.group.children.map((c) => c.to));
+    }
+    // ★ Library survives the gate; every report route is withheld — and so is
+    // the Reports GROUP itself, not just its children.
+    expect(routes).toContain('/library');
+    expect(routes).toContain('/draw-schedule');
+    expect(routes.some((r) => r.startsWith('/reports'))).toBe(false);
+    expect(nonAdmin.some((e) => e.kind === 'group' && e.group.id === 'reports')).toBe(
+      false,
+    );
+    // ...and an admin does get them, so the assertion above is not vacuous.
+    const adminRoutes = visibleEntries(true).flatMap((e) =>
+      e.kind === 'group' ? e.group.children.map((c) => c.to) : [],
+    );
+    expect(adminRoutes).toContain('/reports/weekly-da');
   });
 });
 

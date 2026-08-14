@@ -168,6 +168,35 @@ beforeEach(() => {
   holdsRef.current = [];
 });
 
+// ★ fix-313 #63/#65: the landing page is renamed. Asserted on the same render
+// the rest of this file already drives, so the rename is checked against the
+// real page rather than a fixture of it.
+describe('Dashboard — fix-313 the landing page is Pipeline', () => {
+  it('★ reads Pipeline, and the Approval strip reads Approve', () => {
+    renderDash();
+    expect(screen.getByTestId('pipeline-title').textContent).toBe('Pipeline');
+    expect(screen.getByText('Approve')).toBeInTheDocument();
+    // The old words are gone from the page.
+    expect(screen.queryByText('Approval')).toBeNull();
+    expect(screen.queryByText('Dashboard')).toBeNull();
+  });
+
+  // ★ #61: exactly ONE entry point to the wizard, and it is the ribbon's.
+  it('★ no longer carries its own "+ Add New Project" button', () => {
+    renderDash();
+    expect(screen.queryByTestId('dashboard-new-project')).toBeNull();
+    expect(screen.queryByText(/Add New Project/i)).toBeNull();
+  });
+
+  // ★ The names the brief says must NOT change. Bobby: "My Board, Pipeline,
+  // Project Overview — so the only one that gets renamed is the landing page."
+  it('★ does not rename anything else — Design & Engineering and Issued stand', () => {
+    renderDash();
+    expect(screen.getByText('Design & Engineering')).toBeInTheDocument();
+    expect(screen.getByText('Issued')).toBeInTheDocument();
+  });
+});
+
 describe('Dashboard — cancelled projects (fix-264)', () => {
   it('baseline: with no holds, all three projects render and are counted', () => {
     renderDash();

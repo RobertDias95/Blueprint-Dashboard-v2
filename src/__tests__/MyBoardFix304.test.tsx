@@ -392,6 +392,7 @@ describe('fix-304 §23: the Next week bucket', () => {
 
   it('★ and the page still does not grow', () => {
     renderBoard();
-    expect(screen.getByTestId('my-board').style.height).toBe('calc(100vh - 52px)');
+    // ★ fix-313: fills the shell's bounded <main>, no viewport math.
+    expect(screen.getByTestId('my-board').style.height).toBe('100%');
   });
 });

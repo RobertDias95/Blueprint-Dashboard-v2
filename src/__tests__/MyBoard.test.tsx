@@ -206,7 +206,9 @@ describe('fix-298: ★ the board does not grow with the workload', () => {
   it('the page is a fixed height and never scrolls itself', () => {
     renderBoard();
     const board = screen.getByTestId('my-board');
-    expect(board.style.height).toBe('calc(100vh - 52px)');
+    // ★ fix-313: the board fills the shell's bounded <main> instead of
+    // measuring the viewport against a hard-coded header height.
+    expect(board.style.height).toBe('100%');
     // Each panel owns its own scroll, so the page cannot grow.
     expect(screen.getByTestId('my-board-forecast-scroll').className).toContain(
       'overflow-y-auto',
@@ -383,12 +385,19 @@ describe('fix-298 Phase 2: one bell — scraper activity is oversight-only', () 
   });
 });
 
-describe('fix-298: My Board is not My Tasks', () => {
-  it('links to My Tasks rather than absorbing it', () => {
+// ★ fix-313 #62 REVERSED fix-298's premise. My Board no longer links OUT to My
+// Tasks — it absorbed it. Bobby: "My Tasks and the My Board are going to get
+// merged into one." /my-tasks redirects to /board, so the link would have sent
+// you to the screen you are already on. Closes register #28.
+describe('fix-313: My Board absorbed My Tasks', () => {
+  it('★ renders no link back to My Tasks — the destination is gone', () => {
     renderBoard();
-    expect(screen.getByTestId('my-board-to-my-tasks').getAttribute('href')).toBe(
-      '/my-tasks',
+    expect(screen.queryByTestId('my-board-to-my-tasks')).toBeNull();
+    // No stray anchor to the redirected route either.
+    const hrefs = Array.from(document.querySelectorAll('a')).map((a) =>
+      a.getAttribute('href'),
     );
+    expect(hrefs.some((h) => h?.startsWith('/my-tasks'))).toBe(false);
   });
 
   it('shows the oversight badge only for a flagged viewer', () => {

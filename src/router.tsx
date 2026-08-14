@@ -9,7 +9,6 @@ import ProjectDetail from './pages/ProjectDetail';
 import RouteErrorFallback from './components/RouteErrorFallback';
 import Reports from './pages/Reports';
 import ReportsTeamDetail from './pages/ReportsTeamDetail';
-import MyTasks from './pages/MyTasks';
 import MyBoard from './pages/MyBoard';
 import DrawSchedule from './pages/DrawSchedule';
 import LibraryMatrix from './components/LibraryMatrix';
@@ -145,7 +144,18 @@ export const router = createBrowserRouter([
       // fix-trends-subtab: Trends folded into Reports as a sub-tab. Keep the
       // legacy /trends URL working by redirecting to the Reports Trends tab.
       { path: 'trends', element: <Navigate to="/reports?tab=trends" replace /> },
-      { path: 'my-tasks', element: <MyTasks /> },
+      // ★ fix-313 #62: My Tasks is no longer a destination — My Board is the
+      // single personal view. Bobby: "My Tasks and the My Board are going to
+      // get merged into one." Closes register #28.
+      //
+      // The route REDIRECTS rather than 404s so existing links and bookmarks
+      // survive, including the ones the board itself emits. src/pages/MyTasks.tsx
+      // and src/components/MyTasks/* are left in place, NOT deleted: TaskDetailEditor
+      // was lifted out of MyTasks in fix-303 precisely so both screens could
+      // share it and My Board still uses it, and WaitingOnView (fix-236) is a
+      // real surface that may want a home on the board later. What is dead is
+      // the ROUTE, and that is what this removes.
+      { path: 'my-tasks', element: <Navigate to="/board" replace /> },
       // fix-298 Phase 1: My Board — the read-only planner. Deliberately its
       // own route and page: My Tasks is strictly MY TASKS, My Board is where
       // my work sits. Different questions, different screens.

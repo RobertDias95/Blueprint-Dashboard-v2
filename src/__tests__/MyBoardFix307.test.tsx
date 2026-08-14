@@ -427,7 +427,8 @@ describe('fix-307: prior contracts survive', () => {
       .filter((r) => r.getAttribute('data-actionable') === 'false');
     expect(waiting.length).toBeGreaterThan(0);
     expect(screen.queryByTestId(/^board-forecast-check-m-/)).toBeNull();
-    expect(screen.getByTestId('my-board').style.height).toBe('calc(100vh - 52px)');
+    // ★ fix-313: fills the shell's bounded <main>, no viewport math.
+    expect(screen.getByTestId('my-board').style.height).toBe('100%');
   });
 
   it('Show All still works', () => {

@@ -2,9 +2,15 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <!-- fix-313 #64: was Vite's default /favicon.svg (a purple lightning bolt)
+         and the title was the repo name. Neither had ever been changed. The
+         mark is a PLACEHOLDER authored from Bobby's brand sheet — swap the real
+         export in over public/bridge-mark.svg. The repo, the Render service and
+         the package name are deliberately untouched: this was never a Render
+         question, it was this file. -->
+    <link rel="icon" type="image/svg+xml" href="/bridge-mark.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>blueprint-dashboard-v2</title>
+    <title>Blueprint Bridge</title>
   </head>
   <body>
     <div id="root"></div>

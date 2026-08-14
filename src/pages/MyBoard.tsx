@@ -267,20 +267,12 @@ function ForecastRow({
                     </Link>
                   </>
                 )}
-                {/* fix-303 kept: clicking through to My Tasks works and is
-                    liked. §19 is about not HAVING to, not about removing it. */}
-                {item.taskId && (
-                  <>
-                    {' · '}
-                    <Link
-                      to={`/my-tasks?task=${item.taskId}`}
-                      className="text-de hover:underline"
-                      data-testid={`board-row-mytasks-${item.key}`}
-                    >
-                      My Tasks
-                    </Link>
-                  </>
-                )}
+                {/* ★ fix-313 #62 REMOVED the "My Tasks" link that sat here.
+                    /my-tasks now redirects to /board, so it would have sent you
+                    to the screen you are already on — a control that renders
+                    and does nothing, which is the exact defect this codebase
+                    has shipped four times. The task still opens: the row itself
+                    opens the fix-303 editor drawer, in place. */}
               </>
             ) : (
               item.where
@@ -910,7 +902,10 @@ export default function MyBoard() {
     <div
       // ★ Fixed height, no page-level scroll. 52px is the Chrome header.
       className="p-4 flex flex-col"
-      style={{ height: 'calc(100vh - 52px)' }}
+      // ★ fix-313: was calc(100vh - 52px), the old header height. <main> is
+      // now a bounded flex child, so the board fills it instead of measuring
+      // the viewport and being 48px of padding out.
+      style={{ height: '100%' }}
       data-testid="my-board"
     >
       <div className="flex items-baseline gap-3 mb-2.5 flex-none">
@@ -926,13 +921,9 @@ export default function MyBoard() {
             </span>
           )}
         </span>
-        <Link
-          to="/my-tasks"
-          className="text-[11px] text-de hover:underline ml-auto"
-          data-testid="my-board-to-my-tasks"
-        >
-          My Tasks →
-        </Link>
+        {/* ★ fix-313 #62: the "My Tasks →" link is gone with the destination.
+            My Board IS the personal view now; a link from here to here would
+            be furniture that lies. */}
       </div>
 
       {loading ? (

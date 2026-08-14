@@ -257,7 +257,8 @@ describe('fix-305: prior contracts survive', () => {
       mkPermit({ project_id: 'p' + i, ent_lead: 'Briana', approval_date: '2026-01-01' }),
     );
     renderBoard();
-    expect(screen.getByTestId('my-board').style.height).toBe('calc(100vh - 52px)');
+    // ★ fix-313: fills the shell's bounded <main>, no viewport math.
+    expect(screen.getByTestId('my-board').style.height).toBe('100%');
     expect(screen.getAllByTestId(/^board-aged-\d+$/)).toHaveLength(5);
     fireEvent.click(screen.getByTestId('board-sec-aging-showall'));
     expect(screen.getAllByTestId(/^board-aged-\d+$/)).toHaveLength(12);

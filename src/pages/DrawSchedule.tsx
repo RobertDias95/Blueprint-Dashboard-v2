@@ -19,8 +19,13 @@ type DSTab = 'schedule' | 'intake';
 export default function DrawSchedule() {
   const [tab, setTab] = useState<DSTab>('schedule');
 
+  // ★ fix-313: the root was h-[calc(100vh-52px-48px)] — the old 52px header
+  // plus Chrome's 48px vertical padding, hard-coded. The Bridge shell makes
+  // <main> a fixed-height flex child that owns its own scroll, so this can
+  // simply fill it. That also ends the drift: the number was going to be wrong
+  // the moment the header changed height, which it just did.
   return (
-    <div className="flex flex-col h-[calc(100vh-52px-48px)]" data-testid="draw-schedule-page">
+    <div className="flex flex-col h-full" data-testid="draw-schedule-page">
       {/* Sub-tab bar — matches v1's ds-tab styling */}
       <div
         className="flex items-center gap-0 px-[18px] border-b border-border bg-surface flex-shrink-0"
