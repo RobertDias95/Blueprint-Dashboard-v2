@@ -726,6 +726,11 @@ export interface TaskNode {
   /** fix-155: which lifecycle event spawned this auto-task. null on human
    *  tasks and on pre-fix-155 wire shapes. */
   auto_event?: AutoEvent | null;
+  /** fix-304: when the row was created. Added to bp_list_tasks so the bell can
+   *  fold a bot task and the status flip that spawned it into ONE row
+   *  (register #18) — the merge rule is a ~15-minute window and needs a
+   *  timestamp. Optional: absent on wire shapes predating the migration. */
+  created_at?: string | null;
   /** Derived: arch -> permit.da, ent -> permit.ent_lead. May be null when the
    *  permit has no DA/ent_lead set. */
   primary_assignee: string | null;

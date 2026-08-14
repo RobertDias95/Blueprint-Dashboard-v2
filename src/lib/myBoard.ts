@@ -86,6 +86,7 @@ export const BOARD_SECTION_CAPS = {
   today: Infinity,
   tomorrow: Infinity,
   this_week: 8,
+  next_week: 8,
   later: 0,
   /** Applies to each of the three queue groups independently. */
   queueGroup: 5,
@@ -401,9 +402,7 @@ export function permitMilestones(
     out.push({
       kind: 'corrections',
       date: null,
-      why: cyc
-        ? `Cycle ${cyc.cycle_index}. The city is waiting on the corrected set.`
-        : 'The city is waiting on the corrected set.',
+      why: cyc ? `Cycle ${cyc.cycle_index}` : '',
       daysLate: null,
     });
   }
@@ -415,7 +414,7 @@ export function permitMilestones(
       out.push({
         kind: 'fees',
         date: permit.approval_date,
-        why: `Approved ${late} days ago. Past the ${thresholds.approvedNotIssuedDays}-day threshold.`,
+        why: `Approved ${late}d ago`,
         daysLate: late,
       });
     }
@@ -452,7 +451,7 @@ export function permitMilestones(
       out.push({
         kind: 'reviewer_silent',
         date: null,
-        why: `No movement in ${quiet} days.`,
+        why: `${quiet}d without movement`,
         daysLate: quiet,
       });
     }
@@ -464,10 +463,9 @@ export function permitMilestones(
     out.push({
       kind: 'target_submit',
       date: permit.target_submit,
-      why:
-        late > 0
-          ? `Target submit was ${late} days ago.`
-          : 'Target submit date.',
+      // Facts only: how late, or nothing. "Target submit date." restates the
+      // row's own date back at the reader.
+      why: late > 0 ? `${late}d past target` : '',
       daysLate: late,
     });
   }
@@ -478,7 +476,8 @@ export function permitMilestones(
     out.push({
       kind: 'draw',
       date: permit.dd_end,
-      why: 'The set must be complete for the lead to submit.',
+      // fix-304 §22: the draw window's date IS the message.
+      why: '',
       daysLate: late,
     });
   }
@@ -488,7 +487,12 @@ export function permitMilestones(
     out.push({
       kind: 'intake',
       date: permit.intake_date,
-      why: 'Booked. The set must be uploaded first.',
+      // ★ fix-304 §22 (register #22): was "Booked. The set must be uploaded
+      // first." — repeated verbatim on five consecutive rows, which is noise
+      // pretending to be help. A row is a headline, a location and a date; the
+      // explanatory sentence only survives if it carries something those three
+      // do not, and this one carried nothing.
+      why: '',
       daysLate: daysBetween(permit.intake_date, today),
     });
   }
@@ -542,6 +546,8 @@ export type ForecastBucket =
   | 'today'
   | 'tomorrow'
   | 'this_week'
+  // fix-304 §23 (register #23): "maybe even like a next week column".
+  | 'next_week'
   | 'later';
 
 export interface ForecastItem {
@@ -587,6 +593,11 @@ export interface ForecastItem {
   /** For 'handoff' — the cycle to anchor on and who receives the submittal. */
   cycleIndex: number | null;
   entLead: string | null;
+  /** fix-304 §20: the pieces the row needs to LINK rather than just describe. */
+  projectId: string | null;
+  address: string | null;
+  /** "BLD2026-0319 · ULS", or just the type when there is no number yet. */
+  permitLabel: string | null;
 }
 
 export interface BoardSection<T> {
@@ -616,6 +627,7 @@ export interface Forecast {
   today: BoardSection<ForecastItem>;
   tomorrow: BoardSection<ForecastItem>;
   this_week: BoardSection<ForecastItem>;
+  next_week: BoardSection<ForecastItem>;
 }
 
 function bucketFor(daysLate: number): ForecastBucket {
@@ -623,6 +635,8 @@ function bucketFor(daysLate: number): ForecastBucket {
   if (daysLate === 0) return 'today';
   if (daysLate === -1) return 'tomorrow';
   if (daysLate >= -7) return 'this_week';
+  // fix-304 §23: the second week out, so "what is coming" reaches past Friday.
+  if (daysLate >= -14) return 'next_week';
   return 'later';
 }
 
@@ -733,6 +747,9 @@ export function buildForecast(input: BoardInput): Forecast {
           permitId: p.permit.id,
           taskId: null,
           action: isHandoff ? 'handoff' : 'ack',
+          projectId: p.permit.project_id,
+          address: p.project?.address ?? null,
+          permitLabel: permitLabelOf(p.permit),
           milestoneKind: m.kind,
           anchor: milestoneAnchor(m.kind, p.permit),
           task: null,
@@ -757,7 +774,8 @@ export function buildForecast(input: BoardInput): Forecast {
       key: `t-${t.id}`,
       source: 'task',
       verb: t.text,
-      why: 'Assigned to you by name.',
+      // fix-304 §22: the ✓ task badge already says this.
+      why: '',
       where: '',
       date: t.due_date,
       daysLate,
@@ -766,6 +784,9 @@ export function buildForecast(input: BoardInput): Forecast {
       permitId: t.permit_id,
       taskId: t.id,
       action: 'resolve-task',
+      projectId: t.project_id ?? null,
+      address: t.project_address ?? null,
+      permitLabel: t.permit_type ?? null,
       milestoneKind: null,
       anchor: null,
       task: t,
@@ -789,6 +810,10 @@ export function buildForecast(input: BoardInput): Forecast {
     this_week: section(
       inBucket('this_week').sort((a, z) => a.date.localeCompare(z.date)),
       BOARD_SECTION_CAPS.this_week,
+    ),
+    next_week: section(
+      inBucket('next_week').sort((a, z) => a.date.localeCompare(z.date)),
+      BOARD_SECTION_CAPS.next_week,
     ),
   };
 }
@@ -857,6 +882,16 @@ export interface ProjectQueue {
  *  interesting state and is never here — it lives on the forecast. */
 /** fix-303: turn a permit into the row detail — which permit, when it went in,
  *  what the city promised, how long it has sat. */
+/** fix-304 §20: how a permit names itself on a row — number and type when it
+ *  has a number, type alone when it does not. Never blank. */
+export function permitLabelOf(
+  permit: Pick<Permit, 'num' | 'type'>,
+): string {
+  const num = (permit.num ?? '').trim();
+  const type = (permit.type ?? 'Permit').trim();
+  return num ? `${num} · ${type}` : type;
+}
+
 export function queuePermitDetail(
   permit: PermitWithCycles,
   today: string,
@@ -941,15 +976,14 @@ export function buildQueue(input: BoardInput): ProjectQueue {
         if (state === 'mine') {
           group = 'blocked_on_you';
           detail = m.why;
-          next = `Next — ${milestoneVerb(m.kind, leg).toLowerCase()}`;
+          // The verb alone; "Next — " prefixed the same words onto every row.
+          next = milestoneVerb(m.kind, leg);
           daysLate = Math.max(daysLate, late);
         } else if (state === 'waiting' && group !== 'blocked_on_you') {
           group = 'waiting_on_design';
           const da = (p.permit.da ?? '').trim();
-          detail = `${p.permit.type ?? 'Permit'} corrections${da ? ` with ${da}` : ''}`;
-          next = da
-            ? `Next — ${da} finishes redlines, then you resubmit`
-            : 'Next — the design half finishes, then you resubmit';
+          detail = da ? `With ${da}` : 'With design';
+          next = '';
           daysLate = Math.max(daysLate, late);
         }
       }
@@ -964,8 +998,11 @@ export function buildQueue(input: BoardInput): ProjectQueue {
       )[0];
       if (!cyc?.submitted || p.permit.approval_date) continue;
       group = 'waiting_on_city';
-      detail = 'In review, reviewers moving normally';
-      next = 'Next — await review';
+      // fix-304 §22: "In review, reviewers moving normally" is a sentence.
+      // The permit detail lines under the row carry the facts — number, type,
+      // cycle, submitted, city target, days in state. Depth is not verbosity.
+      detail = '';
+      next = '';
     }
 
     const prev = byProject.get(p.permit.project_id);

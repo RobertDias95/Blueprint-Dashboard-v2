@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { usePermits } from '../hooks/usePermits';
 import { useProjects } from '../hooks/useProjects';
 // fix-303: the SAME task source My Tasks uses, so the board is not a lesser
@@ -124,27 +124,50 @@ function ForecastRow({
   onTick,
   busy,
   subtasks = [],
-  onOpenTask,
+  onOpenRow,
 }: {
   item: ForecastItem;
   onTick: (item: ForecastItem) => void;
   busy: boolean;
-  /** fix-303: nested exactly as My Tasks nests them (taskNesting.nestSubtasks). */
   subtasks?: BoardTask[];
-  onOpenTask?: (task: BoardTask) => void;
+  /** fix-304 §19: EVERY row opens something. */
+  onOpenRow: (item: ForecastItem) => void;
 }) {
   const tone =
     item.daysLate > 0 ? 'text-co' : item.daysLate === 0 ? 'text-wa' : 'text-ok';
+
+  // ★ fix-304 §21 (register #21): a task and a milestone must be tellable apart
+  // BEFORE the click, because they behave differently — a task or a task-backed
+  // milestone opens the editor, a bare milestone opens the permit. Chosen
+  // vocabulary: a coloured left rule plus a badge. ✓ amber = task (assigned to
+  // a person), ◆ blue = milestone (something the permit is doing), grey =
+  // waiting on the other half.
+  const isTask = item.source === 'task';
+  const kindLabel = isTask ? '✓ task' : item.actionable ? '◆ milestone' : '◆ waiting';
+  const kindClass = isTask
+    ? 'bg-co-bg text-co'
+    : item.actionable
+      ? 'bg-de-bg text-de'
+      : 'bg-s2 text-muted';
+  const rule = isTask
+    ? 'var(--color-co)'
+    : item.actionable
+      ? 'var(--color-de)'
+      : 'var(--color-border)';
+
   return (
     <div
       className="px-3.5 py-1.5 border-b border-border/50"
+      style={{ borderLeft: `3px solid ${rule}` }}
       data-testid={`board-forecast-row-${item.key}`}
       data-actionable={item.actionable ? 'true' : 'false'}
+      // ★ Asserted on directly: the distinction has to be a real attribute, not
+      // a shade of text somebody must squint at.
+      data-kind={isTask ? 'task' : 'milestone'}
+      data-opens={item.task ? 'task' : 'permit'}
     >
       <div className="flex gap-2.5 items-start">
-        {/* ★ NO CHECKBOX when the row is waiting on the other half. The whole
-            distinction rests on not being asked to act, so the control is
-            absent rather than disabled. */}
+        {/* ★ NO CHECKBOX when the row is waiting on the other half. */}
         {item.actionable ? (
           <button
             type="button"
@@ -170,71 +193,76 @@ function ForecastRow({
               item.actionable ? 'text-text' : 'text-dim'
             }`}
           >
-            {/* fix-303: a task row opens the real editor rather than only
-                linking away. Clicking through to My Tasks still works and is
-                liked — the point is that you should not HAVE to. */}
-            {item.task && onOpenTask ? (
-              <button
-                type="button"
-                onClick={() => onOpenTask(item.task!)}
-                className="bg-transparent border-none p-0 text-left font-bold text-[11px] text-text hover:underline"
-                data-testid={`board-task-open-${item.taskId}`}
-              >
-                {item.verb}
-              </button>
-            ) : (
-              item.verb
-            )}
-            <span
-              className={`ml-1 inline-block text-[8px] font-extrabold uppercase px-1.5 rounded-lg align-[1px] ${
-                item.source === 'task'
-                  ? 'bg-co-bg text-co'
-                  : item.actionable
-                    ? 'bg-de-bg text-de'
-                    : 'bg-s2 text-muted'
-              }`}
+            {/* ★ fix-304 §19 (register #19): this used to fire only when the
+                row HAD a task, so on Bobby's board — which is entirely
+                milestones — nothing opened at all. Every row opens something
+                now: a task row opens the editor, a bare milestone opens the
+                permit it is about. */}
+            <button
+              type="button"
+              onClick={() => onOpenRow(item)}
+              className="bg-transparent border-none p-0 text-left font-bold text-[11px] hover:underline"
+              style={{ color: 'inherit' }}
+              data-testid={`board-row-open-${item.key}`}
             >
-              {item.source === 'task' ? 'task' : item.actionable ? 'milestone' : 'waiting'}
+              {item.verb}
+            </button>
+            <span
+              className={`ml-1 inline-block text-[8px] font-extrabold uppercase px-1.5 rounded-lg align-[1px] ${kindClass}`}
+              data-testid={`board-row-kind-${item.key}`}
+            >
+              {kindLabel}
             </span>
           </div>
-          <div className="text-[10px] text-muted mt-px leading-snug">{item.why}</div>
-          {item.where && (
-            <div className="text-[9px] text-dim font-mono mt-0.5 truncate">
-              {item.where}
-            </div>
+          {/* fix-304 §22: rendered only when it says something the headline,
+              the location and the date do not. */}
+          {item.why && (
+            <div className="text-[10px] text-muted mt-px leading-snug">{item.why}</div>
           )}
-          {/* fix-303: open the project or the permit without leaving. */}
-          {(item.task?.project_id || item.permitId) && (
-            <div className="text-[9px] mt-0.5 flex gap-2">
-              {item.task?.project_id && (
+          <div className="text-[9px] text-dim font-mono mt-0.5 truncate">
+            {/* ★ fix-304 §20 (register #20): the PERMIT is a link, not just the
+                project. "Maybe there's a hyperlink to the permit and I can go
+                check on the permit right then and there." */}
+            {item.projectId ? (
+              <>
                 <Link
-                  to={`/projects/${item.task.project_id}`}
+                  to={`/projects/${item.projectId}`}
                   className="text-de hover:underline"
                   data-testid={`board-row-project-${item.key}`}
                 >
-                  Project
+                  {item.address ?? 'Project'}
                 </Link>
-              )}
-              {item.permitId != null && item.task?.project_id && (
-                <Link
-                  to={`/projects/${item.task.project_id}?permit=${item.permitId}`}
-                  className="text-de hover:underline"
-                  data-testid={`board-row-permit-${item.key}`}
-                >
-                  Permit
-                </Link>
-              )}
-              {item.taskId && (
-                <Link
-                  to={`/my-tasks?task=${item.taskId}`}
-                  className="text-de hover:underline"
-                  data-testid={`board-row-mytasks-${item.key}`}
-                >
-                  My Tasks
-                </Link>
-              )}
-            </div>
-          )}
+                {item.permitId != null && (
+                  <>
+                    {' · '}
+                    <Link
+                      to={`/projects/${item.projectId}?permit=${item.permitId}`}
+                      className="text-de hover:underline"
+                      data-testid={`board-row-permit-${item.key}`}
+                    >
+                      {item.permitLabel ?? 'Permit'}
+                    </Link>
+                  </>
+                )}
+                {/* fix-303 kept: clicking through to My Tasks works and is
+                    liked. §19 is about not HAVING to, not about removing it. */}
+                {item.taskId && (
+                  <>
+                    {' · '}
+                    <Link
+                      to={`/my-tasks?task=${item.taskId}`}
+                      className="text-de hover:underline"
+                      data-testid={`board-row-mytasks-${item.key}`}
+                    >
+                      My Tasks
+                    </Link>
+                  </>
+                )}
+              </>
+            ) : (
+              item.where
+            )}
+          </div>
         </div>
         <div className={`text-[9px] ml-auto text-right whitespace-nowrap pl-1.5 ${tone}`}>
           <b className="block text-[10px]">
@@ -247,8 +275,7 @@ function ForecastRow({
         </div>
       </div>
 
-      {/* ★ Subtasks nest here exactly as they do in My Tasks — same helper
-          (taskNesting.nestSubtasks), same indent vocabulary. */}
+      {/* Subtasks nest exactly as in My Tasks (taskNesting.nestSubtasks). */}
       {subtasks.map((st) => (
         <div
           key={st.id}
@@ -263,7 +290,13 @@ function ForecastRow({
   );
 }
 
-function PermitDetailLine({ d }: { d: QueuePermitDetail }) {
+function PermitDetailLine({
+  d,
+  projectId,
+}: {
+  d: QueuePermitDetail;
+  projectId: string;
+}) {
   const bits: string[] = [];
   if (d.submitted) bits.push(`submitted ${d.submitted}`);
   else bits.push('not yet submitted');
@@ -276,7 +309,15 @@ function PermitDetailLine({ d }: { d: QueuePermitDetail }) {
       data-testid={`board-permit-${d.permitId}`}
     >
       <div className="text-[10px] font-bold text-text">
-        {d.num ?? 'No permit number'}
+        {/* ★ fix-304 §20: the permit number is a LINK straight to the permit,
+            in the queue as well as the forecast. */}
+        <Link
+          to={`/projects/${projectId}?permit=${d.permitId}`}
+          className="text-de hover:underline"
+          data-testid={`board-permit-${d.permitId}-link`}
+        >
+          {d.num ?? 'No permit number'}
+        </Link>
         <span className="font-normal text-muted"> · {d.type}</span>
         {d.cycleIndex !== null && (
           <span className="font-normal text-dim"> · cycle {d.cycleIndex}</span>
@@ -323,10 +364,16 @@ function QueueRow({ item }: { item: QueueProject }) {
           </span>
         )}
       </div>
-      <div className="text-[10px] text-muted mt-0.5 leading-snug">{item.status}</div>
-      <div className="text-[10.5px] font-bold mt-1 text-text">{item.next}</div>
+      {/* fix-304 §22: both are omitted when empty rather than rendering an
+          empty line — the permit detail below carries the facts. */}
+      {item.status && (
+        <div className="text-[10px] text-muted mt-0.5 leading-snug">{item.status}</div>
+      )}
+      {item.next && (
+        <div className="text-[10.5px] font-bold mt-1 text-text">{item.next}</div>
+      )}
       {item.permits.map((d) => (
-        <PermitDetailLine key={d.permitId} d={d} />
+        <PermitDetailLine key={d.permitId} d={d} projectId={item.projectId} />
       ))}
     </div>
   );
@@ -343,7 +390,7 @@ function ForecastSection({
   expanded,
   onToggle,
   subtasksByParent,
-  onOpenTask,
+  onOpenRow,
 }: {
   label: string;
   urgent?: boolean;
@@ -355,7 +402,7 @@ function ForecastSection({
   expanded: boolean;
   onToggle: () => void;
   subtasksByParent: Map<string, BoardTask[]>;
-  onOpenTask: (t: BoardTask) => void;
+  onOpenRow: (item: ForecastItem) => void;
 }) {
   const rows = expanded ? data.all : data.items;
   return (
@@ -381,7 +428,7 @@ function ForecastSection({
             onTick={onTick}
             busy={busy}
             subtasks={i.taskId ? (subtasksByParent.get(i.taskId) ?? []) : []}
-            onOpenTask={onOpenTask}
+            onOpenRow={onOpenRow}
           />
         ))
       )}
@@ -462,6 +509,26 @@ export default function MyBoard() {
   // fix-303 §3: the task open in the editor drawer. A drawer rather than a
   // third column so the two-panel fixed-height contract is untouched.
   const [openTask, setOpenTask] = useState<BoardTask | null>(null);
+  const navigate = useNavigate();
+
+  // ★ fix-304 §19 (register #19). Phase 3 wired the drawer to item.task, which
+  // is null on every milestone — so on a board made entirely of milestones,
+  // Bobby's, NOTHING opened. Every row opens something now:
+  //   task, or milestone with a task behind it -> the editor drawer
+  //   milestone with no task                   -> the permit it is about
+  function onOpenRow(item: ForecastItem) {
+    if (item.task) {
+      setOpenTask(item.task);
+      return;
+    }
+    if (item.projectId) {
+      navigate(
+        item.permitId != null
+          ? `/projects/${item.projectId}?permit=${item.permitId}`
+          : `/projects/${item.projectId}`,
+      );
+    }
+  }
 
   const viewer = useMemo(
     () => resolveBoardViewer(identity.name, team.all),
@@ -670,7 +737,7 @@ export default function MyBoard() {
                 onTick={onTick}
                 busy={busy}
                 subtasksByParent={subtasksByParent}
-                onOpenTask={setOpenTask}
+                onOpenRow={onOpenRow}
                 expanded={isExpanded('board-sec-past-due')}
                 onToggle={() => toggleSection('board-sec-past-due')}
               />
@@ -683,7 +750,7 @@ export default function MyBoard() {
                 onTick={onTick}
                 busy={busy}
                 subtasksByParent={subtasksByParent}
-                onOpenTask={setOpenTask}
+                onOpenRow={onOpenRow}
                 expanded={isExpanded('board-sec-today')}
                 onToggle={() => toggleSection('board-sec-today')}
               />
@@ -695,7 +762,7 @@ export default function MyBoard() {
                 onTick={onTick}
                 busy={busy}
                 subtasksByParent={subtasksByParent}
-                onOpenTask={setOpenTask}
+                onOpenRow={onOpenRow}
                 expanded={isExpanded('board-sec-tomorrow')}
                 onToggle={() => toggleSection('board-sec-tomorrow')}
               />
@@ -707,9 +774,23 @@ export default function MyBoard() {
                 onTick={onTick}
                 busy={busy}
                 subtasksByParent={subtasksByParent}
-                onOpenTask={setOpenTask}
+                onOpenRow={onOpenRow}
                 expanded={isExpanded('board-sec-this-week')}
                 onToggle={() => toggleSection('board-sec-this-week')}
+              />
+              {/* fix-304 §23 (register #23): "maybe even like a next week
+                  column" — same capping and Show All as every other section. */}
+              <ForecastSection
+                label="Next week"
+                data={forecast.next_week}
+                empty="Nothing next week."
+                testid="board-sec-next-week"
+                onTick={onTick}
+                busy={busy}
+                subtasksByParent={subtasksByParent}
+                onOpenRow={onOpenRow}
+                expanded={isExpanded('board-sec-next-week')}
+                onToggle={() => toggleSection('board-sec-next-week')}
               />
             </div>
           </div>

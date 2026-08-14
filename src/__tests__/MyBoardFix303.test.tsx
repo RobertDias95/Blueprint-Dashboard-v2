@@ -349,11 +349,15 @@ describe('fix-303 §4: permit rows have real depth', () => {
 });
 
 // ---------------------------------------------------------------------------
+// fix-304 §19 generalised the open affordance from task-only
+// (board-task-open-<id>, which fired on NO milestone row) to every row
+// (board-row-open-<key>). The behaviour these tests pin is unchanged — a task
+// row still opens the shared editor — only the testid moved with the fix.
 describe('fix-303 §3: full task functionality', () => {
   it('★ opening a task uses the SAME editor component, not a board copy', () => {
     state.tasks = [mkTask({ id: 'task-1', text: 'Pick up redlines', due_date: '2026-01-01' })];
     renderBoard();
-    fireEvent.click(screen.getByTestId('board-task-open-task-1'));
+    fireEvent.click(screen.getByTestId('board-row-open-t-task-1'));
     const drawer = screen.getByTestId('board-task-drawer');
     expect(
       within(drawer).getByTestId('stub-task-detail-editor').getAttribute('data-task'),
@@ -363,7 +367,7 @@ describe('fix-303 §3: full task functionality', () => {
   it('the drawer does not change the board height contract', () => {
     state.tasks = [mkTask({ id: 'task-1', due_date: '2026-01-01' })];
     renderBoard();
-    fireEvent.click(screen.getByTestId('board-task-open-task-1'));
+    fireEvent.click(screen.getByTestId('board-row-open-t-task-1'));
     expect(screen.getByTestId('my-board').style.height).toBe('calc(100vh - 52px)');
   });
 
