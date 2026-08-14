@@ -18,6 +18,7 @@ const state = vi.hoisted(() => ({
   name: 'Miles' as string | null,
   activity: [] as unknown[],
   acks: [] as unknown[],
+  dmRows: [] as unknown[],
   ackMutate: vi.fn(),
   taskMutate: vi.fn(),
   confirmHandoff: vi.fn(),
@@ -29,9 +30,7 @@ vi.mock('../hooks/usePermits', () => ({
 vi.mock('../hooks/useProjects', () => ({
   useProjects: () => ({ data: state.projects, isLoading: false }),
 }));
-vi.mock('../hooks/useAllPermitTasks', () => ({
-  useAllPermitTasks: () => ({ data: state.tasks, isLoading: false }),
-}));
+
 vi.mock('../hooks/useTeamMembers', () => ({
   useTeamMembers: () => ({ all: state.members, isLoading: false }),
 }));
@@ -54,7 +53,19 @@ vi.mock('../hooks/useMilestoneAcks', () => ({
   useAckMilestone: () => ({ mutate: state.ackMutate, isPending: false }),
 }));
 vi.mock('../hooks/useTaskTree', () => ({
+  // fix-303: the board reads tasks from the SAME hook My Tasks uses.
+  useAllTasks: () => ({ data: state.tasks, isLoading: false }),
   useUpsertTask: () => ({ mutate: state.taskMutate, mutateAsync: state.taskMutate, isPending: false }),
+}));
+vi.mock('../hooks/useDmDaGroups', () => ({
+  useDmDaGroups: () => ({ rows: state.dmRows }),
+}));
+// The real editor is exercised by MyTasks' own tests; here we only need to know
+// the board opens THE SAME component rather than growing its own.
+vi.mock('../components/TaskDetailEditor', () => ({
+  default: ({ task }: { task: { id: string } }) => (
+    <div data-testid="stub-task-detail-editor" data-task={task.id} />
+  ),
 }));
 vi.mock('../hooks/useConfirmHandoff', () => ({
   useConfirmHandoff: () => ({
@@ -125,6 +136,7 @@ beforeEach(() => {
   state.name = 'Miles';
   state.activity = [];
   state.acks = [];
+  state.dmRows = [];
   state.ackMutate.mockClear();
   state.taskMutate.mockClear();
   state.confirmHandoff.mockClear();
@@ -383,7 +395,9 @@ describe('fix-298 P2: ticking a row does the real thing', () => {
         bucket: 'de',
         text: 'Pick up redlines',
         discipline: 'ent',
-        completion_status: 'Open',
+        status: 'Open',
+        project_id: 'p1',
+        project_address: 'A St',
         assigned_to: 'Miles',
         due_date: '2026-01-01',
         start_date: null,
@@ -483,7 +497,9 @@ describe('fix-298 P2: the handoff prompt', () => {
         bucket: 'de',
         text: 'Redlines',
         discipline: 'arch',
-        completion_status: 'Resolved',
+        status: 'Resolved',
+        project_id: 'p1',
+        project_address: 'A St',
         assigned_to: null,
         due_date: null,
         start_date: null,

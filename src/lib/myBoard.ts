@@ -1,11 +1,17 @@
 import type {
+  MyTaskNode,
   Permit,
   PermitCycle,
-  PermitTask,
   PermitWithCycles,
   Project,
   TeamMember,
 } from './database.types';
+
+// fix-303: the board reads tasks through useAllTasks / bp_list_tasks — the
+// SAME source My Tasks uses — rather than the raw permit_tasks row shape it
+// used in Phases 1-2. One shape means one editor and one write path, which is
+// what makes "edit it here, see it there" true rather than aspirational.
+export type BoardTask = MyTaskNode;
 import { isPermitInCorrections } from './permitStage';
 import { isSubPermit } from './subPermit';
 import { isTaskLive } from './taskStatus';
@@ -150,7 +156,7 @@ export type DesignLegStatus = 'no-tasks' | 'in-progress' | 'complete';
 
 /** Design tasks are the ones on the design side of the board — fix-244 made
  *  `discipline` follow the task's team, so 'arch' IS the design column. */
-export function isDesignTask(t: Pick<PermitTask, 'discipline'>): boolean {
+export function isDesignTask(t: Pick<BoardTask, 'discipline'>): boolean {
   return t.discipline === 'arch';
 }
 
@@ -239,13 +245,13 @@ export function designCompleteAck(
  *  manual "Mark design complete" path, and it is the ONLY way a permit with no
  *  design tasks can ever read as complete — a person has to say so. */
 export function designLegStatus(
-  tasks: ReadonlyArray<Pick<PermitTask, 'discipline' | 'completion_status'>>,
+  tasks: ReadonlyArray<Pick<BoardTask, 'discipline' | 'status'>>,
   acked = false,
 ): DesignLegStatus {
   if (acked) return 'complete';
   const design = tasks.filter(isDesignTask);
   if (design.length === 0) return 'no-tasks';
-  const anyLive = design.some((t) => isTaskLive(t.completion_status));
+  const anyLive = design.some((t) => isTaskLive(t.status));
   return anyLive ? 'in-progress' : 'complete';
 }
 
@@ -264,7 +270,7 @@ export type HandoffAffordance = 'prompt' | 'manual' | 'none';
 
 export function handoffAffordance(
   permit: PermitWithCycles,
-  tasks: ReadonlyArray<Pick<PermitTask, 'discipline' | 'completion_status'>>,
+  tasks: ReadonlyArray<Pick<BoardTask, 'discipline' | 'status'>>,
   acks: ReadonlyArray<PermitMilestoneAck>,
 ): HandoffAffordance {
   // ★ A one-leg permit has no design leg. No prompt, no manual button, no
@@ -291,7 +297,7 @@ export function handoffAffordance(
 
   const design = tasks.filter(isDesignTask);
   if (design.length === 0) return 'manual';
-  return design.some((t) => isTaskLive(t.completion_status)) ? 'none' : 'prompt';
+  return design.some((t) => isTaskLive(t.status)) ? 'none' : 'prompt';
 }
 
 /** Who may confirm the handoff: the permit's DA, its co-DA, or its DM — one
@@ -577,7 +583,7 @@ export interface ForecastItem {
   milestoneKind: MilestoneKind | null;
   anchor: string | null;
   /** For 'resolve-task' — the row's task, so the mutation has its fields. */
-  task: PermitTask | null;
+  task: BoardTask | null;
   /** For 'handoff' — the cycle to anchor on and who receives the submittal. */
   cycleIndex: number | null;
   entLead: string | null;
@@ -590,11 +596,19 @@ export interface BoardSection<T> {
   items: T[];
   /** True when total > items.length, so the UI can offer "Show all (N) →". */
   capped: boolean;
+  /** fix-303: EVERY row, for when the user expands the section.
+   *
+   *  Phase 1 shipped "Show all (N) →" with no onClick — it looked interactive
+   *  and did nothing for two releases. The section could not expand because it
+   *  had already thrown the rest away. It keeps them now; the panel's fixed
+   *  height and internal scroll mean a long expansion scrolls rather than
+   *  growing the page. */
+  all: T[];
 }
 
 function section<T>(all: T[], cap: number): BoardSection<T> {
   const items = cap === Infinity ? all : all.slice(0, cap);
-  return { total: all.length, items, capped: all.length > items.length };
+  return { total: all.length, items, capped: all.length > items.length, all };
 }
 
 export interface Forecast {
@@ -616,7 +630,7 @@ export interface BoardInput {
   viewer: BoardViewer;
   permits: ReadonlyArray<PermitWithCycles>;
   projects: ReadonlyArray<Project>;
-  tasks: ReadonlyArray<PermitTask>;
+  tasks: ReadonlyArray<BoardTask>;
   /** ISO date treated as "today". Injected so tests never depend on the clock. */
   today: string;
   thresholds?: BoardThresholds;
@@ -639,7 +653,7 @@ interface Prepared {
 function prepare(input: BoardInput): Prepared[] {
   const { viewer, permits, projects, tasks, cancelledIds } = input;
   const byProject = new Map(projects.map((p) => [p.id, p]));
-  const tasksByPermit = new Map<number, PermitTask[]>();
+  const tasksByPermit = new Map<number, BoardTask[]>();
   for (const t of tasks) {
     const list = tasksByPermit.get(t.permit_id) ?? [];
     list.push(t);
@@ -736,7 +750,7 @@ export function buildForecast(input: BoardInput): Forecast {
   const me = (input.viewer.name ?? '').trim().toLowerCase();
   for (const t of input.tasks) {
     if (!t.due_date) continue;
-    if (!isTaskLive(t.completion_status)) continue;
+    if (!isTaskLive(t.status)) continue;
     if ((t.assigned_to ?? '').trim().toLowerCase() !== me || me === '') continue;
     const daysLate = daysBetween(t.due_date, today);
     items.push({
@@ -787,6 +801,33 @@ export type QueueGroup =
   | 'waiting_on_design'
   | 'waiting_on_city';
 
+/** fix-303: what a queue row has to answer WITHOUT being clicked — which
+ *  permit, when it went in, what the city said, and how long it has sat.
+ *
+ *  ★ Every date here is `string | null`, and null is rendered as words ("No
+ *  target date"), never as a blank. A blank looks like zero, and that is the
+ *  failure mode this codebase keeps hitting. */
+export interface QueuePermitDetail {
+  permitId: number;
+  /** "BLD2026-0319" — null when the permit has no number yet. */
+  num: string | null;
+  type: string;
+  /** c0.submitted — when it went to the city. */
+  submitted: string | null;
+  /** c0.intake_accepted — when the city took it in. */
+  intakeAccepted: string | null;
+  /** The city's own target date for this cycle. */
+  cityTarget: string | null;
+  /** True when cityTarget is set AND in the past. Null cityTarget is NOT
+   *  overdue — "unknown" and "late" are different facts. */
+  cityTargetPassed: boolean;
+  /** Days since the state below began. */
+  daysInState: number;
+  /** Plain words for the state the days are counted from. */
+  stateLabel: string;
+  cycleIndex: number | null;
+}
+
 export interface QueueProject {
   key: string;
   projectId: string;
@@ -799,6 +840,9 @@ export interface QueueProject {
   next: string;
   /** Worst lateness across the project's permits, the group's sort key. */
   daysLate: number;
+  /** fix-303: the permits behind this row, with the detail that turns a label
+   *  into information. */
+  permits: QueuePermitDetail[];
 }
 
 export interface ProjectQueue {
@@ -811,6 +855,52 @@ export interface ProjectQueue {
 
 /** ★ The queue only ever shows things with a STATE. "Intake Monday" has no
  *  interesting state and is never here — it lives on the forecast. */
+/** fix-303: turn a permit into the row detail — which permit, when it went in,
+ *  what the city promised, how long it has sat. */
+export function queuePermitDetail(
+  permit: PermitWithCycles,
+  today: string,
+): QueuePermitDetail {
+  const cyc = latestCycle(permit.permit_cycles ?? []);
+  const cityTarget = cyc?.city_target ?? null;
+
+  // The clock is counted from the most recent thing that actually happened,
+  // so "how long has it been like this" is answered rather than implied.
+  let since: string | null = null;
+  let stateLabel = 'tracked';
+  if (cyc?.corr_issued && !cyc.resubmitted) {
+    since = cyc.corr_issued;
+    stateLabel = 'in corrections';
+  } else if (permit.approval_date && !permit.actual_issue) {
+    since = permit.approval_date;
+    stateLabel = 'approved, not issued';
+  } else if (cyc?.intake_accepted) {
+    since = cyc.intake_accepted;
+    stateLabel = 'in review';
+  } else if (cyc?.submitted) {
+    since = cyc.submitted;
+    stateLabel = 'submitted, awaiting intake';
+  } else if (permit.target_submit) {
+    since = permit.target_submit;
+    stateLabel = 'past target submit';
+  }
+
+  return {
+    permitId: permit.id,
+    num: (permit.num ?? '').trim() || null,
+    type: permit.type ?? 'Permit',
+    submitted: cyc?.submitted ?? null,
+    intakeAccepted: cyc?.intake_accepted ?? null,
+    cityTarget,
+    // ★ A missing target is NOT overdue. "We don't know" and "it's late" are
+    // different facts and the row says which.
+    cityTargetPassed: !!cityTarget && daysBetween(cityTarget, today) > 0,
+    daysInState: since ? daysBetween(since, today) : 0,
+    stateLabel,
+    cycleIndex: cyc?.cycle_index ?? null,
+  };
+}
+
 export function buildQueue(input: BoardInput): ProjectQueue {
   const thresholds = input.thresholds ?? DEFAULT_BOARD_THRESHOLDS;
   const prepared = prepare(input);
@@ -824,6 +914,7 @@ export function buildQueue(input: BoardInput): ProjectQueue {
     designers: Set<string>;
     detail: string;
     next: string;
+    permits: QueuePermitDetail[];
   }
   const byProject = new Map<string, Acc>();
 
@@ -886,6 +977,7 @@ export function buildQueue(input: BoardInput): ProjectQueue {
     if (prev && rank[prev.group!] <= rank[group]) {
       prev.permitCount += 1;
       prev.daysLate = Math.max(prev.daysLate, daysLate);
+      prev.permits.push(queuePermitDetail(p.permit, input.today));
       if ((p.permit.da ?? '').trim()) prev.designers.add((p.permit.da ?? '').trim());
       continue;
     }
@@ -900,6 +992,10 @@ export function buildQueue(input: BoardInput): ProjectQueue {
       ),
       detail,
       next,
+      permits: [
+        ...(prev?.permits ?? []),
+        queuePermitDetail(p.permit, input.today),
+      ],
     });
   }
 
@@ -912,6 +1008,7 @@ export function buildQueue(input: BoardInput): ProjectQueue {
     status: a.detail,
     next: a.next,
     daysLate: a.daysLate,
+    permits: a.permits,
   }));
 
   const inGroup = (g: QueueGroup) =>
@@ -1034,4 +1131,155 @@ export function suppressionCounts(
     if (me && (r.ent_lead ?? '').trim().toLowerCase() !== me) notYours += 1;
   }
   return { retries, guarded, notYours };
+}
+
+// ---------------------------------------------------------------------------
+// fix-303 §2 — team queues: seeing the people you are responsible for.
+//
+// ★ A report's queue is THEIRS, never merged into the viewer's own. Whose
+// queue a row belongs to must never be ambiguous, so each report gets its own
+// titled section rather than a flag on a shared list.
+//
+// Two shapes of manager, derived from data rather than named in code:
+//
+//   Entitlement leader — sees the OTHER entitlement leads' queues. Derived
+//     from the distinct ent_lead values on live permits, minus themselves.
+//     Gated on the oversight flag so a plain ent_lead does not acquire a team.
+//
+//   Design manager — ★ DMs are assigned to PROJECTS and TASKS, not permits, so
+//     their queue cannot be read off permit.dm. It is derived from their design
+//     associates via dm_da_groups: the permits their DAs hold.
+// ---------------------------------------------------------------------------
+
+export interface TeamQueue {
+  /** The person whose queue this is. */
+  owner: string;
+  /** Why they are on this board — rendered so the grouping is never ambiguous. */
+  relationship: 'entitlement-lead' | 'design-associate';
+  queue: ProjectQueue;
+}
+
+/** The entitlement leads whose queues an oversight ent-leader should see. */
+export function entitlementReportsFor(
+  viewer: BoardViewer,
+  permits: ReadonlyArray<PermitWithCycles>,
+): string[] {
+  if (!viewer.isOversight) return [];
+  const me = (viewer.name ?? '').trim().toLowerCase();
+  const leads = new Set<string>();
+  for (const p of permits) {
+    const l = (p.ent_lead ?? '').trim();
+    if (l && l.toLowerCase() !== me) leads.add(l);
+  }
+  return [...leads].sort((a, b) => a.localeCompare(b));
+}
+
+/** One row of dm_da_groups, as the client reads it. */
+export interface DmDaRow {
+  dm_name: string;
+  da_name: string;
+}
+
+/** The design associates reporting to this viewer, from dm_da_groups. */
+export function designReportsFor(
+  viewer: BoardViewer,
+  rows: ReadonlyArray<DmDaRow>,
+): string[] {
+  const me = (viewer.name ?? '').trim().toLowerCase();
+  if (!me) return [];
+  const das = new Set<string>();
+  for (const r of rows) {
+    if ((r.dm_name ?? '').trim().toLowerCase() !== me) continue;
+    const da = (r.da_name ?? '').trim();
+    if (da) das.add(da);
+  }
+  return [...das].sort((a, b) => a.localeCompare(b));
+}
+
+/** Build one queue per report, each scoped to that person alone. */
+export function buildTeamQueues(
+  input: BoardInput,
+  reports: ReadonlyArray<{ owner: string; relationship: TeamQueue['relationship'] }>,
+): TeamQueue[] {
+  return reports.map((r) => ({
+    owner: r.owner,
+    relationship: r.relationship,
+    queue: buildQueue({
+      ...input,
+      // The report's own queue, seen exactly as they would see it — NOT
+      // filtered through the manager's scope, and never merged with it.
+      viewer: { name: r.owner, isOversight: false },
+    }),
+  }));
+}
+
+// ---------------------------------------------------------------------------
+// ★ The dm_da_groups gap — surfaced, never papered over.
+//
+// Measured on prod 2026-08-14. The mapping is stale in BOTH directions:
+//
+//   Active roster DAs in NO manager group:
+//     Cam (41 active permits), Shire (3), George (0)
+//     ★ Cam holds the largest DA load in the company and no design manager
+//       would see any of it.
+//
+//   In a manager group but FORMER staff:
+//     Alex, Chad, Nidhi — and they are not dead entries, they still hold 10
+//     active permits between them. A DM's queue therefore shows live work
+//     attributed to people who have left.
+//
+// A board that quietly omits Cam is worse than one that says he is unassigned,
+// so both lists are rendered and the fix is one click away in Settings.
+// ---------------------------------------------------------------------------
+export interface TeamMappingGap {
+  /** Active roster DAs who belong to no manager, with their live load. */
+  unassignedDas: Array<{ name: string; activePermits: number }>;
+  /** Names in a manager group who are no longer active staff. */
+  formerInGroups: Array<{ name: string; dm: string; activePermits: number }>;
+}
+
+export function teamMappingGap(
+  members: ReadonlyArray<Pick<TeamMember, 'name' | 'role' | 'active' | 'former'>>,
+  rows: ReadonlyArray<DmDaRow>,
+  permits: ReadonlyArray<PermitWithCycles>,
+  cancelledIds?: ReadonlySet<string>,
+): TeamMappingGap {
+  const load = new Map<string, number>();
+  for (const p of permits) {
+    if (isSubPermit(p)) continue;
+    if (isCancelledProject(p.project_id, cancelledIds)) continue;
+    const da = (p.da ?? '').trim();
+    if (!da) continue;
+    load.set(da, (load.get(da) ?? 0) + 1);
+  }
+
+  const grouped = new Map<string, string>(); // da -> dm
+  for (const r of rows) {
+    const da = (r.da_name ?? '').trim();
+    if (da) grouped.set(da.toLowerCase(), (r.dm_name ?? '').trim());
+  }
+
+  const activeDas = members.filter(
+    (m) => m.role === 'da' && m.active === true && m.former !== true,
+  );
+  const unassignedDas = activeDas
+    .filter((m) => !grouped.has((m.name ?? '').trim().toLowerCase()))
+    .map((m) => ({ name: m.name, activePermits: load.get(m.name) ?? 0 }))
+    .sort((a, b) => b.activePermits - a.activePermits || a.name.localeCompare(b.name));
+
+  const activeNames = new Set(
+    activeDas.map((m) => (m.name ?? '').trim().toLowerCase()),
+  );
+  const formerInGroups = [...grouped.entries()]
+    .filter(([daLower]) => !activeNames.has(daLower))
+    .map(([daLower, dm]) => {
+      const original =
+        rows.find((r) => (r.da_name ?? '').trim().toLowerCase() === daLower)?.da_name ??
+        daLower;
+      const name = (original ?? '').trim();
+      return { name, dm, activePermits: load.get(name) ?? 0 };
+    })
+    .sort((a, b) => b.activePermits - a.activePermits || a.name.localeCompare(b.name));
+
+  return { unassignedDas, formerInGroups };
 }
