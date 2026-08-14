@@ -447,12 +447,18 @@ describe('fix-313: the Reports gate is the whole group', () => {
     );
   });
 
-  it('and the seven report entries are exactly the brief’s list', () => {
+  // ★ fix-315 added ONE entry to the front of this list: /reports itself, the
+  // live-metrics overview, which fix-313 left off entirely — it listed the
+  // seven children and not the parent, so the metrics dashboard kept rendering
+  // and became unreachable by clicking. fix-313's seven are unchanged and
+  // still in order below.
+  it('lists the overview first, then the seven runnable reports', () => {
     const reports = RIBBON_ENTRIES.find(
       (e) => e.kind === 'group' && e.group.id === 'reports',
     );
     const kids = reports!.kind === 'group' ? reports!.group.children : [];
     expect(kids.map((k) => k.to)).toEqual([
+      '/reports',
       '/reports/weekly-da',
       '/reports/weekly-updates',
       '/reports/approved-awaiting',

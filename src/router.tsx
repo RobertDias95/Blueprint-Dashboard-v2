@@ -13,6 +13,7 @@ import MyBoard from './pages/MyBoard';
 import DrawSchedule from './pages/DrawSchedule';
 import LibraryMatrix from './components/LibraryMatrix';
 import ActivityPage from './pages/ActivityPage';
+import WaitingOnView from './components/MyTasks/WaitingOnView';
 import WeeklyDaReport from './pages/WeeklyDaReport';
 import WeeklyUpdatesReport from './pages/WeeklyUpdatesReport';
 import ApprovedAwaitingIssuanceReport from './pages/ApprovedAwaitingIssuanceReport';
@@ -160,6 +161,20 @@ export const router = createBrowserRouter([
       // own route and page: My Tasks is strictly MY TASKS, My Board is where
       // my work sits. Different questions, different screens.
       { path: 'board', element: <MyBoard /> },
+      // ★ fix-315: Waiting On gets its own route. fix-313 folded My Tasks into
+      // My Board and redirected /my-tasks -> /board, which stranded this view —
+      // it kept working and became unreachable. It is not a small panel: firm
+      // grouping, firm status, a scope filter, an include-completed toggle and
+      // CSV export both for all rows and per firm.
+      //
+      // ★ NOT the same thing as /reports/vendor-forecast ("Consultant
+      // forecast"): that forecasts upcoming SENDS, this is what each firm
+      // currently OWES US. Both stay.
+      //
+      // Ungated, matching where it came from — /my-tasks was never admin-only.
+      // The component is mounted exactly as it was, with no props and no
+      // rewrite; it needed a route, not a redesign.
+      { path: 'waiting-on', element: <WaitingOnView /> },
       // fix-28: scraper activity feed. NotificationBell links here;
       // page owns search / category / ent filters + per-row read state.
       { path: 'activity', element: <ActivityPage /> },
