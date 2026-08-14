@@ -213,17 +213,26 @@ describe('fix-296 the card is called Milestones, on every branch', () => {
 // ------------------------------------------------------------------ the labels --
 
 describe('fix-296 the labels say what they mean', () => {
-  it('renders Draw Start and Draw End, not Start and End', () => {
+  // ★ fix-309 #52 renamed these two BACK to "DD start" / "DD end". fix-296's
+  // point survives intact — the bare words "Start" and "End" were the problem,
+  // and they are still absent. Only the qualifier changed, and it changed
+  // because Bobby asked for the DD wording on this card.
+  it('renders DD start and DD end, never the bare words Start and End', () => {
     renderHeader(projectFixture(), [bpFixture()]);
     const card = screen.getByTestId('pd-milestones-card');
-    expect(within(card).getByText('Draw Start')).toBeInTheDocument();
-    expect(within(card).getByText('Draw End')).toBeInTheDocument();
+    expect(within(card).getByText('DD start')).toBeInTheDocument();
+    expect(within(card).getByText('DD end')).toBeInTheDocument();
     // The bare words are what made these ambiguous next to the permit dates.
     expect(within(card).queryByText('Start')).toBeNull();
     expect(within(card).queryByText('End')).toBeNull();
   });
 
-  it('the reuse-redesign editor uses the same two words', () => {
+  // The reuse-redesign editor is a different COMPONENT (ReuseRedesignDdEditor)
+  // rendering the same two fields on the same card. #52 named only the
+  // Milestones card, but leaving this one on "Draw Start" would put two names
+  // for one concept inches apart on one screen — which is the exact split
+  // fix-296b existed to close. Renamed with it.
+  it('the reuse-redesign editor uses the same two words as the main card', () => {
     renderHeader(
       projectFixture({
         redesign_of_project_id: 'parent-1',
@@ -231,8 +240,10 @@ describe('fix-296 the labels say what they mean', () => {
       } as Partial<Project>),
       [],
     );
-    expect(screen.getByText('Draw Start')).toBeInTheDocument();
-    expect(screen.getByText('Draw End')).toBeInTheDocument();
+    expect(screen.getByText('DD start')).toBeInTheDocument();
+    expect(screen.getByText('DD end')).toBeInTheDocument();
+    expect(screen.queryByText('Draw Start')).toBeNull();
+    expect(screen.queryByText('Draw End')).toBeNull();
   });
 
   it('GO Date and Target Submit are unchanged', () => {

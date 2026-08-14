@@ -224,12 +224,41 @@ export function drawBlockIsVendorVisible(
   return true;
 }
 
-/** fix-269: the TARGET SEND date — dd_end, falling back to end_week. The date we
- *  are committing to hand documents over, not a date we observed. */
+/** ★ fix-309 #48: how many days BEFORE the end of DD we send the backgrounds.
+ *
+ *  "We don't send our backgrounds out at the end of the DD phase, we send them
+ *  out roughly a week before the end of the DD phase." The email was therefore
+ *  a week late on every project. */
+export const VENDOR_SEND_LEAD_DAYS = 7;
+
+/** fix-269: the TARGET SEND date. The date we are committing to hand documents
+ *  over, not a date we observed.
+ *
+ *  ★ fix-309 #48: it is now dd_end MINUS one week, not dd_end.
+ *
+ *  The lead is applied to the RESOLVED anchor, so the end_week fallback shifts
+ *  too — 84 of 139 blocks have no dd_end and would otherwise keep the old,
+ *  late date under a different name. One rule, both sources.
+ *
+ *  Note for the first run after this ships: the ledger stores the derived
+ *  value, so the 6 already-sent projects will read as "changed" with their
+ *  previous date shown. That is correct rather than noise — the date we are
+ *  quoting genuinely did move a week earlier, and telling the consultant so is
+ *  the point of the changed bucket. */
 export function vendorTargetSend(
   block: Pick<DrawScheduleRow, 'dd_end' | 'end_week'>,
 ): string | null {
-  return norm(block.dd_end) ?? norm(block.end_week);
+  const anchor = norm(block.dd_end) ?? norm(block.end_week);
+  if (anchor === null) return null;
+  return shiftDays(anchor, -VENDOR_SEND_LEAD_DAYS);
+}
+
+/** Add (or subtract) whole days to an ISO date, staying in ISO. Noon UTC so a
+ *  DST boundary can never roll the date. */
+function shiftDays(iso: string, days: number): string {
+  const d = new Date(`${iso}T12:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
 }
 
 /** fix-269: is this row late — target send passed with nothing sent? Only

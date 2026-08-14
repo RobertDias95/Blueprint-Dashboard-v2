@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
+import { schematicWindow } from '../../lib/schematicWindow';
 import type {
   Builder,
   PermitWithCycles,
@@ -40,7 +41,6 @@ import NpWarningPrompt from '../NpWarningPrompt';
 import BuilderAutocompleteField from '../builder/BuilderAutocompleteField';
 import PlanOfRecordCard from './PlanOfRecordCard';
 import { OverviewCard, OverviewSection } from './OverviewCard';
-import NotesPanel from './NotesPanel';
 
 // Q9.5.e: 4-column header top strip per v1 §4.2.1. Left card holds an
 // inner 3-column grid (DD Phase 0.75fr / Project 1.5fr / Team 1.75fr)
@@ -115,35 +115,47 @@ export default function ProjectDetailHeader({
           1920px from ~437px to ~606px -- judged by rendering both, not by
           arithmetic alone. The preview is the only content on this row bound by
           resolution; everything else reflows. */}
+      {/* ★ fix-309 #55: ONE EQUAL ROW. Milestones, Project, Team and
+          Builder/Owner were each as tall as their own content, so the row read
+          as a ragged staircase beside the Plan of Record.
+
+          `alignItems: stretch` (rather than the old `items-start`) makes every
+          cell as tall as the tallest — which is the Plan of Record, because
+          fix-295 widened it and fix-295c raised the thumbnail resolution. The
+          others are matched UP to it; it is never shrunk to them.
+
+          alignItems and the per-cell height are set INLINE rather than through
+          Tailwind so the contract is readable in a test: jsdom has no layout
+          engine, so "the heights are equal" cannot be measured there, and the
+          honest assertion is on the two style values that produce it.
+
+          fix-309 #54: the `notes` area is gone from this grid — Notes moved to
+          the bottom of Schedule health, one long vertical bar the way it was
+          before fix-285 moved it here. */}
       <div
-        className="grid gap-2.5 items-start"
+        className="grid gap-2.5"
         style={{
           gridTemplateColumns: '0.86fr 1.00fr 0.74fr 1.58fr 0.72fr',
-          gridTemplateAreas: '"dd proj team por builder" "notes proj team por builder"',
+          gridTemplateAreas: '"dd proj team por builder"',
+          alignItems: 'stretch',
         }}
         data-testid="project-overview-grid"
       >
-        <div style={{ gridArea: 'dd' }}>
+        <div style={{ gridArea: 'dd', height: '100%' }}>
           <DDPhaseCell project={project} bp={bp} permits={permits} />
         </div>
-        <div style={{ gridArea: 'proj' }}>
+        <div style={{ gridArea: 'proj', height: '100%' }}>
           <ProjectCell project={project} bp={bp} allProjects={allProjects} />
         </div>
         {/* Internal and External stack vertically inside this column now. */}
-        <div style={{ gridArea: 'team' }} data-testid="project-overview-team-col">
+        <div style={{ gridArea: 'team', height: '100%' }} data-testid="project-overview-team-col">
           <TeamCell project={project} bp={bp} permits={permits} />
         </div>
-        <div style={{ gridArea: 'por' }}>
+        <div style={{ gridArea: 'por', height: '100%' }}>
           <PlanOfRecordCard projectId={project.id} />
         </div>
-        <div style={{ gridArea: 'builder' }}>
+        <div style={{ gridArea: 'builder', height: '100%' }}>
           <BuilderOwnerCell project={project} />
-        </div>
-        {/* fix-285: same panel, same data, same behaviour — only the position
-            changes. It is rendered here rather than by ProjectDetail so it can
-            participate in the grid. */}
-        <div style={{ gridArea: 'notes' }} data-testid="project-overview-notes-col">
-          <NotesPanel projectId={project.id} variant="card" />
         </div>
       </div>
     </div>
@@ -203,6 +215,48 @@ function ClosingRow({ project }: { project: Project }) {
   );
 }
 
+/** ★ fix-309 #51: KEY DATES = GO Date, then Closing date. Those two, nothing
+ *  else.
+ *
+ *  "The GO date at the top, because all projects start with the GO date, and
+ *  then it goes closing date, and I think that's it for the key dates."
+ *
+ *  Shared by all three branches of the card so the order cannot drift between
+ *  a BP project, a reuse-redesign and a permit-less shell — which is how the
+ *  fix-148 comment and the shipped order came to disagree in the first place.
+ *  Target Submit moved OUT of here and under the DD window, where its anchor
+ *  (dd_end) lives; it is still editable, just no longer a "key date". */
+function KeyDatesSection({ project }: { project: Project }) {
+  return (
+    <OverviewSection title="Key dates">
+      <div className="flex flex-col gap-1.5">
+        <PhaseRow
+          label="GO Date"
+          value={formatGoDate(project.go_date)}
+          dashed
+          title="GO date is set on the Project Settings page"
+        />
+        <ClosingRow project={project} />
+      </div>
+    </OverviewSection>
+  );
+}
+
+function SchematicRow({ ddStart }: { ddStart: string | null }) {
+  const win = schematicWindow(ddStart);
+  if (!win) return null;
+  return (
+    <div className="flex items-center gap-1.5" data-testid="pd-schematic-row">
+      <span className="text-[9px] text-dim w-16 flex-shrink-0" title="Schematic design">
+        SD
+      </span>
+      <span className="text-[11px] font-semibold text-text" data-testid="pd-schematic-window">
+        {win.start} → {win.end}
+      </span>
+    </div>
+  );
+}
+
 function DDPhaseCell({
   project,
   bp,
@@ -220,11 +274,7 @@ function DDPhaseCell({
     if (project.redesign_of_project_id && project.redesign_reuses_original_permit) {
       return (
         <OverviewCard title="Milestones" testId="pd-milestones-card">
-          <OverviewSection title="Key dates">
-            <div className="flex flex-col gap-1.5">
-              <ClosingRow project={project} />
-            </div>
-          </OverviewSection>
+          <KeyDatesSection project={project} />
           <OverviewSection title="Draw window">
             {/* fix-145: a reuse-redesign has no BP permit but DOES carry a
                 draw_schedule lane, so the inline lane editor renders here --
@@ -236,11 +286,7 @@ function DDPhaseCell({
     }
     return (
       <OverviewCard title="Milestones" testId="pd-milestones-card">
-        <OverviewSection title="Key dates">
-          <div className="flex flex-col gap-1.5">
-            <ClosingRow project={project} />
-          </div>
-        </OverviewSection>
+        <KeyDatesSection project={project} />
         <OverviewSection title="Draw window">
           {/* The draw block hangs off the building permit, so there is no
               window to show until one exists. Said plainly under the heading it
@@ -312,9 +358,7 @@ function DDPhaseEditor({
     null,
   );
   const [pendingNp, setPendingNp] = useState<PendingDdNpWarning | null>(null);
-  const dur = computeDuration(startDraft || null, endDraft || null);
   // fix-22 Mig 3: GO date is project-level now.
-  const goDisplay = formatGoDate(project.go_date);
 
   // fix-66: Target Submit anchor. Strictly the project's Building Permit
   // (lowest id when there are several), NOT the page-level `bp` fallback —
@@ -445,29 +489,23 @@ function DDPhaseEditor({
            date and reading them as one list is what made "Start"/"End"
            ambiguous in the first place.
 
-           KEY DATES first, deliberately, though the brief listed the design
-           window first: it preserves today's reading order (Closing, GO,
-           Target Submit have always been at the top), and these are the dates
-           the card is now NAMED for. The draw block then reads as a unit with
-           its own duration underneath. */}
-       <OverviewSection title="Key dates">
-        <div className="flex flex-col gap-1.5">
-          {/* fix-148: Closing date (moved from Project Site) sits at the top. */}
-          <ClosingRow project={project} />
-          <PhaseRow
-            label="GO Date"
-            value={goDisplay}
-            dashed
-            title="GO date is set on the Project Settings page"
-          />
-          {/* fix-66: BP-anchored Target Submit, editable in place. */}
-          <TargetSubmitRow project={project} bp={targetSubmitBp} />
-        </div>
-       </OverviewSection>
+           ★ fix-309 #51: Key dates is now GO Date then Closing date and
+           nothing else, in one shared component. The fix-148 comment used to
+           claim Closing sat at the top; rather than leave a comment and an
+           order disagreeing, the order is stated once in KeyDatesSection and
+           every branch renders it. */}
+       <KeyDatesSection project={project} />
        <OverviewSection title="Draw window">
         <div className="flex flex-col gap-1.5">
+          {/* ★ fix-309 #53: Schematic sits ABOVE the DD window — it is the
+              four weeks that run into it. */}
+          <SchematicRow ddStart={startDraft || null} />
           <div className="flex items-center gap-1.5">
-            <span className="text-[9px] text-dim w-16 flex-shrink-0">Draw Start</span>
+            {/* ★ fix-309 #52: DISPLAY ONLY. The column is still dd_start, the
+                RPC is still bp_set_bp_dd_dates and the testid is still
+                pd-bp-dd_start — the same rename discipline as fix-296b, where
+                nothing in the database was renamed. */}
+            <span className="text-[9px] text-dim w-16 flex-shrink-0">DD start</span>
             <input
               type="date"
               value={startDraft}
@@ -484,7 +522,7 @@ function DDPhaseEditor({
             />
           </div>
           <div className="flex items-center gap-1.5">
-            <span className="text-[9px] text-dim w-16 flex-shrink-0">Draw End</span>
+            <span className="text-[9px] text-dim w-16 flex-shrink-0">DD end</span>
             <input
               type="date"
               value={endDraft}
@@ -500,14 +538,11 @@ function DDPhaseEditor({
               data-testid="pd-bp-dd_end"
             />
           </div>
-          {dur && (
-            <div className="flex items-center gap-1.5">
-              <span className="text-[9px] text-dim w-16 flex-shrink-0">
-                Duration
-              </span>
-              <span className="text-[11px] font-bold text-text">{dur}</span>
-            </div>
-          )}
+          {/* fix-309 #49: the Duration line is gone. The two dates say it. */}
+          {/* fix-66: BP-anchored Target Submit. Moved here by fix-309 #51 —
+              Key dates is GO + Closing only, and target submit is anchored on
+              dd_end, so it belongs with the window it derives from. */}
+          <TargetSubmitRow project={project} bp={targetSubmitBp} />
         </div>
        </OverviewSection>
       </OverviewCard>
@@ -1285,14 +1320,6 @@ function TeamRow({
   );
 }
 
-function computeDuration(start: string | null, end: string | null): string {
-  if (!start || !end) return '';
-  const a = new Date(start + 'T12:00:00');
-  const b = new Date(end + 'T12:00:00');
-  const days = Math.round((b.getTime() - a.getTime()) / (24 * 60 * 60 * 1000));
-  if (Number.isNaN(days)) return '';
-  return `${days}d`;
-}
 
 /** Format an ISO date as "MMM DD, YYYY" — matches v1's
  * `toLocaleDateString('en-US', {month:'short', day:'numeric',

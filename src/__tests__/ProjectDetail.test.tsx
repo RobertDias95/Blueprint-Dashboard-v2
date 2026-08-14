@@ -878,19 +878,17 @@ describe('<ProjectDetail /> fix-277 Corrections section removed from the overvie
     expect(screen.queryByTestId('stub-corrections-panel')).toBeNull();
   });
 
-  // fix-285: Notes is no longer a child of this pane. It moved INTO the header's
-  // grid, filling the empty area under DD Phase and Project instead of sitting
-  // as a full-width footer. The header is stubbed in this file, so the panel is
-  // not reachable from here at all — the assertion that it is composed in the
-  // right place now lives in ProjectOverviewLayout.test.tsx, against the real
-  // header. This test keeps the fix-277 guarantee it was written for.
-  it('notes is NOT a direct child of the overview pane any more', () => {
+  // fix-285 moved Notes INTO the header's grid to fill the empty area under DD
+  // Phase and Project. ★ fix-309 #54 moves it back out: #55 makes that row one
+  // equal-height band, so the hole is gone, and Notes reads better as one long
+  // vertical bar under Schedule health. It is a direct child of this pane again.
+  it('notes IS a direct child of the overview pane, at the bottom', () => {
     renderAt();
     const overview = screen.getByTestId('project-overview-pane');
-    expect(within(overview).queryByTestId('stub-notes-panel')).toBeNull();
+    expect(within(overview).getByTestId('stub-notes-panel')).toBeInTheDocument();
   });
 
-  it('schedule health sits directly after the header, with nothing between them', () => {
+  it('schedule health sits directly after the header, then Notes below it', () => {
     renderAt();
     const overview = screen.getByTestId('project-overview-pane');
     const order = Array.from(overview.querySelectorAll('[data-testid]')).map((el) =>
@@ -898,7 +896,12 @@ describe('<ProjectDetail /> fix-277 Corrections section removed from the overvie
     );
     const header = order.indexOf('stub-project-header');
     const health = order.indexOf('stub-schedule-health-table');
+    const notes = order.indexOf('stub-notes-panel');
     expect(header).toBeGreaterThanOrEqual(0);
     expect(health).toBe(header + 1);
+    // ★ #54: BOTTOM. Not between the header and Schedule health, and not
+    // anywhere above it — after it, as the last thing on the overview.
+    expect(notes).toBe(health + 1);
+    expect(notes).toBe(order.length - 1);
   });
 });
