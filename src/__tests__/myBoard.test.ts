@@ -31,12 +31,14 @@ import type {
 //   Miles: 165 permits, 62 projects, 139 past-due dated items, 0 today, 2 this week
 //   Bobby: 5 permits, 3 projects, 4 past due, 1 today
 //
-// ★ The brief said one-leg was "13 active permits, 9 of them Demolition". It is
-// now 6, all Demolition — fix-302 (shipped the same day) added the BEFORE
-// INSERT cascade that fills a secondary permit's DA from the Building Permit,
-// which is exactly the population that used to be one-leg. The RULE is
-// unchanged and now matters more, not less: derive from `da IS NULL`, never
-// from the type, because a Demolition WITH a DA does have a design leg.
+// ★ The brief said one-leg was "13 active permits, 9 of them Demolition".
+// fix-302 briefly shrank that to 6 by cascading the Building Permit's DA onto
+// every secondary permit — exactly the population that used to be one-leg.
+// ★ fix-312 reverted that cascade (it was assigning designers to ULS and IPR
+// records, which should never carry one), so the one-leg population is back and
+// larger than before. The RULE is unchanged and matters more, not less: derive
+// from `da IS NULL`, never from the type, because a Demolition WITH a DA does
+// have a design leg — and now a ULS without one genuinely has no design leg.
 
 const TODAY = '2026-08-13';
 

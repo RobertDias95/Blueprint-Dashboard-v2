@@ -1,8 +1,27 @@
 import { describe, it, expect } from 'vitest';
 
-// fix-302: contract spec for the SQL side of "a secondary permit inherits the
-// Building Permit's DA" (migrations/fix_302_permits_inherit_bp_da.sql:
-// bp_inherited_da_for_project + the BEFORE INSERT trigger + the backfill).
+// ★ fix-312 RETARGETED THIS FILE. It was fix-302's contract spec for "a
+// secondary permit inherits the Building Permit's DA" — the function, the
+// BEFORE INSERT trigger, and the backfill. fix-302 was wrong: it put a design
+// associate on 102 permits that should not have one, and every ULS/IPR/LBA it
+// touched came out equal to its project's BP DA, which is a cascade signature
+// rather than human judgement.
+//
+//   Bobby: "A design associate and/or design manager should never be assigned
+//   to a ULS. IPR records, never assigned ... I don't want us to make that rule
+//   right now. I just kind of want us to undo all the design associates that
+//   just got assigned to all those permits."
+//
+// So the trigger and its function are DROPPED and the writes reverted.
+// Assignment is manual, by a human, at project creation. No replacement rule,
+// no permit-type exclusion list — that was explicitly declined.
+//
+// What survives, and why this file was retargeted rather than deleted:
+//   * bp_inherited_da_for_project(uuid) is KEPT. It reads and returns; it
+//     assigns nothing. It is what makes the revert's predicate checkable, and
+//     re-runnable later to see what the cascade WOULD have done. The danger was
+//     never the function — it was the trigger that called it.
+//   * the mirror below is now the spec for the REVERT, not the backfill.
 //
 // No live DB in CI (fix-153 / fix-220 / fix-244 precedent), so this is a
 // pure-TS mirror of the SQL rule plus a documented read-only PROD probe.
@@ -10,21 +29,21 @@ import { describe, it, expect } from 'vitest';
 // written to be read side by side.
 //
 // ---------------------------------------------------------------------------
-// PROD PROBE (2026-08-13, project eibnmwthkcuumyclyxoe, READ-ONLY, pre-fix)
+// PROD PROBE (2026-08-14, project eibnmwthkcuumyclyxoe, READ-ONLY, pre-revert)
 //
-//   Every function that writes permits.da is a reassignment or a rename:
-//     bp_move_draw_schedule_da      WHERE da IS NOT NULL AND da = v_old_da
-//     bp_undo_project_da_reassign   WHERE p.da = v_h.to_da
-//     bp_rename_da                  WHERE da = p_old
-//     bp_reassign_project_da        fills NULLs, but only on an explicit handoff
-//     bp_update_project_with_permits writes whatever the client sent
-//   None can fill a blank on create. The DA cascade was never written; the
-//   ent_lead one (bp_cascade_ent_lead_for_project) is the pattern, and its
-//   second branch exists specifically to feed permits whose da IS NULL.
+//   fix-302's fingerprint, 99 rows sharing updated_at = 2026-08-13 21:28:
+//     ULS 71 · IPR 14 · SIP 4 · TRAO 4 · Grading / Clearing 2 · LSM 2 ·
+//     Condo 1 · ECA Waiver 1        — no Building Permit, no Demolition.
 //
-//   Active permits 244; active with no DA 107 (43.9%); of those:
-//     Demolition 5 · non-Demo with exactly ONE BP DA 102 · ambiguous 0 ·
-//     no BP DA 0 · themselves a Building Permit 0 · missing ent_lead 0.
+//   ★ AND 8 MORE THE BRIEF DID NOT KNOW ABOUT. The brief models fix-302 as a
+//   one-shot backfill, but its TRIGGER stayed live for a day afterwards and
+//   assigned a DA to 8 permits CREATED since (6 ULS, 1 LBA, 1 TRAO — all
+//   Ainsley, all equal to their project's BP DA, all scraped LU records the
+//   scraper never sets `da` on). Those are cascade writes too, and 6 of them
+//   are the exact type Bobby said must never carry a DA. Reverted with the 99.
+//
+//   3 backfill rows have drifted off the timestamp and are LEFT ALONE, listed
+//   for Bobby rather than reverted silently (brief section 2).
 // ---------------------------------------------------------------------------
 
 // ---------------------------------------------------------------------------
@@ -58,14 +77,12 @@ function bpInheritedDaForProject(rows: Row[], projectId: string): string | null 
   return das.size === 1 ? [...das][0]! : null;
 }
 
-/** Mirror of the BEFORE INSERT trigger bp_trg_permits_inherit_da(). Returns the
- *  `da` the row is stored with. */
-function onInsert(existing: Row[], incoming: Row): string | null {
-  if (incoming.da !== null && incoming.da.trim() !== '') return incoming.da;
-  if (incoming.type === 'Demolition') return incoming.da;
-  const inherited = bpInheritedDaForProject(existing, incoming.project_id);
-  // Only ever writes a value — never nulls, never trims, never overwrites.
-  return inherited !== null ? inherited : incoming.da;
+/** ★ fix-312: mirror of INSERT with NO trigger on the table. The row is stored
+ *  with exactly the `da` the caller supplied — nothing is derived, nothing is
+ *  filled in. `existing` is still a parameter so the test can hand this a
+ *  project whose BP HAS a DA and prove it is not consulted. */
+function onInsert(_existing: Row[], incoming: Row): string | null {
+  return incoming.da;
 }
 
 const BP = (project_id: string, da: string | null, extra: Partial<Row> = {}): Row => ({
@@ -118,135 +135,207 @@ describe('fix-302 bp_inherited_da_for_project — the rule', () => {
   });
 });
 
-describe('fix-302 the cascade on INSERT', () => {
+describe('fix-312 there is no cascade — a new permit never inherits a DA', () => {
+  // A project whose Building Permit names a DA. Before fix-312 this was the
+  // source every new secondary permit copied from.
   const project = [BP('p1', 'Trevor')];
 
-  it('a new secondary permit inherits the BP DA', () => {
-    for (const type of ['ULS', 'IPR', 'SIP', 'LSM', 'Condo', 'Grading / Clearing']) {
-      expect(onInsert(project, { project_id: 'p1', type, da: null })).toBe('Trevor');
+  // ★ THE ACCEPTANCE TEST. Under fix-302 this returned 'Trevor'.
+  it('★ a new ULS on a project whose BP has a DA gets NO DA', () => {
+    expect(onInsert(project, { project_id: 'p1', type: 'ULS', da: null })).toBeNull();
+  });
+
+  it('and neither does any other type — IPR, LBA and the rest', () => {
+    for (const type of [
+      'IPR', 'LBA', 'SIP', 'LSM', 'Condo', 'TRAO', 'PPR',
+      'ECA Waiver', 'Grading / Clearing', 'Building Permit', 'Demolition',
+    ]) {
+      expect(
+        onInsert(project, { project_id: 'p1', type, da: null }),
+        `${type} must not inherit`,
+      ).toBeNull();
     }
   });
 
-  it('an explicitly-set DA is NEVER overwritten', () => {
+  // ★ Removing the cascade must not break ordinary assignment. This is the
+  // half a revert usually gets wrong: deleting the rule AND the thing it was
+  // bolted onto.
+  it('★ an explicitly-supplied DA is still honoured on create', () => {
     expect(onInsert(project, { project_id: 'p1', type: 'ULS', da: 'Ainsley' })).toBe(
       'Ainsley',
     );
-  });
-
-  it('a permit created where the BP has NO DA gets none, and does not error', () => {
-    expect(onInsert([BP('p1', null)], { project_id: 'p1', type: 'ULS', da: null })).toBeNull();
-  });
-
-  it('a permit on a project with no Building Permit at all gets none', () => {
-    expect(onInsert([], { project_id: 'p1', type: 'ULS', da: null })).toBeNull();
-  });
-
-  it('★ Demolition does NOT auto-inherit — left for a person (brief section 2)', () => {
-    expect(onInsert(project, { project_id: 'p1', type: 'Demolition', da: null })).toBeNull();
-  });
-
-  it('Demolition with an explicit DA keeps it (the refusal only blocks guessing)', () => {
-    expect(onInsert(project, { project_id: 'p1', type: 'Demolition', da: 'Cam' })).toBe(
-      'Cam',
+    // Including when it happens to match the BP's — a human may well assign
+    // the same person; nothing about that is the cascade.
+    expect(onInsert(project, { project_id: 'p1', type: 'ULS', da: 'Trevor' })).toBe(
+      'Trevor',
     );
   });
 
-  it('an ambiguous BP DA is not guessed at', () => {
-    const rows = [BP('p1', 'Trevor'), BP('p1', 'Ainsley')];
-    expect(onInsert(rows, { project_id: 'p1', type: 'ULS', da: null })).toBeNull();
+  it('a blank string stays blank rather than being filled', () => {
+    expect(onInsert(project, { project_id: 'p1', type: 'ULS', da: '  ' })).toBe('  ');
   });
 
-  it('a blank-string DA is treated as unset and filled', () => {
-    expect(onInsert(project, { project_id: 'p1', type: 'ULS', da: '  ' })).toBe('Trevor');
-  });
-
-  it('a second Building Permit with no DA also inherits (fill-blanks applies to BPs too)', () => {
-    expect(
-      onInsert(project, { project_id: 'p1', type: 'Building Permit', da: null }),
-    ).toBe('Trevor');
+  it('the BP DA is not consulted at all — an ambiguous one changes nothing', () => {
+    const ambiguous = [BP('p1', 'Trevor'), BP('p1', 'Ainsley')];
+    expect(onInsert(ambiguous, { project_id: 'p1', type: 'ULS', da: null })).toBeNull();
+    // ...and neither does an unambiguous one. Same answer either way, which is
+    // the point: the source is no longer read.
+    expect(onInsert(project, { project_id: 'p1', type: 'ULS', da: null })).toBeNull();
   });
 });
 
 // ---------------------------------------------------------------------------
-// Mirror of the backfill's WHERE clause. "Active" is the codebase's canonical
-// rule, not an ad-hoc one — isPermitDone + isSubPermit + isCancelledProject.
+// ★ fix-312: mirror of the REVERT's WHERE clause. This replaces fix-302's
+// backfill mirror — the backfill is gone, and what needs pinning now is that
+// the undo is SCOPED. A blanket "clear da on every ULS" would be easy, wrong,
+// and would destroy the 7 ULS assignments that predate 13 August.
+//
+// The predicate has three parts and needs all of them:
+//   * the fingerprint — fix-302's backfill timestamp, OR created after it
+//     (the trigger stayed live for a day and assigned 8 more);
+//   * da equals the project's BP DA — the cascade signature, and the
+//     belt-and-braces that makes a coincidental timestamp match harmless;
+//   * never a Building Permit, never a Demolition, never a sub-permit.
+//
+// audit_log recorded NOTHING for fix-302's writes — a migration-driven UPDATE
+// does not go through the app's audit path — so there is no stored prior value
+// to restore. Every row it touched went blank -> the BP's DA (its WHERE clause
+// required `da IS NULL OR btrim(da) = ''`), so the undo is: back to NULL.
 // ---------------------------------------------------------------------------
-const DONE_STATUSES = ['Issued', 'Completed', 'Finaled', 'Closed', 'Withdrawn'];
 
-interface BackfillRow extends Row {
+/** fix-302 ran at this instant; its 99 surviving rows still carry it. */
+const FIX302_AT = '2026-08-13T21:28:00Z';
+const FIX302_WINDOW_END = '2026-08-13T21:29:00Z';
+
+interface RevertRow extends Row {
   id: number;
-  actual_issue?: string | null;
-  status?: string | null;
-  project_cancelled?: boolean;
+  created_at: string;
+  updated_at: string;
 }
 
-function backfillTargets(rows: BackfillRow[]): BackfillRow[] {
+function revertTargets(rows: RevertRow[]): RevertRow[] {
   return rows.filter((r) => {
-    if (!(r.da === null || r.da.trim() === '')) return false;
-    if (r.type === 'Demolition') return false;
+    if (r.type === 'Building Permit' || r.type === 'Demolition') return false;
     if ((r.parent_permit_id ?? null) !== null) return false;
-    if ((r.actual_issue ?? null) !== null) return false;
-    if (DONE_STATUSES.includes((r.status ?? '').trim())) return false;
-    if (r.project_cancelled) return false;
-    return bpInheritedDaForProject(rows, r.project_id) !== null;
+    if (r.da === null || r.da.trim() === '') return false;
+    const bpDa = bpInheritedDaForProject(rows, r.project_id);
+    if (bpDa === null || r.da.trim() !== bpDa) return false;
+    const backfilled = r.updated_at >= FIX302_AT && r.updated_at < FIX302_WINDOW_END;
+    const triggerCreated = r.created_at >= FIX302_AT;
+    return backfilled || triggerCreated;
   });
 }
 
-/** Apply the backfill, returning the new rows — so idempotency is testable. */
-function applyBackfill(rows: BackfillRow[]): { rows: BackfillRow[]; changed: number } {
-  const targets = new Set(backfillTargets(rows).map((r) => r.id));
-  const next = rows.map((r) =>
-    targets.has(r.id) ? { ...r, da: bpInheritedDaForProject(rows, r.project_id) } : r,
-  );
+/** Apply the revert, so idempotency is testable. */
+function applyRevert(rows: RevertRow[]): { rows: RevertRow[]; changed: number } {
+  const targets = new Set(revertTargets(rows).map((r) => r.id));
+  const next = rows.map((r) => (targets.has(r.id) ? { ...r, da: null } : r));
   return { rows: next, changed: targets.size };
 }
 
-describe('fix-302 the backfill', () => {
-  const fixture: BackfillRow[] = [
-    { id: 1, ...BP('p1', 'Trevor') },
-    { id: 2, project_id: 'p1', type: 'ULS', da: null, parent_permit_id: null },
-    { id: 3, project_id: 'p1', type: 'Demolition', da: null, parent_permit_id: null },
-    // issued → outside the active set, left alone
-    { id: 4, project_id: 'p1', type: 'IPR', da: null, parent_permit_id: null, status: 'Issued' },
-    { id: 5, project_id: 'p1', type: 'SIP', da: null, parent_permit_id: null, actual_issue: '2026-01-01' },
-    // sub-permit → excluded
-    { id: 6, project_id: 'p1', type: 'ULS', da: null, parent_permit_id: 1 },
-    // cancelled project → excluded
-    { id: 7, ...BP('p2', 'Cam') },
-    { id: 8, project_id: 'p2', type: 'ULS', da: null, parent_permit_id: null, project_cancelled: true },
-    // explicit DA → untouched
-    { id: 9, project_id: 'p1', type: 'Condo', da: 'Ainsley', parent_permit_id: null },
+describe('fix-312 the revert is scoped, not a blanket wipe', () => {
+  const OLD = '2026-06-01T00:00:00Z';
+  const BACKFILLED = '2026-08-13T21:28:00Z';
+  const DRIFTED = '2026-08-14T15:46:59Z';
+
+  const fixture: RevertRow[] = [
+    { id: 1, ...BP('p1', 'Trevor'), created_at: OLD, updated_at: OLD },
+    // fix-302's backfill: blank -> Trevor, carrying the fingerprint.
+    { id: 2, project_id: 'p1', type: 'ULS', da: 'Trevor', parent_permit_id: null,
+      created_at: OLD, updated_at: BACKFILLED },
+    { id: 3, project_id: 'p1', type: 'IPR', da: 'Trevor', parent_permit_id: null,
+      created_at: OLD, updated_at: BACKFILLED },
+    // ★ the 7 pre-existing ULS: a DA a person typed, long before 13 August.
+    { id: 4, project_id: 'p1', type: 'ULS', da: 'Cam', parent_permit_id: null,
+      created_at: OLD, updated_at: OLD },
+    // ...including one that HAPPENS to equal the BP DA. Only the timestamp
+    // saves it, which is why the timestamp is the strong discriminator.
+    { id: 5, project_id: 'p1', type: 'ULS', da: 'Trevor', parent_permit_id: null,
+      created_at: OLD, updated_at: OLD },
+    // ★ created AFTER fix-302 — the live trigger assigned this one.
+    { id: 6, project_id: 'p1', type: 'ULS', da: 'Trevor', parent_permit_id: null,
+      created_at: '2026-08-14T19:33:03Z', updated_at: '2026-08-14T19:40:13Z' },
+    // ...but a human's explicit choice on a new permit is NOT the cascade.
+    { id: 7, project_id: 'p1', type: 'ULS', da: 'Ainsley', parent_permit_id: null,
+      created_at: '2026-08-14T19:33:03Z', updated_at: '2026-08-14T19:40:13Z' },
+    // ★ drifted: fix-302 wrote it, but it has been touched since. Left alone.
+    { id: 8, project_id: 'p1', type: 'PPR', da: 'Trevor', parent_permit_id: null,
+      created_at: OLD, updated_at: DRIFTED },
+    // never in scope, whatever the timestamp says
+    { id: 9, project_id: 'p1', type: 'Demolition', da: 'Trevor', parent_permit_id: null,
+      created_at: OLD, updated_at: BACKFILLED },
+    { id: 10, project_id: 'p1', type: 'ULS', da: 'Trevor', parent_permit_id: 1,
+      created_at: OLD, updated_at: BACKFILLED },
   ];
 
-  it('selects exactly the active, non-Demolition, inheritable blanks', () => {
-    expect(backfillTargets(fixture).map((r) => r.id)).toEqual([2]);
+  it('selects the backfilled rows and the trigger-created one, and nothing else', () => {
+    expect(revertTargets(fixture).map((r) => r.id).sort((a, b) => a - b)).toEqual([2, 3, 6]);
   });
 
-  it('fills the target with the BP DA', () => {
-    const { rows } = applyBackfill(fixture);
-    expect(rows.find((r) => r.id === 2)!.da).toBe('Trevor');
+  it('★ the pre-existing ULS keep their DA — including the one matching the BP', () => {
+    const { rows } = applyRevert(fixture);
+    expect(rows.find((r) => r.id === 4)!.da).toBe('Cam');
+    expect(rows.find((r) => r.id === 5)!.da).toBe('Trevor');
+  });
+
+  it('★ a drifted row is left exactly as it is, to be listed rather than reverted', () => {
+    const { rows } = applyRevert(fixture);
+    expect(rows.find((r) => r.id === 8)!.da).toBe('Trevor');
+  });
+
+  it('an explicit DA on a permit created after fix-302 survives', () => {
+    const { rows } = applyRevert(fixture);
+    expect(rows.find((r) => r.id === 7)!.da).toBe('Ainsley');
+  });
+
+  it('never touches a Building Permit, a Demolition or a sub-permit', () => {
+    const { rows } = applyRevert(fixture);
+    expect(rows.find((r) => r.id === 1)!.da).toBe('Trevor');
+    expect(rows.find((r) => r.id === 9)!.da).toBe('Trevor');
+    expect(rows.find((r) => r.id === 10)!.da).toBe('Trevor');
   });
 
   it('★ is idempotent — the second run changes nothing', () => {
-    const first = applyBackfill(fixture);
-    expect(first.changed).toBe(1);
-    const second = applyBackfill(first.rows);
+    const first = applyRevert(fixture);
+    expect(first.changed).toBe(3);
+    const second = applyRevert(first.rows);
     expect(second.changed).toBe(0);
     expect(second.rows).toEqual(first.rows);
   });
 
-  it('never touches Demolition, subs, issued rows, cancelled projects or explicit DAs', () => {
-    const { rows } = applyBackfill(fixture);
-    for (const id of [3, 4, 5, 6, 8]) {
-      expect(rows.find((r) => r.id === id)!.da, `row ${id} must stay blank`).toBeNull();
-    }
-    expect(rows.find((r) => r.id === 9)!.da).toBe('Ainsley');
+  // ★ `da` is volume credit on the Team performance report, so the revert
+  // MOVES REPORTED NUMBERS. That is a correction, not a regression, but it has
+  // to be stated rather than discovered — so the expected new figures are
+  // written down here, not asserted loosely.
+  //
+  // Measured on prod for the real revert (before -> after):
+  //   Ainsley 46->25 · Ahmadi 42->22 · Marc 42->26 · Francesca 31->17 ·
+  //   Fisk 39->27 · Trevor 27->15 · Nidhi 7->3 · Chad 4->2 · Nicky 25->23 ·
+  //   Qisheng 20->18 · Alex 4->3 · Erick 8->7 · Cam 93->93 · Shire 4->4
+  // Cam is unchanged, which is itself a check: fix-302 excluded Demolition and
+  // Cam holds 85 of 93 Demolition permits.
+  it('★ moves volume credit by exactly the reverted rows, and no further', () => {
+    const credit = (rows: RevertRow[]): Record<string, number> => {
+      const out: Record<string, number> = {};
+      for (const r of rows) {
+        if (r.da === null || r.da.trim() === '') continue;
+        out[r.da.trim()] = (out[r.da.trim()] ?? 0) + 1;
+      }
+      return out;
+    };
+    // Trevor holds the BP, both backfilled rows, the trigger-created one, the
+    // drifted one, the two never-in-scope rows and the coincidental match.
+    expect(credit(fixture)).toEqual({ Trevor: 8, Cam: 1, Ainsley: 1 });
+
+    const { rows } = applyRevert(fixture);
+    // Exactly 3 come off Trevor — ids 2, 3 and 6. Nobody else moves at all.
+    expect(credit(rows)).toEqual({ Trevor: 5, Cam: 1, Ainsley: 1 });
   });
 
   it('touches `da` only — no other column is written', () => {
-    const { rows } = applyBackfill(fixture);
-    const withoutDa = (r: BackfillRow): Partial<BackfillRow> => {
-      const copy: Partial<BackfillRow> = { ...r };
+    const { rows } = applyRevert(fixture);
+    const withoutDa = (r: RevertRow): Partial<RevertRow> => {
+      const copy: Partial<RevertRow> = { ...r };
       delete copy.da;
       return copy;
     };

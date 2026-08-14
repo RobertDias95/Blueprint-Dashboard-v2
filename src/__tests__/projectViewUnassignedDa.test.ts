@@ -9,6 +9,12 @@ import type { PermitWithCycles, Project } from '../lib/database.types';
 
 // fix-302 section 4: a permit with no DA must be discoverable without SQL.
 //
+// ★ fix-312 KEPT THIS, and it matters more now. fix-302's cascade was reverted,
+// so ~107 permits went back to showing no DA — the truthful state. This filter
+// is how they stay findable, and it is the one part of fix-302 Bobby did not
+// ask to undo. Nothing here depends on the cascade: the sentinel is derived
+// client-side from `da`, so it works exactly the same with the trigger gone.
+//
 // `permits.da` is how work is routed, and the per-user notification centre
 // routes on it — a blank DA is work that reaches nobody. Before this, `das`
 // collected non-empty names only, so an unassigned permit contributed nothing

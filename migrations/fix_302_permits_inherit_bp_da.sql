@@ -1,5 +1,21 @@
 -- fix-302: a secondary permit inherits the Building Permit's DA.
 --
+-- ██ REVERTED BY fix-312 (migrations/fix_312_undo_fix_302_da_cascade.sql),
+-- ██ applied to prod 2026-08-14. DO NOT RE-APPLY THIS FILE.
+-- ██
+-- ██ The trigger and its function are dropped; 107 rows had `da` set back to
+-- ██ NULL. This was wrong: it put a design associate on ULS and IPR records,
+-- ██ which must never carry one, and the tell was that every row it wrote came
+-- ██ out equal to its project's Building Permit DA. Assignment is manual.
+-- ██
+-- ██ Section 4 (the Project View "— Unassigned —" DA filter) SURVIVES and was
+-- ██ not part of the revert — it is how a DA-less permit stays findable, and
+-- ██ it matters more now than it did.
+-- ██
+-- ██ The reasoning in this file is left intact on purpose: the research below
+-- ██ (which functions can write permits.da, why the ENT cascade differs) is
+-- ██ still accurate and still useful. What was wrong was the conclusion.
+--
 -- ★ APPLIED TO PROD (eibnmwthkcuumyclyxoe) 2026-08-13 via MCP apply_migration
 --   — never the SQL editor, which records nothing and has hidden three
 --   migrations before. Result, verified after the write:
