@@ -17,6 +17,10 @@ const state = vi.hoisted(() => ({
   members: [] as unknown[],
   name: 'Miles' as string | null,
   activity: [] as unknown[],
+  acks: [] as unknown[],
+  ackMutate: vi.fn(),
+  taskMutate: vi.fn(),
+  confirmHandoff: vi.fn(),
 }));
 
 vi.mock('../hooks/usePermits', () => ({
@@ -44,6 +48,20 @@ vi.mock('../hooks/useProjectHolds', () => ({
 }));
 vi.mock('../hooks/useScraperActivity', () => ({
   useScraperActivity: () => ({ data: state.activity }),
+}));
+vi.mock('../hooks/useMilestoneAcks', () => ({
+  useMilestoneAcks: () => ({ data: state.acks }),
+  useAckMilestone: () => ({ mutate: state.ackMutate, isPending: false }),
+}));
+vi.mock('../hooks/useTaskTree', () => ({
+  useUpsertTask: () => ({ mutate: state.taskMutate, mutateAsync: state.taskMutate, isPending: false }),
+}));
+vi.mock('../hooks/useConfirmHandoff', () => ({
+  useConfirmHandoff: () => ({
+    confirm: state.confirmHandoff,
+    pendingId: null,
+    isPending: false,
+  }),
 }));
 
 import MyBoard from '../pages/MyBoard';
@@ -106,6 +124,10 @@ beforeEach(() => {
   state.members = [];
   state.name = 'Miles';
   state.activity = [];
+  state.acks = [];
+  state.ackMutate.mockClear();
+  state.taskMutate.mockClear();
+  state.confirmHandoff.mockClear();
 });
 
 describe('fix-298: ★ "waiting on the other half" renders with NO checkbox', () => {
@@ -345,5 +367,169 @@ describe('fix-298: My Board is not My Tasks', () => {
     state.members = [{ name: 'Gena', role: 'dm', is_oversight: false }];
     renderBoard();
     expect(screen.queryByTestId('my-board-oversight-badge')).toBeNull();
+  });
+});
+
+// ===========================================================================
+// fix-298 Phase 2 — the write path, as rendered.
+// ===========================================================================
+
+describe('fix-298 P2: ticking a row does the real thing', () => {
+  it('a task row resolves the task through the SAME hook My Tasks uses', () => {
+    state.tasks = [
+      {
+        id: 'task-1',
+        permit_id: 1,
+        bucket: 'de',
+        text: 'Pick up redlines',
+        discipline: 'ent',
+        completion_status: 'Open',
+        assigned_to: 'Miles',
+        due_date: '2026-01-01',
+        start_date: null,
+        target_date: null,
+        parent_task_id: null,
+        done: false,
+        created_at: '',
+      },
+    ];
+    renderBoard();
+    const box = screen.getAllByTestId(/^board-forecast-check-/)[0]!;
+    expect(box.getAttribute('data-action')).toBe('resolve-task');
+    fireEvent.click(box);
+    expect(state.taskMutate).toHaveBeenCalledTimes(1);
+    expect(state.taskMutate.mock.calls[0][0]).toMatchObject({
+      id: 'task-1',
+      status: 'Resolved',
+    });
+  });
+
+  it('an entitlement milestone with nothing behind it records an ack', () => {
+    state.projects = [mkProject('p1', 'A St')];
+    state.permits = [
+      mkPermit({ da: null, ent_lead: 'Miles', approval_date: '2026-01-01' }),
+    ];
+    renderBoard();
+    const box = screen
+      .getAllByTestId(/^board-forecast-check-/)
+      .find((b) => b.getAttribute('data-action') === 'ack')!;
+    fireEvent.click(box);
+    expect(state.ackMutate).toHaveBeenCalledTimes(1);
+    expect(state.ackMutate.mock.calls[0][0]).toMatchObject({
+      milestone: 'fees',
+      anchor: '2026-01-01',
+    });
+  });
+
+  it('★ a waiting row STILL has no checkbox — the write path did not weaken it', () => {
+    // Phase 1's load-bearing assertion, re-checked with the write path live.
+    state.projects = [mkProject('p1', 'A St')];
+    state.permits = [
+      mkPermit({ da: 'Fisk', ent_lead: 'Miles', target_submit: '2026-03-26' }),
+    ];
+    renderBoard();
+    const waiting = screen
+      .getAllByTestId(/^board-forecast-row-/)
+      .filter((r) => r.getAttribute('data-actionable') === 'false');
+    expect(waiting.length).toBeGreaterThan(0);
+    for (const row of waiting) {
+      expect(within(row).queryByTestId(/^board-forecast-check-/)).toBeNull();
+    }
+  });
+});
+
+describe('fix-298 P2: the handoff prompt', () => {
+  const withCycle = (over: Record<string, unknown>) =>
+    mkPermit({
+      permit_cycles: [
+        {
+          id: 'c1',
+          permit_id: 1,
+          cycle_index: 2,
+          submitted: '2026-05-01',
+          intake_accepted: null,
+          city_target: null,
+          corr_issued: '2026-06-01',
+          resubmitted: null,
+          created_at: '',
+          updated_at: '',
+        },
+      ],
+      ...over,
+    });
+
+  it('★ a permit with ZERO design tasks offers the MANUAL button, never an auto-prompt', () => {
+    state.name = 'Fisk';
+    state.projects = [mkProject('p1', 'A St')];
+    state.permits = [withCycle({ da: 'Fisk', ent_lead: 'Miles' })];
+    state.tasks = [];
+    renderBoard();
+    const row = screen.getByTestId(/^board-handoff-row-/);
+    expect(row.getAttribute('data-affordance')).toBe('manual');
+    expect(screen.getByTestId(/^board-handoff-confirm-/).textContent).toContain(
+      'Mark design complete',
+    );
+  });
+
+  it('★ a permit with one RESOLVED design task prompts, naming the lead', () => {
+    state.name = 'Fisk';
+    state.projects = [mkProject('p1', 'A St')];
+    const permit = withCycle({ da: 'Fisk', ent_lead: 'Miles' });
+    state.permits = [permit];
+    state.tasks = [
+      {
+        id: 'd1',
+        permit_id: permit.id,
+        bucket: 'de',
+        text: 'Redlines',
+        discipline: 'arch',
+        completion_status: 'Resolved',
+        assigned_to: null,
+        due_date: null,
+        start_date: null,
+        target_date: null,
+        parent_task_id: null,
+        done: true,
+        created_at: '',
+      },
+    ];
+    renderBoard();
+    expect(screen.getByTestId(/^board-handoff-row-/).getAttribute('data-affordance')).toBe(
+      'prompt',
+    );
+    const btn = screen.getByTestId(/^board-handoff-confirm-/);
+    expect(btn.textContent).toContain('assign to Miles');
+    fireEvent.click(btn);
+    expect(state.confirmHandoff).toHaveBeenCalledTimes(1);
+    expect(state.confirmHandoff.mock.calls[0][0]).toMatchObject({
+      entLead: 'Miles',
+      cycleIndex: 2,
+      manual: false,
+    });
+  });
+
+  it('★ a ONE-LEG permit shows no handoff affordance at all', () => {
+    state.name = 'Miles';
+    state.projects = [mkProject('p1', 'A St')];
+    state.permits = [withCycle({ da: null, ent_lead: 'Miles' })];
+    renderBoard();
+    expect(screen.queryByTestId('board-sec-handoff-wrap')).toBeNull();
+  });
+
+  it('somebody unrelated to the permit is not offered the confirmation', () => {
+    state.name = 'Ainsley';
+    state.projects = [mkProject('p1', 'A St')];
+    state.permits = [withCycle({ da: 'Fisk', ent_lead: 'Miles', dm: 'Gena' })];
+    renderBoard();
+    expect(screen.queryByTestId('board-sec-handoff-wrap')).toBeNull();
+  });
+
+  it('the DM is offered it too — one confirmation on the permit', () => {
+    state.name = 'Gena';
+    state.members = [{ name: 'Gena', role: 'dm', is_oversight: false }];
+    state.projects = [mkProject('p1', 'A St')];
+    state.permits = [withCycle({ da: 'Fisk', ent_lead: 'Miles', dm: 'Gena' })];
+    renderBoard();
+    expect(screen.getByTestId('board-sec-handoff-wrap')).toBeTruthy();
   });
 });

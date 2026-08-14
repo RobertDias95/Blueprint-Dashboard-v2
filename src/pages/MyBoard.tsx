@@ -7,9 +7,17 @@ import { useTeamMembers } from '../hooks/useTeamMembers';
 import { useSelfScope } from '../hooks/useSelfScope';
 import { useAllProjectHolds, cancelledProjectIds } from '../hooks/useProjectHolds';
 import { useScraperActivity } from '../hooks/useScraperActivity';
+import { useMilestoneAcks, useAckMilestone } from '../hooks/useMilestoneAcks';
+import { useConfirmHandoff } from '../hooks/useConfirmHandoff';
+import { useUpsertTask } from '../hooks/useTaskTree';
+import type { PermitTask } from '../lib/database.types';
 import {
+  BOARD_SECTION_CAPS,
   buildForecast,
   buildQueue,
+  canConfirmHandoff,
+  handoffAffordance,
+  isDesignTask,
   resolveBoardViewer,
   systemHealth,
   todayIso,
@@ -87,7 +95,15 @@ function SectionHeader({
   );
 }
 
-function ForecastRow({ item }: { item: ForecastItem }) {
+function ForecastRow({
+  item,
+  onTick,
+  busy,
+}: {
+  item: ForecastItem;
+  onTick: (item: ForecastItem) => void;
+  busy: boolean;
+}) {
   const tone =
     item.daysLate > 0 ? 'text-co' : item.daysLate === 0 ? 'text-wa' : 'text-ok';
   return (
@@ -100,9 +116,23 @@ function ForecastRow({ item }: { item: ForecastItem }) {
           distinction rests on not being asked to act, so the control is
           absent rather than disabled. */}
       {item.actionable ? (
-        <span
-          className="w-[13px] h-[13px] border-[1.5px] border-border rounded-[3px] flex-none mt-0.5"
+        // fix-298 Phase 2: ticking performs the underlying action — resolve the
+        // task, hand the permit over, or record the milestone. Never a
+        // cosmetic tick.
+        <button
+          type="button"
+          onClick={() => onTick(item)}
+          disabled={busy}
+          title={
+            item.action === 'resolve-task'
+              ? 'Resolve this task'
+              : item.action === 'handoff'
+                ? 'Design finished — hand this to the entitlement lead'
+                : 'Mark this done'
+          }
+          className="w-[13px] h-[13px] border-[1.5px] border-border rounded-[3px] flex-none mt-0.5 bg-bg hover:border-de disabled:opacity-40"
           data-testid={`board-forecast-check-${item.key}`}
+          data-action={item.action}
         />
       ) : (
         <span className="w-[13px] flex-none" aria-hidden />
@@ -172,12 +202,16 @@ function ForecastSection({
   data,
   empty,
   testid,
+  onTick,
+  busy,
 }: {
   label: string;
   urgent?: boolean;
   data: BoardSection<ForecastItem>;
   empty: string;
   testid: string;
+  onTick: (item: ForecastItem) => void;
+  busy: boolean;
 }) {
   return (
     <>
@@ -193,7 +227,9 @@ function ForecastSection({
           {empty}
         </div>
       ) : (
-        data.items.map((i) => <ForecastRow key={i.key} item={i} />)
+        data.items.map((i) => (
+          <ForecastRow key={i.key} item={i} onTick={onTick} busy={busy} />
+        ))
       )}
     </>
   );
@@ -241,6 +277,10 @@ export default function MyBoard() {
   const { identity } = useSelfScope();
   // fix-298 Phase 2: the scraper feed the old nav bell used to own.
   const activityQ = useScraperActivity();
+  const acksQ = useMilestoneAcks();
+  const ackMilestone = useAckMilestone();
+  const upsertTask = useUpsertTask();
+  const handoff = useConfirmHandoff();
 
   const viewer = useMemo(
     () => resolveBoardViewer(identity.name, team.all),
@@ -255,9 +295,39 @@ export default function MyBoard() {
       tasks: tasksQ.data ?? [],
       today: todayIso(),
       cancelledIds: cancelledProjectIds(holdsQ.data),
+      acks: acksQ.data ?? [],
     }),
-    [viewer, permitsQ.data, projectsQ.data, tasksQ.data, holdsQ.data],
+    [viewer, permitsQ.data, projectsQ.data, tasksQ.data, holdsQ.data, acksQ.data],
   );
+
+  // ★ The handoff candidates. A permit qualifies when its design leg is
+  // finished (or has no design tasks and needs a person to say so), the viewer
+  // is allowed to confirm, and it has not already been handed off.
+  const allTasks = tasksQ.data;
+  const handoffs = useMemo(() => {
+    const acks = acksQ.data ?? [];
+    const tasksByPermit = new Map<number, PermitTask[]>();
+    for (const t of allTasks ?? []) {
+      const list = tasksByPermit.get(t.permit_id) ?? [];
+      list.push(t);
+      tasksByPermit.set(t.permit_id, list);
+    }
+    const cancelled = cancelledProjectIds(holdsQ.data);
+    const addr = new Map((projectsQ.data ?? []).map((p) => [p.id, p.address]));
+    return (permitsQ.data ?? [])
+      .filter((p) => !cancelled.has(p.project_id))
+      .filter((p) => canConfirmHandoff(p, viewer))
+      .map((p) => {
+        const tasks = tasksByPermit.get(p.id) ?? [];
+        return {
+          permit: p,
+          address: addr.get(p.project_id) ?? 'Unknown address',
+          affordance: handoffAffordance(p, tasks, acks),
+          designTotal: tasks.filter(isDesignTask).length,
+        };
+      })
+      .filter((h) => h.affordance !== 'none');
+  }, [permitsQ.data, projectsQ.data, allTasks, acksQ.data, holdsQ.data, viewer]);
 
   const forecast = useMemo(() => buildForecast(input), [input]);
   const queue = useMemo(() => buildQueue(input), [input]);
@@ -272,6 +342,48 @@ export default function MyBoard() {
       ),
     [permitsQ.data, activityQ.data, input.today, input.cancelledIds],
   );
+
+  // ★ Ticking does the real thing. Three routes, decided when the row was
+  // built (see ForecastItem.action) rather than re-derived here.
+  const busy = ackMilestone.isPending || upsertTask.isPending || handoff.isPending;
+
+  function onTick(item: ForecastItem) {
+    if (!item.actionable || item.permitId == null) return;
+    if (item.action === 'resolve-task' && item.task) {
+      // ★ The SAME hook My Tasks' checkbox uses — bp_upsert_permit_task via
+      // useUpsertTask — so the two can never diverge, and My Tasks reflects
+      // this immediately (the hook invalidates permitTasksAll).
+      upsertTask.mutate({
+        id: item.task.id,
+        permitId: item.task.permit_id,
+        parentTaskId: item.task.parent_task_id,
+        discipline: item.task.discipline ?? 'ent',
+        bucket: (item.task.bucket === 'de' || item.task.bucket === 'pm'
+          ? item.task.bucket
+          : null) as 'de' | 'pm' | null,
+        text: item.task.text,
+        status: 'Resolved',
+        startDate: item.task.start_date,
+        targetDate: item.task.target_date,
+      });
+      return;
+    }
+    if (item.action === 'handoff') {
+      void handoff.confirm({
+        permitId: item.permitId,
+        cycleIndex: item.cycleIndex,
+        entLead: item.entLead,
+        byName: viewer.name,
+      });
+      return;
+    }
+    ackMilestone.mutate({
+      permitId: item.permitId,
+      milestone: item.milestoneKind ?? 'unknown',
+      anchor: item.anchor,
+      ackedByName: viewer.name,
+    });
+  }
 
   const loading =
     permitsQ.isLoading || projectsQ.isLoading || tasksQ.isLoading || team.isLoading;
@@ -333,6 +445,8 @@ export default function MyBoard() {
                 data={forecast.past_due}
                 empty="Nothing past due."
                 testid="board-sec-past-due"
+                onTick={onTick}
+                busy={busy}
               />
               <ForecastSection
                 label="Today"
@@ -340,18 +454,24 @@ export default function MyBoard() {
                 data={forecast.today}
                 empty="Nothing due today."
                 testid="board-sec-today"
+                onTick={onTick}
+                busy={busy}
               />
               <ForecastSection
                 label="Tomorrow"
                 data={forecast.tomorrow}
                 empty="Nothing scheduled."
                 testid="board-sec-tomorrow"
+                onTick={onTick}
+                busy={busy}
               />
               <ForecastSection
                 label="This week"
                 data={forecast.this_week}
                 empty="Nothing else this week."
                 testid="board-sec-this-week"
+                onTick={onTick}
+                busy={busy}
               />
             </div>
           </div>
@@ -365,6 +485,68 @@ export default function MyBoard() {
               </div>
             </div>
             <div className="overflow-y-auto flex-1 min-h-0" data-testid="my-board-queue-scroll">
+              {/* ★ THE HANDOFF. "All design tasks are done. Hand this to
+                  Miles to resubmit?" Sits at the top of the queue because it
+                  is the one thing on this screen that moves a permit to
+                  somebody else. Confirming creates the submittal task assigned
+                  to the lead — they do not have to notice, it arrives. */}
+              {handoffs.length > 0 && (
+                <div data-testid="board-sec-handoff-wrap">
+                  {/* ★ Capped like every other section, with the TRUE total in
+                      the header — the board must not grow with the workload. */}
+                  <SectionHeader
+                    label="Ready to hand off"
+                    total={handoffs.length}
+                    urgent
+                    capped={handoffs.length > BOARD_SECTION_CAPS.queueGroup}
+                    testid="board-sec-handoff"
+                  />
+                  {handoffs.slice(0, BOARD_SECTION_CAPS.queueGroup).map((h) => (
+                    <div
+                      key={h.permit.id}
+                      className="px-3.5 py-2 border-b border-border/50"
+                      data-testid={`board-handoff-row-${h.permit.id}`}
+                      data-affordance={h.affordance}
+                    >
+                      <div className="text-[11.5px] font-extrabold text-text truncate">
+                        {h.address}
+                        <span className="text-muted font-normal">
+                          {' '}
+                          · {h.permit.type}
+                        </span>
+                      </div>
+                      <div className="text-[10px] text-muted mt-0.5 leading-snug">
+                        {h.affordance === 'prompt'
+                          ? `All ${h.designTotal} design task${h.designTotal === 1 ? '' : 's'} resolved. Nothing on the design side is outstanding.`
+                          : 'No design tasks were recorded on this permit, so nothing can vouch that the work is done — a person has to say so.'}
+                      </div>
+                      <button
+                        type="button"
+                        disabled={handoff.pendingId === h.permit.id || busy}
+                        onClick={() =>
+                          void handoff.confirm({
+                            permitId: h.permit.id,
+                            cycleIndex:
+                              [...(h.permit.permit_cycles ?? [])].sort(
+                                (a, b) => b.cycle_index - a.cycle_index,
+                              )[0]?.cycle_index ?? null,
+                            entLead: h.permit.ent_lead ?? null,
+                            byName: viewer.name,
+                            manual: h.affordance === 'manual',
+                          })
+                        }
+                        className="mt-1.5 text-[10.5px] font-bold px-2.5 py-1 rounded border border-ok bg-ok-bg text-ok hover:opacity-80 disabled:opacity-40"
+                        data-testid={`board-handoff-confirm-${h.permit.id}`}
+                      >
+                        {h.affordance === 'prompt'
+                          ? `Ready to resubmit → assign to ${h.permit.ent_lead ?? 'the lead'}`
+                          : 'Mark design complete'}
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+
               <QueueSection
                 label="Blocked on you"
                 urgent

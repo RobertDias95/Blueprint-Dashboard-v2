@@ -154,15 +154,159 @@ export function isDesignTask(t: Pick<PermitTask, 'discipline'>): boolean {
   return t.discipline === 'arch';
 }
 
+/** fix-298 Phase 2: one row per milestone action taken from the board that has
+ *  no task behind it. Append-only; see the migration for why this is not a
+ *  retrospective resolved task. */
+export interface PermitMilestoneAck {
+  id: string;
+  permit_id: number;
+  milestone: string;
+  /** The milestone's driving value when it was ticked. */
+  anchor: string | null;
+  acked_by_name: string | null;
+  acked_at: string;
+}
+
+/** ★ The anchor for a milestone: the value whose CHANGE should bring the
+ *  prompt back. An ack suppresses its milestone only while this still matches,
+ *  so a re-approval re-raises the fees prompt and a new cycle re-raises the
+ *  handoff — but tomorrow morning, with nothing changed, it stays quiet.
+ *
+ *  reviewer_silent has no stable anchor: the entire point of it is that
+ *  nothing is changing, so an anchor comparison could never expire. It is
+ *  handled instead by treating the ack as a MOVEMENT — see permitMilestones. */
+export function milestoneAnchor(
+  kind: MilestoneKind,
+  permit: PermitWithCycles,
+): string | null {
+  const cyc = latestCycle(permit.permit_cycles ?? []);
+  switch (kind) {
+    case 'fees':
+    case 'issuance':
+      return permit.approval_date ?? null;
+    case 'intake':
+      return permit.intake_date ?? null;
+    case 'target_submit':
+      return permit.target_submit ?? null;
+    case 'draw':
+      return permit.dd_end ?? null;
+    case 'corrections':
+      return cyc ? String(cyc.cycle_index) : null;
+    case 'reviewer_silent':
+      return null;
+  }
+}
+
+/** Is this milestone already acknowledged for this permit, at its current
+ *  anchor? NULL is a legitimate anchor, so the comparison is null-safe rather
+ *  than an equality test. */
+export function isMilestoneAcked(
+  kind: MilestoneKind,
+  permit: PermitWithCycles,
+  acks: ReadonlyArray<PermitMilestoneAck>,
+): boolean {
+  if (kind === 'reviewer_silent') return false; // handled as a movement instead
+  const want = milestoneAnchor(kind, permit);
+  return acks.some(
+    (a) =>
+      a.permit_id === permit.id && a.milestone === kind && (a.anchor ?? null) === want,
+  );
+}
+
+/** The design-complete ack for a permit's CURRENT cycle, if a person has
+ *  confirmed the handoff. Anchored on the cycle so a fresh round of
+ *  corrections asks again. */
+export function designCompleteAck(
+  permit: PermitWithCycles,
+  acks: ReadonlyArray<PermitMilestoneAck>,
+): PermitMilestoneAck | null {
+  const cyc = latestCycle(permit.permit_cycles ?? []);
+  const want = cyc ? String(cyc.cycle_index) : null;
+  return (
+    acks.find(
+      (a) =>
+        a.permit_id === permit.id &&
+        a.milestone === 'design_complete' &&
+        (a.anchor ?? null) === want,
+    ) ?? null
+  );
+}
+
 /** ★ THE RULE: at least one design task existed AND all are resolved.
- *  Never "all complete" alone — see DesignLegStatus. */
+ *  Never "all complete" alone — see DesignLegStatus.
+ *
+ *  fix-298 Phase 2: a design_complete ACK also completes the leg. That is the
+ *  manual "Mark design complete" path, and it is the ONLY way a permit with no
+ *  design tasks can ever read as complete — a person has to say so. */
 export function designLegStatus(
   tasks: ReadonlyArray<Pick<PermitTask, 'discipline' | 'completion_status'>>,
+  acked = false,
 ): DesignLegStatus {
+  if (acked) return 'complete';
   const design = tasks.filter(isDesignTask);
   if (design.length === 0) return 'no-tasks';
   const anyLive = design.some((t) => isTaskLive(t.completion_status));
   return anyLive ? 'in-progress' : 'complete';
+}
+
+/** ★ Can the board OFFER a handoff on this permit, and in which form?
+ *
+ *  'prompt' — at least one design task existed and all are resolved. The
+ *             automatic prompt from the mockup.
+ *  'manual' — zero design tasks, so "all complete" is VACUOUSLY TRUE and an
+ *             automatic prompt would announce the permit ready to file before
+ *             anyone touched it. Measured 2026-08-14: 25 of 37 permits in
+ *             corrections have no design task at all. A person ticks these.
+ *  'none'   — nothing to hand off: already handed off, still in progress, or
+ *             a one-leg permit that has no design half to hand off FROM.
+ */
+export type HandoffAffordance = 'prompt' | 'manual' | 'none';
+
+export function handoffAffordance(
+  permit: PermitWithCycles,
+  tasks: ReadonlyArray<Pick<PermitTask, 'discipline' | 'completion_status'>>,
+  acks: ReadonlyArray<PermitMilestoneAck>,
+): HandoffAffordance {
+  // ★ A one-leg permit has no design leg. No prompt, no manual button, no
+  // "waiting on design" — entitlement owns it end to end. Derived from
+  // `da IS NULL`, never from the permit type.
+  if (legShape(permit) === 'one-leg') return 'none';
+  if (designCompleteAck(permit, acks)) return 'none'; // already handed off
+
+  // ★ ONLY WHERE A HANDOFF MEANS SOMETHING: the permit is in corrections, so
+  // the city is holding a set and the design half is what unblocks it.
+  //
+  // This gate is measured, not aesthetic. Offering the standing prompt on
+  // every two-leg permit with a cycle would put 190 "Mark design complete"
+  // buttons on the board; widening it to "in corrections OR pre-submittal with
+  // a date" still gives 98, because a permit three months from its target has
+  // no design tasks yet and nobody is waiting on a handoff. Corrections-only
+  // gives 4 prompts and 25 manual — a list a person can actually read, and the
+  // exact case the mockup describes ("hand this to Miles to resubmit").
+  //
+  // Ticking "finish the set" on a PRE-SUBMITTAL permit still hands it over —
+  // that is the forecast row's action, a different question from whether this
+  // permit deserves a standing row in the section.
+  if (!isPermitInCorrections(permit, permit.permit_cycles ?? [])) return 'none';
+
+  const design = tasks.filter(isDesignTask);
+  if (design.length === 0) return 'manual';
+  return design.some((t) => isTaskLive(t.completion_status)) ? 'none' : 'prompt';
+}
+
+/** Who may confirm the handoff: the permit's DA, its co-DA, or its DM — one
+ *  confirmation on the PERMIT, not a sign-off per person. Oversight can too,
+ *  since they are the escalation path when a designer is away. */
+export function canConfirmHandoff(
+  permit: Pick<Permit, 'da' | 'dual_da' | 'dm'>,
+  viewer: BoardViewer,
+): boolean {
+  if (viewer.isOversight) return true;
+  const me = (viewer.name ?? '').trim().toLowerCase();
+  if (!me) return false;
+  return [permit.da, permit.dual_da, permit.dm].some(
+    (n) => (n ?? '').trim().toLowerCase() === me,
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -239,6 +383,7 @@ export function permitMilestones(
   permit: PermitWithCycles,
   today: string,
   thresholds: BoardThresholds = DEFAULT_BOARD_THRESHOLDS,
+  acks: ReadonlyArray<PermitMilestoneAck> = [],
 ): MilestoneOccurrence[] {
   const out: MilestoneOccurrence[] = [];
   const cycles = permit.permit_cycles ?? [];
@@ -284,7 +429,18 @@ export function permitMilestones(
   // This also matches how the brief itself frames the sibling threshold —
   // "permit untouched", not "permit submitted a while ago".
   if (cyc?.submitted && !cyc.corr_issued && !permit.approval_date) {
-    const lastMovement = (permit.updated_at ?? '').slice(0, 10);
+    // fix-298 Phase 2: a chase IS a movement. reviewer_silent has no anchor
+    // that could ever change (the whole point is that nothing is changing), so
+    // instead of suppressing it forever we re-measure silence from the most
+    // recent of "the portal moved" and "somebody pinged them". Ticking it buys
+    // another full threshold window, then it asks again.
+    const lastAck = acks
+      .filter((a) => a.permit_id === permit.id && a.milestone === 'reviewer_silent')
+      .map((a) => (a.acked_at ?? '').slice(0, 10))
+      .sort()
+      .pop();
+    const touched = (permit.updated_at ?? '').slice(0, 10);
+    const lastMovement = [touched, lastAck ?? ''].filter(Boolean).sort().pop() ?? '';
     const quiet = lastMovement ? daysBetween(lastMovement, today) : 0;
     if (quiet >= thresholds.reviewerSilentDays) {
       out.push({
@@ -331,7 +487,10 @@ export function permitMilestones(
     });
   }
 
-  return out;
+  // ★ Drop anything a person has already actioned at its current anchor. This
+  // is what stops the board re-raising "pay the fees" every morning, while
+  // still bringing it back if the permit is re-approved.
+  return out.filter((m) => !isMilestoneAcked(m.kind, permit, acks));
 }
 
 /** The viewer's state on one leg of one milestone.
@@ -395,6 +554,33 @@ export interface ForecastItem {
   actionable: boolean;
   permitId: number | null;
   taskId: string | null;
+  /** fix-298 Phase 2 — what ticking this row should DO.
+   *
+   *  'resolve-task'  the row IS a named task: resolve it, through the same
+   *                  hook My Tasks uses.
+   *  'handoff'       the design side finishing its half of a two-leg
+   *                  milestone. Ticking it hands the permit over — the
+   *                  design-complete ack plus the submittal task for the lead.
+   *  'ack'           a milestone with nothing behind it ("pay the fees",
+   *                  "ping the reviewer"): record that it was done.
+   *
+   *  ★ The brief's table has a third row, "a milestone with a task behind
+   *  it → resolves the task". In this model that case does not arise: tasks
+   *  surface as their own rows, and the one milestone that has tasks behind
+   *  it — corrections on the design leg — has MANY (12 redline items is
+   *  normal). Bulk-resolving twelve tasks off one tick would be destructive
+   *  and would erase the record of what was actually done, so that case is
+   *  'handoff' instead: it says "the design half is finished", which is the
+   *  true statement, and leaves the individual tasks alone. */
+  action: 'resolve-task' | 'handoff' | 'ack';
+  /** For 'ack' — which milestone, and the anchor to store with it. */
+  milestoneKind: MilestoneKind | null;
+  anchor: string | null;
+  /** For 'resolve-task' — the row's task, so the mutation has its fields. */
+  task: PermitTask | null;
+  /** For 'handoff' — the cycle to anchor on and who receives the submittal. */
+  cycleIndex: number | null;
+  entLead: string | null;
 }
 
 export interface BoardSection<T> {
@@ -436,6 +622,8 @@ export interface BoardInput {
   thresholds?: BoardThresholds;
   /** Project ids with an open cancel row (fix-262). */
   cancelledIds?: ReadonlySet<string>;
+  /** fix-298 Phase 2: milestone actions already taken. */
+  acks?: ReadonlyArray<PermitMilestoneAck>;
 }
 
 interface Prepared {
@@ -479,7 +667,10 @@ function prepare(input: BoardInput): Prepared[] {
       permit,
       project,
       shape: legShape(permit),
-      design: designLegStatus(tasksByPermit.get(permit.id) ?? []),
+      design: designLegStatus(
+        tasksByPermit.get(permit.id) ?? [],
+        !!designCompleteAck(permit, input.acks ?? []),
+      ),
       // An oversight viewer with no direct leg watches the entitlement side,
       // which is the one that carries the outright-owned milestones.
       legs: legs.length > 0 ? legs : ['entitlement'],
@@ -497,7 +688,7 @@ export function buildForecast(input: BoardInput): Forecast {
   const items: ForecastItem[] = [];
 
   for (const p of prepare(input)) {
-    for (const m of permitMilestones(p.permit, today, thresholds)) {
+    for (const m of permitMilestones(p.permit, today, thresholds, input.acks ?? [])) {
       if (m.date === null) continue; // ← the rule, enforced in one place
       for (const leg of p.legs) {
         const state = relayStateFor(m.kind, leg, p.shape, p.design);
@@ -505,6 +696,13 @@ export function buildForecast(input: BoardInput): Forecast {
         const verb = milestoneVerb(m.kind, leg);
         if (!verb) continue;
         const daysLate = daysBetween(m.date, today);
+        // The design half finishing a two-leg milestone IS the handoff.
+        const isHandoff =
+          leg === 'design' &&
+          p.shape === 'two-leg' &&
+          MILESTONE_LEGS[m.kind].design &&
+          MILESTONE_LEGS[m.kind].ent;
+        const cyc = latestCycle(p.permit.permit_cycles ?? []);
         items.push({
           key: `m-${p.permit.id}-${m.kind}-${leg}`,
           source: 'milestone',
@@ -520,6 +718,12 @@ export function buildForecast(input: BoardInput): Forecast {
           actionable: state === 'mine',
           permitId: p.permit.id,
           taskId: null,
+          action: isHandoff ? 'handoff' : 'ack',
+          milestoneKind: m.kind,
+          anchor: milestoneAnchor(m.kind, p.permit),
+          task: null,
+          cycleIndex: cyc?.cycle_index ?? null,
+          entLead: p.permit.ent_lead ?? null,
         });
       }
     }
@@ -547,6 +751,12 @@ export function buildForecast(input: BoardInput): Forecast {
       actionable: true,
       permitId: t.permit_id,
       taskId: t.id,
+      action: 'resolve-task',
+      milestoneKind: null,
+      anchor: null,
+      task: t,
+      cycleIndex: null,
+      entLead: null,
     });
   }
 
@@ -618,7 +828,12 @@ export function buildQueue(input: BoardInput): ProjectQueue {
   const byProject = new Map<string, Acc>();
 
   for (const p of prepared) {
-    const milestones = permitMilestones(p.permit, input.today, thresholds);
+    const milestones = permitMilestones(
+      p.permit,
+      input.today,
+      thresholds,
+      input.acks ?? [],
+    );
     // Stateful milestones only — the ones with no date.
     const stateful = milestones.filter((m) => m.date === null);
 
