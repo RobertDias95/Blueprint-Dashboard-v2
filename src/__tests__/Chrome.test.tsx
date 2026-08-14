@@ -97,6 +97,23 @@ describe('<Chrome /> Q9.5.a top-nav restructure', () => {
     expect(labels).toEqual(expected);
   });
 
+  // fix-298 Phase 2: ONE bell.
+  it('★ renders exactly one bell — the board bell', () => {
+    renderIt();
+    expect(screen.getByTestId('board-bell-button')).toBeTruthy();
+    // The scraper-activity bell (fix-27/28) is gone from the nav: same icon,
+    // different meaning, and its content is now an oversight-only section on
+    // the board. The /activity ROUTE is untouched.
+    expect(screen.queryByTestId('notification-bell-button')).toBeNull();
+  });
+
+  it('the error-triage badge is NOT a bell and stays', () => {
+    // Different icon (warning triangle) and a different question, so it was
+    // never part of the two-bells problem.
+    renderIt();
+    expect(screen.getByTestId('error-triage-button')).toBeTruthy();
+  });
+
   // fix-234: the Reports tab is admin-only.
   it('an admin sees the Reports nav tab', () => {
     authState.role = 'admin';
