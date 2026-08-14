@@ -73,6 +73,13 @@ vi.mock('../hooks/useDmDaGroups', () => ({
 vi.mock('../hooks/useDaTeamRouting', () => ({
   useDaTeamRouting: () => ({ data: state.entRows }),
 }));
+// fix-307 added per-user read state. These files predate it and assert other
+// contracts, so reads are simply empty here — every item reads as unseen,
+// which changes only the highlight, never the rows.
+vi.mock('../hooks/useBoardReads', () => ({
+  useBoardReads: () => ({ data: [] }),
+  useMarkBoardItemsRead: () => ({ mutate: () => {}, isPending: false }),
+}));
 vi.mock('../hooks/useConfirmHandoff', () => ({
   useConfirmHandoff: () => ({
     confirm: state.confirmHandoff,
@@ -293,7 +300,9 @@ describe('fix-306 #30/#31/#32: ★ the links RESOLVE', () => {
     ];
     renderIn(<BoardBell />);
     fireEvent.click(screen.getByTestId('board-bell-button'));
-    fireEvent.click(screen.getByTestId(/^bell-flip-/));
+    // fix-307 replaced the flip-only list with the unseen-items list; the
+    // link is the same destination under a new testid.
+    fireEvent.click(screen.getByTestId(/^bell-new-link-/));
     expect(screen.getByTestId('landed-project').getAttribute('data-id')).toBe('p1');
   });
 });

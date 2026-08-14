@@ -36,6 +36,9 @@ export interface ActivityRowLike {
 
 export interface BoardFlip {
   key: string;
+  /** fix-307: the audit_log row this came from. append-only and never reused,
+   *  so it is the stable half of the item key — see boardReads.keyForFlip. */
+  auditId: number;
   kind: FlipKind;
   permitId: number | null;
   projectId: string | null;
@@ -117,6 +120,7 @@ export function parseFlips(
     if (!applied) continue;
 
     const base = {
+      auditId: r.id,
       permitId: permitIdOf(r.row_id),
       projectId: r.project_id,
       permitNum: r.permit_num,
@@ -130,8 +134,10 @@ export function parseFlips(
     // is pure churn — reviewer names, descriptions, portal ids. It is not a
     // flip and must never reach a person. Same for city_target, which moves
     // constantly without anything happening.
+    // fix-307: the key matches boardReads.keyForFlip so an acknowledged flip
+    // stays acknowledged, however many times this is re-derived.
     const push = (kind: FlipKind, value: string | null) =>
-      out.push({ key: `f-${r.id}-${kind}`, kind, applied: value, ...base });
+      out.push({ key: `flip:${r.id}:${kind}`, kind, applied: value, ...base });
 
     if (typeof applied.status === 'string') {
       const kind = statusKind(applied.status);
