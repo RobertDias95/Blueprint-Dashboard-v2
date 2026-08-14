@@ -391,9 +391,10 @@ describe('<ProjectDetail /> fix-23e two-pillbox layout', () => {
   it('outer container has a bounded max-height based on viewport', () => {
     renderAt();
     const page = screen.getByTestId('project-detail-page');
-    // h-[calc(100vh-100px)] keeps the page bounded; overflow-hidden
+    // ★ fix-313: h-full (was h-[calc(100vh-100px)]) keeps the page bounded
+    // inside the Bridge shell's <main>; overflow-hidden
     // prevents any child from pushing the page taller than the viewport.
-    expect(page.className).toContain('h-[calc(100vh-100px)]');
+    expect(page.className).toContain('h-full');
     expect(page.className).toContain('overflow-hidden');
   });
 
@@ -467,7 +468,7 @@ describe('<ProjectDetail /> fix-23e two-pillbox layout', () => {
     // Same bounded-height contract holds regardless of permit count —
     // the left pillbox scrolls internally, the page stays at one
     // viewport.
-    expect(page.className).toContain('h-[calc(100vh-100px)]');
+    expect(page.className).toContain('h-full');
     expect(page.className).toContain('overflow-hidden');
     // All 20 rows render inside the left pillbox; the list scroller
     // handles the overflow.

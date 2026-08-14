@@ -210,7 +210,7 @@ function ProjectDetailBody({
 
   return (
     <div
-      className="flex flex-col h-[calc(100vh-100px)] overflow-hidden"
+      className="flex flex-col h-full overflow-hidden"
       data-testid="project-detail-page"
     >
       {/* Q9.5.e-fix-1: page chrome matches v1 :751-756 — Search button
@@ -321,7 +321,7 @@ function ProjectDetailBody({
       </div>
 
       {/* fix-23e: Two-pillbox body layout. The outer page is bounded
-          by `h-[calc(100vh-100px)] overflow-hidden` (set above on the
+          by `h-full overflow-hidden` (set above on the
           page-root), so vertical growth is impossible regardless of
           how many permits a project has or how tall any single widget
           renders. Inside, two side-by-side pillboxes scroll

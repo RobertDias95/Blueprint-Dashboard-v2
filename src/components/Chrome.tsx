@@ -1,160 +1,130 @@
 import { useState } from 'react';
-import { NavLink, Outlet, useNavigate } from 'react-router-dom';
+import { Outlet } from 'react-router-dom';
 import SettingsModal from './SettingsModal';
 import BoardBell from './BoardBell';
 import ErrorTriageBell from './ErrorTriageBell';
-import { useIsTenantAdmin } from '../hooks/useIsTenantAdmin';
+import Ribbon from './Ribbon';
+import NewProjectWizard from './NewProjectWizard';
+import { useSelfScope } from '../hooks/useSelfScope';
 
-// Q9.5.a: top-nav restructured to v1 parity (index.html:573-591).
-//   - Blueprint logo on the left IS the home button (clicks → /dashboard).
-//     No separate "Dashboard" nav item.
-//   - nav tabs in v1 order: Draw Schedule | Library (fix-297) | Project
-//     View | My Tasks |
-//     Reports. Each tab has a stage-themed active underline color.
-//   - Vertical divider (1px × 24px, var(--border)) before the gear button.
-//   - ⚙ Settings button (outlined chip style) opens the System Settings
-//     modal. v1's Settings was always a modal; Q7.3 page-Settings was
-//     wrong per the preserve-v1-layout rule.
-//   - Sign-out moved into Settings → Account (not in the topbar). v1's
-//     #bpLogoutBtn is display:none and only invoked from the Account
-//     section.
-
-interface NavItem {
-  to: string;
-  label: string;
-  /** Active-state underline color. v1's nav-tab[data-view="*"].active
-   *  CSS sets different border-bottom colors per tab. */
-  activeColor: string;
-}
-
-const NAV_ITEMS: NavItem[] = [
-  { to: '/draw-schedule', label: 'Draw Schedule', activeColor: '#5a84c0' },
-  // fix-297: Library was a sub-tab of Draw Schedule, which gave it no URL.
-  // Sits immediately after the page it came from so the move is obvious.
-  { to: '/library', label: 'Library', activeColor: '#5a84c0' },
-  { to: '/projects', label: 'Project View', activeColor: 'var(--color-pm, #059669)' },
-  // fix-298: My Board sits beside My Tasks because that is the pair people
-  // confuse. My Tasks = strictly my tasks; My Board = where my work sits.
-  { to: '/board', label: 'My Board', activeColor: 'var(--color-de, #2563eb)' },
-  { to: '/my-tasks', label: 'My Tasks', activeColor: 'var(--color-co, #d97706)' },
-  { to: '/reports', label: 'Reports', activeColor: 'var(--color-jv, #7c3aed)' },
-  // fix-trends-subtab: Trends moved out of the top nav and back into Reports
-  // as a sub-tab (/reports?tab=trends). The legacy /trends route redirects.
-];
+// fix-313 — the Blueprint Bridge shell, built to Bridge_Shell_Mockup_v1.
+//
+// WHAT CHANGED: the top tab bar and the logo-as-home-button are gone
+// (#59), replaced by the collapsible left ribbon (#57/#58/#60). Add a Project
+// moved into the ribbon (#61). My Tasks stopped being a destination (#62).
+//
+// ★ WHAT DID NOT CHANGE: any page. This ticket moves navigation. Every screen
+// renders exactly what it rendered before, in the same <Outlet />.
+//
+// ★ THE LAYOUT CONTRACT (Bobby): "The horizontal width and the vertical width
+// of the screen is going to be fixed so there's no scrolling. Now the
+// individual boxes will scroll."
+//
+// So the shell is h-screen + overflow-hidden, the ribbon and the main pane are
+// independent flex children, and <main> owns `overflow-auto` — the page never
+// grows a scrollbar, the panel does. Draw Schedule and the wide reports already
+// carry their own overflow-x-auto, which is why they fit here without being
+// touched: their horizontal scroll happens inside <main>, not on <body>.
 
 export default function Chrome() {
-  const navigate = useNavigate();
   const [settingsOpen, setSettingsOpen] = useState(false);
-  // fix-234: the Reports tab is admin-only — hide it for non-admins (the route
-  // itself is also guarded by AdminRoute, so a direct URL is redirected too).
-  const isAdmin = useIsTenantAdmin();
-  const navItems = isAdmin
-    ? NAV_ITEMS
-    : NAV_ITEMS.filter((item) => item.to !== '/reports');
+  const [wizardOpen, setWizardOpen] = useState(false);
+  const { identity, userId } = useSelfScope();
 
   return (
-    <div className="min-h-screen flex flex-col">
-      <header
-        className="bg-surface border-b border-border h-[52px] sticky top-0 z-50 flex items-center px-6"
-        data-testid="chrome-header"
-      >
-        {/* Left: Blueprint logo = home button (→ /dashboard).
-            Q9.5.b: swapped from text-only to the v1 SVG logo at
-            Webflow CDN (index.html:576). Padding + hover bg match
-            v1's `.bp-home` class. Text fallback when img fails. */}
-        <button
-          onClick={() => navigate('/dashboard')}
-          className="flex items-center gap-2 bg-transparent border-none rounded-lg hover:bg-s2 transition flex-shrink-0"
-          style={{ padding: '5px 10px' }}
-          title="Blueprint Capital — Home"
-          data-testid="chrome-home"
-        >
-          <img
-            src="https://cdn.prod.website-files.com/63541c8a0af27d5cafc89858/6358e4f2bd05f5417c7d88e7_Group%20891%20(3).svg"
-            alt="Blueprint Capital"
-            className="block w-auto"
-            style={{ height: 26 }}
-            onError={(e) => {
-              // SVG load failed (offline, CDN gone, etc.) — degrade to
-              // the v2 text label so the home button still works.
-              (e.currentTarget as HTMLImageElement).style.display = 'none';
-              const fallback = e.currentTarget
-                .nextElementSibling as HTMLElement | null;
-              if (fallback) fallback.style.display = 'flex';
-            }}
-          />
-          <span
-            className="flex-col items-start leading-tight"
-            style={{ display: 'none' }}
-          >
-            <span className="font-extrabold text-[13px] text-text tracking-tight">
-              Blueprint Capital
-            </span>
-            <span className="text-[8px] uppercase tracking-widest text-dim font-medium">
-              Entitlements
-            </span>
-          </span>
-        </button>
+    <div
+      className="h-screen w-screen flex overflow-hidden"
+      data-testid="bridge-shell"
+      style={{ overflow: 'hidden' }}
+    >
+      {/* Keyed on the user so the ribbon re-reads that person's stored
+          collapsed/open preferences when auth resolves — which is what lets
+          Ribbon read them in a lazy initialiser instead of an effect. */}
+      <Ribbon
+        key={userId ?? 'anon'}
+        onAddProject={() => setWizardOpen(true)}
+        onOpenSettings={() => setSettingsOpen(true)}
+      />
 
-        {/* Right: nav tabs + divider + gear */}
-        <div className="flex items-center ml-auto h-full">
-          <nav className="flex items-center gap-0 h-full" data-testid="chrome-nav">
-            {navItems.map((item) => (
-              <NavLink
-                key={item.to}
-                to={item.to}
-                className={({ isActive }) =>
-                  `h-full px-3.5 flex items-center text-xs font-semibold transition border-b-2 whitespace-nowrap ${
-                    isActive
-                      ? 'text-text'
-                      : 'text-muted hover:text-text border-transparent'
-                  }`
-                }
-                style={({ isActive }) =>
-                  isActive ? { borderBottomColor: item.activeColor } : undefined
-                }
-              >
-                {item.label}
-              </NavLink>
-            ))}
-          </nav>
+      <div className="flex-1 min-w-0 flex flex-col h-screen" data-testid="bridge-main">
+        <header
+          className="bg-surface border-b border-border flex items-center gap-3.5 px-5 flex-shrink-0"
+          style={{ height: 56 }}
+          data-testid="chrome-header"
+        >
+          {/* ★ #59: search is NEW FURNITURE — there is no app-wide search today.
+              Rendered DISABLED with a "coming soon" affordance rather than as a
+              live-looking control that does nothing. This codebase has shipped
+              that defect four times (Show All, /settings/team, the milestone
+              click, every board link), and a search box is the single most
+              inviting thing on a toolbar. */}
           <div
-            className="bg-border flex-shrink-0 mx-2"
-            style={{ width: 1, height: 24 }}
-          />
-          {/* fix-298 Phase 2: ONE bell. Phase 1 left two side by side — the
-              old scraper-activity bell (fix-27/28) and this one — with the
-              same icon and different meanings, which is a coin toss for the
-              reader. Scraper activity is SYSTEM HEALTH, so it folded into the
-              board as an oversight-only section (Bobby, Gena, Dave). The
-              /activity page is untouched and still routable; it just no
-              longer holds a permanent seat in the nav. */}
+            className="flex items-center gap-2 rounded-lg border border-border bg-bg text-dim select-none"
+            style={{ flex: '0 1 380px', padding: '6px 10px', fontSize: 12.5, opacity: 0.62 }}
+            data-testid="chrome-search"
+            data-disabled="true"
+            aria-disabled="true"
+            title="Search is not built yet — coming soon"
+          >
+            <span aria-hidden>⌕</span>
+            <span>Search — coming soon</span>
+            <span
+              className="ml-auto rounded border border-border bg-surface"
+              style={{ fontSize: 10, padding: '1px 5px' }}
+            >
+              ⌘K
+            </span>
+          </div>
+
+          <div className="flex-1" />
+
+          {/* fix-307's unseen badge lives in here — untouched. */}
           <BoardBell />
-          {/* fix-87: error triage badge — sibling to the notification bell,
-              counts distinct unresolved error fingerprints. Click navigates
-              to /settings/errors. */}
           <span className="ml-1">
             <ErrorTriageBell />
           </span>
-          <button
-            onClick={() => setSettingsOpen(true)}
-            className="bg-transparent border border-border text-muted hover:text-text px-3 py-1 rounded-md text-[11px] font-display font-semibold whitespace-nowrap transition ml-1.5"
-            title="Settings"
-            data-testid="chrome-settings-gear"
+
+          {/* The user chip. The mockup's third top-bar element; it replaces the
+              gear, which moved into the ribbon. */}
+          <div
+            className="flex items-center gap-2.5 pl-3.5 border-l border-border"
+            data-testid="chrome-user-chip"
           >
-            ⚙ Settings
-          </button>
-        </div>
-      </header>
-      {/* Keep p-6 on main for now — existing pages (Dashboard/Reports/
-          MyTasks) rely on it. Q9.5.c moves padding to per-view per v1's
-          `.view { padding: 24px 28px }` pattern. DrawSchedule's height
-          math already accounts for the 48px vertical padding here. */}
-      <main className="flex-1 p-6">
-        <Outlet />
-      </main>
+            <div
+              className="rounded-full bg-s2 text-muted font-display font-bold flex items-center justify-center"
+              style={{ width: 29, height: 29, fontSize: 11 }}
+              aria-hidden
+            >
+              {initials(identity.name)}
+            </div>
+            <div className="leading-tight">
+              <div className="font-display font-semibold text-text" style={{ fontSize: 12.5 }}>
+                {identity.name ?? 'Signed in'}
+              </div>
+              <div className="text-dim" style={{ fontSize: 10.5 }}>
+                {identity.roles[0] ?? 'Blueprint Services'}
+              </div>
+            </div>
+          </div>
+        </header>
+
+        {/* ★ The only scroll container in the shell. Pages keep the p-6 they
+            have always relied on. */}
+        <main className="flex-1 min-h-0 overflow-auto p-6" data-testid="bridge-pane">
+          <Outlet />
+        </main>
+      </div>
 
       <SettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} />
+      {/* #61: one wizard, opened from one place — the ribbon. */}
+      <NewProjectWizard open={wizardOpen} onClose={() => setWizardOpen(false)} />
     </div>
   );
+}
+
+function initials(name: string | null | undefined): string {
+  const parts = (name ?? '').trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return '··';
+  if (parts.length === 1) return parts[0]!.slice(0, 2).toUpperCase();
+  return (parts[0]![0]! + parts[parts.length - 1]![0]!).toUpperCase();
 }

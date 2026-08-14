@@ -1,5 +1,4 @@
 import { useCallback, useMemo, useState } from 'react';
-import NewProjectWizard from '../components/NewProjectWizard';
 import { useProjects } from '../hooks/useProjects';
 import { usePermits } from '../hooks/usePermits';
 import { useDrawSchedule } from '../hooks/useDrawSchedule';
@@ -70,7 +69,7 @@ interface DashContext {
 // Layout faithfully ports v1 (index.html line 661-745):
 //   ROW 1: D&E group (Scheduled & Schematic | DD & Pending Consultants)
 //          Permitting group (Under Review | Corrections)
-//   ROW 2: Approval + Issued strips
+//   ROW 2: Approve + Issued strips (fix-313 #65 renamed the label)
 //
 // No placeholder permit synthesis — empty projects show in the search list,
 // not as a fake card in a matrix slot.
@@ -109,7 +108,6 @@ export default function Dashboard() {
   // fix-155: fire the numberless-permit sweep once/day (self-guarded).
   useNumberEntrySweep();
   const [search, setSearch] = useState('');
-  const [wizardOpen, setWizardOpen] = useState(false);
   // fix-178: three-way hold filter (All / Only holds / Exclude holds). Default
   // 'all'; no persistence (resets each load).
   const [holdMode, setHoldMode] = useState<HoldFilterMode>(HOLD_FILTER_DEFAULT);
@@ -303,6 +301,18 @@ export default function Dashboard() {
 
   return (
     <div className="space-y-4">
+      {/* ★ fix-313 #63: the landing page is called PIPELINE. Display only —
+          the route stays /dashboard, the same discipline as fix-310. Bobby:
+          "My Board, Pipeline, Project Overview — so the only one that gets
+          renamed is the landing page." Project View and Project Overview keep
+          their names. */}
+      <h1
+        className="font-display font-bold text-text"
+        style={{ fontSize: 20, letterSpacing: '-.01em' }}
+        data-testid="pipeline-title"
+      >
+        Pipeline
+      </h1>
       <div className="flex items-center gap-3 flex-wrap">
         <ScopeToggle
           mode={scopeMode}
@@ -325,16 +335,12 @@ export default function Dashboard() {
         />
         {/* fix-178: three-way hold filter */}
         <HoldFilter mode={holdMode} onChange={setHoldMode} testid="dashboard-hold-filter" />
-        <button
-          type="button"
-          onClick={() => setWizardOpen(true)}
-          className="text-xs px-3 py-1.5 rounded-md bg-de text-white font-display font-bold hover:opacity-90 transition ml-auto"
-          data-testid="dashboard-new-project"
-        >
-          + Add New Project
-        </button>
       </div>
-      <NewProjectWizard open={wizardOpen} onClose={() => setWizardOpen(false)} />
+      {/* ★ fix-313 #61: "+ Add New Project" lived here. It moved into the
+          ribbon, pinned above the collapse row, where it is reachable from
+          every screen instead of only this one. Removed here rather than left
+          alongside so there is exactly ONE entry point that can drift. Same
+          component, same permissions — Chrome owns the open state now. */}
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <StageGroup
@@ -403,7 +409,7 @@ export default function Dashboard() {
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <BottomStrip
-          title="Approval"
+          title="Approve"
           accent="jv"
           subtitle="approved, pending issue"
           permits={buckets.ap}
@@ -595,7 +601,7 @@ interface BottomStripProps {
 }
 
 // Q9.5.c: same stage-bg tinting pattern as the top stage groups for
-// the Approval (jv) + Issued (is) bottom strips.
+// the Approve (jv) + Issued (is) bottom strips.
 const BOTTOM_STRIP_BG: Record<'jv' | 'is', string> = {
   jv: 'var(--color-jv-bg)',
   is: 'var(--color-is-bg)',

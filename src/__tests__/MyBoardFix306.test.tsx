@@ -481,7 +481,8 @@ describe('fix-306 #35: the queue scope toggle', () => {
     brittani();
     renderIn(<MyBoard />);
     fireEvent.click(screen.getByTestId('board-scope-team'));
-    expect(screen.getByTestId('my-board').style.height).toBe('calc(100vh - 52px)');
+    // ★ fix-313: fills the shell's bounded <main>, no viewport math.
+    expect(screen.getByTestId('my-board').style.height).toBe('100%');
   });
 });
 

@@ -1,0 +1,48 @@
+// fix-313 #64: the Blueprint Bridge mark.
+//
+// ★ PLACEHOLDER. Bobby's brand sheet shows a bridge arch over water in blue,
+// with a simplified rounded-square icon for small sizes, but the asset file was
+// not supplied — this is authored from that description so the app stops
+// shipping Vite's purple lightning bolt. It is drawn to read at 16px: one arch,
+// one deck, two piers, no hairlines. Swap the real export in over
+// public/bridge-mark.svg and this component's paths.
+//
+// Kept as a component (rather than an <img> at the SVG) so the ribbon can size
+// it without a network round-trip and so the collapsed ribbon shows the mark
+// alone, which is the mockup's behaviour.
+
+export default function BridgeMark({ size = 22 }: { size?: number }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 32 32"
+      role="img"
+      aria-label="Blueprint Bridge"
+      data-testid="bridge-mark"
+      style={{ flex: `0 0 ${size}px`, display: 'block' }}
+    >
+      <rect width="32" height="32" rx="8" fill="#1e3a5f" />
+      {/* the arch */}
+      <path
+        d="M5 21c0-6.1 4.9-11 11-11s11 4.9 11 11"
+        fill="none"
+        stroke="#2563eb"
+        strokeWidth="2.6"
+        strokeLinecap="round"
+      />
+      {/* the deck sweeping under it */}
+      <path d="M4 21.5h24" stroke="#93b4f5" strokeWidth="2.2" strokeLinecap="round" />
+      {/* piers */}
+      <path d="M10.5 21.5v4M21.5 21.5v4" stroke="#2563eb" strokeWidth="2" strokeLinecap="round" />
+      {/* water */}
+      <path
+        d="M5 28.2c2.2 0 2.2-1.3 4.4-1.3s2.2 1.3 4.4 1.3 2.2-1.3 4.4-1.3 2.2 1.3 4.4 1.3 2.2-1.3 4.4-1.3"
+        fill="none"
+        stroke="#3f6ea8"
+        strokeWidth="1.4"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}

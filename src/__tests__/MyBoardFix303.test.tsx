@@ -215,7 +215,8 @@ describe('fix-303 §1: ★ Show all actually does something', () => {
     renderBoard();
     fireEvent.click(screen.getByTestId('board-sec-past-due-showall'));
     // The Phase 1 layout contract, re-checked with a section expanded.
-    expect(screen.getByTestId('my-board').style.height).toBe('calc(100vh - 52px)');
+    // ★ fix-313: fills the shell's bounded <main>, no viewport math.
+    expect(screen.getByTestId('my-board').style.height).toBe('100%');
     expect(screen.getByTestId('my-board-forecast-scroll').className).toContain(
       'overflow-y-auto',
     );
@@ -371,7 +372,8 @@ describe('fix-303 §3: full task functionality', () => {
     state.tasks = [mkTask({ id: 'task-1', due_date: '2026-01-01' })];
     renderBoard();
     fireEvent.click(screen.getByTestId('board-row-open-t-task-1'));
-    expect(screen.getByTestId('my-board').style.height).toBe('calc(100vh - 52px)');
+    // ★ fix-313: fills the shell's bounded <main>, no viewport math.
+    expect(screen.getByTestId('my-board').style.height).toBe('100%');
   });
 
   it('subtasks nest under their parent, as in My Tasks', () => {
@@ -385,7 +387,7 @@ describe('fix-303 §3: full task functionality', () => {
     );
   });
 
-  it('a task row links to the project, the permit and My Tasks', () => {
+  it('a task row links to the project and the permit', () => {
     state.tasks = [mkTask({ id: 'task-1', due_date: '2026-01-01' })];
     renderBoard();
     expect(
@@ -394,10 +396,10 @@ describe('fix-303 §3: full task functionality', () => {
     expect(screen.getByTestId('board-row-permit-t-task-1').getAttribute('href')).toBe(
       '/project/p1?permit=1',
     );
-    // Clicking through to My Tasks still works and is liked — the point is that
-    // you should not HAVE to.
-    expect(screen.getByTestId('board-row-mytasks-t-task-1').getAttribute('href')).toBe(
-      '/my-tasks?task=task-1',
-    );
+    // ★ fix-313 #62: the third link, to /my-tasks?task=…, is GONE. That route
+    // now redirects to /board, so it would have led back to this screen. The
+    // task still opens — the row opens the fix-303 editor drawer in place,
+    // which is what §19 wanted all along.
+    expect(screen.queryByTestId('board-row-mytasks-t-task-1')).toBeNull();
   });
 });

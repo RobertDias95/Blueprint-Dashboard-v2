@@ -4,10 +4,21 @@ import { MemoryRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
 // Q2: Chrome nav lock test.
-// Q9.5.a: rewritten for v1-parity top-nav — logo=home + 4 tabs (no
-// Dashboard tab, no Settings tab) + ⚙ gear button that opens the
-// System Settings modal. Sign-out moved into the modal's Account
-// section, no longer in the topbar.
+// Q9.5.a: rewritten for v1-parity top-nav — logo=home + 4 tabs + gear.
+//
+// ★ fix-313 RETARGETED THIS FILE to the Blueprint Bridge shell. The top tab bar
+// and the logo-as-home-button are GONE, replaced by the left ribbon; the gear
+// moved into the ribbon; the top bar now carries search, the bells and the user
+// chip. Every contract this file protected is still asserted — it just moved:
+//   * ONE bell (fix-298 Phase 2)             — unchanged, still here
+//   * the error-triage badge is not a bell    — unchanged
+//   * Reports is admin-only (fix-234)         — now the whole ribbon GROUP
+//   * no Trends entry (fix-trends-subtab)     — now a ribbon label check
+//   * no "Settings" LINK, it is a button      — still true, in the ribbon
+//   * "Draw Schedule" survived fix-310        — still asserted
+//   * no inline Sign Out                      — unchanged
+// What is gone is asserted GONE rather than dropped from the file, because
+// "the tab bar was removed" is itself a contract now.
 
 // fix-27: extended to cover supabase.rpc and supabase.channel so the
 // NotificationBell mounted by Chrome doesn't blow up. The bell's
@@ -53,9 +64,16 @@ vi.mock('../components/SettingsModal', () => ({
     open ? <div data-testid="settings-modal-stub">modal open</div> : null,
 }));
 
+// fix-313 #61: Chrome mounts the wizard now (the ribbon opens it), and the real
+// one drags in the whole four-step tree. Stubbed the same way as the modal.
+vi.mock('../components/NewProjectWizard', () => ({
+  default: ({ open }: { open: boolean }) =>
+    open ? <div data-testid="wizard-stub">wizard open</div> : null,
+}));
+
 import Chrome from '../components/Chrome';
 
-describe('<Chrome /> Q9.5.a top-nav restructure', () => {
+describe('<Chrome /> fix-313 the Blueprint Bridge shell', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     authState.role = 'admin';
@@ -76,31 +94,53 @@ describe('<Chrome /> Q9.5.a top-nav restructure', () => {
     );
   }
 
-  it('renders the v1-parity nav tabs in order (Trends folded into Reports)', () => {
+  /** Every ribbon entry label, in render order. Children of a closed group are
+   *  not rendered, so this is the top level plus whatever is open.
+   *  Read from `title` rather than textContent, because textContent also picks
+   *  up the collapsed-ribbon icon glyph. */
+  function ribbonLabels(): (string | null)[] {
+    const nav = screen.getByTestId('ribbon-nav');
+    return Array.from(nav.querySelectorAll('a')).map((a) => a.getAttribute('title'));
+  }
+
+  it('renders the ribbon entries in the mockup order', () => {
     renderIt();
-    // fix-trends-subtab: Trends moved out of the top nav and back into
-    // Reports as a sub-tab, so the nav is the 4 v1-parity tabs only.
-    // fix-28: NotificationBell is also a <Link> (to /activity) but lives
-    // outside the <nav>, so we scope this assertion to <nav> children.
-    // fix-297: Library is its own top-level tab now, sitting immediately
-    // after the page it was a sub-tab of.
-    // fix-298: My Board sits immediately BEFORE My Tasks. That pairing is
-    // deliberate — those are the two screens people confuse, and putting them
-    // adjacent is what makes "My Tasks is strictly my tasks, My Board is where
-    // my work sits" legible from the nav alone.
-    const expected = [
-      'Draw Schedule', 'Library', 'Project View', 'My Board', 'My Tasks', 'Reports',
-    ];
-    const nav = screen.getByTestId('chrome-nav');
-    const links = Array.from(nav.querySelectorAll('a'));
-    const labels = links.map((a) => a.textContent?.trim());
-    expect(labels).toEqual(expected);
+    // Groups are closed by default, so the top level is what shows. Settings is
+    // a BUTTON (the modal), not a link, so it is deliberately absent here.
+    expect(ribbonLabels()).toEqual(['Pipeline', 'My Board', 'Project View']);
 
     // ★ fix-310 renamed the DD-PHASE vocabulary from Draw to DD across ~14
-    // surfaces. The Draw SCHEDULE is a different concept and keeps its name —
-    // this is the assertion that a broad find-and-replace did not eat the tab.
-    expect(labels).toContain('Draw Schedule');
-    expect(labels.some((l) => l === 'DD Schedule')).toBe(false);
+    // surfaces. The Draw SCHEDULE is a different concept and keeps its name.
+    fireEvent.click(screen.getByTestId('ribbon-group-toggle-entitlements'));
+    const withEnt = ribbonLabels();
+    expect(withEnt).toContain('Draw Schedule');
+    expect(withEnt.some((l) => l === 'DD Schedule')).toBe(false);
+    expect(withEnt).toContain('Library');
+    expect(withEnt).toContain('Activity');
+  });
+
+  // ★ #59: the top tab bar and the logo-home-button are GONE.
+  it('★ renders no top tab bar and no logo home button', () => {
+    renderIt();
+    expect(screen.queryByTestId('chrome-nav')).toBeNull();
+    expect(screen.queryByTestId('chrome-home')).toBeNull();
+    expect(screen.queryByTestId('chrome-settings-gear')).toBeNull();
+  });
+
+  // ★ #59: search is new furniture and there is nothing to wire it to.
+  it('★ renders search DISABLED with a coming-soon affordance, not a dead control', () => {
+    renderIt();
+    const search = screen.getByTestId('chrome-search');
+    expect(search.dataset.disabled).toBe('true');
+    expect(search.getAttribute('aria-disabled')).toBe('true');
+    expect(search.textContent).toMatch(/coming soon/i);
+    // It is not an input, so it cannot be typed into and look alive.
+    expect(search.querySelector('input')).toBeNull();
+  });
+
+  it('keeps the user chip in the top bar', () => {
+    renderIt();
+    expect(screen.getByTestId('chrome-user-chip')).toBeInTheDocument();
   });
 
   // fix-298 Phase 2: ONE bell.
@@ -120,47 +160,47 @@ describe('<Chrome /> Q9.5.a top-nav restructure', () => {
     expect(screen.getByTestId('error-triage-button')).toBeTruthy();
   });
 
-  // fix-234: the Reports tab is admin-only.
-  it('an admin sees the Reports nav tab', () => {
+  // fix-234, now applied to the whole ribbon GROUP.
+  it('an admin sees the Reports group', () => {
     authState.role = 'admin';
     renderIt();
-    const labels = Array.from(
-      screen.getByTestId('chrome-nav').querySelectorAll('a'),
-    ).map((a) => a.textContent?.trim());
-    expect(labels).toContain('Reports');
+    expect(screen.getByTestId('ribbon-group-reports')).toBeInTheDocument();
   });
 
-  it('an editor (non-admin) does NOT see the Reports nav tab', () => {
+  it('★ a non-admin sees NO Reports group at all — not an empty one', () => {
     authState.role = 'editor';
     renderIt();
-    const labels = Array.from(
-      screen.getByTestId('chrome-nav').querySelectorAll('a'),
-    ).map((a) => a.textContent?.trim());
-    expect(labels).not.toContain('Reports');
-    // The other tabs still render. fix-297: ★ Library is among them — it is
-    // NOT admin-gated, matching Draw Schedule, because it has been reachable
-    // by everyone for as long as it has existed.
-    // fix-298: My Board is NOT admin-gated either — everyone has their own
-    // board, and it is the screen this feature exists to give the people who
-    // currently see a blank My Tasks.
-    expect(labels).toEqual([
-      'Draw Schedule', 'Library', 'Project View', 'My Board', 'My Tasks',
-    ]);
+    expect(screen.queryByTestId('ribbon-group-reports')).toBeNull();
+    // Not merely collapsed: none of the seven report routes is reachable.
+    expect(screen.queryByTestId('ribbon-link-/reports/weekly-da')).toBeNull();
+    expect(screen.queryByTestId('ribbon-link-/settings/reporting')).toBeNull();
+
+    // Everything else still renders. fix-297: ★ Library is NOT admin-gated,
+    // matching Draw Schedule — it has been reachable by everyone for as long
+    // as it has existed. fix-298: neither is My Board.
+    expect(ribbonLabels()).toEqual(['Pipeline', 'My Board', 'Project View']);
+    expect(screen.getByTestId('ribbon-group-entitlements')).toBeInTheDocument();
   });
 
-  it('does NOT render a Trends nav tab (fix-trends-subtab)', () => {
+  it('does NOT render a Trends entry (fix-trends-subtab)', () => {
     renderIt();
-    const nav = screen.getByTestId('chrome-nav');
-    const labels = Array.from(nav.querySelectorAll('a')).map((a) =>
-      a.textContent?.trim(),
-    );
-    expect(labels).not.toContain('Trends');
+    fireEvent.click(screen.getByTestId('ribbon-group-toggle-reports'));
+    expect(ribbonLabels()).not.toContain('Trends');
   });
 
-  it('does NOT render a "Dashboard" nav tab (logo handles home navigation)', () => {
+  // ★ fix-313 #62: My Tasks is no longer a destination.
+  it('★ renders no My Tasks entry — it merged into My Board', () => {
     renderIt();
-    const links = screen.getAllByRole('link');
-    expect(links.map((a) => a.textContent?.trim())).not.toContain('Dashboard');
+    expect(ribbonLabels()).not.toContain('My Tasks');
+    expect(screen.queryByTestId('ribbon-link-/my-tasks')).toBeNull();
+  });
+
+  // ★ fix-313 #63: the landing page is Pipeline. The ROUTE is unchanged.
+  it('★ the landing entry reads Pipeline and still points at /dashboard', () => {
+    renderIt();
+    const pipeline = screen.getByTestId('ribbon-link-/dashboard');
+    expect(pipeline.textContent).toMatch(/Pipeline/);
+    expect(ribbonLabels()).not.toContain('Dashboard');
   });
 
   it('does NOT render a "Settings" nav tab (gear button opens the modal instead)', () => {
@@ -169,21 +209,31 @@ describe('<Chrome /> Q9.5.a top-nav restructure', () => {
     expect(links.map((a) => a.textContent?.trim())).not.toContain('Settings');
   });
 
-  it('renders the Blueprint logo as a clickable home button', () => {
+  // ★ #64: the brand mark and wordmark, top of the ribbon.
+  it('renders the Blueprint Bridge mark and wordmark', () => {
     renderIt();
-    expect(screen.getByTestId('chrome-home')).toBeInTheDocument();
-    expect(screen.getByTestId('chrome-home').textContent).toMatch(/Blueprint/);
+    const brand = screen.getByTestId('ribbon-brand');
+    expect(brand.textContent).toMatch(/BLUEPRINT/);
+    expect(brand.textContent).toMatch(/BRIDGE/);
+    expect(screen.getByTestId('bridge-mark')).toBeInTheDocument();
   });
 
-  it('renders a ⚙ Settings gear button that opens the System Settings modal on click', () => {
+  it('Settings is still a MODAL, opened from the ribbon', () => {
     renderIt();
-    const gear = screen.getByTestId('chrome-settings-gear');
-    expect(gear).toBeInTheDocument();
+    const gear = screen.getByTestId('ribbon-settings');
     expect(gear.textContent).toMatch(/Settings/);
     // Modal should NOT render until clicked.
     expect(screen.queryByTestId('settings-modal-stub')).not.toBeInTheDocument();
     fireEvent.click(gear);
     expect(screen.getByTestId('settings-modal-stub')).toBeInTheDocument();
+  });
+
+  // ★ #61: one entry point to the wizard, in the ribbon, on every screen.
+  it('★ Add a Project opens the wizard from the ribbon', () => {
+    renderIt();
+    expect(screen.queryByTestId('wizard-stub')).toBeNull();
+    fireEvent.click(screen.getByTestId('ribbon-add-project'));
+    expect(screen.getByTestId('wizard-stub')).toBeInTheDocument();
   });
 
   it('does NOT render an inline Sign Out button in the topbar (moved to Settings → Account)', () => {
