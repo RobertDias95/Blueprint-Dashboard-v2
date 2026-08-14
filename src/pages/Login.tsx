@@ -1,22 +1,34 @@
 import { useState, type FormEvent } from 'react';
-import { Navigate, useNavigate } from 'react-router-dom';
+import { Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { useAuthStore } from '../stores/authStore';
+import { landingAfterSignIn } from '../lib/authEvents';
 
 // Q1: minimal email/password login. On success → /dashboard. Error → inline
 // message. No password reset, no signup — those flows are out of scope until
 // the rebuild has parity with v1.
+//
+// ★ fix-314: on success → back WHERE YOU WERE, not /dashboard. AuthGuard has
+// always recorded `state={{ from: location }}` when it bounced someone; this
+// file never read it, so every recovery landed on the index route and then
+// /dashboard. That is the "takes me back to the home page" half of Miles's
+// report, and it was one missing read, not a missing feature.
 export default function Login() {
   const navigate = useNavigate();
+  const location = useLocation();
   const { session, initialized } = useAuthStore();
+  const landing = landingAfterSignIn(
+    (location.state as { from?: unknown } | null)?.from,
+  );
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
-  // If we're already authenticated, kick to dashboard.
+  // Already authenticated — e.g. the session came back while this screen was
+  // up. Return to where the bounce came from, not the dashboard.
   if (initialized && session) {
-    return <Navigate to="/dashboard" replace />;
+    return <Navigate to={landing} replace />;
   }
 
   async function handleSubmit(e: FormEvent) {
@@ -32,7 +44,7 @@ export default function Login() {
       setError(authError.message);
       return;
     }
-    navigate('/dashboard', { replace: true });
+    navigate(landing, { replace: true });
   }
 
   return (
