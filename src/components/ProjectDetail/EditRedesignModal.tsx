@@ -210,7 +210,7 @@ export default function EditRedesignModal({ redesign, label, onClose }: Props) {
             style={{ borderTopColor: 'var(--color-border)' }}
           >
             {/* fix-296b: was "Redesign DD phase". The editor below it labels
-                its two dates Draw Start / Draw End (fix-296). */}
+                its two dates DD start / DD end (fix-296, renamed by fix-310). */}
             <span className={`${labelCls} block mb-1.5`}>
               Redesign draw schedule
             </span>

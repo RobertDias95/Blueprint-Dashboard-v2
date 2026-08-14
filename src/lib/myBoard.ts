@@ -343,7 +343,7 @@ const MILESTONE_LEGS: Record<MilestoneKind, { design: boolean; ent: boolean }> =
 /** The verb each side sees for the same milestone. Both roles see the same
  *  permit at the same moment with a DIFFERENT VERB — that is the relay. */
 const MILESTONE_VERBS: Record<MilestoneKind, { design: string; ent: string }> = {
-  draw: { design: 'Close the draw window', ent: '' },
+  draw: { design: 'Close the DD window', ent: '' },
   target_submit: { design: 'Finish the set', ent: 'Submit' },
   corrections: { design: 'Work the redlines', ent: 'Resubmit to the city' },
   intake: { design: '', ent: 'Intake appointment' },
@@ -470,13 +470,13 @@ export function permitMilestones(
     });
   }
 
-  // Draw window close — a DATE, design side only.
+  // DD window close — a DATE, design side only.
   if (permit.dd_end && !cyc?.submitted) {
     const late = daysBetween(permit.dd_end, today);
     out.push({
       kind: 'draw',
       date: permit.dd_end,
-      // fix-304 §22: the draw window's date IS the message.
+      // fix-304 §22: the DD window's date IS the message.
       why: '',
       daysLate: late,
     });
@@ -576,7 +576,7 @@ export function milestoneAction(
     case 'reviewer_silent':
       return `Chase the reviewer — ${late}d without movement`;
     case 'draw':
-      return `Close the draw window — ends ${m.date ?? 'soon'}`;
+      return `Close the DD window — ends ${m.date ?? 'soon'}`;
     case 'issuance':
       return 'Collect the permit';
   }

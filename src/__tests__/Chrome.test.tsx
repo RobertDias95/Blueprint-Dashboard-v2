@@ -95,6 +95,12 @@ describe('<Chrome /> Q9.5.a top-nav restructure', () => {
     const links = Array.from(nav.querySelectorAll('a'));
     const labels = links.map((a) => a.textContent?.trim());
     expect(labels).toEqual(expected);
+
+    // ★ fix-310 renamed the DD-PHASE vocabulary from Draw to DD across ~14
+    // surfaces. The Draw SCHEDULE is a different concept and keeps its name —
+    // this is the assertion that a broad find-and-replace did not eat the tab.
+    expect(labels).toContain('Draw Schedule');
+    expect(labels.some((l) => l === 'DD Schedule')).toBe(false);
   });
 
   // fix-298 Phase 2: ONE bell.

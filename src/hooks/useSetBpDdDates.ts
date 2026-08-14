@@ -192,21 +192,22 @@ export function useSetBpDdDates() {
               result.permitsUpdated === 1 ? '' : 's'
             })`
           : '';
-      // fix-296b: these three toasts fire off the Milestones card's Draw Start
-      // / Draw End inputs, so they say "Draw dates" now. Hook + RPC unchanged.
-      pushToast(`Draw dates saved${tail}`, 'success');
+      // ★ fix-310: these three toasts fire off the Milestones card's DD start
+      // / DD end inputs, so they say "DD dates". Hook + RPC unchanged —
+      // bp_set_bp_dd_dates and its arguments never had a "Draw" in them.
+      pushToast(`DD dates saved${tail}`, 'success');
     },
 
     onError: (error) => {
       if (isOCCConflict(error)) {
         pushToast(
-          'Draw dates were modified by someone else — refresh and retry',
+          'DD dates were modified by someone else — refresh and retry',
           'warn',
         );
         queryClient.invalidateQueries({ queryKey: queryKeys.permitsAll });
         queryClient.invalidateQueries({ queryKey: queryKeys.drawScheduleAll });
       } else {
-        pushToast(`Could not save draw dates — ${error.message}`, 'error');
+        pushToast(`Could not save DD dates — ${error.message}`, 'error');
       }
     },
   });

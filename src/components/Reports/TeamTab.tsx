@@ -314,7 +314,7 @@ const TEAM_CSV_COLUMNS = [
   { key: 'reuseProjectCount', label: 'Reuse' },
   { key: 'reuseRate', label: 'Reuse Rate (%)' },
   // fix-296b: was 'DD Phase (d)' — matches the table header.
-  { key: 'avgDdDays', label: 'Draw (d)' },
+  { key: 'avgDdDays', label: 'DD (d)' },
   { key: 'avgCityReviewDays', label: 'City Review (d)' },
   { key: 'avgCorrectionsCycles', label: 'Corrections (cycles)' },
   { key: 'avgIssuanceDays', label: 'Issuance (d)' },

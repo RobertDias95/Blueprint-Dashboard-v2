@@ -138,9 +138,9 @@ const COLS: ColDef[] = [
   { key: 'juris', label: 'Juris' },
   // fix-296b: were 'GO→DD' / 'DD Dur.' / 'DD→Sub'. Same three metrics as the
   // overview tiles above the table; testIdKeys stay put.
-  { key: null, label: 'GO→Draw', numeric: true, testIdKey: 'go-dd' },
-  { key: null, label: 'Draw Dur.', numeric: true, testIdKey: 'dd-dur' },
-  { key: null, label: 'Draw→Sub', numeric: true, testIdKey: 'dd-sub' },
+  { key: null, label: 'GO→DD', numeric: true, testIdKey: 'go-dd' },
+  { key: null, label: 'DD Dur.', numeric: true, testIdKey: 'dd-dur' },
+  { key: null, label: 'DD→Sub', numeric: true, testIdKey: 'dd-sub' },
   { key: null, label: 'GO→Sub', numeric: true, testIdKey: 'go-sub' },
   { key: null, label: 'Sub→Int', numeric: true, testIdKey: 'sub-int' },
   { key: null, label: 'Review', numeric: true, testIdKey: 'review' },

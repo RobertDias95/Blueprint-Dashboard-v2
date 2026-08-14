@@ -275,7 +275,7 @@ function DDPhaseCell({
       return (
         <OverviewCard title="Milestones" testId="pd-milestones-card">
           <KeyDatesSection project={project} />
-          <OverviewSection title="Draw window">
+          <OverviewSection title="DD window">
             {/* fix-145: a reuse-redesign has no BP permit but DOES carry a
                 draw_schedule lane, so the inline lane editor renders here --
                 DA, dates and status are one control acting on one block. */}
@@ -287,7 +287,7 @@ function DDPhaseCell({
     return (
       <OverviewCard title="Milestones" testId="pd-milestones-card">
         <KeyDatesSection project={project} />
-        <OverviewSection title="Draw window">
+        <OverviewSection title="DD window">
           {/* The draw block hangs off the building permit, so there is no
               window to show until one exists. Said plainly under the heading it
               belongs to rather than as a loose line among the dates. */}
@@ -495,7 +495,7 @@ function DDPhaseEditor({
            order disagreeing, the order is stated once in KeyDatesSection and
            every branch renders it. */}
        <KeyDatesSection project={project} />
-       <OverviewSection title="Draw window">
+       <OverviewSection title="DD window">
         <div className="flex flex-col gap-1.5">
           {/* ★ fix-309 #53: Schematic sits ABOVE the DD window — it is the
               four weeks that run into it. */}

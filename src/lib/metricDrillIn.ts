@@ -125,22 +125,22 @@ export const METRIC_DRILLINS: Record<string, MetricDescriptor> = {
     value: (e) => e.goToDDStart,
     dates: (e) => [
       { label: 'GO', date: e.goDate },
-      { label: 'Draw Start', date: e.permit.dd_start ?? null },
+      { label: 'DD Start', date: e.permit.dd_start ?? null },
     ],
   },
   avgDDDuration: {
     unit: 'd',
     value: (e) => e.ddDuration,
     dates: (e) => [
-      { label: 'Draw Start', date: e.permit.dd_start ?? null },
-      { label: 'Draw End', date: e.permit.dd_end ?? null },
+      { label: 'DD Start', date: e.permit.dd_start ?? null },
+      { label: 'DD End', date: e.permit.dd_end ?? null },
     ],
   },
   avgDDEndToSubmit: {
     unit: 'd',
     value: (e) => e.ddEndToSubmit,
     dates: (e) => [
-      { label: 'Draw End', date: e.permit.dd_end ?? null },
+      { label: 'DD End', date: e.permit.dd_end ?? null },
       { label: 'Submitted', date: e.firstSubmitted },
     ],
   },
