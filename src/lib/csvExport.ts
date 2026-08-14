@@ -22,9 +22,9 @@ export const CSV_HEADERS = [
   'Intake Accepted',
   'GO → Submit (d)',
   // fix-296b: were 'DD Duration (d)' / 'DD End → Submit (d)'. Same dates the
-  // rest of the app now calls Draw Start / Draw End.
-  'Draw Duration (d)',
-  'Draw End → Submit (d)',
+  // rest of the app now calls DD Start / DD End (fix-310).
+  'DD Duration (d)',
+  'DD End → Submit (d)',
   'Submit → Intake (d)',
   'City Review (d)',
   'Expected Issue',

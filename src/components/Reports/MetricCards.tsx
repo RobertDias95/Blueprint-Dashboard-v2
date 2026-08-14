@@ -42,7 +42,7 @@ function tip(slug: keyof typeof REPORTS_OVERVIEW_METRICS) {
 //   - Total Permits          (higher_better)
 //   - Submit Variance        (neutral — early/late doesn't map cleanly)
 //   - Avg GO → Submit        (lower_better)
-//   - Avg GO → Draw Start    (lower_better)
+//   - Avg GO → DD Start      (lower_better)
 //   - Avg City Review        (lower_better — fix-141: city's-court time)
 //   - Avg Response Time      (lower_better — fix-141: our-court time, NEW)
 //   - Avg Permit Timeline    (lower_better — intake → approval total)
@@ -50,12 +50,14 @@ function tip(slug: keyof typeof REPORTS_OVERVIEW_METRICS) {
 //   - Avg Correction Cycles  (lower_better)
 //   - In Corrections         (lower_better)
 //   - Avg Schedule Var.      (neutral — early/late ambiguity)
-//   - Avg Draw Duration      (lower_better)
-//   - Avg Draw → Submit      (lower_better)
+//   - Avg DD Duration        (lower_better)
+//   - Avg DD → Submit        (lower_better)
 //
-// fix-296b: the three DD-named tiles are the draw window and its two
-// endpoints — the same dd_start / dd_end the project overview labels Draw
-// Start / Draw End. Display strings only; metric keys and testIds unchanged.
+// fix-296b named these three tiles after the draw window and its two
+// endpoints. ★ fix-310 renames them DD, because fix-309 #52 renamed the thing
+// they measure to DD start / DD end — the same "name it after what it
+// measures" rule, applied again after the anchor moved. Display strings only;
+// metric keys and testIds unchanged.
 
 export default function MetricCards({
   metrics,
@@ -254,14 +256,14 @@ export default function MetricCards({
         {...splitProps}
       />
 
-      {/* 4. AVG GO → DRAW START — shown when either period has data (fix-203) */}
+      {/* 4. AVG GO → DD START — shown when either period has data (fix-203) */}
       {showCard(metrics.avgGoToDDStart, cmp?.avgGoToDDStart) && (
         <MetricCard
-          label="Avg GO → Draw Start"
+          label="Avg GO → DD Start"
           labelSlot={tip('avgGoToDDStart')}
           value={metrics.avgGoToDDStart ?? '—'}
           unit={metrics.avgGoToDDStart !== null ? 'd' : undefined}
-          subText="GO to draw start"
+          subText="GO to DD start"
           sampleText={sampleText('avgGoToDDStart')}
           tone="de"
           testId="metric-go-to-dd-start"
@@ -492,14 +494,14 @@ export default function MetricCards({
         {...splitProps}
       />
 
-      {/* 10. AVG DRAW DURATION — shown when either period has data (fix-203) */}
+      {/* 10. AVG DD DURATION — shown when either period has data (fix-203) */}
       {showCard(metrics.avgDDDuration, cmp?.avgDDDuration) && (
         <MetricCard
-          label="Avg Draw Duration"
+          label="Avg DD Duration"
           labelSlot={tip('avgDDDuration')}
           value={metrics.avgDDDuration ?? '—'}
           unit={metrics.avgDDDuration !== null ? 'd' : undefined}
-          subText="Draw Start → Draw End"
+          subText="DD Start → DD End"
           sampleText={sampleText('avgDDDuration')}
           tone="de"
           testId="metric-dd-duration"
@@ -517,14 +519,14 @@ export default function MetricCards({
         />
       )}
 
-      {/* 11. AVG DRAW→SUBMIT — shown when either period has data (fix-203) */}
+      {/* 11. AVG DD→SUBMIT — shown when either period has data (fix-203) */}
       {showCard(metrics.avgDDEndToSubmit, cmp?.avgDDEndToSubmit) && (
         <MetricCard
-          label="Avg Draw → Submit"
+          label="Avg DD → Submit"
           labelSlot={tip('avgDDEndToSubmit')}
           value={metrics.avgDDEndToSubmit ?? '—'}
           unit={metrics.avgDDEndToSubmit !== null ? 'd' : undefined}
-          subText="Draw End to permit intake"
+          subText="DD End to permit intake"
           sampleText={sampleText('avgDDEndToSubmit')}
           tone="co"
           testId="metric-dd-end-to-submit"

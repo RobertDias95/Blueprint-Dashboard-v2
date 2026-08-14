@@ -96,7 +96,7 @@ export default function ProjectBlockPopup({
     const bp = permits.find((p) => p.type === 'Building Permit') ?? permits[0];
     if (!bp || !bp.dd_start) {
       pushToast(
-        'No Draw Start date on this project — set it in Project view first.',
+        'No DD Start date on this project — set it in Project view first.',
         'warn',
       );
       return;

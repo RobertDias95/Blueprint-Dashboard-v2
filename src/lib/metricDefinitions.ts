@@ -40,7 +40,7 @@ export const REPORTS_OVERVIEW_METRICS: Record<string, MetricDefinition> = {
     // project's DD start (when it started drawing) — every permit of a project
     // sits in the same window; projects without a DD start are excluded.
     cohort:
-      'With a date range active, only counts permits whose project started drawing (Draw Start) in the window.',
+      'With a date range active, only counts permits whose project started drawing (DD Start) in the window.',
   },
   submitVariance: {
     // reportMetrics.ts:597-614 — actual firstSubmitted − target_submit, averaged.
@@ -60,9 +60,9 @@ export const REPORTS_OVERVIEW_METRICS: Record<string, MetricDefinition> = {
   },
   avgGoToDDStart: {
     // reportMetrics.ts:643 — avg of enriched.goToDDStart (go_date → dd_start).
-    label: 'Avg GO → Draw Start',
+    label: 'Avg GO → DD Start',
     description:
-      'Average days from project GO date to Draw Start — when the team starts drawing.',
+      'Average days from project GO date to DD Start — when the team starts drawing.',
     formula: 'avg(dd_start − project.go_date) in days',
     cohort: 'Only counts permits with both go_date AND dd_start set.',
   },
@@ -119,17 +119,17 @@ export const REPORTS_OVERVIEW_METRICS: Record<string, MetricDefinition> = {
   },
   avgDDDuration: {
     // reportMetrics.ts:651 — dd_end − dd_start.
-    label: 'Avg Draw Duration',
+    label: 'Avg DD Duration',
     description:
-      'Average length of the draw window, from Draw Start to Draw End.',
+      'Average length of the DD window, from DD Start to DD End.',
     formula: 'avg(dd_end − dd_start) in days',
     cohort: 'Only counts permits with both dd_start AND dd_end set.',
   },
   avgDDEndToSubmit: {
     // reportMetrics.ts:652 — dd_end → firstSubmitted.
-    label: 'Avg Draw → Submit',
+    label: 'Avg DD → Submit',
     description:
-      'Average days from Draw End to first city submission — the team-prep gap before intake.',
+      'Average days from DD End to first city submission — the team-prep gap before intake.',
     formula: 'avg(firstSubmitted − dd_end) in days',
     cohort: 'Only counts permits with both dd_end AND firstSubmitted set.',
   },
@@ -172,17 +172,17 @@ export const TRENDS_KPI_METRICS: Record<string, MetricDefinition> = {
   approvedInWindow: {
     label: 'Total Permits',
     description:
-      'Number of permits belonging to projects that started drawing (project Draw Start) inside the current date range.',
+      'Number of permits belonging to projects that started drawing (project DD Start) inside the current date range.',
     formula: 'count(permits where project.dd_start ∈ [from, to])',
-    cohort: 'Only counts permits whose project has a Draw Start in the window.',
+    cohort: 'Only counts permits whose project has a DD Start in the window.',
   },
   // fix-200 / fix-204: distinct projects in the same DD-start-anchored cohort.
   totalProjects: {
     label: 'Total Projects',
     description:
-      'Number of distinct projects that started drawing (project Draw Start) inside the current date range — the same Draw-Start cohort as Total Permits, de-duplicated to projects.',
+      'Number of distinct projects that started drawing (project DD Start) inside the current date range — the same DD-Start cohort as Total Permits, de-duplicated to projects.',
     formula: 'count(distinct project_id where project.dd_start ∈ [from, to])',
-    cohort: 'Only counts projects with a Draw Start in the window.',
+    cohort: 'Only counts projects with a DD Start in the window.',
   },
   avgSubmitToIntakeDelay: {
     // Trends.tsx KPI uses submissionToIntakeVariance — perfTrends.ts:261-289.
@@ -357,22 +357,24 @@ export const REPORTS_BARCHART_METRICS: Record<string, MetricDefinition> = {
 // ============================================================
 
 // fix-131-c: per-associate phrasing for the drill-down's four phase
-// cards. The Team tab table reads "Draw" / "City Review" /
+// cards. The Team tab table reads "DD" / "City Review" /
 // "Corrections" / "Issuance" without explanation; on the drill-down
 // each card carries the tooltip with the formula + cohort gate so a
 // curious manager can verify what they're seeing. computeTeamMetrics
 // in src/lib/teamPerformance.ts:235-272 is the source of truth for
 // the math.
 //
-// fix-296b: this metric was labelled "DD Phase". fix-296 renamed the two
-// columns it averages (dd_start / dd_end) to Draw Start / Draw End on the
-// project overview but left the metric alone, so one concept carried two
-// names. The measurement is untouched — only the word changed.
+// fix-296b relabelled this metric "Draw", following fix-296's rename of the
+// two columns it averages (dd_start / dd_end) on the project overview.
+// ★ fix-310 brings it to "DD", because fix-309 #52 renamed those same two
+// columns again — to DD start / DD end, matching the schema. Same rule, applied
+// again after the anchor moved. The measurement is untouched, and the KEY
+// (avgDdDays) is a wire identifier and never changes.
 export const TEAM_DETAIL_PHASE_METRICS: Record<string, MetricDefinition> = {
   avgDdDays: {
-    label: 'Draw',
+    label: 'DD',
     description:
-      'Average days this associate spends in the draw window — Draw Start to Draw End — per permit.',
+      'Average days this associate spends in the DD window — DD Start to DD End — per permit.',
     formula: 'avg(dd_end − dd_start) across the associate\'s permits',
     cohort: 'Only counts permits with both dd_start AND dd_end set.',
   },
@@ -438,12 +440,13 @@ export const REDESIGNS_KPI_METRICS: Record<string, MetricDefinition> = {
 // phase, side-by-side with the original-cohort baseline.
 
 export const REDESIGNS_CYCLE_COMPARISON: Record<string, MetricDefinition> = {
-  // fix-296b: label was "DD Phase" — same rename as the team-detail card;
-  // the key stays ddPhase because it is a wire/identifier, not a display name.
+  // ★ fix-310: "DD Phase" -> "Draw" (fix-296b) -> "DD" (here), tracking the
+  // project overview each time. The key stays ddPhase because it is a
+  // wire/identifier, not a display name.
   ddPhase: {
-    label: 'Draw',
+    label: 'DD',
     description:
-      'Average days in the draw window — Draw Start to Draw End — on redesign projects vs original projects, within the current filter.',
+      'Average days in the DD window — DD Start to DD End — on redesign projects vs original projects, within the current filter.',
     formula: 'avg(dd_end − dd_start) per cohort',
     cohort: 'Only counts permits with both dd_start AND dd_end set.',
   },

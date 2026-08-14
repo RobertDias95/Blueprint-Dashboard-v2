@@ -26,12 +26,19 @@ import type {
 // "DD Phase" on Team performance, the redesign comparison and the trend
 // charts, and as "Avg DD Duration" on the Reports overview. fix-296 had
 // already renamed those two columns to Draw Start / Draw End on the project
-// overview, so one concept was carrying three names. It is "Draw" now.
+// overview, so one concept was carrying three names. fix-296b made it "Draw".
+//
+// ★ fix-310 makes it "DD", and that is NOT a reversal. fix-296b's rule was
+// "name it after what it measures"; fix-309 #52 then renamed the thing it
+// measures — dd_start / dd_end on the project overview — to DD start / DD end,
+// matching the schema, which has always said dd_start / dd_end. So the anchor
+// moved and the metric follows it. Same rule, applied again.
 //
 // This file is the guard for two separate promises:
-//   1. no user-facing surface still says "DD Phase" / "Design Development";
+//   1. no user-facing surface still says "DD Phase" / "Design Development",
+//      and now none says "Draw" for this concept either;
 //   2. the numbers did not move. Every value assertion below is a figure
-//      that held before the rename, so a label change cannot quietly become
+//      that held before BOTH renames, so a label change cannot quietly become
 //      a maths change.
 
 // ============================================================
@@ -150,59 +157,69 @@ const filters: TeamMetricsFilters = {
 };
 
 // ============================================================
-// The metric reads "Draw" wherever it is displayed
+// The metric reads "DD" wherever it is displayed
 // ============================================================
 
-describe('fix-296b: the dd_start → dd_end metric is called "Draw"', () => {
-  it('the team-detail phase card is labelled Draw', () => {
-    expect(TEAM_DETAIL_PHASE_METRICS.avgDdDays!.label).toBe('Draw');
+describe('fix-310: the dd_start → dd_end metric is called "DD"', () => {
+  it('the team-detail phase card is labelled DD', () => {
+    expect(TEAM_DETAIL_PHASE_METRICS.avgDdDays!.label).toBe('DD');
   });
 
-  it('the redesign cycle-time comparison card is labelled Draw', () => {
-    expect(REDESIGNS_CYCLE_COMPARISON.ddPhase!.label).toBe('Draw');
+  it('the redesign cycle-time comparison card is labelled DD', () => {
+    expect(REDESIGNS_CYCLE_COMPARISON.ddPhase!.label).toBe('DD');
   });
 
-  it('the Reports overview tile is labelled Avg Draw Duration', () => {
+  it('the Reports overview tile is labelled Avg DD Duration', () => {
     // The third name for the same formula, which the fix-296 sweep missed.
     expect(REPORTS_OVERVIEW_METRICS.avgDDDuration!.label).toBe(
-      'Avg Draw Duration',
+      'Avg DD Duration',
     );
   });
 
-  it('the Team performance column header reads Draw, not DD Phase', () => {
+  it('the Team performance column header reads DD, not Draw or DD Phase', () => {
     const result = computeTeamMetrics(permits, projects, team, filters);
     render(
       <MemoryRouter>
         <TeamPerformanceTable result={result} />
       </MemoryRouter>,
     );
-    expect(screen.getByRole('columnheader', { name: /^Draw/ })).toBeTruthy();
+    expect(screen.getByRole('columnheader', { name: /^DD/ })).toBeTruthy();
+    expect(screen.queryByRole('columnheader', { name: /^Draw/ })).toBeNull();
     expect(screen.queryByText('DD Phase')).toBeNull();
   });
 
-  it('the drill-in rows name Draw Start and Draw End', () => {
+  it('the drill-in rows name DD Start and DD End', () => {
     const enriched = { permit: permits[0]! } as unknown as EnrichedPermit;
     expect(
       METRIC_DRILLINS.avgDDDuration!.dates(enriched).map((d) => d.label),
-    ).toEqual(['Draw Start', 'Draw End']);
+    ).toEqual(['DD Start', 'DD End']);
     expect(
       METRIC_DRILLINS.avgGoToDDStart!.dates(enriched).map((d) => d.label),
-    ).toContain('Draw Start');
+    ).toContain('DD Start');
   });
 
-  it('the permit CSV export headers say Draw', () => {
-    expect(CSV_HEADERS).toContain('Draw Duration (d)');
-    expect(CSV_HEADERS).toContain('Draw End → Submit (d)');
+  it('the permit CSV export headers say DD', () => {
+    expect(CSV_HEADERS).toContain('DD Duration (d)');
+    expect(CSV_HEADERS).toContain('DD End → Submit (d)');
+    expect(CSV_HEADERS).not.toContain('Draw Duration (d)');
+    expect(CSV_HEADERS).not.toContain('Draw End → Submit (d)');
   });
 
-  it('no metric definition label or description says DD Phase or Design Development', () => {
+  // ★ The sweep assertion. Not "the four I remembered" — EVERY definition.
+  it('no metric definition says DD Phase, Design Development, or Draw', () => {
     for (const [key, def] of Object.entries(ALL_METRIC_DEFINITIONS)) {
-      const text = `${def.label} ${def.description}`;
+      const text = [def.label, def.description, def.cohort ?? '']
+        .join(' ');
       expect(text, `${key} still says "DD Phase"`).not.toMatch(/DD Phase/i);
       expect(
         text,
         `${key} still says "Design Development"`,
       ).not.toMatch(/Design Development/i);
+      // "started drawing" survives — it is the ACTIVITY, not a name for the
+      // concept. "Draw Start" / "Draw Duration" / a bare "Draw" label do not.
+      expect(text, `${key} still says "Draw"`).not.toMatch(
+        /\bDraw\b(?! Schedule)/,
+      );
     }
   });
 });

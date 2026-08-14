@@ -354,8 +354,8 @@ describe('Trends — fix-25-feat-V submit→intake surface', () => {
     renderTrends();
     const banner = screen.getByTestId('trends-approved-only-banner');
     expect(banner.textContent).toMatch(/started drawing/i);
-    // fix-296b: the banner names the date Draw Start now.
-    expect(banner.textContent).toMatch(/without a Draw Start are excluded/i);
+    // ★ fix-310: the banner names the date DD Start now.
+    expect(banner.textContent).toMatch(/without a DD Start are excluded/i);
   });
 
   // ─── fix-114→fix-137: period comparison ────────────────────────────

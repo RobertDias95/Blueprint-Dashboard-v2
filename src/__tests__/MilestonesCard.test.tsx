@@ -265,22 +265,26 @@ describe('fix-296 the labels say what they mean', () => {
 
 // ---------------------------------------------------------------- the sections --
 
+// ★ fix-310 renamed the second section "Draw window" -> "DD window". fix-296's
+// point is untouched: TWO sections, Key dates first, the dd_start / dd_end pair
+// living in the second one. Only the word changed.
 describe('fix-296 two sections, not one list', () => {
-  it('splits Key dates from the Draw window', () => {
+  it('splits Key dates from the DD window', () => {
     renderHeader(projectFixture(), [bpFixture()]);
     const card = screen.getByTestId('pd-milestones-card');
     expect(within(card).getByText('Key dates')).toBeInTheDocument();
-    expect(within(card).getByText('Draw window')).toBeInTheDocument();
+    expect(within(card).getByText('DD window')).toBeInTheDocument();
+    expect(within(card).queryByText('Draw window')).toBeNull();
   });
 
-  it('puts the draw dates in the Draw window and the milestones in Key dates', () => {
+  it('puts the DD dates in the DD window and the milestones in Key dates', () => {
     renderHeader(projectFixture(), [bpFixture()]);
     const card = screen.getByTestId('pd-milestones-card');
-    const sections = within(card).getAllByText(/^(Key dates|Draw window)$/);
+    const sections = within(card).getAllByText(/^(Key dates|DD window)$/);
     // Key dates leads — it preserves the reading order the card has always had
     // and it is what the card is now named for.
     expect(sections[0]).toHaveTextContent('Key dates');
-    expect(sections[1]).toHaveTextContent('Draw window');
+    expect(sections[1]).toHaveTextContent('DD window');
 
     const drawSection = sections[1].parentElement as HTMLElement;
     expect(within(drawSection).getByTestId('pd-bp-dd_start')).toBeInTheDocument();

@@ -420,7 +420,7 @@ export default function Step1ProjectInfo({
             Backfill historical project
           </span>
           <span className="text-[10px] text-dim">
-            Allows assigning to inactive team members and manual draw dates.
+            Allows assigning to inactive team members and manual DD dates.
           </span>
         </span>
       </label>
@@ -703,7 +703,7 @@ export default function Step1ProjectInfo({
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               <label className="flex flex-col gap-1">
                 <span className="text-[10px] uppercase tracking-wide text-dim">
-                  Draw Start (backfill)
+                  DD Start (backfill)
                 </span>
                 <input
                   type="date"
@@ -715,7 +715,7 @@ export default function Step1ProjectInfo({
               </label>
               <label className="flex flex-col gap-1">
                 <span className="text-[10px] uppercase tracking-wide text-dim">
-                  Draw End (backfill)
+                  DD End (backfill)
                 </span>
                 <input
                   type="date"
@@ -1092,14 +1092,14 @@ export default function Step1ProjectInfo({
         >
           {/* fix-296: "DD Phase" was internal shorthand nobody new could read.
               NOT "Redesign Milestones", though: this section collects only the
-              DA and the draw window, not the GO/closing/target-submit dates the
+              DA and the DD window, not the GO/closing/target-submit dates the
               Milestones card is named for. "Draw Schedule" is what it actually
               builds, and it is the word the team already uses. */}
           <div className="text-[10px] uppercase tracking-[0.08em] text-co font-display font-bold">
             Redesign Draw Schedule
           </div>
           <div className="text-[10px] text-dim -mt-1">
-            Set the DA and draw window for this redesign so it lands on the Draw
+            Set the DA and DD window for this redesign so it lands on the Draw
             Schedule.
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -1150,7 +1150,7 @@ export default function Step1ProjectInfo({
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             <label className="flex flex-col gap-1">
               <span className="text-[10px] uppercase tracking-wide text-dim">
-                Draw Start <span className="text-co">*</span>
+                DD Start <span className="text-co">*</span>
               </span>
               <input
                 type="date"
@@ -1165,7 +1165,7 @@ export default function Step1ProjectInfo({
             </label>
             <label className="flex flex-col gap-1">
               <span className="text-[10px] uppercase tracking-wide text-dim">
-                Draw End <span className="text-co">*</span>
+                DD End <span className="text-co">*</span>
               </span>
               <input
                 type="date"
