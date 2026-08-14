@@ -184,7 +184,7 @@ export default function ProjectList() {
     () => uniqueNamesByRole(teamQ.all ?? [], (r) => r === 'ent' || r === 'ent_lead'),
     [teamQ.all],
   );
-  // fix-302: "— Unassigned —" leads the DA list rather than trailing it. A
+  // fix-302 (kept by fix-312): "— Unassigned —" leads the DA list rather than trailing it. A
   // permit nobody is on is the one the triage screen most needs to surface,
   // and burying it under 20 roster names would keep it as silent as the SQL
   // it replaces. It composes with the Active toggle, so the default view
