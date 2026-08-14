@@ -15,6 +15,12 @@ import { useDaTeamRouting } from '../hooks/useDaTeamRouting';
 import { useBoardReads, useMarkBoardItemsRead } from '../hooks/useBoardReads';
 import { buildNewItems, keyForTask, unseenItems } from '../lib/boardReads';
 import { parseFlips } from '../lib/boardFlips';
+import {
+  AGING_LEVEL_LABEL,
+  buildAging,
+  type AgedRow,
+  type DataGapRow,
+} from '../lib/boardAging';
 import { useScraperActivity } from '../hooks/useScraperActivity';
 // ★ fix-303 §3: the SAME editor My Tasks uses, lifted out of it so the board is
 // not a lesser copy. Not a second editing path — literally the same component,
@@ -419,6 +425,97 @@ function QueueRow({ item }: { item: QueueProject }) {
   );
 }
 
+/** ★ fix-305: an ageing permit — what state, how long, what is expected, and
+ *  whose it is. Ranked by age, so 227 days can never sit below 22. */
+function AgedPermitRow({
+  row,
+  onChase,
+  busy,
+}: {
+  row: AgedRow;
+  onChase: (row: AgedRow) => void;
+  busy: boolean;
+}) {
+  const tone =
+    row.level === 'priority'
+      ? 'text-co'
+      : row.level === 'task'
+        ? 'text-wa'
+        : 'text-muted';
+  return (
+    <div
+      className="px-3.5 py-2 border-b border-border/50"
+      data-testid={`board-aged-${row.permitId}`}
+      data-level={row.level}
+      data-days={row.daysInState}
+    >
+      <div className="flex items-baseline gap-2">
+        <Link
+          to={`/project/${row.projectId}?permit=${row.permitId}`}
+          className="text-[11.5px] font-extrabold text-text hover:underline truncate"
+          data-testid={`board-aged-${row.permitId}-link`}
+        >
+          {row.address}
+        </Link>
+        <span className={`text-[9px] font-extrabold uppercase ml-auto flex-none ${tone}`}>
+          {AGING_LEVEL_LABEL[row.level]}
+        </span>
+      </div>
+      <div className="flex items-baseline gap-2 mt-0.5 text-[10px]">
+        <span className="text-muted truncate flex-1">{row.permitLabel}</span>
+        <span className={`whitespace-nowrap font-bold ${tone}`}>
+          {row.daysInState}d in state
+        </span>
+      </div>
+      <div className="flex items-baseline gap-2 mt-0.5">
+        <span className="text-[10px] text-muted">{row.expectation}</span>
+        {row.cityTarget && row.cityTargetLevel !== 'none' && (
+          <span className="text-[9px] text-co" data-testid={`board-aged-${row.permitId}-target`}>
+            city target {row.cityTarget} passed
+          </span>
+        )}
+        {/* ★ At the task rung the board OFFERS the chase rather than writing
+            it unattended — see the note on onChase in MyBoard. Rows whose
+            clock started before the deploy never offer it. */}
+        {row.level !== 'acknowledge' && row.mayCreateTask && (
+          <button
+            type="button"
+            onClick={() => onChase(row)}
+            disabled={busy}
+            className="ml-auto text-[10px] font-bold px-2 py-0.5 rounded border border-de text-de bg-bg hover:bg-de-bg disabled:opacity-40 flex-none"
+            data-testid={`board-aged-${row.permitId}-chase`}
+          >
+            {row.verb}
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/** ★ Permits in a tracked state with nothing to measure from. Surfaced, never
+ *  given an invented clock — 35 of the 37 "additional info requested" permits
+ *  have neither an approval date nor a submitted date. */
+function DataGapRowView({ row }: { row: DataGapRow }) {
+  return (
+    <div
+      className="px-3.5 py-1.5 border-b border-border/50 flex items-baseline gap-2"
+      data-testid={`board-gap-${row.permitId}`}
+    >
+      <Link
+        to={`/project/${row.projectId}?permit=${row.permitId}`}
+        className="text-[11px] font-bold text-text hover:underline truncate flex-1"
+      >
+        {row.address}
+      </Link>
+      <span className="text-[10px] text-muted truncate">{row.permitLabel}</span>
+      <span className="text-[9.5px] text-dim italic whitespace-nowrap">
+        no {row.missing}
+      </span>
+    </div>
+  );
+}
+
 function ForecastSection({
   label,
   urgent,
@@ -574,6 +671,28 @@ export default function MyBoard() {
     return item.taskId ? unseenKeys.has(keyForTask(item.taskId)) : false;
   }
 
+  /** ★ fix-305: create the chase task the ladder calls for.
+   *
+   *  The brief says "7 days -> task auto-create". This OFFERS it on a click
+   *  rather than writing it unattended, and the reason is not squeamishness:
+   *  a client render has no idempotency. Every mount, for every viewer who can
+   *  see the permit, would insert — Miles and Briana both hold Concord, so one
+   *  permit would produce two tasks, and a refresh would produce two more.
+   *  True unattended creation belongs in the scraper or a scheduled job, where
+   *  it runs once and can be made idempotent; that is the follow-up. Everything
+   *  else about the ladder — when it fires, who owns it, the day-one rule — is
+   *  implemented here, and the click writes through the SAME useUpsertTask
+   *  every other task write on this board uses.
+   */
+  function onChaseAged(row: AgedRow) {
+    upsertTask.mutate({
+      permitId: row.permitId,
+      discipline: row.owner === 'design' ? 'arch' : 'ent',
+      text: `${row.verb} — ${row.daysInState}d in ${row.state.replace(/_/g, ' ')}`,
+      status: 'Open',
+    });
+  }
+
   function onOpenRow(item: ForecastItem) {
     // ★★ READ IS NOT DONE. Opening a row acknowledges it — the badge drops and
     // the highlight clears — and it stays exactly where it was on the board,
@@ -666,6 +785,21 @@ export default function MyBoard() {
   // Not wrapped in useMemo: the React Compiler cannot preserve a manual memo
   // around a Set construction here, and it memoizes this for us anyway.
   const unseenKeys = new Set(unseenItems(newItems, readKeys).map((i) => i.key));
+
+  // ★ fix-305 (register #24): TIME-IN-STATE, not time-since-update. The Concord
+  // Building Permit was touched 4 days ago and has sat in Ready for Intake for
+  // 94 — the record is fresh, the state is stale, and only this catches it.
+  const aging = useMemo(() => {
+    const byId = new Map((projectsQ.data ?? []).map((pr) => [pr.id, pr.address]));
+    return buildAging({
+      permits: permitsQ.data ?? [],
+      projectAddress: (id) => byId.get(id) ?? 'Unknown address',
+      today: input.today,
+      viewerName: viewer.name,
+      isOversight: viewer.isOversight,
+      cancelledIds: input.cancelledIds,
+    });
+  }, [permitsQ.data, projectsQ.data, input.today, input.cancelledIds, viewer]);
 
   const forecast = useMemo(() => buildForecast(input), [input]);
   // ★ fix-306 #35: the people this viewer may scope the queue to. Derived from
@@ -1027,6 +1161,57 @@ export default function MyBoard() {
                           : 'Mark design complete'}
                       </button>
                     </div>
+                  ))}
+                </div>
+              )}
+
+              {/* ★ fix-305 (register #24): DID THE THING ACTUALLY HAPPEN?
+                  Permits ranked by how long they have sat in one state — not
+                  by how long since the row was touched. Concord's Building
+                  Permit is here at 94 days despite being scraped 4 days ago. */}
+              {aging.aged.length > 0 && (
+                <div data-testid="board-aging-wrap">
+                  <SectionHeader
+                    label="Did this happen?"
+                    total={aging.aged.length}
+                    urgent
+                    capped={aging.aged.length > BOARD_SECTION_CAPS.queueGroup}
+                    expanded={isExpanded('board-sec-aging')}
+                    onToggle={() => toggleSection('board-sec-aging')}
+                    testid="board-sec-aging"
+                  />
+                  {(isExpanded('board-sec-aging')
+                    ? aging.aged
+                    : aging.aged.slice(0, BOARD_SECTION_CAPS.queueGroup)
+                  ).map((row) => (
+                    <AgedPermitRow
+                      key={row.key}
+                      row={row}
+                      onChase={onChaseAged}
+                      busy={busy}
+                    />
+                  ))}
+                </div>
+              )}
+
+              {/* ★ The permits that cannot be aged. Surfaced rather than
+                  silently omitted — omitting them is the missing-vs-absent
+                  failure, and it is how Concord happened. */}
+              {aging.dataGaps.length > 0 && (
+                <div data-testid="board-datagap-wrap">
+                  <SectionHeader
+                    label="Cannot be tracked — missing dates"
+                    total={aging.dataGaps.length}
+                    capped={aging.dataGaps.length > BOARD_SECTION_CAPS.queueGroup}
+                    expanded={isExpanded('board-sec-datagap')}
+                    onToggle={() => toggleSection('board-sec-datagap')}
+                    testid="board-sec-datagap"
+                  />
+                  {(isExpanded('board-sec-datagap')
+                    ? aging.dataGaps
+                    : aging.dataGaps.slice(0, BOARD_SECTION_CAPS.queueGroup)
+                  ).map((row) => (
+                    <DataGapRowView key={row.key} row={row} />
                   ))}
                 </div>
               )}
