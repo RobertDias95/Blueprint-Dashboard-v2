@@ -10,10 +10,10 @@ import {
   suppressionCounts,
   todayIso,
   type BoardInput,
+  type BoardTask,
   type BoardViewer,
 } from '../lib/myBoard';
 import type {
-  PermitTask,
   PermitWithCycles,
   Project,
   TeamMember,
@@ -79,21 +79,28 @@ function mkPermit(over: Partial<PermitWithCycles>): PermitWithCycles {
 }
 
 let tid = 0;
-function mkTask(over: Partial<PermitTask>): PermitTask {
+function mkTask(over: Partial<BoardTask>): BoardTask {
   return {
     id: `t${++tid}`,
     permit_id: 1,
+    parent_task_id: null,
+    project_id: 'p1',
+    project_address: '3626 164th Pl SE',
+    permit_type: 'Building Permit',
     bucket: 'de',
     text: 'Do the thing',
     start_date: null,
+    target_date: null,
     due_date: null,
-    done: false,
+    done_at: null,
+    sort_order: 0,
     assigned_to: null,
-    created_at: '2026-08-01T12:00:00Z',
     discipline: 'arch',
-    completion_status: 'Open',
+    status: 'Open',
+    primary_assignee: null,
+    co_assignees: [],
     ...over,
-  } as PermitTask;
+  } as BoardTask;
 }
 
 function mkProject(id: string, address: string): Project {
@@ -147,15 +154,15 @@ describe('fix-298: the handoff trap — zero tasks is not "complete"', () => {
 
   it('a permit with ONE RESOLVED design task IS complete', () => {
     expect(
-      designLegStatus([mkTask({ discipline: 'arch', completion_status: 'Resolved' })]),
+      designLegStatus([mkTask({ discipline: 'arch', status: 'Resolved' })]),
     ).toBe('complete');
   });
 
   it('a permit with any live design task is in progress', () => {
     expect(
       designLegStatus([
-        mkTask({ discipline: 'arch', completion_status: 'Resolved' }),
-        mkTask({ discipline: 'arch', completion_status: 'Open' }),
+        mkTask({ discipline: 'arch', status: 'Resolved' }),
+        mkTask({ discipline: 'arch', status: 'Open' }),
       ]),
     ).toBe('in-progress');
   });
@@ -163,15 +170,15 @@ describe('fix-298: the handoff trap — zero tasks is not "complete"', () => {
   it('entitlement tasks do not count as the design leg', () => {
     // Only 'arch' is the design column (fix-244: discipline follows team).
     expect(
-      designLegStatus([mkTask({ discipline: 'ent', completion_status: 'Resolved' })]),
+      designLegStatus([mkTask({ discipline: 'ent', status: 'Resolved' })]),
     ).toBe('no-tasks');
   });
 
   it('a CANCELLED task is not live, so it does not hold the leg open', () => {
     expect(
       designLegStatus([
-        mkTask({ discipline: 'arch', completion_status: 'Resolved' }),
-        mkTask({ discipline: 'arch', completion_status: 'Cancelled' }),
+        mkTask({ discipline: 'arch', status: 'Resolved' }),
+        mkTask({ discipline: 'arch', status: 'Cancelled' }),
       ]),
     ).toBe('complete');
   });

@@ -2,7 +2,9 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { usePermits } from '../hooks/usePermits';
 import { useProjects } from '../hooks/useProjects';
-import { useAllPermitTasks } from '../hooks/useAllPermitTasks';
+// fix-303: the SAME task source My Tasks uses, so the board is not a lesser
+// copy — one shape, one editor, one write path.
+import { useAllTasks } from '../hooks/useTaskTree';
 import { useTeamMembers } from '../hooks/useTeamMembers';
 import { useSelfScope } from '../hooks/useSelfScope';
 import { useAllProjectHolds, cancelledProjectIds } from '../hooks/useProjectHolds';
@@ -35,7 +37,7 @@ export default function BoardBell() {
 
   const permitsQ = usePermits();
   const projectsQ = useProjects();
-  const tasksQ = useAllPermitTasks();
+  const tasksQ = useAllTasks();
   const team = useTeamMembers();
   const holdsQ = useAllProjectHolds();
   const { identity } = useSelfScope();

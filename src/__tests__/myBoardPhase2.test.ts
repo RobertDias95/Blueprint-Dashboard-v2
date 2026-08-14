@@ -8,12 +8,12 @@ import {
   permitMilestones,
   systemHealth,
   type BoardInput,
+  type BoardTask,
   type BoardViewer,
   type PermitMilestoneAck,
 } from '../lib/myBoard';
 import type {
   PermitCycle,
-  PermitTask,
   PermitWithCycles,
   Project,
 } from '../lib/database.types';
@@ -81,21 +81,28 @@ function mkPermit(over: Partial<PermitWithCycles>): PermitWithCycles {
 }
 
 let tid = 0;
-function mkTask(over: Partial<PermitTask>): PermitTask {
+function mkTask(over: Partial<BoardTask>): BoardTask {
   return {
     id: `t${++tid}`,
     permit_id: 1,
+    parent_task_id: null,
+    project_id: 'p1',
+    project_address: '3626 164th Pl SE',
+    permit_type: 'Building Permit',
     bucket: 'de',
     text: 'Do the thing',
     start_date: null,
+    target_date: null,
     due_date: null,
-    done: false,
+    done_at: null,
+    sort_order: 0,
     assigned_to: null,
-    created_at: '2026-08-01T12:00:00Z',
     discipline: 'arch',
-    completion_status: 'Open',
+    status: 'Open',
+    primary_assignee: null,
+    co_assignees: [],
     ...over,
-  } as PermitTask;
+  } as BoardTask;
 }
 
 const mkProject = (id: string, address: string): Project =>
@@ -236,7 +243,7 @@ describe('fix-298 P2: the handoff affordance', () => {
     expect(
       handoffAffordance(
         permit(),
-        [mkTask({ discipline: 'arch', completion_status: 'Resolved' })],
+        [mkTask({ discipline: 'arch', status: 'Resolved' })],
         [],
       ),
     ).toBe('prompt');
@@ -247,8 +254,8 @@ describe('fix-298 P2: the handoff affordance', () => {
       handoffAffordance(
         permit(),
         [
-          mkTask({ discipline: 'arch', completion_status: 'Resolved' }),
-          mkTask({ discipline: 'arch', completion_status: 'Open' }),
+          mkTask({ discipline: 'arch', status: 'Resolved' }),
+          mkTask({ discipline: 'arch', status: 'Open' }),
         ],
         [],
       ),
@@ -261,7 +268,7 @@ describe('fix-298 P2: the handoff affordance', () => {
     expect(
       handoffAffordance(
         permit(),
-        [mkTask({ discipline: 'ent', completion_status: 'Resolved' })],
+        [mkTask({ discipline: 'ent', status: 'Resolved' })],
         [],
       ),
     ).toBe('manual');
@@ -273,7 +280,7 @@ describe('fix-298 P2: the handoff affordance', () => {
     expect(
       handoffAffordance(
         oneLeg,
-        [mkTask({ discipline: 'arch', completion_status: 'Resolved' })],
+        [mkTask({ discipline: 'arch', status: 'Resolved' })],
         [],
       ),
     ).toBe('none');
@@ -281,7 +288,7 @@ describe('fix-298 P2: the handoff affordance', () => {
 
   it('once handed off it stops offering — and returns on a NEW cycle', () => {
     const p = permit();
-    const tasks = [mkTask({ discipline: 'arch', completion_status: 'Resolved' })];
+    const tasks = [mkTask({ discipline: 'arch', status: 'Resolved' })];
     expect(
       handoffAffordance(p, tasks, [
         ACK({ permit_id: p.id, milestone: 'design_complete', anchor: '2' }),
@@ -400,7 +407,7 @@ describe('fix-298 P2: system health (oversight only)', () => {
 });
 
 describe('fix-298 P2: the handoff section is gated and capped', () => {
-  const resolvedDesign = [mkTask({ discipline: 'arch', completion_status: 'Resolved' })];
+  const resolvedDesign = [mkTask({ discipline: 'arch', status: 'Resolved' })];
 
   it('★ a two-leg permit NOT in corrections offers nothing', () => {
     // Measured: offering the standing prompt on every two-leg permit with a

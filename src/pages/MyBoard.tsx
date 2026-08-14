@@ -1,16 +1,24 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { usePermits } from '../hooks/usePermits';
 import { useProjects } from '../hooks/useProjects';
-import { useAllPermitTasks } from '../hooks/useAllPermitTasks';
+// fix-303: the SAME task source My Tasks uses, so the board is not a lesser
+// copy — one shape, one editor, one write path.
+import { useAllTasks, useUpsertTask } from '../hooks/useTaskTree';
 import { useTeamMembers } from '../hooks/useTeamMembers';
 import { useSelfScope } from '../hooks/useSelfScope';
 import { useAllProjectHolds, cancelledProjectIds } from '../hooks/useProjectHolds';
 import { useScraperActivity } from '../hooks/useScraperActivity';
 import { useMilestoneAcks, useAckMilestone } from '../hooks/useMilestoneAcks';
 import { useConfirmHandoff } from '../hooks/useConfirmHandoff';
-import { useUpsertTask } from '../hooks/useTaskTree';
-import type { PermitTask } from '../lib/database.types';
+import { useDmDaGroups } from '../hooks/useDmDaGroups';
+// ★ fix-303 §3: the SAME editor My Tasks uses, lifted out of it so the board is
+// not a lesser copy. Not a second editing path — literally the same component,
+// the same hooks, the same RPC.
+import TaskDetailEditor from '../components/TaskDetailEditor';
+import { nestSubtasks } from '../lib/taskNesting';
+
+
 import {
   BOARD_SECTION_CAPS,
   buildForecast,
@@ -19,12 +27,19 @@ import {
   handoffAffordance,
   isDesignTask,
   resolveBoardViewer,
+  buildTeamQueues,
+  designReportsFor,
+  entitlementReportsFor,
   systemHealth,
+  teamMappingGap,
   todayIso,
   type BoardInput,
+  type BoardTask,
   type BoardSection,
   type ForecastItem,
   type QueueProject,
+  type TeamQueue,
+  type QueuePermitDetail,
 } from '../lib/myBoard';
 
 // fix-298 Phase 1 — My Board.
@@ -49,17 +64,25 @@ function SectionHeader({
   label,
   total,
   urgent,
-  onShowAll,
   capped,
+  expanded,
+  onToggle,
   testid,
 }: {
   label: string;
   total: number;
   urgent?: boolean;
   capped: boolean;
-  onShowAll?: () => void;
+  expanded?: boolean;
+  onToggle?: () => void;
   testid: string;
 }) {
+  // fix-303: "Show all" now DOES something. Phase 1 wired onClick to a prop no
+  // caller ever passed, so the control rendered, looked interactive, and was
+  // inert for two releases. Expanding swaps the capped list for the full one
+  // IN PLACE — the panel keeps its fixed height and scrolls, so a 139-row
+  // expansion never grows the page.
+  const showToggle = capped || expanded;
   return (
     <div
       // Sticky so the label and the count stay visible while the panel scrolls.
@@ -80,14 +103,15 @@ function SectionHeader({
         data-testid={`${testid}-total`}
       >
         {total}
-        {capped && (
+        {showToggle && onToggle && (
           <button
             type="button"
-            onClick={onShowAll}
+            onClick={onToggle}
             className="ml-2 text-de hover:underline bg-transparent border-none p-0 text-[9px]"
             data-testid={`${testid}-showall`}
+            aria-expanded={expanded ? 'true' : 'false'}
           >
-            Show all ({total}) →
+            {expanded ? 'Show less ←' : `Show all (${total}) →`}
           </button>
         )}
       </span>
@@ -99,78 +123,185 @@ function ForecastRow({
   item,
   onTick,
   busy,
+  subtasks = [],
+  onOpenTask,
 }: {
   item: ForecastItem;
   onTick: (item: ForecastItem) => void;
   busy: boolean;
+  /** fix-303: nested exactly as My Tasks nests them (taskNesting.nestSubtasks). */
+  subtasks?: BoardTask[];
+  onOpenTask?: (task: BoardTask) => void;
 }) {
   const tone =
     item.daysLate > 0 ? 'text-co' : item.daysLate === 0 ? 'text-wa' : 'text-ok';
   return (
     <div
-      className="px-3.5 py-1.5 border-b border-border/50 flex gap-2.5 items-start"
+      className="px-3.5 py-1.5 border-b border-border/50"
       data-testid={`board-forecast-row-${item.key}`}
       data-actionable={item.actionable ? 'true' : 'false'}
     >
-      {/* ★ NO CHECKBOX when the row is waiting on the other half. The whole
-          distinction rests on not being asked to act, so the control is
-          absent rather than disabled. */}
-      {item.actionable ? (
-        // fix-298 Phase 2: ticking performs the underlying action — resolve the
-        // task, hand the permit over, or record the milestone. Never a
-        // cosmetic tick.
-        <button
-          type="button"
-          onClick={() => onTick(item)}
-          disabled={busy}
-          title={
-            item.action === 'resolve-task'
-              ? 'Resolve this task'
-              : item.action === 'handoff'
-                ? 'Design finished — hand this to the entitlement lead'
-                : 'Mark this done'
-          }
-          className="w-[13px] h-[13px] border-[1.5px] border-border rounded-[3px] flex-none mt-0.5 bg-bg hover:border-de disabled:opacity-40"
-          data-testid={`board-forecast-check-${item.key}`}
-          data-action={item.action}
-        />
-      ) : (
-        <span className="w-[13px] flex-none" aria-hidden />
-      )}
-      <div className="min-w-0">
-        <div
-          className={`text-[11px] font-bold leading-tight ${
-            item.actionable ? 'text-text' : 'text-dim'
-          }`}
-        >
-          {item.verb}
-          <span
-            className={`ml-1 inline-block text-[8px] font-extrabold uppercase px-1.5 rounded-lg align-[1px] ${
-              item.source === 'task'
-                ? 'bg-co-bg text-co'
-                : item.actionable
-                  ? 'bg-de-bg text-de'
-                  : 'bg-s2 text-muted'
+      <div className="flex gap-2.5 items-start">
+        {/* ★ NO CHECKBOX when the row is waiting on the other half. The whole
+            distinction rests on not being asked to act, so the control is
+            absent rather than disabled. */}
+        {item.actionable ? (
+          <button
+            type="button"
+            onClick={() => onTick(item)}
+            disabled={busy}
+            title={
+              item.action === 'resolve-task'
+                ? 'Resolve this task'
+                : item.action === 'handoff'
+                  ? 'Design finished — hand this to the entitlement lead'
+                  : 'Mark this done'
+            }
+            className="w-[13px] h-[13px] border-[1.5px] border-border rounded-[3px] flex-none mt-0.5 bg-bg hover:border-de disabled:opacity-40"
+            data-testid={`board-forecast-check-${item.key}`}
+            data-action={item.action}
+          />
+        ) : (
+          <span className="w-[13px] flex-none" aria-hidden />
+        )}
+        <div className="min-w-0">
+          <div
+            className={`text-[11px] font-bold leading-tight ${
+              item.actionable ? 'text-text' : 'text-dim'
             }`}
           >
-            {item.source === 'task' ? 'task' : item.actionable ? 'milestone' : 'waiting'}
-          </span>
-        </div>
-        <div className="text-[10px] text-muted mt-px leading-snug">{item.why}</div>
-        {item.where && (
-          <div className="text-[9px] text-dim font-mono mt-0.5 truncate">
-            {item.where}
+            {/* fix-303: a task row opens the real editor rather than only
+                linking away. Clicking through to My Tasks still works and is
+                liked — the point is that you should not HAVE to. */}
+            {item.task && onOpenTask ? (
+              <button
+                type="button"
+                onClick={() => onOpenTask(item.task!)}
+                className="bg-transparent border-none p-0 text-left font-bold text-[11px] text-text hover:underline"
+                data-testid={`board-task-open-${item.taskId}`}
+              >
+                {item.verb}
+              </button>
+            ) : (
+              item.verb
+            )}
+            <span
+              className={`ml-1 inline-block text-[8px] font-extrabold uppercase px-1.5 rounded-lg align-[1px] ${
+                item.source === 'task'
+                  ? 'bg-co-bg text-co'
+                  : item.actionable
+                    ? 'bg-de-bg text-de'
+                    : 'bg-s2 text-muted'
+              }`}
+            >
+              {item.source === 'task' ? 'task' : item.actionable ? 'milestone' : 'waiting'}
+            </span>
           </div>
+          <div className="text-[10px] text-muted mt-px leading-snug">{item.why}</div>
+          {item.where && (
+            <div className="text-[9px] text-dim font-mono mt-0.5 truncate">
+              {item.where}
+            </div>
+          )}
+          {/* fix-303: open the project or the permit without leaving. */}
+          {(item.task?.project_id || item.permitId) && (
+            <div className="text-[9px] mt-0.5 flex gap-2">
+              {item.task?.project_id && (
+                <Link
+                  to={`/projects/${item.task.project_id}`}
+                  className="text-de hover:underline"
+                  data-testid={`board-row-project-${item.key}`}
+                >
+                  Project
+                </Link>
+              )}
+              {item.permitId != null && item.task?.project_id && (
+                <Link
+                  to={`/projects/${item.task.project_id}?permit=${item.permitId}`}
+                  className="text-de hover:underline"
+                  data-testid={`board-row-permit-${item.key}`}
+                >
+                  Permit
+                </Link>
+              )}
+              {item.taskId && (
+                <Link
+                  to={`/my-tasks?task=${item.taskId}`}
+                  className="text-de hover:underline"
+                  data-testid={`board-row-mytasks-${item.key}`}
+                >
+                  My Tasks
+                </Link>
+              )}
+            </div>
+          )}
+        </div>
+        <div className={`text-[9px] ml-auto text-right whitespace-nowrap pl-1.5 ${tone}`}>
+          <b className="block text-[10px]">
+            {item.daysLate > 0
+              ? `${item.daysLate}d`
+              : item.daysLate === 0
+                ? 'today'
+                : item.date.slice(5)}
+          </b>
+        </div>
+      </div>
+
+      {/* ★ Subtasks nest here exactly as they do in My Tasks — same helper
+          (taskNesting.nestSubtasks), same indent vocabulary. */}
+      {subtasks.map((st) => (
+        <div
+          key={st.id}
+          className="ml-[22px] mt-1 pl-2 border-l-2 border-border flex items-start gap-2"
+          data-testid={`board-subtask-${st.id}`}
+        >
+          <span className="text-[10px] text-muted flex-1 truncate">{st.text}</span>
+          <span className="text-[9px] text-dim">{st.status}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function PermitDetailLine({ d }: { d: QueuePermitDetail }) {
+  const bits: string[] = [];
+  if (d.submitted) bits.push(`submitted ${d.submitted}`);
+  else bits.push('not yet submitted');
+  if (d.intakeAccepted) bits.push(`intake ${d.intakeAccepted}`);
+  else if (d.submitted) bits.push('intake not accepted yet');
+
+  return (
+    <div
+      className="mt-1 pl-2 border-l-2 border-border"
+      data-testid={`board-permit-${d.permitId}`}
+    >
+      <div className="text-[10px] font-bold text-text">
+        {d.num ?? 'No permit number'}
+        <span className="font-normal text-muted"> · {d.type}</span>
+        {d.cycleIndex !== null && (
+          <span className="font-normal text-dim"> · cycle {d.cycleIndex}</span>
         )}
       </div>
-      <div className={`text-[9px] ml-auto text-right whitespace-nowrap pl-1.5 ${tone}`}>
-        <b className="block text-[10px]">
-          {item.daysLate > 0
-            ? `${item.daysLate}d`
-            : item.daysLate === 0
-              ? 'today'
-              : item.date.slice(5)}
-        </b>
+      <div className="text-[9.5px] text-muted font-mono">{bits.join(' · ')}</div>
+      <div className="text-[9.5px]">
+        {d.cityTarget ? (
+          <span
+            className={d.cityTargetPassed ? 'text-co font-bold' : 'text-muted'}
+            data-testid={`board-permit-${d.permitId}-target`}
+          >
+            City target {d.cityTarget}
+            {d.cityTargetPassed ? ' — passed' : ''}
+          </span>
+        ) : (
+          // ★ Said out loud, not left blank.
+          <span className="text-dim italic" data-testid={`board-permit-${d.permitId}-target`}>
+            No target date
+          </span>
+        )}
+        <span className="text-dim">
+          {' · '}
+          {d.daysInState}d {d.stateLabel}
+        </span>
       </div>
     </div>
   );
@@ -183,7 +314,9 @@ function QueueRow({ item }: { item: QueueProject }) {
       data-testid={`board-queue-row-${item.key}`}
     >
       <div className="text-[11.5px] font-extrabold text-text truncate">
-        {item.address}
+        <Link to={`/projects/${item.projectId}`} className="hover:underline">
+          {item.address}
+        </Link>
         {item.permitCount > 1 && (
           <span className="ml-1.5 inline-block text-[8px] font-extrabold uppercase px-1.5 rounded-lg bg-s2 text-muted align-[1px]">
             {item.permitCount} permits
@@ -192,6 +325,9 @@ function QueueRow({ item }: { item: QueueProject }) {
       </div>
       <div className="text-[10px] text-muted mt-0.5 leading-snug">{item.status}</div>
       <div className="text-[10.5px] font-bold mt-1 text-text">{item.next}</div>
+      {item.permits.map((d) => (
+        <PermitDetailLine key={d.permitId} d={d} />
+      ))}
     </div>
   );
 }
@@ -204,6 +340,10 @@ function ForecastSection({
   testid,
   onTick,
   busy,
+  expanded,
+  onToggle,
+  subtasksByParent,
+  onOpenTask,
 }: {
   label: string;
   urgent?: boolean;
@@ -212,7 +352,12 @@ function ForecastSection({
   testid: string;
   onTick: (item: ForecastItem) => void;
   busy: boolean;
+  expanded: boolean;
+  onToggle: () => void;
+  subtasksByParent: Map<string, BoardTask[]>;
+  onOpenTask: (t: BoardTask) => void;
 }) {
+  const rows = expanded ? data.all : data.items;
   return (
     <>
       <SectionHeader
@@ -220,15 +365,24 @@ function ForecastSection({
         total={data.total}
         urgent={urgent}
         capped={data.capped}
+        expanded={expanded}
+        onToggle={onToggle}
         testid={testid}
       />
-      {data.items.length === 0 ? (
+      {rows.length === 0 ? (
         <div className="px-3.5 py-2 text-[10px] text-dim" data-testid={`${testid}-empty`}>
           {empty}
         </div>
       ) : (
-        data.items.map((i) => (
-          <ForecastRow key={i.key} item={i} onTick={onTick} busy={busy} />
+        rows.map((i) => (
+          <ForecastRow
+            key={i.key}
+            item={i}
+            onTick={onTick}
+            busy={busy}
+            subtasks={i.taskId ? (subtasksByParent.get(i.taskId) ?? []) : []}
+            onOpenTask={onOpenTask}
+          />
         ))
       )}
     </>
@@ -241,13 +395,18 @@ function QueueSection({
   data,
   sub,
   testid,
+  expanded,
+  onToggle,
 }: {
   label: string;
   urgent?: boolean;
   data: BoardSection<QueueProject>;
   sub?: string;
   testid: string;
+  expanded: boolean;
+  onToggle: () => void;
 }) {
+  const rows = expanded ? data.all : data.items;
   return (
     <>
       <SectionHeader
@@ -255,14 +414,16 @@ function QueueSection({
         total={data.total}
         urgent={urgent}
         capped={data.capped}
+        expanded={expanded}
+        onToggle={onToggle}
         testid={testid}
       />
-      {data.items.length === 0 ? (
+      {rows.length === 0 ? (
         <div className="px-3.5 py-2 text-[10px] text-dim" data-testid={`${testid}-empty`}>
           Nothing here.
         </div>
       ) : (
-        data.items.map((i) => <QueueRow key={i.key} item={i} />)
+        rows.map((i) => <QueueRow key={i.key} item={i} />)
       )}
     </>
   );
@@ -271,7 +432,7 @@ function QueueSection({
 export default function MyBoard() {
   const permitsQ = usePermits();
   const projectsQ = useProjects();
-  const tasksQ = useAllPermitTasks();
+  const tasksQ = useAllTasks();
   const team = useTeamMembers();
   const holdsQ = useAllProjectHolds();
   const { identity } = useSelfScope();
@@ -281,6 +442,26 @@ export default function MyBoard() {
   const ackMilestone = useAckMilestone();
   const upsertTask = useUpsertTask();
   const handoff = useConfirmHandoff();
+  const dmGroups = useDmDaGroups();
+
+  // fix-303 §1: which sections the user has expanded. Keyed by testid so every
+  // section — including the per-report team ones — gets its own toggle.
+  const [expandedSections, setExpandedSections] = useState<ReadonlySet<string>>(
+    () => new Set<string>(),
+  );
+  function toggleSection(id: string) {
+    setExpandedSections((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+  const isExpanded = (id: string) => expandedSections.has(id);
+
+  // fix-303 §3: the task open in the editor drawer. A drawer rather than a
+  // third column so the two-panel fixed-height contract is untouched.
+  const [openTask, setOpenTask] = useState<BoardTask | null>(null);
 
   const viewer = useMemo(
     () => resolveBoardViewer(identity.name, team.all),
@@ -306,7 +487,7 @@ export default function MyBoard() {
   const allTasks = tasksQ.data;
   const handoffs = useMemo(() => {
     const acks = acksQ.data ?? [];
-    const tasksByPermit = new Map<number, PermitTask[]>();
+    const tasksByPermit = new Map<number, BoardTask[]>();
     for (const t of allTasks ?? []) {
       const list = tasksByPermit.get(t.permit_id) ?? [];
       list.push(t);
@@ -329,8 +510,49 @@ export default function MyBoard() {
       .filter((h) => h.affordance !== 'none');
   }, [permitsQ.data, projectsQ.data, allTasks, acksQ.data, holdsQ.data, viewer]);
 
+  // ★ Subtasks grouped by taskNesting.nestSubtasks — the helper fix-294 wrote
+  // for My Tasks and Project Overview, not a second implementation.
+  const subtasksByParent = useMemo(() => {
+    const groups = nestSubtasks(allTasks ?? []);
+    const m = new Map<string, BoardTask[]>();
+    for (const g of groups) m.set(g.task.id, g.subtasks);
+    return m;
+  }, [allTasks]);
+
   const forecast = useMemo(() => buildForecast(input), [input]);
   const queue = useMemo(() => buildQueue(input), [input]);
+
+  // fix-303 §2: the people this viewer is responsible for. Derived from data,
+  // never from a name list — an oversight entitlement leader picks up the other
+  // ent leads; a design manager picks up their DAs via dm_da_groups.
+  const teamQueues: TeamQueue[] = useMemo(() => {
+    const entReports = entitlementReportsFor(viewer, permitsQ.data ?? []).map((owner) => ({
+      owner,
+      relationship: 'entitlement-lead' as const,
+    }));
+    const designReports = designReportsFor(viewer, dmGroups.rows ?? []).map((owner) => ({
+      owner,
+      relationship: 'design-associate' as const,
+    }));
+    const reports = [...entReports, ...designReports];
+    return reports.length === 0 ? [] : buildTeamQueues(input, reports);
+  }, [viewer, permitsQ.data, dmGroups.rows, input]);
+
+  // ★ The mapping gap. Only shown to someone who manages people — it is their
+  // structure that is wrong — and never silently swallowed.
+  const mappingGap = useMemo(
+    () =>
+      teamMappingGap(
+        team.all ?? [],
+        dmGroups.rows ?? [],
+        permitsQ.data ?? [],
+        input.cancelledIds,
+      ),
+    [team.all, dmGroups.rows, permitsQ.data, input.cancelledIds],
+  );
+  const showGap =
+    teamQueues.length > 0 &&
+    (mappingGap.unassignedDas.length > 0 || mappingGap.formerInGroups.length > 0);
   const health = useMemo(
     () =>
       systemHealth(
@@ -447,6 +669,10 @@ export default function MyBoard() {
                 testid="board-sec-past-due"
                 onTick={onTick}
                 busy={busy}
+                subtasksByParent={subtasksByParent}
+                onOpenTask={setOpenTask}
+                expanded={isExpanded('board-sec-past-due')}
+                onToggle={() => toggleSection('board-sec-past-due')}
               />
               <ForecastSection
                 label="Today"
@@ -456,6 +682,10 @@ export default function MyBoard() {
                 testid="board-sec-today"
                 onTick={onTick}
                 busy={busy}
+                subtasksByParent={subtasksByParent}
+                onOpenTask={setOpenTask}
+                expanded={isExpanded('board-sec-today')}
+                onToggle={() => toggleSection('board-sec-today')}
               />
               <ForecastSection
                 label="Tomorrow"
@@ -464,6 +694,10 @@ export default function MyBoard() {
                 testid="board-sec-tomorrow"
                 onTick={onTick}
                 busy={busy}
+                subtasksByParent={subtasksByParent}
+                onOpenTask={setOpenTask}
+                expanded={isExpanded('board-sec-tomorrow')}
+                onToggle={() => toggleSection('board-sec-tomorrow')}
               />
               <ForecastSection
                 label="This week"
@@ -472,6 +706,10 @@ export default function MyBoard() {
                 testid="board-sec-this-week"
                 onTick={onTick}
                 busy={busy}
+                subtasksByParent={subtasksByParent}
+                onOpenTask={setOpenTask}
+                expanded={isExpanded('board-sec-this-week')}
+                onToggle={() => toggleSection('board-sec-this-week')}
               />
             </div>
           </div>
@@ -552,19 +790,125 @@ export default function MyBoard() {
                 urgent
                 data={queue.blocked_on_you}
                 testid="board-sec-blocked"
+                expanded={isExpanded('board-sec-blocked')}
+                onToggle={() => toggleSection('board-sec-blocked')}
               />
               <QueueSection
                 label="Waiting on design"
                 urgent
                 data={queue.waiting_on_design}
                 testid="board-sec-waiting-design"
+                expanded={isExpanded('board-sec-waiting-design')}
+                onToggle={() => toggleSection('board-sec-waiting-design')}
               />
               <QueueSection
                 label="Waiting on the city"
                 sub="nothing for you to do"
                 data={queue.waiting_on_city}
                 testid="board-sec-waiting-city"
+                expanded={isExpanded('board-sec-waiting-city')}
+                onToggle={() => toggleSection('board-sec-waiting-city')}
               />
+
+              {/* ★ fix-303 §2: TEAM QUEUES. A split, never a merge — each
+                  report gets their own titled block so whose queue a row
+                  belongs to is never ambiguous. More people means more
+                  sections to scroll through, never a taller page. */}
+              {teamQueues.length > 0 && (
+                <div data-testid="board-team-wrap">
+                  <SectionHeader
+                    label="Your team"
+                    total={teamQueues.length}
+                    capped={false}
+                    testid="board-sec-team"
+                  />
+                  {showGap && (
+                    // ★ THE MAPPING GAP, SAID OUT LOUD. A board that quietly
+                    // omits Cam — the largest DA load in the company — is worse
+                    // than one that says he is unassigned.
+                    <div
+                      className="px-3.5 py-2 bg-co-bg border-b border-border"
+                      data-testid="board-team-gap"
+                    >
+                      {mappingGap.unassignedDas.length > 0 && (
+                        <div className="text-[10px] text-co" data-testid="board-gap-unassigned">
+                          <b>
+                            {mappingGap.unassignedDas.length} active designer
+                            {mappingGap.unassignedDas.length === 1 ? '' : 's'} not assigned
+                            to any manager
+                          </b>
+                          {' — '}
+                          {mappingGap.unassignedDas
+                            .map((d) => `${d.name} (${d.activePermits})`)
+                            .join(', ')}
+                          . Their work appears on nobody&apos;s team queue.
+                        </div>
+                      )}
+                      {mappingGap.formerInGroups.length > 0 && (
+                        <div
+                          className="text-[10px] text-muted mt-1"
+                          data-testid="board-gap-former"
+                        >
+                          Former staff still in a manager group —{' '}
+                          {mappingGap.formerInGroups
+                            .map((d) => `${d.name} (${d.activePermits})`)
+                            .join(', ')}
+                          .
+                        </div>
+                      )}
+                      {/* ★ Deliberately NOT a link. Settings is a modal owned
+                          by Chrome, so there is no /settings/team URL — a Link
+                          there would fall through the catch-all to the
+                          dashboard, which is exactly the dead-control failure
+                          this ticket opened with. The editor already exists
+                          (Settings → Team → Team structure) and already offers
+                          reassignment, so this points at it in words. */}
+                      <div className="text-[10px] text-muted" data-testid="board-gap-fix-hint">
+                        An admin can reassign them in Settings → Team → Team structure.
+                      </div>
+                    </div>
+                  )}
+                  {teamQueues.map((tq) => (
+                    <div key={tq.owner} data-testid={`board-team-${tq.owner}`}>
+                      <SectionHeader
+                        label={`${tq.owner} · ${
+                          tq.relationship === 'entitlement-lead'
+                            ? 'entitlement lead'
+                            : 'design associate'
+                        }`}
+                        total={
+                          tq.queue.blocked_on_you.total +
+                          tq.queue.waiting_on_design.total +
+                          tq.queue.waiting_on_city.total
+                        }
+                        capped={false}
+                        testid={`board-sec-team-${tq.owner}`}
+                      />
+                      <QueueSection
+                        label={`${tq.owner} — blocked`}
+                        data={tq.queue.blocked_on_you}
+                        testid={`board-sec-team-${tq.owner}-blocked`}
+                        expanded={isExpanded(`board-sec-team-${tq.owner}-blocked`)}
+                        onToggle={() => toggleSection(`board-sec-team-${tq.owner}-blocked`)}
+                      />
+                      <QueueSection
+                        label={`${tq.owner} — waiting on design`}
+                        data={tq.queue.waiting_on_design}
+                        testid={`board-sec-team-${tq.owner}-design`}
+                        expanded={isExpanded(`board-sec-team-${tq.owner}-design`)}
+                        onToggle={() => toggleSection(`board-sec-team-${tq.owner}-design`)}
+                      />
+                      <QueueSection
+                        label={`${tq.owner} — with the city`}
+                        data={tq.queue.waiting_on_city}
+                        testid={`board-sec-team-${tq.owner}-city`}
+                        expanded={isExpanded(`board-sec-team-${tq.owner}-city`)}
+                        onToggle={() => toggleSection(`board-sec-team-${tq.owner}-city`)}
+                      />
+                    </div>
+                  ))}
+                </div>
+              )}
 
               {/* fix-298 Phase 2: system health — OVERSIGHT ONLY.
                   This is where the old scraper-activity bell went. It is not
@@ -604,6 +948,36 @@ export default function MyBoard() {
                 </div>
               )}
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* ★ fix-303 §3: the task editor, in a drawer. Absolutely positioned so
+          the board's fixed height and per-panel scroll are untouched — the
+          layout contract asserted since Phase 1 still holds with it open. */}
+      {openTask && (
+        <div
+          className="fixed inset-0 z-40 flex justify-end bg-black/20"
+          onClick={() => setOpenTask(null)}
+          data-testid="board-task-drawer-backdrop"
+        >
+          <div
+            className="w-[420px] max-w-full h-full bg-surface border-l border-border overflow-y-auto"
+            onClick={(e) => e.stopPropagation()}
+            data-testid="board-task-drawer"
+          >
+            <div className="flex items-center px-3.5 py-2 border-b border-border bg-s2">
+              <span className="text-[12px] font-extrabold text-text">Task</span>
+              <button
+                type="button"
+                onClick={() => setOpenTask(null)}
+                className="ml-auto text-[11px] text-muted hover:text-text bg-transparent border-none"
+                data-testid="board-task-drawer-close"
+              >
+                Close ✕
+              </button>
+            </div>
+            <TaskDetailEditor task={openTask} members={team.all ?? []} />
           </div>
         </div>
       )}
