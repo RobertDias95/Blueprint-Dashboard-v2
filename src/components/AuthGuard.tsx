@@ -13,7 +13,7 @@ import { supabase } from '../lib/supabase';
 // the app shell (which would show all-empty queries, since RLS would hide
 // every row from a tenantless user anyway).
 export default function AuthGuard({ children }: { children: ReactNode }) {
-  const { session, initialized, memberships } = useAuthStore();
+  const { session, initialized, memberships, verifying } = useAuthStore();
   const location = useLocation();
 
   if (!initialized) {
@@ -23,7 +23,28 @@ export default function AuthGuard({ children }: { children: ReactNode }) {
       </div>
     );
   }
+  // ★ fix-314: the settle window. A null session on anything other than an
+  // explicit SIGNED_OUT no longer clears the store at all (see App.tsx), so in
+  // the common case this guard never even sees the transient and the user's
+  // page does not flicker. This branch covers the remainder: a verify that
+  // began while the store already held no session.
+  //
+  // It cannot hang. confirmSession() races ONE getSession() against a backstop
+  // that FAILS CLOSED — on expiry it answers "gone", which lands here as a
+  // redirect. The wait can only ever end sooner than the backstop, never later.
+  if (!session && verifying) {
+    return (
+      <div
+        className="min-h-screen flex items-center justify-center text-muted text-sm"
+        data-testid="auth-reconnecting"
+      >
+        Reconnecting…
+      </div>
+    );
+  }
   if (!session) {
+    // The `from` half of this has always been recorded here. fix-314 added the
+    // half that reads it — see landingAfterSignIn in Login.tsx.
     return <Navigate to="/login" state={{ from: location }} replace />;
   }
   if (memberships.length === 0) {

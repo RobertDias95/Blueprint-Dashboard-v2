@@ -21,10 +21,17 @@ type AuthState = {
   /** False until the initial getSession() resolves. Used to avoid flashing
    *  the login screen on reload while we wait for session restoration. */
   initialized: boolean;
+  /** ★ fix-314: an auth event arrived with a NULL session on something other
+   *  than SIGNED_OUT, and we are asking supabase.auth.getSession() once
+   *  whether it is genuinely gone. Distinct from `initialized`, which is a
+   *  one-shot startup flag and cannot express "momentarily absent" — that
+   *  gap is why a token refresh bounced Miles to /login. */
+  verifying: boolean;
   memberships: TenantMembership[];
   activeTenantId: string | null;
   setSession: (session: Session | null) => void;
   setInitialized: (initialized: boolean) => void;
+  setVerifying: (verifying: boolean) => void;
   setMemberships: (memberships: TenantMembership[]) => void;
   setActiveTenant: (tenantId: string | null) => void;
 };
@@ -33,11 +40,13 @@ export const useAuthStore = create<AuthState>((set) => ({
   session: null,
   user: null,
   initialized: false,
+  verifying: false,
   memberships: [],
   activeTenantId: null,
   setSession: (session) =>
     set({ session, user: session?.user ?? null }),
   setInitialized: (initialized) => set({ initialized }),
+  setVerifying: (verifying) => set({ verifying }),
   setMemberships: (memberships) =>
     set((state) => ({
       memberships,

@@ -10,6 +10,8 @@ import { ReactQueryDevtools } from '@tanstack/react-query-devtools';
 import { router } from './router';
 import { supabase } from './lib/supabase';
 import { useAuthStore, type TenantMembership } from './stores/authStore';
+import { friendlyAuthMessage, shouldLogAuthFailure } from './lib/authEvents';
+import { createAuthEventHandler } from './lib/authHandler';
 import { useRealtimeInvalidation } from './hooks/useRealtimeInvalidation';
 import ToastHost from './components/ToastHost';
 import { logError, messageOf, isUserInputValidationError } from './lib/errorLogger';
@@ -39,6 +41,13 @@ import { logError, messageOf, isUserInputValidationError } from './lib/errorLogg
 // Filters: skip logging the bp_log_error RPC itself (defense in depth
 // alongside the re-entry guard) and skip the auth queries since a missing
 // session is expected user flow, not an app error.
+//
+// ★ fix-314: that `auth/` clause matches NOTHING — no query in this codebase
+// uses an `auth/` key prefix. It was never why error_reports had zero auth
+// rows; the real reason is that no auth path called logError at all. Kept as a
+// guard for any future auth-keyed query, but the actual telemetry now comes
+// from logAuthFailure() below, which fires on the auth EVENT rather than on a
+// query that never existed.
 //
 // fix-165: also skip user-input validation rejections (SQLSTATE 22008 — the
 // fix-89 chronology guard in bp_upsert_permit_cycle_row). A user typing an
@@ -100,6 +109,43 @@ const queryClient = new QueryClient({
   },
 });
 
+/** ★ fix-314: the instrument-then-patch half. Before this, error_reports held
+ *  ZERO auth/JWT/token rows while Miles hit the bug repeatedly — not because a
+ *  filter suppressed them, but because nothing ever emitted one. */
+function logAuthFailure(input: {
+  event: string;
+  hadSession: boolean;
+  timedOut: boolean;
+  error: unknown;
+  stage?: string;
+}): void {
+  const pathname =
+    typeof window !== 'undefined' ? (window.location?.pathname ?? '') : '';
+  // A missing session on the login route is expected user flow and stays
+  // unlogged; an auth failure for someone who HAS a session is the bug.
+  if (!shouldLogAuthFailure({ hadSession: input.hadSession, pathname })) return;
+  void logError({
+    // ★ NOT a new 'frontend_auth' source, deliberately. error_reports carries
+    // a CHECK constraint pinning `source` to exactly four values (verified on
+    // prod), so a new one would fail the insert — and logError's re-entry
+    // guard would swallow that failure, leaving us with zero auth signal all
+    // over again, which is the exact hole this ticket exists to close. The
+    // discriminator lives in the context instead, where it costs no migration.
+    source: 'frontend_exception',
+    level: 'error',
+    message: messageOf(input.error) || `auth session lost on ${input.event}`,
+    context: {
+      kind: 'auth',
+      // The event name is what separates a failed refresh from a real
+      // sign-out once these start landing.
+      authEvent: input.event,
+      stage: input.stage ?? 'session-verify',
+      settleTimedOut: input.timedOut,
+      pathname,
+    },
+  });
+}
+
 async function loadMembershipsForUser(userId: string): Promise<TenantMembership[]> {
   const { data, error } = await supabase
     .from('tenant_memberships')
@@ -113,6 +159,7 @@ export default function App() {
   const setSession = useAuthStore((s) => s.setSession);
   const setInitialized = useAuthStore((s) => s.setInitialized);
   const setMemberships = useAuthStore((s) => s.setMemberships);
+  const setVerifying = useAuthStore((s) => s.setVerifying);
   const [bootstrapError, setBootstrapError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -150,43 +197,54 @@ export default function App() {
 
     void bootstrap();
 
+    // ★ fix-314: the handler lives in src/lib/authHandler.ts so it can be
+    // tested with fakes. The bug was IN THIS WIRING — the previous version was
+    // `onAuthStateChange((_event, session) => setSession(session ?? null))`,
+    // which discarded the event and made a TOKEN_REFRESHED carrying a null
+    // session indistinguishable from a real SIGNED_OUT.
+    const handleAuthEvent = createAuthEventHandler({
+      getSession: () => supabase.auth.getSession(),
+      currentSession: () => useAuthStore.getState().session,
+      setSession,
+      setVerifying,
+      setMemberships: (m) => setMemberships(m as TenantMembership[]),
+      loadMemberships: loadMembershipsForUser,
+      logAuthFailure,
+      isMounted: () => mounted,
+    });
+
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
-      if (!mounted) return;
-      setSession(session ?? null);
-      // Reload memberships on every auth change. Sign-out clears them.
-      if (session?.user) {
-        loadMembershipsForUser(session.user.id)
-          .then((memberships) => {
-            if (mounted) setMemberships(memberships);
-          })
-          .catch((err: unknown) => {
-            if (mounted) {
-              setBootstrapError(
-                err instanceof Error ? err.message : String(err),
-              );
-            }
-          });
-      } else {
-        setMemberships([]);
-      }
+    } = supabase.auth.onAuthStateChange((event, session) => {
+      void handleAuthEvent(event, session);
     });
 
     return () => {
       mounted = false;
       subscription.unsubscribe();
     };
-  }, [setSession, setInitialized, setMemberships]);
+  }, [setSession, setInitialized, setMemberships, setVerifying]);
 
   if (bootstrapError) {
     return (
       <div className="min-h-screen flex items-center justify-center p-6">
         <div className="max-w-md bg-surface border border-co-border rounded-xl p-6 text-sm">
           <div className="font-display font-bold text-co mb-2">
-            Auth bootstrap failed
+            Signed out
           </div>
-          <div className="text-muted">{bootstrapError}</div>
+          {/* ★ fix-314: this said "Auth bootstrap failed" over the raw Supabase
+              string ("Invalid Refresh Token: Refresh Token Not Found" and
+              friends). A person cannot act on that. The technical text still
+              reaches error_reports through logAuthFailure's context. */}
+          <div className="text-muted" data-testid="auth-bootstrap-message">
+            {friendlyAuthMessage(bootstrapError)}
+          </div>
+          <a
+            href="/login"
+            className="inline-block mt-3 text-xs px-3 py-1.5 rounded-md bg-de text-white font-display font-bold"
+          >
+            Sign in
+          </a>
         </div>
       </div>
     );
