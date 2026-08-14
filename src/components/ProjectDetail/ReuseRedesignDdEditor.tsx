@@ -135,7 +135,7 @@ export default function ReuseRedesignDdEditor({ project }: { project: Project })
         </select>
       </div>
       <div className="flex items-center gap-1.5">
-        <span className="text-[9px] text-dim w-16 flex-shrink-0">Draw Start</span>
+        <span className="text-[9px] text-dim w-16 flex-shrink-0">DD start</span>
         <input
           type="date"
           value={start}
@@ -151,7 +151,7 @@ export default function ReuseRedesignDdEditor({ project }: { project: Project })
         />
       </div>
       <div className="flex items-center gap-1.5">
-        <span className="text-[9px] text-dim w-16 flex-shrink-0">Draw End</span>
+        <span className="text-[9px] text-dim w-16 flex-shrink-0">DD end</span>
         <input
           type="date"
           value={end}

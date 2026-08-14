@@ -12,6 +12,7 @@ import {
   buildVendorCorrectionRows,
   drawBlockIsVendorVisible,
   vendorSentPayload,
+  vendorTargetSend,
   lastSentAt,
   type VendorLedgerRow,
 } from '../lib/vendorReport';
@@ -64,7 +65,9 @@ function block(
 function ledger(over: Partial<VendorLedgerRow> & { project_id: string }): VendorLedgerRow {
   return {
     sent_start_week: '2026-08-10',
-    sent_dd_end: '2026-09-18',
+    // fix-309 #48: the ledger holds the DERIVED target send, so it is the
+    // block's default dd_end (2026-09-18) MINUS the one-week send lead.
+    sent_dd_end: '2026-09-11',
     sent_status: 'Scheduled',
     sent_at: '2026-07-27T17:00:00Z',
     ...over,
@@ -483,7 +486,12 @@ describe('fix-269 transmit task is the liveness signal', () => {
   } as Partial<Project> & { id: string });
 
   const FUTURE = '2026-09-18';
-  const PAST = '2026-03-27'; // four months before TODAY (2026-08-03)
+  // fix-309 #48: the anchor. The TARGET SEND derived from it is a week
+  // earlier (2026-03-20) — still four months before TODAY, so the intent of
+  // every case below is unchanged.
+  const PAST = '2026-03-27';
+  /** fix-309 #48: what PAST now DERIVES to — the anchor minus the send lead. */
+  const PAST_TARGET_SEND = '2026-03-20';
 
   /** fix-271: p1's block defaults to 'Scheduled', so it is in the design phase
    *  and its structural tasks are the handoff. */
@@ -533,7 +541,7 @@ describe('fix-269 transmit task is the liveness signal', () => {
     const rows = upcoming(PAST, [txTask()]);
     expect(rows.map((r) => r.projectId)).toEqual(['p1']);
     expect(rows[0].overdue).toBe(true);
-    expect(rows[0].targetSend).toBe(PAST);
+    expect(rows[0].targetSend).toBe(PAST_TARGET_SEND);
   });
 
   it.each([[FUTURE], [PAST]])(
@@ -604,7 +612,7 @@ describe('fix-269 transmit task is the liveness signal', () => {
       transmitState: transmitStateByProject([txTask()], [withSss], VENDOR_KEY_STRUCTURAL, DESIGN_P1),
     });
     expect(rows[0].overdue).toBe(true);
-    expect(rows[0].targetSend).toBe(PAST);
+    expect(rows[0].targetSend).toBe(PAST_TARGET_SEND);
   });
 
   it('a task on a project the vendor does not own gives no liveness signal', () => {
@@ -863,7 +871,7 @@ describe('fix-265 bucketing against the ledger', () => {
 
   it.each([
     ['start week', { sent_start_week: '2026-07-06' }],
-    ['DD end', { sent_dd_end: '2026-08-28' }],
+    ['DD end', { sent_dd_end: '2026-08-21' }],
     ['status', { sent_status: 'Pending Consultants' }],
   ])('a moved %s â†’ CHANGED, carrying the old value', (_label, patch) => {
     const rows = build({
@@ -906,7 +914,8 @@ describe('fix-265 bucketing against the ledger', () => {
       projects: [p1],
       ledger: [ledger({ project_id: 'p1', sent_dd_end: '2026-09-14' })],
     });
-    expect(rows[0].targetSend).toBe('2026-10-05');
+    // fix-309 #48: end_week 2026-10-05 -> target send a week earlier.
+    expect(rows[0].targetSend).toBe('2026-09-28');
     expect(rows[0].bucket).toBe('changed');
     expect(rows[0].previous?.targetSend).toBe('2026-09-14');
   });
@@ -916,7 +925,8 @@ describe('fix-265 bucketing against the ledger', () => {
       draw: [block({ project_id: 'p1', dd_end: null, end_week: '2026-10-05' })],
       projects: [p1],
     });
-    expect(vendorSentPayload(rows)[0].dd_end).toBe('2026-10-05');
+    // The ledger records what the vendor was TOLD, which is the shifted date.
+    expect(vendorSentPayload(rows)[0].dd_end).toBe('2026-09-28');
   });
 
   it('blank â†’ a value IS a change (the vendor learns a date they did not have)', () => {
@@ -1210,3 +1220,42 @@ describe('fix-265 corrections section', () => {
 });
 
 
+
+// ===========================================================================
+// fix-309 #48 — the consultant email was a week late.
+// ===========================================================================
+
+describe('fix-309 #48: target send is a week BEFORE the end of DD', () => {
+  it('★ derives dd_end minus 7 days', () => {
+    // "We don't send our backgrounds out at the end of the DD phase, we send
+    // them out roughly a week before the end of the DD phase."
+    expect(vendorTargetSend({ dd_end: '2026-08-21', end_week: null })).toBe('2026-08-14');
+  });
+
+  it('the end_week fallback shifts too — one rule, both sources', () => {
+    // 84 of 139 blocks have no dd_end. Leaving the fallback unshifted would
+    // keep the old, late date under a different name.
+    expect(vendorTargetSend({ dd_end: null, end_week: '2026-08-21' })).toBe('2026-08-14');
+  });
+
+  it('no anchor still means no target send', () => {
+    expect(vendorTargetSend({ dd_end: null, end_week: null })).toBeNull();
+  });
+
+  it('★ a project whose DD ends NEXT week now sends THIS week', () => {
+    // The brief's sanity check, on the real shape of 548 3rd Ave N: dd_end
+    // 2026-08-21, so with today 2026-08-14 the target send is today — inside
+    // this week, where before it fell in the next one.
+    const target = vendorTargetSend({ dd_end: '2026-08-21', end_week: null })!;
+    const today = '2026-08-14';
+    const endOfThisWeek = '2026-08-20';
+    expect(target >= today && target <= endOfThisWeek).toBe(true);
+    // …and under the old rule it did not.
+    expect('2026-08-21' <= endOfThisWeek).toBe(false);
+  });
+
+  it('crossing a month boundary stays a valid ISO date', () => {
+    expect(vendorTargetSend({ dd_end: '2026-09-03', end_week: null })).toBe('2026-08-27');
+    expect(vendorTargetSend({ dd_end: '2026-01-05', end_week: null })).toBe('2025-12-29');
+  });
+});

@@ -86,34 +86,36 @@ beforeEach(() => {
 describe('fix-285 the five-column overview row', () => {
   it('places the cards in the agreed order', () => {
     renderHeader();
-    const order = areaOrder().filter((a) => a && a !== 'notes');
+    const order = areaOrder().filter(Boolean);
     expect(order).toEqual(['dd', 'proj', 'team', 'por', 'builder']);
   });
 
-  // fix-290 changed this deliberately. Notes used to span DD Phase AND Project;
-  // Project now spans both rows instead, because it carries two stacked
-  // sections and the half-height slot is what squeezed Site out of view. Notes
-  // keeps the full height under DD Phase.
-  it('declares two rows, with Project spanning both and Notes under DD Phase', () => {
+  // fix-290 gave Project both rows because the half-height slot squeezed its
+  // Site section out of view, and Notes took the space under DD Phase.
+  //
+  // ★ fix-309 #54/#55 collapsed that to ONE row. Notes left the grid for the
+  // bottom of Schedule health, so there is no second row for Project to span
+  // and nothing left to squeeze it -- the whole row is now as tall as the Plan
+  // of Record. fix-290's point survives in the assertion below: Project is
+  // never half-height.
+  it('declares one row, and Notes is no longer in it', () => {
     renderHeader();
     const grid = screen.getByTestId('project-overview-grid');
     const areas = grid.style.gridTemplateAreas.replace(/\s+/g, ' ');
     expect(areas).toContain('dd proj team por builder');
-    expect(areas).toContain('notes proj team por builder');
-    // The regression this guards: Notes must not reclaim Project's second row.
-    expect(areas).not.toContain('notes notes');
+    expect(areas).not.toContain('notes');
+    const rows = areas.split('"').filter((r) => r.trim());
+    expect(rows).toHaveLength(1);
   });
 
-  it('gives Project both rows so its second section has somewhere to go', () => {
+  it('gives Project a full-height cell so its second section has somewhere to go', () => {
     renderHeader();
-    const areas = screen
-      .getByTestId('project-overview-grid')
-      .style.gridTemplateAreas.replace(/\s+/g, ' ');
-    const rows = areas.split('"').filter((r) => r.trim());
-    expect(rows).toHaveLength(2);
-    for (const row of rows) {
-      expect(row.trim().split(/\s+/)[1]).toBe('proj');
-    }
+    const grid = screen.getByTestId('project-overview-grid');
+    expect(grid.style.alignItems).toBe('stretch');
+    const proj = Array.from(grid.children).find(
+      (el) => (el as HTMLElement).style.gridArea?.startsWith('proj'),
+    ) as HTMLElement;
+    expect(proj.style.height).toBe('100%');
   });
 
   it('has five columns', () => {
@@ -145,22 +147,17 @@ describe('fix-285 the five-column overview row', () => {
   });
 });
 
-describe('fix-285 Notes moved up', () => {
-  it('renders inside the header grid, not as a full-width footer', () => {
+// ★ fix-309 #54 reverses fix-285's move. Notes went into the header grid to
+// fill the empty area under DD Phase and Project; #55 makes that row a single
+// equal-height band, so the hole Notes was filling no longer exists and Notes
+// returns to the bottom of Schedule health as one long vertical bar.
+describe('fix-309 #54 Notes left the header grid', () => {
+  it('renders no Notes column inside the header', () => {
     renderHeader();
-    const col = screen.getByTestId('project-overview-notes-col');
-    expect(col).toBeInTheDocument();
-    expect(col.style.gridArea).toContain('notes');
-    // And it really is the Notes panel, not an empty placeholder.
-    expect(screen.getByTestId('notes-panel')).toBeInTheDocument();
-  });
-
-  it('sits in the same grid as DD Phase and Project', () => {
-    renderHeader();
-    const grid = screen.getByTestId('project-overview-grid');
-    expect(grid).toContainElement(screen.getByTestId('project-overview-notes-col'));
+    expect(screen.queryByTestId('project-overview-notes-col')).toBeNull();
+    expect(screen.queryByTestId('notes-panel')).toBeNull();
     expect(areaOrder()).toContain('dd');
-    expect(areaOrder()).toContain('notes');
+    expect(areaOrder()).not.toContain('notes');
   });
 });
 

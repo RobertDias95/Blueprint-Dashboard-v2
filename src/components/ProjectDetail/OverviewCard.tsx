@@ -62,8 +62,12 @@ export function OverviewCard({
 }: CardProps) {
   return (
     <section
-      className={`border rounded-md overflow-hidden bg-surface flex flex-col ${className}`}
-      style={{ borderColor: 'var(--color-border)', ...style }}
+      /* ★ fix-309 #55: h-full so a card fills the stretched grid cell rather
+         than sitting at its own content height. Outside a stretched grid the
+         parent has auto height, so height:100% resolves to auto and nothing
+         changes — Notes under Schedule health is unaffected. */
+      className={`border rounded-md overflow-hidden bg-surface flex flex-col h-full ${className}`}
+      style={{ borderColor: 'var(--color-border)', height: '100%', ...style }}
       data-testid={testId}
     >
       <header

@@ -35,8 +35,10 @@ interface AddrGroupProps {
    *  rollup (any outstanding reviewer → "in review", overriding any
    *  premature corr_issued the scraper stamped). */
   reviewersByPermit: Map<number, PermitCycleReviewer[]>;
-  /** Worst-of-group urgency for the left-border + bg tint. */
-  cardUrgency: UrgencyLevel;
+  /** fix-309 #50: NO LONGER USED FOR COLOUR — the project pill is neutral.
+   *  Kept on the props so the caller's sort key and this component stay in one
+   *  conversation; remove it here and the next person re-adds a tint. */
+  cardUrgency?: UrgencyLevel;
   /** fix-170: project has an ACTIVE hold → per-row urgency colors suppressed. */
   activeHold?: boolean;
   /** fix-178: the project's active hold (for the on-hold card badge), or null. */
@@ -51,23 +53,9 @@ interface AddrGroupProps {
   onLeave: () => void;
 }
 
-const URGENCY_BG: Record<UrgencyLevel, string> = {
-  red: '#fee2e2',
-  yellow: '#fef9c3',
-  ok: 'var(--color-surface)',
-};
-
-const URGENCY_BORDER: Record<UrgencyLevel, string> = {
-  red: '#dc2626',
-  yellow: '#eab308',
-  ok: 'transparent',
-};
-
-const URGENCY_HOVER_BG: Record<UrgencyLevel, string> = {
-  red: '#fecaca',
-  yellow: '#fef08a',
-  ok: 'var(--color-s2)',
-};
+// fix-309 #50: the URGENCY_BG / URGENCY_BORDER / URGENCY_HOVER_BG maps are
+// gone with the project-level tint they existed to paint. Per-permit colour is
+// computed inline from permitUrgency, at the permit, where it is true.
 
 const STAGE_PILL_LABEL: Record<Stage, string> = {
   de: 'D&E',
@@ -93,7 +81,6 @@ export default function AddrGroup({
   stage,
   cyclesByPermit,
   reviewersByPermit,
-  cardUrgency,
   activeHold = false,
   hold = null,
   keyDateLabel,
@@ -143,11 +130,23 @@ export default function AddrGroup({
       data-testid={`addr-group-${stage}`}
       onMouseEnter={onHover}
       onMouseLeave={onLeave}
+      // ★ fix-309 #50: THE PROJECT PILL CARRIES NO STATUS COLOUR.
+      //
+      // "Keep the colour just to the permit status … the whole project pill is
+      // not red — just the actual permit within that project is colour-coded."
+      //
+      // A solid red project reads as "this whole project is in trouble" when
+      // the truth is usually one permit out of four. Deliberately NOT replaced
+      // with a blended or worst-case tint either — that reintroduces the same
+      // lie more quietly. The permit pills below and the expanded rows keep
+      // their own per-permit colour, which is where the truth lives.
+      //
+      // cardUrgency still drives the SORT in Dashboard.tsx: ordering by the
+      // worst permit is a useful ranking, not a claim about the project.
+      data-urgency-neutral="true"
       style={{
-        borderLeft: `3px solid ${URGENCY_BORDER[cardUrgency]}`,
-        background: isHighlighted
-          ? URGENCY_HOVER_BG[cardUrgency]
-          : URGENCY_BG[cardUrgency],
+        borderLeft: '3px solid var(--color-border)',
+        background: isHighlighted ? 'var(--color-s2)' : 'var(--color-surface)',
         borderBottom: '1px solid var(--color-border)',
         // Q9.5.e2-fix-5: v1 .addr-highlighted at index.html:186 outlines the
         // opened address with a 3px blue ring. CSS outline renders on top of

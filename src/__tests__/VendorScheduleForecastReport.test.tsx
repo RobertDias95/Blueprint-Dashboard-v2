@@ -139,14 +139,18 @@ beforeEach(() => {
     {
       project_id: 'p-moved',
       sent_start_week: '2026-08-10',
-      sent_dd_end: '2026-09-18',
+      // ★ fix-309 #48: the ledger stores the TARGET SEND, and that is now a
+      // week before dd_end (2026-09-18), not dd_end itself.
+      sent_dd_end: '2026-09-11',
       sent_status: 'Scheduled',
       sent_at: '2026-07-27T17:00:00Z',
     },
     {
       project_id: 'p-same',
       sent_start_week: '2026-08-10',
-      sent_dd_end: '2026-09-18',
+      // ★ fix-309 #48: the ledger stores the TARGET SEND, and that is now a
+      // week before dd_end (2026-09-18), not dd_end itself.
+      sent_dd_end: '2026-09-11',
       sent_status: 'Scheduled',
       sent_at: '2026-07-27T17:00:00Z',
     },
@@ -441,9 +445,11 @@ describe('<VendorScheduleForecastReport /> transmit state (fix-268)', () => {
     expect(row).toBeInTheDocument();
     const marker = screen.getByTestId('vsf-overdue-pipeline-p-new');
     expect(marker.textContent).toContain('OVERDUE');
-    expect(marker.textContent).toContain('2026-03-27');
-    // The date column shows the target send.
-    expect(row.textContent).toContain('2026-03-27');
+    // ★ fix-309 #48: dd_end 2026-03-27, so the target send is a week earlier.
+    expect(marker.textContent).toContain('2026-03-20');
+    // The date column shows the target send, not dd_end.
+    expect(row.textContent).toContain('2026-03-20');
+    expect(row.textContent).not.toContain('2026-03-27');
   });
 
   it('the same block with NO transmit task stays invisible', () => {
@@ -542,7 +548,9 @@ describe('<VendorScheduleForecastReport /> compose vs send (fix-265)', () => {
       {
         project_id: 'p-same',
         sent_start_week: '2026-08-10',
-        sent_dd_end: '2026-09-18',
+        // ★ fix-309 #48: the ledger stores the TARGET SEND, and that is now a
+      // week before dd_end (2026-09-18), not dd_end itself.
+      sent_dd_end: '2026-09-11',
         sent_status: 'Scheduled',
         sent_at: '2026-07-27T17:00:00Z',
       },

@@ -50,6 +50,7 @@ vi.mock('../hooks/usePlanOfRecord', () => ({
 }));
 
 import ProjectDetailHeader from '../components/ProjectDetail/ProjectDetailHeader';
+import NotesPanel from '../components/ProjectDetail/NotesPanel';
 
 /** A project with every Site column populated — the fields §1 of the brief
  *  lists, with the values the mockup shows. */
@@ -198,8 +199,26 @@ const CARDS: Array<[string, string]> = [
   ['project-overview-team', 'Team'],
   ['plan-of-record-card', 'Design Plan of Record'],
   ['pd-builder-cell', 'Builder / Owner'],
-  ['notes-panel', 'Notes'],
 ];
+
+// ★ fix-309 #54 moved Notes OUT of the header, to the bottom of Schedule
+// health. It is still an OverviewCard and fix-290's contract still binds it —
+// it just is not reachable from renderHeader() any more, so it is rendered
+// standalone below rather than dropped from the suite.
+const NOTES_CARD: [string, string] = ['notes-panel', 'Notes'];
+
+function renderNotes() {
+  const qc = new QueryClient({
+    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+  });
+  return render(
+    <QueryClientProvider client={qc}>
+      <MemoryRouter>
+        <NotesPanel projectId={PROJECT.id} variant="card" />
+      </MemoryRouter>
+    </QueryClientProvider>,
+  );
+}
 
 describe('fix-290 every card wears the same banner', () => {
   it.each(CARDS)('%s has a banner reading "%s"', (testId, title) => {
@@ -221,11 +240,21 @@ describe('fix-290 every card wears the same banner', () => {
       expect(b.className).toBe(first.className);
       expect(b.tagName).toBe(first.tagName);
     }
+
+    // ...and Notes, now that it lives elsewhere, matches the same markup.
+    renderNotes();
+    const notesBanner = within(screen.getByTestId(NOTES_CARD[0])).getAllByTestId(
+      'overview-card-banner',
+    )[0];
+    expect(notesBanner).toHaveTextContent(NOTES_CARD[1]);
+    expect(notesBanner.className).toBe(first.className);
+    expect(notesBanner.tagName).toBe(first.tagName);
   });
 
   it('puts the banner first inside its card, above the content', () => {
     renderHeader();
-    for (const [testId] of CARDS) {
+    renderNotes();
+    for (const [testId] of [...CARDS, NOTES_CARD]) {
       const card = screen.getByTestId(testId);
       const banner = within(card).getAllByTestId('overview-card-banner')[0];
       expect(card.firstElementChild).toBe(banner);
