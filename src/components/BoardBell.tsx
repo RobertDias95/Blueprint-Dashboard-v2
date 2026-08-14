@@ -9,6 +9,7 @@ import { useTeamMembers } from '../hooks/useTeamMembers';
 import { useSelfScope } from '../hooks/useSelfScope';
 import { useAllProjectHolds, cancelledProjectIds } from '../hooks/useProjectHolds';
 import { useScraperActivity } from '../hooks/useScraperActivity';
+import { buildBellItems, parseFlips } from '../lib/boardFlips';
 import {
   buildForecast,
   buildQueue,
@@ -68,6 +69,28 @@ export default function BoardBell() {
     () => suppressionCounts(activityQ.data ?? [], viewer),
     [activityQ.data, viewer],
   );
+
+  // ★ fix-304 §17/§18 (register #17, #18): the status flips, each merged with
+  // the bot task it spawned. Scoped to the viewer's own permits unless they
+  // hold the oversight flag — a flip on somebody else's permit is not news.
+  const flipItems = useMemo(() => {
+    const mine = new Set(
+      (permitsQ.data ?? [])
+        .filter(
+          (p) =>
+            viewer.isOversight ||
+            (p.ent_lead ?? '').trim().toLowerCase() ===
+              (viewer.name ?? '').trim().toLowerCase() ||
+            (p.da ?? '').trim().toLowerCase() ===
+              (viewer.name ?? '').trim().toLowerCase(),
+        )
+        .map((p) => p.id),
+    );
+    const flips = parseFlips(activityQ.data ?? []).filter(
+      (f) => f.permitId === null || mine.has(f.permitId),
+    );
+    return buildBellItems(flips, tasksQ.data ?? []).slice(0, 6);
+  }, [activityQ.data, tasksQ.data, permitsQ.data, viewer]);
 
   // The badge counts what is ASKED OF YOU — past due + today + blocked. Not
   // "things that happened": this is a planner, so the number has to mean
@@ -135,6 +158,41 @@ export default function BoardBell() {
               testid="bell-waiting-city"
             />
           </div>
+
+          {/* ★ fix-304 register #17/#18: the flips. One row per event — the
+              bot's task IS the row and the flip is its subtitle, because they
+              are one thing that happened. Un-merged this doubles every
+              correction cycle (86 duplicate pairs measured on prod) and the
+              duplicate is the less informative half. */}
+          {flipItems.length > 0 && (
+            <div className="border-b border-border" data-testid="board-bell-flips">
+              <div className="px-3.5 pt-2 pb-1 text-[8px] font-extrabold uppercase tracking-wide text-muted">
+                Since you last looked
+              </div>
+              {flipItems.map((f) => (
+                <Link
+                  key={f.key}
+                  to={
+                    f.projectId
+                      ? `/projects/${f.projectId}${f.permitId ? `?permit=${f.permitId}` : ''}`
+                      : '/board'
+                  }
+                  onClick={() => setOpen(false)}
+                  className="block px-3.5 py-1.5 hover:bg-s2 transition"
+                  data-testid={`bell-flip-${f.key}`}
+                  data-merged={f.merged ? 'true' : 'false'}
+                >
+                  <div className="text-[11px] font-bold text-text leading-tight">
+                    {f.title}
+                  </div>
+                  {f.subtitle && (
+                    <div className="text-[10px] text-muted">{f.subtitle}</div>
+                  )}
+                  <div className="text-[9px] text-dim font-mono truncate">{f.where}</div>
+                </Link>
+              ))}
+            </div>
+          )}
 
           {/* ★ NEVER NOTIFY, BUT SHOW THE COUNT. The scraper's retries and
               manual-edit guards are the two largest event categories in the
