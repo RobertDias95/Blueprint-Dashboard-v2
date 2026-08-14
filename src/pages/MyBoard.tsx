@@ -12,6 +12,7 @@ import { useScraperActivity } from '../hooks/useScraperActivity';
 import { useMilestoneAcks, useAckMilestone } from '../hooks/useMilestoneAcks';
 import { useConfirmHandoff } from '../hooks/useConfirmHandoff';
 import { useDmDaGroups } from '../hooks/useDmDaGroups';
+import { useDaTeamRouting } from '../hooks/useDaTeamRouting';
 // ★ fix-303 §3: the SAME editor My Tasks uses, lifted out of it so the board is
 // not a lesser copy. Not a second editing path — literally the same component,
 // the same hooks, the same RPC.
@@ -22,14 +23,13 @@ import { nestSubtasks } from '../lib/taskNesting';
 import {
   BOARD_SECTION_CAPS,
   buildForecast,
-  buildQueue,
   canConfirmHandoff,
   handoffAffordance,
   isDesignTask,
   resolveBoardViewer,
-  buildTeamQueues,
-  designReportsFor,
-  entitlementReportsFor,
+  buildQueueForScope,
+  teamMembersFor,
+  DEFAULT_QUEUE_SCOPE,
   systemHealth,
   teamMappingGap,
   todayIso,
@@ -38,7 +38,7 @@ import {
   type BoardSection,
   type ForecastItem,
   type QueueProject,
-  type TeamQueue,
+  type QueueScope,
   type QueuePermitDetail,
 } from '../lib/myBoard';
 
@@ -226,7 +226,7 @@ function ForecastRow({
             {item.projectId ? (
               <>
                 <Link
-                  to={`/projects/${item.projectId}`}
+                  to={`/project/${item.projectId}`}
                   className="text-de hover:underline"
                   data-testid={`board-row-project-${item.key}`}
                 >
@@ -236,7 +236,7 @@ function ForecastRow({
                   <>
                     {' · '}
                     <Link
-                      to={`/projects/${item.projectId}?permit=${item.permitId}`}
+                      to={`/project/${item.projectId}?permit=${item.permitId}`}
                       className="text-de hover:underline"
                       data-testid={`board-row-permit-${item.key}`}
                     >
@@ -264,14 +264,29 @@ function ForecastRow({
             )}
           </div>
         </div>
-        <div className={`text-[9px] ml-auto text-right whitespace-nowrap pl-1.5 ${tone}`}>
-          <b className="block text-[10px]">
-            {item.daysLate > 0
-              ? `${item.daysLate}d`
-              : item.daysLate === 0
-                ? 'today'
-                : item.date.slice(5)}
-          </b>
+        {/* ★ fix-306 #29: the right-hand space was empty. It now carries the
+            ACTION — one line saying what to do — above the date, so the row
+            answers "what am I supposed to do with this" without a click. */}
+        <div className="ml-auto text-right pl-2 flex-none max-w-[46%]">
+          {item.actionLine && (
+            <div
+              className={`text-[10px] font-bold leading-tight ${
+                item.actionable ? 'text-text' : 'text-dim'
+              }`}
+              data-testid={`board-row-action-${item.key}`}
+            >
+              {item.actionLine}
+            </div>
+          )}
+          <div className={`text-[9px] whitespace-nowrap ${tone}`}>
+            <b className="text-[10px]">
+              {item.daysLate > 0
+                ? `${item.daysLate}d late`
+                : item.daysLate === 0
+                  ? 'today'
+                  : item.date.slice(5)}
+            </b>
+          </div>
         </div>
       </div>
 
@@ -290,6 +305,18 @@ function ForecastRow({
   );
 }
 
+/** ★ fix-306 #33: one permit line that SCANS.
+ *
+ *  "Address, permit number, and then a bunch of tags… a lot of white open
+ *  space, it just looks like it's not formatted, it's not reading very well."
+ *
+ *  Redesigned around what matters, in order: which permit · what state · what
+ *  date · how long. The left column holds identity, the right column holds the
+ *  clock — so the eye runs down two aligned edges instead of hunting through a
+ *  ragged block of tags. The horizontal space is used for the dates rather
+ *  than padded with sentences (#22 stays cut).
+ *
+ *  ★ A missing date still says so in words. */
 function PermitDetailLine({
   d,
   projectId,
@@ -297,52 +324,44 @@ function PermitDetailLine({
   d: QueuePermitDetail;
   projectId: string;
 }) {
-  const bits: string[] = [];
-  if (d.submitted) bits.push(`submitted ${d.submitted}`);
-  else bits.push('not yet submitted');
-  if (d.intakeAccepted) bits.push(`intake ${d.intakeAccepted}`);
-  else if (d.submitted) bits.push('intake not accepted yet');
-
   return (
     <div
-      className="mt-1 pl-2 border-l-2 border-border"
+      className="mt-1 flex items-baseline gap-2 text-[10px]"
       data-testid={`board-permit-${d.permitId}`}
     >
-      <div className="text-[10px] font-bold text-text">
-        {/* ★ fix-304 §20: the permit number is a LINK straight to the permit,
-            in the queue as well as the forecast. */}
+      {/* Identity — which permit. */}
+      <div className="min-w-0 flex-1">
         <Link
-          to={`/projects/${projectId}?permit=${d.permitId}`}
-          className="text-de hover:underline"
+          to={`/project/${projectId}?permit=${d.permitId}`}
+          className="font-bold text-de hover:underline"
           data-testid={`board-permit-${d.permitId}-link`}
         >
           {d.num ?? 'No permit number'}
         </Link>
-        <span className="font-normal text-muted"> · {d.type}</span>
+        <span className="text-muted"> · {d.type}</span>
         {d.cycleIndex !== null && (
-          <span className="font-normal text-dim"> · cycle {d.cycleIndex}</span>
+          <span className="text-dim"> · cy{d.cycleIndex}</span>
         )}
       </div>
-      <div className="text-[9.5px] text-muted font-mono">{bits.join(' · ')}</div>
-      <div className="text-[9.5px]">
+
+      {/* State + how long — the middle question. */}
+      <div className="text-dim whitespace-nowrap" data-testid={`board-permit-${d.permitId}-state`}>
+        {d.daysInState}d {d.stateLabel}
+      </div>
+
+      {/* The clock — right-aligned so it forms a column down the panel. */}
+      <div
+        className="text-right whitespace-nowrap w-[104px] flex-none"
+        data-testid={`board-permit-${d.permitId}-target`}
+      >
         {d.cityTarget ? (
-          <span
-            className={d.cityTargetPassed ? 'text-co font-bold' : 'text-muted'}
-            data-testid={`board-permit-${d.permitId}-target`}
-          >
-            City target {d.cityTarget}
-            {d.cityTargetPassed ? ' — passed' : ''}
+          <span className={d.cityTargetPassed ? 'text-co font-bold' : 'text-muted'}>
+            target {d.cityTarget.slice(5)}
+            {d.cityTargetPassed ? ' ⚑' : ''}
           </span>
         ) : (
-          // ★ Said out loud, not left blank.
-          <span className="text-dim italic" data-testid={`board-permit-${d.permitId}-target`}>
-            No target date
-          </span>
+          <span className="text-dim italic">No target date</span>
         )}
-        <span className="text-dim">
-          {' · '}
-          {d.daysInState}d {d.stateLabel}
-        </span>
       </div>
     </div>
   );
@@ -354,23 +373,27 @@ function QueueRow({ item }: { item: QueueProject }) {
       className="px-3.5 py-2 border-b border-border/50"
       data-testid={`board-queue-row-${item.key}`}
     >
-      <div className="text-[11.5px] font-extrabold text-text truncate">
-        <Link to={`/projects/${item.projectId}`} className="hover:underline">
+      {/* Project — the headline, with the state and count on the same line so
+          the row opens with "where is this and what does it need". */}
+      <div className="flex items-baseline gap-2">
+        <Link
+          to={`/project/${item.projectId}`}
+          className="text-[11.5px] font-extrabold text-text hover:underline truncate"
+          data-testid={`board-queue-project-${item.key}`}
+        >
           {item.address}
         </Link>
         {item.permitCount > 1 && (
-          <span className="ml-1.5 inline-block text-[8px] font-extrabold uppercase px-1.5 rounded-lg bg-s2 text-muted align-[1px]">
-            {item.permitCount} permits
+          <span className="text-[9px] text-dim flex-none">{item.permitCount} permits</span>
+        )}
+        {item.status && (
+          <span className="text-[10px] text-muted ml-auto flex-none truncate">
+            {item.status}
           </span>
         )}
       </div>
-      {/* fix-304 §22: both are omitted when empty rather than rendering an
-          empty line — the permit detail below carries the facts. */}
-      {item.status && (
-        <div className="text-[10px] text-muted mt-0.5 leading-snug">{item.status}</div>
-      )}
       {item.next && (
-        <div className="text-[10.5px] font-bold mt-1 text-text">{item.next}</div>
+        <div className="text-[10.5px] font-bold text-text mt-0.5">{item.next}</div>
       )}
       {item.permits.map((d) => (
         <PermitDetailLine key={d.permitId} d={d} projectId={item.projectId} />
@@ -490,6 +513,11 @@ export default function MyBoard() {
   const upsertTask = useUpsertTask();
   const handoff = useConfirmHandoff();
   const dmGroups = useDmDaGroups();
+  const entRouting = useDaTeamRouting();
+
+  // ★ fix-306 #35: the queue's scope. Defaults to MY QUEUE so nobody is handed
+  // 90 permits on load.
+  const [queueScope, setQueueScope] = useState<QueueScope>(DEFAULT_QUEUE_SCOPE);
 
   // fix-303 §1: which sections the user has expanded. Keyed by testid so every
   // section — including the per-report team ones — gets its own toggle.
@@ -524,8 +552,8 @@ export default function MyBoard() {
     if (item.projectId) {
       navigate(
         item.permitId != null
-          ? `/projects/${item.projectId}?permit=${item.permitId}`
-          : `/projects/${item.projectId}`,
+          ? `/project/${item.projectId}?permit=${item.permitId}`
+          : `/project/${item.projectId}`,
       );
     }
   }
@@ -587,23 +615,31 @@ export default function MyBoard() {
   }, [allTasks]);
 
   const forecast = useMemo(() => buildForecast(input), [input]);
-  const queue = useMemo(() => buildQueue(input), [input]);
+  // ★ fix-306 #35: the people this viewer may scope the queue to. Derived from
+  // dm_da_groups (design managers), da_team_routing (entitlement leads), or
+  // everyone (oversight). A design associate gets an empty list and therefore
+  // no toggle at all.
+  const teamNames = useMemo(() => {
+    const everyone = [
+      ...new Set(
+        (permitsQ.data ?? [])
+          .flatMap((p) => [p.da, p.ent_lead])
+          .map((n) => (n ?? '').trim())
+          .filter(Boolean),
+      ),
+    ];
+    return teamMembersFor(viewer, dmGroups.rows ?? [], entRouting.data ?? [], everyone);
+  }, [viewer, dmGroups.rows, entRouting.data, permitsQ.data]);
 
-  // fix-303 §2: the people this viewer is responsible for. Derived from data,
-  // never from a name list — an oversight entitlement leader picks up the other
-  // ent leads; a design manager picks up their DAs via dm_da_groups.
-  const teamQueues: TeamQueue[] = useMemo(() => {
-    const entReports = entitlementReportsFor(viewer, permitsQ.data ?? []).map((owner) => ({
-      owner,
-      relationship: 'entitlement-lead' as const,
-    }));
-    const designReports = designReportsFor(viewer, dmGroups.rows ?? []).map((owner) => ({
-      owner,
-      relationship: 'design-associate' as const,
-    }));
-    const reports = [...entReports, ...designReports];
-    return reports.length === 0 ? [] : buildTeamQueues(input, reports);
-  }, [viewer, permitsQ.data, dmGroups.rows, input]);
+  // ★ THE RULE: the scope reaches the QUEUE and nothing else. buildForecast is
+  // called with `input` untouched, so a manager's day stays their own however
+  // they filter the queue. The test for this is the one most likely to catch a
+  // regression, and it exists.
+  const queue = useMemo(
+    () => buildQueueForScope(input, queueScope, teamNames),
+    [input, queueScope, teamNames],
+  );
+
 
   // ★ The mapping gap. Only shown to someone who manages people — it is their
   // structure that is wrong — and never silently swallowed.
@@ -617,8 +653,10 @@ export default function MyBoard() {
       ),
     [team.all, dmGroups.rows, permitsQ.data, input.cancelledIds],
   );
+  // The gap is shown to anyone who manages people — it is their structure
+  // that is wrong — and only when there is a gap to show.
   const showGap =
-    teamQueues.length > 0 &&
+    teamNames.length > 0 &&
     (mappingGap.unassignedDas.length > 0 || mappingGap.formerInGroups.length > 0);
   const health = useMemo(
     () =>
@@ -803,6 +841,71 @@ export default function MyBoard() {
                 {queue.projectCount} projects · where each one sits and what it needs next
               </div>
             </div>
+            {/* ★ fix-306 #35: My queue · My team · [person]. A filter on the
+                existing queue, not a separate page. Absent entirely for a
+                design associate, who has no team to filter to. */}
+            {teamNames.length > 0 && (
+              <div
+                className="px-3.5 py-1.5 border-b border-border flex items-center gap-1 flex-wrap flex-none"
+                data-testid="board-queue-scope"
+              >
+                <button
+                  type="button"
+                  onClick={() => setQueueScope({ mode: 'mine' })}
+                  className={`text-[10px] px-2 py-0.5 rounded border ${
+                    queueScope.mode === 'mine'
+                      ? 'bg-de text-white border-de'
+                      : 'bg-bg text-muted border-border hover:text-text'
+                  }`}
+                  data-testid="board-scope-mine"
+                  aria-pressed={queueScope.mode === 'mine'}
+                >
+                  My queue
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setQueueScope({ mode: 'team' })}
+                  className={`text-[10px] px-2 py-0.5 rounded border ${
+                    queueScope.mode === 'team'
+                      ? 'bg-de text-white border-de'
+                      : 'bg-bg text-muted border-border hover:text-text'
+                  }`}
+                  data-testid="board-scope-team"
+                  aria-pressed={queueScope.mode === 'team'}
+                >
+                  My team ({teamNames.length})
+                </button>
+                <select
+                  value={queueScope.mode === 'person' ? (queueScope.person ?? '') : ''}
+                  onChange={(e) =>
+                    setQueueScope(
+                      e.target.value
+                        ? { mode: 'person', person: e.target.value }
+                        : { mode: 'mine' },
+                    )
+                  }
+                  className="text-[10px] px-1.5 py-0.5 rounded border border-border bg-bg text-text"
+                  data-testid="board-scope-person"
+                  aria-label="Filter the queue to one person"
+                >
+                  <option value="">— one person —</option>
+                  {teamNames.map((n) => (
+                    <option key={n} value={n}>
+                      {n}
+                    </option>
+                  ))}
+                </select>
+                {showGap && (
+                  <span
+                    className="text-[9px] text-co ml-auto"
+                    data-testid="board-scope-gap"
+                    title="Some active designers are not assigned to any manager"
+                  >
+                    ⚑ {mappingGap.unassignedDas.length} unassigned
+                  </span>
+                )}
+              </div>
+            )}
             <div className="overflow-y-auto flex-1 min-h-0" data-testid="my-board-queue-scroll">
               {/* ★ THE HANDOFF. "All design tasks are done. Hand this to
                   Miles to resubmit?" Sits at the top of the queue because it
@@ -890,106 +993,6 @@ export default function MyBoard() {
                 expanded={isExpanded('board-sec-waiting-city')}
                 onToggle={() => toggleSection('board-sec-waiting-city')}
               />
-
-              {/* ★ fix-303 §2: TEAM QUEUES. A split, never a merge — each
-                  report gets their own titled block so whose queue a row
-                  belongs to is never ambiguous. More people means more
-                  sections to scroll through, never a taller page. */}
-              {teamQueues.length > 0 && (
-                <div data-testid="board-team-wrap">
-                  <SectionHeader
-                    label="Your team"
-                    total={teamQueues.length}
-                    capped={false}
-                    testid="board-sec-team"
-                  />
-                  {showGap && (
-                    // ★ THE MAPPING GAP, SAID OUT LOUD. A board that quietly
-                    // omits Cam — the largest DA load in the company — is worse
-                    // than one that says he is unassigned.
-                    <div
-                      className="px-3.5 py-2 bg-co-bg border-b border-border"
-                      data-testid="board-team-gap"
-                    >
-                      {mappingGap.unassignedDas.length > 0 && (
-                        <div className="text-[10px] text-co" data-testid="board-gap-unassigned">
-                          <b>
-                            {mappingGap.unassignedDas.length} active designer
-                            {mappingGap.unassignedDas.length === 1 ? '' : 's'} not assigned
-                            to any manager
-                          </b>
-                          {' — '}
-                          {mappingGap.unassignedDas
-                            .map((d) => `${d.name} (${d.activePermits})`)
-                            .join(', ')}
-                          . Their work appears on nobody&apos;s team queue.
-                        </div>
-                      )}
-                      {mappingGap.formerInGroups.length > 0 && (
-                        <div
-                          className="text-[10px] text-muted mt-1"
-                          data-testid="board-gap-former"
-                        >
-                          Former staff still in a manager group —{' '}
-                          {mappingGap.formerInGroups
-                            .map((d) => `${d.name} (${d.activePermits})`)
-                            .join(', ')}
-                          .
-                        </div>
-                      )}
-                      {/* ★ Deliberately NOT a link. Settings is a modal owned
-                          by Chrome, so there is no /settings/team URL — a Link
-                          there would fall through the catch-all to the
-                          dashboard, which is exactly the dead-control failure
-                          this ticket opened with. The editor already exists
-                          (Settings → Team → Team structure) and already offers
-                          reassignment, so this points at it in words. */}
-                      <div className="text-[10px] text-muted" data-testid="board-gap-fix-hint">
-                        An admin can reassign them in Settings → Team → Team structure.
-                      </div>
-                    </div>
-                  )}
-                  {teamQueues.map((tq) => (
-                    <div key={tq.owner} data-testid={`board-team-${tq.owner}`}>
-                      <SectionHeader
-                        label={`${tq.owner} · ${
-                          tq.relationship === 'entitlement-lead'
-                            ? 'entitlement lead'
-                            : 'design associate'
-                        }`}
-                        total={
-                          tq.queue.blocked_on_you.total +
-                          tq.queue.waiting_on_design.total +
-                          tq.queue.waiting_on_city.total
-                        }
-                        capped={false}
-                        testid={`board-sec-team-${tq.owner}`}
-                      />
-                      <QueueSection
-                        label={`${tq.owner} — blocked`}
-                        data={tq.queue.blocked_on_you}
-                        testid={`board-sec-team-${tq.owner}-blocked`}
-                        expanded={isExpanded(`board-sec-team-${tq.owner}-blocked`)}
-                        onToggle={() => toggleSection(`board-sec-team-${tq.owner}-blocked`)}
-                      />
-                      <QueueSection
-                        label={`${tq.owner} — waiting on design`}
-                        data={tq.queue.waiting_on_design}
-                        testid={`board-sec-team-${tq.owner}-design`}
-                        expanded={isExpanded(`board-sec-team-${tq.owner}-design`)}
-                        onToggle={() => toggleSection(`board-sec-team-${tq.owner}-design`)}
-                      />
-                      <QueueSection
-                        label={`${tq.owner} — with the city`}
-                        data={tq.queue.waiting_on_city}
-                        testid={`board-sec-team-${tq.owner}-city`}
-                        expanded={isExpanded(`board-sec-team-${tq.owner}-city`)}
-                        onToggle={() => toggleSection(`board-sec-team-${tq.owner}-city`)}
-                      />
-                    </div>
-                  ))}
-                </div>
-              )}
 
               {/* fix-298 Phase 2: system health — OVERSIGHT ONLY.
                   This is where the old scraper-activity bell went. It is not

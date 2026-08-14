@@ -14,6 +14,7 @@ const state = vi.hoisted(() => ({
   activity: [] as unknown[],
   acks: [] as unknown[],
   dmRows: [] as unknown[],
+  entRows: [] as unknown[],
   ackMutate: vi.fn(),
   taskMutate: vi.fn(),
   confirmHandoff: vi.fn(),
@@ -56,6 +57,9 @@ vi.mock('../hooks/useTaskTree', () => ({
 }));
 vi.mock('../hooks/useDmDaGroups', () => ({
   useDmDaGroups: () => ({ rows: state.dmRows }),
+}));
+vi.mock('../hooks/useDaTeamRouting', () => ({
+  useDaTeamRouting: () => ({ data: state.entRows }),
 }));
 vi.mock('../hooks/useConfirmHandoff', () => ({
   useConfirmHandoff: () => ({
@@ -135,15 +139,22 @@ const mkTask = (over: Record<string, unknown>) => ({
   ...over,
 });
 
-/** Renders the board with a stub /projects/:id route so a navigation caused by
- *  clicking a row is observable. */
+/** Renders the board with the REAL project route mounted, so a navigation
+ *  caused by clicking a row is observable AND has to match what the app
+ *  actually serves.
+ *
+ *  ★ fix-306: this harness previously mounted `/projects/:id` — a path the
+ *  router does not have. The board linked to the same wrong path, so the test
+ *  passed while every real click landed on the project LIST. The test agreed
+ *  with the bug instead of catching it. The route below is copied from
+ *  router.tsx deliberately. */
 function renderBoard() {
   return render(
     <MemoryRouter initialEntries={['/board']}>
       <Routes>
         <Route path="/board" element={<MyBoard />} />
         <Route
-          path="/projects/:id"
+          path="/project/:id"
           element={<div data-testid="landed-on-project" />}
         />
       </Routes>
@@ -161,6 +172,7 @@ beforeEach(() => {
   state.activity = [];
   state.acks = [];
   state.dmRows = [];
+  state.entRows = [];
   state.ackMutate.mockClear();
   state.taskMutate.mockClear();
   state.confirmHandoff.mockClear();
@@ -220,11 +232,11 @@ describe('fix-304 §20: the permit is a link, in both panels', () => {
     milestoneOnlyBoard();
     renderBoard();
     const permitLink = screen.getByTestId(/^board-row-permit-m-/);
-    expect(permitLink.getAttribute('href')).toBe('/projects/p1?permit=1');
+    expect(permitLink.getAttribute('href')).toBe('/project/p1?permit=1');
     // …and it names the permit rather than saying "Permit".
     expect(permitLink.textContent).toContain('BLD2026-0319');
     expect(screen.getByTestId(/^board-row-project-m-/).getAttribute('href')).toBe(
-      '/projects/p1',
+      '/project/p1',
     );
   });
 
@@ -254,7 +266,7 @@ describe('fix-304 §20: the permit is a link, in both panels', () => {
     ];
     renderBoard();
     const link = screen.getByTestId(/^board-permit-\d+-link$/);
-    expect(link.getAttribute('href')).toBe('/projects/p1?permit=1');
+    expect(link.getAttribute('href')).toBe('/project/p1?permit=1');
     expect(link.textContent).toContain('BLD2026-0319');
   });
 });

@@ -19,6 +19,7 @@ const state = vi.hoisted(() => ({
   activity: [] as unknown[],
   acks: [] as unknown[],
   dmRows: [] as unknown[],
+  entRows: [] as unknown[],
   ackMutate: vi.fn(),
   taskMutate: vi.fn(),
   confirmHandoff: vi.fn(),
@@ -59,6 +60,9 @@ vi.mock('../hooks/useTaskTree', () => ({
 }));
 vi.mock('../hooks/useDmDaGroups', () => ({
   useDmDaGroups: () => ({ rows: state.dmRows }),
+}));
+vi.mock('../hooks/useDaTeamRouting', () => ({
+  useDaTeamRouting: () => ({ data: state.entRows }),
 }));
 // The real editor is exercised by MyTasks' own tests; here we only need to know
 // the board opens THE SAME component rather than growing its own.
@@ -137,6 +141,7 @@ beforeEach(() => {
   state.activity = [];
   state.acks = [];
   state.dmRows = [];
+  state.entRows = [];
   state.ackMutate.mockClear();
   state.taskMutate.mockClear();
   state.confirmHandoff.mockClear();
