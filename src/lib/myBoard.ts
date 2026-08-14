@@ -538,6 +538,50 @@ export function milestoneVerb(kind: MilestoneKind, leg: BoardLeg): string {
   return MILESTONE_VERBS[kind][leg === 'design' ? 'design' : 'ent'];
 }
 
+/** ★ fix-306 #29: what to DO, not what it is.
+ *
+ *  "What am I supposed to do with intake appointment? Is it ready to submit? I
+ *  don't know what this really means." A label names a thing; an action tells
+ *  somebody who has never seen the row what happens next.
+ *
+ *  ONE LINE, and facts only — #22 cut the verbiage and this must not undo it.
+ *  Where the row is the other half's, the action says who it is with, because
+ *  "nothing, it is with Fisk" is also an answer to "what do I do". */
+export function milestoneAction(
+  kind: MilestoneKind,
+  leg: BoardLeg,
+  state: RelayState,
+  permit: Pick<Permit, 'da' | 'ent_lead'>,
+  m: Pick<MilestoneOccurrence, 'date' | 'daysLate'>,
+): string {
+  if (state === 'waiting') {
+    const who =
+      leg === 'entitlement' ? (permit.da ?? '').trim() : (permit.ent_lead ?? '').trim();
+    return who ? `Wait — with ${who}` : 'Wait — with the other half';
+  }
+  const late = m.daysLate ?? 0;
+  switch (kind) {
+    case 'intake':
+      return `Upload the set, then attend — ${
+        late > 0 ? `appointment was ${late}d ago` : `appointment ${m.date ?? 'booked'}`
+      }`;
+    case 'target_submit':
+      return leg === 'design'
+        ? `Finish the set — ${late > 0 ? `${late}d past target` : 'target ahead'}`
+        : `File it — ${late > 0 ? `${late}d past target` : 'target ahead'}`;
+    case 'corrections':
+      return leg === 'design' ? 'Work the redlines' : 'Resubmit to the city';
+    case 'fees':
+      return `Pay issuance fees — approved ${late}d ago`;
+    case 'reviewer_silent':
+      return `Chase the reviewer — ${late}d without movement`;
+    case 'draw':
+      return `Close the draw window — ends ${m.date ?? 'soon'}`;
+    case 'issuance':
+      return 'Collect the permit';
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Forecast — the LEFT panel. Only ever things with a DATE.
 // ---------------------------------------------------------------------------
@@ -593,6 +637,9 @@ export interface ForecastItem {
   /** For 'handoff' — the cycle to anchor on and who receives the submittal. */
   cycleIndex: number | null;
   entLead: string | null;
+  /** ★ fix-306 #29: one line saying what to DO. Rendered in the right-hand
+   *  space the forecast was wasting. */
+  actionLine: string;
   /** fix-304 §20: the pieces the row needs to LINK rather than just describe. */
   projectId: string | null;
   address: string | null;
@@ -652,6 +699,10 @@ export interface BoardInput {
   cancelledIds?: ReadonlySet<string>;
   /** fix-298 Phase 2: milestone actions already taken. */
   acks?: ReadonlyArray<PermitMilestoneAck>;
+  /** fix-306 #35: when set, the QUEUE is scoped to these people's work instead
+   *  of the viewer's own. Never set for the forecast — a manager's day is
+   *  their own. */
+  scopeNames?: ReadonlyArray<string>;
 }
 
 interface Prepared {
@@ -682,13 +733,29 @@ function prepare(input: BoardInput): Prepared[] {
     if (isSubPermit(permit)) continue;
     if (isCancelledProject(permit.project_id, cancelledIds)) continue;
 
+    // fix-306 #35: a team-scoped queue asks "whose work is this" of the SCOPE,
+    // not of the viewer. The relay legs still resolve from the permit, so a
+    // manager looking at Fisk's queue sees it the way Fisk does.
+    const scope = input.scopeNames;
+    if (scope && scope.length > 0) {
+      const inScope = scope.some((n) => {
+        const t = n.trim().toLowerCase();
+        return (
+          t !== '' &&
+          ((permit.da ?? '').trim().toLowerCase() === t ||
+            (permit.ent_lead ?? '').trim().toLowerCase() === t)
+        );
+      });
+      if (!inScope) continue;
+    }
+
     const isDa = (permit.da ?? '').trim().toLowerCase() === me && me !== '';
     const isEnt = (permit.ent_lead ?? '').trim().toLowerCase() === me && me !== '';
     const legs: BoardLeg[] = [];
     if (isDa) legs.push('design');
     if (isEnt) legs.push('entitlement');
     // Oversight ADDS the wide view: everything, on top of their own scope.
-    if (legs.length === 0 && !viewer.isOversight) continue;
+    if (legs.length === 0 && !viewer.isOversight && !(scope && scope.length > 0)) continue;
 
     const project = byProject.get(permit.project_id);
     out.push({
@@ -747,6 +814,7 @@ export function buildForecast(input: BoardInput): Forecast {
           permitId: p.permit.id,
           taskId: null,
           action: isHandoff ? 'handoff' : 'ack',
+          actionLine: milestoneAction(m.kind, leg, state, p.permit, m),
           projectId: p.permit.project_id,
           address: p.project?.address ?? null,
           permitLabel: permitLabelOf(p.permit),
@@ -784,6 +852,8 @@ export function buildForecast(input: BoardInput): Forecast {
       permitId: t.permit_id,
       taskId: t.id,
       action: 'resolve-task',
+      // A named task already says what to do — its own text is the action.
+      actionLine: '',
       projectId: t.project_id ?? null,
       address: t.project_address ?? null,
       permitLabel: t.permit_type ?? null,
@@ -1319,4 +1389,89 @@ export function teamMappingGap(
     .sort((a, b) => b.activePermits - a.activePermits || a.name.localeCompare(b.name));
 
   return { unassignedDas, formerInGroups };
+}
+
+// ---------------------------------------------------------------------------
+// fix-306 #35 — the team view.
+//
+// ★ THE RULE, AND IT IS THE ONE MOST LIKELY TO BE GOT WRONG:
+//   The FORECAST is always personal. Brittani's forecast is what SHE is
+//   assigned to or impacted by — never her design associates' tasks. Her day is
+//   not their day, and a manager whose day fills with other people's work has
+//   lost the plot of this screen.
+//   The QUEUE can be team-wide, with a filter to drill into one person.
+//
+// So the toggle below scopes the QUEUE ONLY. buildForecast never sees it.
+//
+// Measured 2026-08-14: Brittani 90 permits (Ahmadi, Fisk, Marc) · Lindsay 69
+// (Ainsley, Francesca, Trevor) · Derry 37 (Chad, Nicky, Qisheng) · Jade 13
+// (Alex, Erick, Nidhi). Entitlement leads route through da_team_routing
+// instead: Miles 9 DAs / 204 permits, Briana 4 DAs / 81.
+// ---------------------------------------------------------------------------
+
+export type QueueScopeMode = 'mine' | 'team' | 'person';
+
+export interface QueueScope {
+  mode: QueueScopeMode;
+  /** Set when mode === 'person'. */
+  person?: string | null;
+}
+
+/** Default: MY QUEUE. Nobody is handed 90 permits on load. */
+export const DEFAULT_QUEUE_SCOPE: QueueScope = { mode: 'mine' };
+
+export interface EntRoutingRow {
+  da: string;
+  ent_lead?: string | null;
+}
+
+/** The people whose work a viewer may scope the queue to.
+ *
+ *  Design manager  -> their DAs via dm_da_groups
+ *  Entitlement lead-> their DAs via da_team_routing
+ *  Oversight       -> everyone holding live work
+ *  Design associate-> nobody; they get no toggle at all. */
+export function teamMembersFor(
+  viewer: BoardViewer,
+  dmRows: ReadonlyArray<DmDaRow>,
+  entRows: ReadonlyArray<EntRoutingRow>,
+  everyone: ReadonlyArray<string>,
+): string[] {
+  const me = (viewer.name ?? '').trim().toLowerCase();
+  if (!me) return [];
+  if (viewer.isOversight) {
+    return [...new Set(everyone.map((n) => n.trim()).filter(Boolean))].sort((a, b) =>
+      a.localeCompare(b),
+    );
+  }
+  const names = new Set<string>();
+  for (const r of dmRows) {
+    if ((r.dm_name ?? '').trim().toLowerCase() === me) {
+      const da = (r.da_name ?? '').trim();
+      if (da) names.add(da);
+    }
+  }
+  for (const r of entRows) {
+    if ((r.ent_lead ?? '').trim().toLowerCase() === me) {
+      const da = (r.da ?? '').trim();
+      if (da) names.add(da);
+    }
+  }
+  return [...names].sort((a, b) => a.localeCompare(b));
+}
+
+/** Build the queue for a scope. 'mine' is the viewer's own; 'team' is the union
+ *  of their people; 'person' is one of them.
+ *
+ *  ★ Only ever called for the QUEUE. The forecast is built from `input`
+ *  untouched, which is what keeps a manager's day their own. */
+export function buildQueueForScope(
+  input: BoardInput,
+  scope: QueueScope,
+  team: ReadonlyArray<string>,
+): ProjectQueue {
+  if (scope.mode === 'mine') return buildQueue(input);
+  const names =
+    scope.mode === 'person' && scope.person ? [scope.person] : [...team];
+  return buildQueue({ ...input, scopeNames: names });
 }

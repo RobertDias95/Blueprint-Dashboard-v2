@@ -31,6 +31,11 @@ import { useAuthStore } from '../stores/authStore';
 export interface DaTeamRoutingRow {
   da: string;
   jurisdiction: string | null;
+  /** fix-306 #35: the entitlement lead this DA routes to. The wizard ignores
+   *  it (it only needs the da/juris pair for selectability); My Board reads it
+   *  to build an entitlement lead's team. Optional so the wizard's existing
+   *  fixtures still typecheck. */
+  ent_lead?: string | null;
 }
 
 /** All da_team_routing rows for the active tenant. The wizard reads
@@ -44,7 +49,7 @@ export function useDaTeamRouting() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('da_team_routing')
-        .select('da, jurisdiction');
+        .select('da, jurisdiction, ent_lead');
       if (error) throw error;
       return (data ?? []) as DaTeamRoutingRow[];
     },

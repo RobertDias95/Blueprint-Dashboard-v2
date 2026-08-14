@@ -17,6 +17,7 @@ const state = vi.hoisted(() => ({
   activity: [] as unknown[],
   acks: [] as unknown[],
   dmRows: [] as unknown[],
+  entRows: [] as unknown[],
   ackMutate: vi.fn(),
   taskMutate: vi.fn(),
   confirmHandoff: vi.fn(),
@@ -59,6 +60,9 @@ vi.mock('../hooks/useTaskTree', () => ({
 }));
 vi.mock('../hooks/useDmDaGroups', () => ({
   useDmDaGroups: () => ({ rows: state.dmRows }),
+}));
+vi.mock('../hooks/useDaTeamRouting', () => ({
+  useDaTeamRouting: () => ({ data: state.entRows }),
 }));
 vi.mock('../hooks/useConfirmHandoff', () => ({
   useConfirmHandoff: () => ({
@@ -157,6 +161,7 @@ beforeEach(() => {
   state.activity = [];
   state.acks = [];
   state.dmRows = [];
+  state.entRows = [];
   state.ackMutate.mockClear();
   state.taskMutate.mockClear();
   state.confirmHandoff.mockClear();
@@ -219,8 +224,12 @@ describe('fix-303 §1: ★ Show all actually does something', () => {
 });
 
 // ---------------------------------------------------------------------------
-describe('fix-303 §2: team sections — a split, never a merge', () => {
-  it('★ Bobby sees his OWN queue and Miles and Briana as separate sections', () => {
+// fix-306 #35 REPLACED fix-303's fixed per-report sections with a scope toggle
+// on the queue — "a holistic view of my whole team's queue, then fine-tune by
+// individuals". These tests keep the original INTENT (who can reach whose
+// queue, and that a DA reaches nobody's) against the new control.
+describe('fix-303 §2 → fix-306 #35: who can reach whose queue', () => {
+  it('★ Bobby can reach the whole company, and one person at a time', () => {
     state.name = 'Bobby';
     state.members = [{ name: 'Bobby', role: 'ent_lead', is_oversight: true }];
     state.projects = [mkProject('p1', 'A St')];
@@ -229,23 +238,23 @@ describe('fix-303 §2: team sections — a split, never a merge', () => {
       mkPermit({ ent_lead: 'Briana', da: 'Marc' }),
     ];
     renderBoard();
-    // His own three groups are still his…
-    expect(screen.getByTestId('board-sec-blocked')).toBeTruthy();
-    // …and theirs sit alongside, each labelled with whose they are.
-    expect(screen.getByTestId('board-team-Miles')).toBeTruthy();
-    expect(screen.getByTestId('board-team-Briana')).toBeTruthy();
-    expect(screen.getByTestId('board-sec-team-Miles').textContent).toContain('Miles');
+    expect(screen.getByTestId('board-queue-scope')).toBeTruthy();
+    const people = Array.from(
+      screen.getByTestId('board-scope-person').querySelectorAll('option'),
+    ).map((o) => o.textContent);
+    expect(people).toContain('Miles');
+    expect(people).toContain('Briana');
   });
 
-  it('★ a DA sees no team section at all', () => {
+  it('★ a DA sees no toggle at all', () => {
     state.name = 'Fisk';
     state.members = [{ name: 'Fisk', role: 'da', is_oversight: false }];
     state.dmRows = [{ dm_name: 'Brittani', da_name: 'Fisk' }];
     renderBoard();
-    expect(screen.queryByTestId('board-team-wrap')).toBeNull();
+    expect(screen.queryByTestId('board-queue-scope')).toBeNull();
   });
 
-  it('a DM sees one section per design associate, and only their own', () => {
+  it('a DM can reach their own DAs, and not another manager list', () => {
     state.name = 'Brittani';
     state.members = [{ name: 'Brittani', role: 'dm', is_oversight: false }];
     state.dmRows = [
@@ -254,12 +263,15 @@ describe('fix-303 §2: team sections — a split, never a merge', () => {
       { dm_name: 'Lindsay', da_name: 'Trevor' },
     ];
     renderBoard();
-    expect(screen.getByTestId('board-team-Ahmadi')).toBeTruthy();
-    expect(screen.getByTestId('board-team-Fisk')).toBeTruthy();
-    expect(screen.queryByTestId('board-team-Trevor')).toBeNull();
+    const people = Array.from(
+      screen.getByTestId('board-scope-person').querySelectorAll('option'),
+    ).map((o) => o.textContent);
+    expect(people).toContain('Ahmadi');
+    expect(people).toContain('Fisk');
+    expect(people).not.toContain('Trevor');
   });
 
-  it('★ the unassigned-DA gap is visible, naming Cam and his load', () => {
+  it('★ the unassigned-DA gap is still visible, on the toggle', () => {
     state.name = 'Brittani';
     state.members = [
       { name: 'Brittani', role: 'dm', is_oversight: false },
@@ -270,27 +282,7 @@ describe('fix-303 §2: team sections — a split, never a merge', () => {
     state.projects = [mkProject('p1', 'A St')];
     state.permits = Array.from({ length: 41 }, () => mkPermit({ da: 'Cam' }));
     renderBoard();
-    const gap = screen.getByTestId('board-gap-unassigned');
-    expect(gap.textContent).toContain('Cam');
-    expect(gap.textContent).toContain('41');
-    // …and it says where to fix it. NOT a link: Settings is a modal with no
-    // URL, so a Link would fall through to the dashboard — a dead control, the
-    // very thing this ticket opened by complaining about.
-    expect(screen.getByTestId('board-gap-fix-hint').textContent).toContain(
-      'Settings',
-    );
-    expect(screen.queryByTestId('board-gap-fix-link')).toBeNull();
-  });
-
-  it('former staff still in a group are named too', () => {
-    state.name = 'Derry';
-    state.members = [
-      { name: 'Derry', role: 'dm', is_oversight: false },
-      { name: 'Chad', role: 'da', active: false, former: true },
-    ];
-    state.dmRows = [{ dm_name: 'Derry', da_name: 'Chad' }];
-    renderBoard();
-    expect(screen.getByTestId('board-gap-former').textContent).toContain('Chad');
+    expect(screen.getByTestId('board-scope-gap').textContent).toContain('1');
   });
 });
 
@@ -324,11 +316,15 @@ describe('fix-303 §4: permit rows have real depth', () => {
     ];
     renderBoard();
     const row = screen.getByTestId(/^board-permit-\d+$/);
+    // fix-306 #33 redesigned this line to scan: identity · state+age · clock.
+    // The FACTS are unchanged, the prose around them is gone.
     expect(row.textContent).toContain('BLD2026-0319');
     expect(row.textContent).toContain('ULS');
-    expect(row.textContent).toContain('submitted 2026-04-01');
-    expect(row.textContent).toContain('City target 2026-06-01');
-    expect(row.textContent).toContain('passed');
+    expect(row.textContent).toContain('cy2');
+    expect(row.textContent).toContain('in review');
+    expect(row.textContent).toContain('target 06-01');
+    // The overdue marker, now a flag rather than the word "passed".
+    expect(row.textContent).toContain('⚑');
   });
 
   it('★ a missing target date says so rather than rendering blank', () => {
@@ -387,9 +383,9 @@ describe('fix-303 §3: full task functionality', () => {
     renderBoard();
     expect(
       screen.getByTestId('board-row-project-t-task-1').getAttribute('href'),
-    ).toBe('/projects/p1');
+    ).toBe('/project/p1');
     expect(screen.getByTestId('board-row-permit-t-task-1').getAttribute('href')).toBe(
-      '/projects/p1?permit=1',
+      '/project/p1?permit=1',
     );
     // Clicking through to My Tasks still works and is liked — the point is that
     // you should not HAVE to.

@@ -174,7 +174,7 @@ export default function BoardBell() {
                   key={f.key}
                   to={
                     f.projectId
-                      ? `/projects/${f.projectId}${f.permitId ? `?permit=${f.permitId}` : ''}`
+                      ? `/project/${f.projectId}${f.permitId ? `?permit=${f.permitId}` : ''}`
                       : '/board'
                   }
                   onClick={() => setOpen(false)}
