@@ -64,6 +64,13 @@ vi.mock('../hooks/useDmDaGroups', () => ({
 vi.mock('../hooks/useDaTeamRouting', () => ({
   useDaTeamRouting: () => ({ data: state.entRows }),
 }));
+// fix-307 added per-user read state. These files predate it and assert other
+// contracts, so reads are simply empty here — every item reads as unseen,
+// which changes only the highlight, never the rows.
+vi.mock('../hooks/useBoardReads', () => ({
+  useBoardReads: () => ({ data: [] }),
+  useMarkBoardItemsRead: () => ({ mutate: () => {}, isPending: false }),
+}));
 // The real editor is exercised by MyTasks' own tests; here we only need to know
 // the board opens THE SAME component rather than growing its own.
 vi.mock('../components/TaskDetailEditor', () => ({
@@ -314,13 +321,23 @@ describe('fix-298: the bell', () => {
     expect(screen.getByTestId('bell-suppressed-guarded').textContent).toContain('1');
   });
 
-  it('the badge counts what is asked of you, not what happened', () => {
+  // ★ fix-307 REPLACED this contract deliberately. The badge used to count
+  // what was ASKED OF YOU — past due + today + blocked — which never reaches
+  // zero, so it stopped being a signal and became decoration. It now counts
+  // what you have not SEEN. The outstanding work has not gone anywhere; it
+  // moved to the dropdown's "Where you stand", where it is context rather than
+  // notification. See MyBoardFix307.test.tsx for the new contract in full.
+  it('fix-307: an outstanding-but-unread-nothing board shows a ZERO badge', () => {
     state.projects = [mkProject('p1', 'A St')];
     state.permits = [
       mkPermit({ da: null, ent_lead: 'Miles', target_submit: '2026-01-01' }),
     ];
     renderBell();
-    expect(screen.getByTestId('board-bell-badge').textContent).toBe('1');
+    // Past due, but nothing NEW — so the badge is absent rather than showing 1.
+    expect(screen.queryByTestId('board-bell-badge')).toBeNull();
+    // …and the standing count still reports the work.
+    fireEvent.click(screen.getByTestId('board-bell-button'));
+    expect(screen.getByTestId('bell-past-due-value').textContent).toBe('1');
   });
 });
 

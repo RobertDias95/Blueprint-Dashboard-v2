@@ -64,6 +64,13 @@ vi.mock('../hooks/useDmDaGroups', () => ({
 vi.mock('../hooks/useDaTeamRouting', () => ({
   useDaTeamRouting: () => ({ data: state.entRows }),
 }));
+// fix-307 added per-user read state. These files predate it and assert other
+// contracts, so reads are simply empty here — every item reads as unseen,
+// which changes only the highlight, never the rows.
+vi.mock('../hooks/useBoardReads', () => ({
+  useBoardReads: () => ({ data: [] }),
+  useMarkBoardItemsRead: () => ({ mutate: () => {}, isPending: false }),
+}));
 vi.mock('../hooks/useConfirmHandoff', () => ({
   useConfirmHandoff: () => ({
     confirm: state.confirmHandoff,

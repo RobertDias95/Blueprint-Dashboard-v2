@@ -9,7 +9,10 @@ import { useTeamMembers } from '../hooks/useTeamMembers';
 import { useSelfScope } from '../hooks/useSelfScope';
 import { useAllProjectHolds, cancelledProjectIds } from '../hooks/useProjectHolds';
 import { useScraperActivity } from '../hooks/useScraperActivity';
-import { buildBellItems, parseFlips } from '../lib/boardFlips';
+import { parseFlips } from '../lib/boardFlips';
+import { buildNewItems, unseenItems } from '../lib/boardReads';
+import { useBoardReads, useMarkBoardItemsRead } from '../hooks/useBoardReads';
+import { useMilestoneAcks } from '../hooks/useMilestoneAcks';
 import {
   buildForecast,
   buildQueue,
@@ -45,6 +48,9 @@ export default function BoardBell() {
   // Reuses the query the scraper bell already drives — React Query dedupes, so
   // the suppression counts cost no extra fetch.
   const activityQ = useScraperActivity();
+  const acksQ = useMilestoneAcks();
+  const readsQ = useBoardReads();
+  const markRead = useMarkBoardItemsRead();
 
   const viewer = useMemo(
     () => resolveBoardViewer(identity.name, team.all),
@@ -70,33 +76,40 @@ export default function BoardBell() {
     [activityQ.data, viewer],
   );
 
-  // ★ fix-304 §17/§18 (register #17, #18): the status flips, each merged with
-  // the bot task it spawned. Scoped to the viewer's own permits unless they
-  // hold the oversight flag — a flip on somebody else's permit is not news.
-  const flipItems = useMemo(() => {
-    const mine = new Set(
-      (permitsQ.data ?? [])
-        .filter(
-          (p) =>
-            viewer.isOversight ||
-            (p.ent_lead ?? '').trim().toLowerCase() ===
-              (viewer.name ?? '').trim().toLowerCase() ||
-            (p.da ?? '').trim().toLowerCase() ===
-              (viewer.name ?? '').trim().toLowerCase(),
-        )
-        .map((p) => p.id),
-    );
-    const flips = parseFlips(activityQ.data ?? []).filter(
-      (f) => f.permitId === null || mine.has(f.permitId),
-    );
-    return buildBellItems(flips, tasksQ.data ?? []).slice(0, 6);
-  }, [activityQ.data, tasksQ.data, permitsQ.data, viewer]);
+  // ★ fix-307 (register #36/#38): what is NEW to this person — flips, tasks
+  // newly assigned, handoffs arriving, permits newly naming them. parseFlips
+  // has already applied the suppression rules and the fix-304 backfill filter,
+  // so a retry-recovered event or a 300-day-old applied date can never arrive
+  // here as news. Reused, not restated.
+  const newItems = useMemo(
+    () =>
+      buildNewItems({
+        flips: parseFlips(activityQ.data ?? []),
+        tasks: tasksQ.data ?? [],
+        acks: acksQ.data ?? [],
+        permits: permitsQ.data ?? [],
+        viewerName: viewer.name,
+      }),
+    [activityQ.data, tasksQ.data, acksQ.data, permitsQ.data, viewer.name],
+  );
 
-  // The badge counts what is ASKED OF YOU — past due + today + blocked. Not
-  // "things that happened": this is a planner, so the number has to mean
-  // "things to act on" or it is just noise with a red dot.
-  const actionable =
-    forecast.past_due.total + forecast.today.total + queue.blocked_on_you.total;
+  const readKeys = useMemo(
+    () => new Set(readsQ.data ?? []),
+    [readsQ.data],
+  );
+  const unseen = useMemo(() => unseenItems(newItems, readKeys), [newItems, readKeys]);
+
+  // ★ fix-307: THE BADGE COUNTS WHAT IS UNSEEN, NOT WHAT IS UNDONE.
+  //
+  // It used to count past due + today + blocked — outstanding work, which never
+  // reaches zero, so the number stopped being a signal and became decoration.
+  // Zero now means "I have seen everything new", never "I have nothing to do".
+  // The counts that used to drive it are still in the dropdown as CONTEXT and
+  // never contribute here.
+  //
+  // Always personal: `unseen` comes from the viewer's own items and knows
+  // nothing about the queue's scope, so switching to My team cannot move it.
+  const actionable = unseen.length;
 
   useEffect(() => {
     if (!open) return;
@@ -143,7 +156,10 @@ export default function BoardBell() {
             Open my board →
           </Link>
 
-          <div className="px-3.5 py-2 border-b border-border">
+          <div className="px-3.5 py-2 border-b border-border" data-testid="board-bell-standing">
+            <div className="text-[8px] font-extrabold uppercase tracking-wide text-muted mb-0.5">
+              Where you stand
+            </div>
             <Row label="Past due" value={forecast.past_due.total} urgent testid="bell-past-due" />
             <Row label="Today" value={forecast.today.total} urgent testid="bell-today" />
             <Row label="Blocked on you" value={queue.blocked_on_you.total} urgent testid="bell-blocked" />
@@ -159,41 +175,85 @@ export default function BoardBell() {
             />
           </div>
 
-          {/* ★ fix-304 register #17/#18: the flips. One row per event — the
-              bot's task IS the row and the flip is its subtitle, because they
-              are one thing that happened. Un-merged this doubles every
-              correction cycle (86 duplicate pairs measured on prod) and the
-              duplicate is the less informative half. */}
-          {flipItems.length > 0 && (
-            <div className="border-b border-border" data-testid="board-bell-flips">
-              <div className="px-3.5 pt-2 pb-1 text-[8px] font-extrabold uppercase tracking-wide text-muted">
-                Since you last looked
-              </div>
-              {flipItems.map((f) => (
-                <Link
-                  key={f.key}
-                  to={
-                    f.projectId
-                      ? `/project/${f.projectId}${f.permitId ? `?permit=${f.permitId}` : ''}`
-                      : '/board'
-                  }
-                  onClick={() => setOpen(false)}
-                  className="block px-3.5 py-1.5 hover:bg-s2 transition"
-                  data-testid={`bell-flip-${f.key}`}
-                  data-merged={f.merged ? 'true' : 'false'}
+          {/* ★ fix-307 (register #37): the dropdown shows BOTH — the unseen
+              items, which are the badge's population and each acknowledgeable,
+              and "where you stand", which is context and never contributes to
+              the badge. */}
+          <div className="border-b border-border" data-testid="board-bell-new">
+            <div className="px-3.5 pt-2 pb-1 flex items-baseline gap-2">
+              <span className="text-[8px] font-extrabold uppercase tracking-wide text-muted">
+                New
+              </span>
+              {unseen.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => markRead.mutate(unseen.map((i) => i.key))}
+                  disabled={markRead.isPending}
+                  className="ml-auto text-[9px] text-de hover:underline bg-transparent border-none p-0 disabled:opacity-40"
+                  data-testid="board-bell-mark-all-read"
                 >
-                  <div className="text-[11px] font-bold text-text leading-tight">
-                    {f.title}
-                  </div>
-                  {f.subtitle && (
-                    <div className="text-[10px] text-muted">{f.subtitle}</div>
-                  )}
-                  <div className="text-[9px] text-dim font-mono truncate">{f.where}</div>
-                </Link>
-              ))}
+                  Mark all read
+                </button>
+              )}
             </div>
-          )}
 
+            {unseen.length === 0 ? (
+              // ★ Zero means "seen everything new", NOT "nothing to do" — so
+              // the empty state says so, with the standing counts right below.
+              <div
+                className="px-3.5 pb-2 text-[10px] text-dim"
+                data-testid="board-bell-new-empty"
+              >
+                Nothing new. You are up to date on what has changed.
+              </div>
+            ) : (
+              unseen.slice(0, 8).map((i) => (
+                <div
+                  key={i.key}
+                  className="flex items-start gap-2 px-3.5 py-1.5 hover:bg-s2 transition"
+                  data-testid={`bell-new-${i.key}`}
+                >
+                  <Link
+                    to={
+                      i.projectId
+                        ? `/project/${i.projectId}${i.permitId ? `?permit=${i.permitId}` : ''}`
+                        : '/board'
+                    }
+                    onClick={() => {
+                      // Following the item is plainly seeing it.
+                      markRead.mutate([i.key]);
+                      setOpen(false);
+                    }}
+                    className="min-w-0 flex-1"
+                    data-testid={`bell-new-link-${i.key}`}
+                  >
+                    <div className="text-[11px] font-bold text-text leading-tight">
+                      {i.title}
+                    </div>
+                    {i.subtitle && (
+                      <div className="text-[10px] text-muted">{i.subtitle}</div>
+                    )}
+                    <div className="text-[9px] text-dim font-mono truncate">{i.where}</div>
+                  </Link>
+                  {/* ★ Acknowledgement is a CLICK. Opening the bell must never
+                      mark things read implicitly. */}
+                  <button
+                    type="button"
+                    onClick={() => markRead.mutate([i.key])}
+                    className="text-[9px] text-dim hover:text-de bg-transparent border-none p-0 flex-none mt-0.5"
+                    title="Mark read — it stays on your board"
+                    data-testid={`bell-new-read-${i.key}`}
+                  >
+                    ✓
+                  </button>
+                </div>
+              ))
+            )}
+          </div>
+
+          {/* ★ CONTEXT, not notification. These are the counts the badge used
+              to be built from; they stay visible because "where do I stand" is
+              a real question, and they contribute nothing to the badge. */}
           {/* ★ NEVER NOTIFY, BUT SHOW THE COUNT. The scraper's retries and
               manual-edit guards are the two largest event categories in the
               system and both mean "working as intended" — they must never

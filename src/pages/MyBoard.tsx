@@ -8,11 +8,14 @@ import { useAllTasks, useUpsertTask } from '../hooks/useTaskTree';
 import { useTeamMembers } from '../hooks/useTeamMembers';
 import { useSelfScope } from '../hooks/useSelfScope';
 import { useAllProjectHolds, cancelledProjectIds } from '../hooks/useProjectHolds';
-import { useScraperActivity } from '../hooks/useScraperActivity';
 import { useMilestoneAcks, useAckMilestone } from '../hooks/useMilestoneAcks';
 import { useConfirmHandoff } from '../hooks/useConfirmHandoff';
 import { useDmDaGroups } from '../hooks/useDmDaGroups';
 import { useDaTeamRouting } from '../hooks/useDaTeamRouting';
+import { useBoardReads, useMarkBoardItemsRead } from '../hooks/useBoardReads';
+import { buildNewItems, keyForTask, unseenItems } from '../lib/boardReads';
+import { parseFlips } from '../lib/boardFlips';
+import { useScraperActivity } from '../hooks/useScraperActivity';
 // ★ fix-303 §3: the SAME editor My Tasks uses, lifted out of it so the board is
 // not a lesser copy. Not a second editing path — literally the same component,
 // the same hooks, the same RPC.
@@ -125,6 +128,7 @@ function ForecastRow({
   busy,
   subtasks = [],
   onOpenRow,
+  isNew = false,
 }: {
   item: ForecastItem;
   onTick: (item: ForecastItem) => void;
@@ -132,6 +136,8 @@ function ForecastRow({
   subtasks?: BoardTask[];
   /** fix-304 §19: EVERY row opens something. */
   onOpenRow: (item: ForecastItem) => void;
+  /** ★ fix-307 #39: unseen rows are highlighted until acknowledged. */
+  isNew?: boolean;
 }) {
   const tone =
     item.daysLate > 0 ? 'text-co' : item.daysLate === 0 ? 'text-wa' : 'text-ok';
@@ -157,10 +163,13 @@ function ForecastRow({
 
   return (
     <div
-      className="px-3.5 py-1.5 border-b border-border/50"
+      className={`px-3.5 py-1.5 border-b border-border/50 ${isNew ? 'bg-de-bg' : ''}`}
       style={{ borderLeft: `3px solid ${rule}` }}
       data-testid={`board-forecast-row-${item.key}`}
       data-actionable={item.actionable ? 'true' : 'false'}
+      // ★ fix-307: the highlight, as an attribute a test can read. Clicking the
+      // row clears it — WITHOUT resolving anything.
+      data-new={isNew ? 'true' : 'false'}
       // ★ Asserted on directly: the distinction has to be a real attribute, not
       // a shade of text somebody must squint at.
       data-kind={isTask ? 'task' : 'milestone'}
@@ -213,6 +222,14 @@ function ForecastRow({
             >
               {kindLabel}
             </span>
+            {isNew && (
+              <span
+                className="ml-1 inline-block text-[8px] font-extrabold uppercase px-1.5 rounded-lg bg-de text-white align-[1px]"
+                data-testid={`board-row-new-${item.key}`}
+              >
+                new
+              </span>
+            )}
           </div>
           {/* fix-304 §22: rendered only when it says something the headline,
               the location and the date do not. */}
@@ -414,6 +431,7 @@ function ForecastSection({
   onToggle,
   subtasksByParent,
   onOpenRow,
+  isNewRow,
 }: {
   label: string;
   urgent?: boolean;
@@ -426,6 +444,7 @@ function ForecastSection({
   onToggle: () => void;
   subtasksByParent: Map<string, BoardTask[]>;
   onOpenRow: (item: ForecastItem) => void;
+  isNewRow: (item: ForecastItem) => boolean;
 }) {
   const rows = expanded ? data.all : data.items;
   return (
@@ -452,6 +471,7 @@ function ForecastSection({
             busy={busy}
             subtasks={i.taskId ? (subtasksByParent.get(i.taskId) ?? []) : []}
             onOpenRow={onOpenRow}
+            isNew={isNewRow(i)}
           />
         ))
       )}
@@ -512,6 +532,8 @@ export default function MyBoard() {
   const ackMilestone = useAckMilestone();
   const upsertTask = useUpsertTask();
   const handoff = useConfirmHandoff();
+  const readsQ = useBoardReads();
+  const markRead = useMarkBoardItemsRead();
   const dmGroups = useDmDaGroups();
   const entRouting = useDaTeamRouting();
 
@@ -544,7 +566,19 @@ export default function MyBoard() {
   // Bobby's, NOTHING opened. Every row opens something now:
   //   task, or milestone with a task behind it -> the editor drawer
   //   milestone with no task                   -> the permit it is about
+  /** ★ fix-307: is this row one of the viewer's unseen items? Only task rows
+   *  carry a stable board-item key today (a milestone row is derived state, not
+   *  an event); the flip that CAUSED it is the acknowledgeable thing and lives
+   *  in the bell. */
+  function isNewRow(item: ForecastItem): boolean {
+    return item.taskId ? unseenKeys.has(keyForTask(item.taskId)) : false;
+  }
+
   function onOpenRow(item: ForecastItem) {
+    // ★★ READ IS NOT DONE. Opening a row acknowledges it — the badge drops and
+    // the highlight clears — and it stays exactly where it was on the board,
+    // still past due, still needing doing. Nothing here resolves anything.
+    if (item.taskId) markRead.mutate([keyForTask(item.taskId)]);
     if (item.task) {
       setOpenTask(item.task);
       return;
@@ -614,6 +648,25 @@ export default function MyBoard() {
     return m;
   }, [allTasks]);
 
+  // ★ fix-307 (register #39): which board rows are NEW to this person. Always
+  // personal — built from the viewer's own items, never from the queue scope,
+  // so drilling into Fisk's queue cannot highlight or clear anything of his.
+  const readKeys = useMemo(() => new Set(readsQ.data ?? []), [readsQ.data]);
+  const newItems = useMemo(
+    () =>
+      buildNewItems({
+        flips: parseFlips(activityQ.data ?? []),
+        tasks: allTasks ?? [],
+        acks: acksQ.data ?? [],
+        permits: permitsQ.data ?? [],
+        viewerName: viewer.name,
+      }),
+    [activityQ.data, allTasks, acksQ.data, permitsQ.data, viewer.name],
+  );
+  // Not wrapped in useMemo: the React Compiler cannot preserve a manual memo
+  // around a Set construction here, and it memoizes this for us anyway.
+  const unseenKeys = new Set(unseenItems(newItems, readKeys).map((i) => i.key));
+
   const forecast = useMemo(() => buildForecast(input), [input]);
   // ★ fix-306 #35: the people this viewer may scope the queue to. Derived from
   // dm_da_groups (design managers), da_team_routing (entitlement leads), or
@@ -676,6 +729,10 @@ export default function MyBoard() {
 
   function onTick(item: ForecastItem) {
     if (!item.actionable || item.permitId == null) return;
+    // ★ Ticking marks read as a side effect — you have plainly seen a thing you
+    // just acted on. The reverse is deliberately NOT true: marking read never
+    // ticks anything.
+    if (item.taskId) markRead.mutate([keyForTask(item.taskId)]);
     if (item.action === 'resolve-task' && item.task) {
       // ★ The SAME hook My Tasks' checkbox uses — bp_upsert_permit_task via
       // useUpsertTask — so the two can never diverge, and My Tasks reflects
@@ -776,6 +833,7 @@ export default function MyBoard() {
                 busy={busy}
                 subtasksByParent={subtasksByParent}
                 onOpenRow={onOpenRow}
+                isNewRow={isNewRow}
                 expanded={isExpanded('board-sec-past-due')}
                 onToggle={() => toggleSection('board-sec-past-due')}
               />
@@ -789,6 +847,7 @@ export default function MyBoard() {
                 busy={busy}
                 subtasksByParent={subtasksByParent}
                 onOpenRow={onOpenRow}
+                isNewRow={isNewRow}
                 expanded={isExpanded('board-sec-today')}
                 onToggle={() => toggleSection('board-sec-today')}
               />
@@ -801,6 +860,7 @@ export default function MyBoard() {
                 busy={busy}
                 subtasksByParent={subtasksByParent}
                 onOpenRow={onOpenRow}
+                isNewRow={isNewRow}
                 expanded={isExpanded('board-sec-tomorrow')}
                 onToggle={() => toggleSection('board-sec-tomorrow')}
               />
@@ -813,6 +873,7 @@ export default function MyBoard() {
                 busy={busy}
                 subtasksByParent={subtasksByParent}
                 onOpenRow={onOpenRow}
+                isNewRow={isNewRow}
                 expanded={isExpanded('board-sec-this-week')}
                 onToggle={() => toggleSection('board-sec-this-week')}
               />
@@ -827,6 +888,7 @@ export default function MyBoard() {
                 busy={busy}
                 subtasksByParent={subtasksByParent}
                 onOpenRow={onOpenRow}
+                isNewRow={isNewRow}
                 expanded={isExpanded('board-sec-next-week')}
                 onToggle={() => toggleSection('board-sec-next-week')}
               />
