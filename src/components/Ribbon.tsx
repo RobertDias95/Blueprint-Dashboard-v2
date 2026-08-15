@@ -29,6 +29,33 @@ import {
 const WIDTH_EXPANDED = 248;
 const WIDTH_COLLAPSED = 56;
 
+// ★ fix-320 #73: the wordmark palette, straight off Bridge_Shell_Mockup_v1.
+// Literals rather than theme tokens because these are BRAND colours — they
+// belong to the mark, not to the app's semantic palette, and pointing them at
+// --color-de would mean the logo changed the day someone retuned the "design"
+// accent. Named here so the two lines of the wordmark and the mark's square
+// cannot drift apart.
+const BRAND_NAVY = '#1d3f6e'; // "The Bridge" — the hero line
+const BRAND_BLUE_LIGHT = '#7ba3d8'; // "BLUEPRINT" — the small line above it
+
+// ★ fix-320 #72: the collapse control's chip.
+//
+// Bobby: "It's so small and subtle that I want users to easily know that this is
+// the button to use to adjust that … maybe it's like a highlight or something
+// that helps it be identified, so it's easily noticed."
+//
+// ★★ NO MOTION. A pulse was proposed and REJECTED: permanent movement becomes
+// noise within a day and is an accessibility problem for anyone who asked the
+// system to reduce it. The diagnosis is not "it needs attention drawn to it" —
+// it is that a bare glyph with no border, no background and no label does not
+// read as a button at all. Give it those three things and it is permanently
+// findable with nothing moving.
+const COLLAPSE_CHIP_BG = '#eef4ff';
+const COLLAPSE_CHIP_BG_HOVER = '#e0ebff';
+const COLLAPSE_CHIP_BORDER = '#c7dbfe';
+const COLLAPSE_CHIP_BORDER_HOVER = '#2563eb';
+const COLLAPSE_CHIP_TEXT = '#2563eb';
+
 export default function Ribbon({ onAddProject }: { onAddProject: () => void }) {
   const { pathname } = useLocation();
   const isAdmin = useIsTenantAdmin();
@@ -89,14 +116,50 @@ export default function Ribbon({ onAddProject }: { onAddProject: () => void }) {
         style={{ height: 56 }}
         data-testid="ribbon-brand"
       >
-        <BridgeMark size={22} />
+        <BridgeMark size={26} />
+        {/* ★ fix-320 #73 — the wordmark leads with The Bridge.
+            Bobby: "The grey for bridge blends in with the white background —
+            you want BRIDGE to be bold and identifiable." It had been the other
+            way round: BLUEPRINT in brand blue with BRIDGE trailing it in faint
+            grey, so the name of the product was the part that vanished.
+
+            BLUEPRINT is now the small light-blue line ABOVE; The Bridge is the
+            large navy hero below it, per Bridge_Shell_Mockup_v1.
+
+            ★ Title case, not all caps — Bobby, on seeing it: "maybe it doesn't
+            need to be all caps". Mixed case has ascenders and descenders, so
+            the word carries a silhouette and reads faster at 16.5px than a
+            uniform block of capitals. */}
         {!collapsed && (
           <span
-            className="font-display font-semibold whitespace-nowrap"
-            style={{ fontSize: 12.5, letterSpacing: '.055em', color: 'var(--color-de)' }}
+            className="font-display whitespace-nowrap"
+            style={{ lineHeight: 1 }}
+            data-testid="ribbon-wordmark"
           >
-            BLUEPRINT{' '}
-            <span style={{ fontWeight: 400, color: 'var(--color-dim)' }}>BRIDGE</span>
+            <span
+              style={{
+                display: 'block',
+                fontSize: 8.5,
+                fontWeight: 600,
+                letterSpacing: '.17em',
+                color: BRAND_BLUE_LIGHT,
+                marginBottom: 2,
+              }}
+            >
+              BLUEPRINT
+            </span>
+            <span
+              style={{
+                display: 'block',
+                fontSize: 16.5,
+                fontWeight: 750,
+                letterSpacing: '-.005em',
+                color: BRAND_NAVY,
+              }}
+              data-testid="ribbon-wordmark-hero"
+            >
+              The Bridge
+            </span>
           </span>
         )}
       </div>
@@ -168,17 +231,7 @@ export default function Ribbon({ onAddProject }: { onAddProject: () => void }) {
               Blueprint Services
             </small>
           )}
-          <button
-            type="button"
-            onClick={toggleCollapsed}
-            data-testid="ribbon-collapse"
-            aria-expanded={!collapsed}
-            title={collapsed ? 'Expand the ribbon' : 'Collapse the ribbon'}
-            className="bg-transparent border-none cursor-pointer text-dim hover:bg-s2 hover:text-muted rounded"
-            style={{ fontSize: 14, padding: '3px 5px' }}
-          >
-            ◧
-          </button>
+          <CollapseControl collapsed={collapsed} onToggle={toggleCollapsed} />
         </div>
       </div>
     </nav>
@@ -186,6 +239,55 @@ export default function Ribbon({ onAddProject }: { onAddProject: () => void }) {
 }
 
 // ---------------------------------------------------------------------------
+
+/** ★ fix-320 #72: the collapse control, built as the mockup's labelled chip —
+ *  bordered, tinted blue, rounded, and carrying the WORD beside the glyph. The
+ *  three things a bare glyph was missing.
+ *
+ *  ★ Collapsed, the word goes and the glyph stays: 56px has no room for it, and
+ *  it is the same rule the nav links and the Add a Project button already
+ *  follow, so the collapsed ribbon stays one language rather than one button's
+ *  exception.
+ *
+ *  ★ NO ANIMATION AND NO TRANSITION IS DECLARED HERE — see the constants above.
+ *  The hover tint is a state swap rather than a keyframe or a timed effect, so
+ *  nothing on this control moves on its own, ever. */
+function CollapseControl({
+  collapsed,
+  onToggle,
+}: {
+  collapsed: boolean;
+  onToggle: () => void;
+}) {
+  const [hover, setHover] = useState(false);
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      onMouseEnter={() => setHover(true)}
+      onMouseLeave={() => setHover(false)}
+      onFocus={() => setHover(true)}
+      onBlur={() => setHover(false)}
+      data-testid="ribbon-collapse"
+      aria-expanded={!collapsed}
+      title={collapsed ? 'Expand the ribbon' : 'Collapse the ribbon'}
+      className="cursor-pointer flex items-center font-display"
+      style={{
+        color: COLLAPSE_CHIP_TEXT,
+        background: hover ? COLLAPSE_CHIP_BG_HOVER : COLLAPSE_CHIP_BG,
+        border: `1px solid ${hover ? COLLAPSE_CHIP_BORDER_HOVER : COLLAPSE_CHIP_BORDER}`,
+        borderRadius: 7,
+        padding: collapsed ? '5px 7px' : '5px 10px',
+        fontSize: 12,
+        fontWeight: 600,
+        gap: 6,
+      }}
+    >
+      <span aria-hidden="true">◧</span>
+      {!collapsed && <span data-testid="ribbon-collapse-label">Collapse</span>}
+    </button>
+  );
+}
 
 function itemClass(active: boolean): string {
   return [

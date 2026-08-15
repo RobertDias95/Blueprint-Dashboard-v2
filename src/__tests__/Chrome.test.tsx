@@ -222,7 +222,11 @@ describe('<Chrome /> fix-313 the Blueprint Bridge shell', () => {
     renderIt();
     const brand = screen.getByTestId('ribbon-brand');
     expect(brand.textContent).toMatch(/BLUEPRINT/);
-    expect(brand.textContent).toMatch(/BRIDGE/);
+    // ★ fix-320 #73: title case, not all caps — "maybe it doesn't need to be
+    // all caps". The product name is the hero line now, so it is asserted as
+    // the word it actually reads, capitals and all.
+    expect(brand.textContent).toMatch(/The Bridge/);
+    expect(brand.textContent).not.toMatch(/THE BRIDGE/);
     expect(screen.getByTestId('bridge-mark')).toBeInTheDocument();
   });
 
