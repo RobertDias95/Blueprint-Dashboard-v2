@@ -111,12 +111,37 @@ export default function Ribbon({ onAddProject }: { onAddProject: () => void }) {
       }}
     >
       {/* ── brand ─────────────────────────────────────────────── */}
+      {/* ★ fix-322: the real logo, and the layout it forced.
+
+          The artwork is 4:1 and reads properly at ~200px wide — which is the
+          whole 248px ribbon minus its padding, leaving no room beside it for the
+          wordmark. The brief's tie-break: the illustration wins, the wordmark
+          moves. So the wordmark drops BELOW the divider into its own row rather
+          than shrinking to fit next to a thumbnail.
+
+          ★ WHY NOT SIMPLY MAKE THIS BLOCK TALLER: its 56px matches the app
+          header to its right, so the two bottom borders form ONE line across the
+          top of the screen. Rendered both ways side by side; a taller brand block
+          pushed the ribbon's rule 22px below the header's and read as a mistake.
+          The 56px stays, the logo fills it, the words sit under it. */}
       <div
-        className="flex items-center gap-2.5 border-b border-border flex-shrink-0 px-4"
-        style={{ height: 56 }}
+        className="flex items-center border-b border-border flex-shrink-0"
+        style={{ height: 56, padding: collapsed ? '0 8px' : '0 16px', justifyContent: collapsed ? 'center' : undefined }}
         data-testid="ribbon-brand"
       >
-        <BridgeMark size={26} />
+        {/* Collapsed takes the SQUARE crop — 56px of rail has no room for a 4:1
+            illustration, and squashing it into one is the thing this component
+            makes impossible. */}
+        <BridgeMark variant={collapsed ? 'icon' : 'full'} size={collapsed ? 34 : 200} />
+      </div>
+
+      {/* ── wordmark ──────────────────────────────────────────── */}
+      {!collapsed && (
+        <div
+          className="flex-shrink-0"
+          style={{ padding: '8px 16px 2px' }}
+          data-testid="ribbon-wordmark-row"
+        >
         {/* ★ fix-320 #73 — the wordmark leads with The Bridge.
             Bobby: "The grey for bridge blends in with the white background —
             you want BRIDGE to be bold and identifiable." It had been the other
@@ -129,8 +154,11 @@ export default function Ribbon({ onAddProject }: { onAddProject: () => void }) {
             ★ Title case, not all caps — Bobby, on seeing it: "maybe it doesn't
             need to be all caps". Mixed case has ascenders and descenders, so
             the word carries a silhouette and reads faster at 16.5px than a
-            uniform block of capitals. */}
-        {!collapsed && (
+            uniform block of capitals.
+
+            ★ fix-322 moved this OUT of the brand block and under it, at the same
+            size and colours — the illustration needed the full width. It is
+            still one lockup, read top to bottom: picture, then name. */}
           <span
             className="font-display whitespace-nowrap"
             style={{ lineHeight: 1 }}
@@ -161,8 +189,8 @@ export default function Ribbon({ onAddProject }: { onAddProject: () => void }) {
               The Bridge
             </span>
           </span>
-        )}
-      </div>
+        </div>
+      )}
 
       {/* ── nav ───────────────────────────────────────────────── */}
       <div
