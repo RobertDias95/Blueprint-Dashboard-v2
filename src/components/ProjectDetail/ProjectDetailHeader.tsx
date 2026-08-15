@@ -766,7 +766,13 @@ function DDPhaseEditor({
         </div>
        </OverviewSection>
        {/* ★ fix-311: Permit intake — what we are AIMING at, then what actually
-           happened, with the divider saying which is which.
+           happened.
+
+           ★ fix-325 #3 removed the divider that used to sit between the two.
+           fix-311 added it to say which was which; Bobby has seen it and does
+           not want it. The two labels already say it, and the SD/DD divider
+           stays — that one separates two different phases, not a plan from its
+           outcome.
 
            fix-309 put Target Submit under the DD window "where its anchor
            (dd_end) lives". That reasoning still holds mechanically — it is
@@ -778,7 +784,6 @@ function DDPhaseEditor({
           {/* fix-66: BP-anchored Target Submit. Still editable, still writes
               permits.target_submit — it changed sections, not nature. */}
           <TargetSubmitRow project={project} bp={targetSubmitBp} />
-          <MilestoneDivider testId="pd-intake-divider" />
           {/* ★ Reads the SAME `bp` this card already resolved — no second
               notion of "the primary permit" gets invented here. */}
           <IntakeAcceptedRow bp={bp} />

@@ -304,8 +304,17 @@ describe('fix-317: what must not have moved', () => {
     expect(routes).not.toContain('/settings/reporting');
   });
 
-  it('fix-315’s Waiting On entry is untouched', () => {
-    expect(allRibbonRoutes()).toContain('/waiting-on');
+  // ★ fix-317 asserted Waiting On had NOT moved. fix-325 moved it, on Bobby's
+  // instruction — so what this pins now is the thing fix-317 actually cared
+  // about: an entry may leave the ribbon only with a written reason, never
+  // silently.
+  it('fix-325 took Waiting On out of the ribbon, and said why', () => {
+    expect(allRibbonRoutes()).not.toContain('/waiting-on');
+    const exemption = ROUTES_INTENTIONALLY_NOT_IN_RIBBON.find(
+      (r) => r.path === '/waiting-on',
+    );
+    expect(exemption).toBeTruthy();
+    expect(exemption!.why.length).toBeGreaterThan(40);
   });
 
   it('the hub itself was not restructured — only the ribbon changed', () => {
