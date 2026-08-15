@@ -90,6 +90,32 @@ import MyBoard from '../pages/MyBoard';
 import BoardBell from '../components/BoardBell';
 
 let pid = 0;
+let tid = 0;
+/** ★ fix-308: a design task, so a permit genuinely HAS a design leg. Under
+ *  #42/#43 a named DA alone no longer creates one — "if no tasks for design,
+ *  then it falls on ENT". */
+function mkTask(over: Record<string, unknown>): Record<string, unknown> {
+  return {
+    id: `t${++tid}`,
+    permit_id: 1,
+    parent_task_id: null,
+    project_id: 'p1',
+    project_address: '3626 164th Pl SE',
+    permit_type: 'Building Permit',
+    bucket: 'de',
+    text: 'Draw the redlines',
+    start_date: null,
+    target_date: null,
+    due_date: null,
+    done_at: null,
+    sort_order: 0,
+    assigned_to: null,
+    discipline: 'arch',
+    status: 'Open',
+    ...over,
+  };
+}
+
 function mkPermit(over: Partial<PermitWithCycles>): PermitWithCycles {
   return {
     id: ++pid,
@@ -140,6 +166,7 @@ function renderBoard() {
 
 beforeEach(() => {
   pid = 0;
+  tid = 0;
   state.permits = [];
   state.projects = [mkProject('p1', '3626 164th Pl SE')];
   state.tasks = [];
@@ -159,15 +186,18 @@ describe('fix-298: ★ "waiting on the other half" renders with NO checkbox', ()
     // Corrections with the design half still in progress: Miles can SEE it
     // sitting with Fisk without being asked to act. The whole distinction
     // rests on not being asked, so the checkbox must be ABSENT — not disabled.
-    state.permits = [
-      mkPermit({
-        da: 'Fisk',
-        ent_lead: 'Miles',
-        // A dated milestone so it reaches the forecast at all.
-        target_submit: '2026-03-26',
-        status: 'Corrections Required',
-      }),
-    ];
+    const p = mkPermit({
+      da: 'Fisk',
+      ent_lead: 'Miles',
+      // A dated milestone so it reaches the forecast at all.
+      target_submit: '2026-03-26',
+      status: 'Corrections Required',
+    });
+    state.permits = [p];
+    // ★ fix-308: "waiting on the other half" needs the other half to EXIST.
+    // A DA named on a permit with no design work has no design leg at all, so
+    // there is nothing for Miles to wait on — the permit is his outright.
+    state.tasks = [mkTask({ permit_id: p.id, discipline: 'arch', status: 'Open' })];
     renderBoard();
     const rows = screen.getAllByTestId(/^board-forecast-row-/);
     const waiting = rows.filter(
@@ -181,9 +211,10 @@ describe('fix-298: ★ "waiting on the other half" renders with NO checkbox', ()
 
   it('a row that IS mine renders the checkbox', () => {
     state.name = 'Fisk';
-    state.permits = [
-      mkPermit({ da: 'Fisk', ent_lead: 'Miles', target_submit: '2026-03-26' }),
-    ];
+    const p = mkPermit({ da: 'Fisk', ent_lead: 'Miles', target_submit: '2026-03-26' });
+    state.permits = [p];
+    // ★ fix-308: Fisk has a design leg here only because design work exists.
+    state.tasks = [mkTask({ permit_id: p.id, discipline: 'arch', status: 'Open' })];
     renderBoard();
     const rows = screen.getAllByTestId(/^board-forecast-row-/);
     const mine = rows.filter((r) => r.getAttribute('data-actionable') === 'true');
@@ -469,9 +500,11 @@ describe('fix-298 P2: ticking a row does the real thing', () => {
   it('★ a waiting row STILL has no checkbox — the write path did not weaken it', () => {
     // Phase 1's load-bearing assertion, re-checked with the write path live.
     state.projects = [mkProject('p1', 'A St')];
-    state.permits = [
-      mkPermit({ da: 'Fisk', ent_lead: 'Miles', target_submit: '2026-03-26' }),
-    ];
+    const p = mkPermit({ da: 'Fisk', ent_lead: 'Miles', target_submit: '2026-03-26' });
+    state.permits = [p];
+    // ★ fix-308: Miles waits on the design half only where a design half
+    // exists. Without design work the permit is his outright, with a checkbox.
+    state.tasks = [mkTask({ permit_id: p.id, discipline: 'arch', status: 'Open' })];
     renderBoard();
     const waiting = screen
       .getAllByTestId(/^board-forecast-row-/)
@@ -503,17 +536,22 @@ describe('fix-298 P2: the handoff prompt', () => {
       ...over,
     });
 
-  it('★ a permit with ZERO design tasks offers the MANUAL button, never an auto-prompt', () => {
+  // ★★ fix-308 (#42) SUPERSEDES this. fix-298 P2 offered a manual "Mark design
+  // complete" button on a permit with zero design tasks, because "all
+  // complete" was vacuously true and an auto-prompt would have announced the
+  // permit ready to file before anyone touched it.
+  //
+  // Bobby's rule now says such a permit has no design leg at all — "if no
+  // tasks for design, then it falls on ENT" — so there is nothing to mark
+  // complete and nobody to hand off FROM. The row does not appear.
+  it("★★ a permit with ZERO design tasks offers NOTHING — the permit is ENT's", () => {
     state.name = 'Fisk';
     state.projects = [mkProject('p1', 'A St')];
     state.permits = [withCycle({ da: 'Fisk', ent_lead: 'Miles' })];
     state.tasks = [];
     renderBoard();
-    const row = screen.getByTestId(/^board-handoff-row-/);
-    expect(row.getAttribute('data-affordance')).toBe('manual');
-    expect(screen.getByTestId(/^board-handoff-confirm-/).textContent).toContain(
-      'Mark design complete',
-    );
+    expect(screen.queryByTestId(/^board-handoff-row-/)).toBeNull();
+    expect(screen.queryByTestId('board-sec-handoff-wrap')).toBeNull();
   });
 
   it('★ a permit with one RESOLVED design task prompts, naming the lead', () => {
@@ -575,7 +613,12 @@ describe('fix-298 P2: the handoff prompt', () => {
     state.name = 'Gena';
     state.members = [{ name: 'Gena', role: 'dm', is_oversight: false }];
     state.projects = [mkProject('p1', 'A St')];
-    state.permits = [withCycle({ da: 'Fisk', ent_lead: 'Miles', dm: 'Gena' })];
+    const p = withCycle({ da: 'Fisk', ent_lead: 'Miles', dm: 'Gena' });
+    state.permits = [p];
+    // ★ fix-308: a design leg exists only where design work does.
+    state.tasks = [
+      mkTask({ permit_id: p.id, discipline: 'arch', status: 'Resolved' }),
+    ];
     renderBoard();
     expect(screen.getByTestId('board-sec-handoff-wrap')).toBeTruthy();
   });

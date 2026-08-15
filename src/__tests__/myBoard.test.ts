@@ -124,20 +124,69 @@ function input(over: Partial<BoardInput>): BoardInput {
 }
 
 // ---------------------------------------------------------------------------
-describe('fix-298: leg shape is derived from da IS NULL, never from the type', () => {
-  it('a permit with a DA is two-leg', () => {
-    expect(legShape(mkPermit({ da: 'Fisk' }))).toBe('two-leg');
+// fix-298 derived the leg shape from `da IS NULL` — never from the permit
+// type, which was the right half of the rule and is still asserted below.
+//
+// ★★ fix-308 (#42/#43) added the other half: a named DA is NECESSARY but NOT
+// SUFFICIENT. Bobby sat with Cam on 3921's Demolition permit, which the board
+// called both "ready to hand off" and "blocked by Cam" while he had no task on
+// it at all — six tasks, every one `discipline='ent'`. `da IS NOT NULL` does
+// not mean "this permit has a design leg"; it means somebody is named in a
+// column.
+//
+//   "If no tasks for design, then it falls on ENT. If no tasks for design or
+//    ENT, still falls on ENT, because then that is saying there is nothing
+//    holding this permit from advancing."
+describe('fix-308: leg shape needs a DA AND design work that exists', () => {
+  it('★★ a permit with a DA but NO design tasks is ONE-leg — the 3921 case', () => {
+    // Six ENT tasks, not one arch. Cam is named; Cam has nothing to do.
+    const entOnly = [
+      mkTask({ discipline: 'ent', status: 'Resolved' }),
+      mkTask({ discipline: 'ent', status: 'Open', assigned_to: 'Miles' }),
+    ];
+    expect(legShape(mkPermit({ da: 'Cam' }), entOnly)).toBe('one-leg');
   });
 
-  it('a permit with no DA is one-leg', () => {
+  it('★ a permit with a DA and NO TASKS AT ALL is one-leg — ENT owns it', () => {
+    // "…still falls on ENT, because then that is saying there is nothing
+    // holding this permit from advancing."
+    expect(legShape(mkPermit({ da: 'Fisk' }), [])).toBe('one-leg');
+    expect(legShape(mkPermit({ da: 'Fisk' }))).toBe('one-leg');
+  });
+
+  it('a permit with a DA AND a design task is two-leg — the old behaviour', () => {
+    expect(legShape(mkPermit({ da: 'Fisk' }), [mkTask({ discipline: 'arch' })])).toBe(
+      'two-leg',
+    );
+  });
+
+  it('★ and a RESOLVED design task still proves the leg exists', () => {
+    // A permit whose design work is finished is still two-leg — that is what
+    // keeps the handoff prompt alive for the permits that earned it.
+    expect(
+      legShape(mkPermit({ da: 'Fisk' }), [
+        mkTask({ discipline: 'arch', status: 'Resolved' }),
+      ]),
+    ).toBe('two-leg');
+  });
+
+  it('a permit with no DA is one-leg however many design tasks it has', () => {
     expect(legShape(mkPermit({ da: null }))).toBe('one-leg');
     expect(legShape(mkPermit({ da: '   ' }))).toBe('one-leg');
+    expect(legShape(mkPermit({ da: null }), [mkTask({ discipline: 'arch' })])).toBe(
+      'one-leg',
+    );
   });
 
-  it('★ a DEMOLITION WITH a DA is two-leg — the type is not the rule', () => {
+  // fix-298's half of the rule, unchanged.
+  it('★ a DEMOLITION WITH a DA and design work is two-leg — the type is not the rule', () => {
     // Cam holds 41 active permits, many of them Demolition. Hardcoding
     // Demolition to one-leg would strip the design half from all of them.
-    expect(legShape(mkPermit({ type: 'Demolition', da: 'Cam' }))).toBe('two-leg');
+    expect(
+      legShape(mkPermit({ type: 'Demolition', da: 'Cam' }), [
+        mkTask({ discipline: 'arch' }),
+      ]),
+    ).toBe('two-leg');
   });
 
   it('a NON-Demolition with no DA is one-leg', () => {
@@ -327,10 +376,18 @@ describe('fix-298: ★ forecast needs a DATE, queue needs a STATE', () => {
 });
 
 // ---------------------------------------------------------------------------
-describe('fix-298: ★ Fisk — a DA with zero tasks still gets a populated board', () => {
-  // The case this feature exists for. Fisk holds 26 active permits and has
-  // ZERO tasks assigned to him by name; his My Tasks page is blank. The relay
-  // is derived from the PERMIT, so his board is not.
+// fix-298 built the board so a DA with no NAMED tasks still had something to
+// work from — the relay derives from the PERMIT, not from task assignment.
+//
+// ★★ fix-308 (#42/#43) narrows that, deliberately, and it is worth being
+// precise about what changed. A DA still needs no task ASSIGNED TO THEM BY
+// NAME — that is fix-298's point and it survives below. But the permit must
+// have design work SOMEWHERE, or it has no design leg and belongs to ENT.
+//
+// ★ Measured on prod 2026-08-16: Fisk holds 16 active permits, 9 of which have
+// design tasks. So his board keeps 9 and loses 7 — it does not go empty. Cam,
+// the worst case, keeps 10 of 44. What leaves is work that was never his.
+describe('fix-308: ★ Fisk — a DA with no NAMED tasks still gets a populated board', () => {
   const permits = Array.from({ length: 7 }, (_, i) =>
     mkPermit({
       project_id: `p${i}`,
@@ -356,16 +413,34 @@ describe('fix-298: ★ Fisk — a DA with zero tasks still gets a populated boar
   );
   const projects = permits.map((_, i) => mkProject(`p${i}`, `${100 + i} Test St`));
 
-  it('his forecast is populated from permit milestones, with no tasks at all', () => {
-    const f = buildForecast(input({ viewer: FISK, permits, projects, tasks: [] }));
+  // Design work exists on every permit, and NONE of it is assigned to Fisk by
+  // name — which is the fix-298 condition, unchanged.
+  const designWork = permits.map((p) =>
+    mkTask({ permit_id: p.id, discipline: 'arch', status: 'Open', assigned_to: null }),
+  );
+
+  it('his forecast is populated from permit milestones, with no task NAMED to him', () => {
+    const f = buildForecast(
+      input({ viewer: FISK, permits, projects, tasks: designWork }),
+    );
     expect(f.past_due.total).toBe(7);
     expect(f.past_due.items.length).toBe(BOARD_SECTION_CAPS.past_due);
   });
 
   it('every row on his board is HIS to act on, not someone else waiting', () => {
-    const f = buildForecast(input({ viewer: FISK, permits, projects, tasks: [] }));
+    const f = buildForecast(
+      input({ viewer: FISK, permits, projects, tasks: designWork }),
+    );
     expect(f.past_due.items.every((i) => i.actionable)).toBe(true);
     expect(f.past_due.items[0]!.verb).toBe('Finish the set');
+  });
+
+  // ★★ AND THE OTHER HALF, which is the whole ticket: strip the design work
+  // and those same permits leave his board entirely, because they are ENT's.
+  it('★★ but with NO design work anywhere, those permits are not his at all', () => {
+    const f = buildForecast(input({ viewer: FISK, permits, projects, tasks: [] }));
+    expect(f.past_due.total).toBe(0);
+    expect(f.today.total + f.tomorrow.total + f.this_week.total).toBe(0);
   });
 });
 
@@ -409,7 +484,14 @@ describe('fix-298: ★ oversight is ADDITIVE, never a replacement', () => {
   it('oversight does NOT strip her own scope — her own permits still appear', () => {
     const hers = mkPermit({ da: 'Gena', ent_lead: 'Miles', target_submit: '2026-08-01' });
     const gena = resolveBoardViewer('Gena', roster);
-    const f = buildForecast(input({ viewer: gena, permits: [hers] }));
+    // ★ fix-308: as a DA, Gena's design leg exists only where design work does.
+    const f = buildForecast(
+      input({
+        viewer: gena,
+        permits: [hers],
+        tasks: [mkTask({ permit_id: hers.id, discipline: 'arch', status: 'Open' })],
+      }),
+    );
     expect(f.past_due.total).toBeGreaterThan(0);
   });
 });
