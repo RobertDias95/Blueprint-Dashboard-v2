@@ -172,10 +172,14 @@ beforeEach(() => {
 // the rest of this file already drives, so the rename is checked against the
 // real page rather than a fixture of it.
 describe('Dashboard — fix-313 the landing page is Pipeline', () => {
-  it('★ reads Pipeline, and the Approval strip reads Approve', () => {
+  it('★ reads Pipeline, and the third column reads Approved', () => {
     renderDash();
     expect(screen.getByTestId('pipeline-title').textContent).toBe('Pipeline');
-    expect(screen.getByText('Approve')).toBeInTheDocument();
+    // ★ fix-324 §4 (was fix-323): the column title is past tense now, matching
+    // `stageLabel.ts` — which has read `ap: 'Approved'` all along — and the
+    // Issued column beside it.
+    expect(screen.getByTestId('pipeline-group-ap').textContent).toContain('Approved');
+    expect(screen.queryByText('Approve')).toBeNull();
     // The old words are gone from the page.
     expect(screen.queryByText('Approval')).toBeNull();
     expect(screen.queryByText('Dashboard')).toBeNull();

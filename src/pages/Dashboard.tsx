@@ -45,6 +45,13 @@ import { useScopeMode } from '../hooks/useSelfScope';
 import { permitMatchesSelf, projectMatchesSelf } from '../lib/selfScope';
 import ScopeToggle from '../components/shared/ScopeToggle';
 import { distinctProjectCount } from '../lib/dashboardCounts';
+import { useAuthStore } from '../stores/authStore';
+import {
+  loadPipelineCollapsed,
+  pipelineGroupKey,
+  pipelineSubKey,
+  savePipelineCollapsed,
+} from '../lib/pipelinePrefs';
 
 // Q9.5.e2: cross-bucket interactivity. `DashContext` lifts `highlightedAddress`
 // + `openAddresses` to the Dashboard root so toggling open/highlight on one
@@ -112,6 +119,34 @@ export default function Dashboard() {
   // 'all'; no persistence (resets each load).
   const [holdMode, setHoldMode] = useState<HoldFilterMode>(HOLD_FILTER_DEFAULT);
   const [filters, setFilters] = useState<DashFilters>(EMPTY_DASH_FILTERS);
+  // ★ fix-324: which columns this person has folded, remembered across reloads.
+  //
+  // ★ SAME MECHANISM AS THE RIBBON (fix-313) — per-user localStorage, read in a
+  // LAZY INITIALISER and written in the handler, no effect. An effect that
+  // setStates on mount renders one frame of the wrong layout before correcting
+  // itself, which the user sees as a flinch; it is also the React Compiler's
+  // `set-state-in-effect`. Default: everything open, which is the mockup Bobby
+  // signed off.
+  const collapseUserId = useAuthStore((s) => s.user?.id ?? null);
+  const [collapsedKeys, setCollapsedKeys] = useState<string[]>(
+    () => loadPipelineCollapsed(collapseUserId) ?? [],
+  );
+  const isCollapsed = useCallback(
+    (key: string) => collapsedKeys.includes(key),
+    [collapsedKeys],
+  );
+  const toggleCollapsed = useCallback(
+    (key: string) => {
+      setCollapsedKeys((prev) => {
+        const next = prev.includes(key)
+          ? prev.filter((k) => k !== key)
+          : [...prev, key];
+        savePipelineCollapsed(collapseUserId, next);
+        return next;
+      });
+    },
+    [collapseUserId],
+  );
   const [highlightedAddress, setHighlightedAddress] = useState<string | null>(null);
   const [openAddresses, setOpenAddresses] = useState<Set<string>>(new Set());
   // fix-176: role-aware "My work" default, remembered per-user. ent_lead/dm ->
@@ -300,20 +335,29 @@ export default function Dashboard() {
   }
 
   return (
-    <div className="space-y-4">
+    // ★ fix-324: the page is a FIXED-HEIGHT column now, not a stack that grows.
+    // `height: 100%` fills the shell's <main> (fix-313 made that the only scroll
+    // container), the title and filter rows are flex-none, and the column row
+    // below takes the rest. Nothing here can push the page taller than the
+    // viewport, which is what makes "the page never scrolls, the lists do" true
+    // rather than aspirational. Same shape fix-318 gave My Board.
+    <div
+      className="h-full flex flex-col gap-3"
+      data-testid="pipeline-page"
+    >
       {/* ★ fix-313 #63: the landing page is called PIPELINE. Display only —
           the route stays /dashboard, the same discipline as fix-310. Bobby:
           "My Board, Pipeline, Project Overview — so the only one that gets
           renamed is the landing page." Project View and Project Overview keep
           their names. */}
       <h1
-        className="font-display font-bold text-text"
+        className="font-display font-bold text-text flex-none"
         style={{ fontSize: 20, letterSpacing: '-.01em' }}
         data-testid="pipeline-title"
       >
         Pipeline
       </h1>
-      <div className="flex items-center gap-3 flex-wrap">
+      <div className="flex items-center gap-3 flex-wrap flex-none">
         <ScopeToggle
           mode={scopeMode}
           onChange={setScopeMode}
@@ -342,11 +386,30 @@ export default function Dashboard() {
           alongside so there is exactly ONE entry point that can drift. Same
           component, same permissions — Chrome owns the open state now. */}
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <StageGroup
+      {/* ★ fix-324 #66–#69: FOUR SIBLINGS IN ONE ROW, not two stacked grids.
+          Design & Engineering · Permitting · Approved · Issued.
+
+          ★★ SIBLINGS IS THE WHOLE POINT. The first attempt nested Approved and
+          Issued inside a shared 300px rail; collapsed, they kept that width and
+          each owned half the height — short and wide. Bobby: "we want approved
+          and issued to look like permitting, vertical top to bottom of the
+          screen." A column only folds to a full-height spine if it is a DIRECT
+          CHILD of this row, so nesting them again would re-create the bug this
+          ticket exists to remove.
+
+          ★ The row is `flex-1 min-h-0`: it takes the height the page has left
+          and no more, so the lists inside sub-columns scroll and the PAGE never
+          does — the rule fix-313 set for the shell and fix-318 for the board. */}
+      <div
+        className="flex-1 min-h-0 flex gap-3"
+        data-testid="pipeline-columns"
+      >
+        <PipelineGroup
+          groupKey="de"
           title="Design & Engineering"
           accent="de"
           totalCount={buckets.deEarly.length + buckets.deLate.length}
+          headerCountTestId="dash-group-count-de"
           loading={isLoading}
           subBuckets={[
             {
@@ -370,11 +433,17 @@ export default function Dashboard() {
           reviewersByPermit={reviewersByPermit}
           activeHeld={activeHeld}
           ctx={dashCtx}
+          collapsed={isCollapsed(pipelineGroupKey('de'))}
+          onToggle={() => toggleCollapsed(pipelineGroupKey('de'))}
+          isSubCollapsed={(t) => isCollapsed(pipelineSubKey('de', t))}
+          onToggleSub={(t) => toggleCollapsed(pipelineSubKey('de', t))}
         />
-        <StageGroup
+        <PipelineGroup
+          groupKey="pm"
           title="Permitting"
           accent="pm"
           totalCount={buckets.pm.length + buckets.co.length}
+          headerCountTestId="dash-group-count-pm"
           loading={isLoading}
           subBuckets={[
             {
@@ -404,39 +473,71 @@ export default function Dashboard() {
           reviewersByPermit={reviewersByPermit}
           activeHeld={activeHeld}
           ctx={dashCtx}
+          collapsed={isCollapsed(pipelineGroupKey('pm'))}
+          onToggle={() => toggleCollapsed(pipelineGroupKey('pm'))}
+          isSubCollapsed={(t) => isCollapsed(pipelineSubKey('pm', t))}
+          onToggleSub={(t) => toggleCollapsed(pipelineSubKey('pm', t))}
         />
-      </div>
-
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <BottomStrip
-          title="Approve"
+        {/* ★ fix-324 §4 (was fix-323): "Approve" → "Approved". Display only —
+            the stage code is still `ap`, the route, the testids and the
+            sub-column's own wording are untouched. `src/lib/stageLabel.ts`
+            has read `ap: 'Approved'` all along, so this title was the single
+            place disagreeing with the codebase's own vocabulary. */}
+        <PipelineGroup
+          groupKey="ap"
+          title="Approved"
           accent="jv"
-          subtitle="approved, pending issue"
-          permits={buckets.ap}
+          narrow
+          totalCount={buckets.ap.length}
+          headerCountTestId="dash-strip-projcount-ap"
+          loading={isLoading}
+          subBuckets={[
+            {
+              title: 'approved, pending issue',
+              dotColor: '#7c5cd6',
+              permits: buckets.ap,
+              keyDateLabel: 'Approved',
+              getKeyDate: (p) => p.approval_date,
+            },
+          ]}
           stage="ap"
-          keyDateLabel="Approved"
-          getKeyDate={(p) => p.approval_date}
           projectById={projectById}
           cyclesByPermit={cyclesByPermit}
           reviewersByPermit={reviewersByPermit}
-          loading={isLoading}
           activeHeld={activeHeld}
           ctx={dashCtx}
+          collapsed={isCollapsed(pipelineGroupKey('ap'))}
+          onToggle={() => toggleCollapsed(pipelineGroupKey('ap'))}
+          isSubCollapsed={(t) => isCollapsed(pipelineSubKey('ap', t))}
+          onToggleSub={(t) => toggleCollapsed(pipelineSubKey('ap', t))}
         />
-        <BottomStrip
+        <PipelineGroup
+          groupKey="is"
           title="Issued"
           accent="is"
-          subtitle="active issued permits at this address"
-          permits={buckets.is}
+          narrow
+          totalCount={buckets.is.length}
+          headerCountTestId="dash-strip-projcount-is"
+          loading={isLoading}
+          subBuckets={[
+            {
+              title: 'active issued permits at this address',
+              dotColor: '#0e93b8',
+              permits: buckets.is,
+              keyDateLabel: 'Issued',
+              getKeyDate: (p) => p.actual_issue,
+            },
+          ]}
           stage="is"
-          keyDateLabel="Issued"
-          getKeyDate={(p) => p.actual_issue}
           projectById={projectById}
           cyclesByPermit={cyclesByPermit}
           reviewersByPermit={reviewersByPermit}
-          loading={isLoading}
           activeHeld={activeHeld}
           ctx={dashCtx}
+          collapsed={isCollapsed(pipelineGroupKey('is'))}
+          onToggle={() => toggleCollapsed(pipelineGroupKey('is'))}
+          isSubCollapsed={(t) => isCollapsed(pipelineSubKey('is', t))}
+          onToggleSub={(t) => toggleCollapsed(pipelineSubKey('is', t))}
         />
       </div>
     </div>
@@ -456,12 +557,22 @@ interface SubBucket {
   urgencyStage?: Stage;
 }
 
-interface StageGroupProps {
+interface PipelineGroupProps {
+  /** Stage code — the key collapse state is stored under, and the one thing
+   *  here that must not change when a TITLE does. */
+  groupKey: 'de' | 'pm' | 'ap' | 'is';
   title: string;
-  accent: 'de' | 'pm';
+  accent: 'de' | 'pm' | 'jv' | 'is';
   totalCount: number;
+  /** The testid the "N proj ·" badge carried BEFORE this ticket, passed in so
+   *  the layout change does not rename a single one. */
+  headerCountTestId: string;
   loading: boolean;
   subBuckets: SubBucket[];
+  /** ★ Approved and Issued are narrower OPEN than the two working groups —
+   *  they are for glancing at, not working in. Folded, they are identical to
+   *  every other spine. */
+  narrow?: boolean;
   stage: Stage;
   projectById: Map<string, Project>;
   cyclesByPermit: Map<number, PermitCycle[]>;
@@ -469,227 +580,248 @@ interface StageGroupProps {
   /** fix-170: project ids with an active hold — suppress urgency colors. */
   activeHeld: Set<string>;
   ctx: DashContext;
+  collapsed: boolean;
+  onToggle: () => void;
+  isSubCollapsed: (subTitle: string) => boolean;
+  onToggleSub: (subTitle: string) => void;
 }
 
 // Q9.5.c: header backgrounds use the stage-bg tint per v1 §4.6.a.
 // Tints are intentionally LIGHT so the count text stays readable.
-const STAGE_HEADER_BG: Record<'de' | 'pm', string> = {
+// fix-324: ONE map for all four columns. The two working groups and the two
+// bottom strips used to keep separate copies of the same idea, which is how
+// they drifted into two different components in the first place.
+const STAGE_HEADER_BG: Record<'de' | 'pm' | 'jv' | 'is', string> = {
   de: 'var(--color-de-bg)',
   pm: 'var(--color-pm-bg)',
-};
-const STAGE_HEADER_BORDER: Record<'de' | 'pm', string> = {
-  de: 'var(--color-de-border)',
-  pm: 'var(--color-pm-border)',
-};
-
-function StageGroup({
-  title,
-  accent,
-  totalCount,
-  loading,
-  subBuckets,
-  stage,
-  projectById,
-  cyclesByPermit,
-  reviewersByPermit,
-  activeHeld,
-  ctx,
-}: StageGroupProps) {
-  return (
-    <section className="bg-surface border border-border rounded-xl overflow-hidden">
-      <header
-        className="flex items-center gap-2 px-4 py-3 border-b"
-        style={{
-          background: STAGE_HEADER_BG[accent],
-          borderBottomColor: STAGE_HEADER_BORDER[accent],
-        }}
-      >
-        <span className="text-xs font-display font-extrabold uppercase tracking-wide text-text flex-1">
-          {title}
-        </span>
-        {(() => {
-          const projects = distinctProjectCount(
-            subBuckets.flatMap((s) => s.permits),
-          );
-          return (
-            <span
-              className="text-[10px] font-display font-bold text-dim mr-1"
-              title={`${projects} projects · ${totalCount} permits`}
-              data-testid={`dash-group-count-${stage}`}
-            >
-              {projects} proj
-            </span>
-          );
-        })()}
-        <span className="text-2xl font-display font-black text-text">
-          {totalCount}
-        </span>
-      </header>
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-0 divide-x divide-border">
-        {subBuckets.map((sub) => {
-          const subStage: Stage = sub.urgencyStage ?? stage;
-          return (
-            <div key={sub.title} className="p-3">
-              <div className="flex items-center gap-2 mb-2">
-                <span
-                  className="w-2 h-2 rounded-full"
-                  style={{ background: sub.dotColor }}
-                />
-                <span className="text-[11px] font-display font-bold text-text flex-1">
-                  {sub.title}
-                </span>
-                <span
-                  className="text-[10px] font-display font-bold text-dim"
-                  title={`${distinctProjectCount(sub.permits)} projects · ${sub.permits.length} permits`}
-                  data-testid={`dash-subbucket-projcount-${sub.title}`}
-                >
-                  {distinctProjectCount(sub.permits)} proj ·
-                </span>
-                <span className="text-xs font-display font-black text-text">
-                  {sub.permits.length}
-                </span>
-              </div>
-              <div
-                className="border border-border rounded-md overflow-y-auto"
-                style={{ maxHeight: 'calc(100vh - 220px)' }}
-                data-scroll-bucket="true"
-              >
-                {loading ? (
-                  <div className="p-2">
-                    <SkeletonRows count={2} rowClassName="h-16" />
-                  </div>
-                ) : sub.permits.length === 0 ? (
-                  <div className="text-[11px] text-dim italic px-2 py-3">
-                    No permits
-                  </div>
-                ) : (
-                  <SubBucketGroups
-                    permits={sub.permits}
-                    stage={subStage}
-                    cyclesByPermit={cyclesByPermit}
-                    reviewersByPermit={reviewersByPermit}
-                    projectById={projectById}
-                    activeHeld={activeHeld}
-                    keyDateLabel={sub.keyDateLabel}
-                    getKeyDate={sub.getKeyDate}
-                    ctx={ctx}
-                  />
-                )}
-              </div>
-            </div>
-          );
-        })}
-      </div>
-    </section>
-  );
-}
-
-interface BottomStripProps {
-  title: string;
-  accent: 'jv' | 'is';
-  subtitle: string;
-  permits: Permit[];
-  stage: Stage;
-  keyDateLabel: string;
-  getKeyDate: (p: Permit) => string | null;
-  projectById: Map<string, Project>;
-  cyclesByPermit: Map<number, PermitCycle[]>;
-  reviewersByPermit: Map<number, PermitCycleReviewer[]>;
-  activeHeld: Set<string>;
-  loading: boolean;
-  ctx: DashContext;
-}
-
-// Q9.5.c: same stage-bg tinting pattern as the top stage groups for
-// the Approve (jv) + Issued (is) bottom strips.
-const BOTTOM_STRIP_BG: Record<'jv' | 'is', string> = {
   jv: 'var(--color-jv-bg)',
   is: 'var(--color-is-bg)',
 };
-const BOTTOM_STRIP_BORDER: Record<'jv' | 'is', string> = {
+const STAGE_HEADER_BORDER: Record<'de' | 'pm' | 'jv' | 'is', string> = {
+  de: 'var(--color-de-border)',
+  pm: 'var(--color-pm-border)',
   jv: 'var(--color-jv-border)',
   is: 'var(--color-is-border)',
 };
 
-function BottomStrip({
+/** Folded widths, from Pipeline_RightRail_Mockup.html. */
+const GROUP_SPINE_W = 44;
+const GROUP_NARROW_W = 264;
+const SUB_SPINE_W = 38;
+
+/**
+ * ★ fix-324 — ONE COLUMN OF THE PIPELINE, at either level of folding.
+ *
+ * This replaces StageGroup (the two working columns) and BottomStrip (two
+ * horizontal strips that opened downward). They were two components rendering
+ * the same idea with different furniture, and that is exactly why Approved and
+ * Issued could not behave like Permitting: a strip has no spine to fold to.
+ *
+ * ★★ FOLDED MEANS 44px WIDE **AND** FULL HEIGHT. Both halves matter. The first
+ * attempt got the width right and still failed, because the two were nested in
+ * a shared 300px rail where each owned half the height — short and wide. Bobby:
+ * "we want approved and issued to look like permitting, vertical top to bottom
+ * of the screen." A section that is a direct flex CHILD of the row can be
+ * `flex: 0 0 44px` and full height at once; a nested one cannot. That is the
+ * whole trick, and it is why the four are siblings.
+ *
+ * Sub-columns fold the same way, independently, to a 38px spine — folding
+ * Corrections leaves Under Review holding the width with its list intact. That
+ * is the control an entitlements person uses daily.
+ */
+function PipelineGroup({
+  groupKey,
   title,
   accent,
-  subtitle,
-  permits,
+  totalCount,
+  headerCountTestId,
+  loading,
+  subBuckets,
+  narrow = false,
   stage,
-  keyDateLabel,
-  getKeyDate,
   projectById,
   cyclesByPermit,
   reviewersByPermit,
   activeHeld,
-  loading,
   ctx,
-}: BottomStripProps) {
-  const [open, setOpen] = useState(false);
+  collapsed,
+  onToggle,
+  isSubCollapsed,
+  onToggleSub,
+}: PipelineGroupProps) {
+  const projects = distinctProjectCount(subBuckets.flatMap((s) => s.permits));
   return (
-    <section className="bg-surface border border-border rounded-xl overflow-hidden">
+    <section
+      className="bg-surface border border-border rounded-xl overflow-hidden flex flex-col min-h-0 min-w-0"
+      style={{
+        flex: collapsed
+          ? '0 0 ' + GROUP_SPINE_W + 'px'
+          : narrow
+            ? '0 0 ' + GROUP_NARROW_W + 'px'
+            : '1 1 0%',
+        transition: 'flex .22s ease',
+      }}
+      data-testid={'pipeline-group-' + groupKey}
+      data-collapsed={collapsed ? 'true' : 'false'}
+      data-narrow={narrow ? 'true' : 'false'}
+    >
       <button
-        onClick={() => setOpen((o) => !o)}
-        className="w-full flex items-center gap-2 px-4 py-2.5 transition text-left"
+        type="button"
+        onClick={onToggle}
+        aria-expanded={!collapsed}
+        title={collapsed ? 'Open ' + title : 'Fold ' + title}
+        className={
+          'flex items-center gap-2 text-left ' +
+          (collapsed
+            ? 'flex-col h-full justify-start py-3.5 px-0 flex-1 min-h-0'
+            : 'px-4 py-3 border-b flex-none')
+        }
         style={{
-          background: BOTTOM_STRIP_BG[accent],
-          borderBottom: open ? `1px solid ${BOTTOM_STRIP_BORDER[accent]}` : 'none',
+          background: STAGE_HEADER_BG[accent],
+          borderBottomColor: collapsed ? undefined : STAGE_HEADER_BORDER[accent],
         }}
+        data-testid={'pipeline-group-toggle-' + groupKey}
       >
-        <span className="text-[11px] font-display font-extrabold uppercase tracking-wide text-text">
+        <span
+          className="text-xs font-display font-extrabold uppercase tracking-wide text-text whitespace-nowrap"
+          style={
+            collapsed
+              ? // ★ The spine's title reads bottom-to-top — the mockup's
+                // `writing-mode: vertical-rl`. It is what makes 44px legible
+                // instead of a stack of single letters.
+                { writingMode: 'vertical-rl', marginTop: 12, letterSpacing: '.13em' }
+              : { flex: '1 1 auto' }
+          }
+        >
           {title}
         </span>
+        {/* The project badge is the one thing a spine drops — there is no room
+            for it, and the permit total below is the number people scan for. */}
+        {!collapsed && (
+          <span
+            className="text-[10px] font-display font-bold text-dim mr-1"
+            title={projects + ' projects · ' + totalCount + ' permits'}
+            data-testid={headerCountTestId}
+          >
+            {projects} proj ·
+          </span>
+        )}
         <span
-          className="text-[10px] font-display font-bold text-dim"
-          title={`${distinctProjectCount(permits)} projects · ${permits.length} permits`}
-          data-testid={`dash-strip-projcount-${stage}`}
+          className="font-display font-black text-text"
+          style={collapsed ? { fontSize: 16, marginTop: 12 } : { fontSize: 24 }}
         >
-          {distinctProjectCount(permits)} proj ·
-        </span>
-        <span className="text-base font-display font-black text-text">
-          {permits.length}
-        </span>
-        <span className="text-[9px] text-dim ml-auto">{subtitle}</span>
-        <span
-          className="text-dim text-[10px] transition-transform"
-          style={{ transform: open ? 'rotate(90deg)' : 'rotate(0)' }}
-        >
-          ▶
+          {totalCount}
         </span>
       </button>
-      {open && (
-        <div className="p-3">
-          {loading ? (
-            <SkeletonRows count={2} rowClassName="h-16" />
-          ) : permits.length === 0 ? (
-            <div className="text-[11px] text-dim italic px-2 py-3">
-              No permits
-            </div>
-          ) : (
-            <div
-              className="border border-border rounded-md overflow-y-auto"
-              style={{ maxHeight: 'calc(100vh - 220px)' }}
-              data-scroll-bucket="true"
-            >
-              <SubBucketGroups
-                permits={permits}
-                stage={stage}
-                cyclesByPermit={cyclesByPermit}
-                reviewersByPermit={reviewersByPermit}
-                projectById={projectById}
-                activeHeld={activeHeld}
-                keyDateLabel={keyDateLabel}
-                getKeyDate={getKeyDate}
-                ctx={ctx}
-              />
-            </div>
-          )}
+      {!collapsed && (
+        <div className="flex flex-1 min-h-0 divide-x divide-border">
+          {subBuckets.map((sub) => {
+            const subStage: Stage = sub.urgencyStage ?? stage;
+            const subCollapsed = isSubCollapsed(sub.title);
+            return (
+              <div
+                key={sub.title}
+                className="flex flex-col min-h-0 min-w-0"
+                style={{
+                  flex: subCollapsed ? '0 0 ' + SUB_SPINE_W + 'px' : '1 1 0%',
+                  transition: 'flex .22s ease',
+                }}
+                data-testid={'pipeline-sub-' + sub.title}
+                data-collapsed={subCollapsed ? 'true' : 'false'}
+              >
+                <button
+                  type="button"
+                  onClick={() => onToggleSub(sub.title)}
+                  aria-expanded={!subCollapsed}
+                  title={subCollapsed ? 'Open ' + sub.title : 'Fold ' + sub.title}
+                  className={
+                    'flex items-center gap-2 text-left hover:bg-s2 transition ' +
+                    (subCollapsed
+                      ? 'flex-col h-full justify-start py-2.5 px-0 flex-1 min-h-0'
+                      : 'px-3 py-2 flex-none border-b border-border')
+                  }
+                  data-testid={'pipeline-sub-toggle-' + sub.title}
+                >
+                  <span
+                    className="w-2 h-2 rounded-full flex-none"
+                    style={{ background: sub.dotColor }}
+                  />
+                  <span
+                    className="text-[11px] font-display font-bold text-text whitespace-nowrap"
+                    style={
+                      subCollapsed
+                        ? { writingMode: 'vertical-rl', marginTop: 8 }
+                        : { flex: '1 1 auto', overflow: 'hidden', textOverflow: 'ellipsis' }
+                    }
+                  >
+                    {sub.title}
+                  </span>
+                  {/* ★ THE COUNT STAYS ON A FOLDED SPINE. Folding a column must
+                      not hide how much is in it — that is the difference
+                      between putting something away and losing it. The
+                      "N proj ·" prefix is what drops; the number is the thing
+                      people are folding around. */}
+                  {!subCollapsed && (
+                    <span
+                      className="text-[10px] font-display font-bold text-dim"
+                      title={
+                        distinctProjectCount(sub.permits) +
+                        ' projects · ' +
+                        sub.permits.length +
+                        ' permits'
+                      }
+                      data-testid={'dash-subbucket-projcount-' + sub.title}
+                    >
+                      {distinctProjectCount(sub.permits)} proj ·
+                    </span>
+                  )}
+                  <span
+                    className="text-xs font-display font-black text-text"
+                    style={subCollapsed ? { marginTop: 8 } : undefined}
+                    data-testid={'pipeline-sub-count-' + sub.title}
+                  >
+                    {sub.permits.length}
+                  </span>
+                </button>
+                {!subCollapsed && (
+                  // ★ THE ONLY SCROLLER ON THE PAGE. The page is a fixed-height
+                  // column now, so overflow lives here — no `calc(100vh - 220px)`
+                  // guess, which was the old way and drifted every time the
+                  // furniture above it changed height.
+                  <div
+                    className="flex-1 min-h-0 overflow-y-auto p-2"
+                    data-scroll-bucket="true"
+                  >
+                    {loading ? (
+                      <SkeletonRows count={2} rowClassName="h-16" />
+                    ) : sub.permits.length === 0 ? (
+                      <div className="text-[11px] text-dim italic px-2 py-3">
+                        No permits
+                      </div>
+                    ) : (
+                      <SubBucketGroups
+                        permits={sub.permits}
+                        stage={subStage}
+                        cyclesByPermit={cyclesByPermit}
+                        reviewersByPermit={reviewersByPermit}
+                        projectById={projectById}
+                        activeHeld={activeHeld}
+                        keyDateLabel={sub.keyDateLabel}
+                        getKeyDate={sub.getKeyDate}
+                        ctx={ctx}
+                      />
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </div>
       )}
     </section>
   );
 }
+
 
 // Q9.5.f Item 1: DashSummary removed — counts already render in each
 // bucket header, the inline summary string near the search bar was
