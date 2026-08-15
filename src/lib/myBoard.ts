@@ -14,6 +14,12 @@ import type {
 export type BoardTask = MyTaskNode;
 import { isPermitInCorrections } from './permitStage';
 import { isSubPermit } from './subPermit';
+import {
+  daQueueAllows,
+  milestoneStateLabel,
+  milestoneWhyYours,
+  usesDaQueueShape,
+} from './boardOwnership';
 import { isTaskLive } from './taskStatus';
 import { isCancelledProject } from './projectViewHelpers';
 
@@ -676,6 +682,13 @@ export interface ForecastItem {
   /** For 'handoff' — the cycle to anchor on and who receives the submittal. */
   cycleIndex: number | null;
   entLead: string | null;
+  /** ★ fix-308b #45: "Past due" / "Due today" / "Upcoming". The row's STATE,
+   *  said in words rather than left to be inferred from a red number. */
+  stateLabel: string;
+  /** ★ fix-308b #45: why this row is on YOUR list — a role, not a paragraph.
+   *  Empty on task rows, which are on your list because they carry your name
+   *  and say so already. */
+  whyYours: string;
   /** ★ fix-306 #29: one line saying what to DO. Rendered in the right-hand
    *  space the forecast was wasting. */
   actionLine: string;
@@ -862,6 +875,8 @@ export function buildForecast(input: BoardInput): Forecast {
           task: null,
           cycleIndex: cyc?.cycle_index ?? null,
           entLead: p.permit.ent_lead ?? null,
+          stateLabel: milestoneStateLabel(daysLate),
+          whyYours: milestoneWhyYours(leg, state, p.permit),
         });
       }
     }
@@ -901,6 +916,10 @@ export function buildForecast(input: BoardInput): Forecast {
       task: t,
       cycleIndex: null,
       entLead: null,
+      stateLabel: milestoneStateLabel(daysLate),
+      // A named task is on your list because your name is on it. Saying so
+      // would be the verbiage #22 cut.
+      whyYours: '',
     });
   }
 
@@ -1077,7 +1096,24 @@ export function buildQueue(input: BoardInput): ProjectQueue {
     let next = '';
     let daysLate = 0;
 
+    // ★★ fix-308b #47 — THE DESIGN ASSOCIATE'S QUEUE.
+    //
+    //   "For design associates, what they really need to focus on is upcoming
+    //    intakes, and then your corrections."
+    //
+    // Decided: intakes and corrections ONLY — not those two ranked above the
+    // rest. ★ DA SHAPE ONLY: it applies when design is the viewer's ONLY leg
+    // on this permit. Somebody who is a DA here and an ENT lead there keeps
+    // the full queue, or their entitlement work would silently vanish. ENT
+    // leads, DMs and oversight are untouched, and so is fix-306's
+    // My queue · My team · [person] toggle.
+    const daShape = usesDaQueueShape(p.legs);
+
     for (const m of stateful) {
+      // ★ The filter runs HERE, inside buildQueue, so it reaches the RENDERED
+      // queue rather than living in the domain layer with no caller — which is
+      // exactly the gap fix-308b exists to close.
+      if (daShape && !daQueueAllows(m.kind)) continue;
       for (const leg of p.legs) {
         const state = relayStateFor(m.kind, leg, p.shape, p.design);
         if (state === 'absent') continue;
@@ -1102,6 +1138,12 @@ export function buildQueue(input: BoardInput): ProjectQueue {
     // "nothing for you to do" group. Only permits actually in review qualify;
     // a permit sitting in pre-submittal has no state worth a row.
     if (group === null) {
+      // ★ fix-308b #47: the DA filter has to cover THIS branch too. A permit
+      // sitting quietly with the city is neither an intake nor a correction,
+      // and gating only the stateful loop above let it through the back door —
+      // caught by the rendered test, not by the domain unit tests, which is
+      // exactly why the brief asked for rendered assertions.
+      if (daShape) continue;
       const cyc = [...(p.permit.permit_cycles ?? [])].sort(
         (a, b) => b.cycle_index - a.cycle_index,
       )[0];

@@ -284,6 +284,25 @@ function ForecastRow({
             ACTION — one line saying what to do — above the date, so the row
             answers "what am I supposed to do with this" without a click. */}
         <div className="ml-auto text-right pl-2 flex-none max-w-[46%]">
+          {/* ★ fix-308b #45: the row now carries THREE facts — its STATE, the
+              ACTION, and WHY IT IS YOURS. Bobby: "maybe that needs some sort of
+              a note section where it says 'past due' and then 'here's the
+              action item' … to help understand what we're supposed to do or why
+              it's on our list."
+
+              ★ Structure, not more prose — #22's verbiage cut stands. Each is a
+              short clause, and "why" is a ROLE ("You are the entitlement lead
+              on this permit"), not a sentence about the permit. */}
+          {item.stateLabel && (
+            <div
+              className={`text-[9px] font-extrabold uppercase tracking-wide leading-tight ${
+                item.daysLate > 0 ? 'text-co' : 'text-dim'
+              }`}
+              data-testid={`board-row-state-${item.key}`}
+            >
+              {item.stateLabel}
+            </div>
+          )}
           {item.actionLine && (
             <div
               className={`text-[10px] font-bold leading-tight ${
@@ -292,6 +311,14 @@ function ForecastRow({
               data-testid={`board-row-action-${item.key}`}
             >
               {item.actionLine}
+            </div>
+          )}
+          {item.whyYours && (
+            <div
+              className="text-[9px] text-dim leading-tight"
+              data-testid={`board-row-why-${item.key}`}
+            >
+              {item.whyYours}
             </div>
           )}
           <div className={`text-[9px] whitespace-nowrap ${tone}`}>
