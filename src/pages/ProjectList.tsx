@@ -4,6 +4,7 @@ import NewProjectWizard from '../components/NewProjectWizard';
 import { useProjects } from '../hooks/useProjects';
 import { usePermits } from '../hooks/usePermits';
 import { useTeamMembers } from '../hooks/useTeamMembers';
+import { isCurrentMember } from '../lib/roster';
 import { useAllPermitCycleReviewers } from '../hooks/useAllPermitCycleReviewers';
 import { useProjectNoteSearchIndex } from '../hooks/useNotes';
 import { SkeletonRows } from '../components/Skeleton';
@@ -763,7 +764,10 @@ function uniqueNamesByRole(
   const set = new Set<string>();
   for (const m of members) {
     if (!match(m.role)) continue;
-    if (m.active === false) continue;
+    // ★ fix-321 #79: one roster rule everywhere. This list has always stopped at
+    // the roster, so a departed person never appeared here — it just used a
+    // slightly different test than the pickers did.
+    if (!isCurrentMember(m)) continue;
     set.add(m.name);
   }
   return [...set].sort((a, b) => a.localeCompare(b));

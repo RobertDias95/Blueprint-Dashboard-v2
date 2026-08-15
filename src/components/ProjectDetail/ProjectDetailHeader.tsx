@@ -1153,6 +1153,24 @@ function TeamCell({
   const dm = bp?.dm ?? project.design_manager ?? null;
   void permits;
 
+  // ★ fix-321 #78: the SD tier. Bobby: "the hierarchy should go: acquisitions,
+  // entitlements, we want to add schematic design — so SD — then design
+  // manager, then design associate."
+  //
+  // ★ NO NEW ROLE AND NO MIGRATION. `schematic` already exists in team_members
+  // (4 people), and the project already carries its own designers in
+  // projects.schematic_designer — fix-222/fix-228 put them there, and
+  // PermitDetailV2 already reads exactly this field. The tier was missing from
+  // this card's DISPLAY, not from the data, so this reads the field the rest of
+  // the app reads rather than inventing a second lookup.
+  //
+  // A project can carry more than one; joined rather than truncated, because a
+  // second designer silently dropped is the kind of half-truth this card keeps
+  // being fixed for.
+  const sd = Array.isArray(project.schematic_designer)
+    ? project.schematic_designer.filter(Boolean).join(', ')
+    : null;
+
   // fix-285: Internal and External STACK vertically now — two cards in one
   // column — rather than sitting side by side in a 2-col grid. Side by side,
   // each got half of a narrow column and the External discipline selects were
@@ -1163,12 +1181,20 @@ function TeamCell({
   // without touching anything here but the JSX.
   return (
     <OverviewCard title="Team" testId="project-overview-team">
+      {/* ★ fix-321 #78: the order IS the requirement, and it follows the work —
+          land, then entitlement, then schematic design, then the manager, then
+          the associate doing it. Written as one list in one place so it cannot
+          drift the way the Milestones rows did before fix-311. */}
       <OverviewSection title="Internal" testId="project-overview-team-internal">
         <div className="flex flex-col gap-1">
-          <TeamRow label="ENT" value={ent} />
-          <TeamRow label="DA" value={da} />
-          <TeamRow label="DM" value={dm} />
-          <TeamRow label="ACQ" value={project.acq_lead ?? '—'} />
+          <TeamRow label="ACQ" value={project.acq_lead ?? '—'} title="Acquisitions" />
+          <TeamRow label="ENT" value={ent} title="Entitlements" />
+          {/* Empty renders the card's normal em-dash, exactly like the four
+              around it — a project with no schematic designer must not look
+              broken, it must look unassigned. */}
+          <TeamRow label="SD" value={sd} title="Schematic design" />
+          <TeamRow label="DM" value={dm} title="Design Manager" />
+          <TeamRow label="DA" value={da} title="Design Associate" />
         </div>
       </OverviewSection>
       <OverviewSection title="External" testId="project-overview-team-external">
@@ -1511,13 +1537,18 @@ function BuilderOwnerCell({ project }: { project: Project }) {
 function TeamRow({
   label,
   value,
+  title,
 }: {
   label: string;
   value: string | null | undefined;
+  /** fix-321: the tier's full name, since the card shows abbreviations. */
+  title?: string;
 }) {
   return (
     <div className="flex items-baseline gap-1">
-      <span className="text-[9px] text-dim w-8 flex-shrink-0">{label}</span>
+      <span className="text-[9px] text-dim w-8 flex-shrink-0" title={title}>
+        {label}
+      </span>
       <span
         className={`text-[10px] font-bold ${value && value !== '—' ? 'text-text' : 'text-dim'}`}
       >

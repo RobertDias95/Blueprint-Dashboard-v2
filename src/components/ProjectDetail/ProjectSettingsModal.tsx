@@ -6,6 +6,7 @@ import {
 import { useJurisdictions } from '../../hooks/useJurisdictions';
 import { usePermitTypes } from '../../hooks/usePermitTypes';
 import { useTeamMembers } from '../../hooks/useTeamMembers';
+import { isCurrentMember } from '../../lib/roster';
 import { usePermitsByProject } from '../../hooks/usePermitsByProject';
 import {
   useAppConfig,
@@ -243,12 +244,15 @@ export default function ProjectSettingsModal({
     return out;
   };
   const entMembers = dedupByName(
-    team.filter((t) => (t.role === 'ent' || t.role === 'ent_lead') && t.active !== false),
+    team.filter((t) => (t.role === 'ent' || t.role === 'ent_lead') && isCurrentMember(t)),
   );
-  const dmMembers = team.filter((t) => t.role === 'dm' && t.active !== false);
-  const daMembers = team.filter((t) => t.role === 'da' && t.active !== false);
+  const dmMembers = team.filter((t) => t.role === 'dm' && isCurrentMember(t));
+  // ★ fix-321 #79: assignment pickers offer the CURRENT roster only. The
+  // person already stored on the project keeps rendering either way — see the
+  // "stored value not in the list" branch each picker already has.
+  const daMembers = team.filter((t) => t.role === 'da' && isCurrentMember(t));
   const acqMembers = dedupByName(
-    team.filter((t) => (t.role === 'acq' || t.role === 'acq_lead') && t.active !== false),
+    team.filter((t) => (t.role === 'acq' || t.role === 'acq_lead') && isCurrentMember(t)),
   );
 
   function set<K extends keyof FormState>(key: K, value: FormState[K]) {

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useJurisdictions } from '../../hooks/useJurisdictions';
 import { useTeamMembers } from '../../hooks/useTeamMembers';
+import { isCurrentMember } from '../../lib/roster';
 import { useAppConfig, readAppConfigStringArray } from '../../hooks/useAppConfig';
 import {
   daHasRoutingFor,
@@ -60,7 +61,13 @@ const REDESIGN_DD_DURATION_DAYS = 26;
 /** Filter team_members by role set, then dedupe by name so the legacy/lead
  *  role drift in the schema doesn't double-list anyone. fix-143: when
  *  includeInactive is true (backfill mode) the active-only filter is dropped so
- *  inactive + former members can be assigned to historical projects. */
+ *  inactive + former members can be assigned to historical projects.
+ *
+ *  ★ fix-321 #79: the membership test is the shared `isCurrentMember` — this
+ *  used to check `active === false` alone and so still offered anyone flagged
+ *  `former` without `active` being cleared. Backfill mode is untouched: it is
+ *  the deliberate escape hatch for assigning a historical project to someone who
+ *  has left, and #79 is about the everyday pickers, not that one. */
 function membersByRoles(
   all: TeamMember[],
   roles: Set<string>,
@@ -70,7 +77,7 @@ function membersByRoles(
   const out: TeamMember[] = [];
   for (const m of all) {
     if (!roles.has(m.role)) continue;
-    if (!includeInactive && m.active === false) continue;
+    if (!includeInactive && !isCurrentMember(m)) continue;
     if (seen.has(m.name)) continue;
     seen.add(m.name);
     out.push(m);
