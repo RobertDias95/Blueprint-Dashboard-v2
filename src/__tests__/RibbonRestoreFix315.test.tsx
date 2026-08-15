@@ -148,22 +148,18 @@ describe('fix-315 §1: the Reports overview is reachable again', () => {
     expect(routerSrc).toContain("import Reports from './pages/Reports'");
   });
 
-  it('sits FIRST among the group’s children, above the runnable reports', () => {
+  it('sits FIRST among the group’s children, above the shelf', () => {
     const group = RIBBON_ENTRIES.find(
       (e) => e.kind === 'group' && e.group.id === 'reports',
     );
     const kids = group!.kind === 'group' ? group!.group.children : [];
     expect(kids[0]!.to).toBe('/reports');
     expect(kids[0]!.label).toBe('Overview');
-    // The seven fix-313 entries are all still there, in order.
+    // ★ fix-317 removed the five that duplicate Saved reports. Phase durations
+    // stays because the hub cannot reach it — asserted in its own suite.
     expect(kids.slice(1).map((k) => k.to)).toEqual([
-      '/reports/weekly-da',
-      '/reports/weekly-updates',
-      '/reports/approved-awaiting',
-      '/reports/phase-durations',
-      '/reports/vendor-forecast',
-      '/reports/corrections',
       '/settings/reporting',
+      '/reports/phase-durations',
     ]);
   });
 
@@ -174,20 +170,24 @@ describe('fix-315 §1: the Reports overview is reachable again', () => {
     renderRoutable('/dashboard');
     fireEvent.click(screen.getByTestId('ribbon-group-toggle-reports'));
     expect(screen.getByTestId('where').textContent).toBe('/dashboard');
-    // ...and the children are now reachable directly.
-    fireEvent.click(screen.getByTestId('ribbon-link-/reports/corrections'));
-    expect(screen.getByTestId('where').textContent).toBe('/reports/corrections');
+    // ...and the children are now reachable directly. ★ fix-317 retargeted
+    // this off /reports/corrections, which left the ribbon.
+    fireEvent.click(screen.getByTestId('ribbon-link-/settings/reporting'));
+    expect(screen.getByTestId('where').textContent).toBe('/settings/reporting');
   });
 
   // ★ The reason the Overview entry is `exact`. Without it, /reports would
   // prefix-match every child and two entries would claim to be where you are.
   it('★ the Overview entry does not light up while you are reading a child', () => {
-    renderRibbon('/reports/corrections');
+    // ★ fix-317: uses /reports/phase-durations now — still a ribbon entry AND
+    // still under /reports/, so it keeps testing the exact-flag hazard the
+    // prefix matcher would otherwise create.
+    renderRibbon('/reports/phase-durations');
     fireEvent.click(screen.getByTestId('ribbon-group-toggle-reports'));
     expect(screen.getByTestId('ribbon-link-/reports').dataset.active).toBe('false');
-    expect(screen.getByTestId('ribbon-link-/reports/corrections').dataset.active).toBe(
-      'true',
-    );
+    expect(
+      screen.getByTestId('ribbon-link-/reports/phase-durations').dataset.active,
+    ).toBe('true');
   });
 
   it('...and does light up on /reports itself', () => {
@@ -270,23 +270,32 @@ describe('fix-315 §2: Waiting On is reachable again', () => {
   });
 
   // ★ NOT merged with the Consultant forecast — different questions, and the
-  // brief is explicit that both stay.
-  it('★ the Consultant forecast is still its own, separate entry', () => {
-    const routes = allRibbonRoutes();
-    expect(routes).toContain('/waiting-on');
-    expect(routes).toContain('/reports/vendor-forecast');
-    // They live in different groups, so they are never adjacent in the ribbon.
+  // brief was explicit that both stay.
+  //
+  // ★ fix-317 moved where that is checked. The forecast is no longer a ribbon
+  // entry — it left with the five that duplicated Saved reports — so "separate
+  // entry" became "separate report, still reachable, still not merged". Its
+  // route still exists, it carries its own exemption naming its shelf
+  // category, and Waiting On is untouched and still in the ribbon.
+  it('★ the Consultant forecast is still a separate, reachable report', () => {
+    expect(allRibbonRoutes()).toContain('/waiting-on');
+    // The forecast route is alive and exempted for a stated reason...
+    const exemption = ROUTES_INTENTIONALLY_NOT_IN_RIBBON.find(
+      (r) => r.path === '/reports/vendor-forecast',
+    );
+    expect(exemption, 'the forecast must be exempted, not silently dropped').toBeTruthy();
+    expect(exemption!.why).toMatch(/Saved reports/);
+    // ...and the exemption names the category it actually sits in on prod,
+    // which is Weekly Updates — NOT Pipeline.
+    expect(exemption!.why).toMatch(/Weekly Updates/);
+    expect(routerSrc).toContain("path: 'reports/vendor-forecast'");
+
+    // Waiting On stays in the ribbon, under Entitlements, and is NOT the
+    // forecast: the hover text is what separates them.
     const ent = RIBBON_ENTRIES.find((e) => e.kind === 'group' && e.group.id === 'entitlements');
-    const rep = RIBBON_ENTRIES.find((e) => e.kind === 'group' && e.group.id === 'reports');
-    const entKids = ent!.kind === 'group' ? ent!.group.children.map((c) => c.to) : [];
-    const repKids = rep!.kind === 'group' ? rep!.group.children.map((c) => c.to) : [];
-    expect(entKids).toContain('/waiting-on');
-    expect(repKids).toContain('/reports/vendor-forecast');
-    // The hover text is what separates them where the labels could be confused.
-    const wo = entKids.includes('/waiting-on')
-      ? (ent!.kind === 'group' ? ent!.group.children.find((c) => c.to === '/waiting-on') : undefined)
-      : undefined;
-    expect(wo!.hint).toMatch(/owes us/i);
+    const entKids = ent!.kind === 'group' ? ent!.group.children : [];
+    expect(entKids.map((c) => c.to)).toContain('/waiting-on');
+    expect(entKids.find((c) => c.to === '/waiting-on')!.hint).toMatch(/owes us/i);
   });
 });
 

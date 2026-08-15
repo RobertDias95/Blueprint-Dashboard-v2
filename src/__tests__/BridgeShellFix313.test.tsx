@@ -172,7 +172,10 @@ describe('fix-313 #60: the active state follows the route', () => {
   // from a link or a bookmark leaves the ribbon with nothing lit — which reads
   // as "you are nowhere" — unless the closed parent carries the state.
   it('★ a CLOSED group containing the active route still shows as active', () => {
-    renderRibbon('/reports/corrections');
+    // ★ fix-317 retargeted the route this uses: the six individual report
+    // entries left the ribbon (they were duplicating Saved reports). The
+    // contract is unchanged — it just needs a Reports child that still exists.
+    renderRibbon('/settings/reporting');
     const group = screen.getByTestId('ribbon-group-reports');
     // Genuinely closed: the children are not rendered at all.
     expect(screen.queryByTestId('ribbon-kids-reports')).toBeNull();
@@ -185,18 +188,22 @@ describe('fix-313 #60: the active state follows the route', () => {
   });
 
   it('and the child itself is active once the group is opened', () => {
-    renderRibbon('/reports/corrections');
+    // ★ fix-317 retargeted the route this uses: the six individual report
+    // entries left the ribbon (they were duplicating Saved reports). The
+    // contract is unchanged — it just needs a Reports child that still exists.
+    renderRibbon('/settings/reporting');
     fireEvent.click(screen.getByTestId('ribbon-group-toggle-reports'));
-    expect(screen.getByTestId('ribbon-link-/reports/corrections').dataset.active).toBe(
+    expect(screen.getByTestId('ribbon-link-/settings/reporting').dataset.active).toBe(
       'true',
     );
-    expect(screen.getByTestId('ribbon-link-/reports/weekly-da').dataset.active).toBe(
-      'false',
-    );
+    expect(screen.getByTestId('ribbon-link-/reports').dataset.active).toBe('false');
   });
 
   it('a group opens and closes independently of the route', () => {
-    renderRibbon('/reports/corrections');
+    // ★ fix-317 retargeted the route this uses: the six individual report
+    // entries left the ribbon (they were duplicating Saved reports). The
+    // contract is unchanged — it just needs a Reports child that still exists.
+    renderRibbon('/settings/reporting');
     // Open by hand while already inside it, then close it again. The route has
     // not moved, so a route-driven implementation would fight this.
     fireEvent.click(screen.getByTestId('ribbon-group-toggle-reports'));
@@ -220,7 +227,7 @@ describe('fix-313 #60: the active state follows the route', () => {
     );
     expect(
       reports!.kind === 'group' &&
-        groupContainsActive(reports!.group, '/reports/vendor-forecast'),
+        groupContainsActive(reports!.group, '/settings/reporting'),
     ).toBe(true);
     expect(
       reports!.kind === 'group' && groupContainsActive(reports!.group, '/board'),
@@ -447,25 +454,26 @@ describe('fix-313: the Reports gate is the whole group', () => {
     );
   });
 
-  // ★ fix-315 added ONE entry to the front of this list: /reports itself, the
-  // live-metrics overview, which fix-313 left off entirely — it listed the
-  // seven children and not the parent, so the metrics dashboard kept rendering
-  // and became unreachable by clicking. fix-313's seven are unchanged and
-  // still in order below.
-  it('lists the overview first, then the seven runnable reports', () => {
+  // fix-313 listed the seven CHILDREN of Reports and not the parent, so the
+  // metrics dashboard kept rendering and became unreachable by clicking.
+  // fix-315 put /reports back at the front.
+  //
+  // ★ fix-317 then took the six individual reports OUT: they were listed twice,
+  // once here and once inside Saved reports where they already sit grouped by
+  // category. Bobby's model restored — Reports is the live metrics dashboard,
+  // Saved reports is the shelf.
+  //
+  // Phase durations is the one exception and stays, because it has NO
+  // saved_reports row on prod and this is its only link. See ribbonNav.ts.
+  it('lists the overview, then Saved reports, then the one unshelved report', () => {
     const reports = RIBBON_ENTRIES.find(
       (e) => e.kind === 'group' && e.group.id === 'reports',
     );
     const kids = reports!.kind === 'group' ? reports!.group.children : [];
     expect(kids.map((k) => k.to)).toEqual([
       '/reports',
-      '/reports/weekly-da',
-      '/reports/weekly-updates',
-      '/reports/approved-awaiting',
-      '/reports/phase-durations',
-      '/reports/vendor-forecast',
-      '/reports/corrections',
       '/settings/reporting',
+      '/reports/phase-durations',
     ]);
   });
 });

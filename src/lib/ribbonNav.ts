@@ -122,17 +122,38 @@ export const RIBBON_ENTRIES: RibbonEntry[] = [
           exact: true,
           hint: 'Live metrics — the reports dashboard, including Trends',
         },
-        { to: '/reports/weekly-da', label: 'Weekly DA', icon: '·' },
-        { to: '/reports/weekly-updates', label: 'Weekly Updates', icon: '·' },
-        {
-          to: '/reports/approved-awaiting',
-          label: 'Approved, awaiting issue',
-          icon: '·',
-        },
-        { to: '/reports/phase-durations', label: 'Phase durations', icon: '·' },
-        { to: '/reports/vendor-forecast', label: 'Consultant forecast', icon: '·' },
-        { to: '/reports/corrections', label: 'Corrections', icon: '·' },
+        // ★ fix-317 (register #75): the six individual reports came OUT of here.
+        // They were listed twice — once as ribbon entries, once inside Saved
+        // reports, where they already sit grouped into categories.
+        //
+        //   Bobby: "it's showing six things that are duplicates, essentially.
+        //   So I think it should maybe be Overview, Saved reports, and then
+        //   within Saved reports you can see the two categories."
+        //
+        // Which restores his model: Reports is the live metrics dashboard,
+        // Saved reports is the shelf of things you can run.
         { to: '/settings/reporting', label: 'Saved reports', icon: '·' },
+        // ★ FIVE CAME OUT, NOT SIX — and this is the load-bearing exception.
+        //
+        // fix-315 exists because fix-313 removed a destination without checking
+        // it was reachable elsewhere. Verified against PROD before deleting
+        // anything: the hub lists from public.saved_reports, not from
+        // builtinReports.ts, and phase_durations HAS NO ROW THERE. Five of the
+        // six are on the shelf; this one is not, and the ribbon is the only
+        // link to it anywhere in the app (grepped).
+        //
+        // Removing it would have manufactured exactly the defect fix-315 spent
+        // a ticket cleaning up, so it stays until somebody seeds it. Its
+        // catalog entry is already an explicit `phase_durations: null` flagged
+        // by fix-267, with the intended slot written down — Pipeline, position
+        // 1, which is why Pipeline currently runs 0, 2 with a gap. Seed that
+        // row and this entry should come straight out.
+        {
+          to: '/reports/phase-durations',
+          label: 'Phase durations',
+          icon: '·',
+          hint: 'Not on the Saved reports shelf yet — this is its only link',
+        },
       ],
     },
   },
@@ -214,6 +235,34 @@ export const ROUTES_INTENTIONALLY_NOT_IN_RIBBON: ReadonlyArray<{
   {
     path: '/reports/builder',
     why: 'Opened from the Reporting hub ("Saved reports"), which is in the ribbon. A blank builder is not somewhere you navigate to cold.',
+  },
+  // ★ fix-317: the five that came out of the Reports group. Each was VERIFIED
+  // present on the prod shelf before its ribbon entry was deleted — the hub
+  // lists from public.saved_reports, so a registry entry alone would not have
+  // been evidence. The category is named so the next person can check the
+  // claim without reading the registry.
+  //
+  // ★ phase_durations is deliberately NOT here: it has no saved_reports row,
+  // so it keeps its ribbon entry. See the note beside it in RIBBON_ENTRIES.
+  {
+    path: '/reports/weekly-da',
+    why: 'Reached from the Reporting hub ("Saved reports"), which is in the ribbon, where it sits under the Weekly Updates category as "Weekly DA Update".',
+  },
+  {
+    path: '/reports/weekly-updates',
+    why: 'Reached from the Reporting hub ("Saved reports"), which is in the ribbon, where it sits under the Weekly Updates category as "Weekly Updates".',
+  },
+  {
+    path: '/reports/vendor-forecast',
+    why: 'Reached from the Reporting hub ("Saved reports"), which is in the ribbon, where it sits under the Weekly Updates category as "Structural Schedule Forecast" — not Pipeline, and not under the ribbon\'s old "Consultant forecast" wording.',
+  },
+  {
+    path: '/reports/approved-awaiting',
+    why: 'Reached from the Reporting hub ("Saved reports"), which is in the ribbon, where it sits under the Pipeline category as "Approved – Awaiting Issuance".',
+  },
+  {
+    path: '/reports/corrections',
+    why: 'Reached from the Reporting hub ("Saved reports"), which is in the ribbon, where it sits under the Pipeline category as "Corrections".',
   },
   {
     path: '/trends',

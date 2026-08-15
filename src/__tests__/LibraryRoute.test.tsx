@@ -150,10 +150,13 @@ describe('fix-297 the nav reaches it (fix-313: from the ribbon)', () => {
       false,
     );
     // ...and an admin does get them, so the assertion above is not vacuous.
+    // ★ fix-317: /reports/weekly-da left the ribbon (it duplicated Saved
+    // reports); the overview and the shelf are what an admin gets now.
     const adminRoutes = visibleEntries(true).flatMap((e) =>
       e.kind === 'group' ? e.group.children.map((c) => c.to) : [],
     );
-    expect(adminRoutes).toContain('/reports/weekly-da');
+    expect(adminRoutes).toContain('/reports');
+    expect(adminRoutes).toContain('/settings/reporting');
   });
 });
 
