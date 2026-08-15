@@ -47,6 +47,7 @@ import ScopeToggle from '../components/shared/ScopeToggle';
 import { distinctProjectCount } from '../lib/dashboardCounts';
 import { useAuthStore } from '../stores/authStore';
 import {
+  defaultCollapsedKeys,
   loadPipelineCollapsed,
   pipelineGroupKey,
   pipelineSubKey,
@@ -125,11 +126,16 @@ export default function Dashboard() {
   // LAZY INITIALISER and written in the handler, no effect. An effect that
   // setStates on mount renders one frame of the wrong layout before correcting
   // itself, which the user sees as a flinch; it is also the React Compiler's
-  // `set-state-in-effect`. Default: everything open, which is the mockup Bobby
-  // signed off.
+  // `set-state-in-effect`.
+  //
+  // ★ fix-324b — the DEFAULT is register #68: 'Approve and Issue default to
+  // COLLAPSED'. fix-324 shipped all four open because that is how the mockup
+  // DRAWS them; the mockup illustrates the layout, #68 states the starting
+  // state, and the rule wins. It applies only until this person chooses — after
+  // that their stored list is the whole answer.
   const collapseUserId = useAuthStore((s) => s.user?.id ?? null);
   const [collapsedKeys, setCollapsedKeys] = useState<string[]>(
-    () => loadPipelineCollapsed(collapseUserId) ?? [],
+    () => loadPipelineCollapsed(collapseUserId) ?? defaultCollapsedKeys(),
   );
   const isCollapsed = useCallback(
     (key: string) => collapsedKeys.includes(key),
