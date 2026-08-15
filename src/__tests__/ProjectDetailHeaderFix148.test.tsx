@@ -165,6 +165,8 @@ describe('fix-148: Closing date moved to DD Phase', () => {
     // 3) neither (normal project, no BP)
     renderHeader(projectFixture(), []);
     expect(screen.getByTestId('project-overview-closing')).toBeTruthy();
-    expect(screen.getByText('No building permit')).toBeTruthy();
+    // fix-311 added the Permit intake section, which says the same plain thing
+    // on this branch — both its rows hang off the BP that isn't there.
+    expect(screen.getAllByText('No building permit')).toHaveLength(2);
   });
 });

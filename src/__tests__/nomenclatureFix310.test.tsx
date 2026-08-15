@@ -366,9 +366,10 @@ describe('fix-310: the DD dates still write, and the section is renamed', () => 
 
     const start = screen.getByTestId('pd-bp-dd_start') as HTMLInputElement;
     fireEvent.change(start, { target: { value: '2026-06-01' } });
-    expect(screen.getByTestId('pd-schematic-window')).toHaveTextContent(
-      '2026-05-04 → 2026-06-01',
-    );
+    // ★ fix-311 split the one combined `start → end` string into two rows so SD
+    // sits parallel with DD start / DD end. Same derived window, same two dates.
+    expect(screen.getByTestId('pd-sd-start')).toHaveTextContent('2026-05-04');
+    expect(screen.getByTestId('pd-sd-end')).toHaveTextContent('2026-06-01');
     const cardText = card.textContent ?? '';
     expect(cardText.indexOf('SD')).toBeLessThan(cardText.indexOf('DD start'));
   });

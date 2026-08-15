@@ -256,14 +256,16 @@ describe('fix-309 #53: the schematic window is derived, never stored', () => {
     });
   });
 
+  // ★ fix-311 split the one combined `start → end` string into SD start and SD
+  // end so the two sit parallel with DD start / DD end. The WINDOW is unchanged
+  // — same deriver, same two dates, two rows instead of one.
   it('renders that window above the DD row', () => {
     renderHeader(
       projectFixture(),
       [bpFixture({ dd_start: '2026-06-01', dd_end: '2026-07-03' } as Partial<PermitWithCycles>)],
     );
-    expect(screen.getByTestId('pd-schematic-window')).toHaveTextContent(
-      '2026-05-04 → 2026-06-01',
-    );
+    expect(screen.getByTestId('pd-sd-start')).toHaveTextContent('2026-05-04');
+    expect(screen.getByTestId('pd-sd-end')).toHaveTextContent('2026-06-01');
     // Above, not below: the schematic phase precedes DD.
     const card = screen.getByTestId('pd-milestones-card');
     const text = card.textContent ?? '';
@@ -277,18 +279,18 @@ describe('fix-309 #53: the schematic window is derived, never stored', () => {
       projectFixture(),
       [bpFixture({ dd_start: '2026-06-01', dd_end: '2026-07-03' } as Partial<PermitWithCycles>)],
     );
-    expect(screen.getByTestId('pd-schematic-window')).toHaveTextContent('2026-05-04');
+    expect(screen.getByTestId('pd-sd-start')).toHaveTextContent('2026-05-04');
 
     const start = screen.getByTestId('pd-bp-dd_start') as HTMLInputElement;
     fireEvent.change(start, { target: { value: '2026-06-29' } });
-    expect(screen.getByTestId('pd-schematic-window')).toHaveTextContent(
-      '2026-06-01 → 2026-06-29',
-    );
+    expect(screen.getByTestId('pd-sd-start')).toHaveTextContent('2026-06-01');
+    expect(screen.getByTestId('pd-sd-end')).toHaveTextContent('2026-06-29');
   });
 
   it('renders no window at all when DD start is null — never a garbage date', () => {
     renderHeader(projectFixture(), [bpFixture({ dd_start: null } as Partial<PermitWithCycles>)]);
-    expect(screen.queryByTestId('pd-schematic-row')).toBeNull();
+    expect(screen.queryByTestId('pd-sd-start')).toBeNull();
+    expect(screen.queryByTestId('pd-sd-end')).toBeNull();
     expect(screen.getByTestId('pd-milestones-card').textContent ?? '').not.toMatch(
       /NaN|Invalid|1970/,
     );
