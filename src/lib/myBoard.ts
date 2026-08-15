@@ -134,6 +134,12 @@ export type BoardLeg = 'design' | 'entitlement';
  *   - 'absent'  — not yours; not rendered at all. */
 export type RelayState = 'mine' | 'waiting' | 'absent';
 
+/** Design tasks are the ones on the design side of the board — fix-244 made
+ *  `discipline` follow the task's team, so 'arch' IS the design column. */
+export function isDesignTask(t: Pick<BoardTask, 'discipline'>): boolean {
+  return t.discipline === 'arch';
+}
+
 /** ★ Derived from `da IS NULL`, never from the permit type.
  *
  *  A Demolition WITH a DA (Cam holds 41 active permits) genuinely has a design
@@ -141,9 +147,48 @@ export type RelayState = 'mine' | 'waiting' | 'absent';
  *  would get both wrong. */
 export type LegShape = 'two-leg' | 'one-leg';
 
-export function legShape(permit: Pick<Permit, 'da'>): LegShape {
+/** ★★ fix-308 (#42/#43) — THE FIX FOR "THE BOARD IS NAMING THE WRONG PERSON".
+ *
+ *  Bobby sat with Cam on 3921 43rd Ave S, the Demolition permit. The board told
+ *  him two contradictory things at once — "ready to hand off" AND "blocked by
+ *  Cam" — and he had no task on the permit at all. Verified on prod: permit 165,
+ *  7133443-DM, six tasks, EVERY ONE `discipline='ent'`, not one `arch`. The two
+ *  open ones belong to Miles and to nobody.
+ *
+ *  Both lies came from `da IS NOT NULL` alone meaning "this permit has a design
+ *  leg". It does not. It means somebody is named in a column.
+ *
+ *  Bobby's rule, verbatim: "If no tasks for design, then it falls on ENT. If no
+ *  tasks for design or ENT, still falls on ENT, because then that is saying
+ *  there is nothing holding this permit from advancing."
+ *
+ *      design tasks exist   ->  design owns the leg
+ *      no design tasks      ->  ENT owns
+ *      no tasks at all      ->  ENT owns
+ *
+ *  ★ So ENT is the DEFAULT owner and design owns only when design work
+ *  actually exists. Fixing it HERE rather than at each render site is what
+ *  makes both symptoms go at once: with shape='one-leg', relayStateFor returns
+ *  'absent' for the design leg (no "ready to hand off" to the DA) and 'mine'
+ *  for entitlement (ENT owns it), and handoffAffordance returns 'none'.
+ *
+ *  ★ Measured on prod 2026-08-16, after fix-312: 161 active permits carry a DA
+ *  and 100 of them (62%) have never had a single arch task. This is not an edge
+ *  case; it is the dominant case.
+ *
+ *  ★ NOTHING IS AUTO-CREATED. The 100-permit gap is Bobby's to fix in the data.
+ *  This only stops the board asserting a design leg that is not there. */
+export function legShape(
+  permit: Pick<Permit, 'da'>,
+  tasks: ReadonlyArray<Pick<BoardTask, 'discipline'>> = [],
+): LegShape {
   const da = (permit.da ?? '').trim();
-  return da === '' ? 'one-leg' : 'two-leg';
+  if (da === '') return 'one-leg';
+  // ★ A named DA is necessary but NOT sufficient. Any design task at all —
+  // open or resolved — proves the leg exists; a permit whose design work is
+  // finished is still two-leg, which is what keeps the handoff prompt alive
+  // for the permits that genuinely earned it.
+  return tasks.some(isDesignTask) ? 'two-leg' : 'one-leg';
 }
 
 /** ★ The handoff trap, as a type.
@@ -154,12 +199,6 @@ export function legShape(permit: Pick<Permit, 'da'>): LegShape {
  *  whole team. 'no-tasks' therefore exists as a state distinct from 'complete'
  *  and must never be treated as complete. */
 export type DesignLegStatus = 'no-tasks' | 'in-progress' | 'complete';
-
-/** Design tasks are the ones on the design side of the board — fix-244 made
- *  `discipline` follow the task's team, so 'arch' IS the design column. */
-export function isDesignTask(t: Pick<BoardTask, 'discipline'>): boolean {
-  return t.discipline === 'arch';
-}
 
 /** fix-298 Phase 2: one row per milestone action taken from the board that has
  *  no task behind it. Append-only; see the migration for why this is not a
@@ -277,7 +316,7 @@ export function handoffAffordance(
   // ★ A one-leg permit has no design leg. No prompt, no manual button, no
   // "waiting on design" — entitlement owns it end to end. Derived from
   // `da IS NULL`, never from the permit type.
-  if (legShape(permit) === 'one-leg') return 'none';
+  if (legShape(permit, tasks) === 'one-leg') return 'none';
   if (designCompleteAck(permit, acks)) return 'none'; // already handed off
 
   // ★ ONLY WHERE A HANDOFF MEANS SOMETHING: the permit is in corrections, so
@@ -761,7 +800,7 @@ function prepare(input: BoardInput): Prepared[] {
     out.push({
       permit,
       project,
-      shape: legShape(permit),
+      shape: legShape(permit, tasksByPermit.get(permit.id) ?? []),
       design: designLegStatus(
         tasksByPermit.get(permit.id) ?? [],
         !!designCompleteAck(permit, input.acks ?? []),

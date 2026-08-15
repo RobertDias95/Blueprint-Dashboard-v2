@@ -29,6 +29,7 @@ import TaskDetailEditor from '../components/TaskDetailEditor';
 import { nestSubtasks } from '../lib/taskNesting';
 
 
+import { buildHandedOff } from '../lib/boardOwnership';
 import {
   BOARD_SECTION_CAPS,
   buildForecast,
@@ -794,6 +795,31 @@ export default function MyBoard() {
   }, [permitsQ.data, projectsQ.data, input.today, input.cancelledIds, viewer]);
 
   const forecast = useMemo(() => buildForecast(input), [input]);
+
+  // ★ fix-308 #46 — "Handed off — waiting on others". THE OUTGOING SIDE.
+  //
+  // Not to be confused with `handoffs` below, which is INCOMING: things I could
+  // hand on now. This is what I have ALREADY passed on and am waiting to get
+  // back — Bobby's "hey, I sent this to you two days ago, why haven't you
+  // resubmitted this". They are kept distinct by what they derive from:
+  // `handoffs` reads handoffAffordance; this reads the rows that are no longer
+  // actionable for me because the other half now holds them.
+  //
+  // ★★ It shows age and climbs WITHIN the section, and it NEVER escalates.
+  // No task, no priority, no notification, however old — that obligation is
+  // the receiver's, and fix-305's ladder already escalates it on their board.
+  const handedOff = useMemo(() => {
+    const all = [
+      ...forecast.past_due.items,
+      ...forecast.today.items,
+      ...forecast.tomorrow.items,
+      ...forecast.this_week.items,
+      ...forecast.next_week.items,
+    ];
+    return buildHandedOff(
+      all.map((i) => ({ ...i, withWhom: i.entLead ?? '' })),
+    );
+  }, [forecast]);
   // ★ fix-306 #35: the people this viewer may scope the queue to. Derived from
   // dm_da_groups (design managers), da_team_routing (entitlement leads), or
   // everyone (oversight). A design associate gets an empty list and therefore
@@ -1017,6 +1043,38 @@ export default function MyBoard() {
                 expanded={isExpanded('board-sec-next-week')}
                 onToggle={() => toggleSection('board-sec-next-week')}
               />
+
+              {/* ★ fix-308 #46: its own section, at the BOTTOM of the forecast.
+                  When the design half is done the row LEAVES the dated buckets
+                  — it is no longer past due FOR THE SENDER — and lands here
+                  with who it went to and how long ago. */}
+              {handedOff.length > 0 && (
+                <div data-testid="board-sec-handed-off-wrap">
+                  <SectionHeader
+                    label="Handed off — waiting on others"
+                    total={handedOff.length}
+                    capped={handedOff.length > BOARD_SECTION_CAPS.queueGroup}
+                    testid="board-sec-handed-off"
+                  />
+                  {handedOff
+                    .slice(0, BOARD_SECTION_CAPS.queueGroup)
+                    .map((h) => (
+                      <div
+                        key={h.key}
+                        className="px-3.5 py-2 border-b border-border/50"
+                        data-testid={`board-handed-off-row-${h.key}`}
+                        data-days-ago={h.daysAgo}
+                        /* ★ Never a task, never a priority — asserted. */
+                        data-escalates="false"
+                      >
+                        <div className="text-[11.5px] text-text truncate">{h.where}</div>
+                        <div className="text-[10px] text-muted mt-0.5">
+                          {h.withWhom} · {h.daysAgo} day{h.daysAgo === 1 ? '' : 's'}
+                        </div>
+                      </div>
+                    ))}
+                </div>
+              )}
             </div>
           </div>
 

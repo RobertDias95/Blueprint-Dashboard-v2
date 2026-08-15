@@ -235,8 +235,18 @@ describe('fix-298 P2: the handoff affordance', () => {
   const cyc = [mkCycle({ cycle_index: 2, submitted: '2026-05-01', corr_issued: '2026-06-01' })];
   const permit = () => mkPermit({ da: 'Fisk', ent_lead: 'Miles', permit_cycles: cyc });
 
-  it('★ ZERO tasks never auto-prompts — it offers the manual button', () => {
-    expect(handoffAffordance(permit(), [], [])).toBe('manual');
+  // ★★ fix-308 (#42) SUPERSEDES fix-298 P2's "manual" affordance here.
+  //
+  // P2 offered a manual "Mark design complete" button on a permit with zero
+  // design tasks, because "all complete" was vacuously true and an automatic
+  // prompt would have announced the permit ready to file before anyone touched
+  // it. That was the right call against the rule of the day.
+  //
+  // Bobby's rule now says such a permit has NO DESIGN LEG AT ALL — "if no tasks
+  // for design, then it falls on ENT" — so there is nothing to mark complete
+  // and nobody to hand off FROM. 'none', not 'manual'.
+  it('★★ ZERO tasks offers NOTHING — there is no design leg to hand off', () => {
+    expect(handoffAffordance(permit(), [], [])).toBe('none');
   });
 
   it('★ ONE RESOLVED design task DOES prompt', () => {
@@ -262,16 +272,21 @@ describe('fix-298 P2: the handoff affordance', () => {
     ).toBe('none');
   });
 
-  it('★ resolved ENTITLEMENT tasks do not vouch for the design leg', () => {
-    // A ticked "Brents list" says nothing about whether the redlines are
-    // drawn. It falls back to manual: a person still has to say so.
+  // ★ fix-298's point stands and is now stronger: a ticked "Brents list" says
+  // nothing about whether the redlines are drawn. ★ fix-308 goes further — ENT
+  // tasks do not merely fail to VOUCH for the design leg, they do not CREATE
+  // one. This is the 3921 shape exactly: six ENT tasks, no arch, DA named.
+  it('★★ ENTITLEMENT tasks alone create no design leg — the 3921 shape', () => {
     expect(
       handoffAffordance(
         permit(),
-        [mkTask({ discipline: 'ent', status: 'Resolved' })],
+        [
+          mkTask({ discipline: 'ent', status: 'Resolved' }),
+          mkTask({ discipline: 'ent', status: 'Open', assigned_to: 'Miles' }),
+        ],
         [],
       ),
-    ).toBe('manual');
+    ).toBe('none');
   });
 
   it('★ a ONE-LEG permit shows no handoff affordance at all', () => {
@@ -310,13 +325,19 @@ describe('fix-298 P2: the handoff affordance', () => {
       target_submit: '2026-03-01',
       permit_cycles: [mkCycle({ cycle_index: 2 })],
     });
-    const before = buildForecast(input({ viewer: MILES, permits: [p] }));
+    // ★ fix-308: the permit needs real design work for a design leg to exist
+    // at all — otherwise it is ENT's outright and there is nothing to ack.
+    const designWork = [mkTask({ permit_id: p.id, discipline: 'arch', status: 'Open' })];
+    const before = buildForecast(
+      input({ viewer: MILES, permits: [p], tasks: designWork }),
+    );
     expect(before.past_due.items.some((i) => !i.actionable)).toBe(true);
 
     const after = buildForecast(
       input({
         viewer: MILES,
         permits: [p],
+        tasks: designWork,
         acks: [ACK({ permit_id: p.id, milestone: 'design_complete', anchor: '2' })],
       }),
     );
@@ -371,7 +392,14 @@ describe('fix-298 P2: what ticking a row is wired to do', () => {
     // that would destroy the record of what was actually done. It states the
     // true thing instead: the design half is finished.
     const p = mkPermit({ da: 'Fisk', ent_lead: 'Miles', target_submit: '2026-03-01' });
-    const f = buildForecast(input({ viewer: FISK, permits: [p] }));
+    // ★ fix-308: a design leg exists only where design work does.
+    const f = buildForecast(
+      input({
+        viewer: FISK,
+        permits: [p],
+        tasks: [mkTask({ permit_id: p.id, discipline: 'arch', status: 'Open' })],
+      }),
+    );
     expect(f.past_due.items[0]!.action).toBe('handoff');
     expect(f.past_due.items[0]!.entLead).toBe('Miles');
   });
@@ -440,7 +468,14 @@ describe('fix-298 P2: the handoff section is gated and capped', () => {
     // Different question: whether this permit deserves a STANDING row in the
     // section, vs what ticking its forecast row does.
     const p = mkPermit({ da: 'Fisk', ent_lead: 'Miles', target_submit: '2026-03-01' });
-    const f = buildForecast(input({ viewer: FISK, permits: [p] }));
+    // ★ fix-308: design work has to exist for there to be a leg to hand over.
+    const f = buildForecast(
+      input({
+        viewer: FISK,
+        permits: [p],
+        tasks: [mkTask({ permit_id: p.id, discipline: 'arch', status: 'Open' })],
+      }),
+    );
     expect(f.past_due.items[0]!.action).toBe('handoff');
   });
 });

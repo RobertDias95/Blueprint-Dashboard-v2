@@ -111,6 +111,32 @@ import BoardBell from '../components/BoardBell';
 
 const AFTER = '2026-08-20T10:00:00Z';
 
+/** ★ fix-308 (#42/#43): a design task, so the permit genuinely HAS a design
+ *  leg. A named DA alone no longer creates one — "if no tasks for design, then
+ *  it falls on ENT" — so a fixture that needs a two-leg permit has to supply
+ *  the design work that makes it two-leg. */
+let dtid = 0;
+function designTask(permitId: number): Record<string, unknown> {
+  return {
+    id: `dt${++dtid}`,
+    permit_id: permitId,
+    parent_task_id: null,
+    project_id: 'p1',
+    project_address: 'A St',
+    permit_type: 'Building Permit',
+    bucket: 'de',
+    text: 'Draw the redlines',
+    start_date: null,
+    target_date: null,
+    due_date: null,
+    done_at: null,
+    sort_order: 0,
+    assigned_to: null,
+    discipline: 'arch',
+    status: 'Open',
+  };
+}
+
 let pid = 0;
 function mkPermit(over: Partial<PermitWithCycles>): PermitWithCycles {
   return {
@@ -418,9 +444,10 @@ describe('fix-307: prior contracts survive', () => {
 
   it('no checkbox on a waiting row, and the board still fits', () => {
     state.projects = [mkProject('p1', 'A St')];
-    state.permits = [
-      mkPermit({ da: 'Fisk', ent_lead: 'Miles', target_submit: '2026-01-01' }),
-    ];
+    const wp = mkPermit({ da: 'Fisk', ent_lead: 'Miles', target_submit: '2026-01-01' });
+    state.permits = [wp];
+    // ★ fix-308: a waiting row needs a design half to be waiting ON.
+    state.tasks = [designTask(wp.id)];
     renderIn(<MyBoard />);
     const waiting = screen
       .getAllByTestId(/^board-forecast-row-/)
