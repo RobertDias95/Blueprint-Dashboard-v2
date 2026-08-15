@@ -14,6 +14,7 @@ import {
 import { METRIC_DRILLINS } from '../lib/metricDrillIn';
 import { CSV_HEADERS, exportEnrichedPermitsToCSV } from '../lib/csvExport';
 import type { EnrichedPermit } from '../lib/reportMetrics';
+import { shownDate } from '../test/milestoneDate';
 
 // ★ fix-310 — one concept, one name. DD wins.
 //
@@ -368,8 +369,8 @@ describe('fix-310: the DD dates still write, and the section is renamed', () => 
     fireEvent.change(start, { target: { value: '2026-06-01' } });
     // ★ fix-311 split the one combined `start → end` string into two rows so SD
     // sits parallel with DD start / DD end. Same derived window, same two dates.
-    expect(screen.getByTestId('pd-sd-start')).toHaveTextContent('2026-05-04');
-    expect(screen.getByTestId('pd-sd-end')).toHaveTextContent('2026-06-01');
+    expect(screen.getByTestId('pd-sd-start')).toHaveTextContent(shownDate('2026-05-04'));
+    expect(screen.getByTestId('pd-sd-end')).toHaveTextContent(shownDate('2026-06-01'));
     const cardText = card.textContent ?? '';
     expect(cardText.indexOf('SD')).toBeLessThan(cardText.indexOf('DD start'));
   });

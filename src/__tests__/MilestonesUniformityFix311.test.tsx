@@ -5,6 +5,10 @@ import type { ReactNode } from 'react';
 import { useAuthStore } from '../stores/authStore';
 import type { PermitWithCycles, Project } from '../lib/database.types';
 import { VENDOR_SEND_LEAD_DAYS, vendorTargetSend } from '../lib/vendorReport';
+// ★ fix-320 #1: read-only rows render the browser's short date rather than ISO.
+// These suites are about WHICH date is shown, so they keep naming ISO and ask
+// the shared helper what it renders as.
+import { shownDate } from '../test/milestoneDate';
 
 // fix-311 · register #56 — every date on the Milestones card looks the same.
 //
@@ -179,6 +183,13 @@ beforeEach(() => {
     memberships: [{ tenant_id: T, role: 'admin' }],
   } as never);
 });
+
+/** ISO +/- whole days, staying in ISO. Noon UTC so no DST boundary rolls it. */
+function shiftIso(iso: string, days: number): string {
+  const d = new Date(`${iso}T12:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
+}
 
 function card(): HTMLElement {
   return screen.getByTestId('pd-milestones-card');
@@ -363,7 +374,9 @@ describe('fix-311: Intake Accepted reads cycle 0, and only cycle 0', () => {
         } as Partial<PermitWithCycles>),
       ],
     );
-    expect(screen.getByTestId('pd-intake-accepted')).toHaveTextContent('2026-07-02');
+    expect(screen.getByTestId('pd-intake-accepted')).toHaveTextContent(
+      shownDate('2026-07-02'),
+    );
   });
 
   it('renders an empty row rather than a fabricated date when cycle 0 has none', () => {
@@ -396,8 +409,12 @@ describe('fix-311: the Consultant date is the vendor send date, not a second cop
   it('renders dd_end minus the vendor lead, between DD start and DD end', () => {
     renderHeader();
     const expected = vendorTargetSend({ dd_end: '2026-09-11', end_week: null });
+    // ★ vendorTargetSend still returns ISO — the ROW is what got reformatted,
+    // not the function. That split is the presentation-only claim in one line.
     expect(expected).toBe('2026-09-04');
-    expect(screen.getByTestId('pd-consultant-date')).toHaveTextContent(expected as string);
+    expect(screen.getByTestId('pd-consultant-date')).toHaveTextContent(
+      shownDate(expected as string),
+    );
 
     const rows = Array.from(card().querySelectorAll('[data-milestone-row]'));
     const rowOf = (testId: string) =>
@@ -412,10 +429,12 @@ describe('fix-311: the Consultant date is the vendor send date, not a second cop
   // — a hard-coded second literal in the component fails here.
   it('moves with VENDOR_SEND_LEAD_DAYS, so it cannot drift from the email', () => {
     renderHeader();
+    // Walk back a day at a time from dd_end until the rendered text matches:
+    // locale-agnostic, and it measures the LEAD rather than trusting a literal.
     const shown = screen.getByTestId('pd-consultant-date').textContent as string;
-    const ddEnd = new Date('2026-09-11T12:00:00Z');
-    const lead = new Date(shown + 'T12:00:00Z');
-    const days = Math.round((ddEnd.getTime() - lead.getTime()) / 86_400_000);
+    const ddEnd = '2026-09-11';
+    let days = 0;
+    while (days <= 60 && shownDate(shiftIso(ddEnd, -days)) !== shown) days += 1;
     expect(days).toBe(VENDOR_SEND_LEAD_DAYS);
   });
 
@@ -423,7 +442,7 @@ describe('fix-311: the Consultant date is the vendor send date, not a second cop
     renderHeader(projectFixture(), [bpFixture({ dd_end: null } as Partial<PermitWithCycles>)]);
     expect(screen.queryByTestId('pd-consultant-date')).toBeNull();
     // ...and never borrows the draw block's end_week under the DD end label.
-    expect(card().textContent ?? '').not.toContain('2026-09-04');
+    expect(card().textContent ?? '').not.toContain(shownDate('2026-09-04'));
   });
 
   it('follows the DD end draft as it is typed', () => {
@@ -431,7 +450,9 @@ describe('fix-311: the Consultant date is the vendor send date, not a second cop
     fireEvent.change(screen.getByTestId('pd-bp-dd_end'), {
       target: { value: '2026-10-09' },
     });
-    expect(screen.getByTestId('pd-consultant-date')).toHaveTextContent('2026-10-02');
+    expect(screen.getByTestId('pd-consultant-date')).toHaveTextContent(
+      shownDate('2026-10-02'),
+    );
   });
 });
 

@@ -6,6 +6,7 @@ import type { ReactNode } from 'react';
 import { useAuthStore } from '../stores/authStore';
 import type { PermitWithCycles, Project } from '../lib/database.types';
 import { schematicWindow, SCHEMATIC_LEAD_DAYS } from '../lib/schematicWindow';
+import { shownDate } from '../test/milestoneDate';
 
 // fix-309, the Project Overview half — register #49, #51, #52, #53, #55.
 //
@@ -264,8 +265,11 @@ describe('fix-309 #53: the schematic window is derived, never stored', () => {
       projectFixture(),
       [bpFixture({ dd_start: '2026-06-01', dd_end: '2026-07-03' } as Partial<PermitWithCycles>)],
     );
-    expect(screen.getByTestId('pd-sd-start')).toHaveTextContent('2026-05-04');
-    expect(screen.getByTestId('pd-sd-end')).toHaveTextContent('2026-06-01');
+    // ★ fix-320 #1: read-only rows render the browser's short date, not ISO.
+    // The WINDOW is what this test is about, so it names the ISO dates and asks
+    // the shared helper what they render as.
+    expect(screen.getByTestId('pd-sd-start')).toHaveTextContent(shownDate('2026-05-04'));
+    expect(screen.getByTestId('pd-sd-end')).toHaveTextContent(shownDate('2026-06-01'));
     // Above, not below: the schematic phase precedes DD.
     const card = screen.getByTestId('pd-milestones-card');
     const text = card.textContent ?? '';
@@ -279,12 +283,12 @@ describe('fix-309 #53: the schematic window is derived, never stored', () => {
       projectFixture(),
       [bpFixture({ dd_start: '2026-06-01', dd_end: '2026-07-03' } as Partial<PermitWithCycles>)],
     );
-    expect(screen.getByTestId('pd-sd-start')).toHaveTextContent('2026-05-04');
+    expect(screen.getByTestId('pd-sd-start')).toHaveTextContent(shownDate('2026-05-04'));
 
     const start = screen.getByTestId('pd-bp-dd_start') as HTMLInputElement;
     fireEvent.change(start, { target: { value: '2026-06-29' } });
-    expect(screen.getByTestId('pd-sd-start')).toHaveTextContent('2026-06-01');
-    expect(screen.getByTestId('pd-sd-end')).toHaveTextContent('2026-06-29');
+    expect(screen.getByTestId('pd-sd-start')).toHaveTextContent(shownDate('2026-06-01'));
+    expect(screen.getByTestId('pd-sd-end')).toHaveTextContent(shownDate('2026-06-29'));
   });
 
   it('renders no window at all when DD start is null — never a garbage date', () => {

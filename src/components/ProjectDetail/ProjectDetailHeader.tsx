@@ -225,6 +225,40 @@ const MILESTONE_INPUT_CLASS =
   'w-full bg-transparent border-0 outline-none p-0 text-[11px] font-semibold ' +
   'text-text disabled:opacity-50';
 
+/** ★ fix-320 #1: THE read-only date format for this card, and the only date
+ *  formatter in this file.
+ *
+ *  fix-311 gave every row the same box but not the same TEXT: read-only rows
+ *  printed ISO (`2026-09-11`) while the editable rows printed whatever the
+ *  browser renders inside `<input type="date">` (`09/11/2026` in a US locale).
+ *  ★ A native date input cannot be told to render differently, so the read-only
+ *  side is the side that moves.
+ *
+ *  ★ NO LOCALE IS PINNED. The input follows the BROWSER's locale, so matching it
+ *  means following the same locale rather than hard-coding en-US — an en-GB
+ *  browser renders the input `11/09/2026` and this returns `11/09/2026` with it.
+ *  A pinned locale would re-open the very mismatch this fixes, one timezone
+ *  over. 2-digit day and month keep the value column fixed-width, which is what
+ *  ISO was giving us and what must survive.
+ *
+ *  ★ PRESENTATION ONLY. ISO goes in, ISO stays stored: nothing here touches an
+ *  input's `value` or a mutation payload. Empty in ⇒ empty out, so the caller
+ *  still renders the em-dash rather than an epoch date. */
+function formatMilestoneDate(iso: string): string {
+  const trimmed = iso.trim();
+  if (!trimmed) return '';
+  // Noon UTC + a UTC-pinned formatter: the date the string names is the date
+  // shown, whatever side of midnight the reader's timezone sits on.
+  const d = new Date(`${trimmed}T12:00:00Z`);
+  if (Number.isNaN(d.getTime())) return trimmed;
+  return d.toLocaleDateString(undefined, {
+    month: '2-digit',
+    day: '2-digit',
+    year: 'numeric',
+    timeZone: 'UTC',
+  });
+}
+
 interface MilestoneDateRowProps {
   label: string;
   /** ISO date (or a draft mid-edit). Empty renders the em-dash placeholder on a
@@ -280,10 +314,13 @@ function MilestoneDateRow({
             data-testid={testId}
           />
         ) : (
+          // ★ fix-320: formatted to match what the date inputs above and below
+          // render, so the card reads as one format and not two.
+          //
           // The em-dash is the ABSENCE of a date, said out loud. An empty box
           // would collapse and read as a rendering bug; a fabricated date would
           // be worse than either.
-          value || '—'
+          formatMilestoneDate(value) || '—'
         )}
       </div>
     </div>
@@ -1491,12 +1528,16 @@ function TeamRow({
 }
 
 
-// ★ fix-311: formatGoDate ("Jun 5, 2026") is gone with PhaseRow. Every date on
-// the Milestones card now reads as ISO — the same form fix-309 shipped for the
-// SD window, and the one that keeps the value column the same width in every
-// row rather than breathing with the length of the month name. Uniform
-// presentation was the point of the ticket; two date formats inches apart is
-// the thing it exists to remove.
+// ★ fix-311: formatGoDate ("Jun 5, 2026") is gone with PhaseRow. ★ fix-320
+// settled which format replaced it: `formatMilestoneDate`, up beside
+// MilestoneDateRow, renders read-only rows the way the date INPUTS render —
+// 09/11/2026 in a US browser — because a native date input follows the
+// browser's locale and cannot be told otherwise. ISO was fixed-width but was
+// the wrong half of the mismatch to keep.
+//
+// ★ There is ONE date formatter in this file and it lives with the row that
+// uses it. formatGoDate was deleted so a second could not exist; do not add one
+// back for a ninth row.
 
 // ============================================================
 // fix-22 Mig 3: Site editor — writes zone / lot / alley / parking_type /
