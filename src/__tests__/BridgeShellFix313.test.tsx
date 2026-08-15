@@ -85,7 +85,7 @@ function wrap(node: React.ReactNode, initial = '/dashboard') {
 }
 
 function renderRibbon(initial = '/dashboard') {
-  return wrap(<Ribbon onAddProject={() => {}} onOpenSettings={() => {}} />, initial);
+  return wrap(<Ribbon onAddProject={() => {}} />, initial);
 }
 
 beforeEach(() => {
@@ -131,7 +131,7 @@ describe('fix-313 #57: every ribbon route exists in the real route table', () =>
           path: '*',
           element: (
             <>
-              <Ribbon onAddProject={() => {}} onOpenSettings={() => {}} />
+              <Ribbon onAddProject={() => {}} />
               <Probe />
             </>
           ),
@@ -465,15 +465,15 @@ describe('fix-313: the Reports gate is the whole group', () => {
   //
   // Phase durations is the one exception and stays, because it has NO
   // saved_reports row on prod and this is its only link. See ribbonNav.ts.
-  it('lists the overview, then Saved reports, then the one unshelved report', () => {
+  // ★★ fix-319 #77 removed the last exception. Phase durations moved into
+  // Settings → Permits (it is reference data about permit types, not a report
+  // you run), so the group finally reads Overview + Saved reports — the shape
+  // fix-317 was asking for.
+  it('★★ lists exactly two: the overview and the shelf', () => {
     const reports = RIBBON_ENTRIES.find(
       (e) => e.kind === 'group' && e.group.id === 'reports',
     );
     const kids = reports!.kind === 'group' ? reports!.group.children : [];
-    expect(kids.map((k) => k.to)).toEqual([
-      '/reports',
-      '/settings/reporting',
-      '/reports/phase-durations',
-    ]);
+    expect(kids.map((k) => k.to)).toEqual(['/reports', '/settings/reporting']);
   });
 });

@@ -81,7 +81,7 @@ function renderRibbon(initial = '/dashboard') {
   return render(
     <QueryClientProvider client={qc}>
       <MemoryRouter initialEntries={[initial]}>
-        <Ribbon onAddProject={() => {}} onOpenSettings={() => {}} />
+        <Ribbon onAddProject={() => {}} />
       </MemoryRouter>
     </QueryClientProvider>,
   );
@@ -100,7 +100,7 @@ function renderRoutable(initial = '/dashboard') {
         path: '*',
         element: (
           <>
-            <Ribbon onAddProject={() => {}} onOpenSettings={() => {}} />
+            <Ribbon onAddProject={() => {}} />
             <Probe />
           </>
         ),
@@ -155,12 +155,9 @@ describe('fix-315 §1: the Reports overview is reachable again', () => {
     const kids = group!.kind === 'group' ? group!.group.children : [];
     expect(kids[0]!.to).toBe('/reports');
     expect(kids[0]!.label).toBe('Overview');
-    // ★ fix-317 removed the five that duplicate Saved reports. Phase durations
-    // stays because the hub cannot reach it — asserted in its own suite.
-    expect(kids.slice(1).map((k) => k.to)).toEqual([
-      '/settings/reporting',
-      '/reports/phase-durations',
-    ]);
+    // fix-317 removed the five that duplicate Saved reports; ★ fix-319 #77
+    // moved the sixth into Settings → Permits. Overview + the shelf.
+    expect(kids.slice(1).map((k) => k.to)).toEqual(['/settings/reporting']);
   });
 
   // ★ The brief's constraint on the interaction, asserted rather than asserted
@@ -179,15 +176,19 @@ describe('fix-315 §1: the Reports overview is reachable again', () => {
   // ★ The reason the Overview entry is `exact`. Without it, /reports would
   // prefix-match every child and two entries would claim to be where you are.
   it('★ the Overview entry does not light up while you are reading a child', () => {
-    // ★ fix-317: uses /reports/phase-durations now — still a ribbon entry AND
-    // still under /reports/, so it keeps testing the exact-flag hazard the
-    // prefix matcher would otherwise create.
-    renderRibbon('/reports/phase-durations');
+    // ★ fix-319: /reports/phase-durations is a redirect now, so the pathname
+    // used here is one of the routes the shelf reaches. The hazard being
+    // tested is unchanged — without the exact flag, /reports would
+    // prefix-match every /reports/* route and two entries would both claim to
+    // be where you are.
+    renderRibbon('/reports/corrections');
     fireEvent.click(screen.getByTestId('ribbon-group-toggle-reports'));
     expect(screen.getByTestId('ribbon-link-/reports').dataset.active).toBe('false');
+    // Nothing else in the group claims it either — the shelf is a different
+    // path entirely.
     expect(
-      screen.getByTestId('ribbon-link-/reports/phase-durations').dataset.active,
-    ).toBe('true');
+      screen.getByTestId('ribbon-link-/settings/reporting').dataset.active,
+    ).toBe('false');
   });
 
   it('...and does light up on /reports itself', () => {
@@ -543,12 +544,13 @@ describe('fix-315 §3: the ribbon cannot silently drop a route again', () => {
 // ---------------------------------------------------------------------------
 
 describe('fix-315: fix-313 survives', () => {
-  it('the top level is unchanged', () => {
+  it('the top level is unchanged apart from Settings joining it', () => {
     renderRibbon();
     const labels = Array.from(
       screen.getByTestId('ribbon-nav').querySelectorAll('a'),
     ).map((a) => a.getAttribute('title'));
-    expect(labels).toEqual(['Pipeline', 'My Board', 'Project View']);
+    // ★ fix-319 #76: Settings became a link when it stopped being a modal.
+    expect(labels).toEqual(['Pipeline', 'My Board', 'Project View', 'Settings']);
   });
 
   it('/my-tasks still redirects to /board — Waiting On did not un-merge it', () => {

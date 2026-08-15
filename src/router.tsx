@@ -17,10 +17,9 @@ import WaitingOnView from './components/MyTasks/WaitingOnView';
 import WeeklyDaReport from './pages/WeeklyDaReport';
 import WeeklyUpdatesReport from './pages/WeeklyUpdatesReport';
 import ApprovedAwaitingIssuanceReport from './pages/ApprovedAwaitingIssuanceReport';
-import PhaseDurationsReport from './pages/PhaseDurationsReport';
 import VendorScheduleForecastReport from './pages/VendorScheduleForecastReport';
 import CorrectionsReport from './pages/CorrectionsReport';
-import ReportingHubPage from './pages/ReportingHubPage';
+import SettingsPage from './pages/SettingsPage';
 import CustomReport from './pages/CustomReport';
 import ReportBuilder from './pages/ReportBuilder';
 import ErrorsPage from './pages/Errors';
@@ -100,15 +99,19 @@ export const router = createBrowserRouter([
           </AdminRoute>
         ),
       },
-      // fix-253: Phase Durations — city review vs our turnaround, per type,
-      // jurisdiction and cycle. Read-only evidence for the phase model.
+      // fix-253 put city-review vs our-turnaround durations here as a report.
+      //
+      // ★ fix-319 #77 MOVED IT into Settings → Permits. Bobby: "Technically
+      // this belongs in the Settings, in the permit info." It is not something
+      // you run — it is reference data about permit types, and it is the
+      // evidence the per-type targets are read against.
+      //
+      // The route is REDIRECTED rather than deleted so bookmarks and saved
+      // links survive, and the component is untouched — AdminPermitsTab mounts
+      // it. Removing this route would have been the fix-315 defect again.
       {
         path: 'reports/phase-durations',
-        element: (
-          <AdminRoute>
-            <PhaseDurationsReport />
-          </AdminRoute>
-        ),
+        element: <Navigate to="/settings/permits" replace />,
       },
       // fix-265: Vendor Schedule Forecast — the weekly note to the structural
       // engineer. Composes an Outlook draft; "Mark as sent" is separate.
@@ -130,10 +133,28 @@ export const router = createBrowserRouter([
           </AdminRoute>
         ),
       },
-      // fix-68: Reporting hub (Reports Phase 2). Also surfaced as a Settings
-      // modal section; this route makes the hub deep-linkable. fix-234: renders
-      // report data → admin-only, same as the Reports tab.
-      { path: 'settings/reporting', element: <AdminRoute><ReportingHubPage /></AdminRoute> },
+      // ★ fix-319 #76: SETTINGS IS A PAGE. Every section is its own STATIC
+      // route, so a section is linkable and survives a reload — and so that no
+      // dynamic /settings/:id segment can ever swallow the two pre-existing
+      // /settings/* routes below.
+      //
+      // ★ The collision the brief warned about turned out not to exist:
+      // ReportingHubPage was a heading around <AdminReportingTab />, the SAME
+      // component the modal's Reporting section rendered. So /settings/reporting
+      // keeps its meaning exactly — the Saved reports shelf fix-317 routes the
+      // whole Reports group through — it simply renders inside the Settings
+      // chrome now. The wrapper page is retired, not moved.
+      //
+      // ★ Admin gating is preserved EXACTLY as the modal had it: Account is
+      // open to everyone, the other five are admin-only. A route is guessable
+      // in a way a modal tab was not, so the gate is enforced by AdminRoute
+      // here as well as by hiding the rail entry.
+      { path: 'settings/account', element: <SettingsPage /> },
+      { path: 'settings/team', element: <AdminRoute><SettingsPage /></AdminRoute> },
+      { path: 'settings/projects', element: <AdminRoute><SettingsPage /></AdminRoute> },
+      { path: 'settings/permits', element: <AdminRoute><SettingsPage /></AdminRoute> },
+      { path: 'settings/schedule', element: <AdminRoute><SettingsPage /></AdminRoute> },
+      { path: 'settings/reporting', element: <AdminRoute><SettingsPage /></AdminRoute> },
       // fix-87: Error triage page. Reached via the nav warning-triangle
       // badge or a direct URL share when triaging a specific group. (Not report
       // data — left ungated.)
@@ -185,9 +206,10 @@ export const router = createBrowserRouter([
       // fix-28: scraper activity feed. NotificationBell links here;
       // page owns search / category / ent filters + per-row read state.
       { path: 'activity', element: <ActivityPage /> },
-      // Q9.5.a: legacy /settings URLs land back on the dashboard since
-      // Settings is now a modal. Bookmarks bouncing here is expected.
-      { path: 'settings', element: <Navigate to="/dashboard" replace /> },
+      // Q9.5.a sent bare /settings to /dashboard because Settings was a modal.
+      // ★ fix-319 #76: it is a page now, so /settings goes to the page —
+      // landing on Account, the one section every role can read.
+      { path: 'settings', element: <Navigate to="/settings/account" replace /> },
     ],
   },
   { path: '*', element: <Navigate to="/dashboard" replace /> },

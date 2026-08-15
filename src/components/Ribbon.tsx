@@ -29,13 +29,7 @@ import {
 const WIDTH_EXPANDED = 248;
 const WIDTH_COLLAPSED = 56;
 
-export default function Ribbon({
-  onAddProject,
-  onOpenSettings,
-}: {
-  onAddProject: () => void;
-  onOpenSettings: () => void;
-}) {
+export default function Ribbon({ onAddProject }: { onAddProject: () => void }) {
   const { pathname } = useLocation();
   const isAdmin = useIsTenantAdmin();
   const userId = useAuthStore((s) => s.user?.id ?? null);
@@ -144,27 +138,6 @@ export default function Ribbon({
           );
         })}
 
-        {/* Settings stays a MODAL (Q9.5.a's decision, unchanged). It is a
-            button, not a NavLink, because there is no /settings page to go to
-            — the legacy route redirects to /dashboard. */}
-        <button
-          type="button"
-          onClick={onOpenSettings}
-          data-testid="ribbon-settings"
-          title="Settings"
-          className="w-full text-left bg-transparent border-none cursor-pointer text-muted hover:bg-s2 rounded-lg flex items-center gap-2.5 whitespace-nowrap"
-          style={{
-            margin: collapsed ? '2px 8px' : '1px 10px',
-            width: collapsed ? 'calc(100% - 16px)' : 'calc(100% - 20px)',
-            padding: collapsed ? '8px 0' : '7px 10px',
-            justifyContent: collapsed ? 'center' : undefined,
-          }}
-        >
-          <span style={{ width: 17, flex: '0 0 17px', textAlign: 'center', fontSize: 14 }}>
-            ⚙
-          </span>
-          {!collapsed && <span className="flex-1 text-xs">Settings</span>}
-        </button>
       </div>
 
       {/* ── foot: Add a Project, tenant, collapse ─────────────── */}
