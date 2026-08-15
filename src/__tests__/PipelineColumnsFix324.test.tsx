@@ -5,6 +5,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { ReactNode } from 'react';
 import dashboardSrc from '../pages/Dashboard.tsx?raw';
 import {
+  defaultCollapsedKeys,
   loadPipelineCollapsed,
   pipelineGroupKey,
   pipelineSubKey,
@@ -155,6 +156,13 @@ beforeEach(() => {
 
 const COLUMN_ORDER = ['de', 'pm', 'ap', 'is'] as const;
 
+/** ★ fix-324b / register #68: Approved and Issued START FOLDED. Tests that need
+ *  to see inside them open them first, exactly as a person would. */
+function openGlanceColumns() {
+  fireEvent.click(screen.getByTestId('pipeline-group-toggle-ap'));
+  fireEvent.click(screen.getByTestId('pipeline-group-toggle-is'));
+}
+
 function columnsRow(): HTMLElement {
   return screen.getByTestId('pipeline-columns');
 }
@@ -194,6 +202,7 @@ describe('fix-324: four columns, siblings in one row', () => {
 
   it('Approved and Issued are narrower than the working columns when open', () => {
     renderDash();
+    openGlanceColumns();
     expect(group('ap').dataset.narrow).toBe('true');
     expect(group('is').dataset.narrow).toBe('true');
     expect(group('ap').style.flex).toContain('264px');
@@ -204,12 +213,50 @@ describe('fix-324: four columns, siblings in one row', () => {
   });
 });
 
+// ---------------------------------------------------- #68 · the default -----
+
+describe('fix-324b / register #68: Approved and Issued start folded', () => {
+  // ★ fix-324 shipped all four open because the signed-off mockup DRAWS them
+  // that way. The mockup illustrates the layout; #68 states the starting state,
+  // and the rule wins — the two working columns are where the day is spent.
+  it('★ opens the working columns and folds the two glance columns', () => {
+    renderDash();
+    expect(group('de').dataset.collapsed).toBe('false');
+    expect(group('pm').dataset.collapsed).toBe('false');
+    expect(group('ap').dataset.collapsed).toBe('true');
+    expect(group('is').dataset.collapsed).toBe('true');
+    expect(defaultCollapsedKeys()).toEqual(['g:ap', 'g:is']);
+  });
+
+  it('★ and the default never overrides a choice once one exists', () => {
+    // Someone who opens Approved keeps it open; the default is consulted only
+    // when this user has never chosen. A default that reasserted itself on
+    // every load would be a preference that does not work.
+    savePipelineCollapsed('user-1', []);
+    renderDash();
+    for (const key of COLUMN_ORDER) {
+      expect(group(key).dataset.collapsed).toBe('false');
+    }
+  });
+
+  it('a folded glance column still renders nothing it cannot show', () => {
+    renderDash();
+    // No lists, no scrollers, no sub-column furniture behind the spine — the
+    // cards are not merely hidden, they are not built.
+    expect(group('is').querySelector('[data-scroll-bucket]')).toBeNull();
+    expect(
+      group('is').querySelector('[data-testid^="pipeline-sub-"]'),
+    ).toBeNull();
+  });
+});
+
 // ------------------------------------------------------------ folding -------
 
 describe('fix-324: a folded column is a full-height spine', () => {
   it('★ folds to 44px AND keeps the full height', () => {
+    // Issued starts folded (#68), so this reads the shipped default rather than
+    // a state the test had to manufacture.
     renderDash();
-    fireEvent.click(screen.getByTestId('pipeline-group-toggle-is'));
     const issued = group('is');
     expect(issued.dataset.collapsed).toBe('true');
     // Width: the flex declaration that produces 44px.
@@ -226,7 +273,6 @@ describe('fix-324: a folded column is a full-height spine', () => {
 
   it('folded, it shows its title and count and drops its lists', () => {
     renderDash();
-    fireEvent.click(screen.getByTestId('pipeline-group-toggle-is'));
     const issued = group('is');
     expect(issued.textContent).toContain('Issued');
     // The permit total stays — folding puts a column away, it does not hide
@@ -238,9 +284,9 @@ describe('fix-324: a folded column is a full-height spine', () => {
 
   it('all four fold, and opening one gives it the room back', () => {
     renderDash();
-    for (const key of COLUMN_ORDER) {
-      fireEvent.click(screen.getByTestId(`pipeline-group-toggle-${key}`));
-    }
+    // ap and is are already spines (#68); fold the two working columns too.
+    fireEvent.click(screen.getByTestId('pipeline-group-toggle-de'));
+    fireEvent.click(screen.getByTestId('pipeline-group-toggle-pm'));
     for (const key of COLUMN_ORDER) {
       expect(group(key).style.flex).toBe('0 0 44px');
     }
@@ -298,15 +344,23 @@ describe('fix-324: the choice persists, per user', () => {
   // invention. The key namespace is the only thing that differs.
   it('★ survives a remount', () => {
     const first = renderDash();
-    fireEvent.click(screen.getByTestId('pipeline-group-toggle-ap'));
+    // Fold a working column and a sub-column, and OPEN one of the two that
+    // start folded — so the remount has to remember a choice in each direction,
+    // not just "more folded than the default".
+    fireEvent.click(screen.getByTestId('pipeline-group-toggle-de'));
     fireEvent.click(screen.getByTestId('pipeline-sub-toggle-Corrections'));
-    expect(group('ap').dataset.collapsed).toBe('true');
+    fireEvent.click(screen.getByTestId('pipeline-group-toggle-ap'));
+    expect(group('de').dataset.collapsed).toBe('true');
+    expect(group('ap').dataset.collapsed).toBe('false');
     first.unmount();
 
     renderDash();
-    expect(group('ap').dataset.collapsed).toBe('true');
+    expect(group('de').dataset.collapsed).toBe('true');
     expect(screen.getByTestId('pipeline-sub-Corrections').dataset.collapsed).toBe('true');
-    expect(group('de').dataset.collapsed).toBe('false');
+    // ★ The opened one stays OPEN — the default must not reassert itself over a
+    // choice, or the preference does not work.
+    expect(group('ap').dataset.collapsed).toBe('false');
+    expect(group('is').dataset.collapsed).toBe('true');
   });
 
   it('is stored per user, so one login cannot fold another\'s columns', () => {
@@ -320,13 +374,14 @@ describe('fix-324: the choice persists, per user', () => {
     expect(loadPipelineCollapsed(null)).toBeNull();
   });
 
-  it('a corrupt stored value opens everything rather than throwing', () => {
+  it('a corrupt stored value falls back to the default rather than throwing', () => {
     window.localStorage.setItem('pipeline.collapsed.user-1', '{not json');
     expect(loadPipelineCollapsed('user-1')).toBeNull();
     renderDash();
-    for (const key of COLUMN_ORDER) {
-      expect(group(key).dataset.collapsed).toBe('false');
-    }
+    expect(group('de').dataset.collapsed).toBe('false');
+    expect(group('pm').dataset.collapsed).toBe('false');
+    expect(group('ap').dataset.collapsed).toBe('true');
+    expect(group('is').dataset.collapsed).toBe('true');
   });
 
   it('the stored key is the STAGE CODE, so renaming a title cannot spring it open', () => {
@@ -348,6 +403,7 @@ describe('fix-324 §4: Approve became Approved', () => {
 
   it('the stage code, the testids and the sub-column wording are untouched', () => {
     renderDash();
+    openGlanceColumns();
     // The stage code is still `ap` — a rename that reached it would be a data
     // change dressed as a label.
     expect(screen.getByTestId('pipeline-group-ap')).toBeInTheDocument();
@@ -422,6 +478,7 @@ describe('fix-324: the contents are untouched', () => {
 
   it('the sub-columns are the same four, in the same order', () => {
     renderDash();
+    openGlanceColumns();
     const subs = Array.from(columnsRow().querySelectorAll('[data-testid^="pipeline-sub-toggle-"]'))
       .map((el) => el.getAttribute('data-testid')?.replace('pipeline-sub-toggle-', ''));
     expect(subs).toEqual([

@@ -64,6 +64,24 @@ export function pipelineGroupKey(groupKey: string): string {
   return `g:${groupKey}`;
 }
 
+/**
+ * ★ fix-324b — register #68: "Approve and Issue default to COLLAPSED."
+ *
+ * fix-324 shipped all four columns open because that is how the signed-off
+ * mockup DRAWS them. The mockup is an illustration of the layout; #68 is a
+ * stated rule about the starting state, and the rule wins. The two working
+ * columns are where the day is spent; Approved and Issued are for glancing at,
+ * so they start as spines and cost nothing until someone wants them.
+ *
+ * ★ This is the DEFAULT, not a floor — it applies only when this user has never
+ * chosen. The moment they fold or open anything, their stored list is the whole
+ * answer and this is never consulted again. A "default" that reasserted itself
+ * on every load would be a preference that does not work.
+ */
+export function defaultCollapsedKeys(): string[] {
+  return [pipelineGroupKey('ap'), pipelineGroupKey('is')];
+}
+
 /** The stored key for one sub-column inside a group. */
 export function pipelineSubKey(groupKey: string, subTitle: string): string {
   return `s:${groupKey}:${subTitle}`;

@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { render, screen, within } from '@testing-library/react';
+import { render, screen, within, fireEvent } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { ReactNode } from 'react';
@@ -273,6 +273,10 @@ describe('Dashboard — cancelled projects (fix-264)', () => {
       openHold('held-proj', 'hold'),
     ];
     renderDash();
+    // ★ fix-324b / register #68: the Issued column starts folded, and a folded
+    // spine carries only its number — the "N proj ·" badge this assertion reads
+    // exists when the column is open. Opened here, exactly as a person would.
+    fireEvent.click(screen.getByTestId('pipeline-group-toggle-is'));
     const strip = screen.getByTestId('dash-strip-projcount-is');
     expect(strip).toHaveAttribute('title', '1 projects · 1 permits');
     expect(renderedAddresses()).not.toContain('13021 23rd Ave NE');
