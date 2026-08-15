@@ -224,7 +224,16 @@ function ViewSwitcher({
   );
 }
 
-function MineTasks() {
+/** ★ fix-318: exported so PersonalBoard can mount the grouped task list in
+ *  /board's lower half. This is THE ONE STRUCTURAL CHANGE the merge needed, and
+ *  it is an export keyword — no grouping, filter or behaviour was touched.
+ *
+ *  ★ Why MineTasks and not the MyTasks shell above it: that shell's only extra
+ *  is the Mine / Waiting On view switcher, and fix-315 gave Waiting On its own
+ *  route AND its own ribbon entry under Entitlements. Mounting the shell would
+ *  give Waiting On a second home inside the board and re-create the duplication
+ *  fix-317 has just finished removing from the Reports group. */
+export function MineTasks() {
   const team = useTeamMembers();
   const tasksQ = useAllTasks();
   // fix-264: tasks on a CANCELLED project leave the board entirely. fix-262's

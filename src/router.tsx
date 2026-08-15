@@ -9,7 +9,7 @@ import ProjectDetail from './pages/ProjectDetail';
 import RouteErrorFallback from './components/RouteErrorFallback';
 import Reports from './pages/Reports';
 import ReportsTeamDetail from './pages/ReportsTeamDetail';
-import MyBoard from './pages/MyBoard';
+import PersonalBoard from './pages/PersonalBoard';
 import DrawSchedule from './pages/DrawSchedule';
 import LibraryMatrix from './components/LibraryMatrix';
 import ActivityPage from './pages/ActivityPage';
@@ -157,10 +157,17 @@ export const router = createBrowserRouter([
       // real surface that may want a home on the board later. What is dead is
       // the ROUTE, and that is what this removes.
       { path: 'my-tasks', element: <Navigate to="/board" replace /> },
-      // fix-298 Phase 1: My Board — the read-only planner. Deliberately its
-      // own route and page: My Tasks is strictly MY TASKS, My Board is where
-      // my work sits. Different questions, different screens.
-      { path: 'board', element: <MyBoard /> },
+      // fix-298 Phase 1 made My Board its own route and page, deliberately
+      // separate from My Tasks.
+      //
+      // ★ fix-318 (register #62) MERGES them, which is what Bobby asked for
+      // and what fix-313 removed My Tasks without delivering: "the top half is
+      // vertically fixed for My Board, and then the bottom half is fixed
+      // vertically and horizontally for My Task." /board now renders both,
+      // stacked. MyBoard and MineTasks are mounted as they are — nothing was
+      // rebuilt, and both read the SAME useAllTasks query, so a tick in one
+      // half re-renders the other from one invalidation.
+      { path: 'board', element: <PersonalBoard /> },
       // ★ fix-315: Waiting On gets its own route. fix-313 folded My Tasks into
       // My Board and redirected /my-tasks -> /board, which stranded this view —
       // it kept working and became unreachable. It is not a small panel: firm
