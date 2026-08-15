@@ -54,6 +54,28 @@ export function taskOwnership(
   return { owner: ent === '' ? null : ent, unowned: true, label: UNOWNED_LABEL };
 }
 
+/** ★ fix-308b: is this task unowned, whichever shape it arrives in?
+ *
+ *  The board's BoardTask carries `assigned_to`; My Tasks' MyTaskNode carries
+ *  `primary_assignee` + `co_assignees`. Both surfaces have to answer the same
+ *  question the same way or they will disagree about the same task — which is
+ *  precisely the failure fix-318 put both halves on one query to avoid. One
+ *  predicate, both shapes.
+ *
+ *  ★ Co-assignees COUNT as ownership. A task with no primary but a named
+ *  co-assignee is somebody's; calling it ownerless would manufacture a gap
+ *  that is not there. */
+export function taskNeedsOwner(task: {
+  assigned_to?: string | null;
+  primary_assignee?: string | null;
+  co_assignees?: ReadonlyArray<string> | null;
+}): boolean {
+  const named = (v: string | null | undefined) => (v ?? '').trim() !== '';
+  if (named(task.assigned_to)) return false;
+  if (named(task.primary_assignee)) return false;
+  return !(task.co_assignees ?? []).some(named);
+}
+
 /** Does this unowned task belong in `viewer`'s queue? Only the ENT lead's. */
 export function unownedSurfacesTo(
   permit: { da?: string | null; ent_lead?: string | null },

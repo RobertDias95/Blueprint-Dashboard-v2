@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import WaitingOnView from '../components/MyTasks/WaitingOnView';
 import BotBadge from '../components/shared/BotBadge';
+import { UNOWNED_LABEL, taskNeedsOwner } from '../lib/boardOwnership';
 import { useTeamMembers } from '../hooks/useTeamMembers';
 import { useAllTasks, useUpsertTask } from '../hooks/useTaskTree';
 // fix-303: the task detail editor moved to its own component so My Board can
@@ -1315,6 +1316,29 @@ function TaskCard({
         >
           {task.status === 'Open' ? 'Not Started' : task.status}
         </span>
+        {/* ★★ fix-308b #44: an unassigned OPEN task says so, here, where the
+            densest population of them surfaces. 316 of 501 open tasks have no
+            assignee — Bobby's rule is "a task is always owned by somebody", so
+            an ownerless one is a visible gap for a person to close.
+
+            ★ It NEVER names the DA. Attributing unowned work to permits.da is
+            exactly what produced "blocked by Cam" on a permit where Cam had no
+            task, and fix-308 removed that fallback at the source. This is the
+            rendered half of the same promise.
+
+            ★ Not hidden and not auto-assigned — the chip is the prompt. */}
+        {isTaskLive(task.status) && taskNeedsOwner(task) && (
+          <span
+            className="text-[9px] px-1.5 py-0.5 rounded font-bold"
+            style={{
+              background: 'var(--color-co-bg)',
+              color: 'var(--color-co)',
+            }}
+            data-testid={`mytask-card-${task.id}-needs-owner`}
+          >
+            {UNOWNED_LABEL}
+          </span>
+        )}
       </div>
     </div>
   );
