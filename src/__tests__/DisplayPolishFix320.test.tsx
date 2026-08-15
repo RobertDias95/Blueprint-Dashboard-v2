@@ -5,7 +5,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { ReactNode } from 'react';
 import { useAuthStore } from '../stores/authStore';
 import type { PermitWithCycles, Project } from '../lib/database.types';
-import markSrc from '../components/BridgeMark.tsx?raw';
+import faviconSrc from '../../public/bridge-mark.svg?raw';
 
 // fix-320 — three display fixes, no logic. Register #72, #73 and the fix-311
 // follow-up.
@@ -377,7 +377,10 @@ describe('fix-320 #72: the collapse control reads as a button', () => {
 describe('fix-320 #73: the wordmark leads with The Bridge', () => {
   it('renders The Bridge in title case, under a small BLUEPRINT line', () => {
     renderRibbon();
-    const brand = screen.getByTestId('ribbon-brand');
+    // ★ fix-322 moved the wordmark OUT of the brand block and under it, so the
+    // real 4:1 logo could have the ribbon's full width. Same two lines, same
+    // order, same colours — read from the row that now holds them.
+    const brand = screen.getByTestId('ribbon-wordmark');
     const text = brand.textContent ?? '';
     expect(text).toContain('BLUEPRINT');
     expect(text).toContain('The Bridge');
@@ -389,7 +392,7 @@ describe('fix-320 #73: the wordmark leads with The Bridge', () => {
     renderRibbon();
     expect(screen.getByTestId('ribbon').textContent).not.toMatch(/THE BRIDGE/);
     // The old shape — BRIDGE trailing BLUEPRINT on one line, in grey — is gone.
-    expect(screen.getByTestId('ribbon-brand').textContent).not.toMatch(/BLUEPRINT BRIDGE/);
+    expect(screen.getByTestId('ribbon-wordmark').textContent).not.toMatch(/BLUEPRINT BRIDGE/);
   });
 
   it('the hero is the bold navy line, not the faint grey it was', () => {
@@ -409,27 +412,34 @@ describe('fix-320 #73: the wordmark leads with The Bridge', () => {
     renderRibbon();
     fireEvent.click(screen.getByTestId('ribbon-collapse'));
     expect(screen.getByTestId('bridge-mark')).toBeInTheDocument();
-    const brand = screen.getByTestId('ribbon-brand').textContent ?? '';
-    expect(brand).not.toContain('BLUEPRINT');
-    expect(brand).not.toContain('The Bridge');
+    // fix-322: the wordmark row unmounts entirely when collapsed, so this reads
+    // the whole ribbon rather than one block.
+    const ribbon = screen.getByTestId('ribbon').textContent ?? '';
+    expect(ribbon).not.toContain('BLUEPRINT');
+    expect(ribbon).not.toContain('The Bridge');
   });
 
-  // ★ RECOLOURED, NOT REDRAWN. Bobby has not supplied the real export, so the
-  // placeholder's geometry must survive untouched — only the palette moved.
-  it('the mark is recoloured to the brand blue, with its paths untouched', () => {
+  // ★ fix-320 recoloured the PLACEHOLDER mark, and fix-322 replaced it with
+  // Bobby's real artwork — so the assertion that used to pin the placeholder's
+  // paths in the ribbon now pins where the placeholder still legitimately lives:
+  // the FAVICON, which deliberately keeps the simplified drawing because the
+  // detailed illustration is a smudge at 16x16.
+  it('the simplified mark survives where it belongs — the favicon', () => {
     renderRibbon();
+    // The ribbon no longer draws it: the brand mark there is the real image.
     const mark = screen.getByTestId('bridge-mark');
-    // The rendered square, not a source string: near-navy #1e3a5f -> #4a72b0.
-    const square = mark.querySelector('rect') as SVGRectElement;
-    expect(square.getAttribute('fill')).toBe('#4a72b0');
-    // The four path definitions fix-313 authored, verbatim.
+    expect(mark.tagName).toBe('IMG');
+    expect(mark.querySelector('rect')).toBeNull();
+    // fix-320's recolour lives on in the favicon, paths and all.
+    expect(faviconSrc).toContain('#4a72b0');
+    expect(faviconSrc).not.toContain('#1e3a5f');
     for (const d of [
       'M5 21c0-6.1 4.9-11 11-11s11 4.9 11 11',
       'M4 21.5h24',
       'M10.5 21.5v4M21.5 21.5v4',
       'M5 28.2c2.2 0 2.2-1.3 4.4-1.3s2.2 1.3 4.4 1.3 2.2-1.3 4.4-1.3 2.2 1.3 4.4 1.3 2.2-1.3 4.4-1.3',
     ]) {
-      expect(markSrc).toContain(d);
+      expect(faviconSrc).toContain(d);
     }
   });
 });

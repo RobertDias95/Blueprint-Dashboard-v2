@@ -220,7 +220,9 @@ describe('<Chrome /> fix-313 the Blueprint Bridge shell', () => {
   // ★ #64: the brand mark and wordmark, top of the ribbon.
   it('renders the Blueprint Bridge mark and wordmark', () => {
     renderIt();
-    const brand = screen.getByTestId('ribbon-brand');
+    // ★ fix-322: the brand block holds the real 4:1 logo and nothing else; the
+    // wordmark sits in its own row under it, so this reads the ribbon.
+    const brand = screen.getByTestId('ribbon');
     expect(brand.textContent).toMatch(/BLUEPRINT/);
     // ★ fix-320 #73: title case, not all caps — "maybe it doesn't need to be
     // all caps". The product name is the hero line now, so it is asserted as

@@ -1,61 +1,79 @@
-// fix-313 #64: the Blueprint Bridge mark.
-//
-// ★ PLACEHOLDER. Bobby's brand sheet shows a bridge arch over water in blue,
-// with a simplified rounded-square icon for small sizes, but the asset file was
-// not supplied — this is authored from that description so the app stops
-// shipping Vite's purple lightning bolt. It is drawn to read at 16px: one arch,
-// one deck, two piers, no hairlines. Swap the real export in over
-// public/bridge-mark.svg and this component's paths.
-//
-// Kept as a component (rather than an <img> at the SVG) so the ribbon can size
-// it without a network round-trip and so the collapsed ribbon shows the mark
-// alone, which is the mockup's behaviour.
-//
-// ★ fix-320 #73 — RECOLOURED, NOT REDRAWN. Bobby: "the logo looks darker than I
-// remember sharing." Every path below is byte-for-byte the fix-313 drawing; the
-// square went #1e3a5f -> #4a72b0, the brand blue from Bridge_Shell_Mockup_v1.
-//
-// ★ The strokes moved WITH it, and had to: the arch and piers were #2563eb and
-// the water #3f6ea8, which read against near-navy and would have all but
-// disappeared against the lighter square — a legible mark turned muddy is not
-// what "the logo looks too dark" asked for. They are now the mockup's own
-// palette, white for the structure and #8fb8e8 for the deck and water.
-// public/bridge-mark.svg (the favicon) carries the identical change, because one
-// mark rendered two colours in two places is the drift this file exists to
-// avoid.
+import logoFull from '../assets/brand/bridge-logo-400.png';
+import iconSquare from '../assets/brand/bridge-icon-square-256.png';
 
-export default function BridgeMark({ size = 22 }: { size?: number }) {
+// fix-322 #73 follow-up: THE REAL ARTWORK. Bobby supplied it; nothing here is
+// drawn, traced or "cleaned up".
+//
+// fix-313 authored an inline SVG placeholder because the asset did not exist,
+// and fix-320 recoloured that placeholder. Both were holding the slot. The slot
+// is now filled and the placeholder SVG is GONE from this file — the component
+// survives because it is still the one place that answers "show the brand mark",
+// and its `data-testid` is a contract three suites already read.
+//
+// ★ THE SHAPE PROBLEM DECIDES THE LAYOUT. The real logo is 4:1 horizontal; the
+// thing it replaced was a 26px square. They are not interchangeable, so this
+// component takes the crop as a VARIANT rather than a size:
+//
+//     full  →  the illustration — skyline, arch, roadway, docks, water.
+//              For the 248px expanded ribbon, at ~200px wide.
+//     icon  →  the arch alone, square. For the 56px collapsed rail.
+//
+// A caller that wants "small" must ask for `icon`; there is deliberately no way
+// to squash the 4:1 image into a square slot.
+//
+// ★★ THE FAVICON IS NOT IN HERE, AND THAT IS THE POINT. `public/bridge-mark.svg`
+// keeps the SIMPLIFIED drawing. The illustration is a Seattle skyline, a bridge,
+// cranes, water and trees — at 16×16 that resolves to a smudge. Bobby's own
+// brand sheet draws the same line: separate "PRIMARY LOGO (DETAILED)", "ICON
+// (SIMPLIFIED)" and "SMALL SIZE / FAVICON" panels, because the detailed mark is
+// not meant to shrink. Verified at real sizes: the illustration reads at 200px
+// wide, the square crop holds at ~34px, and below that both degrade.
+//
+// ★ The assets live in `src/assets/brand/` rather than `public/` so Vite
+// fingerprints them (a future brand update cannot be served stale from a cache)
+// and so a renamed or missing file fails the BUILD instead of 404ing in the
+// ribbon at runtime. The favicon stays in `public/` for the opposite reason:
+// index.html and every bookmarked tab reference it by a stable URL.
+
+export type BridgeMarkVariant = 'full' | 'icon';
+
+interface Props {
+  /** Which crop. Defaults to the wide illustration. */
+  variant?: BridgeMarkVariant;
+  /** `full`: rendered WIDTH in px (height follows the 4:1 aspect).
+   *  `icon`: the square's edge in px. */
+  size?: number;
+}
+
+export default function BridgeMark({ variant = 'full', size }: Props) {
+  const isIcon = variant === 'icon';
+  const src = isIcon ? iconSquare : logoFull;
+  // ★ The alt text is not decoration. This replaced an <svg role="img"> that
+  // carried an aria-label, and an image-only brand mark with no text equivalent
+  // is silence to a screen reader.
   return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 32 32"
-      role="img"
-      aria-label="Blueprint Bridge"
+    <img
+      src={src}
+      alt="Blueprint Bridge"
       data-testid="bridge-mark"
-      style={{ flex: `0 0 ${size}px`, display: 'block' }}
-    >
-      <rect width="32" height="32" rx="8" fill="#4a72b0" />
-      {/* the arch */}
-      <path
-        d="M5 21c0-6.1 4.9-11 11-11s11 4.9 11 11"
-        fill="none"
-        stroke="#ffffff"
-        strokeWidth="2.6"
-        strokeLinecap="round"
-      />
-      {/* the deck sweeping under it */}
-      <path d="M4 21.5h24" stroke="#d6e6fa" strokeWidth="2.2" strokeLinecap="round" />
-      {/* piers */}
-      <path d="M10.5 21.5v4M21.5 21.5v4" stroke="#ffffff" strokeWidth="2" strokeLinecap="round" />
-      {/* water */}
-      <path
-        d="M5 28.2c2.2 0 2.2-1.3 4.4-1.3s2.2 1.3 4.4 1.3 2.2-1.3 4.4-1.3 2.2 1.3 4.4 1.3 2.2-1.3 4.4-1.3"
-        fill="none"
-        stroke="#8fb8e8"
-        strokeWidth="1.4"
-        strokeLinecap="round"
-      />
-    </svg>
+      data-logo-variant={variant}
+      style={
+        isIcon
+          ? {
+              width: size ?? 34,
+              height: size ?? 34,
+              flex: `0 0 ${size ?? 34}px`,
+              display: 'block',
+            }
+          : {
+              // Width-driven, height auto: the aspect ratio comes from the file,
+              // so the artwork can never be stretched by a caller's number.
+              width: size ?? 200,
+              height: 'auto',
+              maxWidth: '100%',
+              display: 'block',
+            }
+      }
+    />
   );
 }
