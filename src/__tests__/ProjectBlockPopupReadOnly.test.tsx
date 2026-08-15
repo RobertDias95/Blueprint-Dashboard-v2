@@ -52,7 +52,10 @@ function renderPopup(readOnly: boolean) {
 describe('ProjectBlockPopup — fix-220 read-only mode', () => {
   it('admin (readOnly=false): status pills, duration and resync are all present', () => {
     renderPopup(false);
-    expect(screen.getByTestId('ds-popup-status-under-review')).toBeInTheDocument();
+    // ★ fix-316 removed the three permit-derived pills from the picker, so this
+    // now checks a DD-phase one. fix-220's contract is unchanged: an admin sees
+    // the write affordances, a non-admin sees none of them.
+    expect(screen.getByTestId('ds-popup-status-scheduled')).toBeInTheDocument();
     expect(screen.getByTestId('ds-popup-duration-set')).toBeInTheDocument();
     expect(screen.getByTestId('ds-popup-resync')).toBeInTheDocument();
     expect(screen.queryByTestId('ds-popup-view-only')).toBeNull();
@@ -61,7 +64,9 @@ describe('ProjectBlockPopup — fix-220 read-only mode', () => {
   it('non-admin (readOnly=true): write controls hidden, status readout + open-project remain', () => {
     renderPopup(true);
     // Every write affordance is gone.
-    expect(screen.queryByTestId('ds-popup-status-under-review')).toBeNull();
+    expect(screen.queryByTestId('ds-popup-status-scheduled')).toBeNull();
+    // ...and the fix-316 explanatory note is a write-side affordance too.
+    expect(screen.queryByTestId('ds-popup-status-note')).toBeNull();
     expect(screen.queryByTestId('ds-popup-duration-set')).toBeNull();
     expect(screen.queryByTestId('ds-popup-duration-input')).toBeNull();
     expect(screen.queryByTestId('ds-popup-resync')).toBeNull();

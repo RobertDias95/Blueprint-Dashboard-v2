@@ -6,7 +6,34 @@ import { useUpdateRedesignDdPhase } from '../../hooks/useUpdateRedesignDdPhase';
 import { useIsTenantAdmin } from '../../hooks/useIsTenantAdmin';
 import { useOriginalPermitForRedesign } from '../../hooks/useOriginalPermitForRedesign';
 import { snapToMonday, addDays } from '../../lib/dateUtils';
-import { DS_STATUS_LIST } from '../../lib/drawScheduleStatus';
+import {
+  DD_PHASE_STATUSES,
+  STATUS_PICKER_NOTE,
+  type DsStatus,
+} from '../../lib/drawScheduleStatus';
+
+// ★ fix-316 — I CHECKED WHETHER THIS CASE GENUINELY DIFFERS, AND IT DOES NOT.
+//
+// The reasoning that says it might: a reuse-redesign has no Building Permit of
+// its own, so deriveBlockStatus would see an empty permit set, take its
+// src.length === 0 branch, and honour ANY manual status — including the three
+// permit-driven ones. On that reading this editor could keep all seven.
+//
+// It does not happen, because the grid does not call deriveBlockStatus for a
+// lane; it calls deriveLaneStatus, which CHASES THE PARENT (fix-150) whenever a
+// reuse-redesign has no BP and the parent does. So those lanes derive off the
+// parent's permits and branches 1-3 apply exactly as everywhere else.
+//
+// Measured on prod rather than reasoned about: of 146 draw blocks,
+//   12  are reuse-redesigns with no BP whose parent HAS one  -> chase, branches 1-3 win
+//    0  have an empty derive source (no own permits, no parent BP)
+//    0  are non-redesigns with no permits at all
+// So the manual-honouring path is unreachable for every block on the board
+// today, and the theoretical difference is not specific to reuse-redesigns
+// anyway — it is "a project with no permits at all", which is also zero.
+//
+// Same treatment, then: four options and the same note. If a BP-less lane ever
+// appears, it inherits the honest behaviour rather than a second rule.
 
 // fix-145: inline DD-phase editor for a reuse-redesign project. fix-144 gives
 // such a redesign a draw_schedule lane but no BP permit, so the Project
@@ -183,16 +210,27 @@ export default function ReuseRedesignDdEditor({ project }: { project: Project })
           style={inputStyle}
           data-testid="redesign-dd-editor-status"
         >
-          {/* Preserve a stored status outside the canonical list. */}
-          {status && !DS_STATUS_LIST.includes(status as never) && (
+          {/* Preserve a stored status outside the offered list — including a
+              permit-derived one saved before fix-316 narrowed the picker.
+              Dropping it would silently rewrite what the row says. */}
+          {status && !DD_PHASE_STATUSES.includes(status as DsStatus) && (
             <option value={status}>{status}</option>
           )}
-          {DS_STATUS_LIST.map((s) => (
+          {DD_PHASE_STATUSES.map((s) => (
             <option key={s} value={s}>
               {s}
             </option>
           ))}
         </select>
+      </div>
+      {/* ★ fix-316: the same four options as the Draw Schedule popup, and
+          the same reason. See the note below on why this case is NOT different
+          in practice. */}
+      <div
+        className="text-[9px] leading-snug text-dim"
+        data-testid="redesign-dd-editor-status-note"
+      >
+        {STATUS_PICKER_NOTE}
       </div>
       {canEdit ? (
         <button
