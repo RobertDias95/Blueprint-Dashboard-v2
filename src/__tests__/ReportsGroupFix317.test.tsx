@@ -98,7 +98,7 @@ function renderRoutable(initial = '/dashboard') {
         path: '*',
         element: (
           <>
-            <Ribbon onAddProject={() => {}} onOpenSettings={() => {}} />
+            <Ribbon onAddProject={() => {}} />
             <Probe />
           </>
         ),
@@ -134,37 +134,35 @@ describe('fix-317: the Reports group stops duplicating the shelf', () => {
     }
   });
 
-  // ★ The one that stayed, and why. Not an oversight — the opposite.
-  it('★★ Phase durations KEEPS its entry, because the hub cannot reach it', () => {
+  // fix-317 kept Phase durations in the ribbon because the hub could not
+  // reach it — and it still cannot: it has no saved_reports row and, per the
+  // fix-319 brief, must not be given one. It is not a report you run.
+  //
+  // ★★ fix-319 #77 resolved that differently: it moved into Settings → Permits,
+  // beside the per-type target formulas it is the evidence for, and the route
+  // REDIRECTS there so bookmarks survive.
+  it('★★ Phase durations left the ribbon for Settings → Permits', () => {
     renderRoutable();
     fireEvent.click(screen.getByTestId('ribbon-group-toggle-reports'));
-    expect(screen.getByTestId('ribbon-link-/reports/phase-durations')).toBeInTheDocument();
+    expect(screen.queryByTestId('ribbon-link-/reports/phase-durations')).toBeNull();
 
-    // The registry says so out loud: an explicit null catalog entry, which
-    // fix-267 added as a FLAG that the saved_reports row is missing.
+    // Still NOT on the shelf — the brief is explicit that seeding a row would
+    // be the wrong answer.
     expect(BUILTIN_REPORT_CATALOG.phase_durations).toBeNull();
     // ...while the other five all declare a hub placement.
     for (const r of THE_SIX.filter((r) => r.onShelf)) {
       expect(BUILTIN_REPORT_CATALOG[r.key], `${r.key} must have a hub placement`).toBeTruthy();
     }
-    // And its hover text says why it is the odd one out, so the next person
-    // does not "tidy" it away.
-    const reports = RIBBON_ENTRIES.find((e) => e.kind === 'group' && e.group.id === 'reports');
-    const kid =
-      reports!.kind === 'group'
-        ? reports!.group.children.find((c) => c.to === '/reports/phase-durations')
-        : undefined;
-    expect(kid!.hint).toMatch(/shelf/i);
+    // The route is a redirect, not a deletion.
+    expect(routerSrc).toContain("path: 'reports/phase-durations'");
+    expect(routerSrc).toMatch(/<Navigate to="\/settings\/permits" replace \/>/);
   });
 
-  it('the group is exactly three entries — two plus the exception', () => {
+  // ★★ THE SHAPE BOBBY ASKED FOR, finally.
+  it('★★ the group is exactly two entries — Overview and Saved reports', () => {
     const reports = RIBBON_ENTRIES.find((e) => e.kind === 'group' && e.group.id === 'reports');
     const kids = reports!.kind === 'group' ? reports!.group.children : [];
-    expect(kids.map((k) => k.to)).toEqual([
-      '/reports',
-      '/settings/reporting',
-      '/reports/phase-durations',
-    ]);
+    expect(kids.map((k) => k.to)).toEqual(['/reports', '/settings/reporting']);
   });
 });
 
@@ -246,11 +244,15 @@ describe('fix-317: the guard is satisfied, not bypassed', () => {
     }
   });
 
-  // ★ phase_durations must NOT be exempted — it is still in the ribbon, and a
-  // path in both lists is the contradiction that hides a bug.
-  it('★ phase-durations is NOT exempted, because it never left the ribbon', () => {
-    expect(ribbonExemptPaths()).not.toContain('/reports/phase-durations');
-    expect(allRibbonRoutes()).toContain('/reports/phase-durations');
+  // ★ fix-319: phase-durations IS exempted now, with a reason saying where it
+  // went — and it is out of the ribbon, so the two lists still do not overlap.
+  it('★ phase-durations is exempted with a reason, and is not in both lists', () => {
+    const entry = ROUTES_INTENTIONALLY_NOT_IN_RIBBON.find(
+      (e) => e.path === '/reports/phase-durations',
+    );
+    expect(entry, 'the redirect must be exempted, not silently dropped').toBeTruthy();
+    expect(entry!.why).toMatch(/Settings/);
+    expect(allRibbonRoutes()).not.toContain('/reports/phase-durations');
     for (const p of ribbonExemptPaths()) {
       expect(allRibbonRoutes(), `${p} is both exempt and in the ribbon`).not.toContain(p);
     }
@@ -278,14 +280,13 @@ describe('fix-317: what must not have moved', () => {
     expect(screen.getByTestId('where').textContent).toBe('/reports');
   });
 
-  // fix-315's exact flag, on the child that is still an entry.
-  it('★ Overview does not light up while Phase durations is open', () => {
-    renderRoutable('/reports/phase-durations');
+  // fix-315's exact flag. ★ fix-319 retargeted the pathname — phase-durations
+  // is a redirect now — but the hazard is the same: without `exact`, /reports
+  // would prefix-match every /reports/* route.
+  it('★ Overview does not light up while a /reports/* child is open', () => {
+    renderRoutable('/reports/corrections');
     fireEvent.click(screen.getByTestId('ribbon-group-toggle-reports'));
     expect(screen.getByTestId('ribbon-link-/reports').dataset.active).toBe('false');
-    expect(
-      screen.getByTestId('ribbon-link-/reports/phase-durations').dataset.active,
-    ).toBe('true');
   });
 
   it('★ a non-admin sees no Reports group at all', () => {

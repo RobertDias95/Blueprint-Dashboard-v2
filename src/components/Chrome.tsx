@@ -1,6 +1,5 @@
 import { useState } from 'react';
 import { Outlet } from 'react-router-dom';
-import SettingsModal from './SettingsModal';
 import BoardBell from './BoardBell';
 import ErrorTriageBell from './ErrorTriageBell';
 import Ribbon from './Ribbon';
@@ -8,6 +7,10 @@ import NewProjectWizard from './NewProjectWizard';
 import { useSelfScope } from '../hooks/useSelfScope';
 
 // fix-313 — the Blueprint Bridge shell, built to Bridge_Shell_Mockup_v1.
+//
+// ★ fix-319 #76: the SettingsModal this used to mount is gone. Settings is a
+// PAGE at /settings now, so the ribbon navigates there like any other entry —
+// Bobby: "Settings should no longer be a pop-up screen."
 //
 // WHAT CHANGED: the top tab bar and the logo-as-home-button are gone
 // (#59), replaced by the collapsible left ribbon (#57/#58/#60). Add a Project
@@ -27,7 +30,6 @@ import { useSelfScope } from '../hooks/useSelfScope';
 // touched: their horizontal scroll happens inside <main>, not on <body>.
 
 export default function Chrome() {
-  const [settingsOpen, setSettingsOpen] = useState(false);
   const [wizardOpen, setWizardOpen] = useState(false);
   const { identity, userId } = useSelfScope();
 
@@ -40,11 +42,7 @@ export default function Chrome() {
       {/* Keyed on the user so the ribbon re-reads that person's stored
           collapsed/open preferences when auth resolves — which is what lets
           Ribbon read them in a lazy initialiser instead of an effect. */}
-      <Ribbon
-        key={userId ?? 'anon'}
-        onAddProject={() => setWizardOpen(true)}
-        onOpenSettings={() => setSettingsOpen(true)}
-      />
+      <Ribbon key={userId ?? 'anon'} onAddProject={() => setWizardOpen(true)} />
 
       <div className="flex-1 min-w-0 flex flex-col h-screen" data-testid="bridge-main">
         <header
@@ -115,7 +113,6 @@ export default function Chrome() {
         </main>
       </div>
 
-      <SettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} />
       {/* #61: one wizard, opened from one place — the ribbon. */}
       <NewProjectWizard open={wizardOpen} onClose={() => setWizardOpen(false)} />
     </div>

@@ -133,6 +133,17 @@ export const RIBBON_ENTRIES: RibbonEntry[] = [
         // Which restores his model: Reports is the live metrics dashboard,
         // Saved reports is the shelf of things you can run.
         { to: '/settings/reporting', label: 'Saved reports', icon: '·' },
+        // ★★ fix-319 #77: and now the sixth. Phase durations left the ribbon —
+        // not to the Saved reports shelf (it is not a report you run) but to
+        // Settings → Permits, where the per-type targets it is evidence for
+        // already live. /reports/phase-durations redirects there, so the
+        // bookmark still works.
+        //
+        // The Reports group finally reads Overview + Saved reports, which is
+        // the shape fix-317 was asking for.
+        //
+        // The old entry, for the record — it was the exception fix-317 kept
+        // because the hub could not reach it:
         // ★ FIVE CAME OUT, NOT SIX — and this is the load-bearing exception.
         //
         // fix-315 exists because fix-313 removed a destination without checking
@@ -148,16 +159,15 @@ export const RIBBON_ENTRIES: RibbonEntry[] = [
         // by fix-267, with the intended slot written down — Pipeline, position
         // 1, which is why Pipeline currently runs 0, 2 with a gap. Seed that
         // row and this entry should come straight out.
-        {
-          to: '/reports/phase-durations',
-          label: 'Phase durations',
-          icon: '·',
-          hint: 'Not on the Saved reports shelf yet — this is its only link',
-        },
+
       ],
     },
   },
   { kind: 'separator', id: 'sep-2' },
+  // ★ fix-319 #76: Settings was a BUTTON that opened a dialog. It is a
+  // destination now, so it is a link like everything else, and the coverage
+  // guard covers it.
+  { kind: 'link', link: { to: '/settings', label: 'Settings', icon: '⚙' } },
 ];
 
 /** The entries a viewer may see. fix-234's gate, applied to the whole group. */
@@ -265,6 +275,34 @@ export const ROUTES_INTENTIONALLY_NOT_IN_RIBBON: ReadonlyArray<{
     why: 'Reached from the Reporting hub ("Saved reports"), which is in the ribbon, where it sits under the Pipeline category as "Corrections".',
   },
   {
+    path: '/reports/phase-durations',
+    why: 'fix-319 moved this into Settings \u2192 Permits, beside the per-type target formulas it is the evidence for. The route is kept as a redirect so old bookmarks still land somewhere useful.',
+  },
+  // ★ fix-319: the Settings page sections. /settings itself IS in the ribbon,
+  // and every section is one click from its rail — these are the deep links,
+  // not separate destinations. /settings/reporting is deliberately absent
+  // because it IS a ribbon entry ("Saved reports"), and a path may not be both.
+  {
+    path: '/settings/account',
+    why: 'A section of the Settings page, which is in the ribbon. Reached from its left rail, and linkable so a section survives a reload.',
+  },
+  {
+    path: '/settings/team',
+    why: 'A section of the Settings page, which is in the ribbon. Admin-only, reached from its left rail.',
+  },
+  {
+    path: '/settings/projects',
+    why: 'A section of the Settings page, which is in the ribbon. Admin-only, reached from its left rail.',
+  },
+  {
+    path: '/settings/permits',
+    why: 'A section of the Settings page, which is in the ribbon. Admin-only, reached from its left rail; also where /reports/phase-durations now redirects.',
+  },
+  {
+    path: '/settings/schedule',
+    why: 'A section of the Settings page, which is in the ribbon. Admin-only, reached from its left rail.',
+  },
+  {
     path: '/trends',
     why: 'Redirect only — fix-trends-subtab folded Trends into /reports?tab=trends. Kept so old links work.',
   },
@@ -272,10 +310,7 @@ export const ROUTES_INTENTIONALLY_NOT_IN_RIBBON: ReadonlyArray<{
     path: '/my-tasks',
     why: 'Redirect only — fix-313 merged My Tasks into My Board. Kept so bookmarks survive.',
   },
-  {
-    path: '/settings',
-    why: 'Redirect only. System Settings is a MODAL, opened from the ribbon; the legacy path bounces to /dashboard.',
-  },
+
 ];
 
 /** Paths that are exempt, for the coverage test. */

@@ -59,10 +59,8 @@ vi.mock('../stores/authStore', () => ({
 // SettingsModal pulls in the Admin*Tab tree which pulls in lots of
 // data hooks. Stub it for the Chrome-level structural tests; the modal
 // itself gets its own component tests later.
-vi.mock('../components/SettingsModal', () => ({
-  default: ({ open }: { open: boolean }) =>
-    open ? <div data-testid="settings-modal-stub">modal open</div> : null,
-}));
+// ★ fix-319 #76: SettingsModal.tsx was DELETED — Settings is a page now, so
+// there is no dialog to stub.
 
 // fix-313 #61: Chrome mounts the wizard now (the ribbon opens it), and the real
 // one drags in the whole four-step tree. Stubbed the same way as the modal.
@@ -105,9 +103,14 @@ describe('<Chrome /> fix-313 the Blueprint Bridge shell', () => {
 
   it('renders the ribbon entries in the mockup order', () => {
     renderIt();
-    // Groups are closed by default, so the top level is what shows. Settings is
-    // a BUTTON (the modal), not a link, so it is deliberately absent here.
-    expect(ribbonLabels()).toEqual(['Pipeline', 'My Board', 'Project View']);
+    // ★ fix-319 #76: Settings joined the top level as a LINK. It was a button
+    // that opened a dialog; it is a page at /settings now.
+    expect(ribbonLabels()).toEqual([
+      'Pipeline',
+      'My Board',
+      'Project View',
+      'Settings',
+    ]);
 
     // ★ fix-310 renamed the DD-PHASE vocabulary from Draw to DD across ~14
     // surfaces. The Draw SCHEDULE is a different concept and keeps its name.
@@ -178,7 +181,12 @@ describe('<Chrome /> fix-313 the Blueprint Bridge shell', () => {
     // Everything else still renders. fix-297: ★ Library is NOT admin-gated,
     // matching Draw Schedule — it has been reachable by everyone for as long
     // as it has existed. fix-298: neither is My Board.
-    expect(ribbonLabels()).toEqual(['Pipeline', 'My Board', 'Project View']);
+    expect(ribbonLabels()).toEqual([
+      'Pipeline',
+      'My Board',
+      'Project View',
+      'Settings',
+    ]);
     expect(screen.getByTestId('ribbon-group-entitlements')).toBeInTheDocument();
   });
 
@@ -218,14 +226,13 @@ describe('<Chrome /> fix-313 the Blueprint Bridge shell', () => {
     expect(screen.getByTestId('bridge-mark')).toBeInTheDocument();
   });
 
-  it('Settings is still a MODAL, opened from the ribbon', () => {
+  // ★ fix-319 #76: Settings stopped being a modal. The contract inverts —
+  // no dialog, and the ribbon entry navigates.
+  it('★ Settings is a PAGE now — no modal is mounted at all', () => {
     renderIt();
-    const gear = screen.getByTestId('ribbon-settings');
-    expect(gear.textContent).toMatch(/Settings/);
-    // Modal should NOT render until clicked.
-    expect(screen.queryByTestId('settings-modal-stub')).not.toBeInTheDocument();
-    fireEvent.click(gear);
-    expect(screen.getByTestId('settings-modal-stub')).toBeInTheDocument();
+    expect(screen.queryByTestId('ribbon-settings')).toBeNull();
+    expect(screen.queryByTestId('settings-modal-stub')).toBeNull();
+    expect(screen.getByTestId('ribbon-link-/settings')).toBeInTheDocument();
   });
 
   // ★ #61: one entry point to the wizard, in the ribbon, on every screen.
