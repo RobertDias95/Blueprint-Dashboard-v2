@@ -17,6 +17,7 @@ import {
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import type { TeamMember, DrawScheduleQuarterLayoutRow } from '../../lib/database.types';
+import { formerLabel, formerMemberNames } from '../../lib/roster';
 import { deriveGroupSpans } from '../../lib/quarterLayoutHelpers';
 import { useQuarterLayout } from '../../hooks/useQuarterLayout';
 import { reorderLayoutIds } from '../../hooks/useReorderQuarterLayout';
@@ -125,6 +126,19 @@ function rowsSig(
 }
 
 export default function QuarterLayoutEditor({ das, dms, ents = [], readOnly = false }: Props) {
+  // ★ fix-321 #79 — THE LIST THAT MUST KEEP OFFERING PEOPLE WHO HAVE LEFT.
+  //
+  // Quarter layouts are HISTORICAL: Q1's columns record who held a lane in Q1,
+  // and AdminTeamTab deliberately passes former DAs in here for that reason. So
+  // this is the one people-list #79 does NOT trim — omitting a departed DA would
+  // strand every layout row that names them behind a dropdown nobody can select,
+  // and re-saving the quarter would silently drop their column.
+  //
+  // They are MARKED instead — "Nidhi (former)". ★ The mark is the LABEL only;
+  // the option's value stays the raw name, because that value is written into
+  // draw_schedule_layout.da_name and "Nidhi (former)" in a stored column would
+  // be a data incident dressed up as a UI nicety.
+  const departedDaNames = useMemo(() => formerMemberNames(das), [das]);
   const quarterOptions = useMemo(() => buildQuarterOptions(), []);
   const [quarter, setQuarter] = useState<string>(() => quarterOffsetToString(0));
 
@@ -454,6 +468,7 @@ export default function QuarterLayoutEditor({ das, dms, ents = [], readOnly = fa
                     row={row}
                     readOnly={readOnly}
                     daNames={daNames}
+                    departedNames={departedDaNames}
                     dmNames={dmNames}
                     inactiveInQuarter={
                       row.col_kind === 'da' &&
@@ -505,6 +520,7 @@ export default function QuarterLayoutEditor({ das, dms, ents = [], readOnly = fa
           {!readOnly && (
             <AddControls
               daNames={daNames}
+              departedNames={departedDaNames}
               dmNames={dmNames}
               onAddDa={addDaColumn}
               onAddDm={addDmColumn}
@@ -572,12 +588,15 @@ function EmptyState({
 
 function AddControls({
   daNames,
+  departedNames,
   dmNames,
   onAddDa,
   onAddDm,
   onAddOpen,
 }: {
   daNames: string[];
+  /** fix-321: names the roster has retired — marked, never omitted. */
+  departedNames: Set<string>;
   dmNames: string[];
   onAddDa: (da: string) => void;
   onAddDm: (dm: string) => void;
@@ -600,7 +619,7 @@ function AddControls({
         <option value="">+ Add DA column…</option>
         {daNames.map((d) => (
           <option key={d} value={d}>
-            {d}
+            {departedNames.has(d) ? formerLabel(d) : d}
           </option>
         ))}
       </select>
@@ -640,6 +659,7 @@ function ColumnRow({
   row,
   readOnly,
   daNames,
+  departedNames,
   dmNames,
   inactiveInQuarter,
   onChangeType,
@@ -653,6 +673,8 @@ function ColumnRow({
   row: DraftRow;
   readOnly: boolean;
   daNames: string[];
+  /** fix-321: names the roster has retired — marked, never omitted. */
+  departedNames: Set<string>;
   dmNames: string[];
   inactiveInQuarter: boolean;
   onChangeType: (kind: DraftRow['col_kind']) => void;
@@ -759,7 +781,7 @@ function ColumnRow({
         >
           {daNames.map((d) => (
             <option key={d} value={d}>
-              {d}
+              {departedNames.has(d) ? formerLabel(d) : d}
             </option>
           ))}
         </select>

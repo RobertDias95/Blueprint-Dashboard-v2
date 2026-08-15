@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import type { Project } from '../../lib/database.types';
 import { useDrawSchedule } from '../../hooks/useDrawSchedule';
 import { useTeamMembers } from '../../hooks/useTeamMembers';
+import { isCurrentMember } from '../../lib/roster';
 import { useUpdateRedesignDdPhase } from '../../hooks/useUpdateRedesignDdPhase';
 import { useIsTenantAdmin } from '../../hooks/useIsTenantAdmin';
 import { useOriginalPermitForRedesign } from '../../hooks/useOriginalPermitForRedesign';
@@ -70,7 +71,7 @@ export default function ReuseRedesignDdEditor({ project }: { project: Project })
   const das = useMemo(
     () =>
       (teamQ.all ?? [])
-        .filter((m) => m.role === 'da' && m.active !== false)
+        .filter((m) => m.role === 'da' && isCurrentMember(m))
         .map((m) => m.name)
         .sort((a, b) => a.localeCompare(b)),
     [teamQ.all],

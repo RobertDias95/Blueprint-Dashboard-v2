@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useUpdatePermit } from '../../hooks/useUpdatePermit';
 import { usePermitTypes } from '../../hooks/usePermitTypes';
 import { useTeamMembers } from '../../hooks/useTeamMembers';
+import { isCurrentMember } from '../../lib/roster';
 import { pushToast } from '../../stores/toastStore';
 import { supabase } from '../../lib/supabase';
 import type {
@@ -137,10 +138,10 @@ export default function QuickEditPermitModal({ permit, siblings = [], onClose }:
 
   const team = teamQ.data ?? [];
   const entOptions = team
-    .filter((t) => t.role === 'ent' && t.active !== false)
+    .filter((t) => t.role === 'ent' && isCurrentMember(t))
     .map((t) => t.name);
   const daOptions = team
-    .filter((t) => t.role === 'da' && t.active !== false)
+    .filter((t) => t.role === 'da' && isCurrentMember(t))
     .map((t) => t.name);
   const permitTypes = (permitTypesQ.data ?? []).map((t) => t.name);
 

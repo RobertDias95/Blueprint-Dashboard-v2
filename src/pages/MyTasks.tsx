@@ -5,6 +5,7 @@ import WaitingOnView from '../components/MyTasks/WaitingOnView';
 import BotBadge from '../components/shared/BotBadge';
 import { UNOWNED_LABEL, taskNeedsOwner } from '../lib/boardOwnership';
 import { useTeamMembers } from '../hooks/useTeamMembers';
+import { isCurrentMember } from '../lib/roster';
 import { useAllTasks, useUpsertTask } from '../hooks/useTaskTree';
 // fix-303: the task detail editor moved to its own component so My Board can
 // use the SAME one. Nothing about it changed in the move.
@@ -501,7 +502,8 @@ function uniqueNamesByRole(
   const set = new Set<string>();
   for (const m of members) {
     if (!match(m.role)) continue;
-    if (m.active === false) continue;
+    // ★ fix-321 #79: the shared roster rule, same as Project View's copy.
+    if (!isCurrentMember(m)) continue;
     set.add(m.name);
   }
   return [...set].sort((a, b) => a.localeCompare(b));

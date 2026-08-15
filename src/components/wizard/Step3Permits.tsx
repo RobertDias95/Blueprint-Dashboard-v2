@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef } from 'react';
 import { useTeamMembers } from '../../hooks/useTeamMembers';
+import { isCurrentMember } from '../../lib/roster';
 import { useDmDaGroups } from '../../hooks/useDmDaGroups';
 import { usePermitTypes } from '../../hooks/usePermitTypes';
 import {
@@ -81,7 +82,8 @@ function dedupedByName(
   const out: TeamMember[] = [];
   for (const m of all) {
     if (!roles.has(m.role)) continue;
-    if (!includeInactive && m.active === false) continue;
+    // ★ fix-321 #79: shared roster rule; backfill mode still opens the list.
+    if (!includeInactive && !isCurrentMember(m)) continue;
     if (seen.has(m.name)) continue;
     seen.add(m.name);
     out.push(m);
@@ -147,7 +149,7 @@ export default function Step3Permits({ value, onChange }: Props) {
     const out: TeamMember[] = [];
     for (const m of teamQ.all ?? []) {
       if (m.role !== DA_ROLE) continue;
-      if (!backfillMode && m.active === false) continue;
+      if (!backfillMode && !isCurrentMember(m)) continue;
       if (seen.has(m.name)) continue;
       seen.add(m.name);
       out.push(m);

@@ -1,5 +1,7 @@
 import { useMemo } from 'react';
 import FilterDropdown from '../FilterDropdown';
+import { useTeamMembers } from '../../hooks/useTeamMembers';
+import { formerMemberNames } from '../../lib/roster';
 import type { Permit } from '../../lib/database.types';
 
 // Q9.5.f Item 2: 4 multi-select filter chips above the dashboard buckets.
@@ -7,6 +9,29 @@ import type { Permit } from '../../lib/database.types';
 // non-empty values per dimension, alpha-sorted. Empty Set = no filter.
 // Per v1 index.html:4949-4951, permits with null on the filtered dimension
 // are excluded when any specific value is selected.
+//
+// ★ fix-321 #79 — THE PEOPLE CHIPS NOW STOP AT THE CURRENT ROSTER. Bobby: "on
+// the dashboard view, when I click design associate, it is showing design
+// associates who are no longer active and/or employed."
+//
+// WHY THIS ONE SCREEN WAS THE ODD ONE OUT: every other people-filter in the app
+// (Project View, My Tasks) builds its list from team_members and so has always
+// stopped at the roster. This one builds its list from the PERMITS on screen, so
+// a departed DA reappears for as long as any permit still carries their name —
+// which is why Bobby saw it here and nowhere else.
+//
+// ★ The rows are NOT hidden and the names are NOT scrubbed. A permit assigned to
+// Nidhi still shows Nidhi, still sits in its bucket, and is still findable by
+// typing "Nidhi" into the search box above — which matches permit.da directly.
+// What goes away is being OFFERED her as a filter option. Measured 2026-08-15:
+// 9 permits are still assigned to the three departed DAs, 5 of them live — so
+// this deliberately leaves work visible under a name nobody can pick, and the
+// search box is how you reach it until those permits are reassigned. That
+// reassignment is Bobby's call and no part of this ticket.
+//
+// ★ Only names the roster explicitly RETIRES are dropped. A name that is not in
+// team_members at all stays — unknown is not the same as departed, and treating
+// it as departed would hide a live person from their own filter.
 
 export interface DashFilters {
   ent: Set<string>;
@@ -30,6 +55,9 @@ interface Props {
 }
 
 export default function StageFilters({ permits, filters, onChange }: Props) {
+  const team = useTeamMembers();
+  const departed = useMemo(() => formerMemberNames(team.all), [team.all]);
+
   const options = useMemo(() => {
     const ent = new Set<string>();
     const da = new Set<string>();
@@ -41,15 +69,20 @@ export default function StageFilters({ permits, filters, onChange }: Props) {
       if (p.dm) dm.add(p.dm);
       if (p.type) type.add(p.type);
     }
+    // People chips only. `type` is not a person and never gets this treatment.
+    const toRoster = (s: Set<string>) =>
+      Array.from(s)
+        .filter((name) => !departed.has(name))
+        .sort((a, b) => a.localeCompare(b));
     const toSorted = (s: Set<string>) =>
       Array.from(s).sort((a, b) => a.localeCompare(b));
     return {
-      ent: toSorted(ent),
-      da: toSorted(da),
-      dm: toSorted(dm),
+      ent: toRoster(ent),
+      da: toRoster(da),
+      dm: toRoster(dm),
       type: toSorted(type),
     };
-  }, [permits]);
+  }, [permits, departed]);
 
   return (
     <div className="flex items-center gap-2 flex-wrap" data-testid="dash-filters">

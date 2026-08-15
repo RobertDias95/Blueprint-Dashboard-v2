@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { supabase } from '../lib/supabase';
 import { queryKeys } from '../lib/queryKeys';
 import { useAuthStore } from '../stores/authStore';
+import { isCurrentMember } from '../lib/roster';
 import type { TeamMember, TeamRole } from '../lib/database.types';
 
 // Q7.3.b: read team_members for the active tenant. Returns the full set
@@ -25,18 +26,23 @@ export interface TeamMembersResult {
   activeMemberNames: string[];
 }
 
-/** fix-233: derive the distinct names of CURRENT team members (active = true AND
- *  former = false), sorted A→Z, deduped (team_members has one row per role, so a
- *  person holding several roles would otherwise repeat). A missing `active` is
- *  treated as active (defensive). The ONE definition the task assignee dropdowns
- *  (primary + co-assignee) source their roster from. */
+/** fix-233: derive the distinct names of CURRENT team members, sorted A→Z,
+ *  deduped (team_members has one row per role, so a person holding several roles
+ *  would otherwise repeat). The ONE definition the task assignee dropdowns
+ *  (primary + co-assignee) source their roster from.
+ *
+ *  ★ fix-321: the membership test moved to `isCurrentMember` in lib/roster and
+ *  this calls it — same rule as before (`active !== false && former !== true`),
+ *  now shared with every other picker instead of being this hook's private
+ *  answer. Two pickers disagreeing about who is on the team is the drift #79
+ *  exists to remove. */
 export function activeMemberNamesOf(
   members: readonly TeamMember[] | null | undefined,
 ): string[] {
   return [
     ...new Set(
       (members ?? [])
-        .filter((m) => m.active !== false && m.former !== true)
+        .filter(isCurrentMember)
         .map((m) => m.name)
         .filter(Boolean),
     ),
@@ -66,10 +72,14 @@ export function useTeamMembers() {
       return all.filter((m) => m.role === role);
     }
     const allDas = ofRole('da');
+    // ★ fix-321: both lists split on the SHARED rule. activeDas used to test
+    // `!former` alone, so a DA flagged active=false but not former counted as
+    // active here and as departed in the assignee dropdowns — the same person,
+    // two answers. One predicate now decides for every picker in the app.
     return {
       all,
-      activeDas: allDas.filter((m) => !m.former),
-      formerDas: allDas.filter((m) => m.former),
+      activeDas: allDas.filter(isCurrentMember),
+      formerDas: allDas.filter((m) => !isCurrentMember(m)),
       dms: ofRole('dm'),
       ents: ofRole('ent'),
       acqs: ofRole('acq'),
