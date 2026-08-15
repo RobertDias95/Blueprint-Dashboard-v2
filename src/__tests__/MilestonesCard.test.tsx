@@ -173,7 +173,12 @@ describe('fix-296 the card is called Milestones, on every branch', () => {
     const card = screen.getByTestId('pd-milestones-card');
     expect(within(card).getAllByTestId('overview-card-banner')[0])
       .toHaveTextContent('Milestones');
-    expect(within(card).getByText('No building permit')).toBeInTheDocument();
+    // ★ fix-311 added the Permit intake section, which says the same plain
+    // thing on this branch — Target Submit and Intake Accepted both hang off
+    // the BP, so with no BP there is nothing to box. Hence getAll: the message
+    // is now under both headings, which is the intended treatment rather than a
+    // duplicate.
+    expect(within(card).getAllByText('No building permit')).toHaveLength(2);
   });
 
   // ★ fix-145 added this branch precisely because it used to render a dead

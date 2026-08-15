@@ -307,7 +307,10 @@ describe('DD Phase cell gating (ProjectDetailHeader)', () => {
       [],
     );
     expect(screen.queryByTestId('redesign-dd-editor')).toBeNull();
-    expect(screen.getByText('No building permit')).toBeTruthy();
+    // fix-311: said under BOTH the DD window and the new Permit intake heading
+    // — two sections with nothing to show, each saying so plainly rather than
+    // rendering empty boxes.
+    expect(screen.getAllByText('No building permit')).toHaveLength(2);
   });
 
   it('does not render the editor when the redesign has a BP permit', () => {

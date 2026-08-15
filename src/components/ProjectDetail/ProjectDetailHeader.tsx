@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import type { CSSProperties } from 'react';
 import { Link } from 'react-router-dom';
 import { schematicWindow } from '../../lib/schematicWindow';
+import { VENDOR_SEND_LEAD_DAYS, vendorTargetSend } from '../../lib/vendorReport';
 import type {
   Builder,
   PermitWithCycles,
@@ -173,6 +175,136 @@ export default function ProjectDetailHeader({
 // (editable, permit-level) + Duration
 // ============================================================
 
+// ============================================================
+// ★ fix-311 #56 — ONE date row for the whole Milestones card.
+//
+// The card had grown three presentations for one kind of fact: a dashed
+// underline (GO Date), a bare text line (the SD window), and boxed inputs (DD
+// start / DD end / Target Submit). Bobby: "we want the SD start and the SD end
+// to also match the same kind of format as DD start, DD end. Same thing with the
+// go date … that way it all kind of looks uniform … make sure that all of them
+// have the same horizontal width as well."
+//
+// THE SHAPE THAT MAKES THAT TRUE, rather than true-for-now:
+//
+//     [ label ][            the box            ]   ← one element, one class
+//                ^ an editable row nests a borderless input INSIDE the box
+//
+// The grey box is the SAME element with the SAME class string and the SAME
+// inline style on every row, editable or not — so the label column, the value
+// width and the box treatment cannot drift between rows without moving all of
+// them together. That is the whole point of the ticket: not three components
+// that look alike today, one component that cannot stop looking alike.
+//
+// ★ THE BOX IS THE DISPLAY FORMAT; EDITABILITY IS A SEPARATE PROPERTY. A
+// read-only row wears the same box with no focus ring and no text cursor, so it
+// does not invite a click it cannot honour.
+// ============================================================
+
+/** The label column. One width for every row — the thing that makes the boxes
+ *  line up at all. Wide enough for the longest label on the card,
+ *  "Intake Accepted". */
+const MILESTONE_LABEL_CLASS =
+  'text-[9px] text-dim w-20 flex-shrink-0 whitespace-nowrap';
+
+/** The box. Identical on every row; `flex-1` (basis 0) is what gives every value
+ *  the same horizontal width whatever it contains. */
+const MILESTONE_BOX_CLASS =
+  'text-[11px] font-semibold px-1.5 py-0.5 border rounded flex-1 min-w-0';
+
+const MILESTONE_BOX_STYLE: CSSProperties = {
+  borderColor: 'var(--color-border)',
+  background: 'var(--color-bg)',
+  color: 'var(--color-text)',
+};
+
+/** The input that sits inside the box on an editable row. It draws nothing of
+ *  its own — the box already drew it — so the two kinds of row have one
+ *  appearance between them. */
+const MILESTONE_INPUT_CLASS =
+  'w-full bg-transparent border-0 outline-none p-0 text-[11px] font-semibold ' +
+  'text-text disabled:opacity-50';
+
+interface MilestoneDateRowProps {
+  label: string;
+  /** ISO date (or a draft mid-edit). Empty renders the em-dash placeholder on a
+   *  read-only row — never a date computed from nothing. */
+  value: string;
+  /** Present ⇒ editable: the box nests a date input. Absent ⇒ read-only. */
+  onChange?: (next: string) => void;
+  onBlur?: () => void;
+  onKeyDown?: (e: React.KeyboardEvent<HTMLInputElement>) => void;
+  disabled?: boolean;
+  /** Goes on the input when editable, on the box when read-only — whichever
+   *  element a caller's existing test already reaches for. */
+  testId?: string;
+  /** Tooltip on the box. Read-only rows use it to say where the value comes
+   *  from, since there is nothing to click. */
+  title?: string;
+  ariaLabel?: string;
+}
+
+function MilestoneDateRow({
+  label,
+  value,
+  onChange,
+  onBlur,
+  onKeyDown,
+  disabled,
+  testId,
+  title,
+  ariaLabel,
+}: MilestoneDateRowProps) {
+  const editable = typeof onChange === 'function';
+  return (
+    <div className="flex items-center gap-1.5" data-milestone-row="">
+      <span className={MILESTONE_LABEL_CLASS}>{label}</span>
+      <div
+        className={`${MILESTONE_BOX_CLASS}${editable ? '' : ' cursor-default'}`}
+        style={MILESTONE_BOX_STYLE}
+        title={title}
+        data-milestone-value=""
+        data-milestone-editable={editable ? 'true' : 'false'}
+        data-testid={editable ? undefined : testId}
+      >
+        {editable ? (
+          <input
+            type="date"
+            value={value}
+            onChange={(e) => onChange?.(e.target.value)}
+            onBlur={onBlur}
+            onKeyDown={onKeyDown}
+            disabled={disabled}
+            className={MILESTONE_INPUT_CLASS}
+            aria-label={ariaLabel}
+            data-testid={testId}
+          />
+        ) : (
+          // The em-dash is the ABSENCE of a date, said out loud. An empty box
+          // would collapse and read as a rendering bug; a fabricated date would
+          // be worse than either.
+          value || '—'
+        )}
+      </div>
+    </div>
+  );
+}
+
+/** ★ fix-311 §2: the divider that groups rows INSIDE a section — SD from DD,
+ *  planned from happened. Reuses the dashed rule the GO Date row used to wear
+ *  (and no longer does) so the card keeps one visual language rather than
+ *  growing a second. */
+function MilestoneDivider({ testId }: { testId: string }) {
+  return (
+    <div
+      role="separator"
+      className="border-b border-dashed"
+      style={{ borderColor: 'var(--color-border)' }}
+      data-testid={testId}
+    />
+  );
+}
+
 /** fix-148: project-level Closing date, inline-editable. Moved out of the
  *  overcrowded Project Site cell into DD Phase (closing kicks off the design
  *  phase, and DD Phase has the room). Renders at the top of all three DD Phase
@@ -192,26 +324,18 @@ function ClosingRow({ project }: { project: Project }) {
     });
   }
   return (
-    <div className="flex items-center gap-1.5">
-      <span className="text-[9px] text-dim w-12 flex-shrink-0">Closing</span>
-      <input
-        type="date"
-        value={draft}
-        onChange={(e) => setDraft(e.target.value)}
-        onBlur={() => {
-          const t = draft.trim();
-          void commit(t === '' ? null : t);
-        }}
-        disabled={occMissing}
-        className="text-[11px] font-semibold px-1.5 py-0.5 border rounded outline-none flex-1 disabled:opacity-50"
-        style={{
-          borderColor: 'var(--color-border)',
-          background: 'var(--color-bg)',
-          color: 'var(--color-text)',
-        }}
-        data-testid="project-overview-closing"
-      />
-    </div>
+    <MilestoneDateRow
+      label="Closing"
+      value={draft}
+      onChange={setDraft}
+      onBlur={() => {
+        const t = draft.trim();
+        void commit(t === '' ? null : t);
+      }}
+      disabled={occMissing}
+      testId="project-overview-closing"
+      ariaLabel="Closing"
+    />
   );
 }
 
@@ -230,11 +354,15 @@ function KeyDatesSection({ project }: { project: Project }) {
   return (
     <OverviewSection title="Key dates">
       <div className="flex flex-col gap-1.5">
-        <PhaseRow
+        {/* ★ fix-311: GO Date wears the box like everything else and has LOST
+            its dashed underline — "I would remove that little dotted line
+            there." It is still read-only, and the box says where to change
+            it. */}
+        <MilestoneDateRow
           label="GO Date"
-          value={formatGoDate(project.go_date)}
-          dashed
+          value={project.go_date ?? ''}
           title="GO date is set on the Project Settings page"
+          testId="pd-go-date"
         />
         <ClosingRow project={project} />
       </div>
@@ -242,18 +370,80 @@ function KeyDatesSection({ project }: { project: Project }) {
   );
 }
 
-function SchematicRow({ ddStart }: { ddStart: string | null }) {
+/** ★ fix-309 #53 / fix-311: the schematic window, derived from DD start and
+ *  display-only — SPLIT into two rows so SD start and SD end sit parallel with
+ *  DD start and DD end instead of being one squeezed `start → end` string.
+ *
+ *  Null in, null out: no DD start ⇒ no SD rows and no divider, rather than a
+ *  window printed from nothing. */
+function SchematicRows({ ddStart }: { ddStart: string | null }) {
   const win = schematicWindow(ddStart);
   if (!win) return null;
   return (
-    <div className="flex items-center gap-1.5" data-testid="pd-schematic-row">
-      <span className="text-[9px] text-dim w-16 flex-shrink-0" title="Schematic design">
-        SD
-      </span>
-      <span className="text-[11px] font-semibold text-text" data-testid="pd-schematic-window">
-        {win.start} → {win.end}
-      </span>
-    </div>
+    <>
+      <MilestoneDateRow
+        label="SD start"
+        value={win.start}
+        title="Schematic design start — derived from DD start, not stored"
+        testId="pd-sd-start"
+      />
+      <MilestoneDateRow
+        label="SD end"
+        value={win.end}
+        title="Schematic design ends where DD begins — derived from DD start"
+        testId="pd-sd-end"
+      />
+      {/* Schematic ends where design development begins — "that way you can
+          differentiate that." */}
+      <MilestoneDivider testId="pd-sd-dd-divider" />
+    </>
+  );
+}
+
+/** ★ fix-311: the CONSULTANT date — the external target send, one week before DD
+ *  end.
+ *
+ *  ★★ It is the SAME value fix-309 gave the consultant forecast email, through
+ *  the SAME function: `vendorTargetSend`, `dd_end − VENDOR_SEND_LEAD_DAYS`. A
+ *  second literal `- 7` here is exactly how the row on this card and the date in
+ *  the email would silently diverge the day the lead changes. One concept, one
+ *  function.
+ *
+ *  Derived and display-only, like SD. No dd_end ⇒ no row. `end_week` is passed
+ *  as null deliberately: the report falls back to the draw block's end week when
+ *  a permit has no dd_end, but this card is showing THIS permit's DD window, and
+ *  a date derived from a different anchor under the same label would be a lie. */
+function ConsultantDateRow({ ddEnd }: { ddEnd: string | null }) {
+  const target = vendorTargetSend({ dd_end: ddEnd, end_week: null });
+  if (!target) return null;
+  return (
+    <MilestoneDateRow
+      label="Consultant"
+      value={target}
+      title={`Target external send — ${VENDOR_SEND_LEAD_DAYS} days before DD end. Same date the consultant forecast quotes.`}
+      testId="pd-consultant-date"
+    />
+  );
+}
+
+/** ★ fix-311: Intake Accepted — CYCLE 0 of the primary building permit.
+ *
+ *  ★ Cycle 0 specifically. It is the design/initial submittal and the only cycle
+ *  that ever carries `intake_accepted` — 147 permits have one and there are ZERO
+ *  on cycle 1 and above. Reading "the current cycle" would render blank on
+ *  nearly every permit that has moved past its first review.
+ *
+ *  ★ DISPLAY ONLY. There is no write path for this, deliberately: fix-311 is a
+ *  layout ticket, and a new editable cycle field is scope nobody asked for. */
+function IntakeAcceptedRow({ bp }: { bp: PermitWithCycles | null }) {
+  const cycle0 = (bp?.permit_cycles ?? []).find((c) => c.cycle_index === 0);
+  return (
+    <MilestoneDateRow
+      label="Intake Accepted"
+      value={cycle0?.intake_accepted ?? ''}
+      title="Intake accepted on the initial submittal (cycle 0) — scraped from the portal"
+      testId="pd-intake-accepted"
+    />
   );
 }
 
@@ -291,6 +481,13 @@ function DDPhaseCell({
           {/* The draw block hangs off the building permit, so there is no
               window to show until one exists. Said plainly under the heading it
               belongs to rather than as a loose line among the dates. */}
+          <div className="text-[11px] text-dim">No building permit</div>
+        </OverviewSection>
+        <OverviewSection title="Permit intake">
+          {/* ★ fix-311: the same plain treatment as the DD window above —
+              Target Submit is BP-anchored and Intake Accepted is a cycle on the
+              BP, so with no BP there are no values, and two empty boxes would
+              claim there are. */}
           <div className="text-[11px] text-dim">No building permit</div>
         </OverviewSection>
       </OverviewCard>
@@ -498,51 +695,56 @@ function DDPhaseEditor({
        <OverviewSection title="DD window">
         <div className="flex flex-col gap-1.5">
           {/* ★ fix-309 #53: Schematic sits ABOVE the DD window — it is the
-              four weeks that run into it. */}
-          <SchematicRow ddStart={startDraft || null} />
-          <div className="flex items-center gap-1.5">
-            {/* ★ fix-309 #52: DISPLAY ONLY. The column is still dd_start, the
-                RPC is still bp_set_bp_dd_dates and the testid is still
-                pd-bp-dd_start — the same rename discipline as fix-296b, where
-                nothing in the database was renamed. */}
-            <span className="text-[9px] text-dim w-16 flex-shrink-0">DD start</span>
-            <input
-              type="date"
-              value={startDraft}
-              onChange={(e) => setStartDraft(e.target.value)}
-              onBlur={() => void commitDd()}
-              disabled={occMissing || !canEdit}
-              className="text-[11px] font-semibold px-1.5 py-0.5 border rounded outline-none flex-1 disabled:opacity-50"
-              style={{
-                borderColor: 'var(--color-border)',
-                background: 'var(--color-bg)',
-                color: 'var(--color-text)',
-              }}
-              data-testid="pd-bp-dd_start"
-            />
-          </div>
-          <div className="flex items-center gap-1.5">
-            <span className="text-[9px] text-dim w-16 flex-shrink-0">DD end</span>
-            <input
-              type="date"
-              value={endDraft}
-              onChange={(e) => setEndDraft(e.target.value)}
-              onBlur={() => void commitDd()}
-              disabled={occMissing || !canEdit}
-              className="text-[11px] font-semibold px-1.5 py-0.5 border rounded outline-none flex-1 disabled:opacity-50"
-              style={{
-                borderColor: 'var(--color-border)',
-                background: 'var(--color-bg)',
-                color: 'var(--color-text)',
-              }}
-              data-testid="pd-bp-dd_end"
-            />
-          </div>
+              four weeks that run into it. ★ fix-311 split it into SD start and
+              SD end, and it carries the divider that separates schematic from
+              design development. */}
+          <SchematicRows ddStart={startDraft || null} />
+          {/* ★ fix-309 #52: DISPLAY ONLY. The column is still dd_start, the RPC
+              is still bp_set_bp_dd_dates and the testid is still
+              pd-bp-dd_start — the same rename discipline as fix-296b, where
+              nothing in the database was renamed. */}
+          <MilestoneDateRow
+            label="DD start"
+            value={startDraft}
+            onChange={setStartDraft}
+            onBlur={() => void commitDd()}
+            disabled={occMissing || !canEdit}
+            testId="pd-bp-dd_start"
+            ariaLabel="DD start"
+          />
+          {/* ★ fix-311: the external/consultant target, between the two DD
+              dates as briefed — the date we are committing to hand documents
+              over, one week before DD end. */}
+          <ConsultantDateRow ddEnd={endDraft || null} />
+          <MilestoneDateRow
+            label="DD end"
+            value={endDraft}
+            onChange={setEndDraft}
+            onBlur={() => void commitDd()}
+            disabled={occMissing || !canEdit}
+            testId="pd-bp-dd_end"
+            ariaLabel="DD end"
+          />
           {/* fix-309 #49: the Duration line is gone. The two dates say it. */}
-          {/* fix-66: BP-anchored Target Submit. Moved here by fix-309 #51 —
-              Key dates is GO + Closing only, and target submit is anchored on
-              dd_end, so it belongs with the window it derives from. */}
+        </div>
+       </OverviewSection>
+       {/* ★ fix-311: Permit intake — what we are AIMING at, then what actually
+           happened, with the divider saying which is which.
+
+           fix-309 put Target Submit under the DD window "where its anchor
+           (dd_end) lives". That reasoning still holds mechanically — it is
+           still derived from dd_end when nobody has set it by hand — but it
+           belongs with the intake it targets, and this comment moves with it
+           rather than being left behind contradicting the code. */}
+       <OverviewSection title="Permit intake">
+        <div className="flex flex-col gap-1.5">
+          {/* fix-66: BP-anchored Target Submit. Still editable, still writes
+              permits.target_submit — it changed sections, not nature. */}
           <TargetSubmitRow project={project} bp={targetSubmitBp} />
+          <MilestoneDivider testId="pd-intake-divider" />
+          {/* ★ Reads the SAME `bp` this card already resolved — no second
+              notion of "the primary permit" gets invented here. */}
+          <IntakeAcceptedRow bp={bp} />
         </div>
        </OverviewSection>
       </OverviewCard>
@@ -673,42 +875,28 @@ function TargetSubmitRow({
     }
   }
 
-  return (
-    <div className="flex items-center gap-1.5">
-      <span
-        className="text-[9px] text-dim w-12 flex-shrink-0"
-        title="Target Submit — projected submit date (project anchor)"
-      >
-        Target
-      </span>
-      {bp ? (
-        <input
-          type="date"
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          onBlur={() => void commit()}
-          onKeyDown={onKeyDown}
-          disabled={occMissing || mut.isPending}
-          className="text-[11px] font-semibold px-1.5 py-0.5 border rounded outline-none flex-1 disabled:opacity-50"
-          style={{
-            borderColor: 'var(--color-border)',
-            background: 'var(--color-bg)',
-            color: 'var(--color-text)',
-          }}
-          title="Target Submit (projected submit date, anchored on the Building Permit)"
-          data-testid="pd-target-submit"
-          aria-label="Target Submit"
-        />
-      ) : (
-        <span
-          className="text-[11px] text-dim flex-1"
-          title="No Building Permit to anchor Target Submit"
-          data-testid="pd-target-submit-empty"
-        >
-          —
-        </span>
-      )}
-    </div>
+  // ★ fix-311: both states render through MilestoneDateRow — the editable one
+  // and the no-BP one. The row moved into "Permit intake" and grew a box; the
+  // write path underneath it is untouched.
+  return bp ? (
+    <MilestoneDateRow
+      label="Target Submit"
+      value={draft}
+      onChange={setDraft}
+      onBlur={() => void commit()}
+      onKeyDown={onKeyDown}
+      disabled={occMissing || mut.isPending}
+      title="Target Submit (projected submit date, anchored on the Building Permit)"
+      testId="pd-target-submit"
+      ariaLabel="Target Submit"
+    />
+  ) : (
+    <MilestoneDateRow
+      label="Target Submit"
+      value=""
+      title="No Building Permit to anchor Target Submit"
+      testId="pd-target-submit-empty"
+    />
   );
 }
 
@@ -1277,29 +1465,11 @@ function BuilderOwnerCell({ project }: { project: Project }) {
 // Helpers
 // ============================================================
 
-function PhaseRow({
-  label,
-  value,
-  dashed,
-  title,
-}: {
-  label: string;
-  value: string;
-  dashed?: boolean;
-  title?: string;
-}) {
-  return (
-    <div
-      className={`flex items-center gap-1.5 ${dashed ? 'pb-1 border-b border-dashed' : ''}`}
-      style={dashed ? { borderColor: 'var(--color-border)' } : undefined}
-    >
-      <span className="text-[9px] text-dim w-12 flex-shrink-0">{label}</span>
-      <span className="text-[11px] font-bold text-text" title={title}>
-        {value}
-      </span>
-    </div>
-  );
-}
+// ★ fix-311: PhaseRow is gone. It existed to render GO Date as bare text with
+// an optional dashed underline — the two things this ticket removed. Every date
+// on the Milestones card now goes through MilestoneDateRow, and leaving a second
+// date-row component in the file is how a ninth row quietly gets built the old
+// way six months from now.
 
 function TeamRow({
   label,
@@ -1321,19 +1491,12 @@ function TeamRow({
 }
 
 
-/** Format an ISO date as "MMM DD, YYYY" — matches v1's
- * `toLocaleDateString('en-US', {month:'short', day:'numeric',
- * year:'numeric'})` at index.html:3850. */
-function formatGoDate(iso: string | null | undefined): string {
-  if (!iso) return '—';
-  const d = new Date(iso + 'T12:00:00');
-  if (Number.isNaN(d.getTime())) return '—';
-  return d.toLocaleDateString('en-US', {
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric',
-  });
-}
+// ★ fix-311: formatGoDate ("Jun 5, 2026") is gone with PhaseRow. Every date on
+// the Milestones card now reads as ISO — the same form fix-309 shipped for the
+// SD window, and the one that keeps the value column the same width in every
+// row rather than breathing with the length of the month name. Uniform
+// presentation was the point of the ticket; two date formats inches apart is
+// the thing it exists to remove.
 
 // ============================================================
 // fix-22 Mig 3: Site editor — writes zone / lot / alley / parking_type /
