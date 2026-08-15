@@ -6,8 +6,9 @@ import {
   dateToWeekKey,
 } from '../../lib/drawScheduleHelpers';
 import {
-  DS_STATUS_LIST,
+  DD_PHASE_STATUSES,
   DS_STATUS_COLORS,
+  STATUS_PICKER_NOTE,
   type DsStatus,
 } from '../../lib/drawScheduleStatus';
 import { pushToast } from '../../stores/toastStore';
@@ -21,7 +22,14 @@ import type { DrawScheduleRow, Permit } from '../../lib/database.types';
 
 // Mirrors v1's prefer-the-list export order so the popup pills are in the
 // same vertical order users learned in v1.
-const STATUS_ORDER: readonly DsStatus[] = DS_STATUS_LIST;
+//
+// ★ fix-316: was DS_STATUS_LIST — all SEVEN — while only the four DD-phase
+// statuses can ever be honoured. Under Review / Corrections / Approved are
+// recomputed from the Building Permit by deriveBlockStatus branches 1-3 on
+// every render, so offering them accepted a choice the board then overruled.
+// The derivation is correct and is NOT changed here; what changed is what the
+// picker offers.
+const STATUS_ORDER: readonly DsStatus[] = DD_PHASE_STATUSES;
 
 interface Props {
   row: DrawScheduleRow;
@@ -230,6 +238,26 @@ export default function ProjectBlockPopup({
             </button>
           );
           })}
+
+        {/* ★ fix-316: say WHY the other three are absent, where the person is
+            looking for them — and say what to do instead, because "set the
+            permit's approval date" is the actual answer to what Miles was
+            trying to achieve. A picker that silently drops three options
+            somebody used yesterday is its own small mystery. */}
+        {!readOnly && (
+          <div
+            style={{
+              fontSize: 9,
+              lineHeight: 1.45,
+              color: 'var(--color-dim)',
+              marginTop: 2,
+              maxWidth: 210,
+            }}
+            data-testid="ds-popup-status-note"
+          >
+            {STATUS_PICKER_NOTE}
+          </div>
+        )}
 
         {!readOnly && (
         <div

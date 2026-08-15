@@ -25,6 +25,59 @@ export const DS_STATUS_LIST = [
 
 export type DsStatus = (typeof DS_STATUS_LIST)[number];
 
+// ---------------------------------------------------------------------------
+// ★ fix-316: which of these seven a PERSON may choose.
+// ---------------------------------------------------------------------------
+//
+// Miles set five draw blocks to "Approved" and came back to find them reading
+// Under Review or Corrections. He filed it as the scraper overwriting his work.
+// It had not — verified in prod, manual_status=true and status='Approved' were
+// still saved on every row, and last_scraper_update_at was NULL on every permit
+// involved. The board simply never displayed the saved value.
+//
+// The reason is right here in deriveBlockStatus: branches 1-3 (Corrections,
+// Approved, Under Review) recompute from permit data on every render and win
+// over any manual choice. Only branch 4 — the DD phase — respects one. So the
+// picker offered seven options while four could ever be honoured, accepted the
+// choice, saved it, and ignored it, with no warning and nothing to show
+// afterwards. A control that takes input and discards it is worse than one
+// that is not there, and this codebase has now shipped that shape five times.
+//
+// ★ AND IT IS WORSE THAN "NEVER HONOURED", which is what makes the behaviour
+// look random rather than broken. Measured on prod: of the 8 blocks holding a
+// manual Under Review / Corrections / Approved, 5 are inert — but 3 have no
+// submitted cycle at all, so they fall through to branch 4 and their manual
+// "Approved" IS being displayed today. So the three permit-driven statuses are
+// honoured EXACTLY WHILE THE PERMIT HAS NOT BEEN SUBMITTED — the moment it is,
+// the block silently flips. A lane reading "Approved" before anything was ever
+// submitted is a false statement about the permit, and the flip is invisible.
+//
+// Bobby's model, which this makes true: "the draw schedule just emulates the
+// primary permit status … all deriving from the primary building permit."
+//
+// Both sets are derived from DS_STATUS_LIST rather than retyped, so a status
+// added there cannot quietly go missing from both.
+
+/** The DD-phase statuses — the ones a person genuinely chooses, because
+ *  nothing in the permit data can tell us which of them is true. */
+export const DD_PHASE_STATUSES = DS_STATUS_LIST.slice(0, 4) as readonly DsStatus[];
+
+/** ★ Derived facts about the Building Permit, NOT choices. deriveBlockStatus
+ *  recomputes these on every render (branches 1-3), so offering them in a
+ *  picker is offering something the board will overrule. */
+export const PERMIT_DERIVED_STATUSES = DS_STATUS_LIST.slice(4) as readonly DsStatus[];
+
+/** True when this status is recomputed from permit data and cannot be chosen. */
+export function isPermitDerivedStatus(s: DsStatus): boolean {
+  return PERMIT_DERIVED_STATUSES.includes(s);
+}
+
+/** The one line to show beside any draw-schedule status control. It answers
+ *  what Miles was actually trying to do — the way to make a block read
+ *  Approved is to give the permit an approval date. */
+export const STATUS_PICKER_NOTE =
+  'Under Review, Corrections and Approved follow the Building Permit automatically and cannot be set here. To make a block read Approved, set the permit’s approval date.';
+
 export interface DsStatusColor {
   bg: string;
   border: string;

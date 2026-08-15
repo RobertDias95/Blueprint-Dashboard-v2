@@ -196,15 +196,20 @@ describe('<ReuseRedesignDdEditor /> behavior', () => {
     );
   });
 
+  // ★ fix-316: was 'Approved'. That is a permit-derived status and is no longer
+  // offered — deriveBlockStatus recomputes it from the Building Permit, so
+  // choosing it here accepted an answer the board then overruled. The contract
+  // this test exists for (a status change reaches the save payload) is
+  // unchanged; only the value it picks is one a person can actually set.
   it('persists a status change in the save payload', () => {
     drawRows.current = [drawRow()];
     wrap(<ReuseRedesignDdEditor project={projectFixture()} />);
     fireEvent.change(screen.getByTestId('redesign-dd-editor-status'), {
-      target: { value: 'Approved' },
+      target: { value: 'Pending Consultants' },
     });
     fireEvent.click(screen.getByTestId('redesign-dd-editor-save'));
     expect(ddMutate).toHaveBeenCalledWith(
-      expect.objectContaining({ status: 'Approved' }),
+      expect.objectContaining({ status: 'Pending Consultants' }),
     );
   });
 
