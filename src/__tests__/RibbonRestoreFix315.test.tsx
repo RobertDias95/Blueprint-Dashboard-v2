@@ -242,32 +242,36 @@ describe('fix-315 §1: the Reports overview is reachable again', () => {
 // ---------------------------------------------------------------------------
 
 describe('fix-315 §2: Waiting On is reachable again', () => {
-  it('★ the entry resolves to /waiting-on, under Entitlements', () => {
+  // ★ fix-325 #5 INVERTS the entry half of this and keeps the destination half.
+  // Bobby: "I think the waiting on needs to get folded into the my task
+  // section." The ribbon row is gone; the screen is not. fix-315's real point —
+  // a surface must not be stranded — is asserted harder than before, because the
+  // route now has to survive WITHOUT a ribbon entry to reach it.
+  it('★ the ribbon entry is gone, and the route still resolves', () => {
     renderRoutable();
     fireEvent.click(screen.getByTestId('ribbon-group-toggle-entitlements'));
-    fireEvent.click(screen.getByTestId('ribbon-link-/waiting-on'));
-    expect(screen.getByTestId('where').textContent).toBe('/waiting-on');
-  });
-
-  it('and /waiting-on is a real route mounting the untouched component', () => {
+    expect(screen.queryByTestId('ribbon-link-/waiting-on')).toBeNull();
+    expect(allRibbonRoutes()).not.toContain('/waiting-on');
+    // The destination survives as a redirect into the switcher that replaced it.
     expect(routerSrc).toContain("path: 'waiting-on'");
-    expect(routerSrc).toContain('<WaitingOnView />');
-    expect(routerSrc).toContain(
-      "import WaitingOnView from './components/MyTasks/WaitingOnView'",
-    );
+    expect(routerSrc).toContain('/board?view=waiting-on');
   });
 
-  it('sits beside Draw Schedule, Library and Activity', () => {
+  it('★ and the removal is DECLARED, not silent', () => {
+    const exemption = ROUTES_INTENTIONALLY_NOT_IN_RIBBON.find(
+      (r) => r.path === '/waiting-on',
+    );
+    expect(exemption, 'removing an entry requires a written reason').toBeTruthy();
+    expect(exemption!.why).toMatch(/My Tasks|switcher/i);
+  });
+
+  it('Entitlements is Draw Schedule and Library now', () => {
     const ent = RIBBON_ENTRIES.find(
       (e) => e.kind === 'group' && e.group.id === 'entitlements',
     );
     const kids = ent!.kind === 'group' ? ent!.group.children.map((c) => c.to) : [];
-    expect(kids).toEqual([
-      '/draw-schedule',
-      '/library',
-      '/waiting-on',
-      '/activity',
-    ]);
+    // ★ fix-325 took BOTH Waiting On (#5) and Activity (#4) out of this group.
+    expect(kids).toEqual(['/draw-schedule', '/library']);
   });
 
   // ★ NOT merged with the Consultant forecast — different questions, and the
@@ -279,7 +283,6 @@ describe('fix-315 §2: Waiting On is reachable again', () => {
   // route still exists, it carries its own exemption naming its shelf
   // category, and Waiting On is untouched and still in the ribbon.
   it('★ the Consultant forecast is still a separate, reachable report', () => {
-    expect(allRibbonRoutes()).toContain('/waiting-on');
     // The forecast route is alive and exempted for a stated reason...
     const exemption = ROUTES_INTENTIONALLY_NOT_IN_RIBBON.find(
       (r) => r.path === '/reports/vendor-forecast',
@@ -291,12 +294,11 @@ describe('fix-315 §2: Waiting On is reachable again', () => {
     expect(exemption!.why).toMatch(/Weekly Updates/);
     expect(routerSrc).toContain("path: 'reports/vendor-forecast'");
 
-    // Waiting On stays in the ribbon, under Entitlements, and is NOT the
-    // forecast: the hover text is what separates them.
-    const ent = RIBBON_ENTRIES.find((e) => e.kind === 'group' && e.group.id === 'entitlements');
-    const entKids = ent!.kind === 'group' ? ent!.group.children : [];
-    expect(entKids.map((c) => c.to)).toContain('/waiting-on');
-    expect(entKids.find((c) => c.to === '/waiting-on')!.hint).toMatch(/owes us/i);
+    // ★ fix-325: Waiting On is no longer a ribbon entry, so "not merged" is now
+    // asserted where it lives — the two are still different screens, reached
+    // different ways, and neither absorbed the other.
+    expect(routerSrc).toContain("path: 'waiting-on'");
+    expect(allRibbonRoutes()).not.toContain('/waiting-on');
   });
 });
 
@@ -488,13 +490,18 @@ describe('fix-315 §3: the ribbon cannot silently drop a route again', () => {
   // A test that would pass whatever the code did is worse than no test, and
   // this whole ticket exists because a silent omission went undetected.
   it('★★ and it FAILS when an entry is removed from the ribbon', () => {
-    const withoutWaitingOn = allRibbonRoutes().filter((r) => r !== '/waiting-on');
+    // ★ fix-325: this used to pull /waiting-on out as its example. That route is
+    // now legitimately out of the ribbon AND exempted, so removing it proves
+    // nothing — the example moved to an entry that is still there. The guard is
+    // what it always was: take a live entry away without exempting it, and the
+    // route shows up uncovered.
+    const withoutLibrary = allRibbonRoutes().filter((r) => r !== '/library');
     const missing = uncovered(
       declaredRoutes(routerSrc),
-      withoutWaitingOn,
+      withoutLibrary,
       ribbonExemptPaths(),
     );
-    expect(missing).toEqual(['/waiting-on']);
+    expect(missing).toEqual(['/library']);
 
     // The same for the entry that started this ticket.
     const withoutReports = allRibbonRoutes().filter((r) => r !== '/reports');

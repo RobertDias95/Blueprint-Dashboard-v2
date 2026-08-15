@@ -236,3 +236,38 @@ describe('AdminReportingTab — "How it works" (fix-270)', () => {
     ).toBeNull();
   });
 });
+
+// ---------------------------------------------------------------------------
+// ★ fix-325 #4 — Activity moved here from the ribbon
+// ---------------------------------------------------------------------------
+
+describe('★ fix-325 #4: Activity is surfaced on the hub, not as a tab', () => {
+  // Bobby: "I think we can give the activity and or make it a report from the
+  // scraper. That way we're not seeing that as an actual tab."
+  //
+  // ★ It is NOT a saved_reports row, deliberately — the hub lists from that
+  // TABLE, so shelving it properly would mean seeding prod, and this ticket is
+  // barred from writing data. A client-rendered entry needs no seed and cannot
+  // drift from prod because it does not depend on prod. That is also what makes
+  // the route's ribbon exemption ("reached from the Reporting hub") TRUE on
+  // every environment rather than only where a row happens to exist.
+  it('renders the scraper section with an entry for Activity', () => {
+    renderTab();
+    const section = screen.getByTestId('reporting-scraper-tools');
+    expect(section.textContent).toContain('Scraper Activity');
+    expect(section.textContent).toMatch(/bell/i);
+  });
+
+  it('★ its Open button navigates to /activity', () => {
+    renderTab();
+    fireEvent.click(screen.getByTestId('reporting-open-activity'));
+    expect(navigateSpy).toHaveBeenCalledWith('/activity');
+  });
+
+  it('closes the modal on the way, like Run does', () => {
+    const onAfterRun = vi.fn();
+    renderTab(onAfterRun);
+    fireEvent.click(screen.getByTestId('reporting-open-activity'));
+    expect(onAfterRun).toHaveBeenCalled();
+  });
+});

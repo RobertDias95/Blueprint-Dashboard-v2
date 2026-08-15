@@ -119,7 +119,11 @@ describe('<Chrome /> fix-313 the Blueprint Bridge shell', () => {
     expect(withEnt).toContain('Draw Schedule');
     expect(withEnt.some((l) => l === 'DD Schedule')).toBe(false);
     expect(withEnt).toContain('Library');
-    expect(withEnt).toContain('Activity');
+    // ★ fix-325 #4/#5: Activity and Waiting On left this group — Activity to the
+    // Reporting hub, Waiting On into the My Tasks switcher. Both routes still
+    // resolve; neither is a tab any more.
+    expect(withEnt).not.toContain('Activity');
+    expect(withEnt).not.toContain('Waiting On');
   });
 
   // ★ #59: the top tab bar and the logo-home-button are GONE.

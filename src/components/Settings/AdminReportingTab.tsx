@@ -372,6 +372,49 @@ export default function AdminReportingTab({ onAfterRun }: Props) {
               ))}
             </div>
           )}
+
+          {/* ★ fix-325 #4: Activity lives here now. Bobby: "I think we can give
+              the activity and or make it a report from the scraper. That way
+              we're not seeing that as an actual tab."
+
+              ★ IT IS NOT A saved_reports ROW, deliberately. The hub lists from
+              that TABLE, so putting Activity on the shelf properly would mean
+              seeding a row on prod — a data write, which this ticket is barred
+              from making, and a migration the brief says it does not need. A
+              client-rendered entry is honest instead: it appears for everyone
+              who can open this page, needs no seed, and cannot drift from prod
+              because it does not depend on prod.
+
+              It also sits apart from the saved reports on purpose — Activity is
+              a live feed you read, not a report you run and send, and filing it
+              among the weekly sends would misdescribe it. */}
+          <div className="mt-4 pt-3 border-t border-border" data-testid="reporting-scraper-tools">
+            <div className="text-[10px] font-bold uppercase tracking-wider text-dim mb-2">
+              From the scraper
+            </div>
+            <div className="flex items-center gap-3 bg-s2 border border-border rounded-lg px-3 py-2">
+              <div className="min-w-0 flex-1">
+                <p className="text-[12px] font-display font-bold text-text">
+                  Scraper Activity
+                </p>
+                <p className="text-[11px] text-muted mt-0.5">
+                  Everything the scraper has changed, newest first, grouped by
+                  project. The notification bell links here too.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  onAfterRun?.();
+                  navigate('/activity');
+                }}
+                className="flex-shrink-0 text-[11px] font-display font-semibold px-2.5 py-1 rounded border border-de text-de bg-de/5 hover:bg-de/10 transition"
+                data-testid="reporting-open-activity"
+              >
+                Open
+              </button>
+            </div>
+          </div>
         </div>
       </div>
     </div>

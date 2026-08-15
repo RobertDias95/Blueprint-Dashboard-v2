@@ -214,13 +214,20 @@ describe('fix-318 ★ the grouped task list is back, on /board', () => {
 
   // The shell's view switcher was deliberately left behind — see the comment
   // on the MineTasks export.
-  it('★ does NOT bring the Mine / Waiting On switcher — Waiting On has its own route', () => {
+  // ★ fix-325 #5 INVERTS this. fix-318 deliberately mounted MineTasks WITHOUT
+  // the switcher, because fix-315 had just given Waiting On its own route and
+  // ribbon entry and a second home would have been duplication. Bobby then asked
+  // for exactly that fold — "the waiting on needs to get folded into the my task
+  // section" — and the ribbon entry went with it, so the switcher is now the ONE
+  // way in rather than a second one.
+  it('★ DOES bring the Mine / Waiting On switcher — it is the only way in now', () => {
     state.tasks = [task()];
     renderBoard();
-    expect(screen.queryByTestId('mytasks-view-switcher')).toBeNull();
-    expect(screen.queryByTestId('mytasks-shell')).toBeNull();
-    // fix-315's entry is still the way there.
-    expect(allRibbonRoutes()).toContain('/waiting-on');
+    expect(screen.getByTestId('mytasks-shell')).toBeInTheDocument();
+    expect(screen.getByTestId('my-tasks-view-switcher')).toBeInTheDocument();
+    expect(screen.getByTestId('my-tasks-view-waiting-on')).toBeInTheDocument();
+    // The ribbon no longer offers it, which is what makes this the only way in.
+    expect(allRibbonRoutes()).not.toContain('/waiting-on');
   });
 });
 

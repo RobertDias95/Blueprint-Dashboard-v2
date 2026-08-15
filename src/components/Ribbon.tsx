@@ -26,7 +26,19 @@ import {
 // 248px expanded / 56px collapsed, animated, with the collapse control at the
 // bottom beside the tenant name — the mockup's layout, unchanged.
 
-const WIDTH_EXPANDED = 248;
+// ★ fix-325 #1: 248 -> 212. Bobby: "that ribbon that expands ... it just looks
+// like it is a little wider than it should be, and I think that is because of
+// the logo." He had the cause exactly right — fix-322 sized the ribbon around a
+// 200px logo, not the other way round.
+//
+// ★ WHAT DECIDES HOW FAR THIS CAN GO is the longest nav label, not the logo.
+// "Draw Schedule" and "Saved reports" are the longest, and "Saved reports" is
+// the worst case because a group child carries a 30px indent. Rendered at 216 /
+// 212 / 208 / 200 side by side: labels are comfortable at all four, but the FOOT
+// ROW is the real floor — "Blueprint Services" and the Collapse chip start
+// touching below ~210. 212 keeps a visible gap there and still takes 36px off
+// the ribbon; 208 and 200 do not.
+const WIDTH_EXPANDED = 212;
 const WIDTH_COLLAPSED = 56;
 
 // ★ fix-320 #73: the wordmark palette, straight off Bridge_Shell_Mockup_v1.
@@ -113,11 +125,16 @@ export default function Ribbon({ onAddProject }: { onAddProject: () => void }) {
       {/* ── brand ─────────────────────────────────────────────── */}
       {/* ★ fix-322: the real logo, and the layout it forced.
 
-          The artwork is 4:1 and reads properly at ~200px wide — which is the
-          whole 248px ribbon minus its padding, leaving no room beside it for the
-          wordmark. The brief's tie-break: the illustration wins, the wordmark
-          moves. So the wordmark drops BELOW the divider into its own row rather
-          than shrinking to fit next to a thumbnail.
+          The artwork is 4:1 and fills the ribbon's width minus its padding,
+          leaving no room beside it for the wordmark. The brief's tie-break: the
+          illustration wins, the wordmark moves. So the wordmark drops BELOW the
+          divider into its own row rather than shrinking to fit next to a
+          thumbnail.
+
+          ★ fix-325 narrowed both together — 200px of logo in a 248px ribbon
+          became 156px in a 212px one. The pair moves as a pair on purpose: the
+          logo is what set the ribbon's width, so shrinking one without the
+          other would just add whitespace where the complaint already was.
 
           ★ WHY NOT SIMPLY MAKE THIS BLOCK TALLER: its 56px matches the app
           header to its right, so the two bottom borders form ONE line across the
@@ -132,7 +149,7 @@ export default function Ribbon({ onAddProject }: { onAddProject: () => void }) {
         {/* Collapsed takes the SQUARE crop — 56px of rail has no room for a 4:1
             illustration, and squashing it into one is the thing this component
             makes impossible. */}
-        <BridgeMark variant={collapsed ? 'icon' : 'full'} size={collapsed ? 34 : 200} />
+        <BridgeMark variant={collapsed ? 'icon' : 'full'} size={collapsed ? 34 : 156} />
       </div>
 
       {/* ── wordmark ──────────────────────────────────────────── */}

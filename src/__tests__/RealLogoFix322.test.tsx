@@ -3,7 +3,6 @@ import { render, screen, fireEvent } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import indexHtml from '../../index.html?raw';
-import faviconSrc from '../../public/bridge-mark.svg?raw';
 import markSrc from '../components/BridgeMark.tsx?raw';
 
 // fix-322 — the real logo replaces the placeholder. Register #73 follow-up.
@@ -157,13 +156,16 @@ describe('fix-322: the collapsed rail shows the square crop', () => {
   });
 });
 
-describe('fix-322: the expanded logo cannot overflow the 248px ribbon', () => {
-  it('is 200px wide inside a 248px rail with 16px padding either side', () => {
+describe('fix-322: the expanded logo cannot overflow the ribbon', () => {
+  // ★ fix-325 #1 narrowed both together — 200 in a 248px rail became 156 in a
+  // 212px one. The RULE is what this pins, not the numbers: the logo fits
+  // inside the ribbon's padding, whatever the pair is.
+  it('fits inside the rail with 16px padding either side', () => {
     renderRibbon();
     const img = mark();
     const width = parseFloat(img.style.width);
-    expect(width).toBe(200);
-    expect(width).toBeLessThanOrEqual(248 - 32);
+    expect(width).toBe(156);
+    expect(width).toBeLessThanOrEqual(212 - 32);
     // ★ Height is AUTO — the aspect ratio comes from the file, so no caller's
     // number can stretch Bobby's artwork.
     expect(img.style.height).toBe('auto');
@@ -177,19 +179,24 @@ describe('fix-322: the expanded logo cannot overflow the 248px ribbon', () => {
   });
 });
 
-describe('fix-322: the favicon keeps the simplified mark', () => {
-  // ★★ THE ONE JUDGEMENT WORTH DEFENDING. Verified by rendering both at size:
-  // the illustration reads at 200px wide and the square crop holds at ~34px;
-  // at 16x16 the skyline, cranes and water collapse into a smudge.
-  it('index.html still points at the simplified SVG', () => {
-    expect(indexHtml).toContain('href="/bridge-mark.svg"');
-    // Emphatically NOT the detailed illustration.
-    expect(indexHtml).not.toMatch(/bridge-logo-400|bridge-logo-full|bridge-icon-square/);
+describe('fix-322 → fix-325: what the favicon carries', () => {
+  // ★★ fix-322 argued the tab should keep the SIMPLIFIED placeholder, because a
+  // detailed illustration is a smudge at 16px. Bobby, seeing it in use: "the tab
+  // has the old logo as well." ★ fix-325 #2 reverses HALF of that: the wide
+  // illustration still has no business in a tab, but the SQUARE ARCH CROP of his
+  // real artwork does — rendered at 16px and 32px and checked, not assumed.
+  it('the tab carries the real square crop, not the placeholder', () => {
+    expect(indexHtml).toContain('href="/bridge-icon-256.png"');
+    expect(indexHtml).not.toContain('href="/bridge-mark.svg"');
   });
 
-  it('and that SVG is still the simplified drawing, in fix-320 colours', () => {
-    expect(faviconSrc).toContain('#4a72b0');
-    expect(faviconSrc).toContain('M5 21c0-6.1 4.9-11 11-11s11 4.9 11 11');
+  it('★ and still NOT the wide illustration — that part of the reasoning holds', () => {
+    expect(indexHtml).not.toMatch(/bridge-logo-400|bridge-logo-full/);
+  });
+
+  it('one declaration, so no browser can fall back to the old mark', () => {
+    const icons = indexHtml.match(/<link[^>]+rel="icon"[^>]*>/g) ?? [];
+    expect(icons).toHaveLength(1);
   });
 });
 

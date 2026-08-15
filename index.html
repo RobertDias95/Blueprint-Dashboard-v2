@@ -2,13 +2,22 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <!-- fix-313 #64: was Vite's default /favicon.svg (a purple lightning bolt)
-         and the title was the repo name. Neither had ever been changed. The
-         mark is a PLACEHOLDER authored from Bobby's brand sheet — swap the real
-         export in over public/bridge-mark.svg. The repo, the Render service and
-         the package name are deliberately untouched: this was never a Render
-         question, it was this file. -->
-    <link rel="icon" type="image/svg+xml" href="/bridge-mark.svg" />
+    <!-- fix-313 #64 replaced Vite's purple lightning bolt with a PLACEHOLDER
+         mark, because Bobby's artwork did not exist yet. fix-322 shipped the
+         real artwork in the ribbon and deliberately LEFT the placeholder here,
+         reasoning that a detailed illustration is a smudge at 16px.
+
+         ★ fix-325 REVERSES the second half of that. Bobby, seeing it in use:
+         "the tab has the old logo as well." The reasoning that survives is only
+         about the WIDE illustration — the square arch crop of his real artwork
+         holds at 16px and 32px (rendered and checked, not assumed), so the tab
+         now carries his mark instead of my drawing.
+
+         ★ ONE DECLARATION, NOT TWO. A second <link> to the old SVG as a
+         "fallback" would let some browsers keep picking the placeholder, which
+         is the complaint. PNG is supported by every browser this app runs in;
+         public/bridge-mark.svg is deleted rather than left as a trap. -->
+    <link rel="icon" type="image/png" sizes="256x256" href="/bridge-icon-256.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Blueprint Bridge</title>
   </head>

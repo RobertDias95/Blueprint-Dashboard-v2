@@ -329,11 +329,15 @@ describe('fix-311: the dividers', () => {
     expect(row.className).not.toContain('border-b');
   });
 
-  it('one divider between SD end and DD start, one between Target Submit and Intake Accepted', () => {
+  // ★ fix-325 #3 removed the Permit intake divider — fix-311 added it to say
+  // which row was the plan and which the outcome; Bobby has seen it and does not
+  // want it. The SD / DD one STAYS: that separates two phases, not a plan from
+  // its result, and the brief was explicit that only one goes.
+  it('one divider, between SD end and DD start', () => {
     renderHeader();
     const text = card().textContent ?? '';
     const sdDivider = screen.getByTestId('pd-sd-dd-divider');
-    const intakeDivider = screen.getByTestId('pd-intake-divider');
+    expect(screen.queryByTestId('pd-intake-divider')).toBeNull();
     // Between, in DOM order: SD end … divider … DD start.
     const rows = Array.from(
       card().querySelectorAll('[data-milestone-row], [role="separator"]'),
@@ -343,11 +347,12 @@ describe('fix-311: the dividers', () => {
       screen.getByTestId(testId).closest('[data-milestone-row]') as Element;
     expect(at(rowOf('pd-sd-end'))).toBeLessThan(at(sdDivider));
     expect(at(sdDivider)).toBeLessThan(at(rowOf('pd-bp-dd_start')));
-    expect(at(rowOf('pd-target-submit'))).toBeLessThan(at(intakeDivider));
-    expect(at(intakeDivider)).toBeLessThan(at(rowOf('pd-intake-accepted')));
     // Same visual language as the rule GO Date used to wear.
     expect(sdDivider.className).toContain('dashed');
-    expect(intakeDivider.className).toContain('dashed');
+    // ★ The two Permit intake rows are still there, and still in order — the
+    // divider went, not the content.
+    expect(at(rowOf('pd-target-submit'))).toBeLessThan(at(rowOf('pd-intake-accepted')));
+    expect(card().querySelectorAll('[role="separator"]')).toHaveLength(1);
     expect(text).toContain('Permit intake');
   });
 

@@ -60,31 +60,27 @@ export const RIBBON_ENTRIES: RibbonEntry[] = [
       children: [
         { to: '/draw-schedule', label: 'Draw Schedule', icon: '·' },
         { to: '/library', label: 'Library', icon: '·' },
-        // ★ fix-315: stranded by fix-313, which folded My Tasks into My Board
-        // and redirected /my-tasks -> /board. WaitingOnView went with it and it
-        // is not a small panel — grouped by consultant firm with firm status, a
-        // scope filter, an include-completed toggle, and CSV export both for
-        // all rows and per firm (16 columns) so one consultant can be sent
-        // their own open items.
+        // ★ fix-325 #4 and #5: Waiting On and Activity BOTH came out of here,
+        // for the same reason in Bobby's words — neither is a place you go, so
+        // neither should be a tab.
         //
-        // ★ It is NOT the Consultant forecast (/reports/vendor-forecast). That
-        // forecasts upcoming SENDS; this is what each outside firm currently
-        // OWES US. Different question, different audience, both stay.
+        //   Activity: "I think we can give the activity and or make it a report
+        //   from the scraper. That way we are not seeing that as an actual tab."
+        //   It already IS scraper output, so this was a relocation, not a build:
+        //   it is on the Reporting hub now, with the other scraper-derived
+        //   reports, and the notification bell still links straight to it.
         //
-        // ★ ON THE LABEL. The brief invites a better name if "Waiting On" reads
-        // ambiguously beside "Consultant forecast". Keeping it, deliberately:
-        // it is this screen's established name across the RPC, the hook, the
-        // CSV module and the team's own speech since fix-140, and renaming it
-        // would open exactly the one-concept-two-names split fix-310 spent a
-        // whole ticket closing. The two entries also live in different groups,
-        // so they are never adjacent; the tooltip carries the distinction.
-        {
-          to: '/waiting-on',
-          label: 'Waiting On',
-          icon: '·',
-          hint: 'What each outside firm currently owes us, by discipline and firm',
-        },
-        { to: '/activity', label: 'Activity', icon: '·' },
+        //   Waiting On: "I think the waiting on needs to get folded into the my
+        //   task section." The Mine / Waiting On switcher already existed in the
+        //   MyTasks shell; fix-318 had mounted only MineTasks because fix-315
+        //   had just given Waiting On its own route and entry. Bobby has now
+        //   decided the opposite, so /board mounts the full shell and the
+        //   switcher is the way in.
+        //
+        // ★ Both routes still resolve — see ROUTES_INTENTIONALLY_NOT_IN_RIBBON.
+        // Removing a destination without checking it is reachable elsewhere is
+        // the fix-313 defect fix-315 existed to clean up; this removes two
+        // ENTRY POINTS and leaves both destinations reachable.
       ],
     },
   },
@@ -309,6 +305,16 @@ export const ROUTES_INTENTIONALLY_NOT_IN_RIBBON: ReadonlyArray<{
   {
     path: '/my-tasks',
     why: 'Redirect only — fix-313 merged My Tasks into My Board. Kept so bookmarks survive.',
+  },
+  // ★ fix-325: two entries came out of Entitlements. Both destinations are
+  // alive and reachable; only the ribbon rows are gone.
+  {
+    path: '/activity',
+    why: 'fix-325 #4: reached from the Reporting hub ("Saved reports"), which is in the ribbon, under "From the scraper" — and from the notification bell, which links straight to it. Bobby: "make it a report from the scraper … not seeing that as an actual tab."',
+  },
+  {
+    path: '/waiting-on',
+    why: 'fix-325 #5: redirect only — Waiting On folded into My Tasks, where the Mine / Waiting On switcher on /board is the way in. Bobby: "the waiting on needs to get folded into the my task section." Kept so the fix-315 links and bookmarks survive.',
   },
 
 ];

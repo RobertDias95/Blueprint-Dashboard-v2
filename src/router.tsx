@@ -13,7 +13,6 @@ import PersonalBoard from './pages/PersonalBoard';
 import DrawSchedule from './pages/DrawSchedule';
 import LibraryMatrix from './components/LibraryMatrix';
 import ActivityPage from './pages/ActivityPage';
-import WaitingOnView from './components/MyTasks/WaitingOnView';
 import WeeklyDaReport from './pages/WeeklyDaReport';
 import WeeklyUpdatesReport from './pages/WeeklyUpdatesReport';
 import ApprovedAwaitingIssuanceReport from './pages/ApprovedAwaitingIssuanceReport';
@@ -202,7 +201,19 @@ export const router = createBrowserRouter([
       // Ungated, matching where it came from — /my-tasks was never admin-only.
       // The component is mounted exactly as it was, with no props and no
       // rewrite; it needed a route, not a redesign.
-      { path: 'waiting-on', element: <WaitingOnView /> },
+      // ★ fix-325 #5: Waiting On folded into My Tasks. Bobby: "I think the
+      // waiting on needs to get folded into the my task section." /board mounts
+      // the full MyTasks shell now, whose Mine / Waiting On switcher is URL-
+      // backed — so this redirect lands on the view itself, not merely near it.
+      //
+      // ★ The route is KEPT rather than deleted: fix-315 exists because fix-313
+      // removed a destination and stranded a real surface. The per-firm CSV is
+      // the reason that screen was rescued, and every link and bookmark to it
+      // still arrives.
+      {
+        path: 'waiting-on',
+        element: <Navigate to="/board?view=waiting-on" replace />,
+      },
       // fix-28: scraper activity feed. NotificationBell links here;
       // page owns search / category / ent filters + per-row read state.
       { path: 'activity', element: <ActivityPage /> },

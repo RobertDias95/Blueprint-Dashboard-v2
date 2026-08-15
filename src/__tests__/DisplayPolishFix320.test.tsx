@@ -5,7 +5,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { ReactNode } from 'react';
 import { useAuthStore } from '../stores/authStore';
 import type { PermitWithCycles, Project } from '../lib/database.types';
-import faviconSrc from '../../public/bridge-mark.svg?raw';
+import indexHtml from '../../index.html?raw';
 
 // fix-320 — three display fixes, no logic. Register #72, #73 and the fix-311
 // follow-up.
@@ -419,27 +419,18 @@ describe('fix-320 #73: the wordmark leads with The Bridge', () => {
     expect(ribbon).not.toContain('The Bridge');
   });
 
-  // ★ fix-320 recoloured the PLACEHOLDER mark, and fix-322 replaced it with
-  // Bobby's real artwork — so the assertion that used to pin the placeholder's
-  // paths in the ribbon now pins where the placeholder still legitimately lives:
-  // the FAVICON, which deliberately keeps the simplified drawing because the
-  // detailed illustration is a smudge at 16x16.
-  it('the simplified mark survives where it belongs — the favicon', () => {
+  // ★ fix-320 recoloured the placeholder mark; fix-322 replaced it in the
+  // ribbon; ★ fix-325 #2 replaced it in the TAB as well and deleted the file.
+  // Bobby: "the tab has the old logo as well." So the placeholder is now gone
+  // from the app entirely, and what this pins is that it did not survive
+  // anywhere — the drawing was scaffolding, and the scaffolding is down.
+  it('the placeholder mark is gone from the app entirely', () => {
     renderRibbon();
-    // The ribbon no longer draws it: the brand mark there is the real image.
     const mark = screen.getByTestId('bridge-mark');
     expect(mark.tagName).toBe('IMG');
     expect(mark.querySelector('rect')).toBeNull();
-    // fix-320's recolour lives on in the favicon, paths and all.
-    expect(faviconSrc).toContain('#4a72b0');
-    expect(faviconSrc).not.toContain('#1e3a5f');
-    for (const d of [
-      'M5 21c0-6.1 4.9-11 11-11s11 4.9 11 11',
-      'M4 21.5h24',
-      'M10.5 21.5v4M21.5 21.5v4',
-      'M5 28.2c2.2 0 2.2-1.3 4.4-1.3s2.2 1.3 4.4 1.3 2.2-1.3 4.4-1.3 2.2 1.3 4.4 1.3 2.2-1.3 4.4-1.3',
-    ]) {
-      expect(faviconSrc).toContain(d);
-    }
+    // Nothing points at it, and the tab carries Bobby's own artwork instead.
+    expect(indexHtml).not.toContain('href="/bridge-mark.svg"');
+    expect(indexHtml).toContain('href="/bridge-icon-256.png"');
   });
 });

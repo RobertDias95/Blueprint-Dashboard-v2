@@ -244,7 +244,8 @@ describe('fix-313 #58: the collapsed choice persists', () => {
     renderRibbon();
     const ribbon = screen.getByTestId('ribbon');
     expect(ribbon.dataset.collapsed).toBe('false');
-    expect(ribbon.style.width).toBe('248px');
+    // ★ fix-325 #1 narrowed the expanded ribbon 248 -> 212, with the logo.
+    expect(ribbon.style.width).toBe('212px');
 
     fireEvent.click(screen.getByTestId('ribbon-collapse'));
     expect(screen.getByTestId('ribbon').dataset.collapsed).toBe('true');
@@ -377,7 +378,12 @@ describe('fix-313 #64: the tool is Blueprint Bridge', () => {
     expect(html).not.toContain('blueprint-dashboard-v2');
     // The Vite default lived at /favicon.svg. The link no longer points there.
     expect(html).not.toContain('href="/favicon.svg"');
-    expect(html).toContain('href="/bridge-mark.svg"');
+    // ★ fix-325 #2: nor at the placeholder I drew. Bobby: "the tab has the old
+    // logo as well." It is his real artwork now — the square arch crop.
+    expect(html).toContain('href="/bridge-icon-256.png"');
+    // Asserted on the LINK, not the file text: the comment above it names the
+    // placeholder deliberately, to explain why it went.
+    expect(html).not.toContain('href="/bridge-mark.svg"');
   });
 });
 

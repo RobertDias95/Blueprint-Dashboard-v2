@@ -1,6 +1,6 @@
 import { useCallback, useRef, useState } from 'react';
 import MyBoard from './MyBoard';
-import { MineTasks } from './MyTasks';
+import MyTasks from './MyTasks';
 import { useAuthStore } from '../stores/authStore';
 import {
   DEFAULT_SPLIT_PCT,
@@ -155,13 +155,21 @@ export default function PersonalBoard() {
 
       {/* ── BOTTOM: My Tasks. ★ Scrolls BOTH axes — Bobby's "fixed vertically
            and horizontally". The task columns keep their width in here rather
-           than widening the page. ── */}
+           than widening the page. ──
+
+           ★ fix-325 #5: this mounts the FULL MyTasks shell, not just MineTasks.
+           The shell's one extra is the Mine / Waiting On switcher, and fix-318
+           deliberately left it out because fix-315 had just given Waiting On its
+           own route and ribbon entry — mounting it then would have been a second
+           home for one screen. Bobby has since asked for exactly that fold, and
+           the ribbon entry is gone, so the switcher is now the ONLY way in and
+           the duplication argument no longer applies. ── */}
       <section
         data-testid="personal-board-bottom"
         aria-label="My Tasks"
         className="flex-1 min-h-0 overflow-auto border-t border-border"
       >
-        <MineTasks />
+        <MyTasks />
       </section>
     </div>
   );
