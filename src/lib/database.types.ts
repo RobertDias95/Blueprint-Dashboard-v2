@@ -254,6 +254,37 @@ export interface Note {
   updated_at: string;
 }
 
+/** fix-329: one message in a project's chat thread.
+ *
+ *  ★ APPEND-ONLY. There is no update or delete grant on project_messages, so a
+ *  message is a record of what was said — which is what lets a task link back to
+ *  one and still mean something. `updated_at` exists for a phase-2 edit trail
+ *  and nothing writes it today.
+ *
+ *  `mentions` is a PARSED uuid[] of profiles.id, not names: the bell asks "did
+ *  this mention me" for every message, and a name can change under a row while
+ *  an id cannot. Safe to denormalize precisely because the row is immutable. */
+export interface ProjectMessage {
+  id: string;
+  project_id: string;
+  author_id: string | null;
+  author_name: string | null;
+  body: string;
+  mentions: string[];
+  created_at: string;
+  /** The task created FROM this message, if any (fix-329's link-back). */
+  task_id: string | null;
+  task_text: string | null;
+}
+
+/** fix-329: someone who can be @-mentioned — a person who can actually open
+ *  this tenant, so every mention can resolve to a notifiable user. */
+export interface MentionablePerson {
+  user_id: string;
+  name: string | null;
+  email: string | null;
+}
+
 export interface PermitCycle {
   /** Q4: cycle id is now a uuid (verified via list_tables). Earlier draft had it
    * typed as number — that was wrong; the schema has used gen_random_uuid()

@@ -29,6 +29,13 @@ export const queryKeys = {
   buildersAll: ['builders'] as const,
   // fix-notes-1: unified notes log (project-holistic + per-permit scopes).
   notesAll: ['notes'] as const,
+  // fix-329: the project chat thread + the people who can be mentioned.
+  projectMessagesAll: ['project_messages'] as const,
+  // ★ The bell's tenant-wide "messages that mention me" lives under the SAME
+  // prefix, so one realtime event refreshes the thread and the badge together —
+  // the rail count and the bell cannot drift apart because they cannot refresh
+  // apart.
+  mentionablePeopleAll: ['mentionable_people'] as const,
   // fix-notes-2: dashboard expanded-permit "waiting on" summaries. Own bare
   // prefix so BOTH permit_tasks and notes realtime changes can invalidate it.
   dashboardPermitCardsAll: ['dashboard_permit_cards'] as const,
@@ -85,6 +92,12 @@ export const queryKeys = {
     ['external_team_directory', tenantId] as const,
   // fix-notes-1: ONE query per project covers both scopes (the panel filters
   // by permit client-side), so the future dashboard card reuses the same cache.
+  projectMessages: (tenantId: string, projectId: string) =>
+    ['project_messages', tenantId, projectId] as const,
+  myMentions: (tenantId: string, userId: string) =>
+    ['project_messages', 'mentions', tenantId, userId] as const,
+  mentionablePeople: (tenantId: string) =>
+    ['mentionable_people', tenantId] as const,
   notes: (tenantId: string, projectId: string) =>
     ['notes', tenantId, { projectId }] as const,
   // fix-notes-2: active-note search index for the Project List. Under the
@@ -255,6 +268,12 @@ export const REALTIME_TABLES = {
   // fix-227: a directory firm added/renamed/(de)activated (Settings, any tab)
   // refreshes the per-project picker options live.
   external_team_directory: [queryKeys.externalTeamDirectoryAll],
+  // ★ fix-329: a chat message posted in one tab appears in every other tab's
+  // thread AND ticks the mentioned person's bell — ON THE EXISTING CHANNEL.
+  // useScraperActivity's comment records what opening a second one cost, and
+  // one prefix covers the thread, the rail card and the bell's mention query
+  // because they all live under project_messages.
+  project_messages: [queryKeys.projectMessagesAll],
   // fix-notes-1: a note added/edited/completed in any tab refreshes every
   // mounted NotesPanel live. fix-notes-2: also the dashboard "waiting on" cards
   // (the search index lives under the notes prefix, so it refreshes too).

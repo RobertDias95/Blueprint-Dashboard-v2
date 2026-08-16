@@ -13,6 +13,10 @@ import { parseFlips } from '../lib/boardFlips';
 import { buildNewItems, unseenItems } from '../lib/boardReads';
 import { useBoardReads, useMarkBoardItemsRead } from '../hooks/useBoardReads';
 import { useMilestoneAcks } from '../hooks/useMilestoneAcks';
+// ★ fix-329: chat mentions are the fifth thing that can be new to you. The
+// query is tenant-wide and already narrowed to "mentions me" by the database.
+import { useMyMentions } from '../hooks/useProjectMessages';
+import { useAuthStore } from '../stores/authStore';
 import {
   buildForecast,
   buildQueue,
@@ -58,6 +62,8 @@ export default function BoardBell() {
   const acksQ = useMilestoneAcks();
   const readsQ = useBoardReads();
   const markRead = useMarkBoardItemsRead();
+  const mentionsQ = useMyMentions();
+  const viewerUserId = useAuthStore((s) => s.user?.id ?? null);
 
   const viewer = useMemo(
     () => resolveBoardViewer(identity.name, team.all),
@@ -96,8 +102,23 @@ export default function BoardBell() {
         acks: acksQ.data ?? [],
         permits: permitsQ.data ?? [],
         viewerName: viewer.name,
+        // ★ fix-329: matched on the viewer's AUTH USER ID, not their roster
+        // name — mentions are stored as ids precisely because a name can change
+        // under a row and an id cannot.
+        mentions: mentionsQ.data ?? [],
+        viewerUserId,
+        projects: projectsQ.data ?? [],
       }),
-    [activityQ.data, tasksQ.data, acksQ.data, permitsQ.data, viewer.name],
+    [
+      activityQ.data,
+      tasksQ.data,
+      acksQ.data,
+      permitsQ.data,
+      viewer.name,
+      mentionsQ.data,
+      viewerUserId,
+      projectsQ.data,
+    ],
   );
 
   const readKeys = useMemo(

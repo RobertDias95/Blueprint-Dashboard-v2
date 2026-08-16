@@ -19,6 +19,7 @@ import { REDESIGN_TRIGGER_LABELS } from '../lib/database.types';
 import { SkeletonRows } from '../components/Skeleton';
 import QueryError from '../components/QueryError';
 import ProjectDetailHeader from '../components/ProjectDetail/ProjectDetailHeader';
+import ProjectChatCard from '../components/ProjectDetail/ProjectChatCard';
 import ScheduleHealthTable from '../components/ProjectDetail/ScheduleHealthTable';
 import NotesPanel from '../components/ProjectDetail/NotesPanel';
 import PermitDetailV2 from '../components/ProjectDetail/PermitDetailV2';
@@ -338,13 +339,26 @@ function ProjectDetailBody({
           own overflow-y-auto so the content clips at the pillbox
           edge instead of pushing the outer page down. */}
       <div className="flex flex-1 gap-3 px-3 pb-3 overflow-hidden min-h-0">
-        <PermitsSidebar
-          permits={permits}
-          project={project}
-          selectedId={selectedPermit?.id ?? null}
-          onSelect={setSelectedPermitId}
-          onQuickEdit={setQuickEditPermitId}
-        />
+        {/* ★ fix-329 (register #71): the LEFT RAIL is now a column — project
+            chat on top, permits beneath it. Bobby's approved mockup puts the
+            conversation above the permit list because it is the thing that
+            changes daily; the permits card slides down and is otherwise
+            untouched. The rail owns the 240px width now, so the card and the
+            sidebar cannot disagree about it. */}
+        <div
+          className="flex-shrink-0 flex flex-col gap-3 min-h-0"
+          style={{ width: 240 }}
+          data-testid="pd-left-rail"
+        >
+          <ProjectChatCard projectId={project.id} permits={permits} />
+          <PermitsSidebar
+            permits={permits}
+            project={project}
+            selectedId={selectedPermit?.id ?? null}
+            onSelect={setSelectedPermitId}
+            onQuickEdit={setQuickEditPermitId}
+          />
+        </div>
         <div
           className="flex-1 rounded-lg border bg-surface overflow-y-auto min-h-0"
           style={{ borderColor: 'var(--color-border)' }}
@@ -706,8 +720,11 @@ function PermitsSidebar({
   // overlapping the rounded corners.
   return (
     <aside
-      className="flex-shrink-0 rounded-lg border bg-surface flex flex-col overflow-hidden min-h-0"
-      style={{ width: 240, borderColor: 'var(--color-border)' }}
+      // ★ fix-329: the width moved to the rail wrapper — the chat card above and
+      // this list are one column now, and two elements each declaring 240px is
+      // how they drift apart.
+      className="flex-1 rounded-lg border bg-surface flex flex-col overflow-hidden min-h-0"
+      style={{ borderColor: 'var(--color-border)' }}
       data-testid="pd-left-pillbox"
     >
       <header
