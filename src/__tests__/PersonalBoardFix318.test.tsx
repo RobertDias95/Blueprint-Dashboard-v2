@@ -5,14 +5,12 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { ReactNode } from 'react';
 import routerSrc from '../router.tsx?raw';
 import { allRibbonRoutes } from '../lib/ribbonNav';
-import {
-  DEFAULT_SPLIT_PCT,
-  MAX_SPLIT_PCT,
-  MIN_SPLIT_PCT,
-  clampSplit,
-  loadBoardSplit,
-  saveBoardSplit,
-} from '../lib/boardSplitPrefs';
+// ★ fix-326 removed the draggable split — and boardSplitPrefs with it. My Board
+// is the screen now and My Tasks folds behind a bar, so there are no longer two
+// panels competing for one screen for a divider to referee. The contracts fix-318
+// actually cared about — both halves present, ONE query behind them, the page
+// never scrolling — are all still here; every test that needs the task list just
+// opens the fold first, the way a person does.
 
 // fix-318 (register #62) — My Board and My Tasks, one screen.
 //
@@ -172,10 +170,18 @@ beforeEach(() => {
 // ★ The acceptance test — the thing Bobby cannot currently find
 // ---------------------------------------------------------------------------
 
+/** ★ fix-326: My Tasks is FOLDED by default, so a test that wants the task list
+ *  opens it first. Not a workaround — it is the shipped first-visit state, and a
+ *  suite that quietly rendered it expanded would stop describing the screen. */
+function expandTasks() {
+  fireEvent.click(screen.getByTestId('personal-board-tasks-toggle'));
+}
+
 describe('fix-318 ★ the grouped task list is back, on /board', () => {
   it('★★ renders BOTH halves — My Board on top, the task list below', () => {
     state.tasks = [task({ text: 'Order the survey' })];
     renderBoard();
+    expandTasks();
 
     const top = screen.getByTestId('personal-board-top');
     const bottom = screen.getByTestId('personal-board-bottom');
@@ -194,6 +200,7 @@ describe('fix-318 ★ the grouped task list is back, on /board', () => {
     const child = task({ id: 't-child', text: 'Chase the survey', parent_task_id: 't-parent' });
     state.tasks = [parent, child];
     renderBoard();
+    expandTasks();
 
     const bottom = screen.getByTestId('personal-board-bottom');
     const sub = within(bottom).getByText('Chase the survey').closest('[data-subtask]');
@@ -207,6 +214,7 @@ describe('fix-318 ★ the grouped task list is back, on /board', () => {
   it('the filters and counters came with it', () => {
     state.tasks = [task()];
     renderBoard();
+    expandTasks();
     const bottom = screen.getByTestId('personal-board-bottom');
     expect(within(bottom).getByTestId('mytasks-filterrow')).toBeInTheDocument();
     expect(within(bottom).getByTestId('mytasks-counters')).toBeInTheDocument();
@@ -223,6 +231,7 @@ describe('fix-318 ★ the grouped task list is back, on /board', () => {
   it('★ DOES bring the Mine / Waiting On switcher — it is the only way in now', () => {
     state.tasks = [task()];
     renderBoard();
+    expandTasks();
     expect(screen.getByTestId('mytasks-shell')).toBeInTheDocument();
     expect(screen.getByTestId('my-tasks-view-switcher')).toBeInTheDocument();
     expect(screen.getByTestId('my-tasks-view-waiting-on')).toBeInTheDocument();
@@ -251,6 +260,7 @@ describe('fix-318 ★ one task, two halves, one truth', () => {
     const t = task({ id: 't-shared', text: 'Resubmit to the city', target_date: '2026-08-20' });
     state.tasks = [t];
     const { rerender } = renderBoard();
+    expandTasks();
 
     const bottom = screen.getByTestId('personal-board-bottom');
     // fix-235's forward-only checkbox: Open -> In Progress -> Resolved.
@@ -292,6 +302,7 @@ describe('fix-318 ★ one task, two halves, one truth', () => {
   it('opening a task from the list opens the shared TaskDetailEditor', () => {
     state.tasks = [task({ id: 't-open', text: 'Open me' })];
     renderBoard();
+    expandTasks();
     const bottom = screen.getByTestId('personal-board-bottom');
     fireEvent.click(within(bottom).getByText('Open me'));
     const editor = screen.getByTestId('stub-task-detail-editor');
@@ -306,9 +317,11 @@ describe('fix-318 ★ one task, two halves, one truth', () => {
 // ★ jsdom has NO layout engine, so a getBoundingClientRect comparison here
 // would pass vacuously whatever the CSS said — the brief says so explicitly.
 // These assert OVERFLOW OWNERSHIP, which is the contract; the pixel behaviour
-// was measured separately in headless Chrome and written into
-// boardSplitPrefs.ts (1280/1440/1600, page never scrolls, and at 1280 the
-// bottom region genuinely scrolls horizontally).
+// was measured separately in headless Chrome, at 1280/1440/1600 — the page never
+// scrolls and the task region genuinely scrolls horizontally at 1280.
+//
+// ★ fix-326 kept every line of this contract and changed only which element owns
+// the bottom scroller: the fold's body, so the bar stays put above it.
 describe('fix-318: the page does not scroll, the two regions do', () => {
   it('★ the shell hides its own overflow and fills the pane', () => {
     renderBoard();
@@ -331,77 +344,13 @@ describe('fix-318: the page does not scroll, the two regions do', () => {
   // the page.
   it('★ the BOTTOM region scrolls both axes', () => {
     renderBoard();
-    const bottom = screen.getByTestId('personal-board-bottom');
-    expect(bottom.className).toContain('overflow-auto');
-    expect(bottom.className).toContain('min-h-0');
-    expect(bottom.className).not.toContain('overflow-x-hidden');
-  });
-});
-
-// ---------------------------------------------------------------------------
-// The divider
-// ---------------------------------------------------------------------------
-
-describe('fix-318: the split is adjustable and remembered', () => {
-  it('defaults asymmetric, favouring the task list', () => {
-    renderBoard();
-    const top = screen.getByTestId('personal-board-top');
-    expect(top.style.flex).toBe(`0 0 ${DEFAULT_SPLIT_PCT}%`);
-    // ★ Measured, not guessed: at 1440x900 an even split starves My Tasks,
-    // which carries 122px of furniture before its first card.
-    expect(DEFAULT_SPLIT_PCT).toBeLessThan(50);
-  });
-
-  it('★ the divider is a real separator and moves with the keyboard', () => {
-    renderBoard();
-    const div = screen.getByTestId('personal-board-divider');
-    expect(div.getAttribute('role')).toBe('separator');
-    expect(div.getAttribute('aria-valuenow')).toBe(String(DEFAULT_SPLIT_PCT));
-
-    fireEvent.keyDown(div, { key: 'ArrowDown' });
-    expect(screen.getByTestId('personal-board-top').style.flex).toBe(
-      `0 0 ${DEFAULT_SPLIT_PCT + 2}%`,
-    );
-    fireEvent.keyDown(div, { key: 'ArrowUp' });
-    expect(screen.getByTestId('personal-board-top').style.flex).toBe(
-      `0 0 ${DEFAULT_SPLIT_PCT}%`,
-    );
-  });
-
-  it('★ never lets either half collapse to nothing', () => {
-    expect(clampSplit(0)).toBe(MIN_SPLIT_PCT);
-    expect(clampSplit(100)).toBe(MAX_SPLIT_PCT);
-    expect(clampSplit(Number.NaN)).toBe(DEFAULT_SPLIT_PCT);
-    expect(clampSplit(50)).toBe(50);
-  });
-
-  it('★ survives a remount, and is remembered PER USER', () => {
-    const first = renderBoard();
-    const div = screen.getByTestId('personal-board-divider');
-    fireEvent.keyDown(div, { key: 'ArrowDown' });
-    first.unmount();
-
-    renderBoard();
-    expect(screen.getByTestId('personal-board-top').style.flex).toBe(
-      `0 0 ${DEFAULT_SPLIT_PCT + 2}%`,
-    );
-
-    // One login's choice must not leak to another (fix-176's rule).
-    saveBoardSplit('user-a', 60);
-    saveBoardSplit('user-b', 30);
-    expect(loadBoardSplit('user-a')).toBe(60);
-    expect(loadBoardSplit('user-b')).toBe(30);
-    expect(loadBoardSplit('user-never-chose')).toBeNull();
-    expect(loadBoardSplit(null)).toBeNull();
-  });
-
-  it('a corrupt stored value falls back rather than throwing', () => {
-    window.localStorage.setItem('board.splitPct.user-miles', 'halfish');
-    expect(loadBoardSplit('user-miles')).toBeNull();
-    renderBoard();
-    expect(screen.getByTestId('personal-board-top').style.flex).toBe(
-      `0 0 ${DEFAULT_SPLIT_PCT}%`,
-    );
+    expandTasks();
+    // ★ fix-326: the scroller is the fold's BODY — the bar above it must not
+    // scroll away, which is the whole point of a bar you can find.
+    const body = screen.getByTestId('personal-board-tasks-body');
+    expect(body.className).toContain('overflow-auto');
+    expect(body.className).toContain('min-h-0');
+    expect(body.className).not.toContain('overflow-x-hidden');
   });
 });
 

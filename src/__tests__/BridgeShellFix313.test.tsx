@@ -378,12 +378,15 @@ describe('fix-313 #64: the tool is Blueprint Bridge', () => {
     expect(html).not.toContain('blueprint-dashboard-v2');
     // The Vite default lived at /favicon.svg. The link no longer points there.
     expect(html).not.toContain('href="/favicon.svg"');
-    // ★ fix-325 #2: nor at the placeholder I drew. Bobby: "the tab has the old
-    // logo as well." It is his real artwork now — the square arch crop.
-    expect(html).toContain('href="/bridge-icon-256.png"');
-    // Asserted on the LINK, not the file text: the comment above it names the
-    // placeholder deliberately, to explain why it went.
+    // ★ fix-325 #2 put Bobby's own artwork in the tab; ★ fix-326 swapped the
+    // crop for the brand sheet's purpose-drawn simplified icon, which is a SHAPE
+    // at 16px rather than a line drawing that has been shrunk.
+    expect(html).toContain('href="/bridge-favicon-32.png"');
+    expect(html).toContain('href="/bridge-favicon-256.png"');
+    // Asserted on the LINK, not the file text: the comments above it name the
+    // older marks deliberately, to explain why they went.
     expect(html).not.toContain('href="/bridge-mark.svg"');
+    expect(html).not.toContain('href="/bridge-icon-256.png"');
   });
 });
 

@@ -185,8 +185,11 @@ describe('fix-322 → fix-325: what the favicon carries', () => {
   // has the old logo as well." ★ fix-325 #2 reverses HALF of that: the wide
   // illustration still has no business in a tab, but the SQUARE ARCH CROP of his
   // real artwork does — rendered at 16px and 32px and checked, not assumed.
-  it('the tab carries the real square crop, not the placeholder', () => {
-    expect(indexHtml).toContain('href="/bridge-icon-256.png"');
+  // ★ fix-326 went one further: the square CROP of the illustration was still a
+  // shrunken picture, so the tab now carries the brand sheet's purpose-drawn
+  // simplified icon. Bobby's artwork either way; the placeholder is long gone.
+  it('the tab carries the real artwork, not the placeholder', () => {
+    expect(indexHtml).toMatch(/href="\/bridge-favicon-(32|256)\.png"/);
     expect(indexHtml).not.toContain('href="/bridge-mark.svg"');
   });
 
@@ -194,9 +197,14 @@ describe('fix-322 → fix-325: what the favicon carries', () => {
     expect(indexHtml).not.toMatch(/bridge-logo-400|bridge-logo-full/);
   });
 
-  it('one declaration, so no browser can fall back to the old mark', () => {
+  // ★ fix-326: two <link>s now, and that is NOT the fix-325 trap. That trap was
+  // a second link to a DIFFERENT mark, which let a browser show the placeholder.
+  // These are two RENDERINGS OF THE SAME icon at two sizes, so whichever a
+  // browser picks it picks the right artwork.
+  it('every declared icon is the same mark', () => {
     const icons = indexHtml.match(/<link[^>]+rel="icon"[^>]*>/g) ?? [];
-    expect(icons).toHaveLength(1);
+    expect(icons.length).toBeGreaterThan(0);
+    for (const tag of icons) expect(tag).toMatch(/bridge-favicon-(32|256)\.png/);
   });
 });
 

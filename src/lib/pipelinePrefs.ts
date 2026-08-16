@@ -19,42 +19,28 @@
 // stored list of "what is folded", so adding a sub-column later needs no new
 // storage key and no migration: an unknown key simply never matches.
 
-const KEY_PREFIX = 'pipeline.collapsed';
+import {
+  loadCollapsedKeys,
+  saveCollapsedKeys,
+} from './collapsePrefs';
 
-function storageKey(userId: string): string {
-  return `${KEY_PREFIX}.${userId}`;
-}
+// ★ fix-326 lifted the reading and writing into `collapsePrefs` so a fourth
+// panel did not become a fourth copy. THE STORAGE KEY IS UNCHANGED — nobody's
+// folded columns spring open on deploy — and so are the exported names.
+const NAMESPACE = 'pipeline.collapsed';
 
 /** The folded columns this user chose, or null when they never have. */
 export function loadPipelineCollapsed(
   userId: string | null | undefined,
 ): string[] | null {
-  if (!userId || typeof window === 'undefined') return null;
-  try {
-    const raw = window.localStorage.getItem(storageKey(userId));
-    if (!raw) return null;
-    const parsed: unknown = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return null;
-    return parsed.filter((k): k is string => typeof k === 'string');
-  } catch {
-    // Corrupt or unreadable → treat as "never chosen" and let the caller open
-    // everything, rather than throwing on the way to a render.
-    return null;
-  }
+  return loadCollapsedKeys(NAMESPACE, userId);
 }
 
 export function savePipelineCollapsed(
   userId: string | null | undefined,
   keys: string[],
 ): void {
-  if (!userId || typeof window === 'undefined') return;
-  try {
-    window.localStorage.setItem(storageKey(userId), JSON.stringify(keys));
-  } catch {
-    // localStorage full / disabled — persistence is best-effort, exactly as
-    // saveRibbonCollapsed treats it. A preference that fails to save is a
-    // smaller problem than a render that throws.
-  }
+  saveCollapsedKeys(NAMESPACE, userId, keys);
 }
 
 /** The stored key for a group. Stage codes, so the list survives a title

@@ -13,11 +13,21 @@
          holds at 16px and 32px (rendered and checked, not assumed), so the tab
          now carries his mark instead of my drawing.
 
-         ★ ONE DECLARATION, NOT TWO. A second <link> to the old SVG as a
-         "fallback" would let some browsers keep picking the placeholder, which
-         is the complaint. PNG is supported by every browser this app runs in;
-         public/bridge-mark.svg is deleted rather than left as a trap. -->
-    <link rel="icon" type="image/png" sizes="256x256" href="/bridge-icon-256.png" />
+         ★ fix-326 replaced the crop with the brand sheet's OWN icon. fix-325
+         used a square crop of the detailed illustration and I noted it sat
+         small; the crop was never the fix — the illustration is a thin line
+         drawing, so at 16px it is a few grey pixels however it is cropped.
+         Bobby's brand sheet carries a purpose-drawn "ICON (SIMPLIFIED)": a solid
+         blue tile with a bold white bridge, which is a SHAPE at 16px rather than
+         a picture that has been shrunk. Verified in a rendered tab strip.
+
+         ★ ONE DECLARATION, PLUS A SIZE HINT. Two <link>s to two RENDERINGS OF
+         THE SAME MARK is not the fix-325 trap — that was a second link to a
+         DIFFERENT (placeholder) mark, which let a browser show the wrong logo.
+         Here 32 is the hand-tuned small size and 256 covers everything larger;
+         whichever a browser picks, it picks the right artwork. -->
+    <link rel="icon" type="image/png" sizes="32x32" href="/bridge-favicon-32.png" />
+    <link rel="icon" type="image/png" sizes="256x256" href="/bridge-favicon-256.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Blueprint Bridge</title>
   </head>

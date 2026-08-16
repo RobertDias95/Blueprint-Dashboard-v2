@@ -16,6 +16,7 @@ import {
   checkboxVisual,
   isTaskLive,
   isTaskCancelled,
+  isTaskOverdue,
   writableStatus,
 } from '../lib/taskStatus';
 import {
@@ -155,11 +156,10 @@ function todayIso(): string {
 }
 
 function isOverdue(t: Task, today: string): boolean {
-  // fix-262: isTaskLive, not `!== 'Resolved'` — a task parked by a project
-  // cancel is not overdue, it is not in play at all.
-  return (
-    isTaskLive(t.status) && !!t.target_date && t.target_date < today
-  );
+  // ★ fix-326 moved the rule itself into lib/taskStatus so the collapsed My
+  // Tasks bar on /board can ask the same question without mounting this panel.
+  // This stays as the local name the file already reads well with.
+  return isTaskOverdue(t, today);
 }
 
 // fix-140: the page is now a thin shell around a URL-backed view switcher.

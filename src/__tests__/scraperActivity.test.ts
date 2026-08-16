@@ -19,9 +19,10 @@ import {
 } from '../stores/notificationStore';
 import type { ScraperActivityRow } from '../lib/database.types';
 
-// fix-27: unit tests for the activity feed pure helpers. Components
-// (NotificationBell) sit on top of these — keeping them deterministic
-// keeps the UI predictable without DOM testing every action shape.
+// fix-27: unit tests for the activity feed pure helpers. BoardBell and
+// ActivityPage sit on top of these — keeping them deterministic keeps the UI
+// predictable without DOM testing every action shape.
+// (fix-326: this used to name NotificationBell, deleted as dead code.)
 
 function mkRow(over: Partial<ScraperActivityRow> = {}): ScraperActivityRow {
   return {
