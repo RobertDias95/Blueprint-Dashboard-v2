@@ -145,9 +145,29 @@ export default function AddrGroup({
       // worst permit is a useful ranking, not a claim about the project.
       data-urgency-neutral="true"
       style={{
-        borderLeft: '3px solid var(--color-border)',
+        // ★ fix-327 #1: A PROJECT IS ONE OBJECT, so it gets one edge. Bobby:
+        // "maybe a very clean way to kind of border around a project."
+        //
+        // WHAT THIS REPLACES, and why each piece went:
+        //   · the 3px LEFT RAIL — the "gray bar that runs vertically" he named.
+        //     A rail says "a group starts here" from one side only; a border
+        //     says it from all four, so keeping both is two things making the
+        //     same claim, and the rail was the heavier of them.
+        //   · the 1px BOTTOM RULE — the "thinner gray bars". It separated one
+        //     project from the next; the gap between two bordered blocks does
+        //     that now, without drawing a line that reads as shared furniture
+        //     between two objects that are not related.
+        //
+        // ★ THE LIGHTEST EDGE THAT STILL CONTAINS: a 1px hairline in the
+        // existing border token, with the radius and the surface doing the rest.
+        // Rendered at twelve projects to a column before settling — anything
+        // heavier turns the list into a grid of boxes, which is the failure mode
+        // the brief names.
+        border: '1px solid var(--color-border)',
+        borderRadius: 8,
+        // The separation the bottom rule used to provide.
+        marginBottom: 6,
         background: isHighlighted ? 'var(--color-s2)' : 'var(--color-surface)',
-        borderBottom: '1px solid var(--color-border)',
         // Q9.5.e2-fix-5: v1 .addr-highlighted at index.html:186 outlines the
         // opened address with a 3px blue ring. CSS outline renders on top of
         // all child content per spec — needed here because the expanded body
@@ -158,6 +178,11 @@ export default function AddrGroup({
         outlineOffset: isOpen ? '-3px' : undefined,
         position: isOpen ? 'relative' : undefined,
         zIndex: isOpen ? 2 : undefined,
+        // ★ fix-327: the transition still covers BACKGROUND ONLY, which is what
+        // keeps the hover grey Bobby asked to keep — "when you hover over a
+        // project I do like how it goes gray and that identifies other projects
+        // as well." The border is the RESTING state and the grey is the HOVER
+        // state; they are two different jobs and neither replaces the other.
         transition: 'background 0.15s, outline-color 0.15s',
       }}
       className="overflow-hidden"
