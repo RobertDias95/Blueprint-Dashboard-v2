@@ -14,6 +14,8 @@ import { useDmDaGroups } from '../hooks/useDmDaGroups';
 import { useDaTeamRouting } from '../hooks/useDaTeamRouting';
 import { useBoardReads, useMarkBoardItemsRead } from '../hooks/useBoardReads';
 import { buildNewItems, keyForTask, unseenItems } from '../lib/boardReads';
+import { useMyMentions } from '../hooks/useProjectMessages';
+import { useAuthStore } from '../stores/authStore';
 import { parseFlips } from '../lib/boardFlips';
 import {
   AGING_LEVEL_LABEL,
@@ -790,6 +792,8 @@ export default function MyBoard() {
   // ★ fix-307 (register #39): which board rows are NEW to this person. Always
   // personal — built from the viewer's own items, never from the queue scope,
   // so drilling into Fisk's queue cannot highlight or clear anything of his.
+  const mentionsQ = useMyMentions();
+  const viewerUserId = useAuthStore((s) => s.user?.id ?? null);
   const readKeys = useMemo(() => new Set(readsQ.data ?? []), [readsQ.data]);
   const newItems = useMemo(
     () =>
@@ -799,8 +803,23 @@ export default function MyBoard() {
         acks: acksQ.data ?? [],
         permits: permitsQ.data ?? [],
         viewerName: viewer.name,
+        // ★ fix-329: the board and the bell read the SAME new-items builder with
+        // the SAME inputs, so a chat mention cannot be news in one and not the
+        // other.
+        mentions: mentionsQ.data ?? [],
+        viewerUserId,
+        projects: projectsQ.data ?? [],
       }),
-    [activityQ.data, allTasks, acksQ.data, permitsQ.data, viewer.name],
+    [
+      activityQ.data,
+      allTasks,
+      acksQ.data,
+      permitsQ.data,
+      viewer.name,
+      mentionsQ.data,
+      viewerUserId,
+      projectsQ.data,
+    ],
   );
   // Not wrapped in useMemo: the React Compiler cannot preserve a manual memo
   // around a Set construction here, and it memoizes this for us anyway.

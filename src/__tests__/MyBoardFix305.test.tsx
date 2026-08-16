@@ -47,6 +47,12 @@ vi.mock('../hooks/useMilestoneAcks', () => ({
   useMilestoneAcks: () => ({ data: state.acks }),
   useAckMilestone: () => ({ mutate: state.ackMutate, isPending: false }),
 }));
+// fix-329: the board reads chat mentions as a fifth "new item" source. Mocked
+// empty here — this suite is about the other four, and an unmocked query would
+// reach for a QueryClient this harness deliberately does not provide.
+vi.mock('../hooks/useProjectMessages', () => ({
+  useMyMentions: () => ({ data: [], isLoading: false, error: null }),
+}));
 vi.mock('../hooks/useTaskTree', () => ({
   useAllTasks: () => ({ data: state.tasks, isLoading: false }),
   useUpsertTask: () => ({

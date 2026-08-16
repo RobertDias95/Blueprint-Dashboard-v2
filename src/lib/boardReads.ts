@@ -1,7 +1,8 @@
 import type { BoardTask, PermitMilestoneAck } from './myBoard';
 import type { BoardFlip } from './boardFlips';
 import { FLIP_LABEL } from './boardFlips';
-import type { PermitWithCycles } from './database.types';
+import { keyForMention } from './projectChat';
+import type { Project, PermitWithCycles } from './database.types';
 
 // fix-307 (register #36–#41) — the badge counts what is UNSEEN, not what is
 // undone.
@@ -30,7 +31,10 @@ import type { PermitWithCycles } from './database.types';
  *  user created next month. */
 export const BOARD_NOTIFICATIONS_EPOCH = '2026-08-14T00:00:00Z';
 
-export type NewItemSource = 'flip' | 'task' | 'handoff' | 'permit';
+// ★ fix-329 adds the fifth source. A mention is news in exactly the sense this
+// file means: something happened that names you, you have not seen it, and
+// seeing it is not doing it.
+export type NewItemSource = 'flip' | 'task' | 'handoff' | 'permit' | 'mention';
 
 export interface NewItem {
   /** ★ Stable across re-derivation — see keyFor* below. */
@@ -68,6 +72,22 @@ export function keyForHandoff(ackId: string): string {
 export function keyForPermit(permitId: number): string {
   return `permit:${permitId}`;
 }
+// ★ fix-329: `mention:{message_id}`. project_messages.id is a uuid primary key
+// and the table is append-only, so the key is as immutable as the four above.
+// Re-exported from projectChat so the chat surfaces and the bell cannot end up
+// with two spellings of the same key.
+export { keyForMention };
+
+/** ★ fix-329: the minimum a mention needs to become a bell item. Deliberately
+ *  NOT the full ProjectMessage — the bell's tenant-wide query selects these
+ *  columns straight off the table and never needs the author-name join. */
+export interface MentionItemInput {
+  id: string;
+  project_id: string;
+  body: string;
+  created_at: string;
+  mentions: string[];
+}
 
 function isAfterEpoch(at: string | null | undefined): boolean {
   if (!at) return false;
@@ -82,6 +102,16 @@ export interface NewItemsInput {
   permits: ReadonlyArray<PermitWithCycles>;
   /** The viewer's roster name. */
   viewerName: string | null;
+  /** fix-329: chat messages that mention the viewer. Optional so every existing
+   *  caller keeps working unchanged. */
+  mentions?: ReadonlyArray<MentionItemInput>;
+  /** ★ fix-329: the viewer's AUTH USER ID, not their roster name. The other four
+   *  sources match on a name because that is what permits and tasks carry;
+   *  mentions are stored as user ids, which cannot change under a row. */
+  viewerUserId?: string | null;
+  /** Projects, for resolving a mention's address. Optional for the same
+   *  backwards-compatible reason. */
+  projects?: ReadonlyArray<Pick<Project, 'id' | 'address'>>;
 }
 
 /** Everything that could be new to this person, before read state is applied.
@@ -176,6 +206,31 @@ export function buildNewItems(input: NewItemsInput): NewItem[] {
       permitId: p.id,
       projectId: p.project_id,
     });
+  }
+
+  // 5. ★ fix-329: someone mentioned me in a project's chat.
+  //
+  // Matched on USER ID, and only for the viewer — the query that feeds this is
+  // already narrowed to "mentions me", and this second check is what makes
+  // "increments for the mentioned person and NOBODY else" a property of the
+  // builder rather than a property of one caller's query.
+  const meId = input.viewerUserId ?? null;
+  if (meId) {
+    for (const m of input.mentions ?? []) {
+      if (!isAfterEpoch(m.created_at)) continue;
+      if (!(m.mentions ?? []).includes(meId)) continue;
+      const project = (input.projects ?? []).find((p) => p.id === m.project_id);
+      out.push({
+        key: keyForMention(m.id),
+        source: 'mention',
+        title: 'Mentioned you in chat',
+        subtitle: m.body.length > 120 ? `${m.body.slice(0, 117)}…` : m.body,
+        where: project?.address ?? 'Project chat',
+        at: m.created_at,
+        permitId: null,
+        projectId: m.project_id,
+      });
+    }
   }
 
   return out.sort((a, z) => z.at.localeCompare(a.at));
