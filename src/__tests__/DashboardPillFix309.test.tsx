@@ -113,7 +113,18 @@ function renderGroup(permits: Permit[]) {
 /** Every colour actually painted on the project element itself. */
 function pillColours(el: HTMLElement): string {
   const s = el.style;
-  return [s.background, s.backgroundColor, s.borderLeft, s.borderLeftColor, s.borderColor]
+  // ★ fix-327 gave a project ONE edge — the shorthand `border` — where it used
+  // to have a 3px left rail and a bottom rule. Same question, new property: the
+  // project's own edge must still be the neutral token and never an urgency
+  // colour.
+  return [
+    s.background,
+    s.backgroundColor,
+    s.border,
+    s.borderLeft,
+    s.borderLeftColor,
+    s.borderColor,
+  ]
     .filter(Boolean)
     .join(' | ');
 }

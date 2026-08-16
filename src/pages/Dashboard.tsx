@@ -610,6 +610,15 @@ const STAGE_HEADER_BORDER: Record<'de' | 'pm' | 'jv' | 'is', string> = {
   is: 'var(--color-is-border)',
 };
 
+// ★ fix-327 #2: the collapse affordance palette. Deliberately the SAME values
+// fix-320 gave the ribbon chip — one app, one way of saying "this folds".
+// Literals rather than tokens for the same reason they are literals there: the
+// tint belongs to the control, not to a semantic palette that could be retuned
+// for something else entirely.
+const COLLAPSE_CHIP_BG = '#eef4ff';
+const COLLAPSE_CHIP_BORDER = '#c7dbfe';
+const COLLAPSE_CHIP_TEXT = '#2563eb';
+
 /** Folded widths, from Pipeline_RightRail_Mockup.html. */
 const GROUP_SPINE_W = 44;
 const GROUP_NARROW_W = 264;
@@ -718,6 +727,52 @@ function PipelineGroup({
         >
           {totalCount}
         </span>
+        {/* ★ fix-327 #2 — THE CONTROL THAT SAYS THIS FOLDS.
+            Bobby: "on the D&E bucket and permitting bucket, adding a collapse
+            button so people know it collapses."
+
+            ★★ THE SAME DEFECT fix-320 FIXED ON THE RIBBON, and the same
+            reasoning: a control with no border, no background and no icon does
+            not read as a control. fix-324 made the whole header clickable and
+            nothing said so — "the whole header is clickable" is not
+            discoverability, it is a secret.
+
+            ★ IT IS AN AFFORDANCE, NOT A SECOND CONTROL. It renders as a SPAN
+            inside the header button rather than a nested <button>, which would
+            be invalid HTML and would give one action two hit targets that can
+            disagree. Clicking it hits the header, because it is part of the
+            header. The whole header stays clickable exactly as before.
+
+            ★ NO MOTION on the chip itself — the pulse was rejected in fix-320
+            and that decision stands. The glyph rotates on state change (a
+            transform, not an animation), which is the same thing every other
+            fold in this app does. */}
+        <span
+          aria-hidden
+          data-testid={'pipeline-group-collapse-' + groupKey}
+          className="flex items-center justify-center flex-none"
+          style={{
+            marginLeft: collapsed ? 0 : 8,
+            marginTop: collapsed ? 12 : 0,
+            color: COLLAPSE_CHIP_TEXT,
+            background: COLLAPSE_CHIP_BG,
+            border: '1px solid ' + COLLAPSE_CHIP_BORDER,
+            borderRadius: 6,
+            padding: '2px 5px',
+            fontSize: 9,
+            lineHeight: 1,
+          }}
+        >
+          <span
+            style={{
+              display: 'inline-block',
+              transition: 'transform .15s',
+              transform: collapsed ? undefined : 'rotate(90deg)',
+            }}
+          >
+            ▶
+          </span>
+        </span>
       </button>
       {!collapsed && (
         <div className="flex flex-1 min-h-0 divide-x divide-border">
@@ -787,6 +842,35 @@ function PipelineGroup({
                     data-testid={'pipeline-sub-count-' + sub.title}
                   >
                     {sub.permits.length}
+                  </span>
+                  {/* ★ fix-327 #2 — THE SUB-COLUMNS GET A QUIETER AFFORDANCE, and
+                      the brief asked me to decide and say why.
+
+                      A chip on each of the four sub-headers as well as the four
+                      group headers is eight tinted controls on one screen, in
+                      headers ~100px wide that already carry a dot, a title, a
+                      project count and a total. The chip's job is to TEACH that
+                      these panels fold; once the group header has taught it, the
+                      sub-header only has to CONFIRM it, and a bare chevron in the
+                      dim colour does that without competing with the counts
+                      Bobby actually scans.
+
+                      Same glyph, same rotation, no tint — quieter by one step,
+                      which is the difference between an affordance and clutter. */}
+                  <span
+                    aria-hidden
+                    data-testid={'pipeline-sub-collapse-' + sub.title}
+                    className="text-dim flex-none"
+                    style={{
+                      fontSize: 8,
+                      marginLeft: subCollapsed ? 0 : 4,
+                      marginTop: subCollapsed ? 8 : 0,
+                      display: 'inline-block',
+                      transition: 'transform .15s',
+                      transform: subCollapsed ? undefined : 'rotate(90deg)',
+                    }}
+                  >
+                    ▶
                   </span>
                 </button>
                 {!subCollapsed && (
