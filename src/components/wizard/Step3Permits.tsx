@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef } from 'react';
 import { useTeamMembers } from '../../hooks/useTeamMembers';
 import { isCurrentMember } from '../../lib/roster';
 import { useDmDaGroups } from '../../hooks/useDmDaGroups';
@@ -122,8 +122,48 @@ export default function Step3Permits({ value, onChange }: Props) {
   // tested. Prod confirms: both Demo permits ended up with da=Cam
   // (set via Project Settings post-create, Bobby's workaround) — the
   // wizard save path itself was dropping it.
+  //
+  // ★★ fix-328 — THE MIRROR IS ASSIGNED DURING RENDER, and that one line is the
+  // whole ticket. It used to be assigned in a passive effect:
+  //
+  //     useEffect(() => { valueRef.current = value; });
+  //
+  // React commits a render, paints, and flushes passive effects AFTERWARDS.
+  // Anything running in that window read a mirror one render behind — and the
+  // window is exactly where this component's async work lands: a resolved
+  // lookup, or a click dispatched the instant the new DOM appears.
+  //
+  // That is not a stale READ, it is a stale WRITE. Six sites below rebuild the
+  // WHOLE permits array from this mirror and send it through onChange, so a lag
+  // does not merely ignore newer state — it overwrites it:
+  //
+  //   · addPermit()  → [...mirror.permits, newRow] reverts an ENT that has just
+  //     landed, and the cascade will not re-derive it because lastDerivedRef has
+  //     already recorded that (da, juris) pair. The row comes back; the ENT does
+  //     not.
+  //   · the cascade's .then → the fix-211 blank-only guard reads a filled cell
+  //     as blank and overwrites it.
+  //
+  // ★ EVIDENCE, not theory. Step3Permits.test.tsx flaked in CI across five
+  // tickets in three weeks; fix-328 reproduced BOTH signatures locally by
+  // running it with all 12 cores saturated — "expected 'Bri' to be 'Miles'" and
+  // "expected 0 to be greater than or equal to 2" — and neither has reproduced
+  // since this line moved.
+  //
+  // ★ WHY useLayoutEffect AND NOT A RENDER-TIME WRITE. Assigning the mirror in
+  // the component body would also close the window, but it breaks the React
+  // Compiler's "no refs during render" rule — a rule this repo enforces and
+  // which exists because a render React discards would still have written.
+  //
+  // A LAYOUT effect is the sanctioned way to get the same guarantee: React runs
+  // it SYNCHRONOUSLY as part of the commit, before the browser paints and before
+  // any microtask or macrotask can observe the new DOM. Since JavaScript is
+  // single-threaded, no continuation can run inside that phase — so a resolved
+  // lookup either runs BEFORE the commit (and correctly sees the state that was
+  // last rendered) or AFTER the mirror is updated. There is no third case, which
+  // is precisely what the passive-effect version could not promise.
   const valueRef = useRef(value);
-  useEffect(() => {
+  useLayoutEffect(() => {
     valueRef.current = value;
   });
   // fix-96-b: routing rows for the active tenant. The DA dropdown disables
