@@ -431,6 +431,7 @@ describe('fix-320 #73: the wordmark leads with The Bridge', () => {
     expect(mark.querySelector('rect')).toBeNull();
     // Nothing points at it, and the tab carries Bobby's own artwork instead.
     expect(indexHtml).not.toContain('href="/bridge-mark.svg"');
-    expect(indexHtml).toContain('href="/bridge-icon-256.png"');
+    // ★ fix-326: the tab carries the brand sheet's simplified icon now.
+    expect(indexHtml).toContain('href="/bridge-favicon-32.png"');
   });
 });

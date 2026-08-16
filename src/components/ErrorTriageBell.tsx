@@ -3,8 +3,12 @@ import { useNewErrorCount } from '../hooks/useErrorReports';
 
 // fix-87: warning-triangle bell sibling. Polls bp_new_error_count via the
 // useNewErrorCount hook (30s interval + realtime invalidation on the
-// error_reports prefix). Click → /settings/errors. Visually mirrors
-// NotificationBell so they read as a paired strip in Chrome.
+// error_reports prefix). Click → /settings/errors.
+//
+// ★ fix-326: it mirrors BoardBell, its one neighbour in the top bar. This used
+// to name NotificationBell, which has not been mounted for several tickets and
+// is now deleted — a comment naming a component that no longer runs is how the
+// next reader concludes it does.
 
 export default function ErrorTriageBell() {
   const { data: count } = useNewErrorCount();

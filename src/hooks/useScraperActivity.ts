@@ -14,9 +14,14 @@ import type { ScraperActivityRow } from '../lib/database.types';
 //
 // Realtime: subscribes once to postgres_changes on audit_log INSERT,
 // then invalidates the bare scraper_activity prefix key so all
-// per-tenant variants refetch. Mounted by the NotificationBell so the
-// channel teardown lines up with the bell's lifecycle — no global
-// state added to useRealtimeInvalidation.
+// per-tenant variants refetch.
+//
+// ★ fix-326: THIS HOOK IS LIVE AND STAYS. The comment here said it was "mounted
+// by the NotificationBell", which was false — that component has not been
+// rendered for several tickets and is now deleted. Its real consumers are
+// BoardBell (the flip feed and its suppression counts) and ActivityPage; the
+// channel teardown lines up with whichever of those is mounted, which is exactly
+// what the original note meant to promise.
 
 export const SCRAPER_ACTIVITY_DAYS_DEFAULT = 14;
 export const SCRAPER_ACTIVITY_ROW_CAP = 300;

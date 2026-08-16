@@ -20,9 +20,9 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 // What is gone is asserted GONE rather than dropped from the file, because
 // "the tab bar was removed" is itself a contract now.
 
-// fix-27: extended to cover supabase.rpc and supabase.channel so the
-// NotificationBell mounted by Chrome doesn't blow up. The bell's
-// underlying useScraperActivity hook hits both.
+// fix-27: extended to cover supabase.rpc and supabase.channel so the bells
+// Chrome mounts don't blow up — BoardBell's useScraperActivity hook hits both.
+// (fix-326: this used to name NotificationBell, deleted as dead code.)
 vi.mock('../lib/supabase', () => {
   const channelChain = {
     on: vi.fn().mockReturnThis(),
@@ -78,8 +78,8 @@ describe('<Chrome /> fix-313 the Blueprint Bridge shell', () => {
   });
 
   function renderIt() {
-    // fix-27: Chrome now mounts NotificationBell, which uses TanStack
-    // Query — so the test tree needs a QueryClientProvider.
+    // fix-27: Chrome mounts bells that use TanStack Query — so the test tree
+    // needs a QueryClientProvider.
     const client = new QueryClient({
       defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
     });

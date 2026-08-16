@@ -28,12 +28,19 @@ import {
 // a feed: short, skimmable, and it hands you to the board rather than trying to
 // be the board.
 //
-// ★ THIS IS A SECOND BELL, deliberately. The existing NotificationBell is the
-// SCRAPER ACTIVITY bell (fix-27/28) and links to /activity — a different
-// question ("what did the robot do") from this one ("what is mine today").
-// Merging them is a product decision I have not been asked to make, so they sit
-// side by side and Bobby can collapse them later if three bells reads as
-// clutter. Flagged in the PR rather than decided here.
+// ★ fix-326: THIS IS THE ONLY NOTIFICATION BELL. The comment here used to say
+// it was the second of two, sitting beside fix-27/28's scraper-activity bell.
+// That stopped being true somewhere between fix-298 and fix-307 — Chrome renders
+// BoardBell and ErrorTriageBell and nothing else — and the stale comment is what
+// made a later brief instruct me to "remove NotificationBell from the top bar",
+// a component that was not on screen. Bobby caught it: "the current bell I see is
+// the myboard notification bell, not the scraper bell?" He was right.
+//
+// NotificationBell.tsx is deleted. This bell absorbed both questions: it carries
+// the personal board feed AND, for oversight viewers, the scraper flips
+// (useScraperActivity below), with fix-307's per-user read state and suppression
+// counts. The feed itself still has a home at /activity, reachable from the
+// Reporting hub (fix-325) and from the health panel on My Board.
 
 export default function BoardBell() {
   const [open, setOpen] = useState(false);

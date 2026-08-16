@@ -41,6 +41,24 @@ export function isTaskLive(status: string | null | undefined): boolean {
   return s !== 'Resolved' && s !== TASK_STATUS_CANCELLED;
 }
 
+/** ★ fix-326: is this task overdue?
+ *
+ *  Lifted out of MyTasks.tsx, unchanged, because the collapsed My Tasks bar on
+ *  /board has to say how many are overdue WITHOUT mounting the panel that used
+ *  to own the definition. Two places asking the question means one definition,
+ *  and this module is where the other status predicates already live.
+ *
+ *  ★ isTaskLive, not `!== 'Resolved'` — a task parked by a project cancel is not
+ *  overdue, it is not in play at all (fix-262). */
+export function isTaskOverdue(
+  task: { status: string | null | undefined; target_date: string | null | undefined },
+  todayIso: string,
+): boolean {
+  return (
+    isTaskLive(task.status) && !!task.target_date && task.target_date < todayIso
+  );
+}
+
 /** fix-262: true when a project cancel parked this task. */
 export function isTaskCancelled(status: string | null | undefined): boolean {
   return status === TASK_STATUS_CANCELLED;

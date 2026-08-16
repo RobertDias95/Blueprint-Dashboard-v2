@@ -141,18 +141,23 @@ describe('fix-325 #1: the ribbon is narrower, and so is the logo', () => {
 // ------------------------------------------------------------ 2 · favicon --
 
 describe('fix-325 #2: the tab carries the real mark', () => {
-  it('★ points at the square crop of Bobby\'s artwork', () => {
-    expect(indexHtml).toContain('href="/bridge-icon-256.png"');
+  // ★ fix-326 replaced the crop with the brand sheet's purpose-drawn simplified
+  // icon — the same decision (Bobby's artwork in the tab), rendered in a form
+  // that survives 16px instead of a line drawing that has been shrunk.
+  it('★ points at Bobby\'s artwork', () => {
+    expect(indexHtml).toMatch(/href="\/bridge-favicon-(32|256)\.png"/);
     expect(indexHtml).toContain('type="image/png"');
   });
 
-  it('★ and never at the placeholder again — one declaration, no fallback', () => {
+  it('★ and never at the placeholder again — every icon link is the real mark', () => {
     expect(indexHtml).not.toContain('href="/bridge-mark.svg"');
     expect(indexHtml).not.toContain('href="/favicon.svg"');
-    // A second <link> would let some browsers keep choosing the old mark, which
-    // is the complaint. There is exactly one.
+    // ★ fix-325's rule was "no link to a DIFFERENT mark", not "only one link".
+    // fix-326 declares two SIZES of the same icon, which cannot show the wrong
+    // logo whichever one a browser picks.
     const icons = indexHtml.match(/<link[^>]+rel="icon"[^>]*>/g) ?? [];
-    expect(icons).toHaveLength(1);
+    expect(icons.length).toBeGreaterThan(0);
+    for (const tag of icons) expect(tag).toMatch(/bridge-favicon-(32|256)\.png/);
   });
 
   // ★ The half of fix-322's reasoning that still holds: the WIDE illustration

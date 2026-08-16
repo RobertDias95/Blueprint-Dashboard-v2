@@ -43,8 +43,12 @@ function loadFromStorage(): Set<number> {
     }
     // One-time migration from the fix-27 timestamp model. We CAN'T
     // populate the read-ids set without the row list, so leave the
-    // legacy timestamp in place. ActivityPage / NotificationBell call
-    // migrateLegacyLastSeen(rows) once they have the rows loaded.
+    // legacy timestamp in place. ActivityPage calls migrateLegacyLastSeen(rows)
+    // once it has them.
+    //
+    // ★ fix-326: this used to name NotificationBell as the other caller. That
+    // component has not run for several tickets and is now deleted; ActivityPage
+    // is the migration path that exists.
   } catch {
     // localStorage may be unavailable (private mode, SSR). Silent fail.
   }

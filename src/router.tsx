@@ -214,8 +214,13 @@ export const router = createBrowserRouter([
         path: 'waiting-on',
         element: <Navigate to="/board?view=waiting-on" replace />,
       },
-      // fix-28: scraper activity feed. NotificationBell links here;
-      // page owns search / category / ent filters + per-row read state.
+      // fix-28: scraper activity feed. The page owns search / category / ent
+      // filters + per-row read state.
+      //
+      // ★ fix-326: this comment used to credit the old scraper bell as the way
+      // in. That component is deleted; what reaches this route now is the
+      // Reporting hub's "From the scraper" entry (fix-325) and the "Full scraper
+      // activity →" link on My Board's health panel.
       { path: 'activity', element: <ActivityPage /> },
       // Q9.5.a sent bare /settings to /dashboard because Settings was a modal.
       // ★ fix-319 #76: it is a page now, so /settings goes to the page —
