@@ -47,6 +47,14 @@ interface Props {
    *  attempt fails on a step-1 field so the visual lines up with the
    *  banner that just appeared at the top of the wizard. */
   showFieldErrors?: boolean;
+  /** ★ fix-333: the duplicate-address banner, rendered directly under the
+   *  address field.
+   *
+   *  It arrives as a NODE rather than as data because the wizard owns the check:
+   *  submit needs the same verdict this step is showing, and two instances of
+   *  the hook could disagree about a value the person is mid-way through
+   *  editing. One check, one answer, rendered where the address is typed. */
+  duplicateWarning?: React.ReactNode;
 }
 
 
@@ -89,6 +97,7 @@ export default function Step1ProjectInfo({
   value,
   onChange,
   showFieldErrors = false,
+  duplicateWarning,
 }: Props) {
   // fix-88: track first blur on Units so the red error visual only kicks
   // in after the user has interacted with the field (don't yell on a
@@ -544,6 +553,15 @@ export default function Step1ProjectInfo({
             </select>
           </label>
         </div>
+
+        {/* ★★ fix-333: the duplicate-address warning, DIRECTLY UNDER the field
+            that causes it. On 2026-08-14 somebody created `3623 Othello Ave SW`
+            over the existing `3623 SW Othello St` — same GO date, same three
+            permit numbers — because they typed the address, searched, found
+            nothing, and had no reason to doubt it. This is the line that would
+            have stopped that, and it appears while the address is still the
+            only thing they have typed, not four steps later. */}
+        {duplicateWarning}
 
         {/* fix-91: Entitlement Lead + Design Manager removed from Step 1.
             They're derived on Step 3 from the BP's DA pick (ent_lead via
