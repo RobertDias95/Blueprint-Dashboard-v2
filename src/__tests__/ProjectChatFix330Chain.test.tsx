@@ -201,6 +201,31 @@ const supabaseMock = vi.hoisted(() => {
   };
 });
 
+// ★★ fix-334: every message is now a REPLY UNDER A POST. These suites predate
+// posts, so the mocked read wraps their fixtures in the one post they all hang
+// from — which is exactly the shape the migration gave the seven real messages
+// that predated posts too. The assertions below are unchanged by it.
+const FIX334_POST = {
+  id: 'post-1',
+  project_id: 'p-1',
+  author_id: '11111111-1111-1111-1111-111111111111',
+  author_name: 'Bobby',
+  body: 'Messages posted before this project had posts.',
+  mentions: [] as string[],
+  attachments: [],
+  created_at: '2026-08-15T09:00:00Z',
+  task_id: null,
+  task_text: null,
+  task_permit_id: null,
+  parent_message_id: null,
+  title: 'General',
+  edited_at: null,
+  deleted_at: null,
+  revisions: [],
+  reply_count: null,
+  last_activity_at: null,
+} as unknown as import('../lib/database.types').ProjectMessage;
+
 vi.mock('../lib/supabase', () => ({ supabase: supabaseMock, supabaseUrl: 'http://x' }));
 
 // ★ The viewer is Jade, and Jade is ON THE ROSTER — fix-176's login → roster
@@ -234,7 +259,11 @@ vi.mock('../hooks/useProjectMessages', async (orig) => {
   const actual = await orig<typeof import('../hooks/useProjectMessages')>();
   return {
     ...actual,
-    useProjectMessages: () => ({ data: chatMock.messages, isLoading: false, error: null }),
+    useProjectMessages: () => ({
+      data: [FIX334_POST, ...chatMock.messages],
+      isLoading: false,
+      error: null,
+    }),
     useMentionablePeople: () => ({ data: chatMock.people, isLoading: false, error: null }),
     useMyMentions: () => ({ data: [], isLoading: false, error: null }),
   };
@@ -398,6 +427,14 @@ beforeEach(() => {
       task_id: null,
       task_text: null,
       task_permit_id: null,
+      // fix-334: a reply under the project's General post.
+      parent_message_id: 'post-1',
+      title: null,
+      edited_at: null,
+      deleted_at: null,
+      revisions: [],
+      reply_count: null,
+      last_activity_at: null,
     },
   ];
   chatMock.people = [{ user_id: BOBBY, name: 'Bobby', email: 'robertd@x.com' }];
@@ -415,7 +452,7 @@ async function createTaskOnPermit(permitId: number, assignee?: string) {
   render(<ProjectChatCard projectId={PROJECT} permits={PERMITS} />, { wrapper });
   fireEvent.click(screen.getByTestId('project-chat-open'));
   fireEvent.click(screen.getByTestId('project-chat-create-task-m-7'));
-  fireEvent.change(screen.getByTestId('chat-task-permit-m-7'), {
+  fireEvent.change(screen.getByTestId('chat-task-m-7-permit'), {
     target: { value: String(permitId) },
   });
   if (assignee) {

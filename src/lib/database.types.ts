@@ -287,6 +287,34 @@ export interface ProjectMessage {
   /** ★ fix-330: WHICH permit that task landed on. The link-back can now name
    *  the permit instead of asserting the task went somewhere. */
   task_permit_id: number | null;
+
+  // ── fix-334 ──────────────────────────────────────────────────────────────
+  /** ★ NULL means this row IS a post; non-null means it is a reply under that
+   *  post. Two levels only — the DB trigger refuses a third. */
+  parent_message_id: string | null;
+  /** A post's title. NULL on a reply; the CHECK constraint enforces the pair. */
+  title: string | null;
+  /** Stamped by the DB trigger when the body changes. */
+  edited_at: string | null;
+  /** Soft delete. ★ Nothing is ever hard deleted — a task can be created from a
+   *  message, and the row has to outlive the words. */
+  deleted_at: string | null;
+  /** ★ The superseded text, appended BY THE DATABASE on every edit and on
+   *  delete. A history the client wrote would be a claim about client code. */
+  revisions: MessageRevision[];
+  /** Posts only: live replies under this post. */
+  reply_count: number | null;
+  /** Posts only: the newest of the post and its live replies. */
+  last_activity_at: string | null;
+}
+
+/** One superseded version of a message, written by
+ *  `bp_trg_project_message_revision`. */
+export interface MessageRevision {
+  body: string;
+  at: string;
+  by: string | null;
+  reason: 'edited' | 'deleted';
 }
 
 /** fix-329: someone who can be @-mentioned — a person who can actually open

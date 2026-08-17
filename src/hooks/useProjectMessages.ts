@@ -19,10 +19,24 @@ import type {
 // read-own-only under RLS — the fix-70 / fix-notes-1 pattern. The same call
 // returns the linked task, so "✓ Task created" costs no second round trip.
 //
-// WRITES are direct table INSERT under tenant RLS. There is no update or delete
-// hook anywhere in this file, and that is the point: project_messages has no
-// UPDATE or DELETE grant (see the migration), because a task can be created
-// from a message and a silently rewritten message would make that link a lie.
+// WRITES are direct table INSERT under tenant RLS.
+//
+// ★★ fix-334 REVERSED fix-329's append-only rule, and Bobby's own answer is why.
+// The rule existed because "a message someone can silently rewrite makes
+// 'created from this message' a claim about text that no longer exists". Keeping
+// the original reachable removes the word SILENTLY — the objection was never to
+// editing, it was to editing without a trace. So there are edit and delete hooks
+// here now, and the trace they leave is written by a DATABASE TRIGGER rather
+// than by this file, because a history the client appends is a claim about
+// client code.
+//
+// ★ Nothing is ever hard deleted. useDeleteMessage sets `deleted_at`; there is
+// no DELETE grant and no DELETE policy, so a task created from a message can
+// never be orphaned by one.
+//
+// ★ AND THE COLUMN GRANT IS THE OTHER HALF. `authenticated` may UPDATE exactly
+// (body, mentions, deleted_at) — so even a hand-rolled request cannot move a
+// message to another project or re-attribute it, and cannot forge `revisions`.
 
 export function useProjectMessages(projectId: string | undefined) {
   const tenantId = useAuthStore((s) => s.activeTenantId);
@@ -80,6 +94,12 @@ export function useMyMentions() {
         .from('project_messages')
         .select('id, project_id, body, created_at, mentions')
         .contains('mentions', [userId])
+        // ★ fix-334: a DELETED message stops pinging the bell. Its words are
+        // still kept — that is the point of the soft delete — but a
+        // notification pointing at text somebody withdrew is noise, and it
+        // could never be cleared by reading the thread because it no longer
+        // renders there.
+        .is('deleted_at', null)
         .order('created_at', { ascending: false })
         .limit(200);
       if (error) throw error;
@@ -96,39 +116,171 @@ export interface PostMessageInput {
   /** fix-330: files the composer is holding. Uploaded HERE, in the same
    *  mutation as the insert — see uploadChatAttachments for why. */
   files?: readonly File[];
+  /** ★ fix-334: the post this reply hangs under. NULL creates a POST, which
+   *  RLS admits only for an admin. */
+  parentMessageId?: string | null;
+  /** ★ fix-334: a post's title. Required when parentMessageId is null; the DB
+   *  CHECK enforces the pairing, so a mistake here is refused rather than
+   *  silently stored as a shapeless row. */
+  title?: string | null;
+  /**
+   * ★★ fix-334 §5: the task to create IN THE SAME SEND.
+   *
+   * Bobby: "as you're typing your message, add a task or send it to this permit,
+   * and then click send so it's all done in one sweep." Passing it here rather
+   * than calling a second mutation afterwards is what makes it one send — the
+   * message and its task share a failure surface, so a task can never be
+   * created against a message that did not post.
+   */
+  task?: {
+    permitId: number;
+    text: string;
+    discipline: 'arch' | 'ent';
+    assignedTo?: string | null;
+    targetDate?: string | null;
+  } | null;
 }
 
+/**
+ * Post a message — a reply, or (for an admin) a new post.
+ *
+ * ★ Returns the new message's id, which §5 needs: the task is attached to the
+ * row that was just written, in the same mutation.
+ */
 export function usePostMessage() {
   const queryClient = useQueryClient();
-  return useMutation<void, Error, PostMessageInput>({
-    mutationFn: async ({ projectId, body, mentions, files }) => {
+  const upsert = useUpsertTask();
+  return useMutation<string | null, Error, PostMessageInput>({
+    mutationFn: async ({
+      projectId,
+      body,
+      mentions,
+      files,
+      parentMessageId,
+      title,
+      task,
+    }) => {
       const trimmed = body.trim();
       const pending = files ?? [];
       // ★ fix-330: a snip with no words is a message. The DB CHECK says the same
       // thing (body non-empty OR attachments non-empty), so this guard and the
       // constraint agree rather than one silently swallowing what the other
       // would have refused.
-      if (!trimmed && pending.length === 0) return;
+      if (!trimmed && pending.length === 0) return null;
       const attachments = pending.length
         ? await uploadChatAttachments(projectId, pending)
         : [];
       // tenant_id and author_id are stamped by triggers; the insert policy
-      // refuses any author but the caller.
-      const { error } = await supabase.from('project_messages').insert({
-        project_id: projectId,
-        body: trimmed,
-        mentions,
-        attachments,
-      });
+      // refuses any author but the caller — and refuses a POST outright unless
+      // the caller is an admin.
+      const { data, error } = await supabase
+        .from('project_messages')
+        .insert({
+          project_id: projectId,
+          body: trimmed,
+          mentions,
+          attachments,
+          parent_message_id: parentMessageId ?? null,
+          title: parentMessageId ? null : (title ?? null),
+        })
+        .select('id')
+        .single();
       if (error) throw error;
+      const messageId = (data as { id: string }).id;
+
+      // ★★ §5: ONE SEND, BOTH THINGS. Same write path as fix-330 — useUpsertTask
+      // → bp_upsert_permit_task — so a task composed alongside a message is a
+      // task in every way, and still renders back on its permit.
+      if (task) {
+        const taskId = await upsert.mutateAsync({
+          permitId: task.permitId,
+          discipline: task.discipline,
+          text: task.text,
+          status: 'Open',
+          assignedTo: task.assignedTo ?? null,
+          targetDate: task.targetDate ?? null,
+        });
+        const { error: linkError } = await supabase
+          .from('permit_tasks')
+          .update({ source_message_id: messageId })
+          .eq('id', taskId);
+        if (linkError) throw linkError;
+      }
+      return messageId;
     },
     onSuccess: () => {
       // One prefix covers the thread, the rail card and the bell's mention
       // query — they are the same data and they refresh together.
       queryClient.invalidateQueries({ queryKey: queryKeys.projectMessagesAll });
+      queryClient.invalidateQueries({ queryKey: queryKeys.permitTasksAll });
     },
     onError: (error) => {
       pushToast(`Could not send — ${error.message}`, 'error');
+    },
+  });
+}
+
+/**
+ * ★★ fix-334 §4: edit your own message, with the original kept.
+ *
+ * The client sends only the new body (and re-parsed mentions). It does NOT send
+ * `revisions` or `edited_at` — it CANNOT: `authenticated` has no column grant on
+ * either, so the history is the trigger's and cannot be forged from here.
+ *
+ * ★ RLS refuses somebody else's row, so a wrong id is a no-op rather than a
+ * hijack. Proved on prod with a second identity, not read off the policy.
+ */
+export function useEditMessage() {
+  const queryClient = useQueryClient();
+  return useMutation<
+    void,
+    Error,
+    { messageId: string; body: string; mentions: string[] }
+  >({
+    mutationFn: async ({ messageId, body, mentions }) => {
+      const trimmed = body.trim();
+      if (!trimmed) throw new Error('A message cannot be edited to nothing.');
+      const { error } = await supabase
+        .from('project_messages')
+        .update({ body: trimmed, mentions })
+        .eq('id', messageId);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.projectMessagesAll });
+    },
+    onError: (error) => {
+      pushToast(`Could not save the edit — ${error.message}`, 'error');
+    },
+  });
+}
+
+/**
+ * ★★ fix-334 §4: delete your own message — softly.
+ *
+ * Sets `deleted_at` and nothing else. The trigger files the current body into
+ * `revisions` on the way, so "a deleted message keeps its original" is a
+ * property of the database rather than of this call.
+ *
+ * ★ A HARD DELETE IS NOT AVAILABLE AND MUST NOT BE ADDED. permit_tasks.
+ * source_message_id points here; fix-329 made it ON DELETE SET NULL so a task
+ * survives its message, and a soft delete means it never has to.
+ */
+export function useDeleteMessage() {
+  const queryClient = useQueryClient();
+  return useMutation<void, Error, { messageId: string }>({
+    mutationFn: async ({ messageId }) => {
+      const { error } = await supabase
+        .from('project_messages')
+        .update({ deleted_at: new Date().toISOString() })
+        .eq('id', messageId);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.projectMessagesAll });
+    },
+    onError: (error) => {
+      pushToast(`Could not delete — ${error.message}`, 'error');
     },
   });
 }

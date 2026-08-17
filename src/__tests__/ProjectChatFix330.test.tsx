@@ -215,6 +215,31 @@ const mocks = vi.hoisted(() => ({
   userId: '11111111-1111-1111-1111-111111111111' as string | null,
 }));
 
+// ★★ fix-334: every message is now a REPLY UNDER A POST. These suites predate
+// posts, so the mocked read wraps their fixtures in the one post they all hang
+// from — which is exactly the shape the migration gave the seven real messages
+// that predated posts too. The assertions below are unchanged by it.
+const FIX334_POST = {
+  id: 'post-1',
+  project_id: 'p-1',
+  author_id: '11111111-1111-1111-1111-111111111111',
+  author_name: 'Bobby',
+  body: 'Messages posted before this project had posts.',
+  mentions: [] as string[],
+  attachments: [],
+  created_at: '2026-08-15T09:00:00Z',
+  task_id: null,
+  task_text: null,
+  task_permit_id: null,
+  parent_message_id: null,
+  title: 'General',
+  edited_at: null,
+  deleted_at: null,
+  revisions: [],
+  reply_count: null,
+  last_activity_at: null,
+} as unknown as import('../lib/database.types').ProjectMessage;
+
 vi.mock('../stores/authStore', () => ({
   useAuthStore: (selector: (s: unknown) => unknown) =>
     selector({
@@ -229,7 +254,11 @@ vi.mock('../hooks/useProjectMessages', async (orig) => {
   const actual = await orig<typeof import('../hooks/useProjectMessages')>();
   return {
     ...actual,
-    useProjectMessages: () => ({ data: mocks.messages, isLoading: false, error: null }),
+    useProjectMessages: () => ({
+      data: [FIX334_POST, ...mocks.messages],
+      isLoading: false,
+      error: null,
+    }),
     useMentionablePeople: () => ({ data: mocks.people, isLoading: false, error: null }),
     useMyMentions: () => ({ data: [], isLoading: false, error: null }),
     usePostMessage: () => ({
@@ -308,6 +337,15 @@ function message(over: Partial<ProjectMessage> = {}): ProjectMessage {
     task_id: null,
     task_text: null,
     task_permit_id: null,
+    // fix-334: posts, edit history and soft delete. These fixtures are REPLIES
+    // under a post — the shape every pre-fix-334 message became.
+    parent_message_id: 'post-1',
+    title: null,
+    edited_at: null,
+    deleted_at: null,
+    revisions: [],
+    reply_count: null,
+    last_activity_at: null,
     ...over,
   };
 }
@@ -536,7 +574,7 @@ describe('fix-330: creating a task chooses its permit', () => {
   it('★ the chooser shows number AND type, so two permits are distinguishable', () => {
     openModal(TWO_PERMITS);
     fireEvent.click(screen.getByTestId('project-chat-create-task-m-7'));
-    const select = screen.getByTestId('chat-task-permit-m-7') as HTMLSelectElement;
+    const select = screen.getByTestId('chat-task-m-7-permit') as HTMLSelectElement;
     const labels = Array.from(select.options).map((o) => o.textContent);
     expect(labels).toEqual(['7133442-CN · Building Permit', '7133443-DM · Demolition']);
   });
@@ -544,7 +582,7 @@ describe('fix-330: creating a task chooses its permit', () => {
   it('defaults to the anchor — the lowest-id Building Permit', () => {
     openModal(TWO_PERMITS);
     fireEvent.click(screen.getByTestId('project-chat-create-task-m-7'));
-    expect((screen.getByTestId('chat-task-permit-m-7') as HTMLSelectElement).value).toBe(
+    expect((screen.getByTestId('chat-task-m-7-permit') as HTMLSelectElement).value).toBe(
       '12',
     );
   });
@@ -554,7 +592,7 @@ describe('fix-330: creating a task chooses its permit', () => {
   it('★ choosing the second permit puts the task on THAT permit', () => {
     openModal(TWO_PERMITS);
     fireEvent.click(screen.getByTestId('project-chat-create-task-m-7'));
-    fireEvent.change(screen.getByTestId('chat-task-permit-m-7'), {
+    fireEvent.change(screen.getByTestId('chat-task-m-7-permit'), {
       target: { value: '21' },
     });
     fireEvent.click(screen.getByTestId('chat-task-create-m-7'));
@@ -575,8 +613,8 @@ describe('fix-330: creating a task chooses its permit', () => {
       target: { value: 'Jade' },
     });
     // TaskDateField renders a muted "—" until it is clicked (fix-229).
-    fireEvent.click(screen.getByTestId('chat-task-due-m-7-empty'));
-    const date = screen.getByTestId('chat-task-due-m-7');
+    fireEvent.click(screen.getByTestId('chat-task-m-7-due-empty'));
+    const date = screen.getByTestId('chat-task-m-7-due');
     fireEvent.change(date, { target: { value: '2026-09-01' } });
     fireEvent.blur(date);
     fireEvent.click(screen.getByTestId('chat-task-create-m-7'));
@@ -601,7 +639,7 @@ describe('fix-330: creating a task chooses its permit', () => {
   it('the text is pre-filled from the message and editable', () => {
     openModal(TWO_PERMITS);
     fireEvent.click(screen.getByTestId('project-chat-create-task-m-7'));
-    const text = screen.getByTestId('chat-task-text-m-7') as HTMLInputElement;
+    const text = screen.getByTestId('chat-task-m-7-text') as HTMLInputElement;
     expect(text.value).toBe('chase the survey');
     fireEvent.change(text, { target: { value: 'Chase the survey with the city' } });
     fireEvent.click(screen.getByTestId('chat-task-create-m-7'));

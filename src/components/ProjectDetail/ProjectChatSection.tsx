@@ -6,15 +6,16 @@ import {
   useProjectMessages,
 } from '../../hooks/useProjectMessages';
 import {
-  chatStamp,
+  groupIntoPosts,
+  isDeleted,
   keyForMention,
-  lastMessages,
   mentionsMe,
+  type ChatPost,
 } from '../../lib/projectChat';
 import ProjectChatModal from './ProjectChatModal';
 import ChatAttachments from './ChatAttachments';
 import { Avatar, MessageBody } from './ChatMessageBody';
-import type { MentionablePerson, Permit, ProjectMessage } from '../../lib/database.types';
+import type { MentionablePerson, Permit } from '../../lib/database.types';
 
 // fix-331 §3 — the conversation lives INSIDE the Team card now.
 //
@@ -68,10 +69,13 @@ export default function ProjectChatSection({
   const messages = useMemo(() => messagesQ.data ?? [], [messagesQ.data]);
   const people = useMemo(() => peopleQ.data ?? [], [peopleQ.data]);
 
-  const preview = useMemo(
-    () => lastMessages(messages, PREVIEW_COUNT),
-    [messages],
-  );
+  // ★★ fix-334: the section previews POSTS, not raw messages. Bobby's rule from
+  // fix-331 still holds — "one or two of the most previous messages, and then
+  // the rest you would have to open" — but the unit of a conversation is a post
+  // now, and two posts say more about what is happening on a project than the
+  // last two replies torn out of whichever one happened to be busiest.
+  const posts = useMemo(() => groupIntoPosts(messages), [messages]);
+  const preview = useMemo(() => posts.slice(0, PREVIEW_COUNT), [posts]);
 
   return (
     <>
@@ -82,11 +86,11 @@ export default function ProjectChatSection({
           // ★ An empty thread says what to do, rather than rendering an empty
           // block that looks broken.
           <div className="text-[10.5px] text-dim italic" data-testid="project-chat-empty">
-            No messages yet — start the conversation.
+            No posts yet — open the chat to start one.
           </div>
         ) : (
-          preview.map((m) => (
-            <MiniMessage key={m.id} message={m} people={people} userId={userId} />
+          preview.map((p) => (
+            <MiniPost key={p.post.id} entry={p} people={people} userId={userId} />
           ))
         )}
 
@@ -99,8 +103,8 @@ export default function ProjectChatSection({
           className="self-start text-[10.5px] font-bold text-de hover:underline bg-transparent border-none p-0 cursor-pointer"
           data-testid="project-chat-open"
         >
-          {messages.length > PREVIEW_COUNT
-            ? `Open chat (${messages.length}) →`
+          {posts.length > PREVIEW_COUNT
+            ? `Open chat (${posts.length} posts) →`
             : 'Open chat →'}
         </button>
       </div>
@@ -147,16 +151,30 @@ export function ProjectChatUnread({ projectId }: { projectId: string }) {
   );
 }
 
-function MiniMessage({
-  message,
+/**
+ * ★ One POST, at a glance. Title first — that is the whole reason posts exist:
+ * "different posts for different concepts or different categories of chatting…
+ * that way you can keep a chat more organized." A title plus a reply count says
+ * what is going on; two lines of somebody's last sentence does not.
+ *
+ * ★ The MOST RECENT message in the post is what it previews underneath, so the
+ * section still answers "what was just said" as well as "what is being
+ * discussed".
+ */
+function MiniPost({
+  entry,
   people,
   userId,
 }: {
-  message: ProjectMessage;
+  entry: ChatPost;
   people: MentionablePerson[];
   userId: string | null;
 }) {
-  const toMe = mentionsMe(message, userId);
+  const latest =
+    [...entry.replies].reverse().find((r) => !isDeleted(r)) ?? entry.post;
+  const toMe =
+    mentionsMe(entry.post, userId) ||
+    entry.replies.some((r) => mentionsMe(r, userId) && !isDeleted(r));
   return (
     <div
       className="flex gap-2"
@@ -170,17 +188,18 @@ function MiniMessage({
             }
           : undefined
       }
-      data-testid={`project-chat-mini-${message.id}`}
+      data-testid={`project-chat-mini-${entry.post.id}`}
       data-to-me={toMe ? 'true' : 'false'}
     >
-      <Avatar name={message.author_name} />
+      <Avatar name={latest.author_name} />
       <div className="flex-1 min-w-0">
         <div className="flex items-baseline gap-1.5">
           <span className="text-[11px] font-bold text-text truncate">
-            {message.author_name ?? 'Unknown'}
+            {entry.post.title}
           </span>
           <span className="text-[9px] text-dim flex-shrink-0">
-            {chatStamp(message.created_at)}
+            {entry.replyCount}{' '}
+            {entry.replyCount === 1 ? 'reply' : 'replies'}
           </span>
         </div>
         {/* Two-line clamp — the section is a glance, not a read. */}
@@ -193,11 +212,15 @@ function MiniMessage({
             overflow: 'hidden',
           }}
         >
-          <MessageBody body={message.body} people={people} />
+          {isDeleted(latest) ? (
+            <span className="text-dim italic">Message deleted</span>
+          ) : (
+            <MessageBody body={latest.body} people={people} />
+          )}
         </div>
         {/* fix-330: an attachment shows here too, or a snip-only message would
             render as a blank row. Compact — one named line per file. */}
-        <ChatAttachments attachments={message.attachments ?? []} compact />
+        <ChatAttachments attachments={latest.attachments ?? []} compact />
       </div>
     </div>
   );

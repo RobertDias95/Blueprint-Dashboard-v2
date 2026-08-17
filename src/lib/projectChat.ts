@@ -336,3 +336,204 @@ export function initialsOf(name: string | null | undefined): string {
   if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
   return (parts[0][0] + parts[1][0]).toUpperCase();
 }
+
+// ---------------------------------------------------------------------------
+// ★★ fix-334 — posts, and the pure half of everything they need
+// ---------------------------------------------------------------------------
+//
+// Bobby: "Similar to Teams, there is a way to do posts within a chat… different
+// posts for different concepts or different categories of chatting, that way you
+// can keep a chat more organized."
+//
+// ★ TWO LEVELS. A post is a titled top-level entry; replies hang under it and
+// nothing hangs under a reply. Teams does not nest further and neither does
+// this — the database refuses a third level, and this groups accordingly.
+
+/** A post with its replies, in the shape both surfaces render. */
+export interface ChatPost {
+  post: ProjectMessage;
+  replies: ProjectMessage[];
+  /** Live replies (deleted ones excluded), from the RPC where available. */
+  replyCount: number;
+  /** Newest of the post and its live replies — how the list is ordered. */
+  lastActivityAt: string;
+}
+
+/** True when this message has been soft-deleted. */
+export function isDeleted(m: Pick<ProjectMessage, 'deleted_at'>): boolean {
+  return !!m.deleted_at;
+}
+
+/** True when the body on screen is not the body that was first written. */
+export function isEdited(m: Pick<ProjectMessage, 'edited_at'>): boolean {
+  return !!m.edited_at;
+}
+
+/**
+ * ★ The text a deleted or edited message USED to carry — the thing Bobby asked
+ * to keep: "we still want to show the original text, but then it maybe just
+ * kind of gets minimized."
+ *
+ * The FIRST revision, not the last: revisions are appended oldest-first, so
+ * entry 0 is what was originally written. An edit-then-delete leaves two
+ * entries and the original is still the one worth surfacing.
+ */
+export function originalBody(
+  m: Pick<ProjectMessage, 'revisions' | 'body'>,
+): string | null {
+  const revs = m.revisions ?? [];
+  return revs.length > 0 ? revs[0]!.body : null;
+}
+
+/**
+ * Group a flat thread into posts and their replies.
+ *
+ * ★ THE FLAT LIST IS THE WIRE SHAPE and this is the only place it becomes a
+ * tree. The RPC returns one row per message because the realtime refresh has to
+ * diff a list; nesting it server-side would have meant two shapes for one
+ * thread and a second grouping rule to keep in step.
+ *
+ * ★ AN ORPHANED REPLY IS NOT DROPPED. If a reply's post is somehow absent from
+ * the payload it is collected under a synthetic post rather than silently
+ * vanishing — silently vanishing is how the pre-post messages would have been
+ * lost, and it is the failure mode this whole ticket is guarding.
+ */
+export function groupIntoPosts(
+  messages: readonly ProjectMessage[],
+): ChatPost[] {
+  const posts = messages.filter((m) => m.parent_message_id === null);
+  const byPost = new Map<string, ProjectMessage[]>();
+  for (const m of messages) {
+    if (m.parent_message_id === null) continue;
+    const list = byPost.get(m.parent_message_id);
+    if (list) list.push(m);
+    else byPost.set(m.parent_message_id, [m]);
+  }
+
+  const out: ChatPost[] = posts.map((post) => {
+    const replies = (byPost.get(post.id) ?? []).sort((a, b) =>
+      a.created_at.localeCompare(b.created_at),
+    );
+    byPost.delete(post.id);
+    return {
+      post,
+      replies,
+      replyCount:
+        post.reply_count ?? replies.filter((r) => !isDeleted(r)).length,
+      lastActivityAt:
+        post.last_activity_at ??
+        replies.filter((r) => !isDeleted(r)).reduce(
+          (max, r) => (r.created_at > max ? r.created_at : max),
+          post.created_at,
+        ),
+    };
+  });
+
+  // Whatever is left points at a post this payload does not contain.
+  for (const [parentId, replies] of byPost) {
+    const sorted = [...replies].sort((a, b) =>
+      a.created_at.localeCompare(b.created_at),
+    );
+    out.push({
+      post: {
+        ...sorted[0]!,
+        id: parentId,
+        parent_message_id: null,
+        title: 'Unfiled',
+        body: '',
+        attachments: [],
+        revisions: [],
+      },
+      replies: sorted,
+      replyCount: sorted.filter((r) => !isDeleted(r)).length,
+      lastActivityAt: sorted[sorted.length - 1]!.created_at,
+    });
+  }
+
+  // Newest conversation first — a post someone replied to this morning matters
+  // more than one nobody has touched since June.
+  return out.sort((a, b) => b.lastActivityAt.localeCompare(a.lastActivityAt));
+}
+
+// ---------------------------------------------------------------------------
+// ★ Search within one project's conversation
+// ---------------------------------------------------------------------------
+//
+// Bobby: "Maybe add a search feature within that chat. So then, if you're like,
+// oh, where was this talked about, you can find it and then go from there."
+//
+// ★ CLIENT-SIDE, AND THAT IS A DECISION. The corpus is ONE project's chat and it
+// is already in memory — the thread has to be loaded to render at all. A
+// server-side search would add an RPC, an index and a round trip per keystroke
+// to search a few dozen rows the browser is already holding. It is not the
+// app-wide search fix-331 §5 deleted: that one had nothing behind it; this has
+// a real corpus and a real scope.
+//
+// ★★ "AND THEN GO FROM THERE" IS THE REQUIREMENT. A hit carries the post it
+// lives in, so selecting it can OPEN that post and land on the message — not
+// merely list it. The caller uses `postId` + `message.id` to do exactly that.
+
+export interface ChatSearchHit {
+  /** The post this hit lives in — what the caller opens. */
+  postId: string;
+  /** The post's title, for the result row. */
+  postTitle: string;
+  /** The matching message. For a title hit this IS the post. */
+  message: ProjectMessage;
+  /** Did the POST TITLE match, or a body? */
+  field: 'title' | 'body';
+  /** A window of the body around the hit, for recognition. */
+  excerpt: string;
+}
+
+/** Roughly 70 characters of context around the match. */
+function excerptAround(body: string, at: number, needle: number): string {
+  const start = Math.max(0, at - 30);
+  const end = Math.min(body.length, at + needle + 40);
+  return (
+    (start > 0 ? '…' : '') +
+    body.slice(start, end).trim() +
+    (end < body.length ? '…' : '')
+  );
+}
+
+/**
+ * Search post titles and reply bodies within one project's chat.
+ *
+ * ★ A DELETED MESSAGE IS NOT SEARCHABLE. Its words are still kept — that is §4's
+ * whole point — but surfacing them in search would undo the deletion for every
+ * practical purpose.
+ */
+export function searchChat(
+  posts: readonly ChatPost[],
+  query: string,
+): ChatSearchHit[] {
+  const q = query.trim().toLowerCase();
+  if (q.length < 2) return [];
+  const hits: ChatSearchHit[] = [];
+  for (const { post, replies } of posts) {
+    const title = post.title ?? '';
+    if (title.toLowerCase().includes(q)) {
+      hits.push({
+        postId: post.id,
+        postTitle: title,
+        message: post,
+        field: 'title',
+        excerpt: title,
+      });
+    }
+    for (const m of [post, ...replies]) {
+      if (isDeleted(m)) continue;
+      const at = m.body.toLowerCase().indexOf(q);
+      if (at === -1) continue;
+      hits.push({
+        postId: post.id,
+        postTitle: title,
+        message: m,
+        field: 'body',
+        excerpt: excerptAround(m.body, at, q.length),
+      });
+    }
+  }
+  return hits;
+}
