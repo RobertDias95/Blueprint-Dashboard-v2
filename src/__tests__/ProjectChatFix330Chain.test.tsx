@@ -316,7 +316,7 @@ vi.mock('../components/ProjectDetail/ScheduleEstimator', () => ({
   default: () => <div data-testid="stub-schedule-estimator" />,
 }));
 
-import ProjectChatCard from '../components/ProjectDetail/ProjectChatCard';
+import ProjectChatCard from '../components/ProjectDetail/ProjectChatSection';
 import PermitDetailV2 from '../components/ProjectDetail/PermitDetailV2';
 import MyTasks from '../pages/MyTasks';
 

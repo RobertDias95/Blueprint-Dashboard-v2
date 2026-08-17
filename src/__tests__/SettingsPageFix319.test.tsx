@@ -304,10 +304,17 @@ describe('fix-319 #77: Phase Durations lives in Settings → Permits', () => {
     expect(routerSrc).not.toContain('<PhaseDurationsReport />');
   });
 
-  it('★★ so the Reports group finally reads Overview + Saved reports', () => {
+  // ★ fix-331 §8 added Project View between them. fix-319's point — Phase
+  // durations is out, the group is not a duplicate shelf — is unchanged.
+  it('★★ so the Reports group reads Overview + Project View + Saved reports', () => {
     const reports = RIBBON_ENTRIES.find((e) => e.kind === 'group' && e.group.id === 'reports');
     const kids = reports!.kind === 'group' ? reports!.group.children : [];
-    expect(kids.map((k) => k.label)).toEqual(['Overview', 'Saved reports']);
+    expect(kids.map((k) => k.label)).toEqual([
+      'Overview',
+      'Project View',
+      'Saved reports',
+    ]);
+    expect(kids.map((k) => k.label)).not.toContain('Phase durations');
   });
 });
 

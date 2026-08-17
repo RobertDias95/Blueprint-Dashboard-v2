@@ -105,17 +105,23 @@ describe('<Chrome /> fix-313 the Blueprint Bridge shell', () => {
     renderIt();
     // ★ fix-319 #76: Settings joined the top level as a LINK. It was a button
     // that opened a dialog; it is a page at /settings now.
+    // ★★ fix-331 §8, the third reorder: Draw Schedule joined the top tier,
+    // My Board dropped to third, Project View moved UNDER Reports, and error
+    // triage arrived from the top bar as an admin-only entry.
     expect(ribbonLabels()).toEqual([
       'Pipeline',
+      'Draw Schedule',
       'My Board',
-      'Project View',
       'Settings',
+      'Scraper and app errors needing triage',
     ]);
 
     // ★ fix-310 renamed the DD-PHASE vocabulary from Draw to DD across ~14
     // surfaces. The Draw SCHEDULE is a different concept and keeps its name.
     fireEvent.click(screen.getByTestId('ribbon-group-toggle-entitlements'));
     const withEnt = ribbonLabels();
+    // ★ fix-331 §8: Draw Schedule is still reachable and still called that —
+    // it is simply a top-tier entry now rather than a child of Entitlements.
     expect(withEnt).toContain('Draw Schedule');
     expect(withEnt.some((l) => l === 'DD Schedule')).toBe(false);
     expect(withEnt).toContain('Library');
@@ -134,15 +140,16 @@ describe('<Chrome /> fix-313 the Blueprint Bridge shell', () => {
     expect(screen.queryByTestId('chrome-settings-gear')).toBeNull();
   });
 
-  // ★ #59: search is new furniture and there is nothing to wire it to.
-  it('★ renders search DISABLED with a coming-soon affordance, not a dead control', () => {
+  // ★★ SUPERSEDED BY fix-331 §5, inverted rather than deleted. #59 rendered
+  // search disabled with an honest label, which was right for a shell that had
+  // just been built. Bobby has since used it beside the real per-screen search:
+  // "most screens have a search feature already, so it's kind of a redundant
+  // thing." An honest placeholder is still a placeholder.
+  it('★ fix-331 §5: there is no search bar in the top bar at all', () => {
     renderIt();
-    const search = screen.getByTestId('chrome-search');
-    expect(search.dataset.disabled).toBe('true');
-    expect(search.getAttribute('aria-disabled')).toBe('true');
-    expect(search.textContent).toMatch(/coming soon/i);
-    // It is not an input, so it cannot be typed into and look alive.
-    expect(search.querySelector('input')).toBeNull();
+    expect(screen.queryByTestId('chrome-search')).toBeNull();
+    expect(screen.getByTestId('chrome-header').textContent ?? '')
+      .not.toMatch(/coming soon/i);
   });
 
   it('keeps the user chip in the top bar', () => {
@@ -160,11 +167,37 @@ describe('<Chrome /> fix-313 the Blueprint Bridge shell', () => {
     expect(screen.queryByTestId('notification-bell-button')).toBeNull();
   });
 
-  it('the error-triage badge is NOT a bell and stays', () => {
-    // Different icon (warning triangle) and a different question, so it was
-    // never part of the two-bells problem.
+  // ★★ SUPERSEDED BY fix-331 §6. It was never part of the two-bells problem,
+  // but it sat beside a bell every user needs while being an ADMIN tool over a
+  // page of stack traces — and 23 of this tenant's 29 people are editors. It is
+  // an admin-gated ribbon entry now, and the route is AdminRoute-wrapped too.
+  it('★ fix-331 §6: error triage has left the top bar', () => {
     renderIt();
-    expect(screen.getByTestId('error-triage-button')).toBeTruthy();
+    expect(screen.queryByTestId('error-triage-button')).toBeNull();
+    expect(screen.getByTestId('ribbon-link-/settings/errors')).toBeInTheDocument();
+  });
+
+  it('★ fix-331 §6: a non-admin sees no error-triage entry anywhere', () => {
+    authState.role = 'editor';
+    renderIt();
+    expect(screen.queryByTestId('ribbon-link-/settings/errors')).toBeNull();
+    expect(screen.queryByTestId('error-triage-button')).toBeNull();
+  });
+
+  // ★ fix-331 §7: the initials circle is gone. Bobby: "I don't know if it needs
+  // to say the BO part, because it's not like a setting, there's no button
+  // functionality." Name, position and the bell remain.
+  it('★ fix-331 §7: the user chip has no initials circle', () => {
+    renderIt();
+    const chip = screen.getByTestId('chrome-user-chip');
+    // The name/position block survives; the 29px rounded circle in front of it
+    // does not. Asserted structurally — a name is only two lines of text now,
+    // so there is no third element to be an avatar.
+    expect(chip.textContent).toContain('Blueprint Services');
+    expect(chip.querySelector('.rounded-full')).toBeNull();
+    expect(chip.children).toHaveLength(1);
+    // The bell is still to its left, in the same header.
+    expect(screen.getByTestId('board-bell-button')).toBeTruthy();
   });
 
   // fix-234, now applied to the whole ribbon GROUP.
@@ -174,21 +207,38 @@ describe('<Chrome /> fix-313 the Blueprint Bridge shell', () => {
     expect(screen.getByTestId('ribbon-group-reports')).toBeInTheDocument();
   });
 
-  it('★ a non-admin sees NO Reports group at all — not an empty one', () => {
+  // ★★ SUPERSEDED BY fix-331 §8, and this is the change worth reading twice.
+  //
+  // fix-234's gate was all-or-nothing: a non-admin saw no Reports group. §8
+  // moves PROJECT VIEW under Reports — and Project View is not admin-only.
+  // Measured on prod 2026-08-17: 23 of the 29 people in this tenant are
+  // . Keeping the group hidden wholesale would have deleted Project
+  // View for 23 of 29 users, so the gate became per-child: the group renders
+  // when the viewer can see at least one child, and a non-admin sees exactly
+  // one — Project View. NO REPORT ROUTE IS REACHABLE, which is the part of
+  // fix-234 that still matters and is asserted below.
+  it('★ a non-admin sees the Reports group with ONLY Project View in it', () => {
     authState.role = 'editor';
     renderIt();
-    expect(screen.queryByTestId('ribbon-group-reports')).toBeNull();
-    // Not merely collapsed: none of the seven report routes is reachable.
+    expect(screen.getByTestId('ribbon-group-reports')).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId('ribbon-group-toggle-reports'));
+    expect(screen.getByTestId('ribbon-link-/projects')).toBeInTheDocument();
+    // Not merely collapsed: no report route is reachable.
+    expect(screen.queryByTestId('ribbon-link-/reports')).toBeNull();
     expect(screen.queryByTestId('ribbon-link-/reports/weekly-da')).toBeNull();
     expect(screen.queryByTestId('ribbon-link-/settings/reporting')).toBeNull();
 
     // Everything else still renders. fix-297: ★ Library is NOT admin-gated,
     // matching Draw Schedule — it has been reachable by everyone for as long
     // as it has existed. fix-298: neither is My Board.
+    // Everything a non-admin SHOULD have is here: the three top-tier screens,
+    // Settings, Entitlements, and Project View inside the group opened above.
+    // No error-triage entry, and no report.
     expect(ribbonLabels()).toEqual([
       'Pipeline',
+      'Draw Schedule',
       'My Board',
-      'Project View',
+      'Every project, searchable — open to everyone',
       'Settings',
     ]);
     expect(screen.getByTestId('ribbon-group-entitlements')).toBeInTheDocument();

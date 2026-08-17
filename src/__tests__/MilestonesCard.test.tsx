@@ -291,7 +291,7 @@ describe('fix-296 two sections, not one list', () => {
     expect(sections[0]).toHaveTextContent('Key dates');
     expect(sections[1]).toHaveTextContent('DD window');
 
-    const drawSection = sections[1].parentElement as HTMLElement;
+    const drawSection = sections[1].closest('section') as HTMLElement;
     expect(within(drawSection).getByTestId('pd-bp-dd_start')).toBeInTheDocument();
     expect(within(drawSection).getByTestId('pd-bp-dd_end')).toBeInTheDocument();
     expect(within(drawSection).queryByText('GO Date')).toBeNull();
@@ -302,7 +302,7 @@ describe('fix-296 two sections, not one list', () => {
   it('each section carries its own top border, so a third can be added', () => {
     renderHeader(projectFixture(), [bpFixture()]);
     const card = screen.getByTestId('pd-milestones-card');
-    const keyDates = within(card).getByText('Key dates').parentElement as HTMLElement;
+    const keyDates = within(card).getByText('Key dates').closest('section') as HTMLElement;
     expect(keyDates.className).toContain('first:border-t-0');
   });
 });

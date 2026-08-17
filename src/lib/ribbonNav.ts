@@ -22,6 +22,25 @@ export interface RibbonLink {
    *  prefix match would light the overview entry up while you are reading
    *  Corrections — two entries claiming to be where you are. */
   exact?: boolean;
+  /** ★ fix-331 §6: this entry renders a live count beside its label. A tag, not
+   *  a number — the model stays pure and Ribbon.tsx supplies the data, the same
+   *  split that keeps route coverage assertable without mounting a query. */
+  badge?: 'errors';
+  /**
+   * ★★ fix-331: admin gating on a SINGLE ENTRY, which fix-234 did not need.
+   *
+   * fix-234 gated whole groups, because Reports was uniformly admin-only. §8
+   * moves **Project View** under Reports — and Project View is not admin-only
+   * and never has been. Measured on prod 2026-08-17: **23 of the 29 people in
+   * this tenant are `editor`, not `admin`.** Withholding the group wholesale
+   * would have taken Project View away from 23 of 29 users, which is not a
+   * ribbon reorder, it is deleting a screen for most of the company.
+   *
+   * So a group is now withheld only when the viewer can see NONE of its
+   * children, and each child says for itself. An admin sees
+   * Overview · Project View · Saved reports; everybody else sees Project View.
+   */
+  adminOnly?: boolean;
 }
 
 export interface RibbonGroup {
@@ -32,7 +51,12 @@ export interface RibbonGroup {
   children: RibbonLink[];
   /** fix-234: Reports is admin-only. A non-admin must not see seven report
    *  entries they cannot open, so the WHOLE group is withheld — not an empty
-   *  one, which would advertise a locked door. */
+   *  one, which would advertise a locked door.
+   *
+   *  ★ fix-331 turned this into a DEFAULT for the children rather than a veto on
+   *  the group: a child may opt out with `adminOnly: false`, and the group
+   *  renders whenever at least one child survives. See RibbonLink.adminOnly for
+   *  the measurement that forced it. */
   adminOnly?: boolean;
 }
 
@@ -46,11 +70,44 @@ export type RibbonEntry =
 // The "Entitlements" grouping mirrors his inspiration image and is a guess
 // about how the team thinks — build it, expect it to move. Draw Schedule,
 // Library and Activity are the three screens that sit under it today.
+// ★★ fix-331 §8 — THE THIRD REORDER, and the brief says to report exactly what
+// shipped, so the decisions are written here rather than left in a diff.
+//
+// Bobby's order:
+//
+//     Pipeline
+//     Draw Schedule
+//     My Board
+//     ─────
+//     Entitlements ▸    Library
+//     Reports ▸         Overview · Project View · Saved reports
+//     ─────
+//     Settings
+//     Error triage            (admin only — §6)
+//
+// Three changes, all his: Draw Schedule joins the top tier, My Board drops to
+// third, and Project View moves under Reports.
+//
+// ★ WHAT THE BRIEF'S SKETCH SHOWED AND THIS DOES NOT: "Entitlements ▸ Library ·
+// Waiting On …". Waiting On is deliberately NOT restored. fix-325 took it out on
+// Bobby's own instruction — "I think the waiting on needs to get folded into the
+// my task section" — and /waiting-on has been a REDIRECT ever since; the way in
+// is the Mine / Waiting On switcher on /board. Putting a redirect-only path back
+// in the ribbon would undo a shipped decision and re-create the shape the
+// coverage guard's exemption exists to document. Flagged rather than silently
+// obeyed or silently ignored.
+//
+// ★ SO ENTITLEMENTS HAS ONE CHILD. Draw Schedule was promoted out and Library is
+// what remains. A one-child group is odd, and it is left standing anyway because
+// the sketch keeps the group and because Entitlements is where the next such
+// screen goes — collapsing it now would mean re-creating it next ticket.
 export const RIBBON_ENTRIES: RibbonEntry[] = [
   { kind: 'link', link: { to: '/dashboard', label: 'Pipeline', icon: '▦' } },
+  // ★ Promoted out of Entitlements to the top tier: it is a daily destination,
+  // not a sub-page of a category.
+  { kind: 'link', link: { to: '/draw-schedule', label: 'Draw Schedule', icon: '▥' } },
   { kind: 'link', link: { to: '/board', label: 'My Board', icon: '◈' } },
   { kind: 'separator', id: 'sep-1' },
-  { kind: 'link', link: { to: '/projects', label: 'Project View', icon: '▤' } },
   {
     kind: 'group',
     group: {
@@ -58,7 +115,6 @@ export const RIBBON_ENTRIES: RibbonEntry[] = [
       label: 'Entitlements',
       icon: '◫',
       children: [
-        { to: '/draw-schedule', label: 'Draw Schedule', icon: '·' },
         { to: '/library', label: 'Library', icon: '·' },
         // ★ fix-325 #4 and #5: Waiting On and Activity BOTH came out of here,
         // for the same reason in Bobby's words — neither is a place you go, so
@@ -118,6 +174,19 @@ export const RIBBON_ENTRIES: RibbonEntry[] = [
           exact: true,
           hint: 'Live metrics — the reports dashboard, including Trends',
         },
+        // ★★ fix-331 §8: Project View lives HERE now, and it is the reason
+        // per-child admin gating exists. It is the one child of this group that
+        // is NOT admin-only — 23 of 29 people in this tenant are editors, and
+        // inheriting the group's gate would have taken the screen away from all
+        // of them. The route is not AdminRoute-wrapped and this must not
+        // pretend otherwise.
+        {
+          to: '/projects',
+          label: 'Project View',
+          icon: '·',
+          adminOnly: false,
+          hint: 'Every project, searchable — open to everyone',
+        },
         // ★ fix-317 (register #75): the six individual reports came OUT of here.
         // They were listed twice — once as ribbon entries, once inside Saved
         // reports, where they already sit grouped into categories.
@@ -164,13 +233,67 @@ export const RIBBON_ENTRIES: RibbonEntry[] = [
   // destination now, so it is a link like everything else, and the coverage
   // guard covers it.
   { kind: 'link', link: { to: '/settings', label: 'Settings', icon: '⚙' } },
+  // ★★ fix-331 §6: error triage came OUT of the top bar and into the ribbon.
+  //
+  // It sat beside BoardBell looking like a peer of it — a bell every user needs
+  // next to a bell only admins can act on. Two problems with that: it is not a
+  // notification, it is a maintenance screen; and it was visible to all 23
+  // non-admin editors, who could click it and land on a page of stack traces.
+  //
+  // ★ It carries its LIVE COUNT (see `badge`), because moving a signal into a
+  // quieter place must not mean losing the signal — an error-triage entry that
+  // never tells you there is anything to triage is furniture.
+  //
+  // ★ AND THE ROUTE IS GATED TOO, not just the entry. router.tsx wraps
+  // /settings/errors in AdminRoute, so a non-admin who types the URL is
+  // redirected. A hidden link over an open door is the fix-234 lesson.
+  {
+    kind: 'link',
+    link: {
+      to: '/settings/errors',
+      label: 'Error triage',
+      icon: '⚠',
+      adminOnly: true,
+      badge: 'errors',
+      hint: 'Scraper and app errors needing triage',
+    },
+  },
 ];
 
-/** The entries a viewer may see. fix-234's gate, applied to the whole group. */
+/** The entries a viewer may see.
+ *
+ *  ★ fix-331: a GROUP is withheld only when the viewer can see none of its
+ *  children, and a LINK is withheld on its own flag. fix-234's all-or-nothing
+ *  rule could not survive Project View moving under Reports — see
+ *  RibbonLink.adminOnly for the 23-of-29 measurement. */
 export function visibleEntries(isAdmin: boolean): RibbonEntry[] {
   if (isAdmin) return RIBBON_ENTRIES;
-  return RIBBON_ENTRIES.filter(
-    (e) => !(e.kind === 'group' && e.group.adminOnly),
+  const out: RibbonEntry[] = [];
+  for (const e of RIBBON_ENTRIES) {
+    if (e.kind === 'link') {
+      if (!e.link.adminOnly) out.push(e);
+      continue;
+    }
+    if (e.kind === 'group') {
+      const children = visibleChildren(e.group, false);
+      if (children.length > 0) out.push({ kind: 'group', group: { ...e.group, children } });
+      continue;
+    }
+    out.push(e);
+  }
+  return out;
+}
+
+/** The children of a group this viewer may see. A child inherits the group's
+ *  gate unless it says otherwise — `adminOnly: false` is a deliberate opt-out,
+ *  not a missing value, which is why `undefined` and `false` differ here. */
+export function visibleChildren(
+  group: RibbonGroup,
+  isAdmin: boolean,
+): RibbonLink[] {
+  if (isAdmin) return group.children;
+  return group.children.filter((c) =>
+    c.adminOnly === undefined ? !group.adminOnly : !c.adminOnly,
   );
 }
 
@@ -234,10 +357,11 @@ export const ROUTES_INTENTIONALLY_NOT_IN_RIBBON: ReadonlyArray<{
   why: string;
 }> = [
   { path: '/login', why: 'Unauthenticated. The ribbon does not render there.' },
-  {
-    path: '/settings/errors',
-    why: 'Reached from the error-triage badge in the top bar, and from a shared URL when triaging a specific group. Not a browsing destination.',
-  },
+  // ★ fix-331 §6: /settings/errors WAS exempt here, on the grounds that it was
+  // "reached from the error-triage badge in the top bar". That badge no longer
+  // exists — the entry is in the ribbon now — so the exemption is gone with it.
+  // A path may not be both a ribbon entry and an exemption; keeping the row
+  // would have made the coverage guard silently double-count it.
   {
     path: '/reports/builder',
     why: 'Opened from the Reporting hub ("Saved reports"), which is in the ribbon. A blank builder is not somewhere you navigate to cold.',

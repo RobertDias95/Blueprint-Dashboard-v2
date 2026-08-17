@@ -151,7 +151,7 @@ beforeEach(() => {
 /** The Key dates section of the Milestones card. */
 function keyDatesSection(): HTMLElement {
   const card = screen.getByTestId('pd-milestones-card');
-  return within(card).getByText('Key dates').parentElement as HTMLElement;
+  return within(card).getByText('Key dates').closest('section') as HTMLElement;
 }
 
 // ------------------------------------------------------------------- #51 --

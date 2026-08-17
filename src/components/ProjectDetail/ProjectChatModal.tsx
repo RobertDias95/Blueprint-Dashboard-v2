@@ -25,7 +25,7 @@ import {
   rejectionReason,
   type PendingAttachment,
 } from '../../lib/chatAttachments';
-import { Avatar, MessageBody } from './ProjectChatCard';
+import { Avatar, MessageBody } from './ChatMessageBody';
 import MentionTextarea from './MentionTextarea';
 import ChatAttachments from './ChatAttachments';
 import ChatTaskComposer from './ChatTaskComposer';

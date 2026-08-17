@@ -156,8 +156,13 @@ describe('fix-315 §1: the Reports overview is reachable again', () => {
     expect(kids[0]!.to).toBe('/reports');
     expect(kids[0]!.label).toBe('Overview');
     // fix-317 removed the five that duplicate Saved reports; ★ fix-319 #77
-    // moved the sixth into Settings → Permits. Overview + the shelf.
-    expect(kids.slice(1).map((k) => k.to)).toEqual(['/settings/reporting']);
+    // moved the sixth into Settings → Permits. ★ fix-331 §8 then moved Project
+    // View in, between the overview and the shelf. Overview still leads, which
+    // is what fix-315 was about.
+    expect(kids.slice(1).map((k) => k.to)).toEqual([
+      '/projects',
+      '/settings/reporting',
+    ]);
   });
 
   // ★ The brief's constraint on the interaction, asserted rather than asserted
@@ -220,10 +225,13 @@ describe('fix-315 §1: the Reports overview is reachable again', () => {
   });
 
   // ★ The gate must cover the new entry too.
-  it('★ a non-admin sees neither the group nor the overview entry', () => {
+  // ★ fix-331 §8: the GROUP renders for a non-admin now (Project View lives in
+  // it), but the overview entry still does not — which is the half fix-315 and
+  // fix-234 care about.
+  it('★ a non-admin sees the group but NOT the overview entry', () => {
     authState.role = 'editor';
     renderRibbon();
-    expect(screen.queryByTestId('ribbon-group-reports')).toBeNull();
+    expect(screen.getByTestId('ribbon-group-reports')).toBeInTheDocument();
     expect(screen.queryByTestId('ribbon-link-/reports')).toBeNull();
     const routes = visibleEntries(false).flatMap((e) =>
       e.kind === 'group' ? e.group.children.map((c) => c.to) : e.kind === 'link' ? [e.link.to] : [],
@@ -265,13 +273,17 @@ describe('fix-315 §2: Waiting On is reachable again', () => {
     expect(exemption!.why).toMatch(/My Tasks|switcher/i);
   });
 
-  it('Entitlements is Draw Schedule and Library now', () => {
+  it('Entitlements is Library alone now', () => {
     const ent = RIBBON_ENTRIES.find(
       (e) => e.kind === 'group' && e.group.id === 'entitlements',
     );
     const kids = ent!.kind === 'group' ? ent!.group.children.map((c) => c.to) : [];
     // ★ fix-325 took BOTH Waiting On (#5) and Activity (#4) out of this group.
-    expect(kids).toEqual(['/draw-schedule', '/library']);
+    // ★ fix-331 §8 then promoted Draw Schedule to the top tier, leaving one
+    // child. The group is kept deliberately — it is where the next entitlement
+    // screen goes, and collapsing it now would mean re-creating it next ticket.
+    expect(kids).toEqual(['/library']);
+    expect(allRibbonRoutes()).toContain('/draw-schedule');
   });
 
   // ★ NOT merged with the Consultant forecast — different questions, and the
@@ -557,7 +569,16 @@ describe('fix-315: fix-313 survives', () => {
       screen.getByTestId('ribbon-nav').querySelectorAll('a'),
     ).map((a) => a.getAttribute('title'));
     // ★ fix-319 #76: Settings became a link when it stopped being a modal.
-    expect(labels).toEqual(['Pipeline', 'My Board', 'Project View', 'Settings']);
+    // ★ fix-331 §8: Draw Schedule joined the top tier, My Board dropped to
+    // third, Project View moved into the Reports group, and error triage
+    // arrived from the top bar (admin-only — this suite renders as an admin).
+    expect(labels).toEqual([
+      'Pipeline',
+      'Draw Schedule',
+      'My Board',
+      'Settings',
+      'Scraper and app errors needing triage',
+    ]);
   });
 
   it('/my-tasks still redirects to /board — Waiting On did not un-merge it', () => {

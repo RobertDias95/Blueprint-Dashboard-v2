@@ -213,12 +213,17 @@ describe('fix-325 #4: Activity stops being a tab', () => {
     expect(exemption!.why).toMatch(/bell/i);
   });
 
-  it('Entitlements is down to Draw Schedule and Library', () => {
+  // ★ fix-331 §8 promoted Draw Schedule to the top tier, so this is down to
+  // Library. fix-325's point — Activity and Waiting On are not tabs — is
+  // unchanged and asserted below.
+  it('Entitlements is down to Library', () => {
     const ent = RIBBON_ENTRIES.find(
       (e) => e.kind === 'group' && e.group.id === 'entitlements',
     );
     const kids = ent!.kind === 'group' ? ent!.group.children.map((c) => c.to) : [];
-    expect(kids).toEqual(['/draw-schedule', '/library']);
+    expect(kids).toEqual(['/library']);
+    expect(kids).not.toContain('/activity');
+    expect(kids).not.toContain('/waiting-on');
   });
 });
 

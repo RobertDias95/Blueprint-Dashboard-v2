@@ -1,0 +1,204 @@
+import { useMemo, useState } from 'react';
+import { useAuthStore } from '../../stores/authStore';
+import { useBoardReads } from '../../hooks/useBoardReads';
+import {
+  useMentionablePeople,
+  useProjectMessages,
+} from '../../hooks/useProjectMessages';
+import {
+  chatStamp,
+  keyForMention,
+  lastMessages,
+  mentionsMe,
+} from '../../lib/projectChat';
+import ProjectChatModal from './ProjectChatModal';
+import ChatAttachments from './ChatAttachments';
+import { Avatar, MessageBody } from './ChatMessageBody';
+import type { MentionablePerson, Permit, ProjectMessage } from '../../lib/database.types';
+
+// fix-331 §3 — the conversation lives INSIDE the Team card now.
+//
+// Bobby: "Move the Project Chat UI into the Team on Project Overview, between
+// Internal and External. That way your project chat lives in between the two
+// teams and it flows. Someone goes onto Project Overview, they see something,
+// they're like, okay who's on this project — they can just see right there, open
+// the chat, boom."
+//
+// ★★ AND IT HAD TO READ AS PART OF THE CARD, which is the half that decided the
+// implementation. Bobby, on the first version: "feels like it is part of the
+// team card, not a separate UI feature/function like it shows now."
+//
+// So this component is a SECTION BODY, not a card. It renders no border, no
+// background, no header of its own — the caller wraps it in the same
+// <OverviewSection> that draws INTERNAL and EXTERNAL, and the separator, the
+// padding and the heading all come from there. That is the difference between a
+// third section of Team and a widget dropped into it, and it is asserted: the
+// test checks that nothing inside this section draws a second bordered box.
+//
+// ★ THE RAIL CARD IS GONE. One home for the conversation — the left rail is back
+// to Permits and Redesigns. Two entry points to one thread was the thing that
+// made it feel bolted on.
+//
+// ★★ THE UNREAD COUNT IS UNCHANGED AND STILL THE BELL'S. `mention:{message_id}`
+// keys (fix-307's scheme) minus board_item_reads — the same two inputs the badge
+// uses — so reading a mention in either place stops it counting in both. fix-329
+// established this and fix-298 Phase 2 spent a ticket collapsing the defect of
+// two counts that could disagree. Moving the surface does not get to re-open it.
+
+/** ★ One or two, per Bobby: "If anything we just want to display maybe one or
+ *  two of the most previous messages, and then the rest you would have to open."
+ *  Two, because one message with no predecessor reads as an announcement rather
+ *  than a conversation — and because the section sits in the middle of a card
+ *  whose other two sections are lists. */
+const PREVIEW_COUNT = 2;
+
+export default function ProjectChatSection({
+  projectId,
+  permits,
+}: {
+  projectId: string;
+  /** For anchoring a chat-born task — passed straight through to the modal. */
+  permits: Permit[];
+}) {
+  const [open, setOpen] = useState(false);
+  const userId = useAuthStore((s) => s.user?.id ?? null);
+  const messagesQ = useProjectMessages(projectId);
+  const peopleQ = useMentionablePeople();
+
+  const messages = useMemo(() => messagesQ.data ?? [], [messagesQ.data]);
+  const people = useMemo(() => peopleQ.data ?? [], [peopleQ.data]);
+
+  const preview = useMemo(
+    () => lastMessages(messages, PREVIEW_COUNT),
+    [messages],
+  );
+
+  return (
+    <>
+      <div className="flex flex-col gap-1.5" data-testid="project-chat-mini">
+        {messagesQ.isLoading ? (
+          <div className="text-[10.5px] text-dim italic">Loading…</div>
+        ) : preview.length === 0 ? (
+          // ★ An empty thread says what to do, rather than rendering an empty
+          // block that looks broken.
+          <div className="text-[10.5px] text-dim italic" data-testid="project-chat-empty">
+            No messages yet — start the conversation.
+          </div>
+        ) : (
+          preview.map((m) => (
+            <MiniMessage key={m.id} message={m} people={people} userId={userId} />
+          ))
+        )}
+
+        {/* ★ A LINK, NOT A BUTTON BAR. Inside a section the treatment has to be
+            quieter than the rail card's full-width footer button was, or it
+            reads as the widget it is no longer allowed to be. */}
+        <button
+          type="button"
+          onClick={() => setOpen(true)}
+          className="self-start text-[10.5px] font-bold text-de hover:underline bg-transparent border-none p-0 cursor-pointer"
+          data-testid="project-chat-open"
+        >
+          {messages.length > PREVIEW_COUNT
+            ? `Open chat (${messages.length}) →`
+            : 'Open chat →'}
+        </button>
+      </div>
+
+      {open && (
+        <ProjectChatModal
+          projectId={projectId}
+          permits={permits}
+          onClose={() => setOpen(false)}
+        />
+      )}
+    </>
+  );
+}
+
+/**
+ * ★ The unread pill, rendered by the CALLER beside the section heading.
+ *
+ * It is exported separately because <OverviewSection> owns the heading row, and
+ * a count drawn inside the body would sit under the word "Chat" rather than
+ * beside it — the layout every other badge in this app uses. Same query, same
+ * subtraction, same source as the bell; see the header note.
+ */
+export function ProjectChatUnread({ projectId }: { projectId: string }) {
+  const userId = useAuthStore((s) => s.user?.id ?? null);
+  const messagesQ = useProjectMessages(projectId);
+  const readsQ = useBoardReads();
+
+  const unread = useMemo(() => {
+    const read = new Set(readsQ.data ?? []);
+    return (messagesQ.data ?? []).filter(
+      (m) => mentionsMe(m, userId) && !read.has(keyForMention(m.id)),
+    ).length;
+  }, [messagesQ.data, readsQ.data, userId]);
+
+  if (unread <= 0) return null;
+  return (
+    <span
+      className="text-[8.5px] font-extrabold text-de"
+      data-testid="project-chat-unread"
+    >
+      {unread} new
+    </span>
+  );
+}
+
+function MiniMessage({
+  message,
+  people,
+  userId,
+}: {
+  message: ProjectMessage;
+  people: MentionablePerson[];
+  userId: string | null;
+}) {
+  const toMe = mentionsMe(message, userId);
+  return (
+    <div
+      className="flex gap-2"
+      style={
+        toMe
+          ? {
+              background: 'var(--color-de-bg)',
+              margin: '-2px -4px',
+              padding: '2px 4px',
+              borderRadius: 6,
+            }
+          : undefined
+      }
+      data-testid={`project-chat-mini-${message.id}`}
+      data-to-me={toMe ? 'true' : 'false'}
+    >
+      <Avatar name={message.author_name} />
+      <div className="flex-1 min-w-0">
+        <div className="flex items-baseline gap-1.5">
+          <span className="text-[11px] font-bold text-text truncate">
+            {message.author_name ?? 'Unknown'}
+          </span>
+          <span className="text-[9px] text-dim flex-shrink-0">
+            {chatStamp(message.created_at)}
+          </span>
+        </div>
+        {/* Two-line clamp — the section is a glance, not a read. */}
+        <div
+          className="text-[11px] text-text"
+          style={{
+            display: '-webkit-box',
+            WebkitLineClamp: 2,
+            WebkitBoxOrient: 'vertical',
+            overflow: 'hidden',
+          }}
+        >
+          <MessageBody body={message.body} people={people} />
+        </div>
+        {/* fix-330: an attachment shows here too, or a snip-only message would
+            render as a blank row. Compact — one named line per file. */}
+        <ChatAttachments attachments={message.attachments ?? []} compact />
+      </div>
+    </div>
+  );
+}

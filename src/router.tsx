@@ -154,10 +154,14 @@ export const router = createBrowserRouter([
       { path: 'settings/permits', element: <AdminRoute><SettingsPage /></AdminRoute> },
       { path: 'settings/schedule', element: <AdminRoute><SettingsPage /></AdminRoute> },
       { path: 'settings/reporting', element: <AdminRoute><SettingsPage /></AdminRoute> },
-      // fix-87: Error triage page. Reached via the nav warning-triangle
-      // badge or a direct URL share when triaging a specific group. (Not report
-      // data — left ungated.)
-      { path: 'settings/errors', element: <ErrorsPage /> },
+      // fix-87: Error triage page. ★ fix-331 §6: ADMIN ONLY now, and gated on
+      // the ROUTE rather than only on the control that reaches it. It used to
+      // be reachable by anyone who typed the URL, on the reasoning that it is
+      // "not report data" — but it is a page of raw scraper failures and stack
+      // traces, and 23 of this tenant's 29 people are editors who can do nothing
+      // with it. Hiding the ribbon entry without gating the route would be the
+      // hidden-link-over-an-open-door shape fix-234 already ruled out.
+      { path: 'settings/errors', element: <AdminRoute><ErrorsPage /></AdminRoute> },
       // fix-69: report builder Phase 3 — freeform builder + custom viewer.
       { path: 'reports/builder', element: <AdminRoute><ReportBuilder /></AdminRoute> },
       { path: 'reports/builder/:id', element: <AdminRoute><ReportBuilder /></AdminRoute> },

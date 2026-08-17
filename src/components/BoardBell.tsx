@@ -32,10 +32,14 @@ import {
 // a feed: short, skimmable, and it hands you to the board rather than trying to
 // be the board.
 //
+// ★ fix-331: and now it is the only bell in the top bar at all — error triage
+// moved into the ribbon, admin-gated. The comment below is kept because the
+// lesson in it is the reason this one is still accurate.
+//
 // ★ fix-326: THIS IS THE ONLY NOTIFICATION BELL. The comment here used to say
 // it was the second of two, sitting beside fix-27/28's scraper-activity bell.
-// That stopped being true somewhere between fix-298 and fix-307 — Chrome renders
-// BoardBell and ErrorTriageBell and nothing else — and the stale comment is what
+// That stopped being true somewhere between fix-298 and fix-307 — and the stale
+// comment is what
 // made a later brief instruct me to "remove NotificationBell from the top bar",
 // a component that was not on screen. Bobby caught it: "the current bell I see is
 // the myboard notification bell, not the scraper bell?" He was right.

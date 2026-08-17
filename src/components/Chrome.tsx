@@ -1,7 +1,6 @@
 import { useState } from 'react';
 import { Outlet } from 'react-router-dom';
 import BoardBell from './BoardBell';
-import ErrorTriageBell from './ErrorTriageBell';
 import Ribbon from './Ribbon';
 import NewProjectWizard from './NewProjectWizard';
 import { useSelfScope } from '../hooks/useSelfScope';
@@ -50,51 +49,51 @@ export default function Chrome() {
           style={{ height: 56 }}
           data-testid="chrome-header"
         >
-          {/* ★ #59: search is NEW FURNITURE — there is no app-wide search today.
-              Rendered DISABLED with a "coming soon" affordance rather than as a
-              live-looking control that does nothing. This codebase has shipped
-              that defect four times (Show All, /settings/team, the milestone
-              click, every board link), and a search box is the single most
-              inviting thing on a toolbar. */}
-          <div
-            className="flex items-center gap-2 rounded-lg border border-border bg-bg text-dim select-none"
-            style={{ flex: '0 1 380px', padding: '6px 10px', fontSize: 12.5, opacity: 0.62 }}
-            data-testid="chrome-search"
-            data-disabled="true"
-            aria-disabled="true"
-            title="Search is not built yet — coming soon"
-          >
-            <span aria-hidden>⌕</span>
-            <span>Search — coming soon</span>
-            <span
-              className="ml-auto rounded border border-border bg-surface"
-              style={{ fontSize: 10, padding: '1px 5px' }}
-            >
-              ⌘K
-            </span>
-          </div>
+          {/* ★★ fix-331 §5: THE SEARCH BAR IS GONE, and its own justification is
+              what dated it. fix-313 rendered it disabled with an honest deferral
+              label rather than as a live control that did nothing — the right
+              call for a shell that had just been built. Bobby has now used it:
 
+                "On a bunch of the screens, whether it's Pipeline or Project
+                Overview, there was this second search bar that said it was not
+                built yet. I think we want to delete that for now… most screens
+                have a search feature already, so it's kind of a redundant
+                thing."
+
+              An honest placeholder is still a placeholder, and this one sat
+              beside real per-screen search on every page. Deleted rather than
+              hidden: there is no app-wide search to re-enable, so a commented-out
+              box would be a promise with nothing behind it.
+
+              ★ NOTHING DEPENDED ON THE SLOT. It was the header's first flex
+              child and the only thing holding the left edge; the spacer below
+              now does that job alone, so the bell and the user chip stay hard
+              right exactly as before. */}
           <div className="flex-1" />
 
-          {/* fix-307's unseen badge lives in here — untouched. */}
+          {/* ★ fix-331 §6: the error-triage bell has LEFT this bar. It is an
+              admin tool, and it sat here beside a bell every user needs, looking
+              like a peer of it. It is a ribbon entry now, gated by
+              useIsTenantAdmin — see Ribbon / ribbonNav.
+
+              fix-307's unseen badge stays here and is untouched. */}
           <BoardBell />
-          <span className="ml-1">
-            <ErrorTriageBell />
-          </span>
 
           {/* The user chip. The mockup's third top-bar element; it replaces the
-              gear, which moved into the ribbon. */}
+              gear, which moved into the ribbon.
+
+              ★ fix-331 §7: THE INITIALS CIRCLE IS GONE. Bobby: "I don't know if
+              it needs to say the BO part, because it's not like a setting,
+              there's no button functionality." He is right that it read as
+              interactive — a 29px circle at the top-right corner of a web app is
+              an account menu everywhere else — and it was not. The rule this
+              codebase keeps re-learning is that a control either does something
+              or it goes; there is no account menu to attach, so it goes. Name
+              and position remain, with the bell to their left. */}
           <div
             className="flex items-center gap-2.5 pl-3.5 border-l border-border"
             data-testid="chrome-user-chip"
           >
-            <div
-              className="rounded-full bg-s2 text-muted font-display font-bold flex items-center justify-center"
-              style={{ width: 29, height: 29, fontSize: 11 }}
-              aria-hidden
-            >
-              {initials(identity.name)}
-            </div>
             <div className="leading-tight">
               <div className="font-display font-semibold text-text" style={{ fontSize: 12.5 }}>
                 {identity.name ?? 'Signed in'}
@@ -119,9 +118,6 @@ export default function Chrome() {
   );
 }
 
-function initials(name: string | null | undefined): string {
-  const parts = (name ?? '').trim().split(/\s+/).filter(Boolean);
-  if (parts.length === 0) return '··';
-  if (parts.length === 1) return parts[0]!.slice(0, 2).toUpperCase();
-  return (parts[0]![0]! + parts[parts.length - 1]![0]!).toUpperCase();
-}
+// ★ fix-331 §7: the `initials()` helper went with the circle it fed. Leaving a
+// dead formatter behind is how the next person concludes the avatar is meant to
+// come back.

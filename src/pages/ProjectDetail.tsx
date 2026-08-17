@@ -19,7 +19,6 @@ import { REDESIGN_TRIGGER_LABELS } from '../lib/database.types';
 import { SkeletonRows } from '../components/Skeleton';
 import QueryError from '../components/QueryError';
 import ProjectDetailHeader from '../components/ProjectDetail/ProjectDetailHeader';
-import ProjectChatCard from '../components/ProjectDetail/ProjectChatCard';
 import ScheduleHealthTable from '../components/ProjectDetail/ScheduleHealthTable';
 import NotesPanel from '../components/ProjectDetail/NotesPanel';
 import PermitDetailV2 from '../components/ProjectDetail/PermitDetailV2';
@@ -218,17 +217,27 @@ function ProjectDetailBody({
           left, centered "Project Overview" title (absolute positioning
           so the buttons don't shift it off-center), Project Settings +
           Delete buttons right. */}
-      <ProjectPageChrome
-        onDelete={() => setDeleteOpen(true)}
-        onSettings={() => setSettingsOpen(true)}
-        onReassignDa={() => setReassignOpen(true)}
-        canReassign={isAdmin}
-      />
+      {/* ★ fix-331 §4: one button. Reassign DA and Delete are inside it. */}
+      <ProjectPageChrome onSettings={() => setSettingsOpen(true)} />
 
       {settingsOpen && (
         <ProjectSettingsModal
           project={project}
           onClose={() => setSettingsOpen(false)}
+          // ★ fix-331 §4: both destructive/ownership actions are handed in as
+          // callbacks rather than re-implemented inside the modal, so the page
+          // still owns the ONE instance of each dialog — the reason
+          // Q9.5.f-fix-16 put them here in the first place. The modal closes
+          // itself first so two overlays never stack.
+          canReassignDa={isAdmin}
+          onReassignDa={() => {
+            setSettingsOpen(false);
+            setReassignOpen(true);
+          }}
+          onDelete={() => {
+            setSettingsOpen(false);
+            setDeleteOpen(true);
+          }}
           onSpawnRedesign={() => {
             // fix-126: close the settings modal first so the wizard
             // doesn't overlay it. The seed builds the new wizard state
@@ -339,18 +348,22 @@ function ProjectDetailBody({
           own overflow-y-auto so the content clips at the pillbox
           edge instead of pushing the outer page down. */}
       <div className="flex flex-1 gap-3 px-3 pb-3 overflow-hidden min-h-0">
-        {/* ★ fix-329 (register #71): the LEFT RAIL is now a column — project
-            chat on top, permits beneath it. Bobby's approved mockup puts the
-            conversation above the permit list because it is the thing that
-            changes daily; the permits card slides down and is otherwise
-            untouched. The rail owns the 240px width now, so the card and the
-            sidebar cannot disagree about it. */}
+        {/* ★★ fix-331 §3: THE CHAT CARD IS GONE FROM THE RAIL. fix-329 put the
+            conversation on top of this column and fix-331 moves it into the Team
+            card, where Bobby asked for it — "between Internal and External … that
+            way your project chat lives in between the two teams and it flows."
+
+            One home for one thread: two entry points is what made it read as a
+            bolted-on widget, and it is what the §3 test asserts is over.
+
+            The rail is back to Permits and Redesigns. The wrapper stays — fix-329
+            moved the 240px width up here so the column and its children could not
+            disagree about it, and that is still worth having with one child. */}
         <div
           className="flex-shrink-0 flex flex-col gap-3 min-h-0"
           style={{ width: 240 }}
           data-testid="pd-left-rail"
         >
-          <ProjectChatCard projectId={project.id} permits={permits} />
           <PermitsSidebar
             permits={permits}
             project={project}
@@ -472,18 +485,26 @@ function RedesignOfBadge({
 // Q9.5.e-fix-1: page chrome bar per v1 :751-756. Three-section layout
 // using absolute centering on the title so the side buttons can grow
 // without shifting the title off-center.
-function ProjectPageChrome({
-  onDelete,
-  onSettings,
-  onReassignDa,
-  canReassign,
-}: {
-  onDelete: () => void;
-  onSettings: () => void;
-  /** fix-225: admin-only "Reassign DA" (ownership handoff). */
-  onReassignDa: () => void;
-  canReassign: boolean;
-}) {
+//
+// ★★ fix-331 §4: ONE BUTTON, NOT THREE. Reassign DA and Delete both moved
+// INSIDE Project Settings. Bobby asked for one control; the two that went are
+// the two that are rare and consequential, and the one that stayed is the one
+// people actually press.
+//
+// ★ HOW DELETE STAYS DANGEROUS — the brief asks this to be said out loud:
+//
+//   1. It is FARTHER AWAY, not closer. It used to be a single click from the
+//      page header, one slip away from the Settings button beside it. It is now
+//      two deliberate steps: open Settings, scroll to a section titled
+//      "Danger zone" at the bottom.
+//   2. It still READS destructive — red border, red text, red tint, alone in a
+//      red-bordered section that says what deletion takes with it.
+//   3. The confirmation is UNCHANGED and it is the real guardrail:
+//      DeleteProjectDialog still requires the project's address typed verbatim
+//      before the button enables. Folding the entry point in did not soften it.
+//   4. It is LAST in the modal and outside the save flow, so nothing about
+//      editing a project routes past it.
+function ProjectPageChrome({ onSettings }: { onSettings: () => void }) {
   return (
     <div
       className="relative flex items-center justify-between px-4 py-2 border-b flex-shrink-0"
@@ -504,34 +525,12 @@ function ProjectPageChrome({
         Project Overview
       </div>
       <div className="flex items-center gap-2">
-        {canReassign && (
-          <button
-            onClick={onReassignDa}
-            className="px-3 py-1 rounded-md text-xs font-bold border border-border bg-s2 text-text hover:bg-s3 transition"
-            data-testid="project-reassign-da-btn"
-            title="Move ownership to a different DA (board stays put)"
-          >
-            ⇄ Reassign DA
-          </button>
-        )}
         <button
           onClick={onSettings}
           className="px-3 py-1 rounded-md text-xs font-bold border border-border bg-s2 text-text hover:bg-s3 transition"
           data-testid="project-settings-btn"
         >
           ⚙ Project Settings
-        </button>
-        <button
-          onClick={onDelete}
-          className="px-3 py-1 rounded-md text-xs font-bold transition"
-          style={{
-            background: '#fee2e2',
-            color: '#991b1b',
-            border: '1px solid #fca5a5',
-          }}
-          data-testid="project-delete-btn"
-        >
-          🗑 Delete
         </button>
       </div>
     </div>
