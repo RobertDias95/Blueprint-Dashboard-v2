@@ -52,6 +52,13 @@ export const queryKeys = {
   projectDaHandoffsAll: ['project_da_handoffs'] as const,
   // Tenant-scoped keys used by queries and per-tenant invalidation.
   projects: (tenantId: string) => ['projects', tenantId] as const,
+  // ★ fix-333: the wizard's duplicate-address check. UNDER the `projects`
+  // prefix on purpose — creating a project must invalidate the index the next
+  // check reads, or the second person to type the same address is told it is
+  // clear. It is a separate key rather than a reuse of `projects` because it
+  // includes ARCHIVED rows and is explicitly ranged; see useProjectAddressIndex.
+  projectAddressIndex: (tenantId: string) =>
+    ['projects', 'address_index', tenantId] as const,
   permits: (tenantId: string) => ['permits', tenantId] as const,
   permitsByProject: (tenantId: string, projectId: string) =>
     ['permits', tenantId, { projectId }] as const,

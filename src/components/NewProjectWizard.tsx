@@ -10,6 +10,9 @@ import { usePermitTypes } from '../hooks/usePermitTypes';
 import { usePlaceNewProjectOnDa } from '../hooks/usePlaceNewProjectOnDa';
 import { useIsTenantAdmin } from '../hooks/useIsTenantAdmin';
 import Step1ProjectInfo from './wizard/Step1ProjectInfo';
+import DuplicateAddressWarning from './wizard/DuplicateAddressWarning';
+import { useDuplicateAddressCheck } from '../hooks/useDuplicateAddressCheck';
+import { normalizeAddress } from '../lib/addressMatch';
 import Step2Questionnaire from './wizard/Step2Questionnaire';
 import Step3Permits from './wizard/Step3Permits';
 import Step4TaskReview from './wizard/Step4TaskReview';
@@ -149,6 +152,30 @@ export default function NewProjectWizard({ open, onClose, initialState }: Props)
     null,
   );
 
+  // ★★ fix-333: the duplicate-address check lives HERE, not inside Step 1.
+  //
+  // Submit needs the same verdict Step 1 is showing. Two instances of the hook
+  // could disagree — one debounced past a keystroke the other has not seen — and
+  // a backstop that disagrees with the banner is worse than no backstop.
+  const duplicate = useDuplicateAddressCheck(
+    state.address,
+    state.redesign_of_project_id,
+    open,
+  );
+  // ★ The acknowledgement is tied to the ADDRESS KEY, not to the raw string.
+  // Saying "this is a different project" and then editing the address must
+  // re-arm the warning — but adding a trailing space must not. The key is the
+  // same value the match runs on, so the two can never disagree about whether
+  // the address changed.
+  //
+  // ★ Stored as "the key that was acknowledged" and DERIVED, rather than a
+  // boolean reset by an effect. An effect that setStates on a changed key is
+  // the React Compiler's cascading-render warning, and it also renders one
+  // frame claiming the new address is acknowledged before correcting itself.
+  const [ackedKey, setAckedKey] = useState<string | null>(null);
+  const dupKey = normalizeAddress(state.address).key;
+  const dupAcknowledged = ackedKey !== null && ackedKey === dupKey;
+
   const jurisOptions = jurisQ.data ?? [];
   const typeOptions = typesQ.data ?? [];
   const catalogReady = jurisOptions.length > 0 && typeOptions.length > 0;
@@ -169,6 +196,7 @@ export default function NewProjectWizard({ open, onClose, initialState }: Props)
     setStep(1);
     setValidationErr(null);
     setConflictExistingId(null);
+    setAckedKey(null);
   }
   function handleClose() {
     reset();
@@ -233,6 +261,23 @@ export default function NewProjectWizard({ open, onClose, initialState }: Props)
     if (!unitsIsValid(state.units)) {
       setStep(1);
       setValidationErr('Units count is required (must be greater than 0).');
+      return;
+    }
+
+    // ★★ fix-333: THE BACKSTOP. The as-you-type banner is the real fix, but the
+    // address can be edited after it settled — including on the way back through
+    // Step 1 — so submit re-reads the same verdict before writing.
+    //
+    // ★ THIS IS NOT A BLOCK. It sends the person to the warning ONCE, and the
+    // acknowledgement they give there lets the very next submit through. The
+    // brief is unambiguous that neighbours must be creatable without a fight, so
+    // only a genuine `duplicate` stops here — an expected redesign and a nearby
+    // address never do.
+    if (duplicate.verdict === 'duplicate' && !dupAcknowledged) {
+      setStep(1);
+      setValidationErr(
+        'This address looks like a project that already exists — check the match below, then confirm to carry on.',
+      );
       return;
     }
 
@@ -644,6 +689,41 @@ export default function NewProjectWizard({ open, onClose, initialState }: Props)
               // the user hasn't blurred them yet — they need to see at
               // a glance WHICH field is the problem.
               showFieldErrors={validationErr !== null}
+              // ★ fix-333: suppressed while the debounce is catching up, so a
+              // half-typed address never flashes a verdict it is about to
+              // change its mind about — "no warning and no flicker".
+              // ★ The slot is ALWAYS rendered and carries the check's state,
+              // even when there is nothing to say. That is what lets a test
+              // wait for the check to SETTLE instead of sleeping on a guessed
+              // duration — fix-300b's rule, and the guard that enforces it.
+              // Without it, "no warning appeared" is indistinguishable from
+              // "the debounce had not fired yet", which is precisely the silent
+              // false-pass that ratchet exists to prevent.
+              duplicateWarning={
+                <div
+                  data-testid="wizard-duplicate-slot"
+                  data-state={duplicate.pending ? 'checking' : duplicate.verdict}
+                  // ★ WHICH address the state above describes. "not checking"
+                  // alone is racy: between two keystrokes there is an instant
+                  // where the previous verdict is still on screen and settled,
+                  // so a waiter can sample a stale answer and believe it. This
+                  // makes the wait exact.
+                  data-checked={duplicate.pending ? '' : duplicate.checkedAddress}
+                >
+                  {!duplicate.pending && (
+                    <DuplicateAddressWarning
+                      verdict={duplicate.verdict}
+                      matches={duplicate.matches}
+                      truncated={duplicate.truncated}
+                      acknowledged={dupAcknowledged}
+                      onAcknowledge={() => {
+                        setAckedKey(dupKey);
+                        setValidationErr(null);
+                      }}
+                    />
+                  )}
+                </div>
+              }
             />
           )}
           {step === 2 && <Step2Questionnaire value={state} onChange={patch} />}
