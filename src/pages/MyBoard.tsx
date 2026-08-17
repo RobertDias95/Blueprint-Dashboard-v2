@@ -15,6 +15,9 @@ import { useDaTeamRouting } from '../hooks/useDaTeamRouting';
 import { useBoardReads, useMarkBoardItemsRead } from '../hooks/useBoardReads';
 import { buildNewItems, keyForTask, unseenItems } from '../lib/boardReads';
 import { useMyMentions } from '../hooks/useProjectMessages';
+// ★ fix-339: the same shared-item query the bell reads — one source, so the
+// board and the badge cannot disagree about an open post request.
+import { useMyPostRequests } from '../hooks/usePostRequests';
 import { useAuthStore } from '../stores/authStore';
 import { parseFlips } from '../lib/boardFlips';
 import {
@@ -793,6 +796,7 @@ export default function MyBoard() {
   // personal — built from the viewer's own items, never from the queue scope,
   // so drilling into Fisk's queue cannot highlight or clear anything of his.
   const mentionsQ = useMyMentions();
+  const postRequestsQ = useMyPostRequests();
   const viewerUserId = useAuthStore((s) => s.user?.id ?? null);
   const readKeys = useMemo(() => new Set(readsQ.data ?? []), [readsQ.data]);
   const newItems = useMemo(
@@ -809,6 +813,10 @@ export default function MyBoard() {
         mentions: mentionsQ.data ?? [],
         viewerUserId,
         projects: projectsQ.data ?? [],
+        // ★ fix-339: and the shared post requests, from the SAME query the bell
+        // uses — a request open in the badge and absent from the board would be
+        // exactly the two-sources defect fix-298 Phase 2 collapsed.
+        postRequests: postRequestsQ.data ?? [],
       }),
     [
       activityQ.data,
@@ -819,6 +827,7 @@ export default function MyBoard() {
       mentionsQ.data,
       viewerUserId,
       projectsQ.data,
+      postRequestsQ.data,
     ],
   );
   // Not wrapped in useMemo: the React Compiler cannot preserve a manual memo

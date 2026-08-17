@@ -36,6 +36,8 @@ export const queryKeys = {
   // the rail count and the bell cannot drift apart because they cannot refresh
   // apart.
   mentionablePeopleAll: ['mentionable_people'] as const,
+  // fix-339: the shared post-request item.
+  postRequestsAll: ['post_requests'] as const,
   // fix-notes-2: dashboard expanded-permit "waiting on" summaries. Own bare
   // prefix so BOTH permit_tasks and notes realtime changes can invalidate it.
   dashboardPermitCardsAll: ['dashboard_permit_cards'] as const,
@@ -105,6 +107,14 @@ export const queryKeys = {
     ['project_messages', 'mentions', tenantId, userId] as const,
   mentionablePeople: (tenantId: string) =>
     ['mentionable_people', tenantId] as const,
+  // ★ fix-339: post requests. Both keys sit under ONE bare prefix so resolving
+  // a request refreshes the bell, My Board and the project's chat panel
+  // together — a shared item that cleared in one place and not another would
+  // be the whole feature failing quietly.
+  myPostRequests: (tenantId: string, userId: string) =>
+    ['post_requests', 'mine', tenantId, userId] as const,
+  projectPostRequests: (tenantId: string, projectId: string) =>
+    ['post_requests', 'project', tenantId, projectId] as const,
   // ★ fix-330: a signed URL for one attachment. NOT under the project_messages
   // prefix, deliberately — a new message must not invalidate every signed URL
   // on screen and re-sign them all. The object is immutable; only the signature
@@ -286,6 +296,10 @@ export const REALTIME_TABLES = {
   // one prefix covers the thread, the rail card and the bell's mention query
   // because they all live under project_messages.
   project_messages: [queryKeys.projectMessagesAll],
+  // ★ fix-339: a request raised or resolved in one tab clears in every other
+  // one — ON THE EXISTING CHANNEL. A shared item is only as shared as its
+  // refresh, so this is not optional decoration.
+  post_requests: [queryKeys.postRequestsAll],
   // fix-notes-1: a note added/edited/completed in any tab refreshes every
   // mounted NotesPanel live. fix-notes-2: also the dashboard "waiting on" cards
   // (the search index lives under the notes prefix, so it refreshes too).

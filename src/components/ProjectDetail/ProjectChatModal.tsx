@@ -31,6 +31,8 @@ import {
 } from '../../lib/chatAttachments';
 import MentionTextarea from './MentionTextarea';
 import ChatMessageRow from './ChatMessageRow';
+import { OpenPostRequests, RequestPostForm } from './PostRequestPanel';
+import { useResolvePostRequest, type ProjectPostRequest } from '../../hooks/usePostRequests';
 import ChatTaskFields from './ChatTaskFields';
 import {
   disciplineForDraft,
@@ -90,6 +92,14 @@ export default function ProjectChatModal({
   const [focusMessageId, setFocusMessageId] = useState<string | null>(null);
   const [query, setQuery] = useState('');
   const [newPostOpen, setNewPostOpen] = useState(false);
+  // ★ fix-339: a non-admin asks instead of creating.
+  const [requestOpen, setRequestOpen] = useState(false);
+  // ★★ The request an admin is answering by creating its post. Held here so the
+  // new-post composer can be PRE-FILLED from it and the two linked in one step
+  // — "created" is one of the three ways a request ends, and the requester is
+  // then taken to the actual thread.
+  const [fulfilling, setFulfilling] = useState<ProjectPostRequest | null>(null);
+  const resolveRequest = useResolvePostRequest();
 
   // The newest conversation is the one you probably came for.
   const selected: ChatPost | null =
@@ -180,18 +190,46 @@ export default function ProjectChatModal({
                 aria-label="Search this conversation"
                 data-testid="project-chat-search"
               />
-              {/* ★★ ADMINS ONLY — and the policy says so too. */}
-              {isAdmin && (
+              {/* ★★ ADMINS ONLY — and the policy says so too (fix-334).
+                  ★ fix-339: everyone else gets the ASK. Non-admins still cannot
+                  create a post; without this their topic just gets buried at
+                  the bottom of General, which is the hole fix-334's report
+                  flagged. */}
+              {isAdmin ? (
                 <button
                   type="button"
-                  onClick={() => setNewPostOpen(true)}
+                  onClick={() => {
+                    setFulfilling(null);
+                    setNewPostOpen(true);
+                  }}
                   className="w-full text-[11px] font-bold rounded py-1 bg-de text-white hover:opacity-90 transition"
                   data-testid="project-chat-new-post"
                 >
                   ＋ New post
                 </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setRequestOpen(true)}
+                  className="w-full text-[11px] font-bold rounded py-1 border border-de text-de hover:bg-de-bg transition"
+                  data-testid="project-chat-request-post"
+                >
+                  ✋ Request a post
+                </button>
               )}
             </div>
+
+            {/* ★ An admin opening the chat sees what has been asked for here,
+                whether or not they were a resolved recipient. */}
+            {isAdmin && (
+              <OpenPostRequests
+                projectId={projectId}
+                onCreateFrom={(r) => {
+                  setFulfilling(r);
+                  setNewPostOpen(true);
+                }}
+              />
+            )}
 
             <div className="flex-1 min-h-0 overflow-y-auto p-1.5">
               {query.trim().length >= 2 ? (
@@ -229,13 +267,37 @@ export default function ProjectChatModal({
 
           {/* ── the selected post ───────────────────────────────────────── */}
           <div className="flex-1 min-w-0 flex flex-col min-h-0">
-            {newPostOpen ? (
+            {requestOpen ? (
+              <RequestPostForm
+                projectId={projectId}
+                onDone={() => setRequestOpen(false)}
+                onCancel={() => setRequestOpen(false)}
+              />
+            ) : newPostOpen ? (
               <NewPostComposer
                 projectId={projectId}
                 people={people}
-                onClose={() => setNewPostOpen(false)}
-                onCreated={(id) => {
+                // ★ fix-339: pre-filled when this post is ANSWERING a request.
+                initialTitle={fulfilling?.title ?? ''}
+                initialBody={fulfilling ? `${fulfilling.reason}` : ''}
+                onClose={() => {
                   setNewPostOpen(false);
+                  setFulfilling(null);
+                }}
+                onCreated={(id) => {
+                  // ★★ ONE STEP. Creating the post resolves the request for
+                  // every recipient AND records which post answered it, so the
+                  // requester is taken to the thread rather than told it is
+                  // somewhere.
+                  if (fulfilling) {
+                    resolveRequest.mutate({
+                      id: fulfilling.id,
+                      status: 'created',
+                      createdPostId: id,
+                    });
+                  }
+                  setNewPostOpen(false);
+                  setFulfilling(null);
                   setSelectedPostId(id);
                 }}
               />
@@ -381,15 +443,20 @@ function NewPostComposer({
   people,
   onClose,
   onCreated,
+  initialTitle = '',
+  initialBody = '',
 }: {
   projectId: string;
   people: import('../../lib/database.types').MentionablePerson[];
   onClose: () => void;
   onCreated: (id: string) => void;
+  /** ★ fix-339: seeded from a post request when this post answers one. */
+  initialTitle?: string;
+  initialBody?: string;
 }) {
   const post = usePostMessage();
-  const [title, setTitle] = useState('');
-  const [body, setBody] = useState('');
+  const [title, setTitle] = useState(initialTitle);
+  const [body, setBody] = useState(initialBody);
 
   function submit() {
     if (!title.trim() || !body.trim()) return;
