@@ -34,12 +34,64 @@ export const BOARD_NOTIFICATIONS_EPOCH = '2026-08-14T00:00:00Z';
 // ★ fix-329 adds the fifth source. A mention is news in exactly the sense this
 // file means: something happened that names you, you have not seen it, and
 // seeing it is not doing it.
-export type NewItemSource = 'flip' | 'task' | 'handoff' | 'permit' | 'mention';
+// ★ fix-339 adds the sixth and seventh sources — and the sixth is a new SHAPE,
+// not just a new row type. See NewItemAudience.
+export type NewItemSource =
+  | 'flip'
+  | 'task'
+  | 'handoff'
+  | 'permit'
+  | 'mention'
+  | 'post_request'
+  | 'post_request_outcome';
+
+/**
+ * ★★★ fix-339 — THE TWO SHAPES OF A BOARD ITEM, and the rule for picking one.
+ *
+ * Everything before fix-339 was PERSONAL. fix-307's model is `board_item_reads`:
+ * one row per user per key, and a thing is unread FOR YOU. That is right when
+ * "seen" is not a fact any domain row carries — nothing about a status flip
+ * records that Miles looked at it, so a read row has to.
+ *
+ * A post request is not that shape. Bobby: *"it pings the oversight people + the
+ * ent lead for that project, then once it is created/read/satisfied, as a
+ * notification, IT GETS REMOVED FROM ALL QUEUES."* Five people each dismissing
+ * the same request is exactly the busywork he is deleting, and a per-user read
+ * row makes "satisfied" unrepresentable, because there is no shared state to
+ * satisfy.
+ *
+ * ★★ SO A SHARED ITEM HAS NO READ MODEL AT ALL. Its EXISTENCE IS ITS UNREAD
+ * STATE: it is derived from a domain row only while that row is unresolved, so
+ * the moment anybody acts it stops being derived and leaves every queue at once
+ * — not because N read rows were written, but because the one fact everybody
+ * was reading changed.
+ *
+ * ★ THE RULE, for #102 (bot tasks that close and announce themselves) and #105
+ * (milestones that clear when acknowledged), both of which are this shape:
+ *
+ *     personal → the domain row cannot record "seen", so use board_item_reads
+ *     shared   → the domain row already records RESOLUTION, so derive the item
+ *                from it and get first-responder-wins for free
+ *
+ * Both of those already have a domain row (permit_tasks, permit_milestone_acks),
+ * so neither needs a shared read table — each needs its item derived from its
+ * own row's state, exactly as post_requests is. The reusable part is this rule
+ * and this field, not a table.
+ *
+ * ★ AND THE TWO COEXIST IN ONE LIST. `unseenItems` applies read keys to personal
+ * items and skips them for shared ones, so the bell's badge and My Board — which
+ * both call it — cannot disagree about either kind. That was fix-329's rule and
+ * fix-331 §3 held to it.
+ */
+export type NewItemAudience = 'personal' | 'shared';
 
 export interface NewItem {
   /** ★ Stable across re-derivation — see keyFor* below. */
   key: string;
   source: NewItemSource;
+  /** ★ fix-339. Defaults to 'personal' everywhere it is omitted, so every
+   *  pre-fix-339 item keeps fix-307's behaviour unchanged. */
+  audience?: NewItemAudience;
   title: string;
   subtitle: string | null;
   /** "3626 164th Pl SE · Building Permit" */
@@ -77,6 +129,18 @@ export function keyForPermit(permitId: number): string {
 // Re-exported from projectChat so the chat surfaces and the bell cannot end up
 // with two spellings of the same key.
 export { keyForMention };
+/** ★ fix-339: the SHARED item. Keyed on the request's uuid like everything else
+ *  — but nothing ever writes a read row against it, because resolving the
+ *  request is what removes it. See NewItemAudience. */
+export function keyForPostRequest(requestId: string): string {
+  return `post_request:${requestId}`;
+}
+/** ★ And the PERSONAL notice that follows it, for the requester alone. The two
+ *  keys are deliberately different: one is the shared ask, the other is one
+ *  person's news about how it ended, and that one IS acknowledgeable. */
+export function keyForPostRequestOutcome(requestId: string): string {
+  return `post_request_outcome:${requestId}`;
+}
 
 /** ★ fix-329: the minimum a mention needs to become a bell item. Deliberately
  *  NOT the full ProjectMessage — the bell's tenant-wide query selects these
@@ -112,6 +176,28 @@ export interface NewItemsInput {
   /** Projects, for resolving a mention's address. Optional for the same
    *  backwards-compatible reason. */
   projects?: ReadonlyArray<Pick<Project, 'id' | 'address'>>;
+  /** ★ fix-339: post requests addressed to the viewer (shared, still open) and
+   *  requests the viewer RAISED that have been resolved (personal outcome).
+   *  One query feeds both — see bp_my_post_requests. */
+  postRequests?: ReadonlyArray<PostRequestItemInput>;
+}
+
+/** ★ fix-339: the minimum a post request needs to become a board item. */
+export interface PostRequestItemInput {
+  id: string;
+  project_id: string;
+  project_address: string | null;
+  title: string;
+  reason: string;
+  status: 'open' | 'created' | 'acknowledged' | 'declined';
+  requester_name: string | null;
+  resolver_name: string | null;
+  created_post_id: string | null;
+  created_at: string;
+  resolved_at: string | null;
+  /** True when the viewer is a recipient (the shared ask); false when the
+   *  viewer is the requester seeing how it ended. */
+  is_recipient: boolean;
 }
 
 /** Everything that could be new to this person, before read state is applied.
@@ -233,15 +319,96 @@ export function buildNewItems(input: NewItemsInput): NewItem[] {
     }
   }
 
+  // 6. ★★ fix-339: a post request addressed to me — the first SHARED item.
+  //
+  // ★ NO EPOCH FILTER, and that is deliberate. fix-307's epoch exists so a
+  // 300-day-old status flip cannot arrive as news on deploy day; there were no
+  // post requests before fix-339, so every one of them is genuinely new, and an
+  // epoch check here would only be a way to lose one.
+  //
+  // ★ ALSO NO viewerName MATCH. The other sources ask "does this name me?"; the
+  // recipient list was resolved server-side at request time, and
+  // bp_my_post_requests already returns only the rows addressed to this login.
+  // Re-deriving it from a roster name here would be a second answer to a
+  // question the database has already answered — and it would drop Miles, whose
+  // ent_lead match is a name but whose delivery is by id.
+  for (const p of input.postRequests ?? []) {
+    if (p.is_recipient && p.status === 'open') {
+      out.push({
+        key: keyForPostRequest(p.id),
+        // ★★ The one thing that makes this different from every item above it.
+        audience: 'shared',
+        source: 'post_request',
+        title: `Post requested: ${p.title}`,
+        subtitle: `${p.requester_name ?? 'Someone'} — ${
+          p.reason.length > 100 ? `${p.reason.slice(0, 97)}…` : p.reason
+        }`,
+        where: p.project_address ?? 'Project chat',
+        at: p.created_at,
+        permitId: null,
+        projectId: p.project_id,
+      });
+      continue;
+    }
+    // 7. ★ …and the PERSONAL notice back to whoever asked. A request that
+    // vanishes silently teaches people not to bother asking again, so the
+    // outcome is news for exactly one person — and, being one person's news, it
+    // is acknowledgeable in the ordinary fix-307 way.
+    if (!p.is_recipient && p.status !== 'open') {
+      out.push({
+        key: keyForPostRequestOutcome(p.id),
+        audience: 'personal',
+        source: 'post_request_outcome',
+        title:
+          p.status === 'created'
+            ? `Your post was created: ${p.title}`
+            : p.status === 'declined'
+              ? `Post request declined: ${p.title}`
+              : `Post request acknowledged: ${p.title}`,
+        subtitle: p.resolver_name ? `by ${p.resolver_name}` : null,
+        where: p.project_address ?? 'Project chat',
+        at: p.resolved_at ?? p.created_at,
+        permitId: null,
+        projectId: p.project_id,
+      });
+    }
+  }
+
   return out.sort((a, z) => z.at.localeCompare(a.at));
 }
 
-/** The items this person has NOT acknowledged. */
+/**
+ * The items this person has NOT acknowledged.
+ *
+ * ★★ fix-339 — TWO RULES, ONE FUNCTION, and that is how the bell and My Board
+ * stay in agreement. A PERSONAL item disappears when the viewer has a read row
+ * for it. A SHARED item has no read rows at all: it is only ever derived while
+ * its request is open, so if it is here it is unseen, and when anybody resolves
+ * it, it stops being derived for everyone at once.
+ *
+ * ★ Putting both rules HERE rather than at the call sites is the point — the
+ * badge and the board both call this, so neither can grow its own opinion about
+ * what is waiting on you. That was fix-329's rule and the defect fix-298 Phase 2
+ * spent a ticket collapsing.
+ */
 export function unseenItems(
   items: ReadonlyArray<NewItem>,
   readKeys: ReadonlySet<string>,
 ): NewItem[] {
-  return items.filter((i) => !readKeys.has(i.key));
+  return items.filter((i) =>
+    i.audience === 'shared' ? true : !readKeys.has(i.key),
+  );
+}
+
+/** ★ fix-339: the items a "mark all read" may legitimately touch.
+ *
+ *  A shared item must be EXCLUDED: marking it read would write a row nothing
+ *  reads and leave the item on screen, which is a control that lies. Resolving
+ *  it is a different act with a different button. */
+export function acknowledgeableItems(
+  items: ReadonlyArray<NewItem>,
+): NewItem[] {
+  return items.filter((i) => i.audience !== 'shared');
 }
 
 /** ★ The badge. Unseen, not undone — and never affected by the queue scope. */

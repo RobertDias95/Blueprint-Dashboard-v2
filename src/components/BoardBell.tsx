@@ -10,12 +10,15 @@ import { useSelfScope } from '../hooks/useSelfScope';
 import { useAllProjectHolds, cancelledProjectIds } from '../hooks/useProjectHolds';
 import { useScraperActivity } from '../hooks/useScraperActivity';
 import { parseFlips } from '../lib/boardFlips';
-import { buildNewItems, unseenItems } from '../lib/boardReads';
+import { acknowledgeableItems, buildNewItems, unseenItems } from '../lib/boardReads';
 import { useBoardReads, useMarkBoardItemsRead } from '../hooks/useBoardReads';
 import { useMilestoneAcks } from '../hooks/useMilestoneAcks';
 // ★ fix-329: chat mentions are the fifth thing that can be new to you. The
 // query is tenant-wide and already narrowed to "mentions me" by the database.
 import { useMyMentions } from '../hooks/useProjectMessages';
+// ★ fix-339: the SHARED item. One query feeds the bell and My Board, so the two
+// cannot disagree about an open request.
+import { useMyPostRequests, useResolvePostRequest } from '../hooks/usePostRequests';
 import { useAuthStore } from '../stores/authStore';
 import {
   buildForecast,
@@ -67,6 +70,8 @@ export default function BoardBell() {
   const readsQ = useBoardReads();
   const markRead = useMarkBoardItemsRead();
   const mentionsQ = useMyMentions();
+  const postRequestsQ = useMyPostRequests();
+  const resolveRequest = useResolvePostRequest();
   const viewerUserId = useAuthStore((s) => s.user?.id ?? null);
 
   const viewer = useMemo(
@@ -112,6 +117,7 @@ export default function BoardBell() {
         mentions: mentionsQ.data ?? [],
         viewerUserId,
         projects: projectsQ.data ?? [],
+        postRequests: postRequestsQ.data ?? [],
       }),
     [
       activityQ.data,
@@ -122,6 +128,7 @@ export default function BoardBell() {
       mentionsQ.data,
       viewerUserId,
       projectsQ.data,
+      postRequestsQ.data,
     ],
   );
 
@@ -219,7 +226,15 @@ export default function BoardBell() {
               {unseen.length > 0 && (
                 <button
                   type="button"
-                  onClick={() => markRead.mutate(unseen.map((i) => i.key))}
+                  // ★ fix-339: SHARED items are excluded. Marking one read
+                  // would write a row nothing reads and leave the item on
+                  // screen — a control that lies. Resolving it is a different
+                  // act with its own button below.
+                  onClick={() =>
+                    markRead.mutate(
+                      acknowledgeableItems(unseen).map((i) => i.key),
+                    )
+                  }
                   disabled={markRead.isPending}
                   className="ml-auto text-[9px] text-de hover:underline bg-transparent border-none p-0 disabled:opacity-40"
                   data-testid="board-bell-mark-all-read"
@@ -252,8 +267,10 @@ export default function BoardBell() {
                         : '/board'
                     }
                     onClick={() => {
-                      // Following the item is plainly seeing it.
-                      markRead.mutate([i.key]);
+                      // Following the item is plainly seeing it — but a SHARED
+                      // item is not "seen", it is OUTSTANDING FOR EVERYONE, and
+                      // going to look at it is not the same as answering it.
+                      if (i.audience !== 'shared') markRead.mutate([i.key]);
                       setOpen(false);
                     }}
                     className="min-w-0 flex-1"
@@ -269,15 +286,37 @@ export default function BoardBell() {
                   </Link>
                   {/* ★ Acknowledgement is a CLICK. Opening the bell must never
                       mark things read implicitly. */}
-                  <button
-                    type="button"
-                    onClick={() => markRead.mutate([i.key])}
-                    className="text-[9px] text-dim hover:text-de bg-transparent border-none p-0 flex-none mt-0.5"
-                    title="Mark read — it stays on your board"
-                    data-testid={`bell-new-read-${i.key}`}
-                  >
-                    ✓
-                  </button>
+                  {/* ★★ fix-339: a SHARED item is answered, not acknowledged.
+                      Acting on it clears it from EVERY recipient's queue, so
+                      the control says so rather than looking like the personal
+                      ✓ beside it. */}
+                  {i.audience === 'shared' ? (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        resolveRequest.mutate({
+                          id: i.key.replace('post_request:', ''),
+                          status: 'acknowledged',
+                        })
+                      }
+                      disabled={resolveRequest.isPending}
+                      className="text-[9px] font-bold text-de hover:underline bg-transparent border-none p-0 flex-none mt-0.5 whitespace-nowrap disabled:opacity-40"
+                      title="Acknowledge — this clears it for everyone it was sent to"
+                      data-testid={`bell-new-resolve-${i.key}`}
+                    >
+                      Got it
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => markRead.mutate([i.key])}
+                      className="text-[9px] text-dim hover:text-de bg-transparent border-none p-0 flex-none mt-0.5"
+                      title="Mark read — it stays on your board"
+                      data-testid={`bell-new-read-${i.key}`}
+                    >
+                      ✓
+                    </button>
+                  )}
                 </div>
               ))
             )}
