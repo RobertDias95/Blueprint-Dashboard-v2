@@ -14,6 +14,7 @@ import {
   splitBody,
 } from '../../lib/projectChat';
 import ProjectChatModal from './ProjectChatModal';
+import ChatAttachments from './ChatAttachments';
 import type { MentionablePerson, Permit, ProjectMessage } from '../../lib/database.types';
 
 // fix-329 (register #71) — the chat card at the TOP of Project Overview's left
@@ -173,6 +174,11 @@ function MiniMessage({
         >
           <MessageBody body={message.body} people={people} />
         </div>
+        {/* ★ fix-330: an attachment shows here too, or a snip-only message would
+            render as a blank row in the rail. Compact — this column is 240px
+            wide, so it is one named line per file and the thumbnail waits for
+            the modal. */}
+        <ChatAttachments attachments={message.attachments ?? []} compact />
       </div>
     </div>
   );

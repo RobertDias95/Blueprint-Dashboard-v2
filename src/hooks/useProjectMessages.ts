@@ -4,8 +4,13 @@ import { queryKeys } from '../lib/queryKeys';
 import { pushToast } from '../stores/toastStore';
 import { useAuthStore } from '../stores/authStore';
 import { useUpsertTask } from './useTaskTree';
+import { uploadChatAttachments } from './useChatAttachments';
 import type { MentionItemInput } from '../lib/boardReads';
-import type { MentionablePerson, ProjectMessage } from '../lib/database.types';
+import type {
+  MentionablePerson,
+  Permit,
+  ProjectMessage,
+} from '../lib/database.types';
 
 // fix-329 (register #71) — project chat data hooks.
 //
@@ -88,20 +93,32 @@ export interface PostMessageInput {
   body: string;
   /** Resolved by the composer via projectChat.parseMentions. */
   mentions: string[];
+  /** fix-330: files the composer is holding. Uploaded HERE, in the same
+   *  mutation as the insert — see uploadChatAttachments for why. */
+  files?: readonly File[];
 }
 
 export function usePostMessage() {
   const queryClient = useQueryClient();
   return useMutation<void, Error, PostMessageInput>({
-    mutationFn: async ({ projectId, body, mentions }) => {
+    mutationFn: async ({ projectId, body, mentions, files }) => {
       const trimmed = body.trim();
-      if (!trimmed) return;
+      const pending = files ?? [];
+      // ★ fix-330: a snip with no words is a message. The DB CHECK says the same
+      // thing (body non-empty OR attachments non-empty), so this guard and the
+      // constraint agree rather than one silently swallowing what the other
+      // would have refused.
+      if (!trimmed && pending.length === 0) return;
+      const attachments = pending.length
+        ? await uploadChatAttachments(projectId, pending)
+        : [];
       // tenant_id and author_id are stamped by triggers; the insert policy
       // refuses any author but the caller.
       const { error } = await supabase.from('project_messages').insert({
         project_id: projectId,
         body: trimmed,
         mentions,
+        attachments,
       });
       if (error) throw error;
     },
@@ -175,12 +192,17 @@ export function useCreateTaskFromMessage() {
 }
 
 /**
- * ★ Which permit a chat-born task hangs off.
+ * ★ Which permit a chat-born task STARTS on.
  *
  * `permit_tasks` is permit-scoped and the chat is project-scoped, so the task
  * needs an anchor. The Building Permit with the lowest id is the project's
  * anchor everywhere else in this app (fix-66's Target Submit, the cascade in the
  * wizard), so it is the anchor here too rather than a new rule.
+ *
+ * ★★ fix-330: IT IS NOW A DEFAULT, NOT A DECISION. fix-329 picked this permit
+ * silently and gave nobody a way to disagree, which on a five-permit project is
+ * the tool choosing wrong four times out of five without saying so. The composer
+ * pre-selects this and then lets the person change it.
  *
  * Returns null when the project has no permits at all — the caller disables the
  * button and says why, because a control that throws when pressed is worse than
@@ -193,4 +215,21 @@ export function anchorPermitIdFor(
   const pool = bps.length > 0 ? bps : permits;
   if (pool.length === 0) return null;
   return pool.reduce((lo, p) => (p.id < lo.id ? p : lo)).id;
+}
+
+/**
+ * ★ fix-330: how a permit reads in the chooser.
+ *
+ * The brief is specific about this: `7133443-DM · Demolition` has to be
+ * distinguishable from `7133442-CN · Building Permit`. A list of bare types is
+ * useless on a project with two Building Permits, and a list of bare numbers is
+ * useless before a number exists — so it is both, and it falls back to the type
+ * alone rather than rendering a dangling separator.
+ */
+export function permitChoiceLabel(
+  permit: Pick<Permit, 'num' | 'type'>,
+): string {
+  const num = (permit.num ?? '').trim();
+  const type = (permit.type ?? '').trim() || 'Permit';
+  return num ? `${num} · ${type}` : `${type} (no number yet)`;
 }

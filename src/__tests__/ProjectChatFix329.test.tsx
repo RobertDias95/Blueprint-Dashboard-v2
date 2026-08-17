@@ -49,9 +49,13 @@ function message(over: Partial<ProjectMessage> = {}): ProjectMessage {
     author_name: 'Briana',
     body: 'Builder says they are likely selling.',
     mentions: [],
+    // fix-330 added attachments + the task's permit to the row; every fix-329
+    // assertion below is about text and is unaffected by them.
+    attachments: [],
     created_at: AFTER_EPOCH,
     task_id: null,
     task_text: null,
+    task_permit_id: null,
     ...over,
   };
 }
@@ -222,6 +226,22 @@ vi.mock('../hooks/useProjectMessages', async (orig) => {
     }),
   };
 });
+// fix-330: "Create task" now opens a composer that reads the roster, the
+// project and dm_da_groups to build the assignee options. Inert here — this
+// file's remaining create-task assertion is only that the chooser OPENS.
+vi.mock('../hooks/useProjects', () => ({
+  useProjects: () => ({ data: [], isLoading: false, error: null, refetch: vi.fn() }),
+}));
+vi.mock('../hooks/useTeamMembers', async (orig) => {
+  const actual = await orig<typeof import('../hooks/useTeamMembers')>();
+  return {
+    ...actual,
+    useTeamMembers: () => ({ all: [], isLoading: false, error: null, refetch: vi.fn() }),
+  };
+});
+vi.mock('../hooks/useDmDaGroups', () => ({
+  useDmDaGroups: () => ({ rows: [] }),
+}));
 vi.mock('../hooks/useBoardReads', () => ({
   useBoardReads: () => ({ data: mocks.reads, isLoading: false, error: null }),
   useMarkBoardItemsRead: () => ({
@@ -350,28 +370,33 @@ describe('fix-329: the modal', () => {
     expect(mocks.marked[0]).toEqual([keyForMention('m-1')]);
   });
 
-  // ★★ THE ATTACH CONTROL IS VISIBLY DISABLED and cannot open a picker. Phase 1
-  // is text only, and a live-looking control that does nothing is the shape this
-  // codebase has shipped six times and spent tickets undoing.
-  it('★ the attach control is disabled and says why', () => {
+  // ★★ SUPERSEDED BY fix-330, deliberately rewritten rather than deleted.
+  //
+  // fix-329 asserted this control was DISABLED with an honest "coming later"
+  // label, which was the right shape for a ticket that had no upload path. It
+  // was still a placeholder in Bobby's production UI, and fix-330 exists to
+  // erase it. The assertion is inverted here so the file cannot quietly go on
+  // claiming a contract the product no longer has; the live behaviour is
+  // covered in ProjectChatFix330.test.tsx.
+  it('★ the attach control is LIVE (fix-330 removed the placeholder)', () => {
     openModal();
     const attach = screen.getByTestId('project-chat-attach') as HTMLButtonElement;
-    expect(attach).toBeDisabled();
-    expect(attach.getAttribute('aria-disabled')).toBe('true');
-    expect(attach.getAttribute('title')).toMatch(/later phase|text only/i);
-    // Not a file input in disguise, either.
-    expect(document.querySelector('input[type="file"]')).toBeNull();
+    expect(attach).not.toBeDisabled();
+    expect(attach.textContent ?? '').not.toMatch(/coming later/i);
+    expect(document.querySelector('input[type="file"]')).not.toBeNull();
   });
 
-  it('creates a task from a message, anchored on the BP', () => {
+  // ★★ ALSO SUPERSEDED BY fix-330. fix-329 fired the create immediately and
+  // CHOSE the permit silently; the button now opens a composer that pre-selects
+  // that same anchor and lets the person disagree. The anchor itself is still a
+  // fix-329 contract and is asserted below, unchanged.
+  it('★ Create task opens the chooser instead of choosing for you', () => {
     mocks.messages = [message({ id: 'm-7', body: 'chase the survey' })];
     openModal([permit({ id: 21, type: 'Demolition' }), permit({ id: 12, type: 'Building Permit' })]);
     fireEvent.click(screen.getByTestId('project-chat-create-task-m-7'));
-    expect(mocks.created).toHaveLength(1);
-    expect(mocks.created[0].messageId).toBe('m-7');
-    // ★ The BP is the project's anchor everywhere else in this app, so it is the
-    // anchor here — not the first permit in the list.
-    expect(mocks.created[0].permitId).toBe(12);
+    expect(screen.getByTestId('chat-task-composer-m-7')).toBeInTheDocument();
+    // Nothing is written until the person confirms.
+    expect(mocks.created).toHaveLength(0);
   });
 
   it('★ shows the link back once a task exists, instead of offering again', () => {
