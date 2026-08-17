@@ -56,6 +56,15 @@ function message(over: Partial<ProjectMessage> = {}): ProjectMessage {
     task_id: null,
     task_text: null,
     task_permit_id: null,
+    // fix-334: posts, edit history and soft delete. These fixtures are REPLIES
+    // under a post — the shape every pre-fix-334 message became.
+    parent_message_id: 'post-1',
+    title: null,
+    edited_at: null,
+    deleted_at: null,
+    revisions: [],
+    reply_count: null,
+    last_activity_at: null,
     ...over,
   };
 }
@@ -183,6 +192,8 @@ describe('fix-329: a mention is the bell\'s fifth source', () => {
 
 const mocks = vi.hoisted(() => ({
   messages: [] as ProjectMessage[],
+  /** fix-334: drop the injected General post, for the empty-state tests. */
+  suppressPost: false,
   reads: [] as string[],
   people: [] as MentionablePerson[],
   posted: [] as { projectId: string; body: string; mentions: string[] }[],
@@ -190,6 +201,31 @@ const mocks = vi.hoisted(() => ({
   created: [] as Record<string, unknown>[],
   userId: '11111111-1111-1111-1111-111111111111' as string | null,
 }));
+
+// ★★ fix-334: every message is now a REPLY UNDER A POST. These suites predate
+// posts, so the mocked read wraps their fixtures in the one post they all hang
+// from — which is exactly the shape the migration gave the seven real messages
+// that predated posts too. The assertions below are unchanged by it.
+const FIX334_POST = {
+  id: 'post-1',
+  project_id: 'p-1',
+  author_id: '11111111-1111-1111-1111-111111111111',
+  author_name: 'Bobby',
+  body: 'Messages posted before this project had posts.',
+  mentions: [] as string[],
+  attachments: [],
+  created_at: '2026-08-15T09:00:00Z',
+  task_id: null,
+  task_text: null,
+  task_permit_id: null,
+  parent_message_id: null,
+  title: 'General',
+  edited_at: null,
+  deleted_at: null,
+  revisions: [],
+  reply_count: null,
+  last_activity_at: null,
+} as unknown as import('../lib/database.types').ProjectMessage;
 
 vi.mock('../stores/authStore', () => ({
   useAuthStore: (selector: (s: unknown) => unknown) =>
@@ -205,7 +241,11 @@ vi.mock('../hooks/useProjectMessages', async (orig) => {
   const actual = await orig<typeof import('../hooks/useProjectMessages')>();
   return {
     ...actual,
-    useProjectMessages: () => ({ data: mocks.messages, isLoading: false, error: null }),
+    useProjectMessages: () => ({
+      data: mocks.suppressPost ? mocks.messages : [FIX334_POST, ...mocks.messages],
+      isLoading: false,
+      error: null,
+    }),
     useMentionablePeople: () => ({ data: mocks.people, isLoading: false, error: null }),
     useMyMentions: () => ({ data: [], isLoading: false, error: null }),
     usePostMessage: () => ({
@@ -289,6 +329,7 @@ function renderUnread() {
 
 beforeEach(() => {
   mocks.messages = [];
+  mocks.suppressPost = false;
   mocks.reads = [];
   mocks.people = PEOPLE;
   mocks.posted = [];
@@ -303,7 +344,11 @@ beforeEach(() => {
 // one or two of the most previous messages, and then the rest you would have to
 // open." The tests below keep fix-329's contracts and re-point at the section.
 describe('fix-329: the message preview (fix-331: now a Team-card section)', () => {
-  it('★ shows the most recent messages, newest last', () => {
+  // ★★ SUPERSEDED BY fix-334, inverted rather than deleted. The section still
+  // previews "one or two, and the rest you would have to open" — but the unit is
+  // a POST now, so it shows the post and the newest thing said in it rather than
+  // the last two replies torn out of whichever post happened to be busiest.
+  it('★ previews the post, showing what was said most recently in it', () => {
     mocks.messages = [
       message({ id: 'm-1', body: 'oldest' }),
       message({ id: 'm-2', body: 'second' }),
@@ -312,10 +357,12 @@ describe('fix-329: the message preview (fix-331: now a Team-card section)', () =
     ];
     renderCard();
     const mini = screen.getByTestId('project-chat-mini');
+    expect(within(mini).getByText('General')).toBeInTheDocument();
+    expect(within(mini).getByText('newest')).toBeInTheDocument();
     expect(within(mini).queryByText('oldest')).toBeNull();
     expect(within(mini).queryByText('second')).toBeNull();
-    expect(within(mini).getByText('third')).toBeInTheDocument();
-    expect(within(mini).getByText('newest')).toBeInTheDocument();
+    // ...and it says how much more there is behind it.
+    expect(within(mini).getByText('4 replies')).toBeInTheDocument();
   });
 
   // ★ fix-331 §3: the unread pill moved to the section HEADING, which
@@ -340,14 +387,20 @@ describe('fix-329: the message preview (fix-331: now a Team-card section)', () =
     expect(screen.queryByTestId('project-chat-unread')).toBeNull();
   });
 
-  it('tints a mention of the viewer, and marks the row', () => {
+  // ★ fix-334: the preview row is now the POST, so it is keyed on the post id —
+  // and it tints when the viewer is mentioned ANYWHERE inside it, which is the
+  // question the section actually answers.
+  it('tints a post containing a mention of the viewer', () => {
     mocks.messages = [message({ id: 'm-1', body: 'hey @Bobby', mentions: [BOBBY] })];
     renderCard();
-    expect(screen.getByTestId('project-chat-mini-m-1').dataset.toMe).toBe('true');
+    expect(screen.getByTestId('project-chat-mini-post-1').dataset.toMe).toBe('true');
     expect(screen.getAllByTestId('project-chat-mention')[0].textContent).toBe('@Bobby');
   });
 
   it('an empty thread says so rather than rendering a blank box', () => {
+    // ★ fix-334: empty now means NO POSTS, so the injected General post has to
+    // go for this to be the empty case at all.
+    mocks.suppressPost = true;
     renderCard();
     expect(screen.getByTestId('project-chat-empty')).toBeInTheDocument();
   });

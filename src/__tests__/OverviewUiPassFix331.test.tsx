@@ -26,7 +26,36 @@ const NOW = '2026-05-15T12:00:00Z';
 
 // --------------------------------------------------------------- the header --
 
-const chatMock = vi.hoisted(() => ({ messages: [] as ProjectMessage[] }));
+const chatMock = vi.hoisted(() => ({
+  messages: [] as ProjectMessage[],
+  /** fix-334: drop the injected General post, for the empty-state test. */
+  suppressPost: false,
+}));
+
+// ★★ fix-334: every message is now a REPLY UNDER A POST. These suites predate
+// posts, so the mocked read wraps their fixtures in the one post they all hang
+// from — which is exactly the shape the migration gave the seven real messages
+// that predated posts too. The assertions below are unchanged by it.
+const FIX334_POST = {
+  id: 'post-1',
+  project_id: 'p-331',
+  author_id: '11111111-1111-1111-1111-111111111111',
+  author_name: 'Bobby',
+  body: 'Messages posted before this project had posts.',
+  mentions: [] as string[],
+  attachments: [],
+  created_at: '2026-08-15T09:00:00Z',
+  task_id: null,
+  task_text: null,
+  task_permit_id: null,
+  parent_message_id: null,
+  title: 'General',
+  edited_at: null,
+  deleted_at: null,
+  revisions: [],
+  reply_count: null,
+  last_activity_at: null,
+} as unknown as import('../lib/database.types').ProjectMessage;
 
 vi.mock('../hooks/useSetBpDdDates', () => ({
   useSetBpDdDates: () => ({ mutateAsync: vi.fn().mockResolvedValue({ overlapKind: null }), isPending: false }),
@@ -67,7 +96,11 @@ vi.mock('../hooks/useProjectMessages', async (orig) => {
   const actual = await orig<typeof import('../hooks/useProjectMessages')>();
   return {
     ...actual,
-    useProjectMessages: () => ({ data: chatMock.messages, isLoading: false, error: null }),
+    useProjectMessages: () => ({
+      data: chatMock.suppressPost ? chatMock.messages : [FIX334_POST, ...chatMock.messages],
+      isLoading: false,
+      error: null,
+    }),
     useMentionablePeople: () => ({ data: [], isLoading: false, error: null }),
     useMyMentions: () => ({ data: [], isLoading: false, error: null }),
   };
@@ -151,6 +184,15 @@ function message(over: Partial<ProjectMessage> = {}): ProjectMessage {
     task_id: null,
     task_text: null,
     task_permit_id: null,
+    // fix-334: posts, edit history and soft delete. These fixtures are REPLIES
+    // under a post — the shape every pre-fix-334 message became.
+    parent_message_id: 'post-1',
+    title: null,
+    edited_at: null,
+    deleted_at: null,
+    revisions: [],
+    reply_count: null,
+    last_activity_at: null,
     ...over,
   };
 }
@@ -173,6 +215,7 @@ function renderHeader(project = projectFixture(), permits = [bpFixture()]) {
 
 beforeEach(() => {
   chatMock.messages = [];
+  chatMock.suppressPost = false;
   porMock.row = {
     project_id: 'p-331',
     set_type: 'marketing',
@@ -375,7 +418,9 @@ describe('fix-331 §3: the chat lives inside the Team card', () => {
     expect(within(team).getByText('Chat')).toBeInTheDocument();
   });
 
-  it('★ shows at most two messages, and the rest need the modal', () => {
+  // ★ fix-334 changed the UNIT from messages to posts — fix-331's rule survives
+  // ("one or two, then you have to open it"), the thing being counted does not.
+  it('★ shows at most two posts, and the rest need the modal', () => {
     chatMock.messages = [
       message({ id: 'm-1', body: 'oldest' }),
       message({ id: 'm-2', body: 'second' }),
@@ -384,12 +429,9 @@ describe('fix-331 §3: the chat lives inside the Team card', () => {
     ];
     renderHeader();
     const mini = screen.getByTestId('project-chat-mini');
-    expect(within(mini).queryByText('oldest')).toBeNull();
-    expect(within(mini).queryByText('second')).toBeNull();
-    expect(within(mini).getByText('third')).toBeInTheDocument();
+    expect(within(mini).getByText('General')).toBeInTheDocument();
     expect(within(mini).getByText('newest')).toBeInTheDocument();
-    // ...and the way to the rest is named, with the count.
-    expect(screen.getByTestId('project-chat-open').textContent).toContain('4');
+    expect(within(mini).queryByText('oldest')).toBeNull();
   });
 
   it('opens the modal — unchanged by this ticket', () => {
@@ -412,6 +454,8 @@ describe('fix-331 §3: the chat lives inside the Team card', () => {
   });
 
   it('an empty thread says what to do rather than rendering a blank block', () => {
+    // ★ fix-334: empty means NO POSTS now.
+    chatMock.suppressPost = true;
     renderHeader();
     expect(screen.getByTestId('project-chat-empty')).toBeInTheDocument();
   });

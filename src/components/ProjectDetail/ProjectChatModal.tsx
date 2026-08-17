@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Link } from 'react-router-dom';
 import { useAuthStore } from '../../stores/authStore';
+import { useIsTenantAdmin } from '../../hooks/useIsTenantAdmin';
 import { useBoardReads, useMarkBoardItemsRead } from '../../hooks/useBoardReads';
 import {
-  permitChoiceLabel,
+  anchorPermitIdFor,
   useMentionablePeople,
   usePostMessage,
   useProjectMessages,
@@ -11,11 +11,15 @@ import {
 import { useTeamMembers } from '../../hooks/useTeamMembers';
 import {
   chatStamp,
+  groupIntoPosts,
+  isDeleted,
   keyForMention,
   mentionableAfterRoster,
   mentionsMe,
   parseMentions,
+  searchChat,
   unresolvedMentions,
+  type ChatPost,
 } from '../../lib/projectChat';
 import {
   ATTACHMENT_LIMIT_HINT,
@@ -25,33 +29,36 @@ import {
   rejectionReason,
   type PendingAttachment,
 } from '../../lib/chatAttachments';
-import { Avatar, MessageBody } from './ChatMessageBody';
 import MentionTextarea from './MentionTextarea';
-import ChatAttachments from './ChatAttachments';
-import ChatTaskComposer from './ChatTaskComposer';
-import type {
-  MentionablePerson,
-  Permit,
-  ProjectMessage,
-} from '../../lib/database.types';
+import ChatMessageRow from './ChatMessageRow';
+import ChatTaskFields from './ChatTaskFields';
+import {
+  disciplineForDraft,
+  emptyTaskDraft,
+  taskDraftIsReady,
+  type ChatTaskDraft,
+} from '../../lib/chatTaskDraft';
+import type { Permit } from '../../lib/database.types';
 
-// fix-330 — the full conversation, finished.
+// fix-334 — the conversation, organised.
 //
-// ★ READING THE THREAD MARKS ITS MENTIONS READ (fix-329, unchanged). Opening
-// this is the moment a mention stops being news, so it writes board_item_reads
-// for exactly the `mention:{id}` keys on screen — fix-307's model, reused. It
-// does NOT mark anything else read, and reading is not doing.
+// ★★ POSTS, LIKE TEAMS. Bobby: "for a project, there could be a post that is a
+// post, and then you can chat within that post, and then different posts for
+// different concepts or different categories of chatting… that way you can keep
+// a chat more organized." Two panes: the posts on the left, the selected post
+// and its replies on the right.
 //
-// ★★ THE PLACEHOLDER IS GONE. fix-329 shipped a disabled paperclip with a
-// deferral label on it into production, and this ticket exists to erase it. The
-// paperclip is live: a file picker, a paste handler for snips, limits that
-// explain their refusals, and attachments rendered inline. A test greps the
-// whole source tree for that label, so it cannot come back.
+// ★★ ONLY ADMINS CREATE POSTS. EVERYONE REPLIES. The structure is controlled;
+// the conversation is not. 23 of this tenant's 29 people are editors, and a chat
+// only 6 can speak in is not a chat. The button below is hidden for non-admins —
+// and the RLS policy REFUSES the insert, which is the half that matters
+// (fix-234's lesson, which fix-331 §6 had to go back and apply).
 //
-// ★ ONE COMPOSER, THREE INPUTS. Text, mentions and files all leave through the
-// same Send and the same usePostMessage mutation — so an upload cannot succeed
-// into a message that never posted, and a partly-sent message has nowhere to
-// hide.
+// ★ SEARCH IS SCOPED TO THIS PROJECT'S CHAT and lands you on the message, not
+// merely on a list of them — "and then go from there" is the requirement.
+//
+// ★ READING THE THREAD MARKS ITS MENTIONS READ (fix-329, unchanged): the
+// `mention:{id}` keys on screen, fix-307's model, no second read model.
 
 export default function ProjectChatModal({
   projectId,
@@ -63,34 +70,42 @@ export default function ProjectChatModal({
   onClose: () => void;
 }) {
   const userId = useAuthStore((s) => s.user?.id ?? null);
+  const isAdmin = useIsTenantAdmin();
   const messagesQ = useProjectMessages(projectId);
   const peopleQ = useMentionablePeople();
   const readsQ = useBoardReads();
   const markRead = useMarkBoardItemsRead();
-  const post = usePostMessage();
 
   const messages = useMemo(() => messagesQ.data ?? [], [messagesQ.data]);
+  const posts = useMemo(() => groupIntoPosts(messages), [messages]);
 
-  // ★ fix-321, applied on both sides of the wire. bp_mentionable_people already
-  // drops departed staff; this drops them again on the way into the picker, so
-  // the rule is assertable against the rendered list and not only against SQL.
-  // See mentionableAfterRoster for why "unknown" is not "departed".
+  // ★ fix-321, applied on both sides of the wire — see mentionableAfterRoster.
   const team = useTeamMembers();
   const people = useMemo(
     () => mentionableAfterRoster(peopleQ.data ?? [], team.all),
     [peopleQ.data, team.all],
   );
 
+  const [selectedPostId, setSelectedPostId] = useState<string | null>(null);
+  const [focusMessageId, setFocusMessageId] = useState<string | null>(null);
+  const [query, setQuery] = useState('');
+  const [newPostOpen, setNewPostOpen] = useState(false);
+
+  // The newest conversation is the one you probably came for.
+  const selected: ChatPost | null =
+    posts.find((p) => p.post.id === selectedPostId) ?? posts[0] ?? null;
+
+  const hits = useMemo(() => searchChat(posts, query), [posts, query]);
+
   // ★ Mark the mentions in this thread read — once, for the keys actually on
-  // screen. The mutation is idempotent (INSERT ... ON CONFLICT DO NOTHING), so a
-  // re-render cannot double-write, and the guard keeps it from firing on every
-  // realtime refresh.
+  // screen. Idempotent (INSERT … ON CONFLICT DO NOTHING), and the guard keeps it
+  // from firing on every realtime refresh.
   const markedRef = useRef<Set<string>>(new Set());
   useEffect(() => {
     if (!userId) return;
     const read = new Set(readsQ.data ?? []);
     const keys = messages
-      .filter((m) => mentionsMe(m, userId))
+      .filter((m) => mentionsMe(m, userId) && !isDeleted(m))
       .map((m) => keyForMention(m.id))
       .filter((k) => !read.has(k) && !markedRef.current.has(k));
     if (keys.length === 0) return;
@@ -101,8 +116,8 @@ export default function ProjectChatModal({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [messages, readsQ.data, userId]);
 
-  // Esc closes, like every other overlay in the app. The mention picker stops
-  // propagation while it is open, so Escape dismisses the list first.
+  // Esc closes, like every other overlay. The mention picker stops propagation
+  // while it is open, so Escape dismisses the list first.
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       if (e.key === 'Escape') onClose();
@@ -111,9 +126,365 @@ export default function ProjectChatModal({
     return () => document.removeEventListener('keydown', onKey);
   }, [onClose]);
 
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center"
+      style={{ background: 'rgba(17,24,39,.42)' }}
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+      role="dialog"
+      aria-modal="true"
+      aria-label="Project chat"
+      data-testid="project-chat-modal"
+    >
+      <div
+        className="bg-surface rounded-xl flex flex-col overflow-hidden"
+        style={{ width: 'min(1000px, 94vw)', height: 'min(680px, 90vh)' }}
+      >
+        <header className="flex items-center gap-2 px-4 py-3 border-b border-border flex-none">
+          <div>
+            <div className="text-[14px] font-display font-bold text-text">
+              Project chat
+            </div>
+            <div className="text-[11px] text-dim" data-testid="project-chat-subtitle">
+              {posts.length} post{posts.length === 1 ? '' : 's'} ·{' '}
+              {messages.length} message{messages.length === 1 ? '' : 's'}
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="ml-auto text-dim hover:text-text text-lg leading-none"
+            aria-label="Close"
+            data-testid="project-chat-close"
+          >
+            ✕
+          </button>
+        </header>
+
+        <div className="flex-1 min-h-0 flex">
+          {/* ── posts + search ─────────────────────────────────────────── */}
+          <aside
+            className="flex-none border-r border-border flex flex-col min-h-0"
+            style={{ width: 268 }}
+            data-testid="project-chat-posts"
+          >
+            <div className="p-2.5 flex flex-col gap-2 flex-none border-b border-border">
+              <input
+                type="search"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="Search this conversation…"
+                className="w-full border border-border rounded px-2 py-1 text-[11.5px] bg-bg text-text placeholder:text-dim focus:outline-none focus:border-de"
+                aria-label="Search this conversation"
+                data-testid="project-chat-search"
+              />
+              {/* ★★ ADMINS ONLY — and the policy says so too. */}
+              {isAdmin && (
+                <button
+                  type="button"
+                  onClick={() => setNewPostOpen(true)}
+                  className="w-full text-[11px] font-bold rounded py-1 bg-de text-white hover:opacity-90 transition"
+                  data-testid="project-chat-new-post"
+                >
+                  ＋ New post
+                </button>
+              )}
+            </div>
+
+            <div className="flex-1 min-h-0 overflow-y-auto p-1.5">
+              {query.trim().length >= 2 ? (
+                <SearchResults
+                  hits={hits}
+                  onOpen={(postId, messageId) => {
+                    setSelectedPostId(postId);
+                    setFocusMessageId(messageId);
+                  }}
+                />
+              ) : posts.length === 0 ? (
+                <div
+                  className="text-[11px] text-dim italic px-1.5 py-2"
+                  data-testid="project-chat-empty"
+                >
+                  {isAdmin
+                    ? 'No posts yet — start one.'
+                    : 'No posts yet. An admin starts a post; anyone can reply.'}
+                </div>
+              ) : (
+                posts.map((p) => (
+                  <PostRow
+                    key={p.post.id}
+                    entry={p}
+                    active={selected?.post.id === p.post.id}
+                    onSelect={() => {
+                      setSelectedPostId(p.post.id);
+                      setFocusMessageId(null);
+                    }}
+                  />
+                ))
+              )}
+            </div>
+          </aside>
+
+          {/* ── the selected post ───────────────────────────────────────── */}
+          <div className="flex-1 min-w-0 flex flex-col min-h-0">
+            {newPostOpen ? (
+              <NewPostComposer
+                projectId={projectId}
+                people={people}
+                onClose={() => setNewPostOpen(false)}
+                onCreated={(id) => {
+                  setNewPostOpen(false);
+                  setSelectedPostId(id);
+                }}
+              />
+            ) : !selected ? (
+              <div className="flex-1 flex items-center justify-center text-[12px] text-dim italic">
+                Nothing to show yet.
+              </div>
+            ) : (
+              <>
+                <div
+                  className="flex-1 min-h-0 overflow-y-auto px-4 py-4 flex flex-col gap-4"
+                  data-testid="project-chat-thread"
+                >
+                  <div>
+                    <h3
+                      className="text-[15px] font-display font-bold text-text mb-2"
+                      data-testid="project-chat-post-title"
+                    >
+                      {selected.post.title}
+                    </h3>
+                    <ChatMessageRow
+                      message={selected.post}
+                      projectId={projectId}
+                      userId={userId}
+                      people={people}
+                      permits={permits}
+                      variant="post"
+                      focused={focusMessageId === selected.post.id}
+                    />
+                  </div>
+
+                  {selected.replies.length > 0 && (
+                    <div
+                      className="border-t border-border pt-3 flex flex-col gap-3.5"
+                      data-testid="project-chat-replies"
+                    >
+                      {selected.replies.map((r) => (
+                        <ChatMessageRow
+                          key={r.id}
+                          message={r}
+                          projectId={projectId}
+                          userId={userId}
+                          people={people}
+                          permits={permits}
+                          focused={focusMessageId === r.id}
+                        />
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                <ReplyComposer
+                  key={selected.post.id}
+                  projectId={projectId}
+                  postId={selected.post.id}
+                  people={people}
+                  permits={permits}
+                />
+              </>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// --------------------------------------------------------------- post list --
+
+function PostRow({
+  entry,
+  active,
+  onSelect,
+}: {
+  entry: ChatPost;
+  active: boolean;
+  onSelect: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onSelect}
+      className="w-full text-left rounded px-2 py-1.5 mb-0.5 transition"
+      style={{ background: active ? 'var(--color-de-bg)' : 'transparent' }}
+      data-testid={`project-chat-post-${entry.post.id}`}
+      data-active={active ? 'true' : 'false'}
+    >
+      <div className="text-[11.5px] font-bold text-text truncate">
+        {entry.post.title}
+      </div>
+      <div className="text-[9.5px] text-dim truncate">
+        {entry.post.author_name ?? 'Unknown'} ·{' '}
+        <span data-testid={`project-chat-post-replies-${entry.post.id}`}>
+          {entry.replyCount} {entry.replyCount === 1 ? 'reply' : 'replies'}
+        </span>{' '}
+        · {chatStamp(entry.lastActivityAt)}
+      </div>
+    </button>
+  );
+}
+
+function SearchResults({
+  hits,
+  onOpen,
+}: {
+  hits: ReturnType<typeof searchChat>;
+  onOpen: (postId: string, messageId: string) => void;
+}) {
+  if (hits.length === 0) {
+    return (
+      <div
+        className="text-[11px] text-dim italic px-1.5 py-2"
+        data-testid="project-chat-search-empty"
+      >
+        Nothing in this conversation matches.
+      </div>
+    );
+  }
+  return (
+    <div data-testid="project-chat-search-results">
+      {hits.map((h) => (
+        <button
+          key={`${h.message.id}-${h.field}`}
+          type="button"
+          onClick={() => onOpen(h.postId, h.message.id)}
+          className="w-full text-left rounded px-2 py-1.5 mb-0.5 hover:bg-s2 transition"
+          data-testid={`project-chat-search-hit-${h.message.id}`}
+        >
+          <div className="text-[9.5px] font-bold uppercase tracking-wide text-dim truncate">
+            {h.postTitle}
+          </div>
+          <div className="text-[11px] text-text">{h.excerpt}</div>
+        </button>
+      ))}
+    </div>
+  );
+}
+
+// ------------------------------------------------------------ new post ------
+
+function NewPostComposer({
+  projectId,
+  people,
+  onClose,
+  onCreated,
+}: {
+  projectId: string;
+  people: import('../../lib/database.types').MentionablePerson[];
+  onClose: () => void;
+  onCreated: (id: string) => void;
+}) {
+  const post = usePostMessage();
+  const [title, setTitle] = useState('');
+  const [body, setBody] = useState('');
+
+  function submit() {
+    if (!title.trim() || !body.trim()) return;
+    post.mutate(
+      {
+        projectId,
+        title: title.trim(),
+        parentMessageId: null,
+        body: body.trim(),
+        mentions: parseMentions(body, people),
+      },
+      { onSuccess: (id) => id && onCreated(id) },
+    );
+  }
+
+  return (
+    <div className="flex-1 min-h-0 overflow-y-auto p-4 flex flex-col gap-2.5" data-testid="project-chat-new-post-form">
+      <div className="text-[13px] font-display font-bold text-text">
+        New post
+      </div>
+      <input
+        type="text"
+        value={title}
+        onChange={(e) => setTitle(e.target.value)}
+        placeholder="What is this post about?"
+        className="w-full border border-border rounded px-2.5 py-1.5 text-[12.5px] bg-bg text-text placeholder:text-dim focus:outline-none focus:border-de"
+        aria-label="Post title"
+        data-testid="project-chat-new-post-title"
+      />
+      <MentionTextarea
+        value={body}
+        onChange={setBody}
+        people={people}
+        onSubmit={submit}
+        placeholder="Start the conversation… type @ to mention someone"
+        testId="project-chat-new-post-body"
+      />
+      <div className="flex gap-2">
+        <button
+          type="button"
+          onClick={submit}
+          disabled={!title.trim() || !body.trim() || post.isPending}
+          className="bg-de text-white rounded-lg px-4 py-1.5 text-[12px] font-bold disabled:opacity-50"
+          data-testid="project-chat-new-post-submit"
+        >
+          {post.isPending ? 'Posting…' : 'Create post'}
+        </button>
+        <button
+          type="button"
+          onClick={onClose}
+          className="text-[11.5px] text-dim hover:text-text px-2"
+          data-testid="project-chat-new-post-cancel"
+        >
+          Cancel
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ------------------------------------------------------------- reply --------
+
+/**
+ * ★★ fix-334 §5 — the message and its task, in ONE SEND.
+ *
+ * Bobby: "as you're typing your message, add a task or send it to this permit,
+ * and then click send so it's all done in one sweep." Before this you posted,
+ * then hunted for a button on the posted message.
+ *
+ * ★ The task fields are fix-330's, imported — not rebuilt. <ChatTaskFields> is
+ * the same permit chooser, the same PrimaryAssigneeEditor and the same buffered
+ * TaskDateField the post-hoc composer uses, so the two cannot drift.
+ *
+ * ★ ONE MUTATION. usePostMessage inserts the message and creates the task, so
+ * the two share a failure surface and a task can never exist against a message
+ * that did not post.
+ */
+function ReplyComposer({
+  projectId,
+  postId,
+  people,
+  permits,
+}: {
+  projectId: string;
+  postId: string;
+  people: import('../../lib/database.types').MentionablePerson[];
+  permits: Permit[];
+}) {
+  const post = usePostMessage();
   const [draft, setDraft] = useState('');
   const [pending, setPending] = useState<PendingAttachment[]>([]);
   const [rejected, setRejected] = useState<string | null>(null);
+  const [withTask, setWithTask] = useState(false);
+  const anchorId = useMemo(() => anchorPermitIdFor(permits), [permits]);
+  const [task, setTask] = useState<ChatTaskDraft>(() => emptyTaskDraft(anchorId));
   const fileRef = useRef<HTMLInputElement | null>(null);
 
   // ★ Object URLs are revoked when the composer lets go of the file. Without
@@ -139,17 +510,13 @@ export default function ProjectChatModal({
           next.length,
         );
         if (reason) {
-          // Report the FIRST refusal and stop — a stack of red lines from one
-          // drop is noise, and the person only needs to fix one thing to retry.
           setRejected(reason);
           break;
         }
         next.push({
           localId: `${Date.now()}-${i}-${name}`,
           file:
-            file.name === name
-              ? file
-              : new File([file], name, { type: file.type }),
+            file.name === name ? file : new File([file], name, { type: file.type }),
           previewUrl: file.type.startsWith('image/')
             ? URL.createObjectURL(file)
             : null,
@@ -159,9 +526,6 @@ export default function ProjectChatModal({
     });
   }
 
-  /** ★ A SNIP IS Ctrl+V — Bobby said so, and it is how this will actually be
-   *  used. Clipboard items that are files become attachments; pasted TEXT falls
-   *  through to the textarea untouched. */
   function onPaste(e: React.ClipboardEvent<HTMLTextAreaElement>) {
     const files = Array.from(e.clipboardData?.files ?? []);
     if (files.length === 0) return;
@@ -169,335 +533,208 @@ export default function ProjectChatModal({
     addFiles(files);
   }
 
-  function removePending(localId: string) {
-    setPending((prev) => {
-      const hit = prev.find((p) => p.localId === localId);
-      if (hit?.previewUrl) URL.revokeObjectURL(hit.previewUrl);
-      return prev.filter((p) => p.localId !== localId);
-    });
-  }
-
   const unresolved = useMemo(
     () => unresolvedMentions(draft, people),
     [draft, people],
   );
 
-  const canSend = (draft.trim().length > 0 || pending.length > 0) && !post.isPending;
+  // ★ A task without a message is not a thing this composer sends — the task
+  // hangs off the message, so the message has to exist.
+  const canSend =
+    (draft.trim().length > 0 || pending.length > 0) &&
+    (!withTask || taskDraftIsReady(task)) &&
+    !post.isPending;
 
   function send() {
     if (!canSend) return;
     post.mutate(
       {
         projectId,
+        parentMessageId: postId,
         body: draft.trim(),
         mentions: parseMentions(draft, people),
         files: pending.map((p) => p.file),
+        task:
+          withTask && task.permitId != null
+            ? {
+                permitId: task.permitId,
+                text: task.text.trim().slice(0, 200),
+                discipline: disciplineForDraft(task),
+                assignedTo: task.assignedTo || null,
+                targetDate: task.targetDate,
+              }
+            : null,
       },
       {
         onSuccess: () => {
-          pending.forEach(
-            (p) => p.previewUrl && URL.revokeObjectURL(p.previewUrl),
-          );
+          pending.forEach((p) => p.previewUrl && URL.revokeObjectURL(p.previewUrl));
           setDraft('');
           setPending([]);
           setRejected(null);
+          setWithTask(false);
+          setTask(emptyTaskDraft(anchorId));
         },
       },
     );
   }
 
-  const authors = new Set(messages.map((m) => m.author_name ?? '')).size;
-
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center"
-      style={{ background: 'rgba(17,24,39,.42)' }}
-      onClick={(e) => {
-        if (e.target === e.currentTarget) onClose();
-      }}
-      role="dialog"
-      aria-modal="true"
-      aria-label="Project chat"
-      data-testid="project-chat-modal"
-    >
-      <div
-        className="bg-surface rounded-xl flex flex-col overflow-hidden"
-        style={{ width: 'min(880px, 92vw)', height: 'min(660px, 88vh)' }}
-      >
-        <header className="flex items-center gap-2 px-4 py-3 border-b border-border flex-none">
-          <div>
-            <div className="text-[14px] font-display font-bold text-text">
-              Project chat
-            </div>
-            <div className="text-[11px] text-dim" data-testid="project-chat-subtitle">
-              {messages.length} message{messages.length === 1 ? '' : 's'}
-              {authors > 0 ? ` · ${authors} ${authors === 1 ? 'person' : 'people'}` : ''}
-            </div>
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="ml-auto text-dim hover:text-text text-lg leading-none"
-            aria-label="Close"
-            data-testid="project-chat-close"
-          >
-            ✕
-          </button>
-        </header>
+    <div className="flex-none border-t border-border p-3">
+      <MentionTextarea
+        value={draft}
+        onChange={setDraft}
+        people={people}
+        onSubmit={send}
+        onPaste={onPaste}
+        placeholder="Reply… type @ to mention someone, or paste a snip"
+        testId="project-chat-input"
+      />
 
+      {/* ★★ AN UNRESOLVED @word IS NOT A MENTION, AND IT SAYS SO (fix-330). */}
+      {unresolved.length > 0 && (
         <div
-          className="flex-1 min-h-0 overflow-y-auto px-4 py-4 flex flex-col gap-4"
-          data-testid="project-chat-thread"
+          className="text-[10.5px] mt-1.5"
+          style={{ color: 'var(--color-co)' }}
+          data-testid="project-chat-unresolved"
         >
-          {messages.length === 0 ? (
-            <div className="text-[12px] text-dim italic">
-              No messages yet — say something to the project team.
-            </div>
-          ) : (
-            messages.map((m) => (
-              <FullMessage
-                key={m.id}
-                message={m}
-                projectId={projectId}
-                userId={userId}
-                people={people}
-                permits={permits}
-              />
-            ))
-          )}
+          {unresolved.join(', ')}{' '}
+          {unresolved.length === 1 ? 'matches nobody' : 'match nobody'} — it will
+          post as plain text, and notify no one. Pick a name from the list to
+          mention someone.
         </div>
+      )}
 
-        <div className="flex-none border-t border-border p-3">
-          <MentionTextarea
-            value={draft}
-            onChange={setDraft}
-            people={people}
-            onSubmit={send}
-            onPaste={onPaste}
-            placeholder="Message the project team… type @ to mention someone, or paste a snip"
-            testId="project-chat-input"
-          />
-
-          {/* ★★ AN UNRESOLVED @word IS NOT A MENTION, AND IT SAYS SO. `@mi` used
-              to look exactly like a mention and silently notify nobody. It still
-              posts — as plain text, which is honest — but nobody presses Send
-              believing otherwise. */}
-          {unresolved.length > 0 && (
-            <div
-              className="text-[10.5px] mt-1.5"
-              style={{ color: 'var(--color-co)' }}
-              data-testid="project-chat-unresolved"
-            >
-              {unresolved.join(', ')}{' '}
-              {unresolved.length === 1 ? 'matches nobody' : 'match nobody'} — it
-              will post as plain text, and notify no one. Pick a name from the
-              list to mention someone.
-            </div>
-          )}
-
-          {pending.length > 0 && (
-            <div
-              className="flex flex-wrap gap-2 mt-2"
-              data-testid="project-chat-pending"
-            >
-              {pending.map((p) => (
-                <span
-                  key={p.localId}
-                  className="flex items-center gap-1.5 rounded border px-1.5 py-1 text-[10.5px] text-text"
-                  style={{
-                    borderColor: 'var(--color-border)',
-                    background: 'var(--color-bg)',
-                  }}
-                  data-testid={`project-chat-pending-${p.file.name}`}
-                >
-                  {p.previewUrl ? (
-                    <img
-                      src={p.previewUrl}
-                      alt=""
-                      style={{ height: 24, width: 24, objectFit: 'cover', borderRadius: 3 }}
-                    />
-                  ) : (
-                    <span aria-hidden>📄</span>
-                  )}
-                  <span className="truncate" style={{ maxWidth: 160 }}>
-                    {p.file.name}
-                  </span>
-                  <span className="text-dim">{humanSize(p.file.size)}</span>
-                  <button
-                    type="button"
-                    onClick={() => removePending(p.localId)}
-                    className="text-dim hover:text-text leading-none"
-                    aria-label={`Remove ${p.file.name}`}
-                    data-testid={`project-chat-pending-remove-${p.file.name}`}
-                  >
-                    ✕
-                  </button>
-                </span>
-              ))}
-            </div>
-          )}
-
-          {/* ★ A REJECTED FILE SAYS WHY, naming the file and the limit it broke.
-              "Upload failed" is the message this codebase has spent tickets
-              replacing. */}
-          {rejected && (
-            <div
-              className="text-[10.5px] mt-1.5"
-              style={{ color: 'var(--color-danger, #b91c1c)' }}
-              role="alert"
-              data-testid="project-chat-attach-rejected"
-            >
-              {rejected}
-            </div>
-          )}
-
-          <div className="flex items-center gap-2 mt-2">
-            {/* ★★ THE PAPERCLIP IS LIVE. This is the control fix-329 shipped
-                disabled, wearing a deferral label — the placeholder this ticket
-                exists to erase. */}
-            <input
-              ref={fileRef}
-              type="file"
-              multiple
-              className="hidden"
-              onChange={(e) => {
-                addFiles(Array.from(e.target.files ?? []));
-                // Reset so re-picking the SAME file fires change again.
-                e.target.value = '';
+      {pending.length > 0 && (
+        <div className="flex flex-wrap gap-2 mt-2" data-testid="project-chat-pending">
+          {pending.map((p) => (
+            <span
+              key={p.localId}
+              className="flex items-center gap-1.5 rounded border px-1.5 py-1 text-[10.5px] text-text"
+              style={{
+                borderColor: 'var(--color-border)',
+                background: 'var(--color-bg)',
               }}
-              data-testid="project-chat-file-input"
-            />
-            <button
-              type="button"
-              onClick={() => fileRef.current?.click()}
-              disabled={pending.length >= MAX_ATTACHMENTS_PER_MESSAGE}
-              title={ATTACHMENT_LIMIT_HINT}
-              className="text-[10.5px] text-text border border-border rounded px-2 py-1 hover:bg-s2 transition disabled:opacity-50"
-              data-testid="project-chat-attach"
+              data-testid={`project-chat-pending-${p.file.name}`}
             >
-              📎 Attach
-            </button>
-            <span className="text-[10.5px] text-dim">
-              Enter sends · Shift+Enter for a new line · paste a snip to attach it
+              {p.previewUrl ? (
+                <img
+                  src={p.previewUrl}
+                  alt=""
+                  style={{ height: 24, width: 24, objectFit: 'cover', borderRadius: 3 }}
+                />
+              ) : (
+                <span aria-hidden>📄</span>
+              )}
+              <span className="truncate" style={{ maxWidth: 160 }}>
+                {p.file.name}
+              </span>
+              <span className="text-dim">{humanSize(p.file.size)}</span>
+              <button
+                type="button"
+                onClick={() =>
+                  setPending((prev) => {
+                    const hit = prev.find((x) => x.localId === p.localId);
+                    if (hit?.previewUrl) URL.revokeObjectURL(hit.previewUrl);
+                    return prev.filter((x) => x.localId !== p.localId);
+                  })
+                }
+                className="text-dim hover:text-text leading-none"
+                aria-label={`Remove ${p.file.name}`}
+                data-testid={`project-chat-pending-remove-${p.file.name}`}
+              >
+                ✕
+              </button>
             </span>
-            <button
-              type="button"
-              onClick={send}
-              disabled={!canSend}
-              className="ml-auto bg-de text-white rounded-lg px-4 py-1.5 text-[12px] font-bold disabled:opacity-50"
-              data-testid="project-chat-send"
-            >
-              {post.isPending ? 'Sending…' : 'Send'}
-            </button>
-          </div>
+          ))}
         </div>
-      </div>
-    </div>
-  );
-}
+      )}
 
-function FullMessage({
-  message,
-  projectId,
-  userId,
-  people,
-  permits,
-}: {
-  message: ProjectMessage;
-  projectId: string;
-  userId: string | null;
-  people: MentionablePerson[];
-  permits: Permit[];
-}) {
-  const toMe = mentionsMe(message, userId);
-  const made = !!message.task_id;
-  const [composing, setComposing] = useState(false);
-  const taskPermit = permits.find((p) => p.id === message.task_permit_id) ?? null;
-
-  return (
-    <div
-      className="flex gap-2.5"
-      style={
-        toMe
-          ? {
-              background: 'var(--color-de-bg)',
-              margin: '-7px -9px',
-              padding: '7px 9px',
-              borderRadius: 8,
-            }
-          : undefined
-      }
-      data-testid={`project-chat-message-${message.id}`}
-      data-to-me={toMe ? 'true' : 'false'}
-    >
-      <Avatar name={message.author_name} />
-      <div className="flex-1 min-w-0">
-        <div className="flex items-baseline gap-2">
-          <span className="text-[12.5px] font-bold text-text">
-            {message.author_name ?? 'Unknown'}
-          </span>
-          <span className="text-[10px] text-dim">{chatStamp(message.created_at)}</span>
+      {rejected && (
+        <div
+          className="text-[10.5px] mt-1.5"
+          style={{ color: 'var(--color-danger, #b91c1c)' }}
+          role="alert"
+          data-testid="project-chat-attach-rejected"
+        >
+          {rejected}
         </div>
-        <div className="text-[13px] text-text mt-0.5" style={{ whiteSpace: 'pre-wrap' }}>
-          <MessageBody body={message.body} people={people} />
-        </div>
+      )}
 
-        <ChatAttachments attachments={message.attachments ?? []} />
-
-        {made ? (
-          // ★ The link-back, from the same RPC that lists the thread — and now
-          // it names the PERMIT the task landed on and links to it, so the last
-          // hop of the chain is visible rather than asserted.
-          <div
-            className="mt-2 rounded-lg border px-2.5 py-1.5 text-[11.5px]"
-            style={{
-              borderColor: 'var(--color-pm-border)',
-              background: 'var(--color-pm-bg)',
-            }}
-            data-testid={`project-chat-task-${message.id}`}
-          >
-            <span className="font-bold text-text">✓ {message.task_text}</span>
-            <span className="text-dim"> · created from this message</span>
-            {taskPermit && (
-              <>
-                <span className="text-dim"> · </span>
-                <Link
-                  to={`/project/${projectId}?permit=${taskPermit.id}`}
-                  className="underline text-de"
-                  data-testid={`project-chat-task-permit-${message.id}`}
-                >
-                  {permitChoiceLabel(taskPermit)}
-                </Link>
-              </>
-            )}
-          </div>
-        ) : composing ? (
-          <ChatTaskComposer
-            messageId={message.id}
+      {/* ★ THE TASK, COMPOSED ALONGSIDE THE MESSAGE. */}
+      {withTask && (
+        <div
+          className="mt-2 rounded-lg border p-2.5 flex flex-col gap-2"
+          style={{
+            borderColor: 'var(--color-de-border)',
+            background: 'var(--color-de-bg)',
+          }}
+          data-testid="project-chat-send-task"
+        >
+          <ChatTaskFields
+            draft={task}
+            onChange={setTask}
             projectId={projectId}
-            defaultText={message.body.slice(0, 200)}
             permits={permits}
-            onDone={() => setComposing(false)}
-            onCancel={() => setComposing(false)}
+            disabled={post.isPending}
+            testIdPrefix="project-chat-send-task"
           />
-        ) : (
-          <div className="flex gap-1.5 mt-2">
-            <button
-              type="button"
-              onClick={() => setComposing(true)}
-              disabled={permits.length === 0}
-              title={
-                permits.length === 0
-                  ? 'This project has no permit to hang a task on yet'
-                  : 'Create a task from this message'
-              }
-              className="text-[10.5px] border border-border rounded px-2 py-0.5 text-text hover:bg-s2 transition disabled:opacity-50 disabled:cursor-not-allowed"
-              data-testid={`project-chat-create-task-${message.id}`}
-            >
-              Create task
-            </button>
-          </div>
-        )}
+        </div>
+      )}
+
+      <div className="flex items-center gap-2 mt-2 flex-wrap">
+        <input
+          ref={fileRef}
+          type="file"
+          multiple
+          className="hidden"
+          onChange={(e) => {
+            addFiles(Array.from(e.target.files ?? []));
+            e.target.value = '';
+          }}
+          data-testid="project-chat-file-input"
+        />
+        <button
+          type="button"
+          onClick={() => fileRef.current?.click()}
+          disabled={pending.length >= MAX_ATTACHMENTS_PER_MESSAGE}
+          title={ATTACHMENT_LIMIT_HINT}
+          className="text-[10.5px] text-text border border-border rounded px-2 py-1 hover:bg-s2 transition disabled:opacity-50"
+          data-testid="project-chat-attach"
+        >
+          📎 Attach
+        </button>
+        <button
+          type="button"
+          onClick={() => setWithTask((v) => !v)}
+          disabled={permits.length === 0}
+          title={
+            permits.length === 0
+              ? 'This project has no permit to hang a task on yet'
+              : 'Create a task with this message'
+          }
+          className="text-[10.5px] border rounded px-2 py-1 transition disabled:opacity-50 disabled:cursor-not-allowed"
+          style={{
+            borderColor: withTask ? 'var(--color-de)' : 'var(--color-border)',
+            color: withTask ? 'var(--color-de)' : 'var(--color-text)',
+            fontWeight: withTask ? 700 : 400,
+          }}
+          data-testid="project-chat-toggle-task"
+          data-on={withTask ? 'true' : 'false'}
+        >
+          ✓ Add a task
+        </button>
+        <span className="text-[10.5px] text-dim">
+          Enter sends · Shift+Enter for a new line
+        </span>
+        <button
+          type="button"
+          onClick={send}
+          disabled={!canSend}
+          className="ml-auto bg-de text-white rounded-lg px-4 py-1.5 text-[12px] font-bold disabled:opacity-50"
+          data-testid="project-chat-send"
+        >
+          {post.isPending ? 'Sending…' : 'Send'}
+        </button>
       </div>
     </div>
   );
