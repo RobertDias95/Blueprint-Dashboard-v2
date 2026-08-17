@@ -5,6 +5,11 @@
 // Field names mirror the Supabase schema exactly (snake_case). UI helpers
 // translate to camelCase where useful, but the wire format stays canonical.
 
+// fix-330: the attachment shape lives with the upload/limit rules that produce
+// it, not here — importing it keeps ONE definition rather than a wire copy that
+// can drift from the validator.
+import type { ChatAttachment } from './chatAttachments';
+
 export type Stage = 'de' | 'pm' | 'co' | 'ap' | 'is';
 
 /** fix-22: per-unit-type sub-row stored as jsonb on projects.unit_types.
@@ -271,14 +276,26 @@ export interface ProjectMessage {
   author_name: string | null;
   body: string;
   mentions: string[];
+  /** fix-330: [{path,name,mime,size}] uploaded with this message. jsonb for the
+   *  same reason `mentions` is a uuid[] — written once with an append-only row,
+   *  always read with it, never queried on its own. */
+  attachments: ChatAttachment[];
   created_at: string;
   /** The task created FROM this message, if any (fix-329's link-back). */
   task_id: string | null;
   task_text: string | null;
+  /** ★ fix-330: WHICH permit that task landed on. The link-back can now name
+   *  the permit instead of asserting the task went somewhere. */
+  task_permit_id: number | null;
 }
 
 /** fix-329: someone who can be @-mentioned — a person who can actually open
- *  this tenant, so every mention can resolve to a notifiable user. */
+ *  this tenant, so every mention can resolve to a notifiable user.
+ *
+ *  ★ fix-330: `name` is now a HUMAN NAME. It used to be an email address for
+ *  every single person, because profiles.name is NULL on all 29 production
+ *  logins — which is the real reason `@Miles` matched nobody. bp_mentionable_
+ *  people resolves it through team_members.email (fix-176's mapping). */
 export interface MentionablePerson {
   user_id: string;
   name: string | null;

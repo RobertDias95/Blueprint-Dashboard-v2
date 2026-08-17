@@ -1,40 +1,57 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { useAuthStore } from '../../stores/authStore';
 import { useBoardReads, useMarkBoardItemsRead } from '../../hooks/useBoardReads';
 import {
-  anchorPermitIdFor,
-  useCreateTaskFromMessage,
+  permitChoiceLabel,
   useMentionablePeople,
   usePostMessage,
   useProjectMessages,
 } from '../../hooks/useProjectMessages';
+import { useTeamMembers } from '../../hooks/useTeamMembers';
 import {
   chatStamp,
   keyForMention,
+  mentionableAfterRoster,
   mentionsMe,
   parseMentions,
+  unresolvedMentions,
 } from '../../lib/projectChat';
+import {
+  ATTACHMENT_LIMIT_HINT,
+  humanSize,
+  MAX_ATTACHMENTS_PER_MESSAGE,
+  pastedFileName,
+  rejectionReason,
+  type PendingAttachment,
+} from '../../lib/chatAttachments';
 import { Avatar, MessageBody } from './ProjectChatCard';
+import MentionTextarea from './MentionTextarea';
+import ChatAttachments from './ChatAttachments';
+import ChatTaskComposer from './ChatTaskComposer';
 import type {
   MentionablePerson,
   Permit,
   ProjectMessage,
 } from '../../lib/database.types';
 
-// fix-329 (register #71) — the full conversation, per Project_Chat_Mockup_v2.
+// fix-330 — the full conversation, finished.
 //
-// ★ READING THE THREAD MARKS ITS MENTIONS READ. Opening this is the moment a
-// mention stops being news, so it writes board_item_reads for exactly the
-// `mention:{id}` keys on screen — fix-307's model, reused. It does NOT mark
-// anything else read, and reading is not doing: no task is touched, no message
-// changes, nothing leaves the thread.
+// ★ READING THE THREAD MARKS ITS MENTIONS READ (fix-329, unchanged). Opening
+// this is the moment a mention stops being news, so it writes board_item_reads
+// for exactly the `mention:{id}` keys on screen — fix-307's model, reused. It
+// does NOT mark anything else read, and reading is not doing.
 //
-// ★★ PHASE 1 IS TEXT ONLY. The attach control is rendered DISABLED with an
-// honest label, because this codebase has shipped a live-looking control that
-// does nothing six times and spent tickets undoing it. Nothing in this
-// application has ever uploaded a file from the browser — there is no upload
-// path, no bucket, no size or type limit and no orphan story — so attachments
-// are a ticket, not a section of one.
+// ★★ THE PLACEHOLDER IS GONE. fix-329 shipped a disabled paperclip with a
+// deferral label on it into production, and this ticket exists to erase it. The
+// paperclip is live: a file picker, a paste handler for snips, limits that
+// explain their refusals, and attachments rendered inline. A test greps the
+// whole source tree for that label, so it cannot come back.
+//
+// ★ ONE COMPOSER, THREE INPUTS. Text, mentions and files all leave through the
+// same Send and the same usePostMessage mutation — so an upload cannot succeed
+// into a message that never posted, and a partly-sent message has nowhere to
+// hide.
 
 export default function ProjectChatModal({
   projectId,
@@ -53,7 +70,16 @@ export default function ProjectChatModal({
   const post = usePostMessage();
 
   const messages = useMemo(() => messagesQ.data ?? [], [messagesQ.data]);
-  const people = useMemo(() => peopleQ.data ?? [], [peopleQ.data]);
+
+  // ★ fix-321, applied on both sides of the wire. bp_mentionable_people already
+  // drops departed staff; this drops them again on the way into the picker, so
+  // the rule is assertable against the rendered list and not only against SQL.
+  // See mentionableAfterRoster for why "unknown" is not "departed".
+  const team = useTeamMembers();
+  const people = useMemo(
+    () => mentionableAfterRoster(peopleQ.data ?? [], team.all),
+    [peopleQ.data, team.all],
+  );
 
   // ★ Mark the mentions in this thread read — once, for the keys actually on
   // screen. The mutation is idempotent (INSERT ... ON CONFLICT DO NOTHING), so a
@@ -75,7 +101,8 @@ export default function ProjectChatModal({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [messages, readsQ.data, userId]);
 
-  // Esc closes, like every other overlay in the app.
+  // Esc closes, like every other overlay in the app. The mention picker stops
+  // propagation while it is open, so Escape dismisses the list first.
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       if (e.key === 'Escape') onClose();
@@ -85,14 +112,97 @@ export default function ProjectChatModal({
   }, [onClose]);
 
   const [draft, setDraft] = useState('');
-  const anchorPermitId = useMemo(() => anchorPermitIdFor(permits), [permits]);
+  const [pending, setPending] = useState<PendingAttachment[]>([]);
+  const [rejected, setRejected] = useState<string | null>(null);
+  const fileRef = useRef<HTMLInputElement | null>(null);
+
+  // ★ Object URLs are revoked when the composer lets go of the file. Without
+  // this every pasted snip leaks a blob for the life of the tab.
+  useEffect(
+    () => () => {
+      pending.forEach((p) => p.previewUrl && URL.revokeObjectURL(p.previewUrl));
+    },
+    [pending],
+  );
+
+  /** ★ One door for the picker and for paste, so a refusal reads the same
+   *  whichever way the file arrived. */
+  function addFiles(files: readonly File[]) {
+    if (files.length === 0) return;
+    setRejected(null);
+    setPending((prev) => {
+      const next = [...prev];
+      for (const [i, file] of files.entries()) {
+        const name = pastedFileName(file, next.length);
+        const reason = rejectionReason(
+          { name, type: file.type, size: file.size },
+          next.length,
+        );
+        if (reason) {
+          // Report the FIRST refusal and stop — a stack of red lines from one
+          // drop is noise, and the person only needs to fix one thing to retry.
+          setRejected(reason);
+          break;
+        }
+        next.push({
+          localId: `${Date.now()}-${i}-${name}`,
+          file:
+            file.name === name
+              ? file
+              : new File([file], name, { type: file.type }),
+          previewUrl: file.type.startsWith('image/')
+            ? URL.createObjectURL(file)
+            : null,
+        });
+      }
+      return next;
+    });
+  }
+
+  /** ★ A SNIP IS Ctrl+V — Bobby said so, and it is how this will actually be
+   *  used. Clipboard items that are files become attachments; pasted TEXT falls
+   *  through to the textarea untouched. */
+  function onPaste(e: React.ClipboardEvent<HTMLTextAreaElement>) {
+    const files = Array.from(e.clipboardData?.files ?? []);
+    if (files.length === 0) return;
+    e.preventDefault();
+    addFiles(files);
+  }
+
+  function removePending(localId: string) {
+    setPending((prev) => {
+      const hit = prev.find((p) => p.localId === localId);
+      if (hit?.previewUrl) URL.revokeObjectURL(hit.previewUrl);
+      return prev.filter((p) => p.localId !== localId);
+    });
+  }
+
+  const unresolved = useMemo(
+    () => unresolvedMentions(draft, people),
+    [draft, people],
+  );
+
+  const canSend = (draft.trim().length > 0 || pending.length > 0) && !post.isPending;
 
   function send() {
-    const body = draft.trim();
-    if (!body) return;
+    if (!canSend) return;
     post.mutate(
-      { projectId, body, mentions: parseMentions(body, people) },
-      { onSuccess: () => setDraft('') },
+      {
+        projectId,
+        body: draft.trim(),
+        mentions: parseMentions(draft, people),
+        files: pending.map((p) => p.file),
+      },
+      {
+        onSuccess: () => {
+          pending.forEach(
+            (p) => p.previewUrl && URL.revokeObjectURL(p.previewUrl),
+          );
+          setDraft('');
+          setPending([]);
+          setRejected(null);
+        },
+      },
     );
   }
 
@@ -148,57 +258,136 @@ export default function ProjectChatModal({
               <FullMessage
                 key={m.id}
                 message={m}
+                projectId={projectId}
                 userId={userId}
                 people={people}
-                anchorPermitId={anchorPermitId}
+                permits={permits}
               />
             ))
           )}
         </div>
 
         <div className="flex-none border-t border-border p-3">
-          <textarea
+          <MentionTextarea
             value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-            onKeyDown={(e) => {
-              // Enter sends, Shift+Enter is a newline — the convention every
-              // chat this team uses already has.
-              if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault();
-                send();
-              }
-            }}
-            placeholder="Message the project team… type @ to mention someone"
-            className="w-full border border-border rounded-lg px-3 py-2 text-[12.5px] bg-bg text-text placeholder:text-dim focus:outline-none focus:border-de"
-            style={{ minHeight: 58, resize: 'vertical' }}
-            data-testid="project-chat-input"
+            onChange={setDraft}
+            people={people}
+            onSubmit={send}
+            onPaste={onPaste}
+            placeholder="Message the project team… type @ to mention someone, or paste a snip"
+            testId="project-chat-input"
           />
+
+          {/* ★★ AN UNRESOLVED @word IS NOT A MENTION, AND IT SAYS SO. `@mi` used
+              to look exactly like a mention and silently notify nobody. It still
+              posts — as plain text, which is honest — but nobody presses Send
+              believing otherwise. */}
+          {unresolved.length > 0 && (
+            <div
+              className="text-[10.5px] mt-1.5"
+              style={{ color: 'var(--color-co)' }}
+              data-testid="project-chat-unresolved"
+            >
+              {unresolved.join(', ')}{' '}
+              {unresolved.length === 1 ? 'matches nobody' : 'match nobody'} — it
+              will post as plain text, and notify no one. Pick a name from the
+              list to mention someone.
+            </div>
+          )}
+
+          {pending.length > 0 && (
+            <div
+              className="flex flex-wrap gap-2 mt-2"
+              data-testid="project-chat-pending"
+            >
+              {pending.map((p) => (
+                <span
+                  key={p.localId}
+                  className="flex items-center gap-1.5 rounded border px-1.5 py-1 text-[10.5px] text-text"
+                  style={{
+                    borderColor: 'var(--color-border)',
+                    background: 'var(--color-bg)',
+                  }}
+                  data-testid={`project-chat-pending-${p.file.name}`}
+                >
+                  {p.previewUrl ? (
+                    <img
+                      src={p.previewUrl}
+                      alt=""
+                      style={{ height: 24, width: 24, objectFit: 'cover', borderRadius: 3 }}
+                    />
+                  ) : (
+                    <span aria-hidden>📄</span>
+                  )}
+                  <span className="truncate" style={{ maxWidth: 160 }}>
+                    {p.file.name}
+                  </span>
+                  <span className="text-dim">{humanSize(p.file.size)}</span>
+                  <button
+                    type="button"
+                    onClick={() => removePending(p.localId)}
+                    className="text-dim hover:text-text leading-none"
+                    aria-label={`Remove ${p.file.name}`}
+                    data-testid={`project-chat-pending-remove-${p.file.name}`}
+                  >
+                    ✕
+                  </button>
+                </span>
+              ))}
+            </div>
+          )}
+
+          {/* ★ A REJECTED FILE SAYS WHY, naming the file and the limit it broke.
+              "Upload failed" is the message this codebase has spent tickets
+              replacing. */}
+          {rejected && (
+            <div
+              className="text-[10.5px] mt-1.5"
+              style={{ color: 'var(--color-danger, #b91c1c)' }}
+              role="alert"
+              data-testid="project-chat-attach-rejected"
+            >
+              {rejected}
+            </div>
+          )}
+
           <div className="flex items-center gap-2 mt-2">
-            {/* ★★ THE ATTACH CONTROL IS DISABLED AND SAYS WHY. Not absent (the
-                mockup shows it, and hiding it would lose the promise), not live
-                (there is no upload path in this app at all). An honest disabled
-                control is the third option this codebase learned the hard way. */}
+            {/* ★★ THE PAPERCLIP IS LIVE. This is the control fix-329 shipped
+                disabled, wearing a deferral label — the placeholder this ticket
+                exists to erase. */}
+            <input
+              ref={fileRef}
+              type="file"
+              multiple
+              className="hidden"
+              onChange={(e) => {
+                addFiles(Array.from(e.target.files ?? []));
+                // Reset so re-picking the SAME file fires change again.
+                e.target.value = '';
+              }}
+              data-testid="project-chat-file-input"
+            />
             <button
               type="button"
-              disabled
-              aria-disabled="true"
-              title="Attachments arrive in a later phase — this build is text only"
-              className="text-[10.5px] text-dim border border-border rounded px-2 py-1 cursor-not-allowed opacity-60"
+              onClick={() => fileRef.current?.click()}
+              disabled={pending.length >= MAX_ATTACHMENTS_PER_MESSAGE}
+              title={ATTACHMENT_LIMIT_HINT}
+              className="text-[10.5px] text-text border border-border rounded px-2 py-1 hover:bg-s2 transition disabled:opacity-50"
               data-testid="project-chat-attach"
             >
-              📎 Attach — coming later
+              📎 Attach
             </button>
             <span className="text-[10.5px] text-dim">
-              Enter sends · Shift+Enter for a new line
+              Enter sends · Shift+Enter for a new line · paste a snip to attach it
             </span>
             <button
               type="button"
               onClick={send}
-              disabled={!draft.trim() || post.isPending}
+              disabled={!canSend}
               className="ml-auto bg-de text-white rounded-lg px-4 py-1.5 text-[12px] font-bold disabled:opacity-50"
               data-testid="project-chat-send"
             >
-              Send
+              {post.isPending ? 'Sending…' : 'Send'}
             </button>
           </div>
         </div>
@@ -209,18 +398,21 @@ export default function ProjectChatModal({
 
 function FullMessage({
   message,
+  projectId,
   userId,
   people,
-  anchorPermitId,
+  permits,
 }: {
   message: ProjectMessage;
+  projectId: string;
   userId: string | null;
   people: MentionablePerson[];
-  anchorPermitId: number | null;
+  permits: Permit[];
 }) {
   const toMe = mentionsMe(message, userId);
-  const createTask = useCreateTaskFromMessage();
   const made = !!message.task_id;
+  const [composing, setComposing] = useState(false);
+  const taskPermit = permits.find((p) => p.id === message.task_permit_id) ?? null;
 
   return (
     <div
@@ -250,8 +442,12 @@ function FullMessage({
           <MessageBody body={message.body} people={people} />
         </div>
 
+        <ChatAttachments attachments={message.attachments ?? []} />
+
         {made ? (
-          // ★ The link-back, from the same RPC that lists the thread.
+          // ★ The link-back, from the same RPC that lists the thread — and now
+          // it names the PERMIT the task landed on and links to it, so the last
+          // hop of the chain is visible rather than asserted.
           <div
             className="mt-2 rounded-lg border px-2.5 py-1.5 text-[11.5px]"
             style={{
@@ -262,25 +458,36 @@ function FullMessage({
           >
             <span className="font-bold text-text">✓ {message.task_text}</span>
             <span className="text-dim"> · created from this message</span>
+            {taskPermit && (
+              <>
+                <span className="text-dim"> · </span>
+                <Link
+                  to={`/project/${projectId}?permit=${taskPermit.id}`}
+                  className="underline text-de"
+                  data-testid={`project-chat-task-permit-${message.id}`}
+                >
+                  {permitChoiceLabel(taskPermit)}
+                </Link>
+              </>
+            )}
           </div>
+        ) : composing ? (
+          <ChatTaskComposer
+            messageId={message.id}
+            projectId={projectId}
+            defaultText={message.body.slice(0, 200)}
+            permits={permits}
+            onDone={() => setComposing(false)}
+            onCancel={() => setComposing(false)}
+          />
         ) : (
           <div className="flex gap-1.5 mt-2">
             <button
               type="button"
-              onClick={() => {
-                if (anchorPermitId == null) return;
-                createTask.mutate({
-                  messageId: message.id,
-                  permitId: anchorPermitId,
-                  // ★ The message IS the task text — pre-filled, and editable
-                  // afterwards in the task editor like any other task.
-                  text: message.body.slice(0, 200),
-                  discipline: 'ent',
-                });
-              }}
-              disabled={anchorPermitId == null || createTask.isPending}
+              onClick={() => setComposing(true)}
+              disabled={permits.length === 0}
               title={
-                anchorPermitId == null
+                permits.length === 0
                   ? 'This project has no permit to hang a task on yet'
                   : 'Create a task from this message'
               }

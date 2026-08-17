@@ -98,6 +98,11 @@ export const queryKeys = {
     ['project_messages', 'mentions', tenantId, userId] as const,
   mentionablePeople: (tenantId: string) =>
     ['mentionable_people', tenantId] as const,
+  // ★ fix-330: a signed URL for one attachment. NOT under the project_messages
+  // prefix, deliberately — a new message must not invalidate every signed URL
+  // on screen and re-sign them all. The object is immutable; only the signature
+  // expires, which is what the query's own staleTime handles.
+  chatAttachmentUrl: (path: string) => ['chat_attachment_url', path] as const,
   notes: (tenantId: string, projectId: string) =>
     ['notes', tenantId, { projectId }] as const,
   // fix-notes-2: active-note search index for the Project List. Under the
