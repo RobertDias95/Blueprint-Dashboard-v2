@@ -157,6 +157,13 @@ function ErrorGroupRow({ group }: { group: ErrorGroup }) {
       `- **Level:** ${group.level}`,
       `- **Status:** ${STATUS_LABEL[group.status]}`,
       `- **Count:** ${group.count} occurrences across ${group.user_count} user(s)`,
+      // ★ fix-338: a bug report that omits "this was fixed once and came back"
+      // sends somebody to re-do the same investigation.
+      ...(group.recurred
+        ? [
+            `- **★ Recurred:** yes — ${group.resolved_count} occurrence(s) already resolved, last on ${group.last_resolved_at ?? 'unknown'}`,
+          ]
+        : []),
       `- **First seen:** ${group.first_seen}`,
       `- **Last seen:** ${group.last_seen}`,
       `- **Fingerprint:** \`${group.fingerprint}\``,
@@ -196,11 +203,38 @@ function ErrorGroupRow({ group }: { group: ErrorGroup }) {
         >
           {STATUS_LABEL[group.status]}
         </span>
+        {/* ★★ fix-338: "resolved before, and back again."
+            Bobby said it days before anybody looked: "I just felt like they
+            were already marked as resolved." He was right, and the page had no
+            way to tell him — the resolved occurrences were filtered out before
+            they could be counted. This is the difference between a new problem
+            and a fix that did not hold, so it gets its own badge rather than a
+            number somebody has to interpret. */}
+        {group.recurred && (
+          <span
+            className="text-[9px] font-display font-extrabold uppercase tracking-wider px-1.5 py-0.5 rounded border bg-co-bg text-co border-co-border"
+            title={
+              group.last_resolved_at
+                ? `Resolved ${relativeAgo(group.last_resolved_at)} and seen again since`
+                : 'Resolved before and seen again since'
+            }
+            data-testid={`error-group-recurred-${group.fingerprint}`}
+          >
+            ↻ Recurred
+          </span>
+        )}
         <span className="flex-1 text-[12px] text-text leading-snug line-clamp-2">
           {group.sample_message}
         </span>
-        <span className="text-[10px] font-mono text-dim whitespace-nowrap">
-          {group.count}× · {group.user_count}u · {relativeAgo(group.last_seen)}
+        {/* ★ fix-338: the count is now every occurrence, so when some of them
+            were already triaged the split is shown rather than left implicit. */}
+        <span
+          className="text-[10px] font-mono text-dim whitespace-nowrap"
+          data-testid={`error-group-counts-${group.fingerprint}`}
+        >
+          {group.count}×
+          {group.resolved_count > 0 && ` (${group.resolved_count} resolved)`} ·{' '}
+          {group.user_count}u · {relativeAgo(group.last_seen)}
         </span>
         {group.backlog_ref && (
           <span className="text-[10px] font-mono text-muted ml-1">

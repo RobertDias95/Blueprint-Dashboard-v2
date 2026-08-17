@@ -36,8 +36,20 @@ export interface ErrorGroup {
   status: ErrorGroupStatus;
   first_seen: string;
   last_seen: string;
+  /** ★ fix-338: EVERY occurrence of this fingerprint. It used to be "occurrences
+   *  that survived the status filter", which the page rendered as
+   *  "occurrences" — so a group with one resolved and one new row read as
+   *  "New · 1 occurrence" and hid the fact it had been triaged already. */
   count: number;
   user_count: number;
+  /** ★ fix-338: how many occurrences were already resolved or dismissed. */
+  resolved_count: number;
+  /** When it was last marked resolved, if ever. */
+  last_resolved_at: string | null;
+  /** ★★ fix-338: closed at least once, and open again. The difference between
+   *  "new problem" and "the fix did not hold" — the fact Bobby was reaching for
+   *  when he said "I just felt like they were already marked as resolved". */
+  recurred: boolean;
   backlog_ref: string | null;
 }
 
