@@ -159,10 +159,17 @@ describe('fix-317: the Reports group stops duplicating the shelf', () => {
   });
 
   // ★★ THE SHAPE BOBBY ASKED FOR, finally.
-  it('★★ the group is exactly two entries — Overview and Saved reports', () => {
+  // ★ fix-331 §8 added a third: Project View. fix-317's point survives intact —
+  // the six duplicated REPORTS are still gone and the shelf is still the one
+  // way to them.
+  it('★★ the group is Overview, Project View and Saved reports — no report duplicates', () => {
     const reports = RIBBON_ENTRIES.find((e) => e.kind === 'group' && e.group.id === 'reports');
     const kids = reports!.kind === 'group' ? reports!.group.children : [];
-    expect(kids.map((k) => k.to)).toEqual(['/reports', '/settings/reporting']);
+    expect(kids.map((k) => k.to)).toEqual([
+      '/reports',
+      '/projects',
+      '/settings/reporting',
+    ]);
   });
 });
 
@@ -289,10 +296,14 @@ describe('fix-317: what must not have moved', () => {
     expect(screen.getByTestId('ribbon-link-/reports').dataset.active).toBe('false');
   });
 
-  it('★ a non-admin sees no Reports group at all', () => {
+  // ★★ fix-331 §8: the group is visible to a non-admin now, because Project
+  // View lives in it and 23 of 29 users are editors who need that screen. What
+  // fix-317 and fix-234 actually protect — no report is reachable — is
+  // unchanged and asserted below.
+  it('★ a non-admin can reach no report, though the group renders for Project View', () => {
     authState.role = 'editor';
     renderRoutable();
-    expect(screen.queryByTestId('ribbon-group-reports')).toBeNull();
+    expect(screen.getByTestId('ribbon-group-reports')).toBeInTheDocument();
     const routes = visibleEntries(false).flatMap((e) =>
       e.kind === 'group'
         ? e.group.children.map((c) => c.to)
@@ -302,6 +313,7 @@ describe('fix-317: what must not have moved', () => {
     );
     expect(routes.some((r) => r.startsWith('/reports'))).toBe(false);
     expect(routes).not.toContain('/settings/reporting');
+    expect(routes).toContain('/projects');
   });
 
   // ★ fix-317 asserted Waiting On had NOT moved. fix-325 moved it, on Bobby's

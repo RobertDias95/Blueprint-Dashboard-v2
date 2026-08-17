@@ -56,6 +56,16 @@ interface Props {
    *  wizard pre-seeded with redesign state. When omitted the button
    *  doesn't render — preserves the modal's pre-fix-126 shape. */
   onSpawnRedesign?: () => void;
+  /** ★ fix-331 §4: the page header folded three buttons into one, and these are
+   *  the two that moved in here. Both are OPTIONAL and both are callbacks — the
+   *  page still owns the single ReassignDaModal and DeleteProjectDialog
+   *  instances, so this modal opens neither and duplicates neither. Omitting
+   *  them renders the modal exactly as it was before this ticket. */
+  onReassignDa?: () => void;
+  /** fix-225: Reassign DA is admin-only. Non-admins see the row explaining why
+   *  rather than a control that does nothing. */
+  canReassignDa?: boolean;
+  onDelete?: () => void;
 }
 
 const PARKING_OPTIONS = ['', 'None', 'Surface', 'Garage', 'Both'];
@@ -191,6 +201,9 @@ export default function ProjectSettingsModal({
   project,
   onClose,
   onSpawnRedesign,
+  onReassignDa,
+  canReassignDa = false,
+  onDelete,
 }: Props) {
   const permitsQ = usePermitsByProject(project.id);
   const jurisdictionsQ = useJurisdictions();
@@ -843,6 +856,84 @@ export default function ProjectSettingsModal({
               </button>
             </div>
           </Section>
+
+          {/* ★★ fix-331 §4: the two buttons that came out of the page header.
+              LAST in the modal, in their own red-bordered section, and outside
+              the save flow — nothing about editing a project routes past this.
+
+              ★ Delete is FARTHER from a slip than it was, not nearer. It was a
+              single click in the header, immediately beside Settings; it is now
+              two deliberate steps and then DeleteProjectDialog, which still
+              refuses until the project's address is typed verbatim. The entry
+              point moved; the guardrail did not move with it. */}
+          {(onReassignDa || onDelete) && (
+            <div
+              className="rounded-lg p-3"
+              style={{
+                background: 'var(--color-s2)',
+                border: '1px solid #fca5a5',
+              }}
+              data-testid="psm-danger-zone"
+            >
+              <div
+                className="text-[10px] font-bold uppercase tracking-wider mb-2"
+                style={{ color: '#991b1b' }}
+              >
+                Danger zone
+              </div>
+              <div className="flex flex-col gap-2.5">
+                {onReassignDa && (
+                  <div className="flex items-center gap-3">
+                    <button
+                      type="button"
+                      onClick={onReassignDa}
+                      disabled={!canReassignDa}
+                      className="px-3 py-1 text-[11px] font-bold uppercase tracking-wide rounded border disabled:opacity-40 disabled:cursor-not-allowed flex-shrink-0"
+                      style={{
+                        borderColor: 'var(--color-border)',
+                        background: 'var(--color-surface)',
+                        color: 'var(--color-text)',
+                      }}
+                      data-testid="psm-reassign-da"
+                      title={
+                        canReassignDa
+                          ? 'Move ownership to a different DA (the board stays put)'
+                          : 'Only a tenant admin can reassign the DA'
+                      }
+                    >
+                      ⇄ Reassign DA
+                    </button>
+                    <span className="text-[10.5px] text-dim leading-snug">
+                      {canReassignDa
+                        ? 'Hands the project to another Design Associate. The draw-schedule block stays where it is.'
+                        : 'Only a tenant admin can reassign the DA.'}
+                    </span>
+                  </div>
+                )}
+                {onDelete && (
+                  <div className="flex items-center gap-3">
+                    <button
+                      type="button"
+                      onClick={onDelete}
+                      className="px-3 py-1 text-[11px] font-bold uppercase tracking-wide rounded flex-shrink-0"
+                      style={{
+                        background: '#fee2e2',
+                        color: '#991b1b',
+                        border: '1px solid #fca5a5',
+                      }}
+                      data-testid="psm-delete-project"
+                    >
+                      🗑 Delete project
+                    </button>
+                    <span className="text-[10.5px] text-dim leading-snug">
+                      Removes the project, its permits, cycles and tasks. You
+                      will be asked to type the address to confirm.
+                    </span>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
         </div>
 
         <footer

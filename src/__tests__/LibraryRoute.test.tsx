@@ -45,7 +45,7 @@ vi.mock('../components/IntakeTracker', () => ({
 // normally is what we must avoid: createBrowserRouter pulls in AuthGuard ->
 // the Supabase client and never settles under jsdom.
 import routerSrc from '../router.tsx?raw';
-import { RIBBON_ENTRIES, visibleEntries } from '../lib/ribbonNav';
+import { RIBBON_ENTRIES, allRibbonRoutes, visibleEntries } from '../lib/ribbonNav';
 import DrawSchedule from '../pages/DrawSchedule';
 import LibraryMatrix from '../components/LibraryMatrix';
 
@@ -121,17 +121,23 @@ describe('fix-297 /library is a real route', () => {
 // exposes its structure as data, so they now assert the real model: the same
 // two facts, checked against the values the component actually renders from.
 describe('fix-297 the nav reaches it (fix-313: from the ribbon)', () => {
-  it('lists Library immediately after Draw Schedule, inside Entitlements', () => {
+  // ★ fix-331 §8: Draw Schedule was PROMOTED to the top tier, so Library is
+  // what remains inside Entitlements. Both are still reachable, which is what
+  // this test is actually protecting.
+  it('★ Library is inside Entitlements; Draw Schedule is top-tier now', () => {
     const ent = RIBBON_ENTRIES.find(
       (e) => e.kind === 'group' && e.group.id === 'entitlements',
     );
     expect(ent, 'the Entitlements group is missing').toBeTruthy();
     const kids =
       ent!.kind === 'group' ? ent!.group.children.map((c) => c.to) : [];
-    const drawAt = kids.indexOf('/draw-schedule');
-    const libAt = kids.indexOf('/library');
-    expect(drawAt).toBeGreaterThan(-1);
-    expect(libAt).toBe(drawAt + 1);
+    expect(kids).toEqual(['/library']);
+    expect(allRibbonRoutes()).toContain('/draw-schedule');
+    expect(
+      RIBBON_ENTRIES.some(
+        (e) => e.kind === 'link' && e.link.to === '/draw-schedule',
+      ),
+    ).toBe(true);
   });
 
   it('is not filtered out for non-admins the way Reports is', () => {
@@ -146,9 +152,12 @@ describe('fix-297 the nav reaches it (fix-313: from the ribbon)', () => {
     expect(routes).toContain('/library');
     expect(routes).toContain('/draw-schedule');
     expect(routes.some((r) => r.startsWith('/reports'))).toBe(false);
-    expect(nonAdmin.some((e) => e.kind === 'group' && e.group.id === 'reports')).toBe(
-      false,
-    );
+    // ★ fix-331 §8: the Reports GROUP now survives the gate for a non-admin,
+    // because Project View lives in it and is not admin-only. What must not
+    // survive is any report ROUTE — asserted on the line above, and again here
+    // on the shelf.
+    expect(routes).not.toContain('/settings/reporting');
+    expect(routes).toContain('/projects');
     // ...and an admin does get them, so the assertion above is not vacuous.
     // ★ fix-317: /reports/weekly-da left the ribbon (it duplicated Saved
     // reports); the overview and the shelf are what an admin gets now.

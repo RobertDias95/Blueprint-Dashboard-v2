@@ -293,7 +293,7 @@ vi.mock('../hooks/useChatAttachments', async (orig) => {
   };
 });
 
-import ProjectChatCard from '../components/ProjectDetail/ProjectChatCard';
+import ProjectChatCard from '../components/ProjectDetail/ProjectChatSection';
 
 function message(over: Partial<ProjectMessage> = {}): ProjectMessage {
   return {

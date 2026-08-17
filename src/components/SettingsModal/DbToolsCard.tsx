@@ -6,7 +6,10 @@ import { pushToast } from '../../stores/toastStore';
 // (v1 index.html:6894-6904). Three buttons:
 //   - Check Supabase contents (live, read-only count summary)
 //   - Export full backup as JSON (live, tenant-scoped dump)
-//   - Import JSON backup (stub — opens "Coming soon" explainer per Q9.5.a-sub)
+//   - Import JSON backup (stub — opens an "Import not yet wired" explainer,
+//     per Q9.5.a-sub. ★ fix-331 §5 left this alone: it is admin-only, inside
+//     Settings, and it says what it is rather than promising a date. The label
+//     that ticket deleted was the top-bar search bar.)
 //
 // Amber card styling matches v1 exactly: bg #fef3c7 + border #fcd34d +
 // heading text #92400e. Log area appears below buttons once any tool runs.

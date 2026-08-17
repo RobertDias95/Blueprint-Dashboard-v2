@@ -361,7 +361,7 @@ describe('fix-310: the DD dates still write, and the section is renamed', () => 
   it('fix-309 survives: Key dates is GO then Closing, and SD sits above DD', () => {
     renderHeader();
     const card = screen.getByTestId('pd-milestones-card');
-    const keyDates = within(card).getByText('Key dates').parentElement as HTMLElement;
+    const keyDates = within(card).getByText('Key dates').closest('section') as HTMLElement;
     const text = keyDates.textContent ?? '';
     expect(text.indexOf('GO Date')).toBeLessThan(text.indexOf('Closing'));
 

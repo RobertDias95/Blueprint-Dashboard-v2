@@ -241,9 +241,9 @@ describe('fix-311: the eight rows, in order, under three headings', () => {
   it('Target Submit sits in Permit intake, not in the DD window', () => {
     renderHeader();
     const ddWindow = within(card()).getByText('DD window')
-      .parentElement as HTMLElement;
+      .closest('section') as HTMLElement;
     const intake = within(card()).getByText('Permit intake')
-      .parentElement as HTMLElement;
+      .closest('section') as HTMLElement;
     expect(within(ddWindow).queryByTestId('pd-target-submit')).toBeNull();
     expect(within(intake).getByTestId('pd-target-submit')).toBeInTheDocument();
     expect(within(intake).getByTestId('pd-intake-accepted')).toBeInTheDocument();

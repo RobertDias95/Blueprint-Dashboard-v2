@@ -250,7 +250,9 @@ vi.mock('../hooks/useBoardReads', () => ({
   }),
 }));
 
-import ProjectChatCard from '../components/ProjectDetail/ProjectChatCard';
+import ProjectChatCard, {
+  ProjectChatUnread,
+} from '../components/ProjectDetail/ProjectChatSection';
 
 function permit(over: Partial<Permit> = {}): Permit {
   return {
@@ -272,6 +274,19 @@ function renderCard(permits: Permit[] = [permit()]) {
   return render(<ProjectChatCard projectId="p-1" permits={permits} />, { wrapper });
 }
 
+/** ★ fix-331 §3: the unread pill is a separate export, because the section
+ *  heading belongs to <OverviewSection> and a count drawn in the body would sit
+ *  under the word it counts for rather than beside it. */
+function renderUnread() {
+  const qc = new QueryClient({
+    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+  });
+  const wrapper = ({ children }: { children: ReactNode }) => (
+    <QueryClientProvider client={qc}>{children}</QueryClientProvider>
+  );
+  return render(<ProjectChatUnread projectId="p-1" />, { wrapper });
+}
+
 beforeEach(() => {
   mocks.messages = [];
   mocks.reads = [];
@@ -282,8 +297,13 @@ beforeEach(() => {
   mocks.userId = BOBBY;
 });
 
-describe('fix-329: the rail card', () => {
-  it('shows the last three messages, newest last', () => {
+// ★★ fix-331 §3 MOVED THIS SURFACE. The rail card is gone; the preview is a
+// SECTION of the Team card now, between Internal and External, and it shows TWO
+// messages rather than three — Bobby: "if anything we just want to display maybe
+// one or two of the most previous messages, and then the rest you would have to
+// open." The tests below keep fix-329's contracts and re-point at the section.
+describe('fix-329: the message preview (fix-331: now a Team-card section)', () => {
+  it('★ shows the most recent messages, newest last', () => {
     mocks.messages = [
       message({ id: 'm-1', body: 'oldest' }),
       message({ id: 'm-2', body: 'second' }),
@@ -293,16 +313,21 @@ describe('fix-329: the rail card', () => {
     renderCard();
     const mini = screen.getByTestId('project-chat-mini');
     expect(within(mini).queryByText('oldest')).toBeNull();
-    expect(within(mini).getByText('second')).toBeInTheDocument();
+    expect(within(mini).queryByText('second')).toBeNull();
+    expect(within(mini).getByText('third')).toBeInTheDocument();
     expect(within(mini).getByText('newest')).toBeInTheDocument();
   });
 
+  // ★ fix-331 §3: the unread pill moved to the section HEADING, which
+  // <OverviewSection> owns — so it is its own exported component now and is
+  // rendered by TeamCell beside the word "Chat". Same query, same subtraction,
+  // same source as the bell.
   it('★ counts unread mentions of ME, and only mine', () => {
     mocks.messages = [
       message({ id: 'm-1', body: '@Bobby look', mentions: [BOBBY] }),
       message({ id: 'm-2', body: '@Briana look', mentions: [BRIANA] }),
     ];
-    renderCard();
+    renderUnread();
     expect(screen.getByTestId('project-chat-unread').textContent).toContain('1 new');
   });
 
@@ -311,7 +336,7 @@ describe('fix-329: the rail card', () => {
   it('★ a mention already in board_item_reads stops counting', () => {
     mocks.messages = [message({ id: 'm-1', body: '@Bobby look', mentions: [BOBBY] })];
     mocks.reads = [keyForMention('m-1')];
-    renderCard();
+    renderUnread();
     expect(screen.queryByTestId('project-chat-unread')).toBeNull();
   });
 

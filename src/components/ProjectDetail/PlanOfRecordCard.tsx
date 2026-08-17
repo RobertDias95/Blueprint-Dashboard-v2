@@ -128,39 +128,30 @@ function PlanOfRecordBody({
   row: ProjectPlanOfRecordRow;
   onEnlarge: () => void;
 }) {
-  const meta = [formatModified(row.modified_at), formatFileSize(row.size_kb)]
-    .filter(Boolean)
-    .join(' · ');
-
   return (
     <>
       <StageChip stage={row.set_type} />
       <Preview row={row} onEnlarge={onEnlarge} />
 
-      <div
-        className="text-[11px] font-bold text-text mt-2 leading-snug break-words"
-        data-testid="plan-of-record-filename"
-      >
-        {row.file_name}
-      </div>
-      {meta && (
-        <div className="text-[10px] text-dim" data-testid="plan-of-record-meta">
-          {meta ? `Modified ${meta}` : ''}
-        </div>
-      )}
+      {/* ★★ fix-331 §2: THE FILENAME AND THE MODIFIED/SIZE LINE ARE NOT HERE
+          ANY MORE. Bobby, highlighting them: "It should just be, here's the
+          marketing, click to enlarge, copy path, that's it. And when you click
+          to enlarge, we can have that text inside of there."
 
-      {/* ★ fix-295: THE PATH IS NO LONGER ON THE CARD FACE.
-          It rendered the full UNC string, wrapped to three or four lines, and
-          was the tallest single element on the card -- a third of its height
-          spent on something nobody acts on. The room goes to the preview, which
-          is the only content here whose usefulness is bound by resolution.
+          ★ NOTHING WAS DELETED — the Lightbox already renders all three
+          (file name as its heading, then stage · Modified <date> · <size> ·
+          Page 1), so this is the second half of the relocation fix-295 started
+          with the UNC path. Card face: label, preview, enlarge, copy. Enlarged
+          view: everything about the file.
 
-          It is NOT gone: it still renders inside the lightbox, where there is
-          space and where somebody who deliberately opened the file is far more
-          likely to want it. And Copy path stays exactly where it was -- fix-289
-          established that browsers will not open a UNC path from https, so it
-          is the only route from this card to the actual file. Removing it would
-          strand the card. */}
+          The card is also the tallest in the row, and its height is what §1's
+          equal-height distribution has to absorb — three lines of text off the
+          face is three lines the neighbouring cards no longer have to fill.
+
+          ★ fix-295, still true: the path is in the lightbox, and Copy path
+          stays because fix-289 established browsers will not open a UNC path
+          from https — it is the only route from this card to the actual file.
+          Removing it would strand the card. */}
       <PathActions row={row} />
     </>
   );
@@ -268,19 +259,22 @@ function PathActions({ row }: { row: ProjectPlanOfRecordRow }) {
     }
   }
 
+  // ★ fix-331 §2: the "paste into File Explorer to open" hint is gone from the
+  // card face — Bobby highlighted it with the filename and the size line. The
+  // button's own title still says it, so the instruction survives on hover for
+  // anyone who wonders what Copy path is for, without spending a line of a card
+  // whose height every other card in the row now has to match.
   return (
     <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
       <button
         type="button"
         onClick={() => copy(row.unc_path, 'Path')}
         className="text-[10px] font-bold px-2 py-0.5 rounded border border-de bg-de text-white hover:opacity-90 transition"
+        title="Copy the file path — paste it into File Explorer to open"
         data-testid="plan-of-record-copy"
       >
         Copy path
       </button>
-      <span className="text-[9.5px] text-dim" data-testid="plan-of-record-copy-hint">
-        paste into File Explorer to open
-      </span>
     </div>
   );
 }

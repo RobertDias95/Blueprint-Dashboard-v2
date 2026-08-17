@@ -2,6 +2,7 @@ import { useCallback, useState } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
 import { useAuthStore } from '../stores/authStore';
 import { useIsTenantAdmin } from '../hooks/useIsTenantAdmin';
+import { useNewErrorCount } from '../hooks/useErrorReports';
 import BridgeMark from './BridgeMark';
 import {
   groupContainsActive,
@@ -67,6 +68,12 @@ const COLLAPSE_CHIP_BG_HOVER = '#e0ebff';
 const COLLAPSE_CHIP_BORDER = '#c7dbfe';
 const COLLAPSE_CHIP_BORDER_HOVER = '#2563eb';
 const COLLAPSE_CHIP_TEXT = '#2563eb';
+
+// ★ fix-331 §6: the error badge keeps ErrorTriageBell's exact red — danger, and
+// deliberately not the `co` amber, which this app uses for "attention" rather
+// than "broken". Carried over verbatim so the signal did not change colour when
+// it changed place.
+const ERROR_BADGE_RED = '#dc2626';
 
 export default function Ribbon({ onAddProject }: { onAddProject: () => void }) {
   const { pathname } = useLocation();
@@ -234,6 +241,9 @@ export default function Ribbon({ onAddProject }: { onAddProject: () => void }) {
               />
             );
           }
+          // ★ fix-331: visibleEntries has ALREADY narrowed group.children to
+          // what this viewer may see, so the group renders what it is given
+          // rather than re-deciding — one place decides who sees what.
           return (
             <RibbonGroupItem
               key={entry.group.id}
@@ -366,14 +376,47 @@ function RibbonItem({
       data-testid={`ribbon-link-${link.to}`}
       data-active={active ? 'true' : 'false'}
       title={link.hint ?? link.label}
-      className={itemClass(active)}
+      className={`relative ${itemClass(active)}`}
       style={itemStyle(collapsed)}
     >
       <span style={{ width: 17, flex: '0 0 17px', textAlign: 'center', fontSize: 14 }}>
         {link.icon}
       </span>
       {!collapsed && <span className="flex-1 overflow-hidden text-ellipsis">{link.label}</span>}
+      {link.badge === 'errors' && <ErrorTriageCount collapsed={collapsed} />}
     </NavLink>
+  );
+}
+
+/** ★ fix-331 §6: the count that moved with the control.
+ *
+ *  Same `useNewErrorCount` hook the top-bar bell used, same red — the entry
+ *  would otherwise be a link that never tells you there is anything to triage,
+ *  which is the whole reason anybody looked at the bell. Collapsed it becomes a
+ *  corner dot, because 56px has no room for a number and "there is something"
+ *  is the part that matters at that width. */
+function ErrorTriageCount({ collapsed }: { collapsed: boolean }) {
+  const { data } = useNewErrorCount();
+  const n = data ?? 0;
+  if (n <= 0) return null;
+  if (collapsed) {
+    return (
+      <span
+        className="absolute rounded-full"
+        style={{ top: 5, right: 8, width: 7, height: 7, background: ERROR_BADGE_RED }}
+        aria-label={`${n} errors needing triage`}
+        data-testid="ribbon-error-badge"
+      />
+    );
+  }
+  return (
+    <span
+      className="text-[9px] font-extrabold text-white rounded-full min-w-[16px] h-[16px] px-1 flex items-center justify-center flex-shrink-0"
+      style={{ background: ERROR_BADGE_RED }}
+      data-testid="ribbon-error-badge"
+    >
+      {n > 99 ? '99+' : n}
+    </span>
   );
 }
 

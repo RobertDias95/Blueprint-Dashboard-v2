@@ -164,14 +164,36 @@ describe('fix-285 the card renders each stage with its own chip', () => {
 // ------------------------------------------------------------- file detail --
 
 describe('fix-285 the file card', () => {
-  it('shows filename, modified date and size', async () => {
+  // ★★ SUPERSEDED BY fix-331 §2, inverted here rather than deleted so the file
+  // cannot go on claiming a contract the card no longer has.
+  //
+  // fix-285 put the filename and the Modified/size line on the card FACE. Bobby
+  // highlighted all of it: "It should just be, here's the marketing, click to
+  // enlarge, copy path, that's it. And when you click to enlarge, we can have
+  // that text inside of there." The information is NOT gone — the test below
+  // this one proves the enlarged view carries all three.
+  it('★ fix-331 §2: the card face shows no filename, date or size', async () => {
     state.row = row();
     renderCard();
-    expect(await screen.findByTestId('plan-of-record-filename'))
-      .toHaveTextContent('10044 - Plan Set - Marketing Update 260618.pdf');
-    const meta = screen.getByTestId('plan-of-record-meta');
-    expect(meta).toHaveTextContent('Jun 18, 2026');
-    expect(meta).toHaveTextContent('17 MB');
+    await screen.findByTestId('plan-of-record-copy');
+    expect(screen.queryByTestId('plan-of-record-filename')).toBeNull();
+    expect(screen.queryByTestId('plan-of-record-meta')).toBeNull();
+    const card = screen.getByTestId('plan-of-record-card');
+    expect(card.textContent ?? '').not.toContain('10044 - Plan Set');
+    expect(card.textContent ?? '').not.toContain('17 MB');
+    expect(card.textContent ?? '').not.toMatch(/Jun 18, 2026/);
+  });
+
+  // ★ MOVED, NOT DELETED — the other half of §2, and the half that makes the
+  // removal above safe.
+  it('★ fix-331 §2: the ENLARGED view carries all three', async () => {
+    state.row = row();
+    renderCard();
+    fireEvent.click(await screen.findByTestId('plan-of-record-preview'));
+    const dialog = screen.getByTestId('plan-of-record-lightbox');
+    expect(dialog).toHaveTextContent('10044 - Plan Set - Marketing Update 260618.pdf');
+    expect(dialog).toHaveTextContent('Jun 18, 2026');
+    expect(dialog).toHaveTextContent('17 MB');
   });
 
   // ★ fix-295: the path is OFF the card face. It wrapped to three or four
@@ -180,7 +202,7 @@ describe('fix-285 the file card', () => {
   it('does NOT show the UNC path on the card face', async () => {
     state.row = row();
     renderCard();
-    await screen.findByTestId('plan-of-record-filename');
+    await screen.findByTestId('plan-of-record-copy');
     expect(screen.queryByTestId('plan-of-record-path')).toBeNull();
     // ...and the card does not smuggle it back in as loose text.
     expect(screen.queryByText(UNC)).toBeNull();
@@ -198,12 +220,18 @@ describe('fix-285 the file card', () => {
     expect(path.className).toContain('select-all');
   });
 
-  it('offers Copy path, with a hint saying where to paste it', async () => {
+  // ★ fix-331 §2: the loose "paste into File Explorer to open" hint beside the
+  // button was the third thing Bobby highlighted. The instruction survives on
+  // the button's own title, so nobody who wonders what Copy path is for is left
+  // guessing — it just no longer spends a line of a card whose height every
+  // other card in the row has to match.
+  it('★ offers Copy path; the paste hint is on the button, not loose beside it', async () => {
     state.row = row();
     renderCard();
-    expect(await screen.findByTestId('plan-of-record-copy')).toBeInTheDocument();
-    expect(screen.getByTestId('plan-of-record-copy-hint'))
-      .toHaveTextContent(/paste into File Explorer/i);
+    const btn = await screen.findByTestId('plan-of-record-copy');
+    expect(btn).toBeInTheDocument();
+    expect(screen.queryByTestId('plan-of-record-copy-hint')).toBeNull();
+    expect(btn.getAttribute('title')).toMatch(/paste it into File Explorer/i);
   });
 
   it('copies the path to the clipboard', async () => {
@@ -265,7 +293,6 @@ describe('fix-285 the empty state is a real case, not a hypothetical', () => {
     await screen.findByTestId('plan-of-record-empty');
     expect(screen.queryByTestId('plan-of-record-copy')).toBeNull();
     expect(screen.queryByTestId('plan-of-record-preview')).toBeNull();
-    expect(screen.queryByTestId('plan-of-record-filename')).toBeNull();
   });
 
   it('does not read like an error', async () => {
@@ -285,9 +312,10 @@ describe('fix-285 a missing thumbnail degrades to the file card', () => {
     renderCard();
     await screen.findByTestId('plan-of-record-no-preview');
     expect(screen.queryByTestId('plan-of-record-preview-img')).toBeNull();
-    // Everything else still works.
-    expect(screen.getByTestId('plan-of-record-filename')).toBeInTheDocument();
-    expect(screen.getByTestId('plan-of-record-meta')).toBeInTheDocument();
+    // ★ fix-331 §2: the filename and meta line are no longer on the face, so
+    // what has to survive a failed render is the REASON and Copy path.
+    expect(screen.getByTestId('plan-of-record-no-preview').textContent ?? '')
+      .not.toBe('');
     // fix-295: the path is no longer on the face, so Copy path is what has to
     // survive a failed render -- it is the only route from here to the file.
     expect(screen.getByTestId('plan-of-record-copy')).toBeInTheDocument();
@@ -421,7 +449,7 @@ describe('fix-285 the card is READ ONLY', () => {
   it('offers no upload, replace or delete control', async () => {
     state.row = row();
     renderCard();
-    await screen.findByTestId('plan-of-record-filename');
+    await screen.findByTestId('plan-of-record-copy');
     const card = screen.getByTestId('plan-of-record-card');
     expect(card.querySelector('input[type="file"]')).toBeNull();
     for (const word of [/upload/i, /replace/i, /delete/i, /remove/i, /edit/i]) {
@@ -443,7 +471,7 @@ describe('fix-285 the card is READ ONLY', () => {
   it('reads from the view, not the underlying table', async () => {
     state.row = row();
     renderCard();
-    await screen.findByTestId('plan-of-record-filename');
+    await screen.findByTestId('plan-of-record-copy');
     expect(state.calls).toContain('from:project_plan_of_record');
     expect(state.calls).not.toContain('from:project_file_index');
   });

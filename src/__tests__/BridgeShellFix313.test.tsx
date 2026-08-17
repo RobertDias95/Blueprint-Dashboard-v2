@@ -405,10 +405,16 @@ describe('fix-313 #63/#65: only the landing page is renamed', () => {
   });
 
   it('★ Project View and Project Overview keep their names', () => {
-    const projects = RIBBON_ENTRIES.find(
-      (e) => e.kind === 'link' && e.link.to === '/projects',
+    // ★ fix-331 §8: Project View is a CHILD of the Reports group now, not a
+    // top-level link. Its NAME — the thing this test is about — is unchanged.
+    const reports = RIBBON_ENTRIES.find(
+      (e) => e.kind === 'group' && e.group.id === 'reports',
     );
-    expect(projects!.kind === 'link' && projects!.link.label).toBe('Project View');
+    const projects =
+      reports!.kind === 'group'
+        ? reports!.group.children.find((c) => c.to === '/projects')
+        : undefined;
+    expect(projects?.label).toBe('Project View');
     expect(routerSrc).toContain("path: 'project/:id'");
   });
 });
@@ -453,14 +459,26 @@ describe('fix-313: the page does not scroll, the panels do', () => {
 // ---------------------------------------------------------------------------
 
 describe('fix-313: the Reports gate is the whole group', () => {
-  it('withholds the group, not merely its children', () => {
+  it('★ fix-331: withholds every REPORT from a non-admin, keeping Project View', () => {
+    // ★★ fix-331 §8 CHANGED THIS. Project View moved under Reports, and it is
+    // NOT admin-only — 23 of this tenant's 29 people are editors. Withholding
+    // the whole group would have deleted Project View for them, so the gate is
+    // per-child now: a non-admin sees the group with Project View in it and NO
+    // report route, which is the part of fix-234 that actually matters.
     const nonAdmin = visibleEntries(false);
-    expect(nonAdmin.some((e) => e.kind === 'group' && e.group.id === 'reports')).toBe(
-      false,
+    const group = nonAdmin.find((e) => e.kind === 'group' && e.group.id === 'reports');
+    expect(group, 'the group renders — Project View lives in it').toBeTruthy();
+    const kids = group!.kind === 'group' ? group!.group.children.map((c) => c.to) : [];
+    expect(kids).toEqual(['/projects']);
+    expect(kids.some((r) => r.startsWith('/reports'))).toBe(false);
+    expect(kids).not.toContain('/settings/reporting');
+    // Not vacuous — an admin gets all three.
+    const adminGroup = visibleEntries(true).find(
+      (e) => e.kind === 'group' && e.group.id === 'reports',
     );
-    expect(visibleEntries(true).some((e) => e.kind === 'group' && e.group.id === 'reports')).toBe(
-      true,
-    );
+    expect(
+      adminGroup!.kind === 'group' ? adminGroup!.group.children.map((c) => c.to) : [],
+    ).toEqual(['/reports', '/projects', '/settings/reporting']);
   });
 
   // fix-313 listed the seven CHILDREN of Reports and not the parent, so the
@@ -478,11 +496,16 @@ describe('fix-313: the Reports gate is the whole group', () => {
   // Settings → Permits (it is reference data about permit types, not a report
   // you run), so the group finally reads Overview + Saved reports — the shape
   // fix-317 was asking for.
-  it('★★ lists exactly two: the overview and the shelf', () => {
+  // ★ fix-331 §8 made it three: Project View joined between them.
+  it('★★ lists exactly three: the overview, Project View and the shelf', () => {
     const reports = RIBBON_ENTRIES.find(
       (e) => e.kind === 'group' && e.group.id === 'reports',
     );
     const kids = reports!.kind === 'group' ? reports!.group.children : [];
-    expect(kids.map((k) => k.to)).toEqual(['/reports', '/settings/reporting']);
+    expect(kids.map((k) => k.to)).toEqual([
+      '/reports',
+      '/projects',
+      '/settings/reporting',
+    ]);
   });
 });

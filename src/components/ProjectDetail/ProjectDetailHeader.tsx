@@ -42,6 +42,7 @@ import OverlapPrompt from '../OverlapPrompt';
 import NpWarningPrompt from '../NpWarningPrompt';
 import BuilderAutocompleteField from '../builder/BuilderAutocompleteField';
 import PlanOfRecordCard from './PlanOfRecordCard';
+import ProjectChatSection, { ProjectChatUnread } from './ProjectChatSection';
 import { OverviewCard, OverviewSection } from './OverviewCard';
 
 // Q9.5.e: 4-column header top strip per v1 §4.2.1. Left card holds an
@@ -1156,7 +1157,9 @@ function TeamCell({
   const ent = bp?.ent_lead ?? project.entitlement_lead ?? null;
   const da = bp?.da ?? null;
   const dm = bp?.dm ?? project.design_manager ?? null;
-  void permits;
+  // ★ fix-331 §3: `permits` is no longer a void — the chat section needs it to
+  // anchor a chat-born task (fix-330's permit chooser defaults to the project's
+  // Building Permit and lists the rest).
 
   // ★ fix-321 #78: the SD tier. Bobby: "the hierarchy should go: acquisitions,
   // entitlements, we want to add schematic design — so SD — then design
@@ -1202,6 +1205,31 @@ function TeamCell({
           <TeamRow label="DA" value={da} title="Design Associate" />
         </div>
       </OverviewSection>
+
+      {/* ★★ fix-331 §3: THE CONVERSATION, AS A THIRD SECTION OF TEAM.
+          Between Internal and External, exactly where Bobby put it — "your
+          project chat lives in between the two teams and it flows."
+
+          ★ It uses <OverviewSection> like the two around it and NOTHING ELSE.
+          No nested card, no second border, no second background: the separator
+          above it, the heading treatment and the padding all come from the same
+          component that draws INTERNAL and EXTERNAL, which is what makes it a
+          section of this card rather than a widget parked inside one. That was
+          the actual complaint — "feels like it is part of the team card, not a
+          separate UI feature/function like it shows now" — and it is asserted by
+          a test that looks for a second bordered container and finds none.
+
+          ★ fix-290 predicted this exact move: "A THIRD SECTION COSTS NOTHING.
+          Team may grow Consultants." It cost one line here and one prop on
+          OverviewSection, which is the payoff being collected. */}
+      <OverviewSection
+        title="Chat"
+        testId="project-overview-team-chat"
+        titleRight={<ProjectChatUnread projectId={project.id} />}
+      >
+        <ProjectChatSection projectId={project.id} permits={permits} />
+      </OverviewSection>
+
       <OverviewSection title="External" testId="project-overview-team-external">
         <ExternalTeamEditor project={project} />
       </OverviewSection>
