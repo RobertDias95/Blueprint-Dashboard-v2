@@ -1,0 +1,35 @@
+-- ===========================================================================
+-- fix-346 §3 — the one approved data change: three departed DAs leave routing
+-- ===========================================================================
+--
+-- Alex, Chad and Nidhi are departed (team_members.former = true) and still sit
+-- in dm_da_groups. Bobby: "Remove them from routing."
+--
+-- ★ dm_da_groups IS A ROUTING TABLE, NOT A HISTORY RECORD, which is why this
+-- differs from the permits and draw-schedule blocks he chose to leave alone.
+-- Nothing about the past is lost by removing a mapping that can never route
+-- again: the 9 permits still carrying da = Alex/Chad/Nidhi keep saying so, and
+-- draw_schedule_quarter_layout keeps its own per-quarter snapshot rows (1 each,
+-- verified) — that table is the historical structure, this one is the current
+-- one.
+--
+-- ★★ VERIFIED BEFORE DELETING, on prod:
+--   · no foreign key anywhere references dm_da_groups (pg_constraint: none)
+--   · no view or materialized view reads it (pg_class + pg_get_viewdef: none)
+--   · the functions that read it — bp_create_project_with_permits, bp_rename_da,
+--     bp_rename_dm, bp_replace_app_config_and_roster,
+--     bp_seed_quarter_layout_from_current, bp_upsert/delete_dm_da_group_row,
+--     migrate_auxiliary — all read it as CURRENT routing. The seed function
+--     already filters to ACTIVE DAs (fix-183), so removing three former ones can
+--     only make it more correct.
+--   · the client reads it through useDmDaGroups for the Settings matrix, the
+--     wizard's DM derivation and the draw-schedule grouping — all "who routes
+--     where today" surfaces.
+--
+-- ★ Three rows, named explicitly. The other nine mappings are untouched:
+--   Lindsay → Francesca, Ainsley, Trevor · Derry → Nicky, Qisheng ·
+--   Brittani → Marc, Ahmadi, Fisk · Jade → Erick.
+-- ===========================================================================
+
+DELETE FROM public.dm_da_groups
+ WHERE da_name IN ('Alex', 'Chad', 'Nidhi');

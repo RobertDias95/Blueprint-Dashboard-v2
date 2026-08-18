@@ -1025,6 +1025,13 @@ export interface DmDaGroupRow {
   dm_name: string;
   da_name: string;
   updated_at: string;
+  /** ★ fix-346: the column order the table has always had and `useDmDaGroups`
+   *  has always SELECTed — it was simply missing from this type. It is the
+   *  tie-break `dmForDa` (and its SQL twin `bp_dm_for_da`) uses to resolve a
+   *  duplicated `da_name` the same way everywhere. Optional because callers
+   *  that build a row literal in tests do not need to care. */
+  dm_order?: number | null;
+  da_order?: number | null;
 }
 
 /** fix-182a: per-quarter saved Draw Schedule column layout. One row = one

@@ -80,6 +80,12 @@ export const queryKeys = {
   projectDaHandoffsRows: (tenantId: string) =>
     ['project_da_handoffs', tenantId, 'rows'] as const,
   intakeRecords: (tenantId: string) => ['intake_records', tenantId] as const,
+  // ★ fix-346: open-task counts for a named handful of people (the DAs with no
+  // design manager). UNDER the permit_tasks prefix on purpose — a task edited
+  // anywhere must refresh the number through the existing realtime
+  // invalidation, or the Settings warning quietly goes stale.
+  openTaskCounts: (tenantId: string, names: string[]) =>
+    ['permit_tasks', tenantId, 'open_counts', names] as const,
   dmDaGroups: (tenantId: string) => ['dm_da_groups', tenantId] as const,
   daTimeBlocks: (tenantId: string) => ['da_time_blocks', tenantId] as const,
   // Q7.3.a — admin catalogs. Jurisdictions + permit_types are global (no

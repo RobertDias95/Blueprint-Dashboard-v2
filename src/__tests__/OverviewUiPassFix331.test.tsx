@@ -390,21 +390,23 @@ describe('fix-331 §2: the DPoR card face is label, preview, enlarge, copy', () 
 // ---------------------------------------------------------------------------
 
 describe('fix-331 §3: the chat lives inside the Team card', () => {
-  it('★ renders between Internal and External', () => {
+  it('★ renders as a section of the card, after External', () => {
     renderHeader();
     const team = screen.getByTestId('project-overview-team');
     const ids = Array.from(team.querySelectorAll('section'))
       .map((s) => (s as HTMLElement).dataset.testid)
       .filter(Boolean);
     // ★ fix-345 §3 appended a FOURTH section — the pinned Chat button at the
-    // card's foot. What this test protects is the PREVIEW's placement, which is
-    // Bobby's and unchanged: Internal, then Chat, then External. Listing the
-    // button too is deliberate, so the order is asserted whole rather than
-    // sliced down to the part that still passes.
+    // card's foot — and ★★ fix-346 §1 moved the PREVIEW down to sit directly
+    // above it, on Bobby's correction: "internal, external, and then here's the
+    // chat section, and then the chat button." What fix-331 §3 actually won is
+    // untouched by that and is asserted below: the chat is a SECTION OF TEAM,
+    // not a widget parked inside one. Listing all four is deliberate, so the
+    // order is asserted whole rather than sliced down to the part that passes.
     expect(ids).toEqual([
       'project-overview-team-internal',
-      'project-overview-team-chat',
       'project-overview-team-external',
+      'project-overview-team-chat',
       'pd-chat-section',
     ]);
   });

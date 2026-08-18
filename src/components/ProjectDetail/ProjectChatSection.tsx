@@ -13,10 +13,19 @@ import {
   type ChatPost,
 } from '../../lib/projectChat';
 import ChatAttachments from './ChatAttachments';
-import { Avatar, MessageBody } from './ChatMessageBody';
+import { MessageBody } from './ChatMessageBody';
 import type { MentionablePerson } from '../../lib/database.types';
 
 // fix-331 §3 — the conversation lives INSIDE the Team card now.
+//
+// ★★ fix-346 §1 MOVED THE SECTION DOWN, and only that. The Team card reads
+// Internal · External · Chat · [Chat button] — Bobby: "move that chat down
+// below, above the chat button, so that it goes internal, external, and then
+// here's the chat section, and then it shows your two most recent chats, and
+// then the chat button." Nothing in THIS file changed for the move: the caller
+// (TeamCell) owns the placement, which is the point of this being a section
+// body rather than a card. What did change here is §1b — the author avatar came
+// off each preview row; see MiniPost.
 //
 // Bobby: "Move the Project Chat UI into the Team on Project Overview, between
 // Internal and External. That way your project chat lives in between the two
@@ -104,9 +113,9 @@ export default function ProjectChatSection({ projectId }: { projectId: string })
           the Chat button at the foot of this card now — see TeamCell.
 
           Bobby's rule, applied to his own ask: "Two ways into the same modal
-          from one card is one too many." The preview stays exactly where
-          fix-331 §3 put it, between Internal and External; only the opener
-          moved, and it moved to the place all three cards now put their action. */}
+          from one card is one too many." fix-346 §1 then moved the preview
+          itself down to sit directly ABOVE that button — preview, then the way
+          in — so the two are adjacent instead of separated by External. */}
     </div>
   );
 }
@@ -194,7 +203,20 @@ function MiniPost({
       data-testid={`project-chat-mini-${entry.post.id}`}
       data-to-me={toMe ? 'true' : 'false'}
     >
-      <Avatar name={latest.author_name} />
+      {/* ★★ fix-346 §1b: NO AVATAR. Bobby, on the circle beside each row: "I
+          don't like the BO next to the post thread. I think just show recent
+          threads and their replies, no need for the naming item."
+
+          ★ THE PREVIEW LISTS THREADS, NOT MESSAGES — a title plus a reply
+          count. An author circle answers a question nobody asked of a topic
+          list, and on a post with replies it was actively misleading: it showed
+          whoever wrote the LATEST message, which reads as ownership of the
+          thread rather than authorship of one line in it.
+
+          ★ SCOPE IS THE PREVIEW ONLY. Avatars stay on individual messages
+          inside the modal, where "who said this" is the point — and
+          `initialsOf()` is deliberately untouched (register #127, BO vs BD,
+          lands with the roster names and still matters there). */}
       <div className="flex-1 min-w-0">
         <div className="flex items-baseline gap-1.5">
           <span className="text-[11px] font-bold text-text truncate">

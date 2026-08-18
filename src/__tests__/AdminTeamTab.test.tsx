@@ -90,6 +90,12 @@ vi.mock('../hooks/useDeleteDmDaGroup', () => ({
 vi.mock('../components/Settings/QuarterLayoutEditor', () => ({
   default: () => null,
 }));
+// fix-346: TeamStructureEditor now also asks how many OPEN tasks each unmapped
+// DA holds (the co-assign gap line). Stubbed so this tab test stays hermetic —
+// the counts themselves are asserted in TeamStructureUnmappedFix346.test.tsx.
+vi.mock('../hooks/useOpenTaskCounts', () => ({
+  useOpenTaskCounts: () => ({ data: undefined, isLoading: false, error: null }),
+}));
 
 import AdminTeamTab from '../components/Settings/AdminTeamTab';
 

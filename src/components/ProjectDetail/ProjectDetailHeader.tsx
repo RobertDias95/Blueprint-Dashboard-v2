@@ -1361,34 +1361,48 @@ function TeamCell({
         </div>
       </OverviewSection>
 
-      {/* ★★ fix-331 §3: THE CONVERSATION, AS A THIRD SECTION OF TEAM.
-          Between Internal and External, exactly where Bobby put it — "your
-          project chat lives in between the two teams and it flows."
-
-          ★ It uses <OverviewSection> like the two around it and NOTHING ELSE.
-          No nested card, no second border, no second background: the separator
-          above it, the heading treatment and the padding all come from the same
-          component that draws INTERNAL and EXTERNAL, which is what makes it a
-          section of this card rather than a widget parked inside one. That was
-          the actual complaint — "feels like it is part of the team card, not a
-          separate UI feature/function like it shows now" — and it is asserted by
-          a test that looks for a second bordered container and finds none.
-
-          ★ fix-290 predicted this exact move: "A THIRD SECTION COSTS NOTHING.
-          Team may grow Consultants." It cost one line here and one prop on
-          OverviewSection, which is the payoff being collected. */}
-      <OverviewSection title="Chat" testId="project-overview-team-chat">
-        <ProjectChatSection projectId={project.id} />
-      </OverviewSection>
-
       <OverviewSection title="External" testId="project-overview-team-external">
         <ExternalTeamEditor project={project} />
       </OverviewSection>
 
+      {/* ★★★ fix-346 §1: THE CHAT PREVIEW SITS AFTER EXTERNAL NOW, directly
+          above the button that opens it.
+
+          Bobby: "We want to keep the chat where it's showing the last two most
+          common posts, but what we actually want to do is move that chat down
+          below… so that it goes internal, external, and then here's the chat
+          section, and then it shows your two most recent chats, and then the
+          chat button, which would then open up the chat."
+
+          ★ THE PREVIEW IS NOT DELETED and its content is untouched — the posts,
+          the reply counts, the mention tint. fix-331 §3 put it between Internal
+          and External, which was right while the way in lived inside it; the
+          opener became the pinned button at the card's foot (fix-345 §3), and
+          the preview now sits with it. Preview then button reads as one thing:
+          here is the conversation, here is the way into it. My fix-345 brief's
+          "do not move the chat preview out of the middle of the Team card" is
+          withdrawn by Bobby, and the order is asserted whole, not by presence.
+
+          ★ It uses <OverviewSection> like the two above it and NOTHING ELSE.
+          No nested card, no second border, no second background: the separator
+          above it, the heading treatment and the padding all come from the same
+          component that draws INTERNAL and EXTERNAL, which is what makes it a
+          section of this card rather than a widget parked inside one. That was
+          fix-331's actual complaint — "feels like it is part of the team card,
+          not a separate UI feature/function like it shows now" — and it is
+          asserted by a test that looks for a second bordered container and
+          finds none. Moving the section did not move that.
+
+          ★ THE SECTION COUNT IS STILL FOUR, so fix-345 §3's pinning is
+          untouched: the button section still takes no share of the spare height
+          and still lands on the same baseline as Milestones' and Project's. */}
+      <OverviewSection title="Chat" testId="project-overview-team-chat">
+        <ProjectChatSection projectId={project.id} />
+      </OverviewSection>
+
       {/* ★★ fix-345 §3: the Team card's action, matching Milestones and Project.
-          The preview above did not move — fix-331 §3's placement is Bobby's and
-          he is not asking for it back. Only the way IN moved, from an inline
-          link mid-card to the button every card now carries at its foot. */}
+          fix-346 §1 moved the preview down to sit directly above it; the button
+          itself is unchanged, and it is still the ONLY way into the modal. */}
       <OverviewSection testId="pd-chat-section" pinBottom>
         <OverviewAction
           onClick={() => setChatOpen(true)}
