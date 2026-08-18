@@ -3,7 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { supabase } from '../lib/supabase';
 import { queryKeys } from '../lib/queryKeys';
 import { useAuthStore } from '../stores/authStore';
-import { isCurrentMember } from '../lib/roster';
+import { isAssignableMember, isCurrentMember } from '../lib/roster';
 import type { TeamMember, TeamRole } from '../lib/database.types';
 
 // Q7.3.b: read team_members for the active tenant. Returns the full set
@@ -35,14 +35,25 @@ export interface TeamMembersResult {
  *  this calls it — same rule as before (`active !== false && former !== true`),
  *  now shared with every other picker instead of being this hook's private
  *  answer. Two pickers disagreeing about who is on the team is the drift #79
- *  exists to remove. */
+ *  exists to remove.
+ *
+ *  ★★ fix-343: and it now asks `isAssignableMember`, which adds the second
+ *  condition the `viewer` role created — CURRENT, and not somebody who is never
+ *  assigned work. Six viewer rows landed on prod 2026-08-18 (EJ, Greg, Taylor,
+ *  Keenan, Lucas, Darin) with active=true, so this list — the single source for
+ *  every task-assignee picker — had started offering the CEO as an assignee.
+ *
+ *  ★ PER PERSON, NOT PER ROW. The roster has one row per role, so a name is
+ *  offered when ANY of its rows is assignable; a viewer row alongside a real
+ *  one must not retire the person. Nobody holds both today, and this is written
+ *  so the first person who does is handled rather than discovered. */
 export function activeMemberNamesOf(
   members: readonly TeamMember[] | null | undefined,
 ): string[] {
   return [
     ...new Set(
       (members ?? [])
-        .filter(isCurrentMember)
+        .filter(isAssignableMember)
         .map((m) => m.name)
         .filter(Boolean),
     ),
@@ -58,7 +69,10 @@ export function useTeamMembers() {
       const { data, error } = await supabase
         .from('team_members')
         .select(
-          'id, name, role, active, former, email, notes, updated_at, active_start_quarter, active_end_quarter',
+          // ★ fix-343: first_name + last_name landed on prod 2026-08-18 and are
+          // read for DISPLAY only — the avatar's initials (BD, not BO). `name`
+          // stays the join key and is never written.
+          'id, name, first_name, last_name, role, active, former, email, notes, updated_at, active_start_quarter, active_end_quarter',
         )
         .order('name', { ascending: true });
       if (error) throw error;

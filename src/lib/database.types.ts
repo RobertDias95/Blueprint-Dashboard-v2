@@ -974,14 +974,34 @@ export type TeamRole =
   | 'acq_lead'
   // fix-222: Schematic Team roster — sources the New Project wizard's
   // "Schematic Designer" picker + routes 'Schematic Team' template tasks.
-  | 'schematic';
+  | 'schematic'
+  // ★★ fix-343: added to the roster on prod 2026-08-18 — six people who are IN
+  // the roster and are NEVER ASSIGNED WORK: EJ, Greg and Taylor (Underwriting),
+  // Keenan (IT), Lucas (Policy) and Darin (CEO).
+  //
+  // ★ IT IS NOT A JOB TITLE. Their real function lives in `notes`, deliberately
+  // kept out of `role` because `role` drives the assignment dropdowns — see
+  // rosterRoleTitle (lib/roleLabels) for what gets printed, and
+  // isAssignableMember (lib/roster) for why they are never offered.
+  | 'viewer';
 
 /** Tenant-scoped roster. `active` flags currently-working members;
  * `former` flags DAs (and only DAs in v1's UX) who used to be on the
  * draw schedule and may still be referenced by historical permits. */
 export interface TeamMember {
   id: string;
+  /** ★★ THE JOIN KEY, and only that. ~2,209 rows across 11 columns in 7 tables
+   *  point at this string with no FK and no cascade, so it is never written by
+   *  a display fix — fix-343 added first_name/last_name beside it instead. */
   name: string;
+  /** ★ fix-343 (data landed on prod 2026-08-18, populated for all 40 current
+   *  rows): the person's real first and last name. `name` stays the key —
+   *  "Bobby", "Fisk" — and these are what a display needs when the key alone is
+   *  not enough. The avatar's initials are the first user: initialsOf('Bobby')
+   *  is "BO"; initialsOf(rosterFullName(...)) is "BD". Optional because
+   *  departed rows and older fixtures have neither. */
+  first_name?: string | null;
+  last_name?: string | null;
   role: TeamRole;
   active: boolean | null;
   former: boolean | null;

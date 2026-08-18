@@ -4,6 +4,7 @@ import type {
   Project,
   TeamRole,
 } from './database.types';
+import { roleSeniorityRank } from './roleLabels';
 import {
   resolveCoAssignee,
   resolvePrimaryAssignee,
@@ -42,8 +43,19 @@ export interface RosterIdentity {
    *  null when the login has no roster row (-> scope 'all'). */
   name: string | null;
   /** Every roster discipline the user holds (kept for reference; fix-179 no
-   *  longer uses it to decide scope). */
+   *  longer uses it to decide scope).
+   *
+   *  ★★ fix-343: ORDERED BY SENIORITY, most senior first. It used to arrive in
+   *  whatever order the roster query returned, and Chrome printed `roles[0]` —
+   *  so Bobby (`ent` AND `ent_lead`) could see either title, and two people
+   *  could see different ones for him on the same screen. The order is now a
+   *  property of the roles held, not of the query. */
   roles: TeamRole[];
+  /** ★ fix-343: the person's roster note. It carries the real function of a
+   *  `viewer` — Underwriting, IT, Policy, CEO — which is deliberately NOT in
+   *  `role`, because `role` drives the assignment dropdowns and these six are
+   *  never assigned work. `rosterRoleTitle` is what turns it into a title. */
+  notes: string | null;
   /** fix-179: scope derived from real assignments — 'project' when the name
    *  leads ≥1 project, 'permit' when mapped but leads none, 'all' when unmapped. */
   scope: SelfScopeKind;
@@ -73,19 +85,35 @@ export function deriveSelfScope(
  *  Returns an all-scope identity with name=null when nothing matches. */
 export function resolveRosterIdentity(
   email: string | null | undefined,
-  members: ReadonlyArray<{ name: string; email: string | null; role: TeamRole }>,
+  members: ReadonlyArray<{
+    name: string;
+    email: string | null;
+    role: TeamRole;
+    notes?: string | null;
+  }>,
   projects: ReadonlyArray<Pick<Project, 'entitlement_lead' | 'design_manager'>>,
 ): RosterIdentity {
   const target = norm(email);
-  if (!target) return { name: null, roles: [], scope: 'all' };
+  if (!target) return { name: null, roles: [], notes: null, scope: 'all' };
 
   const matches = members.filter((m) => norm(m.email) === target);
-  if (matches.length === 0) return { name: null, roles: [], scope: 'all' };
+  if (matches.length === 0) {
+    return { name: null, roles: [], notes: null, scope: 'all' };
+  }
 
   const name = matches[0].name;
-  const roles = [...new Set(matches.map((m) => m.role))];
+  // ★★ fix-343: SORTED, not "whatever came back". See RosterIdentity.roles —
+  // `roles[0]` is printed as the user's title, and an array with no guaranteed
+  // order made that title a coin toss for the five people who hold two roles.
+  const roles = [...new Set(matches.map((m) => m.role))].sort(
+    (a, b) => roleSeniorityRank(a) - roleSeniorityRank(b) || a.localeCompare(b),
+  );
+  // ★ One row per role, so the note may sit on any of them; take the first
+  // non-empty rather than the first row's.
+  const notes =
+    matches.map((m) => (m.notes ?? '').trim()).find((n) => n !== '') ?? null;
 
-  return { name, roles, scope: deriveSelfScope(name, projects) };
+  return { name, roles, notes, scope: deriveSelfScope(name, projects) };
 }
 
 /** Project-scope match: the person is on a PROJECT-level role for this project. */

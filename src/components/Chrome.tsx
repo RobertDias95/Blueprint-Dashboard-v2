@@ -5,6 +5,7 @@ import BridgeMark from './BridgeMark';
 import Ribbon from './Ribbon';
 import NewProjectWizard from './NewProjectWizard';
 import { useSelfScope } from '../hooks/useSelfScope';
+import { rosterRoleTitle } from '../lib/roleLabels';
 import {
   BRAND_LOCKUP_GAP,
   BRAND_MARK_SIZE,
@@ -218,8 +219,26 @@ export default function Chrome() {
               <div className="font-display font-semibold text-text" style={{ fontSize: 12.5 }}>
                 {identity.name ?? 'Signed in'}
               </div>
-              <div className="text-dim" style={{ fontSize: 10.5 }}>
-                {identity.roles[0] ?? 'Blueprint Services'}
+              {/* ★★ fix-343: A JOB TITLE, NOT A DATABASE KEY.
+                  Bobby: "it says Bobby and then it says entitlement lead, but
+                  it's like ENT underscore lead. First off, I am entitlements
+                  manager, so let's update that to reflect it."
+
+                  ★ This line used to print `identity.roles[0]` — the raw stored
+                  value, and the FIRST element of an unordered array. Both
+                  halves were bugs: everyone saw a database key, and the five
+                  people who hold two roles saw an arbitrary one of them, which
+                  could differ between two users looking at the same screen.
+
+                  ★ `rosterRoleTitle` decides both — the most senior role in a
+                  family wins (ent_lead over ent) and two genuinely different
+                  jobs are both shown (Derry is "Design Manager · Schematic
+                  Design"). It returns null only when there is nothing true to
+                  say — an unmapped login, or a viewer with no recorded
+                  function — and the neutral line that was already the fallback
+                  here covers that case rather than a placeholder. */}
+              <div className="text-dim" style={{ fontSize: 10.5 }} data-testid="chrome-user-role">
+                {rosterRoleTitle(identity.roles, identity.notes) ?? 'Blueprint Services'}
               </div>
             </div>
           </div>
