@@ -569,3 +569,64 @@ describe('fix-295 the enlarge is capped by the render, not by the viewport', () 
     expect(img.style.imageRendering).toBe('');
   });
 });
+
+// ===========================================================================
+// ★★ fix-335 §6 — the card's content is centred vertically
+// ===========================================================================
+//
+// Bobby: "We're okay with that empty white space. The only thing we might ask
+// is, can we center the design plan of record so it's vertically spaced in that
+// area? So if there is some open white space, it moves down so it doesn't look
+// like there's a ton of opening. And that way we don't really have to mess with
+// the vertical height adjustment based on all the different monitors."
+//
+// ★★ THIS RETIRES THE CARD-HEIGHT WORK (#93, the old fix-334). He chose it as
+// the simpler route and confirmed the column heights are already resolved. The
+// row still stretches, the cards are still equal, and nothing measures a
+// monitor — the slack simply stops pooling in one place.
+describe('fix-335 §6: the Design Plan of Record centres its content', () => {
+  it('★ the section splits its spare height above and below', () => {
+    state.row = row();
+    renderCard();
+    const section = screen
+      .getByTestId('plan-of-record-card')
+      .querySelector('section section') as HTMLElement;
+    expect(section.dataset.centerVertically).toBe('true');
+    expect(section.style.display).toBe('flex');
+    expect(section.style.flexDirection).toBe('column');
+    expect(section.style.justifyContent).toBe('center');
+  });
+
+  // ★★ AND fix-331 §1 IS UNTOUCHED, which the brief was explicit about. Its
+  // rule is that a section GROWS to take an equal share of the slack and stays
+  // TOP-ALIGNED inside it, so a three-section card keeps its reading rhythm.
+  // Centring is layered on top of that growth, not instead of it.
+  it('★★ it still grows the fix-331 way — centring did not replace the split', () => {
+    state.row = row();
+    renderCard();
+    const section = screen
+      .getByTestId('plan-of-record-card')
+      .querySelector('section section') as HTMLElement;
+    expect(section.style.flexGrow).toBe('1');
+    expect(section.style.flexShrink).toBe('0');
+    expect(section.style.flexBasis).toBe('auto');
+  });
+
+  // ★ Every state of the card, not just the happy one — an empty card is the
+  // one with the MOST slack to distribute, so it is the one that would look
+  // worst if the centring were attached to the body rather than the section.
+  it('★ holds for the empty state and the failed-thumbnail state too', () => {
+    for (const setup of [
+      () => { state.row = null; },
+      () => { state.row = row({ thumb_path: null }); },
+    ]) {
+      setup();
+      const view = renderCard();
+      const section = screen
+        .getByTestId('plan-of-record-card')
+        .querySelector('section section') as HTMLElement;
+      expect(section.dataset.centerVertically).toBe('true');
+      view.unmount();
+    }
+  });
+});

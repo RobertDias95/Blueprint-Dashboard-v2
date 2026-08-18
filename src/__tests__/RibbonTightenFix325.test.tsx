@@ -91,15 +91,25 @@ describe('fix-325 #1: the ribbon is narrower, and so is the logo', () => {
   // ★ The logo is WHY the ribbon was wide — Bobby diagnosed it correctly — so
   // the two move together. Shrinking the ribbon alone would just add whitespace
   // where the complaint already was.
+  // ★★ fix-335 §1 REPLACED THE ARTWORK, and this assertion moved with it. The
+  // ribbon's mark is the original Blueprint logo now; the Bridge illustration
+  // went to the white header (§2). What fix-325 actually established survives
+  // word for word and is what is checked here: the mark fits inside the 212px
+  // ribbon's 16px padding, and its height stays auto so narrowing can never
+  // squash Bobby's artwork.
+  //
+  // ★ 156 → 144 is not a second tightening. 144 is this file's NATIVE width, so
+  // the mark is rendered 1:1 rather than resampled; see BlueprintMark.
   it('★ the logo came down with it and still fits inside the padding', () => {
     renderRibbon();
-    const logo = screen.getByTestId('bridge-mark') as HTMLImageElement;
-    expect(parseFloat(logo.style.width)).toBe(156);
+    const logo = screen.getByTestId('blueprint-mark') as HTMLImageElement;
+    expect(parseFloat(logo.style.width)).toBe(144);
     expect(parseFloat(logo.style.width)).toBeLessThanOrEqual(212 - 32);
-    // Height stays auto: the aspect ratio comes from the file, so narrowing
-    // cannot squash Bobby's artwork.
     expect(logo.style.height).toBe('auto');
-    expect(logo.getAttribute('src')).toMatch(/bridge-logo-400/);
+    expect(logo.getAttribute('src')).toMatch(/blueprint-logo-lockup/);
+    // ★ And the ribbon itself did NOT move to accommodate it — fix-325's 212px
+    // was set by the longest nav label and the foot row, not by the logo.
+    expect(screen.getByTestId('ribbon').style.width).toBe('212px');
   });
 
   // ★ WHAT DECIDES HOW NARROW IT MAY GO is the longest nav label — "Saved
@@ -116,8 +126,10 @@ describe('fix-325 #1: the ribbon is narrower, and so is the logo', () => {
   it('the longest nav labels arrive whole, in rows that cannot wrap', () => {
     renderRibbon();
     fireEvent.click(screen.getByTestId('ribbon-group-toggle-reports'));
-    fireEvent.click(screen.getByTestId('ribbon-group-toggle-entitlements'));
-    for (const label of ['Saved reports', 'Draw Schedule', 'Project View']) {
+    // ★ fix-335 §3: the Entitlements group is gone — Library stands alone, so
+    // there is nothing left to expand. Its label joins the list below, where it
+    // is now a TOP-LEVEL row rather than an indented child.
+    for (const label of ['Saved reports', 'Draw Schedule', 'Project View', 'Library']) {
       const el = screen.getByText(label);
       expect(el.textContent).toBe(label);
       const row = el.closest('a, button') as HTMLElement;
@@ -131,10 +143,11 @@ describe('fix-325 #1: the ribbon is narrower, and so is the logo', () => {
     fireEvent.click(screen.getByTestId('ribbon-collapse'));
     const ribbon = screen.getByTestId('ribbon');
     expect(ribbon.style.width).toBe('56px');
-    // fix-322's rule survives: the collapsed rail shows the SQUARE crop.
+    // fix-322's rule survives fix-335 §1's change of artwork: the collapsed
+    // rail shows a SQUARE crop, never the wide lockup squashed into one.
     expect(
-      (screen.getByTestId('bridge-mark') as HTMLImageElement).getAttribute('src'),
-    ).toMatch(/bridge-icon-square-256/);
+      (screen.getByTestId('blueprint-mark') as HTMLImageElement).getAttribute('src'),
+    ).toMatch(/blueprint-logo-icon/);
   });
 });
 
@@ -186,7 +199,8 @@ describe('fix-325 #3: the Permit intake divider is gone', () => {
 describe('fix-325 #4: Activity stops being a tab', () => {
   it('★ has no ribbon entry any more', () => {
     renderRibbon();
-    fireEvent.click(screen.getByTestId('ribbon-group-toggle-entitlements'));
+    // ★ fix-335 §3: no group left to expand — and that makes the check
+    // stricter, not weaker. Every ribbon row is already on screen.
     expect(screen.queryByTestId('ribbon-link-/activity')).toBeNull();
     expect(allRibbonRoutes()).not.toContain('/activity');
   });
@@ -216,14 +230,20 @@ describe('fix-325 #4: Activity stops being a tab', () => {
   // ★ fix-331 §8 promoted Draw Schedule to the top tier, so this is down to
   // Library. fix-325's point — Activity and Waiting On are not tabs — is
   // unchanged and asserted below.
+  // ★★ fix-335 §3 COLLAPSED THE GROUP. Entitlements had been left holding
+  // exactly one child, and fix-331 §8 wrote down that collapsing it would mean
+  // re-creating it next ticket; Bobby asked for the collapse instead. What
+  // fix-325 established is unchanged and is what is asserted here — Activity and
+  // Waiting On are not ribbon entries at ANY level, which is a stronger claim
+  // than "not children of a group that no longer exists".
   it('Entitlements is down to Library', () => {
-    const ent = RIBBON_ENTRIES.find(
-      (e) => e.kind === 'group' && e.group.id === 'entitlements',
-    );
-    const kids = ent!.kind === 'group' ? ent!.group.children.map((c) => c.to) : [];
-    expect(kids).toEqual(['/library']);
-    expect(kids).not.toContain('/activity');
-    expect(kids).not.toContain('/waiting-on');
+    expect(
+      RIBBON_ENTRIES.find((e) => e.kind === 'group' && e.group.id === 'entitlements'),
+      'the Entitlements group was collapsed by fix-335 §3',
+    ).toBeUndefined();
+    expect(allRibbonRoutes()).toContain('/library');
+    expect(allRibbonRoutes()).not.toContain('/activity');
+    expect(allRibbonRoutes()).not.toContain('/waiting-on');
   });
 });
 
@@ -232,7 +252,7 @@ describe('fix-325 #4: Activity stops being a tab', () => {
 describe('fix-325 #5: Waiting On folds into My Tasks', () => {
   it('★ has no ribbon entry, and /waiting-on redirects into the switcher', () => {
     renderRibbon();
-    fireEvent.click(screen.getByTestId('ribbon-group-toggle-entitlements'));
+    // ★ fix-335 §3: see above — nothing to expand, every row is rendered.
     expect(screen.queryByTestId('ribbon-link-/waiting-on')).toBeNull();
     expect(allRibbonRoutes()).not.toContain('/waiting-on');
     expect(routerSrc).toContain("path: 'waiting-on'");

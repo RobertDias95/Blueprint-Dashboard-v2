@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
+import { MemoryRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { ReactNode } from 'react';
 import { useAuthStore } from '../stores/authStore';
@@ -127,7 +128,14 @@ function qc() {
   });
 }
 function wrap(node: ReactNode) {
-  return render(<QueryClientProvider client={qc()}>{node}</QueryClientProvider>);
+  // ★ fix-335 §7: the Milestones card ends in a <Link> to this project's block
+  // on the draw schedule, so it needs a router around it — as it has always had
+  // in the app, where this card only renders inside /project/:id.
+  return render(
+    <QueryClientProvider client={qc()}>
+      <MemoryRouter>{node}</MemoryRouter>
+    </QueryClientProvider>,
+  );
 }
 
 beforeEach(() => {
@@ -277,7 +285,9 @@ describe('DD Phase cell gating (ProjectDetailHeader)', () => {
       permits.find((p) => p.type === 'Building Permit') ?? permits[0] ?? null;
     return render(
       <QueryClientProvider client={qc()}>
-        <ProjectDetailHeader project={project} permits={permits} bp={bp} allProjects={[]} />
+        <MemoryRouter>
+          <ProjectDetailHeader project={project} permits={permits} bp={bp} allProjects={[]} />
+        </MemoryRouter>
       </QueryClientProvider>,
     );
   }

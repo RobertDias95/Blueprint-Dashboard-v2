@@ -43,6 +43,34 @@ export interface RibbonLink {
   adminOnly?: boolean;
 }
 
+/** ★★ fix-335 §4: a link that LEAVES THE APP.
+ *
+ *  Bobby: "we want to have a button that takes you to our SharePoint on our
+ *  website … We want it to look like a button, so when you click it, it opens
+ *  the link to that and everyone can see that."
+ *
+ *  ★ IT IS A SEPARATE KIND, not a `RibbonLink` with an http `to`, and that is
+ *  load-bearing in three places at once:
+ *
+ *    · `allRibbonRoutes()` walks links and group children only, so an external
+ *      href can never reach the fix-315 coverage guard as if it were a route.
+ *      That is the exemption the brief asks for, and it is STRUCTURAL — there
+ *      is no row in ROUTES_INTENTIONALLY_NOT_IN_RIBBON to keep in sync and no
+ *      way to forget one, because the type makes the mistake unrepresentable.
+ *    · `activeRibbonTarget()` never considers it, so an external destination
+ *      cannot claim to be the page you are on. You are never "at" SharePoint.
+ *    · Ribbon renders it as an <a>, not a <NavLink>. A NavLink would try to
+ *      route `https://…` through the router and land on a 404 inside the app.
+ */
+export interface RibbonExternal {
+  /** Stable id for the test ids. Not a path — this has none. */
+  id: string;
+  href: string;
+  label: string;
+  icon: string;
+  hint?: string;
+}
+
 export interface RibbonGroup {
   /** Stable id for the open/closed state and the test ids. */
   id: string;
@@ -63,30 +91,52 @@ export interface RibbonGroup {
 export type RibbonEntry =
   | { kind: 'link'; link: RibbonLink }
   | { kind: 'group'; group: RibbonGroup }
+  | { kind: 'external'; external: RibbonExternal }
   | { kind: 'separator'; id: string };
+
+/** ★ fix-335 §4: the studio's SharePoint site.
+ *
+ *  Named here rather than inline so the test can assert the EXACT URL rather
+ *  than "an href exists" — a nav link to the wrong site is the same defect
+ *  class as fix-306's six links to a route that did not exist. */
+export const SHAREPOINT_URL =
+  'https://blueprintcap.sharepoint.com/sites/BlueprintDesignandEntitlementsStudio';
 
 // ★ The structure is Bobby's, from the approved mockup (Bridge_Shell_Mockup_v1).
 //
 // The "Entitlements" grouping mirrors his inspiration image and is a guess
 // about how the team thinks — build it, expect it to move. Draw Schedule,
 // Library and Activity are the three screens that sit under it today.
-// ★★ fix-331 §8 — THE THIRD REORDER, and the brief says to report exactly what
-// shipped, so the decisions are written here rather than left in a diff.
-//
-// Bobby's order:
+// ★★ fix-335 §3/§4 — THE FOURTH REORDER, and the brief says to report exactly
+// what shipped, so the decisions are written here rather than left in a diff.
 //
 //     Pipeline
 //     Draw Schedule
 //     My Board
 //     ─────
-//     Entitlements ▸    Library
+//     Library                                    ← §3: was Entitlements ▸ Library
 //     Reports ▸         Overview · Project View · Saved reports
 //     ─────
 //     Settings
-//     Error triage            (admin only — §6)
+//     Error triage            (admin only — fix-331 §6)
+//     SharePoint ↗            (everyone — §4, leaves the app)
 //
-// Three changes, all his: Draw Schedule joins the top tier, My Board drops to
-// third, and Project View moves under Reports.
+// ★ §3, AND IT WAS PREDICTED HERE. fix-331 §8 left Entitlements holding exactly
+// one child and wrote down that collapsing it "would mean re-creating it next
+// ticket". Bobby has now asked for the collapse — "get rid of entitlements and
+// just make library its own column" — so the group is gone and Library is a
+// top-level entry in the slot the group occupied. The prediction was right about
+// the shape and wrong about the timing; what it got right is that a one-child
+// group is not a category, and the fix was one decision either way.
+//
+// ★ NOTHING WAS LOST WITH THE GROUP. Entitlements was a heading, not a
+// destination: it had no route of its own and no second child. `/library` is
+// still in allRibbonRoutes(), so the fix-315 coverage guard is unmoved.
+//
+// ★★ fix-331 §8 was the third reorder. Its order was Pipeline · Draw Schedule ·
+// My Board / Entitlements(Library) · Reports / Settings · Error triage — three
+// changes, all Bobby's: Draw Schedule joined the top tier, My Board dropped to
+// third, and Project View moved under Reports. All three still stand.
 //
 // ★ WHAT THE BRIEF'S SKETCH SHOWED AND THIS DOES NOT: "Entitlements ▸ Library ·
 // Waiting On …". Waiting On is deliberately NOT restored. fix-325 took it out on
@@ -97,10 +147,6 @@ export type RibbonEntry =
 // coverage guard's exemption exists to document. Flagged rather than silently
 // obeyed or silently ignored.
 //
-// ★ SO ENTITLEMENTS HAS ONE CHILD. Draw Schedule was promoted out and Library is
-// what remains. A one-child group is odd, and it is left standing anyway because
-// the sketch keeps the group and because Entitlements is where the next such
-// screen goes — collapsing it now would mean re-creating it next ticket.
 export const RIBBON_ENTRIES: RibbonEntry[] = [
   { kind: 'link', link: { to: '/dashboard', label: 'Pipeline', icon: '▦' } },
   // ★ Promoted out of Entitlements to the top tier: it is a daily destination,
@@ -108,38 +154,27 @@ export const RIBBON_ENTRIES: RibbonEntry[] = [
   { kind: 'link', link: { to: '/draw-schedule', label: 'Draw Schedule', icon: '▥' } },
   { kind: 'link', link: { to: '/board', label: 'My Board', icon: '◈' } },
   { kind: 'separator', id: 'sep-1' },
-  {
-    kind: 'group',
-    group: {
-      id: 'entitlements',
-      label: 'Entitlements',
-      icon: '◫',
-      children: [
-        { to: '/library', label: 'Library', icon: '·' },
-        // ★ fix-325 #4 and #5: Waiting On and Activity BOTH came out of here,
-        // for the same reason in Bobby's words — neither is a place you go, so
-        // neither should be a tab.
-        //
-        //   Activity: "I think we can give the activity and or make it a report
-        //   from the scraper. That way we are not seeing that as an actual tab."
-        //   It already IS scraper output, so this was a relocation, not a build:
-        //   it is on the Reporting hub now, with the other scraper-derived
-        //   reports, and the notification bell still links straight to it.
-        //
-        //   Waiting On: "I think the waiting on needs to get folded into the my
-        //   task section." The Mine / Waiting On switcher already existed in the
-        //   MyTasks shell; fix-318 had mounted only MineTasks because fix-315
-        //   had just given Waiting On its own route and entry. Bobby has now
-        //   decided the opposite, so /board mounts the full shell and the
-        //   switcher is the way in.
-        //
-        // ★ Both routes still resolve — see ROUTES_INTENTIONALLY_NOT_IN_RIBBON.
-        // Removing a destination without checking it is reachable elsewhere is
-        // the fix-313 defect fix-315 existed to clean up; this removes two
-        // ENTRY POINTS and leaves both destinations reachable.
-      ],
-    },
-  },
+  // ★ fix-335 §3: Library, standing alone. It keeps the group's own icon rather
+  // than the '·' it wore as a child — a top-level entry sits in the same column
+  // as Pipeline and My Board and has to read like one, and the group it came out
+  // of no longer exists to own the glyph.
+  //
+  // ★ fix-325 #4 and #5 STILL APPLY, and are recorded here because the group
+  // that used to carry them is gone. Waiting On and Activity both came out of
+  // this tier, for the same reason in Bobby's words — neither is a place you go,
+  // so neither should be a tab.
+  //
+  //   Activity: "I think we can give the activity and or make it a report from
+  //   the scraper. That way we are not seeing that as an actual tab." It already
+  //   IS scraper output, so this was a relocation, not a build: it is on the
+  //   Reporting hub now, and the notification bell still links straight to it.
+  //
+  //   Waiting On: "I think the waiting on needs to get folded into the my task
+  //   section." /waiting-on has been a REDIRECT since; the way in is the
+  //   Mine / Waiting On switcher on /board.
+  //
+  // ★ Both routes still resolve — see ROUTES_INTENTIONALLY_NOT_IN_RIBBON.
+  { kind: 'link', link: { to: '/library', label: 'Library', icon: '◫' } },
   {
     kind: 'group',
     group: {
@@ -258,6 +293,25 @@ export const RIBBON_ENTRIES: RibbonEntry[] = [
       hint: 'Scraper and app errors needing triage',
     },
   },
+  // ★★ fix-335 §4: SharePoint. The bottom tier, beside Settings, where Bobby
+  // drew it — and the last row, so the one entry that leaves the app is the one
+  // furthest from everything that does not.
+  //
+  // ★ NO ADMIN GATE, DELIBERATELY. "this is accessible by everyone." 23 of the
+  // 29 people in this tenant are editors (measured on prod 2026-08-17), and the
+  // studio's document site is the single most universally useful destination in
+  // the ribbon — gating it would withhold it from almost the whole company. It
+  // carries no `adminOnly`, and a test asserts a non-admin sees it.
+  {
+    kind: 'external',
+    external: {
+      id: 'sharepoint',
+      href: SHAREPOINT_URL,
+      label: 'SharePoint',
+      icon: '↗',
+      hint: 'Blueprint Design and Entitlements Studio on SharePoint — opens in a new tab',
+    },
+  },
 ];
 
 /** The entries a viewer may see.
@@ -279,9 +333,21 @@ export function visibleEntries(isAdmin: boolean): RibbonEntry[] {
       if (children.length > 0) out.push({ kind: 'group', group: { ...e.group, children } });
       continue;
     }
+    // ★ fix-335 §4: externals and separators fall through UNGATED. There is no
+    // `adminOnly` on RibbonExternal at all — not "defaulted to false" but
+    // absent, so a future external cannot be gated by accident and nobody has
+    // to remember that SharePoint is for everyone.
     out.push(e);
   }
   return out;
+}
+
+/** Every external destination in the ribbon. Deliberately separate from
+ *  `allRibbonRoutes()` — see RibbonExternal. */
+export function allRibbonExternals(): RibbonExternal[] {
+  return RIBBON_ENTRIES.filter(
+    (e): e is { kind: 'external'; external: RibbonExternal } => e.kind === 'external',
+  ).map((e) => e.external);
 }
 
 /** The children of a group this viewer may see. A child inherits the group's
@@ -327,16 +393,92 @@ export function isLinkActive(
   return pathname.startsWith(to.endsWith('/') ? to : `${to}/`);
 }
 
+// ---------------------------------------------------------------------------
+// ★★★ fix-335 §5 — ONE entry may claim to be where you are. Ever.
+// ---------------------------------------------------------------------------
+//
+// Bobby: "whenever I'm in Error Triage, it selects both Error Triage and
+// Settings and highlights them both, which should only be Error Triage because
+// that's where I'm actually at."
+//
+// The cause is above: `isLinkActive` prefix-matches on a path boundary, so
+// `/settings` claims `/settings/errors`. ★★ AND IT IS NOT ONE ROUTE — Settings
+// is the parent of TWO ribbon entries, so the identical defect was live on
+// **Saved reports** (`/settings/reporting`) and nobody had reported it.
+//
+// ★★★ WHY `exact: true` ON SETTINGS IS THE WRONG INSTRUMENT, having tried it.
+//
+// The brief proposes the fix-315 flag, and it does silence both cases — by
+// making /settings claim NOTHING but itself. But /settings is also the parent
+// of FIVE non-ribbon deep links (/settings/account, /team, /projects, /permits,
+// /schedule), each linkable so a section survives a reload. With `exact`, every
+// one of those five lights up no entry at all, and the ribbon says "you are
+// nowhere" on five real screens. That trades a two-route bug for a five-route
+// one, and it is exactly the trap the brief is warning about: this is the FOURTH
+// pass over the ribbon's active state, and a flag someone must remember to add
+// is what failed the last three times.
+//
+// ★ SO THE RULE IS SPECIFICITY, and it needs nothing remembered: among all the
+// entries that match, the LONGEST `to` wins, and only that one is active.
+//
+//     /settings/errors     → /settings, /settings/errors  → /settings/errors ✓
+//     /settings/reporting  → /settings, /settings/reporting → the child ✓
+//     /settings/account    → /settings only               → Settings ✓ (kept)
+//
+// A new child of an existing entry is now correct the moment it is added, with
+// no flag and no second thought — which is the only version that survives the
+// fifth reorder.
+//
+// ★ `exact` STAYS, and still does something this does not. /reports' children
+// (/reports/corrections and the rest) are NOT ribbon entries, so specificity
+// alone would light Overview while you read Corrections. fix-315's flag says
+// "this entry does not speak for its children" — a different statement from
+// "the most specific match wins", and both are needed.
+
+/** The single ribbon target that owns this pathname, or null.
+ *
+ *  ★ Externals are never candidates: you are never "at" SharePoint. */
+export function activeRibbonTarget(pathname: string): string | null {
+  let best: string | null = null;
+  const consider = (to: string, exact?: boolean) => {
+    if (!isLinkActive(to, pathname, exact)) return;
+    if (best === null || to.length > best.length) best = to;
+  };
+  for (const e of RIBBON_ENTRIES) {
+    if (e.kind === 'link') consider(e.link.to, e.link.exact);
+    if (e.kind === 'group') for (const c of e.group.children) consider(c.to, c.exact);
+  }
+  return best;
+}
+
+/** Is this the ONE entry that owns the current pathname?
+ *
+ *  ★ Both halves matter. `isLinkActive` alone lit two entries; specificity
+ *  alone would ignore `exact`. An entry is active when it matches AND nothing
+ *  matches more specifically. */
+export function isRibbonEntryActive(
+  to: string,
+  pathname: string,
+  exact = false,
+): boolean {
+  if (!isLinkActive(to, pathname, exact)) return false;
+  return activeRibbonTarget(pathname) === to;
+}
+
 /** ★ Does a group CONTAIN the active route?
  *
  *  This is what makes a COLLAPSED group show it is active. Without it, opening
  *  a report and then closing the group leaves the ribbon claiming nothing is
- *  selected, which reads as "you are nowhere". */
+ *  selected, which reads as "you are nowhere".
+ *
+ *  ★ fix-335 §5: resolved the same way as everything else, so a group cannot
+ *  light up for a path one of its children only prefix-matches while a more
+ *  specific entry elsewhere owns it. */
 export function groupContainsActive(
   group: RibbonGroup,
   pathname: string,
 ): boolean {
-  return group.children.some((c) => isLinkActive(c.to, pathname, c.exact));
+  return group.children.some((c) => isRibbonEntryActive(c.to, pathname, c.exact));
 }
 
 // ---------------------------------------------------------------------------

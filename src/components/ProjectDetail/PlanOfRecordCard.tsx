@@ -54,7 +54,12 @@ export default function PlanOfRecordCard({ projectId }: Props) {
     // rather than a private copy of it — otherwise "all five cards match" would
     // hold only until somebody edited one of the two.
     <OverviewCard title="Design Plan of Record" testId="plan-of-record-card">
-      <OverviewSection>
+      {/* ★★ fix-335 §6: the ONE card that centres its content vertically.
+          Bobby: "can we center the design plan of record so it's vertically
+          spaced in that area … so it doesn't look like there's a ton of
+          opening." See OverviewSection.centerVertically for why this is opt-in
+          and why fix-331 §1's even distribution is deliberately left alone. */}
+      <OverviewSection centerVertically>
         {q.isLoading ? (
           <div
             className="h-[220px] rounded border animate-pulse"

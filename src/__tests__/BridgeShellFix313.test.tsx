@@ -146,8 +146,9 @@ describe('fix-313 #57: every ribbon route exists in the real route table', () =>
       </QueryClientProvider>,
     );
 
-    // Open both groups so the children are reachable.
-    fireEvent.click(screen.getByTestId('ribbon-group-toggle-entitlements'));
+    // Open the group so its children are reachable. ★ fix-335 §3: Reports is
+    // the only group left — Entitlements was collapsed and Library is a
+    // top-level row, already on screen.
     fireEvent.click(screen.getByTestId('ribbon-group-toggle-reports'));
 
     for (const route of allRibbonRoutes()) {
@@ -180,11 +181,16 @@ describe('fix-313 #60: the active state follows the route', () => {
     // Genuinely closed: the children are not rendered at all.
     expect(screen.queryByTestId('ribbon-kids-reports')).toBeNull();
     expect(group.dataset.containsActive).toBe('true');
-    // ...and the group that does NOT contain it stays inactive, so the
-    // assertion above is not just "everything is active".
-    expect(screen.getByTestId('ribbon-group-entitlements').dataset.containsActive).toBe(
-      'false',
-    );
+    // ...and nothing ELSE claims to be where you are, so the assertion above is
+    // not just "everything is active".
+    //
+    // ★★ fix-335 §5 makes this the sharp case rather than a spare one. The
+    // counter-example used to be the Entitlements group, which §3 collapsed —
+    // but /settings/reporting is a CHILD OF /settings, and until §5 the Settings
+    // entry prefix-matched it and lit up too. Two entries, one page. Now the
+    // most specific match wins and Settings stays dark.
+    expect(screen.getByTestId('ribbon-link-/settings').dataset.active).toBe('false');
+    expect(screen.getByTestId('ribbon-link-/library').dataset.active).toBe('false');
   });
 
   it('and the child itself is active once the group is opened', () => {
@@ -264,14 +270,17 @@ describe('fix-313 #58: the collapsed choice persists', () => {
     expect(screen.getByTestId('ribbon').style.width).toBe('56px');
   });
 
+  // ★ fix-335 §3: retargeted onto Reports. Entitlements was the group this used
+  // to open and it no longer exists; the contract is unchanged and just needs a
+  // group that does.
   it('★ and an open group survives a remount too', () => {
     const first = renderRibbon();
-    fireEvent.click(screen.getByTestId('ribbon-group-toggle-entitlements'));
-    expect(screen.getByTestId('ribbon-kids-entitlements')).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId('ribbon-group-toggle-reports'));
+    expect(screen.getByTestId('ribbon-kids-reports')).toBeInTheDocument();
     first.unmount();
 
     renderRibbon();
-    expect(screen.getByTestId('ribbon-kids-entitlements')).toBeInTheDocument();
+    expect(screen.getByTestId('ribbon-kids-reports')).toBeInTheDocument();
   });
 
   // ★ Per user, the fix-176 rule: one login's choice must never leak to
@@ -322,8 +331,9 @@ describe('fix-313 #57: collapsed shows icons only, and keeps the active state', 
     // glyph to a screen reader or on hover.
     expect(board.textContent).not.toMatch(/My Board/);
     expect(board.getAttribute('title')).toBe('My Board');
-    // The wordmark collapses to the mark alone.
-    expect(screen.getByTestId('bridge-mark')).toBeInTheDocument();
+    // The brand block collapses to the mark alone. ★ fix-335 §1: that mark is
+    // the Blueprint roundel now — the Bridge illustration moved to the header.
+    expect(screen.getByTestId('blueprint-mark')).toBeInTheDocument();
     expect(screen.getByTestId('ribbon-brand').textContent).not.toMatch(/BLUEPRINT/);
   });
 });

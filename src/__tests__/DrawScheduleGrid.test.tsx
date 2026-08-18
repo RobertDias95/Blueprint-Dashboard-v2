@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { MemoryRouter } from 'react-router-dom';
 import {
   render,
   screen,
@@ -438,7 +439,14 @@ function renderGrid() {
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
   const wrapper = ({ children }: { children: ReactNode }) => (
-    <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+    <QueryClientProvider client={queryClient}>
+      {/* ★ fix-335 §7: the grid reads ?project= and ?quarter= so a project
+          can link straight to its own block, which means it needs a router
+          around it. It has always HAD one in the app — /draw-schedule is a
+          route — so this closes a gap between the test harness and the real
+          mount rather than adding a dependency. */}
+      <MemoryRouter initialEntries={['/draw-schedule']}>{children}</MemoryRouter>
+    </QueryClientProvider>
   );
   return render(<DrawScheduleGrid />, { wrapper });
 }
@@ -2018,5 +2026,97 @@ describe('fix-263 draw schedule — parked block treatment', () => {
     const after = screen.getByTestId('block-p-now').getAttribute('style') ?? '';
     const afterGeom = after.match(/height:[^;]+|left:[^;]+|right:[^;]+|top:[^;]+/g);
     expect(afterGeom).toEqual(beforeGeom);
+  });
+});
+
+// ===========================================================================
+// ★★ fix-335 §7 — arriving from a project's Milestones card
+// ===========================================================================
+//
+// Bobby: "Under milestones, at the bottom, underneath permit date, we want a
+// button that from there will take you to the draw schedule." Decided: it lands
+// on THIS PROJECT'S BLOCK, inside the full schedule, not filtered to it — the
+// board's value is the neighbours.
+//
+// ★★ THE CONSTRAINT IS fix-182'S QUARTER-VERSIONED LAYOUT. There is a different
+// board per quarter, so a project that IS scheduled but is not on the quarter
+// you are looking at is indistinguishable from one that was never scheduled at
+// all. The three cases below are exactly that distinction.
+//
+// The clock is pinned by this file's beforeEach to 2026-06-15 (Q2 2026), and
+// p-now's block runs 2026-05-04 → 2026-05-18 — this quarter. p-noda has no
+// block at all.
+
+function renderGridAt(url: string) {
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+  });
+  const wrapper = ({ children }: { children: ReactNode }) => (
+    <QueryClientProvider client={queryClient}>
+      <MemoryRouter initialEntries={[url]}>{children}</MemoryRouter>
+    </QueryClientProvider>
+  );
+  return render(<DrawScheduleGrid />, { wrapper });
+}
+
+describe('fix-335 §7: ?project= lands on that project\'s block', () => {
+  it('★ rings the block it was sent to, and only that one', () => {
+    renderGridAt('/draw-schedule?project=p-now&quarter=2026-Q2');
+    const block = screen.getByTestId('block-p-now');
+    expect(block.dataset.focus).toBe('true');
+    expect(screen.getByTestId('block-p-other').dataset.focus).toBeUndefined();
+    // ★ The ring is a box-shadow, deliberately: the border already carries the
+    // phase/park palette and the fill carries the derived status, so pointing
+    // at the block must not overwrite something that means something else.
+    expect(block.getAttribute('style')).toMatch(/box-shadow/);
+  });
+
+  it('no ?project= means no ring anywhere, and no notice', () => {
+    renderGridAt('/draw-schedule');
+    expect(screen.getByTestId('block-p-now').dataset.focus).toBeUndefined();
+    expect(screen.queryByTestId('ds-focus-notice')).toBeNull();
+  });
+
+  // ★★ The quarter travels as an ABSOLUTE 'YYYY-Qn' rather than the grid's own
+  // offset, which is a delta from today and means somewhere else tomorrow.
+  it('★★ the quarter parameter moves the board', () => {
+    renderGridAt('/draw-schedule?project=p-now&quarter=2026-Q4');
+    // Q4 is two quarters on, so the block is not on this board...
+    expect(screen.queryByTestId('block-p-now')).toBeNull();
+    // ...and the grid says so rather than showing an empty column.
+    const notice = screen.getByTestId('ds-focus-notice');
+    expect(notice.dataset.focusState).toBe('other-quarter');
+    expect(notice.textContent).toContain('500 Pike St');
+    expect(notice.textContent).toContain('Q2 2026'); // where it actually is
+  });
+
+  it('★ and the notice offers the jump, which works', () => {
+    renderGridAt('/draw-schedule?project=p-now&quarter=2026-Q4');
+    fireEvent.click(screen.getByTestId('ds-focus-notice-jump'));
+    const block = screen.getByTestId('block-p-now');
+    expect(block.dataset.focus).toBe('true');
+    expect(screen.queryByTestId('ds-focus-notice')).toBeNull();
+  });
+
+  // ★★ THE TWO ABSENCES, TOLD APART. "not on this quarter's board" and "not on
+  // the schedule at all" look identical on screen, and only one of them is
+  // something to go and fix.
+  it('★★ an unscheduled project is named as unscheduled, not as missing', () => {
+    renderGridAt('/draw-schedule?project=p-noda');
+    const notice = screen.getByTestId('ds-focus-notice');
+    expect(notice.dataset.focusState).toBe('unscheduled');
+    expect(notice.textContent).toContain('999 Unscheduled Ln');
+    expect(notice.textContent).toMatch(/not on the draw schedule/i);
+    // No jump offered, because there is nowhere to jump to.
+    expect(screen.queryByTestId('ds-focus-notice-jump')).toBeNull();
+  });
+
+  // ★ The quarter arrows still own the quarter once you are here — the URL sets
+  // an INITIAL value, it does not bind the state and fight the user.
+  it('★ the arrows still work after arriving by deep link', () => {
+    renderGridAt('/draw-schedule?project=p-now&quarter=2026-Q2');
+    expect(screen.getByTestId('block-p-now')).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId('quarter-next'));
+    expect(screen.queryByTestId('block-p-now')).toBeNull();
   });
 });

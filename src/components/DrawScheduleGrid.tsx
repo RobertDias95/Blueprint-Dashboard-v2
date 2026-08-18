@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
+import { useSearchParams } from 'react-router-dom';
+import { parseDrawScheduleFocus } from '../lib/drawScheduleLink';
 import { useDrawSchedule } from '../hooks/useDrawSchedule';
 import { useProjects } from '../hooks/useProjects';
 import { usePermits } from '../hooks/usePermits';
@@ -185,7 +187,21 @@ export default function DrawScheduleGrid() {
   // approval date used by the grid's block rendering.
   const reviewersQ = useAllPermitCycleReviewers();
 
-  const [quarterOffset, setQuarterOffset] = useState(0);
+  // ★★ fix-335 §7: the deep link from a project's Milestones card —
+  // /draw-schedule?project=<id>&quarter=YYYY-Qn.
+  //
+  // ★ READ IN THE LAZY INITIALISER, not in an effect. An effect that setStates
+  // on mount is the React Compiler's `set-state-in-effect`, and it would also
+  // paint one frame of the wrong quarter before correcting itself — which on
+  // this grid means the whole board visibly jumps. Same reasoning, same shape as
+  // Ribbon's stored collapse preference.
+  //
+  // ★ AND IT IS AN INITIAL VALUE, NOT A BINDING. Once you are here, the quarter
+  // arrows own the quarter; the URL does not fight you for it. That is why the
+  // parameter is not synced back on every change.
+  const [searchParams] = useSearchParams();
+  const focus = useMemo(() => parseDrawScheduleFocus(searchParams), [searchParams]);
+  const [quarterOffset, setQuarterOffset] = useState(() => focus.quarterOffset);
   const [search, setSearch] = useState('');
 
   const error =
@@ -226,6 +242,7 @@ export default function DrawScheduleGrid() {
       setQuarterOffset={setQuarterOffset}
       search={search}
       setSearch={setSearch}
+      focusProjectId={focus.projectId}
     />
   );
 }
@@ -241,6 +258,10 @@ interface BodyProps {
   setQuarterOffset: (n: number) => void;
   search: string;
   setSearch: (s: string) => void;
+  /** ★ fix-335 §7: the project this visit is ABOUT, from ?project=. Its block
+   *  gets ringed and scrolled to; if it has none in the viewed quarter, the
+   *  notice says so rather than leaving you to hunt. */
+  focusProjectId: string | null;
 }
 
 function DrawScheduleBody({
@@ -254,6 +275,7 @@ function DrawScheduleBody({
   setQuarterOffset,
   search,
   setSearch,
+  focusProjectId,
 }: BodyProps) {
   // fix-262: holds feed BOTH the projected-approval shift (below) and the
   // cancelled-block treatment. Holds are rare, so one tenant-wide fetch indexed
@@ -988,6 +1010,53 @@ function DrawScheduleBody({
     [projects],
   );
 
+  // ─────────────────────────────────────────────────────────────────────────
+  // ★★ fix-335 §7 — arriving from a project's Milestones card
+  // ─────────────────────────────────────────────────────────────────────────
+  //
+  // The quarter has already been set from the URL (see the lazy initialiser in
+  // DrawScheduleGrid). What is left is to say WHICH block you came for, because
+  // a quarter of this board is forty or more of them and "it's in here
+  // somewhere" is not an answer.
+  const focusRow = useMemo(
+    () =>
+      focusProjectId
+        ? draw.find((r) => r.project_id === focusProjectId) ?? null
+        : null,
+    [draw, focusProjectId],
+  );
+  /** Does the focused block overlap the quarter on screen? Compared against the
+   *  block's own stored weeks rather than what got rendered, so a block clipped
+   *  to a tail slice still counts as present. */
+  const focusInQuarter =
+    !!focusRow?.start_week &&
+    !!focusRow.end_week &&
+    weeks.length > 0 &&
+    focusRow.start_week <= weeks[weeks.length - 1] &&
+    focusRow.end_week >= weeks[0];
+
+  // ★ Scroll the block into view, once per project id. The ref guard is the
+  // same one the search auto-snap uses above: without it, any re-render would
+  // yank the viewport back and fight a user who has since scrolled away.
+  //
+  // ★ NO setState HERE — this reads the DOM and scrolls it, which is exactly
+  // what an effect is for. jsdom has no scrollIntoView, so the call is guarded
+  // rather than stubbed in the tests: a component that assumes a browser-only
+  // API exists is a component that crashes in one.
+  const scrolledFocusRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!focusProjectId || !focusInQuarter) return;
+    if (scrolledFocusRef.current === focusProjectId) return;
+    const el = gridScrollRef.current?.querySelector(
+      `[data-testid="block-${focusProjectId}"]`,
+    );
+    if (!el) return;
+    scrolledFocusRef.current = focusProjectId;
+    if (typeof (el as HTMLElement).scrollIntoView === 'function') {
+      (el as HTMLElement).scrollIntoView({ block: 'center', inline: 'center' });
+    }
+  }, [focusProjectId, focusInQuarter, quarterOffset, draw]);
+
   // fix-23b B1: auto-snap quarterOffset to the earliest matched project's
   // start_week when search is active. Without this, a user navigating
   // forward two quarters and typing an address whose block lives in today's
@@ -1345,6 +1414,65 @@ function DrawScheduleBody({
         isLayoutMode={isLayoutMode}
         canEdit={canEdit}
       />
+
+      {/* ★★ fix-335 §7: THE ANSWER TO "WHERE IS IT?", INCLUDING WHEN IT IS
+          NOWHERE. Rendered only when you arrived with ?project=.
+
+          The link that got you here already names the quarter its block starts
+          in, so the second case below should be unreachable in practice — you
+          reach it by editing the URL, by following a link somebody pasted
+          before the block moved, or by clicking through and then paging the
+          quarter arrows. That is precisely why it exists: fix-182 renders a
+          different board per quarter, so a project that is on the schedule but
+          not on THIS quarter's board looks exactly like a project that was
+          never scheduled. The two must never be confused, and the notice tells
+          them apart and offers the jump. */}
+      {focusProjectId && !focusInQuarter && (
+        <div
+          className="flex items-center gap-2 rounded-lg border px-3 py-1.5 text-[11px] flex-shrink-0"
+          style={{
+            borderColor: 'var(--color-co-border)',
+            background: 'var(--color-co-bg)',
+            color: 'var(--color-co)',
+          }}
+          data-testid="ds-focus-notice"
+          data-focus-state={focusRow?.start_week ? 'other-quarter' : 'unscheduled'}
+        >
+          {focusRow?.start_week ? (
+            <>
+              <span>
+                <strong>
+                  {projectById.get(focusProjectId)?.address ?? 'That project'}
+                </strong>{' '}
+                has no block in {getQuarterLabel(quarterOffset)} — its block
+                starts in{' '}
+                {getQuarterLabel(weekKeyToQuarterOffset(focusRow.start_week))}.
+              </span>
+              <button
+                type="button"
+                onClick={() =>
+                  setQuarterOffset(
+                    weekKeyToQuarterOffset(focusRow.start_week ?? ''),
+                  )
+                }
+                className="ml-auto font-bold underline bg-transparent border-none cursor-pointer p-0"
+                style={{ color: 'inherit' }}
+                data-testid="ds-focus-notice-jump"
+              >
+                Go there
+              </button>
+            </>
+          ) : (
+            <span>
+              <strong>
+                {projectById.get(focusProjectId)?.address ?? 'That project'}
+              </strong>{' '}
+              is not on the draw schedule — it has no block on any quarter&apos;s
+              board.
+            </span>
+          )}
+        </div>
+      )}
 
       <div
         ref={gridScrollRef}
@@ -1902,6 +2030,8 @@ function DrawScheduleBody({
                     // doesn't fit, skip" call.
                     const isRedesign = !!project.redesign_of_project_id;
                     const isShared = sharedProjectIds.has(row.project_id);
+                    // ★ fix-335 §7: the block you were sent here to look at.
+                    const isFocused = row.project_id === focusProjectId;
                     const originalAddress = isRedesign
                       ? projectsById.get(project.redesign_of_project_id ?? '')
                           ?.address ?? null
@@ -1920,6 +2050,7 @@ function DrawScheduleBody({
                         data-overflow={overflow === 'tail' ? 'tail' : undefined}
                         data-redesign={isRedesign ? 'true' : undefined}
                         data-shared={isShared ? 'true' : undefined}
+                        data-focus={isFocused ? 'true' : undefined}
                         title={`${project.address} — ${derivedStatus}${isShared ? ' · Shared (DA reassigned)' : ''}${redesignTitleSuffix}${
                           canEdit
                             ? ' (drag to move, click to edit)'
@@ -1987,7 +2118,20 @@ function DrawScheduleBody({
                             : `2px solid ${borderColor}`,
                           borderRadius: 4,
                           overflow: 'hidden',
-                          zIndex: 5,
+                          // ★★ fix-335 §7: the arrival ring — a box-shadow, NOT
+                          // a border and NOT a background. Both of those are
+                          // already carrying meaning on this block: the border
+                          // is the phase/park palette (fix-263) and the fill is
+                          // the derived status, so overwriting either would say
+                          // something false about the block in order to point
+                          // at it. A shadow sits OUTSIDE the box and steals no
+                          // vocabulary. Doubled — solid accent, then a pale
+                          // halo — so it reads on the hatch of a cancelled
+                          // block as well as on a flat fill.
+                          boxShadow: isFocused
+                            ? '0 0 0 3px var(--color-de), 0 0 0 7px var(--color-de-bg)'
+                            : undefined,
+                          zIndex: isFocused ? 7 : 5,
                           cursor: canEdit ? 'grab' : 'pointer',
                           // Bug A: during a drag, SIBLING blocks let drops
                           // pass through to the cell underneath. The drag

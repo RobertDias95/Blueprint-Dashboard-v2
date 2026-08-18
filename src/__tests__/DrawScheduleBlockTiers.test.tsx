@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
+import { MemoryRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { ReactNode } from 'react';
 import { useAuthStore } from '../stores/authStore';
@@ -125,7 +126,14 @@ function renderGrid() {
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
   const wrapper = ({ children }: { children: ReactNode }) => (
-    <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+    <QueryClientProvider client={queryClient}>
+      {/* ★ fix-335 §7: the grid reads ?project= and ?quarter= so a project
+          can link straight to its own block, which means it needs a router
+          around it. It has always HAD one in the app — /draw-schedule is a
+          route — so this closes a gap between the test harness and the real
+          mount rather than adding a dependency. */}
+      <MemoryRouter initialEntries={['/draw-schedule']}>{children}</MemoryRouter>
+    </QueryClientProvider>
   );
   return render(<DrawScheduleGrid />, { wrapper });
 }

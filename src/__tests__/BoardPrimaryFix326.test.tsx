@@ -449,11 +449,31 @@ describe('fix-326 §3: the tab carries the brand sheet\'s own icon', () => {
   });
 
   // ★ The ribbon logo is NOT this. The brief said so, and the two have different
-  // jobs: 156px of illustration in the ribbon, a shape that survives 16px in the
-  // tab.
+  // jobs: an illustration in the ribbon, a shape that survives 16px in the tab.
+  //
+  // ★★ fix-335 MOVED BOTH ENDS OF THAT SENTENCE AND THE RULE SURVIVED INTACT.
+  // §1 gave the ribbon the original Blueprint logo; §2 put the Bridge mark in
+  // the white header — where, per Bobby, it is deliberately "the logo from the
+  // tab", so BridgeMark now imports the favicon on purpose rather than by
+  // accident. The claim worth keeping is the ORIGINAL one: the detailed 4:1
+  // illustration and the 16px tab icon are different artwork for different
+  // jobs, and neither is ever used as the other.
   it('★ the ribbon logo is untouched', async () => {
-    const markSrc = (await import('../components/BridgeMark.tsx?raw')).default as string;
-    expect(markSrc).toMatch(/bridge-logo-400\.png/);
-    expect(markSrc).not.toMatch(/bridge-favicon/);
+    const bridgeSrc = (await import('../components/BridgeMark.tsx?raw')).default as string;
+    const blueprintSrc = (await import('../components/BlueprintMark.tsx?raw'))
+      .default as string;
+
+    // The ribbon's mark: the Blueprint lockup and roundel, and NOT the tab icon
+    // nor the Bridge illustration.
+    expect(blueprintSrc).toMatch(/blueprint-logo-lockup\.png/);
+    expect(blueprintSrc).toMatch(/blueprint-logo-icon\.png/);
+    expect(blueprintSrc).not.toMatch(/bridge-/);
+
+    // The Bridge component still owns the wide illustration, and its `favicon`
+    // variant is a distinct crop — the tab's mark is never served as the
+    // detailed one, which is the whole reason fix-326 exists.
+    expect(bridgeSrc).toMatch(/bridge-logo-400\.png/);
+    expect(bridgeSrc).toMatch(/variant === 'favicon' \? favicon/);
+    expect(indexHtml).not.toMatch(/bridge-logo-400|bridge-logo-full/);
   });
 });

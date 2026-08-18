@@ -3,11 +3,12 @@ import { NavLink, useLocation } from 'react-router-dom';
 import { useAuthStore } from '../stores/authStore';
 import { useIsTenantAdmin } from '../hooks/useIsTenantAdmin';
 import { useNewErrorCount } from '../hooks/useErrorReports';
-import BridgeMark from './BridgeMark';
+import BlueprintMark from './BlueprintMark';
 import {
   groupContainsActive,
-  isLinkActive,
+  isRibbonEntryActive,
   visibleEntries,
+  type RibbonExternal,
   type RibbonGroup,
   type RibbonLink,
 } from '../lib/ribbonNav';
@@ -42,14 +43,10 @@ import {
 const WIDTH_EXPANDED = 212;
 const WIDTH_COLLAPSED = 56;
 
-// ★ fix-320 #73: the wordmark palette, straight off Bridge_Shell_Mockup_v1.
-// Literals rather than theme tokens because these are BRAND colours — they
-// belong to the mark, not to the app's semantic palette, and pointing them at
-// --color-de would mean the logo changed the day someone retuned the "design"
-// accent. Named here so the two lines of the wordmark and the mark's square
-// cannot drift apart.
-const BRAND_NAVY = '#1d3f6e'; // "The Bridge" — the hero line
-const BRAND_BLUE_LIGHT = '#7ba3d8'; // "BLUEPRINT" — the small line above it
+// ★ fix-335 §2: the wordmark palette (BRAND_NAVY / BRAND_BLUE_LIGHT, fix-320
+// #73) went with the wordmark. It lives in Chrome.tsx now, where the words are.
+// Leaving the constants behind would have left this file describing a lockup it
+// no longer draws.
 
 // ★ fix-320 #72: the collapse control's chip.
 //
@@ -130,91 +127,48 @@ export default function Ribbon({ onAddProject }: { onAddProject: () => void }) {
       }}
     >
       {/* ── brand ─────────────────────────────────────────────── */}
-      {/* ★ fix-322: the real logo, and the layout it forced.
+      {/* ★★ fix-335 §1: THE ORIGINAL BLUEPRINT LOGO. Bobby: "we have the new
+          logo that we were using, and we want to replace that with the original
+          Blueprint logo." The Bridge illustration is not deleted — §2 moves it
+          into the white header beside the words. Company here, product there.
 
-          The artwork is 4:1 and fills the ribbon's width minus its padding,
-          leaving no room beside it for the wordmark. The brief's tie-break: the
-          illustration wins, the wordmark moves. So the wordmark drops BELOW the
-          divider into its own row rather than shrinking to fit next to a
-          thumbnail.
+          ★ fix-325's 56px still stands, and for its original reason: it matches
+          the app header to the right, so the two bottom borders form ONE line
+          across the top of the screen. A taller brand block pushed the ribbon's
+          rule below the header's and read as a mistake.
 
-          ★ fix-325 narrowed both together — 200px of logo in a 248px ribbon
-          became 156px in a 212px one. The pair moves as a pair on purpose: the
-          logo is what set the ribbon's width, so shrinking one without the
-          other would just add whitespace where the complaint already was.
-
-          ★ WHY NOT SIMPLY MAKE THIS BLOCK TALLER: its 56px matches the app
-          header to its right, so the two bottom borders form ONE line across the
-          top of the screen. Rendered both ways side by side; a taller brand block
-          pushed the ribbon's rule 22px below the header's and read as a mistake.
-          The 56px stays, the logo fills it, the words sit under it. */}
+          ★★ THE PROPORTIONS WERE CHECKED, NOT ASSUMED — the brief's instruction,
+          and they do not match. The old artwork is 4:1 and filled 156 of the
+          ribbon's 180px of content width. This mark's real artwork is 144 x 28
+          (5.14:1) inside a 200 x 57 canvas that is half empty — see BlueprintMark
+          for the decode. Rendering the canvas at 156 would have drawn a 112px
+          logo floating in a 44px box. Cropped, it renders at its native 144 and
+          fits the same 180px with room to spare, so the RIBBON DOES NOT NEED TO
+          MOVE: fix-325's 212px was set by the longest nav label and the foot row,
+          not by the logo, and both are unchanged. */}
       <div
         className="flex items-center border-b border-border flex-shrink-0"
         style={{ height: 56, padding: collapsed ? '0 8px' : '0 16px', justifyContent: collapsed ? 'center' : undefined }}
         data-testid="ribbon-brand"
       >
-        {/* Collapsed takes the SQUARE crop — 56px of rail has no room for a 4:1
-            illustration, and squashing it into one is the thing this component
-            makes impossible. */}
-        <BridgeMark variant={collapsed ? 'icon' : 'full'} size={collapsed ? 34 : 156} />
+        {/* Collapsed takes the roundel alone — 56px of rail has no room for a
+            5:1 lockup, and squashing it into one is the thing BlueprintMark
+            makes impossible. Both sizes are the artwork's own, so neither
+            variant is ever upscaled. */}
+        <BlueprintMark variant={collapsed ? 'icon' : 'lockup'} />
       </div>
 
-      {/* ── wordmark ──────────────────────────────────────────── */}
-      {!collapsed && (
-        <div
-          className="flex-shrink-0"
-          style={{ padding: '8px 16px 2px' }}
-          data-testid="ribbon-wordmark-row"
-        >
-        {/* ★ fix-320 #73 — the wordmark leads with The Bridge.
-            Bobby: "The grey for bridge blends in with the white background —
-            you want BRIDGE to be bold and identifiable." It had been the other
-            way round: BLUEPRINT in brand blue with BRIDGE trailing it in faint
-            grey, so the name of the product was the part that vanished.
+      {/* ★★ fix-335 §2: THE WORDMARK ROW IS GONE FROM THE RIBBON.
+          "we want to remove the wording Blueprint The Bridge, and we actually
+          want to move that to the white header on all the screens."
 
-            BLUEPRINT is now the small light-blue line ABOVE; The Bridge is the
-            large navy hero below it, per Bridge_Shell_Mockup_v1.
-
-            ★ Title case, not all caps — Bobby, on seeing it: "maybe it doesn't
-            need to be all caps". Mixed case has ascenders and descenders, so
-            the word carries a silhouette and reads faster at 16.5px than a
-            uniform block of capitals.
-
-            ★ fix-322 moved this OUT of the brand block and under it, at the same
-            size and colours — the illustration needed the full width. It is
-            still one lockup, read top to bottom: picture, then name. */}
-          <span
-            className="font-display whitespace-nowrap"
-            style={{ lineHeight: 1 }}
-            data-testid="ribbon-wordmark"
-          >
-            <span
-              style={{
-                display: 'block',
-                fontSize: 8.5,
-                fontWeight: 600,
-                letterSpacing: '.17em',
-                color: BRAND_BLUE_LIGHT,
-                marginBottom: 2,
-              }}
-            >
-              BLUEPRINT
-            </span>
-            <span
-              style={{
-                display: 'block',
-                fontSize: 16.5,
-                fontWeight: 750,
-                letterSpacing: '-.005em',
-                color: BRAND_NAVY,
-              }}
-              data-testid="ribbon-wordmark-hero"
-            >
-              The Bridge
-            </span>
-          </span>
-        </div>
-      )}
+          fix-320 #73 built it (BLUEPRINT small and light above, The Bridge as
+          the navy hero) and fix-322 moved it below the brand block when the
+          illustration took the full width. It is not restyled or hidden here —
+          it has MOVED, in one piece, to Chrome's header, where it is centred
+          beside the tab icon. Deleting the row rather than leaving an empty
+          container is deliberate: the next person should find one place that
+          renders the product's name, not two with one switched off. */}
 
       {/* ── nav ───────────────────────────────────────────────── */}
       <div
@@ -238,6 +192,15 @@ export default function Ribbon({ onAddProject }: { onAddProject: () => void }) {
                 link={entry.link}
                 collapsed={collapsed}
                 pathname={pathname}
+              />
+            );
+          }
+          if (entry.kind === 'external') {
+            return (
+              <RibbonExternalItem
+                key={entry.external.id}
+                external={entry.external}
+                collapsed={collapsed}
               />
             );
           }
@@ -369,7 +332,8 @@ function RibbonItem({
   collapsed: boolean;
   pathname: string;
 }) {
-  const active = isLinkActive(link.to, pathname, link.exact);
+  // ★ fix-335 §5: the resolver, not the raw prefix match — see ribbonNav.
+  const active = isRibbonEntryActive(link.to, pathname, link.exact);
   return (
     <NavLink
       to={link.to}
@@ -417,6 +381,61 @@ function ErrorTriageCount({ collapsed }: { collapsed: boolean }) {
     >
       {n > 99 ? '99+' : n}
     </span>
+  );
+}
+
+/** ★★ fix-335 §4: the SharePoint control. A BUTTON, not a nav row.
+ *
+ *  Bobby: "We want it to look like a button, so when you click it, it opens the
+ *  link to that."
+ *
+ *  ★ AND THE DISTINCTION IS NOT DECORATION. Every other row in this ribbon
+ *  changes what is in <main> and leaves you inside the app; this one navigates
+ *  the browser away from it. Making it look like the eight rows above it would
+ *  be a promise the click breaks. So it takes the bordered-chip treatment the
+ *  collapse control and Add a Project already use — this ribbon's established
+ *  vocabulary for "acts on the world" as against "goes somewhere" — and it
+ *  never renders an active state, because there is no state in which you are
+ *  looking at SharePoint inside this app.
+ *
+ *  ★ target=_blank so the app is not unloaded mid-task, and rel=noopener
+ *  noreferrer with it: without `noopener` the opened tab gets a live
+ *  `window.opener` handle back into this one. */
+function RibbonExternalItem({
+  external,
+  collapsed,
+}: {
+  external: RibbonExternal;
+  collapsed: boolean;
+}) {
+  return (
+    <a
+      href={external.href}
+      target="_blank"
+      rel="noopener noreferrer"
+      data-testid={`ribbon-external-${external.id}`}
+      data-external="true"
+      title={external.hint ?? external.label}
+      className="flex items-center gap-2.5 rounded-lg whitespace-nowrap no-underline transition text-muted border border-border bg-surface hover:bg-s2 hover:text-text font-display font-semibold"
+      style={{
+        margin: collapsed ? '6px 8px' : '5px 10px',
+        padding: collapsed ? '7px 0' : '6px 10px',
+        justifyContent: 'center',
+        fontSize: 12.5,
+      }}
+    >
+      {!collapsed && <span className="overflow-hidden text-ellipsis">{external.label}</span>}
+      <span
+        aria-hidden="true"
+        style={{ fontSize: 12, lineHeight: 1 }}
+      >
+        {external.icon}
+      </span>
+      {/* Collapsed, the label goes and the glyph carries it — the same rule the
+          nav links, Add a Project and the collapse chip already follow, so 56px
+          stays one language. The accessible name survives it. */}
+      {collapsed && <span className="sr-only">{external.label}</span>}
+    </a>
   );
 }
 
@@ -472,7 +491,7 @@ function RibbonGroupItem({
       {open && !collapsed && (
         <div data-testid={`ribbon-kids-${group.id}`} style={{ padding: '1px 0 4px' }}>
           {group.children.map((child) => {
-            const active = isLinkActive(child.to, pathname, child.exact);
+            const active = isRibbonEntryActive(child.to, pathname, child.exact);
             return (
               <NavLink
                 key={child.to}

@@ -6,6 +6,10 @@ import type { ReactNode } from 'react';
 import { useAuthStore } from '../stores/authStore';
 import type { PermitWithCycles, Project } from '../lib/database.types';
 import indexHtml from '../../index.html?raw';
+// ★ fix-335 §2: the wordmark moved from the ribbon to the header, so proving it
+// LEFT means reading both sources, not just re-querying the DOM it left.
+import ribbonSrc from '../components/Ribbon.tsx?raw';
+import chromeSrc from '../components/Chrome.tsx?raw';
 
 // fix-320 — three display fixes, no logic. Register #72, #73 and the fix-311
 // follow-up.
@@ -374,46 +378,52 @@ describe('fix-320 #72: the collapse control reads as a button', () => {
 
 // --------------------------------------------------------- 3 · the wordmark --
 
+// ★★ fix-335 §2 MOVED THE WORDMARK OUT OF THE RIBBON, so this section's subject
+// is no longer here. Bobby: "we want to remove the wording Blueprint The Bridge,
+// and we actually want to move that to the white header on all the screens."
+//
+// ★ fix-320's ACTUAL contract — "The Bridge" as the bold navy hero in title
+// case, never shouted caps — did not lapse; it is asserted on the header in
+// BrandingRibbonFix335, against the same #1d3f6e and the same 750 weight. What
+// remains this suite's business is the ribbon, and the ribbon's half of the
+// contract is now a negative one: the words are not here, and nothing was left
+// behind switched off.
 describe('fix-320 #73: the wordmark leads with The Bridge', () => {
   it('renders The Bridge in title case, under a small BLUEPRINT line', () => {
     renderRibbon();
-    // ★ fix-322 moved the wordmark OUT of the brand block and under it, so the
-    // real 4:1 logo could have the ribbon's full width. Same two lines, same
-    // order, same colours — read from the row that now holds them.
-    const brand = screen.getByTestId('ribbon-wordmark');
-    const text = brand.textContent ?? '';
-    expect(text).toContain('BLUEPRINT');
-    expect(text).toContain('The Bridge');
-    // BLUEPRINT is the line ABOVE; the hero reads second in the DOM.
-    expect(text.indexOf('BLUEPRINT')).toBeLessThan(text.indexOf('The Bridge'));
+    expect(screen.queryByTestId('ribbon-wordmark')).toBeNull();
+    expect(screen.queryByTestId('ribbon-wordmark-row')).toBeNull();
+    expect(screen.queryByTestId('ribbon-wordmark-hero')).toBeNull();
+    // ★ AND NOT MERELY UNMOUNTED. The row is gone from the component source, so
+    // the next person finds one place that renders the product's name rather
+    // than two with one of them disabled.
+    expect(ribbonSrc).not.toContain('ribbon-wordmark');
   });
 
   it('★ nothing on the ribbon renders THE BRIDGE in caps', () => {
     renderRibbon();
+    // Still true, and now trivially so — the ribbon renders neither word.
     expect(screen.getByTestId('ribbon').textContent).not.toMatch(/THE BRIDGE/);
-    // The old shape — BRIDGE trailing BLUEPRINT on one line, in grey — is gone.
-    expect(screen.getByTestId('ribbon-wordmark').textContent).not.toMatch(/BLUEPRINT BRIDGE/);
+    expect(screen.getByTestId('ribbon').textContent).not.toMatch(/BLUEPRINT BRIDGE/);
   });
 
   it('the hero is the bold navy line, not the faint grey it was', () => {
-    renderRibbon();
-    const hero = screen.getByTestId('ribbon-wordmark-hero');
-    const cs = getComputedStyle(hero);
-    expect(cs.color).toBe('rgb(29, 63, 110)'); // #1d3f6e
-    expect(Number(cs.fontWeight)).toBeGreaterThanOrEqual(700);
-    // Bigger than the line above it — that is what "lead with" means here.
-    const over = hero.previousElementSibling as HTMLElement;
-    expect(parseFloat(getComputedStyle(over).fontSize)).toBeLessThan(
-      parseFloat(cs.fontSize),
-    );
+    // ★ The colour survived the move byte for byte — Chrome.tsx declares the
+    // same #1d3f6e fix-320 chose, and BrandingRibbonFix335 reads it off the
+    // rendered header. Checked here on the source so the constant cannot be
+    // quietly retuned to a theme token, which is the failure fix-320's comment
+    // warned about: --color-de would change the logo the day somebody adjusted
+    // the "design" accent.
+    expect(chromeSrc).toContain("BRAND_NAVY = '#1d3f6e'");
+    expect(ribbonSrc).not.toContain('#1d3f6e');
   });
 
   it('collapsed shows the mark alone', () => {
     renderRibbon();
     fireEvent.click(screen.getByTestId('ribbon-collapse'));
-    expect(screen.getByTestId('bridge-mark')).toBeInTheDocument();
-    // fix-322: the wordmark row unmounts entirely when collapsed, so this reads
-    // the whole ribbon rather than one block.
+    // ★ fix-335 §1: the ribbon's mark is the Blueprint roundel now; the Bridge
+    // illustration moved to the header with the words.
+    expect(screen.getByTestId('blueprint-mark')).toBeInTheDocument();
     const ribbon = screen.getByTestId('ribbon').textContent ?? '';
     expect(ribbon).not.toContain('BLUEPRINT');
     expect(ribbon).not.toContain('The Bridge');
@@ -426,7 +436,9 @@ describe('fix-320 #73: the wordmark leads with The Bridge', () => {
   // anywhere — the drawing was scaffolding, and the scaffolding is down.
   it('the placeholder mark is gone from the app entirely', () => {
     renderRibbon();
-    const mark = screen.getByTestId('bridge-mark');
+    // ★ fix-335 §1: whichever mark the ribbon carries, it is a referenced image
+    // and never a drawing. That is the rule, and it outlived the artwork.
+    const mark = screen.getByTestId('blueprint-mark');
     expect(mark.tagName).toBe('IMG');
     expect(mark.querySelector('rect')).toBeNull();
     // Nothing points at it, and the tab carries Bobby's own artwork instead.

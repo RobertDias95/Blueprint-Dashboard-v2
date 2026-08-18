@@ -1,9 +1,24 @@
 import { useState } from 'react';
 import { Outlet } from 'react-router-dom';
 import BoardBell from './BoardBell';
+import BridgeMark from './BridgeMark';
 import Ribbon from './Ribbon';
 import NewProjectWizard from './NewProjectWizard';
 import { useSelfScope } from '../hooks/useSelfScope';
+
+// ★ fix-335 §2: the hero colour, inherited verbatim from fix-320 #73 — a
+// literal rather than a theme token because it is a BRAND colour. It belongs to
+// the mark, not to the app's semantic palette; pointing it at --color-de would
+// mean the logo changed the day somebody retuned the "design" accent. It moved
+// here from Ribbon.tsx with the words it colours, unchanged in value, so "The
+// Bridge" reads exactly as it did in the ribbon.
+//
+// ★ fix-320's SECOND colour did not come with it. BRAND_BLUE_LIGHT was the pale
+// blue of the small "BLUEPRINT" line above the hero, and that line is not in
+// this lockup: Bobby's own reading of the header is "logo, The Bridge", and the
+// ribbon's mark (fix-335 §1) now literally spells BLUEPRINT six inches to the
+// left. Repeating it here would print the company's name twice on one row.
+const BRAND_NAVY = '#1d3f6e'; // "The Bridge"
 
 // fix-313 — the Blueprint Bridge shell, built to Bridge_Shell_Mockup_v1.
 //
@@ -45,10 +60,83 @@ export default function Chrome() {
 
       <div className="flex-1 min-w-0 flex flex-col h-screen" data-testid="bridge-main">
         <header
-          className="bg-surface border-b border-border flex items-center gap-3.5 px-5 flex-shrink-0"
+          className="bg-surface border-b border-border flex items-center gap-3.5 px-5 flex-shrink-0 relative"
           style={{ height: 56 }}
           data-testid="chrome-header"
         >
+          {/* ★★ fix-335 §2: THE PRODUCT'S NAME, CENTRED, ON EVERY SCREEN.
+
+              Bobby: "we want to move that to the white header on all the
+              screens. And we want to add the logo from the tab to the left of
+              that. So in the center of all the screens in that white area, it's
+              going to read logo, The Bridge."
+
+              ★★ ABSOLUTELY POSITIONED, AND THAT IS THE WHOLE POINT. Put in the
+              flex flow it would centre against the REMAINDER — the space left
+              over after the bell and the user chip — so it would slide left or
+              right by a few pixels as the signed-in person's name changed
+              length, and sit at a different spot on two people's screens. Taken
+              out of the flow, left:50% + translateX(-50%) pins it to the middle
+              of the white bar itself and nothing to either side can move it.
+
+              ★ THE MIDDLE OF THE BAR IS THE MIDDLE OF "THAT WHITE AREA" — which
+              is what he pointed at. The bar starts where the ribbon ends, so
+              this is not the viewport's centre; centring against the viewport
+              would push the lockup left of the bar's own middle by half the
+              ribbon's width, and it would MOVE when the ribbon is collapsed.
+              Fixed relative to the thing it sits in, so collapsing the ribbon
+              re-centres it and it never drifts.
+
+              ★ pointer-events-none: it is a label, not a control. Without it, a
+              transparent 200px box would sit over the middle of the header and
+              swallow clicks aimed at anything beneath it.
+
+              ★ THE CENTRE WAS FREE BEFORE THIS, verified rather than assumed:
+              fix-331 §5 deleted the search bar and §7 deleted the initials
+              circle, leaving `<div className="flex-1" />` as the only thing
+              between the left edge and the bell.
+
+              ★★ AND IT IS FREE AT EVERY WIDTH THIS APP IS USED AT — but not at
+              EVERY width, which is why `hidden lg:flex` is here. Rendered and
+              measured rather than reasoned about: the centred lockup is ~138px
+              and the right-hand cluster (bell + chip) is ~312px with the
+              longest name on the roster, so on a 1280px screen they clear each
+              other by about 150px and at 1024px by about 25px. Below roughly
+              980px the bell starts crossing the final letters of "The Bridge".
+              Because the block is absolutely positioned, its neighbours cannot
+              know it is there and will not make room — so rather than let it be
+              overlapped, it drops out under Tailwind's `lg` breakpoint. The
+              shell is a fixed, non-scrolling desktop layout (Bobby: "the
+              horizontal width and the vertical width of the screen is going to
+              be fixed so there's no scrolling"), so that window is one nobody
+              works in; a name half-covered by a bell would be worse than no
+              name at all. */}
+          <div
+            className="hidden lg:flex absolute inset-y-0 items-center gap-2 pointer-events-none select-none"
+            style={{ left: '50%', transform: 'translateX(-50%)' }}
+            data-testid="chrome-brand-center"
+          >
+            {/* ★ "the logo from the tab" is literal — bridge-favicon-256.png,
+                the same mark the browser tab shows. See BridgeMark's `favicon`
+                variant for why it is that file and not the square crop beside
+                it. 26px: the tab icon's own scale, and it sits on the cap
+                height of the 16.5px hero rather than towering over it. */}
+            <BridgeMark variant="favicon" size={26} />
+            <span
+              className="font-display whitespace-nowrap"
+              style={{
+                fontSize: 16.5,
+                fontWeight: 750,
+                letterSpacing: '-.005em',
+                color: BRAND_NAVY,
+                lineHeight: 1,
+              }}
+              data-testid="chrome-brand-title"
+            >
+              The Bridge
+            </span>
+          </div>
+
           {/* ★★ fix-331 §5: THE SEARCH BAR IS GONE, and its own justification is
               what dated it. fix-313 rendered it disabled with an honest deferral
               label rather than as a live control that did nothing — the right

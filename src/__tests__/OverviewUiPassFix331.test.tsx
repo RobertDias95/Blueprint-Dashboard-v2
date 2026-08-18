@@ -600,11 +600,15 @@ describe('fix-331 §8: the ribbon order', () => {
     );
   }
 
+  // ★ fix-335 §3 slots Library into the tier §8 built, between the separator
+  // and Reports — the position its group occupied. The rest of §8's order is
+  // untouched, which is what this still pins.
   it('★ Pipeline, Draw Schedule, My Board — then Settings and error triage', () => {
     expect(topLevel()).toEqual([
       '/dashboard',
       '/draw-schedule',
       '/board',
+      '/library',
       '/settings',
       '/settings/errors',
     ]);
@@ -620,12 +624,17 @@ describe('fix-331 §8: the ribbon order', () => {
     expect(topLevel()).not.toContain('/projects');
   });
 
+  // ★★ fix-331 §8 left this group holding one child and wrote down that
+  // collapsing it "would mean re-creating it next ticket". Bobby asked for the
+  // collapse in the very next one, so fix-335 §3 made it: Library is top-level
+  // and the group is gone. Both halves of §8's claim still hold — Library is
+  // still reachable, Draw Schedule is still promoted out of it.
   it('Entitlements keeps Library; Draw Schedule was promoted out', () => {
-    const ent = RIBBON_ENTRIES.find(
-      (e) => e.kind === 'group' && e.group.id === 'entitlements',
-    );
-    const kids = ent!.kind === 'group' ? ent!.group.children.map((c) => c.to) : [];
-    expect(kids).toEqual(['/library']);
+    expect(
+      RIBBON_ENTRIES.find((e) => e.kind === 'group' && e.group.id === 'entitlements'),
+    ).toBeUndefined();
+    expect(topLevel()).toContain('/library');
+    expect(topLevel()).toContain('/draw-schedule');
   });
 
   // ★★ THE MEASUREMENT THAT FORCED PER-CHILD GATING. Reports is admin-only and
