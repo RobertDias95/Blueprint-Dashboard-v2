@@ -13,6 +13,7 @@ import PersonalBoard from './pages/PersonalBoard';
 import DrawSchedule from './pages/DrawSchedule';
 import LibraryMatrix from './components/LibraryMatrix';
 import ActivityPage from './pages/ActivityPage';
+import NotificationsPage from './pages/Notifications';
 import WeeklyDaReport from './pages/WeeklyDaReport';
 import WeeklyUpdatesReport from './pages/WeeklyUpdatesReport';
 import ApprovedAwaitingIssuanceReport from './pages/ApprovedAwaitingIssuanceReport';
@@ -226,6 +227,19 @@ export const router = createBrowserRouter([
       // Reporting hub's "From the scraper" entry (fix-325) and the "Full scraper
       // activity →" link on My Board's health panel.
       { path: 'activity', element: <ActivityPage /> },
+      // ★★★ fix-336 §2: the notification centre. Bobby: "if you got four
+      // notifications and you go to My Board, there's nowhere that shows, hey,
+      // here are your notifications."
+      //
+      // ★ Reached from the bell (two links: the list, and the "Not shown" line
+      // that has been naming this destination since fix-298) and from My
+      // Board's header. NOT a ribbon entry: the ribbon is navigation between
+      // areas of work, and this is where a bell takes you — adding a rail item
+      // would put a third entry point on a thing whose whole problem was
+      // having none, and would touch fix-335's specificity rules for no gain.
+      //
+      // Ungated, like /board and /activity: everyone has notifications.
+      { path: 'notifications', element: <NotificationsPage /> },
       // Q9.5.a sent bare /settings to /dashboard because Settings was a modal.
       // ★ fix-319 #76: it is a page now, so /settings goes to the page —
       // landing on Account, the one section every role can read.

@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../lib/supabase';
+import { queryKeys } from '../lib/queryKeys';
 import { useAuthStore } from '../stores/authStore';
 import { pushToast } from '../stores/toastStore';
 import type { PermitMilestoneAck } from '../lib/myBoard';
@@ -19,7 +20,10 @@ import type { PermitMilestoneAck } from '../lib/myBoard';
 // Append-only by grant as well as by policy: `authenticated` holds SELECT and
 // INSERT and nothing else.
 
-const ACKS_KEY = ['permit_milestone_acks'] as const;
+// ★ fix-336: the bare prefix moved to lib/queryKeys so REALTIME_TABLES can
+// name it — a handoff acknowledged by the design side now reaches the
+// entitlement lead's bell without a reload.
+const ACKS_KEY = queryKeys.milestoneAcksAll;
 
 export function useMilestoneAcks() {
   const tenantId = useAuthStore((s) => s.activeTenantId);

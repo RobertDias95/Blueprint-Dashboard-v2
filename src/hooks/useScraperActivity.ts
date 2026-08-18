@@ -1,5 +1,4 @@
-import { useEffect, useState } from 'react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
 import { supabase } from '../lib/supabase';
 import { queryKeys } from '../lib/queryKeys';
 import { useAuthStore } from '../stores/authStore';
@@ -12,16 +11,15 @@ import type { ScraperActivityRow } from '../lib/database.types';
 // enforces tenant scoping; the RPC is SECURITY INVOKER so the caller's
 // auth.uid() drives auth_tenant_ids(). Cap: 300 rows / 14d default.
 //
-// Realtime: subscribes once to postgres_changes on audit_log INSERT,
-// then invalidates the bare scraper_activity prefix key so all
-// per-tenant variants refetch.
+// Realtime: ★ fix-336 — the app's ONE channel now carries audit_log
+// (REALTIME_TABLES.audit_log → scraperActivityAll). This hook opens no channel
+// of its own; see the note in the body for what that channel was and why it
+// never fired.
 //
 // ★ fix-326: THIS HOOK IS LIVE AND STAYS. The comment here said it was "mounted
 // by the NotificationBell", which was false — that component has not been
 // rendered for several tickets and is now deleted. Its real consumers are
-// BoardBell (the flip feed and its suppression counts) and ActivityPage; the
-// channel teardown lines up with whichever of those is mounted, which is exactly
-// what the original note meant to promise.
+// BoardBell (the flip feed and its suppression counts) and ActivityPage.
 
 export const SCRAPER_ACTIVITY_DAYS_DEFAULT = 14;
 export const SCRAPER_ACTIVITY_ROW_CAP = 300;
@@ -30,41 +28,19 @@ export function useScraperActivity(
   days: number = SCRAPER_ACTIVITY_DAYS_DEFAULT,
 ) {
   const tenantId = useAuthStore((s) => s.activeTenantId);
-  const queryClient = useQueryClient();
-  // fix-28-bug: per-mount unique channel name. The bell (mounted in
-  // Chrome) and ActivityPage both call this hook; with a hardcoded
-  // channel name, the second mount tried to attach a postgres_changes
-  // listener to an already-subscribed channel and Supabase Realtime
-  // throws ("cannot add `postgres_changes` callbacks ... after
-  // `subscribe()`"). Random suffix computed in useState's lazy
-  // initializer is stable across re-renders of the same mount but
-  // unique per instance — two mounts = two independent channels.
-  // Both still invalidate the same TanStack queryKey on INSERT.
-  const [channelName] = useState(
-    () => `bp-v2-scraper-activity-${Math.random().toString(36).slice(2, 10)}`,
-  );
-
-  // Realtime: any new audit_log INSERT invalidates the cache. The
-  // RLS filter on audit_log already restricts visible rows to the
-  // caller's tenant, so we don't need to inspect payload.new.
-  useEffect(() => {
-    if (!tenantId) return;
-    const channel = supabase
-      .channel(channelName)
-      .on(
-        'postgres_changes',
-        { event: 'INSERT', schema: 'public', table: 'audit_log' },
-        () => {
-          queryClient.invalidateQueries({
-            queryKey: queryKeys.scraperActivityAll,
-          });
-        },
-      )
-      .subscribe();
-    return () => {
-      void supabase.removeChannel(channel);
-    };
-  }, [tenantId, queryClient, channelName]);
+  // ★★ fix-336: THE PRIVATE CHANNEL IS GONE, and its table finally works.
+  //
+  // This hook used to open its own postgres_changes channel on `audit_log`,
+  // with a random per-mount name so two mounts would not collide. It had never
+  // once fired: `audit_log` was not in the `supabase_realtime` publication, so
+  // Postgres emitted nothing for it. The 5-minute `refetchInterval` below is
+  // the only reason the flip feed ever moved.
+  //
+  // fix-336 publishes the table and folds the subscription into the app's ONE
+  // channel (REALTIME_TABLES.audit_log → scraperActivityAll, the same key this
+  // handler invalidated), which is the brief's rule: do not open one channel
+  // per component that happens to need the same table. Two mounts of this hook
+  // now cost zero channels instead of two.
 
   return useQuery<ScraperActivityRow[]>({
     queryKey: queryKeys.scraperActivity(tenantId ?? '', days),

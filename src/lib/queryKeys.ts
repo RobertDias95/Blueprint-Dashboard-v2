@@ -47,6 +47,14 @@ export const queryKeys = {
   // fix-27: notification center reads audit_log via bp_fetch_scraper_activity
   // RPC. Bare-prefix key participates in realtime invalidation on audit_log.
   scraperActivityAll: ['scraper_activity'] as const,
+  // ★★ fix-336: the two remaining notification inputs that had no bare prefix
+  // at all — their hooks declared private literal keys, which is why neither
+  // could be named in REALTIME_TABLES. `board_item_reads` is fix-307's read
+  // state (acknowledging in one tab must clear the badge in every other) and
+  // `permit_milestone_acks` is the handoff source. Both hooks now build their
+  // keys from these, so there is one spelling per table.
+  boardItemReadsAll: ['board_item_reads'] as const,
+  milestoneAcksAll: ['permit_milestone_acks'] as const,
   // fix-31: per-reviewer status table (replaces the placeholder "tasks" column
   // on Project Overview with a real rollup of city-side review state).
   permitCycleReviewersAll: ['permit_cycle_reviewers'] as const,
@@ -316,4 +324,24 @@ export const REALTIME_TABLES = {
     queryKeys.dashboardPermitCardsAll,
     queryKeys.weeklyDaReportAll,
   ],
+  // ★★★ fix-336 — the three tables the NOTIFICATION MODEL reads, published to
+  // `supabase_realtime` by migrations/fix_336_realtime_publication.sql. Every
+  // one of these was subscribed-to or needed and silent before that migration.
+  //
+  // ★ audit_log is the scraper's status flips — the largest single source of
+  // board items (lib/boardReads source 1). useScraperActivity used to open its
+  // OWN channel for this table, per mount, with a random name; that channel is
+  // deleted and this entry replaces it, which is the "do not open one channel
+  // per component that happens to need the same table" rule applied to the one
+  // place that broke it.
+  audit_log: [queryKeys.scraperActivityAll],
+  // ★ The handoff source (boardReads source 3): the design leg completing is
+  // what puts "Ready to file" in an entitlement lead's bell.
+  permit_milestone_acks: [queryKeys.milestoneAcksAll],
+  // ★★ The READ STATE, and the reason the badge could disagree with itself.
+  // Acknowledging an item in one tab wrote a row that no other tab heard about,
+  // so a second tab kept counting it until something else forced a refetch.
+  // fix-307's model is per-user and RLS-scoped to auth.uid(), so this streams
+  // only your own rows — proven on the wire, see the PR.
+  board_item_reads: [queryKeys.boardItemReadsAll],
 } as const;

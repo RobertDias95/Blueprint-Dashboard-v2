@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../lib/supabase';
+import { queryKeys } from '../lib/queryKeys';
 import { useAuthStore } from '../stores/authStore';
 import { pushToast } from '../stores/toastStore';
 
@@ -15,7 +16,11 @@ import { pushToast } from '../stores/toastStore';
 // Fisk's queue marks it read for HER — the database will not let it be
 // otherwise. That isolation is not a client convention.
 
-const READS_KEY = ['board_item_reads'] as const;
+// ★ fix-336: the bare prefix moved to lib/queryKeys so REALTIME_TABLES can
+// name it. Same key, one spelling — a realtime event on board_item_reads now
+// invalidates exactly this query, which is what makes acknowledging in one tab
+// clear the badge in every other one.
+const READS_KEY = queryKeys.boardItemReadsAll;
 
 /** The item keys this user has acknowledged. */
 export function useBoardReads() {
