@@ -14,7 +14,10 @@ import {
   parseMentions,
 } from '../../lib/projectChat';
 import { Avatar, MessageBody } from './ChatMessageBody';
+import ChatReactions from './ChatReactions';
 import { useRosterFullName } from '../../hooks/useRosterFullName';
+import type { MessageReaction } from '../../hooks/useMessageReactions';
+import type { MentionTarget } from '../../lib/mentionTags';
 import ChatAttachments from './ChatAttachments';
 import ChatTaskComposer from './ChatTaskComposer';
 import MentionTextarea from './MentionTextarea';
@@ -46,6 +49,9 @@ export default function ChatMessageRow({
   projectId,
   userId,
   people,
+  targets,
+  reactions,
+  projectTeamIds,
   permits,
   /** ★ Search lands here: the row scrolls itself into view and flashes. */
   focused = false,
@@ -56,6 +62,16 @@ export default function ChatMessageRow({
   projectId: string;
   userId: string | null;
   people: MentionablePerson[];
+  /** ★ fix-347: people + tags, so `@project` renders as a mention rather than
+   *  as plain text. Optional so the existing tests (and any caller that has
+   *  only people) keep working unchanged. */
+  targets?: (MentionablePerson | MentionTarget)[];
+  /** ★ fix-347: every reaction on this project's chat — one query, filtered per
+   *  row, rather than one round trip per message. */
+  reactions?: readonly MessageReaction[];
+  /** ★ `@project` resolved for this project — the fallback audience for the
+   *  "who has not reacted" line on an untagged post. */
+  projectTeamIds?: readonly string[];
   permits: Permit[];
   focused?: boolean;
   variant?: 'post' | 'reply';
@@ -111,7 +127,14 @@ export default function ChatMessageRow({
       return;
     }
     edit.mutate(
-      { messageId: message.id, body: next, mentions: parseMentions(next, people) },
+      {
+        messageId: message.id,
+        body: next,
+        // ★ fix-347: an EDIT re-resolves against the same targets the composer
+        // used, so adding "@project" in an edit notifies the project — and the
+        // ids are stored, never the name.
+        mentions: parseMentions(next, targets ?? people),
+      },
       { onSuccess: () => setEditing(false) },
     );
   }
@@ -189,7 +212,7 @@ export default function ChatMessageRow({
             <MentionTextarea
               value={draft}
               onChange={setDraft}
-              people={people}
+              people={targets ?? people}
               onSubmit={saveEdit}
               testId={`project-chat-edit-input-${message.id}`}
             />
@@ -221,11 +244,27 @@ export default function ChatMessageRow({
             className="text-[13px] text-text mt-0.5"
             style={{ whiteSpace: 'pre-wrap' }}
           >
-            <MessageBody body={message.body} people={people} />
+            <MessageBody body={message.body} people={targets ?? people} />
           </div>
         )}
 
         {!deleted && <ChatAttachments attachments={message.attachments ?? []} />}
+
+        {/* ★★★ fix-347 §1: the read receipts. Rendered for a live message only
+            — a deleted one is not asking to be acknowledged — and only where a
+            caller supplied the reaction set, so a surface that has not opted in
+            (the Team-card preview) is unchanged. */}
+        {!deleted && reactions && (
+          <ChatReactions
+            messageId={message.id}
+            projectId={projectId}
+            reactions={reactions}
+            userId={userId}
+            people={people}
+            mentions={message.mentions}
+            projectTeamIds={projectTeamIds ?? []}
+          />
+        )}
 
         {/* ★★ THE ORIGINAL, MINIMISED — exactly what Bobby described. Present
             for an edit AND for a delete, because both supersede text somebody

@@ -38,6 +38,9 @@ export const queryKeys = {
   mentionablePeopleAll: ['mentionable_people'] as const,
   // fix-339: the shared post-request item.
   postRequestsAll: ['post_requests'] as const,
+  // ★ fix-347: reactions (read receipts) and the custom mention tags.
+  messageReactionsAll: ['message_reactions'] as const,
+  mentionTagsAll: ['mention_tags'] as const,
   // fix-notes-2: dashboard expanded-permit "waiting on" summaries. Own bare
   // prefix so BOTH permit_tasks and notes realtime changes can invalidate it.
   dashboardPermitCardsAll: ['dashboard_permit_cards'] as const,
@@ -95,6 +98,10 @@ export const queryKeys = {
   openTaskCounts: (tenantId: string, names: string[]) =>
     ['permit_tasks', tenantId, 'open_counts', names] as const,
   dmDaGroups: (tenantId: string) => ['dm_da_groups', tenantId] as const,
+  // ★ fix-347: one reactions query per open project chat, not one per message.
+  messageReactions: (tenantId: string, projectId: string) =>
+    ['message_reactions', tenantId, projectId] as const,
+  mentionTags: (tenantId: string) => ['mention_tags', tenantId] as const,
   daTimeBlocks: (tenantId: string) => ['da_time_blocks', tenantId] as const,
   // Q7.3.a — admin catalogs. Jurisdictions + permit_types are global (no
   // tenant_id) but we still parameterize by tenantId so cache entries scope
@@ -338,6 +345,10 @@ export const REALTIME_TABLES = {
   // ★ The handoff source (boardReads source 3): the design leg completing is
   // what puts "Ready to file" in an entitlement lead's bell.
   permit_milestone_acks: [queryKeys.milestoneAcksAll],
+  // ★★ fix-347: a reaction is a READ RECEIPT, so it streams — see the note in
+  // useMessageReactions. Two people on the same post must not disagree about
+  // how many have acknowledged it.
+  message_reactions: [queryKeys.messageReactionsAll],
   // ★★ The READ STATE, and the reason the badge could disagree with itself.
   // Acknowledging an item in one tab wrote a row that no other tab heard about,
   // so a second tab kept counting it until something else forced a refetch.

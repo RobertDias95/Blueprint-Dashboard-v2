@@ -1,6 +1,5 @@
 import { useMemo } from 'react';
-import { initialsOf, splitBody } from '../../lib/projectChat';
-import type { MentionablePerson } from '../../lib/database.types';
+import { initialsOf, splitBody, type MentionSource } from '../../lib/projectChat';
 
 // fix-331 §3 — the two pieces of chat rendering that BOTH surfaces need.
 //
@@ -17,7 +16,10 @@ export function MessageBody({
   people,
 }: {
   body: string;
-  people: MentionablePerson[];
+  /** ★ fix-347: people OR mention targets — a tag tints exactly like a person,
+   *  because to the reader it is the same thing: a run of text that reached
+   *  somebody. */
+  people: readonly MentionSource[];
 }) {
   const segments = useMemo(() => splitBody(body, people), [body, people]);
   return (

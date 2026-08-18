@@ -1,5 +1,6 @@
 import PillListEditor from './PillListEditor';
 import TeamStructureEditor from './TeamStructureEditor';
+import MentionTagsEditor from './MentionTagsEditor';
 import TeamActiveQuartersEditor from './TeamActiveQuartersEditor';
 import QuarterLayoutEditor from './QuarterLayoutEditor';
 import { useTeamMembers } from '../../hooks/useTeamMembers';
@@ -152,6 +153,13 @@ export default function AdminTeamTab() {
           activeDas={teamQ.activeDas}
           readOnly={!isAdmin}
         />
+      </Section>
+
+      {/* ★★ fix-347 §2: the custom chat tags. Beside the other roster that
+          decides who gets pinged, admin-gated the same way (the DATABASE
+          refuses a non-admin; readOnly only hides the buttons). */}
+      <Section title="Chat Tags">
+        <MentionTagsEditor readOnly={!isAdmin} />
       </Section>
 
       <Section title="Draw Schedule Layout (per quarter)">
