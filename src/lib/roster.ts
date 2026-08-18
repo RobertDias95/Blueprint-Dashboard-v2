@@ -1,4 +1,4 @@
-import type { TeamMember } from './database.types';
+import type { TeamMember, TeamRole } from './database.types';
 
 // fix-321 #79 — ONE definition of "on the team today", and one place that says
 // what a picker may offer.
@@ -47,6 +47,73 @@ export function isCurrentMember(m: MembershipFlags | null | undefined): boolean 
 /** The inverse, for readability at call sites that mean "has left". */
 export function isFormerMember(m: MembershipFlags | null | undefined): boolean {
   return !!m && !isCurrentMember(m);
+}
+
+// ---------------------------------------------------------------------------
+// ★★ fix-343 — the second reason a roster row must not be OFFERED
+// ---------------------------------------------------------------------------
+//
+// The `viewer` role landed on prod 2026-08-18: six people who are in the roster
+// and are NEVER ASSIGNED WORK — EJ, Greg and Taylor (Underwriting), Keenan
+// (IT), Lucas (Policy) and Darin (CEO).
+//
+// ★ THEY ARE CURRENT MEMBERS. `active` is true and `former` is false, all six,
+// and that is correct — they work here. So `isCurrentMember` says yes, and the
+// task-assignee pickers (which source `activeMemberNamesOf`) started offering
+// the CEO as a Design Associate the moment the rows landed.
+//
+// ★ WHICH IS WHY THIS IS A SECOND PREDICATE AND NOT A CHANGE TO THE FIRST.
+// fix-321's rule answers "is this person here?"; this one answers "may a
+// picker offer them work?". Conflating them would make a viewer look departed
+// everywhere else — in a filter, in a roster list, beside a name they are
+// recorded against — which is the display lie lib/roster exists to keep out.
+//
+// ★ AND IT IS STILL NOT A DISPLAY RULE. A viewer's name shows wherever it is
+// recorded, exactly like a former member's.
+
+/** The role flag this predicate reads, optional for the same reason
+ *  MembershipFlags' are: a projection or a pre-`viewer` fixture must not be
+ *  silently treated as unassignable. */
+export interface AssignableFlags extends MembershipFlags {
+  role?: TeamRole | null;
+}
+
+/** May a picker OFFER this person work? Current, and not a viewer. */
+export function isAssignableMember(
+  m: AssignableFlags | null | undefined,
+): boolean {
+  return isCurrentMember(m) && m?.role !== 'viewer';
+}
+
+/**
+ * ★ fix-343: the full name behind a roster key, for the one thing a key cannot
+ * do — initials. `team_members.name` is "Bobby", so `initialsOf` returned BO;
+ * `initialsOf(rosterFullName('Bobby', roster))` returns BD.
+ *
+ * ★ IT RETURNS THE INPUT WHEN IT CANNOT DO BETTER — an unknown name, a departed
+ * row with no first/last, a partial pair. A caller gets a usable string every
+ * time and never has to decide what "no full name" looks like.
+ *
+ * ★ Matched trimmed + case-folded, the same way every other name comparison in
+ * this app is (`norm` in selfScope, `dmForDa` in dmCoAssign).
+ */
+export function rosterFullName(
+  name: string | null | undefined,
+  members:
+    | readonly Pick<TeamMember, 'name' | 'first_name' | 'last_name'>[]
+    | null
+    | undefined,
+): string {
+  const raw = (name ?? '').trim();
+  if (!raw) return raw;
+  const key = raw.toLowerCase();
+  const hit = (members ?? []).find(
+    (m) => (m.name ?? '').trim().toLowerCase() === key,
+  );
+  const first = (hit?.first_name ?? '').trim();
+  const last = (hit?.last_name ?? '').trim();
+  if (first && last) return `${first} ${last}`;
+  return raw;
 }
 
 /**

@@ -14,6 +14,7 @@ import {
   parseMentions,
 } from '../../lib/projectChat';
 import { Avatar, MessageBody } from './ChatMessageBody';
+import { useRosterFullName } from '../../hooks/useRosterFullName';
 import ChatAttachments from './ChatAttachments';
 import ChatTaskComposer from './ChatTaskComposer';
 import MentionTextarea from './MentionTextarea';
@@ -59,6 +60,19 @@ export default function ChatMessageRow({
   focused?: boolean;
   variant?: 'post' | 'reply';
 }) {
+  // ★★ fix-343 / register #127: THE AVATAR'S INITIALS READ THE ROSTER NOW.
+  //
+  // `message.author_name` is `team_members.name` — the JOIN KEY, and it is one
+  // word ("Bobby", "Dave"), so `initialsOf` fell back to the first two letters
+  // and drew BO. The roster gained first_name / last_name on prod 2026-08-18,
+  // and this resolves the key to "Bobby Dias" so the same untouched
+  // `initialsOf` draws BD.
+  //
+  // ★ ONLY THE INITIALS. The visible author label below is still the name the
+  // rest of the app calls him — mentions are typed and matched against it, so
+  // switching the label to a full name would break `@Bobby` for a cosmetic win.
+  // The circle is aria-hidden decoration; the name is the identity.
+  const fullNameOf = useRosterFullName();
   const toMe = mentionsMe(message, userId);
   const mine = !!userId && message.author_id === userId;
   const deleted = isDeleted(message);
@@ -128,7 +142,7 @@ export default function ChatMessageRow({
       data-deleted={deleted ? 'true' : 'false'}
       data-focused={focused ? 'true' : 'false'}
     >
-      <Avatar name={message.author_name} />
+      <Avatar name={fullNameOf(message.author_name)} />
       <div className="flex-1 min-w-0">
         <div className="flex items-baseline gap-2 flex-wrap">
           <span

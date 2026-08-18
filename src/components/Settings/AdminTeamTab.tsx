@@ -10,6 +10,7 @@ import { useRenameDM } from '../../hooks/useRenameDM';
 import { useIsTenantAdmin } from '../../hooks/useIsTenantAdmin';
 import { SkeletonRows } from '../Skeleton';
 import QueryError from '../QueryError';
+import { ROLE_TITLE_PLURAL } from '../../lib/roleLabels';
 import type { TeamMember, TeamRole } from '../../lib/database.types';
 
 // Q7.3.b: Settings → Team tab. Four role-filtered PillListEditors
@@ -30,16 +31,12 @@ import type { TeamMember, TeamRole } from '../../lib/database.types';
 //   - DM/ENT/ACQ: hard delete via useDeleteTeamMember.
 //   - Former DA: ↩ restores (former=false); × hard-deletes.
 
-const ROLE_LABEL: Record<TeamRole, string> = {
-  da: 'Design Associates',
-  dm: 'Design Managers',
-  ent: 'Entitlement Leads',
-  ent_lead: 'Entitlement Leads',
-  acq: 'Acquisition Leads',
-  acq_lead: 'Acquisition Leads',
-  // fix-222: Schematic Team roster.
-  schematic: 'Schematic Team',
-};
+// ★ fix-343: this map moved to lib/roleLabels (ROLE_TITLE_PLURAL) — the same
+// place the user chip gets its singular titles from, so a role can never be
+// called two things in one app. The values are unchanged; `viewer` joined them
+// there when the role landed on prod. The local alias keeps every call site
+// below reading as it did.
+const ROLE_LABEL = ROLE_TITLE_PLURAL;
 
 export default function AdminTeamTab() {
   const teamQ = useTeamMembers();
