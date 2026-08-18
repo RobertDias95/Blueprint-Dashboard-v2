@@ -58,6 +58,86 @@ export function isUserInputValidationError(e: unknown): boolean {
   return code !== undefined && USER_INPUT_SQLSTATES.has(code);
 }
 
+// ===========================================================================
+// ★★ fix-341 §2 — a request that was CANCELLED is not a fault
+// ===========================================================================
+//
+// `TypeError: Failed to fetch` on `['notes', <tenant>, 'search-index']`, twice,
+// three days apart, both times stamped with a /project/… URL — a page that
+// never runs that query. Its only consumer is ProjectList; the URL in the
+// report is read at LOG time, after the user has navigated, which is what made
+// the report describe a page the query had already left.
+//
+// ★ CLASSIFY BY CAUSE, NOT BY MESSAGE. Matching on "Failed to fetch" would
+// silence a genuine outage — the same three words appear when the API is down.
+// What separates the two is not the wording:
+//
+//   · an explicit abort (AbortError / React Query's CancelledError) is a
+//     cancellation the app itself performed, and
+//   · a query with NO OBSERVERS when it settles had nobody to fail in front
+//     of: the screen that wanted it is gone, and whatever mounts next will
+//     fetch again.
+//
+// Both are facts about the request, not about its text. An error on a query
+// somebody is looking at still logs, whatever it says.
+
+/** ★ An explicitly cancelled request: the DOM's AbortError, or React Query's
+ *  CancelledError (thrown by `cancelQueries`, which several onMutate handlers
+ *  call). Matched on the ERROR'S OWN IDENTITY — its name / constructor — never
+ *  on its message. */
+/**
+ * ★★ fix-341 §2 — the whole logging decision for a QUERY failure, in one
+ * testable place.
+ *
+ * It used to live inline in App.tsx's QueryCache.onError, where the only way to
+ * exercise it was to boot the app. The rules are unchanged apart from this
+ * ticket's two additions, and each is a fact about the request rather than
+ * about its message:
+ *
+ *   · an auth-keyed query — a missing session is expected user flow (fix-314
+ *     notes this currently matches nothing, and it is kept as a guard);
+ *   · a user-input validation rejection — fix-165, SQLSTATE 22008;
+ *   · the log RPC itself — the re-entry guard, belt and braces;
+ *   · ★ a CANCELLED request — the app or the browser stopped it;
+ *   · ★ a query with NO OBSERVERS — nothing rendered was waiting for it.
+ *
+ * ★ Everything else logs, including "Failed to fetch" on a query somebody is
+ * looking at. That is the difference between classifying and silencing.
+ */
+export function shouldLogQueryFailure(
+  err: unknown,
+  key: unknown,
+  observers: number,
+): boolean {
+  if (shouldSkipBackendRpcLog(err, key)) return false;
+  return observers > 0;
+}
+
+/** The shared skip rules, applied to queries and mutations alike. */
+export function shouldSkipBackendRpcLog(err: unknown, key: unknown): boolean {
+  const k = Array.isArray(key) ? String(key[0] ?? '') : String(key ?? '');
+  if (k.startsWith('auth/')) return true;
+  if (isUserInputValidationError(err)) return true;
+  if (isCancelledRequest(err)) return true;
+  const m = messageOf(err).toLowerCase();
+  return m.includes('bp_log_error');
+}
+
+export function isCancelledRequest(e: unknown): boolean {
+  if (e instanceof DOMException && e.name === 'AbortError') return true;
+  if (e && typeof e === 'object') {
+    const name = (e as { name?: unknown }).name;
+    // React Query names its cancellation `CancelledError`; a fetch aborted via
+    // AbortController surfaces as `AbortError` even where DOMException is not
+    // the concrete class (jsdom, node-fetch, polyfills).
+    if (name === 'CancelledError' || name === 'AbortError') return true;
+    if ((e as { silent?: unknown }).silent === true && name === 'CancelledError') {
+      return true;
+    }
+  }
+  return false;
+}
+
 /** Internal re-entry guard. A failure in the log RPC itself must not
  *  cascade into another log call (default QueryClient onError would fire
  *  on the supabase.rpc rejection, which would call logError, which would

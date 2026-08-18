@@ -67,7 +67,7 @@ export function useUpdateTeamMemberQuarters() {
     onError: (error) => {
       if (isOCCConflict(error)) {
         pushToast(
-          'Team member was modified by someone else — refresh and retry',
+          'Team member changed since you loaded it — refresh and retry',
           'warn',
         );
         queryClient.invalidateQueries({

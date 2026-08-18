@@ -133,7 +133,7 @@ describe('useUpsertQuarterLayoutRow', () => {
       }
     });
     expect(isOCCConflict(caught)).toBe(true);
-    expect(pushToast).toHaveBeenCalledWith(expect.stringContaining('modified by someone else'), 'warn');
+    expect(pushToast).toHaveBeenCalledWith(expect.stringContaining('changed since you loaded it'), 'warn');
   });
 });
 

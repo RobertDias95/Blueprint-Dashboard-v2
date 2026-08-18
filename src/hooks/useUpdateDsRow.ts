@@ -105,7 +105,7 @@ export function useUpdateDsRow() {
       }
       if (isOCCConflict(error)) {
         pushToast(
-          'Draw schedule was modified by someone else — reverted',
+          'Draw schedule changed since you loaded it — reverted',
           'warn',
         );
         queryClient.invalidateQueries({

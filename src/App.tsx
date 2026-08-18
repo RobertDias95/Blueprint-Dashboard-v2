@@ -14,7 +14,12 @@ import { friendlyAuthMessage, shouldLogAuthFailure } from './lib/authEvents';
 import { createAuthEventHandler } from './lib/authHandler';
 import { useRealtimeInvalidation } from './hooks/useRealtimeInvalidation';
 import ToastHost from './components/ToastHost';
-import { logError, messageOf, isUserInputValidationError } from './lib/errorLogger';
+import {
+  logError,
+  messageOf,
+  shouldLogQueryFailure,
+  shouldSkipBackendRpcLog,
+} from './lib/errorLogger';
 
 // Q1: app shell. Wires QueryClient + Router + auth bootstrap.
 //
@@ -55,18 +60,19 @@ import { logError, messageOf, isUserInputValidationError } from './lib/errorLogg
 // an inline toast + red cell, and logging it floods Error Reports with noise.
 // The paired suppression on the toast side (toastStore `log: false`) keeps the
 // re-entry guard from simply letting the frontend_toast path log it instead.
-function shouldSkipBackendRpcLog(err: unknown, key: unknown): boolean {
-  const k = Array.isArray(key) ? String(key[0] ?? '') : String(key ?? '');
-  if (k.startsWith('auth/')) return true;
-  if (isUserInputValidationError(err)) return true;
-  const m = messageOf(err).toLowerCase();
-  return m.includes('bp_log_error');
-}
+//
+// ★★ fix-341 §2: THE RULES MOVED TO lib/errorLogger — `shouldSkipBackendRpcLog`
+// (shared with mutations) and `shouldLogQueryFailure`, which adds the two this
+// ticket needed: a CANCELLED request is not a fault, and a query with no
+// observers had nobody to fail in front of. They left this file so they could
+// be tested without booting the app; the reasoning lives with them.
 
 const queryClient = new QueryClient({
   queryCache: new QueryCache({
     onError: (err, query) => {
-      if (shouldSkipBackendRpcLog(err, query.queryKey)) return;
+      const observers = query.getObserversCount();
+      // ★★ fix-341 §2: skip rules + "was anybody looking?", in one call.
+      if (!shouldLogQueryFailure(err, query.queryKey, observers)) return;
       void logError({
         source: 'backend_rpc',
         level: 'error',
@@ -74,6 +80,10 @@ const queryClient = new QueryClient({
         context: {
           kind: 'query',
           queryKey: query.queryKey,
+          // ★ fix-341: how many mounted components were waiting on it. Always
+          // >0 here, and recorded so a future report cannot be mistaken for the
+          // unobserved kind — the URL alone could not tell them apart.
+          observers,
           url:
             typeof window !== 'undefined'
               ? window.location?.pathname

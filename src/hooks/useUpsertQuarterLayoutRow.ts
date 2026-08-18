@@ -80,7 +80,7 @@ export function useUpsertQuarterLayoutRow() {
     onError: (error) => {
       if (isOCCConflict(error)) {
         pushToast(
-          'Layout was modified by someone else — refresh and retry',
+          'Layout changed since you loaded it — refresh and retry',
           'warn',
         );
         queryClient.invalidateQueries({

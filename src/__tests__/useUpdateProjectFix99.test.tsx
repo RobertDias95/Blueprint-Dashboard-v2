@@ -175,7 +175,7 @@ describe('useUpdateProject — fix-99 default OCC auto-recovery', () => {
     expect(projectsCalls.length).toBe(1);
     // onError surfaced the OCC toast.
     expect(toastMock).toHaveBeenCalledTimes(1);
-    expect(toastMock.mock.calls[0][0]).toContain('modified by someone else');
+    expect(toastMock.mock.calls[0][0]).toContain('changed since you loaded it');
     expect(toastMock.mock.calls[0][1]).toBe('warn');
   });
 
@@ -214,7 +214,7 @@ describe('useUpdateProject — fix-99 default OCC auto-recovery', () => {
     // Toast fired once on the FINAL failure — no toast leaked from
     // the intermediate (silently-swallowed) first OCC.
     expect(toastMock).toHaveBeenCalledTimes(1);
-    expect(toastMock.mock.calls[0][0]).toContain('modified by someone else');
+    expect(toastMock.mock.calls[0][0]).toContain('changed since you loaded it');
   });
 
   it('successful first attempt: hook returns the persisted row, ZERO retries, ZERO toasts', async () => {

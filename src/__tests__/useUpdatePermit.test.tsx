@@ -204,7 +204,7 @@ describe('useUpdatePermit', () => {
           patch: { target_submit: '2099-01-01' },
           fieldLabel: 'Target Submit',
         }),
-      ).rejects.toThrow(/Target Submit was modified/i);
+      ).rejects.toThrow(/Target Submit changed since you loaded it/i);
     });
 
     // Cache rolled back to original value.

@@ -181,7 +181,7 @@ describe('useUpsertPermitCycle UPDATE', () => {
           cycle: makeCycle(),
           patch: { submitted: '2026-04-01' },
         }),
-      ).rejects.toThrow(/Cycle was modified/i);
+      ).rejects.toThrow(/Cycle changed since you loaded it/i);
     });
 
     await waitFor(() => {
@@ -361,7 +361,7 @@ describe('useDeletePermitCycle', () => {
           permitId: 7,
           projectId: 'proj-1',
         }),
-      ).rejects.toThrow(/Cycle was modified/i);
+      ).rejects.toThrow(/Cycle changed since you loaded it/i);
     });
 
     // Cache should still have the cycle (rollback restored it).
@@ -447,7 +447,7 @@ describe('useUpsertPermitTask UPDATE', () => {
           task: makeTask(),
           patch: { text: 'whatever' },
         }),
-      ).rejects.toThrow(/Task was modified/i);
+      ).rejects.toThrow(/Task changed since you loaded it/i);
     });
 
     await waitFor(() => {
@@ -543,7 +543,7 @@ describe('useDeletePermitTask', () => {
     await act(async () => {
       await expect(
         result.current.mutateAsync({ task, permitId: 7 }),
-      ).rejects.toThrow(/Task was modified/i);
+      ).rejects.toThrow(/Task changed since you loaded it/i);
     });
 
     const restored = queryClient.getQueryData<PermitTask[]>(
