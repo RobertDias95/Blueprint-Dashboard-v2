@@ -5,31 +5,20 @@ import { useProjects } from '../hooks/useProjects';
 // fix-303: the SAME task source My Tasks uses, so the board is not a lesser
 // copy — one shape, one editor, one write path.
 import { useAllTasks } from '../hooks/useTaskTree';
-import { useTeamMembers } from '../hooks/useTeamMembers';
-import { useSelfScope } from '../hooks/useSelfScope';
 import { useAllProjectHolds, cancelledProjectIds } from '../hooks/useProjectHolds';
-import { useScraperActivity } from '../hooks/useScraperActivity';
-import { parseFlips } from '../lib/boardFlips';
-import {
-  acknowledgeableItems,
-  buildNewItems,
-  unseenItems,
-  type NewItem,
-} from '../lib/boardReads';
-import { useBoardReads, useMarkBoardItemsRead } from '../hooks/useBoardReads';
-import { useMilestoneAcks } from '../hooks/useMilestoneAcks';
-// ★ fix-329: chat mentions are the fifth thing that can be new to you. The
-// query is tenant-wide and already narrowed to "mentions me" by the database.
-import { useMyMentions } from '../hooks/useProjectMessages';
-// ★ fix-339: the SHARED item. One query feeds the bell and My Board, so the two
-// cannot disagree about an open request.
-import { useMyPostRequests, useResolvePostRequest } from '../hooks/usePostRequests';
-import { useAuthStore } from '../stores/authStore';
+import { acknowledgeableItems, type NewItem } from '../lib/boardReads';
+import { useMarkBoardItemsRead } from '../hooks/useBoardReads';
+// ★★ fix-336: the notification MODEL — items, unseen, read keys, suppression —
+// is one hook now, shared with the notification centre. The badge and the
+// centre are the same query by construction, which was fix-329's rule and this
+// brief's §3.
+import { useBoardNotifications } from '../hooks/useBoardNotifications';
+// ★ fix-339: resolving a shared request clears it for everyone it was sent to.
+import { useResolvePostRequest } from '../hooks/usePostRequests';
+import { RealtimeStatusLine } from './RealtimeStatusLine';
 import {
   buildForecast,
   buildQueue,
-  resolveBoardViewer,
-  suppressionCounts,
   todayIso,
   type BoardInput,
 } from '../lib/myBoard';
@@ -62,27 +51,18 @@ export default function BoardBell() {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
+  // ★ The "where you stand" numbers still need the raw board input; the
+  // notification half comes from the shared model below. React Query dedupes
+  // the overlap, so this costs no extra fetch.
   const permitsQ = usePermits();
   const projectsQ = useProjects();
   const tasksQ = useAllTasks();
-  const team = useTeamMembers();
   const holdsQ = useAllProjectHolds();
-  const { identity } = useSelfScope();
-  // Reuses the query the scraper bell already drives — React Query dedupes, so
-  // the suppression counts cost no extra fetch.
-  const activityQ = useScraperActivity();
-  const acksQ = useMilestoneAcks();
-  const readsQ = useBoardReads();
   const markRead = useMarkBoardItemsRead();
-  const mentionsQ = useMyMentions();
-  const postRequestsQ = useMyPostRequests();
   const resolveRequest = useResolvePostRequest();
-  const viewerUserId = useAuthStore((s) => s.user?.id ?? null);
 
-  const viewer = useMemo(
-    () => resolveBoardViewer(identity.name, team.all),
-    [identity.name, team.all],
-  );
+  // ★★ fix-336: ONE model, shared with /notifications.
+  const { viewer, unseen, suppressed } = useBoardNotifications();
 
   const input: BoardInput = useMemo(
     () => ({
@@ -98,50 +78,6 @@ export default function BoardBell() {
 
   const forecast = useMemo(() => buildForecast(input), [input]);
   const queue = useMemo(() => buildQueue(input), [input]);
-  const suppressed = useMemo(
-    () => suppressionCounts(activityQ.data ?? [], viewer),
-    [activityQ.data, viewer],
-  );
-
-  // ★ fix-307 (register #36/#38): what is NEW to this person — flips, tasks
-  // newly assigned, handoffs arriving, permits newly naming them. parseFlips
-  // has already applied the suppression rules and the fix-304 backfill filter,
-  // so a retry-recovered event or a 300-day-old applied date can never arrive
-  // here as news. Reused, not restated.
-  const newItems = useMemo(
-    () =>
-      buildNewItems({
-        flips: parseFlips(activityQ.data ?? []),
-        tasks: tasksQ.data ?? [],
-        acks: acksQ.data ?? [],
-        permits: permitsQ.data ?? [],
-        viewerName: viewer.name,
-        // ★ fix-329: matched on the viewer's AUTH USER ID, not their roster
-        // name — mentions are stored as ids precisely because a name can change
-        // under a row and an id cannot.
-        mentions: mentionsQ.data ?? [],
-        viewerUserId,
-        projects: projectsQ.data ?? [],
-        postRequests: postRequestsQ.data ?? [],
-      }),
-    [
-      activityQ.data,
-      tasksQ.data,
-      acksQ.data,
-      permitsQ.data,
-      viewer.name,
-      mentionsQ.data,
-      viewerUserId,
-      projectsQ.data,
-      postRequestsQ.data,
-    ],
-  );
-
-  const readKeys = useMemo(
-    () => new Set(readsQ.data ?? []),
-    [readsQ.data],
-  );
-  const unseen = useMemo(() => unseenItems(newItems, readKeys), [newItems, readKeys]);
 
   // ★★ fix-335 §9 — the READ half of "look unread and read".
   //
@@ -467,8 +403,17 @@ export default function BoardBell() {
               reach a person. Showing what was suppressed is how a quiet day
               and a broken notifier stop looking the same. Renders even at
               zero, for exactly that reason. */}
-          <div
-            className="px-3.5 py-2 text-[9.5px] text-dim leading-relaxed"
+          {/* ★★★ fix-336 §2: THE LINE NOW NAMES A PLACE THAT EXISTS.
+              This has said "28 scraper retries · 14 manual-edit guards · 257
+              changes on permits that aren't yours" since fix-298, as an honesty
+              feature — and for four tickets it was a dead end: the categories
+              were counted and unreachable. The notification centre is the
+              destination it was always describing, so the whole block is the
+              link to it. */}
+          <Link
+            to="/notifications?kind=suppressed"
+            onClick={() => setOpen(false)}
+            className="block px-3.5 py-2 text-[9.5px] text-dim leading-relaxed hover:bg-s2 transition no-underline"
             data-testid="board-bell-suppressed"
           >
             <div className="font-bold uppercase tracking-wide text-[8px] text-muted mb-0.5">
@@ -484,6 +429,26 @@ export default function BoardBell() {
             {' · '}
             <span data-testid="bell-suppressed-notyours">
               {suppressed.notYours} changes on permits that aren&apos;t yours
+            </span>
+            <span className="block text-de font-bold mt-0.5">See them →</span>
+          </Link>
+
+          {/* ★ fix-336 §2: everything the 8-row cap hides, and the read history
+              the panel forgets on close. The dropdown stays a doorway. */}
+          <div className="px-3.5 py-2 border-t border-border flex items-center gap-2">
+            <Link
+              to="/notifications"
+              onClick={() => setOpen(false)}
+              className="text-[11px] font-extrabold text-de hover:underline no-underline"
+              data-testid="board-bell-open-notifications"
+            >
+              All notifications
+              {unseen.length > 8 ? ` (${unseen.length})` : ''} →
+            </Link>
+            {/* ★★ "a dead socket that looks alive is the bug this ticket is
+                fixing, reintroduced" — so the panel says which it is. */}
+            <span className="ml-auto">
+              <RealtimeStatusLine testId="board-bell-realtime-status" />
             </span>
           </div>
         </div>

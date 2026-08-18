@@ -600,6 +600,11 @@ export const ROUTES_INTENTIONALLY_NOT_IN_RIBBON: ReadonlyArray<{
     path: '/waiting-on',
     why: 'fix-325 #5: redirect only — Waiting On folded into My Tasks, where the Mine / Waiting On switcher on /board is the way in. Bobby: "the waiting on needs to get folded into the my task section." Kept so the fix-315 links and bookmarks survive.',
   },
+  // ★★ fix-336 §2: the notification centre. Deliberately NOT a ribbon row.
+  {
+    path: '/notifications',
+    why: 'fix-336 §2: where the BELL takes you, not an area of work — reached from the bell (the list link, and the "Not shown" line that has named this destination since fix-298) and from the My Board header. Bobby asked for somewhere the notifications live, not a fifth rail item; a ribbon row would be a third entry point to a thing whose problem was having none.',
+  },
 
 ];
 

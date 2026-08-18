@@ -1299,26 +1299,60 @@ export function systemHealth(
   };
 }
 
+/**
+ * ★★★ fix-336 — THE SUPPRESSED ROWS THEMSELVES, not just how many there were.
+ *
+ * The bell has always said it is hiding "28 scraper retries · 14 manual-edit
+ * guards · 257 changes on permits that aren't yours". That line was written as
+ * an honesty feature — "showing what was suppressed is how a quiet day and a
+ * broken notifier stop looking the same" — and for four tickets it has named a
+ * destination that did not exist. The notification centre is that destination,
+ * and it needs the rows.
+ *
+ * ★ THE RULES ARE NOT RESTATED HERE. `suppressionCounts` is now the LENGTHS of
+ * these three groups rather than a second walk with its own copy of the
+ * conditions, so the number on the bell and the list in the centre cannot
+ * disagree — the same reason fix-329 put the bell and the board on one model.
+ *
+ * ★ Generic in the row type: the counts only ever needed `action` + `ent_lead`,
+ * and the centre needs the whole ScraperActivityRow to render it. One function
+ * serves both without either caller widening the other's contract.
+ */
+export interface SuppressionGroups<T> {
+  retries: T[];
+  guarded: T[];
+  notYours: T[];
+}
+
+export function suppressionGroups<
+  T extends { action: string; ent_lead: string | null },
+>(rows: ReadonlyArray<T>, viewer: BoardViewer): SuppressionGroups<T> {
+  const me = (viewer.name ?? '').trim().toLowerCase();
+  const groups: SuppressionGroups<T> = { retries: [], guarded: [], notYours: [] };
+  for (const r of rows) {
+    if (RETRY_ACTIONS.has(r.action)) {
+      groups.retries.push(r);
+      continue;
+    }
+    if (GUARD_ACTIONS.has(r.action)) {
+      groups.guarded.push(r);
+      continue;
+    }
+    if (me && (r.ent_lead ?? '').trim().toLowerCase() !== me) groups.notYours.push(r);
+  }
+  return groups;
+}
+
 export function suppressionCounts(
   rows: ReadonlyArray<{ action: string; ent_lead: string | null }>,
   viewer: BoardViewer,
 ): SuppressionCounts {
-  const me = (viewer.name ?? '').trim().toLowerCase();
-  let retries = 0;
-  let guarded = 0;
-  let notYours = 0;
-  for (const r of rows) {
-    if (RETRY_ACTIONS.has(r.action)) {
-      retries += 1;
-      continue;
-    }
-    if (GUARD_ACTIONS.has(r.action)) {
-      guarded += 1;
-      continue;
-    }
-    if (me && (r.ent_lead ?? '').trim().toLowerCase() !== me) notYours += 1;
-  }
-  return { retries, guarded, notYours };
+  const g = suppressionGroups(rows, viewer);
+  return {
+    retries: g.retries.length,
+    guarded: g.guarded.length,
+    notYours: g.notYours.length,
+  };
 }
 
 // ---------------------------------------------------------------------------

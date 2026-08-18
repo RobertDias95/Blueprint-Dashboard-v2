@@ -9,6 +9,7 @@ import { useTeamMembers } from '../hooks/useTeamMembers';
 import { useSelfScope } from '../hooks/useSelfScope';
 import { useAllProjectHolds, cancelledProjectIds } from '../hooks/useProjectHolds';
 import { useMilestoneAcks, useAckMilestone } from '../hooks/useMilestoneAcks';
+import { useBoardNotifications } from '../hooks/useBoardNotifications';
 import { useConfirmHandoff } from '../hooks/useConfirmHandoff';
 import { useDmDaGroups } from '../hooks/useDmDaGroups';
 import { useDaTeamRouting } from '../hooks/useDaTeamRouting';
@@ -642,6 +643,9 @@ function QueueSection({
 }
 
 export default function MyBoard() {
+  // ★ fix-336: the SAME notification model the bell counts from, so the link
+  // below can never show a different number than the badge two inches above it.
+  const notifications = useBoardNotifications();
   const permitsQ = usePermits();
   const projectsQ = useProjects();
   const tasksQ = useAllTasks();
@@ -1005,6 +1009,21 @@ export default function MyBoard() {
         {/* ★ fix-313 #62: the "My Tasks →" link is gone with the destination.
             My Board IS the personal view now; a link from here to here would
             be furniture that lies. */}
+
+        {/* ★★★ fix-336 §2: the second half of "there's nowhere that shows, hey,
+            here are your notifications". The bell is in the top bar on every
+            screen; My Board is where you go to see what is on you, and it had
+            no way to reach the list at all. The count is the SAME number the
+            badge shows — one model (useBoardNotifications), rendered twice. */}
+        <Link
+          to="/notifications"
+          className="ml-auto text-[11px] font-bold text-de hover:underline no-underline"
+          data-testid="my-board-notifications-link"
+          data-unread={String(notifications.unseenCount)}
+        >
+          Notifications
+          {notifications.unseenCount > 0 ? ` · ${notifications.unseenCount}` : ''} →
+        </Link>
       </div>
 
       {loading ? (
