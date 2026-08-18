@@ -323,6 +323,7 @@ vi.mock('../hooks/useChatAttachments', async (orig) => {
 });
 
 import ProjectChatCard from '../components/ProjectDetail/ProjectChatSection';
+import ProjectChatModal from '../components/ProjectDetail/ProjectChatModal';
 
 function message(over: Partial<ProjectMessage> = {}): ProjectMessage {
   return {
@@ -376,12 +377,28 @@ function renderCard(permits: Permit[] = [permit()]) {
       <MemoryRouter>{children}</MemoryRouter>
     </QueryClientProvider>
   );
-  return render(<ProjectChatCard projectId="p-1" permits={permits} />, { wrapper });
+  void permits;
+  return render(<ProjectChatCard projectId="p-1" />, { wrapper });
 }
 
+// ★★ fix-345 §3: the section is the PREVIEW now — the modal and its opener
+// moved up to the Team card, because the way in became the card's pinned Chat
+// button and the two live in different sections of the same card. So a test
+// that wants the modal renders the modal, which is what this file was always
+// about; the click through the section was a hop, not a contract.
 function openModal(permits: Permit[] = [permit()]) {
-  renderCard(permits);
-  fireEvent.click(screen.getByTestId('project-chat-open'));
+  const qc = new QueryClient({
+    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+  });
+  const wrapper = ({ children }: { children: ReactNode }) => (
+    <QueryClientProvider client={qc}>
+      <MemoryRouter>{children}</MemoryRouter>
+    </QueryClientProvider>
+  );
+  return render(
+    <ProjectChatModal projectId="p-1" permits={permits} onClose={() => {}} />,
+    { wrapper },
+  );
 }
 
 function type(text: string) {

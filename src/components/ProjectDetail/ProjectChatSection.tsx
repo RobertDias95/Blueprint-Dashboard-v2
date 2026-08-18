@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useMemo } from 'react';
 import { useAuthStore } from '../../stores/authStore';
 import { useBoardReads } from '../../hooks/useBoardReads';
 import {
@@ -12,10 +12,9 @@ import {
   mentionsMe,
   type ChatPost,
 } from '../../lib/projectChat';
-import ProjectChatModal from './ProjectChatModal';
 import ChatAttachments from './ChatAttachments';
 import { Avatar, MessageBody } from './ChatMessageBody';
-import type { MentionablePerson, Permit } from '../../lib/database.types';
+import type { MentionablePerson } from '../../lib/database.types';
 
 // fix-331 §3 — the conversation lives INSIDE the Team card now.
 //
@@ -53,15 +52,23 @@ import type { MentionablePerson, Permit } from '../../lib/database.types';
  *  whose other two sections are lists. */
 const PREVIEW_COUNT = 2;
 
-export default function ProjectChatSection({
-  projectId,
-  permits,
-}: {
-  projectId: string;
-  /** For anchoring a chat-born task — passed straight through to the modal. */
-  permits: Permit[];
-}) {
-  const [open, setOpen] = useState(false);
+// ★★ fix-345 §3: THIS IS THE PREVIEW, AND ONLY THE PREVIEW.
+//
+// It used to own the modal and the "Open chat →" link as well. Bobby asked for
+// a uniform bottom button on every Project Overview card — "make them all at
+// the bottom and horizontally equally and vertically equal" — and the Team
+// card's way in had to become that button, which lives in a different section
+// of the same card.
+//
+// ★ So the open state moved UP to the card (TeamCell), which owns both the
+// section this renders into and the pinned button section at its foot. One
+// owner, one modal, two children. The alternative was leaving a second opener
+// in here, and two ways into one thread from one card is the exact shape this
+// ticket is removing.
+//
+// ★ `permits` went with the modal — this component never used them for
+// anything else.
+export default function ProjectChatSection({ projectId }: { projectId: string }) {
   const userId = useAuthStore((s) => s.user?.id ?? null);
   const messagesQ = useProjectMessages(projectId);
   const peopleQ = useMentionablePeople();
@@ -78,8 +85,7 @@ export default function ProjectChatSection({
   const preview = useMemo(() => posts.slice(0, PREVIEW_COUNT), [posts]);
 
   return (
-    <>
-      <div className="flex flex-col gap-1.5" data-testid="project-chat-mini">
+    <div className="flex flex-col gap-1.5" data-testid="project-chat-mini">
         {messagesQ.isLoading ? (
           <div className="text-[10.5px] text-dim italic">Loading…</div>
         ) : preview.length === 0 ? (
@@ -94,39 +100,36 @@ export default function ProjectChatSection({
           ))
         )}
 
-        {/* ★ A LINK, NOT A BUTTON BAR. Inside a section the treatment has to be
-            quieter than the rail card's full-width footer button was, or it
-            reads as the widget it is no longer allowed to be. */}
-        <button
-          type="button"
-          onClick={() => setOpen(true)}
-          className="self-start text-[10.5px] font-bold text-de hover:underline bg-transparent border-none p-0 cursor-pointer"
-          data-testid="project-chat-open"
-        >
-          {posts.length > PREVIEW_COUNT
-            ? `Open chat (${posts.length} posts) →`
-            : 'Open chat →'}
-        </button>
-      </div>
+      {/* ★★ fix-345 §3: THE INLINE "Open chat →" LINK IS GONE. The way in is
+          the Chat button at the foot of this card now — see TeamCell.
 
-      {open && (
-        <ProjectChatModal
-          projectId={projectId}
-          permits={permits}
-          onClose={() => setOpen(false)}
-        />
-      )}
-    </>
+          Bobby's rule, applied to his own ask: "Two ways into the same modal
+          from one card is one too many." The preview stays exactly where
+          fix-331 §3 put it, between Internal and External; only the opener
+          moved, and it moved to the place all three cards now put their action. */}
+    </div>
   );
 }
 
+// ★ fix-345 §3: `useProjectPostCount` — the number the Team card's Chat button
+// prints — lives in hooks/useProjectMessages.ts, not here. This is a component
+// file, and the react-refresh rule lets one export only components.
+
 /**
- * ★ The unread pill, rendered by the CALLER beside the section heading.
+ * ★ The unread count. Same query, same subtraction, same source as the bell —
+ * see the header note. That has never changed and is the part that matters.
  *
- * It is exported separately because <OverviewSection> owns the heading row, and
- * a count drawn inside the body would sit under the word "Chat" rather than
- * beside it — the layout every other badge in this app uses. Same query, same
- * subtraction, same source as the bell; see the header note.
+ * ★★ fix-345 §3 MOVED IT ONTO THE BUTTON. It was the section heading's
+ * `titleRight`, which was the right place while the heading sat above the only
+ * chat affordance on the card. The way in is now the Chat button at the card's
+ * foot, and the brief's rule is that the indicator stays on whichever control
+ * survives — a count beside a heading is decoration, a count on the control you
+ * are about to press is information. Rendering it in both places would be one
+ * number in two spots, free to disagree the moment somebody edits one.
+ *
+ * ★ It sets no colour of its own any more: inside the action it inherits, so it
+ * turns white with the rest of the label on hover instead of staying blue on a
+ * blue fill.
  */
 export function ProjectChatUnread({ projectId }: { projectId: string }) {
   const userId = useAuthStore((s) => s.user?.id ?? null);
@@ -143,7 +146,7 @@ export function ProjectChatUnread({ projectId }: { projectId: string }) {
   if (unread <= 0) return null;
   return (
     <span
-      className="text-[8.5px] font-extrabold text-de"
+      className="text-[8.5px] font-extrabold"
       data-testid="project-chat-unread"
     >
       {unread} new

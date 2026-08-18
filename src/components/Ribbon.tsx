@@ -18,6 +18,7 @@ import {
   saveRibbonCollapsed,
   saveRibbonOpenGroups,
 } from '../lib/ribbonPrefs';
+import { SHELL_HEADER_HEIGHT } from '../lib/shellMetrics';
 
 // fix-313 — the Blueprint Bridge ribbon. Built to Bridge_Shell_Mockup_v1.
 //
@@ -132,10 +133,19 @@ export default function Ribbon({ onAddProject }: { onAddProject: () => void }) {
           Blueprint logo." The Bridge illustration is not deleted — §2 moves it
           into the white header beside the words. Company here, product there.
 
-          ★ fix-325's 56px still stands, and for its original reason: it matches
-          the app header to the right, so the two bottom borders form ONE line
-          across the top of the screen. A taller brand block pushed the ribbon's
-          rule below the header's and read as a mistake.
+          ★★ fix-345 §2: THE BLOCK GREW, AND ONLY BECAUSE THE HEADER DID.
+          fix-325's rule is unchanged and is now unbreakable: this height and the
+          app header's are ONE CONSTANT in lib/shellMetrics, so the two bottom
+          borders cannot stop forming a single line across the top of the screen.
+          They were two literal 56s in two files before, which survived three
+          tickets only because nobody changed the number. Bobby's "2-3x bigger"
+          changed it.
+
+          ★ THE LOGO DID NOT GROW WITH IT. 144px IS the artwork (fix-335 §1
+          decoded the file); anything larger upscales a 144px source and softens
+          the one mark in the app that is already at its ceiling. So the block
+          got taller and the mark stayed 1:1, which is the right trade — a soft
+          logo is worse than an airy one.
 
           ★★ THE PROPORTIONS WERE CHECKED, NOT ASSUMED — the brief's instruction,
           and they do not match. The old artwork is 4:1 and filled 156 of the
@@ -148,7 +158,11 @@ export default function Ribbon({ onAddProject }: { onAddProject: () => void }) {
           not by the logo, and both are unchanged. */}
       <div
         className="flex items-center border-b border-border flex-shrink-0"
-        style={{ height: 56, padding: collapsed ? '0 8px' : '0 16px', justifyContent: collapsed ? 'center' : undefined }}
+        style={{
+          height: SHELL_HEADER_HEIGHT,
+          padding: collapsed ? '0 8px' : '0 16px',
+          justifyContent: collapsed ? 'center' : undefined,
+        }}
         data-testid="ribbon-brand"
       >
         {/* Collapsed takes the roundel alone — 56px of rail has no room for a
@@ -384,19 +398,28 @@ function ErrorTriageCount({ collapsed }: { collapsed: boolean }) {
   );
 }
 
-/** ★★ fix-335 §4: the SharePoint control. A BUTTON, not a nav row.
+/** ★★ fix-345 §4: the SharePoint row — AND IT IS A ROW NOW, not a button.
  *
- *  Bobby: "We want it to look like a button, so when you click it, it opens the
- *  link to that."
+ *  fix-335 §4 built it as a bordered chip, on the reasoning that a control which
+ *  leaves the app should not look like one that does not. Bobby has seen it:
  *
- *  ★ AND THE DISTINCTION IS NOT DECORATION. Every other row in this ribbon
- *  changes what is in <main> and leaves you inside the app; this one navigates
- *  the browser away from it. Making it look like the eight rows above it would
- *  be a promise the click breaks. So it takes the bordered-chip treatment the
- *  collapse control and Add a Project already use — this ribbon's established
- *  vocabulary for "acts on the world" as against "goes somewhere" — and it
- *  never renders an active state, because there is no state in which you are
- *  looking at SharePoint inside this app.
+ *    "Should SharePoint look like this in the ribbon, sticks out. Maybe it is
+ *    just another word like the other options so it is more uniform."
+ *
+ *  ★ HE IS RIGHT, AND THE OLD REASONING WAS HALF RIGHT. The distinction is real
+ *  — this one navigates the browser away — but a bordered chip in a column of
+ *  eight text rows makes the loudest thing in the ribbon the one nobody uses
+ *  daily. The fix is not to erase the distinction, it is to spend far less on
+ *  it: identical type, spacing and hover to Pipeline and Library, with a small
+ *  `↗` that says the click leaves. Uniform in weight, still honest about where
+ *  it goes.
+ *
+ *  ★★ WHAT DID NOT CHANGE IS EVERYTHING STRUCTURAL. It is still its own entry
+ *  KIND with an href and no route, so `allRibbonRoutes()` cannot see it, the
+ *  fix-315 coverage guard cannot mistake it for a route, and `activeRibbonTarget`
+ *  never considers it — there is no state in which you are looking at SharePoint
+ *  inside this app, so it can never render active. This is a restyle and a
+ *  reorder, not a change of kind, and a test holds each of those separately.
  *
  *  ★ target=_blank so the app is not unloaded mid-task, and rel=noopener
  *  noreferrer with it: without `noopener` the opened tab gets a live
@@ -416,24 +439,38 @@ function RibbonExternalItem({
       data-testid={`ribbon-external-${external.id}`}
       data-external="true"
       title={external.hint ?? external.label}
-      className="flex items-center gap-2.5 rounded-lg whitespace-nowrap no-underline transition text-muted border border-border bg-surface hover:bg-s2 hover:text-text font-display font-semibold"
-      style={{
-        margin: collapsed ? '6px 8px' : '5px 10px',
-        padding: collapsed ? '7px 0' : '6px 10px',
-        justifyContent: 'center',
-        fontSize: 12.5,
-      }}
+      /* ★ fix-345 §4: itemClass(false) and itemStyle() — the SAME functions the
+         nav links use, called rather than copied, so this row cannot drift out
+         of uniformity the next time the ribbon's spacing is tuned. `false`
+         because it is never active; see the header note. */
+      className={itemClass(false)}
+      style={itemStyle(collapsed)}
     >
-      {!collapsed && <span className="overflow-hidden text-ellipsis">{external.label}</span>}
-      <span
-        aria-hidden="true"
-        style={{ fontSize: 12, lineHeight: 1 }}
-      >
+      {/* The glyph sits in the same 17px gutter every nav row uses, so the
+          labels all start on one vertical line. */}
+      <span style={{ width: 17, flex: '0 0 17px', textAlign: 'center', fontSize: 14 }}>
         {external.icon}
       </span>
+      {!collapsed && (
+        <span className="flex-1 overflow-hidden text-ellipsis">{external.label}</span>
+      )}
+      {/* ★ THE ONE THING THAT IS NOT UNIFORM, deliberately. A row identical to
+          Pipeline would be a promise the click breaks, so the trailing ↗ marks
+          it as leaving — small and dim, a footnote rather than a badge. Bobby
+          asked for uniform WEIGHT, not for the difference to be hidden. */}
+      {!collapsed && (
+        <span
+          aria-hidden="true"
+          className="text-dim flex-shrink-0"
+          style={{ fontSize: 9.5, lineHeight: 1 }}
+          data-testid="ribbon-external-glyph"
+        >
+          ↗
+        </span>
+      )}
       {/* Collapsed, the label goes and the glyph carries it — the same rule the
-          nav links, Add a Project and the collapse chip already follow, so 56px
-          stays one language. The accessible name survives it. */}
+          nav links, Add a Project and the collapse chip already follow, so the
+          rail stays one language. The accessible name survives it. */}
       {collapsed && <span className="sr-only">{external.label}</span>}
     </a>
   );

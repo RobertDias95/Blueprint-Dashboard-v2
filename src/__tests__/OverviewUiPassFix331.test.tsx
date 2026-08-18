@@ -268,13 +268,25 @@ describe('fix-331 §1: equal-height cards distribute their spare room', () => {
 
   // ★★ THE FIX ITSELF. Slack is split BETWEEN the sections rather than banked
   // at the bottom of the card as one hole.
+  // ★★ fix-345 §3 ADDED ONE SECTION TO THIS CARD THAT DELIBERATELY DOES NOT
+  // GROW — the pinned button at its foot — and that is what makes three cards'
+  // buttons land on one line. It is excluded here rather than the rule being
+  // relaxed, because the rule is about the sections that SHARE the spare height
+  // and a pinned section takes none of it. The distribution fix-331 exists for
+  // is asserted on exactly the sections it governs, and fix-345's own suite
+  // asserts the pinned one from the other side.
+  const distributed = (card: HTMLElement) =>
+    Array.from(card.querySelectorAll('section')).filter(
+      (s) => (s as HTMLElement).dataset.pinBottom !== 'true',
+    ) as HTMLElement[];
+
   it('★★ every section grows, so the spare height is shared out', () => {
     renderHeader();
     const card = screen.getByTestId('pd-milestones-card');
-    const sections = Array.from(card.querySelectorAll('section'));
+    const sections = distributed(card);
     expect(sections.length).toBeGreaterThanOrEqual(3);
     for (const s of sections) {
-      expect((s as HTMLElement).style.flexGrow).toBe('1');
+      expect(s.style.flexGrow).toBe('1');
     }
   });
 
@@ -297,10 +309,9 @@ describe('fix-331 §1: equal-height cards distribute their spare room', () => {
     expect(card.style.justifyContent ?? '').not.toBe('center');
     // No one section is singled out to absorb the rest — they all take the
     // SAME share, which is what "distributed" means.
-    const grows = Array.from(card.querySelectorAll('section')).map(
-      (s) => (s as HTMLElement).style.flexGrow,
-    );
+    const grows = distributed(card).map((s) => s.style.flexGrow);
     expect(new Set(grows).size).toBe(1);
+    expect(grows[0]).toBe('1');
   });
 
   // ★ The reading rhythm has to survive the redistribution.
@@ -385,10 +396,16 @@ describe('fix-331 §3: the chat lives inside the Team card', () => {
     const ids = Array.from(team.querySelectorAll('section'))
       .map((s) => (s as HTMLElement).dataset.testid)
       .filter(Boolean);
+    // ★ fix-345 §3 appended a FOURTH section — the pinned Chat button at the
+    // card's foot. What this test protects is the PREVIEW's placement, which is
+    // Bobby's and unchanged: Internal, then Chat, then External. Listing the
+    // button too is deliberate, so the order is asserted whole rather than
+    // sliced down to the part that still passes.
     expect(ids).toEqual([
       'project-overview-team-internal',
       'project-overview-team-chat',
       'project-overview-team-external',
+      'pd-chat-section',
     ]);
   });
 
@@ -410,12 +427,14 @@ describe('fix-331 §3: the chat lives inside the Team card', () => {
 
   it('★ uses the same section treatment as Internal and External', () => {
     renderHeader();
-    const team = screen.getByTestId('project-overview-team');
     const chat = screen.getByTestId('project-overview-team-chat');
     const internal = screen.getByTestId('project-overview-team-internal');
     // Same component, so the same classes draw the separator and padding.
     expect(chat.className).toBe(internal.className);
-    expect(within(team).getByText('Chat')).toBeInTheDocument();
+    // ★ fix-345 §3: scoped to the section, because the card's pinned action at
+    // the foot is also labelled Chat. Two controls would be the defect §3
+    // removed; a heading and the button it leads to are not.
+    expect(within(chat).getByText('Chat')).toBeInTheDocument();
   });
 
   // ★ fix-334 changed the UNIT from messages to posts — fix-331's rule survives
@@ -692,5 +711,61 @@ describe('fix-331 §8: the ribbon order', () => {
     expect(allRibbonRoutes()).not.toContain('/waiting-on');
     expect(ribbonExemptPaths()).toContain('/waiting-on');
     expect(routerSrc).toContain('/board?view=waiting-on');
+  });
+});
+
+// ===========================================================================
+// ★★ fix-345 §3 — the unread count rides the surviving control
+// ===========================================================================
+//
+// The brief: "Keep the unread indicator on whichever control survives —
+// fix-331 §3's rule, reading the same source as the bell."
+//
+// ★ The control that survives is the Chat button at the card's foot, so that is
+// where the count went. It was the section heading's `titleRight`, which was
+// right while the heading sat above the only chat affordance on the card; a
+// count beside a heading is decoration, a count on the thing you are about to
+// press is information. Rendering it in both places would be one number in two
+// spots, free to disagree the moment somebody edits one.
+//
+// ★★ THE SOURCE DID NOT MOVE, and that is fix-331 §3's actual rule: the same
+// `mention:{id}` keys minus board_item_reads that drive the bell. fix-298 Phase
+// 2 spent a ticket collapsing two counts that could disagree; relocating the
+// badge does not get to re-open it.
+describe('fix-345 §3: the unread count moved onto the Chat button', () => {
+  it('★★ it renders INSIDE the control, not beside a heading', () => {
+    chatMock.messages = [message({ id: 'm-1', body: '@Bobby look', mentions: ['u'] })];
+    renderHeader();
+    const badge = screen.getByTestId('project-chat-unread');
+    expect(badge.textContent).toContain('1 new');
+    // On the button…
+    expect(screen.getByTestId('project-chat-open').contains(badge)).toBe(true);
+    // …and no longer in the section heading it used to sit in.
+    expect(
+      screen.getByTestId('project-overview-team-chat').contains(badge),
+    ).toBe(false);
+  });
+
+  it('★ and there is exactly one of it', () => {
+    chatMock.messages = [message({ id: 'm-1', body: '@Bobby look', mentions: ['u'] })];
+    renderHeader();
+    expect(screen.getAllByTestId('project-chat-unread')).toHaveLength(1);
+  });
+
+  it('stays absent when nothing is unread', () => {
+    chatMock.messages = [message({ id: 'm-1', body: 'nothing for me' })];
+    renderHeader();
+    expect(screen.queryByTestId('project-chat-unread')).toBeNull();
+    // The button is still there — it is the way in whether or not you are owed
+    // anything.
+    expect(screen.getByTestId('project-chat-open')).toBeInTheDocument();
+  });
+
+  // ★ It sets no colour of its own, so inside the action it turns white with
+  // the rest of the label on hover instead of staying blue on a blue fill.
+  it('★ inherits the button colour rather than pinning its own', () => {
+    chatMock.messages = [message({ id: 'm-1', body: '@Bobby look', mentions: ['u'] })];
+    renderHeader();
+    expect(screen.getByTestId('project-chat-unread').className).not.toContain('text-de');
   });
 });

@@ -5,6 +5,12 @@ import BridgeMark from './BridgeMark';
 import Ribbon from './Ribbon';
 import NewProjectWizard from './NewProjectWizard';
 import { useSelfScope } from '../hooks/useSelfScope';
+import {
+  BRAND_LOCKUP_GAP,
+  BRAND_MARK_SIZE,
+  BRAND_TITLE_SIZE,
+  SHELL_HEADER_HEIGHT,
+} from '../lib/shellMetrics';
 
 // ★ fix-335 §2: the hero colour, inherited verbatim from fix-320 #73 — a
 // literal rather than a theme token because it is a BRAND colour. It belongs to
@@ -61,7 +67,7 @@ export default function Chrome() {
       <div className="flex-1 min-w-0 flex flex-col h-screen" data-testid="bridge-main">
         <header
           className="bg-surface border-b border-border flex items-center gap-3.5 px-5 flex-shrink-0 relative"
-          style={{ height: 56 }}
+          style={{ height: SHELL_HEADER_HEIGHT }}
           data-testid="chrome-header"
         >
           {/* ★★ fix-335 §2: THE PRODUCT'S NAME, CENTRED, ON EVERY SCREEN.
@@ -97,35 +103,54 @@ export default function Chrome() {
               between the left edge and the bell.
 
               ★★ AND IT IS FREE AT EVERY WIDTH THIS APP IS USED AT — but not at
-              EVERY width, which is why `hidden lg:flex` is here. Rendered and
-              measured rather than reasoned about: the centred lockup is ~138px
-              and the right-hand cluster (bell + chip) is ~312px with the
-              longest name on the roster, so on a 1280px screen they clear each
-              other by about 150px and at 1024px by about 25px. Below roughly
-              980px the bell starts crossing the final letters of "The Bridge".
-              Because the block is absolutely positioned, its neighbours cannot
-              know it is there and will not make room — so rather than let it be
-              overlapped, it drops out under Tailwind's `lg` breakpoint. The
-              shell is a fixed, non-scrolling desktop layout (Bobby: "the
-              horizontal width and the vertical width of the screen is going to
-              be fixed so there's no scrolling"), so that window is one nobody
-              works in; a name half-covered by a bell would be worse than no
-              name at all. */}
+              EVERY width, which is why there is a breakpoint here at all.
+              Because the block is absolutely positioned, the bell and the chip
+              cannot know it exists and will not make room for it, so the only
+              two outcomes are "fits" and "overlapped".
+
+              ★★★ fix-345 §2 MADE THE LOCKUP 2.5x BIGGER, so this was
+              re-MEASURED rather than re-reasoned. Rendered with the longest
+              name on the roster, clearance from the lockup's right edge to the
+              bell:
+
+                  width     1x (fix-335)     2.5x (now)
+                  1280          209px           129px
+                  1440          289px           209px
+                  1920          529px           449px
+
+              ★ It still fits at 1280 with room to spare, which is the question
+              the brief asked. What moved is the FLOOR: clearance falls by half
+              of any width lost, so 129px at 1280 reaches zero at about 1022px —
+              and `lg` (1024px) is now within a pixel of touching. Hence `xl`.
+              Nothing is lost at any width people work at: the shell is a fixed,
+              non-scrolling desktop layout (Bobby: "the horizontal width and the
+              vertical width of the screen is going to be fixed so there's no
+              scrolling"), and a name half-covered by a bell would be worse than
+              no name at all. */}
           <div
-            className="hidden lg:flex absolute inset-y-0 items-center gap-2 pointer-events-none select-none"
-            style={{ left: '50%', transform: 'translateX(-50%)' }}
+            className="hidden xl:flex absolute inset-y-0 items-center pointer-events-none select-none"
+            style={{
+              left: '50%',
+              transform: 'translateX(-50%)',
+              gap: BRAND_LOCKUP_GAP,
+            }}
             data-testid="chrome-brand-center"
           >
             {/* ★ "the logo from the tab" is literal — bridge-favicon-256.png,
                 the same mark the browser tab shows. See BridgeMark's `favicon`
                 variant for why it is that file and not the square crop beside
-                it. 26px: the tab icon's own scale, and it sits on the cap
-                height of the 16.5px hero rather than towering over it. */}
-            <BridgeMark variant="favicon" size={26} />
+                it.
+
+                ★ fix-345 §2: 26 → 65. The source is 256px square, so there is
+                resolution to spare and enlarging it does not soften — the
+                opposite of the ribbon's Blueprint mark, where 144px IS the
+                artwork and 1:1 is the ceiling (fix-335 §1). Sized from
+                shellMetrics so it cannot drift from the bar containing it. */}
+            <BridgeMark variant="favicon" size={BRAND_MARK_SIZE} />
             <span
               className="font-display whitespace-nowrap"
               style={{
-                fontSize: 16.5,
+                fontSize: BRAND_TITLE_SIZE,
                 fontWeight: 750,
                 letterSpacing: '-.005em',
                 color: BRAND_NAVY,
@@ -133,7 +158,14 @@ export default function Chrome() {
               }}
               data-testid="chrome-brand-title"
             >
-              The Bridge
+              {/* ★ fix-345 §2: a lowercase `t`. Bobby: "We want 'the' to be
+                  lower case and Bridge is fine the way it is spelt."
+
+                  ★ Written out, NOT done with text-transform. A CSS trick would
+                  leave the string capitalised in the DOM, in the accessible
+                  name a screen reader announces, and in the clipboard — three
+                  places that would disagree with the screen. */}
+              the Bridge
             </span>
           </div>
 

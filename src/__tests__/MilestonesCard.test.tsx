@@ -521,7 +521,11 @@ describe('fix-335 §8: Connect is visibly not wired up yet', () => {
     }) as Record<string, string>;
     const offenders = Object.entries(modules)
       .filter(([path]) => !/\.test\.tsx?$/.test(path))
-      .filter(([, src]) => src.includes('data-placeholder="true"'))
+      // ★ fix-345 §3 moved the button's markup into the shared <OverviewAction>,
+      // so the attribute is passed as a prop rather than written as JSX. Both
+      // spellings are hunted, which is what keeps this a question about the
+      // whole tree rather than about one file's formatting.
+      .filter(([, src]) => /data-placeholder(="true"|': 'true')/.test(src))
       .map(([path]) => path);
     expect(offenders).toEqual(['../components/ProjectDetail/ProjectDetailHeader.tsx']);
 
@@ -552,6 +556,16 @@ describe('fix-335 §6: only the single-section card centres', () => {
       ) as HTMLElement[];
       expect(sections.length).toBeGreaterThan(1);
       for (const s of sections) {
+        // ★★ fix-345 §3: the pinned action at the card's foot takes NO share of
+        // the spare height — that is the mechanism that lands all three cards'
+        // buttons on one line. It is skipped here rather than the rule being
+        // loosened, because fix-331 §1 governs the sections that SHARE the
+        // space and this one deliberately does not.
+        if (s.dataset.pinBottom === 'true') {
+          expect(s.style.flexGrow).toBe('0');
+          expect(s.style.marginTop).toBe('auto');
+          continue;
+        }
         // fix-331 §1: grows, never shrinks.
         expect(s.style.flexGrow).toBe('1');
         expect(s.style.flexShrink).toBe('0');
@@ -560,5 +574,145 @@ describe('fix-335 §6: only the single-section card centres', () => {
         expect(s.style.justifyContent).toBe('');
       }
     }
+  });
+});
+
+// ===========================================================================
+// ★★★ fix-345 §3 — three uniform buttons, one per card, on one baseline
+// ===========================================================================
+//
+// Bobby: "We really like the draw schedule link button. If we can make that
+// uniform for Connect and chat. Make them all at the bottom and horizontally
+// equally and vertically equal so it kind of points to here are 3 active
+// buttons for each category with different functions."
+//
+// ★★★ "VERTICALLY EQUAL" IS THE HARD PART AND IT DOES NOT COME FROM BEING LAST.
+// fix-331 §1 gives every section flexGrow:1, so the spare height splits evenly
+// BETWEEN SECTIONS — and the three cards have different section counts (4 / 3 /
+// 4). A button section taking a 1/4 share on one card and a 1/3 share on
+// another puts its content at a different height on each, because the content
+// sits at the top of whatever share it was given.
+//
+// The fix is to give the button section NO share: flexGrow:0 plus marginTop:auto
+// pins it to the card's floor, the sections above keep distributing the spare
+// between themselves, and the cards are already equal heights (fix-309 #55). All
+// three buttons are then measured from the same edge.
+//
+// ★ jsdom has no layout engine, so what is asserted here is the MECHANISM. The
+// rendered proof at 1280 and 1440 is in the PR.
+describe('fix-345 §3: the three card buttons', () => {
+  const CARDS = [
+    ['pd-milestones-card', 'pd-draw-schedule-section', 'pd-draw-schedule-link'],
+    ['pd-project-card', 'pd-connect-section', 'pd-connect-button'],
+    ['project-overview-team', 'pd-chat-section', 'project-chat-open'],
+  ] as const;
+
+  it('★ every card ends with a pinned action section', () => {
+    renderHeader(projectFixture(), [bpFixture()]);
+    for (const [cardId, sectionId] of CARDS) {
+      const card = screen.getByTestId(cardId);
+      const sections = Array.from(card.querySelectorAll(':scope > section'));
+      expect(
+        (sections[sections.length - 1] as HTMLElement).dataset.testid,
+        cardId + ' does not end with its action',
+      ).toBe(sectionId);
+    }
+  });
+
+  // ★★ THE MECHANISM, on all three: no share of the spare height, and pushed to
+  // the floor. This is what puts them on one line.
+  it('★★★ the action section takes no share of the spare height', () => {
+    renderHeader(projectFixture(), [bpFixture()]);
+    for (const [, sectionId] of CARDS) {
+      const s = screen.getByTestId(sectionId);
+      expect(s.dataset.pinBottom, sectionId).toBe('true');
+      expect(s.style.flexGrow, sectionId).toBe('0');
+      expect(s.style.marginTop, sectionId).toBe('auto');
+      // Still never shrinks — fix-331's other half.
+      expect(s.style.flexShrink, sectionId).toBe('0');
+    }
+  });
+
+  // ★ AND fix-331 §1 STILL HOLDS ABOVE IT. The brief was explicit: that fix
+  // exists because Bobby complained about voids, and this must not put one back.
+  it('★ the sections above still distribute the spare height between themselves', () => {
+    renderHeader(projectFixture(), [bpFixture()]);
+    for (const [cardId] of CARDS) {
+      const card = screen.getByTestId(cardId);
+      const distributed = (
+        Array.from(card.querySelectorAll(':scope > section')) as HTMLElement[]
+      ).filter((s) => s.dataset.pinBottom !== 'true');
+      expect(distributed.length, cardId).toBeGreaterThanOrEqual(2);
+      // All equal, all growing — "distributed" means nobody is singled out.
+      const grows = distributed.map((s) => s.style.flexGrow);
+      expect(new Set(grows).size, cardId).toBe(1);
+      expect(grows[0], cardId).toBe('1');
+    }
+  });
+
+  it('★ all three are the same shape: same height, same width, same type', () => {
+    renderHeader(projectFixture(), [bpFixture()]);
+    const classes = CARDS.map(([, , btnId]) => screen.getByTestId(btnId).className);
+    for (const c of classes) {
+      expect(c).toContain('w-full');
+      expect(c).toContain('h-[26px]');
+      expect(c).toContain('text-[10.5px]');
+      expect(c).toContain('justify-center');
+      expect(c).toContain('whitespace-nowrap');
+    }
+    // ★ The geometry half is identical across all three — only the tone (live
+    // vs the inert Connect placeholder) differs.
+    const geometry = classes.map((c) =>
+      c
+        .split(' ')
+        .filter((t) => !/^(border-|bg-|text-de|text-dim|hover:|cursor-)/.test(t))
+        .join(' '),
+    );
+    expect(new Set(geometry).size).toBe(1);
+  });
+});
+
+// ===========================================================================
+// ★★ fix-345 §3 — one way into the chat, and it keeps the unread count
+// ===========================================================================
+
+describe('fix-345 §3: the Team card has exactly one way into the chat', () => {
+  it('★★ the inline "Open chat →" link is gone; the button is the way in', () => {
+    renderHeader(projectFixture(), [bpFixture()]);
+    // The preview is untouched and still between Internal and External.
+    const preview = screen.getByTestId('project-chat-mini');
+    expect(preview).toBeInTheDocument();
+    // ★ And it contains no opener of its own. Two ways into one thread from one
+    // card was the thing being removed — a quieter duplicate is still a
+    // duplicate.
+    expect(preview.querySelector('button')).toBeNull();
+    expect(preview.textContent).not.toMatch(/Open chat/);
+
+    // Exactly one control opens the modal, and it is the pinned action.
+    const openers = screen.getAllByTestId('project-chat-open');
+    expect(openers).toHaveLength(1);
+    expect(screen.getByTestId('pd-chat-section').contains(openers[0])).toBe(true);
+  });
+
+  it('★ and it actually opens the modal', () => {
+    renderHeader(projectFixture(), [bpFixture()]);
+    expect(screen.queryByTestId('project-chat-modal')).toBeNull();
+    fireEvent.click(screen.getByTestId('project-chat-open'));
+    expect(screen.getByTestId('project-chat-modal')).toBeInTheDocument();
+  });
+
+  // ★ fix-331 §3's placement is Bobby's and he is not asking for it back — the
+  // preview stays in the middle of the card. Only the opener moved.
+  it('★ the chat PREVIEW did not move', () => {
+    renderHeader(projectFixture(), [bpFixture()]);
+    const ids = Array.from(
+      screen.getByTestId('project-overview-team').querySelectorAll(':scope > section'),
+    ).map((s) => (s as HTMLElement).dataset.testid);
+    expect(ids).toEqual([
+      'project-overview-team-internal',
+      'project-overview-team-chat',
+      'project-overview-team-external',
+      'pd-chat-section',
+    ]);
   });
 });

@@ -26,6 +26,10 @@ import {
   BLUEPRINT_ICON_SIZE,
   BLUEPRINT_LOCKUP_WIDTH,
 } from '../components/BlueprintMark';
+// ★ fix-345 §2 grew the header and the ribbon's brand block together. They read
+// ONE constant now, so this suite reads it too rather than restating a number
+// that is allowed to change.
+import { SHELL_HEADER_HEIGHT } from '../lib/shellMetrics';
 
 // fix-335 — branding, the ribbon, and the things that should tie back.
 //
@@ -183,7 +187,12 @@ describe('fix-335 §1: the ribbon carries the original Blueprint logo', () => {
     expect(parseFloat(img.style.width)).toBeLessThanOrEqual(212 - 32);
     expect(img.style.height).toBe('auto');
     expect(screen.getByTestId('ribbon').style.width).toBe('212px');
-    expect(screen.getByTestId('ribbon-brand').style.height).toBe('56px');
+    // ★ fix-345 §2: the block is 80px now, and its height is no longer this
+    // file's business — see the border-alignment test below, which is the rule
+    // the number was ever standing in for.
+    expect(screen.getByTestId('ribbon-brand').style.height).toBe(
+      `${SHELL_HEADER_HEIGHT}px`,
+    );
   });
 
   it('★ has a text alternative — the ribbon has no words left to speak', () => {
@@ -213,7 +222,8 @@ describe('fix-335 §2: the product name is centred in the white header', () => {
     // ★ "the logo from the tab" — literally the favicon file, not the square
     // crop of the illustration that sits next to it in the same folder.
     expect(img.getAttribute('src')).toMatch(/bridge-favicon-256/);
-    expect(screen.getByTestId('chrome-brand-title').textContent).toBe('The Bridge');
+    // ★ fix-345 §2: lowercase `t`.
+    expect(screen.getByTestId('chrome-brand-title').textContent).toBe('the Bridge');
     // Icon first, words second — the order Bobby dictated.
     expect(centre.firstElementChild).toBe(img);
   });
@@ -227,7 +237,7 @@ describe('fix-335 §2: the product name is centred in the white header', () => {
       expect(
         screen.getByTestId('chrome-brand-title').textContent,
         `missing on ${route}`,
-      ).toBe('The Bridge');
+      ).toBe('the Bridge');
       view.unmount();
     }
   });
@@ -253,11 +263,15 @@ describe('fix-335 §2: the product name is centred in the white header', () => {
   // it drops out under `lg` rather than letting a bell cross the last letters
   // of the name. jsdom has no layout engine, so this asserts the RULE — the
   // measurement is in the PR, per the same honesty fix-325 used for its width.
+  // ★ fix-345 §2 made the lockup 2.5x wider, so the floor moved with it: 129px
+  // of clearance at 1280 reaches zero at about 1022px, which is within a pixel
+  // of `lg`. The breakpoint went up to `xl` and the measurements are in the PR.
   it('★★ it yields rather than colliding on a window too narrow for both', () => {
     renderShell();
     const centre = screen.getByTestId('chrome-brand-center');
     expect(centre.className).toContain('hidden');
-    expect(centre.className).toContain('lg:flex');
+    expect(centre.className).toContain('xl:flex');
+    expect(centre.className).not.toContain('lg:flex');
   });
 
   // ★ THE CENTRE WAS FREE, verified rather than assumed. fix-331 §5 deleted the
@@ -360,12 +374,28 @@ describe('fix-335 §4: SharePoint, ungated and outside the app', () => {
       .toBe(true);
   });
 
-  // ★ It looks like a button rather than a nav row, because it leaves the app
-  // and should not read as a destination inside it.
+  // ★★ fix-345 §4 INVERTED THE APPEARANCE HALF OF THIS. fix-335 built it as a
+  // bordered chip so a control leaving the app would not read as a destination
+  // inside it; Bobby has used it — "sticks out. Maybe it is just another word
+  // like the other options so it is more uniform" — and he is right that a chip
+  // in a column of eight text rows makes the loudest thing in the ribbon the one
+  // nobody uses daily. It is a row now, with a small ↗ carrying the difference.
+  //
+  // ★ WHAT DID NOT INVERT is the half that mattered: it still can never be
+  // "where you are". That is asserted here and again in the §5 guard.
   it('★ reads as a button, not as a nav destination', () => {
     renderRibbon();
     const a = screen.getByTestId('ribbon-external-sharepoint');
-    expect(a.className).toContain('border');
+    // Uniform with the nav rows — literally the same classes, because Ribbon
+    // calls itemClass()/itemStyle() rather than copying them. Compared against
+    // an INACTIVE row: SharePoint can never be active, so an active one would
+    // never be the right comparison. (This render is on /dashboard, so My Board
+    // is the inactive neighbour.)
+    const myBoard = screen.getByTestId('ribbon-link-/board');
+    expect(a.className).toBe(myBoard.className.replace('relative ', ''));
+    expect(a.getAttribute('style')).toBe(myBoard.getAttribute('style'));
+    // ...but still visibly leaving.
+    expect(screen.getByTestId('ribbon-external-glyph').textContent).toBe('↗');
     // It can never be "where you are": there is no active state to acquire.
     expect(a.getAttribute('data-active')).toBeNull();
     expect(a.dataset.external).toBe('true');
@@ -386,12 +416,24 @@ describe('fix-335 §4: SharePoint, ungated and outside the app', () => {
     expect(ribbonExemptPaths()).not.toContain(SHAREPOINT_URL);
   });
 
+  // ★ fix-345 §4 moved it up a tier — Bobby: "Maybe below reports?" — so the
+  // content tier ends with it and the tier below the rule is the two
+  // administrative entries again.
   it('sits in the bottom tier, after Settings', () => {
     const ids = RIBBON_ENTRIES.map((e) =>
-      e.kind === 'link' ? e.link.to : e.kind === 'external' ? e.external.id : e.kind,
+      e.kind === 'link'
+        ? e.link.to
+        : e.kind === 'external'
+          ? e.external.id
+          : e.kind === 'group'
+            ? e.group.id
+            : e.id,
     );
-    expect(ids.indexOf('sharepoint')).toBeGreaterThan(ids.indexOf('/settings'));
-    expect(ids[ids.length - 1]).toBe('sharepoint');
+    expect(ids.indexOf('sharepoint')).toBeGreaterThan(ids.indexOf('reports'));
+    expect(ids.indexOf('sharepoint')).toBeLessThan(ids.indexOf('/settings'));
+    // The last thing before the rule, so the reading order is: everywhere you
+    // go, then the separator, then Settings.
+    expect(ids[ids.indexOf('sharepoint') + 1]).toBe('sep-2');
   });
 });
 
