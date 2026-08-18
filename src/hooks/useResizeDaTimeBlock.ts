@@ -106,7 +106,7 @@ export function useResizeDaTimeBlock() {
     onError: (error) => {
       if (isOCCConflict(error)) {
         pushToast(
-          'Time block was modified by someone else — refresh and retry',
+          'Time block changed since you loaded it — refresh and retry',
           'warn',
         );
         queryClient.invalidateQueries({

@@ -164,7 +164,7 @@ describe('useUpdateTeamMemberQuarters', () => {
           activeEnd: '2026-Q4',
           expectedUpdatedAt: 'STALE',
         }),
-      ).rejects.toThrow(/Team member was modified/i);
+      ).rejects.toThrow(/Team member changed since you loaded it/i);
     });
 
     await waitFor(() => {
@@ -172,7 +172,7 @@ describe('useUpdateTeamMemberQuarters', () => {
         .getState()
         .toasts.find((t) => t.kind === 'warn');
       expect(warn).toBeTruthy();
-      expect(warn?.message).toMatch(/modified by someone else/i);
+      expect(warn?.message).toMatch(/changed since you loaded it/i);
     });
   });
 

@@ -256,7 +256,7 @@ describe('useResizeDaTimeBlock', () => {
           newEndWeek: '2026-06-22',
           expectedUpdatedAt: 'STALE',
         }),
-      ).rejects.toThrow(/Time block was modified/i);
+      ).rejects.toThrow(/Time block changed since you loaded it/i);
     });
 
     await waitFor(() => {
@@ -264,7 +264,7 @@ describe('useResizeDaTimeBlock', () => {
         .getState()
         .toasts.find((t) => t.kind === 'warn');
       expect(warn).toBeTruthy();
-      expect(warn?.message).toMatch(/modified by someone else/i);
+      expect(warn?.message).toMatch(/changed since you loaded it/i);
     });
   });
 });

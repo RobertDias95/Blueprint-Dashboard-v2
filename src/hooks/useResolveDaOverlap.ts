@@ -101,7 +101,7 @@ export function useResolveDaOverlap() {
       }
       if (isOCCConflict(error)) {
         pushToast(
-          'Draw schedule was modified by someone else — push-down reverted',
+          'Draw schedule changed since you loaded it — push-down reverted',
           'warn',
         );
         queryClient.invalidateQueries({ queryKey: drawKey });

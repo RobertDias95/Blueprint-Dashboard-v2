@@ -241,7 +241,7 @@ describe('useResolveDaOverlap', () => {
       const warn = useToastStore
         .getState()
         .toasts.find((t) => t.kind === 'warn');
-      expect(warn?.message).toMatch(/modified by someone else/i);
+      expect(warn?.message).toMatch(/changed since you loaded it/i);
     });
   });
 });

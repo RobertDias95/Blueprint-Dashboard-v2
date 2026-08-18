@@ -199,7 +199,7 @@ describe('useSetBpDdDates', () => {
           ddEnd: '2025-12-19',
           expectedUpdatedAt: 'STALE',
         }),
-      ).rejects.toThrow(/DD dates was modified/i);
+      ).rejects.toThrow(/DD dates changed since you loaded/i);
     });
 
     await waitFor(() => {
@@ -207,7 +207,7 @@ describe('useSetBpDdDates', () => {
         .getState()
         .toasts.find((t) => t.kind === 'warn');
       expect(warn).toBeTruthy();
-      expect(warn?.message).toMatch(/modified by someone else/i);
+      expect(warn?.message).toMatch(/changed since you loaded/i);
     });
   });
 

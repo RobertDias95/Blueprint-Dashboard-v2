@@ -201,7 +201,7 @@ export function useSetBpDdDates() {
     onError: (error) => {
       if (isOCCConflict(error)) {
         pushToast(
-          'DD dates were modified by someone else — refresh and retry',
+          'DD dates changed since you loaded them — refresh and retry',
           'warn',
         );
         queryClient.invalidateQueries({ queryKey: queryKeys.permitsAll });

@@ -77,7 +77,7 @@ beforeEach(() => {
 });
 
 describe('useUpdateProject — fix-98 silentOnOcc flag', () => {
-  it('default behavior: OCC pushes the "modified by someone else" toast', async () => {
+  it('default behavior: OCC pushes the "changed since you loaded it" toast', async () => {
     // Server matched 0 rows → OCCConflictError thrown by mutationFn.
     supabaseMock.setUpdateResult({ data: [], error: null });
     const { wrapper } = setup();
@@ -96,7 +96,7 @@ describe('useUpdateProject — fix-98 silentOnOcc flag', () => {
     });
     expect(toastMock).toHaveBeenCalledTimes(1);
     expect(toastMock.mock.calls[0][0]).toContain(
-      'modified by someone else',
+      'changed since you loaded it',
     );
     expect(toastMock.mock.calls[0][1]).toBe('warn');
   });

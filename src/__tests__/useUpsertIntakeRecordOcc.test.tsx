@@ -141,7 +141,7 @@ describe('useUpsertIntakeRecord — OCC token cache write', () => {
     // The critical assertion: the second call carried the FRESH token.
     expect(rpc.mock.calls[1][1].p_expected_updated_at).toBe('TOKEN-2');
     expect(toast).not.toHaveBeenCalledWith(
-      expect.stringContaining('modified by someone else'),
+      expect.stringContaining('changed since you loaded it'),
       'warn',
     );
   });
@@ -164,7 +164,7 @@ describe('useUpsertIntakeRecord — OCC token cache write', () => {
 
     await waitFor(() => expect(toast).toHaveBeenCalled());
     const [message, level] = toast.mock.calls[0];
-    expect(String(message)).toMatch(/modified/i);
+    expect(String(message)).toMatch(/changed since you loaded it/i);
     expect(level).toBe('warn');
     // And the cache must NOT have taken the rejected edit.
     const rows = qc.getQueryData<IntakeRecord[]>(

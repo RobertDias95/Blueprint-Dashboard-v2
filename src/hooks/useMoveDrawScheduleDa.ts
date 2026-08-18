@@ -127,7 +127,7 @@ export function useMoveDrawScheduleDa() {
     onError: (error) => {
       if (isOCCConflict(error)) {
         pushToast(
-          'Draw schedule was modified by someone else — refresh and retry',
+          'Draw schedule changed since you loaded it — refresh and retry',
           'warn',
         );
         queryClient.invalidateQueries({
