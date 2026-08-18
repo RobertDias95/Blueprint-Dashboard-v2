@@ -1,4 +1,5 @@
 import { isCurrentMember } from './roster';
+import { personTarget, type MentionTarget } from './mentionTags';
 import type {
   MentionablePerson,
   ProjectMessage,
@@ -12,6 +13,36 @@ import type {
 // card tints mentions, the modal tints mentions, the composer resolves them to
 // user ids on send, and the bell counts them. Four callers of one rule.
 
+// ---------------------------------------------------------------------------
+// ★★ fix-347 — THE SCANNER NOW MATCHES TAGS TOO, without a second walk
+// ---------------------------------------------------------------------------
+//
+// A person is "a name that notifies one id"; a tag is "a name that notifies
+// several". That is the ONLY difference, so the grammar, the longest-match rule
+// and the word-boundary rule are shared rather than duplicated — three scanners
+// would be three chances to disagree about where a mention is.
+//
+// ★ EVERY EXISTING CALLER STILL PASSES `MentionablePerson[]` and still works:
+// the functions take either shape and normalise. New callers pass targets
+// (lib/mentionTags), which is how `@project` and a custom tag reach the same
+// code path as `@Miles`.
+
+/** Either shape the mention functions accept. */
+export type MentionSource = MentionablePerson | MentionTarget;
+
+function asTarget(s: MentionSource): MentionTarget {
+  return 'userIds' in s ? s : personTarget(s);
+}
+
+function asTargets(sources: readonly MentionSource[]): MentionTarget[] {
+  return sources
+    .map(asTarget)
+    .filter((t) => t.name.trim().length > 0)
+    // Longest first so "@Mary Beth" cannot be consumed by "@Mary", and a tag
+    // called "projectleads" is not eaten by "project".
+    .sort((a, b) => b.name.length - a.name.length);
+}
+
 /** ★ The mention grammar, deliberately small: `@` followed by a name from the
  *  roster, longest match first.
  *
@@ -22,30 +53,14 @@ import type {
  *  no one, which is the paperclip-that-does-nothing failure in another costume. */
 export function parseMentions(
   body: string,
-  people: readonly MentionablePerson[],
+  sources: readonly MentionSource[],
 ): string[] {
+  // ★★ fix-347: built from the SAME ranges the display tints, so what is
+  // highlighted and what is stored can never disagree — and a tag contributes
+  // its RESOLVED ids (§4), never its name.
   const ids = new Set<string>();
-  // Longest name first so "@Mary Beth" cannot be consumed by "@Mary".
-  const sorted = [...people]
-    .filter((p) => (p.name ?? '').trim().length > 0)
-    .sort((a, b) => (b.name ?? '').length - (a.name ?? '').length);
-  const haystack = body.toLowerCase();
-  for (const person of sorted) {
-    const needle = `@${(person.name ?? '').trim().toLowerCase()}`;
-    if (needle.length <= 1) continue;
-    let from = 0;
-    for (;;) {
-      const at = haystack.indexOf(needle, from);
-      if (at === -1) break;
-      // ★ A mention ends at a word boundary, so "@Bob" does not match inside
-      // "@Bobby" — the reason the list is walked longest-first as well.
-      const after = haystack[at + needle.length];
-      if (after === undefined || !/[a-z0-9]/i.test(after)) {
-        ids.add(person.user_id);
-        break;
-      }
-      from = at + 1;
-    }
+  for (const r of mentionRanges(body, sources)) {
+    for (const id of r.userIds) ids.add(id);
   }
   return [...ids];
 }
@@ -54,8 +69,12 @@ export interface BodySegment {
   text: string;
   /** True when this run is an @mention of someone on the roster. */
   mention: boolean;
-  /** The mentioned person's user id, when known. */
+  /** The mentioned person's user id, when known. First of `userIds`. */
   userId?: string;
+  /** ★ fix-347: everyone the run notifies — several, for a tag. */
+  userIds?: string[];
+  /** ★ fix-347: 'person' | 'tag' | 'smart', so a tag can be styled as one. */
+  kind?: MentionTarget['kind'];
 }
 
 /** A resolved mention's span in the body. */
@@ -63,7 +82,14 @@ export interface MentionRange {
   start: number;
   /** Exclusive. */
   end: number;
-  userId: string;
+  /** ★ fix-347: EVERYONE this run notifies — one for a person, many for a tag,
+   *  and legitimately NONE for a tag that currently resolves to nobody (which
+   *  the composer warns about before send rather than swallowing). */
+  userIds: string[];
+  /** What was matched, so a renderer can style a tag differently. */
+  kind: MentionTarget['kind'];
+  /** The matched name, without the `@`. */
+  name: string;
 }
 
 /** ★ ONE SCANNER. `splitBody`, `unresolvedMentions` and any future highlighter
@@ -71,25 +97,30 @@ export interface MentionRange {
  *  three walks of the string is three chances to disagree about it. */
 export function mentionRanges(
   body: string,
-  people: readonly MentionablePerson[],
+  sources: readonly MentionSource[],
 ): MentionRange[] {
-  const sorted = [...people]
-    .filter((p) => (p.name ?? '').trim().length > 0)
-    .sort((a, b) => (b.name ?? '').length - (a.name ?? '').length);
+  const sorted = asTargets(sources);
   const lower = body.toLowerCase();
   const out: MentionRange[] = [];
   let i = 0;
   while (i < body.length) {
     if (body[i] === '@') {
-      const hit = sorted.find((p) => {
-        const needle = `@${(p.name ?? '').trim().toLowerCase()}`;
+      const hit = sorted.find((t) => {
+        const needle = `@${t.name.trim().toLowerCase()}`;
+        if (needle.length <= 1) return false;
         if (!lower.startsWith(needle, i)) return false;
         const after = lower[i + needle.length];
         return after === undefined || !/[a-z0-9]/i.test(after);
       });
       if (hit) {
-        const len = 1 + (hit.name ?? '').trim().length;
-        out.push({ start: i, end: i + len, userId: hit.user_id });
+        const len = 1 + hit.name.trim().length;
+        out.push({
+          start: i,
+          end: i + len,
+          userIds: hit.userIds,
+          kind: hit.kind,
+          name: hit.name.trim(),
+        });
         i += len;
         continue;
       }
@@ -106,9 +137,9 @@ export function mentionRanges(
  *  looks like @word) would highlight text that notified nobody. */
 export function splitBody(
   body: string,
-  people: readonly MentionablePerson[],
+  sources: readonly MentionSource[],
 ): BodySegment[] {
-  const ranges = mentionRanges(body, people);
+  const ranges = mentionRanges(body, sources);
   const out: BodySegment[] = [];
   let cursor = 0;
   for (const r of ranges) {
@@ -118,7 +149,12 @@ export function splitBody(
     out.push({
       text: body.slice(r.start, r.end),
       mention: true,
-      userId: r.userId,
+      // ★ fix-347: THE TAG'S TEXT IS WHAT RENDERS — "@project" reads better
+      // than five names, and the ids it stands for are on the segment for
+      // anything that needs them (the hover, the audience diff).
+      userId: r.userIds[0],
+      userIds: r.userIds,
+      kind: r.kind,
     });
     cursor = r.end;
   }
@@ -151,9 +187,9 @@ export function splitBody(
  *  mention, and a warning that cries wolf is one people stop reading. */
 export function unresolvedMentions(
   body: string,
-  people: readonly MentionablePerson[],
+  sources: readonly MentionSource[],
 ): string[] {
-  const ranges = mentionRanges(body, people);
+  const ranges = mentionRanges(body, sources);
   const inside = (i: number) => ranges.some((r) => i >= r.start && i < r.end);
   const out: string[] = [];
   const seen = new Set<string>();
@@ -168,6 +204,34 @@ export function unresolvedMentions(
     if (seen.has(key)) continue;
     seen.add(key);
     out.push(m[0]);
+  }
+  return out;
+}
+
+/**
+ * ★★ fix-347 — the OTHER thing worth warning about before send: a tag that
+ * MATCHED but currently notifies nobody.
+ *
+ * `unresolvedMentions` catches "@mi", a token that means nothing. This catches
+ * "@project" on a project whose roles are all empty, or a custom tag whose
+ * membership has been emptied — text that LOOKS like a working mention, is
+ * highlighted like one, and would reach no one. The brief: "A tag that resolves
+ * to nobody must tell the sender before it posts."
+ *
+ * Returned as the names typed, deduped, in order.
+ */
+export function emptyMentionTargets(
+  body: string,
+  sources: readonly MentionSource[],
+): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const r of mentionRanges(body, sources)) {
+    if (r.userIds.length > 0) continue;
+    const key = r.name.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(r.name);
   }
   return out;
 }
@@ -219,15 +283,20 @@ export function applyMention(
 
 /** How well a person matches what has been typed. Lower is better; the ranking
  *  IS the feature Bobby asked for — *"@D shows everyone that starts with a D or
- *  has a D"* — prefix matches above substring matches, both offered. */
+ *  has a D"* — prefix matches above substring matches, both offered.
+ *
+ *  ★ fix-347: a TAG is ranked by exactly the same rules. It has no email, so the
+ *  two local-part clauses simply never fire for one. */
 export function mentionMatchRank(
-  person: MentionablePerson,
+  person: MentionSource,
   query: string,
 ): number | null {
   const q = query.trim().toLowerCase();
   if (q === '') return 0;
-  const name = (person.name ?? '').toLowerCase();
-  const local = (person.email ?? '').split('@')[0].toLowerCase();
+  const name = ('name' in person ? (person.name ?? '') : '').toLowerCase();
+  const local = ('email' in person ? (person.email ?? '') : '')
+    .split('@')[0]
+    .toLowerCase();
   if (name.startsWith(q)) return 0;
   if (name.split(/\s+/).some((w) => w.startsWith(q))) return 1;
   if (local.startsWith(q)) return 2;
@@ -274,19 +343,21 @@ export function mentionableAfterRoster(
 /** The picker's list: everyone who matches, best first, alphabetical inside a
  *  rank. An empty query offers everybody — typing a bare `@` should show you
  *  who there is, not an empty box. */
-export function rankMentionCandidates(
+export function rankMentionCandidates<T extends MentionSource>(
   query: string,
-  people: readonly MentionablePerson[],
+  sources: readonly T[],
   limit = 8,
-): MentionablePerson[] {
-  return people
-    .filter((p) => (p.name ?? '').trim().length > 0)
+): T[] {
+  return sources
+    .filter((p) => ((p as { name?: string | null }).name ?? '').trim().length > 0)
     .map((p) => ({ p, rank: mentionMatchRank(p, query) }))
-    .filter((x): x is { p: MentionablePerson; rank: number } => x.rank !== null)
+    .filter((x): x is { p: T; rank: number } => x.rank !== null)
     .sort(
       (a, b) =>
         a.rank - b.rank ||
-        (a.p.name ?? '').localeCompare(b.p.name ?? ''),
+        (((a.p as { name?: string | null }).name ?? '')).localeCompare(
+          ((b.p as { name?: string | null }).name ?? ''),
+        ),
     )
     .slice(0, limit)
     .map((x) => x.p);

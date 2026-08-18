@@ -4,8 +4,8 @@ import {
   findMentionQuery,
   initialsOf,
   rankMentionCandidates,
+  type MentionSource,
 } from '../../lib/projectChat';
-import type { MentionablePerson } from '../../lib/database.types';
 
 // fix-330 — the @ picker Bobby actually asked for.
 //
@@ -33,7 +33,10 @@ import type { MentionablePerson } from '../../lib/database.types';
 export interface MentionTextareaProps {
   value: string;
   onChange: (next: string) => void;
-  people: readonly MentionablePerson[];
+  /** ★ fix-347: people AND tags. The picker offers exactly what the parser can
+   *  resolve — one list, so "what I picked" and "what got notified" cannot
+   *  drift apart. */
+  people: readonly MentionSource[];
   /** Enter sends; the picker swallows Enter while it is open. */
   onSubmit: () => void;
   /** fix-330: a snip is Ctrl+V, so the composer's paste handler lives here. */
@@ -89,7 +92,7 @@ export default function MentionTextarea({
     if (el) setCaret(el.selectionStart ?? 0);
   }
 
-  function choose(person: MentionablePerson) {
+  function choose(person: MentionSource) {
     if (!query) return;
     const next = applyMention(value, query, caret, person.name ?? '');
     pendingCaret.current = next.caret;
@@ -170,8 +173,19 @@ export default function MentionTextarea({
           style={{ minWidth: 220, maxHeight: 232, overflowY: 'auto' }}
           data-testid="mention-picker"
         >
-          {candidates.map((p, i) => (
-            <li key={p.user_id} role="none">
+          {candidates.map((p, i) => {
+            // ★★ fix-347: a TAG is offered beside the people, and is visibly a
+            // tag — Bobby asked for them "visibly distinguished". The sigil is
+            // the difference the eye catches; the hint says how many it
+            // reaches, which is the thing you actually want to know before
+            // pressing it.
+            const isTag = 'userIds' in p;
+            const key = isTag ? `tag:${p.name}` : (p as { user_id: string }).user_id;
+            const sub = isTag
+              ? (p.hint ?? 'group')
+              : ((p as { email?: string | null }).email ?? '');
+            return (
+            <li key={key} role="none">
               <button
                 type="button"
                 role="option"
@@ -188,15 +202,22 @@ export default function MentionTextarea({
                   background:
                     i === activeIndex ? 'var(--color-de-bg)' : 'transparent',
                 }}
-                data-testid={`mention-option-${p.user_id}`}
+                data-testid={`mention-option-${key}`}
+                data-kind={isTag ? (p.kind ?? 'tag') : 'person'}
                 data-active={i === activeIndex ? 'true' : 'false'}
               >
                 <span
-                  className="rounded-full bg-s2 text-muted font-bold flex items-center justify-center flex-shrink-0"
-                  style={{ width: 20, height: 20, fontSize: 8 }}
+                  className="rounded-full font-bold flex items-center justify-center flex-shrink-0"
+                  style={{
+                    width: 20,
+                    height: 20,
+                    fontSize: isTag ? 11 : 8,
+                    background: isTag ? 'var(--color-de-bg)' : 'var(--color-s2)',
+                    color: isTag ? 'var(--color-de)' : 'var(--color-muted)',
+                  }}
                   aria-hidden
                 >
-                  {initialsOf(p.name)}
+                  {isTag ? '@' : initialsOf(p.name)}
                 </span>
                 <span className="min-w-0">
                   <span className="block text-[12px] font-bold text-text truncate">
@@ -206,12 +227,13 @@ export default function MentionTextarea({
                       row and so wear their email's local part as a name. Seeing
                       the address is how you tell two of those apart. */}
                   <span className="block text-[9.5px] text-dim truncate">
-                    {p.email}
+                    {sub}
                   </span>
                 </span>
               </button>
             </li>
-          ))}
+            );
+          })}
         </ul>
       )}
     </div>

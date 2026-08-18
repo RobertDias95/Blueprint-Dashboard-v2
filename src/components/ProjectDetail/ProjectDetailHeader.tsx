@@ -44,6 +44,7 @@ import NpWarningPrompt from '../NpWarningPrompt';
 import BuilderAutocompleteField from '../builder/BuilderAutocompleteField';
 import PlanOfRecordCard from './PlanOfRecordCard';
 import ProjectChatSection, { ProjectChatUnread } from './ProjectChatSection';
+import { projectInternalTeam } from '../../lib/projectTeam';
 import { useProjectPostCount } from '../../hooks/useProjectMessages';
 import ProjectChatModal from './ProjectChatModal';
 import { OverviewAction, OverviewCard, OverviewSection } from './OverviewCard';
@@ -1302,9 +1303,14 @@ function TeamCell({
   // fix-22 Mig 3: project-level entitlement_lead is the default; bp.ent_lead
   // overrides per-permit (Bobby's PAR/SDOT/ECA pattern). Display the BP
   // override when present, else fall back to project-level default.
-  const ent = bp?.ent_lead ?? project.entitlement_lead ?? null;
-  const da = bp?.da ?? null;
-  const dm = bp?.dm ?? project.design_manager ?? null;
+  // ★★★ fix-347 §3: THE ONE DEFINITION. This card's five internal rows and the
+  // `@project` smart tag read the same computation (lib/projectTeam) — the
+  // brief's rule, "do not write a second definition of who is on this project",
+  // and the reason a tag cannot drift from the card that displays the team.
+  const internal = projectInternalTeam(project, bp);
+  const ent = internal.ent;
+  const da = internal.da;
+  const dm = internal.dm;
   // ★ fix-331 §3: `permits` is no longer a void — the chat section needs it to
   // anchor a chat-born task (fix-330's permit chooser defaults to the project's
   // Building Permit and lists the rest).
@@ -1323,9 +1329,7 @@ function TeamCell({
   // A project can carry more than one; joined rather than truncated, because a
   // second designer silently dropped is the kind of half-truth this card keeps
   // being fixed for.
-  const sd = Array.isArray(project.schematic_designer)
-    ? project.schematic_designer.filter(Boolean).join(', ')
-    : null;
+  const sd = internal.sd.length > 0 ? internal.sd.join(', ') : null;
 
   // ★★ fix-345 §3: the card owns the modal now, because the two things that
   // talk to it — the preview section and the pinned Chat button — are separate

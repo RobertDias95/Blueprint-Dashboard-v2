@@ -40,7 +40,14 @@ import {
   taskDraftIsReady,
   type ChatTaskDraft,
 } from '../../lib/chatTaskDraft';
-import type { Permit } from '../../lib/database.types';
+import { useProjects } from '../../hooks/useProjects';
+import { useMentionTags } from '../../hooks/useMentionTags';
+import {
+  useProjectReactions,
+} from '../../hooks/useMessageReactions';
+import { mentionTargets, projectTagTarget } from '../../lib/mentionTags';
+import { emptyMentionTargets } from '../../lib/projectChat';
+import type { Permit, PermitWithCycles } from '../../lib/database.types';
 
 // fix-334 — the conversation, organised.
 //
@@ -87,6 +94,45 @@ export default function ProjectChatModal({
     () => mentionableAfterRoster(peopleQ.data ?? [], team.all),
     [peopleQ.data, team.all],
   );
+
+  // ★★★ fix-347 §3: `@project` — the SAME list the Team card renders, resolved
+  // to login ids here (lib/projectTeam is the one definition; this file does
+  // not get an opinion about who is on a project).
+  const projectsQ = useProjects();
+  const tagsQ = useMentionTags();
+  const reactionsQ = useProjectReactions(projectId);
+  const project = useMemo(
+    () => (projectsQ.data ?? []).find((p) => p.id === projectId) ?? null,
+    [projectsQ.data, projectId],
+  );
+  const bp = useMemo(
+    () =>
+      (permits.find((p) => p.type === 'Building Permit') ??
+        permits[0] ??
+        null) as PermitWithCycles | null,
+    [permits],
+  );
+  const projectTag = useMemo(
+    () =>
+      projectTagTarget({
+        project,
+        bp,
+        people,
+        members: team.all,
+      }),
+    [project, bp, people, team.all],
+  );
+  /** ★ Everything `@` can mean here: people, `@project`, and the custom tags. */
+  const targets = useMemo(
+    () =>
+      mentionTargets({
+        people,
+        tags: tagsQ.data ?? [],
+        projectTag,
+      }),
+    [people, tagsQ.data, projectTag],
+  );
+  const reactions = useMemo(() => reactionsQ.data ?? [], [reactionsQ.data]);
 
   const [selectedPostId, setSelectedPostId] = useState<string | null>(null);
   const [focusMessageId, setFocusMessageId] = useState<string | null>(null);
@@ -276,7 +322,7 @@ export default function ProjectChatModal({
             ) : newPostOpen ? (
               <NewPostComposer
                 projectId={projectId}
-                people={people}
+                targets={targets}
                 // ★ fix-339: pre-filled when this post is ANSWERING a request.
                 initialTitle={fulfilling?.title ?? ''}
                 initialBody={fulfilling ? `${fulfilling.reason}` : ''}
@@ -323,6 +369,9 @@ export default function ProjectChatModal({
                       projectId={projectId}
                       userId={userId}
                       people={people}
+                      targets={targets}
+                      reactions={reactions}
+                      projectTeamIds={projectTag.userIds}
                       permits={permits}
                       variant="post"
                       focused={focusMessageId === selected.post.id}
@@ -341,6 +390,9 @@ export default function ProjectChatModal({
                           projectId={projectId}
                           userId={userId}
                           people={people}
+                          targets={targets}
+                          reactions={reactions}
+                          projectTeamIds={projectTag.userIds}
                           permits={permits}
                           focused={focusMessageId === r.id}
                         />
@@ -353,7 +405,7 @@ export default function ProjectChatModal({
                   key={selected.post.id}
                   projectId={projectId}
                   postId={selected.post.id}
-                  people={people}
+                  targets={targets}
                   permits={permits}
                 />
               </>
@@ -440,14 +492,20 @@ function SearchResults({
 
 function NewPostComposer({
   projectId,
-  people,
+  targets,
   onClose,
   onCreated,
   initialTitle = '',
   initialBody = '',
 }: {
   projectId: string;
-  people: import('../../lib/database.types').MentionablePerson[];
+  /** ★ fix-347: people + `@project` + the custom tags. Parsing and the picker
+   *  both read this, so what the picker offers is exactly what the parser can
+   *  resolve — the fix-330 guarantee, extended to tags. */
+  targets: (
+    | import('../../lib/database.types').MentionablePerson
+    | import('../../lib/mentionTags').MentionTarget
+  )[];
   onClose: () => void;
   onCreated: (id: string) => void;
   /** ★ fix-339: seeded from a post request when this post answers one. */
@@ -458,6 +516,15 @@ function NewPostComposer({
   const [title, setTitle] = useState(initialTitle);
   const [body, setBody] = useState(initialBody);
 
+  // ★★ fix-347 §4: a tag DISPLAYS as its name and STORES its people. The body
+  // keeps "@project"; `mentions` gets the resolved ids, which is what the bell,
+  // My Board and the live stream key off — and what makes "who was notified?"
+  // answerable six months later, after the DA has changed.
+  const empties = useMemo(
+    () => emptyMentionTargets(body, targets),
+    [body, targets],
+  );
+
   function submit() {
     if (!title.trim() || !body.trim()) return;
     post.mutate(
@@ -466,7 +533,7 @@ function NewPostComposer({
         title: title.trim(),
         parentMessageId: null,
         body: body.trim(),
-        mentions: parseMentions(body, people),
+        mentions: parseMentions(body, targets),
       },
       { onSuccess: (id) => id && onCreated(id) },
     );
@@ -489,11 +556,23 @@ function NewPostComposer({
       <MentionTextarea
         value={body}
         onChange={setBody}
-        people={people}
+        people={targets}
         onSubmit={submit}
-        placeholder="Start the conversation… type @ to mention someone"
+        placeholder="Start the conversation… type @ to mention someone or a group"
         testId="project-chat-new-post-body"
       />
+      {/* ★ A tag that would notify NOBODY is said out loud before Send — the
+          same courtesy fix-330 extends to an unresolved @word, for the same
+          reason. */}
+      {empties.length > 0 && (
+        <div
+          className="text-[10.5px] text-co"
+          data-testid="project-chat-new-post-empty-tags"
+        >
+          {empties.map((e) => `@${e}`).join(', ')} matches nobody right now —
+          posting will notify no one.
+        </div>
+      )}
       <div className="flex gap-2">
         <button
           type="button"
@@ -537,12 +616,17 @@ function NewPostComposer({
 function ReplyComposer({
   projectId,
   postId,
-  people,
+  targets,
   permits,
 }: {
   projectId: string;
   postId: string;
-  people: import('../../lib/database.types').MentionablePerson[];
+  /** ★ fix-347: people + `@project` + the custom tags — one list for the picker
+   *  and the parser, so the two cannot disagree about what resolves. */
+  targets: (
+    | import('../../lib/database.types').MentionablePerson
+    | import('../../lib/mentionTags').MentionTarget
+  )[];
   permits: Permit[];
 }) {
   const post = usePostMessage();
@@ -601,8 +685,15 @@ function ReplyComposer({
   }
 
   const unresolved = useMemo(
-    () => unresolvedMentions(draft, people),
-    [draft, people],
+    () => unresolvedMentions(draft, targets),
+    [draft, targets],
+  );
+  // ★ fix-347: matched, highlighted — and notifies nobody. A different warning
+  // from the one above, because "@mi means nothing" and "@project means nobody
+  // today" are different mistakes with different fixes.
+  const empties = useMemo(
+    () => emptyMentionTargets(draft, targets),
+    [draft, targets],
   );
 
   // ★ A task without a message is not a thing this composer sends — the task
@@ -619,7 +710,8 @@ function ReplyComposer({
         projectId,
         parentMessageId: postId,
         body: draft.trim(),
-        mentions: parseMentions(draft, people),
+        // ★★ fix-347 §4: resolved ids, never the tag's name.
+        mentions: parseMentions(draft, targets),
         files: pending.map((p) => p.file),
         task:
           withTask && task.permitId != null
@@ -650,10 +742,10 @@ function ReplyComposer({
       <MentionTextarea
         value={draft}
         onChange={setDraft}
-        people={people}
+        people={targets}
         onSubmit={send}
         onPaste={onPaste}
-        placeholder="Reply… type @ to mention someone, or paste a snip"
+        placeholder="Reply… type @ to mention someone or a group, or paste a snip"
         testId="project-chat-input"
       />
 
@@ -668,6 +760,17 @@ function ReplyComposer({
           {unresolved.length === 1 ? 'matches nobody' : 'match nobody'} — it will
           post as plain text, and notify no one. Pick a name from the list to
           mention someone.
+        </div>
+      )}
+
+      {empties.length > 0 && (
+        <div
+          className="text-[10.5px] mt-1.5"
+          style={{ color: 'var(--color-co)' }}
+          data-testid="project-chat-empty-tags"
+        >
+          {empties.map((e) => `@${e}`).join(', ')} matches nobody right now —
+          sending will notify no one.
         </div>
       )}
 
