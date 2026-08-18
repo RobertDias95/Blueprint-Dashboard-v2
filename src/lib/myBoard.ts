@@ -16,12 +16,15 @@ import { isPermitInCorrections } from './permitStage';
 import { isSubPermit } from './subPermit';
 import {
   daQueueAllows,
+  milestoneCounterparty,
   milestoneStateLabel,
   milestoneWhyYours,
   usesDaQueueShape,
 } from './boardOwnership';
 import { isTaskLive } from './taskStatus';
 import { isCancelledProject } from './projectViewHelpers';
+// ★ fix-348: the board asks "is this task mine?" the way My Tasks does.
+import { taskMatchesSelfResolved } from './selfScope';
 
 // fix-298 Phase 1 — My Board: the read-only planner.
 //
@@ -735,9 +738,8 @@ export function milestoneAction(
   m: Pick<MilestoneOccurrence, 'date' | 'daysLate'>,
 ): string {
   if (state === 'waiting') {
-    const who =
-      leg === 'entitlement' ? (permit.da ?? '').trim() : (permit.ent_lead ?? '').trim();
-    return who ? `Wait — with ${who}` : 'Wait — with the other half';
+    // ★ fix-348: was its own copy of the leg→person rule. One definition now.
+    return `Wait — with ${milestoneCounterparty(leg, permit).label}`;
   }
   const late = m.daysLate ?? 0;
   switch (kind) {
@@ -832,6 +834,18 @@ export interface ForecastItem {
   address: string | null;
   /** "BLD2026-0319 · ULS", or just the type when there is no number yet. */
   permitLabel: string | null;
+  /** ★ fix-348: who the row is with while it is not yours, from the ONE
+   *  definition (milestoneCounterparty). Null on an actionable row and on a
+   *  task — those are yours, and "with" has no meaning. */
+  withWhom: string | null;
+  /** ★ fix-348: the OUTGOING half of the relay — design finished and passed
+   *  this to the entitlement lead (fix-308 #46). These rows leave the dated
+   *  buckets and appear once, under "Handed off — waiting on others".
+   *
+   *  ★ An INCOMING wait ("not yours yet — with Cam") is NOT this. It stays in
+   *  its dated bucket, because a target the ent lead owns is still late whether
+   *  or not they can act on it today. */
+  handedOff: boolean;
 }
 
 export interface BoardSection<T> {
@@ -856,12 +870,69 @@ function section<T>(all: T[], cap: number): BoardSection<T> {
   return { total: all.length, items, capped: all.length > items.length, all };
 }
 
+/** ★★ fix-348 — THE CAP MUST NOT SWALLOW ONE OF THE TWO KINDS.
+ *
+ *  Bobby: *"I don't really see any my tasks in the My Board … your forecast is
+ *  not only your milestones, but it's also your tasks."* Blending them into one
+ *  date order is the ticket — but Past due is capped at five, and measured on
+ *  prod for Miles the blended bucket is **57 milestones + 145 tasks = 202**. A
+ *  pure lateness sort over that can easily show five rows of one kind, which
+ *  would answer his complaint by re-creating it inside a section.
+ *
+ *  So the CAPPED VIEW takes the worst of each kind in turn. The ordering inside
+ *  what is shown is still lateness; `all` — what "Show all" expands to — is
+ *  untouched and strictly lateness-ordered. Nothing is hidden either way: the
+ *  header carries the true total AND the split.
+ *
+ *  ★ A no-op when the section holds only one kind, or is under its cap. */
+function interleaveBySource(all: ForecastItem[], cap: number): ForecastItem[] {
+  if (cap === Infinity) return all;
+  if (all.length <= cap) return all;
+  const milestones = all.filter((i) => i.source === 'milestone');
+  const tasks = all.filter((i) => i.source === 'task');
+  if (milestones.length === 0 || tasks.length === 0) return all.slice(0, cap);
+  const picked: ForecastItem[] = [];
+  let mi = 0;
+  let ti = 0;
+  while (picked.length < cap && (mi < milestones.length || ti < tasks.length)) {
+    if (mi < milestones.length) picked.push(milestones[mi++]!);
+    if (picked.length < cap && ti < tasks.length) picked.push(tasks[ti++]!);
+  }
+  // Re-order what was picked so the shown rows still read worst-first.
+  const order = new Map(all.map((i, idx) => [i.key, idx]));
+  return picked.sort((a, z) => (order.get(a.key) ?? 0) - (order.get(z.key) ?? 0));
+}
+
+/** ★ fix-348: a capped forecast section, built so both kinds survive the cap. */
+function forecastSection(all: ForecastItem[], cap: number): BoardSection<ForecastItem> {
+  const items = interleaveBySource(all, cap);
+  return { total: all.length, items, capped: all.length > items.length, all };
+}
+
+/** ★ fix-348: how many of each kind a section holds. The header prints it, so
+ *  "5 shown of 202" never has to be taken on trust about WHAT the 202 are. */
+export interface SourceSplit {
+  milestones: number;
+  tasks: number;
+}
+
+export function sourceSplit(items: ReadonlyArray<ForecastItem>): SourceSplit {
+  return {
+    milestones: items.filter((i) => i.source === 'milestone').length,
+    tasks: items.filter((i) => i.source === 'task').length,
+  };
+}
+
 export interface Forecast {
   past_due: BoardSection<ForecastItem>;
   today: BoardSection<ForecastItem>;
   tomorrow: BoardSection<ForecastItem>;
   this_week: BoardSection<ForecastItem>;
   next_week: BoardSection<ForecastItem>;
+  /** ★ fix-348: the OUTGOING relay rows, removed from the dated buckets above.
+   *  Derived HERE rather than by re-filtering the buckets in the page, which is
+   *  what let one permit appear in two sections at once. */
+  handed_off: ForecastItem[];
 }
 
 function bucketFor(daysLate: number): ForecastBucket {
@@ -890,6 +961,19 @@ export interface BoardInput {
    *  of the viewer's own. Never set for the forecast — a manager's day is
    *  their own. */
   scopeNames?: ReadonlyArray<string>;
+  /** ★★★ fix-348 — DOES THIS TASK BELONG TO THIS PERSON?
+   *
+   *  The board used to answer with `assigned_to === name`, a raw string
+   *  compare, while My Tasks answered with fix-238's resolver. Two screens, two
+   *  definitions of ownership — and the board's could not see a task assigned to
+   *  a ROLE ("Design Manager", "Entitlements") or a task with no assignee at
+   *  all: 344 of 558 open tasks on prod.
+   *
+   *  MyBoard injects `useTaskOwnership().matches` here, so the blended forecast
+   *  and the My Tasks bar under it route a task to the same person. The default
+   *  is the same resolver over the permits/projects already in this input; the
+   *  injected one additionally reads dm_da_groups for the DM. */
+  taskOwns?: (task: BoardTask, name: string | null) => boolean;
 }
 
 interface Prepared {
@@ -962,12 +1046,47 @@ function prepare(input: BoardInput): Prepared[] {
   return out;
 }
 
+/** ★★ fix-348: the fallback for {@link BoardInput.taskOwns}.
+ *
+ *  The SAME resolver My Tasks uses (fix-238's `taskMatchesSelfResolved`), with
+ *  its context built from the permits and projects already in this input. The
+ *  one thing it cannot see is `dm_da_groups`, so a task assigned to the "Design
+ *  Manager" role falls back to project.design_manager / permit.dm — which is
+ *  what useTaskOwnership does anyway when the group table has no row. MyBoard
+ *  injects the hook's version, which consults the table first.
+ *
+ *  ★ A default rather than a required field so the 31 existing test call sites
+ *  keep working AND keep testing the real rule — a stub default would have made
+ *  every one of them assert nothing. */
+function defaultTaskOwns(
+  input: Pick<BoardInput, 'permits' | 'projects'>,
+): (task: BoardTask, name: string | null) => boolean {
+  const permitById = new Map(input.permits.map((p) => [p.id, p]));
+  const projectById = new Map(input.projects.map((p) => [p.id, p]));
+  return (task, name) => {
+    const permit = permitById.get(task.permit_id);
+    const project = projectById.get(task.project_id);
+    return taskMatchesSelfResolved(task, name, {
+      da: task.permit_da ?? permit?.da ?? null,
+      dm: project?.design_manager ?? permit?.dm ?? null,
+      entLead: permit?.ent_lead ?? project?.entitlement_lead ?? null,
+      schematicDesigners: project?.schematic_designer ?? [],
+    });
+  };
+}
+
 /** ★ The forecast only ever shows things with a DATE. "Ping the reviewer, 21
  *  days quiet" has no date and is never here — it lives on the queue. */
 export function buildForecast(input: BoardInput): Forecast {
   const today = input.today;
   const thresholds = input.thresholds ?? DEFAULT_BOARD_THRESHOLDS;
   const items: ForecastItem[] = [];
+  // fix-194 / fix-348: sub-permits are placeholders reviewed under a parent and
+  // never carry work of their own. prepare() drops them for milestones; the
+  // task loop needs the same set.
+  const subPermitIds = new Set(
+    input.permits.filter((p) => isSubPermit(p)).map((p) => p.id),
+  );
 
   for (const p of prepare(input)) {
     for (const m of permitMilestones(p.permit, today, thresholds, input.acks ?? [])) {
@@ -985,14 +1104,28 @@ export function buildForecast(input: BoardInput): Forecast {
           MILESTONE_LEGS[m.kind].design &&
           MILESTONE_LEGS[m.kind].ent;
         const cyc = latestCycle(p.permit.permit_cycles ?? []);
+        const other = milestoneCounterparty(leg, p.permit);
         items.push({
           key: `m-${p.permit.id}-${m.kind}-${leg}`,
           source: 'milestone',
           verb,
-          why:
-            state === 'waiting'
-              ? `${m.why} Sitting with the entitlement lead.`
-              : m.why,
+          // ★★ fix-348 — THE IN-ROW CONTRADICTION, DELETED RATHER THAN PATCHED.
+          //
+          // This appended "Sitting with the entitlement lead." to EVERY waiting
+          // row, whichever leg it was on — so an entitlement-leg row waiting on
+          // the DA said "sitting with the entitlement lead" one line above
+          // "Wait — with Cam", and on 4137 54th Ave SW it told Bobby his own
+          // row was sitting with himself.
+          //
+          // ★ The right fix is not a third leg-aware copy of the same sentence.
+          // The row ALREADY names the counterparty twice — in `actionLine`
+          // ("Wait — with Cam") and in `whyYours` ("Not yours yet — with Cam"),
+          // both of which fix-308 #45 put there deliberately and both of which
+          // were correct. A third restatement is exactly the verbiage fix-306
+          // #22 cut. So the sentence goes, `why` keeps the milestone's own
+          // facts, and the two survivors read from milestoneCounterparty —
+          // now the only place the question is answered.
+          why: m.why,
           where: p.where,
           date: m.date,
           daysLate,
@@ -1012,29 +1145,77 @@ export function buildForecast(input: BoardInput): Forecast {
           entLead: p.permit.ent_lead ?? null,
           stateLabel: milestoneStateLabel(daysLate),
           whyYours: milestoneWhyYours(leg, state, p.permit),
+          withWhom: state === 'waiting' ? other.label : null,
+          // ★ OUTGOING only. `isHandoff` is already "the design half finishing
+          // a two-leg milestone"; with 'waiting' that is precisely "design is
+          // done and the lead now holds it".
+          handedOff: isHandoff && state === 'waiting',
         });
       }
     }
   }
 
-  // Named tasks — individual, never duplicated to the other half. A task with
-  // no due date is not a forecast item; today that is EVERY live task (0 of
-  // 487 carry one), so this path is correct and currently silent. It lights up
-  // the moment anyone sets a due date.
+  // ========================================================================
+  // ★★★ fix-348 — TASKS AND MILESTONES IN ONE DATED FORECAST
+  // ========================================================================
+  //
+  // Bobby: *"I don't really see any my tasks in the My Board. We want that to
+  // merge and holistically work together. Your forecast is not only your
+  // milestones, but it's also your tasks that are past due or today or tomorrow
+  // or this week or next week."*
+  //
+  // ★★★ THE BLEND WAS ALREADY WRITTEN. This loop has existed since fix-303 and
+  // has never emitted a single row, for TWO independent reasons, both measured
+  // on prod 2026-08-19:
+  //
+  //   1. IT READ A COLUMN NOTHING WRITES. `due_date`: 0 of 558 open tasks carry
+  //      one, and the live task editor (TaskDetailEditor) offers Start Date and
+  //      Target Date and no third field — there is no control in the app that
+  //      can set it. `target_date` carries 278. The My Tasks bar directly below
+  //      this panel has always counted overdue off `target_date`
+  //      (isTaskOverdue), so the bar said "4 overdue" while the forecast above
+  //      it said nothing: two numbers about the same tasks, from two columns.
+  //
+  //   2. IT COMPARED `assigned_to` AS A RAW STRING. permit_tasks.assigned_to
+  //      holds a ROLE token ("Design Manager", "Entitlements", …) or nothing at
+  //      all as often as it holds a name — 344 of 558 open tasks are unassigned
+  //      — and fix-238 exists precisely because a raw compare routes those to
+  //      nobody. My Tasks resolves; the board did not.
+  //
+  // ★ So the blend is: the date the team actually sets, and the ownership rule
+  // the other half of the same screen already uses. Both are shared code, not a
+  // third opinion.
+  //
+  // ★ A TASK STAYS A TASK. fix-304 §21's row vocabulary is untouched — ✓ amber
+  // for a task, ◆ blue for a milestone, and `data-kind` on the row — so they are
+  // blended by DATE and never disguised as each other.
   const me = (input.viewer.name ?? '').trim().toLowerCase();
+  const owns = input.taskOwns ?? defaultTaskOwns(input);
   for (const t of input.tasks) {
-    if (!t.due_date) continue;
+    // ★ target_date, then due_date. Not the other way round: target_date is what
+    // the team sets and what every other overdue count on this screen reads.
+    // due_date is kept as a fallback only because the column exists.
+    const date = t.target_date ?? t.due_date;
+    if (!date) continue;
     if (!isTaskLive(t.status)) continue;
-    if ((t.assigned_to ?? '').trim().toLowerCase() !== me || me === '') continue;
-    const daysLate = daysBetween(t.due_date, today);
+    if (me === '' || !owns(t, input.viewer.name)) continue;
+    // ★ The same two exclusions prepare() applies to milestones, which the old
+    // loop bypassed entirely: work on a CANCELLED project is not work (fix-264),
+    // and a SUB-PERMIT is a placeholder reviewed under its parent (fix-194).
+    // Silent while nothing was dated; live the moment this loop emits a row.
+    if (isCancelledProject(t.project_id, input.cancelledIds)) continue;
+    if (subPermitIds.has(t.permit_id)) continue;
+    const daysLate = daysBetween(date, today);
     items.push({
       key: `t-${t.id}`,
       source: 'task',
       verb: t.text,
       // fix-304 §22: the ✓ task badge already says this.
       why: '',
-      where: '',
-      date: t.due_date,
+      // ★ Was ''. The blended sort tie-breaks on `where`, and an empty one put
+      // every task ahead of every milestone due the same day.
+      where: `${t.project_address ?? 'Unknown address'} · ${t.permit_type ?? 'Permit'}`,
+      date,
       daysLate,
       bucket: bucketFor(daysLate),
       actionable: true,
@@ -1055,29 +1236,47 @@ export function buildForecast(input: BoardInput): Forecast {
       // A named task is on your list because your name is on it. Saying so
       // would be the verbiage #22 cut.
       whyYours: '',
+      withWhom: null,
+      handedOff: false,
     });
   }
 
-  // ★ RANK, DO NOT FILTER. Miles carries 139 past-due dated items. Listing
-  // them all teaches people to scroll past red, so past due is a SORT KEY:
-  // lateness first, capped, with the true total always in the header.
+  // ★★ fix-348 — THE OUTGOING ROWS LEAVE THE DATED BUCKETS.
+  //
+  // fix-308 #46's comment in MyBoard.tsx says it outright: *"When the design
+  // half is done the row LEAVES the dated buckets — it is no longer past due
+  // FOR THE SENDER — and lands here."* It never did. The page DERIVED the
+  // handed-off list from the forecast's own buckets and rendered both, so one
+  // permit appeared twice on one screen — which is exactly what Bobby saw.
+  //
+  // Splitting here, in the builder, makes "an item appears in at most one
+  // bucket" structural rather than something two call sites have to agree on.
+  const handedOffItems = items.filter((i) => i.handedOff);
+  const dated = items.filter((i) => !i.handedOff);
+
+  // ★ RANK, DO NOT FILTER. Blended, Miles's past due is 57 milestones + 145
+  // tasks. Listing them all teaches people to scroll past red, so past due is a
+  // SORT KEY: lateness first, capped, with the true total AND the split always
+  // in the header — and the cap takes the worst of each kind, so 145 late tasks
+  // cannot bury every late milestone or the other way round.
   const inBucket = (b: ForecastBucket) =>
-    items
+    dated
       .filter((i) => i.bucket === b)
       .sort((a, z) => z.daysLate - a.daysLate || a.where.localeCompare(z.where));
 
   return {
-    past_due: section(inBucket('past_due'), BOARD_SECTION_CAPS.past_due),
-    today: section(inBucket('today'), BOARD_SECTION_CAPS.today),
-    tomorrow: section(inBucket('tomorrow'), BOARD_SECTION_CAPS.tomorrow),
-    this_week: section(
+    past_due: forecastSection(inBucket('past_due'), BOARD_SECTION_CAPS.past_due),
+    today: forecastSection(inBucket('today'), BOARD_SECTION_CAPS.today),
+    tomorrow: forecastSection(inBucket('tomorrow'), BOARD_SECTION_CAPS.tomorrow),
+    this_week: forecastSection(
       inBucket('this_week').sort((a, z) => a.date.localeCompare(z.date)),
       BOARD_SECTION_CAPS.this_week,
     ),
-    next_week: section(
+    next_week: forecastSection(
       inBucket('next_week').sort((a, z) => a.date.localeCompare(z.date)),
       BOARD_SECTION_CAPS.next_week,
     ),
+    handed_off: handedOffItems.sort((a, z) => z.daysLate - a.daysLate),
   };
 }
 
@@ -1261,8 +1460,16 @@ export function buildQueue(input: BoardInput): ProjectQueue {
           daysLate = Math.max(daysLate, late);
         } else if (state === 'waiting' && group !== 'blocked_on_you') {
           group = 'waiting_on_design';
-          const da = (p.permit.da ?? '').trim();
-          detail = da ? `With ${da}` : 'With design';
+          // ★ fix-348: was `permit.da`, unconditionally — so a DA whose design
+          // half is finished read "With <themself>" on their own queue. The
+          // counterparty follows the LEG, from the one definition.
+          //
+          // ★ THE GROUP KEY IS DELIBERATELY UNCHANGED. On a design-leg row the
+          // counterparty is the ENT lead, so the row is accurate but the section
+          // it sits under is still called "Waiting on design". Renaming a
+          // section Bobby named is his call, not a silent side effect of a
+          // string fix — flagged in the PR, not decided here.
+          detail = `With ${milestoneCounterparty(leg, p.permit).label}`;
           next = '';
           daysLate = Math.max(daysLate, late);
         }

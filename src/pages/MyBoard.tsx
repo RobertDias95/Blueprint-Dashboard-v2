@@ -13,6 +13,7 @@ import { useBoardNotifications } from '../hooks/useBoardNotifications';
 import { useConfirmHandoff } from '../hooks/useConfirmHandoff';
 import { useDmDaGroups } from '../hooks/useDmDaGroups';
 import { useDaTeamRouting } from '../hooks/useDaTeamRouting';
+import { useTaskOwnership } from '../hooks/useTaskOwnership';
 import { useBoardReads, useMarkBoardItemsRead } from '../hooks/useBoardReads';
 import { buildNewItems, keyForTask, unseenItems } from '../lib/boardReads';
 import { useMyMentions } from '../hooks/useProjectMessages';
@@ -46,6 +47,7 @@ import {
   buildQueueForScope,
   teamMembersFor,
   DEFAULT_QUEUE_SCOPE,
+  sourceSplit,
   systemHealth,
   teamMappingGap,
   todayIso,
@@ -84,6 +86,7 @@ function SectionHeader({
   expanded,
   onToggle,
   testid,
+  split,
 }: {
   label: string;
   total: number;
@@ -92,6 +95,12 @@ function SectionHeader({
   expanded?: boolean;
   onToggle?: () => void;
   testid: string;
+  /** ★★ fix-348: the composition of a BLENDED section — how many of the total
+   *  are milestones and how many are tasks. The cap shows five of Miles's 202
+   *  past-due rows; without this the header says "202" and a reader has no way
+   *  to tell whether his tasks are in there at all, which is the complaint this
+   *  ticket started from. Rendered only when the section holds both kinds. */
+  split?: { milestones: number; tasks: number };
 }) {
   // fix-303: "Show all" now DOES something. Phase 1 wired onClick to a prop no
   // caller ever passed, so the control rendered, looked interactive, and was
@@ -119,6 +128,14 @@ function SectionHeader({
         data-testid={`${testid}-total`}
       >
         {total}
+        {split && split.milestones > 0 && split.tasks > 0 && (
+          <span data-testid={`${testid}-split`}>
+            {' · '}
+            {split.milestones} milestone{split.milestones === 1 ? '' : 's'}
+            {' · '}
+            {split.tasks} task{split.tasks === 1 ? '' : 's'}
+          </span>
+        )}
         {showToggle && onToggle && (
           <button
             type="button"
@@ -580,6 +597,7 @@ function ForecastSection({
         expanded={expanded}
         onToggle={onToggle}
         testid={testid}
+        split={sourceSplit(data.all)}
       />
       {rows.length === 0 ? (
         <div className="px-3.5 py-2 text-[10px] text-dim" data-testid={`${testid}-empty`}>
@@ -661,6 +679,8 @@ export default function MyBoard() {
   const readsQ = useBoardReads();
   const markRead = useMarkBoardItemsRead();
   const dmGroups = useDmDaGroups();
+  // ★ fix-348: fix-238's ownership resolver, shared with My Tasks.
+  const taskOwnership = useTaskOwnership();
   const entRouting = useDaTeamRouting();
 
   // ★ fix-306 #35: the queue's scope. Defaults to MY QUEUE so nobody is handed
@@ -754,8 +774,23 @@ export default function MyBoard() {
       today: todayIso(),
       cancelledIds: cancelledProjectIds(holdsQ.data),
       acks: acksQ.data ?? [],
+      // ★★ fix-348: the blended forecast asks "is this task mine?" with fix-238's
+      // resolver — the SAME predicate the My Tasks bar directly below this panel
+      // counts with. Two surfaces on one screen must not disagree about who a
+      // task belongs to, and before this they did: the board compared
+      // `assigned_to` as a raw string, so a task routed to a ROLE, or with no
+      // assignee at all (344 of 558 open tasks on prod), reached nobody here.
+      taskOwns: taskOwnership.matches,
     }),
-    [viewer, permitsQ.data, projectsQ.data, tasksQ.data, holdsQ.data, acksQ.data],
+    [
+      viewer,
+      permitsQ.data,
+      projectsQ.data,
+      tasksQ.data,
+      holdsQ.data,
+      acksQ.data,
+      taskOwnership.matches,
+    ],
   );
 
   // ★ The handoff candidates. A permit qualifies when its design leg is
@@ -867,18 +902,33 @@ export default function MyBoard() {
   // ★★ It shows age and climbs WITHIN the section, and it NEVER escalates.
   // No task, no priority, no notification, however old — that obligation is
   // the receiver's, and fix-305's ladder already escalates it on their board.
-  const handedOff = useMemo(() => {
-    const all = [
-      ...forecast.past_due.items,
-      ...forecast.today.items,
-      ...forecast.tomorrow.items,
-      ...forecast.this_week.items,
-      ...forecast.next_week.items,
-    ];
-    return buildHandedOff(
-      all.map((i) => ({ ...i, withWhom: i.entLead ?? '' })),
-    );
-  }, [forecast]);
+  //
+  // ★★★ fix-348 — TWO BUGS LIVED IN THE SIX LINES THIS REPLACES.
+  //
+  // It read the rendered dated buckets and mapped EVERY non-actionable row into
+  // this section, with `withWhom: i.entLead` hardcoded. So:
+  //
+  //   1. THE SAME ROW APPEARED TWICE ON ONE SCREEN. Deriving from the buckets
+  //      does not remove anything from them — the comment above claims the row
+  //      "LEAVES the dated buckets" and nothing ever made it leave. On
+  //      4137 54th Ave SW · PAR/Pre-Sub that produced Bobby's screenshot
+  //      exactly: PAST DUE *and* HANDED OFF, one permit, one board.
+  //   2. IT NAMED THE WRONG PERSON, in the wrong direction. `!actionable`
+  //      catches BOTH halves of the relay, and an ENTITLEMENT-leg row waiting
+  //      on the DA is INCOMING — the opposite of handed off. Naming the ent
+  //      lead on it told Bobby he had handed the permit to himself, one line
+  //      away from a row saying it was with Cam.
+  //
+  // Both are gone at the source: buildForecast now splits the outgoing rows out
+  // of the buckets and carries the counterparty on each item, from the single
+  // milestoneCounterparty definition.
+  const handedOff = useMemo(
+    () =>
+      buildHandedOff(
+        forecast.handed_off.map((i) => ({ ...i, withWhom: i.withWhom ?? '' })),
+      ),
+    [forecast],
+  );
   // ★ fix-306 #35: the people this viewer may scope the queue to. Derived from
   // dm_da_groups (design managers), da_team_routing (entitlement leads), or
   // everyone (oversight). A design associate gets an empty list and therefore
