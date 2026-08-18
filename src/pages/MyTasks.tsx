@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import WaitingOnView from '../components/MyTasks/WaitingOnView';
 import BotBadge from '../components/shared/BotBadge';
+import AutoClosedBadge from '../components/shared/AutoClosedBadge';
 import { UNOWNED_LABEL, taskNeedsOwner } from '../lib/boardOwnership';
 import { useTeamMembers } from '../hooks/useTeamMembers';
 import { isCurrentMember } from '../lib/roster';
@@ -1295,6 +1296,12 @@ function TaskCard({
       <div className="flex items-center gap-1 mt-1 flex-wrap">
         {task.is_auto_generated && (
           <BotBadge taskId={task.id} event={task.auto_event} />
+        )}
+        {/* ★★ fix-337: 88 tasks were closed by the system when their permit
+            issued. On a board of completed work, "who ticked this?" has to have
+            an answer, and for these the answer is nobody. */}
+        {task.auto_closed_reason && (
+          <AutoClosedBadge taskId={task.id} reason={task.auto_closed_reason} />
         )}
         {task.permit_type && (
           <span

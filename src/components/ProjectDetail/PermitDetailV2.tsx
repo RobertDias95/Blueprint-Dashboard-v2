@@ -68,6 +68,7 @@ import type {
 import { WAITING_ON_OPTIONS } from '../../lib/database.types';
 import { useProjectExternalTeamBlob } from '../../hooks/useProjectExternalTeamBlob';
 import BotBadge from '../shared/BotBadge';
+import AutoClosedBadge from '../shared/AutoClosedBadge';
 import PendingScrapeChip from '../shared/PendingScrapeChip';
 import { STAGE_LABEL } from '../../lib/stageLabel';
 import { LandUsePhaseBadge } from './LandUsePhaseBadge';
@@ -2250,6 +2251,12 @@ function TaskItem({
         {task.is_auto_generated && (
           <span className="mt-0.5">
             <BotBadge taskId={task.id} event={task.auto_event} />
+          </span>
+        )}
+        {/* ★★ fix-337: and who closed it, when it was not a person. */}
+        {task.auto_closed_reason && (
+          <span className="mt-0.5">
+            <AutoClosedBadge taskId={task.id} reason={task.auto_closed_reason} />
           </span>
         )}
         {/* fix-235: click-to-advance checkbox — Open → In Progress → Resolved,
