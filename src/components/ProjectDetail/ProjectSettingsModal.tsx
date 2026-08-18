@@ -6,6 +6,7 @@ import {
 import { useJurisdictions } from '../../hooks/useJurisdictions';
 import { usePermitTypes } from '../../hooks/usePermitTypes';
 import { useTeamMembers } from '../../hooks/useTeamMembers';
+import { useReassignProjectSd } from '../../hooks/useProjectSdHandoffs';
 import { isCurrentMember } from '../../lib/roster';
 import { usePermitsByProject } from '../../hooks/usePermitsByProject';
 import {
@@ -208,6 +209,7 @@ export default function ProjectSettingsModal({
   const permitsQ = usePermitsByProject(project.id);
   const jurisdictionsQ = useJurisdictions();
   const teamQ = useTeamMembers();
+  const reassignSd = useReassignProjectSd();
   // fix-25-feat-d: catalog source for the per-permit Type dropdown
   const permitTypesQ = usePermitTypes();
   // fix-93: settings-managed Product Types catalog (parity with the
@@ -266,6 +268,16 @@ export default function ProjectSettingsModal({
   const daMembers = team.filter((t) => t.role === 'da' && isCurrentMember(t));
   const acqMembers = dedupByName(
     team.filter((t) => (t.role === 'acq' || t.role === 'acq_lead') && isCurrentMember(t)),
+  );
+  // ★ fix-344 §1: the schematic designer, and the RPC that moves them. The
+  // array has only ever held one name (measured), so the picker shows the
+  // first — see the field's note.
+  const currentSd = Array.isArray(project.schematic_designer)
+    ? (project.schematic_designer.find((n) => !!n && n.trim() !== '') ?? '')
+    : '';
+  // ★ fix-344 §1: the schematic roster, same current-roster rule as the rest.
+  const sdMembers = dedupByName(
+    team.filter((t) => t.role === 'schematic' && isCurrentMember(t)),
   );
 
   function set<K extends keyof FormState>(key: K, value: FormState[K]) {
@@ -551,6 +563,42 @@ export default function ProjectSettingsModal({
                 placeholderLabel="— none —"
                 testid="psm-dm"
               />
+            </Field>
+            {/* ★★★ fix-344 §1 — THE SCHEMATIC DESIGNER, AND THE MOVE.
+                Bobby: "If we added the SD there and then we changed the project
+                from one person to another… then it could take all of his tasks
+                for that project and move it over."
+
+                ★ SINGLE-SELECT. The column is an array and stays one (changing
+                the type was explicitly out of scope), but it has never held more
+                than one name — 0 projects with two, 34 with one, 119 with none —
+                so a multi-select would be a control for a case that does not
+                exist, and the tasks-follow-the-person rule has no answer when
+                "the person" is two people.
+
+                ★★ IT IS NOT PART OF THE SAVE. Changing it calls the reassign RPC
+                immediately — one admin-gated transaction that moves the field,
+                the open tasks and the co-assignee rows together, and records the
+                handoff. Folding a task move into a generic field patch would
+                make an ordinary Save do something large and invisible. */}
+            <Field label="Schematic Designer">
+              <SelectInput
+                value={currentSd}
+                onChange={(v) => {
+                  if (!canReassignDa) return;
+                  if ((v || null) === (currentSd || null)) return;
+                  reassignSd.mutate({ projectId: project.id, toSd: v || null });
+                }}
+                options={['', ...sdMembers.map((m) => m.name)]}
+                placeholderLabel="— none —"
+                disabled={!canReassignDa || reassignSd.isPending}
+                testid="psm-sd"
+              />
+              <p className="text-[9.5px] text-dim mt-0.5" data-testid="psm-sd-hint">
+                {canReassignDa
+                  ? 'Changing this also moves their open tasks on this project — and saves immediately.'
+                  : 'Only a tenant admin can reassign the schematic designer.'}
+              </p>
             </Field>
             <Field label="Unit Count">
               <Input
@@ -1081,12 +1129,15 @@ function SelectInput({
   options,
   placeholderLabel,
   testid,
+  disabled = false,
 }: {
   value: string;
   onChange: (v: string) => void;
   options: string[];
   placeholderLabel: string;
   testid?: string;
+  /** ★ fix-344: the SD picker is admin-only, so it can be shown-but-inert. */
+  disabled?: boolean;
 }) {
   return (
     <select
@@ -1094,6 +1145,7 @@ function SelectInput({
       onChange={(e) => onChange(e.target.value)}
       className={inputCls}
       style={inputStyle}
+      disabled={disabled}
       data-testid={testid}
     >
       {options.map((o) =>

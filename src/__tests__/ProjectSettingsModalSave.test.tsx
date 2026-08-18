@@ -43,6 +43,14 @@ vi.mock('../hooks/useJurisdictions', () => ({
 vi.mock('../hooks/usePermitTypes', () => ({
   usePermitTypes: () => ({ data: [{ name: 'Building Permit' }, { name: 'Demolition' }] }),
 }));
+vi.mock('../hooks/useProjectSdHandoffs', () => ({
+  // ★ fix-344: the SD picker calls this on change. Mocked here like every
+  // other hook this suite stubs, so the modal keeps rendering without a
+  // QueryClientProvider — the reassign itself is asserted in
+  // SdReassignAndPostsFix344.test.tsx.
+  useReassignProjectSd: () => ({ mutate: vi.fn(), isPending: false }),
+  useProjectSdHandoffs: () => ({ data: [], isLoading: false, error: null }),
+}));
 vi.mock('../hooks/useTeamMembers', () => ({
   useTeamMembers: () => ({ data: [] }),
 }));
