@@ -44,12 +44,21 @@ export function MessageBody({
   );
 }
 
+// ★ fix-346 §1b: the author circle, now used ONLY on individual messages inside
+// the modal — Bobby took it off the Team-card preview rows, where the unit is a
+// THREAD and an author answers a question nobody asked. The testid is here so
+// "no avatar in the preview, avatars still in the modal" is one assertion each
+// rather than a guess at a class name.
+//
+// ★ `initialsOf` is deliberately untouched: register #127 (BO should be BD) is
+// a separate fix that lands with the roster names, and it still matters here.
 export function Avatar({ name }: { name: string | null | undefined }) {
   return (
     <span
       className="rounded-full bg-s2 text-muted font-bold flex items-center justify-center flex-shrink-0"
       style={{ width: 22, height: 22, fontSize: 8.5 }}
       aria-hidden
+      data-testid="chat-avatar"
     >
       {initialsOf(name)}
     </span>

@@ -679,7 +679,8 @@ describe('fix-345 §3: the three card buttons', () => {
 describe('fix-345 §3: the Team card has exactly one way into the chat', () => {
   it('★★ the inline "Open chat →" link is gone; the button is the way in', () => {
     renderHeader(projectFixture(), [bpFixture()]);
-    // The preview is untouched and still between Internal and External.
+    // The preview is untouched — fix-346 §1 moved it down to sit directly above
+    // the button, and its content is the same as it ever was.
     const preview = screen.getByTestId('project-chat-mini');
     expect(preview).toBeInTheDocument();
     // ★ And it contains no opener of its own. Two ways into one thread from one
@@ -701,17 +702,25 @@ describe('fix-345 §3: the Team card has exactly one way into the chat', () => {
     expect(screen.getByTestId('project-chat-modal')).toBeInTheDocument();
   });
 
-  // ★ fix-331 §3's placement is Bobby's and he is not asking for it back — the
-  // preview stays in the middle of the card. Only the opener moved.
-  it('★ the chat PREVIEW did not move', () => {
+  // ★★ SUPERSEDED BY fix-346 §1, deliberately rewritten rather than deleted.
+  // This assertion used to read "the chat PREVIEW did not move" and pinned it
+  // between Internal and External, which is where fix-331 §3 put it and where
+  // my own fix-345 brief told me to keep it. Bobby withdrew that: "move that
+  // chat down below, above the chat button, so that it goes internal, external,
+  // and then here's the chat section… and then the chat button."
+  //
+  // ★ What the test protects is unchanged — the ORDER of the whole card,
+  // asserted whole rather than sliced down to the part that still passes — and
+  // the count is still four sections, so fix-345 §3's pinning above is intact.
+  it('★★ the card order is Internal, External, the preview, then the button', () => {
     renderHeader(projectFixture(), [bpFixture()]);
     const ids = Array.from(
       screen.getByTestId('project-overview-team').querySelectorAll(':scope > section'),
     ).map((s) => (s as HTMLElement).dataset.testid);
     expect(ids).toEqual([
       'project-overview-team-internal',
-      'project-overview-team-chat',
       'project-overview-team-external',
+      'project-overview-team-chat',
       'pd-chat-section',
     ]);
   });

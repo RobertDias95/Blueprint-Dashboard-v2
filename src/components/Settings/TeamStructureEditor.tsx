@@ -2,6 +2,8 @@ import { useMemo } from 'react';
 import { useDmDaGroups } from '../../hooks/useDmDaGroups';
 import { useUpsertDmDaGroup } from '../../hooks/useUpsertDmDaGroup';
 import { useDeleteDmDaGroup } from '../../hooks/useDeleteDmDaGroup';
+import { useOpenTaskCounts } from '../../hooks/useOpenTaskCounts';
+import { unmappedActiveDas } from '../../lib/dmCoAssign';
 import type { TeamMember, DmDaGroupRow } from '../../lib/database.types';
 
 // Q7.3.b: DM/DA grouping editor. Each DM gets a card showing the DAs
@@ -11,6 +13,18 @@ import type { TeamMember, DmDaGroupRow } from '../../lib/database.types';
 //
 // Unassigned DAs (warning row) and former-DA cleanup live in AdminTeamTab,
 // not here — this component is just the (DM × DAs) matrix.
+//
+// ★★★ fix-346 §2: THIS TABLE NOW ROUTES TASKS, NOT JUST DRAW-SCHEDULE COLUMNS.
+// A task assigned to a DA listed here is automatically co-assigned to the DM
+// whose card they sit on (`bp_trg_task_coassign_dm`). A DA who is on nobody's
+// card gets no co-assignee — Bobby's call: "skip them", never invent a manager.
+//
+// ★★ THE CONDITION WAS THAT THE SKIP MUST NOT BE SILENT, and this is where it
+// is said. The unassigned row below was already here counting a different cost
+// (no draw-schedule column); it now also names what the missing mapping costs
+// in tasks, with each person's OPEN TASK COUNT — because "Cam is unassigned"
+// and "Cam is unassigned and holds 17 open tasks nobody's manager is seeing"
+// are different sentences, and only the second one gets acted on.
 
 interface Props {
   dms: TeamMember[];
@@ -53,10 +67,19 @@ export default function TeamStructureEditor({
     [rowByDa],
   );
 
-  const unassigned = useMemo(
-    () => activeDas.filter((da) => !assignedDaNames.has(da.name)),
-    [activeDas, assignedDaNames],
+  // ★ fix-346: the SHARED predicate, so this row and the trigger disagree about
+  // nobody. `unmappedActiveDas` matches names trimmed + case-folded exactly as
+  // `dmForDa` / `bp_dm_for_da` do — a roster name differing only in spacing is
+  // routed by the rule, so it must not be reported here as a gap.
+  const unassignedNames = useMemo(
+    () => unmappedActiveDas(activeDas.map((d) => d.name), groupsQ.rows),
+    [activeDas, groupsQ.rows],
   );
+  const unassigned = useMemo(
+    () => activeDas.filter((da) => unassignedNames.includes(da.name)),
+    [activeDas, unassignedNames],
+  );
+  const openCountsQ = useOpenTaskCounts(unassignedNames);
 
   function moveDa(da: string, toDm: string) {
     const existing = rowByDa.get(da);
@@ -89,8 +112,9 @@ export default function TeamStructureEditor({
         Team Structure — Draw Schedule Groups
       </div>
       <p className="text-xs text-muted">
-        Assign DAs to DMs. Drives draw-schedule column grouping + automatic
-        project assignment for new permits.
+        Assign DAs to DMs. Drives draw-schedule column grouping, automatic
+        project assignment for new permits, and the DM co-assignee added to new
+        tasks assigned to a DA listed here.
       </p>
 
       {dms.map((dm) => {
@@ -183,11 +207,34 @@ export default function TeamStructureEditor({
 
       {unassigned.length > 0 && (
         <div
-          className="px-3 py-2 text-[11px] text-co bg-co-bg/40 border border-co-border rounded-md"
+          className="px-3 py-2 text-[11px] text-co bg-co-bg/40 border border-co-border rounded-md space-y-1"
           data-testid="team-unassigned-warning"
         >
-          ⚠ Unassigned DAs (not on draw schedule):{' '}
-          {unassigned.map((d) => d.name).join(', ')}
+          <div>
+            ⚠ Unassigned DAs (not on draw schedule):{' '}
+            {unassigned.map((d) => d.name).join(', ')}
+          </div>
+          {/* ★★ fix-346 §2: the second cost of the same missing row, named with
+              the number that makes it worth fixing. One line per person, so a
+              name cannot hide in a list. */}
+          <div data-testid="team-unmapped-coassign-warning">
+            Their tasks get <strong>no Design Manager co-assignee</strong> —
+            there is no manager to derive. Assign each to a DM above to turn it
+            on (existing tasks are not changed):
+            <ul className="mt-0.5 ml-3 list-disc">
+              {unassigned.map((d) => {
+                const n = openCountsQ.data?.[d.name];
+                return (
+                  <li key={d.id} data-testid={`team-unmapped-da-${d.name}`}>
+                    {d.name}
+                    {n === undefined
+                      ? ''
+                      : ` — ${n} open task${n === 1 ? '' : 's'}`}
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
         </div>
       )}
     </div>
