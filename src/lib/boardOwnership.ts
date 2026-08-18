@@ -76,6 +76,36 @@ export function taskNeedsOwner(task: {
   return !(task.co_assignees ?? []).some(named);
 }
 
+// ---------------------------------------------------------------------------
+// ★★★ fix-348 — FLAGGED, NOT CHANGED: this rule and fix-238's disagree.
+// ---------------------------------------------------------------------------
+//
+// `taskOwnership` and `unownedSurfacesTo` below have NO non-test callers — a
+// grep of src/ finds only this file and BoardOwnershipFix308.test.ts. They were
+// written for a queue surface fix-308b never built, and fix-308b's own file
+// says so about its siblings.
+//
+// ★★ THAT MATTERS NOW, because fix-348 made My Board resolve task ownership
+// with fix-238's `taskMatchesSelfResolved` — and for an ARCH task the two rules
+// give opposite answers:
+//
+//     this file  (#44)  unowned → the ENT lead, "never the DA, however the
+//                       permit is assigned"
+//     fix-238    (#3)   unowned arch → the DA (the DA blanket), and an unset
+//                       assignee → the discipline's default owner, which for
+//                       'arch' IS the DA (fix-230's defaultPrimaryTeamKey)
+//
+// ★ NO BEHAVIOUR WAS CHANGED HERE. The board never called this, so nothing on
+// screen moved; the board simply now uses the SAME rule My Tasks has used since
+// fix-238, which is the one the team has actually been working from. But two
+// written-down rules that contradict each other is exactly the "confliction"
+// this ticket is about, and deleting one of Bobby's stated rules is his call,
+// not a side effect of a display fix. Left standing, reported in the PR.
+//
+// ★ The ENT half of #44 is NOT in conflict and is what the board now does: an
+// unassigned 'ent' task reaches the permit's entitlement lead — 274 of the 275
+// on prod.
+
 /** Does this unowned task belong in `viewer`'s queue? Only the ENT lead's. */
 export function unownedSurfacesTo(
   permit: { da?: string | null; ent_lead?: string | null },
@@ -85,6 +115,66 @@ export function unownedSurfacesTo(
   if (v === '') return false;
   // ★ Explicitly NOT the DA, however the permit is assigned.
   return (permit.ent_lead ?? '').trim().toLowerCase() === v;
+}
+
+// ===========================================================================
+// ★★★ fix-348 — ONE DEFINITION OF "WHO IS THE OTHER HALF"
+// ===========================================================================
+//
+// Bobby, on `4137 54th Ave SW · PAR/Pre-Sub`: *"Sitting with the entitlement
+// lead"* printed directly above *"Wait — with Cam"*, in the same card. ★ Cam is
+// a DA, not an entitlement lead. The sentence and the name disagreed with each
+// other inside one row.
+//
+// ★ REPRODUCED BEFORE DIAGNOSED, as the brief required. Permit 10491 on prod:
+// da='Cam', ent_lead='Bobby', target_submit='2026-08-17' (the screenshot's "1d
+// past target"), nothing submitted on cycle 0, and exactly one `arch` task,
+// open → legShape 'two-leg', designLegStatus 'in-progress' → the ENTITLEMENT
+// leg is 'waiting'. Every string on that row is produced here, and the
+// counterparty was computed FIVE times in FIVE places:
+//
+//     milestoneAction        leg-aware  → "Wait — with Cam"                  ✓
+//     milestoneWhyYours      leg-aware  → "Not yours yet — with Cam"         ✓
+//     buildForecast's `why`  HARDCODED  → "Sitting with the entitlement lead" ✗
+//     buildQueue's waiting   HARDCODED  → "With <permit.da>"                  ✗
+//     MyBoard's `withWhom`   HARDCODED  → "<permit.ent_lead>"                 ✗
+//
+// ★★ THE DEFECT IS THE DUPLICATION, NOT THE THREE WRONG BRANCHES. Each copy
+// guessed the counterparty from the permit instead of asking the LEG, so each
+// was right for exactly one direction of the relay and wrong for the other. One
+// function fixes all three at once, and makes "the prose and the name disagree"
+// unreachable without deleting it.
+//
+// ★ THE DIRECTION IS THE WHOLE ANSWER:
+//
+//     leg = entitlement, waiting  →  design still holds it   →  the DA
+//     leg = design,      waiting  →  design finished, ENT holds it → the lead
+//
+// The second is the OUTGOING handoff (#46 below); the first is INCOMING and is
+// not a handoff at all — which is also why the same permit was appearing in
+// "Past due" and "Handed off" at once. See buildForecast.
+
+export interface MilestoneCounterparty {
+  /** The person's name, or null when the permit has nobody in that seat. */
+  name: string | null;
+  /** What that seat is called — used when there is no name to print. */
+  role: 'design associate' | 'entitlement lead';
+  /** ★ "Cam", or "the design associate" when the seat is empty. Never blank,
+   *  and a name and a role can never disagree, because it is ONE string. */
+  label: string;
+}
+
+/** ★ Who holds a WAITING milestone row. The single source for every string on
+ *  the board that names the other half. Only meaningful while the relay state
+ *  is 'waiting'; a 'mine' row has no counterparty. */
+export function milestoneCounterparty(
+  leg: 'design' | 'entitlement',
+  permit: { da?: string | null; ent_lead?: string | null },
+): MilestoneCounterparty {
+  const role = leg === 'entitlement' ? 'design associate' : 'entitlement lead';
+  const raw = leg === 'entitlement' ? permit.da : permit.ent_lead;
+  const name = (raw ?? '').trim() || null;
+  return { name, role, label: name ?? `the ${role}` };
 }
 
 // ---------------------------------------------------------------------------
@@ -119,9 +209,11 @@ export function milestoneWhyYours(
   permit: { da?: string | null; ent_lead?: string | null },
 ): string {
   if (state === 'waiting') {
-    const who =
-      leg === 'entitlement' ? (permit.da ?? '').trim() : (permit.ent_lead ?? '').trim();
-    return who ? `Not yours yet — with ${who}` : 'Not yours yet — with the other half';
+    // ★ fix-348: this rule was correct and was copied, badly, three times
+    // elsewhere. It now lives in milestoneCounterparty and every site — this
+    // one, milestoneAction, the forecast's `why`, the queue's waiting detail,
+    // and the handed-off row — reads that one answer.
+    return `Not yours yet — with ${milestoneCounterparty(leg, permit).label}`;
   }
   return leg === 'design'
     ? "You are the design associate on this permit"

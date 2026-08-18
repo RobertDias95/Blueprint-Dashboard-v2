@@ -282,8 +282,17 @@ describe('fix-308 #45: a milestone says what to do AND why it is on your list', 
     const p = { da: 'Cam', ent_lead: 'Miles' };
     expect(milestoneWhyYours('entitlement', 'waiting', p)).toContain('Cam');
     expect(milestoneWhyYours('design', 'waiting', p)).toContain('Miles');
+    // ★ fix-348 SUPERSEDES the old "with the other half" fallback. This assertion
+    // used to read /other half/i. When the seat is empty the row now names the
+    // SEAT — "with the design associate" — because that is the same string
+    // milestoneCounterparty gives every other site on the board, and "the other
+    // half" was the one wording that did not say which half. Changed
+    // deliberately, not worked around.
     expect(milestoneWhyYours('entitlement', 'waiting', { da: null })).toMatch(
-      /other half/i,
+      /the design associate/i,
+    );
+    expect(milestoneWhyYours('design', 'waiting', { ent_lead: null })).toMatch(
+      /the entitlement lead/i,
     );
   });
 });

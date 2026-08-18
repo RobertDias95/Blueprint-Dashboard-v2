@@ -76,6 +76,13 @@ vi.mock('../hooks/useTaskTree', () => ({
   useAllTasks: () => ({ data: state.tasks, isLoading: false }),
   useUpsertTask: () => ({ mutate: vi.fn(), mutateAsync: vi.fn(), isPending: false }),
 }));
+// ★ fix-348: BoardBell now injects fix-238's ownership resolver into its board
+// input, so the dropdown's counts and My Board's sections agree about who a
+// task belongs to. This suite renders the bell WITHOUT a QueryClientProvider by
+// design, so the hook is mocked here rather than the suite being rewritten.
+vi.mock('../hooks/useTaskOwnership', () => ({
+  useTaskOwnership: () => ({ matches: () => true }),
+}));
 vi.mock('../hooks/useBoardReads', () => ({
   useBoardReads: () => ({ data: state.reads }),
   useMarkBoardItemsRead: () => ({ mutate: state.markRead, isPending: false }),

@@ -6,6 +6,9 @@ import { useProjects } from '../hooks/useProjects';
 // copy — one shape, one editor, one write path.
 import { useAllTasks } from '../hooks/useTaskTree';
 import { useAllProjectHolds, cancelledProjectIds } from '../hooks/useProjectHolds';
+// ★ fix-348: the same ownership resolver My Board injects, so the dropdown's
+// "where you stand" counts and the board's own sections cannot disagree.
+import { useTaskOwnership } from '../hooks/useTaskOwnership';
 import { acknowledgeableItems, type NewItem } from '../lib/boardReads';
 import { useMarkBoardItemsRead } from '../hooks/useBoardReads';
 // ★★ fix-336: the notification MODEL — items, unseen, read keys, suppression —
@@ -59,6 +62,7 @@ export default function BoardBell() {
   const tasksQ = useAllTasks();
   const holdsQ = useAllProjectHolds();
   const markRead = useMarkBoardItemsRead();
+  const taskOwnership = useTaskOwnership();
   const resolveRequest = useResolvePostRequest();
 
   // ★★ fix-336: ONE model, shared with /notifications.
@@ -72,8 +76,16 @@ export default function BoardBell() {
       tasks: tasksQ.data ?? [],
       today: todayIso(),
       cancelledIds: cancelledProjectIds(holdsQ.data),
+      taskOwns: taskOwnership.matches,
     }),
-    [viewer, permitsQ.data, projectsQ.data, tasksQ.data, holdsQ.data],
+    [
+      viewer,
+      permitsQ.data,
+      projectsQ.data,
+      tasksQ.data,
+      holdsQ.data,
+      taskOwnership.matches,
+    ],
   );
 
   const forecast = useMemo(() => buildForecast(input), [input]);
