@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { MemoryRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { ReactNode } from 'react';
 import { useAuthStore } from '../stores/authStore';
@@ -107,7 +108,14 @@ function renderHeader(project: Project, permits: PermitWithCycles[]) {
   const bp = permits.find((p) => p.type === 'Building Permit') ?? permits[0] ?? null;
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const wrapper = ({ children }: { children: ReactNode }) => (
-    <QueryClientProvider client={qc}>{children}</QueryClientProvider>
+    <QueryClientProvider client={qc}>
+      {/* ★ fix-335 §7: the Milestones card ends in a <Link> to this
+          project's block on the draw schedule, so the card needs a router
+          around it. It has always had one in the app — this card only ever
+          renders inside /project/:id — so the harness is catching up with the
+          real mount rather than acquiring a new dependency. */}
+      <MemoryRouter>{children}</MemoryRouter>
+    </QueryClientProvider>
   );
   return render(
     <ProjectDetailHeader project={project} permits={permits} bp={bp} allProjects={[]} />,

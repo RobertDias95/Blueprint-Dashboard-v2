@@ -10,7 +10,12 @@ import { useSelfScope } from '../hooks/useSelfScope';
 import { useAllProjectHolds, cancelledProjectIds } from '../hooks/useProjectHolds';
 import { useScraperActivity } from '../hooks/useScraperActivity';
 import { parseFlips } from '../lib/boardFlips';
-import { acknowledgeableItems, buildNewItems, unseenItems } from '../lib/boardReads';
+import {
+  acknowledgeableItems,
+  buildNewItems,
+  unseenItems,
+  type NewItem,
+} from '../lib/boardReads';
 import { useBoardReads, useMarkBoardItemsRead } from '../hooks/useBoardReads';
 import { useMilestoneAcks } from '../hooks/useMilestoneAcks';
 // ★ fix-329: chat mentions are the fifth thing that can be new to you. The
@@ -138,6 +143,54 @@ export default function BoardBell() {
   );
   const unseen = useMemo(() => unseenItems(newItems, readKeys), [newItems, readKeys]);
 
+  // ★★ fix-335 §9 — the READ half of "look unread and read".
+  //
+  // `unseen` is, by construction, only unread items: acknowledge one and it
+  // leaves the list, so the row disappeared out from under the cursor and the
+  // panel had no read state to look at. That is what made the section a
+  // uniform block with a heading rather than a feed with two states in it.
+  //
+  // ★ SO A ROW ACKNOWLEDGED WHILE THE PANEL IS OPEN STAYS PUT, rendered read.
+  // The list below is the union of "still unread" and "you just read this",
+  // which is the only combination that puts both states on screen at once.
+  //
+  // ★ IT IS PANEL-LOCAL AND DELIBERATELY FORGETFUL — cleared every time the
+  // bell is opened, so the next visit shows only what is genuinely new. It is
+  // presentation, and it writes nothing: fix-307's `board_item_reads` remains
+  // the only record of what has been read. Two sources for "what is waiting on
+  // me" must not disagree (fix-329's rule), and these cannot, because this one
+  // is not a source — it is a list of things the read model has already
+  // accepted.
+  const [readInPanel, setReadInPanel] = useState<NewItem[]>([]);
+  const keepAsRead = (items: NewItem[]) =>
+    setReadInPanel((prev) => {
+      const have = new Set(prev.map((p) => p.key));
+      return [...prev, ...items.filter((i) => !have.has(i.key))];
+    });
+
+  /** What the New section renders: unread first, then anything read in this
+   *  session of the panel.
+   *
+   *  ★ THE CLICK WINS, not the server. `readInPanel` takes precedence over
+   *  `unseen` rather than the other way round, because the read row is written
+   *  asynchronously — until the refetch lands the item is still "unseen", and
+   *  deferring to that would leave the row looking untouched for as long as the
+   *  round trip takes. The point of the read state is that the click has an
+   *  immediate, visible consequence.
+   *
+   *  ★ The 8-row cap applies to the UNREAD half only — a read row must never
+   *  push a genuinely new one out of view. */
+  const shown = useMemo(() => {
+    const readNow = new Set(readInPanel.map((i) => i.key));
+    return [
+      ...unseen
+        .filter((i) => !readNow.has(i.key))
+        .slice(0, 8)
+        .map((item) => ({ item, unread: true })),
+      ...readInPanel.map((item) => ({ item, unread: false })),
+    ];
+  }, [unseen, readInPanel]);
+
   // ★ fix-307: THE BADGE COUNTS WHAT IS UNSEEN, NOT WHAT IS UNDONE.
   //
   // It used to count past due + today + blocked — outstanding work, which never
@@ -163,7 +216,12 @@ export default function BoardBell() {
     <div className="relative" ref={ref}>
       <button
         type="button"
-        onClick={() => setOpen((v) => !v)}
+        onClick={() => {
+          // ★ fix-335 §9: every open starts clean. Yesterday's acknowledgements
+          // are not news and must not be shown as read rows tomorrow.
+          if (!open) setReadInPanel([]);
+          setOpen((v) => !v);
+        }}
         className="relative bg-transparent border border-border text-muted hover:text-text px-2 py-1 rounded-md transition inline-flex items-center"
         title="My board"
         aria-expanded={open}
@@ -230,11 +288,11 @@ export default function BoardBell() {
                   // would write a row nothing reads and leave the item on
                   // screen — a control that lies. Resolving it is a different
                   // act with its own button below.
-                  onClick={() =>
-                    markRead.mutate(
-                      acknowledgeableItems(unseen).map((i) => i.key),
-                    )
-                  }
+                  onClick={() => {
+                    const acked = acknowledgeableItems(unseen);
+                    markRead.mutate(acked.map((i) => i.key));
+                    keepAsRead(acked);
+                  }}
                   disabled={markRead.isPending}
                   className="ml-auto text-[9px] text-de hover:underline bg-transparent border-none p-0 disabled:opacity-40"
                   data-testid="board-bell-mark-all-read"
@@ -244,7 +302,7 @@ export default function BoardBell() {
               )}
             </div>
 
-            {unseen.length === 0 ? (
+            {shown.length === 0 ? (
               // ★ Zero means "seen everything new", NOT "nothing to do" — so
               // the empty state says so, with the standing counts right below.
               <div
@@ -254,12 +312,83 @@ export default function BoardBell() {
                 Nothing new. You are up to date on what has changed.
               </div>
             ) : (
-              unseen.slice(0, 8).map((i) => (
+              shown.map(({ item: i, unread }) => (
                 <div
                   key={i.key}
-                  className="flex items-start gap-2 px-3.5 py-1.5 hover:bg-s2 transition"
+                  // ★★ fix-335 §9: AN UNREAD ITEM LOOKS UNREAD.
+                  //
+                  // Bobby: "The new notifications aren't really standing out. We
+                  // want a way that makes them look unread and read — whether it
+                  // is a color fill over the notification etc."
+                  //
+                  // He is describing this panel exactly. Every row in it —
+                  // "Where you stand", "New", "Not shown" — was the same weight
+                  // on the same white, so the only thing saying these particular
+                  // rows were news was the 8px word "New" above them. The
+                  // section heading was doing all the work.
+                  //
+                  // ★ THE FILL IS `de-bg`, WHICH ALREADY MEANS THIS. fix-307
+                  // tints an unseen row on My Board with it and fix-329 tints a
+                  // message that mentions you. Same idea, same colour — a new
+                  // "unread" colour would have split one meaning across two
+                  // palettes and made neither reliable. The left rule is the
+                  // same accent at full strength, so the row reads as unread
+                  // even where the tint is too pale to survive a projector.
+                  //
+                  // ★★ AND A READ ROW IS THE CONTRAST, NOT AN ABSENCE. "look
+                  // unread and read" needs both on screen; before this, reading
+                  // an item made it VANISH under the cursor, which is neither a
+                  // read state nor a confirmation. A row acknowledged while the
+                  // panel is open now stays put, dimmed and unfilled, until the
+                  // panel closes — so the click has visible consequences and the
+                  // two states can be told apart side by side. Next open it is
+                  // gone, because it is no longer new.
+                  className={`flex items-start gap-2 px-3.5 py-1.5 transition ${
+                    unread ? 'bg-de-bg hover:bg-s2' : 'bg-surface opacity-55 hover:bg-s2'
+                  }`}
+                  style={{
+                    borderLeft: `3px solid ${
+                      unread ? 'var(--color-de)' : 'transparent'
+                    }`,
+                  }}
                   data-testid={`bell-new-${i.key}`}
+                  data-unread={unread ? 'true' : 'false'}
+                  // ★★ fix-339's SHARED items have no per-user read state — they
+                  // are unseen by definition while open. They get the SAME fill,
+                  // because "this is waiting on you" is the same fact either
+                  // way; what differs is what clears it, and that is already
+                  // said by the control at the end of the row ("Got it", not
+                  // "✓") and by the dot's own title below.
+                  //
+                  // ★ A shared item can therefore NEVER render in the read
+                  // style: nothing writes a read row for it, so it is either
+                  // outstanding and shown unread, or resolved and gone. The
+                  // treatment must not imply it can be individually marked read
+                  // — and it cannot, because `keepAsRead` is only ever handed
+                  // acknowledgeable items.
+                  data-unread-kind={i.audience === 'shared' ? 'shared' : 'personal'}
                 >
+                  {/* ★ A MARKER AS WELL AS A FILL, deliberately. A tint alone is
+                      invisible to anyone who cannot separate pale blue from
+                      white, and it is the first thing a cheap monitor loses.
+                      Read rows keep the slot so nothing reflows on the click —
+                      it is the dot that goes, not the space it sat in. */}
+                  <span
+                    className="flex-none rounded-full mt-[5px]"
+                    style={{
+                      width: 6,
+                      height: 6,
+                      background: unread ? 'var(--color-de)' : 'transparent',
+                    }}
+                    title={
+                      !unread
+                        ? 'Read'
+                        : i.audience === 'shared'
+                          ? 'Open — waiting on anyone it was sent to'
+                          : 'Unread'
+                    }
+                    data-testid={`bell-new-dot-${i.key}`}
+                  />
                   <Link
                     to={
                       i.projectId
@@ -271,6 +400,9 @@ export default function BoardBell() {
                       // item is not "seen", it is OUTSTANDING FOR EVERYONE, and
                       // going to look at it is not the same as answering it.
                       if (i.audience !== 'shared') markRead.mutate([i.key]);
+                      // ★ fix-335 §9: no keepAsRead here. The panel is closing
+                      // and the page is changing underneath it, so there is
+                      // nobody left to show a read row to.
                       setOpen(false);
                     }}
                     className="min-w-0 flex-1"
@@ -309,8 +441,12 @@ export default function BoardBell() {
                   ) : (
                     <button
                       type="button"
-                      onClick={() => markRead.mutate([i.key])}
-                      className="text-[9px] text-dim hover:text-de bg-transparent border-none p-0 flex-none mt-0.5"
+                      onClick={() => {
+                        markRead.mutate([i.key]);
+                        keepAsRead([i]);
+                      }}
+                      disabled={!unread}
+                      className="text-[9px] text-dim hover:text-de bg-transparent border-none p-0 flex-none mt-0.5 disabled:opacity-0"
                       title="Mark read — it stays on your board"
                       data-testid={`bell-new-read-${i.key}`}
                     >

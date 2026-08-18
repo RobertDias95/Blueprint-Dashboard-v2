@@ -102,6 +102,29 @@ interface SectionProps {
    *  carries one — which is the whole point of §3: chat has to look like a
    *  section of Team, not a guest inside it. */
   titleRight?: ReactNode;
+  /** ★★ fix-335 §6: split this section's spare height ABOVE AND BELOW its
+   *  content instead of banking all of it underneath.
+   *
+   *  Bobby: "We're okay with that empty white space. The only thing we might ask
+   *  is, can we center the design plan of record so it's vertically spaced in
+   *  that area? So if there is some open white space, it moves down so it
+   *  doesn't look like there's a ton of opening. And that way we don't really
+   *  have to mess with the vertical height adjustment based on all the
+   *  different monitors."
+   *
+   *  ★★ THIS RETIRES THE CARD-HEIGHT WORK (#93, the old fix-334). He chose it as
+   *  the simpler route and confirmed the column heights are already resolved:
+   *  the row still stretches, the cards are still equal, and nothing measures a
+   *  monitor. The slack simply stops pooling in one place.
+   *
+   *  ★ OPT-IN, AND ONLY THE PLAN-OF-RECORD CARD OPTS IN. §1's distribution is
+   *  untouched and must stay untouched — its rule is that a multi-section card
+   *  splits the slack EVENLY BETWEEN SECTIONS and each section stays
+   *  TOP-ALIGNED, so Key dates / DD window / Permit intake keep the reading
+   *  rhythm the eye expects. Centring those would move three headings off the
+   *  line they start on. A single-section card has no rhythm to preserve — the
+   *  slack has nowhere else to go, so it goes half above and half below. */
+  centerVertically?: boolean;
 }
 
 /**
@@ -163,12 +186,31 @@ export function OverviewSection({
   testId,
   bodyClassName = '',
   titleRight,
+  centerVertically = false,
 }: SectionProps) {
   return (
     <section
       className="border-t border-border first:border-t-0"
-      style={{ flexGrow: 1, flexShrink: 0, flexBasis: 'auto' }}
+      style={{
+        flexGrow: 1,
+        flexShrink: 0,
+        flexBasis: 'auto',
+        // ★ fix-335 §6: the section already GROWS to take the spare height —
+        // that is §1, unchanged. All this adds is where the content sits inside
+        // the space it was given: `justify-content: center` on a column splits
+        // the leftover half above, half below.
+        //
+        // ★ It is inert without spare height, exactly like flexGrow above it. In
+        // an auto-height parent (Notes under Schedule health) the section is
+        // its content's height, so there is nothing to centre and nothing
+        // moves — the same reasoning fix-309 used for `h-full` and fix-331 for
+        // the distribution.
+        ...(centerVertically
+          ? { display: 'flex', flexDirection: 'column', justifyContent: 'center' }
+          : null),
+      }}
       data-testid={testId}
+      data-center-vertically={centerVertically ? 'true' : undefined}
     >
       {title && (
         <div className="px-2.5 pt-1.5 pb-0.5 flex items-baseline justify-between gap-2">

@@ -108,17 +108,21 @@ describe('<Chrome /> fix-313 the Blueprint Bridge shell', () => {
     // ★★ fix-331 §8, the third reorder: Draw Schedule joined the top tier,
     // My Board dropped to third, Project View moved UNDER Reports, and error
     // triage arrived from the top bar as an admin-only entry.
+    // ★★ fix-335, the FOURTH reorder: §3 collapsed Entitlements so Library is
+    // a top-level row, and §4 added SharePoint at the foot — the one entry that
+    // leaves the app, visible to everyone.
     expect(ribbonLabels()).toEqual([
       'Pipeline',
       'Draw Schedule',
       'My Board',
+      'Library',
       'Settings',
       'Scraper and app errors needing triage',
+      'Blueprint Design and Entitlements Studio on SharePoint — opens in a new tab',
     ]);
 
     // ★ fix-310 renamed the DD-PHASE vocabulary from Draw to DD across ~14
     // surfaces. The Draw SCHEDULE is a different concept and keeps its name.
-    fireEvent.click(screen.getByTestId('ribbon-group-toggle-entitlements'));
     const withEnt = ribbonLabels();
     // ★ fix-331 §8: Draw Schedule is still reachable and still called that —
     // it is simply a top-tier entry now rather than a child of Entitlements.
@@ -232,16 +236,26 @@ describe('<Chrome /> fix-313 the Blueprint Bridge shell', () => {
     // matching Draw Schedule — it has been reachable by everyone for as long
     // as it has existed. fix-298: neither is My Board.
     // Everything a non-admin SHOULD have is here: the three top-tier screens,
-    // Settings, Entitlements, and Project View inside the group opened above.
+    // Library, Settings, and Project View inside the group opened above.
     // No error-triage entry, and no report.
+    //
+    // ★★ fix-335 §4: AND SHAREPOINT, which is the assertion that matters most
+    // in this test. "this is accessible by everyone" — 23 of the 29 people in
+    // this tenant are editors, so a gate here would have withheld the studio's
+    // document site from almost the whole company. The entry type carries no
+    // adminOnly flag at all, so it cannot acquire one by accident.
     expect(ribbonLabels()).toEqual([
       'Pipeline',
       'Draw Schedule',
       'My Board',
+      'Library',
       'Every project, searchable — open to everyone',
       'Settings',
+      'Blueprint Design and Entitlements Studio on SharePoint — opens in a new tab',
     ]);
-    expect(screen.getByTestId('ribbon-group-entitlements')).toBeInTheDocument();
+    // ★ fix-335 §3: Library is a top-level entry now, not a group.
+    expect(screen.queryByTestId('ribbon-group-entitlements')).toBeNull();
+    expect(screen.getByTestId('ribbon-link-/library')).toBeInTheDocument();
   });
 
   it('does NOT render a Trends entry (fix-trends-subtab)', () => {
@@ -272,18 +286,26 @@ describe('<Chrome /> fix-313 the Blueprint Bridge shell', () => {
   });
 
   // ★ #64: the brand mark and wordmark, top of the ribbon.
+  // ★★ fix-335 §1/§2 SPLIT THIS IN TWO, which is the whole point of the change:
+  // the COMPANY's mark is in the ribbon and the PRODUCT's name is in the header.
+  // Bobby: "in the center of all the screens in that white area, it's going to
+  // read logo, The Bridge."
   it('renders the Blueprint Bridge mark and wordmark', () => {
     renderIt();
-    // ★ fix-322: the brand block holds the real 4:1 logo and nothing else; the
-    // wordmark sits in its own row under it, so this reads the ribbon.
-    const brand = screen.getByTestId('ribbon');
-    expect(brand.textContent).toMatch(/BLUEPRINT/);
-    // ★ fix-320 #73: title case, not all caps — "maybe it doesn't need to be
-    // all caps". The product name is the hero line now, so it is asserted as
-    // the word it actually reads, capitals and all.
-    expect(brand.textContent).toMatch(/The Bridge/);
-    expect(brand.textContent).not.toMatch(/THE BRIDGE/);
-    expect(screen.getByTestId('bridge-mark')).toBeInTheDocument();
+    // The ribbon: the Blueprint logo, and no words at all.
+    expect(screen.getByTestId('blueprint-mark')).toBeInTheDocument();
+    const ribbon = screen.getByTestId('ribbon');
+    expect(ribbon.textContent).not.toMatch(/The Bridge/);
+
+    // The header: the tab's icon, then the product's name, centred.
+    const centre = screen.getByTestId('chrome-brand-center');
+    expect(centre.textContent).toMatch(/The Bridge/);
+    // ★ fix-320 #73 survives the move: title case, not all caps — "maybe it
+    // doesn't need to be all caps".
+    expect(centre.textContent).not.toMatch(/THE BRIDGE/);
+    expect(
+      (screen.getByTestId('bridge-mark') as HTMLImageElement).getAttribute('src'),
+    ).toMatch(/bridge-favicon-256/);
   });
 
   // ★ fix-319 #76: Settings stopped being a modal. The contract inverts —

@@ -36,6 +36,7 @@ import {
 import { useResolveDaOverlap } from '../../hooks/useResolveDaOverlap';
 import { useIsTenantAdmin } from '../../hooks/useIsTenantAdmin';
 import { useDrawSchedule } from '../../hooks/useDrawSchedule';
+import { drawScheduleTarget } from '../../lib/drawScheduleLink';
 import { useUpdateProjectWithPermits } from '../../hooks/useUpdateProjectWithPermits';
 import { pushToast } from '../../stores/toastStore';
 import OverlapPrompt from '../OverlapPrompt';
@@ -177,6 +178,67 @@ export default function ProjectDetailHeader({
 // ============================================================
 
 // ============================================================
+// ============================================================
+// ★★ fix-335 §7 — the foot of the Milestones card: the draw schedule
+// ============================================================
+//
+// A SECTION, not a button floating under the last one, so it inherits the
+// card's separator and the fix-331 §1 distribution like everything else above
+// it. The label is the whole design:
+//
+//     block in Q3 2026  →  "Draw schedule · Q3 2026 →"
+//     no block at all   →  "Draw schedule →"  ·  "Not scheduled yet"
+//
+// ★ IT IS NEVER INERT. fix-335 §8 allows exactly one placeholder in this ticket
+// and it is the Connect button, not this. An unscheduled project still gets a
+// working link to the live board; the second line says why there is nothing to
+// jump to, rather than a disabled control saying nothing at all.
+//
+// ★ WHY THE QUARTER IS ON THE FACE and not just in the URL: fix-182 renders a
+// different board per quarter, so "the draw schedule" is ambiguous and the
+// button would otherwise be making a promise it cannot keep. Naming the quarter
+// turns a jump into a statement — this project's block starts in Q3 2026, and
+// that is where you are about to land. See lib/drawScheduleLink.
+function DrawScheduleLinkRow({
+  projectId,
+  startWeek,
+}: {
+  projectId: string;
+  startWeek: string | null;
+}) {
+  const target = drawScheduleTarget(projectId, startWeek);
+  return (
+    <OverviewSection testId="pd-draw-schedule-section">
+      <Link
+        to={target.href}
+        data-testid="pd-draw-schedule-link"
+        data-has-block={target.hasBlock ? 'true' : 'false'}
+        data-quarter={target.quarter ?? undefined}
+        title={
+          target.hasBlock
+            ? `Open the draw schedule at ${target.quarterLabel}, where this project's block starts`
+            : 'Open the draw schedule — this project has no block on it yet'
+        }
+        className="flex items-center justify-center gap-1.5 w-full rounded border border-de bg-de-bg text-de font-bold text-[10.5px] px-2 py-1 no-underline hover:bg-de hover:text-white transition"
+      >
+        <span>
+          Draw schedule
+          {target.quarterLabel ? ` · ${target.quarterLabel}` : ''}
+        </span>
+        <span aria-hidden>→</span>
+      </Link>
+      {!target.hasBlock && (
+        <div
+          className="text-[9px] text-dim text-center mt-1"
+          data-testid="pd-draw-schedule-unscheduled"
+        >
+          Not scheduled yet — no block on the board.
+        </div>
+      )}
+    </OverviewSection>
+  );
+}
+
 // ★ fix-311 #56 — ONE date row for the whole Milestones card.
 //
 // The card had grown three presentations for one kind of fact: a dashed
@@ -790,6 +852,11 @@ function DDPhaseEditor({
           <IntakeAcceptedRow bp={bp} />
         </div>
        </OverviewSection>
+       {/* ★★ fix-335 §7: "Under milestones, at the bottom, underneath permit
+           date, we want a button that from there will take you to the draw
+           schedule." Underneath Permit intake, which is the section the permit
+           dates live in — so it is the last thing in the card, as drawn. */}
+       <DrawScheduleLinkRow projectId={bp.project_id} startWeek={drawRow?.start_week ?? null} />
       </OverviewCard>
       {pendingOverlap && (
         <OverlapPrompt
@@ -1134,7 +1201,74 @@ function ProjectCell({
       <OverviewSection title="Site" testId="pd-project-site">
         <SiteEditor project={project} />
       </OverviewSection>
+
+      {/* ★★ fix-335 §8: the Connect control. THE ONE PLACEHOLDER IN THIS
+          TICKET — see ConnectPlaceholder for why it is allowed and what makes
+          it honest. */}
+      <ConnectPlaceholder />
     </OverviewCard>
+  );
+}
+
+// ============================================================
+// ★★★ fix-335 §8 — the Connect button, and the ONLY inert control here
+// ============================================================
+//
+// Bobby: "How we had talked about adding the connect button that would then
+// take you to the app and/or feature link, that placeholder, we want to put
+// that at the bottom of project."
+//
+// ★★ THIS WAS HELD ON 2026-08-16, and by his own rule: nobody knew what URL it
+// should open, and he had just said nothing ships as a placeholder. He has now
+// waived that, knowingly, having been told he was waiving it — "connect is
+// currently an app on our PCs. we can just use a placeholder button for it
+// until we get to this point."
+//
+// ★★★ SO IT SHIPS, AND IT MUST BE AN HONEST ONE. The chat "Attach" stub that
+// set the no-placeholder rule (fix-330) failed on more than its label; it was
+// that nobody had chosen what the thing would do, and the UI hid that behind a
+// date-shaped promise. Three things follow, and all three are asserted:
+//
+//   1. IT READS AS NOT-YET-WORKING BEFORE IT IS CLICKED. `disabled`, dashed
+//      border, muted text, cursor:not-allowed. A live-looking button that
+//      silently does nothing is strictly worse than no button — the user
+//      concludes the app is broken rather than unfinished.
+//   2. NO INVENTED DATE, and none of the banned phrasing either — fix-331 §5
+//      greps the whole tree for it and this file is not exempt. The face says
+//      **"Connect"** with **"no link yet"** beside it. That is a fact about
+//      today: checkable, already true, and it promises nothing. A word like
+//      "soon" would be a forecast nobody has made. When the link exists, the
+//      tag comes off and the label does not have to change.
+//   3. IT IS THE ONLY ONE. Every other control this ticket adds — SharePoint,
+//      Draw schedule — works.
+//
+// ★ WHAT THE REAL VERSION LIKELY IS, for whoever picks this up: Connect is
+// desktop software, so the working version is probably a protocol handler
+// (`connect://<something>`) registered by the app's installer. Note fix-289's
+// finding while you are here — Chrome refuses to navigate an https page to
+// `file:` or a UNC path and does it SILENTLY, which is the failure mode this
+// button is currently being honest about instead of reproducing.
+function ConnectPlaceholder() {
+  return (
+    <OverviewSection testId="pd-connect-section">
+      <button
+        type="button"
+        disabled
+        aria-disabled="true"
+        data-testid="pd-connect-button"
+        // ★ Declared in the DOM, so "is anything inert on this screen?" is a
+        // question a test can ask of the whole app rather than of a list
+        // somebody has to maintain.
+        data-placeholder="true"
+        title="Connect is an application on our PCs. There is no link for the browser to open yet."
+        className="flex items-center justify-center gap-1.5 w-full rounded border border-dashed border-border bg-s2 text-dim font-bold text-[10.5px] px-2 py-1 cursor-not-allowed"
+      >
+        <span>Connect</span>
+        <span className="font-normal text-[9px] uppercase tracking-wide">
+          no link yet
+        </span>
+      </button>
+    </OverviewSection>
   );
 }
 

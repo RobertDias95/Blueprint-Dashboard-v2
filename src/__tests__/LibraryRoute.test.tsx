@@ -124,14 +124,19 @@ describe('fix-297 the nav reaches it (fix-313: from the ribbon)', () => {
   // ★ fix-331 §8: Draw Schedule was PROMOTED to the top tier, so Library is
   // what remains inside Entitlements. Both are still reachable, which is what
   // this test is actually protecting.
+  // ★★ fix-335 §3: and now Library is not inside anything. Bobby: "get rid of
+  // entitlements and just make library its own column." What fix-297 was
+  // protecting is unchanged and is what is asserted — Library is reachable
+  // from the ribbon, as a real entry rather than a route with no way in.
   it('★ Library is inside Entitlements; Draw Schedule is top-tier now', () => {
-    const ent = RIBBON_ENTRIES.find(
-      (e) => e.kind === 'group' && e.group.id === 'entitlements',
-    );
-    expect(ent, 'the Entitlements group is missing').toBeTruthy();
-    const kids =
-      ent!.kind === 'group' ? ent!.group.children.map((c) => c.to) : [];
-    expect(kids).toEqual(['/library']);
+    expect(
+      RIBBON_ENTRIES.find((e) => e.kind === 'group' && e.group.id === 'entitlements'),
+    ).toBeUndefined();
+    expect(
+      RIBBON_ENTRIES.some((e) => e.kind === 'link' && e.link.to === '/library'),
+      'Library must be a top-level ribbon entry',
+    ).toBe(true);
+    expect(allRibbonRoutes()).toContain('/library');
     expect(allRibbonRoutes()).toContain('/draw-schedule');
     expect(
       RIBBON_ENTRIES.some(

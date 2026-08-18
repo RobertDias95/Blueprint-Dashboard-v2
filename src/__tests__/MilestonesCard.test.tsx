@@ -1,5 +1,6 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, afterEach, beforeEach, vi } from 'vitest';
 import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
+import { MemoryRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { ReactNode } from 'react';
 import { useAuthStore } from '../stores/authStore';
@@ -129,7 +130,14 @@ function renderHeader(project: Project, permits: PermitWithCycles[]) {
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
   const wrapper = ({ children }: { children: ReactNode }) => (
-    <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+    <QueryClientProvider client={queryClient}>
+      {/* ★ fix-335 §7: the Milestones card ends in a <Link> to this
+          project's block on the draw schedule, so the card needs a router
+          around it. It has always had one in the app — this card only ever
+          renders inside /project/:id — so the harness is catching up with the
+          real mount rather than acquiring a new dependency. */}
+      <MemoryRouter>{children}</MemoryRouter>
+    </QueryClientProvider>
   );
   return render(
     <ProjectDetailHeader project={project} permits={permits} bp={bp} />,
@@ -376,5 +384,181 @@ describe('fix-296 the draw-schedule conflict flows survive the split', () => {
       );
       expect(forced).toBe(true);
     });
+  });
+});
+
+// ===========================================================================
+// ★★ fix-335 §7 — the draw-schedule button at the foot of Milestones
+// ===========================================================================
+//
+// Bobby: "Under milestones, at the bottom, underneath permit date, we want a
+// button that from there will take you to the draw schedule."
+//
+// ★ THE QUARTER IS ON THE BUTTON'S FACE, and that is the whole design. fix-182
+// renders a different board per quarter, so "the draw schedule" is ambiguous
+// and a bare link would be making a promise it cannot keep. Naming the quarter
+// turns a jump into a statement. The URL-building rules live in
+// drawScheduleLink.test.ts; this is the card's half.
+describe('fix-335 §7: Milestones ends with a link to the block', () => {
+  // ★ The label is quarter-relative, so the clock is pinned — a floating one
+  // would make this test mean something different every three months (fix-206).
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date(2026, 7, 17, 12, 0, 0)); // 2026-08-17, Q3
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('★ names the quarter the block starts in, and links there', () => {
+    drawRowsRef.current = [
+      { project_id: 'p-296', da_assigned: 'Ainsley', updated_at: 'x', start_week: '2026-09-07', end_week: '2026-10-05' },
+    ];
+    renderHeader(projectFixture(), [bpFixture()]);
+    const link = screen.getByTestId('pd-draw-schedule-link');
+    expect(link.dataset.hasBlock).toBe('true');
+    expect(link.dataset.quarter).toBe('2026-Q3');
+    expect(link.textContent).toContain('Draw schedule');
+    expect(link.textContent).toContain('Q3 2026');
+    expect(link.getAttribute('href')).toBe(
+      '/draw-schedule?project=p-296&quarter=2026-Q3',
+    );
+  });
+
+  // ★★ A block in a DIFFERENT quarter from today's must not silently send you
+  // to today's board — that is the dead link fix-182's layout makes possible.
+  it('★★ a block in another quarter names THAT quarter, not this one', () => {
+    drawRowsRef.current = [
+      { project_id: 'p-296', da_assigned: 'Ainsley', updated_at: 'x', start_week: '2027-01-04', end_week: '2027-02-01' },
+    ];
+    renderHeader(projectFixture(), [bpFixture()]);
+    const link = screen.getByTestId('pd-draw-schedule-link');
+    expect(link.textContent).toContain('Q1 2027');
+    expect(link.getAttribute('href')).toContain('quarter=2027-Q1');
+  });
+
+  // ★★ AND A PROJECT WITH NO BLOCK STILL GETS A WORKING LINK. fix-335 §8 allows
+  // exactly one inert control in this ticket and it is not this one, so the
+  // button goes to the live board and a second line says why there is nothing
+  // to jump to. Not disabled, not hidden, not a dead href.
+  it('★★ no block: still a real link, and it says so', () => {
+    drawRowsRef.current = [];
+    renderHeader(projectFixture(), [bpFixture()]);
+    const link = screen.getByTestId('pd-draw-schedule-link');
+    expect(link.dataset.hasBlock).toBe('false');
+    expect(link.getAttribute('href')).toBe('/draw-schedule');
+    expect(link.textContent).not.toMatch(/Q[1-4]/);
+    expect(link.hasAttribute('disabled')).toBe(false);
+    expect(
+      screen.getByTestId('pd-draw-schedule-unscheduled').textContent,
+    ).toMatch(/Not scheduled yet/i);
+  });
+
+  it('sits at the FOOT of the card, under Permit intake', () => {
+    renderHeader(projectFixture(), [bpFixture()]);
+    const card = screen.getByTestId('pd-milestones-card');
+    const sections = Array.from(card.querySelectorAll(':scope > section'));
+    expect(sections[sections.length - 1]).toBe(
+      screen.getByTestId('pd-draw-schedule-section'),
+    );
+  });
+});
+
+// ===========================================================================
+// ★★★ fix-335 §8 — the Connect button, the one placeholder in the ticket
+// ===========================================================================
+//
+// ★★ HELD ON 2026-08-16 because nobody knew what URL it should open and Bobby
+// had just said nothing ships as a placeholder. He has now waived that,
+// knowingly, having been told he was waiving it: "connect is currently an app
+// on our PCs. we can just use a placeholder button for it until we get to this
+// point."
+//
+// ★★★ SO IT SHIPS, AND IT MUST BE HONEST. The failure that set the rule was
+// never the label — it was that nobody had chosen what the control would do,
+// and the UI hid that behind a date-shaped promise.
+describe('fix-335 §8: Connect is visibly not wired up yet', () => {
+  it('★★ reads as not-yet-working BEFORE it is clicked', () => {
+    renderHeader(projectFixture(), [bpFixture()]);
+    const btn = screen.getByTestId('pd-connect-button') as HTMLButtonElement;
+    // Not a live-looking button that silently does nothing: it is disabled, so
+    // the click never happens and the cursor says so on the way in.
+    expect(btn.disabled).toBe(true);
+    expect(btn.getAttribute('aria-disabled')).toBe('true');
+    expect(btn.className).toContain('border-dashed');
+    expect(btn.className).toContain('cursor-not-allowed');
+  });
+
+  // ★ NO INVENTED DATE. The face states a fact about today — checkable, already
+  // true, promising nothing — rather than a forecast nobody has made.
+  it('★ says "Connect" and "no link yet", and nothing about the future', () => {
+    renderHeader(projectFixture(), [bpFixture()]);
+    const btn = screen.getByTestId('pd-connect-button');
+    expect(btn.textContent).toContain('Connect');
+    expect(btn.textContent).toMatch(/no link yet/i);
+    expect(btn.textContent).not.toMatch(/soon|later|coming|shortly|Q[1-4]|20\d\d/i);
+    expect(btn.getAttribute('title')).toMatch(/application on our PCs/i);
+  });
+
+  it('sits at the foot of the Project card', () => {
+    renderHeader(projectFixture(), [bpFixture()]);
+    const card = screen.getByTestId('pd-project-card');
+    const sections = Array.from(card.querySelectorAll(':scope > section'));
+    expect(sections[sections.length - 1]).toBe(
+      screen.getByTestId('pd-connect-section'),
+    );
+  });
+
+  // ★★★ AND IT IS THE ONLY ONE. Everything else fix-335 adds works, so the
+  // waiver stays a waiver for one named control rather than a new habit. The
+  // marker is declared in the DOM precisely so this is a question the whole app
+  // can be asked, rather than a list somebody has to keep up to date.
+  it('★★★ it is the only inert control fix-335 shipped', () => {
+    const modules = import.meta.glob('../**/*.{ts,tsx}', {
+      query: '?raw',
+      import: 'default',
+      eager: true,
+    }) as Record<string, string>;
+    const offenders = Object.entries(modules)
+      .filter(([path]) => !/\.test\.tsx?$/.test(path))
+      .filter(([, src]) => src.includes('data-placeholder="true"'))
+      .map(([path]) => path);
+    expect(offenders).toEqual(['../components/ProjectDetail/ProjectDetailHeader.tsx']);
+
+    renderHeader(projectFixture(), [bpFixture()]);
+    // The other control this ticket added to these cards is live.
+    expect(
+      (screen.getByTestId('pd-draw-schedule-link') as HTMLAnchorElement).getAttribute('href'),
+    ).toContain('/draw-schedule');
+  });
+});
+
+// ===========================================================================
+// ★★ fix-335 §6 — and fix-331 §1's distribution is UNCHANGED
+// ===========================================================================
+//
+// The brief was explicit: "Do not reopen fix-331 §1's distribution — it stays
+// exactly as it is; this is the single-section card only." §1's rule is that
+// every section GROWS to take an equal share of the spare height and stays
+// TOP-ALIGNED inside it, so a three-section card keeps its reading rhythm —
+// Key dates, then DD window, then Permit intake, each starting where the eye
+// expects. Centring those would move three headings off the line they start on.
+describe('fix-335 §6: only the single-section card centres', () => {
+  it('★★ the multi-section cards still grow and still top-align', () => {
+    renderHeader(projectFixture(), [bpFixture()]);
+    for (const cardId of ['pd-milestones-card', 'pd-project-card']) {
+      const sections = Array.from(
+        screen.getByTestId(cardId).querySelectorAll(':scope > section'),
+      ) as HTMLElement[];
+      expect(sections.length).toBeGreaterThan(1);
+      for (const s of sections) {
+        // fix-331 §1: grows, never shrinks.
+        expect(s.style.flexGrow).toBe('1');
+        expect(s.style.flexShrink).toBe('0');
+        // fix-335 §6 did NOT reach these.
+        expect(s.dataset.centerVertically).toBeUndefined();
+        expect(s.style.justifyContent).toBe('');
+      }
+    }
   });
 });

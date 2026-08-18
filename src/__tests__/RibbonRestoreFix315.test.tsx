@@ -257,7 +257,9 @@ describe('fix-315 §2: Waiting On is reachable again', () => {
   // route now has to survive WITHOUT a ribbon entry to reach it.
   it('★ the ribbon entry is gone, and the route still resolves', () => {
     renderRoutable();
-    fireEvent.click(screen.getByTestId('ribbon-group-toggle-entitlements'));
+    // ★ fix-335 §3: the Entitlements group is gone, so there is nothing to
+    // expand — every ribbon row is already on screen, which makes this check
+    // stricter than it was.
     expect(screen.queryByTestId('ribbon-link-/waiting-on')).toBeNull();
     expect(allRibbonRoutes()).not.toContain('/waiting-on');
     // The destination survives as a redirect into the switcher that replaced it.
@@ -274,15 +276,20 @@ describe('fix-315 §2: Waiting On is reachable again', () => {
   });
 
   it('Entitlements is Library alone now', () => {
-    const ent = RIBBON_ENTRIES.find(
-      (e) => e.kind === 'group' && e.group.id === 'entitlements',
-    );
-    const kids = ent!.kind === 'group' ? ent!.group.children.map((c) => c.to) : [];
     // ★ fix-325 took BOTH Waiting On (#5) and Activity (#4) out of this group.
     // ★ fix-331 §8 then promoted Draw Schedule to the top tier, leaving one
-    // child. The group is kept deliberately — it is where the next entitlement
-    // screen goes, and collapsing it now would mean re-creating it next ticket.
-    expect(kids).toEqual(['/library']);
+    // child, and predicted that keeping a one-child group would only defer the
+    // decision. ★★ fix-335 §3 made it: Bobby asked to "get rid of entitlements
+    // and just make library its own column", so the group is gone and Library
+    // is a top-level entry.
+    //
+    // ★ THE COVERAGE CLAIM IS WHAT MATTERED AND IT IS UNCHANGED — both routes
+    // are still reachable by clicking, which is the only thing fix-315 exists
+    // to protect. Where the row SITS was never this suite's business.
+    expect(
+      RIBBON_ENTRIES.find((e) => e.kind === 'group' && e.group.id === 'entitlements'),
+    ).toBeUndefined();
+    expect(allRibbonRoutes()).toContain('/library');
     expect(allRibbonRoutes()).toContain('/draw-schedule');
   });
 
@@ -572,12 +579,19 @@ describe('fix-315: fix-313 survives', () => {
     // ★ fix-331 §8: Draw Schedule joined the top tier, My Board dropped to
     // third, Project View moved into the Reports group, and error triage
     // arrived from the top bar (admin-only — this suite renders as an admin).
+    // ★★ fix-335: Library joined this list (§3, its group collapsed) and
+    // SharePoint arrived at the foot of it (§4). SharePoint is an <a> like the
+    // rest, which is exactly why it belongs in this check rather than being
+    // filtered out of it — the one row that leaves the app has to be visible
+    // to the assertion that names every row.
     expect(labels).toEqual([
       'Pipeline',
       'Draw Schedule',
       'My Board',
+      'Library',
       'Settings',
       'Scraper and app errors needing triage',
+      'Blueprint Design and Entitlements Studio on SharePoint — opens in a new tab',
     ]);
   });
 
@@ -596,8 +610,13 @@ describe('fix-315: fix-313 survives', () => {
     expect(screen.getByTestId('ribbon').dataset.collapsed).toBe('true');
   });
 
+  // ★★ fix-335 §4 added a FOURTH kind, and it is load-bearing rather than
+  // cosmetic: an 'external' entry carries an href and no route, so it can never
+  // reach the coverage guard above as if it were one. That is the exemption the
+  // brief asked for, made structural — there is no row to keep in sync and no
+  // way to forget one, because the type makes the mistake unrepresentable.
   it('the entries are still typed as the same three kinds', () => {
     const kinds = new Set(RIBBON_ENTRIES.map((e: RibbonEntry) => e.kind));
-    expect([...kinds].sort()).toEqual(['group', 'link', 'separator']);
+    expect([...kinds].sort()).toEqual(['external', 'group', 'link', 'separator']);
   });
 });

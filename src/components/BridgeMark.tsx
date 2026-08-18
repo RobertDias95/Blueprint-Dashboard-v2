@@ -1,5 +1,6 @@
 import logoFull from '../assets/brand/bridge-logo-400.png';
 import iconSquare from '../assets/brand/bridge-icon-square-256.png';
+import favicon from '../assets/brand/bridge-favicon-256.png';
 
 // fix-322 #73 follow-up: THE REAL ARTWORK. Bobby supplied it; nothing here is
 // drawn, traced or "cleaned up".
@@ -35,19 +36,40 @@ import iconSquare from '../assets/brand/bridge-icon-square-256.png';
 // ribbon at runtime. The favicon stays in `public/` for the opposite reason:
 // index.html and every bookmarked tab reference it by a stable URL.
 
-export type BridgeMarkVariant = 'full' | 'icon';
+// ★★ fix-335 §1/§2 — THE BRIDGE MARK LEFT THE RIBBON, AND DID NOT LEAVE.
+//
+// The ribbon carries the original Blueprint logo now (§1, BlueprintMark). This
+// component's artwork moved to the white header, where §2 puts it beside the
+// words "The Bridge":
+//
+//   Bobby: "we want to add the logo from the tab to the left of that. So in the
+//   center of all the screens in that white area, it's going to read logo, The
+//   Bridge."
+//
+// ★ "THE LOGO FROM THE TAB" IS LITERAL, hence the third variant. `icon` is the
+// square crop of the illustration; `favicon` is bridge-favicon-256.png — the
+// same file index.html serves as the browser tab's icon. They are near
+// neighbours and they are not the same drawing, and Bobby named the tab, so the
+// header shows the tab's mark rather than something that merely resembles it.
+//
+// ★ IT IS THE SAME FILE AND NOT THE SAME URL. The tab loads /bridge-favicon-256.png
+// from public/ by a stable path, because index.html and every bookmark reference
+// it that way. This import is the copy in src/assets/brand/, which Vite
+// fingerprints — see the note above on why brand art lives there.
+export type BridgeMarkVariant = 'full' | 'icon' | 'favicon';
 
 interface Props {
   /** Which crop. Defaults to the wide illustration. */
   variant?: BridgeMarkVariant;
   /** `full`: rendered WIDTH in px (height follows the 4:1 aspect).
-   *  `icon`: the square's edge in px. */
+   *  `icon` / `favicon`: the square's edge in px. */
   size?: number;
 }
 
 export default function BridgeMark({ variant = 'full', size }: Props) {
-  const isIcon = variant === 'icon';
-  const src = isIcon ? iconSquare : logoFull;
+  const isIcon = variant === 'icon' || variant === 'favicon';
+  const src =
+    variant === 'favicon' ? favicon : variant === 'icon' ? iconSquare : logoFull;
   // ★ The alt text is not decoration. This replaced an <svg role="img"> that
   // carried an aria-label, and an image-only brand mark with no text equivalent
   // is silence to a screen reader.

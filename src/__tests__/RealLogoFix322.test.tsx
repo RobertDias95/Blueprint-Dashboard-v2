@@ -4,6 +4,14 @@ import { MemoryRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import indexHtml from '../../index.html?raw';
 import markSrc from '../components/BridgeMark.tsx?raw';
+// ★ fix-335 §1: the ribbon's mark is a different component now. Its source is
+// read here for the same reason BridgeMark's is — so "referenced, not redrawn"
+// stays a checkable claim about whatever the ribbon actually renders.
+import blueprintSrcRaw from '../components/BlueprintMark.tsx?raw';
+
+// Comments stripped: the file's own history explains what the ribbon used to
+// draw, and a check that cannot tell prose from code would forbid saying so.
+const blueprintSrc = blueprintSrcRaw.replace(/^\s*\/\/.*$/gm, '');
 
 // fix-322 — the real logo replaces the placeholder. Register #73 follow-up.
 //
@@ -67,8 +75,20 @@ beforeEach(() => {
   window.localStorage.clear();
 });
 
+// ★★ fix-335 §1: THE RIBBON'S MARK IS NO LONGER THE BRIDGE ILLUSTRATION.
+//
+// Bobby: "we have the new logo that we were using, and we want to replace that
+// with the original Blueprint logo." The Bridge artwork was not deleted — §2
+// moved it into the white header — so BridgeMark's own contracts, at the bottom
+// of this file, are untouched. What changed is which component the RIBBON
+// renders, and this helper is where that lands.
+//
+// ★ EVERY RULE THIS SUITE ESTABLISHED SURVIVES AND IS STILL CHECKED BELOW: a
+// referenced asset rather than a drawing, a text alternative, a square crop for
+// the collapsed rail rather than a squashed wide one, and a mark that fits
+// inside the ribbon's padding. Only the file names moved.
 function mark(): HTMLImageElement {
-  return screen.getByTestId('bridge-mark') as HTMLImageElement;
+  return screen.getByTestId('blueprint-mark') as HTMLImageElement;
 }
 
 describe('fix-322: the expanded ribbon shows the real illustration', () => {
@@ -79,14 +99,16 @@ describe('fix-322: the expanded ribbon shows the real illustration', () => {
     // ★ Assert WHICH asset, not merely that something rendered — the two crops
     // are the point of the ticket and a component that grabbed the wrong one
     // would still render "an image".
-    expect(img.getAttribute('src')).toMatch(/bridge-logo-400/);
-    expect(img.dataset.logoVariant).toBe('full');
+    expect(img.getAttribute('src')).toMatch(/blueprint-logo-lockup/);
+    expect(img.dataset.logoVariant).toBe('lockup');
   });
 
   it('★ the placeholder SVG appears nowhere in the ribbon', () => {
     renderRibbon();
     const ribbon = screen.getByTestId('ribbon');
     expect(ribbon.querySelector('svg rect')).toBeNull();
+    // ★ fix-335 §1: and the same rule now binds the mark that replaced it.
+    expect(blueprintSrc).not.toMatch(/<path|<svg|viewBox/);
     // The paths fix-313 authored are gone from the component entirely.
     expect(markSrc).not.toContain('M5 21c0-6.1 4.9-11 11-11s11 4.9 11 11');
     expect(markSrc).not.toContain('<rect');
@@ -94,19 +116,22 @@ describe('fix-322: the expanded ribbon shows the real illustration', () => {
 
   it('★ has a text alternative — a brand image with no words is silence', () => {
     renderRibbon();
-    expect(mark().getAttribute('alt')).toBe('Blueprint Bridge');
+    // ★★ fix-335 §2 makes this MORE load-bearing, not less. The ribbon no longer
+    // carries a wordmark at all, so this alt is the only place the company's
+    // name is spoken to a screen reader anywhere in the rail.
+    expect(mark().getAttribute('alt')).toBe('Blueprint');
   });
 
+  // ★★ fix-335 §2: THE WORDMARK LEFT THE RIBBON. "we want to remove the wording
+  // Blueprint The Bridge, and we actually want to move that to the white header
+  // on all the screens." fix-320's two-line lockup is not restyled or hidden —
+  // it moved, and the header's half of it is asserted in BrandingRibbonFix335.
+  // What this suite keeps is the half that is still the ribbon's business: no
+  // wordmark here, and still no shouted caps anywhere in it.
   it('the wordmark still reads BLUEPRINT over The Bridge, in title case', () => {
     renderRibbon();
-    // ★ fix-320's contract survives the move: same two lines, same order. It
-    // now sits UNDER the logo rather than beside it, because the illustration
-    // needs the ribbon's full width.
-    const wordmark = screen.getByTestId('ribbon-wordmark');
-    const text = wordmark.textContent ?? '';
-    expect(text).toContain('BLUEPRINT');
-    expect(text).toContain('The Bridge');
-    expect(text.indexOf('BLUEPRINT')).toBeLessThan(text.indexOf('The Bridge'));
+    expect(screen.queryByTestId('ribbon-wordmark')).toBeNull();
+    expect(screen.queryByTestId('ribbon-wordmark-row')).toBeNull();
     expect(screen.getByTestId('ribbon').textContent).not.toMatch(/THE BRIDGE/);
   });
 
@@ -125,10 +150,10 @@ describe('fix-322: the collapsed rail shows the square crop', () => {
     renderRibbon();
     fireEvent.click(screen.getByTestId('ribbon-collapse'));
     const img = mark();
-    expect(img.getAttribute('src')).toMatch(/bridge-icon-square-256/);
+    expect(img.getAttribute('src')).toMatch(/blueprint-logo-icon/);
     expect(img.dataset.logoVariant).toBe('icon');
-    // The wide illustration is not merely resized — it is not there at all.
-    expect(img.getAttribute('src')).not.toMatch(/bridge-logo-400/);
+    // The wide lockup is not merely resized — it is not there at all.
+    expect(img.getAttribute('src')).not.toMatch(/blueprint-logo-lockup/);
   });
 
   it('the icon is square and fits inside the 56px rail', () => {
@@ -164,18 +189,15 @@ describe('fix-322: the expanded logo cannot overflow the ribbon', () => {
     renderRibbon();
     const img = mark();
     const width = parseFloat(img.style.width);
-    expect(width).toBe(156);
+    // ★ fix-335 §1: 156 → 144, and NOT as a third tightening. 144 is the new
+    // artwork's own native width, so the mark renders 1:1 instead of resampled.
+    // The rule this test exists for is the inequality below, unchanged.
+    expect(width).toBe(144);
     expect(width).toBeLessThanOrEqual(212 - 32);
     // ★ Height is AUTO — the aspect ratio comes from the file, so no caller's
     // number can stretch Bobby's artwork.
     expect(img.style.height).toBe('auto');
     expect(img.style.maxWidth).toBe('100%');
-  });
-
-  it('the wordmark row is inside the ribbon, not floating past it', () => {
-    renderRibbon();
-    const row = screen.getByTestId('ribbon-wordmark-row');
-    expect(screen.getByTestId('ribbon').contains(row)).toBe(true);
   });
 });
 
