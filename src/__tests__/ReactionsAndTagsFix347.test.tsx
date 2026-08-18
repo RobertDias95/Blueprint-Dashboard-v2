@@ -120,9 +120,12 @@ function bpPermit(over: Partial<PermitWithCycles> = {}): PermitWithCycles {
 // ---------------------------------------------------------------------------
 
 describe('fix-347 §3: @project is a NAME plus a QUERY', () => {
-  it('★★ resolves to the people the Team card shows — one definition, not two', () => {
+  // ★★ fix-344 §3 NARROWED THE TAG, and only the tag: "For the @project, we
+  // generally don't need the SD mentioned. So everyone but the SD!" The card
+  // still shows five rows; the tag notifies four of them.
+  it('★★ reads the Team card computation — one definition, two consumers', () => {
     const team = projectInternalTeam(project(), bpPermit());
-    // The card's five rows: ACQ · ENT · SD · DM · DA.
+    // The card's five rows: ACQ · ENT · SD · DM · DA — Ana (SD) included.
     expect(projectTeamNames(team)).toEqual(['Miles', 'Ana', 'Derry', 'Nicky']);
     const tag = projectTagTarget({
       project: project(),
@@ -131,7 +134,8 @@ describe('fix-347 §3: @project is a NAME plus a QUERY', () => {
       members: MEMBERS,
     });
     expect(tag.name).toBe(PROJECT_TAG);
-    expect(tag.userIds).toEqual([MILES, ANA, DERRY, NICKY]);
+    // …and the tag is those people minus the SD (fix-344 §3).
+    expect(tag.userIds).toEqual([MILES, DERRY, NICKY]);
   });
 
   // ★★ THE WHOLE POINT of a smart tag: the same token, a different audience.
@@ -153,7 +157,7 @@ describe('fix-347 §3: @project is a NAME plus a QUERY', () => {
       people: PEOPLE,
       members: MEMBERS,
     });
-    expect(a.userIds).toEqual([MILES, ANA, DERRY, NICKY]);
+    expect(a.userIds).toEqual([MILES, DERRY, NICKY]);
     expect(b.userIds).toEqual([ME, MILES]);
     expect(a.userIds).not.toEqual(b.userIds);
   });
@@ -234,7 +238,8 @@ describe('fix-347 §4: a tag displays its name and stores its people', () => {
 
   it('★★★ BOTH kinds write RESOLVED IDS into mentions', () => {
     expect(parseMentions('heads up @project', targets()).sort()).toEqual(
-      [MILES, ANA, DERRY, NICKY].sort(),
+      // ★ fix-344 §3: ACQ · ENT · DM · DA — Ana (SD) is on the card, not here.
+      [MILES, DERRY, NICKY].sort(),
     );
     expect(parseMentions('@Leadership please look', targets()).sort()).toEqual(
       [ME, DERRY].sort(),
@@ -248,7 +253,7 @@ describe('fix-347 §4: a tag displays its name and stores its people', () => {
     const mention = segs.find((s) => s.mention)!;
     expect(mention.text).toBe('@project');
     expect(mention.kind).toBe('smart');
-    expect(mention.userIds).toEqual([MILES, ANA, DERRY, NICKY]);
+    expect(mention.userIds).toEqual([MILES, DERRY, NICKY]);
   });
 
   // ★★★ THE AUDITABILITY RULE, which is what makes an editable tag safe.
@@ -668,7 +673,7 @@ describe('fix-347 §1: the reaction bar, rendered', () => {
     const ranges = mentionRanges('Plans are out for review @project', targets);
     expect(ranges).toHaveLength(1);
     expect(ranges[0].name).toBe(PROJECT_TAG);
-    expect(ranges[0].userIds).toHaveLength(4);
+    expect(ranges[0].userIds).toHaveLength(3);
     const row = renderRow();
     expect(
       within(row.container).getByTestId('project-chat-message-m-1').textContent,

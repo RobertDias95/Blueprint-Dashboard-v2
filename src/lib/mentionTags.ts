@@ -1,5 +1,5 @@
 import { isCurrentMember } from './roster';
-import { projectInternalTeam, projectTeamNames } from './projectTeam';
+import { projectInternalTeam, projectTagNames } from './projectTeam';
 import type {
   MentionablePerson,
   PermitWithCycles,
@@ -39,12 +39,11 @@ import type {
 export const PROJECT_TAG = 'project';
 
 /**
- * ★ ONE smart tag ships. The brief invites a narrower one — "the design side,
- * or the entitlements side" — as a PROPOSAL, not a silent addition, so the
- * shape is here and the second entry is not. `@design` (SD · DM · DA) is the
- * one worth having: it is the group that gets asked to look at a drawing, and
- * it is a strict subset of this list rather than a new definition of anything.
- * It is named in the PR for Bobby to say yes or no to.
+ * ★ ONE smart tag, and it stays one. fix-347 proposed `@design` (SD · DM · DA)
+ * and ★★ fix-344 CLOSED IT: *"don't create the design tag, we can create it if
+ * needed. I'll think of custom tags if needed."* A custom tag (§2 of fix-347)
+ * covers the case the day somebody wants it, which is the whole reason custom
+ * tags exist. This is a decision, not an omission — do not re-propose it.
  */
 export const SMART_TAGS = [PROJECT_TAG] as const;
 
@@ -103,8 +102,11 @@ export function projectTagTarget(input: {
   people: readonly MentionablePerson[];
   members: readonly TeamMember[];
 }): MentionTarget {
+  // ★★ fix-344 §3: ACQ · ENT · DM · DA — the schematic designer is on the Team
+  // card but not on this list. See projectTagNames for why the filter lives
+  // there rather than in projectInternalTeam.
   const names = input.project
-    ? projectTeamNames(projectInternalTeam(input.project, input.bp))
+    ? projectTagNames(projectInternalTeam(input.project, input.bp))
     : [];
   const userIds = resolveRosterNames(names, input.people, input.members);
   return {

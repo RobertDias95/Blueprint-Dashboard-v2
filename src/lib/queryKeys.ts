@@ -63,6 +63,8 @@ export const queryKeys = {
   permitCycleReviewersAll: ['permit_cycle_reviewers'] as const,
   // fix-225: DA handoff ledger — bare prefix for broad invalidation.
   projectDaHandoffsAll: ['project_da_handoffs'] as const,
+  // ★ fix-344: the same ledger for the schematic designer.
+  projectSdHandoffsAll: ['project_sd_handoffs'] as const,
   // Tenant-scoped keys used by queries and per-tenant invalidation.
   projects: (tenantId: string) => ['projects', tenantId] as const,
   // ★ fix-333: the wizard's duplicate-address check. UNDER the `projects`
@@ -90,6 +92,8 @@ export const queryKeys = {
   // co-credit map on the Team reports. Shares the bare prefix for invalidation.
   projectDaHandoffsRows: (tenantId: string) =>
     ['project_da_handoffs', tenantId, 'rows'] as const,
+  projectSdHandoffs: (tenantId: string, projectId: string) =>
+    ['project_sd_handoffs', tenantId, projectId] as const,
   intakeRecords: (tenantId: string) => ['intake_records', tenantId] as const,
   // ★ fix-346: open-task counts for a named handful of people (the DAs with no
   // design manager). UNDER the permit_tasks prefix on purpose — a task edited

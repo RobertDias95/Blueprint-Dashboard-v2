@@ -60,8 +60,8 @@ export function projectInternalTeam(
 /** The same team as a flat list of names — deduped, in card order, with the
  *  unfilled roles simply absent.
  *
- *  ★ AN EMPTY ROLE IS NOT AN ERROR. The brief: "A smart tag on a project with
- *  an unfilled role simply resolves to fewer people." A project with no DA
+ *  ★ AN EMPTY ROLE IS NOT AN ERROR. fix-347's rule: "A smart tag on a project
+ *  with an unfilled role simply resolves to fewer people." A project with no DA
  *  yields four names, not a failure and not a placeholder. */
 export function projectTeamNames(team: ProjectInternalTeam): string[] {
   const out: string[] = [];
@@ -80,4 +80,24 @@ export function projectTeamNames(team: ProjectInternalTeam): string[] {
   push(team.dm);
   push(team.da);
   return out;
+}
+
+/**
+ * ★★★ fix-344 §3 — WHO `@project` NOTIFIES: ACQ · ENT · DM · DA.
+ *
+ * Bobby: *"For the @project, we generally don't need the SD mentioned. So
+ * everyone but the SD!"*
+ *
+ * ★★ ONLY THE TAG CHANGES. `projectInternalTeam` still returns `sd` and the
+ * Team card still renders it (fix-321 #78's five rows are Bobby's own order) —
+ * one definition, two consumers with different needs. The alternative, dropping
+ * `sd` from the shared shape, would have taken the schematic designer off the
+ * card to fix a mention list, which is not what was asked and is the exact
+ * "second definition" trap fix-347 §3 was written to avoid.
+ *
+ * ★ So this is a FILTER over the one definition, not a rival to it: same
+ * source, same order, one role omitted, and the omission stated in one place.
+ */
+export function projectTagNames(team: ProjectInternalTeam): string[] {
+  return projectTeamNames({ ...team, sd: [] });
 }
