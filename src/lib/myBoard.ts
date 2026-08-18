@@ -429,6 +429,121 @@ function latestCycle(cycles: ReadonlyArray<PermitCycle>): PermitCycle | null {
   return [...cycles].sort((a, b) => b.cycle_index - a.cycle_index)[0]!;
 }
 
+// ===========================================================================
+// ★★★ fix-337 — A MILESTONE IS ONLY LIVE IF IT STILL APPLIES
+// ===========================================================================
+//
+// Bobby: *"if it doesn't currently apply — meaning the project's been issued or
+// approved, or did you send out first round corrections and we're already on
+// cycle two or three — let's make sure that whatever we are currently
+// displaying is currently visible."*
+//
+// ★★ "ISSUED" IS ONE CASE OF THAT RULE, NOT THE RULE. I proposed an
+// issued-permit guard and Bobby corrected me; measuring it his way is far
+// worse. On prod, 2026-08-19, the intake prompt alone:
+//
+//     latest cycle │ permits │ raising a stale intake prompt
+//     ─────────────┼─────────┼──────────────────────────────
+//              0   │   108   │    2   ( 2%)   ← the only real ones
+//              1   │   189   │  131   (69%)
+//              2   │   110   │  101   (92%)
+//              3   │    88   │   74   (84%)
+//              4   │    20   │   20   (100%) ★
+//              5   │     6   │    6   (100%) ★
+//              6   │     3   │    3   (100%) ★
+//                            │  337 of 524
+//
+// ★★★ AND IT IS A CYCLE BUG, NOT AN ISSUANCE BUG. `intake_accepted` is only
+// ever written on the cycle intake belongs to, and this function read the
+// LATEST cycle — so the further a permit advances the more certainly its newest
+// cycle has a null `intake_accepted`, and past cycle 3 it fires on every single
+// permit. An issued-only guard would have fixed the finished ones and left the
+// 90-odd LIVE permits wrong: exactly the ones people are working on.
+//
+// ★ THE FIX IS THE DERIVATION, NOT AN ACK. fix-298's acks are anchored SNOOZES
+// ("an ack suppresses its milestone only while this still matches"), so
+// inserting 300 of them would have expired the moment an anchor moved. Nothing
+// in this ticket writes an ack.
+//
+// ★ AND IT IS PER KIND, so each prompt states its own condition rather than
+// inheriting a blanket. An issued permit raising nothing at all is then a
+// CONSEQUENCE of the six rules below, not a seventh rule bolted on top.
+//
+// ★★ WRITTEN SO A NOTIFICATION CAN HANG OFF IT LATER (§3, deliberately not
+// built here): `milestoneApplies` is a pure, exported (kind, permit, cycles) →
+// boolean. A future scraper-driven notifier asks it the same question this
+// board does, and the transition true → false is precisely "the permit moved
+// on, tell the ent lead" — no rework needed, just a caller.
+
+/** Has anything ever been submitted on this permit? */
+function everSubmitted(cycles: ReadonlyArray<PermitCycle>): boolean {
+  return cycles.some((c) => !!c.submitted);
+}
+
+/** Has intake ever been accepted, on ANY cycle?
+ *
+ *  ★ Deliberately "any", not "cycle 0". Intake acceptance is a one-time event
+ *  in a permit's life, and where it is recorded has moved: fix-26 put design
+ *  fields on cycle 0, and pre-fix-26 permits still carry them on cycle 1. The
+ *  question "has this happened yet" is answerable across both shapes; "is it on
+ *  the cycle I think it should be on" is not. */
+function everIntakeAccepted(cycles: ReadonlyArray<PermitCycle>): boolean {
+  return cycles.some((c) => !!c.intake_accepted);
+}
+
+/**
+ * ★★★ Does this milestone still apply to the permit's CURRENT state?
+ *
+ * One rule per kind, each saying what would make it moot:
+ *
+ *   corrections     handled by isPermitInCorrections, which already answers
+ *                   the current-cycle question (fix-214) and already excludes
+ *                   issued and approved permits.
+ *   fees            approved and not yet issued. The one kind that was already
+ *                   right — and the shape the other five now follow.
+ *   reviewer_silent nobody is waiting on a reviewer once the permit is
+ *                   approved (checked before) or ISSUED (checked now).
+ *   target_submit   a target to submit BY is moot the moment anything has been
+ *                   submitted — on any cycle, not just the newest. Same for an
+ *                   approved or issued permit.
+ *   draw            the DD window closing is a pre-submission prompt. Same test.
+ *   intake          ★ THE 337. Moot once intake has been accepted ANYWHERE, or
+ *                   the permit is approved or issued.
+ *
+ * ★ Note what is NOT here: no threshold, no date arithmetic, no ack. This
+ * answers "does this prompt make sense for this permit today", and the caller
+ * still decides whether it is due, how late it is, and whether somebody has
+ * already snoozed it.
+ */
+export function milestoneApplies(
+  kind: MilestoneKind,
+  permit: PermitWithCycles,
+  cycles: ReadonlyArray<PermitCycle> = permit.permit_cycles ?? [],
+): boolean {
+  const issued = !!permit.actual_issue;
+  const approved = !!permit.approval_date;
+  switch (kind) {
+    case 'corrections':
+      return isPermitInCorrections(permit, [...cycles]);
+    case 'fees':
+      return approved && !issued;
+    case 'reviewer_silent':
+      return !approved && !issued;
+    case 'target_submit':
+      return !!permit.target_submit && !everSubmitted(cycles) && !approved && !issued;
+    case 'draw':
+      return !!permit.dd_end && !everSubmitted(cycles) && !approved && !issued;
+    case 'intake':
+      return (
+        !!permit.intake_date && !everIntakeAccepted(cycles) && !approved && !issued
+      );
+    // Milestones with no derivation of their own — handoff/issuance are raised
+    // elsewhere and are not part of this function's contract.
+    default:
+      return true;
+  }
+}
+
 /** Every milestone this permit is currently at. A permit can carry more than
  *  one (fees due AND a reviewer gone quiet), and each is prompted separately. */
 export function permitMilestones(
@@ -443,7 +558,10 @@ export function permitMilestones(
 
   // Corrections — a STATE, no inherent date. Never on the forecast unless the
   // permit also carries a target date (below), which is a different prompt.
-  if (isPermitInCorrections(permit, cycles)) {
+  // ★ fix-337: routed through milestoneApplies like the other five, so every
+  // kind answers the same question in the same place. The rule is unchanged —
+  // isPermitInCorrections has been current-cycle-aware since fix-214.
+  if (milestoneApplies('corrections', permit, cycles)) {
     out.push({
       kind: 'corrections',
       date: null,
@@ -453,7 +571,10 @@ export function permitMilestones(
   }
 
   // Approved but not issued — fees. Dated from the approval.
-  if (permit.approval_date && !permit.actual_issue) {
+  // ★ fix-337: this is the kind that was ALREADY right (myBoard.ts:456 was the
+  // only issuance check in the whole function), and the shape the other five
+  // now follow.
+  if (milestoneApplies('fees', permit, cycles) && permit.approval_date) {
     const late = daysBetween(permit.approval_date, today);
     if (late >= thresholds.approvedNotIssuedDays) {
       out.push({
@@ -478,7 +599,13 @@ export function permitMilestones(
   //
   // This also matches how the brief itself frames the sibling threshold —
   // "permit untouched", not "permit submitted a while ago".
-  if (cyc?.submitted && !cyc.corr_issued && !permit.approval_date) {
+  // ★ fix-337: …and not once the permit is ISSUED. Three permits were still
+  // asking someone to chase a reviewer on a permit the city had already issued.
+  if (
+    cyc?.submitted &&
+    !cyc.corr_issued &&
+    milestoneApplies('reviewer_silent', permit, cycles)
+  ) {
     // fix-298 Phase 2: a chase IS a movement. reviewer_silent has no anchor
     // that could ever change (the whole point is that nothing is changing), so
     // instead of suppressing it forever we re-measure silence from the most
@@ -503,7 +630,9 @@ export function permitMilestones(
   }
 
   // Target submit — a DATE. Only while the set has not gone in.
-  if (permit.target_submit && !cyc?.submitted) {
+  // ★ fix-337: "has not gone in" now means NO cycle has been submitted, not
+  // "the newest cycle has not" — a permit on cycle 3 has plainly submitted.
+  if (milestoneApplies('target_submit', permit, cycles) && permit.target_submit) {
     const late = daysBetween(permit.target_submit, today);
     out.push({
       kind: 'target_submit',
@@ -516,7 +645,9 @@ export function permitMilestones(
   }
 
   // DD window close — a DATE, design side only.
-  if (permit.dd_end && !cyc?.submitted) {
+  // ★ fix-337: same correction as target_submit — the DD window is a
+  // pre-submission prompt, and any submission at all closes the question.
+  if (milestoneApplies('draw', permit, cycles) && permit.dd_end) {
     const late = daysBetween(permit.dd_end, today);
     out.push({
       kind: 'draw',
@@ -528,7 +659,11 @@ export function permitMilestones(
   }
 
   // Intake — a DATE, entitlement only.
-  if (permit.intake_date && !cyc?.intake_accepted) {
+  //
+  // ★★★ fix-337: THE 337. This read `!cyc?.intake_accepted` — the LATEST
+  // cycle's — so every permit past cycle 3 raised it forever, whatever its
+  // state. It asks the right question now: has intake been accepted at all?
+  if (milestoneApplies('intake', permit, cycles) && permit.intake_date) {
     out.push({
       kind: 'intake',
       date: permit.intake_date,

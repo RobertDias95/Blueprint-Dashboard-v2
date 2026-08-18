@@ -802,6 +802,15 @@ export interface TaskNode {
   /** fix-155: which lifecycle event spawned this auto-task. null on human
    *  tasks and on pre-fix-155 wire shapes. */
   auto_event?: AutoEvent | null;
+  /** ★★ fix-337: why the SYSTEM closed this task — NULL when a person did.
+   *
+   *  Deliberately NOT `auto_event`, which says why a task was CREATED and
+   *  drives the BOT badge: creation and closure are different facts and one
+   *  column cannot hold both. Today the only value is 'permit_issued', written
+   *  by bp_clear_tasks_for_issued_permit — the one-time clear AND the standing
+   *  rule share it, so a person looking at a completed task can always tell it
+   *  was not somebody's tick. */
+  auto_closed_reason?: 'permit_issued' | null;
   /** fix-304: when the row was created. Added to bp_list_tasks so the bell can
    *  fold a bot task and the status flip that spawned it into ONE row
    *  (register #18) — the merge rule is a ~15-minute window and needs a
