@@ -1,3 +1,4 @@
+import { Link } from 'react-router-dom';
 import type { CSSProperties, ReactNode } from 'react';
 
 // fix-290: the one card shape every Project Overview column uses.
@@ -125,6 +126,39 @@ interface SectionProps {
    *  line they start on. A single-section card has no rhythm to preserve — the
    *  slack has nowhere else to go, so it goes half above and half below. */
   centerVertically?: boolean;
+  /** ★★★ fix-345 §3: take this section OUT of the even distribution and sit it
+   *  on the card's floor.
+   *
+   *  Bobby: "We really like the draw schedule link button. If we can make that
+   *  uniform for Connect and chat. Make them all at the bottom and horizontally
+   *  equally and vertically equal so it kind of points to here are 3 active
+   *  buttons for each category with different functions."
+   *
+   *  ★★ "VERTICALLY EQUAL" DOES NOT HAPPEN BY BEING LAST, and that is the whole
+   *  reason this flag exists. fix-331 §1 gives every section `flexGrow: 1`, so
+   *  the spare height is split EVENLY BETWEEN SECTIONS — and the three cards
+   *  have different section counts:
+   *
+   *      Milestones   Key dates · DD window · Permit intake · [button]    4
+   *      Project      Proposal · Site · [button]                          3
+   *      Team         Internal · Chat · External · [button]               4
+   *
+   *  A button section that takes a 1/4 share on one card and a 1/3 share on
+   *  another puts its content at a different height on each, because the content
+   *  sits at the TOP of whatever share it was given. Being last is not enough.
+   *
+   *  ★ THE FIX IS TO GIVE IT NO SHARE AT ALL. `flexGrow: 0` means the spare goes
+   *  entirely to the sections above — so they still distribute it between
+   *  themselves, fix-331 §1 intact — and this section ends up flush against the
+   *  card's bottom edge on every card, whatever is above it. All three buttons
+   *  are then measured from the same edge, and the cards are already equal
+   *  heights (fix-309 #55's stretched row), so they land on one line.
+   *
+   *  ★ `marginTop: auto` is belt and braces for the case where NOTHING above
+   *  grows — a card whose sections are all pinned, or one outside a stretched
+   *  row. Where the sections above do grow they consume the free space first
+   *  and the auto margin resolves to zero, so the two never fight. */
+  pinBottom?: boolean;
 }
 
 /**
@@ -187,14 +221,18 @@ export function OverviewSection({
   bodyClassName = '',
   titleRight,
   centerVertically = false,
+  pinBottom = false,
 }: SectionProps) {
   return (
     <section
       className="border-t border-border first:border-t-0"
       style={{
-        flexGrow: 1,
+        // ★ fix-345 §3: a pinned section takes NO share of the spare height, so
+        // everything above it keeps distributing exactly as fix-331 §1 says.
+        flexGrow: pinBottom ? 0 : 1,
         flexShrink: 0,
         flexBasis: 'auto',
+        ...(pinBottom ? { marginTop: 'auto' } : null),
         // ★ fix-335 §6: the section already GROWS to take the spare height —
         // that is §1, unchanged. All this adds is where the content sits inside
         // the space it was given: `justify-content: center` on a column splits
@@ -211,6 +249,7 @@ export function OverviewSection({
       }}
       data-testid={testId}
       data-center-vertically={centerVertically ? 'true' : undefined}
+      data-pin-bottom={pinBottom ? 'true' : undefined}
     >
       {title && (
         <div className="px-2.5 pt-1.5 pb-0.5 flex items-baseline justify-between gap-2">
@@ -224,5 +263,85 @@ export function OverviewSection({
         {children}
       </div>
     </section>
+  );
+}
+
+// ===========================================================================
+// ★★★ fix-345 §3 — the card action: one button shape, three cards
+// ===========================================================================
+//
+// Bobby: "We really like the draw schedule link button. If we can make that
+// uniform for Connect and chat… so it kind of points to here are 3 active
+// buttons for each category with different functions."
+//
+// ★ THE DRAW SCHEDULE BUTTON IS THE MODEL, so this is its treatment extracted
+// rather than a fourth opinion invented. Same height, same padding, same type
+// scale, same full card width, on all three.
+//
+// ★★ ONE FIXED HEIGHT, NOT "whatever the content comes to". Two of the three
+// have a second element inside them — Connect's "no link yet" tag, and the
+// draw-schedule quarter — and a row sized by its content would land a pixel or
+// two off on each card. That is exactly the misalignment §3 exists to remove, so
+// the height is declared once here and `whitespace-nowrap` stops a long label
+// wrapping its way out of it.
+const OVERVIEW_ACTION_BASE =
+  'flex items-center justify-center gap-1.5 w-full h-[26px] rounded border ' +
+  'font-bold text-[10.5px] px-2 whitespace-nowrap transition no-underline';
+
+// ★ The live treatment — the draw-schedule button's own colours, unchanged.
+const OVERVIEW_ACTION_LIVE =
+  'border-de bg-de-bg text-de hover:bg-de hover:text-white';
+
+// ★ And the inert one. fix-335 §8's Connect placeholder keeps its dashed
+// border and muted fill: the point of that control is that it reads as
+// not-yet-working BEFORE it is clicked, and making it look identical to two
+// buttons that DO something would undo the only thing that made it honest.
+// Uniform in geometry, not in promise.
+const OVERVIEW_ACTION_INERT =
+  'border-dashed border-border bg-s2 text-dim cursor-not-allowed';
+
+interface ActionProps {
+  /** Renders a react-router <Link>. Mutually exclusive with onClick/disabled. */
+  to?: string;
+  onClick?: () => void;
+  /** Renders a disabled <button>. The Connect placeholder is the only user. */
+  disabled?: boolean;
+  title?: string;
+  testId: string;
+  children: ReactNode;
+  /** Extra data-* attributes. Kept explicit rather than spread from props so a
+   *  typo cannot silently become an unrendered attribute. */
+  data?: Record<string, string | undefined>;
+}
+
+/**
+ * One card action, at the foot of a card. Pair it with
+ * `<OverviewSection pinBottom>` — the section does the alignment, this does the
+ * appearance, and neither knows about the other's job.
+ */
+export function OverviewAction({
+  to,
+  onClick,
+  disabled = false,
+  title,
+  testId,
+  children,
+  data,
+}: ActionProps) {
+  const className = `${OVERVIEW_ACTION_BASE} ${
+    disabled ? OVERVIEW_ACTION_INERT : OVERVIEW_ACTION_LIVE
+  }`;
+  const attrs = { ...data, 'data-testid': testId, title, className };
+  if (to !== undefined) {
+    return (
+      <Link to={to} {...attrs}>
+        {children}
+      </Link>
+    );
+  }
+  return (
+    <button type="button" onClick={onClick} disabled={disabled} aria-disabled={disabled || undefined} {...attrs}>
+      {children}
+    </button>
   );
 }

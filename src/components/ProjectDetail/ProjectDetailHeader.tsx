@@ -44,7 +44,9 @@ import NpWarningPrompt from '../NpWarningPrompt';
 import BuilderAutocompleteField from '../builder/BuilderAutocompleteField';
 import PlanOfRecordCard from './PlanOfRecordCard';
 import ProjectChatSection, { ProjectChatUnread } from './ProjectChatSection';
-import { OverviewCard, OverviewSection } from './OverviewCard';
+import { useProjectPostCount } from '../../hooks/useProjectMessages';
+import ProjectChatModal from './ProjectChatModal';
+import { OverviewAction, OverviewCard, OverviewSection } from './OverviewCard';
 
 // Q9.5.e: 4-column header top strip per v1 §4.2.1. Left card holds an
 // inner 3-column grid (DD Phase 0.75fr / Project 1.5fr / Team 1.75fr)
@@ -208,33 +210,43 @@ function DrawScheduleLinkRow({
 }) {
   const target = drawScheduleTarget(projectId, startWeek);
   return (
-    <OverviewSection testId="pd-draw-schedule-section">
-      <Link
+    // ★ fix-345 §3: pinned to the card's floor, and the button's own treatment
+    // extracted into <OverviewAction> — this one was the model the other two are
+    // being matched to, so it is the shape that moved, not the shape that changed.
+    <OverviewSection testId="pd-draw-schedule-section" pinBottom>
+      {/* ★★ fix-345 §3: THE UNSCHEDULED NOTE MOVED ABOVE THE BUTTON. It used to
+          sit underneath, which was fine when this card's button was the only
+          one — and fatal the moment three buttons had to share a baseline,
+          because a note below would push this one a line off the floor while
+          Connect and Chat sat on it. Above, the note eats spare height that was
+          empty anyway and the button still lands on the same edge as the others. */}
+      {!target.hasBlock && (
+        <div
+          className="text-[9px] text-dim text-center mb-1"
+          data-testid="pd-draw-schedule-unscheduled"
+        >
+          Not scheduled yet — no block on the board.
+        </div>
+      )}
+      <OverviewAction
         to={target.href}
-        data-testid="pd-draw-schedule-link"
-        data-has-block={target.hasBlock ? 'true' : 'false'}
-        data-quarter={target.quarter ?? undefined}
+        testId="pd-draw-schedule-link"
+        data={{
+          'data-has-block': target.hasBlock ? 'true' : 'false',
+          'data-quarter': target.quarter ?? undefined,
+        }}
         title={
           target.hasBlock
             ? `Open the draw schedule at ${target.quarterLabel}, where this project's block starts`
             : 'Open the draw schedule — this project has no block on it yet'
         }
-        className="flex items-center justify-center gap-1.5 w-full rounded border border-de bg-de-bg text-de font-bold text-[10.5px] px-2 py-1 no-underline hover:bg-de hover:text-white transition"
       >
         <span>
           Draw schedule
           {target.quarterLabel ? ` · ${target.quarterLabel}` : ''}
         </span>
         <span aria-hidden>→</span>
-      </Link>
-      {!target.hasBlock && (
-        <div
-          className="text-[9px] text-dim text-center mt-1"
-          data-testid="pd-draw-schedule-unscheduled"
-        >
-          Not scheduled yet — no block on the board.
-        </div>
-      )}
+      </OverviewAction>
     </OverviewSection>
   );
 }
@@ -1250,24 +1262,26 @@ function ProjectCell({
 // button is currently being honest about instead of reproducing.
 function ConnectPlaceholder() {
   return (
-    <OverviewSection testId="pd-connect-section">
-      <button
-        type="button"
+    // ★★ fix-345 §3 RESTYLED THIS AND DID NOT ACTIVATE IT — the brief's words.
+    // It takes the shared geometry so it lines up with the other two, and keeps
+    // its dashed border, muted fill and disabled state, because the ONLY thing
+    // that made this placeholder honest is that it reads as not-yet-working
+    // before it is clicked. Uniform in size and position; not in promise.
+    <OverviewSection testId="pd-connect-section" pinBottom>
+      <OverviewAction
         disabled
-        aria-disabled="true"
-        data-testid="pd-connect-button"
+        testId="pd-connect-button"
         // ★ Declared in the DOM, so "is anything inert on this screen?" is a
         // question a test can ask of the whole app rather than of a list
         // somebody has to maintain.
-        data-placeholder="true"
+        data={{ 'data-placeholder': 'true' }}
         title="Connect is an application on our PCs. There is no link for the browser to open yet."
-        className="flex items-center justify-center gap-1.5 w-full rounded border border-dashed border-border bg-s2 text-dim font-bold text-[10.5px] px-2 py-1 cursor-not-allowed"
       >
         <span>Connect</span>
         <span className="font-normal text-[9px] uppercase tracking-wide">
           no link yet
         </span>
-      </button>
+      </OverviewAction>
     </OverviewSection>
   );
 }
@@ -1313,6 +1327,13 @@ function TeamCell({
     ? project.schematic_designer.filter(Boolean).join(', ')
     : null;
 
+  // ★★ fix-345 §3: the card owns the modal now, because the two things that
+  // talk to it — the preview section and the pinned Chat button — are separate
+  // children of it. ProjectChatSection used to hold this state, which worked
+  // only while the opener lived inside the preview.
+  const [chatOpen, setChatOpen] = useState(false);
+  const postCount = useProjectPostCount(project.id);
+
   // fix-285: Internal and External STACK vertically now — two cards in one
   // column — rather than sitting side by side in a 2-col grid. Side by side,
   // each got half of a narrow column and the External discipline selects were
@@ -1356,17 +1377,44 @@ function TeamCell({
           ★ fix-290 predicted this exact move: "A THIRD SECTION COSTS NOTHING.
           Team may grow Consultants." It cost one line here and one prop on
           OverviewSection, which is the payoff being collected. */}
-      <OverviewSection
-        title="Chat"
-        testId="project-overview-team-chat"
-        titleRight={<ProjectChatUnread projectId={project.id} />}
-      >
-        <ProjectChatSection projectId={project.id} permits={permits} />
+      <OverviewSection title="Chat" testId="project-overview-team-chat">
+        <ProjectChatSection projectId={project.id} />
       </OverviewSection>
 
       <OverviewSection title="External" testId="project-overview-team-external">
         <ExternalTeamEditor project={project} />
       </OverviewSection>
+
+      {/* ★★ fix-345 §3: the Team card's action, matching Milestones and Project.
+          The preview above did not move — fix-331 §3's placement is Bobby's and
+          he is not asking for it back. Only the way IN moved, from an inline
+          link mid-card to the button every card now carries at its foot. */}
+      <OverviewSection testId="pd-chat-section" pinBottom>
+        <OverviewAction
+          onClick={() => setChatOpen(true)}
+          testId="project-chat-open"
+          title={
+            postCount > 0
+              ? `Open the project chat — ${postCount} ${postCount === 1 ? 'post' : 'posts'}`
+              : 'Open the project chat'
+          }
+          data={{ 'data-post-count': String(postCount) }}
+        >
+          <span>Chat{postCount > 0 ? ` · ${postCount}` : ''}</span>
+          {/* ★ The unread count rides the control, per the brief — same query,
+              same subtraction, same source as the bell. */}
+          <ProjectChatUnread projectId={project.id} />
+          <span aria-hidden>→</span>
+        </OverviewAction>
+      </OverviewSection>
+
+      {chatOpen && (
+        <ProjectChatModal
+          projectId={project.id}
+          permits={permits}
+          onClose={() => setChatOpen(false)}
+        />
+      )}
     </OverviewCard>
   );
 }

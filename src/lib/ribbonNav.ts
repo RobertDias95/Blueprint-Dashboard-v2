@@ -107,19 +107,25 @@ export const SHAREPOINT_URL =
 // The "Entitlements" grouping mirrors his inspiration image and is a guess
 // about how the team thinks — build it, expect it to move. Draw Schedule,
 // Library and Activity are the three screens that sit under it today.
-// ★★ fix-335 §3/§4 — THE FOURTH REORDER, and the brief says to report exactly
-// what shipped, so the decisions are written here rather than left in a diff.
+// ★★ fix-345 §4 — THE FIFTH REORDER, and the brief says to report exactly what
+// shipped, so the decisions are written here rather than left in a diff.
 //
 //     Pipeline
 //     Draw Schedule
 //     My Board
 //     ─────
-//     Library                                    ← §3: was Entitlements ▸ Library
+//     Library                                    ← fix-335 §3: was a group
 //     Reports ▸         Overview · Project View · Saved reports
+//     SharePoint ↗                               ← fix-345 §4: moved up a tier
 //     ─────
 //     Settings
 //     Error triage            (admin only — fix-331 §6)
-//     SharePoint ↗            (everyone — §4, leaves the app)
+//
+// ★ ONE MOVE, and it puts the tiers back to what they mean: everything you GO
+// to above the rule, the two administrative entries below it. fix-335 §4 had
+// filed SharePoint with Settings because it leaves the app; Bobby, having used
+// it, reads it as a destination like any other — "Maybe below reports?" — and
+// the ribbon is easier to scan for it.
 //
 // ★ §3, AND IT WAS PREDICTED HERE. fix-331 §8 left Entitlements holding exactly
 // one child and wrote down that collapsing it "would mean re-creating it next
@@ -263,6 +269,37 @@ export const RIBBON_ENTRIES: RibbonEntry[] = [
       ],
     },
   },
+  // ★★ fix-345 §4: SharePoint, BELOW REPORTS — Bobby: "Maybe below reports?"
+  //
+  // fix-335 §4 put it last, in the bottom tier, on the reasoning that the one
+  // entry leaving the app belonged furthest from everything that does not.
+  // Having used it, Bobby wants it treated as an ordinary destination instead:
+  // "Maybe it is just another word like the other options so it is more
+  // uniform." So it joins the CONTENT tier, under Reports, and the bottom tier
+  // goes back to being the two administrative entries.
+  //
+  // ★ It is still the last thing before the separator, so the reading order is
+  // unchanged: everything you go to, then the rule, then Settings.
+  //
+  // ★ NO ADMIN GATE, DELIBERATELY. "this is accessible by everyone." 23 of the
+  // 29 people in this tenant are editors (measured on prod 2026-08-17), and the
+  // studio's document site is the single most universally useful destination in
+  // the ribbon — gating it would withhold it from almost the whole company. It
+  // carries no `adminOnly`, and a test asserts a non-admin sees it.
+  //
+  // ★ The glyph is a SITE mark, not an arrow: fix-345 §4 renders the "leaves the
+  // app" ↗ as a separate trailing footnote, so the leading gutter carries the
+  // same kind of shape every other row does.
+  {
+    kind: 'external',
+    external: {
+      id: 'sharepoint',
+      href: SHAREPOINT_URL,
+      label: 'SharePoint',
+      icon: '▧',
+      hint: 'Blueprint Design and Entitlements Studio on SharePoint — opens in a new tab',
+    },
+  },
   { kind: 'separator', id: 'sep-2' },
   // ★ fix-319 #76: Settings was a BUTTON that opened a dialog. It is a
   // destination now, so it is a link like everything else, and the coverage
@@ -291,25 +328,6 @@ export const RIBBON_ENTRIES: RibbonEntry[] = [
       adminOnly: true,
       badge: 'errors',
       hint: 'Scraper and app errors needing triage',
-    },
-  },
-  // ★★ fix-335 §4: SharePoint. The bottom tier, beside Settings, where Bobby
-  // drew it — and the last row, so the one entry that leaves the app is the one
-  // furthest from everything that does not.
-  //
-  // ★ NO ADMIN GATE, DELIBERATELY. "this is accessible by everyone." 23 of the
-  // 29 people in this tenant are editors (measured on prod 2026-08-17), and the
-  // studio's document site is the single most universally useful destination in
-  // the ribbon — gating it would withhold it from almost the whole company. It
-  // carries no `adminOnly`, and a test asserts a non-admin sees it.
-  {
-    kind: 'external',
-    external: {
-      id: 'sharepoint',
-      href: SHAREPOINT_URL,
-      label: 'SharePoint',
-      icon: '↗',
-      hint: 'Blueprint Design and Entitlements Studio on SharePoint — opens in a new tab',
     },
   },
 ];

@@ -109,16 +109,18 @@ describe('<Chrome /> fix-313 the Blueprint Bridge shell', () => {
     // My Board dropped to third, Project View moved UNDER Reports, and error
     // triage arrived from the top bar as an admin-only entry.
     // ★★ fix-335, the FOURTH reorder: §3 collapsed Entitlements so Library is
-    // a top-level row, and §4 added SharePoint at the foot — the one entry that
-    // leaves the app, visible to everyone.
+    // a top-level row, and §4 added SharePoint — the one entry that leaves the
+    // app, visible to everyone.
+    // ★ fix-345 §4, the FIFTH: SharePoint moved up under Reports, so the tier
+    // below the rule is the two administrative entries again.
     expect(ribbonLabels()).toEqual([
       'Pipeline',
       'Draw Schedule',
       'My Board',
       'Library',
+      'Blueprint Design and Entitlements Studio on SharePoint — opens in a new tab',
       'Settings',
       'Scraper and app errors needing triage',
-      'Blueprint Design and Entitlements Studio on SharePoint — opens in a new tab',
     ]);
 
     // ★ fix-310 renamed the DD-PHASE vocabulary from Draw to DD across ~14
@@ -250,8 +252,8 @@ describe('<Chrome /> fix-313 the Blueprint Bridge shell', () => {
       'My Board',
       'Library',
       'Every project, searchable — open to everyone',
-      'Settings',
       'Blueprint Design and Entitlements Studio on SharePoint — opens in a new tab',
+      'Settings',
     ]);
     // ★ fix-335 §3: Library is a top-level entry now, not a group.
     expect(screen.queryByTestId('ribbon-group-entitlements')).toBeNull();
@@ -299,8 +301,11 @@ describe('<Chrome /> fix-313 the Blueprint Bridge shell', () => {
 
     // The header: the tab's icon, then the product's name, centred.
     const centre = screen.getByTestId('chrome-brand-center');
-    expect(centre.textContent).toMatch(/The Bridge/);
-    // ★ fix-320 #73 survives the move: title case, not all caps — "maybe it
+    // ★ fix-345 §2: a lowercase `t` — "We want 'the' to be lower case and
+    // Bridge is fine the way it is spelt."
+    expect(centre.textContent).toMatch(/the Bridge/);
+    expect(centre.textContent).not.toMatch(/The Bridge/);
+    // ★ fix-320 #73 survives both moves: title case, not all caps — "maybe it
     // doesn't need to be all caps".
     expect(centre.textContent).not.toMatch(/THE BRIDGE/);
     expect(

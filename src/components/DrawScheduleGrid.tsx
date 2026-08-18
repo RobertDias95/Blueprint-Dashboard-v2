@@ -2789,15 +2789,25 @@ function Toolbar({
         >
           ◂
         </button>
-        <button
-          type="button"
-          onClick={() => setQuarterOffset(0)}
-          className="text-xs px-2 py-1 rounded-md border border-border bg-bg hover:bg-s2 transition font-display font-semibold"
-          data-testid="quarter-today"
-          title="Jump to current quarter"
+        {/* ★★ fix-345 §1: THIS IS A LABEL NOW, not a button.
+
+            It has always jumped to the current quarter on click — and Bobby, who
+            uses this screen daily, asked for the feature: "Can we add a today
+            button that would take us to current quarter?" That IS the evidence.
+            A control whose entire affordance is the words "Q3 2026" does not
+            announce that it is a control, so nobody found it.
+
+            ★ So the jump moved to a button that says what it does, and this
+            stopped pretending to be one. Two controls doing the same thing was
+            the alternative, and it is the shape this codebase keeps removing —
+            fix-345 §3 is deleting one on the Team card in the same ticket. */}
+        <span
+          className="text-xs px-2 py-1 rounded-md border border-border bg-bg font-display font-semibold select-none"
+          data-testid="quarter-label"
+          title="The quarter on screen"
         >
           {getQuarterLabel(quarterOffset)}
-        </button>
+        </span>
         <button
           type="button"
           onClick={() => setQuarterOffset(quarterOffset + 1)}
@@ -2806,6 +2816,37 @@ function Toolbar({
           title="Next quarter"
         >
           ▸
+        </button>
+        {/* ★★ fix-345 §1 — Today.
+            Bobby: "This way if for whatever reason you are on a different
+            quarter, you can quickly press that and bring you back to current."
+
+            ★ DISABLED WHEN YOU ARE ALREADY THERE, rather than live-but-inert.
+            The brief offered either; disabled is the honest one, because a
+            button that looks clickable and changes nothing teaches people the
+            screen is unresponsive. Disabled also carries to a screen reader and
+            to the keyboard, which a grey-looking-but-focusable div does not.
+            The title says WHY it is off, so the state reads as "you are here"
+            rather than "this is broken".
+
+            ★ It moves the VIEW and nothing else. fix-335 §7 gave this grid a
+            ?quarter= deep link that sets the INITIAL quarter and then hands the
+            quarter to the arrows; Today is the same kind of control as the
+            arrows, so it does not rewrite the URL either. */}
+        <button
+          type="button"
+          onClick={() => setQuarterOffset(0)}
+          disabled={quarterOffset === 0}
+          className="text-xs px-2 py-1 rounded-md border border-border bg-bg transition font-display font-semibold enabled:hover:bg-s2 disabled:opacity-45 disabled:cursor-default"
+          data-testid="quarter-today"
+          data-at-today={quarterOffset === 0 ? 'true' : 'false'}
+          title={
+            quarterOffset === 0
+              ? 'You are on the current quarter'
+              : 'Back to the current quarter'
+          }
+        >
+          Today
         </button>
         {/* fix-182c: flag quarters rendered from a saved per-quarter layout
             vs the current/default team structure. */}

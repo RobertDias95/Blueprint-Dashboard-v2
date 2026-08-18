@@ -345,7 +345,7 @@ vi.mock('../components/ProjectDetail/ScheduleEstimator', () => ({
   default: () => <div data-testid="stub-schedule-estimator" />,
 }));
 
-import ProjectChatCard from '../components/ProjectDetail/ProjectChatSection';
+import ProjectChatModal from '../components/ProjectDetail/ProjectChatModal';
 import PermitDetailV2 from '../components/ProjectDetail/PermitDetailV2';
 import MyTasks from '../pages/MyTasks';
 
@@ -449,8 +449,13 @@ beforeEach(() => {
 /** Drive the REAL chat composer: open the modal, open the chooser, pick a
  *  permit, create. Returns once the write path has landed in the store. */
 async function createTaskOnPermit(permitId: number, assignee?: string) {
-  render(<ProjectChatCard projectId={PROJECT} permits={PERMITS} />, { wrapper });
-  fireEvent.click(screen.getByTestId('project-chat-open'));
+  // ★ fix-345 §3: the modal moved off the preview section and onto the Team
+  // card's pinned Chat button, so this renders the modal directly. Everything
+  // below it — the composer, the chooser, the write path — is unchanged.
+  render(
+    <ProjectChatModal projectId={PROJECT} permits={PERMITS} onClose={() => {}} />,
+    { wrapper },
+  );
   fireEvent.click(screen.getByTestId('project-chat-create-task-m-7'));
   fireEvent.change(screen.getByTestId('chat-task-m-7-permit'), {
     target: { value: String(permitId) },
@@ -580,8 +585,10 @@ describe('fix-330: the chain, end to end on one store', () => {
 
 describe('fix-330: attachments travel the real write path', () => {
   it('★ a pasted snip is uploaded, then the message is inserted with it', async () => {
-    render(<ProjectChatCard projectId={PROJECT} permits={PERMITS} />, { wrapper });
-    fireEvent.click(screen.getByTestId('project-chat-open'));
+    render(
+      <ProjectChatModal projectId={PROJECT} permits={PERMITS} onClose={() => {}} />,
+      { wrapper },
+    );
     fireEvent.paste(screen.getByTestId('project-chat-input'), {
       clipboardData: {
         files: [new File([new Uint8Array(16)], 'snip.png', { type: 'image/png' })],
@@ -643,8 +650,10 @@ describe('fix-330: attachments travel the real write path', () => {
       return realFrom(table);
     };
 
-    render(<ProjectChatCard projectId={PROJECT} permits={PERMITS} />, { wrapper });
-    fireEvent.click(screen.getByTestId('project-chat-open'));
+    render(
+      <ProjectChatModal projectId={PROJECT} permits={PERMITS} onClose={() => {}} />,
+      { wrapper },
+    );
     fireEvent.paste(screen.getByTestId('project-chat-input'), {
       clipboardData: {
         files: [new File([new Uint8Array(4)], 'snip.png', { type: 'image/png' })],

@@ -580,18 +580,24 @@ describe('fix-315: fix-313 survives', () => {
     // third, Project View moved into the Reports group, and error triage
     // arrived from the top bar (admin-only — this suite renders as an admin).
     // ★★ fix-335: Library joined this list (§3, its group collapsed) and
-    // SharePoint arrived at the foot of it (§4). SharePoint is an <a> like the
-    // rest, which is exactly why it belongs in this check rather than being
-    // filtered out of it — the one row that leaves the app has to be visible
-    // to the assertion that names every row.
+    // SharePoint arrived (§4). SharePoint is an <a> like the rest, which is
+    // exactly why it belongs in this check rather than being filtered out of
+    // it — the one row that leaves the app has to be visible to the assertion
+    // that names every row.
+    //
+    // ★ fix-345 §4 moved it UP a tier, below Reports and above the separator:
+    // Bobby, having used it, reads it as a destination rather than an
+    // administrative control — "Maybe below reports?" The Reports group is
+    // collapsed here, so its children are not rendered and SharePoint follows
+    // My Board / Library directly.
     expect(labels).toEqual([
       'Pipeline',
       'Draw Schedule',
       'My Board',
       'Library',
+      'Blueprint Design and Entitlements Studio on SharePoint — opens in a new tab',
       'Settings',
       'Scraper and app errors needing triage',
-      'Blueprint Design and Entitlements Studio on SharePoint — opens in a new tab',
     ]);
   });
 

@@ -4,6 +4,7 @@ import { MemoryRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import indexHtml from '../../index.html?raw';
 import markSrc from '../components/BridgeMark.tsx?raw';
+import { SHELL_HEADER_HEIGHT } from '../lib/shellMetrics';
 // ★ fix-335 §1: the ribbon's mark is a different component now. Its source is
 // read here for the same reason BridgeMark's is — so "referenced, not redrawn"
 // stays a checkable claim about whatever the ribbon actually renders.
@@ -139,9 +140,18 @@ describe('fix-322: the expanded ribbon shows the real illustration', () => {
   // is the same height as the app header beside it, so their bottom borders form
   // one line across the top of the screen. Growing it to fit the wordmark broke
   // that line by 22px, which is why the wordmark moved instead.
+  // ★★ fix-345 §2: THE NUMBER CHANGED AND THE RULE DID NOT. Bobby asked for a
+  // 2-3x bigger header lockup, which the 56px bar could not hold (the largest
+  // that fits with air is 1.7x), so both the header and this block grew to 80.
+  // What fix-322 was actually protecting — that the two are the SAME height, so
+  // their bottom borders form one line across the top of the screen — is now
+  // structurally impossible to break: they read one constant from
+  // lib/shellMetrics, which is what this asserts.
   it('the brand block stays 56px, matching the app header', () => {
     renderRibbon();
-    expect(screen.getByTestId('ribbon-brand').style.height).toBe('56px');
+    expect(screen.getByTestId('ribbon-brand').style.height).toBe(
+      `${SHELL_HEADER_HEIGHT}px`,
+    );
   });
 });
 

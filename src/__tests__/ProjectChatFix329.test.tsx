@@ -293,6 +293,7 @@ vi.mock('../hooks/useBoardReads', () => ({
 import ProjectChatCard, {
   ProjectChatUnread,
 } from '../components/ProjectDetail/ProjectChatSection';
+import ProjectChatModal from '../components/ProjectDetail/ProjectChatModal';
 
 function permit(over: Partial<Permit> = {}): Permit {
   return {
@@ -304,14 +305,34 @@ function permit(over: Partial<Permit> = {}): Permit {
   } as unknown as Permit;
 }
 
-function renderCard(permits: Permit[] = [permit()]) {
+function renderCard() {
   const qc = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
   const wrapper = ({ children }: { children: ReactNode }) => (
     <QueryClientProvider client={qc}>{children}</QueryClientProvider>
   );
-  return render(<ProjectChatCard projectId="p-1" permits={permits} />, { wrapper });
+  return render(<ProjectChatCard projectId="p-1" />, { wrapper });
+}
+
+// ★★ fix-345 §3: the section is the PREVIEW now — the modal and its opener
+// moved up to the Team card, because the way in became the card's pinned Chat
+// button and the two live in different sections of the same card. So a test
+// that wants the modal renders the modal, which is what these ones were always
+// about; the click through the section was a hop, not a contract.
+const modalClosed = vi.fn();
+function renderModal(permits: Permit[] = [permit()]) {
+  const qc = new QueryClient({
+    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+  });
+  const wrapper = ({ children }: { children: ReactNode }) => (
+    <QueryClientProvider client={qc}>{children}</QueryClientProvider>
+  );
+  modalClosed.mockClear();
+  return render(
+    <ProjectChatModal projectId="p-1" permits={permits} onClose={modalClosed} />,
+    { wrapper },
+  );
 }
 
 /** ★ fix-331 §3: the unread pill is a separate export, because the section
@@ -408,8 +429,7 @@ describe('fix-329: the message preview (fix-331: now a Team-card section)', () =
 
 describe('fix-329: the modal', () => {
   function openModal(permits: Permit[] = [permit()]) {
-    renderCard(permits);
-    fireEvent.click(screen.getByTestId('project-chat-open'));
+    renderModal(permits);
   }
 
   it('shows the full thread, not the last three', () => {
@@ -497,10 +517,14 @@ describe('fix-329: the modal', () => {
     expect(mocks.created).toHaveLength(0);
   });
 
+  // ★ fix-345 §3: the modal is mounted by its OWNER — the Team card — so "the ✕
+  // closes it" is now "the ✕ asks its owner to close it", which is the contract
+  // that actually lives in this component. Unmounting is the card's half, and
+  // the card is where it is asserted.
   it('closes on Escape and on the ✕', () => {
     openModal();
     fireEvent.click(screen.getByTestId('project-chat-close'));
-    expect(screen.queryByTestId('project-chat-modal')).toBeNull();
+    expect(modalClosed).toHaveBeenCalledTimes(1);
   });
 });
 

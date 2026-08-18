@@ -1,3 +1,4 @@
+import { useMemo } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../lib/supabase';
 import { queryKeys } from '../lib/queryKeys';
@@ -5,6 +6,7 @@ import { pushToast } from '../stores/toastStore';
 import { useAuthStore } from '../stores/authStore';
 import { useUpsertTask } from './useTaskTree';
 import { uploadChatAttachments } from './useChatAttachments';
+import { groupIntoPosts } from '../lib/projectChat';
 import type { MentionItemInput } from '../lib/boardReads';
 import type {
   MentionablePerson,
@@ -55,6 +57,25 @@ export function useProjectMessages(projectId: string | undefined) {
 
 /** Who can be @-mentioned: people who can actually open this tenant, so every
  *  mention resolves to somebody the bell can reach. */
+
+/** ★ fix-345 §3: how many POSTS a project's thread has.
+ *
+ *  The Team card's Chat button prints it, so the control says what is behind it
+ *  rather than only where it goes. It lives here rather than beside the preview
+ *  that also needs it, because ProjectChatSection.tsx is a component file and
+ *  the react-refresh rule lets one export only components — the same split that
+ *  put ribbonNav's model in a lib away from Ribbon.tsx.
+ *
+ *  ★ It costs no second fetch: React Query dedupes `useProjectMessages`, so the
+ *  preview and the button read one request. */
+export function useProjectPostCount(projectId: string): number {
+  const messagesQ = useProjectMessages(projectId);
+  return useMemo(
+    () => groupIntoPosts(messagesQ.data ?? []).length,
+    [messagesQ.data],
+  );
+}
+
 export function useMentionablePeople() {
   const tenantId = useAuthStore((s) => s.activeTenantId);
   return useQuery<MentionablePerson[]>({

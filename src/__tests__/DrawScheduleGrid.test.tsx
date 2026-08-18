@@ -649,7 +649,10 @@ describe('<DrawScheduleGrid />', () => {
 
   it('quarter navigator advances + rewinds, and "today" snaps back', () => {
     renderGrid();
-    const nav = screen.getByTestId('quarter-today');
+    // ★ fix-345 §1: the label stopped pretending to be a button — the jump is a
+    // Today button now, which is what Bobby asked for after not finding the
+    // one hidden behind the words "Q3 2026".
+    const nav = screen.getByTestId('quarter-label');
     const initial = nav.textContent ?? '';
 
     fireEvent.click(screen.getByTestId('quarter-next'));
@@ -928,13 +931,13 @@ describe('<DrawScheduleGrid /> Q9.5.f-fix-20', () => {
 
   it('snaps quarterOffset to earliest match when search produces a result outside the current quarter', () => {
     renderGrid();
-    const todayBtn = screen.getByTestId('quarter-today');
+    const todayBtn = screen.getByTestId('quarter-label');
     const baseLabel = todayBtn.textContent ?? '';
 
     // Navigate forward two quarters; the displayed label changes.
     fireEvent.click(screen.getByTestId('quarter-next'));
     fireEvent.click(screen.getByTestId('quarter-next'));
-    expect(screen.getByTestId('quarter-today').textContent).not.toBe(baseLabel);
+    expect(screen.getByTestId('quarter-label').textContent).not.toBe(baseLabel);
     // Blocks no longer in the visible quarter.
     expect(screen.queryByTestId('block-p-now')).not.toBeInTheDocument();
 
@@ -946,7 +949,7 @@ describe('<DrawScheduleGrid /> Q9.5.f-fix-20', () => {
     // Effect runs synchronously inside the change handler's commit.
     // Quarter label snaps back to the original quarter (Q2 2026 in fixture
     // time) and the matched block reappears.
-    expect(screen.getByTestId('quarter-today').textContent).toBe(baseLabel);
+    expect(screen.getByTestId('quarter-label').textContent).toBe(baseLabel);
     expect(screen.getByTestId('block-p-now')).toBeInTheDocument();
     // Non-matching block stays hidden by the search filter.
     expect(screen.queryByTestId('block-p-other')).not.toBeInTheDocument();
@@ -960,13 +963,13 @@ describe('<DrawScheduleGrid /> Q9.5.f-fix-20', () => {
     fireEvent.change(screen.getByTestId('schedule-search'), {
       target: { value: 'pike' },
     });
-    const snappedLabel = screen.getByTestId('quarter-today').textContent;
+    const snappedLabel = screen.getByTestId('quarter-label').textContent;
 
     // Clear search. The user keeps whichever quarter they're on.
     fireEvent.change(screen.getByTestId('schedule-search'), {
       target: { value: '' },
     });
-    expect(screen.getByTestId('quarter-today').textContent).toBe(snappedLabel);
+    expect(screen.getByTestId('quarter-label').textContent).toBe(snappedLabel);
     // All blocks reappear since the filter is inactive.
     expect(screen.getByTestId('block-p-now')).toBeInTheDocument();
     expect(screen.getByTestId('block-p-other')).toBeInTheDocument();
@@ -2118,5 +2121,108 @@ describe('fix-335 §7: ?project= lands on that project\'s block', () => {
     expect(screen.getByTestId('block-p-now')).toBeInTheDocument();
     fireEvent.click(screen.getByTestId('quarter-next'));
     expect(screen.queryByTestId('block-p-now')).toBeNull();
+  });
+});
+
+// ===========================================================================
+// ★★ fix-345 §1 — the Today button
+// ===========================================================================
+//
+// Bobby: "Can we add a today button that would take us to current quarter? This
+// way if for whatever reason you are on a different quarter, you can quickly
+// press that and bring you back to current."
+//
+// ★★ THE JUMP ALREADY EXISTED — on the quarter LABEL, which is the evidence
+// that it did not count. A control whose entire affordance is the words "Q2
+// 2026" does not announce that it is one, so the person who uses this screen
+// every day asked for the feature. So the label became a label and the jump
+// became a button that says what it does. Two controls doing the same thing was
+// the alternative, and it is the shape this ticket removes on the Team card
+// (§3) in the same breath.
+//
+// The clock is pinned by this file's beforeEach to 2026-06-15 (Q2 2026).
+describe('fix-345 §1: Today returns the grid to the current quarter', () => {
+  it('★ brings the board back from any other quarter', () => {
+    renderGrid();
+    const label = screen.getByTestId('quarter-label');
+    const here = label.textContent;
+
+    fireEvent.click(screen.getByTestId('quarter-next'));
+    fireEvent.click(screen.getByTestId('quarter-next'));
+    expect(label.textContent).not.toBe(here);
+
+    fireEvent.click(screen.getByTestId('quarter-today'));
+    expect(label.textContent).toBe(here);
+  });
+
+  it('works from the past too, not only the future', () => {
+    renderGrid();
+    const label = screen.getByTestId('quarter-label');
+    const here = label.textContent;
+    fireEvent.click(screen.getByTestId('quarter-prev'));
+    fireEvent.click(screen.getByTestId('quarter-prev'));
+    fireEvent.click(screen.getByTestId('quarter-prev'));
+    expect(label.textContent).not.toBe(here);
+    fireEvent.click(screen.getByTestId('quarter-today'));
+    expect(label.textContent).toBe(here);
+  });
+
+  // ★★ "IT SHOULD SAY WHAT IT DOES WHEN YOU ARE ALREADY THERE" — the brief
+  // offered disabled or visibly inert, and disabled is the honest one: a
+  // control that looks clickable and changes nothing teaches people the screen
+  // is unresponsive. Disabled also carries to the keyboard and to a screen
+  // reader, which a greyed-out div does not.
+  it('★★ is disabled when you are already on the current quarter', () => {
+    renderGrid();
+    const today = screen.getByTestId('quarter-today') as HTMLButtonElement;
+    expect(today.disabled).toBe(true);
+    expect(today.dataset.atToday).toBe('true');
+    // ★ And it says WHY, so the state reads as "you are here" rather than
+    // "this is broken".
+    expect(today.getAttribute('title')).toMatch(/already|current quarter/i);
+  });
+
+  it('★ and becomes live the moment you leave', () => {
+    renderGrid();
+    fireEvent.click(screen.getByTestId('quarter-next'));
+    const today = screen.getByTestId('quarter-today') as HTMLButtonElement;
+    expect(today.disabled).toBe(false);
+    expect(today.dataset.atToday).toBe('false');
+    expect(today.getAttribute('title')).toMatch(/back to the current quarter/i);
+  });
+
+  it('sits with the arrows and the saved-layout chip', () => {
+    renderGrid();
+    const bar = screen.getByTestId('quarter-today').parentElement as HTMLElement;
+    expect(bar.querySelector('[data-testid="quarter-prev"]')).not.toBeNull();
+    expect(bar.querySelector('[data-testid="quarter-next"]')).not.toBeNull();
+    expect(bar.querySelector('[data-testid="quarter-label"]')).not.toBeNull();
+  });
+
+  // ★★ THE LABEL IS NOT A CONTROL ANY MORE. It has no click handler, so the
+  // "two ways to do one thing" it created is gone rather than merely
+  // duplicated by a clearer sibling.
+  it('★★ the quarter label no longer doubles as the jump', () => {
+    renderGrid();
+    const label = screen.getByTestId('quarter-label');
+    expect(label.tagName).toBe('SPAN');
+    fireEvent.click(screen.getByTestId('quarter-next'));
+    const moved = label.textContent;
+    fireEvent.click(label);
+    expect(label.textContent).toBe(moved);
+  });
+
+  // ★ fix-335 §7's deep link sets the INITIAL quarter and then hands the
+  // quarter to the arrows. Today is the same kind of control as the arrows: it
+  // moves the view and does not rewrite the URL.
+  it('★ moves the view without touching the URL', () => {
+    renderGridAt('/draw-schedule?project=p-now&quarter=2026-Q4');
+    expect(screen.getByTestId('ds-focus-notice')).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId('quarter-today'));
+    // We are back on this quarter — where p-now's block actually is.
+    expect(screen.getByTestId('block-p-now')).toBeInTheDocument();
+    // ★ And the deep link's own parameter is untouched: the focus ring is still
+    // applied, because ?project= still says which block this visit is about.
+    expect(screen.getByTestId('block-p-now').dataset.focus).toBe('true');
   });
 });
