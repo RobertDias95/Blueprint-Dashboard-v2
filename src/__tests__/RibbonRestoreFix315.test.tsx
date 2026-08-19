@@ -596,6 +596,10 @@ describe('fix-315: fix-313 survives', () => {
       'My Board',
       'Library',
       'Blueprint Design and Entitlements Studio on SharePoint — opens in a new tab',
+      // ★ fix-350, the SIXTH reorder: What's New joins the tier below the rule,
+      // beside the administrative entries. NOT admin-gated — it exists for the
+      // 23 non-admin editors who were never told what shipped.
+      'Features, changes and tips — what the tool has learned to do lately',
       'Settings',
       'Scraper and app errors needing triage',
     ]);

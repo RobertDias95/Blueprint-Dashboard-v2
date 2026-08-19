@@ -14,6 +14,7 @@ import DrawSchedule from './pages/DrawSchedule';
 import LibraryMatrix from './components/LibraryMatrix';
 import ActivityPage from './pages/ActivityPage';
 import NotificationsPage from './pages/Notifications';
+import WhatsNewPage from './pages/WhatsNew';
 import WeeklyDaReport from './pages/WeeklyDaReport';
 import WeeklyUpdatesReport from './pages/WeeklyUpdatesReport';
 import ApprovedAwaitingIssuanceReport from './pages/ApprovedAwaitingIssuanceReport';
@@ -240,6 +241,12 @@ export const router = createBrowserRouter([
       //
       // Ungated, like /board and /activity: everyone has notifications.
       { path: 'notifications', element: <NotificationsPage /> },
+      // ★★★ fix-350 — WHAT'S NEW. A ribbon entry, deliberately NOT admin-gated:
+      // 23 of the 29 logins are non-admin editors and they are exactly the
+      // people who have not been told that any of the last five days exists.
+      // Writing an entry is admins-only, and that is enforced by RLS rather
+      // than by this route.
+      { path: 'whats-new', element: <WhatsNewPage /> },
       // Q9.5.a sent bare /settings to /dashboard because Settings was a modal.
       // ★ fix-319 #76: it is a page now, so /settings goes to the page —
       // landing on Account, the one section every role can read.

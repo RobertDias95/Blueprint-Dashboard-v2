@@ -630,6 +630,10 @@ describe('fix-331 §8: the ribbon order', () => {
       '/draw-schedule',
       '/board',
       '/library',
+      // ★ fix-350: What’s New sits with the administrative entries below the
+      // rule. Ungated, unlike its two neighbours — the 23 non-admin editors are
+      // the audience, not the exception.
+      '/whats-new',
       '/settings',
       '/settings/errors',
     ]);

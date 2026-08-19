@@ -3,6 +3,8 @@ import { NavLink, useLocation } from 'react-router-dom';
 import { useAuthStore } from '../stores/authStore';
 import { useIsTenantAdmin } from '../hooks/useIsTenantAdmin';
 import { useNewErrorCount } from '../hooks/useErrorReports';
+import { useWhatsNewEntries, useWhatsNewReads } from '../hooks/useWhatsNew';
+import { unreadCount } from '../lib/whatsNew';
 import BlueprintMark from './BlueprintMark';
 import {
   groupContainsActive,
@@ -362,6 +364,7 @@ function RibbonItem({
       </span>
       {!collapsed && <span className="flex-1 overflow-hidden text-ellipsis">{link.label}</span>}
       {link.badge === 'errors' && <ErrorTriageCount collapsed={collapsed} />}
+      {link.badge === 'whats-new' && <WhatsNewMarker collapsed={collapsed} />}
     </NavLink>
   );
 }
@@ -395,6 +398,52 @@ function ErrorTriageCount({ collapsed }: { collapsed: boolean }) {
     >
       {n > 99 ? '99+' : n}
     </span>
+  );
+}
+
+/** ★★★ fix-350: the unread marker on What's New.
+ *
+ *  Bobby asked for the entry to announce itself once and then go quiet, and this
+ *  is the whole announcement mechanism — the brief rules out a modal on login, a
+ *  forced tour and a banner across the app, so one dot on one rail entry is all
+ *  there is.
+ *
+ *  ★★ A MARKER, NOT A COUNT, which is the one place it deliberately differs from
+ *  its red neighbour. fix-307's lesson: a badge counting outstanding things
+ *  never reaches zero, so it stops being a signal and becomes decoration. This
+ *  one genuinely reaches zero — you read the page and it is gone — so "there is
+ *  something" is the entire message and a number would only invite the reader to
+ *  decide it is not worth 14 of anything.
+ *
+ *  ★ THE COLOUR IS fix-335 §9's, not a new one. `var(--color-de)` already means
+ *  "this concerns you" on every unread row in the bell and the notification
+ *  centre; the brief forbids a second unread vocabulary and this reuses the
+ *  first. No hex literal — the same rule UnreadBellFix335 asserts.
+ *
+ *  ★ PER PERSON, and enforced below the client: the read rows this counts come
+ *  back RLS-filtered to `auth.uid()`, so Bobby reading an entry cannot clear
+ *  Cam's dot even if the query asked for everyone's.
+ *
+ *  ★ Same shape in both rail widths, unlike the error count — there is no number
+ *  to lose when it collapses, so it stays a dot and simply moves to the corner. */
+function WhatsNewMarker({ collapsed }: { collapsed: boolean }) {
+  const entriesQ = useWhatsNewEntries();
+  const readsQ = useWhatsNewReads();
+  const n = unreadCount(entriesQ.data ?? [], new Set(readsQ.data ?? []));
+  if (n <= 0) return null;
+  return (
+    <span
+      className="absolute rounded-full"
+      style={
+        collapsed
+          ? { top: 5, right: 8, width: 7, height: 7, background: 'var(--color-de)' }
+          : { top: 9, right: 10, width: 7, height: 7, background: 'var(--color-de)' }
+      }
+      aria-label={`${n} unread What's New ${n === 1 ? 'entry' : 'entries'}`}
+      title={`${n} you have not read yet`}
+      data-testid="ribbon-whats-new-badge"
+      data-unread-count={n}
+    />
   );
 }
 
