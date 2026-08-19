@@ -1,6 +1,5 @@
-import logoFull from '../assets/brand/bridge-logo-400.png';
-import iconSquare from '../assets/brand/bridge-icon-square-256.png';
-import favicon from '../assets/brand/bridge-favicon-256.png';
+import lockup from '../assets/brand/bridge-logo-2026.png';
+import iconSquare from '../assets/brand/bridge-icon-2026-256.png';
 
 // fix-322 #73 follow-up: THE REAL ARTWORK. Bobby supplied it; nothing here is
 // drawn, traced or "cleaned up".
@@ -9,74 +8,81 @@ import favicon from '../assets/brand/bridge-favicon-256.png';
 // and fix-320 recoloured that placeholder. Both were holding the slot. The slot
 // is now filled and the placeholder SVG is GONE from this file — the component
 // survives because it is still the one place that answers "show the brand mark",
-// and its `data-testid` is a contract three suites already read.
+// and its `data-testid` is a contract five suites already read.
 //
-// ★ THE SHAPE PROBLEM DECIDES THE LAYOUT. The real logo is 4:1 horizontal; the
-// thing it replaced was a 26px square. They are not interchangeable, so this
-// component takes the crop as a VARIANT rather than a size:
+// ★★★ fix-351 — ONE ARTWORK REPLACES A MARK AND STYLED TEXT.
 //
-//     full  →  the illustration — skyline, arch, roadway, docks, water.
-//              For the 248px expanded ribbon, at ~200px wide.
-//     icon  →  the arch alone, square. For the 56px collapsed rail.
+// Bobby supplied a new lockup, and it already contains both halves of what the
+// header was assembling: the bridge, the word "THE", the word "BRIDGE", and the
+// two blue rules under them. So the header stopped rendering an icon beside a
+// styled <span> and now renders ONE image — see Chrome.tsx.
 //
-// A caller that wants "small" must ask for `icon`; there is deliberately no way
-// to squash the 4:1 image into a square slot.
+// ★★ THE SHAPE PROBLEM STILL DECIDES THE LAYOUT, and it got sharper. The old
+// illustration was 4:1; this lockup is **5.72:1** (2030 × 355). It cannot be
+// squashed into a square slot, so the crop is a VARIANT rather than a size:
 //
-// ★★ THE FAVICON IS NOT IN HERE, AND THAT IS THE POINT. `public/bridge-mark.svg`
-// keeps the SIMPLIFIED drawing. The illustration is a Seattle skyline, a bridge,
-// cranes, water and trees — at 16×16 that resolves to a smudge. Bobby's own
-// brand sheet draws the same line: separate "PRIMARY LOGO (DETAILED)", "ICON
-// (SIMPLIFIED)" and "SMALL SIZE / FAVICON" panels, because the detailed mark is
-// not meant to shrink. Verified at real sizes: the illustration reads at 200px
-// wide, the square crop holds at ~34px, and below that both degrade.
+//     lockup  →  the full artwork — bridge, "THE BRIDGE", and the two rules.
+//                For the white header, at ~412px wide.
+//     icon    →  the bridge and its road, square, cropped from ABOVE the word
+//                and above the rules. For the browser tab and anywhere small.
+//
+// ★★ WHY `favicon` IS GONE AS A SEPARATE VARIANT. fix-335 needed three because
+// the old asset set held TWO near-identical squares — `bridge-icon-square-256`
+// (a crop of the illustration) and `bridge-favicon-256` (the brand sheet's own
+// icon) — and Bobby had named the tab's one specifically: "we want to add the
+// logo from the tab". The 2026 set has exactly ONE square, and the tab and the
+// app both use it. Keeping two names pointing at one file would be a
+// distinction describing nothing, which is the thing fix-351's brief warns is
+// how the next person concludes something is meant to come back.
+//
+// ★ WHY THE SQUARE EXISTS AT ALL — the same reason as before, re-measured on
+// the new art. The lockup is 5.72:1: in a 32px tab it is an illegible smear,
+// and letterboxed it is ~6px tall. The square is checked at 128 / 64 / 32 / 16
+// and the silhouette survives to 16px, which is the practical floor for artwork
+// this detailed. Bobby's own brand sheet draws the same line, with separate
+// "PRIMARY LOGO (DETAILED)" and "ICON (SIMPLIFIED)" panels.
 //
 // ★ The assets live in `src/assets/brand/` rather than `public/` so Vite
-// fingerprints them (a future brand update cannot be served stale from a cache)
-// and so a renamed or missing file fails the BUILD instead of 404ing in the
-// ribbon at runtime. The favicon stays in `public/` for the opposite reason:
-// index.html and every bookmarked tab reference it by a stable URL.
-
-// ★★ fix-335 §1/§2 — THE BRIDGE MARK LEFT THE RIBBON, AND DID NOT LEAVE.
-//
-// The ribbon carries the original Blueprint logo now (§1, BlueprintMark). This
-// component's artwork moved to the white header, where §2 puts it beside the
-// words "The Bridge":
-//
-//   Bobby: "we want to add the logo from the tab to the left of that. So in the
-//   center of all the screens in that white area, it's going to read logo, The
-//   Bridge."
-//
-// ★ "THE LOGO FROM THE TAB" IS LITERAL, hence the third variant. `icon` is the
-// square crop of the illustration; `favicon` is bridge-favicon-256.png — the
-// same file index.html serves as the browser tab's icon. They are near
-// neighbours and they are not the same drawing, and Bobby named the tab, so the
-// header shows the tab's mark rather than something that merely resembles it.
-//
-// ★ IT IS THE SAME FILE AND NOT THE SAME URL. The tab loads /bridge-favicon-256.png
-// from public/ by a stable path, because index.html and every bookmark reference
-// it that way. This import is the copy in src/assets/brand/, which Vite
-// fingerprints — see the note above on why brand art lives there.
-export type BridgeMarkVariant = 'full' | 'icon' | 'favicon';
+// fingerprints them (a brand update cannot be served stale from a cache) and so
+// a renamed or missing file fails the BUILD instead of 404ing in the header at
+// runtime. The tab's copies stay in `public/` for the opposite reason:
+// index.html and every bookmarked tab reference them by a stable URL. fix-326
+// asserts that split and fix-351 keeps it — the same two files exist in both
+// places on purpose.
+export type BridgeMarkVariant = 'lockup' | 'icon';
 
 interface Props {
-  /** Which crop. Defaults to the wide illustration. */
+  /** Which crop. Defaults to the full lockup. */
   variant?: BridgeMarkVariant;
-  /** `full`: rendered WIDTH in px (height follows the 4:1 aspect).
-   *  `icon` / `favicon`: the square's edge in px. */
+  /** `lockup`: rendered HEIGHT in px (width follows the 5.72:1 aspect).
+   *  `icon`: the square's edge in px.
+   *
+   *  ★ fix-351 flipped the lockup from width-driven to HEIGHT-driven, and it is
+   *  not a preference: the whole point of the new artwork is that the rule
+   *  inside it lands on the header's bottom border, and that alignment is
+   *  arithmetic on the HEIGHT (see shellMetrics.BRAND_LOCKUP_DROP). A
+   *  width-driven size would make the alignment a function of the aspect ratio
+   *  of whatever file is imported. */
   size?: number;
 }
 
-export default function BridgeMark({ variant = 'full', size }: Props) {
-  const isIcon = variant === 'icon' || variant === 'favicon';
-  const src =
-    variant === 'favicon' ? favicon : variant === 'icon' ? iconSquare : logoFull;
+export default function BridgeMark({ variant = 'lockup', size }: Props) {
+  const isIcon = variant === 'icon';
+  const src = isIcon ? iconSquare : lockup;
   // ★ The alt text is not decoration. This replaced an <svg role="img"> that
   // carried an aria-label, and an image-only brand mark with no text equivalent
   // is silence to a screen reader.
+  //
+  // ★★ fix-351: the alt text now carries the WORDS THAT USED TO BE A <span>.
+  // The header rendered "the Bridge" as real text; that text is inside the
+  // artwork now, so without this the product's name would have left the
+  // accessible name, the clipboard and every screen reader at once — the exact
+  // failure fix-345 §2 refused to accept when it wrote the lowercase "t" out in
+  // full rather than using text-transform.
   return (
     <img
       src={src}
-      alt="Blueprint Bridge"
+      alt={isIcon ? 'The Bridge' : 'The Bridge — Blueprint'}
       data-testid="bridge-mark"
       data-logo-variant={variant}
       style={
@@ -88,10 +94,10 @@ export default function BridgeMark({ variant = 'full', size }: Props) {
               display: 'block',
             }
           : {
-              // Width-driven, height auto: the aspect ratio comes from the file,
+              // Height-driven, width auto: the aspect ratio comes from the file,
               // so the artwork can never be stretched by a caller's number.
-              width: size ?? 200,
-              height: 'auto',
+              height: size ?? 72,
+              width: 'auto',
               maxWidth: '100%',
               display: 'block',
             }

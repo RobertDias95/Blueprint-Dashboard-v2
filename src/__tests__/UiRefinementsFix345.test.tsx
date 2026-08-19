@@ -15,9 +15,10 @@ import {
   visibleEntries,
 } from '../lib/ribbonNav';
 import {
-  BRAND_LOCKUP_GAP,
-  BRAND_MARK_SIZE,
-  BRAND_TITLE_SIZE,
+  BRAND_LOCKUP_DROP,
+  BRAND_LOCKUP_HEIGHT,
+  BRAND_LOCKUP_RULE_ROW,
+  BRAND_LOCKUP_SRC_H,
   SHELL_HEADER_HEIGHT,
 } from '../lib/shellMetrics';
 
@@ -99,67 +100,59 @@ beforeEach(() => {
 // ★★ §2 — the header lockup, 2.5x bigger, and "the" lowercase
 // ===========================================================================
 
-describe('fix-345 §2: the header reads "the Bridge", much larger', () => {
-  it('★ a lowercase t, and the rest of the name untouched', () => {
+// ★★★ fix-351 REPLACED THE TWO-ELEMENT LOCKUP WITH ONE IMAGE, so the four tests
+// that measured a mark BESIDE styled text no longer have two things to measure.
+// The rules they encoded all survive, retargeted onto the artwork:
+//
+//   "the" is lowercase, in the string not in CSS   → it is in Bobby's file now,
+//                                                    and nothing renders it twice
+//   the lockup is 2.5x fix-335's size              → it is bigger still, and the
+//                                                    floor is asserted below
+//   the mark is downscaled, never enlarged         → 355px of source into 72px
+//   the gap keeps the two from crowding            → there is no gap; there are
+//                                                    no two things
+//
+// ★ The one that could NOT be carried across is the lowercase "the". Measured
+// off bridge-logo-2026.png, the word is drawn in capitals. That is Bobby's
+// artwork and this repo's standing rule is that it is referenced, never
+// redrawn — so it is flagged in the PR rather than fixed here or asserted away.
+describe('fix-345 §2: the header lockup, now one image', () => {
+  it('★★ one element, not a mark beside styled text', () => {
     renderShell();
-    const title = screen.getByTestId('chrome-brand-title');
-    expect(title.textContent).toBe('the Bridge');
-    // ★ Bobby: "Bridge is fine the way it is spelt." So the capital B stays and
-    // only the article changed.
-    expect(title.textContent).not.toBe('The Bridge');
-    expect(title.textContent).not.toMatch(/THE BRIDGE|the bridge/);
-  });
-
-  // ★★ NOT text-transform. A CSS trick would leave the string capitalised in
-  // the DOM, in the accessible name a screen reader announces and in the
-  // clipboard — three places quietly disagreeing with the screen.
-  it('★★ the lowercase is in the string, not painted on with CSS', () => {
-    renderShell();
-    const title = screen.getByTestId('chrome-brand-title');
-    expect(getComputedStyle(title).textTransform).not.toBe('lowercase');
-    expect(chromeSrc).toContain('the Bridge');
+    const centre = screen.getByTestId('chrome-brand-center');
+    expect(centre.children).toHaveLength(1);
+    expect(screen.queryByTestId('chrome-brand-title')).toBeNull();
+    // ★ And the app sets no type here at all, so there is nothing for a
+    // text-transform to shout — fix-345's original concern, now unreachable.
+    expect(centre.textContent).toBe('');
     expect(chromeSrc).not.toMatch(/textTransform/);
   });
 
-  // ★ Bobby: "we want the logo and Bridge at least 2-3x bigger." fix-335 shipped
-  // a 26px mark and 16.5px text; this is 2.5x both, inside the range he named
-  // and the largest that still reads as a header rather than a banner.
-  it('★★ the mark and the text are 2.5x their fix-335 sizes', () => {
+  // ★ Bobby: "we want the logo and Bridge at least 2-3x bigger." fix-345 shipped
+  // a 65px mark; the lockup is 72px tall and carries the words inside that,
+  // so the artwork grew again rather than shrinking to fit.
+  it('★★ the lockup is sized from the shared metric, and it grew', () => {
     renderShell();
     const img = screen
       .getByTestId('chrome-brand-center')
       .querySelector('img') as HTMLImageElement;
-    expect(parseFloat(img.style.width)).toBe(BRAND_MARK_SIZE);
-    expect(BRAND_MARK_SIZE / 26).toBeCloseTo(2.5, 1);
-
-    const title = screen.getByTestId('chrome-brand-title');
-    expect(parseFloat(title.style.fontSize)).toBe(BRAND_TITLE_SIZE);
-    expect(BRAND_TITLE_SIZE / 16.5).toBeCloseTo(2.5, 1);
-
-    // ★ At least 2x, the floor the brief set. Asserted separately from the exact
-    // multiplier so a future retune cannot slip under it unnoticed.
-    expect(BRAND_MARK_SIZE).toBeGreaterThanOrEqual(52);
-    expect(BRAND_TITLE_SIZE).toBeGreaterThanOrEqual(33);
+    expect(parseFloat(img.style.height)).toBe(BRAND_LOCKUP_HEIGHT);
+    // Width is left to the file's own aspect — a caller's number can never
+    // stretch the artwork.
+    expect(img.style.width).toBe('auto');
+    expect(BRAND_LOCKUP_HEIGHT).toBeGreaterThanOrEqual(65);
   });
 
-  it('the gap grew with them, so the two do not crowd each other', () => {
-    renderShell();
-    expect(screen.getByTestId('chrome-brand-center').style.gap).toBe(
-      BRAND_LOCKUP_GAP + 'px',
-    );
-    expect(BRAND_LOCKUP_GAP).toBeGreaterThan(8);
-  });
-
-  // ★ The mark can take it: the source is 256px square, so 65px is still a
-  // downscale. The ribbon's Blueprint lockup is the opposite case — 144px IS
-  // the artwork (fix-335 §1) — which is why only one of the two grew.
-  it('★ the enlarged mark is still the tab icon, and still downscaled', () => {
+  // ★ The artwork can take it: the source is 355px tall, so 72px is a downscale
+  // by ~5x. The ribbon's Blueprint lockup is the opposite case — 144px IS the
+  // artwork (fix-335 §1) — which is why only one of the two ever grows.
+  it('★ the lockup is still downscaled, never enlarged', () => {
     renderShell();
     const img = screen
       .getByTestId('chrome-brand-center')
       .querySelector('img') as HTMLImageElement;
-    expect(img.getAttribute('src')).toMatch(/bridge-favicon-256/);
-    expect(BRAND_MARK_SIZE).toBeLessThan(256);
+    expect(img.getAttribute('src')).toMatch(/bridge-logo-2026/);
+    expect(BRAND_LOCKUP_HEIGHT).toBeLessThan(BRAND_LOCKUP_SRC_H);
   });
 });
 
@@ -196,8 +189,17 @@ describe('fix-345 §2: the ribbon and the header grew together', () => {
     expect(SHELL_HEADER_HEIGHT).toBeGreaterThan(56);
     // ★ …and the lockup still fits inside it with air, which is the whole
     // reason the bar had to grow rather than the lockup being squeezed.
-    expect(BRAND_MARK_SIZE).toBeLessThan(SHELL_HEADER_HEIGHT);
-    expect(BRAND_TITLE_SIZE).toBeLessThan(SHELL_HEADER_HEIGHT);
+    //
+    // ★★ fix-351 makes this precise rather than approximate. What has to fit
+    // ABOVE the border is the artwork down to its own rule — 97.54% of the
+    // height — and the remainder deliberately hangs below, which is how the
+    // rule meets the border at all.
+    const aboveTheRule =
+      BRAND_LOCKUP_HEIGHT * (BRAND_LOCKUP_RULE_ROW / BRAND_LOCKUP_SRC_H);
+    expect(aboveTheRule).toBeLessThan(SHELL_HEADER_HEIGHT);
+    // And it is not rattling around in there either — the bar is sized for it.
+    expect(aboveTheRule).toBeGreaterThan(SHELL_HEADER_HEIGHT * 0.8);
+    expect(BRAND_LOCKUP_DROP).toBeGreaterThan(0);
   });
 
   it('the collapsed rail keeps the same block height too', () => {

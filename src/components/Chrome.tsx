@@ -7,25 +7,29 @@ import NewProjectWizard from './NewProjectWizard';
 import { useSelfScope } from '../hooks/useSelfScope';
 import { rosterRoleTitle } from '../lib/roleLabels';
 import {
-  BRAND_LOCKUP_GAP,
-  BRAND_MARK_SIZE,
-  BRAND_TITLE_SIZE,
+  BRAND_LOCKUP_DROP,
+  BRAND_LOCKUP_HEIGHT,
   SHELL_HEADER_HEIGHT,
 } from '../lib/shellMetrics';
 
-// ★ fix-335 §2: the hero colour, inherited verbatim from fix-320 #73 — a
-// literal rather than a theme token because it is a BRAND colour. It belongs to
-// the mark, not to the app's semantic palette; pointing it at --color-de would
-// mean the logo changed the day somebody retuned the "design" accent. It moved
-// here from Ribbon.tsx with the words it colours, unchanged in value, so "The
-// Bridge" reads exactly as it did in the ribbon.
+// ★★★ fix-351 — BRAND_NAVY AND BRAND_TITLE_SIZE ARE GONE, NOT REPOINTED.
 //
-// ★ fix-320's SECOND colour did not come with it. BRAND_BLUE_LIGHT was the pale
-// blue of the small "BLUEPRINT" line above the hero, and that line is not in
-// this lockup: Bobby's own reading of the header is "logo, The Bridge", and the
-// ribbon's mark (fix-335 §1) now literally spells BLUEPRINT six inches to the
-// left. Repeating it here would print the company's name twice on one row.
-const BRAND_NAVY = '#1d3f6e'; // "The Bridge"
+// They described a styled <span> reading "the Bridge": #1d3f6e, chosen by
+// fix-320 for the wordmark, at 41px, sized by fix-345. Bobby's new artwork
+// contains those words, so the <span> is gone and the two constants describe
+// nothing.
+//
+// ★ Deleting them WITH the words is the point. fix-345 moved them into this
+// file precisely so they would sit next to the thing they coloured; leaving
+// them behind, pointing at nothing, is how the next person concludes the
+// wordmark is meant to come back. BRAND_MARK_SIZE and BRAND_LOCKUP_GAP go the
+// same way and for the same reason — one image has no gap, and its size is
+// BRAND_LOCKUP_HEIGHT now because the alignment is computed from the height.
+//
+// ★ AND THE COLOUR CHANGED ANYWAY, which is the second reason not to keep it
+// "just in case": the rules in the new lockup are rgb(79, 99, 177), not
+// #1d3f6e. A constant kept for a future revival would have been the wrong
+// value from the day it was orphaned.
 
 // fix-313 — the Blueprint Bridge shell, built to Bridge_Shell_Mockup_v1.
 //
@@ -129,45 +133,42 @@ export default function Chrome() {
               scrolling"), and a name half-covered by a bell would be worse than
               no name at all. */}
           <div
-            className="hidden xl:flex absolute inset-y-0 items-center pointer-events-none select-none"
+            className="hidden xl:flex absolute inset-y-0 items-end pointer-events-none select-none"
             style={{
               left: '50%',
               transform: 'translateX(-50%)',
-              gap: BRAND_LOCKUP_GAP,
+              // ★ The 2.27px that lands the artwork's rule on the border. The
+              // box is inset-y-0, so a negative margin-bottom extends it below
+              // the padding box; with items-end the image follows. Derived in
+              // shellMetrics from the file's own pixels, never nudged by eye.
+              marginBottom: -BRAND_LOCKUP_DROP,
             }}
             data-testid="chrome-brand-center"
           >
-            {/* ★ "the logo from the tab" is literal — bridge-favicon-256.png,
-                the same mark the browser tab shows. See BridgeMark's `favicon`
-                variant for why it is that file and not the square crop beside
-                it.
+            {/* ★★★ fix-351 — ONE IMAGE. THE MARK AND THE WORDS ARE BOTH IN IT.
+                This was `<BridgeMark variant="favicon" size={65} />` beside a
+                styled `<span>the Bridge</span>`. Bobby's new artwork contains
+                the bridge, the words, and the two blue rules beneath them, so
+                assembling a lockup out of two elements would now be drawing a
+                second version of a thing the file already is.
 
-                ★ fix-345 §2: 26 → 65. The source is 256px square, so there is
-                resolution to spare and enlarging it does not soften — the
-                opposite of the ribbon's Blueprint mark, where 144px IS the
-                artwork and 1:1 is the ceiling (fix-335 §1). Sized from
-                shellMetrics so it cannot drift from the bar containing it. */}
-            <BridgeMark variant="favicon" size={BRAND_MARK_SIZE} />
-            <span
-              className="font-display whitespace-nowrap"
-              style={{
-                fontSize: BRAND_TITLE_SIZE,
-                fontWeight: 750,
-                letterSpacing: '-.005em',
-                color: BRAND_NAVY,
-                lineHeight: 1,
-              }}
-              data-testid="chrome-brand-title"
-            >
-              {/* ★ fix-345 §2: a lowercase `t`. Bobby: "We want 'the' to be
-                  lower case and Bridge is fine the way it is spelt."
+                ★ fix-345 §2's lowercase requirement is satisfied BY THE ASSET.
+                The word is in the artwork, so the `<span>` is gone and nothing
+                renders it a second time — a CSS copy underneath the picture
+                would be the same word twice to a screen reader.
 
-                  ★ Written out, NOT done with text-transform. A CSS trick would
-                  leave the string capitalised in the DOM, in the accessible
-                  name a screen reader announces, and in the clipboard — three
-                  places that would disagree with the screen. */}
-              the Bridge
-            </span>
+                ★★ `items-end`, NOT `items-center`, and that is the alignment.
+                The block spans the header's padding box, so ending it puts the
+                image's bottom edge on the border's top edge; BRAND_LOCKUP_DROP
+                then pushes it down by the 2.27px that lands the artwork's own
+                rule on the centre of that border. Both numbers are derived in
+                shellMetrics from pixels measured off the file — see there for
+                why the header height is not what moves.
+
+                ★ Height-driven, because the alignment is arithmetic on the
+                height. 72px tall is 412px wide; the clearance that leaves is
+                measured in the comment above. */}
+            <BridgeMark variant="lockup" size={BRAND_LOCKUP_HEIGHT} />
           </div>
 
           {/* ★★ fix-331 §5: THE SEARCH BAR IS GONE, and its own justification is

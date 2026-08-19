@@ -220,13 +220,18 @@ describe('fix-322 → fix-325: what the favicon carries', () => {
   // ★ fix-326 went one further: the square CROP of the illustration was still a
   // shrunken picture, so the tab now carries the brand sheet's purpose-drawn
   // simplified icon. Bobby's artwork either way; the placeholder is long gone.
+  // ★ fix-351 RETARGETS THE FILENAMES AND KEEPS THE RULE. Bobby supplied new
+  // artwork; the tab still carries HIS mark and still never carries the wide
+  // one. The sentence that changed is only which file is his.
   it('the tab carries the real artwork, not the placeholder', () => {
-    expect(indexHtml).toMatch(/href="\/bridge-favicon-(32|256)\.png"/);
+    expect(indexHtml).toMatch(/href="\/bridge-(favicon|icon)-2026-(32|256)\.png"/);
     expect(indexHtml).not.toContain('href="/bridge-mark.svg"');
   });
 
   it('★ and still NOT the wide illustration — that part of the reasoning holds', () => {
-    expect(indexHtml).not.toMatch(/bridge-logo-400|bridge-logo-full/);
+    // ★ fix-351: the lockup is 5.72:1 now, not 4:1 — MORE unusable in a square,
+    // so this rule got stronger rather than obsolete.
+    expect(indexHtml).not.toMatch(/bridge-logo-400|bridge-logo-full|bridge-logo-2026/);
   });
 
   // ★ fix-326: two <link>s now, and that is NOT the fix-325 trap. That trap was
@@ -236,30 +241,40 @@ describe('fix-322 → fix-325: what the favicon carries', () => {
   it('every declared icon is the same mark', () => {
     const icons = indexHtml.match(/<link[^>]+rel="icon"[^>]*>/g) ?? [];
     expect(icons.length).toBeGreaterThan(0);
-    for (const tag of icons) expect(tag).toMatch(/bridge-favicon-(32|256)\.png/);
+    // ★ fix-351: one square artwork at two sizes — the 32 is a hand-tuned
+    // rendering of the same crop the 256 carries, so whichever a browser picks
+    // it picks the same mark. The rule is unchanged; the filenames moved.
+    for (const tag of icons) expect(tag).toMatch(/bridge-(favicon-2026-32|icon-2026-256)\.png/);
   });
 });
 
 describe('fix-322: the component is the one place that knows the crops', () => {
-  it('defaults to the wide illustration', () => {
+  // ★★ fix-351 renamed the default variant from `full` to `lockup`, because the
+  // artwork stopped being an illustration and became a LOCKUP — bridge, words
+  // and rules in one file. The rule this asserts is unchanged: the component is
+  // the one place that knows the crops, and the default is the wide one.
+  it('defaults to the wide lockup', () => {
     render(<BridgeMark />);
     const img = screen.getByTestId('bridge-mark') as HTMLImageElement;
-    expect(img.dataset.logoVariant).toBe('full');
-    expect(img.getAttribute('src')).toMatch(/bridge-logo-400/);
+    expect(img.dataset.logoVariant).toBe('lockup');
+    expect(img.getAttribute('src')).toMatch(/bridge-logo-2026/);
   });
 
   it('★ a caller asking for a small mark gets the ICON, never a squashed logo', () => {
     render(<BridgeMark variant="icon" size={20} />);
     const img = screen.getByTestId('bridge-mark') as HTMLImageElement;
-    expect(img.getAttribute('src')).toMatch(/bridge-icon-square-256/);
+    // ★ fix-351: the square is bridge-icon-2026-256 now. The rule — "there is
+    // deliberately no way to squash the wide image into a square slot" — is the
+    // reason the variant exists and it did not change.
+    expect(img.getAttribute('src')).toMatch(/bridge-icon-2026-256/);
     expect(img.style.width).toBe('20px');
     expect(img.style.height).toBe('20px');
   });
 
   it('the artwork is referenced, not redrawn — no inline path data anywhere', () => {
     // If a future hand "cleans up" the logo by inlining an SVG, this fails.
-    expect(markSrc).toMatch(/import .*bridge-logo-400\.png/);
-    expect(markSrc).toMatch(/import .*bridge-icon-square-256\.png/);
+    expect(markSrc).toMatch(/import .*bridge-logo-2026\.png/);
+    expect(markSrc).toMatch(/import .*bridge-icon-2026-256\.png/);
     // Comments stripped first — the file's own history explains what it used to
     // draw, and a test that cannot tell prose from code would forbid saying so.
     const code = markSrc.replace(/^\s*\/\/.*$/gm, '');

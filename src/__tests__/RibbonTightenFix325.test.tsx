@@ -158,7 +158,7 @@ describe('fix-325 #2: the tab carries the real mark', () => {
   // icon — the same decision (Bobby's artwork in the tab), rendered in a form
   // that survives 16px instead of a line drawing that has been shrunk.
   it('★ points at Bobby\'s artwork', () => {
-    expect(indexHtml).toMatch(/href="\/bridge-favicon-(32|256)\.png"/);
+    expect(indexHtml).toMatch(/href="\/bridge-(favicon|icon)-2026-(32|256)\.png"/);
     expect(indexHtml).toContain('type="image/png"');
   });
 
@@ -170,13 +170,13 @@ describe('fix-325 #2: the tab carries the real mark', () => {
     // logo whichever one a browser picks.
     const icons = indexHtml.match(/<link[^>]+rel="icon"[^>]*>/g) ?? [];
     expect(icons.length).toBeGreaterThan(0);
-    for (const tag of icons) expect(tag).toMatch(/bridge-favicon-(32|256)\.png/);
+    for (const tag of icons) expect(tag).toMatch(/bridge-(favicon-2026-32|icon-2026-256)\.png/);
   });
 
   // ★ The half of fix-322's reasoning that still holds: the WIDE illustration
   // is a smudge at 16px and has no business in a tab.
   it('the wide illustration is still kept out of the tab', () => {
-    expect(indexHtml).not.toMatch(/bridge-logo-400|bridge-logo-full/);
+    expect(indexHtml).not.toMatch(/bridge-logo-400|bridge-logo-full|bridge-logo-2026/);
   });
 });
 
