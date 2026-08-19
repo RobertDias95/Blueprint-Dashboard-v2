@@ -217,6 +217,11 @@ export interface AutoClosureItemInput {
   address: string | null;
   permit_label: string | null;
   reason: string;
+  /** ★★ fix-355: the sentence that lets a reader CHECK the judgement — which
+   *  rule fired and what the city did, with its date. Null on fix-354's
+   *  `permit_issued` rows, which report a FACT rather than a judgement: the
+   *  permit issued, and there is nothing to argue with. */
+  detail: string | null;
   recipient: string;
   task_count: number;
   closed_at: string;
@@ -444,12 +449,25 @@ export function buildNewItems(input: NewItemsInput): NewItem[] {
       // "auto_closed_reason = permit_issued", and the COUNT is the fact that
       // makes it worth reading — it is the difference between a shrug and
       // "six things I thought I still had to do".
-      title:
-        c.task_count === 1
-          ? '1 task closed — the permit issued'
-          : `${c.task_count} tasks closed — the permit issued`,
+      // ★★ fix-355 gave this a SECOND reason, so the headline follows the
+      // reason rather than assuming issuance. The two are different kinds of
+      // statement and the words say which:
+      //
+      //   permit_issued  a FACT — the city issued it, and nothing about that
+      //                  is arguable.
+      //   superseded     a JUDGEMENT — the machine decided the permit had moved
+      //                  past this work. §2's rule is that a judgement the
+      //                  reader cannot check is one they cannot overturn, so
+      //                  `detail` carries the evidence and its date.
+      title: `${c.task_count === 1 ? '1 task' : `${c.task_count} tasks`} closed — ${
+        c.reason === 'permit_issued'
+          ? 'the permit issued'
+          : 'the permit moved past them'
+      }`,
       subtitle:
-        'Marked done automatically because the work no longer applies. Reopen any of them if it still does.',
+        c.detail
+          ? `${c.detail} Reopen any of them if it still applies.`
+          : 'Marked done automatically because the work no longer applies. Reopen any of them if it still does.',
       where: `${c.address ?? 'Unknown address'} · ${c.permit_label ?? 'Permit'}`,
       at: c.closed_at,
       permitId: c.permit_id,
