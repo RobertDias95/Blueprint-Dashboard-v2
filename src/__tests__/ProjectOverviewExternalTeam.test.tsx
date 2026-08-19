@@ -1,3 +1,4 @@
+import { MemoryRouter } from 'react-router-dom';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -93,7 +94,13 @@ function setup(over: Partial<Record<string, unknown>> = {}, allProjects?: unknow
   const project = projectFixture(over);
   queryClient.setQueryData(queryKeys.projects(T), allProjects ?? [project]);
   const wrapper = ({ children }: { children: ReactNode }) => (
-    <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+    <QueryClientProvider client={queryClient}>
+      {/* ★ fix-362: the Team card reads `?msg=` / `?chat=` from the URL now
+          — a chat notification lands on the message, and §2's rule is that
+          the deep-link state lives in the URL and nowhere else. So this
+          header needs a router, where before it needed none. */}
+      <MemoryRouter>{children}</MemoryRouter>
+    </QueryClientProvider>
   );
   return render(
     <ProjectDetailHeader project={project} permits={[]} bp={null} />,

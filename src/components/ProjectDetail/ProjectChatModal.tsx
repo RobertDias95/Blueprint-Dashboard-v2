@@ -72,10 +72,14 @@ import type { Permit, PermitWithCycles } from '../../lib/database.types';
 export default function ProjectChatModal({
   projectId,
   permits,
+  focusMessageId: deepLinkMessageId = null,
   onClose,
 }: {
   projectId: string;
   permits: Permit[];
+  /** ★ fix-362: a message to land on, straight from `?msg=` in the URL. Null
+   *  when the link asked only for the conversation. */
+  focusMessageId?: string | null;
   onClose: () => void;
 }) {
   const userId = useAuthStore((s) => s.user?.id ?? null);
@@ -147,6 +151,52 @@ export default function ProjectChatModal({
   const [fulfilling, setFulfilling] = useState<ProjectPostRequest | null>(null);
   const resolveRequest = useResolvePostRequest();
 
+  // ★★★ fix-362 §2 — LANDING ON THE MESSAGE, not merely in the room with it.
+  //
+  // Bobby's first example: "if I get a notification about something in the
+  // chat, if I then click that notification, does it take me to that chat, to
+  // that post?" A reply forty messages up in one of nine threads is not a
+  // destination unless the thread is opened AND the message is marked.
+  //
+  // ★ ONE PARAMETER DOES BOTH, because which post a reply belongs to is a fact
+  // of the row (`parent_message_id`). A URL carrying both would be a URL that
+  // can contradict itself the moment a reply is moved, and would have to be
+  // built by whoever writes the link rather than read by whoever follows it.
+  const deepLinkTarget = useMemo(() => {
+    if (!deepLinkMessageId) return null;
+    const message = messages.find((m) => m.id === deepLinkMessageId);
+    if (!message) return null;
+    return {
+      postId: message.parent_message_id ?? message.id,
+      messageId: message.id,
+    };
+  }, [deepLinkMessageId, messages]);
+
+  // ★★★ §3 — THE TARGET MAY NOT EXIST ANY MORE, AND THIS IS NOT HYPOTHETICAL.
+  //
+  // A chat thread was hard-deleted from production on 2026-08-19 (1301 6th Ave
+  // N, a post and six replies, at Bobby's request). Every notification that
+  // pointed into it now points at nothing. So a missing message is a NORMAL
+  // path here, not an error one: the modal still opens, on the newest
+  // conversation, and says plainly that the thing is gone. A 404, a blank
+  // modal or a spinner that never resolves would each be worse than the
+  // behaviour this ticket is improving.
+  //
+  // ★ Only once the messages have actually loaded — "not here yet" and "not
+  // here at all" are different, and announcing the first as the second is the
+  // spinner-that-lies in another costume.
+  const deepLinkMissing =
+    !!deepLinkMessageId && !messagesQ.isLoading && !deepLinkTarget;
+
+  // ★ Applied ONCE per message id, the fix-217 in-render pattern: a person who
+  // then clicks a different thread stays where they put themselves.
+  const [appliedDeepLink, setAppliedDeepLink] = useState<string | null>(null);
+  if (deepLinkTarget && deepLinkTarget.messageId !== appliedDeepLink) {
+    setAppliedDeepLink(deepLinkTarget.messageId);
+    setSelectedPostId(deepLinkTarget.postId);
+    setFocusMessageId(deepLinkTarget.messageId);
+  }
+
   // The newest conversation is the one you probably came for.
   const selected: ChatPost | null =
     posts.find((p) => p.post.id === selectedPostId) ?? posts[0] ?? null;
@@ -198,6 +248,24 @@ export default function ProjectChatModal({
         className="bg-surface rounded-xl flex flex-col overflow-hidden"
         style={{ width: 'min(1000px, 94vw)', height: 'min(680px, 90vh)' }}
       >
+        {/* ★★★ fix-362 §3: the message the notification pointed at is gone.
+            Said once, at the top, in words — and the modal below it is the
+            whole working conversation, which is the nearest thing that DOES
+            exist. Degrading, never breaking. */}
+        {deepLinkMissing && (
+          <div
+            className="px-4 py-2 text-[11px] border-b"
+            style={{
+              background: 'var(--color-co-bg)',
+              borderColor: 'var(--color-co-border)',
+              color: 'var(--color-co)',
+            }}
+            data-testid="project-chat-missing-target"
+          >
+            That message has been deleted. Here is the project&apos;s chat
+            instead.
+          </div>
+        )}
         <header className="flex items-center gap-2 px-4 py-3 border-b border-border flex-none">
           <div>
             <div className="text-[14px] font-display font-bold text-text">

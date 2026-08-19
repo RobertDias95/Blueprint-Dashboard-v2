@@ -27,7 +27,11 @@ export function useAutoClosures() {
       const { data, error } = await supabase
         .from('permit_task_auto_closures')
         .select(
-          'id, permit_id, reason, detail, recipient, task_count, closed_at, ' +
+          // ★ fix-362: task_ids — WHICH tasks this closure covered, so a
+          // one-task closure can take you to that task rather than to the
+          // permit holding it. NULL on every row written before fix-362.
+          'id, permit_id, reason, detail, recipient, task_count, task_ids, ' +
+            'closed_at, ' +
             'permits!inner(project_id, num, type, projects!inner(address))',
         )
         .gte('closed_at', since)
@@ -40,6 +44,7 @@ export function useAutoClosures() {
         detail: string | null;
         recipient: string;
         task_count: number;
+        task_ids: string[] | null;
         closed_at: string;
         permits: {
           project_id: string | null;
@@ -62,6 +67,7 @@ export function useAutoClosures() {
         detail: r.detail ?? null,
         recipient: r.recipient,
         task_count: r.task_count,
+        task_ids: r.task_ids ?? null,
         closed_at: r.closed_at,
       }));
     },
