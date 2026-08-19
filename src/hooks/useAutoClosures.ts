@@ -27,7 +27,7 @@ export function useAutoClosures() {
       const { data, error } = await supabase
         .from('permit_task_auto_closures')
         .select(
-          'id, permit_id, reason, recipient, task_count, closed_at, ' +
+          'id, permit_id, reason, detail, recipient, task_count, closed_at, ' +
             'permits!inner(project_id, num, type, projects!inner(address))',
         )
         .gte('closed_at', since)
@@ -37,6 +37,7 @@ export function useAutoClosures() {
         id: string;
         permit_id: number;
         reason: string;
+        detail: string | null;
         recipient: string;
         task_count: number;
         closed_at: string;
@@ -58,6 +59,7 @@ export function useAutoClosures() {
           ? `${r.permits!.num} · ${r.permits?.type ?? 'Permit'}`
           : (r.permits?.type ?? 'Permit'),
         reason: r.reason,
+        detail: r.detail ?? null,
         recipient: r.recipient,
         task_count: r.task_count,
         closed_at: r.closed_at,

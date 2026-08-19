@@ -60,6 +60,9 @@ function closure(over: Partial<AutoClosureItemInput> = {}): AutoClosureItemInput
     address: '3626 164th Pl SE',
     permit_label: '7112264-DM · Building Permit',
     reason: 'permit_issued',
+    // ★ fix-355 added the sentence. Null here, because fix-354's rows report
+    // a FACT — the permit issued — and have nothing to justify.
+    detail: null,
     recipient: 'Miles',
     task_count: 6,
     closed_at: EPOCH_OK,
