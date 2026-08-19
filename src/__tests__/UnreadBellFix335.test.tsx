@@ -68,6 +68,12 @@ vi.mock('../hooks/useMilestoneAcks', () => ({
 vi.mock('../hooks/useProjectMessages', () => ({
   useMyMentions: () => ({ data: state.mentions, isLoading: false, error: null }),
 }));
+// ★ fix-354: the EIGHTH board source, mocked here for the same reason
+// fix-339 mocked the seventh — these suites deliberately render without a
+// QueryClient, and an unmocked query would reach for one.
+vi.mock('../hooks/useAutoClosures', () => ({
+  useAutoClosures: () => ({ data: [], isLoading: false, error: null }),
+}));
 vi.mock('../hooks/usePostRequests', () => ({
   useMyPostRequests: () => ({ data: state.postRequests, isLoading: false, error: null }),
   useResolvePostRequest: () => ({ mutate: state.resolveRequest, isPending: false }),

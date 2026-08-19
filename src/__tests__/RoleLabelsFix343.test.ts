@@ -27,8 +27,13 @@ import type { TeamMember, TeamRole } from '../lib/database.types';
 // one person could watch their own title change between reloads. Every
 // multi-role case below is asserted against EVERY permutation of the input.
 
+// ★ fix-354 §6 adds `director` — Dave, over Design and Entitlements. This list
+// is the reason adding a role is safe: ROLE_TITLE and ROLE_TITLE_PLURAL are
+// Records over TeamRole, so the compiler catches a missing key, and the line
+// below catches a key with no role.
 const ALL_ROLES: TeamRole[] = [
   'da', 'dm', 'ent', 'ent_lead', 'acq', 'acq_lead', 'schematic', 'viewer',
+  'director',
 ];
 
 /** Every ordering of a small array — the shuffle the brief asks for, done

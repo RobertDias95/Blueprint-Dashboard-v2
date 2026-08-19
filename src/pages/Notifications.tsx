@@ -66,6 +66,10 @@ const SOURCE_GROUP: Record<NewItemSource, Exclude<KindFilter, 'all' | 'unread' |
   handoff: 'permit',
   post_request: 'request',
   post_request_outcome: 'request',
+  // ★ fix-354: it IS about tasks — 'six of your tasks were closed' belongs
+  // with the other task news rather than in a chip of its own. A new
+  // KindFilter for one source would be a filter most people never need.
+  auto_closed: 'task',
 };
 
 const KIND_LABEL: Record<KindFilter, string> = {

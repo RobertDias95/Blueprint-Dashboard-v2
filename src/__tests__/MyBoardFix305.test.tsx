@@ -50,6 +50,12 @@ vi.mock('../hooks/useMilestoneAcks', () => ({
 // fix-329: the board reads chat mentions as a fifth "new item" source. Mocked
 // empty here — this suite is about the other four, and an unmocked query would
 // reach for a QueryClient this harness deliberately does not provide.
+// ★ fix-354: the EIGHTH board source, mocked here for the same reason
+// fix-339 mocked the seventh — these suites deliberately render without a
+// QueryClient, and an unmocked query would reach for one.
+vi.mock('../hooks/useAutoClosures', () => ({
+  useAutoClosures: () => ({ data: [], isLoading: false, error: null }),
+}));
 vi.mock('../hooks/usePostRequests', () => ({
   // ★ fix-339: the SHARED post-request item. Empty here — these suites are
   // about the other sources, and an unmocked query would reach for a

@@ -8,6 +8,7 @@ import { useScraperActivity } from './useScraperActivity';
 import { useMilestoneAcks } from './useMilestoneAcks';
 import { useBoardReads } from './useBoardReads';
 import { useMyMentions } from './useProjectMessages';
+import { useAutoClosures } from './useAutoClosures';
 import { useMyPostRequests } from './usePostRequests';
 import { useAuthStore } from '../stores/authStore';
 import { parseFlips } from '../lib/boardFlips';
@@ -73,6 +74,8 @@ export function useBoardNotifications(): BoardNotifications {
   const readsQ = useBoardReads();
   const mentionsQ = useMyMentions();
   const postRequestsQ = useMyPostRequests();
+  // ★ fix-354: what the machine closed, already grouped and routed.
+  const autoClosuresQ = useAutoClosures();
   const viewerUserId = useAuthStore((s) => s.user?.id ?? null);
 
   const viewer = useMemo(
@@ -100,6 +103,7 @@ export function useBoardNotifications(): BoardNotifications {
         viewerUserId,
         projects: projectsQ.data ?? [],
         postRequests: postRequestsQ.data ?? [],
+        autoClosures: autoClosuresQ.data ?? [],
       }),
     [
       activityQ.data,
@@ -111,6 +115,7 @@ export function useBoardNotifications(): BoardNotifications {
       viewerUserId,
       projectsQ.data,
       postRequestsQ.data,
+      autoClosuresQ.data,
     ],
   );
 
