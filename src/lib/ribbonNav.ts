@@ -24,8 +24,22 @@ export interface RibbonLink {
   exact?: boolean;
   /** ★ fix-331 §6: this entry renders a live count beside its label. A tag, not
    *  a number — the model stays pure and Ribbon.tsx supplies the data, the same
-   *  split that keeps route coverage assertable without mounting a query. */
-  badge?: 'errors';
+   *  split that keeps route coverage assertable without mounting a query.
+   *
+   *  ★★ fix-350 adds the second tag, and the two are deliberately different
+   *  SHAPES rather than two colours of the same dot:
+   *
+   *    'errors'    a COUNT, red. "There are 14 things to triage" — the number
+   *                is the information, and it is admin-only maintenance work.
+   *    'whats-new' a MARKER, --color-de. "There is something here you have not
+   *                read." No number: fix-307's lesson is that a count of
+   *                outstanding things never reaches zero and stops being a
+   *                signal, and this one genuinely does reach zero.
+   *
+   *  ★ The unread STYLE is fix-335 §9's, unchanged — the brief forbids a second
+   *  unread vocabulary and --color-de already means "this concerns you"
+   *  everywhere else in the app. */
+  badge?: 'errors' | 'whats-new';
   /**
    * ★★ fix-331: admin gating on a SINGLE ENTRY, which fix-234 did not need.
    *
@@ -301,6 +315,34 @@ export const RIBBON_ENTRIES: RibbonEntry[] = [
     },
   },
   { kind: 'separator', id: 'sep-2' },
+  // ★★★ fix-350 — WHAT'S NEW.
+  //
+  // Bobby: "We should add a what's new thing to the ribbon so people are aware
+  // of the features, tips and tricks etc."
+  //
+  // ★★ NOT adminOnly, and that is the entire ticket. Between 2026-08-14 and
+  // 2026-08-19 the tool gained project chat, mentions, reactions, tags, a
+  // notification centre, live updates and a new logo. Bobby has seen every one
+  // because he asked for it; the other 28 logins have been told about none of
+  // them. Gating this would hide the announcement from precisely the people it
+  // is for.
+  //
+  // ★ PLACED AFTER sep-2 rather than beside SharePoint, for two reasons: it
+  // belongs with the occasional-visit utilities (Settings, Error triage) rather
+  // than in the run of daily destinations, and putting it between SharePoint
+  // and sep-2 would have moved a neighbour fix-345 §4 pinned by position.
+  //
+  // ★ The badge is a MARKER, not a count — see RibbonLink.badge.
+  {
+    kind: 'link',
+    link: {
+      to: '/whats-new',
+      label: "What's New",
+      icon: '✦',
+      badge: 'whats-new',
+      hint: 'Features, changes and tips — what the tool has learned to do lately',
+    },
+  },
   // ★ fix-319 #76: Settings was a BUTTON that opened a dialog. It is a
   // destination now, so it is a link like everything else, and the coverage
   // guard covers it.

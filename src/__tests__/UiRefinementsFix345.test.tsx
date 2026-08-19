@@ -279,6 +279,10 @@ describe('fix-345 §4: SharePoint is a row now, under Reports', () => {
       'ribbon-link-/board',
       'ribbon-link-/library',
       'ribbon-external-sharepoint',
+      // ★ fix-350: a non-admin sees What’s New too — asserted here rather than
+      // only in its own suite, because THIS is the list that would have caught
+      // it being gated by accident.
+      'ribbon-link-/whats-new',
       'ribbon-link-/settings',
     ]);
   });

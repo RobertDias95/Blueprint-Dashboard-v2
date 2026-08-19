@@ -119,6 +119,10 @@ describe('<Chrome /> fix-313 the Blueprint Bridge shell', () => {
       'My Board',
       'Library',
       'Blueprint Design and Entitlements Studio on SharePoint — opens in a new tab',
+      // ★ fix-350, the SIXTH reorder: What's New joins the tier below the rule,
+      // beside the administrative entries. NOT admin-gated — it exists for the
+      // 23 non-admin editors who were never told what shipped.
+      'Features, changes and tips — what the tool has learned to do lately',
       'Settings',
       'Scraper and app errors needing triage',
     ]);
@@ -253,6 +257,10 @@ describe('<Chrome /> fix-313 the Blueprint Bridge shell', () => {
       'Library',
       'Every project, searchable — open to everyone',
       'Blueprint Design and Entitlements Studio on SharePoint — opens in a new tab',
+      // ★ fix-350, the SIXTH reorder: What's New joins the tier below the rule,
+      // beside the administrative entries. NOT admin-gated — it exists for the
+      // 23 non-admin editors who were never told what shipped.
+      'Features, changes and tips — what the tool has learned to do lately',
       'Settings',
     ]);
     // ★ fix-335 §3: Library is a top-level entry now, not a group.

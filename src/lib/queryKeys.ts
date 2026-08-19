@@ -58,6 +58,11 @@ export const queryKeys = {
   // keys from these, so there is one spelling per table.
   boardItemReadsAll: ['board_item_reads'] as const,
   milestoneAcksAll: ['permit_milestone_acks'] as const,
+  // fix-350: What's New. Two keys because the two tables have different
+  // audiences — every tenant member reads the entries, and each person reads
+  // only their own read rows (RLS, not a filter).
+  whatsNewEntriesAll: ['whats_new_entries'] as const,
+  whatsNewReadsAll: ['whats_new_reads'] as const,
   // fix-31: per-reviewer status table (replaces the placeholder "tasks" column
   // on Project Overview with a real rollup of city-side review state).
   permitCycleReviewersAll: ['permit_cycle_reviewers'] as const,
@@ -359,4 +364,8 @@ export const REALTIME_TABLES = {
   // fix-307's model is per-user and RLS-scoped to auth.uid(), so this streams
   // only your own rows — proven on the wire, see the PR.
   board_item_reads: [queryKeys.boardItemReadsAll],
+  // fix-350: a new entry has to reach an open tab, otherwise the ribbon's
+  // unread dot appears only for whoever happens to reload next.
+  whats_new_entries: [queryKeys.whatsNewEntriesAll],
+  whats_new_reads: [queryKeys.whatsNewReadsAll],
 } as const;
