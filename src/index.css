@@ -175,3 +175,30 @@
     break-inside: avoid;
   }
 }
+
+/* ★★ fix-360 §2 — the bell pops on each new arrival.
+ *
+ * Bobby: "it's one notification, but it pops up the bell 12 times". The badge
+ * element carries `key={signature}`, so React remounts it whenever WHAT is
+ * unread changes — including a 16th reaction on a post that was already unread,
+ * which leaves the NUMBER exactly where it was. A mount replays this animation,
+ * so the pop needs no state, no effect and no timer to clear it.
+ *
+ * ★ Respects `prefers-reduced-motion`: a person who has asked the machine to
+ * stop moving has asked for that everywhere, and the badge still updates. */
+@keyframes board-bell-pop {
+  0%   { transform: scale(1); }
+  35%  { transform: scale(1.45); }
+  70%  { transform: scale(0.92); }
+  100% { transform: scale(1); }
+}
+
+.board-bell-pop {
+  animation: board-bell-pop 420ms cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .board-bell-pop {
+    animation: none;
+  }
+}

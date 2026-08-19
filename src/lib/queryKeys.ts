@@ -40,6 +40,10 @@ export const queryKeys = {
   postRequestsAll: ['post_requests'] as const,
   // ★ fix-347: reactions (read receipts) and the custom mention tags.
   messageReactionsAll: ['message_reactions'] as const,
+  // ★ fix-360: the same table read for a different question — "who reacted to
+  // MY posts". Its own prefix, because the per-thread query above is scoped to
+  // one project and this one is scoped to one author across all of them.
+  myPostReactionsAll: ['my_post_reactions'] as const,
   mentionTagsAll: ['mention_tags'] as const,
   // fix-notes-2: dashboard expanded-permit "waiting on" summaries. Own bare
   // prefix so BOTH permit_tasks and notes realtime changes can invalidate it.
@@ -365,7 +369,13 @@ export const REALTIME_TABLES = {
   // ★★ fix-347: a reaction is a READ RECEIPT, so it streams — see the note in
   // useMessageReactions. Two people on the same post must not disagree about
   // how many have acknowledged it.
-  message_reactions: [queryKeys.messageReactionsAll],
+  // ★★ fix-360 §2: …and the AUTHOR's feed of them. This is what makes the bell
+  // move on each new reaction while the centre still shows one row — the two
+  // are different questions, and the brief was explicit that they are.
+  message_reactions: [
+    queryKeys.messageReactionsAll,
+    queryKeys.myPostReactionsAll,
+  ],
   // ★★ The READ STATE, and the reason the badge could disagree with itself.
   // Acknowledging an item in one tab wrote a row that no other tab heard about,
   // so a second tab kept counting it until something else forced a refetch.

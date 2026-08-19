@@ -66,7 +66,7 @@ export default function BoardBell() {
   const resolveRequest = useResolvePostRequest();
 
   // ★★ fix-336: ONE model, shared with /notifications.
-  const { viewer, unseen, suppressed } = useBoardNotifications();
+  const { viewer, unseen, suppressed, signature } = useBoardNotifications();
 
   const input: BoardInput = useMemo(
     () => ({
@@ -178,7 +178,23 @@ export default function BoardBell() {
         <span aria-hidden>🔔</span>
         {actionable > 0 && (
           <span
-            className="absolute -top-1 -right-1 min-w-[15px] h-[15px] px-1 rounded-full bg-co text-white text-[9px] font-extrabold flex items-center justify-center"
+            // ★★★ fix-360 §2 — THE BELL POPS, EVEN WHEN THE NUMBER DOES NOT.
+            //
+            // Bobby: "it's one notification, but it pops up the bell 12 times
+            // and mark it as read then three times". A 16th reaction on a post
+            // that is already unread leaves the badge on the same number — that
+            // is what grouping MEANS — and he still wants to feel it land.
+            //
+            // ★ THE KEY IS THE MECHANISM, and that is deliberate. React
+            // remounts an element whose `key` changed, and a CSS animation
+            // replays on mount, so the pop needs no state, no effect and no
+            // timer to clear — which also keeps it clear of the React Compiler
+            // rule that bit fix-350 twice. `signature` is a fingerprint of WHAT
+            // is unread rather than how much, so it moves when a reaction lands
+            // and stays put across an idle refetch.
+            key={signature}
+            data-signature={signature}
+            className="board-bell-pop absolute -top-1 -right-1 min-w-[15px] h-[15px] px-1 rounded-full bg-co text-white text-[9px] font-extrabold flex items-center justify-center"
             data-testid="board-bell-badge"
           >
             {actionable > 99 ? '99+' : actionable}
