@@ -25,6 +25,7 @@ import { readPermitDescriptions } from '../hooks/usePermitDescriptions';
  *   Building Permit 143 · Demolition 114 · ULS 86 · PAR/Pre-Sub 39
  *   SDOT Tree 20 · IPR 15 · TRAO 13 · PPR 10 · Grading / Clearing 7
  *   ECA Waiver 5 · LSM 4 · SIP 4 · LBA 3 · Condo 1 · STFI 1 · Short Plat 0
+ *   · WAC 0 (added by fix-349, going-forward only — no backfill)
  *
  * ★ SIXTEEN, not the fifteen the brief listed — 'Short Plat' is in the
  * catalogue with zero permits, so it never showed up in a usage-ordered list.
@@ -48,6 +49,12 @@ const LIVE_PERMIT_TYPES = [
   'Condo',
   'STFI',
   'Short Plat',
+  // ★ fix-349: WAC. Bobby: "a WAC is a separate permit in Seattle, and
+  // generally required every time" — the tool had no such type, which is why it
+  // had become a checkbox on the PAR template. Seventeen now. It carries no
+  // description yet (six of the others do not either); adding one is a
+  // Settings edit, not a deploy, since fix-288 moved them into app_config.
+  'WAC',
 ] as const;
 
 describe('fix-288 every description key names a real permit type', () => {
