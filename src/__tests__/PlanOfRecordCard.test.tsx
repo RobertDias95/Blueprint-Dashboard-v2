@@ -270,27 +270,51 @@ describe('fix-285 the file card', () => {
 
 // ------------------------------------------------------------ empty state --
 
-describe('fix-285 the empty state is a real case, not a hypothetical', () => {
-  it('renders when the project has no plan of record', async () => {
+// ★★★ fix-358 SPLIT THIS ONE STATE INTO THREE, and that split is the ticket.
+//
+// fix-285 had a single empty state — "No design set on file yet" — for every
+// project with no file row. fix-356 then computed the REASONING and showed that
+// the one state was covering three different facts:
+//
+//     the indexer chose a set          -> the body, unchanged
+//     it looked and nothing qualified  -> "No approved design set filed" + why
+//     it has not walked this project   -> "Not indexed yet"
+//
+// ★★ The last two are the pair the brief refuses to let render identically:
+// "this project has no design set" and "the tool has no opinion" are different
+// statements, and 19 projects are in the second — four of them live projects
+// carrying 3 to 9 permits. Telling those "no design set filed" accuses the team
+// of not filing something they filed.
+//
+// ★ So these four tests keep their SUBJECT (a project with no file row is a
+// real case, says so plainly, offers no controls, and never reads like an
+// error) and change the state they assert on. The old wording is gone because
+// it was the conflation.
+describe('fix-285 -> fix-358: no file row, and the tool has not looked', () => {
+  it('renders the NOT-INDEXED state, not a blank card', async () => {
     state.row = null;
     renderCard();
-    const empty = await screen.findByTestId('plan-of-record-empty');
-    expect(empty).toHaveTextContent('No design set on file yet');
+    const empty = await screen.findByTestId('plan-of-record-not-indexed');
+    expect(empty).toHaveTextContent('Not indexed yet');
   });
 
-  it('names the three things that would have counted', async () => {
+  it('★ says what is actually true — nobody has looked', async () => {
     state.row = null;
     renderCard();
-    const empty = await screen.findByTestId('plan-of-record-empty');
-    expect(empty.textContent).toMatch(/Design.Guidance/);
-    expect(empty).toHaveTextContent('Schematic');
-    expect(empty).toHaveTextContent('Marketing');
+    const empty = await screen.findByTestId('plan-of-record-not-indexed');
+    expect(empty.textContent).toMatch(/has not walked/i);
+    // ★★ And it makes no CLAIM about what has been filed — that claim is the
+    // accusation this state exists to avoid. It says the opposite outright,
+    // which is why the assertion is on the claim rather than on the word.
+    expect(empty.textContent).not.toMatch(/no design set/i);
+    expect(empty.textContent).not.toMatch(/(nothing|no set) has been filed/i);
+    expect(empty.textContent).toMatch(/not a statement about what has been filed/i);
   });
 
   it('shows no chip, no path and no actions', async () => {
     state.row = null;
     renderCard();
-    await screen.findByTestId('plan-of-record-empty');
+    await screen.findByTestId('plan-of-record-not-indexed');
     expect(screen.queryByTestId('plan-of-record-copy')).toBeNull();
     expect(screen.queryByTestId('plan-of-record-preview')).toBeNull();
   });
@@ -298,7 +322,7 @@ describe('fix-285 the empty state is a real case, not a hypothetical', () => {
   it('does not read like an error', async () => {
     state.row = null;
     renderCard();
-    const empty = await screen.findByTestId('plan-of-record-empty');
+    const empty = await screen.findByTestId('plan-of-record-not-indexed');
     expect(empty.textContent?.toLowerCase()).not.toContain('error');
     expect(empty.textContent?.toLowerCase()).not.toContain('failed');
   });
