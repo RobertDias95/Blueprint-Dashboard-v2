@@ -21,11 +21,12 @@ import type { ProjectPlanOfRecordVerdictRow } from '../lib/database.types';
 //                         passed over to get there
 //   a row with stage NULL the indexer looked and NOTHING qualified. 33 projects
 //                         today. `sentence` is the filing request.
-//   NO ROW AT ALL         the indexer has not walked this project. 19 today —
-//                         15 redesigns bound to a base project and 4 folders it
-//                         could not match. ★ This is NOT "no design set", and
-//                         saying so would accuse the team of not filing
-//                         something they filed.
+//   NO ROW AT ALL         the indexer has not walked this project. 21 of 159
+//                         today — 15 redesigns bound to a base project and 6
+//                         folders it could not match, ten of the 21 carrying
+//                         permits. ★ This is NOT "no design set", and saying so
+//                         would accuse the team of not filing something they
+//                         filed.
 //
 // `maybeSingle()` because the table is one row per project (project_id is the
 // primary key), so "no row" is a legitimate state and two rows would be a bug
@@ -38,7 +39,8 @@ import type { ProjectPlanOfRecordVerdictRow } from '../lib/database.types';
 const SELECT_COLUMNS =
   'project_id,stage,file_name,unc_path,sentence,verdict,computed_at';
 
-/** The indexer runs when Bobby runs it — at most daily. Re-asking every thirty
+/** The indexer runs when Bobby runs it — at most daily, and all 138 rows on
+ *  prod share one `computed_at` to the microsecond. Re-asking every thirty
  *  seconds would be asking a question whose answer cannot have changed. */
 const A_DAY_ISH = 60 * 60 * 1000;
 
