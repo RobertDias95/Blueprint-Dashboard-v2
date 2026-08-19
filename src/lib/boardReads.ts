@@ -1,6 +1,13 @@
 import type { BoardTask, PermitMilestoneAck } from './myBoard';
 import type { BoardFlip } from './boardFlips';
-import { FLIP_LABEL } from './boardFlips';
+import { flipEventKey, flipEventTitle, flipEventDetail } from './boardFlips';
+import {
+  buildReactionDigests,
+  keyForReactions,
+  reactionDetail,
+  reactionTitle,
+  type PostReactionRow,
+} from './postReactions';
 import { keyForMention } from './projectChat';
 import type { Project, PermitWithCycles } from './database.types';
 
@@ -48,7 +55,12 @@ export type NewItemSource =
   | 'mention'
   | 'post_request'
   | 'post_request_outcome'
-  | 'auto_closed';
+  | 'auto_closed'
+  // fix-360 adds the NINTH, and like fix-339's it is a new shape rather than a
+  // new row type: one item per POST whose CONTENT changes as more reactions
+  // arrive. See lib/postReactions for the watermark key that makes a mutating
+  // item expressible in an append-only read model.
+  | 'reaction';
 
 /**
  * ★★★ fix-339 — THE TWO SHAPES OF A BOARD ITEM, and the rule for picking one.
@@ -105,6 +117,9 @@ export interface NewItem {
   at: string;
   permitId: number | null;
   projectId: string | null;
+  /** fix-360: keys this item USED to be delivered under, before its source
+   *  learned to group. See unseenItems for the one rule that reads them. */
+  legacyKeys?: string[];
 }
 
 // ---------------------------------------------------------------------------
@@ -203,6 +218,10 @@ export interface NewItemsInput {
    *  requests the viewer RAISED that have been resolved (personal outcome).
    *  One query feeds both — see bp_my_post_requests. */
   postRequests?: ReadonlyArray<PostRequestItemInput>;
+  /** fix-360: reactions to the viewer's OWN posts, one row per reaction, with
+   *  the viewer's own already excluded server-side. Optional so every existing
+   *  caller and fixture keeps working unchanged. */
+  reactions?: ReadonlyArray<PostReactionRow>;
 }
 
 /** ★ fix-339: the minimum a post request needs to become a board item. */
@@ -260,6 +279,13 @@ export function buildNewItems(input: NewItemsInput): NewItem[] {
   // retry-recovered and manual-edit-guard actions (50.8 and 14.5 a day) and
   // the fix-304 backfill filter, so a 300-day-old applied date cannot arrive
   // here as news. This deliberately REUSES that rule rather than restating it.
+  //
+  // ★★★ fix-360 §1 — AND THEY ARRIVE GROUPED. One scrape write that moved
+  // three columns was three items, two of them saying "Approved". It is now
+  // one, titled the way a person would say it, with every moved column listed
+  // beneath. See boardFlips.flipEventKey for the identity that groups them and
+  // for what `scraper_run_at` turned out to actually be.
+  const flipGroups = new Map<string, BoardFlip[]>();
   for (const f of input.flips) {
     if (!isAfterEpoch(f.at)) continue;
     const permit = addressOf(f.permitId);
@@ -267,15 +293,37 @@ export function buildNewItems(input: NewItemsInput): NewItem[] {
       (f.entLead ?? '').trim().toLowerCase() === me ||
       (permit?.da ?? '').trim().toLowerCase() === me;
     if (!mine) continue;
+    const key = flipEventKey(f);
+    const bucket = flipGroups.get(key);
+    if (bucket) bucket.push(f);
+    else flipGroups.set(key, [f]);
+  }
+  for (const [key, group] of flipGroups) {
+    // The event happened when its earliest write landed; a group's members
+    // differ by milliseconds, and picking the oldest keeps the feed's ordering
+    // stable as a group grows.
+    const at = group.reduce((a, f) => (f.at < a ? f.at : a), group[0].at);
+    const head = group[0];
     out.push({
-      key: keyForFlip(f.auditId, f.kind),
+      key,
       source: 'flip',
-      title: FLIP_LABEL[f.kind],
-      subtitle: f.applied,
-      where: `${f.address ?? 'Unknown address'} · ${f.permitType ?? 'Permit'}`,
-      at: f.at,
-      permitId: f.permitId,
-      projectId: f.projectId,
+      title: flipEventTitle(group),
+      subtitle: flipEventDetail(group),
+      where: `${head.address ?? 'Unknown address'} · ${head.permitType ?? 'Permit'}`,
+      at,
+      permitId: head.permitId,
+      projectId: head.projectId,
+      // ★★ THE READ STATE SURVIVES THE REGROUPING. 54 flip read rows across 5
+      // people exist on prod under the OLD per-field keys, and a new key scheme
+      // would re-open every one of them on deploy day — the same three-figure
+      // badge fix-307's epoch was built to prevent, arriving by a different
+      // door. So a grouped item also answers to the keys its members used to
+      // have, and is read when all of them are.
+      // ★ Deduped: one write can produce two flips of the SAME kind (a status
+      //   string and a date both meaning `approved`), and they shared one key
+      //   before this ticket too — so the set of old keys is smaller than the
+      //   set of flips, and listing a key twice would say nothing extra.
+      legacyKeys: [...new Set(group.map((f) => keyForFlip(f.auditId, f.kind)))],
     });
   }
 
@@ -475,6 +523,36 @@ export function buildNewItems(input: NewItemsInput): NewItem[] {
     });
   }
 
+  // ★★★ fix-360 §2 — ONE ROW PER POST, AND IT KEEPS COUNTING.
+  //
+  // ★ NO EPOCH FILTER, for fix-339's reason: reactions did not exist before
+  // fix-347 and there were 1 of them in the database when this shipped, so
+  // every one is genuinely new and an epoch check could only lose one.
+  //
+  // ★ NO viewerName MATCH EITHER. The audience is the post's AUTHOR, which is
+  // an auth id; bp_my_post_reactions already returns only the caller's own
+  // posts, and re-deriving that from a roster name here would be a second
+  // answer to a question the database has answered — and a worse one, since
+  // profiles.name is NULL for all 29 logins (fix-330).
+  for (const d of buildReactionDigests(input.reactions ?? [])) {
+    const project = (input.projects ?? []).find((p) => p.id === d.projectId);
+    out.push({
+      // ★★ The watermark is in the key, which is what makes ONE row mutate
+      // rather than fifteen rows accumulate. lib/postReactions explains why
+      // that is the whole of the read model this needed.
+      key: keyForReactions(d.messageId, d.newestAt),
+      source: 'reaction',
+      title: reactionTitle(d.total),
+      subtitle: reactionDetail(d),
+      where: project?.address ?? 'Project chat',
+      // ★ The NEWEST reaction, not the first — the item is about the state of
+      // the applause, so it sorts by when that state last changed.
+      at: d.newestAt,
+      permitId: null,
+      projectId: d.projectId,
+    });
+  }
+
   return out.sort((a, z) => z.at.localeCompare(a.at));
 }
 
@@ -496,9 +574,35 @@ export function unseenItems(
   items: ReadonlyArray<NewItem>,
   readKeys: ReadonlySet<string>,
 ): NewItem[] {
-  return items.filter((i) =>
-    i.audience === 'shared' ? true : !readKeys.has(i.key),
-  );
+  return items.filter((i) => (i.audience === 'shared' ? true : !hasBeenRead(i, readKeys)));
+}
+
+/** ★ fix-360: has this person seen this item, under ANY key it has ever had?
+ *
+ *  ★★ The straight answer is the first line, and it is the only one that will
+ *  matter in a month. The second exists because fix-360 regrouped a source that
+ *  had already been delivering items: 54 read rows on prod carry the old
+ *  per-field flip keys, and without this every one of them would re-open on
+ *  deploy day. A grouped item is read when every key it used to be delivered
+ *  under is read — anything less would be claiming somebody saw news they
+ *  never got.
+ *
+ *  ★ It decays on its own. Nothing writes a legacy key any more, so the branch
+ *  stops mattering as the old rows age past the feed's window — which is why it
+ *  is a predicate here rather than a backfill of rows that would live forever.
+ *
+ *  ★ EXPORTED so the notification centre can ask the same question. It carries
+ *  its own copy of the unread test (it renders both states per row rather than
+ *  a filtered list), and two spellings of "read" would let the bell and the
+ *  centre disagree — the failure fix-329 exists to prevent. */
+export function hasBeenRead(
+  item: NewItem,
+  readKeys: ReadonlySet<string>,
+): boolean {
+  if (readKeys.has(item.key)) return true;
+  const legacy = item.legacyKeys;
+  if (!legacy || legacy.length === 0) return false;
+  return legacy.every((k) => readKeys.has(k));
 }
 
 /** ★ fix-339: the items a "mark all read" may legitimately touch.

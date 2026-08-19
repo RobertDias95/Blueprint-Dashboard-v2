@@ -10,6 +10,7 @@ import { useBoardReads } from './useBoardReads';
 import { useMyMentions } from './useProjectMessages';
 import { useAutoClosures } from './useAutoClosures';
 import { useMyPostRequests } from './usePostRequests';
+import { useMyPostReactions } from './useMyPostReactions';
 import { useAuthStore } from '../stores/authStore';
 import { parseFlips } from '../lib/boardFlips';
 import { buildNewItems, unseenItems, type NewItem } from '../lib/boardReads';
@@ -53,6 +54,10 @@ export interface BoardNotifications {
   readKeys: ReadonlySet<string>;
   /** The badge number. `unseen.length`, exposed so no caller recomputes it. */
   unseenCount: number;
+  /** ★ fix-360: a stable fingerprint of WHAT is unread, not how much. Changes
+   *  when a new thing arrives even if the count does not — see the note where
+   *  it is built. */
+  signature: string;
   /** The three never-notify categories, counted (the bell's "Not shown" line). */
   suppressed: SuppressionCounts;
   /** ★ …and the rows behind those counts, for the centre. */
@@ -76,6 +81,8 @@ export function useBoardNotifications(): BoardNotifications {
   const postRequestsQ = useMyPostRequests();
   // ★ fix-354: what the machine closed, already grouped and routed.
   const autoClosuresQ = useAutoClosures();
+  // ★ fix-360 §2: applause on your own posts, one row per reaction.
+  const reactionsQ = useMyPostReactions();
   const viewerUserId = useAuthStore((s) => s.user?.id ?? null);
 
   const viewer = useMemo(
@@ -104,6 +111,7 @@ export function useBoardNotifications(): BoardNotifications {
         projects: projectsQ.data ?? [],
         postRequests: postRequestsQ.data ?? [],
         autoClosures: autoClosuresQ.data ?? [],
+        reactions: reactionsQ.data ?? [],
       }),
     [
       activityQ.data,
@@ -116,6 +124,7 @@ export function useBoardNotifications(): BoardNotifications {
       projectsQ.data,
       postRequestsQ.data,
       autoClosuresQ.data,
+      reactionsQ.data,
     ],
   );
 
@@ -131,11 +140,35 @@ export function useBoardNotifications(): BoardNotifications {
     [activityQ.data, viewer],
   );
 
+  // ★★★ fix-360 §2 — THE BELL AND THE BADGE ARE DIFFERENT QUESTIONS.
+  //
+  // Bobby: *"it's one notification, but it pops up the bell 12 times"*, and the
+  // brief underlines it: *"The bell's behaviour and the centre's row count are
+  // DIFFERENT questions — do not make the bell a count of rows and call it
+  // done."*
+  //
+  // ★ A 16th reaction on a post that is already unread does not move the badge:
+  // it was one unread item before and it is one unread item after, which is the
+  // entire point of grouping. But something DID happen, and the bell is how a
+  // person feels that. So the model exposes a signature over the unread keys —
+  // which changes whenever anything new arrives, INCLUDING a change that leaves
+  // the count where it was, because a reaction item's key carries its watermark
+  // (see lib/postReactions).
+  //
+  // ★ Deliberately not a timestamp or a random token: two renders of the same
+  // state must produce the same signature, or the bell would twitch on every
+  // refetch and mean nothing.
+  const signature = useMemo(
+    () => unseen.map((i) => i.key).sort().join('|'),
+    [unseen],
+  );
+
   return {
     viewer,
     items,
     unseen,
     readKeys,
+    signature,
     unseenCount: unseen.length,
     suppressed,
     suppressedRows,

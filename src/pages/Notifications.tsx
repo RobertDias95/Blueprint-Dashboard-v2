@@ -4,7 +4,12 @@ import { useBoardNotifications } from '../hooks/useBoardNotifications';
 import { useMarkBoardItemsRead } from '../hooks/useBoardReads';
 import { useResolvePostRequest } from '../hooks/usePostRequests';
 import { RealtimeStatusLine } from '../components/RealtimeStatusLine';
-import { acknowledgeableItems, type NewItem, type NewItemSource } from '../lib/boardReads';
+import {
+  acknowledgeableItems,
+  hasBeenRead,
+  type NewItem,
+  type NewItemSource,
+} from '../lib/boardReads';
 import type { ScraperActivityRow } from '../lib/database.types';
 
 // ===========================================================================
@@ -70,12 +75,18 @@ const SOURCE_GROUP: Record<NewItemSource, Exclude<KindFilter, 'all' | 'unread' |
   // with the other task news rather than in a chip of its own. A new
   // KindFilter for one source would be a filter most people never need.
   auto_closed: 'task',
+  // ★ fix-360: applause on your own post is chat news, so it joins the chat
+  // filter rather than getting a chip of its own — fix-354's precedent, and its
+  // reason: "a new KindFilter for one source would be a filter most people
+  // never need". ★ The chip's LABEL changes with it, because "Mentions" stopped
+  // being the whole truth the moment a second kind of chat news arrived.
+  reaction: 'mention',
 };
 
 const KIND_LABEL: Record<KindFilter, string> = {
   all: 'Everything',
   unread: 'Unread',
-  mention: 'Mentions',
+  mention: 'Chat',
   task: 'Tasks',
   permit: 'Permit changes',
   request: 'Requests',
@@ -109,9 +120,14 @@ export default function NotificationsPage() {
    *  no read row and is unread while it exists (fix-339), a personal one is
    *  unread until its key is in `board_item_reads`. Restated here only because
    *  the centre renders BOTH states and therefore needs the predicate per row
-   *  rather than a filtered list. */
+   *  rather than a filtered list.
+   *
+   *  ★★ fix-360: and the "is it read" half is now IMPORTED rather than spelled
+   *  out, because grouping the flip source gave items a second set of keys they
+   *  answer to. Two spellings of "read" is how the bell and the centre start
+   *  disagreeing about the same row. */
   const isUnread = (i: NewItem) =>
-    i.audience === 'shared' ? true : !readKeys.has(i.key);
+    i.audience === 'shared' ? true : !hasBeenRead(i, readKeys);
 
   const counts = useMemo(() => {
     const c: Record<KindFilter, number> = {

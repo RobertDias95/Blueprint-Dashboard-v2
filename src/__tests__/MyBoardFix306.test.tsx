@@ -68,6 +68,11 @@ vi.mock('../hooks/useMilestoneAcks', () => ({
 vi.mock('../hooks/useAutoClosures', () => ({
   useAutoClosures: () => ({ data: [], isLoading: false, error: null }),
 }));
+// ★ fix-360 mocks the ninth, for the same reason: this suite renders without a
+// QueryClient and an unmocked query would reach for one.
+vi.mock('../hooks/useMyPostReactions', () => ({
+  useMyPostReactions: () => ({ data: [], isLoading: false, error: null }),
+}));
 vi.mock('../hooks/usePostRequests', () => ({
   // ★ fix-339: the SHARED post-request item. Empty here — these suites are
   // about the other sources, and an unmocked query would reach for a
