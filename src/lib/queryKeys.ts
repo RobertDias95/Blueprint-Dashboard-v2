@@ -61,6 +61,8 @@ export const queryKeys = {
   // fix-350: What's New. Two keys because the two tables have different
   // audiences — every tenant member reads the entries, and each person reads
   // only their own read rows (RLS, not a filter).
+  // fix-354: the ledger the auto-closed FYI is derived from.
+  autoClosuresAll: ['permit_task_auto_closures'] as const,
   whatsNewEntriesAll: ['whats_new_entries'] as const,
   whatsNewReadsAll: ['whats_new_reads'] as const,
   // fix-31: per-reviewer status table (replaces the placeholder "tasks" column
@@ -366,6 +368,9 @@ export const REALTIME_TABLES = {
   board_item_reads: [queryKeys.boardItemReadsAll],
   // fix-350: a new entry has to reach an open tab, otherwise the ribbon's
   // unread dot appears only for whoever happens to reload next.
+  // fix-354: a closure should reach an open bell without a reload —
+  // register #101's whole point is that you just see the bell.
+  permit_task_auto_closures: [queryKeys.autoClosuresAll],
   whats_new_entries: [queryKeys.whatsNewEntriesAll],
   whats_new_reads: [queryKeys.whatsNewReadsAll],
 } as const;

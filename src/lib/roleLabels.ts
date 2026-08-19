@@ -41,6 +41,9 @@ import type { TeamRole } from './database.types';
 
 /** ★ SINGULAR — a person's title. "Bobby · Entitlements Manager". */
 export const ROLE_TITLE: Record<TeamRole, string> = {
+  // ★★ fix-354 §6: Dave, over Design AND Entitlements — which is why it is its
+  // own family below rather than a grade of either one.
+  director: 'Director',
   ent_lead: 'Entitlements Manager', // ★ his words, and the one that started this
   ent: 'Entitlements',
   dm: 'Design Manager',
@@ -59,6 +62,7 @@ export const ROLE_TITLE: Record<TeamRole, string> = {
  *  source as the singular so the two cannot drift; Settings → Team owns the
  *  only screen that needs them. */
 export const ROLE_TITLE_PLURAL: Record<TeamRole, string> = {
+  director: 'Directors',
   ent_lead: 'Entitlement Leads',
   ent: 'Entitlement Leads',
   dm: 'Design Managers',
@@ -78,6 +82,15 @@ export const ROLE_TITLE_PLURAL: Record<TeamRole, string> = {
  * (see below), so any real role outranks it.
  */
 export const ROLE_SENIORITY: readonly TeamRole[] = [
+  // ★★ fix-354 §6: above ent_lead, per Bobby — he is the Director OVER Design
+  // and Entitlements, so he outranks the manager of either.
+  //
+  // ★ NOTE THIS ARRAY IS NOT TYPE-CHECKED FOR TOTALITY the way the two Records
+  // above are: it is a list, so a role omitted here compiles and silently sorts
+  // LAST via roleSeniorityRank's -1 guard. A test asserts it covers every
+  // TeamRole, because that is the one part of adding a role the compiler cannot
+  // catch for you.
+  'director',
   'ent_lead',
   'acq_lead',
   'dm',
@@ -91,6 +104,11 @@ export const ROLE_SENIORITY: readonly TeamRole[] = [
 /** Families of roles that are GRADES OF ONE JOB. Within a family only the most
  *  senior is shown; across families both are. */
 const ROLE_FAMILY: Record<TeamRole, string> = {
+  // ★★ ITS OWN FAMILY, deliberately. Put `director` in the `ent` family and it
+  // would REPLACE `ent_lead` rather than print beside it — and Dave's is not a
+  // grade of entitlements, it is a job over both. Its own family is what makes
+  // "Director · Schematic Design" come out of {director, schematic}.
+  director: 'director',
   ent_lead: 'ent',
   ent: 'ent',
   acq_lead: 'acq',

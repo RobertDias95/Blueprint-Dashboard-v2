@@ -334,6 +334,12 @@ vi.mock('../stores/authStore', () => ({
 vi.mock('../hooks/useIsTenantAdmin', () => ({
   useIsTenantAdmin: () => mocks.isAdmin,
 }));
+// ★ fix-354: the EIGHTH board source, mocked here for the same reason
+// fix-339 mocked the seventh — these suites deliberately render without a
+// QueryClient, and an unmocked query would reach for one.
+vi.mock('../hooks/useAutoClosures', () => ({
+  useAutoClosures: () => ({ data: [], isLoading: false, error: null }),
+}));
 vi.mock('../hooks/usePostRequests', async (orig) => {
   const actual = await orig<typeof import('../hooks/usePostRequests')>();
   return {

@@ -36,6 +36,10 @@ export const BOARD_NOTIFICATIONS_EPOCH = '2026-08-14T00:00:00Z';
 // seeing it is not doing it.
 // ★ fix-339 adds the sixth and seventh sources — and the sixth is a new SHAPE,
 // not just a new row type. See NewItemAudience.
+// ★★★ fix-354 adds the EIGHTH, and the doc block below named it in advance:
+// "#102 (bot tasks that close and announce themselves)". This is its sibling —
+// the machine closing tasks because a permit ISSUED, which fix-337 shipped
+// without any way of telling anyone. 103 tasks, 58 permits, zero people told.
 export type NewItemSource =
   | 'flip'
   | 'task'
@@ -43,7 +47,8 @@ export type NewItemSource =
   | 'permit'
   | 'mention'
   | 'post_request'
-  | 'post_request_outcome';
+  | 'post_request_outcome'
+  | 'auto_closed';
 
 /**
  * ★★★ fix-339 — THE TWO SHAPES OF A BOARD ITEM, and the rule for picking one.
@@ -132,6 +137,20 @@ export { keyForMention };
 /** ★ fix-339: the SHARED item. Keyed on the request's uuid like everything else
  *  — but nothing ever writes a read row against it, because resolving the
  *  request is what removes it. See NewItemAudience. */
+/** ★★ fix-354: the FYI that the machine closed some of your work.
+ *
+ *  ★ KEYED ON THE LEDGER ROW'S OWN uuid — permit_task_auto_closures.id. The key
+ *  scheme's rule is that a key must be a stable database identity, and its
+ *  reason applies here exactly: a key built from the permit plus a TASK COUNT
+ *  would re-notify the moment another task closed on the same permit, and one
+ *  built from a task list would change shape as that list grew. A primary key
+ *  cannot do either.
+ *
+ *  ★ One row is one (permit, closure, recipient) — never one per task. */
+export function keyForAutoClosed(closureId: string): string {
+  return `auto_closed:${closureId}`;
+}
+
 export function keyForPostRequest(requestId: string): string {
   return `post_request:${requestId}`;
 }
@@ -176,6 +195,10 @@ export interface NewItemsInput {
   /** Projects, for resolving a mention's address. Optional for the same
    *  backwards-compatible reason. */
   projects?: ReadonlyArray<Pick<Project, 'id' | 'address'>>;
+  /** ★★ fix-354: closures the machine made — one row per (permit, closure,
+   *  recipient), already routed by the database. Optional so every existing
+   *  caller and test fixture keeps working unchanged. */
+  autoClosures?: ReadonlyArray<AutoClosureItemInput>;
   /** ★ fix-339: post requests addressed to the viewer (shared, still open) and
    *  requests the viewer RAISED that have been resolved (personal outcome).
    *  One query feeds both — see bp_my_post_requests. */
@@ -183,6 +206,22 @@ export interface NewItemsInput {
 }
 
 /** ★ fix-339: the minimum a post request needs to become a board item. */
+/** ★ fix-354: a row of permit_task_auto_closures, joined to enough of the
+ *  permit to say WHERE. `recipient` is resolved server-side by
+ *  bp_auto_close_recipient — the client never re-derives it, because a second
+ *  opinion about who owns the work is exactly what fix-238 exists to prevent. */
+export interface AutoClosureItemInput {
+  id: string;
+  permit_id: number;
+  project_id: string | null;
+  address: string | null;
+  permit_label: string | null;
+  reason: string;
+  recipient: string;
+  task_count: number;
+  closed_at: string;
+}
+
 export interface PostRequestItemInput {
   id: string;
   project_id: string;
@@ -372,6 +411,50 @@ export function buildNewItems(input: NewItemsInput): NewItem[] {
         projectId: p.project_id,
       });
     }
+  }
+
+  // ★★★ fix-354 — WHAT THE MACHINE CLOSED, AND WHO IT BELONGED TO.
+  //
+  // Register #100: *"maybe it checks off that milestone but then gives a
+  // notification back to that entitlement lead that says, hey, as an FYI,
+  // milestone was marked complete because the permit has progressed."*
+  //
+  // ★★ PERSONAL, NOT SHARED — and it is the distinction fix-339 drew. A post
+  // request is SHARED because one person acting SATISFIES it. Nothing here is
+  // satisfied: it is an FYI to the person whose work changed, and one person
+  // reading it must not clear it for another. So it takes fix-307's per-user
+  // read rows, and `audience` is left at its 'personal' default.
+  //
+  // ★ ROUTED SERVER-SIDE. `recipient` was resolved by bp_auto_close_recipient
+  // in the same transaction as the close — the assignee when it names a person,
+  // the role's holder when it names a role, then the permit's ENT lead, then the
+  // project's. The client only asks "is that me". Re-deriving it here would be a
+  // second opinion about who owns the work, which is what fix-238 exists to
+  // stop, and it would be a DIFFERENT opinion the moment somebody is reassigned.
+  //
+  // ★ GROUPED ALREADY: one input row is one (permit, closure, recipient), so
+  // "6 tasks on 7112264-DM" is one line, not six.
+  for (const c of input.autoClosures ?? []) {
+    if ((c.recipient ?? '').trim().toLowerCase() !== me) continue;
+    if (!isAfterEpoch(c.closed_at)) continue;
+    out.push({
+      key: keyForAutoClosed(c.id),
+      source: 'auto_closed',
+      // ★ The words a person actually meets. "Closed for you" rather than
+      // "auto_closed_reason = permit_issued", and the COUNT is the fact that
+      // makes it worth reading — it is the difference between a shrug and
+      // "six things I thought I still had to do".
+      title:
+        c.task_count === 1
+          ? '1 task closed — the permit issued'
+          : `${c.task_count} tasks closed — the permit issued`,
+      subtitle:
+        'Marked done automatically because the work no longer applies. Reopen any of them if it still does.',
+      where: `${c.address ?? 'Unknown address'} · ${c.permit_label ?? 'Permit'}`,
+      at: c.closed_at,
+      permitId: c.permit_id,
+      projectId: c.project_id,
+    });
   }
 
   return out.sort((a, z) => z.at.localeCompare(a.at));

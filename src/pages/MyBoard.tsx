@@ -20,6 +20,7 @@ import { useMyMentions } from '../hooks/useProjectMessages';
 // ★ fix-339: the same shared-item query the bell reads — one source, so the
 // board and the badge cannot disagree about an open post request.
 import { useMyPostRequests } from '../hooks/usePostRequests';
+import { useAutoClosures } from '../hooks/useAutoClosures';
 import { useAuthStore } from '../stores/authStore';
 import { parseFlips } from '../lib/boardFlips';
 import {
@@ -836,6 +837,8 @@ export default function MyBoard() {
   // so drilling into Fisk's queue cannot highlight or clear anything of his.
   const mentionsQ = useMyMentions();
   const postRequestsQ = useMyPostRequests();
+  // ★ fix-354: the eighth board source, on the board's own call site.
+  const autoClosuresQ = useAutoClosures();
   const viewerUserId = useAuthStore((s) => s.user?.id ?? null);
   const readKeys = useMemo(() => new Set(readsQ.data ?? []), [readsQ.data]);
   const newItems = useMemo(
@@ -856,6 +859,10 @@ export default function MyBoard() {
         // uses — a request open in the badge and absent from the board would be
         // exactly the two-sources defect fix-298 Phase 2 collapsed.
         postRequests: postRequestsQ.data ?? [],
+        // ★ fix-354: the board re-derives the item list, so the eighth source
+        // has to be added HERE as well as in useBoardNotifications — two call
+        // sites, one model, and they must not disagree.
+        autoClosures: autoClosuresQ.data ?? [],
       }),
     [
       activityQ.data,
@@ -867,6 +874,7 @@ export default function MyBoard() {
       viewerUserId,
       projectsQ.data,
       postRequestsQ.data,
+      autoClosuresQ.data,
     ],
   );
   // Not wrapped in useMemo: the React Compiler cannot preserve a manual memo

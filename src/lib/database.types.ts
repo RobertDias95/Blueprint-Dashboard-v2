@@ -992,7 +992,22 @@ export type TeamRole =
   // kept out of `role` because `role` drives the assignment dropdowns — see
   // rosterRoleTitle (lib/roleLabels) for what gets printed, and
   // isAssignableMember (lib/roster) for why they are never offered.
-  | 'viewer';
+  | 'viewer'
+  // ★★★ fix-354 §6: Dave is the DIRECTOR over Design and Entitlements, and his
+  // name plate still read "Schematic Design".
+  //
+  // ★ AN EARLIER ATTEMPT WROTE 'Director' INTO team_members.notes, WHICH
+  // NOTHING RENDERS — Chrome asks rosterRoleTitle, which reads ROLE_TITLE[role],
+  // and `notes` is only ever printed for a `viewer` (see roleLabels). That row
+  // is misleading rather than wrong, which is worse.
+  //
+  // ★★ AND IT IS A SECOND ROW FOR HIM, NEVER A CHANGED ONE. A person holds one
+  // row per role — Derry and Lindsay each hold `dm` AND `schematic` on prod —
+  // so `director` alongside his existing `schematic` reads "Director · Schematic
+  // Design" and he stays in every schematic list, picker and filter. Changing
+  // the row he has would take him off the schematic team, which is not what was
+  // asked: he genuinely does that work.
+  | 'director';
 
 /** Tenant-scoped roster. `active` flags currently-working members;
  * `former` flags DAs (and only DAs in v1's UX) who used to be on the
