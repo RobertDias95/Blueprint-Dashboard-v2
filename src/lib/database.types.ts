@@ -502,6 +502,39 @@ export interface ProjectPlanOfRecordRow {
 
 export type PlanOfRecordStage = 'design_guidance' | 'schematic' | 'marketing';
 
+// fix-358: one row of public.project_plan_of_record_verdict — the REASONING
+// behind the card above, written by the file indexer (fix-356) and read here.
+//
+// ★★ THE SENTENCE IS THE PRODUCT. Bobby: "Hey, you had a couple of options here
+// — why would you take that option versus the other option that you already
+// had?" fix-356 answers that in one line and stores it; this app prints it.
+//
+// ★★★ THE VOCABULARY LIVES IN ONE LANGUAGE ON PURPOSE (fix-356 §4). `internal`,
+// `review`, `draft`, `final`, "design guidance" and the reason codes behind them
+// are Python. Rebuilding that sentence in TypeScript would be one rule in two
+// languages, drifting from the day it shipped — so `verdict` is typed as opaque
+// JSON here rather than as a shape this app could be tempted to reason over.
+export interface ProjectPlanOfRecordVerdictRow {
+  project_id: string;
+  /** ★ NULL when NOTHING qualified — the state this ticket exists to render.
+   *  33 of 138 projects are here today, and each one already carries the
+   *  sentence that explains why. */
+  stage: PlanOfRecordStage | null;
+  file_name: string | null;
+  unc_path: string | null;
+  /** The ready-made explanation. Printed verbatim; never parsed. */
+  sentence: string;
+  /** ★ Deliberately `unknown`. The structured stages array is there for layout
+   *  if it is ever needed, and reading it to RE-DERIVE the outcome is precisely
+   *  the thing not to do. Typing it as `unknown` makes that a compile error
+   *  rather than a temptation. */
+  verdict: unknown;
+  /** When the indexer last WALKED this project — not when anything changed. It
+   *  only moves when Bobby runs the indexer, which is why staleness has to be
+   *  visible on the card (fix-358 §3). */
+  computed_at: string;
+}
+
 // fix-279: a row of public.correction_missing_worklist — an expected correction
 // letter with nothing found on the share.
 //

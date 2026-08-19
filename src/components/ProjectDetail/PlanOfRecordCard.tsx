@@ -1,8 +1,10 @@
 import { useState } from 'react';
+import { stalenessNote } from '../../lib/planOfRecordStaleness';
 import {
   usePlanOfRecord,
   usePlanOfRecordThumbnail,
 } from '../../hooks/usePlanOfRecord';
+import { usePlanOfRecordVerdict } from '../../hooks/usePlanOfRecordVerdict';
 import {
   STAGE_CHIP,
   formatFileSize,
@@ -16,6 +18,7 @@ import { OverviewCard, OverviewSection } from './OverviewCard';
 import type {
   PlanOfRecordStage,
   ProjectPlanOfRecordRow,
+  ProjectPlanOfRecordVerdictRow,
 } from '../../lib/database.types';
 
 // fix-285: the Design Plan of Record card.
@@ -45,8 +48,18 @@ interface Props {
 
 export default function PlanOfRecordCard({ projectId }: Props) {
   const q = usePlanOfRecord(projectId);
+  // ★★★ fix-358: the REASONING, read and never re-derived. See below for the
+  // three states it distinguishes and why the old single empty state was the
+  // bug fix-356 was built to end.
+  const verdictQ = usePlanOfRecordVerdict(projectId);
   const [lightbox, setLightbox] = useState(false);
   const row = q.data ?? null;
+  const verdict = verdictQ.data ?? null;
+  // ★ Only trust the verdict once it has actually answered. While it is loading
+  // — or if it fails — the card behaves exactly as it did before fix-358, which
+  // is what keeps an additive piece of context from being able to break the
+  // card it annotates.
+  const verdictKnown = !verdictQ.isLoading && !verdictQ.isError;
 
   return (
     // fix-290: this card's own banner was the one that looked right, so it is
@@ -87,15 +100,43 @@ export default function PlanOfRecordCard({ projectId }: Props) {
               Try again
             </button>
           </div>
+        ) : verdictKnown && verdict && verdict.stage === null ? (
+          // ★★★ NOTHING QUALIFIED — a DESIGNED state, not an absence.
+          //
+          // 33 of 138 projects are here, and every one already carries the
+          // sentence that explains it. This is the whole point of fix-358: a
+          // blank card teaches nobody anything, and each blank becomes a
+          // specific filing request the moment the reason is printed.
+          <NothingQualified verdict={verdict} />
+        ) : verdictKnown && !verdict && !row ? (
+          // ★★★ A THIRD THING, and getting it wrong accuses the team of not
+          // filing something they filed. 21 of 159 projects have no verdict row
+          // at all, ten of them carrying permits — and two were created after
+          // the last walk, so every new project lands here first.
+          <NotIndexed />
         ) : !row ? (
+          // ★ The pre-fix-358 wording, now reached only while the verdict is
+          // still in flight (or if reading it failed). It is deliberately kept
+          // rather than deleted: the card must say something sane in the
+          // fraction of a second before the reasoning arrives, and "no design
+          // set on file yet" is the honest reading of a missing file row when
+          // nothing better is known yet.
           <EmptyState />
         ) : (
-          <PlanOfRecordBody row={row} onEnlarge={() => setLightbox(true)} />
+          <PlanOfRecordBody
+            row={row}
+            verdict={verdictKnown ? verdict : null}
+            onEnlarge={() => setLightbox(true)}
+          />
         )}
       </OverviewSection>
 
       {lightbox && row && (
-        <Lightbox row={row} onClose={() => setLightbox(false)} />
+        <Lightbox
+          row={row}
+          verdict={verdictKnown ? verdict : null}
+          onClose={() => setLightbox(false)}
+        />
       )}
     </OverviewCard>
   );
@@ -124,13 +165,102 @@ function EmptyState() {
   );
 }
 
+function Staleness({ computedAt }: { computedAt: string }) {
+  const note = stalenessNote(computedAt);
+  if (!note) return null;
+  return (
+    <div
+      className="text-[9px] text-wa mt-2 leading-relaxed"
+      data-testid="plan-of-record-stale"
+    >
+      {note}
+    </div>
+  );
+}
+
+/** ★★★ NOTHING QUALIFIED — the state this ticket exists to render.
+ *
+ *  ★ "This project has no design set" and "the tool has no opinion" must not
+ *  render identically. They did: one `EmptyState` covered both, which is the
+ *  exact failure fix-356 was built to end. This one has an opinion and says it.
+ *
+ *  ★★ THE SENTENCE IS PRINTED, NEVER REBUILT. The vocabulary — internal,
+ *  review, draft, final, "design guidance" — lives in one Python file on
+ *  purpose (fix-356 §4). Composing the same sentence in TypeScript would be one
+ *  rule in two languages, drifting from the day it shipped. The Bridge renders
+ *  a decision; it never re-decides one.
+ *
+ *  ★ Safe on the card FACE, and that is measured rather than assumed: not one
+ *  of the 33 nothing-qualified sentences contains a file name (all 105 chosen
+ *  ones do), so printing this here cannot reintroduce the text fix-331 §2
+ *  deleted. Longest on prod is 101 characters. */
+function NothingQualified({ verdict }: { verdict: ProjectPlanOfRecordVerdictRow }) {
+  return (
+    <div
+      className="rounded border border-dashed flex flex-col items-center justify-center text-center px-4 py-10 min-h-[220px]"
+      style={{ borderColor: 'var(--color-border)' }}
+      data-testid="plan-of-record-nothing-qualified"
+    >
+      <div className="text-[11px] font-bold text-muted">
+        No approved design set filed
+      </div>
+      <p
+        className="text-[10.5px] text-dim mt-1.5 leading-relaxed max-w-[250px]"
+        data-testid="plan-of-record-verdict-sentence"
+      >
+        {verdict.sentence}
+      </p>
+      <Staleness computedAt={verdict.computed_at} />
+    </div>
+  );
+}
+
+/** ★★★ NOT INDEXED — the third thing, and the one that is easiest to get wrong.
+ *
+ *  ★★ 21 of the 159 projects have no verdict row (measured 2026-08-19; the
+ *  brief said 19, and the gap is the point): 15 are redesigns bound to a base
+ *  project, 6 are folders the indexer could not match — and TEN of the 21 carry
+ *  permits, one of them nine. Telling those "no design set filed" would accuse
+ *  the team of not filing something they filed.
+ *
+ *  ★★ AND TWO OF THE 21 WERE CREATED AFTER THE LAST WALK. So this is not a
+ *  static backlog to be cleared once; it is the arrival lane every new project
+ *  passes through between being created and being indexed. It has to read as a
+ *  waiting state, because for a new project that is exactly what it is.
+ *
+ *  ★ So this says what is actually true: nobody has looked.
+ *
+ *  ★★ AND IT DOES NOT WEAR THE OTHER STATE'S BOX. The brief asks that the two
+ *  not render identically, and two different sentences inside one identical
+ *  dashed frame is most of the way to identical at a glance — which is the
+ *  distance a card is read from. So the dashed frame belongs to the state that
+ *  has an ANSWER; this one, which has none, is unframed and dimmer. A person
+ *  who never reads the words still sees two different things. */
+function NotIndexed() {
+  return (
+    <div
+      className="flex flex-col items-center justify-center text-center px-4 py-10 min-h-[220px]"
+      data-testid="plan-of-record-not-indexed"
+    >
+      <div className="text-[11px] font-semibold text-dim">Not indexed yet</div>
+      <p className="text-[10.5px] text-dim mt-1.5 leading-relaxed max-w-[250px] opacity-80">
+        The file indexer has not walked this project&apos;s folder, so there is
+        nothing to report either way. This is not a statement about what has
+        been filed.
+      </p>
+    </div>
+  );
+}
+
 // ---------------------------------------------------------------- the body --
 
 function PlanOfRecordBody({
   row,
+  verdict,
   onEnlarge,
 }: {
   row: ProjectPlanOfRecordRow;
+  verdict: ProjectPlanOfRecordVerdictRow | null;
   onEnlarge: () => void;
 }) {
   return (
@@ -158,6 +288,23 @@ function PlanOfRecordBody({
           from https — it is the only route from this card to the actual file.
           Removing it would strand the card. */}
       <PathActions row={row} />
+
+      {/* ★★★ fix-358 §3 + §4: THE ONLY THING THE SENTENCE ADDS TO THE FACE IS A
+          WARNING, AND ONLY WHEN THERE IS ONE.
+
+          ★ The sentence itself is in the enlarged view for a CHOSEN set, and
+          that is measured rather than preferred: all 105 chosen sentences on
+          prod end in "showing <stage>: <file name>", so printing one here would
+          put the file name back on the face — exactly the text fix-331 §2
+          removed at Bobby's request ("here's the marketing, click to enlarge,
+          copy path, that's it"). §4 says not to undo that, so the reasoning
+          goes where fix-331 §2 already put the file's text.
+
+          ★★ Staleness is the exception, because §3 requires it to be visible
+          without a hover and a stale confident sentence is worse than none. It
+          renders only once the walk is a week old, so a healthy card is
+          unchanged and the tallest card does not grow. */}
+      {verdict && <Staleness computedAt={verdict.computed_at} />}
     </>
   );
 }
@@ -288,9 +435,11 @@ function PathActions({ row }: { row: ProjectPlanOfRecordRow }) {
 
 function Lightbox({
   row,
+  verdict,
   onClose,
 }: {
   row: ProjectPlanOfRecordRow;
+  verdict: ProjectPlanOfRecordVerdictRow | null;
   onClose: () => void;
 }) {
   const thumbQ = usePlanOfRecordThumbnail(hasThumbnail(row) ? row.thumb_path : null);
@@ -344,6 +493,28 @@ function Lightbox({
                 .filter(Boolean)
                 .join(' · ')}
             </div>
+            {/* ★★★ fix-358 §1: WHY THIS SET, AND NOT THE OTHERS.
+                Bobby: "Hey, you had a couple of options here — why would you
+                take that option versus the other option that you already had?"
+
+                ★ PRINTED, NEVER REBUILT. fix-356 decided it and wrote the
+                sentence; this renders the string. The vocabulary lives in one
+                Python file on purpose, and composing it again in TypeScript
+                would be one rule in two languages.
+
+                ★ Here rather than on the face because every chosen sentence
+                ends in the file name — see PlanOfRecordBody for why that makes
+                the enlarged view the only place it can go without undoing
+                fix-331 §2. This is also exactly where fix-331 §2 moved the
+                file's own text, so the two sit together. */}
+            {verdict && (
+              <div
+                className="text-[10px] text-muted mt-1.5 leading-relaxed"
+                data-testid="plan-of-record-verdict-sentence"
+              >
+                {verdict.sentence}
+              </div>
+            )}
           </div>
           <button
             type="button"

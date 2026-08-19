@@ -275,8 +275,14 @@ export const queryKeys = {
   // fix-285: the Design Plan of Record view, per project. Same read-only
   // posture as correction_items — written by the file_indexer, once a day.
   planOfRecordAll: ['plan_of_record'] as const,
+  // fix-358: the REASONING behind the card. A separate key from the file
+  // itself because they are separate tables written by different steps of
+  // the indexer, and a project can have one without the other.
+  planOfRecordVerdictAll: ['plan_of_record_verdict'] as const,
   planOfRecord: (tenantId: string, projectId: string) =>
     ['plan_of_record', tenantId, { projectId }] as const,
+  planOfRecordVerdict: (tenantId: string, projectId: string) =>
+    ['plan_of_record_verdict', tenantId, { projectId }] as const,
   // Keyed by the storage OBJECT PATH, not the project: the signature belongs to
   // the object, and two projects can never share one (the path starts with the
   // project id). Separate from the row key so re-signing an expired URL does
