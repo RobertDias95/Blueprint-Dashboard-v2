@@ -1,6 +1,7 @@
 import { nestSubtasks, type TaskGroup } from '../lib/taskNesting';
 import { useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
+import { PARAM_TASK } from '../lib/notificationTargets';
 import WaitingOnView from '../components/MyTasks/WaitingOnView';
 import BotBadge from '../components/shared/BotBadge';
 import AutoClosedBadge from '../components/shared/AutoClosedBadge';
@@ -291,6 +292,28 @@ function Body({
 }) {
   const [filters, setFilters] = useState<FilterState>(() => loadFilters());
   const [selectedId, setSelectedId] = useState<string | null>(null);
+
+  // ★★★ fix-362 §2 — A TASK NOTIFICATION OPENS THE TASK.
+  //
+  // Bobby: "and same thing, if in the task, does it take me automatically…
+  // anytime you get a notification, you can click it and go to where that item
+  // is occurring." Before this, a task notification could only take you to the
+  // permit that holds it — a bar of tasks to read through, which is the work
+  // the notification was supposed to save.
+  //
+  // ★★ `?task=<uuid>` and nowhere else. §2's rule: the destination has to work
+  // from a cold browser load, so the selection lives in the URL rather than in
+  // a store or a router state object.
+  //
+  // ★ Applied ONCE per id (the fix-217 in-render pattern), so clicking a
+  // different card afterwards is not fought by the parameter.
+  const [taskParams] = useSearchParams();
+  const deepLinkTaskId = taskParams.get(PARAM_TASK);
+  const [appliedTaskParam, setAppliedTaskParam] = useState<string | null>(null);
+  if (deepLinkTaskId && deepLinkTaskId !== appliedTaskParam) {
+    setAppliedTaskParam(deepLinkTaskId);
+    setSelectedId(deepLinkTaskId);
+  }
   // fix-176: default the My tab to the logged-in user's own tasks (assignee or
   // co-assignee), switchable to Everyone + remembered per-user. Role-agnostic
   // here — "mine" on the My tab is "tasks assigned to me" for ent/dm/da alike.
@@ -428,10 +451,33 @@ function Body({
     return [...set].sort((a, b) => a.localeCompare(b));
   }, [tasks]);
 
-  const selected = useMemo(
-    () => (selectedId ? filtered.find((t) => t.id === selectedId) ?? null : null),
-    [filtered, selectedId],
-  );
+  // ★★★ fix-362 §3 — A CLOSED TASK IS STILL REACHABLE, and a filter is not a
+  // deletion.
+  //
+  // `filtered` is the board's own view: the scope toggle, "active only", the
+  // role and permit-type chips. A deep-linked task can fail every one of them
+  // and still be exactly the task the notification was about — fix-355 closed
+  // 56 of them, and the brief is explicit that closed is not gone. So the
+  // deep-linked id resolves against ALL of this board's tasks, and only the
+  // ordinary click path is bound to the filtered list.
+  const selected = useMemo(() => {
+    if (!selectedId) return null;
+    const inView = filtered.find((t) => t.id === selectedId);
+    if (inView) return inView;
+    if (selectedId === deepLinkTaskId) {
+      return tasks.find((t) => t.id === selectedId) ?? null;
+    }
+    return null;
+  }, [filtered, tasks, selectedId, deepLinkTaskId]);
+
+  // ★★ …and when it is not in `tasks` either, it is genuinely gone — deleted,
+  // or on a project fix-264 has cancelled off every live-work surface. That is
+  // a NORMAL path (§3): the board still renders, the pane says so, and nothing
+  // throws, 404s or spins.
+  const deepLinkMissing =
+    !!deepLinkTaskId &&
+    selectedId === deepLinkTaskId &&
+    !tasks.some((t) => t.id === deepLinkTaskId);
 
   return (
     <div className="space-y-3 p-3" data-testid="mytasks-page">
@@ -490,7 +536,24 @@ function Body({
             />
           </>
         )}
-        <TaskDetailPane task={selected} members={members} />
+        <TaskDetailPane
+          task={selected}
+          members={members}
+          missing={deepLinkMissing}
+          // ★ fix-362: the task is real, opened, and NOT in the columns beside
+          // it — a resolved task under "active only", or somebody else's under
+          // "mine". Saying so is the difference between a deep link and a
+          // detail pane that appears to be showing a card that is not there.
+          outsideView={
+            !!selected &&
+            selected.id === deepLinkTaskId &&
+            // ★ Measured against `visible`, NOT `filtered`: the columns render
+            // `visible`, and "active only" lives between the two. A resolved
+            // task passes every chip and is still absent from the board, which
+            // is exactly the case this note exists for.
+            !visible.some((t) => t.id === selected.id)
+          }
+        />
       </div>
     </div>
   );
@@ -1377,10 +1440,31 @@ function TaskCard({
 function TaskDetailPane({
   task,
   members,
+  missing = false,
+  outsideView = false,
 }: {
   task: Task | null;
   members: TeamMember[];
+  /** ★ fix-362 §3: a notification pointed at a task that is no longer here. */
+  missing?: boolean;
+  /** ★ fix-362: opened from a notification, but filtered out of the board. */
+  outsideView?: boolean;
 }) {
+  if (missing) {
+    return (
+      <div
+        className="rounded border p-3 text-[11px] text-center"
+        style={{
+          borderColor: 'var(--color-co-border)',
+          background: 'var(--color-co-bg)',
+          color: 'var(--color-co)',
+        }}
+        data-testid="mytasks-detail-missing"
+      >
+        That task has been deleted. Your board is below.
+      </div>
+    );
+  }
   if (!task) {
     return (
       <div
@@ -1396,7 +1480,25 @@ function TaskDetailPane({
       </div>
     );
   }
-  return <TaskDetailEditor key={task.id} task={task} members={members} />;
+  return (
+    <div className="space-y-1.5">
+      {outsideView && (
+        <div
+          className="rounded border px-2 py-1 text-[10px] leading-snug"
+          style={{
+            borderColor: 'var(--color-border)',
+            background: 'var(--color-s2)',
+            color: 'var(--color-muted)',
+          }}
+          data-testid="mytasks-detail-outside-view"
+        >
+          Opened from a notification. It is not in the columns beside this —
+          your filters or scope exclude it.
+        </div>
+      )}
+      <TaskDetailEditor key={task.id} task={task} members={members} />
+    </div>
+  );
 }
 
 function chipBg() {

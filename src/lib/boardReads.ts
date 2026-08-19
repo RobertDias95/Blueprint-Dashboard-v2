@@ -9,6 +9,7 @@ import {
   type PostReactionRow,
 } from './postReactions';
 import { keyForMention } from './projectChat';
+import type { NewItemTarget } from './notificationTargets';
 import type { Project, PermitWithCycles } from './database.types';
 
 // fix-307 (register #36–#41) — the badge counts what is UNSEEN, not what is
@@ -120,6 +121,14 @@ export interface NewItem {
   /** fix-360: keys this item USED to be delivered under, before its source
    *  learned to group. See unseenItems for the one rule that reads them. */
   legacyKeys?: string[];
+  /** ★★ fix-362: WHAT this is about, as opposed to where it lives.
+   *
+   *  ★ `permitId` and `projectId` above answer "where"; this answers "what",
+   *  and `lib/notificationTargets.targetHref` turns it into the URL. Optional
+   *  because a source may genuinely have no finer target than the page — and
+   *  where that is true it is said out loud at the source rather than left to
+   *  look like an omission. */
+  target?: NewItemTarget;
 }
 
 // ---------------------------------------------------------------------------
@@ -243,6 +252,10 @@ export interface AutoClosureItemInput {
   detail: string | null;
   recipient: string;
   task_count: number;
+  /** ★ fix-362: WHICH tasks this closure covered, recorded by the closing
+   *  transaction itself. Null on every row written before fix-362 — those
+   *  degrade to the permit, which is where they landed before. */
+  task_ids?: string[] | null;
   closed_at: string;
 }
 
@@ -313,6 +326,13 @@ export function buildNewItems(input: NewItemsInput): NewItem[] {
       at,
       permitId: head.permitId,
       projectId: head.projectId,
+      // ★★ fix-362: THE PERMIT IS THE THING. A status flip is not an event
+      // that happened somewhere on a permit; it IS the permit changing, and
+      // there is no finer surface to land on. Declared rather than defaulted,
+      // so "no finer target" is a decision on the record.
+      target: head.permitId
+        ? { kind: 'permit', projectId: head.projectId, permitId: head.permitId }
+        : undefined,
       // ★★ THE READ STATE SURVIVES THE REGROUPING. 54 flip read rows across 5
       // people exist on prod under the OLD per-field keys, and a new key scheme
       // would re-open every one of them on deploy day — the same three-figure
@@ -344,6 +364,10 @@ export function buildNewItems(input: NewItemsInput): NewItem[] {
       at: t.created_at ?? '',
       permitId: t.permit_id,
       projectId: t.project_id ?? null,
+      // ★★ fix-362: the TASK, opened — not the permit that contains it. The
+      // board's detail pane is where a task is read and edited, and landing on
+      // the permit would mean finding it in a bar of them.
+      target: { kind: 'task', taskId: t.id },
     });
   }
 
@@ -363,6 +387,12 @@ export function buildNewItems(input: NewItemsInput): NewItem[] {
       at: a.acked_at,
       permitId: a.permit_id,
       projectId: permit.project_id,
+      // ★★ fix-362, and this one was a judgement call. A handoff is a
+      // MILESTONE ACK, and a milestone ack has no page of its own — it is a
+      // mark on the permit's milestone strip, beside the task bar holding the
+      // filing work it has just unblocked. So the permit is not a fallback
+      // here, it is the answer: everything "ready to file" means is on it.
+      target: { kind: 'permit', projectId: permit.project_id, permitId: a.permit_id },
     });
   }
 
@@ -383,6 +413,8 @@ export function buildNewItems(input: NewItemsInput): NewItem[] {
       at: at!,
       permitId: p.id,
       projectId: p.project_id,
+      // ★ fix-362: the permit IS the thing, like a flip.
+      target: { kind: 'permit', projectId: p.project_id, permitId: p.id },
     });
   }
 
@@ -407,6 +439,11 @@ export function buildNewItems(input: NewItemsInput): NewItem[] {
         at: m.created_at,
         permitId: null,
         projectId: m.project_id,
+        // ★★★ fix-362: THE MESSAGE THAT MENTIONS YOU — post or reply. This is
+        // the case Bobby named first, and the one where landing on the project
+        // was worst: a reply forty messages up in a thread you have to pick out
+        // of a list of threads.
+        target: { kind: 'message', projectId: m.project_id, messageId: m.id },
       });
     }
   }
@@ -439,6 +476,14 @@ export function buildNewItems(input: NewItemsInput): NewItem[] {
         at: p.created_at,
         permitId: null,
         projectId: p.project_id,
+        // ★★ fix-362 — CHAT-ONLY, and this is one of the two places where a
+        // source genuinely has no finer target than the page.
+        //
+        // A post request is an ask for a post that DOES NOT EXIST YET; that is
+        // the whole of what it is. There is nothing to focus, so the honest
+        // destination is the conversation it is an ask about — where the
+        // request panel is, and where answering it happens.
+        target: { kind: 'chat', projectId: p.project_id },
       });
       continue;
     }
@@ -462,6 +507,23 @@ export function buildNewItems(input: NewItemsInput): NewItem[] {
         at: p.resolved_at ?? p.created_at,
         permitId: null,
         projectId: p.project_id,
+        // ★★ fix-362: THE POST THAT SATISFIED IT, when there is one.
+        //
+        // fix-339 already records `created_post_id` in the same transaction
+        // that resolves the request, precisely so "the requester is taken to
+        // the thread rather than told it is somewhere" — this is that sentence
+        // finally being true from the notification as well as from the modal.
+        //
+        // ★ Declined and acknowledged produce no post, so they land on the
+        // chat: there is no thing, and inventing one would be worse than
+        // saying where the conversation is.
+        target: p.created_post_id
+          ? {
+              kind: 'message',
+              projectId: p.project_id,
+              messageId: p.created_post_id,
+            }
+          : { kind: 'chat', projectId: p.project_id },
       });
     }
   }
@@ -520,6 +582,27 @@ export function buildNewItems(input: NewItemsInput): NewItem[] {
       at: c.closed_at,
       permitId: c.permit_id,
       projectId: c.project_id,
+      // ★★★ fix-362 — ONE closure, ONE destination, and the count decides it.
+      //
+      // This row's grain is (permit, closure, recipient) covering N tasks, so
+      // it is a GROUPED item and §4's rule applies: one destination, never
+      // re-fanned into a link per task. MEASURED on prod: 48 of 55 closures
+      // covered exactly one task, 7 covered two to four.
+      //
+      //   one task   → THE TASK. fix-362 added `task_ids` to the ledger so the
+      //                id is a fact recorded at closing time, not a guess made
+      //                later from a permit and a count.
+      //   several    → THE PERMIT, whose task bar holds all of them. The item's
+      //                own subtitle says "Reopen any of THEM", plural; picking
+      //                one of four to land on would be answering a question
+      //                nobody asked.
+      //   no ids     → THE PERMIT. Every row written before fix-362 is here,
+      //                and it degrades to exactly the pre-fix-362 behaviour
+      //                rather than to a broken link.
+      target:
+        (c.task_ids ?? []).length === 1
+          ? { kind: 'task', taskId: (c.task_ids as string[])[0] }
+          : { kind: 'permit', projectId: c.project_id, permitId: c.permit_id },
     });
   }
 
@@ -550,6 +633,10 @@ export function buildNewItems(input: NewItemsInput): NewItem[] {
       at: d.newestAt,
       permitId: null,
       projectId: d.projectId,
+      // ★★★ fix-362 §4: YOUR OWN POST — the thing being reacted to, never any
+      // one reactor. A digest is fix-360's grouped shape, and re-fanning it
+      // into a link per reaction would undo that ticket one ticket later.
+      target: { kind: 'message', projectId: d.projectId, messageId: d.messageId },
     });
   }
 

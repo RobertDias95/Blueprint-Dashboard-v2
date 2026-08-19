@@ -10,6 +10,7 @@ import { useAllProjectHolds, cancelledProjectIds } from '../hooks/useProjectHold
 // "where you stand" counts and the board's own sections cannot disagree.
 import { useTaskOwnership } from '../hooks/useTaskOwnership';
 import { acknowledgeableItems, type NewItem } from '../lib/boardReads';
+import { targetHref } from '../lib/notificationTargets';
 import { useMarkBoardItemsRead } from '../hooks/useBoardReads';
 // ★★ fix-336: the notification MODEL — items, unseen, read keys, suppression —
 // is one hook now, shared with the notification centre. The badge and the
@@ -354,11 +355,11 @@ export default function BoardBell() {
                     data-testid={`bell-new-dot-${i.key}`}
                   />
                   <Link
-                    to={
-                      i.projectId
-                        ? `/project/${i.projectId}${i.permitId ? `?permit=${i.permitId}` : ''}`
-                        : '/board'
-                    }
+                    // ★★ fix-362: WHERE THE THING IS, not merely the page
+                    // containing it. One function, shared with the centre —
+                    // two copies of a routing rule is how the bell and the
+                    // centre start disagreeing about the same row.
+                    to={targetHref(i)}
                     onClick={() => {
                       // Following the item is plainly seeing it — but a SHARED
                       // item is not "seen", it is OUTSTANDING FOR EVERYONE, and

@@ -10,6 +10,7 @@ import {
   type NewItem,
   type NewItemSource,
 } from '../lib/boardReads';
+import { targetHref } from '../lib/notificationTargets';
 import type { ScraperActivityRow } from '../lib/database.types';
 
 // ===========================================================================
@@ -268,11 +269,8 @@ export default function NotificationsPage() {
                   aria-hidden
                 />
                 <Link
-                  to={
-                    i.projectId
-                      ? `/project/${i.projectId}${i.permitId ? `?permit=${i.permitId}` : ''}`
-                      : '/board'
-                  }
+                  // ★★ fix-362: the same one function the bell uses.
+                  to={targetHref(i)}
                   onClick={() => {
                     // A SHARED item is not "seen", it is OUTSTANDING FOR
                     // EVERYONE — going to look at it is not answering it.

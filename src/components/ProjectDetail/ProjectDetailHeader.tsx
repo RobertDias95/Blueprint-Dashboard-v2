@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { CSSProperties } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { schematicWindow } from '../../lib/schematicWindow';
 import { VENDOR_SEND_LEAD_DAYS, vendorTargetSend } from '../../lib/vendorReport';
 import type {
@@ -47,6 +47,10 @@ import ProjectChatSection, { ProjectChatUnread } from './ProjectChatSection';
 import { projectInternalTeam } from '../../lib/projectTeam';
 import { useProjectPostCount } from '../../hooks/useProjectMessages';
 import ProjectChatModal from './ProjectChatModal';
+import {
+  PARAM_CHAT,
+  PARAM_MESSAGE,
+} from '../../lib/notificationTargets';
 import { OverviewAction, OverviewCard, OverviewSection } from './OverviewCard';
 
 // Q9.5.e: 4-column header top strip per v1 §4.2.1. Left card holds an
@@ -1338,6 +1342,58 @@ function TeamCell({
   const [chatOpen, setChatOpen] = useState(false);
   const postCount = useProjectPostCount(project.id);
 
+  // ★★★ fix-362 §2 — ARRIVING IS NOT LANDING, and this is the door.
+  //
+  // A notification about a chat message links to `?msg=<uuid>`; one about the
+  // conversation itself links to `?chat=1`. Either OPENS this modal, because a
+  // link to a page that merely contains the thing is what Bobby was
+  // complaining about.
+  //
+  // ★★ THE URL IS THE STATE. Not a router `state` object, not a store: §2's
+  // rule is that the destination must work from a cold browser load, because a
+  // notification is exactly the thing somebody opens tomorrow or on another
+  // machine. If you cannot paste the URL and get the same result, it is not
+  // done.
+  //
+  // ★ Applied ONCE per parameter value, using the in-render adjust-on-change
+  // pattern that fix-217/218 established two cards away for `?permit=` — not a
+  // setState-in-effect (no cascading render, and the React Compiler rejects the
+  // effect form outright, as fix-350 found twice). Applying once is what lets
+  // somebody CLOSE the modal and have it stay closed.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const deepLinkChat =
+    searchParams.get(PARAM_MESSAGE) ?? (searchParams.get(PARAM_CHAT) ? '1' : null);
+  const [appliedChatParam, setAppliedChatParam] = useState<string | null>(null);
+  if (deepLinkChat === null) {
+    // ★★ THE RESET IS DRIVEN BY THE URL, NOT BY THE CLOSE HANDLER, and getting
+    // that backwards cost a test. Clearing the applied value inside `closeChat`
+    // runs BEFORE `setSearchParams` has been observed, so the very next render
+    // still saw `?msg=…` with nothing applied and re-opened the modal the click
+    // had just closed. Reading the reset off the URL means the two can never be
+    // out of order: the guard clears only once the parameter is actually gone,
+    // which is also what lets the SAME notification be followed twice.
+    if (appliedChatParam !== null) setAppliedChatParam(null);
+  } else if (deepLinkChat !== appliedChatParam) {
+    setAppliedChatParam(deepLinkChat);
+    setChatOpen(true);
+  }
+
+  /** ★ Closing clears the parameters as well as the modal.
+   *
+   *  Otherwise the URL still says "open at this message" while the modal is
+   *  shut — and the next click on the Chat button would land on a stale
+   *  message, or worse, be swallowed because the applied-value guard has
+   *  already seen it. The URL is the state, so closing has to write to it. */
+  function closeChat() {
+    setChatOpen(false);
+    if (searchParams.has(PARAM_MESSAGE) || searchParams.has(PARAM_CHAT)) {
+      const next = new URLSearchParams(searchParams);
+      next.delete(PARAM_MESSAGE);
+      next.delete(PARAM_CHAT);
+      setSearchParams(next, { replace: true });
+    }
+  }
+
   // fix-285: Internal and External STACK vertically now — two cards in one
   // column — rather than sitting side by side in a 2-col grid. Side by side,
   // each got half of a narrow column and the External discipline selects were
@@ -1430,7 +1486,10 @@ function TeamCell({
         <ProjectChatModal
           projectId={project.id}
           permits={permits}
-          onClose={() => setChatOpen(false)}
+          // ★ fix-362: the message to land on, read from the URL. Null when the
+          // link only asked for the conversation.
+          focusMessageId={searchParams.get(PARAM_MESSAGE)}
+          onClose={closeChat}
         />
       )}
     </OverviewCard>
