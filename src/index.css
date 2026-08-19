@@ -37,6 +37,23 @@
   --color-is-bg:     #cffafe;
   --color-is-border: #67e8f9;
 
+  /* ★★ fix-357: ERROR. Not a new colour — #dc2626 was already the app's red in
+     two places (Ribbon's error-triage badge, PermitCard's red row) and #fee2e2
+     already its wash. What was missing was a NAME, so surfaces reached for the
+     nearest token instead, and the nearest token was CORRECTIONS amber.
+
+     ★ That is what put "Failed to fetch" on the login screen in amber: being
+     unable to sign in read as a mild warning. `co` means "this permit is in
+     corrections"; it does not mean "this went wrong".
+
+     ★ There is also a `--color-danger` referenced once in ProjectChatModal with
+     a #b91c1c fallback and never defined anywhere — a fourth red that only ever
+     renders as its own fallback. Left alone here (a different surface, and not
+     this ticket), but it is the reason this token exists rather than a fifth. */
+  --color-er:        #dc2626;
+  --color-er-bg:     #fee2e2;
+  --color-er-border: #fca5a5;
+
   /* fix-263: PARK palette — the two states a project can be parked in
      (project_holds.kind). Defined here, once, because they are consumed by
      three surfaces that must never drift: the Draw Schedule block, the shared
