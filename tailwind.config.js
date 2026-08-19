@@ -31,6 +31,9 @@ export default {
         jv: { DEFAULT: '#7c3aed', bg: '#ede9fe', border: '#c4b5fd' },
         // Issued (teal)
         is: { DEFAULT: '#0891b2', bg: '#cffafe', border: '#67e8f9' },
+        // ★ fix-357: error. The red the app already used twice, finally named —
+        // see the note in index.css for why `co` was standing in for it.
+        er: { DEFAULT: '#dc2626', bg: '#fee2e2', border: '#fca5a5' },
 
         // Role tints
         ent: '#0284c7',
