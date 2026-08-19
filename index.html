@@ -25,9 +25,21 @@
          THE SAME MARK is not the fix-325 trap — that was a second link to a
          DIFFERENT (placeholder) mark, which let a browser show the wrong logo.
          Here 32 is the hand-tuned small size and 256 covers everything larger;
-         whichever a browser picks, it picks the right artwork. -->
-    <link rel="icon" type="image/png" sizes="32x32" href="/bridge-favicon-32.png" />
-    <link rel="icon" type="image/png" sizes="256x256" href="/bridge-favicon-256.png" />
+         whichever a browser picks, it picks the right artwork.
+
+         ★★★ fix-351 points both at the 2026 artwork. The RULE is unchanged and
+         is the reason the files are named the way they are: the tab gets the
+         SQUARE crop, never the lockup. The lockup is 5.72:1 — in a 32px square
+         it is an illegible smear, and letterboxed it is about 6px tall. The
+         square is the bridge and its road, cropped from above the word and
+         above the two rules, both of which turn to noise below ~32px.
+
+         ★ These are the copies in public/, referenced by a STABLE path because
+         index.html and every bookmarked tab load them directly. The same two
+         files also exist in src/assets/brand/ so Vite fingerprints the in-app
+         copies. fix-326 asserts that split; fix-351 keeps it. -->
+    <link rel="icon" type="image/png" sizes="32x32" href="/bridge-favicon-2026-32.png" />
+    <link rel="icon" type="image/png" sizes="256x256" href="/bridge-icon-2026-256.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Blueprint Bridge</title>
   </head>

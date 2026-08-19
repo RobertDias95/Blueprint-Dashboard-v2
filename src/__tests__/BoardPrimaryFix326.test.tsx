@@ -438,9 +438,12 @@ describe('fix-326 §2: NotificationBell was dead code', () => {
 // ------------------------------------------------------- §3 · the favicon --
 
 describe('fix-326 §3: the tab carries the brand sheet\'s own icon', () => {
+  // ★ fix-351 retargets the filenames. The RULE — the tab gets a purpose-made
+  // square at two sizes, never the wide artwork — is why the square exists in
+  // the 2026 set at all, and is asserted below as well.
   it('★ points at the simplified icon, at both sizes', () => {
-    expect(indexHtml).toContain('href="/bridge-favicon-32.png"');
-    expect(indexHtml).toContain('href="/bridge-favicon-256.png"');
+    expect(indexHtml).toContain('href="/bridge-favicon-2026-32.png"');
+    expect(indexHtml).toContain('href="/bridge-icon-2026-256.png"');
   });
 
   it('★ the crop and the placeholder are both gone from the tab', () => {
@@ -469,11 +472,19 @@ describe('fix-326 §3: the tab carries the brand sheet\'s own icon', () => {
     expect(blueprintSrc).toMatch(/blueprint-logo-icon\.png/);
     expect(blueprintSrc).not.toMatch(/bridge-/);
 
-    // The Bridge component still owns the wide illustration, and its `favicon`
-    // variant is a distinct crop — the tab's mark is never served as the
-    // detailed one, which is the whole reason fix-326 exists.
-    expect(bridgeSrc).toMatch(/bridge-logo-400\.png/);
-    expect(bridgeSrc).toMatch(/variant === 'favicon' \? favicon/);
-    expect(indexHtml).not.toMatch(/bridge-logo-400|bridge-logo-full/);
+    // ★★ fix-351: the Bridge component still owns the wide artwork and still
+    // owns a distinct square, so the tab's mark is never served as the detailed
+    // one — the whole reason fix-326 exists, unchanged.
+    //
+    // ★ WHAT CHANGED IS THE VARIANT NAME. fix-335 needed a third variant called
+    // `favicon` because the OLD set held two near-identical squares and Bobby
+    // had named the tab's one specifically. The 2026 set has exactly one square,
+    // used by the tab and the app, so `icon` and `favicon` would have been two
+    // names for one file. The distinction is gone because the thing it
+    // distinguished is gone.
+    expect(bridgeSrc).toMatch(/bridge-logo-2026\.png/);
+    expect(bridgeSrc).toMatch(/bridge-icon-2026-256\.png/);
+    expect(bridgeSrc).toMatch(/const isIcon = variant === 'icon'/);
+    expect(indexHtml).not.toMatch(/bridge-logo-400|bridge-logo-full|bridge-logo-2026/);
   });
 });

@@ -299,18 +299,19 @@ describe('<Chrome /> fix-313 the Blueprint Bridge shell', () => {
     const ribbon = screen.getByTestId('ribbon');
     expect(ribbon.textContent).not.toMatch(/The Bridge/);
 
-    // The header: the tab's icon, then the product's name, centred.
+    // The header: the product's lockup, centred.
+    //
+    // ★ fix-351 — ONE IMAGE. This asserted a mark beside styled text reading
+    // "the Bridge"; Bobby's new artwork carries the mark AND the words, so the
+    // name lives in the alt text and the centre renders no text of its own.
+    // The claim is unchanged — the header names the product, centred, on every
+    // screen — and the accessible name is where a test can still read it.
     const centre = screen.getByTestId('chrome-brand-center');
-    // ★ fix-345 §2: a lowercase `t` — "We want 'the' to be lower case and
-    // Bridge is fine the way it is spelt."
-    expect(centre.textContent).toMatch(/the Bridge/);
-    expect(centre.textContent).not.toMatch(/The Bridge/);
-    // ★ fix-320 #73 survives both moves: title case, not all caps — "maybe it
-    // doesn't need to be all caps".
-    expect(centre.textContent).not.toMatch(/THE BRIDGE/);
-    expect(
-      (screen.getByTestId('bridge-mark') as HTMLImageElement).getAttribute('src'),
-    ).toMatch(/bridge-favicon-256/);
+    const brand = screen.getByTestId('bridge-mark') as HTMLImageElement;
+    expect(brand.getAttribute('alt')).toMatch(/The Bridge/);
+    expect(brand.getAttribute('src')).toMatch(/bridge-logo-2026/);
+    // Nothing renders the name a second time as text underneath the picture.
+    expect(centre.textContent).toBe('');
   });
 
   // ★ fix-319 #76: Settings stopped being a modal. The contract inverts —

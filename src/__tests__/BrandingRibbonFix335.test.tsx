@@ -215,16 +215,32 @@ describe('fix-335 §2: the product name is centred in the white header', () => {
     expect(ribbonSrc).not.toContain('ribbon-wordmark');
   });
 
-  it('the header reads: the tab icon, then "The Bridge"', () => {
+  // ★★★ fix-351 — THE MARK AND THE WORDS ARE ONE IMAGE NOW.
+  //
+  // Bobby's instruction was "in the center of all the screens in that white
+  // area, it's going to read logo, The Bridge", and this asserted it as two
+  // elements in that order because that is what the header assembled. His new
+  // artwork IS that lockup — bridge, the words, and the two rules — so the
+  // order is inside the file and there is nothing left for the app to order.
+  //
+  // ★ THE SENTENCE THAT CHANGED: "the tab icon, then the words" became "one
+  // image carrying both". What did NOT change is that the centre of the white
+  // bar reads logo-then-name on every screen, which the next test still proves.
+  //
+  // ★★ The words did not leave the accessible tree. They moved from a <span>
+  // into the image's alt text, which is the only place they can live once the
+  // artwork carries them — asserted here, because "it renders a picture" would
+  // pass while a screen reader heard nothing.
+  it('the header reads: one lockup carrying the mark and the name', () => {
     renderShell();
     const centre = screen.getByTestId('chrome-brand-center');
     const img = centre.querySelector('img') as HTMLImageElement;
-    // ★ "the logo from the tab" — literally the favicon file, not the square
-    // crop of the illustration that sits next to it in the same folder.
-    expect(img.getAttribute('src')).toMatch(/bridge-favicon-256/);
-    // ★ fix-345 §2: lowercase `t`.
-    expect(screen.getByTestId('chrome-brand-title').textContent).toBe('the Bridge');
-    // Icon first, words second — the order Bobby dictated.
+    expect(img.getAttribute('src')).toMatch(/bridge-logo-2026/);
+    expect(img.dataset.logoVariant).toBe('lockup');
+    expect(img.getAttribute('alt')).toMatch(/The Bridge/);
+    // ★ And nothing renders the name a second time underneath the picture.
+    expect(screen.queryByTestId('chrome-brand-title')).toBeNull();
+    expect(centre.children).toHaveLength(1);
     expect(centre.firstElementChild).toBe(img);
   });
 
@@ -234,10 +250,12 @@ describe('fix-335 §2: the product name is centred in the white header', () => {
   it('★★ on every top-level screen', () => {
     for (const route of ['/dashboard', '/draw-schedule', '/board', '/projects', '/library']) {
       const view = renderShell(route);
-      expect(
-        screen.getByTestId('chrome-brand-title').textContent,
-        `missing on ${route}`,
-      ).toBe('the Bridge');
+      // ★ fix-351: the name is in the artwork, so the thing to look for is the
+      // lockup's alt text rather than a <span>'s textContent. Same claim.
+      const img = screen
+        .getByTestId('chrome-brand-center')
+        .querySelector('img') as HTMLImageElement;
+      expect(img.getAttribute('alt'), `missing on ${route}`).toMatch(/The Bridge/);
       view.unmount();
     }
   });
@@ -293,16 +311,33 @@ describe('fix-335 §2: the product name is centred in the white header', () => {
     )).toBe(false);
   });
 
-  // ★ fix-320 #73's contract came along unchanged: the hero is navy and title
-  // case, never shouted caps, and the colour is a brand literal rather than a
-  // theme token that would move when someone retunes the "design" accent.
-  it('★ fix-320\'s wordmark treatment survived the move', () => {
+  // ★★★ fix-351 — fix-320's contract is now DISCHARGED BY THE ASSET.
+  //
+  // It asserted three things about a styled <span>: navy #1d3f6e, weight >= 700,
+  // and never shouted caps. There is no <span>; Bobby's artwork carries the
+  // words, and its rules are rgb(79, 99, 177), not #1d3f6e.
+  //
+  // ★ THE RULE THAT SURVIVES is the one underneath those three: the app does not
+  // get to restyle the brand. It is stronger now than a constant could make it —
+  // the name is pixels in a referenced file, so no theme token, no font weight
+  // and no text-transform in this codebase can reach it. That is what this
+  // asserts; DisplayPolishFix320 asserts the absence of the constant.
+  it('★ fix-320\'s wordmark treatment is the artwork\'s now, not the CSS\'s', () => {
     renderShell();
-    const title = screen.getByTestId('chrome-brand-title');
-    expect(getComputedStyle(title).color).toBe('rgb(29, 63, 110)'); // #1d3f6e
-    expect(Number(getComputedStyle(title).fontWeight)).toBeGreaterThanOrEqual(700);
-    expect(title.textContent).not.toMatch(/THE BRIDGE/);
-    expect(chromeSrc).toContain("BRAND_NAVY = '#1d3f6e'");
+    const centre = screen.getByTestId('chrome-brand-center');
+    // Nothing in the brand block is text the app styles.
+    expect(centre.textContent).toBe('');
+    expect(centre.querySelector('span')).toBeNull();
+    const img = centre.querySelector('img') as HTMLImageElement;
+    expect(img.tagName).toBe('IMG');
+    // ★ And it is a REFERENCED image, never a drawing — fix-322's rule, on the
+    // one element that now carries the entire wordmark.
+    expect(centre.querySelector('svg')).toBeNull();
+    expect(centre.innerHTML).not.toMatch(/<path|viewBox/);
+    // ★ And not merely unmounted: the styled <span> is gone from the source, so
+    // the next person finds one place that renders the product's name rather
+    // than two with one of them switched off.
+    expect(chromeSrc).not.toContain('chrome-brand-title');
   });
 });
 

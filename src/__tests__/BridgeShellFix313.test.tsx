@@ -391,8 +391,10 @@ describe('fix-313 #64: the tool is Blueprint Bridge', () => {
     // ★ fix-325 #2 put Bobby's own artwork in the tab; ★ fix-326 swapped the
     // crop for the brand sheet's purpose-drawn simplified icon, which is a SHAPE
     // at 16px rather than a line drawing that has been shrunk.
-    expect(html).toContain('href="/bridge-favicon-32.png"');
-    expect(html).toContain('href="/bridge-favicon-256.png"');
+    // ★ fix-351 retargets the filenames; the rule (a real mark, never Vite's
+    // default, never the placeholder) is untouched.
+    expect(html).toContain('href="/bridge-favicon-2026-32.png"');
+    expect(html).toContain('href="/bridge-icon-2026-256.png"');
     // Asserted on the LINK, not the file text: the comments above it name the
     // older marks deliberately, to explain why they went.
     expect(html).not.toContain('href="/bridge-mark.svg"');

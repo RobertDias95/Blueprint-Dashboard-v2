@@ -407,15 +407,48 @@ describe('fix-320 #73: the wordmark leads with The Bridge', () => {
     expect(screen.getByTestId('ribbon').textContent).not.toMatch(/BLUEPRINT BRIDGE/);
   });
 
-  it('the hero is the bold navy line, not the faint grey it was', () => {
-    // ★ The colour survived the move byte for byte — Chrome.tsx declares the
-    // same #1d3f6e fix-320 chose, and BrandingRibbonFix335 reads it off the
-    // rendered header. Checked here on the source so the constant cannot be
-    // quietly retuned to a theme token, which is the failure fix-320's comment
-    // warned about: --color-de would change the logo the day somebody adjusted
-    // the "design" accent.
-    expect(chromeSrc).toContain("BRAND_NAVY = '#1d3f6e'");
+  // ★★ fix-351 — THE RULE NOW BINDS RENDERED TEXT ONLY, AND THAT IS REPORTED.
+  //
+  // fix-320's contract was about type this app SETS: no CSS shouting a name in
+  // caps. That still holds everywhere, and is asserted above and in
+  // BrandingRibbonFix335.
+  //
+  // ★ What it cannot bind is Bobby's artwork. Measured off bridge-logo-2026.png,
+  // the word in the lockup is drawn "THE" in capitals — not the lowercase "the"
+  // fix-345 §2 wrote out in full at his request. That is his file and this
+  // ticket's standing rule is that the artwork is referenced, never redrawn, so
+  // nothing here changes it; it is flagged in the PR for him to decide.
+  it('★ the app still sets no shouted caps in CSS — the artwork is his', () => {
+    expect(chromeSrc).not.toMatch(/textTransform:\s*'uppercase'/);
+    expect(chromeSrc).not.toContain('THE BRIDGE');
+    expect(ribbonSrc).not.toMatch(/textTransform:\s*'uppercase'.*[Bb]ridge/);
+  });
+
+  // ★★★ fix-351 — THE COLOUR IS IN THE ARTWORK NOW, so this assertion inverted.
+  //
+  // fix-320 chose #1d3f6e for a wordmark it rendered as styled text, and the
+  // rule was "a BRAND literal, never a theme token — --color-de would change the
+  // logo the day somebody retuned the design accent". Bobby's 2026 lockup
+  // contains the words, so there is no styled text to colour and BRAND_NAVY
+  // describes nothing.
+  //
+  // ★ The rule survives in the strongest possible form: the colour is no longer
+  // a constant that COULD be pointed at a theme token, because it is pixels in a
+  // file. And the file's blue is rgb(79, 99, 177) — measured off the rules —
+  // which is not #1d3f6e, so a constant kept "just in case" would have been the
+  // wrong value from the day it was orphaned.
+  it('the brand colour cannot be retuned by a theme token', () => {
+    // ★ Comments stripped first, the same way RealLogoFix322 does it: the
+    // file's own history explains what it used to colour and why the constant
+    // went, and a test that cannot tell prose from code would forbid saying so.
+    const chromeCode = chromeSrc.replace(/^\s*\/\/.*$/gm, '');
+    // Gone from the CODE, not merely unused — the brief asked for absence.
+    expect(chromeCode).not.toContain('BRAND_NAVY');
+    expect(chromeCode).not.toContain('#1d3f6e');
     expect(ribbonSrc).not.toContain('#1d3f6e');
+    // ★ And no theme token crept in to replace it on the brand block.
+    const centre = chromeCode.slice(chromeCode.indexOf('chrome-brand-center') - 900);
+    expect(centre.slice(0, 900)).not.toMatch(/--color-de|var\(--color/);
   });
 
   it('collapsed shows the mark alone', () => {
@@ -444,6 +477,7 @@ describe('fix-320 #73: the wordmark leads with The Bridge', () => {
     // Nothing points at it, and the tab carries Bobby's own artwork instead.
     expect(indexHtml).not.toContain('href="/bridge-mark.svg"');
     // ★ fix-326: the tab carries the brand sheet's simplified icon now.
-    expect(indexHtml).toContain('href="/bridge-favicon-32.png"');
+    // ★ fix-351 retargets the filename; the rule is unchanged.
+    expect(indexHtml).toContain('href="/bridge-favicon-2026-32.png"');
   });
 });
