@@ -62,12 +62,24 @@ export function dmForDa(
   return hit ? hit.dm_name.trim() : null;
 }
 
+/** ★★ fix-368: the THREE kinds of co-assignee row.
+ *
+ *  ★ The project-derived row is a DIFFERENT FACT from the person-derived one —
+ *  one says "this is who they report to", the other "this is who runs this
+ *  project" — so it gets its own value rather than reusing `dm_of_da`.
+ *  Somebody will eventually want to keep one and drop the other, and that is
+ *  impossible if they share a label. */
+export type CoAssignSource = 'manual' | 'dm_of_da' | 'dm_of_project';
+
 /** What the trigger does to one task's co-assignee rows. */
 export interface CoAssignEffect {
-  /** The manager to add as a `source = 'dm_of_da'` co-assignee, or null. */
+  /** The manager to add, or null. */
   add: string | null;
+  /** ★ fix-368: WHICH FACT `add` came from — the value written to
+   *  `permit_task_assignees.source`. Null when there is nothing to add. */
+  addSource: Exclude<CoAssignSource, 'manual'> | null;
   /** The previous assignee's manager to withdraw — and ONLY if the row it
-   *  names carries `source = 'dm_of_da'`. Never a name a person chose. */
+   *  names carries an auto source. Never a name a person chose. */
   remove: string | null;
 }
 
@@ -78,6 +90,15 @@ export interface CoAssignInput {
   /** `NEW.assigned_to`. */
   nextAssignee: string | null | undefined;
   rows: DmDaGroupRow[];
+  /** ★★ fix-368: the design manager of the task's PROJECT, or null. The twin
+   *  of `bp_project_dm_for_permit` — supplied rather than looked up, because a
+   *  pure function does not go fetching. */
+  projectDm?: string | null;
+  /** ★★★ fix-368: is this assignee an ACTIVE DESIGN ASSOCIATE? The twin of the
+   *  roster half of `bp_is_unmapped_active_da`, and the gate that makes the
+   *  fallback correct rather than merely available — see the note on
+   *  `coAssignEffect`. */
+  isActiveDa?: (assignee: string) => boolean;
 }
 
 /**
@@ -109,6 +130,16 @@ export interface CoAssignInput {
  *     swaps with them (Nicky → Marc drops Derry, adds Brittani); clear the
  *     assignee and the manager goes too, rather than being stranded as the
  *     lone co-assignee on a task nobody owns.
+ *  6. ★★★ fix-368 — AN UNMAPPED DESIGN ASSOCIATE FALLS BACK TO THE PROJECT'S
+ *     manager, and rule 3 above is now the case where the PROJECT has none
+ *     either. See `resolveCoAssign` for the order, the role gate, and the 127
+ *     wrong co-assignments the gate prevents.
+ *  7. ★★ fix-368 — AND THE ANSWER CAN CHANGE WITHOUT THE TASK CHANGING. It
+ *     depends on `projects.design_manager`, so a project reassignment makes
+ *     every project-derived row on it stale with nothing to fire the task
+ *     trigger. `bp_trg_project_dm_coassign` is the second trigger that exists
+ *     for that; there is no TS twin of it because it acts on rows rather than
+ *     computing an answer.
  *
  * ★ A save that rewrites `assigned_to` with the SAME value is not a change and
  * has no effect — the guard that keeps an unrelated edit (a due date, a status)
@@ -121,15 +152,67 @@ export function coAssignEffect(input: CoAssignInput): CoAssignEffect {
   // ★ Identical value = not a change. Compared raw (like SQL's IS NOT
   // DISTINCT FROM on the column), so only a real edit re-applies the rule.
   if (input.op === 'update' && (input.prevAssignee ?? null) === (input.nextAssignee ?? null)) {
-    return { add: null, remove: null };
+    return { add: null, addSource: null, remove: null };
   }
 
-  const nextDm = dmForDa(next, input.rows);
-  const prevDm = input.op === 'update' ? dmForDa(prev, input.rows) : null;
+  const nextResolved = resolveCoAssign(next, input);
+  const prevResolved = input.op === 'update' ? resolveCoAssign(prev, input) : null;
 
-  const remove = prevDm !== null && prevDm !== nextDm ? prevDm : null;
-  const add = nextDm !== null && nextDm !== next ? nextDm : null;
-  return { add, remove };
+  const remove =
+    prevResolved?.manager != null && prevResolved.manager !== nextResolved.manager
+      ? prevResolved.manager
+      : null;
+  const add =
+    nextResolved.manager !== null &&
+    nextResolved.manager.toLowerCase() !== next.toLowerCase()
+      ? nextResolved.manager
+      : null;
+  return { add, addSource: add ? nextResolved.src : null, remove };
+}
+
+/** ★★★ fix-368 — THE ONE RULE, and the ORDER IS THE RULE.
+ *
+ *  The TS twin of `bp_coassign_for_task`.
+ *
+ *  1. ★★ THE PERSON-DERIVED ANSWER WINS. Ahmadi, Marc, Fisk and the rest
+ *     genuinely belong to a manager whatever project they are on, so a
+ *     `dm_da_groups` mapping is never overridden by the project. Measured: on
+ *     a project Jade runs, Ahmadi still reaches Brittani.
+ *
+ *  2. ★★★ THE PROJECT-DERIVED ANSWER, FOR AN UNMAPPED DESIGN ASSOCIATE ONLY.
+ *     Bobby: "their manager group would be dependent upon the permit they are
+ *     working on… we would just co-assign their tasks to the design manager of
+ *     that project." Cam's 14 open tasks span four projects and THREE
+ *     different managers, so a single dm_da_groups row would have mis-filed
+ *     two thirds of his work.
+ *
+ *     ★★★ AND THE ROLE GATE IS LOAD-BEARING. Applied to every UNMAPPED
+ *     assignee rather than to unmapped DESIGN ASSOCIATES, this rule would have
+ *     co-assigned a design manager to 127 more open tasks, every one wrong:
+ *     the role tokens 'Entitlements' (48), 'Design Manager' (6) and 'Schematic
+ *     Team' (1); the entitlement leads Miles (40), Briana (22) and Bobby (7);
+ *     Derry, who IS a design manager (2); and Ana, schematic (1). An
+ *     entitlement lead does not report to a design manager.
+ *
+ *  3. Nobody — and that is a real answer, not a failure. 20 of 161 active
+ *     projects have no design_manager.
+ */
+function resolveCoAssign(
+  assignee: string,
+  input: CoAssignInput,
+): { manager: string | null; src: Exclude<CoAssignSource, 'manual'> | null } {
+  if (assignee === '') return { manager: null, src: null };
+
+  const mapped = dmForDa(assignee, input.rows);
+  if (mapped !== null) return { manager: mapped, src: 'dm_of_da' };
+
+  const isDa = input.isActiveDa?.(assignee) ?? false;
+  if (!isDa) return { manager: null, src: null };
+
+  const projectDm = (input.projectDm ?? '').trim();
+  return projectDm === ''
+    ? { manager: null, src: null }
+    : { manager: projectDm, src: 'dm_of_project' };
 }
 
 /** ★★ The active DAs this rule cannot help: no row in `dm_da_groups`, so no

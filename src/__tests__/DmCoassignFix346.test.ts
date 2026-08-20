@@ -100,23 +100,29 @@ describe('fix-346 §2: dmForDa — the twin of bp_dm_for_da', () => {
   });
 });
 
+// ★★ fix-368 widened `CoAssignEffect` with `addSource` — WHICH FACT the manager
+// came from, written to `permit_task_assignees.source`. Every case below is
+// the person-derived rule, so the answer is `dm_of_da` wherever there is one;
+// asserting it here is what proves fix-368's fallback did not quietly relabel
+// fix-346's rows. The project-derived cases live in
+// CoAssignProjectManagerFix368.test.ts.
 describe('fix-346 §2: coAssignEffect — the twin of bp_trg_task_coassign_dm', () => {
   const insert = (assignee: string | null) =>
     coAssignEffect({ op: 'insert', nextAssignee: assignee, rows: ROWS });
 
   // ★★ Probe line 1 — the headline behaviour.
   it('★★ a task assigned to a mapped DA gains that DA\'s manager, on creation', () => {
-    expect(insert('Nicky')).toEqual({ add: 'Derry', remove: null });
-    expect(insert('Fisk')).toEqual({ add: 'Brittani', remove: null });
+    expect(insert('Nicky')).toEqual({ add: 'Derry', addSource: 'dm_of_da', remove: null });
+    expect(insert('Fisk')).toEqual({ add: 'Brittani', addSource: 'dm_of_da', remove: null });
   });
 
   // ★★★ Probe line 2 — Bobby's decision: skip, never invent. Cam has the
   // largest task load on the team, which is why the skip is surfaced in
   // Settings rather than left to be discovered.
   it('★★★ an unmapped DA gains nobody, and nothing errors', () => {
-    expect(insert('Cam')).toEqual({ add: null, remove: null });
-    expect(insert('Shire')).toEqual({ add: null, remove: null });
-    expect(insert('George')).toEqual({ add: null, remove: null });
+    expect(insert('Cam')).toEqual({ add: null, addSource: null, remove: null });
+    expect(insert('Shire')).toEqual({ add: null, addSource: null, remove: null });
+    expect(insert('George')).toEqual({ add: null, addSource: null, remove: null });
   });
 
   // ★★★ Probe line 3 — THE DISCIPLINE TRAP. Derry is a design MANAGER and holds
@@ -124,9 +130,9 @@ describe('fix-346 §2: coAssignEffect — the twin of bp_trg_task_coassign_dm', 
   // her own task. Nothing about this call mentions a discipline, which is the
   // point: the rule has no way to look at one.
   it('★★ a task assigned to a DM gains nobody', () => {
-    expect(insert('Derry')).toEqual({ add: null, remove: null });
-    expect(insert('Brittani')).toEqual({ add: null, remove: null });
-    expect(insert('Ana')).toEqual({ add: null, remove: null });
+    expect(insert('Derry')).toEqual({ add: null, addSource: null, remove: null });
+    expect(insert('Brittani')).toEqual({ add: null, addSource: null, remove: null });
+    expect(insert('Ana')).toEqual({ add: null, addSource: null, remove: null });
   });
 
   // ★★ Probe lines 4 and 5 — the decision the brief asked for, stated as a
@@ -135,24 +141,24 @@ describe('fix-346 §2: coAssignEffect — the twin of bp_trg_task_coassign_dm', 
   // "Design Associate" would freeze today's permits.da into a row that cannot
   // follow it when the project changes hands.
   it('★★ a role-valued assignee gains nobody — unresolved, deliberately', () => {
-    expect(insert('Design Associate')).toEqual({ add: null, remove: null });
-    expect(insert('Design Manager')).toEqual({ add: null, remove: null });
-    expect(insert('Schematic Team')).toEqual({ add: null, remove: null });
-    expect(insert('Architecture')).toEqual({ add: null, remove: null });
-    expect(insert('Entitlements')).toEqual({ add: null, remove: null });
+    expect(insert('Design Associate')).toEqual({ add: null, addSource: null, remove: null });
+    expect(insert('Design Manager')).toEqual({ add: null, addSource: null, remove: null });
+    expect(insert('Schematic Team')).toEqual({ add: null, addSource: null, remove: null });
+    expect(insert('Architecture')).toEqual({ add: null, addSource: null, remove: null });
+    expect(insert('Entitlements')).toEqual({ add: null, addSource: null, remove: null });
   });
 
   it('★ an unassigned task gains nobody', () => {
-    expect(insert(null)).toEqual({ add: null, remove: null });
-    expect(insert('')).toEqual({ add: null, remove: null });
-    expect(insert('   ')).toEqual({ add: null, remove: null });
+    expect(insert(null)).toEqual({ add: null, addSource: null, remove: null });
+    expect(insert('')).toEqual({ add: null, addSource: null, remove: null });
+    expect(insert('   ')).toEqual({ add: null, addSource: null, remove: null });
   });
 
   // ★★ Probe line 7 — reassignment. The manager follows the ASSIGNEE.
   it('★★ changing the assignee swaps the manager with them', () => {
     expect(
       coAssignEffect({ op: 'update', prevAssignee: 'Nicky', nextAssignee: 'Marc', rows: ROWS }),
-    ).toEqual({ add: 'Brittani', remove: 'Derry' });
+    ).toEqual({ add: 'Brittani', addSource: 'dm_of_da', remove: 'Derry' });
   });
 
   // ★★ Probe line 8 — removing the DA must not strand the DM as the lone
@@ -160,19 +166,19 @@ describe('fix-346 §2: coAssignEffect — the twin of bp_trg_task_coassign_dm', 
   it('★★ clearing the assignee withdraws the manager', () => {
     expect(
       coAssignEffect({ op: 'update', prevAssignee: 'Marc', nextAssignee: null, rows: ROWS }),
-    ).toEqual({ add: null, remove: 'Brittani' });
+    ).toEqual({ add: null, addSource: null, remove: 'Brittani' });
   });
 
   it('★ moving between two DAs of the SAME manager changes nothing', () => {
     expect(
       coAssignEffect({ op: 'update', prevAssignee: 'Marc', nextAssignee: 'Fisk', rows: ROWS }),
-    ).toEqual({ add: 'Brittani', remove: null });
+    ).toEqual({ add: 'Brittani', addSource: 'dm_of_da', remove: null });
   });
 
   it('★ moving to an unmapped DA withdraws the old manager and adds none', () => {
     expect(
       coAssignEffect({ op: 'update', prevAssignee: 'Nicky', nextAssignee: 'Cam', rows: ROWS }),
-    ).toEqual({ add: null, remove: 'Derry' });
+    ).toEqual({ add: null, addSource: null, remove: 'Derry' });
   });
 
   // ★★ Probe line 10 — "UPDATE OF assigned_to" fires whenever the column is in
@@ -182,10 +188,10 @@ describe('fix-346 §2: coAssignEffect — the twin of bp_trg_task_coassign_dm', 
   it('★★ a save that rewrites the same assignee is not a change', () => {
     expect(
       coAssignEffect({ op: 'update', prevAssignee: 'Nicky', nextAssignee: 'Nicky', rows: ROWS }),
-    ).toEqual({ add: null, remove: null });
+    ).toEqual({ add: null, addSource: null, remove: null });
     expect(
       coAssignEffect({ op: 'update', prevAssignee: null, nextAssignee: null, rows: ROWS }),
-    ).toEqual({ add: null, remove: null });
+    ).toEqual({ add: null, addSource: null, remove: null });
   });
 
   // ★ Ordinary correctness: nobody is ever co-assigned to their own task. It
@@ -197,6 +203,7 @@ describe('fix-346 §2: coAssignEffect — the twin of bp_trg_task_coassign_dm', 
     ];
     expect(coAssignEffect({ op: 'insert', nextAssignee: 'Nicky', rows: selfish })).toEqual({
       add: null,
+      addSource: null,
       remove: null,
     });
   });
@@ -205,6 +212,7 @@ describe('fix-346 §2: coAssignEffect — the twin of bp_trg_task_coassign_dm', 
   it('★ no mapping at all is a no-op, not an error', () => {
     expect(coAssignEffect({ op: 'insert', nextAssignee: 'Nicky', rows: [] })).toEqual({
       add: null,
+      addSource: null,
       remove: null,
     });
   });
