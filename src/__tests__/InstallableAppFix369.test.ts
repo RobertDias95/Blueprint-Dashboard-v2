@@ -679,7 +679,16 @@ describe('fix-369: prior contracts', () => {
   it('★ the test seam is only ever used by tests', async () => {
     const sources = await allSources();
     const users = Object.entries(sources)
-      .filter(([p]) => !p.includes('__tests__') && !p.endsWith('alertSound.ts'))
+      // ★ fix-371: `.test.` as well as the directory. This glob is rooted at
+      // src/__tests__/, so a SIBLING suite comes back as './Foo.test.ts' and
+      // slipped through a path-only filter — which made fix-371's own suite,
+      // legitimately using the seam, look like a production caller.
+      .filter(
+        ([p]) =>
+          !p.includes('__tests__') &&
+          !p.includes('.test.') &&
+          !p.endsWith('alertSound.ts'),
+      )
       .filter(([, s]) => s.includes('__setDingContextForTest'));
     expect(users).toEqual([]);
     vi.restoreAllMocks();

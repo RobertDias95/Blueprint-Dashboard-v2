@@ -6,6 +6,8 @@ import Ribbon from './Ribbon';
 import NewProjectWizard from './NewProjectWizard';
 import { useSelfScope } from '../hooks/useSelfScope';
 import { useDesktopAlerts } from '../hooks/useDesktopAlerts';
+import { useDingUnlock } from '../hooks/useDingUnlock';
+import NewBuildNotice from './NewBuildNotice';
 import { rosterRoleTitle } from '../lib/roleLabels';
 import {
   BRAND_LOCKUP_DROP,
@@ -66,6 +68,11 @@ export default function Chrome() {
   // reset its seed on every route change and re-announce the backlog. It
   // renders nothing; it reads fix-360's list and pushes it to the OS.
   useDesktopAlerts();
+  // ★★★ fix-371: arm the one-shot audio unlock on the first click anywhere.
+  // fix-369 only ever created the audio context inside DesktopAlertsControl's
+  // handlers, so on any load where nobody visited /notifications the ding was a
+  // guaranteed no-op. See hooks/useDingUnlock.
+  useDingUnlock();
 
   return (
     <div
@@ -79,6 +86,10 @@ export default function Chrome() {
       <Ribbon key={userId ?? 'anon'} onAddProject={() => setWizardOpen(true)} />
 
       <div className="flex-1 min-w-0 flex flex-col h-screen" data-testid="bridge-main">
+        {/* fix-371 section 4: renders nothing at all until the deployed bundle
+            differs from the running one. It offers a reload and never performs
+            one - see components/NewBuildNotice. */}
+        <NewBuildNotice />
         <header
           className="bg-surface border-b border-border flex items-center gap-3.5 px-5 flex-shrink-0 relative"
           style={{ height: SHELL_HEADER_HEIGHT }}
