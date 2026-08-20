@@ -165,7 +165,7 @@ describe('fix-363 §1: the machine is never a person', () => {
     for (const [reason, words] of [
       ['permit_issued', 'Closed automatically when the permit issued'],
       ['superseded_resubmitted', 'Closed automatically when the permit moved past it'],
-      ['superseded_intake_accepted', 'Closed automatically when the permit moved past it'],
+      ['superseded_by_intake_acceptance', 'Closed automatically when the permit moved past it'],
     ] as const) {
       const line = provenanceLine(row({ kind: 'completed', at: AUG19, auto_mark: reason }));
       expect(line.state).toBe('machine');

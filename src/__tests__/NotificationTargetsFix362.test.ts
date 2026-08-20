@@ -413,7 +413,11 @@ describe('fix-362: the ledger records which tasks', () => {
       /auto_event IS DISTINCT FROM 'results_ready'/,
       /NOT public\.bp_task_touched_by_person\(t\.id\)/,
       /superseded_resubmitted/,
-      /superseded_intake_accepted/,
+      // ★ fix-364 renamed this rule (`superseded_intake_accepted` read like
+      // the rule fix-355 deliberately excluded), so the assertion moved to the
+      // PREDICATE, which is what "the rule survived" actually means and which
+      // no rename can move.
+      /c\.intake_accepted IS NOT NULL/,
       /superseded_number_present/,
       /WHERE recipient IS NOT NULL/,
     ]) {

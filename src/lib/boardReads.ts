@@ -11,6 +11,7 @@ import {
 import { keyForMention } from './projectChat';
 import type { NewItemTarget } from './notificationTargets';
 import { assignedSubtitle } from './taskProvenance';
+import { taskPermitSuffix } from './permitDiscriminator';
 import type { Project, PermitWithCycles } from './database.types';
 
 // fix-307 (register #36–#41) — the badge counts what is UNSEEN, not what is
@@ -383,7 +384,13 @@ export function buildNewItems(input: NewItemsInput): NewItem[] {
         assignerOf(t.id),
         co && !assigned,
       ),
-      where: `${t.project_address ?? 'Unknown address'} · ${t.permit_type ?? 'Permit'}`,
+      // ★★ fix-364 §2: …and WHICH of the four. 11231 NE 67th St has four
+      // Building Permits, so "address · Building Permit" named all of them
+      // equally and none of them. The suffix appears only when the permit
+      // actually has a same-type sibling — see lib/permitDiscriminator.
+      where: `${t.project_address ?? 'Unknown address'} · ${
+        t.permit_type ?? 'Permit'
+      }${taskPermitSuffix(t.permit_id, input.permits)}`,
       at: t.created_at ?? '',
       permitId: t.permit_id,
       projectId: t.project_id ?? null,

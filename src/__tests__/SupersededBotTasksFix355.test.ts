@@ -2,6 +2,11 @@ import { describe, it, expect } from 'vitest';
 import MIGRATION from '../../migrations/fix_355_superseded_bot_tasks.sql?raw';
 import FIX337 from '../../migrations/fix_337_stale_work.sql?raw';
 import FIX354 from '../../migrations/fix_354_auto_closed_notification.sql?raw';
+// ★ fix-364 renamed one of the five rules — `superseded_intake_accepted` read
+// like the rule that was DELIBERATELY EXCLUDED from this ticket, so it became
+// `superseded_by_intake_acceptance`. The rule itself is unchanged; the name
+// now lives in fix-364's migration, which re-emits the writer.
+import FIX364 from '../../migrations/fix_364_task_vocabulary.sql?raw';
 import {
   buildNewItems,
   keyForAutoClosed,
@@ -41,6 +46,18 @@ const SQL = MIGRATION.split(/\r?\n/)
 /** Just the writer's body — the CASE that decides, without the prose. */
 const WRITER = SQL.slice(
   SQL.indexOf('CREATE OR REPLACE FUNCTION public.bp_supersede_stale_bot_tasks'),
+);
+
+/** ★ fix-364: the CURRENT source for the rule names and the CHECK. This
+ *  migration re-emitted the writer to rename one rule, so it — not fix-355's
+ *  file — is what the database now runs. fix-355's own text stays imported
+ *  above and is still asserted for everything the rename did not touch, which
+ *  is what proves the re-emission carried the rest across intact. */
+const CURRENT = FIX364.split(/\r?\n/)
+  .map((l) => (l.trim().startsWith('--') ? '' : l))
+  .join('\n');
+const CURRENT_WRITER = CURRENT.slice(
+  CURRENT.indexOf('CREATE OR REPLACE FUNCTION public.bp_supersede_stale_bot_tasks'),
 );
 
 /** The guard's BODY only. Its COMMENT ON FUNCTION is a SQL statement, not a
@@ -187,7 +204,8 @@ describe('fix-355: five rules, each named and separately countable', () => {
   const RULES = [
     'superseded_resubmitted',
     'superseded_next_cycle',
-    'superseded_intake_accepted',
+    // ★ fix-364: renamed, same rule.
+    'superseded_by_intake_acceptance',
     'superseded_status_matched',
     'superseded_number_present',
   ];
@@ -195,24 +213,39 @@ describe('fix-355: five rules, each named and separately countable', () => {
   it('★★ each has its own auto_closed_reason — not one "superseded" bucket', () => {
     // When one of these is wrong (and one will be), Bobby must be able to name
     // it and it must be disableable without touching the other four.
+    // ★ fix-364 re-emitted the writer AND the CHECK in order to rename one
+    // rule, so that migration — not this one — is what the database runs now.
+    // The four unchanged rules are asserted against BOTH files, which is what
+    // proves the re-emission carried them across intact rather than quietly
+    // dropping one.
     for (const r of RULES) {
-      expect(SQL, r).toContain(`'${r}'`);
-      expect(WRITER, `${r} must be assignable by the writer`).toContain(`'${r}'`);
+      expect(CURRENT, r).toContain(`'${r}'`);
+      expect(CURRENT_WRITER, `${r} must be assignable by the writer`).toContain(
+        `'${r}'`,
+      );
+    }
+    for (const r of RULES.filter((x) => x !== 'superseded_by_intake_acceptance')) {
+      expect(SQL, `${r} was fix-355's and is unchanged`).toContain(`'${r}'`);
+      expect(WRITER, `${r} in fix-355's writer`).toContain(`'${r}'`);
     }
     // The CHECK is total over them, so a typo cannot write a sixth silently.
-    for (const r of RULES) expect(SQL).toMatch(new RegExp(`CHECK[\\s\\S]*?'${r}'`));
+    for (const r of RULES) expect(CURRENT).toMatch(new RegExp(`CHECK[\\s\\S]*?'${r}'`));
   });
 
   it('★★★ intake_accepted is NOT a rule — asserted, so re-adding it is deliberate', () => {
     // fix-354 §5 measured it at 0 of 17. A rule that never fires is a rule
     // nobody can audit and nobody can trust.
     expect(RULES).not.toContain('superseded_intake_accepted_event');
+    // ★★ fix-364: and the NAME no longer reads like that rule either, which is
+    // the whole of why it was renamed — two different things with
+    // near-identical names sat side by side in one feed.
+    expect(RULES).not.toContain('superseded_intake_accepted');
     // The writer must never branch on the intake_accepted EVENT…
-    expect(WRITER).not.toMatch(/auto_event = 'intake_accepted'/);
+    expect(CURRENT_WRITER).not.toMatch(/auto_event = 'intake_accepted'/);
     // …though it does read the intake_accepted COLUMN, which is the evidence
     // for a different rule entirely. Both facts asserted so the distinction
     // cannot be lost.
-    expect(WRITER).toMatch(/auto_event = 'intake_submitted'/);
+    expect(CURRENT_WRITER).toMatch(/auto_event = 'intake_submitted'/);
     expect(WRITER).toMatch(/c\.intake_accepted IS NOT NULL/);
   });
 
