@@ -30,6 +30,8 @@ import {
   type VendorCorrectionRow,
   type VendorScheduleRow,
   type VendorTransmitRow,
+  formatProductTypes,
+  formatUnits,
 } from '../lib/vendorReport';
 import { usePermits } from '../hooks/usePermits';
 import {
@@ -517,6 +519,12 @@ function ScheduleTable({
           <th className={TH}>Start week</th>
           <th className={TH}>Address</th>
           <th className={TH}>Jurisdiction</th>
+          {/* ★★ fix-367 §2: the SCOPE, so SSS can plan against it rather than
+              only knowing when it lands. Two columns, not one combined
+              "Scope": an empty units and an empty type are different gaps, and
+              merging them would hide whichever is missing. */}
+          <th className={TH}>Units</th>
+          <th className={TH}>Type</th>
           {/* fix-269: dd_end is a TARGET SEND date — the date we are committing
               to hand documents over, not one we observed. */}
           <th className={TH}>Target send</th>
@@ -569,6 +577,16 @@ function ScheduleTable({
             </td>
             <td className={TD}>
               <Cell value={r.juris} />
+            </td>
+            {/* ★ fix-367 §2. `Cell` already renders <Blank /> for null or '' —
+                the same blank the Reuse column has shown since fix-269, whose
+                rule this follows: "the visible gap is what prompts someone to
+                fill it in", never the word "Unknown". */}
+            <td className={TD} data-testid={`vsf-${idPrefix}-units-${r.projectId}`}>
+              <Cell value={formatUnits(r.units)} />
+            </td>
+            <td className={TD} data-testid={`vsf-${idPrefix}-types-${r.projectId}`}>
+              <Cell value={formatProductTypes(r.productTypes)} />
             </td>
             <td className={TD}>
               {showDelta && r.previous ? (

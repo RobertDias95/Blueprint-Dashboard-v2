@@ -161,7 +161,7 @@ describe('fix-297 the nav reaches it (fix-313: from the ribbon)', () => {
     // because Project View lives in it and is not admin-only. What must not
     // survive is any report ROUTE — asserted on the line above, and again here
     // on the shelf.
-    expect(routes).not.toContain('/settings/reporting');
+    expect(routes).not.toContain('/reports/saved');
     expect(routes).toContain('/projects');
     // ...and an admin does get them, so the assertion above is not vacuous.
     // ★ fix-317: /reports/weekly-da left the ribbon (it duplicated Saved
@@ -170,7 +170,7 @@ describe('fix-297 the nav reaches it (fix-313: from the ribbon)', () => {
       e.kind === 'group' ? e.group.children.map((c) => c.to) : [],
     );
     expect(adminRoutes).toContain('/reports');
-    expect(adminRoutes).toContain('/settings/reporting');
+    expect(adminRoutes).toContain('/reports/saved');
   });
 });
 

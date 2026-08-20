@@ -644,7 +644,7 @@ describe('fix-331 §8: the ribbon order', () => {
       (e) => e.kind === 'group' && e.group.id === 'reports',
     );
     const kids = reports!.kind === 'group' ? reports!.group.children.map((c) => c.to) : [];
-    expect(kids).toEqual(['/reports', '/projects', '/settings/reporting']);
+    expect(kids).toEqual(['/reports', '/projects', '/reports/saved']);
     // ...and is no longer a top-level link, so it lives in exactly one place.
     expect(topLevel()).not.toContain('/projects');
   });
@@ -672,7 +672,7 @@ describe('fix-331 §8: the ribbon order', () => {
     );
     expect(routes).toContain('/projects');
     expect(routes.some((r) => r.startsWith('/reports'))).toBe(false);
-    expect(routes).not.toContain('/settings/reporting');
+    expect(routes).not.toContain('/reports/saved');
   });
 
   it('★ a child inherits the group gate unless it opts out explicitly', () => {

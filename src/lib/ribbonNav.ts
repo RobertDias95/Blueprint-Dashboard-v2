@@ -252,7 +252,15 @@ export const RIBBON_ENTRIES: RibbonEntry[] = [
         //
         // Which restores his model: Reports is the live metrics dashboard,
         // Saved reports is the shelf of things you can run.
-        { to: '/settings/reporting', label: 'Saved reports', icon: '·' },
+        // ★★ fix-367 §1: the SAME entry, at an address that is not a setting.
+        // fix-317's decision — that this group reads Overview + Saved reports —
+        // is untouched; only where "Saved reports" points has changed.
+        //
+        // ★ And fix-335 §5 needs nothing: on /reports/saved the matching
+        // entries are /reports and /reports/saved, and the LONGEST wins, so
+        // exactly one is active. The old address had the same shape under
+        // /settings and was already correct for the same reason.
+        { to: '/reports/saved', label: 'Saved reports', icon: '·' },
         // ★★ fix-319 #77: and now the sixth. Phase durations left the ribbon —
         // not to the Saved reports shelf (it is not a report you run) but to
         // Settings → Permits, where the per-type targets it is evidence for
@@ -602,8 +610,11 @@ export const ROUTES_INTENTIONALLY_NOT_IN_RIBBON: ReadonlyArray<{
   },
   // ★ fix-319: the Settings page sections. /settings itself IS in the ribbon,
   // and every section is one click from its rail — these are the deep links,
-  // not separate destinations. /settings/reporting is deliberately absent
-  // because it IS a ribbon entry ("Saved reports"), and a path may not be both.
+  // not separate destinations.
+  //
+  // ★★ fix-367: /settings/reporting used to be absent from this list because it
+  // WAS the ribbon entry, and a path may not be both. It is now listed, because
+  // it is no longer a section and no longer an entry — it is a redirect.
   {
     path: '/settings/account',
     why: 'A section of the Settings page, which is in the ribbon. Reached from its left rail, and linkable so a section survives a reload.',
@@ -623,6 +634,12 @@ export const ROUTES_INTENTIONALLY_NOT_IN_RIBBON: ReadonlyArray<{
   {
     path: '/settings/schedule',
     why: 'A section of the Settings page, which is in the ribbon. Admin-only, reached from its left rail.',
+  },
+  // ★★★ fix-367 §1: this WAS the ribbon's "Saved reports" entry. It is now a
+  // redirect to /reports/saved, which is where that entry points.
+  {
+    path: '/settings/reporting',
+    why: 'fix-367: redirect only \u2014 Saved reports moved out of Settings to /reports/saved, which IS the ribbon entry. Kept because people have this bookmarked and fix-317 routed the whole Reports group through it.',
   },
   {
     path: '/trends',

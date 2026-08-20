@@ -4,7 +4,6 @@ import AdminTeamTab from '../components/Settings/AdminTeamTab';
 import AdminProjectsTab from '../components/Settings/AdminProjectsTab';
 import AdminPermitsTab from '../components/Settings/AdminPermitsTab';
 import AdminScheduleTab from '../components/Settings/AdminScheduleTab';
-import AdminReportingTab from '../components/Settings/AdminReportingTab';
 import { useIsTenantAdmin } from '../hooks/useIsTenantAdmin';
 import {
   SETTINGS_SECTIONS,
@@ -123,11 +122,8 @@ function SectionBody({ id }: { id: SettingsSectionId }) {
       return <AdminPermitsTab />;
     case 'schedule':
       return <AdminScheduleTab />;
-    case 'reporting':
-      // ★ The Saved reports shelf, unchanged. fix-317 routes the whole Reports
-      // group here via the ribbon's "Saved reports"; the wrapper page that used
-      // to render this same component is retired, since the Settings page now
-      // supplies the heading it existed for.
-      return <AdminReportingTab />;
+    // ★ fix-367 §1: `reporting` is no longer a Settings section. The shelf
+    // lives at /reports/saved and this page has no case for it — the union
+    // type makes that a compile error rather than a dead branch.
   }
 }

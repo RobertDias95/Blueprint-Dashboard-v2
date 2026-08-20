@@ -124,7 +124,7 @@ describe('fix-317: the Reports group stops duplicating the shelf', () => {
     fireEvent.click(screen.getByTestId('ribbon-group-toggle-reports'));
 
     expect(screen.getByTestId('ribbon-link-/reports')).toBeInTheDocument();
-    expect(screen.getByTestId('ribbon-link-/settings/reporting')).toBeInTheDocument();
+    expect(screen.getByTestId('ribbon-link-/reports/saved')).toBeInTheDocument();
 
     for (const r of THE_SIX.filter((r) => r.onShelf)) {
       expect(
@@ -168,7 +168,7 @@ describe('fix-317: the Reports group stops duplicating the shelf', () => {
     expect(kids.map((k) => k.to)).toEqual([
       '/reports',
       '/projects',
-      '/settings/reporting',
+      '/reports/saved',
     ]);
   });
 });
@@ -183,8 +183,8 @@ describe('fix-317 ★ every removed report is still reachable', () => {
   it('★ Saved reports resolves to the hub', () => {
     renderRoutable();
     fireEvent.click(screen.getByTestId('ribbon-group-toggle-reports'));
-    fireEvent.click(screen.getByTestId('ribbon-link-/settings/reporting'));
-    expect(screen.getByTestId('where').textContent).toBe('/settings/reporting');
+    fireEvent.click(screen.getByTestId('ribbon-link-/reports/saved'));
+    expect(screen.getByTestId('where').textContent).toBe('/reports/saved');
   });
 
   // Click two: the report itself. The hub renders a card per saved_reports row
@@ -312,7 +312,7 @@ describe('fix-317: what must not have moved', () => {
           : [],
     );
     expect(routes.some((r) => r.startsWith('/reports'))).toBe(false);
-    expect(routes).not.toContain('/settings/reporting');
+    expect(routes).not.toContain('/reports/saved');
     expect(routes).toContain('/projects');
   });
 

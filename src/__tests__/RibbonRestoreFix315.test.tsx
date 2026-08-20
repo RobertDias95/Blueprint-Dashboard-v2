@@ -161,7 +161,7 @@ describe('fix-315 §1: the Reports overview is reachable again', () => {
     // is what fix-315 was about.
     expect(kids.slice(1).map((k) => k.to)).toEqual([
       '/projects',
-      '/settings/reporting',
+      '/reports/saved',
     ]);
   });
 
@@ -174,8 +174,8 @@ describe('fix-315 §1: the Reports overview is reachable again', () => {
     expect(screen.getByTestId('where').textContent).toBe('/dashboard');
     // ...and the children are now reachable directly. ★ fix-317 retargeted
     // this off /reports/corrections, which left the ribbon.
-    fireEvent.click(screen.getByTestId('ribbon-link-/settings/reporting'));
-    expect(screen.getByTestId('where').textContent).toBe('/settings/reporting');
+    fireEvent.click(screen.getByTestId('ribbon-link-/reports/saved'));
+    expect(screen.getByTestId('where').textContent).toBe('/reports/saved');
   });
 
   // ★ The reason the Overview entry is `exact`. Without it, /reports would
@@ -192,7 +192,7 @@ describe('fix-315 §1: the Reports overview is reachable again', () => {
     // Nothing else in the group claims it either — the shelf is a different
     // path entirely.
     expect(
-      screen.getByTestId('ribbon-link-/settings/reporting').dataset.active,
+      screen.getByTestId('ribbon-link-/reports/saved').dataset.active,
     ).toBe('false');
   });
 

@@ -33,6 +33,10 @@ function row(over: Partial<VendorScheduleRow> & { projectId: string }): VendorSc
     reuseFromAddress: null,
     reuseNotes: null,
     holdReason: null,
+    // ★ fix-367 §2: the scope columns. Defaulted to "not stated" so every
+    // existing fixture keeps testing what it was written to test.
+    units: null,
+    productTypes: [],
     ...over,
   };
 }
@@ -120,8 +124,11 @@ describe('fix-274 column widths line up across the three table shapes', () => {
   }
 
   it('renders exactly the three expected shapes', () => {
+    // ★ fix-367 §2 added Units and Type to the SCHEDULE shape — SSS needs the
+    // scope of what is coming, not only when it lands. Both sit between
+    // Jurisdiction and Target send, so the dates still end the row.
     expect(headerWidths(FULL, SCHEDULE).map(([l]) => l)).toEqual([
-      'Start week', 'Address', 'Jurisdiction', 'Target send', 'Reuse',
+      'Start week', 'Address', 'Jurisdiction', 'Units', 'Type', 'Target send', 'Reuse',
     ]);
     expect(headerWidths(FULL, TRANSMITTED).map(([l]) => l)).toEqual([
       'Address', 'Jurisdiction', 'Sent', 'Expected back',
