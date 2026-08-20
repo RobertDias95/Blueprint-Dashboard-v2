@@ -20,6 +20,9 @@ import {
   shouldLogQueryFailure,
   shouldSkipBackendRpcLog,
 } from './lib/errorLogger';
+import { useSaveFailureStore } from './stores/saveFailureStore';
+import { describeMutation, isNetworkFailure } from './lib/saveFailure';
+import { newBuildIsLive } from './lib/appVersion';
 
 // Q1: app shell. Wires QueryClient + Router + auth bootstrap.
 //
@@ -95,6 +98,23 @@ const queryClient = new QueryClient({
   mutationCache: new MutationCache({
     onError: (err, _vars, _ctx, mutation) => {
       const key = mutation.options.mutationKey;
+      // *** fix-372 section 6: TELL THE PERSON. Before this, a mutation that
+      // died at the network layer was logged here and shown nowhere - the
+      // screen carried on displaying the edit as though it had saved. Logged in
+      // prod: TypeError "Failed to fetch", 3 occurrences, 2 users, 14/17/20 Aug.
+      //
+      // ** Reported BEFORE the skip check below. That check exists to keep
+      // Error Reports quiet about expected rejections; it must never decide
+      // whether a person is told their save may not have landed.
+      useSaveFailureStore.getState().report({
+        kind: isNetworkFailure(err) ? 'network' : 'rejected',
+        what: describeMutation(key),
+        message: messageOf(err),
+        at: Date.now(),
+        // fix-371 section 4 already knows whether a new build is live, which
+        // makes a deploy restart the likely cause and is worth saying.
+        newBuildAvailable: newBuildIsLive(),
+      });
       if (shouldSkipBackendRpcLog(err, key)) return;
       void logError({
         source: 'backend_rpc',

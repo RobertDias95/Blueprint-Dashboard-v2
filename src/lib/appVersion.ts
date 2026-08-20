@@ -43,6 +43,23 @@ export const BUILD_CHECK_FIRST_MS = 10_000;
 
 const MODULE_SCRIPT = /<script[^>]+type="module"[^>]+src="([^"]+)"/i;
 
+// *** fix-372 section 6 reads this. fix-371 already discovers that a new build
+// is deployed; a deploy restarts the server and cuts requests that were in
+// flight, which is the one cause of a dead mutation that is both known and
+// recoverable. Recording it here rather than re-deriving it keeps ONE answer to
+// "is a new version live" - the banner and the notice cannot disagree.
+let newBuildLive = false;
+
+/** Called by the notice when it finds a newer bundle. Never unset: a deploy
+ *  that has happened stays a fact for the life of this document. */
+export function markNewBuildLive(): void {
+  newBuildLive = true;
+}
+
+export function newBuildIsLive(): boolean {
+  return newBuildLive;
+}
+
 /** The bundle THIS document is running, straight from the DOM. Null in a
  *  context with no module script (a test renderer, an unusual host). */
 export function runningBundleUrl(doc: Document = document): string | null {

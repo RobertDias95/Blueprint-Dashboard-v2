@@ -4,6 +4,7 @@ import {
   BUILD_CHECK_INTERVAL_MS,
   fetchDeployedBundleUrl,
   isNewBuildAvailable,
+  markNewBuildLive,
   runningBundleUrl,
 } from '../lib/appVersion';
 
@@ -30,7 +31,11 @@ export default function NewBuildNotice() {
     const deployed = await fetchDeployedBundleUrl();
     // ★ Only ever set to true. Once a new build is out there, hiding the notice
     // again because one later fetch failed would be worse than leaving it up.
-    if (isNewBuildAvailable(running, deployed)) setAvailable(true);
+    if (isNewBuildAvailable(running, deployed)) {
+      // fix-372 section 6 reads this to explain a mutation that died on the wire.
+      markNewBuildLive();
+      setAvailable(true);
+    }
   }, []);
 
   useEffect(() => {

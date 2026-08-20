@@ -576,6 +576,15 @@ export const ROUTES_INTENTIONALLY_NOT_IN_RIBBON: ReadonlyArray<{
     path: '/reports/builder',
     why: 'Opened from the Reporting hub ("Saved reports"), which is in the ribbon. A blank builder is not somewhere you navigate to cold.',
   },
+  // ★★ fix-372: levels two and three of the corrections report. The report
+  // itself is in the ribbon and is level one; this is what its rows open into,
+  // so it is reached by clicking a percentage rather than by navigating cold.
+  // A second ribbon entry beside "Corrections" would suggest two reports where
+  // there is one, drilled into.
+  {
+    path: '/reports/corrections/patterns',
+    why: 'The drill-down of the Corrections report, which is in the ribbon. Its category and theme rows link here — this is level two of one report, not a second one.',
+  },
   // ★ fix-317: the five that came out of the Reports group. Each was VERIFIED
   // present on the prod shelf before its ribbon entry was deleted — the hub
   // lists from public.saved_reports, so a registry entry alone would not have
