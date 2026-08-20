@@ -1,6 +1,12 @@
-import { useState } from 'react';
+import { useState, useSyncExternalStore } from 'react';
 import { useSoundPref } from '../hooks/useSoundPref';
-import { ensureDingContext, playDing } from '../lib/alertSound';
+import {
+  ensureDingContext,
+  getDingState,
+  playDing,
+  subscribeDingState,
+  unlockDing,
+} from '../lib/alertSound';
 import type { SoundPref } from '../lib/desktopAlerts';
 
 // ===========================================================================
@@ -55,13 +61,19 @@ export default function DesktopAlertsControl() {
   const [permission, setPermission] = useState<NotificationPermission | 'unsupported'>(
     currentPermission,
   );
+  // ★★ fix-371: whether a ding can actually be heard. fix-369 discarded the
+  // rejection from `resume()`, so a browser refusing to play produced no sound,
+  // no error and no trace. It is a fact now, and a fact can be shown.
+  const dingState = useSyncExternalStore(subscribeDingState, getDingState, getDingState);
 
   async function askForPermission() {
     if (permission === 'unsupported') return;
-    // ★ The click is also the user gesture that unlocks WebAudio. A context
-    // built without one is created suspended and plays nothing, silently — so
-    // it is built here, on the gesture, rather than at module load.
-    ensureDingContext();
+    // ★★ fix-371: the click is also a user gesture, so it RESUMES the context
+    // rather than merely constructing one. fix-369 built it here and never
+    // resumed it, and a context built outside an already-activated document is
+    // born suspended — which plays nothing, silently. The result is recorded as
+    // `dingState` and shown below.
+    void unlockDing();
     try {
       const result = await Notification.requestPermission();
       setPermission(result);
@@ -76,7 +88,9 @@ export default function DesktopAlertsControl() {
     // ★ Play it. A sound preference you cannot hear while choosing it is a
     // preference set blind — and this is also the gesture that unlocks the
     // context for the alerts that arrive later.
-    if (next !== 'off' && ctx) playDing(ctx);
+    if (next !== 'off' && ctx) {
+      void unlockDing().then(() => playDing(ctx));
+    }
   }
 
   return (
@@ -114,6 +128,15 @@ export default function DesktopAlertsControl() {
         >
           Turn on desktop alerts
         </button>
+      )}
+
+      {/* ★★ fix-371: a blocked sound is reportable. "Sound is blocked by the
+          browser" is something a person can act on; silence is not. */}
+      {dingState === 'blocked' && pref !== 'off' && (
+        <span className="text-[10.5px] text-er" data-testid="desktop-alerts-sound-blocked">
+          Sound is blocked by this browser — click anywhere in the app once to
+          allow it.
+        </span>
       )}
 
       <label className="ml-auto flex items-center gap-1.5 text-[10.5px] text-muted">

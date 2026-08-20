@@ -1,8 +1,12 @@
-import { useEffect } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useQueryClient, type QueryClient } from '@tanstack/react-query';
 import { supabase } from '../lib/supabase';
 import { REALTIME_TABLES } from '../lib/queryKeys';
 import { useRealtimeStore } from '../stores/realtimeStore';
+import {
+  livenessAction,
+  shouldCatchUpOnVisible,
+} from '../lib/realtimeLiveness';
 
 // Q2: Single Realtime channel that listens to changes on the tables the app
 // reads and invalidates the matching TanStack Query keys. Architectural
@@ -79,12 +83,44 @@ export function invalidateAllRealtimeKeys(queryClient: QueryClient): void {
   }
 }
 
+/** How often the watchdog looks. Not how long it waits before acting - see
+ *  REALTIME_STALE_MS for that. Frequent enough that the check lands promptly
+ *  after a window is restored, cheap enough to be free. */
+export const REALTIME_WATCHDOG_TICK_MS = 20_000;
+
 export function useRealtimeInvalidation() {
   const queryClient = useQueryClient();
   const setStatus = useRealtimeStore((s) => s.setStatus);
   const noteEvent = useRealtimeStore((s) => s.noteEvent);
 
+  // *** fix-371: THE CLOCK LIVENESS IS ACTUALLY MEASURED ON.
+  //
+  // Stamped by an arriving payload and by every catch-up we perform, so it
+  // answers "when did this app last know it was current" - which is the
+  // question, and is not the same as "what does the socket say about itself".
+  // A ref, not state: it is written from timers and listeners and must not
+  // re-render anything.
+  //
+  // Initialised to 0 and stamped on mount INSIDE the effect: Date.now() in a
+  // render is an impure call, which the React Compiler rejects outright - the
+  // same class of rule that cost fix-350 two attempts.
+  const lastSyncAt = useRef(0);
+
+  // Bumped to rebuild the channel. The main effect depends on it, so a change
+  // tears the old channel down through its own cleanup and builds a new one -
+  // no imperative re-subscribe path that could drift from the mount path.
+  const [generation, setGeneration] = useState(0);
+
+  const catchUp = useCallback(() => {
+    if (queryClient.isMutating() > 0) return;
+    invalidateAllRealtimeKeys(queryClient);
+    lastSyncAt.current = Date.now();
+  }, [queryClient]);
+
   useEffect(() => {
+    // Mount is a legitimate "last known current": every query behind these keys
+    // fetches on mount, so the app is as current as it can be at this instant.
+    lastSyncAt.current = Date.now();
     let channel = supabase.channel('bp-v2-realtime');
 
     (Object.keys(REALTIME_TABLES) as (keyof typeof REALTIME_TABLES)[]).forEach(
@@ -98,6 +134,9 @@ export function useRealtimeInvalidation() {
             // "the socket is delivering" and "we acted on it" are different
             // facts, and the one the status line needs is the first.
             noteEvent(Date.now());
+            // fix-371: the same stamp the watchdog reads. An arrival is the
+            // only direct evidence the wire is alive.
+            lastSyncAt.current = Date.now();
             // fix-39 Track B: don't invalidate (→ refetch) while a mutation is
             // in flight. A realtime event landing mid-mutation would refetch
             // the pre-commit row and clobber the optimistic edit — the silent
@@ -122,6 +161,7 @@ export function useRealtimeInvalidation() {
         // missed, and a socket that reconnects into a stale cache is the same
         // lie as one that never connected.
         invalidateAllRealtimeKeys(queryClient);
+        lastSyncAt.current = Date.now();
         return;
       }
       if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
@@ -133,7 +173,80 @@ export function useRealtimeInvalidation() {
       setStatus('CLOSED');
       void supabase.removeChannel(channel);
     };
-  }, [queryClient, setStatus, noteEvent]);
+    // `generation` is the rebuild trigger; see the watchdog below.
+  }, [queryClient, setStatus, noteEvent, generation]);
+
+  // -------------------------------------------------------------------------
+  // *** fix-371 section 1 - THE WATCHDOG, AND IT DOES NOT ASK THE SOCKET
+  // -------------------------------------------------------------------------
+  //
+  // *** THE BRIEF'S PREMISE WAS WRONG AND IT IS WORTH SAYING WHERE.
+  // It proposed that a silently-dying socket leaves `status` at SUBSCRIBED so
+  // nothing recovers. Read in @supabase/realtime-js 2.105.4: phoenix
+  // socket.js:547 `onConnClose` -> :550 `triggerChanError` -> :579
+  // `channel.trigger(CHANNEL_EVENTS.error)` -> RealtimeChannel.js:137 ->
+  // `callback('CHANNEL_ERROR')`. The socket DOES report itself and `degraded`
+  // DOES flip. See lib/realtimeLiveness for the full trace.
+  //
+  // *** WHAT ACTUALLY EXPLAINS THE SYMPTOM is that every recovery path this
+  // app has is inert exactly when it is needed, and all four are measurable in
+  // this repo rather than inferred:
+  //
+  //   - the fallback below is a setInterval, and Chrome freezes timers in a
+  //     backgrounded installed app;
+  //   - `refetchOnWindowFocus: false` globally (App.tsx:116);
+  //   - `refetchIntervalInBackground` appears NOWHERE, so every refetchInterval
+  //     in the app - the bell's five-minute one included - is paused while the
+  //     window is unfocused;
+  //   - `visibilitychange` appeared NOWHERE before this ticket, and the one
+  //     focus listener lived inside the degraded branch.
+  //
+  // So the app comes back from the background and refetches nothing, whatever
+  // the socket says. Refreshing is the only thing that ever worked.
+  //
+  // ** THE FIX IS MEASURED ON ARRIVALS. If nothing has arrived and nothing has
+  // been refetched for REALTIME_STALE_MS while the window is visible, the wire
+  // is rebuilt - SUBSCRIBED or not. A healthy socket pays one extra
+  // invalidation per quiet stretch; a quietly dead one is repaired.
+  useEffect(() => {
+    const tick = () => {
+      const action = livenessAction({
+        now: Date.now(),
+        lastSyncAt: lastSyncAt.current,
+        status: useRealtimeStore.getState().status,
+        visible:
+          typeof document === 'undefined' || document.visibilityState === 'visible',
+      });
+      if (action === 'none') return;
+      // Stamp BEFORE acting, so a rebuild that takes a moment to attach cannot
+      // trigger a second one on the next tick.
+      lastSyncAt.current = Date.now();
+      catchUp();
+      if (action === 'resubscribe') setGeneration((g) => g + 1);
+    };
+    const id = window.setInterval(tick, REALTIME_WATCHDOG_TICK_MS);
+
+    // ** AND THE RETURN TO THE WINDOW, UNCONDITIONALLY.
+    //
+    // `visibilitychange` rather than `focus`: an installed app restored from
+    // the background fires the first reliably and the second not at all on some
+    // platforms. Not gated on `degraded`, which is the actual change - the
+    // degraded case was the one already handled. A socket that reconnected
+    // while the app was hidden is SUBSCRIBED, genuinely live, and holding a
+    // cache from before the gap, because postgres_changes are never replayed.
+    //
+    // Scoped to the realtime key set, never a global refetchOnWindowFocus.
+    const onVisible = () => {
+      if (document.visibilityState !== 'visible') return;
+      if (shouldCatchUpOnVisible(Date.now(), lastSyncAt.current)) catchUp();
+      tick();
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      window.clearInterval(id);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
+  }, [catchUp]);
 
   // ★★ THE FALLBACK, and it only runs when it is needed. A poll that runs
   // alongside a working socket is just load; a socket with no poll behind it is
@@ -151,14 +264,14 @@ export function useRealtimeInvalidation() {
     // case on purpose: the app sets refetchOnWindowFocus:false globally
     // (App.tsx) and this ticket is not the place to reverse that for every
     // query in the app.
-    const onFocus = () => {
-      if (queryClient.isMutating() > 0) return;
-      invalidateAllRealtimeKeys(queryClient);
-    };
-    window.addEventListener('focus', onFocus);
+    // fix-371: the focus listener that used to live here is gone, replaced by
+    // an UNCONDITIONAL visibilitychange catch-up above. It was gated on
+    // `degraded`, which is the case that was already covered; the one that was
+    // not is a socket that looks perfectly healthy over a cache from before the
+    // gap. Keeping both would mean two listeners racing to invalidate the same
+    // keys on the same event.
     return () => {
       window.clearInterval(id);
-      window.removeEventListener('focus', onFocus);
     };
   }, [degraded, queryClient]);
 }

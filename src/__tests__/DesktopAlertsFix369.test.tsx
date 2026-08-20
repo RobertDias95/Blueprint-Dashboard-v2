@@ -53,6 +53,13 @@ vi.mock('../hooks/useSoundPref', () => ({
 vi.mock('../lib/alertSound', () => ({
   playDing: (...args: unknown[]) => state.ding(...args),
   ensureDingContext: () => ({ state: 'running' }),
+  // ★ fix-371: the control now reads whether a ding can actually be HEARD, and
+  // unlocks the context on the click rather than merely constructing one.
+  // 'unlocked' keeps every expectation in this suite about fix-369's contracts
+  // meaningful — the blocked path has its own tests in fix-371's suite.
+  unlockDing: async () => 'unlocked',
+  getDingState: () => 'unlocked',
+  subscribeDingState: () => () => {},
 }));
 
 vi.mock('../lib/serviceWorker', () => ({

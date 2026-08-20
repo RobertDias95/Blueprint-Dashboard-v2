@@ -35,13 +35,13 @@ bug cannot come back.
 
 ★★ THE MASKABLE SAFE ZONE.
 A maskable icon may be cropped by the OS to any shape, with only the centre
-circle of diameter 80% guaranteed. The mark's ink bounding box is 226x93 inside
-the 256 canvas; its half-diagonal is 122.2px = 47.7% of the canvas, which does
-NOT fit. Scaled to 83% it becomes 39.6% and does. So the maskable renderings
-draw the source at 83% of the tile, centred; the `any` renderings use it
-full-bleed, because nothing crops those.
+circle of diameter 80% guaranteed. fix-371 applies that to the TRIMMED mark
+rather than to the mark plus its transparent margin - see the note further down
+for why the margin was the bug, and why the mark's 2.37:1 aspect is the ceiling
+that remains once the margin is gone.
 """
 from __future__ import annotations
+import math
 import os
 from PIL import Image
 
@@ -50,7 +50,46 @@ SOURCE = os.path.join(HERE, 'public', 'bridge-icon-2026-256.png')
 OUT = os.path.join(HERE, 'public')
 
 GROUND = (255, 255, 255)
-MASKABLE_SAFE_SCALE = 0.83
+
+# ---------------------------------------------------------------------------
+# fix-371: TRIM FIRST. The mark was scaled twice and drawn once.
+# ---------------------------------------------------------------------------
+#
+# Bobby, on the taskbar icon fix-369 shipped: "can we make this more noticeable
+# on the screen?"
+#
+# The source PNG is a 256x256 canvas whose ink occupies an alpha bounding box of
+# 230 x 97 at (13, 79). Everything outside that is transparent margin, and this
+# script used to paste the WHOLE canvas - margin included - onto the tile. The
+# maskable pair then shrank that by a further 0.83. So a mark 97px tall inside a
+# 256px canvas became 12.6px on a 40px taskbar tile.
+#
+# The mark is now cropped to its own bounding box before anything is scaled, and
+# the scaling applies to the mark instead of to the mark plus its margin.
+#
+# *** AND THE HONEST PART: THE ASPECT RATIO IS THE REAL CEILING.
+# The mark is 2.37:1. Inside a SQUARE tile, its height can never exceed
+# width / 2.37 - about 42% of the tile - however perfectly it is trimmed. The
+# trim recovers the margin and nothing more; it cannot make a wide, thin bridge
+# tall. Measured gains are in the report, and if Bobby wants it larger again the
+# next step is a squarer artwork variant, not a change to this script.
+#
+# *** Cropping transparent margin is not redrawing. Not one pixel of the mark is
+# altered: PIL's getbbox() returns the tightest box containing any non-zero
+# alpha, and crop() returns those same pixels. fix-322's contract is intact and
+# its grep still passes.
+
+# How much of the tile's WIDTH the trimmed mark spans on an `any` icon. Nothing
+# crops these, so the only reason not to use the whole width is that a mark
+# touching the edge reads as clipped rather than as full-bleed.
+ANY_WIDTH_FILL = 0.96
+
+# The maskable guarantee: only the centred circle of diameter 0.8 x tile is
+# certain to survive an OS mask. A w x h mark centred in a tile of side S fits
+# inside that circle when sqrt(w^2 + h^2) / 2 <= 0.4 x S, so the width is
+# capped at 0.8 x S / sqrt(1 + (h/w)^2). Computed from the TRIMMED mark now,
+# which is what the safe zone was always supposed to be about.
+MASKABLE_SAFE_DIAMETER = 0.8
 
 # ★ The sizes Chrome and Windows actually ask for. 192 and 512 are Chrome's
 # installability floor; 256 is what Chrome hands Windows for the desktop
@@ -60,26 +99,50 @@ ANY_SIZES = (64, 192, 256, 512)
 MASKABLE_SIZES = (192, 512)
 
 
-def _flatten(mark: Image.Image, size: int, inset: float) -> Image.Image:
-    """The shipped mark, composited onto an opaque ground. No drawing."""
+def _trim(mark: Image.Image) -> Image.Image:
+    """The mark, cropped to its own alpha bounding box. Nothing is altered."""
+    box = mark.getbbox()
+    return mark.crop(box) if box else mark
+
+
+def _width_fill(mark: Image.Image, purpose: str) -> float:
+    """What fraction of the tile's width the trimmed mark may span."""
+    if purpose == 'any':
+        return ANY_WIDTH_FILL
+    w, h = mark.size
+    # Fit the mark's DIAGONAL inside the safe circle.
+    return MASKABLE_SAFE_DIAMETER / math.sqrt(1.0 + (h / w) ** 2)
+
+
+def _flatten(mark: Image.Image, size: int, purpose: str) -> Image.Image:
+    """The shipped mark, trimmed, scaled and composited onto an opaque ground.
+
+    No drawing, and no change to any pixel of the artwork - only a crop of fully
+    transparent margin and a resize.
+    """
     tile = Image.new('RGB', (size, size), GROUND)
-    drawn = max(1, round(size * inset))
-    scaled = mark.resize((drawn, drawn), Image.LANCZOS)
-    offset = (size - drawn) // 2
-    tile.paste(scaled, (offset, offset), scaled)   # alpha of the mark is the stencil
+    src_w, src_h = mark.size
+    drawn_w = max(1, round(size * _width_fill(mark, purpose)))
+    drawn_h = max(1, round(drawn_w * src_h / src_w))
+    scaled = mark.resize((drawn_w, drawn_h), Image.LANCZOS)
+    tile.paste(scaled, ((size - drawn_w) // 2, (size - drawn_h) // 2), scaled)
     return tile
 
 
 def main() -> None:
-    mark = Image.open(SOURCE).convert('RGBA')
+    raw = Image.open(SOURCE).convert('RGBA')
+    mark = _trim(raw)
+    print(f'source   {raw.size[0]}x{raw.size[1]}')
+    print(f'alpha bbox {raw.getbbox()}  ->  trimmed {mark.size[0]}x{mark.size[1]}'
+          f'  (aspect {mark.size[0] / mark.size[1]:.2f}:1)')
     written = []
     for size in ANY_SIZES:
         path = os.path.join(OUT, f'bridge-app-{size}.png')
-        _flatten(mark, size, 1.0).save(path, 'PNG', optimize=True)
+        _flatten(mark, size, 'any').save(path, 'PNG', optimize=True)
         written.append(path)
     for size in MASKABLE_SIZES:
         path = os.path.join(OUT, f'bridge-maskable-{size}.png')
-        _flatten(mark, size, MASKABLE_SAFE_SCALE).save(path, 'PNG', optimize=True)
+        _flatten(mark, size, 'maskable').save(path, 'PNG', optimize=True)
         written.append(path)
     for path in written:
         with Image.open(path) as check:
