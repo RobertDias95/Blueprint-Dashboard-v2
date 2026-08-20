@@ -1,4 +1,7 @@
-import { useMemo, useState } from 'react';
+import BoardLensControl from '../components/BoardLensControl';
+import { useBoardLens } from '../hooks/useBoardLens';
+import { focusItems, groupItems, type AssociateGroup } from '../lib/boardByAssociate';
+import { useCallback, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { usePermits } from '../hooks/usePermits';
 import { useProjects } from '../hooks/useProjects';
@@ -573,6 +576,7 @@ function ForecastSection({
   subtasksByParent,
   onOpenRow,
   isNewRow,
+  groups = null,
 }: {
   label: string;
   urgent?: boolean;
@@ -586,8 +590,18 @@ function ForecastSection({
   subtasksByParent: Map<string, BoardTask[]>;
   onOpenRow: (item: ForecastItem) => void;
   isNewRow: (item: ForecastItem) => boolean;
+  /** ★★ fix-365: split this bucket's rows by design associate, or null to
+   *  render them as one list. Passed as a FUNCTION rather than as computed
+   *  groups so a bucket nobody is looking at costs nothing. */
+  groups?: ((items: ForecastItem[]) => AssociateGroup[] | null) | null;
 }) {
   const rows = expanded ? data.all : data.items;
+  // ★★★ URGENCY STAYS OUTERMOST. This splits the rows of ONE bucket; it cannot
+  // reorder across buckets because it never sees across them. "Past due" still
+  // reads first, still carries its own count, and every row inside it is still
+  // rendered by the same ForecastRow — so a past-due item is past-due in
+  // exactly the way it was before, grouped or not.
+  const grouped = groups ? groups(rows) : null;
   return (
     <>
       <SectionHeader
@@ -604,6 +618,31 @@ function ForecastSection({
         <div className="px-3.5 py-2 text-[10px] text-dim" data-testid={`${testid}-empty`}>
           {empty}
         </div>
+      ) : grouped ? (
+        grouped.map((g) => (
+          <div key={g.label} data-testid={`${testid}-group-${g.label}`}>
+            {/* ★ A quiet sub-heading, deliberately lighter than SectionHeader:
+                the bucket is the section, this is a divider inside it. */}
+            <div
+              className="px-3.5 py-1 text-[9px] font-extrabold uppercase tracking-wide text-muted bg-bg border-b border-border flex items-center gap-1.5"
+              data-testid={`${testid}-group-head-${g.label}`}
+            >
+              <span>{g.label}</span>
+              <span className="text-dim font-bold">{g.items.length}</span>
+            </div>
+            {g.items.map((i) => (
+              <ForecastRow
+                key={i.key}
+                item={i}
+                onTick={onTick}
+                busy={busy}
+                subtasks={i.taskId ? (subtasksByParent.get(i.taskId) ?? []) : []}
+                onOpenRow={onOpenRow}
+                isNew={isNewRow(i)}
+              />
+            ))}
+          </div>
+        ))
       ) : (
         rows.map((i) => (
           <ForecastRow
@@ -898,6 +937,56 @@ export default function MyBoard() {
 
   const forecast = useMemo(() => buildForecast(input), [input]);
 
+  // ★★ fix-365: the manager's lens. `hasAssociates` is false for 25 of the 29
+  // logins, and the control simply does not render for them — a control that
+  // does nothing for you is the clutter fix-331 and fix-345 removed.
+  const boardLens = useBoardLens();
+  // ★ A milestone row has no assignee; its design associate is the PERMIT's
+  // `da`. Built once here, where the permits already are, and handed to the
+  // pure functions as a lookup so they never go fetching.
+  const daOfPermit = useMemo(() => {
+    const map = new Map<number, string | null>();
+    for (const p of permitsQ.data ?? []) map.set(p.id, p.da ?? null);
+    return (permitId: number | null) =>
+      permitId == null ? null : (map.get(permitId) ?? null);
+  }, [permitsQ.data]);
+
+  /** ★★★ FOCUS narrows a bucket; GROUP sections it. Applied per bucket, never
+   *  across them — see lib/boardByAssociate for why urgency stays outermost. */
+  const lensSection = useCallback(
+    (data: BoardSection<ForecastItem>): BoardSection<ForecastItem> => {
+      if (!boardLens.hasAssociates || !boardLens.lens.focus) return data;
+      const all = focusItems(
+        data.all,
+        boardLens.lens.focus,
+        boardLens.associates,
+        daOfPermit,
+      );
+      // ★ The section's own contract: `total` is the TRUE total of what it
+      // holds, and `items` is the capped head of it. Rebuilding both keeps the
+      // header's count honest about the focused view rather than about the
+      // board behind it.
+      const cap = data.items.length === data.all.length ? all.length : data.items.length;
+      return {
+        total: all.length,
+        items: all.slice(0, Math.max(cap, 0)),
+        capped: all.length > Math.max(cap, 0),
+        all,
+      };
+    },
+    [boardLens.hasAssociates, boardLens.lens.focus, boardLens.associates, daOfPermit],
+  );
+
+  const lensGroups = useCallback(
+    (items: ForecastItem[]) =>
+      boardLens.hasAssociates &&
+      boardLens.lens.mode === 'group' &&
+      boardLens.associates.length > 1
+        ? groupItems(items, boardLens.associates, daOfPermit)
+        : null,
+    [boardLens.hasAssociates, boardLens.lens.mode, boardLens.associates, daOfPermit],
+  );
+
   // ★ fix-308 #46 — "Handed off — waiting on others". THE OUTGOING SIDE.
   //
   // Not to be confused with `handoffs` below, which is INCOMING: things I could
@@ -1103,13 +1192,29 @@ export default function MyBoard() {
               <div className="text-[10px] text-muted mt-px">
                 Your tasks and permit milestones, in date order
               </div>
+              {/* ★★ fix-365: a design manager's lens over their own board.
+                  Renders for the four people who have associates and for
+                  nobody else. It sits INSIDE the Forecast header because that
+                  is the panel it acts on — the queue below is projects, not
+                  people's work. */}
+              {boardLens.hasAssociates && (
+                <div className="mt-1.5">
+                  <BoardLensControl
+                    associates={boardLens.associates}
+                    lens={boardLens.lens}
+                    onChange={boardLens.setLens}
+                    unmanaged={boardLens.unmanaged}
+                  />
+                </div>
+              )}
             </div>
             {/* Independent scroll: the panel grows internally, the page does not. */}
             <div className="overflow-y-auto flex-1 min-h-0" data-testid="my-board-forecast-scroll">
               <ForecastSection
                 label="Past due"
                 urgent
-                data={forecast.past_due}
+                data={lensSection(forecast.past_due)}
+                groups={lensGroups}
                 empty="Nothing past due."
                 testid="board-sec-past-due"
                 onTick={onTick}
@@ -1123,7 +1228,8 @@ export default function MyBoard() {
               <ForecastSection
                 label="Today"
                 urgent
-                data={forecast.today}
+                data={lensSection(forecast.today)}
+                groups={lensGroups}
                 empty="Nothing due today."
                 testid="board-sec-today"
                 onTick={onTick}
@@ -1136,7 +1242,8 @@ export default function MyBoard() {
               />
               <ForecastSection
                 label="Tomorrow"
-                data={forecast.tomorrow}
+                data={lensSection(forecast.tomorrow)}
+                groups={lensGroups}
                 empty="Nothing scheduled."
                 testid="board-sec-tomorrow"
                 onTick={onTick}
@@ -1149,7 +1256,8 @@ export default function MyBoard() {
               />
               <ForecastSection
                 label="This week"
-                data={forecast.this_week}
+                data={lensSection(forecast.this_week)}
+                groups={lensGroups}
                 empty="Nothing else this week."
                 testid="board-sec-this-week"
                 onTick={onTick}
@@ -1164,7 +1272,8 @@ export default function MyBoard() {
                   column" — same capping and Show All as every other section. */}
               <ForecastSection
                 label="Next week"
-                data={forecast.next_week}
+                data={lensSection(forecast.next_week)}
+                groups={lensGroups}
                 empty="Nothing next week."
                 testid="board-sec-next-week"
                 onTick={onTick}
