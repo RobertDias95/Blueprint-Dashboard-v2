@@ -12,6 +12,8 @@ import {
   type NewItemSource,
 } from '../lib/boardReads';
 import { targetHref } from '../lib/notificationTargets';
+import { suppressedSampleNote } from '../lib/activityWindow';
+import type { SuppressionCounts } from '../lib/myBoard';
 import TaskProvenance from '../components/TaskProvenance';
 import type { ScraperActivityRow } from '../lib/database.types';
 
@@ -239,7 +241,7 @@ export default function NotificationsPage() {
             Loading your notifications…
           </div>
         ) : kind === 'suppressed' ? (
-          <SuppressedSections rows={suppressedRows} />
+          <SuppressedSections rows={suppressedRows} counts={suppressed} />
         ) : shown.length === 0 ? (
           <div className="px-3.5 py-3 text-[11px] text-dim" data-testid="notification-empty">
             Nothing here. Zero means you have seen everything new — not that
@@ -364,8 +366,14 @@ export default function NotificationsPage() {
  */
 function SuppressedSections({
   rows,
+  counts,
 }: {
   rows: { retries: ScraperActivityRow[]; guarded: ScraperActivityRow[]; notYours: ScraperActivityRow[] };
+  /** ★★★ fix-370: the TRUE totals over the window. `rows` is what was fetched;
+   *  for the two loud classes that is a bounded sample and these are the real
+   *  numbers behind it. The header used to print `rows.length` and call it the
+   *  count — which is how a 925-row fortnight rendered as 295. */
+  counts: SuppressionCounts;
 }) {
   const sections = [
     {
@@ -373,18 +381,21 @@ function SuppressedSections({
       title: 'Scraper retries',
       why: 'The scraper failed to fetch and recovered on its own. Nothing to do.',
       rows: rows.retries,
+      total: counts.retries,
     },
     {
       id: 'guarded',
       title: 'Manual-edit guards',
       why: 'The scraper deferred to a recent human edit rather than overwriting it.',
       rows: rows.guarded,
+      total: counts.guarded,
     },
     {
       id: 'notyours',
       title: "Changes on permits that aren't yours",
       why: 'Real changes, on permits you are not the DA or entitlement lead for.',
       rows: rows.notYours,
+      total: counts.notYours,
     },
   ];
   return (
@@ -393,9 +404,19 @@ function SuppressedSections({
         <div key={s.id} data-testid={`notification-suppressed-${s.id}`}>
           <div className="px-3.5 py-1.5 bg-s2 border-b border-border sticky top-0">
             <div className="text-[11px] font-extrabold text-text">
-              {s.title} · {s.rows.length}
+              {s.title} · {s.total.toLocaleString()}
             </div>
             <div className="text-[9.5px] text-dim">{s.why}</div>
+            {/* ★★ fix-370: when the number is bigger than the rows, SAY SO
+                here rather than letting the list imply it is everything. */}
+            {suppressedSampleNote(s.total, s.rows.length) && (
+              <div
+                className="text-[9.5px] text-dim"
+                data-testid={`notification-suppressed-sample-${s.id}`}
+              >
+                {suppressedSampleNote(s.total, s.rows.length)}
+              </div>
+            )}
           </div>
           {s.rows.length === 0 ? (
             <div className="px-3.5 py-2 text-[10px] text-dim italic">None in the last 14 days.</div>
@@ -428,7 +449,7 @@ function SuppressedSections({
                   className="px-3.5 py-1.5 text-[10px] text-dim"
                   data-testid={`notification-suppressed-more-${s.id}`}
                 >
-                  {s.rows.length - 50} more not listed —{' '}
+                  {(s.rows.length - 50).toLocaleString()} more fetched, not listed —{' '}
                   <Link to="/activity" className="text-de">
                     full scraper activity →
                   </Link>

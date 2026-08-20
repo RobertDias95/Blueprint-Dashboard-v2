@@ -172,6 +172,12 @@ export const queryKeys = {
   // fix-27: notification center activity feed.
   scraperActivity: (tenantId: string, days: number) =>
     ['scraper_activity', tenantId, { days }] as const,
+  // ★★ fix-370: the uncapped totals for the same window. Deliberately under the
+  // SAME `scraper_activity` prefix, so the one realtime channel's audit_log
+  // invalidation refreshes the count and the list together — a true number that
+  // lagged the list it describes would be a new way to disagree.
+  scraperActivitySummary: (tenantId: string, days: number) =>
+    ['scraper_activity', tenantId, { days, summary: true }] as const,
   // fix-31: per-reviewer status table.
   permitCycleReviewers: (tenantId: string) =>
     ['permit_cycle_reviewers', tenantId] as const,

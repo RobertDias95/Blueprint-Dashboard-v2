@@ -84,7 +84,7 @@ vi.mock('../hooks/useProjectHolds', () => ({
   useAllProjectHolds: () => ({ data: [] }),
   cancelledProjectIds: () => new Set<string>(),
 }));
-vi.mock('../hooks/useScraperActivity', () => ({ useScraperActivity: () => ({ data: [] }) }));
+vi.mock('../hooks/useScraperActivity', () => ({ useScraperActivity: () => ({ data: [] }), useScraperActivitySummary: () => ({ data: null }) }));
 vi.mock('../hooks/useMilestoneAcks', () => ({
   useMilestoneAcks: () => ({ data: [] }),
   useAckMilestone: () => ({ mutate: vi.fn(), isPending: false }),

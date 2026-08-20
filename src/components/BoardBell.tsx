@@ -67,7 +67,8 @@ export default function BoardBell() {
   const resolveRequest = useResolvePostRequest();
 
   // ★★ fix-336: ONE model, shared with /notifications.
-  const { viewer, unseen, suppressed, signature } = useBoardNotifications();
+  const { viewer, unseen, suppressed, signature, activityTruncationNote } =
+    useBoardNotifications();
 
   const input: BoardInput = useMemo(
     () => ({
@@ -459,6 +460,24 @@ export default function BoardBell() {
             <span data-testid="bell-suppressed-notyours">
               {suppressed.notYours} changes on permits that aren&apos;t yours
             </span>
+            {/* ★★★ fix-370: THE FIRST TWO NUMBERS ARE NOW TRUE.
+                They came from the fetched page until this ticket, and the page
+                was 300 rows of a 1,600-row fortnight — so this line read "295"
+                where the honest answer was 925. It understated the thing it
+                exists to make visible by about four times.
+
+                ★ The third is still counted here, over the rows that arrived,
+                because "not yours" is a different answer for every person. It
+                is exact while the feed is not truncated, which is what the
+                sentence below is for. */}
+            {activityTruncationNote && (
+              <span
+                className="block text-muted mt-0.5"
+                data-testid="bell-activity-truncated"
+              >
+                {activityTruncationNote} The last count is a floor.
+              </span>
+            )}
             <span className="block text-de font-bold mt-0.5">See them →</span>
           </Link>
 

@@ -4,7 +4,10 @@ import { useProjects } from './useProjects';
 import { useAllTasks } from './useTaskTree';
 import { useTeamMembers } from './useTeamMembers';
 import { useSelfScope } from './useSelfScope';
-import { useScraperActivity } from './useScraperActivity';
+import {
+  useScraperActivity,
+  useScraperActivitySummary,
+} from './useScraperActivity';
 import { useMilestoneAcks } from './useMilestoneAcks';
 import { useBoardReads } from './useBoardReads';
 import { useMyMentions } from './useProjectMessages';
@@ -17,12 +20,17 @@ import { parseFlips } from '../lib/boardFlips';
 import { buildNewItems, unseenItems, type NewItem } from '../lib/boardReads';
 import {
   resolveBoardViewer,
-  suppressionCounts,
   suppressionGroups,
   type BoardViewer,
   type SuppressionCounts,
   type SuppressionGroups,
 } from '../lib/myBoard';
+import {
+  isFeedTruncated,
+  trueSuppressionCounts,
+  truncationNote,
+  type ActivitySummary,
+} from '../lib/activityWindow';
 import type { ScraperActivityRow } from '../lib/database.types';
 
 // ===========================================================================
@@ -59,10 +67,24 @@ export interface BoardNotifications {
    *  when a new thing arrives even if the count does not — see the note where
    *  it is built. */
   signature: string;
-  /** The three never-notify categories, counted (the bell's "Not shown" line). */
+  /** The three never-notify categories, counted (the bell's "Not shown" line).
+   *
+   *  ★★★ fix-370: `retries` and `guarded` are now TRUE TOTALS over the window,
+   *  from an uncapped aggregate, not counts of the fetched page. On prod that
+   *  is the difference between 295 and 925. `notYours` is still per viewer and
+   *  still counted here — see lib/activityWindow for why, and for how it is
+   *  kept honest against a cap. */
   suppressed: SuppressionCounts;
-  /** ★ …and the rows behind those counts, for the centre. */
+  /** ★ …and the rows behind those counts, for the centre. A bounded SAMPLE of
+   *  the two loud classes; the counts above are the whole window. */
   suppressedRows: SuppressionGroups<ScraperActivityRow>;
+  /** ★★ fix-370: what the window actually holds, so a truncated list can say
+   *  so instead of looking complete. Null until the aggregate lands. */
+  activitySummary: ActivitySummary | null;
+  /** True when the showable feed did not fit its budget. */
+  activityTruncated: boolean;
+  /** The sentence for that, or null when there is nothing to admit. */
+  activityTruncationNote: string | null;
   /** True while any input query is still loading. */
   isLoading: boolean;
 }
@@ -76,6 +98,8 @@ export function useBoardNotifications(): BoardNotifications {
   // Reuses the query the activity feed already drives — React Query dedupes, so
   // the suppression counts cost no extra fetch.
   const activityQ = useScraperActivity();
+  // ★★ fix-370: the uncapped totals for the same window, one aggregate.
+  const summaryQ = useScraperActivitySummary();
   const acksQ = useMilestoneAcks();
   const readsQ = useBoardReads();
   const mentionsQ = useMyMentions();
@@ -140,9 +164,11 @@ export function useBoardNotifications(): BoardNotifications {
     () => suppressionGroups(activityQ.data ?? [], viewer),
     [activityQ.data, viewer],
   );
+  // ★★★ fix-370: two of the three numbers come from the WINDOW, one from the
+  // page — and which is which is the whole point. See lib/activityWindow.
   const suppressed = useMemo(
-    () => suppressionCounts(activityQ.data ?? [], viewer),
-    [activityQ.data, viewer],
+    () => trueSuppressionCounts(summaryQ.data ?? null, activityQ.data ?? [], viewer),
+    [summaryQ.data, activityQ.data, viewer],
   );
 
   // ★★★ fix-360 §2 — THE BELL AND THE BADGE ARE DIFFERENT QUESTIONS.
@@ -177,6 +203,12 @@ export function useBoardNotifications(): BoardNotifications {
     unseenCount: unseen.length,
     suppressed,
     suppressedRows,
+    activitySummary: summaryQ.data ?? null,
+    activityTruncated: isFeedTruncated(summaryQ.data ?? null, activityQ.data ?? []),
+    activityTruncationNote: truncationNote(
+      summaryQ.data ?? null,
+      activityQ.data ?? [],
+    ),
     isLoading:
       permitsQ.isLoading ||
       projectsQ.isLoading ||
