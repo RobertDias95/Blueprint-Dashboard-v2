@@ -5,6 +5,7 @@ import BridgeMark from './BridgeMark';
 import Ribbon from './Ribbon';
 import NewProjectWizard from './NewProjectWizard';
 import { useSelfScope } from '../hooks/useSelfScope';
+import { useDesktopAlerts } from '../hooks/useDesktopAlerts';
 import { rosterRoleTitle } from '../lib/roleLabels';
 import {
   BRAND_LOCKUP_DROP,
@@ -57,6 +58,14 @@ import {
 export default function Chrome() {
   const [wizardOpen, setWizardOpen] = useState(false);
   const { identity, userId } = useSelfScope();
+
+  // ★★ fix-369: MOUNTED ONCE, HERE. The shell is the only component that is
+  // always present and never remounts on navigation, which is exactly what a
+  // "something arrived while you had the app open" driver needs — a second
+  // mount would announce everything twice, and a mount inside a page would
+  // reset its seed on every route change and re-announce the backlog. It
+  // renders nothing; it reads fix-360's list and pushes it to the OS.
+  useDesktopAlerts();
 
   return (
     <div

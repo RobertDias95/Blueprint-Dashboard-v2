@@ -131,6 +131,18 @@ export interface NewItem {
    *  where that is true it is said out loud at the source rather than left to
    *  look like an omission. */
   target?: NewItemTarget;
+  /** ★★★ fix-369: THE PERSON BEHIND IT, when a person is recorded.
+   *
+   *  `subtitle` has said "Briana assigned you a task" since fix-363, but that
+   *  is a SENTENCE — and a sentence is not something another feature can ask a
+   *  question of. Deciding whether a notification may make a sound needs the
+   *  fact, not the prose, so the fact is a field.
+   *
+   *  ★★ Null keeps fix-363's meaning exactly: NOT RECORDED, which covers both
+   *  "the machine did it" and "this predates the audit". It is never "nobody",
+   *  and nothing here infers a name — see lib/desktopAlerts for why the safe
+   *  side of that ambiguity is silence. */
+  actor?: string | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -384,6 +396,12 @@ export function buildNewItems(input: NewItemsInput): NewItem[] {
         assignerOf(t.id),
         co && !assigned,
       ),
+      // ★★★ fix-369: the same fact, as a fact. 299 tasks were created in the
+      // six days after the epoch and exactly ONE of them has a person recorded
+      // as its assigner — 173 were bot-created. So "a task assigned to you"
+      // cannot be an audible event on its own, and this field is what lets the
+      // sound rule tell a colleague's assignment from the scraper's.
+      actor: assignerOf(t.id),
       // ★★ fix-364 §2: …and WHICH of the four. 11231 NE 67th St has four
       // Building Permits, so "address · Building Permit" named all of them
       // equally and none of them. The suffix appears only when the permit
