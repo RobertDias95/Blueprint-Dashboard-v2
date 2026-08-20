@@ -98,7 +98,11 @@ function renderPage() {
   });
   const wrapper = ({ children }: { children: ReactNode }) => (
     <QueryClientProvider client={qc}>
-      <MemoryRouter>{children}</MemoryRouter>
+      {/* ★ fix-374: ask for the view by URL — the report now greets you with
+          the recurring corrections. Assertions unchanged. */}
+      <MemoryRouter initialEntries={['/reports/corrections?view=prevalence']}>
+        {children}
+      </MemoryRouter>
     </QueryClientProvider>
   );
   return render(<CorrectionsReport />, { wrapper });

@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import {
   useCorrectionClusterDetail,
+  useCorrectionClusterDisciplines,
   useCorrectionClusterRanking,
   useRebuildCorrectionClusters,
   useSetCorrectionCuration,
@@ -16,6 +17,14 @@ import {
   wordingsOf,
   type CorrectionCluster,
 } from '../lib/correctionClusters';
+import {
+  breakdownSummary,
+  clusterDiscipline,
+  groupByDiscipline,
+  NOT_RECORDED,
+  SEVERAL,
+  type ClusterDiscipline,
+} from '../lib/correctionDisciplines';
 
 // ===========================================================================
 // ★★★ fix-372 — the two levels underneath the corrections report
@@ -58,6 +67,34 @@ export default function CorrectionPatterns() {
   // fix-298 / fix-370 pattern: never a silent filter.
   const verbatimQ = useCorrectionClusterRanking(juris, tier, true);
   const hiddenVerbatim = (verbatimQ.data ?? []).filter((r) => r.is_verbatim).length;
+
+  // ★★★ fix-374: THE DISCIPLINE EACH PILE IS ACTUALLY ABOUT.
+  //
+  // Bobby: *"it said General for this item, but it is a drainage correction."*
+  // The column was already right and already populated — all 476 `General`
+  // items carry a discipline — it simply was not the thing organising the view.
+  const disciplineQ = useCorrectionClusterDisciplines(juris, tier);
+  const disciplineByKey = useMemo(() => {
+    const byKey = new Map<string, Array<{ discipline: string; items: number }>>();
+    for (const row of disciplineQ.data ?? []) {
+      const bucket = byKey.get(row.cluster_key) ?? [];
+      bucket.push({ discipline: row.discipline, items: row.items });
+      byKey.set(row.cluster_key, bucket);
+    }
+    const out = new Map<string, ClusterDiscipline>();
+    for (const [key, slices] of byKey) out.set(key, clusterDiscipline(slices));
+    return out;
+  }, [disciplineQ.data]);
+
+  // ★★ `groupBy=subject` returns fix-372's flat ranking exactly as it was. The
+  // DEFAULT is by discipline, because that is the field that is right; the flat
+  // list stays one click away rather than being taken away.
+  const groupBy = params.get('groupBy') === 'subject' ? 'subject' : 'discipline';
+  const groups = useMemo(() => {
+    if (groupBy === 'subject') return [{ discipline: '', rows }];
+    return groupByDiscipline(rows, (r) =>
+      disciplineByKey.get(r.cluster_key)?.label ?? NOT_RECORDED);
+  }, [groupBy, rows, disciplineByKey]);
 
   const setParam = (key: string, value: string | null) => {
     const next = new URLSearchParams(params);
@@ -112,6 +149,33 @@ export default function CorrectionPatterns() {
             ))}
           </select>
         </label>
+
+        {/* ★★★ fix-374: WHAT ORGANISES THE LIST. Discipline is the default
+            because it is the column that is already correct; the city's subject
+            line stays available because fix-372's ranking rests on it. */}
+        <div className="flex gap-1" data-testid="patterns-groupby">
+          {(['discipline', 'subject'] as const).map((g) => (
+            <button
+              key={g}
+              type="button"
+              onClick={() => setParam('groupBy', g === 'discipline' ? null : g)}
+              className="text-[10.5px] font-bold px-2.5 py-1 rounded-md border transition"
+              style={{
+                background: groupBy === g ? 'var(--color-de)' : 'var(--color-surface)',
+                color: groupBy === g ? '#fff' : 'var(--color-muted)',
+                borderColor: groupBy === g ? 'var(--color-de)' : 'var(--color-border)',
+              }}
+              title={
+                g === 'discipline'
+                  ? 'Grouped by the discipline the comments are actually about, which the letters already record.'
+                  : "One ranked list, ordered by reach. The city's subject line is the only heading."
+              }
+              data-testid={`patterns-groupby-${g}`}
+            >
+              {g === 'discipline' ? 'By discipline' : 'One list'}
+            </button>
+          ))}
+        </div>
 
         <div className="flex gap-1" data-testid="patterns-tier">
           {(['subject', 'body'] as const).map((t) => (
@@ -202,25 +266,55 @@ export default function CorrectionPatterns() {
           </button>
         </div>
       ) : (
-        <div className="rounded-md border border-border overflow-hidden" data-testid="patterns-list">
-          {rows.map((c) => (
-            <PatternRow
-              key={c.cluster_key}
-              cluster={c}
-              open={openKey === c.cluster_key}
-              juris={juris}
-              onToggle={() =>
-                setParam('open', openKey === c.cluster_key ? null : c.cluster_key)
-              }
-              onDrillSubject={() => {
-                const next = new URLSearchParams(params);
-                next.set('tier', 'body');
-                next.set('subject', c.subject);
-                next.delete('open');
-                setParams(next, { replace: true });
-              }}
-              siblings={rows}
-            />
+        <div className="space-y-3" data-testid="patterns-list">
+          {groups.map((group) => (
+            <div key={group.discipline || '(all)'}>
+              {groupBy === 'discipline' && (
+                <div
+                  className="flex items-baseline gap-2 px-1 pb-1"
+                  data-testid={`patterns-group-${group.discipline}`}
+                >
+                  <h2 className="text-[11px] font-display font-bold text-text">
+                    {group.discipline}
+                  </h2>
+                  <span className="text-[10px] text-dim">
+                    {group.rows.length} pattern{group.rows.length === 1 ? '' : 's'}
+                  </span>
+                  {group.discipline === SEVERAL && (
+                    <span className="text-[10px] text-muted">
+                      — no one discipline owns these; the breakdown is on each row
+                    </span>
+                  )}
+                  {group.discipline === NOT_RECORDED && (
+                    <span className="text-[10px] text-muted">
+                      — the letters carry no discipline for these
+                    </span>
+                  )}
+                </div>
+              )}
+              <div className="rounded-md border border-border overflow-hidden">
+                {group.rows.map((c) => (
+                  <PatternRow
+                    key={c.cluster_key}
+                    cluster={c}
+                    discipline={disciplineByKey.get(c.cluster_key) ?? null}
+                    open={openKey === c.cluster_key}
+                    juris={juris}
+                    onToggle={() =>
+                      setParam('open', openKey === c.cluster_key ? null : c.cluster_key)
+                    }
+                    onDrillSubject={() => {
+                      const next = new URLSearchParams(params);
+                      next.set('tier', 'body');
+                      next.set('subject', c.subject);
+                      next.delete('open');
+                      setParams(next, { replace: true });
+                    }}
+                    siblings={rows}
+                  />
+                ))}
+              </div>
+            </div>
           ))}
         </div>
       )}
@@ -230,6 +324,7 @@ export default function CorrectionPatterns() {
 
 function PatternRow({
   cluster,
+  discipline,
   open,
   juris,
   onToggle,
@@ -237,6 +332,8 @@ function PatternRow({
   siblings,
 }: {
   cluster: CorrectionCluster;
+  /** fix-374: null only while the breakdown is still loading. */
+  discipline: ClusterDiscipline | null;
   open: boolean;
   juris: string | null;
   onToggle: () => void;
@@ -255,6 +352,27 @@ function PatternRow({
       >
         <div className="flex items-baseline gap-2 flex-wrap">
           <span className="text-[12px] font-bold text-text">{clusterName(cluster)}</span>
+          {/* ★★★ fix-374: THE DISCIPLINE, BESIDE THE CITY'S WORD FOR IT.
+              This is the whole of Bobby's complaint: the pile said `General`
+              and the comments were about drainage. The subject stays — it is
+              what fix-372 ranks on and where the city gives a coded one it IS
+              the correction — but it no longer stands alone. */}
+          {discipline && discipline.mixed ? (
+            <span
+              className="text-[9px] px-1 rounded bg-s2 text-muted"
+              title={`No single discipline owns this pile — ${breakdownSummary(discipline, 5)}`}
+              data-testid={`pattern-discipline-${cluster.cluster_key}`}
+            >
+              {breakdownSummary(discipline)}
+            </span>
+          ) : discipline ? (
+            <span
+              className="text-[9px] px-1 rounded bg-de-bg text-de"
+              data-testid={`pattern-discipline-${cluster.cluster_key}`}
+            >
+              {discipline.label}
+            </span>
+          ) : null}
           {cluster.display_name && (
             <span className="text-[9px] text-dim" title={`Machine name: ${cluster.label}`}>
               renamed

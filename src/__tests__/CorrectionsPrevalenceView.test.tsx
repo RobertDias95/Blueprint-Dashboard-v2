@@ -103,7 +103,13 @@ function renderPage() {
   });
   const wrapper = ({ children }: { children: ReactNode }) => (
     <QueryClientProvider client={qc}>
-      <MemoryRouter>{children}</MemoryRouter>
+      {/* ★ fix-374: the report GREETS you with the recurring corrections now
+          (Bobby: "seems complicated to find"), so these fix-279 tests ask for
+          the prevalence view by URL. Every assertion below is untouched; only
+          the way of getting there is new. The landing view has its own suite. */}
+      <MemoryRouter initialEntries={['/reports/corrections?view=prevalence']}>
+        {children}
+      </MemoryRouter>
     </QueryClientProvider>
   );
   return render(<CorrectionsReport />, { wrapper });
@@ -123,6 +129,11 @@ beforeEach(() => {
 
 describe('fix-279 the prevalence view', () => {
   it('opens on prevalence — the question the business asked', async () => {
+    // ★★ fix-374 supersedes the "opens on" half of this fix-279 contract, and
+    // deliberately: Bobby could not find the drill-down and it is the reason
+    // fix-372 exists. Prevalence is still the question the business asked and
+    // is now one click (or one `?view=`) away; what changed is which question
+    // greets you. `RecurringCorrections.test.tsx` owns the new default.
     renderPage();
     await screen.findByTestId('corrections-prevalence');
     expect(screen.getByTestId('corrections-view-prevalence'))
