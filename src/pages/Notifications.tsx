@@ -11,6 +11,7 @@ import {
   type NewItemSource,
 } from '../lib/boardReads';
 import { targetHref } from '../lib/notificationTargets';
+import TaskProvenance from '../components/TaskProvenance';
 import type { ScraperActivityRow } from '../lib/database.types';
 
 // ===========================================================================
@@ -291,6 +292,21 @@ export default function NotificationsPage() {
                 </Link>
                 {/* ★★ fix-339: a shared item is ANSWERED, not acknowledged — and
                     it must never offer "mark read". */}
+                {/* ★★ fix-363 — SURFACE 3 OF 3. Bobby named the notification
+                    first: "Brianna assigned you a task" is the sentence, and
+                    the panel behind it is where you find out who else has
+                    touched the thing. Only on task items — a status flip has no
+                    assignee to ask about. */}
+                {(i.source === 'task' || i.source === 'auto_closed') &&
+                  i.target?.kind === 'task' && (
+                    <span className="flex-none mt-0.5">
+                      <TaskProvenance
+                        taskId={i.target.taskId}
+                        label="Who?"
+                        align="right"
+                      />
+                    </span>
+                  )}
                 {i.audience === 'shared' ? (
                   <button
                     type="button"

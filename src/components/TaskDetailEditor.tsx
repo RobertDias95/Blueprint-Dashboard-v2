@@ -1,3 +1,4 @@
+import TaskProvenance from './TaskProvenance';
 import { useMemo } from "react";
 import { Link } from "react-router-dom";
 import { useUpsertTask, useSetTaskAssignees } from "../hooks/useTaskTree";
@@ -191,6 +192,14 @@ export default function TaskDetailEditor({
           color={BUCKET_ACCENT[bucketOf(task)]}
           testid="mytasks-detail-bucket"
         />
+        {/* ★★ fix-363 — SURFACE 1 OF 3: My Tasks / My Board's detail pane.
+            Bobby: "you should be able to open up the task and see who created
+            it and who assigned it to you, because you want to be able to reach
+            out to that person." The same component the permit's task bar and
+            the notification centre render — see components/TaskProvenance. */}
+        <span className="ml-auto">
+          <TaskProvenance taskId={task.id} align="right" />
+        </span>
       </header>
 
       <div

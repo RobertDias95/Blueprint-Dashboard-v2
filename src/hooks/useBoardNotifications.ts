@@ -11,6 +11,7 @@ import { useMyMentions } from './useProjectMessages';
 import { useAutoClosures } from './useAutoClosures';
 import { useMyPostRequests } from './usePostRequests';
 import { useMyPostReactions } from './useMyPostReactions';
+import { useTaskAssigners } from './useTaskProvenance';
 import { useAuthStore } from '../stores/authStore';
 import { parseFlips } from '../lib/boardFlips';
 import { buildNewItems, unseenItems, type NewItem } from '../lib/boardReads';
@@ -83,6 +84,8 @@ export function useBoardNotifications(): BoardNotifications {
   const autoClosuresQ = useAutoClosures();
   // ★ fix-360 §2: applause on your own posts, one row per reaction.
   const reactionsQ = useMyPostReactions();
+  // ★ fix-363: who assigned each recent task, for the sentence that names them.
+  const assignersQ = useTaskAssigners();
   const viewerUserId = useAuthStore((s) => s.user?.id ?? null);
 
   const viewer = useMemo(
@@ -112,6 +115,7 @@ export function useBoardNotifications(): BoardNotifications {
         postRequests: postRequestsQ.data ?? [],
         autoClosures: autoClosuresQ.data ?? [],
         reactions: reactionsQ.data ?? [],
+        taskAssigners: assignersQ.data ?? [],
       }),
     [
       activityQ.data,
@@ -125,6 +129,7 @@ export function useBoardNotifications(): BoardNotifications {
       postRequestsQ.data,
       autoClosuresQ.data,
       reactionsQ.data,
+      assignersQ.data,
     ],
   );
 

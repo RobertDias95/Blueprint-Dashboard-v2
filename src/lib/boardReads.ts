@@ -10,6 +10,7 @@ import {
 } from './postReactions';
 import { keyForMention } from './projectChat';
 import type { NewItemTarget } from './notificationTargets';
+import { assignedSubtitle } from './taskProvenance';
 import type { Project, PermitWithCycles } from './database.types';
 
 // fix-307 (register #36–#41) — the badge counts what is UNSEEN, not what is
@@ -231,6 +232,15 @@ export interface NewItemsInput {
    *  the viewer's own already excluded server-side. Optional so every existing
    *  caller and fixture keeps working unchanged. */
   reactions?: ReadonlyArray<PostReactionRow>;
+  /** ★★ fix-363: who assigned each recently-assigned task, so the notification
+   *  can say "Briana assigned you a task" rather than "Assigned to you".
+   *
+   *  ★ Only tasks whose assignment carries a recorded actor appear here —
+   *  `bp_task_assigners` filters `actor_uid IS NOT NULL`. An absent task means
+   *  NOT RECORDED, and the title degrades to the wording it has had since
+   *  fix-307 rather than inventing a person. Optional, so every existing caller
+   *  and fixture keeps working unchanged. */
+  taskAssigners?: ReadonlyArray<{ task_id: string; actor_name: string | null }>;
 }
 
 /** ★ fix-339: the minimum a post request needs to become a board item. */
@@ -287,6 +297,11 @@ export function buildNewItems(input: NewItemsInput): NewItem[] {
   const out: NewItem[] = [];
   const addressOf = (permitId: number | null) =>
     input.permits.find((p) => p.id === permitId);
+  /** ★ fix-363: the recorded assigner, or null. Never a guess — see the input's
+   *  own note for why an absent entry is "not recorded" rather than "nobody". */
+  const assignerOf = (taskId: string): string | null =>
+    (input.taskAssigners ?? []).find((a) => a.task_id === taskId)?.actor_name ??
+    null;
 
   // 1. Status flips the scraper detected. parseFlips has already dropped the
   // retry-recovered and manual-edit-guard actions (50.8 and 14.5 a day) and
@@ -359,7 +374,15 @@ export function buildNewItems(input: NewItemsInput): NewItem[] {
       key: keyForTask(t.id),
       source: 'task',
       title: t.text,
-      subtitle: co && !assigned ? 'Added as co-assignee' : 'Assigned to you',
+      // ★★ fix-363: THE NAME, when it is recorded. Bobby's own sentence —
+      // "Brianna assigned you a task" — and the point of the feature is that it
+      // is a name you can go and talk to. `assignedSubtitle` falls back to the
+      // pre-fix-363 wording when nothing was recorded, which is every task
+      // assigned before 2026-08-20.
+      subtitle: assignedSubtitle(
+        assignerOf(t.id),
+        co && !assigned,
+      ),
       where: `${t.project_address ?? 'Unknown address'} · ${t.permit_type ?? 'Permit'}`,
       at: t.created_at ?? '',
       permitId: t.permit_id,
