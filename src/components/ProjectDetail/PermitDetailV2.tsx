@@ -1,3 +1,4 @@
+import TaskProvenance from '../TaskProvenance';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { effectiveStage } from '../../lib/permitStage';
@@ -2481,6 +2482,11 @@ function TaskItem({
         <span data-testid={`task-done-${task.id}`}>
           Done: {task.done_at ? task.done_at.slice(0, 10) : '—'}
         </span>
+        {/* ★★ fix-363 — SURFACE 2 OF 3: the permit's own task bar. The SAME
+            component My Tasks' detail pane and the notification centre render;
+            three tellings of the same four facts would drift, and this codebase
+            has paid for that twice. */}
+        <TaskProvenance taskId={task.id} />
         {!isSubtask && (
           <button
             type="button"

@@ -301,6 +301,12 @@ export const queryKeys = {
   // correction_items one: it is driven by permits.corr_rounds and permit_cycles
   // as much as by correction_items, so an indexer run is not the only thing
   // that can change it.
+  // ★ fix-363: one task's provenance, fetched only when its panel is opened.
+  taskProvenanceAll: ['task_provenance'] as const,
+  taskProvenance: (tenantId: string, taskId: string) =>
+    ['task_provenance', tenantId, { taskId }] as const,
+  // ★ …and the bulk "who assigned this" read behind the notification sentence.
+  taskAssignersAll: ['task_assigners'] as const,
   correctionMissingWorklistAll: ['correction_missing_worklist'] as const,
   correctionMissingWorklist: (tenantId: string) =>
     ['correction_missing_worklist', tenantId] as const,
@@ -314,7 +320,14 @@ export const REALTIME_TABLES = {
   permits: [queryKeys.permitsAll, queryKeys.projectsAll],
   permit_cycles: [queryKeys.permitsAll, queryKeys.permitCyclesAll],
   // fix-notes-2: a task change also refreshes the dashboard "waiting on" cards.
-  permit_tasks: [queryKeys.permitTasksAll, queryKeys.dashboardPermitCardsAll],
+  // ★ fix-363: a task edit rewrites its own history, so the provenance panel
+  // and the notification's "who assigned it" both refresh from the same event.
+  permit_tasks: [
+    queryKeys.permitTasksAll,
+    queryKeys.dashboardPermitCardsAll,
+    queryKeys.taskProvenanceAll,
+    queryKeys.taskAssignersAll,
+  ],
   draw_schedule: [queryKeys.drawScheduleAll, queryKeys.permitsAll],
   intake_records: [queryKeys.intakeRecordsAll],
   // fix-31: scraper writes reviewer rows -> bell badge ticks + Project

@@ -61,6 +61,13 @@ vi.mock('../hooks/useProjectMessages', () => ({
 vi.mock('../hooks/useAutoClosures', () => ({
   useAutoClosures: () => ({ data: [], isLoading: false, error: null }),
 }));
+// ★ fix-363 mocks the tenth input: the notification's subtitle now names the
+// person who assigned the task ("Briana assigned you a task"), which is one
+// more query — and these suites render without a QueryClient by design.
+vi.mock('../hooks/useTaskProvenance', () => ({
+  useTaskAssigners: () => ({ data: [], isLoading: false, error: null }),
+  useTaskProvenance: () => ({ data: [], isLoading: false, error: null }),
+}));
 vi.mock('../hooks/useMyPostReactions', () => ({
   useMyPostReactions: () => ({
     data: state.reactions,
