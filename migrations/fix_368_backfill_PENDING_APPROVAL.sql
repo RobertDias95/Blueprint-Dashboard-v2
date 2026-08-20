@@ -1,0 +1,68 @@
+-- ===========================================================================
+-- ★★★ fix-368 §5 — THE BACKFILL. NOT APPLIED. AWAITING BOBBY'S APPROVAL.
+-- ===========================================================================
+--
+-- ★★★ THIS FILE HAS NOT BEEN RUN AGAINST ANY DATABASE. The trigger shipped in
+-- migrations/fix_368_coassign_project_manager.sql only fires on future writes;
+-- Cam's 14 tasks and Shire's 6 already exist and will not gain a manager
+-- without this — exactly the situation fix-346 left behind, which also needed
+-- a separate approved migration.
+--
+-- ★★ The standing rule for the ticket is "no data changes without approval",
+-- and this is a data change. The ROWS are in the PR body so Bobby approves the
+-- rows and not merely the rule.
+--
+-- ---------------------------------------------------------------------------
+-- WHAT IT WOULD WRITE — measured on prod 2026-08-20, 20 rows
+-- ---------------------------------------------------------------------------
+--
+--   Cam    233 31st Ave E       → Lindsay     4 tasks
+--   Cam    4017 Corliss Ave N   → Brittani    3
+--   Cam    4137 54th Ave SW     → Jade        4
+--   Cam    554 N 75th St        → Brittani    3
+--   Shire  10431 SE 19th St     → Brittani    6
+--                                            ──
+--                                            20
+--
+-- ★ Three different managers for Cam, which is the whole point of the ticket:
+-- a single dm_da_groups row would have sent two thirds of his work to the
+-- wrong person.
+--
+-- ★ Nothing lands on a project without a design manager today, so no task is
+-- silently skipped by this run. bp_coassign_gap_report() is the standing
+-- surface for that, and it returns zero rows.
+--
+-- ---------------------------------------------------------------------------
+-- ★★ WHAT IT WILL NOT TOUCH
+-- ---------------------------------------------------------------------------
+-- · the 48 existing `dm_of_da` rows — the person-derived mapping is unchanged
+--   and this INSERT cannot reach them (the WHERE excludes mapped assignees);
+-- · the 268 `manual` rows — ON CONFLICT DO NOTHING leaves an existing row of
+--   any source exactly as it is, so a hand-made co-assignment naming the same
+--   manager keeps its `manual` marker rather than being relabelled;
+-- · anything Resolved or Cancelled — a manager added to work that closed
+--   months ago is noise, which is what fix-355 spent a ticket removing.
+--
+-- ★ It is idempotent: re-running writes nothing, because every row it would
+-- add already exists.
+
+-- BEGIN;
+
+-- INSERT INTO public.permit_task_assignees (tenant_id, task_id, assignee, source)
+-- SELECT t.tenant_id,
+--        t.id,
+--        NULLIF(btrim(pr.design_manager), ''),
+--        'dm_of_project'
+--   FROM public.permit_tasks t
+--   JOIN public.permits  p  ON p.id  = t.permit_id
+--   JOIN public.projects pr ON pr.id = p.project_id
+--  WHERE t.completion_status NOT IN ('Resolved', 'Cancelled')
+--    -- ★ THE RULE, from the same function the triggers use, so the backfill
+--    -- cannot disagree with what happens from now on.
+--    AND public.bp_is_unmapped_active_da(t.assigned_to, t.tenant_id)
+--    AND NULLIF(btrim(COALESCE(pr.design_manager, '')), '') IS NOT NULL
+--    -- ★ Never co-assign somebody to their own task.
+--    AND lower(btrim(t.assigned_to)) <> lower(btrim(pr.design_manager))
+--  ON CONFLICT (task_id, assignee) DO NOTHING;
+
+-- COMMIT;
