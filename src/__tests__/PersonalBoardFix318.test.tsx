@@ -87,6 +87,10 @@ vi.mock('../hooks/useProjectHolds', () => ({
 }));
 vi.mock('../hooks/useScraperActivity', () => ({
   useScraperActivity: () => ({ data: [] }),
+  // ★ fix-370: the model reads a second, uncapped aggregate for the TRUE
+  // suppressed totals. Null here = the pre-fix-370 fallback (count the page),
+  // which keeps every existing expectation in this suite meaningful.
+  useScraperActivitySummary: () => ({ data: null }),
 }));
 vi.mock('../hooks/useMilestoneAcks', () => ({
   useMilestoneAcks: () => ({ data: [] }),

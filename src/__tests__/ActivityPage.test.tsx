@@ -89,6 +89,10 @@ vi.mock('../hooks/useScraperActivity', () => ({
   }),
   SCRAPER_ACTIVITY_DAYS_DEFAULT: 14,
   SCRAPER_ACTIVITY_ROW_CAP: 300,
+  // ★ fix-370: the model reads a second, uncapped aggregate for the TRUE
+  // suppressed totals. Null here = the pre-fix-370 fallback (count the page),
+  // which keeps every existing expectation in this suite meaningful.
+  useScraperActivitySummary: () => ({ data: null }),
 }));
 
 import ActivityPage from '../pages/ActivityPage';

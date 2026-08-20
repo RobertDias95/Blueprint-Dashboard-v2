@@ -1,5 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useScraperActivity } from '../hooks/useScraperActivity';
+import {
+  useScraperActivity,
+  useScraperActivitySummary,
+  SCRAPER_ACTIVITY_DAYS_DEFAULT,
+} from '../hooks/useScraperActivity';
+import { activityWindowLabel } from '../lib/activityWindow';
 import {
   categorizeAction,
   countUnreadByIds,
@@ -65,6 +70,12 @@ function saveEntFilter(set: Set<string>) {
 
 export default function ActivityPage() {
   const { data: rows, isLoading, error, refetch } = useScraperActivity();
+  // ★★★ fix-370 §4 — THE PAGE HAD THE SAME WOUND AS THE BELL, and worse,
+  // because this screen IS the activity feed: "N events in the last 14 days"
+  // was N events in the last NINETEEN HOURS, printed with a fortnight's label.
+  // The summary is the uncapped truth for the same window; the header now
+  // prints both numbers when they differ, and one when they do not.
+  const summaryQ = useScraperActivitySummary();
   const all = useMemo(() => rows ?? [], [rows]);
 
   // One-time migration from fix-27's last-seen timestamp.
@@ -179,9 +190,13 @@ export default function ActivityPage() {
       <div className="flex items-baseline justify-between flex-wrap gap-3">
         <div className="flex items-baseline gap-3">
           <h1 className="text-xl font-extrabold text-text">Activity</h1>
-          <span className="text-[11px] text-muted">
-            {totalUnread} unread · {all.length} event
-            {all.length === 1 ? '' : 's'} in the last 14 days
+          <span className="text-[11px] text-muted" data-testid="activity-window-label">
+            {totalUnread} unread ·{' '}
+            {activityWindowLabel(
+              summaryQ.data ?? null,
+              all.length,
+              SCRAPER_ACTIVITY_DAYS_DEFAULT,
+            )}
           </span>
         </div>
         <button
@@ -260,7 +275,7 @@ function EmptyState({
       </div>
       <div className="text-xs text-muted mb-3">
         {totalCount === 0
-          ? "There's no scraper activity in the last 14 days yet."
+          ? `There's no scraper activity in the last ${SCRAPER_ACTIVITY_DAYS_DEFAULT} days yet.`
           : `${totalCount} event${totalCount === 1 ? '' : 's'} hidden by your filters.`}
       </div>
       {totalCount > 0 && (
