@@ -66,7 +66,8 @@ import type {
   Stage,
   TaskNode,
 } from '../../lib/database.types';
-import { WAITING_ON_OPTIONS } from '../../lib/database.types';
+import { useAppConfig } from '../../hooks/useAppConfig';
+import { waitingOnOptions } from '../../lib/waitingOn';
 import { useProjectExternalTeamBlob } from '../../hooks/useProjectExternalTeamBlob';
 import BotBadge from '../shared/BotBadge';
 import AutoClosedBadge from '../shared/AutoClosedBadge';
@@ -2227,6 +2228,10 @@ function TaskItem({
   }
   // fix-149: firm assigned for this task's Waiting On discipline (sub-label).
   const waitingOnFirm = externalTeam.resolve(task.waiting_on);
+  // ★★ fix-364 §3: the Settings-managed list, always carrying this task's own
+  // value so a deleted option cannot blank it.
+  const waitingOnCfg = useAppConfig();
+  const waitingOnChoices = waitingOnOptions(waitingOnCfg.map, task.waiting_on);
 
   return (
     <div
@@ -2460,7 +2465,9 @@ function TaskItem({
             data-testid={`task-waiting-on-${task.id}`}
           >
             <option value="">—</option>
-            {WAITING_ON_OPTIONS.map((d) => (
+            {/* ★★ fix-364 §3: app_config-backed, and always including this
+                task's own value so a Settings deletion cannot blank it. */}
+            {waitingOnChoices.map((d) => (
               <option
                 key={d}
                 value={d}

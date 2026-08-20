@@ -10,9 +10,35 @@
 // ★ It renders on RESOLVED rows only, because that is the only state in which
 // the sentence is true. Nothing else in the app writes the column.
 
+// ★★★ fix-364 §1 — EVERY REASON, NOT JUST THE FIRST ONE.
+//
+// Found while checking the readers for the rename: this map had ONE entry, so
+// all five of fix-355's `superseded_*` closures fell through to the generic
+// "Closed automatically by the system." The badge never blanked — the fallback
+// saw to that — but it also never said anything, which is the quieter version
+// of the same failure and would have survived the rename unnoticed.
+//
+// ★ The wording is fix-355's own evidence sentence, in the tooltip's register:
+// the rule that fired, in terms of what the CITY did, so a reader can check the
+// judgement rather than take it.
 const REASON_LABEL: Record<string, string> = {
   permit_issued:
     'Closed automatically: the permit was issued, so this work no longer applies. Nobody ticked it — reopen it if it still matters.',
+  // ★★ fix-364 §1: RENAMED from `superseded_intake_accepted`, which described
+  // the EVIDENCE and read like the rule Bobby excluded from fix-355 ("build it,
+  // minus intake_accepted" — a different rule, which would have closed tasks
+  // whose own job is intake_accepted). Two things, near-identical names, side
+  // by side in one feed. One concept, one term.
+  superseded_by_intake_acceptance:
+    'Closed automatically: the city has since accepted intake on this permit, so this check has been overtaken. Reopen it if it still applies.',
+  superseded_next_cycle:
+    'Closed automatically: the permit has moved to a later review cycle. Reopen it if it still applies.',
+  superseded_resubmitted:
+    'Closed automatically: the city recorded our resubmission, so this round is done. Reopen it if it still applies.',
+  superseded_status_matched:
+    'Closed automatically: the dashboard now shows what the portal showed, so there is nothing left to reconcile.',
+  superseded_number_present:
+    'Closed automatically: the permit number is on file and the city has a submitted record of it.',
 };
 
 export default function AutoClosedBadge({

@@ -45,6 +45,14 @@ interface SeedPermit {
   ent_lead: string | null;
   da: string | null;
   type: string | null;
+  // ★★ fix-364 §2: the fields the SQL now reads to tell siblings apart, and
+  // `siblings` — how many permits share this one's project AND type, which the
+  // function counts for itself. The mirror takes it as an input because a
+  // mirror models the function, not the table.
+  id?: number;
+  nickname?: string | null;
+  struct_address?: string | null;
+  siblings?: number;
 }
 interface SeedProject {
   address: string | null;
@@ -111,7 +119,26 @@ function buildLifecycleTask(
   if (!(EVENTS as string[]).includes(event)) {
     throw new Error(`bp_create_lifecycle_task: unknown event ${event}`);
   }
-  const numLabel = nullifTrim(permit.num) ?? 'no number yet';
+  // ★★★ fix-364 §2 — THE DISCRIMINATOR, mirrored exactly.
+  //
+  // Four Building Permits at 11231 NE 67th St produced four identical
+  // "Enter permit number …" rows. NULL unless the permit actually has a
+  // same-type sibling: 484 of 542 permits are the only one of their type, and
+  // a suffix on those is noise on hundreds of rows to serve the 58 that need
+  // it. Ordered stored-field-first, id last — nothing is derived from position
+  // or count, because "the 2nd of 4" renumbers when a sibling is deleted.
+  const discriminator =
+    (permit.siblings ?? 1) > 1
+      ? (nullifTrim(permit.nickname ?? null) ??
+        nullifTrim(permit.struct_address ?? null) ??
+        nullifTrim(permit.num) ??
+        (permit.id != null ? `Permit #${permit.id}` : null))
+      : null;
+  // ★ AND IT FIXES EVERY EVENT, not only number_entry: `no number yet` named
+  // four numberless siblings equally too.
+  const numLabel =
+    nullifTrim(permit.num) ??
+    (discriminator ? `no number yet — ${discriminator}` : 'no number yet');
   const cyc = cycleIdx == null ? '?' : String(cycleIdx);
   const bucket: 'de' | 'pm' =
     event === 'number_entry'
@@ -143,7 +170,9 @@ function buildLifecycleTask(
     case 'number_entry':
       title = `Enter permit number — was this submitted? — ${
         nullifTrim(permit.type) ?? 'permit'
-      } @ ${nullifTrim(project.address) ?? 'project'}`;
+      } @ ${nullifTrim(project.address) ?? 'project'}${
+        discriminator ? ` — ${discriminator}` : ''
+      }`;
       break;
     case 'scrape_reconcile':
       title = `Reconcile: portal shows ${cap60(opts.observedStatus) || '?'} — dashboard shows ${

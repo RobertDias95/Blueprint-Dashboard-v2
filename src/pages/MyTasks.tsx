@@ -1,3 +1,5 @@
+import { usePermits } from '../hooks/usePermits';
+import { taskPermitSuffix } from '../lib/permitDiscriminator';
 import { nestSubtasks, type TaskGroup } from '../lib/taskNesting';
 import { useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
@@ -1243,6 +1245,13 @@ function TaskCard({
   const upsert = useUpsertTask();
   const overdue = isOverdue(task, today);
   const visual = checkboxVisual(task.status);
+  // ★★ fix-364 §2: WHICH permit, when the address and type do not say. Read
+  // from the permit list the board already holds — React Query dedupes it, so
+  // this costs no fetch, and the alternative (widening bp_list_tasks, the RPC
+  // behind every task surface in the app) would be a large blast radius for a
+  // label.
+  const permitsQ = usePermits();
+  const permitSuffix = taskPermitSuffix(task.permit_id, permitsQ.data ?? []);
 
   // fix-235: the checkbox advances FORWARD only — Open → In Progress →
   // Resolved — and stops at Resolved (a further click is a no-op so a
@@ -1376,6 +1385,20 @@ function TaskCard({
             data-testid={`mytask-card-${task.id}-type`}
           >
             {task.permit_type}
+            {/* ★★ fix-364 §2: WHICH of the four. Four Building Permits on one
+                address produced four identical cards; the discriminator rides
+                the type chip because that is the half of the label that was
+                ambiguous. Absent — and costing nothing — for the 484 permits
+                that are the only one of their type on their project. */}
+            {permitSuffix ? (
+              <span
+                className="ml-1 font-extrabold"
+                style={{ color: 'var(--color-de)' }}
+                data-testid={`mytask-card-${task.id}-permit-label`}
+              >
+                {permitSuffix.replace(' · ', '')}
+              </span>
+            ) : null}
           </span>
         )}
         <span

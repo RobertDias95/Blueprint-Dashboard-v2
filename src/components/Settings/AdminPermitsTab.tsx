@@ -1,6 +1,7 @@
 import PermitTypeEditor from './PermitTypeEditor';
 import TaskTemplateEditor from './TaskTemplateEditor';
 import TargetSubmitFormulasEditor from './TargetSubmitFormulasEditor';
+import WaitingOnOptionsEditor from './WaitingOnOptionsEditor';
 import PhaseDurationsReport from '../../pages/PhaseDurationsReport';
 import { useIsTenantAdmin } from '../../hooks/useIsTenantAdmin';
 
@@ -40,6 +41,13 @@ export default function AdminPermitsTab() {
           applies to ALL juris where no specific override exists.
         </p>
         <TaskTemplateEditor readOnly={!isAdmin} />
+      </div>
+      {/* ★★ fix-364 §3: "Waiting on" joins the four app_config lists already
+          edited this way. It sits under Task Templates because it is a field of
+          a TASK — the templates above set a task's waiting_on, and this is the
+          vocabulary they set it from. */}
+      <div className="bg-surface border border-border rounded-lg p-4">
+        <WaitingOnOptionsEditor readOnly={!isAdmin} />
       </div>
       <div className="bg-surface border border-border rounded-lg p-4">
         <TargetSubmitFormulasEditor readOnly={!isAdmin} />

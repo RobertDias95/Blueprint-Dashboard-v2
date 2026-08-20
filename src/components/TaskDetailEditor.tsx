@@ -1,3 +1,5 @@
+import { useAppConfig } from '../hooks/useAppConfig';
+import { waitingOnOptions } from '../lib/waitingOn';
 import TaskProvenance from './TaskProvenance';
 import { useMemo } from "react";
 import { Link } from "react-router-dom";
@@ -23,7 +25,6 @@ import {
   type TaskWriteStatus,
 } from "../lib/taskStatus";
 import {
-  WAITING_ON_OPTIONS,
   type MyTaskNode,
   type TeamMember,
 } from "../lib/database.types";
@@ -63,6 +64,12 @@ export default function TaskDetailEditor({
   members: TeamMember[];
 }) {
   const upsert = useUpsertTask();
+  // ★★ fix-364 §3: "Waiting on" is a Settings-managed list now — the last of
+  // its kind still hardcoded. `waitingOnOptions` appends this task's own value
+  // when an admin has since removed it, which is the whole of the answer to
+  // "what happens when somebody deletes an option that tasks are using".
+  const waitingOnCfg = useAppConfig();
+  const waitingOnChoices = waitingOnOptions(waitingOnCfg.map, task.waiting_on);
   const setAssignees = useSetTaskAssignees();
   const dmRows = useDmDaGroups().rows;
   // fix-228: ent_lead + schematic designers for PRIMARY-owner resolution come
@@ -290,7 +297,11 @@ export default function TaskDetailEditor({
             data-testid="task-detail-waiting-on"
           >
             <option value="">—</option>
-            {WAITING_ON_OPTIONS.map((opt) => (
+            {/* ★★ fix-364 §3: the list is app_config-backed and admin-editable,
+                and it ALWAYS contains this task's current value — deleting an
+                option in Settings must not blank the tasks using it. See
+                lib/waitingOn. */}
+            {waitingOnChoices.map((opt) => (
               <option key={opt} value={opt}>
                 {opt}
               </option>

@@ -708,6 +708,27 @@ export interface PermitTask {
  *  cycle. Matches the same pattern as the existing free-form `cat` +
  *  `assigned_to` text columns. The fix-139 reporting view will GROUP BY
  *  this string. */
+/** ★★ fix-364 §1: every value `permit_tasks.auto_closed_reason` may hold, and
+ *  the same list the DB CHECK enforces.
+ *
+ *  ★★★ `superseded_by_intake_acceptance` was `superseded_intake_accepted` until
+ *  fix-364. The old name described the EVIDENCE — the city accepted intake —
+ *  and read like the rule Bobby EXCLUDED from fix-355 ("build it, minus
+ *  intake_accepted"), which was a different thing entirely: closing tasks whose
+ *  own job is `intake_accepted` (measured: it would have closed 0 of 17). Two
+ *  different concepts with near-identical names, sitting next to each other in
+ *  one feed. Renamed on 13 prod rows in the same migration, because leaving
+ *  both spellings in circulation is worse than either. */
+export const AUTO_CLOSED_REASONS = [
+  'permit_issued',
+  'superseded_by_intake_acceptance',
+  'superseded_next_cycle',
+  'superseded_resubmitted',
+  'superseded_status_matched',
+  'superseded_number_present',
+] as const;
+export type AutoClosedReason = (typeof AUTO_CLOSED_REASONS)[number];
+
 export const WAITING_ON_OPTIONS = [
   'Civil',
   // fix-190d: canonical survey term is 'Surveyor' (matches the external-team
@@ -843,7 +864,11 @@ export interface TaskNode {
    *  by bp_clear_tasks_for_issued_permit — the one-time clear AND the standing
    *  rule share it, so a person looking at a completed task can always tell it
    *  was not somebody's tick. */
-  auto_closed_reason?: 'permit_issued' | null;
+  /** ★★ fix-364 §1: the FULL vocabulary. This said `'permit_issued' | null`
+   *  until now, which had been wrong since fix-355 added five more values —
+   *  a latent reader, and the kind that goes unnoticed because a narrower type
+   *  never fails at runtime. The set matches the DB CHECK constraint exactly. */
+  auto_closed_reason?: AutoClosedReason | null;
   /** fix-304: when the row was created. Added to bp_list_tasks so the bell can
    *  fold a bot task and the status flip that spawned it into ONE row
    *  (register #18) — the merge rule is a ~15-minute window and needs a
