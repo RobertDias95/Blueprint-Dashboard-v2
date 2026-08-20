@@ -188,20 +188,26 @@ describe('fix-319 #76: Settings is a page', () => {
 // ---------------------------------------------------------------------------
 
 describe('fix-319 ★★ /settings/reporting and /settings/errors still work', () => {
-  // ★ THE ASSERTION THAT PROTECTS fix-317. The whole Reports group routes
-  // through "Saved reports" → /settings/reporting.
-  it('★★ /settings/reporting renders the Saved reports shelf', () => {
-    renderAt('/settings/reporting');
-    expect(screen.getByTestId('stub-section-reporting')).toBeInTheDocument();
-    // It is the SAME component the hub page used to wrap — one shelf, not two.
-    expect(sectionForPath('/settings/reporting')!.id).toBe('reporting');
+  // ★★★ fix-367 MOVED the shelf out of Settings — "Saved Reports should just be
+  // the reporting feature, and then system settings would lose the Reporting
+  // tab" — so these two assertions were retargeted rather than deleted. What
+  // fix-319 was protecting is that the ADDRESS still resolves and the ribbon
+  // still reaches the shelf; both are still true, at /reports/saved.
+  it('★★ /settings/reporting still resolves — as a redirect, not a section', () => {
+    expect(routerSrc).toContain("path: 'settings/reporting'");
+    expect(routerSrc).toMatch(/settings\/reporting[\s\S]{0,200}Navigate to="\/reports\/saved"/);
+    // ★ It is no longer a Settings SECTION, which is the half Bobby asked for.
+    expect(sectionForPath('/settings/reporting')).toBeNull();
+    expect(SETTINGS_SECTIONS.map((s) => s.path)).not.toContain('/settings/reporting');
   });
 
-  it('★★ and the ribbon entry still reaches it', () => {
-    expect(allRibbonRoutes()).toContain('/settings/reporting');
+  it('★★ and the ribbon entry still reaches the shelf, at its new address', () => {
+    expect(allRibbonRoutes()).toContain('/reports/saved');
+    expect(allRibbonRoutes()).not.toContain('/settings/reporting');
     const reports = RIBBON_ENTRIES.find((e) => e.kind === 'group' && e.group.id === 'reports');
     const kids = reports!.kind === 'group' ? reports!.group.children : [];
-    expect(kids.find((k) => k.to === '/settings/reporting')!.label).toBe('Saved reports');
+    // ★ fix-317's decision — the group reads Overview + Saved reports — stands.
+    expect(kids.find((k) => k.to === '/reports/saved')!.label).toBe('Saved reports');
   });
 
   it('★★ /settings/errors still reaches error triage, untouched', () => {
@@ -231,7 +237,9 @@ describe('fix-319 ★ admin gating survives the move to URLs', () => {
       projects: true,
       permits: true,
       schedule: true,
-      reporting: true,
+      // ★ fix-367: `reporting` is no longer a section. Its admin gate moved to
+      // the route (<AdminRoute> on /reports/saved), which is where fix-234 put
+      // every other Reports gate.
     });
   });
 
@@ -370,7 +378,8 @@ describe('fix-319: the ribbon and the guard', () => {
   });
 
   it('the five section deep-links carry reasons naming the page', () => {
-    for (const s of SETTINGS_SECTIONS.filter((x) => x.id !== 'reporting')) {
+    // ★ fix-367: no exception needed any more — `reporting` left the list.
+    for (const s of SETTINGS_SECTIONS) {
       const e = ROUTES_INTENTIONALLY_NOT_IN_RIBBON.find((x) => x.path === s.path);
       expect(e, `${s.path} must be exempted`).toBeTruthy();
       expect(e!.why).toMatch(/Settings page/);

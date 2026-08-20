@@ -99,6 +99,57 @@ export interface VendorScheduleRow extends VendorScheduleFacts {
    *  labelled, so the vendor knows the project is parked rather than watching it
    *  go quiet. Cancelled projects are excluded entirely (fix-264 rule). */
   holdReason: string | null;
+  /** ★★ fix-367 §2 — THE SCOPE, so SSS can plan against it.
+   *
+   *  Bobby: *"it would be useful if we add the units — how many units are on
+   *  that site — and then the type, SFR, duplex, whatever the boxes are
+   *  checked. This way SSS can see a comprehensive list of what the pipeline
+   *  looks like… so they can understand the scope of what's coming towards
+   *  them, so they can plan for that."*
+   *
+   *  ★ Well populated already: of 160 active projects, 159 have units and 154
+   *  have at least one product type. This is a display change, not a data
+   *  project.
+   *
+   *  ★ NULL, NEVER ZERO, when the number is missing. Zero units is a real
+   *  value that means something different from "nobody has said yet", and the
+   *  renderer has to be able to tell them apart to show a blank for one and a
+   *  0 for the other. One project has no units today. */
+  units: number | null;
+  /** ★ `projects.product_types` is an ARRAY — a project can be SFR *and* ADU
+   *  *and* DADU, and 44 of the 160 are multi-type. Carried as the array so the
+   *  renderers decide the separator; six projects have none. */
+  productTypes: string[];
+}
+
+/** ★★★ fix-367 §2 — ONE FORMATTER, RENDERED IN TWO PLACES.
+ *
+ *  The on-screen report and the EMAIL must agree: `vendorReportEmail.ts` builds
+ *  the message SSS actually receives, and a column that exists on screen and
+ *  not in the email is worse than neither — it makes the two disagree about
+ *  what was sent, and fix-269's ledger already tracks what the consultant is
+ *  treated as knowing.
+ *
+ *  ★ So the SEPARATOR and the ORDER live here, once, and both surfaces call it.
+ *  Comma-space rather than the middot the reuse column uses: the middot already
+ *  means "two different facts joined" in this table (address · notes), and a
+ *  list of types is one fact with several values.
+ *
+ *  ★ Kept SHORT deliberately — "this is a planning list, not a spec sheet". The
+ *  types are stored the way they are shown ("SFR", "ADU", "DADU"), so there is
+ *  no expansion to do and nothing to truncate: the widest real row on prod is
+ *  three of them ("SFR, ADU, DADU"). */
+export function formatProductTypes(types: ReadonlyArray<string>): string {
+  return types.map((t) => t.trim()).filter(Boolean).join(', ');
+}
+
+/** ★ Units as a string, or '' when nobody has said.
+ *
+ *  ★★ BLANK, NOT "Unknown" — fix-269 settled this for `reuseFromAddress`: "the
+ *  visible gap is what prompts someone to fill it in". A word in the cell reads
+ *  as an answer and stops anybody looking. */
+export function formatUnits(units: number | null): string {
+  return units == null ? '' : String(units);
 }
 
 /** Normalize a stored value for comparison. NULL and '' both mean "blank", and
@@ -421,6 +472,17 @@ export function buildVendorScheduleRows(
         ) ?? null,
       holdReason: norm(holdsByProject?.get(p.id)?.reason ?? null),
       overdue: vendorRowIsOverdue(block, state, todayIso),
+      // ★ fix-367 §2. `units` is read as a NUMBER and only a number: an empty
+      // string or a non-numeric value is "not stated", not 0.
+      units:
+        typeof p.units === 'number' && Number.isFinite(p.units) ? p.units : null,
+      // ★ Blank entries are dropped rather than rendered as gaps inside the
+      // list — a trailing " · " reads as a missing type rather than as none.
+      productTypes: Array.isArray(p.product_types)
+        ? p.product_types
+            .map((t) => (t ?? '').trim())
+            .filter((t) => t.length > 0)
+        : [],
     });
   }
 

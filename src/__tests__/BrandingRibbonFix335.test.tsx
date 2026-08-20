@@ -528,14 +528,24 @@ describe('fix-335 §5: exactly one ribbon entry is active', () => {
     expect(activeEntries('/settings/errors')).toEqual(['/settings/errors']);
   });
 
-  // ★★ THE SECOND CASE, which nobody had reported. Settings is the parent of
+  // ★★ THE SECOND CASE, which nobody had reported. Settings was the parent of
   // TWO ribbon entries, so the same defect was live on Saved reports.
-  it('★★ /settings/reporting — the one nobody had noticed', () => {
-    expect(activeEntriesOldWay('/settings/reporting')).toEqual([
-      '/settings/reporting',
-      '/settings',
-    ]);
-    expect(activeEntries('/settings/reporting')).toEqual(['/settings/reporting']);
+  //
+  // ★★ fix-367 MOVED Saved reports out of Settings — it was never a setting —
+  // to /reports/saved. The case it demonstrates is UNCHANGED, because the entry
+  // is still the child of a parent entry: /reports owns the prefix, and only
+  // the longest match may light. Retargeted rather than deleted, since what it
+  // proves is the rule, not the address.
+  it('★★ /reports/saved — the same entry, and its new home has no hazard', () => {
+    // ★★ AND THE MOVE IMPROVED IT, which is worth recording. At its old
+    // address this case needed the specificity tie-break: /settings claimed
+    // /settings/reporting and both lit. Under /reports it does not, because
+    // fix-315 marked the Overview entry `exact: true` so the parent never
+    // claims a child at all — so even the OLD way lights exactly one.
+    expect(activeEntriesOldWay('/reports/saved')).toEqual(['/reports/saved']);
+    expect(activeEntries('/reports/saved')).toEqual(['/reports/saved']);
+    // ★ /settings/errors above is still the case that needs specificity, so the
+    // rule this file exists to prove is still demonstrated by a live example.
   });
 
   // ★★★ AND THE REASON `exact: true` ON SETTINGS WAS NOT THE ANSWER. It fixes
@@ -581,7 +591,10 @@ describe('fix-335 §5: exactly one ribbon entry is active', () => {
   // "you are nowhere" fix from fix-313 #60 — and it resolves the same way, so a
   // group cannot light up for a path a more specific entry owns.
   it('a collapsed group still carries the state, and only the right one', () => {
-    renderRibbon('/settings/reporting');
+    // ★ fix-367: Saved reports is /reports/saved now. Still inside the Reports
+    // group, so the group still reports containing the active route — and
+    // /settings, which used to be its parent, no longer has any claim at all.
+    renderRibbon('/reports/saved');
     expect(screen.getByTestId('ribbon-group-reports').dataset.containsActive).toBe('true');
     expect(screen.getByTestId('ribbon-link-/settings').dataset.active).toBe('false');
     expect(screen.getByTestId('ribbon-link-/library').dataset.active).toBe('false');

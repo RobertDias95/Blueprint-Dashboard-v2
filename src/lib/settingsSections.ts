@@ -38,8 +38,7 @@ export type SettingsSectionId =
   | 'team'
   | 'projects'
   | 'permits'
-  | 'schedule'
-  | 'reporting';
+  | 'schedule';
 
 export interface SettingsSection {
   id: SettingsSectionId;
@@ -97,14 +96,13 @@ export const SETTINGS_SECTIONS: readonly SettingsSection[] = [
     desc: 'Per-juris learning windows',
     adminOnly: true,
   },
-  {
-    id: 'reporting',
-    path: '/settings/reporting',
-    icon: '📊',
-    label: 'Reporting',
-    desc: 'Saved reports library + categories',
-    adminOnly: true,
-  },
+  // ★★★ fix-367 §1: REPORTING IS GONE FROM SETTINGS, which is the second half
+  // of what Bobby asked for — "system settings would lose the Reporting tab".
+  //
+  // ★ A hub that lives in two places is the ambiguity he was describing, so it
+  // lives in one: /reports/saved, in the Reports group where fix-317 put its
+  // ribbon entry. /settings/reporting redirects there and keeps every bookmark
+  // working. Nothing else in Settings moved.
 ];
 
 /** The section a path selects, or null when the path is not a section. */

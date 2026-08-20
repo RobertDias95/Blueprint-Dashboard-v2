@@ -1,3 +1,4 @@
+import SavedReports from './pages/SavedReports';
 import { createBrowserRouter, Navigate } from 'react-router-dom';
 import AuthGuard from './components/AuthGuard';
 import AdminRoute from './components/AdminRoute';
@@ -77,6 +78,15 @@ export const router = createBrowserRouter([
       // hub, which renders report data) is redirected to /dashboard by
       // AdminRoute. The nav tab is also hidden in Chrome for non-admins.
       { path: 'reports', element: <AdminRoute><Reports /></AdminRoute> },
+      // ★★ fix-367 §1: the Saved reports shelf, at a reporting address and
+      // WITHOUT the Settings chrome. It renders the same AdminReportingTab the
+      // Settings section rendered — the component was never the problem — with
+      // its own heading, which is what the retired ReportingHubPage existed for.
+      //
+      // ★ Admin-gated exactly as it was at /settings/reporting: fix-234's rule
+      // that the Reports hub is admin-only, enforced on the ROUTE and not only
+      // by hiding a ribbon entry.
+      { path: 'reports/saved', element: <AdminRoute><SavedReports /></AdminRoute> },
       // fix-131: per-associate drill-down on the Team tab. Clicking an
       // associate's name in TeamPerformanceTable navigates here with the
       // role as a query param (so a name that appears in multiple roles
@@ -155,7 +165,27 @@ export const router = createBrowserRouter([
       { path: 'settings/projects', element: <AdminRoute><SettingsPage /></AdminRoute> },
       { path: 'settings/permits', element: <AdminRoute><SettingsPage /></AdminRoute> },
       { path: 'settings/schedule', element: <AdminRoute><SettingsPage /></AdminRoute> },
-      { path: 'settings/reporting', element: <AdminRoute><SettingsPage /></AdminRoute> },
+      // ★★★ fix-367 §1: Saved Reports IS NOT A SETTING, and it was behaving
+      // exactly as its address said.
+      //
+      // Bobby: "when you click Saved Reports under the Reporting tab it shows
+      // Account, Team, Projects, Permits, Schedule. But the moment you click
+      // any of those it takes you to Settings. I think Saved Reports should
+      // just be the reporting feature, and then system settings would lose the
+      // Reporting tab."
+      //
+      // ★ Nothing was broken. `/settings/reporting` renders <SettingsPage />,
+      // so the whole Settings rail renders beside it and every item in that
+      // rail is a Settings link. The page was in the wrong place.
+      //
+      // ★★ THE OLD ADDRESS IS KEPT AS A REDIRECT, not orphaned: people have it
+      // bookmarked, fix-317 routed the entire Reports ribbon group through it,
+      // and fix-319's own comment promised it "keeps its meaning exactly". It
+      // still does — it just arrives somewhere that is not a settings screen.
+      {
+        path: 'settings/reporting',
+        element: <Navigate to="/reports/saved" replace />,
+      },
       // fix-87: Error triage page. ★ fix-331 §6: ADMIN ONLY now, and gated on
       // the ROUTE rather than only on the control that reaches it. It used to
       // be reachable by anyone who typed the URL, on the reasoning that it is

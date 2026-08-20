@@ -4,6 +4,10 @@ import type {
   VendorSections,
   VendorTransmitRow,
 } from './vendorReport';
+// ★★ fix-367 §2: the SAME two formatters the on-screen report calls. Imported
+// as values, not types — one definition of how units and product types read,
+// so the report and the message SSS receives cannot drift apart.
+import { formatProductTypes, formatUnits } from './vendorReport';
 
 // fix-265: the email side of the Vendor Schedule Forecast.
 //
@@ -132,7 +136,8 @@ const H2 = 'font-family:Segoe UI,Arial,sans-serif;font-size:15px;margin:22px 0 8
 // ---------------------------------------------------------------------------
 //
 // The email stacks three DIFFERENT table shapes:
-//   schedule     Start week · Address · Jurisdiction · Target send · Reuse   (5)
+//   schedule     Start week · Address · Jurisdiction · Units · Type ·
+//                Target send · Reuse                                        (7)
 //   transmitted  Address · Jurisdiction · Sent · Expected back               (4)
 //   corrections  Address · Jurisdiction · Permit type · Sent · Expected back (5)
 //
@@ -153,8 +158,20 @@ const W_DATE = 15;
 const W_JURIS = 13;
 const W_PERMIT_TYPE = 14;
 const W_REUSE = 18;
+// ★★ fix-367 §2: the two scope columns. Units is a small integer and needs
+// almost nothing; Type holds at most three short tokens ("SFR, ADU, DADU" is
+// the widest real row on prod, of 44 multi-type projects).
+const W_UNITS = 6;
+const W_PRODUCT_TYPES = 12;
 // Address = 100 - (everything else in that shape).
-const W_ADDRESS_SCHEDULE = 100 - W_DATE - W_JURIS - W_DATE - W_REUSE; // 39
+//
+// ★ ADDRESS ABSORBS THE TWO NEW COLUMNS, which is what "Address absorbs the
+// remainder" means when the shape grows: 39% → 21%. The alternative — shaving
+// the date columns — would break the one invariant fix-274 exists to hold,
+// that every date column is 15% everywhere it appears so the three tables line
+// up when read one after another.
+const W_ADDRESS_SCHEDULE =
+  100 - W_DATE - W_JURIS - W_UNITS - W_PRODUCT_TYPES - W_DATE - W_REUSE; // 21
 const W_ADDRESS_TRANSMITTED = 100 - W_JURIS - W_DATE - W_DATE; // 57
 const W_ADDRESS_CORRECTIONS = 100 - W_JURIS - W_PERMIT_TYPE - W_DATE - W_DATE; // 43
 
@@ -219,6 +236,13 @@ function scheduleTable(
     th('Start week', W_DATE) +
     th('Address', W_ADDRESS_SCHEDULE) +
     th('Jurisdiction', W_JURIS) +
+    // ★★★ fix-367 §2: THE SAME TWO COLUMNS THE SCREEN HAS, from the same two
+    // formatters. A column that exists on screen and not here is worse than
+    // neither — it makes the report and the message disagree about what was
+    // sent, and fix-269's ledger already treats the email as what the
+    // consultant knows.
+    th('Units', W_UNITS) +
+    th('Type', W_PRODUCT_TYPES) +
     // fix-269: dd_end is a TARGET SEND date — "when we are targeting to provide
     // documents to the external consultant" — so the column says so. It is a
     // commitment we are making, not a date we observed.
@@ -247,6 +271,10 @@ function scheduleTable(
         `<td style="${TD}">${start}</td>` +
         `<td style="${TD}">${cell(r.address)}${overdueMarker(r)}${holdSuffix(r)}${statusNote}</td>` +
         `<td style="${TD}">${cell(r.juris)}</td>` +
+        // ★ `cell()` renders the same BLANK the Reuse column uses for an
+        // absent value — fix-269's rule, not a second convention.
+        `<td style="${TD}">${cell(formatUnits(r.units))}</td>` +
+        `<td style="${TD}">${cell(formatProductTypes(r.productTypes))}</td>` +
         `<td style="${TD}">${ddEnd}</td>` +
         `<td style="${TD}">${reuseCell(r)}</td>` +
         `</tr>`

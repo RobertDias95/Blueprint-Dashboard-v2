@@ -176,7 +176,7 @@ describe('fix-313 #60: the active state follows the route', () => {
     // ★ fix-317 retargeted the route this uses: the six individual report
     // entries left the ribbon (they were duplicating Saved reports). The
     // contract is unchanged — it just needs a Reports child that still exists.
-    renderRibbon('/settings/reporting');
+    renderRibbon('/reports/saved');
     const group = screen.getByTestId('ribbon-group-reports');
     // Genuinely closed: the children are not rendered at all.
     expect(screen.queryByTestId('ribbon-kids-reports')).toBeNull();
@@ -186,7 +186,8 @@ describe('fix-313 #60: the active state follows the route', () => {
     //
     // ★★ fix-335 §5 makes this the sharp case rather than a spare one. The
     // counter-example used to be the Entitlements group, which §3 collapsed —
-    // but /settings/reporting is a CHILD OF /settings, and until §5 the Settings
+    // but /reports/saved is a CHILD OF /reports (fix-367 moved it out of
+    // Settings), and until fix-335 §5 the parent lit up too. The
     // entry prefix-matched it and lit up too. Two entries, one page. Now the
     // most specific match wins and Settings stays dark.
     expect(screen.getByTestId('ribbon-link-/settings').dataset.active).toBe('false');
@@ -197,9 +198,9 @@ describe('fix-313 #60: the active state follows the route', () => {
     // ★ fix-317 retargeted the route this uses: the six individual report
     // entries left the ribbon (they were duplicating Saved reports). The
     // contract is unchanged — it just needs a Reports child that still exists.
-    renderRibbon('/settings/reporting');
+    renderRibbon('/reports/saved');
     fireEvent.click(screen.getByTestId('ribbon-group-toggle-reports'));
-    expect(screen.getByTestId('ribbon-link-/settings/reporting').dataset.active).toBe(
+    expect(screen.getByTestId('ribbon-link-/reports/saved').dataset.active).toBe(
       'true',
     );
     expect(screen.getByTestId('ribbon-link-/reports').dataset.active).toBe('false');
@@ -209,7 +210,7 @@ describe('fix-313 #60: the active state follows the route', () => {
     // ★ fix-317 retargeted the route this uses: the six individual report
     // entries left the ribbon (they were duplicating Saved reports). The
     // contract is unchanged — it just needs a Reports child that still exists.
-    renderRibbon('/settings/reporting');
+    renderRibbon('/reports/saved');
     // Open by hand while already inside it, then close it again. The route has
     // not moved, so a route-driven implementation would fight this.
     fireEvent.click(screen.getByTestId('ribbon-group-toggle-reports'));
@@ -233,7 +234,7 @@ describe('fix-313 #60: the active state follows the route', () => {
     );
     expect(
       reports!.kind === 'group' &&
-        groupContainsActive(reports!.group, '/settings/reporting'),
+        groupContainsActive(reports!.group, '/reports/saved'),
     ).toBe(true);
     expect(
       reports!.kind === 'group' && groupContainsActive(reports!.group, '/board'),
@@ -483,14 +484,14 @@ describe('fix-313: the Reports gate is the whole group', () => {
     const kids = group!.kind === 'group' ? group!.group.children.map((c) => c.to) : [];
     expect(kids).toEqual(['/projects']);
     expect(kids.some((r) => r.startsWith('/reports'))).toBe(false);
-    expect(kids).not.toContain('/settings/reporting');
+    expect(kids).not.toContain('/reports/saved');
     // Not vacuous — an admin gets all three.
     const adminGroup = visibleEntries(true).find(
       (e) => e.kind === 'group' && e.group.id === 'reports',
     );
     expect(
       adminGroup!.kind === 'group' ? adminGroup!.group.children.map((c) => c.to) : [],
-    ).toEqual(['/reports', '/projects', '/settings/reporting']);
+    ).toEqual(['/reports', '/projects', '/reports/saved']);
   });
 
   // fix-313 listed the seven CHILDREN of Reports and not the parent, so the
@@ -517,7 +518,7 @@ describe('fix-313: the Reports gate is the whole group', () => {
     expect(kids.map((k) => k.to)).toEqual([
       '/reports',
       '/projects',
-      '/settings/reporting',
+      '/reports/saved',
     ]);
   });
 });
