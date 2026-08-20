@@ -40,6 +40,37 @@
          copies. fix-326 asserts that split; fix-351 keeps it. -->
     <link rel="icon" type="image/png" sizes="32x32" href="/bridge-favicon-2026-32.png" />
     <link rel="icon" type="image/png" sizes="256x256" href="/bridge-icon-2026-256.png" />
+
+    <!-- ★★★ fix-369 — THE TAB ICONS ABOVE ARE NOT THE APP ICON, and the
+         absence of that distinction is why Bobby's taskbar looked wrong.
+
+         There was no manifest at all. Chrome installed the site anyway, working
+         from the two icon links above — and those point at the SQUARE CROP
+         fix-351 shipped, which is dark navy line art on a fully
+         transparent background. Measured on the file: ink #3C4B88, maximum
+         alpha 213/255 (not one pixel is opaque), 88.3% of the canvas empty.
+         Windows composites that against the taskbar, so it reads on a light
+         one and vanishes on a dark one.
+
+         Bobby: "It works for Miles's computer and shows normally but maybe I
+         have dark mode." ★ It is not dark mode — it is the absence of a ground.
+         The manifest's icons carry their own opaque white tile, and the
+         maskable pair carry it inside the 80% safe circle so the OS may crop
+         them to any shape without eating the bridge. See
+         scripts/compose-app-icons.py for how they were composed from the same
+         artwork, which is REFERENCED and never redrawn (fix-322's contract).
+
+         ★ Same rule as the icons above: a STABLE path in public/, because the
+         browser fetches the manifest itself and a fingerprinted name would
+         change under every installed copy.
+
+         ★ NOTE FOR THE NEXT EDITOR: do not write a literal icon link tag in
+         this comment. fix-351 counts the icon links in this file by regex over
+         its raw source, and prose that contains the markup is counted as
+         markup. -->
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <meta name="theme-color" content="#3c4b88" />
+
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Blueprint Bridge</title>
   </head>

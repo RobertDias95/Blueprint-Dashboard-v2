@@ -4,6 +4,7 @@ import { useBoardNotifications } from '../hooks/useBoardNotifications';
 import { useMarkBoardItemsRead } from '../hooks/useBoardReads';
 import { useResolvePostRequest } from '../hooks/usePostRequests';
 import { RealtimeStatusLine } from '../components/RealtimeStatusLine';
+import DesktopAlertsControl from '../components/DesktopAlertsControl';
 import {
   acknowledgeableItems,
   hasBeenRead,
@@ -175,6 +176,13 @@ export default function NotificationsPage() {
           <RealtimeStatusLine testId="notification-centre-realtime-status" />
         </span>
       </div>
+
+      {/* ★★ fix-369: the desktop rendering of everything below, and the ONE
+             place notification permission is ever requested. It lives here
+             because this is the page a person is on when they have decided
+             they want to be told about this stuff — see the component for why
+             asking anywhere earlier is unrecoverable. */}
+      <DesktopAlertsControl />
 
       {/* ── The kind chips. Counts on the face, so "is there anything in
              Mentions" is answered without clicking. ── */}

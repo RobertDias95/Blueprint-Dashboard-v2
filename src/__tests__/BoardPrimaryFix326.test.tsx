@@ -401,10 +401,16 @@ describe('fix-326 §2: NotificationBell was dead code', () => {
     }
     expect(offenders, 'NotificationBell is deleted; nothing may import it').toEqual([]);
     expect(Object.keys(files).some((p) => p.endsWith('/NotificationBell.tsx'))).toBe(false);
-    // ★ 30s, not the 5s default: this deliberately reads EVERY source file, and
+    // ★ 60s, not the 5s default: this deliberately reads EVERY source file, and
     // under the full parallel suite that is real work. Narrowing the glob would
     // narrow the guarantee — 'nothing anywhere imports it' is the assertion.
-  }, 30_000);
+    //
+    // ★ fix-369 raised it from 30s. The tree this reads grew, and fix-369's own
+    // suite sweeps it the same way for the same kind of guarantee, so the two
+    // now compete for the worker pool. The budget is the thing that was wrong,
+    // not the assertion: it passes in about 8s alone and only ever crept past
+    // 30 under a full parallel run.
+  }, 60_000);
 
   // ★ The comments, not just the code — a file that DESCRIBES a deleted
   // component as live is how the next brief concludes it is.
