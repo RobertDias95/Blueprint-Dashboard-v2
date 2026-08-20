@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { useAllCorrectionItems } from '../hooks/useAllCorrectionItems';
 import { useProjects } from '../hooks/useProjects';
 import { usePermits } from '../hooks/usePermits';
@@ -25,6 +25,7 @@ import {
 } from '../lib/correctionPeriods';
 import MissingLetterWorklist from '../components/Reports/CorrectionsMissingWorklist';
 import { correctionDisciplineLabel } from '../lib/correctionItems';
+import RecurringCorrections from '../components/Reports/RecurringCorrections';
 import {
   EXCLUSION_HINT,
   countExclusions,
@@ -65,7 +66,14 @@ import {
 // The filter bar drives all three, so a number in one view and a row in another
 // always describe the same slice.
 
-type View = 'prevalence' | 'repeats' | 'counts' | 'items' | 'missing' | 'excluded';
+type View =
+  | 'recurring'
+  | 'prevalence'
+  | 'repeats'
+  | 'counts'
+  | 'items'
+  | 'missing'
+  | 'excluded';
 
 // fix-279: prevalence leads. It is the question the business actually asked
 // ("we get this correction 65% of the time" -> fix the template); repeat rate
@@ -73,19 +81,43 @@ type View = 'prevalence' | 'repeats' | 'counts' | 'items' | 'missing' | 'exclude
 // time" -> fix the response process). They are separate views on purpose:
 // shown in one column without labels they would send template work at exactly
 // the wrong categories.
+// ★★★ fix-374 · §2 — THE DRILL-DOWN GREETS YOU NOW.
+//
+// Bobby: *"can we make this drill down more relevant on the main screen? seems
+// complicated to find… I have to go by theme/discipline to get the drill down
+// option."* He was right: the recurring corrections are the entire reason
+// fix-372 exists and they were three clicks and a guess away. `recurring` is
+// first and is the default, and every row of it opens one specific pattern.
+//
+// ★★ fix-374 · §3 — AND THE LABELS ARE THE WORDS PEOPLE SAY.
+//
+// Bobby: *"idk what prevalance is."* The hint under that tab already said it
+// better than the label did, which is the tell: a label that needs a hint has
+// not been written yet (fix-364's rule, applied here).
+//
+//   Prevalence          -> How often we get it   ★ its own hint, promoted
+//   By theme & discipline -> Where the volume sits  ★ likewise
+//   Items               -> Every comment         (`Items` is our word for rows)
+//   Excluded            -> Not corrections       (excluded FROM WHAT?)
+//   Repeat rate         KEPT — it is already plain, and it is the phrase the
+//                       business used when asking for it. Renaming a term
+//                       people already say would break fix-364's rule, not keep it.
+//   No letter found     KEPT — a whole sentence in three words, nothing to fix.
 const VIEWS: Array<{ key: View; label: string; hint: string }> = [
-  { key: 'prevalence', label: 'Prevalence',
-    hint: 'How often we get each correction — what to fix in the template' },
+  { key: 'recurring', label: 'What keeps coming back',
+    hint: 'The corrections we get again and again — open one to see every project it hit' },
+  { key: 'prevalence', label: 'How often we get it',
+    hint: 'Of the projects in scope, how many hit each correction — what to fix in the template' },
   { key: 'repeats', label: 'Repeat rate',
     hint: 'When we get it, how often it comes back — where the response breaks' },
-  { key: 'counts', label: 'By theme & discipline', hint: 'Where the volume sits' },
-  { key: 'items', label: 'Items', hint: 'The individual comments' },
+  { key: 'counts', label: 'Where the volume sits', hint: 'By theme and by discipline' },
+  { key: 'items', label: 'Every comment', hint: 'The individual comments, unedited' },
   { key: 'missing', label: 'No letter found',
     hint: 'Corrections the tool says exist that we have not found on the share' },
   // fix-283a: last, because it is about the data rather than the work — but a
   // tab of its own, not a footnote. The filter is heuristic, and the only way
   // anyone can tell it is wrong is by reading what it took out.
-  { key: 'excluded', label: 'Excluded',
+  { key: 'excluded', label: 'Not corrections',
     hint: 'Rows the indexer judged not to be corrections, and why' },
 ];
 
@@ -110,7 +142,22 @@ export default function CorrectionsReport() {
   const [period, setPeriod] = useState<PeriodPreset>('all');
 
   const [filters, setFilters] = useState<CorrectionFilters>(EMPTY_FILTERS);
-  const [view, setView] = useState<View>('prevalence');
+  // ★★ fix-374: the view is in the URL. It has to be, now that the page greets
+  // you with one view and the others are a click away — a link to "the repeat
+  // rate" that lands on the recurring list is the same complaint Bobby made
+  // about the drill-down, one level up. Default `recurring`; unknown values
+  // fall back to it rather than rendering nothing.
+  const [params, setParams] = useSearchParams();
+  const view = useMemo<View>(() => {
+    const requested = params.get('view') ?? '';
+    return VIEWS.some((v) => v.key === requested) ? (requested as View) : 'recurring';
+  }, [params]);
+  const setView = (next: View) => {
+    const merged = new URLSearchParams(params);
+    if (next === 'recurring') merged.delete('view');
+    else merged.set('view', next);
+    setParams(merged, { replace: true });
+  };
   const [shown, setShown] = useState(ITEMS_PAGE);
 
   // permits.architect is the only architect the schema carries. One value per
@@ -462,6 +509,7 @@ export default function CorrectionsReport() {
             {VIEWS.find((v) => v.key === view)?.hint}
           </div>
 
+          {view === 'recurring' && <RecurringCorrections />}
           {view === 'prevalence' && (
             <PrevalenceView
               scopeRows={scopeRows}

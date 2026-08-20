@@ -43,6 +43,45 @@ export function useCorrectionClusterRanking(
   });
 }
 
+/**
+ * ★★★ fix-374: what discipline each pile is actually about.
+ *
+ * Bobby: *"it said General for this item, but it is a drainage correction."*
+ * The data already knew — all 476 `General` items carry a discipline — so this
+ * reads the column that was already right and hands it to the list to organise
+ * by. Read-only and additive: `bp_correction_cluster_ranking` is untouched.
+ *
+ * Returns the FULL per-discipline breakdown, not a winner. Which discipline
+ * owns a pile, and when no single one does, is a judgement made in
+ * `correctionDisciplines.ts` where it can be read and tested.
+ */
+export function useCorrectionClusterDisciplines(
+  juris: JurisScope,
+  tier: 'subject' | 'body',
+) {
+  const tenantId = useAuthStore((s) => s.activeTenantId);
+  return useQuery<ClusterDisciplineRow[]>({
+    queryKey: queryKeys.correctionClusterDiscipline(tenantId ?? '', juris, tier),
+    enabled: !!tenantId,
+    queryFn: async () => {
+      const { data, error } = await supabase.rpc('bp_correction_cluster_discipline', {
+        p_juris: juris,
+        p_tier: tier,
+      });
+      if (error) throw error;
+      return (data ?? []) as ClusterDisciplineRow[];
+    },
+    staleTime: 60_000,
+  });
+}
+
+/** One row of `bp_correction_cluster_discipline`. */
+export interface ClusterDisciplineRow {
+  cluster_key: string;
+  discipline: string;
+  items: number;
+}
+
 /** ★★ The members of one cluster — the verbatim wordings, the projects and the
  *  extracted chips all come from this one read. */
 export function useCorrectionClusterDetail(clusterKey: string | null, juris: JurisScope) {

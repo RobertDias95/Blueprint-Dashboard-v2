@@ -182,6 +182,12 @@ export const queryKeys = {
     ['correction_clusters', tenantId, 'ranking', { juris, tier, includeVerbatim }] as const,
   correctionClusterDetail: (tenantId: string, clusterKey: string, juris: string | null) =>
     ['correction_clusters', tenantId, 'detail', { clusterKey, juris }] as const,
+  // fix-374: per-cluster discipline breakdown. Under the same
+  // `correction_clusters` root so a re-index invalidates it with everything
+  // else — a ranking from one build beside disciplines from another would be
+  // exactly the disagreement fix-372 keyed these together to prevent.
+  correctionClusterDiscipline: (tenantId: string, juris: string | null, tier: string) =>
+    ['correction_clusters', tenantId, 'discipline', { juris, tier }] as const,
 
   // fix-27: notification center activity feed.
   scraperActivity: (tenantId: string, days: number) =>

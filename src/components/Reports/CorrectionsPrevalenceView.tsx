@@ -131,12 +131,17 @@ export default function CorrectionsPrevalenceView({
             className="bg-bg border border-border rounded px-2 py-1 text-xs font-display text-text focus:outline-none focus:border-de"
             data-testid="prevalence-level"
           >
-            <option value="category">Category (specific)</option>
-            <option value="theme">Theme (fewer, larger buckets)</option>
+            {/* fix-374: "Category (specific)" needed the bracket to explain
+                itself. The two options only mean anything against each other,
+                so each says what it IS rather than what it is not. */}
+            <option value="category">Each kind of correction</option>
+            <option value="theme">Grouped into themes</option>
           </select>
         </label>
         <label className="flex flex-col gap-1">
           <span className="text-[10px] uppercase tracking-wide text-dim">
+            {/* fix-374: kept. "Break down by" is already the words somebody
+                would say out loud, and its options name themselves. */}
             Break down by
           </span>
           <select
@@ -145,7 +150,9 @@ export default function CorrectionsPrevalenceView({
             className="bg-bg border border-border rounded px-2 py-1 text-xs font-display text-text focus:outline-none focus:border-de"
             data-testid="prevalence-breakdown"
           >
-            <option value="">Nothing — overall only</option>
+            {/* fix-374: "Nothing — overall only" made the reader parse a dash
+                to learn it was the default. */}
+            <option value="">Everything together</option>
             {SEGMENTS.map((s) => (
               <option key={s.key} value={s.key}>{s.label}</option>
             ))}
@@ -158,7 +165,8 @@ export default function CorrectionsPrevalenceView({
             onChange={(e) => setBanded(e.target.checked)}
             data-testid="prevalence-banded"
           />
-          Group into bands
+          {/* fix-374: "bands" is the code's word, not anybody else's. */}
+          Show as high / medium / low
         </label>
       </div>
 

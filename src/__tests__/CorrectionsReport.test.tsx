@@ -177,9 +177,11 @@ describe('fix-277 the three views', () => {
   it('lists the repeating topic on the repeat view', async () => {
     renderPage();
     await screen.findByTestId('corrections-summary');
-    // fix-279 moved the default to Prevalence — the question the business
-    // actually asked. Repeat rate is one click away and unchanged.
-    expect(screen.getByTestId('corrections-view-prevalence'))
+    // fix-279 moved the default to Prevalence; ★ fix-374 moved it again, to the
+    // recurring corrections — Bobby could not find the drill-down, and it is
+    // the reason fix-372 exists. Repeat rate is still one click away and
+    // unchanged, which is what the rest of this test asserts.
+    expect(screen.getByTestId('corrections-view-recurring'))
       .toHaveAttribute('data-active', 'true');
     fireEvent.click(screen.getByTestId('corrections-view-repeats'));
     expect(screen.getByTestId('corrections-view-repeats')).toHaveAttribute('data-active', 'true');
@@ -431,6 +433,8 @@ describe('fix-283a the report excludes rows the indexer flagged', () => {
       item({ project_id: 'p2', is_correction: false, exclusion_reason: 'boilerplate' }),
     ];
     renderPage();
+    // ★ fix-374: prevalence is a click away now, not the landing view.
+    fireEvent.click(await screen.findByTestId('corrections-view-prevalence'));
     const denom = await screen.findByTestId('prevalence-denominator');
     expect(denom).toHaveTextContent('1');
     expect(denom).not.toHaveTextContent('2');
@@ -501,7 +505,7 @@ describe('fix-283a the report excludes rows the indexer flagged', () => {
     renderPage();
     await screen.findByTestId('corrections-summary');
     const tabs = screen.getByTestId('corrections-view-tabs');
-    fireEvent.click(within(tabs).getByText('Items'));
+    fireEvent.click(within(tabs).getByText('Every comment'));
     const items = await screen.findByTestId('corrections-items');
     expect(items).toHaveTextContent('A real correction');
     expect(items).not.toHaveTextContent('CAPTURED DRAWING TEXT');
