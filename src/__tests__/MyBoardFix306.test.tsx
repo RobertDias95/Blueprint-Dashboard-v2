@@ -32,6 +32,19 @@ const state = vi.hoisted(() => ({
   confirmHandoff: vi.fn(),
 }));
 
+// ★ fix-365: the design-manager lens. It reads dm_da_groups + the roster, and
+// these suites render the board without a QueryClient by design — so it is
+// mocked inert here. `hasAssociates: false` is also the state 25 of the 29
+// logins are in, so this is the ordinary board, unchanged.
+vi.mock('../hooks/useBoardLens', () => ({
+  useBoardLens: () => ({
+    associates: [],
+    hasAssociates: false,
+    lens: { mode: 'off', focus: null },
+    setLens: vi.fn(),
+    unmanaged: [],
+  }),
+}));
 vi.mock('../hooks/usePermits', () => ({
   usePermits: () => ({ data: state.permits, isLoading: false }),
 }));
