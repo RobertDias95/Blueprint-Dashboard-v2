@@ -282,6 +282,16 @@ export default function CorrectionsReport() {
 
   return (
     <div className="space-y-4" data-testid="corrections-report">
+      {/* ★★ fix-372: the way in to levels two and three. Bobby: "I don't know
+          how this UI necessarily flows given the current flow of the report you
+          already built" — the answer is that nothing here goes away. */}
+      <Link
+        to="/reports/corrections/patterns"
+        className="inline-block text-[11px] font-bold text-de hover:underline no-underline"
+        data-testid="corrections-to-patterns"
+      >
+        Recurring corrections — which one to change the template for →
+      </Link>
       <div className="flex items-start justify-between gap-4">
         <div>
           <h1 className="text-base font-display font-bold text-text mb-1">
@@ -933,7 +943,19 @@ function CountTable({
               className="border-b border-border/40"
               data-testid={`${testId}-row-${r.label}`}
             >
-              <td className="py-1.5 text-text">{r.label}</td>
+              {/* ★★ fix-372: THE ROW IS NOW A DOOR. Nothing about this report
+                  changes — it is still level one — but a category or theme with
+                  a percentage against it was a number nobody could open. It
+                  leads to the recurring corrections that make up that number. */}
+              <td className="py-1.5 text-text">
+                <Link
+                  to="/reports/corrections/patterns"
+                  className="text-text hover:text-de no-underline hover:underline"
+                  data-testid={`${testId}-link-${r.label}`}
+                >
+                  {r.label}
+                </Link>
+              </td>
               <td className="py-1.5 text-right text-text font-semibold">
                 {r.items}
               </td>

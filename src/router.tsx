@@ -21,6 +21,7 @@ import WeeklyUpdatesReport from './pages/WeeklyUpdatesReport';
 import ApprovedAwaitingIssuanceReport from './pages/ApprovedAwaitingIssuanceReport';
 import VendorScheduleForecastReport from './pages/VendorScheduleForecastReport';
 import CorrectionsReport from './pages/CorrectionsReport';
+import CorrectionPatterns from './pages/CorrectionPatterns';
 import SettingsPage from './pages/SettingsPage';
 import CustomReport from './pages/CustomReport';
 import ReportBuilder from './pages/ReportBuilder';
@@ -141,6 +142,17 @@ export const router = createBrowserRouter([
         element: (
           <AdminRoute>
             <CorrectionsReport />
+          </AdminRoute>
+        ),
+      },
+      // fix-372: LEVELS TWO AND THREE. The corrections report above is level
+      // one and is untouched; its rows link here. A separate static route so a
+      // pattern is linkable and survives a reload, like every other report.
+      {
+        path: 'reports/corrections/patterns',
+        element: (
+          <AdminRoute>
+            <CorrectionPatterns />
           </AdminRoute>
         ),
       },

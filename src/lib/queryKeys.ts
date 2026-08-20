@@ -169,6 +169,20 @@ export const queryKeys = {
   // the notes prefix so a write (which invalidates queryKeys.notesAll) or a
   // realtime notes change refreshes it.
   allNotes: (tenantId: string) => ['notes', tenantId, 'all-notes'] as const,
+  // ★★ fix-372: the recurring-correction clusters. One bare prefix so a rebuild
+  // or a curation edit invalidates the ranking, the detail and every scope at
+  // once — the counts and the list must never disagree about the same rebuild.
+  correctionClustersAll: ['correction_clusters'] as const,
+  correctionClusterRanking: (
+    tenantId: string,
+    juris: string | null,
+    tier: string,
+    includeVerbatim: boolean,
+  ) =>
+    ['correction_clusters', tenantId, 'ranking', { juris, tier, includeVerbatim }] as const,
+  correctionClusterDetail: (tenantId: string, clusterKey: string, juris: string | null) =>
+    ['correction_clusters', tenantId, 'detail', { clusterKey, juris }] as const,
+
   // fix-27: notification center activity feed.
   scraperActivity: (tenantId: string, days: number) =>
     ['scraper_activity', tenantId, { days }] as const,

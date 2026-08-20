@@ -8,6 +8,7 @@ import { useSelfScope } from '../hooks/useSelfScope';
 import { useDesktopAlerts } from '../hooks/useDesktopAlerts';
 import { useDingUnlock } from '../hooks/useDingUnlock';
 import NewBuildNotice from './NewBuildNotice';
+import SaveFailureBanner from './SaveFailureBanner';
 import { rosterRoleTitle } from '../lib/roleLabels';
 import {
   BRAND_LOCKUP_DROP,
@@ -90,6 +91,9 @@ export default function Chrome() {
             differs from the running one. It offers a reload and never performs
             one - see components/NewBuildNotice. */}
         <NewBuildNotice />
+        {/* *** fix-372 section 6: renders nothing until a save dies. Above the
+            header, full width, and it does NOT fade - see stores/saveFailureStore. */}
+        <SaveFailureBanner />
         <header
           className="bg-surface border-b border-border flex items-center gap-3.5 px-5 flex-shrink-0 relative"
           style={{ height: SHELL_HEADER_HEIGHT }}
