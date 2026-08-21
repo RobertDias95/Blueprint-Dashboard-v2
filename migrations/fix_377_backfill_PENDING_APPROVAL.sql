@@ -83,6 +83,14 @@
 -- GROUP B — design_manager. 16 permits, 7 projects, 0 tasks.
 -- ===========================================================================
 --
+-- ★★★ SUPERSEDED BY fix-379 — DO NOT RUN THIS GROUP. permits.dm is now
+-- DERIVED from the permit's DA (bp_trg_permit_derive_dm), never from the
+-- project: the premise of this half — dm should match the project's
+-- design_manager — no longer holds, and the trigger would snap these writes
+-- to the derivation anyway. The dm story is now
+-- migrations/fix_379_backfill_PENDING_APPROVAL.sql. Group A (ent_lead) is
+-- unaffected and still awaits approval as written.
+--
 --   12827 NE 80th St        Derry    → Lindsay
 --     LSM26-05234       LSM
 --     (no number)       Condo

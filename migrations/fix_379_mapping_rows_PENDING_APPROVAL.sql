@@ -1,0 +1,59 @@
+-- ===========================================================================
+-- ★★★ fix-379 §5(a) — THE THREE MAPPING ROWS. NOT APPLIED. AWAITING BOBBY.
+-- ===========================================================================
+--
+-- ★★★ THIS FILE HAS NOT BEEN RUN AGAINST ANY DATABASE. Every statement below
+-- is commented out, and a test asserts that it still is.
+--
+-- ★★ WHY THESE ROWS MUST EXIST BEFORE THE BACKFILL: dm_da_groups holds nine
+-- rows today and every one is a currently-active DA. Alex, Nidhi and George
+-- are departed and their rows were deleted by fix-346 §3 ("a routing table,
+-- not a history record"). Under fix-379 the mapping is the derivation's
+-- input, and without these rows the derivation resolves their permits to NO
+-- manager:
+--
+--     project                 DA       permit dm today   derived without row
+--     9022 36th Ave SW        Alex     (none)            (none)  — misses Jade
+--     3505 Densmore Ave N     Nidhi    Jade              (none)  — would clear
+--     4115 SW Elmgrove St     Nidhi    Jade              (none)  — would clear
+--     5902 42nd Ave SW        George   (none)            (none)  — ISSUED
+--
+--   (George's five permits all issued in 2025 — 5902 42nd Ave SW included —
+--    so his row derives nothing today. It is the RECORD of who managed him,
+--    protected by the guard the moment it exists, and it is what makes the
+--    next George-shaped question answerable without re-doing this ticket.)
+--
+-- Bobby: "they may be inactive but the mapping concept is still there."
+--
+-- ★ DURABILITY: once inserted, these rows are protected by
+-- dm_da_groups_guard_departed (fix_379_dm_derived.sql) — they cannot be
+-- deleted while any permit still names the DA, and the config-import
+-- reconcile retains them. The next departure keeps its row automatically.
+--
+-- ★★ FLAG FOR BOBBY — GENA IS NEW HERE. Gena is an active design manager on
+-- the roster (team_members: role 'dm', active) but appears NOWHERE in
+-- dm_da_groups today. Inserting Gena → George makes her a dm_da_groups
+-- manager for the first time. If George's permits should resolve to somebody
+-- else, say so and this row changes; it is not assumed.
+--
+-- ★ NOT ADDED, deliberately:
+--   · Cam — works across managers; fix-368's project fallback is his answer.
+--   · Shire — unmapped on purpose; his SDOT Tree permits must not resolve.
+--   · Chad — departed like Alex/Nidhi, but no unissued permit carries him and
+--     no active permit needs his derivation; a row can be added later if his
+--     history matters. (The guard would protect it the moment it exists.)
+--
+-- dm_order/da_order: Jade is dm_order 4 (Erick sits at da_order 2 — the
+-- da_order 1 gap is where Alex's row sat before fix-346 §3 deleted it).
+-- Gena takes the next free dm_order, 5.
+
+-- BEGIN;
+
+-- INSERT INTO public.dm_da_groups (tenant_id, dm_name, da_name, dm_order, da_order)
+-- VALUES
+--   ('00000000-0000-0000-0000-000000000001', 'Jade', 'Alex',   4, 1),
+--   ('00000000-0000-0000-0000-000000000001', 'Jade', 'Nidhi',  4, 3),
+--   ('00000000-0000-0000-0000-000000000001', 'Gena', 'George', 5, 1)
+-- ON CONFLICT (dm_name, da_name) DO NOTHING;
+
+-- COMMIT;

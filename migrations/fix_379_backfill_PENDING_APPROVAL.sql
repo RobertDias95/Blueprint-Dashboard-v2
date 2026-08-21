@@ -1,0 +1,214 @@
+-- ===========================================================================
+-- ★★★ fix-379 §5(b) — THE BACKFILL. NOT APPLIED. AWAITING BOBBY'S APPROVAL.
+-- ===========================================================================
+--
+-- ★★★ THIS FILE HAS NOT BEEN RUN AGAINST ANY DATABASE. Every statement below
+-- is commented out, and a test asserts that it still is.
+--
+-- ★★ ORDER MATTERS: fix_379_mapping_rows_PENDING_APPROVAL.sql must be applied
+-- FIRST — without the Jade→Alex row, statement B misses Alex's permit, and
+-- without Jade→Nidhi the derivation disagrees with two correct assignments.
+--
+-- ★★★ THE THREE GROUPS ARE THREE SEPARATE DECISIONS, run (or refused)
+-- independently: A clears, B fills, C corrects. Each statement is the
+-- derivation applied to existing rows — the same rule permits_derive_dm now
+-- enforces on every future write — so the backfill cannot disagree with what
+-- happens from now on, and a second run matches nothing.
+--
+-- ---------------------------------------------------------------------------
+-- HOW THE NUMBERS RELATE TO THE BRIEF'S 140 (48 / 85 / 7)
+-- ---------------------------------------------------------------------------
+-- The brief's table was measured on the morning of 2026-08-21; this file was
+-- measured that evening (313 unissued permits, one ULS issued in between,
+-- plus two of the morning's fill permits issued during the day). Beyond the
+-- day's drift, the brief's categories COUNTED VIOLATIONS while this file
+-- lists PRESCRIPTIONS, and the brief's own exceptions move rows between
+-- buckets:
+--
+--   · its 48 "DM set, no DA" = the 12 non-ULS clears here + 36 ULS permits
+--     with a DM and no DA (group A2);
+--   · its 85 "DA set, no DM" also counted 20 unmapped-DA permits (Cam 16,
+--     Shire 4) that §3 forbids filling — they are REPORTED, not changed
+--     (bp_dm_gap_report) — and 3 ULS permits whose DA must be CLEARED (A2),
+--     not have a DM derived;
+--   · its 7 "DM contradicts" included one ULS (12238 4th Ave NW 3043436-LU,
+--     da Marc, dm Jade): under the ULS rule that is a clear (A2), leaving 6
+--     true corrections (C).
+--
+--   Totals here: 56 clears (12 + 44 ULS) · 61 fills · 6 corrections
+--              = 123 permits changed.
+--
+-- ★★★ NOT ONE TASK MOVES. permits_lead_cascade fires on these UPDATEs (that
+-- is the point — same path as a live edit), but measured on 2026-08-21:
+--   · clears set dm/da to NULL — the cascade needs BOTH an old and a new
+--     name, so it does nothing;
+--   · fills go NULL → name — no old name, nothing filed under one;
+--   · the 6 corrections carry NO open task and NO co-assignee row naming the
+--     outgoing manager (Jade / Lindsay): open tasks there sit on role tokens
+--     or are unassigned; every named row is Resolved.
+--
+-- ===========================================================================
+-- GROUP A — 56 CLEARS
+-- ===========================================================================
+--
+-- A1. Non-ULS, a DM with no DA — a manager overseeing nobody. 12 permits:
+--
+--   address                permit             type                dm cleared
+--   10431 SE 19th St       26 110070 GD       Grading / Clearing  Brittani
+--   12827 NE 80th St       (no number)        Condo               Derry
+--   12827 NE 80th St       LSM26-05234        LSM                 Derry
+--   1953 10th Ave W        1062427-TR         TRAO                Brittani
+--   2039 N 78th St         SPUE-IPR-26-00393  IPR                 Lindsay
+--   2601 E Galer St        (no number)        IPR                 Lindsay
+--   3505 Densmore Ave N    1062770-TR         TRAO                Jade
+--   3522 Ashworth Ave N    (no number)        IPR                 Lindsay
+--   3670 Interlake Ave N   SPUE-IPR-25-00384  IPR                 Lindsay
+--   5951 32nd Ave SW       7128602-DM         Demolition          Brittani
+--   7527 137th Ave NE      CGP-2026-03065     Grading / Clearing  Lindsay
+--   9711 12th Ave NW       (no number)        IPR                 Lindsay
+--
+-- A2. ULS — carries NEITHER a DM nor a DA. 44 permits: 41 carry a DM
+--     (36 DM-only + 5 with both), 8 carry a DA (5 with both + 3 DA-only).
+--
+--   DM-only (36): 13515 27th Ave NE 3043858-LU (Brittani) · 1400 8th Ave W
+--   3043834-LU (Lindsay) · 1953 10th Ave W 3043754-LU (Brittani) ·
+--   2039 N 78th St 3043324-LU (Lindsay) · 2443 5th Ave W 3043341-LU
+--   (Brittani) · 2601 E Galer St 3044303-LU (Lindsay) · 2627 25th Ave W
+--   3043725-LU (Lindsay) · 2724 Walnut Ave SW 3043227-LU (Lindsay) ·
+--   2812 32nd Ave W 3044101-LU (Derry) · 2822 NW 92nd St 3043787-LU
+--   (Brittani) · 3021 NW 62nd St 3043261-LU (Jade) · 3039 63rd Ave SW
+--   3042952-LU (Lindsay) · 3046 NW 64th St 3043825-LU (Brittani) ·
+--   3241 44th Ave SW 3043215-LU (Lindsay) · 3505 Densmore Ave N 3043786-LU
+--   (Jade) · 3522 Ashworth Ave N (no number) (Lindsay) · 3670 Interlake
+--   Ave N 3043230-LU (Lindsay) · 370 Lynn St 3043695-LU (Brittani) ·
+--   3921 43rd Ave S 3043994-LU (Lindsay) · 4113 SW Ida ST 3043452-LU
+--   (Jade) · 4115 SW Elmgrove St 3043356-LU (Jade) · 4222 Latona Ave NE
+--   3044109-LU (Brittani) · 4903 Erskine Way SW 3043687-LU (Lindsay) ·
+--   5107 S Hudson St 3043714-LU (Lindsay) · 5603 45th Ave SW 3043590-LU
+--   (Lindsay) · 5606 46th Ave SW 3043689-LU (Lindsay) · 5623 44th Ave SW
+--   3043799-LU (Lindsay) · 5627 44th Ave SW 3043837-LU (Lindsay) ·
+--   5811 Greenwood Ave N 3043890-LU (Brittani) · 5947 32nd Ave SW
+--   3043872-LU (Brittani) · 5951 32nd Ave SW 3043884-LU (Brittani) ·
+--   733 N 78th St 3043757-LU (Brittani) · 7726 44th Ave NE 3043963-LU
+--   (Jade) · 8816 38th Ave SW 3043785-LU (Jade) · 8844 10th Ave SW
+--   3044028-LU (Brittani) · 9711 12th Ave NW 3044282-LU (Lindsay)
+--
+--   Both DM and DA (5): 12238 4th Ave NW 3043436-LU (da Marc, dm Jade — the
+--   brief's 7th "contradiction", resolved as a clear) · 1327 44th Ave SW
+--   3044216-LU (da Ainsley, dm Lindsay) · 3117 W Dravus St 3044093-LU
+--   (da Francesca, dm Lindsay) · 3931 SW Southern St 3043471-LU (da Erick,
+--   dm Jade) · 4000 SW Concord St 3044084-LU (da Fisk, dm Brittani)
+--
+--   DA-only (3): 25 W Dravus St 3042799-LU (da Cam) · 41 W Dravus St
+--   3042798-LU (da Cam) · 5053 25th Ave SW 3043266-LU (da Nicky)
+--
+-- ===========================================================================
+-- GROUP B — 61 FILLS (DA set, DM empty → the DA's mapped manager)
+-- ===========================================================================
+--
+--   → Brittani (Marc 14, Ahmadi 5, Fisk 6 = 25):
+--     10430 66th Ave S 7088093-CN (Marc) · 10719 Phinney Ave N
+--     7086248-CN-006, 7086442-CN-006 (Ahmadi) · 1301 6th Ave N 7104606-CN,
+--     7119850-CN (Marc) · 13021 23rd Ave NE 7090216-CN (Fisk) ·
+--     1515 Martin Luther King Jr Way 7113300-CN (Ahmadi) · 1524 Martin
+--     Luther King Jr Way 7116062-CN (Ahmadi) · 25 W Cremona St 7082835-CN
+--     (Marc) · 3626 164th Pl SE 26 109016 BS, 26 108987 BS, 26 108993 BS
+--     (Fisk) · 3636 Greenwood Ave N 7078534-CN (Marc) · 4000 SW Concord St
+--     003864-26PA STFI (Fisk) · 403 W Dravus St 7103408-CN (Fisk) ·
+--     4412 Evanston Ave N 7082200-CN (Marc) · 5053 25th Ave SW [Redesign 1]
+--     7102488-CN-004, 7101525-CN-005 (Marc) · 610 N 48th St 7112368-CN-008
+--     (Marc) · 6340 4th Ave NE 7102926-CN (Ahmadi) · 6712 14th Ave NW
+--     7099413-CN (Marc) · 6820 120th Ave NE (no number) (Marc) ·
+--     8037 Wallingford Ave N 7064574-CN (Marc) · 8039 Wallingford Ave N
+--     7064671-CN (Marc) · 929 NW 59th St 7096279-CN (Marc)
+--
+--   → Derry (Qisheng 9, Nicky 14 = 23):
+--     11231 NE 67th St BSF26-05167/05168/05169/05170 + LSM26-01495
+--     (Qisheng) · 12836 N 60th St CTR-102511241 (Qisheng) · 137 13th Ave
+--     BSF25-03387, BSF25-03416, BSF25-08131, DEM25-03392 (Nicky) ·
+--     224 2nd Ave N BLD2026-0126, BLD2026-0131 (Nicky) · 4040 E Via
+--     Estrella CGD-262700231 (Qisheng) · 4051 42nd Ave SW 7095074-CN
+--     (Nicky) · 4055 42nd Ave SW 7090949-CN (Nicky) · 4060 E Via Estrella
+--     CGD-262700253 (Qisheng) · 5831 104th Ave NE BSF25-07987, BSF25-08066,
+--     LSM25-05012 (Nicky) · 5911 105th Ave NE BSF25-08030 (Nicky) ·
+--     7200 54th Ave S [Redesign 1] (no number) (Nicky) · 8022 Fauntleroy
+--     Way SW 7065126-CN (Qisheng) · 8236 120th Ave NE (no number) (Nicky)
+--
+--   → Lindsay (Trevor 2, Francesca 7, Ainsley 2 = 11):
+--     10044 37th Ave SW 7082198-CN-005 (Trevor) · 1710 E Alder St
+--     7089778-CN (Francesca) · 233 31st Ave E (no number) (Ainsley) ·
+--     3241 44th Ave SW 7100546-CN-005 (Ainsley) · 338 NE 90th St
+--     7065001-CN (Francesca) · 4142 44th Ave SW 7066810-CN + 7066811-DM
+--     (Francesca) · 5907 105th Ave NE BSF25-03936 (Francesca) ·
+--     6527 Jones Ave NW 7093438-CN (Francesca) · 725 N 92nd ST
+--     7102013-CN-002 (Francesca) · 7708 131st Ave NE (no number) (Trevor)
+--
+--   → Jade (Erick 1, Alex 1 — ★ Alex NEEDS the pending mapping row):
+--     4137 54th Ave SW (no number) Building Permit (Erick) ·
+--     9022 36th Ave SW 7120425-CN (Alex)
+--
+-- ===========================================================================
+-- GROUP C — 6 CORRECTIONS (stored DM contradicts the DA's manager)
+-- ===========================================================================
+--
+--   address              permit       da     dm today  derived
+--   12238 4th Ave NW     7110427-CN   Marc   Jade      Brittani
+--   12238 4th Ave NW     7110428-DM   Marc   Jade      Brittani
+--   7336 132nd Ave NE    (BP ×3)      Nicky  Lindsay   Derry
+--   7336 132nd Ave NE    (Grading)    Nicky  Lindsay   Derry
+--
+-- ---------------------------------------------------------------------------
+-- NOT IN THE LIST, and deliberately (all still visible in bp_dm_gap_report):
+--   Cam    36 permits (20 with a human-set dm, 16 without) — works across
+--          managers; fix-368's dm_of_project fallback covers his tasks.
+--   Shire   4 permits (2 SDOT Tree, 2 PPR, none with a dm) — must not
+--          resolve to a manager.
+--   Nidhi   2 permits, dm Jade — the pending mapping row makes these MATCH
+--          the derivation; nothing to change.
+--   George  0 unissued permits — all five of his issued in 2025; his pending
+--          mapping row is the record, not a backfill input.
+-- ---------------------------------------------------------------------------
+
+-- BEGIN;
+
+-- -- GROUP A1 — clears: a DM with no DA (non-ULS). expected: 12 rows
+-- UPDATE public.permits p
+--    SET dm = NULL
+--  WHERE p.actual_issue IS NULL
+--    AND COALESCE(p.type, '') <> 'ULS'
+--    AND NULLIF(btrim(COALESCE(p.da, '')), '') IS NULL
+--    AND NULLIF(btrim(COALESCE(p.dm, '')), '') IS NOT NULL;
+
+-- -- GROUP A2 — clears: ULS carries neither. expected: 44 rows
+-- UPDATE public.permits p
+--    SET dm = NULL, da = NULL
+--  WHERE p.actual_issue IS NULL
+--    AND p.type = 'ULS'
+--    AND (NULLIF(btrim(COALESCE(p.dm, '')), '') IS NOT NULL
+--      OR NULLIF(btrim(COALESCE(p.da, '')), '') IS NOT NULL);
+
+-- -- GROUP B — fills: DA set, DM empty, DA mapped. expected: 61 rows
+-- -- (62 if the mapping rows landed after another Alex-class permit appears)
+-- UPDATE public.permits p
+--    SET dm = public.bp_dm_for_da(p.da, p.tenant_id)
+--  WHERE p.actual_issue IS NULL
+--    AND COALESCE(p.type, '') <> 'ULS'
+--    AND NULLIF(btrim(COALESCE(p.da, '')), '') IS NOT NULL
+--    AND NULLIF(btrim(COALESCE(p.dm, '')), '') IS NULL
+--    AND public.bp_dm_for_da(p.da, p.tenant_id) IS NOT NULL;
+
+-- -- GROUP C — corrections: stored DM contradicts the mapping. expected: 6 rows
+-- UPDATE public.permits p
+--    SET dm = public.bp_dm_for_da(p.da, p.tenant_id)
+--  WHERE p.actual_issue IS NULL
+--    AND COALESCE(p.type, '') <> 'ULS'
+--    AND NULLIF(btrim(COALESCE(p.da, '')), '') IS NOT NULL
+--    AND NULLIF(btrim(COALESCE(p.dm, '')), '') IS NOT NULL
+--    AND public.bp_dm_for_da(p.da, p.tenant_id) IS NOT NULL
+--    AND lower(btrim(p.dm)) <> lower(public.bp_dm_for_da(p.da, p.tenant_id));
+
+-- -- ★ Afterwards, the only unissued non-ULS permits whose dm the derivation
+-- -- cannot vouch for are Cam's and Shire's:
+-- SELECT * FROM public.bp_dm_gap_report();
+
+-- COMMIT;
