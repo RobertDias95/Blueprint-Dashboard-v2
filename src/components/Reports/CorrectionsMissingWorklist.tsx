@@ -4,6 +4,14 @@ import { useCorrectionMissingWorklist } from '../../hooks/useCorrectionMissingWo
 import { SkeletonRows } from '../Skeleton';
 import ExportCsvButton from '../shared/ExportCsvButton';
 import { rowsToCsv, reportCsvFilename } from '../../lib/reportCsv';
+import IndexerFreshness from './IndexerFreshness';
+import {
+  AGE_WINDOWS,
+  DEFAULT_AGE_WINDOW_DAYS,
+  windowCounts,
+  windowSummary,
+  withinWindow,
+} from '../../lib/indexerRun';
 
 // fix-279: the missing-letter worklist, as a view on the Corrections report
 // rather than a separate report.
@@ -27,6 +35,14 @@ export default function CorrectionsMissingWorklist() {
   const q = useCorrectionMissingWorklist();
   const [jurisFilter, setJurisFilter] = useState('');
   const [hideParked, setHideParked] = useState(false);
+  // *** fix-376 section 3: DEFAULT AWAY FROM THE BACKLOG, NEVER HIDE IT.
+  //
+  // Measured on the live view 2026-08-21, 152 rows across 70 projects:
+  // 13 with no date at all, 13 within 30 days, 14 in 31-90, 78 in 91-365, and
+  // 34 over a year - the oldest 1,424 days, nearly four years. A page that
+  // opens showing all 152 is noise, and a list Gena stops opening is worth
+  // nothing. See lib/indexerRun for why the default is 90 rather than 30.
+  const [windowDays, setWindowDays] = useState<number | null>(DEFAULT_AGE_WINDOW_DAYS);
 
   const all = useMemo(() => q.data ?? [], [q.data]);
   const jurisdictions = useMemo(
@@ -36,7 +52,9 @@ export default function CorrectionsMissingWorklist() {
       ),
     [all],
   );
-  const rows = useMemo(
+  // ** The age window is applied to the SAME population the counts describe, so
+  // the summary line below cannot drift from the table above it.
+  const inScope = useMemo(
     () =>
       all.filter((r) => {
         if (jurisFilter && (r.juris ?? '') !== jurisFilter) return false;
@@ -44,6 +62,14 @@ export default function CorrectionsMissingWorklist() {
         return true;
       }),
     [all, jurisFilter, hideParked],
+  );
+  const rows = useMemo(
+    () => inScope.filter((r) => withinWindow(r, windowDays)),
+    [inScope, windowDays],
+  );
+  const counts = useMemo(
+    () => windowCounts(inScope, windowDays),
+    [inScope, windowDays],
   );
 
   const projects = useMemo(
@@ -72,6 +98,12 @@ export default function CorrectionsMissingWorklist() {
 
   return (
     <div className="space-y-3" data-testid="corrections-missing-worklist">
+      {/* *** fix-376: the run behind the list. The indexer needs the UNC share
+          so it cannot run in CI - it runs when Bobby types the command - and
+          without this a person reading "20 with no letter" cannot tell whether
+          that was true an hour ago or nine days ago. */}
+      <IndexerFreshness />
+
       <div
         className="text-[11px] text-muted bg-s2 border border-border rounded-md px-3 py-2"
         data-testid="missing-worklist-note"
@@ -108,6 +140,26 @@ export default function CorrectionsMissingWorklist() {
               ))}
             </select>
           </label>
+          <label className="flex flex-col gap-1">
+            <span className="text-[10px] uppercase tracking-wide text-dim">
+              Issued within
+            </span>
+            <select
+              value={windowDays == null ? 'all' : String(windowDays)}
+              onChange={(e) =>
+                setWindowDays(e.target.value === 'all' ? null : Number(e.target.value))
+              }
+              className="bg-bg border border-border rounded px-2 py-1 text-xs font-display text-text focus:outline-none focus:border-de"
+              title="Rounds issued longer ago than this are a records question rather than this fortnight's work. Nothing is deleted - the total is always stated and All time is one click away."
+              data-testid="missing-worklist-window"
+            >
+              {AGE_WINDOWS.map((w) => (
+                <option key={w.label} value={w.days == null ? 'all' : String(w.days)}>
+                  {w.label}
+                </option>
+              ))}
+            </select>
+          </label>
           <label className="flex items-center gap-1.5 text-[11px] text-muted pb-1">
             <input
               type="checkbox"
@@ -118,8 +170,17 @@ export default function CorrectionsMissingWorklist() {
             Hide projects on hold
           </label>
         </div>
+        {/* ** fix-376: THE WINDOW TRAVELS WITH THE FILE. The export is what is
+            on screen, and a file called "no-letter-found" that silently held 40
+            of 152 rows would be the same dishonesty the summary line above
+            exists to prevent - only harder to spot, because a spreadsheet has
+            no filter control on it. */}
         <ExportCsvButton
-          filename={reportCsvFilename('corrections-no-letter-found')}
+          filename={reportCsvFilename(
+            windowDays == null
+              ? 'corrections-no-letter-found-all-time'
+              : `corrections-no-letter-found-last-${windowDays}-days`,
+          )}
           onExport={() =>
             rowsToCsv(
               [
@@ -162,7 +223,9 @@ export default function CorrectionsMissingWorklist() {
           className="py-6 text-center text-dim italic text-xs"
           data-testid="missing-worklist-empty"
         >
-          Every correction the tool knows about has a letter on file.
+          {counts.total === 0
+            ? 'Every correction the tool knows about has a letter on file.'
+            : `None issued in that window. ${counts.total} older ${counts.total === 1 ? 'round has' : 'rounds have'} no letter found — widen the window to see them.`}
         </div>
       ) : (
         <>
@@ -172,6 +235,27 @@ export default function CorrectionsMissingWorklist() {
             found, across{' '}
             <strong className="text-text text-[13px]">{projects}</strong>{' '}
             {projects === 1 ? 'project' : 'projects'}. Longest outstanding first.
+            {/* *** THE TOTAL IS STATED WHATEVER IS FILTERED. A filtered list
+                that looks complete is the fix-370 mistake repeated, and this is
+                the sentence that prevents it - including the count of rows with
+                no issue date, which are in EVERY window and would otherwise
+                vanish behind a control labelled by age. */}
+            <span className="block text-dim mt-0.5" data-testid="missing-worklist-window-summary">
+              {windowSummary(counts, windowDays)}
+              {counts.hidden > 0 && (
+                <>
+                  {' · '}
+                  <button
+                    type="button"
+                    onClick={() => setWindowDays(null)}
+                    className="underline text-de bg-transparent border-none p-0 font-bold"
+                    data-testid="missing-worklist-show-all"
+                  >
+                    show all
+                  </button>
+                </>
+              )}
+            </span>
           </div>
           <div className="overflow-x-auto">
             <table className="w-full text-xs min-w-[780px]">
