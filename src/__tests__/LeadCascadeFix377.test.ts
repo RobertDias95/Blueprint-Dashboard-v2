@@ -11,6 +11,13 @@ const sqlCode = migrationSql.replace(/^\s*--.*$/gm, '');
 // fix-377 — reassigning a project moves nobody's work
 // ===========================================================================
 //
+// ★★★ AMENDED BY fix-379: the design_manager → dm half of the PROJECT cascade
+// was removed (permits.dm is derived from the permit's DA — see
+// migrations/fix_379_dm_derived.sql and DmDerivedFix379.test.ts). The mirror
+// below models the CURRENT prod behaviour: entitlement_lead cascades, the
+// permit-level trigger is unchanged, and a project design_manager change
+// moves nothing on permits.
+//
 // No live DB in CI (fix-153 / fix-220 / fix-244 / fix-368 precedent), so this
 // is a pure-TS mirror of the two triggers plus a documented ROLLED-BACK prod
 // probe. If the SQL and this mirror ever disagree, one of them is wrong — they
@@ -206,7 +213,12 @@ export function updatePermit(db: Db, permitId: number, patch: Partial<Permit>): 
 }
 
 /** Mirror of SQL bp_trg_project_lead_cascade(): AFTER UPDATE OF
- *  entitlement_lead, design_manager ON projects. */
+ *  entitlement_lead ON projects.
+ *
+ *  ★★★ fix-379 REMOVED the design_manager → dm half: permits.dm is DERIVED
+ *  from the permit's DA (bp_trg_permit_derive_dm, see DmDerivedFix379), so a
+ *  project reassignment moves nothing on permits. The entitlement half is
+ *  untouched — ent_lead genuinely is assigned per permit. */
 export function updateProject(db: Db, projectId: string, patch: Partial<Project>): void {
   const pr = db.projects.find((x) => x.id === projectId)!;
   const before = { entitlement_lead: pr.entitlement_lead, design_manager: pr.design_manager };
@@ -214,7 +226,6 @@ export function updateProject(db: Db, projectId: string, patch: Partial<Project>
 
   const moves: [keyof Permit, string | null, string | null][] = [
     ['ent_lead', norm(before.entitlement_lead), norm(pr.entitlement_lead)],
-    ['dm', norm(before.design_manager), norm(pr.design_manager)],
   ];
 
   for (const [field, vOld, vNew] of moves) {
@@ -288,11 +299,12 @@ describe('fix-377 §1 — the project lead moves onto its permits', () => {
     expect(permit(d, 1).ent_lead).toBe('Miles');
   });
 
-  it('renames the design manager the same way, and both in one edit', () => {
+  it('★★★ fix-379: a design_manager change moves NOTHING — dm follows the DA, not the project', () => {
     const d = db();
     updateProject(d, 'P1', { entitlement_lead: 'Miles', design_manager: 'Brittani' });
-    expect(permit(d, 1).ent_lead).toBe('Miles');
-    expect(permit(d, 1).dm).toBe('Brittani');
+    expect(permit(d, 1).ent_lead).toBe('Miles'); // the ent half still cascades
+    expect(permit(d, 1).dm).toBe('Lindsay'); // the design half no longer fires
+    expect(task(d, 't4').assigned_to).toBe('Lindsay'); // and no task moves for it
   });
 
   it('leaves an ISSUED permit exactly as it was — it is the record of who took it through', () => {
@@ -367,7 +379,10 @@ describe('fix-377 §2 — and from the permit onto the open tasks', () => {
 
   it('moves an In Progress task, which is still somebody working', () => {
     const d = db();
-    updateProject(d, 'P1', { design_manager: 'Brittani' });
+    // fix-379: the dm change arrives via the PERMIT (the derivation re-deriving
+    // it on a DA change), never via the project — the permit-level cascade is
+    // untouched and still moves the outgoing manager's live work.
+    updatePermit(d, 1, { dm: 'Brittani' });
     expect(task(d, 't4').assigned_to).toBe('Brittani');
   });
 
@@ -488,6 +503,10 @@ describe('fix-377 §4 — the draw schedule, and why there is no loop', () => {
 // ---------------------------------------------------------------------------
 describe('fix-377 §4 — it is on the ROW, not in a React handler', () => {
   it('ships two triggers, on projects and on permits', () => {
+    // ★ The fix-377 FILE is history: it shipped watching design_manager too.
+    // fix-379 (migrations/fix_379_dm_derived.sql) redefined the projects
+    // trigger to entitlement_lead only — DmDerivedFix379.test.ts asserts the
+    // CURRENT definition; this asserts what fix-377 shipped.
     expect(migrationSql).toMatch(
       /CREATE TRIGGER projects_cascade_lead\s+AFTER UPDATE OF entitlement_lead, design_manager ON public\.projects/,
     );
