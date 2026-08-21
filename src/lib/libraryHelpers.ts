@@ -2,6 +2,7 @@ import type { PermitWithCycles, Project, Stage, UnitType } from './database.type
 import { effectiveStage } from './permitStage';
 import { multiMatchAddress } from './drawScheduleHelpers';
 import { parseUnitTypes } from './unitTypeNaming';
+import { structAddressHaystack } from './structAddressSearch';
 
 // Q6.3.a: pure helpers for the Library matrix view (Settings → Library tab).
 // Mirrors v1's renderMatrix (index.html lines 5680-5778). The matrix shows
@@ -40,6 +41,11 @@ export interface LibraryRow {
    *  when the project row predates the OCC trigger (then editing is disabled,
    *  mirroring Project Overview's occMissing gate). */
   updatedAt: string | null;
+  /** fix-380: the struct_address text of the project's permits ('' when none)
+   *  — searchable, never displayed. Bobby: "Maybe I don't know the project by
+   *  the project address, but I know it by the structure address." Optional so
+   *  older fixtures without it behave exactly as before. */
+  structAddressHay?: string;
 }
 
 /** Q6.3.a-fix: target ± buffer filter. "50 ± 5" matches every value in
@@ -134,6 +140,7 @@ export function buildLibraryRows(
       isCornerLot:
         typeof proj.is_corner_lot === 'boolean' ? proj.is_corner_lot : null,
       updatedAt: proj.updated_at ?? null,
+      structAddressHay: structAddressHaystack(projectPermits),
     });
   }
   return rows;
@@ -259,9 +266,13 @@ export function filterLibraryRows(
 }
 
 /** fix-81: search hits address OR any unit_type label, so typing
- * "cottage" surfaces every project that has a "Cottage *" unit. */
+ * "cottage" surfaces every project that has a "Cottage *" unit.
+ * fix-380: the permits' struct_address joins the address haystack — same
+ * multi-token matcher, so a structure address finds the project's row. */
 function matchRowSearch(row: LibraryRow, query: string): boolean {
-  if (multiMatchAddress(query, row.address)) return true;
+  const structHay = row.structAddressHay ?? '';
+  const addressHay = structHay ? `${row.address} ${structHay}` : row.address;
+  if (multiMatchAddress(query, addressHay)) return true;
   const q = query.toLowerCase();
   return row.unitTypes.some((u) => u.label.toLowerCase().includes(q));
 }

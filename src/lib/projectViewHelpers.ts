@@ -7,6 +7,7 @@ import type {
 } from './database.types';
 import { effectiveStage } from './permitStage';
 import { multiMatchAddress } from './drawScheduleHelpers';
+import { structAddressHaystack } from './structAddressSearch';
 import {
   currentCycleIndex,
   rollupCounts,
@@ -90,6 +91,12 @@ export interface ProjectRow {
    *  sub-permit exclusion below? Distinguishes a permit-less shell (keep ACTIVE)
    *  from a project whose only permits are subs (hidden). See projectIsActive. */
   hasAnyPermit: boolean;
+  /** fix-380: the struct_address text of ALL the project's permits (subs
+   *  included — "a project matches when ANY of its permits' struct_address
+   *  matches", and a structure can live on a sub-permit). '' when none.
+   *  Searchable only, never displayed. Optional so older fixtures without it
+   *  behave exactly as before. */
+  structAddressHay?: string;
 }
 
 export interface ProjectViewFilters {
@@ -199,8 +206,15 @@ export function buildProjectRows(
   // fix-245: track which projects have ANY permit (before excluding subs) so the
   // Active filter can tell a permit-less shell (active) from a sub-only project.
   const projectsWithAnyPermit = new Set<string>();
+  // fix-380: struct-address search text per project, collected from ALL
+  // permits (BEFORE the sub exclusion — a structure can live on a sub-permit,
+  // and the semantic is "any of its permits' struct_address finds the project").
+  const allPermitsByProject = new Map<string, PermitWithCycles[]>();
   for (const p of permits) {
     projectsWithAnyPermit.add(p.project_id);
+    const all = allPermitsByProject.get(p.project_id) ?? [];
+    all.push(p);
+    allPermitsByProject.set(p.project_id, all);
     // fix-194: exclude sub/child placeholder permits from the Project List
     // rollups (stage set, reviewer chips, DA/ENT sets, permit count).
     if (isSubPermit(p)) continue;
@@ -266,6 +280,9 @@ export function buildProjectRows(
       entLeads,
       das,
       hasAnyPermit: projectsWithAnyPermit.has(project.id),
+      structAddressHay: structAddressHaystack(
+        allPermitsByProject.get(project.id),
+      ),
     });
   }
   return rows;
@@ -401,7 +418,9 @@ export function filterProjectRows(
       // active-note bodies from the notes table are appended, so both old and
       // new note text find the project.
       const noteHay = noteTextByProject?.get(r.project.id) ?? '';
-      const haystack = `${r.project.address} ${tagHay} ${r.project.notes ?? ''} ${noteHay}`;
+      // fix-380: the permits' struct_address joins the haystack — a structure
+      // address finds the PROJECT's row.
+      const haystack = `${r.project.address} ${tagHay} ${r.project.notes ?? ''} ${noteHay} ${r.structAddressHay ?? ''}`;
       if (!multiMatchAddress(searchQ, haystack)) return false;
     }
     return true;

@@ -997,6 +997,34 @@ describe('MyTasks (fix-80 v1 three-pane kanban)', () => {
     expect(screen.queryByTestId('mytask-card-de-open-overdue')).toBeNull();
   });
 
+  // fix-380: Bobby — "Maybe I don't know the project by the project address,
+  // but I know it by the structure address." The task rows are the
+  // bp_list_tasks projection (project_address only), so the permit's
+  // struct_address joins the haystack from the permits cache by permit_id.
+  it('fix-380: search matches the permit struct_address', () => {
+    tasksRef.current = varied();
+    permitsRef.current = [
+      { id: 1, da: 'Trevor', dm: null, ent_lead: 'Bobby', struct_address: null },
+      { id: 2, da: 'Ainsley', dm: null, ent_lead: 'Edmund', struct_address: '4411 Cottage Ct' },
+    ];
+    renderIt();
+    fireEvent.change(screen.getByTestId('mytasks-filter-search'), {
+      target: { value: 'cottage' },
+    });
+    // Permit 2's tasks match on its structure address…
+    expect(screen.getByTestId('mytask-card-pm-open')).toBeInTheDocument();
+    expect(screen.getByTestId('mytask-card-pm-inprog')).toBeInTheDocument();
+    // …permit 1 (no struct_address — 518 of 588 rows) neither matches nor breaks.
+    expect(screen.queryByTestId('mytask-card-de-inprog')).toBeNull();
+    expect(screen.queryByTestId('mytask-card-de-open-overdue')).toBeNull();
+    // Address search unchanged.
+    fireEvent.change(screen.getByTestId('mytasks-filter-search'), {
+      target: { value: 'pike' },
+    });
+    expect(screen.getByTestId('mytask-card-pm-open')).toBeInTheDocument();
+    expect(screen.queryByTestId('mytask-card-de-inprog')).toBeNull();
+  });
+
   it('filters persist across unmount + remount via localStorage (key mytasks.filters.v2)', () => {
     tasksRef.current = varied();
     const { unmount } = renderIt();

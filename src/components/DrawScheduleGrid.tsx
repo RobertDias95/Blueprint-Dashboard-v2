@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { parseDrawScheduleFocus } from '../lib/drawScheduleLink';
 import { useDrawSchedule } from '../hooks/useDrawSchedule';
@@ -60,6 +60,7 @@ import {
   type NpConflict,
 } from '../lib/drawScheduleHelpers';
 import { computeProjectedApproval } from '../lib/projectedApproval';
+import { structAddressHaystack } from '../lib/structAddressSearch';
 import {
   useAllProjectHolds,
   holdsByProjectId as holdsIndexByProjectId,
@@ -313,6 +314,28 @@ function DrawScheduleBody({
     }
     return m;
   }, [permits]);
+
+  // fix-380: the struct-address text each project's permits contribute to the
+  // schedule search — Bobby: "Maybe I don't know the project by the project
+  // address, but I know it by the structure address." Searching a structure
+  // address finds the PROJECT's block, exactly like searching its address.
+  // All three search consumers (auto-snap, blocksByDa, unscheduled) go
+  // through projectSearchHay so they cannot disagree about what matches.
+  const structHayByProjectId = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const [pid, list] of permitsByProjectId) {
+      const hay = structAddressHaystack(list);
+      if (hay !== '') m.set(pid, hay);
+    }
+    return m;
+  }, [permitsByProjectId]);
+  const projectSearchHay = useCallback(
+    (project: Project) => {
+      const extra = structHayByProjectId.get(project.id);
+      return extra ? `${project.address} ${extra}` : project.address;
+    },
+    [structHayByProjectId],
+  );
   const projectsById = useMemo(
     () => new Map(projects.map((pr) => [pr.id, pr])),
     [projects],
@@ -1083,7 +1106,7 @@ function DrawScheduleBody({
       if (!row.start_week) continue;
       const project = projectById.get(row.project_id);
       if (!project) continue;
-      if (!multiMatchAddress(trimmed, project.address)) continue;
+      if (!multiMatchAddress(trimmed, projectSearchHay(project))) continue;
       if (earliestStart === null || row.start_week < earliestStart) {
         earliestStart = row.start_week;
       }
@@ -1091,7 +1114,7 @@ function DrawScheduleBody({
     lastSnappedSearchRef.current = trimmed;
     if (earliestStart === null) return; // no scheduled project matched; stay put
     setQuarterOffset(weekKeyToQuarterOffset(earliestStart));
-  }, [search, draw, projectById, setQuarterOffset]);
+  }, [search, draw, projectById, projectSearchHay, setQuarterOffset]);
 
   // All blocks (across DAs), keyed by da. Used by drop handler to detect
   // overlap on the target DA. Different from blocksByDa (which is filtered
@@ -1326,7 +1349,8 @@ function DrawScheduleBody({
       if (!overlapsQ) continue;
       const project = projectById.get(row.project_id);
       if (!project) continue;
-      if (search.trim() && !multiMatchAddress(search, project.address)) continue;
+      if (search.trim() && !multiMatchAddress(search, projectSearchHay(project)))
+        continue;
       map.get(da)!.push({ row, project });
     }
     // Sort each DA's blocks by start_week.
@@ -1336,7 +1360,7 @@ function DrawScheduleBody({
       );
     }
     return map;
-  }, [draw, projectById, visibleDaNames, weeks, search]);
+  }, [draw, projectById, visibleDaNames, weeks, search, projectSearchHay]);
 
   // Q6.2.c: NP blocks grouped by DA, filtered to current quarter. Same
   // overlap predicate as project blocks; render-only (no drag, no drop).
@@ -1375,10 +1399,10 @@ function DrawScheduleBody({
       .filter((x): x is { row: DrawScheduleRow; project: Project } => !!x.project)
       .filter(
         ({ project }) =>
-          !search.trim() || multiMatchAddress(search, project.address),
+          !search.trim() || multiMatchAddress(search, projectSearchHay(project)),
       )
       .sort((a, b) => a.project.address.localeCompare(b.project.address));
-  }, [draw, projectById, search]);
+  }, [draw, projectById, search, projectSearchHay]);
 
   // fix-182d: all three render bands (DM header, DA header, body columns) share
   // ONE grid-template-columns so column/group boundaries align pixel-perfectly.

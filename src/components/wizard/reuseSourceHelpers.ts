@@ -3,6 +3,7 @@ import {
   holisticOwner,
 } from '../../lib/volumeAttribution';
 import { parseUnitTypes } from '../../lib/unitTypeNaming';
+import { structAddressHaystack } from '../../lib/structAddressSearch';
 import type {
   PermitWithCycles,
   Project,
@@ -28,6 +29,11 @@ export interface ReuseSource {
   /** The project's primary (holistic) DA — the Building Permit's `da` — via the
    *  SAME volumeAttribution helper reports use, so "search by DA" reconciles. */
   primaryDa: string | null;
+  /** fix-380: the struct_address text of the project's permits ('' when none)
+   *  — searchable, never displayed. A plan Bobby knows by its structure
+   *  address is still findable as a reuse source. Optional so older fixtures
+   *  without it behave exactly as before. */
+  structAddressHay?: string;
 }
 
 /** Build the reuse candidate list from the projects + permits caches. Excludes
@@ -48,6 +54,7 @@ export function buildReuseSources(
       product_types: Array.isArray(p.product_types) ? p.product_types : [],
       unit_types: parseUnitTypes(p.unit_types),
       primaryDa: holisticOwner('da', p, permitsByProject.get(p.id) ?? []),
+      structAddressHay: structAddressHaystack(permitsByProject.get(p.id)),
     }));
 }
 
@@ -60,8 +67,10 @@ export function reuseSourcesFromCaches(
   return buildReuseSources(projects, groupPermitsByProject(permits));
 }
 
-/** Multi-token AND filter across address / juris / DA / zone / product types.
- *  Blank query returns all. Case-insensitive; tokens split on space + comma. */
+/** Multi-token AND filter across address / juris / DA / zone / product types
+ *  (+ fix-380: the permits' struct_address, so a plan Bobby knows by its
+ *  structure address is still findable). Blank query returns all.
+ *  Case-insensitive; tokens split on space + comma. */
 export function filterReuseSources(
   sources: ReuseSource[],
   query: string,
@@ -73,9 +82,9 @@ export function filterReuseSources(
     .filter(Boolean);
   if (tokens.length === 0) return sources;
   return sources.filter((s) => {
-    const hay = `${s.address} ${s.juris ?? ''} ${s.primaryDa ?? ''} ${
-      s.zone ?? ''
-    } ${s.product_types.join(' ')}`.toLowerCase();
+    const hay = `${s.address} ${s.structAddressHay ?? ''} ${s.juris ?? ''} ${
+      s.primaryDa ?? ''
+    } ${s.zone ?? ''} ${s.product_types.join(' ')}`.toLowerCase();
     return tokens.every((t) => hay.includes(t));
   });
 }

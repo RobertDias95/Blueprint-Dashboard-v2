@@ -806,6 +806,8 @@ export function filterEnrichedPermits(
     if (filters.search.trim()) {
       // Search joins task-style: address, juris, ent_lead, da, dm, type,
       // product_types, permit_num.
+      // fix-380: + the permit's own struct_address — this is a permit-level
+      // surface, so the row matches on its own structure address directly.
       const hay = [
         e.address,
         e.juris,
@@ -815,6 +817,7 @@ export function filterEnrichedPermits(
         p.type,
         e.productTypes.join(' '),
         p.num,
+        p.struct_address,
       ]
         .filter((s): s is string => Boolean(s))
         .join(' ');
