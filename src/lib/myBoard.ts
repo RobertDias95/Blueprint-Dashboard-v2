@@ -494,6 +494,97 @@ function everIntakeAccepted(cycles: ReadonlyArray<PermitCycle>): boolean {
   return cycles.some((c) => !!c.intake_accepted);
 }
 
+// ===========================================================================
+// ★★★ fix-378 — A DATE ALREADY PAST WHEN THE RECORD WAS BORN IS HISTORY
+// ===========================================================================
+//
+// Bobby: *"as we're backfilling projects, it's not very helpful … he has to go
+// click through 200 milestones, which doesn't really seem like a good use of
+// time if 95% of them aren't accurate."*
+//
+// Measured on prod 2026-08-21: of 312 active permits, 224 carry a
+// target_submit more than 30 days past — and for 180 of those the date was
+// ALREADY past when the permit row was CREATED. That is what backfilling does:
+// load a project with its real historical dates and every date-anchored
+// milestone fires at once, as though the team missed 180 deadlines the moment
+// the data arrived.
+//
+// ★★★ THE DISCRIMINATOR: a date already in the past when the row was created
+// is HISTORY — the prompt never applied, because nobody could have acted on it
+// through this system. A date that passed while the record was LIVE is a
+// MISSED DEADLINE and must keep raising: the 44 real ones are the entire
+// reason the milestone exists.
+//
+// ★★★ SUPPRESSED IN THE DERIVER, NEVER BY WRITING AN ACK. An auto-ack would be
+// the machine putting words in a person's mouth — `acked_by` naming somebody
+// who never looked (fix-363: provenance answers WHO did this). Nothing in this
+// ticket writes or deletes a permit_milestone_acks row; the ledger stays
+// human-only, and the ack contract (release when the anchor moves) is
+// untouched.
+//
+// ★ ONLY THE PLAN-DATE KINDS. Each of the seven was checked against "could
+// this fire purely because the data is historic?":
+//   target_submit / draw / intake — YES: each fires off a stored plan date
+//     (target_submit, dd_end, intake_date) that backfill loads already-past.
+//   fees          — NO: it fires off approved-and-not-ISSUED, a current portal
+//     state. Old approval date or not, the fees are genuinely unpaid today.
+//   corrections   — NO: a state (current cycle has corr_issued, no resubmit),
+//     read from the portal's present, not a plan date.
+//   reviewer_silent — NO, and on a different path anyway: measured from
+//     updated_at (last movement), which is fresh on a backfilled row.
+//   issuance      — nothing to change: permitMilestones never derives it
+//     (it exists only as relay vocabulary; see milestoneApplies' default arm).
+const HISTORIC_SUPPRESSIBLE_KINDS = ['target_submit', 'draw', 'intake'] as const;
+
+/** ★★★ Was this milestone's driving date already past when the permit row was
+ *  created? True = the prompt is backfilled history and never applied.
+ *
+ *  ★ FAIL OPEN: a permit with no created_at (or no driving date) returns
+ *  false — we cannot prove the date predates the record, so the milestone
+ *  raises exactly as it always has. Suppression requires evidence.
+ *
+ *  ★ Strictly BEFORE: a date equal to the creation day is live — the row was
+ *  born with today's deadline, not with history. */
+export function milestonePredatesRecord(
+  kind: MilestoneKind,
+  permit: PermitWithCycles,
+): boolean {
+  const created = (permit.created_at ?? '').slice(0, 10);
+  if (!created) return false;
+  let date: string | null;
+  switch (kind) {
+    case 'target_submit':
+      date = permit.target_submit ?? null;
+      break;
+    case 'draw':
+      date = permit.dd_end ?? null;
+      break;
+    case 'intake':
+      date = permit.intake_date ?? null;
+      break;
+    default:
+      return false;
+  }
+  if (!date) return false;
+  return date.slice(0, 10) < created;
+}
+
+/** The kinds this permit would raise TODAY but for the historic rule — what
+ *  feeds the suppressed count. fix-298's principle, restated at the
+ *  suppression note below: showing the suppressed count is how a quiet day
+ *  and a broken notifier stop looking the same. Silently dropping 180 prompts
+ *  would be the fix-370 mistake again. */
+export function historicSuppressedKinds(
+  permit: PermitWithCycles,
+  cycles: ReadonlyArray<PermitCycle> = permit.permit_cycles ?? [],
+): MilestoneKind[] {
+  return HISTORIC_SUPPRESSIBLE_KINDS.filter(
+    (k) =>
+      milestonePredatesRecord(k, permit) &&
+      milestoneAppliesIgnoringHistory(k, permit, cycles),
+  );
+}
+
 /**
  * ★★★ Does this milestone still apply to the permit's CURRENT state?
  *
@@ -517,8 +608,13 @@ function everIntakeAccepted(cycles: ReadonlyArray<PermitCycle>): boolean {
  * answers "does this prompt make sense for this permit today", and the caller
  * still decides whether it is due, how late it is, and whether somebody has
  * already snoozed it.
+ *
+ * ★ fix-378: split from milestoneApplies so the historic rule composes on top
+ * without this function's conditions being written twice — the suppressed
+ * count needs "would apply but for history", and a second copy of these rules
+ * would drift.
  */
-export function milestoneApplies(
+function milestoneAppliesIgnoringHistory(
   kind: MilestoneKind,
   permit: PermitWithCycles,
   cycles: ReadonlyArray<PermitCycle> = permit.permit_cycles ?? [],
@@ -545,6 +641,20 @@ export function milestoneApplies(
     default:
       return true;
   }
+}
+
+/** ★★★ The full gate: current-state rules (fix-337) AND the historic rule
+ *  (fix-378). Exported unchanged in shape so the future notifier fix-337
+ *  planned for asks one question and never pings about backfilled history. */
+export function milestoneApplies(
+  kind: MilestoneKind,
+  permit: PermitWithCycles,
+  cycles: ReadonlyArray<PermitCycle> = permit.permit_cycles ?? [],
+): boolean {
+  return (
+    milestoneAppliesIgnoringHistory(kind, permit, cycles) &&
+    !milestonePredatesRecord(kind, permit)
+  );
 }
 
 /** Every milestone this permit is currently at. A permit can carry more than
@@ -933,6 +1043,13 @@ export interface Forecast {
    *  Derived HERE rather than by re-filtering the buckets in the page, which is
    *  what let one permit appear in two sections at once. */
   handed_off: ForecastItem[];
+  /** ★★ fix-378: milestones this board did NOT raise because their driving
+   *  date was already past when the permit row was created — backfilled
+   *  history, not missed deadlines. Counted per (permit, kind) over the same
+   *  permits the buckets were built from, so the header can say "N not shown"
+   *  instead of silently dropping them (fix-298's suppressed-count principle;
+   *  fix-370 is what silent dropping looks like). */
+  suppressedHistoric: number;
 }
 
 function bucketFor(daysLate: number): ForecastBucket {
@@ -1088,7 +1205,22 @@ export function buildForecast(input: BoardInput): Forecast {
     input.permits.filter((p) => isSubPermit(p)).map((p) => p.id),
   );
 
+  // ★★ fix-378: what the historic rule kept off THIS board. Counted with the
+  // same gates the emit loop applies — not acked, and at least one of the
+  // viewer's legs would have rendered it — so the number is "rows you would
+  // otherwise be looking at", not a book-wide abstraction.
+  let suppressedHistoric = 0;
+
   for (const p of prepare(input)) {
+    for (const kind of historicSuppressedKinds(p.permit)) {
+      if (isMilestoneAcked(kind, p.permit, input.acks ?? [])) continue;
+      const visible = p.legs.some(
+        (leg) =>
+          relayStateFor(kind, leg, p.shape, p.design) !== 'absent' &&
+          milestoneVerb(kind, leg) !== '',
+      );
+      if (visible) suppressedHistoric += 1;
+    }
     for (const m of permitMilestones(p.permit, today, thresholds, input.acks ?? [])) {
       if (m.date === null) continue; // ← the rule, enforced in one place
       for (const leg of p.legs) {
@@ -1277,6 +1409,7 @@ export function buildForecast(input: BoardInput): Forecast {
       BOARD_SECTION_CAPS.next_week,
     ),
     handed_off: handedOffItems.sort((a, z) => z.daysLate - a.daysLate),
+    suppressedHistoric,
   };
 }
 

@@ -1192,6 +1192,19 @@ export default function MyBoard() {
               <div className="text-[10px] text-muted mt-px">
                 Your tasks and permit milestones, in date order
               </div>
+              {/* ★★ fix-378: milestones whose driving date was already past
+                  when the permit row was created are backfilled history and
+                  are not raised — but the COUNT is, because a quiet board and
+                  a muted one must never look the same (fix-298's rule). */}
+              {forecast.suppressedHistoric > 0 && (
+                <div
+                  className="text-[10px] text-muted mt-px"
+                  data-testid="board-forecast-historic-suppressed"
+                >
+                  {forecast.suppressedHistoric} not shown: dated before the
+                  record existed
+                </div>
+              )}
               {/* ★★ fix-365: a design manager's lens over their own board.
                   Renders for the four people who have associates and for
                   nobody else. It sits INSIDE the Forecast header because that

@@ -671,3 +671,49 @@ describe('fix-298 P2: the handoff prompt', () => {
     expect(screen.getByTestId('board-sec-handoff-wrap')).toBeTruthy();
   });
 });
+
+// ---------------------------------------------------------------------------
+describe('fix-378: backfilled history is suppressed, COUNTED, and never acked', () => {
+  // Clock-safe fixtures: both targets are far in the past, so "past due" holds
+  // whatever day the suite runs. What separates them is created_at.
+  const historic = () =>
+    mkPermit({
+      da: null,
+      ent_lead: 'Miles',
+      target_submit: '2020-01-01',
+      // The row was born AFTER its target: backfilled history.
+      created_at: '2025-01-01T00:00:00Z',
+    });
+  const missedWhileLive = () =>
+    mkPermit({
+      da: null,
+      ent_lead: 'Miles',
+      target_submit: '2020-06-01',
+      // The row existed BEFORE its target: a real missed deadline.
+      created_at: '2020-01-01T00:00:00Z',
+    });
+
+  it('★★ the header carries the suppressed count instead of silently dropping rows', () => {
+    state.permits = [historic(), missedWhileLive()];
+    renderBoard();
+    expect(
+      screen.getByTestId('board-forecast-historic-suppressed').textContent,
+    ).toContain('1 not shown: dated before the record existed');
+    // ★★★ The 44 shape SURVIVES — suppression is not a mute button…
+    expect(
+      screen.getByTestId('board-forecast-row-m-2-target_submit-entitlement'),
+    ).toBeTruthy();
+    // …and the 180 shape is gone from the buckets.
+    expect(
+      screen.queryByTestId('board-forecast-row-m-1-target_submit-entitlement'),
+    ).toBeNull();
+    // ★★★ Derivation only: nothing wrote an ack on anybody's behalf.
+    expect(state.ackMutate).not.toHaveBeenCalled();
+  });
+
+  it('with nothing backfilled the line does not render at all', () => {
+    state.permits = [missedWhileLive()];
+    renderBoard();
+    expect(screen.queryByTestId('board-forecast-historic-suppressed')).toBeNull();
+  });
+});
