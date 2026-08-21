@@ -1,0 +1,170 @@
+-- ===========================================================================
+-- ★★★ fix-377 §5 — THE BACKFILL. NOT APPLIED. AWAITING BOBBY'S APPROVAL.
+-- ===========================================================================
+--
+-- ★★★ THIS FILE HAS NOT BEEN RUN AGAINST ANY DATABASE. Every statement below
+-- is commented out, and a test asserts that it still is. The trigger shipped in
+-- migrations/fix_377_lead_cascade.sql only fires on FUTURE writes; the 22
+-- field changes listed here (19 distinct permits — 2601 E Galer St is in both
+-- groups) drifted before it existed and will stay wrong without this — exactly
+-- the situation fix-368 left behind, which also needed a separate approved
+-- migration.
+--
+-- ★★ The ticket's standing rule is "no data changes without approval", and
+-- this is a data change. The ROWS are listed here and in the PR body so Bobby
+-- approves the rows and not merely the rule.
+--
+-- ===========================================================================
+-- HOW THE LIST WAS BUILT — and why it is 22 rather than 27, or 82
+-- ===========================================================================
+--
+-- The obvious query — "every permit whose lead differs from its project's" —
+-- returns 66 ent_lead rows and 16 dm rows, and it is THE WRONG QUERY. It is
+-- the project-matching rule the brief rules out: a permit can legitimately name
+-- somebody other than the project lead, and 55 of those 66 do.
+--
+-- ★★★ THE DISCRIMINATOR IS EVIDENCE, NOT A PERMIT-TYPE LIST. Grouping the 66
+-- divergent ent_lead permits by the name ON THE PERMIT, against whether that
+-- name is EVER used as a project entitlement lead anywhere:
+--
+--     permit lead   divergent   unissued   ever a project lead?
+--     Bobby            55           5      ★ NO
+--     Briana            7           4        yes
+--     Miles             2           2        yes
+--
+-- A name that is never a project lead cannot have been left behind by a project
+-- reassignment — there was no reassignment to leave it. Bobby's 55 are
+-- deliberate assignments (PAR/Pre-Sub, SDOT Tree, one ECA Waiver: the intake
+-- and pre-submittal work he does himself), and they are LEFT ALONE. That is
+-- fix-312's reasoning applied backwards: the rule may only follow an assignment
+-- that moved, never invent one.
+--
+-- ★ Then the open boundary removes three more: 6825 Seward Park Ave S has three
+-- Briana permits that are ALL ISSUED. An issued permit is the record of who
+-- took it through and is not rewritten.
+--
+--     4 (Galer) + 2 (66th Ave S) = 6 ent_lead permits.
+--
+-- ★★ THE dm SIDE IS NOT AS CLEAN, AND THAT IS STATED RATHER THAN HIDDEN. All
+-- five divergent dm names ARE project design managers, so the discriminator
+-- above separates nothing there — it cannot tell a stale name from a permit
+-- deliberately run by another DM. The 16 rows are listed in full, by project,
+-- so they can be approved or refused individually. If any of them is a real
+-- co-arrangement rather than drift, that row should be struck out.
+--
+-- ★★★ NOT ONE TASK MOVES. Measured on all 19 permits: no open task on any of
+-- them is assigned to the outgoing lead by name. Every task they carry is on a
+-- role token, unassigned, already the incoming person's, or Resolved. So the
+-- co-assignee and array clauses have nothing to do either, and the backfill
+-- below writes to `permits` only.
+--
+-- ===========================================================================
+-- GROUP A — entitlement_lead. 6 permits, 2 projects, 0 tasks.
+-- ===========================================================================
+--
+--   10430 66th Ave S        Miles  → Briana
+--     3043671-LU        ULS
+--     7088093-CN        Building Permit
+--     ★ the two open tasks on 3043671-LU are ALREADY Briana's — nothing moves
+--
+--   2601 E Galer St         Briana → Miles
+--     3044303-LU        ULS
+--     7149589-CN        Building Permit
+--     7149590-DM        Demolition
+--     (no number)       IPR
+--
+-- ---------------------------------------------------------------------------
+-- NOT IN THE LIST, and deliberately:
+--   6825 Seward Park Ave S  Briana → (project lead)   3 permits, ALL ISSUED
+--   ~30 projects            Bobby  → (project lead)  55 permits, deliberate
+-- ---------------------------------------------------------------------------
+--
+-- ===========================================================================
+-- GROUP B — design_manager. 16 permits, 7 projects, 0 tasks.
+-- ===========================================================================
+--
+--   12827 NE 80th St        Derry    → Lindsay
+--     LSM26-05234       LSM
+--     (no number)       Condo
+--     (no number)       Demolition
+--
+--   2450 3rd Ave W          Brittani → Derry
+--     7149052-CN        Building Permit
+--
+--   2601 E Galer St         Lindsay  → Brittani
+--     3044303-LU        ULS
+--     7149590-DM        Demolition
+--     (no number)       IPR
+--     ★ this project is in BOTH groups — its ent lead and its DM both drifted
+--
+--   2812 32nd Ave W         Brittani → Derry
+--     7139813-CN        Building Permit
+--
+--   4113 SW Ida ST          Jade     → Lindsay
+--     3043452-LU        ULS
+--
+--   5811 Greenwood Ave N    Brittani → Derry
+--     3043890-LU        ULS
+--     7128829-CN        Building Permit
+--
+--   7336 132nd Ave NE       Lindsay  → Derry
+--     (no number)       Building Permit   ×3
+--     (no number)       Demolition
+--     (no number)       Grading / Clearing
+--
+-- ===========================================================================
+-- ★ IF APPROVED, RUN THIS — and nothing else
+-- ===========================================================================
+--
+-- It is written as the trigger's own rule applied to existing rows, so the
+-- backfill cannot disagree with what happens from now on. It is idempotent:
+-- a second run matches nothing.
+--
+-- ★★ The WHERE clause carries the discriminator, so re-running it later cannot
+-- sweep up Bobby's deliberate assignments even if the data has moved on.
+--
+-- ★★★ Running it will fire permits_lead_cascade on each row, which is the
+-- point: it is the same path a real reassignment takes. Measured today that
+-- moves no task, but it is the trigger doing it, not this file.
+
+-- BEGIN;
+
+-- -- GROUP A — entitlement_lead
+-- UPDATE public.permits p
+--    SET ent_lead = pr.entitlement_lead
+--   FROM public.projects pr
+--  WHERE pr.id = p.project_id
+--    AND p.actual_issue IS NULL
+--    AND NULLIF(btrim(COALESCE(p.ent_lead, '')), '')       IS NOT NULL
+--    AND NULLIF(btrim(COALESCE(pr.entitlement_lead, '')), '') IS NOT NULL
+--    AND lower(btrim(p.ent_lead)) <> lower(btrim(pr.entitlement_lead))
+--    -- ★★★ the discriminator: only a name that IS used as a project
+--    -- entitlement lead somewhere can have been left behind by a reassignment.
+--    AND EXISTS (
+--          SELECT 1 FROM public.projects x
+--           WHERE lower(btrim(COALESCE(x.entitlement_lead, '')))
+--               = lower(btrim(p.ent_lead))
+--        );
+-- -- expected: 6 rows
+
+-- -- GROUP B — design_manager
+-- -- ★★ Approve this half ROW BY ROW. Unlike group A there is no evidence that
+-- -- separates drift from a deliberate second DM; if any listed permit is a real
+-- -- arrangement, add its id to the NOT IN below rather than running as-is.
+-- UPDATE public.permits p
+--    SET dm = pr.design_manager
+--   FROM public.projects pr
+--  WHERE pr.id = p.project_id
+--    AND p.actual_issue IS NULL
+--    AND NULLIF(btrim(COALESCE(p.dm, '')), '')            IS NOT NULL
+--    AND NULLIF(btrim(COALESCE(pr.design_manager, '')), '') IS NOT NULL
+--    AND lower(btrim(p.dm)) <> lower(btrim(pr.design_manager))
+--    -- AND p.id NOT IN ( ... any row Bobby strikes out ... )
+--    ;
+-- -- expected: 16 rows
+
+-- -- ★ Afterwards this must return nothing but Bobby's 5 deliberate rows — the
+-- whole point of shipping the report with the discriminator on it.
+-- SELECT * FROM public.bp_lead_drift_report();
+
+-- COMMIT;
