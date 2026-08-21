@@ -488,6 +488,66 @@ describe('<DrawScheduleGrid />', () => {
     expect(screen.queryByTestId('block-p-other')).not.toBeInTheDocument();
   });
 
+  // fix-380: Bobby — "Maybe I don't know the project by the project address,
+  // but I know it by the structure address." A permit's struct_address finds
+  // its PROJECT's block, in the scheduled grid and the Unscheduled lane.
+  it('fix-380: search matches a permit struct_address and surfaces the project block', () => {
+    const structPermit = (id: number, projectId: string, structAddress: string) => ({
+      id,
+      project_id: projectId,
+      type: 'Building Permit',
+      da: null,
+      dm: null,
+      ent_lead: null,
+      dual_da: null,
+      status: null,
+      num: null,
+      stage: 'de',
+      stage_override: null,
+      target_submit: null,
+      dd_start: null,
+      dd_end: null,
+      expected_issue: null,
+      actual_issue: null,
+      approval_date: null,
+      intake_date: null,
+      notes: null,
+      cycle_model: null,
+      view_cycle: null,
+      kickoff_date: null,
+      corr_rounds: null,
+      permit_owner: null,
+      architect: null,
+      nickname: null,
+      struct_address: structAddress,
+      portal_url: null,
+      updated_at: '2026-05-09T12:00:00Z',
+      permit_cycles: [],
+    });
+    permitsData.current = [
+      structPermit(21, 'p-other', '4411 Cottage Ct'),
+      structPermit(22, 'p-noda', '888 Adu Ln'),
+    ];
+    renderGrid();
+
+    const search = screen.getByTestId('schedule-search');
+    // The struct_address matches the block of the project whose PERMIT
+    // carries it — the project's own address says "Oak", not "Cottage".
+    fireEvent.change(search, { target: { value: 'cottage' } });
+    expect(screen.getByTestId('block-p-other')).toBeInTheDocument();
+    expect(screen.queryByTestId('block-p-now')).not.toBeInTheDocument();
+
+    // The Unscheduled lane goes through the same matcher.
+    fireEvent.change(search, { target: { value: 'adu' } });
+    expect(screen.getByTestId('unscheduled-p-noda')).toBeInTheDocument();
+    expect(screen.queryByTestId('block-p-other')).not.toBeInTheDocument();
+
+    // A project whose permits carry NO struct_address still matches on its
+    // address exactly as before.
+    fireEvent.change(search, { target: { value: 'pike' } });
+    expect(screen.getByTestId('block-p-now')).toBeInTheDocument();
+  });
+
   it('Q6.2.c: NP blocks render in their DA columns with the correct label', () => {
     renderGrid();
     const trevorNp = screen.getByTestId('np-block-np-trevor-seg-0');

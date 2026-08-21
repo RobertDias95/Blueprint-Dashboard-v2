@@ -326,6 +326,21 @@ function Body({
   // the task chip does, so "Mine" routes a role-assigned task to the right list.
   const { matches: taskMatches } = useTaskOwnership();
 
+  // fix-380: struct_address per permit, for the search haystack. The task rows
+  // are the bp_list_tasks projection (project_address only); the permit's own
+  // structure address lives in the app-wide permits cache, keyed by the
+  // task's permit_id — Bobby: "Maybe I don't know the project by the project
+  // address, but I know it by the structure address."
+  const permitsQ = usePermits();
+  const structByPermitId = useMemo(() => {
+    const m = new Map<number, string>();
+    for (const p of permitsQ.data ?? []) {
+      const s = (p.struct_address ?? '').trim();
+      if (s !== '') m.set(p.id, s);
+    }
+    return m;
+  }, [permitsQ.data]);
+
   useEffect(() => {
     try {
       window.localStorage.setItem(
@@ -396,8 +411,8 @@ function Body({
     return tasks.filter((t) => taskMatches(t, name));
   }, [tasks, scopeMode, identity.name, taskMatches]);
   const filtered = useMemo(
-    () => filterTasks(scopedTasks, filters, rolesByName, taskMatches),
-    [scopedTasks, filters, rolesByName, taskMatches],
+    () => filterTasks(scopedTasks, filters, rolesByName, taskMatches, structByPermitId),
+    [scopedTasks, filters, rolesByName, taskMatches, structByPermitId],
   );
   const today = useMemo(() => todayIso(), []);
   const counters = useMemo(() => {
@@ -1580,6 +1595,10 @@ function filterTasks(
   // filtering by a person P returns EXACTLY the tasks in P's My Work, and the
   // two surfaces can't diverge. Derry (a DM) now surfaces "Design Manager" tasks.
   taskMatches: (t: Task, name: string) => boolean,
+  // fix-380: struct_address by permit_id (from the permits cache) — joins the
+  // search haystack so a structure address finds the permit's tasks. Absent
+  // entries (518 of 588 permits carry none) contribute nothing.
+  structAddressByPermitId: ReadonlyMap<number, string>,
 ): Task[] {
   const q = filters.search.trim().toLowerCase();
   const wantTypes =
@@ -1624,7 +1643,7 @@ function filterTasks(
     }
     if (q) {
       const hay =
-        `${t.text} ${t.project_address} ${t.primary_assignee ?? ''} ${t.co_assignees.join(' ')}`.toLowerCase();
+        `${t.text} ${t.project_address} ${structAddressByPermitId.get(t.permit_id) ?? ''} ${t.primary_assignee ?? ''} ${t.co_assignees.join(' ')}`.toLowerCase();
       if (!hay.includes(q)) return false;
     }
     return true;

@@ -18,6 +18,7 @@ import {
   cancelledProjectIds,
 } from '../hooks/useProjectHolds';
 import { isCancelledProject } from '../lib/projectViewHelpers';
+import { structAddressHaystack } from '../lib/structAddressSearch';
 import HoldFilter from '../components/shared/HoldFilter';
 import {
   passesHoldFilter,
@@ -223,6 +224,11 @@ export default function Dashboard() {
 
     // Apply search filter at the project level — matches address, juris,
     // permit DA/DM/lead, permit num. Tokens AND-combine (space or comma).
+    // fix-380: also the permits' struct_address — Bobby: "Maybe I don't know
+    // the project by the project address, but I know it by the structure
+    // address." A project matches when ANY of its permits carries the typed
+    // structure address; the match still surfaces the PROJECT, because that
+    // is what he is looking for.
     const tokens = search
       .toLowerCase()
       .split(/[\s,]+/)
@@ -232,6 +238,7 @@ export default function Dashboard() {
       const haystack = [
         project.address,
         project.juris ?? '',
+        structAddressHaystack(projectPermits),
         ...projectPermits.flatMap((p) => [
           p.da ?? '',
           p.dual_da ?? '',
