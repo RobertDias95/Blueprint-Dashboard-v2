@@ -551,7 +551,7 @@ export function milestonePredatesRecord(
 ): boolean {
   const created = (permit.created_at ?? '').slice(0, 10);
   if (!created) return false;
-  let date: string | null = null;
+  let date: string | null;
   switch (kind) {
     case 'target_submit':
       date = permit.target_submit ?? null;
