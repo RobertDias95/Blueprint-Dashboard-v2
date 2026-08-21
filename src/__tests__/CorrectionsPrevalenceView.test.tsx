@@ -360,6 +360,21 @@ describe('fix-279 the no-letter-found worklist', () => {
     state.worklist = WORKLIST;
   });
 
+  /** fix-376: this list now DEFAULTS to rounds issued in the last 90 days,
+   *  because two thirds of the real 152 are older than three months and a page
+   *  that opens showing four-year-old rounds is noise. Both fixture rows here
+   *  are 453 and 354 days old, so they are deliberately outside that default.
+   *
+   *  Opening the window is what the assertions below need — and doing it
+   *  through the control rather than by changing the fixture keeps them
+   *  asserting the same thing they always did, while proving the backlog is
+   *  reachable rather than hidden. */
+  function showAllTime() {
+    fireEvent.change(screen.getByTestId('missing-worklist-window'), {
+      target: { value: 'all' },
+    });
+  }
+
   it('says "no letter found" and never "not filed"', async () => {
     renderPage();
     await screen.findByTestId('corrections-prevalence');
@@ -375,6 +390,8 @@ describe('fix-279 the no-letter-found worklist', () => {
     renderPage();
     await screen.findByTestId('corrections-prevalence');
     fireEvent.click(screen.getByTestId('corrections-view-missing'));
+    await screen.findByTestId('corrections-missing-worklist');
+    showAllTime();
     await screen.findByTestId('missing-worklist-summary');
     const rows = screen.getAllByTestId(/^missing-row-/);
     expect(rows[0]).toHaveTextContent('453d');
@@ -385,6 +402,8 @@ describe('fix-279 the no-letter-found worklist', () => {
     renderPage();
     await screen.findByTestId('corrections-prevalence');
     fireEvent.click(screen.getByTestId('corrections-view-missing'));
+    await screen.findByTestId('corrections-missing-worklist');
+    showAllTime();
     await screen.findByTestId('missing-worklist-summary');
     expect(screen.getByTestId('missing-parked-11-2')).toHaveTextContent('on hold');
     fireEvent.click(screen.getByTestId('missing-worklist-hide-parked'));
@@ -413,7 +432,10 @@ describe('fix-279 the no-letter-found worklist', () => {
     renderPage();
     await screen.findByTestId('corrections-prevalence');
     fireEvent.click(screen.getByTestId('corrections-view-missing'));
-    await screen.findByTestId('missing-worklist-summary');
+    // fix-376: the PAGING is a property of the read, not of what the window
+    // then shows — so this waits for the panel rather than for a summary that
+    // the default 90-day window correctly withholds from a 453-day fixture.
+    await screen.findByTestId('corrections-missing-worklist');
     expect(state.rangeCalls.some(([t]) => t === 'correction_missing_worklist')).toBe(true);
   });
 });

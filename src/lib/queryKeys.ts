@@ -189,6 +189,18 @@ export const queryKeys = {
   correctionClusterDiscipline: (tenantId: string, juris: string | null, tier: string) =>
     ['correction_clusters', tenantId, 'discipline', { juris, tier }] as const,
 
+  // ★★ fix-376: fix-373's indexer snapshot, which nothing read until now. One
+  // bare prefix so a re-index refreshes the run stamp, the reconciliation and
+  // the counts together — a freshness line that lagged the numbers it describes
+  // would be a new way to be stale about staleness.
+  indexerSnapshotAll: ['indexer_snapshot'] as const,
+  indexerRunCurrent: (tenantId: string) =>
+    ['indexer_snapshot', tenantId, 'run_current'] as const,
+  indexerLastAttempt: (tenantId: string) =>
+    ['indexer_snapshot', tenantId, 'last_attempt'] as const,
+  indexerReconciliation: (tenantId: string) =>
+    ['indexer_snapshot', tenantId, 'reconciliation'] as const,
+
   // fix-27: notification center activity feed.
   scraperActivity: (tenantId: string, days: number) =>
     ['scraper_activity', tenantId, { days }] as const,
