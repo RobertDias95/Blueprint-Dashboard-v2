@@ -1,75 +1,137 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useMemo } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import MyBoard from './MyBoard';
 import MyTasks from './MyTasks';
-import { useAuthStore } from '../stores/authStore';
+import NotificationsPage from './Notifications';
 import { useAllTasks } from '../hooks/useTaskTree';
 import { useTaskOwnership } from '../hooks/useTaskOwnership';
 import { useSelfScope } from '../hooks/useSelfScope';
+import { useBoardNotifications } from '../hooks/useBoardNotifications';
 import {
   useAllProjectHolds,
   cancelledProjectIds,
 } from '../hooks/useProjectHolds';
 import { isTaskCancelled, isTaskOverdue } from '../lib/taskStatus';
-import {
-  BOARD_TASKS_KEY,
-  defaultBoardCollapsed,
-  loadBoardCollapsed,
-  saveBoardCollapsed,
-  toggleCollapsedKey,
-} from '../lib/boardPanelPrefs';
 
-// fix-318 merged My Board and My Tasks onto one screen with a draggable 45/55
-// split. ★ fix-326 REPLACES that split, because the merge answered "both on one
-// screen" and Bobby's next look answered which one is the screen:
+// ===========================================================================
+// fix-385 — My Board becomes tabs: My Board · My Tasks · Notifications
+// ===========================================================================
 //
-//   "The my board section just seems very clustered and very congested. I think
-//    the primary focus should be the my board, and then the my task should be
-//    expandable and collapsible. My board covers portions of my tasks and
-//    everything else and provides that project queue, and my task is something
-//    they could dive into if and need be. So the primary focus is my board and
-//    then my task expands, and then the screen maybe shifts down."
+// Bobby: "i think for my board, it you can make my tasks and notifications a
+// tab in the my board. i think that would look cleaner for now"
 //
-//   ┌──────────────────────────────────────────┐
-//   │  MY BOARD              takes the screen  │
-//   ├──────────────────────────────────────────┤
-//   │  ▸ MY TASKS   N open · N overdue         │ ← a bar. Folded by default.
-//   └──────────────────────────────────────────┘
+//   ┌───────────────────────────────────────────────────────────────┐
+//   │  MY BOARD │ MY TASKS  3 open · 1 overdue │ NOTIFICATIONS  7    │
+//   ├───────────────────────────────────────────────────────────────┤
+//   │  the active panel takes the screen                            │
+//   └───────────────────────────────────────────────────────────────┘
 //
-// ★ THE DRAGGABLE DIVIDER IS GONE, and `boardSplitPrefs` with it. It existed to
-// referee two panels competing for one screen; with My Board taking the space
-// and My Tasks folded away there is no competition to referee, and a drag handle
-// that only appears in one of two states is furniture that has to be explained.
-// Expanded, My Tasks takes a fixed generous share and My Board keeps the rest —
-// "the screen shifts down" — which is the behaviour without the handle.
+// ★★★ THIS SUPERSEDES fix-326, KNOWINGLY. That ticket built a collapsible bar
+// from Bobby's earlier words — "the primary focus should be the my board, and
+// then the my task should be expandable and collapsible … my task is something
+// they could dive into if and need be" — and it chose a fold precisely BECAUSE
+// a fold keeps My Board on screen while My Tasks opens beneath it. Tabs give
+// that up: the three panels are now mutually exclusive, one visible at a time.
 //
-// ─── what survives from fix-318 ───────────────────────────────────────────
-// ★ ONE QUERY. Both halves read `useAllTasks`, so ticking a task in either
-// updates the other in the same render. The bar's counts come from that same
-// query, so a tick moves the count too, with nothing to keep in step.
-// ★ The PAGE never scrolls; the regions do.
-// ★ MyTasks.tsx is MOUNTED, NOT REWRITTEN — and since fix-325 that is the full
-// shell, with the Mine / Waiting On switcher inside it.
+// ★ Asked directly whether he accepted that trade, Bobby chose tabs
+// (2026-08-21). So the quote above is HISTORY, not the spec — kept here
+// because the reasoning it produced is still the reason several rules below
+// survive, not because it still describes the screen. This is the loop
+// working, not churn: he saw the bar, lived with it, and chose differently.
+//
+// ─── what survives, and why ───────────────────────────────────────────────
+// ★★ ONE QUERY (fix-318, held by fix-326). Every panel and both tab badges
+// read the same react-query caches, so ticking a task on the My Tasks tab
+// moves the My Tasks badge in the same render, with nothing to keep in step.
+// ★★ FOLDED WORK STAYS VISIBLE (fix-324's spine rule, which fix-326 carried on
+// its bar). A tab that is not open must still say that there is work behind
+// it, which is why the badges live on the TABS and are computed at page level.
+// ★★ NOT BUILT, NOT HIDDEN (fix-326, from fix-324b). An inactive tab is
+// UNMOUNTED, not display:none — "hidden" and "absent" look identical on screen
+// and differ entirely in cost, and these are three heavy panels.
+// ★ The PAGE never scrolls; the active panel does (fix-318).
+// ★ MyBoard, MyTasks and Notifications are MOUNTED, NOT REWRITTEN — fix-318's
+// rule for MyTasks (since fix-325 the full shell, with the Mine / Waiting On
+// switcher inside it), now extended to fix-336's notification centre.
+//
+// ─── the tab lives in the URL ─────────────────────────────────────────────
+// ★★★ `/notifications` IS STILL A ROUTE, and that is the whole answer to the
+// deep-link problem. It renders this page with the Notifications tab pinned
+// and LEAVES THE URL ALONE, so `?kind=suppressed` still reaches
+// Notifications.tsx's own `useSearchParams` exactly as it did before the move
+// — fix-298's honesty line and fix-336 §2's destination keep working with no
+// parameter plumbing at all. Every standing link stays literally correct:
+// BoardBell's "see all" and its suppressed link, MyBoard's header link, and
+// ribbonNav.ts:673's exemption entry (still not a ribbon row — a tab is not a
+// third entry point).
+//
+// ★ THE OTHER TABS ARE ADDRESSABLE TOO: `/board` is My Board and
+// `/board?tab=tasks` is My Tasks, so the back button and a pasted link both
+// behave. ★★ `/board?task=<id>` also opens My Tasks — that is fix-362's task
+// click-through, whose target MyTasks reads, and it keeps working without
+// notificationTargets.ts changing a line.
+//
+// ★ Deriving the tab from the URL rather than from state is also why there is
+// no flinch frame to avoid here — there is no initial state to read, so
+// fix-313's "lazy initialiser, never an effect" rule is satisfied by having
+// nothing to initialise.
+//
+// ★★ `boardPanelPrefs` IS RETIRED (src/lib/boardPanelPrefs.ts deleted). It
+// existed to remember one fold, and the fold is gone. A remembered TAB was
+// considered and rejected: it would fight the deep links above — arriving from
+// the bell must show notifications whatever you looked at last — and Bobby
+// asked for a cleaner layout, not a stateful one. Old `board.collapsed` entries
+// are left in localStorage, inert, because the module that read them is gone;
+// `collapsePrefs` itself is untouched and still serves the Pipeline.
 
-export default function PersonalBoard() {
-  const userId = useAuthStore((s) => s.user?.id ?? null);
-  // Read in the lazy initialiser, write in the handler — no effects. An effect
-  // that setStates on mount is the React Compiler's set-state-in-effect and it
-  // renders one frame of the wrong layout before correcting itself, which the
-  // user sees as a flinch (fix-313's reasoning, unchanged).
-  const [collapsedKeys, setCollapsedKeys] = useState<string[]>(
-    () => loadBoardCollapsed(userId) ?? defaultBoardCollapsed(),
-  );
-  const tasksCollapsed = collapsedKeys.includes(BOARD_TASKS_KEY);
+export type BoardTab = 'board' | 'tasks' | 'notifications';
 
-  const toggleTasks = useCallback(() => {
-    setCollapsedKeys((prev) => {
-      const next = toggleCollapsedKey(prev, BOARD_TASKS_KEY);
-      saveBoardCollapsed(userId, next);
-      return next;
-    });
-  }, [userId]);
+const TABS: { id: BoardTab; label: string }[] = [
+  { id: 'board', label: 'My Board' },
+  { id: 'tasks', label: 'My Tasks' },
+  { id: 'notifications', label: 'Notifications' },
+];
 
+/** The canonical URL for each tab. Notifications keeps its own path because
+ *  every standing link already points there. */
+function pathForTab(tab: BoardTab): string {
+  if (tab === 'notifications') return '/notifications';
+  if (tab === 'tasks') return '/board?tab=tasks';
+  return '/board';
+}
+
+function parseTab(params: URLSearchParams): BoardTab {
+  const raw = params.get('tab');
+  if (raw === 'tasks' || raw === 'notifications') return raw;
+  // ★★★ fix-362's TASK CLICK-THROUGH. `notificationTargets.ts:97` sends a task
+  // notification to `/board?task=<id>`, and the component that reads that param
+  // is MyTasks (MyTasks.tsx:313) — so without this the link would land on the
+  // Board tab and the task it named would never open. The param IS the tab
+  // choice here; nothing in notificationTargets had to change, which is what
+  // keeps its own tests and every already-sent link correct.
+  if (params.get('task')) return 'tasks';
+  return 'board';
+}
+
+export default function PersonalBoard({
+  pinnedTab,
+}: {
+  /** Set by the `/notifications` route, which owns that tab's address. */
+  pinnedTab?: BoardTab;
+} = {}) {
+  const [params] = useSearchParams();
+  const navigate = useNavigate();
+  const active: BoardTab = pinnedTab ?? parseTab(params);
+
+  // ★★★ BOTH BADGE NUMBERS ARE COMPUTED HERE, AT PAGE LEVEL, because an
+  // inactive tab is unmounted and a dead panel cannot report anything. Neither
+  // adds a query: `useMyTaskCounts` reads the same `useAllTasks` the panels
+  // read, and `useBoardNotifications` is a pure composition of already-shared
+  // react-query hooks that, in its own words, "NOTHING HERE READS A SOCKET" —
+  // BoardBell, MyBoard and the centre all call it already. No second
+  // subscription is mounted to decorate a tab.
   const counts = useMyTaskCounts();
+  const { unseenCount } = useBoardNotifications();
 
   return (
     <div
@@ -77,112 +139,121 @@ export default function PersonalBoard() {
       style={{ overflow: 'hidden' }}
       data-testid="personal-board"
     >
-      {/* ── MY BOARD. The screen. Scrolls vertically, never horizontally. ── */}
-      <section
-        data-testid="personal-board-top"
+      <nav
+        role="tablist"
         aria-label="My Board"
-        className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden"
+        className="flex-none flex items-stretch gap-1 px-3.5 border-b border-border bg-s2"
+        data-testid="personal-board-tabs"
       >
-        <MyBoard />
-      </section>
+        {TABS.map((t) => {
+          const isActive = t.id === active;
+          return (
+            <button
+              key={t.id}
+              type="button"
+              role="tab"
+              aria-selected={isActive}
+              aria-controls="personal-board-panel"
+              onClick={() => navigate(pathForTab(t.id))}
+              className="flex items-center gap-2 px-3 py-2 text-[12.5px] font-display font-extrabold uppercase tracking-wide transition"
+              style={{
+                color: isActive ? 'var(--color-text)' : 'var(--color-dim)',
+                // The active tab is joined to the panel below it; the others
+                // sit behind. One 2px rule, not a box — the fix-327 instinct.
+                borderBottom: `2px solid ${isActive ? 'var(--color-de)' : 'transparent'}`,
+                background: isActive ? 'var(--color-surface)' : 'transparent',
+              }}
+              data-testid={`personal-board-tab-${t.id}`}
+              data-active={isActive ? 'true' : 'false'}
+            >
+              {t.label}
 
-      {/* ── MY TASKS, behind a bar. ──
-           ★ The bar is the control AND the summary. Folding a panel must not
-           hide that there is work in it — the same rule fix-324's column spines
-           follow, and the reason the counts sit here rather than inside. */}
+              {/* ★★ MY TASKS: the counts ALWAYS render, including zeros. This
+                  is fix-324's rule and fix-326's bar doing the same job in a
+                  new place — a closed tab must not hide that the work exists,
+                  and "0 open" is itself the answer to "is there anything in
+                  there". */}
+              {t.id === 'tasks' && (
+                <span
+                  className="text-[11px] font-display font-bold text-muted normal-case tracking-normal"
+                  data-testid="personal-board-tasks-counts"
+                  title={`${counts.open} open · ${counts.overdue} overdue`}
+                >
+                  {counts.open} open
+                  <span className="text-dim"> · </span>
+                  <span className={counts.overdue > 0 ? 'text-co' : undefined}>
+                    {counts.overdue} overdue
+                  </span>
+                </span>
+              )}
+
+              {/* ★ NOTIFICATIONS: the badge appears only when something is
+                  unread. The asymmetry with My Tasks above is deliberate —
+                  "0 open" says the queue is clear, but a "0" on a bell says
+                  nothing anyone needed to be told, and this is the same
+                  semantic the bell in the ribbon already uses. */}
+              {t.id === 'notifications' && unseenCount > 0 && (
+                <span
+                  className="text-[10px] font-display font-bold px-1.5 py-0.5 rounded-full normal-case tracking-normal"
+                  style={{
+                    background: 'var(--color-de)',
+                    color: 'var(--color-surface)',
+                  }}
+                  data-testid="personal-board-notifications-count"
+                  title={`${unseenCount} unread`}
+                >
+                  {unseenCount}
+                </span>
+              )}
+            </button>
+          );
+        })}
+      </nav>
+
+      {/* ── The active panel. Each keeps the overflow rules it had before this
+           ticket: My Board and the notification centre are `height: 100%` and
+           scroll internally, while MyTasks is a plain block that needs the
+           container to scroll — both axes, Bobby's "fixed vertically and
+           horizontally" from fix-318, so the task columns keep their width in
+           here rather than widening the page. ── */}
       <section
-        data-testid="personal-board-bottom"
-        aria-label="My Tasks"
-        className="flex-none flex flex-col min-h-0 border-t border-border"
-        style={
-          tasksCollapsed
-            ? undefined
-            : // Expanded: a generous fixed share, and My Board gives way —
-              // "the screen shifts down". Not 50%: My Board stays the screen.
-              { flex: '0 0 58%' }
+        id="personal-board-panel"
+        role="tabpanel"
+        aria-label={TABS.find((t) => t.id === active)?.label}
+        className={
+          active === 'tasks'
+            ? 'flex-1 min-h-0 overflow-auto'
+            : active === 'board'
+              ? 'flex-1 min-h-0 overflow-y-auto overflow-x-hidden'
+              : 'flex-1 min-h-0 overflow-hidden'
         }
-        data-collapsed={tasksCollapsed ? 'true' : 'false'}
+        data-testid="personal-board-panel"
+        data-tab={active}
       >
-        <button
-          type="button"
-          onClick={toggleTasks}
-          aria-expanded={!tasksCollapsed}
-          className="flex-none w-full flex items-center gap-2.5 px-3.5 py-2 text-left bg-s2 hover:bg-surface transition"
-          data-testid="personal-board-tasks-toggle"
-          title={tasksCollapsed ? 'Open My Tasks' : 'Fold My Tasks away'}
-        >
-          <span
-            className="text-dim text-[10px]"
-            style={{
-              display: 'inline-block',
-              transition: 'transform .15s',
-              transform: tasksCollapsed ? undefined : 'rotate(90deg)',
-            }}
-            aria-hidden
-          >
-            ▶
-          </span>
-          <span className="text-[12.5px] font-display font-extrabold uppercase tracking-wide text-text">
-            My Tasks
-          </span>
-          {/* ★ The counts ride on the bar in BOTH states. Collapsed they are the
-              only thing saying the work exists; expanded they still frame what
-              is below, and they cost nothing because they come from the query
-              the panel already reads. */}
-          <span
-            className="text-[11px] font-display font-bold text-muted"
-            data-testid="personal-board-tasks-counts"
-            title={`${counts.open} open · ${counts.overdue} overdue`}
-          >
-            {counts.open} open
-            <span className="text-dim"> · </span>
-            <span className={counts.overdue > 0 ? 'text-co' : undefined}>
-              {counts.overdue} overdue
-            </span>
-          </span>
-          <span className="ml-auto text-[10.5px] text-dim">
-            {tasksCollapsed ? 'Show' : 'Hide'}
-          </span>
-        </button>
-
-        {/* ★ FOLDED MEANS NOT BUILT, not hidden. fix-324b found the same thing on
-            the Pipeline: a folded column that still renders its rows costs the
-            page hundreds of nodes on every load for something nobody is looking
-            at. `MyTasks` is unmounted here, so its task cards, its filter row and
-            its detail pane are not in the DOM at all — asserted, because "hidden"
-            and "absent" look identical on screen and differ entirely in cost. */}
-        {!tasksCollapsed && (
-          <div
-            className="flex-1 min-h-0 overflow-auto"
-            data-testid="personal-board-tasks-body"
-          >
-            {/* ★ Scrolls BOTH axes — Bobby's "fixed vertically and
-                horizontally" from fix-318. The task columns keep their width in
-                here rather than widening the page. */}
-            <MyTasks />
-          </div>
-        )}
+        {active === 'board' && <MyBoard />}
+        {active === 'tasks' && <MyTasks />}
+        {active === 'notifications' && <NotificationsPage />}
       </section>
     </div>
   );
 }
 
 /**
- * ★ The bar's counts: this person's live tasks, open and overdue.
+ * ★ The My Tasks badge: this person's live tasks, open and overdue.
  *
  * ★ WHY NOT ASK MyTasks. The panel's own counters sit behind its filter row and
- * its scope toggle, and they exist only while it is mounted — which, folded, it
- * deliberately is not. So the bar counts from the SAME query (`useAllTasks`, the
- * one fix-318 requires both halves to share) using the SAME shared predicates
- * the panel uses: `useTaskOwnership` for whose task it is (fix-238's resolver,
- * so a task routed to a role reaches the person it is displayed as),
- * `cancelledProjectIds` for fix-264's exclusion, and `isTaskOverdue` /
- * `isTaskCancelled` from lib/taskStatus.
+ * its scope toggle, and they exist only while it is mounted — which, on any
+ * other tab, it deliberately is not. So the badge counts from the SAME query
+ * (`useAllTasks`, the one fix-318 requires every panel to share) using the SAME
+ * shared predicates the panel uses: `useTaskOwnership` for whose task it is
+ * (fix-238's resolver, so a task routed to a role reaches the person it is
+ * displayed as), `cancelledProjectIds` for fix-264's exclusion, and
+ * `isTaskOverdue` / `isTaskCancelled` from lib/taskStatus.
  *
- * ★ IT IS DELIBERATELY UNFILTERED by the panel's own filter row. The bar answers
- * "is there work down there", which must not change because someone typed a
- * search term inside the panel — and cannot, since the panel is unmounted while
- * the question matters most.
+ * ★ IT IS DELIBERATELY UNFILTERED by the panel's own filter row. The badge
+ * answers "is there work in there", which must not change because someone typed
+ * a search term inside the panel — and cannot, since the panel is unmounted
+ * while the question matters most.
  */
 function useMyTaskCounts(): { open: number; overdue: number } {
   const tasksQ = useAllTasks();
