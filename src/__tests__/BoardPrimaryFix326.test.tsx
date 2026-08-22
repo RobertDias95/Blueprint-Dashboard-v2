@@ -1,18 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { fireEvent, render, screen, within } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { ReactNode } from 'react';
 import indexHtml from '../../index.html?raw';
-import {
-  BOARD_TASKS_KEY,
-  defaultBoardCollapsed,
-  loadBoardCollapsed,
-  saveBoardCollapsed,
-} from '../lib/boardPanelPrefs';
-import { loadCollapsedKeys, saveCollapsedKeys } from '../lib/collapsePrefs';
-import { loadPipelineCollapsed, savePipelineCollapsed } from '../lib/pipelinePrefs';
-import { isTaskOverdue } from '../lib/taskStatus';
 
 // fix-326 — My Board is the screen; My Tasks folds beneath it.
 //
@@ -21,10 +12,24 @@ import { isTaskOverdue } from '../lib/taskStatus';
 // expandable and collapsible … my task is something they could dive into if and
 // need be."
 //
-// ★ This REPLACES fix-318's 45/55 draggable split. What fix-318 actually
+// ★ This REPLACED fix-318's 45/55 draggable split. What fix-318 actually
 // guaranteed — both halves on one screen, ONE query behind them, the page never
-// scrolling — is untouched and re-asserted in its own suite; what goes is the
-// divider, which existed to referee two panels competing for one screen.
+// scrolling — is untouched and re-asserted below; what went is the divider,
+// which existed to referee two panels competing for one screen.
+//
+// ★★★ AND fix-385 HAS NOW REPLACED THE FOLD ITSELF. Bobby asked for tabs — "i
+// think for my board, it you can make my tasks and notifications a tab in the
+// my board" — knowing tabs make the panels mutually exclusive, which is the
+// very thing the bar was chosen to avoid. So the two suites that pinned the BAR
+// and its remembered fold are GONE from this file, in the same spirit fix-326
+// removed fix-318's divider suite: they pinned a contract the person who asked
+// for it has since replaced, and a test that argues with the screen is worse
+// than no test.
+//
+// ★ WHAT STAYS is everything that outlived the layout — fix-318's guarantees
+// (one query, the page owning no scrollbar, the Mine / Waiting On switcher,
+// MyTasks mounted rather than rewritten), §2's dead-component findings and §3's
+// favicon. The TAB contract is asserted in BoardTabsFix385.test.tsx.
 
 const state = vi.hoisted(() => ({
   tasks: [] as Record<string, unknown>[],
@@ -166,162 +171,17 @@ function renderBoard() {
   return render(<PersonalBoard />, { wrapper });
 }
 
-const toggle = () => screen.getByTestId('personal-board-tasks-toggle');
+/** ★ fix-385: what used to be "unfold the bar" is now "open the My Tasks tab".
+ *  Same intent — put the task list on screen — through the control that
+ *  replaced it. */
+const openTasks = () =>
+  fireEvent.click(screen.getByTestId('personal-board-tab-tasks'));
 
 beforeEach(() => {
   window.localStorage.clear();
   state.tasks = [];
   state.name = 'Miles';
   state.userId = 'user-miles';
-});
-
-// ------------------------------------------------- the default, and the bar --
-
-describe('fix-326: My Board leads, My Tasks folds', () => {
-  // ★ THE ACCEPTANCE TEST. A first visit shows the board, not a screen split in
-  // half with the task list eating the bottom of it.
-  it('★ a first visit renders My Board full height with My Tasks folded', () => {
-    state.tasks = [task({ text: 'Order the survey' })];
-    renderBoard();
-
-    const top = screen.getByTestId('personal-board-top');
-    expect(within(top).getByTestId('my-board')).toBeInTheDocument();
-    // My Board takes what is left, rather than a fixed share of the screen.
-    expect(top.className).toContain('flex-1');
-    expect(top.style.flex).toBeFalsy();
-
-    const bottom = screen.getByTestId('personal-board-bottom');
-    expect(bottom.dataset.collapsed).toBe('true');
-    expect(defaultBoardCollapsed()).toEqual([BOARD_TASKS_KEY]);
-  });
-
-  // ★ FOLDED MEANS NOT BUILT. fix-324b found the same on the Pipeline: a folded
-  // panel that still renders its rows costs the page hundreds of nodes on every
-  // load for something nobody is looking at. "Hidden" and "absent" look
-  // identical on screen and differ entirely in cost, so this asserts ABSENCE.
-  it('★ folded, it builds no task cards at all', () => {
-    state.tasks = [task({ text: 'Order the survey' }), task({ text: 'Chase the survey' })];
-    renderBoard();
-    expect(screen.queryByTestId('personal-board-tasks-body')).toBeNull();
-    expect(screen.queryByTestId('mytasks-shell')).toBeNull();
-    expect(screen.queryByTestId('mytasks-kanban')).toBeNull();
-    expect(screen.queryByText('Order the survey')).toBeNull();
-    // Not merely display:none — the nodes are not in the document.
-    expect(document.querySelectorAll('[data-testid^="mytask-card-"]')).toHaveLength(0);
-  });
-
-  // ★ Folding a panel must not hide that there is work in it — fix-324's spines
-  // carry their counts for the same reason.
-  it('★ the folded bar carries the open and overdue counts', () => {
-    state.tasks = [
-      task({ status: 'Open', target_date: '2020-01-01' }),   // open + overdue
-      task({ status: 'In Progress', target_date: null }),    // open
-      task({ status: 'Resolved', target_date: '2020-01-01' }), // neither
-      task({ status: 'Cancelled', target_date: '2020-01-01' }), // neither
-    ];
-    renderBoard();
-    const counts = screen.getByTestId('personal-board-tasks-counts');
-    expect(counts.textContent).toContain('2 open');
-    expect(counts.textContent).toContain('1 overdue');
-  });
-
-  it('the counts use the shared overdue rule, cancelled tasks included in neither', () => {
-    // The rule itself, at the boundary: a cancelled task is not overdue, it is
-    // not in play (fix-262), and today is not yet late.
-    expect(isTaskOverdue({ status: 'Open', target_date: '2026-08-15' }, '2026-08-16')).toBe(true);
-    expect(isTaskOverdue({ status: 'Open', target_date: '2026-08-16' }, '2026-08-16')).toBe(false);
-    expect(isTaskOverdue({ status: 'Cancelled', target_date: '2020-01-01' }, '2026-08-16')).toBe(false);
-    expect(isTaskOverdue({ status: 'Resolved', target_date: '2020-01-01' }, '2026-08-16')).toBe(false);
-    expect(isTaskOverdue({ status: 'Open', target_date: null }, '2026-08-16')).toBe(false);
-  });
-
-  it('expanding gives My Tasks a share and the board gives way', () => {
-    state.tasks = [task({ text: 'Order the survey' })];
-    renderBoard();
-    fireEvent.click(toggle());
-
-    const bottom = screen.getByTestId('personal-board-bottom');
-    expect(bottom.dataset.collapsed).toBe('false');
-    // ★ "The screen shifts down" — My Tasks takes a fixed generous share, My
-    // Board keeps the rest rather than being pushed off.
-    expect(bottom.style.flex).toBe('0 0 58%');
-    expect(within(bottom).getByTestId('mytasks-shell')).toBeInTheDocument();
-    expect(within(bottom).getByText('Order the survey')).toBeInTheDocument();
-    // The bar is still there, and still counting.
-    expect(screen.getByTestId('personal-board-tasks-counts')).toBeInTheDocument();
-  });
-
-  it('the bar is the control, and says which way it goes', () => {
-    renderBoard();
-    expect(toggle().getAttribute('aria-expanded')).toBe('false');
-    expect(toggle().textContent).toContain('Show');
-    fireEvent.click(toggle());
-    expect(toggle().getAttribute('aria-expanded')).toBe('true');
-    expect(toggle().textContent).toContain('Hide');
-  });
-});
-
-// ------------------------------------------------------------ persistence --
-
-describe('fix-326: the choice is remembered, per user', () => {
-  it('★ expanding survives a remount', () => {
-    state.tasks = [task({ text: 'Order the survey' })];
-    const first = renderBoard();
-    fireEvent.click(toggle());
-    expect(screen.getByTestId('personal-board-bottom').dataset.collapsed).toBe('false');
-    first.unmount();
-
-    renderBoard();
-    expect(screen.getByTestId('personal-board-bottom').dataset.collapsed).toBe('false');
-    expect(screen.getByTestId('mytasks-shell')).toBeInTheDocument();
-  });
-
-  // ★ THE OTHER DIRECTION, which is the half that is easy to get wrong: a
-  // DEFAULT is not a floor. Once someone has chosen, the default is never
-  // consulted again — fix-324b's rule, restated here because this is the second
-  // panel to rely on it.
-  it('★ and the default never overrides a stored choice', () => {
-    saveBoardCollapsed('user-miles', []);
-    renderBoard();
-    expect(screen.getByTestId('personal-board-bottom').dataset.collapsed).toBe('false');
-
-    // ...and folding it again is equally remembered.
-    fireEvent.click(toggle());
-    expect(loadBoardCollapsed('user-miles')).toEqual([BOARD_TASKS_KEY]);
-  });
-
-  it('is stored per user, so one login cannot fold another\'s panel', () => {
-    saveBoardCollapsed('user-a', [BOARD_TASKS_KEY]);
-    saveBoardCollapsed('user-b', []);
-    expect(loadBoardCollapsed('user-a')).toEqual([BOARD_TASKS_KEY]);
-    expect(loadBoardCollapsed('user-b')).toEqual([]);
-    expect(loadBoardCollapsed('user-never-chose')).toBeNull();
-    expect(loadBoardCollapsed(null)).toBeNull();
-  });
-
-  it('a corrupt stored value falls back to the default rather than throwing', () => {
-    window.localStorage.setItem('board.collapsed.user-miles', '{not json');
-    expect(loadBoardCollapsed('user-miles')).toBeNull();
-    renderBoard();
-    expect(screen.getByTestId('personal-board-bottom').dataset.collapsed).toBe('true');
-  });
-
-  // ★ NOT A THIRD PREFERENCE STORE — the brief's instruction. One mechanism
-  // (collapsePrefs), two namespaces, and the Pipeline's stored key is untouched
-  // so nobody's folded columns spring open on deploy.
-  it('★ reuses fix-324b\'s mechanism rather than inventing another', () => {
-    saveBoardCollapsed('user-x', ['my-tasks']);
-    savePipelineCollapsed('user-x', ['g:ap']);
-    // Separate drawers, same lock.
-    expect(window.localStorage.getItem('board.collapsed.user-x')).toBe('["my-tasks"]');
-    expect(window.localStorage.getItem('pipeline.collapsed.user-x')).toBe('["g:ap"]');
-    expect(loadBoardCollapsed('user-x')).toEqual(['my-tasks']);
-    expect(loadPipelineCollapsed('user-x')).toEqual(['g:ap']);
-    // And both go through the one implementation.
-    saveCollapsedKeys('board.collapsed', 'user-y', ['my-tasks']);
-    expect(loadBoardCollapsed('user-y')).toEqual(['my-tasks']);
-    expect(loadCollapsedKeys('pipeline.collapsed', 'user-x')).toEqual(['g:ap']);
-  });
 });
 
 // -------------------------------------------------- fix-318's guarantee ----
@@ -332,7 +192,7 @@ describe('fix-326: what fix-318 guaranteed still holds', () => {
   it('★ ticking a task changes what the next render reads', () => {
     state.tasks = [task({ id: 't-shared', text: 'Resubmit to the city' })];
     const { rerender } = renderBoard();
-    fireEvent.click(toggle());
+    openTasks();
 
     const box = screen.getByTestId('mytask-card-t-shared-status-toggle');
     expect(box.getAttribute('data-status-visual')).toBe('empty');
@@ -367,15 +227,16 @@ describe('fix-326: what fix-318 guaranteed still holds', () => {
     renderBoard();
     const shell = screen.getByTestId('personal-board');
     expect(getComputedStyle(shell).overflow).toBe('hidden');
-    expect(screen.getByTestId('personal-board-top').className).toContain('overflow-y-auto');
-    fireEvent.click(toggle());
-    expect(screen.getByTestId('personal-board-tasks-body').className).toContain('overflow-auto');
+    // fix-385: one panel at a time, each keeping the overflow it had before.
+    expect(screen.getByTestId('personal-board-panel').className).toContain('overflow-y-auto');
+    openTasks();
+    expect(screen.getByTestId('personal-board-panel').className).toContain('overflow-auto');
   });
 
   it('the Mine / Waiting On switcher still works inside My Tasks', () => {
     state.tasks = [task()];
     renderBoard();
-    fireEvent.click(toggle());
+    openTasks();
     expect(screen.getByTestId('my-tasks-view-switcher')).toBeInTheDocument();
     fireEvent.click(screen.getByTestId('my-tasks-view-waiting-on'));
     expect(screen.getByTestId('my-tasks-view-waiting-on').getAttribute('aria-pressed')).toBe('true');

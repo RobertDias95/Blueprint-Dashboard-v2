@@ -187,26 +187,40 @@ beforeEach(() => {
 // ★ The acceptance test — the thing Bobby cannot currently find
 // ---------------------------------------------------------------------------
 
-/** ★ fix-326: My Tasks is FOLDED by default, so a test that wants the task list
- *  opens it first. Not a workaround — it is the shipped first-visit state, and a
- *  suite that quietly rendered it expanded would stop describing the screen. */
-function expandTasks() {
-  fireEvent.click(screen.getByTestId('personal-board-tasks-toggle'));
+/** ★ fix-326: My Tasks was FOLDED by default, so a test that wants the task
+ *  list opened it first. ★★★ fix-385 replaced the fold with TABS, so the same
+ *  step is now "open the My Tasks tab". Not a workaround either way — it is the
+ *  shipped first-visit state, and a suite that quietly rendered the task list
+ *  without asking for it would stop describing the screen.
+ *
+ *  ★★★ AND ONE THING HERE GENUINELY DIED. fix-318's headline was BOTH halves on
+ *  ONE screen; tabs make them mutually exclusive, and Bobby chose that knowing
+ *  it (2026-08-21). So the assertions below no longer claim the two are visible
+ *  together — they claim each is REACHABLE and that the ONE QUERY behind them
+ *  is unchanged, which is the guarantee that actually made the merge worth
+ *  doing and the only part of it Bobby ever asked to keep. */
+function openTasks() {
+  fireEvent.click(screen.getByTestId('personal-board-tab-tasks'));
 }
 
+/** The single panel, whichever tab is showing. */
+const panel = () => screen.getByTestId('personal-board-panel');
+
 describe('fix-318 ★ the grouped task list is back, on /board', () => {
-  it('★★ renders BOTH halves — My Board on top, the task list below', () => {
+  it('★★ both halves are REACHABLE — My Board, and the task list a tab away', () => {
+    // ★★★ fix-385: this used to assert both were on screen AT ONCE. That is
+    // the half of fix-318 tabs deliberately gave up. What it asserts now is
+    // that neither went missing — which is the part Bobby was ever complaining
+    // about ("the screen that vanished").
     state.tasks = [task({ text: 'Order the survey' })];
     renderBoard();
-    expandTasks();
+    // My Board, intact, on arrival.
+    expect(within(panel()).getByTestId('my-board')).toBeInTheDocument();
 
-    const top = screen.getByTestId('personal-board-top');
-    const bottom = screen.getByTestId('personal-board-bottom');
-    // My Board, intact.
-    expect(within(top).getByTestId('my-board')).toBeInTheDocument();
+    openTasks();
     // ★ The grouped task list — the screen that vanished.
-    expect(within(bottom).getByTestId('mytasks-kanban')).toBeInTheDocument();
-    expect(within(bottom).getByText('Order the survey')).toBeInTheDocument();
+    expect(within(panel()).getByTestId('mytasks-kanban')).toBeInTheDocument();
+    expect(within(panel()).getByText('Order the survey')).toBeInTheDocument();
   });
 
   // ★ fix-294's nesting is the specific thing My Board's scattered forecast
@@ -217,9 +231,9 @@ describe('fix-318 ★ the grouped task list is back, on /board', () => {
     const child = task({ id: 't-child', text: 'Chase the survey', parent_task_id: 't-parent' });
     state.tasks = [parent, child];
     renderBoard();
-    expandTasks();
+    openTasks();
 
-    const bottom = screen.getByTestId('personal-board-bottom');
+    const bottom = panel();
     const sub = within(bottom).getByText('Chase the survey').closest('[data-subtask]');
     expect(sub, 'the subtask must render as a subtask').toBeTruthy();
     expect((sub as HTMLElement).dataset.subtask).toBe('true');
@@ -231,8 +245,8 @@ describe('fix-318 ★ the grouped task list is back, on /board', () => {
   it('the filters and counters came with it', () => {
     state.tasks = [task()];
     renderBoard();
-    expandTasks();
-    const bottom = screen.getByTestId('personal-board-bottom');
+    openTasks();
+    const bottom = panel();
     expect(within(bottom).getByTestId('mytasks-filterrow')).toBeInTheDocument();
     expect(within(bottom).getByTestId('mytasks-counters')).toBeInTheDocument();
   });
@@ -248,7 +262,7 @@ describe('fix-318 ★ the grouped task list is back, on /board', () => {
   it('★ DOES bring the Mine / Waiting On switcher — it is the only way in now', () => {
     state.tasks = [task()];
     renderBoard();
-    expandTasks();
+    openTasks();
     expect(screen.getByTestId('mytasks-shell')).toBeInTheDocument();
     expect(screen.getByTestId('my-tasks-view-switcher')).toBeInTheDocument();
     expect(screen.getByTestId('my-tasks-view-waiting-on')).toBeInTheDocument();
@@ -277,9 +291,9 @@ describe('fix-318 ★ one task, two halves, one truth', () => {
     const t = task({ id: 't-shared', text: 'Resubmit to the city', target_date: '2026-08-20' });
     state.tasks = [t];
     const { rerender } = renderBoard();
-    expandTasks();
+    openTasks();
 
-    const bottom = screen.getByTestId('personal-board-bottom');
+    const bottom = panel();
     // fix-235's forward-only checkbox: Open -> In Progress -> Resolved.
     const box = within(bottom).getByTestId('mytask-card-t-shared-status-toggle');
     const before = box.getAttribute('data-status-visual');
@@ -290,15 +304,17 @@ describe('fix-318 ★ one task, two halves, one truth', () => {
     expect(state.tasks.find((x) => x.id === 't-shared')!.status).toBe('In Progress');
 
     rerender(<PersonalBoard />);
-    const after = screen
-      .getByTestId('personal-board-bottom')
+    const after = panel()
       .querySelector('[data-testid="mytask-card-t-shared-status-toggle"]')!
       .getAttribute('data-status-visual');
     expect(after).not.toBe(before);
     expect(after).toBe('partial');
-    // Both halves are still mounted and reading the same store.
-    expect(screen.getByTestId('personal-board-top')).toBeInTheDocument();
-    expect(screen.getByTestId('personal-board-bottom')).toBeInTheDocument();
+    // ★★★ fix-385: the OTHER half is a tab away rather than on screen, so what
+    // proves they share a store is the My Tasks TAB BADGE — computed at page
+    // level from the same useAllTasks — moving with the same write.
+    expect(
+      screen.getByTestId('personal-board-tasks-counts').textContent,
+    ).toContain('1 open');
   });
 
   // ★ The structural guarantee behind that, which the fixture cannot show:
@@ -319,8 +335,8 @@ describe('fix-318 ★ one task, two halves, one truth', () => {
   it('opening a task from the list opens the shared TaskDetailEditor', () => {
     state.tasks = [task({ id: 't-open', text: 'Open me' })];
     renderBoard();
-    expandTasks();
-    const bottom = screen.getByTestId('personal-board-bottom');
+    openTasks();
+    const bottom = panel();
     fireEvent.click(within(bottom).getByText('Open me'));
     const editor = screen.getByTestId('stub-task-detail-editor');
     expect(editor.dataset.task).toBe('t-open');
@@ -339,6 +355,8 @@ describe('fix-318 ★ one task, two halves, one truth', () => {
 //
 // ★ fix-326 kept every line of this contract and changed only which element owns
 // the bottom scroller: the fold's body, so the bar stays put above it.
+// ★★ fix-385 keeps it again — one panel now, owning whichever overflow the tab
+// it is showing needs, with the tab row above it staying put.
 describe('fix-318: the page does not scroll, the two regions do', () => {
   it('★ the shell hides its own overflow and fills the pane', () => {
     renderBoard();
@@ -348,9 +366,9 @@ describe('fix-318: the page does not scroll, the two regions do', () => {
     expect(shell.className).toContain('flex-col');
   });
 
-  it('★ the TOP region scrolls vertically and never horizontally', () => {
+  it('★ the BOARD panel scrolls vertically and never horizontally', () => {
     renderBoard();
-    const top = screen.getByTestId('personal-board-top');
+    const top = panel();
     expect(top.className).toContain('overflow-y-auto');
     expect(top.className).toContain('overflow-x-hidden');
     expect(top.className).toContain('min-h-0');
@@ -359,12 +377,13 @@ describe('fix-318: the page does not scroll, the two regions do', () => {
   // ★ Bobby's "fixed vertically and horizontally" — the bottom owns BOTH axes,
   // which is what lets the task columns keep their width instead of widening
   // the page.
-  it('★ the BOTTOM region scrolls both axes', () => {
+  it('★ the TASKS panel scrolls both axes', () => {
     renderBoard();
-    expandTasks();
-    // ★ fix-326: the scroller is the fold's BODY — the bar above it must not
-    // scroll away, which is the whole point of a bar you can find.
-    const body = screen.getByTestId('personal-board-tasks-body');
+    openTasks();
+    // ★ fix-326 put the scroller on the fold's BODY so the bar stayed put;
+    // fix-385 puts it back on the panel, and the TAB row above it is what must
+    // not scroll away — same requirement, new furniture.
+    const body = panel();
     expect(body.className).toContain('overflow-auto');
     expect(body.className).toContain('min-h-0');
     expect(body.className).not.toContain('overflow-x-hidden');

@@ -14,7 +14,6 @@ import PersonalBoard from './pages/PersonalBoard';
 import DrawSchedule from './pages/DrawSchedule';
 import LibraryMatrix from './components/LibraryMatrix';
 import ActivityPage from './pages/ActivityPage';
-import NotificationsPage from './pages/Notifications';
 import WhatsNewPage from './pages/WhatsNew';
 import WeeklyDaReport from './pages/WeeklyDaReport';
 import WeeklyUpdatesReport from './pages/WeeklyUpdatesReport';
@@ -282,7 +281,15 @@ export const router = createBrowserRouter([
       // having none, and would touch fix-335's specificity rules for no gain.
       //
       // Ungated, like /board and /activity: everyone has notifications.
-      { path: 'notifications', element: <NotificationsPage /> },
+      // ★★★ fix-385: the notification centre is now a TAB of /board, and this
+      // route is what makes that tab addressable. It renders the same tabbed
+      // page with the Notifications tab pinned and LEAVES THE URL ALONE, so
+      // `/notifications?kind=suppressed` still reaches Notifications.tsx's own
+      // useSearchParams — fix-298's honesty line and fix-336 §2's destination
+      // keep working with no parameter plumbing. Every standing link (the
+      // bell's "see all" and its suppressed link, MyBoard's header link,
+      // ribbonNav.ts's exemption entry) stays literally correct.
+      { path: 'notifications', element: <PersonalBoard pinnedTab="notifications" /> },
       // ★★★ fix-350 — WHAT'S NEW. A ribbon entry, deliberately NOT admin-gated:
       // 23 of the 29 logins are non-admin editors and they are exactly the
       // people who have not been told that any of the last five days exists.
