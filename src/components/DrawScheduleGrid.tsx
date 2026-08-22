@@ -35,6 +35,7 @@ import {
   type NpResizeNpConflict,
 } from '../hooks/useResizeDaTimeBlock';
 import NpBlockEditPopup from './NpBlockEditPopup';
+import type { ProjectLinkOption } from './shared/ProjectLinkPicker';
 import NpResizeConflictPrompt from './NpResizeConflictPrompt';
 import ProjectBlockPopup from './DrawSchedule/ProjectBlockPopup';
 import GapFillPrompt from './GapFillPrompt';
@@ -700,6 +701,22 @@ function DrawScheduleBody({
   const [pendingNpWarning, setPendingNpWarning] =
     useState<PendingNpWarning | null>(null);
   const [npPopup, setNpPopup] = useState<NpPopupState>(null);
+
+  // ★★ fix-384: the linkable projects for the NP block popup's picker, built
+  // from the SAME projectSearchHay the schedule's own search box uses — so
+  // "findable in the search" and "findable in the picker" cannot drift apart.
+  // No archived filter: a block can legitimately name a finished or cancelled
+  // project, which is the case that started this ticket.
+  const projectLinkOptions = useMemo<ProjectLinkOption[]>(
+    () =>
+      projects.map((p) => ({
+        id: p.id,
+        address: p.address,
+        juris: p.juris ?? null,
+        hay: `${projectSearchHay(p)} ${p.juris ?? ''}`.toLowerCase(),
+      })),
+    [projects, projectSearchHay],
+  );
   // Bug A (siblings only): while a drag is active, SIBLING blocks become
   // pointer-events:none so drops aren't intercepted by the project block
   // underneath the cursor. The dragged source MUST keep pointer-events:auto
@@ -1381,14 +1398,26 @@ function DrawScheduleBody({
         const labelMatch =
           b.label != null && multiMatchAddress(trimmed, b.label);
         const typeMatch = multiMatchAddress(trimmed, b.type);
-        if (!labelMatch && !typeMatch) continue;
+        // ★★★ fix-384: a LINKED block answers to its project's address too.
+        //
+        // This is the point of the link, not a bonus. People were typing the
+        // address into `label` precisely so the block would turn up in this
+        // box; if linking did not make it findable, the typing would simply
+        // continue and the column would be one nobody fills. It also keeps
+        // fix-380's rule intact here — projectSearchHay carries the permits'
+        // struct_address, so a block linked to a project Bobby knows by its
+        // structure address is findable by that address as well.
+        const linked = b.project_id ? projectsById.get(b.project_id) : undefined;
+        const projectMatch =
+          linked != null && multiMatchAddress(trimmed, projectSearchHay(linked));
+        if (!labelMatch && !typeMatch && !projectMatch) continue;
       }
       const list = map.get(b.da_name) ?? [];
       list.push(b);
       map.set(b.da_name, list);
     }
     return map;
-  }, [npBlocks, weeks, search]);
+  }, [npBlocks, weeks, search, projectsById, projectSearchHay]);
 
 
   // "Unscheduled": projects with no DA or no week range, optionally filtered.
@@ -2737,9 +2766,10 @@ function DrawScheduleBody({
             {npPopup.mode === 'add' ? (
               <NpBlockEditPopup
                 mode="add"
+                projectOptions={projectLinkOptions}
                 daName={npPopup.daName}
                 weekKey={npPopup.weekKey}
-                onAdd={(type, label) => {
+                onAdd={(type, label, projectId) => {
                   const id =
                     'np_' +
                     Date.now() +
@@ -2754,6 +2784,8 @@ function DrawScheduleBody({
                       label: label || type,
                       start_week: npPopup.weekKey,
                       end_week: npPopup.weekKey,
+                      // ★★ fix-384: null unless the person picked one.
+                      project_id: projectId,
                     },
                   });
                 }}
@@ -2762,12 +2794,15 @@ function DrawScheduleBody({
             ) : (
               <NpBlockEditPopup
                 mode="edit"
+                projectOptions={projectLinkOptions}
                 block={npPopup.block}
-                onUpdate={(type, label) => {
+                onUpdate={(type, label, projectId) => {
                   upsertNp.mutate({
                     op: 'update',
                     block: npPopup.block,
-                    patch: { type, label: label || type },
+                    // ★★ fix-384: sent every time, so clearing the picker
+                    // actually UNLINKS rather than leaving the old value.
+                    patch: { type, label: label || type, project_id: projectId },
                   });
                 }}
                 onRemove={() => {

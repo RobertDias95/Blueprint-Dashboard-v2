@@ -1,0 +1,89 @@
+-- ===========================================================================
+-- ★★★ fix-384 §4 — THE LABEL CANDIDATES. NOT APPLIED. AWAITING BOBBY.
+-- ===========================================================================
+--
+-- ★★★ THIS FILE HAS NOT BEEN RUN AGAINST ANY DATABASE. Every statement below
+-- is commented out, and a test asserts that it still is. Nothing was
+-- auto-linked: all 81 da_time_blocks rows still have project_id NULL.
+--
+-- The brief's instruction was to OFFER CANDIDATES AND NOT DECIDE, because
+-- address-matching from free text is exactly the class of guess that has been
+-- wrong repeatedly here. Measuring it settled the argument: of the four labels
+-- that look like they name a project, **an auto-linker would have got ONE
+-- right, INVENTED TWO, and coin-flipped the fourth.**
+--
+-- ---------------------------------------------------------------------------
+-- THE FOUR, MEASURED ON PROD 2026-08-22
+-- ---------------------------------------------------------------------------
+--
+-- ✅ 1. LINKABLE — exactly one match.
+--    block  np_1776096111204_xswn   Alex · Other · 2026-01-05 → 2026-02-09
+--    label  "Cancelled Project (9022 36th Ave SW)"
+--    → 9022 36th Ave SW   1f319a52-dfd5-46f5-852c-760a3407f623
+--    ★ The label is telling the truth twice over: that project really does
+--      carry a CANCELLED hold (it is one of the four cancelled projects in
+--      fix-381's backfill listing). Linking it loses nothing.
+--
+-- ❌ 2. NOT LINKABLE — the project does not exist.
+--    block  np_1782421552109_4wgh   Jade · Vacation · 2026-06-29 → 2026-09-28
+--    label  "2621 Eastlake Ave E (Redesign)"
+--    → NO project has an address containing "2621" or "Eastlake". Nothing to
+--      link to. An address-parser would have produced a confident match
+--      against the nearest-looking row.
+--
+-- ❌ 3. NOT LINKABLE — the project does not exist.
+--    block  np_1780611880788_dlo3   Trevor · Vacation · 2025-12-15 → 2025-12-29
+--    label  "4707 S Graham St                    REDESIGN"
+--    → NO project has an address containing "4707" or "Graham". (This is the
+--      row with the runs of whitespace and the trailing suffix — the shape the
+--      brief called out.)
+--
+-- ⚠️ 4. AMBIGUOUS — two candidates, and the label is not an address at all.
+--    block  np_1782414688748_30so   Qisheng · Vacation · 2026-06-15 → 2026-08-24
+--    label  "Estrella Interior Elevations"
+--    → 4060 E Via Estrella   2393850e-2c2e-4510-9796-af32b7374081
+--    → 4040 E Via Estrella   4e58ca9f-aada-4384-b57c-d32b2bfb8609
+--    ★ Both are live Phoenix projects. Nothing in the label separates them.
+--      ONLY BOBBY KNOWS WHICH. If it is really both, it wants two blocks.
+--
+-- ★ ALSO WORTH SEEING: three of these four are typed **Vacation**, and two of
+-- those are plainly not holidays. That is the evidence for the rule this
+-- ticket shipped — the link is NEVER gated on the block type. Had it been,
+-- these rows could not be linked without first being retyped.
+--
+-- ★ No other label names a project. The remaining 77 rows are Vacation,
+-- Training, Corrections, Marketing, Style Guide, Code Transition, FLOATER (SD),
+-- Not Hired Yet, EASTSIDE TEMPLATE and similar — none is a project reference.
+--
+-- ---------------------------------------------------------------------------
+-- THE STATEMENT — commented out. Only #1 is offered, because it is the only
+-- one that can be written without a guess.
+-- ---------------------------------------------------------------------------
+--
+-- ★ Bobby can also just do this in the UI now, which is the point of the
+-- ticket: open the block on the Draw Schedule, pick the project, Save. This
+-- file exists so the measurement is not lost, not because SQL is the way.
+--
+-- BEGIN;
+--
+-- -- 1. "Cancelled Project (9022 36th Ave SW)" → 9022 36th Ave SW
+-- -- UPDATE public.da_time_blocks
+-- --    SET project_id = '1f319a52-dfd5-46f5-852c-760a3407f623'
+-- --  WHERE id = 'np_1776096111204_xswn'
+-- --    AND project_id IS NULL;
+--
+-- -- 2, 3: nothing to write — no such project exists.
+-- -- 4: needs Bobby to say which Estrella. One of:
+-- -- UPDATE public.da_time_blocks
+-- --    SET project_id = '2393850e-2c2e-4510-9796-af32b7374081'  -- 4060 E Via Estrella
+-- --  WHERE id = 'np_1782414688748_30so' AND project_id IS NULL;
+-- -- UPDATE public.da_time_blocks
+-- --    SET project_id = '4e58ca9f-aada-4384-b57c-d32b2bfb8609'  -- 4040 E Via Estrella
+-- --  WHERE id = 'np_1782414688748_30so' AND project_id IS NULL;
+--
+-- COMMIT;
+--
+-- ★ The labels are LEFT ALONE either way. The link is added beside the label,
+-- never instead of it: "Cancelled Project (…)" still says why the block exists,
+-- which the project link alone would not.
+-- ===========================================================================

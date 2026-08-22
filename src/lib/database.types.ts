@@ -957,6 +957,19 @@ export interface DaTimeBlock {
   created_at?: string | null;
   /** Q7.3.0 added — used for row-level OCC by Q6.2.f edit flow. */
   updated_at: string;
+  /**
+   * ★★ fix-384: optional link to the project this block is about.
+   *
+   * NULL on most rows and on every Vacation/Training block — a person's time
+   * off has no project. It exists because draw_schedule is keyed by
+   * project_id (one row per project), so a project's SECOND design window has
+   * nowhere else to live, and people were typing the address into `label`.
+   *
+   * ★★★ A linked block is STILL NOT a project's design window. It never
+   * reaches the vendor reports or deal volume, which read draw_schedule and
+   * never this table.
+   */
+  project_id?: string | null;
 }
 
 /** Q6.3.b: corrected against information_schema. Earlier draft carried five

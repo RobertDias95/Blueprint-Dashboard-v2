@@ -52,6 +52,7 @@ import {
   PARAM_MESSAGE,
 } from '../../lib/notificationTargets';
 import { OverviewAction, OverviewCard, OverviewSection } from './OverviewCard';
+import LinkedTimeBlocksSection from './LinkedTimeBlocksSection';
 
 // Q9.5.e: 4-column header top strip per v1 §4.2.1. Left card holds an
 // inner 3-column grid (DD Phase 0.75fr / Project 1.5fr / Team 1.75fr)
@@ -845,6 +846,12 @@ function DDPhaseEditor({
           {/* fix-309 #49: the Duration line is gone. The two dates say it. */}
         </div>
        </OverviewSection>
+       {/* ★★★ fix-384: the design windows draw_schedule cannot hold. Its PK
+           is project_id, so a project that took a SECOND window months later
+           had nowhere to put it and people typed the address into an NP
+           block's label instead. A linked block surfaces here, right under
+           the one window of record, and renders nothing when there are none. */}
+       <LinkedTimeBlocksSection projectId={bp.project_id} />
        {/* ★ fix-311: Permit intake — what we are AIMING at, then what actually
            happened.
 

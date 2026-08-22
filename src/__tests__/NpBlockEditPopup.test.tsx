@@ -56,7 +56,10 @@ describe('<NpBlockEditPopup /> Q6.2.f', () => {
       target: { value: 'Style Guide' },
     });
     fireEvent.click(screen.getByTestId('np-popup-save'));
-    expect(onAdd).toHaveBeenCalledWith('Training', 'Style Guide');
+    // ★ fix-384 widened both callbacks with a third argument, the optional
+    // project link. It is null whenever nobody picked a project, which is
+    // the default and stays the behaviour for most blocks.
+    expect(onAdd).toHaveBeenCalledWith('Training', 'Style Guide', null);
     expect(onClose).toHaveBeenCalled();
   });
 
@@ -73,7 +76,7 @@ describe('<NpBlockEditPopup /> Q6.2.f', () => {
       />,
     );
     fireEvent.click(screen.getByTestId('np-popup-save'));
-    expect(onAdd).toHaveBeenCalledWith('Vacation', '');
+    expect(onAdd).toHaveBeenCalledWith('Vacation', '', null);
   });
 
   it('Add: Enter in the label input submits', () => {
@@ -91,7 +94,7 @@ describe('<NpBlockEditPopup /> Q6.2.f', () => {
     const input = screen.getByTestId('np-popup-label') as HTMLInputElement;
     fireEvent.change(input, { target: { value: 'Custom' } });
     fireEvent.keyDown(input, { key: 'Enter' });
-    expect(onAdd).toHaveBeenCalledWith('Vacation', 'Custom');
+    expect(onAdd).toHaveBeenCalledWith('Vacation', 'Custom', null);
   });
 
   it('Add: Escape closes without firing onAdd', () => {
@@ -150,7 +153,7 @@ describe('<NpBlockEditPopup /> Q6.2.f', () => {
       target: { value: 'Beach' },
     });
     fireEvent.click(screen.getByTestId('np-popup-save'));
-    expect(onUpdate).toHaveBeenCalledWith('Vacation', 'Beach');
+    expect(onUpdate).toHaveBeenCalledWith('Vacation', 'Beach', null);
     expect(onClose).toHaveBeenCalled();
   });
 
