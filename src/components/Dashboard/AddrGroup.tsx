@@ -5,6 +5,7 @@ import { permitUrgency, type UrgencyLevel } from '../../lib/urgencyHelpers';
 import PendingScrapeChip from '../shared/PendingScrapeChip';
 import { HoldBadge } from '../shared/HoldBadge';
 import PermitWaitingOn from './PermitWaitingOn';
+import type { StageCount } from '../../lib/pipelineDistribution';
 import { useDashboardPermitCards } from '../../hooks/useDashboardPermitCards';
 import type {
   Permit,
@@ -47,6 +48,23 @@ interface AddrGroupProps {
   getKeyDate: (p: Permit) => string | null;
   isOpen: boolean;
   isHighlighted: boolean;
+  /**
+   * ★★ fix-383: where ALL of this project's cards are, across every bucket —
+   * computed once in Dashboard.tsx. Optional: when omitted the pills fall back
+   * to counting the permits THIS group was handed, which is the pre-fix-383
+   * behaviour and what a bare render of this component still gets.
+   */
+  distribution?: StageCount[];
+  /**
+   * ★★ fix-383: a count was clicked — send the reader to that bucket. Omit it
+   * and the pills stay plain, non-interactive text.
+   */
+  onCountClick?: (stage: Stage) => void;
+  /**
+   * ★★★ fix-383: the reveal ticket for THIS (address, stage). Non-zero and
+   * newly-changed means "a count click targeted you"; see the scroll effect.
+   */
+  revealNonce?: number;
   /** Toggles open state for THIS address across all buckets simultaneously. */
   onToggle: () => void;
   onHover: () => void;
@@ -63,6 +81,17 @@ const STAGE_PILL_LABEL: Record<Stage, string> = {
   co: 'Corr',
   ap: 'Appr',
   is: 'Iss',
+};
+
+// ★ fix-364: one concept, one term. The SHORT labels above are what the pill
+// renders; these are the same five buckets spelled out for the tooltip and the
+// screen-reader label, matching the column headings on the board.
+const STAGE_FULL_LABEL: Record<Stage, string> = {
+  de: 'Design & Engineering',
+  pm: 'Permitting',
+  co: 'Corrections',
+  ap: 'Approved',
+  is: 'Issued',
 };
 
 const STAGE_PILL_FG: Record<Stage, string> = {
@@ -87,16 +116,27 @@ export default function AddrGroup({
   getKeyDate,
   isOpen,
   isHighlighted,
+  distribution,
+  onCountClick,
+  revealNonce = 0,
   onToggle,
   onHover,
   onLeave,
 }: AddrGroupProps) {
-  // Per-stage badge counts across ALL permits at this address (not just
-  // the bucket-filtered set), matches v1 :2791-2799.
-  // Note: parent passes `permits` already filtered to this sub-bucket. The
-  // counts here reflect the visible permits in this bucket only — that's
-  // what v1 shows when the group lives inside one stage column.
-  const stageCounts = useStageCounts(permits, cyclesByPermit, reviewersByPermit);
+  // ★★★ fix-383: THE PILLS NOW DESCRIBE THE WHOLE PROJECT.
+  //
+  // The comment that stood here said these counts were "across ALL permits at
+  // this address" and then noted, two lines later, that the parent passes
+  // `permits` already filtered to one sub-bucket — so they were the bucket's
+  // own permits and nothing else. That drift is the regression Bobby noticed:
+  // "it would say okay, there's one in permitting, one in issued, two in design
+  // and engineering... I would like the UI to bring that back."
+  //
+  // A group can only ever see its own bucket, so the answer cannot be computed
+  // here. `distribution` arrives from Dashboard.tsx where every permit is in
+  // hand. The local fallback is kept for a bare render of this component.
+  const localCounts = useStageCounts(permits, cyclesByPermit, reviewersByPermit);
+  const stageCounts = distribution ?? localCounts;
 
   // Q9.5.f-fix-1d: each AddrGroup scrolls ITS containing data-scroll-bucket
   // when its own isOpen flips true. Component-local because that's the
@@ -107,6 +147,20 @@ export default function AddrGroup({
   // the unchanged scrollHeight on those buckets. rAF defers the scroll
   // until after this AddrGroup's paint, then closest() walks up to find
   // the real scrollable parent regardless of intermediate wrappers.
+  //
+  // ★★★ fix-383 ADDS `revealNonce` TO THE DEPS AND CHANGES NOTHING ELSE.
+  //
+  // A count click has to scroll the target bucket even when the address was
+  // ALREADY open there — in that case `isOpen` never flips, so an effect keyed
+  // on `isOpen` alone would not re-run and the click would appear to do
+  // nothing. The nonce changes on every click, so the effect fires either way,
+  // and both starting states land in the same place.
+  //
+  // ★★★ It is STILL this component's own effect. The parent does not call a
+  // scroll function; it publishes state and this group reacts to it after its
+  // OWN render commits, which is the whole point of fix-1d. Do not "simplify"
+  // this into a parent-imperative scroll — that is the bug fix-1d spent ten
+  // iterations on, and the failure is silent.
   const rootRef = useRef<HTMLDivElement | null>(null);
   useEffect(() => {
     if (!isOpen) return;
@@ -120,7 +174,7 @@ export default function AddrGroup({
       const offset = elRect.top - containerRect.top + container.scrollTop - 8;
       container.scrollTop = Math.max(0, offset);
     });
-  }, [isOpen]);
+  }, [isOpen, revealNonce]);
 
   return (
     <div
@@ -192,9 +246,23 @@ export default function AddrGroup({
           .addr-name (13px bold), .addr-juris (chip s2/border/4px radius),
           .addr-pcount (10px on s3, padding 2/7, radius 10), .addr-permits-row
           (gap 4, pl 16), .permit-pill (10px, padding 3/8, radius 5). */}
-      <button
-        type="button"
+      {/* ★★ fix-383: this was a <button>, and it cannot stay one — the stage
+          counts inside it are now buttons themselves, and a button nested in a
+          button is invalid HTML that browsers resolve by dropping one of them.
+          A div with role="button", tabIndex and an Enter/Space handler is the
+          standard "card with its own inner actions" shape and keeps the whole
+          header clickable and keyboard-reachable exactly as before. The testid
+          is unchanged so nothing that drives this row has to know. */}
+      <div
+        role="button"
+        tabIndex={0}
         onClick={onToggle}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            onToggle();
+          }
+        }}
         className="w-full flex flex-col text-left cursor-pointer bg-transparent border-0"
         style={{ padding: '12px 14px' }}
         data-testid={`addr-group-toggle-${stage}`}
@@ -235,21 +303,54 @@ export default function AddrGroup({
             className="flex items-center flex-shrink-0"
             style={{ gap: 4 }}
           >
-            {stageCounts.map((c) => (
-              <span
-                key={c.stage}
-                className="text-[10px] font-bold flex-shrink-0"
-                style={{
-                  padding: '2px 7px',
-                  borderRadius: 10,
-                  background: 'var(--color-s3, var(--color-s2))',
-                  color: STAGE_PILL_FG[c.stage],
-                  border: '1px solid var(--color-border)',
-                }}
-              >
-                {STAGE_PILL_LABEL[c.stage]} {c.count}
-              </span>
-            ))}
+            {/* ★★ fix-383: one pill per bucket this project has cards in.
+                A stage with no cards renders NOTHING — not a "0". A project
+                sitting in one bucket only therefore shows a single pill and
+                does not shout; 74 of 174 are in that position. And there is no
+                zero to click, which settles "a count of zero is not clickable"
+                by never drawing one. */}
+            {stageCounts.map((c) => {
+              const text = `${STAGE_PILL_LABEL[c.stage]} ${c.count}`;
+              const pillStyle = {
+                padding: '2px 7px',
+                borderRadius: 10,
+                background: 'var(--color-s3, var(--color-s2))',
+                color: STAGE_PILL_FG[c.stage],
+                border: '1px solid var(--color-border)',
+              } as const;
+              if (!onCountClick) {
+                return (
+                  <span
+                    key={c.stage}
+                    className="text-[10px] font-bold flex-shrink-0"
+                    style={pillStyle}
+                  >
+                    {text}
+                  </span>
+                );
+              }
+              return (
+                <button
+                  key={c.stage}
+                  type="button"
+                  // ★★★ stopPropagation, or this also fires the row's toggle
+                  // and the targeted click becomes the broad one.
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onCountClick(c.stage);
+                  }}
+                  onKeyDown={(e) => e.stopPropagation()}
+                  title={`Show this project in ${STAGE_FULL_LABEL[c.stage]}`}
+                  aria-label={`Show ${address} in ${STAGE_FULL_LABEL[c.stage]} (${c.count})`}
+                  data-testid={`addr-count-${stage}-${c.stage}`}
+                  data-count-stage={c.stage}
+                  className="text-[10px] font-bold flex-shrink-0 cursor-pointer"
+                  style={pillStyle}
+                >
+                  {text}
+                </button>
+              );
+            })}
           </div>
         </div>
         {/* fix-178: on-hold badge — a held project is visually flagged so it
@@ -310,7 +411,7 @@ export default function AddrGroup({
             );
           })}
         </div>
-      </button>
+      </div>
 
       {/* Expanded body */}
       {isOpen && (
