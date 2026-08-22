@@ -49,6 +49,12 @@ export function useProjects() {
             // blocks for redesign projects.
             'redesign_of_project_id, redesign_trigger',
             'redesign_reuses_original_permit, redesign_notes',
+            // ★★★ fix-386: WITHOUT THIS LINE THE WHOLE FLAG IS INERT. The
+            // column exists, the wizard writes it, and the board's history gate
+            // reads it — but this select list is explicit, so an unlisted
+            // column arrives as undefined and every project looks "not
+            // recorded" forever. Exactly the fix-122 trap two comments up.
+            'is_backfill',
             'created_at, updated_at',
           ].join(', '),
         )

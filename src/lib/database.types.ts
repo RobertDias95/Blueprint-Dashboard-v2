@@ -103,6 +103,25 @@ export interface Project {
    *  deal-to-deal, so they live only on the project. */
   poc_name?: string | null;
   poc_email?: string | null;
+  /**
+   * ★★★ fix-386: did the person creating this project tick "Backfill?" in the
+   * wizard's Step 1?
+   *
+   * ★★★ NULL MEANS NOT RECORDED, NEVER "no" — fix-363's rule. Every project
+   * created before fix-386 is null, because nobody was ever asked to store the
+   * answer; the checkbox existed (fix-143 used it to unlock the manual DD
+   * dates) and the answer was discarded. Reading a null as false would claim
+   * ~300 historical projects are definitely not backfills, which is a claim
+   * nobody made and which fix-378's measurements contradict.
+   *
+   * ★★ WHAT IT DOES: `true` suppresses fix-378's plan-date milestones outright
+   * — the person who entered the project said it was history. `false` does NOT
+   * un-suppress them; the date inference still runs. See milestoneIsHistory in
+   * lib/myBoard.ts for that asymmetry and why it exists.
+   *
+   * Hand-typed, like every column here — V2 never runs `supabase gen types`.
+   */
+  is_backfill?: boolean | null;
   /** fix-126: redesign concept. When set, this project is a redesign
    *  of the referenced parent project. Site facts (address, lot, juris)
    *  are shared by convention; the redesign carries its own copies of

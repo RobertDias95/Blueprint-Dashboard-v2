@@ -434,6 +434,13 @@ export default function NewProjectWizard({ open, onClose, initialState }: Props)
       builder_address: strOrNull(state.builder_address),
       poc_name: strOrNull(state.poc_name),
       poc_email: strOrNull(state.poc_email),
+      // ★★★ fix-386: the "Backfill?" answer is finally KEPT. Until now the
+      // checkbox only unlocked the manual DD dates (fix-143) and the answer was
+      // thrown away, which is why fix-378 had to INFER the same fact from
+      // created_at. Sent unconditionally — true or false, never omitted — so
+      // every project created from here has a recorded answer and the "not
+      // recorded" null population only ever shrinks.
+      is_backfill: state.backfill_mode,
       // fix-107: thread Step 1's Lead DA. When non-null the RPC calls
       // bp_next_available_da_slot to auto-place the BP at the DA's
       // first open slot (no overlap with any draw_schedule or

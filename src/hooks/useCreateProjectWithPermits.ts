@@ -75,6 +75,11 @@ export interface ProjectData {
   /** fix-175: per-project point-of-contact (NOT promoted to the catalog). */
   poc_name?: string | null;
   poc_email?: string | null;
+  /** ★★ fix-386: the wizard's "Backfill?" answer, finally kept. The RPC reads
+   *  it the way it reads is_corner_lot — key absent leaves the column NULL
+   *  ("not recorded"), key present writes the boolean. The wizard ALWAYS sends
+   *  it, true or false, so a project created from here is never null. */
+  is_backfill?: boolean | null;
   /** fix-107: Step 1's Lead Design Associate. When set, the RPC's BP
    *  branch calls bp_next_available_da_slot to find the first gap on
    *  that DA's lane and writes both the BP's dd_start/dd_end and a
