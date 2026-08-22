@@ -49,6 +49,49 @@ export const TERMINAL_APPROVED_STATUSES: ReadonlySet<string> = new Set([
   'Ready for Issuance',
 ]);
 
+// ===========================================================================
+// ★★★ fix-388 — THE MISSING HALF: TERMINALLY NEGATIVE
+// ===========================================================================
+//
+// Everything above is terminal-POSITIVE: the city finished and said yes. This
+// file called itself "one source of truth for what it means for a permit to be
+// terminally positive", and the negative half had no home — so a Withdrawn
+// permit was, to the board, simply a permit that had never been submitted, and
+// it went on raising "submit the set" prompts forever.
+//
+// ★★ It is added HERE rather than in a new module on purpose. Three status sets
+// already exist with deliberately DIFFERENT meanings —
+// TERMINAL_POSITIVE_STATUSES above, APPROVED_NOT_ISSUED_TERMINAL_STATUSES
+// (fix-221, effectiveIssued.ts) and PROJECT_DONE_STATUSES (fix-245,
+// projectViewHelpers.ts) — and each says in its own comment why it is not the
+// others. A fourth module would have been a rival concept; this is the
+// completion of an existing one.
+//
+// ★★★ ENUMERATED, NEVER MATCHED. Status vocabulary is scraper output and
+// jurisdiction-specific. A substring test for /withdraw|cancel/ is how a future
+// status like "Withdrawal Requested" — which is not withdrawn — quietly kills
+// every prompt on a live permit.
+//
+// ★ ONE VALUE TODAY. Measured across every permit on prod 2026-08-22, the only
+// negative-terminal status in the vocabulary is 'Withdrawn' (3 permits, 2 of
+// them unissued). 'Closed' also exists (2 permits, both issued) but is already
+// terminal-POSITIVE above, where it belongs: closed is finished, not abandoned.
+// A future 'Cancelled' or 'Void' is added here, by hand, after it is seen.
+export const TERMINAL_NEGATIVE_STATUSES: ReadonlySet<string> = new Set([
+  'Withdrawn',
+]);
+
+/** ★★★ fix-388: the permit is DEAD — abandoned at the portal, not finished.
+ *  Nothing is expected of anybody, so nothing should be prompted: it is not
+ *  late, it is over. Distinct from every set above, all of which describe a
+ *  permit that SUCCEEDED. Whitespace-tolerant, like its siblings. */
+export function isTerminalNegativeStatus(
+  permitStatus: string | null | undefined,
+): boolean {
+  if (!permitStatus) return false;
+  return TERMINAL_NEGATIVE_STATUSES.has(permitStatus.trim());
+}
+
 // Union of both — reviewer-rollup and any other caller that treats
 // the whole "city's done their part" bucket uniformly. Don't add
 // values here directly; add to one of the sub-sets above.

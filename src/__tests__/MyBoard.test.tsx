@@ -239,7 +239,11 @@ describe('fix-298: ★ "waiting on the other half" renders with NO checkbox', ()
       ent_lead: 'Miles',
       // A dated milestone so it reaches the forecast at all.
       target_submit: '2026-03-26',
-      status: 'Corrections Required',
+      // ★ fix-388: the status was incidental scaffolding and is now meaningful
+      // — 'Corrections Required' proves the set went in, which closes the
+      // target_submit question. A pre-submission status keeps the row this test
+      // needs, without asserting a permit was corrected before it was filed.
+      status: 'Pre-Submittal — GO',
     });
     state.permits = [p];
     // ★ fix-308: "waiting on the other half" needs the other half to EXIST.

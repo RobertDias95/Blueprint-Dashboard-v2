@@ -57,7 +57,13 @@ function permit(over: Partial<PermitWithCycles> = {}): PermitWithCycles {
     project_id: 'p-1',
     type: 'Building Permit',
     num: 'BP-1',
-    status: 'In Review',
+    // ★★★ fix-388 made permits.status MEANINGFUL to this derivation: a status
+    // that proves the city has the application now closes the two
+    // pre-submission questions on its own. This fixture models a permit
+    // BEFORE submission, so it can no longer be labelled 'In Review' — a
+    // permit under review has plainly been submitted. The assertions below are
+    // unchanged; only the fixture's own internal contradiction is gone.
+    status: 'Pre-Submittal — GO',
     stage_override: null,
     da: 'Nicky',
     ent_lead: 'Miles',
@@ -229,6 +235,10 @@ describe('fix-337 §1: every milestone kind states its own condition', () => {
 
   // ★ The prompts a LIVE permit should still get — the false-positive guard for
   // §1. 91 of the 337 were live permits; they must keep the prompts they earn.
+  // ★ "mid-review" here means mid-LIFECYCLE, not under city review: the cycle
+  // carries no submitted date. A permit the CITY is reviewing loses
+  // target_submit under fix-388, which is asserted in
+  // StatusImpliesSubmittedFix388.test.ts.
   it('★★ a live permit mid-review keeps everything that still applies', () => {
     const p = permit({
       intake_date: '2026-08-18',

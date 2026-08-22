@@ -303,7 +303,15 @@ describe('fix-308b: the 3921 shape, through the rendered board', () => {
       id: 1,
       type: 'Demolition',
       num: '7133443-DM',
-      status: 'Corrections Required',
+      // ★★ fix-388: was 'Corrections Required'. Prod permit 165 really does
+      // carry that status — but it also carries a submitted CYCLE, which this
+      // fixture never modelled, and fix-388 now reads the status as proof the
+      // set went in. Giving the fixture that cycle was tried and rejected: the
+      // corrections chip routes to different legs than target_submit, so it
+      // would have changed what this suite MEASURES (the ownership shape — DA
+      // Cam, ENT Miles, six ENT tasks, no arch) rather than how it is set up.
+      // The status is scaffolding here; the shape is the subject.
+      status: 'Pre-Submittal — GO',
       da: 'Cam',
       ent_lead: 'Miles',
       target_submit: '2026-03-01',
