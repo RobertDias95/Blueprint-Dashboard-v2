@@ -132,6 +132,11 @@ interface FormState {
   juris: string;
   acq_lead: string;
   archived: boolean;
+  /** ★★ fix-386: the wizard's "Backfill?" answer, correctable here. `null` is
+   *  "not recorded" and is what every pre-fix-386 project carries — kept as a
+   *  distinct third state so opening the modal on such a project and saving
+   *  something else does NOT quietly assert "not a backfill". */
+  is_backfill: boolean | null;
   /** fix-22 Mig 3: project-level scalar fields. */
   projectFields: ProjectScalarFields;
   /** fix-22 Mig 3: project-level builder/owner fields (flat columns). */
@@ -166,6 +171,7 @@ function initForm(
     juris: project.juris ?? '',
     acq_lead: project.acq_lead ?? '',
     archived: !!project.archived,
+    is_backfill: project.is_backfill ?? null,
     builder: {
       builder_name: project.builder_name ?? '',
       builder_company: project.builder_company ?? '',
@@ -380,6 +386,10 @@ export default function ProjectSettingsModal({
         // notes log (NotesPanel on the overview) is the source of truth.
         // Omitting the key leaves the legacy column untouched.
         archived: form.archived,
+        // ★★ fix-386: only sent when there IS an answer. The RPC's patch is
+        // key-presence based, so omitting it leaves the column untouched —
+        // which is how a "not recorded" null survives an unrelated save.
+        ...(form.is_backfill === null ? {} : { is_backfill: form.is_backfill }),
         go_date: form.projectFields.go_date || null,
         units: toNumOrNull(form.projectFields.units),
         zone: form.projectFields.zone.trim() || null,
@@ -756,6 +766,37 @@ export default function ProjectSettingsModal({
                 />
                 <span>Archived (hide from active project lists)</span>
               </label>
+            </Field>
+            {/* ★★ fix-386 — correcting the wizard's "Backfill?" answer.
+                ★ WHY IT IS EDITABLE AT ALL: whether a project was backfilled is
+                a FACT about how it was entered, and the person who ticked (or
+                forgot to tick) the box is exactly who would need to fix it —
+                the same class of edit as a typo'd address. It saves through the
+                atomic bp_update_project_with_permits path with everything else,
+                so it inherits fix-382's OCC rather than being a side channel.
+                ★ WHY IT IS QUIET: it must not become a lever for silencing
+                milestones somebody would rather not look at, so it sits in
+                Settings with the consequence written beside it, nowhere near
+                the board. */}
+            <Field label="" full>
+              <label className="flex items-center gap-2 text-[12px] text-text cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={form.is_backfill === true}
+                  onChange={(e) => set('is_backfill', e.target.checked)}
+                  data-testid="psm-is-backfill"
+                />
+                <span>
+                  Backfilled project (entered with historical dates — its
+                  already-past milestones are history, not missed deadlines)
+                </span>
+              </label>
+              {form.is_backfill === null && (
+                <div className="text-[10px] text-dim italic mt-0.5">
+                  Not recorded — this project predates the question. Leaving it
+                  unticked keeps it that way.
+                </div>
+              )}
             </Field>
           </Section>
 

@@ -569,6 +569,50 @@ export function milestonePredatesRecord(
   return date.slice(0, 10) < created;
 }
 
+/**
+ * ★★★ fix-386 — THE RECORDED ANSWER BEATS THE INFERENCE, IN ONE DIRECTION.
+ *
+ * fix-378 had to INFER "this is backfilled history" by comparing the driving
+ * date against the row's `created_at`, because the wizard's **Backfill?**
+ * checkbox threw its answer away. fix-386 keeps that answer in
+ * `projects.is_backfill`, and this is where it lands.
+ *
+ * ★★★ THE ASYMMETRY, AND WHY IT IS NOT AN OVERSIGHT:
+ *
+ *   true  → history, whatever the dates say. The person entering the project
+ *           told us. This ADDS suppression the inference would have missed —
+ *           a backfilled project whose dates happen to look current.
+ *
+ *   false → ★★★ THE INFERENCE STILL RUNS. An explicit "not a backfill" must
+ *           NEVER un-suppress fix-378's date rule. Two reasons, both real: a
+ *           genuinely new project can still be handed an already-past target
+ *           by hand, and fix-378's measured population (224 of 312 active
+ *           permits) mostly predates this flag anyway. The flag ADDS
+ *           suppression on true; it never REMOVES it on false.
+ *
+ *   null  → exactly the pre-fix-386 behaviour. This is every existing project,
+ *           and "not recorded" is not "no" (fix-363).
+ *
+ * ★★ ONLY THE PLAN-DATE KINDS, same as fix-378. A `true` flag does not silence
+ * `fees`, `corrections` or `reviewer_silent`: those read the portal's PRESENT,
+ * not a loaded plan date. A backfilled project's unpaid fees are still
+ * genuinely unpaid today, and saying "this project is history" must not be
+ * heard as "stop telling me about its current state".
+ */
+export function milestoneIsHistory(
+  kind: MilestoneKind,
+  permit: PermitWithCycles,
+  isBackfill: boolean | null | undefined = null,
+): boolean {
+  if (
+    isBackfill === true &&
+    (HISTORIC_SUPPRESSIBLE_KINDS as readonly string[]).includes(kind)
+  ) {
+    return true;
+  }
+  return milestonePredatesRecord(kind, permit);
+}
+
 /** The kinds this permit would raise TODAY but for the historic rule — what
  *  feeds the suppressed count. fix-298's principle, restated at the
  *  suppression note below: showing the suppressed count is how a quiet day
@@ -577,10 +621,14 @@ export function milestonePredatesRecord(
 export function historicSuppressedKinds(
   permit: PermitWithCycles,
   cycles: ReadonlyArray<PermitCycle> = permit.permit_cycles ?? [],
+  isBackfill: boolean | null | undefined = null,
 ): MilestoneKind[] {
   return HISTORIC_SUPPRESSIBLE_KINDS.filter(
     (k) =>
-      milestonePredatesRecord(k, permit) &&
+      // ★ fix-386: the SAME gate milestoneApplies uses, so a flag-suppressed
+      // milestone is counted by the same number — one gate, one count, no
+      // second copy of the rules to keep in step.
+      milestoneIsHistory(k, permit, isBackfill) &&
       milestoneAppliesIgnoringHistory(k, permit, cycles),
   );
 }
@@ -650,10 +698,13 @@ export function milestoneApplies(
   kind: MilestoneKind,
   permit: PermitWithCycles,
   cycles: ReadonlyArray<PermitCycle> = permit.permit_cycles ?? [],
+  isBackfill: boolean | null | undefined = null,
 ): boolean {
   return (
     milestoneAppliesIgnoringHistory(kind, permit, cycles) &&
-    !milestonePredatesRecord(kind, permit)
+    // ★ fix-386: defaults to null, so every caller that does not know the
+    // project's flag gets exactly the pre-fix-386 behaviour.
+    !milestoneIsHistory(kind, permit, isBackfill)
   );
 }
 
@@ -664,6 +715,10 @@ export function permitMilestones(
   today: string,
   thresholds: BoardThresholds = DEFAULT_BOARD_THRESHOLDS,
   acks: ReadonlyArray<PermitMilestoneAck> = [],
+  // ★ fix-386: the project's recorded "Backfill?" answer, threaded to the one
+  // gate below. Defaults to null so every existing caller keeps the
+  // pre-fix-386 behaviour without knowing this parameter exists.
+  isBackfill: boolean | null | undefined = null,
 ): MilestoneOccurrence[] {
   const out: MilestoneOccurrence[] = [];
   const cycles = permit.permit_cycles ?? [];
@@ -674,7 +729,7 @@ export function permitMilestones(
   // ★ fix-337: routed through milestoneApplies like the other five, so every
   // kind answers the same question in the same place. The rule is unchanged —
   // isPermitInCorrections has been current-cycle-aware since fix-214.
-  if (milestoneApplies('corrections', permit, cycles)) {
+  if (milestoneApplies('corrections', permit, cycles, isBackfill)) {
     out.push({
       kind: 'corrections',
       date: null,
@@ -687,7 +742,7 @@ export function permitMilestones(
   // ★ fix-337: this is the kind that was ALREADY right (myBoard.ts:456 was the
   // only issuance check in the whole function), and the shape the other five
   // now follow.
-  if (milestoneApplies('fees', permit, cycles) && permit.approval_date) {
+  if (milestoneApplies('fees', permit, cycles, isBackfill) && permit.approval_date) {
     const late = daysBetween(permit.approval_date, today);
     if (late >= thresholds.approvedNotIssuedDays) {
       out.push({
@@ -717,7 +772,7 @@ export function permitMilestones(
   if (
     cyc?.submitted &&
     !cyc.corr_issued &&
-    milestoneApplies('reviewer_silent', permit, cycles)
+    milestoneApplies('reviewer_silent', permit, cycles, isBackfill)
   ) {
     // fix-298 Phase 2: a chase IS a movement. reviewer_silent has no anchor
     // that could ever change (the whole point is that nothing is changing), so
@@ -745,7 +800,7 @@ export function permitMilestones(
   // Target submit — a DATE. Only while the set has not gone in.
   // ★ fix-337: "has not gone in" now means NO cycle has been submitted, not
   // "the newest cycle has not" — a permit on cycle 3 has plainly submitted.
-  if (milestoneApplies('target_submit', permit, cycles) && permit.target_submit) {
+  if (milestoneApplies('target_submit', permit, cycles, isBackfill) && permit.target_submit) {
     const late = daysBetween(permit.target_submit, today);
     out.push({
       kind: 'target_submit',
@@ -760,7 +815,7 @@ export function permitMilestones(
   // DD window close — a DATE, design side only.
   // ★ fix-337: same correction as target_submit — the DD window is a
   // pre-submission prompt, and any submission at all closes the question.
-  if (milestoneApplies('draw', permit, cycles) && permit.dd_end) {
+  if (milestoneApplies('draw', permit, cycles, isBackfill) && permit.dd_end) {
     const late = daysBetween(permit.dd_end, today);
     out.push({
       kind: 'draw',
@@ -776,7 +831,7 @@ export function permitMilestones(
   // ★★★ fix-337: THE 337. This read `!cyc?.intake_accepted` — the LATEST
   // cycle's — so every permit past cycle 3 raised it forever, whatever its
   // state. It asks the right question now: has intake been accepted at all?
-  if (milestoneApplies('intake', permit, cycles) && permit.intake_date) {
+  if (milestoneApplies('intake', permit, cycles, isBackfill) && permit.intake_date) {
     out.push({
       kind: 'intake',
       date: permit.intake_date,
@@ -1212,7 +1267,13 @@ export function buildForecast(input: BoardInput): Forecast {
   let suppressedHistoric = 0;
 
   for (const p of prepare(input)) {
-    for (const kind of historicSuppressedKinds(p.permit)) {
+    for (const kind of historicSuppressedKinds(
+      p.permit,
+      p.permit.permit_cycles ?? [],
+      // ★ fix-386: prepare() already resolved the project, so the recorded
+      // answer reaches the gate with no new plumbing.
+      p.project?.is_backfill ?? null,
+    )) {
       if (isMilestoneAcked(kind, p.permit, input.acks ?? [])) continue;
       const visible = p.legs.some(
         (leg) =>
@@ -1221,7 +1282,13 @@ export function buildForecast(input: BoardInput): Forecast {
       );
       if (visible) suppressedHistoric += 1;
     }
-    for (const m of permitMilestones(p.permit, today, thresholds, input.acks ?? [])) {
+    for (const m of permitMilestones(
+      p.permit,
+      today,
+      thresholds,
+      input.acks ?? [],
+      p.project?.is_backfill ?? null,
+    )) {
       if (m.date === null) continue; // ← the rule, enforced in one place
       for (const leg of p.legs) {
         const state = relayStateFor(m.kind, leg, p.shape, p.design);
@@ -1554,6 +1621,7 @@ export function buildQueue(input: BoardInput): ProjectQueue {
       input.today,
       thresholds,
       input.acks ?? [],
+      p.project?.is_backfill ?? null,
     );
     // Stateful milestones only — the ones with no date.
     const stateful = milestones.filter((m) => m.date === null);
