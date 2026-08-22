@@ -75,6 +75,7 @@ import PendingScrapeChip from '../shared/PendingScrapeChip';
 import { STAGE_LABEL } from '../../lib/stageLabel';
 import { LandUsePhaseBadge } from './LandUsePhaseBadge';
 import ScheduleEstimator from './ScheduleEstimator';
+import { PermitHoldPanel } from './PermitHold';
 
 // Q9.5.e-fix-5: PermitDetailV2 rebuilds the v2 permit edit panel to match
 // v1's _renderPermitDetail at index.html:4787. Visual blocks (top→bottom):
@@ -247,6 +248,16 @@ export default function PermitDetailV2({ permit, project }: Props) {
         onAfterDelete={(prevIdx) => setViewCycleIdx(prevIdx)}
       />
       <SeattleIntakeRow permit={permit} juris={project?.juris ?? null} />
+      {/* ★★ fix-390: pause THIS permit without painting its project. Sits with
+          the permit's own state controls, mirroring where ProjectHoldPanel sits
+          on the project — not in Settings, because a hold is a status, not a
+          configuration field. */}
+      <div
+        className="px-3 py-2"
+        style={{ borderTop: '1px solid var(--color-border)' }}
+      >
+        <PermitHoldPanel permitId={permit.id} projectId={permit.project_id} />
+      </div>
       <DateStrip
         permit={permit}
         project={project}

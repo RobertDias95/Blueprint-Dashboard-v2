@@ -10,7 +10,11 @@ import { useProjects } from '../hooks/useProjects';
 import { useAllTasks, useUpsertTask } from '../hooks/useTaskTree';
 import { useTeamMembers } from '../hooks/useTeamMembers';
 import { useSelfScope } from '../hooks/useSelfScope';
-import { useAllProjectHolds, cancelledProjectIds } from '../hooks/useProjectHolds';
+import {
+  cancelledProjectIds,
+  useAllProjectHolds,
+} from '../hooks/useProjectHolds';
+import { useAllPermitHolds } from '../hooks/usePermitHolds';
 import { useMilestoneAcks, useAckMilestone } from '../hooks/useMilestoneAcks';
 import { useBoardNotifications } from '../hooks/useBoardNotifications';
 import { useConfirmHandoff } from '../hooks/useConfirmHandoff';
@@ -709,6 +713,8 @@ export default function MyBoard() {
   const tasksQ = useAllTasks();
   const team = useTeamMembers();
   const holdsQ = useAllProjectHolds();
+  // ★ fix-390: the permit-scoped siblings, one bulk fetch like its sibling.
+  const permitHoldsQ = useAllPermitHolds();
   const { identity } = useSelfScope();
   // fix-298 Phase 2: the scraper feed the old nav bell used to own.
   const activityQ = useScraperActivity();
@@ -813,6 +819,12 @@ export default function MyBoard() {
       tasks: tasksQ.data ?? [],
       today: todayIso(),
       cancelledIds: cancelledProjectIds(holdsQ.data),
+      // ★★ fix-390: which projects and which permits are paused. The board
+      // silences a held permit's milestone chips — reversibly, and without
+      // writing an ack. Project holds cover their permits; a permit hold covers
+      // ONLY its permit and never rolls up.
+      holdRows: holdsQ.data ?? [],
+      permitHoldRows: permitHoldsQ.data ?? [],
       acks: acksQ.data ?? [],
       // ★★ fix-348: the blended forecast asks "is this task mine?" with fix-238's
       // resolver — the SAME predicate the My Tasks bar directly below this panel
@@ -828,6 +840,7 @@ export default function MyBoard() {
       projectsQ.data,
       tasksQ.data,
       holdsQ.data,
+      permitHoldsQ.data,
       acksQ.data,
       taskOwnership.matches,
     ],

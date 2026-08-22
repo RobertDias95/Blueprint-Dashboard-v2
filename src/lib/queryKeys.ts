@@ -295,6 +295,14 @@ export const queryKeys = {
   // estimator surfaces. Shares the project_holds bare prefix for realtime.
   allProjectHolds: (tenantId: string) =>
     ['project_holds', tenantId, 'all'] as const,
+  // ★★ fix-390: the permit-scoped sibling. Its OWN bare prefix, deliberately —
+  // a permit hold must never invalidate (or be mistaken for) project hold
+  // state, and sharing a prefix is how two scopes quietly become one.
+  permitHoldsAll: ['permit_holds'] as const,
+  permitHolds: (tenantId: string, permitId: number) =>
+    ['permit_holds', tenantId, { permitId }] as const,
+  allPermitHolds: (tenantId: string) =>
+    ['permit_holds', tenantId, 'all'] as const,
   // fix-182b: per-quarter saved Draw Schedule column layout (Settings editor).
   // Keyed by quarter so each quarter's layout caches independently. Nothing on
   // the live grid reads this yet (Phase C).
@@ -382,6 +390,10 @@ export const REALTIME_TABLES = {
   // fix-167: a hold opened/lifted/edited (any tab) refreshes the badge +
   // history live.
   project_holds: [queryKeys.projectHoldsAll],
+  // ★ fix-390: same live behaviour as its sibling — a permit hold placed or
+  // released in one tab updates the badge and silences/restores the board row
+  // in every other tab.
+  permit_holds: [queryKeys.permitHoldsAll],
   // fix-265: a vendor send recorded in one tab re-buckets the forecast in every
   // other tab, so a second person can't re-send the same "new" projects.
   vendor_report_state: [queryKeys.vendorReportStateAll],

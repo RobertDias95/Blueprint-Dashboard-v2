@@ -195,6 +195,42 @@ export interface ProjectHold {
 /** fix-262: the two kinds a project_holds row can be. Mirrors the DB CHECK. */
 export type ProjectHoldKind = 'hold' | 'cancelled';
 
+/**
+ * ★★★ fix-390: ONE PERMIT deliberately paused, when the rest of its project is
+ * still moving.
+ *
+ * Shaped like {@link ProjectHold} on purpose — same open/released lifecycle
+ * (`hold_end === null` is open), same reason/note, same provenance — because it
+ * is the same idea at a smaller scope, and fix-364's rule is one concept, one
+ * term.
+ *
+ * ★★★ THERE IS NO `kind` UNION HERE, AND THAT IS THE POINT. fix-262 made CANCEL
+ * a PROJECT outcome ("the step after hold, before delete") and an axis for
+ * volume attribution. A single dead permit already has vocabulary — the
+ * portal's **Withdrawn**, which fix-388 taught the board to respect. A
+ * permit-level cancel would be a rival concept for a question already answered,
+ * so the DB CHECK admits 'hold' and nothing else and this type says so.
+ *
+ * ★★ A permit hold NEVER derives project-level held state. One stuck ULS must
+ * not paint the project its BP is moving through.
+ */
+export interface PermitHold {
+  id: string;
+  tenant_id: string;
+  /** permits.id — integer, unlike ProjectHold's uuid project_id. */
+  permit_id: number;
+  reason: string;
+  note: string | null;
+  hold_start: string;
+  hold_end: string | null;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+  /** Always 'hold'. Present so the row shape matches the table; the DB CHECK
+   *  refuses anything else. */
+  kind?: 'hold';
+}
+
 /** fix-262: a row's kind, defaulting to 'hold' for rows written before the
  *  column existed (and for fixtures that omit it). Use this rather than reading
  *  `.kind` directly so the default is applied in exactly one place. */
