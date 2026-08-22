@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import { useProjects } from '../hooks/useProjects';
 import { usePermits } from '../hooks/usePermits';
 import { useDrawSchedule } from '../hooks/useDrawSchedule';
@@ -52,8 +52,14 @@ import {
   loadPipelineCollapsed,
   pipelineGroupKey,
   pipelineSubKey,
+  pipelineSubKeyPrefix,
   savePipelineCollapsed,
 } from '../lib/pipelinePrefs';
+import {
+  buildAddressDistribution,
+  STAGE_GROUP,
+  type StageCount,
+} from '../lib/pipelineDistribution';
 
 // Q9.5.e2: cross-bucket interactivity. `DashContext` lifts `highlightedAddress`
 // + `openAddresses` to the Dashboard root so toggling open/highlight on one
@@ -64,6 +70,33 @@ interface DashContext {
   highlightedAddress: string | null;
   openAddresses: Set<string>;
   toggleAddress: (addr: string) => void;
+  /**
+   * ★★★ fix-383: send the reader to this project in ONE named bucket.
+   *
+   * NOT `toggleAddress`. Toggle is the right verb for clicking the row — it
+   * opens the address everywhere, or closes it everywhere. It is the WRONG
+   * verb for clicking a count: "2 Issued" means "show me those two", and on a
+   * project whose Issued group was already open, toggling would CLOSE it —
+   * the exact opposite of the click. Bobby named the case: "some people might
+   * have the expansions open or closed." Both starting states must land in the
+   * same place, so this only ever ADDS to openAddresses.
+   */
+  revealAddress: (addr: string, stage: Stage) => void;
+  /**
+   * ★★★ The scroll ticket. fix-1d's rule is that a bucket scrolls ITSELF from
+   * its own useEffect, because a parent-imperative scroll fires before the
+   * non-active buckets have committed their expanded render and the browser
+   * clamps it. So this is not a call — it is STATE the target AddrGroup
+   * observes, and the nonce changes on every click so a group that was already
+   * open (isOpen never flipped) still re-runs its own scroll effect.
+   */
+  revealTarget: { address: string; stage: Stage; nonce: number } | null;
+  /**
+   * ★★ fix-383: address → how many of that project's cards sit in each bucket.
+   * Computed once at the root, where every permit is in hand; an AddrGroup only
+   * ever receives its OWN bucket's permits and so could never derive this.
+   */
+  distributionByAddress: Map<string, StageCount[]>;
   setHighlight: (addr: string | null) => void;
   /** fix-178: project_id → active hold, for the on-hold card badge. */
   activeHoldMap: Map<string, ProjectHold>;
@@ -184,22 +217,59 @@ export default function Dashboard() {
     void didOpen;
   }, []);
 
-  const dashCtx: DashContext = useMemo(
-    () => ({
-      highlightedAddress,
-      openAddresses,
-      toggleAddress,
-      setHighlight: setHighlightedAddress,
-      activeHoldMap,
-      cancelMap,
-    }),
-    [highlightedAddress, openAddresses, toggleAddress, activeHoldMap, cancelMap],
-  );
+  // ★★★ fix-383: the targeted click. Four things happen, in this order:
+  //
+  //   1. UNFOLD the destination column. Approved and Issued default to
+  //      COLLAPSED (fix-324b / #68), so without this the most valuable case —
+  //      "one is issued, click it" — would open the address inside a folded
+  //      spine and show the reader nothing at all.
+  //   2. ENSURE OPEN, never toggle. See revealAddress's doc on DashContext.
+  //   3. Highlight it, reusing the one highlight concept the row click uses.
+  //   4. Bump the reveal ticket so the target AddrGroup scrolls ITSELF.
+  //
+  // ★★★ Step 4 is state, not a call. Q9.5.f-fix-1d took ten iterations to
+  // learn that a parent-imperative scroll runs before the non-active buckets
+  // have committed their expanded render, leaving scrollHeight stale and the
+  // assignment silently clamped. Do not turn this back into a parent call.
+  const [revealTarget, setRevealTarget] = useState<
+    { address: string; stage: Stage; nonce: number } | null
+  >(null);
+  const revealNonce = useRef(0);
+
+  const revealAddress = useCallback((addr: string, stage: Stage) => {
+    const group = STAGE_GROUP[stage];
+    setCollapsedKeys((prev) => {
+      const next = prev.filter(
+        (k) =>
+          k !== pipelineGroupKey(group) &&
+          !k.startsWith(pipelineSubKeyPrefix(group)),
+      );
+      if (next.length === prev.length) return prev;
+      savePipelineCollapsed(collapseUserId, next);
+      return next;
+    });
+    setOpenAddresses((prev) => {
+      if (prev.has(addr)) return prev; // ★ already open stays open
+      const next = new Set(prev);
+      next.add(addr);
+      return next;
+    });
+    setHighlightedAddress(addr);
+    revealNonce.current += 1;
+    setRevealTarget({ address: addr, stage, nonce: revealNonce.current });
+  }, [collapseUserId]);
+
 
   const isLoading = projectsQ.isLoading || permitsQ.isLoading || drawQ.isLoading;
   const error = projectsQ.error ?? permitsQ.error ?? drawQ.error;
 
-  const { buckets, projectById, cyclesByPermit, reviewersByPermit } = useMemo(() => {
+  const {
+    buckets,
+    projectById,
+    cyclesByPermit,
+    reviewersByPermit,
+    distributionByAddress,
+  } = useMemo(() => {
     const projects = projectsQ.data ?? [];
     const permits = permitsQ.data ?? [];
     const draw = drawQ.data ?? [];
@@ -305,6 +375,17 @@ export default function Dashboard() {
     const visible = filteredInputs.filter((b) => !hide.has(b.permit.id));
     const bucketed = bucketPermits(visible, drawByProjectId);
 
+    // ★★ fix-383: computed ONCE here, where every permit is already in hand and
+    // already bucketed — not re-derived inside each AddrGroup, which can only
+    // see its own bucket's permits and so could never count the others.
+    // Counting the BUCKETS (rather than re-deriving a stage per permit) is what
+    // makes each pill a click target that is guaranteed to find a card; see
+    // src/lib/pipelineDistribution.ts.
+    const distributionByAddress = buildAddressDistribution(
+      bucketed,
+      projectIdToAddress,
+    );
+
     // Q9.5.c: per-permit cycle index for urgency lookups. Reuses the
     // same shape `bucketPermits` consumed so we don't re-walk permits.
     const cyclesByPermit = new Map<number, PermitCycle[]>();
@@ -317,6 +398,7 @@ export default function Dashboard() {
       projectById: projectByIdMap,
       cyclesByPermit,
       reviewersByPermit: reviewersByPermitId,
+      distributionByAddress,
     };
   }, [
     projectsQ.data,
@@ -332,6 +414,30 @@ export default function Dashboard() {
     activeHeld,
     cancelledIds,
   ]);
+
+  const dashCtx: DashContext = useMemo(
+    () => ({
+      highlightedAddress,
+      openAddresses,
+      toggleAddress,
+      revealAddress,
+      revealTarget,
+      distributionByAddress,
+      setHighlight: setHighlightedAddress,
+      activeHoldMap,
+      cancelMap,
+    }),
+    [
+      highlightedAddress,
+      openAddresses,
+      toggleAddress,
+      revealAddress,
+      revealTarget,
+      distributionByAddress,
+      activeHoldMap,
+      cancelMap,
+    ],
+  );
 
   if (error) {
     return (
@@ -1053,6 +1159,19 @@ function SubBucketGroups({
           getKeyDate={getKeyDate}
           isOpen={ctx.openAddresses.has(g.address)}
           isHighlighted={ctx.highlightedAddress === g.address}
+          // ★★ fix-383: the whole project's spread, not this bucket's slice.
+          distribution={ctx.distributionByAddress.get(g.address)}
+          onCountClick={(s) => ctx.revealAddress(g.address, s)}
+          // ★★★ The ticket this group watches. 0 unless THIS (address, stage)
+          // is the click's target — and it changes on every click, so a group
+          // that was already open still re-runs its own scroll effect.
+          revealNonce={
+            ctx.revealTarget &&
+            ctx.revealTarget.address === g.address &&
+            ctx.revealTarget.stage === stage
+              ? ctx.revealTarget.nonce
+              : 0
+          }
           onToggle={() => ctx.toggleAddress(g.address)}
           onHover={() => ctx.setHighlight(g.address)}
           onLeave={() =>

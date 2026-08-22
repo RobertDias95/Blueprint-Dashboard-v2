@@ -72,3 +72,23 @@ export function defaultCollapsedKeys(): string[] {
 export function pipelineSubKey(groupKey: string, subTitle: string): string {
   return `s:${groupKey}:${subTitle}`;
 }
+
+/**
+ * ★ fix-383: the prefix every sub-column key of a group shares.
+ *
+ * A count click has to UNFOLD the column it is sending you to — Approved and
+ * Issued default to collapsed (#68), so revealing a project inside a folded
+ * spine would show you nothing. Unfolding needs to clear the group key and any
+ * folded sub-column under it, and matching on this prefix does that WITHOUT
+ * the caller having to know the sub-column titles. Those titles live in the
+ * PipelineGroup props in Dashboard.tsx; copying them into a reveal map would
+ * be a second list to keep in step, and the first one to drift.
+ *
+ * The cost is that unfolding for a `co` click also unfolds its sibling "Under
+ * Review". Sub-columns start unfolded and are rarely folded by hand, and
+ * "I asked to see this project in Permitting" is a fair reading of opening
+ * Permitting — cheaper than duplicating the titles.
+ */
+export function pipelineSubKeyPrefix(groupKey: string): string {
+  return `s:${groupKey}:`;
+}
