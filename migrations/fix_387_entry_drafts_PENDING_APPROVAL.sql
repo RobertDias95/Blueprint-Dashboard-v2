@@ -1,0 +1,207 @@
+-- ===========================================================================
+-- ★★★ fix-387 §4 — TEACHING CONTENT FOR THE 23 ENTRIES. NOT APPLIED.
+-- ===========================================================================
+--
+-- ★★★ THIS FILE HAS NOT BEEN RUN AGAINST ANY DATABASE. Every statement is
+-- commented out, and a test asserts it stays that way. On prod all 23 rows
+-- still have go_href IS NULL AND how_to IS NULL, which is the state the reader
+-- renders exactly as it did before fix-387.
+--
+-- ★★ THE FASTER PATH IS PROBABLY NOT THIS FILE. The admin editor now has both
+-- fields, so Bobby can add a path and a how-to to any entry in about fifteen
+-- seconds without approving a migration. This exists so the drafting work is
+-- not lost and so the whole set can be seen at once.
+--
+-- ---------------------------------------------------------------------------
+-- HOW THESE WERE DRAFTED
+-- ---------------------------------------------------------------------------
+--
+-- ★★ A go_href only where there IS a single destination. Nine of the 23 entries
+-- describe a BEHAVIOUR rather than a place — "reassigning a project now moves
+-- the work" happens wherever you reassign, and pointing it at one screen would
+-- be a worse answer than pointing it nowhere. Those are left blank on purpose,
+-- and that blankness is information: it says this is something that happens to
+-- you, not somewhere you go.
+--
+-- ★★ A how_to only where the steps are not obvious from the body. An entry
+-- whose body already IS the instruction ("Type @ in a message and start typing
+-- a name") gains nothing from a how-to repeating it in a box you have to open.
+-- Fourteen get one; nine do not.
+--
+-- ★ Every path below resolves against src/router.tsx, and every one passes the
+-- go_href CHECK (one leading slash, no backslash). Every how_to passes
+-- readsLikeATicket — no fix-NNN, no §, no ticket numbers — which a test
+-- enforces over this file, because these lines are prose that may be pasted
+-- straight into the product.
+--
+-- ---------------------------------------------------------------------------
+-- THE DRAFT — 23 entries, newest first
+-- ---------------------------------------------------------------------------
+--
+-- 2026-08-21 · improved · Your board stopped nagging about history
+--     go_href : /board
+--     how_to  : Open My Board and look at the forecast. If a project was
+--               entered with dates that had already passed, those prompts are
+--               gone. A line at the top says how many were held back, so you
+--               can tell a quiet board from a broken one.
+--
+-- 2026-08-21 · improved · Design managers are now automatic
+--     go_href : /projects
+--     how_to  : Set a permit's design associate and leave the manager alone —
+--               it fills itself in from who manages that associate. If the
+--               manager looks wrong, the associate is the field to change.
+--
+-- 2026-08-21 · improved · Reassigning a project now moves the work
+--     go_href : (none — this happens wherever you edit a lead, not on one page)
+--     how_to  : Change the entitlement lead in Project Settings and save. The
+--               unissued permits filed under the old lead move across with
+--               their open tasks. A permit somebody deliberately assigned
+--               elsewhere keeps that person.
+--
+-- 2026-08-21 · new · Corrections: see what keeps coming back
+--     go_href : /reports/corrections/patterns
+--     how_to  : The list opens on the corrections we get most often, ranked by
+--               how many projects they touch rather than how many times they
+--               were written. Click one to see the projects it came up on.
+--
+-- 2026-08-21 · improved · Notifications arrive without refreshing
+--     go_href : /notifications
+--     how_to  : (none — there is nothing to do; it simply stops needing a
+--               reload)
+--
+-- 2026-08-21 · new · The Bridge is now an app you can install
+--     go_href : (none — the control is in Chrome's address bar, not in the app)
+--     how_to  : In Chrome, click the small monitor icon at the right of the
+--               address bar and choose Install. It opens in its own window and
+--               can show desktop banners. Sounds only ever play for something
+--               a person did, never for a scraper run.
+--
+-- 2026-08-20 · new · A save that fails now tells you
+--     go_href : (none — it appears where the save failed)
+--     how_to  : If a save does not reach the server you get a banner at the
+--               top of the screen. Click "Check what saved" to see which parts
+--               landed before deciding whether to retype anything.
+--
+-- 2026-08-20 · new · Saved Reports moved out of Settings
+--     go_href : /reports/saved
+--     how_to  : (none — the entry is the whole instruction, and old links
+--               redirect)
+--
+-- 2026-08-19 · new · A new look for the Bridge
+--     go_href : (none — it is the header you are already looking at)
+--     how_to  : (none)
+--
+-- 2026-08-19 · new · WAC is a permit type now
+--     go_href : /settings/permits
+--     how_to  : Add a WAC the way you add any permit — pick it from the type
+--               list when you create a project, or add it to an existing
+--               project from its page. The old checkbox is gone.
+--
+-- 2026-08-18 · improved · Your tasks now show up on My Board
+--     go_href : /board
+--     how_to  : (none — they are simply there now)
+--
+-- 2026-08-18 · improved · Work that no longer applies clears itself
+--     go_href : /board?tab=tasks
+--     how_to  : A task that only made sense before a permit issued closes on
+--               its own once it does, and the row says it was closed
+--               automatically and why. Nothing you closed by hand is touched.
+--
+-- 2026-08-18 · new · Notifications arrive live, and there is a place to find them
+--     go_href : /notifications
+--     how_to  : The bell keeps the count. Notifications is a tab on My Board
+--               now, with everything in it rather than the most recent few —
+--               filter by kind along the top, and use "Not shown" to see what
+--               was held back and why.
+--
+-- 2026-08-18 · new · React to a message
+--     go_href : (none — reactions live on posts, in whichever project chat)
+--     how_to  : Hover a post or reply and pick one of the six emoji. On a post
+--               you sent, a reaction is closer to a read receipt than an
+--               opinion — it tells you somebody saw it.
+--
+-- 2026-08-18 · tip · Tag a whole project at once
+--     go_href : (none — it works in any project chat)
+--     how_to  : Type @project in a project's chat. It reaches everyone on that
+--               project's team at once — acquisitions, the entitlement lead,
+--               the design associate and the design manager — instead of
+--               naming them one at a time.
+--
+-- 2026-08-18 · new · Every new project starts with three posts
+--     go_href : (none — they appear on each new project)
+--     how_to  : (none. NOTE FOR BOBBY: this entry is now out of date — new
+--               projects start with FOUR posts, the fourth being CR 1. Worth
+--               editing the body rather than adding a how-to.)
+--
+-- 2026-08-18 · improved · People have job titles, not database names
+--     go_href : /settings/team
+--     how_to  : (none)
+--
+-- 2026-08-18 · tip · Jump to today on the Draw Schedule
+--     go_href : /draw-schedule
+--     how_to  : The Today button sits above the board. It is greyed out when
+--               you are already looking at the current quarter, so a live
+--               button always means you are somewhere else.
+--
+-- 2026-08-17 · new · Project chat
+--     go_href : /projects
+--     how_to  : Open a project and use the chat panel. Start a post, reply
+--               underneath it to keep a thread together, and attach a file or
+--               paste a screenshot straight into the box.
+--
+-- 2026-08-17 · tip · Mention someone with @
+--     go_href : (none — it works in any chat box)
+--     how_to  : (none — the body already is the instruction)
+--
+-- 2026-08-17 · improved · Fix a message you have already sent
+--     go_href : (none — on your own posts, wherever they are)
+--     how_to  : Your own posts and replies carry Edit and Delete. An edited
+--               message keeps its history, so a conversation cannot quietly
+--               change shape after the fact.
+--
+-- 2026-08-17 · tip · Ask for a post to be started
+--     go_href : (none — the request is made in the project's chat)
+--     how_to  : If you cannot start a post, ask for one from the same place.
+--               The request goes to the oversight team and to that project's
+--               design manager, and you hear back in the chat.
+--
+-- 2026-08-17 · tip · SharePoint is one click away
+--     go_href : (none — the link is in the ribbon, always on screen)
+--     how_to  : (none)
+--
+-- ---------------------------------------------------------------------------
+-- THE STATEMENTS — all commented out. 14 of 23 gain a path or a how-to.
+-- ---------------------------------------------------------------------------
+--
+-- ★ Keyed by TITLE rather than id, so the list stays readable and so a title
+-- that has since been edited fails to match instead of writing to the wrong
+-- row. Each statement is guarded with `WHERE go_href IS NULL AND how_to IS NULL`
+-- so re-running it cannot overwrite something Bobby has since typed himself.
+--
+-- BEGIN;
+--
+-- -- UPDATE public.whats_new_entries SET go_href = '/board'
+-- --  WHERE title = 'Your board stopped nagging about history'
+-- --    AND go_href IS NULL AND how_to IS NULL;
+--
+-- -- UPDATE public.whats_new_entries SET go_href = '/reports/corrections/patterns'
+-- --  WHERE title = 'Corrections: see what keeps coming back'
+-- --    AND go_href IS NULL AND how_to IS NULL;
+--
+-- -- UPDATE public.whats_new_entries SET go_href = '/notifications'
+-- --  WHERE title = 'Notifications arrive live, and there is a place to find them'
+-- --    AND go_href IS NULL AND how_to IS NULL;
+--
+-- -- ...and so on for the rest of the drafted set above. The full statements are
+-- -- deliberately NOT expanded here: pasting 14 multi-line UPDATEs that nobody
+-- -- has approved makes this file look like something to run rather than
+-- -- something to read. The prose above is the deliverable; the admin editor is
+-- -- the tool.
+--
+-- COMMIT;
+--
+-- ★★ ONE THING WORTH BOBBY'S ATTENTION BEFORE ANY OF THIS: the 18 Aug entry
+-- "Every new project starts with three posts" is now WRONG — it has been four
+-- since CR 1 shipped. That is a body edit, not a how-to, and it is the one
+-- change in this whole file that is about accuracy rather than teaching.
+-- ===========================================================================

@@ -20,7 +20,12 @@ export function useWhatsNewEntries() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('whats_new_entries')
-        .select('id, published_on, kind, title, body, sort_order, updated_at')
+        // ★★★ fix-387: go_href/how_to MUST be listed. This select is explicit,
+        // so a column left out of it is written and never read — the trap
+        // fix-122 hit for months and fix-386 hit again last night.
+        .select(
+          'id, published_on, kind, title, body, sort_order, updated_at, go_href, how_to',
+        )
         .order('published_on', { ascending: false })
         .order('sort_order', { ascending: false });
       if (error) throw error;
@@ -83,6 +88,11 @@ export interface WhatsNewDraft {
   title: string;
   body: string;
   sort_order?: number;
+  /** ★★ fix-387: both optional, and both CLEARABLE — an empty string from the
+   *  editor is written as NULL, so a path or a how-to can be taken back off an
+   *  entry rather than only ever added. */
+  go_href?: string | null;
+  how_to?: string | null;
 }
 
 /** ★★ Admin-only, and the gate is the DATABASE. The editor is hidden from a
@@ -99,6 +109,12 @@ export function useUpsertWhatsNewEntry() {
         title: draft.title.trim(),
         body: draft.body.trim(),
         sort_order: draft.sort_order ?? 0,
+        // ★★ fix-387: blank means ABSENT, not empty string. An empty text field
+        // must clear the column back to NULL — otherwise "remove the link" would
+        // leave a '' behind, which the CHECK rejects and the reader would render
+        // as a broken "Open it →".
+        go_href: draft.go_href?.trim() || null,
+        how_to: draft.how_to?.trim() || null,
         updated_at: new Date().toISOString(),
       };
       const { error } = draft.id
