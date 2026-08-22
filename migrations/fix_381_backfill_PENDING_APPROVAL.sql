@@ -1,0 +1,220 @@
+-- ===========================================================================
+-- ★★★ fix-381 §4 — THE CR 1 BACKFILL. NOT APPLIED. AWAITING BOBBY'S APPROVAL.
+-- ===========================================================================
+--
+-- ★★★ THIS FILE HAS NOT BEEN RUN AGAINST ANY DATABASE. Every statement below
+-- is commented out, and a test asserts that it still is.
+--
+-- migrations/fix_381_cr_threads.sql seeds CR 1 on NEW projects and mints CR N
+-- for building permits going forward. Neither reaches a project that already
+-- exists and is sitting in design today — exactly the population Bobby asked
+-- about. This file is that population, and nothing has been written.
+--
+-- ★ It is per PROJECT, not per permit. Nobody should expect a row per permit:
+-- the threads hang off the project, so several permits on one project share
+-- one CR 1.
+--
+-- ---------------------------------------------------------------------------
+-- ★★★ THE BRIEF'S NUMBERS DID NOT REPRODUCE. READ THIS BEFORE APPROVING.
+-- ---------------------------------------------------------------------------
+--
+-- The brief states "183 active building permits across 88 projects" and "86 of
+-- the 88 already have the three standard threads; two have none at all."
+-- Measured on prod 2026-08-22, three of those four numbers are different, and
+-- the differences change what you are approving.
+--
+--   1. ★★★ THEY ARE NOT ALL BUILDING PERMITS. There are only 199 Building
+--      Permits in the whole database and only 92 of them are unissued, so
+--      "183 active building permits" cannot describe type = 'Building Permit'.
+--      The number matches the ALL-TYPES population: every unissued permit that
+--      has never had a corr_issued is 174 permits across 87 projects today —
+--      the same shape as 183/88, one day and a scraper run later.
+--
+--      ★★★ Restricted to Bobby's literal words — a live BUILDING PERMIT with
+--      no corrections yet — it is 30 permits across just 24 PROJECTS.
+--
+--      That is the decision: 87 projects, or the 24 that actually have a
+--      building permit waiting on its first correction. They are marked BP in
+--      the listing below so either set can be lifted out.
+--
+--   2. ★★★ TWENTY-SEVEN PROJECTS HAVE NO THREADS AT ALL, not two. They predate
+--      the seeding trigger, which only fires on INSERT. They are marked r=0.
+--      Giving those a CR 1 and nothing else would leave a project whose only
+--      conversation folder is the corrections one, which is not what the
+--      template is meant to look like. Two ways to go, priced below.
+--
+--   3. Four of the 87 are CANCELLED projects (marked CX). Per fix-264 cancelled
+--      work is kept off live surfaces; seeding them a fresh folder cuts against
+--      that. Recommend dropping them from whichever set is chosen.
+--
+--   Unchanged from the brief: ZERO 'CR 1' threads exist today, and zero threads
+--   of any 'CR %' shape. Nothing here can collide with something already there.
+--
+-- ---------------------------------------------------------------------------
+-- ★★ WHAT EACH OPTION COSTS, IN ROWS
+-- ---------------------------------------------------------------------------
+--
+--   OPTION 1 — CR 1 only, all 87 projects                          87 rows
+--   OPTION 2 — CR 1 only, the 24 with a live building permit       24 rows
+--   OPTION 3 — run the full seed on all 87, which also repairs
+--              the 27 thread-less projects (27 x 4 + 60 x 1)      168 rows
+--   minus cancelled (CX), whichever is chosen                       -4 rows
+--
+-- ★ RECOMMENDATION: OPTION 3 minus the cancelled four (164 rows). Bobby's
+-- sentence was about the template — "any new project should have a Preliminary
+-- Assessment, a Design Phase, ACQ Questions, and then a CR 1 folder" — and 27
+-- live projects have none of the four. Option 3 is the only one that leaves
+-- every active project looking like the template. It uses the shipped
+-- bp_seed_project_posts, which is idempotent, so it creates only what is
+-- missing and cannot disturb a thread anybody already has.
+--
+-- ---------------------------------------------------------------------------
+-- THE LISTING — 87 projects
+--   BP  = has a live Building Permit with no corrections yet (24 of them)
+--   r=N = root threads the project has today (r=0 means none at all)
+--   CX  = cancelled project
+-- ---------------------------------------------------------------------------
+--
+--   11231 NE 67th St                       Kirkland  BP  r=3      b587f775-f66f-40d7-a85a-51dda8e9860e
+--   12827 NE 80th St                       Kirkland  BP  r=3      7b425fb7-d223-48c2-9f05-63138c01924a
+--   13021 23rd Ave NE                      Seattle   BP  r=3  CX  13eded98-7f6f-4bf6-b302-fd397918af9d
+--   1327 44th Ave SW                       Seattle   BP  r=3      c2f2aaea-6a85-4392-9b75-0f965f2bf43b
+--   2450 3rd Ave W                         Seattle   BP  r=3      9aa8d2d2-ad2c-46a5-a7e8-29bbc4a4e2eb
+--   2601 E Galer St                        Seattle   BP  r=3      be7aabaa-a81c-40b5-b0e1-b8574046c9a6
+--   4040 E Via Estrella                    Phoenix   BP  r=3      4e58ca9f-aada-4384-b57c-d32b2bfb8609
+--   436 7th Ave                            Kirkland  BP  r=3      6cec2b80-6751-4d86-837c-d4dc98024731
+--   554 N 75th St                          Seattle   BP  r=3      ff6be8fd-f6de-4ebd-9fc9-270c0cbe65e9
+--   5811 Greenwood Ave N                   Seattle   BP  r=3      daf8915d-f611-4967-ab97-dfb3ee12e4de
+--   6820 120th Ave NE                      Kirkland  BP  r=3  CX  68a7a5b5-290c-4f1f-b1b1-409577aa5416
+--   7200 54th Ave S [Redesign 1]           Seattle   BP  r=3      396c5d67-16c6-4f46-8a9d-632b1b316cb5
+--   7336 132nd Ave NE                      Redmond   BP  r=3      5b67f6e5-d5a4-455c-b1da-e58490d6886f
+--   7708 131st Ave NE                      Kirkland  BP  r=3      2de27c15-4360-4746-9c9b-630c85fbeea8
+--   8236 120th Ave NE                      Kirkland  BP  r=3      0c2bb4b9-35c2-48c9-b689-6d96ebf1ee90
+--   9022 36th Ave SW                       Seattle   BP  r=3  CX  1f319a52-dfd5-46f5-852c-760a3407f623
+--   929 NW 59th St                         Seattle   BP  r=3  CX  95a02ae3-c174-4d0c-8fe1-299625f0a5f8
+--   9711 12th Ave NW                       Seattle   BP  r=3      285434c7-f6b2-42d3-af9a-4ec21298149a
+--   12238 4th Ave NW                       Seattle   BP  r=4      ec84ed95-4ef8-4c43-a176-78f902f11121
+--   233 31st Ave E                         Seattle   BP  r=4      86d28d67-843f-4a27-a6ba-578ea45b2774
+--   3117 W Dravus St                       Seattle   BP  r=4      524b8767-9783-4dfd-b48b-9b8500bfb1c9
+--   4000 SW Concord St                     Seattle   BP  r=4      ef664220-67db-4859-8268-5dd5d994e906
+--   4017 Corliss Ave N                     Seattle   BP  r=4      438ded16-dda9-4e27-97e3-c8ff71900d31
+--   4137 54th Ave SW                       Seattle   BP  r=4      9d948e7f-6281-4f07-8c55-78215640f681
+--   10719 Phinney Ave N                    Seattle   -   r=0      99143bf4-5bfa-41a3-a7f4-cabc36dfbd44
+--   10729 Sand Point Way NE                Seattle   -   r=0      f9182816-869c-4c19-b7b1-88bc1b4bfe00
+--   11240 Dayton Ave N                     Seattle   -   r=0      82f38c72-55bd-4743-bb07-224073bfbc90
+--   2043 N 78th St                         Seattle   -   r=0      0b0c492b-2a2e-4f9b-8f6b-11fd2edfec13
+--   220 N 58th St                          Seattle   -   r=0      efd573fa-78a1-40b6-a25b-2d8ce3fc987f
+--   2443 5th Ave W                         Seattle   -   r=0      f89fce48-4ef4-400d-a096-2e0612043201
+--   2724 Walnut Ave SW                     Seattle   -   r=0      5097d773-b0fc-4042-b2c6-b60233c5d20b
+--   3021 NW 62nd St                        Seattle   -   r=0      b6fde742-ae62-406f-9207-d262d9750c8e
+--   3046 NW 64th St                        Seattle   -   r=0      659923f3-fab6-45a5-815f-685b30bae0ad
+--   3225 27th Ave W                        Seattle   -   r=0      134f8c84-0051-4bf1-8523-d9b1a1eff6fd
+--   3241 44th Ave SW                       Seattle   -   r=0      f799385c-9e7a-40d4-8305-8bbd5954046b
+--   3522 Ashworth Ave N                    Seattle   -   r=0      ef984aca-7fec-414b-9cad-a5b02bdd08cc
+--   3670 Interlake Ave N                   Seattle   -   r=0      f56ed866-b6ef-43b4-b130-6887fcf68085
+--   370 Lynn St                            Seattle   -   r=0      4291cf54-29f4-461d-a003-6013421727de
+--   3821 36th Ave SW                       Seattle   -   r=0      73aed2f8-2aa9-4f31-9e5a-e654ff8bd1c1
+--   4120 49th Ave S                        Seattle   -   r=0      d5d6fc7e-9eba-4893-8512-1dfac0849e6a
+--   4136 44th Ave SW                       Seattle   -   r=0      096e62e8-59c4-4ad9-bd9f-b3ba074edbc3
+--   4147 44th Ave SW                       Seattle   -   r=0      372f1671-58fb-4043-b5bf-12ddd6e3ecea
+--   4222 Latona Ave NE                     Seattle   -   r=0      da94b0e6-a176-42f9-87b5-7870e24c4f88
+--   4903 Erskine Way SW                    Seattle   -   r=0      1417b69c-f51f-44ad-ba6f-722aaaeb7465
+--   5053 25th Ave SW                       Seattle   -   r=0      b09e6777-c681-4491-acd2-d5363d5694ac
+--   5537 35th Ave NE                       Seattle   -   r=0      df555b24-f915-4fcb-9c0f-024495242454
+--   5603 45th Ave SW                       Seattle   -   r=0      4cc7b571-4cbb-4133-a366-3b5b8f935764
+--   5606 46th Ave SW                       Seattle   -   r=0      6df194ea-442b-4eb0-bfd6-7e2d20fb150c
+--   621 Daley St                           Edmonds   -   r=0      19828015-7701-45e7-a2d5-baa20c3eb889
+--   725 N 92nd ST                          Seattle   -   r=0      be2123a1-64ea-4bcd-9a44-fbd6501c36e3
+--   7726 44th Ave NE                       Seattle   -   r=0      3c0f7b74-a148-4df4-a518-d64afa5c5b25
+--   10431 SE 19th St                       Bellevue  -   r=3      437ffa1a-42ad-4d22-aa77-b8b261991e2a
+--   1301 6th Ave N                         Seattle   -   r=3      b67da331-fc41-4692-ab64-e706b864949f
+--   13515 27th Ave NE                      Seattle   -   r=3      fe0af904-c4d5-49db-8d7f-83563f85aa75
+--   1524 Martin Luther King Jr Way         Seattle   -   r=3      5957d023-9092-4663-af42-647f2015baba
+--   1710 E Alder St                        Seattle   -   r=3      1f60d577-57e3-4cb1-a6e5-b4d1a0390b7b
+--   1953 10th Ave W                        Seattle   -   r=3      6db55ac4-44c5-4886-83a3-0673fc546865
+--   2039 N 78th St                         Seattle   -   r=3      c44f82f5-6286-4d9d-b7cf-bd62795f0ed1
+--   2627 25th Ave W                        Seattle   -   r=3      98f784cd-831d-4a96-b1a4-edf9ae5a0c2f
+--   2812 32nd Ave W                        Seattle   -   r=3      a4ac66fe-4d13-495e-a85f-d43310f5f159
+--   2822 NW 92nd St                        Seattle   -   r=3      2dfc1b08-d2ef-44a2-a536-35fd1063cabc
+--   338 NE 90th St                         Seattle   -   r=3      2a99825d-a80d-4c83-a8ab-60651ef2c851
+--   3505 Densmore Ave N                    Seattle   -   r=3      3fa454fc-007c-496a-bbe3-4dce5a61e891
+--   3623 SW Othello St                     Seattle   -   r=3      5b9f1f24-c036-4714-bece-3f69c6011370
+--   3921 43rd Ave S                        Seattle   -   r=3      cf2532e7-7cf4-4a36-b2c0-b297e54c11f2
+--   3931 SW Southern St                    Seattle   -   r=3      d0d04309-3a0a-4c99-93b4-8a6e45aedbea
+--   4060 E Via Estrella                    Phoenix   -   r=3      2393850e-2c2e-4510-9796-af32b7374081
+--   4115 SW Elmgrove St                    Seattle   -   r=3      e01d3785-c5dc-4abd-baea-6a2b6a33a76c
+--   4142 44th Ave SW                       Seattle   -   r=3      d2fc881c-08ab-4d31-ba92-9e301537988e
+--   510 N 92nd ST                          Seattle   -   r=3      2be21c61-4cdf-45dc-b58f-1a2166e2db44
+--   5107 S Hudson St                       Seattle   -   r=3      6e6094f1-d4fb-47e0-8519-d8c27b1d084a
+--   5623 44th Ave SW                       Seattle   -   r=3      3280e7e5-fb3d-4db6-8af4-cc64eafb0aea
+--   5627 44th Ave SW                       Seattle   -   r=3      08153ce7-2d89-4821-b3e6-cb865304801d
+--   5831 104th Ave NE                      Kirkland  -   r=3      05ca328c-f37c-46ae-9659-ec92691a5d11
+--   5917 41st Ave SW                       Seattle   -   r=3      9df6f346-5cff-4d7d-972d-99273f8b6b26
+--   5947 32nd Ave SW                       Seattle   -   r=3      ea11e4d1-c838-4aeb-af79-33f00b24cd76
+--   5951 32nd Ave SW                       Seattle   -   r=3      3ceef2fa-382b-4d54-adf7-2d11d5c7dfb9
+--   6340 4th Ave NE                        Seattle   -   r=3      635578ad-ea78-4ca3-adf0-673427971603
+--   6539 44th Ave SW                       Seattle   -   r=3      9a10208b-b61a-47de-b320-20eea3122e98
+--   6712 14th Ave NW                       Seattle   -   r=3      451c22ff-5f75-4ebd-8076-40e17a1e4c9b
+--   733 N 78th St                          Seattle   -   r=3      45bf5534-0063-4bb8-91d5-e760b81aa2d4
+--   7527 137th Ave NE                      Redmond   -   r=3      33f7994c-03e1-41f5-a1b2-9dee4c80e1bb
+--   7938 34th Ave SW                       Seattle   -   r=3      fb2cac73-0806-412a-a15b-f7b3898f6dcc
+--   8037 Wallingford Ave N                 Seattle   -   r=3      bf72bf15-43d2-4721-a15e-45eb207e819d
+--   8816 38th Ave SW                       Seattle   -   r=3      f4966660-903e-41dd-a024-48fc2c4851a1
+--   8844 10th Ave SW                       Seattle   -   r=3      b2d08d0d-61ac-4980-80f3-785208f4c615
+--   1515 Martin Luther King Jr Way         Seattle   -   r=4      7107edfa-6a26-4ba0-b0a6-2f19d0b5032c
+--
+-- ---------------------------------------------------------------------------
+-- THE STATEMENTS — all commented out. Uncomment ONE option.
+-- ---------------------------------------------------------------------------
+--
+-- Each re-derives its population from the same predicate rather than pasting
+-- the ids above, so a project that has gained a correction between this
+-- measurement and the run drops out on its own. The listing is what to read;
+-- these are what to run.
+--
+-- BEGIN;
+--
+-- -- OPTION 1 — CR 1 only, every project in the population (87, minus any
+-- -- cancelled). bp_ensure_cr_thread is idempotent and returns rows written.
+-- -- SELECT sum(public.bp_ensure_cr_thread(pr.id, 1)) AS threads_written
+-- --   FROM public.projects pr
+-- --  WHERE EXISTS (SELECT 1 FROM public.permits p
+-- --                 WHERE p.project_id = pr.id AND p.actual_issue IS NULL
+-- --                   AND NOT EXISTS (SELECT 1 FROM public.permit_cycles c
+-- --                                    WHERE c.permit_id = p.id AND c.corr_issued IS NOT NULL))
+-- --    AND NOT EXISTS (SELECT 1 FROM public.project_holds h
+-- --                     WHERE h.project_id = pr.id AND h.kind = 'cancelled');
+--
+-- -- OPTION 2 — CR 1 only, and only where a live BUILDING PERMIT is waiting on
+-- -- its first correction (24, minus any cancelled). Bobby's literal wording.
+-- -- SELECT sum(public.bp_ensure_cr_thread(pr.id, 1)) AS threads_written
+-- --   FROM public.projects pr
+-- --  WHERE EXISTS (SELECT 1 FROM public.permits p
+-- --                 WHERE p.project_id = pr.id AND p.actual_issue IS NULL
+-- --                   AND p.type = 'Building Permit'
+-- --                   AND NOT EXISTS (SELECT 1 FROM public.permit_cycles c
+-- --                                    WHERE c.permit_id = p.id AND c.corr_issued IS NOT NULL))
+-- --    AND NOT EXISTS (SELECT 1 FROM public.project_holds h
+-- --                     WHERE h.project_id = pr.id AND h.kind = 'cancelled');
+--
+-- -- OPTION 3 (recommended) — the full template on every project in the
+-- -- population, which also repairs the 27 that have no threads at all.
+-- -- Idempotent: it writes only what is missing.
+-- -- SELECT sum(public.bp_seed_project_posts(pr.id)) AS threads_written
+-- --   FROM public.projects pr
+-- --  WHERE EXISTS (SELECT 1 FROM public.permits p
+-- --                 WHERE p.project_id = pr.id AND p.actual_issue IS NULL
+-- --                   AND NOT EXISTS (SELECT 1 FROM public.permit_cycles c
+-- --                                    WHERE c.permit_id = p.id AND c.corr_issued IS NOT NULL))
+-- --    AND NOT EXISTS (SELECT 1 FROM public.project_holds h
+-- --                     WHERE h.project_id = pr.id AND h.kind = 'cancelled');
+--
+-- COMMIT;
+--
+-- ★ Both functions run as SECURITY DEFINER and set author_id themselves —
+-- bp_seed_project_posts stamps auth.uid(), so whoever runs this becomes the
+-- author of the repaired seed threads, while bp_ensure_cr_thread always writes
+-- NULL. If the backfill should carry no byline at all, run it as a role with
+-- no auth.uid() (the MCP/service connection has none) and every row lands with
+-- author NULL, which is the honest value for a bulk repair nobody authored.
+-- ===========================================================================
