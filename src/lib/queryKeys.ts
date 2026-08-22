@@ -118,6 +118,11 @@ export const queryKeys = {
     ['message_reactions', tenantId, projectId] as const,
   mentionTags: (tenantId: string) => ['mention_tags', tenantId] as const,
   daTimeBlocks: (tenantId: string) => ['da_time_blocks', tenantId] as const,
+  /** ★ fix-384: the blocks LINKED to one project, for its overview card. A
+   *  separate key from the grid's full list so invalidating one does not
+   *  refetch the other; both are invalidated on a block write. */
+  projectTimeBlocks: (tenantId: string, projectId: string) =>
+    ['da_time_blocks', tenantId, 'project', projectId] as const,
   // Q7.3.a — admin catalogs. Jurisdictions + permit_types are global (no
   // tenant_id) but we still parameterize by tenantId so cache entries scope
   // cleanly. app_config IS tenant-scoped.

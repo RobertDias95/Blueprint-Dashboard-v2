@@ -18,7 +18,7 @@ export function useDaTimeBlocks() {
       const { data, error } = await supabase
         .from('da_time_blocks')
         .select(
-          'id, da_name, type, label, start_week, end_week, created_at, updated_at',
+          'id, da_name, type, label, start_week, end_week, created_at, updated_at, project_id',
         )
         .order('da_name', { ascending: true })
         .order('start_week', { ascending: true });

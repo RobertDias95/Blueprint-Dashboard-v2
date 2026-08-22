@@ -1,5 +1,8 @@
 import { useState } from 'react';
 import type { DaTimeBlock } from '../lib/database.types';
+import ProjectLinkPicker, {
+  type ProjectLinkOption,
+} from './shared/ProjectLinkPicker';
 
 // Q6.2.f: popover for adding or editing an NP block on the Draw
 // Schedule grid. Two modes:
@@ -14,23 +17,31 @@ import type { DaTimeBlock } from '../lib/database.types';
 
 const TYPES = ['Vacation', 'Training', 'Redesign', 'Corrections', 'Other'] as const;
 
+// ★★ fix-384: both callbacks gained `projectId`. It is the LAST argument and
+// nullable, because the link is optional and never gates a save — a Vacation
+// block passes null and behaves exactly as it did before this ticket.
 interface AddProps {
   mode: 'add';
   daName: string;
   weekKey: string;
-  onAdd: (type: string, label: string) => void;
+  onAdd: (type: string, label: string, projectId: string | null) => void;
   onClose: () => void;
 }
 
 interface EditProps {
   mode: 'edit';
   block: DaTimeBlock;
-  onUpdate: (type: string, label: string) => void;
+  onUpdate: (type: string, label: string, projectId: string | null) => void;
   onRemove: () => void;
   onClose: () => void;
 }
 
-export type Props = AddProps | EditProps;
+// ★★ fix-384: the linkable projects, handed in by the grid. Defaults to none,
+// so this stays a pure presentational popover with no data dependency — which
+// is what keeps it renderable in a test without a QueryClientProvider.
+type ProjectOptionsProp = { projectOptions?: ProjectLinkOption[] };
+
+export type Props = (AddProps | EditProps) & ProjectOptionsProp;
 
 export default function NpBlockEditPopup(props: Props) {
   const initialType = props.mode === 'edit' ? props.block.type : 'Vacation';
@@ -41,13 +52,17 @@ export default function NpBlockEditPopup(props: Props) {
 
   const [selectedType, setSelectedType] = useState(initialType);
   const [label, setLabel] = useState(initialLabel);
+  // ★★ fix-384: the optional project link, seeded from the block being edited.
+  const [projectId, setProjectId] = useState<string | null>(
+    props.mode === 'edit' ? (props.block.project_id ?? null) : null,
+  );
 
   function commit() {
     const finalLabel = label.trim();
     if (props.mode === 'add') {
-      props.onAdd(selectedType, finalLabel);
+      props.onAdd(selectedType, finalLabel, projectId);
     } else {
-      props.onUpdate(selectedType, finalLabel);
+      props.onUpdate(selectedType, finalLabel, projectId);
     }
     props.onClose();
   }
@@ -64,7 +79,7 @@ export default function NpBlockEditPopup(props: Props) {
 
   return (
     <div
-      className="bg-surface border border-border rounded-lg shadow-xl p-2.5 flex flex-col gap-1.5 min-w-[200px]"
+      className="bg-surface border border-border rounded-lg shadow-xl p-2.5 flex flex-col gap-1.5 min-w-[230px]"
       data-testid="np-edit-popup"
     >
       <div className="text-[9px] uppercase tracking-wide text-dim font-display font-bold pb-1.5 border-b border-border">
@@ -89,6 +104,22 @@ export default function NpBlockEditPopup(props: Props) {
           </button>
         );
       })}
+
+      {/* ★★★ fix-384 — the project link.
+          ★★ It sits BELOW the type list and is never gated on which type is
+          selected. The useful cases (Other, Corrections, Redesign) are not a
+          closed set, and three of the four blocks that already name a project
+          in their label are typed "Vacation" — gating on type would have made
+          exactly those un-linkable without retyping them first.
+          ★ It is also never REQUIRED: most blocks are somebody's time off and
+          have no project at all. */}
+      <div className="border-t border-border pt-1.5 mt-1">
+        <ProjectLinkPicker
+          options={props.projectOptions ?? []}
+          value={projectId}
+          onChange={setProjectId}
+        />
+      </div>
 
       <div className="border-t border-border pt-1.5 mt-1 flex gap-1">
         <input

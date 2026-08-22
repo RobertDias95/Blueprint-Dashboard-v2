@@ -17,7 +17,10 @@ type EditableField =
   | 'type'
   | 'label'
   | 'start_week'
-  | 'end_week';
+  | 'end_week'
+  // ★★ fix-384: the optional project link. Editable like any other field, and
+  // explicitly CLEARABLE — sending null is how the picker unlinks a block.
+  | 'project_id';
 export type DaTimeBlockPatch = Partial<Pick<DaTimeBlock, EditableField>>;
 
 export type UpsertDaTimeBlockInput =
@@ -50,6 +53,9 @@ function buildPayload(
     label: merged.label ?? null,
     start_week: merged.start_week ?? '',
     end_week: merged.end_week ?? '',
+    // ★★ fix-384: always sent, so an absent link is an explicit NULL rather
+    // than "leave whatever was there" — that is what makes unlinking work.
+    project_id: merged.project_id ?? null,
   };
 }
 
@@ -83,6 +89,7 @@ export function useUpsertDaTimeBlock() {
         end_week: payload.end_week as string,
         created_at: isInsert ? row.updated_at : (input.block.created_at ?? null),
         updated_at: row.updated_at,
+        project_id: payload.project_id as string | null,
       };
     },
     onSuccess: () => {
