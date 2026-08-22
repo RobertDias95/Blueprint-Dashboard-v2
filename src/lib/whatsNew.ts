@@ -40,6 +40,37 @@ export interface WhatsNewEntry {
   body: string;
   sort_order: number;
   updated_at?: string | null;
+  /**
+   * ★★★ fix-387: an APP-RELATIVE path to the thing this entry announces, or
+   * null when it describes a behaviour with no single destination. Rendered as
+   * "Open it →" and navigated with react-router, never as a bare href.
+   */
+  go_href?: string | null;
+  /**
+   * ★★ fix-387: the steps, behind a "Show me how" expander. Plain multiline
+   * text rendered with `whitespace-pre-line` — the same treatment `body`
+   * already gets. Deliberately NOT markdown: three sentences do not need a
+   * renderer, and a renderer is a dependency plus an injection surface.
+   */
+  how_to?: string | null;
+}
+
+/**
+ * ★★★ fix-387 — IS THIS AN IN-APP PATH? The client half of the database CHECK,
+ * and the two must agree.
+ *
+ * ★★★ "STARTS WITH A SLASH" IS NOT THE RULE, and the gap is the whole point:
+ * `//evil.com` starts with a slash and is a PROTOCOL-RELATIVE URL — a browser
+ * given it goes to https://evil.com. `/\evil.com` is the same trick with a
+ * backslash some browsers fold into a slash. So the rule is ONE leading slash
+ * and no backslash anywhere.
+ *
+ * ★ The page navigates with react-router's `navigate()`, which cannot leave the
+ * origin whatever the string says, so this is the second lock rather than the
+ * only one. It exists so the admin editor can say no BEFORE the database does.
+ */
+export function isAppPath(href: string): boolean {
+  return /^\/($|[^/\\])/.test(href) && !href.includes('\\');
 }
 
 /** ★ Newest first, then by the within-day tie-break, then by title so the order
@@ -116,7 +147,12 @@ export function formatDay(iso: string): string {
  *  every seeded entry passes this; the admin editor warns on it as you type.
  *
  *  ★ It is a WARNING in the UI and an ASSERTION in the tests, deliberately —
- *  refusing to save would be a tool arguing with the person writing the words. */
+ *  refusing to save would be a tool arguing with the person writing the words.
+ *
+ *  ★★ fix-387: it lints the HOW-TO too. A how-to is the place most likely to
+ *  slip into ticket-speak, because whoever writes it has just finished the
+ *  ticket — "as of fix-385 §2, the tab is addressable" at a design associate is
+ *  precisely the failure this predicate exists to catch. */
 export function readsLikeATicket(text: string): boolean {
   return /\bfix-\d{2,}\b/i.test(text) || /\B#\d{2,}\b/.test(text);
 }

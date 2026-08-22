@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useIsTenantAdmin } from '../hooks/useIsTenantAdmin';
 import {
   useDeleteWhatsNewEntry,
@@ -13,6 +14,7 @@ import {
   WHATS_NEW_KINDS,
   formatDay,
   groupByDay,
+  isAppPath,
   readsLikeATicket,
   type WhatsNewEntry,
   type WhatsNewKind,
@@ -208,6 +210,35 @@ export default function WhatsNew() {
   );
 }
 
+/**
+ * ★★★ fix-387 — AN ENTRY THAT TEACHES.
+ *
+ * Two optional affordances, and neither one interrupts:
+ *
+ *   "Open it →"     navigates CLIENT-SIDE to the feature. fix-385 just made the
+ *                   board tabs addressable, so /board?tab=notifications is
+ *                   exactly the sort of value this holds.
+ *   "Show me how"   expands the steps in place, COLLAPSED BY DEFAULT, one entry
+ *                   at a time, panel state only — nothing is stored and nothing
+ *                   is remembered.
+ *
+ * ★★ fix-350's rules still bind: no modal, no forced tour, no interruption.
+ * Teaching is something the reader OPENS, never something that opens itself.
+ * An entry with neither column renders exactly as it did before this ticket,
+ * which is the case all 23 existing rows are in.
+ *
+ * ★★★ NEITHER ACTION TOUCHES READ STATE, AND THAT IS NOT AN OMISSION.
+ * fix-350 marks every entry that was unread ON ARRIVAL as read when the page
+ * UNMOUNTS — "you have read it when you have had it open". So:
+ *   · clicking "Open it →" navigates away, which unmounts the page, which marks
+ *     it read through the existing mechanism. It already works; adding anything
+ *     here would be a second write racing the first.
+ *   · expanding the how-to marks nothing on its own, and must not: it would be
+ *     a SECOND read-marking rule clearing one entry while its neighbours wait
+ *     for unmount, so two entries you read identically would end up in
+ *     different states. It gets marked on the way out like everything else.
+ * One mechanism, unchanged.
+ */
 function EntryRow({
   entry,
   unread,
@@ -220,6 +251,13 @@ function EntryRow({
   onEdit: () => void;
 }) {
   const del = useDeleteWhatsNewEntry();
+  const navigate = useNavigate();
+  const [showHow, setShowHow] = useState(false);
+  const href = entry.go_href?.trim() || '';
+  // ★ Belt to the CHECK's braces: a value that somehow reached the client
+  // without passing the constraint still does not render a link.
+  const canGo = href !== '' && isAppPath(href);
+  const how = entry.how_to?.trim() || '';
   return (
     <div
       className={`px-3.5 py-2.5 border-b border-border/50 transition ${
@@ -263,6 +301,50 @@ function EntryRow({
       <div className="text-[11px] text-muted mt-1 leading-relaxed whitespace-pre-line">
         {entry.body}
       </div>
+
+      {(canGo || how !== '') && (
+        <div className="flex items-center gap-3 mt-1.5">
+          {canGo && (
+            <button
+              type="button"
+              // ★★ navigate(), not an <a href>. react-router keeps it in the
+              // app — no reload, no chance of leaving the origin whatever the
+              // string says.
+              onClick={() => navigate(href)}
+              className="text-[10.5px] font-bold text-de hover:underline bg-transparent border-none p-0"
+              data-testid={`whats-new-go-${entry.id}`}
+              data-href={href}
+            >
+              Open it →
+            </button>
+          )}
+          {how !== '' && (
+            <button
+              type="button"
+              onClick={() => setShowHow((v) => !v)}
+              aria-expanded={showHow}
+              aria-controls={`whats-new-how-${entry.id}`}
+              className="text-[10.5px] text-muted hover:text-text bg-transparent border-none p-0"
+              data-testid={`whats-new-how-toggle-${entry.id}`}
+            >
+              {showHow ? 'Hide' : 'Show me how'}
+            </button>
+          )}
+        </div>
+      )}
+
+      {how !== '' && showHow && (
+        <div
+          id={`whats-new-how-${entry.id}`}
+          // ★ whitespace-pre-line, the same treatment `body` gets. Line breaks
+          // are the only formatting a three-sentence how-to needs, and no
+          // markdown renderer was added to provide them.
+          className="text-[11px] text-text mt-1.5 leading-relaxed whitespace-pre-line border-l-2 border-border pl-2.5"
+          data-testid={`whats-new-how-${entry.id}`}
+        >
+          {how}
+        </div>
+      )}
     </div>
   );
 }
@@ -293,6 +375,11 @@ function EntryEditor({
     title: entry?.title ?? '',
     body: entry?.body ?? '',
     sort_order: entry?.sort_order ?? 0,
+    // ★★ fix-387: '' is the editor's representation of "not set". The hook
+    // turns a blank back into NULL on save, so clearing a field really removes
+    // it rather than storing an empty string.
+    go_href: entry?.go_href ?? '',
+    how_to: entry?.how_to ?? '',
   }));
   const set = <K extends keyof WhatsNewDraft>(k: K, v: WhatsNewDraft[K]) =>
     setDraft((d) => ({ ...d, [k]: v }));
@@ -301,8 +388,18 @@ function EntryEditor({
   // entry that says "fix-347" teaches people this page is not for them. But a
   // tool that refuses to save is a tool arguing with the person writing the
   // words — so it says so and gets out of the way.
-  const ticketish = readsLikeATicket(`${draft.title} ${draft.body}`);
-  const canSave = draft.title.trim() !== '' && draft.body.trim() !== '';
+  // ★★ fix-387: the how-to is linted too. It is the field MOST likely to slip
+  // into ticket-speak, because whoever writes it has just finished the ticket.
+  const ticketish = readsLikeATicket(
+    `${draft.title} ${draft.body} ${draft.how_to ?? ''}`,
+  );
+  // ★★★ fix-387: the client half of the database CHECK, so the editor says no
+  // before the database does. "Starts with /" is NOT the rule — //evil.com
+  // starts with a slash and is a protocol-relative URL. See isAppPath.
+  const hrefDraft = (draft.go_href ?? '').trim();
+  const hrefBad = hrefDraft !== '' && !isAppPath(hrefDraft);
+  const canSave =
+    draft.title.trim() !== '' && draft.body.trim() !== '' && !hrefBad;
 
   return (
     <div
@@ -348,6 +445,35 @@ function EntryEditor({
         className="w-full px-2 py-1 text-[11px] border border-border rounded bg-bg text-text outline-none focus:border-de resize-y"
         data-testid="whats-new-editor-body"
         aria-label="Body"
+      />
+      {/* ★★★ fix-387 — the two teaching fields, both OPTIONAL. An entry that
+          announces a behaviour with no single destination leaves the path
+          blank, and an entry that needs no steps leaves the how-to blank; that
+          is the shape all 23 existing entries are in. */}
+      <input
+        value={draft.go_href ?? ''}
+        onChange={(e) => set('go_href', e.target.value)}
+        placeholder="Where is it? An app path like /board?tab=notifications (optional)"
+        className={`w-full mt-1.5 px-2 py-1 text-[11px] border rounded bg-bg text-text outline-none ${
+          hrefBad ? 'border-co' : 'border-border focus:border-de'
+        }`}
+        data-testid="whats-new-editor-go-href"
+        aria-label="Link to the feature"
+      />
+      {hrefBad && (
+        <div className="text-[10px] text-co mt-1" data-testid="whats-new-editor-href-error">
+          Must be a path inside the app — one leading slash, no backslashes.
+          &ldquo;//example.com&rdquo; looks like a path but leaves the site.
+        </div>
+      )}
+      <textarea
+        value={draft.how_to ?? ''}
+        onChange={(e) => set('how_to', e.target.value)}
+        rows={3}
+        placeholder="How do you use it? One step per line (optional). Shown behind “Show me how”."
+        className="w-full mt-1.5 px-2 py-1 text-[11px] border border-border rounded bg-bg text-text outline-none focus:border-de resize-y"
+        data-testid="whats-new-editor-how-to"
+        aria-label="How to use it"
       />
       {ticketish && (
         <div className="text-[10px] text-wa mt-1" data-testid="whats-new-editor-warning">
