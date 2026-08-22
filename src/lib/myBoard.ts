@@ -13,6 +13,10 @@ import type {
 // what makes "edit it here, see it there" true rather than aspirational.
 export type BoardTask = MyTaskNode;
 import { isPermitInCorrections } from './permitStage';
+// ★★ fix-388: both halves of "the city has answered" — the terminal-negative
+// set completes permitTerminalStatus.ts rather than rivalling it.
+import { isTerminalNegativeStatus } from './permitTerminalStatus';
+import { statusImpliesSubmitted } from './statusImpliesSubmitted';
 import { isSubPermit } from './subPermit';
 import {
   daQueueAllows,
@@ -669,6 +673,27 @@ function milestoneAppliesIgnoringHistory(
 ): boolean {
   const issued = !!permit.actual_issue;
   const approved = !!permit.approval_date;
+
+  // ★★★ fix-388 §2: A WITHDRAWN PERMIT RAISES NOTHING, OF ANY KIND.
+  // Not fees, not corrections, not reviewer_silent. It is not late; it is
+  // dead — nothing is expected of anybody, so nothing should be prompted.
+  // Checked before the switch because it is the one answer that does not vary
+  // by kind. See permitTerminalStatus.ts for why 'Closed' is NOT here: closed
+  // is finished, not abandoned, and lives in the terminal-POSITIVE set.
+  if (isTerminalNegativeStatus(permit.status)) return false;
+
+  // ★★★ fix-388 §1: THE CITY'S OWN ANSWER TO "HAS THE SET GONE IN?".
+  //
+  // everSubmitted() reads permit_cycles.submitted, which the scraper fills for
+  // building permits and NEVER fills for land use — so on a ULS it is false
+  // forever and the two pre-submission chips fire until approval. The answer
+  // was already written, into permits.status; this reads it.
+  //
+  // ★★ It only ever ADDS a reason to stop asking. A status not in the set
+  // leaves everSubmitted as the whole answer, which is why the 29 live
+  // "Pre-Submittal — GO" chips are untouched by this.
+  const submitted = everSubmitted(cycles) || statusImpliesSubmitted(permit.status);
+
   switch (kind) {
     case 'corrections':
       return isPermitInCorrections(permit, [...cycles]);
@@ -677,9 +702,15 @@ function milestoneAppliesIgnoringHistory(
     case 'reviewer_silent':
       return !approved && !issued;
     case 'target_submit':
-      return !!permit.target_submit && !everSubmitted(cycles) && !approved && !issued;
+      return !!permit.target_submit && !submitted && !approved && !issued;
     case 'draw':
-      return !!permit.dd_end && !everSubmitted(cycles) && !approved && !issued;
+      return !!permit.dd_end && !submitted && !approved && !issued;
+    // ★★ fix-388: intake deliberately keeps `everIntakeAccepted` and is NOT
+    // wired to status. Its question is "has the city ACCEPTED intake", which is
+    // a specific event; nothing in the prod status vocabulary proves it.
+    // 'Ready for Intake' is the state BEFORE it, and every status that comes
+    // after intake also comes after a dozen other things — inferring a precise
+    // event from a coarse one is how a true prompt gets killed silently.
     case 'intake':
       return (
         !!permit.intake_date && !everIntakeAccepted(cycles) && !approved && !issued

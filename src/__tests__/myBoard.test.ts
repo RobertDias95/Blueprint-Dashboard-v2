@@ -394,7 +394,12 @@ describe('fix-308: ★ Fisk — a DA with no NAMED tasks still gets a populated 
       da: 'Fisk',
       ent_lead: 'Miles',
       target_submit: '2026-03-26',
-      status: 'Corrections Required',
+      // ★ fix-388: was 'Corrections Required', which with submitted:null is the
+      // exact contradiction fix-388 exists to stop raising — the city cannot
+      // issue corrections on a set it never received. The point of this suite
+      // is that Fisk's board is POPULATED by permit milestones, so the fixture
+      // now carries a status that genuinely raises one.
+      status: 'Pre-Submittal — GO',
       permit_cycles: [
         {
           id: `c${i}`,
