@@ -5,7 +5,11 @@ import { useProjects } from '../hooks/useProjects';
 // fix-303: the SAME task source My Tasks uses, so the board is not a lesser
 // copy — one shape, one editor, one write path.
 import { useAllTasks } from '../hooks/useTaskTree';
-import { useAllProjectHolds, cancelledProjectIds } from '../hooks/useProjectHolds';
+import {
+  cancelledProjectIds,
+  useAllProjectHolds,
+} from '../hooks/useProjectHolds';
+import { useAllPermitHolds } from '../hooks/usePermitHolds';
 // ★ fix-348: the same ownership resolver My Board injects, so the dropdown's
 // "where you stand" counts and the board's own sections cannot disagree.
 import { useTaskOwnership } from '../hooks/useTaskOwnership';
@@ -62,6 +66,8 @@ export default function BoardBell() {
   const projectsQ = useProjects();
   const tasksQ = useAllTasks();
   const holdsQ = useAllProjectHolds();
+  // ★ fix-390: the permit-scoped siblings, one bulk fetch like its sibling.
+  const permitHoldsQ = useAllPermitHolds();
   const markRead = useMarkBoardItemsRead();
   const taskOwnership = useTaskOwnership();
   const resolveRequest = useResolvePostRequest();
@@ -78,6 +84,12 @@ export default function BoardBell() {
       tasks: tasksQ.data ?? [],
       today: todayIso(),
       cancelledIds: cancelledProjectIds(holdsQ.data),
+      // ★★ fix-390: which projects and which permits are paused. The board
+      // silences a held permit's milestone chips — reversibly, and without
+      // writing an ack. Project holds cover their permits; a permit hold covers
+      // ONLY its permit and never rolls up.
+      holdRows: holdsQ.data ?? [],
+      permitHoldRows: permitHoldsQ.data ?? [],
       taskOwns: taskOwnership.matches,
     }),
     [
@@ -86,6 +98,7 @@ export default function BoardBell() {
       projectsQ.data,
       tasksQ.data,
       holdsQ.data,
+      permitHoldsQ.data,
       taskOwnership.matches,
     ],
   );

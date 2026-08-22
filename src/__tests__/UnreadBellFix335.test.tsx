@@ -58,6 +58,19 @@ vi.mock('../hooks/useProjectHolds', () => ({
   useAllProjectHolds: () => ({ data: [] }),
   cancelledProjectIds: () => new Set<string>(),
 }));
+// ★ fix-390: the board now also reads permit-scoped holds. Mocked inert here,
+// exactly as its project-scoped sibling above is — these suites render the
+// board without a QueryClientProvider by design, and an unheld book is the
+// state every assertion below was written against.
+vi.mock('../hooks/usePermitHolds', () => ({
+  useAllPermitHolds: () => ({ data: [] }),
+  usePermitHolds: () => ({ data: [] }),
+  activeHoldPermitIds: () => new Set<number>(),
+  activeHoldByPermitId: () => new Map(),
+  activePermitHold: () => null,
+  useSetPermitHold: () => ({ mutate: vi.fn(), isPending: false }),
+  useLiftPermitHold: () => ({ mutate: vi.fn(), isPending: false }),
+}));
 vi.mock('../hooks/useScraperActivity', () => ({
   useScraperActivity: () => ({ data: [] }),
   // ★ fix-370: the model reads a second, uncapped aggregate for the TRUE

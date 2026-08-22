@@ -11,6 +11,7 @@ import type {
   Permit,
   PermitCycle,
   PermitCycleReviewer,
+  PermitHold,
   ProjectHold,
   Stage,
 } from '../../lib/database.types';
@@ -42,6 +43,16 @@ interface AddrGroupProps {
   cardUrgency?: UrgencyLevel;
   /** fix-170: project has an ACTIVE hold → per-row urgency colors suppressed. */
   activeHold?: boolean;
+  /**
+   * ★★ fix-390: permit ids on their OWN open hold, and the rows behind them.
+   *
+   * A project hold already arrives as `activeHold` and covers every permit
+   * here. These add the permit-scoped half: a held permit goes 'ok' and wears
+   * its own badge while its siblings carry on. They never combine upward — the
+   * card's own urgency is untouched by one permit's hold.
+   */
+  heldPermitIds?: ReadonlySet<number>;
+  permitHoldMap?: ReadonlyMap<number, PermitHold>;
   /** fix-178: the project's active hold (for the on-hold card badge), or null. */
   hold?: Pick<ProjectHold, 'reason' | 'hold_start' | 'note'> | null;
   keyDateLabel: string;
@@ -111,6 +122,8 @@ export default function AddrGroup({
   cyclesByPermit,
   reviewersByPermit,
   activeHold = false,
+  heldPermitIds,
+  permitHoldMap,
   hold = null,
   keyDateLabel,
   getKeyDate,
@@ -366,13 +379,17 @@ export default function AddrGroup({
           style={{ gap: 4, paddingLeft: 16 }}
         >
           {permits.map((p) => {
+            // ★★ fix-390: held EITHER way — by this permit's own hold or by its
+            // project's. Reading downward only; a permit hold never reaches up.
+            const permitHeld = !!heldPermitIds?.has(p.id);
             const u = permitUrgency(
               p,
               cyclesByPermit.get(p.id) ?? [],
               stage,
               undefined,
-              activeHold,
+              activeHold || permitHeld,
             );
+            const ownHold = permitHoldMap?.get(p.id) ?? null;
             return (
               <span
                 key={p.id}
@@ -399,6 +416,12 @@ export default function AddrGroup({
                 }}
               >
                 {pillLabel(p)}
+                {/* ★ The permit's OWN hold only — the project's badge is
+                    already on the row above, and repeating it here would make a
+                    project hold look like a permit one. */}
+                {ownHold && (
+                  <HoldBadge hold={ownHold} testid={`permit-hold-pill-${p.id}`} />
+                )}
                 {getKeyDate(p) && (
                   <span
                     className="text-dim"

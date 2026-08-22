@@ -17,6 +17,11 @@ import {
   cancelByProjectId,
   cancelledProjectIds,
 } from '../hooks/useProjectHolds';
+import {
+  useAllPermitHolds,
+  activeHoldPermitIds,
+  activeHoldByPermitId,
+} from '../hooks/usePermitHolds';
 import { isCancelledProject } from '../lib/projectViewHelpers';
 import { structAddressHaystack } from '../lib/structAddressSearch';
 import HoldFilter from '../components/shared/HoldFilter';
@@ -32,6 +37,7 @@ import type {
   PermitCycleReviewer,
   Project,
   ProjectHold,
+  PermitHold,
   Stage,
 } from '../lib/database.types';
 import AddrGroup from '../components/Dashboard/AddrGroup';
@@ -97,6 +103,9 @@ interface DashContext {
    * ever receives its OWN bucket's permits and so could never derive this.
    */
   distributionByAddress: Map<string, StageCount[]>;
+  /** ★★ fix-390: permit ids on an open hold, and their rows for the badge. */
+  heldPermitIds: ReadonlySet<number>;
+  permitHoldMap: Map<number, PermitHold>;
   setHighlight: (addr: string | null) => void;
   /** fix-178: project_id → active hold, for the on-hold card badge. */
   activeHoldMap: Map<string, ProjectHold>;
@@ -146,6 +155,18 @@ export default function Dashboard() {
   const activeHoldMap = useMemo(
     () => activeHoldByProjectId(holdsQ.data),
     [holdsQ.data],
+  );
+  // ★★ fix-390: permit-scoped holds. A held PERMIT is 'ok' on the pill row and
+  // carries its own badge; it does NOT quiet its siblings and does NOT make the
+  // project look held — the one-way rule.
+  const permitHoldsQ = useAllPermitHolds();
+  const heldPermitIds = useMemo(
+    () => activeHoldPermitIds(permitHoldsQ.data),
+    [permitHoldsQ.data],
+  );
+  const permitHoldMap = useMemo(
+    () => activeHoldByPermitId(permitHoldsQ.data),
+    [permitHoldsQ.data],
   );
   // fix-155: fire the numberless-permit sweep once/day (self-guarded).
   useNumberEntrySweep();
@@ -423,6 +444,8 @@ export default function Dashboard() {
       revealAddress,
       revealTarget,
       distributionByAddress,
+      heldPermitIds,
+      permitHoldMap,
       setHighlight: setHighlightedAddress,
       activeHoldMap,
       cancelMap,
@@ -434,6 +457,8 @@ export default function Dashboard() {
       revealAddress,
       revealTarget,
       distributionByAddress,
+      heldPermitIds,
+      permitHoldMap,
       activeHoldMap,
       cancelMap,
     ],
@@ -1150,6 +1175,8 @@ function SubBucketGroups({
           reviewersByPermit={reviewersByPermit}
           cardUrgency={g.urgency}
           activeHold={activeHeld.has(g.projectId)}
+          heldPermitIds={ctx.heldPermitIds}
+          permitHoldMap={ctx.permitHoldMap}
           hold={
             ctx.cancelMap.get(g.projectId) ??
             ctx.activeHoldMap.get(g.projectId) ??

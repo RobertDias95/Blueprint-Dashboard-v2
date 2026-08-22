@@ -27,6 +27,7 @@ import {
 } from './boardOwnership';
 import { isTaskLive } from './taskStatus';
 import { isCancelledProject } from './projectViewHelpers';
+import { isPermitHeld } from './permitHoldWindows';
 // ★ fix-348: the board asks "is this task mine?" the way My Tasks does.
 import { taskMatchesSelfResolved } from './selfScope';
 
@@ -627,6 +628,10 @@ export function historicSuppressedKinds(
   cycles: ReadonlyArray<PermitCycle> = permit.permit_cycles ?? [],
   isBackfill: boolean | null | undefined = null,
 ): MilestoneKind[] {
+  // ★★ fix-390: a HELD permit contributes nothing to this count, deliberately.
+  // The count means "would apply but for HISTORY" (fix-378). A chip closed by a
+  // hold is closed by STATE — like approval, like fix-388's status — so folding
+  // it in here would change what the number means.
   return HISTORIC_SUPPRESSIBLE_KINDS.filter(
     (k) =>
       // ★ fix-386: the SAME gate milestoneApplies uses, so a flag-suppressed
@@ -670,9 +675,33 @@ function milestoneAppliesIgnoringHistory(
   kind: MilestoneKind,
   permit: PermitWithCycles,
   cycles: ReadonlyArray<PermitCycle> = permit.permit_cycles ?? [],
+  // ★ fix-390: defaults false, so every caller that does not know about holds
+  // keeps exactly its pre-fix-390 behaviour.
+  isHeld = false,
 ): boolean {
   const issued = !!permit.actual_issue;
   const approved = !!permit.approval_date;
+
+  // ★★★ fix-390: A HELD PERMIT RAISES NOTHING WHILE IT IS HELD.
+  //
+  // Somebody said "this is deliberately paused". Nagging about a pause is the
+  // fix-388 bug in a new coat — a prompt nobody can act on, for a reason the
+  // system already knows.
+  //
+  // ★★ THIS IS THE FOURTH INDEPENDENT REASON a chip does not raise, alongside
+  // fix-378's history gate, fix-386's backfill flag and fix-388's status. They
+  // COMPOSE — each is its own early answer, none is threaded through another —
+  // which is why this is a plain guard and not a new clause inside one of them.
+  //
+  // ★ REVERSIBLE BY CONSTRUCTION. Nothing is written and no ack is recorded
+  // (fix-337's lesson: the fix is the derivation). Release the hold and every
+  // chip returns on the next render, because the hold was the only reason they
+  // were quiet.
+  //
+  // ★★ `isHeld` is TRUE for a permit held by its own hold OR by its project's
+  // (see holdWindowsForPermit's note on direction). It never flows the other
+  // way: a held permit does not make its project held.
+  if (isHeld) return false;
 
   // ★★★ fix-388 §2: A WITHDRAWN PERMIT RAISES NOTHING, OF ANY KIND.
   // Not fees, not corrections, not reviewer_silent. It is not late; it is
@@ -730,9 +759,12 @@ export function milestoneApplies(
   permit: PermitWithCycles,
   cycles: ReadonlyArray<PermitCycle> = permit.permit_cycles ?? [],
   isBackfill: boolean | null | undefined = null,
+  // ★ fix-390: the fourth reason. Additive and optional, like isBackfill before
+  // it — fix-337's promise that a future notifier can hang off this shape.
+  isHeld = false,
 ): boolean {
   return (
-    milestoneAppliesIgnoringHistory(kind, permit, cycles) &&
+    milestoneAppliesIgnoringHistory(kind, permit, cycles, isHeld) &&
     // ★ fix-386: defaults to null, so every caller that does not know the
     // project's flag gets exactly the pre-fix-386 behaviour.
     !milestoneIsHistory(kind, permit, isBackfill)
@@ -750,6 +782,10 @@ export function permitMilestones(
   // gate below. Defaults to null so every existing caller keeps the
   // pre-fix-386 behaviour without knowing this parameter exists.
   isBackfill: boolean | null | undefined = null,
+  // ★★ fix-390: a held permit yields NO occurrences at all — every kind's gate
+  // answers false, so this returns []. That is the "silenced row" the ticket
+  // asks for, and it needs no special case here.
+  isHeld = false,
 ): MilestoneOccurrence[] {
   const out: MilestoneOccurrence[] = [];
   const cycles = permit.permit_cycles ?? [];
@@ -760,7 +796,7 @@ export function permitMilestones(
   // ★ fix-337: routed through milestoneApplies like the other five, so every
   // kind answers the same question in the same place. The rule is unchanged —
   // isPermitInCorrections has been current-cycle-aware since fix-214.
-  if (milestoneApplies('corrections', permit, cycles, isBackfill)) {
+  if (milestoneApplies('corrections', permit, cycles, isBackfill, isHeld)) {
     out.push({
       kind: 'corrections',
       date: null,
@@ -773,7 +809,7 @@ export function permitMilestones(
   // ★ fix-337: this is the kind that was ALREADY right (myBoard.ts:456 was the
   // only issuance check in the whole function), and the shape the other five
   // now follow.
-  if (milestoneApplies('fees', permit, cycles, isBackfill) && permit.approval_date) {
+  if (milestoneApplies('fees', permit, cycles, isBackfill, isHeld) && permit.approval_date) {
     const late = daysBetween(permit.approval_date, today);
     if (late >= thresholds.approvedNotIssuedDays) {
       out.push({
@@ -803,7 +839,7 @@ export function permitMilestones(
   if (
     cyc?.submitted &&
     !cyc.corr_issued &&
-    milestoneApplies('reviewer_silent', permit, cycles, isBackfill)
+    milestoneApplies('reviewer_silent', permit, cycles, isBackfill, isHeld)
   ) {
     // fix-298 Phase 2: a chase IS a movement. reviewer_silent has no anchor
     // that could ever change (the whole point is that nothing is changing), so
@@ -831,7 +867,7 @@ export function permitMilestones(
   // Target submit — a DATE. Only while the set has not gone in.
   // ★ fix-337: "has not gone in" now means NO cycle has been submitted, not
   // "the newest cycle has not" — a permit on cycle 3 has plainly submitted.
-  if (milestoneApplies('target_submit', permit, cycles, isBackfill) && permit.target_submit) {
+  if (milestoneApplies('target_submit', permit, cycles, isBackfill, isHeld) && permit.target_submit) {
     const late = daysBetween(permit.target_submit, today);
     out.push({
       kind: 'target_submit',
@@ -846,7 +882,7 @@ export function permitMilestones(
   // DD window close — a DATE, design side only.
   // ★ fix-337: same correction as target_submit — the DD window is a
   // pre-submission prompt, and any submission at all closes the question.
-  if (milestoneApplies('draw', permit, cycles, isBackfill) && permit.dd_end) {
+  if (milestoneApplies('draw', permit, cycles, isBackfill, isHeld) && permit.dd_end) {
     const late = daysBetween(permit.dd_end, today);
     out.push({
       kind: 'draw',
@@ -862,7 +898,7 @@ export function permitMilestones(
   // ★★★ fix-337: THE 337. This read `!cyc?.intake_accepted` — the LATEST
   // cycle's — so every permit past cycle 3 raised it forever, whatever its
   // state. It asks the right question now: has intake been accepted at all?
-  if (milestoneApplies('intake', permit, cycles, isBackfill) && permit.intake_date) {
+  if (milestoneApplies('intake', permit, cycles, isBackfill, isHeld) && permit.intake_date) {
     out.push({
       kind: 'intake',
       date: permit.intake_date,
@@ -1158,6 +1194,31 @@ export interface BoardInput {
   thresholds?: BoardThresholds;
   /** Project ids with an open cancel row (fix-262). */
   cancelledIds?: ReadonlySet<string>;
+  /**
+   * ★★ fix-390: which PROJECTS and which PERMITS are on an open hold.
+   *
+   * Two sets rather than one resolved boolean because the board asks the
+   * question per permit, hundreds of times, and a set lookup is the cheap way
+   * to answer it. `isPermitHeld` reads DOWNWARD only — project holds cover
+   * their permits; a permit hold covers nothing above it.
+   *
+   * ★ Optional, so every existing caller and fixture behaves exactly as it did
+   * before this ticket.
+   */
+  heldProjectIds?: ReadonlySet<string>;
+  heldPermitIds?: ReadonlySet<number>;
+  /**
+   * ★ Raw hold rows, as an alternative to the two sets above.
+   *
+   * ★★ WHY BOTH SHAPES EXIST: the sets are what `prepare()` wants, but making
+   * MyBoard/BoardBell build them meant importing a set-helper from
+   * `useProjectHolds` — a module ~40 test files mock PARTIALLY, so every one of
+   * them broke on a missing export. Accepting the arrays the callers already
+   * hold keeps this input additive for those fixtures: a suite that never heard
+   * of holds passes neither field and behaves exactly as before.
+   */
+  holdRows?: ReadonlyArray<{ project_id: string; hold_end: string | null; kind?: string }>;
+  permitHoldRows?: ReadonlyArray<{ permit_id: number; hold_end: string | null }>;
   /** fix-298 Phase 2: milestone actions already taken. */
   acks?: ReadonlyArray<PermitMilestoneAck>;
   /** fix-306 #35: when set, the QUEUE is scoped to these people's work instead
@@ -1182,6 +1243,9 @@ export interface BoardInput {
 interface Prepared {
   permit: PermitWithCycles;
   project: Project | undefined;
+  /** ★ fix-390: resolved ONCE here rather than at each of the three milestone
+   *  call sites, so they cannot disagree about whether a permit is paused. */
+  isHeld: boolean;
   shape: LegShape;
   design: DesignLegStatus;
   legs: BoardLeg[];
@@ -1191,6 +1255,22 @@ interface Prepared {
 /** The permits this viewer is on, with their relay inputs resolved once. */
 function prepare(input: BoardInput): Prepared[] {
   const { viewer, permits, projects, tasks, cancelledIds } = input;
+  // ★ fix-390: accept either shape — the resolved sets, or the raw rows the
+  // page already has. Derived once here rather than per permit.
+  const heldProjects =
+    input.heldProjectIds ??
+    new Set(
+      (input.holdRows ?? [])
+        .filter((h) => h.hold_end === null && (h.kind ?? 'hold') === 'hold')
+        .map((h) => h.project_id),
+    );
+  const heldPermits =
+    input.heldPermitIds ??
+    new Set(
+      (input.permitHoldRows ?? [])
+        .filter((h) => h.hold_end === null)
+        .map((h) => h.permit_id),
+    );
   const byProject = new Map(projects.map((p) => [p.id, p]));
   const tasksByPermit = new Map<number, BoardTask[]>();
   for (const t of tasks) {
@@ -1235,6 +1315,9 @@ function prepare(input: BoardInput): Prepared[] {
     out.push({
       permit,
       project,
+      // ★ fix-390: resolved once, here, so the three milestone call sites below
+      // cannot disagree about whether this permit is paused.
+      isHeld: isPermitHeld(permit, heldProjects, heldPermits),
       shape: legShape(permit, tasksByPermit.get(permit.id) ?? []),
       design: designLegStatus(
         tasksByPermit.get(permit.id) ?? [],
@@ -1298,6 +1381,10 @@ export function buildForecast(input: BoardInput): Forecast {
   let suppressedHistoric = 0;
 
   for (const p of prepare(input)) {
+    // ★ fix-390: a held permit is silent, so it contributes nothing to the
+    // HISTORY-suppressed count either — that number means "would apply but for
+    // history", and a hold is state, not history.
+    if (p.isHeld) continue;
     for (const kind of historicSuppressedKinds(
       p.permit,
       p.permit.permit_cycles ?? [],
@@ -1319,6 +1406,7 @@ export function buildForecast(input: BoardInput): Forecast {
       thresholds,
       input.acks ?? [],
       p.project?.is_backfill ?? null,
+      p.isHeld,
     )) {
       if (m.date === null) continue; // ← the rule, enforced in one place
       for (const leg of p.legs) {
@@ -1653,6 +1741,7 @@ export function buildQueue(input: BoardInput): ProjectQueue {
       thresholds,
       input.acks ?? [],
       p.project?.is_backfill ?? null,
+      p.isHeld,
     );
     // Stateful milestones only — the ones with no date.
     const stateful = milestones.filter((m) => m.date === null);
