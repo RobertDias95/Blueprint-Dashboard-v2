@@ -35,13 +35,34 @@ import {
 // migrations/fix_336_realtime_publication.sql publishes the three that feed the
 // notification model (audit_log, permit_milestone_acks, board_item_reads).
 //
-// ★ THE OTHER THREE ARE STILL SILENT, deliberately and on the record:
-// permit_cycle_reviewers, error_reports, project_holds, vendor_report_state and
-// external_team_directory are subscribed here but unpublished. This ticket's
-// rule is the minimum set that feeds notifications, not all 27 tables; each of
-// those has its own refetch path and none of them reaches the bell. They are
-// named in the PR rather than quietly fixed, because publishing a table is a
-// decision about what streams to every client and it should be made per table.
+// ★ fix-336 left the others silent deliberately — its rule was the minimum set
+// that feeds notifications, not every table — and named them in the PR rather
+// than quietly fixing them, because publishing a table is a decision about what
+// streams to every client and should be made per table.
+//
+// ===========================================================================
+// ★★★ fix-393 — THE AUDIT IS NOW CLOSED, AND HERE IS THE INVARIANT IT LEAVES
+// ===========================================================================
+//
+// fix-391 published the two hold tables; fix-393 published the last four
+// (permit_cycle_reviewers, error_reports, vendor_report_state,
+// external_team_directory). ALL 22 TABLES IN `REALTIME_TABLES` ARE NOW MEMBERS
+// OF `supabase_realtime`, verified against pg_publication_tables on prod.
+//
+// ★★★ SO THE RULE FOR THE NEXT PERSON IS: ADDING A KEY HERE IS HALF THE JOB.
+// A `REALTIME_TABLES` entry with no publication membership raises no error and
+// logs nothing — the channel joins, the handler registers, and it never fires.
+// The 60-second fallback below then hides it by making the data eventually
+// correct, which is why the last four went unnoticed for months. If you add a
+// table to the map, add `ALTER PUBLICATION supabase_realtime ADD TABLE` in the
+// SAME PR, and check `pg_publication_tables` before debugging any "realtime
+// isn't working" report.
+//
+// ★★ AND DO NOT ADD A KEY FOR A TABLE NOTHING QUERIES. fix-393 was briefed to
+// publish FIVE and published four: `builders` is not in this map, has no
+// mounted consumer, and the live autocomplete deliberately keys on
+// ['builders_search', ...] so a ['builders'] invalidation cannot prefix-match
+// it. Publishing events nobody consumes is the same lie in the other direction.
 //
 // ★★ AND THE SOCKET NOW REPORTS ITSELF. `subscribe()` was called with no
 // callback, so CHANNEL_ERROR / TIMED_OUT / CLOSED went nowhere and a dead wire
