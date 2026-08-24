@@ -25,6 +25,35 @@ import type { TeamMember, DmDaGroupRow } from '../../lib/database.types';
 // in tasks, with each person's OPEN TASK COUNT — because "Cam is unassigned"
 // and "Cam is unassigned and holds 17 open tasks nobody's manager is seeing"
 // are different sentences, and only the second one gets acted on.
+//
+// ===========================================================================
+// ★★★ fix-401 — TWO EDITORS ON THIS TAB LOOK LIKE THEY MOVE A DA. THEY DO NOT
+// ===========================================================================
+//
+// Bobby, 2026-08-25: *"The settings UI is not rendering accurately,
+// specifically our draw schedule. Eric has now moved teams to Derry and no
+// longer under Jade."* Measured that day, the two tables DISAGREED:
+//
+//   draw_schedule_quarter_layout (2026-Q3, pos 6)   Erick → group 'Derry'
+//   dm_da_groups                                    Erick → 'Jade'
+//
+// ★★★ THIS EDITOR IS THE ONE THAT MATTERS, and it is not the one that looks
+// like the draw schedule. `dm_da_groups` is what fix-379 derives `permits.dm`
+// from, what fix-365's board lens groups by, what fix-346/368 co-assign from,
+// and what the wizard routes on. `QuarterLayoutEditor` — sitting a few sections
+// above, titled "Draw Schedule Layout" — writes
+// `draw_schedule_quarter_layout`, which is COLUMN ORDER AND LABELS for one
+// quarter's grid and reaches none of that.
+//
+// ★★ So moving somebody in the layout editor renames a column heading and
+// changes nothing about who manages them. Both edits are legitimate; they
+// answer different questions, and the layout one is the one you reach for when
+// you are thinking about the draw schedule. fix-401 fixed Erick's mapping here
+// and left the layout alone — it already said Derry.
+//
+// ★ THE NEXT TEAM MOVE STARTS HERE, not there. If a future ticket wants one
+// action to do both, that is a product decision about which table is the
+// source of truth — not a wiring fix.
 
 interface Props {
   dms: TeamMember[];

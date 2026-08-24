@@ -226,12 +226,21 @@ describe('fix-393 §3: why the fifth table was reported instead', () => {
     expect(qc.getQueryState(searchKey)?.isInvalidated).toBe(false);
   });
 
-  it('★★ the audit is closed: 22 mapped tables, all four gaps addressed here', () => {
+  it('★★ the audit is closed: every mapped table is published', () => {
     // Measured on prod 2026-08-24: these four were the ONLY members of
-    // REALTIME_TABLES missing from supabase_realtime. Publishing them takes the
-    // app to 22 of 22, so this count is the thing that must not silently grow a
-    // hole again — a new map entry without publication membership is invisible.
-    expect(Object.keys(REALTIME_TABLES)).toHaveLength(22);
+    // REALTIME_TABLES missing from supabase_realtime.
+    //
+    // ★★★ fix-401 grew the map from 22 to 25 (dm_da_groups, team_members,
+    // draw_schedule_quarter_layout) and found the OTHER failure mode this test
+    // could not see: two of those three were ALREADY published and had been
+    // emitting to nobody, because no client key named them. A frozen COUNT
+    // pins neither half, so it is replaced by the invariant it was standing in
+    // for — every mapped table has a key, and fix-401's own suite asserts the
+    // publication side. Both halves, checked separately.
+    expect(Object.keys(REALTIME_TABLES).length).toBeGreaterThanOrEqual(25);
+    for (const t of Object.keys(REALTIME_TABLES)) {
+      expect(REALTIME_TABLES[t as keyof typeof REALTIME_TABLES].length).toBeGreaterThan(0);
+    }
     for (const { table } of PUBLISHED) {
       expect(REALTIME_TABLES).toHaveProperty(table);
     }

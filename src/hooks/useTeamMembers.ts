@@ -3,8 +3,9 @@ import { useQuery } from '@tanstack/react-query';
 import { supabase } from '../lib/supabase';
 import { queryKeys } from '../lib/queryKeys';
 import { useAuthStore } from '../stores/authStore';
-import { isAssignableMember, isCurrentMember } from '../lib/roster';
+import { ACQ_ROLES, isAssignableMember, isCurrentMember } from '../lib/roster';
 import type { TeamMember, TeamRole } from '../lib/database.types';
+
 
 // Q7.3.b: read team_members for the active tenant. Returns the full set
 // + memoized role-bucketed views so AdminTeamTab can render its 4 pill
@@ -96,7 +97,25 @@ export function useTeamMembers() {
       formerDas: allDas.filter((m) => !isCurrentMember(m)),
       dms: ofRole('dm'),
       ents: ofRole('ent'),
-      acqs: ofRole('acq'),
+      // ★★★ fix-401 — THE ACQUISITIONS LIST SHOWED TWO OF EIGHT PEOPLE.
+      //
+      // Bobby: *"I noticed that acquisitions is only showing like Kiley and
+      // Jesse. It's not showing Dom, Jason, Scott, any of them."*
+      //
+      // ★★ THE DATA WAS NEVER WRONG. `ofRole('acq')` is a SINGLE-role filter,
+      // and acquisitions is stored under TWO role strings: measured on prod
+      // 2026-08-25, `acq` holds 2 people (Jessie, Keelie — the two he could
+      // see) and `acq_lead` holds 6 (Caleb, Dom, Jake, Jason, Jeremy, Scott).
+      // Every picker that offers acquisitions already reads BOTH —
+      // ProjectSettingsModal (`t.role === 'acq' || t.role === 'acq_lead'`) and
+      // the wizard's `ACQ_ROLES` set. Settings was the only surface asking a
+      // narrower question than the app it configures.
+      //
+      // ★ ...and it is filtered to CURRENT members, like `activeDas` above and
+      // like every picker: `isCurrentMember` is the one membership rule
+      // (fix-321). That keeps Caleb, who is inactive, out of an editable
+      // roster — he was never visible before either.
+      acqs: all.filter((m) => ACQ_ROLES.has(m.role) && isCurrentMember(m)),
       schematics: ofRole('schematic'),
       activeMemberNames: activeMemberNamesOf(all),
     };

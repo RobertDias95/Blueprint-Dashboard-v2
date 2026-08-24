@@ -121,15 +121,21 @@ describe('<AdminProjectsTab /> Q7.3.a', () => {
   // from here without a word. The full editor lives on Permits & Templates and
   // is deliberately NOT duplicated: two editors for one catalogue would let the
   // delete guard be walked around by using the other tab.
-  it('fix-288: no longer edits permit types, and says where they went', () => {
+  it('fix-288/401: no longer edits permit types, and no longer says so either', () => {
+    // ★★★ fix-401 — THE SIGNPOST IS GONE, BY RULING. Bobby, 2026-08-25:
+    // *"it says, oh, it's not a part of projects, it's now in permits. It's
+    // like we don't need to say that, just delete it."*
+    //
+    // ★★ fix-288's ACTUAL rule is untouched and is still what this test
+    // guards: this tab does not edit the permit-type catalogue, because two
+    // editors for one catalogue would let the delete guard be walked around.
+    // Only the "moved to…" note went — a relocation notice is addressed to
+    // whoever remembers the old place, and it outlives them.
     renderIt();
     expect(screen.queryByTestId('permit-types-list')).toBeNull();
     expect(screen.queryByTestId('permit-types-list-pill-Building Permit')).toBeNull();
-    const note = screen.getByTestId('permit-types-moved');
-    expect(note).toHaveTextContent(/Permits & Templates/);
-    // ...and it still reports the size of the catalogue, so the section is not
-    // a dead end.
-    expect(note).toHaveTextContent('2 types configured');
+    expect(screen.queryByTestId('permit-types-moved')).toBeNull();
+    expect(screen.queryByText(/Permit types moved to/)).toBeNull();
   });
 
   it('adding a jurisdiction calls bp_upsert_jurisdiction with default learn window', () => {

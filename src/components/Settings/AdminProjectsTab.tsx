@@ -69,12 +69,6 @@ export default function AdminProjectsTab() {
     ),
   }));
 
-  const typeItems = (typesQ.data ?? []).map((t) => ({
-    key: t.name,
-    label: t.name,
-    badge: t.is_builtin ? 'built-in' : undefined,
-    removalLocked: t.is_builtin === true,
-  }));
 
   // fix-92 / fix-232: 'productTypeOptions' is the CANONICAL, single-source
   // product-type registry — this editor writes it, and every product-type option
@@ -118,21 +112,17 @@ export default function AdminProjectsTab() {
         />
       </Section>
 
-      {/* fix-288: the Permit Types pill list used to sit here. It could add and
-          remove but not rename, carried no wizard descriptions, and guarded
-          deletion only by is_builtin -- so a type still named by 143 permits
-          could be removed from this tab without a word. It is replaced by the
-          full editor on Settings → Permits & Templates, and deliberately NOT
+      {/* fix-288 moved the Permit Types editor to Settings → Permits &
+          Templates and left a signpost here saying so. It is deliberately NOT
           duplicated: two editors for one catalogue would mean the delete guard
-          could be walked around by using the other tab. */}
-      <Section title="Permit Types">
-        <p className="text-[11px] text-muted" data-testid="permit-types-moved">
-          Permit types moved to <strong className="text-text">Permits &amp;
-          Templates</strong>, where they can also be renamed and given the
-          description shown in the project wizard.{' '}
-          {typeItems.length} type{typeItems.length === 1 ? '' : 's'} configured.
-        </p>
-      </Section>
+          could be walked around by using the other tab. That reasoning stands —
+          only the signpost is gone.
+
+          ★★ fix-401: Bobby — *"it says, oh, it's not a part of projects, it's
+          now in permits. It's like we don't need to say that, just delete it."*
+          A relocation note is a message to whoever remembers the old location,
+          and it outlives them: months later it is a tab telling everybody about
+          a move they never saw. The field lives where it lives. */}
 
       <Section title="Product Types">
         <PillListEditor
