@@ -45,6 +45,24 @@ export function isCurrentMember(m: MembershipFlags | null | undefined): boolean 
 }
 
 /** The inverse, for readability at call sites that mean "has left". */
+/**
+ * ★★★ fix-401 — THE TWO ROLE STRINGS ACQUISITIONS IS STORED UNDER.
+ *
+ * Measured on prod 2026-08-25: `acq` holds 2 people and `acq_lead` holds 6,
+ * and they are DISJOINT sets of humans. Every picker that offers acquisitions
+ * already read both (ProjectSettingsModal, the wizard's own ACQ_ROLES); the
+ * Settings roster read only `acq`, which is why Bobby saw two of eight.
+ *
+ * ★★ IT LIVES HERE, NOT IN useTeamMembers, AND THAT IS NOT COSMETIC. Roughly
+ * forty test files mock `hooks/useTeamMembers` PARTIALLY — a new export on a
+ * partially-mocked module is `undefined` at the call site, and `ACQ_ROLES.has`
+ * then throws inside a render. Six AdminTeamTab tests failed that way before
+ * this moved. Same trap fix-390 hit; roster.ts is the membership-rules module
+ * and nothing mocks it.
+ */
+export const ACQ_ROLES: ReadonlySet<TeamRole> = new Set<TeamRole>(['acq', 'acq_lead']);
+
+
 export function isFormerMember(m: MembershipFlags | null | undefined): boolean {
   return !!m && !isCurrentMember(m);
 }

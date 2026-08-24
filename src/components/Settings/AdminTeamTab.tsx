@@ -4,6 +4,7 @@ import MentionTagsEditor from './MentionTagsEditor';
 import TeamActiveQuartersEditor from './TeamActiveQuartersEditor';
 import QuarterLayoutEditor from './QuarterLayoutEditor';
 import { useTeamMembers } from '../../hooks/useTeamMembers';
+import { ACQ_ROLES } from '../../lib/roster';
 import { useUpsertTeamMember } from '../../hooks/useUpsertTeamMember';
 import { useDeleteTeamMember } from '../../hooks/useDeleteTeamMember';
 import { useRenameDA } from '../../hooks/useRenameDA';
@@ -61,6 +62,15 @@ export default function AdminTeamTab() {
   }
 
   function findByName(role: TeamRole, name: string): TeamMember | undefined {
+    // ★★★ fix-401: acquisitions is stored under TWO role strings (`acq` and
+    // `acq_lead`), and the list now renders both. Without this, removing or
+    // renaming Dom — who is `acq_lead` — would look up role `acq`, find
+    // nothing, and SILENTLY DO NOTHING: a button that appears to work and does
+    // not. Widening the read without widening the write is the same asymmetry
+    // this ticket exists to close, one layer down.
+    if (ACQ_ROLES.has(role)) {
+      return teamQ.all.find((m) => ACQ_ROLES.has(m.role) && m.name === name);
+    }
     return teamQ.all.find((m) => m.role === role && m.name === name);
   }
 

@@ -457,4 +457,36 @@ export const REALTIME_TABLES = {
   permit_task_auto_closures: [queryKeys.autoClosuresAll],
   whats_new_entries: [queryKeys.whatsNewEntriesAll],
   whats_new_reads: [queryKeys.whatsNewReadsAll],
+  // ★★★ fix-401 — THE ROSTER TABLES, AND WHY THEIR ABSENCE WAS THE BUG.
+  //
+  // Bobby: *"I don't know if our UI is updating when we're making these updates
+  // back to the settings … we just really want to make sure that this thing is
+  // holistically and globally reflecting as a true ecosystem."*
+  //
+  // ★★ It was not. THIRTY files read `dm_da_groups` — the dm derivation
+  // (fix-379), the board lens (fix-365), DM co-assignment (fix-346/368), draw
+  // schedule grouping, the wizard's routing — and none of the three roster
+  // tables was listed here. So a team move invalidated exactly one query key,
+  // in the one tab that made it: the draw schedule on the wall screen never
+  // heard, and neither did anybody else's board.
+  //
+  // ★★★ AND THE FALLBACK POLL DID NOT COVER IT EITHER, which is the part that
+  // made it look like a mystery rather than a gap. fix-371's poll invalidates
+  // `allRealtimeKeys()`, which is DERIVED FROM THIS MAP — so a table missing
+  // here is missing from the slow path as well as the fast one. There was no
+  // eventual consistency to fall back on; only a reload fixed it.
+  //
+  // ★★★ AND THIS IS fix-393'S LESSON IN MIRROR IMAGE, which is worth pausing on.
+  // fix-393's rule was "adding a key here is HALF the job — publish the table
+  // too, because a subscription to an unpublished table is silent." Measured on
+  // prod 2026-08-25, the reverse had happened: `dm_da_groups` and
+  // `team_members` were ALREADY members of `supabase_realtime` and had been
+  // emitting to nobody, because no client key named them. A publication with no
+  // listener is exactly as silent as a listener with no publication, and it
+  // leaves no trace on either side. CHECK BOTH HALVES. Only
+  // `draw_schedule_quarter_layout` needed publishing
+  // (migrations/fix_401_publish_roster_realtime.sql).
+  dm_da_groups: [queryKeys.dmDaGroupsAll],
+  team_members: [queryKeys.teamMembersAll],
+  draw_schedule_quarter_layout: [queryKeys.drawScheduleQuarterLayoutAll],
 } as const;
