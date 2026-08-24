@@ -165,14 +165,17 @@ describe('fix-303 §2: team queues are DERIVED, never named in code', () => {
       { owner: 'Miles', relationship: 'entitlement-lead' },
     ]);
     expect(miles!.owner).toBe('Miles');
-    expect(miles!.queue.blocked_on_you.total).toBe(1);
+    // ★ fix-397: was `blocked_on_you.total` — that section was removed by
+    // ruling. The point of the test is that the queue is SCOPED to the report,
+    // so it asserts on the queue's own total instead.
+    expect(miles!.queue.total).toBe(1);
 
     // Same input, different owner → nothing. Proof the queue is scoped to the
     // report rather than inherited from whoever is looking.
     const [briana] = buildTeamQueues(input({ permits: [p] }), [
       { owner: 'Briana', relationship: 'entitlement-lead' },
     ]);
-    expect(briana!.queue.blocked_on_you.total).toBe(0);
+    expect(briana!.queue.total).toBe(0);
   });
 
   it('each report keeps its own relationship label, so grouping is unambiguous', () => {
@@ -325,8 +328,10 @@ describe('fix-303 §4: a queue row answers what, when and how long', () => {
       updated_at: '2026-05-01T12:00:00Z',
       permit_cycles: [mkCycle({ submitted: '2026-04-01', intake_accepted: '2026-04-02' })],
     });
+    // ★ fix-397: the queue is FLAT now — the permit number is on the row
+    // itself rather than nested under a project, which is ruling 1 in one line.
     const q = buildQueue(input({ permits: [p] }));
-    expect(q.blocked_on_you.items[0]!.permits[0]!.num).toBe('X-1');
+    expect(q.rows[0]!.num).toBe('X-1');
   });
 });
 

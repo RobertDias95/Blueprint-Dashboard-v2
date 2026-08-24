@@ -19,7 +19,7 @@ import { isTerminalNegativeStatus } from './permitTerminalStatus';
 import { statusImpliesSubmitted } from './statusImpliesSubmitted';
 import { isSubPermit } from './subPermit';
 import {
-  daQueueAllows,
+  daQueueAllowsRowKind,
   milestoneCounterparty,
   milestoneStateLabel,
   milestoneWhyYours,
@@ -28,6 +28,17 @@ import {
 import { isTaskLive } from './taskStatus';
 import { isCancelledProject } from './projectViewHelpers';
 import { isPermitHeld } from './permitHoldWindows';
+// ★ fix-397: the queue's vocabulary, bands and sort. Kept in its own module so
+// the date arithmetic is unit-testable without building a whole board.
+import {
+  assembleQueue,
+  bandFor,
+  daysPastDueFor,
+  dueWordsFor,
+  type OwnerQueue,
+  type QueueKind,
+  type QueueRow,
+} from './projectQueue';
 // ★ fix-348: the board asks "is this task mine?" the way My Tasks does.
 import { taskMatchesSelfResolved } from './selfScope';
 
@@ -850,6 +861,21 @@ export function permitMilestones(
   // "permit untouched", not "permit submitted a while ago".
   // ★ fix-337: …and not once the permit is ISSUED. Three permits were still
   // asking someone to chase a reviewer on a permit the city had already issued.
+  //
+  // ★★★ fix-397 — THIS OCCURRENCE NO LONGER REACHES A SCREEN, AND THAT IS
+  // DELIBERATE. `reviewer_silent` carries `date: null`, buildForecast skips
+  // every date-null milestone ("the rule, enforced in one place"), and the only
+  // other consumer was the queue's "Blocked on you" — which Bobby removed on
+  // 2026-08-24. So nothing renders it today.
+  //
+  // ★★ IT IS NOT DELETED, because the thing it measured is now measured better
+  // elsewhere: fix-395 turned exactly this prompt into a real task with a real
+  // owner (`city_target_chase`, minted when the city is 7+ days past its own
+  // target). A prompt nobody owns is what fix-395 exists to replace, and
+  // "Blocked on you" was where this one lived. The rule, its ack behaviour and
+  // its measured-from-last-MOVEMENT correction are kept intact here so that a
+  // richer "blocked on you" — which Bobby explicitly left the door open for —
+  // has something correct to be rebuilt on.
   if (
     cyc?.submitted &&
     !cyc.corr_issued &&
@@ -1111,7 +1137,14 @@ export interface BoardSection<T> {
   all: T[];
 }
 
-function section<T>(all: T[], cap: number): BoardSection<T> {
+/** ★ fix-397: the generic section builder lost its last caller when the queue
+ *  stopped being three capped groups. `forecastSection` below is the forecast's
+ *  own, and the queue's bands are uncapped by design — a band is a sort, not a
+ *  "top five", and capping "Past due" is how the 554 N 75th row got lost in the
+ *  first place. Kept, unexported, because BoardSection<T> is still the
+ *  forecast's shape and a future capped list should reuse this rather than
+ *  write a third one. */
+export function section<T>(all: T[], cap: number): BoardSection<T> {
   const items = cap === Infinity ? all : all.slice(0, cap);
   return { total: all.length, items, capped: all.length > items.length, all };
 }
@@ -1614,12 +1647,26 @@ export function buildForecast(input: BoardInput): Forecast {
 }
 
 // ---------------------------------------------------------------------------
-// Project queue — the RIGHT panel. Only ever things with a STATE.
+// ★★★ fix-397 — Project queue: the RIGHT panel, the OWNER'S PRIORITY LIST
 // ---------------------------------------------------------------------------
-export type QueueGroup =
-  | 'blocked_on_you'
-  | 'waiting_on_design'
-  | 'waiting_on_city';
+//
+// It used to be "only ever things with a STATE", grouped into three sections
+// and sorted by group. Bobby ruled otherwise on 2026-08-24 after his own board
+// put 554 N 75th's SDOT Tree — three days past its city target — at the BOTTOM,
+// below two permits due a week later. See src/lib/projectQueue.ts for the two
+// rulings and the quotes; the vocabulary and the sort live there.
+//
+// ★★★ WHAT WAS REMOVED, AND THAT IT WAS A RULING:
+//
+//   "i am not sure how well 'Blocked on you' and 'Waiting on design' is built
+//    out and if it is serving a function. i think we remove those for the time
+//    being until that gets built out in depth better. but this will serve a
+//    better purpose i think."   — Bobby, 2026-08-24
+//
+// ★★ THE RELAY MACHINERY BELOW IS DELIBERATELY LEFT STANDING. relayStateFor,
+// MILESTONE_VERBS, MILESTONE_LEGS and milestoneCounterparty still drive the
+// FORECAST (the left column), which this ticket does not touch — and the two
+// removed sections may return "in depth better". Nothing here is orphaned.
 
 /** fix-303: what a queue row has to answer WITHOUT being clicked — which
  *  permit, when it went in, what the city said, and how long it has sat.
@@ -1648,35 +1695,15 @@ export interface QueuePermitDetail {
   cycleIndex: number | null;
 }
 
-export interface QueueProject {
-  key: string;
-  projectId: string;
-  address: string;
-  group: QueueGroup;
-  permitCount: number;
-  /** "ULS corrections with Fisk · gates the BP behind it" */
-  status: string;
-  /** "Next — Fisk finishes redlines, then you resubmit" */
-  next: string;
-  /** Worst lateness across the project's permits, the group's sort key. */
-  daysLate: number;
-  /** fix-303: the permits behind this row, with the detail that turns a label
-   *  into information. */
-  permits: QueuePermitDetail[];
-}
+/** ★ fix-397: the queue's own shape now lives in projectQueue.ts, re-exported
+ *  here so every existing importer of `myBoard` keeps one import site. */
+export type ProjectQueue = OwnerQueue;
 
-export interface ProjectQueue {
-  blocked_on_you: BoardSection<QueueProject>;
-  waiting_on_design: BoardSection<QueueProject>;
-  waiting_on_city: BoardSection<QueueProject>;
-  /** Distinct projects across all three groups — the panel's sub-heading. */
-  projectCount: number;
-}
-
-/** ★ The queue only ever shows things with a STATE. "Intake Monday" has no
- *  interesting state and is never here — it lives on the forecast. */
 /** fix-303: turn a permit into the row detail — which permit, when it went in,
- *  what the city promised, how long it has sat. */
+ *  what the city promised, how long it has sat. ★ fix-397 keeps this: its
+ *  `daysInState` + `stateLabel` are exactly the one-line state the new rows
+ *  carry ("6d submitted, awaiting intake"), so the sentence survived the
+ *  reshape rather than being rewritten. */
 /** fix-304 §20: how a permit names itself on a row — number and type when it
  *  has a number, type alone when it does not. Never blank. */
 export function permitLabelOf(
@@ -1731,165 +1758,138 @@ export function queuePermitDetail(
   };
 }
 
+/**
+ * ★★★ fix-397 — WHICH KIND IS THIS PERMIT, IF ANY?
+ *
+ * The three mains Bobby named, each gated by the rule that already exists for
+ * it. Returns null when the permit belongs in no band at all.
+ *
+ * ★★★ EVERY SILENCE GATE COMPOSES HERE, and none of them is re-implemented:
+ * `milestoneApplies` already folds in fix-390/391 holds (via `isHeld`, resolved
+ * at either scope in `prepare`), fix-388's terminal-negative status, fix-378's
+ * history and fix-386's backfill flag. `prepare()` has already dropped
+ * sub-permits (fix-194) and cancelled projects (fix-262) before we get here.
+ *
+ * ★★ `city_review` is the one kind with no milestone of its own, so its gate is
+ * spelled out — and it deliberately does NOT take the history/backfill gate.
+ * That gate exists for PLAN dates the team set (target_submit, draw); a city
+ * target is the CITY's date, and suppressing it because the project was
+ * backfilled would hide live city work.
+ */
+function queueKindFor(
+  p: Prepared,
+  input: BoardInput,
+  thresholds: BoardThresholds,
+): { kind: QueueKind; due: string | null } | null {
+  const permit = p.permit;
+  const cycles = permit.permit_cycles ?? [];
+  const isBackfill = p.project?.is_backfill ?? null;
+  const acks = input.acks ?? [];
+  void thresholds;
+  void acks;
+
+  // ★ Corrections first — it outranks city review when both fit
+  // (QUEUE_KIND_RANK), because the redlines are the question, not the city's
+  // review target.
+  if (milestoneApplies('corrections', permit, cycles, isBackfill, p.isHeld)) {
+    // ★★★ THE DATE IS NULL, AND THAT IS A FINDING RATHER THAN AN OMISSION.
+    //
+    // The model carries NO resubmit target for the current round. The only
+    // date columns in play are permit_cycles.city_target (the CITY's clock —
+    // the brief forbids borrowing it, and rightly: it answers "when will they
+    // reply", not "when will we"), corr_issued and resubmitted (both records
+    // of what already happened), and permits.target_submit (the FIRST
+    // submittal, which by definition is behind us once corrections exist).
+    //
+    // permitMilestones has said so since fix-337 in as many words —
+    // "Corrections — a STATE, no inherent date" — and this agrees with it
+    // rather than inventing one. A projected resubmit date does exist inside
+    // projectedApproval.ts (corr_issued + the learned team turnaround), but
+    // that is a FORECAST of when we probably will, not a target anybody
+    // committed to; sorting a priority list by it would put a guess where a
+    // promise belongs, and it would need the learner data the board does not
+    // fetch (fix-318's one-query rule).
+    //
+    // So corrections rows ride in `No target date`, and their state line says
+    // the corrections are in hand.
+    return { kind: 'corrections', due: null };
+  }
+
+  // ★ City review — submitted, on the city's clock, nothing owed by us yet.
+  // This is exactly the population the old `waiting_on_city` group carried,
+  // and the date is the same `city_target` those rows already showed.
+  if (
+    !p.isHeld &&
+    !isTerminalNegativeStatus(permit.status) &&
+    everSubmitted(cycles) &&
+    !permit.approval_date &&
+    !permit.actual_issue
+  ) {
+    return { kind: 'city_review', due: latestCycle(cycles)?.city_target ?? null };
+  }
+
+  // ★ Submittal — pre-submission, and the date is OURS.
+  if (
+    milestoneApplies('target_submit', permit, cycles, isBackfill, p.isHeld) &&
+    permit.target_submit
+  ) {
+    return { kind: 'submittal', due: permit.target_submit };
+  }
+
+  return null;
+}
+
 export function buildQueue(input: BoardInput): ProjectQueue {
   const thresholds = input.thresholds ?? DEFAULT_BOARD_THRESHOLDS;
+  // ★★★ THE VIEWER RESOLVER IS `prepare()`, UNCHANGED AND UNDUPLICATED.
+  // It is the board's one answer to "whose permits are these": the ENT/DA legs,
+  // oversight, and fix-306/365's `scopeNames` for a DM looking at their
+  // associates. This ticket adds no second ownership concept — it consumes the
+  // existing one, which is why a DM's queue already contains their associates'
+  // permits with no new machinery.
   const prepared = prepare(input);
 
-  interface Acc {
-    projectId: string;
-    address: string;
-    permitCount: number;
-    group: QueueGroup | null;
-    daysLate: number;
-    designers: Set<string>;
-    detail: string;
-    next: string;
-    permits: QueuePermitDetail[];
-  }
-  const byProject = new Map<string, Acc>();
-
+  const rows: QueueRow[] = [];
   for (const p of prepared) {
-    const milestones = permitMilestones(
-      p.permit,
-      input.today,
-      thresholds,
-      input.acks ?? [],
-      p.project?.is_backfill ?? null,
-      p.isHeld,
-    );
-    // Stateful milestones only — the ones with no date.
-    const stateful = milestones.filter((m) => m.date === null);
+    const hit = queueKindFor(p, input, thresholds);
+    if (!hit) continue;
+    // ★★ fix-308b, preserved through the reshape: a viewer whose ONLY leg here
+    // is design does not get "quietly with the city" rows. See
+    // daQueueAllowsRowKind for why the ruling outlived its vocabulary.
+    if (usesDaQueueShape(p.legs) && !daQueueAllowsRowKind(hit.kind)) continue;
 
-    let group: QueueGroup | null = null;
-    let detail = '';
-    let next = '';
-    let daysLate = 0;
+    const detail = queuePermitDetail(p.permit, input.today);
+    // ★ The existing state sentence, reused verbatim rather than rewritten:
+    // "6d submitted, awaiting intake".
+    const stateLine = detail.daysInState
+      ? `${detail.daysInState}d ${detail.stateLabel}`
+      : detail.stateLabel;
 
-    // ★★ fix-308b #47 — THE DESIGN ASSOCIATE'S QUEUE.
-    //
-    //   "For design associates, what they really need to focus on is upcoming
-    //    intakes, and then your corrections."
-    //
-    // Decided: intakes and corrections ONLY — not those two ranked above the
-    // rest. ★ DA SHAPE ONLY: it applies when design is the viewer's ONLY leg
-    // on this permit. Somebody who is a DA here and an ENT lead there keeps
-    // the full queue, or their entitlement work would silently vanish. ENT
-    // leads, DMs and oversight are untouched, and so is fix-306's
-    // My queue · My team · [person] toggle.
-    const daShape = usesDaQueueShape(p.legs);
-
-    for (const m of stateful) {
-      // ★ The filter runs HERE, inside buildQueue, so it reaches the RENDERED
-      // queue rather than living in the domain layer with no caller — which is
-      // exactly the gap fix-308b exists to close.
-      if (daShape && !daQueueAllows(m.kind)) continue;
-      for (const leg of p.legs) {
-        const state = relayStateFor(m.kind, leg, p.shape, p.design);
-        if (state === 'absent') continue;
-        const late = m.daysLate ?? 0;
-        if (state === 'mine') {
-          group = 'blocked_on_you';
-          detail = m.why;
-          // The verb alone; "Next — " prefixed the same words onto every row.
-          next = milestoneVerb(m.kind, leg);
-          daysLate = Math.max(daysLate, late);
-        } else if (state === 'waiting' && group !== 'blocked_on_you') {
-          group = 'waiting_on_design';
-          // ★ fix-348: was `permit.da`, unconditionally — so a DA whose design
-          // half is finished read "With <themself>" on their own queue. The
-          // counterparty follows the LEG, from the one definition.
-          //
-          // ★ THE GROUP KEY IS DELIBERATELY UNCHANGED. On a design-leg row the
-          // counterparty is the ENT lead, so the row is accurate but the section
-          // it sits under is still called "Waiting on design". Renaming a
-          // section Bobby named is his call, not a silent side effect of a
-          // string fix — flagged in the PR, not decided here.
-          detail = `With ${milestoneCounterparty(leg, p.permit).label}`;
-          next = '';
-          daysLate = Math.max(daysLate, late);
-        }
-      }
-    }
-
-    // Nothing stateful and actionable → it is with the city, which is the
-    // "nothing for you to do" group. Only permits actually in review qualify;
-    // a permit sitting in pre-submittal has no state worth a row.
-    if (group === null) {
-      // ★ fix-308b #47: the DA filter has to cover THIS branch too. A permit
-      // sitting quietly with the city is neither an intake nor a correction,
-      // and gating only the stateful loop above let it through the back door —
-      // caught by the rendered test, not by the domain unit tests, which is
-      // exactly why the brief asked for rendered assertions.
-      if (daShape) continue;
-      const cyc = [...(p.permit.permit_cycles ?? [])].sort(
-        (a, b) => b.cycle_index - a.cycle_index,
-      )[0];
-      if (!cyc?.submitted || p.permit.approval_date) continue;
-      group = 'waiting_on_city';
-      // fix-304 §22: "In review, reviewers moving normally" is a sentence.
-      // The permit detail lines under the row carry the facts — number, type,
-      // cycle, submitted, city target, days in state. Depth is not verbosity.
-      detail = '';
-      next = '';
-    }
-
-    const prev = byProject.get(p.permit.project_id);
-    const rank: Record<QueueGroup, number> = {
-      blocked_on_you: 0,
-      waiting_on_design: 1,
-      waiting_on_city: 2,
-    };
-    if (prev && rank[prev.group!] <= rank[group]) {
-      prev.permitCount += 1;
-      prev.daysLate = Math.max(prev.daysLate, daysLate);
-      prev.permits.push(queuePermitDetail(p.permit, input.today));
-      if ((p.permit.da ?? '').trim()) prev.designers.add((p.permit.da ?? '').trim());
-      continue;
-    }
-    byProject.set(p.permit.project_id, {
+    rows.push({
+      key: `q-${p.permit.id}-${hit.kind}`,
+      permitId: p.permit.id,
       projectId: p.permit.project_id,
+      // ★ Ruling 1: the ADDRESS is the row's primary label, and a project with
+      // two due permits produces two rows.
       address: p.project?.address ?? 'Unknown address',
-      permitCount: (prev?.permitCount ?? 0) + 1,
-      group,
-      daysLate: Math.max(prev?.daysLate ?? 0, daysLate),
-      designers: new Set(
-        [...(prev?.designers ?? []), (p.permit.da ?? '').trim()].filter(Boolean),
-      ),
-      detail,
-      next,
-      permits: [
-        ...(prev?.permits ?? []),
-        queuePermitDetail(p.permit, input.today),
-      ],
+      num: detail.num,
+      type: detail.type,
+      cycleIndex: detail.cycleIndex,
+      kind: hit.kind,
+      due: hit.due,
+      band: bandFor(hit.due, input.today),
+      dueWords: dueWordsFor(hit.due, input.today),
+      daysPastDue: daysPastDueFor(hit.due, input.today),
+      stateLine,
+      // ★ fix-365 composes for free: the row carries whose it is, so a DM
+      // scoped to their associates can group WITHIN a band by this without any
+      // new grouping machinery. The bands stay outermost — urgency first.
+      owner:
+        (p.permit.ent_lead ?? '').trim() || (p.permit.da ?? '').trim() || null,
     });
   }
 
-  const all: QueueProject[] = [...byProject.values()].map((a) => ({
-    key: `q-${a.projectId}`,
-    projectId: a.projectId,
-    address: a.address,
-    group: a.group!,
-    permitCount: a.permitCount,
-    status: a.detail,
-    next: a.next,
-    daysLate: a.daysLate,
-    permits: a.permits,
-  }));
-
-  const inGroup = (g: QueueGroup) =>
-    all
-      .filter((q) => q.group === g)
-      .sort((a, z) => z.daysLate - a.daysLate || a.address.localeCompare(z.address));
-
-  return {
-    blocked_on_you: section(inGroup('blocked_on_you'), BOARD_SECTION_CAPS.queueGroup),
-    waiting_on_design: section(
-      inGroup('waiting_on_design'),
-      BOARD_SECTION_CAPS.queueGroup,
-    ),
-    waiting_on_city: section(inGroup('waiting_on_city'), BOARD_SECTION_CAPS.queueGroup),
-    projectCount: new Set(all.map((q) => q.projectId)).size,
-  };
+  return assembleQueue(rows);
 }
 
 // ---------------------------------------------------------------------------

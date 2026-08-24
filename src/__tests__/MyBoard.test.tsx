@@ -340,14 +340,17 @@ describe('fix-298: ★ the board does not grow with the workload', () => {
   });
 
   it('★ Bobby and Miles get the same SHAPE — identical sections, different density', () => {
+    // ★★★ fix-397: the last three were the queue's group sections, removed by
+    // ruling (Bobby, 2026-08-24: "i think we remove those for the time being
+    // until that gets built out in depth better"). The queue's own shape is
+    // asserted separately below, because unlike the forecast's fixed buckets a
+    // BAND only renders when it has rows — empty bands collapse to nothing, so
+    // "same sections for both viewers" is the wrong claim to make about them.
     const sections = [
       'board-sec-past-due',
       'board-sec-today',
       'board-sec-tomorrow',
       'board-sec-this-week',
-      'board-sec-blocked',
-      'board-sec-waiting-design',
-      'board-sec-waiting-city',
     ];
     // Bobby: 4 permits.
     state.name = 'Bobby';
@@ -357,6 +360,9 @@ describe('fix-298: ★ the board does not grow with the workload', () => {
     );
     const bobby = renderBoard();
     for (const s of sections) expect(screen.getByTestId(s)).toBeTruthy();
+    // ★★ The queue panel itself is present for both, with its own sub-head.
+    expect(screen.getByTestId('my-board-queue')).toBeTruthy();
+    expect(screen.getByTestId('board-queue-subhead')).toBeTruthy();
     bobby.unmount();
 
     // Miles: 165 permits across 62 projects.

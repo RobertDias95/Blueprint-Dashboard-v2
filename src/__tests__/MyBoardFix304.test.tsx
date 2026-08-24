@@ -333,7 +333,9 @@ describe('fix-304 §20: the permit is a link, in both panels', () => {
       }),
     ];
     renderBoard();
-    const link = screen.getByTestId(/^board-permit-\d+-link$/);
+    // ★ fix-397: same link, now on the queue row itself — and the href it
+    // must produce is byte-for-byte the one fix-304 pinned.
+    const link = screen.getByTestId(/^board-queue-permit-/);
     expect(link.getAttribute('href')).toBe('/project/p1?permit=1');
     expect(link.textContent).toContain('BLD2026-0319');
   });
@@ -417,7 +419,7 @@ describe('fix-304 §22: the verbiage is gone', () => {
     renderBoard();
     expect(screen.queryByText(/reviewers moving normally/)).toBeNull();
     // Depth is not verbosity — the facts stay.
-    expect(screen.getByTestId(/^board-permit-\d+$/).textContent).toContain('X-9');
+    expect(screen.getByTestId(/^board-queue-row-/).textContent).toContain('X-9');
   });
 });
 

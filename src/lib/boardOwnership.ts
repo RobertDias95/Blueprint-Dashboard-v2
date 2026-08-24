@@ -318,6 +318,49 @@ export function usesDaQueueShape(legs: ReadonlyArray<'design' | 'entitlement'>):
 }
 
 /**
+ * ★★★ fix-397 — fix-308b'S RULING, CARRIED INTO THE NEW QUEUE'S VOCABULARY.
+ *
+ * fix-397 reshaped the queue from three relay groups into three KINDS
+ * (submittal · corrections · city review), so `DA_QUEUE_KINDS` above — which
+ * names MilestoneKinds — no longer has anything in the queue to filter. The
+ * ruling behind it did not expire with its vocabulary, so it is restated here
+ * rather than quietly dropped.
+ *
+ * ★★ THE LOAD-BEARING HALF IS THE EXCLUSION. fix-308b's own note records that
+ * gating only the stateful loop "let it through the back door" — a permit
+ * sitting quietly with the city is neither an intake nor a correction, and a
+ * design associate's list should be their WORK, not a status board. So
+ * `city_review` is out.
+ *
+ * ★★★ AND SO IS `submittal`, WHICH IS NOT AN OBVIOUS CALL — so here is the
+ * evidence. fix-397 first allowed it, reasoning that target_submit's design-side
+ * verb is "Finish the set" (MILESTONE_VERBS) and that is squarely "what they
+ * really need to focus on". fix-308b had already decided otherwise, explicitly
+ * and with a rendered test: `DA_QUEUE_KINDS` is {intake, corrections}, and
+ * BoardOwnershipRenderedFix308b asserts that DA Cam's queue is EMPTY on prod
+ * permit 165 — a Demolition with target_submit 2026-03-01 and no arch tasks at
+ * all. Under the relay that permit's design leg reads 'mine', so without the
+ * filter it WOULD appear; fix-308b's whole point is that it should not.
+ *
+ * ★ `intake` never mattered to this rule either way: it is an
+ * entitlement-only milestone (MILESTONE_LEGS), so a DA never held one. The set
+ * that actually survives into fix-397's vocabulary is therefore corrections
+ * alone. Widening it is a product decision for Bobby, not a side effect of a
+ * reshape.
+ *
+ * ★ Applies ONLY when design is the viewer's every leg (`usesDaQueueShape`).
+ * Somebody who is a DA here and an ENT lead there keeps the full queue.
+ */
+export const DA_QUEUE_ROW_KINDS: ReadonlySet<'submittal' | 'corrections' | 'city_review'> =
+  new Set(['corrections'] as const);
+
+export function daQueueAllowsRowKind(
+  kind: 'submittal' | 'corrections' | 'city_review',
+): boolean {
+  return DA_QUEUE_ROW_KINDS.has(kind);
+}
+
+/**
  * ★ Reuse the forecast's ordering rather than inventing a second sort:
  * most past due first, then today, tomorrow, this week, next week, future.
  * `daysLate` is already positive-is-late, so descending IS that order.

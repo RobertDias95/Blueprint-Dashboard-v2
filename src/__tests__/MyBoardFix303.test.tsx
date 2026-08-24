@@ -384,16 +384,18 @@ describe('fix-303 §4: permit rows have real depth', () => {
       }),
     ];
     renderBoard();
-    const row = screen.getByTestId(/^board-permit-\d+$/);
-    // fix-306 #33 redesigned this line to scan: identity · state+age · clock.
-    // The FACTS are unchanged, the prose around them is gone.
+    // ★★ fix-397 redesigned this line again, to the mockup Bobby approved on
+    // 2026-08-24. THE FACTS ARE STILL UNCHANGED — identity, cycle, state and
+    // clock — and are still asserted; two of the words carrying them moved:
+    //   'cy2'         → 'cycle 2'   (spelled out on the row)
+    //   '⚑'           → 'past due'  (a red left edge + words, not a glyph)
+    const row = screen.getByTestId(/^board-queue-row-/);
     expect(row.textContent).toContain('BLD2026-0319');
     expect(row.textContent).toContain('ULS');
-    expect(row.textContent).toContain('cy2');
+    expect(row.textContent).toContain('cycle 2');
     expect(row.textContent).toContain('in review');
-    expect(row.textContent).toContain('target 06-01');
-    // The overdue marker, now a flag rather than the word "passed".
-    expect(row.textContent).toContain('⚑');
+    expect(row.textContent).toContain('2026-06-01');
+    expect(row.textContent).toContain('past due');
   });
 
   it('★ a missing target date says so rather than rendering blank', () => {
@@ -407,7 +409,7 @@ describe('fix-303 §4: permit rows have real depth', () => {
       }),
     ];
     renderBoard();
-    expect(screen.getByTestId(/^board-permit-\d+-target$/).textContent).toBe(
+    expect(screen.getByTestId(/^board-queue-due-/).textContent).toBe(
       'No target date',
     );
   });

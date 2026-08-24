@@ -336,7 +336,10 @@ describe('fix-306 #30/#31/#32: ★ the links RESOLVE', () => {
       }),
     ];
     renderIn(<MyBoard />);
-    fireEvent.click(screen.getByTestId(/^board-permit-\d+-link$/));
+    // ★ fix-397: the queue row IS the permit now, so the permit link moved
+    // onto the row itself. The contract — a queue permit link resolves to its
+    // project — is unchanged.
+    fireEvent.click(screen.getByTestId(/^board-queue-permit-/));
     expect(screen.getByTestId('landed-project').getAttribute('data-id')).toBe('p1');
   });
 
@@ -364,7 +367,7 @@ describe('fix-306 #30/#31/#32: ★ the links RESOLVE', () => {
       }),
     ];
     renderIn(<MyBoard />);
-    fireEvent.click(screen.getByTestId(/^board-queue-project-/));
+    fireEvent.click(screen.getByTestId(/^board-queue-address-/));
     expect(screen.getByTestId('landed-project').getAttribute('data-id')).toBe('p1');
   });
 
@@ -602,18 +605,20 @@ describe('fix-306 #33: the queue row scans', () => {
       }),
     ];
     renderIn(<MyBoard />);
-    expect(screen.getByTestId(/^board-queue-project-/).textContent).toContain(
+    // ★★ fix-397: the row IS the permit — the identity/state/clock detail that
+    // used to sit on a nested PermitDetailLine is on the row itself now. Every
+    // claim this test made survives; only where to look for it changed.
+    const row = screen.getByTestId(/^board-queue-row-/);
+    expect(screen.getByTestId(/^board-queue-address-/).textContent).toContain(
       '233 31st Ave E',
     );
-    expect(screen.getByTestId(/^board-permit-\d+-link$/).textContent).toContain(
+    expect(screen.getByTestId(/^board-queue-permit-/).textContent).toContain(
       'BLD2026-0319',
     );
-    expect(screen.getByTestId(/^board-permit-\d+-state$/).textContent).toContain(
-      'in review',
-    );
-    expect(screen.getByTestId(/^board-permit-\d+-target$/).textContent).toContain(
-      'target 06-01',
-    );
+    expect(row.textContent).toContain('in review');
+    // ★ The clock column. Asserted on the DATE, because this suite renders
+    // against the real clock and "due in Nd" would drift with it.
+    expect(row.textContent).toContain('2026-06-01');
   });
 
   it('★ a missing target still says so, in the clock column', () => {
@@ -634,7 +639,9 @@ describe('fix-306 #33: the queue row scans', () => {
       }),
     ];
     renderIn(<MyBoard />);
-    expect(screen.getByTestId(/^board-permit-\d+-target$/).textContent).toBe(
+    // ★ fix-397: same claim on the row's own clock column — a missing target is
+    // stated in words, never left blank (fix-303's rule, carried over).
+    expect(screen.getByTestId(/^board-queue-due-/).textContent).toBe(
       'No target date',
     );
   });

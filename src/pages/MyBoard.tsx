@@ -63,10 +63,14 @@ import {
   type BoardTask,
   type BoardSection,
   type ForecastItem,
-  type QueueProject,
   type QueueScope,
-  type QueuePermitDetail,
 } from '../lib/myBoard';
+// ★ fix-397: the queue's own vocabulary — kinds, bands, and the row shape.
+import {
+  QUEUE_KIND_LABEL,
+  type QueueBandGroup,
+  type QueueRow,
+} from '../lib/projectQueue';
 
 // fix-298 Phase 1 — My Board.
 //
@@ -379,100 +383,99 @@ function ForecastRow({
   );
 }
 
-/** ★ fix-306 #33: one permit line that SCANS.
+
+/** ★★★ fix-397 — one flat queue row: the owner's priority list.
  *
- *  "Address, permit number, and then a bunch of tags… a lot of white open
- *  space, it just looks like it's not formatted, it's not reading very well."
+ *  Ruling 1 (2026-08-24): the ADDRESS is the headline, not the project group.
+ *  A project with two due permits renders two of these — 554 N 75th does
+ *  exactly that on Bobby's live board, its SDOT Tree leading the list and its
+ *  PAR/Pre-Sub four rows below.
  *
- *  Redesigned around what matters, in order: which permit · what state · what
- *  date · how long. The left column holds identity, the right column holds the
- *  clock — so the eye runs down two aligned edges instead of hunting through a
- *  ragged block of tags. The horizontal space is used for the dates rather
- *  than padded with sentences (#22 stays cut).
- *
- *  ★ A missing date still says so in words. */
-function PermitDetailLine({
-  d,
-  projectId,
-}: {
-  d: QueuePermitDetail;
-  projectId: string;
-}) {
+ *  ★ The row answers, left to right: what kind of work · where · which permit ·
+ *  what state it is in · how due it is. */
+function QueueRowView({ row }: { row: QueueRow }) {
+  const pastDue = row.band === 'past_due';
   return (
     <div
-      className="mt-1 flex items-baseline gap-2 text-[10px]"
-      data-testid={`board-permit-${d.permitId}`}
+      className={`px-3.5 py-2 border-b border-border/50 flex items-start gap-2 ${
+        pastDue ? 'border-l-2 border-l-de bg-de-bg/30' : ''
+      }`}
+      data-testid={`board-queue-row-${row.key}`}
+      data-kind={row.kind}
+      data-band={row.band}
     >
-      {/* Identity — which permit. */}
       <div className="min-w-0 flex-1">
-        <Link
-          to={`/project/${projectId}?permit=${d.permitId}`}
-          className="font-bold text-de hover:underline"
-          data-testid={`board-permit-${d.permitId}-link`}
-        >
-          {d.num ?? 'No permit number'}
-        </Link>
-        <span className="text-muted"> · {d.type}</span>
-        {d.cycleIndex !== null && (
-          <span className="text-dim"> · cy{d.cycleIndex}</span>
-        )}
-      </div>
-
-      {/* State + how long — the middle question. */}
-      <div className="text-dim whitespace-nowrap" data-testid={`board-permit-${d.permitId}-state`}>
-        {d.daysInState}d {d.stateLabel}
-      </div>
-
-      {/* The clock — right-aligned so it forms a column down the panel. */}
-      <div
-        className="text-right whitespace-nowrap w-[104px] flex-none"
-        data-testid={`board-permit-${d.permitId}-target`}
-      >
-        {d.cityTarget ? (
-          <span className={d.cityTargetPassed ? 'text-co font-bold' : 'text-muted'}>
-            target {d.cityTarget.slice(5)}
-            {d.cityTargetPassed ? ' ⚑' : ''}
+        <div className="flex items-baseline gap-1.5 flex-wrap">
+          <span
+            className="text-[8.5px] font-extrabold uppercase tracking-wide px-1 py-px rounded flex-none"
+            style={{
+              background: 'var(--color-de-bg)',
+              color: 'var(--color-de)',
+              border: '1px solid var(--color-de)',
+            }}
+            data-testid={`board-queue-kind-${row.key}`}
+          >
+            {QUEUE_KIND_LABEL[row.kind]}
           </span>
-        ) : (
-          <span className="text-dim italic">No target date</span>
-        )}
+          <Link
+            to={`/project/${row.projectId}`}
+            className="text-[11.5px] font-extrabold text-text hover:underline truncate"
+            data-testid={`board-queue-address-${row.key}`}
+          >
+            {row.address}
+          </Link>
+        </div>
+        {/* ★ The permit itself is still one click away — the old queue's row
+            offered that and losing it would be a quiet regression. */}
+        <div className="text-[10px] text-muted mt-0.5 truncate">
+          <Link
+            to={`/project/${row.projectId}?permit=${row.permitId}`}
+            className="text-de hover:underline"
+            data-testid={`board-queue-permit-${row.key}`}
+          >
+            {row.num ?? 'no number yet'} · {row.type}
+          </Link>
+          {row.cycleIndex != null && ` · cycle ${row.cycleIndex}`}
+        </div>
+        <div className="text-[10px] text-dim mt-px truncate">{row.stateLine}</div>
+      </div>
+      {/* ★ Due-ness in WORDS over the date. Never a bare number, never blank —
+          a blank reads as zero, which is fix-303's rule carried forward. */}
+      <div className="flex-none text-right">
+        <div
+          className={`text-[10.5px] font-extrabold ${pastDue ? 'text-de' : 'text-text'}`}
+          data-testid={`board-queue-due-${row.key}`}
+        >
+          {row.dueWords}
+        </div>
+        {row.due && <div className="text-[9px] text-dim">{row.due}</div>}
       </div>
     </div>
   );
 }
 
-function QueueRow({ item }: { item: QueueProject }) {
+/** ★★ A band header plus its rows. Empty bands never reach here — the bands are
+ *  a sort, not a checklist, so there is deliberately no "Nothing here" row. */
+function QueueBandBlock({ group }: { group: QueueBandGroup }) {
   return (
-    <div
-      className="px-3.5 py-2 border-b border-border/50"
-      data-testid={`board-queue-row-${item.key}`}
-    >
-      {/* Project — the headline, with the state and count on the same line so
-          the row opens with "where is this and what does it need". */}
-      <div className="flex items-baseline gap-2">
-        <Link
-          to={`/project/${item.projectId}`}
-          className="text-[11.5px] font-extrabold text-text hover:underline truncate"
-          data-testid={`board-queue-project-${item.key}`}
+    <>
+      <div
+        className="px-3.5 py-1 bg-s2 border-b border-border flex items-baseline gap-1.5 sticky top-0"
+        data-testid={`board-queue-band-${group.band}`}
+      >
+        <span
+          className={`text-[8.5px] font-extrabold uppercase tracking-wide ${
+            group.band === 'past_due' ? 'text-de' : 'text-muted'
+          }`}
         >
-          {item.address}
-        </Link>
-        {item.permitCount > 1 && (
-          <span className="text-[9px] text-dim flex-none">{item.permitCount} permits</span>
-        )}
-        {item.status && (
-          <span className="text-[10px] text-muted ml-auto flex-none truncate">
-            {item.status}
-          </span>
-        )}
+          {group.label}
+        </span>
+        <span className="text-[8.5px] text-dim">{group.rows.length}</span>
       </div>
-      {item.next && (
-        <div className="text-[10.5px] font-bold text-text mt-0.5">{item.next}</div>
-      )}
-      {item.permits.map((d) => (
-        <PermitDetailLine key={d.permitId} d={d} projectId={item.projectId} />
+      {group.rows.map((r) => (
+        <QueueRowView key={r.key} row={r} />
       ))}
-    </div>
+    </>
   );
 }
 
@@ -664,45 +667,6 @@ function ForecastSection({
   );
 }
 
-function QueueSection({
-  label,
-  urgent,
-  data,
-  sub,
-  testid,
-  expanded,
-  onToggle,
-}: {
-  label: string;
-  urgent?: boolean;
-  data: BoardSection<QueueProject>;
-  sub?: string;
-  testid: string;
-  expanded: boolean;
-  onToggle: () => void;
-}) {
-  const rows = expanded ? data.all : data.items;
-  return (
-    <>
-      <SectionHeader
-        label={sub ? `${label} · ${sub}` : label}
-        total={data.total}
-        urgent={urgent}
-        capped={data.capped}
-        expanded={expanded}
-        onToggle={onToggle}
-        testid={testid}
-      />
-      {rows.length === 0 ? (
-        <div className="px-3.5 py-2 text-[10px] text-dim" data-testid={`${testid}-empty`}>
-          Nothing here.
-        </div>
-      ) : (
-        rows.map((i) => <QueueRow key={i.key} item={i} />)
-      )}
-    </>
-  );
-}
 
 export default function MyBoard() {
   // ★ fix-336: the SAME notification model the bell counts from, so the link
@@ -1345,12 +1309,15 @@ export default function MyBoard() {
             </div>
           </div>
 
-          {/* ── RIGHT: PROJECT QUEUE — only ever things with a STATE ── */}
+          {/* ── RIGHT: PROJECT QUEUE — the owner's priority list (fix-397) ── */}
           <div className="flex flex-col min-h-0" data-testid="my-board-queue">
             <div className="px-3.5 py-2 bg-s2 border-b border-border flex-none">
               <div className="text-[12.5px] font-extrabold text-text">Project queue</div>
-              <div className="text-[10px] text-muted mt-px">
-                {queue.projectCount} projects · where each one sits and what it needs next
+              <div className="text-[10px] text-muted mt-px" data-testid="board-queue-subhead">
+                {queue.total} due · submittals, corrections and city review on your permits
+                {queue.pastDue > 0 && (
+                  <span className="text-de font-bold"> · {queue.pastDue} past due</span>
+                )}
               </div>
             </div>
             {/* ★ fix-306 #35: My queue · My team · [person]. A filter on the
@@ -1532,30 +1499,29 @@ export default function MyBoard() {
                 </div>
               )}
 
-              <QueueSection
-                label="Blocked on you"
-                urgent
-                data={queue.blocked_on_you}
-                testid="board-sec-blocked"
-                expanded={isExpanded('board-sec-blocked')}
-                onToggle={() => toggleSection('board-sec-blocked')}
-              />
-              <QueueSection
-                label="Waiting on design"
-                urgent
-                data={queue.waiting_on_design}
-                testid="board-sec-waiting-design"
-                expanded={isExpanded('board-sec-waiting-design')}
-                onToggle={() => toggleSection('board-sec-waiting-design')}
-              />
-              <QueueSection
-                label="Waiting on the city"
-                sub="nothing for you to do"
-                data={queue.waiting_on_city}
-                testid="board-sec-waiting-city"
-                expanded={isExpanded('board-sec-waiting-city')}
-                onToggle={() => toggleSection('board-sec-waiting-city')}
-              />
+              {/* ★★★ fix-397 — THE OWNER'S PRIORITY LIST.
+                  One flat list of the viewer's permits, banded by how due they
+                  are, most urgent first. No project grouping and no caps: a
+                  band is a sort, not a top-five, and capping "Past due" is how
+                  554 N 75th's SDOT Tree got lost below two permits due a week
+                  later in the first place.
+
+                  ★★ "Blocked on you" and "Waiting on design" used to render
+                  here. Bobby, 2026-08-24: "i am not sure how well 'Blocked on
+                  you' and 'Waiting on design' is built out and if it is serving
+                  a function. i think we remove those for the time being until
+                  that gets built out in depth better. but this will serve a
+                  better purpose i think." A RULING, not an accident. */}
+              {queue.bands.length === 0 ? (
+                <div
+                  className="px-3.5 py-3 text-[10px] text-dim"
+                  data-testid="board-queue-empty"
+                >
+                  Nothing due on your permits.
+                </div>
+              ) : (
+                queue.bands.map((g) => <QueueBandBlock key={g.band} group={g} />)
+              )}
 
               {/* fix-298 Phase 2: system health — OVERSIGHT ONLY.
                   This is where the old scraper-activity bell went. It is not
