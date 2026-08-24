@@ -331,16 +331,32 @@ describe('fix-308b: the 3921 shape, through the rendered board', () => {
     expect(screen.queryByTestId('board-sec-handoff-wrap')).toBeNull();
     // No forecast rows, so nothing claims to be his.
     expect(screen.queryAllByTestId(/^board-forecast-row-/)).toHaveLength(0);
-    // And his queue is genuinely empty — the permit is not attributed to him
-    // under any heading. (The panel's own chrome is static text; the count is
-    // what says whether anything reached it.)
+    // ★★★ fix-400 — THE QUEUE HALF OF THIS TEST INVERTS, BY RULING.
+    //
+    // Bobby, 2026-08-25:
+    //
+    //   "DA's project queue should show submittals and corrections. city
+    //    review is just an addition to ENT."
+    //
+    // This permit is a Demolition with target_submit 2026-03-01 and no arch
+    // tasks — the exact shape fix-308b used to pin an EMPTY queue for Cam, and
+    // the shape that caught fix-397 when it tried to widen the set on its own
+    // judgement. Bobby has now made that call himself, so the Submittal row is
+    // expected rather than excluded.
+    //
+    // ★★ SUPERSEDED, NOT MISTAKEN. fix-308b was right while a DA's dated design
+    // work had nowhere to live on the queue; fix-397 gave it a home.
     const queue = screen.getByTestId('my-board-queue');
-    // ★ fix-397: the sub-head counts DUE ROWS now, not projects — the queue is
-    // flat, so "projects" stopped being its unit. The claim (nothing reaches
-    // this viewer's queue) is unchanged and is asserted on the empty state too.
-    expect(queue.textContent).toContain('0 due');
-    expect(queue.textContent).toContain('Nothing due on your permits');
-    expect(queue.textContent).not.toContain('7133443-DM');
+    expect(queue.textContent).toContain('1 due');
+    expect(queue.textContent).toContain('7133443-DM');
+    expect(screen.getByTestId(/^board-queue-row-/).getAttribute('data-kind')).toBe(
+      'submittal',
+    );
+
+    // ★★ AND THE REST OF THIS TEST IS UNCHANGED, which is the point: the
+    // ownership shape fix-308b actually measured — no handoff, no forecast row,
+    // and (below) no CITY REVIEW row — is untouched by the widening.
+    expect(screen.queryAllByTestId(/^board-queue-row-/)).toHaveLength(1);
   });
 
   it('★★ Miles sees it, and it is actionable — the permit is his', () => {

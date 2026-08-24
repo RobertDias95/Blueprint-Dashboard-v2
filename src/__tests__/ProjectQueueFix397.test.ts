@@ -430,7 +430,8 @@ describe('fix-397 §5: the viewer resolver is the board\'s existing one', () => 
     const p = permit({ ...SDOT_TREE, ent_lead: null, da: 'Cam' } as Partial<PermitWithCycles>);
     expect(
       buildQueue(input({ viewer: resolveBoardViewer('Cam', []), permits: [p] })).total,
-      // ★ ...but see fix-308b below: a DA-shaped viewer gets corrections only.
+      // ★ ...but this permit is CITY REVIEW, which a DA-shaped viewer never
+      // gets — see the fix-400 case below. Their own kinds are covered there.
     ).toBe(0);
   });
 
@@ -459,9 +460,13 @@ describe('fix-397 §5: the viewer resolver is the board\'s existing one', () => 
     ).toBe(0);
   });
 
-  it('★★ fix-308b survives: a DA-shaped viewer gets corrections, not city review', () => {
-    // fix-308b decided this explicitly and pinned it with a rendered test on
-    // prod permit 165. fix-397 reshaped the vocabulary, not the ruling.
+  it('★★ a DA-shaped viewer gets corrections, never city review', () => {
+    // ★★ fix-400 (2026-08-25) widened this set to {submittal, corrections} on
+    // Bobby's ruling — "DA's project queue should show submittals and
+    // corrections. city review is just an addition to ENT." The CITY REVIEW
+    // exclusion asserted here is the half that is now twice-ruled, by fix-308b
+    // and by Bobby in his own words. The submittal half moved to
+    // DaSubmittalsFix400.test.ts, where the whole set is asserted together.
     const daOnly = (over: Partial<PermitWithCycles>) =>
       buildQueue(
         input({
