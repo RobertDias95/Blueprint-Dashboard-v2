@@ -18,6 +18,10 @@ const EVENT_LABEL: Record<AutoEvent, string> = {
     'Auto-task: the portal and dashboard disagree — reconcile the status (the manual-edit guard kept blocking the scraper).',
   results_ready:
     'Auto-task: the permit is issued / approved — send out the approved plans / results.',
+  // ★ fix-395: the one raised by TIME rather than by a city action, so the
+  // tooltip says what elapsed rather than what happened.
+  city_target_chase:
+    'Auto-task: the city has been past its own review target for 7 days — call them. Closes itself when the city responds or moves the target.',
 };
 
 export default function BotBadge({

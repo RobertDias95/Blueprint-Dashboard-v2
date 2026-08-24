@@ -781,6 +781,11 @@ export const AUTO_CLOSED_REASONS = [
   'superseded_resubmitted',
   'superseded_status_matched',
   'superseded_number_present',
+  // ★★ fix-395: the chase task's own two deaths, and they are the negation of
+  // its own mint gate — a task that would immediately auto-close is never
+  // minted, so these only ever fire on a condition that died AFTER the mint.
+  'superseded_city_responded',
+  'superseded_target_changed',
 ] as const;
 export type AutoClosedReason = (typeof AUTO_CLOSED_REASONS)[number];
 
@@ -866,7 +871,13 @@ export type AutoEvent =
   // fix-181: fired when a permit reaches "results available" — issued
   // (actual_issue set) for issuance types, or approved (approval_date set) for
   // no-issuance types — so the ent lead sends out the approved plans / results.
-  | 'results_ready';
+  | 'results_ready'
+  // ★★★ fix-395: the only event fired by TIME rather than by a city action.
+  // The city's review target has been chaseable — target plus one BUSINESS day
+  // of grace, fix-305's `cityTargetChaseable` — for 7 straight days and nobody
+  // has called them. Minted by the daily sweep (bp_generate_city_chase_tasks),
+  // never by a trigger, because nothing HAPPENS on day 7; that is the problem.
+  | 'city_target_chase';
 
 /** fix-70: a task as returned by bp_list_permit_tasks / bp_my_tasks. The
  *  `status` field is the permit_tasks.completion_status value
