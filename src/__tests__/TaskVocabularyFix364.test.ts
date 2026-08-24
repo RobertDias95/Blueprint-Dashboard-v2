@@ -17,6 +17,21 @@ import { buildNewItems } from '../lib/boardReads';
 import { provenanceLine } from '../lib/taskProvenance';
 import type { Permit } from '../lib/database.types';
 import renameSql from '../../migrations/fix_364_task_vocabulary.sql?raw';
+// ★ fix-395 added two reasons and re-emitted the CHECK, so the live constraint
+//   now lives here. Imported so "the TS list matches the DB" stays a real
+//   assertion instead of a frozen count.
+import chaseSql from '../../migrations/fix_395_city_target_chase_task.sql?raw';
+
+/** The six this ticket itself established — pinned, so fix-364's own claim
+ *  stays checked even as the vocabulary grows past it. */
+const FIX_364_REASONS = [
+  'permit_issued',
+  'superseded_by_intake_acceptance',
+  'superseded_next_cycle',
+  'superseded_resubmitted',
+  'superseded_status_matched',
+  'superseded_number_present',
+] as const;
 import badgeSrc from '../components/shared/AutoClosedBadge.tsx?raw';
 
 // ===========================================================================
@@ -139,11 +154,28 @@ describe('fix-364 §1: one concept, one term', () => {
   it('★ reader 4 — the TYPE, which had been wrong since fix-355', () => {
     // `auto_closed_reason?: 'permit_issued' | null` was a latent reader: a
     // narrower type never fails at runtime, so nothing caught it for nine
-    // tickets. The set now matches the DB CHECK exactly.
-    expect(AUTO_CLOSED_REASONS).toHaveLength(6);
-    for (const r of AUTO_CLOSED_REASONS) {
+    // tickets. The set must match the DB CHECK exactly.
+    //
+    // ★★ fix-395 grew the vocabulary by two, so the pin moved to the CHECK that
+    // is now live rather than to fix-364's own. THE INTENT IS UNCHANGED — "the
+    // TS list and the DB CHECK say the same thing" — and it is now checked
+    // against the newest constraint instead of a frozen count, so the next
+    // ticket to add a reason is caught here rather than in production.
+    expect(FIX_364_REASONS).toHaveLength(6);
+    for (const r of FIX_364_REASONS) {
       expect(renameSql).toContain(`'${r}'`);
+      expect(AUTO_CLOSED_REASONS).toContain(r);
     }
+
+    const liveCheck = chaseSql.slice(
+      chaseSql.indexOf('ADD CONSTRAINT permit_tasks_auto_closed_reason_check'),
+    );
+    const constrained = new Set(
+      [...liveCheck.slice(0, 800).matchAll(/'(\w+)'/g)].map((m) => m[1]!),
+    );
+    expect([...AUTO_CLOSED_REASONS].filter((r) => !constrained.has(r))).toEqual([]);
+    expect([...constrained].filter((r) => !AUTO_CLOSED_REASONS.includes(r as never)))
+      .toEqual([]);
   });
 });
 

@@ -4,6 +4,7 @@ import { usePermits } from '../hooks/usePermits';
 import { useDrawSchedule } from '../hooks/useDrawSchedule';
 import { useAllPermitCycleReviewers } from '../hooks/useAllPermitCycleReviewers';
 import { useNumberEntrySweep } from '../hooks/useNumberEntrySweep';
+import { useCityChaseSweep } from '../hooks/useCityChaseSweep';
 import {
   bucketPermits,
   hideIssuedAtAddress,
@@ -170,6 +171,10 @@ export default function Dashboard() {
   );
   // fix-155: fire the numberless-permit sweep once/day (self-guarded).
   useNumberEntrySweep();
+  // fix-395: and the 7-day city-chase sweep, the same way. Both self-guard
+  // server-side via app_sweeps, so mounting two is two cheap no-ops after the
+  // first run of the day.
+  useCityChaseSweep();
   const [search, setSearch] = useState('');
   // fix-178: three-way hold filter (All / Only holds / Exclude holds). Default
   // 'all'; no persistence (resets each load).

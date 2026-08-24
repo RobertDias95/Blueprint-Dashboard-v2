@@ -29,6 +29,8 @@ export interface LifecycleDateSources {
     intake_accepted?: string | null;
     corr_issued?: string | null;
     resubmitted?: string | null;
+    /** fix-395: the city's review target — the chase task's own city date. */
+    city_target?: string | null;
   } | null;
   /** permits.approval_date — the basis for a `results_ready` 'approved' task. */
   approvalDate?: string | null;
@@ -65,6 +67,11 @@ export function cityDateForEvent(
       return (src.basis ?? 'issued') === 'approved'
         ? (src.approvalDate ?? null)
         : (src.actualIssue ?? null);
+    // ★ fix-395: the day the CITY said it would answer. Weeks in the past by
+    //   construction — which is exactly what the LEAST guard below exists for,
+    //   and why target_date is anchored to TODAY rather than to start.
+    case 'city_target_chase':
+      return c.city_target ?? null;
     case 'number_entry':
     case 'scrape_reconcile':
       return null;

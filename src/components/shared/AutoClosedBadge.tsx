@@ -39,6 +39,13 @@ const REASON_LABEL: Record<string, string> = {
     'Closed automatically: the dashboard now shows what the portal showed, so there is nothing left to reconcile.',
   superseded_number_present:
     'Closed automatically: the permit number is on file and the city has a submitted record of it.',
+  // ★★ fix-395: the chase task's own two deaths. Both are the negation of its
+  // mint gate — it is never minted into a condition that is already dead, so
+  // these only ever fire on something that changed AFTER the task appeared.
+  superseded_city_responded:
+    'Closed automatically: the city has responded, so there is nothing left to chase. Reopen it if you still need to call them.',
+  superseded_target_changed:
+    'Closed automatically: the city moved its review target, so the date this task was chasing no longer exists. A new one is raised if the new target also passes.',
 };
 
 export default function AutoClosedBadge({
