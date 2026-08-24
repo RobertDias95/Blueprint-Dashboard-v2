@@ -157,9 +157,12 @@ describe('fix-308 ★★ the 3921 case, by name', () => {
       f.next_week.total;
     expect(rows, 'Cam has no task on this permit and must see no row').toBe(0);
 
+    // ★ fix-397: the two sections this asserted on were removed by ruling
+    // (see projectQueue.ts for Bobby's words). The CLAIM survives intact and
+    // is now stronger — Cam sees no queue row of ANY kind on this permit.
     const q = buildQueue(input({ viewer: cam, permits: [p], tasks }));
-    expect(q.blocked_on_you.total).toBe(0);
-    expect(q.waiting_on_design.total).toBe(0);
+    expect(q.total).toBe(0);
+    expect(q.rows).toEqual([]);
   });
 
   it('★★ and offers no handoff — there is nothing to hand off FROM', () => {

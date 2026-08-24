@@ -282,10 +282,22 @@ describe('fix-348 §1: the two contradictions, reproduced then made impossible',
     const tasks = [
       mkTask({ permit_id: permit.id, discipline: 'arch', status: 'Resolved' }),
     ];
+    // ★★★ fix-397: this asserted the fix-348 STRING FIX — a DA whose design
+    // half is finished used to read "With <themself>" on their own queue, and
+    // fix-348 made the counterparty follow the LEG. The section that rendered
+    // that string was removed by ruling, so the string has no home.
+    //
+    // ★★ THE RULE ITSELF IS NOT GONE and is still tested: milestoneCounterparty
+    // is what fix-348 actually fixed, it still drives the FORECAST (untouched by
+    // fix-397), and it is asserted directly here so the regression fix-348
+    // shipped cannot silently rot.
+    expect(milestoneCounterparty('design', permit).label).toBe('Bobby');
+    expect(milestoneCounterparty('design', permit).label).not.toContain('Cam');
+
+    // What Cam's queue shows for this permit now: corrections are in hand, and
+    // Cam holds the design leg, so it is his Corrections row.
     const q = buildQueue(input({ viewer: CAM, permits: [permit], tasks }));
-    const row = q.waiting_on_design.all[0]!;
-    expect(row.status).toBe('With Bobby');
-    expect(row.status).not.toContain('Cam');
+    expect(q.rows.map((r) => r.kind)).toEqual(['corrections']);
   });
 });
 
@@ -368,7 +380,20 @@ describe('fix-348 §2: every forecast bucket, and the rule that fills it', () =>
   });
 });
 
-describe('fix-348 §2: every QUEUE group, and the rule that fills it', () => {
+// ★★★ fix-397 — THIS BLOCK USED TO ENUMERATE THE THREE QUEUE GROUPS. There are
+// no groups any more; there are three KINDS and six due-date bands. Bobby ruled
+// on 2026-08-24, after his own board put a three-days-past-due SDOT Tree at the
+// BOTTOM of the list:
+//
+//   "i am not sure how well 'Blocked on you' and 'Waiting on design' is built
+//    out and if it is serving a function. i think we remove those for the time
+//    being until that gets built out in depth better. but this will serve a
+//    better purpose i think."
+//
+// ★★ EVERY SCENARIO BELOW IS KEPT, with its original data, and re-asserted in
+// the new vocabulary — so what fix-348 pinned about WHICH PERMITS REACH THE
+// QUEUE is still pinned. The one that inverts is called out where it inverts.
+describe('fix-397 §2 (was fix-348 §2): every QUEUE kind, and the rule that fills it', () => {
   const cyc = (over: Record<string, unknown>) => ({
     id: 'c0',
     permit_id: 1,
@@ -376,7 +401,7 @@ describe('fix-348 §2: every QUEUE group, and the rule that fills it', () => {
     ...over,
   });
 
-  it('BLOCKED ON YOU — rule: a stateful (dateless) milestone whose relay state is MINE', () => {
+  it('CORRECTIONS — rule: fix-214 says the current cycle is in corrections', () => {
     const permit = mkPermit({
       ent_lead: 'Bobby',
       permit_cycles: [
@@ -384,10 +409,15 @@ describe('fix-348 §2: every QUEUE group, and the rule that fills it', () => {
       ],
     } as Partial<PermitWithCycles>);
     const q = buildQueue(input({ permits: [permit] }));
-    expect(q.blocked_on_you.total).toBe(1);
+    expect(q.rows.map((r) => r.kind)).toEqual(['corrections']);
+    // ★★ AND ITS DUE DATE IS NULL, which is a finding rather than an omission:
+    // the model carries no resubmit target for the current round. city_target
+    // is the CITY's clock and the brief forbids borrowing it. See buildQueue.
+    expect(q.rows[0]!.due).toBeNull();
+    expect(q.rows[0]!.band).toBe('no_date');
   });
 
-  it('WAITING ON DESIGN — rule: a stateful milestone whose relay state is WAITING', () => {
+  it('★★ the DESIGN half no longer changes the row — the ruling, in one test', () => {
     const permit = mkPermit({
       da: 'Cam',
       ent_lead: 'Bobby',
@@ -397,24 +427,37 @@ describe('fix-348 §2: every QUEUE group, and the rule that fills it', () => {
     } as Partial<PermitWithCycles>);
     const tasks = [mkTask({ permit_id: permit.id, discipline: 'arch', status: 'Open' })];
     const q = buildQueue(input({ permits: [permit], tasks }));
-    expect(q.waiting_on_design.total).toBe(1);
-    expect(q.waiting_on_design.all[0]!.status).toBe('With Cam');
+    // Same permit, an open arch task, a DA on the other leg — it used to be a
+    // "Waiting on design · With Cam" row. It is simply Bobby's Corrections row
+    // now: the queue answers "what do I owe and when", not "who has the baton".
+    expect(q.rows.map((r) => r.kind)).toEqual(['corrections']);
   });
 
-  it('WAITING ON THE CITY — rule: nothing stateful, submitted, and not yet approved', () => {
+  it('CITY REVIEW — rule: submitted, not yet approved, on the city clock', () => {
     const permit = mkPermit({
       ent_lead: 'Bobby',
       permit_cycles: [cyc({ submitted: '2026-06-01', intake_accepted: '2026-06-05' })],
       updated_at: `${TODAY}T12:00:00Z`,
     } as Partial<PermitWithCycles>);
     const q = buildQueue(input({ permits: [permit] }));
-    expect(q.waiting_on_city.total).toBe(1);
+    expect(q.rows.map((r) => r.kind)).toEqual(['city_review']);
   });
 
-  it('★ NOT IN THE QUEUE AT ALL — rule: pre-submittal with nothing stateful', () => {
+  it('★★★ THE INVERSION — a pre-submittal target IS in the queue now', () => {
+    // fix-348 pinned the opposite: "NOT IN THE QUEUE AT ALL — pre-submittal
+    // with nothing stateful". That is exactly what Bobby asked to change:
+    //
+    //   "what we want in that lineup is not just waiting on the city, but if
+    //    there's any permits that had target submits or corrections that were
+    //    assigned to you, that's what your Project Queue would look like from
+    //    an owner of a permit."
+    //
+    // So the permit fix-348 deliberately excluded is deliberately included,
+    // as a Submittal row carrying ITS OWN date — not the city's.
     const permit = mkPermit({ ent_lead: 'Bobby', target_submit: '2026-09-01' });
     const q = buildQueue(input({ permits: [permit] }));
-    expect(q.projectCount).toBe(0);
+    expect(q.rows.map((r) => r.kind)).toEqual(['submittal']);
+    expect(q.rows[0]!.due).toBe('2026-09-01');
   });
 });
 

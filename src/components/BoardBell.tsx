@@ -238,16 +238,32 @@ export default function BoardBell() {
             </div>
             <Row label="Past due" value={forecast.past_due.total} urgent testid="bell-past-due" />
             <Row label="Today" value={forecast.today.total} urgent testid="bell-today" />
-            <Row label="Blocked on you" value={queue.blocked_on_you.total} urgent testid="bell-blocked" />
+            {/* ★★★ fix-397 — "Blocked on you", "Waiting on design" and
+                "Waiting on the city" used to be three rows here, one per queue
+                group. The queue no longer HAS groups, and two of the three were
+                ruled out by Bobby on 2026-08-24:
+
+                  "i am not sure how well 'Blocked on you' and 'Waiting on
+                   design' is built out and if it is serving a function. i think
+                   we remove those for the time being until that gets built out
+                   in depth better. but this will serve a better purpose i
+                   think."
+
+                ★★ The bell's job is unchanged — "where you stand" — so the rows
+                are restated in the queue's new vocabulary rather than dropped
+                outright: what is late, and what lands before the week is out.
+                Both numbers come from the SAME buildQueue the panel renders, so
+                the bell can never disagree with the list it links to. */}
             <Row
-              label="Waiting on design"
-              value={queue.waiting_on_design.total}
-              testid="bell-waiting-design"
+              label="Queue · past due"
+              value={queue.pastDue}
+              urgent
+              testid="bell-queue-past-due"
             />
             <Row
-              label="Waiting on the city"
-              value={queue.waiting_on_city.total}
-              testid="bell-waiting-city"
+              label="Queue · due this week"
+              value={queue.dueThisWeek}
+              testid="bell-queue-week"
             />
           </div>
 

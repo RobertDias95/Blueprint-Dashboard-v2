@@ -335,7 +335,11 @@ describe('fix-308b: the 3921 shape, through the rendered board', () => {
     // under any heading. (The panel's own chrome is static text; the count is
     // what says whether anything reached it.)
     const queue = screen.getByTestId('my-board-queue');
-    expect(queue.textContent).toContain('0 projects');
+    // ★ fix-397: the sub-head counts DUE ROWS now, not projects — the queue is
+    // flat, so "projects" stopped being its unit. The claim (nothing reaches
+    // this viewer's queue) is unchanged and is asserted on the empty state too.
+    expect(queue.textContent).toContain('0 due');
+    expect(queue.textContent).toContain('Nothing due on your permits');
     expect(queue.textContent).not.toContain('7133443-DM');
   });
 
@@ -395,7 +399,11 @@ describe('fix-308b #47: a DA\'s rendered queue is intakes and corrections only',
     // reached by a fallback that skips the milestone loop entirely, and only
     // the RENDERED test caught that. The domain unit tests could not have.
     const queue = screen.getByTestId('my-board-queue');
-    expect(queue.textContent).toContain('0 projects');
+    // ★ fix-397: the sub-head counts DUE ROWS now, not projects — the queue is
+    // flat, so "projects" stopped being its unit. The claim (nothing reaches
+    // this viewer's queue) is unchanged and is asserted on the empty state too.
+    expect(queue.textContent).toContain('0 due');
+    expect(queue.textContent).toContain('Nothing due on your permits');
   });
 
   // ★ A BOUNDARY I AM STATING RATHER THAN CROSSING. fix-305's "Did this
@@ -428,7 +436,8 @@ describe('fix-308b #47: a DA\'s rendered queue is intakes and corrections only',
     wrap(<MyBoard />);
     const queue = screen.getByTestId('my-board-queue');
     // ★ 1 project reaches his QUEUE — the filter is DA-shaped only.
-    expect(queue.textContent).toContain('1 project');
+    // ★ fix-397: one ROW reaches his queue (the unit changed with the shape).
+    expect(queue.textContent).toContain('1 due');
     expect(queue.textContent).toContain('Quiet St');
   });
 

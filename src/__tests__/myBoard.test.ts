@@ -5,6 +5,7 @@ import {
   buildQueue,
   designLegStatus,
   legShape,
+  permitMilestones,
   relayStateFor,
   resolveBoardViewer,
   suppressionCounts,
@@ -306,9 +307,28 @@ describe('fix-298: ★ forecast needs a DATE, queue needs a STATE', () => {
     expect(
       f.past_due.total + f.today.total + f.tomorrow.total + f.this_week.total,
     ).toBe(0);
+
+    // ★★★ fix-397 — THIS ASSERTION USED TO READ `q.blocked_on_you`, AND THAT
+    // SECTION WAS RULED OUT. Bobby, 2026-08-24:
+    //
+    //   "i am not sure how well 'Blocked on you' and 'Waiting on design' is
+    //    built out and if it is serving a function. i think we remove those for
+    //    the time being until that gets built out in depth better. but this
+    //    will serve a better purpose i think."
+    //
+    // ★★ The RULE it was testing is untouched — `reviewer_silent` still fires
+    // on this permit, still measured from the last MOVEMENT — so the assertion
+    // is made where the rule lives instead of through a section that no longer
+    // exists. (And the prompt it raised is now fix-395's `city_target_chase`
+    // TASK, which is the same question asked of a named owner.)
+    expect(
+      permitMilestones(permit, TODAY).map((m) => m.kind),
+    ).toContain('reviewer_silent');
+
+    // What the queue shows for this permit now: it is submitted and unapproved,
+    // so it is the city's move — one City review row.
     const q = buildQueue(inp);
-    expect(q.blocked_on_you.total).toBe(1);
-    expect(q.blocked_on_you.items[0]!.next.toLowerCase()).toContain('ping the reviewer');
+    expect(q.rows.map((r) => r.kind)).toEqual(['city_review']);
   });
 
   it('★ silence is measured from the last MOVEMENT, not from submission', () => {
@@ -336,15 +356,29 @@ describe('fix-298: ★ forecast needs a DATE, queue needs a STATE', () => {
       updated_at: '2026-08-12T12:00:00Z',
       permit_cycles: cycles,
     });
-    expect(buildQueue(input({ permits: [touchedYesterday] })).blocked_on_you.total).toBe(0);
-
     const untouchedForMonths = mkPermit({
       da: null,
       ent_lead: 'Miles',
       updated_at: '2026-06-01T12:00:00Z',
       permit_cycles: cycles,
     });
-    expect(buildQueue(input({ permits: [untouchedForMonths] })).blocked_on_you.total).toBe(1);
+
+    // ★★ fix-397: asserted through `permitMilestones` rather than through
+    // `q.blocked_on_you`, which no longer exists (see the ruling quoted above).
+    // The measurement itself — from updated_at, not from submitted — is
+    // unchanged and is the whole point of this test, so it is still checked.
+    const kinds = (p: typeof touchedYesterday) =>
+      permitMilestones(p, TODAY).map((m) => m.kind);
+    expect(kinds(touchedYesterday)).not.toContain('reviewer_silent');
+    expect(kinds(untouchedForMonths)).toContain('reviewer_silent');
+
+    // ★ And the queue treats them identically, because "how long has the city
+    // been quiet" is not one of its three kinds: both are simply City review.
+    for (const p of [touchedYesterday, untouchedForMonths]) {
+      expect(buildQueue(input({ permits: [p] })).rows.map((r) => r.kind)).toEqual([
+        'city_review',
+      ]);
+    }
   });
 
   it('a dated target submit is on the FORECAST', () => {
@@ -574,14 +608,21 @@ describe('fix-298: ★ the board does not grow with the workload', () => {
     expect(Object.keys(miles).sort()).toEqual(Object.keys(bobby).sort());
   });
 
-  it('every queue group is capped independently, each keeping its true total', () => {
+  it('★★★ fix-397: queue BANDS are uncapped — a cap is what buried 554 N 75th', () => {
+    // This test used to assert that each of the three queue GROUPS capped
+    // independently at BOARD_SECTION_CAPS.queueGroup. The groups are gone
+    // (fix-397), and so is the cap, on purpose: a band is a SORT, not a top
+    // five. Capping "Past due" is precisely how a three-day-late SDOT Tree
+    // ended up below two permits due a week later on Bobby's own board.
     const q = buildQueue(
       input({ viewer: MILES, permits: milesPermits, projects: milesProjects }),
     );
-    for (const g of [q.blocked_on_you, q.waiting_on_design, q.waiting_on_city]) {
-      expect(g.items.length).toBeLessThanOrEqual(BOARD_SECTION_CAPS.queueGroup);
-      if (g.capped) expect(g.total).toBeGreaterThan(g.items.length);
-    }
+    // Every row the queue built is rendered — nothing is silently dropped.
+    expect(q.rows.length).toBe(q.bands.reduce((n, b) => n + b.rows.length, 0));
+    expect(q.total).toBe(q.rows.length);
+    // ★ And the header count a reader sees is the TRUE total, which was the
+    // half of the old assertion worth keeping.
+    expect(q.pastDue).toBe(q.rows.filter((r) => r.band === 'past_due').length);
   });
 
   it('★ past due is RANKED, not listed — the latest item leads', () => {
