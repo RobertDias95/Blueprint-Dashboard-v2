@@ -318,41 +318,63 @@ export function usesDaQueueShape(legs: ReadonlyArray<'design' | 'entitlement'>):
 }
 
 /**
- * ★★★ fix-397 — fix-308b'S RULING, CARRIED INTO THE NEW QUEUE'S VOCABULARY.
+ * ★★★ WHAT A DESIGN ASSOCIATE'S QUEUE HOLDS — THREE DECISIONS, IN ORDER.
  *
+ * This set has been ruled on three times. All three are recorded because the
+ * shape of the answer changed under it twice, and a reader who sees only the
+ * current line would read the middle one as a contradiction rather than as the
+ * step it was.
+ *
+ * ---------------------------------------------------------------------------
+ * 1 · fix-308b (register #47) — CORRECTIONS AND INTAKES ONLY
+ * ---------------------------------------------------------------------------
+ * Bobby: *"For design associates, what they really need to focus on is upcoming
+ * intakes, and then your corrections."* `DA_QUEUE_KINDS` above is that ruling
+ * in the milestone vocabulary of the time — {intake, corrections} — and its
+ * rendered test pinned the exclusion on prod permit 165: DA Cam's queue is
+ * EMPTY on a Demolition with target_submit 2026-03-01 and no arch tasks, even
+ * though the relay reads that permit's design leg as 'mine'.
+ *
+ * ---------------------------------------------------------------------------
+ * 2 · fix-397 — THE SAME RULING, IN THE NEW VOCABULARY
+ * ---------------------------------------------------------------------------
  * fix-397 reshaped the queue from three relay groups into three KINDS
- * (submittal · corrections · city review), so `DA_QUEUE_KINDS` above — which
- * names MilestoneKinds — no longer has anything in the queue to filter. The
- * ruling behind it did not expire with its vocabulary, so it is restated here
- * rather than quietly dropped.
+ * (submittal · corrections · city review), leaving `DA_QUEUE_KINDS` with
+ * nothing in the queue to filter. It first allowed `submittal`, reasoning that
+ * target_submit's design-side verb is "Finish the set" (MILESTONE_VERBS) and
+ * that is squarely "what they really need to focus on" — and fix-308b's
+ * rendered test caught it. So fix-397 kept the set at {corrections} and said,
+ * in as many words, that widening it was *"a product decision for Bobby, not a
+ * side effect of a reshape"*.
  *
- * ★★ THE LOAD-BEARING HALF IS THE EXCLUSION. fix-308b's own note records that
- * gating only the stateful loop "let it through the back door" — a permit
- * sitting quietly with the city is neither an intake nor a correction, and a
- * design associate's list should be their WORK, not a status board. So
- * `city_review` is out.
+ * ★ `intake` never mattered either way: it is an entitlement-only milestone
+ * (MILESTONE_LEGS), so a DA never held one. Corrections is all that survived
+ * the translation.
  *
- * ★★★ AND SO IS `submittal`, WHICH IS NOT AN OBVIOUS CALL — so here is the
- * evidence. fix-397 first allowed it, reasoning that target_submit's design-side
- * verb is "Finish the set" (MILESTONE_VERBS) and that is squarely "what they
- * really need to focus on". fix-308b had already decided otherwise, explicitly
- * and with a rendered test: `DA_QUEUE_KINDS` is {intake, corrections}, and
- * BoardOwnershipRenderedFix308b asserts that DA Cam's queue is EMPTY on prod
- * permit 165 — a Demolition with target_submit 2026-03-01 and no arch tasks at
- * all. Under the relay that permit's design leg reads 'mine', so without the
- * filter it WOULD appear; fix-308b's whole point is that it should not.
+ * ---------------------------------------------------------------------------
+ * 3 · fix-400 — BOBBY MADE THAT DECISION, AND REVERSED THE SUBMITTAL HALF
+ * ---------------------------------------------------------------------------
+ * Bobby, 2026-08-25:
  *
- * ★ `intake` never mattered to this rule either way: it is an
- * entitlement-only milestone (MILESTONE_LEGS), so a DA never held one. The set
- * that actually survives into fix-397's vocabulary is therefore corrections
- * alone. Widening it is a product decision for Bobby, not a side effect of a
- * reshape.
+ *   "DA's project queue should show submittals and corrections. city review is
+ *    just an addition to ENT."
  *
- * ★ Applies ONLY when design is the viewer's every leg (`usesDaQueueShape`).
- * Somebody who is a DA here and an ENT lead there keeps the full queue.
+ * ★★ So `submittal` is IN, and fix-308b's exclusion of it is SUPERSEDED, NOT
+ * MISTAKEN: it was the right call while a DA's dated design work had no home on
+ * the queue at all, and fix-397 gave it one.
+ *
+ * ★★★ `city_review` STAYS OUT, and that half is now twice-ruled. fix-308b's own
+ * note records that gating only the stateful loop "let it through the back
+ * door" — a permit sitting quietly with the city is neither an intake nor a
+ * correction — and Bobby has now said the same thing in his own words. A design
+ * associate's list is their WORK, not a status board.
+ *
+ * ★ Applies ONLY when design is the viewer's every leg (`usesDaQueueShape`),
+ * unchanged by this ticket. Somebody who is a DA here and an ENT lead there
+ * keeps the full queue, because narrowing it would hide their entitlement work.
  */
 export const DA_QUEUE_ROW_KINDS: ReadonlySet<'submittal' | 'corrections' | 'city_review'> =
-  new Set(['corrections'] as const);
+  new Set(['submittal', 'corrections'] as const);
 
 export function daQueueAllowsRowKind(
   kind: 'submittal' | 'corrections' | 'city_review',
