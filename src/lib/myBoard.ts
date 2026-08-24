@@ -698,9 +698,23 @@ function milestoneAppliesIgnoringHistory(
   // chip returns on the next render, because the hold was the only reason they
   // were quiet.
   //
-  // ★★ `isHeld` is TRUE for a permit held by its own hold OR by its project's
-  // (see holdWindowsForPermit's note on direction). It never flows the other
-  // way: a held permit does not make its project held.
+  // ★★★ `isHeld` IS TRUE AT EITHER SCOPE — by this permit's own hold, or by its
+  // PROJECT's. Bobby ruled that on 2026-08-23 (fix-391): "on hold" means quiet
+  // whichever way it was placed, and a person who parked a whole project should
+  // not still be nagged about the permits inside it.
+  //
+  // ★★★ DO NOT "FIX" THE PROJECT HALF AWAY. fix-390 introduced the union while
+  // its own report said it had only added permit-scope silence — the behaviour
+  // was right and the description was wrong. It is deliberate now, and this
+  // comment exists so the next reader does not read the project half as an
+  // accident and remove it.
+  //
+  // ★★ CANCEL IS NOT HOLD. `prepare()` builds the held-project set filtered to
+  // kind === 'hold', so a CANCELLED project never arrives here — its treatment
+  // is fix-262's (dropped from the board entirely, via isCancelledProject) and
+  // is untouched. Two kinds, two mechanisms, on purpose.
+  //
+  // ★ It never flows upward: a held permit does not make its project held.
   if (isHeld) return false;
 
   // ★★★ fix-388 §2: A WITHDRAWN PERMIT RAISES NOTHING, OF ANY KIND.

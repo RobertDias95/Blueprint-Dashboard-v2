@@ -47,6 +47,12 @@ export function holdWindowsForPermit(
  * project ids on hold (`activeHoldProjectIds`) and the permit ids on hold
  * (`activeHoldPermitIds`). Passing sets rather than rows keeps this O(1) per
  * permit on surfaces that ask it for hundreds of rows.
+ *
+ * ★★★ fix-391: BOTH HALVES ARE LOAD-BEARING. Bobby ruled (2026-08-23) that "on
+ * hold" means quiet at either scope, so the project half is not an incidental
+ * convenience for the arithmetic — it is the answer the board depends on. A
+ * change that narrowed this to permits only would silently un-quiet every
+ * permit under a project hold.
  */
 export function isPermitHeld(
   permit: { id: number; project_id: string },
