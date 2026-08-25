@@ -21,13 +21,79 @@ export const STAGE_LABEL: Record<PlanOfRecordStage, string> = {
   marketing: 'Marketing',
 };
 
+// ===========================================================================
+// ★★★ fix-407 §4 — TWO OF THESE THREE CHIPS PAINTED NOTHING
+// ===========================================================================
+//
+// fix-406 found the Library's SITE chip reading `var(--color-ok)`, a variable
+// **defined nowhere in this app**, and reported that `planOfRecord` read the
+// same dead token. It did — and the report was INCOMPLETE. `marketing` read
+// `var(--color-wa)`, which is equally undefined. An undefined custom property
+// with no fallback makes the whole declaration invalid at computed-value time,
+// so BOTH chips rendered with no background and inherited ink: `schematic` and
+// `marketing` were indistinguishable from each other and from plain text.
+//
+// ★ Fixing only the one fix-406 named would have left the card half-painted,
+// which is why both move here.
+//
+// ---------------------------------------------------------------------------
+// ★★ WHAT THE TOKENS WERE MEANT TO BE, per this file's own comment
+// ---------------------------------------------------------------------------
+//
+// The line that stood here said *"Blue / green / amber, reusing the repo's own
+// tokens"*. `ok` and `wa` read like green and amber, and the repo HAS both:
+// `--color-pm` (#059669, Permitting green) and `--color-co` (#d97706,
+// Corrections amber). The intent was right; the names were never real. So the
+// stated intent is finally what renders.
+//
+// ---------------------------------------------------------------------------
+// ★★★ AND THE TINT IS OPAQUE NOW, WHICH IS THE MEASURABLE HALF
+// ---------------------------------------------------------------------------
+//
+// `color-mix(… , transparent)` makes the chip's effective background depend on
+// whatever surface it happens to land on, so its contrast is a different number
+// per parent — 4.37:1 on white and 3.75:1 on `--color-s2` for the ONE chip that
+// was rendering at all. Mixing into `--color-surface` instead gives every chip
+// one definite tint, and therefore one contrast number a test can hold.
+//
+// ★★ THE RULE, from fix-406: darken the hue toward `--color-text` until the ink
+// clears 4.5:1 **on its own tint, measured** — never trust the raw token. The
+// THRESHOLD is the contract; the percentage is per-surface, because fix-406's
+// chips sit on fixed `-bg` tokens and these sit on a computed tint, and amber
+// is intrinsically the lightest of the three hues.
+//
+//     design_guidance   3.75 → 6.47      (it was the one that "worked")
+//     schematic         dead → 5.21
+//     marketing         dead → 4.68
+
+/** ★ Ink strength: 65% hue + 35% `--color-text`. See the threshold note above —
+ *  the shared contract is "≥ 4.5:1 measured", not this number. fix-406's
+ *  `LIBRARY_GROUP_MIX.chipTextHuePct` is 70 for its own surfaces; the fix-407
+ *  test pins both against the same 4.5 floor rather than against each other. */
+export const CHIP_INK_HUE_PCT = 65;
+
 /** Chip styling per stage — visually distinct, per the brief and the mockup.
  *  Blue / green / amber, reusing the repo's own tokens rather than the
- *  mockup's inline hexes. */
+ *  mockup's inline hexes.
+ *
+ *  ★ Stated as resolved values, not `color-mix()` calls, for the same reason
+ *  fix-406's palette is: a stylesheet expression cannot be measured, and these
+ *  are exactly the numbers the note above quotes. */
 export const STAGE_CHIP: Record<PlanOfRecordStage, { bg: string; fg: string }> = {
-  design_guidance: { bg: 'color-mix(in srgb, var(--color-de) 12%, transparent)', fg: 'var(--color-de)' },
-  schematic:       { bg: 'color-mix(in srgb, var(--color-ok) 14%, transparent)', fg: 'var(--color-ok)' },
-  marketing:       { bg: 'color-mix(in srgb, var(--color-wa) 16%, transparent)', fg: 'var(--color-wa)' },
+  // 12% #2563eb on #ffffff · ink 65% #2563eb + 35% #1a2540 → 6.47:1
+  design_guidance: { bg: '#e5ecfd', fg: '#214daf' },
+  // 14% #059669 on #ffffff · ink 65% #059669 + 35% #1a2540 → 5.21:1
+  schematic:       { bg: '#dcf0ea', fg: '#0c6e5b' },
+  // 16% #d97706 on #ffffff · ink 65% #d97706 + 35% #1a2540 → 4.68:1
+  marketing:       { bg: '#f9e9d7', fg: '#965a1a' },
+};
+
+/** ★ The tint recipe, exported so the fix-407 test can replay it from the real
+ *  tokens instead of trusting the three hexes above. */
+export const STAGE_CHIP_MIX: Record<PlanOfRecordStage, { token: string; tintPct: number }> = {
+  design_guidance: { token: '--color-de', tintPct: 12 },
+  schematic:       { token: '--color-pm', tintPct: 14 },
+  marketing:       { token: '--color-co', tintPct: 16 },
 };
 
 export function stageLabel(stage: string | null | undefined): string {

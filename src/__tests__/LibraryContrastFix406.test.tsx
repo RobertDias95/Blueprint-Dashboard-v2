@@ -235,19 +235,34 @@ describe('fix-406 §1: the SITE chip had no colour, not a weak one', () => {
     expect(matrixSource).toContain('--color-ok'); // ...in a comment, deliberately
   });
 
-  it('★★ the SAME undefined token is STILL read by planOfRecord — REPORTED', () => {
-    // ★★ A SECOND SURFACE HAS THE IDENTICAL BUG, and it is deliberately NOT
-    // fixed here: the brief says *"do not restyle beyond the Library filter
-    // panel + table"*. `planOfRecord`'s `schematic` verdict style paints with
-    // `color-mix(in srgb, var(--color-ok) 14%, transparent)` and
-    // `var(--color-ok)`, so it renders with no colour for exactly the same
-    // reason the SITE chip did.
+  it('★★★ planOfRecord read the same dead token — FIXED in fix-407', () => {
+    // ★★ WHAT THIS TEST USED TO SAY, and why it said it:
     //
-    // ★ Asserted rather than written in a comment, so the finding cannot
-    // evaporate: whoever fixes it will see this test go red and know fix-406
-    // already measured it.
-    expect(planOfRecordSource).toContain('var(--color-ok)');
+    //   "the SAME undefined token is STILL read by planOfRecord — REPORTED"
+    //   expect(planOfRecordSource).toContain('var(--color-ok)');
+    //
+    // fix-406 found the second surface and deliberately did NOT fix it — the
+    // brief said *"do not restyle beyond the Library filter panel + table"* —
+    // so it pinned the finding instead, precisely so it could not evaporate.
+    // fix-407 §4 fixed it, and the pin inverts. THE MECHANISM WORKED: a
+    // reported-not-fixed finding survived a ticket boundary as a test.
+    //
+    // ★★★ AND fix-406'S REPORT WAS INCOMPLETE. It named `--color-ok`
+    // (schematic). `marketing` read `var(--color-wa)`, equally undefined — so
+    // TWO of the card's three chips painted nothing, not one.
+    // ★ Comment-stripped — planOfRecord now EXPLAINS the dead tokens at
+    //   length, so the raw file still contains both strings. Same trap this
+    //   suite's own `matrixCode` exists for.
+    const porCode = planOfRecordSource
+      .replace(/\/\*[\s\S]*?\*\//g, ' ')
+      .split(/\r?\n/)
+      .map((l) => (l.trim().startsWith('//') ? '' : l))
+      .join('\n');
+    expect(porCode).not.toContain('var(--color-ok)');
+    expect(porCode).not.toContain('var(--color-wa)');
+    // ★ The tokens are still undefined; the fix was to stop reading them.
     expect(TOKENS['--color-ok']).toBeUndefined();
+    expect(TOKENS['--color-wa']).toBeUndefined();
   });
 });
 
