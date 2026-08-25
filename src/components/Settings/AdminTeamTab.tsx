@@ -4,7 +4,7 @@ import MentionTagsEditor from './MentionTagsEditor';
 import TeamActiveQuartersEditor from './TeamActiveQuartersEditor';
 import QuarterLayoutEditor from './QuarterLayoutEditor';
 import { useTeamMembers } from '../../hooks/useTeamMembers';
-import { ACQ_ROLES, ENT_ROLES } from '../../lib/roster';
+import { ACQ_ROLES, ENT_ROLES, formerMemberNames } from '../../lib/roster';
 import { useUpsertTeamMember } from '../../hooks/useUpsertTeamMember';
 import { useDeleteTeamMember } from '../../hooks/useDeleteTeamMember';
 import { useRenameDA } from '../../hooks/useRenameDA';
@@ -12,7 +12,7 @@ import { useRenameDM } from '../../hooks/useRenameDM';
 import { useIsTenantAdmin } from '../../hooks/useIsTenantAdmin';
 import { SkeletonRows } from '../Skeleton';
 import QueryError from '../QueryError';
-import { ROLE_TITLE_PLURAL } from '../../lib/roleLabels';
+import { ROLE_TITLE, ROLE_TITLE_PLURAL } from '../../lib/roleLabels';
 import type { TeamMember, TeamRole } from '../../lib/database.types';
 
 // Q7.3.b: Settings → Team tab. Four role-filtered PillListEditors
@@ -144,6 +144,25 @@ export default function AdminTeamTab() {
     key: d.name,
     label: d.name,
   }));
+  /** ★★★ fix-407: the names the roster explicitly says are retired, any role.
+   *  Shared by the Team Structure chips and the alumni section below so the two
+   *  cannot disagree about who has left. */
+  const retiredNames = formerMemberNames(teamQ.all);
+  /** ★★★ fix-407: inactive people who are NOT DAs — Caleb is the live case.
+   *  He is `acq_lead` with `active=false`, so fix-401's `isCurrentMember`
+   *  filter correctly keeps him out of the Acquisitions picker, and the alumni
+   *  section below has always been DA-only. Net effect before this ticket: a
+   *  man who is named on 20 live projects appeared on NO Settings surface at
+   *  all. You cannot clean up what the screen will not show you.
+   *
+   *  ★★★ `?? []` IS THE PARTIALLY-MOCKED-MODULE GUARD, not defensive noise.
+   *  Roughly forty test files mock `hooks/useTeamMembers` with a hand-written
+   *  object, so a NEW field on the result is `undefined` at the call site and
+   *  `.filter` throws inside a render — 18 AdminTeamTab tests failed exactly
+   *  that way before this. Same trap fix-390 hit and fix-401 hit again; the
+   *  difference here is that the field genuinely belongs on this hook, so it
+   *  is guarded rather than relocated. */
+  const otherInactive = (teamQ.inactive ?? []).filter((m) => m.role !== 'da');
 
   return (
     <div className="space-y-4" data-testid="admin-team-tab">
@@ -194,6 +213,12 @@ export default function AdminTeamTab() {
         <TeamStructureEditor
           dms={teamQ.dms}
           activeDas={teamQ.activeDas}
+          // ★★★ fix-407: computed from the WHOLE roster, not from `formerDas`.
+          //   A mapping row can name anyone, and the chips must be able to flag
+          //   a retired person of any role — while leaving a name the roster
+          //   does not know at all unflagged, which is what
+          //   `formerMemberNames` guarantees.
+          retiredNames={retiredNames}
           readOnly={!isAdmin}
         />
       </Section>
@@ -291,6 +316,52 @@ export default function AdminTeamTab() {
                     </button>
                   </>
                 )}
+              </span>
+            ))}
+          </div>
+        </Section>
+      )}
+
+      {/* ★★★ fix-407 — THE ALUMNI SECTION STOPS BEING DA-ONLY.
+          Bobby: *"a wholistic clean … to ensure our ecosystem is update to
+          date and aligned."* The section above has covered `role='da'` since
+          Q7.3.b, which meant every inactive person in any other role was
+          invisible here — while still being named on live rows.
+
+          ★★ NO RESTORE OR REMOVE BUTTON, deliberately. Those two actions are
+          the DA flow (`restoreDa` sets the DA flags; `hardDelete` drops the
+          row), and offering a permanent-remove on somebody who is still the
+          acquisitions lead of twenty live projects would be handing over a
+          footgun in the name of tidiness. This section's job is to make them
+          VISIBLE; who inherits their rows is fix-407's transition report, and
+          Bobby's call. */}
+      {otherInactive.length > 0 && (
+        <Section title="Inactive (other roles)">
+          <p className="text-[11px] text-muted mb-2">
+            On the roster but not active, so they are offered by no picker. They
+            may still be named on live records — see the fix-407 transition
+            report before reassigning anyone.
+          </p>
+          <div className="flex flex-wrap gap-1.5">
+            {otherInactive.map((m) => (
+              <span
+                key={m.id}
+                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-surface border border-border text-xs text-muted"
+                data-testid={`team-inactive-pill-${m.name}`}
+              >
+                <span className="line-through decoration-dim/60">{m.name}</span>
+                {/* ★★ fix-343's rule, and it caught me: NEVER interpolate a
+                    stored role into the screen. Printing the member's role
+                    field directly would put the raw enum — "acq_lead" — in
+                    front of a person; ROLE_TITLE is the one map that turns it
+                    into words.
+
+                    ★ And note the shape of the catch: fix-343's scan reads the
+                    SOURCE, so even quoting the offending expression in a
+                    comment trips it. Left described rather than quoted. */}
+                <span className="text-[9px] uppercase tracking-wide font-bold">
+                  {ROLE_TITLE[m.role]}
+                </span>
               </span>
             ))}
           </div>

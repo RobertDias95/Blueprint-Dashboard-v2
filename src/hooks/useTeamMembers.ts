@@ -31,6 +31,11 @@ export interface TeamMembersResult {
    *  former), sorted A→Z — the single source for the task assignee people-pickers
    *  so departed staff never appear as selectable options. */
   activeMemberNames: string[];
+  /** ★★★ fix-407: every roster member who is NOT current, any role, one row per
+   *  person. Powers the Settings alumni section, which until now covered DAs
+   *  only — so an inactive acquisitions lead was invisible in Settings while
+   *  still named on live projects. NEVER a picker source. */
+  inactive: TeamMember[];
 }
 
 /** fix-233: derive the distinct names of CURRENT team members, sorted A→Z,
@@ -101,7 +106,21 @@ export function useTeamMembers() {
       all,
       activeDas: allDas.filter(isCurrentMember),
       formerDas: allDas.filter((m) => !isCurrentMember(m)),
-      dms: ofRole('dm'),
+      // ★★★ fix-407 — THE LAST TWO BUCKETS THAT DID NOT ASK.
+      //
+      // fix-321 established one membership rule, fix-401 applied it to `acqs`
+      // and fix-403 to `ents`. `dms` and `schematics` were still bare
+      // `ofRole()` calls, so every picker sourcing them — the Team Structure
+      // move-to dropdown, this tab's DM and Schematic pill lists, the Draw
+      // Schedule Layout editor's DM dropdown and group-header datalist — would
+      // offer a retired Design Manager for a NEW assignment.
+      //
+      // ★★ MEASURED ON PROD 2026-08-25: ZERO DMs and ZERO schematic designers
+      // are currently inactive, so this changes nothing anybody can see today.
+      // It is fixed anyway because the alternative is that it is discovered the
+      // first time a manager leaves — which is precisely how Alex and Nidhi
+      // came to be sitting under Jade as though they were current.
+      dms: ofRole('dm').filter(isCurrentMember),
       // ★★★ fix-403 — THE ENT LIST, WIDENED **AND DEDUPED**.
       //
       // fix-401 found this had Acquisitions' exact single-role bug and left it
@@ -134,8 +153,15 @@ export function useTeamMembers() {
       // (fix-321). That keeps Caleb, who is inactive, out of an editable
       // roster — he was never visible before either.
       acqs: all.filter((m) => ACQ_ROLES.has(m.role) && isCurrentMember(m)),
-      schematics: ofRole('schematic'),
+      schematics: ofRole('schematic').filter(isCurrentMember),
       activeMemberNames: activeMemberNamesOf(all),
+      // ★★★ fix-407: everybody the roster says is NOT here, whatever their
+      //   role. `formerDas` covers role='da' only, which is why Caleb —
+      //   inactive, `acq_lead`, and holding 20 live projects — appeared on no
+      //   Settings surface at all: filtered out of `acqs` by fix-401 and never
+      //   eligible for the alumni list. Deduped per PERSON, because the roster
+      //   has one row per role.
+      inactive: dedupeByPerson(all.filter((m) => !isCurrentMember(m))),
     };
   }, [q.data]);
 

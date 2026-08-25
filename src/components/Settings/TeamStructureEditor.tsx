@@ -55,15 +55,47 @@ import type { TeamMember, DmDaGroupRow } from '../../lib/database.types';
 // action to do both, that is a product decision about which table is the
 // source of truth — not a wiring fix.
 
+// ===========================================================================
+// ★★★ fix-407 — THE CHIPS SAID EVERY MAPPED DA WAS CURRENT
+// ===========================================================================
+//
+// Bobby, 2026-08-26, on this exact screen: *"why are these DA's under jade?
+// they arent active anymore? and they arent on the drawschedule anymore. this
+// is what i meant by a wholistic clean, organization, and revamp of the
+// settings to ensure our ecosystem is update to date and aligned."*
+//
+// ★★★ THE CHIPS RENDER `dm_da_groups` ROWS, NOT ROSTER MEMBERS. That is the
+// whole bug in one sentence. `addableDas` has always been `activeDas`, so no
+// retired DA could be ADDED — but the rows already there were drawn from the
+// mapping table with no reference to the roster at all, in the same amber chip
+// as everyone else. Alex and Nidhi (both `former`) sat under Jade looking
+// exactly as current as Erick.
+//
+// ★★ THEY ARE FLAGGED, NOT HIDDEN. Dropping a retired DA's chip would make the
+// mapping look absent while `bp_trg_task_coassign_dm` still routes off it, and
+// the row would never get cleaned up because nobody could see it. fix-321's
+// rule, restated: CHOOSING is current-only, SHOWING is whatever is recorded.
+//
+// ★ The mapping row itself is NOT touched by this ticket. Who inherits Alex's
+// and Nidhi's slots is a people decision; fix-407 reports it and Bobby rules.
+
 interface Props {
+  /** ★ fix-407: CURRENT DMs only (the hook now filters). Used for the cards and
+   *  for the move-to dropdown, both of which are offers. */
   dms: TeamMember[];
   activeDas: TeamMember[];
+  /** ★★ fix-407: names the roster explicitly says are retired — from
+   *  `formerMemberNames`, so a name that is merely UNKNOWN to the roster (a
+   *  legacy mapping, someone never added) is left alone rather than being
+   *  flagged as departed. */
+  retiredNames?: ReadonlySet<string>;
   readOnly?: boolean;
 }
 
 export default function TeamStructureEditor({
   dms,
   activeDas,
+  retiredNames,
   readOnly = false,
 }: Props) {
   const groupsQ = useDmDaGroups();
@@ -110,6 +142,25 @@ export default function TeamStructureEditor({
   );
   const openCountsQ = useOpenTaskCounts(unassignedNames);
 
+  const isRetired = (name: string) => retiredNames?.has(name) ?? false;
+
+  /** ★★ fix-407: the cards to draw — every CURRENT DM, plus any DM who is not
+   *  current but still holds mappings. Rendering only `dms` would silently drop
+   *  a whole card the day a manager leaves, taking their DAs' mappings out of
+   *  sight while the co-assign trigger kept using them. Measured on prod
+   *  2026-08-25 no DM is inactive, so this draws nothing extra today — it is
+   *  the same "flag, never hide" rule the chips follow, applied one level up. */
+  const dmCards = useMemo(() => {
+    const shown = new Set(dms.map((d) => d.name));
+    const extra = [...rowsByDm.keys()]
+      .filter((n) => !shown.has(n))
+      .sort((a, b) => a.localeCompare(b));
+    return [
+      ...dms.map((d) => ({ key: d.id, name: d.name, current: true })),
+      ...extra.map((n) => ({ key: `orphan-${n}`, name: n, current: false })),
+    ];
+  }, [dms, rowsByDm]);
+
   function moveDa(da: string, toDm: string) {
     const existing = rowByDa.get(da);
     if (!existing) return;
@@ -146,14 +197,15 @@ export default function TeamStructureEditor({
         tasks assigned to a DA listed here.
       </p>
 
-      {dms.map((dm) => {
+      {dmCards.map((dm) => {
         const dmRows = rowsByDm.get(dm.name) ?? [];
         const addableDas = activeDas.filter(
           (da) => !dmRows.some((r) => r.da_name === da.name),
         );
+        const retiredHere = dmRows.filter((r) => isRetired(r.da_name));
         return (
           <div
-            key={dm.id}
+            key={dm.key}
             className="bg-surface-2 border border-border rounded-lg p-3"
             data-testid={`team-dm-card-${dm.name}`}
           >
@@ -161,9 +213,26 @@ export default function TeamStructureEditor({
               <span className="font-display font-bold text-xs text-text">
                 {dm.name}
               </span>
+              {!dm.current && (
+                <span
+                  className="text-[9px] uppercase tracking-wide font-bold px-1.5 py-0.5 rounded-full bg-surface border border-border text-muted"
+                  title="This Design Manager is no longer on the active roster, but still holds DA mappings"
+                  data-testid={`team-dm-card-inactive-${dm.name}`}
+                >
+                  Inactive
+                </span>
+              )}
               <span className="text-[10px] text-dim">
                 {dmRows.length} DA{dmRows.length === 1 ? '' : 's'}
               </span>
+              {retiredHere.length > 0 && (
+                <span
+                  className="text-[10px] text-muted"
+                  data-testid={`team-dm-card-retired-count-${dm.name}`}
+                >
+                  · {retiredHere.length} inactive
+                </span>
+              )}
             </div>
             <div className="flex flex-wrap gap-1.5 mb-2">
               {dmRows.length === 0 && (
@@ -171,21 +240,66 @@ export default function TeamStructureEditor({
                   No DAs assigned
                 </span>
               )}
-              {dmRows.map((row) => (
+              {dmRows.map((row) => {
+                const retired = isRetired(row.da_name);
+                return (
                 <span
                   key={row.id}
-                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-co-bg border border-co-border text-[11px]"
+                  // ★★★ fix-407: the retired treatment is the ALUMNI PILL'S,
+                  //   lifted verbatim from the "Former DAs" section a few
+                  //   sections below — `bg-surface border-border text-muted`
+                  //   against the live chip's amber. Extending the existing
+                  //   visual rather than inventing a third state is the brief's
+                  //   own instruction, and it means somebody who has learned
+                  //   what a grey pill means downstairs already knows.
+                  className={
+                    retired
+                      ? 'inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-surface border border-border text-[11px]'
+                      : 'inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-co-bg border border-co-border text-[11px]'
+                  }
                   data-testid={`team-da-chip-${row.da_name}`}
+                  data-inactive={retired ? 'true' : undefined}
                 >
-                  <span className="text-co font-semibold">{row.da_name}</span>
+                  <span
+                    className={
+                      retired
+                        ? 'text-muted font-semibold line-through decoration-dim/60'
+                        : 'text-co font-semibold'
+                    }
+                  >
+                    {row.da_name}
+                  </span>
+                  {retired && (
+                    // ★ The word, not only the colour. A greyed pill reads as
+                    //   "disabled" or "not selected" as easily as "left the
+                    //   company"; the label removes the guess, and the title
+                    //   says what it costs to leave the row in place.
+                    <span
+                      className="text-[9px] uppercase tracking-wide font-bold text-muted"
+                      title="No longer on the active roster — this mapping still routes draw-schedule grouping and DM co-assignment"
+                      data-testid={`team-da-chip-inactive-${row.da_name}`}
+                    >
+                      Inactive
+                    </span>
+                  )}
                   {!readOnly && dms.length > 1 && (
                     <select
-                      value={dm.name}
+                      value={dm.current ? dm.name : ''}
                       onChange={(e) => moveDa(row.da_name, e.target.value)}
                       className="text-[10px] bg-transparent border-none text-dim outline-none cursor-pointer"
                       title="Move to different DM"
                       data-testid={`team-da-move-${row.da_name}`}
                     >
+                      {/* ★★ fix-407: an inactive DM's card can still hold rows,
+                          and this select must show SOMETHING for it without
+                          offering it as a destination — so the current card
+                          gets a disabled placeholder and the options stay
+                          current-only. */}
+                      {!dm.current && (
+                        <option value="" disabled>
+                          {dm.name} (inactive)
+                        </option>
+                      )}
                       {dms.map((d) => (
                         <option key={d.name} value={d.name}>
                           {d.name}
@@ -204,8 +318,24 @@ export default function TeamStructureEditor({
                     </button>
                   )}
                 </span>
-              ))}
+                );
+              })}
             </div>
+            {retiredHere.length > 0 && (
+              // ★★ fix-407: what the flag COSTS, said once per card. A chip
+              //   that only looks different is a curiosity; a line naming what
+              //   the row still drives is something somebody acts on.
+              <div
+                className="text-[10px] text-muted mb-2"
+                data-testid={`team-dm-card-retired-note-${dm.name}`}
+              >
+                {retiredHere.map((r) => r.da_name).join(', ')}{' '}
+                {retiredHere.length === 1 ? 'is' : 'are'} no longer on the active
+                roster. The mapping still drives draw-schedule grouping and the
+                Design Manager co-assignee — reassign or remove it once you have
+                decided who inherits their work.
+              </div>
+            )}
             {!readOnly && addableDas.length > 0 && (
               <div className="flex gap-1.5">
                 <select
