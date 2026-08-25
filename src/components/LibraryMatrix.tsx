@@ -6,6 +6,7 @@ import { useUpdateProject } from '../hooks/useUpdateProject';
 import {
   buildLibraryRows,
   filterLibraryRows,
+  hasAnyUnitFilter,
   matchingUnitIndices,
   sortLibraryRows,
   type LibraryFilters,
@@ -20,6 +21,20 @@ import type {
   UnitType,
 } from '../lib/database.types';
 import { STAGE_LABEL } from '../lib/stageLabel';
+import {
+  ParkingKindSelect,
+  RoofDeckSelect,
+  StallsInput,
+} from './shared/UnitParkingInputs';
+import { PARKING_KINDS, type ParkingKind } from '../lib/database.types';
+import {
+  PARKING_KIND_LABEL,
+  parkingRollup,
+  parseStalls,
+  roofDeckRollup,
+  type RoofDeckFilter,
+  type StallsTier,
+} from '../lib/unitParking';
 import {
   resolveUnitLabel,
   resolveUnitTypesForSave,
@@ -109,12 +124,17 @@ const INITIAL_FILTERS: LibraryFilters = {
   productTypes: [],
   tag: '',
   juris: '',
-  // fix-122: new Library filters. numLots is exact-match (Bobby's
-  // "show me 5-lot subdivisions" workflow); isCornerLot is tri-state.
-  numLots: null,
+  // fix-122: isCornerLot is tri-state. (Its numLots sibling was removed as a
+  // FILTER by fix-402 on Bobby's ruling; the lots COLUMN is untouched.)
   isCornerLot: '',
   // fix-205: Stories tier filter on a project's unit_types.
   stories: '',
+  // ★★ fix-402: the UNIT card's parking trio. All start Any — and note that
+  // "Any" is the only state in which a NOT-RECORDED unit can match, which is
+  // the correct behaviour while 231 unit rows await their backfill.
+  parkingKind: '',
+  stalls: '',
+  roofDeck: '',
 };
 
 function Body({ projects, permits }: BodyProps) {
@@ -153,10 +173,9 @@ function Body({ projects, permits }: BodyProps) {
   const [expandedById, setExpandedById] = useState<Map<string, boolean>>(
     () => new Map(),
   );
-  const unitFilterActive =
-    filters.unitwTarget !== null ||
-    filters.unitdTarget !== null ||
-    filters.stories !== '';
+  // ★ fix-402: one definition of "a unit filter is on", shared with the
+  //   matcher — this list drifted from that one when fix-205 added stories.
+  const unitFilterActive = hasAnyUnitFilter(filters);
 
   const allRows = useMemo(
     () => buildLibraryRows(projects, permits),
@@ -217,212 +236,312 @@ function Body({ projects, permits }: BodyProps) {
       />
 
       {/* Filter bar */}
-      <div className="bg-s2 border border-border rounded-lg p-3 flex flex-wrap items-end gap-3">
-        <div className="text-[10px] font-display font-extrabold text-text uppercase tracking-wide w-full -mb-1">
-          Filter Projects
-        </div>
+      {/* ★★★ fix-402 — TWO CARDS: SITE AND UNIT.
+          Bobby, 2026-08-25: *"lot-specific … and unit-specific"*, with
+          width/depth as each group's primary tier, and — on the grey-on-grey
+          panel this replaces — *"it's kind of like a lot of grays on grays …
+          we want it to be more distinct."*
 
-        <TargetRange
-          label="Lot Width (ft)"
-          target={filters.lotwTarget}
-          buf={filters.lotwBuf}
-          onTarget={(v) => update('lotwTarget', v)}
-          onBuf={(v) => update('lotwBuf', v)}
-          testIdPrefix="lotw"
-        />
-        <TargetRange
-          label="Lot Depth (ft)"
-          target={filters.lotdTarget}
-          buf={filters.lotdBuf}
-          onTarget={(v) => update('lotdTarget', v)}
-          onBuf={(v) => update('lotdBuf', v)}
-          testIdPrefix="lotd"
-        />
+          ★★ The de-gray is a bordered card per group with a COLOURED chip
+          (teal = site, purple = unit), and each card's width/depth sit above a
+          hairline as the primary tier. Colours come from the app's own tokens,
+          not from the mockup's raw hexes.
 
-        <TargetRange
-          label="Unit Width (ft)"
-          target={filters.unitwTarget}
-          buf={filters.unitwBuf}
-          onTarget={(v) => update('unitwTarget', v)}
-          onBuf={(v) => update('unitwBuf', v)}
-          testIdPrefix="unitw"
-        />
-        <TargetRange
-          label="Unit Depth (ft)"
-          target={filters.unitdTarget}
-          buf={filters.unitdBuf}
-          onTarget={(v) => update('unitdTarget', v)}
-          onBuf={(v) => update('unitdBuf', v)}
-          testIdPrefix="unitd"
-        />
-
-        <FieldLabel label="Zone">
-          <input
-            type="text"
-            value={filters.zone}
-            onChange={(e) => update('zone', e.target.value)}
-            placeholder="e.g. NR"
-            className="w-20 bg-bg border border-border rounded px-2 py-1 text-[11px] text-text focus:outline-none focus:border-de"
-            data-testid="filter-zone"
-          />
-        </FieldLabel>
-
-        <FieldLabel label="Alley">
-          <select
-            value={filters.alley}
-            onChange={(e) => update('alley', e.target.value)}
-            className="bg-bg border border-border rounded px-2 py-1 text-[11px] text-text focus:outline-none focus:border-de"
-            data-testid="filter-alley"
-          >
-            <option value="">Any</option>
-            <option value="Yes">Yes</option>
-            <option value="No">No</option>
-          </select>
-        </FieldLabel>
-
-        {/* fix-122: Number of Lots filter — exact match against the
-            projects.num_lots column. Blank = no filter; picking 1-20
-            shows only projects whose num_lots equals the picked value.
-            NULL num_lots rows fall out under any pick (intentional —
-            Bobby's "apples-to-apples subdivision" workflow). */}
-        <FieldLabel label="Lots">
-          <select
-            value={filters.numLots === null ? '' : String(filters.numLots)}
-            onChange={(e) => {
-              const v = e.target.value;
-              update('numLots', v === '' ? null : Number(v));
-            }}
-            className="bg-bg border border-border rounded px-2 py-1 text-[11px] text-text focus:outline-none focus:border-de"
-            data-testid="filter-num-lots"
-          >
-            <option value="">Any</option>
-            {Array.from({ length: 20 }, (_, i) => i + 1).map((n) => (
-              <option key={n} value={String(n)}>
-                {n}
-              </option>
-            ))}
-          </select>
-        </FieldLabel>
-
-        {/* fix-122: Corner Lot filter — tri-state mirroring Alley. */}
-        <FieldLabel label="Corner">
-          <select
-            value={filters.isCornerLot}
-            onChange={(e) =>
-              update(
-                'isCornerLot',
-                e.target.value as '' | 'Yes' | 'No',
-              )
-            }
-            className="bg-bg border border-border rounded px-2 py-1 text-[11px] text-text focus:outline-none focus:border-de"
-            data-testid="filter-corner"
-          >
-            <option value="">Any</option>
-            <option value="Yes">Yes</option>
-            <option value="No">No</option>
-          </select>
-        </FieldLabel>
-
-        {/* fix-205: Stories tier filter — matches a project that has at least
-            one unit_type with the picked stories (4+ = 4 or more). Highlights
-            the matching unit rows in the expand, like the W/D filters. */}
-        <FieldLabel label="Stories">
-          <select
-            value={filters.stories}
-            onChange={(e) =>
-              update(
-                'stories',
-                e.target.value as LibraryFilters['stories'],
-              )
-            }
-            className="bg-bg border border-border rounded px-2 py-1 text-[11px] text-text focus:outline-none focus:border-de"
-            data-testid="filter-stories"
-          >
-            <option value="">Any</option>
-            <option value="1">1</option>
-            <option value="2">2</option>
-            <option value="3">3</option>
-            <option value="4+">4+</option>
-          </select>
-        </FieldLabel>
-
-        <FieldLabel label="Product Type">
-          {/* fix-91: multi-select. Pick adds a chip; chip × removes it.
-              Matching is any-of in libraryHelpers.filterLibraryRows. */}
-          <div className="flex flex-wrap items-center gap-1">
-            <select
-              value=""
-              onChange={(e) => {
-                const v = e.target.value;
-                if (!v) return;
-                if (filters.productTypes.includes(v)) return;
-                update('productTypes', [...filters.productTypes, v]);
-                e.currentTarget.value = '';
+          ★★ ALLEY AND CORNER LIVE UNDER SITE — Bobby's own correction to the
+          first mockup. They describe the lot, not the building on it. */}
+      <div className="flex flex-wrap items-start gap-3" data-testid="library-filters">
+        {/* ── SITE ────────────────────────────────────────────────────── */}
+        <div
+          className="flex-1 min-w-[300px] bg-s2 border border-border rounded-lg p-3"
+          data-testid="filter-card-site"
+        >
+          <div className="flex items-center gap-2 mb-2">
+            <span
+              className="text-[9px] font-display font-extrabold uppercase tracking-wide px-1.5 py-0.5 rounded"
+              style={{
+                background: 'var(--color-ok-bg)',
+                color: 'var(--color-ok)',
+                border: '1px solid var(--color-ok)',
               }}
-              className="bg-bg border border-border rounded px-2 py-1 text-[11px] text-text focus:outline-none focus:border-de"
-              data-testid="filter-product-type"
+              data-testid="filter-chip-site"
             >
-              <option value="">Any</option>
-              {productTypeOptions
-                .filter((t) => !filters.productTypes.includes(t))
-                .map((t) => (
+              Site
+            </span>
+            <span className="text-[10px] text-dim">the lot</span>
+          </div>
+
+          {/* ★ PRIMARY TIER — the two dimensions the search actually starts
+              from, set above a hairline from the qualifiers below. */}
+          <div className="flex flex-wrap items-end gap-3 pb-2.5 mb-2.5 border-b border-border">
+            <TargetRange
+              label="Lot Width (ft)"
+              target={filters.lotwTarget}
+              buf={filters.lotwBuf}
+              onTarget={(v) => update('lotwTarget', v)}
+              onBuf={(v) => update('lotwBuf', v)}
+              testIdPrefix="lotw"
+            />
+            <TargetRange
+              label="Lot Depth (ft)"
+              target={filters.lotdTarget}
+              buf={filters.lotdBuf}
+              onTarget={(v) => update('lotdTarget', v)}
+              onBuf={(v) => update('lotdBuf', v)}
+              testIdPrefix="lotd"
+            />
+          </div>
+
+          <div className="flex flex-wrap items-end gap-3">
+            <FieldLabel label="Zone">
+              <input
+                type="text"
+                value={filters.zone}
+                onChange={(e) => update('zone', e.target.value)}
+                placeholder="e.g. NR"
+                className="w-20 bg-bg border border-border rounded px-2 py-1 text-[11px] text-text focus:outline-none focus:border-de"
+                data-testid="filter-zone"
+              />
+            </FieldLabel>
+
+            <FieldLabel label="Jurisdiction">
+              <select
+                value={filters.juris}
+                onChange={(e) => update('juris', e.target.value)}
+                className="bg-bg border border-border rounded px-2 py-1 text-[11px] text-text focus:outline-none focus:border-de"
+                data-testid="filter-juris"
+              >
+                <option value="">Any</option>
+                {jurisOptions.map((j) => (
+                  <option key={j}>{j}</option>
+                ))}
+              </select>
+            </FieldLabel>
+
+            <FieldLabel label="Alley">
+              <select
+                value={filters.alley}
+                onChange={(e) => update('alley', e.target.value)}
+                className="bg-bg border border-border rounded px-2 py-1 text-[11px] text-text focus:outline-none focus:border-de"
+                data-testid="filter-alley"
+              >
+                <option value="">Any</option>
+                <option value="Yes">Yes</option>
+                <option value="No">No</option>
+              </select>
+            </FieldLabel>
+
+            {/* fix-122: Corner Lot filter — tri-state mirroring Alley.
+                fix-402 moved it under SITE (Bobby's correction); its meaning
+                is unchanged, NULLs still fall out under Yes/No. */}
+            <FieldLabel label="Corner">
+              <select
+                value={filters.isCornerLot}
+                onChange={(e) =>
+                  update('isCornerLot', e.target.value as '' | 'Yes' | 'No')
+                }
+                className="bg-bg border border-border rounded px-2 py-1 text-[11px] text-text focus:outline-none focus:border-de"
+                data-testid="filter-corner"
+              >
+                <option value="">Any</option>
+                <option value="Yes">Yes</option>
+                <option value="No">No</option>
+              </select>
+            </FieldLabel>
+
+            <FieldLabel label="Tag">
+              <select
+                value={filters.tag}
+                onChange={(e) => update('tag', e.target.value)}
+                className="bg-bg border border-border rounded px-2 py-1 text-[11px] text-text focus:outline-none focus:border-de"
+                data-testid="filter-tag"
+              >
+                <option value="">Any</option>
+                {TAG_OPTIONS.map((t) => (
                   <option key={t}>{t}</option>
                 ))}
-            </select>
-            {filters.productTypes.map((t) => (
-              <span
-                key={t}
-                className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full bg-bg border border-border"
-                data-testid={`filter-product-type-chip-${t}`}
-              >
-                {t}
-                <button
-                  type="button"
-                  onClick={() =>
-                    update(
-                      'productTypes',
-                      filters.productTypes.filter((x) => x !== t),
-                    )
-                  }
-                  className="text-dim hover:text-text leading-none"
-                  title={`Remove ${t}`}
-                  data-testid={`filter-product-type-remove-${t}`}
-                >
-                  ×
-                </button>
-              </span>
-            ))}
+              </select>
+            </FieldLabel>
+
+            {/* ★★★ THE LOTS FILTER USED TO SIT HERE, and it is gone by ruling.
+                Bobby, 2026-08-25: *"we dont need it as a filtering option for
+                this screen"*.
+
+                ★★ THE LOTS COLUMN STAYS — he removed the filter, not the data.
+                LibraryRow.numLots is still populated and still rendered in the
+                table below. Recorded here rather than silently deleted, the
+                fix-326 pattern, so the next reader finds a decision. */}
           </div>
-        </FieldLabel>
+        </div>
 
-        <FieldLabel label="Tag">
-          <select
-            value={filters.tag}
-            onChange={(e) => update('tag', e.target.value)}
-            className="bg-bg border border-border rounded px-2 py-1 text-[11px] text-text focus:outline-none focus:border-de"
-            data-testid="filter-tag"
-          >
-            <option value="">Any</option>
-            {TAG_OPTIONS.map((t) => (
-              <option key={t}>{t}</option>
-            ))}
-          </select>
-        </FieldLabel>
+        {/* ── UNIT ────────────────────────────────────────────────────── */}
+        <div
+          className="flex-1 min-w-[300px] bg-s2 border border-border rounded-lg p-3"
+          data-testid="filter-card-unit"
+        >
+          <div className="flex items-center gap-2 mb-2">
+            <span
+              className="text-[9px] font-display font-extrabold uppercase tracking-wide px-1.5 py-0.5 rounded"
+              style={{
+                background: 'var(--color-de-bg)',
+                color: 'var(--color-de)',
+                border: '1px solid var(--color-de)',
+              }}
+              data-testid="filter-chip-unit"
+            >
+              Unit
+            </span>
+            {/* ★★★ The conjunction rule, said where somebody choosing filters
+                can read it — not only in the code that implements it. */}
+            <span className="text-[10px] text-dim">
+              one unit must match all of these
+            </span>
+          </div>
 
-        <FieldLabel label="Jurisdiction">
-          <select
-            value={filters.juris}
-            onChange={(e) => update('juris', e.target.value)}
-            className="bg-bg border border-border rounded px-2 py-1 text-[11px] text-text focus:outline-none focus:border-de"
-            data-testid="filter-juris"
-          >
-            <option value="">Any</option>
-            {jurisOptions.map((j) => (
-              <option key={j}>{j}</option>
-            ))}
-          </select>
-        </FieldLabel>
+          <div className="flex flex-wrap items-end gap-3 pb-2.5 mb-2.5 border-b border-border">
+            <TargetRange
+              label="Unit Width (ft)"
+              target={filters.unitwTarget}
+              buf={filters.unitwBuf}
+              onTarget={(v) => update('unitwTarget', v)}
+              onBuf={(v) => update('unitwBuf', v)}
+              testIdPrefix="unitw"
+            />
+            <TargetRange
+              label="Unit Depth (ft)"
+              target={filters.unitdTarget}
+              buf={filters.unitdBuf}
+              onTarget={(v) => update('unitdTarget', v)}
+              onBuf={(v) => update('unitdBuf', v)}
+              testIdPrefix="unitd"
+            />
+          </div>
 
+          <div className="flex flex-wrap items-end gap-3">
+            {/* ★★ fix-402: parking is a UNIT property now. A picked kind
+                requires that RECORDED kind — a unit nobody has answered for
+                does not match, and `None` matches only an explicit none. */}
+            <FieldLabel label="Parking">
+              <select
+                value={filters.parkingKind}
+                onChange={(e) =>
+                  update('parkingKind', e.target.value as '' | ParkingKind)
+                }
+                className="bg-bg border border-border rounded px-2 py-1 text-[11px] text-text focus:outline-none focus:border-de"
+                data-testid="filter-parking-kind"
+              >
+                <option value="">Any</option>
+                {PARKING_KINDS.map((k) => (
+                  <option key={k} value={k}>
+                    {PARKING_KIND_LABEL[k]}
+                  </option>
+                ))}
+              </select>
+            </FieldLabel>
+
+            <FieldLabel label="Stalls / unit">
+              <select
+                value={filters.stalls}
+                onChange={(e) =>
+                  update('stalls', e.target.value as StallsTier)
+                }
+                className="bg-bg border border-border rounded px-2 py-1 text-[11px] text-text focus:outline-none focus:border-de"
+                data-testid="filter-stalls"
+              >
+                <option value="">Any</option>
+                <option value="1+">1+</option>
+                <option value="2+">2+</option>
+              </select>
+            </FieldLabel>
+
+            <FieldLabel label="Roof Deck">
+              <select
+                value={filters.roofDeck}
+                onChange={(e) =>
+                  update('roofDeck', e.target.value as RoofDeckFilter)
+                }
+                className="bg-bg border border-border rounded px-2 py-1 text-[11px] text-text focus:outline-none focus:border-de"
+                data-testid="filter-roof-deck"
+              >
+                <option value="">Any</option>
+                <option value="Yes">Yes</option>
+                <option value="No">No</option>
+              </select>
+            </FieldLabel>
+
+            {/* fix-205: Stories tier — matches a project that has at least one
+                unit_type with the picked stories (4+ = 4 or more). Highlights
+                the matching unit rows in the expand, like the W/D filters.
+                fix-402 moved it under UNIT; its meaning is unchanged. */}
+            <FieldLabel label="Stories">
+              <select
+                value={filters.stories}
+                onChange={(e) =>
+                  update('stories', e.target.value as LibraryFilters['stories'])
+                }
+                className="bg-bg border border-border rounded px-2 py-1 text-[11px] text-text focus:outline-none focus:border-de"
+                data-testid="filter-stories"
+              >
+                <option value="">Any</option>
+                <option value="1">1</option>
+                <option value="2">2</option>
+                <option value="3">3</option>
+                <option value="4+">4+</option>
+              </select>
+            </FieldLabel>
+
+            <FieldLabel label="Product Type">
+              {/* fix-91: multi-select. Pick adds a chip; chip × removes it.
+                  Matching is any-of in libraryHelpers.filterLibraryRows. */}
+              <div className="flex flex-wrap items-center gap-1">
+                <select
+                  value=""
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    if (!v) return;
+                    if (filters.productTypes.includes(v)) return;
+                    update('productTypes', [...filters.productTypes, v]);
+                    e.currentTarget.value = '';
+                  }}
+                  className="bg-bg border border-border rounded px-2 py-1 text-[11px] text-text focus:outline-none focus:border-de"
+                  data-testid="filter-product-type"
+                >
+                  <option value="">Any</option>
+                  {productTypeOptions
+                    .filter((t) => !filters.productTypes.includes(t))
+                    .map((t) => (
+                      <option key={t}>{t}</option>
+                    ))}
+                </select>
+                {filters.productTypes.map((t) => (
+                  <span
+                    key={t}
+                    className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full bg-bg border border-border"
+                    data-testid={`filter-product-type-chip-${t}`}
+                  >
+                    {t}
+                    <button
+                      type="button"
+                      onClick={() =>
+                        update(
+                          'productTypes',
+                          filters.productTypes.filter((x) => x !== t),
+                        )
+                      }
+                      className="text-dim hover:text-text leading-none"
+                      title={`Remove ${t}`}
+                      data-testid={`filter-product-type-remove-${t}`}
+                    >
+                      ×
+                    </button>
+                  </span>
+                ))}
+              </div>
+            </FieldLabel>
+          </div>
+        </div>
+      </div>
+
+      <div className="flex items-center gap-3">
         <button
           type="button"
           onClick={clearFilters}
@@ -461,6 +580,17 @@ function Body({ projects, permits }: BodyProps) {
               {/* fix-122: Corner Lot — same dimensions feel very
                   different on a corner. */}
               <Th sort={sort} col="isCornerLot" onClick={toggleSort} align="center">Corner</Th>
+              {/* ★★ fix-402: the unit rollups. Bobby: *"in the Project
+                  Overview and in the Library, we need to make that not only a
+                  searchable but a displayable thing."* Not sortable — they are
+                  derived summaries, and a sort on "Mixed · 4 stalls" would
+                  order on a sentence. */}
+              <th className="px-2 py-1.5 text-[9px] font-extrabold uppercase tracking-wide text-text text-center">
+                Parking
+              </th>
+              <th className="px-2 py-1.5 text-[9px] font-extrabold uppercase tracking-wide text-text text-center">
+                Roof Deck
+              </th>
               <th className="px-2 py-1.5 text-[9px] font-extrabold uppercase tracking-wide text-text text-left">
                 Tags
               </th>
@@ -548,6 +678,9 @@ function Row({
   onWriteUnitTypes,
 }: RowProps) {
   const hasUnits = row.unitTypes.length > 0;
+  // ★ fix-402: derived per render from the row's own units — no second source.
+  const parking = parkingRollup(row.unitTypes);
+  const roofDeck = roofDeckRollup(row.unitTypes);
   return (
     <>
       <tr
@@ -641,6 +774,40 @@ function Row({
             <span className="text-dim">—</span>
           )}
         </td>
+        {/* ★★★ fix-402: the parking rollup chip. Same kind everywhere → that
+            kind; kinds disagree → "Mixed"; nothing recorded → "—" and nothing
+            else. When SOME units are recorded and others are not it appends
+            "N of M recorded", because a confident "Garage · 4 stalls" read off
+            two of five units would be actively misleading during the backfill. */}
+        <td
+          className="px-2 py-1.5 text-center"
+          data-testid={`library-parking-${row.projectId}`}
+        >
+          {parking.total === 0 || parking.label === '—' ? (
+            <span className="text-dim">—</span>
+          ) : (
+            <span
+              className={`text-[9px] font-bold px-1.5 py-0.5 rounded border ${
+                parking.partial
+                  ? 'bg-wa-bg text-wa border-wa'
+                  : 'bg-de-bg text-de border-de-border'
+              }`}
+              title={parking.partial ? 'Some units have no recorded parking' : undefined}
+            >
+              {parking.label}
+            </span>
+          )}
+        </td>
+        <td
+          className="px-2 py-1.5 text-center font-mono text-text"
+          data-testid={`library-roof-deck-${row.projectId}`}
+        >
+          {roofDeck.recorded === 0 ? (
+            <span className="text-dim">—</span>
+          ) : (
+            roofDeck.label
+          )}
+        </td>
         <td className="px-2 py-1.5">
           {row.tags.length === 0 ? (
             <span className="text-dim">—</span>
@@ -671,7 +838,7 @@ function Row({
           data-testid={`library-expansion-${row.projectId}`}
         >
           <td />
-          <td colSpan={11} className="px-2 pb-2 pt-1">
+          <td colSpan={13} className="px-2 pb-2 pt-1">
             <UnitTypeMiniTable
               projectId={row.projectId}
               unitTypes={row.unitTypes}
@@ -709,7 +876,13 @@ function UnitTypeMiniTable({
   onWriteUnitTypes: (next: UnitType[]) => void;
 }) {
   const matchSet = matchedIndices ? new Set(matchedIndices) : null;
-  function commit(idx: number, field: keyof UnitType, val: string | number | null) {
+  // ★ fix-402 widened the value type: roof_deck is a BOOLEAN, and a signature
+  //   stopping at string|number would have quietly excluded `false`.
+  function commit(
+    idx: number,
+    field: keyof UnitType,
+    val: string | number | boolean | null,
+  ) {
     onWriteUnitTypes(
       unitTypes.map((t, i) => (i === idx ? { ...t, [field]: val } : t)),
     );
@@ -736,6 +909,17 @@ function UnitTypeMiniTable({
           {/* fix-205: Stories column alongside Width/Depth/Qty. */}
           <th className="px-2 py-0.5 text-center text-[9px] font-extrabold uppercase tracking-wide">
             Stories
+          </th>
+          {/* ★★ fix-402: parking and roof deck are UNIT properties now — this
+              is where the backfill actually gets typed. */}
+          <th className="px-2 py-0.5 text-center text-[9px] font-extrabold uppercase tracking-wide">
+            Parking
+          </th>
+          <th className="px-2 py-0.5 text-center text-[9px] font-extrabold uppercase tracking-wide">
+            Stalls
+          </th>
+          <th className="px-2 py-0.5 text-center text-[9px] font-extrabold uppercase tracking-wide">
+            Roof Deck
           </th>
         </tr>
       </thead>
@@ -779,7 +963,9 @@ function LibraryUnitRow({
   productTypes: string[];
   disabled: boolean;
   matched: boolean;
-  onChange: (field: keyof UnitType, val: string | number | null) => void;
+  // ★ fix-402 widened this: roof_deck is a BOOLEAN, and a value type that
+  //   stopped at string|number would have quietly excluded it.
+  onChange: (field: keyof UnitType, val: string | number | boolean | null) => void;
 }) {
   const [label, setLabel] = useState(row.label);
   const [w, setW] = useState(row.width_ft != null ? String(row.width_ft) : '');
@@ -787,6 +973,11 @@ function LibraryUnitRow({
   const [qty, setQty] = useState(String(row.qty || 1));
   const [stories, setStories] = useState(
     row.stories != null ? String(row.stories) : '',
+  );
+  // ★ fix-402: stalls is a text box, so it buffers like W/D/Qty/Stories above
+  //   — the fix-73/98 dirty-flag pattern, not a per-keystroke write.
+  const [stalls, setStalls] = useState(
+    row.parking_stalls != null ? String(row.parking_stalls) : '',
   );
   const dirtyRef = useRef(false);
   useEffect(() => {
@@ -796,7 +987,15 @@ function LibraryUnitRow({
     setD(row.depth_ft != null ? String(row.depth_ft) : '');
     setQty(String(row.qty || 1));
     setStories(row.stories != null ? String(row.stories) : '');
-  }, [row.label, row.width_ft, row.depth_ft, row.qty, row.stories]);
+    setStalls(row.parking_stalls != null ? String(row.parking_stalls) : '');
+  }, [
+    row.label,
+    row.width_ft,
+    row.depth_ft,
+    row.qty,
+    row.stories,
+    row.parking_stalls,
+  ]);
 
   // fix-209 → fix-212: product-type-driven Label whenever the project has ANY
   // product type. The shown/selected value is the RESOLVED label — with several
@@ -940,6 +1139,40 @@ function LibraryUnitRow({
           }}
           className={narrowNumClass}
           data-testid={`${idBase}-stories`}
+        />
+      </td>
+      {/* ★★★ fix-402 — the three shared controls. Each writes null when
+          cleared, so a row can always return to NOT RECORDED. */}
+      <td className="px-2 py-0.5 text-center">
+        <ParkingKindSelect
+          value={row.parking_kind}
+          disabled={disabled}
+          onChange={(v) => onChange('parking_kind', v)}
+          testid={`${idBase}-parking-kind`}
+        />
+      </td>
+      <td className="px-2 py-0.5 text-center">
+        <StallsInput
+          value={stalls}
+          disabled={disabled}
+          onChange={(raw) => {
+            dirtyRef.current = true;
+            setStalls(raw);
+          }}
+          onBlur={() => {
+            const v = parseStalls(stalls);
+            if (v !== (row.parking_stalls ?? null)) onChange('parking_stalls', v);
+            dirtyRef.current = false;
+          }}
+          testid={`${idBase}-stalls`}
+        />
+      </td>
+      <td className="px-2 py-0.5 text-center">
+        <RoofDeckSelect
+          value={row.roof_deck}
+          disabled={disabled}
+          onChange={(v) => onChange('roof_deck', v)}
+          testid={`${idBase}-roof-deck`}
         />
       </td>
     </tr>

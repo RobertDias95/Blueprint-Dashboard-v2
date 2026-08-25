@@ -36,7 +36,10 @@ export function useProjects() {
             // fix_222_task_template_overhaul.sql — now safe to select).
             'entitlement_lead, design_manager, schematic_designer, go_date',
             'units, zone, lot_width, lot_depth, unit_types',
-            'parking_type, parking_stalls, alley, product_types, project_tags',
+            // ★ fix-402: parking_type / parking_stalls dropped from the select.
+            // They are archived and NULL on every row; selecting them would
+            // ship 186 nulls to every client on every load to feed nothing.
+            'alley, product_types, project_tags',
             'builder_name, builder_company, builder_email, builder_phone',
             // fix-122 read-surface backfill: the Library matrix + the
             // Project Overview SiteEditor render these columns; they

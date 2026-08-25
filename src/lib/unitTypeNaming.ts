@@ -1,3 +1,4 @@
+import { isParkingKind } from './database.types';
 import type { UnitType } from './database.types';
 
 // fix-81: shared "next Type X" computation for unit-types editors. The
@@ -90,6 +91,26 @@ export function parseUnitTypes(raw: unknown): UnitType[] {
             : null,
       qty: typeof u.qty === 'number' && u.qty > 0 ? u.qty : 1,
       stories: typeof u.stories === 'number' && u.stories > 0 ? u.stories : null,
+      // ★★★ fix-402: the three unit-parking fields, read NULL-SAFELY.
+      //
+      // ★★ EVERY ONE OF THESE COERCES TO null, NEVER TO A DEFAULT. An absent
+      // key, a wrong type, or a value outside the closed set all read as "not
+      // recorded" — which is what they are. The temptations to resist, all
+      // three of them fix-386's rule:
+      //   parking_kind  → NOT 'none'   ("nobody said" ≠ "no parking")
+      //   parking_stalls→ NOT 0        (0 is a recorded zero)
+      //   roof_deck     → NOT false    (false is a recorded no)
+      //
+      // ★ parking_stalls admits 0 deliberately (>= 0, unlike qty/stories which
+      // require > 0): a unit with a recorded zero stalls is a real answer.
+      parking_kind: isParkingKind(u.parking_kind) ? u.parking_kind : null,
+      parking_stalls:
+        typeof u.parking_stalls === 'number' &&
+        Number.isFinite(u.parking_stalls) &&
+        u.parking_stalls >= 0
+          ? u.parking_stalls
+          : null,
+      roof_deck: typeof u.roof_deck === 'boolean' ? u.roof_deck : null,
     }));
 }
 

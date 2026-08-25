@@ -1,8 +1,21 @@
-import type { PermitWithCycles, Project, Stage, UnitType } from './database.types';
+import type {
+  ParkingKind,
+  PermitWithCycles,
+  Project,
+  Stage,
+  UnitType,
+} from './database.types';
 import { effectiveStage } from './permitStage';
 import { multiMatchAddress } from './drawScheduleHelpers';
 import { parseUnitTypes } from './unitTypeNaming';
 import { structAddressHaystack } from './structAddressSearch';
+import {
+  matchParkingKind,
+  matchRoofDeck,
+  matchStallsTier,
+  type RoofDeckFilter,
+  type StallsTier,
+} from './unitParking';
 
 // Q6.3.a: pure helpers for the Library matrix view (Settings → Library tab).
 // Mirrors v1's renderMatrix (index.html lines 5680-5778). The matrix shows
@@ -167,11 +180,24 @@ export interface LibraryFilters {
   productTypes: string[];
   tag: string;
   juris: string;
-  /** fix-122: exact-match Number of Lots filter. null = no filter; a
-   *  picked value (1-20) shows only projects whose num_lots equals
-   *  that number. Rows with NULL num_lots fall out when the filter is
-   *  active — matches the "show me 5-lot subdivisions" intent. */
-  numLots: number | null;
+  /** ★★★ fix-402 — THE LOTS FILTER IS REMOVED, BY RULING. Bobby, 2026-08-25:
+   *  *"we dont need it as a filtering option for this screen"*.
+   *
+   *  ★★ THE LOTS COLUMN STAYS — he removed the FILTER, not the data.
+   *  `LibraryRow.numLots` is still populated and still rendered; only the
+   *  control is gone. fix-122's other half (the corner-lot filter) is
+   *  untouched and now lives on the SITE card.
+   *
+   *  ★ Recorded here rather than silently deleted so the next reader finds a
+   *  ruling instead of a gap (the fix-326 pattern). */
+
+  // ★★★ fix-402 — THE UNIT CARD'S THREE NEW FILTERS.
+  /** '' = Any. A picked kind requires that RECORDED kind on a unit. */
+  parkingKind: '' | ParkingKind;
+  /** '' = Any · '1+' · '2+' stalls on a unit. */
+  stalls: StallsTier;
+  /** '' = Any · Yes · No, tri-state like fix-122's corner. */
+  roofDeck: RoofDeckFilter;
   /** fix-122: tri-state Corner Lot filter. '' = no filter (Any);
    *  'Yes' = only is_corner_lot === true; 'No' = only false.
    *  Rows with NULL is_corner_lot fall out under Yes/No (no implicit
@@ -206,25 +232,48 @@ export function matchingUnitIndices(
   filters: LibraryFilters,
 ): number[] {
   // fix-205: stories joins width/depth as a per-unit filter dimension.
-  const hasUnitFilter =
-    filters.unitwTarget !== null ||
-    filters.unitdTarget !== null ||
-    filters.stories !== '';
-  if (!hasUnitFilter) {
+  // fix-402: and so do parking kind, stalls and roof deck.
+  if (!hasAnyUnitFilter(filters)) {
     return row.unitTypes.map((_, i) => i);
   }
   const out: number[] = [];
   for (let i = 0; i < row.unitTypes.length; i++) {
     const u = row.unitTypes[i];
+    // ★★★ fix-402 — THE CONJUNCTION IS PER UNIT, AND THAT IS THE RULING.
+    //
+    // A project qualifies when AT LEAST ONE unit satisfies ALL the active unit
+    // filters TOGETHER — not when each filter finds some unit somewhere.
+    //
+    // ★★ The difference is the whole point: a project with unit A (garage, no
+    // deck) and unit B (surface, deck) must NOT match "garage AND roof deck".
+    // Under a per-filter reading it would, and the reader would open it to find
+    // no such unit exists. Every condition below is ANDed on the SAME `u`.
     if (
       matchTargetWithBuffer(u.width_ft, filters.unitwTarget, filters.unitwBuf) &&
       matchTargetWithBuffer(u.depth_ft, filters.unitdTarget, filters.unitdBuf) &&
-      matchStoriesTier(u.stories, filters.stories)
+      matchStoriesTier(u.stories, filters.stories) &&
+      matchParkingKind(u.parking_kind, filters.parkingKind) &&
+      matchStallsTier(u.parking_stalls, filters.stalls) &&
+      matchRoofDeck(u.roof_deck, filters.roofDeck)
     ) {
       out.push(i);
     }
   }
   return out;
+}
+
+/** ★ Is any UNIT-card filter active? One definition, used by both the index
+ *  helper and the row filter — they drifted apart once already when fix-205
+ *  added stories to one list and the other had to be chased. */
+export function hasAnyUnitFilter(filters: LibraryFilters): boolean {
+  return (
+    filters.unitwTarget !== null ||
+    filters.unitdTarget !== null ||
+    filters.stories !== '' ||
+    filters.parkingKind !== '' ||
+    filters.stalls !== '' ||
+    filters.roofDeck !== ''
+  );
 }
 
 /** Apply the active filters to the matrix rows. */
@@ -234,10 +283,7 @@ export function filterLibraryRows(
 ): LibraryRow[] {
   const zoneQ = filters.zone.trim().toLowerCase();
   const searchQ = filters.search.trim();
-  const hasUnitFilter =
-    filters.unitwTarget !== null ||
-    filters.unitdTarget !== null ||
-    filters.stories !== '';
+  const hasUnitFilter = hasAnyUnitFilter(filters);
   return rows.filter((r) => {
     if (!matchTargetWithBuffer(r.lotWidth, filters.lotwTarget, filters.lotwBuf)) return false;
     if (!matchTargetWithBuffer(r.lotDepth, filters.lotdTarget, filters.lotdBuf)) return false;
@@ -252,11 +298,8 @@ export function filterLibraryRows(
     }
     if (filters.tag && !r.tags.includes(filters.tag)) return false;
     if (filters.juris && r.juris !== filters.juris) return false;
-    // fix-122: exact-match num_lots — NULLs fall out when a value is
-    // picked. Bobby's "apples-to-apples subdivision" workflow.
-    if (filters.numLots !== null && r.numLots !== filters.numLots) {
-      return false;
-    }
+    // ★ fix-402: the num_lots FILTER is gone by ruling (see LibraryFilters).
+    //   The lots COLUMN is untouched and still reads r.numLots.
     // fix-122: tri-state Corner — Yes/No each require a non-null match.
     if (filters.isCornerLot === 'Yes' && r.isCornerLot !== true) return false;
     if (filters.isCornerLot === 'No' && r.isCornerLot !== false) return false;

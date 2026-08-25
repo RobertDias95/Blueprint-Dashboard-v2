@@ -121,8 +121,7 @@ export interface WizardState {
   lot_width: string;
   lot_depth: string;
   unit_types: UnitType[];
-  parking_type: string;
-  parking_stalls: string;
+
   alley: string;
   /** fix-91: array now. A site can legitimately have multiple types
    *  (SFR + Attached Units + Cottages). Pick list comes from the
@@ -222,8 +221,7 @@ export function makeEmptyWizardState(): WizardState {
     lot_width: '',
     lot_depth: '',
     unit_types: [],
-    parking_type: '',
-    parking_stalls: '',
+
     alley: '',
     product_types: [],
     project_tags: [],
@@ -280,8 +278,7 @@ export function makeRedesignWizardState(
     num_lots?: number | null;
     is_corner_lot?: boolean | null;
     closing_date?: string | null;
-    parking_type?: string | null;
-    parking_stalls?: number | null;
+
     alley?: string | null;
     product_types?: string[] | null;
     project_tags?: string[] | null;
@@ -325,11 +322,9 @@ export function makeRedesignWizardState(
     unit_types: Array.isArray(parentProject.unit_types)
       ? parentProject.unit_types
       : [],
-    parking_type: parentProject.parking_type ?? '',
-    parking_stalls:
-      parentProject.parking_stalls != null
-        ? String(parentProject.parking_stalls)
-        : '',
+    // ★ fix-402: site parking is no longer inherited from the parent —
+    //   there is nothing left to inherit. The parent's UNIT rows carry
+    //   parking now, and unit_types is already copied above.
     alley: parentProject.alley ?? '',
     product_types: Array.isArray(parentProject.product_types)
       ? parentProject.product_types
@@ -353,12 +348,8 @@ export function makeRedesignWizardState(
  *  Listed as fix-23 cleanup target — once production data is normalized,
  *  these can be reconsidered. For now match v1 exactly so a Bobby's new-
  *  project entries store the same vocabulary as historical data. */
-export const PARKING_TYPE_OPTIONS = [
-  'None',
-  'Surface',
-  'Garage',
-  'Both',
-] as const;
+// ★ fix-402: PARKING_TYPE_OPTIONS removed with the site-level field it fed.
+//   The per-unit vocabulary is PARKING_KINDS in lib/database.types.
 
 export const ALLEY_OPTIONS = ['Yes', 'No'] as const;
 

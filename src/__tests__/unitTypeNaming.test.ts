@@ -58,7 +58,18 @@ describe('parseUnitTypes', () => {
 
   it('coalesces v1 {w,d} into {width_ft,depth_ft} and defaults qty/stories', () => {
     expect(parseUnitTypes([{ label: 'A', w: 20, d: 30 }])).toEqual([
-      { label: 'A', width_ft: 20, depth_ft: 30, qty: 1, stories: null },
+      {
+        label: 'A',
+        width_ft: 20,
+        depth_ft: 30,
+        qty: 1,
+        stories: null,
+        // ★ fix-402: three more fields, all null on a row that never
+        //   carried them — NOT RECORDED, never a default.
+        parking_kind: null,
+        parking_stalls: null,
+        roof_deck: null,
+      },
     ]);
   });
 
@@ -68,7 +79,18 @@ describe('parseUnitTypes', () => {
         { label: 'B', width_ft: 17.5, depth_ft: 33.75, qty: 0, stories: 3 },
       ]),
     ).toEqual([
-      { label: 'B', width_ft: 17.5, depth_ft: 33.75, qty: 1, stories: 3 },
+      {
+        label: 'B',
+        width_ft: 17.5,
+        depth_ft: 33.75,
+        qty: 1,
+        stories: 3,
+        // ★ fix-402: three more fields, all null on a row that never
+        //   carried them — NOT RECORDED, never a default.
+        parking_kind: null,
+        parking_stalls: null,
+        roof_deck: null,
+      },
     ]);
   });
 });

@@ -1,4 +1,10 @@
 import type { UnitType } from '../../lib/database.types';
+import {
+  ParkingKindSelect,
+  RoofDeckSelect,
+  StallsInput,
+} from '../shared/UnitParkingInputs';
+import { parseStalls } from '../../lib/unitParking';
 import { nextUnitTypeLabel } from '../../lib/unitTypeNaming';
 
 // fix-22: sub-editor for projects.unit_types (jsonb array). Each entry is
@@ -25,6 +31,12 @@ function nextRow(rows: readonly UnitType[]): UnitType {
     width_ft: null,
     depth_ft: null,
     qty: 0,
+    // ★★★ fix-402: a NEW row starts NOT RECORDED on all three, spelled out
+    //   rather than left absent — so the intent survives a future refactor
+    //   that might otherwise reach for a "sensible default".
+    parking_kind: null,
+    parking_stalls: null,
+    roof_deck: null,
   };
 }
 
@@ -131,6 +143,45 @@ export default function UnitTypesEditor({ value, onChange }: Props) {
                   }
                   className="bg-surface border border-border rounded px-2 py-1 text-xs font-mono text-text focus:outline-none focus:border-de"
                   data-testid={`unit-types-qty-${i}`}
+                />
+              </label>
+              {/* ★★★ fix-402 — PARKING AT CREATION, the front-load rule.
+                  Bobby wants the book backfilled; the cheapest way to stop it
+                  needing backfilling AGAIN is to ask while the project is
+                  being made. ★ Optional and never blocking — a wizard that
+                  refused to continue without parking would just get "Garage"
+                  typed into every row to get past it, which is worse than NULL
+                  because it looks like an answer. */}
+              <label className="col-span-4 flex flex-col gap-0.5">
+                <span className="text-[9px] uppercase tracking-wide text-dim">
+                  Parking
+                </span>
+                <ParkingKindSelect
+                  value={row.parking_kind}
+                  onChange={(v) => update(i, { parking_kind: v })}
+                  testid={`unit-types-parking-kind-${i}`}
+                />
+              </label>
+              <label className="col-span-3 flex flex-col gap-0.5">
+                <span className="text-[9px] uppercase tracking-wide text-dim">
+                  Stalls
+                </span>
+                <StallsInput
+                  value={row.parking_stalls != null ? String(row.parking_stalls) : ''}
+                  onChange={(raw) =>
+                    update(i, { parking_stalls: parseStalls(raw) })
+                  }
+                  testid={`unit-types-stalls-${i}`}
+                />
+              </label>
+              <label className="col-span-4 flex flex-col gap-0.5">
+                <span className="text-[9px] uppercase tracking-wide text-dim">
+                  Roof Deck
+                </span>
+                <RoofDeckSelect
+                  value={row.roof_deck}
+                  onChange={(v) => update(i, { roof_deck: v })}
+                  testid={`unit-types-roof-deck-${i}`}
                 />
               </label>
               <div className="col-span-1 flex justify-center">

@@ -14,6 +14,20 @@ export type Stage = 'de' | 'pm' | 'co' | 'ap' | 'is';
 
 /** fix-22: per-unit-type sub-row stored as jsonb on projects.unit_types.
  *  Wizard's UnitTypesEditor reads/writes this shape. */
+/** ★★★ fix-402: how a unit parks. A CLOSED SET — Bobby: *"by unit it's broken
+ *  down: is it a garage, is it surface, is it both"*.
+ *
+ *  ★★★ `none` IS A RECORDED ANSWER, and that is the whole reason it is in the
+ *  set. "This unit has no parking" is a fact somebody entered; NULL is the
+ *  absence of a fact. Conflating them is fix-386's rule broken, and it is why
+ *  the set has four members rather than three plus a NULL. */
+export const PARKING_KINDS = ['garage', 'surface', 'both', 'none'] as const;
+export type ParkingKind = (typeof PARKING_KINDS)[number];
+
+export function isParkingKind(v: unknown): v is ParkingKind {
+  return typeof v === 'string' && (PARKING_KINDS as readonly string[]).includes(v);
+}
+
 export interface UnitType {
   label: string;
   width_ft: number | null;
@@ -23,6 +37,27 @@ export interface UnitType {
    *  rows predate the field. Stored in the same projects.unit_types JSONB
    *  array (no migration). null/absent = not entered ("—"). */
   stories?: number | null;
+  // ★★★ fix-402 — PARKING MOVES FROM THE SITE TO THE UNIT.
+  //
+  // Bobby, 2026-08-25: *"Remove [parking] from the holistic site and merge that
+  // under the units for proposal … by unit it's broken down: is it a garage, is
+  // it surface, is it both, and how many stalls per unit."*
+  //
+  // ★★ THE SAME JSONB ARRAY, NO MIGRATION — fix-205's precedent exactly. Units
+  // live in `projects.unit_types`; `stories` joined them this way and so do
+  // these three. The closed set is enforced by the parser and the editor
+  // dropdown rather than a DB CHECK, because a CHECK cannot reach inside a
+  // JSONB array element without rejecting every legacy row.
+  //
+  // ★★★ ALL THREE START NULL ON EVERY ROW, AND NOTHING PRE-FILLS THEM. 231 unit
+  // rows across 102 projects on prod as of 2026-08-25; the team backfills by
+  // hand. NULL means NOT RECORDED — never "none", never 0, never false.
+  /** garage · surface · both · none. null = not recorded. */
+  parking_kind?: ParkingKind | null;
+  /** Stalls for this unit. 0 is a recorded zero; null is not recorded. */
+  parking_stalls?: number | null;
+  /** Bobby: *"just a yes or no, roof deck"*. null = not recorded. */
+  roof_deck?: boolean | null;
 }
 
 export interface Project {
@@ -76,7 +111,22 @@ export interface Project {
   lot_width?: number | null;
   lot_depth?: number | null;
   unit_types?: UnitType[] | null;
+  /** @deprecated ★★★ fix-402 — SITE-LEVEL PARKING IS ARCHIVED AND CLEARED.
+   *
+   *  Bobby, 2026-08-25: *"Remove [parking] from the holistic site and merge
+   *  that under the units for proposal."* Parking is a per-UNIT property now —
+   *  see UnitType.parking_kind / parking_stalls above.
+   *
+   *  ★★ THE COLUMNS STILL EXIST AND ARE NULL ON ALL 186 PROJECTS. The 182 rows
+   *  that carried a value were copied to
+   *  `_parking_site_archive_2026_08_25` first (181 types, 180 stall counts),
+   *  because the site answers are the only record of what the team believed
+   *  before the per-unit book is backfilled.
+   *
+   *  ★ Nothing reads these any more; they are kept typed so the archive story
+   *  is discoverable from the type rather than only from a migration file. */
   parking_type?: string | null;
+  /** @deprecated fix-402 — see parking_type above. */
   parking_stalls?: number | null;
   alley?: string | null;
   /** fix-91: was a single text column, now an array. A single site can

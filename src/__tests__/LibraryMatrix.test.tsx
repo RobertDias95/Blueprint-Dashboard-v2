@@ -657,15 +657,14 @@ describe('<LibraryMatrix />', () => {
       expect(screen.getByTestId('library-corner-c').textContent).toBe('—');
     });
 
-    it('filter-num-lots=5 narrows to the matching subdivision', () => {
+    it('★★★ fix-402: the Lots FILTER is gone — the COLUMN is not', () => {
+      // Bobby, 2026-08-25: *"we dont need it as a filtering option for this
+      // screen"*. He removed the control, not the data — so the control is
+      // asserted absent and the column is asserted still rendering, which is
+      // the whole distinction in one test.
       renderIt();
-      fireEvent.change(screen.getByTestId('filter-num-lots'), {
-        target: { value: '5' },
-      });
-      expect(screen.queryByTestId('library-row-a')).not.toBeInTheDocument();
-      expect(screen.getByTestId('library-row-b')).toBeInTheDocument();
-      // Project c has NULL num_lots → falls out when the filter is set.
-      expect(screen.queryByTestId('library-row-c')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('filter-num-lots')).toBeNull();
+      expect(screen.getByTestId('library-num-lots-b')).toBeInTheDocument();
     });
 
     it('filter-corner=Yes keeps only is_corner_lot=true rows; NULL falls out', () => {
@@ -688,11 +687,8 @@ describe('<LibraryMatrix />', () => {
       expect(screen.queryByTestId('library-row-c')).not.toBeInTheDocument();
     });
 
-    it('Clear button resets the Lots + Corner filters too', () => {
+    it('Clear button resets the Corner filter too', () => {
       renderIt();
-      fireEvent.change(screen.getByTestId('filter-num-lots'), {
-        target: { value: '5' },
-      });
       fireEvent.change(screen.getByTestId('filter-corner'), {
         target: { value: 'Yes' },
       });
@@ -700,9 +696,6 @@ describe('<LibraryMatrix />', () => {
       expect(screen.getByTestId('library-count').textContent).toMatch(
         /^3 projects/,
       );
-      expect(
-        (screen.getByTestId('filter-num-lots') as HTMLSelectElement).value,
-      ).toBe('');
       expect(
         (screen.getByTestId('filter-corner') as HTMLSelectElement).value,
       ).toBe('');

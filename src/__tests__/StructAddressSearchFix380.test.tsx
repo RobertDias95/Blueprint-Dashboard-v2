@@ -357,8 +357,11 @@ const baseLibFilters: LibraryFilters = {
   productTypes: [],
   tag: '',
   juris: '',
-  numLots: null,
   isCornerLot: '',
+  // ★ fix-402: the UNIT card's three new filters, all Any.
+  parkingKind: '',
+  stalls: '',
+  roofDeck: '',
 };
 
 describe('fix-380 §3 — the Library matrix matches on struct_address', () => {

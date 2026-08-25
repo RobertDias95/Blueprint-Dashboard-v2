@@ -57,7 +57,17 @@ describe('buildReuseSources', () => {
     ];
     const out = buildReuseSources(projects, new Map());
     expect(out[0].unit_types).toEqual([
-      { label: 'Type A', width_ft: 20, depth_ft: 30, qty: 1, stories: null },
+      // ★ fix-402 adds three null unit-parking fields to every parsed row.
+      {
+        label: 'Type A',
+        width_ft: 20,
+        depth_ft: 30,
+        qty: 1,
+        stories: null,
+        parking_kind: null,
+        parking_stalls: null,
+        roof_deck: null,
+      },
     ]);
   });
 });
@@ -140,7 +150,17 @@ describe('<ReuseSourcePicker />', () => {
     expect(s.id).toBe('src');
     expect(s.product_types).toEqual(['SFR']);
     expect(s.unit_types).toEqual([
-      { label: 'Type A', width_ft: 20, depth_ft: 30, qty: 1, stories: 2 },
+      // ★ fix-402 adds three null unit-parking fields to every parsed row.
+      {
+        label: 'Type A',
+        width_ft: 20,
+        depth_ft: 30,
+        qty: 1,
+        stories: 2,
+        parking_kind: null,
+        parking_stalls: null,
+        roof_deck: null,
+      },
     ]);
   });
 

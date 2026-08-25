@@ -39,6 +39,12 @@ describe('<UnitTypesEditor />', () => {
       width_ft: null,
       depth_ft: null,
       qty: 0,
+      // ★ fix-402: parseUnitTypes/nextRow now also emit the three unit-parking
+      // fields, all null — NOT RECORDED, which is what a row that never
+      // carried them is until the backfill reaches it.
+      parking_kind: null,
+      parking_stalls: null,
+      roof_deck: null,
     });
   });
 

@@ -43,7 +43,6 @@ export interface SegmentProject {
   is_corner_lot?: boolean | null;
   product_types?: string[] | null;
   zone?: string | null;
-  parking_type?: string | null;
   alley?: string | null;
   builder_company?: string | null;
   design_manager?: string | null;
@@ -94,7 +93,14 @@ export const SEGMENTS: SegmentDef[] = [
     valuesOf: (p) => (p.product_types ?? []).map((t) => t.trim()).filter(Boolean),
   },
   { key: 'zone', label: 'Zone', valueOf: (p) => text(p.zone) },
-  { key: 'parking_type', label: 'Parking type', valueOf: (p) => text(p.parking_type) },
+  // ★★★ fix-402 removed the "Parking type" segment. projects.parking_type is
+  // archived and cleared — parking is a PER-UNIT property now — so this
+  // dimension would have grouped every project under a single "—" bucket and
+  // silently made the report useless rather than erroring. That is the fix-122
+  // trap in reverse, and it is why this ticket swept the readers.
+  //
+  // ★ It could return as a UNIT dimension (rollup kind per project), but that
+  // is a reporting decision and this ticket is display + library only.
   { key: 'alley', label: 'Alley', valueOf: (p) => text(p.alley) },
   { key: 'builder_company', label: 'Builder', valueOf: (p) => text(p.builder_company) },
   { key: 'design_manager', label: 'Design manager', valueOf: (p) => text(p.design_manager) },
