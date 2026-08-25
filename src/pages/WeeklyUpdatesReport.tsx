@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
+import OriginLink from '../components/OriginLink';
 import { useProjects } from '../hooks/useProjects';
 import { usePermits } from '../hooks/usePermits';
 import { useAllNotes, useAddNote, useUpdateNote } from '../hooks/useNotes';
@@ -209,12 +209,12 @@ function ProjectGroupCard({ group }: { group: ProjectGroup }) {
           borderBottomColor: 'var(--color-border)',
         }}
       >
-        <Link
+        <OriginLink
           to={`/project/${project.id}`}
           className="text-sm font-display font-bold text-text hover:text-de transition truncate"
         >
           {project.address}
-        </Link>
+        </OriginLink>
         {project.juris && (
           <span className="text-[10px] text-muted font-mono flex-shrink-0">
             {project.juris}

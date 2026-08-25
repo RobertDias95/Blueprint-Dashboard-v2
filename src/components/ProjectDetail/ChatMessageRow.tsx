@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Link } from 'react-router-dom';
+import OriginLink from '../OriginLink';
 import {
   permitChoiceLabel,
   useDeleteMessage,
@@ -310,13 +310,13 @@ export default function ChatMessageRow({
             {taskPermit && (
               <>
                 <span className="text-dim"> · </span>
-                <Link
+                <OriginLink
                   to={`/project/${projectId}?permit=${taskPermit.id}`}
                   className="underline text-de"
                   data-testid={`project-chat-task-permit-${message.id}`}
                 >
                   {permitChoiceLabel(taskPermit)}
-                </Link>
+                </OriginLink>
               </>
             )}
           </div>

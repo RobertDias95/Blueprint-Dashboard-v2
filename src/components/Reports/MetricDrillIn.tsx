@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
+import OriginLink from '../OriginLink';
 import type { DrillInData, MetricDrillInRow } from '../../lib/metricDrillIn';
 import {
   REPORTS_OVERVIEW_METRICS,
@@ -169,13 +169,13 @@ function DrillRow({
   return (
     <li className="px-4 py-2.5 flex flex-col gap-1.5">
       <div className="flex items-center gap-2 min-w-0">
-        <Link
+        <OriginLink
           to={`/project/${row.projectId}?permit=${row.permitId}`}
           className="text-[12px] font-bold text-de underline truncate"
           data-testid={`metric-drillin-row-${row.permitId}`}
         >
           {row.address || '(no address)'}
-        </Link>
+        </OriginLink>
         {row.num && (
           <span className="text-[10px] text-muted font-mono flex-shrink-0">{row.num}</span>
         )}

@@ -155,7 +155,12 @@ describe('fix-387: go_href navigates client-side', () => {
     const go = screen.getByTestId('whats-new-go-e1');
     expect(go.tagName).toBe('BUTTON');
     expect(go.getAttribute('href')).toBeNull();
-    expect(pageSource).toContain('onClick={() => navigate(href)}');
+    // ★ fix-408 added the origin argument — an entry can point at a project,
+    //   and Previous should bring you back to the announcement you were
+    //   reading. The property this line guards is unchanged: it is a BUTTON
+    //   calling react-router's navigate(), never an <a href> that could leave
+    //   the origin whatever the stored string says.
+    expect(pageSource).toContain('navigate(href, { state: originState() })');
   });
 
   it('★★★ a value that is not an app path renders no link at all', () => {

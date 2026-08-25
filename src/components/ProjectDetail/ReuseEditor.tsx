@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
+import OriginLink from '../OriginLink';
 import { useUpdateProject } from '../../hooks/useUpdateProject';
 import { parseUnitTypes } from '../../lib/unitTypeNaming';
 import ReuseSourcePicker, {
@@ -85,14 +85,14 @@ export default function ReuseEditor({
             className="inline-flex items-center gap-1"
             data-testid="pd-reuse-badge"
           >
-            <Link
+            <OriginLink
               to={`/project/${source.id}`}
               className="text-[9px] font-bold px-1.5 py-0.5 rounded border bg-jv-bg text-jv border-jv-border hover:underline"
               data-testid="pd-reuse-source-link"
               title={`Templated off ${source.address}`}
             >
               ♻ Reuse of {source.address}
-            </Link>
+            </OriginLink>
             <button
               type="button"
               onClick={() => setPicking(true)}

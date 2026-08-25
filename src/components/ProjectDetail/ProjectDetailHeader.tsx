@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { CSSProperties } from 'react';
-import { Link, useSearchParams } from 'react-router-dom';
+import { useSearchParams } from 'react-router-dom';
+import OriginLink from '../OriginLink';
 import { schematicWindow } from '../../lib/schematicWindow';
 import { VENDOR_SEND_LEAD_DAYS, vendorTargetSend } from '../../lib/vendorReport';
 import type {
@@ -1202,12 +1203,12 @@ function ProjectCell({
                         data-testid={`pd-redesign-row-${r.id}`}
                         className="flex items-baseline justify-between gap-2 text-[10px]"
                       >
-                        <Link
+                        <OriginLink
                           to={`/project/${r.id}`}
                           className="font-display font-bold text-de hover:underline truncate"
                         >
                           Redesign #{i + 1}
-                        </Link>
+                        </OriginLink>
                         <span className="text-dim font-mono truncate">
                           {r.redesign_trigger ?? '—'}
                           {r.redesign_reuses_original_permit === true

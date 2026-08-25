@@ -4,6 +4,7 @@ import librarySource from '../components/LibraryMatrix.tsx?raw';
 import dashboardSource from '../pages/Dashboard.tsx?raw';
 import adminTeamSource from '../components/Settings/AdminTeamTab.tsx?raw';
 import addrGroupSource from '../components/Dashboard/AddrGroup.tsx?raw';
+import originLinkSource from '../components/OriginLink.tsx?raw';
 import { PREVIOUS_ORIGINS, previousTarget } from '../lib/previousOrigin';
 import {
   clearFilterState,
@@ -219,19 +220,48 @@ describe('fix-403 §2: Previous goes back where you came from', () => {
     }
   });
 
-  it('★★ the origin is a CLOSED set — an unknown value cannot navigate anywhere', () => {
+  // ★★★ SUPERSEDED BY fix-408, NOT MISTAKEN — and the difference matters.
+  //
+  // This test asserted that the origin was a CLOSED SET of two, and it was
+  // RIGHT for a ticket about two lists. fix-408 opens the set to every page in
+  // the app, because Bobby's rule is now "Previous is a site-wide smart
+  // function" (register P-041) and the closed set is exactly why a notification
+  // click landed on "← Search".
+  //
+  // ★★ WHAT THE OLD ASSERTION WAS PROTECTING SURVIVES INTACT: an origin still
+  // cannot navigate anywhere arbitrary. It is validated against the app's route
+  // table now instead of a two-member enum — see fix-408 §2 in
+  // PreviousEveryEntryPathFix408.test.ts, which asserts the same property
+  // against a much larger surface, including `//evil.com`.
+  it('★★ fix-403\'s two named origins are still named, and still work', () => {
     expect(Object.values(PREVIOUS_ORIGINS).sort()).toEqual(['/dashboard', '/library']);
-    expect(previousTarget({ from: '/settings' }).to).toBe('/projects');
+    // ★ `/settings` was the old "not in the closed set" example. It IS a page
+    //   now, so it resolves — which is the fix-408 change, stated out loud
+    //   rather than deleted. A path that is NOT a page still falls back.
+    expect(previousTarget({ from: '/settings' }).to).toBe('/settings');
+    expect(previousTarget({ from: '/nope' }).to).toBe('/projects');
   });
 
   it('★★ both lists tag their project links with their origin', () => {
-    expect(librarySource).toContain('PREVIOUS_ORIGINS.library');
-    expect(addrGroupSource).toContain('PREVIOUS_ORIGINS.pipeline');
+    // ★★ fix-408: they no longer NAME their origin — they use <OriginLink>,
+    //    which reads it from `useLocation()`. The behaviour fix-403 shipped is
+    //    unchanged and is asserted directly rather than through a literal:
+    //    /library still resolves to "← Library" and /dashboard to "← Pipeline",
+    //    which is what those two constants were ever for.
+    expect(librarySource).toContain('<OriginLink');
+    expect(addrGroupSource).toContain('<OriginLink');
+    expect(previousTarget({ from: PREVIOUS_ORIGINS.library }).label).toBe('← Library');
+    expect(previousTarget({ from: PREVIOUS_ORIGINS.pipeline }).label).toBe('← Pipeline');
   });
 
   it('★★ the chrome renders the resolved target, not a hardcoded /projects', () => {
     const src = projectDetailSource;
-    expect(src).toContain('previousTarget(useLocation().state)');
+    // ★ fix-408 gave `previousTarget` two more arguments — the current location
+    //   (so an origin equal to it is declined) and a project-address resolver.
+    //   The property this line has always asserted is unchanged: the button
+    //   reads its destination out of ROUTER STATE.
+    expect(src).toContain('previousTarget(loc.state');
+    expect(src).toContain('const loc = useLocation()');
     expect(src).toContain('to={previous.to}');
     expect(src).toContain('{previous.label}');
     // ★ The testid is UNCHANGED, so every existing navigation test still finds
@@ -240,12 +270,18 @@ describe('fix-403 §2: Previous goes back where you came from', () => {
   });
 
   it('★★★ the FILTERS do not travel in router state — only the origin does', () => {
+    // ★ fix-408 note: the Library's link is an <OriginLink> now, so the literal
+    //   `state={{ from: PREVIOUS_ORIGINS.library }}` moved into the wrapper.
+    //   The assertion below is against what the wrapper writes — see
+    //   PreviousEveryEntryPathFix408.test.ts §1 — and the rule it protects is
+    //   unchanged: an origin travels, a filter never does.
     // Router state would restore them for this button alone and forget them for
     // the browser back button and the ribbon. The memory lives in
     // sessionStorage precisely so every route back works.
     const stripped = librarySource.replace(/^\s*\/\/.*$/gm, '');
-    expect(stripped).toMatch(/state=\{\{ from: PREVIOUS_ORIGINS\.library \}\}/);
     expect(stripped).not.toMatch(/state=\{\{[^}]*filters/);
+    const originLink = originLinkSource.replace(/^\s*\/\/.*$/gm, '');
+    expect(originLink).not.toMatch(/filters/);
   });
 });
 

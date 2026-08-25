@@ -1,5 +1,6 @@
 import { useMemo } from 'react';
 import { Link } from 'react-router-dom';
+import OriginLink from '../components/OriginLink';
 import { usePermits } from '../hooks/usePermits';
 import { useProjects } from '../hooks/useProjects';
 import {
@@ -145,13 +146,13 @@ function Row({ row }: { row: ApprovedAwaitingRow }) {
     >
       <Td>
         {/* fix-219 deep-link: open the permit in Project View. */}
-        <Link
+        <OriginLink
           to={`/project/${row.projectId}?permit=${row.permitId}`}
           className="text-de hover:underline"
           data-testid={`aai-link-${row.permitId}`}
         >
           {row.address ?? '—'}
-        </Link>
+        </OriginLink>
       </Td>
       <Td>
         <span className="text-text">{row.type ?? '—'}</span>

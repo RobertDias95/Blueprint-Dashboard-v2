@@ -669,8 +669,14 @@ describe('<NewProjectWizard />', () => {
     expect(permits[0]).toHaveProperty('task_template_ids');
 
     await waitFor(() => {
+      // ★ fix-408: the wizard now hands the new project an ORIGIN — the page
+      //   the modal was opened over — so Previous takes you back there. Under
+      //   MemoryRouter the location is `/`, which is not a page in
+      //   previousOrigin's route table, so the recorded origin is `undefined`
+      //   and this navigation behaves exactly as it did before.
       expect(navigate).toHaveBeenCalledWith(
         '/project/33333333-3333-3333-3333-333333333333',
+        { state: undefined },
       );
     });
     expect(onClose).toHaveBeenCalled();
@@ -906,8 +912,10 @@ describe('<NewProjectWizard />', () => {
     expect(onClose).not.toHaveBeenCalled();
 
     fireEvent.click(screen.getByTestId('wizard-view-existing'));
+    // ★ fix-408: same origin argument as the create path above.
     expect(navigate).toHaveBeenCalledWith(
       '/project/44444444-4444-4444-4444-444444444444',
+      { state: undefined },
     );
   });
 

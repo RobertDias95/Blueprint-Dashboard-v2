@@ -1,5 +1,6 @@
 import { useMemo } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
+import OriginLink from '../components/OriginLink';
 import { useBoardNotifications } from '../hooks/useBoardNotifications';
 import { useMarkBoardItemsRead } from '../hooks/useBoardReads';
 import { useResolvePostRequest } from '../hooks/usePostRequests';
@@ -279,7 +280,7 @@ export default function NotificationsPage() {
                   }
                   aria-hidden
                 />
-                <Link
+                <OriginLink
                   // ★★ fix-362: the same one function the bell uses.
                   to={targetHref(i)}
                   onClick={() => {
@@ -299,7 +300,7 @@ export default function NotificationsPage() {
                   <div className="text-[9.5px] text-dim font-mono truncate">
                     {i.where}
                   </div>
-                </Link>
+                </OriginLink>
                 {/* ★★ fix-339: a shared item is ANSWERED, not acknowledged — and
                     it must never offer "mark read". */}
                 {/* ★★ fix-363 — SURFACE 3 OF 3. Bobby named the notification

@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { Link } from 'react-router-dom';
+import OriginLink from '../OriginLink';
 import { PREVIOUS_ORIGINS } from '../../lib/previousOrigin';
 import { effectiveStage } from '../../lib/permitStage';
 import { permitUrgency, type UrgencyLevel } from '../../lib/urgencyHelpers';
@@ -521,7 +521,7 @@ function ExpandedRow({
         : 'var(--color-text)';
 
   return (
-    <Link
+    <OriginLink
       to={`/project/${projectId}`}
       // ★ fix-403: the origin for Project Overview's Previous button.
       state={{ from: PREVIOUS_ORIGINS.pipeline }}
@@ -574,6 +574,6 @@ function ExpandedRow({
           {keyDate ?? '—'}
         </span>
       </div>
-    </Link>
+    </OriginLink>
   );
 }

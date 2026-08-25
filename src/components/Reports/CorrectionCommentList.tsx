@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
+import OriginLink from '../OriginLink';
 import {
   commentsForLabel,
   countComments,
@@ -119,12 +119,12 @@ export default function CorrectionCommentList({ rows, level, label, today }: Pro
                 background: 'var(--color-s2)',
               }}
             >
-              <Link
+              <OriginLink
                 to={`/project/${g.projectId}`}
                 className="text-[11px] font-bold text-de hover:underline"
               >
                 {g.address}
-              </Link>
+              </OriginLink>
               <span className="text-[10px] text-dim">{g.juris}</span>
               <span className="text-[10px] text-dim ml-auto">
                 {g.comments.length} comment{g.comments.length === 1 ? '' : 's'}

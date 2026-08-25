@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
+import OriginLink from '../components/OriginLink';
 import {
   CartesianGrid,
   Line,
@@ -489,12 +490,12 @@ function ProjectList({
                       ✳
                     </span>
                   )}
-                  <Link
+                  <OriginLink
                     to={`/project/${row.projectId}`}
                     className="text-de hover:underline"
                   >
                     {row.address}
-                  </Link>
+                  </OriginLink>
                 </td>
                 <td className="px-2 py-1.5 text-muted">{row.juris || '—'}</td>
                 <td className="px-2 py-1.5 text-text">
