@@ -533,22 +533,24 @@ describe('sortLibraryRows', () => {
   // fix-122: numLots + isCornerLot sortable. NULL values land at the
   // end regardless of direction — unanswered rows shouldn't dilute the
   // top of an asc view.
-  describe('fix-122: numLots + isCornerLot sort', () => {
+  //
+  // ★★★ fix-406 DELETED THE numLots HALF OF THIS DESCRIBE. Bobby, 2026-08-26:
+  // *"we can remove lots from the vertical bar below for the sort column as it
+  // isnt really relevant here."* The two `col: 'numLots'` cases no longer
+  // typecheck — the union does not contain it — and a sort on a column nobody
+  // can see is not behaviour worth pinning. The NULLs-last RULE they were
+  // asserting is unchanged and still covered by the isCornerLot pair below,
+  // which was written against it.
+  //
+  // ★★ What replaces them lives in StaleGrayLibraryFix406.test.ts: the far more
+  // important question of what `sortLibraryRows` does when a column it does not
+  // know arrives anyway.
+  describe('fix-122: isCornerLot sort (the numLots half left in fix-406)', () => {
     const lotsRows = [
       { ...rows[0], numLots: 3 as number | null, isCornerLot: true as boolean | null },
       { ...rows[1], numLots: 1 as number | null, isCornerLot: null as boolean | null },
       { ...rows[2], numLots: null as number | null, isCornerLot: false as boolean | null },
     ];
-
-    it('numLots asc: smallest first, NULLs last', () => {
-      const out = sortLibraryRows(lotsRows, { col: 'numLots', asc: true });
-      expect(out.map((r) => r.numLots)).toEqual([1, 3, null]);
-    });
-
-    it('numLots desc: largest first, NULLs still last', () => {
-      const out = sortLibraryRows(lotsRows, { col: 'numLots', asc: false });
-      expect(out.map((r) => r.numLots)).toEqual([3, 1, null]);
-    });
 
     it('isCornerLot asc: true < false < null', () => {
       const out = sortLibraryRows(lotsRows, {

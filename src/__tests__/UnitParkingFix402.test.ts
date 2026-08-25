@@ -339,9 +339,28 @@ describe('fix-402 §5: two cards, and the Lots filter is gone', () => {
     );
   });
 
-  it('★★★ ...but the Lots COLUMN stays — he removed the control, not the data', () => {
-    expect(stripTs(libraryMatrixSource)).toContain('library-num-lots-');
-    expect(stripTs(libraryMatrixSource)).toContain('row.numLots');
+  it('★★★ ...and fix-406 took the COLUMN too, one day later', () => {
+    // ★★ THIS TEST USED TO ASSERT THE OPPOSITE, and it was right to.
+    //
+    //   2026-08-25: *"we dont need it as a filtering option for this screen"*
+    //               → filter gone, column kept, and this test pinned the
+    //                 distinction: `library-num-lots-` and `row.numLots`
+    //                 both still present in the source.
+    //   2026-08-26: *"we can remove lots from the vertical bar below for the
+    //                 sort column as it isnt really relevant here."*
+    //               → the column and its sort go too.
+    //
+    // SUPERSEDED, NOT MISTAKEN (fix-400's rule). fix-402 read the evidence it
+    // had correctly; the ruling widened. The assertion inverts, and the old
+    // one is quoted here so the reversal is a decision on the record rather
+    // than a test that quietly changed sign.
+    const src = stripTs(libraryMatrixSource);
+    expect(src).not.toContain('library-num-lots-');
+    expect(src).not.toContain('row.numLots');
+    // ★ And the second ruling is recorded in the source, next to the first.
+    expect(prose(libraryMatrixSource)).toContain(
+      'we can remove lots from the vertical bar below for the sort column',
+    );
   });
 
   it('★★ SITE and UNIT are two bordered cards with coloured chips', () => {

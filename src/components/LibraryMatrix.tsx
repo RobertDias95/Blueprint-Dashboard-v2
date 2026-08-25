@@ -5,6 +5,7 @@ import { useProjects } from '../hooks/useProjects';
 import { usePermits } from '../hooks/usePermits';
 import { useUpdateProject } from '../hooks/useUpdateProject';
 import {
+  DEFAULT_LIBRARY_SORT,
   buildLibraryRows,
   filterLibraryRows,
   hasAnyUnitFilter,
@@ -40,6 +41,12 @@ import {
   resolveUnitLabel,
   resolveUnitTypesForSave,
 } from '../lib/unitTypeNaming';
+import {
+  SITE_PALETTE,
+  UNIT_PALETTE,
+  cardBorderStyle,
+  chipStyle,
+} from '../lib/libraryGroupPalette';
 import { useAppConfig, readAppConfigStringArray } from '../hooks/useAppConfig';
 import { useAuthStore } from '../stores/authStore';
 import {
@@ -85,6 +92,29 @@ const STAGE_BADGE: Record<Stage, string> = {
 // v1's tag dropdown (index.html line 9377). Matches v1's `array.includes`
 // predicate on each row's project_tags array.
 const TAG_OPTIONS = ['ECA', 'SIP', 'TRAL', 'LBA', 'Short Plat'];
+
+// ★★★ fix-406 — THE FIELD SURFACE, AND WHY IT IS ONE CONSTANT
+//
+// Bobby: *"there is still a lot of gray on gray clashing with letters,
+// backgrounds, boxes etc."*
+//
+// ★★★ THE NUMBERS BEHIND THAT SENTENCE. Every filter box was `bg-bg`
+// (#f0f4f8) sitting on a `bg-s2` card (#e8edf3): a 2% luminance step. The box
+// did not read as a box — it read as a slightly different patch of the same
+// card. The fix is the app's FIELD surface, `bg-surface` (#ffffff), which is
+// the colour every other input in the app already uses on a tinted panel, plus
+// a hairline shadow so the box reads as a layer ABOVE the card rather than a
+// shape carved out of it.
+//
+// ★★ SELECTS INCLUDED — the brief calls them out by name, and they were the
+// worse half: a native select on #f0f4f8 also renders its own chrome in the
+// UA's grey, so the gray-on-gray was doubled.
+//
+// ★ ONE CONSTANT because there are nine of these boxes across the two cards.
+// Nine copies of a class string is how the next ticket restyles eight of them.
+const FIELD_CLASS =
+  'bg-surface border border-border rounded px-2 py-1 text-[11px] text-text ' +
+  'shadow-sm focus:outline-none focus:border-de focus:ring-1 focus:ring-de/30';
 
 export default function LibraryMatrix() {
   const projectsQ = useProjects();
@@ -162,7 +192,9 @@ function Body({ projects, permits }: BodyProps) {
     () => readAppConfigStringArray(appConfig.map, 'productTypeOptions'),
     [appConfig.map],
   );
-  const [sort, setSort] = useState<SortState>({ col: 'address', asc: true });
+  // ★ fix-406: the default comes from the same constant `sortLibraryRows` falls
+  //   back to, so "what the Library sorts by" has one answer.
+  const [sort, setSort] = useState<SortState>(DEFAULT_LIBRARY_SORT);
   // fix-206: the unit table is editable through the SAME write path as Project
   // Overview (useUpdateProject patch { unit_types } with the project's OCC
   // token). One store — the optimistic projects-cache patch reflects on Project
@@ -257,7 +289,10 @@ function Body({ projects, permits }: BodyProps) {
         value={filters.search}
         onChange={(e) => update('search', e.target.value)}
         placeholder="Search by address or unit type name (space/comma separated tokens)…"
-        className="w-full bg-bg border border-border rounded-md px-3 py-1.5 text-xs font-display text-text placeholder:text-dim focus:outline-none focus:border-de"
+        // ★★ fix-406: the top search box had the same problem as the ones
+        //    inside the cards — `bg-bg` on the page's own `bg-bg`, so it was a
+        //    border floating on nothing. It joins the field surface too.
+        className="w-full bg-surface border border-border rounded-md px-3 py-1.5 text-xs font-display text-text shadow-sm placeholder:text-dim focus:outline-none focus:border-de focus:ring-1 focus:ring-de/30"
         data-testid="library-search"
       />
 
@@ -278,22 +313,25 @@ function Body({ projects, permits }: BodyProps) {
       <div className="flex flex-wrap items-start gap-3" data-testid="library-filters">
         {/* ── SITE ────────────────────────────────────────────────────── */}
         <div
-          className="flex-1 min-w-[300px] bg-s2 border border-border rounded-lg p-3"
+          className="flex-1 min-w-[300px] bg-s2 border rounded-lg p-3"
+          style={cardBorderStyle(SITE_PALETTE)}
           data-testid="filter-card-site"
         >
           <div className="flex items-center gap-2 mb-2">
+            {/* ★★★ fix-406: this chip used to read `var(--color-ok)`, WHICH IS
+                DEFINED NOWHERE IN THE APP. An undefined custom property with no
+                fallback invalidates the whole declaration, so all three styles
+                were dropped and the chip rendered with no background, no border
+                and inherited ink — the "near-monochrome" in Bobby's screenshot.
+                It was never a colour that was too subtle; it was no colour. */}
             <span
               className="text-[9px] font-display font-extrabold uppercase tracking-wide px-1.5 py-0.5 rounded"
-              style={{
-                background: 'var(--color-ok-bg)',
-                color: 'var(--color-ok)',
-                border: '1px solid var(--color-ok)',
-              }}
+              style={chipStyle(SITE_PALETTE)}
               data-testid="filter-chip-site"
             >
               Site
             </span>
-            <span className="text-[10px] text-dim">the lot</span>
+            <span className="text-[10px] text-muted">the lot</span>
           </div>
 
           {/* ★ PRIMARY TIER — the two dimensions the search actually starts
@@ -324,7 +362,7 @@ function Body({ projects, permits }: BodyProps) {
                 value={filters.zone}
                 onChange={(e) => update('zone', e.target.value)}
                 placeholder="e.g. NR"
-                className="w-20 bg-bg border border-border rounded px-2 py-1 text-[11px] text-text focus:outline-none focus:border-de"
+                className={`w-20 ${FIELD_CLASS}`}
                 data-testid="filter-zone"
               />
             </FieldLabel>
@@ -333,7 +371,7 @@ function Body({ projects, permits }: BodyProps) {
               <select
                 value={filters.juris}
                 onChange={(e) => update('juris', e.target.value)}
-                className="bg-bg border border-border rounded px-2 py-1 text-[11px] text-text focus:outline-none focus:border-de"
+                className={FIELD_CLASS}
                 data-testid="filter-juris"
               >
                 <option value="">Any</option>
@@ -347,7 +385,7 @@ function Body({ projects, permits }: BodyProps) {
               <select
                 value={filters.alley}
                 onChange={(e) => update('alley', e.target.value)}
-                className="bg-bg border border-border rounded px-2 py-1 text-[11px] text-text focus:outline-none focus:border-de"
+                className={FIELD_CLASS}
                 data-testid="filter-alley"
               >
                 <option value="">Any</option>
@@ -365,7 +403,7 @@ function Body({ projects, permits }: BodyProps) {
                 onChange={(e) =>
                   update('isCornerLot', e.target.value as '' | 'Yes' | 'No')
                 }
-                className="bg-bg border border-border rounded px-2 py-1 text-[11px] text-text focus:outline-none focus:border-de"
+                className={FIELD_CLASS}
                 data-testid="filter-corner"
               >
                 <option value="">Any</option>
@@ -378,7 +416,7 @@ function Body({ projects, permits }: BodyProps) {
               <select
                 value={filters.tag}
                 onChange={(e) => update('tag', e.target.value)}
-                className="bg-bg border border-border rounded px-2 py-1 text-[11px] text-text focus:outline-none focus:border-de"
+                className={FIELD_CLASS}
                 data-testid="filter-tag"
               >
                 <option value="">Any</option>
@@ -392,33 +430,39 @@ function Body({ projects, permits }: BodyProps) {
                 Bobby, 2026-08-25: *"we dont need it as a filtering option for
                 this screen"*.
 
-                ★★ THE LOTS COLUMN STAYS — he removed the filter, not the data.
-                LibraryRow.numLots is still populated and still rendered in the
-                table below. Recorded here rather than silently deleted, the
-                fix-326 pattern, so the next reader finds a decision. */}
+                ★★★ AND fix-406 TOOK THE COLUMN TOO. Bobby, 2026-08-26: *"we can
+                remove lots from the vertical bar below for the sort column as
+                it isnt really relevant here."* The fix-402 note that used to
+                stand here said "THE LOTS COLUMN STAYS — he removed the filter,
+                not the data", and it was correct on the evidence it had. It is
+                SUPERSEDED, NOT MISTAKEN: two rulings a day apart, the second
+                widening the first. Both are kept visible rather than the older
+                one being quietly overwritten (fix-400's rule). */}
           </div>
         </div>
 
         {/* ── UNIT ────────────────────────────────────────────────────── */}
         <div
-          className="flex-1 min-w-[300px] bg-s2 border border-border rounded-lg p-3"
+          className="flex-1 min-w-[300px] bg-s2 border rounded-lg p-3"
+          style={cardBorderStyle(UNIT_PALETTE)}
           data-testid="filter-card-unit"
         >
           <div className="flex items-center gap-2 mb-2">
+            {/* ★★ fix-406: was `--color-de` — the app's BLUE. It rendered
+                correctly, it was simply the wrong colour: blue is Design /
+                Entitlements everywhere else in the app, and the approved mockup
+                had UNIT in purple against SITE's teal. Two hues, so the eye
+                separates the layers before it reads a single label. */}
             <span
               className="text-[9px] font-display font-extrabold uppercase tracking-wide px-1.5 py-0.5 rounded"
-              style={{
-                background: 'var(--color-de-bg)',
-                color: 'var(--color-de)',
-                border: '1px solid var(--color-de)',
-              }}
+              style={chipStyle(UNIT_PALETTE)}
               data-testid="filter-chip-unit"
             >
               Unit
             </span>
             {/* ★★★ The conjunction rule, said where somebody choosing filters
                 can read it — not only in the code that implements it. */}
-            <span className="text-[10px] text-dim">
+            <span className="text-[10px] text-muted">
               one unit must match all of these
             </span>
           </div>
@@ -452,7 +496,7 @@ function Body({ projects, permits }: BodyProps) {
                 onChange={(e) =>
                   update('parkingKind', e.target.value as '' | ParkingKind)
                 }
-                className="bg-bg border border-border rounded px-2 py-1 text-[11px] text-text focus:outline-none focus:border-de"
+                className={FIELD_CLASS}
                 data-testid="filter-parking-kind"
               >
                 <option value="">Any</option>
@@ -470,7 +514,7 @@ function Body({ projects, permits }: BodyProps) {
                 onChange={(e) =>
                   update('stalls', e.target.value as StallsTier)
                 }
-                className="bg-bg border border-border rounded px-2 py-1 text-[11px] text-text focus:outline-none focus:border-de"
+                className={FIELD_CLASS}
                 data-testid="filter-stalls"
               >
                 <option value="">Any</option>
@@ -485,7 +529,7 @@ function Body({ projects, permits }: BodyProps) {
                 onChange={(e) =>
                   update('roofDeck', e.target.value as RoofDeckFilter)
                 }
-                className="bg-bg border border-border rounded px-2 py-1 text-[11px] text-text focus:outline-none focus:border-de"
+                className={FIELD_CLASS}
                 data-testid="filter-roof-deck"
               >
                 <option value="">Any</option>
@@ -504,7 +548,7 @@ function Body({ projects, permits }: BodyProps) {
                 onChange={(e) =>
                   update('stories', e.target.value as LibraryFilters['stories'])
                 }
-                className="bg-bg border border-border rounded px-2 py-1 text-[11px] text-text focus:outline-none focus:border-de"
+                className={FIELD_CLASS}
                 data-testid="filter-stories"
               >
                 <option value="">Any</option>
@@ -528,7 +572,7 @@ function Body({ projects, permits }: BodyProps) {
                     update('productTypes', [...filters.productTypes, v]);
                     e.currentTarget.value = '';
                   }}
-                  className="bg-bg border border-border rounded px-2 py-1 text-[11px] text-text focus:outline-none focus:border-de"
+                  className={FIELD_CLASS}
                   data-testid="filter-product-type"
                 >
                   <option value="">Any</option>
@@ -541,7 +585,7 @@ function Body({ projects, permits }: BodyProps) {
                 {filters.productTypes.map((t) => (
                   <span
                     key={t}
-                    className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full bg-bg border border-border"
+                    className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full bg-surface border border-border text-text"
                     data-testid={`filter-product-type-chip-${t}`}
                   >
                     {t}
@@ -597,9 +641,20 @@ function Body({ projects, permits }: BodyProps) {
               <Th sort={sort} col="juris" onClick={toggleSort} align="left">Juris</Th>
               <Th sort={sort} col="productTypes" onClick={toggleSort} align="left">Type</Th>
               <Th sort={sort} col="units" onClick={toggleSort} align="center">Units</Th>
-              {/* fix-122: Number of Lots — distinct from Units (a 5-lot
-                  subdivision can yield 20 units). */}
-              <Th sort={sort} col="numLots" onClick={toggleSort} align="center">Lots</Th>
+              {/* ★★★ fix-406 — THE LOTS COLUMN IS GONE BY RULING.
+                  Bobby, 2026-08-26: *"we can remove lots from the vertical bar
+                  below for the sort column as it isnt really relevant here."*
+
+                  ★★ fix-402 removed the lots FILTER and DELIBERATELY KEPT this
+                  column, recording that decision three lines above the filter
+                  it deleted. He has now ruled the column out too, so the note
+                  is superseded rather than mistaken — the earlier call was
+                  right on the evidence it had.
+
+                  ★ The DATA is untouched: `projects.num_lots` still renders in
+                  the New Project wizard, the Project Overview header, the
+                  redesign modal, the corrections segments and the team-volume
+                  report. This is the Library table only. */}
               <Th sort={sort} col="zone" onClick={toggleSort} align="center">Zone</Th>
               <Th sort={sort} col="lotWidth" onClick={toggleSort} align="center">Lot W×D</Th>
               <Th sort={sort} col="alley" onClick={toggleSort} align="center">Alley</Th>
@@ -641,7 +696,11 @@ function Body({ projects, permits }: BodyProps) {
             {sorted.length === 0 && (
               <tr>
                 <td
-                  colSpan={12}
+                  // ★ fix-406: 13 = caret + 9 sortable + 3 derived headers.
+                  //   It read 12 before this ticket and the table had 14
+                  //   columns, so the "no projects match" row had been two
+                  //   short since fix-402 added Parking and Roof Deck.
+                  colSpan={13}
                   className="px-4 py-8 text-center text-xs text-dim italic"
                 >
                   No projects match the current filters.
@@ -755,18 +814,8 @@ function Row({
         <td className="px-2 py-1.5 text-center font-mono font-bold text-text">
           {row.units || '—'}
         </td>
-        {/* fix-122: Number of Lots column. NULL renders as the dim em
-            dash same as other unset numerics. */}
-        <td
-          className="px-2 py-1.5 text-center font-mono text-text"
-          data-testid={`library-num-lots-${row.projectId}`}
-        >
-          {row.numLots != null ? (
-            row.numLots
-          ) : (
-            <span className="text-dim">—</span>
-          )}
-        </td>
+        {/* ★★★ fix-406: the Lots cell left with its header — see the ruling
+            quoted at the <Th> block above. */}
         <td className="px-2 py-1.5 text-center">
           {row.zone ? (
             <span className="font-mono text-text">{row.zone}</span>
@@ -869,7 +918,9 @@ function Row({
           data-testid={`library-expansion-${row.projectId}`}
         >
           <td />
-          <td colSpan={13} className="px-2 pb-2 pt-1">
+          {/* ★ fix-406: 12, not 13 — the caret cell above takes one and Lots
+              took one away. */}
+          <td colSpan={12} className="px-2 pb-2 pt-1">
             <UnitTypeMiniTable
               projectId={row.projectId}
               unitTypes={row.unitTypes}
@@ -1215,18 +1266,44 @@ function fmtDim(n: number): string {
   return n % 1 === 0 ? String(n) : n.toFixed(2);
 }
 
+// ★★★ fix-406 — THE LABELS STEP OUT OF THE CARD
+//
+// Bobby: *"a lot of gray on gray clashing with letters"*. The letters half of
+// that sentence is this function. Every field label was `text-dim` (#8a9bb5) on
+// the `bg-s2` card (#e8edf3): **2.4:1**, which is not a readable ratio for 9px
+// uppercase — it is below WCAG AA (4.5:1) for normal text and below the 3:1
+// floor even for large text. The labels were legible only because you already
+// knew what they said.
+//
+// ★★ TWO TIERS, BECAUSE fix-402'S RULING SURVIVES. Width and depth are each
+// group's PRIMARY tier — the dimensions a search actually starts from, set
+// above a hairline. Darkening everything to the same weight would flatten that
+// back into one undifferentiated list, which is the structure Bobby approved.
+// So primary goes all the way to `text-text` (#1a2540, **12.9:1**) at bold, and
+// the secondary row goes to `text-muted` (#5a6a85, **4.7:1**) at semibold: both
+// clearly readable, still clearly ranked.
+type LabelTier = 'primary' | 'secondary';
+
+const LABEL_CLASS: Record<LabelTier, string> = {
+  primary: 'text-[10px] font-bold text-text uppercase tracking-wide',
+  secondary: 'text-[9px] font-semibold text-muted uppercase tracking-wide',
+};
+
 function FieldLabel({
   label,
+  tier = 'secondary',
   children,
 }: {
   label: string;
+  /** ★ Defaults to secondary: the qualifier row is the common case, and a new
+   *  field added without thinking about tier should not silently claim the
+   *  primary weight. */
+  tier?: LabelTier;
   children: React.ReactNode;
 }) {
   return (
     <div className="flex flex-col gap-1">
-      <label className="text-[9px] text-dim uppercase tracking-wide">
-        {label}
-      </label>
+      <label className={LABEL_CLASS[tier]}>{label}</label>
       {children}
     </div>
   );
@@ -1248,8 +1325,11 @@ function TargetRange({
   testIdPrefix: string;
 }) {
   return (
-    <FieldLabel label={label}>
-      <div className="flex items-center gap-1 text-[10px] text-dim">
+    // ★★ fix-406: width/depth are the PRIMARY tier — fix-402's ruling, kept by
+    //    giving this label the heavier weight rather than by darkening
+    //    everything equally.
+    <FieldLabel label={label} tier="primary">
+      <div className="flex items-center gap-1 text-[10px] text-muted">
         <input
           type="number"
           min={0}
@@ -1258,7 +1338,7 @@ function TargetRange({
             onTarget(e.target.value === '' ? null : Number(e.target.value))
           }
           placeholder="Target"
-          className="w-16 bg-bg border border-border rounded px-1 py-1 text-[11px] text-text text-center focus:outline-none focus:border-de"
+          className={`w-16 text-center ${FIELD_CLASS}`}
           data-testid={`${testIdPrefix}-target`}
         />
         <span>±</span>
@@ -1267,7 +1347,7 @@ function TargetRange({
           min={0}
           value={buf}
           onChange={(e) => onBuf(Number(e.target.value) || 0)}
-          className="w-10 bg-bg border border-border rounded px-1 py-1 text-[11px] text-text text-center focus:outline-none focus:border-de"
+          className={`w-10 text-center ${FIELD_CLASS}`}
           data-testid={`${testIdPrefix}-buf`}
         />
       </div>

@@ -42,8 +42,16 @@ export interface LibraryRow {
   /** fix-81: per-structure dims from projects.unit_types. Powers the
    * per-row caret expansion + the unit-width / unit-depth filters. */
   unitTypes: UnitType[];
-  /** fix-122: distinct-lots count, null when not entered. Surfaced as
-   *  a Library column + filter (apples-to-apples subdivision search). */
+  /** fix-122: distinct-lots count, null when not entered.
+   *
+   *  ★★ fix-406: NO LONGER RENDERED OR SORTED ANYWHERE. The filter went in
+   *  fix-402 and the column and sort in fix-406, both by Bobby's ruling. The
+   *  field is kept populated because it is the project's own datum and every
+   *  other surface that shows lots (`projects.num_lots` in the wizard, the
+   *  Project Overview header, the redesign modal, corrections segments,
+   *  team-volume) is untouched — and because restoring the column, if he asks,
+   *  is then one `<Th>` rather than a re-plumb of the row builder. Flagged
+   *  rather than assumed: if it should go, it goes in one line. */
   numLots: number | null;
   /** fix-122: corner-lot flag. null = "not answered". Surfaced as a
    *  Library column + Any/Yes/No filter. */
@@ -183,13 +191,16 @@ export interface LibraryFilters {
   /** ★★★ fix-402 — THE LOTS FILTER IS REMOVED, BY RULING. Bobby, 2026-08-25:
    *  *"we dont need it as a filtering option for this screen"*.
    *
-   *  ★★ THE LOTS COLUMN STAYS — he removed the FILTER, not the data.
-   *  `LibraryRow.numLots` is still populated and still rendered; only the
-   *  control is gone. fix-122's other half (the corner-lot filter) is
-   *  untouched and now lives on the SITE card.
+   *  ★★★ fix-406 THEN TOOK THE COLUMN AND THE SORT. Bobby, 2026-08-26: *"we
+   *  can remove lots from the vertical bar below for the sort column as it
+   *  isnt really relevant here."* fix-402's note here read "THE LOTS COLUMN
+   *  STAYS — he removed the FILTER, not the data", which was right on the
+   *  evidence it had; it is SUPERSEDED, NOT MISTAKEN, and both rulings stay
+   *  visible (fix-400's rule).
    *
-   *  ★ Recorded here rather than silently deleted so the next reader finds a
-   *  ruling instead of a gap (the fix-326 pattern). */
+   *  ★ fix-122's other half (the corner-lot filter) is untouched and lives on
+   *  the SITE card. Recorded here rather than silently deleted so the next
+   *  reader finds a ruling instead of a gap (the fix-326 pattern). */
 
   // ★★★ fix-402 — THE UNIT CARD'S THREE NEW FILTERS.
   /** '' = Any. A picked kind requires that RECORDED kind on a unit. */
@@ -298,8 +309,9 @@ export function filterLibraryRows(
     }
     if (filters.tag && !r.tags.includes(filters.tag)) return false;
     if (filters.juris && r.juris !== filters.juris) return false;
-    // ★ fix-402: the num_lots FILTER is gone by ruling (see LibraryFilters).
-    //   The lots COLUMN is untouched and still reads r.numLots.
+    // ★ fix-402: the num_lots FILTER is gone by ruling (see LibraryFilters),
+    //   and fix-406 took the COLUMN and the SORT with it. `r.numLots` is still
+    //   built; nothing in the Library reads it any more.
     // fix-122: tri-state Corner — Yes/No each require a non-null match.
     if (filters.isCornerLot === 'Yes' && r.isCornerLot !== true) return false;
     if (filters.isCornerLot === 'No' && r.isCornerLot !== false) return false;
@@ -320,21 +332,51 @@ function matchRowSearch(row: LibraryRow, query: string): boolean {
   return row.unitTypes.some((u) => u.label.toLowerCase().includes(q));
 }
 
-export type SortableColumn =
-  | 'address'
-  | 'juris'
-  | 'productTypes'
-  | 'units'
-  | 'zone'
-  | 'lotWidth'
-  | 'alley'
-  | 'stage'
-  | 'numLots'
-  | 'isCornerLot';
+// ★★★ fix-406 — `numLots` LEFT THIS UNION WITH ITS COLUMN.
+//
+// Bobby, 2026-08-26: *"we can remove lots from the vertical bar below for the
+// sort column as it isnt really relevant here."* A sort on a column nobody can
+// see is not a feature, so the arm went with the header.
+//
+// ★★ AND THE LIST IS NOW A RUNTIME VALUE, not only a type. A union type is
+// erased at build time and defends nothing against a string that arrives from
+// storage, a URL, or a fixture written against an older build — see
+// `sortLibraryRows` below for what that used to cost.
+export const SORTABLE_COLUMNS = [
+  'address',
+  'juris',
+  'productTypes',
+  'units',
+  'zone',
+  'lotWidth',
+  'alley',
+  'stage',
+  'isCornerLot',
+] as const;
+
+export type SortableColumn = (typeof SORTABLE_COLUMNS)[number];
 
 export interface SortState {
   col: SortableColumn;
   asc: boolean;
+}
+
+/** What the Library sorts by when nothing else has been chosen — and what an
+ *  unrecognised column falls back to. ONE definition, so the component's
+ *  initial state and the fallback cannot disagree about the default. */
+export const DEFAULT_LIBRARY_SORT: SortState = { col: 'address', asc: true };
+
+/** Is this a column the Library can actually sort by?
+ *
+ *  ★ Takes `unknown` deliberately. Every caller that needs this is handling a
+ *  value that is NOT yet known to be a SortableColumn — that is the entire
+ *  point — so a `SortableColumn` parameter would make it unusable at the only
+ *  boundaries it exists to guard. */
+export function isSortableColumn(v: unknown): v is SortableColumn {
+  return (
+    typeof v === 'string' &&
+    (SORTABLE_COLUMNS as readonly string[]).includes(v)
+  );
 }
 
 /** Sort rows by the named column. Stage uses the workflow rank
@@ -344,12 +386,28 @@ export function sortLibraryRows(
   rows: LibraryRow[],
   state: SortState,
 ): LibraryRow[] {
+  // ★★★ fix-406 — AN UNRECOGNISED COLUMN FALLS BACK; IT DOES NOT THROW.
+  //
+  // The last branch of this function is `a[col].localeCompare(...)`. For any
+  // column name this function does not know — `'numLots'` from a fixture or a
+  // session written against yesterday's build, a hand-edited value, a future
+  // rename — `a[col]` is `undefined` and that line throws a TypeError **during
+  // render**, taking the whole Library down rather than showing an odd order.
+  //
+  // ★★ That was a live hazard the moment `numLots` left the union: TypeScript
+  // stops accepting it, and TypeScript is not what a stored string has to get
+  // past. The guard makes the failure mode "sorted by address" instead of a
+  // blank screen.
+  //
+  // ★ It re-reads the DIRECTION from the caller, not from the default. Somebody
+  // holding a descending sort keeps descending when their column disappears;
+  // resetting both would move the list twice for one missing thing.
+  const col = isSortableColumn(state.col) ? state.col : DEFAULT_LIBRARY_SORT.col;
   const dir = state.asc ? 1 : -1;
   const sorted = [...rows];
   // Local const `col` so TS narrows inside each sort callback. Branching by
   // the column type avoids `(string | number)` widening that breaks
   // `localeCompare` and arithmetic at the same site.
-  const col = state.col;
   if (col === 'stage') {
     sorted.sort((a, b) => (STAGE_ORDER[a.stage] - STAGE_ORDER[b.stage]) * dir);
     return sorted;
@@ -358,22 +416,12 @@ export function sortLibraryRows(
     sorted.sort((a, b) => (a[col] - b[col]) * dir);
     return sorted;
   }
-  if (col === 'numLots') {
-    // NULL num_lots sort to the end regardless of direction so unfilled
-    // rows don't crowd the matching projects at the top of an "asc" view.
-    sorted.sort((a, b) => {
-      const an = a.numLots;
-      const bn = b.numLots;
-      if (an === null && bn === null) return 0;
-      if (an === null) return 1;
-      if (bn === null) return -1;
-      return (an - bn) * dir;
-    });
-    return sorted;
-  }
+  // ★★★ fix-406: the `numLots` arm was here and left with the column. Its
+  //   NULLs-last rule survives below on `isCornerLot`, which was written
+  //   against it and is the only remaining reader of that idea.
   if (col === 'isCornerLot') {
-    // Tri-state sort: true < false < null. NULL last (same logic as
-    // numLots above — unanswered rows shouldn't dilute the result band).
+    // Tri-state sort: true < false < null. NULL last (the rule fix-122 wrote
+    // for numLots — unanswered rows shouldn't dilute the result band).
     const rank = (v: boolean | null) =>
       v === true ? 0 : v === false ? 1 : 2;
     sorted.sort((a, b) => {

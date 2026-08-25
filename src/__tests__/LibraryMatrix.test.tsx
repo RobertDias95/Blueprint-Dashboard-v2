@@ -641,12 +641,19 @@ describe('<LibraryMatrix />', () => {
 
   // fix-122: two new Library columns (Lots, Corner) + two new filters.
   describe('fix-122: Lots / Corner columns + filters', () => {
-    it('renders Lots column with project-level num_lots', () => {
+    // ★★★ fix-406 REPLACED "renders Lots column" WITH ITS OPPOSITE. Bobby,
+    // 2026-08-26: *"we can remove lots from the vertical bar below for the sort
+    // column as it isnt really relevant here."* The three positive assertions
+    // that used to stand here (a=1, b=5, c=—) were fix-122's, and they were
+    // correct for four years of tickets; the column is now gone by ruling, so
+    // the same three rows assert its ABSENCE instead.
+    it('★★★ fix-406: the Lots column is gone from every row', () => {
       renderIt();
-      expect(screen.getByTestId('library-num-lots-a').textContent).toBe('1');
-      expect(screen.getByTestId('library-num-lots-b').textContent).toBe('5');
-      // Project c has no num_lots → em-dash.
-      expect(screen.getByTestId('library-num-lots-c').textContent).toBe('—');
+      for (const id of ['a', 'b', 'c']) {
+        expect(screen.queryByTestId(`library-num-lots-${id}`)).toBeNull();
+      }
+      // ★ ...and so is its sort header, which is the half Bobby named.
+      expect(screen.queryByTestId('library-th-numLots')).toBeNull();
     });
 
     it('renders Corner column with project-level is_corner_lot', () => {
@@ -657,14 +664,21 @@ describe('<LibraryMatrix />', () => {
       expect(screen.getByTestId('library-corner-c').textContent).toBe('—');
     });
 
-    it('★★★ fix-402: the Lots FILTER is gone — the COLUMN is not', () => {
-      // Bobby, 2026-08-25: *"we dont need it as a filtering option for this
-      // screen"*. He removed the control, not the data — so the control is
-      // asserted absent and the column is asserted still rendering, which is
-      // the whole distinction in one test.
+    it('★★★ fix-402 took the FILTER, fix-406 took the COLUMN — both gone', () => {
+      // ★★ TWO RULINGS A DAY APART, AND THE FIRST WAS NOT WRONG.
+      //
+      //   2026-08-25: *"we dont need it as a filtering option for this screen"*
+      //   2026-08-26: *"we can remove lots from the vertical bar below for the
+      //                sort column as it isnt really relevant here."*
+      //
+      // This test used to assert the distinction between them — control absent,
+      // column present — because that WAS the distinction on the 25th. The
+      // second ruling widened the first, so the test now asserts both halves
+      // gone. SUPERSEDED, NOT MISTAKEN (fix-400's rule): the old assertion is
+      // quoted here rather than deleted without trace.
       renderIt();
       expect(screen.queryByTestId('filter-num-lots')).toBeNull();
-      expect(screen.getByTestId('library-num-lots-b')).toBeInTheDocument();
+      expect(screen.queryByTestId('library-num-lots-b')).toBeNull();
     });
 
     it('filter-corner=Yes keeps only is_corner_lot=true rows; NULL falls out', () => {
