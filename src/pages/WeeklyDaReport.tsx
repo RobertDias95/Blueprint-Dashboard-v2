@@ -6,6 +6,7 @@ import {
   useState,
 } from 'react';
 import { Link } from 'react-router-dom';
+import OriginLink from '../components/OriginLink';
 import { useWeeklyDaReport } from '../hooks/useWeeklyDaReport';
 import { useAddNote, useUpdateNote } from '../hooks/useNotes';
 import { usePermits } from '../hooks/usePermits';
@@ -399,12 +400,12 @@ function DaSection({
                       data-testid={`wdr-awaiting-row-${row.permit_id}`}
                     >
                       <Td>
-                        <Link
+                        <OriginLink
                           to={`/project/${row.project_id}?permit=${row.permit_id}`}
                           className="text-de hover:underline"
                         >
                           {row.address ?? '—'}
-                        </Link>
+                        </OriginLink>
                       </Td>
                       <Td>
                         <PermitTypeNum row={row} />

@@ -1,4 +1,4 @@
-import { Link } from 'react-router-dom';
+import OriginLink from './OriginLink';
 import type { Permit, Project, Stage } from '../lib/database.types';
 import { STAGE_LABEL } from '../lib/stageLabel';
 import type { UrgencyLevel } from '../lib/urgencyHelpers';
@@ -56,7 +56,7 @@ export default function PermitCard({
   const urgencyStyle = URGENCY_STYLES[urgency];
 
   return (
-    <Link
+    <OriginLink
       to={`/project/${permit.project_id}`}
       className="block border border-y border-r border-border rounded-lg p-3 hover:border-de hover:shadow-sm transition"
       style={{
@@ -98,6 +98,6 @@ export default function PermitCard({
           <span className="font-mono text-text">{keyDate}</span>
         </div>
       )}
-    </Link>
+    </OriginLink>
   );
 }

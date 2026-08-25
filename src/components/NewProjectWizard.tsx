@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
+import { useOriginState } from '../hooks/useOriginState';
 import {
   useCreateProjectWithPermits,
   type PermitInput,
@@ -125,6 +126,10 @@ function boolFromTri(v: string): boolean | null {
 
 export default function NewProjectWizard({ open, onClose, initialState }: Props) {
   const navigate = useNavigate();
+  // ★ fix-408: the wizard is a MODAL over whatever page you were on, so the
+  //   project it creates opens with THAT page as its origin — Previous takes
+  //   you back where you were working, not to a list you never opened.
+  const originState = useOriginState();
   const create = useCreateProjectWithPermits();
   const placeOnDa = usePlaceNewProjectOnDa();
   // fix-220: manual DA placement writes draw_schedule, an admin-only mutation.
@@ -554,7 +559,7 @@ export default function NewProjectWizard({ open, onClose, initialState }: Props)
         }
       }
 
-      navigate(`/project/${result.project_id}`);
+      navigate(`/project/${result.project_id}`, { state: originState() });
       reset();
       onClose();
     } catch {
@@ -565,7 +570,7 @@ export default function NewProjectWizard({ open, onClose, initialState }: Props)
 
   function handleViewExisting() {
     if (conflictExistingId) {
-      navigate(`/project/${conflictExistingId}`);
+      navigate(`/project/${conflictExistingId}`, { state: originState() });
       reset();
       onClose();
     }

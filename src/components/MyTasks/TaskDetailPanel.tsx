@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
+import OriginLink from '../OriginLink';
 import { useUpsertPermitTask } from '../../hooks/useUpsertPermitTask';
 import type { PermitTask, Stage } from '../../lib/database.types';
 import type { FilterContext } from '../../lib/myTasksHelpers';
@@ -247,7 +247,7 @@ function Editor({
         )}
 
         {project && (
-          <Link
+          <OriginLink
             // fix-217/219: deep-link to the task's PERMIT so Project View
             // auto-selects + scrolls to it, instead of the project top. Build the
             // param straight from task.permit_id (the permit pk) so it never
@@ -262,7 +262,7 @@ function Editor({
             data-testid="mt-detail-open-project"
           >
             → Open in Project View
-          </Link>
+          </OriginLink>
         )}
       </div>
     </aside>

@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
+import OriginLink from '../OriginLink';
 import { usePermits } from '../../hooks/usePermits';
 import { useProjects } from '../../hooks/useProjects';
 import { SkeletonRows } from '../Skeleton';
@@ -479,23 +480,23 @@ function RecentRedesignsTable({ rows }: { rows: RecentRedesign[] }) {
                 data-testid={`redesigns-recent-row-${row.redesignProjectId}`}
               >
                 <td className="text-left px-4 py-2">
-                  <Link
+                  <OriginLink
                     to={`/project/${row.redesignProjectId}`}
                     className="text-de hover:underline"
                     data-testid={`redesigns-recent-row-${row.redesignProjectId}-redesign-link`}
                   >
                     {row.redesignAddress}
-                  </Link>
+                  </OriginLink>
                 </td>
                 <td className="text-left px-4 py-2">
                   {row.originalProjectId && row.originalAddress ? (
-                    <Link
+                    <OriginLink
                       to={`/project/${row.originalProjectId}`}
                       className="text-muted hover:underline"
                       data-testid={`redesigns-recent-row-${row.redesignProjectId}-original-link`}
                     >
                       {row.originalAddress}
-                    </Link>
+                    </OriginLink>
                   ) : (
                     <span className="text-dim">—</span>
                   )}

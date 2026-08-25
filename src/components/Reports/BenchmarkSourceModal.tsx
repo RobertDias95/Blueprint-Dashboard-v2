@@ -1,4 +1,4 @@
-import { Link } from 'react-router-dom';
+import OriginLink from '../OriginLink';
 import type { BenchmarkSourcePermit } from '../../lib/scheduleBenchmarks';
 
 // Q9.5.f-fix-3 4.B: modal listing the permits that fed a benchmark card's
@@ -115,13 +115,13 @@ function SourceRow({ source }: { source: BenchmarkSourcePermit }) {
   return (
     <li className="px-4 py-2.5 flex flex-col gap-1.5">
       <div className="flex items-center gap-2 min-w-0">
-        <Link
+        <OriginLink
           to={`/project/${source.projectId}`}
           className="text-[12px] font-bold text-de underline truncate"
           data-testid={`benchmark-source-row-${source.permitId}`}
         >
           {source.address}
-        </Link>
+        </OriginLink>
         {source.inRecentWindow && (
           <span
             className="text-[8px] font-bold px-1.5 py-0.5 rounded border flex-shrink-0"

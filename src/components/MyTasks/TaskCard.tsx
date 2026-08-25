@@ -1,4 +1,4 @@
-import { Link } from 'react-router-dom';
+import OriginLink from '../OriginLink';
 import {
   deriveTaskState,
   effectiveDueDate,
@@ -141,7 +141,7 @@ export default function TaskCard({
 
         <div className="flex items-center gap-1.5 flex-wrap mt-0.5">
           {project && (
-            <Link
+            <OriginLink
               to={`/project/${project.id}`}
               className="text-[10px] text-jv font-bold bg-jv-bg px-1.5 py-0.5 rounded max-w-[160px] truncate hover:underline"
               title={project.address}
@@ -149,7 +149,7 @@ export default function TaskCard({
               onClick={(e) => e.stopPropagation()}
             >
               {project.address.split(',')[0]}
-            </Link>
+            </OriginLink>
           )}
 
           <span className="text-[9px] text-dim">{permitLabel}</span>

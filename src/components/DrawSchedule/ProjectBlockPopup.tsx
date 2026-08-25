@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Link } from 'react-router-dom';
+import OriginLink from '../OriginLink';
 import { useUpdateDsRow } from '../../hooks/useUpdateDsRow';
 import {
   addWeeksToWeekKey,
@@ -324,7 +324,7 @@ export default function ProjectBlockPopup({
             gap: 4,
           }}
         >
-          <Link
+          <OriginLink
             to={`/project/${row.project_id}`}
             onClick={onClose}
             style={{
@@ -339,7 +339,7 @@ export default function ProjectBlockPopup({
             data-testid="ds-popup-open-project"
           >
             → Open Project
-          </Link>
+          </OriginLink>
           {!readOnly && (
           <button
             type="button"

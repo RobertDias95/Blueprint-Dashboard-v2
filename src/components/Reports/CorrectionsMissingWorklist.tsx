@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
+import OriginLink from '../OriginLink';
 import { useCorrectionMissingWorklist } from '../../hooks/useCorrectionMissingWorklist';
 import { SkeletonRows } from '../Skeleton';
 import ExportCsvButton from '../shared/ExportCsvButton';
@@ -283,12 +283,12 @@ export default function CorrectionsMissingWorklist() {
                     data-testid={`missing-row-${r.permit_id}-${r.cycle}`}
                   >
                     <td className="py-1.5">
-                      <Link
+                      <OriginLink
                         to={`/project/${r.project_id}`}
                         className="text-de hover:underline"
                       >
                         {r.address}
-                      </Link>
+                      </OriginLink>
                       <span className="text-dim"> · {r.juris ?? '—'}</span>
                       {r.project_parked && (
                         <span

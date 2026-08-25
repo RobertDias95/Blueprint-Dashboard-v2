@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { Outlet } from 'react-router-dom';
+import { useEffect, useRef, useState, type RefObject } from 'react';
+import { Outlet, useLocation } from 'react-router-dom';
 import BoardBell from './BoardBell';
 import BridgeMark from './BridgeMark';
 import Ribbon from './Ribbon';
@@ -15,6 +15,7 @@ import {
   BRAND_LOCKUP_HEIGHT,
   SHELL_HEADER_HEIGHT,
 } from '../lib/shellMetrics';
+import { restoreScrollFrom } from '../lib/previousOrigin';
 
 // ★★★ fix-351 — BRAND_NAVY AND BRAND_TITLE_SIZE ARE GONE, NOT REPOINTED.
 //
@@ -74,6 +75,8 @@ export default function Chrome() {
   // handlers, so on any load where nobody visited /notifications the ding was a
   // guaranteed no-op. See hooks/useDingUnlock.
   useDingUnlock();
+  const paneRef = useRef<HTMLElement | null>(null);
+  useRestorePreviousScroll(paneRef);
 
   return (
     <div
@@ -271,7 +274,11 @@ export default function Chrome() {
 
         {/* ★ The only scroll container in the shell. Pages keep the p-6 they
             have always relied on. */}
-        <main className="flex-1 min-h-0 overflow-auto p-6" data-testid="bridge-pane">
+        <main
+          ref={paneRef}
+          className="flex-1 min-h-0 overflow-auto p-6"
+          data-testid="bridge-pane"
+        >
           <Outlet />
         </main>
       </div>
@@ -285,3 +292,65 @@ export default function Chrome() {
 // ★ fix-331 §7: the `initials()` helper went with the circle it fed. Leaving a
 // dead formatter behind is how the next person concludes the avatar is meant to
 // come back.
+
+// ===========================================================================
+// ★★★ fix-408 §4 — LANDING WHERE YOU WERE READING
+// ===========================================================================
+//
+// Bobby's rule is "back to that page IN THE STATE YOU LEFT IT". Three quarters
+// of that is free: the tab, the sub-view and every URL-backed filter travel in
+// the origin's query string, and fix-403's sessionStorage filters restore
+// themselves on mount however you arrive. Scroll is the part nothing carries.
+//
+// ★★★ IT IS A ONE-SHOT ATTACHED TO THE PREVIOUS CLICK, NOT SCROLL RESTORATION.
+// A general "remember every page's offset and reapply it on arrival" store was
+// considered and rejected: it would also fire for a RIBBON click, which is
+// somebody starting fresh, and it would need a store, an eviction rule and a
+// per-user key. The offset rides in the history entry Previous pushes, so it
+// applies exactly once, to exactly the navigation that asked for it.
+//
+// ★★ BEST-EFFORT, AND SAID OUT LOUD. The destination's rows arrive from
+// react-query after the route renders, so at the moment of navigation the pane
+// is usually shorter than the offset being asked for. This retries across a few
+// frames and stops the moment the offset sticks or the user scrolls; if the
+// list is still loading after that window, you land at the top rather than
+// somewhere arbitrary. Filters and tab still restore — the fix-403 half of
+// "where you were" is exact, and only the pixel offset is approximate.
+function useRestorePreviousScroll(paneRef: RefObject<HTMLElement | null>) {
+  const { key, state, pathname, search } = useLocation();
+  useEffect(() => {
+    const want = restoreScrollFrom(state, `${pathname}${search}`);
+    const pane = paneRef.current;
+    if (want == null || !pane) return;
+    let frames = 0;
+    let timer = 0;
+    let cancelled = false;
+    // ★ Any real scroll by the user wins immediately — nothing is more
+    //   annoying than a page that yanks itself back while you are reading.
+    const stop = () => {
+      cancelled = true;
+    };
+    pane.addEventListener('wheel', stop, { passive: true });
+    pane.addEventListener('touchstart', stop, { passive: true });
+    const tick = () => {
+      if (cancelled) return;
+      pane.scrollTop = Math.min(want, pane.scrollHeight - pane.clientHeight);
+      // ★ 40 frames ≈ 650ms of retrying. Long enough for a react-query cache
+      //   hit and a first paint of rows; short enough that a slow query does
+      //   not hijack the pane a second later.
+      if (Math.abs(pane.scrollTop - want) > 1 && ++frames < 40) {
+        timer = window.requestAnimationFrame(tick);
+      }
+    };
+    timer = window.requestAnimationFrame(tick);
+    return () => {
+      cancelled = true;
+      window.cancelAnimationFrame(timer);
+      pane.removeEventListener('wheel', stop);
+      pane.removeEventListener('touchstart', stop);
+    };
+    // ★ Keyed on the history entry, not the state object: the same offset
+    //   arriving on a NEW navigation must run again, and a re-render of the
+    //   same entry must not.
+  }, [key, state, pathname, search, paneRef]);
+}

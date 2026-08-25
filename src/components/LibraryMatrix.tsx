@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Link } from 'react-router-dom';
+import OriginLink from './OriginLink';
 import { PREVIOUS_ORIGINS } from '../lib/previousOrigin';
 import { useProjects } from '../hooks/useProjects';
 import { usePermits } from '../hooks/usePermits';
@@ -791,7 +791,7 @@ function Row({
           )}
         </td>
         <td className="px-2 py-1.5 font-display font-bold text-text">
-          <Link
+          <OriginLink
             to={`/project/${row.projectId}`}
             // ★ fix-403: tell Project Overview where this click came from, so
             //   its Previous button knows which list to go back to. The FILTERS
@@ -801,7 +801,7 @@ function Row({
             className="hover:underline"
           >
             {row.address}
-          </Link>
+          </OriginLink>
         </td>
         <td className="px-2 py-1.5 text-muted">{row.juris || '—'}</td>
         <td className="px-2 py-1.5 text-text">

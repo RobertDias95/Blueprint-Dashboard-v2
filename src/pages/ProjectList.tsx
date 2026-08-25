@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
+import OriginLink from '../components/OriginLink';
 import NewProjectWizard from '../components/NewProjectWizard';
 import { useProjects } from '../hooks/useProjects';
 import { usePermits } from '../hooks/usePermits';
@@ -598,13 +598,13 @@ function ProjectRowView({
         </td>
         <td className="px-2 py-1.5 font-display font-bold text-text">
           <div className="flex items-center gap-2 flex-wrap">
-            <Link
+            <OriginLink
               to={`/project/${row.project.id}`}
               className="hover:underline"
               data-testid={`project-view-link-${row.project.id}`}
             >
               {row.project.address}
-            </Link>
+            </OriginLink>
             {/* fix-178: on-hold badge inline with the address. */}
             <HoldBadge hold={hold} testid={`project-view-hold-${row.project.id}`} />
           </div>
@@ -673,12 +673,12 @@ function PermitMiniTable({ row }: { row: ProjectRow }) {
             data-testid={`project-view-permit-row-${row.project.id}-${p.permit.id}`}
           >
             <td className="px-2 py-0.5 text-text">
-              <Link
+              <OriginLink
                 to={`/project/${row.project.id}?permit=${p.permit.id}`}
                 className="hover:underline"
               >
                 {p.permit.type ?? '—'}
-              </Link>
+              </OriginLink>
             </td>
             <td className="px-2 py-0.5 font-mono text-muted">
               {p.permit.num ?? <span className="text-dim">—</span>}

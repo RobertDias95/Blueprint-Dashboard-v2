@@ -9,6 +9,7 @@ import {
   useWhatsNewReads,
   type WhatsNewDraft,
 } from '../hooks/useWhatsNew';
+import { useOriginState } from '../hooks/useOriginState';
 import {
   KIND_LABEL,
   WHATS_NEW_KINDS,
@@ -252,6 +253,7 @@ function EntryRow({
 }) {
   const del = useDeleteWhatsNewEntry();
   const navigate = useNavigate();
+  const originState = useOriginState();
   const [showHow, setShowHow] = useState(false);
   const href = entry.go_href?.trim() || '';
   // ★ Belt to the CHECK's braces: a value that somehow reached the client
@@ -310,7 +312,10 @@ function EntryRow({
               // ★★ navigate(), not an <a href>. react-router keeps it in the
               // app — no reload, no chance of leaving the origin whatever the
               // string says.
-              onClick={() => navigate(href)}
+              // ★ fix-408: an entry can point at a project, so the click
+              // records What's New as the origin — Previous brings you back to
+              // the announcement you were reading rather than to Project View.
+              onClick={() => navigate(href, { state: originState() })}
               className="text-[10.5px] font-bold text-de hover:underline bg-transparent border-none p-0"
               data-testid={`whats-new-go-${entry.id}`}
               data-href={href}

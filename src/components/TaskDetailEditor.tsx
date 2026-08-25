@@ -1,8 +1,8 @@
 import { useAppConfig } from '../hooks/useAppConfig';
+import OriginLink from './OriginLink';
 import { waitingOnOptions } from '../lib/waitingOn';
 import TaskProvenance from './TaskProvenance';
 import { useMemo } from "react";
-import { Link } from "react-router-dom";
 import { useUpsertTask, useSetTaskAssignees } from "../hooks/useTaskTree";
 import { useDmDaGroups } from "../hooks/useDmDaGroups";
 import { activeMemberNamesOf } from "../hooks/useTeamMembers";
@@ -220,26 +220,26 @@ export default function TaskDetailEditor({
       <div className="p-2.5 flex flex-col gap-2">
         {/* 1 Project */}
         <FieldRow label="Project">
-          <Link
+          <OriginLink
             to={`/project/${task.project_id}`}
             className="text-[11px] underline truncate"
             style={{ color: 'var(--color-de)' }}
             data-testid="task-detail-project"
           >
             {task.project_address}
-          </Link>
+          </OriginLink>
         </FieldRow>
 
         {/* 2 Permit (read-only link) */}
         <FieldRow label="Permit">
-          <Link
+          <OriginLink
             to={`/project/${task.project_id}`}
             className="text-[11px] underline"
             style={{ color: 'var(--color-muted)' }}
             data-testid="task-detail-permit"
           >
             {task.permit_type ?? '—'}
-          </Link>
+          </OriginLink>
         </FieldRow>
 
         {/* fix-228/229: the PRIMARY owner (assigned_to, fix-222 taxonomy) —
@@ -423,7 +423,7 @@ export default function TaskDetailEditor({
         </div>
       </div>
 
-      <Link
+      <OriginLink
         // fix-217/218/219: deep-link to the task's PERMIT so Project View
         // auto-selects + scrolls to it, instead of the project top. This is the
         // LIVE My Tasks detail panel (fix-217/218 hardened the unused
@@ -440,7 +440,7 @@ export default function TaskDetailEditor({
         data-testid="task-detail-open-project"
       >
         → Open in Project View
-      </Link>
+      </OriginLink>
     </aside>
   );
 }

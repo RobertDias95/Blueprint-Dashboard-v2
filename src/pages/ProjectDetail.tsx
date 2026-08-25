@@ -1,5 +1,6 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useLocation, useParams, useSearchParams } from 'react-router-dom';
+import OriginLink from '../components/OriginLink';
 import { previousTarget } from '../lib/previousOrigin';
 import { useProjects } from '../hooks/useProjects';
 import { usePermitsByProject } from '../hooks/usePermitsByProject';
@@ -219,7 +220,10 @@ function ProjectDetailBody({
           so the buttons don't shift it off-center), Project Settings +
           Delete buttons right. */}
       {/* ★ fix-331 §4: one button. Reassign DA and Delete are inside it. */}
-      <ProjectPageChrome onSettings={() => setSettingsOpen(true)} />
+      <ProjectPageChrome
+        onSettings={() => setSettingsOpen(true)}
+        projects={allProjects}
+      />
 
       {settingsOpen && (
         <ProjectSettingsModal
@@ -468,7 +472,7 @@ function RedesignOfBadge({
 }) {
   const original = projects.find((p) => p.id === originalId) ?? null;
   return (
-    <Link
+    <OriginLink
       to={`/project/${originalId}`}
       className="inline-block mt-1 text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full border hover:opacity-80 transition"
       style={{
@@ -479,7 +483,7 @@ function RedesignOfBadge({
       data-testid="pd-redesign-of-badge"
     >
       ↗ Redesign of {original ? original.address : '(unknown original)'}
-    </Link>
+    </OriginLink>
   );
 }
 
@@ -505,10 +509,28 @@ function RedesignOfBadge({
 //      before the button enables. Folding the entry point in did not soften it.
 //   4. It is LAST in the modal and outside the save flow, so nothing about
 //      editing a project routes past it.
-function ProjectPageChrome({ onSettings }: { onSettings: () => void }) {
+function ProjectPageChrome({
+  onSettings,
+  projects,
+}: {
+  onSettings: () => void;
+  /** ★ fix-408: the cached project list, used ONLY to name an origin that is
+   *  itself a project — see previousOrigin.projectIdFromPath. */
+  projects: { id: string; address: string }[];
+}) {
   // ★ Read from router state, which only the click that brought you here can
   //   set. An unrecognised value falls through to the no-origin case.
-  const previous = previousTarget(useLocation().state);
+  // ★★ fix-408: resolved against the CURRENT location too, so an origin equal
+  //    to the page you are standing on is declined rather than offering you a
+  //    Previous that reloads what you are already looking at.
+  const loc = useLocation();
+  const previous = previousTarget(loc.state, `${loc.pathname}${loc.search}`, {
+    // ★★ fix-408 §6: chaining. A permit chip inside a chat, the "Redesign of"
+    //    badge and the Reuse editor all link project → project, and a project's
+    //    name is its ADDRESS. The link records only where it was; the address
+    //    is looked up here, where the cached list already is.
+    labelForProject: (id) => projects.find((p) => p.id === id)?.address ?? null,
+  });
   return (
     <div
       className="relative flex items-center justify-between px-4 py-2 border-b flex-shrink-0"
@@ -518,16 +540,27 @@ function ProjectPageChrome({ onSettings }: { onSettings: () => void }) {
       {/* ★★★ fix-403 — PREVIOUS, not Search.
           Bobby: *"instead of us having a search button, if there was a go back
           or a previous button."* It returns to the list this project was opened
-          FROM — Library or Pipeline — and that list restores its own filters
-          from sessionStorage, so the search you were mid-thought in is still
-          there.
+          FROM, and that list restores its own filters from sessionStorage, so
+          the search you were mid-thought in is still there.
+
+          ★★★ fix-408 — FROM EVERY ENTRY PATH, not just two. fix-403 honoured
+          Library and Pipeline; every other way in — a notification, a board
+          card, a report row, a chat link — read "← Search" and cost you a trip
+          through the ribbon. Bobby (register P-041): *"Previous is a site-wide
+          smart function."* Every link into a project is an <OriginLink> now and
+          the label is that page's own name.
 
           ★★ With NO origin (deep link, refresh, a link out of Slack) it is
           exactly the button it replaced: "← Search" to /projects. See
-          previousOrigin.ts for why that beats both hiding it and guessing. */}
+          previousOrigin.ts for why that beats both hiding it and guessing.
+
+          ★ `state` carries fix-408 §4's one-shot scroll offset back to the
+          origin page; Chrome applies it. It is undefined for a page that was
+          not scrolled, so an ordinary return pushes no extra state. */}
       <Link
         to={previous.to}
-        className="px-3 py-1 rounded-md text-xs font-bold border border-border bg-s2 text-text hover:bg-s3 transition no-underline"
+        state={previous.state}
+        className="px-3 py-1 rounded-md text-xs font-bold border border-border bg-s2 text-text hover:bg-s3 transition no-underline whitespace-nowrap"
         data-testid="project-search-back"
       >
         {previous.label}
@@ -943,7 +976,7 @@ function RedesignsSidebarSection({ parentId }: { parentId: string }) {
                 actions. The buttons sit OUTSIDE the Link (no nested
                 interactives). */}
             <div className="flex items-center gap-1 px-3 py-1.5 hover:bg-s2 transition">
-              <Link
+              <OriginLink
                 to={`/project/${r.project.id}`}
                 className="flex-1 min-w-0"
                 data-testid={`project-overview-redesign-row-${r.project.id}`}
@@ -954,7 +987,7 @@ function RedesignsSidebarSection({ parentId }: { parentId: string }) {
                 {triggerLabel && (
                   <span className="text-[10px] text-dim"> · {triggerLabel}</span>
                 )}
-              </Link>
+              </OriginLink>
               <button
                 type="button"
                 onClick={() =>
@@ -990,7 +1023,7 @@ function RedesignsSidebarSection({ parentId }: { parentId: string }) {
             {r.permits.map((p) => {
               const label = redesignPermitLabel(p);
               return (
-                <Link
+                <OriginLink
                   key={p.id}
                   to={`/project/${r.project.id}`}
                   className="block pl-6 pr-3 py-1 hover:bg-s2 transition"
@@ -1001,7 +1034,7 @@ function RedesignsSidebarSection({ parentId }: { parentId: string }) {
                     {' · '}
                     {label.secondary}
                   </span>
-                </Link>
+                </OriginLink>
               );
             })}
           </div>

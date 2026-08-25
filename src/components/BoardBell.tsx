@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
+import OriginLink from './OriginLink';
 import { usePermits } from '../hooks/usePermits';
 import { useProjects } from '../hooks/useProjects';
 // fix-303: the SAME task source My Tasks uses, so the board is not a lesser
@@ -384,7 +385,7 @@ export default function BoardBell() {
                     }
                     data-testid={`bell-new-dot-${i.key}`}
                   />
-                  <Link
+                  <OriginLink
                     // ★★ fix-362: WHERE THE THING IS, not merely the page
                     // containing it. One function, shared with the centre —
                     // two copies of a routing rule is how the bell and the
@@ -410,7 +411,7 @@ export default function BoardBell() {
                       <div className="text-[10px] text-muted">{i.subtitle}</div>
                     )}
                     <div className="text-[9px] text-dim font-mono truncate">{i.where}</div>
-                  </Link>
+                  </OriginLink>
                   {/* ★ Acknowledgement is a CLICK. Opening the bell must never
                       mark things read implicitly. */}
                   {/* ★★ fix-339: a SHARED item is answered, not acknowledged.

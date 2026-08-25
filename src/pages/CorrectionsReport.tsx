@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
+import OriginLink from '../components/OriginLink';
 import { useAllCorrectionItems } from '../hooks/useAllCorrectionItems';
 import { useProjects } from '../hooks/useProjects';
 import { usePermits } from '../hooks/usePermits';
@@ -908,13 +909,13 @@ function RepeatsView({
                   data-testid={`corrections-repeat-row-${t.projectId}`}
                 >
                   <td className="py-1.5">
-                    <Link
+                    <OriginLink
                       to={`/project/${t.projectId}`}
                       className="text-de hover:underline"
                       onClick={(e) => e.stopPropagation()}
                     >
                       {t.address}
-                    </Link>
+                    </OriginLink>
                     <span className="text-dim"> · {t.juris}</span>
                   </td>
                   <td className="py-1.5 text-muted">{t.building ?? '—'}</td>
@@ -1091,13 +1092,13 @@ function ItemRow({ row }: { row: CorrectionReportRow }) {
         data-testid={`corrections-item-row-${row.id}`}
       >
         <td className="py-1.5">
-          <Link
+          <OriginLink
             to={`/project/${row.project_id}`}
             className="text-de hover:underline"
             onClick={(e) => e.stopPropagation()}
           >
             {row.address}
-          </Link>
+          </OriginLink>
           {row.building && <span className="text-dim"> · {row.building}</span>}
         </td>
         <td className="py-1.5 text-center text-muted">{row.cycle ?? '—'}</td>
@@ -1248,12 +1249,12 @@ function ExcludedView({
                   className="text-[11px] border border-border rounded px-2 py-1 bg-surface"
                   data-testid={`corrections-excluded-row-${r.id}`}
                 >
-                  <Link
+                  <OriginLink
                     to={`/project/${r.project_id}`}
                     className="text-de hover:underline font-bold"
                   >
                     {r.address}
-                  </Link>
+                  </OriginLink>
                   <span className="text-dim"> · {r.source_file}</span>
                   <div className="text-muted mt-0.5 line-clamp-2">
                     {((r.subject ?? '') + ' ' + (r.body ?? '')).trim() || (

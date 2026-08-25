@@ -1,4 +1,4 @@
-import { Link } from 'react-router-dom';
+import OriginLink from '../OriginLink';
 import type { AddressMatch, MatchVerdict } from '../../lib/addressMatch';
 
 // fix-333 — the banner the Othello duplicate would have hit.
@@ -224,7 +224,7 @@ function MatchRow({ match }: { match: AddressMatch }) {
         </span>
       )}
       {/* ★ New tab, so the half-typed wizard survives the trip. */}
-      <Link
+      <OriginLink
         to={`/project/${project.id}`}
         target="_blank"
         rel="noreferrer"
@@ -232,7 +232,7 @@ function MatchRow({ match }: { match: AddressMatch }) {
         data-testid={`wizard-duplicate-open-${project.id}`}
       >
         Open in a new tab →
-      </Link>
+      </OriginLink>
     </div>
   );
 }

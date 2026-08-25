@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import { Link } from 'react-router-dom';
+import OriginLink from '../OriginLink';
 import type { ScraperActivityRow } from '../../lib/database.types';
 import { countUnreadByIds, formatRelativeTime } from '../../lib/scraperActivity';
 import ActivityRow from './ActivityRow';
@@ -135,14 +135,14 @@ export default function ActivityProjectGroup({
           )}
         </button>
         {projectId && (
-          <Link
+          <OriginLink
             to={`/project/${projectId}`}
             className="self-center mr-3 ml-2 shrink-0 text-[10px] font-display font-bold px-2.5 py-1 rounded border border-de text-de bg-de/5 hover:bg-de/10 transition whitespace-nowrap"
             data-testid={`activity-group-open-project-${address}`}
             aria-label={`Open project at ${address}`}
           >
             Open Project
-          </Link>
+          </OriginLink>
         )}
       </div>
       {!collapsed && (

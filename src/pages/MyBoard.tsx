@@ -3,6 +3,8 @@ import { useBoardLens } from '../hooks/useBoardLens';
 import { focusItems, groupItems, type AssociateGroup } from '../lib/boardByAssociate';
 import { useCallback, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
+import OriginLink from '../components/OriginLink';
+import { useOriginState } from '../hooks/useOriginState';
 import { usePermits } from '../hooks/usePermits';
 import { useProjects } from '../hooks/useProjects';
 // fix-303: the SAME task source My Tasks uses, so the board is not a lesser
@@ -284,23 +286,23 @@ function ForecastRow({
                 check on the permit right then and there." */}
             {item.projectId ? (
               <>
-                <Link
+                <OriginLink
                   to={`/project/${item.projectId}`}
                   className="text-de hover:underline"
                   data-testid={`board-row-project-${item.key}`}
                 >
                   {item.address ?? 'Project'}
-                </Link>
+                </OriginLink>
                 {item.permitId != null && (
                   <>
                     {' · '}
-                    <Link
+                    <OriginLink
                       to={`/project/${item.projectId}?permit=${item.permitId}`}
                       className="text-de hover:underline"
                       data-testid={`board-row-permit-${item.key}`}
                     >
                       {item.permitLabel ?? 'Permit'}
-                    </Link>
+                    </OriginLink>
                   </>
                 )}
                 {/* ★ fix-313 #62 REMOVED the "My Tasks" link that sat here.
@@ -417,24 +419,24 @@ function QueueRowView({ row }: { row: QueueRow }) {
           >
             {QUEUE_KIND_LABEL[row.kind]}
           </span>
-          <Link
+          <OriginLink
             to={`/project/${row.projectId}`}
             className="text-[11.5px] font-extrabold text-text hover:underline truncate"
             data-testid={`board-queue-address-${row.key}`}
           >
             {row.address}
-          </Link>
+          </OriginLink>
         </div>
         {/* ★ The permit itself is still one click away — the old queue's row
             offered that and losing it would be a quiet regression. */}
         <div className="text-[10px] text-muted mt-0.5 truncate">
-          <Link
+          <OriginLink
             to={`/project/${row.projectId}?permit=${row.permitId}`}
             className="text-de hover:underline"
             data-testid={`board-queue-permit-${row.key}`}
           >
             {row.num ?? 'no number yet'} · {row.type}
-          </Link>
+          </OriginLink>
           {row.cycleIndex != null && ` · cycle ${row.cycleIndex}`}
         </div>
         <div className="text-[10px] text-dim mt-px truncate">{row.stateLine}</div>
@@ -504,13 +506,13 @@ function AgedPermitRow({
       data-days={row.daysInState}
     >
       <div className="flex items-baseline gap-2">
-        <Link
+        <OriginLink
           to={`/project/${row.projectId}?permit=${row.permitId}`}
           className="text-[11.5px] font-extrabold text-text hover:underline truncate"
           data-testid={`board-aged-${row.permitId}-link`}
         >
           {row.address}
-        </Link>
+        </OriginLink>
         <span className={`text-[9px] font-extrabold uppercase ml-auto flex-none ${tone}`}>
           {AGING_LEVEL_LABEL[row.level]}
         </span>
@@ -556,12 +558,12 @@ function DataGapRowView({ row }: { row: DataGapRow }) {
       className="px-3.5 py-1.5 border-b border-border/50 flex items-baseline gap-2"
       data-testid={`board-gap-${row.permitId}`}
     >
-      <Link
+      <OriginLink
         to={`/project/${row.projectId}?permit=${row.permitId}`}
         className="text-[11px] font-bold text-text hover:underline truncate flex-1"
       >
         {row.address}
-      </Link>
+      </OriginLink>
       <span className="text-[10px] text-muted truncate">{row.permitLabel}</span>
       <span className="text-[9.5px] text-dim italic whitespace-nowrap">
         no {row.missing}
@@ -716,6 +718,7 @@ export default function MyBoard() {
   // third column so the two-panel fixed-height contract is untouched.
   const [openTask, setOpenTask] = useState<BoardTask | null>(null);
   const navigate = useNavigate();
+  const originState = useOriginState();
 
   // ★ fix-304 §19 (register #19). Phase 3 wired the drawer to item.task, which
   // is null on every milestone — so on a board made entirely of milestones,
@@ -762,10 +765,16 @@ export default function MyBoard() {
       return;
     }
     if (item.projectId) {
+      // ★★ fix-408: the ONE imperative entry path on this page. Every other
+      //    row here is an <OriginLink>; this one cannot be, because the click
+      //    also marks the notification read and may open a task panel instead
+      //    of navigating at all. `useOriginState()` is the same helper wearing
+      //    a different shape — see hooks/useOriginState.
       navigate(
         item.permitId != null
           ? `/project/${item.projectId}?permit=${item.permitId}`
           : `/project/${item.projectId}`,
+        { state: originState() },
       );
     }
   }

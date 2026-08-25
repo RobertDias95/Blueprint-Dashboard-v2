@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
+import OriginLink from '../OriginLink';
 import {
   useWaitingOnTasks,
   groupByDisciplineThenFirm,
@@ -264,13 +264,13 @@ function FirmSection({
               data-testid={`waiting-on-task-${task.task_id}`}
             >
               <td className="px-3 py-1.5 align-top">
-                <Link
+                <OriginLink
                   to={`/project/${task.project_id}`}
                   className="font-bold text-de hover:underline"
                   data-testid={`waiting-on-task-${task.task_id}-project`}
                 >
                   {task.project_address ?? '(no address)'}
-                </Link>
+                </OriginLink>
               </td>
               <td className="px-2 py-1.5 align-top">
                 {task.permit_type && (
