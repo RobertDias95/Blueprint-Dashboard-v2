@@ -3,8 +3,8 @@ import {
   ParkingKindSelect,
   RoofDeckSelect,
   StallsInput,
-  parseStalls,
 } from '../shared/UnitParkingInputs';
+import { parseStalls } from '../../lib/unitParking';
 import { nextUnitTypeLabel } from '../../lib/unitTypeNaming';
 
 // fix-22: sub-editor for projects.unit_types (jsonb array). Each entry is

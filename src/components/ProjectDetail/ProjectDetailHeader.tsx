@@ -14,8 +14,8 @@ import {
   ParkingKindSelect,
   RoofDeckSelect,
   StallsInput,
-  parseStalls,
 } from '../shared/UnitParkingInputs';
+import { parseStalls } from '../../lib/unitParking';
 import {
   asExternalTeamBlob,
   directoryFirmNamesForDiscipline,

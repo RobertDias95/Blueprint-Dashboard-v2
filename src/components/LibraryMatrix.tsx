@@ -25,12 +25,12 @@ import {
   ParkingKindSelect,
   RoofDeckSelect,
   StallsInput,
-  parseStalls,
 } from './shared/UnitParkingInputs';
 import { PARKING_KINDS, type ParkingKind } from '../lib/database.types';
 import {
   PARKING_KIND_LABEL,
   parkingRollup,
+  parseStalls,
   roofDeckRollup,
   type RoofDeckFilter,
   type StallsTier,

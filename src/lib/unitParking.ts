@@ -189,3 +189,26 @@ export function matchParkingKind(
   if (want === '') return true;
   return kind === want;
 }
+
+/**
+ * ★★ The one coercion for a stalls text box, shared by all three editor mounts.
+ *
+ * Blank → null (NOT RECORDED). A non-negative integer → that number. Anything
+ * else → null, because a half-typed "-" or "abc" is not an answer either.
+ *
+ * ★★★ ZERO SURVIVES. `0` is a recorded zero and must not fall through a falsy
+ * check into null — the single most likely way this file could quietly
+ * re-create the NULL-vs-none conflation the whole ticket is about.
+ *
+ * ★ IT LIVES HERE, NOT WITH THE INPUT COMPONENT, because a coercion rule is
+ * not a component: `react-refresh/only-export-components` refuses a mixed
+ * module, and the rule is right — this belongs beside the other parsing and
+ * matching rules above, which is also where a reader looks for it.
+ */
+export function parseStalls(raw: string): number | null {
+  const t = raw.trim();
+  if (t === '') return null;
+  const n = Number(t);
+  if (!Number.isFinite(n) || n < 0) return null;
+  return Math.floor(n);
+}

@@ -21,8 +21,8 @@ import {
   matchParkingKind,
   matchRoofDeck,
   matchStallsTier,
+  parseStalls,
 } from '../lib/unitParking';
-import { parseStalls } from '../components/shared/UnitParkingInputs';
 import type { UnitType } from '../lib/database.types';
 
 // ===========================================================================
