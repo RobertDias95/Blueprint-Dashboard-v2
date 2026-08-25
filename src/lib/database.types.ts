@@ -836,6 +836,11 @@ export const AUTO_CLOSED_REASONS = [
   // minted, so these only ever fire on a condition that died AFTER the mint.
   'superseded_city_responded',
   'superseded_target_changed',
+  // ★★ fix-405: the two shapes no rule covered. Both say the PERMIT is dead
+  // rather than that a cycle moved on, which is why they outrank every
+  // per-event reason in the closer.
+  'superseded_permit_withdrawn',
+  'superseded_project_cancelled',
 ] as const;
 export type AutoClosedReason = (typeof AUTO_CLOSED_REASONS)[number];
 

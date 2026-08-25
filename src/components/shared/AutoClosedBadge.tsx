@@ -46,6 +46,11 @@ const REASON_LABEL: Record<string, string> = {
     'Closed automatically: the city has responded, so there is nothing left to chase. Reopen it if you still need to call them.',
   superseded_target_changed:
     'Closed automatically: the city moved its review target, so the date this task was chasing no longer exists. A new one is raised if the new target also passes.',
+  // ★★ fix-405: the permit itself is no longer live work.
+  superseded_permit_withdrawn:
+    'Closed automatically: the permit was withdrawn, so nothing is expected of anybody on it. Reopen it if the withdrawal was recorded in error.',
+  superseded_project_cancelled:
+    'Closed automatically: the project was cancelled, so this is not live work. Restoring the project does not reopen it — raise it again if it still applies.',
 };
 
 export default function AutoClosedBadge({
