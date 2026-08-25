@@ -62,6 +62,47 @@ export function isCurrentMember(m: MembershipFlags | null | undefined): boolean 
  */
 export const ACQ_ROLES: ReadonlySet<TeamRole> = new Set<TeamRole>(['acq', 'acq_lead']);
 
+/**
+ * ★★★ fix-403 — THE ENT FAMILY, AND WHY IT WAS NOT A COPY-PASTE OF THE ACQ FIX.
+ *
+ * fix-401 found that Settings' ENT list has the identical single-role shape the
+ * Acquisitions list had (`ofRole('ent')`, while ProjectSettingsModal,
+ * Step3Permits, Step4TaskReview and MyTasks all read `ent ∪ ent_lead`) — and
+ * REPORTED it rather than fixing it, for a specific reason:
+ *
+ * ★★★ THE TWO SETS OVERLAP. Acquisitions' `acq` and `acq_lead` are DISJOINT
+ * people, so widening simply added six names. Measured on prod 2026-08-25,
+ * `ent` and `ent_lead` are the SAME THREE PEOPLE — Bobby, Briana and Miles hold
+ * BOTH roles — so a naive widen renders each of them twice. That is why this
+ * needed `dedupeByPerson` below and Acquisitions did not.
+ */
+export const ENT_ROLES: ReadonlySet<TeamRole> = new Set<TeamRole>(['ent', 'ent_lead']);
+
+/**
+ * ★★ One entry per PERSON, keeping the first row seen.
+ *
+ * The roster stores one row per (person, role), so a dual-role person arrives
+ * as two rows carrying the same name. A list of PEOPLE must show them once.
+ *
+ * ★ Keyed on the trimmed, case-folded name because `team_members.name` is the
+ * join key the rest of the app matches on (~1,850 references) — two rows for
+ * one person always agree on it, and that is what makes them one person.
+ *
+ * ★ Stable: the first row wins, so the roster's own A→Z order is preserved and
+ * the list does not reshuffle when a role row is added or removed.
+ */
+export function dedupeByPerson<T extends { name: string }>(rows: readonly T[]): T[] {
+  const seen = new Set<string>();
+  const out: T[] = [];
+  for (const r of rows) {
+    const key = (r.name ?? '').trim().toLowerCase();
+    if (key === '' || seen.has(key)) continue;
+    seen.add(key);
+    out.push(r);
+  }
+  return out;
+}
+
 
 export function isFormerMember(m: MembershipFlags | null | undefined): boolean {
   return !!m && !isCurrentMember(m);

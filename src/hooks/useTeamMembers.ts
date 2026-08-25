@@ -3,7 +3,13 @@ import { useQuery } from '@tanstack/react-query';
 import { supabase } from '../lib/supabase';
 import { queryKeys } from '../lib/queryKeys';
 import { useAuthStore } from '../stores/authStore';
-import { ACQ_ROLES, isAssignableMember, isCurrentMember } from '../lib/roster';
+import {
+  ACQ_ROLES,
+  ENT_ROLES,
+  dedupeByPerson,
+  isAssignableMember,
+  isCurrentMember,
+} from '../lib/roster';
 import type { TeamMember, TeamRole } from '../lib/database.types';
 
 
@@ -96,7 +102,19 @@ export function useTeamMembers() {
       activeDas: allDas.filter(isCurrentMember),
       formerDas: allDas.filter((m) => !isCurrentMember(m)),
       dms: ofRole('dm'),
-      ents: ofRole('ent'),
+      // ★★★ fix-403 — THE ENT LIST, WIDENED **AND DEDUPED**.
+      //
+      // fix-401 found this had Acquisitions' exact single-role bug and left it
+      // reported rather than fixed, because the two cases differ in the one way
+      // that matters: 'acq' and 'acq_lead' are DISJOINT people, while 'ent' and
+      // 'ent_lead' are the SAME three (Bobby, Briana and Miles hold both).
+      // Widening alone would render each of them TWICE.
+      //
+      // ★★ So it is widen + dedupeByPerson, filtered to CURRENT members like
+      // every other list (fix-321's one membership rule).
+      ents: dedupeByPerson(
+        all.filter((m) => ENT_ROLES.has(m.role) && isCurrentMember(m)),
+      ),
       // ★★★ fix-401 — THE ACQUISITIONS LIST SHOWED TWO OF EIGHT PEOPLE.
       //
       // Bobby: *"I noticed that acquisitions is only showing like Kiley and

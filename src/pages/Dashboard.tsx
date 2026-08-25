@@ -55,6 +55,10 @@ import ScopeToggle from '../components/shared/ScopeToggle';
 import { distinctProjectCount } from '../lib/dashboardCounts';
 import { useAuthStore } from '../stores/authStore';
 import {
+  loadPipelineFilters,
+  savePipelineFilters,
+} from '../lib/surfaceFilterPrefs';
+import {
   defaultCollapsedKeys,
   loadPipelineCollapsed,
   pipelineGroupKey,
@@ -175,11 +179,67 @@ export default function Dashboard() {
   // server-side via app_sweeps, so mounting two is two cheap no-ops after the
   // first run of the day.
   useCityChaseSweep();
-  const [search, setSearch] = useState('');
-  // fix-178: three-way hold filter (All / Only holds / Exclude holds). Default
-  // 'all'; no persistence (resets each load).
-  const [holdMode, setHoldMode] = useState<HoldFilterMode>(HOLD_FILTER_DEFAULT);
-  const [filters, setFilters] = useState<DashFilters>(EMPTY_DASH_FILTERS);
+  // ★★★ fix-403 — THE PIPELINE REMEMBERS ITS FILTERS FOR THE SESSION.
+  //
+  // Bobby: *"Same thing when I'm in Pipeline … maybe I was only looking at a
+  // type of permit or a certain person."*
+  //
+  // ★★★ fix-178 SAID THE OPPOSITE, VERBATIM: *"three-way hold filter (All /
+  // Only holds / Exclude holds). Default 'all'; no persistence (resets each
+  // load)."* That was right then and Bobby's ask supersedes it for the SESSION
+  // scope only — his complaint is losing a filter by navigating one screen away
+  // and back, which is exactly what "resets each load" cost him. fix-178's real
+  // concern, that a hold filter must not follow you into tomorrow, is PRESERVED:
+  // sessionStorage dies with the tab, so a fresh tab still opens on All.
+  //
+  // ★★ Read in LAZY INITIALISERS, never an effect (fix-324's rule) — an effect
+  // would render one frame of the unfiltered pipeline and then correct itself.
+  const prefsUserId = useAuthStore((s) => s.user?.id ?? null);
+  // ★ The lazy-ref idiom, not `useRef(loadPipelineFilters(...))` — that form
+  //   evaluates its argument on EVERY render and throws all but the first away,
+  //   so the Pipeline would re-read and re-parse sessionStorage on every
+  //   keystroke in the search box.
+  const storedFilters = useRef<ReturnType<typeof loadPipelineFilters> | undefined>(
+    undefined,
+  );
+  if (storedFilters.current === undefined) {
+    storedFilters.current = loadPipelineFilters(prefsUserId);
+  }
+  const [search, setSearch] = useState(() => storedFilters.current?.search ?? '');
+  const [holdMode, setHoldMode] = useState<HoldFilterMode>(
+    () => storedFilters.current?.holdMode ?? HOLD_FILTER_DEFAULT,
+  );
+  const [filters, setFilters] = useState<DashFilters>(() => {
+    const st = storedFilters.current;
+    if (!st) return EMPTY_DASH_FILTERS;
+    // ★★ The Sets, rehydrated. JSON.stringify turns a Set into {} SILENTLY, so
+    //    they are stored as arrays and rebuilt here — the reason this surface
+    //    needs an encoder rather than a straight round-trip.
+    return {
+      ent: new Set(st.ent),
+      da: new Set(st.da),
+      dm: new Set(st.dm),
+      type: new Set(st.type),
+    };
+  });
+
+  // ★ One writer for all three pieces, so they cannot be stored out of step.
+  const persistFilters = useCallback(
+    (next: { search?: string; holdMode?: HoldFilterMode; filters?: DashFilters }) => {
+      const s2 = next.search ?? search;
+      const h2 = next.holdMode ?? holdMode;
+      const f2 = next.filters ?? filters;
+      savePipelineFilters(prefsUserId, {
+        search: s2,
+        holdMode: h2,
+        ent: [...f2.ent],
+        da: [...f2.da],
+        dm: [...f2.dm],
+        type: [...f2.type],
+      });
+    },
+    [prefsUserId, search, holdMode, filters],
+  );
   // ★ fix-324: which columns this person has folded, remembered across reloads.
   //
   // ★ SAME MECHANISM AS THE RIBBON (fix-313) — per-user localStorage, read in a
@@ -516,7 +576,10 @@ export default function Dashboard() {
         <input
           type="text"
           value={search}
-          onChange={(e) => setSearch(e.target.value)}
+          onChange={(e) => {
+            setSearch(e.target.value);
+            persistFilters({ search: e.target.value });
+          }}
           placeholder="Search address, DA, ENT, juris, num... (space or comma = AND)"
           className="flex-1 min-w-[220px] max-w-[360px] bg-bg border border-border rounded-md px-3 py-1.5 text-xs font-display text-text placeholder:text-dim focus:outline-none focus:border-de"
         />
@@ -524,10 +587,20 @@ export default function Dashboard() {
         <StageFilters
           permits={permitsQ.data ?? []}
           filters={filters}
-          onChange={setFilters}
+          onChange={(next) => {
+            setFilters(next);
+            persistFilters({ filters: next });
+          }}
         />
         {/* fix-178: three-way hold filter */}
-        <HoldFilter mode={holdMode} onChange={setHoldMode} testid="dashboard-hold-filter" />
+        <HoldFilter
+          mode={holdMode}
+          onChange={(m) => {
+            setHoldMode(m);
+            persistFilters({ holdMode: m });
+          }}
+          testid="dashboard-hold-filter"
+        />
       </div>
       {/* ★ fix-313 #61: "+ Add New Project" lived here. It moved into the
           ribbon, pinned above the collapse row, where it is reachable from

@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
+import { PREVIOUS_ORIGINS } from '../../lib/previousOrigin';
 import { effectiveStage } from '../../lib/permitStage';
 import { permitUrgency, type UrgencyLevel } from '../../lib/urgencyHelpers';
 import PendingScrapeChip from '../shared/PendingScrapeChip';
@@ -522,6 +523,8 @@ function ExpandedRow({
   return (
     <Link
       to={`/project/${projectId}`}
+      // ★ fix-403: the origin for Project Overview's Previous button.
+      state={{ from: PREVIOUS_ORIGINS.pipeline }}
       className="grid items-start gap-2 px-3 py-2 border-b last:border-b-0 hover:bg-s2 transition no-underline"
       style={{
         gridTemplateColumns: '1fr auto',

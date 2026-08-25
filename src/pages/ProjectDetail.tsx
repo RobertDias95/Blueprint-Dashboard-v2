@@ -1,5 +1,6 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
-import { Link, useParams, useSearchParams } from 'react-router-dom';
+import { Link, useLocation, useParams, useSearchParams } from 'react-router-dom';
+import { previousTarget } from '../lib/previousOrigin';
 import { useProjects } from '../hooks/useProjects';
 import { usePermitsByProject } from '../hooks/usePermitsByProject';
 import { useAllPermitCycleReviewers } from '../hooks/useAllPermitCycleReviewers';
@@ -505,18 +506,31 @@ function RedesignOfBadge({
 //   4. It is LAST in the modal and outside the save flow, so nothing about
 //      editing a project routes past it.
 function ProjectPageChrome({ onSettings }: { onSettings: () => void }) {
+  // ★ Read from router state, which only the click that brought you here can
+  //   set. An unrecognised value falls through to the no-origin case.
+  const previous = previousTarget(useLocation().state);
   return (
     <div
       className="relative flex items-center justify-between px-4 py-2 border-b flex-shrink-0"
       style={{ borderBottomColor: 'var(--color-border)' }}
       data-testid="project-page-chrome"
     >
+      {/* ★★★ fix-403 — PREVIOUS, not Search.
+          Bobby: *"instead of us having a search button, if there was a go back
+          or a previous button."* It returns to the list this project was opened
+          FROM — Library or Pipeline — and that list restores its own filters
+          from sessionStorage, so the search you were mid-thought in is still
+          there.
+
+          ★★ With NO origin (deep link, refresh, a link out of Slack) it is
+          exactly the button it replaced: "← Search" to /projects. See
+          previousOrigin.ts for why that beats both hiding it and guessing. */}
       <Link
-        to="/projects"
+        to={previous.to}
         className="px-3 py-1 rounded-md text-xs font-bold border border-border bg-s2 text-text hover:bg-s3 transition no-underline"
         data-testid="project-search-back"
       >
-        ← Search
+        {previous.label}
       </Link>
       <div
         className="absolute left-0 right-0 text-center pointer-events-none text-xl font-extrabold text-text"
