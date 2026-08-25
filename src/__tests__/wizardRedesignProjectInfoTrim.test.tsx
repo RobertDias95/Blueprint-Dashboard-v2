@@ -118,8 +118,7 @@ function redesignState(over: Partial<WizardState> = {}): WizardState {
     is_corner_lot: 'no',
     closing_date: '2026-01-15',
     alley: 'Yes',
-    parking_type: 'Garage',
-    parking_stalls: '2',
+
     lot_width: '40',
     lot_depth: '100',
     project_tags: ['ECA'],
@@ -141,8 +140,8 @@ const HIDDEN_TESTIDS = [
   'wizard-is-corner-lot',
   'wizard-closing-date',
   'wizard-alley',
-  'wizard-parking-type',
-  'wizard-parking-stalls',
+  // ★ fix-402: the two site parking fields left this step — parking is
+  //   per-UNIT now, collected in the Unit Types editor.
   'wizard-lot-width',
   'wizard-lot-depth',
 ];
@@ -156,7 +155,7 @@ beforeEach(() => {
 });
 
 describe('Step 1 — non-redesign renders the full field set', () => {
-  it('shows zone / lead DA / ACQ Target / lots / closing / alley / parking / lot dims', () => {
+  it('shows zone / lead DA / ACQ Target / lots / closing / alley / lot dims', () => {
     render(<StepHarness initial={normalState()} />);
     for (const tid of HIDDEN_TESTIDS) {
       expect(screen.getByTestId(tid)).toBeTruthy();
@@ -265,8 +264,7 @@ describe('Full wizard — redesign submit carries inherited fields', () => {
       num_lots: 1,
       closing_date: '2026-01-15',
       alley: 'Yes',
-      parking_type: 'Garage',
-      parking_stalls: 2,
+
       project_tags: ['ECA'],
       redesign_of_project_id: 'parent-uuid',
       redesign_reuses_original_permit: true,

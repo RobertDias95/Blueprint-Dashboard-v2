@@ -141,8 +141,11 @@ describe('fix-290 the Site block is back on the Project card', () => {
     ['lots', 'Lots'],
     ['corner', 'Corner'],
     ['alley', 'Alley'],
-    ['parking', 'Parking'],
-    ['stalls', 'Stalls'],
+    // ★★★ fix-402 removed 'parking' and 'stalls' from this list, by ruling.
+    // Bobby, 2026-08-25: *"Remove [parking] from the holistic site and merge
+    // that under the units for proposal."* The values were archived to
+    // _parking_site_archive_2026_08_25 and the columns cleared; parking is a
+    // per-UNIT field now and lives in the Unit Dimensions editor.
   ])('renders the %s field', (testid, label) => {
     renderHeader();
     const site = screen.getByTestId('pd-project-site');
@@ -166,8 +169,10 @@ describe('fix-290 the Site block is back on the Project card', () => {
     expect(within(site).getByTestId('pd-site-lots')).toHaveValue('1');
     expect(within(site).getByTestId('pd-site-corner')).toHaveValue('No');
     expect(within(site).getByTestId('pd-site-alley')).toHaveValue('No');
-    expect(within(site).getByTestId('pd-site-parking')).toHaveValue('Both');
-    expect(within(site).getByTestId('pd-site-stalls')).toHaveValue(5);
+    // ★ fix-402: the two site parking rows are gone — asserted absent rather
+    // than merely dropped, so a re-introduction is caught here.
+    expect(within(site).queryByTestId('pd-site-parking')).toBeNull();
+    expect(within(site).queryByTestId('pd-site-stalls')).toBeNull();
   });
 
   // ★ A null column must read as EMPTY, never as the string "null" — the classic
@@ -178,7 +183,7 @@ describe('fix-290 the Site block is back on the Project card', () => {
     expect(site.textContent).not.toMatch(/null|undefined|NaN/i);
     for (const id of [
       'pd-site-zone', 'pd-site-lot-w', 'pd-site-lot-d', 'pd-site-lots',
-      'pd-site-corner', 'pd-site-alley', 'pd-site-parking', 'pd-site-stalls',
+      'pd-site-corner', 'pd-site-alley',
     ]) {
       expect(within(site).getByTestId(id)).toHaveValue(
         id.includes('lot-') || id.endsWith('stalls') ? null : '',

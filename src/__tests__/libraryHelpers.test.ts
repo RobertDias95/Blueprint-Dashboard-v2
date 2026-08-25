@@ -240,9 +240,12 @@ describe('filterLibraryRows', () => {
     productTypes: [],
     tag: '',
     juris: '',
-    numLots: null,
     isCornerLot: '',
     stories: '',
+    // ★ fix-402: the UNIT card's three new filters, all Any.
+    parkingKind: '',
+    stalls: '',
+    roofDeck: '',
   };
   const rows = [
     {
@@ -327,7 +330,16 @@ describe('filterLibraryRows', () => {
   // fix-122: exact-match num_lots + tri-state corner. NULL values fall
   // out when the filter is active — Bobby's "apples-to-apples
   // subdivision" intent means unanswered rows aren't candidates.
-  describe('fix-122: numLots + isCornerLot filters', () => {
+  describe('fix-122/402: the corner filter (the lots FILTER was removed)', () => {
+    // ★★★ fix-402 — THE LOTS FILTER IS REMOVED, BY RULING. Bobby, 2026-08-25:
+    // *"we dont need it as a filtering option for this screen"*.
+    //
+    // ★★ THE LOTS COLUMN STAYS — he removed the control, not the data. The
+    // fixtures below still carry numLots, and the buildLibraryRows tests above
+    // still assert it is populated; only the three FILTER cases went.
+    //
+    // ★ fix-122's other half — the tri-state corner filter — is untouched and
+    // still asserted here; fix-402 only moved it onto the SITE card.
     const rowsExt = [
       { ...rows[0], numLots: 5, isCornerLot: true },
       { ...rows[1], numLots: 1, isCornerLot: false },
@@ -340,19 +352,8 @@ describe('filterLibraryRows', () => {
       },
     ];
 
-    it('numLots=5 picks only the matching row', () => {
-      const out = filterLibraryRows(rowsExt, { ...baseFilters, numLots: 5 });
-      expect(out.map((r) => r.projectId)).toEqual(['a']);
-    });
-
-    it('numLots=null (no filter) leaves all rows', () => {
-      const out = filterLibraryRows(rowsExt, { ...baseFilters, numLots: null });
-      expect(out).toHaveLength(3);
-    });
-
-    it('numLots filter drops NULL-num_lots rows', () => {
-      const out = filterLibraryRows(rowsExt, { ...baseFilters, numLots: 1 });
-      expect(out.map((r) => r.projectId)).toEqual(['b']);
+    it('★ every row still CARRIES its lots count — the column is untouched', () => {
+      expect(rowsExt.map((r) => r.numLots)).toEqual([5, 1, null]);
     });
 
     it('isCornerLot=Yes keeps only true rows; NULL drops', () => {
@@ -379,11 +380,13 @@ describe('filterLibraryRows', () => {
       expect(out).toHaveLength(3);
     });
 
-    it('numLots + isCornerLot AND together', () => {
+    it('★ corner ANDs with the other site filters', () => {
+      // Was "numLots + isCornerLot AND together"; the lots half is gone by
+      // ruling, so the conjunction is asserted against a filter that remains.
       const out = filterLibraryRows(rowsExt, {
         ...baseFilters,
-        numLots: 5,
         isCornerLot: 'Yes',
+        zone: rowsExt[0]!.zone,
       });
       expect(out.map((r) => r.projectId)).toEqual(['a']);
     });
@@ -407,9 +410,12 @@ describe('fix-205: stories filter', () => {
     productTypes: [],
     tag: '',
     juris: '',
-    numLots: null,
     isCornerLot: '',
     stories: '',
+    // ★ fix-402: the UNIT card's three new filters, all Any.
+    parkingKind: '',
+    stalls: '',
+    roofDeck: '',
   };
   function mkRow(id: string, stories: (number | null)[]): LibraryRow {
     return {
@@ -422,6 +428,9 @@ describe('fix-205: stories filter', () => {
       lotWidth: 0,
       lotDepth: 0,
       alley: '',
+      // ★ fix-402 removed the lots FILTER, not the row's lots COLUMN — this
+      //   fixture still carries it because LibraryRow still requires it.
+      numLots: null,
       tags: [],
       stage: 'de',
       unitTypes: stories.map((s, i) => ({
@@ -431,7 +440,6 @@ describe('fix-205: stories filter', () => {
         qty: 1,
         stories: s,
       })),
-      numLots: null,
       isCornerLot: null,
       updatedAt: '2026-06-25T00:00:00Z',
     };

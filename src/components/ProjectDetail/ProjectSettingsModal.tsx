@@ -69,7 +69,7 @@ interface Props {
   onDelete?: () => void;
 }
 
-const PARKING_OPTIONS = ['', 'None', 'Surface', 'Garage', 'Both'];
+// ★ fix-402: PARKING_OPTIONS removed with the fields it fed.
 const ALLEY_OPTIONS = ['', 'Yes', 'No'];
 // fix-93: Product Types options no longer hardcoded. The list is now
 // catalog-managed via app_config.productTypeOptions (seeded by
@@ -88,8 +88,7 @@ interface ProjectScalarFields {
   zone: string;
   lot_width: string;
   lot_depth: string;
-  parking_type: string;
-  parking_stalls: string;
+
   alley: string;
   /** fix-91: was a single text column, now an array (multi-select). */
   product_types: string[];
@@ -185,9 +184,7 @@ function initForm(
       zone: project.zone ?? '',
       lot_width: project.lot_width != null ? String(project.lot_width) : '',
       lot_depth: project.lot_depth != null ? String(project.lot_depth) : '',
-      parking_type: project.parking_type ?? '',
-      parking_stalls:
-        project.parking_stalls != null ? String(project.parking_stalls) : '',
+
       alley: project.alley ?? '',
       product_types: Array.isArray(project.product_types)
         ? project.product_types
@@ -395,8 +392,7 @@ export default function ProjectSettingsModal({
         zone: form.projectFields.zone.trim() || null,
         lot_width: toNumOrNull(form.projectFields.lot_width),
         lot_depth: toNumOrNull(form.projectFields.lot_depth),
-        parking_type: form.projectFields.parking_type || null,
-        parking_stalls: toNumOrNull(form.projectFields.parking_stalls),
+
         alley: form.projectFields.alley || null,
         product_types: form.projectFields.product_types,
         entitlement_lead: form.projectFields.entitlement_lead.trim() || null,
@@ -648,23 +644,10 @@ export default function ProjectSettingsModal({
                 />
               </div>
             </Field>
-            <Field label="Parking Type">
-              <SelectInput
-                value={form.projectFields.parking_type}
-                onChange={(v) => setProj('parking_type', v)}
-                options={PARKING_OPTIONS}
-                placeholderLabel="— unknown —"
-                testid="psm-parking-type"
-              />
-            </Field>
-            <Field label="Parking Stalls">
-              <Input
-                type="number"
-                value={form.projectFields.parking_stalls}
-                onChange={(v) => setProj('parking_stalls', v)}
-                testid="psm-parking-stalls"
-              />
-            </Field>
+            {/* ★★ fix-402: the two site-level parking fields are gone —
+                parking is a per-UNIT property now (Unit Dimensions on Project
+                Overview, or the Library's unit table). The columns are archived
+                and cleared; editing them here would write to a dead field. */}
             <Field label="Alley">
               <SelectInput
                 value={form.projectFields.alley}

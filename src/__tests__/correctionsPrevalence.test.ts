@@ -244,8 +244,12 @@ describe('fix-279 segment values', () => {
 
   it('every advertised segment resolves', () => {
     for (const key of [
+      // ★★ fix-402 removed 'parking_type' from the advertised segments.
+      // projects.parking_type is archived and cleared — parking is per-UNIT
+      // now — so the dimension would have grouped every project under one "—"
+      // bucket and made the report quietly useless rather than erroring.
       'juris', 'units', 'num_lots', 'is_corner_lot', 'product_types', 'zone',
-      'parking_type', 'alley', 'builder_company', 'design_manager',
+      'alley', 'builder_company', 'design_manager',
       'entitlement_lead', 'acq_lead',
     ]) {
       expect(segmentByKey(key), key).not.toBeNull();

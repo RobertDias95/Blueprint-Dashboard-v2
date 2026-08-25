@@ -186,11 +186,14 @@ describe('<Step1ProjectInfo />', () => {
     expect(onChange).toHaveBeenLastCalledWith({ juris: 'Seattle' });
   });
 
-  it('parking_type dropdown uses v1 vocabulary (None/Surface/Garage/Both)', () => {
+  it('★★ fix-402: the site parking dropdown is GONE from this step', () => {
+    // Bobby, 2026-08-25: *"Remove [parking] from the holistic site and merge
+    // that under the units for proposal."* The v1 vocabulary this asserted
+    // moved to the UNIT rows (PARKING_KINDS), which UnitTypesEditor renders and
+    // its own suite covers. Nothing site-level collects parking any more.
     setup();
-    const sel = screen.getByTestId('wizard-parking-type') as HTMLSelectElement;
-    const names = [...sel.options].map((o) => o.value);
-    expect(names).toEqual(['', 'None', 'Surface', 'Garage', 'Both']);
+    expect(screen.queryByTestId('wizard-parking-type')).toBeNull();
+    expect(screen.queryByTestId('wizard-parking-stalls')).toBeNull();
   });
 
   it('alley dropdown uses v1 vocabulary (Yes/No, "" sentinel)', () => {

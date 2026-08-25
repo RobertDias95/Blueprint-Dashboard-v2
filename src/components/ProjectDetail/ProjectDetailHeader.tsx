@@ -11,6 +11,12 @@ import type {
 } from '../../lib/database.types';
 import type { WaitingOnDiscipline } from '../../lib/database.types';
 import {
+  ParkingKindSelect,
+  RoofDeckSelect,
+  StallsInput,
+  parseStalls,
+} from '../shared/UnitParkingInputs';
+import {
   asExternalTeamBlob,
   directoryFirmNamesForDiscipline,
   type ExternalTeamBlob,
@@ -1960,23 +1966,12 @@ function SiteEditor({ project }: { project: Project }) {
         disabled={occMissing}
         onCommit={(v) => commit('alley', v || null, project.alley, 'Alley')}
       />
-      <SiteSelectRow
-        label="Parking"
-        value={project.parking_type ?? ''}
-        options={['', 'None', 'Surface', 'Garage', 'Both']}
-        disabled={occMissing}
-        onCommit={(v) =>
-          commit('parking_type', v || null, project.parking_type, 'Parking Type')
-        }
-      />
-      <SiteNumberRow
-        label="Stalls"
-        value={project.parking_stalls ?? null}
-        disabled={occMissing}
-        onCommit={(v) =>
-          commit('parking_stalls', v, project.parking_stalls, 'Parking Stalls')
-        }
-      />
+      {/* ★★★ fix-402 — PARKING LEFT THE SITE SECTION.
+          Bobby, 2026-08-25: *"Remove [parking] from the holistic site and merge
+          that under the units for proposal."* The two site-level rows that sat
+          here (Parking / Stalls) are gone; the values were archived to
+          _parking_site_archive_2026_08_25 and the columns cleared. Parking now
+          lives on each UNIT, in the Unit Dimensions editor below. */}
     </div>
   );
 }
@@ -2049,39 +2044,8 @@ function SiteSelectRow({
   );
 }
 
-function SiteNumberRow({
-  label,
-  value,
-  disabled,
-  onCommit,
-}: {
-  label: string;
-  value: number | null;
-  disabled: boolean;
-  onCommit: (next: number | null) => void;
-}) {
-  const [draft, setDraft] = useState<string>(value != null ? String(value) : '');
-  return (
-    <div className="flex items-baseline gap-1.5">
-      <span className="text-[9px] text-dim min-w-[32px]">{label}</span>
-      <input
-        type="number"
-        min={0}
-        value={draft}
-        onChange={(e) => setDraft(e.target.value)}
-        onBlur={() => {
-          const trimmed = draft.trim();
-          const n = trimmed === '' ? null : Number(trimmed);
-          onCommit(Number.isFinite(n as number) ? (n as number | null) : null);
-        }}
-        disabled={disabled}
-        className="flex-1 min-w-0 text-[10px] font-semibold text-text border-0 border-b outline-none bg-transparent px-0 py-0.5 disabled:opacity-50"
-        style={{ borderBottomColor: 'var(--color-border)' }}
-        data-testid={`pd-site-${label.toLowerCase()}`}
-      />
-    </div>
-  );
-}
+// ★ fix-402: SiteNumberRow removed — Stalls was its only caller, and site
+//   parking is archived and gone (see the note in the Site section).
 
 function SiteLotRow({
   project,
@@ -2359,10 +2323,11 @@ function UnitDimensionsExpanded({
   types: UnitType[];
   productTypes: string[];
   disabled: boolean;
+  // ★ fix-402: boolean joins the value union — roof_deck is yes/no/not-recorded.
   onUpdate: (
     idx: number,
     field: keyof UnitType,
-    val: string | number | null,
+    val: string | number | boolean | null,
   ) => void;
   onRemove: (idx: number) => void;
   onAdd: () => void;
@@ -2379,6 +2344,12 @@ function UnitDimensionsExpanded({
         <span style={{ width: 6 }} />
         <span className="text-center" style={{ width: 18 }}>Qty</span>
         <span className="text-center" style={{ width: 30 }}>Sty</span>
+        {/* ★★ fix-402: parking is per UNIT now — Bobby: "by unit it's broken
+            down: is it a garage, is it surface, is it both, and how many
+            stalls per unit" — plus "just a yes or no, roof deck". */}
+        <span className="text-center" style={{ width: 62 }}>Parking</span>
+        <span className="text-center" style={{ width: 40 }}>Stalls</span>
+        <span className="text-center" style={{ width: 52 }}>Deck</span>
       </div>
       {types.map((ut, i) => (
         <UnitRow
@@ -2414,7 +2385,7 @@ function UnitRow({
   row: UnitType;
   productTypes: string[];
   disabled: boolean;
-  onChange: (field: keyof UnitType, val: string | number | null) => void;
+  onChange: (field: keyof UnitType, val: string | number | boolean | null) => void;
   onRemove: () => void;
 }) {
   const [label, setLabel] = useState(row.label);
@@ -2423,6 +2394,10 @@ function UnitRow({
   const [qty, setQty] = useState(String(row.qty || 1));
   const [stories, setStories] = useState(
     row.stories != null ? String(row.stories) : '',
+  );
+  // ★ fix-402: buffered like every other numeric cell here (fix-73/98).
+  const [stalls, setStalls] = useState(
+    row.parking_stalls != null ? String(row.parking_stalls) : '',
   );
   // fix-98: dirty-flag prop sync (fix-73 pattern). UnitRow is keyed by
   // array index in the parent, so React reuses the same instance across
@@ -2440,6 +2415,7 @@ function UnitRow({
     setD(row.depth_ft != null ? String(row.depth_ft) : '');
     setQty(String(row.qty || 1));
     setStories(row.stories != null ? String(row.stories) : '');
+    setStalls(row.parking_stalls != null ? String(row.parking_stalls) : '');
   }, [row.label, row.width_ft, row.depth_ft, row.qty, row.stories]);
   const cellStyle = { borderBottomColor: 'var(--color-border)' } as const;
   const cellClass =
@@ -2573,6 +2549,33 @@ function UnitRow({
         style={cellStyle}
         className={`${cellClass} w-7`}
         data-testid="pd-unit-stories"
+      />
+      {/* ★★★ fix-402 — the SAME three controls the Library and the wizard
+          mount. NULL renders as "—" and is always reachable again. */}
+      <ParkingKindSelect
+        value={row.parking_kind}
+        disabled={disabled}
+        onChange={(v) => onChange('parking_kind', v)}
+        testid="pd-unit-parking-kind"
+      />
+      <StallsInput
+        value={stalls}
+        disabled={disabled}
+        onChange={(raw) => {
+          dirtyRef.current = true;
+          setStalls(raw);
+        }}
+        onBlur={() => {
+          onChange('parking_stalls', parseStalls(stalls));
+          dirtyRef.current = false;
+        }}
+        testid="pd-unit-stalls"
+      />
+      <RoofDeckSelect
+        value={row.roof_deck}
+        disabled={disabled}
+        onChange={(v) => onChange('roof_deck', v)}
+        testid="pd-unit-roof-deck"
       />
       <button
         type="button"

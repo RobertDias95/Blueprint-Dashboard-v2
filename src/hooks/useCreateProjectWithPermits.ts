@@ -56,8 +56,7 @@ export interface ProjectData {
   lot_width?: number | null;
   lot_depth?: number | null;
   unit_types?: UnitType[] | null;
-  parking_type?: string | null;
-  parking_stalls?: number | null;
+  // ★ fix-402: removed — parking moved to unit_types[].parking_kind/stalls.
   alley?: string | null;
   /** fix-91: was a single string column, now an array. The RPC reads
    *  this as a jsonb array and stores it in projects.product_types

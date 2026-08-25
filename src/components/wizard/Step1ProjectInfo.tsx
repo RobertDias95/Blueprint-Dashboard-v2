@@ -16,7 +16,6 @@ import { quarterToDateRange, snapToMonday } from '../../lib/dateUtils';
 import { useNextAvailableDaSlot } from '../../hooks/useNextAvailableDaSlot';
 import {
   ALLEY_OPTIONS,
-  PARKING_TYPE_OPTIONS,
   unitsIsValid,
   type WizardState,
 } from './wizardState';
@@ -945,39 +944,12 @@ export default function Step1ProjectInfo({
               data-testid="wizard-lot-depth"
             />
           </label>
-          <label className="flex flex-col gap-1">
-            <span className="text-[10px] uppercase tracking-wide text-dim">
-              Parking Type
-            </span>
-            <select
-              value={value.parking_type}
-              onChange={(e) => set('parking_type', e.target.value)}
-              className="bg-bg border border-border rounded-md px-3 py-1.5 text-xs font-display text-text focus:outline-none focus:border-de"
-              data-testid="wizard-parking-type"
-            >
-              <option value="">— unknown —</option>
-              {PARKING_TYPE_OPTIONS.map((p) => (
-                <option key={p} value={p}>
-                  {p}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="flex flex-col gap-1">
-            <span className="text-[10px] uppercase tracking-wide text-dim">
-              Parking Stalls
-            </span>
-            <input
-              type="number"
-              min={0}
-              step={1}
-              value={value.parking_stalls}
-              onChange={(e) => set('parking_stalls', e.target.value)}
-              placeholder="e.g. 4"
-              className="bg-bg border border-border rounded-md px-3 py-1.5 text-xs font-mono text-text placeholder:text-dim focus:outline-none focus:border-de"
-              data-testid="wizard-parking-stalls"
-            />
-          </label>
+          {/* ★★★ fix-402 — SITE PARKING LEFT THE WIZARD TOO.
+              Bobby: *"Remove [parking] from the holistic site and merge that
+              under the units for proposal."* The two site-level fields that
+              stood here are gone; parking is collected PER UNIT, in the Unit
+              Types editor further down this step. Optional there, never
+              blocking — see UnitTypesEditor. */}
         </div>
         )}
 

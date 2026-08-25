@@ -418,8 +418,7 @@ export default function NewProjectWizard({ open, onClose, initialState }: Props)
       lot_width: numOrNull(state.lot_width),
       lot_depth: numOrNull(state.lot_depth),
       unit_types: state.unit_types.length > 0 ? state.unit_types : null,
-      parking_type: strOrNull(state.parking_type),
-      parking_stalls: intOrNull(state.parking_stalls),
+      // ★ fix-402: site parking is gone — it lives on each unit now.
       alley: strOrNull(state.alley),
       // fix-91: send the multi-select array. Empty array is fine —
       // the RPC stores it as projects.product_types = '{}'.
