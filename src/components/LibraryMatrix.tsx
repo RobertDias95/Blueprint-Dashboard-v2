@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
+import { PREVIOUS_ORIGINS } from '../lib/previousOrigin';
 import { useProjects } from '../hooks/useProjects';
 import { usePermits } from '../hooks/usePermits';
 import { useUpdateProject } from '../hooks/useUpdateProject';
@@ -40,6 +41,12 @@ import {
   resolveUnitTypesForSave,
 } from '../lib/unitTypeNaming';
 import { useAppConfig, readAppConfigStringArray } from '../hooks/useAppConfig';
+import { useAuthStore } from '../stores/authStore';
+import {
+  clearLibraryFilters,
+  loadLibraryFilters,
+  saveLibraryFilters,
+} from '../lib/surfaceFilterPrefs';
 import { SkeletonRows } from './Skeleton';
 import QueryError from './QueryError';
 
@@ -138,7 +145,16 @@ const INITIAL_FILTERS: LibraryFilters = {
 };
 
 function Body({ projects, permits }: BodyProps) {
-  const [filters, setFilters] = useState<LibraryFilters>(INITIAL_FILTERS);
+  // ★★★ fix-403: the filter panel remembers, for this tab and this login.
+  //
+  // ★★ READ IN A LAZY INITIALISER, not an effect — fix-324's rule. An effect
+  // that setStates on mount renders one frame of the EMPTY filter panel with
+  // the full unfiltered list behind it, then corrects itself; the user sees a
+  // flinch and, worse, a count that changes under them.
+  const prefsUserId = useAuthStore((s) => s.user?.id ?? null);
+  const [filters, setFilters] = useState<LibraryFilters>(
+    () => loadLibraryFilters(prefsUserId, INITIAL_FILTERS) ?? INITIAL_FILTERS,
+  );
   // fix-232: product-type filter options come from the canonical registry
   // (app_config.productTypeOptions) — single source of truth.
   const appConfig = useAppConfig();
@@ -204,10 +220,20 @@ function Body({ projects, permits }: BodyProps) {
   }
 
   function update<K extends keyof LibraryFilters>(key: K, val: LibraryFilters[K]) {
-    setFilters((prev) => ({ ...prev, [key]: val }));
+    setFilters((prev) => {
+      const next = { ...prev, [key]: val };
+      // ★ Written on every change, in the handler — so the state is already
+      //   stored by the time a click on a project row navigates away.
+      saveLibraryFilters(prefsUserId, next);
+      return next;
+    });
   }
   function clearFilters() {
     setFilters(INITIAL_FILTERS);
+    // ★★ AND THE STORED COPY GOES TOO. Resetting only the React state would
+    //    put every filter back the next time you navigated away and returned —
+    //    a Clear button that un-clears itself.
+    clearLibraryFilters(prefsUserId);
   }
 
   function isExpanded(projectId: string): boolean {
@@ -708,6 +734,11 @@ function Row({
         <td className="px-2 py-1.5 font-display font-bold text-text">
           <Link
             to={`/project/${row.projectId}`}
+            // ★ fix-403: tell Project Overview where this click came from, so
+            //   its Previous button knows which list to go back to. The FILTERS
+            //   do not travel here — they live in sessionStorage, so the
+            //   browser back button and the ribbon restore them too.
+            state={{ from: PREVIOUS_ORIGINS.library }}
             className="hover:underline"
           >
             {row.address}

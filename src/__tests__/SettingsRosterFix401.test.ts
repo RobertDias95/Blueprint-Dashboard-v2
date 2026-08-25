@@ -109,8 +109,14 @@ describe('fix-401 §1: Acquisitions renders the roster, not one role string', ()
     // role `acq`, finding nothing, and silently doing nothing: a button that
     // appears to work and does not. That is the same asymmetry one layer down,
     // which is exactly the class of bug this ticket is about.
+    //
+    // ★ fix-403 GENERALISED the lookup — the ENT family joined it, so the row
+    //   filter now reads `family.has(m.role)` where the family is chosen from
+    //   the role. The CLAIM is unchanged and is still what is asserted: the
+    //   write path resolves through the acq FAMILY, not through one role
+    //   string. (fix-403's own suite covers the ENT half and the dedupe.)
     expect(adminTeamSource).toContain('ACQ_ROLES.has(role)');
-    expect(adminTeamSource).toContain('ACQ_ROLES.has(m.role)');
+    expect(adminTeamSource).toContain('family.has(m.role)');
   });
 });
 

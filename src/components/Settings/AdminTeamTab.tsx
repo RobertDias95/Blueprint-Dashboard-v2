@@ -4,7 +4,7 @@ import MentionTagsEditor from './MentionTagsEditor';
 import TeamActiveQuartersEditor from './TeamActiveQuartersEditor';
 import QuarterLayoutEditor from './QuarterLayoutEditor';
 import { useTeamMembers } from '../../hooks/useTeamMembers';
-import { ACQ_ROLES } from '../../lib/roster';
+import { ACQ_ROLES, ENT_ROLES } from '../../lib/roster';
 import { useUpsertTeamMember } from '../../hooks/useUpsertTeamMember';
 import { useDeleteTeamMember } from '../../hooks/useDeleteTeamMember';
 import { useRenameDA } from '../../hooks/useRenameDA';
@@ -61,17 +61,35 @@ export default function AdminTeamTab() {
     return <SkeletonRows count={5} rowClassName="h-16" />;
   }
 
-  function findByName(role: TeamRole, name: string): TeamMember | undefined {
-    // ★★★ fix-401: acquisitions is stored under TWO role strings (`acq` and
-    // `acq_lead`), and the list now renders both. Without this, removing or
-    // renaming Dom — who is `acq_lead` — would look up role `acq`, find
-    // nothing, and SILENTLY DO NOTHING: a button that appears to work and does
-    // not. Widening the read without widening the write is the same asymmetry
-    // this ticket exists to close, one layer down.
-    if (ACQ_ROLES.has(role)) {
-      return teamQ.all.find((m) => ACQ_ROLES.has(m.role) && m.name === name);
+  /**
+   * ★★★ EVERY ROW BEHIND ONE PILL.
+   *
+   * ★★ fix-401: acquisitions is stored under TWO role strings (`acq` and
+   * `acq_lead`), and the list renders both. Without a family-aware lookup,
+   * removing Dom — who is `acq_lead` — would look up role `acq`, find nothing,
+   * and SILENTLY DO NOTHING: a button that appears to work and does not.
+   *
+   * ★★★ fix-403 makes it return ALL matching rows, not the first, because the
+   * ENT family OVERLAPS: Bobby, Briana and Miles each hold `ent` AND
+   * `ent_lead`. Their pill now renders once (dedupeByPerson), so its × has to
+   * remove the PERSON — every row backing it. Deleting one of two would leave
+   * the pill on screen, which reads as "the button did nothing" and is exactly
+   * the failure fix-401 fixed one layer up.
+   */
+  function findAllByName(role: TeamRole, name: string): TeamMember[] {
+    const family = ACQ_ROLES.has(role)
+      ? ACQ_ROLES
+      : ENT_ROLES.has(role)
+        ? ENT_ROLES
+        : null;
+    if (family) {
+      return teamQ.all.filter((m) => family.has(m.role) && m.name === name);
     }
-    return teamQ.all.find((m) => m.role === role && m.name === name);
+    return teamQ.all.filter((m) => m.role === role && m.name === name);
+  }
+
+  function findByName(role: TeamRole, name: string): TeamMember | undefined {
+    return findAllByName(role, name)[0];
   }
 
   function addMember(role: TeamRole, name: string) {
@@ -89,14 +107,29 @@ export default function AdminTeamTab() {
     if (m) upsert.mutate({ op: 'update', member: m, patch: { former: false } });
   }
 
+  /** ★★ Removing a DUAL-ROLE person removes BOTH rows — the decision, stated.
+   *
+   *  The alternatives were worse. Deleting one row leaves the pill on screen
+   *  (the other row still backs it), so the × looks broken. Asking "which
+   *  role?" surfaces a storage detail nobody outside this file thinks about —
+   *  the Settings list is a list of PEOPLE, and its × means "this person is not
+   *  an Entitlement Lead any more".
+   *
+   *  ★ Each row is deleted with its OWN OCC token, so a concurrent edit to one
+   *  of them conflicts on that row rather than being clobbered. */
   function hardDelete(role: TeamRole, name: string) {
-    const m = findByName(role, name);
-    if (m) remove.mutate({ id: m.id, updated_at: m.updated_at });
+    for (const m of findAllByName(role, name)) {
+      remove.mutate({ id: m.id, updated_at: m.updated_at });
+    }
   }
 
+  /** ★★ ...and renaming one renames BOTH, for the same reason inverted: the
+   *  name is the join key the rest of the app matches on, so leaving one row
+   *  under the old spelling would split one person into two. */
   function renameSimple(role: TeamRole, oldName: string, newName: string) {
-    const m = findByName(role, oldName);
-    if (m) upsert.mutate({ op: 'update', member: m, patch: { name: newName } });
+    for (const m of findAllByName(role, oldName)) {
+      upsert.mutate({ op: 'update', member: m, patch: { name: newName } });
+    }
   }
 
   const daItems = teamQ.activeDas.map((d) => ({ key: d.name, label: d.name }));
