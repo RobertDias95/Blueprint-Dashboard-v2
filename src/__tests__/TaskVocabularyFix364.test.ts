@@ -17,10 +17,13 @@ import { buildNewItems } from '../lib/boardReads';
 import { provenanceLine } from '../lib/taskProvenance';
 import type { Permit } from '../lib/database.types';
 import renameSql from '../../migrations/fix_364_task_vocabulary.sql?raw';
-// ★ fix-395 added two reasons and re-emitted the CHECK, so the live constraint
-//   now lives here. Imported so "the TS list matches the DB" stays a real
-//   assertion instead of a frozen count.
+// ★ fix-395 added two reasons and re-emitted the CHECK; fix-405 added two more
+//   and re-emitted it again, so `staleSql` is where the LIVE constraint lives
+//   now. Both are imported so "the TS list matches the DB" stays a real
+//   assertion, and so the re-emission is checked to have carried fix-395's own
+//   pair across rather than quietly dropping them.
 import chaseSql from '../../migrations/fix_395_city_target_chase_task.sql?raw';
+import staleSql from '../../migrations/fix_405_stale_bot_task_rules.sql?raw';
 
 /** The six this ticket itself established — pinned, so fix-364's own claim
  *  stays checked even as the vocabulary grows past it. */
@@ -161,21 +164,42 @@ describe('fix-364 §1: one concept, one term', () => {
     // TS list and the DB CHECK say the same thing" — and it is now checked
     // against the newest constraint instead of a frozen count, so the next
     // ticket to add a reason is caught here rather than in production.
+    //
+    // ★★ AND fix-405 GREW IT BY TWO MORE, so the pin follows the constraint
+    // again — `staleSql`, not `chaseSql`. THIS IS THE MECHANISM WORKING: the
+    // paragraph above predicted that the next ticket to add a reason would be
+    // caught here, and it was. The assertion is deliberately re-pointed rather
+    // than relaxed; pointing it at "whichever migration is newest" would make
+    // it pass forever and check nothing.
     expect(FIX_364_REASONS).toHaveLength(6);
     for (const r of FIX_364_REASONS) {
       expect(renameSql).toContain(`'${r}'`);
       expect(AUTO_CLOSED_REASONS).toContain(r);
     }
 
-    const liveCheck = chaseSql.slice(
-      chaseSql.indexOf('ADD CONSTRAINT permit_tasks_auto_closed_reason_check'),
+    const liveCheck = staleSql.slice(
+      staleSql.indexOf('ADD CONSTRAINT permit_tasks_auto_closed_reason_check'),
     );
+    // ★ Bounded by the constraint's own closing `));` rather than a character
+    //   count. The old 800-char window was one added reason away from running
+    //   into the next statement's `SET search_path TO 'public', 'pg_temp'` and
+    //   reporting two phantom reasons the CHECK does not contain.
     const constrained = new Set(
-      [...liveCheck.slice(0, 800).matchAll(/'(\w+)'/g)].map((m) => m[1]!),
+      [...liveCheck.slice(0, liveCheck.indexOf('));')).matchAll(/'(\w+)'/g)].map(
+        (m) => m[1]!,
+      ),
     );
     expect([...AUTO_CLOSED_REASONS].filter((r) => !constrained.has(r))).toEqual([]);
     expect([...constrained].filter((r) => !AUTO_CLOSED_REASONS.includes(r as never)))
       .toEqual([]);
+
+    // ★★ ...and the re-emission carried fix-395's pair across. A re-emitted
+    // CHECK is a whole-list rewrite: forgetting a value would not error, it
+    // would silently make every row holding it unwritable.
+    for (const r of ['superseded_city_responded', 'superseded_target_changed']) {
+      expect(chaseSql, `${r} was fix-395's`).toContain(`'${r}'`);
+      expect(constrained.has(r), `${r} survived fix-405's re-emission`).toBe(true);
+    }
   });
 });
 
