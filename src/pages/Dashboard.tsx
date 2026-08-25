@@ -195,22 +195,19 @@ export default function Dashboard() {
   // ★★ Read in LAZY INITIALISERS, never an effect (fix-324's rule) — an effect
   // would render one frame of the unfiltered pipeline and then correct itself.
   const prefsUserId = useAuthStore((s) => s.user?.id ?? null);
-  // ★ The lazy-ref idiom, not `useRef(loadPipelineFilters(...))` — that form
-  //   evaluates its argument on EVERY render and throws all but the first away,
-  //   so the Pipeline would re-read and re-parse sessionStorage on every
-  //   keystroke in the search box.
-  const storedFilters = useRef<ReturnType<typeof loadPipelineFilters> | undefined>(
-    undefined,
-  );
-  if (storedFilters.current === undefined) {
-    storedFilters.current = loadPipelineFilters(prefsUserId);
-  }
-  const [search, setSearch] = useState(() => storedFilters.current?.search ?? '');
+  // ★★ READ ONCE, IN A LAZY STATE INITIALISER — not `useRef(load(...))`, which
+  //    evaluates its argument on every render and throws all but the first
+  //    away, and not a ref written during render, which the React Compiler
+  //    rejects outright ("Cannot access refs during render"). A `useState` with
+  //    no setter is the honest way to say "computed once, at mount": the three
+  //    initialisers below read `stored` after it has settled.
+  const [stored] = useState(() => loadPipelineFilters(prefsUserId));
+  const [search, setSearch] = useState(() => stored?.search ?? '');
   const [holdMode, setHoldMode] = useState<HoldFilterMode>(
-    () => storedFilters.current?.holdMode ?? HOLD_FILTER_DEFAULT,
+    () => stored?.holdMode ?? HOLD_FILTER_DEFAULT,
   );
   const [filters, setFilters] = useState<DashFilters>(() => {
-    const st = storedFilters.current;
+    const st = stored;
     if (!st) return EMPTY_DASH_FILTERS;
     // ★★ The Sets, rehydrated. JSON.stringify turns a Set into {} SILENTLY, so
     //    they are stored as arrays and rebuilt here — the reason this surface
