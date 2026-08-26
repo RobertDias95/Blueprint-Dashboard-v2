@@ -121,7 +121,11 @@ describe('fix-285 the five-column overview row', () => {
   it('has five columns', () => {
     renderHeader();
     const grid = screen.getByTestId('project-overview-grid');
-    expect(grid.style.gridTemplateColumns.trim().split(/\s+/)).toHaveLength(5);
+    expect(trackShares(grid)).toHaveLength(5);
+    // ★ fix-417: and every track now carries an EXPLICIT px floor. A bare `fr`
+    //   means `minmax(auto, …)`, which is how the PROJECT card came to resize
+    //   its four neighbours.
+    expect(grid.style.gridTemplateColumns).toContain('minmax(');
   });
 
   // fix-295: the Plan of Record column is the widest of the five. Its preview
@@ -131,11 +135,7 @@ describe('fix-285 the five-column overview row', () => {
   // to the point where it hid its own Site section).
   it('gives the Plan of Record column the most width', () => {
     renderHeader();
-    const cols = screen
-      .getByTestId('project-overview-grid')
-      .style.gridTemplateColumns.trim()
-      .split(/\s+/)
-      .map((c) => parseFloat(c));
+    const cols = trackShares(screen.getByTestId('project-overview-grid'));
     const [dd, proj, team, por, builder] = cols;
     expect(por).toBeGreaterThan(proj);
     expect(por).toBeGreaterThan(team);
@@ -195,3 +195,22 @@ describe('fix-285 the Plan of Record card has a home', () => {
     expect(screen.getByTestId('plan-of-record-card')).toBeInTheDocument();
   });
 });
+
+/** ★★ fix-417: the template is `minmax(<px>, <fr>) …` now, so splitting on
+ *  whitespace no longer yields five tokens — it yields ten, and `parseFloat`
+ *  on "minmax(140px," is NaN. These three assertions were pinning the right
+ *  properties through a parser that assumed a bare `fr`; the parser is what
+ *  changed, not what they check.
+ *
+ *  ★ Why the template gained `minmax`: a bare `Nfr` track is `minmax(AUTO,
+ *  Nfr)`, so its floor is its own min-content and any card can silently resize
+ *  its neighbours — which is exactly what happened when fix-412 widened the
+ *  Units row. See lib/overviewCardLayout. */
+function trackShares(el: HTMLElement): number[] {
+  const t = el.style.gridTemplateColumns;
+  const tracks = t.match(/minmax\([^)]*\)/g) ?? t.trim().split(/\s+/);
+  return tracks.map((track) => {
+    const fr = /([\d.]+)fr/.exec(track);
+    return fr ? parseFloat(fr[1]) : parseFloat(track);
+  });
+}

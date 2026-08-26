@@ -352,7 +352,7 @@ describe('fix-309 #55: the card row is one equal-height band', () => {
   it('does not shrink the Plan of Record to match the others', () => {
     renderHeader(projectFixture(), [bpFixture()]);
     const grid = screen.getByTestId('project-overview-grid');
-    const cols = grid.style.gridTemplateColumns.trim().split(/\s+/).map(parseFloat);
+    const cols = trackShares(grid);
     // fix-295's width survives: por is still the widest column.
     expect(Math.max(...cols)).toBe(cols[3]);
     // And nothing caps its height — a max-height would shrink it to the others.
@@ -361,3 +361,22 @@ describe('fix-309 #55: the card row is one equal-height band', () => {
     expect(getComputedStyle(por).maxHeight).not.toMatch(/px/);
   });
 });
+
+/** ★★ fix-417: the template is `minmax(<px>, <fr>) …` now, so splitting on
+ *  whitespace no longer yields five tokens — it yields ten, and `parseFloat`
+ *  on "minmax(140px," is NaN. These three assertions were pinning the right
+ *  properties through a parser that assumed a bare `fr`; the parser is what
+ *  changed, not what they check.
+ *
+ *  ★ Why the template gained `minmax`: a bare `Nfr` track is `minmax(AUTO,
+ *  Nfr)`, so its floor is its own min-content and any card can silently resize
+ *  its neighbours — which is exactly what happened when fix-412 widened the
+ *  Units row. See lib/overviewCardLayout. */
+function trackShares(el: HTMLElement): number[] {
+  const t = el.style.gridTemplateColumns;
+  const tracks = t.match(/minmax\([^)]*\)/g) ?? t.trim().split(/\s+/);
+  return tracks.map((track) => {
+    const fr = /([\d.]+)fr/.exec(track);
+    return fr ? parseFloat(fr[1]) : parseFloat(track);
+  });
+}

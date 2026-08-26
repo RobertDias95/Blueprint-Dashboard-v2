@@ -4,6 +4,11 @@ import { useSearchParams } from 'react-router-dom';
 import OriginLink from '../OriginLink';
 import { schematicWindow } from '../../lib/schematicWindow';
 import {
+  OVERVIEW_GRID_AREAS,
+  OVERVIEW_GRID_GAP,
+  OVERVIEW_GRID_TEMPLATE,
+} from '../../lib/overviewCardLayout';
+import {
   UNIT_ROW_COLUMNS,
   UNIT_ROW_GAP,
   UNIT_ROW_GRID,
@@ -160,11 +165,34 @@ export default function ProjectDetailHeader({
           fix-309 #54: the `notes` area is gone from this grid — Notes moved to
           the bottom of Schedule health, one long vertical bar the way it was
           before fix-285 moved it here. */}
+      {/* ★★★ fix-417 SCOPE A — THE PROPORTIONS ARE DECLARED IN ONE PLACE.
+          Bobby: *"the proportions are way off now. the Design plan of record
+          should be the widest of the boxes, but the team and builder owner info
+          is way too slim."*
+
+          ★★★ THE SHARES WERE ALREADY HERE — `0.86fr 1.00fr 0.74fr 1.58fr
+          0.72fr`. What was missing is that a bare `1fr` track is
+          `minmax(AUTO, 1fr)`: its floor is its own min-content, so when
+          fix-412 grew the Units row to ~642px the PROJECT card simply took the
+          extra from its four neighbours and the declaration became a
+          suggestion. Every column carries an EXPLICIT px minimum now, which is
+          what actually replaces that automatic floor.
+
+          ★★ The five widths, their floors and the reason for each live in
+          lib/overviewCardLayout — one edit, one place, and a test that fails if
+          a later change demotes the Plan of Record or unbalances the
+          percentages. `gap` comes from there too so the template and any width
+          arithmetic cannot disagree.
+
+          ★ fix-309 #55's contract is UNTOUCHED: `alignItems: stretch` plus the
+          per-cell `height: 100%` below still make every card as tall as the
+          tallest. This ticket changes widths only. */}
       <div
-        className="grid gap-2.5"
+        className="grid"
         style={{
-          gridTemplateColumns: '0.86fr 1.00fr 0.74fr 1.58fr 0.72fr',
-          gridTemplateAreas: '"dd proj team por builder"',
+          gridTemplateColumns: OVERVIEW_GRID_TEMPLATE,
+          gridTemplateAreas: OVERVIEW_GRID_AREAS,
+          gap: OVERVIEW_GRID_GAP,
           alignItems: 'stretch',
         }}
         data-testid="project-overview-grid"
@@ -1171,7 +1199,34 @@ function ProjectCell({
               >
                 Unit dimensions
               </div>
-              <div className="min-w-0">
+              {/* ★★★ fix-417 SCOPE B — THE UNITS ROW SCROLLS INSIDE ITS CARD.
+                  This is the half of the fix that redistribution alone could
+                  not deliver. The row's ten fix-412 columns total 620px with
+                  gaps; the PROJECT card's share at 1280px is ~235px. Without a
+                  scroll container here the card's min-content stays 642px, the
+                  `minmax` floor above is overruled by the content anyway, and
+                  the page body scrolls sideways instead.
+
+                  ★★ fix-412's grid is NOT touched. The header and every row
+                  still render from one `UNIT_ROW_GRID`; this WRAPS them. The
+                  fix-412 test asserting the two template strings are identical
+                  still passes, and must.
+
+                  ★ SCOPE B3 — IT HAS TO LOOK SCROLLABLE. A row silently cut off
+                  is worse than the reported problem. `scrollbarGutter: stable`
+                  reserves the track so the scrollbar is visible rather than an
+                  overlay that only appears once you already guessed, and the
+                  inset shadow on the right edge shows the content continuing
+                  past the card. */}
+              <div
+                className="overflow-x-auto"
+                style={{
+                  scrollbarWidth: 'thin',
+                  scrollbarGutter: 'stable',
+                  boxShadow: 'inset -10px 0 8px -10px var(--color-border)',
+                }}
+                data-testid="pd-unit-dimensions-scroll"
+              >
                 <UnitDimensions project={project} />
               </div>
             </div>
@@ -1938,12 +1993,14 @@ function SiteEditor({ project }: { project: Project }) {
           ever going to normalise it. */}
       <div className="flex items-baseline gap-1.5">
         <span className="text-[9px] text-dim min-w-[32px]">Zone</span>
+        {/* ★ fix-417 §C: content-sized like its siblings, but wider — its
+            longest option is "MIO-37-LR3", where theirs is "Yes". */}
         <ZoneSelect
           value={project.zone}
           disabled={occMissing}
           onChange={(v) => commit('zone', v || null, project.zone, 'Zone')}
           testid="pd-site-zone"
-          className="flex-1 min-w-0 text-[10px] font-semibold text-text border-0 border-b outline-none bg-transparent px-0 py-0.5 disabled:opacity-50"
+          className="w-[124px] flex-none text-[10px] font-semibold text-text border-0 border-b outline-none bg-transparent px-0 py-0.5 disabled:opacity-50"
           style={{ borderBottomColor: 'var(--color-border)' }}
         />
       </div>
@@ -2077,7 +2134,19 @@ function SiteSelectRow({
         value={value}
         onChange={(e) => onCommit(e.target.value)}
         disabled={disabled}
-        className="flex-1 min-w-0 text-[10px] font-semibold text-text border-0 border-b outline-none bg-transparent px-0 py-0.5 disabled:opacity-50"
+        // ★★★ fix-417 SCOPE C — SIZED TO ITS CONTENT, NOT TO THE CARD.
+        //
+        // Bobby: a two-character answer with its chevron parked hundreds of
+        // pixels away, using more width than the whole TEAM card. `flex-1
+        // min-w-0` stretched a Yes/No control across the entire PROJECT card.
+        // 90px holds "Regular Shape"'s widest option plus the chevron.
+        //
+        // ★★ AND THIS DOES NOT LOWER THE PROJECT CARD'S FLOOR — said plainly
+        // because it would be easy to present it as part of the proportions
+        // fix. These selects carried `min-w-0`, so they could already shrink to
+        // nothing and never contributed to min-content. The Units row set that
+        // floor, and §B is what moved it. This one is looks.
+        className="w-[90px] flex-none text-[10px] font-semibold text-text border-0 border-b outline-none bg-transparent px-0 py-0.5 disabled:opacity-50"
         style={{ borderBottomColor: 'var(--color-border)' }}
         data-testid={`pd-site-${label.toLowerCase()}`}
       >
