@@ -28,6 +28,11 @@ export function isParkingKind(v: unknown): v is ParkingKind {
   return typeof v === 'string' && (PARKING_KINDS as readonly string[]).includes(v);
 }
 
+/** ★ fix-412: re-exported here so `UnitType` can name it without importing
+ *  from a module that imports this one. The vocabulary, the labels and the
+ *  filter predicate all live in lib/unitWorkScope — this is the type alone. */
+export type WorkScope = 'none' | 'performed';
+
 export interface UnitType {
   label: string;
   width_ft: number | null;
@@ -58,6 +63,18 @@ export interface UnitType {
   parking_stalls?: number | null;
   /** Bobby: *"just a yes or no, roof deck"*. null = not recorded. */
   roof_deck?: boolean | null;
+  /** ★★★ fix-412 (Scope B): on a Remodel, was work actually performed?
+   *
+   *  `'performed'` · `'none'` · **absent/null = nobody has answered**, which is
+   *  the state Bobby asked for — *"at intake the scope is often unknown and
+   *  needs to be identifiable later"*. All 234 unit objects on prod lack this
+   *  key today and therefore read as unanswered, which is true of every one of
+   *  them.
+   *
+   *  ★ Hand-typed, like the rest of this file. Optional for the same reason
+   *  `parking_kind` is: 230 of 234 units predate that key too, and a required
+   *  field would make every stored unit object invalid. */
+  work_scope?: WorkScope | null;
 }
 
 export interface Project {

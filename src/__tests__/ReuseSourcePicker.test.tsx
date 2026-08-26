@@ -67,6 +67,10 @@ describe('buildReuseSources', () => {
         parking_kind: null,
         parking_stalls: null,
         roof_deck: null,
+        // ★ fix-412: parseUnitTypes names work_scope now. It is a WHITELIST,
+        //   so a key it does not name is deleted from the row on the next
+        //   save — these exact-shape assertions are what proved it is emitted.
+        work_scope: null,
       },
     ]);
   });
@@ -160,6 +164,7 @@ describe('<ReuseSourcePicker />', () => {
         parking_kind: null,
         parking_stalls: null,
         roof_deck: null,
+        work_scope: null,
       },
     ]);
   });

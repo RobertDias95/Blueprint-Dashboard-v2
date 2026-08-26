@@ -363,6 +363,7 @@ const baseLibFilters: LibraryFilters = {
   parkingKind: '',
   stalls: '',
   roofDeck: '',
+  workScope: '',
 };
 
 describe('fix-380 §3 — the Library matrix matches on struct_address', () => {

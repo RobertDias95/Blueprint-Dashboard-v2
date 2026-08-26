@@ -223,7 +223,7 @@ const BASE: LibraryFilters = {
   unitwTarget: null, unitwBuf: 2, unitdTarget: null, unitdBuf: 2,
   zone: '', alley: '', productTypes: [], tag: '', juris: '',
   isCornerLot: '', isRegularShape: '', stories: '',
-  parkingKind: '', stalls: '', roofDeck: '',
+  parkingKind: '', stalls: '', roofDeck: '', workScope: '',
 };
 
 const THREE: LibraryRow[] = [

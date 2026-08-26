@@ -10,6 +10,7 @@ import {
 import { PARKING_KINDS, type ParkingKind } from './database.types';
 import type { LibraryFilters } from './libraryHelpers';
 import type { RoofDeckFilter, StallsTier } from './unitParking';
+import type { WorkScopeFilter } from './unitWorkScope';
 
 // ===========================================================================
 // ★★★ fix-403 — WHAT EACH SURFACE REMEMBERS
@@ -33,6 +34,14 @@ const LIBRARY_NS = 'library.filters';
 
 const STALLS_TIERS: readonly StallsTier[] = ['', '1+', '2+'];
 const ROOF_DECKS: readonly RoofDeckFilter[] = ['', 'Yes', 'No'];
+/** ★ fix-412: the four work-scope filter states, as a closed set so a value
+ *  retired later cannot come back from storage and match nothing forever. */
+const WORK_SCOPES_F: readonly WorkScopeFilter[] = [
+  '',
+  'performed',
+  'none',
+  'unanswered',
+];
 const CORNERS = ['', 'Yes', 'No'] as const;
 /** ★ fix-410: the four regular-shape filter states, as a closed set so a value
  *  retired later cannot come back from storage and match nothing forever. */
@@ -79,6 +88,9 @@ export function loadLibraryFilters(
       ),
       stalls: oneOf(o.stalls, STALLS_TIERS, ''),
       roofDeck: oneOf(o.roofDeck, ROOF_DECKS, ''),
+      // ★ fix-412: a session stored before this ticket has no key and falls
+      //   back to Any, rather than restoring `undefined` into the select.
+      workScope: oneOf(o.workScope, WORK_SCOPES_F, ''),
     };
   });
 }

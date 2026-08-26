@@ -5,6 +5,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { ReactNode } from 'react';
 import { useAuthStore } from '../stores/authStore';
 import { queryKeys } from '../lib/queryKeys';
+import { UNIT_ROW_COLUMNS } from '../lib/unitRowLayout';
 
 // fix-205: Project Overview unit-types editor — W/D decimals (wider inputs +
 // step 0.5), per-row Stories, product-type Label dropdown (multi) / auto-label
@@ -201,12 +202,38 @@ describe('fix-232: proposal unit-row label is dropdown-only (no free-text)', () 
 });
 
 describe('fix-209: narrower Qty + Stories inputs', () => {
-  it('Qty and Sty share the narrow w-7 width class', () => {
+  // =========================================================================
+  // ★★★ SUPERSEDED BY fix-412 SCOPE C — AND THIS TEST IS WHY IT WAS NEEDED
+  // =========================================================================
+  //
+  // fix-209 narrowed Qty and Sty to `w-7` (28px) and pinned it here. What it
+  // could not see is that the HEADER strip above the row declared **18px for
+  // Qty and 30px for Sty** — two independent lists of widths, already disagreeing
+  // in both columns on the day this was written. Two more drifted later
+  // (Parking and Roof Deck, whose selects had no width at all), and the visible
+  // result was Bobby's report: *"RD did not sit over its own box, and Stalls
+  // drifted toward Parking."*
+  //
+  // ★★ fix-412 deletes the second list. The header and the row are now grid
+  // children of ONE `gridTemplateColumns` (lib/unitRowLayout), so the cells
+  // fill their column with `w-full` and a header cannot sit over the wrong
+  // control. Asserting a fixed width class here would re-create the very
+  // duplication that caused the defect.
+  //
+  // ★ WHAT fix-209 ACTUALLY WANTED IS STILL TRUE and is asserted instead: Qty
+  //   and Sty are the row's two NARROWEST columns, and both are narrower than
+  //   W and D. That is the ruling ("single-digit, occasionally 2"); `w-7` was
+  //   only ever how it was expressed.
+  it('Qty and Sty are still the narrowest columns (fix-209, via fix-412 grid)', () => {
+    const col = (k: string) =>
+      UNIT_ROW_COLUMNS.find((c) => c.key === k)!.width;
+    expect(col('qty')).toBe(col('stories'));
+    expect(col('qty')).toBeLessThan(col('width_ft'));
+    expect(col('stories')).toBeLessThan(col('depth_ft'));
+    // ...and the cells fill their column rather than carrying their own width.
     setup({ product_types: ['SFR'], unit_types: NAMED_ROW });
-    expect(screen.getByTestId('pd-unit-qty').className).toContain('w-7');
-    expect(screen.getByTestId('pd-unit-stories').className).toContain('w-7');
-    // W/D are left as-is (no w-7).
-    expect(screen.getByTestId('pd-unit-w').className).not.toContain('w-7');
+    expect(screen.getByTestId('pd-unit-qty').className).toContain('w-full');
+    expect(screen.getByTestId('pd-unit-stories').className).toContain('w-full');
   });
 });
 

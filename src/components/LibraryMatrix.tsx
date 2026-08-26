@@ -176,6 +176,8 @@ const INITIAL_FILTERS: LibraryFilters = {
   parkingKind: '',
   stalls: '',
   roofDeck: '',
+  // ★ fix-412: '' = Any, which EXCLUDES confirmed no-work units by ruling.
+  workScope: '',
 };
 
 function Body({ projects, permits }: BodyProps) {
@@ -552,6 +554,34 @@ function Body({ projects, permits }: BodyProps) {
                 <option value="">Any</option>
                 <option value="1+">1+</option>
                 <option value="2+">2+</option>
+              </select>
+            </FieldLabel>
+
+            {/* ★★★ fix-412 Scope B4: the work-scope filter. A UNIT field, so
+                it sits on the UNIT card beside Roof Deck.
+
+                ★★ FOUR OPTIONS FOR THREE STATES. "Any" is not neutral here —
+                it excludes a confirmed No-work unit (Bobby's ruling: no drawn
+                detail worth filtering on) while keeping every not-yet-answered
+                one visible. The other three make each state reachable by name,
+                which is what stops a default exclusion from being a trap:
+                nothing becomes unfindable, it just stops being in the way. */}
+            <FieldLabel label="Work">
+              <select
+                value={filters.workScope}
+                onChange={(e) =>
+                  update(
+                    'workScope',
+                    e.target.value as LibraryFilters['workScope'],
+                  )
+                }
+                className={FIELD_CLASS}
+                data-testid="filter-work-scope"
+              >
+                <option value="">Any</option>
+                <option value="performed">Work performed</option>
+                <option value="none">No work</option>
+                <option value="unanswered">Not answered</option>
               </select>
             </FieldLabel>
 

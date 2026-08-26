@@ -1,4 +1,5 @@
 import { isParkingKind } from './database.types';
+import { asWorkScope } from './unitWorkScope';
 import type { UnitType } from './database.types';
 
 // fix-81: shared "next Type X" computation for unit-types editors. The
@@ -111,6 +112,18 @@ export function parseUnitTypes(raw: unknown): UnitType[] {
           ? u.parking_stalls
           : null,
       roof_deck: typeof u.roof_deck === 'boolean' ? u.roof_deck : null,
+      // ★★★ fix-412: `work_scope` HAS TO BE NAMED HERE. This function is a
+      //   WHITELIST — it rebuilds each unit object key by key — and both
+      //   editors write the PARSED array back. A key missing from this list is
+      //   therefore not merely invisible: it is DELETED from the row the first
+      //   time anybody edits any other field on it. The fix-412 suite caught
+      //   exactly that, and it is why the field is coerced here rather than
+      //   spread through.
+      //
+      // ★ Same NULL-safe rule as the three above (fix-386): an absent key, a
+      //   wrong type, or a value outside the closed set all read as "not
+      //   answered" — never as 'none', which is a recorded answer.
+      work_scope: asWorkScope(u.work_scope),
     }));
 }
 

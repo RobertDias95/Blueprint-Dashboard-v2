@@ -197,7 +197,7 @@ const BASE: LibraryFilters = {
   search: '', lotwTarget: null, lotwBuf: 2, lotdTarget: null, lotdBuf: 2,
   unitwTarget: null, unitwBuf: 2, unitdTarget: null, unitdBuf: 2,
   zone: '', alley: '', productTypes: [], tag: '', juris: '',
-  isCornerLot: '', isRegularShape: '', stories: '', parkingKind: '', stalls: '', roofDeck: '',
+  isCornerLot: '', isRegularShape: '', stories: '', parkingKind: '', stalls: '', roofDeck: '', workScope: '',
 };
 
 const row = (units: UnitType[]): LibraryRow => ({
