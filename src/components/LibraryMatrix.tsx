@@ -49,6 +49,7 @@ import {
 } from '../lib/libraryGroupPalette';
 import { useAppConfig, readAppConfigStringArray } from '../hooks/useAppConfig';
 import { useAuthStore } from '../stores/authStore';
+import { formatLotPair } from '../lib/lotDimensions';
 import {
   clearLibraryFilters,
   loadLibraryFilters,
@@ -866,9 +867,12 @@ function Row({
           )}
         </td>
         <td className="px-2 py-1.5 text-center">
+          {/* ★ fix-411 §2: whole feet. The SORT still reads row.lotWidth
+              unrounded (see SORTABLE_COLUMNS' lotWidth arm), so 100.47 and
+              100.4 keep their real order while both render "100". */}
           {row.lotWidth && row.lotDepth ? (
             <span className="font-mono text-text">
-              {fmtDim(row.lotWidth)}×{fmtDim(row.lotDepth)}
+              {formatLotPair(row.lotWidth, row.lotDepth)}
             </span>
           ) : (
             <span className="text-dim">—</span>
@@ -1322,9 +1326,14 @@ function LibraryUnitRow({
 }
 
 /** Trim trailing .00 on whole numbers; keep two decimals otherwise. */
-function fmtDim(n: number): string {
-  return n % 1 === 0 ? String(n) : n.toFixed(2);
-}
+// ★★★ fix-411 §2 (P-051): `fmtDim` IS GONE, not repointed.
+//
+// It read `n % 1 === 0 ? String(n) : n.toFixed(2)` — which is precisely the
+// "100.47" Bobby complained about, spelled out. Deleting it rather than
+// changing its body is the point: there is now ONE lot formatter, in
+// lib/lotDimensions, and no second local one that can drift back toward
+// decimals. See that file for why this is display-only and why the editable
+// inputs are deliberately untouched.
 
 // ★★★ fix-406 — THE LABELS STEP OUT OF THE CARD
 //

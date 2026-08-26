@@ -2384,7 +2384,19 @@ function UnitDimensionsExpanded({
             stalls per unit" — plus "just a yes or no, roof deck". */}
         <span className="text-center" style={{ width: 62 }}>Parking</span>
         <span className="text-center" style={{ width: 40 }}>Stalls</span>
-        <span className="text-center" style={{ width: 52 }}>Deck</span>
+        {/* ★★★ fix-411 §3 (P-053): "Deck" → "RD".
+            Bobby: *"we added deck, and we want that to say RD, which would
+            stand for roof deck, so that we can distinguish a deck from a roof
+            deck."* The column has ALWAYS been roof deck — it is backed by the
+            `roof_deck` key fix-402 added to projects.unit_types — so only the
+            label was wrong, and it was wrong in the one way that matters: a
+            ground-level deck and a roof deck are different things to a builder.
+
+            ★ "RD" rather than the full words because this header is a 52px
+            fixed-width cell in a nine-column strip. Every OTHER surface that
+            names this field already says "Roof Deck" in full and is left alone
+            — see the fix-411 PR for that enumeration. */}
+        <span className="text-center" style={{ width: 52 }}>RD</span>
       </div>
       {types.map((ut, i) => (
         <UnitRow

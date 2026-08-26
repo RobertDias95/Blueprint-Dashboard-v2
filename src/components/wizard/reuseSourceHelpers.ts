@@ -3,6 +3,7 @@ import {
   holisticOwner,
 } from '../../lib/volumeAttribution';
 import { parseUnitTypes } from '../../lib/unitTypeNaming';
+import { formatLotPair } from '../../lib/lotDimensions';
 import { structAddressHaystack } from '../../lib/structAddressSearch';
 import type {
   PermitWithCycles,
@@ -94,9 +95,11 @@ export function reuseContextLine(s: ReuseSource): string {
   const parts: string[] = [];
   if (s.juris) parts.push(s.juris);
   if (s.zone) parts.push(s.zone);
-  if (s.lot_width != null && s.lot_depth != null) {
-    parts.push(`${s.lot_width}×${s.lot_depth} lot`);
-  }
+  // ★ fix-411 §2 (P-051): whole feet here too. This line is pure display — a
+  //   one-glance summary of a candidate source project — so a surveyed
+  //   "100.47×120.5 lot" is exactly the noise Bobby asked to be rid of.
+  const lot = formatLotPair(s.lot_width, s.lot_depth);
+  if (lot) parts.push(`${lot} lot`);
   if (s.primaryDa) parts.push(`DA ${s.primaryDa}`);
   if (s.product_types.length > 0) parts.push(s.product_types.join(', '));
   return parts.join(' · ');
