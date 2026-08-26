@@ -28,6 +28,13 @@ import {
 import { isTaskLive } from './taskStatus';
 import { isCancelledProject } from './projectViewHelpers';
 import { isPermitHeld } from './permitHoldWindows';
+import {
+  holdRowFor,
+  holdRowIndex,
+  type HoldChipRow,
+  type HoldChipSource,
+  type HoldRowIndex,
+} from './heldWork';
 // ★ fix-397: the queue's vocabulary, bands and sort. Kept in its own module so
 // the date arithmetic is unit-testable without building a whole board.
 import {
@@ -1101,6 +1108,19 @@ export interface ForecastItem {
   /** ★ fix-306 #29: one line saying what to DO. Rendered in the right-hand
    *  space the forecast was wasting. */
   actionLine: string;
+  /**
+   * ★★ fix-409: is this row's work PAUSED? Only ever true when the viewer has
+   * switched held work on — a held row is absent otherwise — so the page can
+   * render the chip off this without asking again about the preference.
+   *
+   * ★ It is on the ITEM rather than recomputed in the row component because
+   * `prepare()` already resolved it, and a second answer computed at render
+   * time is how two halves of one screen start disagreeing (fix-329's shape).
+   */
+  isHeld: boolean;
+  /** ★ fix-409: the hold that explains `isHeld`, ready for <HoldBadge>. Null on
+   *  every unheld row. */
+  hold: HoldChipRow | null;
   /** fix-304 §20: the pieces the row needs to LINK rather than just describe. */
   projectId: string | null;
   address: string | null;
@@ -1264,8 +1284,42 @@ export interface BoardInput {
    * hold keeps this input additive for those fixtures: a suite that never heard
    * of holds passes neither field and behaves exactly as before.
    */
-  holdRows?: ReadonlyArray<{ project_id: string; hold_end: string | null; kind?: string }>;
-  permitHoldRows?: ReadonlyArray<{ permit_id: number; hold_end: string | null }>;
+  holdRows?: ReadonlyArray<
+    { project_id: string } & HoldChipSource
+  >;
+  permitHoldRows?: ReadonlyArray<{ permit_id: number } & HoldChipSource>;
+  /**
+   * ★★★ fix-409 — THE SWITCH, AND WHAT IT ACTUALLY DOES HERE.
+   *
+   * Bobby (register P-039): *"the default is you show all active
+   * projects/permits. anything with a hold gets auto turned off, but you can
+   * switch that on/off in the my tasks/my boards."*
+   *
+   * ★★★ THE MILESTONE HALF WAS ALREADY BUILT — BY fix-390, AS AN ABSOLUTE.
+   * `milestoneAppliesIgnoringHistory` has said `if (isHeld) return false` since
+   * fix-390, and the queue's city-review branch says `!p.isHeld`. So a held
+   * permit has raised nothing on this board for two tickets. What fix-409 adds
+   * is not a new gate but a WAY BACK IN: those gates now read `quiet`
+   * (= held AND not showing held work) instead of `isHeld`.
+   *
+   * ★★ DEFAULT `false` ⇒ `quiet === isHeld` ⇒ BYTE-IDENTICAL to fix-390's
+   * behaviour. Every existing caller and all ~40 board fixtures pass nothing
+   * and get exactly what they got yesterday; the only new behaviour is the one
+   * a person has to switch on.
+   *
+   * ★★★ AND THE TASK HALF WAS NEVER BUILT AT ALL — which is the bug. The task
+   * loop in `buildForecast` applied fix-264's cancelled rule and fix-194's
+   * sub-permit rule and NOT the hold rule, so a held project's tasks sat in
+   * "past due" going redder while the milestones beside them stayed politely
+   * quiet.
+   *
+   * ★ Re-measured on prod 2026-08-26 (read-only), because the fix-409 brief's
+   * figures were a day old and had already moved: **8** open tasks under **3**
+   * live project holds (the brief said 4 under 2 — a third hold, 5623 44th Ave
+   * SW, was placed on 2026-08-25 and carries 4 of the 8). Still 0 live permit
+   * holds, and still 0 open tasks under the 4 cancelled projects.
+   */
+  showHeldWork?: boolean;
   /** fix-298 Phase 2: milestone actions already taken. */
   acks?: ReadonlyArray<PermitMilestoneAck>;
   /** fix-306 #35: when set, the QUEUE is scoped to these people's work instead
@@ -1293,17 +1347,38 @@ interface Prepared {
   /** ★ fix-390: resolved ONCE here rather than at each of the three milestone
    *  call sites, so they cannot disagree about whether a permit is paused. */
   isHeld: boolean;
+  /** ★ fix-409: the OPEN hold row that explains `isHeld` — the permit's own
+   *  first, else its project's. Null when nothing is parked. */
+  hold: HoldChipRow | null;
+  /**
+   * ★★★ fix-409 — THE FACT AND THE CONSEQUENCE, SPLIT.
+   *
+   * `isHeld` is what is TRUE about the permit; `quiet` is what the board should
+   * DO about it. They were one thing until this ticket because there was only
+   * one possible response — silence. Now that a person can ask to see held
+   * work, the two have to be separable: a shown row still needs `isHeld` to
+   * render its chip, and would lose it if the suppression flag were the only
+   * one carried.
+   *
+   * ★ `quiet = isHeld && !showHeldWork`. Every gate that used to read `isHeld`
+   * reads this instead; nothing else changed.
+   */
+  quiet: boolean;
   shape: LegShape;
   design: DesignLegStatus;
   legs: BoardLeg[];
   where: string;
 }
 
-/** The permits this viewer is on, with their relay inputs resolved once. */
-function prepare(input: BoardInput): Prepared[] {
-  const { viewer, permits, projects, tasks, cancelledIds } = input;
-  // ★ fix-390: accept either shape — the resolved sets, or the raw rows the
-  // page already has. Derived once here rather than per permit.
+/**
+ * ★★ fix-409: the held SETS, hoisted out of `prepare()` so the task loop in
+ * `buildForecast` can ask the same question of the same rows. It used to be
+ * inline there, which is a large part of why tasks never got asked.
+ */
+function heldSets(input: BoardInput): {
+  heldProjects: ReadonlySet<string>;
+  heldPermits: ReadonlySet<number>;
+} {
   const heldProjects =
     input.heldProjectIds ??
     new Set(
@@ -1318,6 +1393,25 @@ function prepare(input: BoardInput): Prepared[] {
         .filter((h) => h.hold_end === null)
         .map((h) => h.permit_id),
     );
+  return { heldProjects, heldPermits };
+}
+
+/** ★ fix-409: the OPEN hold rows the chip reads its reason from. Built from
+ *  the same two arrays as {@link heldSets}, so a row can never be held by one
+ *  and unexplained by the other. Empty when the caller passed only the resolved
+ *  ID sets (fixtures do) — the row still knows it is held, it just has no
+ *  reason to print, and HoldBadge renders the word without one. */
+function holdChipIndex(input: BoardInput): HoldRowIndex {
+  return holdRowIndex(input.holdRows, input.permitHoldRows);
+}
+
+/** The permits this viewer is on, with their relay inputs resolved once. */
+function prepare(input: BoardInput): Prepared[] {
+  const { viewer, permits, projects, tasks, cancelledIds } = input;
+  // ★ fix-390: accept either shape — the resolved sets, or the raw rows the
+  // page already has. Derived once here rather than per permit.
+  const { heldProjects, heldPermits } = heldSets(input);
+  const chips = holdChipIndex(input);
   const byProject = new Map(projects.map((p) => [p.id, p]));
   const tasksByPermit = new Map<number, BoardTask[]>();
   for (const t of tasks) {
@@ -1359,12 +1453,21 @@ function prepare(input: BoardInput): Prepared[] {
     if (legs.length === 0 && !viewer.isOversight && !(scope && scope.length > 0)) continue;
 
     const project = byProject.get(permit.project_id);
+    const isHeld = isPermitHeld(permit, heldProjects, heldPermits);
     out.push({
       permit,
       project,
       // ★ fix-390: resolved once, here, so the three milestone call sites below
       // cannot disagree about whether this permit is paused.
-      isHeld: isPermitHeld(permit, heldProjects, heldPermits),
+      isHeld,
+      hold: isHeld
+        ? holdRowFor(
+            { permit_id: permit.id, project_id: permit.project_id },
+            chips,
+          )
+        : null,
+      // ★ fix-409: the fact above, the consequence here. See Prepared.quiet.
+      quiet: isHeld && !input.showHeldWork,
       shape: legShape(permit, tasksByPermit.get(permit.id) ?? []),
       design: designLegStatus(
         tasksByPermit.get(permit.id) ?? [],
@@ -1431,7 +1534,9 @@ export function buildForecast(input: BoardInput): Forecast {
     // ★ fix-390: a held permit is silent, so it contributes nothing to the
     // HISTORY-suppressed count either — that number means "would apply but for
     // history", and a hold is state, not history.
-    if (p.isHeld) continue;
+    // ★ fix-409: `quiet`, not `isHeld` — a permit whose work the viewer has
+    //   asked to SEE is not silent, so its history-suppressed rows count again.
+    if (p.quiet) continue;
     for (const kind of historicSuppressedKinds(
       p.permit,
       p.permit.permit_cycles ?? [],
@@ -1453,7 +1558,8 @@ export function buildForecast(input: BoardInput): Forecast {
       thresholds,
       input.acks ?? [],
       p.project?.is_backfill ?? null,
-      p.isHeld,
+      // ★ fix-409: the hold silences the chip only while held work is hidden.
+      p.quiet,
     )) {
       if (m.date === null) continue; // ← the rule, enforced in one place
       for (const leg of p.legs) {
@@ -1496,6 +1602,8 @@ export function buildForecast(input: BoardInput): Forecast {
           daysLate,
           bucket: bucketFor(daysLate),
           actionable: state === 'mine',
+          isHeld: p.isHeld,
+          hold: p.hold,
           permitId: p.permit.id,
           taskId: null,
           action: isHandoff ? 'handoff' : 'ack',
@@ -1556,6 +1664,12 @@ export function buildForecast(input: BoardInput): Forecast {
   // blended by DATE and never disguised as each other.
   const me = (input.viewer.name ?? '').trim().toLowerCase();
   const owns = input.taskOwns ?? defaultTaskOwns(input);
+  // ★★★ fix-409: the SAME sets prepare() resolves for milestones, so a task and
+  // the milestone beside it cannot disagree about whether their permit is
+  // paused. Hoisted out of prepare() for exactly this.
+  const { heldProjects: taskHeldProjects, heldPermits: taskHeldPermits } =
+    heldSets(input);
+  const taskChips = holdChipIndex(input);
   for (const t of input.tasks) {
     // ★ target_date, then due_date. Not the other way round: target_date is what
     // the team sets and what every other overdue count on this screen reads.
@@ -1570,10 +1684,31 @@ export function buildForecast(input: BoardInput): Forecast {
     // Silent while nothing was dated; live the moment this loop emits a row.
     if (isCancelledProject(t.project_id, input.cancelledIds)) continue;
     if (subPermitIds.has(t.permit_id)) continue;
+    // ★★★ fix-409 — THE THIRD EXCLUSION, AND THE ONE THIS TICKET IS ABOUT.
+    //
+    // The two lines above are fix-264's and fix-194's; this is the hold rule
+    // they were missing. Without it a held project's tasks kept ageing in the
+    // red buckets while every milestone on the same permit stayed quiet — one
+    // screen giving two answers about one pause.
+    //
+    // ★ `isPermitHeld` reads DOWNWARD, so a task under a held PROJECT is held
+    //   even when its permit has no hold of its own. That is the whole of the
+    //   prod population: 4 tasks, all under the 2 held projects.
+    const taskHeld = isPermitHeld(
+      { id: t.permit_id, project_id: t.project_id },
+      taskHeldProjects,
+      taskHeldPermits,
+    );
+    if (taskHeld && !input.showHeldWork) continue;
+    const taskHold = taskHeld
+      ? holdRowFor({ permit_id: t.permit_id, project_id: t.project_id }, taskChips)
+      : null;
     const daysLate = daysBetween(date, today);
     items.push({
       key: `t-${t.id}`,
       source: 'task',
+      isHeld: taskHeld,
+      hold: taskHold,
       verb: t.text,
       // fix-304 §22: the ✓ task badge already says this.
       why: '',
@@ -1791,7 +1926,7 @@ function queueKindFor(
   // ★ Corrections first — it outranks city review when both fit
   // (QUEUE_KIND_RANK), because the redlines are the question, not the city's
   // review target.
-  if (milestoneApplies('corrections', permit, cycles, isBackfill, p.isHeld)) {
+  if (milestoneApplies('corrections', permit, cycles, isBackfill, p.quiet)) {
     // ★★★ THE DATE IS NULL, AND THAT IS A FINDING RATHER THAN AN OMISSION.
     //
     // The model carries NO resubmit target for the current round. The only
@@ -1819,7 +1954,7 @@ function queueKindFor(
   // This is exactly the population the old `waiting_on_city` group carried,
   // and the date is the same `city_target` those rows already showed.
   if (
-    !p.isHeld &&
+    !p.quiet &&
     !isTerminalNegativeStatus(permit.status) &&
     everSubmitted(cycles) &&
     !permit.approval_date &&
@@ -1886,6 +2021,10 @@ export function buildQueue(input: BoardInput): ProjectQueue {
       // new grouping machinery. The bands stay outermost — urgency first.
       owner:
         (p.permit.ent_lead ?? '').trim() || (p.permit.da ?? '').trim() || null,
+      // ★ fix-409: the fact, carried so the row can say so. `quiet` already
+      //   decided whether it is here at all.
+      isHeld: p.isHeld,
+      hold: p.hold,
     });
   }
 

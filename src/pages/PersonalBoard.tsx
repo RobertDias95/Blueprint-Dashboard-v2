@@ -4,6 +4,9 @@ import MyBoard from './MyBoard';
 import MyTasks from './MyTasks';
 import NotificationsPage from './Notifications';
 import { useAllTasks } from '../hooks/useTaskTree';
+import { useAllPermitHolds } from '../hooks/usePermitHolds';
+import { heldSetsFrom, isHeldWork } from '../lib/heldWork';
+import { useShowHeldWork } from '../hooks/useShowHeldWork';
 import { useTaskOwnership } from '../hooks/useTaskOwnership';
 import { useSelfScope } from '../hooks/useSelfScope';
 import { useBoardNotifications } from '../hooks/useBoardNotifications';
@@ -254,15 +257,28 @@ export default function PersonalBoard({
  * answers "is there work in there", which must not change because someone typed
  * a search term inside the panel — and cannot, since the panel is unmounted
  * while the question matters most.
+ *
+ * ★★★ fix-409 IS THE ONE EXCEPTION, AND IT IS NOT A CONTRADICTION. "Show held
+ * work" is not the panel's filter row — it is a shared PREFERENCE that also
+ * governs My Board, it survives the panel being unmounted (which is exactly
+ * what the paragraph above says a filter cannot do), and the brief's hard
+ * requirement is that *"counts in headers, badges, and any 'N open' summaries
+ * must agree with what is displayed"*. A badge reading "12 open" over a tab
+ * showing 8 is the fix-264 defect this hook was written to close, re-opened by
+ * a different rule.
  */
 function useMyTaskCounts(): { open: number; overdue: number } {
   const tasksQ = useAllTasks();
   const holdsQ = useAllProjectHolds();
+  // ★ fix-409: the same two fetches My Tasks makes, shared by query key.
+  const permitHoldsQ = useAllPermitHolds();
+  const { showHeldWork } = useShowHeldWork();
   const { matches } = useTaskOwnership();
   const { identity } = useSelfScope();
 
   return useMemo(() => {
     const cancelled = cancelledProjectIds(holdsQ.data);
+    const held = heldSetsFrom(holdsQ.data, permitHoldsQ.data);
     const today = todayIso();
     const name = identity.name;
     let open = 0;
@@ -270,13 +286,22 @@ function useMyTaskCounts(): { open: number; overdue: number } {
     for (const t of tasksQ.data ?? []) {
       // fix-264: work on a cancelled project is not work.
       if (cancelled.has(t.project_id)) continue;
+      // ★ fix-409: ...and paused work is not on today's list unless asked for.
+      if (!showHeldWork && isHeldWork(t, held)) continue;
       if (name && !matches(t, name)) continue;
       if (isTaskCancelled(t.status) || t.status === 'Resolved') continue;
       open += 1;
       if (isTaskOverdue(t, today)) overdue += 1;
     }
     return { open, overdue };
-  }, [tasksQ.data, holdsQ.data, matches, identity.name]);
+  }, [
+    tasksQ.data,
+    holdsQ.data,
+    permitHoldsQ.data,
+    showHeldWork,
+    matches,
+    identity.name,
+  ]);
 }
 
 /** Local midnight, as an ISO date — the same form target_date is stored in. */

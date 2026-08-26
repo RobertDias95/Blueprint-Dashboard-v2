@@ -28,6 +28,17 @@ import {
   cancelledProjectIds,
 } from '../hooks/useProjectHolds';
 import { excludeCancelled } from '../lib/projectViewHelpers';
+import { useAllPermitHolds } from '../hooks/usePermitHolds';
+import {
+  excludeHeldWork,
+  heldSetsFrom,
+  holdRowFor,
+  holdRowIndex,
+  type HoldChipRow,
+} from '../lib/heldWork';
+import { useShowHeldWork } from '../hooks/useShowHeldWork';
+import ShowHeldWorkToggle from '../components/shared/ShowHeldWorkToggle';
+import { HoldBadge } from '../components/shared/HoldBadge';
 import { useScopeMode } from '../hooks/useSelfScope';
 import { type ScopeMode } from '../lib/selfScope';
 import { useTaskOwnership } from '../hooks/useTaskOwnership';
@@ -52,7 +63,14 @@ import {
 
 /** Tasks we render. Adds a `bucket` field that may be absent on the pre-fix-79
  *  wire shape; missing values fall through to 'de'. */
-type Task = MyTaskNode & { bucket?: 'de' | 'pm' };
+type Task = MyTaskNode & {
+  bucket?: 'de' | 'pm';
+  /** ★ fix-409: the OPEN hold that explains why this task is parked, attached
+   *  once in `MineTasks` so every card, column and counter below reads the same
+   *  answer. Null on live work. Follows `bucket`'s precedent — a render-time
+   *  field on the node, not a column. */
+  hold?: HoldChipRow | null;
+};
 
 type DiagBucket = 'de' | 'pm';
 
@@ -251,14 +269,38 @@ export function MineTasks() {
   // and keeps this board on the same predicate as every other live-work surface
   // instead of inferring project state from task status.
   const holdsQ = useAllProjectHolds();
+  // ★★ fix-409: the permit-scoped sibling. My Board has fetched this since
+  // fix-390; My Tasks never did, which is precisely why its list disagreed with
+  // the board's about what was paused. Holds are a handful per tenant and the
+  // query is shared by key, so this costs nothing beyond the first fetch.
+  const permitHoldsQ = useAllPermitHolds();
+  const { showHeldWork } = useShowHeldWork();
   const cancelledIds = useMemo(
     () => cancelledProjectIds(holdsQ.data),
     [holdsQ.data],
   );
-  const liveTasks = useMemo(
-    () => excludeCancelled((tasksQ.data ?? []) as Task[], cancelledIds),
-    [tasksQ.data, cancelledIds],
-  );
+  // ★★★ fix-409 — THE FILTER LIVES HERE, ABOVE `Body`, AND THAT IS THE POINT.
+  //
+  // The brief's hard requirement is *"counts in headers, badges, and any 'N
+  // open' summaries must agree with what is displayed"*. Every counter on this
+  // screen is derived from the task array `Body` receives, so filtering the
+  // array — rather than each list at render time — makes agreement structural.
+  // A per-column filter would have left the OPEN / OVERDUE / PROJECTS counters
+  // counting rows nobody can see, which is the fix-264 defect in a new coat.
+  const liveTasks = useMemo(() => {
+    const notCancelled = excludeCancelled(
+      (tasksQ.data ?? []) as Task[],
+      cancelledIds,
+    );
+    const sets = heldSetsFrom(holdsQ.data, permitHoldsQ.data);
+    const chips = holdRowIndex(holdsQ.data, permitHoldsQ.data);
+    const shown = excludeHeldWork(notCancelled, sets, showHeldWork);
+    // ★ Only the SHOWN rows are decorated, and only when held work is on —
+    //   with the switch off there is nothing held left to label, so the map is
+    //   a no-op and the array passes through untouched.
+    if (!showHeldWork) return shown as Task[];
+    return shown.map((t) => ({ ...t, hold: holdRowFor(t, chips) }));
+  }, [tasksQ.data, cancelledIds, holdsQ.data, permitHoldsQ.data, showHeldWork]);
 
   const error = team.error ?? tasksQ.error;
   if (error) {
@@ -864,6 +906,12 @@ function FilterRow({
         onToggle={() => onPatch({ botOnly: !filters.botOnly })}
         testid="mytasks-filter-bot"
       />
+      {/* ★★★ fix-409 — THE SWITCH, in the row with the filters it belongs to.
+          It is NOT one of `filters` and is not reset by the Reset button
+          beside it, deliberately: the other chips are this screen's own
+          filters, and this is a shared preference My Board reads too. Resetting
+          My Tasks' filter row must not silently change what the board shows. */}
+      <ShowHeldWorkToggle testid="mytasks-filter-held" />
       <button
         type="button"
         onClick={onReset}
@@ -1390,6 +1438,15 @@ function TaskCard({
         {task.auto_closed_reason && (
           <AutoClosedBadge taskId={task.id} reason={task.auto_closed_reason} />
         )}
+        {/* ★★★ fix-409: only ever present when the viewer switched held work
+            on — the filter above removed it otherwise — so the card says why
+            it is here and why it is not moving. Same component, same colour as
+            the project and permit badges. */}
+        <HoldBadge
+          hold={task.hold}
+          compact
+          testid={`mytask-card-${task.id}-hold`}
+        />
         {task.permit_type && (
           <span
             className="text-[9px] px-1.5 py-0.5 rounded font-bold uppercase"

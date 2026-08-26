@@ -5,6 +5,9 @@ import { useCallback, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import OriginLink from '../components/OriginLink';
 import { useOriginState } from '../hooks/useOriginState';
+import ShowHeldWorkToggle from '../components/shared/ShowHeldWorkToggle';
+import { useShowHeldWork } from '../hooks/useShowHeldWork';
+import { HoldBadge } from '../components/shared/HoldBadge';
 import { usePermits } from '../hooks/usePermits';
 import { useProjects } from '../hooks/useProjects';
 // fix-303: the SAME task source My Tasks uses, so the board is not a lesser
@@ -274,6 +277,20 @@ function ForecastRow({
                 new
               </span>
             )}
+            {/* ★★★ fix-409: a held row is only here because the viewer asked
+                for it, so it says WHY it is quiet. Bobby: "an on hold
+                chip/color filter or something to tell the difference."
+                `holdChip` is null on every other row, and HoldBadge renders
+                nothing for a null hold, so this costs untouched rows nothing. */}
+            {item.isHeld && (
+              <span className="ml-1">
+                <HoldBadge
+                  hold={item.hold}
+                  compact
+                  testid={`board-row-hold-${item.key}`}
+                />
+              </span>
+            )}
           </div>
           {/* fix-304 §22: rendered only when it says something the headline,
               the location and the date do not. */}
@@ -419,6 +436,15 @@ function QueueRowView({ row }: { row: QueueRow }) {
           >
             {QUEUE_KIND_LABEL[row.kind]}
           </span>
+          {/* ★ fix-409: a queue row is only here while held if the viewer asked
+              for held work — the queue gates on `quiet`. Say why it is quiet. */}
+          {row.isHeld && (
+            <HoldBadge
+              hold={row.hold}
+              compact
+              testid={`board-queue-hold-${row.key}`}
+            />
+          )}
           <OriginLink
             to={`/project/${row.projectId}`}
             className="text-[11.5px] font-extrabold text-text hover:underline truncate"
@@ -681,6 +707,8 @@ export default function MyBoard() {
   const holdsQ = useAllProjectHolds();
   // ★ fix-390: the permit-scoped siblings, one bulk fetch like its sibling.
   const permitHoldsQ = useAllPermitHolds();
+  // ★ fix-409: shared with My Tasks — see hooks/useShowHeldWork.
+  const { showHeldWork } = useShowHeldWork();
   const { identity } = useSelfScope();
   // fix-298 Phase 2: the scraper feed the old nav bell used to own.
   const activityQ = useScraperActivity();
@@ -798,6 +826,10 @@ export default function MyBoard() {
       // ONLY its permit and never rolls up.
       holdRows: holdsQ.data ?? [],
       permitHoldRows: permitHoldsQ.data ?? [],
+      // ★★★ fix-409: the one preference, shared with My Tasks. Default false,
+      // which is byte-for-byte fix-390's behaviour; true brings held tasks AND
+      // the milestones fix-390 silenced back, each wearing a hold chip.
+      showHeldWork,
       acks: acksQ.data ?? [],
       // ★★ fix-348: the blended forecast asks "is this task mine?" with fix-238's
       // resolver — the SAME predicate the My Tasks bar directly below this panel
@@ -814,6 +846,7 @@ export default function MyBoard() {
       tasksQ.data,
       holdsQ.data,
       permitHoldsQ.data,
+      showHeldWork,
       acksQ.data,
       taskOwnership.matches,
     ],
@@ -1148,9 +1181,18 @@ export default function MyBoard() {
             screen; My Board is where you go to see what is on you, and it had
             no way to reach the list at all. The count is the SAME number the
             badge shows — one model (useBoardNotifications), rendered twice. */}
+        {/* ★★★ fix-409 — THE SWITCH. Bobby: "anything with a hold gets auto
+            turned off, but you can switch that on/off in the my tasks/my
+            boards." It sits in the page header, with the board's other
+            whole-board controls, and it is the SAME component My Tasks renders
+            — one preference, so flipping it here flips it there. */}
+        <span className="ml-auto">
+          <ShowHeldWorkToggle testid="my-board-show-held" />
+        </span>
+
         <Link
           to="/notifications"
-          className="ml-auto text-[11px] font-bold text-de hover:underline no-underline"
+          className="text-[11px] font-bold text-de hover:underline no-underline"
           data-testid="my-board-notifications-link"
           data-unread={String(notifications.unseenCount)}
         >

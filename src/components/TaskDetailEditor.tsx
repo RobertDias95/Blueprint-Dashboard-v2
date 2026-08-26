@@ -1,5 +1,8 @@
 import { useAppConfig } from '../hooks/useAppConfig';
 import OriginLink from './OriginLink';
+import { usePermitHolds, activePermitHold } from '../hooks/usePermitHolds';
+import { useProjectHolds, activeHold } from '../hooks/useProjectHolds';
+import { HoldBadge } from './shared/HoldBadge';
 import { waitingOnOptions } from '../lib/waitingOn';
 import TaskProvenance from './TaskProvenance';
 import { useMemo } from "react";
@@ -71,6 +74,12 @@ export default function TaskDetailEditor({
   const waitingOnCfg = useAppConfig();
   const waitingOnChoices = waitingOnOptions(waitingOnCfg.map, task.waiting_on);
   const setAssignees = useSetTaskAssignees();
+  // ★ fix-409: the permit's own hold first, then its project's — holdRowFor's
+  //   order. `activeHold` (either kind) so a cancelled project reads Cancelled.
+  const permitHoldsQ = usePermitHolds(task.permit_id);
+  const projectHoldsQ = useProjectHolds(task.project_id);
+  const holdChip =
+    activePermitHold(permitHoldsQ.data) ?? activeHold(projectHoldsQ.data);
   const dmRows = useDmDaGroups().rows;
   // fix-228: ent_lead + schematic designers for PRIMARY-owner resolution come
   // from the (cached) permits/projects the app already loads, joined by
@@ -204,6 +213,16 @@ export default function TaskDetailEditor({
             it and who assigned it to you, because you want to be able to reach
             out to that person." The same component the permit's task bar and
             the notification centre render — see components/TaskProvenance. */}
+        {/* ★★★ fix-409 — SURFACE 5. The drawer is shared by My Tasks and My
+            Board, so a held task opened from either of them says why it is
+            parked. It uses the two per-id hold queries rather than the bulk
+            ones because a drawer shows exactly ONE task; asking about every
+            hold in the tenant to label one row would be the wrong shape. */}
+        {holdChip && (
+          <span className="ml-1.5">
+            <HoldBadge hold={holdChip} compact testid="task-detail-hold" />
+          </span>
+        )}
         <span className="ml-auto">
           <TaskProvenance taskId={task.id} align="right" />
         </span>
