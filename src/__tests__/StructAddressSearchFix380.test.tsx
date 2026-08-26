@@ -358,6 +358,7 @@ const baseLibFilters: LibraryFilters = {
   tag: '',
   juris: '',
   isCornerLot: '',
+  isRegularShape: '',
   // ★ fix-402: the UNIT card's three new filters, all Any.
   parkingKind: '',
   stalls: '',

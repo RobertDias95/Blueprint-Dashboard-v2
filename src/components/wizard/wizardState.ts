@@ -115,6 +115,14 @@ export interface WizardState {
   num_lots: string;
   /** fix-122: corner-lot flag. '' = unset, 'yes' / 'no' = user pick. */
   is_corner_lot: string;
+  /** ★ fix-410: regular-shape flag. 'yes' / 'no'.
+   *
+   *  ★★ UNLIKE ITS SIBLING IT HAS NO '' STATE IN THE FORM. Bobby: *"default
+   *  should be yes, the other option is no."* Corner Lot is tri-state because
+   *  fix-122 refused to guess for historical projects; this one is answered by
+   *  the form on every new project, so the wire carries a real boolean and the
+   *  NULL state exists only for rows nobody has been through the wizard for. */
+  is_regular_shape: string;
   /** fix-122: closing/escrow date. ISO YYYY-MM-DD or ''. */
   closing_date: string;
   zone: string;
@@ -216,6 +224,9 @@ export function makeEmptyWizardState(): WizardState {
     units: '',
     num_lots: '',
     is_corner_lot: '',
+    // ★ fix-410: the form's default, and the ONLY place it is written down.
+    //   The column has no DDL default — see the migration for why.
+    is_regular_shape: 'yes',
     closing_date: '',
     zone: '',
     lot_width: '',
@@ -277,6 +288,7 @@ export function makeRedesignWizardState(
     lot_depth?: number | null;
     num_lots?: number | null;
     is_corner_lot?: boolean | null;
+    is_regular_shape?: boolean | null;
     closing_date?: string | null;
 
     alley?: string | null;
@@ -313,6 +325,11 @@ export function makeRedesignWizardState(
         : parentProject.is_corner_lot === false
           ? 'no'
           : '',
+    // ★ fix-410: inherited like every other site fact. A parent with NO
+    //   recorded answer falls back to the FORM DEFAULT rather than to '' —
+    //   the redesign is a new project, and Bobby's rule for a new project is
+    //   Yes. (There is no '' state in this field's form control anyway.)
+    is_regular_shape: parentProject.is_regular_shape === false ? 'no' : 'yes',
     closing_date: parentProject.closing_date ?? '',
     zone: parentProject.zone ?? '',
     lot_width:

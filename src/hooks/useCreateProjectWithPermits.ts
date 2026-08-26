@@ -95,6 +95,11 @@ export interface ProjectData {
    *  comparisons between mid-block and corner sites with identical
    *  lot_width/lot_depth. */
   is_corner_lot?: boolean | null;
+  /** ★ fix-410: regular-shape flag. Sent on every wizard create (the form
+   *  defaults to Yes). Optional here so a caller that omits it leaves the
+   *  column NULL — the RPC reads it with the same `v_pd ? 'key'` guard
+   *  `is_corner_lot` uses, so an absent key is "not answered", never true. */
+  is_regular_shape?: boolean | null;
   /** fix-122: informational closing/escrow date. Display-only — no math,
    *  no cascade, no alerts. */
   closing_date?: string | null;

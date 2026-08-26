@@ -500,11 +500,16 @@ describe('fix-406 §4: the Lots column and its sort are gone', () => {
     // sits under half the width. The empty-state span had in fact been wrong
     // since fix-402 added two columns; it is corrected here because this ticket
     // changes the count again.
+    //
+    // ★ fix-410 makes it 14 — the SITE "Shape" column. The number is asserted
+    //   rather than the columns enumerated, deliberately: this test's job is to
+    //   FAIL when somebody adds a column, so that the two colSpans below get
+    //   updated with it. It did exactly that for fix-410.
     renderIt();
     const headers = screen
       .getByTestId('library-table')
       .querySelectorAll('thead th');
-    expect(headers.length).toBe(13);
+    expect(headers.length).toBe(14);
   });
 });
 
@@ -532,6 +537,7 @@ describe('fix-406 §5: an unrecognised sort column falls back cleanly', () => {
     unitTypes: [],
     numLots: r.numLots,
     isCornerLot: null,
+    isRegularShape: null,
     updatedAt: null,
   }));
 
@@ -623,6 +629,7 @@ describe('fix-406 §5: an unrecognised sort column falls back cleanly', () => {
       tag: '',
       juris: '',
       isCornerLot: '' as const,
+      isRegularShape: '' as const,
       stories: '' as const,
       parkingKind: '' as const,
       stalls: '' as const,

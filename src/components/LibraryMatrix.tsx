@@ -164,6 +164,9 @@ const INITIAL_FILTERS: LibraryFilters = {
   // fix-122: isCornerLot is tri-state. (Its numLots sibling was removed as a
   // FILTER by fix-402 on Bobby's ruling; the lots COLUMN is untouched.)
   isCornerLot: '',
+  // ★ fix-410: '' = Any. See LibraryFilters.isRegularShape for why "Not set"
+  //   is one of the pickable states rather than only a fall-out.
+  isRegularShape: '',
   // fix-205: Stories tier filter on a project's unit_types.
   stories: '',
   // ★★ fix-402: the UNIT card's parking trio. All start Any — and note that
@@ -409,6 +412,34 @@ function Body({ projects, permits }: BodyProps) {
                 <option value="">Any</option>
                 <option value="Yes">Yes</option>
                 <option value="No">No</option>
+              </select>
+            </FieldLabel>
+
+            {/* ★★★ fix-410 (P-040): Regular Shape. A SITE field, so it sits on
+                the SITE card beside Corner — fix-406's teal group is about the
+                LOT, and "is it a rectangle" is a fact about the lot.
+
+                ★★ FOUR OPTIONS, NOT THREE. "Not set" is pickable because the
+                whole point of Bobby's default is that the unanswered population
+                should be empty; a state nobody can filter for is a state nobody
+                can audit. The words are Regular / Irregular rather than
+                Yes / No — on a filter, "Yes" alone does not say yes to what. */}
+            <FieldLabel label="Shape">
+              <select
+                value={filters.isRegularShape}
+                onChange={(e) =>
+                  update(
+                    'isRegularShape',
+                    e.target.value as LibraryFilters['isRegularShape'],
+                  )
+                }
+                className={FIELD_CLASS}
+                data-testid="filter-regular-shape"
+              >
+                <option value="">Any</option>
+                <option value="Regular">Regular</option>
+                <option value="Irregular">Irregular</option>
+                <option value="Not set">Not set</option>
               </select>
             </FieldLabel>
 
@@ -661,6 +692,10 @@ function Body({ projects, permits }: BodyProps) {
               {/* fix-122: Corner Lot — same dimensions feel very
                   different on a corner. */}
               <Th sort={sort} col="isCornerLot" onClick={toggleSort} align="center">Corner</Th>
+              {/* ★ fix-410: beside Corner — the two shape-of-the-lot columns
+                  read together, and both sort NULLs last through the one
+                  shared tri-state arm in sortLibraryRows. */}
+              <Th sort={sort} col="isRegularShape" onClick={toggleSort} align="center">Shape</Th>
               {/* ★★ fix-402: the unit rollups. Bobby: *"in the Project
                   Overview and in the Library, we need to make that not only a
                   searchable but a displayable thing."* Not sortable — they are
@@ -696,11 +731,18 @@ function Body({ projects, permits }: BodyProps) {
             {sorted.length === 0 && (
               <tr>
                 <td
-                  // ★ fix-406: 13 = caret + 9 sortable + 3 derived headers.
-                  //   It read 12 before this ticket and the table had 14
-                  //   columns, so the "no projects match" row had been two
-                  //   short since fix-402 added Parking and Roof Deck.
-                  colSpan={13}
+                  // ★ fix-410: 14 = caret + 10 sortable + 3 derived headers.
+                  //   Was 13; the Shape column makes it 14.
+                  //
+                  // ★★ fix-406's note, kept because it is the reason anyone
+                  //   checks: it read 12 while the table had 14 columns, so the
+                  //   "no projects match" row had been two short since fix-402
+                  //   added Parking and Roof Deck — and nothing showed it,
+                  //   because a stale colSpan is invisible until the table is
+                  //   EMPTY. Both spans here are asserted against the rendered
+                  //   header count, so adding a column cannot quietly break
+                  //   the empty state again.
+                  colSpan={14}
                   className="px-4 py-8 text-center text-xs text-dim italic"
                 >
                   No projects match the current filters.
@@ -854,6 +896,23 @@ function Row({
             <span className="text-dim">—</span>
           )}
         </td>
+        {/* ★★ fix-410: Regular / Irregular / em dash. THREE renderings for
+            three states — a null must never read as "Regular", which is the
+            same rule the Site section follows and the reason the column has no
+            DDL default. The words match the filter's, so a row and the control
+            that found it say the same thing. */}
+        <td
+          className="px-2 py-1.5 text-center"
+          data-testid={`library-regular-shape-${row.projectId}`}
+        >
+          {row.isRegularShape === true ? (
+            <span className="font-mono text-text">Regular</span>
+          ) : row.isRegularShape === false ? (
+            <span className="font-mono text-text">Irregular</span>
+          ) : (
+            <span className="text-dim">—</span>
+          )}
+        </td>
         {/* ★★★ fix-402: the parking rollup chip. Same kind everywhere → that
             kind; kinds disagree → "Mixed"; nothing recorded → "—" and nothing
             else. When SOME units are recorded and others are not it appends
@@ -918,9 +977,10 @@ function Row({
           data-testid={`library-expansion-${row.projectId}`}
         >
           <td />
-          {/* ★ fix-406: 12, not 13 — the caret cell above takes one and Lots
-              took one away. */}
-          <td colSpan={12} className="px-2 pb-2 pt-1">
+          {/* ★ fix-410: 13, not 14 — the caret cell above takes one. (fix-406:
+              "12, not 13 — the caret cell above takes one and Lots took one
+              away"; the Shape column adds it back.) */}
+          <td colSpan={13} className="px-2 pb-2 pt-1">
             <UnitTypeMiniTable
               projectId={row.projectId}
               unitTypes={row.unitTypes}

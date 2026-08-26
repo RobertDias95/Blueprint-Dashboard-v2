@@ -34,6 +34,9 @@ const LIBRARY_NS = 'library.filters';
 const STALLS_TIERS: readonly StallsTier[] = ['', '1+', '2+'];
 const ROOF_DECKS: readonly RoofDeckFilter[] = ['', 'Yes', 'No'];
 const CORNERS = ['', 'Yes', 'No'] as const;
+/** ★ fix-410: the four regular-shape filter states, as a closed set so a value
+ *  retired later cannot come back from storage and match nothing forever. */
+const SHAPES = ['', 'Regular', 'Irregular', 'Not set'] as const;
 const STORIES = ['', '1', '2', '3', '4+'] as const;
 
 export function loadLibraryFilters(
@@ -61,6 +64,10 @@ export function loadLibraryFilters(
       tag: str(o.tag),
       juris: str(o.juris),
       isCornerLot: oneOf(o.isCornerLot, CORNERS, ''),
+      // ★ fix-410: decoded through a coercion like every other field — a
+      //   session stored before this ticket has no key at all and falls back
+      //   to Any, rather than restoring `undefined` into the select.
+      isRegularShape: oneOf(o.isRegularShape, SHAPES, ''),
       stories: oneOf(o.stories, STORIES, ''),
       // ★★ fix-402's three. `parkingKind` is validated against the closed set,
       //   so a kind retired later cannot come back from storage and match

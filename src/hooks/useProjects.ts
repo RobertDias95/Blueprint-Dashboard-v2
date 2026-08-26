@@ -45,7 +45,13 @@ export function useProjects() {
             // Project Overview SiteEditor render these columns; they
             // were added to the table in fix-122 but never to this
             // select list, so the UI was rendering "—" in prod.
-            'num_lots, is_corner_lot, closing_date',
+            // ★★★ fix-410: `is_regular_shape` HAS to be on this line. This
+            // select list is explicit, and an unlisted column arrives as
+            // `undefined` — the Site section and the Library would render
+            // "not set" forever while the database held the answer. That is
+            // the fix-122 trap the comment above records and the fix-386 trap
+            // the comment below records; this is the third time.
+            'num_lots, is_corner_lot, is_regular_shape, closing_date',
             // fix-126: redesign concept columns. Drive the "Redesign of"
             // top badge + the expandable "Redesigns (N)" subsection on
             // Project Overview, plus the yellow border on draw schedule

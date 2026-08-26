@@ -197,13 +197,14 @@ const BASE: LibraryFilters = {
   search: '', lotwTarget: null, lotwBuf: 2, lotdTarget: null, lotdBuf: 2,
   unitwTarget: null, unitwBuf: 2, unitdTarget: null, unitdBuf: 2,
   zone: '', alley: '', productTypes: [], tag: '', juris: '',
-  isCornerLot: '', stories: '', parkingKind: '', stalls: '', roofDeck: '',
+  isCornerLot: '', isRegularShape: '', stories: '', parkingKind: '', stalls: '', roofDeck: '',
 };
 
 const row = (units: UnitType[]): LibraryRow => ({
   projectId: 'p1', address: '1 Main St', juris: 'Seattle', productTypes: [],
   units: units.length, zone: 'NR', lotWidth: 50, lotDepth: 100, alley: 'No',
   tags: [], stage: 'de', unitTypes: units, numLots: null, isCornerLot: null,
+  isRegularShape: null,
   updatedAt: null,
 });
 
