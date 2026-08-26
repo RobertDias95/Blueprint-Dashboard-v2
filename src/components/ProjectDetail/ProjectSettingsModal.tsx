@@ -1,4 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
+import ZoneSelect from '../shared/ZoneSelect';
+import { roundLotForStorage } from '../../lib/lotDimensions';
 import {
   useUpdateProjectWithPermits,
   type PermitUpsertInput,
@@ -390,8 +392,10 @@ export default function ProjectSettingsModal({
         go_date: form.projectFields.go_date || null,
         units: toNumOrNull(form.projectFields.units),
         zone: form.projectFields.zone.trim() || null,
-        lot_width: toNumOrNull(form.projectFields.lot_width),
-        lot_depth: toNumOrNull(form.projectFields.lot_depth),
+        // ★ fix-415 B2: rounded on SUBMIT — this modal has no per-field
+        //   commit, so the submit IS the commit.
+        lot_width: roundLotForStorage(toNumOrNull(form.projectFields.lot_width)),
+        lot_depth: roundLotForStorage(toNumOrNull(form.projectFields.lot_depth)),
 
         alley: form.projectFields.alley || null,
         product_types: form.projectFields.product_types,
@@ -614,11 +618,16 @@ export default function ProjectSettingsModal({
                 testid="psm-units"
               />
             </Field>
+            {/* ★ fix-415 A3: dropdown, not free text. This surface writes
+                through bp_update_project_with_permits, whose SET list DOES
+                carry `zone` — unlike the SITE card, which writes the table
+                directly. Two paths, one control. */}
             <Field label="Zone">
-              <Input
+              <ZoneSelect
                 value={form.projectFields.zone}
                 onChange={(v) => setProj('zone', v)}
                 testid="psm-zone"
+                className="w-full bg-bg border border-border rounded px-2 py-1 text-xs text-text focus:outline-none focus:border-de"
               />
             </Field>
             <Field label="Lot Size (W × D, ft)">

@@ -41,6 +41,31 @@
 // named for the LOT on purpose so that a call site rounding a unit reads
 // obviously wrong.
 
+/**
+ * ★★★ fix-415 SCOPE B — THE SAME RULE, NOW ON THE WRITE PATH.
+ *
+ * Bobby, 2026-08-26: *"we want the unrounded numbers to match their updated UI
+ * number… you can update the stored values to also reflect that."*
+ *
+ * ★★ fix-411 §2's header below says the stored value must never move, and says
+ * why. That was right for a DISPLAY ticket and Bobby has since ruled the other
+ * way, so the note stays as the record of a superseded decision rather than
+ * being quietly deleted — but this function is the one the write paths call.
+ *
+ * ★★★ AND IT IS CALLED ON COMMIT, NEVER ON KEYSTROKE. Rounding an input as it
+ * is typed destroys the value before the user has finished it: typing "100.5"
+ * would become "100" at the "100." keystroke and the ".5" would land nowhere.
+ * Every call site below is a blur or a submit.
+ *
+ * ★ NULL passes through as NULL. A missing dimension is missing, not zero.
+ */
+export function roundLotForStorage(
+  n: number | null | undefined,
+): number | null {
+  if (typeof n !== 'number' || !Number.isFinite(n)) return null;
+  return roundLotFeet(n);
+}
+
 /** ★ The one place the rule is written down: `Math.round`, which is half-up for
  *  positive numbers — 100.47 → 100, 100.5 → 101, 120.5 → 121. Lot dimensions
  *  are never negative, so the half-up/half-away-from-zero distinction that

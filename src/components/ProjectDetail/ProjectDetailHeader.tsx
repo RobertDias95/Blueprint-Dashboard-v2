@@ -9,6 +9,8 @@ import {
   UNIT_ROW_GRID,
 } from '../../lib/unitRowLayout';
 import { isNoWorkUnit } from '../../lib/unitWorkScope';
+import ZoneSelect from '../shared/ZoneSelect';
+import { roundLotForStorage } from '../../lib/lotDimensions';
 import { VENDOR_SEND_LEAD_DAYS, vendorTargetSend } from '../../lib/vendorReport';
 import type {
   Builder,
@@ -1929,13 +1931,22 @@ function SiteEditor({ project }: { project: Project }) {
 
   return (
     <div className="flex flex-col gap-1">
-      <SiteTextRow
-        label="Zone"
-        value={project.zone}
-        placeholder="e.g. RSL"
-        disabled={occMissing}
-        onCommit={(v) => commit('zone', v || null, project.zone, 'Zone')}
-      />
+      {/* ★★★ fix-415 A3: Zone is a DROPDOWN here now. This was a free-text
+          SiteTextRow, and it is the surface that produced most of the 33
+          spellings of 21 zones — it writes the table DIRECTLY through
+          useUpdateProject (not through either RPC), so nothing server-side was
+          ever going to normalise it. */}
+      <div className="flex items-baseline gap-1.5">
+        <span className="text-[9px] text-dim min-w-[32px]">Zone</span>
+        <ZoneSelect
+          value={project.zone}
+          disabled={occMissing}
+          onChange={(v) => commit('zone', v || null, project.zone, 'Zone')}
+          testid="pd-site-zone"
+          className="flex-1 min-w-0 text-[10px] font-semibold text-text border-0 border-b outline-none bg-transparent px-0 py-0.5 disabled:opacity-50"
+          style={{ borderBottomColor: 'var(--color-border)' }}
+        />
+      </div>
       <SiteLotRow project={project} disabled={occMissing} onCommit={commit} />
       {/* fix-122: Number of Lots (1-20 dropdown, blank = unset). Lives in
           Site because a subdivision count is a parcel-level fact, not a
@@ -2038,37 +2049,13 @@ function SiteEditor({ project }: { project: Project }) {
 
 // fix-122: date input variant of SiteTextRow. Same look-and-feel as the
 // neighbouring text/select/number rows; commits on blur with empty → null.
-function SiteTextRow({
-  label,
-  value,
-  placeholder,
-  disabled,
-  onCommit,
-}: {
-  label: string;
-  value: string | null | undefined;
-  placeholder?: string;
-  disabled: boolean;
-  onCommit: (next: string) => void;
-}) {
-  const [draft, setDraft] = useState(value ?? '');
-  return (
-    <div className="flex items-baseline gap-1.5">
-      <span className="text-[9px] text-dim min-w-[32px]">{label}</span>
-      <input
-        type="text"
-        value={draft}
-        placeholder={placeholder}
-        onChange={(e) => setDraft(e.target.value)}
-        onBlur={() => onCommit(draft.trim())}
-        disabled={disabled}
-        className="flex-1 min-w-0 text-[10px] font-semibold text-text border-0 border-b outline-none bg-transparent px-0 py-0.5 disabled:opacity-50"
-        style={{ borderBottomColor: 'var(--color-border)' }}
-        data-testid={`pd-site-${label.toLowerCase()}`}
-      />
-    </div>
-  );
-}
+// ★★★ fix-415: `SiteTextRow` IS DELETED, not left for a future caller.
+//
+// It existed for exactly one field — Zone — and Zone is a <ZoneSelect> now
+// (Scope A3: dropdown-only on every surface that writes zone). A free-text row
+// component sitting in the Site editor is an invitation to use it, and using it
+// is what produced 33 spellings of 21 zones. The component is the affordance;
+// removing the affordance is part of the fix.
 
 function SiteSelectRow({
   label,
@@ -2127,11 +2114,21 @@ function SiteLotRow({
   const [dDraft, setDDraft] = useState<string>(
     project.lot_depth != null ? String(project.lot_depth) : '',
   );
+  // ★★★ fix-415 B2 — ROUNDED ON COMMIT, at the write path that actually runs.
+  //
+  // This row writes `projects.lot_width` / `lot_depth` DIRECTLY to the table
+  // through useUpdateProject — not through bp_update_project_with_permits,
+  // which is the trap fix-410 documented (is_corner_lot is absent from that
+  // RPC's SET list entirely). Rounding server-side in the RPC would therefore
+  // have left this surface, the one people actually use, still storing 100.47.
+  //
+  // ★ `parse` is called from onBlur, never from onChange, so a half-typed
+  //   "100." is never rounded out from under the user.
   const parse = (s: string): number | null => {
     const trimmed = s.trim();
     if (trimmed === '') return null;
     const n = Number(trimmed);
-    return Number.isFinite(n) ? n : null;
+    return Number.isFinite(n) ? roundLotForStorage(n) : null;
   };
   return (
     <div className="flex items-baseline gap-1.5">

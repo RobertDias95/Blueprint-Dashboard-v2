@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { roundLotForStorage } from '../lib/lotDimensions';
 import { Link, useNavigate } from 'react-router-dom';
 import { useOriginState } from '../hooks/useOriginState';
 import {
@@ -420,8 +421,11 @@ export default function NewProjectWizard({ open, onClose, initialState }: Props)
       go_date: strOrNull(state.go_date),
       units: intOrNull(state.units),
       zone: strOrNull(state.zone),
-      lot_width: numOrNull(state.lot_width),
-      lot_depth: numOrNull(state.lot_depth),
+      // ★ fix-415 B2: rounded as the wizard submits — the third write path.
+      //   Rounding here rather than in Step 1's onChange keeps a half-typed
+      //   "100." intact while the user is still typing it.
+      lot_width: roundLotForStorage(numOrNull(state.lot_width)),
+      lot_depth: roundLotForStorage(numOrNull(state.lot_depth)),
       unit_types: state.unit_types.length > 0 ? state.unit_types : null,
       // ★ fix-402: site parking is gone — it lives on each unit now.
       alley: strOrNull(state.alley),

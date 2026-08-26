@@ -367,7 +367,17 @@ export function filterLibraryRows(
     ) {
       return false;
     }
-    if (zoneQ && !r.zone.toLowerCase().includes(zoneQ)) return false;
+    // ★★★ fix-415 A5 — EXACT MATCH, NOT SUBSTRING, AND THAT IS A BUG FIX.
+    //
+    // This read `.includes(zoneQ)` while the control was a free-text box, which
+    // was reasonable for typing a fragment. It is wrong the moment the control
+    // offers exact canonical values: **"NR" is a substring of "NR3"**, so
+    // picking NR returned all 127 NR projects *plus* the 13 NR3 ones — the
+    // grouping this ticket exists to deliver, silently not delivered.
+    //
+    // ★ Measured 2026-08-26: NR/NR3 is the only colliding pair among the 21,
+    //   which is exactly why a substring match survived this long unnoticed.
+    if (zoneQ && r.zone.trim().toLowerCase() !== zoneQ) return false;
     if (filters.alley && r.alley !== filters.alley) return false;
     if (filters.productTypes.length > 0) {
       // fix-91: any-of. Project matches when at least one of its

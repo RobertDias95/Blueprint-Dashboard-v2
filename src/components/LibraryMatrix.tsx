@@ -49,6 +49,7 @@ import {
 } from '../lib/libraryGroupPalette';
 import { useAppConfig, readAppConfigStringArray } from '../hooks/useAppConfig';
 import { useAuthStore } from '../stores/authStore';
+import { zoneOptions } from '../lib/zoneOptions';
 import { formatLotPair } from '../lib/lotDimensions';
 import {
   clearLibraryFilters,
@@ -198,6 +199,9 @@ function Body({ projects, permits }: BodyProps) {
     () => readAppConfigStringArray(appConfig.map, 'productTypeOptions'),
     [appConfig.map],
   );
+  // ★ fix-415 A5: the same registry the three write surfaces use, so the filter
+  //   can never offer a zone nothing can be stored as — or miss one that can.
+  const zoneFilterOptions = useMemo(() => zoneOptions(appConfig.map), [appConfig.map]);
   // ★ fix-406: the default comes from the same constant `sortLibraryRows` falls
   //   back to, so "what the Library sorts by" has one answer.
   const [sort, setSort] = useState<SortState>(DEFAULT_LIBRARY_SORT);
@@ -362,15 +366,28 @@ function Body({ projects, permits }: BodyProps) {
           </div>
 
           <div className="flex flex-wrap items-end gap-3">
+            {/* ★★★ fix-415 SCOPE A5 — THE FILTER THAT GROUPING WAS FOR.
+                This was a free-text box doing a substring match, over a column
+                holding 33 spellings of 21 zones: asking for LR1 found three of
+                the ten projects that ARE LR1, because the other seven were
+                stored "LR 1", "LR1 (M)", "LR1 (M1)" or "LR1 M". Both halves are
+                fixed — the data is canonical now, and the control offers only
+                the canonical list, so a person cannot type a spelling that
+                matches nothing. */}
             <FieldLabel label="Zone">
-              <input
-                type="text"
+              <select
                 value={filters.zone}
                 onChange={(e) => update('zone', e.target.value)}
-                placeholder="e.g. NR"
-                className={`w-20 ${FIELD_CLASS}`}
+                className={`w-28 ${FIELD_CLASS}`}
                 data-testid="filter-zone"
-              />
+              >
+                <option value="">Any</option>
+                {zoneFilterOptions.map((z) => (
+                  <option key={z} value={z}>
+                    {z}
+                  </option>
+                ))}
+              </select>
             </FieldLabel>
 
             <FieldLabel label="Jurisdiction">
