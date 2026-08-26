@@ -8,7 +8,6 @@ import { queryKeys } from '../lib/queryKeys';
 import migrationSql from '../../migrations/fix_412_existing_to_remodel.sql?raw';
 import {
   UNIT_ROW_COLUMNS,
-  UNIT_ROW_GRID,
   UNIT_ROW_SUPPRESSED_ON_NO_WORK,
 } from '../lib/unitRowLayout';
 import {
@@ -135,122 +134,103 @@ beforeEach(() => {
 // §C · THE ROW, LAID OUT ONCE
 // ---------------------------------------------------------------------------
 
-describe('fix-412 §C: every header sits over its own control', () => {
-  it('★★★ the header and the row are the SAME grid — the structural fix', () => {
-    // ★★ THIS IS THE ASSERTION THAT MAKES THE DEFECT UNREPEATABLE. The bug was
-    //    two independent width lists; if the header and the row render from one
-    //    `grid-template-columns`, a header cannot sit over the wrong control
-    //    because they are in the same column. Asserting the two STRINGS MATCH
-    //    is asserting there is only one list.
+// =========================================================================
+// ★★★ §C IS SUPERSEDED BY fix-418 — AND fix-412 WAS NOT WRONG
+// =========================================================================
+//
+// fix-412 laid the unit fields out as a horizontal ROW and made the header sit
+// over its own control, because the header strip and the row had drifted four
+// ways. fix-417 then wrapped that row in `overflow-x` so it would stop
+// dictating the page width. Bobby, 2026-08-26:
+//
+//   *"make that more of a vertical stretch versus a horizontal thing, because
+//    I don't like having the scroll bar in there … you'd have the unit type at
+//    the top and then you would kind of go down."*
+//
+// He does not want the scrollbar CONTAINED, he wants it GONE. Vertical removes
+// it at source, so the row, its shared header strip and its grid template are
+// all retired.
+//
+// ★★★ WHAT fix-412 ACTUALLY RULED SURVIVES, AND IS ASSERTED BELOW:
+//
+//   · every field label sits with ITS OWN control — now absolutely, because
+//     the label and the control are the same component (`UnitField`) and
+//     cannot drift apart at all;
+//   · the field ORDER is Bobby's, still declared once in `UNIT_ROW_COLUMNS`;
+//   · "Roof Deck" is still spelled in full;
+//   · a no-work unit still suppresses exactly the drawn-detail fields.
+//
+// Only the horizontal geometry went.
+describe('fix-412 §C (superseded by fix-418): the fields read vertically', () => {
+  it('★★★ there is NO shared header strip and NO grid row any more', () => {
     setup([unit()]);
-    const header = screen.getByTestId('pd-unit-header');
+    expect(screen.queryByTestId('pd-unit-header')).toBeNull();
     const row = screen.getByTestId('pd-unit-row');
-    expect(header.style.gridTemplateColumns).toBe(UNIT_ROW_GRID);
-    expect(row.style.gridTemplateColumns).toBe(UNIT_ROW_GRID);
-    expect(header.style.gridTemplateColumns).toBe(row.style.gridTemplateColumns);
+    expect(row.style.gridTemplateColumns).toBe('');
   });
 
-  it('★★★ header cells and row cells are the SAME COUNT — no orphan control', () => {
-    // ★ The remove × used to have no header column at all, so every cumulative
-    //   error landed on the last real column. Same count = every control has a
-    //   header and every header has a control.
+  it('★★★ every field label is beside ITS OWN control — fix-412\'s ruling, absolutely', () => {
+    // ★ The defect fix-412 fixed was a header sitting over the wrong box. A
+    //   label that is a SIBLING of its control in a two-element flex row cannot
+    //   sit over anything else, at any width, with no template to keep in step.
     setup([unit()]);
-    const header = screen.getByTestId('pd-unit-header');
     const row = screen.getByTestId('pd-unit-row');
-    expect(header.children.length).toBe(UNIT_ROW_COLUMNS.length);
-    expect(row.children.length).toBe(UNIT_ROW_COLUMNS.length);
+    for (const [key, testid] of [
+      ['width_ft', 'pd-unit-w'],
+      ['depth_ft', 'pd-unit-d'],
+      ['qty', 'pd-unit-qty'],
+      ['stories', 'pd-unit-stories'],
+      ['parking_kind', 'pd-unit-parking-kind'],
+      ['parking_stalls', 'pd-unit-stalls'],
+      ['roof_deck', 'pd-unit-roof-deck'],
+    ] as const) {
+      const control = within(row).getByTestId(testid);
+      const field = control.closest('div')!;
+      const header = UNIT_ROW_COLUMNS.find((c) => c.key === key)!.header;
+      expect(field.textContent).toContain(header);
+    }
   });
 
-  it('★★★ DEFECT 1: "Roof Deck" is the LAST header, over the roof-deck control', () => {
-    // Bobby: "RD did not sit over its own box."
-    setup([unit()]);
-    const header = screen.getByTestId('pd-unit-header');
-    const row = screen.getByTestId('pd-unit-row');
-    const rdIndex = UNIT_ROW_COLUMNS.findIndex((c) => c.key === 'roof_deck');
-    expect(header.children[rdIndex].textContent).toBe('Roof Deck');
-    // ★ The control in the SAME grid index is the roof-deck select.
-    expect(
-      within(row.children[rdIndex] as HTMLElement).queryByTestId(
-        'pd-unit-roof-deck',
-      ) ?? (row.children[rdIndex] as HTMLElement),
-    ).toHaveAttribute('data-testid', 'pd-unit-roof-deck');
-  });
-
-  it('★★★ DEFECT 2: Stalls sits in its own column, not drifting into Parking', () => {
-    // Bobby: "Stalls drifted toward Parking." It drifted because
-    // ParkingKindSelect had NO width and auto-sized to "Surface + Garage".
-    setup([unit()]);
-    const header = screen.getByTestId('pd-unit-header');
-    const row = screen.getByTestId('pd-unit-row');
-    const pIdx = UNIT_ROW_COLUMNS.findIndex((c) => c.key === 'parking_kind');
-    const sIdx = UNIT_ROW_COLUMNS.findIndex((c) => c.key === 'parking_stalls');
-    expect(header.children[pIdx].textContent).toBe('Parking');
-    expect(header.children[sIdx].textContent).toBe('Stalls');
-    expect(row.children[pIdx]).toHaveAttribute('data-testid', 'pd-unit-parking-kind');
-    expect(row.children[sIdx]).toHaveAttribute('data-testid', 'pd-unit-stalls');
-    // ★ ...and the selects FILL their column now instead of auto-sizing, which
-    //   is what made them push their neighbours around.
-    expect((row.children[pIdx] as HTMLElement).className).toContain('w-full');
-    expect((row.children[sIdx] as HTMLElement).className).toContain('w-full');
-  });
-
-  it('★★★ C3: Bobby\'s column order is intact, with `work` inserted after Label', () => {
+  it('★★★ C3: the field order is still Bobby\'s, declared once', () => {
     const keys = UNIT_ROW_COLUMNS.map((c) => c.key).filter((k) => k !== 'remove');
     expect(keys).toEqual([
-      'label',
-      'work_scope',
-      'width_ft',
-      'depth_ft',
-      'qty',
-      'stories',
-      'parking_kind',
-      'parking_stalls',
-      'roof_deck',
-    ]);
-    // ★ His eight, in his exact relative order, as a subsequence.
-    expect(keys.filter((k) => k !== 'work_scope')).toEqual([
-      'label',
-      'width_ft',
-      'depth_ft',
-      'qty',
-      'stories',
-      'parking_kind',
-      'parking_stalls',
-      'roof_deck',
+      'label', 'work_scope', 'width_ft', 'depth_ft', 'qty', 'stories',
+      'parking_kind', 'parking_stalls', 'roof_deck',
     ]);
   });
 
-  it('★★ C1: the "Unit dimensions" heading renders above the row', () => {
-    setup([unit()]);
-    expect(
-      screen.getByTestId('pd-unit-dimensions-heading').textContent,
-    ).toBe('Unit dimensions');
+  it('★★★ …and the rendered order matches it, top to bottom', () => {
+    setup([unit({ label: 'Remodel' })], ['Remodel']);
+    const row = screen.getByTestId('pd-unit-row');
+    const order = [
+      'pd-unit-label-select', 'pd-unit-work-scope', 'pd-unit-w', 'pd-unit-d',
+      'pd-unit-qty', 'pd-unit-stories', 'pd-unit-parking-kind',
+      'pd-unit-stalls', 'pd-unit-roof-deck',
+    ];
+    const positions = order.map((t) =>
+      Array.prototype.indexOf.call(
+        row.querySelectorAll('*'),
+        within(row).getByTestId(t),
+      ),
+    );
+    expect(positions).toEqual([...positions].sort((a, b) => a - b));
   });
 
-  it('★★★ C2: the row is no longer indented behind a "Units" side-label', () => {
-    // ★ The gutter Bobby pointed at: the old shape was
-    //   `[36px "Units"] [gap] [row]`, so the row began ~42px in. The heading is
-    //   a BLOCK above the row now, so the row starts at the container edge —
-    //   which is the width that let "Roof Deck" go back to full words.
+  it('★★ C1: the "Unit dimensions" heading is still there, now its own section', () => {
     setup([unit()]);
-    const block = screen.getByTestId('pd-unit-dimensions-block');
-    const heading = screen.getByTestId('pd-unit-dimensions-heading');
-    const header = screen.getByTestId('pd-unit-header');
-    // The heading and the grid are siblings stacked in the block, not a
-    // label-beside-content pair.
-    expect(block).toContainElement(heading);
-    expect(block).toContainElement(header);
-    expect(heading.nextElementSibling).toContainElement(header);
+    expect(screen.getByTestId('pd-project-units')).toBeInTheDocument();
+    expect(screen.getByTestId('pd-project-units').textContent).toContain(
+      'Unit dimensions',
+    );
   });
 
-  it('★★ C5: "Roof Deck" fits in full — the 52px that forced "RD" is gone', () => {
+  it('★★ C5: "Roof Deck" is still spelled in full', () => {
     const rd = UNIT_ROW_COLUMNS.find((c) => c.key === 'roof_deck')!;
     expect(rd.header).toBe('Roof Deck');
-    expect(rd.width).toBeGreaterThan(52);
+    expect(UNIT_ROW_COLUMNS.map((c) => c.header)).not.toContain('Deck');
     setup([unit()]);
-    expect(screen.getByTestId('pd-unit-header-roof_deck').textContent).toBe(
-      'Roof Deck',
-    );
+    const control = screen.getByTestId('pd-unit-roof-deck');
+    expect(control.closest('div')!.textContent).toContain('Roof Deck');
   });
 });
 
@@ -282,13 +262,12 @@ describe('fix-412 §B: three states, and null is not an answer', () => {
     expect(isNoWorkUnit(null)).toBe(false);
   });
 
-  it('★★★ B3: the control renders in the row, between Label and W', () => {
-    setup([unit()]);
-    const row = screen.getByTestId('pd-unit-row');
-    const idx = UNIT_ROW_COLUMNS.findIndex((c) => c.key === 'work_scope');
-    expect(row.children[idx]).toHaveAttribute('data-testid', 'pd-unit-work-scope');
-    expect(screen.getByTestId('pd-unit-header-work_scope').textContent).toBe('Work');
-    // Three options: not answered, No work, Work performed.
+  it('★★★ B3 (fix-418): the control renders only on a REMODEL', () => {
+    // ★★ fix-412 rendered Work on EVERY unit type, which was a scoping defect:
+    //    P-050 specified it as a property of a Remodel and a Duplex has no
+    //    meaningful answer. fix-418 makes it ABSENT — not disabled — on
+    //    anything else. The three states and the stored key are unchanged.
+    setup([unit({ label: 'Remodel' })], ['Remodel']);
     const sel = screen.getByTestId('pd-unit-work-scope') as HTMLSelectElement;
     expect(Array.from(sel.options).map((o) => o.value)).toEqual([
       '',

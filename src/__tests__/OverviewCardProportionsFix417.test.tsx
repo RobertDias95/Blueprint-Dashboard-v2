@@ -13,7 +13,7 @@ import {
   OVERVIEW_ROW_MIN_WIDTH,
   overviewRowWidthAt,
 } from '../lib/overviewCardLayout';
-import { UNIT_ROW_COLUMNS, UNIT_ROW_GAP, UNIT_ROW_GRID } from '../lib/unitRowLayout';
+import { UNIT_ROW_COLUMNS, UNIT_ROW_GAP } from '../lib/unitRowLayout';
 
 // ===========================================================================
 // fix-417 — the Project Overview card row gets declared proportions
@@ -171,14 +171,44 @@ describe('fix-417: the page body never scrolls sideways', () => {
 // §B · THE UNITS ROW STOPS DICTATING THE PAGE WIDTH
 // ---------------------------------------------------------------------------
 
-describe('fix-417 §B2: fix-412 is wrapped, not re-laid', () => {
-  it('★★★ UNIT_ROW_GRID is untouched — the header/row identity still holds', () => {
-    // ★ The brief's hard constraint. fix-412's own test asserts the header and
-    //   the row render from ONE template; this asserts the template itself did
-    //   not move, so that test cannot pass vacuously against a changed one.
-    expect(UNIT_ROW_GRID).toBe(
-      '84px 74px 46px 46px 38px 38px 104px 58px 78px 18px',
-    );
+// =========================================================================
+// ★★★ §B IS SUPERSEDED BY fix-418 — AND IT WAS THE RIGHT ANSWER AT THE TIME
+// =========================================================================
+//
+// fix-417 §B wrapped fix-412's horizontal unit row in an `overflow-x` container
+// so it would stop setting the page width. Bobby, 2026-08-26: *"make that more
+// of a vertical stretch versus a horizontal thing, because I don't like having
+// the scroll bar in there."* He does not want the scrollbar CONTAINED, he wants
+// it GONE — so the fields run down a column now and the scroller, the row and
+// its grid template are all retired.
+//
+// ★★ WHAT §B WAS PROTECTING STILL HOLDS AND IS ASSERTED HERE: the PROJECT card
+// must not be able to set the row's width. The scroller did that by containing
+// overflow; vertical does it by never overflowing. The §A proportions and their
+// floors — the part of fix-417 that is still load-bearing — are untouched.
+describe('fix-417 §B (superseded by fix-418): nothing scrolls sideways', () => {
+  it('★★★ the units scroller is GONE, not merely hidden', () => {
+    renderHeader();
+    expect(screen.queryByTestId('pd-unit-dimensions-scroll')).toBeNull();
+  });
+
+  it('★★★ NOTHING inside the PROJECT card has overflow-x', () => {
+    // ★ The point of the change, asserted on the rendered tree rather than on
+    //   the one element fix-417 happened to add.
+    renderHeader();
+    const card = screen.getByTestId('pd-project-card');
+    for (const el of Array.from(card.querySelectorAll('*')) as HTMLElement[]) {
+      expect(el.className).not.toContain('overflow-x-auto');
+      expect(el.className).not.toContain('overflow-x-scroll');
+      expect(el.style.overflowX).not.toBe('auto');
+      expect(el.style.overflowX).not.toBe('scroll');
+    }
+  });
+
+  it('★★ the fix-412 column table survives as the field declaration', () => {
+    // ★ The widths are now the RECORD of why fix-417 happened — 584 + 36 = 620
+    //   is what made the card's min-content 642px. Deleting them would delete
+    //   the evidence for a fix that is still load-bearing.
     expect(UNIT_ROW_COLUMNS).toHaveLength(10);
     expect(UNIT_ROW_GAP).toBe(4);
   });
@@ -382,38 +412,30 @@ describe('fix-417: THE REPORTED DEFECT — Builder/Owner clips mid-word', () => 
   });
 });
 
-describe('fix-417 §B: the Units row scrolls inside its card', () => {
-  it('★★★ B1: it has its own horizontal scroll container', () => {
+describe('fix-417 §B (superseded): the PROJECT card still cannot set the row width', () => {
+  it('★★★ the interior wraps instead of scrolling', () => {
+    // fix-418 §A: two columns that WRAP below 285px of interior, so the card
+    // never demands more width than its fix-417 floor gives it — the property
+    // §B's scroller existed to guarantee, now structural.
     renderHeader();
-    const scroller = screen.getByTestId('pd-unit-dimensions-scroll');
-    expect(scroller.className).toContain('overflow-x-auto');
-    // ★ …and the fix-412 grid is INSIDE it, not replaced by it.
-    const header = within(scroller).getByTestId('pd-unit-header');
-    expect(header.style.gridTemplateColumns).toBe(UNIT_ROW_GRID);
+    const interior = screen.getByTestId('pd-project-interior');
+    expect(interior.className).toContain('flex-wrap');
+    expect(interior.className).not.toContain('overflow');
   });
 
-  it('★★★ B3: it is visibly scrollable, not silently cut off', () => {
-    // ★ A row cut off with no signal is worse than the reported problem. The
-    //   gutter is reserved so the scrollbar is a real one rather than an
-    //   overlay that appears only once you have already guessed, and the inset
-    //   shadow shows the content continuing past the card edge.
-    renderHeader();
-    const scroller = screen.getByTestId('pd-unit-dimensions-scroll');
-    expect(scroller.style.scrollbarGutter).toBe('stable');
-    expect(scroller.style.boxShadow).toContain('inset');
-  });
-
-  it('★★★ the scroller is what lets the PROJECT floor be below 642px', () => {
-    // ★ The two halves are one change: without the scroll container the card's
-    //   min-content stays 642px and the `minmax` floor is overruled by the
-    //   content anyway. Asserted together so neither can be removed alone.
-    const proj = OVERVIEW_CARD_COLUMNS.find((c) => c.key === 'proj')!;
-    const unitsRowMin =
-      UNIT_ROW_COLUMNS.reduce((a, c) => a + c.width, 0) +
-      (UNIT_ROW_COLUMNS.length - 1) * UNIT_ROW_GAP;
-    expect(proj.minPx).toBeLessThan(unitsRowMin);
-    renderHeader();
-    expect(screen.getByTestId('pd-unit-dimensions-scroll')).toBeInTheDocument();
+  it('★★★ the fix-417 card floors are UNTOUCHED — Plan of Record still widest', () => {
+    // The brief's hard constraint for fix-418: overviewCardLayout must not move.
+    expect(OVERVIEW_CARD_COLUMNS.map((c) => c.minPx)).toEqual([
+      140, 220, 140, 240, 190,
+    ]);
+    expect(OVERVIEW_CARD_COLUMNS.map((c) => c.pct)).toEqual([14, 26, 15, 29, 16]);
+    const por = OVERVIEW_CARD_COLUMNS.find((c) => c.key === 'por')!;
+    for (const c of OVERVIEW_CARD_COLUMNS) {
+      if (c.key !== 'por') {
+        expect(por.pct).toBeGreaterThan(c.pct);
+        expect(por.minPx).toBeGreaterThan(c.minPx);
+      }
+    }
   });
 });
 
