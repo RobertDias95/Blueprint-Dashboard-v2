@@ -56,6 +56,10 @@ export interface LibraryRow {
   /** fix-122: corner-lot flag. null = "not answered". Surfaced as a
    *  Library column + Any/Yes/No filter. */
   isCornerLot: boolean | null;
+  /** ★ fix-410: regular-shape flag. null = "not answered" — a distinct third
+   *  state the filter can select for, never folded into No. A SITE field
+   *  (fix-406's teal group), like every other fact about the lot itself. */
+  isRegularShape: boolean | null;
   /** fix-206: the project's OCC token (projects.updated_at). The Library unit
    *  table is now editable and writes via the SAME useUpdateProject path as
    *  Project Overview; this carries the expectedUpdatedAt for that write. Null
@@ -160,6 +164,13 @@ export function buildLibraryRows(
       numLots: proj.num_lots ?? null,
       isCornerLot:
         typeof proj.is_corner_lot === 'boolean' ? proj.is_corner_lot : null,
+      // ★ fix-410: `typeof === 'boolean'`, not a truthiness check — an
+      //   undefined column (the useProjects select-list trap) and a recorded
+      //   `false` must not collapse into the same answer.
+      isRegularShape:
+        typeof proj.is_regular_shape === 'boolean'
+          ? proj.is_regular_shape
+          : null,
       updatedAt: proj.updated_at ?? null,
       structAddressHay: structAddressHaystack(projectPermits),
     });
@@ -214,6 +225,16 @@ export interface LibraryFilters {
    *  Rows with NULL is_corner_lot fall out under Yes/No (no implicit
    *  default — they're literally unanswered). */
   isCornerLot: '' | 'Yes' | 'No';
+  /** ★★ fix-410: the regular-shape filter, and it has FOUR states where corner
+   *  has three.
+   *
+   *  '' = Any · 'Regular' = true · 'Irregular' = false · 'Not set' = null.
+   *
+   *  ★ "Not set" is selectable, unlike on Corner, where a NULL can only ever
+   *  fall out of Yes/No. Bobby's default means the null population should be
+   *  empty in practice; making it FINDABLE is how anybody notices when it is
+   *  not — a state you cannot filter for is a state you cannot audit. */
+  isRegularShape: '' | 'Regular' | 'Irregular' | 'Not set';
   /** fix-205: Stories tier filter on a project's unit_types. '' = no filter;
    *  '1'/'2'/'3' = at least one unit_type has exactly that many stories;
    *  '4+' = at least one has 4 or more. Like the unit width/depth filters it
@@ -315,6 +336,17 @@ export function filterLibraryRows(
     // fix-122: tri-state Corner — Yes/No each require a non-null match.
     if (filters.isCornerLot === 'Yes' && r.isCornerLot !== true) return false;
     if (filters.isCornerLot === 'No' && r.isCornerLot !== false) return false;
+    // ★ fix-410: three explicit arms, so `null` is a value you can ASK for
+    //   rather than only something that falls out of the other two.
+    if (filters.isRegularShape === 'Regular' && r.isRegularShape !== true) {
+      return false;
+    }
+    if (filters.isRegularShape === 'Irregular' && r.isRegularShape !== false) {
+      return false;
+    }
+    if (filters.isRegularShape === 'Not set' && r.isRegularShape !== null) {
+      return false;
+    }
     if (searchQ && !matchRowSearch(r, searchQ)) return false;
     return true;
   });
@@ -352,6 +384,12 @@ export const SORTABLE_COLUMNS = [
   'alley',
   'stage',
   'isCornerLot',
+  // ★★★ fix-410: ADDING THE COLUMN HERE IS HALF THE JOB — the other half is the
+  //   sort ARM below. `SORTABLE_COLUMNS` is what `isSortableColumn` guards
+  //   with, so a name listed here but not handled below falls through to
+  //   `a[col].localeCompare(...)` on a boolean and throws the fix-406 TypeError
+  //   during render. Both are done; the test asserts every member has an arm.
+  'isRegularShape',
 ] as const;
 
 export type SortableColumn = (typeof SORTABLE_COLUMNS)[number];
@@ -419,14 +457,18 @@ export function sortLibraryRows(
   // ★★★ fix-406: the `numLots` arm was here and left with the column. Its
   //   NULLs-last rule survives below on `isCornerLot`, which was written
   //   against it and is the only remaining reader of that idea.
-  if (col === 'isCornerLot') {
+  // ★ fix-410: ONE tri-state arm serving both boolean columns, rather than a
+  //   second copy of the same nine lines. The NULLs-last rule is the same rule
+  //   and must stay the same rule.
+  if (col === 'isCornerLot' || col === 'isRegularShape') {
     // Tri-state sort: true < false < null. NULL last (the rule fix-122 wrote
     // for numLots — unanswered rows shouldn't dilute the result band).
     const rank = (v: boolean | null) =>
       v === true ? 0 : v === false ? 1 : 2;
+    const key = col;
     sorted.sort((a, b) => {
-      const ra = rank(a.isCornerLot);
-      const rb = rank(b.isCornerLot);
+      const ra = rank(a[key]);
+      const rb = rank(b[key]);
       if (ra === 2 && rb === 2) return 0;
       if (ra === 2) return 1;
       if (rb === 2) return -1;

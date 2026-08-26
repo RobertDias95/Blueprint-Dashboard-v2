@@ -103,6 +103,15 @@ export interface Project {
    *  Library so a 50x100 corner is comparable apples-to-apples to a
    *  50x100 mid-block. */
   is_corner_lot?: boolean | null;
+  /** ★ fix-410 (P-040): is the lot a regular rectangle — equal widths, equal
+   *  lengths? `null` = nobody has said, and it must never render as "Yes".
+   *
+   *  ★★ Hand-typed, like everything in this file. The column is nullable with
+   *  NO DDL default on purpose: the FORM carries Bobby's "default should be
+   *  yes", the COLUMN does not, so a create path that omits the key records
+   *  "not answered" rather than a claim. Optional here for the same reason
+   *  `is_corner_lot` is — a fixture that predates the column stays valid. */
+  is_regular_shape?: boolean | null;
   /** fix-122: closing/escrow date. Informational only — surfaces "we
    *  have permits but builder won't issue until closing." No math, no
    *  cascades, no alerts. */

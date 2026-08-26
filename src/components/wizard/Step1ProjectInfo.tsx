@@ -869,6 +869,36 @@ export default function Step1ProjectInfo({
               <option value="no">No</option>
             </select>
           </label>
+          {/* ★★★ fix-410 (P-040) — REGULAR SHAPE.
+              Bobby, 2026-08-26: *"default should be yes, the other option is
+              no."* So it sits beside Corner Lot — the two "what shape is this
+              lot" questions read together — and uses the SAME select the rest
+              of this row uses.
+
+              ★★ IT HAS NO BLANK OPTION, unlike Corner Lot beside it, and that
+              is the difference Bobby asked for: a NEW project always carries an
+              answer, so irregular lots are the ones somebody has to flag. The
+              NULL state still exists in the database and on every read surface
+              (a row created by a path that never ran this form) — it just is
+              not something this control can produce. */}
+          <label className="flex flex-col gap-1">
+            <span className="text-[10px] uppercase tracking-wide text-dim">
+              Regular Shape
+            </span>
+            <select
+              value={value.is_regular_shape}
+              onChange={(e) => set('is_regular_shape', e.target.value)}
+              className="bg-bg border border-border rounded-md px-3 py-1.5 text-xs font-display text-text focus:outline-none focus:border-de"
+              data-testid="wizard-is-regular-shape"
+            >
+              <option value="yes">Yes</option>
+              <option value="no">No</option>
+            </select>
+            <span className="text-[9.5px] text-dim leading-snug">
+              Equal widths and equal lengths — a rectangle. Choose No for an
+              irregular lot.
+            </span>
+          </label>
           <label className="flex flex-col gap-1">
             <span className="text-[10px] uppercase tracking-wide text-dim">
               Closing Date

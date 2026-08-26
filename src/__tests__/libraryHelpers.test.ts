@@ -241,6 +241,7 @@ describe('filterLibraryRows', () => {
     tag: '',
     juris: '',
     isCornerLot: '',
+    isRegularShape: '',
     stories: '',
     // ★ fix-402: the UNIT card's three new filters, all Any.
     parkingKind: '',
@@ -263,6 +264,7 @@ describe('filterLibraryRows', () => {
       unitTypes: [],
       numLots: 1,
       isCornerLot: true,
+      isRegularShape: true,
       updatedAt: null,
     },
     {
@@ -280,6 +282,7 @@ describe('filterLibraryRows', () => {
       unitTypes: [],
       numLots: 5,
       isCornerLot: false,
+      isRegularShape: false,
       updatedAt: null,
     },
   ];
@@ -349,6 +352,7 @@ describe('filterLibraryRows', () => {
         address: '900 Cedar Ct',
         numLots: null as number | null,
         isCornerLot: null as boolean | null,
+        isRegularShape: null as boolean | null,
       },
     ];
 
@@ -376,6 +380,7 @@ describe('filterLibraryRows', () => {
       const out = filterLibraryRows(rowsExt, {
         ...baseFilters,
         isCornerLot: '',
+    isRegularShape: '',
       });
       expect(out).toHaveLength(3);
     });
@@ -411,6 +416,7 @@ describe('fix-205: stories filter', () => {
     tag: '',
     juris: '',
     isCornerLot: '',
+    isRegularShape: '',
     stories: '',
     // ★ fix-402: the UNIT card's three new filters, all Any.
     parkingKind: '',
@@ -441,6 +447,7 @@ describe('fix-205: stories filter', () => {
         stories: s,
       })),
       isCornerLot: null,
+      isRegularShape: null,
       updatedAt: '2026-06-25T00:00:00Z',
     };
   }
@@ -507,6 +514,7 @@ describe('sortLibraryRows', () => {
     unitTypes: [],
     numLots: null as number | null,
     isCornerLot: null as boolean | null,
+    isRegularShape: null as boolean | null,
     updatedAt: null as string | null,
   }));
 

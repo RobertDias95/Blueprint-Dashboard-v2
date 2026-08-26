@@ -57,7 +57,7 @@ const LIB_DEFAULT: LibraryFilters = {
   search: '', lotwTarget: null, lotwBuf: 2, lotdTarget: null, lotdBuf: 2,
   unitwTarget: null, unitwBuf: 2, unitdTarget: null, unitdBuf: 2,
   zone: '', alley: '', productTypes: [], tag: '', juris: '',
-  isCornerLot: '', stories: '', parkingKind: '', stalls: '', roofDeck: '',
+  isCornerLot: '', isRegularShape: '', stories: '', parkingKind: '', stalls: '', roofDeck: '',
 };
 
 describe('fix-403 §1: the Library round-trips its whole filter shape', () => {
@@ -68,7 +68,7 @@ describe('fix-403 §1: the Library round-trips its whole filter shape', () => {
       unitwTarget: 20, unitwBuf: 1, unitdTarget: 42, unitdBuf: 3,
       zone: 'NR3', alley: 'Yes', productTypes: ['Townhouse', 'Cottages'],
       tag: 'ECA', juris: 'Seattle',
-      isCornerLot: 'Yes', stories: '3',
+      isCornerLot: 'Yes', isRegularShape: 'Irregular', stories: '3',
       parkingKind: 'garage', stalls: '2+', roofDeck: 'No',
     };
     saveLibraryFilters(USER, full);

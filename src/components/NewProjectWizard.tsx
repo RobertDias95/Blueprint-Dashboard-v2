@@ -455,6 +455,9 @@ export default function NewProjectWizard({ open, onClose, initialState }: Props)
       // → null is the right "user didn't pick" representation.
       num_lots: intOrNull(state.num_lots),
       is_corner_lot: boolFromTri(state.is_corner_lot),
+      // ★ fix-410: always a real boolean — the form has no blank state for it,
+      //   so every project created here carries a recorded answer.
+      is_regular_shape: boolFromTri(state.is_regular_shape),
       closing_date: strOrNull(state.closing_date),
       // fix-126: redesign payload. Only sent when the wizard was
       // opened from a "Spawn Redesign" entry point (parent FK is set);

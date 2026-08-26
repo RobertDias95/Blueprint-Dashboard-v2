@@ -1958,6 +1958,40 @@ function SiteEditor({ project }: { project: Project }) {
           );
         }}
       />
+      {/* ★★★ fix-410 (P-040) — REGULAR SHAPE, editable after setup.
+          Bobby: *"an equal widths / equal lengths rectangle, or irregular."*
+
+          ★★ THE BLANK OPTION IS KEPT HERE EVEN THOUGH THE WIZARD HAS NONE.
+          The form answers for every NEW project; this row has to render what a
+          row ACTUALLY holds, and a NULL must read as blank rather than as
+          "Yes". A blank means nobody has said — showing it as a Yes would turn
+          an absence into a claim about somebody's lot. (After fix-410's
+          approved backfill no project is null today; the state is built
+          because a future create path that omits the key still produces one.)
+
+          ★ Same SiteSelectRow, same commit(), same OCC token as every other
+          field in this section — see the note on Corner above. */}
+      <SiteSelectRow
+        label="Regular Shape"
+        value={
+          project.is_regular_shape === true
+            ? 'Yes'
+            : project.is_regular_shape === false
+              ? 'No'
+              : ''
+        }
+        options={['', 'Yes', 'No']}
+        disabled={occMissing}
+        onCommit={(v) => {
+          const next = v === 'Yes' ? true : v === 'No' ? false : null;
+          void commit(
+            'is_regular_shape',
+            next,
+            project.is_regular_shape,
+            'Regular Shape',
+          );
+        }}
+      />
       {/* fix-148: Closing Date moved to the DD Phase cell (ClosingRow) — it was
           crowding Project Site, and it fits DD Phase thematically. */}
       <SiteSelectRow
