@@ -70,11 +70,23 @@ export const SETTINGS_SECTIONS: readonly SettingsSection[] = [
     adminOnly: true,
   },
   {
+    // ★★★ fix-415 SCOPE C — LABELS ONLY. The `id`, the `path` and every
+    // testid are UNCHANGED, which is fix-310's rule: a rename that moves a
+    // route breaks every bookmark and every link, and this section has been
+    // /settings/projects since fix-319.
+    //
+    // ★★ WHY IT NEEDED A NEW NAME. It holds jurisdictions, product types,
+    // project tags, hold reasons, cancel reasons and now zones — six editable
+    // vocabularies. "Projects" names none of them, which is why Bobby went
+    // looking for the product-type editor and walked straight past it. The tab
+    // already calls them catalogues in its own read-only banner ("you need
+    // tenant admin to edit catalogs"), so the name is the app's own word rather
+    // than a new one.
     id: 'projects',
     path: '/settings/projects',
     icon: '🏗️',
-    label: 'Projects',
-    desc: 'Jurisdictions, product types, project tags',
+    label: 'Lists & Catalogs',
+    desc: 'Zones, product types, jurisdictions, tags, hold + cancel reasons',
     adminOnly: true,
   },
   {

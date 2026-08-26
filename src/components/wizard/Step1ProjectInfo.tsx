@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import ZoneSelect from '../shared/ZoneSelect';
 import { Link } from 'react-router-dom';
 import { useJurisdictions } from '../../hooks/useJurisdictions';
 import { useTeamMembers } from '../../hooks/useTeamMembers';
@@ -805,13 +806,14 @@ export default function Step1ProjectInfo({
             <span className="text-[10px] uppercase tracking-wide text-dim">
               Zone
             </span>
-            <input
-              type="text"
+            {/* ★ fix-415 A3: dropdown, not free text. This surface writes
+                through bp_create_project_with_permits — the third of the three
+                zone write paths, all of them now sharing one control. */}
+            <ZoneSelect
               value={value.zone}
-              onChange={(e) => set('zone', e.target.value)}
-              placeholder="e.g. RSL, LR2, MR"
-              className="bg-bg border border-border rounded-md px-3 py-1.5 text-xs font-mono text-text placeholder:text-dim focus:outline-none focus:border-de"
-              data-testid="wizard-zone"
+              onChange={(v) => set('zone', v)}
+              testid="wizard-zone"
+              className="bg-bg border border-border rounded-md px-3 py-1.5 text-xs font-mono text-text focus:outline-none focus:border-de"
             />
           </label>
           )}

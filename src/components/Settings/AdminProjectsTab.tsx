@@ -7,6 +7,7 @@ import { useAppConfig, readAppConfigStringArray } from '../../hooks/useAppConfig
 import { useUpsertJurisdiction } from '../../hooks/useUpsertJurisdiction';
 import { useDeleteJurisdiction } from '../../hooks/useDeleteJurisdiction';
 import { useSetAppConfigKey } from '../../hooks/useSetAppConfigKey';
+import { ZONE_OPTIONS_KEY, zoneOptions } from '../../lib/zoneOptions';
 import { useIsTenantAdmin } from '../../hooks/useIsTenantAdmin';
 import { SkeletonRows } from '../Skeleton';
 import QueryError from '../QueryError';
@@ -77,6 +78,11 @@ export default function AdminProjectsTab() {
   // code reads it) and can be deleted server-side.
   const productTypes = readAppConfigStringArray(cfgQ.map, 'productTypeOptions');
   const projectTags = readAppConfigStringArray(cfgQ.map, 'projectTagOptions');
+  // ★★★ fix-415 A1/A2: the zone registry, read exactly like its neighbours.
+  //   `zoneOptions()` supplies the shipped 21 when the key has never been
+  //   written, so a fresh tenant gets a working dropdown rather than an empty
+  //   one — but what this editor WRITES is always the app_config key.
+  const zones = zoneOptions(cfgQ.map);
   // fix-167: editable Hold Reasons list — the source for the project On-Hold
   // reason dropdown. Same app_config mechanism as Product Types / Project Tags.
   const holdReasons = readAppConfigStringArray(cfgQ.map, 'holdReasonOptions');
@@ -123,6 +129,35 @@ export default function AdminProjectsTab() {
           A relocation note is a message to whoever remembers the old location,
           and it outlives them: months later it is a tab telling everybody about
           a move they never saw. The field lives where it lives. */}
+
+      {/* ★★★ fix-415 SCOPE A2 — THE ZONE REGISTRY EDITOR.
+          Same component, same key mechanism, same admin gating as Product
+          Types below it. fix-326's rule: a fifth catalogue is a fifth entry in
+          an existing pattern, not a fifth pattern.
+
+          ★★ IT SITS FIRST because zone is the field that just cost a migration:
+          196 projects had produced 33 spellings of 21 zones through a free-text
+          box, and this list is now the only way a new one enters the app. */}
+      <Section title="Zones">
+        <PillListEditor
+          label="Zones"
+          items={zones.map((z) => ({ key: z, label: z }))}
+          onAdd={(name) => {
+            if (zones.includes(name)) return;
+            setKey.mutate({ key: ZONE_OPTIONS_KEY, value: [...zones, name] });
+          }}
+          onRemove={(name) =>
+            setKey.mutate({
+              key: ZONE_OPTIONS_KEY,
+              value: zones.filter((z) => z !== name),
+            })
+          }
+          placeholder="Add zone…"
+          emptyState="No zones yet. Used by the Project Overview, the setup wizard and the Library filter."
+          readOnly={!isAdmin}
+          testIdPrefix="zones-list"
+        />
+      </Section>
 
       <Section title="Product Types">
         <PillListEditor
