@@ -537,6 +537,36 @@ describe('fix-335 §8: Connect is visibly not wired up yet', () => {
   });
 });
 
+// ---------------------------------------------------------------------------
+// ★★★ fix-418: A CARD'S SECTIONS ARE NO LONGER ALL DIRECT CHILDREN
+// ---------------------------------------------------------------------------
+//
+// fix-418 put a two-column wrapper inside the PROJECT card (Proposal over Site
+// on the left, Unit dimensions on the right), so `:scope > section` finds NONE
+// of its distributing sections any more. The RULE is untouched — fix-331 §1
+// still says every section that shares the card's height grows equally, and
+// fix-345 §3 still says the pinned action takes no share of it.
+//
+// ★★ SO THE QUERY IS FIXED, NOT THE RULE, and it is fixed to say what the rule
+// actually means: every TOP-LEVEL section of the card — one with no other
+// section between it and the card — distributes. That is true of a one-column
+// card and a two-column one, and it stays true of whatever shape comes next,
+// which `:scope >` never was.
+function topLevelSections(card: HTMLElement): HTMLElement[] {
+  return (Array.from(card.querySelectorAll('section')) as HTMLElement[]).filter(
+    (s) => {
+      // ★★ BOUNDED TO THE CARD — AND THE CARD ITSELF IS A `<section>`.
+      //   `closest('section')` walks the whole document, so an unbounded
+      //   version finds the page's outer sections; and `OverviewCard`'s own
+      //   root is a section, so "has a section ancestor inside the card"
+      //   matches EVERY section in it. Both traps, both hit, both excluded
+      //   here rather than by loosening what the test claims.
+      const enclosing = s.parentElement?.closest('section');
+      return enclosing == null || enclosing === card || !card.contains(enclosing);
+    },
+  );
+}
+
 // ===========================================================================
 // ★★ fix-335 §6 — and fix-331 §1's distribution is UNCHANGED
 // ===========================================================================
@@ -551,10 +581,10 @@ describe('fix-335 §6: only the single-section card centres', () => {
   it('★★ the multi-section cards still grow and still top-align', () => {
     renderHeader(projectFixture(), [bpFixture()]);
     for (const cardId of ['pd-milestones-card', 'pd-project-card']) {
-      const sections = Array.from(
-        screen.getByTestId(cardId).querySelectorAll(':scope > section'),
-      ) as HTMLElement[];
-      expect(sections.length).toBeGreaterThan(1);
+      // ★ fix-418: through the PROJECT card's two-column wrapper. See
+      //   topLevelSections() — the rule is unchanged, the query is.
+      const sections = topLevelSections(screen.getByTestId(cardId));
+      expect(sections.length, cardId).toBeGreaterThan(1);
       for (const s of sections) {
         // ★★ fix-345 §3: the pinned action at the card's foot takes NO share of
         // the spare height — that is the mechanism that lands all three cards'
@@ -639,9 +669,9 @@ describe('fix-345 §3: the three card buttons', () => {
     renderHeader(projectFixture(), [bpFixture()]);
     for (const [cardId] of CARDS) {
       const card = screen.getByTestId(cardId);
-      const distributed = (
-        Array.from(card.querySelectorAll(':scope > section')) as HTMLElement[]
-      ).filter((s) => s.dataset.pinBottom !== 'true');
+      const distributed = topLevelSections(card).filter(
+        (s) => s.dataset.pinBottom !== 'true',
+      );
       expect(distributed.length, cardId).toBeGreaterThanOrEqual(2);
       // All equal, all growing — "distributed" means nobody is singled out.
       const grows = distributed.map((s) => s.style.flexGrow);

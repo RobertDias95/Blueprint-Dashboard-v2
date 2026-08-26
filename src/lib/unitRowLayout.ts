@@ -97,10 +97,36 @@ export const UNIT_ROW_COLUMNS: readonly UnitRowColumn[] = [
   { key: 'remove', header: '', width: 18 },
 ];
 
-/** The `grid-template-columns` both the header and every row render with. */
-export const UNIT_ROW_GRID: string = UNIT_ROW_COLUMNS.map(
-  (c) => `${c.width}px`,
-).join(' ');
+/**
+ * ★★★ fix-418 RETIRED THE HORIZONTAL ROW, AND THIS IS WHAT SURVIVED IT.
+ *
+ * Bobby, 2026-08-26: *"make that more of a vertical stretch versus a horizontal
+ * thing, because I don't like having the scroll bar in there."* The unit fields
+ * run DOWN a column now, each with its label beside it, so there is no shared
+ * header strip and no `grid-template-columns` to render.
+ *
+ * ★★ WHAT THE TABLE STILL DECLARES, and why it is not dead code:
+ *
+ *   · THE FIELDS AND THEIR ORDER, read by `unitFieldLabel` below — still one
+ *     declaration, which was fix-412's whole point. A field renamed here is
+ *     renamed on screen.
+ *   · `UNIT_ROW_SUPPRESSED_ON_NO_WORK` — which fields a confirmed no-work unit
+ *     hides. Unchanged by the reshape.
+ *   · THE WIDTHS, which are now the record of WHY fix-417 happened: ten columns
+ *     totalling 584px plus nine 4px gaps is the 620px that made the PROJECT
+ *     card's min-content ~642px and let it resize its four neighbours. fix-417's
+ *     suite asserts that arithmetic, and deleting the numbers would delete the
+ *     evidence for a fix that is still load-bearing.
+ *
+ * ★ `UNIT_ROW_GRID` itself is GONE. Nothing can render a template for a grid
+ *   that no longer exists, and leaving the export would be the dead-affordance
+ *   mistake fix-415 removed `SiteTextRow` for.
+ */
+export function unitFieldLabel(key: string): string {
+  const col = UNIT_ROW_COLUMNS.find((c) => c.key === key);
+  if (!col) throw new Error(`unitFieldLabel: no unit field named "${key}"`);
+  return col.header;
+}
 
 /** The gap between columns, in px. Declared here so the header and the row
  *  cannot disagree about it either. */
