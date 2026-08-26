@@ -1,3 +1,4 @@
+import type { ProjectHold } from './database.types';
 // ===========================================================================
 // ★★★ fix-397 — THE PROJECT QUEUE BECOMES THE OWNER'S PRIORITY LIST
 // ===========================================================================
@@ -179,6 +180,14 @@ export interface QueueRow {
   stateLine: string;
   /** Whose row this is, for the DM's group-by-associate view (fix-365). */
   owner: string | null;
+  /** ★★ fix-409: is this permit PAUSED? Only ever true when the viewer has
+   *  switched held work on — the queue's own gates drop held rows otherwise —
+   *  so the row can render the hold chip without asking about the preference.
+   *  Optional so every pre-fix-409 fixture stays valid. */
+  isHeld?: boolean;
+  /** ★ fix-409: the OPEN hold row that explains `isHeld`, ready for
+   *  <HoldBadge>. Null/absent on every unheld row. */
+  hold?: Pick<ProjectHold, 'reason' | 'hold_start' | 'note' | 'kind'> | null;
 }
 
 /** A band with its rows. Empty bands are NOT emitted — the bands are a sort,

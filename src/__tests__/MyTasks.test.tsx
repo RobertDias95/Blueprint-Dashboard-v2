@@ -4,6 +4,7 @@ import { MemoryRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { ReactNode } from 'react';
 import { useAuthStore } from '../stores/authStore';
+import { resetShowHeldWorkCache } from '../lib/heldWorkPref';
 import type { MyTaskNode, TeamMember } from '../lib/database.types';
 
 // fix-80: My Tasks v1-layout — three-pane kanban (D&E | Permitting | Task
@@ -22,6 +23,18 @@ const teamRef = vi.hoisted(() => ({
 }));
 const tasksRef = vi.hoisted(() => ({ current: [] as TaskFixture[] }));
 
+// ★ fix-409: My Tasks reads permit-scoped holds now, the way My Board has
+// since fix-390. Mocked inert — an unheld book is the state every assertion in
+// this file was written against, and a real query here would reach the network.
+vi.mock('../hooks/usePermitHolds', () => ({
+  useAllPermitHolds: () => ({ data: [] }),
+  usePermitHolds: () => ({ data: [] }),
+  activeHoldPermitIds: () => new Set<number>(),
+  activeHoldByPermitId: () => new Map(),
+  activePermitHold: () => null,
+  useSetPermitHold: () => ({ mutate: vi.fn(), isPending: false }),
+  useLiftPermitHold: () => ({ mutate: vi.fn(), isPending: false }),
+}));
 vi.mock('../hooks/useTeamMembers', async (importActual) => {
   const actual = await importActual<typeof import('../hooks/useTeamMembers')>();
   return {
@@ -226,10 +239,17 @@ beforeEach(() => {
   permitsRef.current = [];
   holdsRef.current = [];
   useAuthStore.setState({
-    user: { email: 'bobby@x.com' } as never,
+    // ★ fix-409: an `id` as well as an email. fix-403's per-user filter memory
+    //   keys on `user.id`, and this fixture had never needed one — which is
+    //   how the "Show held work" switch first appeared to do nothing here.
+    user: { id: 'u-bobby', email: 'bobby@x.com' } as never,
     activeTenantId: 'test-tenant',
   });
   window.localStorage.clear();
+  window.sessionStorage.clear();
+  // ★ ...and the module cache behind the switch, which sessionStorage.clear()
+  //   cannot reach. See lib/heldWorkPref.resetShowHeldWorkCache.
+  resetShowHeldWorkCache();
 });
 
 /** Varied fixture for counter / partition / filter / detail tests. Mix of:
@@ -352,16 +372,74 @@ describe('MyTasks — cancelled projects (fix-264)', () => {
     expect(screen.getByTestId('mytasks-counter-done-text').textContent).toBe('0/2 · 0%');
   });
 
-  it('a HELD project keeps every card and stays in the counters', () => {
+  // =========================================================================
+  // ★★★ SUPERSEDED BY fix-409 — AND NOT MISTAKEN
+  // =========================================================================
+  //
+  // This test used to read *"a HELD project keeps every card and stays in the
+  // counters"*, and it was RIGHT for fix-264: that ticket's whole point was
+  // that HOLD and CANCEL are different, and it proved it by showing that a
+  // cancelled project's cards vanish while a held project's do not.
+  //
+  // fix-409 is Bobby changing the default, not the distinction:
+  //
+  //   "the default is you show all active projects/permits. anything with a
+  //    hold gets auto turned off, but you can switch that on/off in the my
+  //    tasks/my boards."  — register P-039, 2026-08-25
+  //
+  // ★★ SO THE PROPERTY fix-264 WAS PROTECTING IS ASSERTED HERE, UNCHANGED, one
+  // switch-flip away: turn held work on and the numbers are byte-identical to
+  // the no-holds baseline again. A held project's work still EXISTS — which is
+  // the thing a cancelled project's does not. The two states are still two
+  // states; only which one you see by default has moved.
+  it('a HELD project is hidden BY DEFAULT (fix-409), and comes back on', () => {
     tasksRef.current = varied();
     holdsRef.current = [openHold('p1', 'hold'), openHold('p2', 'hold')];
     renderIt();
+
+    // ★ Default: held work is off, so nothing from either project renders...
+    expect(screen.queryByTestId('mytask-card-de-open-overdue')).toBeNull();
+    expect(screen.queryByTestId('mytask-card-pm-open')).toBeNull();
+    // ★★ ...AND THE COUNTERS AGREE WITH THAT. The brief's hard requirement:
+    //    a header reading 4 over an empty board is the fix-264 defect again.
+    expect(screen.getByTestId('mytasks-counter-open-value').textContent).toBe('0');
+    expect(screen.getByTestId('mytasks-counter-projects-value').textContent).toBe('0');
+
+    // ★★★ Flip the switch — fix-264's assertion, intact.
+    fireEvent.click(screen.getByTestId('mytasks-filter-held'));
     expect(screen.getByTestId('mytask-card-de-open-overdue')).toBeInTheDocument();
     expect(screen.getByTestId('mytask-card-pm-open')).toBeInTheDocument();
-    // Byte-identical to the no-holds baseline above.
+    // Byte-identical to the no-holds baseline.
     expect(screen.getByTestId('mytasks-counter-open-value').textContent).toBe('4');
     expect(screen.getByTestId('mytasks-counter-projects-value').textContent).toBe('2');
     expect(screen.getByTestId('mytasks-counter-done-text').textContent).toBe('1/5 · 20%');
+  });
+
+  it('★★ a held card carries the On Hold chip once it is shown', () => {
+    tasksRef.current = varied();
+    holdsRef.current = [openHold('p1', 'hold'), openHold('p2', 'hold')];
+    renderIt();
+    fireEvent.click(screen.getByTestId('mytasks-filter-held'));
+    // ★ The chip is the answer to "why is this stale?" — without it a person
+    //   who switched held work on is looking at rows they cannot explain.
+    const chip = screen.getByTestId('mytask-card-de-open-overdue-hold');
+    expect(chip.textContent).toContain('On Hold');
+    // ★ Compact: the REASON lives in the tooltip, not in the row.
+    expect(chip.textContent).not.toContain('because');
+    expect(chip.getAttribute('title')).toContain('because');
+  });
+
+  it('★★★ CANCEL is still not HOLD — a cancelled project is gone, switch or no switch', () => {
+    // fix-262/264's distinction, re-asserted against the new control: the
+    // switch reveals PAUSED work, never work on a project somebody ended.
+    tasksRef.current = varied();
+    holdsRef.current = [openHold('p2', 'cancelled')];
+    renderIt();
+    expect(screen.queryByTestId('mytask-card-pm-open')).toBeNull();
+    fireEvent.click(screen.getByTestId('mytasks-filter-held'));
+    expect(screen.queryByTestId('mytask-card-pm-open')).toBeNull();
+    // ...and p1, which is neither held nor cancelled, was never affected.
+    expect(screen.getByTestId('mytask-card-de-open-overdue')).toBeInTheDocument();
   });
 });
 

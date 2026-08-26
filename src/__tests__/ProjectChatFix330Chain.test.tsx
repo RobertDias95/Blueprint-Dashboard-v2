@@ -226,6 +226,18 @@ const FIX334_POST = {
   last_activity_at: null,
 } as unknown as import('../lib/database.types').ProjectMessage;
 
+// ★ fix-409: My Tasks reads permit-scoped holds now, the way My Board has
+// since fix-390. Mocked inert — an unheld book is the state every assertion in
+// this file was written against, and a real query here would reach the network.
+vi.mock('../hooks/usePermitHolds', () => ({
+  useAllPermitHolds: () => ({ data: [] }),
+  usePermitHolds: () => ({ data: [] }),
+  activeHoldPermitIds: () => new Set<number>(),
+  activeHoldByPermitId: () => new Map(),
+  activePermitHold: () => null,
+  useSetPermitHold: () => ({ mutate: vi.fn(), isPending: false }),
+  useLiftPermitHold: () => ({ mutate: vi.fn(), isPending: false }),
+}));
 vi.mock('../lib/supabase', () => ({ supabase: supabaseMock, supabaseUrl: 'http://x' }));
 
 // ★ The viewer is Jade, and Jade is ON THE ROSTER — fix-176's login → roster

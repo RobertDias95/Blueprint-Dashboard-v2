@@ -76,6 +76,9 @@ import { STAGE_LABEL } from '../../lib/stageLabel';
 import { LandUsePhaseBadge } from './LandUsePhaseBadge';
 import ScheduleEstimator from './ScheduleEstimator';
 import { PermitHoldPanel } from './PermitHold';
+import { usePermitHolds, activePermitHold } from '../../hooks/usePermitHolds';
+import { useProjectHolds, activeHold } from '../../hooks/useProjectHolds';
+import { HoldBadge } from '../shared/HoldBadge';
 
 // Q9.5.e-fix-5: PermitDetailV2 rebuilds the v2 permit edit panel to match
 // v1's _renderPermitDetail at index.html:4787. Visual blocks (top→bottom):
@@ -2158,6 +2161,31 @@ function TaskItem({
     schematicDesigners: projectSchematicDesigners,
   };
   const primaryPerson = resolvePrimaryAssignee(task.assigned_to, primaryCtx, task.discipline);
+  // ★★★ fix-409 — THE PROJECT OVERVIEW MARKS, IT DOES NOT FILTER.
+  //
+  // Bobby: *"the project overview should show everything even if hold since
+  // this is the holistic view"* and *"an on hold chip … should be on the
+  // project overview too."* So there is no filter anywhere on this page; every
+  // task renders, and a parked one says so.
+  //
+  // ★★ THE PERMIT'S OWN HOLD FIRST, THEN ITS PROJECT'S — `holdRowFor`'s order,
+  // for the same reason: a permit deliberately paused inside a moving project
+  // is the more specific fact. This differs from `PermitHoldBadge`, which shows
+  // ONLY the permit's own hold and is right to: that badge sits beside the
+  // project header, which already carries the project's. A task row has no
+  // header of its own, so the project's hold is the answer it needs.
+  //
+  // ★ EITHER KIND. `activeHold` (not `activeHoldOnly`) returns the open row
+  // whatever it is, so a task under a CANCELLED project reads "Cancelled"
+  // rather than being mislabelled "On hold" — the one thing fix-409 does about
+  // cancel, and the only thing it should.
+  //
+  // ★ The two queries are the SAME ones PermitHoldPanel mounts a few hundred
+  // lines above, so React Query serves them from cache: no extra fetch per row.
+  const permitHoldsQ = usePermitHolds(permitId);
+  const projectHoldsQ = useProjectHolds(projectId);
+  const holdChip =
+    activePermitHold(permitHoldsQ.data) ?? activeHold(projectHoldsQ.data);
   // fix-149 / fix-190d: External Team firm assigned for each discipline on this
   // project — resolved from projects.external_team (the store the editor writes),
   // the single source My Tasks → Waiting also reads.
@@ -2274,6 +2302,16 @@ function TaskItem({
         {task.auto_closed_reason && (
           <span className="mt-0.5">
             <AutoClosedBadge taskId={task.id} reason={task.auto_closed_reason} />
+          </span>
+        )}
+        {/* ★★★ fix-409: parked, and saying so. Never filtered here. */}
+        {holdChip && (
+          <span className="mt-0.5">
+            <HoldBadge
+              hold={holdChip}
+              compact
+              testid={`task-row-${task.id}-hold`}
+            />
           </span>
         )}
         {/* fix-235: click-to-advance checkbox — Open → In Progress → Resolved,

@@ -6,6 +6,10 @@ import {
   type WaitingOnFirmGroup,
 } from '../../hooks/useWaitingOnTasks';
 import { useAllTasks } from '../../hooks/useTaskTree';
+import { useAllProjectHolds } from '../../hooks/useProjectHolds';
+import { useAllPermitHolds } from '../../hooks/usePermitHolds';
+import { holdRowFor, holdRowIndex, type HoldRowIndex } from '../../lib/heldWork';
+import { HoldBadge } from '../shared/HoldBadge';
 import { useScopeMode } from '../../hooks/useSelfScope';
 import { useTaskOwnership } from '../../hooks/useTaskOwnership';
 import ScopeToggle from '../shared/ScopeToggle';
@@ -36,9 +40,41 @@ const STATUS_BG: Record<string, string> = {
   Resolved: 'var(--color-pm)',
 };
 
+// ===========================================================================
+// ★★★ fix-409 — WAITING ON IS CHIPPED, NOT FILTERED. THE JUDGEMENT, WRITTEN OUT
+// ===========================================================================
+//
+// This view lives behind My Tasks' own switcher, so the fix-409 brief's "every
+// list on My Tasks" could be read to cover it. It is deliberately NOT filtered,
+// for three reasons that all point the same way:
+//
+//   1. ★★★ fix-264 ALREADY RULED ON THIS, IN WORDS, and the ruling is in
+//      useWaitingOnTasks.ts: *"Holds stay: a held project is still waiting on
+//      its consultant."* A hold is OUR pause. It does not un-send the thing we
+//      are chasing a firm for, and the firm has not been told to stop.
+//   2. ★★ THE COUNTS HERE ARE PER FIRM — "what this firm currently owes us".
+//      Hiding held rows would make a firm's total disagree with what that firm
+//      actually owes, which is the opposite of the brief's own requirement that
+//      counts agree with reality. On My Tasks the counts are about YOUR day, so
+//      the same rule lands the other way there.
+//   3. ★★ THE CSV. fix-315 rescued this screen specifically for its per-firm
+//      export. Silently changing what a sent export contains, by default, for
+//      everyone, is not a display preference.
+//
+// ★ So the CHIP goes on — Bobby asked for it "anywhere else a held item is
+//   shown", and here it is doing real work: it tells you the thing you are
+//   chasing sits behind a pause of our own, which is exactly the context a
+//   chase email needs. Flagged in the fix-409 report for Bobby to overrule.
 export default function WaitingOnView() {
   const [includeCompleted, setIncludeCompleted] = useState(false);
   const tasksQ = useWaitingOnTasks({ includeCompleted });
+  // ★ fix-409: the open hold rows, for the chip only — see the note above.
+  const holdsQ = useAllProjectHolds();
+  const permitHoldsQ = useAllPermitHolds();
+  const holdChips = useMemo(
+    () => holdRowIndex(holdsQ.data, permitHoldsQ.data),
+    [holdsQ.data, permitHoldsQ.data],
+  );
 
   // fix-236: Mine/All scope, shared with the board (same hook, key, default).
   const { mode: scopeMode, setMode: setScopeMode, identity } =
@@ -193,6 +229,7 @@ export default function WaitingOnView() {
                       discipline={group.discipline}
                       firm={firm}
                       allRows={rows}
+                      holdChips={holdChips}
                     />
                   ))}
                 </div>
@@ -209,10 +246,14 @@ function FirmSection({
   discipline,
   firm,
   allRows,
+  holdChips,
 }: {
   discipline: string;
   firm: WaitingOnFirmGroup;
   allRows: WaitingOnTaskRow[];
+  /** ★ fix-409: the open hold rows, for the per-row chip. Threaded rather than
+   *  re-queried here so one render asks the question once. */
+  holdChips: HoldRowIndex;
 }) {
   const idKey = firm.firmId ?? 'none';
   const count = firm.tasks.length;
@@ -282,7 +323,19 @@ function FirmSection({
                   </span>
                 )}
               </td>
-              <td className="px-2 py-1.5 align-top text-text">{task.task_text}</td>
+              <td className="px-2 py-1.5 align-top text-text">
+                {task.task_text}
+                {/* ★ fix-409: the thing you are chasing sits behind a pause of
+                    our own. Not filtered here — see the note at the top of the
+                    file for why this view keeps its held rows. */}
+                <span className="ml-1">
+                  <HoldBadge
+                    hold={holdRowFor(task, holdChips)}
+                    compact
+                    testid={`waiting-on-task-${task.task_id}-hold`}
+                  />
+                </span>
+              </td>
               <td className="px-2 py-1.5 align-top text-muted whitespace-nowrap">
                 {task.assigned_to ?? '—'}
               </td>
