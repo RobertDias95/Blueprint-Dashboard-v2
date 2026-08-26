@@ -247,6 +247,7 @@ describe('filterLibraryRows', () => {
     parkingKind: '',
     stalls: '',
     roofDeck: '',
+    workScope: '',
   };
   const rows = [
     {
@@ -422,6 +423,7 @@ describe('fix-205: stories filter', () => {
     parkingKind: '',
     stalls: '',
     roofDeck: '',
+    workScope: '',
   };
   function mkRow(id: string, stories: (number | null)[]): LibraryRow {
     return {

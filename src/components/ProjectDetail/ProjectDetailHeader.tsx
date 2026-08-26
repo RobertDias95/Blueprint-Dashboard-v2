@@ -3,6 +3,12 @@ import type { CSSProperties } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import OriginLink from '../OriginLink';
 import { schematicWindow } from '../../lib/schematicWindow';
+import {
+  UNIT_ROW_COLUMNS,
+  UNIT_ROW_GAP,
+  UNIT_ROW_GRID,
+} from '../../lib/unitRowLayout';
+import { isNoWorkUnit } from '../../lib/unitWorkScope';
 import { VENDOR_SEND_LEAD_DAYS, vendorTargetSend } from '../../lib/vendorReport';
 import type {
   Builder,
@@ -14,6 +20,7 @@ import type { WaitingOnDiscipline } from '../../lib/database.types';
 import {
   ParkingKindSelect,
   RoofDeckSelect,
+  WorkScopeSelect,
   StallsInput,
 } from '../shared/UnitParkingInputs';
 import { parseStalls } from '../../lib/unitParking';
@@ -1140,11 +1147,29 @@ function ProjectCell({
             <ReuseEditor project={project} allProjects={allProjects} />
             {/* Unit Dimensions section. fix-22 Mig 3: unit_types lives on
                 projects now, writes via useUpdateProject. */}
-            <div className="flex items-baseline gap-1.5 mt-0.5">
-              <span className="text-[9px] text-dim min-w-[36px] pt-0.5">
-                Units
-              </span>
-              <div className="flex-1 min-w-0">
+            {/* ★★★ fix-412 SCOPE C1 + C2 — THE GUTTER IS RECLAIMED.
+                Bobby: *"the dead space between the Units label on the far left
+                and the first field box is doing nothing. Use it. Put a 'Unit
+                dimensions' heading above, and below it run the row shifted
+                west."*
+
+                ★★ The old shape was `[36px "Units" label] [gap] [the row]`, so
+                every unit row began ~42px in and the nine columns were squeezed
+                into what was left. The label and the row are now STACKED: the
+                heading takes its own line, and the row starts at the container's
+                left edge. That is the ~42px the columns needed, and it is why
+                "Roof Deck" fits in full again (see lib/unitRowLayout).
+
+                ★ The heading is "Unit dimensions", Bobby's words, not "Units" —
+                it now names a section rather than labelling a row. */}
+            <div className="mt-1" data-testid="pd-unit-dimensions-block">
+              <div
+                className="text-[9px] text-dim font-bold uppercase tracking-wide mb-0.5"
+                data-testid="pd-unit-dimensions-heading"
+              >
+                Unit dimensions
+              </div>
+              <div className="min-w-0">
                 <UnitDimensions project={project} />
               </div>
             </div>
@@ -2368,35 +2393,34 @@ function UnitDimensionsExpanded({
   onAdd: () => void;
 }) {
   return (
-    <div className="flex flex-col gap-0.5">
-      {/* fix-205: wider W/D so a decimal (e.g. 147.5) is visible inline; Qty
-          narrowed to one digit; new Stories ("Sty") column. */}
-      <div className="flex items-center gap-1 text-[8px] text-dim pb-0.5">
-        <span style={{ width: 60 }}>Label</span>
-        <span className="text-center" style={{ width: 38 }}>W</span>
-        <span style={{ width: 6 }} />
-        <span className="text-center" style={{ width: 38 }}>D</span>
-        <span style={{ width: 6 }} />
-        <span className="text-center" style={{ width: 18 }}>Qty</span>
-        <span className="text-center" style={{ width: 30 }}>Sty</span>
-        {/* ★★ fix-402: parking is per UNIT now — Bobby: "by unit it's broken
-            down: is it a garage, is it surface, is it both, and how many
-            stalls per unit" — plus "just a yes or no, roof deck". */}
-        <span className="text-center" style={{ width: 62 }}>Parking</span>
-        <span className="text-center" style={{ width: 40 }}>Stalls</span>
-        {/* ★★★ fix-411 §3 (P-053): "Deck" → "RD".
-            Bobby: *"we added deck, and we want that to say RD, which would
-            stand for roof deck, so that we can distinguish a deck from a roof
-            deck."* The column has ALWAYS been roof deck — it is backed by the
-            `roof_deck` key fix-402 added to projects.unit_types — so only the
-            label was wrong, and it was wrong in the one way that matters: a
-            ground-level deck and a roof deck are different things to a builder.
+    <div className="flex flex-col gap-0.5 overflow-x-auto">
+      {/* ★★★ fix-412 SCOPE C4 — THE HEADER AND THE ROW ARE THE SAME GRID.
+          This strip used to be a hand-maintained list of widths, and the unit
+          row below was a SECOND one. They had drifted in four places — Qty
+          declared 18 against a 28px input, Sty 30 against 28, and Parking and
+          Roof Deck declared 62/52 against selects that had NO width at all and
+          auto-sized to their widest option. That is exactly the pair Bobby
+          reported: RD not over its own box, Stalls drifting toward Parking.
 
-            ★ "RD" rather than the full words because this header is a 52px
-            fixed-width cell in a nine-column strip. Every OTHER surface that
-            names this field already says "Roof Deck" in full and is left alone
-            — see the fix-411 PR for that enumeration. */}
-        <span className="text-center" style={{ width: 52 }}>RD</span>
+          ★★ Both now render `gridTemplateColumns: UNIT_ROW_GRID` from
+          lib/unitRowLayout, so a header CANNOT sit over the wrong control —
+          the header cell and the control are in the same grid column. See that
+          file for the full diagnosis and for why widening would not have fixed
+          it. */}
+      <div
+        className="grid items-center text-[8px] text-dim pb-0.5"
+        style={{ gridTemplateColumns: UNIT_ROW_GRID, gap: UNIT_ROW_GAP }}
+        data-testid="pd-unit-header"
+      >
+        {UNIT_ROW_COLUMNS.map((c) => (
+          <span
+            key={c.key}
+            className={c.key === 'label' ? 'truncate' : 'text-center truncate'}
+            data-testid={`pd-unit-header-${c.key}`}
+          >
+            {c.header}
+          </span>
+        ))}
       </div>
       {types.map((ut, i) => (
         <UnitRow
@@ -2479,8 +2503,27 @@ function UnitRow({
   // adds a product type (project field) to enable the picker.
   const hasProductTypes = productTypes.length >= 1;
   const selectValue = resolveUnitLabel(label, productTypes);
+  // ★★★ fix-412 SCOPE B5 — a confirmed No-work unit hides its drawn detail.
+  //
+  // Bobby's ruling: suppress the dimension / parking / roof-deck inputs on a
+  // No-work unit — *"rather than deleting stored values"*, which is the half
+  // that matters. The inputs are DISABLED, not cleared and not unmounted with a
+  // write: `onChange` is never called, so whatever is stored stays stored and
+  // comes straight back the moment the answer changes. A unit that was measured
+  // and later marked No-work must not lose its measurements — somebody may have
+  // clicked the wrong row.
+  //
+  // ★ NOT ANSWERED does not suppress. Only an explicit 'none' does; an unknown
+  //   scope is a unit somebody still has to fill in, so its inputs stay live.
+  const noWork = isNoWorkUnit(row);
+  const off = disabled || noWork;
   return (
-    <div className="flex items-center gap-1">
+    <div
+      className="grid items-center"
+      style={{ gridTemplateColumns: UNIT_ROW_GRID, gap: UNIT_ROW_GAP }}
+      data-testid="pd-unit-row"
+      data-no-work={noWork ? 'true' : 'false'}
+    >
       {hasProductTypes ? (
         <select
           value={selectValue}
@@ -2492,8 +2535,8 @@ function UnitRow({
             dirtyRef.current = false;
           }}
           disabled={disabled}
-          style={{ ...cellStyle, width: 60 }}
-          className={`${cellClass} text-left`}
+          style={cellStyle}
+          className={`${cellClass} text-left w-full`}
           data-testid="pd-unit-label-select"
         >
           <option value="">Pick type…</option>
@@ -2505,8 +2548,8 @@ function UnitRow({
         </select>
       ) : (
         <span
-          style={{ ...cellStyle, width: 60 }}
-          className={`${cellClass} text-left inline-block truncate ${label ? '' : 'text-dim'}`}
+          style={cellStyle}
+          className={`${cellClass} text-left block truncate w-full ${label ? '' : 'text-dim'}`}
           title={
             label
               ? `${label} — add a product type to change`
@@ -2517,6 +2560,18 @@ function UnitRow({
           {label || '—'}
         </span>
       )}
+      {/* ★★★ fix-412 SCOPE B3 — the work-scope cell, laid out as part of the
+          row rather than bolted on. It sits directly after Label because it
+          qualifies the label ("Remodel — and was work done?") and because it
+          GATES every cell to its right; a control that greys out five boxes has
+          to sit to the left of them or the row reads backwards. */}
+      <WorkScopeSelect
+        value={row.work_scope}
+        disabled={disabled}
+        onChange={(v) => onChange('work_scope', v)}
+        testid="pd-unit-work-scope"
+        fill
+      />
       <input
         type="number"
         min={0}
@@ -2531,12 +2586,11 @@ function UnitRow({
           onChange('width_ft', w === '' ? null : Number(w) || 0);
           dirtyRef.current = false;
         }}
-        disabled={disabled}
-        style={{ ...cellStyle, width: 38 }}
-        className={cellClass}
+        disabled={off}
+        style={cellStyle}
+        className={`${cellClass} w-full`}
         data-testid="pd-unit-w"
       />
-      <span className="text-[8px] text-dim">×</span>
       <input
         type="number"
         min={0}
@@ -2551,14 +2605,16 @@ function UnitRow({
           onChange('depth_ft', d === '' ? null : Number(d) || 0);
           dirtyRef.current = false;
         }}
-        disabled={disabled}
-        style={{ ...cellStyle, width: 38 }}
-        className={cellClass}
+        disabled={off}
+        style={cellStyle}
+        className={`${cellClass} w-full`}
         data-testid="pd-unit-d"
       />
-      <span className="text-[8px] text-dim">×</span>
-      {/* fix-209: Qty + Sty are single-digit (occasionally 2) — narrow + equal
-          (w-7 ≈ 28px). W/D widths are left as-is. */}
+      {/* ★ fix-412: the two "×" separator spans between W/D/Qty are GONE. They
+          were unlabelled 6px cells in the header and bare glyphs in the row —
+          one of the four places the two lists had drifted — and they are not
+          columns in Bobby's order. Each header now sits over its own control
+          with nothing between. */}
       <input
         type="number"
         min={1}
@@ -2572,9 +2628,9 @@ function UnitRow({
           onChange('qty', Number(qty) || 1);
           dirtyRef.current = false;
         }}
-        disabled={disabled}
+        disabled={off}
         style={cellStyle}
-        className={`${cellClass} w-7`}
+        className={`${cellClass} w-full`}
         data-testid="pd-unit-qty"
       />
       {/* fix-205: Stories ("Sty") — 1–4+, blank = not entered. */}
@@ -2592,22 +2648,24 @@ function UnitRow({
           onChange('stories', n);
           dirtyRef.current = false;
         }}
-        disabled={disabled}
+        disabled={off}
         style={cellStyle}
-        className={`${cellClass} w-7`}
+        className={`${cellClass} w-full`}
         data-testid="pd-unit-stories"
       />
       {/* ★★★ fix-402 — the SAME three controls the Library and the wizard
           mount. NULL renders as "—" and is always reachable again. */}
       <ParkingKindSelect
         value={row.parking_kind}
-        disabled={disabled}
+        disabled={off}
         onChange={(v) => onChange('parking_kind', v)}
         testid="pd-unit-parking-kind"
+        fill
       />
       <StallsInput
         value={stalls}
-        disabled={disabled}
+        disabled={off}
+        fill
         onChange={(raw) => {
           dirtyRef.current = true;
           setStalls(raw);
@@ -2620,9 +2678,10 @@ function UnitRow({
       />
       <RoofDeckSelect
         value={row.roof_deck}
-        disabled={disabled}
+        disabled={off}
         onChange={(v) => onChange('roof_deck', v)}
         testid="pd-unit-roof-deck"
+        fill
       />
       <button
         type="button"

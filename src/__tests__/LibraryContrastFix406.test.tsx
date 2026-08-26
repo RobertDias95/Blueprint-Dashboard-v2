@@ -634,6 +634,7 @@ describe('fix-406 §5: an unrecognised sort column falls back cleanly', () => {
       parkingKind: '' as const,
       stalls: '' as const,
       roofDeck: '' as const,
+      workScope: '' as const,
     };
     const loaded = loadLibraryFilters(userId, fallback);
     expect(loaded).not.toBeNull();

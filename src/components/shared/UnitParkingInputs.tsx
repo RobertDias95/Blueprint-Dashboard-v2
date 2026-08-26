@@ -1,5 +1,11 @@
 import { PARKING_KINDS, type ParkingKind } from '../../lib/database.types';
 import { PARKING_KIND_LABEL, NOT_RECORDED } from '../../lib/unitParking';
+import {
+  WORK_SCOPES,
+  WORK_SCOPE_SHORT,
+  asWorkScope,
+  type WorkScope,
+} from '../../lib/unitWorkScope';
 
 // ===========================================================================
 // ★★★ fix-402 — THE THREE UNIT-PARKING CONTROLS, ONE IMPLEMENTATION
@@ -24,20 +30,41 @@ import { PARKING_KIND_LABEL, NOT_RECORDED } from '../../lib/unitParking';
 // ★ The blank option renders as "—", the same glyph the read-only views use for
 // a NULL, so the editor and the display speak the same language.
 
+// ★ fix-412: this file is the shared UNIT-CELL control module now, not only
+//   the parking one — `WorkScopeSelect` joins the three fix-402 controls below.
+//   The filename predates the second field; renaming it would touch three
+//   mounts and their suites for no behavioural gain, so it is noted rather than
+//   done.
 const SELECT_CLASS =
   'bg-bg border border-border rounded px-1.5 py-0.5 text-[11px] text-text focus:outline-none focus:border-de disabled:opacity-40';
+
+/** ★★★ fix-412 Scope C: fill the grid column you are placed in.
+ *
+ *  These three controls had NO width, so they auto-sized to their widest option
+ *  — which is exactly why "Parking" pushed the row right and "Roof Deck" sat
+ *  under the wrong header. In a grid cell they must fill the cell instead.
+ *
+ *  ★ Opt-IN, defaulting to the old behaviour, so the wizard's UnitTypesEditor
+ *  and the Library's unit table — which lay themselves out differently — are
+ *  byte-identical to before this ticket. */
+function cls(fill?: boolean): string {
+  return fill ? `${SELECT_CLASS} w-full` : SELECT_CLASS;
+}
 
 export function ParkingKindSelect({
   value,
   onChange,
   disabled,
   testid,
+  fill,
 }: {
   value: ParkingKind | null | undefined;
   /** null means the user cleared it back to NOT RECORDED. */
   onChange: (next: ParkingKind | null) => void;
   disabled?: boolean;
   testid: string;
+  /** ★ fix-412: fill the grid column rather than auto-sizing. */
+  fill?: boolean;
 }) {
   return (
     <select
@@ -46,7 +73,7 @@ export function ParkingKindSelect({
       onChange={(e) =>
         onChange(e.target.value === '' ? null : (e.target.value as ParkingKind))
       }
-      className={SELECT_CLASS}
+      className={cls(fill)}
       data-testid={testid}
       aria-label="Parking kind"
     >
@@ -66,6 +93,7 @@ export function StallsInput({
   onBlur,
   disabled,
   testid,
+  fill,
 }: {
   value: string;
   onChange: (raw: string) => void;
@@ -74,6 +102,8 @@ export function StallsInput({
   onBlur?: () => void;
   disabled?: boolean;
   testid: string;
+  /** ★ fix-412: fill the grid column rather than a fixed w-14. */
+  fill?: boolean;
 }) {
   return (
     <input
@@ -85,7 +115,9 @@ export function StallsInput({
       onChange={(e) => onChange(e.target.value)}
       onBlur={onBlur}
       placeholder={NOT_RECORDED}
-      className={`${SELECT_CLASS} w-14 text-center`}
+      className={
+        fill ? `${SELECT_CLASS} w-full text-center` : `${SELECT_CLASS} w-14 text-center`
+      }
       data-testid={testid}
       aria-label="Parking stalls"
     />
@@ -97,11 +129,14 @@ export function RoofDeckSelect({
   onChange,
   disabled,
   testid,
+  fill,
 }: {
   value: boolean | null | undefined;
   onChange: (next: boolean | null) => void;
   disabled?: boolean;
   testid: string;
+  /** ★ fix-412: fill the grid column rather than auto-sizing. */
+  fill?: boolean;
 }) {
   return (
     <select
@@ -110,13 +145,63 @@ export function RoofDeckSelect({
       onChange={(e) =>
         onChange(e.target.value === '' ? null : e.target.value === 'Yes')
       }
-      className={SELECT_CLASS}
+      className={cls(fill)}
       data-testid={testid}
       aria-label="Roof deck"
     >
       <option value="">{NOT_RECORDED}</option>
       <option value="Yes">Yes</option>
       <option value="No">No</option>
+    </select>
+  );
+}
+
+/**
+ * ★★★ fix-412 Scope B — the three-state work-scope control.
+ *
+ * Bobby: *"a two-way toggle with a third, default state: No work / Work
+ * performed / not yet answered."*
+ *
+ * ★★ A SELECT, NOT A TOGGLE, and the word "toggle" is why it needs saying. A
+ * two-position switch cannot show a third state without inventing a visual for
+ * "neither position", which is the ambiguity this field exists to remove.
+ * `RoofDeckSelect` beside it already answers a yes/no question in three states
+ * with a select, and a person reading the row should not have to learn two
+ * grammars for the same shape of answer.
+ *
+ * ★ Clears back to "—" like every other unit control (fix-402's rule): picking
+ * "No work" by mistake must be undoable back to NOT ANSWERED, not merely to the
+ * other answer — those are different claims.
+ */
+export function WorkScopeSelect({
+  value,
+  onChange,
+  disabled,
+  testid,
+  fill,
+}: {
+  value: WorkScope | null | undefined;
+  /** null means the user cleared it back to NOT ANSWERED. */
+  onChange: (next: WorkScope | null) => void;
+  disabled?: boolean;
+  testid: string;
+  fill?: boolean;
+}) {
+  return (
+    <select
+      value={asWorkScope(value) ?? ''}
+      disabled={disabled}
+      onChange={(e) => onChange(asWorkScope(e.target.value))}
+      className={cls(fill)}
+      data-testid={testid}
+      aria-label="Work performed"
+    >
+      <option value="">{NOT_RECORDED}</option>
+      {WORK_SCOPES.map((s) => (
+        <option key={s} value={s}>
+          {WORK_SCOPE_SHORT[s]}
+        </option>
+      ))}
     </select>
   );
 }

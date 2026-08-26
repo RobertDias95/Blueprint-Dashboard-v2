@@ -16,6 +16,11 @@ import {
   type RoofDeckFilter,
   type StallsTier,
 } from './unitParking';
+import {
+  isNoWorkUnit,
+  matchWorkScope,
+  type WorkScopeFilter,
+} from './unitWorkScope';
 
 // Q6.3.a: pure helpers for the Library matrix view (Settings → Library tab).
 // Mirrors v1's renderMatrix (index.html lines 5680-5778). The matrix shows
@@ -220,6 +225,16 @@ export interface LibraryFilters {
   stalls: StallsTier;
   /** '' = Any · Yes · No, tri-state like fix-122's corner. */
   roofDeck: RoofDeckFilter;
+  /** ★★★ fix-412 Scope B4: the work-scope filter.
+   *
+   *  '' = Any · 'performed' · 'none' · 'unanswered'.
+   *
+   *  ★★ `''` IS NOT "SHOW EVERYTHING" — it excludes a CONFIRMED no-work unit,
+   *  which is Bobby's ruling: such a unit has no drawn detail worth filtering
+   *  on. A not-yet-answered unit is NOT excluded, or the field would hide
+   *  exactly the units somebody needs to chase. See lib/unitWorkScope for why a
+   *  hidden default exclusion is honest here (because it is askable). */
+  workScope: WorkScopeFilter;
   /** fix-122: tri-state Corner Lot filter. '' = no filter (Any);
    *  'Yes' = only is_corner_lot === true; 'No' = only false.
    *  Rows with NULL is_corner_lot fall out under Yes/No (no implicit
@@ -286,7 +301,11 @@ export function matchingUnitIndices(
       matchStoriesTier(u.stories, filters.stories) &&
       matchParkingKind(u.parking_kind, filters.parkingKind) &&
       matchStallsTier(u.parking_stalls, filters.stalls) &&
-      matchRoofDeck(u.roof_deck, filters.roofDeck)
+      matchRoofDeck(u.roof_deck, filters.roofDeck) &&
+      // ★★★ fix-412: ANDed onto the SAME unit like every other condition here,
+      //   so "garage AND work performed" means one unit with both — the fix-402
+      //   per-unit conjunction, extended rather than worked around.
+      matchWorkScope(u.work_scope, filters.workScope)
     ) {
       out.push(i);
     }
@@ -304,7 +323,12 @@ export function hasAnyUnitFilter(filters: LibraryFilters): boolean {
     filters.stories !== '' ||
     filters.parkingKind !== '' ||
     filters.stalls !== '' ||
-    filters.roofDeck !== ''
+    filters.roofDeck !== '' ||
+    // ★★★ fix-412: WITHOUT THIS LINE THE FILTER IS INERT. `hasAnyUnitFilter`
+    //   gates whether `matchingUnitIndices` is consulted at all, so a workScope
+    //   pick that is not listed here would narrow nothing — the exact defect
+    //   this function's own comment records fix-205 causing with `stories`.
+    filters.workScope !== ''
   );
 }
 
@@ -320,6 +344,29 @@ export function filterLibraryRows(
     if (!matchTargetWithBuffer(r.lotWidth, filters.lotwTarget, filters.lotwBuf)) return false;
     if (!matchTargetWithBuffer(r.lotDepth, filters.lotdTarget, filters.lotdBuf)) return false;
     if (hasUnitFilter && matchingUnitIndices(r, filters).length === 0) return false;
+    // ★★★ fix-412 Scope B4 — THE DEFAULT EXCLUSION, AND IT RUNS UNCONDITIONALLY.
+    //
+    // Bobby: *"a confirmed No-work remodel drops out of the Library set by
+    // default."* That cannot live inside `matchingUnitIndices`, because
+    // `hasAnyUnitFilter` gates whether that runs at all — and with no other
+    // unit filter picked it does not run, which made the ruling inert. (The
+    // fix-412 suite caught it: all three fixture rows came back.)
+    //
+    // ★★ THE RULE IS PER PROJECT, NOT PER UNIT, and the difference matters. A
+    // project with one no-work unit AND three real ones is still a project
+    // worth finding — dropping it would hide three units to hide one. So a row
+    // leaves the default set only when it has units and EVERY one of them is a
+    // confirmed no-work.
+    //
+    // ★ A project with NO unit rows at all is untouched: it has not answered
+    //   the question, and "no units recorded" is not "no work".
+    if (
+      filters.workScope === '' &&
+      r.unitTypes.length > 0 &&
+      r.unitTypes.every((u) => isNoWorkUnit(u))
+    ) {
+      return false;
+    }
     if (zoneQ && !r.zone.toLowerCase().includes(zoneQ)) return false;
     if (filters.alley && r.alley !== filters.alley) return false;
     if (filters.productTypes.length > 0) {

@@ -13,6 +13,7 @@ import {
 } from '../lib/lotDimensions';
 import { sortLibraryRows, type LibraryRow } from '../lib/libraryHelpers';
 import { reuseContextLine } from '../components/wizard/reuseSourceHelpers';
+import { UNIT_ROW_COLUMNS } from '../lib/unitRowLayout';
 
 /** ★★ COMMENT-STRIPPED SOURCE. Every one of these files now EXPLAINS the thing
  *  this suite asserts is absent — "it read `n.toFixed(2)`", "there WAS an
@@ -288,18 +289,36 @@ describe('fix-411 §2: every render site, and the ones deliberately untouched', 
 // ---------------------------------------------------------------------------
 
 describe('fix-411 §3 (P-053): the Units table header reads RD', () => {
-  it('★★★ the PROPOSAL → Units column header is RD, and "Deck" is gone', () => {
-    // Bobby: "we want that to say RD, which would stand for roof deck, so that
-    // we can distinguish a deck from a roof deck."
-    const strip = headerSource.slice(
-      headerSource.indexOf('style={{ width: 62 }}>Parking'),
-      headerSource.indexOf('style={{ width: 62 }}>Parking') + 1400,
-    );
-    expect(strip).toContain('style={{ width: 52 }}>RD</span>');
-    expect(strip).not.toContain('>Deck</span>');
+  // =========================================================================
+  // ★★★ SUPERSEDED BY fix-412 SCOPE C5 — A CONSTRAINT EXPIRED, NOT A RULING
+  // =========================================================================
+  //
+  // fix-411 §3 abbreviated this header to "RD" and said exactly why: *"'RD'
+  // rather than the full words because this header is a 52px fixed-width cell
+  // in a nine-column strip."* Bobby then asked for the row to reclaim the
+  // ~42px gutter left of the "Units" label (fix-412 Scope C2), and told fix-412
+  // to *"re-check whether 'Roof Deck' fits in full … if it fits, restore the
+  // full words"*. It fits — the column is 78px now — so the full words are
+  // back.
+  //
+  // ★★ THIS IS NOT A REGRESSION AND fix-411 WAS NOT WRONG. Its RULING was that
+  // a bare "Deck" is ambiguous — a ground-level deck and a roof deck are
+  // different things to a builder — and that ruling is now satisfied MORE
+  // completely: the app says "Roof Deck" in full on every surface, including
+  // this one. Only the width constraint that forced the abbreviation expired.
+  it('★★★ the Units header says Roof Deck in FULL now (fix-412 C5), never bare "Deck"', () => {
+    const roofCol = UNIT_ROW_COLUMNS.find((c) => c.key === 'roof_deck')!;
+    expect(roofCol.header).toBe('Roof Deck');
+    // ★ The ambiguity fix-411 removed stays removed: no bare "Deck" anywhere.
+    expect(UNIT_ROW_COLUMNS.map((c) => c.header)).not.toContain('Deck');
+    // ★ ...and the column is wide enough that the abbreviation is not needed —
+    //   the 52px that forced "RD" is gone.
+    expect(roofCol.width).toBeGreaterThan(52);
   });
 
   it('★★ no bare "Deck" label is left anywhere in that file', () => {
+    // ★ Unchanged by fix-412: "Roof Deck" contains "Deck" but is not a BARE
+    //   one, and this regex only matches a whole-element `>Deck<`.
     // ★ A bare "Deck" is the ambiguity Bobby is removing — a ground-level deck
     //   and a roof deck are different things to a builder. "Roof Deck" in full
     //   is fine and is what every other surface already says.
