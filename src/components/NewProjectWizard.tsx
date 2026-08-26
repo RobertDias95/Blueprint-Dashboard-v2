@@ -588,9 +588,28 @@ export default function NewProjectWizard({ open, onClose, initialState }: Props)
       aria-modal="true"
       aria-labelledby="wizard-title"
       data-testid="new-project-wizard"
-      onClick={(e) => {
-        if (e.target === e.currentTarget) handleClose();
-      }}
+      // ★★★ fix-411 §1 (P-049) — THE BACKDROP DOES NOTHING, DELIBERATELY.
+      //
+      // Bobby, 2026-08-26: *"when you are adding a new project, if you click
+      // anywhere outside of the pop-up, it closes and you have to restart and
+      // re-input all that information."*
+      //
+      // There WAS an `onClick` here calling handleClose(), and handleClose()
+      // calls reset() — so one stray click did not merely close the dialog, it
+      // threw away four steps of typing with no undo and no confirmation.
+      //
+      // ★★ ESCAPE DOES NOTHING EITHER, and that is not an omission — it is the
+      // same decision. This component has never had a keydown handler (checked,
+      // not assumed), so Escape was already inert; it is written down here so
+      // nobody "fixes the inconsistency" by adding one. Escape would lose the
+      // identical work for the identical reason.
+      //
+      // ★ THE TWO REAL EXITS ARE UNCHANGED: the × in the header and the Cancel
+      // button at the foot, both of which still call handleClose(). This dialog
+      // is now the deliberate exception among the app's overlays — the fix-411
+      // PR carries the audit of the other sixteen, for Bobby to rule on
+      // separately. It is the only one where a mis-click costs unrecoverable
+      // input rather than a re-open.
     >
       <div className="bg-surface border border-border rounded-xl shadow-xl w-full max-w-[660px]">
         <header className="px-6 pt-5 pb-0">

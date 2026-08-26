@@ -817,7 +817,15 @@ describe('fix-330: attachments and snips', () => {
     openModal();
     const card = screen.getByTestId('chat-attachment-p-1/u1/snip.png');
     expect(card.dataset.kind).toBe('image');
-    expect(card.getAttribute('href')).toBe('https://signed.example/x');
+    // ★★ SUPERSEDED BY fix-411 §4 (P-054), and not mistaken: this asserted an
+    //    `href` because an image card WAS an <a target="_blank">. Bobby:
+    //    *"it opens as a new tab … have it just open just like the design
+    //    worker"*. The card is a <button> opening an in-app viewer now, so
+    //    there is no href to assert — what fix-330 was really pinning here is
+    //    that the thumbnail renders from the SIGNED url, which is asserted
+    //    immediately below and is unchanged.
+    expect(card.tagName).toBe('BUTTON');
+    expect(card.getAttribute('href')).toBeNull();
     expect(within(card).getByRole('img').getAttribute('src')).toBe(
       'https://signed.example/x',
     );
