@@ -40,6 +40,47 @@ export const PARKING_KIND_OPTIONS: ReadonlyArray<{ value: string; label: string 
 ];
 
 // ---------------------------------------------------------------------------
+// ★★★ fix-422 — THE LETTER CODES, AND THE ONE PLACE I DID NOT FOLLOW THE BRIEF
+// ---------------------------------------------------------------------------
+//
+// Bobby, 2026-08-27: *"Parking can be like P — the drop-down can have the
+// words, but when you select it, then it says G for garage, or S for surface.
+// … Roof deck could be RD, and it just needs to show a Y."*
+//
+// ★★★ THE BRIEF MAPPED BOTH `none` AND NULL TO `—`, AND THAT IS THE ONE THING
+// THIS FILE EXISTS TO PREVENT. Its opening rule, from fix-402 and Bobby's own
+// ruling: *"NULL IS NOT none. `none` is somebody's recorded answer that a unit
+// has no parking. NULL is the absence of an answer."* Prod has 4 NULL
+// `parking_kind` rows against 1 recorded `none`, so collapsing them would make
+// the commonest state indistinguishable from the rarest recorded one — on the
+// field the whole backfill is about.
+//
+// ★★ SO `none` IS `N` AND ONLY NULL IS `—`, and P's tooltip gains one clause to
+// say so. Everything else in Scope 6's copy is verbatim. Flagged in the PR body
+// so Bobby can overrule it — it is his rule I am protecting, not my preference.
+//
+// ★ ROOF DECK NEEDS NO SUCH CARE: it is a boolean, so `Y` / `N` / `—` already
+//   maps three states onto three glyphs with nothing conflated.
+
+/** ★ One glyph per RECORDED kind. NULL is handled by the caller, as `—`. */
+export const PARKING_KIND_CODE: Record<ParkingKind, string> = {
+  garage: 'G',
+  surface: 'S',
+  both: 'B',
+  none: 'N',
+};
+
+/** The matrix cell's glyph for a unit's parking. NULL → "—". */
+export function parkingKindCode(kind: ParkingKind | null | undefined): string {
+  return kind ? PARKING_KIND_CODE[kind] : NOT_RECORDED;
+}
+
+/** The matrix cell's glyph for a unit's roof deck. NULL → "—", false → "N". */
+export function roofDeckCode(deck: boolean | null | undefined): string {
+  return deck == null ? NOT_RECORDED : deck ? 'Y' : 'N';
+}
+
+// ---------------------------------------------------------------------------
 // Display
 // ---------------------------------------------------------------------------
 

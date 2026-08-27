@@ -1,61 +1,54 @@
+import { UNIT_MATRIX_WIDTH } from './unitRowLayout';
+
 // ===========================================================================
 // ★★★ fix-417 — THE PROJECT OVERVIEW CARD ROW GETS DECLARED PROPORTIONS
+// ★★★ fix-422 — …AND THE CHROME IT WAS MEASURED AGAINST WAS WRONG BY 278px
 // ===========================================================================
 //
 // Bobby, on a marked-up screenshot of 2724 Walnut Ave SW: *"this update messed
 // up the ui on project overview. the proportions are way off now. the Design
 // plan of record should be the widest of the boxes, but the team and builder
-// owner info is way too slim."* Builder/Owner was clipping mid-word —
-// `builder@email`, `(206) 555-010`, `Owner / LLC a`.
+// owner info is way too slim."* Builder/Owner was clipping mid-word.
 //
 // ---------------------------------------------------------------------------
-// ★★★ THE WIDTHS WERE ALREADY DECLARED. THAT IS NOT WHERE THE BUG WAS.
+// ★★★ A BARE `1fr` TRACK IS `minmax(auto, 1fr)` — fix-417's finding, unchanged
 // ---------------------------------------------------------------------------
 //
-// The fix-417 brief guessed the row declared "nothing at all". It declared
-// `gridTemplateColumns: '0.86fr 1.00fr 0.74fr 1.58fr 0.72fr'` — fix-285's
-// shares, retuned by fix-290 and fix-295. The bug is subtler and worse:
-//
-//   ★★★ A BARE `1fr` TRACK IS `minmax(auto, 1fr)`. Its MINIMUM is the column's
-//   min-content width, so a track can never shrink below what its contents
-//   demand — and when one track blows past its share, the overflow is taken
-//   from its neighbours in proportion. The declaration reads like a contract
-//   and is only a preference.
-//
-// So when fix-412 widened the PROPOSAL → Units row, nothing broke loudly. The
-// PROJECT card simply grew to its new min-content and the other four shrank to
-// pay for it. Measured off Bobby's screenshot at ~1345px of row:
-//
-//     card          intended (fr)   actual        delta
-//     MILESTONES        229px        ~230px        ok
-//     PROJECT           266px        ~660px       +394   ← took it
-//     TEAM              197px        ~100px       -97
-//     PLAN OF RECORD    421px        ~270px      -151    ← the widest card, third
-//     BUILDER/OWNER     192px        ~110px       -82    ← clipping
-//
-// ★★ THE ARITHMETIC, CONFIRMED. `unitRowLayout.UNIT_ROW_COLUMNS` totals 584px
-// across ten columns plus nine 4px gaps = **620px**, and the card adds 20px of
-// body padding and 2px of border: the PROJECT card's min-content is **~642px**
-// against a 266px share. The brief's estimate of "roughly 130px larger than
-// before fix-412" is right — the old row's selects auto-sized to about 488px.
-//
-// ★★★ SO `minmax(<px>, <fr>)` IS THE FIX, and it is load-bearing in a way the
-// bare `fr` was not: giving the min an EXPLICIT length REPLACES the automatic
-// `auto` minimum, so a track can finally be told to be narrower than its
-// contents. That is only safe because fix-417 §B gives the Units row its own
-// horizontal scroll — the floor and the overflow container are one change in
-// two files, and removing either re-creates the bug.
+// The row already declared `0.86fr 1.00fr 0.74fr 1.58fr 0.72fr`. A bare `fr`
+// track's MINIMUM is its own min-content, so a card whose contents grow takes
+// the difference from its neighbours and the declaration is only a preference.
+// `minmax(<px>, <fr>)` replaces that automatic minimum with an explicit one and
+// is the entire mechanism. That much is as fix-417 left it.
 //
 // ---------------------------------------------------------------------------
-// ★★ WHY THIS IS A MODULE AND NOT FIVE NUMBERS IN THE JSX
+// ★★★ WHAT fix-422 FOUND: THE ROW IS 278px NARROWER THAN fix-417 BELIEVED
 // ---------------------------------------------------------------------------
 //
-// The same move fix-412 made one level down, for the same reason. Inside the
-// Units row the header and the row each declared their own widths and drifted
-// four ways; out here the row declares shares that any card's contents can
-// silently overrule. Declared once, in one place, with the intent written
-// beside the number — and a test that fails if a later edit demotes the Plan of
-// Record or lets the percentages stop summing to 100.
+// fix-417 modelled the chrome between the viewport and this row as *"ribbon 212
+// · shell p-6 48 · header px-4 32"* = 292px, and asserted 988px of row at a
+// 1280px viewport. It walked three of the seven boxes. The real chain, read off
+// the DOM from `<main>` down, is:
+//
+//     Ribbon.tsx WIDTH_EXPANDED                       212   (56 collapsed)
+//     Chrome.tsx  <main class="… p-6">                 48
+//     ProjectDetail body row `px-3`                    24
+//     ★ pd-left-rail — THE PERMITS SIDEBAR            240   ← never counted
+//     ★ its `gap-3` to the right pillbox               12   ← never counted
+//     ★ pd-right-pillbox `border`                       2   ← never counted
+//     ProjectDetailHeader root `px-4`                  32
+//                                                    ----
+//                                            570 expanded / 414 collapsed
+//
+// ★★★ SO THE ROW GETS 710px AT 1280 EXPANDED, NOT 988. The permits rail is a
+// fixed 240px column that is ALWAYS rendered — including on the overview, where
+// no permit is selected — and it was simply missed. fix-417's own test asserted
+// the wrong number confidently, which is how it survived.
+//
+// ★★ THE CONSEQUENCE IS ALREADY SHIPPED AND PREDATES THIS TICKET: fix-417's
+// five floors need 970px, so at 1280 (either ribbon state) and at 1440 with the
+// ribbon expanded the row does not fit and the right pillbox — whose
+// `overflow-y-auto` makes its `overflow-x` compute to `auto` — scrolls
+// sideways. Reported rather than silently absorbed into this ticket's numbers.
 
 export interface OverviewCardColumn {
   /** Stable key, also the grid-area name. */
@@ -76,75 +69,95 @@ export interface OverviewCardColumn {
 }
 
 /**
- * ★★★ BOBBY'S PERCENTAGES, KEPT EXACTLY. HIS FLOORS, ARGUED WITH.
+ * ★ `OverviewCard`'s own chrome: `px-2.5` body padding (20) + 1px border a side.
+ *   The 22px fix-417 §0 used to turn 620px of unit row into a 642px card.
+ */
+export const OVERVIEW_CARD_CHROME = 22;
+
+/**
+ * ★★★ THE FLOORS ARE RE-DERIVED FROM WHAT EACH CARD ACTUALLY HOLDS.
  *
- * He gave both, and invited the floors to be argued with "if the measurements
- * disagree". They disagree, and by a lot:
+ * fix-417 set them by scaling Bobby's proposal to fit a row that turned out not
+ * to exist. This ticket sets each one from its card's content and says which
+ * are HARD and which are soft, because that distinction is what decides who
+ * gives way when the row is short:
  *
- *   his floors  180 + 340 + 180 + 320 + 230 = 1250px, + 4 gaps = **1290px**
+ *   HARD — the card CLIPS or truncates below the number.
+ *     · Project      a CSS grid inside an `overflow-hidden` card.
+ *     · Builder/Owner  `<input>` values, which do not wrap.
+ *   SOFT — the card reflows and stays readable.
+ *     · Milestones, Team, Plan of Record.
  *
- * The narrowest layout this app supports is a **1280px viewport with the ribbon
- * EXPANDED** (212px — and expanded is the default, `loadRibbonCollapsed() ??
- * false`). After the shell's `p-6` (48px) and the header's `px-4` (32px) the
- * card row gets **988px**. Bobby's floors would overflow it by ~300px and the
- * page body would scroll sideways — which the same brief forbids.
- *
- * ★ So the floors are scaled to fit the narrowest supported row, and the
- *   PERCENTAGES — which are what actually decide the look at every width above
- *   ~1030px of row — are his, untouched. The floors only bind on a genuinely
- *   small window, and there they keep every card legible rather than pretty.
- *
- * ★★ AND THE ORDER SURVIVES AT BOTH ENDS: Plan of Record is the largest share
- * (29% > 26%) AND the largest floor (240 > 220), so it is the widest card at
- * every width, not just the wide ones. The test asserts both.
+ * ★★ AND BOBBY'S STANDING RULING SURVIVES: the Plan of Record is the largest
+ * SHARE (29%) and the largest FLOOR (310), so it is the widest card at every
+ * width — the thing fix-417 was raised to fix. Scope 10(ii) offered its floor
+ * as the place to find room; taking it demotes the Plan of Record below Project
+ * at EVERY width, not just narrow ones, so it was measured and refused. See the
+ * PR body for the numbers.
  */
 export const OVERVIEW_CARD_COLUMNS: readonly OverviewCardColumn[] = [
   {
     key: 'dd',
     title: 'Milestones',
-    pct: 14,
+    pct: 13,
     minPx: 140,
     floorReason:
-      'Dates and short state words; it reflows and was the one card already ' +
-      'getting its fair share before this fix.',
+      'SOFT. Dates and short state words, all of which reflow — the one card ' +
+      'that was already getting its fair share before fix-417, and the one ' +
+      'that can afford to give a point of share back to the cards that cannot.',
   },
   {
     key: 'proj',
     title: 'Project',
-    pct: 26,
-    minPx: 220,
+    pct: 22,
+    // ★★★ DERIVED, NOT TYPED. See UNIT_MATRIX_WIDTH — widen a matrix column and
+    //     this floor widens in the same build.
+    minPx: UNIT_MATRIX_WIDTH + OVERVIEW_CARD_CHROME,
     floorReason:
-      'Its widest content — the Units row — SCROLLS inside the card now ' +
-      '(fix-417 §B), so its floor is what the Proposal/Site labels need, not ' +
-      'the 642px the row used to impose on the whole page.',
+      '★ HARD, and DERIVED from UNIT_MATRIX_WIDTH. fix-417 justified 220px ' +
+      'with "its widest content — the Units row — SCROLLS inside the card now ' +
+      '(fix-417 §B)". fix-418 DELETED that scroller, so the justification has ' +
+      'been false on main since ef9b0eb and the card has been free to clip its ' +
+      'own contents. OverviewCard is `overflow-hidden`: a card narrower than ' +
+      'the matrix does not scroll, it truncates silently. So the floor is the ' +
+      'matrix plus the card chrome, computed, and the two can never disagree.',
   },
   {
     key: 'team',
     title: 'Team',
-    pct: 15,
-    minPx: 140,
-    floorReason: 'Names and role chips, all of which wrap.',
+    pct: 17,
+    minPx: 160,
+    floorReason:
+      'SOFT but raised 20px. Bobby: "the team … is way too slim". It stacks ' +
+      'Internal over External, each a name beside a role chip; a 20-character ' +
+      'name at this card\'s 10px needs ~110px before the chip wraps under it.',
   },
   {
     key: 'por',
     title: 'Design Plan of Record',
     pct: 29,
-    minPx: 240,
+    // ★★★ MUST EXCEED THE PROJECT FLOOR. Bobby's fix-417 ruling — "the Design
+    //     plan of record should be the widest of the boxes" — is a statement
+    //     about EVERY width, and below ~1130px of row the floors are the only
+    //     thing deciding. +14 over Project is the smallest margin that keeps it
+    //     true without taking more than the row can spare.
+    minPx: UNIT_MATRIX_WIDTH + OVERVIEW_CARD_CHROME + 14,
     floorReason:
-      'The only card whose content is genuinely resolution-bound (fix-295: a ' +
-      'plan thumbnail). Largest share AND largest floor, so it is the widest ' +
-      'card at every width.',
+      'SOFT content (a plan thumbnail scales) but a HARD ordering constraint: ' +
+      'Bobby ruled this the widest box, and a floor below Project\'s would ' +
+      'demote it everywhere the floors bind. Pinned just above Project\'s so ' +
+      'the ruling holds at every width for the least width taken.',
   },
   {
     key: 'builder',
     title: 'Builder / Owner',
-    pct: 16,
+    pct: 19,
     minPx: 190,
     floorReason:
-      '★ THE REPORTED DEFECT. These are <input> elements, and an input does ' +
-      'NOT wrap — its value scrolls out of sight, which is the "clipping ' +
-      'mid-word" Bobby photographed. 190px holds a full email at the 12px ' +
-      'bold this card uses; widening is the only fix available.',
+      '★ HARD, and UNCHANGED — this is fix-417\'s reported defect and its ' +
+      'measurement stands. These are <input> elements and an input does NOT ' +
+      'wrap; its value scrolls out of sight, which is the "clipping mid-word" ' +
+      'Bobby photographed. 190px holds a full email at 12px bold.',
   },
 ];
 
@@ -158,8 +171,7 @@ export const OVERVIEW_GRID_GAP = 10;
 /**
  * The `grid-template-columns` the row renders from.
  *
- * ★★★ `minmax(<px>, <fr>)`, NEVER a bare `fr`. The explicit length minimum is
- * the entire fix — see the header note. A bare `fr` silently means
+ * ★★★ `minmax(<px>, <fr>)`, NEVER a bare `fr`. A bare `fr` silently means
  * `minmax(auto, …)` and hands any card the power to resize its neighbours.
  */
 export const OVERVIEW_GRID_TEMPLATE: string = OVERVIEW_CARD_COLUMNS.map(
@@ -167,23 +179,35 @@ export const OVERVIEW_GRID_TEMPLATE: string = OVERVIEW_CARD_COLUMNS.map(
 ).join(' ');
 
 /** Every floor plus every gap — the narrowest the row can be without the page
- *  scrolling sideways. Exported so a test can hold it against a real viewport
- *  rather than trusting the arithmetic in a comment. */
+ *  scrolling sideways. */
 export const OVERVIEW_ROW_MIN_WIDTH: number =
   OVERVIEW_CARD_COLUMNS.reduce((a, c) => a + c.minPx, 0) +
   (OVERVIEW_CARD_COLUMNS.length - 1) * OVERVIEW_GRID_GAP;
 
 /**
- * ★ The chrome between the viewport and this row, so the test that says "the
- * page does not scroll sideways at 1280px" is measuring the real thing rather
- * than a number somebody typed.
+ * ★★★ THE CHROME BETWEEN THE VIEWPORT AND THIS ROW — ALL SEVEN BOXES.
  *
- *   ribbon 212 (EXPANDED — the default) · shell `p-6` 24×2 · header `px-4` 16×2
+ * ★★ fix-417 listed three of these and was 278px optimistic as a result. Each
+ * entry names the file and class it is read from, so the next person to change
+ * a padding can find what depends on it.
  */
 export const SHELL_CHROME_PX = {
+  /** Ribbon.tsx `WIDTH_EXPANDED` — and expanded is the default. */
   ribbonExpanded: 212,
+  /** Ribbon.tsx `WIDTH_COLLAPSED`. */
   ribbonCollapsed: 56,
+  /** Chrome.tsx `<main class="… p-6">`. */
   shellPadding: 24 * 2,
+  /** ProjectDetail.tsx body row `px-3`. */
+  pageRowPadding: 12 * 2,
+  /** ★ ProjectDetail.tsx `pd-left-rail` — a fixed 240px permits column that is
+   *  rendered on the overview too. The box fix-417 missed. */
+  permitsRail: 240,
+  /** ★ …and its `gap-3` to the right pillbox. */
+  permitsRailGap: 12,
+  /** ★ `pd-right-pillbox` `border` — 1px a side. */
+  pillboxBorder: 2,
+  /** ProjectDetailHeader.tsx root `px-4`. */
   headerPadding: 16 * 2,
 } as const;
 
@@ -197,6 +221,57 @@ export function overviewRowWidthAt(
       ? SHELL_CHROME_PX.ribbonExpanded
       : SHELL_CHROME_PX.ribbonCollapsed;
   return (
-    viewportPx - r - SHELL_CHROME_PX.shellPadding - SHELL_CHROME_PX.headerPadding
+    viewportPx -
+    r -
+    SHELL_CHROME_PX.shellPadding -
+    SHELL_CHROME_PX.pageRowPadding -
+    SHELL_CHROME_PX.permitsRail -
+    SHELL_CHROME_PX.permitsRailGap -
+    SHELL_CHROME_PX.pillboxBorder -
+    SHELL_CHROME_PX.headerPadding
+  );
+}
+
+/** Whether all five cards fit at their floors — i.e. the pane does not scroll
+ *  sideways. */
+export function overviewRowFitsAt(
+  viewportPx: number,
+  ribbon: 'expanded' | 'collapsed' = 'expanded',
+): boolean {
+  return overviewRowWidthAt(viewportPx, ribbon) >= OVERVIEW_ROW_MIN_WIDTH;
+}
+
+/** The narrowest viewport at which all five cards fit at their floors. */
+export function overviewMinViewport(
+  ribbon: 'expanded' | 'collapsed' = 'expanded',
+): number {
+  return (
+    OVERVIEW_ROW_MIN_WIDTH +
+    (ribbon === 'expanded'
+      ? SHELL_CHROME_PX.ribbonExpanded
+      : SHELL_CHROME_PX.ribbonCollapsed) +
+    SHELL_CHROME_PX.shellPadding +
+    SHELL_CHROME_PX.pageRowPadding +
+    SHELL_CHROME_PX.permitsRail +
+    SHELL_CHROME_PX.permitsRailGap +
+    SHELL_CHROME_PX.pillboxBorder +
+    SHELL_CHROME_PX.headerPadding
+  );
+}
+
+/**
+ * Each card's resolved width for a given row width — the grid's own algorithm,
+ * so a test can measure what jsdom cannot render.
+ *
+ * ★ Below `OVERVIEW_ROW_MIN_WIDTH` every track sits on its floor and the row
+ *   overflows its container; above it, the free space is split by `pct`.
+ */
+export function resolveOverviewWidths(rowPx: number): number[] {
+  const free =
+    rowPx -
+    (OVERVIEW_CARD_COLUMNS.length - 1) * OVERVIEW_GRID_GAP -
+    OVERVIEW_CARD_COLUMNS.reduce((a, c) => a + c.minPx, 0);
+  return OVERVIEW_CARD_COLUMNS.map((c) =>
+    free <= 0 ? c.minPx : c.minPx + (free * c.pct) / 100,
   );
 }

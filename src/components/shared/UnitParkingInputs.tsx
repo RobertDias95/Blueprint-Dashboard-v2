@@ -1,5 +1,11 @@
+import type { ReactNode } from 'react';
 import { PARKING_KINDS, type ParkingKind } from '../../lib/database.types';
-import { PARKING_KIND_LABEL, NOT_RECORDED } from '../../lib/unitParking';
+import {
+  PARKING_KIND_LABEL,
+  NOT_RECORDED,
+  parkingKindCode,
+  roofDeckCode,
+} from '../../lib/unitParking';
 import {
   WORK_SCOPES,
   WORK_SCOPE_SHORT,
@@ -51,12 +57,67 @@ function cls(fill?: boolean): string {
   return fill ? `${SELECT_CLASS} w-full` : SELECT_CLASS;
 }
 
+// ---------------------------------------------------------------------------
+// ★★★ fix-422 — A CELL THAT SHOWS A LETTER AND A MENU THAT SHOWS THE WORDS
+// ---------------------------------------------------------------------------
+//
+// Bobby: *"the drop-down can have the words, but when you select it, then it
+// says G for garage, or S for surface."*
+//
+// ★★★ A NATIVE `<select>` CANNOT DO THAT ON ITS OWN. Its closed face is the
+// selected `<option>`'s own text, so "G closed, Garage open" is not two states
+// of one element — it is two elements.
+//
+// ★★ AND THE OBVIOUS FIX IS THE WRONG ONE. Replacing it with a `<button>` plus
+// a `<ul role="listbox">` would hand-roll type-ahead, Escape, arrow keys, the
+// mobile picker and the screen-reader contract that the platform already ships
+// — in a 26px cell, eight times per project.
+//
+// ★★★ SO THE REAL `<select>` STAYS AND IS LAID OVER THE GLYPH AT ZERO OPACITY.
+// Keyboard, type-ahead, the native menu and the accessibility tree are all the
+// platform's, unmodified; only the painted face is ours. Three things make that
+// honest rather than a trick:
+//
+//   · the glyph is `aria-hidden` — the select is the only thing in the tree, so
+//     nothing is announced twice and nothing is announced wrongly;
+//   · the wrapper takes a visible ring on `focus-within`, because hiding a
+//     control's own focus ring is how this pattern usually goes wrong;
+//   · `cursor-pointer` and the full-cell hit area sit on the select itself, so
+//     the click target is the control and not a decoration beside it.
+function CodedCell({
+  code,
+  children,
+  disabled,
+}: {
+  code: string;
+  children: ReactNode;
+  disabled?: boolean;
+}) {
+  return (
+    <span
+      className={`relative flex items-center justify-center w-full h-[16px] rounded border border-border bg-bg text-[9px] font-bold text-text focus-within:border-de focus-within:ring-1 focus-within:ring-de ${
+        disabled ? 'opacity-40' : ''
+      }`}
+    >
+      <span aria-hidden="true" className="pointer-events-none select-none">
+        {code}
+      </span>
+      {children}
+    </span>
+  );
+}
+
+/** ★ The real control, invisible but entirely present. */
+const OVERLAY_CLASS =
+  'absolute inset-0 w-full h-full opacity-0 cursor-pointer disabled:cursor-default';
+
 export function ParkingKindSelect({
   value,
   onChange,
   disabled,
   testid,
   fill,
+  code,
 }: {
   value: ParkingKind | null | undefined;
   /** null means the user cleared it back to NOT RECORDED. */
@@ -65,24 +126,40 @@ export function ParkingKindSelect({
   testid: string;
   /** ★ fix-412: fill the grid column rather than auto-sizing. */
   fill?: boolean;
+  /** ★ fix-422: paint the cell as a letter code. The MENU still says the words
+   *  — see CodedCell for why that needs two elements. */
+  code?: boolean;
 }) {
-  return (
-    <select
-      value={value ?? ''}
-      disabled={disabled}
-      onChange={(e) =>
-        onChange(e.target.value === '' ? null : (e.target.value as ParkingKind))
-      }
-      className={cls(fill)}
-      data-testid={testid}
-      aria-label="Parking kind"
-    >
-      <option value="">{NOT_RECORDED}</option>
+  const menu = (
+    <>
+      <option value="">{NOT_RECORDED} not recorded</option>
       {PARKING_KINDS.map((k) => (
         <option key={k} value={k}>
           {PARKING_KIND_LABEL[k]}
         </option>
       ))}
+    </>
+  );
+  const shared = {
+    value: value ?? '',
+    disabled,
+    onChange: (e: React.ChangeEvent<HTMLSelectElement>) =>
+      onChange(e.target.value === '' ? null : (e.target.value as ParkingKind)),
+    'data-testid': testid,
+    'aria-label': 'Parking kind',
+  };
+  if (code) {
+    return (
+      <CodedCell code={parkingKindCode(value)} disabled={disabled}>
+        <select {...shared} className={OVERLAY_CLASS}>
+          {menu}
+        </select>
+      </CodedCell>
+    );
+  }
+  return (
+    <select {...shared} className={cls(fill)}>
+      {menu}
     </select>
   );
 }
@@ -94,6 +171,7 @@ export function StallsInput({
   disabled,
   testid,
   fill,
+  compact,
 }: {
   value: string;
   onChange: (raw: string) => void;
@@ -104,7 +182,16 @@ export function StallsInput({
   testid: string;
   /** ★ fix-412: fill the grid column rather than a fixed w-14. */
   fill?: boolean;
+  /** ★ fix-422: a 20px matrix cell. Same input and same coercion — the native
+   *  spinner is suppressed, because two arrows in a one-digit box leave no room
+   *  for the digit. */
+  compact?: boolean;
 }) {
+  const base = compact
+    ? 'bg-bg border border-border rounded text-[9px] font-bold text-text w-full h-[16px] text-center px-0 focus:outline-none focus:border-de focus:ring-1 focus:ring-de disabled:opacity-40 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none'
+    : fill
+      ? `${SELECT_CLASS} w-full text-center`
+      : `${SELECT_CLASS} w-14 text-center`;
   return (
     <input
       type="number"
@@ -115,9 +202,7 @@ export function StallsInput({
       onChange={(e) => onChange(e.target.value)}
       onBlur={onBlur}
       placeholder={NOT_RECORDED}
-      className={
-        fill ? `${SELECT_CLASS} w-full text-center` : `${SELECT_CLASS} w-14 text-center`
-      }
+      className={base}
       data-testid={testid}
       aria-label="Parking stalls"
     />
@@ -130,6 +215,7 @@ export function RoofDeckSelect({
   disabled,
   testid,
   fill,
+  code,
 }: {
   value: boolean | null | undefined;
   onChange: (next: boolean | null) => void;
@@ -137,21 +223,36 @@ export function RoofDeckSelect({
   testid: string;
   /** ★ fix-412: fill the grid column rather than auto-sizing. */
   fill?: boolean;
+  /** ★ fix-422: paint the cell as Y / N / —, with the words still in the menu. */
+  code?: boolean;
 }) {
-  return (
-    <select
-      value={value == null ? '' : value ? 'Yes' : 'No'}
-      disabled={disabled}
-      onChange={(e) =>
-        onChange(e.target.value === '' ? null : e.target.value === 'Yes')
-      }
-      className={cls(fill)}
-      data-testid={testid}
-      aria-label="Roof deck"
-    >
-      <option value="">{NOT_RECORDED}</option>
+  const menu = (
+    <>
+      <option value="">{NOT_RECORDED} not recorded</option>
       <option value="Yes">Yes</option>
       <option value="No">No</option>
+    </>
+  );
+  const shared = {
+    value: value == null ? '' : value ? 'Yes' : 'No',
+    disabled,
+    onChange: (e: React.ChangeEvent<HTMLSelectElement>) =>
+      onChange(e.target.value === '' ? null : e.target.value === 'Yes'),
+    'data-testid': testid,
+    'aria-label': 'Roof deck',
+  };
+  if (code) {
+    return (
+      <CodedCell code={roofDeckCode(value)} disabled={disabled}>
+        <select {...shared} className={OVERLAY_CLASS}>
+          {menu}
+        </select>
+      </CodedCell>
+    );
+  }
+  return (
+    <select {...shared} className={cls(fill)}>
+      {menu}
     </select>
   );
 }

@@ -306,14 +306,31 @@ describe('fix-411 §3 (P-053): the Units table header reads RD', () => {
   // different things to a builder — and that ruling is now satisfied MORE
   // completely: the app says "Roof Deck" in full on every surface, including
   // this one. Only the width constraint that forced the abbreviation expired.
-  it('★★★ the Units header says Roof Deck in FULL now (fix-412 C5), never bare "Deck"', () => {
+  // =========================================================================
+  // ★★★ …AND fix-422 PUTS "RD" BACK, ON BOBBY'S INSTRUCTION
+  // =========================================================================
+  //
+  // Bobby, 2026-08-27: *"Roof deck could be RD, and it just needs to show a Y,
+  // and just be wide enough."* The column is 26px in the matrix, so fix-411's
+  // original constraint is back — harder than before.
+  //
+  // ★★★ THREE EDITIONS, ONE RULING, AND THE RULING NEVER MOVED. fix-411's
+  // finding was that a bare "Deck" is AMBIGUOUS — a ground-level deck and a
+  // roof deck are different things to a builder. "RD" is not ambiguous in the
+  // way "Deck" was: it is opaque, which is a different failure and a curable
+  // one. fix-422 cures it by giving every header a plain-language summary
+  // reachable on hover AND on keyboard focus, so the header is two glyphs and
+  // the meaning is one Tab away. That is strictly more than "Roof Deck" in full
+  // offered, because the full words never explained anything either.
+  it('★★★ the header is "RD" again (fix-422), and it now carries its own meaning', () => {
     const roofCol = UNIT_ROW_COLUMNS.find((c) => c.key === 'roof_deck')!;
-    expect(roofCol.header).toBe('Roof Deck');
+    expect(roofCol.header).toBe('RD');
     // ★ The ambiguity fix-411 removed stays removed: no bare "Deck" anywhere.
     expect(UNIT_ROW_COLUMNS.map((c) => c.header)).not.toContain('Deck');
-    // ★ ...and the column is wide enough that the abbreviation is not needed —
-    //   the 52px that forced "RD" is gone.
-    expect(roofCol.width).toBeGreaterThan(52);
+    // ★★ THE CURE FOR THE ABBREVIATION, asserted rather than assumed. Without
+    //    this, "RD" is fix-411's problem with fewer letters.
+    expect(roofCol.tooltip).toBe('Whether this unit type has a roof deck.');
+    expect(roofCol.tooltip).toContain('roof deck');
   });
 
   it('★★ no bare "Deck" label is left anywhere in that file', () => {

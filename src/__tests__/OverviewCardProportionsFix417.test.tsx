@@ -6,14 +6,24 @@ import type { ReactNode } from 'react';
 import { useAuthStore } from '../stores/authStore';
 import type { PermitWithCycles, Project } from '../lib/database.types';
 import {
+  OVERVIEW_CARD_CHROME,
   OVERVIEW_CARD_COLUMNS,
   OVERVIEW_GRID_AREAS,
   OVERVIEW_GRID_GAP,
   OVERVIEW_GRID_TEMPLATE,
   OVERVIEW_ROW_MIN_WIDTH,
+  SHELL_CHROME_PX,
+  overviewMinViewport,
+  overviewRowFitsAt,
   overviewRowWidthAt,
+  resolveOverviewWidths,
 } from '../lib/overviewCardLayout';
-import { UNIT_ROW_COLUMNS, UNIT_ROW_GAP } from '../lib/unitRowLayout';
+import {
+  FIX_412_ROW_WIDTH,
+  UNIT_MATRIX_WIDTH,
+  UNIT_ROW_COLUMNS,
+  UNIT_ROW_GAP,
+} from '../lib/unitRowLayout';
 
 // ===========================================================================
 // fix-417 — the Project Overview card row gets declared proportions
@@ -47,19 +57,34 @@ import { UNIT_ROW_COLUMNS, UNIT_ROW_GAP } from '../lib/unitRowLayout';
 // ---------------------------------------------------------------------------
 
 describe('fix-417 §0: the cause, computed rather than quoted', () => {
-  it('★★★ the Units row really is 620px, and the PROJECT card ~642px', () => {
-    // ★ Read from fix-412's own table, so this cannot go stale the way a
-    //   number copied into a comment would.
-    const cols = UNIT_ROW_COLUMNS.reduce((a, c) => a + c.width, 0);
-    const gaps = (UNIT_ROW_COLUMNS.length - 1) * UNIT_ROW_GAP;
-    expect(cols).toBe(584);
-    expect(gaps).toBe(36);
-    expect(cols + gaps).toBe(620);
+  it('★★★ the cause was a 620px row, and fix-422 keeps the number as evidence', () => {
+    // ★★ fix-422 replaced fix-412's ten-column row with a nine-column matrix,
+    //    so the widths that caused this ticket no longer exist as a layout.
+    //    They survive as `FIX_412_ROW_WIDTH`, because deleting them would
+    //    delete the evidence for a fix that is still load-bearing.
+    expect(FIX_412_ROW_WIDTH).toBe(620);
     // + OverviewCard's px-2.5 body padding (20) + 1px border each side.
-    expect(cols + gaps + 20 + 2).toBe(642);
-    // ★★ …which is 2.4× the PROJECT card's 26% share. A track that cannot go
-    //    below its content is a track that decides the row.
-    expect(642).toBeGreaterThan(OVERVIEW_CARD_COLUMNS[1].minPx * 2);
+    expect(FIX_412_ROW_WIDTH + OVERVIEW_CARD_CHROME).toBe(642);
+    // ★★★ …which was 2.9× the PROJECT card's 26% share at the time. A track
+    //     that cannot go below its content is a track that decides the row.
+    expect(642).toBeGreaterThan(220 * 2);
+  });
+
+  it('★★★ …and the matrix that replaced it is 274px, which is the whole point', () => {
+    // ★ The same arithmetic on today's table. 620 → 274 is why a horizontal
+    //   row is legal again: fix-412's row spelled everything out (Label 84,
+    //   Work 74, Parking 104); this one abbreviates, uses letter codes, drops
+    //   the `×` and moves `work_scope` off the grid entirely.
+    const cols = UNIT_ROW_COLUMNS.reduce((a, c) => a + c.width, 0);
+    expect(cols).toBe(244);
+    expect(UNIT_MATRIX_WIDTH).toBe(274);
+    expect(UNIT_MATRIX_WIDTH).toBeLessThan(FIX_412_ROW_WIDTH / 2);
+    // ★★★ AND THE CARD'S FLOOR IS DERIVED FROM IT, not typed beside it. This
+    //     is what replaces fix-417 §B's scroller: the card can never be
+    //     narrower than the grid inside it, so it never has anything to scroll.
+    expect(OVERVIEW_CARD_COLUMNS[1].minPx).toBe(
+      UNIT_MATRIX_WIDTH + OVERVIEW_CARD_CHROME,
+    );
   });
 });
 
@@ -123,28 +148,109 @@ describe('fix-417 §A: the proportions are declared once', () => {
 // ---------------------------------------------------------------------------
 
 describe('fix-417: the page body never scrolls sideways', () => {
-  it('★★★ the floors fit at 1280, 1440 and 1920 — with the ribbon EXPANDED', () => {
-    // ★★ EXPANDED IS THE BINDING CASE and it is the default
-    //    (`loadRibbonCollapsed(userId) ?? false`). 212px of ribbon, 48px of
-    //    shell padding and 32px of header padding come off the viewport first.
-    for (const vw of [1280, 1440, 1920]) {
-      const available = overviewRowWidthAt(vw, 'expanded');
-      expect(OVERVIEW_ROW_MIN_WIDTH).toBeLessThanOrEqual(available);
-    }
-    // The narrowest supported row, spelled out: 1280 − 212 − 48 − 32 = 988.
-    expect(overviewRowWidthAt(1280, 'expanded')).toBe(988);
-    expect(OVERVIEW_ROW_MIN_WIDTH).toBe(970);
+  // =========================================================================
+  // ★★★ THIS ASSERTION WAS WRONG, AND IT WAS THE CENTRAL ONE
+  // =========================================================================
+  //
+  // fix-417 claimed 988px of row at 1280 with the ribbon expanded, from a
+  // chrome model of *"ribbon 212 · shell p-6 48 · header px-4 32"* = 292px. It
+  // walked THREE of the seven boxes between the viewport and this grid. The
+  // three it missed are the biggest: `pd-left-rail` is a fixed **240px** permits
+  // column that is rendered on the overview too, plus its 12px gap and the
+  // right pillbox's 2px border, plus ProjectDetail's own 24px `px-3`.
+  //
+  // ★★★ THE REAL FIGURE IS 710px, AND THE ROW HAS NEVER FITTED AT 1280.
+  // fix-417's floors need 970px. This is not a regression fix-422 introduced —
+  // it has been true on main since fix-417 shipped, and the test asserted the
+  // wrong number confidently enough that nobody re-derived it. Recorded here as
+  // a failure of measurement, not of reasoning: everything fix-417 concluded
+  // from `minmax` is still correct.
+  it('★★★ the chrome is SEVEN boxes, not three — and the row is 710px at 1280', () => {
+    expect(overviewRowWidthAt(1280, 'expanded')).toBe(710);
+    expect(overviewRowWidthAt(1280, 'collapsed')).toBe(866);
+    // The three boxes fix-417 never counted, named so they cannot be lost again.
+    expect(SHELL_CHROME_PX.permitsRail).toBe(240);
+    expect(SHELL_CHROME_PX.permitsRailGap).toBe(12);
+    expect(SHELL_CHROME_PX.pillboxBorder).toBe(2);
+    expect(SHELL_CHROME_PX.pageRowPadding).toBe(24);
+    // 212 + 48 + 24 + 240 + 12 + 2 + 32 = 570 expanded.
+    expect(1280 - overviewRowWidthAt(1280, 'expanded')).toBe(570);
+    expect(1280 - overviewRowWidthAt(1280, 'collapsed')).toBe(414);
   });
 
-  it('★★★ Bobby\'s own floors would NOT have fitted — which is why they moved', () => {
-    // ★ He gave 180/340/180/320/230 = 1250px, + 4 gaps = 1290px, against 988px
-    //   of row at 1280px. His PERCENTAGES are kept exactly; only the floors are
-    //   scaled, and they only bind below ~1030px of row.
+  it('★★★ so the honest fit table is this, at every supported viewport', () => {
+    // ★★ STATED RATHER THAN ASSUMED, because it is the thing the next brief
+    //    needs and the thing two tickets in a row got wrong. `overviewRowFitsAt`
+    //    is derived, so this cannot drift from the floors above it.
+    const fits = (vw: number, r: 'expanded' | 'collapsed') =>
+      overviewRowFitsAt(vw, r);
+    expect(fits(1280, 'expanded')).toBe(false);
+    expect(fits(1280, 'collapsed')).toBe(false);
+    expect(fits(1440, 'expanded')).toBe(false);
+    expect(fits(1440, 'collapsed')).toBe(false);
+    expect(fits(1920, 'expanded')).toBe(true);
+    expect(fits(1920, 'collapsed')).toBe(true);
+    // ★★★ AND THE THRESHOLD, SPELLED OUT — the number Bobby needs to decide
+    //     whether the fallback (a full-width units band) is worth building.
+    expect(overviewMinViewport('expanded')).toBe(1706);
+    expect(overviewMinViewport('collapsed')).toBe(1550);
+  });
+
+  it('★★ below the threshold the cards sit on their floors and the PANE scrolls', () => {
+    // ★★★ NOT THE CARD. `OverviewCard` is `overflow-hidden`, so a card narrower
+    //     than its contents CLIPS silently — which is why the PROJECT floor is
+    //     derived from the matrix rather than chosen. What overflows instead is
+    //     the grid inside `pd-right-pillbox`, whose `overflow-y-auto` makes its
+    //     `overflow-x` compute to `auto`. A scrollbar on the pane is a visible,
+    //     recoverable state; a clipped matrix is not.
+    const narrow = resolveOverviewWidths(overviewRowWidthAt(1440, 'expanded'));
+    expect(narrow).toEqual(OVERVIEW_CARD_COLUMNS.map((c) => c.minPx));
+    expect(narrow[1]).toBeGreaterThanOrEqual(
+      UNIT_MATRIX_WIDTH + OVERVIEW_CARD_CHROME,
+    );
+  });
+
+  it('★★★ Bobby\'s own fix-417 floors did not fit either — by even more than we thought', () => {
+    // ★ He gave 180/340/180/320/230 = 1250px, + 4 gaps = 1290px. fix-417 held
+    //   that against 988px of row and scaled them down. Against the real 710px
+    //   it is nearly double, so the decision to scale was right for a reason
+    //   stronger than the one recorded.
     const bobbysFloors = 180 + 340 + 180 + 320 + 230 + 4 * OVERVIEW_GRID_GAP;
     expect(bobbysFloors).toBe(1290);
-    expect(bobbysFloors).toBeGreaterThan(overviewRowWidthAt(1280, 'expanded'));
-    // The percentages ARE his.
-    expect(OVERVIEW_CARD_COLUMNS.map((c) => c.pct)).toEqual([14, 26, 15, 29, 16]);
+    expect(bobbysFloors).toBeGreaterThan(overviewRowWidthAt(1280, 'expanded') * 1.8);
+  });
+
+  it('★★★ fix-422 re-shared the row, and the Plan of Record is STILL the widest', () => {
+    // ★★★ BOBBY'S fix-417 RULING, UNREVOKED: *"the Design plan of record should
+    //     be the widest of the boxes."* Scope 10(ii) offered its floor as the
+    //     place to find room at 1280; taking it would have put Project ahead of
+    //     it at EVERY width, not just narrow ones, because Project's floor is
+    //     now a hard content requirement. Measured and refused — see the PR.
+    const por = OVERVIEW_CARD_COLUMNS.find((c) => c.key === 'por')!;
+    const proj = OVERVIEW_CARD_COLUMNS.find((c) => c.key === 'proj')!;
+    expect(por.minPx).toBeGreaterThan(proj.minPx);
+    for (const c of OVERVIEW_CARD_COLUMNS) {
+      if (c.key !== 'por') expect(por.pct).toBeGreaterThan(c.pct);
+    }
+    // ★ …at every viewport where the row resolves at all.
+    for (const vw of [1280, 1440, 1920]) {
+      for (const r of ['expanded', 'collapsed'] as const) {
+        const w = resolveOverviewWidths(overviewRowWidthAt(vw, r));
+        expect(w[3]).toBe(Math.max(...w));
+      }
+    }
+  });
+
+  it('★★ the re-share does NOT re-break fix-417\'s reported defect', () => {
+    // ★★★ Builder/Owner is the card that was clipping emails, and its floor is
+    //     the one number in this table that fix-422 did not touch: an <input>
+    //     does not wrap, so 190px is a measurement, not a preference.
+    const b = OVERVIEW_CARD_COLUMNS.find((c) => c.key === 'builder')!;
+    expect(b.minPx).toBe(190);
+    // ★ And its SHARE went UP (16 → 19), which is the only direction the
+    //   re-share could help it — the row has no spare width at its floors.
+    expect(b.pct).toBe(19);
+    expect(b.pct).toBeGreaterThan(16);
   });
 
   it('★★ at the width Bobby measured, every squeezed card grows back', () => {
@@ -205,12 +311,12 @@ describe('fix-417 §B (superseded by fix-418): nothing scrolls sideways', () => 
     }
   });
 
-  it('★★ the fix-412 column table survives as the field declaration', () => {
-    // ★ The widths are now the RECORD of why fix-417 happened — 584 + 36 = 620
-    //   is what made the card's min-content 642px. Deleting them would delete
-    //   the evidence for a fix that is still load-bearing.
-    expect(UNIT_ROW_COLUMNS).toHaveLength(10);
+  it('★★ the column table is still the ONE field declaration', () => {
+    // ★ Nine columns now (fix-422 moved `work_scope` off the grid), and the
+    //   620px that caused fix-417 lives on as a constant rather than a layout.
+    expect(UNIT_ROW_COLUMNS).toHaveLength(9);
     expect(UNIT_ROW_GAP).toBe(4);
+    expect(FIX_412_ROW_WIDTH).toBe(620);
   });
 });
 
@@ -413,28 +519,26 @@ describe('fix-417: THE REPORTED DEFECT — Builder/Owner clips mid-word', () => 
 });
 
 describe('fix-417 §B (superseded): the PROJECT card still cannot set the row width', () => {
-  it('★★★ the interior wraps instead of scrolling', () => {
-    // fix-418 §A: two columns that WRAP below 285px of interior, so the card
-    // never demands more width than its fix-417 floor gives it — the property
-    // §B's scroller existed to guarantee, now structural.
+  it('★★★ the card cannot demand more width than its floor allows', () => {
+    // ★★★ fix-418 wrapped and wrapped again; fix-422 does it with arithmetic
+    //     instead. The PROJECT floor IS the matrix plus the card chrome, so the
+    //     card is never narrower than the grid inside it and never has anything
+    //     to scroll — the property §B's scroller existed to guarantee, now a
+    //     derivation rather than a container.
     renderHeader();
-    const interior = screen.getByTestId('pd-project-interior');
-    expect(interior.className).toContain('flex-wrap');
-    expect(interior.className).not.toContain('overflow');
+    expect(screen.queryByTestId('pd-project-interior')).toBeNull();
+    const proj = OVERVIEW_CARD_COLUMNS.find((c) => c.key === 'proj')!;
+    expect(proj.minPx).toBe(UNIT_MATRIX_WIDTH + OVERVIEW_CARD_CHROME);
   });
 
-  it('★★★ the fix-417 card floors are UNTOUCHED — Plan of Record still widest', () => {
-    // The brief's hard constraint for fix-418: overviewCardLayout must not move.
+  it('★★★ the five shares still sum to 100 and every floor is real', () => {
+    expect(OVERVIEW_CARD_COLUMNS.reduce((a, c) => a + c.pct, 0)).toBe(100);
+    expect(OVERVIEW_CARD_COLUMNS.map((c) => c.pct)).toEqual([13, 22, 17, 29, 19]);
     expect(OVERVIEW_CARD_COLUMNS.map((c) => c.minPx)).toEqual([
-      140, 220, 140, 240, 190,
+      140, 296, 160, 310, 190,
     ]);
-    expect(OVERVIEW_CARD_COLUMNS.map((c) => c.pct)).toEqual([14, 26, 15, 29, 16]);
-    const por = OVERVIEW_CARD_COLUMNS.find((c) => c.key === 'por')!;
     for (const c of OVERVIEW_CARD_COLUMNS) {
-      if (c.key !== 'por') {
-        expect(por.pct).toBeGreaterThan(c.pct);
-        expect(por.minPx).toBeGreaterThan(c.minPx);
-      }
+      expect(c.floorReason.length).toBeGreaterThan(40);
     }
   });
 });
