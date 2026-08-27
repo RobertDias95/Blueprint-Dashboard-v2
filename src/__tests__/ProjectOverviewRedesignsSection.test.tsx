@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
-import { MemoryRouter, Route, Routes } from 'react-router-dom';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { ReactNode } from 'react';
 import { useAuthStore } from '../stores/authStore';
@@ -85,6 +85,13 @@ function permit(id: number, projectId: string, over: Record<string, unknown> = {
   };
 }
 
+/** ★ fix-421: a redesign permit CARD is a div, not a link — it cannot be
+ *  asserted with `getAttribute('href')` any more. This reports where the
+ *  router actually went so the click can be asserted on its effect. */
+function LocationProbe() {
+  return <span data-testid="probe-path">{useLocation().pathname}</span>;
+}
+
 function renderPage() {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
@@ -95,9 +102,12 @@ function renderPage() {
     </QueryClientProvider>
   );
   return render(
-    <Routes>
-      <Route path="/project/:id" element={<ProjectDetail />} />
-    </Routes>,
+    <>
+      <LocationProbe />
+      <Routes>
+        <Route path="/project/:id" element={<ProjectDetail />} />
+      </Routes>
+    </>,
     { wrapper },
   );
 }
@@ -129,7 +139,19 @@ describe('<ProjectDetail /> Redesigns section (fix-151)', () => {
     expect(screen.getByTestId('project-overview-redesign-permit-10248')).toBeTruthy();
   });
 
-  it('fix-193: a reuses-permit redesign keeps the note AND renders its PPR placeholder with a readable label', () => {
+  // ★★★ SUPERSEDED BY fix-421, and the reason it existed is now the card's job.
+  //
+  // fix-193 wrote `redesignPermitLabel()` so a number-less PPR would not read as
+  // blank — it produced "PPR · Pre-Submittal · no number yet". fix-421 renders
+  // these with `SidebarRow`, the same component every other permit in the panel
+  // uses, and that component already prints the type, the stage breadcrumb and
+  // an italic "No permit # yet" where the number goes. The label function is
+  // deleted rather than kept: a second labeller beside a card that labels itself
+  // is exactly the drift fix-290 spent a ticket removing from the overview.
+  //
+  // The ASSERTION is unchanged in intent — a number-less PPR must not look
+  // empty — and now checks the card that says so.
+  it('fix-193 → fix-421: a reuses-permit redesign keeps the note AND its number-less PPR still reads as a permit', () => {
     refs.projects = [
       project({ id: PARENT }),
       project({ id: 'r1', redesign_of_project_id: PARENT, redesign_reuses_original_permit: true }),
@@ -144,7 +166,12 @@ describe('<ProjectDetail /> Redesigns section (fix-151)', () => {
     expect(section.textContent).toContain("Reuses parent's permits");
     const pprRow = screen.getByTestId('project-overview-redesign-permit-10321');
     expect(pprRow.textContent).toContain('PPR');
-    expect(pprRow.textContent).toMatch(/Pre-Submittal|no number yet/i);
+    // ★ The card's own "no number" treatment, not a bespoke string.
+    expect(pprRow.textContent).toMatch(/No permit # yet/i);
+    // ★★ And it IS the shared card: same testid shape as every other row.
+    expect(
+      pprRow.querySelector('[data-testid="permits-sidebar-row-10321"]'),
+    ).toBeTruthy();
   });
 
   it('a reuses-permit redesign with no permits at all shows just the note', () => {
@@ -197,15 +224,28 @@ describe('<ProjectDetail /> Redesigns section (fix-151)', () => {
     expect(screen.getByTestId('stub-delete-redesign')).toBeTruthy();
   });
 
-  it('redesign permit links to the redesign project (no per-permit deep route)', () => {
+  // ★★★ SUPERSEDED BY fix-421 — SAME DESTINATION, DIFFERENT ELEMENT.
+  //
+  // fix-151 made the whole row an <a>. fix-421 makes it the shared permit card,
+  // which CONTAINS an <a> of its own (the permit number's portal link), and an
+  // anchor inside an anchor is invalid markup that browsers un-nest. So the card
+  // is a div whose click navigates — the destination is unchanged, which is what
+  // this ticket was told to leave alone; only the mechanism moved.
+  //
+  // ★★ AND THE CLICK IS DEFERRED ONE DOUBLE-CLICK INTERVAL, so that
+  //    double-click-to-quick-edit works on these cards too (see the fix-421
+  //    suite). That is why this waits rather than asserting synchronously.
+  it('fix-151 → fix-421: clicking a redesign permit card still goes to the redesign project', async () => {
     refs.projects = [
       project({ id: PARENT }),
       project({ id: 'r1', redesign_of_project_id: PARENT }),
     ];
     refs.allPermits = [permit(1, PARENT), permit(10248, 'r1')];
     renderPage();
-    expect(
-      screen.getByTestId('project-overview-redesign-permit-10248').getAttribute('href'),
-    ).toBe('/project/r1');
+    expect(screen.getByTestId('probe-path').textContent).toBe(`/project/${PARENT}`);
+    fireEvent.click(screen.getByTestId('permits-sidebar-row-10248'));
+    await waitFor(() =>
+      expect(screen.getByTestId('probe-path').textContent).toBe('/project/r1'),
+    );
   });
 });

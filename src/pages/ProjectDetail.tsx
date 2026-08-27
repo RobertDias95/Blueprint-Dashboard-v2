@@ -1,7 +1,18 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
-import { Link, useLocation, useParams, useSearchParams } from 'react-router-dom';
+import {
+  Link,
+  useLocation,
+  useNavigate,
+  useParams,
+  useSearchParams,
+} from 'react-router-dom';
 import OriginLink from '../components/OriginLink';
-import { previousTarget } from '../lib/previousOrigin';
+import {
+  currentPaneScroll,
+  makeOriginState,
+  previousTarget,
+  rememberPaneScroll,
+} from '../lib/previousOrigin';
 import { useProjects } from '../hooks/useProjects';
 import { usePermitsByProject } from '../hooks/usePermitsByProject';
 import { useAllPermitCycleReviewers } from '../hooks/useAllPermitCycleReviewers';
@@ -42,6 +53,7 @@ import {
 import {
   useProjectRedesigns,
   useProjectRedesignsWithPermits,
+  type RedesignWithPermits,
 } from '../hooks/useProjectRedesigns';
 
 // Q3 + Q4: Single-project view. Q3 wired editable permit-level fields. Q4
@@ -202,10 +214,30 @@ function ProjectDetailBody({
   const [quickEditPermitId, setQuickEditPermitId] = useState<number | null>(
     null,
   );
+  // ★★★ fix-421: RESOLVED ACROSS THE LINEAGE, not just this project's permits.
+  //
+  // Double-click-to-quick-edit is a daily gesture for Bobby and the current
+  // workaround for the role-cascade defect (P-075). fix-421 gives a redesign's
+  // permits the same card every other permit uses, so the same double-click has
+  // to reach them — and a redesign permit's `project_id` is the REDESIGN's, so
+  // a lookup in `permits` (this project's) returns null and the modal silently
+  // never opens. `lineagePermits` is parent + every redesign's permits, which
+  // is exactly the set the panel now renders.
   const quickEditPermit =
     quickEditPermitId !== null
-      ? permits.find((p) => p.id === quickEditPermitId) ?? null
+      ? lineagePermits.find((p) => p.id === quickEditPermitId) ?? null
       : null;
+  // ★★ SIBLINGS STAY SAME-PROJECT. fix-194's "Sub-permit of…" selector writes
+  //    `parent_permit_id`, and that marker is enforced same-project app-side —
+  //    offering a redesign permit the PARENT's permits as parents would let a
+  //    user build a cross-project link the rest of the app does not model.
+  const quickEditSiblings = useMemo(
+    () =>
+      quickEditPermit
+        ? lineagePermits.filter((p) => p.project_id === quickEditPermit.project_id)
+        : [],
+    [lineagePermits, quickEditPermit],
+  );
   // Keep bp around for the project-overview render even when no permit
   // is explicitly selected — the 4-col header anchors on the BP.
   void bp;
@@ -292,7 +324,7 @@ function ProjectDetailBody({
       {quickEditPermit && (
         <QuickEditPermitModal
           permit={quickEditPermit}
-          siblings={permits}
+          siblings={quickEditSiblings}
           onClose={() => setQuickEditPermitId(null)}
         />
       )}
@@ -789,6 +821,21 @@ function PermitsSidebar({
           Permits ({activeSorted.length + issuedSorted.length})
         </span>
       </header>
+      {/* ★★★ fix-421 — THREE BANDS, TOP TO BOTTOM: ACTIVE → REDESIGNS → ISSUED.
+          Bobby, 2026-08-26: *"issued should be at the bottom, redesign should be
+          above that, and then all the other active and ongoing permits should be
+          above that."*
+
+          ★★ ONLY THE ORDER MOVED. The active band, its drag-reorder, the issued
+          divider and the nested sub-permits are all exactly as fix-65 / fix-194
+          left them — this reads as a three-line diff because that is what it is.
+          What changed underneath is inside RedesignsSidebarSection, where the
+          bare `PPR · Corrections` lines became real permit cards.
+
+          ★ The "No permits yet." line is still gated on BOTH bands being empty,
+          so a project with issued permits and no active ones is unaffected. It
+          speaks for THIS project's permits; a redesign's are their own band with
+          their own count, which is why the header count is unchanged too. */}
       <div className="flex-1 overflow-y-auto" data-testid="permits-sidebar-list">
         {activeSorted.length === 0 && issuedSorted.length === 0 ? (
           <div className="text-[11px] text-dim italic p-4 text-center">
@@ -833,11 +880,22 @@ function PermitsSidebar({
                 ))}
               </Fragment>
             ))}
-            {/* fix-65: ✓ ISSUED divider + group. Rendered only when there
-                IS at least one issued permit so a fully-active project
-                (no issued permits yet) doesn't gain an empty section. */}
-            {issuedSorted.length > 0 && (
-              <>
+          </>
+        )}
+        {/* ★ fix-421 BAND 2: redesigns. fix-151 put this at the very bottom of
+            the panel; Bobby wants it between the active permits and the issued
+            ones, because a redesign is live work and an issued permit is not. */}
+        <RedesignsSidebarSection
+          parentId={project.id}
+          reviewersByPermit={reviewersByPermit}
+          onQuickEdit={onQuickEdit}
+        />
+        {/* fix-65: ✓ ISSUED divider + group. Rendered only when there
+            IS at least one issued permit so a fully-active project
+            (no issued permits yet) doesn't gain an empty section.
+            ★ fix-421 BAND 3 — the bottom, by Bobby's instruction. */}
+        {issuedSorted.length > 0 && (
+          <>
                 <div
                   className="px-3 py-1.5 text-[10px] font-extrabold uppercase tracking-wider flex items-center gap-1.5 border-y"
                   style={{
@@ -895,44 +953,59 @@ function PermitsSidebar({
                 </div>
               </>
             )}
-          </>
-        )}
-        {/* fix-151: redesigns of this project + their permits, surfaced below
-            the parent's permits so the lineage is visible from one place. */}
-        <RedesignsSidebarSection parentId={project.id} />
       </div>
     </aside>
   );
 }
 
-// fix-193: a redesign's own placeholder permit is a PPR with no number yet
-// (created even for a reuses-permit redesign so it has a row of its own). Give
-// it a readable label so the redesign never looks empty. Scoped to the redesign
-// sidebar context — only a num-less PPR gets the special label; every other
-// permit keeps its type + stage. (Leaves unrelated num-less permits elsewhere
-// untouched.)
-function redesignPermitLabel(p: PermitWithCycles): {
-  primary: string;
-  secondary: string;
-} {
-  if (!p.num && p.type === 'PPR') {
-    return { primary: 'PPR', secondary: 'Pre-Submittal · no number yet' };
-  }
-  return {
-    primary: p.type ?? '—',
-    secondary:
-      STAGE_LABEL[effectiveStage(p, p.permit_cycles ?? [], null)] ?? '—',
-  };
-}
+// ===========================================================================
+// ★★★ fix-421 — A REDESIGN'S PERMITS ARE PERMITS
+// ===========================================================================
+//
+// Bobby, 2026-08-26: *"Redesign clearly should show the permits, just like the
+// other permits in the permit tab, but just in the category of redesign."*
+//
+// ★★★ WHAT WAS HERE, AND WHY IT WENT. fix-151 rendered a redesign's permits as
+// bare one-line links — `redesignPermitLabel()` produced `PPR · Corrections`
+// and nothing else. No stage dot, no permit number, no portal link, no
+// structure address, no key date, and **no double-click quick edit**. Against
+// the parent's own permits three rows above, wearing the full `SidebarRow`,
+// they read as footnotes rather than as permits. They are permits.
+//
+// ★★ SO `redesignPermitLabel` IS DELETED RATHER THAN KEPT. fix-193 wrote it so
+// that a number-less PPR would not read as blank ("PPR · Pre-Submittal · no
+// number yet"). `SidebarRow` already answers that: it prints the type, the
+// stage breadcrumb, and an italic "No permit # yet" where the number goes. A
+// second label function beside a card that already labels itself is exactly the
+// drift fix-290 spent a ticket removing from the overview cards.
+//
+// ★★ AND THE STAGE IS NOW COMPUTED THE SAME WAY EVERYWHERE. fix-151 called
+// `effectiveStage(p, cycles, null)` with a hard-coded null for reviewers;
+// fix-104 had already established that dropping reviewers makes the sidebar
+// disagree with Schedule Health about the same permit. The parent's
+// `reviewersByPermit` index covers every permit in the tenant, so it is passed
+// straight through and a redesign card reads the same stage as everything else.
 
-// fix-151: "Redesigns (n)" section at the bottom of the permits sidebar. Each
-// redesign row links to that redesign's project overview (permits navigate via
-// local selection state on each project's own page, so there's no per-permit
-// deep route — the permit rows here link to the redesign project too). A
-// reuses-permit redesign shows a "Reuses parent's permits" note AND its own
-// placeholder permit (fix-193) so the redesign isn't visually empty. One hop
-// (useProjectRedesignsWithPermits doesn't recurse).
-function RedesignsSidebarSection({ parentId }: { parentId: string }) {
+// fix-151: the redesigns band of the permits sidebar. Each redesign is a GROUP —
+// its own heading (label · trigger, plus edit / delete) with its permits as
+// cards beneath it. One hop (useProjectRedesignsWithPermits doesn't recurse).
+//
+// ★ ORDER: creation date ascending, so "Redesign 1" is the first one Bobby
+//   spawned. That is `useProjectRedesignsWithPermits`'s own sort (created_at,
+//   then id as a tie-break) and the numbering is the index within it — the
+//   label and the position can therefore never disagree.
+function RedesignsSidebarSection({
+  parentId,
+  reviewersByPermit,
+  onQuickEdit,
+}: {
+  parentId: string;
+  /** ★ fix-421: the parent panel's per-permit reviewer index, so a redesign
+   *  card's stage is computed exactly like every other card's (fix-104). */
+  reviewersByPermit: Map<number, PermitCycleReviewer[]>;
+  /** ★ fix-421: double-click → Quick Edit Permit, on redesign cards too. */
+  onQuickEdit: (id: number) => void;
+}) {
   const { data } = useProjectRedesignsWithPermits(parentId);
   // fix-193: per-redesign edit / delete targets (the redesign + its sidebar
   // "Redesign N" label). Null = no dialog open.
@@ -955,91 +1028,22 @@ function RedesignsSidebarSection({ parentId }: { parentId: string }) {
           borderTopColor: 'var(--color-co-border)',
           borderBottomColor: 'var(--color-co-border)',
         }}
+        data-testid="permits-sidebar-redesigns-divider"
       >
         <span aria-hidden="true">↳</span>
         <span>Redesigns ({data.length})</span>
       </div>
-      {data.map((r, i) => {
-        const reuses = r.project.redesign_reuses_original_permit === true;
-        const trig = r.project.redesign_trigger;
-        const triggerLabel = trig
-          ? REDESIGN_TRIGGER_LABELS[trig as RedesignTrigger] ?? trig
-          : null;
-        const rowLabel = `Redesign ${i + 1}`;
-        return (
-          <div
-            key={r.project.id}
-            className="border-b"
-            style={{ borderBottomColor: 'var(--color-border)' }}
-          >
-            {/* fix-193: row header = link to the redesign + edit / delete
-                actions. The buttons sit OUTSIDE the Link (no nested
-                interactives). */}
-            <div className="flex items-center gap-1 px-3 py-1.5 hover:bg-s2 transition">
-              <OriginLink
-                to={`/project/${r.project.id}`}
-                className="flex-1 min-w-0"
-                data-testid={`project-overview-redesign-row-${r.project.id}`}
-              >
-                <span className="text-[11px] font-bold text-text">
-                  {rowLabel}
-                </span>
-                {triggerLabel && (
-                  <span className="text-[10px] text-dim"> · {triggerLabel}</span>
-                )}
-              </OriginLink>
-              <button
-                type="button"
-                onClick={() =>
-                  setEditTarget({ project: r.project, label: rowLabel })
-                }
-                className="text-dim hover:text-co text-[11px] leading-none px-1 shrink-0"
-                title={`Edit ${rowLabel}`}
-                data-testid={`project-overview-redesign-edit-${r.project.id}`}
-              >
-                ✎
-              </button>
-              <button
-                type="button"
-                onClick={() =>
-                  setDeleteTarget({ project: r.project, label: rowLabel })
-                }
-                className="text-dim hover:text-de text-[12px] leading-none px-1 shrink-0"
-                title={`Delete ${rowLabel}`}
-                data-testid={`project-overview-redesign-delete-${r.project.id}`}
-              >
-                ✕
-              </button>
-            </div>
-            {/* fix-193: a reuses-permit redesign keeps the "Reuses parent's
-                permits" note, but we ALSO list its own permits below (its PPR
-                placeholder) so the redesign isn't empty. A non-reuse redesign
-                just lists its own permits. */}
-            {reuses && (
-              <div className="px-3 pb-1.5 -mt-0.5 text-[10px] italic text-dim">
-                Reuses parent's permits
-              </div>
-            )}
-            {r.permits.map((p) => {
-              const label = redesignPermitLabel(p);
-              return (
-                <OriginLink
-                  key={p.id}
-                  to={`/project/${r.project.id}`}
-                  className="block pl-6 pr-3 py-1 hover:bg-s2 transition"
-                  data-testid={`project-overview-redesign-permit-${p.id}`}
-                >
-                  <span className="text-[10px] text-text">{label.primary}</span>
-                  <span className="text-[10px] text-dim">
-                    {' · '}
-                    {label.secondary}
-                  </span>
-                </OriginLink>
-              );
-            })}
-          </div>
-        );
-      })}
+      {data.map((r, i) => (
+        <RedesignGroup
+          key={r.project.id}
+          redesign={r}
+          label={`Redesign ${i + 1}`}
+          reviewersByPermit={reviewersByPermit}
+          onQuickEdit={onQuickEdit}
+          onEdit={(label) => setEditTarget({ project: r.project, label })}
+          onDelete={(label) => setDeleteTarget({ project: r.project, label })}
+        />
+      ))}
       {editTarget && (
         <EditRedesignModal
           redesign={editTarget.project}
@@ -1053,6 +1057,216 @@ function RedesignsSidebarSection({ parentId }: { parentId: string }) {
           label={deleteTarget.label}
           onClose={() => setDeleteTarget(null)}
         />
+      )}
+    </div>
+  );
+}
+
+/**
+ * ★★★ THE THREE STATES OF `redesign_reuses_original_permit`, SAID OUT LOUD.
+ *
+ * Prod, 2026-08-27: **12 true · 3 false · 2 null**. Null is not a tidier false —
+ * it is "nobody has answered yet", and it is the state Bobby was editing when he
+ * found this ticket. fix-151 tested `=== true` and rendered false and null
+ * identically (as nothing), which reads as a settled No on a question no one has
+ * been asked.
+ *
+ * ★ `false` deliberately renders NOTHING: "this redesign has its own permits" is
+ *   already said by the permits underneath it. Only the two states that are NOT
+ *   self-evident get words.
+ */
+function reuseNote(reuses: boolean | null | undefined): string | null {
+  if (reuses === true) return "Reuses parent's permits";
+  if (reuses == null) return 'Reuse of parent permits not answered';
+  return null;
+}
+
+/**
+ * ★★★ THE EMPTY STATE, AND IT IS THE MAJORITY CASE.
+ *
+ * Prod, 2026-08-27: **12 of 17 active redesigns carry no permits at all.** A
+ * heading with nothing under it reads as a component that failed to load, which
+ * is a worse bug than the one this ticket fixes.
+ *
+ * ★★ IT IS KEYED OFF THE PERMIT COUNT, NOT OFF THE REUSE FLAG — and in prod
+ * today those two happen to select exactly the same 12 rows (every reuse=true
+ * redesign has zero permits; every redesign WITH permits answered the question).
+ * That coincidence is not a rule: a redesign whose reuse question is unanswered
+ * and whose permits have not been created yet is a real state — it is the state
+ * a brand-new redesign is in for as long as it takes to add one — and keying off
+ * the flag would render it as a bare heading. Zero such rows today; the line has
+ * to be right the first time one exists.
+ */
+function redesignEmptyLine(reuses: boolean | null | undefined): string {
+  if (reuses === true) return 'No permits of its own — the parent\'s are reused.';
+  if (reuses == null) return 'No permits yet.';
+  return 'No permits yet.';
+}
+
+/** How long to wait for a second click before treating the first as a
+ *  navigation. The platform double-click threshold is ~500ms but 250 is long
+ *  enough for the gesture in practice and short enough not to feel laggy. */
+const REDESIGN_CLICK_DEFER_MS = 250;
+
+function RedesignGroup({
+  redesign,
+  label,
+  reviewersByPermit,
+  onQuickEdit,
+  onEdit,
+  onDelete,
+}: {
+  redesign: RedesignWithPermits;
+  label: string;
+  reviewersByPermit: Map<number, PermitCycleReviewer[]>;
+  onQuickEdit: (id: number) => void;
+  onEdit: (label: string) => void;
+  onDelete: (label: string) => void;
+}) {
+  const navigate = useNavigate();
+  const location = useLocation();
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => {
+    if (timer.current) clearTimeout(timer.current);
+  }, []);
+
+  // ★★★ ONE CARD, TWO GESTURES, AND THEY FIGHT — so the click is DEFERRED.
+  //
+  // Everywhere else in this panel a single click SELECTS the permit (a local
+  // state change) and a double-click opens Quick Edit; the first click of the
+  // double is harmless because selecting is idempotent. A redesign card's click
+  // NAVIGATES to the redesign's project — fix-151's behaviour, which this ticket
+  // is explicitly not allowed to change — and a navigation unmounts the card
+  // before `dblclick` can ever fire. Fire-and-forget on the first click means
+  // double-click quick edit simply does not exist on these cards.
+  //
+  // ★★ Bobby uses that gesture daily and it is the current workaround for the
+  //    role-cascade defect (P-075), so losing it on the cards this ticket
+  //    creates would be a net loss. The single click therefore waits one
+  //    double-click interval; a second click cancels the pending navigation and
+  //    opens Quick Edit instead. The cost is a ~250ms pause before navigating,
+  //    paid ONLY on these cards — the parent's own rows are untouched and
+  //    instant, because selecting has nothing to defer.
+  function deferNavigate() {
+    if (timer.current) return;
+    timer.current = setTimeout(() => {
+      timer.current = null;
+      // ★★ fix-408: carry the origin so "← Previous" comes back HERE, which
+      //    the OriginLink this replaces got for free. `makeOriginState` +
+      //    `rememberPaneScroll` are exactly what OriginLink does in its own
+      //    click handler — called here rather than re-derived, so a programmatic
+      //    navigation and a link navigation record the same thing. Reading the
+      //    scroll offset in the handler and never in render is fix-408's rule
+      //    (a list renders at the top and is clicked after scrolling).
+      const origin = makeOriginState(location);
+      if (origin) rememberPaneScroll(origin.from, currentPaneScroll());
+      navigate(`/project/${redesign.project.id}`, { state: origin });
+    }, REDESIGN_CLICK_DEFER_MS);
+  }
+  function cancelNavigate() {
+    if (timer.current) {
+      clearTimeout(timer.current);
+      timer.current = null;
+    }
+  }
+
+  const trig = redesign.project.redesign_trigger;
+  const triggerLabel = trig
+    ? REDESIGN_TRIGGER_LABELS[trig as RedesignTrigger] ?? trig
+    : null;
+  const note = reuseNote(redesign.project.redesign_reuses_original_permit);
+
+  return (
+    <div
+      className="border-b"
+      style={{ borderBottomColor: 'var(--color-border)' }}
+      data-testid={`permits-sidebar-redesign-group-${redesign.project.id}`}
+    >
+      {/* ★ fix-421 SCOPE 2: this is the GROUP HEADING now, not the row that
+          stands in for the permits. It keeps fix-193's link + edit / delete
+          actions and its testids; what changed is what sits beneath it. The
+          buttons stay OUTSIDE the Link (no nested interactives). */}
+      <div
+        className="flex items-center gap-1 px-3 py-1.5 hover:bg-s2 transition"
+        style={{ background: 'var(--color-s2)' }}
+      >
+        <OriginLink
+          to={`/project/${redesign.project.id}`}
+          className="flex-1 min-w-0"
+          data-testid={`project-overview-redesign-row-${redesign.project.id}`}
+        >
+          <span className="text-[11px] font-bold text-text">{label}</span>
+          {triggerLabel && (
+            <span className="text-[10px] text-dim"> · {triggerLabel}</span>
+          )}
+        </OriginLink>
+        <button
+          type="button"
+          onClick={() => onEdit(label)}
+          className="text-dim hover:text-co text-[11px] leading-none px-1 shrink-0"
+          title={`Edit ${label}`}
+          data-testid={`project-overview-redesign-edit-${redesign.project.id}`}
+        >
+          ✎
+        </button>
+        <button
+          type="button"
+          onClick={() => onDelete(label)}
+          className="text-dim hover:text-de text-[12px] leading-none px-1 shrink-0"
+          title={`Delete ${label}`}
+          data-testid={`project-overview-redesign-delete-${redesign.project.id}`}
+        >
+          ✕
+        </button>
+      </div>
+      {note && (
+        <div
+          className="px-3 pb-1.5 -mt-0.5 text-[10px] italic text-dim"
+          style={{ background: 'var(--color-s2)' }}
+          data-testid={`project-overview-redesign-note-${redesign.project.id}`}
+        >
+          {note}
+        </div>
+      )}
+      {redesign.permits.length === 0 ? (
+        <div
+          className="px-3 py-2 text-[10px] italic text-dim"
+          data-testid={`project-overview-redesign-empty-${redesign.project.id}`}
+        >
+          {redesignEmptyLine(redesign.project.redesign_reuses_original_permit)}
+        </div>
+      ) : (
+        redesign.permits.map((permit) => (
+          <div
+            key={permit.id}
+            data-testid={`project-overview-redesign-permit-${permit.id}`}
+          >
+            {/* ★★★ THE SAME COMPONENT EVERY OTHER PERMIT USES. Stage dot, type ·
+                stage breadcrumb, land-use badge, the portal-linked number, the
+                structure address and the key date — Bobby asked for "just like
+                the other permits in the permit tab" and this is literally that
+                component, not a copy of its markup that can drift from it.
+
+                ★ NOT draggable: `permit_order` is a column on THIS project and
+                  a redesign's permits are not in it. */}
+            <SidebarRow
+              permit={permit}
+              reviewers={reviewersByPermit.get(permit.id) ?? []}
+              selected={false}
+              dragOver={false}
+              draggable={false}
+              onSelect={deferNavigate}
+              onQuickEdit={() => {
+                cancelNavigate();
+                onQuickEdit(permit.id);
+              }}
+              onDragStart={() => {}}
+              onDragOver={() => {}}
+              onDragLeave={() => {}}
+              onDrop={() => {}}
+            />
+          </div>
+        ))
       )}
     </div>
   );
