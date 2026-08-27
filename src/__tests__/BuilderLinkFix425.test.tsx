@@ -69,22 +69,58 @@ const NOW = '2026-05-15T12:00:00Z';
 //   transaction before the backfill runs. This half is the one that can fail
 //   the build.
 
-/** The exact-match rule, and it is the WHOLE rule. No trigram, no similarity,
- *  no "close enough" — a project that does not match exactly is reported for
- *  Bobby to decide, never guessed at. */
-function backfillKey(company: string | null | undefined): string | null {
-  const k = (company ?? '').trim().toLowerCase();
+/** Case- and whitespace-insensitive, and nothing else. No trigram, no
+ *  similarity, no "close enough" — a project that does not match exactly is
+ *  reported for Bobby to decide, never guessed at. */
+function norm(v: string | null | undefined): string | null {
+  const k = (v ?? '').trim().toLowerCase();
   return k === '' ? null : k;
 }
 
+interface CatalogRow {
+  id: string;
+  name: string | null;
+  company: string | null;
+}
+
+/**
+ * ★★★ THE BACKFILL MATCHES ON (name, company) — THE CATALOG'S OWN UNIQUE KEY —
+ * AND THE BRIEF'S company-ONLY RULE WOULD HAVE COIN-FLIPPED TWO ROWS.
+ *
+ * The brief said *"Match on lower(btrim(builders.company)) = lower(btrim(
+ * projects.builder_company)), exact only."* Measured on prod: the catalog holds
+ * **two rows** whose company is `JMS Homes, Inc` — Bill Richmond and Will
+ * Richmond, same email, same phone — because the table's unique index is
+ * `(name, company)` and two people at one firm are two rows. Two projects match
+ * both, and a plain `UPDATE … FROM builders` would have picked one arbitrarily.
+ *
+ * ★★ Two candidates is not an exact match, it is an ambiguity, and the brief's
+ *    own rule forbids guessing. Using the FULL key is not fuzzier — it is
+ *    stricter — and it resolves both: 7708 44th Ave NE names Will Richmond,
+ *    6217 45th Ave NE names Bill Richmond. It is also the same key the RPCs'
+ *    `ON CONFLICT (name, company)` uses, so the backfill and the live path
+ *    agree by construction rather than by coincidence.
+ *
+ * ★ The company-only fallback stays for the rows whose builder_name does not
+ *   match a catalog name — but ONLY where the company is unique in the
+ *   catalog. Ambiguous company, no name match ⇒ reported.
+ */
 function linkFor(
-  company: string | null | undefined,
-  catalog: ReadonlyArray<{ id: string; company: string | null }>,
+  project: { builder_name?: string | null; builder_company?: string | null },
+  catalog: ReadonlyArray<CatalogRow>,
 ): string | null {
-  const key = backfillKey(company);
-  if (key === null) return null;
-  const hit = catalog.find((b) => backfillKey(b.company) === key);
-  return hit ? hit.id : null;
+  const company = norm(project.builder_company);
+  if (company === null) return null;
+  const name = norm(project.builder_name);
+  const byCompany = catalog.filter((b) => norm(b.company) === company);
+  if (byCompany.length === 0) return null;
+  if (name !== null) {
+    const exact = byCompany.filter((b) => norm(b.name) === name);
+    if (exact.length === 1) return exact[0].id;
+    if (exact.length > 1) return null; // cannot happen under the unique index
+  }
+  // ★ No name match: link only when the company alone is unambiguous.
+  return byCompany.length === 1 ? byCompany[0].id : null;
 }
 
 /** ★ The real distinct `lower(btrim(builder_company))` values across the 115
@@ -140,17 +176,24 @@ const UNLINKED_REAL: ReadonlyArray<[string, number, boolean]> = [
 ];
 
 describe('fix-425 §A: the backfill links 114 and reports 1', () => {
-  const catalog = UNLINKED_REAL.filter(([, , inCatalog]) => inCatalog).map(
-    ([key], i) => ({ id: `b-${i}`, company: key }),
+  // One catalog row per in-catalog company, with a distinct contact name.
+  const catalog: CatalogRow[] = UNLINKED_REAL.filter(([, , c]) => c).map(
+    ([key], i) => ({ id: `b-${i}`, name: `Contact ${i}`, company: key }),
   );
+  const nameFor = (key: string) =>
+    catalog.find((b) => b.company === key)?.name ?? 'Somebody Else';
   const projects = UNLINKED_REAL.flatMap(([key, n]) =>
-    Array.from({ length: n }, (_, i) => ({ id: `${key}#${i}`, builder_company: key })),
+    Array.from({ length: n }, (_, i) => ({
+      id: `${key}#${i}`,
+      builder_name: nameFor(key),
+      builder_company: key,
+    })),
   );
 
   it('★★★ 114 link and 1 is reported — NOT the 113 the brief predicted', () => {
     expect(projects).toHaveLength(115);
-    const linked = projects.filter((p) => linkFor(p.builder_company, catalog) !== null);
-    const unmatched = projects.filter((p) => linkFor(p.builder_company, catalog) === null);
+    const linked = projects.filter((p) => linkFor(p, catalog) !== null);
+    const unmatched = projects.filter((p) => linkFor(p, catalog) === null);
     expect(linked).toHaveLength(114);
     expect(unmatched).toHaveLength(1);
     // ★ The one exception, by name. 4000 SW Concord St on prod.
@@ -159,34 +202,75 @@ describe('fix-425 §A: the backfill links 114 and reports 1', () => {
     );
   });
 
+  it('★★★ TWO PEOPLE AT ONE FIRM RESOLVE BY NAME, not by a coin flip', () => {
+    // ★★★ THE REAL CASE THE BRIEF DID NOT ANTICIPATE. The catalog holds two
+    //     `JMS Homes, Inc` rows — Bill Richmond and Will Richmond, same email,
+    //     same phone — because its unique index is (name, company). Two
+    //     projects match both on company alone, and the brief's company-only
+    //     `UPDATE … FROM builders` would have picked one ARBITRARILY.
+    const cat: CatalogRow[] = [
+      { id: 'jms-bill', name: 'Bill Richmond', company: 'JMS Homes, Inc' },
+      { id: 'jms-will', name: 'Will Richmond', company: 'JMS Homes, Inc' },
+    ];
+    expect(
+      linkFor({ builder_name: 'Will Richmond', builder_company: 'JMS Homes, Inc' }, cat),
+    ).toBe('jms-will');
+    expect(
+      linkFor({ builder_name: 'Bill Richmond', builder_company: 'JMS Homes, Inc' }, cat),
+    ).toBe('jms-bill');
+    // ★★ And an ambiguous company with NO name match is REPORTED, never
+    //    guessed — which is the brief's own rule applied to a case it did not
+    //    know about.
+    expect(
+      linkFor({ builder_name: 'Someone Else', builder_company: 'JMS Homes, Inc' }, cat),
+    ).toBeNull();
+    expect(
+      linkFor({ builder_name: null, builder_company: 'JMS Homes, Inc' }, cat),
+    ).toBeNull();
+  });
+
+  it('★★ a unique company links even when the contact name differs', () => {
+    // The common case: one row for the firm, and the project records a
+    // different person there. Unambiguous, so it links.
+    const cat: CatalogRow[] = [
+      { id: 'b1', name: 'Boyd Lybeck', company: 'Kuleana Homes LLC' },
+    ];
+    expect(
+      linkFor({ builder_name: 'Someone New', builder_company: 'Kuleana Homes LLC' }, cat),
+    ).toBe('b1');
+  });
+
   it('★★★ it matches on case and whitespace ONLY — never on similarity', () => {
-    const cat = [{ id: 'b1', company: '  Kuleana Homes LLC ' }];
+    const cat: CatalogRow[] = [
+      { id: 'b1', name: 'Boyd Lybeck', company: '  Kuleana Homes LLC ' },
+    ];
+    const at = (company: string) => linkFor({ builder_name: null, builder_company: company }, cat);
     // Case and padding are normalised away…
-    expect(linkFor('kuleana homes llc', cat)).toBe('b1');
-    expect(linkFor('  KULEANA HOMES LLC', cat)).toBe('b1');
+    expect(at('kuleana homes llc')).toBe('b1');
+    expect(at('  KULEANA HOMES LLC')).toBe('b1');
     // …and nothing else is. These are the near-duplicates the brief put out
     // of scope, and a fuzzy matcher would silently merge them.
-    expect(linkFor('Kuleana Homes', cat)).toBeNull();
-    expect(linkFor('Kuleana Homes, LLC', cat)).toBeNull();
+    expect(at('Kuleana Homes')).toBeNull();
+    expect(at('Kuleana Homes, LLC')).toBeNull();
   });
 
   it('★★ `rk homes llc` and `rk homes, llc` stay two builders', () => {
     // ★ Both are real, both are in the catalog, and one project names each.
     //   Out of scope by ruling: this ticket does not merge, rename or
     //   deactivate a catalog row, even one that looks like a duplicate.
-    const cat = [
-      { id: 'rk-a', company: 'RK Homes LLC' },
-      { id: 'rk-b', company: 'RK Homes, LLC' },
+    const cat: CatalogRow[] = [
+      { id: 'rk-a', name: 'A', company: 'RK Homes LLC' },
+      { id: 'rk-b', name: 'B', company: 'RK Homes, LLC' },
     ];
-    expect(linkFor('rk homes llc', cat)).toBe('rk-a');
-    expect(linkFor('rk homes, llc', cat)).toBe('rk-b');
+    expect(linkFor({ builder_name: null, builder_company: 'rk homes llc' }, cat)).toBe('rk-a');
+    expect(linkFor({ builder_name: null, builder_company: 'rk homes, llc' }, cat)).toBe('rk-b');
   });
 
   it('★ a project with no builder text is never linked', () => {
-    const cat = [{ id: 'b1', company: 'Anything' }];
-    expect(linkFor(null, cat)).toBeNull();
-    expect(linkFor('', cat)).toBeNull();
-    expect(linkFor('   ', cat)).toBeNull();
+    const cat: CatalogRow[] = [{ id: 'b1', name: 'A', company: 'Anything' }];
+    for (const company of [null, '', '   ']) {
+      expect(linkFor({ builder_name: 'A', builder_company: company }, cat)).toBeNull();
+    }
   });
 });
 
