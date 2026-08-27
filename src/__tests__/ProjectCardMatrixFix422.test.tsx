@@ -274,7 +274,14 @@ describe('fix-422 §D: the five cards, re-shared against the real row', () => {
     const team = OVERVIEW_CARD_COLUMNS.find((c) => c.key === 'team')!;
     const builder = OVERVIEW_CARD_COLUMNS.find((c) => c.key === 'builder')!;
     expect(team.pct).toBeGreaterThan(15);
-    expect(builder.pct).toBeGreaterThan(16);
+    // ★★★ SUPERSEDED BY fix-423 for Builder/Owner ONLY, by Bobby's own
+    //     instruction — *"take a little bit of width out of Builder/Owner and
+    //     give that to Milestones"* — so its share is 16 again. This assertion
+    //     was never really about the share: what it guards is that the re-share
+    //     did not shrink the card that was clipping emails, and at 1920 it
+    //     renders 204px against a 190px floor. Team's half is untouched.
+    expect(builder.pct).toBe(16);
+    expect(builder.minPx).toBe(190);
     expect(team.minPx).toBeGreaterThan(140);
     const free =
       overviewRowWidthAt(1920, 'expanded') - OVERVIEW_ROW_MIN_WIDTH;
@@ -294,7 +301,8 @@ describe('fix-422 §D: the five cards, re-shared against the real row', () => {
 
     // (ii) TAKE IT FROM PLAN OF RECORD — REFUSED, and here is why in numbers.
     //      Its floor must EXCEED Project's or Bobby's "widest box" ruling fails
-    //      at every width the floors bind, which below 1706px is all of them.
+    //      at every width the floors bind, which below 1788px is all of them
+    //      (fix-422 wrote 1706; fix-423's honest Milestones floor moved it).
     const por = OVERVIEW_CARD_COLUMNS.find((c) => c.key === 'por')!;
     const proj = OVERVIEW_CARD_COLUMNS.find((c) => c.key === 'proj')!;
     expect(por.minPx).toBeGreaterThan(proj.minPx);
@@ -304,7 +312,13 @@ describe('fix-422 §D: the five cards, re-shared against the real row', () => {
     //       than quietly absorbed: below a 1706px window (ribbon expanded) the
     //       five-card row cannot hold the matrix at its floors. Building the
     //       full-width band is Bobby's call, not this ticket's.
-    expect(overviewMinViewport('expanded')).toBe(1706);
+    // ★★★ fix-423 ANSWERED THIS. The condition is still met — and by MORE
+    //     than fix-422 recorded, since measuring Milestones honestly added 82px
+    //     to the floors — but the fallback that shipped is not the full-width
+    //     units band. It is the row WRAPPING to two lines below the threshold,
+    //     which removes the sideways scroll without taking width from any card.
+    //     Bobby has still not ruled on the band; nothing here pre-empts it.
+    expect(overviewMinViewport('expanded')).toBe(1788);
     expect(overviewRowFitsAt(1600, 'expanded')).toBe(false);
     expect(overviewRowFitsAt(1920, 'expanded')).toBe(true);
   });

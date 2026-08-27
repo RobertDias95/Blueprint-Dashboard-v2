@@ -192,8 +192,15 @@ describe('fix-417: the page body never scrolls sideways', () => {
     expect(fits(1920, 'collapsed')).toBe(true);
     // ★★★ AND THE THRESHOLD, SPELLED OUT — the number Bobby needs to decide
     //     whether the fallback (a full-width units band) is worth building.
-    expect(overviewMinViewport('expanded')).toBe(1706);
-    expect(overviewMinViewport('collapsed')).toBe(1550);
+    //
+    // ★★★ fix-423 MOVED IT, 1706 → 1788, and did not soften it: measuring the
+    //     Milestones card honestly put 82px onto its floor (140 → 222, a date
+    //     input does not reflow), so the five cards now need MORE of a window
+    //     to share a line, not less. What changed is the CONSEQUENCE below the
+    //     threshold: fix-422 reported a sideways scroll there and fix-423 wraps
+    //     the row to two lines instead. See OverviewRowFix423 §D.
+    expect(overviewMinViewport('expanded')).toBe(1788);
+    expect(overviewMinViewport('collapsed')).toBe(1632);
   });
 
   it('★★ below the threshold the cards sit on their floors and the PANE scrolls', () => {
@@ -247,10 +254,22 @@ describe('fix-417: the page body never scrolls sideways', () => {
     //     does not wrap, so 190px is a measurement, not a preference.
     const b = OVERVIEW_CARD_COLUMNS.find((c) => c.key === 'builder')!;
     expect(b.minPx).toBe(190);
-    // ★ And its SHARE went UP (16 → 19), which is the only direction the
-    //   re-share could help it — the row has no spare width at its floors.
-    expect(b.pct).toBe(19);
-    expect(b.pct).toBeGreaterThan(16);
+    // ★★★ SUPERSEDED BY fix-423, AND THE GUARD THAT MATTERED SURVIVES INTACT.
+    //     fix-422 raised this card's SHARE to 19 and wrote that up as the only
+    //     lever the row had left. Bobby then asked, in as many words, for the
+    //     opposite: *"take a little bit of width out of Builder/Owner and give
+    //     that to Milestones so the dates can completely render."* So the share
+    //     is 16 again — but the FLOOR, which is what this test is actually
+    //     about, was not touched by either ticket and is not touched now.
+    //
+    // ★★ The defect is guarded by MEASUREMENT rather than by the share: at
+    //    1920 the card renders 204px against a 190px floor, so a full email
+    //    still fits. Taking the SLACK is free; taking the FLOOR would re-break
+    //    exactly what fix-417 was raised for.
+    expect(b.pct).toBe(16);
+    expect(
+      resolveOverviewWidths(overviewRowWidthAt(1920, 'expanded'))[4],
+    ).toBeGreaterThan(b.minPx);
   });
 
   it('★★ at the width Bobby measured, every squeezed card grows back', () => {
@@ -455,8 +474,16 @@ describe('fix-417 (rendered): the row renders from the declared table', () => {
     renderHeader();
     const grid = screen.getByTestId('project-overview-grid');
     expect(grid.style.alignItems).toBe('stretch');
-    for (const child of Array.from(grid.children) as HTMLElement[]) {
-      expect(child.style.height).toBe('100%');
+    // ★★ fix-423 added a zero-height forced line break to this row, so "every
+    //    child" is no longer "every card". The RULE is unchanged — every CELL
+    //    is still `height: 100%` — and the query says so, the same correction
+    //    fix-418 made to `topLevelSections()` rather than loosening the claim.
+    const cells = Array.from(
+      grid.querySelectorAll(':scope > [data-overview-cell]'),
+    ) as HTMLElement[];
+    expect(cells.length).toBe(OVERVIEW_CARD_COLUMNS.length);
+    for (const cell of cells) {
+      expect(cell.style.height).toBe('100%');
     }
   });
 });
@@ -533,9 +560,14 @@ describe('fix-417 §B (superseded): the PROJECT card still cannot set the row wi
 
   it('★★★ the five shares still sum to 100 and every floor is real', () => {
     expect(OVERVIEW_CARD_COLUMNS.reduce((a, c) => a + c.pct, 0)).toBe(100);
-    expect(OVERVIEW_CARD_COLUMNS.map((c) => c.pct)).toEqual([13, 22, 17, 29, 19]);
+    // ★★★ THE TABLE AS fix-423 LEFT IT. Two cells moved and both were Bobby's:
+    //     Milestones 13 → 16 and 140 → 222 (the floor is DERIVED now — a date
+    //     input measures 100px and does not reflow), Builder/Owner 19 → 16,
+    //     which is where he said the width should come from. Project, Team and
+    //     Plan of Record are untouched.
+    expect(OVERVIEW_CARD_COLUMNS.map((c) => c.pct)).toEqual([16, 22, 17, 29, 16]);
     expect(OVERVIEW_CARD_COLUMNS.map((c) => c.minPx)).toEqual([
-      140, 296, 160, 310, 190,
+      222, 296, 160, 310, 190,
     ]);
     for (const c of OVERVIEW_CARD_COLUMNS) {
       expect(c.floorReason.length).toBeGreaterThan(40);

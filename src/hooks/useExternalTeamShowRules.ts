@@ -15,6 +15,17 @@ import type { WaitingOnDiscipline } from '../lib/database.types';
 export interface UseExternalTeamShowRules extends ExternalTeamShowRules {
   /** Surface a not-yet-shown discipline as a slot (the "+ Add discipline" pick). */
   addDiscipline: (discipline: WaitingOnDiscipline) => void;
+  /**
+   * ★ fix-423: the disciplines surfaced in THIS session, exposed.
+   *
+   * The Project Overview editor collapses its External block when the project
+   * has nothing external AND nobody has asked for a slot — and it cannot tell
+   * the second half from `shownDisciplines` alone, because surfacing one of the
+   * common four adds to this set without changing that list's length. Without
+   * it, picking "Civil" from the collapsed control would do nothing visible.
+   * The RULE is untouched; only what the hook admits to knowing changes.
+   */
+  addedDisciplines: ReadonlySet<WaitingOnDiscipline>;
 }
 
 export function useExternalTeamShowRules(
@@ -37,5 +48,5 @@ export function useExternalTeamShowRules(
       return next;
     });
 
-  return { ...rules, addDiscipline };
+  return { ...rules, addDiscipline, addedDisciplines: added };
 }
