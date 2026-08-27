@@ -1867,10 +1867,25 @@ function BuilderOwnerCell({ project }: { project: Project }) {
     const trimmed = next.trim();
     const normalized: string | null = trimmed === '' ? null : trimmed;
     if (normalized === (original ?? null)) return;
+    // ★★ fix-425: CLEARING THE BUILDER'S NAME DROPS THE LINK TOO. A project
+    //    that names no builder must not still point at one — that is a
+    //    dangling reference, and it is worse for "group by builder" than no
+    //    reference at all. This is the only builder_id write on the blur path
+    //    and it is a CLEAR: it can never produce a wrong link, only remove
+    //    one, so fix-174's rule about partial names is untouched.
+    //
+    //    ★ Deliberately NOT the mirror case: typing a new name by hand does
+    //      not re-point the link, because a half-typed name is exactly what
+    //      fix-174 exists to keep out of the catalog. Re-linking happens on a
+    //      pick, or on a save through one of the two RPCs.
+    const clearsBuilder = field === 'builder_name' && normalized === null;
     await updateProject.mutateAsync({
       projectId: project.id,
       expectedUpdatedAt: project.updated_at,
-      patch: { [field]: normalized } as Partial<Project>,
+      patch: {
+        [field]: normalized,
+        ...(clearsBuilder ? { builder_id: null } : null),
+      } as Partial<Project>,
       fieldLabel: label,
     });
   }
@@ -1878,7 +1893,28 @@ function BuilderOwnerCell({ project }: { project: Project }) {
   /** fix-24d: user picked an existing builder from the autocomplete
    *  menu. Mirror the modal's pattern — fill all four local states,
    *  then fire ONE save carrying the full patch so OCC sees a single
-   *  atomic write instead of four racing per-field commits. */
+   *  atomic write instead of four racing per-field commits.
+   *
+   *  ★★★ fix-425: AND IT RECORDS WHICH BUILDER, which is the entire point of
+   *  the catalog. 33 of 202 projects carry a `builder_id` and every one of
+   *  them was written by the 2026-05-01 import — nothing has linked a project
+   *  since, while 114 of them name a builder that is already a catalog row.
+   *
+   *  ★★ THIS IS THE ONE PICK PATH THAT NEEDS THE ID CLIENT-SIDE. The Settings
+   *  modal and the New Project wizard both save through
+   *  bp_update/create_project_with_permits, and fix-425 has those RESOLVE the
+   *  builder server-side from the name + company they were given — the same
+   *  (name, company) key the catalog's unique index uses. That is strictly
+   *  more correct than carrying an id, because somebody who picks a builder
+   *  and then edits the name before saving has chosen a different builder, and
+   *  a carried id would still point at the old one. This cell does not go
+   *  through either RPC (fix-99's useUpdateProject writes the table directly),
+   *  so here the id has to travel with the pick or the link never happens.
+   *
+   *  ★ IT IS NOT fix-24b. Nothing is created: `b` IS a catalog row the user
+   *  chose from a menu, so this writes a reference to something that already
+   *  exists. fix-174's boundary is about when a row is CREATED from a
+   *  half-typed field, and picking from a list is the opposite of that. */
   function fillFromBuilder(b: Builder) {
     const nextName = b.name ?? '';
     const nextCompany = b.company ?? '';
@@ -1902,6 +1938,9 @@ function BuilderOwnerCell({ project }: { project: Project }) {
         builder_email: nextEmail || null,
         builder_phone: nextPhone || null,
         builder_address: nextAddress || null,
+        // ★★★ fix-425: the link, in the same atomic patch as the five fields
+        //     it belongs with. One write, one OCC token, no racing.
+        builder_id: b.id,
       },
       fieldLabel: 'Builder',
     });
