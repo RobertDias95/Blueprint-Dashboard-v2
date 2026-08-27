@@ -142,8 +142,31 @@ describe('Project Overview → Team → External (fix-196 show-rules / fix-227 d
     expect(sel('Geotech').value).toBe('GeoCo');
   });
 
-  it('empty blob shows the empty-state CTA', () => {
+  // ★★★ SUPERSEDED BY fix-423 SCOPE 3, AND THE MEASUREMENT IS WHY.
+  //
+  // fix-196 rendered, on a project with NOTHING external: an empty-state banner
+  // plus the common four as fill-in slots plus the add-discipline control.
+  // Measured in Chrome on the real markup, that is **251px** — the tallest
+  // section in the Team card, against a FULL five-firm list's 256px. It cost
+  // 98% of the full case to say nothing at all, on 143 of 196 active projects.
+  //
+  // ★★ SO THE PRESENTATION COLLAPSES AND THE AFFORDANCE DOES NOT: one row, and
+  //    its picker offers EVERY discipline rather than the leftovers, so a
+  //    Surveyor is still one click away. The CTA is not deleted — it still
+  //    renders in the state it was written for, a surfaced slot nobody has
+  //    filled in, which is asserted immediately below.
+  it('an empty blob collapses to one line — no CTA, no empty slots', () => {
     setup({ external_team: {} });
+    expect(screen.getByTestId('pd-ext-none')).toBeInTheDocument();
+    expect(screen.queryByTestId('pd-ext-empty-cta')).toBeNull();
+    expect(screen.queryByTestId('pd-ext-row-Civil')).toBeNull();
+  });
+
+  it('…and the CTA still renders once a slot is surfaced but unfilled', () => {
+    setup({ external_team: {} });
+    fireEvent.change(screen.getByTestId('pd-ext-add-discipline'), {
+      target: { value: 'Civil' },
+    });
     expect(screen.getByTestId('pd-ext-empty-cta')).toBeInTheDocument();
   });
 
@@ -169,6 +192,12 @@ describe('Project Overview → Team → External (fix-196 show-rules / fix-227 d
       firm('Surveyor', 'Emerald'),
     ];
     setup({ external_team: {} });
+    // ★ fix-423: an empty blob collapses, so the Civil slot is surfaced the way
+    //   a user surfaces it. What this test is about — the directory feeding the
+    //   firm dropdown — is untouched.
+    fireEvent.change(screen.getByTestId('pd-ext-add-discipline'), {
+      target: { value: 'Civil' },
+    });
     const values = within(sel('Civil'))
       .getAllByRole('option')
       .map((o) => (o as HTMLOptionElement).value);
@@ -191,6 +220,11 @@ describe('Project Overview → Team → External (fix-196 show-rules / fix-227 d
 
   it('+ Add new firm inserts into the directory and writes the blob', async () => {
     setup({ external_team: {} });
+    // ★ fix-423: surface the slot first — see above. The blob is still empty,
+    //   so the patch this asserts is unchanged.
+    fireEvent.change(screen.getByTestId('pd-ext-add-discipline'), {
+      target: { value: 'Civil' },
+    });
     fireEvent.change(sel('Civil'), { target: { value: '__add_new_firm__' } });
     const input = screen.getByTestId('pd-ext-civil-add-input');
     fireEvent.change(input, { target: { value: 'Facet' } });

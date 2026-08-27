@@ -4,9 +4,18 @@ import { useSearchParams } from 'react-router-dom';
 import OriginLink from '../OriginLink';
 import { schematicWindow } from '../../lib/schematicWindow';
 import {
+  OVERVIEW_CELL_ATTR,
   OVERVIEW_GRID_AREAS,
   OVERVIEW_GRID_GAP,
   OVERVIEW_GRID_TEMPLATE,
+  OVERVIEW_ROW_BREAK_CLASS,
+  OVERVIEW_ROW_CLASS,
+  OVERVIEW_ROW_CONTAINER,
+  OVERVIEW_ROW_RESPONSIVE_CSS,
+  TEAM_INTERNAL_COLUMN_GUTTER,
+  TEAM_INTERNAL_COLUMN_MIN,
+  TEAM_INTERNAL_ROWS,
+  TEAM_INTERNAL_ROW_GAP,
 } from '../../lib/overviewCardLayout';
 import {
   UNIT_MATRIX_GRID,
@@ -27,6 +36,7 @@ import type {
   UnitType,
 } from '../../lib/database.types';
 import type { WaitingOnDiscipline } from '../../lib/database.types';
+import { WAITING_ON_OPTIONS } from '../../lib/database.types';
 import {
   ParkingKindSelect,
   RoofDeckSelect,
@@ -115,9 +125,25 @@ export default function ProjectDetailHeader({
   return (
     <div
       className="border-b border-border px-4 pt-2 pb-2"
-      style={{ background: 'var(--color-s2)' }}
+      style={{
+        background: 'var(--color-s2)',
+        // ★★★ fix-423 SCOPE 4: this element's CONTENT BOX is the row's width,
+        //     so it is the thing the wrap has to be measured against. A media
+        //     query cannot do it — the ribbon collapses 156px without the
+        //     window changing size, so half the time it would answer for a
+        //     layout that is not on screen. Verified in Chrome: the band
+        //     switches at exactly OVERVIEW_ROW_MIN_WIDTH of content box.
+        containerType: 'inline-size',
+        containerName: OVERVIEW_ROW_CONTAINER,
+      }}
       data-testid="project-detail-header"
     >
+      {/* ★★ The wrapped band, generated from lib/overviewCardLayout so the
+          floors in the stylesheet and the floors in the grid template are the
+          same numbers. It is a <style> and not a .css file because a `?raw`
+          CSS import reads EMPTY under vitest (fix-406) and these are exactly
+          the numbers that must not drift unasserted. */}
+      <style data-testid="pd-overview-row-css">{OVERVIEW_ROW_RESPONSIVE_CSS}</style>
       {/* fix-285: five columns, two rows. The Design Plan of Record card takes
           the slot between Team and Builder/Owner.
 
@@ -190,8 +216,18 @@ export default function ProjectDetailHeader({
           ★ fix-309 #55's contract is UNTOUCHED: `alignItems: stretch` plus the
           per-cell `height: 100%` below still make every card as tall as the
           tallest. This ticket changes widths only. */}
+      {/* ★★★ fix-423 SCOPE 4 — THE WIDE LAYOUT IS THIS INLINE STYLE, AND IT IS
+          UNCHANGED IN KIND. The five floors now total 1218px and the row gets
+          710 at a 1280 window and 870 at 1440, so below a 1788px window the
+          cards cannot share a line — and what happens there today is the
+          sideways scroll fix-422 reported. The container query in
+          OVERVIEW_ROW_RESPONSIVE_CSS overrides these declarations for the
+          wrapped band, with `!important` because they are inline: fix-309,
+          fix-331 and fix-417 all read this template and this `alignItems` off
+          the element, and moving them into the stylesheet would take three
+          regression guards with it. */}
       <div
-        className="grid"
+        className={`grid ${OVERVIEW_ROW_CLASS}`}
         style={{
           gridTemplateColumns: OVERVIEW_GRID_TEMPLATE,
           gridTemplateAreas: OVERVIEW_GRID_AREAS,
@@ -200,20 +236,31 @@ export default function ProjectDetailHeader({
         }}
         data-testid="project-overview-grid"
       >
-        <div style={{ gridArea: 'dd', height: '100%' }}>
+        <div {...{ [OVERVIEW_CELL_ATTR]: 'dd' }} style={{ gridArea: 'dd', height: '100%' }}>
           <DDPhaseCell project={project} bp={bp} permits={permits} />
         </div>
-        <div style={{ gridArea: 'proj', height: '100%' }}>
+        <div {...{ [OVERVIEW_CELL_ATTR]: 'proj' }} style={{ gridArea: 'proj', height: '100%' }}>
           <ProjectCell project={project} bp={bp} allProjects={allProjects} />
         </div>
         {/* Internal and External stack vertically inside this column now. */}
-        <div style={{ gridArea: 'team', height: '100%' }} data-testid="project-overview-team-col">
+        <div
+          {...{ [OVERVIEW_CELL_ATTR]: 'team' }}
+          style={{ gridArea: 'team', height: '100%' }}
+          data-testid="project-overview-team-col"
+        >
           <TeamCell project={project} bp={bp} permits={permits} />
         </div>
-        <div style={{ gridArea: 'por', height: '100%' }}>
+        {/* ★★ THE FORCED LINE BREAK. `display:none` unless the row has wrapped
+            AND the first line still fits, because flex picks its own break
+            points and they are wrong just under the threshold: at 1217px of row
+            it puts FOUR cards on line one and leaves Builder/Owner alone on a
+            1217px line. Zero height, no margin, aria-hidden — it is a layout
+            instruction and not content. */}
+        <div className={OVERVIEW_ROW_BREAK_CLASS} aria-hidden="true" data-testid="pd-overview-break" />
+        <div {...{ [OVERVIEW_CELL_ATTR]: 'por' }} style={{ gridArea: 'por', height: '100%' }}>
           <PlanOfRecordCard projectId={project.id} />
         </div>
-        <div style={{ gridArea: 'builder', height: '100%' }}>
+        <div {...{ [OVERVIEW_CELL_ATTR]: 'builder' }} style={{ gridArea: 'builder', height: '100%' }}>
           <BuilderOwnerCell project={project} />
         </div>
       </div>
@@ -1408,6 +1455,19 @@ function TeamCell({
   // being fixed for.
   const sd = internal.sd.length > 0 ? internal.sd.join(', ') : null;
 
+  /** ★ fix-423: the five values, keyed the way TEAM_INTERNAL_ROWS names them,
+   *  so the ORDER and the COLUMNS live in the layout table and this component
+   *  only says what each row holds. Nothing about how a role is read or written
+   *  changes here — P-075 is about to change what these fields mean and this
+   *  ticket deliberately does not pre-empt it. */
+  const internalValues: Record<(typeof TEAM_INTERNAL_ROWS)[number]['key'], string | null> = {
+    acq: project.acq_lead ?? null,
+    ent,
+    sd,
+    dm,
+    da,
+  };
+
   // ★★ fix-345 §3: the card owns the modal now, because the two things that
   // talk to it — the preview section and the pinned Chat button — are separate
   // children of it. ProjectChatSection used to hold this state, which worked
@@ -1482,15 +1542,55 @@ function TeamCell({
           the associate doing it. Written as one list in one place so it cannot
           drift the way the Milestones rows did before fix-311. */}
       <OverviewSection title="Internal" testId="project-overview-team-internal">
-        <div className="flex flex-col gap-1">
-          <TeamRow label="ACQ" value={project.acq_lead ?? '—'} title="Acquisitions" />
-          <TeamRow label="ENT" value={ent} title="Entitlements" />
-          {/* Empty renders the card's normal em-dash, exactly like the four
-              around it — a project with no schematic designer must not look
-              broken, it must look unassigned. */}
-          <TeamRow label="SD" value={sd} title="Schematic design" />
-          <TeamRow label="DM" value={dm} title="Design Manager" />
-          <TeamRow label="DA" value={da} title="Design Associate" />
+        {/* ★★★ fix-423 SCOPE 2 — ACQ / ENT LEFT, SD / DM / DA RIGHT, which is
+            Bobby's own mock. Five stacked rows were the tallest thing in this
+            card after External, and the card is what sets the row's height on a
+            project with no external team (143 of 196 in prod).
+
+            ★★★ IT COLLAPSES BY WRAPPING, NOT BY A BREAKPOINT. Two flex columns
+            with a declared minimum sit side by side when the card can hold them
+            and stack when it cannot — and stacked they render ACQ, ENT, SD, DM,
+            DA in one column, which is byte-for-byte the card this replaces.
+            That matters at a 1280 window, where the row itself has wrapped and
+            Team renders 172px.
+
+            ★★ NO NEW WRAPPER AROUND THE SECTIONS. fix-418 added one inside the
+            PROJECT card and lost fix-331 §1's height distribution; two
+            MilestonesCard tests caught it. This grid replaces the section's
+            existing `flex flex-col` body — same element, same depth — so the
+            sections are still the card's own children and nothing about the
+            distribution changes. */}
+        <div
+          className="flex flex-wrap"
+          style={{
+            rowGap: TEAM_INTERNAL_ROW_GAP,
+            columnGap: TEAM_INTERNAL_COLUMN_GUTTER,
+          }}
+          data-testid="project-overview-team-internal-columns"
+        >
+          {(['left', 'right'] as const).map((side) => (
+            <div
+              key={side}
+              className="flex flex-col"
+              style={{
+                gap: TEAM_INTERNAL_ROW_GAP,
+                flex: `1 1 ${TEAM_INTERNAL_COLUMN_MIN}px`,
+                minWidth: TEAM_INTERNAL_COLUMN_MIN,
+              }}
+              data-testid={`project-overview-team-internal-${side}`}
+            >
+              {TEAM_INTERNAL_ROWS.filter((r) => r.column === side).map((r) => (
+                // ★ Empty renders the card's normal em-dash, exactly like the
+                //   four around it — a project with no schematic designer must
+                //   not look broken, it must look unassigned. That is the whole
+                //   reason SD keeps a row of its own in the right-hand column
+                //   rather than being skipped when it is unset: a gap in a
+                //   two-column block reads as a rendering fault, an em dash
+                //   reads as an unfilled role.
+                <TeamRow key={r.key} label={r.label} value={internalValues[r.key]} title={r.title} />
+              ))}
+            </div>
+          ))}
         </div>
       </OverviewSection>
 
@@ -1590,9 +1690,39 @@ function ExternalTeamEditor({ project }: { project: Project }) {
     [project.external_team],
   );
   const directory = directoryQ.data ?? [];
-  const { shownDisciplines, addableDisciplines, noneAssigned, addDiscipline } =
-    useExternalTeamShowRules(external);
+  const {
+    shownDisciplines,
+    addableDisciplines,
+    noneAssigned,
+    addDiscipline,
+    addedDisciplines,
+  } = useExternalTeamShowRules(external);
   const occMissing = !project.updated_at;
+
+  // ★★★ fix-423 SCOPE 3 — AN EMPTY EXTERNAL BLOCK IS ONE LINE.
+  //
+  // ★★★ AND THE BRIEF'S PREMISE FOR THIS WAS WRONG, MEASURED THE OTHER WAY.
+  // It described the empty case as *"a heading plus a lone '+ Add discipline…'
+  // — about 40px of chrome around nothing"*. It is not: fix-193's rule renders
+  // the COMMON FOUR (Civil, Surveyor, Structural, Arborist) as fill-in slots
+  // whatever the project holds, plus fix-196's empty-state banner above them.
+  // Measured in Chrome on the real markup at this card's real width, an EMPTY
+  // External section is **251px** — the tallest section in the Team card, and
+  // taller than everything above it put together. A FULL one (five firms) is
+  // 256px. So the empty case costs 98% of the full case to say nothing at all,
+  // on 143 of 196 active projects.
+  //
+  // ★★ WHAT COLLAPSES IS THE PRESENTATION, NOT THE AFFORDANCE. The picker in
+  // the collapsed row offers EVERY discipline rather than the leftovers, so a
+  // Surveyor is still one click away — which it would not be if the four slots
+  // were simply deleted. Picking any of them opens the section into exactly the
+  // block that renders today.
+  //
+  // ★ THE SHARED RULE (lib/externalTeam) IS UNTOUCHED and so is the Settings
+  // panel, which is the surface you go to to set an external team up and where
+  // four ready slots are the point. This is the overview's presentation of the
+  // same rule.
+  const externalCollapsed = noneAssigned && addedDisciplines.size === 0;
 
   async function writeFirm(discipline: WaitingOnDiscipline, firm: string) {
     if (!project.updated_at) return;
@@ -1610,10 +1740,50 @@ function ExternalTeamEditor({ project }: { project: Project }) {
     });
   }
 
+  /** The "+ Add discipline…" control. Collapsed, it offers EVERY discipline,
+   *  because the four slots that would normally carry them are not drawn. */
+  function addPicker(options: readonly WaitingOnDiscipline[]) {
+    return (
+      <select
+        value=""
+        onChange={(e) => {
+          const d = e.target.value as WaitingOnDiscipline;
+          if (d) addDiscipline(d);
+        }}
+        className="text-[9px] border-0 border-b outline-none bg-transparent w-full px-0 py-0.5 cursor-pointer text-dim"
+        style={{ borderBottomColor: 'var(--color-border)' }}
+        data-testid="pd-ext-add-discipline"
+      >
+        <option value="">+ Add discipline…</option>
+        {options.map((d) => (
+          <option key={d} value={d}>
+            {d}
+          </option>
+        ))}
+      </select>
+    );
+  }
+
+  if (externalCollapsed) {
+    return (
+      <div className="flex items-center gap-1.5" data-testid="pd-ext-section">
+        {/* ★ The fact, said in the words the CTA used to spend two lines on.
+            "None yet" is the whole state; the control beside it is the way out
+            of it, and the two together are one row. */}
+        <span className="text-[9px] text-dim whitespace-nowrap" data-testid="pd-ext-none">
+          None yet
+        </span>
+        {addPicker(WAITING_ON_OPTIONS)}
+      </div>
+    );
+  }
+
   return (
     <div className="flex flex-col gap-1.5" data-testid="pd-ext-section">
       {/* fix-196: empty-state reminder — most projects need at least a
-          surveyor / structural / arborist. */}
+          surveyor / structural / arborist. ★ fix-423: only ever seen now on a
+          project where somebody has surfaced a slot but filled none in, which
+          is the moment it is actually useful. */}
       {noneAssigned && (
         <div
           className="text-[8px] leading-tight rounded border px-1.5 py-1"
@@ -1653,25 +1823,7 @@ function ExternalTeamEditor({ project }: { project: Project }) {
       })}
 
       {/* fix-196: surface an as-yet-unshown discipline. */}
-      {addableDisciplines.length > 0 && (
-        <select
-          value=""
-          onChange={(e) => {
-            const d = e.target.value as WaitingOnDiscipline;
-            if (d) addDiscipline(d);
-          }}
-          className="text-[9px] border-0 border-b outline-none bg-transparent w-full px-0 py-0.5 cursor-pointer text-dim"
-          style={{ borderBottomColor: 'var(--color-border)' }}
-          data-testid="pd-ext-add-discipline"
-        >
-          <option value="">+ Add discipline…</option>
-          {addableDisciplines.map((d) => (
-            <option key={d} value={d}>
-              {d}
-            </option>
-          ))}
-        </select>
-      )}
+      {addableDisciplines.length > 0 && addPicker(addableDisciplines)}
     </div>
   );
 }

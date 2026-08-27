@@ -69,11 +69,15 @@ function renderHeader() {
 }
 
 /** The grid areas, in the order they are declared. */
+/** ★ fix-423: the row also holds a zero-height forced line break now, which
+ *  carries no grid area. The RULE this backs — Plan of Record sits between Team
+ *  and Builder/Owner — is unchanged; the query reads the CELLS rather than
+ *  every child, the same correction fix-418 made to `topLevelSections()`. */
 function areaOrder(): string[] {
   const grid = screen.getByTestId('project-overview-grid');
-  return Array.from(grid.children).map(
-    (el) => (el as HTMLElement).style.gridArea?.split(' ')[0] ?? '',
-  );
+  return (Array.from(grid.children) as HTMLElement[])
+    .filter((el) => el.hasAttribute('data-overview-cell'))
+    .map((el) => el.style.gridArea?.split(' ')[0] ?? '');
 }
 
 beforeEach(() => {
