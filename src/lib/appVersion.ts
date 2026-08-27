@@ -31,10 +31,74 @@
 // typing, which is a worse bug than being a day behind. The brief says so and
 // so does this file: nothing here reloads anything.
 
-/** How often to look. Long: a new deploy is not urgent, and the check costs a
- *  request. The check also runs when the window becomes visible, which is when
- *  a person is actually there to be told. */
-export const BUILD_CHECK_INTERVAL_MS = 15 * 60 * 1000;
+// ===========================================================================
+// ★★★ fix-424 — THE NOTICE NEVER REACHED THE APP OR THE SECOND MONITOR
+// ===========================================================================
+//
+// Bobby, 2026-08-27, holding a screenshot of the ribbon: *"I feel like this is
+// not popping up on the app and my other screens for some reason."* So it
+// renders — he photographed it — and does not reach the surfaces he actually
+// works on. Four fixes shipped to Project Overview in four days; anyone who did
+// not manually reload was reporting bugs that had been fixed hours earlier.
+//
+// ---------------------------------------------------------------------------
+// ★★★ WHAT WAS MEASURED, IN A REAL BROWSER, BEFORE ANYTHING WAS CHANGED
+// ---------------------------------------------------------------------------
+//
+// The suspicion going in was the service worker: an installed app is served by
+// one, so perhaps a cached shell never sees the new hash. **It is not that, and
+// the check below is not the reason.** Measured on the real built bundle served
+// locally, with `/sw.js` registered AND controlling the page: a simulated deploy
+// was detected on the very next check, and the real component rendered the real
+// ribbon. `public/sw.js` caches nothing — its `fetch` handler never calls
+// `respondWith` — so every request, this one included, goes to the network
+// exactly as it would with no worker at all. The detection works everywhere.
+//
+// ★★★ WHAT IS WRONG IS **WHEN IT LOOKS**, AND fix-371 §1 HAD ALREADY WRITTEN
+// IT DOWN. From lib/realtimeLiveness, measured by that ticket:
+//
+//     "The fallback poll is `window.setInterval`. Chrome throttles timers in a
+//      backgrounded page to once a minute and FREEZES them entirely in a
+//      backgrounded installed app — which is precisely the state Bobby's window
+//      is in while he is doing something else."
+//
+// §1 redesigned realtime liveness around that fact. §4 — the same ticket, forty
+// lines away — then built this notice on a `setInterval` and one
+// `visibilitychange` listener. The lesson did not cross the file boundary.
+//
+// ★★ AND `visibilitychange` DOES NOT FIRE WHEN A WINDOW MERELY GAINS FOCUS.
+// A window parked on a second monitor is `visible` for hours and never fires
+// it. Measured here: a visible-but-unfocused tab is NOT throttled (a 1s
+// interval fired ~1/s), so that window's ONLY path to the news was the poll —
+// and the poll was fifteen minutes. That is "my other screens", exactly.
+//
+//     surface                          visibilitychange   setInterval   delay
+//     focused tab                      on tab switch      runs          ≤ poll
+//     visible, unfocused (2nd monitor) NEVER              runs          = poll
+//     hidden tab                       on return          throttled     instant
+//     backgrounded installed app       on restore         FROZEN        instant
+//
+// Nobody was permanently starved — but on the two surfaces Bobby named, the
+// poll interval WAS the notice's latency, and fifteen minutes is longer than
+// anyone waits before deciding a thing is broken.
+
+/** How often to look.
+ *
+ *  ★★ fix-424: 15 minutes → 5. fix-371 set 15 reasoning that "a new deploy is
+ *  not urgent, and the check costs a request", and that is true of a window
+ *  somebody is using — it has `visibilitychange` and now `focus` to shortcut
+ *  the wait. It is NOT true of a window that is merely visible on another
+ *  screen, which fires neither event and for which this interval IS the
+ *  latency. The cost is one conditional GET of an unfingerprinted 3KB
+ *  index.html per window per five minutes. */
+export const BUILD_CHECK_INTERVAL_MS = 5 * 60 * 1000;
+
+/** ★ The floor between two checks, so the three triggers cannot burst.
+ *
+ *  With `focus` and `visibilitychange` both live, alt-tabbing between two
+ *  windows would otherwise fetch on every pass. Same idea, and the same
+ *  reason, as fix-371 §1's REALTIME_VISIBILITY_MIN_GAP_MS. */
+export const BUILD_CHECK_MIN_GAP_MS = 10_000;
 
 /** How long after mount the FIRST check runs. Off the initial paint, and late
  *  enough that a person opening the app is not competing with it for a
@@ -56,6 +120,18 @@ export function markNewBuildLive(): void {
   newBuildLive = true;
 }
 
+/**
+ * ★★ Whether a newer build has been seen at any point in this document's life.
+ *
+ * ★★★ fix-424: THE NOTICE ITSELF READS THIS NOW, and not reading it was a bug.
+ * `available` was component state seeded `false`, so any remount of the shell
+ * subtree silently RETRACTED a notice that had already been shown — and
+ * AuthGuard swaps that whole subtree for "Loading…" / "Reconnecting…" whenever
+ * a session verify is in flight. The flag above is documented as permanent
+ * ("Never unset: a deploy that has happened stays a fact for the life of this
+ * document"); the component that discovers the fact was the one surface not
+ * consulting it.
+ */
 export function newBuildIsLive(): boolean {
   return newBuildLive;
 }
