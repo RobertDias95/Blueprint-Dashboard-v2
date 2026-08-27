@@ -1,12 +1,13 @@
 import { MemoryRouter } from 'react-router-dom';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { ReactNode } from 'react';
 import { useAuthStore } from '../stores/authStore';
 import { queryKeys } from '../lib/queryKeys';
 import migrationSql from '../../migrations/fix_412_existing_to_remodel.sql?raw';
 import {
+  UNIT_MATRIX_GRID,
   UNIT_ROW_COLUMNS,
   UNIT_ROW_SUPPRESSED_ON_NO_WORK,
 } from '../lib/unitRowLayout';
@@ -135,102 +136,97 @@ beforeEach(() => {
 // ---------------------------------------------------------------------------
 
 // =========================================================================
-// ★★★ §C IS SUPERSEDED BY fix-418 — AND fix-412 WAS NOT WRONG
+// ★★★ §C, THIRD EDITION — AND EVERY EDITION WAS RIGHT WHEN IT SHIPPED
 // =========================================================================
 //
-// fix-412 laid the unit fields out as a horizontal ROW and made the header sit
-// over its own control, because the header strip and the row had drifted four
-// ways. fix-417 then wrapped that row in `overflow-x` so it would stop
-// dictating the page width. Bobby, 2026-08-26:
+// fix-412  laid the unit fields across in ONE declared grid, because the header
+//          strip and the row were two lists of widths that had drifted four
+//          ways. **That ruling is still in force and is asserted below.**
+// fix-417  wrapped the row in `overflow-x`, because at 620px it was setting the
+//          width of the whole page.
+// fix-418  went VERTICAL, which removed the scrollbar at source.
+// fix-422  goes back to horizontal, because Bobby saw vertical on real
+//          projects: *"When you have more than two different unit dimensions,
+//          the page gets way too vertically long, and it stretches out
+//          milestones, team, design plan of record, builder/owner… go back to
+//          horizontal."*
 //
-//   *"make that more of a vertical stretch versus a horizontal thing, because
-//    I don't like having the scroll bar in there … you'd have the unit type at
-//    the top and then you would kind of go down."*
+// ★★★ WHAT ACTUALLY MOVED IS THE WIDTH, NOT THE SHAPE. fix-412's row was TEN
+// columns and 620px because it spelled everything out — Label 84, Work 74,
+// Parking 104. The matrix is NINE columns and 274px because Bobby asked for
+// abbreviations, letter codes and no `×` separator, and because `work_scope`
+// left the grid entirely. A horizontal row was never the problem; 620px of one
+// was. `FIX_412_ROW_WIDTH` keeps that number as evidence, since fix-417 still
+// depends on it.
 //
-// He does not want the scrollbar CONTAINED, he wants it GONE. Vertical removes
-// it at source, so the row, its shared header strip and its grid template are
-// all retired.
-//
-// ★★★ WHAT fix-412 ACTUALLY RULED SURVIVES, AND IS ASSERTED BELOW:
-//
-//   · every field label sits with ITS OWN control — now absolutely, because
-//     the label and the control are the same component (`UnitField`) and
-//     cannot drift apart at all;
-//   · the field ORDER is Bobby's, still declared once in `UNIT_ROW_COLUMNS`;
-//   · "Roof Deck" is still spelled in full;
-//   · a no-work unit still suppresses exactly the drawn-detail fields.
-//
-// Only the horizontal geometry went.
-describe('fix-412 §C (superseded by fix-418): the fields read vertically', () => {
-  it('★★★ there is NO shared header strip and NO grid row any more', () => {
-    setup([unit()]);
-    expect(screen.queryByTestId('pd-unit-header')).toBeNull();
-    const row = screen.getByTestId('pd-unit-row');
-    expect(row.style.gridTemplateColumns).toBe('');
-  });
-
-  it('★★★ every field label is beside ITS OWN control — fix-412\'s ruling, absolutely', () => {
-    // ★ The defect fix-412 fixed was a header sitting over the wrong box. A
-    //   label that is a SIBLING of its control in a two-element flex row cannot
-    //   sit over anything else, at any width, with no template to keep in step.
-    setup([unit()]);
-    const row = screen.getByTestId('pd-unit-row');
-    for (const [key, testid] of [
-      ['width_ft', 'pd-unit-w'],
-      ['depth_ft', 'pd-unit-d'],
-      ['qty', 'pd-unit-qty'],
-      ['stories', 'pd-unit-stories'],
-      ['parking_kind', 'pd-unit-parking-kind'],
-      ['parking_stalls', 'pd-unit-stalls'],
-      ['roof_deck', 'pd-unit-roof-deck'],
-    ] as const) {
-      const control = within(row).getByTestId(testid);
-      const field = control.closest('div')!;
-      const header = UNIT_ROW_COLUMNS.find((c) => c.key === key)!.header;
-      expect(field.textContent).toContain(header);
+// ★★ SO fix-412's REAL RULING SURVIVES ITS THIRD RESHAPE INTACT: the header and
+// every row render from ONE `grid-template-columns`, so a header cannot sit
+// over the wrong control. That is what this block asserts now.
+describe('fix-412 §C (third edition, fix-422): one template, header and rows', () => {
+  it('★★★ C-CORE: the header and every row render from the SAME template', () => {
+    // ★★★ THE DEFECT fix-412 EXISTED FOR, and the property that has survived
+    //     three layouts: two hand-kept lists drift, one template cannot.
+    setup([unit({ label: 'SFR' }), unit({ label: 'Remodel' })], ['SFR', 'Remodel']);
+    const header = screen.getByTestId('pd-unit-header');
+    expect(header.style.gridTemplateColumns).toBe(UNIT_MATRIX_GRID);
+    const rows = screen.getAllByTestId('pd-unit-row');
+    expect(rows).toHaveLength(2);
+    for (const r of rows) {
+      expect(r.style.gridTemplateColumns).toBe(UNIT_MATRIX_GRID);
     }
   });
 
   it('★★★ C3: the field order is still Bobby\'s, declared once', () => {
+    // ★ `work_scope` has left the grid (fix-422 Scope 7 — a three-state answer
+    //   whose third state is "not yet answered" cannot be one glyph). Every
+    //   other field is in the order he gave, unchanged since fix-412.
     const keys = UNIT_ROW_COLUMNS.map((c) => c.key).filter((k) => k !== 'remove');
     expect(keys).toEqual([
-      'label', 'work_scope', 'width_ft', 'depth_ft', 'qty', 'stories',
-      'parking_kind', 'parking_stalls', 'roof_deck',
+      'label',
+      'width_ft',
+      'depth_ft',
+      'qty',
+      'stories',
+      'parking_kind',
+      'parking_stalls',
+      'roof_deck',
     ]);
+    expect(UNIT_ROW_COLUMNS.some((c) => c.key === 'work_scope')).toBe(false);
   });
 
-  it('★★★ …and the rendered order matches it, top to bottom', () => {
-    setup([unit({ label: 'Remodel' })], ['Remodel']);
-    const row = screen.getByTestId('pd-unit-row');
-    const order = [
-      'pd-unit-label-select', 'pd-unit-work-scope', 'pd-unit-w', 'pd-unit-d',
-      'pd-unit-qty', 'pd-unit-stories', 'pd-unit-parking-kind',
-      'pd-unit-stalls', 'pd-unit-roof-deck',
-    ];
-    const positions = order.map((t) =>
-      Array.prototype.indexOf.call(
-        row.querySelectorAll('*'),
-        within(row).getByTestId(t),
-      ),
-    );
-    expect(positions).toEqual([...positions].sort((a, b) => a - b));
-  });
-
-  it('★★ C1: the "Unit dimensions" heading is still there, now its own section', () => {
+  it('★★ C1: the "Unit dimensions" heading is still there, its own section', () => {
     setup([unit()]);
-    expect(screen.getByTestId('pd-project-units')).toBeInTheDocument();
     expect(screen.getByTestId('pd-project-units').textContent).toContain(
       'Unit dimensions',
     );
   });
 
-  it('★★ C5: "Roof Deck" is still spelled in full', () => {
+  it('★★★ C5 IS REVERSED BY BOBBY, and the reasoning goes with it', () => {
+    // fix-411 §3 wrote "RD" because the cell was 52px. fix-412 C5 restored
+    // "Roof Deck" because reclaiming the gutter had bought the row 42px and the
+    // constraint had expired. Bobby has now asked for the abbreviation back —
+    // *"Roof deck could be RD"* — for a 26px cell.
+    //
+    // ★★★ NOT A REGRESSION TO fix-411's PROBLEM. What made bare "Deck" bad was
+    // that it was ambiguous with nothing to disambiguate it. Every header here
+    // carries a plain-language summary reachable by hover AND by Tab, so the
+    // header is short and the meaning is one keystroke away — which is more
+    // than either previous edition offered.
     const rd = UNIT_ROW_COLUMNS.find((c) => c.key === 'roof_deck')!;
-    expect(rd.header).toBe('Roof Deck');
+    expect(rd.header).toBe('RD');
+    expect(rd.tooltip).toBe('Whether this unit type has a roof deck.');
     expect(UNIT_ROW_COLUMNS.map((c) => c.header)).not.toContain('Deck');
-    setup([unit()]);
-    const control = screen.getByTestId('pd-unit-roof-deck');
-    expect(control.closest('div')!.textContent).toContain('Roof Deck');
+  });
+
+  it('★★★ every column that edits a field has a header AND a summary', () => {
+    for (const c of UNIT_ROW_COLUMNS) {
+      if (c.key === 'remove') {
+        expect(c.header).toBe('');
+        continue;
+      }
+      expect(c.header.length).toBeGreaterThan(0);
+      expect(c.tooltip.length).toBeGreaterThan(20);
+    }
   });
 });
 

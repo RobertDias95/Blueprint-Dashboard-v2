@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import type { CSSProperties } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import OriginLink from '../OriginLink';
@@ -8,11 +8,14 @@ import {
   OVERVIEW_GRID_GAP,
   OVERVIEW_GRID_TEMPLATE,
 } from '../../lib/overviewCardLayout';
-import { unitFieldLabel } from '../../lib/unitRowLayout';
 import {
-  PROJECT_LEFT_MIN_WIDTH,
-  UNIT_BLOCK_MIN_WIDTH,
-} from '../../lib/projectCardInterior';
+  UNIT_MATRIX_GRID,
+  UNIT_ROW_COLUMNS,
+  WORK_SCOPE_LABEL,
+  WORK_SCOPE_TOOLTIP,
+  unitFieldTooltip,
+  type UnitRowColumn,
+} from '../../lib/unitRowLayout';
 import { isNoWorkUnit } from '../../lib/unitWorkScope';
 import ZoneSelect from '../shared/ZoneSelect';
 import { roundLotForStorage } from '../../lib/lotDimensions';
@@ -30,7 +33,7 @@ import {
   WorkScopeSelect,
   StallsInput,
 } from '../shared/UnitParkingInputs';
-import { parseStalls } from '../../lib/unitParking';
+import { parseStalls, NOT_RECORDED } from '../../lib/unitParking';
 import {
   asExternalTeamBlob,
   directoryFirmNamesForDiscipline,
@@ -1128,53 +1131,27 @@ function ProjectCell({
     // rendered; it stopped being LEGIBLE, which from the desk is the same thing
     // as gone. Stacking them gives each the card's full width.
     <OverviewCard title="Project" testId="pd-project-card">
-      {/* ★★★ fix-418 SCOPE A1 — THE INTERIOR IS TWO COLUMNS.
-          Bobby: *"inside of project is maybe proposal, site, and then those are
-          two vertically stacked columns, and then to the right of both of those
-          is unit dimensions, and that reads vertically."*
+      {/* ★★★ fix-422 SCOPE 1 — ONE COLUMN: PROPOSAL, SITE, UNIT DIMENSIONS.
+          Bobby, 2026-08-27: *"Maybe the stack goes proposal, site, then unit
+          dimensions at the bottom of that category."*
 
-          ★★★ `flex-wrap` IS THE BREAKPOINT, and it needs no media query.
-          The two columns declare their own minimums (165px + 110px + a 10px
-          gap = 285px of interior); below that the second one WRAPS onto its own
-          line and the interior stacks, which is Scope A4 satisfied natively
-          rather than by a number that has to be kept in step with the card's
-          share.
+          ★★★ THIS RETIRES fix-418's TWO-COLUMN INTERIOR, and it takes its
+          wrapper `<div>` with it. That wrapper existed only to make two columns
+          possible; with one column the sections are DIRECT children of the card
+          again, which is the shape fix-331 §1 distributes height across without
+          any help. fix-418 had to add `flex-1` to the wrapper to keep that rule
+          alive through it — the regression two MilestonesCard tests caught.
+          Removing the wrapper removes the need for the workaround, and
+          `topLevelSections()` in that suite keeps both shapes honest.
 
-          ★★ MEASURED, because the fit is genuinely tight (fix-417's card
-          proportions are fixed and must not be raided for room):
-
-              viewport   ribbon      PROJECT card   interior   two columns?
-              1280       expanded      ~225px        ~203px      no — stacks
-              1440       expanded      ~266px        ~244px      no — stacks
-              1440       collapsed     ~307px        ~285px      YES, just
-              1920       expanded      ~391px        ~369px      YES
-              1920       collapsed     ~432px        ~410px      YES
-
-          ★ So the two-column form appears from roughly a 1600px window with the
-          ribbon expanded, or 1440px with it collapsed, and below that the same
-          content stacks. That is the honest consequence of leaving Plan of
-          Record the widest card, which Bobby ruled.
-
-          ★ Tags STAYS with Proposal. It was a close call — "ECA" is arguably a
-          parcel fact and would read under Site — but Bobby made it optional and
-          moving it is churn he did not ask for. */}
-      {/* ★★ `flex-1` KEEPS fix-331 §1 ALIVE THROUGH THE WRAPPER. The card is a
-          flex column whose sections grow to fill it, so there is never a void
-          above the pinned Connect button. Putting a plain div between the card
-          and its sections would have swallowed that: the wrapper grows, each
-          COLUMN stretches to it, and the sections inside each column
-          distribute exactly as before. */}
-      <div
-        className="flex flex-wrap gap-2.5 flex-1"
-        data-testid="pd-project-interior"
-      >
-        <div
-          className="flex-1 flex flex-col"
-          style={{ minWidth: PROJECT_LEFT_MIN_WIDTH }}
-          data-testid="pd-project-left"
-        >
+          ★★★ UNITS GOES LAST, AND THAT IS THE WHOLE REASON THE ORDER IS
+          SPECIFIED. It is the only band whose height varies with the data — one
+          row per unit type, one to six of them in prod. Put it between Proposal
+          and Site and every extra unit type pushes Site down the card; put it at
+          the foot and it grows against the card's bottom edge, where the spare
+          height already is. */}
       <OverviewSection title="Proposal" testId="pd-project-proposal">
-          <div className="flex flex-col gap-1">
+        <div className="flex flex-col gap-1">
             <div className="flex items-baseline gap-1.5">
               <span className="text-[9px] text-dim min-w-[36px]">Units</span>
               {project.units != null && project.units > 0 ? (
@@ -1298,27 +1275,22 @@ function ProjectCell({
           </div>
       </OverviewSection>
 
-        {/* Site — fix-22 Mig 3: zone/alley/lot/parking moved to projects; writes
+      {/* Site — fix-22 Mig 3: zone/alley/lot/parking moved to projects; writes
           via useUpdateProject. fix-290 restored it to a legible width by
           stacking it under Proposal instead of halving the column. */}
       <OverviewSection title="Site" testId="pd-project-site">
         <SiteEditor project={project} />
       </OverviewSection>
-        </div>
 
-        {/* ★★★ SCOPE A2 — the right column. No `overflow-x` anywhere in it:
-            fix-417 §B's scroller is deleted, which is the point of the
-            change. */}
-        <div
-          className="flex-1 flex flex-col"
-          style={{ minWidth: UNIT_BLOCK_MIN_WIDTH }}
-          data-testid="pd-project-units-col"
-        >
-          <OverviewSection title="Unit dimensions" testId="pd-project-units">
-            <UnitDimensions project={project} />
-          </OverviewSection>
-        </div>
-      </div>
+      {/* ★★★ AND STILL NO `overflow-x` ANYWHERE IN HERE. fix-417 §B's scroller
+          stays deleted — that is the thing this whole sequence exists to
+          remove. What keeps the matrix legible instead is that the PROJECT
+          card's FLOOR is derived from `UNIT_MATRIX_WIDTH`, so the card can
+          never be narrower than the grid inside it and never has anything to
+          scroll. See lib/overviewCardLayout. */}
+      <OverviewSection title="Unit dimensions" testId="pd-project-units">
+        <UnitDimensions project={project} />
+      </OverviewSection>
 
       {/* ★★ fix-335 §8: the Connect control. THE ONE PLACEHOLDER IN THIS
           TICKET — see ConnectPlaceholder for why it is allowed and what makes
@@ -2463,59 +2435,95 @@ function UnitDimensionsExpanded({
   onRemove: (idx: number) => void;
   onAdd: () => void;
 }) {
-  // ★★★ fix-418 SCOPE A2/A3 — VERTICAL, AND THE HEADER STRIP IS GONE.
+  // ★★★ fix-422 SCOPE 2 — A MATRIX: ONE HEADER ROW, ONE ROW PER UNIT TYPE.
   //
-  // Bobby: *"move that to the middle slash right-hand side of the project and
-  // make that more of a vertical stretch versus a horizontal thing, because I
-  // don't like having the scroll bar in there."*
+  // Bobby, 2026-08-27: *"When you have more than two different unit dimensions,
+  // the page gets way too vertically long, and it stretches out milestones,
+  // team, design plan of record, builder/owner… go back to horizontal."*
   //
-  // ★★★ THIS SUPERSEDES fix-412's ROW AND fix-417 §B's SCROLLER, and both were
-  // right answers to the question as it stood. fix-412 laid ten columns across
-  // and made the header sit over its own control; fix-417 wrapped that row in
-  // `overflow-x` so it would stop dictating the page width. Bobby does not want
-  // the scrollbar CONTAINED, he wants it GONE — and vertical removes it at
-  // source rather than managing it.
+  // ★★★ WHY fix-418's VERTICAL FORM HAD TO GO, IN ONE SENTENCE: it solved a
+  // WIDTH problem by spending HEIGHT, and height is not this card's to spend.
+  // The five cards are `alignItems: stretch` (fix-309 #55), so every unit type
+  // added ~64px to Milestones, Team, Plan of Record and Builder/Owner as well.
+  // At the six-type project in prod that is ~380px of blank space in four
+  // cards. A matrix costs ~14px a type and nothing to anybody else.
   //
-  // ★★ SO THE SHARED HEADER STRIP IS DELETED, not restyled. Its entire purpose
-  // was to label columns in a row; there are no columns now, and each field
-  // carries its own label beside it (`UnitField`). fix-412's real ruling — that
-  // a header must sit over its own control — is satisfied absolutely by a
-  // label that IS beside its control and cannot drift from it.
-  //
-  // ★ `UNIT_ROW_COLUMNS` survives as the one declaration of WHICH fields exist
-  //   and in what order; only the grid template went with the row.
+  // ★★ THE HEADER IS DECLARED ONCE AND SO IS EVERY ROW — fix-412's ruling,
+  // which never stopped being right. Both render from `UNIT_MATRIX_GRID`, so a
+  // header cannot sit over the wrong control; that was the defect fix-412 was
+  // raised for and it is structurally impossible here.
   return (
-    <div className="flex flex-wrap gap-1.5" data-testid="pd-unit-blocks">
-      {/* ★★ SCOPE A2 — MULTIPLE UNIT TYPES STACK DOWN THE COLUMN. Measured:
-          even at 1920px with the ribbon expanded the units column is ~194px,
-          and two blocks side by side would need 230px, so in practice they
-          always stack — which is what Bobby described. `flex-wrap` rather than
-          a hard column so they would pair up on their own if the card ever got
-          wide enough, with no second breakpoint to keep in step. */}
+    <div className="flex flex-col gap-1" data-testid="pd-unit-matrix">
+      <div
+        className="grid items-center"
+        style={{ gridTemplateColumns: UNIT_MATRIX_GRID }}
+        data-testid="pd-unit-header"
+      >
+        {UNIT_ROW_COLUMNS.map((c, i) => (
+          <Fragment key={c.key}>
+            {c.header ? (
+              <UnitHeaderCell column={c} />
+            ) : (
+              <span aria-hidden="true" />
+            )}
+            {i < UNIT_ROW_COLUMNS.length - 1 && <span aria-hidden="true" />}
+          </Fragment>
+        ))}
+      </div>
       {types.map((ut, i) => (
-        <div key={i} className="flex-1" style={{ minWidth: UNIT_BLOCK_MIN_WIDTH }}>
-          <UnitRow
-            row={ut}
-            productTypes={productTypes}
-            disabled={disabled}
-            onChange={(field, val) => onUpdate(i, field, val)}
-            onRemove={() => onRemove(i)}
-          />
-        </div>
+        <UnitRow
+          key={i}
+          row={ut}
+          productTypes={productTypes}
+          disabled={disabled}
+          onChange={(field, val) => onUpdate(i, field, val)}
+          onRemove={() => onRemove(i)}
+        />
       ))}
-      {/* ★ SCOPE A5: unchanged behaviour, on its own line (`basis-full`) so it
-          sits under the blocks rather than competing with one for a column. */}
       <button
         type="button"
         onClick={onAdd}
         disabled={disabled}
-        className="text-[9px] px-1.5 py-0.5 rounded border border-dashed bg-transparent text-dim basis-full self-start mt-0.5 cursor-pointer disabled:opacity-50"
+        className="text-[9px] px-1.5 py-0.5 rounded border border-dashed bg-transparent text-dim self-start mt-0.5 cursor-pointer disabled:opacity-50"
         style={{ borderColor: 'var(--color-border)' }}
         data-testid="pd-units-add"
       >
         + Add type
       </button>
     </div>
+  );
+}
+
+/**
+ * ★★★ fix-422 SCOPE 6 — ONE HEADER CELL, REACHABLE BY HOVER **AND** BY TAB.
+ *
+ * Bobby: *"If someone hovered their cursor over QTY, or STY, or P, or S,
+ * there'd be a summary of what that is."*
+ *
+ * ★★★ A `title` ALONE WOULD HAVE BEEN A MOUSE-ONLY ANSWER, and this row is now
+ * eight abbreviations — `P`, `#`, `RD`, `Sty` mean nothing on their own. A
+ * tooltip that only fires on hover leaves the entire matrix unreadable to
+ * anybody tabbing the form and to anybody on a tablet, which is a worse state
+ * than the spelled-out headers fix-412 shipped.
+ *
+ * ★★ SO THE HEADER IS A `<button>`: focusable in the natural tab order, with
+ * `title` for the pointer and `aria-describedby`-grade text as its accessible
+ * description for everything else. `type="button"` because it is inside a form
+ * region and must never submit; it does nothing on click by design — the
+ * affordance IS the description.
+ */
+function UnitHeaderCell({ column }: { column: UnitRowColumn }) {
+  return (
+    <button
+      type="button"
+      title={column.tooltip}
+      aria-label={`${column.header}: ${column.tooltip}`}
+      className="text-[8px] font-extrabold uppercase tracking-wide text-dim text-center truncate bg-transparent border-0 p-0 cursor-help focus:outline-none focus-visible:ring-1 focus-visible:ring-de rounded"
+      data-testid={`pd-unit-h-${column.key}`}
+      data-tooltip={column.tooltip}
+    >
+      {column.header}
+    </button>
   );
 }
 
@@ -2543,14 +2551,11 @@ function UnitRow({
   const [stalls, setStalls] = useState(
     row.parking_stalls != null ? String(row.parking_stalls) : '',
   );
-  // fix-98: dirty-flag prop sync (fix-73 pattern). UnitRow is keyed by
-  // array index in the parent, so React reuses the same instance across
-  // re-renders when the underlying row data changes (after a save). The
-  // useState(row.*) initializer captured first-render values; without
-  // re-sync, any prop refresh (OCC rollback, scraper update, sibling
-  // edit) leaves the inputs displaying stale typed values. The dirty
-  // flag preserves the user's live edit; cleared on blur so the next
-  // prop arrival flows through.
+  // fix-98: dirty-flag prop sync (fix-73 pattern). UnitRow is keyed by array
+  // index in the parent, so React reuses the same instance across re-renders
+  // when the underlying row data changes (after a save). The dirty flag
+  // preserves the user's live edit; cleared on blur so the next prop arrival
+  // flows through.
   const dirtyRef = useRef(false);
   useEffect(() => {
     if (dirtyRef.current) return;
@@ -2561,70 +2566,57 @@ function UnitRow({
     setStories(row.stories != null ? String(row.stories) : '');
     setStalls(row.parking_stalls != null ? String(row.parking_stalls) : '');
   }, [row.label, row.width_ft, row.depth_ft, row.qty, row.stories]);
-  const cellStyle = { borderBottomColor: 'var(--color-border)' } as const;
+
+  // ★ fix-422: the matrix cell. 9px, centred, one baseline for every column so
+  //   a number and a letter code sit on the same line.
   const cellClass =
-    'text-[9px] font-semibold text-text border-0 border-b outline-none bg-transparent text-center disabled:opacity-50';
-  // fix-205 → fix-209 → fix-212: Label is product-type-driven whenever the
-  // project has ANY product type. The shown/selected value is the RESOLVED label
-  // (resolveUnitLabel): with several types it's the value only if it's a product
-  // type (else the "Pick type…" placeholder); with EXACTLY ONE type it's always
-  // that type — authoritatively overriding a legacy custom like "Type A".
-  // fix-232: the label is DROPDOWN-ONLY — the old free-text fallback (when a
-  // project had no product types) is gone, so no ad-hoc/off-registry value can be
-  // typed onto a unit row. With no product types there's nothing valid to pick,
-  // so the stored label renders READ-ONLY (not blanked — item 3) and the user
-  // adds a product type (project field) to enable the picker.
+    'w-full h-[16px] text-[9px] font-semibold text-text text-center border border-border rounded bg-bg px-0 outline-none focus:border-de focus:ring-1 focus:ring-de disabled:opacity-40 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none';
+
+  // fix-205 → fix-209 → fix-212 → fix-232: the label is DROPDOWN-ONLY and
+  // product-type-driven. With no product types the stored label renders
+  // READ-ONLY rather than blanked.
   const hasProductTypes = productTypes.length >= 1;
   const selectValue = resolveUnitLabel(label, productTypes);
   // ★★★ fix-412 SCOPE B5 — a confirmed No-work unit hides its drawn detail.
-  //
-  // Bobby's ruling: suppress the dimension / parking / roof-deck inputs on a
-  // No-work unit — *"rather than deleting stored values"*, which is the half
-  // that matters. The inputs are DISABLED, not cleared and not unmounted with a
-  // write: `onChange` is never called, so whatever is stored stays stored and
-  // comes straight back the moment the answer changes. A unit that was measured
-  // and later marked No-work must not lose its measurements — somebody may have
-  // clicked the wrong row.
-  //
-  // ★ NOT ANSWERED does not suppress. Only an explicit 'none' does; an unknown
-  //   scope is a unit somebody still has to fill in, so its inputs stay live.
+  //     DISABLED, not cleared: `onChange` is never called, so whatever is
+  //     stored stays stored and comes back the moment the answer changes.
   const noWork = isNoWorkUnit(row);
   const off = disabled || noWork;
-  // ★★★ fix-418 SCOPE B — WORK BELONGS TO A REMODEL.
+  // ★★★ fix-418 SCOPE B, KEPT EXACTLY — WORK BELONGS TO A REMODEL.
   //
-  // Bobby: *"I'm not sure what work is, if that is referring to the existing
-  // tab or the remodel tab, and if so, that should only populate if and when
-  // the remodel label is deployed."*
+  // Bobby, 2026-08-26: *"that should only populate if and when the remodel
+  // label is deployed."* P-050 specified `work_scope` as a property of a
+  // Remodel; a Duplex has no meaningful answer, and a greyed control still says
+  // "there is a question here you have not answered". ABSENT, not disabled.
   //
-  // ★★ A SCOPING DEFECT IN fix-412, and it was mine. P-050 specified
-  // `work_scope` as a property of a REMODEL — "a Remodel is one of two things.
-  // No work… Addition / updates." fix-412 rendered the control on EVERY unit
-  // type, and a Duplex has no meaningful answer to it.
-  //
-  // ★★★ ABSENT, NOT DISABLED. A greyed control still says "there is a question
-  // here you have not answered", which is exactly the wrong thing to say about
-  // a Duplex.
-  //
-  // ★★★ AND THE STORED VALUE IS NEVER TOUCHED. Nothing here writes
-  // `work_scope` when the label changes: `onUpdate` spreads the existing unit
-  // (`{ ...t, [field]: val }`) and `parseUnitTypes` still names the key, so a
-  // unit relabelled away from Remodel KEEPS its answer, silently, and
-  // relabelling back shows it again. Erasing it would destroy a real answer to
-  // fix a rendering bug — see the fix-412 whitelist trap for what happens when
-  // a key stops being carried.
+  // ★★★ AND THE STORED VALUE IS STILL NEVER TOUCHED. Nothing here writes
+  // `work_scope` when the label changes — `onUpdate` spreads the existing unit
+  // and `parseUnitTypes` still names the key — so a unit relabelled away from
+  // Remodel keeps its answer and relabelling back shows it again.
   const isRemodel = label === 'Remodel';
+
+  // ★★★ fix-422 SCOPE 7 — WORK IS A CHIP UNDER THE ROW, NOT A MATRIX COLUMN.
+  //
+  // ★★ IT HAS THREE STATES AND THE THIRD IS "NOT YET ANSWERED". Every other
+  // matrix cell answers with one glyph; `work_scope` cannot, because any letter
+  // in a one-glyph box reads as an answer and the whole point of the third
+  // state is that nobody has given one. `—` would collide with the "not
+  // recorded" glyph the other columns already use for NULL, which is the same
+  // conflation fix-402 exists to prevent.
+  //
+  // ★ So it keeps its words, under the row it belongs to, indented to the
+  //   matrix's Type column so it reads as that row's footnote rather than a
+  //   free-floating control.
   return (
-    <div
-      className="flex flex-col gap-0.5 rounded border px-1.5 py-1"
-      style={{ borderColor: 'var(--color-border)' }}
-      data-testid="pd-unit-row"
-      data-no-work={noWork ? 'true' : 'false'}
-      data-remodel={isRemodel ? 'true' : 'false'}
-    >
-      {/* ★★★ fix-418 SCOPE A2 — THE UNIT TYPE AT THE TOP.
-          Bobby: *"you'd have the unit type at the top and then you would kind
-          of go down however many unit quantities there are."* */}
-      <div className="flex items-center gap-1">
+    <div data-testid="pd-unit-row-group">
+      <div
+        className="grid items-center"
+        style={{ gridTemplateColumns: UNIT_MATRIX_GRID }}
+        data-testid="pd-unit-row"
+        data-no-work={noWork ? 'true' : 'false'}
+        data-remodel={isRemodel ? 'true' : 'false'}
+      >
+        {/* Type */}
         {hasProductTypes ? (
           <select
             value={selectValue}
@@ -2636,8 +2628,12 @@ function UnitRow({
               dirtyRef.current = false;
             }}
             disabled={disabled}
-            style={cellStyle}
-            className={`${cellClass} text-left flex-1 min-w-0 font-extrabold`}
+            // ★ SCOPE 8: a label longer than the column truncates, and the FULL
+            //   text is on hover. 9 of 235 prod rows are off-registry free text
+            //   — "SFR w/ Accessory Units" is 22 characters — and sizing the
+            //   column for those nine would tax every other project.
+            title={label || undefined}
+            className={`${cellClass} text-left px-0.5 truncate`}
             data-testid="pd-unit-label-select"
           >
             <option value="">Pick type…</option>
@@ -2649,8 +2645,7 @@ function UnitRow({
           </select>
         ) : (
           <span
-            style={cellStyle}
-            className={`${cellClass} text-left block truncate flex-1 min-w-0 font-extrabold ${label ? '' : 'text-dim'}`}
+            className={`${cellClass} text-left px-0.5 truncate leading-[16px] ${label ? '' : 'text-dim'}`}
             title={
               label
                 ? `${label} — add a product type to change`
@@ -2658,55 +2653,17 @@ function UnitRow({
             }
             data-testid="pd-unit-label-readonly"
           >
-            {label || '—'}
+            {label || NOT_RECORDED}
           </span>
         )}
-        {/* ★ SCOPE A5: the remove control stays reachable, now pinned to the
-            block's own header rather than trailing a 620px row. */}
-        <button
-          type="button"
-          onClick={onRemove}
-          disabled={disabled}
-          className="bg-transparent border-0 text-dim cursor-pointer text-[12px] leading-none px-0.5 flex-none disabled:opacity-50"
-          title="Remove type"
-          data-testid="pd-unit-remove"
-        >
-          ×
-        </button>
-      </div>
-
-      {/* ★★★ SCOPE B1 — ONLY ON A REMODEL, AND DIRECTLY UNDER THE LABEL.
-          fix-412 put Work immediately after Label because it qualifies the
-          label ("Remodel — and was work done?") and GATES the fields beyond it.
-          Vertically that reasoning is stronger, not weaker: on a confirmed
-          no-work unit everything BELOW this control is suppressed, so the
-          control that causes it has to sit above them or the block reads
-          bottom-up. Declared order and rendered order stay identical. */}
-      {isRemodel && (
-        <UnitField label={unitFieldLabel('work_scope')}>
-          <WorkScopeSelect
-            value={row.work_scope}
-            disabled={disabled}
-            onChange={(v) => onChange('work_scope', v)}
-            testid="pd-unit-work-scope"
-            fill
-          />
-        </UnitField>
-      )}
-
-      {/* ★★★ SCOPE A2 — THE FIELDS RUN DOWNWARD, label beside value.
-          Beside rather than above halves the block's height (8 lines per unit
-          instead of 16), and it reads like the SITE rows in the column to its
-          left. The control is `flex-1 min-w-0`, so it takes whatever the
-          column gives it instead of demanding a fixed width — which is what
-          lets the two-column interior fit at all (see lib/unitRowLayout). */}
-      <UnitField label={unitFieldLabel('width_ft')}>
+        <span aria-hidden="true" />
+        {/* W */}
         <input
           type="number"
           min={0}
           step="0.5"
           value={w}
-          placeholder="W"
+          placeholder={NOT_RECORDED}
           onChange={(e) => {
             dirtyRef.current = true;
             setW(e.target.value);
@@ -2716,18 +2673,20 @@ function UnitRow({
             dirtyRef.current = false;
           }}
           disabled={off}
-          style={cellStyle}
-          className={`${cellClass} w-full text-left`}
+          className={cellClass}
+          aria-label={unitFieldTooltip('width_ft')}
           data-testid="pd-unit-w"
         />
-      </UnitField>
-      <UnitField label={unitFieldLabel('depth_ft')}>
+        {/* ★ SCOPE 3: the tighter W–D gap. No `×`, so the pair has to group by
+            proximity instead. */}
+        <span aria-hidden="true" />
+        {/* D */}
         <input
           type="number"
           min={0}
           step="0.5"
           value={d}
-          placeholder="D"
+          placeholder={NOT_RECORDED}
           onChange={(e) => {
             dirtyRef.current = true;
             setD(e.target.value);
@@ -2737,17 +2696,17 @@ function UnitRow({
             dirtyRef.current = false;
           }}
           disabled={off}
-          style={cellStyle}
-          className={`${cellClass} w-full text-left`}
+          className={cellClass}
+          aria-label={unitFieldTooltip('depth_ft')}
           data-testid="pd-unit-d"
         />
-      </UnitField>
-      <UnitField label={unitFieldLabel('qty')}>
+        <span aria-hidden="true" />
+        {/* Qty */}
         <input
           type="number"
           min={1}
           value={qty}
-          placeholder="qty"
+          placeholder={NOT_RECORDED}
           onChange={(e) => {
             dirtyRef.current = true;
             setQty(e.target.value);
@@ -2757,17 +2716,17 @@ function UnitRow({
             dirtyRef.current = false;
           }}
           disabled={off}
-          style={cellStyle}
-          className={`${cellClass} w-full text-left`}
+          className={cellClass}
+          aria-label={unitFieldTooltip('qty')}
           data-testid="pd-unit-qty"
         />
-      </UnitField>
-      <UnitField label={unitFieldLabel('stories')}>
+        <span aria-hidden="true" />
+        {/* Sty */}
         <input
           type="number"
           min={1}
           value={stories}
-          placeholder="Sty"
+          placeholder={NOT_RECORDED}
           onChange={(e) => {
             dirtyRef.current = true;
             setStories(e.target.value);
@@ -2779,28 +2738,25 @@ function UnitRow({
             dirtyRef.current = false;
           }}
           disabled={off}
-          style={cellStyle}
-          className={`${cellClass} w-full text-left`}
+          className={cellClass}
+          aria-label={unitFieldTooltip('stories')}
           data-testid="pd-unit-stories"
         />
-      </UnitField>
-      {/* ★★ fix-402's three controls, unchanged in behaviour — NULL still
-          renders "—" and is always reachable again. Only their container is
-          vertical now. */}
-      <UnitField label={unitFieldLabel('parking_kind')}>
+        <span aria-hidden="true" />
+        {/* P — the cell is a letter, the menu is words. */}
         <ParkingKindSelect
           value={row.parking_kind}
           disabled={off}
           onChange={(v) => onChange('parking_kind', v)}
           testid="pd-unit-parking-kind"
-          fill
+          code
         />
-      </UnitField>
-      <UnitField label={unitFieldLabel('parking_stalls')}>
+        <span aria-hidden="true" />
+        {/* # */}
         <StallsInput
           value={stalls}
           disabled={off}
-          fill
+          compact
           onChange={(raw) => {
             dirtyRef.current = true;
             setStalls(raw);
@@ -2811,41 +2767,46 @@ function UnitRow({
           }}
           testid="pd-unit-stalls"
         />
-      </UnitField>
-      <UnitField label={unitFieldLabel('roof_deck')}>
+        <span aria-hidden="true" />
+        {/* RD */}
         <RoofDeckSelect
           value={row.roof_deck}
           disabled={off}
           onChange={(v) => onChange('roof_deck', v)}
           testid="pd-unit-roof-deck"
-          fill
+          code
         />
-      </UnitField>
-    </div>
-  );
-}
-
-/** ★ fix-418: one field in the vertical unit block — a compact label beside a
- *  control that takes the rest of the column. One component so the eight
- *  fields cannot drift into eight different label treatments, which is the
- *  fix-412 lesson at a smaller scale. */
-function UnitField({
-  label,
-  children,
-}: {
-  label: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className="flex items-baseline gap-1">
-      <span
-        className="text-[8px] font-bold text-dim uppercase tracking-wide flex-none truncate"
-        style={{ width: 30 }}
-        title={label}
-      >
-        {label}
-      </span>
-      <span className="flex-1 min-w-0">{children}</span>
+        <span aria-hidden="true" />
+        <button
+          type="button"
+          onClick={onRemove}
+          disabled={disabled}
+          className="bg-transparent border-0 text-dim cursor-pointer text-[12px] leading-none p-0 disabled:opacity-50"
+          title="Remove type"
+          data-testid="pd-unit-remove"
+        >
+          ×
+        </button>
+      </div>
+      {isRemodel && (
+        <div
+          className="flex items-center gap-1 mt-0.5 mb-0.5"
+          data-testid="pd-unit-work-chip"
+        >
+          <span
+            className="text-[8px] font-extrabold uppercase tracking-wide text-dim cursor-help"
+            title={WORK_SCOPE_TOOLTIP}
+          >
+            {WORK_SCOPE_LABEL}
+          </span>
+          <WorkScopeSelect
+            value={row.work_scope}
+            disabled={disabled}
+            onChange={(v) => onChange('work_scope', v)}
+            testid="pd-unit-work-scope"
+          />
+        </div>
+      )}
     </div>
   );
 }
