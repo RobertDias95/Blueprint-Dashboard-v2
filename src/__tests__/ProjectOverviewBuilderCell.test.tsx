@@ -185,7 +185,16 @@ describe('Project Overview <BuilderOwnerCell /> — fix-24d', () => {
     expect(call.expectedUpdatedAt).toBe(NOW);
     // fix-175: builder_address rides along in the single atomic patch; POC
     // (per-project) is intentionally NOT included.
+    //
+    // ★★ fix-425 ADDED `builder_id` TO THIS PATCH, and the RULE this test
+    //    guards is unchanged: ONE save carrying everything, never six racing
+    //    per-field commits, and never the per-project POC. What grew is the
+    //    payload — picking a builder from the menu now records WHICH builder,
+    //    which is the entire point of a catalog that 33 of 202 projects were
+    //    linked to. Asserted with toEqual on purpose: a new key has to be
+    //    added here deliberately rather than drifting in.
     expect(call.patch).toEqual({
+      builder_id: 'boyd-lybeck',
       builder_name: 'Boyd Lybeck',
       builder_company: "Jake'sD Corporation",
       builder_email: 'jakesbd@comcast.net',

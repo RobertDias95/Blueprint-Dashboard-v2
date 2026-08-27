@@ -12,7 +12,14 @@ import type { Project } from '../lib/database.types';
 //
 // Used by:
 //   - External team selects (writes projects.external_team[type] = firm)
-//   - Builder/Owner cell (writes projects.builder_id)
+//   - Builder/Owner cell (writes the builder_* text fields, and — fix-425 —
+//     projects.builder_id when a builder is PICKED from the catalog menu or
+//     the name is cleared). ★ This comment described a real write that lived
+//     for one day: Q9.5.f-fix-17 (e8a5aed, 2026-05-13) upserted a builder and
+//     set projects.builder_id; Q9.5.f-fix-22 (9d2269c, 2026-05-14) removed it
+//     with the project-level field migration and nothing replaced it. The
+//     comment then outlived the code by three and a half months, which is how
+//     202 projects ended up with 33 links, all of them from the import.
 //   - Unit Dimensions editor (writes projects.unit_types)
 //   - Project Settings modal (mass-edit)
 //   - Project Tags chip editor
