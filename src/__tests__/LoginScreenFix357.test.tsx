@@ -383,25 +383,47 @@ describe('fix-357 §3: the login screen got fix-351\'s lockup', () => {
 // §4 — no placeholder
 // ---------------------------------------------------------------------------
 
-describe('fix-357 §4: no forgot-password link, disabled or otherwise', () => {
-  it('★★★ there is no dead control on the screen', () => {
-    // A disabled link that looks like an answer is worse than its absence, and
-    // it is exactly what the no-placeholders rule forbids. What the flow would
-    // take is measured in the PR; building it is Bobby's decision.
+// ★★★ SUPERSEDED BY fix-426, BY BOBBY'S RULING OF 2026-08-28 — and the rule
+// underneath is not repealed, it is SATISFIED.
+//
+// fix-357 §4 asserted two things: that there was no dead "Forgot password?"
+// control, and that the credentials message carried the only recovery that
+// existed — "message Bobby". Both were right on 2026-08-19. Then Brittani was
+// locked out on 2026-08-28, the second in ten days, and Bobby ruled that the
+// flow gets built.
+//
+// ★★ THE NO-PLACEHOLDERS RULE STILL HOLDS AND IS STILL ASSERTED. What changed
+//    is that the control is REAL: it calls resetPasswordForEmail, it is not
+//    disabled, and it leads to a screen that finishes the job. A dead link
+//    would still be worse than nothing, so the test below now checks that the
+//    control WORKS rather than that it is absent — the same rule, on the other
+//    side of the decision it was waiting for.
+describe('fix-357 §4 → fix-426: the forgot-password control is real, not dead', () => {
+  it('★★★ it exists, it is enabled, and it is wired to a real call', () => {
     wrap(<Login />);
-    expect(screen.queryByText(/forgot/i)).toBeNull();
-    expect(screen.queryByText(/reset/i)).toBeNull();
-    expect(loginCode()).not.toMatch(/resetPasswordForEmail/);
-    expect(loginCode().toLowerCase()).not.toMatch(/forgot password/);
+    const control = screen.getByTestId('login-forgot');
+    expect(control).toBeInTheDocument();
+    // ★ THE HALF THAT MATTERED: not disabled, and not a link to nowhere.
+    expect((control as HTMLButtonElement).disabled).toBe(false);
+    expect(control.getAttribute('href')).toBeNull();
+    // ★ And the flow behind it is present in the source, which is what makes
+    //   the control an answer rather than an ornament.
+    expect(loginCode()).toMatch(/resetPasswordForEmail/);
+    expect(loginCode()).toMatch(/verifyOtp/);
   });
 
-  it('★ …but the screen still tells a stuck person what to do', () => {
-    // The credentials message carries the only recovery that exists today.
+  it('★ …and the credentials message now points AT it, not at Bobby', () => {
+    // The sentence fix-357 wrote — "There is no self-service password reset
+    // yet … message Bobby" — is the exact copy that made two lockouts into
+    // Bobby's problem. It comes out ONLY because the control it is replaced by
+    // is real.
     const f = classifyLoginError(
       authApiError('Invalid login credentials', 400, 'invalid_credentials'),
     );
-    expect(f.guidance).toMatch(/no self-service password reset/i);
-    expect(f.guidance).toMatch(/Bobby/);
+    expect(f.guidance).not.toMatch(/no self-service password reset/i);
+    expect(f.guidance).toMatch(/forgot password/i);
+    // ★ fix-357's OTHER rule is untouched: it still does not say which field
+    //   was wrong. That assertion lives in §1 and still passes.
   });
 });
 
