@@ -4,6 +4,7 @@ import { queryKeys } from '../lib/queryKeys';
 import { OCCConflictError, isOCCConflict } from '../lib/occ';
 import { pushToast } from '../stores/toastStore';
 import { useAuthStore } from '../stores/authStore';
+import type { DrawScheduleRow } from '../lib/database.types';
 
 // Q9.5.f-fix-20: bp_move_draw_schedule_da. Atomic DA reassignment that
 // rewrites assignment on EVERY artifact tied to the old DA in one tx:
@@ -86,11 +87,53 @@ export function useMoveDrawScheduleDa() {
       };
     },
 
-    onSuccess: (result) => {
+    onSuccess: (result, input) => {
+      // ★★★ fix-443 §A (P-095) — WRITE THE RETURNED TOKEN BACK, SYNCHRONOUSLY.
+      //
+      // This was the ONE draw-schedule hook still missing it. Its two siblings
+      // already do it and say why in as many words: useUpdateDrawSchedule's
+      // "Bug B fix" note and useResolveDaOverlap's "the same stale-OCC race we
+      // fixed in Q6.2.a-fix". This hook surfaced `out_updated_at` as
+      // `result.updatedAt` and then threw it away, so between the server
+      // confirming and the refetch landing the grid still rendered the
+      // PRE-write row — and a second drag reads its `updated_at` for the next
+      // RPC's `p_expected_updated_at`.
+      //
+      // ★★ PREVENTION, NOT A REPAIR. `error_reports` holds ZERO "Draw schedule
+      //    changed since you loaded it" rows (measured 2026-08-29). A DA move
+      //    is a rarer, more deliberate gesture than an NP drag, so the window
+      //    fix-442 caught six times here has caught nobody yet. It is closed
+      //    because the shape is identical, not because anything is on fire.
+      //
+      // ★ The same three fields the RPC was told to write, plus the token —
+      //   never a whole row copied from a stale snapshot, which is how a
+      //   concurrent edit to an untouched column gets silently reverted.
+      if (result.updatedAt) {
+        queryClient.setQueryData<DrawScheduleRow[]>(
+          queryKeys.drawSchedule(tenantId),
+          (rows) =>
+            rows?.map((r) =>
+              r.project_id === result.projectId
+                ? {
+                    ...r,
+                    updated_at: result.updatedAt as string,
+                    da_assigned: input.newDa,
+                    start_week: input.startWeek,
+                    end_week: input.endWeek,
+                    status: input.scheduleStatus,
+                  }
+                : r,
+            ),
+        );
+      }
       // Touch every cache that could surface the propagated change:
       // draw_schedule (assignment + dates), permits (da/dm + dd dates),
       // permit_tasks (assigned_to). Realtime invalidation handles other
       // tabs/users automatically.
+      //
+      // ★ The invalidate STAYS. The write-back fixes the token; the refetch is
+      //   what reconciles the dd_start/dd_end cascade and the permits/tasks
+      //   this RPC also rewrote — none of which this hook can compute.
       queryClient.invalidateQueries({
         queryKey: queryKeys.drawSchedule(tenantId),
       });
