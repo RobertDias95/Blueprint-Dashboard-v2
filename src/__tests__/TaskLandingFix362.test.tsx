@@ -301,6 +301,12 @@ describe('fix-362 §3: closed is not gone', () => {
   });
 
   it('★★★ a task outside your SCOPE is still reachable', () => {
+    // ★★ fix-428: this test's premise is "the board defaults to MINE", and that
+    //    default now requires the viewer to actually HAVE work — a roster name
+    //    with no project and no permit starts on Everyone, where nothing is
+    //    outside the view and there would be nothing to prove. Bobby is given a
+    //    permit here so the premise holds; the assertion is untouched.
+    permitsRef.current = [{ ent_lead: 'Bobby', dm: null, da: null, dual_da: null }];
     // ★ The sharper half of "closed is not gone": the board defaults to MINE,
     // and fix-354 routes an auto-closure by a recipient the DATABASE resolved
     // (bp_auto_close_recipient — assignee, then the role's holder, then the

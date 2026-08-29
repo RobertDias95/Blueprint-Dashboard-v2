@@ -200,6 +200,14 @@ export default function ProjectList() {
   }
   function resetFilters() {
     setFilters(DEFAULT_FILTERS);
+    // ★★ fix-428: …and the hold filter, which it never used to touch. Bobby's
+    //    ruling covers the hold filter, and Pipeline's Clear resets it — two
+    //    screens doing visibly different things under the same word would be
+    //    worse than the inconsistency we started with.
+    //
+    // ★ The function keeps its name, and the buttons keep their `*-reset`
+    //   test ids. Only the LABEL changed (see the button).
+    setHoldMode(HOLD_FILTER_DEFAULT);
   }
 
   function toggleSort(col: SortableColumn) {
@@ -266,7 +274,8 @@ export default function ProjectList() {
             className="underline text-de hover:opacity-80"
             data-testid="project-view-empty-reset"
           >
-            Reset
+            {/* ★ fix-428: the label is Bobby's word; the id is unchanged. */}
+            Clear
           </button>
         </div>
       ) : (
@@ -453,7 +462,8 @@ function FilterRow({
         style={chipStyle(false)}
         data-testid="project-view-filter-reset"
       >
-        Reset
+        {/* ★ fix-428: the label is Bobby's word; the id is unchanged. */}
+        Clear
       </button>
       <button
         type="button"
