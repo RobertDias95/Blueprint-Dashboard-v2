@@ -919,7 +919,10 @@ function FilterRow({
         style={chipStyle(false)}
         data-testid="mytasks-filter-reset"
       >
-        Reset
+        {/* ★ fix-428: the label is Bobby's word; the id is unchanged. The
+            FilterBar's own `mytasks-filter-clear` already read correctly and
+            did not move. */}
+        Clear
       </button>
     </div>
   );

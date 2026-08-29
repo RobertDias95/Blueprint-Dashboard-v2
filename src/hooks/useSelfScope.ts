@@ -2,11 +2,13 @@ import { useCallback, useMemo, useState } from 'react';
 import { useAuthStore } from '../stores/authStore';
 import { useTeamMembers } from './useTeamMembers';
 import { useProjects } from './useProjects';
+import { usePermits } from './usePermits';
 import {
   initialScopeMode,
   loadScopeMode,
   resolveRosterIdentity,
   saveScopeMode,
+  widenScopeWhenUnassigned,
   type RosterIdentity,
   type ScopeMode,
   type SelfScopeView,
@@ -66,9 +68,43 @@ export interface UseScopeModeResult {
  *  Derived (no effect): the effective mode is the user's in-session override if
  *  they've toggled, else their remembered choice from storage, else the
  *  role-aware default. Until the roster query settles we show 'all' so there's
- *  no flash of an under-scoped list. */
+ *  no flash of an under-scoped list.
+ *
+ * ---------------------------------------------------------------------------
+ * ★★★ fix-428 — WHY THE PERMITS QUERY IS HERE AND NOT IN `useSelfScope`
+ * ---------------------------------------------------------------------------
+ *
+ * The widening needs to know whether this person is on any PERMIT. The obvious
+ * place to ask is `useSelfScope`, next to the projects query it already drives.
+ * That would be a serious mistake:
+ *
+ *   `useSelfScope` is called by **Chrome.tsx**, which renders on EVERY screen,
+ *   and by useBoardLens, useBoardNotifications, MyBoard and PersonalBoard —
+ *   five callers, none of which load permits. Putting `usePermits()` there
+ *   makes every page in the app fetch every permit with its nested cycles, to
+ *   decide a toggle those pages do not have. `useShowHeldWork.ts` already
+ *   carries a comment warning about exactly this trap.
+ *
+ * `useScopeMode` is used ONLY by the surfaces that render the toggle —
+ * Dashboard, ProjectList, MyTasks' MineTasks body, and WaitingOnView — and the
+ * first three already call `usePermits()` themselves. React Query dedupes onto
+ * the same cached query, so on those three this costs ZERO new fetches: the
+ * same argument the `useProjects()` note above makes.
+ *
+ * ★★ THE ONE HONEST EXCEPTION, and the brief's STEP 0 #8 was slightly off
+ * about it: `MyTasks()` the page does NOT call `usePermits()` — its two calls
+ * live in the `MineTasks` body, which is the SIBLING of `<WaitingOnView />` in
+ * a ternary. So the Waiting-On tab gains one subscription to the shared permits
+ * query. One tab, to a query the rest of the app keeps warm — against making
+ * every page in the product fetch it. Recorded rather than glossed over.
+ *
+ * ★ `identity.scope` itself is NOT widened. RosterIdentity keeps fix-179's
+ *   meaning for every existing reader (the fix-343 name plate, the board lens,
+ *   PersonalBoard); only the toggle's DEFAULT is computed from the wider
+ *   question. */
 export function useScopeMode(view: SelfScopeView): UseScopeModeResult {
   const { identity, userId, isLoading } = useSelfScope();
+  const permitsQ = usePermits();
   // The explicit choice made this mount; null until the user toggles.
   const [override, setOverride] = useState<ScopeMode | null>(null);
 
@@ -79,8 +115,23 @@ export function useScopeMode(view: SelfScopeView): UseScopeModeResult {
     [userId, view],
   );
 
+  // ★ fix-428: the tier `deriveSelfScope` reached from projects alone, asked
+  //   again against permits. Memoised on the query's own data reference so a
+  //   render that changes nothing re-scans nothing.
+  const effectiveScope = useMemo(
+    () => widenScopeWhenUnassigned(identity.scope, identity.name, permitsQ.data ?? []),
+    [identity.scope, identity.name, permitsQ.data],
+  );
+
+  // ★★ THE PERMITS QUERY IS FOLDED INTO THE SAME GUARD, not checked after it.
+  //    A permit-scoped person shown Everyone for one frame and then snapped to
+  //    My Work is the flinch fix-324 and fix-403's lazy-initialiser discipline
+  //    exists to prevent — and it would be a NEW flinch introduced by this
+  //    ticket, on the people the ticket is not even about.
+  const resolving = isLoading || permitsQ.isLoading;
+
   const mode: ScopeMode =
-    override ?? (isLoading ? 'all' : initialScopeMode(stored, identity.scope));
+    override ?? (resolving ? 'all' : initialScopeMode(stored, effectiveScope));
 
   const setMode = useCallback(
     (next: ScopeMode) => {
@@ -90,5 +141,5 @@ export function useScopeMode(view: SelfScopeView): UseScopeModeResult {
     [userId, view],
   );
 
-  return { mode, setMode, identity, ready: !isLoading };
+  return { mode, setMode, identity, ready: !resolving };
 }

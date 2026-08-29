@@ -78,6 +78,74 @@ export function deriveSelfScope(
   return projects.some((p) => projectMatchesSelf(p, name)) ? 'project' : 'permit';
 }
 
+// ===========================================================================
+// ★★★ fix-428 — "nothing assigned to you" WAS NEVER ASKED
+// ===========================================================================
+//
+// Bobby, 2026-08-28: *"for people like dave, gena, darin, eric, lucas, certain
+// people in acquisitions, who are not assigned any permits/projects, their
+// default view should be everyone… nothing assigned to you, your default view
+// is everyone vs my work."*
+//
+// ★★★ HE GUESSED FIVE NAMES. MEASURED ON PROD THE SAME DAY IT IS SIXTEEN, of
+// twenty-nine logins — every account with a roster row and zero project leads,
+// zero permit assignments and (bar one) zero tasks:
+//
+//   Ana · Darin · Dave · Dom · EJ · Eric · Gena · Greg · Jake · Jason ·
+//   Jessie · Keelie · Keenan · Lucas · Scott · Taylor
+//
+// More than half the company opens a blank Pipeline, a blank Project View and
+// a blank My Tasks. It already shows: Gena has not signed in since 2026-07-08,
+// Lucas since 2026-07-07, Greg/EJ/Taylor since late July.
+//
+// ---------------------------------------------------------------------------
+// ★★★ THE RULE BOBBY WANTS ALREADY EXISTS — THE QUESTION WAS ASKED TOO NARROWLY
+// ---------------------------------------------------------------------------
+//
+// `initialScopeMode` already returns 'all' for an identity scoped 'all'. The
+// defect is upstream, in `deriveSelfScope` above: it decides the tier from
+// PROJECTS ONLY, so a roster name leading no project is filed 'permit' — "you
+// have permit-level work" — WITHOUT ANYONE EVER CHECKING WHETHER THEY ARE ON A
+// PERMIT. All sixteen land there, 'permit' defaults to 'mine', and 'mine' is
+// empty.
+//
+// ★★ `deriveSelfScope` IS DELIBERATELY LEFT ALONE. It is fix-179's, its result
+// is `RosterIdentity.scope`, and that is read by the name plate (fix-343), the
+// board lens and PersonalBoard — none of which want a permits query. The
+// widening is a SEPARATE pure function applied where the toggle default is
+// computed, and only there. See useScopeMode.
+
+/**
+ * ★★★ fix-428: a roster name with no project AND no permit has nothing to show
+ * in "My Work", so it starts on Everyone.
+ *
+ * Pure, so it is trivially testable without a browser or a query client.
+ *
+ * ★ 'project' and 'all' pass straight through UNTOUCHED — a project lead has
+ *   work by definition, and an unmapped name is already Everyone. Only
+ *   'permit' is re-examined, because 'permit' is the tier `deriveSelfScope`
+ *   assigns by ELIMINATION rather than by evidence.
+ *
+ * ★★ It reuses `permitMatchesSelf`, which already implements the four-role
+ *    match (ent_lead | dm | da | dual_da). There is no second predicate here,
+ *    and there must not be one: two matchers that agree today are two matchers
+ *    that disagree after the next role is added.
+ *
+ * ★★★ DERIVED LIVE, NEVER STAMPED. Because this is recomputed from real
+ *     assignments on every render, the day Gena is given her first permit her
+ *     default becomes My Work by itself. Anything that wrote the answer at
+ *     account creation would be wrong within a week, and silently.
+ */
+export function widenScopeWhenUnassigned(
+  scope: SelfScopeKind,
+  name: string | null,
+  permits: ReadonlyArray<Pick<Permit, 'ent_lead' | 'dm' | 'da' | 'dual_da'>>,
+): SelfScopeKind {
+  if (scope !== 'permit') return scope;
+  if (!norm(name)) return 'all';
+  return permits.some((p) => permitMatchesSelf(p, name)) ? 'permit' : 'all';
+}
+
 /** Resolve the logged-in user's roster identity from the team_members roster by
  *  matching the auth email. A person may hold multiple rows — collect every
  *  role, and take the (consistent) name from the first match. The scope is then

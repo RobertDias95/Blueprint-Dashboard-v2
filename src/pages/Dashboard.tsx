@@ -130,6 +130,22 @@ interface DashContext {
 // No placeholder permit synthesis — empty projects show in the search list,
 // not as a fake card in a matrix slot.
 
+/** ★ fix-428: the inactive-chip treatment, matching `chipStyle(false)` in
+ *  ProjectList / MyTasks / HoldFilter / ScopeToggle so the new Clear looks like
+ *  the Clear it was copied from.
+ *
+ *  ★★ THIS IS THE FIFTH COPY OF THESE THREE LINES and it is written down rather
+ *  than slipped in: `chipStyle(active)` is already defined independently in
+ *  pages/ProjectList, pages/MyTasks, components/shared/HoldFilter and
+ *  components/shared/ScopeToggle. A shared `lib/chipStyle` is the right answer
+ *  and is a four-file change this ticket deliberately did not make — it is
+ *  filter-row behaviour, not a styling refactor. Flagged in the PR. */
+const INACTIVE_CHIP_STYLE = {
+  borderColor: 'var(--color-border)',
+  background: 'var(--color-bg)',
+  color: 'var(--color-text)',
+};
+
 export default function Dashboard() {
   const projectsQ = useProjects();
   const permitsQ = usePermits();
@@ -237,6 +253,28 @@ export default function Dashboard() {
     },
     [prefsUserId, search, holdMode, filters],
   );
+
+  /** ★★★ fix-428: one handler, and ONE `persistFilters` call carrying all
+   *  three keys.
+   *
+   *  ★★ NOT three sequential calls. `persistFilters` fills anything omitted
+   *  from the CURRENT closure values, so three calls in one handler would each
+   *  re-persist two stale pieces and the store would end up holding a mixture
+   *  of cleared and uncleared state. That is precisely what the "One writer for
+   *  all three pieces, so they cannot be stored out of step" note above is
+   *  protecting, and it is the failure a test asserting only the rendered state
+   *  would not see — it surfaces on the NEXT navigation, when fix-403's memory
+   *  reads the store back. */
+  const clearFilters = useCallback(() => {
+    setSearch('');
+    setFilters(EMPTY_DASH_FILTERS);
+    setHoldMode(HOLD_FILTER_DEFAULT);
+    persistFilters({
+      search: '',
+      filters: EMPTY_DASH_FILTERS,
+      holdMode: HOLD_FILTER_DEFAULT,
+    });
+  }, [persistFilters]);
   // ★ fix-324: which columns this person has folded, remembered across reloads.
   //
   // ★ SAME MECHANISM AS THE RIBBON (fix-313) — per-user localStorage, read in a
@@ -598,6 +636,38 @@ export default function Dashboard() {
           }}
           testid="dashboard-hold-filter"
         />
+        {/* ★★★ fix-428 — THE STANDING CONVENTION, RECORDED WHERE IT IS FIRST
+            OBEYED: **a filter row with more than one control owes a Clear at
+            its end.** Bobby, 2026-08-28: *"whenever we have searches that can
+            be adjusted to have multiple selections, like pipeline, or my tasks,
+            or project view etc, having that clear button next to it is nice so
+            that you can reset the search queue. for instance, pipeline i dont
+            think has it."* He was right — Pipeline was the only one of the
+            three with no way out. The next person adding a filtered surface
+            should not have to be told.
+
+            ★★ THE WORD IS "CLEAR", AND BOBBY RULED IT AGAINST THE
+            RECOMMENDATION. "Reset" was proposed on the churn argument (three
+            buttons already said it); he chose the plainer word and the app
+            follows the person. The three old buttons were relabelled —
+            LABELS ONLY. Their `data-testid`s, props and functions keep their
+            "reset" names, because renaming an id for a word change breaks every
+            test that references it and buys nothing.
+
+            ★★★ IT DOES NOT TOUCH THE MY WORK / EVERYONE TOGGLE. That is
+            fix-409's reasoning and it is the same case: the other controls are
+            THIS screen's filters, while ScopeToggle is a preference persisted
+            per user per view that OTHER screens read. Clearing a filter row
+            must not silently change what a different screen shows you. */}
+        <button
+          type="button"
+          onClick={clearFilters}
+          className="text-[11px] px-2 py-1 rounded border"
+          style={INACTIVE_CHIP_STYLE}
+          data-testid="pipeline-filter-clear"
+        >
+          Clear
+        </button>
       </div>
       {/* ★ fix-313 #61: "+ Add New Project" lived here. It moved into the
           ribbon, pinned above the collapse row, where it is reachable from

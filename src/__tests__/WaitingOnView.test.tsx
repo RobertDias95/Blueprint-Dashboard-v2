@@ -85,8 +85,20 @@ vi.mock('../hooks/useProjects', () => ({
 // dm_da_groups to resolve assigned_to role placeholders to people. The scope
 // fixtures below use LITERAL person assignees (no role placeholder), so inert
 // data is enough — no context is needed to resolve a bare name to itself.
+// ★★ fix-428: `useScopeMode` now asks whether this person is on any PERMIT
+// before defaulting them to "My Work" — a roster name with no project AND no
+// permit starts on Everyone, because "My Work" would be empty (sixteen of
+// twenty-nine logins were in that state). This fixture therefore gives the
+// logged-in user a permit: the suite's premise has always been "a person who
+// has work", and without one the widening correctly sends them to Everyone and
+// the suite would be testing fix-428 rather than what it was written for.
 vi.mock('../hooks/usePermits', () => ({
-  usePermits: () => ({ data: [], isLoading: false, error: null, refetch: vi.fn() }),
+  usePermits: () => ({
+    data: [{ ent_lead: 'Bobby', dm: null, da: null, dual_da: null }],
+    isLoading: false,
+    error: null,
+    refetch: vi.fn(),
+  }),
 }));
 vi.mock('../hooks/useDmDaGroups', () => ({
   useDmDaGroups: () => ({ rows: [] }),

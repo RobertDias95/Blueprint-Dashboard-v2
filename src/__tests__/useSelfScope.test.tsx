@@ -19,11 +19,30 @@ const projectsState = vi.hoisted(() => ({
   isLoading: false,
 }));
 
+const permitsState = vi.hoisted(() => ({
+  data: [] as {
+    ent_lead: string | null;
+    dm: string | null;
+    da: string | null;
+    dual_da: string | null;
+  }[],
+  isLoading: false,
+}));
+
 vi.mock('../hooks/useTeamMembers', () => ({
   useTeamMembers: () => teamState,
 }));
 vi.mock('../hooks/useProjects', () => ({
   useProjects: () => projectsState,
+}));
+// ★★ fix-428: useScopeMode asks whether the person is on any PERMIT before
+// defaulting them to "My Work" — see widenScopeWhenUnassigned. Cam and Bobby
+// are permit-scope in these fixtures precisely BECAUSE they lead no project,
+// and fix-179's point was that their "My Work" is not empty. The permits below
+// are what makes that true; without them fix-428 correctly widens both to
+// Everyone. A person with NO permit is covered by its own test.
+vi.mock('../hooks/usePermits', () => ({
+  usePermits: () => permitsState,
 }));
 
 import { useScopeMode } from '../hooks/useSelfScope';
@@ -43,6 +62,13 @@ const PROJECTS = [
   { entitlement_lead: null, design_manager: 'Brittani' },
 ];
 
+// Cam works a permit as DA; Bobby is its ENT lead. Neither leads a project, so
+// both are permit-scope — and fix-428 leaves permit-scope alone when there IS a
+// permit.
+const PERMITS = [
+  { ent_lead: 'Bobby', dm: null, da: 'Cam', dual_da: null },
+];
+
 function loginAs(id: string, email: string | null) {
   useAuthStore.setState({ user: { id, email } as unknown as User });
 }
@@ -53,6 +79,8 @@ beforeEach(() => {
   teamState.isLoading = false;
   projectsState.data = PROJECTS;
   projectsState.isLoading = false;
+  permitsState.data = PERMITS;
+  permitsState.isLoading = false;
   useAuthStore.setState({ user: null });
 });
 
