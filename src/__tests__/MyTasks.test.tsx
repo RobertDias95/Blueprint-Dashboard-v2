@@ -1109,25 +1109,32 @@ describe('MyTasks (fix-80 v1 three-pane kanban)', () => {
     fireEvent.change(screen.getByTestId('mytasks-filter-stage'), {
       target: { value: 'PAR/Pre-Sub' },
     });
-    fireEvent.click(screen.getByTestId('mytasks-filter-bydue'));
+    // ★★ fix-444 §A3: the "By Due Date" toggle is GONE — it was never a manual
+    //    order (nothing in the app lets a person arrange tasks), so it chose
+    //    between two date orders and the bands are the answer now. The KEY is
+    //    left in the persisted shape, so a stored value from before this ships
+    //    is simply ignored rather than breaking the parse — which is what this
+    //    line proves.
+    window.localStorage.setItem(
+      'mytasks.filters.v2',
+      JSON.stringify({
+        ...JSON.parse(window.localStorage.getItem('mytasks.filters.v2') ?? '{}'),
+        byDueDate: false,
+      }),
+    );
+    expect(screen.queryByTestId('mytasks-filter-bydue')).toBeNull();
     // localStorage carries our v2 key.
     const stored = JSON.parse(
       window.localStorage.getItem('mytasks.filters.v2') ?? '{}',
     );
     expect(stored.permitTypes).toEqual(['PAR/Pre-Sub']);
-    expect(stored.byDueDate).toBe(false);
 
     unmount();
     renderIt();
-    // After remount the filters re-apply.
+    // After remount the filters re-apply — and the stale key did no harm.
     expect(
       screen.getByTestId('mytasks-filter-stage-chip-PAR/Pre-Sub'),
     ).toBeInTheDocument();
-    expect(
-      screen
-        .getByTestId('mytasks-filter-bydue')
-        .getAttribute('data-on'),
-    ).toBe('false');
     expect(screen.queryByTestId('mytask-card-de-open-overdue')).toBeNull();
     expect(screen.getByTestId('mytask-card-pm-open')).toBeInTheDocument();
   });
@@ -1236,10 +1243,22 @@ describe('MyTasks view switcher (fix-140)', () => {
     expect(screen.getByTestId('mytask-card-auto-corr')).toBeInTheDocument();
   });
 
-  it('fix-155: priority tasks sort above non-priority within a sub-column', () => {
-    // Both Open + pm → same sub-column. The priority auto-task has a LATER
-    // target_date, so under by-due sorting alone it would come second; priority
-    // is the top sort key, so it bubbles above the earlier-due non-priority one.
+  // ★★★ fix-444 §A2 INVERTS THIS PIN, AND THE INVERSION IS THE RULING.
+  //
+  // Bobby, 2026-08-29: *"The manual priority flag lifts a task to the top of
+  // its band, never out of it."* fix-155 made `priority` the TOP sort key for
+  // the whole column, so — as this test's own original comment said — a
+  // flagged task due 2026-06-30 outranked an unflagged one due 2026-06-05.
+  // That is "important" beating "urgent", which is exactly what ruling 3
+  // settles: the two tasks are in different BANDS now, and no flag crosses a
+  // band boundary.
+  //
+  // ★ The flag is not weakened — it still wins inside a band, which the test
+  //   below this one proves. What it stops doing is hiding a nearer deadline.
+  it('fix-155 → fix-444: priority does NOT lift a task out of its band', () => {
+    // Both Open + pm → same sub-column, but DIFFERENT bands: against the
+    // fixture clock (2026-06-01) 2026-06-05 is four days out — "This week" —
+    // and 2026-06-30 is twenty-nine days out — "Later".
     tasksRef.current = [
       task({
         id: 'np-1',
@@ -1274,11 +1293,20 @@ describe('MyTasks view switcher (fix-140)', () => {
     renderIt();
     const auto = screen.getByTestId('mytask-card-pr-auto');
     const human = screen.getByTestId('mytask-card-np-1');
-    // auto precedes human in document order.
+    // ★★★ The EARLIER-DUE, UNFLAGGED task comes first now — its band is above
+    //     the flagged one's, and a flag cannot cross that line.
     expect(
-      auto.compareDocumentPosition(human) &
+      human.compareDocumentPosition(auto) &
         Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
+    // ★ …and they really are in different bands, so this is not an accident
+    //   of two rows in one list.
+    expect(
+      screen.getByTestId('mytasks-band-pm-not-started-this_week'),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByTestId('mytasks-band-pm-not-started-later'),
+    ).toBeInTheDocument();
   });
 
   it('fix-156: ENT filter matches a BOT task via DERIVED ent lead (assigned_to null)', () => {

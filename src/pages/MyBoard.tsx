@@ -4,6 +4,10 @@ import { focusItems, groupItems, type AssociateGroup } from '../lib/boardByAssoc
 import { useCallback, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import OriginLink from '../components/OriginLink';
+// ★★★ fix-444 §B (P-064): the Board is a SNAPSHOT of the next seven days.
+// Everything further out leaves it as a count and a link — see the
+// component for why it is never a silent drop.
+import BeyondSnapshotLine from '../components/shared/BeyondSnapshotLine';
 import { useOriginState } from '../hooks/useOriginState';
 import ShowHeldWorkToggle from '../components/shared/ShowHeldWorkToggle';
 import { useShowHeldWork } from '../hooks/useShowHeldWork';
@@ -74,6 +78,7 @@ import {
 // ★ fix-397: the queue's own vocabulary — kinds, bands, and the row shape.
 import {
   QUEUE_KIND_LABEL,
+  type QueueBand,
   type QueueBandGroup,
   type QueueRow,
 } from '../lib/projectQueue';
@@ -485,6 +490,42 @@ function QueueRowView({ row }: { row: QueueRow }) {
 
 /** ★★ A band header plus its rows. Empty bands never reach here — the bands are
  *  a sort, not a checklist, so there is deliberately no "Nothing here" row. */
+// ===========================================================================
+// ★★★ fix-444 §B2 — `later` COLLAPSES; `no_date` STAYS. THE BRIEF SAID BOTH,
+//     AND THE MEASUREMENT RE-RULED IT.
+// ===========================================================================
+//
+// The brief: *"`later` and `no_date` bands collapse to the same one-line count
+// + link."* Measured on prod first (215 live queue rows, 2026-08-29):
+//
+//     band                        corrections  city_review  submittal  total
+//     past_due…this_week                    0           38         48     86
+//     later                                 0           18         44     62
+//     no_date                              33           34          0     67
+//
+// ★★★ COLLAPSING `no_date` WOULD HIDE EVERY CORRECTIONS ROW. That is not an
+// edge case, it is the definition: fix-397's own resolver returns
+// `{ kind: 'corrections', due: null }` and says why in eleven lines —
+// *"corrections rows ride in `No target date`, and their state line says the
+// corrections are in hand"*, because none of corr_issued / resubmitted /
+// target_submit is a promise anybody made about the resubmittal. An undated
+// corrections row is the work we owe the city RIGHT NOW. It is the last thing
+// a "what needs you now" snapshot should drop.
+//
+// ★★ AND RULING 3 SAYS SO IN THE SAME BRIEF. Bobby, 2026-08-29: *"Past due →
+// Today → Tomorrow → This week → Later → No target date"* — bands with
+// headers, EVERYWHERE. `No target date` is one of the six that KEEPS its
+// header. Ruling 2 is about TIME ("beyond 7 days lives on My Tasks only"), and
+// undated is not a time beyond seven days; it is the absence of one. `later`
+// is genuinely 8+ days out and genuinely collapses. `no_date` is neither.
+//
+// ★ So the set has one member. It is still a set, and still named, because the
+//   filter and the count must read the same list — if they ever disagree the
+//   Board says "3 more" next to four missing rows and nobody can tell.
+const BEYOND_SNAPSHOT_BANDS: ReadonlySet<QueueBand> = new Set<QueueBand>([
+  'later',
+]);
+
 function QueueBandBlock({ group }: { group: QueueBandGroup }) {
   return (
     <>
@@ -1315,21 +1356,22 @@ export default function MyBoard() {
                 expanded={isExpanded('board-sec-this-week')}
                 onToggle={() => toggleSection('board-sec-this-week')}
               />
-              {/* fix-304 §23 (register #23): "maybe even like a next week
-                  column" — same capping and Show All as every other section. */}
-              <ForecastSection
-                label="Next week"
-                data={lensSection(forecast.next_week)}
-                groups={lensGroups}
-                empty="Nothing next week."
-                testid="board-sec-next-week"
-                onTick={onTick}
-                busy={busy}
-                subtasksByParent={subtasksByParent}
-                onOpenRow={onOpenRow}
-                isNewRow={isNewRow}
-                expanded={isExpanded('board-sec-next-week')}
-                onToggle={() => toggleSection('board-sec-next-week')}
+              {/* ★★★ fix-444 §B1 (P-064, ruling 2) — THE "NEXT WEEK" SECTION IS
+                  A LINE NOW.
+
+                  fix-304 §23 added it on Bobby's "maybe even like a next week
+                  column". Bobby, 2026-08-29, narrowing his own earlier ask:
+                  *"'Needs you now' = past due + due within 7 days. Beyond 7
+                  days lives on My Tasks only."*
+
+                  ★★ THE ROWS ARE NOT DROPPED, THEY ARE COUNTED AND LINKED.
+                  `forecast.next_week` is still built — nothing about the data
+                  hooks or fix-348's blend changes — so the count is the true
+                  total, from the same place the section used to read. */}
+              <BeyondSnapshotLine
+                count={forecast.next_week.total}
+                describe="due in 8–14 days"
+                testid="board-sec-next-week-beyond"
               />
 
               {/* ★ fix-308 #46: its own section, at the BOTTOM of the forecast.
@@ -1577,7 +1619,23 @@ export default function MyBoard() {
                   Nothing due on your permits.
                 </div>
               ) : (
-                queue.bands.map((g) => <QueueBandBlock key={g.band} group={g} />)
+                <>
+                  {/* ★★★ fix-444 §B2: the same seven-day rule on the right
+                      panel. `later` and `no_date` collapse into one line; the
+                      four dated bands are untouched, and fix-397's ordering
+                      and keys are not reordered or re-keyed — the bands are
+                      simply filtered at RENDER time, from the same array. */}
+                  {queue.bands
+                    .filter((g) => !BEYOND_SNAPSHOT_BANDS.has(g.band))
+                    .map((g) => <QueueBandBlock key={g.band} group={g} />)}
+                  <BeyondSnapshotLine
+                    count={queue.bands
+                      .filter((g) => BEYOND_SNAPSHOT_BANDS.has(g.band))
+                      .reduce((n, g) => n + g.rows.length, 0)}
+                    describe="due further out"
+                    testid="board-queue-beyond"
+                  />
+                </>
               )}
 
               {/* fix-298 Phase 2: system health — OVERSIGHT ONLY.
