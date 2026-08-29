@@ -9,6 +9,7 @@ import { useDesktopAlerts } from '../hooks/useDesktopAlerts';
 import { useDingUnlock } from '../hooks/useDingUnlock';
 import NewBuildNotice from './NewBuildNotice';
 import SaveFailureBanner from './SaveFailureBanner';
+import MissedScrapeBanner from './MissedScrapeBanner';
 import { rosterRoleTitle } from '../lib/roleLabels';
 import {
   BRAND_LOCKUP_DROP,
@@ -97,6 +98,12 @@ export default function Chrome() {
         {/* *** fix-372 section 6: renders nothing until a save dies. Above the
             header, full width, and it does NOT fade - see stores/saveFailureStore. */}
         <SaveFailureBanner />
+        {/* ★★★ fix-433: renders nothing until it is past noon Pacific on a
+            weekday with no scrape evidence since local midnight. Derived live,
+            every render — there is no stored alert row and nothing to resolve.
+            Third instance of the same shell slot, deliberately: see
+            components/MissedScrapeBanner. */}
+        <MissedScrapeBanner />
         <header
           className="bg-surface border-b border-border flex items-center gap-3.5 px-5 flex-shrink-0 relative"
           style={{ height: SHELL_HEADER_HEIGHT }}

@@ -6,6 +6,7 @@ import {
   type ErrorGroupStatus,
 } from '../hooks/useErrorReports';
 import { pushToast } from '../stores/toastStore';
+import MissedScrapeTriageEntry from '../components/MissedScrapeTriageEntry';
 
 // fix-87: Settings → Errors page. Three tabs (Active / Resolved / All); the
 // row list groups occurrences by server-computed fingerprint so the same
@@ -91,6 +92,14 @@ export default function ErrorsPage() {
           ))}
         </div>
       </header>
+
+      {/* ★★★ fix-433 §C2 — ONE system-level entry, DERIVED, above the list.
+          It is not a member of `groups` and never will be: there is no stored
+          row behind it, so it has no fingerprint, no status and no actions.
+          The list below — its rows, its grouping, its empty state — is
+          untouched. Hidden on the Resolved tab because a condition that is
+          currently TRUE has not been resolved by anyone. */}
+      {tab !== 'resolved' && <MissedScrapeTriageEntry />}
 
       {groupsQ.isLoading ? (
         <div className="text-[11px] text-dim italic">Loading…</div>
