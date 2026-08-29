@@ -482,8 +482,18 @@ describe('fix-417 (rendered): the row renders from the declared table', () => {
       grid.querySelectorAll(':scope > [data-overview-cell]'),
     ) as HTMLElement[];
     expect(cells.length).toBe(OVERVIEW_CARD_COLUMNS.length);
+    // ★★★ fix-441 §B (P-019): ONE cell is now a deliberate exception —
+    //     Builder/Owner stops at its own content, by Bobby's ruling. The RULE
+    //     for the other four is unchanged, and fix-417's WIDTHS are untouched
+    //     entirely: this ticket changed one cell's alignment and no track.
     for (const cell of cells) {
-      expect(cell.style.height).toBe('100%');
+      const area = cell.getAttribute('data-overview-cell');
+      if (area === 'builder') {
+        expect(cell.style.height).toBe('');
+        expect(cell.style.alignSelf).toBe('start');
+        continue;
+      }
+      expect(cell.style.height, `cell ${area}`).toBe('100%');
     }
   });
 });

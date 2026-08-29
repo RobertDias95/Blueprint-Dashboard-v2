@@ -113,6 +113,69 @@ export function shouldLogQueryFailure(
   return observers > 0;
 }
 
+// ===========================================================================
+// ★★★ fix-441 §C (P-014) — A MISSING THUMBNAIL IS NOT AN ERROR
+// ===========================================================================
+//
+// Prod, 2026-08-26: one error-level report for 220 N 58th St whose storage
+// object was present and healthy — a transient signing miss on a picture. It
+// reached Error Triage at the same level as "permission denied for table
+// permits", because it fell through every skip rule into fix-341's closing
+// sentence: *"Everything else logs."*
+//
+// ★★★ CLASSIFIED BY THE QUERY KEY, WHICH IS A CAUSE — never by the message.
+// That is fix-341 §2's rule and it is the whole reason this is a key list and
+// not a regex over "Failed to fetch": those three words also appear when the
+// API is down, and silencing them by wording would silence a real outage. What
+// separates a thumbnail from a permit read is not how the failure is phrased,
+// it is WHICH QUERY FAILED — and that is a fact about the request.
+//
+// ★★ WHY WARNING RATHER THAN SILENCE. The card already degrades to its own
+// file-card empty state, so nobody is blocked and nobody is misled; but a
+// thumbnail bucket that started failing for EVERY project is a real problem,
+// and a level-0 silence would hide it. `error_reports.level` is
+// 'error' | 'warning' and the triage page already renders both, so the fact
+// survives at the severity it deserves.
+//
+// ★ THE LIST IS DECORATION ONLY, and the test that pins it says so: a query
+//   qualifies when its failure costs the reader nothing they can see. Adding a
+//   key here is a decision about severity, never a way to quieten a query that
+//   is misbehaving.
+export const DECORATION_QUERY_KEYS: ReadonlySet<string> = new Set([
+  // The signed URL for a plan-of-record page-1 JPEG. Its absence is already a
+  // legitimate state — the indexer may not have run — which is why the hook
+  // sets `retry: false`.
+  'plan_of_record_thumb',
+]);
+
+/** The first element of a query key, which is this codebase's cause tag. */
+function queryKeyRoot(key: unknown): string {
+  return Array.isArray(key) ? String(key[0] ?? '') : String(key ?? '');
+}
+
+/** ★ Is this a failure of something that only decorates the screen? */
+export function isDecorationQuery(key: unknown): boolean {
+  return DECORATION_QUERY_KEYS.has(queryKeyRoot(key));
+}
+
+/**
+ * ★★★ fix-441 §C — THE LEVEL, or null for "do not log at all".
+ *
+ * One place that answers both questions a query failure raises, so a caller
+ * cannot decide to log and then pick a severity on its own. `shouldLogQueryFailure`
+ * below is kept and now delegates: it is still the honest answer to "does this
+ * log?", and every existing caller and test keeps working unchanged.
+ */
+export function queryFailureLevel(
+  err: unknown,
+  key: unknown,
+  observers: number,
+): 'error' | 'warning' | null {
+  if (shouldSkipBackendRpcLog(err, key)) return null;
+  if (observers <= 0) return null;
+  return isDecorationQuery(key) ? 'warning' : 'error';
+}
+
 /** The shared skip rules, applied to queries and mutations alike. */
 export function shouldSkipBackendRpcLog(err: unknown, key: unknown): boolean {
   const k = Array.isArray(key) ? String(key[0] ?? '') : String(key ?? '');

@@ -17,7 +17,7 @@ import ToastHost from './components/ToastHost';
 import {
   logError,
   messageOf,
-  shouldLogQueryFailure,
+  queryFailureLevel,
   shouldSkipBackendRpcLog,
 } from './lib/errorLogger';
 import { useSaveFailureStore } from './stores/saveFailureStore';
@@ -75,10 +75,16 @@ const queryClient = new QueryClient({
     onError: (err, query) => {
       const observers = query.getObserversCount();
       // ★★ fix-341 §2: skip rules + "was anybody looking?", in one call.
-      if (!shouldLogQueryFailure(err, query.queryKey, observers)) return;
+      // ★★★ fix-441 §C: …and the SEVERITY, from the same call. A decoration
+      //     query — today just the plan-of-record thumbnail — logs at WARNING:
+      //     the card already degrades to its own empty state, so nobody is
+      //     blocked, but a bucket failing for every project is still worth
+      //     seeing. Classified by the query KEY, never by the message.
+      const level = queryFailureLevel(err, query.queryKey, observers);
+      if (!level) return;
       void logError({
         source: 'backend_rpc',
-        level: 'error',
+        level,
         message: messageOf(err),
         context: {
           kind: 'query',

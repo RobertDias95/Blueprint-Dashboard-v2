@@ -1,3 +1,7 @@
+// ★ fix-441 §D (P-091): one chipStyle, in lib/chipStyle. `'surface'` is
+//   THIS file's inactive tint — the four originals were two different
+//   implementations, not one repeated. See the note there.
+import { chipStyle } from '../../lib/chipStyle';
 import type { ScopeMode } from '../../lib/selfScope';
 
 // fix-176: shared "My work / Everyone" segmented control used by the Dashboard,
@@ -29,7 +33,7 @@ export default function ScopeToggle({
         type="button"
         onClick={() => onChange('mine')}
         className="text-[11px] px-3 py-1 rounded border font-bold"
-        style={chipStyle(mode === 'mine')}
+        style={chipStyle(mode === 'mine', 'surface')}
         data-testid={`${testid}-mine`}
         aria-pressed={mode === 'mine'}
         title={`Show only ${name}'s work`}
@@ -40,7 +44,7 @@ export default function ScopeToggle({
         type="button"
         onClick={() => onChange('all')}
         className="text-[11px] px-3 py-1 rounded border font-bold"
-        style={chipStyle(mode === 'all')}
+        style={chipStyle(mode === 'all', 'surface')}
         data-testid={`${testid}-all`}
         aria-pressed={mode === 'all'}
       >
@@ -50,16 +54,3 @@ export default function ScopeToggle({
   );
 }
 
-function chipStyle(active: boolean): React.CSSProperties {
-  return active
-    ? {
-        background: 'var(--color-de)',
-        borderColor: 'var(--color-de)',
-        color: 'white',
-      }
-    : {
-        background: 'var(--color-surface)',
-        borderColor: 'var(--color-border)',
-        color: 'var(--color-text)',
-      };
-}

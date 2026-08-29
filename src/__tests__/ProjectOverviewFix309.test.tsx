@@ -329,16 +329,33 @@ describe('fix-309 #55: the card row is one equal-height band', () => {
     return out;
   }
 
-  it('stretches every cell to the tallest, which is the Plan of Record', () => {
+  // ★★★ fix-441 §B (P-019) NARROWS THIS BY EXACTLY ONE CELL, and the
+  //     narrowing is the ruling, not an erosion of it.
+  //
+  //     Bobby, 2026-08-29: the Builder/Owner card is allowed to be shorter
+  //     than its neighbours. It has the least to say of the five — five short
+  //     fields against nine to eleven — so under an equal-height band it was
+  //     carrying the most empty space, which is the complaint P-019 records.
+  //
+  // ★★ THE BAND ITSELF IS UNTOUCHED: the grid still stretches, and the other
+  //    four cells are still `height: 100%`, so the row is still as tall as the
+  //    Plan of Record and no card shrinks to meet another. Measured in Chrome:
+  //    row 272px before and after; builder 272 → 149; dd/proj/team/por 0 change.
+  it('stretches every cell to the tallest — EXCEPT Builder/Owner (fix-441)', () => {
     renderHeader(projectFixture(), [bpFixture()]);
     const grid = screen.getByTestId('project-overview-grid');
     expect(getComputedStyle(grid).alignItems).toBe('stretch');
 
     const c = cells();
-    for (const area of ['dd', 'proj', 'team', 'por', 'builder']) {
+    for (const area of ['dd', 'proj', 'team', 'por']) {
       expect(c[area], `missing cell: ${area}`).toBeTruthy();
       expect(getComputedStyle(c[area]).height, `cell ${area} does not stretch`).toBe('100%');
     }
+    // ★★★ …and the one exception, asserted as an exception rather than left
+    //     out of the loop, so it cannot spread by accident.
+    expect(c['builder'], 'missing cell: builder').toBeTruthy();
+    expect(getComputedStyle(c['builder']).height).not.toBe('100%');
+    expect(getComputedStyle(c['builder']).alignSelf).toBe('start');
   });
 
   it('the cards themselves fill their cell rather than sitting at content height', () => {

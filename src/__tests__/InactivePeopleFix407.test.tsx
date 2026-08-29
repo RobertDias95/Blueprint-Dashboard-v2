@@ -357,8 +357,13 @@ describe('fix-407 §3: inactive DAs render AS inactive', () => {
 
 describe('fix-407 §4: the plan-of-record chips actually paint', () => {
   it('★★★ TWO tokens were dead, not the one fix-406 reported', () => {
-    expect(TOKENS['--color-ok']).toBeUndefined(); // schematic
-    expect(TOKENS['--color-wa']).toBeUndefined(); // marketing — fix-406 missed it
+    // ★★★ fix-441 §A INVERTS THIS. Both tokens are real now — fix-407 fixed
+    //     the two chips that READ them, and fix-441 found eight more sites and
+    //     defined the tokens instead. The ink is fix-407's own 65/35 recipe,
+    //     which is why `--color-wa` is the same value this file's own
+    //     `marketing` chip already used.
+    expect(TOKENS['--color-ok']).toBe('#0c6e5b'); // schematic hue, darkened
+    expect(TOKENS['--color-wa']).toBe('#965a1a'); // === STAGE_CHIP.marketing.fg
     // ★ Sanity: the stylesheet really loaded (fix-406's own trap).
     expect(Object.keys(TOKENS).length).toBeGreaterThan(20);
   });

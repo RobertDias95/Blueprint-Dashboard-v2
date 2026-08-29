@@ -224,8 +224,25 @@ describe('fix-406 §1: the SITE chip had no colour, not a weak one', () => {
     expect(TOKENS['--color-is']).toBe('#0891b2');
     expect(TOKENS['--color-jv']).toBe('#7c3aed');
 
-    expect(TOKENS['--color-ok']).toBeUndefined();
-    expect(TOKENS['--color-ok-bg']).toBeUndefined();
+    // ★★★ fix-441 §A INVERTS THIS PIN, AND THE CHAIN IS THE POINT.
+    //
+    //   fix-406  found `--color-ok` dead, fixed the Library, and REPORTED
+    //            that planOfRecord read it too — pinned, not fixed.
+    //   fix-407  fixed planOfRecord (and found `--color-wa` dead as well),
+    //            by rewriting those chips to read `co` / `pm` directly.
+    //   fix-441  found EIGHT more sites still reading the dead names across
+    //            five files, and defined the tokens instead of chasing the
+    //            readers one ticket at a time.
+    //
+    // ★★ THE INK IS NOT THE RAW TOKEN — it is fix-407's own 65/35 recipe, for
+    //    fix-406's reason: `--color-co` on `--color-co-bg` measures 2.86:1 and
+    //    `--color-pm` on `--color-pm-bg` measures 3.32:1, both under the 4.5
+    //    floor. See the note in index.css.
+    expect(TOKENS['--color-ok']).toBe('#0c6e5b');
+    // ★ The tint is an ALIAS (`var(--color-pm-bg)`), so it is deliberately not
+    //   a hex in :root and this hex-only reader does not see it. Asserted on
+    //   the stylesheet text instead, which is where the alias lives.
+    expect(indexCss).toContain('--color-ok-bg:     var(--color-pm-bg);');
   });
 
   it('★★★ and the Library no longer reads it', () => {
@@ -260,9 +277,12 @@ describe('fix-406 §1: the SITE chip had no colour, not a weak one', () => {
       .join('\n');
     expect(porCode).not.toContain('var(--color-ok)');
     expect(porCode).not.toContain('var(--color-wa)');
-    // ★ The tokens are still undefined; the fix was to stop reading them.
-    expect(TOKENS['--color-ok']).toBeUndefined();
-    expect(TOKENS['--color-wa']).toBeUndefined();
+    // ★★★ fix-441: the tokens are REAL now, and this file still does not read
+    //     them — which is right. planOfRecord states resolved hexes on purpose
+    //     (a stylesheet expression cannot be measured), so it keeps its own
+    //     numbers; what changed is that the eight OTHER sites finally paint.
+    expect(TOKENS['--color-ok']).toBe('#0c6e5b');
+    expect(TOKENS['--color-wa']).toBe('#965a1a');
   });
 });
 
