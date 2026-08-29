@@ -10,6 +10,11 @@ import { useDeleteTeamMember } from '../../hooks/useDeleteTeamMember';
 import { useRenameDA } from '../../hooks/useRenameDA';
 import { useRenameDM } from '../../hooks/useRenameDM';
 import { useIsTenantAdmin } from '../../hooks/useIsTenantAdmin';
+// ★★★ fix-436 (P-086): the first card on this tab. Adding a person and
+// retiring one are the same job a month apart, and fix-407 already put
+// retiring here — see AddPersonSection for why this is not a sixth Settings
+// section.
+import AddPersonSection from './AddPersonSection';
 import { SkeletonRows } from '../Skeleton';
 import QueryError from '../QueryError';
 import { ROLE_TITLE, ROLE_TITLE_PLURAL } from '../../lib/roleLabels';
@@ -171,6 +176,16 @@ export default function AdminTeamTab() {
           Read-only — you need tenant admin to edit the roster.
         </div>
       )}
+
+      {/* ★★★ fix-436: FIRST, above the roster, because it is the thing you do
+          before any of the rest of this screen applies to somebody. Renders
+          nothing at all for a non-admin — a control that cannot work should be
+          absent rather than disabled. */}
+      <AddPersonSection readOnly={!isAdmin} />
+
+      {/* ★ fix-436 C4: the anchor AddPersonSection points at, so "retire them
+          in the roster below" is a real link and not a description. */}
+      <div id="team-roster" />
 
       <Section title={ROLE_LABEL.da}>
         <PillListEditor

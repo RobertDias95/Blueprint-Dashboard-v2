@@ -322,7 +322,17 @@ function executable(src: string): string {
 // lookbehind exempts `${...}` inside template literals, which is how a role
 // legitimately reaches a URL query string or a CSV filename (machine values,
 // not screen text).
-const RAW_ROLE_IN_JSX = /(?<!\$)\{\s*[A-Za-z_$][\w.$]*\.role\s*\}/;
+//
+// ★★ fix-436 widens that exemption to the three ATTRIBUTES that are machine
+// values for exactly the same reason. `<select value={form.role}>` binds the
+// stored key because that is what the control's value IS — what a person reads
+// is the `<option>` label, which comes from ROLE_TITLE. `key` and
+// `defaultValue` are the same shape.
+//
+// ★ It is a NARROW list on purpose. `title={x.role}` is a tooltip and stays
+// banned, which is why this is not a blanket `(?<!=)`.
+const RAW_ROLE_IN_JSX =
+  /(?<!\$)(?<!value=)(?<!defaultValue=)(?<!key=)\{\s*[A-Za-z_$][\w.$]*\.role\s*\}/;
 // `{identity.roles[0]}` — the exact bug: an arbitrary element of an unordered
 // array, printed raw.
 const RAW_ROLES_INDEX = /\{\s*[A-Za-z_$][\w.$]*\.roles\s*\[/;
@@ -330,6 +340,36 @@ const RAW_ROLES_INDEX = /\{\s*[A-Za-z_$][\w.$]*\.roles\s*\[/;
 describe('fix-343: no component prints a stored role', () => {
   it('the source scan actually resolved', () => {
     expect(Object.keys(COMPONENT_SOURCES).length).toBeGreaterThan(50);
+  });
+
+  // ★★★ fix-436: the widened exemption must not have defanged the guard. A
+  // regex change that stops a scan finding anything is indistinguishable from a
+  // clean codebase, so the shapes it still has to catch are pinned here.
+  it('★★★ the pattern still catches the bug it was written for', () => {
+    for (const banned of [
+      '<span>{member.role}</span>',
+      '<div>{identity.roles[0]}</div>',
+      // A tooltip IS screen text — deliberately still banned.
+      '<span title={m.role}>x</span>',
+      '{ m.role }',
+    ]) {
+      expect(
+        RAW_ROLE_IN_JSX.test(banned) || RAW_ROLES_INDEX.test(banned),
+        banned,
+      ).toBe(true);
+    }
+    for (const allowed of [
+      // Machine values: the control's value, a list key, a URL.
+      '<select value={form.role}>',
+      '<option key={o.role} />',
+      '<input defaultValue={row.role} />',
+      '`/report?role=${m.role}`',
+    ]) {
+      expect(
+        RAW_ROLE_IN_JSX.test(allowed) || RAW_ROLES_INDEX.test(allowed),
+        allowed,
+      ).toBe(false);
+    }
   });
 
   it('★★ no .tsx interpolates a raw role into the screen', () => {
