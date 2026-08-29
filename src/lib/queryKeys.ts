@@ -67,6 +67,11 @@ export const queryKeys = {
   // only their own read rows (RLS, not a filter).
   // fix-354: the ledger the auto-closed FYI is derived from.
   autoClosuresAll: ['permit_task_auto_closures'] as const,
+  // ★★ fix-438: standing conditions on permits. Bare prefix so the one
+  // realtime channel refreshes the bell the moment a scrape opens or clears
+  // one — the table is added to `supabase_realtime` by the same migration,
+  // because a subscription to an UNPUBLISHED table is silent (fix-336/fix-393).
+  permitConditionsAll: ['permit_conditions'] as const,
   whatsNewEntriesAll: ['whats_new_entries'] as const,
   whatsNewReadsAll: ['whats_new_reads'] as const,
   // fix-31: per-reviewer status table (replaces the placeholder "tasks" column
@@ -213,6 +218,10 @@ export const queryKeys = {
   // SAME `scraper_activity` prefix, so the one realtime channel's audit_log
   // invalidation refreshes the count and the list together — a true number that
   // lagged the list it describes would be a new way to disagree.
+  // ★ fix-438: the tenant-scoped read. Under the bare `permit_conditions`
+  // prefix above, so one realtime event refreshes it.
+  permitConditions: (tenantId: string) =>
+    ['permit_conditions', tenantId] as const,
   scraperActivitySummary: (tenantId: string, days: number) =>
     ['scraper_activity', tenantId, { days, summary: true }] as const,
   // ★★ fix-433: "when did a scrape last write anything?" — one indexed row,
@@ -438,6 +447,9 @@ export const REALTIME_TABLES = {
   // per component that happens to need the same table" rule applied to the one
   // place that broke it.
   audit_log: [queryKeys.scraperActivityAll],
+  // ★★ fix-438: a scrape run opens, updates or clears standing conditions, and
+  // the ENT lead's bell must move with them rather than waiting out a poll.
+  permit_conditions: [queryKeys.permitConditionsAll],
   // ★ The handoff source (boardReads source 3): the design leg completing is
   // what puts "Ready to file" in an entitlement lead's bell.
   permit_milestone_acks: [queryKeys.milestoneAcksAll],

@@ -87,6 +87,11 @@ const SOURCE_GROUP: Record<NewItemSource, Exclude<KindFilter, 'all' | 'unread' |
   // never need". ★ The chip's LABEL changes with it, because "Mentions" stopped
   // being the whole truth the moment a second kind of chat news arrived.
   reaction: 'mention',
+  // ★★ fix-438: a standing condition is ABOUT A PERMIT — "this one has sat in
+  // corrections with nothing uploaded" — so it joins the permit filter beside
+  // flips and handoffs. Same precedent as fix-354 and fix-360: a new
+  // KindFilter for one source would be a filter most people never need.
+  condition: 'permit',
 };
 
 const KIND_LABEL: Record<KindFilter, string> = {

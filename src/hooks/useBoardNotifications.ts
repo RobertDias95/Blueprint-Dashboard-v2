@@ -15,6 +15,7 @@ import { useAutoClosures } from './useAutoClosures';
 import { useMyPostRequests } from './usePostRequests';
 import { useMyPostReactions } from './useMyPostReactions';
 import { useTaskAssigners } from './useTaskProvenance';
+import { usePermitConditions } from './usePermitConditions';
 import { useAuthStore } from '../stores/authStore';
 import { parseFlips } from '../lib/boardFlips';
 import { buildNewItems, unseenItems, type NewItem } from '../lib/boardReads';
@@ -110,6 +111,9 @@ export function useBoardNotifications(): BoardNotifications {
   const reactionsQ = useMyPostReactions();
   // ★ fix-363: who assigned each recent task, for the sentence that names them.
   const assignersQ = useTaskAssigners();
+  // ★ fix-438: the tenth source. One tenant-wide read; buildNewItems keeps the
+  //   rows whose ENT lead is the viewer.
+  const conditionsQ = usePermitConditions();
   const viewerUserId = useAuthStore((s) => s.user?.id ?? null);
 
   const viewer = useMemo(
@@ -140,6 +144,7 @@ export function useBoardNotifications(): BoardNotifications {
         autoClosures: autoClosuresQ.data ?? [],
         reactions: reactionsQ.data ?? [],
         taskAssigners: assignersQ.data ?? [],
+        conditions: conditionsQ.data ?? [],
       }),
     [
       activityQ.data,
@@ -154,6 +159,7 @@ export function useBoardNotifications(): BoardNotifications {
       autoClosuresQ.data,
       reactionsQ.data,
       assignersQ.data,
+      conditionsQ.data,
     ],
   );
 
