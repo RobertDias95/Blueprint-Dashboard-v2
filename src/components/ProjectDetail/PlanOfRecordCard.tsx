@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { stalenessNote } from '../../lib/planOfRecordStaleness';
 import {
   usePlanOfRecord,
@@ -459,6 +459,34 @@ function Lightbox({
   // through, and it is the signal that the fix belongs upstream.
   const [naturalWidth, setNaturalWidth] = useState<number | null>(null);
 
+  // ★★★ fix-440 (P-057 B2) — ESCAPE NOW ACTUALLY WORKS, AND IT NEVER DID.
+  //
+  // There was an `onKeyDown` here checking for Escape — on a `role="presentation"`
+  // div with no `tabIndex`. A div that cannot take focus never receives a
+  // keydown, so the handler was dead from the day it was written: the only way
+  // to fire it was to Tab into a control INSIDE the panel first, and by then
+  // the event target is that control. Measured, not assumed — nothing in the
+  // lightbox autofocuses.
+  //
+  // ★★ A `document` listener is the fix, not `tabIndex={-1}` + autoFocus:
+  //    stealing focus onto the backdrop would move it off whatever the reader
+  //    was on, and the lightbox has no field to focus INTO. It is the same
+  //    shape QuickEditPermitModal used until this ticket removed it there —
+  //    removed there because that dialog holds unsaved input, kept here
+  //    because this one does not.
+  //
+  // ★★★ AND THE BACKDROP CLICK STAYS. Bobby's ruling is explicit that a VIEWER
+  //    keeps click-anywhere-to-close — "this is just stale text". There is
+  //    nothing here to lose: a file name, a thumbnail and a verdict already
+  //    written down elsewhere. See fix-411 §1 for the other half of the rule.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [onClose]);
+
   const meta = [formatModified(row.modified_at), formatFileSize(row.size_kb)]
     .filter(Boolean)
     .join(' · ');
@@ -468,9 +496,6 @@ function Lightbox({
       className="fixed inset-0 z-50 flex items-center justify-center p-4"
       style={{ background: 'rgba(20,28,38,.72)' }}
       onClick={onClose}
-      onKeyDown={(e) => {
-        if (e.key === 'Escape') onClose();
-      }}
       role="presentation"
       data-testid="plan-of-record-lightbox"
     >

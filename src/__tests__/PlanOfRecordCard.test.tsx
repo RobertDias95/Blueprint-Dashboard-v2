@@ -396,10 +396,47 @@ describe('fix-285 the lightbox', () => {
   });
 
   it('closes on clicking the backdrop', async () => {
+    // ★★★ fix-440 (P-057): THIS STAYS. Bobby's narrowed ruling exempts a
+    //     VIEWER — "this is just stale text". There is nothing here to lose:
+    //     a file name, a thumbnail and a verdict already written down
+    //     elsewhere. Only overlays holding UNSAVED INPUT went inert.
     state.row = row();
     renderCard();
     fireEvent.click(await screen.findByTestId('plan-of-record-preview'));
     fireEvent.click(screen.getByTestId('plan-of-record-lightbox'));
+    expect(screen.queryByTestId('plan-of-record-lightbox')).toBeNull();
+  });
+
+  it('★★★ fix-440: Escape closes it WITHOUT clicking into it first', async () => {
+    // ★★★ IT NEVER DID. The handler was an `onKeyDown` on a
+    //     `role="presentation"` div with no `tabIndex` — a div that cannot take
+    //     focus never receives a keydown, so it was dead from the day it was
+    //     written. The only way to fire it was to Tab into a control INSIDE the
+    //     panel first, and by then the event target is that control.
+    //
+    // ★ So this presses Escape on the DOCUMENT with nothing focused, which is
+    //   exactly how somebody meets a lightbox they opened from a thumbnail.
+    state.row = row();
+    renderCard();
+    fireEvent.click(await screen.findByTestId('plan-of-record-preview'));
+    expect(screen.getByTestId('plan-of-record-lightbox')).toBeInTheDocument();
+    expect(document.activeElement).toBe(document.body);
+    fireEvent.keyDown(document, { key: 'Escape' });
+    await waitFor(() =>
+      expect(screen.queryByTestId('plan-of-record-lightbox')).toBeNull(),
+    );
+  });
+
+  it('★ …and the listener is removed when it closes, so a second Escape is inert', async () => {
+    state.row = row();
+    renderCard();
+    fireEvent.click(await screen.findByTestId('plan-of-record-preview'));
+    fireEvent.keyDown(document, { key: 'Escape' });
+    await waitFor(() =>
+      expect(screen.queryByTestId('plan-of-record-lightbox')).toBeNull(),
+    );
+    // Nothing to throw and nothing to reopen — the effect's cleanup ran.
+    fireEvent.keyDown(document, { key: 'Escape' });
     expect(screen.queryByTestId('plan-of-record-lightbox')).toBeNull();
   });
 

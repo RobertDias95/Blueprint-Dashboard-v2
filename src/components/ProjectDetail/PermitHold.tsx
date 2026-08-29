@@ -8,6 +8,7 @@ import {
 import { useProjectHolds, activeHoldOnly } from '../../hooks/useProjectHolds';
 import { useAppConfig, readAppConfigStringArray } from '../../hooks/useAppConfig';
 import { HoldBadge } from '../shared/HoldBadge';
+import HoldReasonMenu from './HoldReasonMenu';
 
 // ===========================================================================
 // ★★★ fix-390 — PAUSE ONE PERMIT
@@ -63,18 +64,20 @@ export function PermitHoldPanel({
   const history = holds.filter((h) => h.hold_end !== null);
   const projectHeld = activeHoldOnly(projectHoldsQ.data);
 
-  const [reason, setReason] = useState('');
+  // ★★ fix-440: `reason` is no longer panel state. The chooser owns which one
+  //    is picked and hands it to `submit` on confirm, so there is no way for
+  //    the panel to hold a reason nobody applied — which is what made the old
+  //    layout two controls for one decision.
   const [note, setNote] = useState('');
   const [start, setStart] = useState(todayIso());
   const [end, setEnd] = useState(todayIso());
 
-  function submit() {
+  function submit(reason: string) {
     if (!reason) return;
     setHold.mutate(
       { permitId, reason, note: note || null, holdStart: start || null },
       {
         onSuccess: () => {
-          setReason('');
           setNote('');
           setStart(todayIso());
         },
@@ -133,46 +136,24 @@ export function PermitHoldPanel({
           </div>
         </div>
       ) : (
+        // ★★★ fix-440 (P-061) — ONE CONTROL. Bobby: "'Reason…' sits far left
+        //     and 'Hold this permit' far right — two boxes, one action."
+        //     The date and the note went with the reason: they belong to the
+        //     hold being composed, not to the bar. See ./HoldReasonMenu.
         <div className="flex flex-wrap items-center gap-1.5">
-          <select
-            value={reason}
-            onChange={(e) => setReason(e.target.value)}
-            className="px-1.5 py-0.5 text-[11px] border border-border rounded bg-bg text-text outline-none"
-            data-testid={`permit-hold-reason-${permitId}`}
-            aria-label="Hold reason"
-          >
-            <option value="">Reason…</option>
-            {holdReasons.map((r) => (
-              <option key={r} value={r}>
-                {r}
-              </option>
-            ))}
-          </select>
-          <input
-            type="date"
-            value={start}
-            onChange={(e) => setStart(e.target.value)}
-            className="px-1.5 py-0.5 text-[11px] border border-border rounded bg-bg text-text outline-none"
-            data-testid={`permit-hold-start-${permitId}`}
-            aria-label="Hold start"
+          <HoldReasonMenu
+            label="Hold this permit"
+            reasons={holdReasons}
+            start={start}
+            onStartChange={setStart}
+            note={note}
+            onNoteChange={setNote}
+            onApply={submit}
+            pending={setHold.isPending}
+            confirmTestId={`permit-hold-set-${permitId}`}
+            chooserTestId={`permit-hold-reason-${permitId}`}
+            testIdPrefix={`permit-hold-${permitId}`}
           />
-          <input
-            value={note}
-            onChange={(e) => setNote(e.target.value)}
-            placeholder="Note (optional)"
-            className="flex-1 min-w-[120px] px-1.5 py-0.5 text-[11px] border border-border rounded bg-bg text-text outline-none"
-            data-testid={`permit-hold-note-${permitId}`}
-            aria-label="Hold note"
-          />
-          <button
-            type="button"
-            onClick={submit}
-            disabled={!reason || setHold.isPending}
-            className="text-[11px] font-bold text-white bg-de rounded px-2 py-0.5 border-none disabled:opacity-40"
-            data-testid={`permit-hold-set-${permitId}`}
-          >
-            Hold this permit
-          </button>
         </div>
       )}
 

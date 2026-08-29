@@ -132,10 +132,35 @@ describe('<QuickEditPermitModal />', () => {
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
-  it('ESC key closes the modal', () => {
+  // ★★★ fix-440 (P-057) — ESC NO LONGER CLOSES IT, AND THAT IS THE FIX.
+  //
+  // Bobby's narrowed ruling, 2026-08-29: of sixteen overlays, only the ones
+  // that HOLD UNSAVED INPUT stop closing on an outside click. This one holds a
+  // whole draft form behind an explicit Save. Its old Escape handler's own
+  // comment said it "matches v1's overlay-click-closes behavior" — it was built
+  // to pair with the backdrop click, so it loses the identical work for the
+  // identical reason. Removing one and keeping the other would have left the
+  // defect with a keyboard shortcut.
+  it('★★★ ESC does NOT close it, and the typing survives', () => {
     const onClose = vi.fn();
     render(<QuickEditPermitModal permit={permit()} onClose={onClose} />);
+    fireEvent.change(screen.getByTestId('qe-num'), { target: { value: 'unsaved' } });
     fireEvent.keyDown(document, { key: 'Escape' });
+    expect(onClose).not.toHaveBeenCalled();
+    expect((screen.getByTestId('qe-num') as HTMLInputElement).value).toBe('unsaved');
+  });
+
+  it('★★★ a BACKDROP CLICK does not close it either, and the typing survives', () => {
+    const onClose = vi.fn();
+    render(<QuickEditPermitModal permit={permit()} onClose={onClose} />);
+    fireEvent.change(screen.getByTestId('qe-num'), { target: { value: 'unsaved' } });
+    // The element carrying the testid IS the backdrop.
+    fireEvent.click(screen.getByTestId('quick-edit-permit-modal'));
+    expect(onClose).not.toHaveBeenCalled();
+    expect((screen.getByTestId('qe-num') as HTMLInputElement).value).toBe('unsaved');
+    // ★ …and the two real exits still work, which is the other half of the
+    //   rule: inert is not trapped.
+    fireEvent.click(screen.getByTestId('qe-cancel'));
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
