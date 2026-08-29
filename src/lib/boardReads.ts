@@ -1,6 +1,11 @@
 import type { BoardTask, PermitMilestoneAck } from './myBoard';
 import type { BoardFlip } from './boardFlips';
-import { flipEventKey, flipEventTitle, flipEventDetail } from './boardFlips';
+import {
+  flipEventKey,
+  flipEventKeyByPermit,
+  flipGroupTitle,
+  flipGroupDetail,
+} from './boardFlips';
 import {
   buildReactionDigests,
   keyForReactions,
@@ -123,6 +128,28 @@ export interface NewItem {
   /** fix-360: keys this item USED to be delivered under, before its source
    *  learned to group. See unseenItems for the one rule that reads them. */
   legacyKeys?: string[];
+  /**
+   * ★★★ fix-430: one entry per PERMIT-level item this project group absorbed.
+   *
+   * ★★ WHY A NESTED SHAPE AND NOT A LONGER FLAT LIST. `legacyKeys` is evaluated
+   * with `every` — an item is read when ALL of its old keys are. Two key
+   * GENERATIONS now exist on prod (measured: 131 rows in fix-360's
+   * `flip:<permit>:<run>` form and 74 in its older `flip:<auditId>:<kind>`
+   * form, across 8 people, all read inside 30 days), and a person has one or
+   * the other, never both. Flattening them into one `every` would mark every
+   * already-read notification unread for all 29 logins on deploy morning —
+   * exactly the failure B1 of the brief is written to prevent.
+   *
+   * The truth is nested: this group is read when EVERY permit it absorbed is
+   * read, and each of those is read by EITHER of its own generations. That is
+   * an AND over permits of an OR over generations, which a flat list cannot
+   * say.
+   *
+   * ★ `legacyKeys` is kept, and is DERIVED from this — the flat union, for
+   *   anything reading the field for diagnostics — so the two can never
+   *   disagree about which keys an item answers to.
+   */
+  absorbed?: ReadonlyArray<AbsorbedItem>;
   /** ★★ fix-362: WHAT this is about, as opposed to where it lives.
    *
    *  ★ `permitId` and `projectId` above answer "where"; this answers "what",
@@ -299,6 +326,14 @@ export interface PostRequestItemInput {
   is_recipient: boolean;
 }
 
+/** ★ fix-430: a permit-level item a project group swallowed, and the keys that
+ *  prove somebody had already read it. `key` is the pre-fix-430 permit-scoped
+ *  key; `legacyKeys` are fix-360's older per-audit-row keys for that permit. */
+export interface AbsorbedItem {
+  key: string;
+  legacyKeys: string[];
+}
+
 /** Everything that could be new to this person, before read state is applied.
  *
  *  ★ ALWAYS PERSONAL. This takes the viewer's name and nothing about the queue
@@ -345,12 +380,36 @@ export function buildNewItems(input: NewItemsInput): NewItem[] {
     // stable as a group grows.
     const at = group.reduce((a, f) => (f.at < a ? f.at : a), group[0].at);
     const head = group[0];
+    // ★★★ fix-430: the permit-level items this project group absorbed, and the
+    //     keys each of them used to answer to. One entry when the group is a
+    //     single permit — which is 97% of them — so nothing about the common
+    //     case changes.
+    const byPermit = new Map<string, BoardFlip[]>();
+    for (const f of group) {
+      const pk = flipEventKeyByPermit(f);
+      const bucket = byPermit.get(pk);
+      if (bucket) bucket.push(f);
+      else byPermit.set(pk, [f]);
+    }
+    const absorbed: AbsorbedItem[] = [...byPermit].map(([pk, flips]) => ({
+      key: pk,
+      // ★ Deduped: one write can produce two flips of the SAME kind (a status
+      //   string and a date both meaning `approved`), and they shared one key
+      //   before fix-360 too — listing it twice would say nothing extra.
+      legacyKeys: [...new Set(flips.map((f) => keyForFlip(f.auditId, f.kind)))],
+    }));
+    const permitCount = new Set(
+      group.map((f) => f.permitId).filter((id) => id != null),
+    ).size;
     out.push({
       key,
       source: 'flip',
-      title: flipEventTitle(group),
-      subtitle: flipEventDetail(group),
-      where: `${head.address ?? 'Unknown address'} · ${head.permitType ?? 'Permit'}`,
+      title: flipGroupTitle(group, head.address),
+      subtitle: flipGroupDetail(group),
+      where:
+        permitCount > 1
+          ? `${head.address ?? 'Unknown address'} · ${permitCount} permits`
+          : `${head.address ?? 'Unknown address'} · ${head.permitType ?? 'Permit'}`,
       at,
       permitId: head.permitId,
       projectId: head.projectId,
@@ -371,7 +430,13 @@ export function buildNewItems(input: NewItemsInput): NewItem[] {
       //   string and a date both meaning `approved`), and they shared one key
       //   before this ticket too — so the set of old keys is smaller than the
       //   set of flips, and listing a key twice would say nothing extra.
-      legacyKeys: [...new Set(group.map((f) => keyForFlip(f.auditId, f.kind)))],
+      // ★ THE FLAT VIEW, DERIVED so it cannot disagree with `absorbed` — which
+      //   is what hasBeenRead actually evaluates. Both generations of every
+      //   absorbed permit, in one list, for anything inspecting the field.
+      legacyKeys: [
+        ...new Set(absorbed.flatMap((a) => [a.key, ...a.legacyKeys])),
+      ],
+      absorbed,
     });
   }
 
@@ -735,9 +800,25 @@ export function hasBeenRead(
   readKeys: ReadonlySet<string>,
 ): boolean {
   if (readKeys.has(item.key)) return true;
+  // ★★★ fix-430: AND over the permits this item absorbed, OR over each one's
+  //     key generations. See NewItem.absorbed for why a flat `every` over the
+  //     union would mark every read notification unread on deploy morning.
+  const absorbed = item.absorbed;
+  if (absorbed && absorbed.length > 0) {
+    return absorbed.every((a) => absorbedHasBeenRead(a, readKeys));
+  }
   const legacy = item.legacyKeys;
   if (!legacy || legacy.length === 0) return false;
   return legacy.every((k) => readKeys.has(k));
+}
+
+/** One absorbed permit-level item: read under EITHER of its key generations. */
+function absorbedHasBeenRead(
+  a: AbsorbedItem,
+  readKeys: ReadonlySet<string>,
+): boolean {
+  if (readKeys.has(a.key)) return true;
+  return a.legacyKeys.length > 0 && a.legacyKeys.every((k) => readKeys.has(k));
 }
 
 /** ★ fix-339: the items a "mark all read" may legitimately touch.

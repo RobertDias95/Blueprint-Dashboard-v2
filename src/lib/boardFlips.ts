@@ -281,6 +281,40 @@ export const FLIP_LABEL: Record<FlipKind, string> = {
  *  `flip:{auditId}:{kind}` form is impossible — the third segment here is an
  *  ISO instant or an id, never a kind name. */
 export function flipEventKey(f: BoardFlip): string {
+  const run = f.runAt ?? 'audit' + String(f.auditId);
+  return 'flip:' + flipEventScope(f) + ':' + run;
+}
+
+/**
+ * ★★★ fix-430 — THE SCOPE SEGMENT: THE PROJECT, NOT THE PERMIT.
+ *
+ * Bobby, 2026-08-28: *"one bulk change is one notification."* A scrape run that
+ * moved four permits on one project produced four bell items, and a person had
+ * to read all four to learn one thing.
+ *
+ * ★★ A PERMIT WITH NO PROJECT KEEPS A PERMIT-SCOPED KEY. It is not dropped and
+ *    no project is invented for it — `permit` prefixes the segment so it can
+ *    never collide with a project UUID, which contains hyphens and no colons.
+ *
+ * ★ The audit-row fallback is unchanged from fix-360: rows written before the
+ *   scraper stamped `scraper_run_at` degrade to one item per audit row.
+ */
+function flipEventScope(f: BoardFlip): string {
+  if (f.projectId) return f.projectId;
+  if (f.permitId != null) return 'permit' + String(f.permitId);
+  return 'audit' + String(f.auditId);
+}
+
+/**
+ * ★★★ THE KEY THIS ITEM USED TO HAVE, one per permit it now absorbs.
+ *
+ * fix-360's exact expression, kept callable so read state survives fix-430.
+ * 205 flip read rows exist on prod across 8 people — 131 in THIS form and 74 in
+ * fix-360's older `flip:{auditId}:{kind}` form, every one of them read inside
+ * the last 30 days. Both generations are live; neither may be dropped. See
+ * boardReads.buildNewItems for how they are evaluated.
+ */
+export function flipEventKeyByPermit(f: BoardFlip): string {
   const permit = f.permitId ?? 'audit' + String(f.auditId);
   const run = f.runAt ?? 'audit' + String(f.auditId);
   return 'flip:' + String(permit) + ':' + run;
@@ -461,4 +495,86 @@ export function buildBellItems(
   }
 
   return items.sort((a, z) => z.at.localeCompare(a.at));
+}
+
+// ===========================================================================
+// ★★★ fix-430 — ONE PROJECT, ONE RUN, ONE LINE
+// ===========================================================================
+//
+// ★★★ THE KIND IS DELIBERATELY *NOT* IN THE KEY, AND THE BRIEF ASKED FOR IT.
+//
+// fix-430's brief specified `flip:<projectId>:<eventKind>:<runAt>`. Measured on
+// prod over 120 days before writing anything:
+//
+//   items today            `flip:<permit>:<run>`            1,479
+//   this ticket            `flip:<project>:<run>`           1,354   −125
+//   the brief's shape      `flip:<project>:<kind>:<run>`    1,716   **+237**
+//
+// **21% of writes (312 of 1,487) carry more than one flip KIND**, up to three —
+// a status string and a date that mean different things landing in one scrape.
+// fix-360 §1 exists precisely to merge those into "Approved and issued"; putting
+// the kind in the key splits every one of them back apart. The brief's own
+// measure of success is items removed, and its literal key shape would have
+// ADDED 237 while removing 125. So the kind stays out, which is also the only
+// way C1 — "a single-permit group renders exactly what it renders today" — can
+// be true.
+
+/** Which permits a group covers, in first-seen order and deduped. */
+function permitsIn(flips: ReadonlyArray<BoardFlip>): number[] {
+  const seen = new Set<number>();
+  const out: number[] = [];
+  for (const f of flips) {
+    if (f.permitId == null || seen.has(f.permitId)) continue;
+    seen.add(f.permitId);
+    out.push(f.permitId);
+  }
+  return out;
+}
+
+/**
+ * The headline for a grouped flip event.
+ *
+ * ★★★ ONE PERMIT DELEGATES, BYTE FOR BYTE. 97% of groups are a single permit
+ * and nobody should see a wording change for the common case — so the
+ * single-permit path is not "the same words rebuilt", it is literally
+ * `flipEventTitle`, unreachable by any of the new code below.
+ *
+ * ★ Bobby's sentence for the rest: *"5 permits updated on 25 W Cremona"*. It
+ *   names the count, the event and the project. When every permit moved for the
+ *   same reason the event is named exactly ("4 permits approved on …"); when
+ *   they differ, "updated" is the honest word rather than a list nobody asked
+ *   for.
+ */
+export function flipGroupTitle(
+  flips: ReadonlyArray<BoardFlip>,
+  projectName: string | null,
+): string {
+  const permits = permitsIn(flips);
+  if (permits.length <= 1) return flipEventTitle(flips);
+  const kinds = KIND_ORDER.filter((k) => flips.some((f) => f.kind === k));
+  const event = kinds.length === 1 ? FLIP_WORD[kinds[0]] : 'updated';
+  const where = projectName ? ' on ' + projectName : '';
+  return `${permits.length} permits ${event}${where}`;
+}
+
+/**
+ * The detail line for a grouped flip event.
+ *
+ * ★★ C3: a person must be able to see WHICH permits without leaving the bell.
+ * So a multi-permit group lists them by type and number first, then keeps
+ * fix-360's enumeration of what moved — the brief for that one was explicit
+ * that collapsing the notifications must not collapse the facts.
+ *
+ * ★ One permit delegates, byte for byte, for the same reason as the title.
+ */
+export function flipGroupDetail(flips: ReadonlyArray<BoardFlip>): string | null {
+  const permits = permitsIn(flips);
+  if (permits.length <= 1) return flipEventDetail(flips);
+  const named = permits.map((id) => {
+    const f = flips.find((x) => x.permitId === id) as BoardFlip;
+    const type = f.permitType ?? 'Permit';
+    return f.permitNum ? `${type} ${f.permitNum}` : type;
+  });
+  const moved = flipEventDetail(flips);
+  return moved ? named.join(' · ') + ' — ' + moved : named.join(' · ');
 }
