@@ -503,7 +503,20 @@ export default function ProjectSettingsModal({
     <div
       className="fixed inset-0 z-50 flex items-center justify-center"
       style={{ background: 'rgba(0,0,0,0.45)' }}
-      onClick={onClose}
+      // ★★★ fix-440 (P-057) — THE BACKDROP DOES NOTHING, AND NEITHER DOES
+      // ESCAPE. Bobby's narrowed ruling, 2026-08-29: of sixteen overlays,
+      // only the ones that HOLD UNSAVED INPUT stop closing on an outside
+      // click. This one holds a whole draft form behind an explicit Save, so
+      // a stray click threw all of it away with no undo and no confirmation.
+      // Same decision, same reason, as fix-411 §1 on Add New Project and
+      // fix-436's AddPersonDialog. A VIEWER — the plan-of-record lightbox —
+      // deliberately keeps click-anywhere-to-close: "this is just stale text".
+      // The exits are the × and Cancel, both explicit.
+      //
+      // ★ Escape was ALREADY inert here — this modal never had a keydown
+      //   handler, checked rather than assumed. It stays that way, and the note
+      //   is here so nobody "fixes the inconsistency" with QuickEditPermitModal
+      //   by adding one.
       data-testid="project-settings-modal"
     >
       <div

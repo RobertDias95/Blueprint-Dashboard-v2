@@ -246,7 +246,7 @@ vi.mock('../hooks/useBuilderSearch', () => ({
 
 import ProjectSettingsModal from '../components/ProjectDetail/ProjectSettingsModal';
 
-function renderModal() {
+function renderModal(onClose: () => void = () => {}) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
@@ -254,7 +254,7 @@ function renderModal() {
     <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
   );
   return render(
-    <ProjectSettingsModal project={project} onClose={() => {}} />,
+    <ProjectSettingsModal project={project} onClose={onClose} />,
     { wrapper },
   );
 }
@@ -605,5 +605,45 @@ describe('<ProjectSettingsModal /> fix-93 Product Types catalog source', () => {
     const control = screen.getByTestId('psm-product-types-select');
     expect(control.tagName).toBe('SELECT');
     expect((control as HTMLInputElement).type).not.toBe('text');
+  });
+});
+
+// ===========================================================================
+// fix-440 (P-057) — the backdrop stops throwing away a draft
+// ===========================================================================
+//
+// Bobby's narrowed ruling, 2026-08-29: of sixteen overlays, only the ones that
+// HOLD UNSAVED INPUT stop closing on an outside click. This one holds a whole
+// project + permits draft behind an explicit "Save Changes".
+
+describe('<ProjectSettingsModal /> fix-440 P-057: the backdrop is inert', () => {
+  it('★★★ a backdrop click does NOT close it, and the typing survives', () => {
+    const onClose = vi.fn();
+    renderModal(onClose);
+    fireEvent.change(screen.getByTestId('psm-lotw'), { target: { value: '42' } });
+    // The element carrying the testid IS the backdrop.
+    fireEvent.click(screen.getByTestId('project-settings-modal'));
+    expect(onClose).not.toHaveBeenCalled();
+    expect((screen.getByTestId('psm-lotw') as HTMLInputElement).value).toBe('42');
+  });
+
+  it('★★ Escape does nothing — it never did here, and this pins that it stays that way', () => {
+    // ★ Checked, not assumed: this modal has never had a keydown handler. The
+    //   note exists so nobody "fixes the inconsistency" with
+    //   QuickEditPermitModal by adding one — that would lose the identical
+    //   work for the identical reason.
+    const onClose = vi.fn();
+    renderModal(onClose);
+    fireEvent.change(screen.getByTestId('psm-lotw'), { target: { value: '42' } });
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(onClose).not.toHaveBeenCalled();
+    expect((screen.getByTestId('psm-lotw') as HTMLInputElement).value).toBe('42');
+  });
+
+  it('★ inert is not trapped — Cancel still closes it', () => {
+    const onClose = vi.fn();
+    renderModal(onClose);
+    fireEvent.click(screen.getByText('Cancel'));
+    expect(onClose).toHaveBeenCalledTimes(1);
   });
 });
