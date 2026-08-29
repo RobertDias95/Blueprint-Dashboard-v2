@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   parseFlips,
   flipEventKey,
+  flipEventKeyByPermit,
   flipEventTitle,
   flipEventDetail,
   type ActivityRowLike,
@@ -210,19 +211,39 @@ describe('fix-360 §1: the over-merge guard', () => {
     expect(itemsFor([a, c])).toHaveLength(1);
   });
 
-  it('★★ two permits sharing one run stamp stay two items', () => {
-    // MEASURED: permits 10456 and 10521 both carry scraper_run_at 21:04:06.
-    // The key is (permit, run), so a shared stamp cannot merge two permits.
+  // ★★★ SUPERSEDED BY fix-430, BY BOBBY'S RULING OF 2026-08-28: *"one bulk
+  //     change is one notification."* fix-360's guard was that a shared run
+  //     stamp must not merge two permits; the scope it guarded was the PERMIT.
+  //     fix-430 moves the scope to the PROJECT, so two permits on ONE project
+  //     in one run are now deliberately one item — that IS the ticket.
+  //
+  // ★★ THE GUARD ITSELF IS NOT REPEALED, it is re-aimed: a shared run stamp
+  //    still cannot merge across projects, which is the case fix-360 measured
+  //    (permits 10456 and 10521 both carrying scraper_run_at 21:04:06). Both
+  //    halves are asserted below, so neither direction can regress silently.
+  it('★★ one run stamp merges within a project and NEVER across projects', () => {
     const a = sdotRow({ id: 1, row_id: '10456', changes: { applied: { approval_date: '2026-08-19' }, scraper_run_at: 'R' } });
     const b = sdotRow({ id: 2, row_id: '10521', changes: { applied: { approval_date: '2026-08-19' }, scraper_run_at: 'R' } });
-    const items = buildNewItems({
+    const sameProject = buildNewItems({
       flips: parseFlips([a, b], 3650),
       tasks: [],
       acks: [],
       permits: [permit({ id: 10456 }), permit({ id: 10521 })],
       viewerName: 'Bobby',
     }).filter((i) => i.source === 'flip');
-    expect(items).toHaveLength(2);
+    // fix-430: one project, one run → ONE item.
+    expect(sameProject).toHaveLength(1);
+
+    // fix-360's guard, intact: a different project is a different event.
+    const c = sdotRow({ id: 2, row_id: '10521', project_id: 'proj-2', changes: { applied: { approval_date: '2026-08-19' }, scraper_run_at: 'R' } });
+    const twoProjects = buildNewItems({
+      flips: parseFlips([a, c], 3650),
+      tasks: [],
+      acks: [],
+      permits: [permit({ id: 10456 }), permit({ id: 10521, project_id: 'proj-2' })],
+      viewerName: 'Bobby',
+    }).filter((i) => i.source === 'flip');
+    expect(twoProjects).toHaveLength(2);
   });
 
   it('★ a row with no run stamp falls back to its audit id, never to a guess', () => {
@@ -230,9 +251,11 @@ describe('fix-360 §1: the over-merge guard', () => {
     const b = sdotRow({ id: 78, changes: { applied: { actual_issue: '2026-08-19' } } });
     const items = itemsFor([a, b]);
     expect(items).toHaveLength(2);
+    // ★ fix-430: the scope segment is the project; the RUN segment is still the
+    //   audit id, which is the fallback this test is about and is unchanged.
     expect(items.map((i) => i.key).sort()).toEqual([
-      'flip:10409:audit77',
-      'flip:10409:audit78',
+      'flip:proj-1:audit77',
+      'flip:proj-1:audit78',
     ]);
   });
 });
@@ -251,23 +274,48 @@ describe('fix-360 §1: the key survives re-derivation', () => {
     expect(unseenItems(second, read)).toEqual([]);
   });
 
-  it('★ the key is a permit and a run — never a field list or a count', () => {
+  // ★★★ SUPERSEDED BY fix-430: the scope segment is the PROJECT now. The RULE
+  //     this test carries is untouched and still asserted — the key is built
+  //     only from things that cannot move under a row, so re-deriving it never
+  //     re-notifies. A project id is as immutable as a permit id.
+  //
+  // ★★ AND THE KIND IS STILL NOT IN IT, which fix-430's brief asked for and the
+  //    measurement refused: 21% of writes (312 of 1,487 over 120 days) carry
+  //    more than one flip kind, and keying by kind splits every one of them
+  //    back into the separate items fix-360 §1 exists to merge — 1,716 items
+  //    against today's 1,479, where this key gives 1,354.
+  it('★ the key is a project and a run — never a kind, a field list or a count', () => {
     const [flip] = parseFlips([sdotRow()], 3650);
-    expect(flipEventKey(flip)).toBe('flip:10409:2026-08-19T20:44:49+00:00');
-    // No kind, no count, no field name anywhere in it.
+    expect(flipEventKey(flip)).toBe('flip:proj-1:2026-08-19T20:44:49+00:00');
     expect(flipEventKey(flip)).not.toMatch(/approved|issued|status|3/);
+    // ★ The pre-fix-430 form stays computable — read state depends on it.
+    expect(flipEventKeyByPermit(flip)).toBe('flip:10409:2026-08-19T20:44:49+00:00');
+  });
+
+  it('★★ a permit with no project keeps a permit-scoped key', () => {
+    // fix-430 A2: not dropped, and no project invented for it.
+    const [flip] = parseFlips([sdotRow({ project_id: null })], 3650);
+    expect(flipEventKey(flip)).toBe('flip:permit10409:2026-08-19T20:44:49+00:00');
   });
 
   it('★★ a grouped item still answers to the keys its parts used to have', () => {
     // 54 flip read rows exist on prod under the OLD per-field keys. Without
     // this, every one re-opens on deploy day — fix-307's three-figure badge,
     // arriving by a different door.
+    //
+    // ★★ fix-430 ADDED A SECOND GENERATION rather than replacing this one.
+    //    Measured 2026-08-29: 205 flip read rows across 8 people — 131 in
+    //    fix-360's `flip:<permit>:<run>` form and 74 in this older
+    //    `flip:<auditId>:<kind>` form, every one read inside 30 days. A person
+    //    has one or the other, never both, so `legacyKeys` now carries BOTH and
+    //    `hasBeenRead` evaluates them per absorbed permit as an OR — see
+    //    NewItem.absorbed. The behaviour this test asserts is unchanged.
     const [item] = itemsFor([sdotRow()]);
     const old = new Set([
       keyForFlip(20192, 'approved'),
       keyForFlip(20192, 'issued'),
     ]);
-    expect(item.legacyKeys?.sort()).toEqual([...old].sort());
+    for (const k of old) expect(item.legacyKeys).toContain(k);
     expect(hasBeenRead(item, old)).toBe(true);
     expect(unseenItems([item], old)).toEqual([]);
   });
