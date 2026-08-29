@@ -5,6 +5,10 @@ import { chipStyle } from '../lib/chipStyle';
 import { usePermits } from '../hooks/usePermits';
 import { taskPermitSuffix } from '../lib/permitDiscriminator';
 import { nestSubtasks, type TaskGroup } from '../lib/taskNesting';
+// ★★★ fix-444 §A (P-048): the band vocabulary is fix-397's, reused — see
+// lib/taskBands for why a second name for the same seven days is the drift
+// this avoids.
+import { bandRows, resolvedOrder, type Band } from '../lib/taskBands';
 import { memo, useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { PARAM_TASK } from '../lib/notificationTargets';
@@ -105,9 +109,22 @@ interface FilterState {
   permitTypes: string[];
   /** When true (default) Resolved tasks are hidden from sub-columns. */
   activeOnly: boolean;
-  /** When true (default) cards within a sub-column sort by target_date asc
-   *  NULLS LAST; otherwise by sort_order then created_at desc. */
-  byDueDate: boolean;
+  /** ★★★ fix-444 §A3 — `byDueDate` IS GONE, AND IT WAS NOT A PREFERENCE.
+   *
+   *  It chose between "target_date asc, NULLS LAST" and "sort_order, then
+   *  start_date desc" — but NOTHING IN THE APP LETS A PERSON ARRANGE TASKS.
+   *  Checked, not assumed: no `onDragEnd`, no `draggable`, no `useSortable`
+   *  anywhere near a permit task (the three DnD surfaces are the Draw Schedule
+   *  grid, the Quarter Layout editor and the task TEMPLATE editor), and
+   *  PermitDetailV2 only ever echoes a task's existing `sort_order` back on an
+   *  edit. On prod, 1,557 of 1,643 tasks sit at `sort_order = 0`; the 86
+   *  non-zero ones across 17 values are seeded by task templates.
+   *
+   *  So "off" was not manual order — it was a second, worse date order. The
+   *  bands are the ordering now, and `sort_order` survives as the final
+   *  tiebreak, which is what keeps a template's steps in their intended
+   *  sequence. The key is left in the persisted shape (see loadFilters) so a
+   *  stored `true`/`false` is simply ignored rather than breaking the parse. */
   /** fix-155: when true, show only lifecycle auto-tasks (is_auto_generated). */
   botOnly: boolean;
   /** fix-224 (Jade): when true, group the task list by PROJECT (one section per
@@ -123,7 +140,6 @@ const DEFAULT_FILTERS: FilterState = {
   quickRole: 'all',
   permitTypes: [],
   activeOnly: true,
-  byDueDate: true,
   botOnly: false,
   groupByProject: false,
 };
@@ -625,7 +641,6 @@ function Body({
             className="col-span-2"
             tasks={visible}
             today={today}
-            byDueDate={filters.byDueDate}
             selectedId={selectedId}
             onSelect={setSelectedId}
           />
@@ -635,8 +650,7 @@ function Body({
               bucket="de"
               tasks={visible.filter((t) => bucketOf(t) === 'de')}
               today={today}
-              byDueDate={filters.byDueDate}
-              activeOnly={filters.activeOnly}
+                activeOnly={filters.activeOnly}
               selectedId={selectedId}
               onSelect={setSelectedId}
             />
@@ -644,8 +658,7 @@ function Body({
               bucket="pm"
               tasks={visible.filter((t) => bucketOf(t) === 'pm')}
               today={today}
-              byDueDate={filters.byDueDate}
-              activeOnly={filters.activeOnly}
+                activeOnly={filters.activeOnly}
               selectedId={selectedId}
               onSelect={setSelectedId}
             />
@@ -942,12 +955,6 @@ function FilterRow({
         onToggle={() => onPatch({ activeOnly: !filters.activeOnly })}
         testid="mytasks-filter-active"
       />
-      <Toggle
-        label="By Due Date"
-        on={filters.byDueDate}
-        onToggle={() => onPatch({ byDueDate: !filters.byDueDate })}
-        testid="mytasks-filter-bydue"
-      />
       {/* fix-224 (Jade): group the list by project instead of the D&E/PM kanban. */}
       <Toggle
         label="By Project"
@@ -1074,7 +1081,6 @@ function BucketColumn({
   bucket,
   tasks,
   today,
-  byDueDate,
   activeOnly,
   selectedId,
   onSelect,
@@ -1082,24 +1088,32 @@ function BucketColumn({
   bucket: DiagBucket;
   tasks: Task[];
   today: string;
-  byDueDate: boolean;
   activeOnly: boolean;
   selectedId: string | null;
   onSelect: (id: string) => void;
 }) {
+  // ★★★ fix-444 §A1: the STATUS columns stay; the ordering inside each one is
+  //     now date BANDS with headers, in fix-397's order and under fix-397's
+  //     labels. See lib/taskBands.
   const notStarted = useMemo(
-    () => sorted(tasks.filter((t) => t.status === 'Open'), byDueDate),
-    [tasks, byDueDate],
+    () => bandRows(tasks.filter((t) => t.status === 'Open'), today),
+    [tasks, today],
   );
   const inProgress = useMemo(
-    () => sorted(tasks.filter((t) => t.status === 'In Progress'), byDueDate),
-    [tasks, byDueDate],
+    () => bandRows(tasks.filter((t) => t.status === 'In Progress'), today),
+    [tasks, today],
   );
+  // ★★★ A4: RESOLVED IS NOT BANDED. Measured on prod: 738 of 1,320 resolved
+  //     tasks carry a target date already in the past, so banding would file
+  //     them under "Past due" — a false statement about finished work. The
+  //     date stays on the row; only the claim that it is still a deadline goes.
   const resolved = useMemo(
-    () => sorted(tasks.filter((t) => t.status === 'Resolved'), byDueDate),
-    [tasks, byDueDate],
+    () => resolvedOrder(tasks.filter((t) => t.status === 'Resolved')),
+    [tasks],
   );
-  const openCount = notStarted.length + inProgress.length;
+  const openCount =
+    notStarted.reduce((n, b) => n + b.items.length, 0) +
+    inProgress.reduce((n, b) => n + b.items.length, 0);
   return (
     <div
       className="rounded border flex flex-col"
@@ -1147,7 +1161,7 @@ function BucketColumn({
           bucket={bucket}
           kind="not-started"
           label="NOT STARTED"
-          tasks={notStarted}
+          bands={notStarted}
           today={today}
           selectedId={selectedId}
           onSelect={onSelect}
@@ -1156,7 +1170,7 @@ function BucketColumn({
           bucket={bucket}
           kind="in-progress"
           label="IN PROGRESS"
-          tasks={inProgress}
+          bands={inProgress}
           today={today}
           selectedId={selectedId}
           onSelect={onSelect}
@@ -1166,7 +1180,7 @@ function BucketColumn({
             bucket={bucket}
             kind="resolved"
             label="RESOLVED"
-            tasks={resolved}
+            flat={resolved}
             today={today}
             selectedId={selectedId}
             onSelect={onSelect}
@@ -1182,7 +1196,8 @@ function SubColumn({
   bucket,
   kind,
   label,
-  tasks,
+  bands,
+  flat,
   today,
   selectedId,
   onSelect,
@@ -1191,12 +1206,18 @@ function SubColumn({
   bucket: DiagBucket;
   kind: 'not-started' | 'in-progress' | 'resolved';
   label: string;
-  tasks: Task[];
+  /** Banded — the two OPEN columns. */
+  bands?: Band<Task>[];
+  /** One flat list — Resolved only. See lib/taskBands.RESOLVED_IS_BANDED. */
+  flat?: Task[];
   today: string;
   selectedId: string | null;
   onSelect: (id: string) => void;
   dimmed?: boolean;
 }) {
+  const total = bands
+    ? bands.reduce((n, b) => n + b.items.length, 0)
+    : (flat?.length ?? 0);
   return (
     <div
       className="p-2 border-r last:border-r-0"
@@ -1217,20 +1238,58 @@ function SubColumn({
           className="text-[11px] font-mono"
           data-testid={`mytasks-bucket-${bucket}-sub-${kind}-count`}
         >
-          {tasks.length}
+          {total}
         </span>
       </div>
-      <div className="flex flex-col gap-1.5">
-        {nestSubtasks(tasks).map((g) => (
-          <TaskGroupRows
-            key={g.task.id}
-            group={g}
-            today={today}
-            selectedId={selectedId}
-            onSelect={onSelect}
-          />
-        ))}
-      </div>
+      {bands ? (
+        <div className="flex flex-col gap-2">
+          {bands.map((b) => (
+            <div key={b.band} data-testid={`mytasks-band-${bucket}-${kind}-${b.band}`}>
+              {/* ★★★ fix-444 §A1: the header, with its count. Ninety-one of
+                  Miles's 121 open tasks have no target date and were falling
+                  off the bottom of this column UNLABELLED behind a '￿'
+                  sentinel — indistinguishable from "nothing left". */}
+              <div
+                className="flex items-baseline justify-between mb-1 px-0.5"
+                style={{ color: 'var(--color-dim)' }}
+              >
+                <span className="text-[9px] uppercase tracking-wider font-bold">
+                  {b.label}
+                </span>
+                <span
+                  className="text-[9px] font-mono"
+                  data-testid={`mytasks-band-${bucket}-${kind}-${b.band}-count`}
+                >
+                  {b.items.length}
+                </span>
+              </div>
+              <div className="flex flex-col gap-1.5">
+                {nestSubtasks(b.items).map((g) => (
+                  <TaskGroupRows
+                    key={g.task.id}
+                    group={g}
+                    today={today}
+                    selectedId={selectedId}
+                    onSelect={onSelect}
+                  />
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className="flex flex-col gap-1.5">
+          {nestSubtasks(flat ?? []).map((g) => (
+            <TaskGroupRows
+              key={g.task.id}
+              group={g}
+              today={today}
+              selectedId={selectedId}
+              onSelect={onSelect}
+            />
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -1242,14 +1301,12 @@ function ProjectGroupedView({
   className,
   tasks,
   today,
-  byDueDate,
   selectedId,
   onSelect,
 }: {
   className?: string;
   tasks: Task[];
   today: string;
-  byDueDate: boolean;
   selectedId: string | null;
   onSelect: (id: string) => void;
 }) {
@@ -1264,9 +1321,12 @@ function ProjectGroupedView({
       byProject.set(t.project_id, g);
     }
     return [...byProject.values()]
-      .map((g) => ({ ...g, tasks: sorted(g.tasks, byDueDate) }))
+      // ★ fix-444 §A1: the by-project view bands too — one list per project,
+      //   ordered by the same rule, so the two views cannot disagree about
+      //   what comes first.
+      .map((g) => ({ ...g, tasks: bandRows(g.tasks, today).flatMap((b) => b.items) }))
       .sort((a, b) => a.address.localeCompare(b.address));
-  }, [tasks, byDueDate]);
+  }, [tasks, today]);
 
   return (
     <div className={`${className ?? ''} flex flex-col gap-3`} data-testid="mytasks-by-project">
@@ -1678,35 +1738,12 @@ function chipBg() {
   };
 }
 
-function sorted(tasks: Task[], byDueDate: boolean): Task[] {
-  const arr = [...tasks];
-  // fix-155: priority tasks bubble to the top of each sub-column, then the
-  // existing by-due / by-order ordering applies within the priority and
-  // non-priority groups. corr_issued auto-tasks set priority=true, so they
-  // surface alongside any human-starred priority tasks per existing handling.
-  const byPriority = (a: Task, b: Task) =>
-    (b.priority ? 1 : 0) - (a.priority ? 1 : 0);
-  if (byDueDate) {
-    arr.sort((a, b) => {
-      const p = byPriority(a, b);
-      if (p !== 0) return p;
-      const ad = a.target_date ?? '￿';
-      const bd = b.target_date ?? '￿';
-      if (ad !== bd) return ad.localeCompare(bd);
-      return a.sort_order - b.sort_order;
-    });
-  } else {
-    arr.sort((a, b) => {
-      const p = byPriority(a, b);
-      if (p !== 0) return p;
-      if (a.sort_order !== b.sort_order) return a.sort_order - b.sort_order;
-      const ad = a.start_date ?? '';
-      const bd = b.start_date ?? '';
-      return bd.localeCompare(ad);
-    });
-  }
-  return arr;
-}
+// ★★★ fix-444 §A3: `sorted()` IS GONE. It ranked `priority` above the DATE
+// across a whole column, so a flagged task due next month outranked an
+// unflagged one due today — the confusion between "important" and "urgent"
+// that ruling 3 settles ("the flag lifts a task to the top of its band, never
+// out of it"). Its undated sentinel '￿' is gone with it: undated work now has
+// a header instead of a silent seat at the bottom. See lib/taskBands.
 
 function filterTasks(
   tasks: Task[],
