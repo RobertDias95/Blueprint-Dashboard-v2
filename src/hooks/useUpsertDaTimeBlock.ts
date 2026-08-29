@@ -5,6 +5,7 @@ import { OCCConflictError, isOCCConflict } from '../lib/occ';
 import { pushToast } from '../stores/toastStore';
 import { useAuthStore } from '../stores/authStore';
 import type { DaTimeBlock } from '../lib/database.types';
+import { applyUpsertedBlock } from '../lib/daTimeBlockCache';
 
 // Q6.2.f: row-level OCC upsert for da_time_blocks via the Q7.3.0 RPC
 // bp_upsert_da_time_block_row. The table's PK is text (client-generated
@@ -92,7 +93,13 @@ export function useUpsertDaTimeBlock() {
         project_id: payload.project_id as string | null,
       };
     },
-    onSuccess: () => {
+    onSuccess: (row) => {
+      // ★★★ fix-442 (P-067): the mutationFn already returns the WHOLE row with
+      // the server's new `updated_at`, so the cache can be right immediately
+      // rather than after a round trip. This is the add → edit → edit shape
+      // from prod: without the append, a block inserted 3 s ago was not in the
+      // list at all, so the edit that followed had no correct token to read.
+      applyUpsertedBlock(queryClient, tenantId, row);
       queryClient.invalidateQueries({ queryKey: queryKeys.daTimeBlocks(tenantId) });
       pushToast('Saved time block', 'success');
     },

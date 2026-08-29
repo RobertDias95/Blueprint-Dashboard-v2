@@ -4,6 +4,7 @@ import { queryKeys } from '../lib/queryKeys';
 import { OCCConflictError, isOCCConflict } from '../lib/occ';
 import { pushToast } from '../stores/toastStore';
 import { useAuthStore } from '../stores/authStore';
+import { applyDeletedBlock } from '../lib/daTimeBlockCache';
 
 // Q6.2.f: bp_delete_da_time_block_row. PK is text. Idempotent on
 // missing rows (server returns deleted=true, conflict=false).
@@ -27,7 +28,12 @@ export function useDeleteDaTimeBlock() {
       const row = (data as Row[])[0];
       if (row?.conflict) throw new OCCConflictError(0, 'Time block');
     },
-    onSuccess: () => {
+    onSuccess: (_void, { id }) => {
+      // ★★★ fix-442 (P-067): drop it from the grid now, on the SUCCESS path
+      // only. A refused delete must leave the block where it is — showing it
+      // gone while the database still holds it would be a worse lie than the
+      // stale token this ticket is fixing.
+      applyDeletedBlock(queryClient, tenantId, id);
       queryClient.invalidateQueries({ queryKey: queryKeys.daTimeBlocks(tenantId) });
       pushToast('Removed time block', 'success');
     },
