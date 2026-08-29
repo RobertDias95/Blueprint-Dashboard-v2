@@ -4,6 +4,11 @@ import { queryKeys } from '../lib/queryKeys';
 import { pushToast } from '../stores/toastStore';
 import { useAuthStore } from '../stores/authStore';
 import type { TaskNode, MyTaskNode } from '../lib/database.types';
+import {
+  cancelTaskReconcile,
+  scheduleTaskReconcile,
+} from '../lib/taskReconcile';
+import { useTaskStatusOverlay } from '../lib/taskStatusOverlayContext';
 
 // fix-70: v1-parity task system data hooks. All go through the bp_* RPCs that
 // derive the primary assignee from permits.da / permits.ent_lead at read time
@@ -100,6 +105,19 @@ export interface UpsertTaskInput {
   /** When set, stamps permit_tasks.done_at; treated as the "Completed" date
    *  in the panel. */
   completed?: string | null;
+  /** ★★★ fix-434: this write changes NOTHING BUT completion_status, and it came
+   *  from a row control somebody may be clicking down a queue.
+   *
+   *  It does not change WHAT is written — the payload is the same one the
+   *  detail-pane dropdown and the checkbox have always sent (lib/taskStatusWrite
+   *  builds it) — only how the cache is reconciled afterwards. A status write
+   *  has already moved the row on screen through the optimistic overlay, so the
+   *  refetch is confirmation rather than the thing that updates the UI, and one
+   *  trailing refetch per BURST replaces one per click. Measured before this:
+   *  ten clicks, ten 1.1 MB `bp_list_tasks` round trips. See lib/taskReconcile.
+   *
+   *  ★ An ERROR is never coalesced — see onError below. */
+  statusOnly?: boolean;
   /** Explicit clears (NULL the column). Passing a `null` value alone is
    *  interpreted as "leave unchanged" — set the matching clear flag to
    *  force the column to NULL. */
@@ -113,6 +131,13 @@ export interface UpsertTaskInput {
 export function useUpsertTask() {
   const queryClient = useQueryClient();
   const tenantId = useAuthStore((s) => s.activeTenantId) ?? '';
+  // ★★★ fix-434: inert outside a TaskStatusOverlayProvider (the context's
+  // default is a set of no-ops), so every other caller of this hook is
+  // unchanged. Inside one, this is what rolls an optimistic tick back when the
+  // server refuses it — and it has to be HERE rather than in a per-call
+  // `onError`, because the tick unmounts the card that called `mutate` and
+  // React Query then drops that call's callbacks.
+  const { clear: clearStatusOverlay } = useTaskStatusOverlay();
   return useMutation<string, Error, UpsertTaskInput>({
     mutationFn: async (input) => {
       const { data, error } = await supabase.rpc('bp_upsert_permit_task', {
@@ -147,14 +172,45 @@ export function useUpsertTask() {
       return data as string;
     },
     onSuccess: (_id, input) => {
+      // ★★★ fix-434: a status-only write reconciles ONCE per burst.
+      //
+      // `queryKeys.permitTaskTree(...)` sits UNDER the `permit_tasks` bare
+      // prefix (['permit_tasks', tenantId, 'tree', …]), so the single
+      // prefix invalidation the reconciler schedules covers the per-permit tree
+      // as well — nothing is dropped, it is deferred by at most
+      // TASK_RECONCILE_DELAY_MS and only while more clicks keep arriving.
+      if (input.statusOnly) {
+        scheduleTaskReconcile(queryClient);
+        return;
+      }
       queryClient.invalidateQueries({
         queryKey: queryKeys.permitTaskTree(tenantId, input.permitId),
       });
       // My Tasks may now include/exclude this task.
       queryClient.invalidateQueries({ queryKey: queryKeys.permitTasksAll });
     },
-    onError: (error) => {
+    onError: (error, input) => {
       pushToast(`Could not save task — ${error.message}`, 'error');
+      // ★★★ fix-434 B3: a REFUSED status write is corrected immediately, never
+      // in 900ms. Dropping the optimistic intent puts the row back to the last
+      // value the server gave us in the same frame the error arrives; the
+      // invalidation then re-reads the server so it cannot be left disagreeing
+      // with the database in either direction. Any pending coalesced refetch is
+      // cancelled because this one supersedes it.
+      //
+      // ★★★ AND IT IS HERE, NOT IN A PER-CALL `mutate(input, { onError })`.
+      // That was the first attempt and it silently never ran: an optimistic
+      // tick moves the row to a different sub-column, unmounting the card that
+      // called `mutate`, and React Query discards a mutation's per-call
+      // callbacks when the caller unmounts. The toast appeared, the refetch
+      // landed, and the row still read "Resolved".
+      if (input.statusOnly) {
+        if (input.id) clearStatusOverlay(input.id);
+        cancelTaskReconcile();
+        void queryClient.invalidateQueries({
+          queryKey: queryKeys.permitTasksAll,
+        });
+      }
     },
   });
 }
