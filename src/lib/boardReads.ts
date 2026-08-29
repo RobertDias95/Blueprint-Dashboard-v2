@@ -14,6 +14,12 @@ import {
   type PostReactionRow,
 } from './postReactions';
 import { keyForMention } from './projectChat';
+import {
+  conditionCopy,
+  isConditionShowing,
+  keyForCondition,
+  type PermitConditionRow,
+} from './permitConditions';
 import type { NewItemTarget } from './notificationTargets';
 import { assignedSubtitle } from './taskProvenance';
 import { taskPermitSuffix } from './permitDiscriminator';
@@ -68,7 +74,13 @@ export type NewItemSource =
   // new row type: one item per POST whose CONTENT changes as more reactions
   // arrive. See lib/postReactions for the watermark key that makes a mutating
   // item expressible in an append-only read model.
-  | 'reaction';
+  | 'reaction'
+  // ★★★ fix-438 adds the TENTH, and it is a third shape again: not an event
+  // that happened, but a fact that is TRUE NOW and will stop being true. It is
+  // personal (routed to one permit's ENT lead, board_item_reads like every
+  // personal kind) and it carries an ACKNOWLEDGE rather than a resolve — see
+  // lib/permitConditions for why a condition cannot be finished.
+  | 'condition';
 
 /**
  * ★★★ fix-339 — THE TWO SHAPES OF A BOARD ITEM, and the rule for picking one.
@@ -216,6 +228,13 @@ export function keyForAutoClosed(closureId: string): string {
   return `auto_closed:${closureId}`;
 }
 
+/** ★★ fix-438: `cond:<id>:<first_seen_at>`. Re-exported from permitConditions
+ *  so the bell, the board and the acknowledge path cannot end up with two
+ *  spellings of one key — the same reason keyForMention is re-exported above.
+ *  The first_seen component is what makes a RE-OPENED condition new again; see
+ *  the note on the function itself. */
+export { keyForCondition };
+
 export function keyForPostRequest(requestId: string): string {
   return `post_request:${requestId}`;
 }
@@ -281,6 +300,15 @@ export interface NewItemsInput {
    *  fix-307 rather than inventing a person. Optional, so every existing caller
    *  and fixture keeps working unchanged. */
   taskAssigners?: ReadonlyArray<{ task_id: string; actor_name: string | null }>;
+  /** ★★ fix-438: every OPEN standing condition in the tenant. Routed to the
+   *  permit's ENT lead HERE rather than server-side, deliberately — the row
+   *  carries `ent_lead` as a roster NAME and this is the one place in the app
+   *  that already knows how to match one to the viewer (sources 3 and 4 do it
+   *  three lines apart). A second opinion about who owns a permit is what
+   *  fix-308 spent a ticket removing.
+   *
+   *  Optional so every existing caller and fixture keeps working unchanged. */
+  conditions?: ReadonlyArray<PermitConditionRow>;
 }
 
 /** ★ fix-339: the minimum a post request needs to become a board item. */
@@ -750,6 +778,51 @@ export function buildNewItems(input: NewItemsInput): NewItem[] {
       // one reactor. A digest is fix-360's grouped shape, and re-fanning it
       // into a link per reaction would undo that ticket one ticket later.
       target: { kind: 'message', projectId: d.projectId, messageId: d.messageId },
+    });
+  }
+
+  // 10. ★★★ fix-438: a STANDING CONDITION on a permit I lead.
+  //
+  // ★★★ NO EPOCH CHECK, AND THAT IS THE POINT. Every source above asks "did
+  // this happen after the deploy instant" because they report EVENTS, and an
+  // event from before the epoch is history nobody needs told about. A condition
+  // is not history: it is true right now, and a condition that has been true
+  // since before this shipped is the MOST worth saying. Its `first_seen_at` is
+  // in the key so a re-opened one is new again — that is what the epoch was
+  // protecting against, done exactly.
+  //
+  // ★★ ROUTED BY NAME, WHOLE AND TRIMMED — never a prefix, never a LIKE. The
+  // roster holds `Eric` and `Erick` one letter apart, so a sloppy match hands
+  // one person's permits to the other. Same comparison as sources 3 and 4.
+  for (const c of input.conditions ?? []) {
+    if ((c.ent_lead ?? '').trim().toLowerCase() !== me) continue;
+    // ★ Open, and not acknowledged against this same material detail. See
+    //   lib/permitConditions.isConditionShowing for the hash decision.
+    if (!isConditionShowing(c)) continue;
+    const copy = conditionCopy(c);
+    out.push({
+      key: keyForCondition(c.id, c.first_seen_at),
+      source: 'condition',
+      title: copy.title,
+      subtitle: copy.subtitle,
+      where: `${c.address ?? 'Unknown address'} · ${c.permit_type ?? 'Permit'}`,
+      // ★★ `last_seen_at`, NOT `first_seen_at`. The list is sorted by `at`, and
+      //    a condition that has been true for three weeks is not three-week-old
+      //    news — it is a live fact the machine confirmed on the last run. The
+      //    KEY carries first_seen (so it does not re-notify); the SORT carries
+      //    last_seen (so it does not sink out of sight).
+      at: c.last_seen_at,
+      permitId: c.permit_id,
+      projectId: c.project_id,
+      // ★ The permit is the answer, like a flip and like a handoff: everything
+      //   a person can do about "in corrections with no resubmittal" is on it.
+      target: c.project_id
+        ? { kind: 'permit', projectId: c.project_id, permitId: c.permit_id }
+        : undefined,
+      // ★★ NO ACTOR. A condition has no author — the machine observed it, and
+      //    fix-369's rule is that a null actor is "not a person", which is what
+      //    keeps it from making a sound.
+      actor: null,
     });
   }
 

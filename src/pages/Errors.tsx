@@ -67,9 +67,14 @@ export default function ErrorsPage() {
           <h1 className="text-base font-display font-extrabold text-text m-0">
             Error triage
           </h1>
+          {/* ★★★ fix-438 C1: it is not "the app + scraper" any more. Bobby's
+              ruling — Error Triage keeps BRIDGE errors. A scraper condition is
+              one self-clearing row that reaches its ENT lead as a
+              notification; scraper housekeeping reaches nobody. */}
           <p className="text-[11px] text-dim m-0 mt-0.5">
-            Every error from the app + scraper, grouped by signature. Queue
-            the ones worth fixing; dismiss the noise.
+            Errors the Bridge itself hit, grouped by signature. Queue the ones
+            worth fixing; dismiss the noise. Permit conditions are not errors —
+            they reach the entitlement lead as a notification.
           </p>
         </div>
         <div className="flex gap-1" role="tablist" data-testid="errors-tabs">
@@ -242,8 +247,22 @@ function ErrorGroupRow({ group }: { group: ErrorGroup }) {
           data-testid={`error-group-counts-${group.fingerprint}`}
         >
           {group.count}×
-          {group.resolved_count > 0 && ` (${group.resolved_count} resolved)`} ·{' '}
-          {group.user_count}u · {relativeAgo(group.last_seen)}
+          {group.resolved_count > 0 && ` (${group.resolved_count} resolved)`}
+          {/* ★★★ fix-438 C2 — HOW MANY PERMITS, beside how many occurrences.
+              The panel used to say "89 occurrences" over a sample naming ONE
+              permit, and it was 89 permits once each: Bobby would have gone
+              and investigated a permit that was never the problem. The two
+              numbers together are the whole reading — 89× over 89 permits is a
+              bad afternoon, 25× over 3 permits is three permits in trouble. */}
+          {group.permit_count > 0 && (
+            <span data-testid={`error-group-permits-${group.fingerprint}`}>
+              {' · '}
+              {group.permit_count === group.count && group.count > 1
+                ? `${group.permit_count} permits, once each`
+                : `${group.permit_count} permit${group.permit_count === 1 ? '' : 's'}`}
+            </span>
+          )}{' '}
+          · {group.user_count}u · {relativeAgo(group.last_seen)}
         </span>
         {group.backlog_ref && (
           <span className="text-[10px] font-mono text-muted ml-1">
@@ -262,8 +281,13 @@ function ErrorGroupRow({ group }: { group: ErrorGroup }) {
           <pre className="text-[10px] font-mono bg-bg border border-border rounded p-2 max-h-48 overflow-auto whitespace-pre-wrap break-words m-0">
             {JSON.stringify(group.sample_context ?? {}, null, 2)}
           </pre>
+          {/* ★★ fix-438 C2: the sample above is the FIRST occurrence now, not
+              the newest — the newest is simply whichever permit the scraper
+              reached last, which is the least representative row there is. So
+              the dates say which is which rather than leaving the reader to
+              assume. */}
           <div className="text-[10px] text-dim font-mono">
-            first {group.first_seen} · last {group.last_seen}
+            sample is the first, {group.first_seen} · newest {group.last_seen}
           </div>
           <div className="flex gap-1.5 mt-1">
             <button

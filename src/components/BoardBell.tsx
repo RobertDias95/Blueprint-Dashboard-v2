@@ -24,6 +24,8 @@ import { useMarkBoardItemsRead } from '../hooks/useBoardReads';
 import { useBoardNotifications } from '../hooks/useBoardNotifications';
 // ★ fix-339: resolving a shared request clears it for everyone it was sent to.
 import { useResolvePostRequest } from '../hooks/usePostRequests';
+import { useAcknowledgeCondition } from '../hooks/usePermitConditions';
+import { conditionIdFromKey } from '../lib/permitConditions';
 import { RealtimeStatusLine } from './RealtimeStatusLine';
 import {
   buildForecast,
@@ -72,6 +74,9 @@ export default function BoardBell() {
   const markRead = useMarkBoardItemsRead();
   const taskOwnership = useTaskOwnership();
   const resolveRequest = useResolvePostRequest();
+  // ★★ fix-438: a standing condition is ACKNOWLEDGED, never resolved — see
+  //    lib/permitConditions for why a condition cannot be finished.
+  const acknowledgeCondition = useAcknowledgeCondition();
 
   // ★★ fix-336: ONE model, shared with /notifications.
   const { viewer, unseen, suppressed, signature, activityTruncationNote } =
@@ -418,7 +423,40 @@ export default function BoardBell() {
                       Acting on it clears it from EVERY recipient's queue, so
                       the control says so rather than looking like the personal
                       ✓ beside it. */}
-                  {i.audience === 'shared' ? (
+                  {/* ★★★ fix-438 — THE THIRD CONTROL, AND IT IS NEITHER OF THE
+                      OTHER TWO.
+
+                      ✓ (personal)   "I have seen this" — read state only, the
+                                     thing stays on the board.
+                      Got it (shared) "somebody has answered this" — clears it
+                                     for every recipient at once.
+                      I know (condition) "stop telling me until this CHANGES" —
+                                     a domain write against the condition row.
+                                     There is no Resolve: the condition ends
+                                     when the permit stops being in that state,
+                                     which only the next scrape can decide.
+
+                      ★★ IT DOES NOT MARK THE ITEM READ, deliberately. A read
+                      row would make the re-surfaced item — same key, because
+                      the key carries first_seen and not the detail — arrive
+                      already-read and never reach the badge, quietly undoing
+                      the one thing acknowledging is meant to leave working. */}
+                  {i.source === 'condition' ? (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        acknowledgeCondition.mutate({
+                          id: conditionIdFromKey(i.key),
+                        })
+                      }
+                      disabled={acknowledgeCondition.isPending}
+                      className="text-[9px] font-bold text-de hover:underline bg-transparent border-none p-0 flex-none mt-0.5 whitespace-nowrap disabled:opacity-40"
+                      title="I know — this comes back if the condition changes"
+                      data-testid={`bell-new-acknowledge-${i.key}`}
+                    >
+                      I know
+                    </button>
+                  ) : i.audience === 'shared' ? (
                     <button
                       type="button"
                       onClick={() =>

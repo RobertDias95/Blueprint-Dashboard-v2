@@ -46,8 +46,10 @@ import {
 //
 // fix-391 published the two hold tables; fix-393 published the last four
 // (permit_cycle_reviewers, error_reports, vendor_report_state,
-// external_team_directory). ALL 22 TABLES IN `REALTIME_TABLES` ARE NOW MEMBERS
-// OF `supabase_realtime`, verified against pg_publication_tables on prod.
+// external_team_directory). ALL TABLES IN `REALTIME_TABLES` ARE MEMBERS OF
+// `supabase_realtime`, verified against pg_publication_tables on prod — 22 at
+// fix-393, 23 since fix-438 added `permit_conditions`, out of 41 published
+// public tables in total.
 //
 // ★★★ SO THE RULE FOR THE NEXT PERSON IS: ADDING A KEY HERE IS HALF THE JOB.
 // A `REALTIME_TABLES` entry with no publication membership raises no error and

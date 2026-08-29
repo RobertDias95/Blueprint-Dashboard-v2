@@ -1648,3 +1648,61 @@ export interface SavedReportDetail {
   spec: ReportSpec;
   position: number;
 }
+
+// ===========================================================================
+// ★★★ fix-438 — public.permit_conditions (HAND-TYPED, like everything here)
+// ===========================================================================
+//
+// Ruling, Bobby 2026-08-29: a standing condition is ONE ROW PER PERMIT PER
+// CONDITION, updated each run, self-clearing, addressed to that permit's ENT
+// lead, acknowledgeable, and never resolvable. See migrations/
+// fix_438_permit_conditions.sql and lib/permitConditions.
+//
+// ★ THE THREE RPCs, quoted here because fix-439's scraper half calls the first
+//   one and a signature that drifted would fail at run time, not at build:
+//
+//     bp_sync_permit_conditions(
+//       p_permit_id integer, p_source text, p_conditions jsonb
+//     ) RETURNS jsonb   -- {opened, updated, cleared}   service_role only
+//
+//     bp_acknowledge_permit_condition(p_id uuid) RETURNS jsonb   authenticated
+//     bp_list_permit_conditions(p_open_only boolean DEFAULT true) RETURNS jsonb
+//
+// ★★ `p_conditions` is the FULL current set from that source for that permit:
+//    [{ kind, cond_key, detail }]. Anything open, owned by that source and
+//    ABSENT from it is cleared. An EMPTY ARRAY is meaningful and must be sent —
+//    it is what clears the last condition on a permit.
+
+/** One row of `permit_conditions`, as `bp_list_permit_conditions` returns it
+ *  (joined to the permit + project for the words the notification needs).
+ *
+ *  ★ `detail_hash` is computed SERVER-SIDE by bp_condition_detail_hash over the
+ *  MATERIAL part of `detail` — day counters and run timestamps stripped. The
+ *  client compares it to `acknowledged_detail_hash` and never derives either;
+ *  see lib/permitConditions for the measurement behind that decision. */
+export interface PermitConditionDbRow {
+  id: string;
+  permit_id: number;
+  project_id: string | null;
+  permit_num: string | null;
+  permit_type: string | null;
+  address: string | null;
+  /** A roster NAME (`permits.ent_lead`), never a user id. */
+  ent_lead: string | null;
+  /** Namespaced by its owning source: `scraper:mbp_resubmittal`. */
+  kind: string;
+  /** The disambiguator inside a kind — a cycle index, a field name. '' when
+   *  the kind needs none; never NULL, because NULL is not equal to itself in
+   *  the unique index that makes "one row per condition" true. */
+  cond_key: string;
+  detail: Record<string, unknown> | null;
+  first_seen_at: string;
+  last_seen_at: string;
+  seen_count: number;
+  /** NULL means OPEN. */
+  cleared_at: string | null;
+  cleared_reason: string | null;
+  acknowledged_at: string | null;
+  acknowledged_detail_hash: string | null;
+  detail_hash: string;
+}

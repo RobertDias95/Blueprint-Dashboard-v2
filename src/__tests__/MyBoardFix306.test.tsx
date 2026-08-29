@@ -95,6 +95,15 @@ vi.mock('../hooks/useMilestoneAcks', () => ({
 // ★ fix-354: the EIGHTH board source, mocked here for the same reason
 // fix-339 mocked the seventh — these suites deliberately render without a
 // QueryClient, and an unmocked query would reach for one.
+// ★★ fix-438 mocks the TENTH board source, for the same reason as the eighth
+// and the ninth above: this suite renders without a QueryClientProvider, so a
+// real react-query hook throws "No QueryClient set" before anything is
+// asserted. `useAcknowledgeCondition` is mocked with it because BoardBell
+// calls it unconditionally to render the "I know" control.
+vi.mock('../hooks/usePermitConditions', () => ({
+  usePermitConditions: () => ({ data: [], isLoading: false, error: null }),
+  useAcknowledgeCondition: () => ({ mutate: vi.fn(), isPending: false }),
+}));
 vi.mock('../hooks/useAutoClosures', () => ({
   useAutoClosures: () => ({ data: [], isLoading: false, error: null }),
 }));
