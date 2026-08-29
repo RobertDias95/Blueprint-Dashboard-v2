@@ -1,7 +1,7 @@
 import { usePermits } from '../hooks/usePermits';
 import { taskPermitSuffix } from '../lib/permitDiscriminator';
 import { nestSubtasks, type TaskGroup } from '../lib/taskNesting';
-import { useEffect, useMemo, useState } from 'react';
+import { memo, useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { PARAM_TASK } from '../lib/notificationTargets';
 import WaitingOnView from '../components/MyTasks/WaitingOnView';
@@ -10,19 +10,28 @@ import AutoClosedBadge from '../components/shared/AutoClosedBadge';
 import { UNOWNED_LABEL, taskNeedsOwner } from '../lib/boardOwnership';
 import { useTeamMembers } from '../hooks/useTeamMembers';
 import { isCurrentMember } from '../lib/roster';
-import { useAllTasks, useUpsertTask } from '../hooks/useTaskTree';
+import { useAllTasks } from '../hooks/useTaskTree';
 // fix-303: the task detail editor moved to its own component so My Board can
 // use the SAME one. Nothing about it changed in the move.
 import TaskDetailEditor from '../components/TaskDetailEditor';
 import { inputStyle } from '../lib/taskFieldStyles';
 import {
-  nextCheckboxStatus,
   checkboxVisual,
   isTaskLive,
   isTaskCancelled,
   isTaskOverdue,
-  writableStatus,
 } from '../lib/taskStatus';
+// ★★★ fix-434: the row's two status controls share ONE write path and ONE
+// optimistic layer. See hooks/useSetTaskStatus for why the checkbox stopped
+// calling useUpsertTask directly.
+import { useSetTaskStatus } from '../hooks/useSetTaskStatus';
+import TaskStatusChip from '../components/MyTasks/TaskStatusChip';
+import { TaskStatusOverlayProvider } from '../lib/taskStatusOverlay';
+import {
+  applyStatusOverlay,
+  useTaskStatusOverlay,
+  useTaskStatusPending,
+} from '../lib/taskStatusOverlayContext';
 import {
   useAllProjectHolds,
   cancelledProjectIds,
@@ -258,6 +267,22 @@ function ViewSwitcher({
  *  give Waiting On a second home inside the board and re-create the duplication
  *  fix-317 has just finished removing from the Reports group. */
 export function MineTasks() {
+  // ★★★ fix-434: the optimistic layer wraps the WHOLE board, not the card.
+  //
+  // A row that has been ticked has to leave the "Not Started" column, drop out
+  // of the OPEN counter and vanish under "Active only" — all of which are
+  // derived from the one array `MineTasks` builds. An overlay applied inside
+  // TaskCard would have moved the chip and left every number beside it saying
+  // something else, which is fix-409's rule ("counts must agree with what is
+  // displayed") broken in a new place.
+  return (
+    <TaskStatusOverlayProvider>
+      <MineTasksBody />
+    </TaskStatusOverlayProvider>
+  );
+}
+
+function MineTasksBody() {
   const team = useTeamMembers();
   const tasksQ = useAllTasks();
   // fix-264: tasks on a CANCELLED project leave the board entirely. fix-262's
@@ -302,6 +327,33 @@ export function MineTasks() {
     return shown.map((t) => ({ ...t, hold: holdRowFor(t, chips) }));
   }, [tasksQ.data, cancelledIds, holdsQ.data, permitHoldsQ.data, showHeldWork]);
 
+  // ★★★ fix-434 — THE LAST STEP BEFORE ANYTHING IS COUNTED OR GROUPED.
+  //
+  // Applied after the cancel/hold filters so it cannot resurrect a row those
+  // removed, and before `Body` so every column, sub-column and counter below
+  // reads the same status the chip is showing. `applyStatusOverlay` returns the
+  // SAME array when nothing is pending, which is the normal case, so the memo
+  // chain underneath is untouched for everybody who is not mid-click.
+  const overlay = useTaskStatusOverlay();
+  // ★ THE ONLY SUBSCRIBER TO THE PENDING SNAPSHOT. The ACTIONS context never
+  //   changes identity (see the two-context note in taskStatusOverlayContext),
+  //   so this is the one component a click re-renders — and from here the new
+  //   array flows down to the columns and the counters.
+  const pendingStatuses = useTaskStatusPending();
+  const shownTasks = useMemo(
+    () => applyStatusOverlay(liveTasks, pendingStatuses),
+    [liveTasks, pendingStatuses],
+  );
+
+  // ★★ Drop an intent the moment the refetched row agrees with it — see
+  //    TaskStatusOverlay.reconcile for why agreement and not mutation success
+  //    is the right moment. In an effect: mutating during render is what the
+  //    React Compiler rejects and only lint catches (fix-426, fix-408).
+  const reconcile = overlay.reconcile;
+  useEffect(() => {
+    reconcile((tasksQ.data ?? []) as Task[]);
+  }, [tasksQ.data, reconcile]);
+
   const error = team.error ?? tasksQ.error;
   if (error) {
     return (
@@ -321,7 +373,7 @@ export function MineTasks() {
 
   return (
     <Body
-      tasks={liveTasks}
+      tasks={shownTasks}
       members={team.all}
     />
   );
@@ -1272,11 +1324,15 @@ function TaskGroupRows({
       className="flex flex-col gap-1.5"
       data-testid={`mytask-group-${group.task.id}`}
     >
+      {/* ★★ fix-434: `onSelect` is passed DOWN rather than wrapped in a
+          closure here. `setSelectedId` is stable all the way from `Body`, so
+          the card's props only change when the card's own task does — which is
+          what lets the memo below actually bite. */}
       <TaskCard
         task={group.task}
         today={today}
         isSelected={selectedId === group.task.id}
-        onSelect={() => onSelect(group.task.id)}
+        onSelect={onSelect}
       />
       {group.subtasks.map((s) => (
         <TaskCard
@@ -1284,7 +1340,7 @@ function TaskGroupRows({
           task={s}
           today={today}
           isSelected={selectedId === s.id}
-          onSelect={() => onSelect(s.id)}
+          onSelect={onSelect}
           isSubtask
         />
       ))}
@@ -1292,7 +1348,20 @@ function TaskGroupRows({
   );
 }
 
-function TaskCard({
+// ★★★ fix-434 §B — MEMOISED, AND ONLY NOW THAT IT PAYS.
+//
+// Before this ticket the board barely re-rendered on a tick at all (measured:
+// one card render for ten clicks) because react-query's structural sharing made
+// ten identical refetches referentially equal — memoising then would have been
+// a fix for nothing. The optimistic overlay changes that: a tick now genuinely
+// moves the row, so without this every one of ~200 cards re-rendered on every
+// click. Measured after: 199 → 2.
+//
+// ★ It works only because of the two things next to it: `onSelect` is the same
+//   function on every render (passed down, not wrapped), and the overlay's
+//   ACTIONS context never changes identity, so a card is not woken by a
+//   sibling's click through the context it consumes.
+const TaskCard = memo(function TaskCard({
   task,
   today,
   isSelected,
@@ -1305,10 +1374,13 @@ function TaskCard({
   task: Task;
   today: string;
   isSelected: boolean;
-  onSelect: () => void;
+  onSelect: (id: string) => void;
   isSubtask?: boolean;
 }) {
-  const upsert = useUpsertTask();
+  // ★★★ fix-434 §A2: ONE write path, two entry points. The checkbox and the
+  // chip below both go through this — same payload, same RPC, same audit
+  // trigger, same optimistic layer. See hooks/useSetTaskStatus.
+  const { setStatus, advance } = useSetTaskStatus();
   const overdue = isOverdue(task, today);
   const visual = checkboxVisual(task.status);
   // ★★ fix-364 §2: WHICH permit, when the address and type do not say. Read
@@ -1325,32 +1397,26 @@ function TaskCard({
   // through the detail-pane status dropdown. Both controls share the same
   // transition rules via taskStatus.ts; the done/done_at write-path
   // unification is enforced by the bp_trg_task_done_at DB trigger.
+  //
+  // ★★★ fix-434 (P-065): the transition is computed from the OPTIMISTIC current
+  // status, not from `task.status`. Ten clicks in one React batch produce no
+  // re-render between them, so the old handler read the same stale 'Open' ten
+  // times and sent 'In Progress' ten times — measured, and the reason three
+  // fast clicks landed on In Progress instead of Resolved.
   function advanceStatus(e: React.MouseEvent) {
     e.stopPropagation();
-    const next = nextCheckboxStatus(task.status);
-    if (!next) return; // Resolved is terminal on the checkbox
-    upsert.mutate({
-      id: task.id,
-      permitId: task.permit_id,
-      parentTaskId: task.parent_task_id,
-      discipline: task.discipline,
-      bucket: task.bucket,
-      text: task.text,
-      status: writableStatus(next),
-      startDate: task.start_date,
-      targetDate: task.target_date,
-    });
+    advance(task);
   }
 
   return (
     <div
       role="button"
       tabIndex={0}
-      onClick={onSelect}
+      onClick={() => onSelect(task.id)}
       onKeyDown={(e) => {
         if (e.key === 'Enter' || e.key === ' ') {
           e.preventDefault();
-          onSelect();
+          onSelect(task.id);
         }
       }}
       className="rounded border px-2 py-1.5 cursor-pointer text-[12px]"
@@ -1476,16 +1542,17 @@ function TaskCard({
             ) : null}
           </span>
         )}
-        <span
-          className="text-[9px] px-1.5 py-0.5 rounded font-bold"
-          style={{
-            background: STATUS_BG[task.status],
-            color: 'var(--color-text)',
-          }}
-          data-testid={`mytask-card-${task.id}-status`}
-        >
-          {task.status === 'Open' ? 'Not Started' : task.status}
-        </span>
+        {/* ★★★ fix-434 §A (P-063) — this chip used to be a <span>. Bobby:
+            "being able to just mark something off as Resolved, Resolved,
+            Resolved". It offers the trio in place — no dialog, no navigation,
+            nothing that could cost the scroll position — and writes through
+            exactly the path the checkbox two lines up uses. */}
+        <TaskStatusChip
+          taskId={task.id}
+          status={task.status}
+          background={STATUS_BG[task.status]}
+          onSelect={(next) => setStatus(task, next)}
+        />
         {/* ★★ fix-308b #44: an unassigned OPEN task says so, here, where the
             densest population of them surfaces. 316 of 501 open tasks have no
             assignee — Bobby's rule is "a task is always owned by somebody", so
@@ -1512,7 +1579,7 @@ function TaskCard({
       </div>
     </div>
   );
-}
+});
 
 // ============================================================
 // fix-138-c: v1-parity Task Detail panel
