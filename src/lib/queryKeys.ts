@@ -215,6 +215,13 @@ export const queryKeys = {
   // lagged the list it describes would be a new way to disagree.
   scraperActivitySummary: (tenantId: string, days: number) =>
     ['scraper_activity', tenantId, { days, summary: true }] as const,
+  // ★★ fix-433: "when did a scrape last write anything?" — one indexed row,
+  // read straight from audit_log rather than through the feed RPC. Under the
+  // SAME `scraper_activity` prefix for the same reason as the summary above:
+  // REALTIME_TABLES.audit_log already invalidates this prefix, so a run landing
+  // takes the "no scrape today" banner down without a poll.
+  lastScrapeAt: (tenantId: string) =>
+    ['scraper_activity', tenantId, 'last_scrape_at'] as const,
   // fix-31: per-reviewer status table.
   permitCycleReviewers: (tenantId: string) =>
     ['permit_cycle_reviewers', tenantId] as const,
