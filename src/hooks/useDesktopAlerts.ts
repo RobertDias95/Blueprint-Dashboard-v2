@@ -49,6 +49,65 @@ function applyBadge(count: number): void {
   }
 }
 
+// ===========================================================================
+// ★★★ fix-432 — THE BELL SAID 2 AND THE TASKBAR SAID 35
+// ===========================================================================
+//
+// Miles, 2026-08-26, with a screenshot of both at once. Bobby ruled the bell
+// canonical: *"what the notification bell says is what the app should
+// display."*
+//
+// ---------------------------------------------------------------------------
+// ★★★ THE DIAGNOSIS, AND IT FALSIFIES THE OBVIOUS EXPLANATION
+// ---------------------------------------------------------------------------
+//
+// The brief's leading hypothesis was a badge counting raw audit rows over a
+// wide window against a bell counting grouped-and-unread items — 782 flip rows
+// in 14 days would make 35 against 2 look inevitable. **It is not what is
+// happening, and there is no second count anywhere in the app.**
+//
+//   the bell    BoardBell.tsx:168   `const actionable = unseen.length`
+//   the badge   this file           `applyBadge(unseenCount)`
+//                                   useBoardNotifications: `unseenCount: unseen.length`
+//
+// ONE hook, ONE array, ONE `.length`. SCOPE A1 was already true — fix-369 built
+// it that way and this file's own header says so. Nothing here computes a key,
+// so fix-430's new `flip:<project>:<run>` generation cannot have stranded it
+// either.
+//
+// ★★★ THE BUG IS NOT WHAT IS COUNTED. IT IS THAT THE OS KEEPS THE LAST NUMBER
+// IT WAS PUSHED, FOREVER, AND ALMOST NOTHING EVER PUSHES A NEW ONE.
+//
+// `setAppBadge` writes to the operating system, not to a React tree. It
+// survives the tab closing, the app closing, and signing out. And the only
+// thing that pushed a new value was an effect keyed on `[unseenCount,
+// isLoading]`, which:
+//
+//   1. NEVER RAN AFTER SIGN-OUT OR CLOSE. The driver is mounted in Chrome,
+//      which lives inside AuthGuard, so signing out unmounts it and leaves
+//      whatever number was last showing on the taskbar permanently.
+//   2. NEVER RE-ASSERTED ITSELF ON RETURN. `refetchOnWindowFocus` is false
+//      globally (App.tsx:136) and a backgrounded installed app's timers are
+//      FROZEN (measured in fix-424, from fix-371 §1). So a window that comes
+//      back to a changed world refetches nothing, `unseenCount` does not
+//      change, the effect does not re-run, and the stale OS value stands.
+//
+// ★★ SO THE WRONG NUMBER WAS THE BADGE — 35 is a true count of some earlier
+// moment, still on screen. The bell's 2 is live. **The bell is not hiding
+// anything, so SCOPE B is not triggered and its filter is untouched.**
+//
+// ★ The fix is therefore about WHEN the number is pushed, never about what it
+//   is: re-assert on every return to the window, and clear on the way out.
+
+/** ★ Push the badge again whenever somebody comes back to the window.
+ *
+ *  ★★ TWO EVENTS, NOT ONE — fix-424's finding, and it cost that ticket the
+ *  whole ticket. `visibilitychange` fires when a tab is switched to or an
+ *  installed app is restored; it does NOT fire when a window that was already
+ *  on screen is merely clicked into, which is a second monitor. They cover
+ *  different surfaces and a stale badge needs both. */
+const RETURN_EVENTS = ['visibilitychange', 'focus'] as const;
+
 export interface DesktopAlertsState {
   /** What the taskbar was last asked to show. Exposed for the test, and for
    *  the control, which says the count out loud so a person can see the badge
@@ -118,7 +177,35 @@ export function useDesktopAlerts(): DesktopAlertsState {
   useEffect(() => {
     if (isLoading) return;
     applyBadge(unseenCount);
+    // ★★★ AND AGAIN ON EVERY RETURN. Without this the OS keeps the last number
+    //     it was pushed while the app was frozen or closed — which is exactly
+    //     what Miles photographed. Re-pushing the SAME value is free and
+    //     idempotent; the alternative is a badge that is only ever correct at
+    //     the instant the count happens to change.
+    const reassert = () => {
+      if (document.visibilityState === 'visible') applyBadge(unseenCount);
+    };
+    for (const evt of RETURN_EVENTS) {
+      const t: EventTarget = evt === 'focus' ? window : document;
+      t.addEventListener(evt, reassert);
+    }
+    return () => {
+      for (const evt of RETURN_EVENTS) {
+        const t: EventTarget = evt === 'focus' ? window : document;
+        t.removeEventListener(evt, reassert);
+      }
+    };
   }, [unseenCount, isLoading]);
+
+  // ★★★ AND IT CLEARS ON THE WAY OUT (SCOPE A2). This driver is mounted in
+  //     Chrome, which lives inside AuthGuard — so signing out unmounts it, and
+  //     before fix-432 that left the last count sitting on the taskbar of a
+  //     machine nobody is signed in on. A badge that outlives its session is
+  //     not a stale number, it is somebody else's number.
+  //
+  // ★ Its own effect with an empty dependency list, so it fires ONLY at true
+  //   unmount and never on a count change.
+  useEffect(() => () => applyBadge(0), []);
 
   return { badge: isLoading ? 0 : unseenCount };
 }
