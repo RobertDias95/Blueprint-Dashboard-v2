@@ -1,3 +1,7 @@
+// ★ fix-441 §D (P-091): one chipStyle, in lib/chipStyle. `'bg'` is
+//   THIS file's inactive tint — the four originals were two different
+//   implementations, not one repeated. See the note there.
+import { chipStyle } from '../lib/chipStyle';
 import { useEffect, useMemo, useState } from 'react';
 import OriginLink from '../components/OriginLink';
 import NewProjectWizard from '../components/NewProjectWizard';
@@ -380,7 +384,7 @@ function FilterRow({
         type="button"
         onClick={() => onActiveChange(!activeOnly)}
         className="text-[11px] px-3 py-1 rounded border font-bold"
-        style={chipStyle(activeOnly)}
+        style={chipStyle(activeOnly, 'bg')}
         data-testid="project-view-active-toggle"
         aria-pressed={activeOnly}
         title="Active only — hide fully-issued (done) projects"
@@ -418,7 +422,7 @@ function FilterRow({
                 });
               }}
               className="text-[11px] px-2 py-0.5 rounded border"
-              style={chipStyle(on)}
+              style={chipStyle(on, 'bg')}
               data-testid={`project-view-stage-chip-${s}`}
             >
               {STAGE_LABEL[s]}
@@ -459,7 +463,7 @@ function FilterRow({
         type="button"
         onClick={onReset}
         className="text-[11px] px-2 py-1 rounded border"
-        style={chipStyle(false)}
+        style={chipStyle(false, 'bg')}
         data-testid="project-view-filter-reset"
       >
         {/* ★ fix-428: the label is Bobby's word; the id is unchanged. */}
@@ -795,12 +799,5 @@ function chipBg() {
     background: 'var(--color-bg)',
     border: '1px solid var(--color-border)',
     color: 'var(--color-text)',
-  };
-}
-function chipStyle(active: boolean) {
-  return {
-    borderColor: active ? 'var(--color-de)' : 'var(--color-border)',
-    background: active ? 'var(--color-de)' : 'var(--color-bg)',
-    color: active ? '#fff' : 'var(--color-text)',
   };
 }

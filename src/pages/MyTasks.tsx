@@ -1,3 +1,7 @@
+// ★ fix-441 §D (P-091): one chipStyle, in lib/chipStyle. `'bg'` is
+//   THIS file's inactive tint — the four originals were two different
+//   implementations, not one repeated. See the note there.
+import { chipStyle } from '../lib/chipStyle';
 import { usePermits } from '../hooks/usePermits';
 import { taskPermitSuffix } from '../lib/permitDiscriminator';
 import { nestSubtasks, type TaskGroup } from '../lib/taskNesting';
@@ -237,7 +241,7 @@ function ViewSwitcher({
         type="button"
         onClick={() => onChange('mine')}
         className="text-[11px] px-3 py-1 rounded border font-bold"
-        style={chipStyle(view === 'mine')}
+        style={chipStyle(view === 'mine', 'bg')}
         data-testid="my-tasks-view-mine"
         aria-pressed={view === 'mine'}
       >
@@ -247,7 +251,7 @@ function ViewSwitcher({
         type="button"
         onClick={() => onChange('waiting-on')}
         className="text-[11px] px-3 py-1 rounded border font-bold"
-        style={chipStyle(view === 'waiting-on')}
+        style={chipStyle(view === 'waiting-on', 'bg')}
         data-testid="my-tasks-view-waiting-on"
         aria-pressed={view === 'waiting-on'}
       >
@@ -872,7 +876,7 @@ function FilterRow({
             type="button"
             onClick={() => onPatch({ quickRole: r })}
             className="text-[11px] px-2 py-0.5 rounded border"
-            style={chipStyle(filters.quickRole === r)}
+            style={chipStyle(filters.quickRole === r, 'bg')}
             data-testid={`mytasks-filter-allroles-${r}`}
           >
             {r === 'all'
@@ -968,7 +972,7 @@ function FilterRow({
         type="button"
         onClick={onReset}
         className="text-[11px] px-2 py-1 rounded border ml-auto"
-        style={chipStyle(false)}
+        style={chipStyle(false, 'bg')}
         data-testid="mytasks-filter-reset"
       >
         {/* ★ fix-428: the label is Bobby's word; the id is unchanged. The
@@ -1056,7 +1060,7 @@ function Toggle({
       type="button"
       onClick={onToggle}
       className="text-[11px] px-2 py-1 rounded border"
-      style={chipStyle(on)}
+      style={chipStyle(on, 'bg')}
       data-testid={testid}
       data-on={on ? 'true' : 'false'}
       aria-pressed={on}
@@ -1671,13 +1675,6 @@ function chipBg() {
     background: 'var(--color-bg)',
     border: '1px solid var(--color-border)',
     color: 'var(--color-text)',
-  };
-}
-function chipStyle(active: boolean) {
-  return {
-    borderColor: active ? 'var(--color-de)' : 'var(--color-border)',
-    background: active ? 'var(--color-de)' : 'var(--color-bg)',
-    color: active ? '#fff' : 'var(--color-text)',
   };
 }
 

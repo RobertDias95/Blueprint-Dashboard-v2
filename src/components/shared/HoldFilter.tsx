@@ -1,3 +1,7 @@
+// ★ fix-441 §D (P-091): one chipStyle, in lib/chipStyle. `'surface'` is
+//   THIS file's inactive tint — the four originals were two different
+//   implementations, not one repeated. See the note there.
+import { chipStyle } from '../../lib/chipStyle';
 import type { HoldFilterMode } from '../../lib/holdFilter';
 
 // fix-178: shared three-way hold filter (All / Only holds / Exclude holds) used
@@ -32,7 +36,7 @@ export default function HoldFilter({
           type="button"
           onClick={() => onChange(o.mode)}
           className="text-[11px] px-3 py-1 rounded border font-bold"
-          style={chipStyle(mode === o.mode)}
+          style={chipStyle(mode === o.mode, 'surface')}
           data-testid={`${testid}-${o.mode}`}
           aria-pressed={mode === o.mode}
         >
@@ -43,16 +47,3 @@ export default function HoldFilter({
   );
 }
 
-function chipStyle(active: boolean): React.CSSProperties {
-  return active
-    ? {
-        background: 'var(--color-de)',
-        borderColor: 'var(--color-de)',
-        color: 'white',
-      }
-    : {
-        background: 'var(--color-surface)',
-        borderColor: 'var(--color-border)',
-        color: 'var(--color-text)',
-      };
-}

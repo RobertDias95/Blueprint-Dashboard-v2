@@ -34,6 +34,32 @@ export default {
         // ★ fix-357: error. The red the app already used twice, finally named —
         // see the note in index.css for why `co` was standing in for it.
         er: { DEFAULT: '#dc2626', bg: '#fee2e2', border: '#fca5a5' },
+        // ★★★ fix-441 §A (P-002): `wa` and `ok` were used by nine class names
+        // across five files and were never colours. They are ALIASES now — see
+        // the long note in index.css for the measured contrasts and for why the
+        // ink is darkened while the tint and border are bound to co / pm.
+        //
+        // ★★ THESE POINT AT THE CSS VARIABLES rather than repeating the hexes,
+        // which is a deliberate departure from `de` / `pm` / `co` above. Those
+        // are DISTINCT colours that happen to be written twice; `wa` IS
+        // Corrections amber and `ok` IS Permitting green, and a second copy of
+        // the hex is exactly how they would come apart the day somebody edits
+        // one of them. The variables are defined in index.css :root, which is
+        // loaded before any component renders.
+        //
+        // ★ No `<alpha-value>` placeholder: no site uses an opacity modifier
+        //   (`bg-wa-bg/50`), and adding one would mean re-stating the hexes as
+        //   channel triples — the duplication this avoids.
+        wa: {
+          DEFAULT: 'var(--color-wa)',
+          bg: 'var(--color-wa-bg)',
+          border: 'var(--color-wa-border)',
+        },
+        ok: {
+          DEFAULT: 'var(--color-ok)',
+          bg: 'var(--color-ok-bg)',
+          border: 'var(--color-ok-border)',
+        },
 
         // Role tints
         ent: '#0284c7',

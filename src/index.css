@@ -50,6 +50,54 @@
      a #b91c1c fallback and never defined anywhere — a fourth red that only ever
      renders as its own fallback. Left alone here (a different surface, and not
      this ticket), but it is the reason this token exists rather than a fifth. */
+  /* =====================================================================
+     ★★★ fix-441 §A (P-002) — `wa` AND `ok` EXISTED IN THE CODE AND NOWHERE ELSE
+     =====================================================================
+
+     fix-406 found `--color-ok` read by the Library's site chip and defined
+     nowhere; fix-407 found `--color-wa` in the same state and fixed BOTH — but
+     only inside `planOfRecord`, by rewriting those chips to read `co`/`pm`
+     directly. Eight further sites were still reading the dead names. An
+     undefined custom property with no fallback makes the whole declaration
+     invalid at computed-value time, so every one of them rendered with no
+     background and inherited ink.
+
+     Bobby, 2026-08-29: *"wa = the EXISTING Corrections amber, not a new
+     colour — the same call fix-407 made."* So these are ALIASES, not a new
+     palette: the tint and the border ARE `co`'s and `pm`'s, by reference, so a
+     future edit to Corrections amber cannot leave `wa` behind.
+
+     ★★★ THE INK IS DARKENED, AND THAT IS ALSO "the same call fix-407 made".
+     fix-406's rule — carried verbatim in planOfRecord.ts — is *"darken the hue
+     toward --color-text until the ink clears 4.5:1 on its own tint, measured —
+     never trust the raw token."* Measured here:
+
+         raw --color-co  #d97706 on --color-co-bg  #fef3c7   2.86:1   FAIL
+         raw --color-pm  #059669 on --color-pm-bg  #d1fae5   3.32:1   FAIL
+
+     So the ink is fix-407's own recipe, CHIP_INK_HUE_PCT = 65 (65% hue + 35%
+     `--color-text`), which is exactly what it used for the `marketing` chip on
+     this same amber:
+
+         #965a1a on #fef3c7   5.00:1   ·  on white 5.56  ·  on --color-bg 5.03
+         #0c6e5b on #d1fae5   5.45:1   ·  on white 6.18  ·  on --color-bg 5.59
+
+     ★ Stated as resolved hexes rather than `color-mix()`, for planOfRecord's
+       reason: a stylesheet expression cannot be measured, and these are exactly
+       the numbers the note above quotes. `--color-co` and `--color-pm`
+       themselves are untouched — this ticket may not move a palette value.
+
+     ★★ THE TINT AND BORDER ARE `var()` REFERENCES AND THE INK IS NOT, and the
+     asymmetry is the point: the two that must never drift from Corrections are
+     bound to it, and the one that must clear a measured threshold is pinned to
+     the number that clears it. */
+  --color-wa:        #965a1a;
+  --color-wa-bg:     var(--color-co-bg);
+  --color-wa-border: var(--color-co-border);
+  --color-ok:        #0c6e5b;
+  --color-ok-bg:     var(--color-pm-bg);
+  --color-ok-border: var(--color-pm-border);
+
   --color-er:        #dc2626;
   --color-er-bg:     #fee2e2;
   --color-er-border: #fca5a5;

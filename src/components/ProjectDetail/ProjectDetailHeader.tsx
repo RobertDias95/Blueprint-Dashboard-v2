@@ -260,7 +260,34 @@ export default function ProjectDetailHeader({
         <div {...{ [OVERVIEW_CELL_ATTR]: 'por' }} style={{ gridArea: 'por', height: '100%' }}>
           <PlanOfRecordCard projectId={project.id} />
         </div>
-        <div {...{ [OVERVIEW_CELL_ATTR]: 'builder' }} style={{ gridArea: 'builder', height: '100%' }}>
+        {/* ★★★ fix-441 §B (P-019) — BUILDER/OWNER MAY BE SHORTER THAN THE ROW.
+            Bobby, 2026-08-29: this card is allowed to stop at its own content.
+
+            ★★★ WHAT WAS FORCING ITS HEIGHT, and it was two things agreeing.
+            Every cell here is a grid item with `height: '100%'`, and a grid
+            item's default `align-self` is `stretch` — so the item filled the
+            row and OverviewCard's own `h-full` (fix-309 #55) filled the item.
+            The row height is a MAX over its cells (fix-423), and this card has
+            the least to say of the five, so it was carrying the most empty
+            space.
+
+            ★★ `alignSelf: 'start'` AND dropping `height: '100%'`, together.
+            Either alone does nothing: with `stretch` the height is imposed by
+            the grid whatever the inline style says, and with `start` but
+            `height: 100%` the percentage resolves against the row box and
+            stretches it back. The card's own `h-full` then resolves against an
+            auto-height parent, which is `auto` — exactly the case fix-309's
+            comment already anticipated ("outside a stretched grid the parent
+            has auto height, so height:100% resolves to auto").
+
+            ★ ONE CELL ONLY. No track, no floor, no template changes — Team,
+            Project, Milestones and Plan of Record keep fix-417/423's
+            proportions untouched, and the row still takes its height from the
+            tallest of them. */}
+        <div
+          {...{ [OVERVIEW_CELL_ATTR]: 'builder' }}
+          style={{ gridArea: 'builder', alignSelf: 'start' }}
+        >
           <BuilderOwnerCell project={project} />
         </div>
       </div>
