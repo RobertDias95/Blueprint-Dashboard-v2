@@ -260,7 +260,13 @@ import LibraryMatrix from '../components/LibraryMatrix';
 beforeEach(() => {
   updateMutateAsync.mockReset();
   updateMutateAsync.mockResolvedValue({ id: 'a', updated_at: '2026-06-25T11:00:00Z' });
-  appConfigMap.current = new Map<string, unknown>();
+  // ★ fix-449 §C: the canonical product-type registry, so the off-list mark
+  //   has something to judge against. An EMPTY map means "registry not loaded"
+  //   and marks nothing, deliberately — otherwise every row would wear a
+  //   warning for the frame before app_config arrives.
+  appConfigMap.current = new Map<string, unknown>([
+    ['productTypeOptions', ['SFR', 'Cottages', 'Duplex', 'Condo', 'ADU', 'DADU', 'SFR+ADU', 'Remodel']],
+  ]);
   useAuthStore.setState({
     activeTenantId: T,
     memberships: [{ tenant_id: T, role: 'admin' }],
@@ -411,11 +417,12 @@ describe('<LibraryMatrix />', () => {
     goUnitView();
     const miniTable = screen.getByTestId('library-table-unit');
     expect(miniTable).toBeInTheDocument();
-    // fix-206 cells are editable; fix-212: project a is single-type (SFR), so the
-    // Label is a product-type dropdown showing the type (overriding "Cottage N").
+    // ★★★ fix-449 §C: project a is single-type (SFR) and its rows carry
+    //     legacy "Cottage N" labels. fix-212 displayed "SFR" over them; the
+    //     ruling is that the stored value is shown, and marked.
     expect(
       (screen.getByTestId('library-unit-a-0-label') as HTMLSelectElement).value,
-    ).toBe('SFR');
+    ).toBe('Cottage 1');
     expect(
       (screen.getByTestId('library-unit-a-0-w') as HTMLInputElement).value,
     ).toBe('25');
@@ -424,10 +431,10 @@ describe('<LibraryMatrix />', () => {
     ).toBe('60');
     expect(
       (screen.getByTestId('library-unit-a-1-label') as HTMLSelectElement).value,
-    ).toBe('SFR');
+    ).toBe('Cottage 2');
     expect(
       (screen.getByTestId('library-unit-a-2-label') as HTMLSelectElement).value,
-    ).toBe('SFR');
+    ).toBe('Cottage 3');
   });
 
   it('projects with no unit_types do not render an expand caret', () => {
@@ -530,6 +537,8 @@ describe('<LibraryMatrix />', () => {
       const labelSelect = screen.getByTestId(
         'library-unit-a-3-label',
       ) as HTMLSelectElement;
+      // ★ fix-449 keeps fix-212's half that is about ABSENCE: a BLANK label
+      //   still fills from the project's lone type. a-3 stores ''.
       expect(labelSelect.value).toBe('SFR');
       expect(
         screen.getByTestId('library-unit-row-a-3').textContent,
@@ -587,9 +596,10 @@ describe('<LibraryMatrix />', () => {
       expect(call.expectedUpdatedAt).toBe('2026-06-25T10:00:00Z');
       // Decimal persists; the edited row carries the new width.
       expect(call.patch.unit_types[0].width_ft).toBe(27.5);
-      // fix-212: project a is single-type (SFR) → resolveUnitTypesForSave makes
-      // every row's label the type, overriding the legacy "Cottage N".
-      expect(call.patch.unit_types[0].label).toBe('SFR');
+      // ★★★ fix-449: the save path no longer rewrites a stored label. This is
+      //     the path that would have written "SFR" over prod's ten
+      //     "Type A"/"Type B" rows the first time anybody typed a width.
+      expect(call.patch.unit_types[0].label).toBe('Cottage 1');
       expect(call.patch.unit_types).toHaveLength(4);
     });
 
@@ -625,13 +635,12 @@ describe('<LibraryMatrix />', () => {
 
     it('fix-212: single-product-type project renders the Label dropdown auto-selected to the type', () => {
       // Project a has the single product type SFR → a product-type dropdown with
-      // the type auto-selected (overriding "Cottage N"), parity with Project
-      // Overview. Multi-type rules are covered below + the shared
-      // resolveUnitLabel tests + ProjectDetailHeaderFix205.
+      // ★ fix-449: still a SELECT (fix-232's dropdown-only rule is untouched);
+      //   what changed is that it shows the stored value rather than the type.
       expandA();
       const label = screen.getByTestId('library-unit-a-0-label');
       expect(label.tagName.toLowerCase()).toBe('select');
-      expect((label as HTMLSelectElement).value).toBe('SFR');
+      expect((label as HTMLSelectElement).value).toBe('Cottage 1');
     });
   });
 
@@ -647,21 +656,27 @@ describe('<LibraryMatrix />', () => {
       goUnitView();
     }
 
-    it('multi-product-type project renders a <select> whose options are EXACTLY the product types', () => {
-      expandB(); // project b → product_types ['SFR', 'Duplex']
+    it('fix-209 → fix-449: the options carry the STORED value and "Other…"', () => {
+      expandB(); // project b → product_types ['SFR', 'Duplex'], label "SFR 1"
       const select = screen.getByTestId('library-unit-b-0-label') as HTMLSelectElement;
       expect(select.tagName.toLowerCase()).toBe('select');
       const opts = Array.from(select.options).map((o) => o.value);
-      expect(opts).toEqual(['', 'SFR', 'Duplex']); // placeholder + the two types
+      // ★★ fix-415's append rule: a control must be able to display what it
+      //    holds, and "Other…" is how a new off-list value is entered on
+      //    purpose (§C1).
+      expect(opts).toEqual(['', 'SFR', 'Duplex', 'SFR 1', '__other__']);
     });
 
-    it('a non-type stored label ("SFR 1") shows the select UNSELECTED (Pick type…)', () => {
+    it('fix-209 → fix-449: a non-type stored label is SELECTED and MARKED', () => {
       expandB();
       const select = screen.getByTestId('library-unit-b-0-label') as HTMLSelectElement;
-      expect(select.value).toBe('');
+      expect(select.value).toBe('SFR 1');
+      expect(
+        screen.getByTestId('library-unit-b-0-offlist'),
+      ).toBeInTheDocument();
     });
 
-    it('saving an UNPICKED multi-type row (dimension edited) persists "" for the label', () => {
+    it('fix-209 → fix-449: editing a DIMENSION leaves the label alone', () => {
       expandB();
       const wInput = screen.getByTestId('library-unit-b-0-w') as HTMLInputElement;
       fireEvent.change(wInput, { target: { value: '41' } });
@@ -669,7 +684,7 @@ describe('<LibraryMatrix />', () => {
       expect(updateMutateAsync).toHaveBeenCalledTimes(1);
       const row = updateMutateAsync.mock.calls[0][0].patch.unit_types[0];
       expect(row.width_ft).toBe(41);
-      expect(row.label).toBe(''); // legacy "SFR 1" never was a product type
+      expect(row.label).toBe('SFR 1');
     });
 
     it('Qty + Sty use the narrow w-7 class; W/D keep w-12', () => {

@@ -37,7 +37,10 @@ import {
   type StallsTier,
 } from '../lib/unitParking';
 import {
+  OTHER_UNIT_LABEL,
+  isOffListUnitLabel,
   resolveUnitLabel,
+  unitLabelOptions,
   resolveUnitTypesForSave,
 } from '../lib/unitTypeNaming';
 
@@ -784,6 +787,7 @@ function Body({ projects, permits }: BodyProps) {
                 projectId={u.project.projectId}
                 index={u.index}
                 productTypes={u.project.productTypes}
+                registryTypes={productTypeOptions}
                 disabled={!u.project.updatedAt}
                 matched={
                   unitFilterActive &&
@@ -1159,11 +1163,31 @@ function Row({ row }: RowProps) {
 // fix-205 matched-highlight + testids. The fix-73/98 dirty-flag prop sync keeps
 // a mid-typed value from being clobbered by an external cache refresh (the
 // optimistic projects-cache patch from this or the Project Overview editor).
+/** ★★ fix-449 §C — THE MARK. Small, beside the value, never instead of it.
+ *
+ *  fix-415's rule made visible: a stored value the registry does not offer is
+ *  SHOWN, and told on. It is a superscript-weight chip rather than a warning
+ *  colour — 22 of 235 unit rows carry one, and 22 amber badges would read as
+ *  22 errors rather than 22 things worth a ruling. */
+function OffListMark({ testid }: { testid: string }) {
+  return (
+    <span
+      className="ml-1 text-[8px] px-1 py-px rounded font-bold uppercase tracking-wide align-middle"
+      style={{ background: 'var(--color-s2)', color: 'var(--color-muted)' }}
+      title="Not in the product-type list — kept exactly as stored"
+      data-testid={testid}
+    >
+      not in list
+    </span>
+  );
+}
+
 function LibraryUnitRow({
   row,
   projectId,
   index,
   productTypes,
+  registryTypes,
   disabled,
   matched,
   onChange,
@@ -1174,6 +1198,10 @@ function LibraryUnitRow({
   projectId: string;
   index: number;
   productTypes: string[];
+  /** ★ fix-449 §C: the CANONICAL product-type registry
+   *  (app_config.productTypeOptions), for the off-list mark. Distinct from
+   *  `productTypes`, which is this PROJECT's chosen subset. */
+  registryTypes: string[];
   disabled: boolean;
   matched: boolean;
   // ★ fix-402 widened this: roof_deck is a BOOLEAN, and a value type that
@@ -1226,6 +1254,9 @@ function LibraryUnitRow({
   // EXACTLY ONE type it's always that type, overriding a legacy custom.
   const hasProductTypes = productTypes.length >= 1;
   const selectValue = resolveUnitLabel(label, productTypes);
+  // ★ fix-449 §C: judged against the CANONICAL registry, not this project's
+  //   own product types — "off list" means the app does not offer it anywhere.
+  const offList = isOffListUnitLabel(selectValue, registryTypes);
 
   const idBase = `library-unit-${projectId}-${index}`;
   const numClass =
@@ -1241,13 +1272,26 @@ function LibraryUnitRow({
       className={matched ? 'bg-de-bg/40 border-l-2 border-de' : ''}
     >
       {leading}
-      <td className="px-2 py-0.5 font-mono text-text">
+      <td className="px-2 py-0.5 font-mono text-text whitespace-nowrap">
         {hasProductTypes ? (
+          <>
           <select
             value={selectValue}
             disabled={disabled}
             onChange={(e) => {
               const v = e.target.value;
+              // ★★★ fix-449 §C1: "Other…" is how an off-list label is entered
+              //     — a deliberate act, never a typo that slips through.
+              if (v === OTHER_UNIT_LABEL) {
+                const typed = window.prompt('Unit type label', label);
+                if (typed === null) return;
+                const next = typed.trim();
+                dirtyRef.current = true;
+                setLabel(next);
+                if (next !== row.label) onChange('label', next);
+                dirtyRef.current = false;
+                return;
+              }
               dirtyRef.current = true;
               setLabel(v);
               if (v !== row.label) onChange('label', v);
@@ -1257,12 +1301,17 @@ function LibraryUnitRow({
             data-testid={`${idBase}-label`}
           >
             <option value="">Pick type…</option>
-            {productTypes.map((t) => (
+            {/* ★★ The stored value is in the list when it is off-list, so the
+                control DISPLAYS what it holds instead of blanking it. */}
+            {unitLabelOptions(productTypes, selectValue).map((t) => (
               <option key={t} value={t}>
                 {t}
               </option>
             ))}
+            <option value={OTHER_UNIT_LABEL}>Other…</option>
           </select>
+          {offList && <OffListMark testid={`${idBase}-offlist`} />}
+          </>
         ) : (
           <input
             type="text"

@@ -27,7 +27,15 @@ vi.mock('../hooks/useSetBpDdDates', () => ({
   useSetBpDdDates: () => ({ mutateAsync: vi.fn(), isPending: false }),
 }));
 vi.mock('../hooks/useAppConfig', () => ({
-  useAppConfig: () => ({ map: new Map() }),
+  // ★ fix-449 §C: the CANONICAL product-type registry, so the off-list mark
+  //   has something to judge against. An empty map means "registry not loaded"
+  //   and marks nothing — deliberately, or every row would wear a warning for
+  //   the frame before app_config arrives.
+  useAppConfig: () => ({
+    map: new Map<string, unknown>([
+      ['productTypeOptions', ['SFR', 'Cottages', 'Duplex', 'Condo', 'ADU', 'DADU', 'SFR+ADU', 'Remodel']],
+    ]),
+  }),
   readConsultantTypes: () => [] as { type: string; firms: string[] }[],
 }));
 vi.mock('../stores/toastStore', () => ({ pushToast: vi.fn() }));
@@ -130,37 +138,57 @@ describe('fix-205: per-row Stories', () => {
   });
 });
 
-describe('fix-209: Label = product-type-ONLY dropdown', () => {
-  it('options are EXACTLY the product types (plus a "Pick type…" placeholder) — no legacy/custom values', () => {
+// ===========================================================================
+// ★★★ fix-449 §C (P-077) INVERTS fix-209 AND HALF OF fix-212 — BY RULING.
+// ===========================================================================
+//
+// Both handled a stored label the app did not recognise, and both hid it:
+// fix-209 blanked it on a multi-type project, fix-212 substituted the lone type
+// on a single-type one. Neither showed the person what the row actually held,
+// and `resolveUnitTypesForSave` meant editing any OTHER field wrote the
+// substitute over the original.
+//
+// Bobby (P-077, inheriting fix-415's rule): an off-list value is SHOWN as
+// off-list, never silently vanished or rewritten. 22 of prod's 235 unit rows
+// carry one, and "Type A–D" read like per-project unit NAMES — his ruling to
+// make, not this dropdown's.
+describe('fix-209 → fix-449: the Label dropdown SHOWS an off-list value', () => {
+  it('★★★ the stored value is IN the options, beside "Other…"', () => {
     setup({
       product_types: ['SFR', 'Duplex'],
       unit_types: NAMED_ROW, // legacy label "Type A"
     });
     const select = screen.getByTestId('pd-unit-label-select') as HTMLSelectElement;
     const opts = Array.from(select.options).map((o) => o.value);
-    // The placeholder ('') + exactly the two product types — and nothing else.
-    expect(opts).toEqual(['', 'SFR', 'Duplex']);
-    expect(opts).not.toContain('Type A');
+    // ★ fix-415's append rule: a control must be able to display what it holds.
+    expect(opts).toEqual(['', 'SFR', 'Duplex', 'Type A', '__other__']);
   });
 
-  it('a row with a non-type stored label shows the select UNSELECTED (the "Pick type…" placeholder)', () => {
+  it('★★★ …and it is SELECTED, not left on "Pick type…"', () => {
     setup({ product_types: ['SFR', 'Duplex'], unit_types: NAMED_ROW });
     const select = screen.getByTestId('pd-unit-label-select') as HTMLSelectElement;
-    // "Type A" is not a product type → nothing real is selected.
-    expect(select.value).toBe('');
+    expect(select.value).toBe('Type A');
+    // ★★ …and it says so.
+    expect(screen.getByTestId('pd-unit-label-offlist')).toBeInTheDocument();
   });
 
-  it('picking a product type from the dropdown saves it as the label', async () => {
+  it('picking a product type from the dropdown saves it as the label', () => {
     setup({ product_types: ['SFR', 'Duplex'], unit_types: NAMED_ROW });
     const select = screen.getByTestId('pd-unit-label-select') as HTMLSelectElement;
     fireEvent.change(select, { target: { value: 'Duplex' } });
-    await waitFor(() => expect(updateMutateAsync).toHaveBeenCalledTimes(1));
-    expect(updateMutateAsync.mock.calls[0][0].patch.unit_types[0].label).toBe(
-      'Duplex',
-    );
+    return waitFor(() => {
+      expect(updateMutateAsync).toHaveBeenCalledTimes(1);
+      expect(updateMutateAsync.mock.calls[0][0].patch.unit_types[0].label).toBe(
+        'Duplex',
+      );
+    });
   });
 
-  it('saving an UNPICKED multi-type row (legacy label, dimension edited) persists "" — never auto-resolves', async () => {
+  it('★★★ editing a DIMENSION no longer rewrites the label', async () => {
+    // ★★★ THE ONE THAT MATTERED MOST. `resolveUnitTypesForSave` runs on every
+    //     save, so under fix-209 typing a width blanked "Type A" ON DISK — and
+    //     under fix-212 it replaced it with the lone product type. Ten of
+    //     prod's rows ("Type A" ×5, "Type B" ×5) were one keystroke from that.
     setup({ product_types: ['SFR', 'Duplex'], unit_types: NAMED_ROW });
     const wInput = screen.getByTestId('pd-unit-w') as HTMLInputElement;
     fireEvent.change(wInput, { target: { value: '21' } });
@@ -168,15 +196,33 @@ describe('fix-209: Label = product-type-ONLY dropdown', () => {
     await waitFor(() => expect(updateMutateAsync).toHaveBeenCalledTimes(1));
     const row = updateMutateAsync.mock.calls[0][0].patch.unit_types[0];
     expect(row.width_ft).toBe(21);
-    expect(row.label).toBe(''); // "Type A" was never a product type → blanked
+    expect(row.label).toBe('Type A');
   });
 
-  it('fix-212: single product type renders the dropdown with the type auto-selected — even over a legacy label', () => {
+  it('★★★ a SINGLE product type no longer overrides a stored label either', () => {
     setup({ product_types: ['SFR'], unit_types: NAMED_ROW }); // stored "Type A"
     const select = screen.getByTestId('pd-unit-label-select') as HTMLSelectElement;
-    expect(select.value).toBe('SFR'); // authoritative, not "Type A"
+    expect(select.value).toBe('Type A');
     const opts = Array.from(select.options).map((o) => o.value);
-    expect(opts).toEqual(['', 'SFR']);
+    expect(opts).toEqual(['', 'SFR', 'Type A', '__other__']);
+  });
+
+  it('★★ fix-212\'s surviving half: a BLANK label still fills from a lone type', () => {
+    // The only case where this control may supply a value — nothing is
+    // displaced, because nothing was there.
+    // ★ TWO rows, because a lone blank-label row renders the COMPACT control
+    //   (`isCompact`), which has no label select at all.
+    setup({
+      product_types: ['SFR'],
+      unit_types: [
+        { label: '', width_ft: 20, depth_ft: 30, qty: 1 },
+        { label: 'SFR', width_ft: 22, depth_ft: 33, qty: 1 },
+      ],
+    });
+    const selects = screen.getAllByTestId('pd-unit-label-select') as HTMLSelectElement[];
+    expect(selects[0]!.value).toBe('SFR');
+    // ★ A filled blank is not off-list — nothing was displaced.
+    expect(screen.queryByTestId('pd-unit-label-offlist')).toBeNull();
   });
 });
 
@@ -254,15 +300,16 @@ describe('fix-205: "unnamed" fix on save (single product type)', () => {
     expect(row.width_ft).toBe(96);
   });
 
-  it('fix-212: a single product type OVERRIDES a legacy custom label on save → the type', async () => {
+  it('fix-212 → fix-449: a single product type no longer overrides a stored label on save', async () => {
+    // ★★★ The save-path half of the same inversion. This is the path that
+    //     would have quietly rewritten prod's ten "Type A"/"Type B" rows.
     setup({ product_types: ['SFR'], unit_types: NAMED_ROW }); // stored "Type A"
     const wInput = screen.getByTestId('pd-unit-w') as HTMLInputElement;
     fireEvent.change(wInput, { target: { value: '21' } });
     fireEvent.blur(wInput);
     await waitFor(() => expect(updateMutateAsync).toHaveBeenCalledTimes(1));
-    // The single product type is authoritative — "Type A" persists as "SFR".
     expect(updateMutateAsync.mock.calls[0][0].patch.unit_types[0].label).toBe(
-      'SFR',
+      'Type A',
     );
   });
 });

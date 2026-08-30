@@ -1023,6 +1023,7 @@ export default function Step1ProjectInfo({
         </div>
 
         <UnitTypesEditor
+          productTypeOptions={productTypeOptions}
           value={value.unit_types}
           onChange={(next: UnitType[]) => set('unit_types', next)}
         />

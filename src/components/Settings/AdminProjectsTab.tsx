@@ -15,6 +15,12 @@ import QueryError from '../QueryError';
 // this section, and the first one backed by a TABLE rather than an app_config
 // key (see hooks/useBuilderRegistry).
 import BuildersRegistryPanel from './BuildersRegistryPanel';
+import { usePermits } from '../../hooks/usePermits';
+import {
+  PERMIT_OWNER_KEY,
+  isRetiredPermitOwner,
+  permitOwnerOptions,
+} from '../../lib/permitOwnerOptions';
 
 // Q7.3.a: Settings → Projects tab. Four catalog editors:
 //   1. Jurisdictions (table) — pill list + per-row learn_window_days input
@@ -38,6 +44,21 @@ export default function AdminProjectsTab() {
   const setKey = useSetAppConfigKey();
 
   const error = jurisQ.error ?? typesQ.error ?? cfgQ.error;
+  // ★★ fix-449 §B: the registry, and what the permits actually carry. The
+  //    counts come from the app-wide permits cache — no new request.
+  //
+  // ★ ABOVE the loading/error early returns: hooks must run in the same order
+  //   on every render, and lint catches it (rules-of-hooks) — which it did.
+  const permitsQ = usePermits();
+  const ownerCounts = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const p of permitsQ.data ?? []) {
+      const v = (p.permit_owner ?? '').trim();
+      if (v) m.set(v, (m.get(v) ?? 0) + 1);
+    }
+    return m;
+  }, [permitsQ.data]);
+
   if (error) {
     return (
       <QueryError
@@ -87,6 +108,10 @@ export default function AdminProjectsTab() {
   //   written, so a fresh tenant gets a working dropdown rather than an empty
   //   one — but what this editor WRITES is always the app_config key.
   const zones = zoneOptions(cfgQ.map);
+  const permitOwners = permitOwnerOptions(cfgQ.map);
+  const offListOwners = [...ownerCounts.keys()].filter((v) =>
+    isRetiredPermitOwner(cfgQ.map, v),
+  );
   // fix-167: editable Hold Reasons list — the source for the project On-Hold
   // reason dropdown. Same app_config mechanism as Product Types / Project Tags.
   const holdReasons = readAppConfigStringArray(cfgQ.map, 'holdReasonOptions');
@@ -156,6 +181,63 @@ export default function AdminProjectsTab() {
           RPCs, an OCC token and a merge. See migrations/fix_448_builder_registry.sql. */}
       <Section title="Builders & Owners">
         <BuildersRegistryPanel readOnly={!isAdmin} />
+      </Section>
+
+      {/* ★★★ fix-449 §B (P-077) — PERMIT OWNER.
+          Bobby's rule: *"is the set of valid answers fixed? → list."* Which
+          side of the house owns a permit has three answers.
+
+          ★★★ AND THERE IS NO WRITE SURFACE FOR IT ANYWHERE IN THE APP —
+          measured on origin/main, `permits.permit_owner` has three READERS
+          (PermitCard's `ent_lead || permit_owner` fallback and two search
+          haystacks) and ZERO writers. The 158 values arrived with the import.
+          So this editor does the half that is useful today: it names the
+          vocabulary and COUNTS the permits carrying each value, including any
+          the list no longer offers. It deliberately does not invent an editing
+          surface for a field nothing currently displays as itself. */}
+      <Section title="Permit Owner">
+        <PillListEditor
+          label="Permit Owner"
+          items={permitOwners.map((o) => ({
+            key: o,
+            // ★★ The count is what makes retiring one a decision rather than a
+            //    guess — the same reason fix-448's registry shows it.
+            label: `${o}${ownerCounts.get(o) ? ` · ${ownerCounts.get(o)}` : ''}`,
+          }))}
+          onAdd={(name) => {
+            if (permitOwners.includes(name)) return;
+            setKey.mutate({
+              key: PERMIT_OWNER_KEY,
+              value: [...permitOwners, name],
+            });
+          }}
+          onRemove={(name) =>
+            setKey.mutate({
+              key: PERMIT_OWNER_KEY,
+              value: permitOwners.filter((o) => o !== name),
+            })
+          }
+          placeholder="Add permit owner…"
+          emptyState="No permit owners yet."
+          readOnly={!isAdmin}
+          testIdPrefix="permit-owner-list"
+        />
+        {/* ★★ RETIRING ONE REWRITES NOTHING (§B2). The permits keep the text
+            they carry; it simply stops being offered. This line names the ones
+            in that state so a retired value is visible here, not only on the
+            permit that holds it — fix-415's rule, applied to the editor as
+            well as to the field. */}
+        {offListOwners.length > 0 && (
+          <div
+            className="text-[11px] text-muted mt-2"
+            data-testid="permit-owner-offlist"
+          >
+            Not in the list, still on permits:{' '}
+            {offListOwners
+              .map((o) => `${o} (${ownerCounts.get(o) ?? 0})`)
+              .join(' · ')}
+          </div>
+        )}
       </Section>
 
       <Section title="Zones">
