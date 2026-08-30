@@ -1,6 +1,49 @@
 -- ===========================================================================
+-- ★★★ SUPERSEDED 2026-08-30 (fix-450). All four groups select zero against the
+-- whole unissued book: no ULS permit carries a dm or a da, and no non-ULS
+-- permit carries a dm without a da. The live derivation (`permits_derive_dm`)
+-- is what holds that shape now.
+--
+-- ★ KEPT, NOT DELETED. The four groups are the clearest statement anywhere of
+-- what "dm is derived from da" means in rows — clears, fills and corrections —
+-- and fix_379_mapping_rows still references this file by name.
+--
 -- ★★★ fix-379 §5(b) — THE BACKFILL. NOT APPLIED. AWAITING BOBBY'S APPROVAL.
 -- ===========================================================================
+--
+-- ---------------------------------------------------------------------------
+-- ★★★ RE-MEASURED 2026-08-30 (fix-450) — READ THIS FIRST
+-- ---------------------------------------------------------------------------
+--
+-- VERDICT: MOVES NOTHING. All four groups select zero.
+--
+--   GROUP A1  clear dm where no da (non-ULS)      0   — was 12
+--   GROUP A2  clear both on ULS                   0   — was 44
+--   GROUP B   fill dm from a mapped da            0   — was 61
+--   GROUP C   correct a dm the mapping contradicts 0  — was  6
+--                                                 ──      ───
+--                                                  0      123
+--
+-- ★★★ THE POPULATION IS GONE, NOT HIDDEN. Checked against the whole unissued
+-- book (272 permits — 167 non-ULS, 105 ULS): not one ULS permit carries a dm
+-- or a da, and not one non-ULS permit carries a dm without a da.
+--
+-- ★★ TWELVE unissued non-ULS permits DO still have a da and no dm — and this
+-- file would not touch them either, by its own design: their DAs have no
+-- dm_da_groups row, so `bp_dm_for_da(...) IS NOT NULL` excludes them. The file
+-- never wanted to invent a manager, and it still does not. 32 unissued non-ULS
+-- permits sit behind an unmapped DA in total.
+--
+-- ★ The trigger this file was written to follow is present and live on prod as
+--   `permits_derive_dm` (BEFORE INSERT OR UPDATE OF da, dm, type →
+--   bp_trg_permit_derive_dm). `bp_dm_gap_report()` returns 0 rows.
+--
+-- ORIGINAL MEASUREMENT: 123 rows across four groups, prod 2026-08-21.
+--
+-- ★ Measured by uncommenting THIS FILE'S OWN WHERE clause into a SELECT inside
+--   a rolled-back transaction — never a paraphrase of it. That distinction is
+--   the whole reason fix-450 exists: fix-377's "67 rows" came from a looser
+--   restatement of a predicate that actually returns 0.
 --
 -- ★★★ THIS FILE HAS NOT BEEN RUN AGAINST ANY DATABASE. Every statement below
 -- is commented out, and a test asserts that it still is.

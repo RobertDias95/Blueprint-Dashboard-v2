@@ -2,6 +2,40 @@
 -- ★★★ fix-368 §5 — THE BACKFILL. NOT APPLIED. AWAITING BOBBY'S APPROVAL.
 -- ===========================================================================
 --
+-- ---------------------------------------------------------------------------
+-- ★★★ RE-MEASURED 2026-08-30 (fix-450) — READ THIS FIRST
+-- ---------------------------------------------------------------------------
+--
+-- VERDICT: MOVES ROWS — but ONE, not twenty.
+--
+--   predicate selects        15 task/manager pairs
+--   ON CONFLICT would skip   14  (they already exist in permit_task_assignees)
+--   would actually INSERT     1
+--
+--   Cam    233 31st Ave E       → Lindsay    4  · already present
+--   Cam    4017 Corliss Ave N   → Brittani   3  · already present
+--   Cam    4137 54th Ave SW     → Jade       4  · already present
+--   Cam    554 N 75th St        → Brittani   3  · already present
+--   Shire  5623 44th Ave SW     → Lindsay    1  ← the only new row
+--
+-- ★★★ THE FILE LOOKS LIKE 15 ROWS AND MOVES 1. `ON CONFLICT (task_id,
+-- assignee) DO NOTHING` is doing almost all the work: Cam's fourteen pairs
+-- were co-assigned in the ordinary way after this file was written, and the
+-- INSERT cannot tell you that by looking at it. A count of the WHERE is not a
+-- count of what lands.
+--
+-- ★ Shire's group also MOVED: on 2026-08-20 it was 10431 SE 19th St → Brittani
+--   (6 tasks). Today it is 5623 44th Ave SW → Lindsay (1). Same DA, different
+--   project, different manager, different size — the population turned over
+--   entirely in ten days.
+--
+-- ORIGINAL MEASUREMENT: 20 rows, prod 2026-08-20 (the breakdown further down).
+--
+-- ★ Measured by uncommenting THIS FILE'S OWN WHERE clause into a SELECT inside
+--   a rolled-back transaction — never a paraphrase of it. That distinction is
+--   the whole reason fix-450 exists: fix-377's "67 rows" came from a looser
+--   restatement of a predicate that actually returns 0.
+--
 -- ★★★ THIS FILE HAS NOT BEEN RUN AGAINST ANY DATABASE. The trigger shipped in
 -- migrations/fix_368_coassign_project_manager.sql only fires on future writes;
 -- Cam's 14 tasks and Shire's 6 already exist and will not gain a manager

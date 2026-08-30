@@ -2,6 +2,32 @@
 -- ★★★ fix-384 §4 — THE LABEL CANDIDATES. NOT APPLIED. AWAITING BOBBY.
 -- ===========================================================================
 --
+-- ---------------------------------------------------------------------------
+-- ★★★ RE-MEASURED 2026-08-30 (fix-450) — READ THIS FIRST
+-- ---------------------------------------------------------------------------
+--
+-- VERDICT: MOVES ROWS — one, and the second still needs Bobby.
+--
+--   np_1776096111204_xswn  "Cancelled Project (9022 36th Ave SW)"
+--       still UNLINKED · target project 9022 36th Ave SW still exists   → 1 row
+--   np_1782414688748_30so  "Estrella Interior Elevations"
+--       still UNLINKED · BOTH candidate projects still exist
+--       (4040 E Via Estrella, 4060 E Via Estrella)                      → 0 rows
+--                                                                         until
+--                                                                         ruled
+--
+-- ★★ NOTHING HAS CHANGED HERE IN TWO DAYS, which is itself the finding: both
+-- blocks are exactly as measured, both target projects are still present under
+-- the same ids, and the Estrella ambiguity is still an ambiguity. This file is
+-- waiting on a decision, not on data.
+--
+-- ORIGINAL MEASUREMENT: 1 writable candidate + 1 undecided, prod 2026-08-28.
+--
+-- ★ Measured by uncommenting THIS FILE'S OWN WHERE clause into a SELECT inside
+--   a rolled-back transaction — never a paraphrase of it. That distinction is
+--   the whole reason fix-450 exists: fix-377's "67 rows" came from a looser
+--   restatement of a predicate that actually returns 0.
+--
 -- ★★★ THIS FILE HAS NOT BEEN RUN AGAINST ANY DATABASE. Every statement below
 -- is commented out, and a test asserts that it still is. Nothing was
 -- auto-linked: all 81 da_time_blocks rows still have project_id NULL.

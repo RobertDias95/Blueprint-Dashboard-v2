@@ -1,7 +1,10 @@
 import { describe, it, expect } from 'vitest';
 import migrationSql from '../../migrations/fix_379_dm_derived.sql?raw';
 import mappingRowsSql from '../../migrations/fix_379_mapping_rows_PENDING_APPROVAL.sql?raw';
-import backfillSql from '../../migrations/fix_379_backfill_PENDING_APPROVAL.sql?raw';
+import backfillSql // ★ fix-450 renamed this file: re-measured 2026-08-30, its predicate
+//   selects 0 rows today, so it is SUPERSEDED rather than pending. The
+//   SQL below is unchanged — the supersession keeps the predicate.
+from '../../migrations/fix_379_backfill_SUPERSEDED.sql?raw';
 import fix377Sql from '../../migrations/fix_377_lead_cascade.sql?raw';
 import {
   derivePermitDm,

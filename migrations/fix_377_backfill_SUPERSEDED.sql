@@ -1,6 +1,45 @@
 -- ===========================================================================
+-- ★★★ SUPERSEDED 2026-08-30 (fix-450). GROUP A's population is empty — the
+-- only two divergent permits name Bobby, whom the file's own discriminator
+-- deliberately protects — and GROUP B was already marked superseded by fix-379
+-- inside this file. Nothing here has anything left to move.
+--
+-- ★ KEPT, NOT DELETED. The predicate below is the record of how the drift was
+-- distinguished from deliberate assignment (a name that is never a project
+-- lead cannot have been left behind by a reassignment), and that reasoning
+-- outlives the rows it was written for.
+--
 -- ★★★ fix-377 §5 — THE BACKFILL. NOT APPLIED. AWAITING BOBBY'S APPROVAL.
 -- ===========================================================================
+--
+-- ---------------------------------------------------------------------------
+-- ★★★ RE-MEASURED 2026-08-30 (fix-450) — READ THIS FIRST
+-- ---------------------------------------------------------------------------
+--
+-- VERDICT: MOVES NOTHING. Both halves are closed.
+--
+--   GROUP A (ent_lead)   0 rows   — was "expected: 6"
+--   GROUP B (dm)         n/a      — SUPERSEDED BY fix-379, in this file, below
+--
+-- ★★★ WHY GROUP A IS ZERO, AND IT IS THE FILE'S OWN DISCRIMINATOR WORKING.
+-- Two unissued permits still name a lead their project does not — and BOTH
+-- name Bobby, who is never a project entitlement lead anywhere. That is
+-- precisely the population the `EXISTS (… x.entitlement_lead = p.ent_lead)`
+-- clause exists to protect: a name that was never a project lead cannot have
+-- been left behind by a reassignment. Drop the discriminator and the query
+-- returns 2; keep it and it returns 0. The five Briana/Miles rows that made up
+-- the original six have since issued or been reassigned.
+--
+-- ★ `bp_lead_drift_report()` also returns 0 rows today.
+--
+-- ORIGINAL MEASUREMENT: GROUP A 6 rows, GROUP B 16 rows, prod 2026-08-27
+-- (GROUP A already measured 0 that same day — this file has never had a live
+-- GROUP A population since the day after it was written).
+--
+-- ★ Measured by uncommenting THIS FILE'S OWN WHERE clause into a SELECT inside
+--   a rolled-back transaction — never a paraphrase of it. That distinction is
+--   the whole reason fix-450 exists: fix-377's "67 rows" came from a looser
+--   restatement of a predicate that actually returns 0.
 --
 -- ★★★ THIS FILE HAS NOT BEEN RUN AGAINST ANY DATABASE. Every statement below
 -- is commented out, and a test asserts that it still is. The trigger shipped in

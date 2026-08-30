@@ -2,6 +2,34 @@
 -- ★★★ fix-381 §4 — THE CR 1 BACKFILL. NOT APPLIED. AWAITING BOBBY'S APPROVAL.
 -- ===========================================================================
 --
+-- ---------------------------------------------------------------------------
+-- ★★★ RE-MEASURED 2026-08-30 (fix-450) — READ THIS FIRST
+-- ---------------------------------------------------------------------------
+--
+-- VERDICT: MOVES ROWS — 63 threads on OPTION 1.
+--
+--   population (unissued permit, no corrections yet, not cancelled)   86 projects
+--     of those, ALREADY have a "CR 1" root thread                     23
+--     OPTION 1 would therefore write                                  63
+--
+--   OPTION 2 (live BUILDING PERMIT only)                              17 projects
+--   OPTION 3 also repairs projects with NO root threads at all        26 projects
+--
+-- ★★ THE 23 ARE THE REASON TO RE-COUNT. `bp_ensure_cr_thread` is idempotent —
+-- it inserts only `WHERE NOT EXISTS` a root thread of that title — so a fifth
+-- of the population would be skipped silently. The file's "87" was a count of
+-- the POPULATION, never a count of the writes.
+--
+-- ★ The threads land in `public.project_messages` with author_id NULL.
+--
+-- ORIGINAL MEASUREMENT: 87 projects (OPTION 1), 24 (OPTION 2), 27 with no
+-- threads (OPTION 3), prod 2026-08-28.
+--
+-- ★ Measured by uncommenting THIS FILE'S OWN WHERE clause into a SELECT inside
+--   a rolled-back transaction — never a paraphrase of it. That distinction is
+--   the whole reason fix-450 exists: fix-377's "67 rows" came from a looser
+--   restatement of a predicate that actually returns 0.
+--
 -- ★★★ THIS FILE HAS NOT BEEN RUN AGAINST ANY DATABASE. Every statement below
 -- is commented out, and a test asserts that it still is.
 --

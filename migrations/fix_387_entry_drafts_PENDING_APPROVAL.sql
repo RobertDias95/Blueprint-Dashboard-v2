@@ -2,6 +2,35 @@
 -- ★★★ fix-387 §4 — TEACHING CONTENT FOR THE 23 ENTRIES. NOT APPLIED.
 -- ===========================================================================
 --
+-- ---------------------------------------------------------------------------
+-- ★★★ RE-MEASURED 2026-08-30 (fix-450) — READ THIS FIRST
+-- ---------------------------------------------------------------------------
+--
+-- VERDICT: MOVES ROWS — 3, which is not the 14 the prose drafts.
+--
+--   whats_new_entries rows                                    23
+--   still `go_href IS NULL AND how_to IS NULL`                 23  (unchanged)
+--   UPDATE statements actually WRITTEN OUT in this file         3
+--   of those, titles that still exist and still match           3  → 3 rows
+--
+-- ★★★ THE GAP BETWEEN THE PROSE AND THE SQL IS DELIBERATE AND STILL STANDS.
+-- This file drafts teaching content for fourteen entries and expands three of
+-- them into statements, saying so in as many words: *"pasting 14 multi-line
+-- UPDATEs that nobody has approved makes this file look like something to run
+-- rather than something to read."* Approving it therefore buys 3 of 14 — and
+-- the admin editor does any of them in about fifteen seconds.
+--
+-- ★ STILL TRUE AND STILL WORTH FIXING FIRST: the entry "Every new project
+--   starts with three posts" is on prod and is now wrong — it has been four
+--   since CR 1 shipped. That is a body edit, not a how-to.
+--
+-- ORIGINAL MEASUREMENT: 23 entries untaught, 14 drafted, prod 2026-08-29.
+--
+-- ★ Measured by uncommenting THIS FILE'S OWN WHERE clause into a SELECT inside
+--   a rolled-back transaction — never a paraphrase of it. That distinction is
+--   the whole reason fix-450 exists: fix-377's "67 rows" came from a looser
+--   restatement of a predicate that actually returns 0.
+--
 -- ★★★ THIS FILE HAS NOT BEEN RUN AGAINST ANY DATABASE. Every statement is
 -- commented out, and a test asserts it stays that way. On prod all 23 rows
 -- still have go_href IS NULL AND how_to IS NULL, which is the state the reader
