@@ -1090,6 +1090,17 @@ export interface ForecastItem {
    *  'handoff' instead: it says "the design half is finished", which is the
    *  true statement, and leaves the individual tasks alone. */
   action: 'resolve-task' | 'handoff' | 'ack';
+  /**
+   * ★★ fix-446: WHICH RELAY LEG this row is. Already encoded in `key`
+   * (`m-<permit>-<kind>-<leg>`); carried as a field so My Tasks can pick the
+   * lane — design → D&E, entitlement → Permitting — without string-matching a
+   * key, and so `target_submit` and `corrections`, which raise a row on BOTH
+   * legs with different verbs, land in the right column each time.
+   *
+   * ★ Null on task rows: a task's column comes from its team (fix-244), not
+   * from the relay.
+   */
+  leg: BoardLeg | null;
   /** For 'ack' — which milestone, and the anchor to store with it. */
   milestoneKind: MilestoneKind | null;
   anchor: string | null;
@@ -1098,6 +1109,11 @@ export interface ForecastItem {
   /** For 'handoff' — the cycle to anchor on and who receives the submittal. */
   cycleIndex: number | null;
   entLead: string | null;
+  /** ★★ fix-446: the permit's DA. With `entLead` above it, this is the whole
+   *  set of people a milestone belongs to — what My Tasks resolves ownership
+   *  and the people-filters against, without a second lookup into the permits
+   *  cache that could answer differently. */
+  permitDa: string | null;
   /** ★ fix-308b #45: "Past due" / "Due today" / "Upcoming". The row's STATE,
    *  said in words rather than left to be inferred from a red number. */
   stateLabel: string;
@@ -1228,6 +1244,11 @@ export interface Forecast {
   tomorrow: BoardSection<ForecastItem>;
   this_week: BoardSection<ForecastItem>;
   next_week: BoardSection<ForecastItem>;
+  /** ★★ fix-446: beyond 14 days. Always CAPPED AT 0, so `items` is empty and no
+   *  existing renderer shows anything new — the uncapped truth is in `.all`,
+   *  which is what My Tasks reads to be "the complete list". These items were
+   *  always built and then silently discarded; see the builder. */
+  later: BoardSection<ForecastItem>;
   /** ★ fix-348: the OUTGOING relay rows, removed from the dated buckets above.
    *  Derived HERE rather than by re-filtering the buckets in the page, which is
    *  what let one permit appear in two sections at once. */
@@ -1339,6 +1360,32 @@ export interface BoardInput {
    *  is the same resolver over the permits/projects already in this input; the
    *  injected one additionally reads dm_da_groups for the DM. */
   taskOwns?: (task: BoardTask, name: string | null) => boolean;
+  /**
+   * ★★★ fix-446 — WHO IS ON WHICH LEG, MADE INJECTABLE.
+   *
+   * The default (and every existing caller, which passes nothing) is the rule
+   * this file has always used: a LITERAL match on `permit.da` for the design
+   * leg and `permit.ent_lead` for the entitlement leg. My Board, BoardBell and
+   * /notifications keep exactly that, pinned by their suites.
+   *
+   * ★★ MY TASKS PASSES A WIDER ONE, on Bobby's ruling of 2026-08-29: *"on My
+   * Tasks a design-leg milestone reaches the DA and the DM (DM derived from
+   * the DA via dm_da_groups, exactly as tasks do). NOT the schematic
+   * designer. The Board's own reach is unchanged in this PR."*
+   *
+   * ★★★ WHY IT HAD TO BE INJECTABLE RATHER THAN COPIED. Measured on prod
+   * 2026-08-29, un-acked milestone rows under the Board's literal rule: Bobby
+   * 36, Miles 14, Trevor 1, and ZERO for Brittani, Derry, Lindsay and Cam.
+   * Three of those four are design managers — the people the ruling is about.
+   * Re-deriving the milestone loop in My Tasks to reach them would have been a
+   * second implementation of `relayStateFor`/`milestoneVerb`, which is the one
+   * thing this file exists to prevent. One resolver, one emission path, two
+   * reaches.
+   *
+   * ★ Returning `[]` means "not this viewer's permit at all" and skips it,
+   * exactly as an empty leg list does today.
+   */
+  legsFor?: (permit: PermitWithCycles) => BoardLeg[];
 }
 
 interface Prepared {
@@ -1444,11 +1491,19 @@ function prepare(input: BoardInput): Prepared[] {
       if (!inScope) continue;
     }
 
-    const isDa = (permit.da ?? '').trim().toLowerCase() === me && me !== '';
-    const isEnt = (permit.ent_lead ?? '').trim().toLowerCase() === me && me !== '';
-    const legs: BoardLeg[] = [];
-    if (isDa) legs.push('design');
-    if (isEnt) legs.push('entitlement');
+    // ★★ fix-446: the injected resolver when a caller supplied one, else the
+    //    literal rule this file has always used. Same shape, same order.
+    let legs: BoardLeg[];
+    if (input.legsFor) {
+      legs = input.legsFor(permit);
+    } else {
+      const isDa = (permit.da ?? '').trim().toLowerCase() === me && me !== '';
+      const isEnt =
+        (permit.ent_lead ?? '').trim().toLowerCase() === me && me !== '';
+      legs = [];
+      if (isDa) legs.push('design');
+      if (isEnt) legs.push('entitlement');
+    }
     // Oversight ADDS the wide view: everything, on top of their own scope.
     if (legs.length === 0 && !viewer.isOversight && !(scope && scope.length > 0)) continue;
 
@@ -1611,11 +1666,13 @@ export function buildForecast(input: BoardInput): Forecast {
           projectId: p.permit.project_id,
           address: p.project?.address ?? null,
           permitLabel: permitLabelOf(p.permit),
+          leg,
           milestoneKind: m.kind,
           anchor: milestoneAnchor(m.kind, p.permit),
           task: null,
           cycleIndex: cyc?.cycle_index ?? null,
           entLead: p.permit.ent_lead ?? null,
+          permitDa: p.permit.da ?? null,
           stateLabel: milestoneStateLabel(daysLate),
           whyYours: milestoneWhyYours(leg, state, p.permit),
           withWhom: state === 'waiting' ? other.label : null,
@@ -1727,11 +1784,15 @@ export function buildForecast(input: BoardInput): Forecast {
       projectId: t.project_id ?? null,
       address: t.project_address ?? null,
       permitLabel: t.permit_type ?? null,
+      // ★ fix-446: a task's column comes from its TEAM (fix-244), never from
+      //   the relay — so it has no leg.
+      leg: null,
       milestoneKind: null,
       anchor: null,
       task: t,
       cycleIndex: null,
       entLead: null,
+      permitDa: t.permit_da ?? null,
       stateLabel: milestoneStateLabel(daysLate),
       // A named task is on your list because your name is on it. Saying so
       // would be the verbiage #22 cut.
@@ -1775,6 +1836,22 @@ export function buildForecast(input: BoardInput): Forecast {
     next_week: forecastSection(
       inBucket('next_week').sort((a, z) => a.date.localeCompare(z.date)),
       BOARD_SECTION_CAPS.next_week,
+    ),
+    // ★★★ fix-446 — `later` IS RETURNED NOW, AND THE BOARD STILL NEVER SEES IT.
+    //
+    // These items were always BUILT and then silently dropped: `bucketFor`
+    // files anything beyond 14 days as 'later' and the return simply had no
+    // such key. Harmless while the only reader was a board that deliberately
+    // stops at seven days (fix-444 §B) — but My Tasks is "the COMPLETE list of
+    // everything you own" (fix-444 ruling 1), and a milestone three weeks out
+    // is exactly the row that belongs there and nowhere else.
+    //
+    // ★★ ADDITIVE AND CAPPED AT ZERO. BOARD_SECTION_CAPS.later is 0, so
+    // `items` is empty and any renderer that walked this would draw nothing;
+    // the uncapped truth is in `.all`. No existing key and no cap changes.
+    later: forecastSection(
+      inBucket('later').sort((a, z) => a.date.localeCompare(z.date)),
+      BOARD_SECTION_CAPS.later,
     ),
     handed_off: handedOffItems.sort((a, z) => z.daysLate - a.daysLate),
     suppressedHistoric,

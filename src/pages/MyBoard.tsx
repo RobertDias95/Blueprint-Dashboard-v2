@@ -10,7 +10,6 @@ import OriginLink from '../components/OriginLink';
 import BeyondSnapshotLine from '../components/shared/BeyondSnapshotLine';
 import { useOriginState } from '../hooks/useOriginState';
 import ShowHeldWorkToggle from '../components/shared/ShowHeldWorkToggle';
-import { useShowHeldWork } from '../hooks/useShowHeldWork';
 import { HoldBadge } from '../components/shared/HoldBadge';
 import { usePermits } from '../hooks/usePermits';
 import { useProjects } from '../hooks/useProjects';
@@ -18,18 +17,16 @@ import { useProjects } from '../hooks/useProjects';
 // copy — one shape, one editor, one write path.
 import { useAllTasks, useUpsertTask } from '../hooks/useTaskTree';
 import { useTeamMembers } from '../hooks/useTeamMembers';
-import { useSelfScope } from '../hooks/useSelfScope';
 import {
   cancelledProjectIds,
   useAllProjectHolds,
 } from '../hooks/useProjectHolds';
-import { useAllPermitHolds } from '../hooks/usePermitHolds';
 import { useMilestoneAcks, useAckMilestone } from '../hooks/useMilestoneAcks';
 import { useBoardNotifications } from '../hooks/useBoardNotifications';
 import { useConfirmHandoff } from '../hooks/useConfirmHandoff';
 import { useDmDaGroups } from '../hooks/useDmDaGroups';
 import { useDaTeamRouting } from '../hooks/useDaTeamRouting';
-import { useTaskOwnership } from '../hooks/useTaskOwnership';
+import { useBoardInput } from '../hooks/useBoardInput';
 import { useBoardReads, useMarkBoardItemsRead } from '../hooks/useBoardReads';
 import { buildNewItems, keyForTask, unseenItems } from '../lib/boardReads';
 import { useMyMentions } from '../hooks/useProjectMessages';
@@ -61,15 +58,12 @@ import {
   canConfirmHandoff,
   handoffAffordance,
   isDesignTask,
-  resolveBoardViewer,
   buildQueueForScope,
   teamMembersFor,
   DEFAULT_QUEUE_SCOPE,
   sourceSplit,
   systemHealth,
   teamMappingGap,
-  todayIso,
-  type BoardInput,
   type BoardTask,
   type BoardSection,
   type ForecastItem,
@@ -748,10 +742,7 @@ export default function MyBoard() {
   const team = useTeamMembers();
   const holdsQ = useAllProjectHolds();
   // ★ fix-390: the permit-scoped siblings, one bulk fetch like its sibling.
-  const permitHoldsQ = useAllPermitHolds();
   // ★ fix-409: shared with My Tasks — see hooks/useShowHeldWork.
-  const { showHeldWork } = useShowHeldWork();
-  const { identity } = useSelfScope();
   // fix-298 Phase 2: the scraper feed the old nav bell used to own.
   const activityQ = useScraperActivity();
   const acksQ = useMilestoneAcks();
@@ -762,7 +753,6 @@ export default function MyBoard() {
   const markRead = useMarkBoardItemsRead();
   const dmGroups = useDmDaGroups();
   // ★ fix-348: fix-238's ownership resolver, shared with My Tasks.
-  const taskOwnership = useTaskOwnership();
   const entRouting = useDaTeamRouting();
 
   // ★ fix-306 #35: the queue's scope. Defaults to MY QUEUE so nobody is handed
@@ -849,50 +839,11 @@ export default function MyBoard() {
     }
   }
 
-  const viewer = useMemo(
-    () => resolveBoardViewer(identity.name, team.all),
-    [identity.name, team.all],
-  );
-
-  const input: BoardInput = useMemo(
-    () => ({
-      viewer,
-      permits: permitsQ.data ?? [],
-      projects: projectsQ.data ?? [],
-      tasks: tasksQ.data ?? [],
-      today: todayIso(),
-      cancelledIds: cancelledProjectIds(holdsQ.data),
-      // ★★ fix-390: which projects and which permits are paused. The board
-      // silences a held permit's milestone chips — reversibly, and without
-      // writing an ack. Project holds cover their permits; a permit hold covers
-      // ONLY its permit and never rolls up.
-      holdRows: holdsQ.data ?? [],
-      permitHoldRows: permitHoldsQ.data ?? [],
-      // ★★★ fix-409: the one preference, shared with My Tasks. Default false,
-      // which is byte-for-byte fix-390's behaviour; true brings held tasks AND
-      // the milestones fix-390 silenced back, each wearing a hold chip.
-      showHeldWork,
-      acks: acksQ.data ?? [],
-      // ★★ fix-348: the blended forecast asks "is this task mine?" with fix-238's
-      // resolver — the SAME predicate the My Tasks bar directly below this panel
-      // counts with. Two surfaces on one screen must not disagree about who a
-      // task belongs to, and before this they did: the board compared
-      // `assigned_to` as a raw string, so a task routed to a ROLE, or with no
-      // assignee at all (344 of 558 open tasks on prod), reached nobody here.
-      taskOwns: taskOwnership.matches,
-    }),
-    [
-      viewer,
-      permitsQ.data,
-      projectsQ.data,
-      tasksQ.data,
-      holdsQ.data,
-      permitHoldsQ.data,
-      showHeldWork,
-      acksQ.data,
-      taskOwnership.matches,
-    ],
-  );
+  // ★★★ fix-446 §0a: the assembly moved to `useBoardInput`, unchanged field
+  //     for field — see the hook for why three copies of it was a problem.
+  //     This page passes no options, so it gets the complete input it always
+  //     built by hand (acks + showHeldWork included).
+  const { input, viewer } = useBoardInput();
 
   // ★ The handoff candidates. A permit qualifies when its design leg is
   // finished (or has no design tasks and needs a person to say so), the viewer

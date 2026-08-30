@@ -8,9 +8,25 @@ import { nestSubtasks, type TaskGroup } from '../lib/taskNesting';
 // ★★★ fix-444 §A (P-048): the band vocabulary is fix-397's, reused — see
 // lib/taskBands for why a second name for the same seven days is the drift
 // this avoids.
-import { bandRows, resolvedOrder, type Band } from '../lib/taskBands';
-import { memo, useEffect, useMemo, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import {
+  bandRows,
+  compareInBand,
+  resolvedOrder,
+  type Band,
+  type BandableRow,
+} from '../lib/taskBands';
+import {
+  memo,
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  type ReactElement,
+} from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
+// ★ fix-446/fix-408: a milestone row navigates to its permit, and Previous
+//   must bring the reader back to My Tasks.
+import { useOriginState } from '../hooks/useOriginState';
 import { PARAM_TASK } from '../lib/notificationTargets';
 import WaitingOnView from '../components/MyTasks/WaitingOnView';
 import BotBadge from '../components/shared/BotBadge';
@@ -59,6 +75,21 @@ import { HoldBadge } from '../components/shared/HoldBadge';
 import { useScopeMode } from '../hooks/useSelfScope';
 import { type ScopeMode } from '../lib/selfScope';
 import { useTaskOwnership } from '../hooks/useTaskOwnership';
+// ★★★ fix-446 (P-096): milestones join the list. The forecast comes from the
+// SHARED BoardInput — BoardBell already runs this on every page, so the rows
+// cost no request (see hooks/useBoardInput).
+import { useBoardInput } from '../hooks/useBoardInput';
+import { buildForecast, type ForecastItem } from '../lib/myBoard';
+import {
+  makeLegsFor,
+  milestoneReach,
+  type MilestoneReach,
+} from '../lib/milestoneOwnership';
+import { useDmDaGroups } from '../hooks/useDmDaGroups';
+import { findDmForDa } from '../components/wizard/dmRouting';
+import { useAckMilestone } from '../hooks/useMilestoneAcks';
+import { useConfirmHandoff } from '../hooks/useConfirmHandoff';
+import MilestoneCard from '../components/MyTasks/MilestoneCard';
 // ★★★ fix-445 (ruling 4 / P-047): the Co-assigned switch and the mark that
 // makes 'mine' and 'shared' distinguishable rather than blended.
 import { useShowCoAssigned } from '../hooks/useShowCoAssigned';
@@ -201,6 +232,135 @@ function loadFilters(): FilterState {
   } catch {
     return DEFAULT_FILTERS;
   }
+}
+
+/** ★★ fix-446: a milestone as My Tasks renders it — the forecast's own item,
+ *  plus the one thing the forecast cannot know: whether it reached THIS viewer
+ *  directly or through the DM derivation (see lib/milestoneOwnership). */
+interface MilestoneRow {
+  item: ForecastItem;
+  coAssigned: boolean;
+}
+
+/** ★★ fix-446: what a banded column holds now — a task, or a milestone.
+ *
+ *  ★★★ A DISCRIMINATED UNION rather than two parallel lists, because ruling 4
+ *  puts both kinds in ONE band in ONE date order: *"Band: by the milestone's
+ *  date through fix-444's taskBands — same headers, same order."* Two lists
+ *  rendered one after the other would put every milestone below every task in
+ *  the same band, which is a different (and wrong) order.
+ *
+ *  ★ It satisfies `BandableRow` structurally, so `bandRows` and
+ *  `compareInBand` work on it unchanged — fix-444 typed them that way on
+ *  purpose ("a task node and (later) a milestone item both satisfy it without
+ *  either importing the other"). `priority` and `sort_order` are simply absent
+ *  on a milestone, so it sorts by date alone, which is ruling 4's rule. */
+type ColumnRow =
+  | {
+      kind: 'task';
+      id: string;
+      task: Task;
+      target_date: string | null;
+      priority?: boolean | null;
+      sort_order?: number | null;
+    }
+  | {
+      kind: 'milestone';
+      id: string;
+      milestone: MilestoneRow;
+      target_date: string | null;
+    };
+
+/** ★★★ fix-446 RULING 2 — THE LANE IS THE LEG, AND THAT SUBSUMES THE LIST.
+ *
+ *  Bobby: *"design milestones → D&E; city milestones → Permitting … per
+ *  MILESTONE_LEGS."*
+ *
+ *  ★★ The ruling's enumeration files `target_submit` under Permitting, but
+ *  MILESTONE_LEGS — which the ruling names as the source of truth — makes it
+ *  TWO-LEG, exactly like `corrections`: both raise a row on each leg with a
+ *  different verb ("Finish the set" for design, "Submit" for the lead).
+ *  Confirmed by Bobby, 2026-08-29: *"target_submit: two-leg like corrections —
+ *  apply the leg rule as written."*
+ *
+ *  ★ So there is no per-kind table here. `buildForecast` emits ONE ITEM PER
+ *  LEG (`key: m-<permit>-<kind>-<leg>`), and the leg it was emitted for is the
+ *  lane. draw → design only; intake/reviewer_silent/fees/issuance → ent only;
+ *  target_submit and corrections → whichever leg this row is. */
+function milestoneLane(m: MilestoneRow): DiagBucket {
+  return m.item.leg === 'design' ? 'de' : 'pm';
+}
+
+/** ★★★ fix-446 RULING 3 — WHICH FILTERS READ A MILESTONE, AND WHICH DO NOT.
+ *
+ *  Bobby: *"search, the ENT/DA/DM/Consultant people filters and My
+ *  Work/Everyone still apply to a milestone (it belongs to a permit with
+ *  people). Stage (permit type), BOT, Show held work and Co-assigned do not
+ *  read milestone rows and LEAVE THEM VISIBLE. Active only: a milestone is
+ *  always 'active' until acked."*
+ *
+ *  ★★ THE AMENDMENT MOVED ONE OF THEM. Co-assigned now DOES apply — but not
+ *  here: it is applied where the reach is known, in the page, because only
+ *  there is it known whether a row arrived through the DM derivation.
+ *
+ *  ★★★ "LEAVES THEM VISIBLE" IS THE HARD PART TO GET RIGHT. The instinct is to
+ *  make an unmatched filter hide everything it cannot judge; that would mean
+ *  switching on 🤖 BOT silently emptied the milestone rows, and the reader
+ *  would read the absence as "no milestones", which is fix-370's mistake. A
+ *  filter that cannot ask the question does not get to answer it. */
+// ★ NOT exported: `react-refresh/only-export-components` is an ERROR in this
+//   repo and a component file that also exports a function trips it — the same
+//   rule lib/taskStatusOverlay documents. Covered through the rendered tests,
+//   which is the honest level for it anyway: what matters is that switching on
+//   🤖 BOT leaves the milestone rows alone on screen.
+function filterMilestones(
+  rows: MilestoneRow[],
+  filters: FilterState,
+  rolesByName: Map<string, Set<Exclude<RoleQuick, 'all'>>>,
+): MilestoneRow[] {
+  const q = filters.search.trim().toLowerCase();
+  const roleNames = [
+    ...filters.roles.ent,
+    ...filters.roles.da,
+    ...filters.roles.dm,
+    ...filters.roles.consultant,
+  ];
+  return rows.filter((m) => {
+    if (q !== '') {
+      const hay = `${m.item.verb} ${m.item.where} ${m.item.why} ${m.item.permitLabel ?? ''}`;
+      if (!hay.toLowerCase().includes(q)) return false;
+    }
+    // ★ The people filters read the permit's OWN roles — a milestone has no
+    //   assignee, but the permit it belongs to has a DA and an ENT lead, and
+    //   those are the people the dropdowns name.
+    if (roleNames.length > 0) {
+      const people = milestonePeople(m);
+      if (!roleNames.some((n) => people.has(n.trim().toLowerCase()))) {
+        return false;
+      }
+    }
+    if (filters.quickRole !== 'all') {
+      const people = milestonePeople(m);
+      let any = false;
+      for (const person of people) {
+        const roles = rolesByName.get(person);
+        if (roles && roles.has(filters.quickRole)) any = true;
+      }
+      if (!any) return false;
+    }
+    return true;
+  });
+}
+
+/** The permit's people, lowercased — the DA and the ENT lead, which is exactly
+ *  the set `milestoneReach` decides ownership from. */
+function milestonePeople(m: MilestoneRow): Set<string> {
+  const out = new Set<string>();
+  const da = (m.item.permitDa ?? '').trim().toLowerCase();
+  const ent = (m.item.entLead ?? '').trim().toLowerCase();
+  if (da) out.add(da);
+  if (ent) out.add(ent);
+  return out;
 }
 
 function bucketOf(t: Task): DiagBucket {
@@ -450,6 +610,8 @@ function Body({
   const { matches: taskMatches, isCoAssigned: taskIsCoAssigned } =
     useTaskOwnership();
   const { showCoAssigned } = useShowCoAssigned();
+  const navigate = useNavigate();
+  const originState = useOriginState();
 
   // fix-380: struct_address per permit, for the search haystack. The task rows
   // are the bp_list_tasks projection (project_address only); the permit's own
@@ -590,6 +752,93 @@ function Body({
     [scopedTasks, filters, rolesByName, taskMatches, structByPermitId],
   );
   const today = useMemo(() => todayIso(), []);
+
+  // =======================================================================
+  // ★★★ fix-446 (P-096) — MILESTONES, THE OTHER HALF OF "MY TASKS IS
+  //     EVERYTHING"
+  // =======================================================================
+  //
+  // Bobby, 2026-08-29: *"My Tasks = the COMPLETE list of everything you own"*,
+  // and milestones were the half fix-444 deferred.
+  //
+  // ★★★ NO NEW REQUEST. `useBoardInput` is the assembly BoardBell already
+  // mounts in `Chrome.tsx` on every page; React Query dedupes it by key. That
+  // is the whole reason this ships without widening `bp_list_tasks`, which
+  // returns the entire tenant (~1.1 MB) on every refetch.
+  const { input: boardInput } = useBoardInput();
+  const dmRows = useDmDaGroups().data;
+
+  // ★★ THE WIDENING, AND ITS ONE MEMBER. Bobby: *"a design-leg milestone
+  //    reaches the DA and the DM (DM derived from the DA via dm_da_groups,
+  //    exactly as tasks do). NOT the schematic designer."* Everything about
+  //    who-gets-what lives in lib/milestoneOwnership, including the prod
+  //    numbers that made the widening necessary.
+  const dmForDa = useCallback(
+    (da: string) => findDmForDa(da, dmRows ?? []),
+    [dmRows],
+  );
+  const reachCtx = useMemo(
+    () => ({
+      name: identity.name,
+      dmForDa,
+      everyone: scopeMode !== 'mine',
+    }),
+    [identity.name, dmForDa, scopeMode],
+  );
+  const milestoneForecast = useMemo(
+    () => buildForecast({ ...boardInput, legsFor: makeLegsFor(reachCtx) }),
+    [boardInput, reachCtx],
+  );
+
+  // ★★ EVERY BUCKET, UNCAPPED, PLUS THE HANDED-OFF ROWS. `.all` rather than
+  //    `.items` because the caps are the BOARD's reading aid for a short
+  //    snapshot; this list is meant to be complete. `later` is the section
+  //    fix-446 had to start returning at all — see lib/myBoard.
+  const milestoneRows = useMemo<MilestoneRow[]>(() => {
+    const f = milestoneForecast;
+    const all = [
+      ...f.past_due.all,
+      ...f.today.all,
+      ...f.tomorrow.all,
+      ...f.this_week.all,
+      ...f.next_week.all,
+      ...f.later.all,
+      // ★ Outgoing relay rows: design finished and the lead now holds it. They
+      //   are un-acked and still real, so they belong on the complete list —
+      //   non-actionable, which renders them greyed with no checkbox.
+      ...f.handed_off,
+    ];
+    const out: MilestoneRow[] = [];
+    for (const item of all) {
+      if (item.source !== 'milestone') continue;
+      // ★ The permit's people ride ON THE ITEM (fix-446 added `permitDa`
+      //   beside `entLead`), so ownership is resolved from the same row the
+      //   forecast built — never from a second lookup that could disagree.
+      const reach: MilestoneReach = milestoneReach(
+        { da: item.permitDa, ent_lead: item.entLead },
+        item.leg ?? 'entitlement',
+        reachCtx,
+      );
+      if (reach === 'none') continue;
+      // ★★★ THE AMENDMENT TO RULING 3. Bobby: *"A milestone that reaches the
+      //     viewer only through the DM derivation is 'co-assigned' — hidden
+      //     when the toggle is OFF."* One switch, both kinds of shared work:
+      //     a DM's DA's tasks AND that DA's milestones.
+      if (reach === 'co' && !showCoAssigned && scopeMode === 'mine') continue;
+      out.push({ item, coAssigned: reach === 'co' && scopeMode === 'mine' });
+    }
+    return out;
+  }, [milestoneForecast, reachCtx, showCoAssigned, scopeMode]);
+
+  // ★★ RULING 3, AND WHAT IT DELIBERATELY LEAVES ALONE. Search and the people
+  //    filters apply — a milestone belongs to a permit with people on it.
+  //    Stage (permit type), BOT and Show held work do NOT read milestone rows
+  //    and leave them visible; "Active only" is always true of a milestone,
+  //    because an acked one has already left the forecast.
+  const visibleMilestones = useMemo(
+    () => filterMilestones(milestoneRows, filters, rolesByName),
+    [milestoneRows, filters, rolesByName],
+  );
   const counters = useMemo(() => {
     let open = 0;
     let overdue = 0;
@@ -610,7 +859,15 @@ function Body({
         if (isOverdue(t, today)) overdue += 1;
       }
     }
-    const total = filtered.length - cancelled;
+    // ★★ fix-446 §A3: milestone rows are OPEN work and count as such — an
+    //    acked one has already left the forecast, so every row here is
+    //    outstanding. Their projects count towards PROJECTS too.
+    for (const m of visibleMilestones) {
+      open += 1;
+      if (m.item.daysLate > 0) overdue += 1;
+      if (m.item.projectId) projects.add(m.item.projectId);
+    }
+    const total = filtered.length - cancelled + visibleMilestones.length;
     const pct = total === 0 ? 0 : Math.round((resolved / total) * 100);
     return {
       open,
@@ -621,7 +878,55 @@ function Body({
       total,
       pct,
     };
-  }, [filtered, today]);
+  }, [filtered, today, visibleMilestones]);
+
+  // ★★★ fix-446 §A2 — TICKING A MILESTONE DOES EXACTLY WHAT THE BOARD DOES.
+  //
+  // Not "something equivalent": the same two hooks, the same arguments, in the
+  // same order My Board's `onTick` chooses them (MyBoard.tsx ~1154). A
+  // milestone row never carries a task, so 'resolve-task' cannot arise here —
+  // task rows are their own cards on this page and always were.
+  const ackMilestone = useAckMilestone();
+  const handoff = useConfirmHandoff();
+  const milestoneBusy = ackMilestone.isPending || handoff.isPending;
+
+  const onMilestoneTick = useCallback(
+    (item: ForecastItem) => {
+      if (!item.actionable || item.permitId == null) return;
+      if (item.action === 'handoff') {
+        void handoff.confirm({
+          permitId: item.permitId,
+          cycleIndex: item.cycleIndex,
+          entLead: item.entLead,
+          byName: identity.name,
+        });
+        return;
+      }
+      ackMilestone.mutate({
+        permitId: item.permitId,
+        milestone: item.milestoneKind ?? 'unknown',
+        anchor: item.anchor,
+        ackedByName: identity.name,
+      });
+    },
+    [ackMilestone, handoff, identity.name],
+  );
+
+  // ★ The same destination the Board's row goes to — the permit, on its
+  //   project page. A milestone has no detail pane of its own here; Project
+  //   Overview is where it lives and keeps living after it is acked.
+  const onMilestoneOpen = useCallback(
+    (item: ForecastItem) => {
+      if (!item.projectId) return;
+      navigate(
+        item.permitId != null
+          ? `/project/${item.projectId}?permit=${item.permitId}`
+          : `/project/${item.projectId}`,
+        { state: originState() },
+      );
+    },
+    [navigate, originState],
+  );
 
   // The visible-in-columns set excludes Resolved when activeOnly is ON. The
   // counters above already used the unrestricted filtered set so the done %
@@ -704,27 +1009,43 @@ function Body({
           <ProjectGroupedView
             className="col-span-2"
             tasks={visible}
+            milestones={visibleMilestones}
             today={today}
             selectedId={selectedId}
             onSelect={setSelectedId}
+            onMilestoneTick={onMilestoneTick}
+            onMilestoneOpen={onMilestoneOpen}
+            milestoneBusy={milestoneBusy}
           />
         ) : (
           <>
             <BucketColumn
               bucket="de"
               tasks={visible.filter((t) => bucketOf(t) === 'de')}
+              milestones={visibleMilestones.filter(
+                (m) => milestoneLane(m) === 'de',
+              )}
               today={today}
                 activeOnly={filters.activeOnly}
               selectedId={selectedId}
               onSelect={setSelectedId}
+              onMilestoneTick={onMilestoneTick}
+              onMilestoneOpen={onMilestoneOpen}
+              milestoneBusy={milestoneBusy}
             />
             <BucketColumn
               bucket="pm"
               tasks={visible.filter((t) => bucketOf(t) === 'pm')}
+              milestones={visibleMilestones.filter(
+                (m) => milestoneLane(m) === 'pm',
+              )}
               today={today}
                 activeOnly={filters.activeOnly}
               selectedId={selectedId}
               onSelect={setSelectedId}
+              onMilestoneTick={onMilestoneTick}
+              onMilestoneOpen={onMilestoneOpen}
+              milestoneBusy={milestoneBusy}
             />
           </>
         )}
@@ -1317,27 +1638,69 @@ function Toggle({
 function BucketColumn({
   bucket,
   tasks,
+  milestones,
   today,
   activeOnly,
   selectedId,
   onSelect,
+  onMilestoneTick,
+  onMilestoneOpen,
+  milestoneBusy,
 }: {
   bucket: DiagBucket;
   tasks: Task[];
+  milestones: MilestoneRow[];
   today: string;
   activeOnly: boolean;
   selectedId: string | null;
   onSelect: (id: string) => void;
+  onMilestoneTick: (item: ForecastItem) => void;
+  onMilestoneOpen: (item: ForecastItem) => void;
+  milestoneBusy: boolean;
 }) {
   // ★★★ fix-444 §A1: the STATUS columns stay; the ordering inside each one is
   //     now date BANDS with headers, in fix-397's order and under fix-397's
   //     labels. See lib/taskBands.
+  // ★★★ fix-446 RULING 1 — MILESTONES LIVE IN "NOT STARTED", AND ONLY THERE.
+  //
+  // Bobby: *"a milestone sits in NOT STARTED until acknowledged, then
+  // disappears from My Tasks. It is never 'In Progress' and never 'Resolved'
+  // here (Project Overview keeps showing it)."*
+  //
+  // ★★ They are banded by the SAME `bandRows` as the tasks beside them
+  // (ruling 4), so one date band holds both kinds in one date order. The
+  // adapter below is the whole integration: `target_date` is the milestone's
+  // date, and `priority` is deliberately absent — the flag does not apply to
+  // milestones, so `compareInBand` sorts them purely by date, which is what
+  // ruling 4 asks for.
   const notStarted = useMemo(
-    () => bandRows(tasks.filter((t) => t.status === 'Open'), today),
-    [tasks, today],
+    () =>
+      bandRows(
+        [
+          ...tasks
+            .filter((t) => t.status === 'Open')
+            .map((t): ColumnRow => ({ kind: 'task', id: t.id, task: t, target_date: t.target_date, priority: t.priority, sort_order: t.sort_order })),
+          ...milestones.map(
+            (m): ColumnRow => ({
+              kind: 'milestone',
+              id: m.item.key,
+              milestone: m,
+              target_date: m.item.date,
+            }),
+          ),
+        ],
+        today,
+      ),
+    [tasks, milestones, today],
   );
   const inProgress = useMemo(
-    () => bandRows(tasks.filter((t) => t.status === 'In Progress'), today),
+    () =>
+      bandRows(
+        tasks
+          .filter((t) => t.status === 'In Progress')
+          .map((t): ColumnRow => ({ kind: 'task', id: t.id, task: t, target_date: t.target_date, priority: t.priority, sort_order: t.sort_order })),
+        today,
+      ),
     [tasks, today],
   );
   // ★★★ A4: RESOLVED IS NOT BANDED. Measured on prod: 738 of 1,320 resolved
@@ -1345,7 +1708,12 @@ function BucketColumn({
   //     them under "Past due" — a false statement about finished work. The
   //     date stays on the row; only the claim that it is still a deadline goes.
   const resolved = useMemo(
-    () => resolvedOrder(tasks.filter((t) => t.status === 'Resolved')),
+    () =>
+      resolvedOrder(
+        tasks
+          .filter((t) => t.status === 'Resolved')
+          .map((t): ColumnRow => ({ kind: 'task', id: t.id, task: t, target_date: t.target_date, priority: t.priority, sort_order: t.sort_order })),
+      ),
     [tasks],
   );
   const openCount =
@@ -1402,6 +1770,9 @@ function BucketColumn({
           today={today}
           selectedId={selectedId}
           onSelect={onSelect}
+          onMilestoneTick={onMilestoneTick}
+          onMilestoneOpen={onMilestoneOpen}
+          milestoneBusy={milestoneBusy}
         />
         <SubColumn
           bucket={bucket}
@@ -1429,6 +1800,78 @@ function BucketColumn({
   );
 }
 
+/**
+ * ★★★ fix-446 — ONE BAND, TWO KINDS OF ROW, ONE ORDER.
+ *
+ * Ruling 4 puts milestones in the SAME band as the tasks, in the same order.
+ * That rules out the easy shape (all the tasks, then all the milestones): in a
+ * band holding a task due the 4th and a milestone due the 2nd, the milestone
+ * has to come first.
+ *
+ * ★★ SO NESTING RUNS OVER THE TASKS ONLY, and the resulting GROUPS are then
+ * merged back with the milestones under `compareInBand` — the very comparator
+ * that ordered the band. A subtask stays under its parent (fix-294) because it
+ * never enters this list; `nestSubtasks` has already folded it into a group.
+ *
+ * ★ A milestone has no `priority` and no `sort_order`, so `compareInBand`
+ * falls through to the date for it — which is precisely ruling 4's "the
+ * priority flag does not apply to milestones".
+ */
+function renderRows(
+  rows: ColumnRow[],
+  ctx: {
+    today: string;
+    selectedId: string | null;
+    onSelect: (id: string) => void;
+    onMilestoneTick?: (item: ForecastItem) => void;
+    onMilestoneOpen?: (item: ForecastItem) => void;
+    milestoneBusy?: boolean;
+  },
+) {
+  const tasks: Task[] = [];
+  const milestones: ColumnRow[] = [];
+  for (const r of rows) {
+    if (r.kind === 'task') tasks.push(r.task);
+    else milestones.push(r);
+  }
+  type Slot =
+    | { sort: BandableRow; node: ReactElement }
+    | never;
+  const slots: Slot[] = [];
+  for (const g of nestSubtasks(tasks)) {
+    slots.push({
+      sort: g.task,
+      node: (
+        <TaskGroupRows
+          key={g.task.id}
+          group={g}
+          today={ctx.today}
+          selectedId={ctx.selectedId}
+          onSelect={ctx.onSelect}
+        />
+      ),
+    });
+  }
+  for (const m of milestones) {
+    if (m.kind !== 'milestone') continue;
+    slots.push({
+      sort: m,
+      node: (
+        <MilestoneCard
+          key={m.id}
+          item={m.milestone.item}
+          coAssigned={m.milestone.coAssigned}
+          onOpen={ctx.onMilestoneOpen ?? (() => {})}
+          onTick={ctx.onMilestoneTick ?? (() => {})}
+          busy={ctx.milestoneBusy ?? false}
+        />
+      ),
+    });
+  }
+  slots.sort((a, z) => compareInBand(a.sort, z.sort));
+  return slots.map((s) => s.node);
+}
+
 function SubColumn({
   bucket,
   kind,
@@ -1438,18 +1881,24 @@ function SubColumn({
   today,
   selectedId,
   onSelect,
+  onMilestoneTick,
+  onMilestoneOpen,
+  milestoneBusy,
   dimmed,
 }: {
   bucket: DiagBucket;
   kind: 'not-started' | 'in-progress' | 'resolved';
   label: string;
   /** Banded — the two OPEN columns. */
-  bands?: Band<Task>[];
+  bands?: Band<ColumnRow>[];
   /** One flat list — Resolved only. See lib/taskBands.RESOLVED_IS_BANDED. */
-  flat?: Task[];
+  flat?: ColumnRow[];
   today: string;
   selectedId: string | null;
   onSelect: (id: string) => void;
+  onMilestoneTick?: (item: ForecastItem) => void;
+  onMilestoneOpen?: (item: ForecastItem) => void;
+  milestoneBusy?: boolean;
   dimmed?: boolean;
 }) {
   const total = bands
@@ -1501,30 +1950,28 @@ function SubColumn({
                 </span>
               </div>
               <div className="flex flex-col gap-1.5">
-                {nestSubtasks(b.items).map((g) => (
-                  <TaskGroupRows
-                    key={g.task.id}
-                    group={g}
-                    today={today}
-                    selectedId={selectedId}
-                    onSelect={onSelect}
-                  />
-                ))}
+                {renderRows(b.items, {
+                  today,
+                  selectedId,
+                  onSelect,
+                  onMilestoneTick,
+                  onMilestoneOpen,
+                  milestoneBusy,
+                })}
               </div>
             </div>
           ))}
         </div>
       ) : (
         <div className="flex flex-col gap-1.5">
-          {nestSubtasks(flat ?? []).map((g) => (
-            <TaskGroupRows
-              key={g.task.id}
-              group={g}
-              today={today}
-              selectedId={selectedId}
-              onSelect={onSelect}
-            />
-          ))}
+          {renderRows(flat ?? [], {
+            today,
+            selectedId,
+            onSelect,
+            onMilestoneTick,
+            onMilestoneOpen,
+            milestoneBusy,
+          })}
         </div>
       )}
     </div>
@@ -1537,33 +1984,63 @@ function SubColumn({
 function ProjectGroupedView({
   className,
   tasks,
+  milestones,
   today,
   selectedId,
   onSelect,
+  onMilestoneTick,
+  onMilestoneOpen,
+  milestoneBusy,
 }: {
   className?: string;
   tasks: Task[];
+  milestones: MilestoneRow[];
   today: string;
   selectedId: string | null;
   onSelect: (id: string) => void;
+  onMilestoneTick: (item: ForecastItem) => void;
+  onMilestoneOpen: (item: ForecastItem) => void;
+  milestoneBusy: boolean;
 }) {
   const groups = useMemo(() => {
-    const byProject = new Map<string, { address: string; tasks: Task[] }>();
+    const byProject = new Map<string, { address: string; rows: ColumnRow[] }>();
+    function bucketFor(projectId: string, address: string) {
+      const g = byProject.get(projectId) ?? { address, rows: [] };
+      byProject.set(projectId, g);
+      return g;
+    }
     for (const t of tasks) {
-      const g = byProject.get(t.project_id) ?? {
-        address: t.project_address,
-        tasks: [],
-      };
-      g.tasks.push(t);
-      byProject.set(t.project_id, g);
+      bucketFor(t.project_id, t.project_address).rows.push({
+        kind: 'task',
+        id: t.id,
+        task: t,
+        target_date: t.target_date,
+        priority: t.priority,
+        sort_order: t.sort_order,
+      });
+    }
+    // ★★ fix-446 §A4: *"Group-by-Project (fix-224) places a milestone under
+    //    its project like any row."* Same map, same key — the milestone's own
+    //    projectId — so a project with only milestones still gets a section.
+    for (const m of milestones) {
+      if (!m.item.projectId) continue;
+      bucketFor(m.item.projectId, m.item.address ?? m.item.where).rows.push({
+        kind: 'milestone',
+        id: m.item.key,
+        milestone: m,
+        target_date: m.item.date,
+      });
     }
     return [...byProject.values()]
       // ★ fix-444 §A1: the by-project view bands too — one list per project,
       //   ordered by the same rule, so the two views cannot disagree about
       //   what comes first.
-      .map((g) => ({ ...g, tasks: bandRows(g.tasks, today).flatMap((b) => b.items) }))
+      .map((g) => ({
+        ...g,
+        rows: bandRows(g.rows, today).flatMap((b) => b.items),
+      }))
       .sort((a, b) => a.address.localeCompare(b.address));
-  }, [tasks, today]);
+  }, [tasks, milestones, today]);
 
   return (
     <div className={`${className ?? ''} flex flex-col gap-3`} data-testid="mytasks-by-project">
@@ -1587,19 +2064,18 @@ function ProjectGroupedView({
               {g.address}
             </span>
             <span className="text-[11px] font-mono" style={{ color: 'var(--color-muted)' }}>
-              {g.tasks.length} task{g.tasks.length === 1 ? '' : 's'}
+              {g.rows.length} item{g.rows.length === 1 ? '' : 's'}
             </span>
           </div>
           <div className="p-2 flex flex-col gap-1.5">
-            {nestSubtasks(g.tasks).map((grp) => (
-              <TaskGroupRows
-                key={grp.task.id}
-                group={grp}
-                today={today}
-                selectedId={selectedId}
-                onSelect={onSelect}
-              />
-            ))}
+            {renderRows(g.rows, {
+              today,
+              selectedId,
+              onSelect,
+              onMilestoneTick,
+              onMilestoneOpen,
+              milestoneBusy,
+            })}
           </div>
         </div>
       ))}

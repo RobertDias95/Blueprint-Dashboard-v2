@@ -73,6 +73,48 @@ vi.mock('../hooks/useNotes', () => ({
 // keeps every other test's ownership derived purely from permit_da / literal
 // assigned_to (no permit needed).
 const permitsRef = vi.hoisted(() => ({ current: [] as unknown[] }));
+// ★★★ fix-446 — THE MILESTONE SOURCE, MOCKED AT THE INPUT AND NOWHERE ELSE.
+//
+// `useBoardInput` is the shared assembly (BoardBell already runs it on every
+// page, so My Tasks pays no request for it). Mocking THAT and letting the REAL
+// `buildForecast`, `permitMilestones` and `milestoneOwnership` run is what
+// makes these tests worth having: the lane, the band, the verb, the ack
+// suppression and the reach are all the production code, not a fixture's idea
+// of it.
+const boardRef = vi.hoisted(() => ({
+  permits: [] as unknown[],
+  projects: [] as unknown[],
+  acks: [] as unknown[],
+  tasks: [] as unknown[],
+}));
+const ackMutate = vi.hoisted(() => vi.fn());
+const handoffConfirm = vi.hoisted(() => vi.fn());
+
+vi.mock('../hooks/useBoardInput', () => ({
+  useBoardInput: () => ({
+    input: {
+      viewer: { name: 'Bobby', isOversight: false },
+      permits: boardRef.permits,
+      projects: boardRef.projects,
+      tasks: boardRef.tasks,
+      today: '2026-06-01',
+      acks: boardRef.acks,
+    },
+    viewer: { name: 'Bobby', isOversight: false },
+    isLoading: false,
+  }),
+}));
+vi.mock('../hooks/useMilestoneAcks', () => ({
+  useMilestoneAcks: () => ({ data: [], isLoading: false }),
+  useAckMilestone: () => ({ mutate: ackMutate, isPending: false }),
+}));
+vi.mock('../hooks/useConfirmHandoff', () => ({
+  useConfirmHandoff: () => ({
+    confirm: handoffConfirm,
+    pendingId: null,
+    isPending: false,
+  }),
+}));
 vi.mock('../hooks/usePermits', () => ({
   usePermits: () => ({
     data: permitsRef.current,
@@ -110,7 +152,13 @@ vi.mock('../hooks/useTaskTree', async (importActual) => {
 
 // fix-224: the detail editor resolves co-assignee role tokens via dm_da_groups.
 vi.mock('../hooks/useDmDaGroups', () => ({
-  useDmDaGroups: () => ({ rows: [{ da_name: 'Trevor', dm_name: 'Lindsay' }] }),
+  // ★ fix-446 reads `.data` (a stable reference — see hooks/useTaskOwnership's
+  //   NO_DM_ROWS note); the pre-existing callers read `.rows`. Same mapping,
+  //   both shapes, so this stays one fixture rather than two that could drift.
+  useDmDaGroups: () => ({
+    rows: [{ da_name: 'Trevor', dm_name: 'Lindsay' }],
+    data: [{ da_name: 'Trevor', dm_name: 'Lindsay' }],
+  }),
 }));
 
 // fix-140: the Waiting On view (mounted when ?view=waiting-on) reads
@@ -238,6 +286,12 @@ beforeEach(() => {
   ];
   tasksRef.current = [];
   permitsRef.current = [];
+  boardRef.permits = [];
+  boardRef.projects = [];
+  boardRef.acks = [];
+  boardRef.tasks = [];
+  ackMutate.mockReset();
+  handoffConfirm.mockReset();
   holdsRef.current = [];
   useAuthStore.setState({
     // ★ fix-409: an `id` as well as an email. fix-403's per-user filter memory
@@ -1697,5 +1751,352 @@ describe('fix-445 §B: the filter row reads as three things', () => {
     // a row that changes height on load for an invisible reason is worse than
     // one click.
     expect(screen.queryByTestId('mytasks-filter-people-panel')).toBeNull();
+  });
+});
+
+
+// ===========================================================================
+// ★★★ fix-446 (P-096) — MILESTONES ON MY TASKS
+// ===========================================================================
+//
+// The harness above mocks only `useBoardInput`; the forecast itself is the
+// real `buildForecast`, so a row appearing here means production would show it.
+describe('fix-446: milestones on My Tasks', () => {
+  // An ENT-leg milestone: approved long ago and not issued → "Pay issuance
+  // fees", which is entitlement-only per MILESTONE_LEGS → Permitting lane.
+  function entPermit(over: Record<string, unknown> = {}) {
+    return {
+      id: 901,
+      project_id: 'p-ent',
+      type: 'Building Permit',
+      num: 'BLD2026-0001',
+      status: 'Approved',
+      da: 'Trevor',
+      dm: null,
+      ent_lead: 'Bobby',
+      target_submit: null,
+      dd_start: null,
+      dd_end: null,
+      approval_date: '2026-01-05',
+      actual_issue: null,
+      parent_permit_id: null,
+      permit_cycles: [],
+      ...over,
+    };
+  }
+  // A DESIGN-leg milestone: a two-leg permit (a DA plus a real arch task) with
+  // a DD window close → "Close the DD window", which MILESTONE_LEGS makes
+  // design-ONLY → D&E lane.
+  //
+  // ★★ Deliberately `draw` rather than `target_submit`: fix-337/fix-388 make
+  //    any submission at all close the pre-submission prompts, and a permit
+  //    already in review has none. `draw` is also the exact shape of the one
+  //    real design-leg row measured on prod (Trevor, 2026-08-29).
+  function designPermit(over: Record<string, unknown> = {}) {
+    return {
+      id: 902,
+      project_id: 'p-des',
+      type: 'Building Permit',
+      num: 'BLD2026-0002',
+      status: 'Not Started',
+      da: 'Trevor',
+      dm: null,
+      ent_lead: 'Miles',
+      target_submit: null,
+      dd_start: '2026-05-01',
+      dd_end: '2026-05-20',
+      approval_date: null,
+      actual_issue: null,
+      parent_permit_id: null,
+      permit_cycles: [],
+      ...over,
+    };
+  }
+  const PROJECTS = [
+    { id: 'p-ent', address: '1 Ent St', is_backfill: false },
+    { id: 'p-des', address: '2 Design Ave', is_backfill: false },
+  ];
+  // A design task is what makes `legShape` two-leg (fix-308: a named DA is
+  // necessary but not sufficient).
+  const ARCH_TASK = {
+    id: 'arch-1',
+    permit_id: 902,
+    discipline: 'arch',
+    completion_status: 'Open',
+    bucket: 'de',
+    assigned_to: 'Trevor',
+  };
+
+  function asBobby() {
+    teamRef.current = [
+      member({ name: 'Bobby', role: 'ent_lead', email: 'bobby@x.com' }),
+      member({ name: 'Trevor', role: 'da' }),
+      member({ name: 'Lindsay', role: 'dm' }),
+    ];
+  }
+
+  it('★★★ an ENT-leg milestone lands in PERMITTING, in NOT STARTED', () => {
+    asBobby();
+    boardRef.permits = [entPermit()];
+    boardRef.projects = PROJECTS;
+    renderIt();
+    fireEvent.click(screen.getByTestId('mytasks-scope-mine'));
+    const row = screen.getByTestId('mytask-milestone-m-901-fees-entitlement');
+    expect(row).toBeInTheDocument();
+    // ★ RULING 2: fees is entitlement-only → Permitting.
+    expect(
+      screen
+        .getByTestId('mytasks-bucket-pm-sub-not-started')
+        .contains(row),
+    ).toBe(true);
+    // ★ RULING 1: never In Progress, never Resolved.
+    expect(
+      screen
+        .getByTestId('mytasks-bucket-pm-sub-in-progress')
+        .contains(row),
+    ).toBe(false);
+    // ★ The tag, in fix-444's slot.
+    expect(
+      screen.getByTestId('mytask-milestone-m-901-fees-entitlement-tag')
+        .textContent,
+    ).toBe('MILESTONE');
+  });
+
+  it('★★★ a DESIGN-leg milestone lands in D&E for its DA, directly', () => {
+    teamRef.current = [
+      member({ name: 'Trevor', role: 'da', email: 'bobby@x.com' }),
+      member({ name: 'Lindsay', role: 'dm' }),
+    ];
+    boardRef.permits = [designPermit()];
+    boardRef.projects = PROJECTS;
+    boardRef.tasks = [ARCH_TASK];
+    renderIt();
+    fireEvent.click(screen.getByTestId('mytasks-scope-mine'));
+    const row = screen.getByTestId('mytask-milestone-m-902-draw-design');
+    expect(
+      screen.getByTestId('mytasks-bucket-de-sub-not-started').contains(row),
+    ).toBe(true);
+    // ★★ DIRECT for the DA — no co-assigned mark.
+    expect(
+      screen.queryByTestId(
+        'mytask-milestone-m-902-draw-design-coassigned',
+      ),
+    ).toBeNull();
+  });
+
+  it('★★★ …and reaches the DM as CO-ASSIGNED, through dm_da_groups', () => {
+    // ★★★ THE WIDENING. Under the Board's literal rule Derry sees nothing —
+    //     measured as exactly 0 rows on prod. This is the ruling that makes
+    //     the feature exist for design managers. (Lindsay manages Trevor in this
+//     harness; on prod she was one of the three DMs measuring exactly 0.)
+    teamRef.current = [
+      member({ name: 'Lindsay', role: 'dm', email: 'bobby@x.com' }),
+      member({ name: 'Trevor', role: 'da' }),
+    ];
+    boardRef.permits = [designPermit()];
+    boardRef.projects = PROJECTS;
+    boardRef.tasks = [ARCH_TASK];
+    renderIt();
+    fireEvent.click(screen.getByTestId('mytasks-scope-mine'));
+    expect(
+      screen.getByTestId('mytask-milestone-m-902-draw-design'),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByTestId(
+        'mytask-milestone-m-902-draw-design-coassigned',
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it('★★★ the Co-assigned toggle OFF hides the DM’s row and keeps the DA’s', () => {
+    // The amendment to ruling 3: one switch governs a DM's DA's tasks AND
+    // that DA's milestones.
+    teamRef.current = [
+      member({ name: 'Lindsay', role: 'dm', email: 'bobby@x.com' }),
+      member({ name: 'Trevor', role: 'da' }),
+    ];
+    boardRef.permits = [designPermit()];
+    boardRef.projects = PROJECTS;
+    boardRef.tasks = [ARCH_TASK];
+    const { unmount } = renderIt();
+    fireEvent.click(screen.getByTestId('mytasks-scope-mine'));
+    expect(
+      screen.getByTestId('mytask-milestone-m-902-draw-design'),
+    ).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId('mytasks-filter-coassigned'));
+    expect(
+      screen.queryByTestId('mytask-milestone-m-902-draw-design'),
+    ).toBeNull();
+    unmount();
+
+    // …and the DA, who reaches it directly, keeps it with the toggle off.
+    teamRef.current = [
+      member({ name: 'Trevor', role: 'da', email: 'bobby@x.com' }),
+      member({ name: 'Lindsay', role: 'dm' }),
+    ];
+    renderIt();
+    fireEvent.click(screen.getByTestId('mytasks-scope-mine'));
+    expect(
+      screen.getByTestId('mytask-milestone-m-902-draw-design'),
+    ).toBeInTheDocument();
+  });
+
+  it('★★ the ENT lead does not see the design leg, nor the DA the ent leg', () => {
+    teamRef.current = [
+      member({ name: 'Miles', role: 'ent_lead', email: 'bobby@x.com' }),
+      member({ name: 'Trevor', role: 'da' }),
+    ];
+    boardRef.permits = [designPermit()];
+    boardRef.projects = PROJECTS;
+    boardRef.tasks = [ARCH_TASK];
+    renderIt();
+    fireEvent.click(screen.getByTestId('mytasks-scope-mine'));
+    // Miles is the ENT lead here; the design-leg row is Trevor's and Derry's.
+    expect(
+      screen.queryByTestId('mytask-milestone-m-902-draw-design'),
+    ).toBeNull();
+  });
+
+  it('★★★ an ACKED milestone is absent', () => {
+    asBobby();
+    boardRef.permits = [entPermit()];
+    boardRef.projects = PROJECTS;
+    boardRef.acks = [
+      {
+        id: 'a1',
+        permit_id: 901,
+        milestone: 'fees',
+        // The anchor for fees is the approval date — matching it suppresses.
+        anchor: '2026-01-05',
+        acked_by_name: 'Bobby',
+        acked_at: '2026-05-30T00:00:00Z',
+      },
+    ];
+    renderIt();
+    fireEvent.click(screen.getByTestId('mytasks-scope-mine'));
+    expect(
+      screen.queryByTestId('mytask-milestone-m-901-fees-entitlement'),
+    ).toBeNull();
+  });
+
+  it('★★★ ticking an ack row calls the ack hook with the Board’s arguments', () => {
+    asBobby();
+    boardRef.permits = [entPermit()];
+    boardRef.projects = PROJECTS;
+    renderIt();
+    fireEvent.click(screen.getByTestId('mytasks-scope-mine'));
+    fireEvent.click(
+      screen.getByTestId('mytask-milestone-m-901-fees-entitlement-tick'),
+    );
+    expect(ackMutate).toHaveBeenCalledWith({
+      permitId: 901,
+      milestone: 'fees',
+      anchor: '2026-01-05',
+      ackedByName: 'Bobby',
+    });
+    // ★ And nothing else fired.
+    expect(handoffConfirm).not.toHaveBeenCalled();
+  });
+
+  it('★★ a milestone row sits in the BAND its date puts it in', () => {
+    asBobby();
+    boardRef.permits = [entPermit()];
+    boardRef.projects = PROJECTS;
+    renderIt();
+    fireEvent.click(screen.getByTestId('mytasks-scope-mine'));
+    // Approved 2026-01-05 against the fixture clock — long past due.
+    const band = screen.getByTestId('mytasks-band-pm-not-started-past_due');
+    expect(
+      band.contains(screen.getByTestId('mytask-milestone-m-901-fees-entitlement')),
+    ).toBe(true);
+  });
+
+  it('★★★ RULING 3: stage / BOT / held filters LEAVE milestone rows visible', () => {
+    // ★★★ The instinct is to let an unmatched filter hide what it cannot
+    //     judge. That would mean switching on 🤖 BOT silently emptied the
+    //     milestones, and the reader would read the absence as "none" —
+    //     fix-370's mistake exactly.
+    asBobby();
+    boardRef.permits = [entPermit()];
+    boardRef.projects = PROJECTS;
+    renderIt();
+    fireEvent.click(screen.getByTestId('mytasks-scope-mine'));
+    fireEvent.click(screen.getByTestId('mytasks-filter-bot'));
+    expect(
+      screen.getByTestId('mytask-milestone-m-901-fees-entitlement'),
+    ).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId('mytasks-filter-held'));
+    expect(
+      screen.getByTestId('mytask-milestone-m-901-fees-entitlement'),
+    ).toBeInTheDocument();
+  });
+
+  it('★★ a people filter for somebody else HIDES them; for the DA it keeps them', () => {
+    asBobby();
+    teamRef.current = [
+      member({ name: 'Bobby', role: 'ent_lead', email: 'bobby@x.com' }),
+      member({ name: 'Trevor', role: 'da' }),
+      member({ name: 'Ainsley', role: 'da' }),
+    ];
+    boardRef.permits = [entPermit()];
+    boardRef.projects = PROJECTS;
+    renderIt();
+    fireEvent.click(screen.getByTestId('mytasks-scope-mine'));
+    openPeople();
+    fireEvent.change(screen.getByTestId('mytasks-filter-role-da-select'), {
+      target: { value: 'Ainsley' },
+    });
+    expect(
+      screen.queryByTestId('mytask-milestone-m-901-fees-entitlement'),
+    ).toBeNull();
+    fireEvent.change(screen.getByTestId('mytasks-filter-role-da-select'), {
+      target: { value: 'Trevor' },
+    });
+    expect(
+      screen.getByTestId('mytask-milestone-m-901-fees-entitlement'),
+    ).toBeInTheDocument();
+  });
+
+  it('★★ search matches a milestone by its verb and its address', () => {
+    asBobby();
+    boardRef.permits = [entPermit()];
+    boardRef.projects = PROJECTS;
+    renderIt();
+    fireEvent.click(screen.getByTestId('mytasks-scope-mine'));
+    const search = screen.getByTestId('mytasks-filter-search');
+    fireEvent.change(search, { target: { value: 'issuance fees' } });
+    expect(
+      screen.getByTestId('mytask-milestone-m-901-fees-entitlement'),
+    ).toBeInTheDocument();
+    fireEvent.change(search, { target: { value: 'nothing matches this' } });
+    expect(
+      screen.queryByTestId('mytask-milestone-m-901-fees-entitlement'),
+    ).toBeNull();
+  });
+
+  it('★★ the OPEN counter includes milestone rows', () => {
+    asBobby();
+    boardRef.permits = [entPermit()];
+    boardRef.projects = PROJECTS;
+    renderIt();
+    fireEvent.click(screen.getByTestId('mytasks-scope-mine'));
+    expect(
+      screen.getByTestId('mytasks-counter-open-value').textContent,
+    ).toBe('1');
+  });
+
+  it('★ Group-by-Project puts a milestone under its project', () => {
+    asBobby();
+    boardRef.permits = [entPermit()];
+    boardRef.projects = PROJECTS;
+    renderIt();
+    fireEvent.click(screen.getByTestId('mytasks-scope-mine'));
+    fireEvent.click(screen.getByTestId('mytasks-filter-byproject'));
+    const group = screen.getByTestId('mytasks-project-group-1 Ent St');
+    expect(
+      group.contains(
+        screen.getByTestId('mytask-milestone-m-901-fees-entitlement'),
+      ),
+    ).toBe(true);
   });
 });
