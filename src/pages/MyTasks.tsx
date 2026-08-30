@@ -59,6 +59,15 @@ import { HoldBadge } from '../components/shared/HoldBadge';
 import { useScopeMode } from '../hooks/useSelfScope';
 import { type ScopeMode } from '../lib/selfScope';
 import { useTaskOwnership } from '../hooks/useTaskOwnership';
+// ★★★ fix-445 (ruling 4 / P-047): the Co-assigned switch and the mark that
+// makes 'mine' and 'shared' distinguishable rather than blended.
+import { useShowCoAssigned } from '../hooks/useShowCoAssigned';
+import CoAssignedToggle from '../components/shared/CoAssignedToggle';
+import {
+  CoAssignedContext,
+  NO_CO_ASSIGNED,
+  useIsCoAssigned,
+} from '../lib/coAssignedContext';
 import ScopeToggle from '../components/shared/ScopeToggle';
 import { SkeletonRows } from '../components/Skeleton';
 import QueryError from '../components/QueryError';
@@ -438,7 +447,9 @@ function Body({
   // fix-238: ownership resolver — resolves each task's assigned_to role
   // placeholder (Design Manager / Schematic Team / …) to a person the same way
   // the task chip does, so "Mine" routes a role-assigned task to the right list.
-  const { matches: taskMatches } = useTaskOwnership();
+  const { matches: taskMatches, isCoAssigned: taskIsCoAssigned } =
+    useTaskOwnership();
+  const { showCoAssigned } = useShowCoAssigned();
 
   // fix-380: struct_address per permit, for the search haystack. The task rows
   // are the bp_list_tasks projection (project_address only); the permit's own
@@ -522,8 +533,58 @@ function Body({
   const scopedTasks = useMemo(() => {
     const name = identity.name;
     if (scopeMode !== 'mine' || !name) return tasks;
-    return tasks.filter((t) => taskMatches(t, name));
-  }, [tasks, scopeMode, identity.name, taskMatches]);
+    // ★★★ fix-445 §A2/§A4 — THE SWITCH APPLIES HERE, AND NOWHERE ELSE.
+    //
+    // This is the one place "mine" is decided, so narrowing it is all the
+    // ticket needs: the counters, the bands, the by-project view and the
+    // Waiting-On tab all read downstream of `scopedTasks`, which is why §A4
+    // ("counters follow the toggle") needs no separate code. A second filter
+    // further down would be a second definition of the same word.
+    //
+    // ★★ The switch is MEANINGLESS UNDER "EVERYONE" — that list is not
+    // defined by ownership at all — so it is only consulted in `mine`, which
+    // this early return already guarantees.
+    if (showCoAssigned) return tasks.filter((t) => taskMatches(t, name));
+    return tasks.filter((t) => taskMatches(t, name) && !taskIsCoAssigned(t, name));
+  }, [
+    tasks,
+    scopeMode,
+    identity.name,
+    taskMatches,
+    taskIsCoAssigned,
+    showCoAssigned,
+  ]);
+
+  // ★★★ fix-445 §A3 — is THIS row shared rather than mine?
+  //
+  // A PREDICATE, not a precomputed set — see lib/coAssignedContext for the
+  // fix-434 pin that forced it. Its identity depends only on the resolver, the
+  // scope and the viewer's name, none of which move when a task's status does,
+  // so ticking a checkbox does not re-render the board.
+  //
+  // ★★ Under "Everyone" it answers no to everything: a mark reading
+  // "co-assigned to you" would be a lie on somebody else's task.
+  // ★★★ TWO STEPS, AND THE SECOND ONE IS THE POINT. The key recomputes freely;
+  //     the Set — the thing 50 memoised cards subscribe to — is derived from
+  //     the key alone, so its identity moves only when the ANSWER moves. See
+  //     lib/coAssignedContext for the two versions of this that failed
+  //     fix-434 §B1.
+  //
+  // ★★ Under "Everyone" it is empty: a mark reading "co-assigned to you" would
+  //    be a lie on somebody else's task.
+  const coAssignedKey = useMemo(() => {
+    const name = identity.name;
+    if (scopeMode !== 'mine' || !name) return '';
+    const ids: string[] = [];
+    for (const t of scopedTasks) {
+      if (taskIsCoAssigned(t, name)) ids.push(t.id);
+    }
+    return ids.sort().join('|');
+  }, [scopedTasks, scopeMode, identity.name, taskIsCoAssigned]);
+  const coAssignedIds = useMemo(
+    () => (coAssignedKey === '' ? NO_CO_ASSIGNED : new Set(coAssignedKey.split('|'))),
+    [coAssignedKey],
+  );
   const filtered = useMemo(
     () => filterTasks(scopedTasks, filters, rolesByName, taskMatches, structByPermitId),
     [scopedTasks, filters, rolesByName, taskMatches, structByPermitId],
@@ -611,6 +672,9 @@ function Body({
     !tasks.some((t) => t.id === deepLinkTaskId);
 
   return (
+    // ★★★ fix-445 §A3: which rows are shared rather than mine, published once
+    //     for the cards four levels down. See lib/coAssignedContext.
+    <CoAssignedContext.Provider value={coAssignedIds}>
     <div className="space-y-3 p-3" data-testid="mytasks-page">
       <Counters c={counters} />
       <FilterRow
@@ -684,6 +748,7 @@ function Body({
         />
       </div>
     </div>
+    </CoAssignedContext.Provider>
   );
 }
 
@@ -823,58 +888,77 @@ function FilterRow({
   onScopeChange: (mode: ScopeMode) => void;
   selfName: string | null;
 }) {
+  // ★★★ fix-445 §B2 — HOW MANY PEOPLE FILTERS ARE HIDDEN BEHIND THE BUTTON.
+  //
+  // The four role dropdowns move inside a panel, so without this the row could
+  // be filtering hard and look untouched. A hidden filter must never be a
+  // silent one — the badge is the whole reason collapsing them is safe.
+  const peopleCount =
+    filters.roles.ent.length +
+    filters.roles.da.length +
+    filters.roles.dm.length +
+    filters.roles.consultant.length;
+
   return (
     <div
       className="flex flex-wrap items-center gap-2 px-3 py-2 rounded border"
       style={{ borderColor: 'var(--color-border)' }}
       data-testid="mytasks-filterrow"
     >
-      <ScopeToggle
-        mode={scopeMode}
-        onChange={onScopeChange}
-        name={selfName}
-        testid="mytasks-scope"
-      />
-      <input
-        type="text"
-        value={filters.search}
-        onChange={(e) => onPatch({ search: e.target.value })}
-        placeholder="Search tasks, addresses, assignees…"
-        className="text-[12px] px-2 py-1 border rounded outline-none"
-        style={inputStyle()}
-        data-testid="mytasks-filter-search"
-      />
-      <RoleDropdown
-        label="ENT"
-        options={roster.ent}
-        selected={filters.roles.ent}
-        onChange={(next) =>
-          onPatch({ roles: { ...filters.roles, ent: next } })
-        }
-        testid="mytasks-filter-role-ent"
-      />
-      <RoleDropdown
-        label="DA"
-        options={roster.da}
-        selected={filters.roles.da}
-        onChange={(next) => onPatch({ roles: { ...filters.roles, da: next } })}
-        testid="mytasks-filter-role-da"
-      />
-      <RoleDropdown
-        label="DM"
-        options={roster.dm}
-        selected={filters.roles.dm}
-        onChange={(next) => onPatch({ roles: { ...filters.roles, dm: next } })}
-        testid="mytasks-filter-role-dm"
-      />
-      <RoleDropdown
-        label="Consultant"
-        options={roster.consultant}
-        selected={filters.roles.consultant}
-        onChange={(next) =>
-          onPatch({ roles: { ...filters.roles, consultant: next } })
-        }
-        testid="mytasks-filter-role-consultant"
+      {/* =====================================================================
+          ★★★ fix-445 §B — THREE CLUSTERS, NOT A STRIP OF SEVENTEEN
+          =====================================================================
+
+          Bobby, 2026-08-29 (ruling 4): *"the ~18-control filter row grouped so
+          it reads as a few things rather than a strip."* Counted on
+          origin/main: 17 controls — scope, search, 4 role dropdowns, 5 quick-
+          role chips, the stage select, Active only, By Project, BOT, Show held
+          work, Clear — plus this ticket's Co-assigned makes 18.
+
+          ★★ The grouping is WHO / WHAT, and the four role dropdowns are the
+          only things that collapse. They are the widest controls on the row
+          and the least often used; everything else is one click and stays one
+          click. §B3's rule — no control removed, no test id changed — means
+          this is a re-parenting, not a redesign.
+
+          ★ The dividers are hairlines drawn with a border, not a component:
+          §B1 says no new components, and a 1px rule does not need one.
+          ================================================================= */}
+
+      {/* ---- cluster 1: WHERE you are looking ---- */}
+      <div
+        className="flex flex-wrap items-center gap-2"
+        data-testid="mytasks-filtergroup-scope"
+      >
+        <ScopeToggle
+          mode={scopeMode}
+          onChange={onScopeChange}
+          name={selfName}
+          testid="mytasks-scope"
+        />
+        <input
+          type="text"
+          value={filters.search}
+          onChange={(e) => onPatch({ search: e.target.value })}
+          placeholder="Search tasks, addresses, assignees…"
+          className="text-[12px] px-2 py-1 border rounded outline-none"
+          style={inputStyle()}
+          data-testid="mytasks-filter-search"
+        />
+      </div>
+
+      <FilterDivider />
+
+      {/* ---- cluster 2: WHO ---- */}
+      <div
+        className="flex flex-wrap items-center gap-2"
+        data-testid="mytasks-filtergroup-who"
+      >
+      <PeoplePanel
+        roster={roster}
+        filters={filters}
+        onPatch={onPatch}
+        count={peopleCount}
       />
       {/* Quick role-family chip. "All" clears nothing — it just keeps the per-
           family multi-selects authoritative; picking ENT/DA/etc. quickly
@@ -900,6 +984,15 @@ function FilterRow({
           </button>
         ))}
       </div>
+      </div>
+
+      <FilterDivider />
+
+      {/* ---- cluster 3: WHAT ---- */}
+      <div
+        className="flex flex-wrap items-center gap-2 flex-1"
+        data-testid="mytasks-filtergroup-what"
+      >
       <select
         value=""
         onChange={(e) => {
@@ -975,6 +1068,34 @@ function FilterRow({
           filters, and this is a shared preference My Board reads too. Resetting
           My Tasks' filter row must not silently change what the board shows. */}
       <ShowHeldWorkToggle testid="mytasks-filter-held" />
+      {/* ★★★ fix-445 §A2 — beside Show held work, same shape, same per-user
+          memory mechanism (lib/coAssignedPref). DISABLED, not hidden, under
+          Everyone: that list is not defined by ownership, so there is no
+          "your" co-assignment to hide, and a control that vanished between
+          scopes would leave the reader hunting for it. */}
+      <CoAssignedToggle
+        testid="mytasks-filter-coassigned"
+        disabled={scopeMode !== 'mine'}
+      />
+      {/* ★ fix-428: the label is Bobby's word; the id is unchanged. The
+          FilterBar's own `mytasks-filter-clear` already read correctly and did
+          not move.
+
+          ★★ fix-445: Clear still does NOT touch Co-assigned, for exactly the
+          reason fix-409 gave about Show held work — the chips beside it are
+          this screen's own filters, and these two are per-user PREFERENCES
+          that outlive a filter reset. Clear DOES empty the four role dropdowns
+          inside the People panel (§B2): they are `filters.roles` and always
+          were, so collapsing them behind a button changed where they are drawn
+          and nothing about what Clear means.
+
+          ★★★ THE COMMENT LIVES OUT HERE, ABOVE THE BUTTON, ON PURPOSE.
+          fix-428's own pin slices 260 characters after `data-testid=
+          "mytasks-filter-reset"` and requires the word Clear inside that
+          window. A comment between the id and the label pushes it out and
+          fails a test whose subject — the label and the id — this ticket never
+          touched. Loosening someone else's pin to make room for prose is the
+          wrong trade; moving the prose is free. */}
       <button
         type="button"
         onClick={onReset}
@@ -982,11 +1103,127 @@ function FilterRow({
         style={chipStyle(false, 'bg')}
         data-testid="mytasks-filter-reset"
       >
-        {/* ★ fix-428: the label is Bobby's word; the id is unchanged. The
-            FilterBar's own `mytasks-filter-clear` already read correctly and
-            did not move. */}
         Clear
       </button>
+      </div>
+    </div>
+  );
+}
+
+/** ★ fix-445 §B1: a hairline between clusters. Not a component in the sense
+ *  §B1 rules out — it is a 1px rule with a name, so the three call sites
+ *  cannot drift apart. */
+function FilterDivider() {
+  return (
+    <span
+      aria-hidden
+      className="self-stretch w-px my-0.5"
+      style={{ background: 'var(--color-border)' }}
+      data-testid="mytasks-filter-divider"
+    />
+  );
+}
+
+// ===========================================================================
+// ★★★ fix-445 §B1/§B2 — THE FOUR ROLE DROPDOWNS, BEHIND ONE BUTTON
+// ===========================================================================
+//
+// ★★★ THE PANEL'S OPEN STATE IS LOCAL AND DELIBERATELY NOT REMEMBERED (§B4).
+// fix-403's line is preference vs train of thought, and "which drawer was open
+// when I left" is neither — it is a gesture. Persisting it would also mean a
+// row that changes height on load for a reason the reader cannot see.
+//
+// ★★ THE DROPDOWNS THEMSELVES ARE UNCHANGED — same `RoleDropdown`, same four
+// test ids, same `filters.roles` writes. §B3: this re-parents them, it does not
+// reimplement them, so every existing assertion about them still holds.
+function PeoplePanel({
+  roster,
+  filters,
+  onPatch,
+  count,
+}: {
+  roster: { ent: string[]; da: string[]; dm: string[]; consultant: string[] };
+  filters: FilterState;
+  onPatch: (p: Partial<FilterState>) => void;
+  count: number;
+}) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="relative" data-testid="mytasks-filter-people">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="inline-flex items-center gap-1 text-[11px] px-2 py-1 rounded border whitespace-nowrap"
+        style={chipStyle(count > 0, 'bg')}
+        aria-expanded={open}
+        data-testid="mytasks-filter-people-button"
+        data-count={count}
+      >
+        People
+        {/* ★★★ §B2 — THE BADGE IS WHAT MAKES COLLAPSING THEM HONEST. Four
+            filters that can be set and then hidden would otherwise narrow the
+            board with nothing on screen saying so. */}
+        {count > 0 && (
+          <span
+            className="text-[9px] px-1 rounded-full font-bold"
+            style={{
+              background: 'var(--color-de)',
+              color: 'var(--color-surface)',
+            }}
+            data-testid="mytasks-filter-people-count"
+          >
+            {count}
+          </span>
+        )}
+        <span aria-hidden>▾</span>
+      </button>
+      {open && (
+        <div
+          className="absolute z-20 mt-1 left-0 flex flex-col gap-2 p-2 rounded border shadow-lg"
+          style={{
+            background: 'var(--color-panel)',
+            borderColor: 'var(--color-border)',
+          }}
+          data-testid="mytasks-filter-people-panel"
+        >
+          <RoleDropdown
+            label="ENT"
+            options={roster.ent}
+            selected={filters.roles.ent}
+            onChange={(next) =>
+              onPatch({ roles: { ...filters.roles, ent: next } })
+            }
+            testid="mytasks-filter-role-ent"
+          />
+          <RoleDropdown
+            label="DA"
+            options={roster.da}
+            selected={filters.roles.da}
+            onChange={(next) =>
+              onPatch({ roles: { ...filters.roles, da: next } })
+            }
+            testid="mytasks-filter-role-da"
+          />
+          <RoleDropdown
+            label="DM"
+            options={roster.dm}
+            selected={filters.roles.dm}
+            onChange={(next) =>
+              onPatch({ roles: { ...filters.roles, dm: next } })
+            }
+            testid="mytasks-filter-role-dm"
+          />
+          <RoleDropdown
+            label="Consultant"
+            options={roster.consultant}
+            selected={filters.roles.consultant}
+            onChange={(next) =>
+              onPatch({ roles: { ...filters.roles, consultant: next } })
+            }
+            testid="mytasks-filter-role-consultant"
+          />
+        </div>
+      )}
     </div>
   );
 }
@@ -1454,6 +1691,9 @@ const TaskCard = memo(function TaskCard({
   // label.
   const permitsQ = usePermits();
   const permitSuffix = taskPermitSuffix(task.permit_id, permitsQ.data ?? []);
+  // ★ fix-445 §A3: read from context, not a prop — see lib/coAssignedContext
+  //   for why four signature changes were the wrong price for one badge.
+  const coAssigned = useIsCoAssigned(task.id);
 
   // fix-235: the checkbox advances FORWARD only — Open → In Progress →
   // Resolved — and stops at Resolved (a further click is a no-op so a
@@ -1580,6 +1820,30 @@ const TaskCard = memo(function TaskCard({
           compact
           testid={`mytask-card-${task.id}-hold`}
         />
+        {/* ★★★ fix-445 §A3 — SHARED, NOT MINE.
+            Bobby: *"so 'mine' and 'shared' are distinguishable rather than
+            blended."* Present only when the task reaches this viewer through
+            the co-assignee join ALONE — a task you own AND are separately
+            listed on is yours, and 24 of Miles's rows are exactly that, so
+            marking those would label most of the board's busiest list as
+            somebody else's work.
+
+            ★ It rides the SAME badge row as the bot, auto-closed, hold, type
+            and unowned chips — the tag slot fix-444 left open — rather than
+            starting a second place where a row can be annotated. */}
+        {coAssigned && (
+          <span
+            className="text-[9px] px-1.5 py-0.5 rounded font-bold"
+            style={{
+              background: 'var(--color-de-bg, var(--color-s2))',
+              color: 'var(--color-de)',
+            }}
+            title="You are a co-assignee on this task — it is not assigned to you directly."
+            data-testid={`mytask-card-${task.id}-coassigned`}
+          >
+            CO-ASSIGNED
+          </span>
+        )}
         {task.permit_type && (
           <span
             className="text-[9px] px-1.5 py-0.5 rounded font-bold uppercase"

@@ -5,6 +5,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { ReactNode } from 'react';
 import { useAuthStore } from '../stores/authStore';
 import { resetShowHeldWorkCache } from '../lib/heldWorkPref';
+import { resetShowCoAssignedCache } from '../lib/coAssignedPref';
 import type { MyTaskNode, TeamMember } from '../lib/database.types';
 
 // fix-80: My Tasks v1-layout — three-pane kanban (D&E | Permitting | Task
@@ -250,6 +251,8 @@ beforeEach(() => {
   // ★ ...and the module cache behind the switch, which sessionStorage.clear()
   //   cannot reach. See lib/heldWorkPref.resetShowHeldWorkCache.
   resetShowHeldWorkCache();
+  // ★ fix-445: same module-cache trap, same seam — see lib/coAssignedPref.
+  resetShowCoAssignedCache();
 });
 
 /** Varied fixture for counter / partition / filter / detail tests. Mix of:
@@ -344,6 +347,15 @@ const VARIED_PERMITS: unknown[] = [
 // parked their Open/In-Progress tasks, but it deliberately leaves RESOLVED tasks
 // alone — so without a project-level filter a cancelled project still showed a
 // card under "show resolved" and still counted in the "Projects" tile.
+// ★★★ fix-445 §B1: the four role dropdowns now live inside the "People ▾"
+// panel. Their TEST IDS ARE UNCHANGED (§B3) — only their parent moved — so
+// every assertion below still reads the same control; it just has to open the
+// drawer first, exactly as a person now does.
+function openPeople() {
+  const btn = screen.getByTestId('mytasks-filter-people-button');
+  if (btn.getAttribute('aria-expanded') !== 'true') fireEvent.click(btn);
+}
+
 describe('MyTasks — cancelled projects (fix-264)', () => {
   it('drops every card from a cancelled project, resolved ones included', () => {
     tasksRef.current = varied();
@@ -926,6 +938,7 @@ describe('MyTasks (fix-80 v1 three-pane kanban)', () => {
     // ent task de-inprog resolves to Bobby.
     permitsRef.current = VARIED_PERMITS;
     renderIt();
+    openPeople();
     fireEvent.change(screen.getByTestId('mytasks-filter-role-ent-select'), {
       target: { value: 'Bobby' },
     });
@@ -939,6 +952,7 @@ describe('MyTasks (fix-80 v1 three-pane kanban)', () => {
     tasksRef.current = varied();
     permitsRef.current = VARIED_PERMITS;
     renderIt();
+    openPeople();
     fireEvent.change(screen.getByTestId('mytasks-filter-role-da-select'), {
       target: { value: 'Trevor' },
     });
@@ -997,6 +1011,7 @@ describe('MyTasks (fix-80 v1 three-pane kanban)', () => {
     it('DM person filter (Derry) surfaces the "Design Manager" tasks — the bug', () => {
       renderIt();
       // Before fix: primary_assignee is the DA, so a Derry filter showed 0.
+      openPeople();
       fireEvent.change(screen.getByTestId('mytasks-filter-role-dm-select'), {
         target: { value: 'Derry' },
       });
@@ -1006,6 +1021,7 @@ describe('MyTasks (fix-80 v1 three-pane kanban)', () => {
 
     it('DA person filter (Qisheng) still shows them via the arch blanket', () => {
       renderIt();
+      openPeople();
       fireEvent.change(screen.getByTestId('mytasks-filter-role-da-select'), {
         target: { value: 'Qisheng' },
       });
@@ -1024,6 +1040,7 @@ describe('MyTasks (fix-80 v1 three-pane kanban)', () => {
   it('CONSULTANT dropdown surfaces tasks whose co-assignees include unrostered names', () => {
     tasksRef.current = varied();
     renderIt();
+    openPeople();
     fireEvent.change(
       screen.getByTestId('mytasks-filter-role-consultant-select'),
       { target: { value: 'Outside Consult LLC' } },
@@ -1341,6 +1358,7 @@ describe('MyTasks view switcher (fix-140)', () => {
     ];
     renderIt();
     // Filter ENT → Edmund. The BOT task matches via its derived ent lead.
+    openPeople();
     fireEvent.change(screen.getByTestId('mytasks-filter-role-ent-select'), {
       target: { value: 'Edmund' },
     });
@@ -1479,5 +1497,205 @@ describe('fix-294 the notes box writes where people can see it', () => {
     fireEvent.click(screen.getByTestId('mytask-card-a'));
     expect(screen.getByTestId('task-detail-permit-notes')).toBeInTheDocument();
     expect(screen.getByTestId('notes-panel')).toBeInTheDocument();
+  });
+});
+
+
+// ===========================================================================
+// ★★★ fix-445 — THE CO-ASSIGNED TOGGLE, AND THE FILTER ROW THAT STOPPED BEING
+//     A WALL (ruling 4 / P-047)
+// ===========================================================================
+describe('fix-445: Co-assigned', () => {
+  // Bobby is the logged-in user (see the file's beforeEach). Two tasks he can
+  // see for two different reasons:
+  //   own-1  assigned to him outright         → Rule 1, ownsDirectly
+  //   co-1   assigned to Edmund, Bobby listed → Rule 2 only, isCoAssigned
+  function twoWays(): TaskFixture[] {
+    return [
+      task({
+        id: 'own-1',
+        discipline: 'ent',
+        assigned_to: 'Bobby',
+        co_assignees: [],
+        text: 'Mine outright',
+      }) as TaskFixture,
+      task({
+        id: 'co-1',
+        discipline: 'ent',
+        assigned_to: 'Edmund',
+        co_assignees: ['Bobby'],
+        text: 'Shared with me',
+      }) as TaskFixture,
+    ];
+  }
+
+  beforeEach(() => {
+    teamRef.current = [
+      member({ name: 'Bobby', role: 'ent_lead', email: 'bobby@x.com' }),
+      member({ name: 'Edmund', role: 'ent' }),
+    ];
+    permitsRef.current = [{ id: 1, da: null, dm: null, ent_lead: 'Edmund' }];
+    tasksRef.current = twoWays();
+  });
+
+  function goMine() {
+    fireEvent.click(screen.getByTestId('mytasks-scope-mine'));
+  }
+
+  it('★★★ ON (the default) shows both, and MARKS the shared one', () => {
+    renderIt();
+    goMine();
+    expect(screen.getByTestId('mytask-card-own-1')).toBeInTheDocument();
+    expect(screen.getByTestId('mytask-card-co-1')).toBeInTheDocument();
+    // ★★ The mark is on the Rule-2 row ONLY. Bobby: "'mine' and 'shared' are
+    //    distinguishable rather than blended."
+    expect(screen.getByTestId('mytask-card-co-1-coassigned')).toBeInTheDocument();
+    expect(screen.queryByTestId('mytask-card-own-1-coassigned')).toBeNull();
+    // ★ Default ON — measured: for five people on the roster the co-assigned
+    //   list IS their list (Brittani 29 of 30). Defaulting off would have
+    //   emptied their board the morning this shipped.
+    expect(
+      screen.getByTestId('mytasks-filter-coassigned').getAttribute('data-on'),
+    ).toBe('true');
+  });
+
+  it('★★★ OFF hides the Rule-2 task and keeps the Rule-1 one', () => {
+    renderIt();
+    goMine();
+    fireEvent.click(screen.getByTestId('mytasks-filter-coassigned'));
+    expect(screen.getByTestId('mytask-card-own-1')).toBeInTheDocument();
+    expect(screen.queryByTestId('mytask-card-co-1')).toBeNull();
+    expect(
+      screen.getByTestId('mytasks-filter-coassigned').getAttribute('data-on'),
+    ).toBe('false');
+  });
+
+  it('★★ §A4: the counters follow the toggle', () => {
+    renderIt();
+    goMine();
+    const open = () =>
+      screen.getByTestId('mytasks-counter-open-value').textContent;
+    expect(open()).toBe('2');
+    fireEvent.click(screen.getByTestId('mytasks-filter-coassigned'));
+    // ★ They count what is on screen, because the switch narrows `scopedTasks`
+    //   — the one place "mine" is decided — and everything else reads
+    //   downstream of it.
+    expect(open()).toBe('1');
+  });
+
+  it('★★ it is DISABLED under Everyone, not hidden', () => {
+    renderIt();
+    fireEvent.click(screen.getByTestId('mytasks-scope-all'));
+    const btn = screen.getByTestId('mytasks-filter-coassigned');
+    // ★ Still there — a control that vanished between scopes would leave the
+    //   reader hunting for it.
+    expect(btn).toBeInTheDocument();
+    expect(btn.getAttribute('data-disabled')).toBe('true');
+    expect((btn as HTMLButtonElement).disabled).toBe(true);
+    expect(btn.getAttribute('title')).toMatch(/My Work/i);
+  });
+
+  it('★★ …and under Everyone NOTHING carries the mark', () => {
+    renderIt();
+    fireEvent.click(screen.getByTestId('mytasks-scope-all'));
+    // A mark reading "co-assigned to you" would be a lie on somebody else's
+    // task, so the set is empty outside "mine" whatever the stored value is.
+    expect(screen.queryByTestId('mytask-card-co-1-coassigned')).toBeNull();
+    expect(screen.queryByTestId('mytask-card-own-1-coassigned')).toBeNull();
+  });
+
+  it('★ clicking it while disabled does nothing', () => {
+    renderIt();
+    fireEvent.click(screen.getByTestId('mytasks-scope-all'));
+    fireEvent.click(screen.getByTestId('mytasks-filter-coassigned'));
+    goMine();
+    // The stored value was never written, so My Work still shows both.
+    expect(screen.getByTestId('mytask-card-co-1')).toBeInTheDocument();
+  });
+});
+
+describe('fix-445 §B: the filter row reads as three things', () => {
+  it('★★ the three clusters and their hairlines exist', () => {
+    renderIt();
+    expect(screen.getByTestId('mytasks-filtergroup-scope')).toBeInTheDocument();
+    expect(screen.getByTestId('mytasks-filtergroup-who')).toBeInTheDocument();
+    expect(screen.getByTestId('mytasks-filtergroup-what')).toBeInTheDocument();
+    expect(screen.getAllByTestId('mytasks-filter-divider')).toHaveLength(2);
+  });
+
+  it('★★★ §B2: the People button carries a COUNT when a role filter is set', () => {
+    teamRef.current = [
+      member({ name: 'Trevor', role: 'da' }),
+      member({ name: 'Ainsley', role: 'da' }),
+    ];
+    renderIt();
+    // ★ Collapsed by default, and saying nothing because nothing is set.
+    expect(screen.queryByTestId('mytasks-filter-people-panel')).toBeNull();
+    expect(screen.queryByTestId('mytasks-filter-people-count')).toBeNull();
+
+    openPeople();
+    expect(screen.getByTestId('mytasks-filter-people-panel')).toBeInTheDocument();
+    fireEvent.change(screen.getByTestId('mytasks-filter-role-da-select'), {
+      target: { value: 'Trevor' },
+    });
+    // ★★★ A HIDDEN FILTER MUST NEVER BE A SILENT ONE. This badge is the whole
+    //     reason collapsing the four dropdowns is safe.
+    expect(screen.getByTestId('mytasks-filter-people-count').textContent).toBe('1');
+  });
+
+  it('★★ §B2: Clear empties the panel, and the badge with it', () => {
+    teamRef.current = [member({ name: 'Trevor', role: 'da' })];
+    renderIt();
+    openPeople();
+    fireEvent.change(screen.getByTestId('mytasks-filter-role-da-select'), {
+      target: { value: 'Trevor' },
+    });
+    expect(screen.getByTestId('mytasks-filter-people-count')).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId('mytasks-filter-reset'));
+    // fix-428's Clear is untouched — the role dropdowns were always
+    // `filters.roles`; collapsing them changed where they are drawn, not what
+    // Clear means.
+    expect(screen.queryByTestId('mytasks-filter-people-count')).toBeNull();
+  });
+
+  it('★★ §B3: every control kept its test id', () => {
+    // ★ ScopeToggle renders NOTHING when the login cannot be resolved to a
+    //   roster name, and the file's default roster gives Bobby no email. The
+    //   inventory is only meaningful with every control actually on screen.
+    teamRef.current = [
+      member({ name: 'Bobby', role: 'ent_lead', email: 'bobby@x.com' }),
+    ];
+    renderIt();
+    openPeople();
+    for (const id of [
+      'mytasks-scope',
+      'mytasks-filter-search',
+      'mytasks-filter-role-ent',
+      'mytasks-filter-role-da',
+      'mytasks-filter-role-dm',
+      'mytasks-filter-role-consultant',
+      'mytasks-filter-allroles',
+      'mytasks-filter-stage',
+      'mytasks-filter-active',
+      'mytasks-filter-byproject',
+      'mytasks-filter-bot',
+      'mytasks-filter-held',
+      'mytasks-filter-coassigned',
+      'mytasks-filter-reset',
+    ]) {
+      expect(screen.getByTestId(id), id).toBeInTheDocument();
+    }
+  });
+
+  it('★ §B4: the panel does NOT remember being open', () => {
+    const { unmount } = renderIt();
+    openPeople();
+    expect(screen.getByTestId('mytasks-filter-people-panel')).toBeInTheDocument();
+    unmount();
+    renderIt();
+    // "Which drawer was open when I left" is a gesture, not a preference — and
+    // a row that changes height on load for an invisible reason is worse than
+    // one click.
+    expect(screen.queryByTestId('mytasks-filter-people-panel')).toBeNull();
   });
 });

@@ -6,6 +6,8 @@ import {
   permitMatchesSelf,
   taskMatchesSelf,
   taskMatchesSelfResolved,
+  ownsDirectly,
+  isCoAssigned,
   type TaskOwnershipContext,
   loadScopeMode,
   saveScopeMode,
@@ -284,5 +286,144 @@ describe('per-user scope persistence', () => {
   it('no-ops without a user id', () => {
     saveScopeMode(null, 'projects', 'mine');
     expect(loadScopeMode(null, 'projects')).toBeNull();
+  });
+});
+
+// ===========================================================================
+// ★★★ fix-445 §A1 — THE PARTITION, PROVEN OVER EVERY COMBINATION
+// ===========================================================================
+describe('fix-445: ownsDirectly / isCoAssigned partition taskMatchesSelfResolved', () => {
+  const ctx: TaskOwnershipContext = {
+    da: 'Qisheng',
+    dm: 'Derry',
+    entLead: 'Miles',
+    schematicDesigners: ['Sam'],
+  };
+
+  // Every shape the three rules can take, crossed: the assignment slot (null,
+  // each role placeholder, a literal, a stranger) × discipline × whether the
+  // viewer is the permit's DA × the co-assignee list.
+  const ASSIGNED = [
+    null,
+    'Design Manager',
+    'Schematic Team',
+    'Design Associate',
+    'Entitlements',
+    'Architecture',
+    'Derry',
+    'Nobody At All',
+  ];
+  const DISCIPLINES = ['arch', 'ent'] as const;
+  const DAS = ['Qisheng', 'Derry', null];
+  const CO_LISTS = [
+    [],
+    ['Derry'],
+    ['Qisheng'],
+    ['role:design_manager'],
+    ['Sam', 'Derry'],
+    ['Stranger'],
+  ];
+  const PEOPLE = ['Derry', 'Qisheng', 'Miles', 'Sam', 'Stranger', 'Nobody At All'];
+
+  it('★★★ matches === ownsDirectly || isCoAssigned, and never both', () => {
+    let cases = 0;
+    let sawDirect = 0;
+    let sawCo = 0;
+    for (const assigned_to of ASSIGNED)
+      for (const discipline of DISCIPLINES)
+        for (const permit_da of DAS)
+          for (const co_assignees of CO_LISTS)
+            for (const who of PEOPLE) {
+              const task = { assigned_to, discipline, permit_da, co_assignees };
+              const m = taskMatchesSelfResolved(task, who, ctx);
+              const d = ownsDirectly(task, who, ctx);
+              const c = isCoAssigned(task, who, ctx);
+              cases++;
+              // EXHAUSTIVE: the split loses nothing.
+              expect(m, JSON.stringify({ task, who })).toBe(d || c);
+              // DISJOINT: no task is both mine and shared.
+              expect(d && c, JSON.stringify({ task, who })).toBe(false);
+              if (d) sawDirect++;
+              if (c) sawCo++;
+            }
+    // ★ The property is worthless if one side never fired — 1,728 cases with
+    //   zero co-assigned hits would pass every assertion above and prove
+    //   nothing at all.
+    expect(cases).toBe(
+      ASSIGNED.length * DISCIPLINES.length * DAS.length * CO_LISTS.length * PEOPLE.length,
+    );
+    expect(sawDirect).toBeGreaterThan(0);
+    expect(sawCo).toBeGreaterThan(0);
+  });
+
+  it('★★ a task you own AND are listed on is YOURS, not shared', () => {
+    // Miles's 24 prod rows are exactly this shape — see lib/selfScope.
+    const task = {
+      assigned_to: 'Derry',
+      discipline: 'ent' as const,
+      permit_da: null,
+      co_assignees: ['Derry'],
+    };
+    expect(ownsDirectly(task, 'Derry', ctx)).toBe(true);
+    expect(isCoAssigned(task, 'Derry', ctx)).toBe(false);
+    expect(taskMatchesSelfResolved(task, 'Derry', ctx)).toBe(true);
+  });
+
+  it('★★ a Rule-2-only task is shared, and disappears when co-assigned is off', () => {
+    const task = {
+      assigned_to: 'Miles',
+      discipline: 'ent' as const,
+      permit_da: null,
+      co_assignees: ['Derry'],
+    };
+    expect(ownsDirectly(task, 'Derry', ctx)).toBe(false);
+    expect(isCoAssigned(task, 'Derry', ctx)).toBe(true);
+  });
+
+  it('★ the arch DA blanket counts as owning it DIRECTLY, not as a co-assignment', () => {
+    const task = {
+      assigned_to: 'Miles',
+      discipline: 'arch' as const,
+      permit_da: 'Qisheng',
+      co_assignees: [] as string[],
+    };
+    expect(ownsDirectly(task, 'Qisheng', ctx)).toBe(true);
+    expect(isCoAssigned(task, 'Qisheng', ctx)).toBe(false);
+  });
+
+  it('★★ a role TOKEN in the co-assignee list resolves before it is compared', () => {
+    // ★★★ THE STORED FORM IS `role:design_manager`, NOT the label. A bare
+    //     "Design Manager" string is a PERSON named that — parseCoAssignee only
+    //     treats an entry as a role when it carries the `role:` prefix. Worth
+    //     pinning: measured on prod 2026-08-29, all 362 permit_task_assignees
+    //     rows hold plain names (Bobby, Briana, Brittani, Dave, Derry, Erick,
+    //     Jade, Keelie, Lindsay, Miles, Trevor) and not one role token — so
+    //     this path is live code with no live data, and only a test defends it.
+    const task = {
+      assigned_to: 'Miles',
+      discipline: 'ent' as const,
+      permit_da: null,
+      co_assignees: ['role:design_manager'],
+    };
+    // Derry is the DM on this project — the token must reach the person.
+    expect(isCoAssigned(task, 'Derry', ctx)).toBe(true);
+    expect(isCoAssigned(task, 'Sam', ctx)).toBe(false);
+
+    // ★ …and the bare label is NOT a role: it is a person nobody is called.
+    const labelled = { ...task, co_assignees: ['Design Manager'] };
+    expect(isCoAssigned(labelled, 'Derry', ctx)).toBe(false);
+  });
+
+  it('★ nobody matches an empty name, on either side', () => {
+    const task = {
+      assigned_to: 'Derry',
+      discipline: 'ent' as const,
+      permit_da: null,
+      co_assignees: ['Derry'],
+    };
+    expect(ownsDirectly(task, null, ctx)).toBe(false);
+    expect(isCoAssigned(task, null, ctx)).toBe(false);
+    expect(ownsDirectly(task, '  ', ctx)).toBe(false);
+    expect(isCoAssigned(task, '  ', ctx)).toBe(false);
   });
 });

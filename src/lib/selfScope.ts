@@ -259,11 +259,43 @@ export interface TaskOwnershipContext {
  *   3. DA BLANKET (arch only) — U is the project's DA and the task is an
  *      architecture task; the DA sees EVERY arch task on their permit whatever
  *      the assignee. Entitlement tasks have no blanket rule. */
-export function taskMatchesSelfResolved(
-  task: Pick<
-    MyTaskNode,
-    'assigned_to' | 'discipline' | 'co_assignees' | 'permit_da'
-  >,
+/** The subset of a task the three ownership rules read. */
+type OwnableTask = Pick<
+  MyTaskNode,
+  'assigned_to' | 'discipline' | 'co_assignees' | 'permit_da'
+>;
+
+// ===========================================================================
+// ★★★ fix-445 §A1 — THE SAME THREE RULES, SPLIT INTO "MINE" AND "SHARED"
+// ===========================================================================
+//
+// Bobby, 2026-08-29 (D-2026-08-29-board-is-the-snapshot-my-tasks-is-everything,
+// ruling 4 / P-047): *"Design managers want to see the tasks they own, then
+// flip co-assigned work on and off on top — so 'mine' and 'shared' are
+// distinguishable rather than blended."*
+//
+// ★★★ THE PARTITION IS EXHAUSTIVE AND DISJOINT, AND THAT IS THE WHOLE DESIGN.
+// `taskMatchesSelfResolved` is now LITERALLY `ownsDirectly || isCoAssigned`,
+// so the board's definition of ownership cannot drift from My Tasks' — it is
+// the same expression, not a second one that agrees today. And `isCoAssigned`
+// ends with "AND NOT ownsDirectly", so no task is ever both: if you own it,
+// you own it, and being listed as a co-assignee on top does not demote it to
+// somebody else's work you happen to see.
+//
+// ★★ WHY "BOTH" IS NOT AN EMPTY CASE. Measured on prod 2026-08-29 over 323
+// open tasks: Miles has 24 tasks he owns directly AND is separately listed on,
+// Trevor has 4. Those 24 rows must not carry the "co-assigned" mark, or the
+// person who owns the most work on the board would see most of it labelled as
+// somebody else's.
+//
+// ★ Rule ORDER is preserved exactly (3 → 1 → 2), because
+// `resolvePrimaryAssignee` is not free and Rule 3 is a cheap string compare.
+
+/** Rules 3 + 1 — the task is YOURS: you are the project's DA on an arch task,
+ *  or `assigned_to` resolves to you (literal name, role placeholder, or the
+ *  discipline's default lead when unset). */
+export function ownsDirectly(
+  task: OwnableTask,
   name: string | null,
   ctx: TaskOwnershipContext,
 ): boolean {
@@ -284,9 +316,30 @@ export function taskMatchesSelfResolved(
     },
     task.discipline,
   );
-  if (norm(primary) === n) return true;
+  return norm(primary) === n;
+}
 
-  // Rule 2 — CO-ASSIGNEE.
+/** Rule 2 — the task reaches you ONLY through the co-assignee join
+ *  (`permit_task_assignees`, surfaced as `co_assignees` by
+ *  `bp_task_co_assignees`). Shared work, not yours.
+ *
+ *  ★★★ THIS IS NOT A SMALL SLICE. Measured on prod 2026-08-29, open tasks
+ *  reachable ONLY this way, as a share of everything that person sees:
+ *  Brittani 29 of 30 (97%), Lindsay 19 of 22 (86%), Derry 20 of 25 (80%),
+ *  Jade 4 of 4, Keelie 3 of 3 — against Miles's 2 of 122. For five people on
+ *  the roster the co-assigned list IS their list, which is why the toggle
+ *  defaults ON and why turning it off must be a deliberate, session-scoped
+ *  act rather than a setting that quietly persists. */
+export function isCoAssigned(
+  task: OwnableTask,
+  name: string | null,
+  ctx: TaskOwnershipContext,
+): boolean {
+  const n = norm(name);
+  if (!n) return false;
+  // ★ "AND NOT ownsDirectly" — the half that makes the partition disjoint.
+  if (ownsDirectly(task, name, ctx)) return false;
+
   const coCtx: ResolutionContext = {
     da: ctx.da,
     dm: ctx.dm,
@@ -298,6 +351,15 @@ export function taskMatchesSelfResolved(
     }
   }
   return false;
+}
+
+export function taskMatchesSelfResolved(
+  task: OwnableTask,
+  name: string | null,
+  ctx: TaskOwnershipContext,
+): boolean {
+  // ★★★ Unchanged by construction. See the block above.
+  return ownsDirectly(task, name, ctx) || isCoAssigned(task, name, ctx);
 }
 
 // ---- per-user persistence of the Mine/All choice ----
