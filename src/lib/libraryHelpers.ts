@@ -183,7 +183,25 @@ export function buildLibraryRows(
   return rows;
 }
 
+/** ★★★ fix-447 (P-055) — WHICH SHAPE OF ANSWER THE TABLE GIVES BACK.
+ *
+ *  Bobby, 2026-08-26: *"the pills should switch the view. Click SITE and it
+ *  highlights, and the results below reformat to address + site information.
+ *  Click UNIT and the same table reformats to address + unit information. The
+ *  metric you are searching by decides the columns you get back."*
+ *
+ *  ★★ It is NOT a filter — it changes the COLUMNS, never which rows match.
+ *  Both filter cards stay live in both views and the conjunction across them
+ *  (fix-402) is untouched; switching view can never drop a row that a filter
+ *  was letting through. It rides in `LibraryFilters` because that is the blob
+ *  fix-403 already persists per user, which is what ruling 4 of 2026-08-29
+ *  asks for ("the Library OPENS ON SITE, and the choice is remembered per
+ *  person") — but see `clearFilters`, which deliberately does NOT reset it. */
+export type LibraryView = 'site' | 'unit';
+
 export interface LibraryFilters {
+  /** ★ fix-447: 'site' | 'unit'. Default and fallback both 'site'. */
+  view: LibraryView;
   search: string;
   lotwTarget: number | null;
   lotwBuf: number;
