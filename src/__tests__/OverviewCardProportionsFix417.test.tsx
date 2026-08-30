@@ -507,16 +507,23 @@ describe('fix-417: THE REPORTED DEFECT — Builder/Owner clips mid-word', () => 
     //     available is width. The card's floor exists to hold this string.
     renderHeader();
     const card = screen.getByTestId('pd-builder-cell');
-    const email = within(card).getByTestId('pd-builder-email') as HTMLInputElement;
-    // The whole value is present, not a truncation of it.
-    expect(email.value).toBe(LONG_EMAIL);
-    expect(email.value).toContain('@');
-    expect(email.value.endsWith('.com')).toBe(true);
+    // ★★ fix-448 re-points these THREE reads and changes nothing they claim.
+    //    Email / Cell / LLC Address are no longer <input>s: the cell is
+    //    pick-only now, so the cached fields DISPLAY the linked row (§B4).
+    //    The claim — the whole value is present, not a truncation of it — is
+    //    the same one, read off textContent instead of .value. The width
+    //    assertions below, which are the half that actually fails without the
+    //    fix, are untouched.
+    const email = within(card).getByTestId('pd-builder-email');
+    expect(email.textContent).toBe(LONG_EMAIL);
+    expect(email.textContent).toContain('@');
+    expect(email.textContent!.endsWith('.com')).toBe(true);
 
-    const phone = within(card).getByTestId('pd-builder-phone') as HTMLInputElement;
-    expect(phone.value).toBe(PHONE);
+    const phone = within(card).getByTestId('pd-builder-phone');
+    expect(phone.textContent).toBe(PHONE);
+    // ★ The owner line IS still an input — it is the picker's search box.
     const owner = within(card).getByTestId('pd-builder-name') as HTMLInputElement;
-    expect(owner.value).toBe(LONG_OWNER);
+    expect(owner.value).toContain(LONG_OWNER);
 
     // ★★★ AND THIS IS THE HALF THAT ACTUALLY FAILS BEFORE THE FIX.
     //

@@ -477,34 +477,45 @@ describe('<ProjectSettingsModal /> fix-25-feat-e-redo permits fill section width
 });
 
 describe('<ProjectSettingsModal /> fix-23f builder autocomplete', () => {
-  it('Builder Name field surfaces matching builders and fills sibling fields on select', () => {
+  // =========================================================================
+  // ★★★ fix-448 §B4 INVERTS THIS PIN, AND fix-23f'S PICKER WAS THE DANGEROUS
+  //     ONE.
+  // =========================================================================
+  //
+  // fix-23f made these five fields a builder autocomplete: pick a builder and
+  // all five siblings fill. What it never did — verified on origin/main, where
+  // the string `builder_id` does not appear anywhere in ProjectSettingsModal —
+  // is write the LINK. So a pick here copied the five cache columns and left
+  // `builder_id` alone: null if there was none, or still pointing at a
+  // DIFFERENT builder if there was. This modal did not merely allow P-082's
+  // divergence, it produced it in one click.
+  //
+  // Bobby, 2026-08-29: the Overview cell is the pick-only place to change which
+  // builder a project has; Settings → Lists & Catalogs is the one place to
+  // change that builder's details. A third editor is how they come apart.
+  it('fix-23f → fix-448: the modal DISPLAYS the builder and cannot pick or edit it', () => {
     renderModal();
-    const nameInput = screen.getByTestId('psm-builder-name') as HTMLInputElement;
-    fireEvent.change(nameInput, { target: { value: 'Boyd' } });
-
-    // Dropdown opens with Boyd Livek as a match.
-    const option = screen.getByTestId('psm-builder-name-option-b-boyd');
-    expect(option).toBeInTheDocument();
-
-    fireEvent.click(option);
-
-    // All siblings filled from the picked builder — fix-175 adds LLC Address.
-    expect((screen.getByTestId('psm-builder-name') as HTMLInputElement).value).toBe('Boyd Livek');
-    expect((screen.getByTestId('psm-builder-co') as HTMLInputElement).value).toBe('Crafted Design Build');
-    expect((screen.getByTestId('psm-builder-email') as HTMLInputElement).value).toBe('boyd@crafted.test');
-    expect((screen.getByTestId('psm-builder-phone') as HTMLInputElement).value).toBe('(206) 555-0199');
-    expect((screen.getByTestId('psm-builder-address') as HTMLInputElement).value).toBe('742 Crafted Ave, Seattle');
-    // Menu closes after select.
+    // ★ No inputs, no menu, no options — the whole autocomplete is gone.
+    expect(screen.getByTestId('psm-builder-name').tagName).not.toBe('INPUT');
+    expect(screen.getByTestId('psm-builder-co').tagName).not.toBe('INPUT');
+    expect(screen.getByTestId('psm-builder-email').tagName).not.toBe('INPUT');
+    expect(screen.getByTestId('psm-builder-phone').tagName).not.toBe('INPUT');
+    expect(screen.getByTestId('psm-builder-address').tagName).not.toBe('INPUT');
     expect(screen.queryByTestId('psm-builder-name-menu')).toBeNull();
+    // ★★ …and it says where the two things you might want to do actually live.
+    const block = screen.getByTestId('psm-builder-readonly');
+    expect(block.textContent).toMatch(/project overview/i);
+    expect(block.textContent).toMatch(/Builders & Owners/i);
   });
 
   // fix-175: the modal save folds the LLC address + per-project POC into the
   // single bp_update_project_with_permits patch.
-  it('saves builder_address + poc_name/poc_email in the project patch', async () => {
+  // ★ fix-448: `builder_address` is still SENT unchanged in the save payload —
+  //   the modal simply cannot edit it any more, so the fixture's value is what
+  //   travels. The poc_* half of fix-175's claim is untouched: those ARE
+  //   per-project free text and stay editable here.
+  it('saves builder_address (unedited) + poc_name/poc_email in the project patch', async () => {
     renderModal();
-    fireEvent.change(screen.getByTestId('psm-builder-address'), {
-      target: { value: '900 Olive Way' },
-    });
     fireEvent.change(screen.getByTestId('psm-poc-name'), {
       target: { value: 'Dana Deal' },
     });
@@ -518,7 +529,9 @@ describe('<ProjectSettingsModal /> fix-23f builder autocomplete', () => {
     });
     const patch =
       updateWithPermitsMock.mutateAsync.mock.calls[0][0].projectPatch;
-    expect(patch.builder_address).toBe('900 Olive Way');
+    // The fixture has no builder_address, so the save carries null — the
+    // point being that it carries the PROJECT's value, not a typed one.
+    expect(patch.builder_address).toBeNull();
     expect(patch.poc_name).toBe('Dana Deal');
     expect(patch.poc_email).toBe('dana@deal.test');
   });

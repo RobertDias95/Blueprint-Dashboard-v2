@@ -178,16 +178,20 @@ describe('BuilderOwnerCell — fix-99 inherits hook-level OCC auto-recovery', ()
         error: null,
       },
     );
-    const { queryClient } = setup();
+    // ★ A linked builder, so the clear (×) is on screen to press.
+    const { queryClient } = setup({ builder_name: 'Boyd Lybeck' });
     // Pre-populate the cache with the fresh token — what a real
     // refetchQueries would deliver after the OCC.
     queryClient.setQueryData(queryKeys.projects(T), [
       projectFixture({ updated_at: NEW_TOKEN }),
     ]);
 
-    const nameInput = screen.getByTestId('pd-builder-name') as HTMLInputElement;
-    fireEvent.change(nameInput, { target: { value: 'Boyd Lybeck' } });
-    fireEvent.blur(nameInput);
+    // ★★ fix-448 re-points the TRIGGER, not the claim. This test is about
+    //    `useUpdateProject`'s OCC retry; the cell is only what fires it. Typing
+    //    a name no longer writes anything (the cell is pick-only now — P-082),
+    //    so the write is fired by the clear button, which is a real builder
+    //    write on this card and goes through the same hook with the same token.
+    fireEvent.click(screen.getByTestId('pd-builder-name-clear'));
 
     // Two supabase update calls — the OCC + the retry. The hook ran
     // both internally; the BuilderOwnerCell only fired one mutateAsync.

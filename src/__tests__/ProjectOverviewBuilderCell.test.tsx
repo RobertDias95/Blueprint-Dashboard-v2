@@ -172,6 +172,9 @@ describe('Project Overview <BuilderOwnerCell /> — fix-24d', () => {
       }),
     ];
     renderCell();
+    // ★ fix-448: the picker opens on focus and searches as you type; the
+    //   option ids are unchanged (`pd-builder-name-option-<id>`).
+    fireEvent.focus(screen.getByTestId('pd-builder-name'));
     fireEvent.change(screen.getByTestId('pd-builder-name'), {
       target: { value: 'boyd' },
     });
@@ -202,37 +205,50 @@ describe('Project Overview <BuilderOwnerCell /> — fix-24d', () => {
       builder_address: '123 Main St, Seattle WA',
     });
     expect(call.fieldLabel).toBe('Builder');
-    expect(
-      (screen.getByTestId('pd-builder-address') as HTMLInputElement).value,
-    ).toBe('123 Main St, Seattle WA');
 
-    // All 4 inputs reflect the picked builder.
-    expect((screen.getByTestId('pd-builder-name') as HTMLInputElement).value).toBe('Boyd Lybeck');
-    expect((screen.getByTestId('pd-builder-company') as HTMLInputElement).value).toBe(
-      "Jake'sD Corporation",
-    );
-    expect((screen.getByTestId('pd-builder-email') as HTMLInputElement).value).toBe(
-      'jakesbd@comcast.net',
-    );
-    expect((screen.getByTestId('pd-builder-phone') as HTMLInputElement).value).toBe(
-      '(206) 387-6534',
-    );
+    // ★★★ fix-448: THE FIVE DISPLAY ASSERTIONS ARE GONE, AND THEIR ABSENCE IS
+    //     THE PROPERTY.
+    //
+    // fix-24d asserted that picking filled five local `useState` drafts. Those
+    // drafts no longer exist: the cell renders `project.builder_*` directly,
+    // so what you see IS what is stored — there is no second copy to fall out
+    // of step with the patch above. In this test the project prop is a fixture
+    // the mutation mock never updates, so the card correctly keeps showing the
+    // old row; asserting otherwise would be asserting the presence of exactly
+    // the duplicate state this ticket removed.
+    //
+    // ★ The contract that matters — ONE save, carrying all six columns
+    //   together — is the `toEqual` above, and it is unchanged.
+    expect(screen.getByTestId('pd-builder-company').tagName).not.toBe('INPUT');
   });
 
-  it('typing without selecting commits the typed value on blur via the single-field patch (auto-promote path in useUpdateProject handles catalog insert)', async () => {
+  // ★★★ fix-448 (P-082) INVERTS THIS PIN, AND THE INVERSION IS THE RULING.
+  //
+  // fix-24d's title says the quiet part: "the auto-promote path in
+  // useUpdateProject handles catalog insert". Typing a name and blurring
+  // created a project field, and sometimes a catalogue row, from a value
+  // nobody had confirmed — which is how "boy" got into the catalogue (fix-174)
+  // and how text drifted away from `builder_id` (P-082).
+  //
+  // Bobby, 2026-08-29: *"Typing a name that is not in the catalog offers 'Add
+  // new builder…' which creates the catalog row and links it."* The gesture is
+  // still available — it is just explicit now, and it writes BOTH halves.
+  it('fix-24d → fix-448: typing without selecting writes NOTHING, and offers Add new', async () => {
     searchResults.current = []; // no suggestions
     renderCell();
-    fireEvent.change(screen.getByTestId('pd-builder-name'), {
-      target: { value: 'Brand New Builder' },
-    });
-    fireEvent.blur(screen.getByTestId('pd-builder-name'));
-
-    await waitFor(() => {
-      expect(mutateAsync).toHaveBeenCalledTimes(1);
-    });
-    const call = mutateAsync.mock.calls[0][0];
-    expect(call.patch).toEqual({ builder_name: 'Brand New Builder' });
-    expect(call.fieldLabel).toBe('Builder Name');
+    const input = screen.getByTestId('pd-builder-name');
+    fireEvent.focus(input);
+    fireEvent.change(input, { target: { value: 'Brand New Builder' } });
+    // ★ The escape hatch is on screen, named after what was typed.
+    expect(
+      screen.getByTestId('pd-builder-name-add-new').textContent,
+    ).toContain('Brand New Builder');
+    fireEvent.blur(input);
+    // ★ Asserted SYNCHRONOUSLY, and that is the honest form for an absence:
+    //   the only writers on this card are onPick / onCreated / onClear, all of
+    //   which fire from a click handler. Waiting a guessed interval to watch
+    //   nothing happen proves nothing that this does not (fix-300b).
+    expect(mutateAsync).not.toHaveBeenCalled();
   });
 
   it('blurring without changes does not fire a save (idempotency)', async () => {
@@ -251,19 +267,18 @@ describe('Project Overview <BuilderOwnerCell /> — fix-24d', () => {
   });
 
   // fix-175 — owner LLC address + per-project point-of-contact.
-  it('editing LLC Address commits builder_address on blur', async () => {
+  // ★★★ fix-448 §B4 INVERTS THIS TOO. `builder_address` is fix-175's CACHE of
+  //     the catalogue row's address — it travels on pick. A card that can also
+  //     type into it holds a second answer to a question the registry already
+  //     answers, and the two drift the first time an LLC moves office.
+  //     Editing happens in Settings → Lists & Catalogs → Builders & Owners.
+  it('fix-175 → fix-448: LLC Address is DISPLAY, not an input', async () => {
     searchResults.current = [];
-    renderCell();
-    fireEvent.change(screen.getByTestId('pd-builder-address'), {
-      target: { value: '900 Olive Way, Seattle' },
-    });
-    fireEvent.blur(screen.getByTestId('pd-builder-address'));
-    await waitFor(() => {
-      expect(mutateAsync).toHaveBeenCalledTimes(1);
-    });
-    const call = mutateAsync.mock.calls[0][0];
-    expect(call.patch).toEqual({ builder_address: '900 Olive Way, Seattle' });
-    expect(call.fieldLabel).toBe('LLC Address');
+    renderCell({ builder_address: '900 Olive Way, Seattle' });
+    const cell = screen.getByTestId('pd-builder-address');
+    expect(cell.tagName).not.toBe('INPUT');
+    // ★ It still SHOWS the cached value — read-only is not hidden.
+    expect(cell.textContent).toBe('900 Olive Way, Seattle');
   });
 
   it('editing Point of Contact name + email each commit the per-project poc_* field on blur', async () => {

@@ -355,6 +355,13 @@ export interface Builder {
   address: string | null;
   notes: string | null;
   active: boolean | null;
+  /** ★★ fix-448: the OCC token. `builders` had NO updated_at and no created_at
+   *  — confirmed on prod — so the registry editor could not check "has this
+   *  changed since I read it" the way every other editor in the app does. The
+   *  fix-448 migration adds the column plus the house `bp_set_updated_at`
+   *  trigger; it is optional here because a row read through the older
+   *  `useBuilderSearch` projection does not select it. */
+  updated_at?: string | null;
 }
 
 /** fix-227: one firm in the central External Team directory — a master list of
