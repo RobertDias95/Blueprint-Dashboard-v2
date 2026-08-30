@@ -11,6 +11,10 @@ import { ZONE_OPTIONS_KEY, zoneOptions } from '../../lib/zoneOptions';
 import { useIsTenantAdmin } from '../../hooks/useIsTenantAdmin';
 import { SkeletonRows } from '../Skeleton';
 import QueryError from '../QueryError';
+// ★★★ fix-448 §A (P-098): the Builder/Owner registry — the sixth catalogue in
+// this section, and the first one backed by a TABLE rather than an app_config
+// key (see hooks/useBuilderRegistry).
+import BuildersRegistryPanel from './BuildersRegistryPanel';
 
 // Q7.3.a: Settings → Projects tab. Four catalog editors:
 //   1. Jurisdictions (table) — pill list + per-row learn_window_days input
@@ -138,6 +142,22 @@ export default function AdminProjectsTab() {
           ★★ IT SITS FIRST because zone is the field that just cost a migration:
           196 projects had produced 33 spellings of 21 zones through a free-text
           box, and this list is now the only way a new one enters the app. */}
+      {/* ★★★ fix-448 §A (P-098) — BUILDERS & OWNERS.
+          Bobby, 2026-08-29: *"in our settings, we should have a builder/owner
+          database. and builders could have different llcs per project too."*
+
+          ★★ IT SITS FIRST because it is the only catalogue here that had NO
+          editor at all: 61 rows arrived from the May import and fix-425 and
+          nothing in the app could touch them since. Every other list in this
+          section has been editable for tickets.
+
+          ★ Unlike its neighbours it is not an app_config key — `public.builders`
+          is a real table with a FK from `projects.builder_id`, so it needs
+          RPCs, an OCC token and a merge. See migrations/fix_448_builder_registry.sql. */}
+      <Section title="Builders & Owners">
+        <BuildersRegistryPanel readOnly={!isAdmin} />
+      </Section>
+
       <Section title="Zones">
         <PillListEditor
           label="Zones"

@@ -75,7 +75,9 @@ import { useUpdateProjectWithPermits } from '../../hooks/useUpdateProjectWithPer
 import { pushToast } from '../../stores/toastStore';
 import OverlapPrompt from '../OverlapPrompt';
 import NpWarningPrompt from '../NpWarningPrompt';
-import BuilderAutocompleteField from '../builder/BuilderAutocompleteField';
+// ★★★ fix-448 §B: the pick-only replacement for the five autocomplete
+// boxes. See components/builder/BuilderPicker for why blur reverts.
+import BuilderPicker from '../builder/BuilderPicker';
 import PlanOfRecordCard from './PlanOfRecordCard';
 import ProjectChatSection, { ProjectChatUnread } from './ProjectChatSection';
 import { projectInternalTeam } from '../../lib/projectTeam';
@@ -1871,16 +1873,59 @@ function ExternalTeamEditor({ project }: { project: Project }) {
 // Project Settings modal.
 // ============================================================
 
+/** ★★ fix-448 §B4: one cached builder field, displayed.
+ *
+ *  It keeps the label/height of the input it replaced so the Builder / Owner
+ *  card is the same size it was (fix-441 set that size, and the MUST-NOT-CHANGE
+ *  list keeps it) — but it is text, so there is no path from this card into
+ *  `builder_email` and friends. An em dash for an empty one: a blank line would
+ *  read as a rendering gap rather than "not recorded". */
+function ReadOnlyBuilderLine({
+  label,
+  value,
+  testid,
+  accent,
+}: {
+  label: string;
+  value: string | null | undefined;
+  testid: string;
+  accent?: boolean;
+}) {
+  const has = (value ?? '').trim() !== '';
+  return (
+    <div>
+      <span className="text-[8px] font-bold text-dim uppercase tracking-wide">
+        {label}
+      </span>
+      <div
+        className="text-[12px] font-bold py-0.5 truncate"
+        style={{
+          color: has
+            ? accent
+              ? 'var(--color-de)'
+              : 'var(--color-text)'
+            : 'var(--color-dim)',
+        }}
+        title={value ?? undefined}
+        data-testid={testid}
+      >
+        {has ? value : '—'}
+      </div>
+    </div>
+  );
+}
+
 function BuilderOwnerCell({ project }: { project: Project }) {
   const updateProject = useUpdateProject();
   const occMissing = !project.updated_at;
 
-  const [name, setName] = useState(project.builder_name ?? '');
-  const [company, setCompany] = useState(project.builder_company ?? '');
-  const [email, setEmail] = useState(project.builder_email ?? '');
-  const [phone, setPhone] = useState(project.builder_phone ?? '');
-  // fix-175: owner LLC address (denormalized project cache) + per-project POC.
-  const [address, setAddress] = useState(project.builder_address ?? '');
+  // ★★★ fix-448 §B: THE FIVE LOCAL DRAFTS ARE GONE with the free-text boxes.
+  //
+  // They existed so a half-typed value could live in the component until blur.
+  // Nothing types into these fields any more — the picker writes all six
+  // columns at once and the four lines below render `project.*` directly — so a
+  // local copy would only be a second, staler answer to a question the project
+  // row already answers. The POC pair below stays: it IS per-project free text.
   const [pocName, setPocName] = useState(project.poc_name ?? '');
   const [pocEmail, setPocEmail] = useState(project.poc_email ?? '');
 
@@ -1942,6 +1987,30 @@ function BuilderOwnerCell({ project }: { project: Project }) {
    *  chose from a menu, so this writes a reference to something that already
    *  exists. fix-174's boundary is about when a row is CREATED from a
    *  half-typed field, and picking from a list is the opposite of that. */
+  /** ★★★ fix-448 §B3 — CLEAR TAKES THE LINK AND ALL FIVE CACHE FIELDS.
+   *
+   *  fix-425 made "clearing the name clears `builder_id`" true on the blur
+   *  path; with the free-text path gone this is the only clear there is, and
+   *  it empties all six in ONE patch under one OCC token. Never one without
+   *  the other — a project showing a company with no link is the same defect
+   *  wearing different clothes. */
+  function clearBuilder() {
+    if (!project.updated_at) return;
+    void updateProject.mutateAsync({
+      projectId: project.id,
+      expectedUpdatedAt: project.updated_at,
+      patch: {
+        builder_id: null,
+        builder_name: null,
+        builder_company: null,
+        builder_email: null,
+        builder_phone: null,
+        builder_address: null,
+      },
+      fieldLabel: 'Builder',
+    });
+  }
+
   function fillFromBuilder(b: Builder) {
     const nextName = b.name ?? '';
     const nextCompany = b.company ?? '';
@@ -1950,11 +2019,8 @@ function BuilderOwnerCell({ project }: { project: Project }) {
     // fix-175: the entity address travels on pick; POC is per-project and is
     // intentionally left untouched.
     const nextAddress = b.address ?? '';
-    setName(nextName);
-    setCompany(nextCompany);
-    setEmail(nextEmail);
-    setPhone(nextPhone);
-    setAddress(nextAddress);
+    // ★ No local state to sync: the patch below is the only writer, and the
+    //   card re-renders from the project cache the mutation updates.
     if (!project.updated_at) return;
     void updateProject.mutateAsync({
       projectId: project.id,
@@ -1989,88 +2055,61 @@ function BuilderOwnerCell({ project }: { project: Project }) {
     <OverviewCard title="Builder / Owner" testId="pd-builder-cell">
      <OverviewSection>
       <div className="flex flex-col gap-1.5">
+      {/* ★★★ fix-448 §B (P-082) — ONE PICKER, THEN FOUR READ-ONLY LINES.
+          Bobby, 2026-08-29: *"PICK-ONLY, like Zone … Text and link can never
+          disagree again."*
+
+          ★★ THE FIVE BOXES WERE FIVE WAYS TO BREAK THE LINK. Each was a
+          free-text commit; typing over the name after a pick left `builder_id`
+          pointing at the row you had stopped naming, which is P-082. There is
+          no free-text commit path left on this card. */}
       <div>
         <span className={labelStyle}>Owner</span>
-        <BuilderAutocompleteField
-          field="name"
-          label="Builder Name"
-          value={name}
-          onChange={setName}
-          onSelectBuilder={fillFromBuilder}
-          onBlur={() => commit('builder_name', name, project.builder_name, 'Builder Name')}
-          placeholder="Full name"
+        <BuilderPicker
+          value={
+            project.builder_company
+              ? `${project.builder_name ?? ''} — ${project.builder_company}`
+              : (project.builder_name ?? '')
+          }
+          linkedCompany={project.builder_company}
+          onPick={fillFromBuilder}
+          onCreated={fillFromBuilder}
+          onClear={clearBuilder}
           disabled={occMissing}
           inputClassName={inputClass}
           inputStyle={inputStyle}
           testid="pd-builder-name"
         />
       </div>
-      <div>
-        <span className={labelStyle}>Business</span>
-        <BuilderAutocompleteField
-          field="company"
-          label="Builder Company"
-          value={company}
-          onChange={setCompany}
-          onSelectBuilder={fillFromBuilder}
-          onBlur={() => commit('builder_company', company, project.builder_company, 'Builder Company')}
-          placeholder="Company"
-          disabled={occMissing}
-          inputClassName={inputClass}
-          inputStyle={inputStyle}
-          testid="pd-builder-company"
-        />
-      </div>
-      <div>
-        <span className={labelStyle}>Email</span>
-        <BuilderAutocompleteField
-          field="email"
-          label="Builder Email"
-          value={email}
-          onChange={setEmail}
-          onSelectBuilder={fillFromBuilder}
-          onBlur={() => commit('builder_email', email, project.builder_email, 'Builder Email')}
-          placeholder="builder@email.com"
-          disabled={occMissing}
-          inputClassName={emailInputClass}
-          inputStyle={emailInputStyle}
-          testid="pd-builder-email"
-        />
-      </div>
-      <div>
-        <span className={labelStyle}>Cell</span>
-        <BuilderAutocompleteField
-          field="phone"
-          label="Builder Phone"
-          value={phone}
-          onChange={setPhone}
-          onSelectBuilder={fillFromBuilder}
-          onBlur={() => commit('builder_phone', phone, project.builder_phone, 'Builder Phone')}
-          placeholder="(206) 555-0100"
-          disabled={occMissing}
-          inputClassName={inputClass}
-          inputStyle={inputStyle}
-          testid="pd-builder-phone"
-        />
-      </div>
-      {/* fix-175: owner LLC address — autofills on pick from the builder
-          entity; commits to the project (denormalized cache). */}
-      <div>
-        <span className={labelStyle}>LLC Address</span>
-        <BuilderAutocompleteField
-          field="address"
-          label="LLC Address"
-          value={address}
-          onChange={setAddress}
-          onSelectBuilder={fillFromBuilder}
-          onBlur={() => commit('builder_address', address, project.builder_address, 'LLC Address')}
-          placeholder="Owner / LLC address"
-          disabled={occMissing}
-          inputClassName={inputClass}
-          inputStyle={inputStyle}
-          testid="pd-builder-address"
-        />
-      </div>
+      {/* ★★★ §B4 — THE FIVE CACHE COLUMNS ARE A CACHE, NOT A SECOND TRUTH.
+          `projects.builder_company/_email/_phone/_address` are fix-175's
+          autofill copy of the catalogue row. Rendering them as inputs invited
+          exactly the divergence this ticket abolishes, so they display what the
+          LINKED ROW says and nothing else. Contact details are edited once, in
+          Settings → Lists & Catalogs → Builders & Owners, where every project
+          using that LLC picks the change up. */}
+      <ReadOnlyBuilderLine
+        label="Business"
+        value={project.builder_company}
+        testid="pd-builder-company"
+      />
+      <ReadOnlyBuilderLine
+        label="Email"
+        value={project.builder_email}
+        testid="pd-builder-email"
+        accent
+      />
+      <ReadOnlyBuilderLine
+        label="Cell"
+        value={project.builder_phone}
+        testid="pd-builder-phone"
+      />
+      {/* fix-175: owner LLC address, from the builder entity. */}
+      <ReadOnlyBuilderLine
+        label="LLC Address"
+        value={project.builder_address}
+        testid="pd-builder-address"
+      />
       {/* fix-175: per-project point-of-contact. Plain inputs (no catalog
           autocomplete) — the contact can differ deal-to-deal. */}
       <div>

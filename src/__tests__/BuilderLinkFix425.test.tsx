@@ -508,39 +508,65 @@ describe('fix-425 §D: the Overview picker records which builder', () => {
     expect(mutateAsync).toHaveBeenCalledTimes(1);
   });
 
-  it('★★★ a blur-committed partial name writes NO id and NO catalog row', async () => {
-    // ★ fix-174's regression, asserted as an absence on the surface that
-    //   caused it. "boy" is exactly the fragment that littered the catalog.
+  // =========================================================================
+  // ★★★ fix-448 (P-082) SUPERSEDES THESE THREE — AND THEY WERE RIGHT.
+  // =========================================================================
+  //
+  // fix-425 could not make the cell safe, only less dangerous: it was five
+  // free-text boxes, so the best available rules were "a hand-typed name never
+  // CREATES a link" and "clearing the name REMOVES one". Both held. What
+  // neither could stop was the middle case — type over the name after a pick
+  // and `builder_id` still points at the row you stopped naming.
+  //
+  // Bobby, 2026-08-29: *"The Builder/Owner cell is PICK-ONLY, like Zone.
+  // Typing a name that is not in the catalog offers 'Add new builder…' which
+  // creates the catalog row and links it. Text and link can never disagree
+  // again."*
+  //
+  // ★★★ SO THE PREMISE OF ALL THREE — that a blur can commit builder text —
+  // is what went. They are rewritten below as the same three questions asked
+  // of the surface that exists now. SUPERSEDED, NOT MISTAKEN (fix-400).
+
+  it('★★★ fix-174 → fix-448: a typed fragment cannot write ANYTHING at all', async () => {
+    // fix-425 asserted "boy" writes a name but no id. fix-448 asserts the
+    // stronger and simpler thing: typing is a SEARCH, so blurring without a
+    // pick writes nothing whatsoever. The fragment that littered the catalogue
+    // can no longer reach the project either.
     renderCell();
     const input = screen.getByTestId('pd-builder-name');
+    fireEvent.focus(input);
     fireEvent.change(input, { target: { value: 'boy' } });
     fireEvent.blur(input);
-    await waitFor(() => expect(mutateAsync).toHaveBeenCalledTimes(1));
-    const patch = mutateAsync.mock.calls[0][0].patch;
-    expect(patch.builder_name).toBe('boy');
-    expect('builder_id' in patch).toBe(false);
+    // ★ Asserted SYNCHRONOUSLY, and that is the honest form for an absence:
+    //   the only writers on this card are onPick / onCreated / onClear, all of
+    //   which fire from a click handler. Waiting a guessed interval to watch
+    //   nothing happen proves nothing that this does not (fix-300b).
+    expect(mutateAsync).not.toHaveBeenCalled();
   });
 
-  it('★★★ clearing the name on the cell drops the link', async () => {
-    // The dangling-reference case, on the one surface that can produce it.
+  it('★★★ clearing the cell drops the link AND all five cached fields', async () => {
+    // fix-425's rule, widened by §B3: the six move together or the project
+    // shows a company it is no longer linked to.
     renderCell({ builder_name: 'Boyd Lybeck', builder_id: 'b-kuleana' });
-    const input = screen.getByTestId('pd-builder-name');
-    fireEvent.change(input, { target: { value: '' } });
-    fireEvent.blur(input);
+    fireEvent.click(screen.getByTestId('pd-builder-name-clear'));
     await waitFor(() => expect(mutateAsync).toHaveBeenCalledTimes(1));
     const patch = mutateAsync.mock.calls[0][0].patch;
-    expect(patch.builder_name).toBeNull();
     expect(patch.builder_id).toBeNull();
+    expect(patch.builder_name).toBeNull();
+    expect(patch.builder_company).toBeNull();
+    expect(patch.builder_email).toBeNull();
+    expect(patch.builder_phone).toBeNull();
+    expect(patch.builder_address).toBeNull();
   });
 
-  it('★★ editing an UNRELATED builder field leaves the link alone', async () => {
+  it('★★ the cached fields cannot be edited from this card at all', async () => {
+    // fix-425 asked whether editing phone left the link alone. §B4 removes the
+    // question: the four cached fields are DISPLAY. They are a cache of the
+    // catalogue row, and a cache you can type into is a second truth.
     renderCell({ builder_name: 'Boyd Lybeck', builder_id: 'b-kuleana' });
     const phone = screen.getByTestId('pd-builder-phone');
-    fireEvent.change(phone, { target: { value: '(206) 555-0100' } });
-    fireEvent.blur(phone);
-    await waitFor(() => expect(mutateAsync).toHaveBeenCalledTimes(1));
-    const patch = mutateAsync.mock.calls[0][0].patch;
-    expect(patch.builder_phone).toBe('(206) 555-0100');
-    expect('builder_id' in patch).toBe(false);
+    expect(phone.tagName).not.toBe('INPUT');
+    expect(screen.queryByTestId('pd-builder-email')!.tagName).not.toBe('INPUT');
+    expect(screen.queryByTestId('pd-builder-address')!.tagName).not.toBe('INPUT');
   });
 });

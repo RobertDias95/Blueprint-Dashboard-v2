@@ -20,11 +20,9 @@ import {
   seedTargetSubmit,
 } from '../../lib/permitSeedingDefaults';
 import { pushToast } from '../../stores/toastStore';
-import BuilderAutocompleteField from '../builder/BuilderAutocompleteField';
 import ProjectExternalTeamPanel from './ProjectExternalTeamPanel';
 import { ProjectHoldPanel } from './ProjectHold';
 import type {
-  Builder,
   PermitWithCycles,
   Project,
 } from '../../lib/database.types';
@@ -203,6 +201,33 @@ function initForm(
   };
 }
 
+/** ★ fix-448 §B4: one cached builder field in the modal, displayed. */
+function ReadOnlyRow({
+  label,
+  value,
+  testid,
+}: {
+  label: string;
+  value: string;
+  testid: string;
+}) {
+  const has = value.trim() !== '';
+  return (
+    <div className="flex items-baseline gap-2">
+      <span className="text-[9px] font-semibold uppercase tracking-wide text-muted w-24 shrink-0">
+        {label}
+      </span>
+      <span
+        className="truncate"
+        style={{ color: has ? 'var(--color-text)' : 'var(--color-dim)' }}
+        data-testid={testid}
+      >
+        {has ? value : '—'}
+      </span>
+    </div>
+  );
+}
+
 export default function ProjectSettingsModal({
   project,
   onClose,
@@ -297,28 +322,12 @@ export default function ProjectSettingsModal({
   function setBpRole<K extends keyof BpRoleFields>(key: K, value: BpRoleFields[K]) {
     setForm((f) => ({ ...f, bpRole: { ...f.bpRole, [key]: value } }));
   }
-  function setBuilderField<K extends keyof BuilderFlatFields>(
-    key: K,
-    value: BuilderFlatFields[K],
-  ) {
-    setForm((f) => ({ ...f, builder: { ...f.builder, [key]: value } }));
-  }
-  /** fix-23f: shared "user picked an existing builder" handler. Fills
-   *  all four sibling fields in one setForm so React batches them into
-   *  a single render. */
-  function fillFromBuilder(b: Builder) {
-    setForm((f) => ({
-      ...f,
-      builder: {
-        builder_name: b.name ?? '',
-        builder_company: b.company ?? '',
-        builder_email: b.email ?? '',
-        builder_phone: b.phone ?? '',
-        // fix-175: carry the entity address across (POC stays per-project).
-        builder_address: b.address ?? '',
-      },
-    }));
-  }
+  // ★★★ fix-448 §B4: `setBuilderField` and `fillFromBuilder` are GONE with the
+  //     five inputs they served. `fillFromBuilder` is the one worth naming: it
+  //     copied a picked builder's five fields into the form and never wrote
+  //     `builder_id`, so a pick here produced text with no link — or worse,
+  //     text contradicting the link the project already had. Removed rather
+  //     than fixed, because the Overview cell is now the one place that picks.
   function setPermitField(idx: number, patch: Partial<PermitRow>) {
     setForm((f) => ({
       ...f,
@@ -813,75 +822,51 @@ export default function ProjectSettingsModal({
             <ProjectHoldPanel projectId={project.id} />
           </Section>
 
-          {/* fix-23f: the 4 plain Builder Inputs are now
-              BuilderAutocompleteField — typing any of name/company/email/
-              phone surfaces existing builders and picking one fills all
-              four siblings in one shot. */}
+          {/* ★★★ fix-448 §B4 — THIS EDITOR IS GONE, AND IT WAS THE WORSE ONE.
+              ============================================================
+              fix-23f made these five fields a builder autocomplete: typing any
+              of them surfaced catalogue rows and picking one filled all five
+              siblings.
+
+              ★★★ BUT `fillFromBuilder` HERE NEVER WROTE `builder_id`. Measured
+              on origin/main: the string `builder_id` does not appear anywhere
+              in this file. So picking a builder in this modal copied the five
+              cache columns and DROPPED THE LINK — and if the project already
+              had one, it left that link pointing at a different builder than
+              the text now named. This modal did not merely permit P-082's
+              divergence, it manufactured it in one click.
+
+              ★★ SO IT DISPLAYS, AND POINTS AT THE TWO PLACES THAT WRITE.
+              Bobby's ruling is that the Overview cell is the pick-only way to
+              CHANGE which builder a project has, and the Settings registry is
+              the one way to change that builder's DETAILS. A third editor is
+              how they come apart again.
+
+              ★ The five `form.builder.*` values are still SENT on save,
+              unchanged, so the save payload and its OCC behaviour are exactly
+              what they were — nothing here can edit them any more, which is
+              the whole point. */}
           <Section title="Builder / Owner" color="var(--color-co)">
-            <Field label="Builder Name">
-              <BuilderAutocompleteField
-                field="name"
-                label="Builder Name"
-                value={form.builder.builder_name}
-                onChange={(v) => setBuilderField('builder_name', v)}
-                onSelectBuilder={fillFromBuilder}
-                inputClassName={inputCls}
-                inputStyle={inputStyle}
-                testid="psm-builder-name"
-              />
-            </Field>
-            <Field label="Company">
-              <BuilderAutocompleteField
-                field="company"
-                label="Company"
-                value={form.builder.builder_company}
-                onChange={(v) => setBuilderField('builder_company', v)}
-                onSelectBuilder={fillFromBuilder}
-                inputClassName={inputCls}
-                inputStyle={inputStyle}
-                testid="psm-builder-co"
-              />
-            </Field>
-            <Field label="Email">
-              <BuilderAutocompleteField
-                field="email"
-                label="Email"
-                value={form.builder.builder_email}
-                onChange={(v) => setBuilderField('builder_email', v)}
-                onSelectBuilder={fillFromBuilder}
-                inputClassName={inputCls}
-                inputStyle={inputStyle}
-                testid="psm-builder-email"
-              />
-            </Field>
-            <Field label="Phone">
-              <BuilderAutocompleteField
-                field="phone"
-                label="Phone"
-                value={form.builder.builder_phone}
-                onChange={(v) => setBuilderField('builder_phone', v)}
-                onSelectBuilder={fillFromBuilder}
-                inputClassName={inputCls}
-                inputStyle={inputStyle}
-                testid="psm-builder-phone"
-              />
-            </Field>
-            {/* fix-175: owner LLC address — autofills on pick, saved to the
-                builders catalog via the update RPC. */}
-            <Field label="LLC Address">
-              <BuilderAutocompleteField
-                field="address"
-                label="LLC Address"
-                value={form.builder.builder_address}
-                onChange={(v) => setBuilderField('builder_address', v)}
-                onSelectBuilder={fillFromBuilder}
-                inputClassName={inputCls}
-                inputStyle={inputStyle}
-                testid="psm-builder-address"
-              />
-            </Field>
-            {/* fix-175: per-project point-of-contact. NOT a builder catalog
-                field (no autocomplete) — the contact can differ deal-to-deal. */}
+            <div
+              className="text-[11px] space-y-1"
+              data-testid="psm-builder-readonly"
+            >
+              <ReadOnlyRow label="Builder Name" value={form.builder.builder_name} testid="psm-builder-name" />
+              <ReadOnlyRow label="Company" value={form.builder.builder_company} testid="psm-builder-co" />
+              <ReadOnlyRow label="Email" value={form.builder.builder_email} testid="psm-builder-email" />
+              <ReadOnlyRow label="Phone" value={form.builder.builder_phone} testid="psm-builder-phone" />
+              <ReadOnlyRow label="LLC Address" value={form.builder.builder_address} testid="psm-builder-address" />
+              <div className="text-[10px] text-muted pt-1">
+                Pick or change the builder on the project overview; edit their
+                details in Settings → Lists &amp; Catalogs → Builders &amp; Owners.
+              </div>
+            </div>
+            {/* ★★★ fix-175's POINT OF CONTACT STAYS EDITABLE, and the
+                distinction is the whole reason §B4 is safe. The five builder
+                fields above are a CACHE of a catalogue row shared by every
+                project that builder is on. These two are PER-PROJECT free text
+                — "the contact can differ deal-to-deal" — so there is no second
+                truth to diverge from and nothing to route to the registry. */}
             <Field label="Point of Contact">
               <input
                 type="text"
