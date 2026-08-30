@@ -14,6 +14,12 @@ import { useScopeMode } from '../../hooks/useSelfScope';
 import { useTaskOwnership } from '../../hooks/useTaskOwnership';
 import ScopeToggle from '../shared/ScopeToggle';
 import { exportAllToCsv, exportFirmToCsv } from '../../lib/waitingOnCsv';
+// ★★ fix-451 §F4: checked before adding it — the directory hook was NOT
+//    already in scope on this screen (Settings mounts it on a different
+//    route). One subscription, here, passed down as a lookup: a hook per firm
+//    section would be one query per firm as far as the code reads, even if
+//    React Query would dedupe it.
+import { useExternalTeamDirectory } from '../../hooks/useExternalTeamDirectory';
 import { SkeletonRows } from '../Skeleton';
 import QueryError from '../QueryError';
 import type { WaitingOnTaskRow } from '../../lib/database.types';
@@ -103,6 +109,28 @@ export default function WaitingOnView() {
     return selfTaskIds ? all.filter((r) => selfTaskIds.has(r.task_id)) : all;
   }, [tasksQ.data, selfTaskIds]);
   const groups = useMemo(() => groupByDisciplineThenFirm(rows), [rows]);
+  // ★★★ fix-451 §F1 — the contact, where the chase actually happens.
+  //
+  // fix-315's own comment says it: *"The per-firm export is the point of the
+  // screen: send ONE consultant their own open items."* You could produce the
+  // CSV here and then had to go somewhere else to find out where to send it.
+  // The directory has held the address since fix-227 — it was simply never
+  // asked. Keyed by lowercased NAME because the blob stores a name, not an id.
+  const directoryQ = useExternalTeamDirectory();
+  const contactByFirmName = useMemo(() => {
+    const m = new Map<
+      string,
+      { name: string | null; email: string | null; phone: string | null }
+    >();
+    for (const f of directoryQ.data ?? []) {
+      m.set(f.name.trim().toLowerCase(), {
+        name: f.contact_name,
+        email: f.contact_email,
+        phone: f.contact_phone,
+      });
+    }
+    return m;
+  }, [directoryQ.data]);
 
   // Wait on the full task set too when scoping so there's no flash of an empty
   // "Mine" list before ownership resolves; surface its error the same way.
@@ -230,6 +258,7 @@ export default function WaitingOnView() {
                       firm={firm}
                       allRows={rows}
                       holdChips={holdChips}
+            contactByFirmName={contactByFirmName}
                     />
                   ))}
                 </div>
@@ -247,6 +276,7 @@ function FirmSection({
   firm,
   allRows,
   holdChips,
+  contactByFirmName,
 }: {
   discipline: string;
   firm: WaitingOnFirmGroup;
@@ -254,8 +284,18 @@ function FirmSection({
   /** ★ fix-409: the open hold rows, for the per-row chip. Threaded rather than
    *  re-queried here so one render asks the question once. */
   holdChips: HoldRowIndex;
+  /** ★ fix-451 §F1: firm name (lowercased) → its directory contact. */
+  contactByFirmName: ReadonlyMap<
+    string,
+    { name: string | null; email: string | null; phone: string | null }
+  >;
 }) {
   const idKey = firm.firmId ?? 'none';
+  const contact =
+    firm.firmName != null
+      ? contactByFirmName.get(firm.firmName.trim().toLowerCase())
+      : undefined;
+  const email = (contact?.email ?? '').trim();
   const count = firm.tasks.length;
   return (
     <div data-testid={`waiting-on-firm-${idKey}`}>
@@ -294,6 +334,56 @@ function FirmSection({
           </button>
         )}
       </div>
+      {/* ★★★ §F1/§F2 — THE ADDRESS SITS BESIDE THE BUTTON; THE CSV IS
+          UNTOUCHED. fix-315 is explicit that silently changing a sent export is
+          the failure mode, so `exportFirmToCsv` and `exportAllToCsv` are not
+          called differently, not passed anything new, and not edited. This adds
+          a line above them. */}
+      {firm.firmId !== null && (
+        <div
+          className="flex items-center gap-2 px-3 pb-1.5 text-[10px]"
+          data-testid={`waiting-on-contact-${idKey}`}
+        >
+          {email !== '' ? (
+            <>
+              {contact?.name && (
+                <span className="text-muted">{contact.name}</span>
+              )}
+              <a
+                href={`mailto:${email}`}
+                className="text-de hover:underline"
+                data-testid={`waiting-on-contact-mailto-${idKey}`}
+              >
+                {email}
+              </a>
+              <button
+                type="button"
+                onClick={() => {
+                  void navigator.clipboard?.writeText(email);
+                }}
+                className="text-dim hover:text-text"
+                title="Copy address"
+                data-testid={`waiting-on-contact-copy-${idKey}`}
+              >
+                copy
+              </button>
+              {contact?.phone && (
+                <span className="text-muted">{contact.phone}</span>
+              )}
+            </>
+          ) : (
+            // ★ The gap, and the one place that closes it. 15 of 15 firms are
+            //   in this state today.
+            <OriginLink
+              to="/settings/projects"
+              className="text-dim italic hover:underline"
+              data-testid={`waiting-on-contact-missing-${idKey}`}
+            >
+              no contact on file — add one in Settings
+            </OriginLink>
+          )}
+        </div>
+      )}
 
       <table className="w-full text-[11px]">
         <tbody>

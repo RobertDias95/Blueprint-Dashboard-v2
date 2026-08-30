@@ -20,6 +20,36 @@ import {
 /** projects.external_team shape: discipline name -> firm name. */
 export type ExternalTeamBlob = Record<string, string>;
 
+// ===========================================================================
+// ★★★ fix-451 §G (P-101) — "NOT REQUIRED" IS AN ANSWER, NOT A FIRM
+// ===========================================================================
+//
+// The blob has held two states: a firm name, or nothing. "Nothing" means
+// *nobody has answered yet* — fix-193's empty slot is a REMINDER, and that is
+// the right behaviour for a question still open. What it could not say is *"we
+// checked; this project does not need one"*, and the difference matters: one
+// is work outstanding, the other is work finished.
+//
+// ★★★ SO SOMEBODY TYPED IT AS A FIRM. On prod today 4017 Corliss Ave N holds
+// `Geotech: "Not Required"`, and the DIRECTORY holds a matching Geotech firm
+// row literally named "Not Required" (active) — offered in the picker for every
+// project, on every discipline it was filed under. Both are the same mistake
+// made through "+ Add new firm…", because the vocabulary had no word for it.
+//
+// ★★ THE SENTINEL IS THE STRING PROD ALREADY CARRIES. Choosing a new token
+// (`__none__`) would have made the existing row an off-list value needing a
+// migration to READ; matching what is there makes the one data row already
+// correct and the migration purely cosmetic (the directory row, which should
+// never have been a firm). fix-449's shape: the value is KEPT and MARKED.
+//
+// ★ Compared case-insensitively and trimmed, because it was typed by hand.
+export const NOT_REQUIRED = 'Not Required';
+
+/** Is this blob value the "we checked, none needed" answer? */
+export function isNotRequired(value: string | null | undefined): boolean {
+  return (value ?? '').trim().toLowerCase() === NOT_REQUIRED.toLowerCase();
+}
+
 // fix-193 / fix-196: the external-team SHOW-RULES, shared so the Settings panel
 // (ProjectExternalTeamPanel) and the Project Overview editor (ExternalTeamEditor)
 // can't drift. The near-always-needed COMMON FOUR always render as fill-in
