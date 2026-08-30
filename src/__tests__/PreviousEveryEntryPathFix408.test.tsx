@@ -300,6 +300,20 @@ describe('fix-408 §3: every entry path records its own page', () => {
 // ★ The source pins. Every file that links into a project, named — the brief's
 //   "do not write 'and the rest'". Deleting the wiring from any of them fails
 //   here rather than being noticed weeks later by Bobby.
+//
+// ★★★ fix-454 §B3 REMOVED ONE ENTRY: 'components/MyTasks/TaskDetailPanel'.
+//
+//     READ THIS BEFORE ASSUMING THE LIST WAS WEAKENED. The entry did not lose
+//     its <OriginLink> — the whole COMPONENT was deleted in the same commit,
+//     along with its suite, because nothing in `src` rendered it. It had no
+//     live importer at all; MyTasks.test.tsx:624 already called it "the unused
+//     TaskDetailPanel component", and the live panel is TaskDetailEditor, which
+//     is on this list and stays.
+//
+//     ★★ THE RULE THIS LIST ENCODES IS UNCHANGED: an entry may only leave when
+//     the file leaves with it. Removing a name to make a failing test pass is
+//     exactly the silent regression fix-408 wrote this guard to catch. The
+//     count below is asserted for that reason.
 const WIRED_BY_LINK = [
   'components/activity/ActivityProjectGroup',
   'components/BoardBell',
@@ -307,7 +321,6 @@ const WIRED_BY_LINK = [
   'components/DrawSchedule/ProjectBlockPopup',
   'components/LibraryMatrix',
   'components/MyTasks/TaskCard',
-  'components/MyTasks/TaskDetailPanel',
   'components/MyTasks/WaitingOnView',
   'components/PermitCard',
   'components/ProjectDetail/ChatMessageRow',
@@ -348,6 +361,23 @@ const sources = import.meta.glob('../{components,pages}/**/*.tsx', {
 }) as Record<string, string>;
 
 describe('fix-408 §3b: the wiring is where the audit says it is', () => {
+  // ★★★ fix-454 §B3 — THE LIST'S LENGTH IS ITSELF A PIN.
+  //     fix-408 wrote this guard so that "deleting the wiring from any of them
+  //     fails here rather than being noticed weeks later by Bobby" — but a
+  //     failing entry can also be made to pass by deleting the NAME, which is
+  //     the same regression wearing a green tick. Pinning the count means that
+  //     shortcut fails too: a shrunk list has to be justified here, in a diff,
+  //     the way TaskDetailPanel's removal is justified above.
+  it('★★★ the audited list is 27 links + 3 hooks — shrinking it is a DIFF, not a fix', () => {
+    expect(WIRED_BY_LINK).toHaveLength(27);
+    expect(WIRED_BY_HOOK).toHaveLength(3);
+    expect(new Set(WIRED_BY_LINK).size).toBe(WIRED_BY_LINK.length);
+    // ★ The deleted component must not creep back in as a name with no file.
+    expect(WIRED_BY_LINK).not.toContain('components/MyTasks/TaskDetailPanel');
+    // ★ …while the panel that IS live keeps its entry.
+    expect(WIRED_BY_LINK).toContain('components/TaskDetailEditor');
+  });
+
   for (const mod of WIRED_BY_LINK) {
     it(`★ ${mod} links with <OriginLink>`, () => {
       const src = sources[`../${mod}.tsx`];
