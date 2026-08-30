@@ -267,11 +267,30 @@ optimistic-concurrency churn bugs.
 newer than 2026-05-09. Audit against production (read-only) or use a transaction you roll
 back.
 
-**58 tables grant TRUNCATE to `anon` and `authenticated`.** RLS does **not** govern TRUNCATE —
-it is table-level and bypasses policies entirely. Not currently exploitable (PostgREST exposes
-no TRUNCATE verb) but one `SECURITY INVOKER` dynamic-SQL function away from being real. Open
-item. New tables should copy `permit_task_audit`: `anon` nothing, `authenticated` SELECT only,
-`service_role` ALL.
+**Grants are the second layer, and until fix-455 they were not holding.** RLS is on all 97
+tables and every view sets `security_invoker`, so nothing was ever reachable — but 60 tables
+also granted `anon` INSERT/UPDATE/DELETE. The cause is `pg_default_acl`: Supabase’s
+`ALTER DEFAULT PRIVILEGES` gives **anon *and* authenticated** everything on each new relation
+in `public`. fix-273 revoked TRUNCATE (and it held — TRUNCATE is now absent everywhere), but
+the defaults kept re-granting the rest to every new table. fix-455 revoked anon’s writes
+database-wide and fixed the `postgres` default so the next relation is not born with them.
+★ The `supabase_admin` default entry still grants anon and **cannot be changed from here** —
+`postgres` is not a member. It governs relations Supabase provisions, not ours.
+
+**The house revoke must NAME `authenticated`, and be verified from the catalogue.**
+`revoke all … from public, anon` does **not** touch `authenticated`. fix-454 used that pattern
+and the applied view came back `authenticated=arwdxtm`; the migration text looked right and the
+database disagreed. The correct pattern for a new view is:
+
+```sql
+revoke all on public.<rel> from public, anon, authenticated;
+grant select on public.<rel> to authenticated;
+```
+
+★ **Then read `pg_class.relacl` back after applying** — not the migration file. A new TABLE
+follows `permit_task_audit`: `anon` nothing, `authenticated` SELECT only (plus the writes the
+Bridge actually needs), `service_role` ALL. `migrations/GRANT_POSTURE_CHECK.sql` is the
+standing query; it is a manual check, because this repo has no CI database.
 
 **Column drops need three checks, not one.** Client `.select()` strings, every function body,
 *and* a live probe against production. Two incidents came from "exhaustive" greps that missed
