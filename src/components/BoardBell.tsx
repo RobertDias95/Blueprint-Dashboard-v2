@@ -1,19 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import OriginLink from './OriginLink';
-import { usePermits } from '../hooks/usePermits';
-import { useProjects } from '../hooks/useProjects';
-// fix-303: the SAME task source My Tasks uses, so the board is not a lesser
-// copy — one shape, one editor, one write path.
-import { useAllTasks } from '../hooks/useTaskTree';
-import {
-  cancelledProjectIds,
-  useAllProjectHolds,
-} from '../hooks/useProjectHolds';
-import { useAllPermitHolds } from '../hooks/usePermitHolds';
-// ★ fix-348: the same ownership resolver My Board injects, so the dropdown's
-// "where you stand" counts and the board's own sections cannot disagree.
-import { useTaskOwnership } from '../hooks/useTaskOwnership';
+// ★★ fix-446 §0a: one assembly of BoardInput, shared with My Board and My
+// Tasks. It brings the task source, the holds and fix-348's ownership resolver
+// with it, so this file no longer names them one by one.
+import { useBoardInput } from '../hooks/useBoardInput';
 import { acknowledgeableItems, type NewItem } from '../lib/boardReads';
 import { targetHref } from '../lib/notificationTargets';
 import { useMarkBoardItemsRead } from '../hooks/useBoardReads';
@@ -30,8 +21,6 @@ import { RealtimeStatusLine } from './RealtimeStatusLine';
 import {
   buildForecast,
   buildQueue,
-  todayIso,
-  type BoardInput,
 } from '../lib/myBoard';
 
 // fix-298 Phase 1 — the board bell and its dropdown.
@@ -65,49 +54,30 @@ export default function BoardBell() {
   // ★ The "where you stand" numbers still need the raw board input; the
   // notification half comes from the shared model below. React Query dedupes
   // the overlap, so this costs no extra fetch.
-  const permitsQ = usePermits();
-  const projectsQ = useProjects();
-  const tasksQ = useAllTasks();
-  const holdsQ = useAllProjectHolds();
   // ★ fix-390: the permit-scoped siblings, one bulk fetch like its sibling.
-  const permitHoldsQ = useAllPermitHolds();
   const markRead = useMarkBoardItemsRead();
-  const taskOwnership = useTaskOwnership();
   const resolveRequest = useResolvePostRequest();
   // ★★ fix-438: a standing condition is ACKNOWLEDGED, never resolved — see
   //    lib/permitConditions for why a condition cannot be finished.
   const acknowledgeCondition = useAcknowledgeCondition();
 
   // ★★ fix-336: ONE model, shared with /notifications.
-  const { viewer, unseen, suppressed, signature, activityTruncationNote } =
+  const { unseen, suppressed, signature, activityTruncationNote } =
     useBoardNotifications();
 
-  const input: BoardInput = useMemo(
-    () => ({
-      viewer,
-      permits: permitsQ.data ?? [],
-      projects: projectsQ.data ?? [],
-      tasks: tasksQ.data ?? [],
-      today: todayIso(),
-      cancelledIds: cancelledProjectIds(holdsQ.data),
-      // ★★ fix-390: which projects and which permits are paused. The board
-      // silences a held permit's milestone chips — reversibly, and without
-      // writing an ack. Project holds cover their permits; a permit hold covers
-      // ONLY its permit and never rolls up.
-      holdRows: holdsQ.data ?? [],
-      permitHoldRows: permitHoldsQ.data ?? [],
-      taskOwns: taskOwnership.matches,
-    }),
-    [
-      viewer,
-      permitsQ.data,
-      projectsQ.data,
-      tasksQ.data,
-      holdsQ.data,
-      permitHoldsQ.data,
-      taskOwnership.matches,
-    ],
-  );
+  // ★★★ fix-446 §0a — THE ASSEMBLY MOVED, AND THIS CALLER'S TWO OMISSIONS ARE
+  //     NOW DECLARED RATHER THAN ACCIDENTAL.
+  //
+  // This component never passed `acks` or `showHeldWork`. The consequence is
+  // real: the two counters below ("Past due", "Today") therefore count
+  // milestones somebody has already ACKNOWLEDGED, and can read higher than the
+  // board they link to.
+  //
+  // ★★ fix-446 does NOT fix that — its brief requires this caller to behave
+  // exactly as before, and a smaller number IS a behaviour change. Passing the
+  // flags explicitly means the next person sees the decision instead of an
+  // absent field, and correcting it is one boolean.
+  const { input } = useBoardInput({ withAcks: false, withHeldWork: false });
 
   const forecast = useMemo(() => buildForecast(input), [input]);
   const queue = useMemo(() => buildQueue(input), [input]);
