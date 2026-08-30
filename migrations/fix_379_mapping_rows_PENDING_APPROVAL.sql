@@ -2,6 +2,32 @@
 -- ★★★ fix-379 §5(a) — THE THREE MAPPING ROWS. NOT APPLIED. AWAITING BOBBY.
 -- ===========================================================================
 --
+-- ---------------------------------------------------------------------------
+-- ★★★ RE-MEASURED 2026-08-30 (fix-450) — READ THIS FIRST
+-- ---------------------------------------------------------------------------
+--
+-- VERDICT: MOVES ROWS — one of the three.
+--
+--   Jade → Alex      already present  · ON CONFLICT would skip
+--   Jade → Nidhi     already present  · ON CONFLICT would skip
+--   Gena → George    MISSING          ← the only row this would insert
+--
+-- ★★ Two of the three landed in dm_da_groups after this file was written, by
+-- the ordinary Settings editor. The INSERT is idempotent (`ON CONFLICT
+-- (dm_name, da_name) DO NOTHING`), so running it today is a one-row write.
+--
+-- ★ Its companion — fix_379_backfill — now moves NOTHING, so adding this
+--   mapping no longer feeds a backfill. What it still does is make George's
+--   permits resolvable by `bp_dm_for_da` from here on, which is the derivation
+--   the app reads live.
+--
+-- ORIGINAL MEASUREMENT: 3 rows, prod 2026-08-21.
+--
+-- ★ Measured by uncommenting THIS FILE'S OWN WHERE clause into a SELECT inside
+--   a rolled-back transaction — never a paraphrase of it. That distinction is
+--   the whole reason fix-450 exists: fix-377's "67 rows" came from a looser
+--   restatement of a predicate that actually returns 0.
+--
 -- ★★★ THIS FILE HAS NOT BEEN RUN AGAINST ANY DATABASE. Every statement below
 -- is commented out, and a test asserts that it still is.
 --

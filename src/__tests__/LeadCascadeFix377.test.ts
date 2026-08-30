@@ -1,6 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import migrationSql from '../../migrations/fix_377_lead_cascade.sql?raw';
-import backfillSql from '../../migrations/fix_377_backfill_PENDING_APPROVAL.sql?raw';
+import backfillSql // ★ fix-450 renamed this file: re-measured 2026-08-30, its predicate
+//   selects 0 rows today, so it is SUPERSEDED rather than pending. The
+//   SQL below is unchanged — the supersession keeps the predicate.
+from '../../migrations/fix_377_backfill_SUPERSEDED.sql?raw';
 
 /** ★ The file explains itself at length, so every "the SQL does not say X"
  *  assertion has to read the CODE and not the prose — the same trap fix-369,
