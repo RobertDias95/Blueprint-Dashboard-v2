@@ -622,7 +622,8 @@ describe('MyTasks (fix-80 v1 three-pane kanban)', () => {
   // fix-219: the LIVE My Tasks detail panel's "Open in Project View" must deep-
   // link to the task's PERMIT (?permit=<permit_id>), not the project top. fix-217/
   // 218 only hardened the unused TaskDetailPanel component, so the param never
-  // reached prod. This asserts the real, rendered panel. The link is built
+  // reached prod. (fix-454 §B2 deleted that unused component and its suite —
+  // nothing rendered it. This test always asserted the real one.) This asserts the real, rendered panel. The link is built
   // straight from task.permit_id + task.project_id on the MyTaskNode (no permit-
   // object lookup), so it can never silently drop the param on a map miss.
   it('fix-219: "Open in Project View" deep-links to the task\'s permit (?permit=<permit_id>)', () => {

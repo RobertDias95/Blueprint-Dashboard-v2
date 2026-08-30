@@ -36,7 +36,9 @@ import {
 // editor rather than growing a second one.
 //
 // ★ This is the LIVE task detail panel — the one fix-219 fixed after fix-217/218
-// hardened the dead TaskDetailPanel.tsx by mistake. It was local to MyTasks,
+// hardened the dead TaskDetailPanel.tsx by mistake. (★ fix-454 §B2 DELETED that
+// dead file, so this is now the only task detail panel in the repo; the sentence
+// is kept because it is why fix-219 exists.) It was local to MyTasks,
 // which is why the board could not have it without duplicating it. The brief is
 // explicit: "do not build a second task-editing path", and down the road the
 // board may replace My Tasks entirely, so the editor had to stop belonging to
