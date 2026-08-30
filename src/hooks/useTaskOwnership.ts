@@ -1,13 +1,19 @@
-import { useMemo } from 'react';
+import { useCallback, useMemo } from 'react';
 import { usePermits } from './usePermits';
 import { useProjects } from './useProjects';
 import { useDmDaGroups } from './useDmDaGroups';
 import { findDmForDa } from '../components/wizard/dmRouting';
 import {
+  isCoAssigned,
+  ownsDirectly,
   taskMatchesSelfResolved,
   type TaskOwnershipContext,
 } from '../lib/selfScope';
 import type { MyTaskNode } from '../lib/database.types';
+
+/** ★ One frozen empty array, so an unloaded dm_da_groups query does not hand
+ *  out a new identity on every render. See the note in the hook. */
+const NO_DM_ROWS: never[] = [];
 
 // fix-238: shared My-Tasks ownership resolver.
 //
@@ -27,22 +33,50 @@ import type { MyTaskNode } from '../lib/database.types';
 // as. Exposed as a single `matches(task, name)` predicate shared by both
 // surfaces so their ownership definitions can't drift.
 
+/** The fields ownership needs off a task node, plus the two ids the role
+ *  context is looked up by. */
+type OwnableNode = Pick<
+  MyTaskNode,
+  | 'assigned_to'
+  | 'discipline'
+  | 'co_assignees'
+  | 'permit_da'
+  | 'permit_id'
+  | 'project_id'
+>;
+
 export interface TaskOwnership {
   /** True when `task` belongs in `name`'s My Tasks (see taskMatchesSelfResolved
    *  for the three rules). */
-  matches: (
-    task: Pick<
-      MyTaskNode,
-      'assigned_to' | 'discipline' | 'co_assignees' | 'permit_da' | 'permit_id' | 'project_id'
-    >,
-    name: string | null,
-  ) => boolean;
+  matches: (task: OwnableNode, name: string | null) => boolean;
+  /**
+   * ★★★ fix-445 §A1 — the same three rules, split.
+   *
+   * `matches` is exactly `ownsDirectly || isCoAssigned` and the two are
+   * disjoint, so a caller can render "mine" and "shared" differently without
+   * a second definition of ownership existing anywhere. The Board keeps using
+   * `matches` and is provably unchanged.
+   */
+  ownsDirectly: (task: OwnableNode, name: string | null) => boolean;
+  /** Reachable ONLY through the co-assignee join — shared work, not yours. */
+  isCoAssigned: (task: OwnableNode, name: string | null) => boolean;
 }
 
 export function useTaskOwnership(): TaskOwnership {
   const permitsQ = usePermits();
   const projectsQ = useProjects();
-  const dmRows = useDmDaGroups().rows;
+  // ★★★ fix-445 — STABLE IDENTITY, AND IT IS LOAD-BEARING NOW.
+  //
+  // `useDmDaGroups().rows` is `q.data ?? []`, so while the query is empty it
+  // hands back a BRAND NEW ARRAY on every render. That flowed into `ctxFor`'s
+  // deps and made all three predicates change identity every render.
+  //
+  // ★★ It cost nothing while `matches` was only called in a page body. fix-445
+  // publishes a predicate through context to 50 memoised cards, and fix-434
+  // §B1 ("a click does not re-render the rest of the board") caught it
+  // immediately at 50 renders against a ceiling of 2. Reading `.data` against
+  // one frozen empty array fixes it at the source, for the Board too.
+  const dmRows = useDmDaGroups().data ?? NO_DM_ROWS;
 
   const permitById = useMemo(() => {
     const m = new Map<
@@ -74,37 +108,47 @@ export function useTaskOwnership(): TaskOwnership {
     return m;
   }, [projectsQ.data]);
 
-  const matches = useMemo(() => {
-    return (
-      task: Pick<
-        MyTaskNode,
-        | 'assigned_to'
-        | 'discipline'
-        | 'co_assignees'
-        | 'permit_da'
-        | 'permit_id'
-        | 'project_id'
-      >,
-      name: string | null,
-    ): boolean => {
+  // ★★ ONE context builder, three predicates. The role context is the
+  //    expensive half (a dm_da_groups lookup plus two map hits) and all three
+  //    questions need exactly the same one — building it in one place is also
+  //    what guarantees `matches` cannot answer from a different context than
+  //    the split does.
+  const ctxFor = useCallback(
+    (task: OwnableNode): TaskOwnershipContext => {
       const permit = permitById.get(task.permit_id);
       const project = projectById.get(task.project_id);
       // DA rides on the task row (permit_da); fall back to the permit's da.
       const da = task.permit_da ?? permit?.da ?? null;
-      const ctx: TaskOwnershipContext = {
+      return {
         da,
         // Resolve the DM the SAME way the chip does (dm_da_groups keyed by DA)
         // so routing agrees with the displayed owner, then fall back to the
         // project's / permit's stored DM.
-        dm: findDmForDa(da ?? '', dmRows) ?? project?.design_manager ?? permit?.dm ?? null,
+        dm:
+          findDmForDa(da ?? '', dmRows) ??
+          project?.design_manager ??
+          permit?.dm ??
+          null,
         // Ent lead: the permit's lead first (per-permit PAR/SDOT/ECA routing),
         // then the project default.
         entLead: permit?.ent_lead ?? project?.entitlement_lead ?? null,
         schematicDesigners: project?.schematic ?? [],
       };
-      return taskMatchesSelfResolved(task, name, ctx);
-    };
-  }, [permitById, projectById, dmRows]);
+    },
+    [permitById, projectById, dmRows],
+  );
 
-  return { matches };
+  const api = useMemo(
+    () => ({
+      matches: (task: OwnableNode, name: string | null) =>
+        taskMatchesSelfResolved(task, name, ctxFor(task)),
+      ownsDirectly: (task: OwnableNode, name: string | null) =>
+        ownsDirectly(task, name, ctxFor(task)),
+      isCoAssigned: (task: OwnableNode, name: string | null) =>
+        isCoAssigned(task, name, ctxFor(task)),
+    }),
+    [ctxFor],
+  );
+
+  return api;
 }
