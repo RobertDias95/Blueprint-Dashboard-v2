@@ -5,7 +5,11 @@ import {
   StallsInput,
 } from '../shared/UnitParkingInputs';
 import { parseStalls } from '../../lib/unitParking';
-import { nextUnitTypeLabel } from '../../lib/unitTypeNaming';
+import {
+  OTHER_UNIT_LABEL,
+  nextUnitTypeLabel,
+  unitLabelOptions,
+} from '../../lib/unitTypeNaming';
 
 // fix-22: sub-editor for projects.unit_types (jsonb array). Each entry is
 // {label, width_ft, depth_ft, qty}. Used in Step 1; v1 captures these
@@ -21,6 +25,8 @@ import { nextUnitTypeLabel } from '../../lib/unitTypeNaming';
 // still picks the next vacant letter, not "Cottage 2".
 
 interface Props {
+  /** ★ fix-449 §C: canonical product types for the label picker. */
+  productTypeOptions?: string[];
   value: UnitType[];
   onChange: (next: UnitType[]) => void;
 }
@@ -47,7 +53,15 @@ function parseNumOrNull(v: string): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
-export default function UnitTypesEditor({ value, onChange }: Props) {
+export default function UnitTypesEditor({
+  value,
+  onChange,
+  // ★★ fix-449 §C: the canonical registry, passed IN rather than read from a
+  //    hook here. `useAppConfig` is a React Query hook and this component is
+  //    rendered without a provider by its own suite — the fix-442 trap. The
+  //    wizard step above already holds the list.
+  productTypeOptions = [],
+}: Props) {
   const rows = value.length > 0 ? value : [];
 
   function update(i: number, patch: Partial<UnitType>) {
@@ -90,14 +104,37 @@ export default function UnitTypesEditor({ value, onChange }: Props) {
                 <span className="text-[9px] uppercase tracking-wide text-dim">
                   Label
                 </span>
-                <input
-                  type="text"
+                {/* ★★★ fix-449 §C1 (P-077) — THE LAST FREE-TEXT UNIT LABEL.
+                    Bobby's rule: *"is the set of valid answers fixed? → list."*
+                    This box is where the off-list labels came FROM — new rows
+                    are seeded by `nextUnitTypeLabel`, which produces "Type A",
+                    "Type B", … and 13 of prod's 22 off-list labels are exactly
+                    those. It is a pick now, with "Other…" for the deliberate
+                    exception, and the seeded value stays visible and marked
+                    rather than being silently swapped for a product type. */}
+                <select
                   value={row.label}
-                  onChange={(e) => update(i, { label: e.target.value })}
-                  placeholder="e.g. 16×40 4BR"
-                  className="bg-surface border border-border rounded px-2 py-1 text-xs font-mono text-text placeholder:text-dim focus:outline-none focus:border-de"
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    if (v === OTHER_UNIT_LABEL) {
+                      const typed = window.prompt('Unit type label', row.label);
+                      if (typed === null) return;
+                      update(i, { label: typed.trim() });
+                      return;
+                    }
+                    update(i, { label: v });
+                  }}
+                  className="bg-surface border border-border rounded px-2 py-1 text-xs font-mono text-text focus:outline-none focus:border-de"
                   data-testid={`unit-types-label-${i}`}
-                />
+                >
+                  <option value="">Pick type…</option>
+                  {unitLabelOptions(productTypeOptions, row.label).map((t) => (
+                    <option key={t} value={t}>
+                      {t}
+                    </option>
+                  ))}
+                  <option value={OTHER_UNIT_LABEL}>Other…</option>
+                </select>
               </label>
               <label className="col-span-3 flex flex-col gap-0.5">
                 <span className="text-[9px] uppercase tracking-wide text-dim">

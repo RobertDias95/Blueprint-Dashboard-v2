@@ -110,17 +110,30 @@ describe('<UnitTypesEditor />', () => {
     expect(next[next.length - 1].label).toBe('Type AA');
   });
 
-  it('renaming "Type A" → "Cottage 1" fires onChange with the new label', () => {
+  // ★★★ fix-449 §C1: the label is a PICK now, not free text — this box is
+  //     where prod's off-list labels came from ("Type A"… is what
+  //     `nextUnitTypeLabel` seeds). The claim is unchanged: choosing a label
+  //     fires onChange with it. What changed is that the choices are the
+  //     registry, plus the stored value so it stays visible, plus "Other…".
+  it('picking a product type fires onChange with the new label', () => {
     const onChange = vi.fn();
     const value: UnitType[] = [
       { label: 'Type A', width_ft: 25, depth_ft: 60, qty: 1 },
     ];
-    render(<UnitTypesEditor value={value} onChange={onChange} />);
-    fireEvent.change(screen.getByTestId('unit-types-label-0'), {
-      target: { value: 'Cottage 1' },
-    });
+    render(
+      <UnitTypesEditor
+        value={value}
+        onChange={onChange}
+        productTypeOptions={['SFR', 'Cottages']}
+      />,
+    );
+    const select = screen.getByTestId('unit-types-label-0') as HTMLSelectElement;
+    // ★ The seeded off-list value is IN the list, so the control shows it.
+    expect(select.value).toBe('Type A');
+    expect(Array.from(select.options).map((o) => o.value)).toContain('Type A');
+    fireEvent.change(select, { target: { value: 'Cottages' } });
     const next = onChange.mock.calls[0][0] as UnitType[];
-    expect(next[0].label).toBe('Cottage 1');
+    expect(next[0].label).toBe('Cottages');
   });
 
   it('renamed rows don\'t consume a Type-letter (+ Add still picks the next vacant letter)', () => {
@@ -157,12 +170,18 @@ describe('<UnitTypesEditor />', () => {
     const value: UnitType[] = [
       { label: 'A', width_ft: 10, depth_ft: 20, qty: 1 },
     ];
-    render(<UnitTypesEditor value={value} onChange={onChange} />);
+    render(
+      <UnitTypesEditor
+        value={value}
+        onChange={onChange}
+        productTypeOptions={['SFR']}
+      />,
+    );
     fireEvent.change(screen.getByTestId('unit-types-label-0'), {
-      target: { value: 'A-prime' },
+      target: { value: 'SFR' },
     });
     const next = onChange.mock.calls[0][0] as UnitType[];
-    expect(next[0].label).toBe('A-prime');
+    expect(next[0].label).toBe('SFR');
   });
 
   it('clearing width writes null (not 0) so DB keeps clean NULLs', () => {

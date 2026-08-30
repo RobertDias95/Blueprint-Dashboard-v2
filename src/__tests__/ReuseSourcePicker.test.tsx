@@ -169,15 +169,18 @@ describe('<ReuseSourcePicker />', () => {
     ]);
   });
 
-  it('fix-212: copied units still resolve their label against the copied product types', () => {
-    // The source carries a single product type ['SFR'] with a legacy "Type A"
-    // label. Copy-once preserves the raw rows; resolveUnitTypesForSave (run by
-    // both editors) makes the single product type authoritative → "SFR".
+  it('fix-212 → fix-449: a COPIED off-list label survives the copy', () => {
+    // ★★★ The source carries a single product type ['SFR'] with a legacy
+    //     "Type A" label. fix-212 made the lone type authoritative, so the copy
+    //     landed on the new project as "SFR" — the reuse path quietly losing
+    //     the very labels Bobby has yet to rule on. fix-449: copy-once
+    //     preserves the raw rows AND `resolveUnitTypesForSave` now leaves a
+    //     stored label alone, so what was copied is what arrives.
     const src = buildReuseSources(
       [projectsData[0]],
       new Map(),
     )[0];
     const saved = resolveUnitTypesForSave(src.unit_types, src.product_types);
-    expect(saved[0].label).toBe('SFR');
+    expect(saved[0].label).toBe('Type A');
   });
 });

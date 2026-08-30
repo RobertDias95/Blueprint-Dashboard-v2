@@ -37,33 +37,116 @@ export function nextUnitTypeLabel(existingLabels: readonly string[]): string {
   return 'Type';
 }
 
-// fix-205 → fix-209 → fix-212: resolve a unit-type row's Label against the
-// project's product types. The rule depends on how many product types the
-// project carries:
-//   • exactly ONE  → that type IS the label, AUTHORITATIVELY. Both a blank AND a
-//     legacy/custom value (e.g. "Type A") resolve to the type. fix-212: a single
-//     product type now overrides a custom label too — units are distinguished by
-//     W/D/Stories, not the label, so a lone-SFR project's rows all read "SFR".
-//   • TWO or more  → the Label is product-type-ONLY (fix-209). The value must be
-//     one of the project's product types; anything else (blank, or a legacy/
-//     custom value like "Type A" / "Ex. SFR") is "unpicked" and resolves to ''
-//     — forcing the user to choose a real type. We deliberately do NOT carry a
-//     custom value forward or auto-pick a type for them.
-//   • ZERO         → freeform; the stored label is preserved.
+// ===========================================================================
+// ★★★ fix-449 §C (P-077) — AN OFF-LIST LABEL IS SHOWN, NOT SWALLOWED
+// ===========================================================================
+//
+// fix-205 → fix-209 → fix-212 → fix-449. What this function decided before:
+//   • exactly ONE product type → that type IS the label, AUTHORITATIVELY —
+//     a blank AND a custom value like "Type A" both resolved to the type.
+//   • TWO or more → product-type-ONLY: anything not an exact product type,
+//     custom values included, resolved to '' ("unpicked").
+//   • ZERO → freeform, preserved.
+//
+// ★★★ SO A STORED LABEL THIS APP DID NOT RECOGNISE WAS EITHER BLANKED OR
+// OVERWRITTEN ON SCREEN. Measured on prod 2026-08-29, 22 of 235 unit rows carry
+// one: "Type A" ×5, "Type B" ×5, "SFR + Attached Units" ×4, "SFR w/ Accessory
+// Units" ×4, "Type C" ×2, "Accessory Unit" ×1, "Type D" ×1. On a two-type
+// project they rendered as "Pick type…"; on a one-type project they rendered as
+// that type. Either way the person could not see what was actually stored, and
+// the next click on that select wrote the substitute over the original.
+//
+// ★★★ THAT IS EXACTLY WHAT fix-415'S RULE FORBIDS — *"a value dropped from a
+// registry must be SHOWN AS RETIRED / off-list, never silently vanish or be
+// rewritten"* — and Bobby ruled it again for this field: the off-list labels
+// render as stored, marked, and he decides separately what "Type A–D" should
+// become. They read like per-project unit NAMES, not product types, and that is
+// a ruling, not a mapping for a migration to guess.
+//
+// ★★ fix-212'S USEFUL HALF SURVIVES, AND IT IS THE ONLY HALF THAT WAS ABOUT
+// ABSENCE: a BLANK label on a single-product-type project still reads as that
+// type. Nothing is being displaced there — units are distinguished by
+// W/D/Stories, so filling an empty label from the project's one type tells the
+// truth. What stops is substituting for a value somebody actually stored.
+//
+//   • blank + exactly ONE type  → that type (fix-212, unchanged)
+//   • blank + any other count   → ''
+//   • ANY stored value          → itself, verbatim
 export function resolveUnitLabel(
   label: string | null | undefined,
   productTypes: readonly string[] | null | undefined,
 ): string {
   const trimmed = (label ?? '').trim();
   const types = (productTypes ?? []).filter((t) => typeof t === 'string' && t.trim());
-  if (types.length >= 2) {
-    // Product-type-only: keep it only if it's an exact product type, else blank.
-    return types.includes(trimmed) ? trimmed : '';
-  }
-  // fix-212: a single product type is authoritative — it wins over any custom.
-  if (types.length === 1) return types[0];
-  // No product types → freeform; preserve whatever was typed.
+  // ★ The absence case — the only one where this function may supply a value.
+  if (trimmed === '') return types.length === 1 ? types[0]! : '';
+  // ★★★ Otherwise the STORED VALUE WINS, whether or not it is a product type.
+  //     Callers ask `isOffListUnitLabel` and mark it; none of them rewrite it.
   return trimmed;
+}
+
+/**
+ * ★★★ Is this label something the product-type registry does not offer?
+ *
+ * The mark's single source. A surface shows the value and this decides whether
+ * it wears "not in list" beside it — the same shape as `isRetiredZone`
+ * (fix-415) and for the same reason: a person seeing an odd value deserves to
+ * know the app finds it odd too, rather than wondering whether they misread it.
+ *
+ * ★ A BLANK IS NOT OFF-LIST. "Nothing recorded" is not a wrong answer, and
+ *   marking it would put a warning on every unit nobody has typed a label for.
+ */
+export function isOffListUnitLabel(
+  label: string | null | undefined,
+  productTypeOptions: readonly string[] | null | undefined,
+): boolean {
+  const trimmed = (label ?? '').trim();
+  if (trimmed === '') return false;
+  const opts = (productTypeOptions ?? []).filter(
+    (t) => typeof t === 'string' && t.trim() !== '',
+  );
+  // ★ With no registry loaded yet nothing can be judged off-list — an empty
+  //   options array means "not known", not "everything is wrong".
+  if (opts.length === 0) return false;
+  return !opts.includes(trimmed);
+}
+
+/**
+ * ★★★ The canonical product-type registry, read from an app_config map.
+ *
+ * ★★ IT TAKES THE MAP AND DOES ITS OWN READ — deliberately NOT importing
+ * `readAppConfigStringArray` from `hooks/useAppConfig`. zoneOptions' header
+ * records why: dozens of suites mock that module PARTIALLY, so a lib importing
+ * a second export from it fails them all with *"No readAppConfigStringArray
+ * export is defined on the mock"*. Caught here again, the same way.
+ */
+export function productTypeRegistry(
+  configMap: Map<string, unknown> | null | undefined,
+): string[] {
+  const raw = configMap?.get('productTypeOptions');
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .filter((v): v is string => typeof v === 'string')
+    .map((v) => v.trim())
+    .filter((v) => v !== '');
+}
+
+/** ★ The choices a unit-label picker offers: the registry, plus the stored
+ *  value when it is off-list so the control can display what it holds
+ *  (fix-415's append rule). `OTHER_UNIT_LABEL` is the deliberate way to add a
+ *  new one — §C1's *"an off-list label is a deliberate act"*. */
+export const OTHER_UNIT_LABEL = '__other__';
+
+export function unitLabelOptions(
+  productTypeOptions: readonly string[] | null | undefined,
+  current?: string | null,
+): string[] {
+  const opts = (productTypeOptions ?? []).filter(
+    (t) => typeof t === 'string' && t.trim() !== '',
+  );
+  const value = (current ?? '').trim();
+  if (value && !opts.includes(value)) return [...opts, value];
+  return [...opts];
 }
 
 // fix-22 → fix-206: canonical parse of the projects.unit_types JSONB array into

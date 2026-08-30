@@ -56,7 +56,11 @@ import ExternalFirmSelect from './ExternalFirmSelect';
 import {
   nextUnitTypeLabel,
   parseUnitTypes,
+  OTHER_UNIT_LABEL,
+  isOffListUnitLabel,
+  productTypeRegistry,
   resolveUnitLabel,
+  unitLabelOptions,
   resolveUnitTypesForSave,
 } from '../../lib/unitTypeNaming';
 import { snapToMonday, addDays } from '../../lib/dateUtils';
@@ -78,6 +82,8 @@ import NpWarningPrompt from '../NpWarningPrompt';
 // ★★★ fix-448 §B: the pick-only replacement for the five autocomplete
 // boxes. See components/builder/BuilderPicker for why blur reverts.
 import BuilderPicker from '../builder/BuilderPicker';
+// ★ fix-449 §C: the canonical product-type registry, for the off-list mark.
+import { useAppConfig } from '../../hooks/useAppConfig';
 import PlanOfRecordCard from './PlanOfRecordCard';
 import ProjectChatSection, { ProjectChatUnread } from './ProjectChatSection';
 import { projectInternalTeam } from '../../lib/projectTeam';
@@ -2692,6 +2698,12 @@ function UnitDimensionsExpanded({
   onRemove: (idx: number) => void;
   onAdd: () => void;
 }) {
+  // ★★ fix-449 §C: the CANONICAL product-type registry, read ONCE here rather
+  //    than per row. "Off list" has to mean "the app offers this nowhere" — a
+  //    project whose own product_types are ['SFR'] would otherwise mark a unit
+  //    labelled "Duplex" as off-list, and Duplex is a perfectly real type.
+  const registryTypes = productTypeRegistry(useAppConfig().map);
+
   // ★★★ fix-422 SCOPE 2 — A MATRIX: ONE HEADER ROW, ONE ROW PER UNIT TYPE.
   //
   // Bobby, 2026-08-27: *"When you have more than two different unit dimensions,
@@ -2729,6 +2741,7 @@ function UnitDimensionsExpanded({
       </div>
       {types.map((ut, i) => (
         <UnitRow
+          registryTypes={registryTypes}
           key={i}
           row={ut}
           productTypes={productTypes}
@@ -2787,12 +2800,15 @@ function UnitHeaderCell({ column }: { column: UnitRowColumn }) {
 function UnitRow({
   row,
   productTypes,
+  registryTypes,
   disabled,
   onChange,
   onRemove,
 }: {
   row: UnitType;
   productTypes: string[];
+  /** ★ fix-449 §C: the canonical registry, for the off-list mark. */
+  registryTypes: string[];
   disabled: boolean;
   onChange: (field: keyof UnitType, val: string | number | boolean | null) => void;
   onRemove: () => void;
@@ -2834,6 +2850,7 @@ function UnitRow({
   // READ-ONLY rather than blanked.
   const hasProductTypes = productTypes.length >= 1;
   const selectValue = resolveUnitLabel(label, productTypes);
+  const offListLabel = isOffListUnitLabel(selectValue, registryTypes);
   // ★★★ fix-412 SCOPE B5 — a confirmed No-work unit hides its drawn detail.
   //     DISABLED, not cleared: `onChange` is never called, so whatever is
   //     stored stays stored and comes back the moment the answer changes.
@@ -2878,8 +2895,19 @@ function UnitRow({
           <select
             value={selectValue}
             onChange={(e) => {
-              dirtyRef.current = true;
               const v = e.target.value;
+              // ★★★ fix-449 §C1: an off-list label is a DELIBERATE act.
+              if (v === OTHER_UNIT_LABEL) {
+                const typed = window.prompt('Unit type label', label);
+                if (typed === null) return;
+                const next = typed.trim();
+                dirtyRef.current = true;
+                setLabel(next);
+                onChange('label', next);
+                dirtyRef.current = false;
+                return;
+              }
+              dirtyRef.current = true;
               setLabel(v);
               onChange('label', v);
               dirtyRef.current = false;
@@ -2894,11 +2922,15 @@ function UnitRow({
             data-testid="pd-unit-label-select"
           >
             <option value="">Pick type…</option>
-            {productTypes.map((t) => (
+            {/* ★★★ fix-449 §C1: the stored value is IN the list when it is
+                off-list, so this control shows what it holds rather than
+                blanking it or substituting the project's lone type. */}
+            {unitLabelOptions(productTypes, selectValue).map((t) => (
               <option key={t} value={t}>
                 {t}
               </option>
             ))}
+            <option value={OTHER_UNIT_LABEL}>Other…</option>
           </select>
         ) : (
           <span
@@ -2913,7 +2945,21 @@ function UnitRow({
             {label || NOT_RECORDED}
           </span>
         )}
-        <span aria-hidden="true" />
+        {/* ★★ fix-449 §C3: the mark rides in the SPACER that already sits
+            between Type and W — so it costs the matrix no width at all. The
+            column keeps fix-422's measured size. */}
+        <span aria-hidden={offListLabel ? undefined : 'true'}>
+          {offListLabel && (
+            <span
+              className="text-[8px] px-1 rounded font-bold uppercase"
+              style={{ background: 'var(--color-s2)', color: 'var(--color-muted)' }}
+              title="Not in the product-type list — kept exactly as stored"
+              data-testid="pd-unit-label-offlist"
+            >
+              !
+            </span>
+          )}
+        </span>
         {/* W */}
         <input
           type="number"

@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
 import ZoneSelect from '../shared/ZoneSelect';
+import { ALLEY_OPTIONS as WIZARD_ALLEY_OPTIONS } from '../wizard/wizardState';
 import { roundLotForStorage } from '../../lib/lotDimensions';
 import {
   useUpdateProjectWithPermits,
@@ -70,7 +71,20 @@ interface Props {
 }
 
 // ★ fix-402: PARKING_OPTIONS removed with the fields it fed.
-const ALLEY_OPTIONS = ['', 'Yes', 'No'];
+// ★★★ fix-449 §A (P-077) — ALLEY WAS ALREADY A LIST ON ALL THREE SURFACES.
+//
+// Measured on origin/main: the Overview SITE card uses the SAME `SiteSelectRow`
+// with the SAME `['', 'Yes', 'No']` as fix-410's Regular Shape — the very
+// control §A1 asked to copy — the wizard is a <select>, and this modal was one
+// too. There was no free-text alley input anywhere, which is why prod is clean
+// ("No" 116 · "Yes" 82 · NULL 4).
+//
+// ★★ WHAT WAS ACTUALLY WRONG WAS TWO COPIES OF THE LIST. This file declared
+// its own `['', 'Yes', 'No']` while `wizardState` exported `['Yes', 'No']`.
+// Two definitions of a two-value vocabulary is precisely the drift P-077 is
+// about, so there is one now and the blank stays a rendering concern of each
+// control rather than a member of the set.
+const ALLEY_OPTIONS = ['', ...WIZARD_ALLEY_OPTIONS];
 // fix-93: Product Types options no longer hardcoded. The list is now
 // catalog-managed via app_config.productTypeOptions (seeded by
 // migrations/fix_91_product_types_array.sql, edited in
