@@ -3,6 +3,14 @@
 Seven files carried the rows six shipped fixes never moved. Each quoted counts
 measured on the day it was written; **fix-450 re-measured all seven on
 2026-08-30** and this table is what those files now say about themselves.
+fix-451 and fix-456 have since joined the shelf.
+
+> ★★★ **fix-456 IS THE FIRST DESTRUCTIVE FILE HERE.** Every other file on this
+> page MOVES rows and could in principle be undone. fix-456 carries `DROP TABLE`
+> and `ALTER TABLE … DROP COLUMN`, which cannot. Read
+> `BACKUP_TABLE_INVENTORY.md` before approving any of its groups — in
+> particular, **two tables deliberately carry no DROP statement at all** because
+> they are the only surviving record of site parking.
 
 > **Nothing here has been applied.** Every file's SQL is commented out and a
 > test keeps it that way. Bobby approves the batch; Claude applies from Cowork.
@@ -19,6 +27,7 @@ measured on the day it was written; **fix-450 re-measured all seven on
 | `fix_384_label_candidates_PENDING_APPROVAL.sql` | links an NP time block to the project its label names | **MOVES ROWS** | **1** (+1 undecided) | 1 (+1) | 2026-08-28 |
 | `fix_387_entry_drafts_PENDING_APPROVAL.sql` | adds `go_href` teaching links to What's New entries | **MOVES ROWS** | **3** of 14 drafted | 14 drafted | 2026-08-29 |
 | `fix_451_not_required_PENDING_APPROVAL.sql` | deactivates the directory row named "Not Required" so it stops being offered as a firm | **MOVES ROWS** | **1** | 1 | 2026-08-30 |
+| `fix_456_drop_backup_tables_PENDING_APPROVAL.sql` | drops 24 of the 26 ad-hoc backup tables and the two dead `projects.parking_*` columns | **DESTRUCTIVE — 26 statements** | n/a (drops, not moves) | 26 | 2026-08-30 |
 
 No file is **CANNOT RUN**: every helper function, table and column each one
 depends on still exists on prod with the signature it was written against

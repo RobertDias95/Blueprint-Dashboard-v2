@@ -55,22 +55,63 @@ describe('fix-450: the pending-approval shelf', () => {
     }
   });
 
-  it('★★★ NOT ONE of them contains uncommented DML', () => {
+  it('★★★ NOT ONE of them contains uncommented DML **or DDL**', () => {
     // ★★★ The load-bearing assertion. These files are read, approved and then
     //     applied by hand from Cowork — never by CI, never by a migration
     //     runner that walks the folder. A single uncommented INSERT is the
     //     difference between a document and a loaded gun.
+    //
+    // ★★★ fix-456 WIDENED THIS, AND IT MATTERED. The original list was
+    //     INSERT/UPDATE/DELETE/TRUNCATE, which was the whole vocabulary of the
+    //     shelf while every file MOVED rows. fix-456 is the first file here
+    //     that DESTROYS things — `DROP TABLE` and `ALTER TABLE … DROP COLUMN`
+    //     — and neither word was in the list. The guard would have passed a
+    //     fully-armed drop file. DROP and ALTER are in it now.
+    //
+    // ★★ And these are the least reversible statements on the shelf: a moved
+    //    row can be moved back, a dropped table cannot.
     for (const f of files) {
       const sql = readFileSync(resolve(MIGRATIONS, f), 'utf8');
       const offenders = sql
         .split('\n')
         .map((line, i) => [i + 1, line] as const)
-        .filter(([, line]) => /^\s*(INSERT|UPDATE|DELETE|TRUNCATE)\b/i.test(line));
+        .filter(([, line]) =>
+          /^\s*(INSERT|UPDATE|DELETE|TRUNCATE|DROP|ALTER)\b/i.test(line),
+        );
       expect(
         offenders.map(([n, l]) => `${f}:${n}: ${l.trim()}`),
-        `${f} has uncommented DML`,
+        `${f} has uncommented DML/DDL`,
       ).toEqual([]);
     }
+  });
+
+  it('★★★ fix-456 keeps NO drop statement for the two parking records', () => {
+    // ★★★ The two tables that must survive are protected by ABSENCE, not by a
+    //     comment: no DROP is written for them at all, commented or otherwise,
+    //     so an approving skim that uncomments a block cannot take them with
+    //     it. If somebody later "completes" the file by adding them, this
+    //     fails — which is the point.
+    //
+    //     `_parking_site_archive_2026_08_25`  — 182 rows, 181 types, 180 stalls
+    //     `_fix22_permits_dropped_cols_snapshot` — 171 stalls, 30 types
+    //     Together they are the only record of site parking; projects.parking_*
+    //     is 0-non-null on all 202 rows and only 8 projects carry unit parking.
+    const sql = readFileSync(
+      resolve(MIGRATIONS, 'fix_456_drop_backup_tables_PENDING_APPROVAL.sql'),
+      'utf8',
+    );
+    for (const keep of [
+      '_parking_site_archive_2026_08_25',
+      '_fix22_permits_dropped_cols_snapshot',
+    ]) {
+      expect(sql, `${keep} must be discussed in the file`).toContain(keep);
+      expect(
+        sql,
+        `${keep} must have NO drop statement, not even a commented one`,
+      ).not.toMatch(new RegExp(`drop\\s+table[^\\n]*${keep}`, 'i'));
+    }
+    // ★ …while the file does still carry the drops it is for.
+    expect(sql).toMatch(/drop table if exists public\._fix415_zone_remap/i);
   });
 
   it('★★ every file carries its re-measurement date', () => {
