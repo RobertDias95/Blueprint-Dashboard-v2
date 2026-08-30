@@ -54,6 +54,8 @@ beforeEach(() => {
 // ---------------------------------------------------------------------------
 
 const LIB_DEFAULT: LibraryFilters = {
+  // ★ fix-447: the new key. Default 'site' — the Library opens on SITE.
+  view: 'site' as const,
   search: '', lotwTarget: null, lotwBuf: 2, lotdTarget: null, lotdBuf: 2,
   unitwTarget: null, unitwBuf: 2, unitdTarget: null, unitdBuf: 2,
   zone: '', alley: '', productTypes: [], tag: '', juris: '',
@@ -63,6 +65,7 @@ const LIB_DEFAULT: LibraryFilters = {
 describe('fix-403 §1: the Library round-trips its whole filter shape', () => {
   it('★★★ every field of the fix-402 shape survives — both cards', () => {
     const full: LibraryFilters = {
+      view: 'site' as const,
       search: 'cottage',
       lotwTarget: 50, lotwBuf: 5, lotdTarget: 120, lotdBuf: 10,
       unitwTarget: 20, unitwBuf: 1, unitdTarget: 42, unitdBuf: 3,
@@ -83,6 +86,7 @@ describe('fix-403 §1: the Library round-trips its whole filter shape', () => {
     // Decoding field by field means one bad key costs that field, not the panel.
     saveFilterState('library.filters', USER, {
       ...LIB_DEFAULT,
+      view: 'site' as const,
       search: 'kept',
       parkingKind: 'carport', // retired / never existed
       stories: '9',
@@ -304,6 +308,7 @@ describe('fix-403 §3: fix-178 is superseded for the session scope, and says so'
 
   it('★★ ...and fix-178\'s real concern is preserved — a fresh tab opens on All', () => {
     savePipelineFilters(USER, {
+      // ★ fix-447: the new key. Default 'site' — the Library opens on SITE.
       search: '', holdMode: 'only', ent: [], da: [], dm: [], type: [],
     });
     window.sessionStorage.clear(); // a fresh tab
@@ -398,5 +403,43 @@ describe('fix-403 §4: three people, once each', () => {
       member({ id: '2', name: 'Dom', role: 'acq_lead' }),
     ];
     expect(dedupeByPerson(acqLike).map((m) => m.name)).toEqual(['Jessie', 'Dom']);
+  });
+});
+
+
+// ===========================================================================
+// ★★★ fix-447 — THE VIEW IS REMEMBERED, AND AN OLD SESSION OPENS ON SITE
+// ===========================================================================
+describe('fix-447: the library view rides in the fix-403 blob', () => {
+  it('★★★ a stored "unit" restores', () => {
+    saveLibraryFilters(USER, { ...LIB_DEFAULT, view: 'unit' });
+    expect(loadLibraryFilters(USER, LIB_DEFAULT)!.view).toBe('unit');
+  });
+
+  it('★★★ a session stored BEFORE this ticket has no key and falls back to SITE', () => {
+    // ★★★ fix-412 §91's precedent, and ruling 4's "the Library OPENS ON SITE"
+    //     is exactly this default. Restoring `undefined` here would render
+    //     NEITHER table — the failure mode a closed-set decode exists to stop.
+    const { view: _dropped, ...withoutView } = LIB_DEFAULT;
+    void _dropped;
+    window.sessionStorage.setItem(
+      `library.filters.${USER}`,
+      JSON.stringify(withoutView),
+    );
+    expect(loadLibraryFilters(USER, LIB_DEFAULT)!.view).toBe('site');
+  });
+
+  it('★★ a nonsense stored value falls back too, rather than matching nothing', () => {
+    window.sessionStorage.setItem(
+      `library.filters.${USER}`,
+      JSON.stringify({ ...LIB_DEFAULT, view: 'galaxy' }),
+    );
+    expect(loadLibraryFilters(USER, LIB_DEFAULT)!.view).toBe('site');
+  });
+
+  it('★★ the view survives a round trip alongside every other field', () => {
+    const full = { ...LIB_DEFAULT, view: 'unit' as const, search: 'cottage' };
+    saveLibraryFilters(USER, full);
+    expect(loadLibraryFilters(USER, LIB_DEFAULT)).toEqual(full);
   });
 });

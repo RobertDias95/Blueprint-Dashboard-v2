@@ -65,19 +65,24 @@ export default function BoardBell() {
   const { unseen, suppressed, signature, activityTruncationNote } =
     useBoardNotifications();
 
-  // ★★★ fix-446 §0a — THE ASSEMBLY MOVED, AND THIS CALLER'S TWO OMISSIONS ARE
-  //     NOW DECLARED RATHER THAN ACCIDENTAL.
+  // ★★★ fix-447 §C (P-097) — THE BELL AND THE BOARD NOW COUNT THE SAME THING.
   //
-  // This component never passed `acks` or `showHeldWork`. The consequence is
-  // real: the two counters below ("Past due", "Today") therefore count
-  // milestones somebody has already ACKNOWLEDGED, and can read higher than the
-  // board they link to.
+  // fix-446 extracted this assembly and found that the two callers disagreed:
+  // My Board passed `acks` and `showHeldWork`, this one passed neither. The
+  // consequence was real and visible — the counters below ("Past due",
+  // "Today") counted milestones somebody had already ACKNOWLEDGED, so the bell
+  // could read HIGHER than the board it links to, and clicking through to find
+  // fewer rows than the badge promised is the kind of thing that teaches people
+  // to stop trusting the number.
   //
-  // ★★ fix-446 does NOT fix that — its brief requires this caller to behave
-  // exactly as before, and a smaller number IS a behaviour change. Passing the
-  // flags explicitly means the next person sees the decision instead of an
-  // absent field, and correcting it is one boolean.
-  const { input } = useBoardInput({ withAcks: false, withHeldWork: false });
+  // ★★ fix-446 deliberately did not fix it — its brief required this caller to
+  // behave exactly as before, and a smaller number IS a behaviour change — so
+  // it declared the omission at the call site instead of leaving it as an
+  // absent field. This is that one boolean, twice, as promised.
+  //
+  // ★ Defaults are the complete input, so it is now the same call MyBoard
+  // makes: two surfaces, one input, no third answer.
+  const { input } = useBoardInput();
 
   const forecast = useMemo(() => buildForecast(input), [input]);
   const queue = useMemo(() => buildQueue(input), [input]);

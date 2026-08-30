@@ -75,8 +75,19 @@ function ink(hue: string, text: string, huePct = 65): string {
  *  said "six plus the parking chip"; the brief named three. There are EIGHT,
  *  across five files, and two of them are `ok` rather than `wa` — including one
  *  that is a sibling branch of a `wa` ternary. */
+// ★★★ fix-447 REMOVED THE LIBRARY'S `wa` SITE, AND THE LIST SHRINKS WITH IT.
+//
+// It was the parking rollup's "partial" chip — amber for *"some units have no
+// recorded parking"*. fix-447 §B2 moved the whole rollup off the SITE table by
+// ruling (Bobby, P-055: SITE reformats to *"address + site information"*, and a
+// summary of unit parking is not site information), so the class no longer
+// appears in that file.
+//
+// ★★ THE TOKEN IS NOT ORPHANED — four other sites still read it, asserted
+// below, and the §A contrast tests above measure the token itself rather than
+// any one use of it. Deleting the row is the honest update: the alternative is
+// a test that fails forever on a chip nobody decided to remove twice.
 const WA_SITES: Array<[string, string]> = [
-  ['src/components/LibraryMatrix.tsx', 'bg-wa-bg text-wa border-wa'],
   ['src/components/ProjectDetail/PlanOfRecordCard.tsx', 'text-wa'],
   ['src/components/Settings/AdminReportingTab.tsx', 'var(--color-wa)'],
   ['src/pages/MyBoard.tsx', "'text-wa'"],
@@ -150,7 +161,7 @@ describe('fix-441 §A (P-002) — wa and ok are real colours now', () => {
     expect(tailwindConfig).toContain("border: 'var(--color-ok-border)'");
   });
 
-  it('★★★ EVERY site still reads a name that now resolves — all eight', () => {
+  it('★★★ EVERY site still reads a name that now resolves — all seven', () => {
     for (const [file, needle] of [...WA_SITES, ...OK_SITES]) {
       const src = readFileSync(resolve(process.cwd(), file), 'utf8');
       expect(src, `${file} :: ${needle}`).toContain(needle);

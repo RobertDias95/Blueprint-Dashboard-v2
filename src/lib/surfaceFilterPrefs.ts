@@ -42,6 +42,10 @@ const WORK_SCOPES_F: readonly WorkScopeFilter[] = [
   'none',
   'unanswered',
 ];
+/** ★ fix-447: the two views, as a closed set — same shape as every other
+ *  stored enum here, so a value retired later cannot come back from storage
+ *  and match nothing forever. */
+const VIEWS = ['site', 'unit'] as const;
 const CORNERS = ['', 'Yes', 'No'] as const;
 /** ★ fix-410: the four regular-shape filter states, as a closed set so a value
  *  retired later cannot come back from storage and match nothing forever. */
@@ -56,6 +60,12 @@ export function loadLibraryFilters(
     if (!raw || typeof raw !== 'object') return null;
     const o = raw as Record<string, unknown>;
     return {
+      // ★★★ fix-447: decoded through `oneOf` like every other enum, so a
+      //   session stored BEFORE this ticket — which has no `view` key at all —
+      //   falls back to 'site' rather than restoring `undefined` and rendering
+      //   neither table. That is fix-412 §91's precedent, and ruling 4's "the
+      //   Library OPENS ON SITE" is exactly this default.
+      view: oneOf(o.view, VIEWS, 'site'),
       search: str(o.search),
       // ★ Targets are nullable numbers; buffers keep the panel's own default
       //   rather than 0, which would silently narrow every range to exact.

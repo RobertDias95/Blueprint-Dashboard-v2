@@ -358,6 +358,7 @@ describe('fix-412 §B: three states, and null is not an answer', () => {
 // ---------------------------------------------------------------------------
 
 const BASE: LibraryFilters = {
+  view: 'site' as const,
   search: '', lotwTarget: null, lotwBuf: 2, lotdTarget: null, lotdBuf: 2,
   unitwTarget: null, unitwBuf: 2, unitdTarget: null, unitdBuf: 2,
   zone: '', alley: '', productTypes: [], tag: '', juris: '',

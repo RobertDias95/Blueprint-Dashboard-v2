@@ -280,6 +280,22 @@ function renderIt() {
   );
 }
 
+// ★★★ fix-447 §B6 — EVERY CARET CLICK BELOW IS NOW A VIEW SWITCH.
+//
+// fix-81's caret opened a per-project mini-table of unit rows; fix-206 made
+// those rows EDITABLE. The caret is gone (Bobby, P-055: the pills switch the
+// view, SITE shows site columns and UNIT shows one row per unit), so the route
+// to the unit rows changed — but the rows themselves did not. Their test ids
+// (`library-unit-<project>-<index>-<field>`) are untouched, which is why these
+// tests re-point rather than get rewritten.
+//
+// ★★ THE ONE REAL LOSS IS THE WRAPPER. `library-unit-table-<id>` was the
+// mini-table element; there is one table for every project now, so assertions
+// on it become assertions on `library-table-unit`.
+function goUnitView() {
+  fireEvent.click(screen.getByTestId('filter-chip-unit'));
+}
+
 describe('fix-232: Product Type filter reads the productTypeOptions registry', () => {
   it('offers exactly the registry options (not the old hardcoded stale list)', () => {
     appConfigMap.current = new Map<string, unknown>([
@@ -391,9 +407,9 @@ describe('<LibraryMatrix />', () => {
   it('clicking the caret expands a row to show its unit_types', () => {
     renderIt();
     // Default: collapsed; mini-table should not be in the DOM.
-    expect(screen.queryByTestId('library-unit-table-a')).not.toBeInTheDocument();
-    fireEvent.click(screen.getByTestId('library-caret-a'));
-    const miniTable = screen.getByTestId('library-unit-table-a');
+    expect(screen.queryByTestId('library-table-unit')).not.toBeInTheDocument();
+    goUnitView();
+    const miniTable = screen.getByTestId('library-table-unit');
     expect(miniTable).toBeInTheDocument();
     // fix-206 cells are editable; fix-212: project a is single-type (SFR), so the
     // Label is a product-type dropdown showing the type (overriding "Cottage N").
@@ -419,7 +435,18 @@ describe('<LibraryMatrix />', () => {
     expect(screen.queryByTestId('library-caret-c')).not.toBeInTheDocument();
   });
 
-  it('unit-width target ± buf filters by per-unit dim and auto-expands + highlights matches', () => {
+  // ★★★ fix-447 INVERTS THE AUTO-EXPAND HALF OF THIS PIN, AND KEEPS THE REST.
+  //
+  // fix-81 auto-opened a project's caret when a unit filter was on, because
+  // otherwise the rows you had just filtered by were invisible. The view switch
+  // is the honest version of that: *"The metric you are searching by decides
+  // the columns you get back"* — but it is the READER who decides, by clicking
+  // UNIT, not the filter deciding for them. A filter that silently reshaped the
+  // whole table would be a worse surprise than the one it fixed.
+  //
+  // ★★ THE FILTERING AND THE HIGHLIGHT ARE UNCHANGED — both asserted below, in
+  // the view where unit rows live.
+  it('unit-width target ± buf filters by per-unit dim, and the UNIT view highlights matches', () => {
     renderIt();
     // Target 40 ± 2 → matches [38, 42]. Project a's cottages are 25 wide
     // (out). Project b's SFR 1 is 40 wide (in). Project c has no units
@@ -428,8 +455,10 @@ describe('<LibraryMatrix />', () => {
     expect(screen.queryByTestId('library-row-a')).not.toBeInTheDocument();
     expect(screen.getByTestId('library-row-b')).toBeInTheDocument();
     expect(screen.queryByTestId('library-row-c')).not.toBeInTheDocument();
-    // Auto-expanded because the unit filter is active.
-    expect(screen.getByTestId('library-unit-table-b')).toBeInTheDocument();
+    // ★ The filter did NOT switch the view. Still SITE, still the site table.
+    expect(screen.queryByTestId('library-table-unit')).not.toBeInTheDocument();
+    goUnitView();
+    expect(screen.getByTestId('library-table-unit')).toBeInTheDocument();
     // The matching unit row is flagged via data-matched="true".
     expect(
       screen.getByTestId('library-unit-row-b-0').getAttribute('data-matched'),
@@ -441,6 +470,7 @@ describe('<LibraryMatrix />', () => {
     fireEvent.change(screen.getByTestId('unitw-target'), { target: { value: '25' } });
     expect(screen.getByTestId('library-row-a')).toBeInTheDocument();
     expect(screen.queryByTestId('library-row-b')).not.toBeInTheDocument();
+    goUnitView();
     // All three Cottages highlight.
     expect(screen.getByTestId('library-unit-row-a-0').getAttribute('data-matched')).toBe('true');
     expect(screen.getByTestId('library-unit-row-a-1').getAttribute('data-matched')).toBe('true');
@@ -457,22 +487,33 @@ describe('<LibraryMatrix />', () => {
     expect(screen.queryByTestId('library-row-c')).not.toBeInTheDocument();
   });
 
-  it('clicking the caret on an auto-expanded row collapses it', () => {
+  // ★★★ fix-447 §B6 — THIS PIN IS INVERTED BECAUSE THE CARET IS GONE.
+  //
+  // Bobby, P-055: *"the pills should switch the view."* There is no per-row
+  // caret to click and no auto-expansion to undo; the view is one explicit
+  // choice, remembered per person, and a filter never moves it. What the test
+  // asserts now is exactly that: setting a unit filter leaves you where you
+  // were, and the caret element does not exist to be clicked.
+  it('fix-81 → fix-447: no caret, and a unit filter never switches the view', () => {
     renderIt();
-    // Activate the unit filter so a auto-expands.
     fireEvent.change(screen.getByTestId('unitw-target'), { target: { value: '25' } });
-    expect(screen.getByTestId('library-unit-table-a')).toBeInTheDocument();
-    // Toggle off via the caret.
-    fireEvent.click(screen.getByTestId('library-caret-a'));
-    expect(screen.queryByTestId('library-unit-table-a')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('library-caret-a')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('library-table-unit')).not.toBeInTheDocument();
+    expect(screen.getByTestId('library-table')).toBeInTheDocument();
+    // …and the switch is what moves it, in both directions.
+    goUnitView();
+    expect(screen.getByTestId('library-table-unit')).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId('filter-chip-site'));
+    expect(screen.getByTestId('library-table')).toBeInTheDocument();
+    expect(screen.queryByTestId('library-table-unit')).not.toBeInTheDocument();
   });
 
   // fix-205: Stories column + "unnamed" fix + Stories filter.
   describe('fix-205: stories + unnamed', () => {
     it('expand shows a Stories column with each unit_type stories value', () => {
       renderIt();
-      fireEvent.click(screen.getByTestId('library-caret-a'));
-      const table = screen.getByTestId('library-unit-table-a');
+      goUnitView();
+      const table = screen.getByTestId('library-table-unit');
       expect(table.textContent).toContain('Stories'); // column header
       // Cottage rows carry stories=2 (now an editable input value).
       expect(
@@ -483,7 +524,7 @@ describe('<LibraryMatrix />', () => {
 
     it('fix-212: a blank-label unit shows the single product type in the dropdown, never "unnamed"', () => {
       renderIt();
-      fireEvent.click(screen.getByTestId('library-caret-a'));
+      goUnitView();
       // a-3 has label '' and the project's single product type is SFR: the Label
       // is a dropdown auto-selected to SFR; the row never renders "unnamed".
       const labelSelect = screen.getByTestId(
@@ -495,7 +536,7 @@ describe('<LibraryMatrix />', () => {
       ).not.toContain('unnamed');
     });
 
-    it('Stories filter = 4+ narrows to projects with a 4+-story unit, auto-expands + highlights it', () => {
+    it('Stories filter = 4+ narrows to projects with a 4+-story unit; the UNIT view highlights it', () => {
       renderIt();
       fireEvent.change(screen.getByTestId('filter-stories'), {
         target: { value: '4+' },
@@ -504,8 +545,9 @@ describe('<LibraryMatrix />', () => {
       expect(screen.getByTestId('library-row-a')).toBeInTheDocument();
       expect(screen.queryByTestId('library-row-b')).not.toBeInTheDocument();
       expect(screen.queryByTestId('library-row-c')).not.toBeInTheDocument();
-      // Auto-expanded; only the 4-story unit is flagged matched.
-      expect(screen.getByTestId('library-unit-table-a')).toBeInTheDocument();
+      // ★ The view is the reader's choice; only the 4-story unit is matched.
+      goUnitView();
+      expect(screen.getByTestId('library-table-unit')).toBeInTheDocument();
       expect(
         screen.getByTestId('library-unit-row-a-3').getAttribute('data-matched'),
       ).toBe('true');
@@ -531,7 +573,7 @@ describe('<LibraryMatrix />', () => {
   describe('fix-206: editable unit table', () => {
     function expandA() {
       renderIt();
-      fireEvent.click(screen.getByTestId('library-caret-a'));
+      goUnitView();
     }
 
     it('editing a unit width persists via useUpdateProject with the project OCC token + resolved rows', () => {
@@ -598,11 +640,11 @@ describe('<LibraryMatrix />', () => {
   describe('fix-209: product-type-only Label + narrow Qty/Sty', () => {
     function expandB() {
       renderIt();
-      fireEvent.click(screen.getByTestId('library-caret-b'));
+      goUnitView();
     }
     function expandA() {
       renderIt();
-      fireEvent.click(screen.getByTestId('library-caret-a'));
+      goUnitView();
     }
 
     it('multi-product-type project renders a <select> whose options are EXACTLY the product types', () => {
@@ -725,5 +767,133 @@ describe('<LibraryMatrix />', () => {
         expect(t.toLowerCase()).not.toContain('closing');
       }
     });
+  });
+});
+
+
+// ===========================================================================
+// ★★★ fix-447 (P-055) — THE HEADINGS SWITCH THE VIEW
+// ===========================================================================
+describe('fix-447: SITE / UNIT are headings, and they switch the view', () => {
+  const SITE_ONLY = ['library-th-zone', 'library-th-lotWidth', 'library-th-alley'];
+
+  it('★★★ §A1: the headings are BIGGER than the field labels they head', () => {
+    // ★★★ Bobby's complaint was literally true and this is the measurement.
+    //     The old chip was text-[9px]; LABEL_CLASS.primary is 10px and
+    //     .secondary is 9px — so the heading was SMALLER than the primary
+    //     fields under it and equal to the secondary ones.
+    renderIt();
+    const site = screen.getByTestId('filter-chip-site');
+    expect(site.className).toContain('text-[13px]');
+    expect(site.className).not.toContain('text-[9px]');
+    // ★ …and it is a button now, not a decorative span.
+    expect(site.tagName).toBe('BUTTON');
+    // ★ The caption survives as the subheading.
+    expect(site.parentElement?.textContent).toContain('the lot');
+  });
+
+  it('★★★ §B1: SITE is the default, and exactly one is active', () => {
+    renderIt();
+    expect(
+      screen.getByTestId('filter-chip-site').getAttribute('data-active'),
+    ).toBe('true');
+    expect(
+      screen.getByTestId('filter-chip-unit').getAttribute('data-active'),
+    ).toBe('false');
+    expect(screen.getByTestId('library-table')).toBeInTheDocument();
+    expect(screen.queryByTestId('library-table-unit')).not.toBeInTheDocument();
+  });
+
+  it('★★★ §B2: SITE shows site columns and NONE of the unit ones', () => {
+    renderIt();
+    for (const id of SITE_ONLY) {
+      expect(screen.getByTestId(id), id).toBeInTheDocument();
+    }
+    // fix-402's rollups left with fix-81's caret — the unit facts live in the
+    // unit view now, per unit rather than as a summary sentence.
+    expect(screen.queryByTestId('library-parking-a')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('library-roof-deck-a')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('library-caret-a')).not.toBeInTheDocument();
+  });
+
+  it('★★★ §B3: UNIT shows one row per unit, with the unit columns', () => {
+    renderIt();
+    goUnitView();
+    // Project a has four unit_types in the fixture; each is its own row.
+    expect(screen.getByTestId('library-unit-row-a-0')).toBeInTheDocument();
+    expect(screen.getByTestId('library-unit-row-a-1')).toBeInTheDocument();
+    expect(screen.getByTestId('library-unit-row-a-2')).toBeInTheDocument();
+    expect(screen.getByTestId('library-uth-width')).toBeInTheDocument();
+    expect(screen.getByTestId('library-uth-work')).toBeInTheDocument();
+    // ★ …and the site-only columns are gone.
+    for (const id of SITE_ONLY) {
+      expect(screen.queryByTestId(id), id).not.toBeInTheDocument();
+    }
+  });
+
+  it('★★★ §B5: the count line names both numbers in the UNIT view', () => {
+    renderIt();
+    expect(screen.getByTestId('library-count').textContent).toMatch(/project/);
+    goUnitView();
+    // ★★ "N units across M projects" — because 96 of 202 projects on prod hold
+    //    no units at all, so the project count drops when you switch and a
+    //    bare number changing like that reads as a broken filter.
+    expect(screen.getByTestId('library-count').textContent).toMatch(
+      /\d+ units? across \d+ projects?/,
+    );
+  });
+
+  it('★★★ §B4: switching the view keeps every filter that was set', () => {
+    renderIt();
+    fireEvent.change(screen.getByTestId('library-search'), {
+      target: { value: 'cottage' },
+    });
+    fireEvent.change(screen.getByTestId('unitw-target'), { target: { value: '25' } });
+    goUnitView();
+    // ★★★ The filters are the SAME OBJECT either side of the switch — the pill
+    //     changes the columns you get back, never which rows match.
+    expect(
+      (screen.getByTestId('library-search') as HTMLInputElement).value,
+    ).toBe('cottage');
+    expect(
+      (screen.getByTestId('unitw-target') as HTMLInputElement).value,
+    ).toBe('25');
+    fireEvent.click(screen.getByTestId('filter-chip-site'));
+    expect(
+      (screen.getByTestId('library-search') as HTMLInputElement).value,
+    ).toBe('cottage');
+  });
+
+  it('★★ §B4: both filter cards stay visible in both views', () => {
+    renderIt();
+    expect(screen.getByTestId('filter-card-site')).toBeInTheDocument();
+    expect(screen.getByTestId('filter-card-unit')).toBeInTheDocument();
+    goUnitView();
+    expect(screen.getByTestId('filter-card-site')).toBeInTheDocument();
+    expect(screen.getByTestId('filter-card-unit')).toBeInTheDocument();
+  });
+
+  it('★★ sorting a unit column orders UNITS', () => {
+    renderIt();
+    goUnitView();
+    fireEvent.click(screen.getByTestId('library-uth-width'));
+    const rows = [...document.querySelectorAll('[data-testid^="library-unit-row-"]')];
+    expect(rows.length).toBeGreaterThan(1);
+    // Ascending by width: the narrowest unit leads, whatever project it is on.
+    expect(rows[0]!.getAttribute('data-testid')).toBeTruthy();
+  });
+
+  it('★★★ §B6: fix-206 editing SURVIVED the caret’s removal', () => {
+    // The caret is gone, but the editor it hid was the point of fix-206. It is
+    // the unit view's row now, writing through the same untouched OCC path.
+    renderIt();
+    goUnitView();
+    const wInput = screen.getByTestId('library-unit-a-0-w') as HTMLInputElement;
+    fireEvent.change(wInput, { target: { value: '27.5' } });
+    fireEvent.blur(wInput);
+    expect(updateMutateAsync).toHaveBeenCalledTimes(1);
+    expect(updateMutateAsync.mock.calls[0][0].expectedUpdatedAt).toBe(
+      '2026-06-25T10:00:00Z',
+    );
   });
 });

@@ -12,6 +12,7 @@ import {
   matchingUnitIndices,
   sortLibraryRows,
   type LibraryFilters,
+  type LibraryView,
   type LibraryRow,
   type SortableColumn,
   type SortState,
@@ -31,9 +32,7 @@ import {
 import { PARKING_KINDS, type ParkingKind } from '../lib/database.types';
 import {
   PARKING_KIND_LABEL,
-  parkingRollup,
   parseStalls,
-  roofDeckRollup,
   type RoofDeckFilter,
   type StallsTier,
 } from '../lib/unitParking';
@@ -41,13 +40,19 @@ import {
   resolveUnitLabel,
   resolveUnitTypesForSave,
 } from '../lib/unitTypeNaming';
-import {
-  SITE_PALETTE,
-  UNIT_PALETTE,
-  cardBorderStyle,
-  chipStyle,
-} from '../lib/libraryGroupPalette';
+
 import { useAppConfig, readAppConfigStringArray } from '../hooks/useAppConfig';
+// ★★★ fix-447 §B3: the unit view's own row shape and sorter. A SEPARATE
+// module because the unit sort is a separate union from the site one — see
+// lib/libraryUnitRows for why mixing them is a render-time throw.
+import {
+  DEFAULT_UNIT_SORT,
+  flattenUnitRows,
+  sortUnitRows,
+  unitRowProjectCount,
+  type UnitSortState,
+  type UnitSortableColumn,
+} from '../lib/libraryUnitRows';
 import { useAuthStore } from '../stores/authStore';
 import { zoneOptions } from '../lib/zoneOptions';
 import { formatLotPair } from '../lib/lotDimensions';
@@ -149,6 +154,10 @@ interface BodyProps {
   permits: PermitWithCycles[];
 }
 const INITIAL_FILTERS: LibraryFilters = {
+  // ★★★ fix-447 ruling 4 (Bobby, 2026-08-29): *"the Library OPENS ON SITE"*.
+  //     Same constant the stored-value decoder falls back to, so "what the
+  //     Library opens on" has one answer.
+  view: 'site',
   search: '',
   lotwTarget: null,
   lotwBuf: 2,
@@ -205,6 +214,17 @@ function Body({ projects, permits }: BodyProps) {
   // ★ fix-406: the default comes from the same constant `sortLibraryRows` falls
   //   back to, so "what the Library sorts by" has one answer.
   const [sort, setSort] = useState<SortState>(DEFAULT_LIBRARY_SORT);
+  // ★★ fix-447: a SEPARATE sort for the unit view. The two tables sort
+  //    different things — a site sort orders projects, a unit sort orders units
+  //    — and one shared column name would be handed to whichever sorter did
+  //    not know it (fix-406's render-time throw). Neither is persisted, which
+  //    is unchanged: `surfaceFilterPrefs` has never stored a sort.
+  const [unitSort, setUnitSort] = useState<UnitSortState>(DEFAULT_UNIT_SORT);
+  function toggleUnitSort(col: UnitSortableColumn) {
+    setUnitSort((prev) =>
+      prev.col === col ? { col, asc: !prev.asc } : { col, asc: true },
+    );
+  }
   // fix-206: the unit table is editable through the SAME write path as Project
   // Overview (useUpdateProject patch { unit_types } with the project's OCC
   // token). One store — the optimistic projects-cache patch reflects on Project
@@ -224,13 +244,23 @@ function Body({ projects, permits }: BodyProps) {
         /* useUpdateProject.onError already surfaced the toast + rolled back */
       });
   }
-  // fix-81: per-row caret state. Map value: true=explicitly open,
-  // false=explicitly closed. Missing key = "auto" (driven by unit
-  // filter). Component-local; expansion isn't precious enough to
-  // persist to localStorage.
-  const [expandedById, setExpandedById] = useState<Map<string, boolean>>(
-    () => new Map(),
-  );
+  // ★★★ fix-447 §B6 — fix-81's CARET IS RETIRED, AND SO IS ITS STATE.
+  //
+  // The caret existed because site columns and unit detail shared one table:
+  // the units had to hide somewhere. The view switch removes the reason —
+  // SITE shows site columns and no sub-table, UNIT shows one row per unit — so
+  // `expandedById`, `isExpanded` and `toggleExpanded` had no reachable caller
+  // and are gone rather than left as scenery.
+  //
+  // ★★★ WHAT DID *NOT* GO WITH IT: THE EDITOR. The sub-table was not a
+  // read-only drawer — fix-206 made it the Library's inline unit_types EDITOR,
+  // writing through the same OCC path as Project Overview. Deleting the caret
+  // and stopping there would have silently removed the only place in the
+  // Library you can type a unit's width. So `LibraryUnitRow` is REUSED as the
+  // UNIT view's row (it already renders its own `<tr>`; it now takes leading
+  // and trailing cells), `writeUnitTypes` and its `expectedUpdatedAt` token are
+  // untouched, and the editing that used to hide behind a caret is now the
+  // view itself.
   // ★ fix-402: one definition of "a unit filter is on", shared with the
   //   matcher — this list drifted from that one when fix-205 added stories.
   const unitFilterActive = hasAnyUnitFilter(filters);
@@ -255,6 +285,22 @@ function Body({ projects, permits }: BodyProps) {
     [filtered, sort],
   );
 
+  // ★★★ fix-447 §B3 — the UNIT view, off the SAME filtered set.
+  //
+  // ★★ THE FILTERS ARE NOT RE-RUN AND NOT RELAXED. `filtered` is exactly what
+  // the SITE view shows; the unit view only reshapes it. That is what makes
+  // §B4 true — *"What the pill changes is the columns you get back, not which
+  // filters apply"* — and it means fix-402's conjunction across the two cards
+  // is untouched by anything in this ticket.
+  const unitRows = useMemo(
+    () => sortUnitRows(flattenUnitRows(filtered), unitSort),
+    [filtered, unitSort],
+  );
+  const unitProjectCount = useMemo(
+    () => unitRowProjectCount(unitRows),
+    [unitRows],
+  );
+
   function toggleSort(col: SortableColumn) {
     setSort((prev) =>
       prev.col === col ? { col, asc: !prev.asc } : { col, asc: true },
@@ -271,25 +317,29 @@ function Body({ projects, permits }: BodyProps) {
     });
   }
   function clearFilters() {
-    setFilters(INITIAL_FILTERS);
+    // ★★★ fix-447: CLEAR CLEARS FILTERS — IT DOES NOT CHANGE THE VIEW.
+    //
+    // `view` rides inside `LibraryFilters` because that is the blob fix-403
+    // persists per user, but it is a PREFERENCE, not a filter: it changes the
+    // columns you get back, never which rows match. Resetting it here would
+    // bounce somebody out of the UNIT table for pressing a button that says
+    // Clear — and would contradict ruling 4's "the choice is remembered per
+    // person". Same reasoning fix-409/fix-445 give for Show held work and
+    // Co-assigned surviving this button.
+    setFilters((prev) => ({ ...INITIAL_FILTERS, view: prev.view }));
     // ★★ AND THE STORED COPY GOES TOO. Resetting only the React state would
     //    put every filter back the next time you navigated away and returned —
     //    a Clear button that un-clears itself.
     clearLibraryFilters(prefsUserId);
-  }
-
-  function isExpanded(projectId: string): boolean {
-    const explicit = expandedById.get(projectId);
-    if (explicit !== undefined) return explicit;
-    return unitFilterActive;
-  }
-  function toggleExpanded(projectId: string) {
-    setExpandedById((prev) => {
-      const next = new Map(prev);
-      next.set(projectId, !isExpanded(projectId));
-      return next;
+    // ★ …and put the view back in storage, since clearing removed the whole
+    //   blob. Without this the preference would survive in React state and die
+    //   on the next reload — the subtler half of the same bug.
+    setFilters((prev) => {
+      saveLibraryFilters(prefsUserId, prev);
+      return prev;
     });
   }
+
 
   return (
     <div className="space-y-3" data-testid="library-matrix">
@@ -324,24 +374,18 @@ function Body({ projects, permits }: BodyProps) {
         {/* ── SITE ────────────────────────────────────────────────────── */}
         <div
           className="flex-1 min-w-[300px] bg-s2 border rounded-lg p-3"
-          style={cardBorderStyle(SITE_PALETTE)}
+          style={NEUTRAL_CARD_BORDER}
           data-testid="filter-card-site"
         >
-          <div className="flex items-center gap-2 mb-2">
-            {/* ★★★ fix-406: this chip used to read `var(--color-ok)`, WHICH IS
-                DEFINED NOWHERE IN THE APP. An undefined custom property with no
-                fallback invalidates the whole declaration, so all three styles
-                were dropped and the chip rendered with no background, no border
-                and inherited ink — the "near-monochrome" in Bobby's screenshot.
-                It was never a colour that was too subtle; it was no colour. */}
-            <span
-              className="text-[9px] font-display font-extrabold uppercase tracking-wide px-1.5 py-0.5 rounded"
-              style={chipStyle(SITE_PALETTE)}
-              data-testid="filter-chip-site"
-            >
-              Site
-            </span>
-            <span className="text-[10px] text-muted">the lot</span>
+          <div className="flex items-baseline gap-2 mb-2">
+            <GroupHeading
+              label="Site"
+              caption="the lot"
+              view="site"
+              active={filters.view === 'site'}
+              onSelect={() => update('view', 'site')}
+              testid="filter-chip-site"
+            />
           </div>
 
           {/* ★ PRIMARY TIER — the two dimensions the search actually starts
@@ -495,27 +539,21 @@ function Body({ projects, permits }: BodyProps) {
         {/* ── UNIT ────────────────────────────────────────────────────── */}
         <div
           className="flex-1 min-w-[300px] bg-s2 border rounded-lg p-3"
-          style={cardBorderStyle(UNIT_PALETTE)}
+          style={NEUTRAL_CARD_BORDER}
           data-testid="filter-card-unit"
         >
-          <div className="flex items-center gap-2 mb-2">
-            {/* ★★ fix-406: was `--color-de` — the app's BLUE. It rendered
-                correctly, it was simply the wrong colour: blue is Design /
-                Entitlements everywhere else in the app, and the approved mockup
-                had UNIT in purple against SITE's teal. Two hues, so the eye
-                separates the layers before it reads a single label. */}
-            <span
-              className="text-[9px] font-display font-extrabold uppercase tracking-wide px-1.5 py-0.5 rounded"
-              style={chipStyle(UNIT_PALETTE)}
-              data-testid="filter-chip-unit"
-            >
-              Unit
-            </span>
-            {/* ★★★ The conjunction rule, said where somebody choosing filters
-                can read it — not only in the code that implements it. */}
-            <span className="text-[10px] text-muted">
-              one unit must match all of these
-            </span>
+          <div className="flex items-baseline gap-2 mb-2">
+            {/* ★★★ The caption still carries fix-402's conjunction rule, said
+                where somebody choosing filters can read it — not only in the
+                code that implements it. */}
+            <GroupHeading
+              label="Unit"
+              caption="one unit must match all of these"
+              view="unit"
+              active={filters.view === 'unit'}
+              onSelect={() => update('view', 'unit')}
+              testid="filter-chip-unit"
+            />
           </div>
 
           <div className="flex flex-wrap items-end gap-3 pb-2.5 mb-2.5 border-b border-border">
@@ -703,19 +741,132 @@ function Body({ projects, permits }: BodyProps) {
           className="text-[11px] text-dim font-mono ml-auto"
           data-testid="library-count"
         >
-          {sorted.length} project{sorted.length === 1 ? '' : 's'}
+          {/* ★★★ fix-447 §B5 — THE UNIT VIEW SAYS BOTH NUMBERS, AND IT HAS TO.
+              Measured on prod: 96 of 202 projects hold no `unit_types` at all,
+              so switching to UNIT drops the project count from 202 to 103 while
+              showing 235 rows. A bare number changing like that reads as a
+              filter that broke; naming both makes it read as what it is. */}
+          {filters.view === 'unit'
+            ? `${unitRows.length} unit${unitRows.length === 1 ? '' : 's'} across ${unitProjectCount} project${unitProjectCount === 1 ? '' : 's'}`
+            : `${sorted.length} project${sorted.length === 1 ? '' : 's'}`}
         </span>
       </div>
 
-      {/* Matrix table */}
+      {/* ★★★ fix-447 §B — TWO TABLES, ONE SET OF FILTERS.
+          Bobby, 2026-08-26: *"The metric you are searching by decides the
+          columns you get back."* Both cards stay live in both views; only the
+          shape of the answer changes. */}
       <div className="bg-surface border border-border rounded-xl overflow-x-auto">
+        {filters.view === 'unit' ? (
+        <table className="w-full text-xs" data-testid="library-table-unit">
+          <thead>
+            <tr className="bg-s2 border-b-2 border-border">
+              <UTh sort={unitSort} col="address" onClick={toggleUnitSort} align="left">Address</UTh>
+              <UTh sort={unitSort} col="juris" onClick={toggleUnitSort} align="left">Juris</UTh>
+              <UTh sort={unitSort} col="productTypes" onClick={toggleUnitSort} align="left">Type</UTh>
+              <UTh sort={unitSort} col="unitLabel" onClick={toggleUnitSort} align="left">Unit type</UTh>
+              <UTh sort={unitSort} col="width" onClick={toggleUnitSort} align="center">Width</UTh>
+              <UTh sort={unitSort} col="depth" onClick={toggleUnitSort} align="center">Depth</UTh>
+              <UTh sort={unitSort} col="qty" onClick={toggleUnitSort} align="center">Qty</UTh>
+              <UTh sort={unitSort} col="stories" onClick={toggleUnitSort} align="center">Stories</UTh>
+              <UTh sort={unitSort} col="parking" onClick={toggleUnitSort} align="center">Parking</UTh>
+              <UTh sort={unitSort} col="stalls" onClick={toggleUnitSort} align="center">Stalls</UTh>
+              <UTh sort={unitSort} col="roofDeck" onClick={toggleUnitSort} align="center">Roof Deck</UTh>
+              <UTh sort={unitSort} col="work" onClick={toggleUnitSort} align="center">Work</UTh>
+              <UTh sort={unitSort} col="stage" onClick={toggleUnitSort} align="center">Stage</UTh>
+            </tr>
+          </thead>
+          <tbody>
+            {unitRows.map((u) => (
+              <LibraryUnitRow
+                key={u.key}
+                row={u.unit}
+                projectId={u.project.projectId}
+                index={u.index}
+                productTypes={u.project.productTypes}
+                disabled={!u.project.updatedAt}
+                matched={
+                  unitFilterActive &&
+                  (matchingUnitIndices(u.project, filters) ?? []).includes(
+                    u.index,
+                  )
+                }
+                onChange={(field, val) =>
+                  writeUnitTypes(
+                    u.project,
+                    u.project.unitTypes.map((x, i) =>
+                      i === u.index ? { ...x, [field]: val } : x,
+                    ),
+                  )
+                }
+                // ★★★ THE PROJECT CELLS, PASSED IN. `LibraryUnitRow` renders
+                //     its own `<tr>`, so the only way to put Address/Juris/Type
+                //     in front of its cells — and Work/Stage after them — is to
+                //     hand them to it. That is what keeps this ONE component:
+                //     the editable unit row that used to hide behind fix-81's
+                //     caret is the unit view's row, writing through the same
+                //     untouched OCC path.
+                leading={
+                  <>
+                    <td className="px-2 py-1.5 font-display font-bold text-text">
+                      {/* ★ Same OriginLink and the same origin the SITE row
+                          uses — a unit row is still a way into the project, and
+                          Previous must say "Library" either way (fix-403). */}
+                      <OriginLink
+                        to={`/project/${u.project.projectId}`}
+                        state={{ from: PREVIOUS_ORIGINS.library }}
+                        className="hover:underline"
+                        data-testid={`library-unit-address-${u.key}`}
+                      >
+                        {u.project.address}
+                      </OriginLink>
+                    </td>
+                    <td className="px-2 py-1.5 text-muted">{u.project.juris || '—'}</td>
+                    <td className="px-2 py-1.5 text-text">
+                      {u.project.productTypes.length > 0
+                        ? u.project.productTypes.join(', ')
+                        : '—'}
+                    </td>
+                  </>
+                }
+                trailing={
+                  <>
+                    {/* ★ fix-412's work scope, read-only here: the filter card
+                        writes nothing and this column exists so you can SEE
+                        what you filtered by. */}
+                    <td className="px-2 py-1.5 text-center text-muted">
+                      {u.unit.work_scope ?? '—'}
+                    </td>
+                    <td className="px-2 py-1.5 text-center">
+                      <span
+                        className={`text-[9px] font-bold uppercase px-2 py-0.5 rounded border ${STAGE_BADGE[u.project.stage]}`}
+                      >
+                        {u.project.stage}
+                      </span>
+                    </td>
+                  </>
+                }
+              />
+            ))}
+            {unitRows.length === 0 && (
+              <tr>
+                <td
+                  // ★ 13 columns: 3 project + 8 unit + Work + Stage. Asserted
+                  //   against the rendered header count, like its sibling.
+                  colSpan={13}
+                  className="px-4 py-8 text-center text-xs text-dim italic"
+                >
+                  No units match the current filters.
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+        ) : (
         <table className="w-full text-xs" data-testid="library-table">
           <thead>
             <tr className="bg-s2 border-b-2 border-border">
-              <th
-                className="px-1 py-1.5 w-6"
-                aria-label="Expand row"
-              />
+              {/* ★ fix-447 §B2: the caret column is gone with fix-81's path. */}
               <Th sort={sort} col="address" onClick={toggleSort} align="left">Address</Th>
               <Th sort={sort} col="juris" onClick={toggleSort} align="left">Juris</Th>
               <Th sort={sort} col="productTypes" onClick={toggleSort} align="left">Type</Th>
@@ -744,17 +895,16 @@ function Body({ projects, permits }: BodyProps) {
                   read together, and both sort NULLs last through the one
                   shared tri-state arm in sortLibraryRows. */}
               <Th sort={sort} col="isRegularShape" onClick={toggleSort} align="center">Shape</Th>
-              {/* ★★ fix-402: the unit rollups. Bobby: *"in the Project
-                  Overview and in the Library, we need to make that not only a
-                  searchable but a displayable thing."* Not sortable — they are
-                  derived summaries, and a sort on "Mixed · 4 stalls" would
-                  order on a sentence. */}
-              <th className="px-2 py-1.5 text-[9px] font-extrabold uppercase tracking-wide text-text text-center">
-                Parking
-              </th>
-              <th className="px-2 py-1.5 text-[9px] font-extrabold uppercase tracking-wide text-text text-center">
-                Roof Deck
-              </th>
+              {/* ★★★ fix-447 §B2 — THE UNIT ROLLUPS LEAVE THE SITE VIEW.
+                  fix-402 added "Parking" and "Roof Deck" here as derived
+                  summaries of a project's units, because there was one table
+                  and unit facts had nowhere else to go. There are two tables
+                  now: *"Click SITE and … the results below reformat to address
+                  + site information."* The rollups are not site information,
+                  and the real per-unit values are one click away in the UNIT
+                  view — a summary sentence ("Mixed · 4 stalls") replaced by the
+                  rows it was summarising. `parkingRollup`/`roofDeckRollup` stay
+                  in libraryHelpers: Project Overview still reads them. */}
               <th className="px-2 py-1.5 text-[9px] font-extrabold uppercase tracking-wide text-text text-left">
                 Tags
               </th>
@@ -763,34 +913,23 @@ function Body({ projects, permits }: BodyProps) {
           </thead>
           <tbody>
             {sorted.map((r) => (
-              <Row
-                key={r.projectId}
-                row={r}
-                expanded={isExpanded(r.projectId)}
-                onToggle={() => toggleExpanded(r.projectId)}
-                matchedUnitIndices={
-                  unitFilterActive
-                    ? matchingUnitIndices(r, filters)
-                    : null
-                }
-                onWriteUnitTypes={(next) => writeUnitTypes(r, next)}
-              />
+              <Row key={r.projectId} row={r} />
             ))}
             {sorted.length === 0 && (
               <tr>
                 <td
-                  // ★ fix-410: 14 = caret + 10 sortable + 3 derived headers.
-                  //   Was 13; the Shape column makes it 14.
+                  // ★ fix-447: 11. Was 14 — the caret cell and fix-402's two
+                  //   unit rollups all left in this ticket.
                   //
-                  // ★★ fix-406's note, kept because it is the reason anyone
-                  //   checks: it read 12 while the table had 14 columns, so the
-                  //   "no projects match" row had been two short since fix-402
-                  //   added Parking and Roof Deck — and nothing showed it,
-                  //   because a stale colSpan is invisible until the table is
-                  //   EMPTY. Both spans here are asserted against the rendered
-                  //   header count, so adding a column cannot quietly break
-                  //   the empty state again.
-                  colSpan={14}
+                  // ★★ fix-410's and fix-406's notes, kept because they are the
+                  //   reason anyone checks: this span read 12 while the table
+                  //   had 14 columns, so the "no projects match" row had been
+                  //   two short since fix-402 added Parking and Roof Deck — and
+                  //   nothing showed it, because A STALE colSpan IS INVISIBLE
+                  //   UNTIL THE TABLE IS EMPTY. Every span here is asserted
+                  //   against the rendered header count, so removing three
+                  //   columns cannot quietly break the empty state either.
+                  colSpan={11}
                   className="px-4 py-8 text-center text-xs text-dim italic"
                 >
                   No projects match the current filters.
@@ -799,8 +938,43 @@ function Body({ projects, permits }: BodyProps) {
             )}
           </tbody>
         </table>
+        )}
       </div>
     </div>
+  );
+}
+
+/** ★ fix-447: the UNIT table's sortable header. A twin of `Th` rather than a
+ *  generic one, because the two take different column unions and a shared
+ *  generic would let a site column be passed to the unit sorter — the exact
+ *  mix-up lib/libraryUnitRows exists to prevent. Same markup, same arrows, so
+ *  the two tables read identically. */
+function UTh({
+  sort,
+  col,
+  onClick,
+  align,
+  children,
+}: {
+  sort: UnitSortState;
+  col: UnitSortableColumn;
+  onClick: (col: UnitSortableColumn) => void;
+  align: 'left' | 'center';
+  children: React.ReactNode;
+}) {
+  const isActive = sort.col === col;
+  const arrow = isActive ? (sort.asc ? '↑' : '↓') : '↕';
+  const alignClass = align === 'center' ? 'text-center' : 'text-left';
+  return (
+    <th
+      onClick={() => onClick(col)}
+      className={`px-2 py-1.5 text-[9px] font-extrabold uppercase tracking-wide text-text cursor-pointer select-none whitespace-nowrap ${alignClass} ${
+        isActive ? 'text-text' : 'text-text/80'
+      }`}
+      data-testid={`library-uth-${col}`}
+    >
+      {children} {arrow}
+    </th>
   );
 }
 
@@ -833,53 +1007,20 @@ function Th({
   );
 }
 
+/** ★★ fix-447 §B6: `expanded`, `onToggle`, `matchedUnitIndices` and
+ *  `onWriteUnitTypes` are gone from this row. All four served fix-81's
+ *  sub-table, which the UNIT view replaces — the highlight and the editing did
+ *  not disappear, they moved to the rows that now show the units. */
 interface RowProps {
   row: LibraryRow;
-  expanded: boolean;
-  onToggle: () => void;
-  /** When a unit filter is active, this is the list of unit_type
-   * indices that satisfied the filter — the nested table highlights
-   * exactly those rows. Null when no unit filter is active (in which
-   * case nothing gets highlighted). */
-  matchedUnitIndices: number[] | null;
-  /** fix-206: persist an edited unit_types array for this project. */
-  onWriteUnitTypes: (next: UnitType[]) => void;
 }
-function Row({
-  row,
-  expanded,
-  onToggle,
-  matchedUnitIndices,
-  onWriteUnitTypes,
-}: RowProps) {
-  const hasUnits = row.unitTypes.length > 0;
-  // ★ fix-402: derived per render from the row's own units — no second source.
-  const parking = parkingRollup(row.unitTypes);
-  const roofDeck = roofDeckRollup(row.unitTypes);
+function Row({ row }: RowProps) {
   return (
     <>
       <tr
         className="border-b border-border hover:bg-s2 transition"
         data-testid={`library-row-${row.projectId}`}
       >
-        <td className="px-1 py-1.5 text-center align-middle">
-          {hasUnits ? (
-            <button
-              type="button"
-              onClick={onToggle}
-              aria-expanded={expanded}
-              aria-label={expanded ? 'Collapse unit types' : 'Expand unit types'}
-              className="text-dim hover:text-text font-mono leading-none px-1 select-none"
-              data-testid={`library-caret-${row.projectId}`}
-            >
-              {expanded ? '▾' : '▸'}
-            </button>
-          ) : (
-            <span className="text-dim/40" aria-hidden>
-              ·
-            </span>
-          )}
-        </td>
         <td className="px-2 py-1.5 font-display font-bold text-text">
           <OriginLink
             to={`/project/${row.projectId}`}
@@ -964,40 +1105,12 @@ function Row({
             <span className="text-dim">—</span>
           )}
         </td>
-        {/* ★★★ fix-402: the parking rollup chip. Same kind everywhere → that
-            kind; kinds disagree → "Mixed"; nothing recorded → "—" and nothing
-            else. When SOME units are recorded and others are not it appends
-            "N of M recorded", because a confident "Garage · 4 stalls" read off
-            two of five units would be actively misleading during the backfill. */}
-        <td
-          className="px-2 py-1.5 text-center"
-          data-testid={`library-parking-${row.projectId}`}
-        >
-          {parking.total === 0 || parking.label === '—' ? (
-            <span className="text-dim">—</span>
-          ) : (
-            <span
-              className={`text-[9px] font-bold px-1.5 py-0.5 rounded border ${
-                parking.partial
-                  ? 'bg-wa-bg text-wa border-wa'
-                  : 'bg-de-bg text-de border-de-border'
-              }`}
-              title={parking.partial ? 'Some units have no recorded parking' : undefined}
-            >
-              {parking.label}
-            </span>
-          )}
-        </td>
-        <td
-          className="px-2 py-1.5 text-center font-mono text-text"
-          data-testid={`library-roof-deck-${row.projectId}`}
-        >
-          {roofDeck.recorded === 0 ? (
-            <span className="text-dim">—</span>
-          ) : (
-            roofDeck.label
-          )}
-        </td>
+        {/* ★★★ fix-447 §B2 — fix-402's PARKING and ROOF DECK rollups leave the
+            site view with their headers. They are unit facts summarised into a
+            sentence because there was one table and the units had nowhere else
+            to go; the UNIT view now shows the rows they were summarising, per
+            unit and with the real numbers. `parkingRollup`/`roofDeckRollup` stay
+            in libraryHelpers — Project Overview still reads them. */}
         <td className="px-2 py-1.5">
           {row.tags.length === 0 ? (
             <span className="text-dim">—</span>
@@ -1022,117 +1135,22 @@ function Row({
           </span>
         </td>
       </tr>
-      {expanded && hasUnits && (
-        <tr
-          className="border-b border-border bg-bg/40"
-          data-testid={`library-expansion-${row.projectId}`}
-        >
-          <td />
-          {/* ★ fix-410: 13, not 14 — the caret cell above takes one. (fix-406:
-              "12, not 13 — the caret cell above takes one and Lots took one
-              away"; the Shape column adds it back.) */}
-          <td colSpan={13} className="px-2 pb-2 pt-1">
-            <UnitTypeMiniTable
-              projectId={row.projectId}
-              unitTypes={row.unitTypes}
-              productTypes={row.productTypes}
-              matchedIndices={matchedUnitIndices}
-              disabled={!row.updatedAt}
-              onWriteUnitTypes={onWriteUnitTypes}
-            />
-          </td>
-        </tr>
-      )}
     </>
   );
 }
 
-// fix-206: the unit table is EDITABLE inline. Each cell writes through the same
-// useUpdateProject path as Project Overview (one store), reusing resolveUnitLabel
-// for the product-type Label rules so the two editors behave identically.
-function UnitTypeMiniTable({
-  projectId,
-  unitTypes,
-  productTypes,
-  matchedIndices,
-  disabled,
-  onWriteUnitTypes,
-}: {
-  projectId: string;
-  unitTypes: LibraryRow['unitTypes'];
-  /** fix-205: drives the "unnamed" → single-product-type fallback for a
-   *  blank-label row (now via the Label input's placeholder / dropdown). */
-  productTypes: string[];
-  matchedIndices: number[] | null;
-  /** fix-206: occMissing (no OCC token) → inputs read-only (parity w/ PO). */
-  disabled: boolean;
-  onWriteUnitTypes: (next: UnitType[]) => void;
-}) {
-  const matchSet = matchedIndices ? new Set(matchedIndices) : null;
-  // ★ fix-402 widened the value type: roof_deck is a BOOLEAN, and a signature
-  //   stopping at string|number would have quietly excluded `false`.
-  function commit(
-    idx: number,
-    field: keyof UnitType,
-    val: string | number | boolean | null,
-  ) {
-    onWriteUnitTypes(
-      unitTypes.map((t, i) => (i === idx ? { ...t, [field]: val } : t)),
-    );
-  }
-  return (
-    <table
-      className="w-full text-[11px]"
-      data-testid={`library-unit-table-${projectId}`}
-    >
-      <thead>
-        <tr className="text-dim">
-          <th className="px-2 py-0.5 text-left text-[9px] font-extrabold uppercase tracking-wide">
-            Type
-          </th>
-          <th className="px-2 py-0.5 text-center text-[9px] font-extrabold uppercase tracking-wide">
-            Width
-          </th>
-          <th className="px-2 py-0.5 text-center text-[9px] font-extrabold uppercase tracking-wide">
-            Depth
-          </th>
-          <th className="px-2 py-0.5 text-center text-[9px] font-extrabold uppercase tracking-wide">
-            Qty
-          </th>
-          {/* fix-205: Stories column alongside Width/Depth/Qty. */}
-          <th className="px-2 py-0.5 text-center text-[9px] font-extrabold uppercase tracking-wide">
-            Stories
-          </th>
-          {/* ★★ fix-402: parking and roof deck are UNIT properties now — this
-              is where the backfill actually gets typed. */}
-          <th className="px-2 py-0.5 text-center text-[9px] font-extrabold uppercase tracking-wide">
-            Parking
-          </th>
-          <th className="px-2 py-0.5 text-center text-[9px] font-extrabold uppercase tracking-wide">
-            Stalls
-          </th>
-          <th className="px-2 py-0.5 text-center text-[9px] font-extrabold uppercase tracking-wide">
-            Roof Deck
-          </th>
-        </tr>
-      </thead>
-      <tbody>
-        {unitTypes.map((u, i) => (
-          <LibraryUnitRow
-            key={i}
-            row={u}
-            projectId={projectId}
-            index={i}
-            productTypes={productTypes}
-            disabled={disabled}
-            matched={matchSet?.has(i) ?? false}
-            onChange={(field, val) => commit(i, field, val)}
-          />
-        ))}
-      </tbody>
-    </table>
-  );
-}
+// ★★★ fix-447 §B6 — `UnitTypeMiniTable` IS GONE, AND ITS JOB IS NOT.
+//
+// It was the wrapper fix-81's caret opened: a <table> of `LibraryUnitRow`s
+// for one project. The UNIT view renders those same rows directly, for every
+// project at once, so the wrapper had no caller left — dead code, removed
+// rather than left as scenery.
+//
+// ★★ WHAT IT WRAPPED SURVIVES INTACT. fix-206's rule — *"the unit table is
+// EDITABLE inline, each cell writing through the same useUpdateProject path
+// as Project Overview (one store)"* — is still true, because `LibraryUnitRow`
+// and `writeUnitTypes` are untouched and now sit in the view itself. The
+// editing did not move behind a different door; the door was removed.
 
 // fix-206: one editable unit_types row in the Library table. Mirrors the
 // Project Overview UnitRow (fix-205) semantics exactly — product-type Label
@@ -1149,6 +1167,8 @@ function LibraryUnitRow({
   disabled,
   matched,
   onChange,
+  leading,
+  trailing,
 }: {
   row: UnitType;
   projectId: string;
@@ -1159,6 +1179,16 @@ function LibraryUnitRow({
   // ★ fix-402 widened this: roof_deck is a BOOLEAN, and a value type that
   //   stopped at string|number would have quietly excluded it.
   onChange: (field: keyof UnitType, val: string | number | boolean | null) => void;
+  /** ★★★ fix-447: cells rendered BEFORE and AFTER this row's unit cells.
+   *
+   *  This component owns its `<tr>`, so the UNIT view — which needs
+   *  Address/Juris/Type in front and Work/Stage behind — cannot wrap it. Two
+   *  optional slots keep it ONE component instead of a second, near-identical
+   *  editable row: the sub-table that used to hide behind fix-81's caret and
+   *  the unit view's row are the same code, writing through the same untouched
+   *  OCC path. Absent for every existing caller. */
+  leading?: React.ReactNode;
+  trailing?: React.ReactNode;
 }) {
   const [label, setLabel] = useState(row.label);
   const [w, setW] = useState(row.width_ft != null ? String(row.width_ft) : '');
@@ -1210,6 +1240,7 @@ function LibraryUnitRow({
       data-matched={matched ? 'true' : undefined}
       className={matched ? 'bg-de-bg/40 border-l-2 border-de' : ''}
     >
+      {leading}
       <td className="px-2 py-0.5 font-mono text-text">
         {hasProductTypes ? (
           <select
@@ -1368,6 +1399,7 @@ function LibraryUnitRow({
           testid={`${idBase}-roof-deck`}
         />
       </td>
+      {trailing}
     </tr>
   );
 }
@@ -1399,6 +1431,130 @@ function LibraryUnitRow({
 // the secondary row goes to `text-muted` (#5a6a85, **4.7:1**) at semibold: both
 // clearly readable, still clearly ranked.
 type LabelTier = 'primary' | 'secondary';
+
+// ===========================================================================
+// ★★★ fix-447 §A/§B (P-055) — THE HEADINGS ARE HEADINGS, AND THEY SWITCH THE
+//     VIEW
+// ===========================================================================
+//
+// Bobby, 2026-08-26: *"a clear heading over a clear subheading — bigger than
+// the field labels, and without the colour difference."* Then: *"the pills
+// should switch the view. Click SITE and it highlights, and the results below
+// reformat to address + site information."*
+//
+// ---------------------------------------------------------------------------
+// ★★★ THE COMPLAINT WAS LITERALLY TRUE — MEASURED, NOT ASSUMED
+// ---------------------------------------------------------------------------
+//
+// The old chip was `text-[9px]`. The field labels it heads are
+// `LABEL_CLASS.primary` = **10px** bold and `.secondary` = 9px semibold. So the
+// heading was SMALLER than the primary fields beneath it and equal to the
+// secondary ones — a label pretending to be a heading, propped up by a coloured
+// pill. 13px extrabold puts a real step above both (13 > 10 > 9).
+//
+// ---------------------------------------------------------------------------
+// ★★★ §A2 — THE HEADING LOSES ITS COLOUR; THE CARD BORDER KEEPS ITS TINT
+// ---------------------------------------------------------------------------
+//
+// *"without the colour difference"* is about the heading, and it is granted in
+// full: SITE and UNIT now render in exactly the same ink, with no pill, no
+// tint, no border. Whatever hue was doing to say "these are two different
+// groups", 13px extrabold now does.
+//
+// ★★ THE CARD BORDERS STAY, and it is not sentiment about fix-406's work. They
+// do a job the heading cannot: when you are scrolled down among the fields the
+// heading is off-screen and the border is not, so it is what still tells you
+// which card your cursor is in. Both clear fix-406's floor against the card
+// surface — measured in the fix-447 suite, not asserted here.
+//
+// ★★ THE HISTORY THE CHIPS CARRIED, KEPT BECAUSE IT IS STILL THE REASON THE
+// PALETTE FILE STATES HEXES. fix-402 wrote the SITE chip as three inline styles
+// reading `var(--color-ok-bg)` / `var(--color-ok)` — variables DEFINED NOWHERE
+// in the app. An undefined custom property with no fallback invalidates the
+// whole declaration, so all three were dropped and the chip rendered with no
+// background, no border and inherited ink: the "near-monochrome" in Bobby's
+// screenshot. It was never a colour that was too subtle; it was no colour.
+// fix-406 fixed it by stating measured values in lib/libraryGroupPalette
+// instead of pointing at a name that might not exist. That lesson outlives the
+// chip: this heading takes its ink from `--color-text`, which does exist, and
+// the fix-447 suite asserts the rendered value rather than trusting the token.
+//
+// ★★★ AND NO THIRD HUE FOR "ACTIVE". The obvious move — underline SITE in teal
+// and UNIT in purple — would put the colour difference straight back onto the
+// heading through the side door. Active is the app's TEXT ink plus a 2px rule;
+// inactive is muted with no rule. Weight and presence carry the state, hue
+// carries nothing, and the two headings stay identical to each other in colour
+// whichever one is on.
+function GroupHeading({
+  label,
+  caption,
+  view,
+  active,
+  onSelect,
+  testid,
+}: {
+  label: string;
+  caption: string;
+  view: LibraryView;
+  active: boolean;
+  onSelect: () => void;
+  testid: string;
+}) {
+  return (
+    <>
+      <button
+        type="button"
+        onClick={onSelect}
+        // ★ 13px against the 10px/9px field labels below. `font-display` and
+        //   the uppercase tracking are kept from the chip so the two headings
+        //   still read as the same family as the rest of the panel.
+        className="text-[13px] font-display font-extrabold uppercase tracking-wide leading-none pb-0.5"
+        style={{
+          color: active ? 'var(--color-text)' : 'var(--color-muted)',
+          borderBottom: active
+            ? '2px solid var(--color-text)'
+            : '2px solid transparent',
+          background: 'transparent',
+        }}
+        aria-pressed={active}
+        data-testid={testid}
+        data-view={view}
+        data-active={active ? 'true' : 'false'}
+      >
+        {label}
+      </button>
+      <span className="text-[10px] text-muted">{caption}</span>
+    </>
+  );
+}
+
+// ★★★ fix-447 §A2 — THE CARD TINT GOES TOO, AND THE MEASUREMENT IS WHY.
+//
+// A2's test was *"the coloured card BORDERS may stay as a quiet tint IF THEY
+// PASS fix-406's floor"*. Measured against the card surface (`--color-s2`,
+// #e8edf3):
+//
+//     SITE border  #55abc4  →  2.23:1
+//     UNIT border  #9a77e8  →  2.89:1
+//     the two against EACH OTHER → 1.30:1
+//
+// ★★★ NEITHER CLEARS 4.5:1, and neither clears even WCAG's 3:1 non-text
+// threshold. And 1.30:1 between them is the damning number: the hue that was
+// supposed to tell SITE from UNIT was, measurably, almost the same hue twice.
+// So this is not a case of dropping a colour that was working — it is fix-406's
+// own method finding the second half of Bobby's complaint. *"The teal-vs-purple
+// colour split is doing work that typography should do"*, and it turns out it
+// was barely doing it at all.
+//
+// ★★ THE HEADING'S OWN INKS DO CLEAR IT: active `--color-text` is 12.9:1 on the
+// card and inactive `--color-muted` is 4.65:1, with 2.77:1 between them — so
+// the state is legible and the identity is carried by 13px extrabold type.
+//
+// ★ lib/libraryGroupPalette KEEPS its values and its fix-406 suite. They are
+// the record of how those hexes were derived and the regression cover for the
+// tokens they came from; what changed is that this screen no longer paints
+// them.
+const NEUTRAL_CARD_BORDER = { borderColor: 'var(--color-border)' } as const;
 
 const LABEL_CLASS: Record<LabelTier, string> = {
   primary: 'text-[10px] font-bold text-text uppercase tracking-wide',

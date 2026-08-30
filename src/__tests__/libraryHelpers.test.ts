@@ -226,6 +226,8 @@ describe('buildLibraryRows', () => {
 
 describe('filterLibraryRows', () => {
   const baseFilters: LibraryFilters = {
+    // ★ fix-447: the new key. Default 'site' — the Library opens on SITE.
+    view: 'site' as const,
     search: '',
     lotwTarget: null,
     lotwBuf: 2,
@@ -402,6 +404,8 @@ describe('filterLibraryRows', () => {
 // fix-205: Stories tier filter on a project's unit_types.
 describe('fix-205: stories filter', () => {
   const EMPTY_FILTERS: LibraryFilters = {
+    // ★ fix-447: the new key. Default 'site' — the Library opens on SITE.
+    view: 'site' as const,
     search: '',
     lotwTarget: null,
     lotwBuf: 2,

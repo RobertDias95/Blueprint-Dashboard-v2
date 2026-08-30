@@ -5,7 +5,7 @@
 //   config would make `process` and `Buffer` ambient in every browser module
 //   too, which is a much larger change than this ticket asked for.
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { useAuthStore } from '../stores/authStore';
@@ -374,27 +374,67 @@ describe('fix-406 §2: two hues, both derived, both readable', () => {
 // ---------------------------------------------------------------------------
 
 describe('fix-406 §3: the two cards carry their colours on screen', () => {
-  it('★★★ SITE renders teal and UNIT renders purple — chip and card border', () => {
+  // ★★★ fix-447 INVERTS THE CHIP HALF OF THIS PIN, BY RULING, AND KEEPS THE
+  //     CARD-BORDER HALF UNTOUCHED.
+  //
+  // Bobby, 2026-08-26 (P-055), looking at what fix-406 shipped: the SITE/UNIT
+  // pills *"read as decoration — smaller than the fields they head, and the
+  // teal-vs-purple colour split is doing work that typography should do"*. He
+  // asked for *"a clear heading over a clear subheading — bigger than the field
+  // labels, and without the colour difference."*
+  //
+  // ★★ SO fix-406 WAS RIGHT AND IS SUPERSEDED, NOT MISTAKEN (fix-400's rule).
+  // Its finding — that the chip was rendering with NO colour because
+  // `--color-ok` does not exist — was real, and fixing it is what let anyone
+  // see the chip clearly enough to judge that it should not be a chip at all.
+  //
+  // ★★★ THE BORDERS STAY, and the assertion on them is deliberately unchanged:
+  // they do a job the heading cannot, which is to say which card you are in
+  // when you are scrolled down among the fields with the heading off-screen.
+  it('★★★ fix-406 → fix-447: the hue leaves the panel — heading AND card border', () => {
     renderIt();
     const siteChip = screen.getByTestId('filter-chip-site');
     const unitChip = screen.getByTestId('filter-chip-unit');
-    expect(siteChip.style.color).toBe(asRendered(SITE_PALETTE.chipText));
-    expect(siteChip.style.background).toBe(asRendered(SITE_PALETTE.chipBg));
-    expect(unitChip.style.color).toBe(asRendered(UNIT_PALETTE.chipText));
-    expect(unitChip.style.background).toBe(asRendered(UNIT_PALETTE.chipBg));
-    // ★ And they are not the same colour, on the DOM rather than in the module.
-    expect(siteChip.style.color).not.toBe(unitChip.style.color);
-    // ★★ The chip is PAINTED, which is the thing fix-402 got wrong: an
-    //    undefined variable leaves these empty strings, not a subtle colour.
-    expect(siteChip.style.color).not.toBe('');
-    expect(siteChip.style.background).not.toBe('');
+    // ★★★ ONE INK PER STATE, NOT ONE INK PER GROUP — which is the precise
+    //     thing Bobby asked for. The two headings differ only by which is
+    //     ACTIVE: SITE is on by default, so it takes the text ink and UNIT the
+    //     muted one. Swap the view and the inks swap with it, which proves the
+    //     colour is carrying STATE and not identity.
+    const siteInk = siteChip.style.color;
+    const unitInk = unitChip.style.color;
+    expect(siteInk).toBe('var(--color-text)');
+    expect(unitInk).toBe('var(--color-muted)');
+    fireEvent.click(unitChip);
+    expect(screen.getByTestId('filter-chip-site').style.color).toBe(unitInk);
+    expect(screen.getByTestId('filter-chip-unit').style.color).toBe(siteInk);
+    fireEvent.click(screen.getByTestId('filter-chip-site'));
+    // ★ …and no pill: the tinted background that made it read as decoration.
+    expect(siteChip.style.background).toBe('transparent');
+    expect(unitChip.style.background).toBe('transparent');
+    // ★ The teal and purple inks are not on the headings any more.
+    expect(siteChip.style.color).not.toBe(asRendered(SITE_PALETTE.chipText));
+    expect(unitChip.style.color).not.toBe(asRendered(UNIT_PALETTE.chipText));
 
-    expect(screen.getByTestId('filter-card-site').style.borderColor).toBe(
-      asRendered(SITE_PALETTE.cardBorder),
-    );
-    expect(screen.getByTestId('filter-card-unit').style.borderColor).toBe(
-      asRendered(UNIT_PALETTE.cardBorder),
-    );
+    // ★★★ AND THE CARD BORDERS WENT TOO — MEASURED, NOT PREFERRED.
+    //
+    // fix-447 §A2 allowed the tint to stay IF it cleared fix-406's floor.
+    // Against the card surface (--color-s2, #e8edf3) it does not:
+    //
+    //     SITE #55abc4 → 2.23:1     UNIT #9a77e8 → 2.89:1
+    //     the two against EACH OTHER → 1.30:1
+    //
+    // Neither clears 4.5:1, nor even WCAG's 3:1 non-text threshold — and 1.30:1
+    // between them means the hue meant to tell the two cards apart was, by
+    // measurement, almost the same hue twice. fix-406's own method found the
+    // rest of Bobby's complaint.
+    //
+    // ★★ The PALETTE MODULE and its measurements above are untouched: they are
+    //    the record of how those hexes were derived, and §1/§2 of this suite
+    //    still recompute them from the app's tokens.
+    const neutral = screen.getByTestId('filter-card-site').style.borderColor;
+    expect(neutral).toBe('var(--color-border)');
+    expect(screen.getByTestId('filter-card-unit').style.borderColor).toBe(neutral);
+    expect(neutral).not.toBe(asRendered(SITE_PALETTE.cardBorder));
   });
 
   it('★★★ every field in the panel sits on the FIELD surface, not the card', () => {
@@ -521,15 +561,30 @@ describe('fix-406 §4: the Lots column and its sort are gone', () => {
     // since fix-402 added two columns; it is corrected here because this ticket
     // changes the count again.
     //
-    // ★ fix-410 makes it 14 — the SITE "Shape" column. The number is asserted
+    // ★ fix-410 made it 14 — the SITE "Shape" column. The number is asserted
     //   rather than the columns enumerated, deliberately: this test's job is to
-    //   FAIL when somebody adds a column, so that the two colSpans below get
-    //   updated with it. It did exactly that for fix-410.
+    //   FAIL when somebody adds or removes a column, so that the colSpans get
+    //   updated with it. It did exactly that for fix-410, and again here.
+    //
+    // ★★★ fix-447 makes it 11: the caret cell went with fix-81's path, and
+    //     Parking and Roof Deck went to the UNIT view, which is where the
+    //     per-unit numbers they were summarising actually live.
     renderIt();
     const headers = screen
       .getByTestId('library-table')
       .querySelectorAll('thead th');
-    expect(headers.length).toBe(14);
+    expect(headers.length).toBe(11);
+  });
+
+  it('★★ fix-447: the UNIT table\'s header count and its colSpan agree too', () => {
+    // The same trap, on the new table: a stale span is invisible until the
+    // table is empty.
+    renderIt();
+    fireEvent.click(screen.getByTestId('filter-chip-unit'));
+    const headers = screen
+      .getByTestId('library-table-unit')
+      .querySelectorAll('thead th');
+    expect(headers.length).toBe(13);
   });
 });
 
@@ -626,6 +681,7 @@ describe('fix-406 §5: an unrecognised sort column falls back cleanly', () => {
     window.sessionStorage.setItem(
       `library.filters.${userId}`,
       JSON.stringify({
+        view: 'site' as const,
         search: 'apple',
         zone: 'NR',
         numLots: 5,
@@ -634,6 +690,8 @@ describe('fix-406 §5: an unrecognised sort column falls back cleanly', () => {
       }),
     );
     const fallback = {
+      // ★ fix-447: the new key. Default 'site' — the Library opens on SITE.
+      view: 'site' as const,
       search: '',
       lotwTarget: null,
       lotwBuf: 2,

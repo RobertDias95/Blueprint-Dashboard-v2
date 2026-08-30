@@ -342,6 +342,7 @@ describe('fix-380 §2 — Project List rows match on their permits struct_addres
 // Library (libraryHelpers) — Bobby named it.
 // ---------------------------------------------------------------------------
 const baseLibFilters: LibraryFilters = {
+  view: 'site' as const,
   search: '',
   lotwTarget: null,
   lotwBuf: 0,
