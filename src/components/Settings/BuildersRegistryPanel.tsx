@@ -4,6 +4,7 @@ import {
   useBuilderRegistry,
   useDeactivateBuilder,
   useMergeBuilders,
+  useRenameBuilderPerson,
   useUpsertBuilderRow,
   type BuilderRegistryRow,
 } from '../../hooks/useBuilderRegistry';
@@ -46,6 +47,7 @@ export default function BuildersRegistryPanel({
   const upsert = useUpsertBuilderRow();
   const deactivate = useDeactivateBuilder();
   const merge = useMergeBuilders();
+  const rename = useRenameBuilderPerson();
 
   const [showInactive, setShowInactive] = useState(false);
   const [addingPerson, setAddingPerson] = useState(false);
@@ -115,9 +117,24 @@ export default function BuildersRegistryPanel({
           one of them is CROSS-PERSON (Bill Richmond / Will Richmond, both
           "JMS Homes, Inc"). See the migration for why merge is not restricted
           to rows sharing a name. */}
+      {/* ★★★ fix-452 §B1 (P-103) — IT STICKS NOW.
+          Bobby, 2026-08-30: *"oh i see it now, but you have to scroll all the
+          way to the top. that might be problematic."* 58 people over 61 rows:
+          you scrolled down, picked two, then scrolled back up to confirm a
+          decision about two rows you could no longer see.
+
+          ★★ THE CONTENT IS UNCHANGED — both names in full, both project
+          counts. fix-448 put them there on purpose because the duplicates this
+          feature exists for are not obvious from an id. The defect was
+          PLACEMENT, and only placement changed.
+
+          ★ `sticky` on the PAGE scroll, deliberately. The panel has no
+          scroller of its own — `<main>` in Chrome.tsx owns `overflow-auto` —
+          and the bar's parent wraps the whole list, so it stays pinned for the
+          list's full height. §B4: no portal, no fixed overlay. */}
       {loser && winner && (
         <div
-          className="rounded border px-3 py-2 text-[11px] flex items-center gap-2 flex-wrap"
+          className="sticky top-0 z-20 rounded border px-3 py-2 text-[11px] flex items-center gap-2 flex-wrap shadow-sm"
           style={{
             borderColor: 'var(--color-de)',
             background: 'var(--color-de-bg, var(--color-s2))',
@@ -174,9 +191,26 @@ export default function BuildersRegistryPanel({
                 background: 'var(--color-s2)',
               }}
             >
-              <span className="text-[12px] font-display font-bold text-text">
-                {g.name}
-              </span>
+              {/* ★★★ fix-452 §A3 (P-102) — THE PERSON'S NAME IS EDITABLE NOW.
+                  Bobby, 2026-08-30: *"if the builders name is spelled wrong, or
+                  all caps, i want to be able to edit the grammatical issues"*.
+                  It was the one field on this panel that was plain text.
+
+                  ★★ SAME AFFORDANCE AS THE LLC FIELDS BESIDE IT — click, type,
+                  Enter/blur commits, Escape cancels. Not a modal and not a new
+                  pattern: the panel already teaches this gesture one row down.
+
+                  ★★★ AND IT RENAMES THE PERSON, NOT THE ROW. See
+                  useRenameBuilderPerson — correcting one row of a three-row
+                  person would split them into two groups on screen. */}
+              <PersonName
+                name={g.name}
+                readOnly={readOnly}
+                busy={rename.isPending}
+                onRename={(next) =>
+                  rename.mutate({ oldName: g.name, newName: next })
+                }
+              />
               <span className="text-[10px] text-muted">
                 {g.rows.length} {g.rows.length === 1 ? 'LLC' : 'LLCs'} ·{' '}
                 {g.projectCount} {g.projectCount === 1 ? 'project' : 'projects'}
@@ -209,6 +243,28 @@ export default function BuildersRegistryPanel({
                 }
                 onSetActive={(active) =>
                   deactivate.mutate({ id: r.id, active })
+                }
+                // ★★★ §B3 — after ONE pick the row says what happens next.
+                //     Before this it only tinted, with nothing telling you a
+                //     second pick was the missing half.
+                hint={mergePick.length === 1 && mergePick[0] === r.id}
+                // ★★★ §B2 — the confirm ALSO renders under the second-picked
+                //     row, so the click is where the eye already is. ONE shared
+                //     handler with the sticky bar: the merge logic is not
+                //     duplicated, only its affordance.
+                confirm={
+                  winnerId === r.id && loser && winner
+                    ? {
+                        loser: describe(loser),
+                        winner: describe(winner),
+                        count: loser.projectCount,
+                        onConfirm: () => {
+                          merge.mutate({ loserId: loser.id, winnerId: winner.id });
+                          setMergePick([]);
+                        },
+                        onCancel: () => setMergePick([]),
+                      }
+                    : null
                 }
               />
             ))}
@@ -254,6 +310,8 @@ function BuilderLine({
   onToggleMerge,
   onCommit,
   onSetActive,
+  hint,
+  confirm,
 }: {
   row: BuilderRegistryRow;
   readOnly: boolean;
@@ -261,9 +319,20 @@ function BuilderLine({
   onToggleMerge: () => void;
   onCommit: (field: FieldKey, value: string) => void;
   onSetActive: (active: boolean) => void;
+  /** ★ §B3: this row is the FIRST of two picks and is waiting for the second. */
+  hint: boolean;
+  /** ★ §B2: this row is the SECOND pick — the confirm renders under it. */
+  confirm: {
+    loser: string;
+    winner: string;
+    count: number;
+    onConfirm: () => void;
+    onCancel: () => void;
+  } | null;
 }) {
   const inactive = row.active === false;
   return (
+    <>
     <div
       className="px-3 py-1.5 flex items-center gap-2 flex-wrap border-b last:border-b-0"
       style={{
@@ -305,6 +374,16 @@ function BuilderLine({
       >
         Merge
       </button>
+      {/* ★ §B3: the missing half, said in three words. */}
+      {hint && (
+        <span
+          className="text-[10px] italic"
+          style={{ color: 'var(--color-de)' }}
+          data-testid={`builders-${row.id}-merge-hint`}
+        >
+          pick one more to merge
+        </span>
+      )}
       <button
         type="button"
         disabled={readOnly}
@@ -316,6 +395,121 @@ function BuilderLine({
         {inactive ? 'Reactivate' : 'Deactivate'}
       </button>
     </div>
+    {confirm && (
+      <div
+        className="px-3 py-2 text-[11px] flex items-center gap-2 flex-wrap border-b"
+        style={{
+          borderBottomColor: 'var(--color-border)',
+          background: 'var(--color-de-bg, var(--color-s2))',
+        }}
+        data-testid={`builders-inline-merge-${row.id}`}
+      >
+        <span>
+          Merge <strong>{confirm.loser}</strong> ({confirm.count}{' '}
+          {confirm.count === 1 ? 'project' : 'projects'}) into{' '}
+          <strong>{confirm.winner}</strong>
+        </span>
+        <button
+          type="button"
+          disabled={readOnly}
+          onClick={confirm.onConfirm}
+          className="text-[10px] px-2 py-0.5 rounded border font-bold"
+          style={chipStyle(true, 'bg')}
+          data-testid={`builders-inline-merge-confirm-${row.id}`}
+        >
+          Merge {confirm.count}{' '}
+          {confirm.count === 1 ? 'project' : 'projects'} →
+        </button>
+        <button
+          type="button"
+          onClick={confirm.onCancel}
+          className="text-[10px] px-2 py-0.5 rounded border"
+          style={chipStyle(false, 'bg')}
+          data-testid={`builders-inline-merge-cancel-${row.id}`}
+        >
+          Cancel
+        </button>
+      </div>
+    )}
+    </>
+  );
+}
+
+/** ★★ fix-452 §A3: the person's name, click-to-edit.
+ *
+ *  ★ NO AUTO-TIDY, BY RULING. A Title-Case helper that fixes "KANEBUILT LLC"
+ *  turns "SSS" into "Sss", "JMS Homes, Inc" into "Jms Homes, Inc", and mangles
+ *  "McDonald" and "O'Brien". 61 curated rows want a plain field — fix-449
+ *  already paid for the lesson that a resolver rewriting a human's value is how
+ *  values get lost. The only normalisation is a trim. */
+function PersonName({
+  name,
+  readOnly,
+  busy,
+  onRename,
+}: {
+  name: string;
+  readOnly: boolean;
+  busy: boolean;
+  onRename: (next: string) => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(name);
+
+  if (readOnly || busy) {
+    return (
+      <span
+        className="text-[12px] font-display font-bold text-text"
+        data-testid={`builders-person-name-${name}`}
+      >
+        {name}
+      </span>
+    );
+  }
+  if (!editing) {
+    return (
+      <span
+        className="text-[12px] font-display font-bold text-text cursor-text"
+        title="Click to correct the spelling"
+        onClick={() => {
+          setDraft(name);
+          setEditing(true);
+        }}
+        data-testid={`builders-person-name-${name}`}
+      >
+        {name}
+      </span>
+    );
+  }
+  function commit() {
+    setEditing(false);
+    const next = draft.trim();
+    // ★★ A blank is refused here as well as in the RPC — it would erase the
+    //    only thing grouping this person's rows together.
+    if (next === '' || next === name) return;
+    onRename(next);
+  }
+  return (
+    <input
+      autoFocus
+      value={draft}
+      onChange={(e) => setDraft(e.target.value)}
+      onBlur={commit}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
+        if (e.key === 'Escape') {
+          setDraft(name);
+          setEditing(false);
+        }
+      }}
+      className="text-[12px] font-display font-bold px-1 py-0 border rounded"
+      style={{
+        borderColor: 'var(--color-de)',
+        background: 'var(--color-surface)',
+        color: 'var(--color-text)',
+      }}
+      data-testid={`builders-person-rename-${name}`}
+    />
   );
 }
 

@@ -224,3 +224,58 @@ export function useMergeBuilders() {
     },
   });
 }
+
+export interface RenamePersonResult {
+  rows: number;
+  projects: number;
+  name: string;
+}
+
+/**
+ * ★★★ fix-452 §A (P-102) — RENAME THE PERSON, NOT THE ROW.
+ *
+ * Bobby, 2026-08-30: *"if the builders name is spelled wrong, or all caps, i
+ * want to be able to edit the grammatical issues"*.
+ *
+ * ★★★ WHY THIS IS NOT `useUpsertBuilderRow` WITH A NEW NAME. That writer
+ * already updates `name` — for ONE row. Using it here would be the bug:
+ * `groupByPerson` above keys on the trimmed, case-folded name, and its own
+ * comment warns that rewriting one row's spelling *"would quietly create 'ted
+ * chesledon' as a second person"*. Ghennadi Ialanji holds three rows;
+ * correcting one of three SPLITS him into two groups on screen.
+ *
+ * ★★ AND A LOOP OVER THAT WRITER IS THE SAME BUG WITH EXTRA STEPS — three
+ * sequential calls that fail on the second leave a person renamed in half. The
+ * RPC does both statements in one transaction, and it also rewrites
+ * `projects.builder_name`, which is a READ copy: the Overview cell displays it,
+ * and `lib/redesignAnalytics` groups redesign cohorts by it WITHOUT
+ * case-folding — so a catalogue-only rename would make "GERRARD FLOYD" and
+ * "Gerrard Floyd" two builders in that report.
+ *
+ * ★ Reuses `useInvalidate` deliberately (§A5): it busts BOTH the builders and
+ *   the projects caches, and a renamed person whose projects still show the old
+ *   spelling is the failure anybody would actually notice.
+ */
+export function useRenameBuilderPerson() {
+  const invalidate = useInvalidate();
+  return useMutation<RenamePersonResult, Error, { oldName: string; newName: string }>({
+    mutationFn: async ({ oldName, newName }) => {
+      const { data, error } = await supabase.rpc('bp_rename_builder_person', {
+        p_old_name: oldName,
+        p_new_name: newName,
+      });
+      if (error) throw error;
+      return data as RenamePersonResult;
+    },
+    onSuccess: (res) => {
+      invalidate();
+      pushToast(
+        `Renamed — ${res.rows} row${res.rows === 1 ? '' : 's'}, ${res.projects} project${res.projects === 1 ? '' : 's'}`,
+        'success',
+      );
+    },
+    onError: (error) => {
+      pushToast(`Could not rename — ${error.message}`, 'error');
+    },
+  });
+}
