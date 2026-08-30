@@ -239,7 +239,6 @@ describe('filterTasks', () => {
     entLeads: new Set<string>(),
     das: new Set<string>(),
     dms: new Set<string>(),
-    externalConsultants: new Set<string>(),
   };
   const ctx = makeCtx();
   const tasks = [

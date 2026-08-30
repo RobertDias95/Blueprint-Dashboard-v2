@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import { useUpsertDirectoryFirm } from '../../hooks/useExternalTeamDirectory';
+import { NOT_REQUIRED, isNotRequired } from '../../lib/externalTeam';
 import { useIsTenantAdmin } from '../../hooks/useIsTenantAdmin';
 
 // fix-227: the per-project external-team FIRM field, sourced from the central
@@ -52,8 +53,11 @@ export default function ExternalFirmSelect({
   const saved = value.trim();
   // Show the saved firm as an option even when it isn't in the directory, so an
   // existing free-text blob value renders and stays selected.
+  // ★ fix-451 §G: the not-required answer has its own option above, so it must
+  //   not ALSO render as a "(not in directory)" custom value.
   const savedIsCustom =
     saved !== '' &&
+    !isNotRequired(saved) &&
     !firms.some((f) => f.toLowerCase() === saved.toLowerCase());
 
   const options = useMemo(() => {
@@ -143,6 +147,12 @@ export default function ExternalFirmSelect({
       data-testid={testIdBase}
     >
       <option value="">— Unassigned —</option>
+      {/* ★★★ fix-451 §G1 — "Not required" sits ABOVE the firms and apart from
+          them, because it is not one of them: it is the answer you give when
+          the question does not apply. Visually separated by the divider below
+          so it never reads as the first firm in the list. */}
+      <option value={NOT_REQUIRED}>Not required</option>
+      <option disabled>──────────</option>
       {options.map((o) => (
         <option key={o.value} value={o.value}>
           {o.label}

@@ -18,6 +18,7 @@ measured on the day it was written; **fix-450 re-measured all seven on
 | `fix_381_backfill_PENDING_APPROVAL.sql` | opens a "CR 1" thread on projects still in design | **MOVES ROWS** | **63** | 87 | 2026-08-28 |
 | `fix_384_label_candidates_PENDING_APPROVAL.sql` | links an NP time block to the project its label names | **MOVES ROWS** | **1** (+1 undecided) | 1 (+1) | 2026-08-28 |
 | `fix_387_entry_drafts_PENDING_APPROVAL.sql` | adds `go_href` teaching links to What's New entries | **MOVES ROWS** | **3** of 14 drafted | 14 drafted | 2026-08-29 |
+| `fix_451_not_required_PENDING_APPROVAL.sql` | deactivates the directory row named "Not Required" so it stops being offered as a firm | **MOVES ROWS** | **1** | 1 | 2026-08-30 |
 
 No file is **CANNOT RUN**: every helper function, table and column each one
 depends on still exists on prod with the signature it was written against
@@ -57,6 +58,13 @@ writes. 23 of the 86 projects in it already have a `CR 1` root thread, and
 projects still exist under the same ids. It is waiting on a decision, not on
 data.
 
+**`fix_451` — new, and deliberately tiny.** fix-451 §G shipped the *answer*
+("Not required" is an option in the picker, and `isNotRequired` keeps such a
+discipline out of the chase grouping and the export) before touching data. The
+sentinel is the string prod already carries, so the one affected project row
+needs **no change at all** — only the directory row that should never have been
+a firm gets deactivated.
+
 **`fix_387` 14 → 3.** All 23 entries are still untaught. The file drafts
 fourteen and expands three into statements on purpose — *"pasting 14 multi-line
 UPDATEs that nobody has approved makes this file look like something to run
@@ -71,6 +79,7 @@ rather than something to read."* Approving it buys 3 of 14.
 | `fix_381` | **ask Bobby which option** | The biggest write here by two orders of magnitude: 63 new threads across 63 projects, each visible in project chat with no author. Option 2 (17 projects, live building permits only) is his literal original wording; Option 1 is every project in design. Not reversible in one statement. |
 | `fix_384` | **apply candidate 1; rule on candidate 2** | One time block gains a project link. The label is untouched either way. Candidate 2 needs Bobby to say which Estrella. |
 | `fix_387` | **skip — use the admin editor** | It writes 3 of the 14 drafted entries and the editor does any of them in seconds. Worth doing first, separately: the live entry *"Every new project starts with three posts"* is wrong — it has been four since CR 1 shipped. |
+| `fix_451` | **apply** | Deactivates one directory row. It disappears from the Geotech picker and stays readable in Settings. Reversible with one click (Reactivate). |
 | `fix_377`, `fix_379` | **nothing to approve** | Superseded. Kept for the reasoning, not the rows. |
 
 ## The guard

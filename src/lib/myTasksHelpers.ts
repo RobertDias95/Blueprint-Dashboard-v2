@@ -110,7 +110,6 @@ export interface TaskFilters {
   /** Matches task.assigned_to when the value is something other than the
    *  internal 'Entitlements' / 'Architecture' team labels — i.e., a
    *  consultant firm name from the v2 consultantTypes config. */
-  externalConsultants: Set<string>;
 }
 
 export interface FilterContext {
@@ -188,10 +187,11 @@ export function filterTasks(
     if (filters.dms.size > 0) {
       if (!permit?.dm || !filters.dms.has(permit.dm)) return false;
     }
-    if (filters.externalConsultants.size > 0) {
-      const a = task.assigned_to ?? '';
-      if (!filters.externalConsultants.has(a)) return false;
-    }
+    // ★★ fix-451 §D5: the `externalConsultants` branch is GONE with the dead
+    //    FilterBar that was its only writer. It matched a firm name against
+    //    `task.assigned_to`, which is a person — real consultant firms live in
+    //    projects.external_team, per project, and are never task assignees. It
+    //    could not have matched anything.
 
     if (tokens.length > 0) {
       const hay = searchHaystack(task, ctx);

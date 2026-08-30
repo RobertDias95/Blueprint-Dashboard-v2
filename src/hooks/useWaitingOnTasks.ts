@@ -6,7 +6,11 @@ import { useAuthStore } from '../stores/authStore';
 import { useProjects } from './useProjects';
 import { useAllProjectHolds, cancelledProjectIds } from './useProjectHolds';
 import { excludeCancelled } from '../lib/projectViewHelpers';
-import { asExternalTeamBlob, resolveExternalFirm } from '../lib/externalTeam';
+import {
+  asExternalTeamBlob,
+  isNotRequired,
+  resolveExternalFirm,
+} from '../lib/externalTeam';
 import type {
   WaitingOnDiscipline,
   WaitingOnTaskRow,
@@ -59,6 +63,18 @@ export function useWaitingOnTasks(opts: { includeCompleted: boolean }) {
     }
     return excludeCancelled(tasksQ.data ?? [], cancelledIds).map((row) => {
       const firm = resolveExternalFirm(blobByProject.get(row.project_id), row.waiting_on);
+      // ★★★ fix-451 §G3 — "NOT REQUIRED" IS NOT A FIRM, SO IT IS NOT A CHASE.
+      //
+      // You do not email a firm that is not needed. Resolving the answer to
+      // NULL here — rather than filtering the row out — is deliberate: the task
+      // is still genuinely waiting on something and still belongs on the
+      // screen; what it does not have is a counterparty. It lands in the
+      // no-firm group, which already renders without a per-firm CSV button, so
+      // §G3's two exclusions (the chase grouping and the export) both fall out
+      // of one line rather than being enforced twice.
+      if (isNotRequired(firm)) {
+        return { ...row, firm_id: null, firm_name: null, firm_active: true };
+      }
       return { ...row, firm_id: firm, firm_name: firm, firm_active: true };
     });
   }, [tasksQ.data, projectsQ.data, cancelledIds]);

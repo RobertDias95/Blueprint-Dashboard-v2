@@ -135,10 +135,10 @@ interface RoleFilterState {
   ent: string[];
   da: string[];
   dm: string[];
-  consultant: string[];
+  internal: string[];
 }
 
-type RoleQuick = 'all' | 'ent' | 'da' | 'dm' | 'consultant';
+type RoleQuick = 'all' | 'ent' | 'da' | 'dm' | 'internal';
 
 interface FilterState {
   search: string;
@@ -176,7 +176,7 @@ const FILTER_STORAGE_KEY = 'mytasks.filters.v2';
 
 const DEFAULT_FILTERS: FilterState = {
   search: '',
-  roles: { ent: [], da: [], dm: [], consultant: [] },
+  roles: { ent: [], da: [], dm: [], internal: [] },
   quickRole: 'all',
   permitTypes: [],
   activeOnly: true,
@@ -207,7 +207,11 @@ function loadFilters(): FilterState {
     if (!raw) return DEFAULT_FILTERS;
     const parsed = JSON.parse(raw) as Partial<FilterState> | null;
     if (!parsed || typeof parsed !== 'object') return DEFAULT_FILTERS;
-    const roles = (parsed.roles ?? {}) as Partial<RoleFilterState>;
+    // ★ The legacy `consultant` key is not on RoleFilterState any more (fix-451
+    //   renamed the family), but it IS in storage for anyone who saved a filter
+    //   before this shipped — so the parsed shape is read as a loose record.
+    const roles = (parsed.roles ?? {}) as Partial<RoleFilterState> &
+      Partial<Record<'consultant', unknown>>;
     return {
       ...DEFAULT_FILTERS,
       ...parsed,
@@ -221,9 +225,27 @@ function loadFilters(): FilterState {
         dm: Array.isArray(roles.dm)
           ? roles.dm.filter((s): s is string => typeof s === 'string')
           : [],
-        consultant: Array.isArray(roles.consultant)
-          ? roles.consultant.filter((s): s is string => typeof s === 'string')
-          : [],
+        // ★★★ fix-451 §A3 — A MIGRATION, NOT A RENAME.
+        //
+        // fix-403's rule is that memory keys are EXTENDED, never renamed, and
+        // this key is inside a shape people already have in localStorage under
+        // 'mytasks.filters.v2'. A stored `roles.consultant` is read as
+        // `roles.internal` and then persisted under the new name on the next
+        // write, so somebody with a saved filter neither loses it silently nor
+        // keeps being filtered by a key nothing reads any more.
+        //
+        // ★ The names inside may no longer be offered (the old bucket held
+        //   co-assignee names, the new one holds rostered ones) — that is fine
+        //   and deliberate: RoleDropdown renders a selected value whether or
+        //   not it is still in `options`, so the filter stays visible and
+        //   removable rather than invisibly active.
+        internal: Array.isArray(roles.internal)
+          ? roles.internal.filter((s): s is string => typeof s === 'string')
+          : Array.isArray(roles.consultant)
+            ? (roles.consultant as unknown[]).filter(
+              (s): s is string => typeof s === 'string',
+            )
+            : [],
       },
       permitTypes: Array.isArray(parsed.permitTypes)
         ? parsed.permitTypes.filter((s): s is string => typeof s === 'string')
@@ -323,7 +345,7 @@ function filterMilestones(
     ...filters.roles.ent,
     ...filters.roles.da,
     ...filters.roles.dm,
-    ...filters.roles.consultant,
+    ...filters.roles.internal,
   ];
   return rows.filter((m) => {
     if (q !== '') {
@@ -646,32 +668,59 @@ function Body({
     setFilters(DEFAULT_FILTERS);
   }
 
-  // Members grouped by role family — feeds the per-role dropdowns + the
-  // role-family filter math. Bobby is in as both 'ent' and 'ent_lead' in some
-  // tenants; dedup by name within each family. CONSULTANT bucket is derived:
-  // any name that appears as a co_assignee on at least one task and is NOT in
-  // the rostered ent/da/dm sets (fix-80 has no 'consultant' role in
-  // TeamRole — that's the cleanest mapping until the schema gets one).
+  // ===========================================================================
+  // ★★★ fix-451 §A (P-099) — THE FOURTH FAMILY IS "INTERNAL", AND IT IS A FACT
+  // ===========================================================================
+  //
+  // Bobby, 2026-08-30: the fourth people family is *Internal*, built from REAL
+  // ROSTER ROLES, not by exclusion.
+  //
+  // ★★★ WHAT IT USED TO BE, AND WHY THAT WAS NOT A FAMILY AT ALL. The bucket
+  // was "every name that appears as a co-assignee and is not already rostered
+  // as ent/da/dm" — a LEFTOVER, and its own comment admitted it: *"fix-80 has
+  // no 'consultant' role in TeamRole — that's the cleanest mapping until the
+  // schema gets one"* (written 2026-05, still here 2026-08).
+  //
+  // ★★ THE LABEL WAS ALSO A LIE, measured on prod 2026-08-30. The bucket held
+  // exactly THREE names and every one is an employee: Keelie (acq, 4
+  // co-assignee rows), Lucas (viewer, 1), Dave (director + schematic, 1). Not
+  // one external consultant could ever land there — real consultant firms live
+  // in `projects.external_team`, per project, and are never task co-assignees.
+  // A dropdown labelled "Consultant" listing three colleagues is worse than no
+  // dropdown.
+  //
+  // ★★★ SO IT IS ROLES NOW: acq | acq_lead | schematic | director | viewer,
+  // active only, MINUS anyone already in ent/ent_lead/da/dm. That subtraction
+  // is the whole precedence rule — it is what keeps Derry and Lindsay in DM
+  // alone rather than appearing twice, because they hold `schematic` as well.
+  // Sixteen names on prod, against the old rule's three.
+  //
+  // ★ `uniqueNamesByRole` does NOT gate on "has a task" — verified, it applies
+  //   only fix-321's active-roster rule — so ENT/DA/DM already list the whole
+  //   roster and a 16-name Internal list is consistent with its siblings
+  //   rather than a regression.
   const rosterByRole = useMemo(() => {
     const ent = uniqueNamesByRole(members, (r) => r === 'ent' || r === 'ent_lead');
     const da = uniqueNamesByRole(members, (r) => r === 'da');
     const dm = uniqueNamesByRole(members, (r) => r === 'dm');
-    const rostered = new Set<string>([...ent, ...da, ...dm]);
-    const coNames = new Set<string>();
-    for (const t of tasks) {
-      for (const a of t.co_assignees) {
-        if (!rostered.has(a)) coNames.add(a);
-      }
-    }
-    const consultant = [...coNames].sort((a, b) => a.localeCompare(b));
-    return { ent, da, dm, consultant };
-  }, [members, tasks]);
+    const claimed = new Set<string>([...ent, ...da, ...dm]);
+    const internal = uniqueNamesByRole(
+      members,
+      (r) =>
+        r === 'acq' ||
+        r === 'acq_lead' ||
+        r === 'schematic' ||
+        r === 'director' ||
+        r === 'viewer',
+    ).filter((n) => !claimed.has(n));
+    return { ent, da, dm, internal };
+  }, [members]);
 
   // The pool of names each role family can match against (rostered union
   // co-assignee names, depending on the family).
   const rolesByName = useMemo(() => {
-    const map = new Map<string, Set<'ent' | 'da' | 'dm' | 'consultant'>>();
-    function add(name: string, role: 'ent' | 'da' | 'dm' | 'consultant') {
+    const map = new Map<string, Set<'ent' | 'da' | 'dm' | 'internal'>>();
+    function add(name: string, role: 'ent' | 'da' | 'dm' | 'internal') {
       const set = map.get(name) ?? new Set();
       set.add(role);
       map.set(name, set);
@@ -681,9 +730,11 @@ function Body({
       else if (m.role === 'da') add(m.name, 'da');
       else if (m.role === 'dm') add(m.name, 'dm');
     }
-    for (const n of rosterByRole.consultant) add(n, 'consultant');
+    // ★ Same precedence as the family itself: a name already claimed by
+    //   ENT/DA/DM is not also Internal.
+    for (const n of rosterByRole.internal) add(n, 'internal');
     return map;
-  }, [members, rosterByRole.consultant]);
+  }, [members, rosterByRole.internal]);
 
   // All filter math runs over the FULL task set; the result drives the
   // counters AND the column rendering below. Counters that need "total"
@@ -1200,7 +1251,7 @@ function FilterRow({
     ent: string[];
     da: string[];
     dm: string[];
-    consultant: string[];
+    internal: string[];
   };
   permitTypeOptions: string[];
   onPatch: (p: Partial<FilterState>) => void;
@@ -1214,11 +1265,18 @@ function FilterRow({
   // The four role dropdowns move inside a panel, so without this the row could
   // be filtering hard and look untouched. A hidden filter must never be a
   // silent one — the badge is the whole reason collapsing them is safe.
+  // ★★★ fix-451 §B2 — THE BADGE NOW COUNTS THE QUICK ROLE TOO.
+  //
+  // fix-445 put it there because *"a hidden filter must never be a silent
+  // one"*. §B1 has just hidden a fifth control behind the same button, so the
+  // badge has to answer for it or the reason it exists stops being true. A
+  // non-'all' quickRole counts as one set filter.
   const peopleCount =
     filters.roles.ent.length +
     filters.roles.da.length +
     filters.roles.dm.length +
-    filters.roles.consultant.length;
+    filters.roles.internal.length +
+    (filters.quickRole !== 'all' ? 1 : 0);
 
   return (
     <div
@@ -1281,30 +1339,12 @@ function FilterRow({
         onPatch={onPatch}
         count={peopleCount}
       />
-      {/* Quick role-family chip. "All" clears nothing — it just keeps the per-
-          family multi-selects authoritative; picking ENT/DA/etc. quickly
-          limits to tasks with at least one assignee in that family. */}
-      <div
-        className="flex items-center gap-1"
-        data-testid="mytasks-filter-allroles"
-      >
-        {(['all', 'ent', 'da', 'dm', 'consultant'] as const).map((r) => (
-          <button
-            key={r}
-            type="button"
-            onClick={() => onPatch({ quickRole: r })}
-            className="text-[11px] px-2 py-0.5 rounded border"
-            style={chipStyle(filters.quickRole === r, 'bg')}
-            data-testid={`mytasks-filter-allroles-${r}`}
-          >
-            {r === 'all'
-              ? 'All roles'
-              : r === 'consultant'
-                ? 'Consultant'
-                : r.toUpperCase()}
-          </button>
-        ))}
-      </div>
+      {/* ★★★ fix-451 §B1 (P-099) — THE QUICK-ROLE CHIPS MOVED INTO "People".
+          Bobby, 2026-08-30: *"vs 4 buttons floating that all are categorically
+          the same"* — five chips that pick one of five peers is a dropdown's
+          job, and the dropdown for exactly these people was already one
+          control to their right. They are the first row inside PeoplePanel
+          now, with their test ids unchanged. */}
       </div>
 
       <FilterDivider />
@@ -1463,7 +1503,7 @@ function PeoplePanel({
   onPatch,
   count,
 }: {
-  roster: { ent: string[]; da: string[]; dm: string[]; consultant: string[] };
+  roster: { ent: string[]; da: string[]; dm: string[]; internal: string[] };
   filters: FilterState;
   onPatch: (p: Partial<FilterState>) => void;
   count: number;
@@ -1507,6 +1547,33 @@ function PeoplePanel({
           }}
           data-testid="mytasks-filter-people-panel"
         >
+          {/* ★★★ fix-451 §B1 — the five quick-role chips, in the panel that
+              already held the four dropdowns they sit beside. Same ids, same
+              `filters.quickRole`, same matching semantics (filterTasks reads
+              rolesByName and nothing about that changed) — only the parent
+              moved, which is what keeps every existing assertion working. */}
+          <div
+            className="flex items-center gap-1 flex-wrap pb-2 mb-1 border-b"
+            style={{ borderBottomColor: 'var(--color-border)' }}
+            data-testid="mytasks-filter-allroles"
+          >
+            {(['all', 'ent', 'da', 'dm', 'internal'] as const).map((r) => (
+              <button
+                key={r}
+                type="button"
+                onClick={() => onPatch({ quickRole: r })}
+                className="text-[11px] px-2 py-0.5 rounded border"
+                style={chipStyle(filters.quickRole === r, 'bg')}
+                data-testid={`mytasks-filter-allroles-${r}`}
+              >
+                {r === 'all'
+                  ? 'All roles'
+                  : r === 'internal'
+                    ? 'Internal'
+                    : r.toUpperCase()}
+              </button>
+            ))}
+          </div>
           <RoleDropdown
             label="ENT"
             options={roster.ent}
@@ -1535,13 +1602,13 @@ function PeoplePanel({
             testid="mytasks-filter-role-dm"
           />
           <RoleDropdown
-            label="Consultant"
-            options={roster.consultant}
-            selected={filters.roles.consultant}
+            label="Internal"
+            options={roster.internal}
+            selected={filters.roles.internal}
             onChange={(next) =>
-              onPatch({ roles: { ...filters.roles, consultant: next } })
+              onPatch({ roles: { ...filters.roles, internal: next } })
             }
-            testid="mytasks-filter-role-consultant"
+            testid="mytasks-filter-role-internal"
           />
         </div>
       )}
@@ -2488,7 +2555,7 @@ function chipBg() {
 function filterTasks(
   tasks: Task[],
   filters: FilterState,
-  rolesByName: Map<string, Set<'ent' | 'da' | 'dm' | 'consultant'>>,
+  rolesByName: Map<string, Set<'ent' | 'da' | 'dm' | 'internal'>>,
   // fix-238b: the SAME ownership resolver "My Work" uses. Both the person
   // dropdowns and the quick role-family chips now resolve a task's owner(s)
   // through it (assigned_to role → person incl. DM/Schematic, co-assignees, the
@@ -2511,7 +2578,7 @@ function filterTasks(
     ...filters.roles.ent,
     ...filters.roles.da,
     ...filters.roles.dm,
-    ...filters.roles.consultant,
+    ...filters.roles.internal,
   ]);
   const roleNames = [...roleNameSet];
 

@@ -1,0 +1,76 @@
+-- ===========================================================================
+-- ★★★ fix-451 §G4 — "NOT REQUIRED" STOPS BEING A FIRM. NOT APPLIED.
+-- ===========================================================================
+--
+-- ★★★ THIS FILE HAS NOT BEEN RUN AGAINST ANY DATABASE. Every statement below
+-- is commented out, and migrations/PENDING_APPROVAL_INDEX.md + the fix-450
+-- guard test assert that it stays that way.
+--
+-- ---------------------------------------------------------------------------
+-- ★★★ RE-MEASURED 2026-08-30 (fix-451) — the numbers, and they are small
+-- ---------------------------------------------------------------------------
+--
+-- VERDICT: MOVES ROWS — 1. (A second row is a directory cleanup, see below.)
+--
+--   projects.external_team carrying 'Not Required'          1 project
+--     · 4017 Corliss Ave N — {"Geotech": "Not Required", …}
+--   external_team_directory rows named 'Not Required'       1 row
+--     · id 1cdb75d2-1adb-42aa-afaf-a2aaf7b2f8f2 · Geotech · ACTIVE
+--
+-- ---------------------------------------------------------------------------
+-- ★★★ ORDER MATTERS, AND THE CODE WENT FIRST
+-- ---------------------------------------------------------------------------
+--
+-- fix-451 §G ships the ANSWER before this moves the DATA: `NOT_REQUIRED` in
+-- lib/externalTeam, an option above the firm list in ExternalFirmSelect, and
+-- `isNotRequired` resolving the value to NO FIRM in useWaitingOnTasks so a
+-- discipline nobody needs is never grouped for a chase or exported to one.
+--
+-- ★★ WHICH IS WHY THE PROJECT ROW NEEDS NO CHANGE AT ALL. The sentinel is the
+-- STRING PROD ALREADY CARRIES — 'Not Required', compared case-insensitively
+-- and trimmed. Picking a fresh token (`__none__`) would have turned the one
+-- existing row into an off-list value needing a migration just to be READ.
+-- Matching what is there makes that row correct the moment the code ships.
+--
+-- ★★★ SO THE ONLY THING LEFT IS THE DIRECTORY ROW, WHICH SHOULD NEVER HAVE
+-- BEEN A FIRM. It is offered in the picker on every Geotech slot in the tenant,
+-- under a name that is not a company. Deactivating it takes it out of the
+-- picker while leaving it readable in Settings — the house rule since fix-227:
+-- deactivate, never delete.
+--
+-- ★ NOT a rename and NOT a delete. Renaming would hide what happened;
+--   deleting would drop the only record that somebody once needed this word
+--   and had nowhere to put it. That need is now an option in the picker.
+
+-- BEGIN;
+
+-- -- 1. The directory row stops being offered as a firm.
+-- UPDATE public.external_team_directory
+--    SET active = false
+--  WHERE id = '1cdb75d2-1adb-42aa-afaf-a2aaf7b2f8f2'
+--    AND name = 'Not Required';
+-- -- expected: 1 row
+
+-- -- 2. NOTHING TO DO for projects.external_team. 4017 Corliss Ave N already
+-- --    holds exactly the string the code now recognises as the answer:
+-- --      {"Geotech": "Not Required", …}
+-- --    Left here as a statement of that fact rather than a no-op UPDATE,
+-- --    because "we checked and it needs nothing" is worth reading.
+
+-- COMMIT;
+
+-- ---------------------------------------------------------------------------
+-- VERIFY (read-only, after apply)
+-- ---------------------------------------------------------------------------
+-- select id, discipline, name, active from public.external_team_directory
+--  where name ilike '%not required%';
+-- select address, external_team->>'Geotech' as geotech from public.projects
+--  where external_team::text ilike '%Not Required%';
+--
+-- ---------------------------------------------------------------------------
+-- ★★ NOT IN THIS FILE, AND NOT TOUCHED: Civil / 'Blueprint' is INACTIVE in the
+-- directory while FOUR live projects still name it in their external_team.
+-- Bobby has not ruled on it, so it keeps rendering with WaitingOnView's
+-- "archived" marker exactly as it does today. Naming it here so it is not
+-- mistaken for something this ticket handled.
+-- ===========================================================================

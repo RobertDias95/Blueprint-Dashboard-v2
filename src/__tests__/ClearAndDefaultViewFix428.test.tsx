@@ -6,7 +6,6 @@ import type { TeamRole } from '../lib/database.types';
 import dashboardSrc from '../pages/Dashboard.tsx?raw';
 import projectListSrc from '../pages/ProjectList.tsx?raw';
 import myTasksSrc from '../pages/MyTasks.tsx?raw';
-import filterBarSrc from '../components/MyTasks/FilterBar.tsx?raw';
 import chromeSrc from '../components/Chrome.tsx?raw';
 import selfScopeHookSrc from '../hooks/useSelfScope.ts?raw';
 import { saveScopeMode, widenScopeWhenUnassigned } from '../lib/selfScope';
@@ -366,7 +365,11 @@ describe('fix-428 §D: one word, and the ids do not move', () => {
       [projectListSrc, 'project-view-filter-reset'],
       [projectListSrc, 'project-view-empty-reset'],
       [myTasksSrc, 'mytasks-filter-reset'],
-      [filterBarSrc, 'mytasks-filter-clear'],
+      // ★★ fix-451 §D5: the row that read `mytasks-filter-clear` pointed at
+      //    components/MyTasks/FilterBar.tsx — a file NO live path rendered,
+      //    imported only by this test. It is deleted, and nothing is lost
+      //    here: the LIVE My Tasks Clear is the line above, and it was always
+      //    the one that mattered. Four live surfaces, four assertions.
       [dashboardSrc, 'pipeline-filter-clear'],
     ] as const) {
       const at = src.indexOf(`data-testid="${id}"`);
