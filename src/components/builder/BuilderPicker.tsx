@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useBuilderSearch } from '../../hooks/useBuilderSearch';
 import { useUpsertBuilderRow } from '../../hooks/useBuilderRegistry';
 import type { Builder } from '../../lib/database.types';
@@ -99,6 +99,22 @@ export default function BuilderPicker({
     );
     return hit ? hit.name : null;
   }, [live, typed]);
+
+  // ★★★ fix-452: THE BLUR TIMER MUST DIE WITH THE COMPONENT.
+  //
+  // fix-448 defers `close()` by 120ms so a click on a result lands before the
+  // menu unmounts. If the component goes away inside that window the timer
+  // still fires and calls `setOpen` on nothing — which CI caught as an
+  // UNHANDLED "ReferenceError: window is not defined" from React's scheduler,
+  // thrown after the test environment had been torn down. All 7,493 tests
+  // passed and the run still failed, which is exactly what a stray timer looks
+  // like: not a flake, a leak that only sometimes lands after teardown.
+  useEffect(
+    () => () => {
+      if (blurTimer.current) window.clearTimeout(blurTimer.current);
+    },
+    [],
+  );
 
   function close() {
     setOpen(false);
