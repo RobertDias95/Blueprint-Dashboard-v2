@@ -1,5 +1,6 @@
 import PillListEditor from './PillListEditor';
 import TeamStructureEditor from './TeamStructureEditor';
+import DaRoutingEditor from './DaRoutingEditor';
 import MentionTagsEditor from './MentionTagsEditor';
 import TeamActiveQuartersEditor from './TeamActiveQuartersEditor';
 import QuarterLayoutEditor from './QuarterLayoutEditor';
@@ -234,6 +235,23 @@ export default function AdminTeamTab() {
           //   does not know at all unflagged, which is what
           //   `formerMemberNames` guarantees.
           retiredNames={retiredNames}
+          readOnly={!isAdmin}
+        />
+      </Section>
+
+      {/* ★★★ fix-457 (P-007): DA → entitlement-lead routing, directly under
+          Team Structure because they are the two mapping tables that answer
+          "who does this DA report into" — dm_da_groups for the design manager,
+          da_team_routing for the entitlement lead. Reading them apart is how
+          the second one went five months without an editor.
+
+          ★ Same readOnly gating as everything else on this tab: the DATABASE
+          refuses a non-admin through RLS, and readOnly only hides the
+          affordances. */}
+      <Section title="DA Routing (entitlement lead)">
+        <DaRoutingEditor
+          activeDas={teamQ.activeDas}
+          ents={teamQ.ents}
           readOnly={!isAdmin}
         />
       </Section>

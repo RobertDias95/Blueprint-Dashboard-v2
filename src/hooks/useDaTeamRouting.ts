@@ -36,6 +36,15 @@ export interface DaTeamRoutingRow {
    *  to build an entitlement lead's team. Optional so the wizard's existing
    *  fixtures still typecheck. */
   ent_lead?: string | null;
+  /** ★ fix-457: the row's identity and OCC token, for the Settings editor.
+   *
+   *  OPTIONAL for the same reason `ent_lead` is: eight readers and a pile of
+   *  fixtures construct this shape by hand and none of them care which row a
+   *  rule came from. Only DaRoutingEditor needs these, and it is the only
+   *  caller that has to handle them being absent — which it does by refusing
+   *  to offer an edit affordance for a row it cannot address. */
+  id?: number;
+  updated_at?: string;
 }
 
 /** All da_team_routing rows for the active tenant. The wizard reads
@@ -47,9 +56,12 @@ export function useDaTeamRouting() {
     queryKey: queryKeys.daTeamRouting(tenantId ?? ''),
     enabled: !!tenantId,
     queryFn: async () => {
+      // ★ fix-457 added `id, updated_at` so Settings can address and OCC-guard
+      //   a single rule. Additive: every existing reader destructures by name
+      //   and is unaffected by two more fields arriving.
       const { data, error } = await supabase
         .from('da_team_routing')
-        .select('da, jurisdiction, ent_lead');
+        .select('id, da, jurisdiction, ent_lead, updated_at');
       if (error) throw error;
       return (data ?? []) as DaTeamRoutingRow[];
     },
