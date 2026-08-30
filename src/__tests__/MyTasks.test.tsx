@@ -1085,24 +1085,83 @@ describe('MyTasks (fix-80 v1 three-pane kanban)', () => {
 
     it('DM quick role-family chip returns the DM-assigned tasks', () => {
       renderIt();
+      // ★ fix-451 §B1: the quick-role chips live inside the People panel now
+      //   — same ids, same `filters.quickRole`, one click further in.
+      openPeople();
       fireEvent.click(screen.getByTestId('mytasks-filter-allroles-dm'));
       expect(screen.getByTestId('mytask-card-via-4040')).toBeInTheDocument();
       expect(screen.getByTestId('mytask-card-via-4060')).toBeInTheDocument();
     });
   });
 
-  it('CONSULTANT dropdown surfaces tasks whose co-assignees include unrostered names', () => {
+  // =========================================================================
+  // ★★★ fix-451 §A (P-099) INVERTS THIS PIN, AND THE INVERSION IS THE RULING.
+  // =========================================================================
+  //
+  // The fourth family used to be "every name appearing as a co-assignee that
+  // is not already rostered as ent/da/dm" — a LEFTOVER, which this test pinned
+  // by feeding it a name ("Outside Consult LLC") that exists on NO roster row
+  // at all. That is exactly the behaviour Bobby ruled out: the family is built
+  // *"from REAL ROSTER ROLES, not by exclusion"*, and it is called Internal.
+  //
+  // ★★ THE LABEL WAS ALSO WRONG. Measured on prod 2026-08-30 the old bucket
+  // held three names and all three were employees (Keelie, Lucas, Dave). No
+  // external consultant could ever appear — consultant firms live in
+  // projects.external_team, per project, never as task co-assignees.
+  it('fix-80 → fix-451: a co-assignee with NO roster row appears in NO family', () => {
     tasksRef.current = varied();
+    teamRef.current = [
+      member({ name: 'Bobby', role: 'ent_lead' }),
+      member({ name: 'Trevor', role: 'da' }),
+      member({ name: 'Miles', role: 'dm' }),
+    ];
     renderIt();
     openPeople();
-    fireEvent.change(
-      screen.getByTestId('mytasks-filter-role-consultant-select'),
-      { target: { value: 'Outside Consult LLC' } },
-    );
-    // Only pm-inprog has the co-assignee.
-    expect(screen.getByTestId('mytask-card-pm-inprog')).toBeInTheDocument();
-    expect(screen.queryByTestId('mytask-card-pm-open')).toBeNull();
-    expect(screen.queryByTestId('mytask-card-de-open-overdue')).toBeNull();
+    // ★★★ "Outside Consult LLC" is co-assigned on pm-inprog and holds no
+    //     roster row. Under the old rule it was an option here; now it is not
+    //     offered by any of the four, which is the honest answer.
+    const internal = screen.getByTestId(
+      'mytasks-filter-role-internal-select',
+    ) as HTMLSelectElement;
+    const offered = Array.from(internal.options).map((o) => o.value);
+    expect(offered).not.toContain('Outside Consult LLC');
+    for (const fam of ['ent', 'da', 'dm']) {
+      const sel = screen.getByTestId(
+        `mytasks-filter-role-${fam}-select`,
+      ) as HTMLSelectElement;
+      expect(
+        Array.from(sel.options).map((o) => o.value),
+        fam,
+      ).not.toContain('Outside Consult LLC');
+    }
+  });
+
+  it('★★★ fix-451 §A2: Internal is built from ROLES, with ENT/DA/DM taking precedence', () => {
+    tasksRef.current = varied();
+    teamRef.current = [
+      member({ name: 'Keelie', role: 'acq' }),
+      member({ name: 'Lucas', role: 'viewer' }),
+      member({ name: 'Dave', role: 'director' }),
+      // ★ Derry holds BOTH dm and schematic — the precedence rule is what keeps
+      //   her in DM alone rather than listing her twice.
+      member({ name: 'Derry', role: 'dm' }),
+      member({ name: 'Derry', role: 'schematic' }),
+    ];
+    renderIt();
+    openPeople();
+    const internal = Array.from(
+      (screen.getByTestId('mytasks-filter-role-internal-select') as HTMLSelectElement)
+        .options,
+    ).map((o) => o.value);
+    expect(internal).toContain('Keelie');
+    expect(internal).toContain('Lucas');
+    expect(internal).toContain('Dave');
+    expect(internal).not.toContain('Derry');
+    const dm = Array.from(
+      (screen.getByTestId('mytasks-filter-role-dm-select') as HTMLSelectElement)
+        .options,
+    ).map((o) => o.value);
+    expect(dm).toContain('Derry');
   });
 
   it('All stages multi-select filters by permit_type', () => {
@@ -1727,7 +1786,7 @@ describe('fix-445 §B: the filter row reads as three things', () => {
       'mytasks-filter-role-ent',
       'mytasks-filter-role-da',
       'mytasks-filter-role-dm',
-      'mytasks-filter-role-consultant',
+      'mytasks-filter-role-internal',
       'mytasks-filter-allroles',
       'mytasks-filter-stage',
       'mytasks-filter-active',

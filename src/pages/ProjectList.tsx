@@ -401,35 +401,28 @@ function FilterRow({
         data-testid="project-view-search"
       />
 
-      {/* Stage chips — multi-select; click toggles in/out. Corrections is
-          the Monday-triage primary; rendering it first keeps the most-
-          used filter under the user's thumb. */}
-      <div
-        className="flex items-center gap-1"
-        data-testid="project-view-stage-chips"
-      >
-        {QUICK_STAGES.map((s) => {
-          const on = filters.stages.includes(s);
-          return (
-            <button
-              key={s}
-              type="button"
-              onClick={() => {
-                onPatch({
-                  stages: on
-                    ? filters.stages.filter((x) => x !== s)
-                    : [...filters.stages, s],
-                });
-              }}
-              className="text-[11px] px-2 py-0.5 rounded border"
-              style={chipStyle(on, 'bg')}
-              data-testid={`project-view-stage-chip-${s}`}
-            >
-              {STAGE_LABEL[s]}
-            </button>
-          );
-        })}
-      </div>
+      {/* ★★★ fix-451 §D (P-101) — FIVE STAGE CHIPS BECOME ONE "Stage" DROPDOWN.
+          Bobby, 2026-08-30: *"4 buttons floating that all are categorically the
+          same"*. Five chips picking among five peers sat immediately beside
+          three MultiSelects doing exactly that job for Ent / DA / Juris — so
+          this is now the same component, in the same place.
+
+          ★★★ IT IS STILL MULTI-SELECT. Corrections + Approved together is a
+          real triage pass and Bobby ruled explicitly to keep it: picking a
+          second stage ADDS it, and each choice keeps a removable chip. What
+          went is the always-on row of five, not the ability to pick two.
+
+          ★★ THE LABEL IS "Stage", NOT "Status". A permit already carries a
+          free-text Status/notes field, and two controls one click apart
+          sharing a word is how somebody filters the wrong thing. */}
+      <MultiSelect
+        label="Stage"
+        options={[...QUICK_STAGES]}
+        selected={filters.stages}
+        onChange={(next) => onPatch({ stages: next as Stage[] })}
+        labelOf={(v) => STAGE_LABEL[v as Stage]}
+        testid="project-view-stage-chips"
+      />
 
       <MultiSelect
         label="Ent"
@@ -487,13 +480,22 @@ function MultiSelect({
   selected,
   onChange,
   testid,
+  labelOf,
 }: {
   label: string;
   options: string[];
   selected: string[];
   onChange: (next: string[]) => void;
   testid: string;
+  /** ★★ fix-451 §D2: how a VALUE is displayed, when the two differ.
+   *
+   *  Ent / DA / Juris store the name they show, so they pass nothing. Stage
+   *  stores a key ('co') and shows a word ('Corrections'), and that mapping is
+   *  `STAGE_LABEL` — fix-104 centralised it precisely so a second stage→label
+   *  map never gets written, so this takes the mapper rather than the labels. */
+  labelOf?: (value: string) => string;
 }) {
+  const show = labelOf ?? ((v: string) => v);
   const available = options.filter((o) => !selected.includes(o));
   return (
     <div className="flex items-center gap-1" data-testid={testid}>
@@ -513,8 +515,11 @@ function MultiSelect({
       >
         <option value="">{label}</option>
         {available.map((o) => (
-          <option key={o} value={o}>
-            {o}
+          // ★ The per-value ids the chips carried move onto the options, so a
+          //   suite that reached for `project-view-stage-chip-co` still finds
+          //   an element with that id.
+          <option key={o} value={o} data-testid={`${testid}-chip-${o}`}>
+            {show(o)}
           </option>
         ))}
       </select>
@@ -523,9 +528,9 @@ function MultiSelect({
           key={n}
           className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full"
           style={chipBg()}
-          data-testid={`${testid}-chip-${n}`}
+          data-testid={`${testid}-selected-${n}`}
         >
-          {n}
+          {show(n)}
           <button
             type="button"
             onClick={() => onChange(selected.filter((x) => x !== n))}

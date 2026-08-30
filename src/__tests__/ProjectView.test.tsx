@@ -396,7 +396,12 @@ describe('<ProjectView /> (fix-90)', () => {
 
   it('stage filter "Corrections" narrows to projects with at least one corrections permit', () => {
     renderIt();
-    fireEvent.click(screen.getByTestId('project-view-stage-chip-co'));
+    // ★ fix-451 §D: the five stage chips are one "Stage" MultiSelect now (the
+    //   same component Ent/DA/Juris use). Picking a stage is choosing its value;
+    //   the per-stage ids moved onto the <option>s, so they still resolve.
+    fireEvent.change(screen.getByTestId('project-view-stage-chips-select'), {
+      target: { value: 'co' },
+    });
     const ids = visibleProjectIds();
     expect(ids).toEqual(['p-a']);
     expect(screen.getByTestId('project-view-count').textContent).toMatch(
@@ -424,7 +429,12 @@ describe('<ProjectView /> (fix-90)', () => {
 
   it('multiple filters compose (Stage=Corrections AND Juris=Seattle)', () => {
     renderIt();
-    fireEvent.click(screen.getByTestId('project-view-stage-chip-co'));
+    // ★ fix-451 §D: the five stage chips are one "Stage" MultiSelect now (the
+    //   same component Ent/DA/Juris use). Picking a stage is choosing its value;
+    //   the per-stage ids moved onto the <option>s, so they still resolve.
+    fireEvent.change(screen.getByTestId('project-view-stage-chips-select'), {
+      target: { value: 'co' },
+    });
     fireEvent.change(screen.getByTestId('project-view-filter-juris-select'), {
       target: { value: 'Seattle' },
     });
@@ -494,7 +504,12 @@ describe('<ProjectView /> (fix-90)', () => {
 
   it('filter state persists across remount via localStorage', () => {
     const { unmount } = renderIt();
-    fireEvent.click(screen.getByTestId('project-view-stage-chip-co'));
+    // ★ fix-451 §D: the five stage chips are one "Stage" MultiSelect now (the
+    //   same component Ent/DA/Juris use). Picking a stage is choosing its value;
+    //   the per-stage ids moved onto the <option>s, so they still resolve.
+    fireEvent.change(screen.getByTestId('project-view-stage-chips-select'), {
+      target: { value: 'co' },
+    });
     expect(window.localStorage.getItem('projectView.filters.v1')).toMatch(
       /"stages":\["co"\]/,
     );
@@ -536,13 +551,18 @@ describe('<ProjectView /> hold badge + filter (fix-178)', () => {
 
   it("'Only Holds' shows just the actively-held project", () => {
     renderIt();
-    fireEvent.click(screen.getByTestId('project-view-hold-filter-only'));
+    // ★ fix-451 §C: All / Only holds / Exclude holds are one dropdown now.
+    fireEvent.change(screen.getByTestId('project-view-hold-filter'), {
+      target: { value: 'only' },
+    });
     expect(visibleProjectIds()).toEqual(['p-b']);
   });
 
   it("'Exclude Holds' hides the actively-held project (closed-hold project stays)", () => {
     renderIt();
-    fireEvent.click(screen.getByTestId('project-view-hold-filter-exclude'));
+    fireEvent.change(screen.getByTestId('project-view-hold-filter'), {
+      target: { value: 'exclude' },
+    });
     // p-b drops; p-a (closed hold) + p-c remain.
     expect(visibleProjectIds().sort()).toEqual(['p-a', 'p-c']);
   });
