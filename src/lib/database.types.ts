@@ -143,14 +143,30 @@ export interface Project {
    *  that under the units for proposal."* Parking is a per-UNIT property now —
    *  see UnitType.parking_kind / parking_stalls above.
    *
-   *  ★★ THE COLUMNS STILL EXIST AND ARE NULL ON ALL 186 PROJECTS. The 182 rows
-   *  that carried a value were copied to
-   *  `_parking_site_archive_2026_08_25` first (181 types, 180 stall counts),
-   *  because the site answers are the only record of what the team believed
-   *  before the per-unit book is backfilled.
+   *  ★★ THE COLUMNS STILL EXIST AND ARE NULL ON ALL 202 PROJECTS (re-measured
+   *  2026-08-30 by fix-456: 0 non-null of 202, for both). The 182 rows that
+   *  carried a value were copied to `_parking_site_archive_2026_08_25` first
+   *  (181 types, 180 stall counts), because the site answers are the only
+   *  record of what the team believed before the per-unit book is backfilled.
    *
    *  ★ Nothing reads these any more; they are kept typed so the archive story
-   *  is discoverable from the type rather than only from a migration file. */
+   *  is discoverable from the type rather than only from a migration file.
+   *
+   *  ★★★ fix-456 (P-036) PROPOSED DELETING THESE TWO DECLARATIONS AND DID NOT,
+   *  ON PURPOSE. The reasoning is the line directly above: removing them would
+   *  delete the only pointer to `_parking_site_archive_2026_08_25` outside a
+   *  migration file, which is the opposite of what fix-402 decided. And the
+   *  columns are still THERE — the drop is written but unapplied, in
+   *  `migrations/fix_456_drop_backup_tables_PENDING_APPROVAL.sql`, awaiting
+   *  Bobby. A type that denies a live column is a worse lie than a
+   *  `@deprecated` one that explains it.
+   *
+   *  ★★ WHEN BOBBY APPLIES THAT DROP, DELETE THESE TWO DECLARATIONS IN THE SAME
+   *  CHANGE, so the type and the database never disagree. fix-456 also found a
+   *  SECOND parking record — `_fix22_permits_dropped_cols_snapshot`, 171 stalls
+   *  and 30 types from when these lived on `permits` — and neither archive
+   *  table carries a drop statement, deliberately. See
+   *  migrations/BACKUP_TABLE_INVENTORY.md. */
   parking_type?: string | null;
   /** @deprecated fix-402 — see parking_type above. */
   parking_stalls?: number | null;
