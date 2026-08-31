@@ -55,6 +55,29 @@ export interface RibbonLink {
    * Overview · Project View · Saved reports; everybody else sees Project View.
    */
   adminOnly?: boolean;
+  /**
+   * ★★★ fix-462 (P-045) — THE SECOND GATE, AND IT IS DELIBERATELY NOT A
+   * GENERALISATION.
+   *
+   * Agenda is visible to the people in the meeting (and to admins, who see
+   * everything). That is NOT `adminOnly`: membership is a per-person checkbox
+   * on the roster, and Bobby explicitly rejected gating it by department —
+   * *"adding one person to the meeting means moving their whole department, or
+   * making an exception anyway."*
+   *
+   * ★★ SO IT IS A SECOND BOOLEAN, AS NARROW AS `adminOnly` IS, rather than a
+   * predicate function or a capability system. A general gate would invite the
+   * next entry to invent a third rule; one named flag for one named entry keeps
+   * `visibleEntries` readable and keeps [[P-026-role-gating-design]] parked.
+   *
+   * ★★★ AND IT IS NOT A PERMISSION. It hides a ribbon entry, nothing else. The
+   * route is not wrapped in a guard, because the Agenda screen is not secret —
+   * it is simply of no use to somebody who is not in the meeting. Contrast
+   * `adminOnly` on /settings/errors, where router.tsx DOES gate the route: a
+   * hidden link over an open door is the fix-234 lesson, and it applies to
+   * privileged screens, which this is not.
+   */
+  agendaOnly?: boolean;
 }
 
 /** ★★ fix-335 §4: a link that LEAVES THE APP.
@@ -173,6 +196,30 @@ export const RIBBON_ENTRIES: RibbonEntry[] = [
   // not a sub-page of a category.
   { kind: 'link', link: { to: '/draw-schedule', label: 'Draw Schedule', icon: '▥' } },
   { kind: 'link', link: { to: '/board', label: 'My Board', icon: '◈' } },
+  // ★★★ fix-462 (P-045) — THE AGENDA, and it is the ONE new ribbon entry Bobby
+  // sanctioned. *"What I get worried of is we have too many tabs and too many
+  // things in the ribbon… we have to find a way to make it simple and
+  // cohesive."* So: one entry, and it is a VIEW of tasks that already exist,
+  // not a lane and not a second task system.
+  //
+  // ★ PLACED WITH THE WORK DESTINATIONS, beside My Board, because that is what
+  // it is — six people open it to run a meeting about their own tasks. Putting
+  // it below the rule with Settings and Error triage would file a work view as
+  // administration.
+  //
+  // ★★ It does NOT sit between `reports` and `sharepoint`, nor between
+  // `sharepoint` and `sep-2`: fix-345 §4 pins SharePoint's two neighbours by
+  // position, and inserting there would move a neighbour a test names.
+  {
+    kind: 'link',
+    link: {
+      to: '/agenda',
+      label: 'Agenda',
+      icon: '◎',
+      agendaOnly: true,
+      hint: 'The weekly agenda — one running list of items to work through',
+    },
+  },
   { kind: 'separator', id: 'sep-1' },
   // ★ fix-335 §3: Library, standing alone. It keeps the group's own icon rather
   // than the '·' it wore as a child — a top-level entry sits in the same column
@@ -388,12 +435,22 @@ export const RIBBON_ENTRIES: RibbonEntry[] = [
  *  children, and a LINK is withheld on its own flag. fix-234's all-or-nothing
  *  rule could not survive Project View moving under Reports — see
  *  RibbonLink.adminOnly for the 23-of-29 measurement. */
-export function visibleEntries(isAdmin: boolean): RibbonEntry[] {
+export function visibleEntries(
+  isAdmin: boolean,
+  // ★★★ fix-462: DEFAULTED, and that is what makes this additive. Every one of
+  //    the thirteen existing call sites keeps compiling AND keeps answering
+  //    exactly what it answered before — a non-member does not see Agenda, so
+  //    no non-admin list moved. An admin sees everything, including this.
+  isAgendaMember = false,
+): RibbonEntry[] {
   if (isAdmin) return RIBBON_ENTRIES;
   const out: RibbonEntry[] = [];
   for (const e of RIBBON_ENTRIES) {
     if (e.kind === 'link') {
-      if (!e.link.adminOnly) out.push(e);
+      if (e.link.adminOnly) continue;
+      // ★ The second gate, applied only to the entry that asks for it.
+      if (e.link.agendaOnly && !isAgendaMember) continue;
+      out.push(e);
       continue;
     }
     if (e.kind === 'group') {

@@ -29,21 +29,42 @@ interface Props {
   /** Roster names for the optional owner picker — passed in, not fetched, so
    *  this works in a provider-less suite (the fix-442 trap). */
   memberNames: readonly TeamMember[];
+  /** ★★★ fix-462 §C3: create the item already ON the agenda.
+   *
+   *  ★ SET BY THE AGENDA SCREEN, WHERE IT IS THE ONLY SENSIBLE ANSWER — an
+   *  item added from the agenda is an agenda item. Everywhere else the composer
+   *  offers it as a CHECKBOX instead, because "put it on the agenda" is a
+   *  choice there, not a certainty. Either way it is ONE extra control on an
+   *  existing flow, never a second flow. */
+  agenda?: boolean;
+  /** Distinct test ids when two composers can be on one screen. */
+  testidPrefix?: string;
+  /** The closed-state button's words. */
+  addLabel?: string;
 }
 
-export default function TeamTaskComposer({ memberNames }: Props) {
+export default function TeamTaskComposer({
+  memberNames,
+  agenda = false,
+  testidPrefix = 'team-task',
+  addLabel = '+ Task with no permit',
+}: Props) {
   const upsert = useUpsertTeamTask();
   const [open, setOpen] = useState(false);
   const [text, setText] = useState('');
   const [discipline, setDiscipline] = useState<'arch' | 'ent'>('ent');
   const [assignedTo, setAssignedTo] = useState('');
   const [targetDate, setTargetDate] = useState('');
+  // ★ When the caller fixes it (the Agenda screen), the checkbox is not shown
+  //   and this stays true. Elsewhere it starts false and the person decides.
+  const [onAgenda, setOnAgenda] = useState(agenda);
 
   function reset() {
     setText('');
     setDiscipline('ent');
     setAssignedTo('');
     setTargetDate('');
+    setOnAgenda(agenda);
     setOpen(false);
   }
 
@@ -58,6 +79,8 @@ export default function TeamTaskComposer({ memberNames }: Props) {
           discipline,
           assigned_to: assignedTo || null,
           target_date: targetDate || null,
+          // ★ fix-462: one field, and it is the whole of "add to agenda".
+          agenda: onAgenda,
         },
       },
       { onSuccess: reset },
@@ -71,9 +94,9 @@ export default function TeamTaskComposer({ memberNames }: Props) {
         onClick={() => setOpen(true)}
         className="text-[11px] px-2 py-1 rounded border border-dashed text-dim whitespace-nowrap"
         style={{ borderColor: 'var(--color-border)' }}
-        data-testid="team-task-add"
+        data-testid={`${testidPrefix}-add`}
       >
-        + Task with no permit
+        {addLabel}
       </button>
     );
   }
@@ -82,7 +105,7 @@ export default function TeamTaskComposer({ memberNames }: Props) {
     <div
       className="flex flex-wrap items-end gap-2 rounded border px-2 py-1.5"
       style={{ borderColor: 'var(--color-de)', background: 'var(--color-s2)' }}
-      data-testid="team-task-composer"
+      data-testid={`${testidPrefix}-composer`}
     >
       <input
         autoFocus
@@ -95,7 +118,7 @@ export default function TeamTaskComposer({ memberNames }: Props) {
         }}
         className="text-[11px] border rounded px-1.5 py-0.5 bg-surface min-w-[220px] flex-1"
         style={{ borderColor: 'var(--color-border)' }}
-        data-testid="team-task-text"
+        data-testid={`${testidPrefix}-text`}
       />
       {/* ★★ THE BLEND POINT — which existing lane this lands in. */}
       <label className="flex flex-col gap-0.5">
@@ -107,7 +130,7 @@ export default function TeamTaskComposer({ memberNames }: Props) {
           onChange={(e) => setDiscipline(e.target.value as 'arch' | 'ent')}
           className="text-[11px] border rounded px-1 py-0.5 bg-surface"
           style={{ borderColor: 'var(--color-border)' }}
-          data-testid="team-task-discipline"
+          data-testid={`${testidPrefix}-discipline`}
         >
           <option value="ent">Permitting</option>
           <option value="arch">Design &amp; Engineering</option>
@@ -126,7 +149,7 @@ export default function TeamTaskComposer({ memberNames }: Props) {
           onChange={(e) => setAssignedTo(e.target.value)}
           className="text-[11px] border rounded px-1 py-0.5 bg-surface"
           style={{ borderColor: 'var(--color-border)' }}
-          data-testid="team-task-owner"
+          data-testid={`${testidPrefix}-owner`}
         >
           <option value="">Unassigned</option>
           {memberNames.map((m) => (
@@ -147,16 +170,30 @@ export default function TeamTaskComposer({ memberNames }: Props) {
           value={targetDate}
           onCommit={(v) => setTargetDate(v ?? '')}
           className="text-[11px] border rounded px-1 py-0.5 bg-surface"
-          testId="team-task-target"
+          testId={`${testidPrefix}-target`}
         />
       </label>
+      {/* ★★ §C3 — "ADD TO AGENDA", AS ONE EXTRA CONTROL. Hidden when the caller
+          already fixed the answer (the Agenda screen), because a checkbox you
+          cannot meaningfully untick is furniture. */}
+      {!agenda && (
+        <label className="flex items-center gap-1 text-[11px] pb-1">
+          <input
+            type="checkbox"
+            checked={onAgenda}
+            onChange={(e) => setOnAgenda(e.target.checked)}
+            data-testid={`${testidPrefix}-agenda`}
+          />
+          Agenda
+        </label>
+      )}
       <button
         type="button"
         disabled={upsert.isPending || text.trim() === ''}
         onClick={submit}
         className="text-[11px] px-2 py-1 rounded border font-bold disabled:opacity-50"
         style={{ borderColor: 'var(--color-de)', color: 'var(--color-de)' }}
-        data-testid="team-task-save"
+        data-testid={`${testidPrefix}-save`}
       >
         Add
       </button>
@@ -165,7 +202,7 @@ export default function TeamTaskComposer({ memberNames }: Props) {
         onClick={reset}
         className="text-[11px] px-2 py-1 rounded border"
         style={{ borderColor: 'var(--color-border)' }}
-        data-testid="team-task-cancel"
+        data-testid={`${testidPrefix}-cancel`}
       >
         Cancel
       </button>

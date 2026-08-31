@@ -3,6 +3,7 @@ import TeamStructureEditor from './TeamStructureEditor';
 import DaRoutingEditor from './DaRoutingEditor';
 import PermitsMissingLeadPanel from './PermitsMissingLeadPanel';
 import DepartmentEditor from './DepartmentEditor';
+import AgendaMembersPanel from './AgendaMembersPanel';
 import MentionTagsEditor from './MentionTagsEditor';
 import TeamActiveQuartersEditor from './TeamActiveQuartersEditor';
 import QuarterLayoutEditor from './QuarterLayoutEditor';
@@ -269,6 +270,17 @@ export default function AdminTeamTab() {
           ★ A DEPARTMENT IS NOT A PERMISSION. Nothing gates on it. */}
       <Section title="Departments">
         <DepartmentEditor members={teamQ.all} readOnly={!isAdmin} />
+      </Section>
+
+      {/* ★★★ fix-462 §B2 (P-045): who is in the weekly meeting.
+          ★ BESIDE Departments, because both answer "what is true of this
+          PERSON" and both render people rather than role rows — they share
+          fix-461's `foldRosterToPeople` so the tab has ONE definition of a
+          person. Membership is a per-person checkbox by ruling, NOT a
+          department: gating by department would mean adding one person to the
+          meeting moves their whole department. */}
+      <Section title="Agenda members">
+        <AgendaMembersPanel members={teamQ.all} readOnly={!isAdmin} />
       </Section>
 
       {/* ★★★ fix-458 §A (P-106): the THIRD roster-gap surface on this tab, and

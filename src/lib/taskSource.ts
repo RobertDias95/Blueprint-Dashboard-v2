@@ -10,20 +10,27 @@ import type { TaskSource } from './database.types';
 // ★★ SO THE VOCABULARY IS DELIBERATELY THREE WORDS AND NO MORE, and two of them
 // are facts the row already carried before this ticket:
 //
-//     'bot'   — is_auto_generated. The scraper made it.
-//     'team'  — source === 'team'. No permit; a person made it.
-//     null    — an ordinary permit task. NO TAG IS RENDERED.
+//     'agenda' — agenda === true. On the weekly agenda (fix-462).
+//     'bot'    — is_auto_generated. The scraper made it.
+//     'team'   — source === 'team'. No permit; a person made it.
+//     null     — an ordinary permit task. NO TAG IS RENDERED.
 //
 // ★★★ THE THIRD STATE IS "NO TAG", AND THAT IS THE POINT. 1,643 of 1,643 rows
 // today are ordinary permit tasks; tagging all of them would be 1,643 badges
 // saying "normal". A tag earns its pixels only when it distinguishes.
 //
-// ★ The agenda value Bobby names is NOT here. That is
-// P-045 (the weekly-meeting tracker) and it needs his ruling on meeting dates,
-// the `department` roster column and agenda-member visibility. Adding a fourth
-// word now would be guessing at a design he has not given.
+// ★★★ fix-462 ADDS THE FOURTH WORD, AND IT IS THE ONE BOBBY NAMED. fix-460
+// deliberately left it out — *"adding a fourth word now would be guessing at a
+// design he has not given"* — and by 2026-08-30 he had given it: one running
+// list, task statuses, membership a per-person checkbox. So the value lands in
+// THIS vocabulary rather than starting a second one, which is the ruling.
+//
+// ★★ AND IT IS A FOURTH WORD, NOT A REPLACEMENT. An agenda item is still a team
+// task — `source` stays 'team' and every team-task property holds. `agenda` only
+// changes which WORD the row wears, because "on the agenda" is the more specific
+// and more useful thing to say about it.
 
-export type TaskKind = 'bot' | 'team';
+export type TaskKind = 'agenda' | 'bot' | 'team';
 
 /** The row's source, defaulting to 'permit' when absent.
  *
@@ -40,6 +47,16 @@ export function isTeamTask(t: { source?: TaskSource | null }): boolean {
   return taskSource(t) === 'team';
 }
 
+/** ★ fix-462: is this row on the weekly agenda?
+ *
+ *  ★★ An agenda item IS a team task — this is a second property of one object,
+ *  not a second kind of object. `isTeamTask` stays true for it, and every
+ *  team-task rule (no permit, never in a project view, unclaimed when
+ *  unassigned) continues to hold unchanged. */
+export function isAgendaItem(t: { agenda?: boolean | null }): boolean {
+  return t.agenda === true;
+}
+
 /**
  * ★★ §B4 — the tag, or null when the row needs none.
  *
@@ -52,7 +69,13 @@ export function isTeamTask(t: { source?: TaskSource | null }): boolean {
 export function taskKind(t: {
   source?: TaskSource | null;
   is_auto_generated?: boolean | null;
+  agenda?: boolean | null;
 }): TaskKind | null {
+  // ★★★ fix-462: AGENDA IS THE MOST SPECIFIC THING TRUE OF THE ROW, so it wins.
+  //    An agenda item is necessarily a team task, so 'team' would also be true
+  //    and would say strictly less. It cannot be a bot task — team_tasks has no
+  //    generator — so this does not compete with the 'bot' case below.
+  if (t.agenda === true) return 'agenda';
   if (t.is_auto_generated === true) return 'bot';
   if (taskSource(t) === 'team') return 'team';
   return null;
@@ -60,6 +83,7 @@ export function taskKind(t: {
 
 /** The words on the tag. One place, so the board and My Tasks cannot drift. */
 export const TASK_KIND_LABEL: Record<TaskKind, string> = {
+  agenda: 'Agenda',
   bot: 'Auto',
   team: 'Team',
 };

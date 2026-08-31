@@ -1106,6 +1106,19 @@ export interface TaskNode {
    *  what it was before. Absent on hand-built fixtures, which is why it is
    *  optional; `taskSource()` in lib/taskSource treats missing as 'permit'. */
   source?: TaskSource;
+  /** ★★★ fix-462 (P-045): this team task is on the weekly agenda.
+   *
+   *  ★★ EMITTED ONLY ON THE TEAM BRANCH of `bp_list_tasks`. A permit task has
+   *  no `agenda` key at all — which is why fix-460's byte-identity property
+   *  survived this ticket and was re-proved against prod (1,643 rows, identical,
+   *  zero permit rows carrying the key). Absent reads as falsy and is correct:
+   *  a permit task cannot be an agenda item, because an agenda item is a team
+   *  task.
+   *
+   *  ★★★ IT IS A SECOND PROPERTY OF ONE OBJECT, NOT A SECOND OBJECT. "Put it on
+   *  the agenda" and "assign it" are two things true of the same row; nothing is
+   *  copied and nothing syncs. That is the ruling this whole ticket rests on. */
+  agenda?: boolean | null;
   /** Present on top-level tasks (from bp_list_permit_tasks); absent on
    *  subtasks and on bp_my_tasks rows. */
   subtasks?: TaskNode[];
@@ -1386,6 +1399,25 @@ export interface TeamMember {
    *  ★ A DEPARTMENT IS NOT A PERMISSION. Nothing gates on it and nothing may
    *  start to — admin/editor gating lives in `profiles.role`. */
   department?: Department | null;
+  /** ★★★ fix-462 (P-045): this PERSON attends the weekly agenda meeting.
+   *
+   *  ★★ MEMBERSHIP IS A PER-PERSON CHECKBOX, NOT A DEPARTMENT — Bobby,
+   *  2026-08-30, having been offered department gating and rejected it: gating
+   *  by department means adding one person to the meeting moves their whole
+   *  department, or you make an exception anyway.
+   *
+   *  ★★★ AND IT IS NOT A PERMISSION. It gates ONE ribbon entry and nothing
+   *  else. Admin/editor gating lives in `profiles.role` and is untouched.
+   *
+   *  ★★ Same roster trap as `department`, same answer: it is a fact about the
+   *  PERSON though it sits on a role row, and `bp_trg_team_agenda_member_sync`
+   *  keeps every row sharing a name in agreement so nobody is ever HALF on the
+   *  agenda. Write it through `bp_set_team_agenda_member`, which takes a NAME.
+   *
+   *  ★ It must appear in `useTeamMembers`'s EXPLICIT select list or it is
+   *  invisible to every consumer — fix-386's trap, which fix-461 nearly shipped
+   *  and a round-trip test now pins. */
+  agenda_member?: boolean | null;
 }
 
 /** fix-225: DA project handoff ledger row (project_da_handoffs). Each row = one

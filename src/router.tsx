@@ -5,6 +5,7 @@ import AdminRoute from './components/AdminRoute';
 import Chrome from './components/Chrome';
 import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
+import Agenda from './pages/Agenda';
 import ProjectList from './pages/ProjectList';
 import ProjectDetail from './pages/ProjectDetail';
 import RouteErrorFallback from './components/RouteErrorFallback';
@@ -235,6 +236,13 @@ export const router = createBrowserRouter([
       // rebuilt, and both read the SAME useAllTasks query, so a tick in one
       // half re-renders the other from one invalidation.
       { path: 'board', element: <PersonalBoard /> },
+      // ★★★ fix-462 (P-045): the Agenda. NOT wrapped in a guard, deliberately —
+      // agenda membership hides a ribbon ENTRY, it is not a permission, and the
+      // screen is of no use rather than secret to somebody outside the meeting.
+      // Contrast /settings/errors, which IS route-gated because it is
+      // privileged: fix-234's "a hidden link over an open door" applies to
+      // privileged screens, and this is not one.
+      { path: 'agenda', element: <Agenda /> },
       // ★ fix-315: Waiting On gets its own route. fix-313 folded My Tasks into
       // My Board and redirected /my-tasks -> /board, which stranded this view —
       // it kept working and became unreachable. It is not a small panel: firm

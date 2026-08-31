@@ -180,6 +180,12 @@ const PAGE_LABELS: ReadonlyArray<{ match: RegExp; label: string }> = [
   //   addresses (fix-385) and each carries its own tab's label.
   { match: /^\/board\?(?:.*&)?tab=tasks(?:&|$)/, label: 'My Tasks' },
   { match: /^\/board(?:\?|$)/, label: 'My Board' },
+  // ★★ fix-462: the Agenda names itself like any other destination. A ribbon
+  //    route with no page name is one fix-408's guard fails on — and rightly:
+  //    a Previous button that navigates somewhere it cannot name is the bug
+  //    that ticket exists to prevent. Every row on the agenda links into a
+  //    project, so this is a real origin, not a formality.
+  { match: /^\/agenda(?:\?|$)/, label: 'Agenda' },
   { match: /^\/notifications(?:\?|$)/, label: 'Notifications' },
   { match: /^\/my-tasks(?:\?|$)/, label: 'My Tasks' },
   { match: /^\/waiting-on(?:\?|$)/, label: 'Waiting On' },
