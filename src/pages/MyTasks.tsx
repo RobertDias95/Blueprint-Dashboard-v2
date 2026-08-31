@@ -94,6 +94,10 @@ import MilestoneCard from '../components/MyTasks/MilestoneCard';
 // makes 'mine' and 'shared' distinguishable rather than blended.
 import { useShowCoAssigned } from '../hooks/useShowCoAssigned';
 import CoAssignedToggle from '../components/shared/CoAssignedToggle';
+import UnclaimedToggle from '../components/shared/UnclaimedToggle';
+import { useShowUnclaimed } from '../hooks/useShowUnclaimed';
+import { canSeeUnclaimedQueue } from '../lib/unclaimedWork';
+import { useIsTenantAdmin } from '../hooks/useIsTenantAdmin';
 import {
   CoAssignedContext,
   NO_CO_ASSIGNED,
@@ -629,9 +633,16 @@ function Body({
   // fix-238: ownership resolver — resolves each task's assigned_to role
   // placeholder (Design Manager / Schematic Team / …) to a person the same way
   // the task chip does, so "Mine" routes a role-assigned task to the right list.
-  const { matches: taskMatches, isCoAssigned: taskIsCoAssigned } =
+  const { matches: taskMatches, isCoAssigned: taskIsCoAssigned, isUnclaimed: taskIsUnclaimed } =
     useTaskOwnership();
   const { showCoAssigned } = useShowCoAssigned();
+  // ★★★ fix-458 §B (P-106) — the unclaimed queue.
+  const { showUnclaimed } = useShowUnclaimed();
+  const isAdmin = useIsTenantAdmin();
+  // ★★ §B4: admins and entitlement leads. Not the whole company — this is a
+  //    queue to clear, and the people who can clear it are the ones who set a
+  //    lead or take the task.
+  const canSeeUnclaimed = canSeeUnclaimedQueue(isAdmin, identity.roles);
   const navigate = useNavigate();
   const originState = useOriginState();
 
@@ -768,6 +779,27 @@ function Body({
     showCoAssigned,
   ]);
 
+  // ★★★ fix-458 §B1 — THE UNCLAIMED QUEUE, AND WHY IT REPLACES RATHER THAN
+  //     NARROWS.
+  //
+  // Held work and Co-assigned both SUBTRACT from a list you can already see.
+  // These seventeen tasks are in nobody's "mine" BY DEFINITION — that is the
+  // defect — so a subtractive filter over `scopedTasks` would show an empty
+  // list under Mine and be indistinguishable from "nothing to do".
+  //
+  // ★★ So the switch swaps the list for the queue, over the FULL task set and
+  //    independent of scope. Everything downstream (counters, bands, by-project,
+  //    Waiting-On) reads `visibleTasks`, so they all follow it without a second
+  //    filter existing anywhere — the property fix-445 §A4 relies on.
+  const unclaimedTasks = useMemo(
+    () => (canSeeUnclaimed ? tasks.filter((t) => taskIsUnclaimed(t)) : []),
+    [tasks, taskIsUnclaimed, canSeeUnclaimed],
+  );
+  const visibleTasks = useMemo(
+    () => (canSeeUnclaimed && showUnclaimed ? unclaimedTasks : scopedTasks),
+    [canSeeUnclaimed, showUnclaimed, unclaimedTasks, scopedTasks],
+  );
+
   // ★★★ fix-445 §A3 — is THIS row shared rather than mine?
   //
   // A PREDICATE, not a precomputed set — see lib/coAssignedContext for the
@@ -798,9 +830,12 @@ function Body({
     () => (coAssignedKey === '' ? NO_CO_ASSIGNED : new Set(coAssignedKey.split('|'))),
     [coAssignedKey],
   );
+  // ★ fix-458: `visibleTasks` is `scopedTasks` unless the Unclaimed switch is
+  //   on, in which case it is the queue. Every counter, band and tab below reads
+  //   this one value, so the switch reaches all of them without a second filter.
   const filtered = useMemo(
-    () => filterTasks(scopedTasks, filters, rolesByName, taskMatches, structByPermitId),
-    [scopedTasks, filters, rolesByName, taskMatches, structByPermitId],
+    () => filterTasks(visibleTasks, filters, rolesByName, taskMatches, structByPermitId),
+    [visibleTasks, filters, rolesByName, taskMatches, structByPermitId],
   );
   const today = useMemo(() => todayIso(), []);
 
@@ -1042,6 +1077,8 @@ function Body({
         scopeMode={scopeMode}
         onScopeChange={setScopeMode}
         selfName={identity.name}
+        canSeeUnclaimed={canSeeUnclaimed}
+        unclaimedCount={unclaimedTasks.length}
       />
       {/* fix-138-b: shrink right sidebar from 1fr (20%) → 0.85fr (≈17%)
           so the two bucket columns claim more horizontal real estate;
@@ -1245,6 +1282,8 @@ function FilterRow({
   scopeMode,
   onScopeChange,
   selfName,
+  canSeeUnclaimed,
+  unclaimedCount,
 }: {
   filters: FilterState;
   roster: {
@@ -1259,6 +1298,10 @@ function FilterRow({
   scopeMode: ScopeMode;
   onScopeChange: (mode: ScopeMode) => void;
   selfName: string | null;
+  /** ★ fix-458 §B4: admins and entitlement leads only. */
+  canSeeUnclaimed: boolean;
+  /** ★ fix-458 §B5: rendered whether or not the switch is on. */
+  unclaimedCount: number;
 }) {
   // ★★★ fix-445 §B2 — HOW MANY PEOPLE FILTERS ARE HIDDEN BEHIND THE BUTTON.
   //
@@ -1438,6 +1481,16 @@ function FilterRow({
         testid="mytasks-filter-coassigned"
         disabled={scopeMode !== 'mine'}
       />
+      {/* ★★★ fix-458 §B (P-106) — the work that reaches nobody.
+          ★ A FILTER-ROW CONTROL, NOT A THIRD SCOPE MODE (STEP 0e): scope is
+            "whose work", and this is "nobody's work" — a different axis, the
+            same argument §B2 makes about date bands. Widening ScopeMode would
+            also ripple through fix-428's persisted 'mine' | 'all' vocabulary to
+            express something that is not a scope.
+          ★★ It renders its COUNT whether or not it is on (§B5) and vanishes at
+            zero — a control you must click before it tells you anything would
+            repeat the failure this ticket is about. */}
+      {canSeeUnclaimed && <UnclaimedToggle count={unclaimedCount} />}
       {/* ★ fix-428: the label is Bobby's word; the id is unchanged. The
           FilterBar's own `mytasks-filter-clear` already read correctly and did
           not move.

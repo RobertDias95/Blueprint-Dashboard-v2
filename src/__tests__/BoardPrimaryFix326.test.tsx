@@ -90,7 +90,10 @@ vi.mock('../hooks/useSelfScope', () => ({
   }),
 }));
 vi.mock('../hooks/useTaskOwnership', () => ({
-  useTaskOwnership: () => ({ matches: () => true }),
+  // ★ fix-458 added a fourth member to this hook (isUnclaimed). Declared
+  //   here so the partial mock keeps matching the real shape — the trap
+  //   fix-407 hit and fix-449 documented.
+  useTaskOwnership: () => ({ isUnclaimed: () => false, matches: () => true }),
 }));
 vi.mock('../hooks/useProjectHolds', () => ({
   useAllProjectHolds: () => ({ data: [] }),
