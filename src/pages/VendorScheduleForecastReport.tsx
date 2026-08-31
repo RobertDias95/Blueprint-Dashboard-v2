@@ -1,5 +1,5 @@
-import { useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { Link, useSearchParams } from 'react-router-dom';
 import { useProjects } from '../hooks/useProjects';
 import { useDrawSchedule } from '../hooks/useDrawSchedule';
 import { useAppConfig } from '../hooks/useAppConfig';
@@ -251,6 +251,33 @@ export default function VendorScheduleForecastReport() {
   /** SEND — the ONLY ledger write. Records the PIPELINE rows: after a send the
    *  vendor knows the current state of everything on the list, not just the
    *  rows that were called out as new or changed. */
+  // ★★★ fix-463 §C2 — THE WEEKLY UPDATE'S "Download email draft" LANDS HERE.
+  //
+  // The card on the Agenda screen cannot build the email itself: assembling it
+  // needs the seven queries and ~100 lines of memos above, and reproducing them
+  // there would be the REBUILD the brief forbids (§C4: a second door to one
+  // workflow, never a copy of it). So the card links here with `?compose=1` and
+  // the draft is composed on arrival, by the one implementation.
+  //
+  // ★★★ IT STILL RECORDS NOTHING. `composeEmail` builds a file; only
+  // `markAsSent` touches the ledger, and there is deliberately NO `?intent`
+  // handler that presses it — recording a send from a link, without the person
+  // seeing which rows are about to be written, is how a ledger gains a week it
+  // never had. The mark-sent link opens this page so the button can be pressed
+  // HERE, in front of the contents.
+  const [searchParams] = useSearchParams();
+  const composedRef = useRef(false);
+  const wantsCompose = searchParams.get('compose') === '1';
+  useEffect(() => {
+    // ★ Once per arrival, and only once the data it needs has actually loaded —
+    //   composing from an empty pipeline would hand somebody a blank draft.
+    if (!wantsCompose || composedRef.current || isLoading) return;
+    if (sections.pipelineRows.length === 0) return;
+    composedRef.current = true;
+    composeEmail();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [wantsCompose, isLoading, sections.pipelineRows.length]);
+
   function markAsSent() {
     markSent.mutate({
       vendorKey,

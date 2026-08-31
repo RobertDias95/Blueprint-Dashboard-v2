@@ -8,6 +8,7 @@ import { useSelfScope } from '../hooks/useSelfScope';
 import { useDesktopAlerts } from '../hooks/useDesktopAlerts';
 import { useDingUnlock } from '../hooks/useDingUnlock';
 import NewBuildNotice from './NewBuildNotice';
+import WeeklyUpdateModal from './WeeklyUpdate/WeeklyUpdateModal';
 import SaveFailureBanner from './SaveFailureBanner';
 import MissedScrapeBanner from './MissedScrapeBanner';
 import { rosterRoleTitle } from '../lib/roleLabels';
@@ -95,6 +96,15 @@ export default function Chrome() {
             differs from the running one. It offers a reload and never performs
             one - see components/NewBuildNotice. */}
         <NewBuildNotice />
+        {/* ★★★ fix-463 §B2 (P-108): the Weekly Update, over whatever screen you
+            are on. Mounted in the SHELL rather than on a route because the
+            trigger is a CLOCK — Bobby: *"if they don't ever restart their PC,
+            then they're technically not logging in… so that when they wake up
+            their computer that's the first thing that they see on the bridge
+            until they acknowledge it."*
+            ★ It renders null for a non-member and for anybody who has already
+            closed this week's edition, so it costs the other 23 people nothing. */}
+        <WeeklyUpdateModal />
         {/* *** fix-372 section 6: renders nothing until a save dies. Above the
             header, full width, and it does NOT fade - see stores/saveFailureStore. */}
         <SaveFailureBanner />

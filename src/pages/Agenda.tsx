@@ -9,6 +9,7 @@ import { splitAgenda } from '../lib/agenda';
 import { todayIso } from '../lib/myBoard';
 import { TaskCard } from './MyTasks';
 import TeamTaskComposer from '../components/MyTasks/TeamTaskComposer';
+import WeeklyUpdate from '../components/WeeklyUpdate/WeeklyUpdate';
 
 // ===========================================================================
 // ★★★ fix-462 (P-045) — THE AGENDA
@@ -132,6 +133,18 @@ function AgendaBody() {
           Saving…
         </p>
       )}
+
+      {/* ★★★ fix-463 §A1 (P-108) — THE WEEKLY UPDATE, in the mock-up's order:
+          the agenda block above, then the five snapshot sections, then the SSS
+          card. The brief says "above the agenda"; the MOCK-UP puts the agenda
+          first and the snapshot under the heading "This week's snapshot", and
+          the mock-up wins on layout — Bobby iterated it four times and approved
+          v4.
+
+          ★★ §B4: this is PERMANENT here. The modal shows the same component and
+          closing it dismisses only the reminder — the report never goes away
+          from this screen. */}
+      <WeeklyUpdate />
     </div>
   );
 }
