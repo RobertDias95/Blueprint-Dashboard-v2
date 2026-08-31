@@ -2287,7 +2287,25 @@ function TaskGroupRows({
 //   function on every render (passed down, not wrapped), and the overlay's
 //   ACTIONS context never changes identity, so a card is not woken by a
 //   sibling's click through the context it consumes.
-const TaskCard = memo(function TaskCard({
+/** ★★★ fix-462 §C2 — EXPORTED SO THE AGENDA CAN REUSE IT, NOT COPIED AND NOT
+ *  MOVED. Bobby: *"it would look very similar to the milestones in MyTask so
+ *  that it fits and blends with our existing system."* The way to guarantee that
+ *  is for it to BE the same component.
+ *
+ *  ★★ EXPORTING BEATS EXTRACTING HERE, and the reason is specific rather than
+ *  lazy: this is a 267-line memo'd component that fix-434 pins to a ≤2
+ *  re-render ceiling, and it closes over five module-local helpers
+ *  (STATUS_BG, checkboxVisual, isOverdue, taskPermitSuffix, TaskStatusChip).
+ *  Moving it would mean moving or exporting those too — a large diff on the
+ *  hottest page in the app, to buy a tidier import path. Not one line of it
+ *  moves this way.
+ *
+ *  ★ It needs no provider to work elsewhere: both contexts it reads carry
+ *  deliberate defaults (coAssignedContext's frozen empty set, and
+ *  taskStatusOverlayContext's NOOP_OVERLAY whose readCurrent returns the server
+ *  status). The Agenda wraps it in the real overlay anyway, so the optimistic
+ *  layer works there too. */
+export const TaskCard = memo(function TaskCard({
   task,
   today,
   isSelected,

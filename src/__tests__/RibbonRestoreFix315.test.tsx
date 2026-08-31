@@ -606,6 +606,16 @@ describe('fix-315: fix-313 survives', () => {
       'Pipeline',
       'Draw Schedule',
       'My Board',
+      // ★★★ fix-462, the SEVENTH reorder: Agenda joins the top tier beside My
+      // Board. It is a WORK DESTINATION — six people open it to run a meeting
+      // about their own tasks — so filing it below the rule with Settings and
+      // Error triage would have called a work view administration.
+      //
+      // ★★ IT IS HERE IN AN *ADMIN* LIST AND ABSENT FROM EVERY NON-ADMIN ONE,
+      // which is the gate doing its job: Agenda is `agendaOnly`, and
+      // `visibleEntries(isAdmin, isAgendaMember = false)` shows it to an admin
+      // (who sees everything) and to a member. No non-admin list moved.
+      'The weekly agenda — one running list of items to work through',
       'Library',
       'Blueprint Design and Entitlements Studio on SharePoint — opens in a new tab',
       // ★ fix-350, the SIXTH reorder: What's New joins the tier below the rule,

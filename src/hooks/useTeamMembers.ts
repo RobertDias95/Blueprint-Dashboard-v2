@@ -90,7 +90,7 @@ export function useTeamMembers() {
           // recorded as "a new column is a four-place job, and three of them
           // fail SILENTLY". Without this line the Departments panel would show
           // every person as unclassified for ever, with no error anywhere.
-          'id, name, first_name, last_name, role, active, former, email, notes, updated_at, active_start_quarter, active_end_quarter, department',
+          'id, name, first_name, last_name, role, active, former, email, notes, updated_at, active_start_quarter, active_end_quarter, department, agenda_member',
         )
         .order('name', { ascending: true });
       if (error) throw error;

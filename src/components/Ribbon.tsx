@@ -2,6 +2,7 @@ import { useCallback, useState } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
 import { useAuthStore } from '../stores/authStore';
 import { useIsTenantAdmin } from '../hooks/useIsTenantAdmin';
+import { useIsAgendaMember } from '../hooks/useAgendaMember';
 import { useNewErrorCount } from '../hooks/useErrorReports';
 import { useWhatsNewEntries, useWhatsNewReads } from '../hooks/useWhatsNew';
 import { unreadCount } from '../lib/whatsNew';
@@ -115,7 +116,11 @@ export default function Ribbon({ onAddProject }: { onAddProject: () => void }) {
     [openGroups, userId],
   );
 
-  const entries = visibleEntries(isAdmin);
+  // ★★ fix-462: the second gate. `useIsAgendaMember` resolves through the
+  //    roster (useSelfScope's email→name), the same identity every self-scoped
+  //    surface uses — never a second resolution.
+  const isAgendaMember = useIsAgendaMember();
+  const entries = visibleEntries(isAdmin, isAgendaMember);
 
   return (
     <nav

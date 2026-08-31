@@ -629,6 +629,12 @@ describe('fix-331 §8: the ribbon order', () => {
       '/dashboard',
       '/draw-schedule',
       '/board',
+      // ★★ fix-462: the Agenda, beside My Board because it is a work
+      //    destination — six people open it to run a meeting about their own
+      //    tasks. `topLevel()` reads RIBBON_ENTRIES directly and so is gate-blind
+      //    by design; the gate is asserted in AgendaFix462, where a non-member
+      //    provably does not see it.
+      '/agenda',
       '/library',
       // ★ fix-350: What’s New sits with the administrative entries below the
       // rule. Ungated, unlike its two neighbours — the 23 non-admin editors are

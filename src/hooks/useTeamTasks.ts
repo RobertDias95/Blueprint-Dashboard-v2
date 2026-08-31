@@ -42,6 +42,12 @@ export interface TeamTaskPatch {
   /** ★★ A LINK BACK, NOT AN OWNER — stored, never surfaced as project_id. */
   ref_project_id?: string | null;
   ref_permit_id?: number | null;
+  /** ★★★ fix-462 §C3: on the weekly agenda.
+   *
+   *  ★ OMITTING IT MEANS "LEAVE IT ALONE" ON AN UPDATE and `false` on an
+   *  insert — the RPC coalesces to the stored value — so no existing caller can
+   *  clear an item off the agenda by not mentioning it. */
+  agenda?: boolean;
 }
 
 export type UpsertTeamTaskInput =
