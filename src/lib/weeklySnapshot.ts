@@ -72,6 +72,132 @@ export interface SortState {
   dir: 'asc' | 'desc';
 }
 
+// ===========================================================================
+// ★★★ fix-465 §A (P-114) — THE COLUMNS, AND THEIR WIDTHS, IN ONE PLACE
+// ===========================================================================
+//
+// ★★★ 0d — WHY THIS IS THE SINGLE SOURCE, AND WHY THE DEFECT WAS NOT "no
+// shared widths". There is already exactly ONE component rendering all five
+// sections (`SnapshotSection`), so "five tables with five width lists" was
+// never the shape. The real defect is narrower and worse: that one table had
+// **no `table-layout: fixed` and no widths at all**, so each of the five
+// auto-sized to its OWN content. Section A's three rows and section B's three
+// rows land on different column boundaries, and the reader's eye — which is
+// tracking one report down a page — has to re-find the columns five times.
+//
+// So the fix is not to de-duplicate a list; it is to STATE the widths once,
+// here beside the sort keys they already share, and render one `<colgroup>`
+// from them. Adding a column now forces both halves at the same moment.
+//
+// ★★ THE WIDTHS ARE PERCENTAGES, NOT PIXELS. The same table renders at ~1076px
+// in the Weekly Update modal and wider on the Agenda page; a pixel list would
+// be right in one place and wrong in the other. Percentages keep the five
+// sections aligned WITH EACH OTHER at every width, which is the property being
+// bought here — not any particular pixel count.
+//
+// ★★★ MEASURED, NOT COPIED FROM THE MOCK — AND THE MEASUREMENT CHANGED FIVE OF
+// THE EIGHT. `harness/snapshot-widths.html` renders a candidate list in Chrome
+// against the real worst-case strings measured on prod 2026-08-31 (a 30-char
+// address, a 17-char `SPUE-IPR-26-00004`, an 18-char "Grading / Clearing", a
+// 33-char "Approved - Additional Information") plus the longest header a
+// section can name, and reports the slack per column. Change a number here,
+// re-run that file, re-read the report.
+//
+// The mock draws its table at 1204px (`.wrap{max-width:1240px;padding:18px}`);
+// the modal gives it 1076px, 11% less. THE BRIEF'S PROPOSED
+// `19/15/11/9/9/12/8/17` FAILS THERE — Type −3px, the date header −6px, the age
+// header −15px, City status −28px — while Permit # sat on 27px of spare and ENT
+// lead and DA on 23px each. ★ And the age column is 5px short even at the
+// MOCK'S OWN width, so the mock truncates its own "DAYS WAITING".
+//
+// ★★★ THE RULE USED TO REDISTRIBUTE, because 1044px of worst case will not go
+// into 1076px of table with every column comfortable:
+//   1. NO HEADER EVER TRUNCATES. A header the reader cannot read is a column
+//      they cannot sort — and the two that were truncating are the two the
+//      SECTION names, which are precisely the ones a reader checks.
+//   2. THE COLUMNS THAT IDENTIFY A ROW NEVER TRUNCATE: Project and Permit #.
+//      Those are what a reader matches against what they already know.
+//   3. THE COLUMNS THAT DESCRIBE IT MAY: Type and City status. `text-overflow:
+//      ellipsis` is deliberate; measuring puts the ellipsis where it costs
+//      least, it does not abolish it.
+// At 1204px and above, NOTHING truncates under this allocation.
+export interface SnapshotColumn {
+  key: SortKey;
+  /** Fixed header text. Two columns have none — the SECTION names them. */
+  label?: string;
+  /** Percentage of the table width. The eight must total 100. */
+  width: number;
+  /** Right-aligned, tabular figures. */
+  num?: boolean;
+  /** Rendered in the monospace stack, where character alignment carries
+   *  meaning: a permit number and an ISO date are both read column-wise. */
+  mono?: boolean;
+  /** ★★ §B2 — the ink ladder. `false` (the default) is full-strength
+   *  `--color-text`; `true` steps back to `--color-muted`, which measures
+   *  5.48:1 on white. NOTHING uses `--color-dim` (2.82:1) any more. */
+  soft?: boolean;
+}
+
+export const SNAPSHOT_COLUMNS: readonly SnapshotColumn[] = [
+  // width   brief   slack at 1076px (the modal — the binding case)
+  { key: 'address', label: 'Project', width: 19 },                    // 19  +12
+  { key: 'num', label: 'Permit #', width: 13, mono: true, soft: true }, // 15  +5
+  { key: 'type', label: 'Type', width: 11, soft: true },              // 11   −3 ellipsis, by rule 3
+  { key: 'ent_lead', label: 'ENT lead', width: 8, soft: true },       //  9  +12
+  { key: 'da', label: 'DA', width: 8, soft: true },                   //  9  +12
+  { key: 'on_date', width: 13, mono: true, soft: true },              // 12   +4  section's date label
+  { key: 'age_days', width: 10, num: true },                          //  8   +7  section's age label
+  { key: 'status', label: 'City status', width: 18, soft: true },     // 17  −18 ellipsis, by rule 3
+];
+
+/**
+ * ★★ THE WIDTH BELOW WHICH THE GRID CANNOT HOLD ITS OWN HEADERS, so the table
+ * scrolls sideways instead of crushing eight columns into a phone. Derived, not
+ * picked: the binding header is "Corrections issued" at 135px in a 13% column,
+ * which needs 135 / 0.13 = 1038px of table. Rule 1 above is the whole reason
+ * this constant exists — squeezing is not a gentler failure than scrolling, it
+ * is the same failure applied to all eight columns at once.
+ */
+export const SNAPSHOT_MIN_WIDTH_PX = 1040;
+
+/**
+ * ★★★ §B3 — THE URGENCY TINT, AND WHY THESE TWO NUMBERS AND NO OTHERS.
+ *
+ * `backlogBreakdown` below already states section B's tail as *"88 are over a
+ * month, 52 over three months"* — 30 and 90 days. Those thresholds are
+ * therefore ALREADY in this file, already shown to the reader in words, and
+ * already the vocabulary the report speaks. The tint reuses them exactly, so
+ * the colour of a number and the sentence underneath it can never disagree.
+ * Inventing a second pair would have produced a table where a row is tinted
+ * "hot" while the line below counts it as ordinary.
+ *
+ * ★★★ THE MOCK'S PER-ROW TONES ARE NOT A RULE, AND COPYING THEM WOULD HAVE
+ * SHIPPED A CONTRADICTION. They are hand-authored illustration: it paints 194
+ * days "hot" in section D while painting 216 days "warn" in section C, and 126
+ * "warn" against 48 "calm" in section E. There is no monotone function through
+ * those points. So the mock wins on APPEARANCE — two tints, these two inks —
+ * and the brief wins on MECHANISM: the rule is derived and stated here.
+ *
+ * ★★★ SECTION A IS DELIBERATELY UNTINTED. Its number is a COUNTDOWN ("due in
+ * 14"), not an overrun — nothing in that section is late, and tinting a
+ * fortnight's notice the same red as a permit 1,126 days past due would teach
+ * the reader to ignore the colour. The tint means "this has run over", so it
+ * appears only where the number measures elapsed time: B, C, D and E.
+ */
+export const TINT_WARN_DAYS = 30;
+export const TINT_HOT_DAYS = 90;
+
+export type AgeTone = 'hot' | 'warn' | null;
+
+export function ageTone(bucket: SnapshotBucket, age: number | null): AgeTone {
+  // ★ A countdown is not an overrun — see above.
+  if (bucket === 'a') return null;
+  if (age == null) return null;
+  if (age > TINT_HOT_DAYS) return 'hot';
+  if (age > TINT_WARN_DAYS) return 'warn';
+  return null;
+}
+
 /**
  * ★★★ §A4 — TYPE-AWARE, BECAUSE A STRING SORT PUTS 9 AFTER 103.
  *

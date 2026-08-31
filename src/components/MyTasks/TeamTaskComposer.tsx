@@ -92,8 +92,17 @@ export default function TeamTaskComposer({
       <button
         type="button"
         onClick={() => setOpen(true)}
-        className="text-[11px] px-2 py-1 rounded border border-dashed text-dim whitespace-nowrap"
-        style={{ borderColor: 'var(--color-border)' }}
+        // ★★ fix-465 §B4 — WAS `text-dim`, WHICH MEASURES 2.82:1 ON WHITE.
+        //    It was tolerable as a faint affordance tucked at the end of a
+        //    task list; fix-465 makes it the PRIMARY call to action in the
+        //    Weekly Update's empty agenda — the first thing the meeting sees
+        //    on a Wednesday morning — and "add the first item" cannot be the
+        //    least legible thing on the screen. `--color-muted` is 5.48:1.
+        //    ★ The BORDER stays dashed and stays `--color-border`: the dashed
+        //      outline is what says "this creates something", and it is the
+        //      shape, not the ink, that was doing that job.
+        className="text-[11.5px] px-2 py-1 rounded border border-dashed whitespace-nowrap"
+        style={{ borderColor: 'var(--color-border)', color: 'var(--color-muted)' }}
         data-testid={`${testidPrefix}-add`}
       >
         {addLabel}

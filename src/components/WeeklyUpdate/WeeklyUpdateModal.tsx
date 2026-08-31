@@ -66,8 +66,14 @@ export default function WeeklyUpdateModal() {
         </header>
         <div className="p-3">
           {/* ★ §B4: the SAME component the Agenda screen renders. Two renderings
-              of one report is how they start disagreeing. */}
-          <WeeklyUpdate />
+              of one report is how they start disagreeing.
+              ★★★ fix-465 §D: and it now carries the AGENDA, so this modal is
+              the whole meeting — what to talk about, then the numbers. Before,
+              the one screen everybody opens on a Wednesday morning had the
+              snapshot and no agenda on it. `surface="modal"` changes exactly
+              one sentence: the empty-state hint asks whether anything wants
+              raising now, rather than explaining how an item gets here. */}
+          <WeeklyUpdate surface="modal" />
           <p className="text-[10px] text-muted pt-2" data-testid="weekly-update-permanence">
             Closing this dismisses the reminder for this week. The Weekly Update
             stays on the Agenda screen — nothing is hidden by closing it.
