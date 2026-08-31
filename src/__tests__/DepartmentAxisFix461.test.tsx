@@ -72,14 +72,33 @@ function roster(): TeamMember[] {
 }
 
 describe('fix-461 §A2 — the four, as Bobby said them', () => {
-  it('★★★ exactly four, in his order, and Accounting is NOT one', () => {
-    expect(DEPARTMENTS).toEqual([
+  // ★★★ SUPERSEDED 2026-08-31 BY fix-464, NOT MISTAKEN.
+  //
+  // This pin asserted `toHaveLength(4)` and "there is no fifth", and it was
+  // right on 2026-08-26. Then Bobby classified 32 of 35 people with the panel
+  // fix-461 shipped and found three it could not fit — Darin (CEO), Eric
+  // (President) and Keenan (IT) — and ruled: *"eric and darin are president and
+  // ceo, so they need a department. keenan is investor relations/IT so he needs
+  // a department too."* Offered one new department or two, he took TWO, so that
+  // IT is its own function rather than filed under the CEO.
+  //
+  // ★★ SO THE COUNT MOVED AND THE ORDER DID NOT. What this test now defends is
+  // the half that did NOT expire: **his original four are still the first four,
+  // in his order** — fix-464 appended rather than reshuffled, because this array
+  // is what he scans and he has just spent a session using it. And **Accounting
+  // is still not a department**: he replaced it with Underwriting in the same
+  // 2026-08-26 conversation and has not revisited that.
+  //
+  // ★ The six-key assertion lives in TwoMoreDepartmentsFix464 — this one stays
+  //   pointed at fix-461's own ruling so a future reshuffle fails HERE, naming
+  //   the decision it breaks.
+  it('★★★ his four are still the FIRST four, in his order, and Accounting is NOT one', () => {
+    expect(DEPARTMENTS.slice(0, 4)).toEqual([
       'policy',
       'design_entitlements',
       'acquisitions',
       'underwriting',
     ]);
-    expect(DEPARTMENTS).toHaveLength(4);
     expect(DEPARTMENTS as readonly string[]).not.toContain('accounting');
   });
 

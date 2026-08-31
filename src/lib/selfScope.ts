@@ -54,7 +54,15 @@ export interface RosterIdentity {
   /** ★ fix-343: the person's roster note. It carries the real function of a
    *  `viewer` — Underwriting, IT, Policy, CEO — which is deliberately NOT in
    *  `role`, because `role` drives the assignment dropdowns and these six are
-   *  never assigned work. `rosterRoleTitle` is what turns it into a title. */
+   *  never assigned work. `rosterRoleTitle` is what turns it into a title.
+   *
+   *  ★★ STILL TRUE, AND NO LONGER THE ONLY PLACE (fix-461 / fix-464). Four of
+   *  those functions are now also DEPARTMENTS, and for four of the viewers the
+   *  note and the department say the same word — EJ/Greg/Taylor `Underwriting`,
+   *  Lucas `Policy`. The two are not redundant and must not be merged: this is
+   *  the NAME PLATE and prints as written, while `department` is a controlled
+   *  vocabulary of six that groups the roster. Keenan's note stays `IT` even
+   *  though his department reads "IT & Investor Relations". */
   notes: string | null;
   /** fix-179: scope derived from real assignments — 'project' when the name
    *  leads ≥1 project, 'permit' when mapped but leads none, 'all' when unmapped. */

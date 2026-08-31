@@ -11,6 +11,7 @@ import {
   DEPARTMENT_LABEL,
   ROLE_TITLE,
   departmentLabel,
+  NO_DEPARTMENT_LABEL,
 } from '../../lib/roleLabels';
 import type { Department, TeamMember } from '../../lib/database.types';
 
@@ -22,6 +23,13 @@ import type { Department, TeamMember } from '../../lib/database.types';
 // Underwriting.** He offered *"accounting, which is like EJ, Greg and them"*
 // first and then settled on Underwriting; newest-first applies, so Accounting is
 // not one of the four.
+//
+// ★★★ AMENDED 2026-08-31 (fix-464) — SIX, NOT FOUR. Bobby classified 32 of 35
+// people with this panel and found three it could not fit: Darin, Eric and
+// Keenan. *"eric and darin are president and ceo, so they need a department.
+// keenan is investor relations/IT so he needs a department too."* Two new
+// departments rather than one, so IT is its own function and not filed under the
+// CEO. ★ Accounting is still not one of them — only the count changed.
 //
 // Why it exists — Bobby: *"[Lucas is] a director, like Dave, but two different
 // departments."* `role` mixes discipline with seniority; it can say "director"
@@ -55,6 +63,22 @@ export default function DepartmentEditor({ members, readOnly }: Props) {
   const gap = useMemo(() => peopleWithNoDepartment(people), [people]);
   const viewers = useMemo(() => viewerOverlap(people), [people]);
   const splits = useMemo(() => people.filter((p) => p.split), [people]);
+
+  // ★★ §B2: one entry per department, in DEPARTMENTS' order, plus the
+  //    unclassified at the end. Built from the vocabulary rather than from the
+  //    data, which is what makes an empty department render instead of vanish.
+  const grouped = useMemo(() => {
+    const out = DEPARTMENTS.map((d) => ({
+      key: d as Department | null,
+      label: DEPARTMENT_LABEL[d],
+      people: active.filter((p) => p.department === d),
+    }));
+    const rest = active.filter((p) => p.department === null);
+    if (rest.length > 0) {
+      out.push({ key: null, label: NO_DEPARTMENT_LABEL, people: rest });
+    }
+    return out;
+  }, [active]);
 
   function set(person: DepartmentPerson, value: string) {
     // ★ By NAME. The RPC updates every row the person holds, and the database
@@ -129,8 +153,39 @@ export default function DepartmentEditor({ members, readOnly }: Props) {
         </div>
       )}
 
-      <div className="flex flex-col gap-1">
-        {active.map((p) => (
+      {/* ★★★ fix-464 §B2 — GROUPED BY DEPARTMENT, INCLUDING THE EMPTY ONES.
+          A department nobody is in yet must render as an empty group rather than
+          vanish, so the option is visible BEFORE it is used — which is exactly
+          the failure this ticket exists to correct: the picker had nothing that
+          fitted Darin, Eric and Keenan, and there was no way to see that from
+          the panel.
+          ★ The unclassified group comes LAST and only when it has somebody: it
+          is the work remaining, not a department. */}
+      <div className="flex flex-col gap-2">
+        {grouped.map(({ key, label, people: members }) => (
+          <div key={key ?? 'none'} data-testid={`department-group-${key ?? 'none'}`}>
+            <div className="flex items-baseline gap-2 pb-0.5">
+              <span className="text-[10px] font-bold uppercase tracking-wide text-dim">
+                {label}
+              </span>
+              <span
+                className="text-[10px] tabular-nums"
+                style={{ color: 'var(--color-muted)' }}
+                data-testid={`department-group-${key ?? 'none'}-count`}
+              >
+                {members.length}
+              </span>
+            </div>
+            {members.length === 0 ? (
+              <p
+                className="text-[10px] text-dim italic pl-0.5 pb-1"
+                data-testid={`department-group-${key ?? 'none'}-empty`}
+              >
+                Nobody yet.
+              </p>
+            ) : (
+              <div className="flex flex-col gap-1">
+                {members.map((p) => (
           <div
             key={p.name}
             className="rounded border px-2.5 py-1.5 flex flex-wrap items-center gap-2 text-[11px]"
@@ -175,6 +230,10 @@ export default function DepartmentEditor({ members, readOnly }: Props) {
                   </option>
                 ))}
               </select>
+            )}
+          </div>
+                ))}
+              </div>
             )}
           </div>
         ))}

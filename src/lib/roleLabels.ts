@@ -202,6 +202,18 @@ export function rosterRoleTitle(
 // first and then settled on **Underwriting**; newest-first applies, so
 // ACCOUNTING IS NOT ONE OF THE FOUR and there is no fifth.
 //
+// ★★★ AMENDED 2026-08-31 (fix-464) — THERE ARE SIX, AND "no fifth" IS
+// SUPERSEDED. Having classified 32 of 35 people himself, Bobby found three the
+// picker could not fit — Darin, Eric and Keenan, whose roster notes read CEO,
+// President and IT: *"eric and darin are president and ceo, so they need a
+// department. keenan is investor relations/IT so he needs a department too."*
+// Offered one new department or two, he took **two**, so that IT is its own
+// function rather than filed under the CEO.
+//
+// ★★ ACCOUNTING IS STILL NOT ONE OF THEM. Only the "no fifth" half of the note
+// above expired; the Accounting half did not, and blurring the two would undo a
+// decision he made in the same conversation.
+//
 // ★★ SAME SPLIT AS ROLE_TITLE ABOVE: a stable key in the database, the words
 // he used on the screen. `design_entitlements` is a join-safe key;
 // "Design & Entitlements" is the department.
@@ -216,6 +228,11 @@ export const DEPARTMENT_LABEL: Record<Department, string> = {
   design_entitlements: 'Design & Entitlements',
   acquisitions: 'Acquisitions',
   underwriting: 'Underwriting',
+  // ★ fix-464. "IT & Investor Relations" is his phrasing turned into a name
+  //   plate — he wrote "investor relations/IT"; the ampersand reads as a
+  //   department where the slash reads as a job description.
+  executive: 'Executive',
+  it_investor_relations: 'IT & Investor Relations',
 };
 
 /** The four, in the order Bobby listed them — which is the order the picker
@@ -226,6 +243,12 @@ export const DEPARTMENTS: readonly Department[] = [
   'design_entitlements',
   'acquisitions',
   'underwriting',
+  // ★★ fix-464 APPENDS — it does not reshuffle. The four above stay exactly
+  //    where they were: this array's order is the one Bobby scans, and he has
+  //    just spent a session using it to classify 32 people. Moving Executive to
+  //    the top would be tidier and would cost him the muscle memory he built.
+  'executive',
+  'it_investor_relations',
 ];
 
 /** What to print for a department, including the un-classified case.
