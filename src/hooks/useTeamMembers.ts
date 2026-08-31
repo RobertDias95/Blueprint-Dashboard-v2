@@ -84,7 +84,13 @@ export function useTeamMembers() {
           // ★ fix-343: first_name + last_name landed on prod 2026-08-18 and are
           // read for DISPLAY only — the avatar's initials (BD, not BO). `name`
           // stays the join key and is never written.
-          'id, name, first_name, last_name, role, active, former, email, notes, updated_at, active_start_quarter, active_end_quarter',
+          // ★★★ fix-461: `department` MUST be in this list. The select is EXPLICIT,
+          // so a column added to the table is invisible to every consumer until
+          // it is named here — the trap fix-386 hit on useProjects and fix-410
+          // recorded as "a new column is a four-place job, and three of them
+          // fail SILENTLY". Without this line the Departments panel would show
+          // every person as unclassified for ever, with no error anywhere.
+          'id, name, first_name, last_name, role, active, former, email, notes, updated_at, active_start_quarter, active_end_quarter, department',
         )
         .order('name', { ascending: true });
       if (error) throw error;

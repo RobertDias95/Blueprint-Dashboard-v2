@@ -2,6 +2,7 @@ import PillListEditor from './PillListEditor';
 import TeamStructureEditor from './TeamStructureEditor';
 import DaRoutingEditor from './DaRoutingEditor';
 import PermitsMissingLeadPanel from './PermitsMissingLeadPanel';
+import DepartmentEditor from './DepartmentEditor';
 import MentionTagsEditor from './MentionTagsEditor';
 import TeamActiveQuartersEditor from './TeamActiveQuartersEditor';
 import QuarterLayoutEditor from './QuarterLayoutEditor';
@@ -255,6 +256,19 @@ export default function AdminTeamTab() {
           ents={teamQ.ents}
           readOnly={!isAdmin}
         />
+      </Section>
+
+      {/* ★★★ fix-461 (P-045 prereq): the DEPARTMENT axis — Policy, Design &
+          Entitlements, Acquisitions, Underwriting.
+
+          ★★ It sits directly under Team Structure and above the two permit-side
+          gap panels because it is a fact about the ROSTER, like the lists above
+          it, rather than about permits. And it is the FOURTH roster-gap surface
+          on this tab, in the same warning shape as the other three on purpose.
+
+          ★ A DEPARTMENT IS NOT A PERMISSION. Nothing gates on it. */}
+      <Section title="Departments">
+        <DepartmentEditor members={teamQ.all} readOnly={!isAdmin} />
       </Section>
 
       {/* ★★★ fix-458 §A (P-106): the THIRD roster-gap surface on this tab, and
