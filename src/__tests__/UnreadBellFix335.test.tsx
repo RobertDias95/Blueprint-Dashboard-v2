@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { mockTaskOwnership } from '../test/taskOwnership';
 import { fireEvent, render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import type { PermitWithCycles, Project } from '../lib/database.types';
@@ -124,9 +125,7 @@ vi.mock('../hooks/useTaskTree', () => ({
 // input, so the dropdown's counts and My Board's sections agree about who a
 // task belongs to. This suite renders the bell WITHOUT a QueryClientProvider by
 // design, so the hook is mocked here rather than the suite being rewritten.
-vi.mock('../hooks/useTaskOwnership', () => ({
-  useTaskOwnership: () => ({ matches: () => true }),
-}));
+vi.mock('../hooks/useTaskOwnership', () => mockTaskOwnership());
 vi.mock('../hooks/useBoardReads', () => ({
   useBoardReads: () => ({ data: state.reads }),
   useMarkBoardItemsRead: () => ({ mutate: state.markRead, isPending: false }),

@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { mockTaskOwnership } from '../test/taskOwnership';
 import { fireEvent, render, screen } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -91,12 +92,7 @@ vi.mock('../hooks/useSelfScope', () => ({
     ready: true,
   }),
 }));
-vi.mock('../hooks/useTaskOwnership', () => ({
-  // ★ fix-458 added a fourth member to this hook (isUnclaimed). Declared
-  //   here so the partial mock keeps matching the real shape — the trap
-  //   fix-407 hit and fix-449 documented.
-  useTaskOwnership: () => ({ isUnclaimed: () => false, matches: () => true }),
-}));
+vi.mock('../hooks/useTaskOwnership', () => mockTaskOwnership());
 vi.mock('../hooks/useScraperActivity', () => ({
   useScraperActivity: () => ({ data: [] }),
   useScraperActivitySummary: () => ({ data: null }),
