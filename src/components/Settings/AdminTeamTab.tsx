@@ -260,7 +260,14 @@ export default function AdminTeamTab() {
       </Section>
 
       {/* ★★★ fix-461 (P-045 prereq): the DEPARTMENT axis — Policy, Design &
-          Entitlements, Acquisitions, Underwriting.
+          Entitlements, Acquisitions, Underwriting, and (fix-464) Executive and
+          IT & Investor Relations.
+
+          ★ SIX SINCE 2026-08-31. Bobby classified 32 of 35 people with this
+          panel and found three it could not fit — a CEO, a President and an IT
+          lead, who sit above the original four rather than inside one. A screen
+          that still said "four" while its own dropdown offered six would be the
+          next person's wrong answer.
 
           ★★ It sits directly under Team Structure and above the two permit-side
           gap panels because it is a fact about the ROSTER, like the lists above

@@ -116,6 +116,18 @@ export function isFormerMember(m: MembershipFlags | null | undefined): boolean {
 // and are NEVER ASSIGNED WORK — EJ, Greg and Taylor (Underwriting), Keenan
 // (IT), Lucas (Policy) and Darin (CEO).
 //
+// ★ IT IS SEVEN NOW — Eric (President) joined after this was written. The count
+// above is left as the historical fact it states (what landed on 2026-08-18);
+// this line is what stops it being read as current. The RULE is unchanged and
+// does not depend on the number.
+//
+// ★★ AND THEIR FUNCTIONS ARE NOW ALSO DEPARTMENTS (fix-461 / fix-464) — all
+// seven are classifiable since Executive and IT & Investor Relations were
+// added. That changes NOTHING here: a department is not a permission and never
+// gates assignability. `viewer` is still what keeps them out of the pickers, and
+// whether that role is now redundant for some of them is Bobby's open
+// question, deliberately untouched.
+//
 // ★ THEY ARE CURRENT MEMBERS. `active` is true and `former` is false, all six,
 // and that is correct — they work here. So `isCurrentMember` says yes, and the
 // task-assignee pickers (which source `activeMemberNamesOf`) started offering

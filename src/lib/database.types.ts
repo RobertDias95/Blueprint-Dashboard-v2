@@ -1298,12 +1298,32 @@ export interface TargetSubmitFormula {
  *  ★ ACCOUNTING IS NOT ONE OF THEM. He said *"accounting, which is like EJ,
  *  Greg and them"* first and then settled on **Underwriting**; newest-first
  *  applies. Do not add a fifth and do not restore Accounting — the database
- *  CHECK constraint holds the same four. */
+ *  CHECK constraint holds the same four. *
+ *  ★★★ AMENDED 2026-08-31 (fix-464) — THERE ARE SIX. Bobby, having classified
+ *  32 of 35 people himself: *"eric and darin are president and ceo, so they need
+ *  a department. keenan is investor relations/IT so he needs a department too."*
+ *  Offered one new department or two, he took **two** — Executive, and IT &
+ *  Investor Relations — so that **IT is its own function rather than filed under
+ *  the CEO**.
+ *
+ *  ★★ SO "DO NOT ADD A FIFTH" ABOVE IS SUPERSEDED, and is kept only because the
+ *  sentence beside it is not: **Accounting is still not a department.** He
+ *  replaced it with Underwriting in the same conversation and has not revisited
+ *  it. The two halves of that note had one lifetime between them and now have
+ *  two.
+ *
+ *  ★ THE VOCABULARY LIVES IN FIVE PLACES AND THEY MOVE TOGETHER: this union,
+ *  DEPARTMENT_LABEL, DEPARTMENTS, the `team_members_department_check`
+ *  constraint, and — the one fix-464's STEP 0 turned up — the value list inside
+ *  `bp_set_team_department`. Widening four of the five ships a picker that
+ *  offers an option the writer rejects. */
 export type Department =
   | 'policy'
   | 'design_entitlements'
   | 'acquisitions'
-  | 'underwriting';
+  | 'underwriting'
+  | 'executive'
+  | 'it_investor_relations';
 
 export type TeamRole =
   | 'da'
