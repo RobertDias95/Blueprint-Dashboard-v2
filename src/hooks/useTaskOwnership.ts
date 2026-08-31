@@ -2,6 +2,7 @@ import { useCallback, useMemo } from 'react';
 import { usePermits } from './usePermits';
 import { useProjects } from './useProjects';
 import { useDmDaGroups } from './useDmDaGroups';
+import { isUnclaimedTask } from '../lib/unclaimedWork';
 import { findDmForDa } from '../components/wizard/dmRouting';
 import {
   isCoAssigned,
@@ -58,6 +59,12 @@ export interface TaskOwnership {
    * `matches` and is provably unchanged.
    */
   ownsDirectly: (task: OwnableNode, name: string | null) => boolean;
+  /** ★★★ fix-458 (P-106): the task reaches NOBODY — nothing assigned, no
+   *  co-assignee, and the discipline fallback resolves to null. Seventeen open
+   *  tasks on prod, in no person's My Tasks and on no board. See
+   *  lib/unclaimedWork for why this asks the resolver instead of reading
+   *  `ent_lead`: three of the seventeen are `arch` tasks on permits with no DA. */
+  isUnclaimed: (task: OwnableNode) => boolean;
   /** Reachable ONLY through the co-assignee join — shared work, not yours. */
   isCoAssigned: (task: OwnableNode, name: string | null) => boolean;
 }
@@ -146,6 +153,18 @@ export function useTaskOwnership(): TaskOwnership {
         ownsDirectly(task, name, ctxFor(task)),
       isCoAssigned: (task: OwnableNode, name: string | null) =>
         isCoAssigned(task, name, ctxFor(task)),
+      // ★★★ fix-458 (P-106): does this task reach NOBODY?
+      //
+      //    It belongs here rather than beside the caller for the reason the
+      //    block above gives about `matches`: one context builder, now four
+      //    predicates, so "nobody owns this" cannot be answered from a
+      //    different context than "you own this" was.
+      //
+      //    ★ It takes no name — that is the point. The other three ask "is it
+      //    THIS person's"; this one asks whether the resolver produced anybody
+      //    at all.
+      isUnclaimed: (task: OwnableNode) =>
+        isUnclaimedTask(task, ctxFor(task)),
     }),
     [ctxFor],
   );

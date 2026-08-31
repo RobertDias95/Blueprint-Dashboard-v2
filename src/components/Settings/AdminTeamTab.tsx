@@ -1,6 +1,7 @@
 import PillListEditor from './PillListEditor';
 import TeamStructureEditor from './TeamStructureEditor';
 import DaRoutingEditor from './DaRoutingEditor';
+import PermitsMissingLeadPanel from './PermitsMissingLeadPanel';
 import MentionTagsEditor from './MentionTagsEditor';
 import TeamActiveQuartersEditor from './TeamActiveQuartersEditor';
 import QuarterLayoutEditor from './QuarterLayoutEditor';
@@ -254,6 +255,19 @@ export default function AdminTeamTab() {
           ents={teamQ.ents}
           readOnly={!isAdmin}
         />
+      </Section>
+
+      {/* ★★★ fix-458 §A (P-106): the THIRD roster-gap surface on this tab, and
+          deliberately in the same shape as the two above it — fix-457's
+          "active DA with no routing row" and TeamStructureEditor's "⚠ Unassigned
+          DAs". A gap in the roster is one idea; three visual languages for it
+          would make the screen harder to read than the gaps it reports.
+
+          ★★ It sits AFTER DA Routing because that is the causal order: a DA with
+          no routing row is why a permit ends up with no lead, and a permit with
+          no lead is why seventeen tasks reach nobody. */}
+      <Section title="Permits with no entitlement lead">
+        <PermitsMissingLeadPanel ents={teamQ.ents} readOnly={!isAdmin} />
       </Section>
 
       {/* ★★ fix-347 §2: the custom chat tags. Beside the other roster that

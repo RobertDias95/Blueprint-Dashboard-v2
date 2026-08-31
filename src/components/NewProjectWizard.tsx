@@ -26,6 +26,7 @@ import {
   type WizardPermit,
   type WizardState,
 } from './wizard/wizardState';
+import { pushToast } from '../stores/toastStore';
 import { findDmForDa } from './wizard/dmRouting';
 import { useDmDaGroups } from '../hooks/useDmDaGroups';
 import { lookupEntLeadForDa } from '../hooks/useDaTeamRouting';
@@ -564,6 +565,39 @@ export default function NewProjectWizard({ open, onClose, initialState }: Props)
         } catch {
           // Toast handled by the hook.
         }
+      }
+
+      // ★★★ fix-458 §C1 (P-106) — FLAG, NOT BLOCK.
+      //
+      // STEP 0d named THIS path: 14 of the 15 lead-less permits on prod share
+      // their project's `created_at` to the microsecond, which is one
+      // transaction — bp_create_project_with_permits. Twelve were created
+      // 19–21 Aug in same-minute groups: one backfill import of already-issued
+      // Seattle work.
+      //
+      // ★★ §C2: THE RESOLVER ALREADY RAN AND IS NOT DUPLICATED HERE. The block
+      // above calls `lookupEntLeadForDa` (bp_ent_lead_for_da) exactly as fix-91
+      // wrote it. It cannot help in the two cases that produced this gap:
+      //   · 8 of the 15 permits have NO DA at all, so `if (!derivedEntLead &&
+      //     bpRow?.da)` never even attempts a lookup, and
+      //   · 5 name George, who is not on the active roster and so has no
+      //     routing row for it to find.
+      // A second resolution rule would not have found a lead either — there is
+      // no lead to find. What was missing is that the wizard said NOTHING.
+      //
+      // ★★★ AND IT MUST NOT BLOCK. That import was legitimate work; a hard stop
+      // would have meant twelve already-issued permits never entering the
+      // system at all. The consequence is named instead, because it is not
+      // obvious: entitlement tasks on a lead-less permit resolve to nobody and
+      // appear on no board — which is how a client waited 66 days for approved
+      // plans nobody could see were owed.
+      if (!derivedEntLead) {
+        pushToast(
+          'Project created without an entitlement lead — its entitlement tasks ' +
+            'will reach nobody until one is set. Settings → Team lists permits ' +
+            'with no lead.',
+          'warn',
+        );
       }
 
       navigate(`/project/${result.project_id}`, { state: originState() });
