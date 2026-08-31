@@ -1280,6 +1280,18 @@ export interface TargetSubmitFormula {
  *  legacy + lead variants live (`ent` + `ent_lead`, `acq` + `acq_lead`).
  *  Listed as fix-23 cleanup; fix-22's wizard filters use `role IN (...)`
  *  forms to bridge the drift. */
+/** ★★★ fix-461 — Bobby's four departments, 2026-08-26, FINAL.
+ *
+ *  ★ ACCOUNTING IS NOT ONE OF THEM. He said *"accounting, which is like EJ,
+ *  Greg and them"* first and then settled on **Underwriting**; newest-first
+ *  applies. Do not add a fifth and do not restore Accounting — the database
+ *  CHECK constraint holds the same four. */
+export type Department =
+  | 'policy'
+  | 'design_entitlements'
+  | 'acquisitions'
+  | 'underwriting';
+
 export type TeamRole =
   | 'da'
   | 'dm'
@@ -1353,6 +1365,27 @@ export interface TeamMember {
    *  their rows — see resolveBoardViewer. Optional so fixtures predating
    *  fix-298 still typecheck. */
   is_oversight?: boolean | null;
+  /** ★★★ fix-461 (P-045 prereq): which of the four departments this PERSON
+   *  belongs to. Bobby, 2026-08-26: *"[Lucas is] a director, like Dave, but two
+   *  different departments."* `role` mixes DISCIPLINE with SENIORITY and cannot
+   *  express "director of X"; this is the axis that can.
+   *
+   *  ★★ NULL IS A FIRST-CLASS STATE, not an error. All 46 rows hold NULL the
+   *  day this ships — Bobby classifies people himself, and "not yet classified"
+   *  is a real answer the gap panel is built to show.
+   *
+   *  ★★★ IT IS A FACT ABOUT THE PERSON, THOUGH IT SITS ON A ROLE ROW. The
+   *  roster is one row per (person, role) and six people carry two rows, so
+   *  "Dave is Policy as a director and Design & Entitlements as a schematic
+   *  designer" is expressible in the schema and is nonsense. A database trigger
+   *  (`bp_trg_team_department_sync`) propagates any change to every row sharing
+   *  the name and makes a new row inherit — so a split cannot be created by the
+   *  editor, by hand SQL, or by the add-a-person path. Write it through
+   *  `bp_set_team_department`, which takes a NAME, never a row id.
+   *
+   *  ★ A DEPARTMENT IS NOT A PERMISSION. Nothing gates on it and nothing may
+   *  start to — admin/editor gating lives in `profiles.role`. */
+  department?: Department | null;
 }
 
 /** fix-225: DA project handoff ledger row (project_da_handoffs). Each row = one

@@ -1,4 +1,4 @@
-import type { TeamRole } from './database.types';
+import type { TeamRole, Department } from './database.types';
 
 // ===========================================================================
 // fix-343 — job titles, not database keys
@@ -190,4 +190,51 @@ export function rosterRoleTitle(
     return fn === '' ? null : fn;
   }
   return held.map((r) => ROLE_TITLE[r] ?? r).join(TITLE_SEPARATOR);
+}
+
+
+// ===========================================================================
+// ★★★ fix-461 — THE FOUR DEPARTMENTS, AS BOBBY SAID THEM
+// ===========================================================================
+//
+// Bobby, 2026-08-26, final: **Policy · Design & Entitlements · Acquisitions ·
+// Underwriting.** He offered *"accounting, which is like EJ, Greg and them"*
+// first and then settled on **Underwriting**; newest-first applies, so
+// ACCOUNTING IS NOT ONE OF THE FOUR and there is no fifth.
+//
+// ★★ SAME SPLIT AS ROLE_TITLE ABOVE: a stable key in the database, the words
+// he used on the screen. `design_entitlements` is a join-safe key;
+// "Design & Entitlements" is the department.
+//
+// ★ WHY THE AXIS EXISTS — Bobby: *"[Lucas is] a director, like Dave, but two
+// different departments."* `role` mixes discipline with seniority, so it can
+// say "director" and it can say "schematic", but it cannot say "director of
+// Policy". This can.
+
+export const DEPARTMENT_LABEL: Record<Department, string> = {
+  policy: 'Policy',
+  design_entitlements: 'Design & Entitlements',
+  acquisitions: 'Acquisitions',
+  underwriting: 'Underwriting',
+};
+
+/** The four, in the order Bobby listed them — which is the order the picker
+ *  offers and the panel groups by. Not alphabetical: his order is the one he
+ *  will scan for. */
+export const DEPARTMENTS: readonly Department[] = [
+  'policy',
+  'design_entitlements',
+  'acquisitions',
+  'underwriting',
+];
+
+/** What to print for a department, including the un-classified case.
+ *
+ *  ★ NULL renders as a WORD, not a blank. 41 active rows hold NULL the day
+ *  this ships, and a column of empty cells reads as a loading bug rather than
+ *  as the work it is. */
+export const NO_DEPARTMENT_LABEL = 'No department';
+
+export function departmentLabel(d: Department | null | undefined): string {
+  return d ? DEPARTMENT_LABEL[d] : NO_DEPARTMENT_LABEL;
 }
