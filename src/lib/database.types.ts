@@ -1020,6 +1020,10 @@ export type AutoEvent =
   // never by a trigger, because nothing HAPPENS on day 7; that is the problem.
   | 'city_target_chase';
 
+/** ★ fix-460: which source a task row came from. 'permit' is every row that
+ *  existed before this ticket; 'team' is a task with no permit. */
+export type TaskSource = 'permit' | 'team';
+
 /** fix-70: a task as returned by bp_list_permit_tasks / bp_my_tasks. The
  *  `status` field is the permit_tasks.completion_status value
  *  ('Open' | 'In Progress' | 'Resolved'); `primary_assignee` is DERIVED from
@@ -1027,7 +1031,19 @@ export type AutoEvent =
  *  join-table rows. */
 export interface TaskNode {
   id: string;
-  permit_id: number;
+  /** ★★★ fix-460 (P-046): NULL on a TEAM TASK — a task that belongs to no
+   *  permit. `permit_tasks.permit_id` is still `integer NOT NULL` and always
+   *  will be; team tasks live in their own table and are UNIONed in by
+   *  `bp_list_tasks`.
+   *
+   *  ★★ NULLABLE RATHER THAN A SENTINEL, AND THAT IS THE RULING IN TYPESCRIPT.
+   *  Bobby, 2026-08-26: *"I'm not 100% sure I love the idea or concept around a
+   *  fake project because it seems like we're putting a Band-Aid on a bigger
+   *  problem."* A `permit_id` of `-1`, or a `project_address` of `''`, IS that
+   *  fake permit in another costume — every consumer then has to know the magic
+   *  value. `null` is the honest answer, and the compiler is what makes each
+   *  consumer say out loud what it does with it. */
+  permit_id: number | null;
   parent_task_id: string | null;
   discipline: 'arch' | 'ent';
   /** fix-79: lifecycle PHASE. 'de' = task created before c0.submitted (Design
@@ -1085,6 +1101,11 @@ export interface TaskNode {
    *  permit has no DA/ent_lead set. */
   primary_assignee: string | null;
   co_assignees: string[];
+  /** ★★★ fix-460 §A3: which table this row came from. The ONLY field the
+   *  union added — every other field a permit task carries is byte-identical to
+   *  what it was before. Absent on hand-built fixtures, which is why it is
+   *  optional; `taskSource()` in lib/taskSource treats missing as 'permit'. */
+  source?: TaskSource;
   /** Present on top-level tasks (from bp_list_permit_tasks); absent on
    *  subtasks and on bp_my_tasks rows. */
   subtasks?: TaskNode[];
@@ -1093,8 +1114,15 @@ export interface TaskNode {
 /** fix-70: a row from bp_my_tasks — a task the caller is assigned to (implicit
  *  primary OR explicit co-assignee), with its project/permit context. */
 export interface MyTaskNode extends TaskNode {
-  project_id: string;
-  project_address: string;
+  /** ★ fix-460: NULL on a team task — see TaskNode.permit_id.
+   *
+   *  ★★★ A TEAM TASK'S `ref_project_id` IS DELIBERATELY NOT SURFACED HERE. The
+   *  table can record which project a team task is ABOUT, but `bp_list_tasks`
+   *  emits `project_id: null` regardless — because a project view filters on
+   *  this field, and that is what makes "a team task never appears in a project
+   *  view" true BY CONSTRUCTION rather than by a rule somebody has to remember. */
+  project_id: string | null;
+  project_address: string | null;
   permit_type: string | null;
   /** fix-224: the permit's DA — lets My Tasks resolve fix-222 co-assignee role
    *  tokens (design_associate / design_manager via dm_da_groups) for display,

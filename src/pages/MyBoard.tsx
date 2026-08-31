@@ -853,6 +853,9 @@ export default function MyBoard() {
     const acks = acksQ.data ?? [];
     const tasksByPermit = new Map<number, BoardTask[]>();
     for (const t of allTasks ?? []) {
+      // ★ fix-460: handoffs are a permit-to-permit story; a team task has no
+      //   permit and takes no part in one.
+      if (t.permit_id === null) continue;
       const list = tasksByPermit.get(t.permit_id) ?? [];
       list.push(t);
       tasksByPermit.set(t.permit_id, list);
@@ -1112,6 +1115,14 @@ export default function MyBoard() {
       // ★ The SAME hook My Tasks' checkbox uses — bp_upsert_permit_task via
       // useUpsertTask — so the two can never diverge, and My Tasks reflects
       // this immediately (the hook invalidates permitTasksAll).
+      // ★★ fix-460: a TEAM TASK cannot be ticked from HERE, and it never
+      //    reaches here anyway — `onTick` already returns when
+      //    `item.permitId == null`, which is every team task. The guard is
+      //    restated rather than assumed because this writer is
+      //    `bp_upsert_permit_task`, whose whole contract is a permit. Team
+      //    tasks are ticked from My Tasks, through the shared
+      //    `useSetTaskStatus` path that routes them to the team writer.
+      if (item.task.permit_id === null) return;
       upsertTask.mutate({
         id: item.task.id,
         permitId: item.task.permit_id,

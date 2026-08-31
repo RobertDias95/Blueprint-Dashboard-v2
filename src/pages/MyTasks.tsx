@@ -95,8 +95,19 @@ import MilestoneCard from '../components/MyTasks/MilestoneCard';
 import { useShowCoAssigned } from '../hooks/useShowCoAssigned';
 import CoAssignedToggle from '../components/shared/CoAssignedToggle';
 import UnclaimedToggle from '../components/shared/UnclaimedToggle';
+import TeamTaskComposer from '../components/MyTasks/TeamTaskComposer';
 import { useShowUnclaimed } from '../hooks/useShowUnclaimed';
 import { canSeeUnclaimedQueue } from '../lib/unclaimedWork';
+import {
+  TEAM_TASK_CONTEXT,
+  TASK_KIND_LABEL,
+  taskContextLine,
+  taskKind,
+} from '../lib/taskSource';
+
+/** ★ fix-460: the by-project view's bucket key for tasks that have no project.
+ *  A uuid-shaped key is impossible to collide with a real project id. */
+const TEAM_GROUP_KEY = 'team-tasks-no-project';
 import { useIsTenantAdmin } from '../hooks/useIsTenantAdmin';
 import {
   CoAssignedContext,
@@ -932,7 +943,9 @@ function Body({
     let cancelled = 0;
     const projects = new Set<string>();
     for (const t of filtered) {
-      projects.add(t.project_id);
+      // ★ fix-460: a team task belongs to no project, so it adds none to the
+      //   "projects represented" count. It still counts as a TASK below.
+      if (t.project_id !== null) projects.add(t.project_id);
       // fix-262: a cancelled task counts as neither open nor resolved — it is
       // excluded from the done-% denominator below too, so the percentage keeps
       // meaning "of the work still on the books, how much is finished".
@@ -1079,6 +1092,7 @@ function Body({
         selfName={identity.name}
         canSeeUnclaimed={canSeeUnclaimed}
         unclaimedCount={unclaimedTasks.length}
+        composerMembers={members}
       />
       {/* fix-138-b: shrink right sidebar from 1fr (20%) → 0.85fr (≈17%)
           so the two bucket columns claim more horizontal real estate;
@@ -1284,6 +1298,7 @@ function FilterRow({
   selfName,
   canSeeUnclaimed,
   unclaimedCount,
+  composerMembers,
 }: {
   filters: FilterState;
   roster: {
@@ -1302,6 +1317,8 @@ function FilterRow({
   canSeeUnclaimed: boolean;
   /** ★ fix-458 §B5: rendered whether or not the switch is on. */
   unclaimedCount: number;
+  /** ★ fix-460 §B5: roster for the team-task composer's owner picker. */
+  composerMembers: readonly TeamMember[];
 }) {
   // ★★★ fix-445 §B2 — HOW MANY PEOPLE FILTERS ARE HIDDEN BEHIND THE BUTTON.
   //
@@ -1491,6 +1508,11 @@ function FilterRow({
             zero — a control you must click before it tells you anything would
             repeat the failure this ticket is about. */}
       {canSeeUnclaimed && <UnclaimedToggle count={unclaimedCount} />}
+      {/* ★★★ fix-460 §B5 (P-046) — a task that belongs to no permit.
+          ★ A CONTROL, NOT A SCREEN: no route, no modal, no ribbon entry, no
+            new tab. Bobby ruled against a third board lane for exactly this
+            reason, and the same reasoning governs where the composer lives. */}
+      <TeamTaskComposer memberNames={composerMembers} />
       {/* ★ fix-428: the label is Bobby's word; the id is unchanged. The
           FilterBar's own `mytasks-filter-clear` already read correctly and did
           not move.
@@ -2130,7 +2152,14 @@ function ProjectGroupedView({
       return g;
     }
     for (const t of tasks) {
-      bucketFor(t.project_id, t.project_address).rows.push({
+      // ★★ fix-460: the by-project view groups by project. A team task has
+      //    none, so it groups under its own heading rather than being dropped
+      //    — losing a row from a view because it lacks a permit is the exact
+      //    failure this ticket exists to end.
+      bucketFor(
+        t.project_id ?? TEAM_GROUP_KEY,
+        t.project_address ?? TEAM_TASK_CONTEXT,
+      ).rows.push({
         kind: 'task',
         id: t.id,
         task: t,
@@ -2376,13 +2405,35 @@ const TaskCard = memo(function TaskCard({
         </span>
       </div>
       <div className="flex items-center justify-between mt-1 gap-2">
+        {/* ★★★ fix-460 §B2 — THE CONTEXT LINE IS THE ONLY VISIBLE DIFFERENCE.
+            A project task shows its address; a team task has none, so it says
+            what it is rather than leaving a blank where every other row has a
+            place. Nothing else about the row changes: same lane, same band,
+            same filters, same partition. */}
         <span
           className="text-[10px] truncate"
           style={{ color: 'var(--color-muted)' }}
           data-testid={`mytask-card-${task.id}-address`}
         >
-          {task.project_address}
+          {taskContextLine(task)}
         </span>
+        {/* ★★ §B4 — the tag. Bobby: *"maybe there's a tag on it or something
+            that identifies it as an agenda item versus a bot item versus the
+            other options."* Two words, and NO TAG on an ordinary permit task —
+            1,643 badges saying "normal" would be noise. */}
+        {taskKind(task) && (
+          <span
+            className="text-[8.5px] font-bold uppercase tracking-wide px-1 py-0.5 rounded flex-none"
+            style={
+              taskKind(task) === 'team'
+                ? { background: 'var(--color-de-bg)', color: 'var(--color-de)' }
+                : { background: 'var(--color-s2)', color: 'var(--color-muted)' }
+            }
+            data-testid={`mytask-card-${task.id}-kind`}
+          >
+            {TASK_KIND_LABEL[taskKind(task)!]}
+          </span>
+        )}
         {task.target_date && (
           <span
             className="text-[10px] font-mono"
@@ -2664,7 +2715,7 @@ function filterTasks(
     }
     if (q) {
       const hay =
-        `${t.text} ${t.project_address} ${structAddressByPermitId.get(t.permit_id) ?? ''} ${t.primary_assignee ?? ''} ${t.co_assignees.join(' ')}`.toLowerCase();
+        `${t.text} ${t.project_address ?? ''} ${t.permit_id !== null ? (structAddressByPermitId.get(t.permit_id) ?? '') : ''} ${t.primary_assignee ?? ''} ${t.co_assignees.join(' ')}`.toLowerCase();
       if (!hay.includes(q)) return false;
     }
     return true;

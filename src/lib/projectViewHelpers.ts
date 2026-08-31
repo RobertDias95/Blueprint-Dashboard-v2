@@ -333,9 +333,13 @@ export function isPermitDone(
  *  so a caller that hasn't loaded holds yet renders pre-fix-262 behaviour rather
  *  than flickering rows away. */
 export function isCancelledProject(
-  projectId: string,
+  // ★ fix-460: nullable because a TEAM TASK has no project. A task that
+  //   belongs to no project cannot be on a cancelled one — answering `false`
+  //   is the correct answer, not a fallback.
+  projectId: string | null | undefined,
   cancelledIds?: ReadonlySet<string>,
 ): boolean {
+  if (!projectId) return false;
   return cancelledIds?.has(projectId) ?? false;
 }
 

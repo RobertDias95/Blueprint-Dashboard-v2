@@ -59,8 +59,11 @@ export interface HeldSets {
 /** A row shaped enough to ask "is this held" — a task, a board item, anything
  *  that hangs off a permit inside a project. */
 export interface HeldWorkRef {
-  permit_id: number;
-  project_id: string;
+  /** ★ fix-460: nullable because a TEAM TASK belongs to no permit and no
+   *  project. Every held-work question answers "not held" for such a row — a
+   *  hold is a property of a permit or a project, and it has neither. */
+  permit_id: number | null;
+  project_id: string | null;
 }
 
 /** The minimal open-row shapes, so callers can pass the raw arrays their
@@ -247,9 +250,12 @@ export function holdRowFor(
   index: HoldRowIndex = NO_HOLD_ROWS,
 ): HoldChipRow | null {
   if (!ref) return null;
+  // ★ fix-460: a team task has neither id, so neither index can hold a row for
+  //   it. `?? null` already says "no hold"; the guards just keep a null out of
+  //   a Map.get typed for a key.
   return (
-    index.byPermitId.get(ref.permit_id) ??
-    index.byProjectId.get(ref.project_id) ??
+    (ref.permit_id !== null ? index.byPermitId.get(ref.permit_id) : undefined) ??
+    (ref.project_id !== null ? index.byProjectId.get(ref.project_id) : undefined) ??
     null
   );
 }

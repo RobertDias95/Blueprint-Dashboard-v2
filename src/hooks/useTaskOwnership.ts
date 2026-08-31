@@ -122,8 +122,15 @@ export function useTaskOwnership(): TaskOwnership {
   //    the split does.
   const ctxFor = useCallback(
     (task: OwnableNode): TaskOwnershipContext => {
-      const permit = permitById.get(task.permit_id);
-      const project = projectById.get(task.project_id);
+      // ★★ fix-460: a TEAM TASK has no permit and no project, so both lookups
+      //    miss and the context comes out empty (da/dm/entLead all null). That
+      //    is exactly right, and it is what makes an unassigned team task
+      //    UNCLAIMED under fix-458's predicate rather than silently owned —
+      //    with no edit to that predicate.
+      const permit =
+        task.permit_id !== null ? permitById.get(task.permit_id) : undefined;
+      const project =
+        task.project_id !== null ? projectById.get(task.project_id) : undefined;
       // DA rides on the task row (permit_da); fall back to the permit's da.
       const da = task.permit_da ?? permit?.da ?? null;
       return {

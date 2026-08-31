@@ -1,10 +1,13 @@
 import { useCallback } from 'react';
 import { useUpsertTask } from './useTaskTree';
+import { useSetTeamTaskStatus } from './useTeamTasks';
+import { isTeamTask } from '../lib/taskSource';
 import { useTaskStatusOverlay } from '../lib/taskStatusOverlayContext';
 import {
   taskStatusUpsertInput,
   type TaskStatusTarget,
 } from '../lib/taskStatusWrite';
+import type { TaskSource } from '../lib/database.types';
 import {
   nextCheckboxStatus,
   writableStatus,
@@ -33,8 +36,16 @@ import {
 // asking for. The checkbox computes it (forward-only, terminal at Resolved —
 // fix-235); the chip is handed it. Everything after that point is shared.
 
-/** Row shape both entry points hand over. */
-export type StatusTargetTask = TaskStatusTarget & { status: TaskStatus };
+/** Row shape both entry points hand over.
+ *
+ *  ★ fix-460 adds `source`, so this one write path can route a TEAM TASK to the
+ *  team writer. It is optional because hundreds of fixtures predate it and
+ *  every one of them is a permit task — `isTeamTask` reads missing as
+ *  'permit'. */
+export type StatusTargetTask = TaskStatusTarget & {
+  status: TaskStatus;
+  source?: TaskSource | null;
+};
 
 export interface SetTaskStatusApi {
   /** Ask for an explicit status — the chip's trio. */
@@ -49,6 +60,13 @@ export interface SetTaskStatusApi {
 
 export function useSetTaskStatus(): SetTaskStatusApi {
   const upsert = useUpsertTask();
+  // ★★★ fix-460 §A3's promise, kept HERE. A team task has no permit, so
+  //    `bp_upsert_permit_task` cannot write it — but the checkbox and the chip
+  //    must still work on it, and they must go on being ONE write path with two
+  //    entry points. The branch is therefore in this hook and nowhere else:
+  //    everything above it (the no-op check, the synchronous overlay, fix-434's
+  //    read-the-ref rule) is shared verbatim by both kinds of task.
+  const setTeamStatus = useSetTeamTaskStatus();
   const overlay = useTaskStatusOverlay();
   const { set: setOverlay, readCurrent } = overlay;
 
@@ -65,6 +83,13 @@ export function useSetTaskStatus(): SetTaskStatusApi {
       //    batch reads this, so the two clicks cannot both decide from the
       //    same stale value.
       setOverlay(task.id, next);
+      if (isTeamTask(task)) {
+        // ★ Same optimistic tick above, different RPC below. `bp_upsert_permit_task`
+        //   is not reachable for this row and `taskStatusUpsertInput` throws if
+        //   anybody tries.
+        setTeamStatus.mutate({ id: task.id, status: next });
+        return;
+      }
       // ★★★ B3's ROLLBACK IS NOT HERE, AND THAT IS THE LESSON. It was, as
       //    `mutate(input, { onError })` — and it silently never ran, because
       //    an optimistic tick moves the row to a different sub-column, which
@@ -74,7 +99,7 @@ export function useSetTaskStatus(): SetTaskStatusApi {
       //    in the mutation's own onError now — see hooks/useTaskTree.
       upsert.mutate(taskStatusUpsertInput(task, next));
     },
-    [readCurrent, setOverlay, upsert],
+    [readCurrent, setOverlay, upsert, setTeamStatus],
   );
 
   const advance = useCallback(
