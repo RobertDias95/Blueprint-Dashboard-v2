@@ -285,7 +285,8 @@ function useMyTaskCounts(): { open: number; overdue: number } {
     let overdue = 0;
     for (const t of tasksQ.data ?? []) {
       // fix-264: work on a cancelled project is not work.
-      if (cancelled.has(t.project_id)) continue;
+      // ★ fix-460: no project means it cannot be on a cancelled one.
+      if (t.project_id !== null && cancelled.has(t.project_id)) continue;
       // ★ fix-409: ...and paused work is not on today's list unless asked for.
       if (!showHeldWork && isHeldWork(t, held)) continue;
       if (name && !matches(t, name)) continue;

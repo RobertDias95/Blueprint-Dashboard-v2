@@ -35,7 +35,11 @@ import type { TaskWriteStatus } from './taskStatus';
  *  either importing the other. */
 export interface TaskStatusTarget {
   id: string;
-  permit_id: number;
+  /** ★★ fix-460: NULL on a team task. `taskStatusUpsertInput` is only ever
+   *  called for a PERMIT task — useSetTaskStatus branches on `source` before it
+   *  gets here — so this stays `number` at the point of use via the guard in
+   *  that hook, and is nullable here only because the row type is. */
+  permit_id: number | null;
   parent_task_id: string | null;
   discipline: 'arch' | 'ent';
   bucket?: 'de' | 'pm' | null;
@@ -65,6 +69,17 @@ export function taskStatusUpsertInput(
   task: TaskStatusTarget,
   status: TaskWriteStatus,
 ): TaskStatusUpsertInput {
+  // ★★★ fix-460: a TEAM TASK MUST NEVER REACH HERE. This builds a
+  //   `bp_upsert_permit_task` payload, and that RPC's whole contract is a
+  //   permit. useSetTaskStatus routes team tasks to bp_set_team_task_status
+  //   before this is called; the throw is what makes that routing a guarantee
+  //   rather than a convention.
+  if (task.permit_id === null) {
+    throw new Error(
+      'taskStatusUpsertInput: a team task has no permit — route it to ' +
+        'bp_set_team_task_status (see useSetTaskStatus).',
+    );
+  }
   return {
     id: task.id,
     permitId: task.permit_id,

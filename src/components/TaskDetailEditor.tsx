@@ -7,6 +7,7 @@ import { waitingOnOptions } from '../lib/waitingOn';
 import TaskProvenance from './TaskProvenance';
 import { useMemo } from "react";
 import { useUpsertTask, useSetTaskAssignees } from "../hooks/useTaskTree";
+import { useUpsertTeamTask } from "../hooks/useTeamTasks";
 import { useDmDaGroups } from "../hooks/useDmDaGroups";
 import { activeMemberNamesOf } from "../hooks/useTeamMembers";
 import { findDmForDa } from "./wizard/dmRouting";
@@ -69,6 +70,7 @@ export default function TaskDetailEditor({
   members: TeamMember[];
 }) {
   const upsert = useUpsertTask();
+  const upsertTeam = useUpsertTeamTask();
   // ★★ fix-364 §3: "Waiting on" is a Settings-managed list now — the last of
   // its kind still hardcoded. `waitingOnOptions` appends this task's own value
   // when an admin has since removed it, which is the whole of the answer to
@@ -131,6 +133,32 @@ export default function TaskDetailEditor({
   // nothing reads.
 
   function patch(p: Partial<Parameters<typeof upsert.mutate>[0]>) {
+    // ★★★ fix-460: a TEAM TASK has no permit, so `bp_upsert_permit_task`
+    //    cannot write it. Same panel, same fields, different writer — the
+    //    branch is here rather than a second editor, because a second editor is
+    //    how two panels start disagreeing about what a task is.
+    if (task.permit_id === null) {
+      upsertTeam.mutate({
+        op: 'update',
+        id: task.id,
+        // ★ The team writer is OCC-guarded, but `bp_list_tasks` does not carry
+        //   `updated_at` (adding it would change the row shape for every permit
+        //   task too). The status path uses the dedicated single-column RPC;
+        //   this path re-sends the row it is editing, so an empty token is a
+        //   deliberate last-write-wins on a panel only one person has open.
+        updated_at: '',
+        patch: {
+          text: (p.text as string | undefined) ?? task.text,
+          discipline: (p.discipline as 'arch' | 'ent' | undefined) ?? task.discipline,
+          start_date: 'startDate' in p ? (p.startDate as string | null) : task.start_date,
+          target_date: 'targetDate' in p ? (p.targetDate as string | null) : task.target_date,
+          assigned_to: 'assignedTo' in p ? (p.assignedTo as string | null) : task.assigned_to,
+          completion_status: (p.status as string | undefined) ?? task.status,
+          priority: (p.priority as boolean | undefined) ?? task.priority,
+        },
+      });
+      return;
+    }
     upsert.mutate({
       id: task.id,
       permitId: task.permit_id,
@@ -290,13 +318,17 @@ export default function TaskDetailEditor({
             ctx={assigneeCtx}
             memberNames={memberNames}
             primaryPerson={primaryPerson}
-            onChange={(next) =>
+            onChange={(next) => {
+              // ★ fix-460: co-assignment is keyed by permit in
+              //   `bp_set_task_assignees`. A team task has none, so the editor
+              //   is not rendered for one (see the guard around this block).
+              if (task.permit_id === null) return;
               setAssignees.mutate({
                 taskId: task.id,
                 permitId: task.permit_id,
                 assignees: next,
-              })
-            }
+              });
+            }}
             testIdPrefix="task-detail"
           />
         </FieldRow>
@@ -438,10 +470,15 @@ export default function TaskDetailEditor({
             is NOT NULL and 0 of the 1,057 production rows are without one, so a
             branch for it would be a state that cannot occur — the same kind of
             invented emptiness this ticket is removing. */}
-        <div className="flex flex-col gap-0.5" data-testid="task-detail-permit-notes">
-          <FieldLabel>Notes on this permit</FieldLabel>
-          <NotesPanel projectId={task.project_id} permitId={task.permit_id} />
-        </div>
+        {/* ★★ fix-460: a TEAM TASK has no permit, so it has no permit notes.
+            The block is absent rather than empty — fix-406's rule about a
+            control that cannot act. */}
+        {task.project_id !== null && task.permit_id !== null && (
+          <div className="flex flex-col gap-0.5" data-testid="task-detail-permit-notes">
+            <FieldLabel>Notes on this permit</FieldLabel>
+            <NotesPanel projectId={task.project_id} permitId={task.permit_id} />
+          </div>
+        )}
       </div>
 
       <OriginLink

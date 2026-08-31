@@ -55,12 +55,15 @@ export function holdWindowsForPermit(
  * permit under a project hold.
  */
 export function isPermitHeld(
-  permit: { id: number; project_id: string },
+  // ★ fix-460: a TEAM TASK has neither a permit nor a project, so it cannot be
+  //   held. Both ids are nullable and a null on either side answers `false`.
+  permit: { id: number | null; project_id: string | null },
   heldProjectIds: ReadonlySet<string> | null | undefined,
   heldPermitIds: ReadonlySet<number> | null | undefined,
 ): boolean {
   return (
-    !!heldProjectIds?.has(permit.project_id) || !!heldPermitIds?.has(permit.id)
+    (permit.project_id !== null && !!heldProjectIds?.has(permit.project_id)) ||
+    (permit.id !== null && !!heldPermitIds?.has(permit.id))
   );
 }
 

@@ -1462,6 +1462,9 @@ function prepare(input: BoardInput): Prepared[] {
   const byProject = new Map(projects.map((p) => [p.id, p]));
   const tasksByPermit = new Map<number, BoardTask[]>();
   for (const t of tasks) {
+    // ★ fix-460: a TEAM TASK belongs to no permit, so it belongs in no
+    //   permit's group. This map feeds permit-shaped rollups only.
+    if (t.permit_id === null) continue;
     const list = tasksByPermit.get(t.permit_id) ?? [];
     list.push(t);
     tasksByPermit.set(t.permit_id, list);
@@ -1555,8 +1558,12 @@ function defaultTaskOwns(
   const permitById = new Map(input.permits.map((p) => [p.id, p]));
   const projectById = new Map(input.projects.map((p) => [p.id, p]));
   return (task, name) => {
-    const permit = permitById.get(task.permit_id);
-    const project = projectById.get(task.project_id);
+    // ★ fix-460: both miss for a team task, leaving an empty role context —
+    //   which is the correct answer, not a gap.
+    const permit =
+      task.permit_id !== null ? permitById.get(task.permit_id) : undefined;
+    const project =
+      task.project_id !== null ? projectById.get(task.project_id) : undefined;
     return taskMatchesSelfResolved(task, name, {
       da: task.permit_da ?? permit?.da ?? null,
       dm: project?.design_manager ?? permit?.dm ?? null,
@@ -1740,7 +1747,8 @@ export function buildForecast(input: BoardInput): Forecast {
     // and a SUB-PERMIT is a placeholder reviewed under its parent (fix-194).
     // Silent while nothing was dated; live the moment this loop emits a row.
     if (isCancelledProject(t.project_id, input.cancelledIds)) continue;
-    if (subPermitIds.has(t.permit_id)) continue;
+    // ★ fix-460: a team task has no permit, so it is not a sub-permit.
+    if (t.permit_id !== null && subPermitIds.has(t.permit_id)) continue;
     // ★★★ fix-409 — THE THIRD EXCLUSION, AND THE ONE THIS TICKET IS ABOUT.
     //
     // The two lines above are fix-264's and fix-194's; this is the hold rule
