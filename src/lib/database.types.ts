@@ -855,6 +855,43 @@ export interface PermitTask {
   priority?: boolean | null;
   /** fix-138-a: free-form notes shown in the task detail panel. */
   notes?: string | null;
+  /** @deprecated ★★★ fix-459 §B (P-107) — DEAD COLUMN, LIVE-LOOKING NAME.
+   *
+   *  ★★★ THE LIVE SOURCE OF CO-ASSIGNMENT IS `permit_task_assignees` — 360 rows
+   *  over 316 tasks, 100 of them open — surfaced to the app as
+   *  `TaskNode.co_assignees` by the `bp_task_co_assignees` RPC. fix-224 unified
+   *  assignment onto that join table and this array stayed behind.
+   *
+   *  ★★ THIS COLUMN IS NON-EMPTY ON **ZERO** ROWS of 1,643 (measured on prod
+   *  2026-08-30). It is not "rarely used"; it has never held a value since the
+   *  unification.
+   *
+   *  ★★★ IT HAS ALREADY PRODUCED A WRONG NUMBER IN A SHIPPED BRIEF. fix-458's
+   *  brief said "157 unassigned, 143 still reachable", measured with
+   *  `array_length(co_assignees,1)`. The true figures, taken off the join
+   *  table, are **147 / 130 / 17**. The query ran, returned something entirely
+   *  plausible, and was wrong — which is the whole reason this declaration
+   *  exists rather than the column simply being left undocumented.
+   *
+   *  ★★ SO IT IS DECLARED IN ORDER TO WARN, NOT IN ORDER TO BE READ. Nothing in
+   *  `src/` reads it (verified fix-459 §0b: every `co_assignees` in `src/` is
+   *  either `TaskNode`'s RPC-surfaced field or the unrelated
+   *  `task_templates.default_co_assignees`), and nothing should start. Read
+   *  `TaskNode.co_assignees`.
+   *
+   *  ★ Two vestigial DATABASE readers remain and are deliberately untouched:
+   *  `bp_task_touched_by_person` OR-s this array beside an
+   *  `EXISTS … permit_task_assignees WHERE source='manual'` clause that already
+   *  covers the case, and `bp_trg_permit_lead_cascade` edits it in place ("the
+   *  legacy array column: edited within, never rebuilt"). **Both must be edited
+   *  before this column can be dropped** — see
+   *  `migrations/fix_456_drop_backup_tables_PENDING_APPROVAL.sql`, where the
+   *  drop is written and awaiting Bobby.
+   *
+   *  ★ Same shape as fix-402's `projects.parking_type` / `.parking_stalls`:
+   *  typed and deprecated so the story is discoverable from the type rather
+   *  than only from a migration file. */
+  co_assignees?: string[] | null;
 }
 
 /** fix-138-a: controlled vocab for permit_tasks.waiting_on. Lives in TS

@@ -208,12 +208,67 @@
 -- alter table public.projects drop column if exists parking_type;
 
 -- ===========================================================================
--- STATEMENT COUNT: 26 destructive statements, ALL COMMENTED OUT
+-- SCOPE D (fix-459 §B, P-107) — permit_tasks.co_assignees, THE DEAD COLUMN
+-- ===========================================================================
+--
+-- ★★★ APPENDED BY fix-459. RE-MEASURED 2026-08-30. Different ticket, same
+-- shelf, because Bobby approves drops from one page and a second page is how
+-- one gets forgotten (P-043's whole reason for existing).
+--
+-- ★★★ NON-EMPTY ON **ZERO** ROWS OF 1,643. The live source of co-assignment is
+-- the join table `permit_task_assignees` — 360 rows over 316 tasks, 100 of them
+-- open — surfaced to the app as `TaskNode.co_assignees` by
+-- `bp_task_co_assignees`. fix-224 unified assignment onto that table and this
+-- array stayed behind.
+--
+-- ★★★ IT HAS ALREADY PRODUCED A WRONG NUMBER IN A SHIPPED BRIEF, which is why
+-- it is worth a shelf entry rather than being left alone. fix-458's brief said
+-- "157 unassigned, 143 still reachable", measured with
+-- `array_length(co_assignees,1)`. The true figures, off the join table, are
+-- **147 / 130 / 17**. The query ran, returned something plausible, and was
+-- wrong. A column that is empty AND named like the live one is a trap that
+-- costs a measurement every time somebody new reaches for it.
+--
+-- ★ Nothing in `src/` reads it (fix-459 §0b): every `co_assignees` in the app is
+-- either `TaskNode`'s RPC-surfaced field or `task_templates.default_co_assignees`.
+-- It now carries an `@deprecated` declaration in `src/lib/database.types.ts`
+-- naming the live source — fix-402's pattern.
+--
+-- ---------------------------------------------------------------------------
+-- ★★★ THIS ONE CANNOT BE APPROVED ON ITS OWN. TWO FUNCTIONS MUST BE EDITED
+--     FIRST, AND fix-459 DELIBERATELY DID NOT TOUCH THEM.
+-- ---------------------------------------------------------------------------
+--
+--   · `bp_task_touched_by_person` — OR-s this array beside an
+--     `EXISTS (… permit_task_assignees … WHERE source = 'manual')` clause that
+--     already covers the same case. Dropping the column without removing the
+--     OR-branch breaks the function.
+--   · `bp_trg_permit_lead_cascade` — edits the array in place and says so
+--     itself: "the legacy array column: edited within, never rebuilt".
+--
+-- ★★ So the order is: edit both functions, verify, THEN drop. Approving the
+--    statement below by itself would take the app down. That is the reason it
+--    sits in its own scope with its own heading rather than joining Scope C.
+
+-- alter table public.permit_tasks drop column if exists co_assignees;
+
+-- VERIFY BEFORE APPLYING (read-only):
+--   select count(*) from public.permit_tasks
+--    where coalesce(array_length(co_assignees, 1), 0) > 0;              -- expect 0
+--   select count(*) from public.permit_task_assignees;                  -- 360, the live source
+--   select proname from pg_proc
+--    where prosrc like '%co_assignees%' and pronamespace = 'public'::regnamespace;
+--     -- expect bp_task_touched_by_person + bp_trg_permit_lead_cascade, both
+--     -- still to be edited
+
+-- ===========================================================================
+-- STATEMENT COUNT: 27 destructive statements, ALL COMMENTED OUT
 --   Group A  7 drop table
 --   Group B  3 drop table
 --   Group C  3 drop table
 --   Group D 11 drop table   ← unattributed; approve individually
 --   Scope C  2 alter table … drop column
+--   Scope D  1 alter table … drop column  ← fix-459; EDIT TWO FUNCTIONS FIRST
 --   KEEP     0 — two tables carry no statement at all, by design
 -- ===========================================================================
 --

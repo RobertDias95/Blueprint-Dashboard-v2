@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { mockTaskOwnership } from '../test/taskOwnership';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -82,11 +83,14 @@ vi.mock('../hooks/useSelfScope', () => ({
     identity: { name: state.name, roles: [], scope: 'permit' },
   }),
 }));
-vi.mock('../hooks/useTaskOwnership', () => ({
-  useTaskOwnership: () => ({
-    matches: (t: Record<string, unknown>, n: string | null) => state.owns(t, n),
+// ★ fix-459: the shared double (src/test/taskOwnership), so the other three
+//   members arrive complete and this suite only states the one it cares about.
+//   `matches` reads `state.owns` at CALL time, so a test can still swap it.
+vi.mock('../hooks/useTaskOwnership', () =>
+  mockTaskOwnership({
+    matches: (t, n) => state.owns(t as unknown as Record<string, unknown>, n),
   }),
-}));
+);
 vi.mock('../hooks/useProjectHolds', () => ({
   useAllProjectHolds: () => ({ data: [] }),
   cancelledProjectIds: () => new Set<string>(),
