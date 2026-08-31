@@ -1,0 +1,227 @@
+<meta charset="utf-8">
+<title>fix-465 §A3 — snapshot column widths, measured</title>
+<!--
+  ===========================================================================
+  fix-465 §A3 — MEASURE THE COLUMN WIDTHS BEFORE PINNING THEM
+  ===========================================================================
+
+  The brief proposes 19/15/11/9/9/12/8/17 and says to treat them as PROPOSALS:
+  "measure in a real browser at the target width before pinning them". This is
+  that measurement, committed, per the gauntlet's "if you build a harness to
+  measure anything, COMMIT IT."
+
+  WHY THE MOCK'S PERCENTAGES CANNOT SIMPLY BE COPIED
+  --------------------------------------------------
+  The mock lays its table out inside `.wrap{max-width:1240px;padding:18px}`
+  = a 1204px table. The Weekly Update modal is `max-w-[1100px]` with `p-3`
+  = a 1076px table — 11% narrower. Every percentage buys 11% fewer pixels
+  there than it did in the mock, and a percentage that fits at 1204 can
+  truncate at 1076.
+
+  THE CONTENT IS THE REAL WORST CASE, MEASURED ON PROD 2026-08-31
+  ---------------------------------------------------------------
+  Not invented, not the mock's sample. Across all 650 permits:
+
+    longest address  30 chars  "1515 Martin Luther King Jr Way"
+    longest permit#  17 chars  "SPUE-IPR-26-00004"     <- the brief predicted
+    longest type     18 chars  "Grading / Clearing"        this exact shape
+    longest status   33 chars  "Approved - Additional Information"
+    longest name      9 chars  "Francesca"
+
+  …plus the two longest column HEADERS a section can name:
+  "Corrections issued" (18) and "Days waiting" (12), which truncate in their
+  own right because `th` is uppercase with letter-spacing.
+
+  HOW TO RUN
+  ----------
+  Open this file in Chrome. Each row of the report says, per column, the
+  pixels available vs the pixels the worst-case string actually needs.
+  A negative slack is a truncation the reader will see.
+-->
+<style>
+  :root {
+    /* The app's real tokens, copied from src/index.css. */
+    --bg:#f0f4f8; --surface:#ffffff; --s2:#e8edf3; --s3:#dce3ec;
+    --border:#c8d3e0; --text:#1a2540; --muted:#5a6a85; --dim:#8a9bb5;
+    --de:#2563eb; --er:#dc2626; --wa-ink:#965a1a;
+  }
+  body {
+    margin:0; padding:20px; background:var(--bg); color:var(--text);
+    /* The app's real stack — index.css `body`. A different font measures
+       different, which is the whole point of measuring in a browser. */
+    font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Helvetica Neue',Arial,sans-serif;
+    -webkit-font-smoothing:antialiased;
+  }
+  h1 { font-size:15px; margin:0 0 4px; }
+  p.lede { font-size:12px; color:var(--muted); margin:0 0 18px; max-width:70ch; line-height:1.6 }
+
+  .frame { background:var(--surface); border:1px solid var(--border); border-radius:6px;
+           margin:0 0 8px; overflow:hidden }
+  .frameLabel { font-size:11px; font-weight:700; color:var(--muted); margin:18px 0 6px }
+
+  /* ------------------------------------------------------------------
+     The candidate rendering. These declarations must mirror
+     SnapshotSection.tsx exactly, or the measurement is of something else.
+     ------------------------------------------------------------------ */
+  table { width:100%; border-collapse:collapse; table-layout:fixed; background:var(--surface) }
+  th {
+    font-size:9.5px; font-weight:800; letter-spacing:.07em; text-transform:uppercase;
+    color:var(--muted); text-align:left; padding:6px 10px; white-space:nowrap;
+    background:var(--surface); border-bottom:1px solid var(--border);
+  }
+  td {
+    padding:8px 10px; font-size:12.5px; color:var(--text);
+    border-bottom:1px solid var(--s2);
+    white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+  }
+  td.soft { color:var(--muted) }
+  .mono { font-family:ui-monospace,'SF Mono',Monaco,'Cascadia Code','Roboto Mono',monospace;
+          font-size:11.5px }
+  .num { text-align:right; font-variant-numeric:tabular-nums }
+  .lateNum { font-weight:800 }
+  .lateNum[data-tone="hot"]  { color:var(--er) }
+  .lateNum[data-tone="warn"] { color:var(--wa-ink) }
+
+  /* The report */
+  #out { margin-top:24px; font-size:12px }
+  #out table { table-layout:auto; border:1px solid var(--border); border-radius:6px }
+  #out th, #out td { white-space:nowrap; font-size:11.5px; padding:5px 9px; text-transform:none;
+                     letter-spacing:0; font-weight:400; color:var(--text) }
+  #out th { font-weight:800; background:var(--s3); font-size:10.5px }
+  .bad  { color:var(--er); font-weight:800 }
+  .tight{ color:var(--wa-ink); font-weight:800 }
+  .ok   { color:#0c6e5b }
+</style>
+
+<h1>fix-465 §A3 — snapshot column widths, measured in Chrome</h1>
+<p class="lede">
+  Worst-case content taken from prod on 2026-08-31, rendered at both target
+  widths with the app's real font stack and the mock's type sizes. "Slack" is
+  the pixels left over after the longest real string in that column; anything
+  negative is a truncation a reader will actually meet.
+</p>
+
+<div id="frames"></div>
+<div id="out"></div>
+
+<script>
+// ---------------------------------------------------------------------------
+// The two widths that matter.
+//   1076 = the Weekly Update MODAL: max-w-[1100px] minus p-3 either side.
+//   1204 = the width the MOCK was drawn at, kept so the difference is visible.
+//   1310 = the AGENDA PAGE at a 1600px viewport with the ribbon — the widest
+//          this table is ever asked to be, where nothing truncates anyway.
+// ---------------------------------------------------------------------------
+const WIDTHS = [1076, 1204, 1310];
+
+// ---------------------------------------------------------------------------
+// THE RESULT. Change these, reload, re-read the report.
+//
+// THE BRIEF PROPOSED  [19, 15, 11, 9, 9, 12, 8, 17] and it FAILS at 1076px:
+//   Type -3px, Date -6px, Age -15px, City status -28px.
+//   ...and Age is 5px short even at the mock's own 1204px, so the mock
+//   truncates its own "DAYS WAITING" header. Meanwhile Permit # had 27px
+//   spare and ENT lead / DA had 23px each.
+//
+// THE RULE USED TO REDISTRIBUTE, because 1044px of worst-case content into
+// 1076px of table cannot leave every column comfortable:
+//   1. NO HEADER EVER TRUNCATES. A column header the reader cannot read is a
+//      column they cannot sort, and the two truncating headers were the
+//      section-named ones — the two that differ per section and so are the
+//      ones a reader is actually checking.
+//   2. THE COLUMNS THAT IDENTIFY A ROW NEVER TRUNCATE — Project and Permit #.
+//      Those are what the reader matches against what they already know.
+//   3. THE COLUMNS THAT DESCRIBE IT MAY — Type and City status. `td` sets
+//      `text-overflow: ellipsis` deliberately; the point of measuring is to
+//      put the ellipsis where it costs least, not to abolish it.
+// At the mock's own 1204px NOTHING truncates under this allocation.
+const CANDIDATE = [19, 13, 11, 8, 8, 13, 10, 18];
+
+// ---------------------------------------------------------------------------
+// Worst case per column: [longest DATA string, longest HEADER string].
+// Both are measured — a header truncating is just as visible as a cell.
+// ---------------------------------------------------------------------------
+const WORST = [
+  { name:'Project',    data:'1515 Martin Luther King Jr Way', head:'Project',            cls:'' },
+  { name:'Permit #',   data:'SPUE-IPR-26-00004',              head:'Permit #',           cls:'mono' },
+  { name:'Type',       data:'Grading / Clearing',             head:'Type',               cls:'soft' },
+  { name:'ENT lead',   data:'Francesca',                      head:'ENT lead',           cls:'soft' },
+  { name:'DA',         data:'Francesca',                      head:'DA',                 cls:'soft' },
+  { name:'Date',       data:'2026-08-31',                     head:'Corrections issued', cls:'mono' },
+  { name:'Age',        data:'1126',                           head:'Days waiting',       cls:'num lateNum' },
+  { name:'City status',data:'Approved - Additional Information', head:'City status',     cls:'soft' },
+];
+
+const PAD = 20; // td/th padding: 10px either side.
+
+function buildFrame(px, pcts) {
+  const frame = document.createElement('div');
+  frame.className = 'frame';
+  frame.style.width = px + 'px';
+  const cols = pcts.map((p,i)=>`<col style="width:${p}%">`).join('');
+  const head = WORST.map((w,i)=>
+    `<th class="${w.cls.includes('num')?'num':''}" data-c="${i}">${w.head}</th>`).join('');
+  const cells = WORST.map((w,i)=>
+    `<td class="${w.cls}" data-c="${i}" ${i===6?'data-tone="hot"':''}>${w.data}</td>`).join('');
+  frame.innerHTML = `<table><colgroup>${cols}</colgroup>
+    <thead><tr>${head}</tr></thead><tbody><tr>${cells}</tr></tbody></table>`;
+  return frame;
+}
+
+/** Width the string NEEDS: measured by cloning the cell with the clip removed. */
+function needed(cell) {
+  const probe = cell.cloneNode(true);
+  probe.style.position = 'absolute';
+  probe.style.visibility = 'hidden';
+  probe.style.width = 'auto';
+  probe.style.maxWidth = 'none';
+  probe.style.overflow = 'visible';
+  probe.style.display = 'inline-block';
+  document.body.appendChild(probe);
+  const w = probe.getBoundingClientRect().width;
+  probe.remove();
+  return w;
+}
+
+const frames = document.getElementById('frames');
+const rows = [];
+
+for (const px of WIDTHS) {
+  const label = document.createElement('div');
+  label.className = 'frameLabel';
+  label.textContent = px === 1076 ? `${px}px — the Weekly Update modal (the binding case)`
+                    : px === 1204 ? `${px}px — the width the mock was drawn at`
+                    : `${px}px — the Agenda page on a wide screen`;
+  frames.appendChild(label);
+  const f = buildFrame(px, CANDIDATE);
+  frames.appendChild(f);
+
+  WORST.forEach((w, i) => {
+    const td = f.querySelector(`td[data-c="${i}"]`);
+    const th = f.querySelector(`th[data-c="${i}"]`);
+    const avail = td.getBoundingClientRect().width;
+    const needData = needed(td);
+    const needHead = needed(th);
+    const need = Math.max(needData, needHead);
+    rows.push({
+      px, col: w.name, pct: CANDIDATE[i],
+      avail: Math.round(avail), need: Math.round(need),
+      slack: Math.round(avail - need),
+      driver: needHead > needData ? 'header' : 'data',
+    });
+  });
+}
+
+const cls = s => s < 0 ? 'bad' : s < 8 ? 'tight' : 'ok';
+document.getElementById('out').innerHTML =
+  `<table><thead><tr><th>width</th><th>column</th><th>%</th><th>available</th>` +
+  `<th>needed</th><th>slack</th><th>driven by</th></tr></thead><tbody>` +
+  rows.map(r => `<tr><td>${r.px}</td><td>${r.col}</td><td>${r.pct}%</td>` +
+    `<td>${r.avail}px</td><td>${r.need}px</td>` +
+    `<td class="${cls(r.slack)}">${r.slack > 0 ? '+' : ''}${r.slack}px</td>` +
+    `<td>${r.driver}</td></tr>`).join('') +
+  `</tbody></table>`;
+
+// Exposed so the browser-automation run can read the numbers without OCR.
+window.__widthReport = rows;
+</script>

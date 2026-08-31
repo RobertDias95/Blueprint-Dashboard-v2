@@ -229,7 +229,15 @@ describe('fix-463 §A — the rendered section', () => {
     const { container } = renderSection(Array.from({ length: 40 }, () => row()));
     expect(container.querySelectorAll('tbody tr')).toHaveLength(3);
     expect(screen.getByTestId('snapshot-b-toggle').textContent).toBe('Show all 40');
-    expect(screen.getByTestId('snapshot-b-count').textContent).toBe('40');
+
+    // ★★★ SUPERSEDED BY fix-465 §C, NOT MISTAKEN. This line used to read
+    //     `expect(getByTestId('snapshot-b-count').textContent).toBe('40')`.
+    //     The chip is gone — it printed the section total a second time, in a
+    //     second visual weight, one control away from the toggle that already
+    //     says it in words. What fix-463 was really pinning is that the header
+    //     STATES THE TOTAL, and that survives: the assertion above it is the
+    //     same number, from the control that kept the job.
+    expect(screen.queryByTestId('snapshot-b-count')).toBeNull();
   });
 
   it('★★ expanding shows them all and the toggle inverts', () => {
@@ -314,6 +322,33 @@ vi.mock('../hooks/useVendorReportState', () => ({
 vi.mock('../hooks/useAppConfig', () => ({
   useAppConfig: () => ({ map: {} }),
   readAppConfigStringArray: () => [],
+}));
+
+// ---------------------------------------------------------------------------
+// ★★★ fix-465 §D — THESE FOUR MOCKS ARE THE PROOF, NOT THE PLUMBING
+// ---------------------------------------------------------------------------
+// Until fix-465 the modal needed none of them, because the modal did not have
+// the agenda on it — `WeeklyUpdate` rendered five snapshot tables and an SSS
+// card and nothing to talk about, and the agenda was built by the Agenda page
+// AROUND it. These suites failed the moment the block moved inside, with
+// `useAllTasks` reaching for a QueryClient that a modal-only render never had.
+//
+// ★★ So the fact that this file now has to mock the TASK LIST is the assertion:
+//    the modal genuinely reads the agenda's rows. A mock added to keep a suite
+//    quiet would be noise; this one records a change in what the component
+//    depends on. It is the same `bp_list_tasks` every board already reads —
+//    fix-462's design means there is no agenda query to add.
+vi.mock('../hooks/useTaskTree', () => ({
+  useAllTasks: () => ({ data: [], isLoading: false }),
+}));
+vi.mock('../hooks/useTeamMembers', () => ({
+  useTeamMembers: () => ({ all: [] }),
+}));
+vi.mock('../hooks/useIsTenantAdmin', () => ({
+  useIsTenantAdmin: () => false,
+}));
+vi.mock('../hooks/useTeamTasks', () => ({
+  useUpsertTeamTask: () => ({ mutate: vi.fn(), isPending: false }),
 }));
 
 import WeeklyUpdateModal from '../components/WeeklyUpdate/WeeklyUpdateModal';
