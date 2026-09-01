@@ -435,8 +435,14 @@ export default function Step1ProjectInfo({
           <span className="text-[12px] font-semibold text-text">
             Backfill historical project
           </span>
+          {/* ★★ fix-470 §1 ruling 1: this sentence is the ONLY place a user
+              learns what the box does, so a new consequence has to land here
+              or the box quietly does something nobody was told about. The new
+              clause is FIRST because it is the one Bobby asked for and the one
+              that changes what happens after Save. */}
           <span className="text-[10px] text-dim">
-            Allows assigning to inactive team members and manual DD dates.
+            No lifecycle tasks or milestone prompts are created. Also allows
+            assigning to inactive team members and manual DD dates.
           </span>
         </span>
       </label>

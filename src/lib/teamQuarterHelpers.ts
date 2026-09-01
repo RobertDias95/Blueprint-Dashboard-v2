@@ -50,15 +50,73 @@ export function isMemberActiveInQuarter(
   );
 }
 
-/** Build the list of selectable quarter strings around `now` — used by
- *  the admin UI's dropdowns. Default span: 8 quarters back, 8 forward. */
+// ===========================================================================
+// ★★★ fix-470 §2 (P-123) — A HISTORY FLOOR IS A DATE, NOT AN OFFSET
+// ===========================================================================
+//
+// Bobby, 2026-09-01: *"we are going to backfill 2024 data. can we make the
+// drawschedule editor go back to 2024."*
+//
+// ★★★ THE DEFECT IS NOT THE NUMBER — IT IS THAT `back` WAS MEASURED FROM `now`.
+// Eight quarters back from 2026-Q3 is 2024-Q3, so today it *looks* right. In
+// 2026-Q4 the floor becomes 2024-Q4; by 2027 the year he is about to enter has
+// silently left the dropdown. **No error and no migration**: the saved layouts
+// stay in the database and the selector simply stops offering their quarters.
+// Raising 8 to 10 fixes today and re-breaks in six months.
+//
+// ★★ THE ASYMMETRY THAT MAKES THIS SAFE: `forward` is LEGITIMATELY rolling —
+// you plan forward from where you stand, so a fixed future ceiling would be the
+// bug in the other direction. `back` is not: **history does not recede.**
+//
+// ★ RULED — Bobby, 2026-09-01: floor at **2023-Q1**, *"leave room to go back
+//   further"*. 2023 is expected after 2024, so the floor is set once for both
+//   rather than moved twice.
+//
+// ★ Checked against prod 2026-09-01: earliest `projects.go_date` is 2024-09-25
+//   and earliest `draw_schedule.start_week` is 2024-12-30. A 2023-Q1 floor
+//   clears everything that exists and everything named as coming.
+//
+// ★★ ONE CHANGE, TWO SCREENS, AND THAT IS WANTED. Both callers take the
+//    defaults — `QuarterLayoutEditor` and `TeamActiveQuartersEditor` — and
+//    assigning a DA to a 2023 column is useless if that DA cannot be marked
+//    active in 2023.
+export const EARLIEST_QUARTER = '2023-Q1';
+
+/** Build the list of selectable quarter strings — used by the admin UI's
+ *  dropdowns. Runs from `EARLIEST_QUARTER` (absolute) to `now + forward`.
+ *
+ *  ★ `back` remains an optional OVERRIDE rather than being deleted: it is how
+ *    the existing tests say "give me a window around this date", and it keeps
+ *    its old meaning exactly. Passing it opts out of the floor; omitting it —
+ *    which is what both real callers do — gets the floor.
+ */
 export function buildQuarterOptions(
   now: Date = new Date(),
-  back: number = 8,
+  back?: number,
   forward: number = 8,
 ): string[] {
   const out: string[] = [];
-  for (let i = -back; i <= forward; i += 1) {
+
+  if (back !== undefined) {
+    // ★ The pre-fix-470 behaviour, unchanged, for a caller that asks for it.
+    for (let i = -back; i <= forward; i += 1) {
+      out.push(quarterOffsetToString(i, now));
+    }
+    return out;
+  }
+
+  // ★★ Walk BACK from now until the floor is reached, so the list's first
+  //    entry is `EARLIEST_QUARTER` whatever the clock says. Counting forward
+  //    from a fixed offset is what made the floor drift in the first place.
+  let first = 0;
+  while (quarterOffsetToString(first - 1, now) >= EARLIEST_QUARTER) {
+    first -= 1;
+    // ★ A guard, not an expectation: a clock set far in the future must not
+    //   spin here. 400 quarters is a century.
+    if (first < -400) break;
+  }
+
+  for (let i = first; i <= forward; i += 1) {
     out.push(quarterOffsetToString(i, now));
   }
   return out;
