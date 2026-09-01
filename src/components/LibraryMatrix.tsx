@@ -8,8 +8,15 @@ import {
   DEFAULT_LIBRARY_SORT,
   buildLibraryRows,
   filterLibraryRows,
-  hasAnyUnitFilter,
-  matchingUnitIndices,
+  // ★ fix-469: `hasAnyUnitFilter` and `matchingUnitIndices` are no longer
+  //   imported HERE — both were used only by the matched-highlight expression
+  //   §1.4 retires. Both are still exported, still tested, and both are now on
+  //   the hot path for choosing the UNIT view's rows, one level down in
+  //   lib/libraryUnitRows.
+  SITE_FILTER_KEYS,
+  UNIT_FILTER_KEYS,
+  cardHasValue,
+  clearCardFilters,
   sortLibraryRows,
   type LibraryFilters,
   type LibraryView,
@@ -50,7 +57,7 @@ import { useAppConfig, readAppConfigStringArray } from '../hooks/useAppConfig';
 // lib/libraryUnitRows for why mixing them is a render-time throw.
 import {
   DEFAULT_UNIT_SORT,
-  flattenUnitRows,
+  matchingUnitRows,
   sortUnitRows,
   unitRowProjectCount,
   type UnitSortState,
@@ -264,9 +271,13 @@ function Body({ projects, permits }: BodyProps) {
   // and trailing cells), `writeUnitTypes` and its `expectedUpdatedAt` token are
   // untouched, and the editing that used to hide behind a caret is now the
   // view itself.
-  // ★ fix-402: one definition of "a unit filter is on", shared with the
-  //   matcher — this list drifted from that one when fix-205 added stories.
-  const unitFilterActive = hasAnyUnitFilter(filters);
+  // ★★ fix-469 §1.4: `unitFilterActive` lived here to gate the matched
+  //    highlight, and the highlight is the one thing this component stopped
+  //    doing. `hasAnyUnitFilter` itself is untouched and still very much live —
+  //    it is what `matchingUnitIndices` consults to decide whether any unit
+  //    criteria are active at all, which is now what chooses the UNIT view's
+  //    rows. fix-402's "one definition of 'a unit filter is on'" still holds;
+  //    this component simply no longer needs to ask the question itself.
 
   const allRows = useMemo(
     () => buildLibraryRows(projects, permits),
@@ -295,9 +306,24 @@ function Body({ projects, permits }: BodyProps) {
   // §B4 true — *"What the pill changes is the columns you get back, not which
   // filters apply"* — and it means fix-402's conjunction across the two cards
   // is untouched by anything in this ticket.
+  // ★★★ fix-469 §1 (P-121) — MATCHING UNITS ONLY.
+  //
+  // Was `flattenUnitRows(filtered)`, which printed every unit of every
+  // qualifying project. Measured on prod 2026-09-01 for Bobby's 16×36 ±1
+  // search: 35 rows printed, 10 of them matching — **71% of the answer did not
+  // match the question**. `matchingUnitRows` composes the same two functions
+  // that were already here (see its note in lib/libraryUnitRows).
+  //
+  // ★★ THE FILTERS ARE STILL NOT RE-RUN AND STILL NOT RELAXED. `filtered` is
+  // exactly what the SITE view shows; the SITE card's criteria still qualify
+  // PROJECTS, unchanged. What is new is that the UNIT card's criteria now also
+  // filter ROWS — so fix-402's conjunction across the two cards is untouched,
+  // and so is fix-447 §B4's *"what the pill changes is the columns you get
+  // back, not which filters apply"*: the same filters apply, and the unit ones
+  // now apply at the grain the unit table is drawn at.
   const unitRows = useMemo(
-    () => sortUnitRows(flattenUnitRows(filtered), unitSort),
-    [filtered, unitSort],
+    () => sortUnitRows(matchingUnitRows(filtered, filters), unitSort),
+    [filtered, filters, unitSort],
   );
   const unitProjectCount = useMemo(
     () => unitRowProjectCount(unitRows),
@@ -319,6 +345,32 @@ function Body({ projects, permits }: BodyProps) {
       return next;
     });
   }
+  // ★★★ fix-469 §2 (P-122) — ONE CARD'S RESET.
+  //
+  // Bobby: *"can we add a clear button to the search filters of units/site?"*
+  // Keeping a lot search while dropping the unit dimensions meant blanking up
+  // to NINE controls by hand — the cards were separated because they are two
+  // independent questions, and two independent questions want two independent
+  // resets.
+  //
+  // ★★★ `view` SURVIVES, AND THIS IS THE ONE THAT GETS MISSED. It rides inside
+  // `LibraryFilters` because that is the blob fix-403 persists, but it is a
+  // PREFERENCE, not a filter. `clearCardFilters` only writes the keys it is
+  // given and `view` is in neither card's list — so it cannot be reset here
+  // even by accident, which is a stronger guarantee than remembering to
+  // re-add it.
+  //
+  // ★ It goes through `update`'s sibling path so the cleared state is PERSISTED
+  //   immediately, exactly like every other filter change. A card Clear that
+  //   un-cleared itself on the next navigation would be fix-447's bug again.
+  function clearCard(keys: readonly (keyof LibraryFilters)[]) {
+    setFilters((prev) => {
+      const next = clearCardFilters(prev, keys, INITIAL_FILTERS);
+      saveLibraryFilters(prefsUserId, next);
+      return next;
+    });
+  }
+
   function clearFilters() {
     // ★★★ fix-447: CLEAR CLEARS FILTERS — IT DOES NOT CHANGE THE VIEW.
     //
@@ -388,6 +440,12 @@ function Body({ projects, permits }: BodyProps) {
               active={filters.view === 'site'}
               onSelect={() => update('view', 'site')}
               testid="filter-chip-site"
+            />
+            <CardClear
+              keys={SITE_FILTER_KEYS}
+              filters={filters}
+              onClear={clearCard}
+              testid="filter-clear-site"
             />
           </div>
 
@@ -551,11 +609,17 @@ function Body({ projects, permits }: BodyProps) {
                 code that implements it. */}
             <GroupHeading
               label="Unit"
-              caption="one unit must match all of these"
+              caption="show units matching all of these"
               view="unit"
               active={filters.view === 'unit'}
               onSelect={() => update('view', 'unit')}
               testid="filter-chip-unit"
+            />
+            <CardClear
+              keys={UNIT_FILTER_KEYS}
+              filters={filters}
+              onClear={clearCard}
+              testid="filter-clear-unit"
             />
           </div>
 
@@ -789,12 +853,29 @@ function Body({ projects, permits }: BodyProps) {
                 productTypes={u.project.productTypes}
                 registryTypes={productTypeOptions}
                 disabled={!u.project.updatedAt}
-                matched={
-                  unitFilterActive &&
-                  (matchingUnitIndices(u.project, filters) ?? []).includes(
-                    u.index,
-                  )
-                }
+                // ★★★ fix-469 §1.4 — NO HIGHLIGHT HERE ANY MORE, BECAUSE IT
+                //     WOULD NOW ALWAYS BE TRUE. Every row this table prints
+                //     matches the active unit criteria, so the expression that
+                //     used to live here reduces to `unitFilterActive` —
+                //     highlighting every row, which highlights nothing.
+                //
+                // ★★ THE MECHANISM IS KEPT, NOT DELETED: the `matched` prop,
+                //    the `data-matched` attribute and fix-205's blue bar are
+                //    all still on `LibraryUnitRow`, and `matchingUnitIndices`
+                //    is more central than it has ever been — it is what
+                //    chooses these rows. This is fix-467's rule again: keep
+                //    the derivation, stop painting with it.
+                //
+                // ★★★ ONE CORRECTION TO THE BRIEF, RECORDED HERE BECAUSE IT
+                //     CHANGES WHAT "KEPT" MEANS. It said the highlight "is
+                //     still live in the SITE view's expand". It is not —
+                //     fix-447 §B6 removed that expand, and its own comment
+                //     above `RowProps` says so. This was the highlight's ONLY
+                //     call site, so the visual treatment is now retained but
+                //     unreferenced. Kept per the explicit instruction; flagged
+                //     in the PR as a thing a later ticket may legitimately
+                //     retire on purpose rather than by accident.
+                matched={false}
                 onChange={(field, val) =>
                   writeUnitTypes(
                     u.project,
@@ -1578,6 +1659,51 @@ type LabelTier = 'primary' | 'secondary';
 // looks like one control did nothing when clicked. It is now inside the button.
 // ★ Still ONE real `<button>` with `aria-pressed` — no onClick on a `<div>`,
 //   so keyboard and screen-reader behaviour is unchanged and free.
+/**
+ * ★★ fix-469 §2 — a card's own Clear.
+ *
+ * ★ SHOWN ONLY WHEN THE CARD HOLDS A VALUE. fix-406's rule: a control that
+ *   cannot act is absent, not present and inert. `cardHasValue` compares
+ *   against `INITIAL_FILTERS` rather than against emptiness, because the four
+ *   buffer fields default to **2** — a card whose buffer somebody moved is a
+ *   card with something to clear, and a blank-check would have hidden the
+ *   button that undoes it.
+ *
+ * ★ It is deliberately quiet: this is the third control on a card header, and
+ *   the two loud ones (the segmented SITE/UNIT pill, fix-467) are the ones a
+ *   reader is scanning for.
+ */
+function CardClear({
+  keys,
+  filters,
+  onClear,
+  testid,
+}: {
+  keys: readonly (keyof LibraryFilters)[];
+  filters: LibraryFilters;
+  onClear: (keys: readonly (keyof LibraryFilters)[]) => void;
+  testid: string;
+}) {
+  if (!cardHasValue(filters, keys, INITIAL_FILTERS)) return null;
+  return (
+    <button
+      type="button"
+      onClick={() => onClear(keys)}
+      className="ml-auto text-[10px] px-2 py-0.5 rounded border font-display"
+      style={{
+        borderColor: 'var(--color-border)',
+        background: 'var(--color-surface)',
+        // ★ `--color-muted` on white = 5.48:1 (fix-467's measurement, same
+        //   surface). Not `--color-dim`, which is 2.82:1.
+        color: 'var(--color-muted)',
+      }}
+      data-testid={testid}
+    >
+      Clear
+    </button>
+  );
+}
+
 function GroupHeading({
   label,
   caption,
