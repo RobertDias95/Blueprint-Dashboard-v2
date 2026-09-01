@@ -8,7 +8,6 @@ import {
   usePostMessage,
   useProjectMessages,
 } from '../../hooks/useProjectMessages';
-import type { ProjectMessage } from '../../lib/database.types';
 import { useTeamMembers } from '../../hooks/useTeamMembers';
 import {
   chatStamp,
@@ -46,13 +45,17 @@ import { useProjects } from '../../hooks/useProjects';
 //   use it. No third initials function, no second avatar.
 import { useRosterFullName } from '../../hooks/useRosterFullName';
 import { Avatar } from './ChatMessageBody';
+// ★★★ fix-468 — THE one definition of who is on a project (fix-347 §3), and the
+//   ONE place its order and labels are stated (fix-423). Neither is retyped.
+import { projectInternalTeam } from '../../lib/projectTeam';
+import { TEAM_INTERNAL_ROWS } from '../../lib/overviewCardLayout';
 import { useMentionTags } from '../../hooks/useMentionTags';
 import {
   useProjectReactions,
 } from '../../hooks/useMessageReactions';
 import { mentionTargets, projectTagTarget } from '../../lib/mentionTags';
 import { emptyMentionTargets } from '../../lib/projectChat';
-import type { Permit, PermitWithCycles } from '../../lib/database.types';
+import type { Permit, PermitWithCycles, Project } from '../../lib/database.types';
 
 // fix-334 — the conversation, organised.
 //
@@ -312,7 +315,10 @@ export default function ProjectChatModal({
               {messages.length} message{messages.length === 1 ? '' : 's'}
             </div>
           </div>
-          <Participants messages={messages} />
+          {/* ★★★ fix-468: the INTERNAL TEAM, not the post authors — every
+              message already shows its own author on the row. `project` and
+              `bp` are both already resolved above; nothing new is passed in. */}
+          <InternalTeam project={project} bp={bp} />
           <button
             type="button"
             onClick={onClose}
@@ -1016,59 +1022,113 @@ function ReplyComposer({
 }
 
 // ===========================================================================
-// ★★★ fix-467 §1 — WHO IS IN THIS CHAT
+// ★★★ fix-468 (P-111, completing fix-467 §1) — THE INTERNAL TEAM, NOT THE AUTHORS
 // ===========================================================================
 //
-// ★★★ THE DEFINITION, AND WHY IT IS THIS ONE: **the distinct authors of this
-// project's posts and replies.** Recommended by the brief, and it is right for
-// a reason worth stating — it is exactly *who will actually see a reply*. The
-// two plausible alternatives are both worse:
+// Bobby, 2026-09-01: *"in the chat, we are adding the address and internal team
+// to this chat."*
 //
-//   · @-MENTIONS are not people. `@project` and `@Corrections` are tags
-//     (fix-347), so a mention list would put a word in a row of faces.
-//   · THE PROJECT TEAM (ENT / DM / DA) is who is assigned, not who is here.
-//     Half of them may never have posted, and showing a face for somebody who
-//     has never opened the thread is a promise the chat cannot keep.
+// ★★★ THIS REPLACES fix-467's AUTHOR LIST, AND HIS REASON IS THE WHOLE ARGUMENT:
+// **every message in the thread already shows its own author, with an avatar,
+// on the row.** An author list in the header repeats what is on screen a few
+// inches below it. The PROJECT TEAM is the thing you cannot otherwise see from
+// inside this modal — who to pull in, who is accountable, who has not spoken
+// yet. Arriving here from a notification (fix-362), that is the question you
+// actually have.
 //
-// ★★ AND IT NEEDS NO NEW DATA. `messages` is already loaded in this component,
-// and `groupIntoPosts` derives posts FROM messages — so every post author is
-// necessarily a message author, and one pass over `messages` is the whole set.
-// No query, no hook, no prop drilling.
+// ★★ SO THIS COMPONENT NO LONGER READS `author_name` AT ALL. It reads the
+// project. The name changed with it: a testid saying "participants" over a
+// team row would be fix-466's label lesson in miniature — a control whose word
+// and whose behaviour disagree.
 //
-// ★ `rosterFullName` (via useRosterFullName) + `initialsOf` are the fix-343
-//   pair, reused through the existing `Avatar`. There is no third initials
-//   function in this repo and this ticket does not add one.
-function Participants({ messages }: { messages: readonly ProjectMessage[] }) {
+// ---------------------------------------------------------------------------
+// ★★★ ONE DEFINITION OF WHO IS ON A PROJECT, AND NO NEW PROP
+// ---------------------------------------------------------------------------
+// `projectInternalTeam` is THE definition (fix-347 §3: *"do not write a second
+// definition of who is on this project"*) — it is what the `@project` smart tag
+// resolves and what the Team card renders, which is why a tag cannot drift from
+// the card. This calls it with the same two arguments `ProjectDetailHeader`
+// does.
+//
+// ★★ AND IT NEEDS NOTHING PASSED IN. The modal already resolves `project` from
+// `useProjects`, and already derives `bp` with the byte-identical expression the
+// page uses for the header — `permits.find(p => p.type === 'Building Permit')
+// ?? permits[0] ?? null`. So the header's team and the Team card's team are the
+// same team BY CONSTRUCTION rather than by coincidence, and this ticket adds no
+// prop, no fetch and no hook.
+//
+// ★ THE ORDER AND THE LABELS COME FROM `TEAM_INTERNAL_ROWS` (fix-423), not from
+//   a list retyped here. Adding a sixth role to the Team card puts it in this
+//   header on the same commit.
+//
+// ★ `rosterFullName` + `initialsOf` are the fix-343 pair, reached through the
+//   `Avatar` fix-467 gave a `titled` prop. Still no third initials function.
+/** ★ One tooltip line per person. Declared rather than inlined so the escape
+ *  survives every tool that rewrites this file. */
+const NEWLINE = String.fromCharCode(10);
+
+function InternalTeam({
+  project,
+  bp,
+}: {
+  project: Project | null;
+  bp: PermitWithCycles | null;
+}) {
   const fullNameOf = useRosterFullName();
 
-  const authors = useMemo(() => {
-    // ★ Insertion order = order of first appearance, so the list is stable
-    //   across renders and reads oldest-first like the thread itself.
-    const seen = new Map<string, string>();
-    for (const m of messages) {
-      const raw = (m.author_name ?? '').trim();
-      if (!raw) continue; // a message with no author names nobody
-      const key = raw.toLowerCase();
-      if (!seen.has(key)) seen.set(key, raw);
+  /** One entry per PERSON, in card order, carrying every role they hold. */
+  const people = useMemo(() => {
+    if (!project) return [];
+    const team = projectInternalTeam(project, bp);
+    // ★★ ONE PERSON, ONE FACE. The roster is one row per person per role and a
+    //    project can name the same person twice (a DM who is also the DA is a
+    //    real shape here) — so this accumulates ROLES onto a person rather than
+    //    drawing the same circle twice with two different tooltips.
+    const byName = new Map<string, { name: string; roles: string[] }>();
+    for (const row of TEAM_INTERNAL_ROWS) {
+      const value = team[row.key];
+      // ★ `sd` is already a filtered ARRAY on the shared shape — the
+      //   comma-joining lives in the TEAM CARD, which renders five one-line
+      //   rows and joins for display. Measured on prod 2026-09-01: 202
+      //   projects carry a schematic designer, max array length 1, and no
+      //   element contains a comma. So this renders one avatar per ELEMENT and
+      //   never splits a string — splitting would one day cut a name in half.
+      const names = Array.isArray(value) ? value : [value];
+      for (const raw of names) {
+        const name = (raw ?? '').trim();
+        if (!name) continue; // ★ an unfilled role renders NOTHING — see below
+        const key = name.toLowerCase();
+        const hit = byName.get(key);
+        if (hit) hit.roles.push(row.title);
+        else byName.set(key, { name, roles: [row.title] });
+      }
     }
-    return [...seen.values()];
-  }, [messages]);
+    return [...byName.values()];
+  }, [project, bp]);
 
-  // ★ A project with no posts renders NOTHING — not an empty row, not a
-  //   zero. fix-406's rule: absent beats present-and-empty.
-  if (authors.length === 0) return null;
+  // ★★ AN UNFILLED ROLE IS NOT AN ERROR AND NOT A GAP. fix-347's rule — "a
+  //    smart tag on a project with an unfilled role simply resolves to fewer
+  //    people" — and fix-406's: a project with no role filled renders no row at
+  //    all, rather than five empty circles. This is a read-only header, not the
+  //    editing surface the Team card is, so there is nothing here for a
+  //    placeholder to invite you to do.
+  if (people.length === 0) return null;
 
   const MAX = 5;
-  const shown = authors.slice(0, MAX);
-  const rest = authors.slice(MAX);
+  const shown = people.slice(0, MAX);
+  const rest = people.slice(MAX);
+
+  /** `Design Manager · Brittani Ard`, and both roles when somebody holds two. */
+  const label = (p: { name: string; roles: string[] }) =>
+    `${p.roles.join(', ')} · ${fullNameOf(p.name)}`;
 
   return (
     <div
       className="flex items-center gap-1 ml-auto flex-none"
-      data-testid="project-chat-participants"
+      data-testid="project-chat-team"
     >
-      {shown.map((name) => (
-        <Avatar key={name} name={fullNameOf(name)} titled />
+      {shown.map((p) => (
+        <Avatar key={p.name} name={fullNameOf(p.name)} titled title={label(p)} />
       ))}
       {rest.length > 0 && (
         <span
@@ -1079,10 +1139,11 @@ function Participants({ messages }: { messages: readonly ProjectMessage[] }) {
             background: 'var(--color-s2)',
             color: 'var(--color-muted)',
           }}
-          // ★ The overflow is not a dead "+3": hovering it names them, so the
-          //   list is complete even when it does not fit.
-          title={rest.map((n) => fullNameOf(n)).join(', ')}
-          data-testid="project-chat-participants-overflow"
+          // ★ fix-467's instinct, kept: the overflow is not a dead "+2".
+          //   Hovering it names the rest, so the list is complete even when it
+          //   does not fit.
+          title={rest.map(label).join(NEWLINE)}
+          data-testid="project-chat-team-overflow"
         >
           +{rest.length}
         </span>

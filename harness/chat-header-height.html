@@ -1,0 +1,163 @@
+<meta charset="utf-8">
+<title>fix-468 — chat modal header height, before and after</title>
+<!--
+  ===========================================================================
+  fix-468 — MEASURE THE HEADER HEIGHT, DO NOT ESTIMATE IT
+  ===========================================================================
+
+  The brief: *"This modal is tall and its composer is pinned to the bottom.
+  Measure the header height before and after in a real browser and state both
+  numbers. If the avatars cost more than one line, put them on the
+  `juris · posts · messages` line rather than adding a third row."*
+
+  WHAT THIS MEASURES, STATED HONESTLY
+  -----------------------------------
+  A faithful reproduction of the three header states, at the modal's real
+  width, with the app's real font stack and the exact Tailwind values the
+  component compiles to. It is NOT a screenshot of the running app — reaching
+  the live modal needs a session and a project — so what it proves is the
+  LAYOUT question the brief asks: does a 22px avatar row, placed as a flex
+  sibling of a two-line text block under `items-center`, change the header's
+  height? That question is decided entirely by the box model reproduced here.
+
+  Three states, because the interesting comparison is not two:
+    BEFORE  fix-467's header — address + subtitle, no avatars at all
+    AFTER   fix-468 — the same, plus five team avatars
+    AFTER+  the overflow case — five avatars and a +N chip
+
+  The panel is `width: min(1000px, 94vw)` and the header is
+  `flex items-center gap-2 px-4 py-3 border-b`.
+
+  HOW TO RUN
+  ----------
+    chrome --headless=new --dump-dom harness/chat-header-height.html
+  …or just open it. The report at the bottom prints each height in px.
+-->
+<style>
+  :root {
+    --surface:#ffffff; --s2:#e8edf3; --border:#c8d3e0;
+    --text:#1a2540; --muted:#5a6a85;
+  }
+  body {
+    margin:0; padding:24px; background:#f0f4f8; color:var(--text);
+    font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Helvetica Neue',Arial,sans-serif;
+    -webkit-font-smoothing:antialiased;
+  }
+  h1 { font-size:15px; margin:0 0 4px }
+  p.lede { font-size:12px; color:var(--muted); margin:0 0 20px; max-width:74ch; line-height:1.6 }
+  .caseLabel { font-size:11px; font-weight:700; color:var(--muted); margin:18px 0 6px }
+
+  /* The modal panel: width: min(1000px, 94vw) */
+  .panel {
+    width:min(1000px, 94vw); background:var(--surface);
+    border-radius:12px; overflow:hidden; border:1px solid var(--border);
+  }
+
+  /* header: flex items-center gap-2 px-4 py-3 border-b border-border flex-none */
+  .chatHeader {
+    display:flex; align-items:center; gap:8px;
+    padding:12px 16px; border-bottom:1px solid var(--border);
+    flex:none;
+  }
+  .titleBlock { min-width:0 }
+  /* text-[14px] font-display font-bold text-text truncate */
+  .chatTitle {
+    font-size:14px; font-weight:700; color:var(--text);
+    white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+  }
+  /* text-[11px] text-muted */
+  .chatSub { font-size:11px; color:var(--muted) }
+  .mono { font-family:ui-monospace,'SF Mono',Monaco,'Cascadia Code','Roboto Mono',monospace }
+
+  /* the avatar row: flex items-center gap-1 ml-auto flex-none */
+  .team { display:flex; align-items:center; gap:4px; margin-left:auto; flex:none }
+  /* Avatar: 22 x 22, fontSize 8.5, rounded-full bg-s2 text-muted font-bold */
+  .avatar, .more {
+    width:22px; height:22px; border-radius:9999px;
+    background:var(--s2); color:var(--muted); font-weight:700;
+    display:flex; align-items:center; justify-content:center; flex-shrink:0;
+    font-size:8.5px;
+  }
+  .more { font-size:10px }
+  .close { margin-left:auto; font-size:18px; line-height:1; color:var(--muted);
+           background:none; border:0; cursor:pointer }
+
+  #out { margin-top:28px; font-size:12px }
+  #out table { border-collapse:collapse; border:1px solid var(--border);
+               border-radius:6px; background:var(--surface) }
+  #out th, #out td { padding:6px 11px; font-size:11.5px; text-align:left;
+                     border-bottom:1px solid var(--s2) }
+  #out th { font-weight:800; background:#dce3ec; font-size:10.5px }
+  .same { color:#0c6e5b; font-weight:800 }
+  .grew { color:#dc2626; font-weight:800 }
+</style>
+
+<h1>fix-468 — chat modal header height, before and after</h1>
+<p class="lede">
+  A faithful reproduction of the header's box model at the modal's real width
+  (<code>min(1000px, 94vw)</code>), with the app's font stack and the values the
+  component compiles to. The question is whether a 22px avatar row, as a flex
+  sibling of a two-line text block under <code>align-items:center</code>, changes
+  the header's height.
+</p>
+
+<div id="cases"></div>
+<div id="out"></div>
+
+<script>
+const AVATARS = ['CD', 'MO', 'LR', 'BA', 'TS'];
+
+function header({ team = 0, overflow = false } = {}) {
+  const avatars = AVATARS.slice(0, team)
+    .map((i) => `<span class="avatar">${i}</span>`).join('');
+  const more = overflow ? `<span class="more">+2</span>` : '';
+  const teamRow = team > 0
+    ? `<div class="team">${avatars}${more}</div>`
+    : '';
+  return `
+    <div class="panel">
+      <div class="chatHeader">
+        <div class="titleBlock">
+          <div class="chatTitle">3505 Densmore Ave N</div>
+          <div class="chatSub"><span class="mono">Seattle</span> · 4 posts · 17 messages</div>
+        </div>
+        ${teamRow}
+        <button class="close" aria-label="Close">&#10005;</button>
+      </div>
+    </div>`;
+}
+
+const CASES = [
+  { name: 'BEFORE — fix-467 header, no avatars', html: header({ team: 0 }) },
+  { name: 'AFTER — fix-468, five team avatars', html: header({ team: 5 }) },
+  { name: 'AFTER+ — five avatars and a +N chip', html: header({ team: 5, overflow: true }) },
+];
+
+const host = document.getElementById('cases');
+const rows = [];
+
+for (const c of CASES) {
+  const label = document.createElement('div');
+  label.className = 'caseLabel';
+  label.textContent = c.name;
+  host.appendChild(label);
+  const wrap = document.createElement('div');
+  wrap.innerHTML = c.html;
+  host.appendChild(wrap);
+  const h = wrap.querySelector('.chatHeader').getBoundingClientRect().height;
+  rows.push({ name: c.name, h: Math.round(h * 100) / 100 });
+}
+
+const base = rows[0].h;
+document.getElementById('out').innerHTML =
+  `<table><thead><tr><th>state</th><th>header height</th><th>vs before</th></tr></thead><tbody>` +
+  rows.map((r) => {
+    const d = Math.round((r.h - base) * 100) / 100;
+    const cls = d === 0 ? 'same' : 'grew';
+    return `<tr><td>${r.name}</td><td>${r.h}px</td>` +
+      `<td class="${cls}">${d === 0 ? 'unchanged' : (d > 0 ? '+' : '') + d + 'px'}</td></tr>`;
+  }).join('') +
+  `</tbody></table>`;
+
+window.__headerHeights = rows;
+</script>

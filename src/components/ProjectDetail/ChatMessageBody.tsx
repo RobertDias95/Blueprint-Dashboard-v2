@@ -59,14 +59,20 @@ export function MessageBody({
 // message row the name is printed alongside, so the circle stays decoration and
 // `aria-hidden` — the comment above is still exactly right for that case. One
 // component, two truthful states, rather than a second avatar for the header.
+// ★ fix-468: `title` overrides what the tooltip says while `name` still decides
+//   the initials. The chat header needs "Design Manager · Brittani Ard" — the
+//   ROLE is the half you cannot get from a circle of letters — but the letters
+//   must still come from the person's name.
 export function Avatar({
   name,
   titled = false,
+  title,
 }: {
   name: string | null | undefined;
   titled?: boolean;
+  title?: string;
 }) {
-  const full = (name ?? '').trim();
+  const full = (title ?? name ?? '').trim();
   return (
     <span
       className="rounded-full bg-s2 text-muted font-bold flex items-center justify-center flex-shrink-0"
