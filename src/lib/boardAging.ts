@@ -169,6 +169,28 @@ export function nextBusinessDay(iso: string): string {
   return d.toISOString().slice(0, 10);
 }
 
+/** The business day `n` days STRICTLY BEFORE `iso`.
+ *
+ *  ★ fix-474: the mirror of `nextBusinessDay`, and it lives here for the same
+ *  reason that one does — business-day arithmetic is one concept and this file
+ *  owns it. `isWeekend` above is the single definition of "not a working day";
+ *  a second loop somewhere else would be the fix-309 divergence again, where
+ *  two literals for one lead drifted apart.
+ *
+ *  ★ Holidays are NOT modelled, exactly as `nextBusinessDay` does not model
+ *  them. That is a known, deliberate simplification: the app has no holiday
+ *  calendar, and inventing one here would make this function disagree with the
+ *  chase rule that has been live since fix-305. */
+export function minusBusinessDays(iso: string, n: number): string {
+  const d = new Date(`${iso}T12:00:00Z`);
+  let left = Math.max(0, Math.trunc(n));
+  while (left > 0) {
+    d.setUTCDate(d.getUTCDate() - 1);
+    if (!isWeekend(d)) left -= 1;
+  }
+  return d.toISOString().slice(0, 10);
+}
+
 /** ★ ONE BUSINESS DAY OF GRACE, and business is not calendar.
  *
  *  "They technically have the entire day that it's due, and then the next day

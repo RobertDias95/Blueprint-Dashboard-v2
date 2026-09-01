@@ -1,0 +1,118 @@
+-- ===========================================================================
+-- fix-474 §5 — SEED CONSULTANT RECORDS FROM projects.external_team
+-- ===========================================================================
+--
+-- ★★★ PENDING APPROVAL. NOT APPLIED. EVERY STATEMENT IS COMMENTED OUT.
+--
+-- House practice (P-043): a data write nobody has been asked about ships as a
+-- readable proposal with its real numbers in the header, not as something that
+-- runs. **Bobby has not been asked whether he wants this.**
+--
+-- ---------------------------------------------------------------------------
+-- WHAT IT WOULD DO, MEASURED ON PROD 2026-09-01
+-- ---------------------------------------------------------------------------
+--   projects                                          202
+--   with a non-empty projects.external_team            53
+--   (project, discipline) firm pairs inside them      159   ← rows created
+--   rounds created                                    159   (one each, round 0)
+--   disciplines represented                             7
+--     Arborist, Civil, Energy, Geotech, Landscape, Structural, Surveyor
+--
+-- ★★★ AND THE NUMBER THAT MAKES IT SAFE AT ALL: of those 159 free-text firm
+-- names, **159 resolve to an `external_team_directory` row** on
+-- (name, discipline), case-insensitively. **ZERO unmatched.** So the seed needs
+-- no fuzzy matching, creates no directory rows, and leaves nothing orphaned.
+-- If that had not been true this file would have proposed something else.
+--
+-- ---------------------------------------------------------------------------
+-- ★★ WHAT IT WOULD CLAIM, AND WHAT IT WOULD NOT
+-- ---------------------------------------------------------------------------
+-- Each record gets ONE round: phase `Design`, status `Scheduled`, and **all
+-- four dates NULL**. That is the honest shape — `external_team` records WHO,
+-- and nothing about when anything was sent or received. A seeded record
+-- therefore claims **no history**, which is consistent with Bobby's ruling that
+-- *"the tracker starts empty and fills from new activity"*.
+--
+-- ★ THE TRADE, STATED PLAINLY, because it is the actual decision:
+--     APPLY   — the column is populated on day one for 53 of 202 projects, and
+--               every one of those rows says "Scheduled" about work that may
+--               well be finished. A stale-looking record can be worse than an
+--               absent one for an Acquisitions reader deciding to commit.
+--     DO NOT  — the column starts empty everywhere and fills as people use it,
+--               which matches the ruling above exactly, at the cost of 53
+--               projects needing their consultants re-entered by hand.
+--
+-- ★★ AND THE 30 OPEN `waiting_on` TASKS ARE NOT PART OF THIS EITHER WAY.
+-- Re-measured 2026-09-01: **111 tasks carry `waiting_on`, 28 of them open.**
+-- They stay in My Tasks, untouched. No migration closes them, nothing migrates
+-- them into a round, and this file does not read them. They are a different
+-- record of a different thing and fix-315's per-firm chase still owns them.
+--
+-- ---------------------------------------------------------------------------
+-- THE PROPOSAL (verified as a SELECT; the INSERTs are commented out)
+-- ---------------------------------------------------------------------------
+-- Run this first to see exactly what would be created:
+--
+-- with pairs as (
+--   select p.id as project_id, p.tenant_id, e.key as discipline,
+--          btrim(e.value #>> '{}') as firm
+--     from public.projects p
+--     cross join lateral jsonb_each(
+--       case when jsonb_typeof(p.external_team)='object'
+--            then p.external_team else '{}'::jsonb end) e
+--    where btrim(coalesce(e.value #>> '{}','')) <> ''
+-- )
+-- select pr.discipline, count(*) as records
+--   from pairs pr
+--   join public.external_team_directory d
+--     on d.tenant_id = pr.tenant_id
+--    and lower(btrim(d.name)) = lower(pr.firm)
+--    and lower(btrim(d.discipline)) = lower(pr.discipline)
+--  group by 1 order by 2 desc;                                   -- 159 total
+--
+-- ---------------------------------------------------------------------------
+-- IF APPROVED, THIS IS THE WRITE. It is idempotent (ON CONFLICT DO NOTHING on
+-- the one-per-discipline unique) and it creates round 0 only for records it
+-- actually inserted, so a re-run cannot double a round.
+-- ---------------------------------------------------------------------------
+--
+-- begin;
+--
+-- with pairs as (
+--   select p.id as project_id, p.tenant_id, e.key as discipline,
+--          btrim(e.value #>> '{}') as firm
+--     from public.projects p
+--     cross join lateral jsonb_each(
+--       case when jsonb_typeof(p.external_team)='object'
+--            then p.external_team else '{}'::jsonb end) e
+--    where btrim(coalesce(e.value #>> '{}','')) <> ''
+-- ),
+-- resolved as (
+--   select pr.tenant_id, pr.project_id, pr.discipline, d.id as firm_id
+--     from pairs pr
+--     join public.external_team_directory d
+--       on d.tenant_id = pr.tenant_id
+--      and lower(btrim(d.name)) = lower(pr.firm)
+--      and lower(btrim(d.discipline)) = lower(pr.discipline)
+-- ),
+-- ins as (
+--   insert into public.project_consultants (tenant_id, project_id, discipline, firm_id)
+--   select tenant_id, project_id, discipline, firm_id from resolved
+--   on conflict (project_id, discipline) do nothing
+--   returning id, tenant_id
+-- )
+-- insert into public.project_consultant_rounds
+--        (tenant_id, consultant_id, round_index, phase, status,
+--         est_send, sent, est_recd, recd)
+-- select ins.tenant_id, ins.id, 0, 'Design', 'Scheduled',
+--        null, null, null, null
+--   from ins;
+--
+-- -- ★ VERIFY BEFORE COMMITTING. Expected: 159 / 159 / 0.
+-- -- select (select count(*) from public.project_consultants)              as records,
+-- --        (select count(*) from public.project_consultant_rounds)        as rounds,
+-- --        (select count(*) from public.project_consultant_rounds
+-- --          where status <> 'Scheduled' or sent is not null
+-- --             or recd is not null)                                      as claims_history;
+--
+-- commit;

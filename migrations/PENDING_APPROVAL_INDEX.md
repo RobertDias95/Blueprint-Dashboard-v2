@@ -24,6 +24,15 @@ Scope D to fix-456's file.
 > **Nothing here has been applied.** Every file's SQL is commented out and a
 > test keeps it that way. Bobby approves the batch; Claude applies from Cowork.
 
+> ★★ **fix-474's file is the first one whose rows do not exist yet.** Every
+> other file on this page moves rows between columns that are already there;
+> fix-474's creates records in a table shipped empty in the same PR. That makes
+> it the cheapest to approve (nothing is overwritten and re-running is a no-op)
+> and the easiest to decline (the column simply starts empty, which is what the
+> ruling *"the tracker starts empty and fills from new activity"* already says).
+> **It was measured 2026-09-01, after fix-450's sweep** — which is why that
+> ticket's date guard had to be widened from its own sweep date to "a date".
+
 ## The table
 
 | file | what it moves | verdict | rows today | rows when written | date measured |
@@ -37,6 +46,7 @@ Scope D to fix-456's file.
 | `fix_387_entry_drafts_PENDING_APPROVAL.sql` | adds `go_href` teaching links to What's New entries | **MOVES ROWS** | **3** of 14 drafted | 14 drafted | 2026-08-29 |
 | `fix_451_not_required_PENDING_APPROVAL.sql` | deactivates the directory row named "Not Required" so it stops being offered as a firm | **MOVES ROWS** | **1** | 1 | 2026-08-30 |
 | `fix_456_drop_backup_tables_PENDING_APPROVAL.sql` | drops 24 of the 26 ad-hoc backup tables, the two dead `projects.parking_*` columns, and — Scope D, appended by fix-459 — the dead `permit_tasks.co_assignees` | **DESTRUCTIVE — 27 statements** | n/a (drops, not moves) | 27 | 2026-08-30 |
+| `fix_474_seed_from_external_team_PENDING_APPROVAL.sql` | creates a consultant record (discipline + firm, **no rounds' history**) from each `projects.external_team` entry | **MOVES ROWS** | **159** | 159 | 2026-09-01 |
 
 No file is **CANNOT RUN**: every helper function, table and column each one
 depends on still exists on prod with the signature it was written against
