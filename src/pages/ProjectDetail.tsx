@@ -73,10 +73,41 @@ import {
 // The inline PermitDetailRow + helpers were removed; per-stage label / badge /
 // override option constants moved with them.
 
+/**
+ * ★★ fix-466 §6 — A MALFORMED ID IN THE URL SAYS SO IN ENGLISH, ON THIS ROUTE.
+ *
+ * `/project/null` used to reach the database, which rejected it with *"invalid
+ * input syntax for type uuid"* — Postgres's words, shown to Bobby verbatim. The
+ * three links that could produce that URL are fixed at source (fix-466,
+ * TaskDetailEditor), so this is the second line of defence for any OTHER way of
+ * arriving here: a typo, a stale bookmark, a link written later.
+ *
+ * ★★★ THE CHECK GATES THE QUERY, IT DOES NOT GATE THE PAGE — and that
+ * distinction is the whole of this change. `projects.id` is a uuid column, so a
+ * value that cannot be a uuid can only ever produce a database error; skipping
+ * the permit fetch for it means **the malformed question is never asked**.
+ * Whether the page then renders is decided the way it always was — by whether
+ * the id matches a project in the already-cached list, which cannot throw.
+ *
+ * ★ WHY NOT SIMPLY REFUSE A NON-UUID OUTRIGHT: this repo's own fixtures use
+ *   ids like `p-23e` and `p1`. The app has never depended on the format, and
+ *   turning a rendering decision into a format assertion would break thirty
+ *   tests to buy nothing — the id still has to match a real project either way.
+ *
+ * ★ DELIBERATELY NARROW. This is not a general error-message pass: it is one
+ *   route's one parameter.
+ */
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 export default function ProjectDetail() {
   const { id } = useParams<{ id: string }>();
+  // ★ Could this string be a project id at all? Only a uuid can.
+  const couldBeAProjectId = id !== undefined && UUID_RE.test(id);
   const projectsQ = useProjects();
-  const permitsQ = usePermitsByProject(id);
+  // ★ Pass `undefined` for a value that cannot be an id: the hook's `enabled`
+  //   guard then never issues the request, so Postgres is never handed "null".
+  //   Hooks cannot be skipped conditionally — the guard goes in the ARGUMENT.
+  const permitsQ = usePermitsByProject(couldBeAProjectId ? id : undefined);
 
   if (projectsQ.error || permitsQ.error) {
     return (
@@ -95,6 +126,25 @@ export default function ProjectDetail() {
   const isLoading = projectsQ.isLoading || permitsQ.isLoading;
 
   if (!isLoading && !project) {
+    // ★★ TWO DIFFERENT FAILURES, AND THEY MUST STAY DIFFERENT. "That project is
+    //    gone" and "what you typed cannot be a project id" send the reader to
+    //    different next actions, and only the second one was ever showing
+    //    Postgres's error message instead of a sentence.
+    if (!couldBeAProjectId) {
+      return (
+        <div
+          className="text-sm px-2 py-12 text-center"
+          style={{ color: 'var(--color-muted)' }}
+          data-testid="project-detail-bad-id"
+        >
+          That project link is not valid — <code>{String(id)}</code> is not a
+          project id.{' '}
+          <Link to="/projects" className="text-de underline">
+            Back to project list
+          </Link>
+        </div>
+      );
+    }
     return (
       <div className="text-sm text-dim italic px-2 py-12 text-center">
         Project not found.{' '}
