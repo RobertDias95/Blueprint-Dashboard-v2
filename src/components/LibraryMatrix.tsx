@@ -8,11 +8,13 @@ import {
   DEFAULT_LIBRARY_SORT,
   buildLibraryRows,
   filterLibraryRows,
-  // ★ fix-469: `hasAnyUnitFilter` and `matchingUnitIndices` are no longer
-  //   imported HERE — both were used only by the matched-highlight expression
-  //   §1.4 retires. Both are still exported, still tested, and both are now on
-  //   the hot path for choosing the UNIT view's rows, one level down in
-  //   lib/libraryUnitRows.
+  // ★ fix-469/fix-472: `hasAnyUnitFilter` and `matchingUnitIndices` are not
+  //   imported HERE — both were used only by the matched-highlight, which is
+  //   now deleted. Both are still exported, still tested, and both are on the
+  //   hot path for choosing the UNIT view's rows one level down, in
+  //   lib/libraryUnitRows. ★ They are NOT dead: `matchingUnitRows` composes
+  //   them, and that composition is what stops a unit search printing a
+  //   project's non-matching units.
   SITE_FILTER_KEYS,
   UNIT_FILTER_KEYS,
   cardHasValue,
@@ -271,13 +273,13 @@ function Body({ projects, permits }: BodyProps) {
   // and trailing cells), `writeUnitTypes` and its `expectedUpdatedAt` token are
   // untouched, and the editing that used to hide behind a caret is now the
   // view itself.
-  // ★★ fix-469 §1.4: `unitFilterActive` lived here to gate the matched
-  //    highlight, and the highlight is the one thing this component stopped
-  //    doing. `hasAnyUnitFilter` itself is untouched and still very much live —
-  //    it is what `matchingUnitIndices` consults to decide whether any unit
-  //    criteria are active at all, which is now what chooses the UNIT view's
-  //    rows. fix-402's "one definition of 'a unit filter is on'" still holds;
-  //    this component simply no longer needs to ask the question itself.
+  // ★★ fix-469/fix-472: `unitFilterActive` lived here to gate the matched
+  //    highlight, which fix-472 deleted outright. `hasAnyUnitFilter` itself is
+  //    untouched and still very much live — it is what `matchingUnitIndices`
+  //    consults to decide whether any unit criteria are active at all, which is
+  //    now what chooses the UNIT view's rows. fix-402's "one definition of 'a
+  //    unit filter is on'" still holds; this component simply no longer needs
+  //    to ask the question itself.
 
   const allRows = useMemo(
     () => buildLibraryRows(projects, permits),
@@ -853,29 +855,26 @@ function Body({ projects, permits }: BodyProps) {
                 productTypes={u.project.productTypes}
                 registryTypes={productTypeOptions}
                 disabled={!u.project.updatedAt}
-                // ★★★ fix-469 §1.4 — NO HIGHLIGHT HERE ANY MORE, BECAUSE IT
-                //     WOULD NOW ALWAYS BE TRUE. Every row this table prints
-                //     matches the active unit criteria, so the expression that
-                //     used to live here reduces to `unitFilterActive` —
-                //     highlighting every row, which highlights nothing.
+                // ★★★ fix-472 §1 (P-124) — THE MATCHED HIGHLIGHT IS GONE, AND
+                //     THIS IS THE PLACE IT DIED. fix-469 left `matched={false}`
+                //     here under an instruction to keep the mechanism because
+                //     it was "still live in the SITE view's expand" — it was
+                //     not: fix-447 §B6 had already deleted that expand and says
+                //     so above `RowProps`. So this was the highlight's only
+                //     call site, and a prop whose sole caller passes a literal
+                //     `false` reads as alive at the next review.
                 //
-                // ★★ THE MECHANISM IS KEPT, NOT DELETED: the `matched` prop,
-                //    the `data-matched` attribute and fix-205's blue bar are
-                //    all still on `LibraryUnitRow`, and `matchingUnitIndices`
-                //    is more central than it has ever been — it is what
-                //    chooses these rows. This is fix-467's rule again: keep
-                //    the derivation, stop painting with it.
+                // ★★ WHAT WAS KEPT, AND WHY THE TWO CASES DIFFER: fix-467 kept
+                //    `STAGE_CHIP` because it is EXPORTED AND INDEPENDENTLY
+                //    TESTED — a property of its file that needs no call site to
+                //    stay true. This prop had neither. The banked rule is
+                //    "keep-this-it-is-used-elsewhere must NAME the call site".
                 //
-                // ★★★ ONE CORRECTION TO THE BRIEF, RECORDED HERE BECAUSE IT
-                //     CHANGES WHAT "KEPT" MEANS. It said the highlight "is
-                //     still live in the SITE view's expand". It is not —
-                //     fix-447 §B6 removed that expand, and its own comment
-                //     above `RowProps` says so. This was the highlight's ONLY
-                //     call site, so the visual treatment is now retained but
-                //     unreferenced. Kept per the explicit instruction; flagged
-                //     in the PR as a thing a later ticket may legitimately
-                //     retire on purpose rather than by accident.
-                matched={false}
+                // ★★★ AND `matchingUnitIndices` ITSELF STAYS — see the note by
+                //     `matchingUnitRows` in lib/libraryUnitRows. Only the
+                //     HIGHLIGHT consumer went; the predicate is what chooses
+                //     which rows this table prints at all, and deleting it
+                //     would silently restore the 71%-noise bug fix-469 fixed.
                 onChange={(field, val) =>
                   writeUnitTypes(
                     u.project,
@@ -1240,8 +1239,11 @@ function Row({ row }: RowProps) {
 // fix-206: one editable unit_types row in the Library table. Mirrors the
 // Project Overview UnitRow (fix-205) semantics exactly — product-type Label
 // (dropdown when several types, freeform auto-labelled when one), W/D decimals
-// (step 0.5), Qty, Stories — but laid out as table cells and keeping the
-// fix-205 matched-highlight + testids. The fix-73/98 dirty-flag prop sync keeps
+// (step 0.5), Qty, Stories — but laid out as table cells and keeping fix-205's
+// testids.
+// ★ fix-472: the fix-205 matched-highlight is no longer among them. fix-469
+//   made every printed row a match, so marking them all marked nothing; fix-447
+//   §B6 had already removed the only other surface that used it. The fix-73/98 dirty-flag prop sync keeps
 // a mid-typed value from being clobbered by an external cache refresh (the
 // optimistic projects-cache patch from this or the Project Overview editor).
 /** ★★ fix-449 §C — THE MARK. Small, beside the value, never instead of it.
@@ -1270,7 +1272,6 @@ function LibraryUnitRow({
   productTypes,
   registryTypes,
   disabled,
-  matched,
   onChange,
   leading,
   trailing,
@@ -1284,7 +1285,6 @@ function LibraryUnitRow({
    *  `productTypes`, which is this PROJECT's chosen subset. */
   registryTypes: string[];
   disabled: boolean;
-  matched: boolean;
   // ★ fix-402 widened this: roof_deck is a BOOLEAN, and a value type that
   //   stopped at string|number would have quietly excluded it.
   onChange: (field: keyof UnitType, val: string | number | boolean | null) => void;
@@ -1347,11 +1347,7 @@ function LibraryUnitRow({
   const narrowNumClass = numClass.replace('w-12', 'w-7');
 
   return (
-    <tr
-      data-testid={`library-unit-row-${projectId}-${index}`}
-      data-matched={matched ? 'true' : undefined}
-      className={matched ? 'bg-de-bg/40 border-l-2 border-de' : ''}
-    >
+    <tr data-testid={`library-unit-row-${projectId}-${index}`}>
       {leading}
       <td className="px-2 py-0.5 font-mono text-text whitespace-nowrap">
         {hasProductTypes ? (
