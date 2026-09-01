@@ -114,13 +114,45 @@ describe('fix-450: the pending-approval shelf', () => {
     expect(sql).toMatch(/drop table if exists public\._fix415_zone_remap/i);
   });
 
-  it('★★ every file carries its re-measurement date', () => {
+  it('★★ every file carries a measurement date', () => {
     // A header that has stopped saying when it was measured is how this
     // started. The date is the thing that goes stale, so the date is what the
     // guard looks for.
+    //
+    // ★★★ WIDENED BY fix-474, AND THE ORIGINAL WAS TOO NARROW BY ACCIDENT.
+    //     This read `/RE-MEASURED 2026-08-30|SUPERSEDED 2026-08-30/` — fix-450's
+    //     own sweep date, hard-coded. That is not what the comment above says
+    //     the guard is for, and it means **any file added to the shelf after
+    //     that sweep fails**, with the only ways to pass being to backdate a
+    //     header (a lie) or to delete the guard. fix-474's file was measured
+    //     2026-09-01 and hit exactly that.
+    //
+    // ★ So the assertion is now the one the comment always described: the
+    //   header names a date, in a recognised form, whatever that date is. The
+    //   two original markers still match — nothing on the shelf changed.
     for (const f of files) {
       const sql = readFileSync(resolve(MIGRATIONS, f), 'utf8');
-      expect(sql, `${f} has no fix-450 re-measurement`).toMatch(
+      expect(sql, `${f} has no measurement date in its header`).toMatch(
+        /(RE-MEASURED|SUPERSEDED|MEASURED ON PROD) \d{4}-\d{2}-\d{2}/,
+      );
+    }
+  });
+
+  it('★★ …and fix-450\'s own seven still carry ITS sweep date', () => {
+    // ★ The widening above must not lose what fix-450 actually established:
+    //   that it re-measured every file it found on 2026-08-30. That claim is
+    //   about those files, so it is asserted about those files.
+    for (const f of [
+      'fix_368_backfill_PENDING_APPROVAL.sql',
+      'fix_377_backfill_SUPERSEDED.sql',
+      'fix_379_backfill_SUPERSEDED.sql',
+      'fix_379_mapping_rows_PENDING_APPROVAL.sql',
+      'fix_381_backfill_PENDING_APPROVAL.sql',
+      'fix_384_label_candidates_PENDING_APPROVAL.sql',
+      'fix_387_entry_drafts_PENDING_APPROVAL.sql',
+    ]) {
+      const sql = readFileSync(resolve(MIGRATIONS, f), 'utf8');
+      expect(sql, `${f} lost its fix-450 re-measurement`).toMatch(
         /RE-MEASURED 2026-08-30|SUPERSEDED 2026-08-30/,
       );
     }
