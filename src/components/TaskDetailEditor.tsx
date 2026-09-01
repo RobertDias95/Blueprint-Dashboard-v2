@@ -4,6 +4,10 @@ import { usePermitHolds, activePermitHold } from '../hooks/usePermitHolds';
 import { useProjectHolds, activeHold } from '../hooks/useProjectHolds';
 import { HoldBadge } from './shared/HoldBadge';
 import { waitingOnOptions } from '../lib/waitingOn';
+// ★ fix-466 §5: IMPORT, DO NOT AUTHOR. fix-462 already wrote this predicate and
+//   the AGENDA chip on the row above uses it through `taskKind()`. A second
+//   `task.agenda === true` here would be a second definition of one question.
+import { isAgendaItem, taskContextLine } from '../lib/taskSource';
 import TaskProvenance from './TaskProvenance';
 import { useMemo } from "react";
 import { useUpsertTask, useSetTaskAssignees } from "../hooks/useTaskTree";
@@ -267,28 +271,66 @@ export default function TaskDetailEditor({
       </div>
 
       <div className="p-2.5 flex flex-col gap-2">
-        {/* 1 Project */}
+        {/* 1 Project
+            ★★★ fix-466 — THE SECOND /project/null, AND THE WORSE OF THE TWO.
+            The reported crash came from the button at the bottom of this panel;
+            this link had the identical unguarded interpolation, and a blanket
+            "no href ever contains /project/null" assertion is what surfaced it.
+            ★★ It is worse because it is INVISIBLE: on a team task
+            `project_address` is null too, so this rendered an EMPTY anchor
+            pointing at `/project/null` — a clickable target with nothing in it,
+            which crashes the app for a reader who cannot see what they hit.
+            ★ It also shows how the first bug survived review: the field was
+            null-safe by ACCIDENT, because a second field happened to be null in
+            step with it. That coupling is not a guard.
+            ★ `taskContextLine` is fix-460's own answer to "what is this task
+            about" and already says the words — imported, not re-authored. */}
         <FieldRow label="Project">
-          <OriginLink
-            to={`/project/${task.project_id}`}
-            className="text-[11px] underline truncate"
-            style={{ color: 'var(--color-de)' }}
-            data-testid="task-detail-project"
-          >
-            {task.project_address}
-          </OriginLink>
+          {task.project_id !== null ? (
+            <OriginLink
+              to={`/project/${task.project_id}`}
+              className="text-[11px] underline truncate"
+              style={{ color: 'var(--color-de)' }}
+              data-testid="task-detail-project"
+            >
+              {task.project_address}
+            </OriginLink>
+          ) : (
+            <span
+              className="text-[11px] truncate"
+              style={{ color: 'var(--color-muted)' }}
+              data-testid="task-detail-project"
+            >
+              {taskContextLine(task)}
+            </span>
+          )}
         </FieldRow>
 
-        {/* 2 Permit (read-only link) */}
+        {/* 2 Permit (read-only link)
+            ★★★ fix-466 — THE THIRD /project/null. Same unguarded
+            interpolation, and on a team task `permit_type` is null too, so this
+            rendered the literal "—" as a live link into a crash. fix-460's rule
+            is that a team task HAS no permit; the row says that in words rather
+            than offering a link to a permit that does not exist. */}
         <FieldRow label="Permit">
-          <OriginLink
-            to={`/project/${task.project_id}`}
-            className="text-[11px] underline"
-            style={{ color: 'var(--color-muted)' }}
-            data-testid="task-detail-permit"
-          >
-            {task.permit_type ?? '—'}
-          </OriginLink>
+          {task.project_id !== null ? (
+            <OriginLink
+              to={`/project/${task.project_id}`}
+              className="text-[11px] underline"
+              style={{ color: 'var(--color-muted)' }}
+              data-testid="task-detail-permit"
+            >
+              {task.permit_type ?? '—'}
+            </OriginLink>
+          ) : (
+            <span
+              className="text-[11px]"
+              style={{ color: 'var(--color-muted)' }}
+              data-testid="task-detail-permit"
+            >
+              No permit
+            </span>
+          )}
         </FieldRow>
 
         {/* fix-228/229: the PRIMARY owner (assigned_to, fix-222 taxonomy) —
@@ -481,27 +523,84 @@ export default function TaskDetailEditor({
         )}
       </div>
 
-      <OriginLink
-        // fix-217/218/219: deep-link to the task's PERMIT so Project View
-        // auto-selects + scrolls to it, instead of the project top. This is the
-        // LIVE My Tasks detail panel (fix-217/218 hardened the unused
-        // TaskDetailPanel component). Build the param straight from
-        // task.permit_id — the permit pk on the MyTaskNode — so it never
-        // depends on resolving a permit object out of a lookup map.
-        to={`/project/${task.project_id}${task.permit_id != null ? `?permit=${task.permit_id}` : ''}`}
-        className="text-[10px] font-display font-bold px-2.5 py-1.5 border-t text-center no-underline"
-        style={{
-          background: 'var(--color-s2)',
-          borderTopColor: 'var(--color-border)',
-          color: 'var(--color-muted)',
-        }}
-        data-testid="task-detail-open-project"
-      >
-        → Open in Project View
-      </OriginLink>
+      {/* ===================================================================
+          ★★★ fix-466 (P-119) — TWO DESTINATIONS, AND SOMETIMES NEITHER
+          ===================================================================
+
+          THE DEFECT: `to` interpolated `task.project_id` unconditionally. On a
+          team task that field is null, so the template literal produced the
+          STRING "null" — `/project/null` — and ProjectDetail handed "null" to a
+          uuid-typed query. Bobby got Postgres's own words: *"invalid input
+          syntax for type uuid"*.
+
+          ★★★ A ONE-LINE MISS INSIDE fix-460, NOT A NEW CLASS OF BUG. This link
+          predates the team task (fix-217/218/219, when `permit_tasks.permit_id`
+          was NOT NULL and "every task has a project" was true). fix-460
+          reasoned about every block it ADDED — twenty lines up it guards the
+          notes block on exactly this field — but did not revisit the link that
+          was already here. Its own edit shows the asymmetry: it made the PERMIT
+          half null-safe and left the PROJECT half interpolating.
+
+          ★★★ TWO CASES, NOT THREE, and `ref_project_id` is not a third.
+          `team_tasks` HAS a column recording which project a team task is
+          about, but `bp_list_tasks` emits `project_id: null` regardless — see
+          MyTaskNode, where that is deliberate: a project view filters on this
+          field, which is what makes "a team task never appears in a project
+          view" true BY CONSTRUCTION. So on this surface
+          `project_id === null` ⟺ team task, and a `ref_project_id` fallback
+          would quietly undo that invariant.
+
+          ★★ THE LABEL MOVES WITH THE DESTINATION. A button that says "Project
+          View" and lands on the Agenda is the same failure in another costume.
+
+          ★ AND WHEN THERE IS NOWHERE TO GO, THERE IS NO BUTTON. A team task
+          that is not an agenda item has no screen of its own to open, so the
+          control is ABSENT rather than present-and-broken — fix-406's rule. */}
+      {task.project_id !== null ? (
+        <OriginLink
+          // fix-217/218/219: deep-link to the task's PERMIT so Project View
+          // auto-selects + scrolls to it, instead of the project top. This is
+          // the LIVE My Tasks detail panel (fix-217/218 hardened the unused
+          // TaskDetailPanel component). Build the param straight from
+          // task.permit_id — the permit pk on the MyTaskNode — so it never
+          // depends on resolving a permit object out of a lookup map.
+          // ★ fix-466: byte-for-byte the expression it always was, now reached
+          //   only when there IS a project id.
+          to={`/project/${task.project_id}${task.permit_id != null ? `?permit=${task.permit_id}` : ''}`}
+          className={OPEN_LINK_CLASS}
+          style={OPEN_LINK_STYLE}
+          data-testid="task-detail-open-project"
+        >
+          → Open in Project View
+        </OriginLink>
+      ) : isAgendaItem(task) ? (
+        // ★★ Bobby, 2026-08-31, asked what case 2 should do: *"it should just
+        //    open the agenda right?"* The agenda IS this task's screen.
+        //    `/agenda` takes no id — one running list, not a per-item route
+        //    (fix-462) — so there is nothing here that can be malformed.
+        <OriginLink
+          to="/agenda"
+          className={OPEN_LINK_CLASS}
+          style={OPEN_LINK_STYLE}
+          data-testid="task-detail-open-project"
+        >
+          → Open in Agenda
+        </OriginLink>
+      ) : null}
     </aside>
   );
 }
+
+/** ★ fix-466: shared so the two destinations cannot drift into looking like
+ *  two different controls. They are one control with one job — "take me to
+ *  where this task lives" — and only the answer differs. */
+const OPEN_LINK_CLASS =
+  'text-[10px] font-display font-bold px-2.5 py-1.5 border-t text-center no-underline';
+const OPEN_LINK_STYLE = {
+  background: 'var(--color-s2)',
+  borderTopColor: 'var(--color-border)',
+  color: 'var(--color-muted)',
+} as const;
 
 function FieldRow({
   label,

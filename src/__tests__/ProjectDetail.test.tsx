@@ -199,6 +199,54 @@ beforeEach(() => {
   (Element.prototype as { scrollIntoView?: unknown }).scrollIntoView = vi.fn();
 });
 
+// ===========================================================================
+// ★★ fix-466 §6 (P-119) — a malformed project id says so in English
+// ===========================================================================
+//
+// Bobby's crash surfaced Postgres's own words to the user: *"Project detail
+// failed to load — invalid input syntax for type uuid: \"null\""*. The link
+// that produced `/project/null` is fixed at source, so this is the second line
+// of defence for any OTHER way of arriving here with a value that cannot be a
+// project id — a typo, a stale bookmark, a link written later.
+//
+// ★ DELIBERATELY NARROW. Not a general error-message pass across the app: a
+//   shape check on ONE route's ONE parameter, made BEFORE the query runs so the
+//   database is never asked the malformed question at all.
+describe('<ProjectDetail /> fix-466 malformed id', () => {
+  it('★★★ /project/null says so in English and never reaches the database', () => {
+    renderAt('/project/null');
+    const msg = screen.getByTestId('project-detail-bad-id');
+    expect(msg.textContent).toContain('not valid');
+    expect(msg.textContent).toContain('null');
+    // ★ The developer's message is gone: no Postgres vocabulary reaches a user.
+    expect(msg.textContent).not.toContain('uuid');
+    expect(msg.textContent).not.toContain('invalid input syntax');
+    // ★ And a way out, like the "Project not found" path beside it.
+    expect(screen.getByText('Back to project list')).toBeInTheDocument();
+  });
+
+  it('★★ a WELL-FORMED id that simply does not exist still says "not found"', () => {
+    // The two failures are different and must stay different: "you typed
+    // something that cannot be an id" is not "that project is gone", and they
+    // send the reader to different next actions.
+    renderAt('/project/00000000-0000-4000-8000-000000000000');
+    expect(screen.queryByTestId('project-detail-bad-id')).toBeNull();
+    expect(screen.getByText(/Project not found/)).toBeInTheDocument();
+  });
+
+  it('★★★ the check gates the QUERY, not the page — every other test proves it', () => {
+    // ★ This repo's own fixtures use ids like `p-23e`, which is not a uuid.
+    //   If fix-466 had turned the shape check into a rendering gate, thirty
+    //   tests in this file would fail — and it would have bought nothing, since
+    //   a non-uuid still has to match a real project to render either way.
+    //   Stated here so the reason survives, rather than being rediscovered by
+    //   whoever next tries to "tidy" the guard.
+    renderAt();
+    expect(screen.queryByTestId('project-detail-bad-id')).toBeNull();
+    expect(screen.getByTestId('project-overview-pane')).toBeInTheDocument();
+  });
+});
+
 // fix-217: My Tasks → "Open in Project View" deep-links to ?permit=<id>. The
 // Project View reads it, auto-selects that permit (same path the sidebar uses),
 // and scrolls its detail pane into view.

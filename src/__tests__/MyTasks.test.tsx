@@ -634,6 +634,140 @@ describe('MyTasks (fix-80 v1 three-pane kanban)', () => {
     expect(link.getAttribute('href')).toBe('/project/p1?permit=1');
   });
 
+  // =========================================================================
+  // ★★★ fix-466 (P-119) — a team task's link used to navigate to /project/null
+  // =========================================================================
+  //
+  // Bobby opened the one agenda task and clicked "→ Open in Project View". The
+  // whole page was replaced by *"Project detail failed to load — invalid input
+  // syntax for type uuid: \"null\""*: Postgres's own words, surfaced raw.
+  //
+  // The cause is one line: `to` interpolated `task.project_id` unconditionally,
+  // so a null project id became the STRING "null". ★★ A one-line miss inside
+  // fix-460, not a new class of bug — the link predates the team task, and
+  // fix-460 reasoned about every block it ADDED (it guards the notes block on
+  // exactly this field) without revisiting the one already there.
+  //
+  // ★★★ MEASURED ON PROD 2026-08-31, before anything was written:
+  //     select agenda, ref_project_id is null, done, count(*) from team_tasks
+  //     → ONE row: agenda=true, no_project=true, done=false, count=1.
+  //     That is the entire team-task population, and it is the row that
+  //     crashes. **100% of team tasks reproduce this**, and the number grows
+  //     now that the Agenda is live (fix-462, fix-465).
+  //
+  // ★★ TWO destinations, and sometimes neither — `ref_project_id` is NOT a
+  //    third case. `bp_list_tasks` emits `project_id: null` for a team task
+  //    even when the table records which project it is about, because a project
+  //    view filters on that field; surfacing it here would undo the invariant
+  //    that makes "a team task never appears in a project view" true by
+  //    construction.
+
+  it('fix-466: a task WITH a project still opens Project View, deep-linked', () => {
+    // Row 1 of the table, restated as its own guard so a future edit to the
+    // branch cannot quietly change the case that was never broken.
+    tasksRef.current = varied();
+    renderIt();
+    fireEvent.click(screen.getByTestId('mytask-card-de-inprog'));
+    const link = screen.getByTestId('task-detail-open-project');
+    expect(link.getAttribute('href')).toBe('/project/p1?permit=1');
+    expect(link.textContent).toContain('Open in Project View');
+  });
+
+  it('fix-466: an AGENDA item opens the Agenda, and says so', () => {
+    // Bobby, asked what this case should do: *"it should just open the agenda
+    // right?"* ★ The LABEL moves with the destination — a button that says
+    // "Project View" and lands on the Agenda is the same failure in another
+    // costume.
+    tasksRef.current = [
+      task({
+        id: 'team-agenda',
+        project_id: null,
+        project_address: null,
+        permit_id: null,
+        permit_type: null,
+        source: 'team',
+        agenda: true,
+        text: 'Talk about the Densmore fee',
+        status: 'Open',
+      }),
+    ];
+    renderIt();
+    fireEvent.click(screen.getByTestId('mytask-card-team-agenda'));
+    const link = screen.getByTestId('task-detail-open-project');
+    expect(link.getAttribute('href')).toBe('/agenda');
+    expect(link.textContent).toContain('Open in Agenda');
+    expect(link.textContent).not.toContain('Project View');
+  });
+
+  it('fix-466: a team task that is NOT on the agenda renders no link at all', () => {
+    // fix-406's rule: a control that cannot act is ABSENT, not
+    // present-and-broken. This task has no screen of its own to open.
+    tasksRef.current = [
+      task({
+        id: 'team-plain',
+        project_id: null,
+        project_address: null,
+        permit_id: null,
+        permit_type: null,
+        source: 'team',
+        agenda: false,
+        text: 'Order more plotter paper',
+        status: 'Open',
+      }),
+    ];
+    renderIt();
+    fireEvent.click(screen.getByTestId('mytask-card-team-plain'));
+    // The panel is open — it is the LINK that is absent, not the panel.
+    expect(screen.getByTestId('mytasks-detail-text')).toBeInTheDocument();
+    expect(screen.queryByTestId('task-detail-open-project')).toBeNull();
+  });
+
+  it('fix-466: ★★★ NO rendered link anywhere ever points at /project/null', () => {
+    // THE ACTUAL DEFECT, as one assertion over every task shape at once. It
+    // does not care which branch is taken or what the label says, only that the
+    // string "null" never reaches a uuid-typed route.
+    //
+    // ★★★ AND IT EARNED ITS KEEP IMMEDIATELY: the brief located ONE bad link
+    //     (the button at the bottom of the panel) and this found **three**.
+    //     The other two are in the same panel, twenty lines apart:
+    //       · `task-detail-project` — the address link. WORSE than the reported
+    //         one, because on a team task `project_address` is null too, so it
+    //         rendered an EMPTY anchor into a crash: a clickable target with
+    //         nothing in it.
+    //       · `task-detail-permit` — rendered the literal "—" as a live link.
+    //     ★★ Both were null-safe by ACCIDENT — a second field happened to be
+    //        null in step with the first — which is not a guard, and is exactly
+    //        how the reported one survived review. Three named tests would have
+    //        fixed one bug; this one fixed three.
+    tasksRef.current = [
+      ...varied(),
+      task({
+        id: 'team-agenda',
+        project_id: null,
+        permit_id: null,
+        source: 'team',
+        agenda: true,
+        text: 'Agenda item',
+      }),
+      task({
+        id: 'team-plain',
+        project_id: null,
+        permit_id: null,
+        source: 'team',
+        agenda: false,
+        text: 'Plain team task',
+      }),
+    ];
+    const { container } = renderIt();
+    for (const id of ['de-inprog', 'team-agenda', 'team-plain']) {
+      fireEvent.click(screen.getByTestId(`mytask-card-${id}`));
+      for (const a of Array.from(container.querySelectorAll('a[href]'))) {
+        expect(a.getAttribute('href')).not.toContain('/project/null');
+        expect(a.getAttribute('href')).not.toContain('/project/undefined');
+      }
+    }
+  });
+
   it('fix-219: the deep-link param is present even for a permit the app has no lookup for (built from task.permit_id)', () => {
     // A task whose permit_id would miss any permitsById cache — the MyTaskNode
     // still carries permit_id + project_id, so the link is unaffected.
