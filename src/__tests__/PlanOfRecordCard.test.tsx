@@ -5,6 +5,13 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { ReactNode } from 'react';
 import { useAuthStore } from '../stores/authStore';
 import type { ProjectPlanOfRecordRow } from '../lib/database.types';
+// ★ fix-467 §3: imported so the "not painted" property is checked against the
+//   REAL constant, and so this file fails if somebody deletes it.
+import {
+  CHIP_INK_HUE_PCT,
+  STAGE_CHIP,
+  STAGE_CHIP_MIX,
+} from '../lib/planOfRecord';
 
 // fix-285: the Design Plan of Record card.
 //
@@ -138,16 +145,63 @@ describe('fix-285 the card renders each stage with its own chip', () => {
     expect(chip).toHaveTextContent(label);
   });
 
-  it('the three chips are visually distinct from one another', async () => {
+  // ★★★ SUPERSEDED BY fix-467 §3 (P-113), NOT MISTAKEN. This assertion used to
+  //     read `expect(seen.size).toBe(3)` — three chips, three distinct styles.
+  //     Bobby: *"I dont think we need color for schematic, design guidance or
+  //     marketing."*
+  //
+  // ★★★ AND THE REASON IS STRUCTURAL, WHICH IS WHY THE INVERSION IS SAFE. The
+  //     test above it — *"does NOT re-derive which stage wins — it renders the
+  //     row it is given"* — is the proof: fix-284 applies precedence in the
+  //     VIEW and this card renders ONE row. **The three colours therefore never
+  //     appeared beside one another anywhere in the app.** A colour never
+  //     adjacent to its alternatives distinguishes nothing; it was a key the
+  //     reader had to learn and then apply from memory, two millimetres from
+  //     the stage printed in words.
+  //
+  // ★★ WHAT SURVIVES, AND IS NOW WHAT THIS TEST DEFENDS: the chip is still
+  //    there, still per stage, still carrying the label — only the hue is gone,
+  //    and all three now render IDENTICALLY, which is the new claim.
+  it('fix-467 §3: the three chips are neutral — and identical to one another', async () => {
     const seen = new Set<string>();
     for (const setType of ['marketing', 'schematic', 'design_guidance'] as const) {
       state.row = row({ set_type: setType });
       const { unmount } = renderCard();
       const chip = await screen.findByTestId(`plan-of-record-stage-${setType}`);
-      seen.add(chip.getAttribute('style') ?? '');
+      const style = chip.getAttribute('style') ?? '';
+      seen.add(style);
+      // ★ THE PROPERTY: no value from STAGE_CHIP reaches the card. Checked
+      //   against the real constant rather than against three hard-coded
+      //   hexes, so re-tinting it any colour fails here.
+      for (const { bg, fg } of Object.values(STAGE_CHIP)) {
+        expect(style).not.toContain(bg);
+        expect(style).not.toContain(fg);
+      }
       unmount();
     }
-    expect(seen.size).toBe(3);
+    expect(seen.size).toBe(1);
+  });
+
+  it('fix-467 §3: STAGE_CHIP still EXISTS and is still exported — it is just not painted', async () => {
+    // ★★★ THE OTHER HALF OF THE RULING, AND THE EASY MISTAKE. fix-407 derived
+    //     all three tints and proved each clears 4.5:1 on its own surface
+    //     (6.47 / 5.21 / 4.68). **None of that was wrong.** What changed is not
+    //     the measurement's correctness but what the value was FOR — so the
+    //     derivation stays exported, with its own suite intact, and the next
+    //     person to want a stage colour finds the numbers instead of
+    //     re-deriving them. Deleting it would have been the wrong fix passing
+    //     the same tests.
+    expect(Object.keys(STAGE_CHIP).sort()).toEqual([
+      'design_guidance',
+      'marketing',
+      'schematic',
+    ]);
+    for (const v of Object.values(STAGE_CHIP)) {
+      expect(v.bg).toMatch(/^#[0-9a-f]{6}$/i);
+      expect(v.fg).toMatch(/^#[0-9a-f]{6}$/i);
+    }
+    expect(Object.keys(STAGE_CHIP_MIX)).toHaveLength(3);
+    expect(CHIP_INK_HUE_PCT).toBe(65);
   });
 
   it('does NOT re-derive which stage wins — it renders the row it is given', async () => {

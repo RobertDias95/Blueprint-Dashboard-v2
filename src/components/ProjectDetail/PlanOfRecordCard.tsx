@@ -6,7 +6,10 @@ import {
 } from '../../hooks/usePlanOfRecord';
 import { usePlanOfRecordVerdict } from '../../hooks/usePlanOfRecordVerdict';
 import {
-  STAGE_CHIP,
+  // ★ fix-467 §3: `STAGE_CHIP` is no longer imported — the chip is neutral. It
+  //   is still EXPORTED from lib/planOfRecord and its fix-407 derivation and
+  //   suite are untouched; see the note on StageChip below for why keeping it
+  //   and not painting with it is the right pair of decisions.
   formatFileSize,
   formatModified,
   hasThumbnail,
@@ -309,12 +312,40 @@ function PlanOfRecordBody({
   );
 }
 
+// ===========================================================================
+// ★★★ fix-467 §3 (P-113) — THE CHIP LOSES ITS COLOUR, AND KEEPS EVERYTHING ELSE
+// ===========================================================================
+//
+// Bobby: *"I dont think we need color for schematic, design guidance or
+// marketing."*
+//
+// ★★★ HE IS RIGHT, AND IT IS NOT A MATTER OF TASTE — THE THREE COLOURS NEVER
+// APPEAR BESIDE ONE ANOTHER ANYWHERE IN THE APP. fix-284 decides precedence
+// (design_guidance < schematic < marketing, furthest stage present) in the VIEW,
+// before this component sees anything, and the card renders ONE row. So there is
+// exactly one chip on screen, ever. A colour that is never adjacent to its
+// alternatives distinguishes nothing: it is a key the reader has to learn and
+// then apply from memory, on a card that already prints the stage in words two
+// millimetres away.
+//
+// ★★★ WHAT fix-407 MEASURED IS STILL TRUE, AND IT IS STILL EXPORTED. That
+// ticket derived all three tints and proved each clears 4.5:1 on its own
+// surface (6.47 / 5.21 / 4.68). Nothing about that was wrong and nothing about
+// it is deleted — `STAGE_CHIP`, `STAGE_CHIP_MIX` and `CHIP_INK_HUE_PCT` remain
+// exported and their suite passes unmodified. What changed is not the
+// measurement's correctness but what the value was FOR. Keeping the derivation
+// is how the next person to want a stage colour finds the numbers instead of
+// re-deriving them; painting with it here bought a distinction with no second
+// term.
+//
+// ★ SAME BOX, SAME SIZE, SAME WEIGHT, SAME POSITION — only the hue goes.
+//   Nothing else on the card moves. `--color-muted` on `--color-s2` measures
+//   4.65:1, so the neutral chip clears the same floor the coloured ones did.
 function StageChip({ stage }: { stage: PlanOfRecordStage }) {
-  const chip = STAGE_CHIP[stage] ?? STAGE_CHIP.design_guidance;
   return (
     <span
       className="inline-block text-[9px] font-extrabold uppercase tracking-wider px-2 py-0.5 rounded-full mb-2"
-      style={{ background: chip.bg, color: chip.fg }}
+      style={{ background: 'var(--color-s2)', color: 'var(--color-muted)' }}
       data-testid={`plan-of-record-stage-${stage}`}
     >
       {stageLabel(stage)}
