@@ -1530,10 +1530,54 @@ type LabelTier = 'primary' | 'secondary';
 //
 // ★★★ AND NO THIRD HUE FOR "ACTIVE". The obvious move — underline SITE in teal
 // and UNIT in purple — would put the colour difference straight back onto the
-// heading through the side door. Active is the app's TEXT ink plus a 2px rule;
-// inactive is muted with no rule. Weight and presence carry the state, hue
+// heading through the side door. Weight and presence carry the state, hue
 // carries nothing, and the two headings stay identical to each other in colour
 // whichever one is on.
+//
+// ===========================================================================
+// ★★★ fix-467 §2 (P-112) — LOUDER, FROM CONTRAST RATHER THAN FROM HUE
+// ===========================================================================
+//
+// Bobby: *"can we try something less subtle than just the under line letting
+// you know which realm you're searching in — like maybe the whole pill is
+// darker and the inactive one is greyed out or white? also — can the whole pill
+// area be clickable to toggle."*
+//
+// ★★★ THIS REVERSES PART OF fix-447 AND THAT TICKET WAS STILL RIGHT. Three days
+// earlier he asked for these headings *"without the colour difference"*, and
+// fix-447's measurement is the reason the answer here is a FILL and not the old
+// teal/purple:
+//
+//     SITE border  #55abc4 vs the card  →  2.23:1
+//     UNIT border  #9a77e8 vs the card  →  2.89:1
+//     SITE vs UNIT against EACH OTHER   →  1.30:1   ← the damning number
+//
+// ★★ 1.30:1 means the hue that was supposed to tell the two groups apart was,
+// measurably, very nearly the same hue twice. His new instruction wins on what
+// the control should LOOK like; it does not make that measurement false, and
+// nothing here reintroduces a pair that close.
+//
+// ★★★ WHAT THE SEGMENTED CONTROL BUYS, AS THE SAME KIND OF NUMBER:
+//
+//     ACTIVE   #ffffff on --color-text  → 15.19:1   (the label)
+//     INACTIVE --color-muted on white   →  5.48:1   (the label)
+//     the two SEGMENT FILLS against each other → 15.19:1
+//
+// ★★ That last figure is the like-for-like replacement for 1.30:1 — the state
+// difference is now the largest contrast the palette can express instead of
+// the smallest. It reads across a room, it survives colour-blindness entirely
+// because no hue carries meaning, and SITE and UNIT remain identical to each
+// other in colour whichever one is on.
+//
+// ★ `lib/libraryGroupPalette` and its fix-406 suite are KEPT and UNTOUCHED —
+//   not painted, not deleted. They are the record of how those hexes were
+//   derived, exactly the treatment fix-447 gave them.
+//
+// ★★ THE WHOLE PILL IS THE BUTTON, and that is the second half of the ask. The
+// caption used to be a dead `<span>` sitting BESIDE the button, so half of what
+// looks like one control did nothing when clicked. It is now inside the button.
+// ★ Still ONE real `<button>` with `aria-pressed` — no onClick on a `<div>`,
+//   so keyboard and screen-reader behaviour is unchanged and free.
 function GroupHeading({
   label,
   caption,
@@ -1550,30 +1594,44 @@ function GroupHeading({
   testid: string;
 }) {
   return (
-    <>
-      <button
-        type="button"
-        onClick={onSelect}
-        // ★ 13px against the 10px/9px field labels below. `font-display` and
-        //   the uppercase tracking are kept from the chip so the two headings
-        //   still read as the same family as the rest of the panel.
-        className="text-[13px] font-display font-extrabold uppercase tracking-wide leading-none pb-0.5"
-        style={{
-          color: active ? 'var(--color-text)' : 'var(--color-muted)',
-          borderBottom: active
-            ? '2px solid var(--color-text)'
-            : '2px solid transparent',
-          background: 'transparent',
-        }}
-        aria-pressed={active}
-        data-testid={testid}
-        data-view={view}
-        data-active={active ? 'true' : 'false'}
+    <button
+      type="button"
+      onClick={onSelect}
+      className="flex items-baseline gap-2 text-left rounded-md px-2.5 py-1.5 border transition-colors"
+      style={{
+        // ★ active = solid fill in the app's text ink; inactive = plain white
+        //   on the grey card, Bobby's *"greyed out or white"*. The fill is the
+        //   whole signal, which is why it is the property both halves read.
+        background: active ? 'var(--color-text)' : 'var(--color-surface)',
+        borderColor: active ? 'var(--color-text)' : 'var(--color-border)',
+      }}
+      aria-pressed={active}
+      data-testid={testid}
+      data-view={view}
+      data-active={active ? 'true' : 'false'}
+    >
+      {/* ★ 13px against the 10px/9px field labels below. `font-display` and
+          the uppercase tracking are kept so the two headings still read as the
+          same family as the rest of the panel. */}
+      <span
+        className="text-[13px] font-display font-extrabold uppercase tracking-wide leading-none"
+        style={{ color: active ? 'var(--color-surface)' : 'var(--color-text)' }}
       >
         {label}
-      </button>
-      <span className="text-[10px] text-muted">{caption}</span>
-    </>
+      </span>
+      {/* ★ The caption travels INSIDE the pill now — it is what makes the
+          "whole pill area" a real target rather than a styled label with a
+          live corner. On the filled segment it takes the same white as the
+          label; a semi-transparent white would look right and could not be
+          measured, which is the trade fix-406 ruled on. */}
+      <span
+        className="text-[10px] leading-none"
+        style={{ color: active ? 'var(--color-surface)' : 'var(--color-muted)' }}
+        data-testid={`${testid}-caption`}
+      >
+        {caption}
+      </span>
+    </button>
   );
 }
 

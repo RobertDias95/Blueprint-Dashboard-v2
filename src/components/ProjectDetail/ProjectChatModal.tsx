@@ -8,6 +8,7 @@ import {
   usePostMessage,
   useProjectMessages,
 } from '../../hooks/useProjectMessages';
+import type { ProjectMessage } from '../../lib/database.types';
 import { useTeamMembers } from '../../hooks/useTeamMembers';
 import {
   chatStamp,
@@ -41,6 +42,10 @@ import {
   type ChatTaskDraft,
 } from '../../lib/chatTaskDraft';
 import { useProjects } from '../../hooks/useProjects';
+// ★ fix-467 §1 — the fix-343 pair, reached through the components that already
+//   use it. No third initials function, no second avatar.
+import { useRosterFullName } from '../../hooks/useRosterFullName';
+import { Avatar } from './ChatMessageBody';
 import { useMentionTags } from '../../hooks/useMentionTags';
 import {
   useProjectReactions,
@@ -266,16 +271,48 @@ export default function ProjectChatModal({
             instead.
           </div>
         )}
+        {/* =================================================================
+            ★★★ fix-467 §1 (P-111) — THE HEADING SAYS WHICH PROJECT YOU ARE IN
+            =================================================================
+
+            Bobby: *"can we add the project address in the chat heading — when i
+            am responding to chats from notifications it would be useful — also
+            including the team in there, so you can see who is in the chat."*
+
+            ★★ WHY IT BITES: fix-362 built the notification deep-link, so this
+            modal opens over whatever screen you were on, from a bell you
+            clicked. **The one entry point where you arrive knowing nothing was
+            the one that told you least** — a literal "Project chat" over a post
+            count, and no way to tell which of 269 permits' projects you had
+            landed in without closing it.
+
+            ★ The address and jurisdiction are the SHAPE THE PROJECT OVERVIEW
+            USES (pages/ProjectDetail.tsx: address, then `juris ?? '—'` in mono
+            beneath), so the two screens name a project the same way rather than
+            each inventing a heading. */}
         <header className="flex items-center gap-2 px-4 py-3 border-b border-border flex-none">
-          <div>
-            <div className="text-[14px] font-display font-bold text-text">
-              Project chat
+          <div className="min-w-0">
+            {/* ★ `project` is null while useProjects loads, and a heading that
+                flashes blank is worse than one that is briefly generic — so the
+                fallback is the string this header has always shown. */}
+            <div
+              className="text-[14px] font-display font-bold text-text truncate"
+              data-testid="project-chat-title"
+            >
+              {project?.address ?? 'Project chat'}
             </div>
-            <div className="text-[11px] text-dim" data-testid="project-chat-subtitle">
+            <div className="text-[11px] text-muted" data-testid="project-chat-subtitle">
+              {project && (
+                <>
+                  <span className="font-mono">{project.juris ?? '—'}</span>
+                  {' · '}
+                </>
+              )}
               {posts.length} post{posts.length === 1 ? '' : 's'} ·{' '}
               {messages.length} message{messages.length === 1 ? '' : 's'}
             </div>
           </div>
+          <Participants messages={messages} />
           <button
             type="button"
             onClick={onClose}
@@ -974,6 +1011,82 @@ function ReplyComposer({
           {post.isPending ? 'Sending…' : 'Send'}
         </button>
       </div>
+    </div>
+  );
+}
+
+// ===========================================================================
+// ★★★ fix-467 §1 — WHO IS IN THIS CHAT
+// ===========================================================================
+//
+// ★★★ THE DEFINITION, AND WHY IT IS THIS ONE: **the distinct authors of this
+// project's posts and replies.** Recommended by the brief, and it is right for
+// a reason worth stating — it is exactly *who will actually see a reply*. The
+// two plausible alternatives are both worse:
+//
+//   · @-MENTIONS are not people. `@project` and `@Corrections` are tags
+//     (fix-347), so a mention list would put a word in a row of faces.
+//   · THE PROJECT TEAM (ENT / DM / DA) is who is assigned, not who is here.
+//     Half of them may never have posted, and showing a face for somebody who
+//     has never opened the thread is a promise the chat cannot keep.
+//
+// ★★ AND IT NEEDS NO NEW DATA. `messages` is already loaded in this component,
+// and `groupIntoPosts` derives posts FROM messages — so every post author is
+// necessarily a message author, and one pass over `messages` is the whole set.
+// No query, no hook, no prop drilling.
+//
+// ★ `rosterFullName` (via useRosterFullName) + `initialsOf` are the fix-343
+//   pair, reused through the existing `Avatar`. There is no third initials
+//   function in this repo and this ticket does not add one.
+function Participants({ messages }: { messages: readonly ProjectMessage[] }) {
+  const fullNameOf = useRosterFullName();
+
+  const authors = useMemo(() => {
+    // ★ Insertion order = order of first appearance, so the list is stable
+    //   across renders and reads oldest-first like the thread itself.
+    const seen = new Map<string, string>();
+    for (const m of messages) {
+      const raw = (m.author_name ?? '').trim();
+      if (!raw) continue; // a message with no author names nobody
+      const key = raw.toLowerCase();
+      if (!seen.has(key)) seen.set(key, raw);
+    }
+    return [...seen.values()];
+  }, [messages]);
+
+  // ★ A project with no posts renders NOTHING — not an empty row, not a
+  //   zero. fix-406's rule: absent beats present-and-empty.
+  if (authors.length === 0) return null;
+
+  const MAX = 5;
+  const shown = authors.slice(0, MAX);
+  const rest = authors.slice(MAX);
+
+  return (
+    <div
+      className="flex items-center gap-1 ml-auto flex-none"
+      data-testid="project-chat-participants"
+    >
+      {shown.map((name) => (
+        <Avatar key={name} name={fullNameOf(name)} titled />
+      ))}
+      {rest.length > 0 && (
+        <span
+          className="text-[10px] font-bold rounded-full flex items-center justify-center flex-shrink-0"
+          style={{
+            width: 22,
+            height: 22,
+            background: 'var(--color-s2)',
+            color: 'var(--color-muted)',
+          }}
+          // ★ The overflow is not a dead "+3": hovering it names them, so the
+          //   list is complete even when it does not fit.
+          title={rest.map((n) => fullNameOf(n)).join(', ')}
+          data-testid="project-chat-participants-overflow"
+        >
+          +{rest.length}
+        </span>
+      )}
     </div>
   );
 }

@@ -400,20 +400,50 @@ describe('fix-406 §3: the two cards carry their colours on screen', () => {
     //     ACTIVE: SITE is on by default, so it takes the text ink and UNIT the
     //     muted one. Swap the view and the inks swap with it, which proves the
     //     colour is carrying STATE and not identity.
-    const siteInk = siteChip.style.color;
-    const unitInk = unitChip.style.color;
-    expect(siteInk).toBe('var(--color-text)');
-    expect(unitInk).toBe('var(--color-muted)');
+    // ★★★ AMENDED BY fix-467 §2, AND THE CLAIM ABOVE IS UNCHANGED. Bobby then
+    //     asked for *"something less subtle than just the under line"* — so the
+    //     state is now carried by a FILLED segment rather than by ink + a 2px
+    //     rule, and the ink lives on the label span inside the button rather
+    //     than on the button itself. **"One ink per STATE, not one ink per
+    //     GROUP" is exactly as true as it was**, and it is still what these
+    //     four lines prove; only where the property is read from moved.
+    const inkOf = (el: HTMLElement) =>
+      (el.querySelector('span') as HTMLElement).style.color;
+    const siteInk = inkOf(siteChip);
+    const unitInk = inkOf(unitChip);
+    expect(siteInk).toBe('var(--color-surface)'); // active: white on the fill
+    expect(unitInk).toBe('var(--color-text)'); // inactive: text on white
     fireEvent.click(unitChip);
-    expect(screen.getByTestId('filter-chip-site').style.color).toBe(unitInk);
-    expect(screen.getByTestId('filter-chip-unit').style.color).toBe(siteInk);
+    expect(inkOf(screen.getByTestId('filter-chip-site'))).toBe(unitInk);
+    expect(inkOf(screen.getByTestId('filter-chip-unit'))).toBe(siteInk);
     fireEvent.click(screen.getByTestId('filter-chip-site'));
-    // ★ …and no pill: the tinted background that made it read as decoration.
-    expect(siteChip.style.background).toBe('transparent');
-    expect(unitChip.style.background).toBe('transparent');
-    // ★ The teal and purple inks are not on the headings any more.
-    expect(siteChip.style.color).not.toBe(asRendered(SITE_PALETTE.chipText));
-    expect(unitChip.style.color).not.toBe(asRendered(UNIT_PALETTE.chipText));
+
+    // ★★ THE BACKGROUND IS NOW THE SIGNAL, WHERE IT USED TO BE `transparent`.
+    //    fix-447 removed a tinted pill that read as decoration; fix-467 adds a
+    //    FILLED one that reads as state. The difference is what the fill means,
+    //    and it is measurable: the two segment fills sit 15.19:1 apart, against
+    //    the 1.30:1 that separated the two HUES this suite retired.
+    expect(siteChip.style.background).toBe('var(--color-text)');
+    expect(unitChip.style.background).toBe('var(--color-surface)');
+
+    // ★★★ THE PROPERTY THAT MUST NEVER CHANGE, AND THE REASON THIS FILE OWNS
+    //     THIS TEST: no palette hue reaches either heading, in any state.
+    //     Asserted over the whole rendered subtree rather than one property, so
+    //     a future "just a small accent" fails here.
+    for (const chip of [siteChip, unitChip]) {
+      const html = chip.outerHTML;
+      for (const hex of [
+        SITE_PALETTE.chipText,
+        SITE_PALETTE.chipBg,
+        SITE_PALETTE.cardBorder,
+        UNIT_PALETTE.chipText,
+        UNIT_PALETTE.chipBg,
+        UNIT_PALETTE.cardBorder,
+      ]) {
+        expect(html).not.toContain(hex);
+        expect(html).not.toContain(asRendered(hex));
+      }
+    }
 
     // ★★★ AND THE CARD BORDERS WENT TOO — MEASURED, NOT PREFERRED.
     //

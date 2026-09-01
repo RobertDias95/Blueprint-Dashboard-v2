@@ -256,6 +256,9 @@ vi.mock('../hooks/useAppConfig', async (importOriginal) => {
 });
 
 import LibraryMatrix from '../components/LibraryMatrix';
+// ★ fix-467 §2: imported so the "not painted" property is checked against the
+//   REAL palette — and so this file fails if somebody deletes it.
+import { SITE_PALETTE, UNIT_PALETTE } from '../lib/libraryGroupPalette';
 
 beforeEach(() => {
   updateMutateAsync.mockReset();
@@ -799,12 +802,98 @@ describe('fix-447: SITE / UNIT are headings, and they switch the view', () => {
     //     fields under it and equal to the secondary ones.
     renderIt();
     const site = screen.getByTestId('filter-chip-site');
-    expect(site.className).toContain('text-[13px]');
-    expect(site.className).not.toContain('text-[9px]');
+    // ★★ AMENDED BY fix-467 §2: the 13px lives on the LABEL SPAN now, because
+    //    the button grew to wrap the caption too (the whole pill toggles). The
+    //    claim — the heading is bigger than the 10px/9px field labels under it
+    //    — is unchanged, and is still read from what actually renders.
+    const label = site.querySelector('span') as HTMLElement;
+    expect(label.className).toContain('text-[13px]');
+    expect(label.className).not.toContain('text-[9px]');
     // ★ …and it is a button now, not a decorative span.
     expect(site.tagName).toBe('BUTTON');
-    // ★ The caption survives as the subheading.
-    expect(site.parentElement?.textContent).toContain('the lot');
+    // ★ The caption survives as the subheading — and is now INSIDE the button.
+    expect(site.textContent).toContain('the lot');
+  });
+
+  // =========================================================================
+  // ★★★ fix-467 §2 (P-112) — loudness from CONTRAST, not from hue
+  // =========================================================================
+  //
+  // Bobby: *"can we try something less subtle than just the under line letting
+  // you know which realm you're searching in — like maybe the whole pill is
+  // darker and the inactive one is greyed out or white? also — can the whole
+  // pill area be clickable to toggle."*
+
+  it('fix-467 §2: the ACTIVE segment is filled and the inactive one is not', () => {
+    renderIt();
+    const site = screen.getByTestId('filter-chip-site'); // active by default
+    const unit = screen.getByTestId('filter-chip-unit');
+    expect(site.style.background).toBe('var(--color-text)');
+    expect(unit.style.background).toBe('var(--color-surface)');
+    // ★ The label inverts with the fill, which is what makes it readable on
+    //   both — white on the dark segment, text ink on the light one.
+    expect((site.querySelector('span') as HTMLElement).style.color).toBe(
+      'var(--color-surface)',
+    );
+    expect((unit.querySelector('span') as HTMLElement).style.color).toBe(
+      'var(--color-text)',
+    );
+  });
+
+  it('fix-467 §2: clicking the CAPTION toggles — the whole pill area is the target', () => {
+    // ★★★ THE HALF THAT WAS ACTUALLY BROKEN. The caption used to be a dead
+    //     `<span>` sitting BESIDE the button, so half of what looks like one
+    //     control did nothing when clicked. Clicking the caption text is the
+    //     assertion, because that is the region that was inert.
+    renderIt();
+    expect(
+      screen.getByTestId('filter-chip-unit').getAttribute('data-active'),
+    ).toBe('false');
+    fireEvent.click(screen.getByTestId('filter-chip-unit-caption'));
+    expect(
+      screen.getByTestId('filter-chip-unit').getAttribute('data-active'),
+    ).toBe('true');
+    expect(
+      screen.getByTestId('filter-chip-site').getAttribute('data-active'),
+    ).toBe('false');
+  });
+
+  it('fix-467 §2: it is still ONE real <button> with aria-pressed', () => {
+    // ★ No onClick on a `<div>`: keyboard and screen-reader behaviour comes
+    //   free from the element, and a wrapper with a handler would silently
+    //   lose both while looking identical.
+    renderIt();
+    for (const id of ['filter-chip-site', 'filter-chip-unit']) {
+      const el = screen.getByTestId(id);
+      expect(el.tagName).toBe('BUTTON');
+      expect(el.getAttribute('aria-pressed')).toBeTruthy();
+      // The caption is a child of the button, not a sibling.
+      expect(el.querySelector('[data-testid$="-caption"]')).not.toBeNull();
+    }
+  });
+
+  it('fix-467 §2: ★★★ PROPERTY — no rendered style reads from libraryGroupPalette', () => {
+    // The one thing this ticket must not do is bring the colours back. fix-447
+    // measured SITE #55abc4 at 2.23:1 and UNIT #9a77e8 at 2.89:1 against the
+    // card, and **1.30:1 against each other** — the hue meant to tell the two
+    // groups apart was very nearly the same hue twice. Bobby's new instruction
+    // wins on what the control looks like; it does not make that false.
+    //
+    // ★ The palette module is KEPT and still exported — it is the record of how
+    //   those hexes were derived. This asserts it is not PAINTED, which is a
+    //   different claim from "it is gone".
+    renderIt();
+    for (const view of ['site', 'unit'] as const) {
+      fireEvent.click(screen.getByTestId(`filter-chip-${view}`));
+      for (const id of ['filter-chip-site', 'filter-chip-unit']) {
+        const html = screen.getByTestId(id).outerHTML;
+        for (const p of [SITE_PALETTE, UNIT_PALETTE]) {
+          expect(html).not.toContain(p.chipBg);
+          expect(html).not.toContain(p.chipText);
+          expect(html).not.toContain(p.cardBorder);
+        }
+      }
+    }
   });
 
   it('★★★ §B1: SITE is the default, and exactly one is active', () => {

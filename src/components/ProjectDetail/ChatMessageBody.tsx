@@ -54,12 +54,26 @@ export function MessageBody({
 //
 // ★ `initialsOf` is deliberately untouched: register #127 (BO should be BD) is
 // a separate fix that lands with the roster names, and it still matters here.
-export function Avatar({ name }: { name: string | null | undefined }) {
+// ★★ fix-467 §1: `titled` exists because the chat HEADER shows avatars with no
+// name beside them, and there the circle is the only identity there is. In a
+// message row the name is printed alongside, so the circle stays decoration and
+// `aria-hidden` — the comment above is still exactly right for that case. One
+// component, two truthful states, rather than a second avatar for the header.
+export function Avatar({
+  name,
+  titled = false,
+}: {
+  name: string | null | undefined;
+  titled?: boolean;
+}) {
+  const full = (name ?? '').trim();
   return (
     <span
       className="rounded-full bg-s2 text-muted font-bold flex items-center justify-center flex-shrink-0"
       style={{ width: 22, height: 22, fontSize: 8.5 }}
-      aria-hidden
+      aria-hidden={titled ? undefined : true}
+      title={titled && full ? full : undefined}
+      aria-label={titled && full ? full : undefined}
       data-testid="chat-avatar"
     >
       {initialsOf(name)}
