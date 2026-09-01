@@ -456,7 +456,13 @@ describe('<LibraryMatrix />', () => {
   //
   // ★★ THE FILTERING AND THE HIGHLIGHT ARE UNCHANGED — both asserted below, in
   // the view where unit rows live.
-  it('unit-width target ± buf filters by per-unit dim, and the UNIT view highlights matches', () => {
+  // ★★★ AMENDED BY fix-469 §1 — the title used to end "and the UNIT view
+  //     HIGHLIGHTS matches". It now RETURNS only matches, which is the same
+  //     information delivered by absence instead of by colour. Everything this
+  //     test asserted about the SITE view and about the view not switching is
+  //     untouched; only the last two lines changed, from "the match is
+  //     flagged" to "only the match is printed".
+  it('unit-width target ± buf filters by per-unit dim, and the UNIT view returns only matches', () => {
     renderIt();
     // Target 40 ± 2 → matches [38, 42]. Project a's cottages are 25 wide
     // (out). Project b's SFR 1 is 40 wide (in). Project c has no units
@@ -469,22 +475,38 @@ describe('<LibraryMatrix />', () => {
     expect(screen.queryByTestId('library-table-unit')).not.toBeInTheDocument();
     goUnitView();
     expect(screen.getByTestId('library-table-unit')).toBeInTheDocument();
-    // The matching unit row is flagged via data-matched="true".
+    // ★★ The matching unit is printed…
+    expect(screen.getByTestId('library-unit-row-b-0')).toBeInTheDocument();
+    // ★★ …and it is the ONLY row, so nothing needs flagging. `data-matched`
+    //    is deliberately absent now: every printed row matches, and marking
+    //    all of them would mark nothing (fix-469 §1.4).
     expect(
       screen.getByTestId('library-unit-row-b-0').getAttribute('data-matched'),
-    ).toBe('true');
+    ).toBeNull();
+    expect(screen.getAllByTestId(/^library-unit-row-/)).toHaveLength(1);
   });
 
+  // ★★★ AMENDED BY fix-469 §1, AND THIS FIXTURE IS BOBBY'S COMPLAINT IN
+  //     MINIATURE. Project a holds FOUR units — three 25-wide Cottages and one
+  //     30-wide unnamed. Searching 25 ± 2 used to print all four and highlight
+  //     three; the fourth was the noise. The claim that survives is the one the
+  //     title always made — *all three Cottages match* — and it is now asserted
+  //     by their presence rather than by their colour.
   it('unit-width filter narrows project a to its Cottage rows (all three match 25 ± 2)', () => {
     renderIt();
     fireEvent.change(screen.getByTestId('unitw-target'), { target: { value: '25' } });
     expect(screen.getByTestId('library-row-a')).toBeInTheDocument();
     expect(screen.queryByTestId('library-row-b')).not.toBeInTheDocument();
     goUnitView();
-    // All three Cottages highlight.
-    expect(screen.getByTestId('library-unit-row-a-0').getAttribute('data-matched')).toBe('true');
-    expect(screen.getByTestId('library-unit-row-a-1').getAttribute('data-matched')).toBe('true');
-    expect(screen.getByTestId('library-unit-row-a-2').getAttribute('data-matched')).toBe('true');
+    // All three Cottages are printed…
+    expect(screen.getByTestId('library-unit-row-a-0')).toBeInTheDocument();
+    expect(screen.getByTestId('library-unit-row-a-1')).toBeInTheDocument();
+    expect(screen.getByTestId('library-unit-row-a-2')).toBeInTheDocument();
+    // ★★★ …and the 30-wide fourth unit of the SAME project is NOT. This one
+    //     line is the whole ticket: a project qualifying no longer drags its
+    //     non-matching units onto the screen with it.
+    expect(screen.queryByTestId('library-unit-row-a-3')).not.toBeInTheDocument();
+    expect(screen.getAllByTestId(/^library-unit-row-/)).toHaveLength(3);
   });
 
   it('search by unit_type name surfaces projects with a matching unit (e.g. "cottage")', () => {
@@ -557,15 +579,18 @@ describe('<LibraryMatrix />', () => {
       expect(screen.getByTestId('library-row-a')).toBeInTheDocument();
       expect(screen.queryByTestId('library-row-b')).not.toBeInTheDocument();
       expect(screen.queryByTestId('library-row-c')).not.toBeInTheDocument();
-      // ★ The view is the reader's choice; only the 4-story unit is matched.
+      // ★ The view is the reader's choice; only the 4-story unit matches.
+      //
+      // ★★★ AMENDED BY fix-469 §1. The surviving claim is exactly what the two
+      //     lines below always said — a-3 matches and a-0 does not — but the
+      //     second is now expressed as ABSENCE. That is the stronger form: it
+      //     used to assert "a-0 is on screen without a highlight", which is
+      //     precisely the noise Bobby marked with a red X.
       goUnitView();
       expect(screen.getByTestId('library-table-unit')).toBeInTheDocument();
-      expect(
-        screen.getByTestId('library-unit-row-a-3').getAttribute('data-matched'),
-      ).toBe('true');
-      expect(
-        screen.getByTestId('library-unit-row-a-0').getAttribute('data-matched'),
-      ).not.toBe('true');
+      expect(screen.getByTestId('library-unit-row-a-3')).toBeInTheDocument();
+      expect(screen.queryByTestId('library-unit-row-a-0')).not.toBeInTheDocument();
+      expect(screen.getAllByTestId(/^library-unit-row-/)).toHaveLength(1);
     });
 
     it('Stories filter = 2 narrows to projects with a 2-story unit', () => {
@@ -998,6 +1023,86 @@ describe('fix-447: SITE / UNIT are headings, and they switch the view', () => {
     expect(updateMutateAsync).toHaveBeenCalledTimes(1);
     expect(updateMutateAsync.mock.calls[0][0].expectedUpdatedAt).toBe(
       '2026-06-25T10:00:00Z',
+    );
+  });
+});
+
+// ===========================================================================
+// ★★★ fix-469 §2 (P-122) — the per-card Clear, as rendered
+// ===========================================================================
+//
+// Bobby, 2026-09-01: *"can we add a clear button to the search filters of
+// units/site?"* Keeping a lot search while dropping the unit dimensions meant
+// blanking up to NINE controls by hand.
+describe('fix-469 §2: each filter card clears itself', () => {
+  it('★★ a card with nothing set renders NO Clear', () => {
+    // fix-406's rule: a control that cannot act is absent, not present-and-inert.
+    renderIt();
+    expect(screen.queryByTestId('filter-clear-site')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('filter-clear-unit')).not.toBeInTheDocument();
+    // ★ The GLOBAL Clear is always there — it also owns the search box, which
+    //   belongs to neither card.
+    expect(screen.getByTestId('filter-clear')).toBeInTheDocument();
+  });
+
+  it("★★ setting one card's field reveals only THAT card's Clear", () => {
+    renderIt();
+    fireEvent.change(screen.getByTestId('unitw-target'), { target: { value: '25' } });
+    expect(screen.getByTestId('filter-clear-unit')).toBeInTheDocument();
+    expect(screen.queryByTestId('filter-clear-site')).not.toBeInTheDocument();
+  });
+
+  it('★★★ a card Clear resets its own fields and leaves the other card alone', () => {
+    renderIt();
+    // A lot search AND a unit search — the situation the ticket describes.
+    fireEvent.change(screen.getByTestId('lotw-target'), { target: { value: '60' } });
+    fireEvent.change(screen.getByTestId('unitw-target'), { target: { value: '40' } });
+    expect(screen.getByTestId('filter-clear-site')).toBeInTheDocument();
+    expect(screen.getByTestId('filter-clear-unit')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId('filter-clear-unit'));
+
+    // ★ The unit dimension is gone…
+    expect((screen.getByTestId('unitw-target') as HTMLInputElement).value).toBe('');
+    // ★ …and the lot search — the thing you wanted to keep — survives.
+    expect((screen.getByTestId('lotw-target') as HTMLInputElement).value).toBe('60');
+    expect(screen.getByTestId('filter-clear-site')).toBeInTheDocument();
+    expect(screen.queryByTestId('filter-clear-unit')).not.toBeInTheDocument();
+  });
+
+  it('★★★ NEITHER Clear moves the reader to a different table — `view` survives both', () => {
+    // ★★★ THE ONE THAT GETS MISSED. `view` rides inside LibraryFilters because
+    //     that is the blob fix-403 persists, but it is a PREFERENCE, not a
+    //     filter. Clearing a search must never bounce somebody out of the table
+    //     they chose.
+    renderIt();
+    goUnitView();
+    expect(screen.getByTestId('library-table-unit')).toBeInTheDocument();
+
+    fireEvent.change(screen.getByTestId('unitw-target'), { target: { value: '25' } });
+    fireEvent.click(screen.getByTestId('filter-clear-unit'));
+    expect(screen.getByTestId('library-table-unit')).toBeInTheDocument();
+
+    fireEvent.change(screen.getByTestId('lotw-target'), { target: { value: '60' } });
+    fireEvent.click(screen.getByTestId('filter-clear-site'));
+    expect(screen.getByTestId('library-table-unit')).toBeInTheDocument();
+
+    // ★ And the GLOBAL Clear, which fix-447 already got right — re-asserted
+    //   here because §2 adds two more buttons that could have broken it.
+    fireEvent.change(screen.getByTestId('unitw-target'), { target: { value: '25' } });
+    fireEvent.click(screen.getByTestId('filter-clear'));
+    expect(screen.getByTestId('library-table-unit')).toBeInTheDocument();
+    expect((screen.getByTestId('unitw-target') as HTMLInputElement).value).toBe('');
+  });
+
+  it('★ the UNIT card caption now describes ROWS, not how a project qualifies', () => {
+    // ★★ The old caption — "one unit must match all of these" — was honest
+    //    about a behaviour that no longer happens: the UNIT panel was a project
+    //    QUALIFIER, and every unit of a qualifying project printed. Now the
+    //    criteria choose the rows, so the caption says so.
+    renderIt();
+    expect(screen.getByTestId('filter-chip-unit-caption').textContent).toBe(
+      'show units matching all of these',
     );
   });
 });

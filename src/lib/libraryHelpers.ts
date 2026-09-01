@@ -350,6 +350,128 @@ export function hasAnyUnitFilter(filters: LibraryFilters): boolean {
   );
 }
 
+// ===========================================================================
+// ★★★ fix-469 §2 (P-122) — EACH CARD CLEARS ITSELF
+// ===========================================================================
+//
+// Bobby, 2026-09-01: *"can we add a clear button to the search filters of
+// units/site?"*
+//
+// ★★ THE CARDS WERE SEPARATED FOR EXACTLY THIS REASON. fix-447 split SITE from
+// UNIT because *"the metric you are searching by decides the columns you get
+// back"* — two independent questions. The single toolbar Clear is a leftover
+// from when there was one card, and keeping a lot search while dropping the
+// unit dimensions meant blanking up to nine controls by hand.
+//
+// ★★★ THESE TWO LISTS LIVE HERE, BESIDE `LibraryFilters`, AND NOT IN THE
+// COMPONENT. Two reasons, and the second is the one that matters:
+//   1. `react-refresh/only-export-components` is an ERROR in this repo, so a
+//      component file cannot export them.
+//   2. ★★ A NEW FILTER FIELD MUST FORCE THE QUESTION "WHICH CARD?". Declared
+//      next to the interface, adding a field and not listing it is visible
+//      here rather than three hundred lines away — and `libraryFilterKeyCoverage`
+//      below turns that into a test failure rather than a filter that silently
+//      cannot be cleared.
+//
+// ★ `view` and `search` are in NEITHER list, deliberately:
+//   · `view` IS NOT A FILTER (fix-447). It changes the columns you get back,
+//     never which rows match, and clearing a search must never move somebody to
+//     a different table.
+//   · `search` is the free-text box above both cards and belongs to neither, so
+//     only the global Clear owns it.
+export const SITE_FILTER_KEYS = [
+  'lotwTarget',
+  'lotwBuf',
+  'lotdTarget',
+  'lotdBuf',
+  'zone',
+  'juris',
+  'alley',
+  'isCornerLot',
+  'isRegularShape',
+  'tag',
+] as const satisfies readonly (keyof LibraryFilters)[];
+
+export const UNIT_FILTER_KEYS = [
+  'unitwTarget',
+  'unitwBuf',
+  'unitdTarget',
+  'unitdBuf',
+  'parkingKind',
+  'stalls',
+  'roofDeck',
+  'stories',
+  'workScope',
+  // ★ Product type sits in the UNIT card on screen (it describes the building,
+  //   not the lot), so it clears with the UNIT card. Read off the rendered
+  //   card boundaries, not guessed: the SITE card is one JSX block and the
+  //   UNIT card is the next, and this control is in the second.
+  'productTypes',
+] as const satisfies readonly (keyof LibraryFilters)[];
+
+/**
+ * ★★★ THE PARTITION, AS A VALUE A TEST CAN CHECK. Every key of `LibraryFilters`
+ * belongs to exactly one of: the SITE card, the UNIT card, or the two that
+ * belong to neither. Add a filter and forget to file it, and the coverage test
+ * fails naming the key — instead of shipping a control that no Clear can reach.
+ */
+export function libraryFilterKeyCoverage(initial: LibraryFilters): {
+  unfiled: string[];
+  duplicated: string[];
+} {
+  const site = new Set<string>(SITE_FILTER_KEYS);
+  const unit = new Set<string>(UNIT_FILTER_KEYS);
+  const neither = new Set<string>(['view', 'search']);
+  const unfiled: string[] = [];
+  const duplicated: string[] = [];
+  for (const key of Object.keys(initial)) {
+    const hits =
+      (site.has(key) ? 1 : 0) + (unit.has(key) ? 1 : 0) + (neither.has(key) ? 1 : 0);
+    if (hits === 0) unfiled.push(key);
+    if (hits > 1) duplicated.push(key);
+  }
+  return { unfiled, duplicated };
+}
+
+/**
+ * Does this card hold anything worth clearing?
+ *
+ * ★★ COMPARED AGAINST `initial`, NOT AGAINST EMPTINESS, and the buffers are
+ * why: `lotwBuf` and its three siblings default to **2**, not to null. A card
+ * whose buffer somebody moved to 5 is a card holding a value, and a test for
+ * "is it blank" would call it empty and hide the Clear that would restore it.
+ */
+export function cardHasValue(
+  filters: LibraryFilters,
+  keys: readonly (keyof LibraryFilters)[],
+  initial: LibraryFilters,
+): boolean {
+  return keys.some((k) => {
+    const now = filters[k];
+    const base = initial[k];
+    if (Array.isArray(now) && Array.isArray(base)) return now.length !== base.length;
+    return now !== base;
+  });
+}
+
+/** Reset only this card's fields. Everything else — the other card, the search
+ *  box, and above all `view` — is carried through untouched. */
+export function clearCardFilters(
+  filters: LibraryFilters,
+  keys: readonly (keyof LibraryFilters)[],
+  initial: LibraryFilters,
+): LibraryFilters {
+  const next = { ...filters };
+  for (const k of keys) {
+    // ★ A fresh copy for the array-valued field, so the cleared object can
+    //   never share `productTypes` with the object it replaced.
+    (next as Record<string, unknown>)[k] = Array.isArray(initial[k])
+      ? [...(initial[k] as unknown[])]
+      : initial[k];
+  }
+  return next;
+}
+
 /** Apply the active filters to the matrix rows. */
 export function filterLibraryRows(
   rows: LibraryRow[],

@@ -1,4 +1,5 @@
-import type { LibraryRow } from './libraryHelpers';
+import { matchingUnitIndices } from './libraryHelpers';
+import type { LibraryFilters, LibraryRow } from './libraryHelpers';
 import type { UnitType } from './database.types';
 
 // ===========================================================================
@@ -57,6 +58,75 @@ export function flattenUnitRows(
     });
   }
   return out;
+}
+
+// ===========================================================================
+// ★★★ fix-469 §1 (P-121) — THE UNIT VIEW RETURNS ONLY MATCHING UNITS
+// ===========================================================================
+//
+// Bobby, 2026-09-01, with a marked-up screenshot — yellow on the rows that
+// matched, a red X on every row that did not: *"when you search by unit, say
+// 16x36 and there is a unit that matches from a project — the results show all
+// of the units from that project — not helpful — it is showing a lot of noise
+// that doesnt apply."*
+//
+// MEASURED ON PROD 2026-09-01 for his exact search (unit 16×36, ±1 each):
+//
+//     every unit row in the library   241
+//     printed for this search today    35
+//     that actually match              10   across 9 projects
+//
+// ★★ 71% of the answer did not match the question.
+//
+// ---------------------------------------------------------------------------
+// ★★★ NOTHING WAS BROKEN — THIS UNDOES A DELIBERATE DESIGN, AND THE SCREEN SAID SO
+// ---------------------------------------------------------------------------
+// The UNIT card's caption read *"one unit must match all of these"*, and that
+// was honest: the UNIT panel was a PROJECT QUALIFIER, not a row filter. A
+// project qualified when any one of its units matched, and then all of its units
+// printed. The matched-row highlight (fix-205) was doing its job correctly on
+// top of that.
+//
+// ★★ Bobby was not asking for the matches to be marked. He was asking for the
+// non-matches not to be printed. He was offered a middle option — matches only,
+// plus a `1 of 4 units` expander per row — and REJECTED it. There is no
+// expander: to see the rest of a project's units you open the project, and the
+// Library's own SITE view already answers that question, which is why the
+// expander would have been a second door onto a room that has one.
+//
+// ★ SITE VIEW IS UNTOUCHED. A lot search still returns projects and all their
+//   units — that is the plan-reuse reading, and it keeps its home.
+//
+// ---------------------------------------------------------------------------
+// ★★★ THE PREDICATE IS NOT NEW, AND THAT IS THE POINT
+// ---------------------------------------------------------------------------
+// `matchingUnitIndices` already answers exactly this question, and its own
+// docstring has always said so: *"Drives row filtering AND the 'highlight
+// matching unit row' visual treatment."* It carries fix-402's per-unit
+// conjunction (a project with unit A garage-no-deck and unit B surface-with-deck
+// must NOT match "garage AND roof deck") and fix-412's work-scope extension. A
+// second predicate here would be a second answer to one question, and the two
+// would drift the first time a filter dimension was added.
+//
+// ★★ SO THIS IS A COMPOSITION OF TWO EXISTING FUNCTIONS, and `flattenUnitRows`
+// above is left exactly as it was. It is a truthful primitive — "every unit of
+// every row" — with its own fix-447 suite, and it is still the right answer to
+// its own question. This one asks a different question.
+//
+// ★ WITH NO UNIT FILTER ACTIVE, `matchingUnitIndices` returns every index, so
+//   this returns every row. No criteria, no filtering: the UNIT view without a
+//   unit search still lists the whole library, which is what it should do.
+export function matchingUnitRows(
+  rows: readonly LibraryRow[],
+  filters: LibraryFilters,
+): LibraryUnitRow[] {
+  const keep = new Map<string, Set<number>>();
+  for (const r of rows) {
+    keep.set(r.projectId, new Set(matchingUnitIndices(r, filters)));
+  }
+  return flattenUnitRows(rows).filter((u) =>
+    keep.get(u.project.projectId)?.has(u.index) ?? false,
+  );
 }
 
 /** How many distinct projects are represented — the "across M projects" half
