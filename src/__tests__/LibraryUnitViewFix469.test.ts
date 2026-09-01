@@ -360,3 +360,51 @@ describe('fix-469 §2 — a card clears only itself', () => {
     ).toBe(Object.keys(EMPTY).length);
   });
 });
+
+// ---------------------------------------------------------------------------
+// ★★★ fix-472 §1 (P-124) — the matched highlight is deleted, the PREDICATE stays
+// ---------------------------------------------------------------------------
+//
+// fix-469 §1.4 was told to keep the highlight "because it is still live in the
+// SITE view's expand". **That expand does not exist** — fix-447 §B6 deleted it
+// and says so in its own comment — so the UNIT view was its only call site and
+// the prop was left taking a literal `false`. The banked rule:
+// **"keep this, it is used elsewhere" must NAME the call site.**
+//
+// ★ Contrast fix-467's `STAGE_CHIP`, correctly kept: that one is EXPORTED and
+//   INDEPENDENTLY TESTED — a property of its file that needs no second call
+//   site to stay true. This prop had neither.
+//
+// ★★★ THE DANGEROUS NEIGHBOUR: `matchingUnitIndices` is NOT the highlight. It
+//     is the predicate fix-469 composed the row filter onto, so deleting it
+//     would silently restore the 71%-noise bug — 35 rows printed for a search
+//     that matches 10. The cases below are the guard on that: they pin the row
+//     SET, not the styling, so a careless deletion fails loudly here.
+describe('fix-472 §1 — deleting the highlight did not touch the filter', () => {
+  it('★★★ PROPERTY: the UNIT view\'s row set is unchanged by fix-472', () => {
+    // Byte-for-byte the fix-469 scenario, re-asserted after the deletion.
+    const rows = [
+      row('p1', [
+        unit({ label: 'A', width_ft: 16, depth_ft: 36 }),
+        unit({ label: 'B', width_ft: 24, depth_ft: 40 }),
+        unit({ label: 'C', width_ft: 30, depth_ft: 50 }),
+        unit({ label: 'D', width_ft: 20, depth_ft: 60 }),
+      ]),
+    ];
+    const shown = matchingUnitRows(rows, SEARCH_16x36);
+    expect(shown).toHaveLength(1);
+    expect(shown[0]!.unit.label).toBe('A');
+    // ★ The predicate the filter is built on is still exported and still
+    //   answers. If somebody deletes it chasing "the highlight", this throws
+    //   rather than quietly returning every row.
+    expect(typeof matchingUnitIndices).toBe('function');
+    expect(matchingUnitIndices(rows[0]!, SEARCH_16x36)).toEqual([0]);
+  });
+
+  it('★★ …and with no criteria it still returns everything, as fix-469 ruled', () => {
+    const rows = [
+      row('p1', [unit({ label: 'A' }), unit({ label: 'B', width_ft: 99 })]),
+    ];
+    expect(matchingUnitRows(rows, { ...EMPTY, view: 'unit' })).toHaveLength(2);
+  });
+});
