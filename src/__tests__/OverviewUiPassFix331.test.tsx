@@ -657,12 +657,10 @@ describe('fix-331 §8: the ribbon order', () => {
       '/dashboard',
       '/draw-schedule',
       '/board',
-      // ★★ fix-462: the Agenda, beside My Board because it is a work
-      //    destination — six people open it to run a meeting about their own
-      //    tasks. `topLevel()` reads RIBBON_ENTRIES directly and so is gate-blind
-      //    by design; the gate is asserted in AgendaFix462, where a non-member
-      //    provably does not see it.
-      '/agenda',
+      // ★★★ fix-483 §C (P-138), the EIGHTH reorder: Agenda LEFT this tier for
+      // the Reports group. Bobby, 2026-09-02 — the same *"too many tabs"* worry
+      // fix-462 quoted when it put the entry here in the first place. The route
+      // is unchanged and so is `agendaOnly`; only the shelf moved.
       '/library',
       // ★ fix-350: What’s New sits with the administrative entries below the
       // rule. Ungated, unlike its two neighbours — the 23 non-admin editors are
@@ -678,7 +676,13 @@ describe('fix-331 §8: the ribbon order', () => {
       (e) => e.kind === 'group' && e.group.id === 'reports',
     );
     const kids = reports!.kind === 'group' ? reports!.group.children.map((c) => c.to) : [];
-    expect(kids).toEqual(['/reports', '/projects', '/reports/saved']);
+    // ★ fix-483 §C: Agenda joined, between Project View and the shelf.
+    expect(kids).toEqual([
+      '/reports',
+      '/projects',
+      '/agenda',
+      '/reports/saved',
+    ]);
     // ...and is no longer a top-level link, so it lives in exactly one place.
     expect(topLevel()).not.toContain('/projects');
   });

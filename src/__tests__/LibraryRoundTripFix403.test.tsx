@@ -303,8 +303,9 @@ function renderIt() {
 // sessionStorage rather than in router state.
 
 describe('fix-403: the Library filter panel survives leaving the page', () => {
+  // ★ fix-483 §A4: `library-search` left this reader with the box. Every other
+  //   field is unchanged, and the claim — the panel remembers — is the same.
   const read = () => ({
-    search: (screen.getByTestId('library-search') as HTMLInputElement).value,
     zone: (screen.getByTestId('filter-zone') as HTMLInputElement).value,
     corner: (screen.getByTestId('filter-corner') as HTMLSelectElement).value,
     parking: (screen.getByTestId('filter-parking-kind') as HTMLSelectElement).value,
@@ -313,7 +314,6 @@ describe('fix-403: the Library filter panel survives leaving the page', () => {
   });
 
   function setFilters() {
-    fireEvent.change(screen.getByTestId('library-search'), { target: { value: 'cottage' } });
     fireEvent.change(screen.getByTestId('filter-zone'), { target: { value: 'NR' } });
     fireEvent.change(screen.getByTestId('filter-corner'), { target: { value: 'Yes' } });
     fireEvent.change(screen.getByTestId('filter-parking-kind'), { target: { value: 'garage' } });
@@ -331,17 +331,21 @@ describe('fix-403: the Library filter panel survives leaving the page', () => {
     expect(read()).toEqual(before);
   });
 
-  it('★★★ Clear wipes it, and the wipe SURVIVES the round trip too', () => {
+  // ★★★ fix-483 §A4: this pressed the PAGE-LEVEL Clear, which is gone by
+  //     ruling. The claim it proves is fix-469 §2's now — a Clear that only
+  //     reset React state would restore every filter on the next visit — so it
+  //     is re-made through the TWO CARD CLEARS, which is strictly more work for
+  //     the code: two buttons, each writing its own subset back to storage.
+  it('★★★ the card Clears wipe it, and the wipe SURVIVES the round trip too', () => {
     const first = renderIt();
     setFilters();
-    fireEvent.click(screen.getByTestId('filter-clear'));
+    fireEvent.click(screen.getByTestId('filter-clear-site'));
+    fireEvent.click(screen.getByTestId('filter-clear-unit'));
     first.unmount();
 
     renderIt();
-    // ★ A Clear that only reset React state would restore every filter here —
-    //   a Clear button that un-clears itself.
     expect(read()).toEqual({
-      search: '', zone: '', corner: '', parking: '', stalls: '', deck: '',
+      zone: '', corner: '', parking: '', stalls: '', deck: '',
     });
   });
 
@@ -352,7 +356,7 @@ describe('fix-403: the Library filter panel survives leaving the page', () => {
 
     window.sessionStorage.clear(); // what a new tab sees
     renderIt();
-    expect(read().search).toBe('');
+    expect(read().zone).toBe('');
   });
 
   it('★★ ...and the count follows the restored filters, not just the inputs', () => {

@@ -228,7 +228,6 @@ describe('filterLibraryRows', () => {
   const baseFilters: LibraryFilters = {
     // ★ fix-447: the new key. Default 'site' — the Library opens on SITE.
     view: 'site' as const,
-    search: '',
     lotwTarget: null,
     lotwBuf: 2,
     lotdTarget: null,
@@ -240,16 +239,13 @@ describe('filterLibraryRows', () => {
     zone: '',
     alley: '',
     productTypes: [],
-    tag: '',
     juris: '',
     isCornerLot: '',
-    isRegularShape: '',
     stories: '',
     // ★ fix-402: the UNIT card's three new filters, all Any.
     parkingKind: '',
     stalls: '',
     roofDeck: '',
-    workScope: '',
   };
   const rows = [
     {
@@ -309,15 +305,18 @@ describe('filterLibraryRows', () => {
     expect(filtered.map((r) => r.projectId)).toEqual(['a']);
   });
 
-  it('tag filter matches by array.includes', () => {
-    const filtered = filterLibraryRows(rows, { ...baseFilters, tag: 'ECA' });
-    expect(filtered.map((r) => r.projectId)).toEqual(['a']);
-  });
-
-  it('search filter uses multi-token address match', () => {
-    const filtered = filterLibraryRows(rows, { ...baseFilters, search: 'oak way' });
-    expect(filtered.map((r) => r.projectId)).toEqual(['b']);
-  });
+  // ★★★ fix-483 §A2 / §A4 (P-136) — TWO FILTERS RETIRED WITH THEIR CONTROLS.
+  //
+  //   `tag filter matches by array.includes`         — Bobby: *"under library,
+  //     remove the option for tag, and remove tags from the list below."*
+  //   `search filter uses multi-token address match` — Bobby: *"remove the
+  //     search feature at the top of the library and the clear that goes with
+  //     it."*
+  //
+  // ★ `multiMatchAddress` — what the second one was really exercising — is
+  //   still tested where it lives (drawScheduleHelpers) and still called by
+  //   Draw Schedule, Project View, intake and the report metrics. Only the
+  //   Library's use of it went.
 
   it('zone filter is case-insensitive substring match', () => {
     const filtered = filterLibraryRows(rows, { ...baseFilters, zone: 'nr' });
@@ -383,7 +382,6 @@ describe('filterLibraryRows', () => {
       const out = filterLibraryRows(rowsExt, {
         ...baseFilters,
         isCornerLot: '',
-    isRegularShape: '',
       });
       expect(out).toHaveLength(3);
     });
@@ -406,7 +404,6 @@ describe('fix-205: stories filter', () => {
   const EMPTY_FILTERS: LibraryFilters = {
     // ★ fix-447: the new key. Default 'site' — the Library opens on SITE.
     view: 'site' as const,
-    search: '',
     lotwTarget: null,
     lotwBuf: 2,
     lotdTarget: null,
@@ -418,16 +415,13 @@ describe('fix-205: stories filter', () => {
     zone: '',
     alley: '',
     productTypes: [],
-    tag: '',
     juris: '',
     isCornerLot: '',
-    isRegularShape: '',
     stories: '',
     // ★ fix-402: the UNIT card's three new filters, all Any.
     parkingKind: '',
     stalls: '',
     roofDeck: '',
-    workScope: '',
   };
   function mkRow(id: string, stories: (number | null)[]): LibraryRow {
     return {

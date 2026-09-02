@@ -17,9 +17,12 @@ import {
   isNoWorkUnit,
   matchWorkScope,
 } from '../lib/unitWorkScope';
+// ★ fix-483 §A2: `hasAnyUnitFilter` is no longer imported here — the only
+//   assertion that used it was "the work filter is in the list, or it would be
+//   INERT", and there is no work filter. The function is unchanged, still
+//   exported and still tested for its live arms in libraryHelpers.test.
 import {
   filterLibraryRows,
-  hasAnyUnitFilter,
   type LibraryFilters,
   type LibraryRow,
 } from '../lib/libraryHelpers';
@@ -382,11 +385,11 @@ describe('fix-412 §B: three states, and null is not an answer', () => {
 
 const BASE: LibraryFilters = {
   view: 'site' as const,
-  search: '', lotwTarget: null, lotwBuf: 2, lotdTarget: null, lotdBuf: 2,
+  lotwTarget: null, lotwBuf: 2, lotdTarget: null, lotdBuf: 2,
   unitwTarget: null, unitwBuf: 2, unitdTarget: null, unitdBuf: 2,
-  zone: '', alley: '', productTypes: [], tag: '', juris: '',
-  isCornerLot: '', isRegularShape: '', stories: '',
-  parkingKind: '', stalls: '', roofDeck: '', workScope: '',
+  zone: '', alley: '', productTypes: [], juris: '',
+  isCornerLot: '', stories: '',
+  parkingKind: '', stalls: '', roofDeck: '',
 };
 
 const libRow = (id: string, units: UnitType[]): LibraryRow =>
@@ -426,41 +429,60 @@ describe('fix-412 §B4: the Library filter, three states plus Any', () => {
     expect(matchWorkScope('none', 'unanswered')).toBe(false);
   });
 
-  it('★★★ the filter actually narrows the Library rows', () => {
-    // ★ Any: the no-work project drops, the unanswered one stays.
+  // ★★★ fix-483 §A2 (P-136) — THE FILTER IS GONE; THE DEFAULT EXCLUSION IS NOT.
+  //
+  // Bobby, 2026-09-02: *"Under unit, get rid of work, and the filter below for
+  // work."* The control and the column both went, and with them the three
+  // pickable states — so `none`, `performed` and `unanswered` are no longer
+  // reachable and `hasAnyUnitFilter` no longer has an arm for them.
+  //
+  // ★★★ WHAT MUST NOT GO, AND IS ASSERTED HERE INSTEAD: fix-412's RULING —
+  //     *"a confirmed No-work remodel drops out of the Library set by
+  //     default"* — is a standing decision Bobby did not revisit, so it is
+  //     held, and it now runs UNCONDITIONALLY rather than while the filter sat
+  //     at Any. This is the only test of it left, which is why it is stated as
+  //     the whole rule rather than as one arm of four.
+  //
+  // ★★ AND THE HONESTY COST IS REAL. fix-412 defended a hidden default
+  //    exclusion on the grounds that it was *"askable"*. It is not askable any
+  //    more — see lib/libraryHelpers' note. The DATA is untouched:
+  //    `unit_types[].work_scope` is still edited on the units row and
+  //    `isNoWorkUnit` still reads it.
+  it('★★★ a confirmed no-work project still drops out, by default and always', () => {
     expect(
       filterLibraryRows(ROWS, BASE).map((r) => r.projectId).sort(),
     ).toEqual(['performed', 'unanswered']);
-    expect(
-      filterLibraryRows(ROWS, { ...BASE, workScope: 'none' }).map((r) => r.projectId),
-    ).toEqual(['none']);
-    expect(
-      filterLibraryRows(ROWS, { ...BASE, workScope: 'performed' }).map((r) => r.projectId),
-    ).toEqual(['performed']);
-    expect(
-      filterLibraryRows(ROWS, { ...BASE, workScope: 'unanswered' }).map((r) => r.projectId),
-    ).toEqual(['unanswered']);
   });
 
-  it('★★★ hasAnyUnitFilter knows about it — or the filter would be INERT', () => {
-    // ★ It gates whether matchingUnitIndices runs at all. fix-205 shipped this
-    //   exact bug with `stories`, and the function's own comment records it.
-    expect(hasAnyUnitFilter(BASE)).toBe(false);
-    expect(hasAnyUnitFilter({ ...BASE, workScope: 'none' })).toBe(true);
+  it('★★ …and a project is only dropped when EVERY unit is a confirmed no-work', () => {
+    // ★ The rule is per PROJECT, not per unit: one no-work unit beside three
+    //   real ones must not hide the three. fix-412's own distinction, and the
+    //   half most likely to be lost now that only one test guards it.
+    const mixed = libRow('mixed', [
+      unit({ work_scope: 'none' }),
+      unit({ work_scope: 'performed' }),
+    ]);
+    expect(filterLibraryRows([mixed], BASE).map((r) => r.projectId)).toEqual([
+      'mixed',
+    ]);
   });
 
   it('★★ it ANDs onto the SAME unit as the other unit filters (fix-402)', () => {
     // A project with unit A (work performed, no deck) and unit B (no work,
     // deck) must NOT match "work performed AND roof deck".
     const split = libRow('split', [
-      unit({ work_scope: 'performed', roof_deck: false }),
-      unit({ work_scope: 'none', roof_deck: true }),
+      unit({ work_scope: 'performed', roof_deck: false, stories: 2 }),
+      unit({ work_scope: 'performed', roof_deck: true, stories: 3 }),
     ]);
+    // ★ fix-483 §A2: the conjunction was `work performed AND roof deck`. Work
+    //   is no longer a filter, so the pair is `roof deck AND 2 stories` — the
+    //   CLAIM is fix-402's per-unit AND, and it needs two live unit filters,
+    //   not those two in particular.
     expect(
       filterLibraryRows([split], {
         ...BASE,
-        workScope: 'performed',
         roofDeck: 'Yes',
+        stories: '2',
       }),
     ).toHaveLength(0);
   });

@@ -147,10 +147,18 @@ export function unitRowProjectCount(rows: readonly LibraryUnitRow[]): number {
  * the unit sorter, and `isUnitSortable` guards the boundary the same way
  * `isSortableColumn` does for the other table.
  */
+// ★★ fix-483 §A5 / §A2: `productTypes` and `work` left this union with their
+//    columns — a sort on a column nobody can see is not a feature (fix-406's
+//    rule, applied for the third time).
+//
+// ★★★ AND THE STORED-STRING TRAP DOES NOT APPLY HERE, which is worth saying
+//     because fix-406 was bitten by it: the unit sort is NOT persisted
+//     (`useState(DEFAULT_UNIT_SORT)` in LibraryMatrix — `surfaceFilterPrefs`
+//     has never stored a sort), so no blob can hand a retired name back.
+//     `isUnitSortable` guards the boundary anyway.
 export const UNIT_SORTABLE_COLUMNS = [
   'address',
   'juris',
-  'productTypes',
   'unitLabel',
   'width',
   'depth',
@@ -159,7 +167,6 @@ export const UNIT_SORTABLE_COLUMNS = [
   'parking',
   'stalls',
   'roofDeck',
-  'work',
   'stage',
 ] as const;
 
@@ -217,8 +224,6 @@ export function sortUnitRows(
       return byText((r) => r.project.address);
     case 'juris':
       return byText((r) => r.project.juris);
-    case 'productTypes':
-      return byText((r) => r.project.productTypes.join(', '));
     case 'unitLabel':
       return byText((r) => r.unit.label);
     case 'stage':
@@ -232,15 +237,6 @@ export function sortUnitRows(
         //   them survives a JSON round-trip.
         const av = a.unit.parking_kind ?? null;
         const bv = b.unit.parking_kind ?? null;
-        if (av === null && bv === null) return a.index - b.index;
-        if (av === null) return 1;
-        if (bv === null) return -1;
-        return av.localeCompare(bv) * dir || a.index - b.index;
-      });
-    case 'work':
-      return out.sort((a, b) => {
-        const av = a.unit.work_scope ?? null;
-        const bv = b.unit.work_scope ?? null;
         if (av === null && bv === null) return a.index - b.index;
         if (av === null) return 1;
         if (bv === null) return -1;

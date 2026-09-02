@@ -317,9 +317,11 @@ describe('fix-319 #77: Phase Durations lives in Settings → Permits', () => {
   it('★★ so the Reports group reads Overview + Project View + Saved reports', () => {
     const reports = RIBBON_ENTRIES.find((e) => e.kind === 'group' && e.group.id === 'reports');
     const kids = reports!.kind === 'group' ? reports!.group.children : [];
+    // ★ fix-483 §C: Agenda joined between Project View and the shelf.
     expect(kids.map((k) => k.label)).toEqual([
       'Overview',
       'Project View',
+      'Agenda',
       'Saved reports',
     ]);
     expect(kids.map((k) => k.label)).not.toContain('Phase durations');

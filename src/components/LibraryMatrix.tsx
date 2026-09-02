@@ -8,6 +8,7 @@ import {
   DEFAULT_LIBRARY_SORT,
   buildLibraryRows,
   filterLibraryRows,
+  projectBands,
   // ★ fix-469/fix-472: `hasAnyUnitFilter` and `matchingUnitIndices` are not
   //   imported HERE — both were used only by the matched-highlight, which is
   //   now deleted. Both are still exported, still tested, and both are on the
@@ -68,13 +69,17 @@ import {
 import { useAuthStore } from '../stores/authStore';
 import { zoneOptions } from '../lib/zoneOptions';
 import { formatLotPair } from '../lib/lotDimensions';
+// ★ fix-483 §A4: `clearLibraryFilters` is no longer imported — the page-level
+//   Clear was its only caller. It STAYS in surfaceFilterPrefs (exported,
+//   symmetric with its two siblings, independently tested); see the note where
+//   `clearFilters` used to be.
 import {
-  clearLibraryFilters,
   loadLibraryFilters,
   saveLibraryFilters,
 } from '../lib/surfaceFilterPrefs';
 import { SkeletonRows } from './Skeleton';
 import QueryError from './QueryError';
+import { ToggleChip } from './shared/TwoStateToggle';
 
 // Q6.3.a: Library matrix view. Per-project
 // lot/unit-dim matrix used to match new lots against past projects.
@@ -108,9 +113,9 @@ const STAGE_BADGE: Record<Stage, string> = {
 // projects; sourcing from the registry keeps every product-type option list in
 // lockstep. (Read from useAppConfig inside Body.)
 
-// v1's tag dropdown (index.html line 9377). Matches v1's `array.includes`
-// predicate on each row's project_tags array.
-const TAG_OPTIONS = ['ECA', 'SIP', 'TRAL', 'LBA', 'Short Plat'];
+// ★ fix-483 §A2: `TAG_OPTIONS` went with the Tag filter — v1's tag dropdown
+//   (index.html line 9377) and its `array.includes` predicate, retired by
+//   Bobby's 2026-09-02 ruling. `projects.project_tags` is untouched.
 
 // ★★★ fix-406 — THE FIELD SURFACE, AND WHY IT IS ONE CONSTANT
 //
@@ -170,7 +175,6 @@ const INITIAL_FILTERS: LibraryFilters = {
   //     Same constant the stored-value decoder falls back to, so "what the
   //     Library opens on" has one answer.
   view: 'site',
-  search: '',
   lotwTarget: null,
   lotwBuf: 2,
   lotdTarget: null,
@@ -182,14 +186,10 @@ const INITIAL_FILTERS: LibraryFilters = {
   zone: '',
   alley: '',
   productTypes: [],
-  tag: '',
   juris: '',
   // fix-122: isCornerLot is tri-state. (Its numLots sibling was removed as a
   // FILTER by fix-402 on Bobby's ruling; the lots COLUMN is untouched.)
   isCornerLot: '',
-  // ★ fix-410: '' = Any. See LibraryFilters.isRegularShape for why "Not set"
-  //   is one of the pickable states rather than only a fall-out.
-  isRegularShape: '',
   // fix-205: Stories tier filter on a project's unit_types.
   stories: '',
   // ★★ fix-402: the UNIT card's parking trio. All start Any — and note that
@@ -198,8 +198,6 @@ const INITIAL_FILTERS: LibraryFilters = {
   parkingKind: '',
   stalls: '',
   roofDeck: '',
-  // ★ fix-412: '' = Any, which EXCLUDES confirmed no-work units by ruling.
-  workScope: '',
 };
 
 function Body({ projects, permits }: BodyProps) {
@@ -331,6 +329,16 @@ function Body({ projects, permits }: BodyProps) {
     () => unitRowProjectCount(unitRows),
     [unitRows],
   );
+  // ★ fix-483 §A1: one band per row, keyed off the row's PROJECT — see
+  //   `projectBands` for why this is not `index % 2`.
+  const unitBands = useMemo(
+    () => projectBands(unitRows.map((u) => u.project.projectId)),
+    [unitRows],
+  );
+  const siteBands = useMemo(
+    () => projectBands(sorted.map((r) => r.projectId)),
+    [sorted],
+  );
 
   function toggleSort(col: SortableColumn) {
     setSort((prev) =>
@@ -373,45 +381,74 @@ function Body({ projects, permits }: BodyProps) {
     });
   }
 
-  function clearFilters() {
-    // ★★★ fix-447: CLEAR CLEARS FILTERS — IT DOES NOT CHANGE THE VIEW.
-    //
-    // `view` rides inside `LibraryFilters` because that is the blob fix-403
-    // persists per user, but it is a PREFERENCE, not a filter: it changes the
-    // columns you get back, never which rows match. Resetting it here would
-    // bounce somebody out of the UNIT table for pressing a button that says
-    // Clear — and would contradict ruling 4's "the choice is remembered per
-    // person". Same reasoning fix-409/fix-445 give for Show held work and
-    // Co-assigned surviving this button.
-    setFilters((prev) => ({ ...INITIAL_FILTERS, view: prev.view }));
-    // ★★ AND THE STORED COPY GOES TOO. Resetting only the React state would
-    //    put every filter back the next time you navigated away and returned —
-    //    a Clear button that un-clears itself.
-    clearLibraryFilters(prefsUserId);
-    // ★ …and put the view back in storage, since clearing removed the whole
-    //   blob. Without this the preference would survive in React state and die
-    //   on the next reload — the subtler half of the same bug.
-    setFilters((prev) => {
-      saveLibraryFilters(prefsUserId, prev);
-      return prev;
-    });
-  }
+  // ★★★ fix-483 §A4 — `clearFilters` IS DELETED. It was the page-level Clear's
+  //     only caller and the page-level Clear is gone by ruling (see the note
+  //     where the button used to render).
+  //
+  // ★★ fix-447's RULING SURVIVES IT, and is worth keeping written down because
+  //    the next Clear anyone adds will face it: *"CLEAR CLEARS FILTERS — IT
+  //    DOES NOT CHANGE THE VIEW."* `view` is a preference, not a filter, so
+  //    resetting it would bounce somebody out of the UNIT table for pressing a
+  //    button that says Clear. `clearCard` above still honours that — `view` is
+  //    in neither card's key list, which is a stronger guarantee than
+  //    remembering.
+  //
+  // ★ `clearLibraryFilters` (lib/surfaceFilterPrefs) now has no caller in the
+  //   app. It is KEPT: it is exported, symmetric with `saveLibraryFilters` /
+  //   `loadLibraryFilters` in a per-surface module, and independently tested by
+  //   PreviousAndFiltersFix403 — fix-467's rule, where a call site is not the
+  //   only thing that makes a thing worth keeping. Its last caller was this
+  //   function.
 
+
+  // ★★★ fix-483 §A3 (P-136) — THE WHOLE CARD SWITCHES THE VIEW.
+  //
+  // Bobby, 2026-09-02: *"there is a ton of open space to the right of Unit and
+  // to the right of Site. I want to be able to click anywhere within that and
+  // it switches the search parameter. The Unit pill will be the thing that
+  // highlights, not the whole box."*
+  //
+  // ★★★ ONE RULE, NOT A stopPropagation ON EVERY CONTROL. The cards hold
+  // eighteen selects, inputs and buttons between them, and a rule that has to
+  // be remembered at each of them is a rule that will be forgotten by the
+  // twentieth. This asks the EVENT where it landed instead: a click whose
+  // target is inside any interactive element is that element's business, and
+  // everything else is empty space.
+  //
+  // ★ `<label>` is in the list because a label IS part of its control — clicking
+  //   the word "Zone" focuses the select, and flipping the view underneath that
+  //   would be the same defect as flipping it on the select itself.
+  //
+  // ★★ THE ACCESSIBLE CONTROL IS STILL THE PILL. This div takes no `role` and
+  //    no `tabIndex`: it is a convenience for a mouse, and the keyboard path is
+  //    the `<button>` inside it, which is focusable and carries `aria-pressed`.
+  //    (fix-440's finding, in reverse — a handler on an unfocusable div is dead
+  //    for the keyboard, so the keyboard must never have needed it.)
+  function selectViewFromCard(e: React.MouseEvent, next: LibraryView) {
+    const el = e.target as HTMLElement | null;
+    if (el?.closest('input, select, textarea, button, label, a')) return;
+    update('view', next);
+  }
 
   return (
     <div className="space-y-3" data-testid="library-matrix">
-      {/* Search bar */}
-      <input
-        type="text"
-        value={filters.search}
-        onChange={(e) => update('search', e.target.value)}
-        placeholder="Search by address or unit type name (space/comma separated tokens)…"
-        // ★★ fix-406: the top search box had the same problem as the ones
-        //    inside the cards — `bg-bg` on the page's own `bg-bg`, so it was a
-        //    border floating on nothing. It joins the field surface too.
-        className="w-full bg-surface border border-border rounded-md px-3 py-1.5 text-xs font-display text-text shadow-sm placeholder:text-dim focus:outline-none focus:border-de focus:ring-1 focus:ring-de/30"
-        data-testid="library-search"
-      />
+      {/* ★★★ fix-483 §A4 (P-136) — THE SEARCH BOX IS GONE, AND SO IS THE
+          PAGE-LEVEL CLEAR THAT OWNED IT.
+
+          Bobby, 2026-09-02: *"remove the search feature at the top of the
+          library and the clear that goes with it… currently there's three clear
+          features. We don't want to touch the two within site and unit, just
+          the one that is fixed below unit but above address."*
+
+          ★★ THE TWO CARD CLEARS ARE UNTOUCHED — fix-469 §2's `CardClear`, one
+          per card, exactly as built. The one that went is the leftover from
+          when there was a single toolbar (fix-447 split the cards and the
+          global Clear never caught up), and it was also the only control that
+          could reset a person out of a card they had not touched.
+
+          ★ `filters.search` went with the box — see lib/libraryHelpers for the
+            last call sites of its matcher and of the struct-address haystack
+            fix-380 built to feed it. */}
 
       {/* Filter bar */}
       {/* ★★★ fix-402 — TWO CARDS: SITE AND UNIT.
@@ -430,8 +467,9 @@ function Body({ projects, permits }: BodyProps) {
       <div className="flex flex-wrap items-start gap-3" data-testid="library-filters">
         {/* ── SITE ────────────────────────────────────────────────────── */}
         <div
-          className="flex-1 min-w-[300px] bg-s2 border rounded-lg p-3"
+          className="flex-1 min-w-[300px] bg-s2 border rounded-lg p-3 cursor-pointer"
           style={NEUTRAL_CARD_BORDER}
+          onClick={(e) => selectViewFromCard(e, 'site')}
           data-testid="filter-card-site"
         >
           <div className="flex items-baseline gap-2 mb-2">
@@ -542,47 +580,26 @@ function Body({ projects, permits }: BodyProps) {
               </select>
             </FieldLabel>
 
-            {/* ★★★ fix-410 (P-040): Regular Shape. A SITE field, so it sits on
-                the SITE card beside Corner — fix-406's teal group is about the
-                LOT, and "is it a rectangle" is a fact about the lot.
+            {/* ★★★ fix-483 §A2 — THE SHAPE FILTER IS GONE. Bobby, 2026-09-02:
+                *"Also remove shape."*
 
-                ★★ FOUR OPTIONS, NOT THREE. "Not set" is pickable because the
-                whole point of Bobby's default is that the unanswered population
-                should be empty; a state nobody can filter for is a state nobody
-                can audit. The words are Regular / Irregular rather than
-                Yes / No — on a filter, "Yes" alone does not say yes to what. */}
-            <FieldLabel label="Shape">
-              <select
-                value={filters.isRegularShape}
-                onChange={(e) =>
-                  update(
-                    'isRegularShape',
-                    e.target.value as LibraryFilters['isRegularShape'],
-                  )
-                }
-                className={FIELD_CLASS}
-                data-testid="filter-regular-shape"
-              >
-                <option value="">Any</option>
-                <option value="Regular">Regular</option>
-                <option value="Irregular">Irregular</option>
-                <option value="Not set">Not set</option>
-              </select>
-            </FieldLabel>
+                ★★ THE SHAPE **COLUMN** STAYS, and that is not an oversight —
+                Tag and Work each lost their filter AND their column in the same
+                sentence, and Shape was named alone. fix-410 put the column
+                beside Corner because the two shape-of-the-lot facts read
+                together, and removing a column he did not ask about is the
+                fix-402/fix-406 mistake run backwards.
 
-            <FieldLabel label="Tag">
-              <select
-                value={filters.tag}
-                onChange={(e) => update('tag', e.target.value)}
-                className={FIELD_CLASS}
-                data-testid="filter-tag"
-              >
-                <option value="">Any</option>
-                {TAG_OPTIONS.map((t) => (
-                  <option key={t}>{t}</option>
-                ))}
-              </select>
-            </FieldLabel>
+                ★ What is genuinely lost is fix-410's *"a state you cannot
+                  filter for is a state you cannot audit"* — the unanswered
+                  population is still VISIBLE in the column, but no longer
+                  selectable. Recorded rather than absorbed. */}
+
+            {/* ★★★ fix-483 §A2 — THE TAG FILTER IS GONE, AND SO IS THE TAGS
+                COLUMN. Bobby: *"under library, remove the option for tag, and
+                remove tags from the list below."* `projects.project_tags` is
+                untouched and still edited by the chip editor on the Project
+                Overview. */}
 
             {/* ★★★ THE LOTS FILTER USED TO SIT HERE, and it is gone by ruling.
                 Bobby, 2026-08-25: *"we dont need it as a filtering option for
@@ -601,8 +618,9 @@ function Body({ projects, permits }: BodyProps) {
 
         {/* ── UNIT ────────────────────────────────────────────────────── */}
         <div
-          className="flex-1 min-w-[300px] bg-s2 border rounded-lg p-3"
+          className="flex-1 min-w-[300px] bg-s2 border rounded-lg p-3 cursor-pointer"
           style={NEUTRAL_CARD_BORDER}
+          onClick={(e) => selectViewFromCard(e, 'unit')}
           data-testid="filter-card-unit"
         >
           <div className="flex items-baseline gap-2 mb-2">
@@ -681,33 +699,16 @@ function Body({ projects, permits }: BodyProps) {
               </select>
             </FieldLabel>
 
-            {/* ★★★ fix-412 Scope B4: the work-scope filter. A UNIT field, so
-                it sits on the UNIT card beside Roof Deck.
+            {/* ★★★ fix-483 §A2 — THE WORK FILTER IS GONE, AND SO IS THE WORK
+                COLUMN. Bobby: *"Under unit, get rid of work, and the filter
+                below for work."*
 
-                ★★ FOUR OPTIONS FOR THREE STATES. "Any" is not neutral here —
-                it excludes a confirmed No-work unit (Bobby's ruling: no drawn
-                detail worth filtering on) while keeping every not-yet-answered
-                one visible. The other three make each state reachable by name,
-                which is what stops a default exclusion from being a trap:
-                nothing becomes unfindable, it just stops being in the way. */}
-            <FieldLabel label="Work">
-              <select
-                value={filters.workScope}
-                onChange={(e) =>
-                  update(
-                    'workScope',
-                    e.target.value as LibraryFilters['workScope'],
-                  )
-                }
-                className={FIELD_CLASS}
-                data-testid="filter-work-scope"
-              >
-                <option value="">Any</option>
-                <option value="performed">Work performed</option>
-                <option value="none">No work</option>
-                <option value="unanswered">Not answered</option>
-              </select>
-            </FieldLabel>
+                ★★★ fix-412's DEFAULT EXCLUSION SURVIVES AND IS NOW UNASKABLE.
+                A project whose every unit is a confirmed no-work still drops
+                out of the Library set — that is a standing ruling Bobby did not
+                revisit, so it is held. But fix-412 defended it on the grounds
+                that it was *"askable"*, and this control is what made it so.
+                See lib/libraryHelpers' `workScope` note for the full trade. */}
 
             <FieldLabel label="Roof Deck">
               <select
@@ -798,14 +799,6 @@ function Body({ projects, permits }: BodyProps) {
       </div>
 
       <div className="flex items-center gap-3">
-        <button
-          type="button"
-          onClick={clearFilters}
-          className="text-xs px-3 py-1 rounded border border-border bg-surface text-muted hover:bg-bg transition font-display"
-          data-testid="filter-clear"
-        >
-          Clear
-        </button>
         <span
           className="text-[11px] text-dim font-mono ml-auto"
           data-testid="library-count"
@@ -832,7 +825,16 @@ function Body({ projects, permits }: BodyProps) {
             <tr className="bg-s2 border-b-2 border-border">
               <UTh sort={unitSort} col="address" onClick={toggleUnitSort} align="left">Address</UTh>
               <UTh sort={unitSort} col="juris" onClick={toggleUnitSort} align="left">Juris</UTh>
-              <UTh sort={unitSort} col="productTypes" onClick={toggleUnitSort} align="left">Type</UTh>
+              {/* ★★★ fix-483 §A5 (P-136) — THE `Type` COLUMN IS GONE FROM THIS
+                  TABLE ONLY. Bobby, 2026-09-02: *"under unit, TYPE and UNIT
+                  TYPE 2x. seems redundant."*
+
+                  ★★ THE SITE TABLE KEEPS ITS `Type`, and that is the whole
+                  point of the ruling rather than an exception to it: over there
+                  it is the ONLY answer to "what kind of building is this",
+                  because there is no unit row beside it. Here the next column
+                  along says it per unit, which is the more specific answer to
+                  the same question. */}
               <UTh sort={unitSort} col="unitLabel" onClick={toggleUnitSort} align="left">Unit type</UTh>
               <UTh sort={unitSort} col="width" onClick={toggleUnitSort} align="center">Width</UTh>
               <UTh sort={unitSort} col="depth" onClick={toggleUnitSort} align="center">Depth</UTh>
@@ -841,14 +843,15 @@ function Body({ projects, permits }: BodyProps) {
               <UTh sort={unitSort} col="parking" onClick={toggleUnitSort} align="center">Parking</UTh>
               <UTh sort={unitSort} col="stalls" onClick={toggleUnitSort} align="center">Stalls</UTh>
               <UTh sort={unitSort} col="roofDeck" onClick={toggleUnitSort} align="center">Roof Deck</UTh>
-              <UTh sort={unitSort} col="work" onClick={toggleUnitSort} align="center">Work</UTh>
+              {/* ★ fix-483 §A2: the `Work` column went with its filter. */}
               <UTh sort={unitSort} col="stage" onClick={toggleUnitSort} align="center">Stage</UTh>
             </tr>
           </thead>
           <tbody>
-            {unitRows.map((u) => (
+            {unitRows.map((u, i) => (
               <LibraryUnitRow
                 key={u.key}
+                bandClass={unitBands[i] === 1 ? PROJECT_BAND_CLASS : ''}
                 row={u.unit}
                 projectId={u.project.projectId}
                 index={u.index}
@@ -906,21 +909,12 @@ function Body({ projects, permits }: BodyProps) {
                       </OriginLink>
                     </td>
                     <td className="px-2 py-1.5 text-muted">{u.project.juris || '—'}</td>
-                    <td className="px-2 py-1.5 text-text">
-                      {u.project.productTypes.length > 0
-                        ? u.project.productTypes.join(', ')
-                        : '—'}
-                    </td>
                   </>
                 }
                 trailing={
                   <>
-                    {/* ★ fix-412's work scope, read-only here: the filter card
-                        writes nothing and this column exists so you can SEE
-                        what you filtered by. */}
-                    <td className="px-2 py-1.5 text-center text-muted">
-                      {u.unit.work_scope ?? '—'}
-                    </td>
+                    {/* ★ fix-483 §A2: fix-412's read-only work-scope cell went
+                        with the filter it existed to let you SEE. */}
                     <td className="px-2 py-1.5 text-center">
                       <span
                         className={`text-[9px] font-bold uppercase px-2 py-0.5 rounded border ${STAGE_BADGE[u.project.stage]}`}
@@ -935,9 +929,11 @@ function Body({ projects, permits }: BodyProps) {
             {unitRows.length === 0 && (
               <tr>
                 <td
-                  // ★ 13 columns: 3 project + 8 unit + Work + Stage. Asserted
-                  //   against the rendered header count, like its sibling.
-                  colSpan={13}
+                  // ★ fix-483: 11. Was 13 — §A5 took `Type` (a project cell)
+                  //   and §A2 took `Work` (a trailing cell). Asserted against
+                  //   the rendered header count, like its sibling, because
+                  //   A STALE colSpan IS INVISIBLE UNTIL THE TABLE IS EMPTY.
+                  colSpan={11}
                   className="px-4 py-8 text-center text-xs text-dim italic"
                 >
                   No units match the current filters.
@@ -989,21 +985,28 @@ function Body({ projects, permits }: BodyProps) {
                   view — a summary sentence ("Mixed · 4 stalls") replaced by the
                   rows it was summarising. `parkingRollup`/`roofDeckRollup` stay
                   in libraryHelpers: Project Overview still reads them. */}
-              <th className="px-2 py-1.5 text-[9px] font-extrabold uppercase tracking-wide text-text text-left">
-                Tags
-              </th>
+              {/* ★ fix-483 §A2: the `Tags` header went with the Tag filter —
+                  one ruling, both halves. It was never sortable (a plain <th>,
+                  not a <Th>), so no sort column left with it. */}
               <Th sort={sort} col="stage" onClick={toggleSort} align="center">Stage</Th>
             </tr>
           </thead>
           <tbody>
-            {sorted.map((r) => (
-              <Row key={r.projectId} row={r} />
+            {sorted.map((r, i) => (
+              <Row
+                key={r.projectId}
+                row={r}
+                bandClass={siteBands[i] === 1 ? PROJECT_BAND_CLASS : ''}
+              />
             ))}
             {sorted.length === 0 && (
               <tr>
                 <td
+                  // ★ fix-483 §A2: 10. Was 11 — the Tags column left with the
+                  //   Tag filter.
+                  //
                   // ★ fix-447: 11. Was 14 — the caret cell and fix-402's two
-                  //   unit rollups all left in this ticket.
+                  //   unit rollups all left in that ticket.
                   //
                   // ★★ fix-410's and fix-406's notes, kept because they are the
                   //   reason anyone checks: this span read 12 while the table
@@ -1013,7 +1016,7 @@ function Body({ projects, permits }: BodyProps) {
                   //   UNTIL THE TABLE IS EMPTY. Every span here is asserted
                   //   against the rendered header count, so removing three
                   //   columns cannot quietly break the empty state either.
-                  colSpan={11}
+                  colSpan={10}
                   className="px-4 py-8 text-center text-xs text-dim italic"
                 >
                   No projects match the current filters.
@@ -1097,13 +1100,18 @@ function Th({
  *  not disappear, they moved to the rows that now show the units. */
 interface RowProps {
   row: LibraryRow;
+  /** ★ fix-483 §A1: '' or the band class. Handed down rather than derived here
+   *  — the band depends on the row's POSITION IN THE SORTED LIST, which only
+   *  the table knows. */
+  bandClass: string;
 }
-function Row({ row }: RowProps) {
+function Row({ row, bandClass }: RowProps) {
   return (
     <>
       <tr
-        className="border-b border-border hover:bg-s2 transition"
+        className={`border-b border-border hover:bg-s2 transition ${bandClass}`}
         data-testid={`library-row-${row.projectId}`}
+        data-band={bandClass ? 'on' : 'off'}
       >
         <td className="px-2 py-1.5 font-display font-bold text-text">
           <OriginLink
@@ -1195,22 +1203,9 @@ function Row({ row }: RowProps) {
             to go; the UNIT view now shows the rows they were summarising, per
             unit and with the real numbers. `parkingRollup`/`roofDeckRollup` stay
             in libraryHelpers — Project Overview still reads them. */}
-        <td className="px-2 py-1.5">
-          {row.tags.length === 0 ? (
-            <span className="text-dim">—</span>
-          ) : (
-            <div className="flex flex-wrap gap-1">
-              {row.tags.map((t) => (
-                <span
-                  key={t}
-                  className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-de-bg text-de border border-de-border"
-                >
-                  {t}
-                </span>
-              ))}
-            </div>
-          )}
-        </td>
+        {/* ★ fix-483 §A2: the Tags cell went with its header. `row.tags` is
+            still built — the Project Overview chip editor reads the same
+            column — but nothing in the Library prints or filters it. */}
         <td className="px-2 py-1.5 text-center">
           <span
             className={`text-[9px] font-bold uppercase px-2 py-0.5 rounded border ${STAGE_BADGE[row.stage]}`}
@@ -1275,6 +1270,7 @@ function LibraryUnitRow({
   onChange,
   leading,
   trailing,
+  bandClass = '',
 }: {
   row: UnitType;
   projectId: string;
@@ -1298,6 +1294,9 @@ function LibraryUnitRow({
    *  OCC path. Absent for every existing caller. */
   leading?: React.ReactNode;
   trailing?: React.ReactNode;
+  /** ★ fix-483 §A1: '' or the alternate-project band class. Defaulted, so the
+   *  component's other caller shape (no band) is untouched. */
+  bandClass?: string;
 }) {
   const [label, setLabel] = useState(row.label);
   const [w, setW] = useState(row.width_ft != null ? String(row.width_ft) : '');
@@ -1347,7 +1346,11 @@ function LibraryUnitRow({
   const narrowNumClass = numClass.replace('w-12', 'w-7');
 
   return (
-    <tr data-testid={`library-unit-row-${projectId}-${index}`}>
+    <tr
+      className={`hover:bg-s2 transition ${bandClass}`}
+      data-testid={`library-unit-row-${projectId}-${index}`}
+      data-band={bandClass ? 'on' : 'off'}
+    >
       {leading}
       <td className="px-2 py-0.5 font-mono text-text whitespace-nowrap">
         {hasProductTypes ? (
@@ -1700,6 +1703,35 @@ function CardClear({
   );
 }
 
+// ===========================================================================
+// ★★★ fix-483 §B (P-137) — THE CARD HEADING **IS** THE TOGGLE'S HALF
+// ===========================================================================
+//
+// Bobby, 2026-09-02: *"on pipeline it's like a blue highlight. We want that
+// toggle feature to be consistent whether we're on agenda or the library."*
+// And, on this screen specifically: *"The Unit pill will be the thing that
+// highlights, not the whole box."*
+//
+// ★★★ SO IT IS ONE CONTROL, NOT A PILL PLUS A TOGGLE. SITE's heading and UNIT's
+// heading are the two halves of a single two-state switch that happens to be
+// drawn in two places. There is no wrapper that could hold both, which is
+// exactly why `TwoStateToggle` exports its CHIP: this renders the same button,
+// with the same classes and the same `chipStyle`, as the Pipeline's My Work /
+// Everyone — and a test asserts that against the Pipeline's own rendering
+// rather than against a copy of the class string.
+//
+// ★★ THE CAPTION COMES BACK OUT OF THE PILL, and fix-406's reason for putting
+// it in is what retires it. Its note: *"the caption travels INSIDE the pill now
+// — it is what makes the 'whole pill area' a real target rather than a styled
+// label with a live corner."* §A3 makes the WHOLE CARD the target, so the pill
+// no longer has to be big to be hittable. The reason expired; the decision goes
+// with it.
+//
+// ★ WHAT fix-406 WON IS KEPT: the identity is carried by the word and the
+//   fill, not by a hue — its measurement (SITE teal 2.23:1, UNIT purple
+//   2.89:1, and 1.30:1 between them) killed the colour split and nothing here
+//   brings it back. `chipStyle`'s blue is a STATE, and it is the same blue on
+//   every screen.
 function GroupHeading({
   label,
   caption,
@@ -1716,44 +1748,24 @@ function GroupHeading({
   testid: string;
 }) {
   return (
-    <button
-      type="button"
-      onClick={onSelect}
-      className="flex items-baseline gap-2 text-left rounded-md px-2.5 py-1.5 border transition-colors"
-      style={{
-        // ★ active = solid fill in the app's text ink; inactive = plain white
-        //   on the grey card, Bobby's *"greyed out or white"*. The fill is the
-        //   whole signal, which is why it is the property both halves read.
-        background: active ? 'var(--color-text)' : 'var(--color-surface)',
-        borderColor: active ? 'var(--color-text)' : 'var(--color-border)',
-      }}
-      aria-pressed={active}
-      data-testid={testid}
-      data-view={view}
-      data-active={active ? 'true' : 'false'}
-    >
-      {/* ★ 13px against the 10px/9px field labels below. `font-display` and
-          the uppercase tracking are kept so the two headings still read as the
-          same family as the rest of the panel. */}
-      <span
-        className="text-[13px] font-display font-extrabold uppercase tracking-wide leading-none"
-        style={{ color: active ? 'var(--color-surface)' : 'var(--color-text)' }}
+    <div className="flex items-baseline gap-2">
+      <ToggleChip
+        active={active}
+        onClick={onSelect}
+        testid={testid}
+        surface="surface"
+        data={{ 'data-view': view, 'data-active': active ? 'true' : 'false' }}
       >
         {label}
-      </span>
-      {/* ★ The caption travels INSIDE the pill now — it is what makes the
-          "whole pill area" a real target rather than a styled label with a
-          live corner. On the filled segment it takes the same white as the
-          label; a semi-transparent white would look right and could not be
-          measured, which is the trade fix-406 ruled on. */}
+      </ToggleChip>
       <span
         className="text-[10px] leading-none"
-        style={{ color: active ? 'var(--color-surface)' : 'var(--color-muted)' }}
+        style={{ color: 'var(--color-muted)' }}
         data-testid={`${testid}-caption`}
       >
         {caption}
       </span>
-    </button>
+    </div>
   );
 }
 
@@ -1784,6 +1796,17 @@ function GroupHeading({
 // tokens they came from; what changed is that this screen no longer paints
 // them.
 const NEUTRAL_CARD_BORDER = { borderColor: 'var(--color-border)' } as const;
+
+/** ★★ fix-483 §A1: the shade, as a CLASS and not an inline style — on purpose.
+ *  Both tables' rows carry `hover:bg-s2`, and an inline background beats a
+ *  class, so a banded row would have silently lost its hover. A class does not:
+ *  `.hover\:bg-s2:hover` carries a pseudo-class and outranks `.bg-bg`.
+ *
+ *  ★ `--color-bg` (#f0f4f8) on the table's white surface is a ~3% step — under
+ *    `--color-s2`'s ~6%, which is what the hover uses. So the band is quieter
+ *    than the hover, which is the right way round: the hover has to remain
+ *    visible ON a banded row. Subtle, and not a border (the brief's rule). */
+const PROJECT_BAND_CLASS = 'bg-bg';
 
 const LABEL_CLASS: Record<LabelTier, string> = {
   primary: 'text-[10px] font-bold text-text uppercase tracking-wide',

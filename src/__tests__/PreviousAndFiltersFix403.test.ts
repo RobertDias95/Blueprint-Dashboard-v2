@@ -53,27 +53,28 @@ beforeEach(() => {
 // §1 · THE MEMORY — session-scoped, per surface, per user
 // ---------------------------------------------------------------------------
 
+// ★ fix-483 §A2/§A4: `search`, `tag`, `workScope` and `isRegularShape` left the
+//   shape with their filters. The TYPE tells this file so — a stale key here is
+//   a compile error, which is why the fixture is typed rather than inline.
 const LIB_DEFAULT: LibraryFilters = {
   // ★ fix-447: the new key. Default 'site' — the Library opens on SITE.
   view: 'site' as const,
-  search: '', lotwTarget: null, lotwBuf: 2, lotdTarget: null, lotdBuf: 2,
+  lotwTarget: null, lotwBuf: 2, lotdTarget: null, lotdBuf: 2,
   unitwTarget: null, unitwBuf: 2, unitdTarget: null, unitdBuf: 2,
-  zone: '', alley: '', productTypes: [], tag: '', juris: '',
-  isCornerLot: '', isRegularShape: '', stories: '', parkingKind: '', stalls: '', roofDeck: '', workScope: '',
+  zone: '', alley: '', productTypes: [], juris: '',
+  isCornerLot: '', stories: '', parkingKind: '', stalls: '', roofDeck: '',
 };
 
 describe('fix-403 §1: the Library round-trips its whole filter shape', () => {
   it('★★★ every field of the fix-402 shape survives — both cards', () => {
     const full: LibraryFilters = {
       view: 'site' as const,
-      search: 'cottage',
       lotwTarget: 50, lotwBuf: 5, lotdTarget: 120, lotdBuf: 10,
       unitwTarget: 20, unitwBuf: 1, unitdTarget: 42, unitdBuf: 3,
       zone: 'NR3', alley: 'Yes', productTypes: ['Townhouse', 'Cottages'],
-      tag: 'ECA', juris: 'Seattle',
-      isCornerLot: 'Yes', isRegularShape: 'Irregular', stories: '3',
+      juris: 'Seattle',
+      isCornerLot: 'Yes', stories: '3',
       parkingKind: 'garage', stalls: '2+', roofDeck: 'No',
-      workScope: 'performed',
     };
     saveLibraryFilters(USER, full);
     // ★ Asserted field by field via toEqual — a partial restore that dropped
@@ -87,13 +88,16 @@ describe('fix-403 §1: the Library round-trips its whole filter shape', () => {
     saveFilterState('library.filters', USER, {
       ...LIB_DEFAULT,
       view: 'site' as const,
-      search: 'kept',
+      zone: 'kept',
       parkingKind: 'carport', // retired / never existed
       stories: '9',
       isCornerLot: 'Maybe',
     });
     const out = loadLibraryFilters(USER, LIB_DEFAULT)!;
-    expect(out.search).toBe('kept');
+    // ★ fix-483 §A4: `search` was the surviving field this asserted. It is gone,
+    //   so a field that still exists carries the claim — which is unchanged:
+    //   one bad key costs THAT field, not the panel.
+    expect(out.zone).toBe('kept');
     expect(out.parkingKind).toBe('');
     expect(out.stories).toBe('');
     expect(out.isCornerLot).toBe('');
@@ -105,8 +109,12 @@ describe('fix-403 §1: the Library round-trips its whole filter shape', () => {
     expect(loadLibraryFilters(USER, LIB_DEFAULT)!.lotwBuf).toBe(2);
   });
 
+  // ★★ fix-483 §A4: the Library's page-level Clear is gone, and this is the
+  //    reason `clearLibraryFilters` was KEPT rather than deleted with its last
+  //    caller (fix-467's rule: exported and independently tested). This is the
+  //    independent test. If a future Clear returns, its contract is here.
   it('★★★ Clear wipes the STORED copy, not just the state', () => {
-    saveLibraryFilters(USER, { ...LIB_DEFAULT, search: 'x' });
+    saveLibraryFilters(USER, { ...LIB_DEFAULT, zone: 'x' });
     expect(loadLibraryFilters(USER, LIB_DEFAULT)).not.toBeNull();
     clearLibraryFilters(USER);
     // ★ Otherwise the filters return the next time you navigate away and back —
@@ -438,7 +446,7 @@ describe('fix-447: the library view rides in the fix-403 blob', () => {
   });
 
   it('★★ the view survives a round trip alongside every other field', () => {
-    const full = { ...LIB_DEFAULT, view: 'unit' as const, search: 'cottage' };
+    const full = { ...LIB_DEFAULT, view: 'unit' as const, zone: 'NR3' };
     saveLibraryFilters(USER, full);
     expect(loadLibraryFilters(USER, LIB_DEFAULT)).toEqual(full);
   });

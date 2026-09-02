@@ -195,10 +195,10 @@ describe('fix-402 §2: the rollup chip refuses to overclaim', () => {
 
 const BASE: LibraryFilters = {
   view: 'site' as const,
-  search: '', lotwTarget: null, lotwBuf: 2, lotdTarget: null, lotdBuf: 2,
+  lotwTarget: null, lotwBuf: 2, lotdTarget: null, lotdBuf: 2,
   unitwTarget: null, unitwBuf: 2, unitdTarget: null, unitdBuf: 2,
-  zone: '', alley: '', productTypes: [], tag: '', juris: '',
-  isCornerLot: '', isRegularShape: '', stories: '', parkingKind: '', stalls: '', roofDeck: '', workScope: '',
+  zone: '', alley: '', productTypes: [], juris: '',
+  isCornerLot: '', stories: '', parkingKind: '', stalls: '', roofDeck: '',
 };
 
 const row = (units: UnitType[]): LibraryRow => ({
@@ -379,7 +379,10 @@ describe('fix-402 §5: two cards, and the Lots filter is gone', () => {
     const unitAt = src.indexOf('filter-card-unit');
     expect(siteAt).toBeGreaterThan(-1);
     expect(unitAt).toBeGreaterThan(siteAt);
-    for (const id of ['filter-alley', 'filter-corner', 'filter-zone', 'filter-juris', 'filter-tag']) {
+    // ★ fix-483 §2: 'filter-tag' left this list with the Tag filter (Bobby,
+    //   2026-09-02). The claim — lot-shaped filters live on the SITE card — is
+    //   unchanged and is what the four remaining ids still prove.
+    for (const id of ['filter-alley', 'filter-corner', 'filter-zone', 'filter-juris']) {
       const at = src.indexOf(id);
       expect(at, `${id} must sit in the SITE card`).toBeGreaterThan(siteAt);
       expect(at, `${id} must sit in the SITE card`).toBeLessThan(unitAt);

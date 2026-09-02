@@ -253,11 +253,11 @@ describe('fix-415 §B: the rounding rule', () => {
 
 const BASE: LibraryFilters = {
   view: 'site' as const,
-  search: '', lotwTarget: null, lotwBuf: 2, lotdTarget: null, lotdBuf: 2,
+  lotwTarget: null, lotwBuf: 2, lotdTarget: null, lotdBuf: 2,
   unitwTarget: null, unitwBuf: 2, unitdTarget: null, unitdBuf: 2,
-  zone: '', alley: '', productTypes: [], tag: '', juris: '',
-  isCornerLot: '', isRegularShape: '', stories: '',
-  parkingKind: '', stalls: '', roofDeck: '', workScope: '',
+  zone: '', alley: '', productTypes: [], juris: '',
+  isCornerLot: '', stories: '',
+  parkingKind: '', stalls: '', roofDeck: '',
 };
 
 const row = (id: string, zone: string): LibraryRow =>

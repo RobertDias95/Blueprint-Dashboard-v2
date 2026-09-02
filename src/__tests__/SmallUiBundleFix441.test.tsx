@@ -400,9 +400,17 @@ describe('fix-441 §D (P-091) — one chipStyle, no visual change', () => {
   });
 
   it('★★ the four files import it and declare none of their own', () => {
+    // ★★★ fix-483 §B (P-137): `ScopeToggle` NO LONGER CALLS `chipStyle` — it
+    //     renders `TwoStateToggle`, which does. So the file that must carry the
+    //     import is the shared toggle, and ScopeToggle is asserted separately
+    //     below to make sure the indirection is a DELEGATION and not a second
+    //     implementation.
+    //
+    // ★ fix-441 §D's claim is unchanged and is what this still proves: there is
+    //   ONE `chipStyle`, each caller names its own surface, and nobody declares
+    //   a local copy.
     const FILES = [
       ['src/components/shared/HoldFilter.tsx', 'surface'],
-      ['src/components/shared/ScopeToggle.tsx', 'surface'],
       ['src/pages/MyTasks.tsx', 'bg'],
       ['src/pages/ProjectList.tsx', 'bg'],
     ] as const;
@@ -419,6 +427,43 @@ describe('fix-441 §D (P-091) — one chipStyle, no visual change', () => {
         expect(c[1], `${file} :: ${c[0]}`).toContain(`'${surface}'`);
       }
     }
+  });
+
+  // ★★★ fix-483 §B (P-137) — THE FOURTH FILE BECAME A COMPONENT, NOT A COPY.
+  //
+  // `ScopeToggle` used to be in the list above. It now renders `TwoStateToggle`,
+  // which is the one that calls `chipStyle` — so the assertion splits in two,
+  // and BOTH halves matter: the shared toggle must be the only new caller, and
+  // ScopeToggle must be delegating rather than quietly re-implementing.
+  it('★★ …and the shared toggle is the fourth caller, taking its surface as a PROP', () => {
+    const toggle = readFileSync(
+      resolve(process.cwd(), 'src/components/shared/TwoStateToggle.tsx'),
+      'utf8',
+    );
+    expect(toggle).toMatch(/from '\.\.?\/(\.\.\/)?lib\/chipStyle'/);
+    expect(code(toggle)).not.toMatch(/function chipStyle\s*\(/);
+    // ★ ONE call site, and it passes the caller's surface through rather than
+    //   deciding. fix-441 §D's whole point was that the two tints are a real
+    //   (if accidental) choice this repo has no mandate to collapse — a shared
+    //   control that hard-coded one would collapse it by the back door.
+    const calls = [...code(toggle).matchAll(/chipStyle\(([^()]*)\)/g)];
+    expect(calls).toHaveLength(1);
+    expect(calls[0]![1]).toBe('active, surface');
+    expect(code(toggle)).toContain("surface = 'surface'");
+  });
+
+  it('★★★ ScopeToggle DELEGATES — it declares no chrome of its own', () => {
+    const src = readFileSync(
+      resolve(process.cwd(), 'src/components/shared/ScopeToggle.tsx'),
+      'utf8',
+    );
+    expect(src).toContain("import TwoStateToggle from './TwoStateToggle'");
+    // ★ No second implementation: no chipStyle call, no <button>, no class
+    //   string. If any of those come back, the two controls can drift again —
+    //   which is the entire defect P-137 is about.
+    expect(code(src)).not.toMatch(/chipStyle\s*\(/);
+    expect(code(src)).not.toContain('<button');
+    expect(code(src)).not.toContain('rounded border');
   });
 
   it('★★★ D2 — libraryGroupPalette.chipStyle is a DIFFERENT function, untouched', () => {

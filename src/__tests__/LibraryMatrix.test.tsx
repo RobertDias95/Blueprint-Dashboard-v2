@@ -346,15 +346,27 @@ describe('<LibraryMatrix />', () => {
     expect(link?.getAttribute('href')).toBe('/project/a');
   });
 
-  it('search filter narrows by address tokens', () => {
-    renderIt();
-    fireEvent.change(screen.getByTestId('library-search'), {
-      target: { value: 'pike' },
-    });
-    expect(screen.getByTestId('library-row-c')).toBeInTheDocument();
-    expect(screen.queryByTestId('library-row-a')).not.toBeInTheDocument();
-    expect(screen.queryByTestId('library-row-b')).not.toBeInTheDocument();
-  });
+  // ★★★ fix-483 §A4 (P-136) — RETIRED WITH THE SEARCH BOX AND THE PAGE CLEAR.
+  //
+  // Four tests went here and they were all healthy: `search filter narrows by
+  // address tokens`, `search by unit_type name surfaces projects with a
+  // matching unit`, `shows the empty state when filters exclude every row`
+  // (which drove the empty state THROUGH the search box), and `Clear button
+  // resets all filters`. Two more went below with fix-122's and fix-469's
+  // page-Clear assertions.
+  //
+  // Bobby, 2026-09-02: *"remove the search feature at the top of the library and
+  // the clear that goes with it… currently there's three clear features. We
+  // don't want to touch the two within site and unit, just the one that is fixed
+  // below unit but above address."*
+  //
+  // ★★ WHAT REPLACED THEM RATHER THAN WHAT WAS DROPPED:
+  //   · the empty state is still asserted — through the JURISDICTION filter, in
+  //     `shows the empty state when a filter excludes every row` below, so the
+  //     colSpan guard fix-447 built keeps its cover;
+  //   · the two CardClears keep every one of fix-469 §2's assertions, untouched;
+  //   · that the search box and the page Clear are ABSENT is asserted in
+  //     LibraryReadsLeftToRightFix483.test.tsx.
 
   it('lot-width target ± buf narrows correctly', () => {
     renderIt();
@@ -375,17 +387,6 @@ describe('<LibraryMatrix />', () => {
     expect(screen.queryByTestId('library-row-c')).not.toBeInTheDocument();
   });
 
-  it('Clear button resets all filters', () => {
-    renderIt();
-    fireEvent.change(screen.getByTestId('filter-juris'), {
-      target: { value: 'Seattle' },
-    });
-    expect(screen.queryByTestId('library-row-b')).not.toBeInTheDocument();
-    fireEvent.click(screen.getByTestId('filter-clear'));
-    expect(screen.getByTestId('library-row-b')).toBeInTheDocument();
-    expect(screen.getByTestId('library-count').textContent).toMatch(/^3 projects/);
-  });
-
   it('clicking a sortable header toggles the sort direction (units numeric)', () => {
     renderIt();
     const rows = () =>
@@ -402,10 +403,16 @@ describe('<LibraryMatrix />', () => {
     expect(rows()).toEqual(['c', 'b', 'a']);
   });
 
-  it('shows the empty state when filters exclude every row', () => {
+  // ★ fix-483 §A4: this drove the empty state through the SEARCH BOX. The box is
+  //   gone; the empty state is not, and neither is the colSpan guard it covers
+  //   (fix-447: *"A STALE colSpan IS INVISIBLE UNTIL THE TABLE IS EMPTY"*). Same
+  //   assertion, reached through a filter that still exists.
+  it('shows the empty state when a filter excludes every row', () => {
     renderIt();
-    fireEvent.change(screen.getByTestId('library-search'), {
-      target: { value: 'nonexistent-address-token' },
+    // ★ A lot width no fixture row has. (Not the jurisdiction select — its
+    //   options come from the fixture, so it cannot be set to a miss.)
+    fireEvent.change(screen.getByTestId('lotw-target'), {
+      target: { value: '999' },
     });
     expect(screen.getByText(/No projects match/i)).toBeInTheDocument();
     expect(screen.getByTestId('library-count').textContent).toMatch(/^0 projects/);
@@ -509,15 +516,10 @@ describe('<LibraryMatrix />', () => {
     expect(screen.getAllByTestId(/^library-unit-row-/)).toHaveLength(3);
   });
 
-  it('search by unit_type name surfaces projects with a matching unit (e.g. "cottage")', () => {
-    renderIt();
-    fireEvent.change(screen.getByTestId('library-search'), {
-      target: { value: 'cottage' },
-    });
-    expect(screen.getByTestId('library-row-a')).toBeInTheDocument();
-    expect(screen.queryByTestId('library-row-b')).not.toBeInTheDocument();
-    expect(screen.queryByTestId('library-row-c')).not.toBeInTheDocument();
-  });
+  // ★ fix-483 §A4: fix-81's *"typing 'cottage' surfaces every project that has a
+  //   'Cottage *' unit"* went with the box. The UNIT VIEW is what answers that
+  //   question now — it prints one row per matching unit, labelled — and
+  //   `★★★ §B3` below covers it.
 
   // ★★★ fix-447 §B6 — THIS PIN IS INVERTED BECAUSE THE CARET IS GONE.
   //
@@ -786,19 +788,11 @@ describe('<LibraryMatrix />', () => {
       expect(screen.queryByTestId('library-row-c')).not.toBeInTheDocument();
     });
 
-    it('Clear button resets the Corner filter too', () => {
-      renderIt();
-      fireEvent.change(screen.getByTestId('filter-corner'), {
-        target: { value: 'Yes' },
-      });
-      fireEvent.click(screen.getByTestId('filter-clear'));
-      expect(screen.getByTestId('library-count').textContent).toMatch(
-        /^3 projects/,
-      );
-      expect(
-        (screen.getByTestId('filter-corner') as HTMLSelectElement).value,
-      ).toBe('');
-    });
+    // ★ fix-483 §A4: this pressed the PAGE-LEVEL Clear, which is gone. The
+    //   Corner filter is a SITE-card field, and that it clears with its card is
+    //   asserted by fix-469 §2's `SITE_FILTER_KEYS` coverage and by
+    //   `filter-clear-site` below — the same claim, through the control that
+    //   still exists.
 
     it('Closing Date does NOT render as a column (Library exclusion per spec)', () => {
       renderIt();
@@ -825,19 +819,26 @@ describe('fix-447: SITE / UNIT are headings, and they switch the view', () => {
     //     The old chip was text-[9px]; LABEL_CLASS.primary is 10px and
     //     .secondary is 9px — so the heading was SMALLER than the primary
     //     fields under it and equal to the secondary ones.
+    // ★★★ AMENDED AGAIN BY fix-483 §B (P-137). The claim that survives every
+    //     amendment is the RELATIVE one — the heading is bigger than the
+    //     9px/10px field labels under it — and it is still read from what
+    //     renders. What changed is the number: the pill is the app's shared
+    //     `ToggleChip` now (11px bold), not a 13px extrabold heading, because
+    //     Bobby asked for the Pipeline's toggle here and that control has one
+    //     size everywhere.
+    //
+    // ★★ AND THE CAPTION IS A SIBLING AGAIN. fix-467 §2 moved it INSIDE the
+    //    button to make the whole pill a target; §A3 makes the whole CARD the
+    //    target, so the reason expired and the decision goes with it.
     renderIt();
     const site = screen.getByTestId('filter-chip-site');
-    // ★★ AMENDED BY fix-467 §2: the 13px lives on the LABEL SPAN now, because
-    //    the button grew to wrap the caption too (the whole pill toggles). The
-    //    claim — the heading is bigger than the 10px/9px field labels under it
-    //    — is unchanged, and is still read from what actually renders.
-    const label = site.querySelector('span') as HTMLElement;
-    expect(label.className).toContain('text-[13px]');
-    expect(label.className).not.toContain('text-[9px]');
-    // ★ …and it is a button now, not a decorative span.
+    expect(site.className).toContain('text-[11px]');
+    expect(site.className).not.toContain('text-[9px]');
     expect(site.tagName).toBe('BUTTON');
-    // ★ The caption survives as the subheading — and is now INSIDE the button.
-    expect(site.textContent).toContain('the lot');
+    // ★ The caption survives as the subheading, beside the pill.
+    expect(screen.getByTestId('filter-chip-site-caption').textContent).toBe(
+      'the lot',
+    );
   });
 
   // =========================================================================
@@ -850,26 +851,31 @@ describe('fix-447: SITE / UNIT are headings, and they switch the view', () => {
   // pill area be clickable to toggle."*
 
   it('fix-467 §2: the ACTIVE segment is filled and the inactive one is not', () => {
+    // ★★★ fix-483 §B (P-137): STILL FILLED, DIFFERENT FILL. fix-467's ruling —
+    //     *"maybe the whole pill is darker and the inactive one is greyed out
+    //     or white"* — is what this asserts, and it is still true; the ink is
+    //     the app's DE blue rather than `--color-text` because Bobby has since
+    //     asked for the Pipeline's toggle on this screen. Both halves come from
+    //     `chipStyle`, which is the one place either colour is decided.
     renderIt();
     const site = screen.getByTestId('filter-chip-site'); // active by default
     const unit = screen.getByTestId('filter-chip-unit');
-    expect(site.style.background).toBe('var(--color-text)');
+    expect(site.style.background).toBe('var(--color-de)');
     expect(unit.style.background).toBe('var(--color-surface)');
-    // ★ The label inverts with the fill, which is what makes it readable on
-    //   both — white on the dark segment, text ink on the light one.
-    expect((site.querySelector('span') as HTMLElement).style.color).toBe(
-      'var(--color-surface)',
-    );
-    expect((unit.querySelector('span') as HTMLElement).style.color).toBe(
-      'var(--color-text)',
-    );
+    // ★ The ink inverts with the fill, which is what makes it readable on both.
+    expect(site.style.color).toBe('rgb(255, 255, 255)');
+    expect(unit.style.color).toBe('var(--color-text)');
   });
 
-  it('fix-467 §2: clicking the CAPTION toggles — the whole pill area is the target', () => {
-    // ★★★ THE HALF THAT WAS ACTUALLY BROKEN. The caption used to be a dead
-    //     `<span>` sitting BESIDE the button, so half of what looks like one
-    //     control did nothing when clicked. Clicking the caption text is the
-    //     assertion, because that is the region that was inert.
+  it('fix-467 §2: clicking the CAPTION toggles — the whole CARD is the target', () => {
+    // ★★★ THE HALF THAT WAS ACTUALLY BROKEN, and it is still fixed — by a
+    //     bigger hammer. fix-467 §2 pulled the caption INSIDE the button
+    //     because a dead `<span>` beside it meant half of what looks like one
+    //     control did nothing. fix-483 §A3 makes the whole CARD the target
+    //     (Bobby: *"there is a ton of open space to the right of Unit and to
+    //     the right of Site. I want to be able to click anywhere within that"*),
+    //     so the caption is live again as ordinary empty space — and so is
+    //     everything else in the card that is not a control.
     renderIt();
     expect(
       screen.getByTestId('filter-chip-unit').getAttribute('data-active'),
@@ -892,8 +898,14 @@ describe('fix-447: SITE / UNIT are headings, and they switch the view', () => {
       const el = screen.getByTestId(id);
       expect(el.tagName).toBe('BUTTON');
       expect(el.getAttribute('aria-pressed')).toBeTruthy();
-      // The caption is a child of the button, not a sibling.
-      expect(el.querySelector('[data-testid$="-caption"]')).not.toBeNull();
+      // ★ fix-483 §B: the caption is a SIBLING again — see the §A1 test above
+      //   for why fix-467's reason for nesting it expired. What fix-467
+      //   actually won is asserted right here and is untouched: the toggle is a
+      //   real `<button>` carrying `aria-pressed`, so keyboard and
+      //   screen-reader behaviour come free from the element. The card's own
+      //   click handler is a MOUSE convenience layered over it, with no `role`
+      //   and no `tabIndex` — it must never be the only way in.
+      expect(el.parentElement?.querySelector('[data-testid$="-caption"]')).not.toBeNull();
     }
   });
 
@@ -953,7 +965,10 @@ describe('fix-447: SITE / UNIT are headings, and they switch the view', () => {
     expect(screen.getByTestId('library-unit-row-a-1')).toBeInTheDocument();
     expect(screen.getByTestId('library-unit-row-a-2')).toBeInTheDocument();
     expect(screen.getByTestId('library-uth-width')).toBeInTheDocument();
-    expect(screen.getByTestId('library-uth-work')).toBeInTheDocument();
+    // ★ fix-483 §A2/§A5: `library-uth-work` and `library-uth-productTypes` went
+    //   with the Work filter and the redundant TYPE column. Their absence is
+    //   asserted in LibraryReadsLeftToRightFix483.
+    expect(screen.getByTestId('library-uth-unitLabel')).toBeInTheDocument();
     // ★ …and the site-only columns are gone.
     for (const id of SITE_ONLY) {
       expect(screen.queryByTestId(id), id).not.toBeInTheDocument();
@@ -973,24 +988,29 @@ describe('fix-447: SITE / UNIT are headings, and they switch the view', () => {
   });
 
   it('★★★ §B4: switching the view keeps every filter that was set', () => {
+    // ★ fix-483 §A4: the search box was one of the two filters this carried
+    //   across the switch. It is gone, so the claim is re-made with a SITE
+    //   field and a UNIT field — which is the stronger version anyway: it
+    //   proves BOTH cards survive the switch, not one card and a box that
+    //   belonged to neither.
     renderIt();
-    fireEvent.change(screen.getByTestId('library-search'), {
-      target: { value: 'cottage' },
+    fireEvent.change(screen.getByTestId('filter-juris'), {
+      target: { value: 'Seattle' },
     });
     fireEvent.change(screen.getByTestId('unitw-target'), { target: { value: '25' } });
     goUnitView();
     // ★★★ The filters are the SAME OBJECT either side of the switch — the pill
     //     changes the columns you get back, never which rows match.
     expect(
-      (screen.getByTestId('library-search') as HTMLInputElement).value,
-    ).toBe('cottage');
+      (screen.getByTestId('filter-juris') as HTMLSelectElement).value,
+    ).toBe('Seattle');
     expect(
       (screen.getByTestId('unitw-target') as HTMLInputElement).value,
     ).toBe('25');
     fireEvent.click(screen.getByTestId('filter-chip-site'));
     expect(
-      (screen.getByTestId('library-search') as HTMLInputElement).value,
-    ).toBe('cottage');
+      (screen.getByTestId('filter-juris') as HTMLSelectElement).value,
+    ).toBe('Seattle');
   });
 
   it('★★ §B4: both filter cards stay visible in both views', () => {
@@ -1040,9 +1060,11 @@ describe('fix-469 §2: each filter card clears itself', () => {
     renderIt();
     expect(screen.queryByTestId('filter-clear-site')).not.toBeInTheDocument();
     expect(screen.queryByTestId('filter-clear-unit')).not.toBeInTheDocument();
-    // ★ The GLOBAL Clear is always there — it also owns the search box, which
-    //   belongs to neither card.
-    expect(screen.getByTestId('filter-clear')).toBeInTheDocument();
+    // ★ fix-483 §A4: the GLOBAL Clear used to be asserted here as "always
+    //   there". It is gone by ruling, so the assertion is INVERTED rather than
+    //   dropped — there are exactly two Clears on this screen now, and neither
+    //   of them is showing.
+    expect(screen.queryByTestId('filter-clear')).not.toBeInTheDocument();
   });
 
   it("★★ setting one card's field reveals only THAT card's Clear", () => {
@@ -1087,12 +1109,11 @@ describe('fix-469 §2: each filter card clears itself', () => {
     fireEvent.click(screen.getByTestId('filter-clear-site'));
     expect(screen.getByTestId('library-table-unit')).toBeInTheDocument();
 
-    // ★ And the GLOBAL Clear, which fix-447 already got right — re-asserted
-    //   here because §2 adds two more buttons that could have broken it.
-    fireEvent.change(screen.getByTestId('unitw-target'), { target: { value: '25' } });
-    fireEvent.click(screen.getByTestId('filter-clear'));
-    expect(screen.getByTestId('library-table-unit')).toBeInTheDocument();
-    expect((screen.getByTestId('unitw-target') as HTMLInputElement).value).toBe('');
+    // ★ fix-483 §A4: the GLOBAL Clear's arm of this test went with the button.
+    //   fix-447's ruling it enforced — *"CLEAR CLEARS FILTERS, IT DOES NOT
+    //   CHANGE THE VIEW"* — is what the two arms above assert, and it is now
+    //   guaranteed structurally as well: `view` is in NEITHER card's key list,
+    //   so `clearCard` cannot reach it even by accident.
   });
 
   it('★ the UNIT card caption now describes ROWS, not how a project qualifies', () => {

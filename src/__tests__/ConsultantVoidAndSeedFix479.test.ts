@@ -85,8 +85,16 @@ describe('fix-479 §C: "clear the rounds" voids them', () => {
   it('★★★ the view is STILL security_invoker — re-declared, not assumed', () => {
     // CREATE OR REPLACE VIEW is not documented to preserve reloptions, and a
     // view that fell back to definer would read every tenant's consultants.
-    expect(voidCode).toContain(
-      'create or replace view public.project_consultant_current\nwith (security_invoker = true) as',
+    //
+    // ★★★ MATCHED WITH `\s+`, NOT A LITERAL `\n` — fix-479 shipped this as a
+    //     `.toContain` spanning the line break, which passed on LF and failed
+    //     the moment git checked the file out as CRLF (every Windows clone).
+    //     CI never saw it because CI checks out LF. That is precisely the trap
+    //     fix-474's own suite wrote down, made again in the ticket that quoted
+    //     it — caught by fix-483 and fixed here. Assert the ADJACENCY; never
+    //     assert the line ending.
+    expect(voidCode).toMatch(
+      /create or replace view public\.project_consultant_current\s+with \(security_invoker = true\) as/,
     );
   });
 
