@@ -194,18 +194,22 @@ describe('fix-309 #54 Notes left the header grid', () => {
 });
 
 describe('fix-285 the team cards stack', () => {
-  it('renders Internal above External, vertically', () => {
+  // ★ fix-479 §A (P-132): fix-285's subject was "Internal and External STACK
+  //   vertically now, rather than sitting side by side in a 2-col grid" —
+  //   External is gone (Bobby, 2026-09-02) and the STACK is what fix-285 won.
+  //   Asserted of the pair that remains in that position: Internal above Chat.
+  it('renders Internal above Chat, vertically', () => {
     renderHeader();
     const internal = screen.getByTestId('project-overview-team-internal');
-    const external = screen.getByTestId('project-overview-team-external');
+    const chat = screen.getByTestId('project-overview-team-chat');
     expect(internal).toBeInTheDocument();
-    expect(external).toBeInTheDocument();
+    expect(chat).toBeInTheDocument();
     // Following-sibling relationship: stacked, not side by side.
     expect(
-      internal.compareDocumentPosition(external)
+      internal.compareDocumentPosition(chat)
       & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
-    expect(internal.parentElement).toBe(external.parentElement);
+    expect(internal.parentElement).toBe(chat.parentElement);
     expect(internal.parentElement?.className).toContain('flex-col');
   });
 
@@ -214,7 +218,7 @@ describe('fix-285 the team cards stack', () => {
     const col = screen.getByTestId('project-overview-team-col');
     expect(col.style.gridArea).toContain('team');
     expect(col).toContainElement(screen.getByTestId('project-overview-team-internal'));
-    expect(col).toContainElement(screen.getByTestId('project-overview-team-external'));
+    expect(col).toContainElement(screen.getByTestId('project-overview-team-chat'));
   });
 });
 

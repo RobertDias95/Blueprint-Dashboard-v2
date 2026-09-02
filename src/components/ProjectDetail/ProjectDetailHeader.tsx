@@ -33,8 +33,6 @@ import type {
   Project,
   UnitType,
 } from '../../lib/database.types';
-import type { WaitingOnDiscipline } from '../../lib/database.types';
-import { WAITING_ON_OPTIONS } from '../../lib/database.types';
 import {
   ParkingKindSelect,
   RoofDeckSelect,
@@ -42,15 +40,8 @@ import {
   StallsInput,
 } from '../shared/UnitParkingInputs';
 import { parseStalls, NOT_RECORDED } from '../../lib/unitParking';
-import {
-  asExternalTeamBlob,
-  directoryFirmNamesForDiscipline,
-  type ExternalTeamBlob,
-} from '../../lib/externalTeam';
 import { useUpdateProject } from '../../hooks/useUpdateProject';
-import { useExternalTeamShowRules } from '../../hooks/useExternalTeamShowRules';
-import { useExternalTeamDirectory } from '../../hooks/useExternalTeamDirectory';
-import ExternalFirmSelect from './ExternalFirmSelect';
+import { useViewportAwarePopover } from '../../hooks/useViewportAwarePopover';
 import {
   nextUnitTypeLabel,
   parseUnitTypes,
@@ -297,6 +288,16 @@ export default function ProjectDetailHeader({
   );
 }
 
+/** ★ fix-479 §B: the floating panel's declared geometry, in one place.
+ *  The WIDTH is measured off the trigger when the panel opens — these two
+ *  are the fallback for a zero-rect environment (jsdom) and the cap that
+ *  makes a short viewport SCROLL the panel rather than clip it. */
+const BUILDER_PANEL_FALLBACK_WIDTH = 240;
+const BUILDER_PANEL_MAX_HEIGHT = 420;
+// ★ Above the cards (none of which draws a stacking context of its own) and
+//   below the app's modals, which sit at 50+.
+const BUILDER_PANEL_Z = 40;
+
 /**
  * ★★★ fix-475 — BUILDER/OWNER, COLLAPSED TO WHAT ACQUISITIONS ASKS FIRST.
  *
@@ -314,10 +315,100 @@ function BuilderOwnerDisclosure({ project }: { project: Project }) {
   const owner = (project.builder_name ?? '').trim();
   const business = (project.builder_company ?? '').trim();
 
+  // ★★★ fix-479 §B (P-132 #3) — THE EXPANDED CARD FLOATS. IT DOES NOT PUSH.
+  //
+  // Bobby, 2026-09-02: *"when you click to expand, it pushes everything
+  // vertically down, and maybe it would just overlap like the internal team
+  // when you expand and collapse. That way the vertical height isn't pushing
+  // everything down."*
+  //
+  // ★★★ AND "DOES NOT PUSH" IS A CLAIM ABOUT THE WHOLE ROW, NOT JUST THIS CARD.
+  //     fix-423's rule is that the overview row's height is a MAX over its five
+  //     cells, so an inline block that grows the Team card grows Milestones,
+  //     Project, the Plan of Record and Consultants with it. That is the defect;
+  //     a layer that takes no space in flow is the fix, and it is asserted by
+  //     measuring the card's own offsetHeight open and closed.
+  //
+  // -------------------------------------------------------------------------
+  // ★★★ WHY IT IS `position: fixed` AND NOT `position: absolute`
+  // -------------------------------------------------------------------------
+  // The brief allowed an absolutely-positioned layer inside the card *"if the
+  // Team cell (or its card) has position: relative and does not overflow:
+  // hidden — if it does, say so"*. **It does.** `OverviewCard` renders
+  // `border rounded-md overflow-hidden …` (see OverviewCard.tsx), and that clip
+  // is load-bearing in the OTHER direction: fix-422's finding is that a card
+  // narrower than its content TRUNCATES silently rather than pushing the page
+  // sideways, which is the scroll fix-423 was closing. Turning the clip off for
+  // one card so a panel can escape downwards would let that card's content
+  // escape sideways too.
+  //
+  // ★★ So the layer is `position: fixed`, which an ancestor's overflow does not
+  //    clip at all — a fixed box's containing block is the viewport, so the card
+  //    is not in its clip chain. This is the SAME hook `ReviewerRollupChip`
+  //    already uses for exactly this reason ("the table sits inside a scroll
+  //    container, so anchoring with absolute position would clip"), so it is a
+  //    pattern reused, not a second one invented.
+  //
+  // ★ IT IS STILL THE TEAM CARD'S OWN DOM. No portal: the panel renders as a
+  //   child of this disclosure, inside the Team cell, so `OVERVIEW_CELL_ATTR`
+  //   measurements and fix-423's row logic see exactly the tree they saw
+  //   before. A fixed child contributes nothing to its parent's layout, which
+  //   is the whole point.
+  const btnRef = useRef<HTMLButtonElement | null>(null);
+  // ★ The panel is the WIDTH OF THE CARD BODY, which is the width of the
+  //   disclosure button — measured, because the grid decides it (the five
+  //   columns resolve from OVERVIEW_GRID_TEMPLATE) and no constant here could
+  //   know it. The fallback is only ever reached in jsdom, where every rect is 0.
+  const [anchorWidth, setAnchorWidth] = useState(0);
+  useEffect(() => {
+    if (!open) return;
+    function measure() {
+      const el = btnRef.current;
+      if (el) setAnchorWidth(el.getBoundingClientRect().width);
+    }
+    measure();
+    window.addEventListener('resize', measure);
+    return () => window.removeEventListener('resize', measure);
+  }, [open]);
+
+  const popover = useViewportAwarePopover({
+    triggerRef: btnRef,
+    open,
+    width: anchorWidth || BUILDER_PANEL_FALLBACK_WIDTH,
+    maxHeight: BUILDER_PANEL_MAX_HEIGHT,
+    preferred: 'bottom',
+    gap: 4,
+  });
+
+  // ★★ THREE WAYS OUT, and the brief named all three: the Collapse button,
+  //    Escape, and a click outside the layer. A layer that covers the roster
+  //    has to be dismissible without hunting for the control that opened it.
+  //
+  // ★ `mousedown` rather than `click`, so a drag that STARTS inside the panel
+  //   and ends outside it — selecting an email address — does not close it.
+  const wrapRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (!open) return;
+    function onKey(e: KeyboardEvent) {
+      if (e.key === 'Escape') setOpen(false);
+    }
+    function onDown(e: MouseEvent) {
+      const wrap = wrapRef.current;
+      if (wrap && !wrap.contains(e.target as Node)) setOpen(false);
+    }
+    document.addEventListener('keydown', onKey);
+    document.addEventListener('mousedown', onDown);
+    return () => {
+      document.removeEventListener('keydown', onKey);
+      document.removeEventListener('mousedown', onDown);
+    };
+  }, [open]);
+
   return (
-    <div className="flex flex-col gap-1">
+    <div className="flex flex-col gap-1" ref={wrapRef}>
       <button
         type="button"
+        ref={btnRef}
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
         className="w-full text-left rounded border px-2 py-1"
@@ -345,7 +436,27 @@ function BuilderOwnerDisclosure({ project }: { project: Project }) {
         </span>
       </button>
       {open && (
-        <div data-testid="pd-builder-expanded">
+        // ★ The shadow is what makes it read as a LAYER rather than as a
+        //   section that has appeared. The border and the rounding come from
+        //   the OverviewCard inside it, unchanged — this is the same card that
+        //   used to render inline, in the same place, with the same fields, all
+        //   still editable.
+        <div
+          className="shadow-xl rounded-md"
+          style={{
+            ...(popover.style ?? {
+              position: 'fixed',
+              top: 0,
+              left: 0,
+              width: BUILDER_PANEL_FALLBACK_WIDTH,
+              maxHeight: BUILDER_PANEL_MAX_HEIGHT,
+              overflowY: 'auto',
+            }),
+            zIndex: BUILDER_PANEL_Z,
+            background: 'var(--color-surface)',
+          }}
+          data-testid="pd-builder-expanded"
+        >
           <BuilderOwnerCell project={project} />
         </div>
       )}
@@ -1746,10 +1857,6 @@ function TeamCell({
         </div>
       </OverviewSection>
 
-      <OverviewSection title="External" testId="project-overview-team-external">
-        <ExternalTeamEditor project={project} />
-      </OverviewSection>
-
       {/* ★★★ fix-346 §1: THE CHAT PREVIEW SITS AFTER EXTERNAL NOW, directly
           above the button that opens it.
 
@@ -1821,164 +1928,24 @@ function TeamCell({
   );
 }
 
-// Q9.5.e-fix-3 / fix-190d / fix-195 / fix-196: External team editor on the
-// Project Overview. Reads/writes the projects.external_team BLOB (the single
-// source — My Tasks → Waiting + the Settings panel use the same store), keyed by
-// the canonical WAITING_ON_OPTIONS disciplines (survey term = "Surveyor"). Each
-// edit writes the full external_team JSON back via useUpdateProject (OCC).
+// ★★★ fix-479 §A (P-132) — `ExternalTeamEditor` IS GONE FROM THIS CARD AND
+//     FROM THIS FILE. Bobby, 2026-09-02: *"that external team, under team, is
+//     no longer going to be there. We are going to move that external team over
+//     to consultants."* The Team card reads Builder/Owner → Internal → Chat,
+//     which is what P-116's approved layout said all along.
 //
-// fix-196: applies the SHARED show-rules (useExternalTeamShowRules) so this
-// editor and the Settings panel can't drift — common four always shown; other
-// disciplines only when assigned or surfaced via "+ Add discipline"; empty-state
-// CTA when nothing assigned. fix-227: the firm field is a DROPDOWN sourced from
-// the central External Team directory (shared ExternalFirmSelect), same as the
-// Settings panel; picking still writes the blob, "+ Add new firm…" also inserts
-// into the directory. Existing free-text blob firms not in the directory show.
-function ExternalTeamEditor({ project }: { project: Project }) {
-  const updateMutation = useUpdateProject();
-  const directoryQ = useExternalTeamDirectory();
-  const external = useMemo<ExternalTeamBlob>(
-    () => asExternalTeamBlob(project.external_team) ?? {},
-    [project.external_team],
-  );
-  const directory = directoryQ.data ?? [];
-  const {
-    shownDisciplines,
-    addableDisciplines,
-    noneAssigned,
-    addDiscipline,
-    addedDisciplines,
-  } = useExternalTeamShowRules(external);
-  const occMissing = !project.updated_at;
-
-  // ★★★ fix-423 SCOPE 3 — AN EMPTY EXTERNAL BLOCK IS ONE LINE.
-  //
-  // ★★★ AND THE BRIEF'S PREMISE FOR THIS WAS WRONG, MEASURED THE OTHER WAY.
-  // It described the empty case as *"a heading plus a lone '+ Add discipline…'
-  // — about 40px of chrome around nothing"*. It is not: fix-193's rule renders
-  // the COMMON FOUR (Civil, Surveyor, Structural, Arborist) as fill-in slots
-  // whatever the project holds, plus fix-196's empty-state banner above them.
-  // Measured in Chrome on the real markup at this card's real width, an EMPTY
-  // External section is **251px** — the tallest section in the Team card, and
-  // taller than everything above it put together. A FULL one (five firms) is
-  // 256px. So the empty case costs 98% of the full case to say nothing at all,
-  // on 143 of 196 active projects.
-  //
-  // ★★ WHAT COLLAPSES IS THE PRESENTATION, NOT THE AFFORDANCE. The picker in
-  // the collapsed row offers EVERY discipline rather than the leftovers, so a
-  // Surveyor is still one click away — which it would not be if the four slots
-  // were simply deleted. Picking any of them opens the section into exactly the
-  // block that renders today.
-  //
-  // ★ THE SHARED RULE (lib/externalTeam) IS UNTOUCHED and so is the Settings
-  // panel, which is the surface you go to to set an external team up and where
-  // four ready slots are the point. This is the overview's presentation of the
-  // same rule.
-  const externalCollapsed = noneAssigned && addedDisciplines.size === 0;
-
-  async function writeFirm(discipline: WaitingOnDiscipline, firm: string) {
-    if (!project.updated_at) return;
-    const t = firm.trim();
-    const prev = (external[discipline] ?? '').trim();
-    if (t === prev) return; // no-op
-    const next: ExternalTeamBlob = { ...external };
-    if (t) next[discipline] = t;
-    else delete next[discipline];
-    await updateMutation.mutateAsync({
-      projectId: project.id,
-      expectedUpdatedAt: project.updated_at,
-      patch: { external_team: next },
-      fieldLabel: `${discipline} consultant`,
-    });
-  }
-
-  /** The "+ Add discipline…" control. Collapsed, it offers EVERY discipline,
-   *  because the four slots that would normally carry them are not drawn. */
-  function addPicker(options: readonly WaitingOnDiscipline[]) {
-    return (
-      <select
-        value=""
-        onChange={(e) => {
-          const d = e.target.value as WaitingOnDiscipline;
-          if (d) addDiscipline(d);
-        }}
-        className="text-[9px] border-0 border-b outline-none bg-transparent w-full px-0 py-0.5 cursor-pointer text-dim"
-        style={{ borderBottomColor: 'var(--color-border)' }}
-        data-testid="pd-ext-add-discipline"
-      >
-        <option value="">+ Add discipline…</option>
-        {options.map((d) => (
-          <option key={d} value={d}>
-            {d}
-          </option>
-        ))}
-      </select>
-    );
-  }
-
-  if (externalCollapsed) {
-    return (
-      <div className="flex items-center gap-1.5" data-testid="pd-ext-section">
-        {/* ★ The fact, said in the words the CTA used to spend two lines on.
-            "None yet" is the whole state; the control beside it is the way out
-            of it, and the two together are one row. */}
-        <span className="text-[9px] text-dim whitespace-nowrap" data-testid="pd-ext-none">
-          None yet
-        </span>
-        {addPicker(WAITING_ON_OPTIONS)}
-      </div>
-    );
-  }
-
-  return (
-    <div className="flex flex-col gap-1.5" data-testid="pd-ext-section">
-      {/* fix-196: empty-state reminder — most projects need at least a
-          surveyor / structural / arborist. ★ fix-423: only ever seen now on a
-          project where somebody has surfaced a slot but filled none in, which
-          is the moment it is actually useful. */}
-      {noneAssigned && (
-        <div
-          className="text-[8px] leading-tight rounded border px-1.5 py-1"
-          style={{
-            background: 'var(--color-co-bg)',
-            borderColor: 'var(--color-co-border)',
-            color: 'var(--color-co)',
-          }}
-          data-testid="pd-ext-empty-cta"
-        >
-          No external team yet — add a Surveyor / Structural / Arborist below.
-        </div>
-      )}
-
-      {shownDisciplines.map((discipline) => {
-        const saved = external[discipline] ?? '';
-        return (
-          <div
-            key={discipline}
-            className="flex flex-col gap-0.5"
-            data-testid={`pd-ext-row-${discipline}`}
-          >
-            <span className="text-[8px] font-bold text-dim uppercase tracking-wide">
-              {discipline}
-            </span>
-            <ExternalFirmSelect
-              discipline={discipline}
-              value={saved}
-              firms={directoryFirmNamesForDiscipline(directory, discipline)}
-              disabled={occMissing || updateMutation.isPending}
-              variant="compact"
-              testIdBase={`pd-ext-${discipline.toLowerCase()}`}
-              onCommit={(firm) => void writeFirm(discipline, firm)}
-            />
-          </div>
-        );
-      })}
-
-      {/* fix-196: surface an as-yet-unshown discipline. */}
-      {addableDisciplines.length > 0 && addPicker(addableDisciplines)}
-    </div>
-  );
-}
+// ★★★ THE BLOB IT WROTE IS NOT GONE, AND THAT IS THE WHOLE CARE OF THIS TICKET.
+//     `projects.external_team` has five live readers that this ticket does not
+//     touch — lib/waitingOn, lib/myTasksHelpers, hooks/useWaitingOnTasks,
+//     lib/vendorReport and PermitDetailV2's waiting-on firm line. What changed
+//     is WHO WRITES IT: fix-479 §D moved that into `bp_add_project_consultant`
+//     and `bp_set_consultant_firm`, server-side and in the same transaction as
+//     the consultant record, so the record and the blob cannot drift.
+//
+// ★ `lib/externalTeam`, `ExternalFirmSelect` and `useExternalTeamShowRules` all
+//   survive deliberately (the brief's rule). They are the blob's shared
+//   vocabulary, and the next surface that needs a firm picker should reuse them
+//   rather than grow a second one.
 
 // ============================================================
 // Builder / Owner cell — fix-24d: BuilderAutocompleteField on all 4

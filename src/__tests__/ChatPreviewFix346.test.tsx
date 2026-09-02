@@ -232,7 +232,7 @@ beforeEach(() => {
 // ★★ The order
 // ---------------------------------------------------------------------------
 
-describe('fix-346 §1: the Team card reads Internal, External, Chat, button', () => {
+describe('fix-346 §1: the Team card reads Internal, Chat, button (fix-479: no External)', () => {
   it('★★ the ORDER is asserted, not merely that all sections are present', () => {
     // ★★★ AMENDED BY fix-475 (P-116): BUILDER/OWNER JOINED THE TOP.
     //     Its own Overview column became Consultants, and Bobby ruled the card
@@ -252,19 +252,25 @@ describe('fix-346 §1: the Team card reads Internal, External, Chat, button', ()
     expect(teamSectionIds()).toEqual([
       'project-overview-team-builder',
       'project-overview-team-internal',
-      'project-overview-team-external',
+      // ★ fix-479 §A (P-132): `project-overview-team-external` left this list
+      //   with the section itself. The ORDER is still asserted whole.
       'project-overview-team-chat',
       'pd-chat-section',
     ]);
   });
 
-  it('★★ the preview sits BELOW External and DIRECTLY ABOVE the button', () => {
+  // ★ fix-479 §A (P-132): "below External" was half of this claim and External
+  //   is gone (Bobby, 2026-09-02). The half that was ever load-bearing —
+  //   fix-346's actual ruling, *"here's the chat section, and then the chat
+  //   button"* — is the ADJACENCY, and it is asserted unchanged. The roster is
+  //   now what the preview sits below.
+  it('★★ the preview sits BELOW the roster and DIRECTLY ABOVE the button', () => {
     renderHeader();
     const ids = teamSectionIds();
-    const external = ids.indexOf('project-overview-team-external');
+    const internal = ids.indexOf('project-overview-team-internal');
     const chat = ids.indexOf('project-overview-team-chat');
     const button = ids.indexOf('pd-chat-section');
-    expect(chat).toBeGreaterThan(external);
+    expect(chat).toBeGreaterThan(internal);
     expect(button).toBe(chat + 1);
   });
 
@@ -304,8 +310,11 @@ describe('fix-346 §1: the Team card reads Internal, External, Chat, button', ()
   it('★ still draws no nested card, and still uses the same section treatment', () => {
     renderHeader();
     const chat = screen.getByTestId('project-overview-team-chat');
-    const external = screen.getByTestId('project-overview-team-external');
-    expect(chat.className).toBe(external.className);
+    // ★ fix-479 §A: compared against INTERNAL now that External is gone. The
+    //   claim is "the same section treatment as its neighbours", and any
+    //   sibling section proves it — they all come from one component.
+    const sibling = screen.getByTestId('project-overview-team-internal');
+    expect(chat.className).toBe(sibling.className);
     for (const el of Array.from(chat.querySelectorAll('*'))) {
       const cls = (el as HTMLElement).className;
       const className = typeof cls === 'string' ? cls : '';
@@ -419,25 +428,25 @@ describe('fix-346 §1: fix-345 §3 survives the move', () => {
     expect(pinned.style.marginTop).toBe('auto');
   });
 
-  // ★★ The section count is still FOUR, which is the number fix-345 §3's
-  // reasoning turns on — a pinned section is pinned whatever is above it, but
-  // the distribution above it is what the brief asked to re-verify.
-  it('★★ five sections, four of which share the spare height', () => {
+  // ★★ The count has now been 4 (fix-345), 5 (fix-475) and 4 again (fix-479 §A,
+  // External out) — which is the clearest possible demonstration that the count
+  // was never the property. fix-345 §3's rule is about the PINNED section
+  // taking no share of the spare height, so all three cards' actions land on
+  // one baseline; that holds whatever is above it.
+  it('★★ four sections, three of which share the spare height', () => {
     renderHeader();
-    // ★ fix-475: five now — Builder/Owner joined the top. fix-345 §3's
-    //   property is about the PINNED one taking no share of the spare height,
-    //   which is a claim about the last section, not about how many there are.
-    expect(teamSectionIds()).toHaveLength(5);
+    // ★ fix-479 §A: 5 → 4. External left the card (Bobby, 2026-09-02).
+    expect(teamSectionIds()).toHaveLength(4);
     const distributed = (
       Array.from(
         screen.getByTestId('project-overview-team').querySelectorAll(':scope > section'),
       ) as HTMLElement[]
     ).filter((s) => s.dataset.pinBottom !== 'true');
-    // ★ fix-475: four share it now. The PROPERTY — the pinned section takes
-    //   no share, so all three cards' actions land on the same baseline — is
-    //   what fix-345 §3 established and it is unchanged: exactly one section
-    //   is pinned, and every other one grows.
-    expect(distributed).toHaveLength(4);
+    // ★ The PROPERTY, asserted rather than the arithmetic: EXACTLY ONE section
+    //   is pinned and every other one grows. That is what makes the baseline
+    //   hold, and it is what would actually break.
+    expect(distributed).toHaveLength(teamSectionIds().length - 1);
+    expect(distributed).toHaveLength(3);
     for (const s of distributed) expect(s.style.flexGrow).toBe('1');
   });
 
