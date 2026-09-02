@@ -12,8 +12,6 @@ import {
   OVERVIEW_ROW_CLASS,
   OVERVIEW_ROW_CONTAINER,
   OVERVIEW_ROW_RESPONSIVE_CSS,
-  TEAM_INTERNAL_COLUMN_GUTTER,
-  TEAM_INTERNAL_COLUMN_MIN,
   TEAM_INTERNAL_ROWS,
   TEAM_INTERNAL_ROW_GAP,
 } from '../../lib/overviewCardLayout';
@@ -94,6 +92,12 @@ import {
   PARAM_MESSAGE,
 } from '../../lib/notificationTargets';
 import { OverviewAction, OverviewCard, OverviewSection } from './OverviewCard';
+// ★ fix-475 (P-116): the column that takes Builder/Owner's slot.
+import ConsultantsCard from './ConsultantsCard';
+// ★ fix-475 §2: the fix-343 pair, reached through the components that already
+//   use it (fix-467/fix-468). No third initials function.
+import { useRosterFullName } from '../../hooks/useRosterFullName';
+import { Avatar } from './ChatMessageBody';
 import LinkedTimeBlocksSection from './LinkedTimeBlocksSection';
 
 // Q9.5.e: 4-column header top strip per v1 §4.2.1. Left card holds an
@@ -268,40 +272,95 @@ export default function ProjectDetailHeader({
         <div {...{ [OVERVIEW_CELL_ATTR]: 'por' }} style={{ gridArea: 'por', height: '100%' }}>
           <PlanOfRecordCard projectId={project.id} />
         </div>
-        {/* ★★★ fix-441 §B (P-019) — BUILDER/OWNER MAY BE SHORTER THAN THE ROW.
-            Bobby, 2026-08-29: this card is allowed to stop at its own content.
+        {/* ★★★ fix-475 (P-116) — CONSULTANTS TAKES THE SLOT BUILDER/OWNER
+            VACATES, and Builder/Owner is NOT deleted: it becomes the Team
+            card's top section, collapsed to Owner + Business.
 
-            ★★★ WHAT WAS FORCING ITS HEIGHT, and it was two things agreeing.
-            Every cell here is a grid item with `height: '100%'`, and a grid
-            item's default `align-self` is `stretch` — so the item filled the
-            row and OverviewCard's own `h-full` (fix-309 #55) filled the item.
-            The row height is a MAX over its cells (fix-423), and this card has
-            the least to say of the five, so it was carrying the most empty
-            space.
+            ★★ THE ROW MINIMUM FELL. `builder`'s floor was 190; the Consultants
+            floor is 144 (derived — see CONSULTANT_CARD_MIN_WIDTH), so
+            OVERVIEW_ROW_MIN_WIDTH goes 1218 → 1172. Five columns before, five
+            after, and the permits rail is untouched.
 
-            ★★ `alignSelf: 'start'` AND dropping `height: '100%'`, together.
-            Either alone does nothing: with `stretch` the height is imposed by
-            the grid whatever the inline style says, and with `start` but
-            `height: 100%` the percentage resolves against the row box and
-            stretches it back. The card's own `h-full` then resolves against an
-            auto-height parent, which is `auto` — exactly the case fix-309's
-            comment already anticipated ("outside a stretched grid the parent
-            has auto height, so height:100% resolves to auto").
-
-            ★ ONE CELL ONLY. No track, no floor, no template changes — Team,
-            Project, Milestones and Plan of Record keep fix-417/423's
-            proportions untouched, and the row still takes its height from the
-            tallest of them. */}
+            ★ fix-441 §B's `alignSelf: 'start'` is KEPT and it still applies for
+            the same reason: this card is a list that stops at its own content,
+            and the row's height is a MAX over its cells (fix-423). A card with
+            two consultants on it must not stretch to the height of Plan of
+            Record. */}
         <div
-          {...{ [OVERVIEW_CELL_ATTR]: 'builder' }}
-          style={{ gridArea: 'builder', alignSelf: 'start' }}
+          {...{ [OVERVIEW_CELL_ATTR]: 'consultants' }}
+          style={{ gridArea: 'consultants', alignSelf: 'start' }}
         >
-          <BuilderOwnerCell project={project} />
+          <ConsultantsCard projectId={project.id} bp={bp} />
         </div>
       </div>
     </div>
   );
 }
+
+/**
+ * ★★★ fix-475 — BUILDER/OWNER, COLLAPSED TO WHAT ACQUISITIONS ASKS FIRST.
+ *
+ * Bobby: *"Owner + Business visible, click to expand to the full card."* The
+ * summary is two lines of TEXT — and text is the point: text wraps, so the
+ * collapsed state costs the Team card no floor at all. The `<input>` elements
+ * that earned Builder/Owner its 190px only exist once somebody opens it.
+ *
+ * ★ COLLAPSED BY DEFAULT. This card already carries Internal, External and
+ *   Chat; opening every project with a fourth section expanded would push the
+ *   chat preview below the fold on the screen Bobby actually reads.
+ */
+function BuilderOwnerDisclosure({ project }: { project: Project }) {
+  const [open, setOpen] = useState(false);
+  const owner = (project.builder_name ?? '').trim();
+  const business = (project.builder_company ?? '').trim();
+
+  return (
+    <div className="flex flex-col gap-1">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        className="w-full text-left rounded border px-2 py-1"
+        style={{
+          borderColor: 'var(--color-border)',
+          background: 'var(--color-s2)',
+        }}
+        data-testid="pd-builder-disclose"
+      >
+        <span
+          className="block text-[9px] font-bold"
+          style={{ color: 'var(--color-muted)' }}
+        >
+          {open ? 'Collapse ⌃' : 'Expand ⌄'}
+        </span>
+        {/* ★ Owner and Business, and nothing else — the two an Acquisitions
+            reader wants before they open anything. An unset one renders the
+            card's normal em dash rather than a blank, so "not recorded" and
+            "still loading" cannot look the same. */}
+        <span className="block text-[11.5px] font-semibold truncate" style={{ color: 'var(--color-text)' }}>
+          {owner || '—'}
+        </span>
+        <span className="block text-[10.5px] truncate" style={{ color: 'var(--color-muted)' }}>
+          {business || '—'}
+        </span>
+      </button>
+      {open && (
+        <div data-testid="pd-builder-expanded">
+          <BuilderOwnerCell project={project} />
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ★★★ fix-441 §B (P-019) — BUILDER/OWNER MAY BE SHORTER THAN THE ROW.
+// Bobby, 2026-08-29: that card was allowed to stop at its own content, and
+// fix-475 keeps the same `alignSelf: 'start'` on the cell that replaced it —
+// see the note there. The reasoning is preserved because it is about the CELL,
+// not about Builder/Owner: every cell is a grid item with `height:'100%'` and a
+// grid item's default `align-self` is `stretch`, so the item fills the row and
+// OverviewCard's own `h-full` (fix-309 #55) fills the item. Dropping BOTH is
+// what lets a short card be short.
 
 // fix-290: BoxedCell and CellShell are gone. Between them they were half of the
 // reason the five cards looked like five different things — BoxedCell drew the
@@ -1459,6 +1518,9 @@ function TeamCell({
   bp: PermitWithCycles | null;
   permits: PermitWithCycles[];
 }) {
+  // ★ fix-475 §2: the roster's short name is what renders; the FULL name is
+  //   what the initials come from (board decision #125).
+  const fullNameOf = useRosterFullName();
   // fix-22 Mig 3: project-level entitlement_lead is the default; bp.ent_lead
   // overrides per-permit (Bobby's PAR/SDOT/ECA pattern). Display the BP
   // override when present, else fall back to project-level default.
@@ -1572,6 +1634,30 @@ function TeamCell({
   // without touching anything here but the JSX.
   return (
     <OverviewCard title="Team" testId="project-overview-team">
+      {/* ★★★ fix-475 (P-116) — BUILDER/OWNER IS TEAM'S TOP SECTION NOW.
+          Bobby: *"Owner + Business visible, click to expand to the full card."*
+          Its own column became Consultants; the content did not go anywhere.
+
+          ★★★ AND ITS 190px FLOOR DID NOT COME WITH IT — DELIBERATELY, AND
+          fix-423 SET THIS PRECEDENT ON THIS VERY CARD. Builder/Owner's floor
+          existed because *"these are <input> elements and an input does NOT
+          wrap"* (fix-417). Those inputs are still here when the section is
+          EXPANDED, so a naive reading says Team's floor must rise 160 → 268
+          (measured: a full email at 11px is 164px, plus the 62px label, the
+          gap, and the card chrome). Team 268 + Consultants 144 = 412 against
+          the 350 this reshuffle has to fit in — it does not.
+
+          ★★ So the expanded block STACKS its label above its input below a
+          container-query threshold, exactly as fix-423 made the two-up Internal
+          block a container query rather than a floor. Its own words: *"A layout
+          that asks for width the row cannot always give is not a floor."* The
+          full-width fields appear whenever the card can hold them — which is
+          every width Bobby works at — and the card stacks gracefully when it
+          cannot. Team's floor stays 160 and the row minimum FALLS to 1172. */}
+      <OverviewSection title="Builder / Owner" testId="project-overview-team-builder">
+        <BuilderOwnerDisclosure project={project} />
+      </OverviewSection>
+
       {/* ★ fix-321 #78: the order IS the requirement, and it follows the work —
           land, then entitlement, then schematic design, then the manager, then
           the associate doing it. Written as one list in one place so it cannot
@@ -1595,37 +1681,68 @@ function TeamCell({
             existing `flex flex-col` body — same element, same depth — so the
             sections are still the card's own children and nothing about the
             distribution changes. */}
+        {/* ★★★ fix-475 §2 — ONE ROLE PER BLOCK, SPELLED OUT, WITH A FACE.
+            Bobby: roles spelled out, one per block, in order — Acquisitions ·
+            Entitlement · Schematic · Design Manager · Design Associate — each
+            with an initials avatar.
+
+            ★★★ THE ORDER AND THE WORDS COME FROM `TEAM_INTERNAL_ROWS`, NOT
+            FROM A LIST TYPED HERE. `title` is the spelled-out name that has
+            been sitting in that table since fix-321 as the abbreviation's
+            tooltip; this promotes it to the label. Nothing about the order
+            moved, and a sixth role added to the table appears here for free.
+
+            ★★ THIS REVERSES fix-423's TWO-UP, AND THAT IS A REAL TRADE. That
+            ticket paired the rows because *"five stacked rows were the tallest
+            thing in this card"*. Bobby has now asked for one per block with a
+            face on each, and the Team card is also gaining Builder/Owner — so
+            this card gets taller in both directions at once. The row's height
+            is a MAX over its cells (fix-423), so Team may now be what sets it.
+            Flagged in the PR rather than quietly absorbed: nothing here is a
+            width change, so it cannot re-open the sideways scroll fix-423 was
+            closing.
+
+            ★ AN UNFILLED ROLE RENDERS NOTHING — the brief's rule, and the
+              opposite of fix-321's em dash. With a face on every line, an
+              empty circle beside an empty name reads as a broken avatar rather
+              than an unassigned role. */}
         <div
-          className="flex flex-wrap"
-          style={{
-            rowGap: TEAM_INTERNAL_ROW_GAP,
-            columnGap: TEAM_INTERNAL_COLUMN_GUTTER,
-          }}
+          className="flex flex-col"
+          style={{ gap: TEAM_INTERNAL_ROW_GAP }}
           data-testid="project-overview-team-internal-columns"
         >
-          {(['left', 'right'] as const).map((side) => (
-            <div
-              key={side}
-              className="flex flex-col"
-              style={{
-                gap: TEAM_INTERNAL_ROW_GAP,
-                flex: `1 1 ${TEAM_INTERNAL_COLUMN_MIN}px`,
-                minWidth: TEAM_INTERNAL_COLUMN_MIN,
-              }}
-              data-testid={`project-overview-team-internal-${side}`}
-            >
-              {TEAM_INTERNAL_ROWS.filter((r) => r.column === side).map((r) => (
-                // ★ Empty renders the card's normal em-dash, exactly like the
-                //   four around it — a project with no schematic designer must
-                //   not look broken, it must look unassigned. That is the whole
-                //   reason SD keeps a row of its own in the right-hand column
-                //   rather than being skipped when it is unset: a gap in a
-                //   two-column block reads as a rendering fault, an em dash
-                //   reads as an unfilled role.
-                <TeamRow key={r.key} label={r.label} value={internalValues[r.key]} title={r.title} />
-              ))}
-            </div>
-          ))}
+          {TEAM_INTERNAL_ROWS.map((r) => {
+            const value = (internalValues[r.key] ?? '').trim();
+            if (!value || value === '—') return null;
+            return (
+              <div key={r.key} data-testid={`pd-role-${r.key}`}>
+                <div
+                  className="text-[8.5px] font-extrabold uppercase"
+                  style={{ letterSpacing: '0.06em', color: 'var(--color-muted)' }}
+                >
+                  {r.title}
+                </div>
+                <div className="flex items-center gap-1.5 mt-0.5">
+                  {/* ★★ SHORT NAME ON THE LINE, FULL INITIALS IN THE CIRCLE —
+                      board decision #125: *"Cam instead of Cameron, and Shire
+                      goes by Shire."* The roster name IS the short name (it is
+                      the join key the whole app uses), and `rosterFullName`
+                      resolves the full one for the initials — which is what
+                      stops **Fisk** rendering as *Matt Fisk* on the line while
+                      still giving the circle both letters.
+                      ★ The fix-343 pair, reused through the same `Avatar`
+                        fix-467/fix-468 use. No third initials function. */}
+                  <Avatar name={fullNameOf(value)} titled title={`${r.title} · ${fullNameOf(value)}`} />
+                  <span
+                    className="text-[11.5px] font-semibold truncate"
+                    style={{ color: 'var(--color-text)' }}
+                  >
+                    {value}
+                  </span>
+                </div>
+              </div>
+            );
+          })}
         </div>
       </OverviewSection>
 
@@ -1903,8 +2020,20 @@ function ReadOnlyBuilderLine({
       <span className="text-[8px] font-bold text-dim uppercase tracking-wide">
         {label}
       </span>
+      {/* ★★★ fix-475 — WRAPS NOW, AND ONLY fix-448 MADE THAT POSSIBLE.
+          fix-417 gave Builder/Owner a 190px floor because *"these are <input>
+          elements and an input does NOT wrap"*. fix-448 then made Email / Cell
+          / LLC Address READ-ONLY TEXT — but left `truncate` on them, so they
+          kept clipping for a reason that had stopped applying.
+
+          ★★ fix-475 moves this card into Team, whose floor is 160. Text that
+          WRAPS is readable at 160px; text that truncates is not, and an
+          `<input>` never could be. So the ellipsis goes and a long email takes
+          two lines — which is exactly the fix that was unavailable when the
+          floor was set, and is why the floor does not have to travel with the
+          content. `break-all` because an email has no spaces to break at. */}
       <div
-        className="text-[12px] font-bold py-0.5 truncate"
+        className="text-[12px] font-bold py-0.5 break-all"
         style={{
           color: has
             ? accent
@@ -2162,29 +2291,12 @@ function BuilderOwnerCell({ project }: { project: Project }) {
 // date-row component in the file is how a ninth row quietly gets built the old
 // way six months from now.
 
-function TeamRow({
-  label,
-  value,
-  title,
-}: {
-  label: string;
-  value: string | null | undefined;
-  /** fix-321: the tier's full name, since the card shows abbreviations. */
-  title?: string;
-}) {
-  return (
-    <div className="flex items-baseline gap-1">
-      <span className="text-[9px] text-dim w-8 flex-shrink-0" title={title}>
-        {label}
-      </span>
-      <span
-        className={`text-[10px] font-bold ${value && value !== '—' ? 'text-text' : 'text-dim'}`}
-      >
-        {value || '—'}
-      </span>
-    </div>
-  );
-}
+// ★★★ fix-475 §2 removed `TeamRow`. It rendered an abbreviation + a value on
+// one line, which is what the roster stopped being: one role per block,
+// spelled out, with a face. Its em-dash-for-empty behaviour went with it
+// deliberately — the brief's rule is that an unfilled role renders NOTHING,
+// because an empty circle beside an empty name reads as a broken avatar rather
+// than an unassigned role.
 
 
 // ★ fix-311: formatGoDate ("Jun 5, 2026") is gone with PhaseRow. ★ fix-320

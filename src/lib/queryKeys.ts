@@ -313,6 +313,10 @@ export const queryKeys = {
   projectConsultantsAll: ['project_consultants'] as const,
   projectConsultants: (tenantId: string, projectId: string) =>
     ['project_consultants', tenantId, { projectId }] as const,
+  /** ★ fix-475: one consultant's FULL round list — the Expand history. Shares
+   *  the bare prefix above so any consultant write invalidates it too. */
+  consultantRounds: (tenantId: string, consultantId: string) =>
+    ['project_consultants', tenantId, 'rounds', { consultantId }] as const,
   // fix-170: all of a tenant's holds (active + closed), for the dashboard +
   // estimator surfaces. Shares the project_holds bare prefix for realtime.
   allProjectHolds: (tenantId: string) =>

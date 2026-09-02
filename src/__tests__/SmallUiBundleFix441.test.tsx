@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { render, screen } from '@testing-library/react';
@@ -10,6 +10,29 @@ import {
   shouldLogQueryFailure,
 } from '../lib/errorLogger';
 import { queryKeys } from '../lib/queryKeys';
+
+// ★★★ fix-475 (P-116) — THE CONSULTANTS CARD IS INERT HERE.
+//
+// It joined the Overview row (taking Builder/Owner's slot), so every test that
+// renders `ProjectDetailHeader` now mounts it — and it READS: the consultant
+// list, its round history, and the firm directory.
+//
+// ★★ WHY THAT MATTERED RATHER THAN JUST BEING NOISE: several of these suites
+// share one supabase mock whose `.select()` SHIFTS A QUEUED RESPONSE. A new
+// component issuing a read silently ate the response the test had queued for
+// its own write, and the failure surfaced as "expected 1 to be 2" three files
+// away from the cause. Mocked inert, exactly as `useBuilderSearch` and
+// `useSetBpDdDates` already are in the files that have this shape.
+vi.mock('../hooks/useProjectConsultants', () => ({
+  useProjectConsultants: () => ({ data: [], isLoading: false }),
+  useConsultantRounds: () => ({ data: [], isLoading: false }),
+  useAddProjectConsultant: () => ({ mutate: vi.fn(), isPending: false }),
+  useSetConsultantStatus: () => ({ mutate: vi.fn(), isPending: false }),
+  useSetConsultantDate: () => ({ mutate: vi.fn(), isPending: false }),
+  useSetConsultantPhase: () => ({ mutate: vi.fn(), isPending: false }),
+  useSetConsultantFirm: () => ({ mutate: vi.fn(), isPending: false }),
+}));
+
 
 // ===========================================================================
 // fix-441 — four small ruled items, one PR
@@ -209,16 +232,20 @@ function code(src: string): string {
 }
 
 describe('fix-441 §B (P-019) — the Builder/Owner card stops stretching', () => {
-  it('★★★ the builder cell alone drops height:100% and takes align-self:start', () => {
+  // ★★★ AMENDED BY fix-475: the SHORT CELL is `consultants` now. fix-441's
+  //     finding is about the CELL — a card with the least to say must not be
+  //     stretched to the row's height — not about Builder/Owner, whose column
+  //     was taken over. Both halves are still required together.
+  it('★★★ the short cell alone drops height:100% and takes align-self:start', () => {
     const src = code(headerSrc);
     expect(src).toMatch(
-      /\[OVERVIEW_CELL_ATTR\]: 'builder'[\s\S]{0,120}alignSelf: 'start'/,
+      /\[OVERVIEW_CELL_ATTR\]: 'consultants'[\s\S]{0,120}alignSelf: 'start'/,
     );
     // ★★ BOTH halves, and either alone is a no-op: with the grid's default
     //    `stretch` the height is imposed whatever the inline style says, and
     //    with `start` but `height: 100%` the percentage resolves against the
     //    row box and stretches it back.
-    const builderCell = /\[OVERVIEW_CELL_ATTR\]: 'builder'[\s\S]{0,200}?>/.exec(src)?.[0] ?? '';
+    const builderCell = /\[OVERVIEW_CELL_ATTR\]: 'consultants'[\s\S]{0,200}?>/.exec(src)?.[0] ?? '';
     expect(builderCell).not.toContain("height: '100%'");
   });
 

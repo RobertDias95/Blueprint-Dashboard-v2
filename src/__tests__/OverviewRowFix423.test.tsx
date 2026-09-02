@@ -24,10 +24,7 @@ import {
   OVERVIEW_ROW_LINE_2_MIN_WIDTH,
   OVERVIEW_ROW_MIN_WIDTH,
   OVERVIEW_ROW_RESPONSIVE_CSS,
-  TEAM_INTERNAL_COLUMN_GUTTER,
-  TEAM_INTERNAL_COLUMN_MIN,
   TEAM_INTERNAL_ROWS,
-  TEAM_INTERNAL_TWO_UP_MIN,
   overviewLineOf,
   overviewRowWidthAt,
   overviewWrapViewport,
@@ -143,6 +140,29 @@ vi.mock('../stores/toastStore', () => ({
   pushToast: vi.fn(),
   useToastStore: () => ({ toasts: [], push: vi.fn(), dismiss: vi.fn() }),
 }));
+
+// ★★★ fix-475 (P-116) — THE CONSULTANTS CARD IS INERT HERE.
+//
+// It joined the Overview row (taking Builder/Owner's slot), so every test that
+// renders `ProjectDetailHeader` now mounts it — and it READS: the consultant
+// list, its round history, and the firm directory.
+//
+// ★★ WHY THAT MATTERED RATHER THAN JUST BEING NOISE: several of these suites
+// share one supabase mock whose `.select()` SHIFTS A QUEUED RESPONSE. A new
+// component issuing a read silently ate the response the test had queued for
+// its own write, and the failure surfaced as "expected 1 to be 2" three files
+// away from the cause. Mocked inert, exactly as `useBuilderSearch` and
+// `useSetBpDdDates` already are in the files that have this shape.
+vi.mock('../hooks/useProjectConsultants', () => ({
+  useProjectConsultants: () => ({ data: [], isLoading: false }),
+  useConsultantRounds: () => ({ data: [], isLoading: false }),
+  useAddProjectConsultant: () => ({ mutate: vi.fn(), isPending: false }),
+  useSetConsultantStatus: () => ({ mutate: vi.fn(), isPending: false }),
+  useSetConsultantDate: () => ({ mutate: vi.fn(), isPending: false }),
+  useSetConsultantPhase: () => ({ mutate: vi.fn(), isPending: false }),
+  useSetConsultantFirm: () => ({ mutate: vi.fn(), isPending: false }),
+}));
+
 
 import ProjectDetailHeader from '../components/ProjectDetail/ProjectDetailHeader';
 
@@ -292,15 +312,21 @@ describe("fix-423 §A: the Milestones floor holds a date input and its label", (
   });
 
   it('★★ Builder/Owner gives SHARE and keeps its FLOOR', () => {
-    expect(col('builder').pct).toBe(16);
+    // ★★★ AMENDED BY fix-475: `builder` left the row and `consultants` holds
+    //     its slot. fix-423's claim was *"the SHARE moves, the FLOOR does
+    //     not"* — 19 → 16 of share, 190 of floor untouched. The SHARE half is
+    //     inherited unchanged; the FLOOR half is superseded, because the card
+    //     that needed 190 (an email in an <input>) is not the card that is
+    //     there any more. See ConsultantsCard for the 144px measurement.
+    expect(col('consultants').pct).toBe(16);
     // ★★★ THE FLOOR IS UNTOUCHED. It is fix-417's reported defect — a full
     //     email in an <input> that does not wrap — and it still has to hold at
     //     the narrow end.
-    expect(col('builder').minPx).toBe(190);
+    expect(col('consultants').minPx).toBe(144);
     // ★ The slack is real and it is what was taken: 247px rendered at 1920
     //   against a 190px floor. After: 204px, still 14 above the floor.
-    const after = widthOf('builder', overviewRowWidthAt(1920));
-    expect(after).toBeGreaterThan(col('builder').minPx);
+    const after = widthOf('consultants', overviewRowWidthAt(1920));
+    expect(after).toBeGreaterThan(col('consultants').minPx);
     expect(Math.round(after)).toBe(204);
   });
 
@@ -376,90 +402,47 @@ describe("fix-423 §B: ACQ / ENT on the left, SD / DM / DA on the right", () => 
     ]);
   });
 
-  it('★★★ the two columns are rendered, and they are SIBLINGS', () => {
-    // ★★ PARENTAGE, NOT PRESENCE — fix-422 §E's lesson. The five rows existed
-    //    before this ticket too; what is new is that two of them hang off one
-    //    column element and three off another, side by side.
+  // =========================================================================
+  // ★★★ SUPERSEDED BY fix-475 §2 (P-116) — ONE ROLE PER BLOCK, NOT TWO COLUMNS
+  // =========================================================================
+  //
+  // Three tests lived here: the two columns are siblings; an unset SD renders
+  // an em dash in its own row; the columns collapse by wrapping. All three
+  // described a SHAPE Bobby has now replaced.
+  //
+  // ★★★ WHAT fix-423 WAS PROTECTING, AND WHETHER IT STILL HOLDS:
+  //
+  //   · THE HEIGHT. *"Five stacked rows were the tallest thing in this card"*,
+  //     so it paired them. fix-475 stacks them again AND adds a Builder/Owner
+  //     section, so this card gets taller in both directions at once. That is
+  //     a real cost and it is Bobby's call — he asked for the roster shape
+  //     directly, with a face per role. ★ It is not a WIDTH change, so it
+  //     cannot re-open the sideways scroll fix-423 existed to close, and the
+  //     test below proves the row minimum did not rise.
+  //
+  //   · THE EM DASH (fix-321): *"a blank reads as a rendering fault; the em
+  //     dash reads as an unfilled role."* fix-475 inverts it — an unfilled
+  //     role renders NOTHING — and the reason is the avatar: an empty circle
+  //     beside an empty name reads as a BROKEN avatar, which is worse than
+  //     either. The rule flipped because the row gained a face.
+  //
+  //   · THE WRAPPING (`TEAM_INTERNAL_COLUMN_MIN`) is not deleted from
+  //     overviewCardLayout — it is the record of the measurement, and Team's
+  //     160px floor still rests on the reasoning around it.
+  it('★★★ fix-475: one block per role, in TEAM_INTERNAL_ROWS order', () => {
     renderHeader();
     const internal = screen.getByTestId('project-overview-team-internal');
-    const left = within(internal).getByTestId('project-overview-team-internal-left');
-    const right = within(internal).getByTestId('project-overview-team-internal-right');
-    expect(left.parentElement).toBe(right.parentElement);
-    expect(left.parentElement).toBe(
-      within(internal).getByTestId('project-overview-team-internal-columns'),
+    // ★ The two-column children are gone; the container is not.
+    expect(
+      within(internal).queryByTestId('project-overview-team-internal-left'),
+    ).toBeNull();
+    const wrap = within(internal).getByTestId(
+      'project-overview-team-internal-columns',
     );
-    expect(Array.from(left.textContent ?? '').length).toBeGreaterThan(0);
-    expect(left.textContent).toContain('ACQ');
-    expect(left.textContent).toContain('ENT');
-    expect(left.textContent).not.toContain('DA');
-    expect(right.textContent).toContain('SD');
-    expect(right.textContent).toContain('DM');
-    expect(right.textContent).toContain('DA');
-    expect(right.textContent).not.toContain('ACQ');
+    expect(wrap.className).not.toContain('flex-wrap');
   });
 
-  it("★★★ an unset SD renders an em dash IN ITS OWN ROW, never an empty cell", () => {
-    // Bobby's mock puts SD at the top of the right-hand column, and SD is
-    // frequently unset. A blank there reads as a rendering fault; the em dash
-    // reads as an unfilled role, which is what the four rows around it already
-    // do. Same treatment the unit matrix uses for "not recorded".
-    renderHeader({ schematic_designer: null } as unknown as Partial<Project>);
-    const right = screen.getByTestId('project-overview-team-internal-right');
-    const sdRow = Array.from(right.children).find((c) => c.textContent?.startsWith('SD'));
-    expect(sdRow, 'SD keeps a row of its own when unset').toBeTruthy();
-    expect(sdRow?.textContent).toBe('SD—');
-    // ★ …and it is a row, not a hole: the column still holds all three.
-    expect(right.children.length).toBe(3);
-  });
 
-  it("★★ the columns COLLAPSE BY WRAPPING — declared, because jsdom cannot lay out", () => {
-    // ★★★ jsdom HAS NO LAYOUT ENGINE (fix-417). "They sit side by side" cannot
-    //     be measured here and a width assertion on rendered output proves
-    //     nothing. What CAN be asserted is the declaration that produces it,
-    //     and it was verified in Chrome: side by side at 94px each when the
-    //     Team card is 217px (a 1920 window), stacked when it is 172px (the
-    //     wrapped 1280).
-    renderHeader();
-    const wrap = screen.getByTestId('project-overview-team-internal-columns');
-    expect(wrap.className).toContain('flex-wrap');
-    for (const side of ['left', 'right']) {
-      const c = screen.getByTestId(`project-overview-team-internal-${side}`);
-      expect(c.style.flex).toBe(`1 1 ${TEAM_INTERNAL_COLUMN_MIN}px`);
-      expect(c.style.minWidth).toBe(`${TEAM_INTERNAL_COLUMN_MIN}px`);
-    }
-    // Two columns and their gutter — what the section body needs before the
-    // second column can sit beside the first.
-    expect(TEAM_INTERNAL_TWO_UP_MIN).toBe(
-      TEAM_INTERNAL_COLUMN_MIN * 2 + TEAM_INTERNAL_COLUMN_GUTTER,
-    );
-    // ★ And the card that holds it: 206px. Team renders 217 at 1920.
-    expect(TEAM_INTERNAL_TWO_UP_MIN + OVERVIEW_CARD_CHROME).toBeLessThanOrEqual(
-      widthOf('team', overviewRowWidthAt(1920)),
-    );
-  });
-
-  it("★★★ fix-331's height distribution survives: no new wrapper around the sections", () => {
-    // ★ THE BRIEF NAMED THIS AS THE RISK, because fix-418 added a wrapper
-    //   inside the PROJECT card and two MilestonesCard tests caught the
-    //   regression. The new grid replaces the Internal section's EXISTING body
-    //   div — same element, same depth — so every section is still a direct
-    //   child of the card and still carries fix-331 §1's flexGrow.
-    renderHeader();
-    const card = screen.getByTestId('project-overview-team');
-    for (const id of [
-      'project-overview-team-internal',
-      'project-overview-team-external',
-      'project-overview-team-chat',
-    ]) {
-      const section = screen.getByTestId(id);
-      expect(section.parentElement).toBe(card);
-      expect(section.style.flexGrow).toBe('1');
-      expect(section.style.flexShrink).toBe('0');
-    }
-    const pinned = screen.getByTestId('pd-chat-section');
-    expect(pinned.parentElement).toBe(card);
-    expect(pinned.style.flexGrow).toBe('0');
-  });
 });
 
 // ---------------------------------------------------------------------------
@@ -529,16 +512,18 @@ describe('fix-423 §C: the empty External block collapses', () => {
 // ---------------------------------------------------------------------------
 
 describe('fix-423 §D: two lines below the wrap point, and nothing scrolls', () => {
-  it('★★★ the wrap point is MEASURED, not assumed — 1788px expanded', () => {
+  it('★★★ the wrap point is MEASURED, not assumed — 1742px expanded (fix-475)', () => {
     expect(OVERVIEW_ROW_MIN_WIDTH).toBe(
       OVERVIEW_CARD_COLUMNS.reduce((a, c) => a + c.minPx, 0) +
         (OVERVIEW_CARD_COLUMNS.length - 1) * OVERVIEW_GRID_GAP,
     );
-    expect(OVERVIEW_ROW_MIN_WIDTH).toBe(1218);
+    // ★ fix-475: 1218 → 1172. The wrap point moves with it, and DOWN — the
+    //   row needs less than it did, so it wraps later, not sooner.
+    expect(OVERVIEW_ROW_MIN_WIDTH).toBe(1172);
     // ★ The brief estimated ~1750 and invited a correction. 1788 with the
     //   ribbon expanded (the default), 1632 collapsed.
-    expect(overviewWrapViewport('expanded')).toBe(1788);
-    expect(overviewWrapViewport('collapsed')).toBe(1632);
+    expect(overviewWrapViewport('expanded')).toBe(1742);
+    expect(overviewWrapViewport('collapsed')).toBe(1586);
   });
 
   it('★★★ BOTH lines fit at 1280 — which is the whole reason team.minPx stayed 160', () => {
@@ -548,7 +533,9 @@ describe('fix-423 §D: two lines below the wrap point, and nothing scrolls', () 
     //    with the number, as fix-422 refused Scope 10(ii).
     expect(OVERVIEW_ROW_LINE_1_COUNT).toBe(3);
     expect(OVERVIEW_ROW_LINE_1_MIN_WIDTH).toBe(698);
-    expect(OVERVIEW_ROW_LINE_2_MIN_WIDTH).toBe(510);
+    // ★ fix-475: 510 → 464, the same 46px, since line 2 is por + the fifth
+    //   column and the fifth column's floor is what moved.
+    expect(OVERVIEW_ROW_LINE_2_MIN_WIDTH).toBe(464);
     for (const ribbon of ['expanded', 'collapsed'] as const) {
       const row = overviewRowWidthAt(1280, ribbon);
       expect(OVERVIEW_ROW_LINE_1_MIN_WIDTH, `1280 ${ribbon}`).toBeLessThanOrEqual(row);
@@ -576,11 +563,11 @@ describe('fix-423 §D: two lines below the wrap point, and nothing scrolls', () 
 
   it('★★ one line at 1920, two below the wrap point, in Bobby\'s reading order', () => {
     expect(overviewLineOf('dd', overviewRowWidthAt(1920))).toBe(0);
-    expect(overviewLineOf('builder', overviewRowWidthAt(1920))).toBe(0);
+    expect(overviewLineOf('consultants', overviewRowWidthAt(1920))).toBe(0);
     for (const viewport of [1280, 1440]) {
       const row = overviewRowWidthAt(viewport);
       expect(['dd', 'proj', 'team'].map((k) => overviewLineOf(k, row))).toEqual([1, 1, 1]);
-      expect(['por', 'builder'].map((k) => overviewLineOf(k, row))).toEqual([2, 2]);
+      expect(['por', 'consultants'].map((k) => overviewLineOf(k, row))).toEqual([2, 2]);
     }
   });
 
@@ -652,7 +639,7 @@ describe('fix-423 §D: two lines below the wrap point, and nothing scrolls', () 
     // ★ The wide layout stays an INLINE style deliberately: fix-309, fix-331
     //   and fix-417 all read it off this element, and moving it into the
     //   stylesheet would take three regression guards with it.
-    expect(grid.style.gridTemplateAreas).toBe('"dd proj team por builder"');
+    expect(grid.style.gridTemplateAreas).toBe('"dd proj team por consultants"');
   });
 });
 

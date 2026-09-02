@@ -371,7 +371,11 @@ describe('fix-474 §5 — the seed file writes nothing', () => {
   it('★★★ a seeded record would claim NO history, and says so', () => {
     // Consistent with the ruling that "the tracker starts empty and fills from
     // new activity": external_team records WHO and nothing about when.
-    expect(SEED).toContain('all\n-- four dates NULL');
+    // ★★★ NOT ACROSS A LINE BREAK. This asserted a string spanning a newline
+    //     and broke the moment git converted the file to CRLF on checkout —
+    //     which this repo does to every file. That asserts the line endings,
+    //     not the claim.
+    expect(SEED).toContain('four dates NULL');
     expect(SEED).toContain('claims **no history**');
     // ★ …and the 28 open waiting_on tasks are explicitly out of scope.
     expect(SEED).toContain('stay in My Tasks, untouched');

@@ -41,6 +41,29 @@ vi.mock('../components/ProjectDetail/PlanOfRecordCard', () => ({
   default: () => <div data-testid="plan-of-record-card" />,
 }));
 
+// ★★★ fix-475 (P-116) — THE CONSULTANTS CARD IS INERT HERE.
+//
+// It joined the Overview row (taking Builder/Owner's slot), so every test that
+// renders `ProjectDetailHeader` now mounts it — and it READS: the consultant
+// list, its round history, and the firm directory.
+//
+// ★★ WHY THAT MATTERED RATHER THAN JUST BEING NOISE: several of these suites
+// share one supabase mock whose `.select()` SHIFTS A QUEUED RESPONSE. A new
+// component issuing a read silently ate the response the test had queued for
+// its own write, and the failure surfaced as "expected 1 to be 2" three files
+// away from the cause. Mocked inert, exactly as `useBuilderSearch` and
+// `useSetBpDdDates` already are in the files that have this shape.
+vi.mock('../hooks/useProjectConsultants', () => ({
+  useProjectConsultants: () => ({ data: [], isLoading: false }),
+  useConsultantRounds: () => ({ data: [], isLoading: false }),
+  useAddProjectConsultant: () => ({ mutate: vi.fn(), isPending: false }),
+  useSetConsultantStatus: () => ({ mutate: vi.fn(), isPending: false }),
+  useSetConsultantDate: () => ({ mutate: vi.fn(), isPending: false }),
+  useSetConsultantPhase: () => ({ mutate: vi.fn(), isPending: false }),
+  useSetConsultantFirm: () => ({ mutate: vi.fn(), isPending: false }),
+}));
+
+
 import ProjectDetailHeader from '../components/ProjectDetail/ProjectDetailHeader';
 
 const PROJECT = {
@@ -91,7 +114,10 @@ describe('fix-285 the five-column overview row', () => {
   it('places the cards in the agreed order', () => {
     renderHeader();
     const order = areaOrder().filter(Boolean);
-    expect(order).toEqual(['dd', 'proj', 'team', 'por', 'builder']);
+    // ★★★ AMENDED BY fix-475 (P-116): the fifth column is CONSULTANTS now. `builder`
+    //     did not shrink or move — Builder/Owner became the Team card's top section
+    //     and its column was taken over. The CLAIM here is unchanged; only the key is.
+    expect(order).toEqual(['dd', 'proj', 'team', 'por', 'consultants']);
   });
 
   // fix-290 gave Project both rows because the half-height slot squeezed its
@@ -106,7 +132,7 @@ describe('fix-285 the five-column overview row', () => {
     renderHeader();
     const grid = screen.getByTestId('project-overview-grid');
     const areas = grid.style.gridTemplateAreas.replace(/\s+/g, ' ');
-    expect(areas).toContain('dd proj team por builder');
+    expect(areas).toContain('dd proj team por consultants');
     expect(areas).not.toContain('notes');
     const rows = areas.split('"').filter((r) => r.trim());
     expect(rows).toHaveLength(1);
@@ -140,10 +166,12 @@ describe('fix-285 the five-column overview row', () => {
   it('gives the Plan of Record column the most width', () => {
     renderHeader();
     const cols = trackShares(screen.getByTestId('project-overview-grid'));
-    const [dd, proj, team, por, builder] = cols;
+    const [dd, proj, team, por, consultants] = cols;
     expect(por).toBeGreaterThan(proj);
     expect(por).toBeGreaterThan(team);
-    expect(por).toBeGreaterThan(builder);
+    // ★ Bobby's standing ruling — the Plan of Record is the widest box —
+    //   still holds against whatever occupies the fifth slot.
+    expect(por).toBeGreaterThan(consultants);
     expect(por).toBeGreaterThan(dd);
     // ...and Project keeps the width fix-290 gave it, so its Site section
     // cannot be squeezed back out of view.
@@ -195,7 +223,7 @@ describe('fix-285 the Plan of Record card has a home', () => {
     renderHeader();
     const order = areaOrder();
     expect(order.indexOf('por')).toBe(order.indexOf('team') + 1);
-    expect(order.indexOf('builder')).toBe(order.indexOf('por') + 1);
+    expect(order.indexOf('consultants')).toBe(order.indexOf('por') + 1);
     expect(screen.getByTestId('plan-of-record-card')).toBeInTheDocument();
   });
 });

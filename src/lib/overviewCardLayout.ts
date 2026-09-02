@@ -137,6 +137,51 @@ export const MILESTONE_BOX_CHROME = 14;
 export const MILESTONE_DATE_INPUT_MIN = 100;
 
 /** What one editable row needs — the widest row on the card. */
+// ===========================================================================
+// ★★★ fix-475 (P-116) — THE CONSULTANT PILL, MEASURED
+// ===========================================================================
+//
+// ★★★ THE MOCK IS NOT MEASURING THE CONTROL THE APP SHIPS, and that is the
+// whole width story of this ticket. `overview_consultants_v6.html` draws the
+// two dates as PLAIN TEXT inputs with a `mm/dd/yyyy` placeholder — 140px each —
+// which is why its column can be 250px wide. The app cannot: every
+// server-committing date goes through `BufferedDateInput`, which renders a
+// native `<input type="date">` (fix-073's rule — a raw onChange saves transient
+// garbage on every intermediate keystroke).
+//
+// Measured in Chrome by `harness/consultant-column-floor.html`:
+//
+//     native <input type="date"> @ 10.5px          103px
+//     native <input type="date"> @ 11px semibold   106px   (cross-check:
+//                                    MILESTONE_DATE_INPUT_MIN says 100)
+//     the mock's plain text box    @ 10.5px        140px
+//
+// ★★ SO THE MOCK'S SIDE-BY-SIDE DATES COST 252px OF FLOOR — 103 + 103 + gap,
+// plus pill padding and card chrome. Against a budget of 190 (what `builder`
+// vacates) that is not close, and §3's rule is that OVERVIEW_ROW_MIN_WIDTH must
+// not increase.
+//
+// ★★★ STACKING THE PAIR COSTS HEIGHT INSTEAD, AND THIS CARD HAS HEIGHT. It is
+// a list that grows with the page; the ROW has no width to give. Every ruled
+// requirement survives — *"always two, always editable, same two slots on every
+// pill"* says nothing about their arrangement — and the floor lands at 144px.
+// The deviation from the mock is stated in the PR with the measurement.
+export const CONSULTANT_DATE_INPUT_MIN = 103;
+
+/** The status pill's fixed column in the mock. It is the widest single thing in
+ *  a stacked pill, so it — not the date — sets the floor. */
+export const CONSULTANT_STATUS_WIDTH = 104;
+
+/** `.cbody` padding (8+8) plus the pill's 1px border each side. */
+export const CONSULTANT_PILL_CHROME = 18;
+
+/** ★ DERIVED, like MILESTONE_ROW_MIN_WIDTH below: change a padding and this
+ *  floor moves in the same build. */
+export const CONSULTANT_CARD_MIN_WIDTH =
+  Math.max(CONSULTANT_DATE_INPUT_MIN, CONSULTANT_STATUS_WIDTH) +
+  CONSULTANT_PILL_CHROME +
+  OVERVIEW_CARD_CHROME;
+
 export const MILESTONE_ROW_MIN_WIDTH =
   MILESTONE_LABEL_WIDTH +
   MILESTONE_LABEL_GAP +
@@ -235,22 +280,32 @@ export const OVERVIEW_CARD_COLUMNS: readonly OverviewCardColumn[] = [
       'the ruling holds at every width for the least width taken.',
   },
   {
-    key: 'builder',
-    title: 'Builder / Owner',
-    // ★★ fix-423: 19 → 16. THE SHARE MOVES, THE FLOOR DOES NOT. At 1920 this
-    //    card renders 247px against a 190px floor — 57px of slack — and Bobby
-    //    asked for Milestones to be paid out of it. Taking the SLACK costs
-    //    nothing; taking the FLOOR would re-open fix-417's reported defect,
-    //    because a full email still has to fit at the narrow end.
+    // ★★★ fix-475 (P-116): `builder` LEAVES and `consultants` takes its slot.
+    //     Builder/Owner is not deleted — it becomes the Team card's top
+    //     section, collapsed to Owner + Business with a disclosure.
+    key: 'consultants',
+    title: 'Consultants',
+    // ★ The SHARE is inherited from Builder/Owner unchanged. fix-423 tuned
+    //   these five percentages against each other and this ticket has no
+    //   measurement that says any of them should move; changing a share
+    //   without one would undo that tuning by accident.
     pct: 16,
-    minPx: 190,
+    // ★★★ DERIVED, NOT TYPED — the discipline fix-422 applied to `proj` and
+    //     fix-423 to `dd`.
+    minPx: CONSULTANT_CARD_MIN_WIDTH,
     floorReason:
-      "★ HARD, and UNCHANGED — this is fix-417's reported defect and its " +
-      'measurement stands. These are <input> elements and an input does NOT ' +
-      'wrap; its value scrolls out of sight, which is the "clipping mid-word" ' +
-      'Bobby photographed. 190px holds a full email at 12px bold. fix-423 took ' +
-      '3 points of SHARE off this card (247px → 204px at 1920) and not one ' +
-      'pixel of floor.',
+      '★★★ HARD, DERIVED, and 46px BELOW the floor it replaces — see ' +
+      'harness/consultant-column-floor.html for the Chrome measurement. The ' +
+      'binding part is a native <input type="date">: 103px at this pill\'s ' +
+      '10.5px, which the mock hides by drawing PLAIN TEXT boxes it can size ' +
+      'freely. The app commits dates through BufferedDateInput, so it gets the ' +
+      "browser's own control and the browser's own minimum. Side by side, as " +
+      'the mock draws them, the two dates alone cost 252px of floor against ' +
+      'the 190 Builder/Owner vacates — so the PAIR STACKS. That trades width, ' +
+      'which this row has none of, for height, which a list-shaped card has. ' +
+      'The floor is then the widest single control (the 104px status pill) ' +
+      'plus the pill chrome plus the card chrome, computed — so a padding ' +
+      'change moves it in the same build.',
   },
 ];
 

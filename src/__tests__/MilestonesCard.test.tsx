@@ -80,6 +80,29 @@ vi.mock('../stores/toastStore', () => ({
   useToastStore: () => ({ toasts: [], push: vi.fn(), dismiss: vi.fn() }),
 }));
 
+// ★★★ fix-475 (P-116) — THE CONSULTANTS CARD IS INERT HERE.
+//
+// It joined the Overview row (taking Builder/Owner's slot), so every test that
+// renders `ProjectDetailHeader` now mounts it — and it READS: the consultant
+// list, its round history, and the firm directory.
+//
+// ★★ WHY THAT MATTERED RATHER THAN JUST BEING NOISE: several of these suites
+// share one supabase mock whose `.select()` SHIFTS A QUEUED RESPONSE. A new
+// component issuing a read silently ate the response the test had queued for
+// its own write, and the failure surfaced as "expected 1 to be 2" three files
+// away from the cause. Mocked inert, exactly as `useBuilderSearch` and
+// `useSetBpDdDates` already are in the files that have this shape.
+vi.mock('../hooks/useProjectConsultants', () => ({
+  useProjectConsultants: () => ({ data: [], isLoading: false }),
+  useConsultantRounds: () => ({ data: [], isLoading: false }),
+  useAddProjectConsultant: () => ({ mutate: vi.fn(), isPending: false }),
+  useSetConsultantStatus: () => ({ mutate: vi.fn(), isPending: false }),
+  useSetConsultantDate: () => ({ mutate: vi.fn(), isPending: false }),
+  useSetConsultantPhase: () => ({ mutate: vi.fn(), isPending: false }),
+  useSetConsultantFirm: () => ({ mutate: vi.fn(), isPending: false }),
+}));
+
+
 import ProjectDetailHeader from '../components/ProjectDetail/ProjectDetailHeader';
 
 function projectFixture(over: Partial<Project> = {}): Project {
@@ -742,12 +765,17 @@ describe('fix-345 §3: the Team card has exactly one way into the chat', () => {
   // ★ What the test protects is unchanged — the ORDER of the whole card,
   // asserted whole rather than sliced down to the part that still passes — and
   // the count is still four sections, so fix-345 §3's pinning above is intact.
-  it('★★ the card order is Internal, External, the preview, then the button', () => {
+  it('★★ the card order is Builder/Owner, Internal, External, the preview, then the button', () => {
     renderHeader(projectFixture(), [bpFixture()]);
     const ids = Array.from(
       screen.getByTestId('project-overview-team').querySelectorAll(':scope > section'),
     ).map((s) => (s as HTMLElement).dataset.testid);
+    // ★ fix-475 (P-116): Builder/Owner became Team's TOP section when its own
+    //   Overview column was taken over by Consultants. fix-346's order — the
+    //   preview below External and directly above the button — is untouched;
+    //   one section was prepended, nothing was reordered.
     expect(ids).toEqual([
+      'project-overview-team-builder',
       'project-overview-team-internal',
       'project-overview-team-external',
       'project-overview-team-chat',

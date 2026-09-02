@@ -6,6 +6,7 @@ import { useAuthStore } from '../stores/authStore';
 import type {
   ConsultantCurrent,
   ConsultantDateField,
+  ConsultantRound,
   ConsultantStatus,
 } from '../lib/consultants';
 
@@ -56,6 +57,36 @@ export function useProjectConsultants(projectId: string | null | undefined) {
   });
 }
 
+/** ★★ fix-475: one consultant's FULL round list, newest first — what `Expand`
+ *  shows. Read separately from the current-status view because history is what
+ *  the collapsed card deliberately does NOT fetch: 5 consultants × N rounds on
+ *  every Overview render, for a panel nobody has opened.
+ *
+ *  ★ `enabled` gates it on the disclosure being open, so the query does not run
+ *    until somebody asks for the history. */
+export function useConsultantRounds(
+  consultantId: string | null | undefined,
+  enabled = true,
+) {
+  const tenantId = useAuthStore((s) => s.activeTenantId);
+  return useQuery<ConsultantRound[]>({
+    queryKey: queryKeys.consultantRounds(tenantId ?? '', consultantId ?? ''),
+    enabled: !!tenantId && !!consultantId && enabled,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('project_consultant_rounds')
+        .select(
+          'id, consultant_id, round_index, phase, status, est_send, sent, ' +
+            'est_recd, recd, created_at, updated_at',
+        )
+        .eq('consultant_id', consultantId as string)
+        .order('round_index', { ascending: false });
+      if (error) throw error;
+      return (data ?? []) as unknown as ConsultantRound[];
+    },
+  });
+}
+
 /** Shared invalidation: one project's consultants, after any write. */
 function useInvalidate(projectId: string | null | undefined) {
   const qc = useQueryClient();
@@ -64,6 +95,10 @@ function useInvalidate(projectId: string | null | undefined) {
     void qc.invalidateQueries({
       queryKey: queryKeys.projectConsultants(tenantId ?? '', projectId ?? ''),
     });
+    // ★ fix-475: the history shares the bare prefix, so one call refreshes both
+    //   the pill and any open Expand panel. A status flip that appends a round
+    //   must show up in the history it just opened.
+    void qc.invalidateQueries({ queryKey: queryKeys.projectConsultantsAll });
   };
 }
 
@@ -219,11 +254,15 @@ export function useSetConsultantFirm(projectId: string | null | undefined) {
       consultantId: string;
       firmId: string;
       expectedUpdatedAt: string | null;
+      /** ★★★ fix-475's ruling. `false` is the conservative answer and the
+       *  default: a caller that forgets this must never destroy history. */
+      clearRounds?: boolean;
     }) => {
       const { data, error } = await supabase.rpc('bp_set_consultant_firm', {
         p_consultant_id: input.consultantId,
         p_firm_id: input.firmId,
         p_expected_updated_at: input.expectedUpdatedAt,
+        p_clear_rounds: input.clearRounds ?? false,
       });
       if (error) throw error;
       return firstRow<ConsultantWriteResult>(data);

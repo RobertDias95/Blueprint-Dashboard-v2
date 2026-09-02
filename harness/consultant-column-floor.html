@@ -1,0 +1,260 @@
+<meta charset="utf-8">
+<title>fix-475 §3 — the Consultants floor, and the Team card's new one</title>
+<!--
+  ===========================================================================
+  fix-475 §3 — MEASURE THE FLOORS. THE ROW MIN MUST NOT INCREASE.
+  ===========================================================================
+
+  Today's five columns and their floors (printed by the app's own constants):
+
+      dd (Milestones)      222      proj (Project)   296
+      team                 160      por              310
+      builder              190
+      + 4 gaps of 10  =  OVERVIEW_ROW_MIN_WIDTH = 1218
+
+  `builder` (190) leaves and `consultants` arrives, and Team ABSORBS
+  Builder/Owner plus a five-row roster. So for the row minimum to hold:
+
+      team(new) + consultants  <=  190 + 160  =  350
+
+  ★★★ THE MEASUREMENT THAT DECIDES THE TICKET is what a native
+  <input type="date"> actually needs. The mock uses PLAIN TEXT inputs with a
+  `mm/dd/yyyy` placeholder, which is why its column can be 250px. The app does
+  not: every server-committing date goes through `BufferedDateInput`, which
+  renders `type="date"` (fix-073's rule — a raw onChange saves transient
+  garbage). A native date input carries the browser's own spinner UI and has a
+  hard minimum the font size barely moves.
+
+  `MILESTONE_DATE_INPUT_MIN = 100` is the app's existing measurement of that,
+  taken at 11px semibold. This re-takes it at the consultant pill's 10.5px and
+  measures the whole pill, the Team card's new content, and the permits rail.
+
+  HOW TO RUN
+      chrome --headless=new --dump-dom harness/consultant-column-floor.html
+  or just open it. The report prints at the bottom.
+-->
+<style>
+  :root{
+    --surface:#ffffff; --s2:#e8edf3; --s3:#dce3ec; --border:#c8d3e0;
+    --text:#1a2540; --muted:#5a6a85; --dim:#8a9bb5; --de:#2563eb;
+  }
+  body{margin:0;padding:20px;background:#f0f4f8;color:var(--text);
+    font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Helvetica Neue',Arial,sans-serif;
+    -webkit-font-smoothing:antialiased}
+  h1{font-size:15px;margin:0 0 4px}
+  p.lede{font-size:12px;color:var(--muted);margin:0 0 18px;max-width:76ch;line-height:1.6}
+  .caseLabel{font-size:11px;font-weight:700;color:var(--muted);margin:16px 0 6px}
+
+  /* The card, as OverviewCard renders it: 1px border + 10px padding each side
+     = OVERVIEW_CARD_CHROME (22). */
+  .card{background:var(--surface);border:1px solid var(--border);border-radius:10px;
+        overflow:hidden;display:inline-block;vertical-align:top}
+  .body{padding:9px 10px}
+
+  /* ---- the consultant pill, transcribed from the mock ---- */
+  .cons{border:1px solid var(--border);border-radius:8px;margin-bottom:7px;
+        background:var(--surface);overflow:hidden}
+  .cbody{padding:7px 8px}
+  .disc{font-size:8.5px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;
+        color:var(--muted);margin-bottom:3px}
+  .cline{display:grid;grid-template-columns:1fr 104px;gap:6px;align-items:center}
+  select.firm{appearance:none;border:1px solid transparent;border-radius:6px;background:transparent;
+    font:inherit;font-weight:700;font-size:11.5px;color:var(--text);padding:2px 18px 2px 4px;
+    width:100%;min-width:0}
+  select.stat{appearance:none;border:1px solid;border-radius:999px;font:inherit;font-weight:800;
+    font-size:9.5px;letter-spacing:.04em;text-transform:uppercase;padding:3px 18px 3px 9px;
+    width:100%;background-color:#fdf0da;color:#965a1a;border-color:#f0cf94}
+  .dates{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:7px}
+  .dcell label{display:block;font-size:8.5px;font-weight:800;letter-spacing:.06em;
+    text-transform:uppercase;color:var(--muted);margin-bottom:2px}
+  .dcell input{width:100%;border:1px solid var(--border);border-radius:5px;padding:2px 5px;
+    font:inherit;font-size:10.5px;font-variant-numeric:tabular-nums;
+    background:var(--surface);color:var(--text);box-sizing:border-box;min-width:0}
+
+  /* ---- the Team card's new content ---- */
+  .sec{font-size:8.5px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;
+       color:var(--muted);margin:0 0 4px}
+  .disclose{width:100%;text-align:left;background:var(--s2);border:1px solid var(--border);
+    border-radius:7px;padding:5px 8px;font:inherit;font-size:11px;box-sizing:border-box}
+  .roleblock{margin-top:7px}
+  .roleline{display:flex;align-items:center;gap:6px}
+  .avatar{flex:0 0 22px;width:22px;height:22px;border-radius:99px;background:var(--s3);
+    border:1px solid var(--border);font-size:8.5px;font-weight:800;color:var(--muted);
+    display:flex;align-items:center;justify-content:center}
+  .who{font-size:11.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  /* Builder/Owner EXPANDED — the inputs fix-417 measured at 190px. */
+  .fr{display:flex;align-items:center;gap:6px;margin-bottom:3px}
+  .fr .k{color:var(--muted);min-width:62px;font-size:10.5px;flex:0 0 auto}
+  .inp{border:1px solid var(--border);border-radius:5px;padding:2px 6px;font:inherit;
+       font-size:11px;background:var(--surface);flex:1;min-width:0;box-sizing:border-box}
+
+  #out{margin-top:26px;font-size:12px}
+  #out table{border-collapse:collapse;border:1px solid var(--border);border-radius:6px;
+             background:var(--surface)}
+  #out th,#out td{padding:6px 11px;font-size:11.5px;text-align:left;border-bottom:1px solid var(--s2)}
+  #out th{font-weight:800;background:var(--s3);font-size:10.5px}
+  .bad{color:#dc2626;font-weight:800}
+  .ok{color:#0c6e5b;font-weight:800}
+  .warn{color:#965a1a;font-weight:800}
+</style>
+
+<h1>fix-475 §3 — the Consultants floor, the Team card's new floor, the permits rail</h1>
+<p class="lede">
+  The rule is that <code>OVERVIEW_ROW_MIN_WIDTH</code> (1218px today) must not
+  increase. <code>builder</code> (190) leaves, <code>consultants</code> arrives,
+  and Team absorbs Builder/Owner — so <b>team + consultants must fit in 350px</b>.
+  The number that decides it is what a native <code>&lt;input type="date"&gt;</code>
+  needs, because the app commits dates through <code>BufferedDateInput</code>
+  even though the mock draws plain text boxes.
+</p>
+
+<div id="cases"></div>
+<div id="out"></div>
+
+<script>
+const rows = [];
+function record(what, got, note) { rows.push({ what, got, note }); }
+
+const host = document.getElementById('cases');
+function mount(label, html, width) {
+  const l = document.createElement('div');
+  l.className = 'caseLabel';
+  l.textContent = label;
+  host.appendChild(l);
+  const w = document.createElement('div');
+  w.innerHTML = html;
+  const card = w.firstElementChild;
+  if (width) card.style.width = width + 'px';
+  host.appendChild(w);
+  return card;
+}
+
+// ---------------------------------------------------------------------------
+// 1. What does a native date input actually need? Measured by letting it size
+//    itself with `width:auto`, which is what the browser's own UI demands.
+// ---------------------------------------------------------------------------
+const probe = document.createElement('div');
+probe.style.cssText = 'position:absolute;visibility:hidden';
+probe.innerHTML =
+  `<input type="date" style="font-size:10.5px;padding:2px 5px;border:1px solid #ccc;
+     border-radius:5px;box-sizing:border-box">
+   <input type="date" style="font-size:11px;font-weight:600;padding:2px 5px;border:1px solid #ccc;
+     border-radius:5px;box-sizing:border-box">
+   <input type="text" placeholder="mm/dd/yyyy" style="font-size:10.5px;padding:2px 5px;
+     border:1px solid #ccc;border-radius:5px;box-sizing:border-box">`;
+document.body.appendChild(probe);
+const [nativeSmall, nativeMile, textBox] = probe.querySelectorAll('input');
+const NATIVE_10_5 = Math.ceil(nativeSmall.getBoundingClientRect().width);
+const NATIVE_11 = Math.ceil(nativeMile.getBoundingClientRect().width);
+const TEXTBOX = Math.ceil(textBox.getBoundingClientRect().width);
+record('native &lt;input type="date"&gt; at 10.5px (intrinsic)', NATIVE_10_5 + 'px',
+  'what the pill needs per slot');
+record('native &lt;input type="date"&gt; at 11px semibold', NATIVE_11 + 'px',
+  'cross-check vs MILESTONE_DATE_INPUT_MIN = 100');
+record('the MOCK\'s plain text box, 10.5px', TEXTBOX + 'px',
+  'the mock is not measuring the control the app ships');
+probe.remove();
+
+// ---------------------------------------------------------------------------
+// 2. The consultant pill's honest floor: two native date inputs side by side,
+//    plus the status column the mock fixes at 104px, plus all the padding.
+// ---------------------------------------------------------------------------
+const DATES_ROW = NATIVE_10_5 * 2 + 6;            // 1fr 1fr, gap 6
+const PILL_PAD = 8 * 2 + 2;                        // .cbody padding + 1px border each side
+const CARD_PAD = 10 * 2 + 2;                       // .body padding + card border = CHROME 22
+const CONS_FLOOR_DATES = DATES_ROW + PILL_PAD + CARD_PAD;
+record('two native date inputs + gap', DATES_ROW + 'px', '1fr 1fr, gap 6');
+record('+ pill padding (8+8) and border', (DATES_ROW + PILL_PAD) + 'px', '');
+record('<b>Consultants floor, dates-driven</b>', '<b>' + CONS_FLOOR_DATES + 'px</b>',
+  'card chrome 22 included');
+
+// The firm/status line, for comparison — it is NOT the binding constraint.
+const STATUS_COL = 104, FIRM_MIN = 96;
+const CONS_FLOOR_LINE = FIRM_MIN + 6 + STATUS_COL + PILL_PAD + CARD_PAD;
+record('Consultants floor, firm+status line', CONS_FLOOR_LINE + 'px',
+  'firm 96 + gap 6 + status 104 — not the binding one');
+
+const CONS_FLOOR = Math.max(CONS_FLOOR_DATES, CONS_FLOOR_LINE);
+
+// ---------------------------------------------------------------------------
+// 2b. ★★★ THE ALTERNATIVE ARRANGEMENT. The mock puts the two dates side by
+//     side and the firm beside the status. Both pairs are what blow the floor.
+//     STACKING each pair keeps every ruled requirement — "always two, always
+//     editable, same two slots on every pill" says nothing about side-by-side —
+//     and costs height, which this card has (it is a list that scrolls with the
+//     page) rather than width, which the row does not have.
+const CONS_FLOOR_STACKED_DATES = NATIVE_10_5 + PILL_PAD + CARD_PAD;
+const CONS_FLOOR_STACKED_LINE = Math.max(FIRM_MIN, STATUS_COL) + PILL_PAD + CARD_PAD;
+const CONS_FLOOR_STACKED = Math.max(CONS_FLOOR_STACKED_DATES, CONS_FLOOR_STACKED_LINE);
+record('<b>Consultants floor, dates STACKED</b>',
+  '<b>' + CONS_FLOOR_STACKED + 'px</b>',
+  CONS_FLOOR_STACKED <= 190 ? 'FITS the 190 budget' : 'still OVER');
+record('…of which the widest part is', 
+  Math.max(NATIVE_10_5, FIRM_MIN, STATUS_COL) + 'px',
+  'one date input / the status pill');
+
+// ---------------------------------------------------------------------------
+// 3. The Team card's new floor. It absorbs Builder/Owner, whose EXPANDED state
+//    holds the <input> elements fix-417 measured at 190px, plus a five-row
+//    roster whose lines are text (and text wraps).
+// ---------------------------------------------------------------------------
+const team = mount('Team card — Builder/Owner expanded + the five-role roster',
+  `<div class="card"><div class="body">
+     <div class="sec">Builder / Owner</div>
+     <button class="disclose">Collapse ⌃ &nbsp; Jeff Wilson</button>
+     <div class="fr"><span class="k">Email</span><input class="inp" value="jeff.wilson@blueprintservices.com"></div>
+     <div class="fr"><span class="k">Phone</span><input class="inp" value="(206) 555-0143"></div>
+     <div class="sec" style="margin-top:10px">Internal</div>
+     <div class="roleblock"><div class="sec">Acquisitions</div>
+       <div class="roleline"><span class="avatar">TS</span><span class="who">Taylor</span></div></div>
+     <div class="roleblock"><div class="sec">Design Associate</div>
+       <div class="roleline"><span class="avatar">CW</span><span class="who">Cam</span></div></div>
+   </div></div>`, 190);
+const emailInput = team.querySelector('.inp');
+// How wide must the card be for the email input to show a full address?
+const emailProbe = document.createElement('span');
+emailProbe.style.cssText =
+  'position:absolute;visibility:hidden;font-size:11px;white-space:nowrap;' +
+  'font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Helvetica Neue",Arial,sans-serif';
+emailProbe.textContent = 'jeff.wilson@blueprintservices.com';
+document.body.appendChild(emailProbe);
+const EMAIL_TEXT = Math.ceil(emailProbe.getBoundingClientRect().width);
+emailProbe.remove();
+const EMAIL_INPUT = EMAIL_TEXT + 12 + 2;           // padding 6+6, border 1+1
+const TEAM_FLOOR_EXPANDED = 62 + 6 + EMAIL_INPUT + CARD_PAD;  // label + gap + input + chrome
+record('a full email at 11px', EMAIL_TEXT + 'px', 'jeff.wilson@blueprintservices.com');
+record('<b>Team floor if Builder/Owner EXPANDS in-card</b>',
+  '<b>' + TEAM_FLOOR_EXPANDED + 'px</b>', 'label 62 + gap 6 + input + chrome 22');
+record('Team floor if only the COLLAPSED summary must fit', '~160px',
+  'Owner + Business as text, which wraps');
+
+// ---------------------------------------------------------------------------
+// 4. The verdict against the 350px budget.
+// ---------------------------------------------------------------------------
+const BUDGET = 350;
+record('<b>budget: builder(190) + team(160)</b>', '<b>' + BUDGET + 'px</b>', '');
+record('<b>needed: consultants + team(expanded)</b>',
+  '<b>' + (CONS_FLOOR + TEAM_FLOOR_EXPANDED) + 'px</b>',
+  (CONS_FLOOR + TEAM_FLOOR_EXPANDED) <= BUDGET ? 'FITS' : 'OVER BUDGET');
+record('<b>needed: consultants + team(collapsed 160)</b>',
+  '<b>' + (CONS_FLOOR + 160) + 'px</b>',
+  (CONS_FLOOR + 160) <= BUDGET ? 'FITS' : 'OVER BUDGET');
+
+// ---------------------------------------------------------------------------
+// 5. The permits rail — Bobby's offered relief, measured rather than assumed.
+//    fix-422 recorded the rail as 240px of track inside a 278px box.
+// ---------------------------------------------------------------------------
+record('permits rail today (fix-422)', '240px track / 278px box',
+  'sits OUTSIDE the five-card row');
+record('the mock\'s rail', '132px', 'flex:0 0 132px — the mock proposes narrowing it');
+record('relief available if narrowed to the mock', (240 - 132) + 'px', '');
+
+const cls = (n) => n.includes('OVER') ? 'bad' : n.includes('FITS') ? 'ok' : '';
+document.getElementById('out').innerHTML =
+  '<table><thead><tr><th>what</th><th>measured</th><th>note</th></tr></thead><tbody>' +
+  rows.map((r) => `<tr><td>${r.what}</td><td>${r.got}</td>` +
+    `<td class="${cls(r.note)}">${r.note}</td></tr>`).join('') +
+  '</tbody></table>';
+
+window.__floors = { NATIVE_10_5, NATIVE_11, TEXTBOX, CONS_FLOOR, TEAM_FLOOR_EXPANDED, BUDGET };
+</script>
