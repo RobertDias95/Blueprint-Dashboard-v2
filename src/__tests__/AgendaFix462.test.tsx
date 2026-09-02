@@ -183,13 +183,39 @@ describe('fix-462 — it reaches the board with NO board code edited', () => {
 });
 
 describe('fix-462 §C1 — the ribbon gate', () => {
-  it('★★★ a non-member does not get the entry; an admin does', () => {
-    const has = (es: ReturnType<typeof visibleEntries>) =>
-      es.some((e) => e.kind === 'link' && e.link.to === '/agenda');
+  // ★★★ fix-483 §C (P-138): THE ENTRY MOVED INTO THE REPORTS GROUP, so it is a
+  //     group CHILD now rather than a top-level link. fix-462's claim is
+  //     unchanged and is what this still asserts — a non-member does not see
+  //     it, a member does, an admin sees everything — but it has to look one
+  //     level deeper, and that is exactly the bug the move could have shipped:
+  //     `visibleChildren` filtered on `adminOnly` alone, so an `agendaOnly`
+  //     child would have been shown to all 23 non-admin editors. A gate that
+  //     only one code path enforces stops being enforced the moment an entry
+  //     takes the other path.
+  const has = (es: ReturnType<typeof visibleEntries>) =>
+    es.some(
+      (e) =>
+        (e.kind === 'link' && e.link.to === '/agenda') ||
+        (e.kind === 'group' && e.group.children.some((c) => c.to === '/agenda')),
+    );
 
+  it('★★★ a non-member does not get the entry; an admin does', () => {
     expect(has(visibleEntries(false, false))).toBe(false); // non-admin, non-member
     expect(has(visibleEntries(false, true))).toBe(true); //  non-admin MEMBER
     expect(has(visibleEntries(true))).toBe(true); //          admin sees everything
+  });
+
+  it('★★★ …and a NON-MEMBER still gets the rest of the Reports group', () => {
+    // ★ The gate withholds ONE CHILD, not the group. Project View is the
+    //   23-of-29 measurement fix-331 §8 made, and hiding it to hide the Agenda
+    //   would be a far bigger regression than the one being prevented.
+    const group = visibleEntries(false, false).find(
+      (e) => e.kind === 'group' && e.group.id === 'reports',
+    );
+    expect(group).toBeDefined();
+    const kids =
+      group!.kind === 'group' ? group!.group.children.map((c) => c.to) : [];
+    expect(kids).toEqual(['/projects']);
   });
 
   it('★★★ the default keeps all thirteen existing call sites honest', () => {
@@ -205,14 +231,25 @@ describe('fix-462 §C1 — the ribbon gate', () => {
     expect(allRibbonRoutes()).toContain('/agenda');
   });
 
-  it('★★ exactly ONE entry was added, and it is not adminOnly', () => {
+  it('★★ there is still exactly ONE Agenda entry, and it carries BOTH gates', () => {
     // Bobby sanctioned one ribbon entry. Not two, and not a group.
-    const agenda = RIBBON_ENTRIES.filter(
-      (e) => e.kind === 'link' && e.link.to === '/agenda',
-    );
+    //
+    // ★★★ fix-483 §C: it is a child of Reports now and it needs `adminOnly:
+    //     false` as well as `agendaOnly: true`. `undefined` would INHERIT the
+    //     group's admin gate — which is right for Overview and Saved reports
+    //     and wrong here, because the six non-admin agenda members would lose
+    //     the screen the moment it changed shelf. So the assertion flipped from
+    //     "adminOnly is undefined" to "adminOnly is explicitly false", which is
+    //     fix-331 §8's `undefined !== false` distinction doing real work.
+    const agenda = [
+      ...RIBBON_ENTRIES.filter((e) => e.kind === 'link' && e.link.to === '/agenda'),
+      ...RIBBON_ENTRIES.flatMap((e) =>
+        e.kind === 'group' ? e.group.children.filter((c) => c.to === '/agenda') : [],
+      ),
+    ];
     expect(agenda).toHaveLength(1);
-    const link = (agenda[0] as { link: { adminOnly?: boolean; agendaOnly?: boolean } }).link;
-    expect(link.adminOnly).toBeUndefined();
+    const link = agenda[0] as { adminOnly?: boolean; agendaOnly?: boolean };
+    expect(link.adminOnly).toBe(false);
     expect(link.agendaOnly).toBe(true);
   });
 });

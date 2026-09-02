@@ -115,6 +115,7 @@ import {
   useIsCoAssigned,
 } from '../lib/coAssignedContext';
 import ScopeToggle from '../components/shared/ScopeToggle';
+import TwoStateToggle from '../components/shared/TwoStateToggle';
 import { SkeletonRows } from '../components/Skeleton';
 import QueryError from '../components/QueryError';
 import {
@@ -446,7 +447,14 @@ export default function MyTasks() {
 }
 
 /** fix-140: segmented control mirroring the FilterRow "All roles" chip group
- *  (chipStyle), URL-backed via the parent. */
+ *  (chipStyle), URL-backed via the parent.
+ *
+ *  ★★ fix-483 §B (P-137): it is `TwoStateToggle` now. It was already a
+ *  hand-rolled copy of ScopeToggle's markup down to the class string — the
+ *  same two-state view switch, written out a second time — so it converts with
+ *  no visual change at all: same classes, same `chipStyle(active, 'bg')`, same
+ *  testids. It sits on the page ground rather than a card, which is why the
+ *  surface stays `'bg'` (fix-441 §D's two real tints, unchanged). */
 function ViewSwitcher({
   view,
   onChange,
@@ -455,31 +463,21 @@ function ViewSwitcher({
   onChange: (v: 'mine' | 'waiting-on') => void;
 }) {
   return (
-    <div
-      className="inline-flex items-center gap-1"
-      data-testid="my-tasks-view-switcher"
-    >
-      <button
-        type="button"
-        onClick={() => onChange('mine')}
-        className="text-[11px] px-3 py-1 rounded border font-bold"
-        style={chipStyle(view === 'mine', 'bg')}
-        data-testid="my-tasks-view-mine"
-        aria-pressed={view === 'mine'}
-      >
-        My Tasks
-      </button>
-      <button
-        type="button"
-        onClick={() => onChange('waiting-on')}
-        className="text-[11px] px-3 py-1 rounded border font-bold"
-        style={chipStyle(view === 'waiting-on', 'bg')}
-        data-testid="my-tasks-view-waiting-on"
-        aria-pressed={view === 'waiting-on'}
-      >
-        Waiting On
-      </button>
-    </div>
+    <TwoStateToggle<'mine' | 'waiting-on'>
+      value={view}
+      onChange={onChange}
+      testid="my-tasks-view-switcher"
+      ariaLabel="Show my tasks or what I am waiting on"
+      surface="bg"
+      options={[
+        { value: 'mine', label: 'My Tasks', testid: 'my-tasks-view-mine' },
+        {
+          value: 'waiting-on',
+          label: 'Waiting On',
+          testid: 'my-tasks-view-waiting-on',
+        },
+      ]}
+    />
   );
 }
 

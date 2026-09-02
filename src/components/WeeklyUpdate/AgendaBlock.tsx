@@ -9,6 +9,7 @@ import { todayIso } from '../../lib/myBoard';
 import { TaskCard } from '../../pages/MyTasks';
 import TeamTaskComposer from '../MyTasks/TeamTaskComposer';
 import type { MyTaskNode } from '../../lib/database.types';
+import TwoStateToggle from '../shared/TwoStateToggle';
 
 // ===========================================================================
 // ★★★ fix-465 §D (P-115) — THE AGENDA, IN THE WEEKLY UPDATE
@@ -116,46 +117,55 @@ export default function AgendaBlock({
   return (
     <section data-testid="agenda-block" data-surface={surface} className="flex flex-col gap-2">
       <div className="flex flex-wrap items-center gap-2">
-        {/* ★★ The mock's tab pair, `aria-pressed` and all. The count is ON the
-            tab — "Open · 4" — so the reader never has to switch to find out
-            whether the other list is worth switching to. */}
-        <div
-          className="flex gap-1 p-[3px] rounded-[9px] border"
-          style={{ background: 'var(--color-s3)', borderColor: 'var(--color-border)' }}
-          data-testid="agenda-tabs"
-        >
-          {(['open', 'closed'] as const).map((t) => {
-            const on = tab === t;
-            return (
-              <button
-                key={t}
-                type="button"
-                aria-pressed={on}
-                onClick={() => setTab(t)}
-                className="text-[11.5px] font-extrabold uppercase px-[15px] py-1.5 rounded-md"
-                style={{
-                  letterSpacing: '0.05em',
-                  background: on ? 'var(--color-text)' : 'transparent',
-                  // ★★★ §B4 — THE MOCK'S OWN INK FAILS HERE, AND THE BRIEF WINS
-                  //   ON MECHANISM. The mock paints the unselected tab
-                  //   `--muted` on the `--s3` tab strip: 4.24:1, under the
-                  //   4.5:1 floor this whole ticket is about. Selected is
-                  //   white-on-`--text` (15.19:1) and stays; unselected steps
-                  //   UP to `--color-text` on `--color-s3` (11.75:1). The two
-                  //   are still unmistakable — one is inverted — and now both
-                  //   are legible.
-                  color: on ? 'var(--color-surface)' : 'var(--color-text)',
-                }}
-                data-testid={`agenda-tab-${t}`}
-              >
-                {t === 'open' ? 'Open' : 'Closed'} ·{' '}
-                <span data-testid={`agenda-tab-${t}-count`}>
-                  {t === 'open' ? open.length : closed.length}
-                </span>
-              </button>
-            );
-          })}
-        </div>
+        {/* ★★★ fix-483 §B (P-137) — THE MOCK'S TAB PAIR IS NOW THE APP'S TOGGLE.
+            Bobby, 2026-09-02: *"on pipeline it's like a blue highlight. We want
+            that toggle feature to be consistent whether we're on agenda or the
+            library."*
+
+            ★★ WHAT IS LOST AND WHY THAT IS THE POINT: fix-465 §B4 measured the
+            mock's own inks here and stepped the unselected tab UP to
+            `--color-text` on `--color-s3` (11.75:1) because the mock's `--muted`
+            was 4.24:1. That measurement was about a strip this no longer draws.
+            `chipStyle`'s two states are the app's, and they clear the same floor
+            — DE blue with white ink at 5.17:1 selected, `--color-text` on
+            `--color-bg` at 12.6:1 unselected — so the legibility fix-465 won is
+            kept while the chrome stops being a third opinion.
+
+            ★ THE COUNT SURVIVES ON THE LABEL — "Open · 4" — which is why
+            `TwoStateToggle` takes a ReactNode label rather than a string. The
+            reader still never has to switch to find out whether the other list
+            is worth switching to, and `agenda-tab-open-count` still resolves. */}
+        <TwoStateToggle<'open' | 'closed'>
+          value={tab}
+          onChange={setTab}
+          testid="agenda-tabs"
+          ariaLabel="Show open or closed agenda items"
+          surface="bg"
+          options={[
+            {
+              value: 'open',
+              label: (
+                <>
+                  Open ·{' '}
+                  <span data-testid="agenda-tab-open-count">{open.length}</span>
+                </>
+              ),
+              testid: 'agenda-tab-open',
+            },
+            {
+              value: 'closed',
+              label: (
+                <>
+                  Closed ·{' '}
+                  <span data-testid="agenda-tab-closed-count">
+                    {closed.length}
+                  </span>
+                </>
+              ),
+              testid: 'agenda-tab-closed',
+            },
+          ]}
+        />
         <span className="flex-1" />
         {/* ★★ ONE CONTROL (fix-440). When the list is empty the composer moves
             into the body, where the mock puts its call to action — it does not

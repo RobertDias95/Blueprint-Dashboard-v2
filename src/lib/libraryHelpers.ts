@@ -6,9 +6,7 @@ import type {
   UnitType,
 } from './database.types';
 import { effectiveStage } from './permitStage';
-import { multiMatchAddress } from './drawScheduleHelpers';
 import { parseUnitTypes } from './unitTypeNaming';
-import { structAddressHaystack } from './structAddressSearch';
 import {
   matchParkingKind,
   matchRoofDeck,
@@ -16,11 +14,10 @@ import {
   type RoofDeckFilter,
   type StallsTier,
 } from './unitParking';
-import {
-  isNoWorkUnit,
-  matchWorkScope,
-  type WorkScopeFilter,
-} from './unitWorkScope';
+// ★ fix-483 §A2: `matchWorkScope` and `WorkScopeFilter` left with the filter.
+//   `isNoWorkUnit` STAYS and is now the module's only reader of work_scope — it
+//   is what enforces fix-412's surviving default exclusion.
+import { isNoWorkUnit } from './unitWorkScope';
 
 // Q6.3.a: pure helpers for the Library matrix view (Settings → Library tab).
 // Mirrors v1's renderMatrix (index.html lines 5680-5778). The matrix shows
@@ -71,11 +68,16 @@ export interface LibraryRow {
    *  when the project row predates the OCC trigger (then editing is disabled,
    *  mirroring Project Overview's occMissing gate). */
   updatedAt: string | null;
-  /** fix-380: the struct_address text of the project's permits ('' when none)
-   *  — searchable, never displayed. Bobby: "Maybe I don't know the project by
-   *  the project address, but I know it by the structure address." Optional so
-   *  older fixtures without it behave exactly as before. */
-  structAddressHay?: string;
+  // ★★★ fix-483 §A4 — `structAddressHay` IS GONE FROM THIS ROW. fix-380 put it
+  //     here to widen the Library search box's haystack; the box is gone by
+  //     ruling and `matchRowSearch` was its only reader. A field built on every
+  //     one of 202 rows for a consumer that no longer exists is not scenery,
+  //     it is a promise the screen cannot keep.
+  //
+  // ★ fix-380's ruling stands elsewhere — Project View, Draw Schedule, the
+  //   wizard's reuse picker and the Dashboard each build their own haystack
+  //   from the same `structAddressHaystack`, and each still has a search box
+  //   to type into.
 }
 
 /** Q6.3.a-fix: target ± buffer filter. "50 ± 5" matches every value in
@@ -177,7 +179,6 @@ export function buildLibraryRows(
           ? proj.is_regular_shape
           : null,
       updatedAt: proj.updated_at ?? null,
-      structAddressHay: structAddressHaystack(projectPermits),
     });
   }
   return rows;
@@ -202,7 +203,15 @@ export type LibraryView = 'site' | 'unit';
 export interface LibraryFilters {
   /** ★ fix-447: 'site' | 'unit'. Default and fallback both 'site'. */
   view: LibraryView;
-  search: string;
+  // ★★★ fix-483 §A4 (P-136) — `search` IS GONE. Bobby, 2026-09-02: *"remove the
+  //     search feature at the top of the library and the clear that goes with
+  //     it."* The field went with the box: a filter nothing can write is a
+  //     branch in `filterLibraryRows` that can never be true.
+  //     ★ Its last readers, named: `matchRowSearch` (deleted with it) and
+  //       `LibraryRow.structAddressHay`, which fix-380 added to feed it and
+  //       which nothing else on this screen read. `structAddressHaystack`
+  //       itself stays — Draw Schedule, Project View, the wizard's reuse
+  //       picker and the Dashboard all still call it.
   lotwTarget: number | null;
   lotwBuf: number;
   lotdTarget: number | null;
@@ -220,7 +229,10 @@ export interface LibraryFilters {
   /** fix-91: multi-select. Project matches when its product_types[]
    *  intersects this list (any-of). Empty array = no filter. */
   productTypes: string[];
-  tag: string;
+  // ★★★ fix-483 §A2 (P-136) — `tag` IS GONE. Bobby: *"under library, remove the
+  //     option for tag, and remove tags from the list below."* The Tags COLUMN
+  //     went with the filter, in the same ruling. `projects.project_tags` is
+  //     untouched and still edited on the Project Overview chip editor.
   juris: string;
   /** ★★★ fix-402 — THE LOTS FILTER IS REMOVED, BY RULING. Bobby, 2026-08-25:
    *  *"we dont need it as a filtering option for this screen"*.
@@ -243,31 +255,41 @@ export interface LibraryFilters {
   stalls: StallsTier;
   /** '' = Any · Yes · No, tri-state like fix-122's corner. */
   roofDeck: RoofDeckFilter;
-  /** ★★★ fix-412 Scope B4: the work-scope filter.
-   *
-   *  '' = Any · 'performed' · 'none' · 'unanswered'.
-   *
-   *  ★★ `''` IS NOT "SHOW EVERYTHING" — it excludes a CONFIRMED no-work unit,
-   *  which is Bobby's ruling: such a unit has no drawn detail worth filtering
-   *  on. A not-yet-answered unit is NOT excluded, or the field would hide
-   *  exactly the units somebody needs to chase. See lib/unitWorkScope for why a
-   *  hidden default exclusion is honest here (because it is askable). */
-  workScope: WorkScopeFilter;
+  // ★★★ fix-483 §A2 (P-136) — `workScope` IS GONE, AND ITS DEFAULT SURVIVES.
+  //     Bobby: *"Under unit, get rid of work, and the filter below for work."*
+  //     The control and the column both went.
+  //
+  // ★★★ THE HALF THAT DID NOT GO, SAID OUT LOUD BECAUSE IT IS NOW UNASKABLE:
+  //     fix-412's ruling — *"a confirmed No-work remodel drops out of the
+  //     Library set by default"* — is still enforced, in `filterLibraryRows`,
+  //     unconditionally. It used to run only while the filter sat at Any, and
+  //     the filter is what made it HONEST: fix-412's own note says a hidden
+  //     default exclusion is defensible *"because it is askable"*. It is not
+  //     askable any more.
+  //
+  // ★★ THE ALTERNATIVE WAS WORSE. Dropping the exclusion with the control
+  //    would have reversed a standing ruling Bobby did not revisit — he asked
+  //    to remove a filter, not to change what the Library returns. So the
+  //    behaviour is held and the loss is recorded here rather than absorbed.
+  //    `unit_types[].work_scope` is still editable on the units row and still
+  //    read by `isNoWorkUnit`; nothing about the DATA changed.
   /** fix-122: tri-state Corner Lot filter. '' = no filter (Any);
    *  'Yes' = only is_corner_lot === true; 'No' = only false.
    *  Rows with NULL is_corner_lot fall out under Yes/No (no implicit
    *  default — they're literally unanswered). */
   isCornerLot: '' | 'Yes' | 'No';
-  /** ★★ fix-410: the regular-shape filter, and it has FOUR states where corner
-   *  has three.
-   *
-   *  '' = Any · 'Regular' = true · 'Irregular' = false · 'Not set' = null.
-   *
-   *  ★ "Not set" is selectable, unlike on Corner, where a NULL can only ever
-   *  fall out of Yes/No. Bobby's default means the null population should be
-   *  empty in practice; making it FINDABLE is how anybody notices when it is
-   *  not — a state you cannot filter for is a state you cannot audit. */
-  isRegularShape: '' | 'Regular' | 'Irregular' | 'Not set';
+  // ★★★ fix-483 §A2 (P-136) — `isRegularShape` IS GONE AS A FILTER. Bobby:
+  //     *"Also remove shape."*
+  //
+  // ★★ THE COLUMN STAYS, and that is the difference from Tag and Work, both of
+  //    which lost their column in the same sentence. He named the filter only,
+  //    and the Shape column is beside Corner where fix-410 put it — two
+  //    shape-of-the-lot facts that read together. Removing a column he did not
+  //    ask about would be the fix-402/fix-406 mistake in reverse.
+  //
+  // ★ fix-410's finding is therefore only half-retired: *"a state you cannot
+  //   filter for is a state you cannot audit"* — the null population is now
+  //   visible in the column but no longer selectable. Recorded, not hidden.
   /** fix-205: Stories tier filter on a project's unit_types. '' = no filter;
    *  '1'/'2'/'3' = at least one unit_type has exactly that many stories;
    *  '4+' = at least one has 4 or more. Like the unit width/depth filters it
@@ -319,11 +341,9 @@ export function matchingUnitIndices(
       matchStoriesTier(u.stories, filters.stories) &&
       matchParkingKind(u.parking_kind, filters.parkingKind) &&
       matchStallsTier(u.parking_stalls, filters.stalls) &&
-      matchRoofDeck(u.roof_deck, filters.roofDeck) &&
-      // ★★★ fix-412: ANDed onto the SAME unit like every other condition here,
-      //   so "garage AND work performed" means one unit with both — the fix-402
-      //   per-unit conjunction, extended rather than worked around.
-      matchWorkScope(u.work_scope, filters.workScope)
+      // ★ fix-483 §A2: fix-412's `matchWorkScope` conjunct left with its
+      //   filter. The per-unit AND itself (fix-402) is untouched.
+      matchRoofDeck(u.roof_deck, filters.roofDeck)
     ) {
       out.push(i);
     }
@@ -341,12 +361,11 @@ export function hasAnyUnitFilter(filters: LibraryFilters): boolean {
     filters.stories !== '' ||
     filters.parkingKind !== '' ||
     filters.stalls !== '' ||
-    filters.roofDeck !== '' ||
-    // ★★★ fix-412: WITHOUT THIS LINE THE FILTER IS INERT. `hasAnyUnitFilter`
-    //   gates whether `matchingUnitIndices` is consulted at all, so a workScope
-    //   pick that is not listed here would narrow nothing — the exact defect
-    //   this function's own comment records fix-205 causing with `stories`.
-    filters.workScope !== ''
+    // ★★ fix-483 §A2: `filters.workScope !== ''` left this list with the
+    //    filter — and fix-412's warning that omitting it makes a filter INERT
+    //    is kept above, because it is the reason this function exists and the
+    //    next filter added to the UNIT card has to be listed here too.
+    filters.roofDeck !== ''
   );
 }
 
@@ -373,12 +392,15 @@ export function hasAnyUnitFilter(filters: LibraryFilters): boolean {
 //      below turns that into a test failure rather than a filter that silently
 //      cannot be cleared.
 //
-// ★ `view` and `search` are in NEITHER list, deliberately:
-//   · `view` IS NOT A FILTER (fix-447). It changes the columns you get back,
-//     never which rows match, and clearing a search must never move somebody to
-//     a different table.
-//   · `search` is the free-text box above both cards and belongs to neither, so
-//     only the global Clear owns it.
+// ★ `view` is in NEITHER list, deliberately: it IS NOT A FILTER (fix-447). It
+//   changes the columns you get back, never which rows match, and clearing a
+//   card must never move somebody to a different table.
+//
+// ★★ fix-483 §A4: `search` used to be the other one, owned by the page-level
+//    Clear because it belonged to neither card. Both are gone — Bobby, 2026-09-02:
+//    *"currently there's three clear features. We don't want to touch the two
+//    within site and unit, just the one that is fixed below unit but above
+//    address."* The two card Clears are untouched.
 export const SITE_FILTER_KEYS = [
   'lotwTarget',
   'lotwBuf',
@@ -388,8 +410,10 @@ export const SITE_FILTER_KEYS = [
   'juris',
   'alley',
   'isCornerLot',
-  'isRegularShape',
-  'tag',
+  // ★ fix-483 §A2: `isRegularShape` and `tag` left this list with their
+  //   filters. `libraryFilterKeyCoverage` is what forced the question — a key
+  //   removed from the interface and left here is a compile error, and a key
+  //   left in the interface and dropped from here fails the coverage test.
 ] as const satisfies readonly (keyof LibraryFilters)[];
 
 export const UNIT_FILTER_KEYS = [
@@ -401,7 +425,7 @@ export const UNIT_FILTER_KEYS = [
   'stalls',
   'roofDeck',
   'stories',
-  'workScope',
+  // ★ fix-483 §A2: `workScope` left this list with its filter.
   // ★ Product type sits in the UNIT card on screen (it describes the building,
   //   not the lot), so it clears with the UNIT card. Read off the rendered
   //   card boundaries, not guessed: the SITE card is one JSX block and the
@@ -421,7 +445,9 @@ export function libraryFilterKeyCoverage(initial: LibraryFilters): {
 } {
   const site = new Set<string>(SITE_FILTER_KEYS);
   const unit = new Set<string>(UNIT_FILTER_KEYS);
-  const neither = new Set<string>(['view', 'search']);
+  // ★ fix-483 §A4: `search` is gone, so `view` is the only key that belongs to
+  //   neither card — it is a PREFERENCE, not a filter (fix-447).
+  const neither = new Set<string>(['view']);
   const unfiled: string[] = [];
   const duplicated: string[] = [];
   for (const key of Object.keys(initial)) {
@@ -472,13 +498,53 @@ export function clearCardFilters(
   return next;
 }
 
+// ===========================================================================
+// ★★★ fix-483 §A1 (P-136) — SHADE ALTERNATE PROJECTS SO A ROW READS ACROSS
+// ===========================================================================
+//
+// Bobby, 2026-09-02: *"add a graphic highlight every project or 3rd or 5th
+// project so you can follow things left to right."*
+//
+// ★★★ THE BAND FOLLOWS THE PROJECT, NOT THE POSITION, and that is the whole
+// design decision the brief asks to be explicit about. The obvious
+// implementation — `index % 2` — is a zebra stripe: on the UNIT table, where a
+// project contributes one row per unit type, it would cut a six-unit project
+// into three bands and say nothing about where that project ends.
+//
+// So a project is assigned its band the FIRST TIME it appears, and every row of
+// that project takes it. Two consequences, both wanted:
+//
+//   · A project's rows are ONE block of colour however many units it has, so
+//     the shade also draws the boundary Bobby is asking to see.
+//   · If a sort SPLITS a project's rows — a width sort interleaves units from
+//     different projects — the split halves still share their project's band
+//     rather than picking up whatever their neighbours have. The stripe stays
+//     an answer to "which project is this row", which is the question, instead
+//     of degrading into "is this row odd or even", which is not.
+//
+// ★ ON THE SITE TABLE each row IS its own project, so the same rule resolves to
+//   an ordinary alternating stripe. One rule, both tables — not two.
+//
+// ★ Returns 0 or 1 per row, in the caller's order. The COLOUR is the caller's:
+//   this knows nothing about tokens.
+export function projectBands(projectIds: readonly string[]): number[] {
+  const band = new Map<string, number>();
+  return projectIds.map((id) => {
+    let b = band.get(id);
+    if (b === undefined) {
+      b = band.size % 2;
+      band.set(id, b);
+    }
+    return b;
+  });
+}
+
 /** Apply the active filters to the matrix rows. */
 export function filterLibraryRows(
   rows: LibraryRow[],
   filters: LibraryFilters,
 ): LibraryRow[] {
   const zoneQ = filters.zone.trim().toLowerCase();
-  const searchQ = filters.search.trim();
   const hasUnitFilter = hasAnyUnitFilter(filters);
   return rows.filter((r) => {
     if (!matchTargetWithBuffer(r.lotWidth, filters.lotwTarget, filters.lotwBuf)) return false;
@@ -500,11 +566,10 @@ export function filterLibraryRows(
     //
     // ★ A project with NO unit rows at all is untouched: it has not answered
     //   the question, and "no units recorded" is not "no work".
-    if (
-      filters.workScope === '' &&
-      r.unitTypes.length > 0 &&
-      r.unitTypes.every((u) => isNoWorkUnit(u))
-    ) {
+    // ★★★ fix-483 §A2: UNCONDITIONAL NOW. The `filters.workScope === ''` guard
+    //     is gone because the filter is gone — see LibraryFilters for the
+    //     ruling this preserves and the honesty it costs.
+    if (r.unitTypes.length > 0 && r.unitTypes.every((u) => isNoWorkUnit(u))) {
       return false;
     }
     // ★★★ fix-415 A5 — EXACT MATCH, NOT SUBSTRING, AND THAT IS A BUG FIX.
@@ -525,7 +590,9 @@ export function filterLibraryRows(
       const hit = filters.productTypes.some((t) => r.productTypes.includes(t));
       if (!hit) return false;
     }
-    if (filters.tag && !r.tags.includes(filters.tag)) return false;
+    // ★ fix-483 §A2: the tag arm went with the filter. `r.tags` is still built
+    //   — the Project Overview chip editor reads the same column — but nothing
+    //   on this screen filters or prints it.
     if (filters.juris && r.juris !== filters.juris) return false;
     // ★ fix-402: the num_lots FILTER is gone by ruling (see LibraryFilters),
     //   and fix-406 took the COLUMN and the SORT with it. `r.numLots` is still
@@ -533,33 +600,29 @@ export function filterLibraryRows(
     // fix-122: tri-state Corner — Yes/No each require a non-null match.
     if (filters.isCornerLot === 'Yes' && r.isCornerLot !== true) return false;
     if (filters.isCornerLot === 'No' && r.isCornerLot !== false) return false;
-    // ★ fix-410: three explicit arms, so `null` is a value you can ASK for
-    //   rather than only something that falls out of the other two.
-    if (filters.isRegularShape === 'Regular' && r.isRegularShape !== true) {
-      return false;
-    }
-    if (filters.isRegularShape === 'Irregular' && r.isRegularShape !== false) {
-      return false;
-    }
-    if (filters.isRegularShape === 'Not set' && r.isRegularShape !== null) {
-      return false;
-    }
-    if (searchQ && !matchRowSearch(r, searchQ)) return false;
+    // ★ fix-483 §A2: fix-410's three shape arms went with the filter. The
+    //   COLUMN stays — `r.isRegularShape` is still read by the site table and
+    //   still sorted by `sortLibraryRows`' tri-state arm.
     return true;
   });
 }
 
-/** fix-81: search hits address OR any unit_type label, so typing
- * "cottage" surfaces every project that has a "Cottage *" unit.
- * fix-380: the permits' struct_address joins the address haystack — same
- * multi-token matcher, so a structure address finds the project's row. */
-function matchRowSearch(row: LibraryRow, query: string): boolean {
-  const structHay = row.structAddressHay ?? '';
-  const addressHay = structHay ? `${row.address} ${structHay}` : row.address;
-  if (multiMatchAddress(query, addressHay)) return true;
-  const q = query.toLowerCase();
-  return row.unitTypes.some((u) => u.label.toLowerCase().includes(q));
-}
+// ★★★ fix-483 §A4 — `matchRowSearch` IS DELETED, AND SO IS WHAT IT FED ON.
+//
+// It was the Library search box's matcher: address OR any unit_type label
+// (fix-81), widened by fix-380 to include the permits' `struct_address`. The
+// box is gone by ruling, and this had exactly one call site — the `searchQ`
+// arm of `filterLibraryRows` above.
+//
+// ★ WHAT SURVIVES, AND WHERE: `multiMatchAddress` (lib/drawScheduleHelpers) is
+//   called by Draw Schedule, Project View, intake and the report metrics;
+//   `structAddressHaystack` (lib/structAddressSearch) by Draw Schedule, Project
+//   View, the wizard's reuse picker and the Dashboard. Only `LibraryRow`'s copy
+//   of the haystack went, because this function was its only reader.
+//
+// ★★ fix-380's RULING IS NOT REVERSED — a struct address still finds its
+//    project, on Project View and the Dashboard. What it no longer does is find
+//    it HERE, because there is nowhere here to type it.
 
 // ★★★ fix-406 — `numLots` LEFT THIS UNION WITH ITS COLUMN.
 //

@@ -34,11 +34,6 @@ import {
   DEFAULT_FILTERS as PV_DEFAULT_FILTERS,
 } from '../lib/projectViewHelpers';
 import {
-  buildLibraryRows,
-  filterLibraryRows,
-  type LibraryFilters,
-} from '../lib/libraryHelpers';
-import {
   buildReuseSources,
   filterReuseSources,
 } from '../components/wizard/reuseSourceHelpers';
@@ -338,70 +333,25 @@ describe('fix-380 §2 — Project List rows match on their permits struct_addres
   });
 });
 
-// ---------------------------------------------------------------------------
-// Library (libraryHelpers) — Bobby named it.
-// ---------------------------------------------------------------------------
-const baseLibFilters: LibraryFilters = {
-  view: 'site' as const,
-  search: '',
-  lotwTarget: null,
-  lotwBuf: 0,
-  lotdTarget: null,
-  lotdBuf: 0,
-  unitwTarget: null,
-  unitwBuf: 0,
-  unitdTarget: null,
-  unitdBuf: 0,
-  stories: '',
-  zone: '',
-  alley: '',
-  productTypes: [],
-  tag: '',
-  juris: '',
-  isCornerLot: '',
-  isRegularShape: '',
-  // ★ fix-402: the UNIT card's three new filters, all Any.
-  parkingKind: '',
-  stalls: '',
-  roofDeck: '',
-  workScope: '',
-};
 
-describe('fix-380 §3 — the Library matrix matches on struct_address', () => {
-  const rows = buildLibraryRows(
-    [ADU_PROJECT, PLAIN_PROJECT],
-    [ADU_PERMIT, PLAIN_PERMIT],
-  );
-
-  it('a struct_address search finds the project row; address search unchanged', () => {
-    expect(
-      filterLibraryRows(rows, { ...baseLibFilters, search: '10411' }).map(
-        (r) => r.projectId,
-      ),
-    ).toEqual(['p-adu']);
-    expect(
-      filterLibraryRows(rows, { ...baseLibFilters, search: 'oak' }).map(
-        (r) => r.projectId,
-      ),
-    ).toEqual(['p-plain']);
-    expect(
-      filterLibraryRows(rows, { ...baseLibFilters, search: '' }).map(
-        (r) => r.projectId,
-      ),
-    ).toEqual(['p-adu', 'p-plain']);
-  });
-
-  it('★ a fixture row WITHOUT the new field behaves byte-identically (optional field)', () => {
-    const legacyRow = { ...rows[1] };
-    delete (legacyRow as { structAddressHay?: string }).structAddressHay;
-    expect(
-      filterLibraryRows([legacyRow], { ...baseLibFilters, search: 'oak' }),
-    ).toHaveLength(1);
-    expect(
-      filterLibraryRows([legacyRow], { ...baseLibFilters, search: '10411' }),
-    ).toHaveLength(0);
-  });
-});
+// ★★★ fix-483 §A4 (P-136) — §3 IS RETIRED: THE LIBRARY HAS NO SEARCH BOX.
+//
+// Bobby, 2026-09-02: *"remove the search feature at the top of the library and
+// the clear that goes with it."* Two tests went with it — a struct_address
+// search finding the project row, and the optional-field fixture that proved a
+// row without `structAddressHay` behaved identically.
+//
+// ★★★ fix-380's RULING IS NOT REVERSED, and §2 and §4 above and below are the
+// proof: *"Maybe I don't know the project by the project address, but I know it
+// by the structure address."* A struct address still finds its project on
+// PROJECT VIEW (§2) and its permit on REPORTS (§4), and `structAddressHaystack`
+// is still called by Draw Schedule and the Dashboard too. What went is the
+// Library's copy of the haystack — `LibraryRow.structAddressHay` — because
+// `matchRowSearch` was its only reader and there is nowhere here to type into.
+//
+// ★ THE OPTIONAL-FIELD TEST IS THE ONE WORTH NOTING. It asserted that a fixture
+//   written before fix-380 behaved byte-identically. That property is now
+//   universal rather than tested: no `LibraryRow` carries the field at all.
 
 // ---------------------------------------------------------------------------
 // Reports (reportMetrics) — a PERMIT-level surface: the row matches on its

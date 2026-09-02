@@ -407,11 +407,17 @@ describe('fix-406 §3: the two cards carry their colours on screen', () => {
     //     than on the button itself. **"One ink per STATE, not one ink per
     //     GROUP" is exactly as true as it was**, and it is still what these
     //     four lines prove; only where the property is read from moved.
-    const inkOf = (el: HTMLElement) =>
-      (el.querySelector('span') as HTMLElement).style.color;
+    // ★★★ AMENDED AGAIN BY fix-483 §B (P-137), AND THE CLAIM IS STILL
+    //     UNCHANGED. The heading is the app's shared `ToggleChip` now, so the
+    //     ink is on the BUTTON rather than on a label span inside it, and the
+    //     active fill is DE blue rather than `--color-text`. "One ink per
+    //     STATE, not one ink per GROUP" is what these four lines prove and it
+    //     is exactly as true; for the third time, only where the property is
+    //     read from moved.
+    const inkOf = (el: HTMLElement) => el.style.color;
     const siteInk = inkOf(siteChip);
     const unitInk = inkOf(unitChip);
-    expect(siteInk).toBe('var(--color-surface)'); // active: white on the fill
+    expect(siteInk).toBe('rgb(255, 255, 255)'); // active: white on the fill
     expect(unitInk).toBe('var(--color-text)'); // inactive: text on white
     fireEvent.click(unitChip);
     expect(inkOf(screen.getByTestId('filter-chip-site'))).toBe(unitInk);
@@ -423,7 +429,12 @@ describe('fix-406 §3: the two cards carry their colours on screen', () => {
     //    FILLED one that reads as state. The difference is what the fill means,
     //    and it is measurable: the two segment fills sit 15.19:1 apart, against
     //    the 1.30:1 that separated the two HUES this suite retired.
-    expect(siteChip.style.background).toBe('var(--color-text)');
+    // ★ fix-483 §B: `--color-de`, from `chipStyle` — the Pipeline's blue, on
+    //   this screen, by Bobby's 2026-09-02 ruling. The two fills are still far
+    //   apart (white-on-DE is 5.17:1 and the two backgrounds 5.17:1 from each
+    //   other) against the 1.30:1 that separated the two HUES this suite
+    //   retired, which is the comparison that mattered.
+    expect(siteChip.style.background).toBe('var(--color-de)');
     expect(unitChip.style.background).toBe('var(--color-surface)');
 
     // ★★★ THE PROPERTY THAT MUST NEVER CHANGE, AND THE REASON THIS FILE OWNS
@@ -471,13 +482,14 @@ describe('fix-406 §3: the two cards carry their colours on screen', () => {
     // The measured complaint: `bg-bg` (#f0f4f8) boxes on a `bg-s2` (#e8edf3)
     // card is a 2% luminance step — the box did not read as a box.
     renderIt();
+    // ★ fix-483 §A2/§A4: `library-search` and `filter-tag` left this list with
+    //   their controls. fix-406's rule is about every field that RENDERS, so
+    //   the list shrinks with the panel rather than the rule being relaxed.
     const fields = [
-      'library-search',
       'filter-zone',
       'filter-juris',
       'filter-alley',
       'filter-corner',
-      'filter-tag',
       'filter-parking-kind',
       'filter-stalls',
       'filter-roof-deck',
@@ -599,22 +611,29 @@ describe('fix-406 §4: the Lots column and its sort are gone', () => {
     // ★★★ fix-447 makes it 11: the caret cell went with fix-81's path, and
     //     Parking and Roof Deck went to the UNIT view, which is where the
     //     per-unit numbers they were summarising actually live.
+    //
+    // ★★★ fix-483 §A2 makes it 10: the Tags column left with the Tag filter,
+    //     one ruling and both halves. And the test did its job again — this is
+    //     the third ticket it has caught, which is the whole argument for
+    //     asserting the NUMBER rather than enumerating the columns.
     renderIt();
     const headers = screen
       .getByTestId('library-table')
       .querySelectorAll('thead th');
-    expect(headers.length).toBe(11);
+    expect(headers.length).toBe(10);
   });
 
   it('★★ fix-447: the UNIT table\'s header count and its colSpan agree too', () => {
     // The same trap, on the new table: a stale span is invisible until the
     // table is empty.
     renderIt();
+    // ★ fix-483: 11. §A5 took `Type` (redundant beside `Unit type`) and §A2
+    //   took `Work` with its filter.
     fireEvent.click(screen.getByTestId('filter-chip-unit'));
     const headers = screen
       .getByTestId('library-table-unit')
       .querySelectorAll('thead th');
-    expect(headers.length).toBe(13);
+    expect(headers.length).toBe(11);
   });
 });
 
@@ -707,12 +726,22 @@ describe('fix-406 §5: an unrecognised sort column falls back cleanly', () => {
     // removed the lots FILTER. fix-403's decoder reads field by field, so an
     // unknown key is ignored and every other filter still restores — rather
     // than one dead key emptying the panel.
+    //
+    // ★★★ fix-483 WIDENS THIS, AND IT IS THE FIRST REAL EXERCISE OF THE RULE.
+    //     Four MORE keys retired in that ticket — `search`, `tag`, `workScope`
+    //     and `isRegularShape` — so the blob below now carries five dead keys
+    //     rather than two, and they are the keys almost every live session in
+    //     the company is carrying RIGHT NOW. `numLots` was hypothetical; these
+    //     are not.
     const userId = 'user-1';
     window.sessionStorage.setItem(
       `library.filters.${userId}`,
       JSON.stringify({
         view: 'site' as const,
         search: 'apple',
+        tag: 'ECA',
+        workScope: 'performed',
+        isRegularShape: 'Irregular',
         zone: 'NR',
         numLots: 5,
         numLotsBuf: 1,
@@ -722,7 +751,6 @@ describe('fix-406 §5: an unrecognised sort column falls back cleanly', () => {
     const fallback = {
       // ★ fix-447: the new key. Default 'site' — the Library opens on SITE.
       view: 'site' as const,
-      search: '',
       lotwTarget: null,
       lotwBuf: 2,
       lotdTarget: null,
@@ -734,19 +762,22 @@ describe('fix-406 §5: an unrecognised sort column falls back cleanly', () => {
       zone: '',
       alley: '',
       productTypes: [],
-      tag: '',
       juris: '',
       isCornerLot: '' as const,
-      isRegularShape: '' as const,
       stories: '' as const,
       parkingKind: '' as const,
       stalls: '' as const,
       roofDeck: '' as const,
-      workScope: '' as const,
     };
     const loaded = loadLibraryFilters(userId, fallback);
     expect(loaded).not.toBeNull();
-    expect(loaded!.search).toBe('apple');
+    // ★ The five dead keys are simply not present on the decoded object…
+    expect(Object.keys(loaded!)).not.toContain('search');
+    expect(Object.keys(loaded!)).not.toContain('tag');
+    expect(Object.keys(loaded!)).not.toContain('workScope');
+    expect(Object.keys(loaded!)).not.toContain('isRegularShape');
+    expect(Object.keys(loaded!)).not.toContain('numLots');
+    // ★ …and every surviving one restored.
     expect(loaded!.zone).toBe('NR');
     expect(loaded!.parkingKind).toBe('garage');
     // ★ The dead keys did not survive, and did not take the live ones with them.

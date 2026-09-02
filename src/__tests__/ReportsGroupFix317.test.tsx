@@ -162,14 +162,23 @@ describe('fix-317: the Reports group stops duplicating the shelf', () => {
   // ★ fix-331 §8 added a third: Project View. fix-317's point survives intact —
   // the six duplicated REPORTS are still gone and the shelf is still the one
   // way to them.
-  it('★★ the group is Overview, Project View and Saved reports — no report duplicates', () => {
+  // ★ fix-483 §C: Agenda joined the group between Project View and the shelf.
+  //   fix-317's actual claim is what this still pins — the FIVE individual
+  //   reports that duplicated the shelf are not here, and neither is a sixth.
+  it('★★ the group is Overview, Project View, Agenda and Saved reports — no report duplicates', () => {
     const reports = RIBBON_ENTRIES.find((e) => e.kind === 'group' && e.group.id === 'reports');
     const kids = reports!.kind === 'group' ? reports!.group.children : [];
     expect(kids.map((k) => k.to)).toEqual([
       '/reports',
       '/projects',
+      '/agenda',
       '/reports/saved',
     ]);
+    // ★ No child is a /reports/<report> address — the duplication fix-317
+    //   removed cannot come back through a differently-named entry either.
+    expect(
+      kids.filter((k) => k.to.startsWith('/reports/') && k.to !== '/reports/saved'),
+    ).toEqual([]);
   });
 });
 

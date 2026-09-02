@@ -9,14 +9,10 @@ import matrixSource from '../components/LibraryMatrix.tsx?raw';
 import {
   SORTABLE_COLUMNS,
   buildLibraryRows,
-  filterLibraryRows,
   isSortableColumn,
   sortLibraryRows,
-  type LibraryFilters,
   type LibraryRow,
 } from '../lib/libraryHelpers';
-import { loadLibraryFilters } from '../lib/surfaceFilterPrefs';
-import { saveFilterState } from '../lib/filterPrefs';
 import { makeEmptyWizardState, makeRedesignWizardState } from '../components/wizard/wizardState';
 import type { PermitWithCycles, Project } from '../lib/database.types';
 
@@ -215,17 +211,11 @@ describe('fix-410 §2: the row builder keeps all three states apart', () => {
 });
 
 // ---------------------------------------------------------------------------
-// §3 · THE LIBRARY FILTER, INCLUDING "NOT SET"
+// §3 · THE LIBRARY FILTER — RETIRED, see the note below §2
 // ---------------------------------------------------------------------------
-
-const BASE: LibraryFilters = {
-  view: 'site' as const,
-  search: '', lotwTarget: null, lotwBuf: 2, lotdTarget: null, lotdBuf: 2,
-  unitwTarget: null, unitwBuf: 2, unitdTarget: null, unitdBuf: 2,
-  zone: '', alley: '', productTypes: [], tag: '', juris: '',
-  isCornerLot: '', isRegularShape: '', stories: '',
-  parkingKind: '', stalls: '', roofDeck: '', workScope: '',
-};
+// ★ `BASE` went with it: it was a whole `LibraryFilters` fixture that existed
+//   only to be spread into the six filter calls, and `LibraryFilters` no longer
+//   has an `isRegularShape` key to set on it.
 
 const THREE: LibraryRow[] = [
   { ...rowFor({ is_regular_shape: true }), projectId: 'reg', address: 'A' },
@@ -233,59 +223,24 @@ const THREE: LibraryRow[] = [
   { ...rowFor({ is_regular_shape: null }), projectId: 'unset', address: 'C' },
 ];
 
-describe('fix-410 §3: filter to each of the three states', () => {
-  it('★★★ Any keeps all three', () => {
-    expect(filterLibraryRows(THREE, BASE)).toHaveLength(3);
-  });
-
-  it('★★★ Regular keeps only true', () => {
-    const out = filterLibraryRows(THREE, { ...BASE, isRegularShape: 'Regular' });
-    expect(out.map((r) => r.projectId)).toEqual(['reg']);
-  });
-
-  it('★★★ Irregular keeps only false — a null is NOT irregular', () => {
-    const out = filterLibraryRows(THREE, { ...BASE, isRegularShape: 'Irregular' });
-    expect(out.map((r) => r.projectId)).toEqual(['irr']);
-  });
-
-  it('★★★ "Not set" is SELECTABLE, and finds exactly the nulls', () => {
-    // ★ Bobby's default means this population should be empty. Making it
-    //   findable is how anybody notices when it is not — a state you cannot
-    //   filter for is a state you cannot audit.
-    const out = filterLibraryRows(THREE, { ...BASE, isRegularShape: 'Not set' });
-    expect(out.map((r) => r.projectId)).toEqual(['unset']);
-  });
-
-  it('★★ the counts agree with the rows shown', () => {
-    const states: LibraryFilters['isRegularShape'][] = [
-      'Regular', 'Irregular', 'Not set',
-    ];
-    const total = states
-      .map((s) => filterLibraryRows(THREE, { ...BASE, isRegularShape: s }).length)
-      .reduce((a, b) => a + b, 0);
-    // Three disjoint buckets that partition the whole set — no row counted
-    // twice, none missed.
-    expect(total).toBe(THREE.length);
-  });
-
-  it('★★ it composes with the other SITE filters rather than replacing them', () => {
-    const out = filterLibraryRows(THREE, {
-      ...BASE,
-      isRegularShape: 'Regular',
-      juris: 'Bellevue', // no row matches
-    });
-    expect(out).toHaveLength(0);
-  });
-
-  it('★★ the filter is on the SITE card (fix-406 teal), not the UNIT one', () => {
-    const site = matrixSource.slice(
-      matrixSource.indexOf('data-testid="filter-card-site"'),
-      matrixSource.indexOf('data-testid="filter-card-unit"'),
-    );
-    expect(site.length).toBeGreaterThan(100);
-    expect(site).toContain('data-testid="filter-regular-shape"');
-  });
-});
+// ★★★ fix-483 §A2 (P-136) — §3 IS RETIRED: THE SHAPE **FILTER** IS GONE.
+//
+// Bobby, 2026-09-02: *"Also remove shape."* Six tests went with it — Any /
+// Regular / Irregular / "Not set", the partition count, and the assertion that
+// the control sat on the SITE card.
+//
+// ★★★ WHAT SURVIVES IS THE COLUMN AND THE SORT, and §4 below is unchanged: a
+// stale `isRegularShape` sort still degrades rather than throwing, the site
+// table still prints Regular / Irregular / em dash, and `sortLibraryRows`' one
+// shared tri-state arm still puts nulls last in both directions. Tag and Work
+// each lost their COLUMN in the same ruling; Shape was named alone, and a
+// column Bobby did not ask about is not removed on inference.
+//
+// ★★★ AND fix-410's OWN FINDING IS NOW ONLY HALF TRUE, which is worth writing
+// down rather than deleting: *"a state you cannot filter for is a state you
+// cannot audit."* The unanswered population is still VISIBLE in the column —
+// so it can be seen and sorted to the bottom — but it can no longer be asked
+// for by name. If the nulls ever matter again, this is the test to restore.
 
 // ---------------------------------------------------------------------------
 // §4 · SORTING DOES NOT THROW — the fix-406 lesson, applied to a new column
@@ -338,38 +293,18 @@ describe('fix-410 §4: the new column sorts, and nothing throws', () => {
 // §5 · THE FILTER MEMORY (fix-403)
 // ---------------------------------------------------------------------------
 
-describe('fix-410 §5: the filter is remembered like every other one', () => {
-  it('★★ it round-trips through the session store', () => {
-    window.sessionStorage.clear();
-    saveFilterState('library.filters', 'u-1', {
-      ...BASE,
-      isRegularShape: 'Irregular',
-    });
-    expect(loadLibraryFilters('u-1', BASE)!.isRegularShape).toBe('Irregular');
-  });
-
-  it('★★★ a session stored BEFORE this ticket has no key — it falls back to Any', () => {
-    window.sessionStorage.clear();
-    const { isRegularShape: _drop, ...preFix410 } = BASE;
-    void _drop;
-    saveFilterState('library.filters', 'u-1', preFix410);
-    // ★ Not `undefined` into the <select> — that would make it uncontrolled
-    //   and React would warn while the filter silently stopped working.
-    expect(loadLibraryFilters('u-1', BASE)!.isRegularShape).toBe('');
-  });
-
-  it('★★ a value outside the closed set falls back, and the REST still restores', () => {
-    window.sessionStorage.clear();
-    saveFilterState('library.filters', 'u-1', {
-      ...BASE,
-      zone: 'kept',
-      isRegularShape: 'Rhomboid',
-    });
-    const out = loadLibraryFilters('u-1', BASE)!;
-    expect(out.isRegularShape).toBe('');
-    expect(out.zone).toBe('kept');
-  });
-});
+// ★★★ fix-483 §A2 — §5 IS RETIRED TOO: `isRegularShape` IS NO LONGER DECODED.
+//
+// Three tests went: the round trip, the pre-fix-410 blob falling back to Any,
+// and the closed-set fallback. All three were about `surfaceFilterPrefs`
+// carrying the key, and it does not carry it any more.
+//
+// ★★ THE MECHANISM THEY PROVED IS STILL PROVEN, and by a HARDER case:
+// LibraryContrastFix406's stale-blob test now feeds a session carrying five
+// dead keys — `search`, `tag`, `workScope`, `isRegularShape` and `numLots` —
+// and asserts each is absent from the decoded object while every surviving
+// filter restores. fix-410's blob was hypothetical; that one is what almost
+// every live session in the company is carrying right now.
 
 // ---------------------------------------------------------------------------
 // §6 · THE MIGRATION — the trap, and the approved backfill

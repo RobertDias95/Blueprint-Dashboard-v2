@@ -10,7 +10,6 @@ import {
 import { PARKING_KINDS, type ParkingKind } from './database.types';
 import type { LibraryFilters } from './libraryHelpers';
 import type { RoofDeckFilter, StallsTier } from './unitParking';
-import type { WorkScopeFilter } from './unitWorkScope';
 
 // ===========================================================================
 // ★★★ fix-403 — WHAT EACH SURFACE REMEMBERS
@@ -29,27 +28,29 @@ import type { WorkScopeFilter } from './unitWorkScope';
 // ---------------------------------------------------------------------------
 // Library — the whole fix-402 filter shape, both cards
 // ---------------------------------------------------------------------------
+//
+// ★★★ fix-483 §A2 / §A4 (P-136) — FOUR KEYS STOPPED BEING DECODED: `search`,
+// `tag`, `workScope` and `isRegularShape`. Their filters were removed by ruling
+// (see `LibraryFilters` for each one's quote and consequence).
+//
+// ★★ AND NOTHING HAD TO BE WRITTEN TO HANDLE THE BLOBS THAT STILL CARRY THEM.
+// This decoder reads FIELD BY FIELD off `o` and returns a fresh object; a key
+// it does not name is simply never read, so a session stored before this ticket
+// restores every surviving filter and silently drops the four. That is the
+// property the file's own header claims — *"a stored blob is untrusted input …
+// decoding field by field means an unknown value falls back to that field's
+// default and the rest of the filter still restores"* — and this is the first
+// ticket to exercise it in the REMOVAL direction rather than the addition one.
 
 const LIBRARY_NS = 'library.filters';
 
 const STALLS_TIERS: readonly StallsTier[] = ['', '1+', '2+'];
 const ROOF_DECKS: readonly RoofDeckFilter[] = ['', 'Yes', 'No'];
-/** ★ fix-412: the four work-scope filter states, as a closed set so a value
- *  retired later cannot come back from storage and match nothing forever. */
-const WORK_SCOPES_F: readonly WorkScopeFilter[] = [
-  '',
-  'performed',
-  'none',
-  'unanswered',
-];
 /** ★ fix-447: the two views, as a closed set — same shape as every other
  *  stored enum here, so a value retired later cannot come back from storage
  *  and match nothing forever. */
 const VIEWS = ['site', 'unit'] as const;
 const CORNERS = ['', 'Yes', 'No'] as const;
-/** ★ fix-410: the four regular-shape filter states, as a closed set so a value
- *  retired later cannot come back from storage and match nothing forever. */
-const SHAPES = ['', 'Regular', 'Irregular', 'Not set'] as const;
 const STORIES = ['', '1', '2', '3', '4+'] as const;
 
 export function loadLibraryFilters(
@@ -66,7 +67,6 @@ export function loadLibraryFilters(
       //   neither table. That is fix-412 §91's precedent, and ruling 4's "the
       //   Library OPENS ON SITE" is exactly this default.
       view: oneOf(o.view, VIEWS, 'site'),
-      search: str(o.search),
       // ★ Targets are nullable numbers; buffers keep the panel's own default
       //   rather than 0, which would silently narrow every range to exact.
       lotwTarget: numOrNull(o.lotwTarget),
@@ -80,13 +80,8 @@ export function loadLibraryFilters(
       zone: str(o.zone),
       alley: str(o.alley),
       productTypes: strArray(o.productTypes),
-      tag: str(o.tag),
       juris: str(o.juris),
       isCornerLot: oneOf(o.isCornerLot, CORNERS, ''),
-      // ★ fix-410: decoded through a coercion like every other field — a
-      //   session stored before this ticket has no key at all and falls back
-      //   to Any, rather than restoring `undefined` into the select.
-      isRegularShape: oneOf(o.isRegularShape, SHAPES, ''),
       stories: oneOf(o.stories, STORIES, ''),
       // ★★ fix-402's three. `parkingKind` is validated against the closed set,
       //   so a kind retired later cannot come back from storage and match
@@ -98,9 +93,6 @@ export function loadLibraryFilters(
       ),
       stalls: oneOf(o.stalls, STALLS_TIERS, ''),
       roofDeck: oneOf(o.roofDeck, ROOF_DECKS, ''),
-      // ★ fix-412: a session stored before this ticket has no key and falls
-      //   back to Any, rather than restoring `undefined` into the select.
-      workScope: oneOf(o.workScope, WORK_SCOPES_F, ''),
     };
   });
 }

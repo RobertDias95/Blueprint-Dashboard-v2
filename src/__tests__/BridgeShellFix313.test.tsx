@@ -491,7 +491,7 @@ describe('fix-313: the Reports gate is the whole group', () => {
     );
     expect(
       adminGroup!.kind === 'group' ? adminGroup!.group.children.map((c) => c.to) : [],
-    ).toEqual(['/reports', '/projects', '/reports/saved']);
+    ).toEqual(['/reports', '/projects', '/agenda', '/reports/saved']);
   });
 
   // fix-313 listed the seven CHILDREN of Reports and not the parent, so the
@@ -510,7 +510,8 @@ describe('fix-313: the Reports gate is the whole group', () => {
   // you run), so the group finally reads Overview + Saved reports — the shape
   // fix-317 was asking for.
   // ★ fix-331 §8 made it three: Project View joined between them.
-  it('★★ lists exactly three: the overview, Project View and the shelf', () => {
+  // ★ fix-483 §C: four now — Agenda joined between Project View and the shelf.
+  it('★★ lists exactly four: the overview, Project View, Agenda and the shelf', () => {
     const reports = RIBBON_ENTRIES.find(
       (e) => e.kind === 'group' && e.group.id === 'reports',
     );
@@ -518,6 +519,7 @@ describe('fix-313: the Reports gate is the whole group', () => {
     expect(kids.map((k) => k.to)).toEqual([
       '/reports',
       '/projects',
+      '/agenda',
       '/reports/saved',
     ]);
   });

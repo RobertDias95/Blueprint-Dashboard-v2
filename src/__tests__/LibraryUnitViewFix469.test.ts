@@ -50,7 +50,6 @@ import type { UnitType } from '../lib/database.types';
 
 const EMPTY: LibraryFilters = {
   view: 'site',
-  search: '',
   lotwTarget: null,
   lotwBuf: 2,
   lotdTarget: null,
@@ -62,15 +61,12 @@ const EMPTY: LibraryFilters = {
   zone: '',
   alley: '',
   productTypes: [],
-  tag: '',
   juris: '',
   isCornerLot: '',
-  isRegularShape: '',
   stories: '',
   parkingKind: '',
   stalls: '',
   roofDeck: '',
-  workScope: '',
 };
 
 function unit(over: Partial<UnitType> = {}): UnitType {
@@ -255,14 +251,13 @@ describe('fix-469 §1 — the UNIT view returns only matching units', () => {
 // toolbar Clear is a leftover from when there was one card, and keeping a lot
 // search while dropping the unit dimensions meant blanking NINE controls.
 
+// ★ fix-483 §A2/§A4: `search` and `tag` left the shape with their controls.
 const BOTH_SET: LibraryFilters = {
   ...EMPTY,
   view: 'unit',
-  search: 'densmore',
   lotwTarget: 40,
   zone: 'NR3',
   juris: 'Seattle',
-  tag: 'SIP',
   unitwTarget: 16,
   unitdTarget: 36,
   stories: '2',
@@ -270,7 +265,7 @@ const BOTH_SET: LibraryFilters = {
 };
 
 describe('fix-469 §2 — a card clears only itself', () => {
-  it('★★★ clearing UNIT leaves every SITE field, the search box and the view alone', () => {
+  it('★★★ clearing UNIT leaves every SITE field and the view alone', () => {
     const next = clearCardFilters(BOTH_SET, UNIT_FILTER_KEYS, EMPTY);
     // The unit card is blank…
     expect(next.unitwTarget).toBeNull();
@@ -281,17 +276,16 @@ describe('fix-469 §2 — a card clears only itself', () => {
     expect(next.lotwTarget).toBe(40);
     expect(next.zone).toBe('NR3');
     expect(next.juris).toBe('Seattle');
-    expect(next.tag).toBe('SIP');
-    // ★ The free-text search belongs to NEITHER card — only the global Clear
-    //   owns it.
-    expect(next.search).toBe('densmore');
+    // ★ fix-483 §A4: the free-text search used to be asserted here as the field
+    //   belonging to NEITHER card. It is gone, and so is the global Clear that
+    //   owned it — `view` is now the only key in neither list, and the test
+    //   below is the one that guards it.
   });
 
   it('★★★ clearing SITE leaves every UNIT field alone', () => {
     const next = clearCardFilters(BOTH_SET, SITE_FILTER_KEYS, EMPTY);
     expect(next.lotwTarget).toBeNull();
     expect(next.zone).toBe('');
-    expect(next.tag).toBe('');
     expect(next.unitwTarget).toBe(16);
     expect(next.stories).toBe('2');
     expect(next.productTypes).toEqual(['SFR']);
@@ -350,13 +344,16 @@ describe('fix-469 §2 — a card clears only itself', () => {
     // ★★★ THE ASSERTION THAT KEEPS §2 TRUE AS FILTERS ARE ADDED. Add a field to
     //     `LibraryFilters` and forget to file it, and this fails NAMING the key
     //     — instead of shipping a control that no Clear on the page can reach.
-    //     `view` and `search` are the two deliberate exceptions.
+    //     ★ fix-483 §A4: `view` is the ONLY deliberate exception now — `search`
+    //       was the other one and it went with its box.
     const { unfiled, duplicated } = libraryFilterKeyCoverage(EMPTY);
     expect(unfiled, `unfiled filter keys: ${unfiled.join(', ')}`).toEqual([]);
     expect(duplicated, `filed twice: ${duplicated.join(', ')}`).toEqual([]);
-    // The partition is complete: 10 + 10 + 2 = every key.
+    // ★ The partition is complete: SITE + UNIT + `view` = every key. Written as
+    //   the RULE rather than as three numbers, so the next filter added moves
+    //   one side of this equation and not the other.
     expect(
-      SITE_FILTER_KEYS.length + UNIT_FILTER_KEYS.length + 2,
+      SITE_FILTER_KEYS.length + UNIT_FILTER_KEYS.length + 1,
     ).toBe(Object.keys(EMPTY).length);
   });
 });

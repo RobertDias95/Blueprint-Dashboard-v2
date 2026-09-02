@@ -171,8 +171,11 @@ describe('fix-315 §1: the Reports overview is reachable again', () => {
     // moved the sixth into Settings → Permits. ★ fix-331 §8 then moved Project
     // View in, between the overview and the shelf. Overview still leads, which
     // is what fix-315 was about.
+    // ★ fix-483 §C: Agenda joined, between Project View and the shelf.
+    //   Overview still leads, which is what fix-315 was about.
     expect(kids.slice(1).map((k) => k.to)).toEqual([
       '/projects',
+      '/agenda',
       '/reports/saved',
     ]);
   });
@@ -606,16 +609,12 @@ describe('fix-315: fix-313 survives', () => {
       'Pipeline',
       'Draw Schedule',
       'My Board',
-      // ★★★ fix-462, the SEVENTH reorder: Agenda joins the top tier beside My
-      // Board. It is a WORK DESTINATION — six people open it to run a meeting
-      // about their own tasks — so filing it below the rule with Settings and
-      // Error triage would have called a work view administration.
-      //
-      // ★★ IT IS HERE IN AN *ADMIN* LIST AND ABSENT FROM EVERY NON-ADMIN ONE,
-      // which is the gate doing its job: Agenda is `agendaOnly`, and
-      // `visibleEntries(isAdmin, isAgendaMember = false)` shows it to an admin
-      // (who sees everything) and to a member. No non-admin list moved.
-      'The weekly agenda — one running list of items to work through',
+      // ★★★ fix-483 §C (P-138), the EIGHTH reorder: Agenda LEFT this tier for
+      // the Reports group, on the same *"too many tabs"* worry fix-462 quoted
+      // when it put the entry here. The Reports group is COLLAPSED in this
+      // render, so its children are not drawn and the entry is absent from
+      // these labels entirely — which is also why this list, not just the
+      // model, had to be re-pinned.
       'Library',
       'Blueprint Design and Entitlements Studio on SharePoint — opens in a new tab',
       // ★ fix-350, the SIXTH reorder: What's New joins the tier below the rule,

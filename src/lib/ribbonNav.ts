@@ -202,24 +202,17 @@ export const RIBBON_ENTRIES: RibbonEntry[] = [
   // cohesive."* So: one entry, and it is a VIEW of tasks that already exist,
   // not a lane and not a second task system.
   //
-  // ★ PLACED WITH THE WORK DESTINATIONS, beside My Board, because that is what
-  // it is — six people open it to run a meeting about their own tasks. Putting
-  // it below the rule with Settings and Error triage would file a work view as
-  // administration.
+  // ★★★ fix-483 §C (P-138) — AND IT IS A CHILD OF REPORTS NOW, NOT A TOP-LEVEL
+  //     ENTRY. Bobby, 2026-09-02, on the same "too many tabs" worry that put it
+  //     here in the first place. See the `reports` group below for the entry
+  //     itself and for the gate that had to be taught about it.
   //
-  // ★★ It does NOT sit between `reports` and `sharepoint`, nor between
-  // `sharepoint` and `sep-2`: fix-345 §4 pins SharePoint's two neighbours by
-  // position, and inserting there would move a neighbour a test names.
-  {
-    kind: 'link',
-    link: {
-      to: '/agenda',
-      label: 'Agenda',
-      icon: '◎',
-      agendaOnly: true,
-      hint: 'The weekly agenda — one running list of items to work through',
-    },
-  },
+  // ★ fix-462's placement reasoning is recorded rather than deleted, because it
+  //   was right on its own terms and is what a reader will wonder about: it sat
+  //   *"with the work destinations, beside My Board, because that is what it is
+  //   — six people open it to run a meeting about their own tasks."* Bobby has
+  //   now weighed that against the tab count and chosen the tab count. The
+  //   ROUTE is unchanged and so are its semantics; only the shelf moved.
   { kind: 'separator', id: 'sep-1' },
   // ★ fix-335 §3: Library, standing alone. It keeps the group's own icon rather
   // than the '·' it wore as a child — a top-level entry sits in the same column
@@ -288,6 +281,38 @@ export const RIBBON_ENTRIES: RibbonEntry[] = [
           icon: '·',
           adminOnly: false,
           hint: 'Every project, searchable — open to everyone',
+        },
+        // ★★★ fix-483 §C (P-138) — THE AGENDA, AS A CHILD.
+        //
+        // ★★ ORDER: Overview · Project View · Agenda · Saved reports. Proposed,
+        //    not ruled — Bobby can reorder. The reasoning is that the first
+        //    three are places you READ and the last is a shelf you RUN things
+        //    off, so the agenda sits with what it resembles.
+        //
+        // ★★★ IT CARRIES **BOTH** GATES, AND NEEDS BOTH:
+        //
+        //      adminOnly: false   opts OUT of the group's admin gate, exactly
+        //                         as Project View does. Without it the six
+        //                         non-admin agenda members (Briana, Brittani,
+        //                         Dave, Gena, Lucas, Miles) would lose the
+        //                         screen the moment it moved under Reports.
+        //      agendaOnly: true   fix-462's second gate, unchanged in meaning:
+        //                         visible to the people in the meeting, and to
+        //                         admins, who see everything.
+        //
+        // ★★★ AND `visibleChildren` HAD TO LEARN THE SECOND ONE. It filtered on
+        //     `adminOnly` alone, so a child with `agendaOnly` would have been
+        //     shown to every non-member editor — the gate silently not applying
+        //     because the entry changed shelf. That is the fix-331 §8 shape
+        //     ("each child says for itself") extended to fix-462's flag rather
+        //     than a new mechanism. See `visibleChildren` below.
+        {
+          to: '/agenda',
+          label: 'Agenda',
+          icon: '·',
+          adminOnly: false,
+          agendaOnly: true,
+          hint: 'The weekly agenda — one running list of items to work through',
         },
         // ★ fix-317 (register #75): the six individual reports came OUT of here.
         // They were listed twice — once as ribbon entries, once inside Saved
@@ -362,9 +387,19 @@ export const RIBBON_ENTRIES: RibbonEntry[] = [
   {
     kind: 'external',
     external: {
+      // ★ The ID IS STILL `sharepoint`. It is the test-id stem and the open/
+      //   closed key, not a name anybody reads — renaming it would move every
+      //   `ribbon-external-sharepoint` selector for a label change.
       id: 'sharepoint',
       href: SHAREPOINT_URL,
-      label: 'SharePoint',
+      // ★★★ fix-483 §C (P-138): `SharePoint` → `D&E Studio`. Bobby, 2026-09-02.
+      //     A LABEL ONLY — the href is the same `SHAREPOINT_URL`, the ↗
+      //     external treatment is unchanged, and the entry is still ungated.
+      //     The ribbon now names the DESTINATION (the studio's own site) rather
+      //     than the vendor that hosts it, which is the same reasoning fix-345
+      //     §4 used to stop treating it as an exile: *"maybe it is just another
+      //     word like the other options so it is more uniform."*
+      label: 'D&E Studio',
       icon: '▧',
       hint: 'Blueprint Design and Entitlements Studio on SharePoint — opens in a new tab',
     },
@@ -454,7 +489,9 @@ export function visibleEntries(
       continue;
     }
     if (e.kind === 'group') {
-      const children = visibleChildren(e.group, false);
+      // ★ fix-483 §C: the agenda flag travels down to the children now — see
+      //   `visibleChildren`.
+      const children = visibleChildren(e.group, false, isAgendaMember);
       if (children.length > 0) out.push({ kind: 'group', group: { ...e.group, children } });
       continue;
     }
@@ -477,15 +514,28 @@ export function allRibbonExternals(): RibbonExternal[] {
 
 /** The children of a group this viewer may see. A child inherits the group's
  *  gate unless it says otherwise — `adminOnly: false` is a deliberate opt-out,
- *  not a missing value, which is why `undefined` and `false` differ here. */
+ *  not a missing value, which is why `undefined` and `false` differ here.
+ *
+ *  ★★★ fix-483 §C: AND IT APPLIES fix-462's SECOND GATE TOO. Until Agenda moved
+ *  under Reports, `agendaOnly` only ever appeared on a top-level link, which
+ *  `visibleEntries` handles directly — so this function had never needed to
+ *  know about it. Moving the entry without teaching this would have shown the
+ *  Agenda to all 23 non-admin editors, because a gate that only one code path
+ *  enforces stops being enforced the moment an entry takes the other path.
+ *
+ *  ★★ `isAgendaMember` is DEFAULTED, the same way fix-462 defaulted it on
+ *  `visibleEntries`: every existing call site keeps compiling and keeps
+ *  answering what it answered before, because a non-member never saw Agenda. */
 export function visibleChildren(
   group: RibbonGroup,
   isAdmin: boolean,
+  isAgendaMember = false,
 ): RibbonLink[] {
   if (isAdmin) return group.children;
-  return group.children.filter((c) =>
-    c.adminOnly === undefined ? !group.adminOnly : !c.adminOnly,
-  );
+  return group.children.filter((c) => {
+    if (c.agendaOnly && !isAgendaMember) return false;
+    return c.adminOnly === undefined ? !group.adminOnly : !c.adminOnly;
+  });
 }
 
 /** Every route the ribbon can reach, admin included. Used by the test that
