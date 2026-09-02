@@ -311,12 +311,20 @@ describe('fix-290 a third section costs nothing', () => {
   });
 
   it('stacks Team the same way it stacks Project', () => {
+    // ★ fix-479 §A (P-132): this paired Internal with EXTERNAL, which has left
+    //   the card. The claim is about the CARD — its sections are siblings drawn
+    //   by one component — so it is re-made against the section that took
+    //   External's place in the stack. Builder/Owner above, Chat below; both
+    //   are asserted so the pair is not the only thing keeping this honest.
     renderHeader();
     const team = screen.getByTestId('project-overview-team');
     const internal = within(team).getByTestId('project-overview-team-internal');
-    const external = within(team).getByTestId('project-overview-team-external');
-    expect(internal.parentElement).toBe(external.parentElement);
-    expect(internal.className).toBe(external.className);
+    const builder = within(team).getByTestId('project-overview-team-builder');
+    const chat = within(team).getByTestId('project-overview-team-chat');
+    expect(internal.parentElement).toBe(builder.parentElement);
+    expect(internal.parentElement).toBe(chat.parentElement);
+    expect(internal.className).toBe(builder.className);
+    expect(internal.className).toBe(chat.className);
   });
 
   it('leaves single-section cards with no sub-heading to repeat the banner', () => {

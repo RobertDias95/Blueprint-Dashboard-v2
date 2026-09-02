@@ -80,6 +80,14 @@ export function useConsultantRounds(
             'est_recd, recd, created_at, updated_at',
         )
         .eq('consultant_id', consultantId as string)
+        // ★★★ fix-479 §C: VOIDED ROUNDS ARE NOT HISTORY, THEY ARE ERASED
+        //     HISTORY. `bp_set_consultant_firm(p_clear_rounds := true)` stamps
+        //     `voided_at` instead of deleting, so this list is the one place a
+        //     cleared round could reappear on screen — and the ruling is that
+        //     the screen reads EXACTLY as it did under `delete`. The view and
+        //     the three round writers filter server-side; this is the fourth
+        //     reader and it filters here.
+        .is('voided_at', null)
         .order('round_index', { ascending: false });
       if (error) throw error;
       return (data ?? []) as unknown as ConsultantRound[];
@@ -99,6 +107,20 @@ function useInvalidate(projectId: string | null | undefined) {
     //   the pill and any open Expand panel. A status flip that appends a round
     //   must show up in the history it just opened.
     void qc.invalidateQueries({ queryKey: queryKeys.projectConsultantsAll });
+    // ★★★ fix-479 §D — AND THE PROJECT ROW, BECAUSE THE SERVER JUST WROTE TO IT.
+    //     `bp_add_project_consultant` and `bp_set_consultant_firm` now set
+    //     `projects.external_team[discipline]` in the same transaction, and
+    //     `projects_set_updated_at` moves the project's OCC token with it. A
+    //     cache that did not hear about that would hand the next project edit a
+    //     stale token — fix-99's auto-retry would recover it, but only after a
+    //     round trip the app already knows it needs.
+    //
+    // ★ It is invalidated on EVERY consultant write, not just the two that
+    //   write through. A status flip does not touch the project, so the refetch
+    //   returns an identical row and React Query keeps the same reference —
+    //   the cost is one query, and the alternative is a per-mutation rule that
+    //   the next writer has to remember to update.
+    void qc.invalidateQueries({ queryKey: queryKeys.projects(tenantId ?? '') });
   };
 }
 

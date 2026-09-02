@@ -765,7 +765,7 @@ describe('fix-345 §3: the Team card has exactly one way into the chat', () => {
   // ★ What the test protects is unchanged — the ORDER of the whole card,
   // asserted whole rather than sliced down to the part that still passes — and
   // the count is still four sections, so fix-345 §3's pinning above is intact.
-  it('★★ the card order is Builder/Owner, Internal, External, the preview, then the button', () => {
+  it('★★ the card order is Builder/Owner, Internal, the preview, then the button', () => {
     renderHeader(projectFixture(), [bpFixture()]);
     const ids = Array.from(
       screen.getByTestId('project-overview-team').querySelectorAll(':scope > section'),
@@ -777,7 +777,8 @@ describe('fix-345 §3: the Team card has exactly one way into the chat', () => {
     expect(ids).toEqual([
       'project-overview-team-builder',
       'project-overview-team-internal',
-      'project-overview-team-external',
+      // ★ fix-479 §A (P-132): `project-overview-team-external` left this list
+      //   with the section itself. The ORDER is still asserted whole.
       'project-overview-team-chat',
       'pd-chat-section',
     ]);

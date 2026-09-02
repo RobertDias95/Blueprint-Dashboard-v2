@@ -1,6 +1,5 @@
 import { describe, it, expect } from 'vitest';
 import MIGRATION from '../../migrations/fix_474_consultant_records.sql?raw';
-import SEED from '../../migrations/fix_474_seed_from_external_team_PENDING_APPROVAL.sql?raw';
 import {
   CONSULTANT_DATE_FIELDS,
   CONSULTANT_DATE_SLOTS,
@@ -349,41 +348,29 @@ describe('fix-474 §4 — what the database guarantees', () => {
 });
 
 // ---------------------------------------------------------------------------
-// §5 — the seed is a PROPOSAL, not a write
+// §5 — RETIRED BY fix-479 §E (P-132), 2026-09-02: THE SEED WAS APPROVED
 // ---------------------------------------------------------------------------
-describe('fix-474 §5 — the seed file writes nothing', () => {
-  it('★★★ every statement is commented out — P-043, and Bobby has not been asked', () => {
-    const live = SEED.split('\n').filter(
-      (l) => l.trim() !== '' && !l.trimStart().startsWith('--'),
-    );
-    expect(live, `these lines would execute:\n${live.join('\n')}`).toEqual([]);
-  });
-
-  it('★★ it carries its real prod row count in the header', () => {
-    // 159 (project, discipline) pairs across 53 projects, all 159 resolving to
-    // a directory row. If that had not been true the file would have proposed
-    // something else.
-    expect(SEED).toContain('159');
-    expect(SEED).toContain('53');
-    expect(SEED).toContain('ZERO unmatched');
-  });
-
-  it('★★★ a seeded record would claim NO history, and says so', () => {
-    // Consistent with the ruling that "the tracker starts empty and fills from
-    // new activity": external_team records WHO and nothing about when.
-    // ★★★ NOT ACROSS A LINE BREAK. This asserted a string spanning a newline
-    //     and broke the moment git converted the file to CRLF on checkout —
-    //     which this repo does to every file. That asserts the line endings,
-    //     not the claim.
-    expect(SEED).toContain('four dates NULL');
-    expect(SEED).toContain('claims **no history**');
-    // ★ …and the 28 open waiting_on tasks are explicitly out of scope.
-    expect(SEED).toContain('stay in My Tasks, untouched');
-  });
-
-  it('★ the file name says PENDING_APPROVAL', () => {
-    // House practice: the state is in the filename, so nobody has to read the
-    // header to know it has not been applied.
-    expect(SEED).toContain('PENDING APPROVAL. NOT APPLIED');
-  });
-});
+// ★★★ THESE FOUR TESTS EXISTED TO KEEP A FILE FROM RUNNING. fix-474 shipped
+// `fix_474_seed_from_external_team_PENDING_APPROVAL.sql` as a readable proposal
+// with every statement commented out, because the 2026-09-01 ruling was *"the
+// tracker starts empty and fills from new activity"* and Bobby had not been
+// asked. They asserted: nothing uncommented, the real prod counts in the
+// header, that a seeded record claims no history, and that the FILENAME still
+// said PENDING_APPROVAL.
+//
+// ★★★ BOBBY WAS ASKED, WITH THE COST STATED, AND SAID YES — 2026-09-02: *"if
+// there is an external member there, let's make sure we add it over to
+// consultants… the status default for all the projects would be whatever the
+// primary setting is, which I think is scheduled."* The file is now
+// `migrations/fix_479_seed_from_external_team.sql`, it is APPLIED, and it
+// created 164 records and 164 rounds on prod.
+//
+// ★★ SO THE ASSERTIONS ARE NOT DROPPED, THEY ARE INVERTED. "Nothing runs" was
+// only ever the right test while the answer was unknown; the right test now is
+// what the seed actually did, and that lives in
+// ConsultantVoidAndSeedFix479.test.ts — including the resolve gate that fired
+// on one unmatched pair, and the header claim that the void migration was
+// applied FIRST so no seeded row was ever reachable by a `delete`.
+//
+// ★ §1–§4 above are untouched: they are about the fix-474 SCHEMA, which is
+//   still what the app runs on.

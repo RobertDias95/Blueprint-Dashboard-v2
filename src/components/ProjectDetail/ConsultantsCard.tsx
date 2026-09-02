@@ -15,6 +15,7 @@ import {
   CONSULTANT_DATE_LABEL,
   CONSULTANT_DATE_SLOTS,
   CONSULTANT_STATUSES,
+  consultantHasNothingToClear,
   seedConsultantDates,
   transitionAppends,
   type ConsultantCurrent,
@@ -222,6 +223,38 @@ function ConsultantPill({
     [firms, row.discipline, row.firm_id],
   );
 
+  /**
+   * ★★★ fix-479 §C — THE PROMPT ONLY ASKS WHEN THERE IS SOMETHING TO LOSE.
+   *
+   * fix-475 asked on every firm change. On a consultant added a moment ago the
+   * two answers are indistinguishable — one live round, `Scheduled`, four empty
+   * dates, and `Clear` and `Keep` both leave exactly that — so the dialog was a
+   * decision about nothing, with the red-edged button being the one that
+   * performed the plain rename. Correcting a firm you have just picked is the
+   * single most likely reason to change one at all.
+   *
+   * ★ THE PREDICATE IS SHARED (`consultantHasNothingToClear`), not inlined, so
+   *   the rule and its reasoning live with the rest of the consultant
+   *   vocabulary and a second caller cannot disagree with this one.
+   *
+   * ★★ WHEN IT SKIPS, IT SKIPS TO `clearRounds: false` — the conservative
+   *    answer, and fix-475's own default. If this predicate is ever wrong, the
+   *    failure is a kept empty round, not a voided real one.
+   */
+  function onPickFirm(nextFirmId: string) {
+    if (nextFirmId === row.firm_id) return;
+    if (consultantHasNothingToClear(row)) {
+      setFirm.mutate({
+        consultantId: row.consultant_id,
+        firmId: nextFirmId,
+        expectedUpdatedAt: row.updated_at,
+        clearRounds: false,
+      });
+      return;
+    }
+    setFirmPrompt(nextFirmId);
+  }
+
   function onStatus(next: ConsultantStatus) {
     // ★★ fix-474's RPC decides whether this appends a round; this only decides
     //    whether to OPEN the history so the person sees what happened. The
@@ -261,7 +294,7 @@ function ConsultantPill({
             color: 'var(--color-text)',
           }}
           value={row.firm_id}
-          onChange={(e) => setFirmPrompt(e.target.value)}
+          onChange={(e) => onPickFirm(e.target.value)}
           data-testid={`pd-consultant-firm-${row.discipline}`}
         >
           {options.map((f) => (

@@ -413,7 +413,7 @@ describe('fix-331 §2: the DPoR card face is label, preview, enlarge, copy', () 
 // ---------------------------------------------------------------------------
 
 describe('fix-331 §3: the chat lives inside the Team card', () => {
-  it('★ renders as a section of the card, after External', () => {
+  it('★ renders as a section of the card, after the roster', () => {
     renderHeader();
     const team = screen.getByTestId('project-overview-team');
     const ids = Array.from(team.querySelectorAll('section'))
@@ -429,10 +429,11 @@ describe('fix-331 §3: the chat lives inside the Team card', () => {
     expect(ids).toEqual([
       // ★ fix-475: Builder/Owner became Team's top section — see fix-346's
       //   suite for the reasoning. fix-331's claim (the chat is a SECTION of
-      //   this card, after External) is untouched.
+      //   this card) is untouched by fix-479 removing External from it.
       'project-overview-team-builder',
       'project-overview-team-internal',
-      'project-overview-team-external',
+      // ★ fix-479 §A (P-132): `project-overview-team-external` left this list
+      //   with the section itself. The ORDER is still asserted whole.
       'project-overview-team-chat',
       'pd-chat-section',
     ]);
@@ -444,7 +445,7 @@ describe('fix-331 §3: the chat lives inside the Team card', () => {
     renderHeader();
     const chat = screen.getByTestId('project-overview-team-chat');
     // The section's own top rule comes from OverviewSection, exactly like
-    // Internal and External. Nothing INSIDE it may draw a card.
+    // Internal. Nothing INSIDE it may draw a card.
     for (const el of Array.from(chat.querySelectorAll('*'))) {
       const cls = (el as HTMLElement).className;
       const className = typeof cls === 'string' ? cls : '';
@@ -454,7 +455,7 @@ describe('fix-331 §3: the chat lives inside the Team card', () => {
     }
   });
 
-  it('★ uses the same section treatment as Internal and External', () => {
+  it('★ uses the same section treatment as Internal', () => {
     renderHeader();
     const chat = screen.getByTestId('project-overview-team-chat');
     const internal = screen.getByTestId('project-overview-team-internal');

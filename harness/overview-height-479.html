@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>fix-479 §F — overview card heights</title>
+    <!--
+      ===========================================================================
+      fix-479 §F — MEASURE THE ROW, BEFORE AND AFTER (P-132 #4)
+      ===========================================================================
+
+      Bobby: "our vertical height is really tall right now… milestones and
+      projects have a ton of white space."
+
+      Run it:   npm run dev
+                http://localhost:5173/harness/overview-height-479.html
+
+      The page resolves every card WIDTH from the app's own
+      `resolveOverviewWidths(overviewRowWidthAt(vp))`, so it measures 1920 and
+      1440 whatever size the window happens to be. The report prints at the
+      bottom in a <pre id="fix479-report">.
+
+      ★ The entry lives in src/harness/ rather than beside this file because
+        tailwind.config.js scans `./src/**` and nothing else — a harness outside
+        src would render with none of the utilities the interiors are built from,
+        and every number would be wrong in the same silent direction.
+    -->
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/harness/overviewHeight479.tsx"></script>
+  </body>
+</html>

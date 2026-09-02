@@ -1,11 +1,10 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { render, screen, within, fireEvent } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { ReactNode } from 'react';
 import { useAuthStore } from '../stores/authStore';
 import type { PermitWithCycles, Project } from '../lib/database.types';
-import { WAITING_ON_OPTIONS } from '../lib/database.types';
 import {
   MILESTONE_BOX_CHROME,
   MILESTONE_DATE_INPUT_MIN,
@@ -31,7 +30,6 @@ import {
   resolveOverviewWidths,
 } from '../lib/overviewCardLayout';
 import { UNIT_MATRIX_WIDTH } from '../lib/unitRowLayout';
-import { EXTERNAL_TEAM_COMMON_DISCIPLINES } from '../lib/externalTeam';
 
 // ===========================================================================
 // fix-423 — Milestones stops clipping, Team stops setting the height, and the
@@ -166,14 +164,11 @@ vi.mock('../hooks/useProjectConsultants', () => ({
 
 import ProjectDetailHeader from '../components/ProjectDetail/ProjectDetailHeader';
 
-/** ★ The five external firms of Bobby's screenshot project, BSF26-05167. */
-const FIVE_EXTERNAL = {
-  Civil: 'Facet Engineering',
-  Surveyor: 'Emerald Land',
-  Structural: 'SSS Structural',
-  Arborist: 'Tree Solutions',
-  Geotech: 'Pan GEO',
-};
+// ★ fix-479 §A: `FIVE_EXTERNAL` (the five firms of Bobby's screenshot project
+//   BSF26-05167), `WAITING_ON_OPTIONS` and `EXTERNAL_TEAM_COMMON_DISCIPLINES`
+//   left with §C above — the External block they described no longer renders.
+//   The equivalent five-firm fixture now lives in ExternalOutOfTeamFix479,
+//   where its job is to prove the block is absent even when the blob is full.
 
 function makeProject(over: Partial<Project> = {}): Project {
   return {
@@ -446,66 +441,26 @@ describe("fix-423 §B: ACQ / ENT on the left, SD / DM / DA on the right", () => 
 });
 
 // ---------------------------------------------------------------------------
-// §C · SCOPE 3 — an EXTERNAL block with nothing in it is one line
+// §C · SCOPE 3 — RETIRED BY fix-479 §A (P-132), 2026-09-02
 // ---------------------------------------------------------------------------
-
-describe('fix-423 §C: the empty External block collapses', () => {
-  it('★★★ zero disciplines ⇒ one row, no banner, no empty slots', () => {
-    // ★ Measured: 251px before, 51px after. The empty case is the common case
-    //   — 143 of 196 active projects.
-    renderHeader({ external_team: {} } as unknown as Partial<Project>);
-    const ext = screen.getByTestId('pd-ext-section');
-    expect(within(ext).getByTestId('pd-ext-none')).toBeInTheDocument();
-    expect(within(ext).queryByTestId('pd-ext-empty-cta')).toBeNull();
-    for (const d of EXTERNAL_TEAM_COMMON_DISCIPLINES) {
-      expect(
-        within(ext).queryByTestId(`pd-ext-row-${d}`),
-        `${d} slot is not drawn when nothing is assigned`,
-      ).toBeNull();
-    }
-    // ★★ ONE ROW: the state and the way out of it, side by side.
-    expect(ext.children.length).toBe(2);
-  });
-
-  it('★★★ the collapsed picker still offers EVERY discipline', () => {
-    // ★ THE PRESENTATION COLLAPSES, THE AFFORDANCE DOES NOT. Deleting the four
-    //   slots without widening the picker would put a Surveyor further away on
-    //   exactly the projects that have not got one.
-    renderHeader({ external_team: {} } as unknown as Partial<Project>);
-    const picker = screen.getByTestId('pd-ext-add-discipline') as HTMLSelectElement;
-    const offered = Array.from(picker.options).map((o) => o.value).filter(Boolean);
-    expect(offered).toEqual([...WAITING_ON_OPTIONS]);
-    for (const d of EXTERNAL_TEAM_COMMON_DISCIPLINES) expect(offered).toContain(d);
-  });
-
-  it('★★ picking one opens the section into the block that renders today', () => {
-    // ★ The collapse is keyed off "nothing assigned AND nothing surfaced". If
-    //   it were keyed off `noneAssigned` alone, surfacing one of the common
-    //   four would change nothing on screen and the control would look broken.
-    renderHeader({ external_team: {} } as unknown as Partial<Project>);
-    fireEvent.change(screen.getByTestId('pd-ext-add-discipline'), {
-      target: { value: 'Civil' },
-    });
-    expect(screen.queryByTestId('pd-ext-none')).toBeNull();
-    for (const d of EXTERNAL_TEAM_COMMON_DISCIPLINES) {
-      expect(screen.getByTestId(`pd-ext-row-${d}`)).toBeInTheDocument();
-    }
-  });
-
-  it('★★★ a FILLED External list is NOT restructured', () => {
-    // The brief is explicit and so is this: five stacked dropdowns help 19
-    // projects two-up and Bobby has not asked for it. Nothing here changes.
-    renderHeader({ external_team: FIVE_EXTERNAL } as unknown as Partial<Project>);
-    const ext = screen.getByTestId('pd-ext-section');
-    expect(within(ext).queryByTestId('pd-ext-none')).toBeNull();
-    expect(within(ext).queryByTestId('pd-ext-empty-cta')).toBeNull();
-    for (const d of Object.keys(FIVE_EXTERNAL)) {
-      expect(within(ext).getByTestId(`pd-ext-row-${d}`)).toBeInTheDocument();
-    }
-    // Stacked, one under the next, exactly as before.
-    expect(ext.className).toContain('flex-col');
-  });
-});
+// ★★★ THE SUBJECT IS GONE, NOT THE ASSERTION WEAKENED. fix-423 §C collapsed an
+// EMPTY External block from 251px to one line, on the reading that "the empty
+// case costs 98% of the full case to say nothing at all, on 143 of 196 active
+// projects". Bobby, 2026-09-02: *"that external team, under team, is no longer
+// going to be there. We are going to move that external team over to
+// consultants."* There is no External block in the Team card to collapse — the
+// whole 251px left, which is strictly more than §C's 200px saving and is
+// measured in docs/FIX_479_OVERVIEW_HEIGHT_MEASUREMENT.md.
+//
+// ★ §C's FINDING outlives its tests and is worth keeping in words: the empty
+//   state of a fill-in-the-slots editor can cost as much as its full state, and
+//   the way to find that out is to measure the empty one.
+//
+// ★ The four tests removed here (`pd-ext-section`, `pd-ext-none`,
+//   `pd-ext-add-discipline`, `pd-ext-row-*`) all addressed testids that no
+//   longer render. Their replacement — the section is ABSENT — is asserted in
+//   ExternalOutOfTeamFix479.test.tsx, which is where the External surfaces are
+//   now pinned as gone.
 
 // ---------------------------------------------------------------------------
 // §D · SCOPE 4 — the row wraps below the width where it fits

@@ -21,7 +21,6 @@ import {
   seedTargetSubmit,
 } from '../../lib/permitSeedingDefaults';
 import { pushToast } from '../../stores/toastStore';
-import ProjectExternalTeamPanel from './ProjectExternalTeamPanel';
 import { ProjectHoldPanel } from './ProjectHold';
 import type {
   PermitWithCycles,
@@ -903,13 +902,22 @@ export default function ProjectSettingsModal({
             </Field>
           </Section>
 
-          {/* fix-139 / fix-195: External Team — consultant firms per discipline.
-              Reads/writes the projects.external_team blob (the single source —
-              fix-197 dropped the old normalized table), independent of the
-              atomic project save below. */}
-          <Section title="External Team" color="var(--color-pm)">
-            <ProjectExternalTeamPanel projectId={project.id} />
-          </Section>
+          {/* ★★★ fix-479 §D (P-132) — THE `External Team` SECTION IS GONE.
+              Ruled by Bobby 2026-09-02: the Consultants card is the ONLY place
+              a consultant firm is picked. Two editors for one value is how the
+              two disagreed; the second one is removed rather than kept in sync.
+
+              ★ `projects.external_team` is NOT abandoned — a firm change in
+                Consultants writes it through server-side, inside
+                `bp_add_project_consultant` / `bp_set_consultant_firm`, so My
+                Tasks → Waiting and the vendor forecast keep resolving the right
+                firm. See migrations/fix_479_consultant_firm_write_through.sql.
+
+              ★ `ProjectExternalTeamPanel` went with it — this was its only call
+                site. `ExternalFirmSelect`, `useExternalTeamShowRules` and
+                `lib/externalTeam` all stay: they are the blob's shared
+                vocabulary and the Settings → External Team DIRECTORY editor
+                (a different screen, still live) reads from the same place. */}
 
           <Section title="Permits" color="var(--color-de)">
             {/* fix-25-feat-e-redo: Section's body is a grid-cols-2 layout;

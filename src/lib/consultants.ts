@@ -217,3 +217,46 @@ export function transitionAppends(
 export function seedPhaseLabel(roundIndex: number): string {
   return roundIndex === 0 ? 'Design' : `Cycle ${roundIndex}`;
 }
+
+/**
+ * ★★★ fix-479 §C — IS THERE ANYTHING FOR "CLEAR THE ROUNDS" TO CLEAR?
+ *
+ * The firm-change prompt (`Keep — a hand-off` / `Clear — wrong firm`) exists
+ * because only the person doing it knows which of the two they are doing. But
+ * that is only a question when there is something to lose. A consultant added a
+ * moment ago has exactly one round — index 0, `Scheduled`, four empty dates —
+ * and both answers do the identical thing to it. Asking is then a decision
+ * dialog about nothing, and worse, the destructive-looking button is the one
+ * that fires the plain rename.
+ *
+ * ★★★ THE TEST IS "ONE LIVE ROUND, AND IT SAYS NOTHING", NOT "round_index === 0".
+ * `round_count` is the count of NON-VOIDED rounds (the view filters, fix-479
+ * §C), so a consultant whose history has been cleared once ALSO lands here —
+ * one live round, empty — and the index of that round is whatever the void
+ * sequence left it at. Keying off the index would have made this true only on a
+ * never-cleared consultant, which is the narrower half of the same state.
+ *
+ * ★ ALL FOUR DATES, INCLUDING THE TWO THE ADD SEEDS. `bp_add_project_consultant`
+ *   is handed `est_send` / `est_recd` from `seedConsultantDates`, so a project
+ *   with a DD end and a target submit creates a round that DOES say something —
+ *   two dates a person may since have adjusted. That round has content, so the
+ *   prompt is right to appear. This returns true only when the round is empty in
+ *   fact, not merely young.
+ */
+export function consultantHasNothingToClear(row: {
+  round_count: number;
+  status: ConsultantStatus | null;
+  est_send: string | null;
+  sent: string | null;
+  est_recd: string | null;
+  recd: string | null;
+}): boolean {
+  return (
+    row.round_count <= 1 &&
+    (row.status ?? CONSULTANT_STATUS_DEFAULT) === CONSULTANT_STATUS_DEFAULT &&
+    row.est_send === null &&
+    row.sent === null &&
+    row.est_recd === null &&
+    row.recd === null
+  );
+}
