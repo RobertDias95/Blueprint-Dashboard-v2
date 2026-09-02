@@ -240,7 +240,11 @@ describe('fix-422 §D: the five cards, re-shared against the real row', () => {
       OVERVIEW_CARD_COLUMNS.map((c) => [c.key, c.floorReason]),
     );
     expect(byKey.proj).toContain('HARD');
-    expect(byKey.builder).toContain('HARD');
+    // ★★★ AMENDED BY fix-475: `builder` is gone from the row and
+    //     `consultants` holds its slot. The claim — every floor states
+    //     whether it is HARD or SOFT and why — is what this asserts, and it
+    //     is asserted of the column that is actually there.
+    expect(byKey.consultants).toContain('HARD');
     expect(byKey.dd).toContain('SOFT');
     expect(byKey.team).toContain('SOFT');
     expect(byKey.por).toContain('SOFT');
@@ -272,7 +276,7 @@ describe('fix-422 §D: the five cards, re-shared against the real row', () => {
     //    to reclaim ~100px from an over-wide PROJECT card; that card does not
     //    exist. Recorded so the next brief starts from the real number.
     const team = OVERVIEW_CARD_COLUMNS.find((c) => c.key === 'team')!;
-    const builder = OVERVIEW_CARD_COLUMNS.find((c) => c.key === 'builder')!;
+    const consultants = OVERVIEW_CARD_COLUMNS.find((c) => c.key === 'consultants')!;
     expect(team.pct).toBeGreaterThan(15);
     // ★★★ SUPERSEDED BY fix-423 for Builder/Owner ONLY, by Bobby's own
     //     instruction — *"take a little bit of width out of Builder/Owner and
@@ -280,8 +284,16 @@ describe('fix-422 §D: the five cards, re-shared against the real row', () => {
     //     was never really about the share: what it guards is that the re-share
     //     did not shrink the card that was clipping emails, and at 1920 it
     //     renders 204px against a 190px floor. Team's half is untouched.
-    expect(builder.pct).toBe(16);
-    expect(builder.minPx).toBe(190);
+    // ★ The SHARE is inherited from Builder/Owner unchanged — fix-423 tuned
+    //   these five against each other and fix-475 has no measurement saying
+    //   any should move.
+    expect(consultants.pct).toBe(16);
+    // ★★★ THE FLOOR FELL, 190 → 144, and that is the whole width story of
+    //     fix-475. Measured in Chrome (harness/consultant-column-floor.html):
+    //     a native <input type="date"> needs 103px, so the mock's SIDE-BY-SIDE
+    //     pair would cost 252px of floor. Stacked, the widest single control
+    //     is the 104px status pill. OVERVIEW_ROW_MIN_WIDTH goes 1218 → 1172.
+    expect(consultants.minPx).toBe(144);
     expect(team.minPx).toBeGreaterThan(140);
     const free =
       overviewRowWidthAt(1920, 'expanded') - OVERVIEW_ROW_MIN_WIDTH;
@@ -318,7 +330,12 @@ describe('fix-422 §D: the five cards, re-shared against the real row', () => {
     //     units band. It is the row WRAPPING to two lines below the threshold,
     //     which removes the sideways scroll without taking width from any card.
     //     Bobby has still not ruled on the band; nothing here pre-empts it.
-    expect(overviewMinViewport('expanded')).toBe(1788);
+    // ★★★ fix-475 MOVED THIS NUMBER DOWN, 1788 → 1742, and the direction is
+    //     the point: `builder`'s 190px floor left the row and `consultants`
+    //     brought a measured 144, so the whole row needs 46px LESS than it did.
+    //     Every claim above survives — the condition for the fallback is still
+    //     met, by 142px at a 1600 window — and the band is still Bobby's call.
+    expect(overviewMinViewport('expanded')).toBe(1742);
     expect(overviewRowFitsAt(1600, 'expanded')).toBe(false);
     expect(overviewRowFitsAt(1920, 'expanded')).toBe(true);
   });
@@ -408,6 +425,29 @@ vi.mock('../stores/toastStore', () => ({
   pushToast: vi.fn(),
   useToastStore: () => ({ toasts: [], push: vi.fn(), dismiss: vi.fn() }),
 }));
+
+// ★★★ fix-475 (P-116) — THE CONSULTANTS CARD IS INERT HERE.
+//
+// It joined the Overview row (taking Builder/Owner's slot), so every test that
+// renders `ProjectDetailHeader` now mounts it — and it READS: the consultant
+// list, its round history, and the firm directory.
+//
+// ★★ WHY THAT MATTERED RATHER THAN JUST BEING NOISE: several of these suites
+// share one supabase mock whose `.select()` SHIFTS A QUEUED RESPONSE. A new
+// component issuing a read silently ate the response the test had queued for
+// its own write, and the failure surfaced as "expected 1 to be 2" three files
+// away from the cause. Mocked inert, exactly as `useBuilderSearch` and
+// `useSetBpDdDates` already are in the files that have this shape.
+vi.mock('../hooks/useProjectConsultants', () => ({
+  useProjectConsultants: () => ({ data: [], isLoading: false }),
+  useConsultantRounds: () => ({ data: [], isLoading: false }),
+  useAddProjectConsultant: () => ({ mutate: vi.fn(), isPending: false }),
+  useSetConsultantStatus: () => ({ mutate: vi.fn(), isPending: false }),
+  useSetConsultantDate: () => ({ mutate: vi.fn(), isPending: false }),
+  useSetConsultantPhase: () => ({ mutate: vi.fn(), isPending: false }),
+  useSetConsultantFirm: () => ({ mutate: vi.fn(), isPending: false }),
+}));
+
 
 import ProjectDetailHeader from '../components/ProjectDetail/ProjectDetailHeader';
 

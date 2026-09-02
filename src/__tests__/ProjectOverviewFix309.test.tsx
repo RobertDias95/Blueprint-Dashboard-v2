@@ -70,6 +70,29 @@ vi.mock('../stores/toastStore', () => ({
   useToastStore: () => ({ toasts: [], push: vi.fn(), dismiss: vi.fn() }),
 }));
 
+// ★★★ fix-475 (P-116) — THE CONSULTANTS CARD IS INERT HERE.
+//
+// It joined the Overview row (taking Builder/Owner's slot), so every test that
+// renders `ProjectDetailHeader` now mounts it — and it READS: the consultant
+// list, its round history, and the firm directory.
+//
+// ★★ WHY THAT MATTERED RATHER THAN JUST BEING NOISE: several of these suites
+// share one supabase mock whose `.select()` SHIFTS A QUEUED RESPONSE. A new
+// component issuing a read silently ate the response the test had queued for
+// its own write, and the failure surfaced as "expected 1 to be 2" three files
+// away from the cause. Mocked inert, exactly as `useBuilderSearch` and
+// `useSetBpDdDates` already are in the files that have this shape.
+vi.mock('../hooks/useProjectConsultants', () => ({
+  useProjectConsultants: () => ({ data: [], isLoading: false }),
+  useConsultantRounds: () => ({ data: [], isLoading: false }),
+  useAddProjectConsultant: () => ({ mutate: vi.fn(), isPending: false }),
+  useSetConsultantStatus: () => ({ mutate: vi.fn(), isPending: false }),
+  useSetConsultantDate: () => ({ mutate: vi.fn(), isPending: false }),
+  useSetConsultantPhase: () => ({ mutate: vi.fn(), isPending: false }),
+  useSetConsultantFirm: () => ({ mutate: vi.fn(), isPending: false }),
+}));
+
+
 import ProjectDetailHeader from '../components/ProjectDetail/ProjectDetailHeader';
 
 function projectFixture(over: Partial<Project> = {}): Project {
@@ -353,9 +376,15 @@ describe('fix-309 #55: the card row is one equal-height band', () => {
     }
     // ★★★ …and the one exception, asserted as an exception rather than left
     //     out of the loop, so it cannot spread by accident.
-    expect(c['builder'], 'missing cell: builder').toBeTruthy();
-    expect(getComputedStyle(c['builder']).height).not.toBe('100%');
-    expect(getComputedStyle(c['builder']).alignSelf).toBe('start');
+    // ★★★ AMENDED BY fix-475: the SHORT CELL is `consultants` now. fix-441's
+    //     finding is about the CELL, not about Builder/Owner — a card with
+    //     the least to say must not be stretched to the row's height, and a
+    //     consultants list on a project with one consultant is exactly that
+    //     card. Both halves are still required together: `stretch` would
+    //     impose the height whatever the inline style said.
+    expect(c['consultants'], 'missing cell: consultants').toBeTruthy();
+    expect(getComputedStyle(c['consultants']).height).not.toBe('100%');
+    expect(getComputedStyle(c['consultants']).alignSelf).toBe('start');
   });
 
   it('the cards themselves fill their cell rather than sitting at content height', () => {

@@ -49,6 +49,29 @@ vi.mock('../hooks/usePlanOfRecord', () => ({
   usePlanOfRecordThumbnail: () => ({ data: null, isLoading: false, error: null }),
 }));
 
+// ★★★ fix-475 (P-116) — THE CONSULTANTS CARD IS INERT HERE.
+//
+// It joined the Overview row (taking Builder/Owner's slot), so every test that
+// renders `ProjectDetailHeader` now mounts it — and it READS: the consultant
+// list, its round history, and the firm directory.
+//
+// ★★ WHY THAT MATTERED RATHER THAN JUST BEING NOISE: several of these suites
+// share one supabase mock whose `.select()` SHIFTS A QUEUED RESPONSE. A new
+// component issuing a read silently ate the response the test had queued for
+// its own write, and the failure surfaced as "expected 1 to be 2" three files
+// away from the cause. Mocked inert, exactly as `useBuilderSearch` and
+// `useSetBpDdDates` already are in the files that have this shape.
+vi.mock('../hooks/useProjectConsultants', () => ({
+  useProjectConsultants: () => ({ data: [], isLoading: false }),
+  useConsultantRounds: () => ({ data: [], isLoading: false }),
+  useAddProjectConsultant: () => ({ mutate: vi.fn(), isPending: false }),
+  useSetConsultantStatus: () => ({ mutate: vi.fn(), isPending: false }),
+  useSetConsultantDate: () => ({ mutate: vi.fn(), isPending: false }),
+  useSetConsultantPhase: () => ({ mutate: vi.fn(), isPending: false }),
+  useSetConsultantFirm: () => ({ mutate: vi.fn(), isPending: false }),
+}));
+
+
 import ProjectDetailHeader from '../components/ProjectDetail/ProjectDetailHeader';
 import NotesPanel from '../components/ProjectDetail/NotesPanel';
 
@@ -203,7 +226,11 @@ const CARDS: Array<[string, string]> = [
   ['pd-project-card', 'Project'],
   ['project-overview-team', 'Team'],
   ['plan-of-record-card', 'Design Plan of Record'],
-  ['pd-builder-cell', 'Builder / Owner'],
+  // ★★★ fix-475 (P-116): the fifth card is CONSULTANTS. `pd-builder-cell` is
+  //     NOT gone — it moved inside Team behind a disclosure — but it is no
+  //     longer one of the five the row renders, and fix-290's contract is
+  //     about the row's cards. The card that is there is asserted below.
+  ['pd-consultants-card', 'Consultants'],
 ];
 
 // ★ fix-309 #54 moved Notes OUT of the header, to the bottom of Schedule
@@ -293,9 +320,11 @@ describe('fix-290 a third section costs nothing', () => {
   });
 
   it('leaves single-section cards with no sub-heading to repeat the banner', () => {
+    // ★ fix-475: asserted of CONSULTANTS now — the row's one single-section
+    //   card. Builder/Owner is inside Team and its heading there is a SECTION
+    //   heading, which is exactly what this rule is about not duplicating.
     renderHeader();
-    const builder = screen.getByTestId('pd-builder-cell');
-    // "Builder / Owner" appears once — in the banner — not again beneath it.
-    expect(within(builder).getAllByText('Builder / Owner')).toHaveLength(1);
+    const consultants = screen.getByTestId('pd-consultants-card');
+    expect(within(consultants).getAllByText('Consultants')).toHaveLength(1);
   });
 });

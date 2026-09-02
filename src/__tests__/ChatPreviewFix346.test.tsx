@@ -129,6 +129,29 @@ vi.mock('../stores/toastStore', () => ({
   useToastStore: () => ({ toasts: [], push: vi.fn(), dismiss: vi.fn() }),
 }));
 
+// ★★★ fix-475 (P-116) — THE CONSULTANTS CARD IS INERT HERE.
+//
+// It joined the Overview row (taking Builder/Owner's slot), so every test that
+// renders `ProjectDetailHeader` now mounts it — and it READS: the consultant
+// list, its round history, and the firm directory.
+//
+// ★★ WHY THAT MATTERED RATHER THAN JUST BEING NOISE: several of these suites
+// share one supabase mock whose `.select()` SHIFTS A QUEUED RESPONSE. A new
+// component issuing a read silently ate the response the test had queued for
+// its own write, and the failure surfaced as "expected 1 to be 2" three files
+// away from the cause. Mocked inert, exactly as `useBuilderSearch` and
+// `useSetBpDdDates` already are in the files that have this shape.
+vi.mock('../hooks/useProjectConsultants', () => ({
+  useProjectConsultants: () => ({ data: [], isLoading: false }),
+  useConsultantRounds: () => ({ data: [], isLoading: false }),
+  useAddProjectConsultant: () => ({ mutate: vi.fn(), isPending: false }),
+  useSetConsultantStatus: () => ({ mutate: vi.fn(), isPending: false }),
+  useSetConsultantDate: () => ({ mutate: vi.fn(), isPending: false }),
+  useSetConsultantPhase: () => ({ mutate: vi.fn(), isPending: false }),
+  useSetConsultantFirm: () => ({ mutate: vi.fn(), isPending: false }),
+}));
+
+
 import ProjectDetailHeader from '../components/ProjectDetail/ProjectDetailHeader';
 
 function projectFixture(over: Partial<Project> = {}): Project {
@@ -210,9 +233,24 @@ beforeEach(() => {
 // ---------------------------------------------------------------------------
 
 describe('fix-346 §1: the Team card reads Internal, External, Chat, button', () => {
-  it('★★ the ORDER is asserted, not merely that all four are present', () => {
+  it('★★ the ORDER is asserted, not merely that all sections are present', () => {
+    // ★★★ AMENDED BY fix-475 (P-116): BUILDER/OWNER JOINED THE TOP.
+    //     Its own Overview column became Consultants, and Bobby ruled the card
+    //     becomes Team's first section — *"Owner + Business visible, click to
+    //     expand to the full card."*
+    //
+    // ★★ fix-346's CLAIM IS UNTOUCHED and is what the tail of this list still
+    //    says: Internal, then External, then the preview, then the button.
+    //    Nothing was reordered — one section was prepended.
+    //
+    // ★ EXTERNAL STAYS, deliberately. The brief's list of Team's sections
+    //   ("then Internal, then Chat") omitted it, but `projects.external_team`
+    //   is still the ONLY record of 53 projects' consultant firms — Bobby
+    //   ruled 2026-09-01 NOT to seed the new tables from it. Removing the
+    //   editor would make that data unreachable with nothing replacing it.
     renderHeader();
     expect(teamSectionIds()).toEqual([
+      'project-overview-team-builder',
       'project-overview-team-internal',
       'project-overview-team-external',
       'project-overview-team-chat',
@@ -384,15 +422,22 @@ describe('fix-346 §1: fix-345 §3 survives the move', () => {
   // ★★ The section count is still FOUR, which is the number fix-345 §3's
   // reasoning turns on — a pinned section is pinned whatever is above it, but
   // the distribution above it is what the brief asked to re-verify.
-  it('★★ four sections, three of which share the spare height', () => {
+  it('★★ five sections, four of which share the spare height', () => {
     renderHeader();
-    expect(teamSectionIds()).toHaveLength(4);
+    // ★ fix-475: five now — Builder/Owner joined the top. fix-345 §3's
+    //   property is about the PINNED one taking no share of the spare height,
+    //   which is a claim about the last section, not about how many there are.
+    expect(teamSectionIds()).toHaveLength(5);
     const distributed = (
       Array.from(
         screen.getByTestId('project-overview-team').querySelectorAll(':scope > section'),
       ) as HTMLElement[]
     ).filter((s) => s.dataset.pinBottom !== 'true');
-    expect(distributed).toHaveLength(3);
+    // ★ fix-475: four share it now. The PROPERTY — the pinned section takes
+    //   no share, so all three cards' actions land on the same baseline — is
+    //   what fix-345 §3 established and it is unchanged: exactly one section
+    //   is pinned, and every other one grows.
+    expect(distributed).toHaveLength(4);
     for (const s of distributed) expect(s.style.flexGrow).toBe('1');
   });
 

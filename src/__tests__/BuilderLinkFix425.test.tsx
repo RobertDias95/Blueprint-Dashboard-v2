@@ -434,7 +434,47 @@ vi.mock('../hooks/useAppConfig', () => ({
   readConsultantTypes: () => [] as { type: string; firms: string[] }[],
 }));
 
+// ★★★ fix-475 (P-116) — THE CONSULTANTS CARD IS INERT HERE.
+//
+// It joined the Overview row (taking Builder/Owner's slot), so every test that
+// renders `ProjectDetailHeader` now mounts it — and it READS: the consultant
+// list, its round history, and the firm directory.
+//
+// ★★ WHY THAT MATTERED RATHER THAN JUST BEING NOISE: several of these suites
+// share one supabase mock whose `.select()` SHIFTS A QUEUED RESPONSE. A new
+// component issuing a read silently ate the response the test had queued for
+// its own write, and the failure surfaced as "expected 1 to be 2" three files
+// away from the cause. Mocked inert, exactly as `useBuilderSearch` and
+// `useSetBpDdDates` already are in the files that have this shape.
+vi.mock('../hooks/useProjectConsultants', () => ({
+  useProjectConsultants: () => ({ data: [], isLoading: false }),
+  useConsultantRounds: () => ({ data: [], isLoading: false }),
+  useAddProjectConsultant: () => ({ mutate: vi.fn(), isPending: false }),
+  useSetConsultantStatus: () => ({ mutate: vi.fn(), isPending: false }),
+  useSetConsultantDate: () => ({ mutate: vi.fn(), isPending: false }),
+  useSetConsultantPhase: () => ({ mutate: vi.fn(), isPending: false }),
+  useSetConsultantFirm: () => ({ mutate: vi.fn(), isPending: false }),
+}));
+
+
 import ProjectDetailHeader from '../components/ProjectDetail/ProjectDetailHeader';
+
+// ★★★ fix-475 (P-116) — BUILDER/OWNER IS BEHIND A DISCLOSURE NOW.
+//
+// Its own Overview column became CONSULTANTS; the card itself moved into the
+// Team card as its top section, collapsed to Owner + Business with an
+// `Expand ⌄` control (Bobby: *"Owner + Business visible, click to expand to the
+// full card."*).
+//
+// ★★ SO EVERY TEST BELOW THAT READS THE CARD'S FIELDS OPENS IT FIRST, and that
+// is the ONLY change to them. Not one assertion about what the card does was
+// touched — the picker still writes the same patch, the OCC retry still
+// recovers, the cached fields are still read-only. What moved is where the card
+// lives, so what moved in the tests is one click before the reads.
+function openBuilderCard() {
+  fireEvent.click(screen.getByTestId('pd-builder-disclose'));
+}
+
 
 function builder(over: Partial<Builder>): Builder {
   return {
@@ -493,6 +533,7 @@ describe('fix-425 §D: the Overview picker records which builder', () => {
       builder({ id: 'b-kuleana', name: 'Boyd Lybeck', company: 'Kuleana Homes LLC' }),
     ];
     renderCell();
+    openBuilderCard();
     fireEvent.change(screen.getByTestId('pd-builder-name'), {
       target: { value: 'boyd' },
     });
@@ -533,6 +574,7 @@ describe('fix-425 §D: the Overview picker records which builder', () => {
     // pick writes nothing whatsoever. The fragment that littered the catalogue
     // can no longer reach the project either.
     renderCell();
+    openBuilderCard();
     const input = screen.getByTestId('pd-builder-name');
     fireEvent.focus(input);
     fireEvent.change(input, { target: { value: 'boy' } });
@@ -548,6 +590,7 @@ describe('fix-425 §D: the Overview picker records which builder', () => {
     // fix-425's rule, widened by §B3: the six move together or the project
     // shows a company it is no longer linked to.
     renderCell({ builder_name: 'Boyd Lybeck', builder_id: 'b-kuleana' });
+    openBuilderCard();
     fireEvent.click(screen.getByTestId('pd-builder-name-clear'));
     await waitFor(() => expect(mutateAsync).toHaveBeenCalledTimes(1));
     const patch = mutateAsync.mock.calls[0][0].patch;
@@ -564,6 +607,7 @@ describe('fix-425 §D: the Overview picker records which builder', () => {
     // question: the four cached fields are DISPLAY. They are a cache of the
     // catalogue row, and a cache you can type into is a second truth.
     renderCell({ builder_name: 'Boyd Lybeck', builder_id: 'b-kuleana' });
+    openBuilderCard();
     const phone = screen.getByTestId('pd-builder-phone');
     expect(phone.tagName).not.toBe('INPUT');
     expect(screen.queryByTestId('pd-builder-email')!.tagName).not.toBe('INPUT');

@@ -187,6 +187,29 @@ vi.mock('../hooks/useReplaceQuarterLayout', async (orig) => ({
   ...(await orig<typeof import('../hooks/useReplaceQuarterLayout')>()),
   useReplaceQuarterLayout: () => ({ mutate: vi.fn(), isPending: false }),
 }));
+
+// ★★★ fix-475 (P-116) — THE CONSULTANTS CARD IS INERT HERE.
+//
+// It joined the Overview row (taking Builder/Owner's slot), so every test that
+// renders `ProjectDetailHeader` now mounts it — and it READS: the consultant
+// list, its round history, and the firm directory.
+//
+// ★★ WHY THAT MATTERED RATHER THAN JUST BEING NOISE: several of these suites
+// share one supabase mock whose `.select()` SHIFTS A QUEUED RESPONSE. A new
+// component issuing a read silently ate the response the test had queued for
+// its own write, and the failure surfaced as "expected 1 to be 2" three files
+// away from the cause. Mocked inert, exactly as `useBuilderSearch` and
+// `useSetBpDdDates` already are in the files that have this shape.
+vi.mock('../hooks/useProjectConsultants', () => ({
+  useProjectConsultants: () => ({ data: [], isLoading: false }),
+  useConsultantRounds: () => ({ data: [], isLoading: false }),
+  useAddProjectConsultant: () => ({ mutate: vi.fn(), isPending: false }),
+  useSetConsultantStatus: () => ({ mutate: vi.fn(), isPending: false }),
+  useSetConsultantDate: () => ({ mutate: vi.fn(), isPending: false }),
+  useSetConsultantPhase: () => ({ mutate: vi.fn(), isPending: false }),
+  useSetConsultantFirm: () => ({ mutate: vi.fn(), isPending: false }),
+}));
+
 // The roster the components under test read. One mock, both halves of the
 // ticket — the Team card does not use it, the filters do.
 vi.mock('../hooks/useTeamMembers', async (orig) => {
@@ -284,14 +307,31 @@ function internalSection(): HTMLElement {
   return screen.getByTestId('project-overview-team-internal');
 }
 
+// ★★★ fix-475 §2 RESHAPED THIS BLOCK, AND EVERY CLAIM BELOW SURVIVES IT.
+// Bobby asked for the roster spelled out, one role per block, each with an
+// initials avatar — so `ACQ` / `SD` became `Acquisitions` / `Schematic design`,
+// read from `TEAM_INTERNAL_ROWS.title`, which has carried exactly those words
+// as the abbreviation's tooltip since fix-321 itself.
+// ★★ The reads move from "the span that says SD" to "the block keyed sd";
+//    nothing they assert changes.
+// ★★★ ONE RULE INVERTED, FLAGGED NOT DROPPED: an unfilled role used to render
+//     an em dash *"because a blank reads as a rendering fault"*. With a FACE on
+//     every line that flips — an empty circle beside an empty name reads as a
+//     BROKEN avatar — so fix-475 renders nothing at all.
+function roleBlock(key: string): HTMLElement | null {
+  return within(internalSection()).queryByTestId(`pd-role-${key}`);
+}
+
 describe('fix-321 #78: the Team card follows the work', () => {
   it('renders the five tiers in Bobby\'s order', () => {
     renderHeader();
+    // ★ fix-475: read off the block keys — the labels are spelled out now.
+    //   The ORDER is the claim and it is unchanged.
     const labels = Array.from(
-      internalSection().querySelectorAll('span:first-child'),
-    )
-      .map((el) => el.textContent?.trim())
-      .filter((t) => ['ACQ', 'ENT', 'SD', 'DM', 'DA'].includes(t ?? ''));
+      internalSection().querySelectorAll('[data-testid^="pd-role-"]'),
+    ).map((el) =>
+      (el as HTMLElement).dataset.testid!.replace('pd-role-', '').toUpperCase(),
+    );
     // Acquisitions · Entitlements · SD · Design Manager · Design Associate —
     // land, then entitlement, then schematic design, then the manager, then the
     // associate doing it.
@@ -300,8 +340,7 @@ describe('fix-321 #78: the Team card follows the work', () => {
 
   it('the SD row reads the project\'s schematic designer', () => {
     renderHeader(projectFixture({ schematic_designer: ['Ana'] } as Partial<Project>));
-    const sd = within(internalSection()).getByText('SD')
-      .parentElement as HTMLElement;
+    const sd = roleBlock('sd') as HTMLElement;
     expect(sd.textContent).toContain('Ana');
   });
 
@@ -309,34 +348,40 @@ describe('fix-321 #78: the Team card follows the work', () => {
     renderHeader(
       projectFixture({ schematic_designer: ['Ana', 'Dave'] } as Partial<Project>),
     );
-    const sd = within(internalSection()).getByText('SD')
-      .parentElement as HTMLElement;
+    const sd = roleBlock('sd') as HTMLElement;
     expect(sd.textContent).toContain('Ana');
     expect(sd.textContent).toContain('Dave');
   });
 
   it('★ a project with no schematic designer gets the card\'s normal empty row, not a broken one', () => {
     renderHeader(projectFixture({ schematic_designer: null } as Partial<Project>));
-    const sd = within(internalSection()).getByText('SD')
-      .parentElement as HTMLElement;
+    const sd = roleBlock('sd') as HTMLElement;
     // The same em-dash the four tiers around it use when empty — not blank, not
     // "null", not a missing row.
-    expect(sd.textContent).toContain('—');
-    expect(sd.textContent ?? '').not.toMatch(/null|undefined|\[object/);
-    // And the row is still there, in position.
-    const labels = Array.from(internalSection().querySelectorAll('span:first-child'))
-      .map((el) => el.textContent?.trim())
-      .filter((t) => ['ACQ', 'ENT', 'SD', 'DM', 'DA'].includes(t ?? ''));
-    expect(labels).toEqual(['ACQ', 'ENT', 'SD', 'DM', 'DA']);
+    // ★★★ INVERTED BY fix-475 §2, and the reason is the avatar. This asserted
+    //     an em dash *"because a blank reads as a rendering fault"*. With a
+    //     FACE on every line that flips: an empty circle beside an empty name
+    //     reads as a BROKEN avatar. fix-475's rule is that an unfilled role
+    //     renders nothing — and "nothing" is unambiguous in a way neither a
+    //     blank cell nor an orphaned circle is.
+    expect(sd).toBeNull();
+    // ★ …and the OTHER four are still there, in Bobby's order. That is the
+    //   half of this test that survives the inversion: SD dropping out must
+    //   not disturb the roles around it.
+    const labels = Array.from(
+      internalSection().querySelectorAll('[data-testid^="pd-role-"]'),
+    ).map((el) =>
+      (el as HTMLElement).dataset.testid!.replace('pd-role-', '').toUpperCase(),
+    );
+    expect(labels).toEqual(['ACQ', 'ENT', 'DM', 'DA']);
   });
 
   it('★ no new role and no second lookup — it reads projects.schematic_designer', () => {
     // An empty array is not the same as "ask team_members" — with no designer on
     // the project, the row is empty even though the roster has schematic people.
     renderHeader(projectFixture({ schematic_designer: [] } as Partial<Project>));
-    const sd = within(internalSection()).getByText('SD')
-      .parentElement as HTMLElement;
-    expect(sd.textContent).toContain('—');
+    const sd = roleBlock('sd') as HTMLElement;
+    expect(sd).toBeNull();
   });
 });
 
@@ -434,7 +479,8 @@ describe('fix-321 #79: the dashboard DA picker stops at the current roster', () 
     renderHeader(projectFixture(), [bpFixture({ da: 'Nidhi' } as Partial<PermitWithCycles>)]);
     // The Team card names the DA on the permit, former or not. Hiding it would
     // make the permit read as unassigned — the worse lie.
-    expect(within(internalSection()).getByText('DA').parentElement?.textContent).toContain(
+    // ★ fix-475: the DA block, keyed rather than found by its abbreviation.
+    expect(roleBlock('da')?.textContent).toContain(
       'Nidhi',
     );
   });

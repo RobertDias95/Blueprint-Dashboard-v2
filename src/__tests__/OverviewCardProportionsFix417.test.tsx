@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { render, screen, within } from '@testing-library/react';
+import { render, screen, within, fireEvent } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { ReactNode } from 'react';
@@ -136,9 +136,11 @@ describe('fix-417 §A: the proportions are declared once', () => {
   });
 
   it('★★ the areas line up with the columns, in order', () => {
-    expect(OVERVIEW_GRID_AREAS).toBe('"dd proj team por builder"');
+    // ★ AMENDED BY fix-475: the fifth column is CONSULTANTS. The claim — the
+    //   areas line up with the columns, in order — is untouched.
+    expect(OVERVIEW_GRID_AREAS).toBe('"dd proj team por consultants"');
     expect(OVERVIEW_CARD_COLUMNS.map((c) => c.key)).toEqual([
-      'dd', 'proj', 'team', 'por', 'builder',
+      'dd', 'proj', 'team', 'por', 'consultants',
     ]);
   });
 });
@@ -199,8 +201,13 @@ describe('fix-417: the page body never scrolls sideways', () => {
     //     to share a line, not less. What changed is the CONSEQUENCE below the
     //     threshold: fix-422 reported a sideways scroll there and fix-423 wraps
     //     the row to two lines instead. See OverviewRowFix423 §D.
-    expect(overviewMinViewport('expanded')).toBe(1788);
-    expect(overviewMinViewport('collapsed')).toBe(1632);
+    // ★★★ fix-475 MOVED IT DOWN, 1788 → 1742, and the direction is the point:
+    //     `builder`'s 190 left the row and `consultants` brought a measured
+    //     144, so the row needs 46px LESS. Every "does it fit" claim below is
+    //     now true by a wider margin than when it was written.
+    expect(overviewMinViewport('expanded')).toBe(1742);
+    // ★ fix-475: 1632 → 1586, the same 46px the row minimum fell by.
+    expect(overviewMinViewport('collapsed')).toBe(1586);
   });
 
   it('★★ below the threshold the cards sit on their floors and the PANE scrolls', () => {
@@ -252,8 +259,16 @@ describe('fix-417: the page body never scrolls sideways', () => {
     // ★★★ Builder/Owner is the card that was clipping emails, and its floor is
     //     the one number in this table that fix-422 did not touch: an <input>
     //     does not wrap, so 190px is a measurement, not a preference.
-    const b = OVERVIEW_CARD_COLUMNS.find((c) => c.key === 'builder')!;
-    expect(b.minPx).toBe(190);
+    // ★★★ AMENDED BY fix-475, AND THE DEFECT IS CLOSED A DIFFERENT WAY NOW.
+    //     This asserted 190 because *"an <input> does not wrap, so 190px is a
+    //     measurement, not a preference."* fix-448 made those fields TEXT and
+    //     fix-475 made that text WRAP, so readability no longer depends on the
+    //     column's width at all — see "the floor is wide enough for that email"
+    //     below, which now asserts the readability directly. The guard this
+    //     test really carries is that the fifth column's floor is MEASURED and
+    //     not a preference, and that is asserted of the column that is there.
+    const b = OVERVIEW_CARD_COLUMNS.find((c) => c.key === 'consultants')!;
+    expect(b.minPx).toBe(144);
     // ★★★ SUPERSEDED BY fix-423, AND THE GUARD THAT MATTERED SURVIVES INTACT.
     //     fix-422 raised this card's SHARE to 19 and wrote that up as the only
     //     lever the row had left. Bobby then asked, in as many words, for the
@@ -280,10 +295,14 @@ describe('fix-417: the page body never scrolls sideways', () => {
     const widths = OVERVIEW_CARD_COLUMNS.map(
       (c) => c.minPx + (free * c.pct) / 100,
     );
-    const [dd, proj, team, por, builder] = widths;
+    const [dd, proj, team, por, consultants] = widths;
     // measured: 230 · 660 · 100 · 270 · 110
     expect(team).toBeGreaterThan(100 * 1.7);      // was ~100px
-    expect(builder).toBeGreaterThan(110 * 1.9);   // was ~110px, and clipping
+    // ★ fix-475: the fifth card is CONSULTANTS. The claim — every squeezed
+    //   card grows back at the width Bobby measured — is unchanged, and this
+    //   column starts from a LOWER floor (144 vs 190) so it has more room to
+    //   grow into. 171.68px at 1440 against a 144px floor is growth.
+    expect(consultants).toBeGreaterThan(144);
     expect(por).toBeGreaterThan(270);             // was third widest
     expect(proj).toBeLessThan(660 / 1.9);         // stops eating the row
     expect(por).toBeGreaterThan(proj);
@@ -390,6 +409,29 @@ vi.mock('../stores/toastStore', () => ({
   useToastStore: () => ({ toasts: [], push: vi.fn(), dismiss: vi.fn() }),
 }));
 
+// ★★★ fix-475 (P-116) — THE CONSULTANTS CARD IS INERT HERE.
+//
+// It joined the Overview row (taking Builder/Owner's slot), so every test that
+// renders `ProjectDetailHeader` now mounts it — and it READS: the consultant
+// list, its round history, and the firm directory.
+//
+// ★★ WHY THAT MATTERED RATHER THAN JUST BEING NOISE: several of these suites
+// share one supabase mock whose `.select()` SHIFTS A QUEUED RESPONSE. A new
+// component issuing a read silently ate the response the test had queued for
+// its own write, and the failure surfaced as "expected 1 to be 2" three files
+// away from the cause. Mocked inert, exactly as `useBuilderSearch` and
+// `useSetBpDdDates` already are in the files that have this shape.
+vi.mock('../hooks/useProjectConsultants', () => ({
+  useProjectConsultants: () => ({ data: [], isLoading: false }),
+  useConsultantRounds: () => ({ data: [], isLoading: false }),
+  useAddProjectConsultant: () => ({ mutate: vi.fn(), isPending: false }),
+  useSetConsultantStatus: () => ({ mutate: vi.fn(), isPending: false }),
+  useSetConsultantDate: () => ({ mutate: vi.fn(), isPending: false }),
+  useSetConsultantPhase: () => ({ mutate: vi.fn(), isPending: false }),
+  useSetConsultantFirm: () => ({ mutate: vi.fn(), isPending: false }),
+}));
+
+
 import ProjectDetailHeader from '../components/ProjectDetail/ProjectDetailHeader';
 
 /** ★ THE VALUES BOBBY PHOTOGRAPHED BEING CUT OFF, at full length. */
@@ -488,7 +530,10 @@ describe('fix-417 (rendered): the row renders from the declared table', () => {
     //     entirely: this ticket changed one cell's alignment and no track.
     for (const cell of cells) {
       const area = cell.getAttribute('data-overview-cell');
-      if (area === 'builder') {
+      // ★ fix-475: the short cell is `consultants` now — fix-441's finding is
+      //   about the CELL (a card with the least to say must not be stretched),
+      //   not about Builder/Owner.
+      if (area === 'consultants') {
         expect(cell.style.height).toBe('');
         expect(cell.style.alignSelf).toBe('start');
         continue;
@@ -506,6 +551,9 @@ describe('fix-417: THE REPORTED DEFECT — Builder/Owner clips mid-word', () => 
     //     input does NOT wrap: its value scrolls out of sight, so the ONLY fix
     //     available is width. The card's floor exists to hold this string.
     renderHeader();
+    // ★ fix-475: the card lives inside Team behind a disclosure now — its own
+    //   column became Consultants. One click, then the same reads.
+    fireEvent.click(screen.getByTestId('pd-builder-disclose'));
     const card = screen.getByTestId('pd-builder-cell');
     // ★★ fix-448 re-points these THREE reads and changes nothing they claim.
     //    Email / Cell / LLC Address are no longer <input>s: the cell is
@@ -538,17 +586,33 @@ describe('fix-417: THE REPORTED DEFECT — Builder/Owner clips mid-word', () => 
     // assert and nothing stopping the PROJECT card taking it down to ~110px.
     // Verified by reverting the template and re-running: this expectation
     // fails, the three above do not.
-    const builderTrack = /minmax\((\d+)px, \d+fr\)/g;
+    // ★★★ SUPERSEDED BY fix-475, AND THE REPLACEMENT IS STRONGER.
+    //
+    //     This asserted that the FIFTH TRACK's floor could hold the email,
+    //     because in 2026-08 the fields were <input>s and *"the only thing
+    //     about it that is measurable here is the WIDTH THE CARD IS
+    //     GUARANTEED."* Two tickets since have changed what is measurable:
+    //     fix-448 made these fields TEXT, and fix-475 made that text WRAP when
+    //     the card moved into the 160px Team column.
+    //
+    // ★★ So the guarantee is no longer "the card is wide enough" — it is "the
+    //    value cannot be clipped at all". That holds at EVERY width, including
+    //    the ones Bobby's photograph was taken at, and it is asserted on the
+    //    element rather than on a track that no longer holds this content.
+    expect(email.className).not.toContain('truncate');
+    expect(email.className).toContain('break-all');
+    expect(phone.className).not.toContain('truncate');
+    // ★ The five tracks are still five and still declare real floors — the
+    //   property fix-417 introduced the minmax() for. That claim is about the
+    //   TEMPLATE, so it stays here, pointed at the template.
+    const trackRe = /minmax\((\d+)px, \d+fr\)/g;
     const tracks = [
       ...screen
         .getByTestId('project-overview-grid')
-        .style.gridTemplateColumns.matchAll(builderTrack),
+        .style.gridTemplateColumns.matchAll(trackRe),
     ];
     expect(tracks).toHaveLength(5);
-    const builderFloor = parseFloat(tracks[4][1]);
-    // 12px bold averages ~6.2px/char, + the card's 20px body padding + 2px
-    // border. A floor below this and the input starts clipping again.
-    expect(builderFloor).toBeGreaterThanOrEqual(LONG_EMAIL.length * 6.2 + 22);
+    for (const t of tracks) expect(parseFloat(t[1])).toBeGreaterThan(0);
   });
 
   it('★★★ the floor is wide enough for that email at this card\'s type size', () => {
@@ -556,9 +620,22 @@ describe('fix-417: THE REPORTED DEFECT — Builder/Owner clips mid-word', () => 
     //   declared floor: 12px bold averages ~6.2px/char, plus the card's 20px
     //   body padding and 2px border. If somebody lowers this floor, the input
     //   starts clipping again and this fails.
-    const builder = OVERVIEW_CARD_COLUMNS.find((c) => c.key === 'builder')!;
-    const needed = LONG_EMAIL.length * 6.2 + 20 + 2;
-    expect(builder.minPx).toBeGreaterThanOrEqual(needed);
+    // ★★★ SUPERSEDED BY fix-475 — THE PREMISE, NOT JUST THE NUMBER.
+    //     This asserted a WIDTH because fix-417 found *"an input does NOT wrap
+    //     … the ONLY fix available is width."* That premise is false twice
+    //     over now: fix-448 made these fields READ-ONLY TEXT (but left
+    //     `truncate` on, so they kept clipping for a reason that had stopped
+    //     applying), and fix-475 took the ellipsis off when the card moved into
+    //     the 160px Team column. Text wraps.
+    // ★★ So the surviving claim is Bobby's actual report — the WHOLE email is
+    //    readable, not a truncation — asserted directly instead of through a
+    //    floor standing in for it. Stronger: it holds at any width.
+    renderHeader();
+    fireEvent.click(screen.getByTestId('pd-builder-disclose'));
+    const emailLine = screen.getByTestId('pd-builder-email');
+    expect(emailLine.textContent).toBe(LONG_EMAIL);
+    expect(emailLine.className).not.toContain('truncate');
+    expect(emailLine.className).toContain('break-all');
   });
 });
 
@@ -584,7 +661,9 @@ describe('fix-417 §B (superseded): the PROJECT card still cannot set the row wi
     //     Plan of Record are untouched.
     expect(OVERVIEW_CARD_COLUMNS.map((c) => c.pct)).toEqual([16, 22, 17, 29, 16]);
     expect(OVERVIEW_CARD_COLUMNS.map((c) => c.minPx)).toEqual([
-      222, 296, 160, 310, 190,
+      // ★ fix-475: 190 → 144, the measured Consultants floor. The other four
+      //   are untouched, and so are all five shares.
+      222, 296, 160, 310, 144,
     ]);
     for (const c of OVERVIEW_CARD_COLUMNS) {
       expect(c.floorReason.length).toBeGreaterThan(40);

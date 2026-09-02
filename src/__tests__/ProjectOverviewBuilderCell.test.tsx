@@ -54,8 +54,48 @@ vi.mock('../hooks/useAppConfig', () => ({
   readConsultantTypes: () => [] as { type: string; firms: string[] }[],
 }));
 
+// ★★★ fix-475 (P-116) — THE CONSULTANTS CARD IS INERT HERE.
+//
+// It joined the Overview row (taking Builder/Owner's slot), so every test that
+// renders `ProjectDetailHeader` now mounts it — and it READS: the consultant
+// list, its round history, and the firm directory.
+//
+// ★★ WHY THAT MATTERED RATHER THAN JUST BEING NOISE: several of these suites
+// share one supabase mock whose `.select()` SHIFTS A QUEUED RESPONSE. A new
+// component issuing a read silently ate the response the test had queued for
+// its own write, and the failure surfaced as "expected 1 to be 2" three files
+// away from the cause. Mocked inert, exactly as `useBuilderSearch` and
+// `useSetBpDdDates` already are in the files that have this shape.
+vi.mock('../hooks/useProjectConsultants', () => ({
+  useProjectConsultants: () => ({ data: [], isLoading: false }),
+  useConsultantRounds: () => ({ data: [], isLoading: false }),
+  useAddProjectConsultant: () => ({ mutate: vi.fn(), isPending: false }),
+  useSetConsultantStatus: () => ({ mutate: vi.fn(), isPending: false }),
+  useSetConsultantDate: () => ({ mutate: vi.fn(), isPending: false }),
+  useSetConsultantPhase: () => ({ mutate: vi.fn(), isPending: false }),
+  useSetConsultantFirm: () => ({ mutate: vi.fn(), isPending: false }),
+}));
+
+
 import ProjectDetailHeader from '../components/ProjectDetail/ProjectDetailHeader';
 import { settle } from '../test/settle';
+
+// ★★★ fix-475 (P-116) — BUILDER/OWNER IS BEHIND A DISCLOSURE NOW.
+//
+// Its own Overview column became CONSULTANTS; the card itself moved into the
+// Team card as its top section, collapsed to Owner + Business with an
+// `Expand ⌄` control (Bobby: *"Owner + Business visible, click to expand to the
+// full card."*).
+//
+// ★★ SO EVERY TEST BELOW THAT READS THE CARD'S FIELDS OPENS IT FIRST, and that
+// is the ONLY change to them. Not one assertion about what the card does was
+// touched — the picker still writes the same patch, the OCC retry still
+// recovers, the cached fields are still read-only. What moved is where the card
+// lives, so what moved in the tests is one click before the reads.
+function openBuilderCard() {
+  fireEvent.click(screen.getByTestId('pd-builder-disclose'));
+}
+
 
 function builder(over: Partial<Builder>): Builder {
   return {
@@ -147,6 +187,7 @@ describe('Project Overview <BuilderOwnerCell /> — fix-24d', () => {
       builder({ id: 'aaron', name: 'Aaron Cole', company: 'Cole Building' }),
     ];
     renderCell();
+    openBuilderCard();
     fireEvent.change(screen.getByTestId('pd-builder-name'), {
       target: { value: 'boyd' },
     });
@@ -172,6 +213,7 @@ describe('Project Overview <BuilderOwnerCell /> — fix-24d', () => {
       }),
     ];
     renderCell();
+    openBuilderCard();
     // ★ fix-448: the picker opens on focus and searches as you type; the
     //   option ids are unchanged (`pd-builder-name-option-<id>`).
     fireEvent.focus(screen.getByTestId('pd-builder-name'));
@@ -236,6 +278,7 @@ describe('Project Overview <BuilderOwnerCell /> — fix-24d', () => {
   it('fix-24d → fix-448: typing without selecting writes NOTHING, and offers Add new', async () => {
     searchResults.current = []; // no suggestions
     renderCell();
+    openBuilderCard();
     const input = screen.getByTestId('pd-builder-name');
     fireEvent.focus(input);
     fireEvent.change(input, { target: { value: 'Brand New Builder' } });
@@ -258,6 +301,7 @@ describe('Project Overview <BuilderOwnerCell /> — fix-24d', () => {
       builder_email: null,
       builder_phone: null,
     });
+    openBuilderCard();
     // Focus + blur with the original value — should be a no-op.
     fireEvent.focus(screen.getByTestId('pd-builder-name'));
     fireEvent.blur(screen.getByTestId('pd-builder-name'));
@@ -275,6 +319,7 @@ describe('Project Overview <BuilderOwnerCell /> — fix-24d', () => {
   it('fix-175 → fix-448: LLC Address is DISPLAY, not an input', async () => {
     searchResults.current = [];
     renderCell({ builder_address: '900 Olive Way, Seattle' });
+    openBuilderCard();
     const cell = screen.getByTestId('pd-builder-address');
     expect(cell.tagName).not.toBe('INPUT');
     // ★ It still SHOWS the cached value — read-only is not hidden.
@@ -283,6 +328,7 @@ describe('Project Overview <BuilderOwnerCell /> — fix-24d', () => {
 
   it('editing Point of Contact name + email each commit the per-project poc_* field on blur', async () => {
     renderCell();
+    openBuilderCard();
     fireEvent.change(screen.getByTestId('pd-poc-name'), {
       target: { value: 'Dana Contact' },
     });
@@ -306,6 +352,7 @@ describe('Project Overview <BuilderOwnerCell /> — fix-24d', () => {
 
   it('blank POC + address are optional — blurring empty fields fires no save', async () => {
     renderCell();
+    openBuilderCard();
     fireEvent.focus(screen.getByTestId('pd-poc-name'));
     fireEvent.blur(screen.getByTestId('pd-poc-name'));
     fireEvent.focus(screen.getByTestId('pd-builder-address'));
