@@ -3,6 +3,7 @@ import OriginLink from './OriginLink';
 import { usePermitHolds, activePermitHold } from '../hooks/usePermitHolds';
 import { useProjectHolds, activeHold } from '../hooks/useProjectHolds';
 import { HoldBadge } from './shared/HoldBadge';
+import PriorityStar from './shared/PriorityStar';
 import { waitingOnOptions } from '../lib/waitingOn';
 // ★ fix-466 §5: IMPORT, DO NOT AUTHOR. fix-462 already wrote this predicate and
 //   the AGENDA chip on the row above uses it through `taskKind()`. A second
@@ -404,23 +405,16 @@ export default function TaskDetailEditor({
           </select>
         </FieldRow>
 
-        {/* 5 Priority — star toggle */}
+        {/* 5 Priority — star toggle.
+            ★ fix-484 §B (P-129): the markup moved to `shared/PriorityStar` so
+            the permit screen can mount the SAME control instead of a second
+            copy of it. Nothing here changed but the element that draws it —
+            same testid, same glyphs, same inks, same `aria-pressed`. */}
         <FieldRow label="Priority">
-          <button
-            type="button"
-            onClick={() => patch({ priority: !task.priority })}
-            className="text-[14px] leading-none px-1"
-            style={{
-              color: task.priority ? 'var(--color-co)' : 'var(--color-muted)',
-              cursor: 'pointer',
-            }}
-            data-testid="task-detail-priority"
-            data-priority={task.priority ? 'true' : 'false'}
-            aria-pressed={!!task.priority}
-            title={task.priority ? 'Priority on' : 'Priority off'}
-          >
-            {task.priority ? '★' : '☆'}
-          </button>
+          <PriorityStar
+            value={task.priority}
+            onChange={(next) => patch({ priority: next })}
+          />
         </FieldRow>
 
         {/* 6 Start Date — fix-229: empty renders a muted "—" that reveals the

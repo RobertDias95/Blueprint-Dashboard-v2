@@ -12,6 +12,7 @@ import { useTeamMembers } from '../../hooks/useTeamMembers';
 import {
   chatStamp,
   groupIntoPosts,
+  sortPostsByLifecycle,
   isDeleted,
   keyForMention,
   mentionableAfterRoster,
@@ -98,7 +99,20 @@ export default function ProjectChatModal({
   const markRead = useMarkBoardItemsRead();
 
   const messages = useMemo(() => messagesQ.data ?? [], [messagesQ.data]);
-  const posts = useMemo(() => groupIntoPosts(messages), [messages]);
+  // ★★★ fix-484 §C (P-145) — THE OPENED CHAT READS IN LIFECYCLE ORDER.
+  //
+  // Ruled 2026-09-02: acquisition questions → preliminary assessment → design
+  // phase → correction round 1 → 2 → … Oldest phase at the top, newest cycle at
+  // the bottom, replies inside a thread still chronological.
+  //
+  // ★★ THE OVERVIEW PREVIEW IS UNCHANGED — still newest-first. The two surfaces
+  //    order the same list differently on purpose: the preview is a glance at
+  //    what moved lately, this is the conversation. See `sortPostsByLifecycle`
+  //    in lib/projectChat for the ruling and the prod counts behind it.
+  // ★ `groupIntoPosts` orders newest-activity-first. Kept as its own value
+  //   because the LANDING still uses it — see `selected` below.
+  const byActivity = useMemo(() => groupIntoPosts(messages), [messages]);
+  const posts = useMemo(() => sortPostsByLifecycle(byActivity), [byActivity]);
 
   // ★ fix-321, applied on both sides of the wire — see mentionableAfterRoster.
   const team = useTeamMembers();
@@ -206,8 +220,15 @@ export default function ProjectChatModal({
   }
 
   // The newest conversation is the one you probably came for.
+  //
+  // ★★★ fix-484 §C — AND IT STILL IS. The ruling changed the ORDER THE LIST
+  //     READS, not where you land: `posts[0]` is now "ACQ Questions" on every
+  //     project forever, which would make the modal open on the oldest thread
+  //     in the conversation and put the thing that just moved a click away.
+  //     So the fallback reads `byActivity[0]` — fix-334's decision, untouched,
+  //     now stated as its own thing rather than as a side effect of the sort.
   const selected: ChatPost | null =
-    posts.find((p) => p.post.id === selectedPostId) ?? posts[0] ?? null;
+    posts.find((p) => p.post.id === selectedPostId) ?? byActivity[0] ?? null;
 
   const hits = useMemo(() => searchChat(posts, query), [posts, query]);
 

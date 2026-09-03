@@ -5,7 +5,6 @@ import { useDrawSchedule } from '../hooks/useDrawSchedule';
 import { useProjects } from '../hooks/useProjects';
 import { usePermits } from '../hooks/usePermits';
 import { useDmDaGroups } from '../hooks/useDmDaGroups';
-import { useProjectsWithHandoffs } from '../hooks/useProjectDaHandoffs';
 import { useUpdateDrawSchedule } from '../hooks/useUpdateDrawSchedule';
 import { useResolveDaOverlap } from '../hooks/useResolveDaOverlap';
 import {
@@ -43,7 +42,14 @@ import EntCascadePrompt from './EntCascadePrompt';
 import {
   NP_BLOCK_COLOR,
   addWeeksToWeekKey,
+  BLOCK_ADDRESS_MAX_LINES,
+  BLOCK_ADDRESS_MIN_FONT,
+  blockAddressFontPx,
+  blockAddressLines,
+  blockCentresStack,
+  blockDetailLines,
   blockFontPx,
+  blockStackHeight,
   blockOverflow,
   computeNpSegments,
   dateToWeekKey,
@@ -453,6 +459,12 @@ function DrawScheduleBody({
   const gridScrollRef = useRef<HTMLDivElement>(null);
   const bodyGridRef = useRef<HTMLDivElement>(null);
   const [rowsAreaH, setRowsAreaH] = useState(0);
+  // ★★ fix-484 §A2: the card's WIDTH, measured by the same observer. The DA
+  //    columns are CSS tracks — `repeat(n, minmax(DA_MIN_W, 1fr))` — so their
+  //    resolved width exists only after layout, and §A2's font ramp needs it to
+  //    know whether an address fits. Measured once per resize alongside the
+  //    height that was already being measured, rather than per block.
+  const [cardW, setCardW] = useState(0);
   useEffect(() => {
     const card = gridScrollRef.current;
     const body = bodyGridRef.current;
@@ -461,6 +473,7 @@ function DrawScheduleBody({
       // clientHeight excludes the horizontal scrollbar; body.offsetTop is the
       // combined sticky-header height (card is position:relative).
       setRowsAreaH(Math.max(0, card.clientHeight - body.offsetTop));
+      setCardW(card.clientWidth);
     };
     measure();
     // jsdom has no ResizeObserver and reports 0 heights — guard so tests keep
@@ -497,10 +510,20 @@ function DrawScheduleBody({
   // status/NP affordance below is gated on canEdit, and the write RPCs would
   // raise 42501 / hit an RLS denial even if a control leaked through.
   const canEdit = useIsTenantAdmin();
-  // fix-225: projects reassigned to a different DA (ownership handoff) show a
-  // "shared" asterisk on their board block — the block stays under the ORIGINAL
-  // DA, so the marker signals the work was split.
-  const sharedProjectIds = useProjectsWithHandoffs().projectIds;
+  // ★★★ fix-484 §A3 (P-146) — THE "SHARED" ASTERISK IS GONE FROM THE BLOCK.
+  //
+  // fix-225 put a ✳ before the address on any project whose DA had been
+  // reassigned, because the block stays under the ORIGINAL DA and the marker
+  // said the work was split. Bobby, 2026-09-02, looking at a 90px column: the
+  // block has room for an address and nothing else, and a glyph nobody had
+  // asked about was eating the front of it.
+  //
+  // ★ `useProjectsWithHandoffs` is DELETED HERE and nowhere else — this was its
+  //   ONLY call site (grepped). The HOOK stays: `useProjectDaHandoffs` is a
+  //   per-project reader used by the handoff editor, and fix-225's co-credit
+  //   arithmetic lives in `lib/volumeAttribution` / `lib/teamPerformance`,
+  //   which read the table directly and are untouched. What went is one glyph
+  //   on one surface, not the fact it was drawn from.
 
   const updateMutation = useUpdateDrawSchedule();
   const moveDaMutation = useMoveDrawScheduleDa();
@@ -1433,6 +1456,19 @@ function DrawScheduleBody({
       .sort((a, b) => a.project.address.localeCompare(b.project.address));
   }, [draw, projectById, search, projectSearchHay]);
 
+  // ★★★ fix-484 §A2 — THE RESOLVED DA COLUMN WIDTH, DERIVED THE WAY CSS
+  //     RESOLVES IT: equal `1fr` tracks over what is left after the label
+  //     gutter, floored at `DA_MIN_W` (the same `minmax` the template below
+  //     declares). One derivation, so the arithmetic and the stylesheet cannot
+  //     disagree — and it falls back to `DA_MIN_W` when unmeasured (jsdom,
+  //     first paint), which is the conservative end: the address is sized for
+  //     the narrowest column the grid can produce.
+  const daColW = useMemo(() => {
+    const n = renderColumns.length;
+    if (n === 0 || cardW <= 0) return DA_MIN_W;
+    return Math.max(DA_MIN_W, Math.floor((cardW - labelW) / n));
+  }, [renderColumns.length, cardW, labelW]);
+
   // fix-182d: all three render bands (DM header, DA header, body columns) share
   // ONE grid-template-columns so column/group boundaries align pixel-perfectly.
   // Under the old per-band flex layout the DM-header band had one border per
@@ -2056,15 +2092,49 @@ function DrawScheduleBody({
                     // render minimal content (address + Est. Approval) anchored
                     // to the top so the address never clips; taller non-overflow
                     // blocks render the full stack, centered.
+                    // ★ fix-484 §A1: `isCompact` still decides WHICH FIELDS
+                    //   render (fix-DS-overflow-minimal's decluttering, which
+                    //   Bobby did not complain about). It no longer decides the
+                    //   ANCHOR — see `centresStack` below.
                     const isCompact = !!overflow || visibleSpan <= 1;
                     // fix-DS-fluid-sizing: fluid base font from the visible
                     // span, then textScale (fix-47 row-height scaling) on top.
                     // Address renders one step larger (base + 1, bold); juris /
                     // Est. Approval one step smaller (base − 1).
                     const baseFontPx = blockFontPx(visibleSpan);
-                    const addrFont = Math.round((baseFontPx + 1) * textScale);
                     const detailFont = Math.round((baseFontPx - 1) * textScale);
                     const shortLabel = project.address.split(',')[0];
+                    // ★★★ fix-484 §A2 — WRAP, THEN SHRINK. The ramp proposes a
+                    //     size; `blockAddressFontPx` steps it down in half
+                    //     pixels until the address fits two lines in this
+                    //     column, and stops at fix-47's date-label floor rather
+                    //     than truncating. See lib/drawScheduleHelpers.
+                    //
+                    // ★ `daColW` is the resolved DA column width; the text box
+                    //   is that minus the block's 2px insets and its 6px
+                    //   horizontal padding on each side.
+                    const addrBoxW = Math.max(0, daColW - 2 * 2 - 6 * 2);
+                    const addrFont = blockAddressFontPx(
+                      shortLabel,
+                      addrBoxW,
+                      Math.round((baseFontPx + 1) * textScale),
+                      // ★ ABSOLUTE, not × textScale — see the constant.
+                      BLOCK_ADDRESS_MIN_FONT,
+                    );
+                    const addrLines = Math.min(
+                      BLOCK_ADDRESS_MAX_LINES,
+                      blockAddressLines(shortLabel, addrFont, addrBoxW),
+                    );
+                    // ★★★ fix-484 §A1 — the anchor decision, in one place.
+                    const centresStack = blockCentresStack(
+                      height,
+                      blockStackHeight(
+                        addrLines,
+                        addrFont,
+                        detailFont,
+                        blockDetailLines(isCompact),
+                      ),
+                    );
                     // Duration in weeks is end..start inclusive.
                     const durationWeeks = Math.max(
                       1,
@@ -2082,7 +2152,6 @@ function DrawScheduleBody({
                     // tooltip + yellow border, per Bobby's "if it
                     // doesn't fit, skip" call.
                     const isRedesign = !!project.redesign_of_project_id;
-                    const isShared = sharedProjectIds.has(row.project_id);
                     // ★ fix-335 §7: the block you were sent here to look at.
                     const isFocused = row.project_id === focusProjectId;
                     const originalAddress = isRedesign
@@ -2102,9 +2171,8 @@ function DrawScheduleBody({
                         data-tier="default"
                         data-overflow={overflow === 'tail' ? 'tail' : undefined}
                         data-redesign={isRedesign ? 'true' : undefined}
-                        data-shared={isShared ? 'true' : undefined}
                         data-focus={isFocused ? 'true' : undefined}
-                        title={`${project.address} — ${derivedStatus}${isShared ? ' · Shared (DA reassigned)' : ''}${redesignTitleSuffix}${
+                        title={`${project.address} — ${derivedStatus}${redesignTitleSuffix}${
                           canEdit
                             ? ' (drag to move, click to edit)'
                             : ' (view only)'
@@ -2200,16 +2268,30 @@ function DrawScheduleBody({
                               : 'auto',
                           display: 'flex',
                           flexDirection: 'column',
-                          // fix-DS-compact-rule: compact blocks (overflow slices
-                          // or 1-week non-overflow) top-anchor so the address —
-                          // the first child — can never clip (centering would
-                          // let overflow:hidden trim the top half on a too-tall
-                          // stack, per fix-DS-address-anchor). Taller non-overflow
-                          // blocks have room for the full stack, so they center
-                          // (Bobby's preferred look). gap/padding stay tight so
-                          // even a centered 2-week block doesn't clip.
+                          // ★★★ fix-484 §A1 (P-146) — CENTRED WHEN IT FITS,
+                          //     TOP-ANCHORED WHEN IT DOES NOT. THE TEST IS
+                          //     HEIGHT, NOT WHICH QUARTER THE BLOCK STARTED IN.
+                          //
+                          // This read `isCompact ? 'flex-start' : 'center'`, and
+                          // `isCompact` is true for EVERY cross-quarter slice
+                          // however tall. Bobby's case is seven week-rows —
+                          // ~180px — top-anchoring two lines of 9px text:
+                          // *"a ton of colour and just a little bit of text."*
+                          //
+                          // ★★ fix-DS-address-anchor's REASON IS KEPT, because
+                          //    it is real: centring inside `overflow: hidden`
+                          //    clips the TOP of a stack taller than its box, and
+                          //    the address is the first child. That is a
+                          //    question about height, so it is asked as one —
+                          //    `blockCentresStack(height, stackH)`.
+                          //
+                          // ★ And the block element IS the visible slice already
+                          //   (`top`/`height` come from the CLIPPED si/ei), so
+                          //   "centre in the visible portion" needs no sticky
+                          //   and no rect math. See the note in
+                          //   lib/drawScheduleHelpers.
                           alignItems: 'center',
-                          justifyContent: isCompact ? 'flex-start' : 'center',
+                          justifyContent: centresStack ? 'center' : 'flex-start',
                           textAlign: 'center',
                           gap: 1,
                           padding: '1px 6px',
@@ -2228,13 +2310,27 @@ function DrawScheduleBody({
                             fontSize: addrFont,
                             fontWeight: 800,
                             lineHeight: 1.1,
-                            // fix-DS-uniform-layout: single line + ellipsis (full
-                            // address lives in `title`) so every block's address
-                            // is exactly one row tall — restores the rhythm the
-                            // 2-line wrap broke.
-                            whiteSpace: 'nowrap',
+                            // ★★★ fix-484 §A2 — TWO LINES, THEN THE FONT MOVES.
+                            //
+                            // fix-DS-uniform-layout made this one line with an
+                            // ellipsis, choosing a uniform per-block rhythm over
+                            // legibility: in a 90px column (fix-48's DA floor)
+                            // "548 3rd Ave N [Redesign 1]" read "548 3rd Ave…".
+                            // Bobby's *"just a little bit of text"* is that
+                            // trade, seen. The rhythm survives anyway — every
+                            // block's address is now one line OR two, not an
+                            // arbitrary count, and the stack's height is what
+                            // `blockCentresStack` reasons about.
+                            //
+                            // ★ The clamp still ellipsises the SECOND line when
+                            //   even the floor font cannot hold the address, and
+                            //   the full address is still in `title` — unchanged
+                            //   behaviour for the case that genuinely cannot fit.
+                            display: '-webkit-box',
+                            WebkitLineClamp: BLOCK_ADDRESS_MAX_LINES,
+                            WebkitBoxOrient: 'vertical',
+                            overflowWrap: 'anywhere',
                             overflow: 'hidden',
-                            textOverflow: 'ellipsis',
                             maxWidth: '100%',
                             color: bodyText,
                             // fix-263: a cancelled project's address is struck
@@ -2247,7 +2343,6 @@ function DrawScheduleBody({
                           title={project.address}
                           data-testid={`block-address-${row.project_id}`}
                         >
-                          {isShared ? '✳ ' : ''}
                           {shortLabel}
                         </span>
 

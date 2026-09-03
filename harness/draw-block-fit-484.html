@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>fix-484 §A — the Draw Schedule block, measured</title>
+    <!--
+      ===========================================================================
+      fix-484 §A4 (P-146) — MEASURE THE BLOCK, BEFORE AND AFTER
+      ===========================================================================
+
+      Run it:   npm run dev
+                http://localhost:5173/harness/draw-block-fit-484.html
+
+      ★ The entry lives in src/harness/ because tailwind.config.js scans
+        `./src/**` and nothing else — a harness outside src renders with none of
+        the utilities and every number is wrong in the same silent direction
+        (fix-483 §F's finding).
+    -->
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/harness/drawBlockFit484.tsx"></script>
+  </body>
+</html>
