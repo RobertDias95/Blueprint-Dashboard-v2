@@ -32,6 +32,10 @@ export interface ProjectInternalTeam {
   sd: string[];
   dm: string | null;
   da: string | null;
+  /** ★ fix-487: the Construction Admin. Project-level only — a permit's own
+   *  `ca` is a deliberate, separate assignment and does NOT override this the
+   *  way `ent_lead`/`dm`/`da` do (see `projectInternalTeam`). */
+  ca: string | null;
 }
 
 /** The roster names on this project, as the Team card computes them.
@@ -42,7 +46,11 @@ export interface ProjectInternalTeam {
 export function projectInternalTeam(
   project: Pick<
     Project,
-    'acq_lead' | 'entitlement_lead' | 'design_manager' | 'schematic_designer'
+    | 'acq_lead'
+    | 'entitlement_lead'
+    | 'design_manager'
+    | 'schematic_designer'
+    | 'construction_admin'
   >,
   bp?: Pick<PermitWithCycles, 'ent_lead' | 'dm' | 'da'> | null,
 ): ProjectInternalTeam {
@@ -54,6 +62,16 @@ export function projectInternalTeam(
       : [],
     dm: bp?.dm ?? project.design_manager ?? null,
     da: bp?.da ?? null,
+    // ★★★ fix-487 — AND THE BP DOES **NOT** OVERRIDE IT, deliberately.
+    //
+    // The three above use `bp?.x ?? project.x` because a permit-level ENT/DM/DA
+    // is the SAME job done by somebody else on that permit — the PAR/SDOT/ECA
+    // routing pattern. A permit-level `ca` is not that: Bobby, *"he would only
+    // get assigned to a permit by himself, or ENT in general"*, describing an
+    // EXTRA person pulled onto one permit (his example was a PPR), not a
+    // replacement for the project's CA. Reading the BP's `ca` here would make
+    // one permit's exception rewrite the Team card for the whole project.
+    ca: project.construction_admin ?? null,
   };
 }
 
@@ -79,6 +97,7 @@ export function projectTeamNames(team: ProjectInternalTeam): string[] {
   team.sd.forEach(push);
   push(team.dm);
   push(team.da);
+  push(team.ca);
   return out;
 }
 
@@ -99,5 +118,17 @@ export function projectTeamNames(team: ProjectInternalTeam): string[] {
  * source, same order, one role omitted, and the omission stated in one place.
  */
 export function projectTagNames(team: ProjectInternalTeam): string[] {
-  return projectTeamNames({ ...team, sd: [] });
+  // ★★★ fix-487 DROPS `ca` FROM THE TAG TOO, and this is a judgement call
+  //     flagged for Bobby rather than an obvious consequence.
+  //
+  // Bobby's fix-344 ruling was *"everyone but the SD"*, made when the card had
+  // five rows. `ca` defaults to Steve on EVERY project (211 of 211), so
+  // including him would turn `@project` — a tag for the handful of people on
+  // this job — into a message to Steve about every job in the company. That is
+  // not what the tag is for, and the noise would land on one person.
+  //
+  // ★★ THE CARD STILL SHOWS HIM. Same shape as the `sd` omission above: one
+  //    definition (`projectInternalTeam`), two consumers with different needs,
+  //    and the difference stated here rather than by a rival definition.
+  return projectTeamNames({ ...team, sd: [], ca: null });
 }

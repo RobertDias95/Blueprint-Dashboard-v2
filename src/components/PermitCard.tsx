@@ -52,7 +52,13 @@ export default function PermitCard({
 }: PermitCardProps) {
   const address = project?.address ?? permit.struct_address ?? '—';
   const lead = permit.ent_lead || permit.permit_owner || '';
-  const team = [permit.da, permit.dual_da, permit.dm].filter(Boolean).join(' · ');
+  // ★ fix-487 (P-144): `ca` joins the team line, and `filter(Boolean)` is
+  //   already exactly the brief's "shows on the permit card only when set" —
+  //   almost every permit has none, so an em dash or a label would add a column
+  //   of nothing to 666 cards.
+  const team = [permit.da, permit.dual_da, permit.dm, permit.ca]
+    .filter(Boolean)
+    .join(' · ');
   const urgencyStyle = URGENCY_STYLES[urgency];
 
   return (

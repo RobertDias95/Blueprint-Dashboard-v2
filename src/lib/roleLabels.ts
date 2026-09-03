@@ -51,6 +51,9 @@ export const ROLE_TITLE: Record<TeamRole, string> = {
   schematic: 'Schematic Design',
   acq_lead: 'Acquisitions Lead',
   acq: 'Acquisitions',
+  // ★ fix-487 (P-144). Bobby's own words for the position, unabbreviated —
+  //   this map exists because `ent_lead` reached a name plate as "ENT_LEAD".
+  ca: 'Construction Admin',
   // ★ Never actually printed — see `rosterRoleTitle`. It is here so the map is
   // total over TeamRole (a missing key would be a type error, which is the
   // point of the Record) and so a future caller that must name the role in an
@@ -70,6 +73,7 @@ export const ROLE_TITLE_PLURAL: Record<TeamRole, string> = {
   schematic: 'Schematic Team',
   acq_lead: 'Acquisition Leads',
   acq: 'Acquisition Leads',
+  ca: 'Construction Admins',
   viewer: 'Viewers',
 };
 
@@ -98,12 +102,22 @@ export const ROLE_SENIORITY: readonly TeamRole[] = [
   'ent',
   'acq',
   'da',
+  // ★★ fix-487: below the design roles and above `viewer`, and the placement
+  //    only decides ONE thing — which title leads when a person holds a CA row
+  //    AND another. Nobody does today. It is not a statement about anybody's
+  //    standing; it is the tie-break `roles[0]` used to make by accident.
+  'ca',
   'viewer',
 ];
 
 /** Families of roles that are GRADES OF ONE JOB. Within a family only the most
- *  senior is shown; across families both are. */
-const ROLE_FAMILY: Record<TeamRole, string> = {
+ *  senior is shown; across families both are.
+ *
+ *  ★ Exported since fix-487 so the role-vocabulary suite can assert it is TOTAL
+ *    the same way it asserts ROLE_SENIORITY is. `Record<TeamRole, …>` already
+ *    makes a missing key a type error; the test catches the reverse (a key with
+ *    no role), which is what a deleted role leaves behind. */
+export const ROLE_FAMILY: Record<TeamRole, string> = {
   // ★★ ITS OWN FAMILY, deliberately. Put `director` in the `ent` family and it
   // would REPLACE `ent_lead` rather than print beside it — and Dave's is not a
   // grade of entitlements, it is a job over both. Its own family is what makes
@@ -116,6 +130,12 @@ const ROLE_FAMILY: Record<TeamRole, string> = {
   dm: 'dm',
   schematic: 'schematic',
   da: 'da',
+  // ★★ fix-487: ITS OWN FAMILY. A family means "grades of one job, print only
+  //    the senior" — putting `ca` in the `dm` family would make a Design
+  //    Manager who is also a Construction Admin print as one of the two. They
+  //    are two real jobs, which is the `dm` + `schematic` case Derry already
+  //    proves.
+  ca: 'ca',
   viewer: 'viewer',
 };
 
@@ -233,6 +253,10 @@ export const DEPARTMENT_LABEL: Record<Department, string> = {
   //   department where the slash reads as a job description.
   executive: 'Executive',
   it_investor_relations: 'IT & Investor Relations',
+  // ★ fix-487 (P-144). See the `Department` union for the naming question this
+  //   raises: every other department here is a FUNCTION and this one is a job
+  //   title. Renaming it to "Construction" would change this line only.
+  construction_admin: 'Construction Admin',
 };
 
 /** The four, in the order Bobby listed them — which is the order the picker
@@ -249,6 +273,10 @@ export const DEPARTMENTS: readonly Department[] = [
   //    the top would be tidier and would cost him the muscle memory he built.
   'executive',
   'it_investor_relations',
+  // ★★ fix-487 APPENDS, exactly as fix-464 did and for the same reason: this
+  //    array's order is the one Bobby scans, and he has classified 32 people
+  //    using it. A tidier position costs him the muscle memory he built.
+  'construction_admin',
 ];
 
 /** What to print for a department, including the un-classified case.

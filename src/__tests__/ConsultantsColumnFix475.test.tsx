@@ -296,12 +296,19 @@ describe('fix-475 §1 — the Consultants column', () => {
 // §2 — the roster
 // ---------------------------------------------------------------------------
 describe('fix-475 §2 — the internal roster', () => {
-  it('★★★ five roles, spelled out, in TEAM_INTERNAL_ROWS order', () => {
+  it('★★★ SIX roles, spelled out, in TEAM_INTERNAL_ROWS order', () => {
     // ★ The order and the words are READ from the layout table, never retyped —
     //   `title` has carried the spelled-out name since fix-321 as the
     //   abbreviation's tooltip, and fix-475 promotes it to the label.
+    //
+    // ★★★ fix-487 (P-144) MAKES IT SIX, and fix-475's own note predicted it:
+    //     *"a sixth role added to the table appears here for free."* It did —
+    //     the card, the chat modal's avatar strip and the fix-479 height
+    //     harness all iterate this one list. What did NOT come free is this
+    //     assertion and its four siblings, which is the fix-350 lesson (a list
+    //     everybody reads is a list several suites have pinned).
     expect(TEAM_INTERNAL_ROWS.map((r) => r.key)).toEqual([
-      'acq', 'ent', 'sd', 'dm', 'da',
+      'acq', 'ent', 'sd', 'dm', 'da', 'ca',
     ]);
     expect(TEAM_INTERNAL_ROWS.map((r) => r.title)).toEqual([
       'Acquisitions',
@@ -309,6 +316,7 @@ describe('fix-475 §2 — the internal roster', () => {
       'Schematic design',
       'Design Manager',
       'Design Associate',
+      'Construction Admin',
     ]);
   });
 });

@@ -731,6 +731,12 @@ function Body({
         r === 'acq_lead' ||
         r === 'schematic' ||
         r === 'director' ||
+        // ★★★ fix-487 (P-144): WITHOUT THIS LINE A CONSTRUCTION ADMIN IS IN NO
+        //     FILTER AT ALL. This list is a hand-written union of "every role
+        //     that is not ENT/DA/DM", so a role added to `TeamRole` and not
+        //     added here silently vanishes from the Internal dropdown — the
+        //     person exists, holds tasks, and cannot be filtered to.
+        r === 'ca' ||
         r === 'viewer',
     ).filter((n) => !claimed.has(n));
     return { ent, da, dm, internal };

@@ -479,6 +479,12 @@ describe('fix-436 — validation', () => {
       'schematic',
       'viewer',
       'director',
+      // ★★★ fix-487 (P-144). THIS ASSERTION IS THE SAFETY NET IT CLAIMED TO BE:
+      //     `ADD_PERSON_ROLE_OPTIONS` is hand-written, so leaving `ca` out of
+      //     it would have meant Bobby could not create a Construction Admin at
+      //     all — with nothing failing to compile. This line failed, which is
+      //     how it was caught.
+      'ca',
     ];
     expect([...TEAM_ROLES].sort()).toEqual([...appRoles].sort());
     expect(ADD_PERSON_ROLE_OPTIONS.map((o) => o.value).sort()).toEqual(

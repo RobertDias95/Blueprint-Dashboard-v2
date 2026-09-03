@@ -34,6 +34,8 @@ import type { TeamMember, TeamRole } from '../lib/database.types';
 const ALL_ROLES: TeamRole[] = [
   'da', 'dm', 'ent', 'ent_lead', 'acq', 'acq_lead', 'schematic', 'viewer',
   'director',
+  // ★ fix-487 (P-144): Construction Admin.
+  'ca',
 ];
 
 /** Every ordering of a small array — the shuffle the brief asks for, done

@@ -207,7 +207,7 @@ export function projectMatchesSelf(
  *  fix-176), which missed permit-level entitlement leads like Bobby (ent_lead on
  *  49 permits, da on 0) — his permit-scoped "My Work" was blank. */
 export function permitMatchesSelf(
-  permit: Pick<Permit, 'ent_lead' | 'dm' | 'da' | 'dual_da'>,
+  permit: Pick<Permit, 'ent_lead' | 'dm' | 'da' | 'dual_da' | 'ca'>,
   name: string | null,
 ): boolean {
   const n = norm(name);
@@ -216,7 +216,17 @@ export function permitMatchesSelf(
     norm(permit.ent_lead) === n ||
     norm(permit.dm) === n ||
     norm(permit.da) === n ||
-    norm(permit.dual_da) === n
+    norm(permit.dual_da) === n ||
+    // ★★★ fix-487: a permit handed to a Construction Admin is that person's
+    //     work, and this predicate is what puts it in their "My Work".
+    //
+    // ★★ THE PROJECT-SCOPE TWIN IS DELIBERATELY *NOT* WIDENED.
+    //    `projectMatchesSelf` above matches on `entitlement_lead` /
+    //    `design_manager` only, and adding `construction_admin` would give
+    //    Steve — who is on all 211 projects by default — a project scope of
+    //    EVERYTHING. That is not a scope, it is the absence of one. A CA's real
+    //    work is the permits somebody hands them, which is exactly this line.
+    norm(permit.ca) === n
   );
 }
 

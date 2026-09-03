@@ -386,14 +386,18 @@ describe("fix-423 §A: the Milestones floor holds a date input and its label", (
 
 describe("fix-423 §B: ACQ / ENT on the left, SD / DM / DA on the right", () => {
   it("★★★ the order and the columns are ONE declared list", () => {
+    // ★ fix-487 appends CA. `column` is vestigial since fix-475 replaced the
+    //   two-up with one block per role, but it is still declared consistently
+    //   so the field keeps meaning something if the two-up ever returns — which
+    //   is why the split below is still asserted rather than deleted.
     expect(TEAM_INTERNAL_ROWS.map((r) => r.label)).toEqual([
-      'ACQ', 'ENT', 'SD', 'DM', 'DA',
+      'ACQ', 'ENT', 'SD', 'DM', 'DA', 'CA',
     ]);
     expect(TEAM_INTERNAL_ROWS.filter((r) => r.column === 'left').map((r) => r.label)).toEqual([
       'ACQ', 'ENT',
     ]);
     expect(TEAM_INTERNAL_ROWS.filter((r) => r.column === 'right').map((r) => r.label)).toEqual([
-      'SD', 'DM', 'DA',
+      'SD', 'DM', 'DA', 'CA',
     ]);
   });
 
