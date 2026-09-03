@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import PillListEditor from './PillListEditor';
+import JurisdictionLinksEditor from './JurisdictionLinksEditor';
 import ExternalTeamDirectoryEditor from './ExternalTeamDirectoryEditor';
 import { useJurisdictions } from '../../hooks/useJurisdictions';
 import { usePermitTypes } from '../../hooks/usePermitTypes';
@@ -145,6 +146,20 @@ export default function AdminProjectsTab() {
           readOnly={!isAdmin}
           testIdPrefix="juris-list"
         />
+      </Section>
+
+      {/* ★★★ fix-485 §A3 (P-147) — THE JURISDICTION LINK REGISTRY.
+          Bobby: *"a drop-down of Seattle, Kirkland, Bellevue with folders
+          inside that take you to their GIS, their code, whatever."*
+
+          ★★ IT SITS DIRECTLY UNDER "Jurisdictions" because the two will be
+          confused otherwise, and the editor's own first line says which is
+          which: that one is the permitting VOCABULARY (which juris a permit can
+          belong to, and its learning window); this one is a NAVIGATION list
+          (the handful of cities worth a ribbon shortcut, and their links).
+          Neither derives from the other — see the note in the editor. */}
+      <Section title="Jurisdiction Links">
+        <JurisdictionLinksEditor readOnly={!isAdmin} />
       </Section>
 
       {/* fix-288 moved the Permit Types editor to Settings → Permits &

@@ -141,8 +141,28 @@ function Body({
           the export within the same visual register as the Reports
           Overview tab's CSV button (top-right, header line). */}
       <div className="flex items-center justify-between flex-wrap gap-2">
+        {/* ★★★ fix-485 §B (P-137) — THIS IS NOT A TAB STRIP, AND IT USED TO
+            SAY IT WAS.
+
+            It carried `role="tablist"` / `role="tab"` / `aria-selected` while
+            controlling **a filter over one view**, not which of several views
+            is showing — and there is no `tabpanel` anywhere near it. To a
+            screen reader that is a promise the app does not keep: "tab" says
+            the content below is one of N panels you can switch between, and
+            what actually happens is that one list re-filters.
+
+            ★★ SO THE ROLE IS CORRECTED, NOT THE CONTROL. `role="group"` with
+            `aria-pressed` buttons is what a set of filter chips is, and it is
+            the vocabulary `HoldFilter` and fix-483's `ToggleChip` already use.
+            Nothing moves on screen — not one class or colour changed.
+
+            ★ AND IT IS DELIBERATELY NOT CONVERTED TO `TabStrip`. fix-483's
+              inventory made the same call about the same family: a chip group
+              choosing a filter is a different control from a strip choosing a
+              sibling view, and forcing one into the other would be a
+              consistency that costs meaning. */}
         <div
-          role="tablist"
+          role="group"
           aria-label="Team role"
           className="flex items-center gap-2"
           data-testid="team-role-tabs"
@@ -153,8 +173,7 @@ function Body({
               <button
                 key={t.id}
                 type="button"
-                role="tab"
-                aria-selected={isActive}
+                aria-pressed={isActive}
                 onClick={() => setRole(t.id)}
                 className="text-[11px] font-bold font-display px-3 py-1.5 rounded-md border transition"
                 style={{

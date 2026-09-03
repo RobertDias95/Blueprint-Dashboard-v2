@@ -77,13 +77,37 @@ export default function ErrorsPage() {
             they reach the entitlement lead as a notification.
           </p>
         </div>
-        <div className="flex gap-1" role="tablist" data-testid="errors-tabs">
+        {/* ★★★ fix-485 §B (P-137) — THIS IS NOT A TAB STRIP, AND IT USED TO
+            SAY IT WAS.
+
+            It carried `role="tablist"` / `role="tab"` / `aria-selected` while
+            controlling **a filter over one view**, not which of several views
+            is showing — and there is no `tabpanel` anywhere near it. To a
+            screen reader that is a promise the app does not keep: "tab" says
+            the content below is one of N panels you can switch between, and
+            what actually happens is that one list re-filters.
+
+            ★★ SO THE ROLE IS CORRECTED, NOT THE CONTROL. `role="group"` with
+            `aria-pressed` buttons is what a set of filter chips is, and it is
+            the vocabulary `HoldFilter` and fix-483's `ToggleChip` already use.
+            Nothing moves on screen — not one class or colour changed.
+
+            ★ AND IT IS DELIBERATELY NOT CONVERTED TO `TabStrip`. fix-483's
+              inventory made the same call about the same family: a chip group
+              choosing a filter is a different control from a strip choosing a
+              sibling view, and forcing one into the other would be a
+              consistency that costs meaning. */}
+        <div
+          className="flex gap-1"
+          role="group"
+          aria-label="Error status filter"
+          data-testid="errors-tabs"
+        >
           {(['active', 'resolved', 'all'] as Tab[]).map((t) => (
             <button
               key={t}
               type="button"
-              role="tab"
-              aria-selected={tab === t}
+              aria-pressed={tab === t}
               onClick={() => setTab(t)}
               className={`text-[11px] font-display font-semibold px-3 py-1 rounded border transition ${
                 tab === t

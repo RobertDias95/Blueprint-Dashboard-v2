@@ -1,5 +1,6 @@
 import { useMemo } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useSearchParams } from 'react-router-dom';
+import TabStrip from '../components/shared/TabStrip';
 import MyBoard from './MyBoard';
 import MyTasks from './MyTasks';
 import NotificationsPage from './Notifications';
@@ -123,7 +124,6 @@ export default function PersonalBoard({
   pinnedTab?: BoardTab;
 } = {}) {
   const [params] = useSearchParams();
-  const navigate = useNavigate();
   const active: BoardTab = pinnedTab ?? parseTab(params);
 
   // ★★★ BOTH BADGE NUMBERS ARE COMPUTED HERE, AT PAGE LEVEL, because an
@@ -142,76 +142,64 @@ export default function PersonalBoard({
       style={{ overflow: 'hidden' }}
       data-testid="personal-board"
     >
-      <nav
-        role="tablist"
-        aria-label="My Board"
-        className="flex-none flex items-stretch gap-1 px-3.5 border-b border-border bg-s2"
-        data-testid="personal-board-tabs"
-      >
-        {TABS.map((t) => {
-          const isActive = t.id === active;
-          return (
-            <button
-              key={t.id}
-              type="button"
-              role="tab"
-              aria-selected={isActive}
-              aria-controls="personal-board-panel"
-              onClick={() => navigate(pathForTab(t.id))}
-              className="flex items-center gap-2 px-3 py-2 text-[12.5px] font-display font-extrabold uppercase tracking-wide transition"
-              style={{
-                color: isActive ? 'var(--color-text)' : 'var(--color-dim)',
-                // The active tab is joined to the panel below it; the others
-                // sit behind. One 2px rule, not a box — the fix-327 instinct.
-                borderBottom: `2px solid ${isActive ? 'var(--color-de)' : 'transparent'}`,
-                background: isActive ? 'var(--color-surface)' : 'transparent',
-              }}
-              data-testid={`personal-board-tab-${t.id}`}
-              data-active={isActive ? 'true' : 'false'}
-            >
-              {t.label}
+      {/* ★★★ fix-485 §B (P-137) — THE STRIP BOBBY NAMED, NOW THE SHARED ONE.
+          *"My Board / My Tasks / Notifications doesn't have the same view as
+          Draw Schedule / Seattle Intakes or Reports / Overview… we want to keep
+          the consistency consistent."*
 
-              {/* ★★ MY TASKS: the counts ALWAYS render, including zeros. This
-                  is fix-324's rule and fix-326's bar doing the same job in a
-                  new place — a closed tab must not hide that the work exists,
-                  and "0 open" is itself the answer to "is there anything in
-                  there". */}
-              {t.id === 'tasks' && (
-                <span
-                  className="text-[11px] font-display font-bold text-muted normal-case tracking-normal"
-                  data-testid="personal-board-tasks-counts"
-                  title={`${counts.open} open · ${counts.overdue} overdue`}
-                >
-                  {counts.open} open
-                  <span className="text-dim"> · </span>
-                  <span className={counts.overdue > 0 ? 'text-co' : undefined}>
-                    {counts.overdue} overdue
-                  </span>
-                </span>
-              )}
+          ★★ THIS PAGE IS THE ONE THAT MOVED. Reports and Draw Schedule already
+          rendered the same class string character for character; this was the
+          third opinion — 12.5px uppercase extrabold with a filled active tab on
+          an `--s2` bar. It now renders `shared/TabStrip`, which is that shared
+          treatment plus Reports' keyboard contract.
 
-              {/* ★ NOTIFICATIONS: the badge appears only when something is
-                  unread. The asymmetry with My Tasks above is deliberate —
-                  "0 open" says the queue is clear, but a "0" on a bell says
-                  nothing anyone needed to be told, and this is the same
-                  semantic the bell in the ribbon already uses. */}
-              {t.id === 'notifications' && unseenCount > 0 && (
-                <span
-                  className="text-[10px] font-display font-bold px-1.5 py-0.5 rounded-full normal-case tracking-normal"
-                  style={{
-                    background: 'var(--color-de)',
-                    color: 'var(--color-surface)',
-                  }}
-                  data-testid="personal-board-notifications-count"
-                  title={`${unseenCount} unread`}
-                >
-                  {unseenCount}
+          ★★★ THE TABS ARE ROUTES AND STAY ROUTES. `pathForTab` is unchanged and
+          each tab renders a `NavLink`, so middle-click still opens a tab in a
+          new window and the back button still walks them. That is why
+          `TabStrip` takes an optional `to` rather than being state-only.
+
+          ★ Both badges survive with their asymmetry intact (fix-324): My Tasks
+            always shows its counts, including zeros, and Notifications shows
+            nothing at zero. */}
+      <TabStrip<BoardTab>
+        tabs={TABS.map((t) => ({
+          id: t.id,
+          label: t.label,
+          to: pathForTab(t.id),
+          testid: `personal-board-tab-${t.id}`,
+          right:
+            t.id === 'tasks' ? (
+              <span
+                className="text-[11px] font-display font-bold text-muted normal-case tracking-normal"
+                data-testid="personal-board-tasks-counts"
+                title={`${counts.open} open · ${counts.overdue} overdue`}
+              >
+                {counts.open} open
+                <span className="text-dim"> · </span>
+                <span className={counts.overdue > 0 ? 'text-co' : undefined}>
+                  {counts.overdue} overdue
                 </span>
-              )}
-            </button>
-          );
-        })}
-      </nav>
+              </span>
+            ) : t.id === 'notifications' && unseenCount > 0 ? (
+              <span
+                className="text-[10px] font-display font-bold px-1.5 py-0.5 rounded-full normal-case tracking-normal"
+                style={{
+                  background: 'var(--color-de)',
+                  color: 'var(--color-surface)',
+                }}
+                data-testid="personal-board-notifications-count"
+                title={`${unseenCount} unread`}
+              >
+                {unseenCount}
+              </span>
+            ) : undefined,
+        }))}
+        active={active}
+        ariaLabel="My Board"
+        testIdPrefix="personal-board"
+        barTestId="personal-board-tabs"
+        className="flex-none px-3.5 bg-s2"
+      />
 
       {/* ── The active panel. Each keeps the overflow rules it had before this
            ticket: My Board and the notification centre are `height: 100%` and

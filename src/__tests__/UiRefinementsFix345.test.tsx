@@ -261,9 +261,16 @@ describe('fix-345 §4: SharePoint is a row now, under Reports', () => {
             ? e.group.id
             : e.id,
     );
+    // ★★★ AMENDED BY fix-485 §A1. fix-345 §4's ruling — Bobby's *"maybe below
+    //     reports?"*, the studio's site treated as an ordinary destination
+    //     rather than an exile — is what this protects, and it is intact: still
+    //     after Reports, still before Settings. What moved is that a CAPTION
+    //     now sits between it and the Reports group, and a `jurisdictions`
+    //     folder after it, so the two immediate neighbours changed.
     const i = ids.indexOf('sharepoint');
-    expect(ids[i - 1]).toBe('reports');
-    expect(ids[i + 1]).toBe('sep-2');
+    expect(ids[i - 1]).toBe('cap-links');
+    expect(ids[i + 1]).toBe('jurisdictions');
+    expect(i).toBeGreaterThan(ids.indexOf('reports'));
     expect(i).toBeLessThan(ids.indexOf('/settings'));
   });
 

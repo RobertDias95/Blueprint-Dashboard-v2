@@ -1,8 +1,14 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
 import { useAuthStore } from '../stores/authStore';
 import { useIsTenantAdmin } from '../hooks/useIsTenantAdmin';
 import { useIsAgendaMember } from '../hooks/useAgendaMember';
+import { useAppConfig } from '../hooks/useAppConfig';
+import {
+  NO_LINKS_YET,
+  readJurisdictions,
+  type Jurisdiction,
+} from '../lib/jurisdictionLinks';
 import { useNewErrorCount } from '../hooks/useErrorReports';
 import { useWhatsNewEntries, useWhatsNewReads } from '../hooks/useWhatsNew';
 import { unreadCount } from '../lib/whatsNew';
@@ -14,6 +20,7 @@ import {
   type RibbonExternal,
   type RibbonGroup,
   type RibbonLink,
+  RIBBON_ENTRIES,
 } from '../lib/ribbonNav';
 import {
   loadRibbonCollapsed,
@@ -192,17 +199,91 @@ export default function Ribbon({ onAddProject }: { onAddProject: () => void }) {
           renders the product's name, not two with one switched off. */}
 
       {/* ── nav ───────────────────────────────────────────────── */}
+      {/* ★★ fix-485 §A1: a FLEX COLUMN now, so the `spacer` entry can push the
+          utility block to the foot (the mock's `.util{margin-top:auto}`).
+          `overflow-y-auto` is unchanged and still wins on a short viewport: a
+          `flex-1` spacer collapses to nothing once the content fills the box,
+          so a tall ribbon scrolls exactly as it did rather than hiding rows
+          under a stretched gap. */}
       <div
-        className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden py-2.5"
+        className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden py-2.5 flex flex-col"
         data-testid="ribbon-nav"
       >
         {entries.map((entry) => {
-          if (entry.kind === 'separator') {
-            return collapsed ? null : (
+          // ★★★ fix-485 §A1 — THE SECTION CAPTION. Mock v9's `.cat` + `.grp`:
+          //     an 8.5px/800 uppercase dim label with the section's rule above
+          //     it. It is a LABEL, not a container — the entries after it are
+          //     its section by position, which is how the separators it
+          //     replaces worked and is why the order stays the one truth.
+          //
+          // ★ COLLAPSED, IT DRAWS THE RULE AND DROPS THE WORD. 56px has no room
+          //   for "Reports", and the boundary is the half that still means
+          //   something at that width — the same trade every other row on this
+          //   ribbon makes (the nav labels, Add a Project, the collapse chip).
+          if (entry.kind === 'caption') {
+            return (
               <div
                 key={entry.id}
-                className="bg-border"
-                style={{ height: 1, margin: '9px 16px' }}
+                data-testid={`ribbon-caption-${entry.id}`}
+                className="flex-none"
+                style={{
+                  borderTop: isFirstEntry(entry.id)
+                    ? undefined
+                    : '1px solid var(--color-s3)',
+                  marginTop: isFirstEntry(entry.id) ? 0 : 8,
+                  paddingTop: isFirstEntry(entry.id) ? 0 : 8,
+                }}
+              >
+                {!collapsed && (
+                  <div
+                    className="uppercase"
+                    style={{
+                      padding: '8px 16px 2px',
+                      fontSize: 8.5,
+                      fontWeight: 800,
+                      letterSpacing: '.08em',
+                      color: 'var(--color-dim)',
+                    }}
+                  >
+                    {entry.label}
+                  </div>
+                )}
+              </div>
+            );
+          }
+          // ★★★ fix-485 §A1 — THE PUSH. Everything after this sits at the foot.
+          //     `flex-1` rather than `margin-top: auto` because the container
+          //     scrolls: an auto margin inside a scroll box resolves against
+          //     the CONTENT height and stops pushing the moment the list is
+          //     taller than the box, which is the case a 13-entry ribbon on a
+          //     laptop actually hits.
+          if (entry.kind === 'spacer') {
+            return (
+              <div
+                key={entry.id}
+                data-testid={`ribbon-spacer-${entry.id}`}
+                className="flex-1"
+                // ★ The utility block gets the same 1px rule a caption draws,
+                //   from the BOTTOM of the spacer — it has no caption of its
+                //   own (mock v9's `.grp.util` has none), and "Utilities" would
+                //   name a category nobody thinks in. The position is the
+                //   statement.
+                style={{
+                  minHeight: 8,
+                  borderBottom: '1px solid var(--color-s3)',
+                  marginBottom: 8,
+                }}
+              />
+            );
+          }
+          if (entry.kind === 'jurisdictions') {
+            return (
+              <RibbonJurisdictions
+                key={entry.id}
+                entry={entry}
+                collapsed={collapsed}
+                open={openGroups.includes(entry.id)}
+                onToggle={() => toggleGroup(entry.id)}
               />
             );
           }
@@ -527,6 +608,173 @@ function RibbonExternalItem({
           rail stays one language. The accessible name survives it. */}
       {collapsed && <span className="sr-only">{external.label}</span>}
     </a>
+  );
+}
+
+/** ★ The FIRST caption draws no rule: there is nothing above it to separate
+ *  from, and a hairline directly under the brand block reads as a mistake.
+ *  Derived from the model rather than hard-coded to 'cap-work', so re-ordering
+ *  the sections cannot leave a stray rule at the top (the `first:border-t-0`
+ *  instinct, without needing the entries to be siblings in one element). */
+function isFirstEntry(id: string): boolean {
+  const first = RIBBON_ENTRIES[0];
+  return !!first && 'id' in first && first.id === id;
+}
+
+// ===========================================================================
+// ★★★ fix-485 §A2 (P-147) — JURISDICTIONS: A FOLDER OF FOLDERS
+// ===========================================================================
+//
+// Bobby: *"a drop-down of Seattle, Kirkland, Bellevue with folders inside that
+// take you to their GIS, their code, whatever."*
+//
+// ★★★ THREE LEVELS, AND EVERY LEAF LEAVES THE APP. The cities come from
+// `app_config.jurisdictionLinks` (lib/jurisdictionLinks), so a fourth city
+// needs no deploy — and each leaf is an `<a href target="_blank">`, never a
+// `NavLink`. `activeRibbonTarget()` never considers this subtree, so you are
+// never "at" Seattle's GIS, which is the same rule fix-335 §4 wrote for the
+// studio's site.
+//
+// ★★ COLLAPSED BY DEFAULT AND REMEMBERED PER USER — it shares `openGroups`
+//    with the Reports group, so the ribbon has ONE memory of what is open
+//    rather than a second one that could disagree.
+function RibbonJurisdictions({
+  entry,
+  collapsed,
+  open,
+  onToggle,
+}: {
+  entry: { id: string; label: string; icon: string };
+  collapsed: boolean;
+  open: boolean;
+  onToggle: () => void;
+}) {
+  const cfg = useAppConfig();
+  const cities: Jurisdiction[] = useMemo(
+    () => readJurisdictions(cfg.map),
+    [cfg.map],
+  );
+  // ★ Which CITY is expanded — local, and one at a time. This is a browse, not
+  //   a workspace: remembering it across sessions would be state nobody asked
+  //   for, and the ribbon already persists the thing that matters (whether the
+  //   folder itself is open).
+  const [openCity, setOpenCity] = useState<string | null>(null);
+
+  return (
+    <div data-testid="ribbon-jurisdictions" className="flex-none">
+      <button
+        type="button"
+        onClick={onToggle}
+        data-testid="ribbon-jurisdictions-toggle"
+        aria-expanded={open}
+        title={entry.label}
+        className={`w-full text-left bg-transparent border-none cursor-pointer ${itemClass(false)}`}
+        style={{
+          ...itemStyle(collapsed),
+          width: collapsed ? 'calc(100% - 16px)' : 'calc(100% - 20px)',
+        }}
+      >
+        <span style={{ width: 17, flex: '0 0 17px', textAlign: 'center', fontSize: 14 }}>
+          {entry.icon}
+        </span>
+        {!collapsed && (
+          <>
+            <span className="flex-1 overflow-hidden text-ellipsis">{entry.label}</span>
+            <span
+              className="text-dim"
+              style={{
+                fontSize: 9,
+                transition: 'transform .15s',
+                transform: open ? 'rotate(90deg)' : undefined,
+              }}
+            >
+              ▶
+            </span>
+          </>
+        )}
+      </button>
+      {open && !collapsed && (
+        <div data-testid="ribbon-jurisdiction-cities" style={{ padding: '1px 0 4px' }}>
+          {cities.length === 0 && (
+            <div
+              className="text-dim italic"
+              style={{ margin: '1px 10px', padding: '5px 10px 5px 30px', fontSize: 11.5 }}
+              data-testid="ribbon-jurisdictions-empty"
+            >
+              {NO_LINKS_YET}
+            </div>
+          )}
+          {cities.map((c) => {
+            const cityOpen = openCity === c.city;
+            return (
+              <div key={c.city} data-testid={`ribbon-jurisdiction-${c.city}`}>
+                <button
+                  type="button"
+                  onClick={() => setOpenCity(cityOpen ? null : c.city)}
+                  aria-expanded={cityOpen}
+                  data-testid={`ribbon-jurisdiction-toggle-${c.city}`}
+                  className="w-full flex items-center gap-2 rounded-lg whitespace-nowrap bg-transparent border-none cursor-pointer text-muted hover:bg-s2 transition text-left"
+                  style={{ margin: '1px 10px', padding: '5px 10px 5px 30px', fontSize: 12.5, width: 'calc(100% - 20px)' }}
+                >
+                  <span className="flex-1 overflow-hidden text-ellipsis">{c.city}</span>
+                  <span
+                    className="text-dim"
+                    style={{
+                      fontSize: 9,
+                      transition: 'transform .15s',
+                      transform: cityOpen ? 'rotate(90deg)' : undefined,
+                    }}
+                  >
+                    ▶
+                  </span>
+                </button>
+                {cityOpen && (
+                  <div data-testid={`ribbon-jurisdiction-links-${c.city}`}>
+                    {/* ★★★ A CITY WITH NO LINKS SAYS SO, and is not clickable.
+                        Bobby named the three cities and has not supplied the
+                        URLs; inventing a GIS address is the fix-306 defect
+                        class (a link to the wrong place is worse than none).
+                        The copy is `NO_LINKS_YET` — one string, so this and the
+                        Settings editor cannot describe the state two ways. */}
+                    {c.links.length === 0 ? (
+                      <div
+                        className="text-dim italic"
+                        style={{ margin: '1px 10px', padding: '4px 10px 4px 44px', fontSize: 11 }}
+                        data-testid={`ribbon-jurisdiction-empty-${c.city}`}
+                      >
+                        {NO_LINKS_YET}
+                      </div>
+                    ) : (
+                      c.links.map((l) => (
+                        <a
+                          key={`${l.label}|${l.url}`}
+                          href={l.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          data-testid={`ribbon-jurisdiction-link-${c.city}-${l.label}`}
+                          title={`${c.city} — ${l.label} (opens in a new tab)`}
+                          className="flex items-center gap-2 rounded-lg whitespace-nowrap no-underline text-muted hover:bg-s2 transition"
+                          style={{ margin: '1px 10px', padding: '4px 10px 4px 44px', fontSize: 11.5 }}
+                        >
+                          <span className="flex-1 overflow-hidden text-ellipsis">
+                            {l.label}
+                          </span>
+                          {/* ★ The same ↗ footnote the studio's link wears —
+                              one vocabulary for "this leaves the app". */}
+                          <span className="text-dim" style={{ fontSize: 9 }}>
+                            ↗
+                          </span>
+                        </a>
+                      ))
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
   );
 }
 

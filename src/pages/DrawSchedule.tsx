@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import TabStrip from '../components/shared/TabStrip';
 import DrawScheduleGrid from '../components/DrawScheduleGrid';
 import IntakeTracker from '../components/IntakeTracker';
 import StatusLegend from '../components/DrawSchedule/StatusLegend';
@@ -26,18 +27,26 @@ export default function DrawSchedule() {
   // the moment the header changed height, which it just did.
   return (
     <div className="flex flex-col h-full" data-testid="draw-schedule-page">
-      {/* Sub-tab bar — matches v1's ds-tab styling */}
-      <div
-        className="flex items-center gap-0 px-[18px] border-b border-border bg-surface flex-shrink-0"
-        data-testid="ds-subtab-bar"
-      >
-        <SubTab active={tab === 'schedule'} onClick={() => setTab('schedule')} testId="ds-tab-schedule">
-          Draw Schedule
-        </SubTab>
-        <SubTab active={tab === 'intake'} onClick={() => setTab('intake')} testId="ds-tab-intake">
-          Seattle Intakes
-        </SubTab>
-      </div>
+      {/* ★★★ fix-485 §B (P-137): the shared `TabStrip`. This page's `SubTab`
+          and the Reports sub-nav rendered the SAME class string character for
+          character — Reports' own comment said so — so this conversion changes
+          nothing on screen and everything about how many places that string
+          lives.
+
+          ★★ WHAT IT GAINS is the contract it never had: `role="tablist"`,
+          `role="tab"`, `aria-selected`, a roving `tabIndex` and Arrow/Home/End
+          movement. To a screen reader these were two anonymous buttons. */}
+      <TabStrip<DSTab>
+        tabs={[
+          { id: 'schedule', label: 'Draw Schedule', testid: 'ds-tab-schedule' },
+          { id: 'intake', label: 'Seattle Intakes', testid: 'ds-tab-intake' },
+        ]}
+        active={tab}
+        onSelect={setTab}
+        ariaLabel="Draw Schedule sections"
+        testIdPrefix="ds-subtab"
+        className="flex-shrink-0 px-[18px] bg-surface"
+      />
 
       {tab === 'schedule' && (
         <div className="flex flex-col flex-1 overflow-hidden min-h-0">
@@ -58,28 +67,7 @@ export default function DrawSchedule() {
   );
 }
 
-function SubTab({
-  active,
-  onClick,
-  testId,
-  children,
-}: {
-  active: boolean;
-  onClick: () => void;
-  testId: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <button
-      onClick={onClick}
-      className={`px-[18px] py-2.5 text-xs font-bold font-display border-b-2 transition -mb-px ${
-        active
-          ? 'text-de border-de'
-          : 'text-muted border-transparent hover:text-text'
-      }`}
-      data-testid={testId}
-    >
-      {children}
-    </button>
-  );
-}
+// ★★★ fix-485 §B: `SubTab` IS DELETED. It was this page's private copy of the
+// Reports sub-nav's class string — identical, character for character, and with
+// none of its accessibility. `shared/TabStrip` is the one that survived; see
+// the note at the strip above for which treatment was chosen and why.

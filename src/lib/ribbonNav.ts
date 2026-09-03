@@ -125,11 +125,47 @@ export interface RibbonGroup {
   adminOnly?: boolean;
 }
 
+// ===========================================================================
+// ★★★ fix-485 §A1 (P-147) — THE RIBBON GETS CAPTIONED SECTIONS
+// ===========================================================================
+//
+// Bobby, 2026-09-02: *"What's New, Settings, Error Triage go to the bottom.
+// Category 1: Pipeline, Draw Schedule, My Board. Then the reporting features:
+// Library and Reports. Then links: D&E Studio, and a drop-down of Seattle,
+// Kirkland, Bellevue with folders inside."*
+//
+// ★★★ TWO NEW KINDS AND NO FOURTH LIST. The brief's rule, and it is the one
+// that matters: the ORDER of `RIBBON_ENTRIES` stays the single source of truth.
+// A `sections: {…}[]` beside it would be a second place to forget an entry, and
+// `visibleEntries` / `allRibbonRoutes` would each have to learn to walk it.
+//
+//   `caption`  draws the mock's 8.5px dim uppercase label AND the rule above it
+//              (mock v9: `.cat` + `.grp{border-top}`). It is a LABEL, not a
+//              container — the entries after it are its section by position,
+//              exactly as the separators it replaces worked.
+//   `spacer`   pushes everything after it to the FOOT of the ribbon (the mock's
+//              `.util{margin-top:auto}`). One entry rather than a second render
+//              pass over a "utilities" array.
+//
+// ★★★ AND `separator` IS GONE, absorbed by the two above. It drew a bare rule;
+// a captioned section draws the same rule and says what is under it, and the
+// utility block's rule comes from `spacer`. fix-345 §4 pinned SharePoint's
+// neighbours BY POSITION against `sep-2`; that pin is retired by name in its
+// own suite, and what it was protecting — SharePoint sitting in the content
+// tier rather than exiled to the bottom — is now said out loud by the `Links`
+// caption above it.
+//
+// ★★★ NEITHER KIND CAN CONTRIBUTE A ROUTE OR A GATE. Both are pure chrome:
+// `allRibbonRoutes()` walks links and group children only, and `visibleEntries`
+// falls them through ungated with the externals. That is STRUCTURAL, the way
+// fix-335 §4 made `RibbonExternal` un-routable — there is nothing to remember.
 export type RibbonEntry =
   | { kind: 'link'; link: RibbonLink }
   | { kind: 'group'; group: RibbonGroup }
   | { kind: 'external'; external: RibbonExternal }
-  | { kind: 'separator'; id: string };
+  | { kind: 'caption'; id: string; label: string }
+  | { kind: 'spacer'; id: string }
+  | { kind: 'jurisdictions'; id: string; label: string; icon: string };
 
 /** ★ fix-335 §4: the studio's SharePoint site.
  *
@@ -191,6 +227,9 @@ export const SHAREPOINT_URL =
 // obeyed or silently ignored.
 //
 export const RIBBON_ENTRIES: RibbonEntry[] = [
+  // ★★★ fix-485 §A1 — SECTION 1: WORK. Bobby: *"Category 1: Pipeline, Draw
+  //     Schedule, My Board."* The three places a day's work happens.
+  { kind: 'caption', id: 'cap-work', label: 'Work' },
   { kind: 'link', link: { to: '/dashboard', label: 'Pipeline', icon: '▦' } },
   // ★ Promoted out of Entitlements to the top tier: it is a daily destination,
   // not a sub-page of a category.
@@ -213,7 +252,10 @@ export const RIBBON_ENTRIES: RibbonEntry[] = [
   //   — six people open it to run a meeting about their own tasks."* Bobby has
   //   now weighed that against the tab count and chosen the tab count. The
   //   ROUTE is unchanged and so are its semantics; only the shelf moved.
-  { kind: 'separator', id: 'sep-1' },
+  // ★★★ fix-485 §A1 — SECTION 2: REPORTS. Bobby: *"Then the reporting
+  //     features: Library and Reports."* Replaces `sep-1`, which drew this
+  //     boundary as a bare rule and said nothing about what was under it.
+  { kind: 'caption', id: 'cap-reports', label: 'Reports' },
   // ★ fix-335 §3: Library, standing alone. It keeps the group's own icon rather
   // than the '·' it wore as a child — a top-level entry sits in the same column
   // as Pipeline and My Board and has to read like one, and the group it came out
@@ -363,6 +405,10 @@ export const RIBBON_ENTRIES: RibbonEntry[] = [
       ],
     },
   },
+  // ★★★ fix-485 §A1 — SECTION 3: LINKS. Bobby: *"Then links: D&E Studio, and a
+  //     drop-down of Seattle, Kirkland, Bellevue."* The two entries that leave
+  //     the app, said so by the caption rather than by their position.
+  { kind: 'caption', id: 'cap-links', label: 'Links' },
   // ★★ fix-345 §4: SharePoint, BELOW REPORTS — Bobby: "Maybe below reports?"
   //
   // fix-335 §4 put it last, in the bottom tier, on the reasoning that the one
@@ -404,7 +450,42 @@ export const RIBBON_ENTRIES: RibbonEntry[] = [
       hint: 'Blueprint Design and Entitlements Studio on SharePoint — opens in a new tab',
     },
   },
-  { kind: 'separator', id: 'sep-2' },
+  // ★★★ fix-485 §A2 (P-147) — JURISDICTIONS, A FOLDER OF FOLDERS.
+  //
+  // ★★★ IT IS ITS OWN KIND, NOT A `group`, AND THAT IS LOAD-BEARING. A
+  //     `RibbonGroup`'s children are `RibbonLink`s, and every `RibbonLink.to`
+  //     is asserted against the real route table (fix-306's lesson, fix-315's
+  //     guard). A city's children are EXTERNAL URLs and there are three levels,
+  //     not two. Forcing them into `group` would either put un-routable strings
+  //     through the coverage guard or make the guard learn an exception —
+  //     exactly the trade fix-335 §4 refused when it gave SharePoint its own
+  //     kind rather than a `RibbonLink` with an http `to`.
+  //
+  // ★★ SO `allRibbonRoutes()` IS BYTE-IDENTICAL: this contributes no routes,
+  //    structurally, because it has no `to` anywhere in its shape. Its contents
+  //    are data (`app_config.jurisdictionLinks`) and live in
+  //    lib/jurisdictionLinks, not here.
+  {
+    kind: 'jurisdictions',
+    id: 'jurisdictions',
+    label: 'Jurisdictions',
+    icon: '◎',
+  },
+  // ★★★ fix-485 §A1 — THE UTILITY BLOCK, PINNED TO THE FOOT.
+  //
+  // Bobby: *"What's New, Settings, Error Triage go to the bottom."* Everything
+  // after this entry is pushed down (the mock's `.util{margin-top:auto}`), so
+  // the three occasional-visit entries sit above "+ Add a Project" instead of
+  // trailing the day's work.
+  //
+  // ★ NO CAPTION, deliberately — the mock's `.grp.util` has none. "Utilities"
+  //   would be a word for a category nobody thinks in; the position IS the
+  //   statement, and the rule `spacer` draws is the same one the captions draw.
+  //
+  // ★ Replaces `sep-2`. fix-350's note below is unchanged and still correct:
+  //   What's New belongs with the occasional-visit utilities rather than in the
+  //   run of daily destinations.
+  { kind: 'spacer', id: 'util' },
   // ★★★ fix-350 — WHAT'S NEW.
   //
   // Bobby: "We should add a what's new thing to the ribbon so people are aware
@@ -499,6 +580,13 @@ export function visibleEntries(
     // `adminOnly` on RibbonExternal at all — not "defaulted to false" but
     // absent, so a future external cannot be gated by accident and nobody has
     // to remember that SharePoint is for everyone.
+    //
+    // ★★ fix-485 §A1: `caption`, `spacer` and `jurisdictions` join them, and
+    //    for the same structural reason — none of the three carries a gate
+    //    FIELD, so none can be gated by accident. A caption that could be
+    //    withheld would leave the section under it captionless; a jurisdictions
+    //    folder is external links, and Bobby's ruling on the studio's site
+    //    ("this is accessible by everyone") is the same ruling.
     out.push(e);
   }
   return out;

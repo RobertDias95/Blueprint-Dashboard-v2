@@ -975,8 +975,28 @@ function PhaseTrends({
         <div className="text-[10px] uppercase tracking-wide text-dim font-display font-bold">
           Phase Trend
         </div>
+        {/* ★★★ fix-485 §B (P-137) — THIS IS NOT A TAB STRIP, AND IT USED TO
+            SAY IT WAS.
+
+            It carried `role="tablist"` / `role="tab"` / `aria-selected` while
+            controlling **a filter over one view**, not which of several views
+            is showing — and there is no `tabpanel` anywhere near it. To a
+            screen reader that is a promise the app does not keep: "tab" says
+            the content below is one of N panels you can switch between, and
+            what actually happens is that one list re-filters.
+
+            ★★ SO THE ROLE IS CORRECTED, NOT THE CONTROL. `role="group"` with
+            `aria-pressed` buttons is what a set of filter chips is, and it is
+            the vocabulary `HoldFilter` and fix-483's `ToggleChip` already use.
+            Nothing moves on screen — not one class or colour changed.
+
+            ★ AND IT IS DELIBERATELY NOT CONVERTED TO `TabStrip`. fix-483's
+              inventory made the same call about the same family: a chip group
+              choosing a filter is a different control from a strip choosing a
+              sibling view, and forcing one into the other would be a
+              consistency that costs meaning. */}
         <div
-          role="tablist"
+          role="group"
           aria-label="Trend range"
           className="flex items-center gap-1"
           data-testid="team-detail-trend-range"
@@ -987,8 +1007,7 @@ function PhaseTrends({
               <button
                 key={r}
                 type="button"
-                role="tab"
-                aria-selected={isActive}
+                aria-pressed={isActive}
                 onClick={() => setRange(r)}
                 className="text-[10px] font-display font-bold px-2.5 py-1 rounded-md border transition"
                 style={{

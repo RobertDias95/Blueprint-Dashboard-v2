@@ -466,9 +466,20 @@ describe('fix-335 §4: SharePoint, ungated and outside the app', () => {
     );
     expect(ids.indexOf('sharepoint')).toBeGreaterThan(ids.indexOf('reports'));
     expect(ids.indexOf('sharepoint')).toBeLessThan(ids.indexOf('/settings'));
-    // The last thing before the rule, so the reading order is: everywhere you
-    // go, then the separator, then Settings.
-    expect(ids[ids.indexOf('sharepoint') + 1]).toBe('sep-2');
+    // ★★★ AMENDED BY fix-485 §A1 (P-147). This pinned SharePoint's next
+    //     sibling as `sep-2` — the bare rule that separated the content tier
+    //     from the administrative one. There are no separators any more:
+    //     captioned sections draw that boundary and SAY what is under it, and
+    //     the utility block's rule comes from the `spacer` that pins it to the
+    //     foot. What §4 was protecting is unchanged and asserted above — the
+    //     studio's site sits in the content tier, below Reports and above
+    //     Settings, rather than exiled to the bottom.
+    //
+    // ★★ AND IT IS NOW SAID OUT LOUD rather than inferred from a position: the
+    //    `Links` caption directly above it names the section SharePoint belongs
+    //    to, which is the thing a rule between two entries could only imply.
+    expect(ids[ids.indexOf('sharepoint') - 1]).toBe('cap-links');
+    expect(ids[ids.indexOf('sharepoint') + 1]).toBe('jurisdictions');
   });
 });
 

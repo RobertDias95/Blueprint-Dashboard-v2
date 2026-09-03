@@ -360,7 +360,12 @@ describe('<Reports /> Team tab — fix-127', () => {
     expect(screen.getByTestId('team-role-tabs')).toBeInTheDocument();
     const daTab = screen.getByTestId('team-role-tab-da');
     expect(daTab.getAttribute('data-active')).toBe('true');
-    expect(daTab.getAttribute('aria-selected')).toBe('true');
+    // ★★★ fix-485 §B: `aria-selected` → `aria-pressed`. This control chooses a
+    //     FILTER over one view, not which of several views is showing, and it
+    //     had no `tabpanel` to point at — `role="tab"` was a promise to a
+    //     screen reader the app did not keep. Nothing moved on screen; the role
+    //     is what changed. See the note at the control.
+    expect(daTab.getAttribute('aria-pressed')).toBe('true');
     // Default DA cohort = Trevor + Ainsley (Cam filtered out by active-only).
     expect(screen.getByTestId('team-row-Trevor')).toBeInTheDocument();
     expect(screen.getByTestId('team-row-Ainsley')).toBeInTheDocument();
