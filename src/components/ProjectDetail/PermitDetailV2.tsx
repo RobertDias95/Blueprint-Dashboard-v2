@@ -79,6 +79,7 @@ import { PermitHoldPanel } from './PermitHold';
 import { usePermitHolds, activePermitHold } from '../../hooks/usePermitHolds';
 import { useProjectHolds, activeHold } from '../../hooks/useProjectHolds';
 import { HoldBadge } from '../shared/HoldBadge';
+import PriorityStar from '../shared/PriorityStar';
 
 // Q9.5.e-fix-5: PermitDetailV2 rebuilds the v2 permit edit panel to match
 // v1's _renderPermitDetail at index.html:4787. Visual blocks (top→bottom):
@@ -1977,6 +1978,25 @@ function DisciplineColumn({
   // priority=true) bubble to the top of the column — parity with My Tasks'
   // priority sort. Stable otherwise: the RPC already orders by sort_order,
   // created_at, and V8's sort is stable, so equal-priority rows keep that order.
+  //
+  // ★★★ fix-484 §B (P-129) — AND IT DOES NOT BAND BY DATE, WHICH IS THE POINT.
+  //
+  // Ruled 2026-09-02: mount the star, leave this order EXACTLY as it is.
+  // My Tasks buckets by date (fix-444: Overdue / Today / This week / Later),
+  // and the obvious next step would be to do the same here. It would be wrong,
+  // because the two lists answer different questions:
+  //
+  //   My Tasks       "what should I do next?"       → time is the axis
+  //   this column    "what is outstanding on THIS   → the permit is the axis;
+  //                   permit?"                        date bands would scatter
+  //                                                   one permit's work across
+  //                                                   four headings and hide
+  //                                                   how much is left.
+  //
+  // ★★ So priority on top, then `sort_order, created_at` from the RPC — a
+  //    stable, complete list of what this permit still owes. The star now SETS
+  //    the flag this sort has read since fix-156; it changes nothing about the
+  //    order itself.
   const active = tasks
     .filter((t) => t.status !== 'Resolved')
     .sort((a, b) => (b.priority ? 1 : 0) - (a.priority ? 1 : 0));
@@ -2212,6 +2232,10 @@ function TaskItem({
       // fix-228: the PRIMARY owner (team key / role / person) written to
       // assigned_to. Absent → "leave unchanged".
       assignedTo: string;
+      // ★ fix-484 §B: absent → the RPC's `p_priority IS NULL` arm leaves the
+      //   column alone, so every OTHER save on this row still cannot clear a
+      //   star somebody set. Verified against the live function definition.
+      priority: boolean;
     }>,
   ) {
     // fix-244: a task's COLUMN follows its TEAM. When the primary owner is set
@@ -2374,6 +2398,23 @@ function TaskItem({
             opacity: resolved ? 0.65 : 1,
           }}
           data-testid={`task-text-${task.id}`}
+        />
+        {/* ★★★ fix-484 §B (P-129) — THE STAR THIS SCREEN HAS BEEN SORTING BY
+            SINCE fix-156, finally reachable. The SAME component the detail
+            editor uses (`shared/PriorityStar`), not a second copy.
+
+            ★★ ONE COLUMN, NO SYNC. `permit_tasks.priority` is the flag My Tasks
+            reads; setting it here is setting it there, because there is one
+            row. That is why this is a mount and not an integration.
+
+            ★ Inert on a cancelled task, like every other control on this row
+              (fix-262) — `save()` already refuses, and disabling it means the
+              control says so before it is clicked. */}
+        <PriorityStar
+          value={task.priority}
+          onChange={(next) => save({ priority: next })}
+          disabled={isTaskCancelled(task.status) || upsert.isPending}
+          testid={`task-priority-${task.id}`}
         />
         {!isSubtask && (
           <select
