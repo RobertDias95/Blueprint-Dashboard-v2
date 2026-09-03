@@ -646,8 +646,32 @@ describe('fix-315: fix-313 survives', () => {
   // reach the coverage guard above as if it were one. That is the exemption the
   // brief asked for, made structural — there is no row to keep in sync and no
   // way to forget one, because the type makes the mistake unrepresentable.
-  it('the entries are still typed as the same three kinds', () => {
+  // ★★★ AMENDED BY fix-485 §A1/§A2. Three kinds became five: `separator` left
+  //     (captions and the spacer draw its rules and say more), and `caption`,
+  //     `spacer` and `jurisdictions` arrived.
+  //
+  // ★★★ WHAT THIS TEST IS FOR SURVIVES INTACT, and it is the sentence above it:
+  //     a kind that carries no `to` can never reach the coverage guard as if it
+  //     were a route. All three new kinds are that — `caption` and `spacer` are
+  //     pure chrome, and `jurisdictions` holds EXTERNAL urls three levels deep,
+  //     which is exactly why it is its own kind rather than a `RibbonGroup`
+  //     whose children would be run through the route table. The exemption is
+  //     still structural; there are simply more shapes that qualify.
+  it('the entries are typed as the five kinds, and only routed ones carry a `to`', () => {
     const kinds = new Set(RIBBON_ENTRIES.map((e: RibbonEntry) => e.kind));
-    expect([...kinds].sort()).toEqual(['external', 'group', 'link', 'separator']);
+    expect([...kinds].sort()).toEqual([
+      'caption',
+      'external',
+      'group',
+      'jurisdictions',
+      'link',
+      'spacer',
+    ]);
+    // ★ The property, not just the list: nothing but a link or a group child
+    //   has a `to` anywhere in its shape.
+    for (const e of RIBBON_ENTRIES) {
+      if (e.kind === 'link' || e.kind === 'group') continue;
+      expect(JSON.stringify(e), e.kind).not.toContain('"to"');
+    }
   });
 });

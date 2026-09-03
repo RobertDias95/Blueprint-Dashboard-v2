@@ -1,5 +1,5 @@
-import { useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
+import TabStrip from '../components/shared/TabStrip';
 import ReportsOverviewTab from '../components/Reports/ReportsOverviewTab';
 import TeamTab from '../components/Reports/TeamTab';
 import RedesignsTab from '../components/Reports/RedesignsTab';
@@ -45,7 +45,6 @@ export default function Reports() {
         : raw === 'redesigns'
           ? 'redesigns'
           : 'overview';
-  const tabRefs = useRef<(HTMLButtonElement | null)[]>([]);
 
   function selectTab(tab: ReportsTab) {
     // Overview is the default — keep the URL clean by dropping the param.
@@ -54,54 +53,30 @@ export default function Reports() {
     else next.set('tab', tab);
     setSearchParams(next, { replace: false });
   }
-
-  // role=tablist arrow-key navigation: Left/Right move focus + select.
-  function onKeyDown(e: React.KeyboardEvent, idx: number) {
-    if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return;
-    e.preventDefault();
-    const delta = e.key === 'ArrowRight' ? 1 : -1;
-    const nextIdx = (idx + delta + TABS.length) % TABS.length;
-    selectTab(TABS[nextIdx].id);
-    tabRefs.current[nextIdx]?.focus();
-  }
+  // ★ fix-485 §B: `tabRefs` and the Left/Right `onKeyDown` moved INTO
+  //   `shared/TabStrip`. This file wrote the roving-tabindex + Arrow-key
+  //   contract and it is now what every converted strip inherits, rather than
+  //   the only one that had it. `selectTab` stays — the URL is this page's own
+  //   business, and the strip only reports the choice.
 
   return (
     <div className="space-y-4" data-testid="reports-tabs">
-      {/* Sub-tab bar — matches the DrawSchedule sub-tab styling. */}
-      <div
-        role="tablist"
-        aria-label="Reports sections"
-        className="flex items-center gap-0 border-b border-border"
-        data-testid="reports-subtab-bar"
-      >
-        {TABS.map((t, i) => {
-          const isActive = active === t.id;
-          return (
-            <button
-              key={t.id}
-              ref={(el) => {
-                tabRefs.current[i] = el;
-              }}
-              role="tab"
-              type="button"
-              id={`reports-tab-${t.id}`}
-              aria-selected={isActive}
-              aria-controls={`reports-panel-${t.id}`}
-              tabIndex={isActive ? 0 : -1}
-              onClick={() => selectTab(t.id)}
-              onKeyDown={(e) => onKeyDown(e, i)}
-              className={`px-[18px] py-2.5 text-xs font-bold font-display border-b-2 transition -mb-px ${
-                isActive
-                  ? 'text-de border-de'
-                  : 'text-muted border-transparent hover:text-text'
-              }`}
-              data-testid={`reports-tab-${t.id}`}
-            >
-              {t.label}
-            </button>
-          );
-        })}
-      </div>
+      {/* ★★★ fix-485 §B (P-137): this is the strip `shared/TabStrip` was
+          extracted FROM — its treatment AND its keyboard contract — so the
+          conversion is a move rather than a change. The test ids are unchanged
+          (`reports-tab-<id>`), which is what lets every fix-317/319/367 pin
+          keep pointing at the same elements. */}
+      <TabStrip<ReportsTab>
+        tabs={TABS.map((t) => ({
+          id: t.id,
+          label: t.label,
+          testid: `reports-tab-${t.id}`,
+        }))}
+        active={active}
+        onSelect={selectTab}
+        ariaLabel="Reports sections"
+        testIdPrefix="reports-subtab"
+      />
 
       <div
         role="tabpanel"
