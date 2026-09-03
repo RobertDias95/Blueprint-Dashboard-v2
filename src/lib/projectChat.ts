@@ -523,7 +523,116 @@ export function groupIntoPosts(
 
   // Newest conversation first — a post someone replied to this morning matters
   // more than one nobody has touched since June.
+  //
+  // ★ fix-484 §C: this stays, and it is the PREVIEW's order. The modal sorts
+  //   the same list differently — see `sortPostsByLifecycle` below.
   return out.sort((a, b) => b.lastActivityAt.localeCompare(a.lastActivityAt));
+}
+
+// ===========================================================================
+// ★★★ fix-484 §C (P-145) — THE OPENED CHAT READS IN LIFECYCLE ORDER
+// ===========================================================================
+//
+// Ruled 2026-09-02:
+//   · the Overview PREVIEW stays newest-first — it is a "what happened lately"
+//     glance, and two threads is all it shows;
+//   · the MODAL is the whole conversation, and a conversation about a project
+//     reads in the order the project happens: acquisition questions, then the
+//     preliminary assessment, then design, then correction round 1, 2, 3…
+//
+// ★★ SO THE TWO SURFACES ORDER DIFFERENTLY ON PURPOSE, and that is the one
+// thing about this that looks like a bug. It is written down here rather than
+// at either call site so neither can "fix" it into agreeing with the other.
+//
+// ---------------------------------------------------------------------------
+// ★★★ WHAT THE DATA ACTUALLY IS — COUNTED ON PROD, 2026-09-02 (read-only)
+// ---------------------------------------------------------------------------
+// The brief asks whether threads are a VOCABULARY or FREE-FORM. Measured over
+// all 444 top-level posts: **both**, and the split is lopsided.
+//
+//   SEEDED, one per project, by `bp_seed_project_posts`:
+//     ACQ Questions            118      Design Phase             118
+//     Preliminary Assessment   118      CR 1                      49 of these
+//   MINTED by `bp_ensure_cr_thread` as cycles open (fix-381):
+//     CR 1 … CR 5               69 total (49 / 11 / 5 / 3 / 1)
+//   FREE-FORM, typed by a person:
+//     21 threads across 14 titles — "General" ×4, "Corrections" ×2, and
+//     twelve one-offs ("PAR & WAC", "SD Finishing touches", "on hold"…).
+//
+// **95% of threads carry one of four seeded names.** So the order is the
+// brief's hybrid branch: KNOWN PHASES FIRST, in a declared order; then CR
+// threads by their round number; then everything else by creation.
+//
+// ---------------------------------------------------------------------------
+// ★★★ AND THE DECLARED ORDER DISAGREES WITH THE SEED — DELIBERATELY
+// ---------------------------------------------------------------------------
+// `bp_seed_project_posts` inserts in the order ACQ Questions (1) → **Design
+// Phase (2)** → **Preliminary Assessment (3)** → CR 1 (4). Bobby's 2026-09-02
+// ruling is ACQ → **Preliminary assessment** → **Design phase** → CR 1 → 2 …
+// — the middle two the other way round.
+//
+// ★★ The RULING WINS, and nothing in the database changes: the seed's `ord` is
+// a creation order (it only breaks the `created_at` tie by a millisecond), not
+// a statement about the lifecycle. This list is the statement, it lives in ONE
+// place, and flipping two entries here is the whole edit if Bobby reads it the
+// other way.
+
+/** ★★★ THE LIFECYCLE, DECLARED ONCE. Compared case-insensitively so a hand-typed
+ *  "acq questions" lands with the seeded one. */
+export const CHAT_PHASE_ORDER: readonly string[] = [
+  'ACQ Questions',
+  'Preliminary Assessment',
+  'Design Phase',
+];
+
+/** `CR 3` → 3. Null for anything that is not a correction-round thread.
+ *
+ *  ★ Matches the title `bp_ensure_cr_thread` mints (`'CR ' || p_round`) and
+ *    nothing looser: "Correction Round 1" and "Corrections 1" are free-form
+ *    titles somebody typed, and guessing at them would silently re-order a
+ *    thread whose author chose its name. They sort with the other free-form
+ *    threads, by creation, which is where their author put them. */
+export function crRoundOf(title: string | null | undefined): number | null {
+  const m = /^\s*CR\s+(\d+)\s*$/i.exec(title ?? '');
+  return m ? Number(m[1]) : null;
+}
+
+/** The rank of a thread in the lifecycle: the declared phases, then the CR
+ *  rounds in numeric order, then everything else. */
+function lifecycleRank(title: string | null | undefined): number {
+  const t = (title ?? '').trim().toLowerCase();
+  const phase = CHAT_PHASE_ORDER.findIndex((p) => p.toLowerCase() === t);
+  if (phase >= 0) return phase;
+  const round = crRoundOf(title);
+  // ★ CR rounds sit AFTER every declared phase and in numeric order. The offset
+  //   is the phase count, so adding a fourth phase does not need this touched.
+  if (round !== null) return CHAT_PHASE_ORDER.length + round;
+  // ★ Everything else lands last — a large constant rather than Infinity, so
+  //   the comparison below is ordinary arithmetic.
+  return Number.MAX_SAFE_INTEGER;
+}
+
+/**
+ * ★★★ THE MODAL'S ORDER: oldest phase at the top, newest cycle at the bottom.
+ *
+ * ★★ IT DOES NOT MUTATE. `groupIntoPosts` already returned a sorted array and
+ *    both surfaces hold the same reference; sorting in place would silently
+ *    re-order the preview too — which is precisely the behaviour this ticket
+ *    keeps separate.
+ *
+ * ★ Unknown threads keep CREATION order among themselves (`created_at`, ties
+ *   broken by id), not last-activity order: the modal is a record of the
+ *   conversation, so a thread does not jump the queue because somebody replied
+ *   to it this morning. That is the preview's job.
+ */
+export function sortPostsByLifecycle(posts: readonly ChatPost[]): ChatPost[] {
+  return [...posts].sort((a, b) => {
+    const ra = lifecycleRank(a.post.title);
+    const rb = lifecycleRank(b.post.title);
+    if (ra !== rb) return ra - rb;
+    const byCreated = a.post.created_at.localeCompare(b.post.created_at);
+    return byCreated !== 0 ? byCreated : a.post.id.localeCompare(b.post.id);
+  });
 }
 
 // ---------------------------------------------------------------------------

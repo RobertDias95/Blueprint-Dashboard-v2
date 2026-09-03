@@ -90,6 +90,11 @@ export default function ProjectChatSection({ projectId }: { projectId: string })
   // the rest you would have to open" — but the unit of a conversation is a post
   // now, and two posts say more about what is happening on a project than the
   // last two replies torn out of whichever one happened to be busiest.
+  // ★★★ fix-484 §C (P-145): UNCHANGED, AND THAT IS THE RULING. `groupIntoPosts`
+  //     returns newest-activity-first and this takes the top two. The MODAL
+  //     re-sorts into lifecycle order; this does not, because a preview of two
+  //     threads answers "what moved lately" and a lifecycle order would show
+  //     the same two threads on every project forever.
   const posts = useMemo(() => groupIntoPosts(messages), [messages]);
   const preview = useMemo(() => posts.slice(0, PREVIEW_COUNT), [posts]);
 
