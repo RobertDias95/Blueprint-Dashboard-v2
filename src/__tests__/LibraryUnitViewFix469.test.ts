@@ -54,10 +54,14 @@ const EMPTY: LibraryFilters = {
   lotwBuf: 2,
   lotdTarget: null,
   lotdBuf: 2,
+  lotsizeTarget: null,
+  lotsizeBuf: 500,
   unitwTarget: null,
   unitwBuf: 2,
   unitdTarget: null,
   unitdBuf: 2,
+  unitsizeTarget: null,
+  unitsizeBuf: 100,
   zone: '',
   alley: '',
   productTypes: [],
@@ -94,6 +98,7 @@ function row(projectId: string, unitTypes: UnitType[]): LibraryRow {
     tags: [],
     lotWidth: 40,
     lotDepth: 100,
+    lotSizeSf: null,
     alley: 'No',
     isCornerLot: false,
     isRegularShape: true,
@@ -110,6 +115,8 @@ const SEARCH_16x36: LibraryFilters = {
   unitwBuf: 1,
   unitdTarget: 36,
   unitdBuf: 1,
+  unitsizeTarget: null,
+  unitsizeBuf: 100,
 };
 
 describe('fix-469 §1 — the UNIT view returns only matching units', () => {

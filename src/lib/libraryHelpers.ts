@@ -36,6 +36,15 @@ export interface LibraryRow {
   zone: string;
   lotWidth: number;
   lotDepth: number;
+  /** ★★★ fix-488 §A (P-142): the TYPED lot area, or null when nobody typed one.
+   *
+   *  ★★ NULLABLE, unlike `lotWidth`/`lotDepth` above, which use a 0 sentinel.
+   *  That sentinel is safe for them because `matchTargetWithBuffer` treats 0
+   *  and null identically (both fail an active filter) — but the SITE COLUMN
+   *  has to tell "nobody typed a size" apart from a derived one, and 0 cannot.
+   *  `lotSizeView` decides what the cell says; this carries only what is
+   *  stored. */
+  lotSizeSf: number | null;
   alley: string;
   tags: string[];
   stage: Stage;
@@ -159,6 +168,8 @@ export function buildLibraryRows(
       zone: proj.zone ?? '',
       lotWidth: proj.lot_width ?? 0,
       lotDepth: proj.lot_depth ?? 0,
+      // ★ fix-488: `?? null`, NOT `?? 0` — see the field on LibraryRow.
+      lotSizeSf: proj.lot_size_sf ?? null,
       alley: proj.alley ?? '',
       tags: Array.isArray(proj.project_tags) ? proj.project_tags : [],
       stage: worstStage(projectPermits),
@@ -214,6 +225,20 @@ export interface LibraryFilters {
   lotwBuf: number;
   lotdTarget: number | null;
   lotdBuf: number;
+  /** ★★★ fix-488 §A: lot AREA ± tolerance, in square feet.
+   *
+   *  ★★ THE BUFFER IS ABSOLUTE, LIKE ITS SIBLINGS (`matchTargetWithBuffer` is
+   *  `|val − target| ≤ buf`), so its default cannot be 2 the way the four
+   *  dimension buffers are — 2 sq ft is a rounding error on a 7,200 sf lot and
+   *  the control would look broken. **±500 sf**, which is ~7% of Bobby's own
+   *  7,200 example: wide enough that "about a 7,000-foot lot" returns the lots
+   *  a person means, tight enough to separate a 5,000 from a 9,000.
+   *
+   *  ★ It matches the TYPED size only. A lot whose size is merely derivable
+   *  from W×D is not what somebody filtering on area is asking for — see
+   *  `filterLibraryRows`. */
+  lotsizeTarget: number | null;
+  lotsizeBuf: number;
   /** fix-81: filter by structure (unit_type) width/depth. A project matches
    * when at least one of its unit_types lands inside the target ± buf
    * window. Projects with no unit_types don't match when either unit
@@ -222,6 +247,18 @@ export interface LibraryFilters {
   unitwBuf: number;
   unitdTarget: number | null;
   unitdBuf: number;
+  /** ★★★ fix-488 §B (P-150): unit FLOOR AREA ± tolerance, in square feet.
+   *
+   *  Bobby, 2026-09-03: *"show me all my 1,700 sqft units with a garage."*
+   *  That sentence is the acceptance test — this target ANDed with
+   *  `parkingKind`, on the SAME unit (fix-402's per-unit conjunction).
+   *
+   *  ★★ **±100 sf** by default, a fifth of the lot buffer and for the reason
+   *  the two differ: a unit is an order of magnitude smaller than a lot, and
+   *  1,700 ± 100 is the window a person means when they say "seventeen
+   *  hundred". ±500 there would sweep in 1,200 and 2,200. */
+  unitsizeTarget: number | null;
+  unitsizeBuf: number;
   zone: string;
   alley: string;
   /** fix-91: multi-select. Project matches when its product_types[]
@@ -333,6 +370,12 @@ export function matchingUnitIndices(
     if (
       matchTargetWithBuffer(u.width_ft, filters.unitwTarget, filters.unitwBuf) &&
       matchTargetWithBuffer(u.depth_ft, filters.unitdTarget, filters.unitdBuf) &&
+      // ★★★ fix-488 §B — BOBBY'S ACCEPTANCE QUERY LIVES ON THIS LINE.
+      //     *"show me all my 1,700 sqft units with a garage"* is this conjunct
+      //     ANDed with `matchParkingKind` below, on the SAME `u`. A per-FILTER
+      //     reading would return a project with a 1,700 sf unit and a garage on
+      //     a different unit, and the reader would open it to find no such unit.
+      matchTargetWithBuffer(u.size_sf, filters.unitsizeTarget, filters.unitsizeBuf) &&
       matchStoriesTier(u.stories, filters.stories) &&
       matchParkingKind(u.parking_kind, filters.parkingKind) &&
       matchStallsTier(u.parking_stalls, filters.stalls) &&
@@ -353,6 +396,11 @@ export function hasAnyUnitFilter(filters: LibraryFilters): boolean {
   return (
     filters.unitwTarget !== null ||
     filters.unitdTarget !== null ||
+    // ★★★ fix-488 §B: WITHOUT THIS LINE THE SIZE FILTER IS INERT — the control
+    //     renders, accepts a number, and changes nothing, because
+    //     `matchingUnitIndices` early-returns every index when this says no.
+    //     fix-412's warning above is the reason this function exists.
+    filters.unitsizeTarget !== null ||
     filters.stories !== '' ||
     filters.parkingKind !== '' ||
     filters.stalls !== '' ||
@@ -401,6 +449,10 @@ export const SITE_FILTER_KEYS = [
   'lotwBuf',
   'lotdTarget',
   'lotdBuf',
+  // ★ fix-488 §A: the lot-area pair clears with the SITE card, beside the two
+  //   dimension pairs it sits next to on screen.
+  'lotsizeTarget',
+  'lotsizeBuf',
   'zone',
   'juris',
   'alley',
@@ -416,6 +468,9 @@ export const UNIT_FILTER_KEYS = [
   'unitwBuf',
   'unitdTarget',
   'unitdBuf',
+  // ★ fix-488 §B: the unit-area pair clears with the UNIT card.
+  'unitsizeTarget',
+  'unitsizeBuf',
   'parkingKind',
   'stalls',
   'roofDeck',
@@ -544,6 +599,16 @@ export function filterLibraryRows(
   return rows.filter((r) => {
     if (!matchTargetWithBuffer(r.lotWidth, filters.lotwTarget, filters.lotwBuf)) return false;
     if (!matchTargetWithBuffer(r.lotDepth, filters.lotdTarget, filters.lotdBuf)) return false;
+    // ★★★ fix-488 §A — IT MATCHES THE TYPED SIZE ONLY, NOT A DERIVED ONE.
+    //
+    // The Site card SHOWS `width × depth` where no size was typed, and it is
+    // tempting to filter on the same number. It would be wrong: somebody
+    // filtering on area is asking "which lots did we record as about this
+    // big", and answering with 205 rectangles nobody measured turns a search
+    // into a calculator. `matchTargetWithBuffer` already treats null as
+    // "no match while the filter is active", which is exactly right here.
+    if (!matchTargetWithBuffer(r.lotSizeSf, filters.lotsizeTarget, filters.lotsizeBuf))
+      return false;
     if (hasUnitFilter && matchingUnitIndices(r, filters).length === 0) return false;
     // ★★★ fix-415 A5 — EXACT MATCH, NOT SUBSTRING, AND THAT IS A BUG FIX.
     //
@@ -614,6 +679,11 @@ export const SORTABLE_COLUMNS = [
   'units',
   'zone',
   'lotWidth',
+  // ★★★ fix-488 §A: `lotSizeSf` is sortable, AND ITS ARM IS BELOW. fix-410's
+  //   warning three lines down is not decoration — a name listed here without
+  //   a handler falls through to `a[col].localeCompare(...)` on a number and
+  //   throws during render.
+  'lotSizeSf',
   'alley',
   'stage',
   'isCornerLot',
@@ -685,6 +755,24 @@ export function sortLibraryRows(
   }
   if (col === 'units' || col === 'lotWidth') {
     sorted.sort((a, b) => (a[col] - b[col]) * dir);
+    return sorted;
+  }
+  // ★★★ fix-488 §A — ITS OWN ARM, BECAUSE IT IS THE ONLY NULLABLE NUMBER HERE.
+  //
+  // `units` and `lotWidth` use a 0 sentinel, so plain subtraction is right for
+  // them. `lotSizeSf` is null when nobody typed one, and `null - 5` is `-5`:
+  // under the arm above, every unmeasured lot would sort as smaller than the
+  // smallest real one, in BOTH directions. NULLs last, which is fix-122's rule
+  // for `numLots` and the same rule the tri-state arm below keeps.
+  if (col === 'lotSizeSf') {
+    sorted.sort((a, b) => {
+      const av = a.lotSizeSf;
+      const bv = b.lotSizeSf;
+      if (av === null && bv === null) return 0;
+      if (av === null) return 1;
+      if (bv === null) return -1;
+      return (av - bv) * dir;
+    });
     return sorted;
   }
   // ★★★ fix-406: the `numLots` arm was here and left with the column. Its

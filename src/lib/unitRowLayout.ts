@@ -193,8 +193,35 @@ export const UNIT_ROW_COLUMNS: readonly UnitRowColumn[] = [
  *
  * ★★★ AND THE SAVING IS BANKED, NOT SPENT. He asked for the freed width to stay
  * available for a future column, so it is not absorbed into padding: the whole
- * matrix is 274px, and the `×` column plus its two gaps would have been ~22 of
+ * matrix was 274px, and the `×` column plus its two gaps would have been ~22 of
  * them. A ninth data column costs nothing but a row in the table above.
+ *
+ * ★★★ fix-488 §B TRIED TO SPEND IT AND COULD NOT — AND THE NUMBER IS WHY.
+ *
+ * `unit_types[].size_sf` (P-150) wanted a ninth column. Built, measured, and
+ * REVERTED:
+ *
+ *     matrix          274px → 312px   (34 for the cell, 4 for its gap)
+ *     PROJECT floor   296px → 334px   (`UNIT_MATRIX_WIDTH` + card chrome)
+ *     row minimum   1,172px → 1,248px
+ *     wrap point    1,742px → 1,818px
+ *
+ * ★★★ AND THE LINE THAT STOPPED IT: fix-423 §D guarantees that BELOW the wrap
+ *     point the row splits into two lines and BOTH LINES FIT AT 1280 with no
+ *     sideways scroll. At 1280 the wider line then needs **736px against 710
+ *     available** — a horizontal scrollbar on the overview, which is the exact
+ *     defect fix-417 was raised for and fix-423 kept closed.
+ *
+ * ★★ SO fix-422's "a ninth data column costs nothing" WAS WRONG, and this is
+ *    the correction. It costs 38px of matrix, which is 76px of row minimum,
+ *    which is more than the 12px of slack the two-line layout has at 1280.
+ *    There is no width for the column: the smallest honest cell (26px + a 4px
+ *    gap) is still 30px, and only 12 are free.
+ *
+ * ★ The field itself SHIPPED — typed in the Library's unit table and in the
+ *   wizard's unit editor, and searchable by the Library's Unit Size ± filter.
+ *   What did not ship is this column. See the fix-488 PR for the three options
+ *   put to Bobby.
  */
 export const UNIT_ROW_GAP = 4;
 

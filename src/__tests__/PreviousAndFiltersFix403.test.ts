@@ -59,8 +59,8 @@ beforeEach(() => {
 const LIB_DEFAULT: LibraryFilters = {
   // ★ fix-447: the new key. Default 'site' — the Library opens on SITE.
   view: 'site' as const,
-  lotwTarget: null, lotwBuf: 2, lotdTarget: null, lotdBuf: 2,
-  unitwTarget: null, unitwBuf: 2, unitdTarget: null, unitdBuf: 2,
+  lotwTarget: null, lotwBuf: 2, lotdTarget: null, lotdBuf: 2, lotsizeTarget: null, lotsizeBuf: 500,
+  unitwTarget: null, unitwBuf: 2, unitdTarget: null, unitdBuf: 2, unitsizeTarget: null, unitsizeBuf: 100,
   zone: '', alley: '', productTypes: [], juris: '',
   isCornerLot: '', stories: '', parkingKind: '', stalls: '', roofDeck: '',
 };
@@ -69,8 +69,8 @@ describe('fix-403 §1: the Library round-trips its whole filter shape', () => {
   it('★★★ every field of the fix-402 shape survives — both cards', () => {
     const full: LibraryFilters = {
       view: 'site' as const,
-      lotwTarget: 50, lotwBuf: 5, lotdTarget: 120, lotdBuf: 10,
-      unitwTarget: 20, unitwBuf: 1, unitdTarget: 42, unitdBuf: 3,
+      lotwTarget: 50, lotwBuf: 5, lotdTarget: 120, lotdBuf: 10, lotsizeTarget: null, lotsizeBuf: 500,
+      unitwTarget: 20, unitwBuf: 1, unitdTarget: 42, unitdBuf: 3, unitsizeTarget: null, unitsizeBuf: 100,
       zone: 'NR3', alley: 'Yes', productTypes: ['Townhouse', 'Cottages'],
       juris: 'Seattle',
       isCornerLot: 'Yes', stories: '3',

@@ -68,7 +68,11 @@ import {
 } from '../lib/libraryUnitRows';
 import { useAuthStore } from '../stores/authStore';
 import { zoneOptions } from '../lib/zoneOptions';
-import { formatLotPair } from '../lib/lotDimensions';
+// ★ fix-488: `formatLotPair` is no longer imported here — the site row's lot
+//   cell asks `lotSizeView` instead, because it has to be able to say
+//   "varies". The function itself is UNCHANGED and still serves its other
+//   callers (the wizard's reuse picker); see its note in lib/lotDimensions.
+import { lotSizeView } from '../lib/lotDimensions';
 // ★ fix-483 §A4: `clearLibraryFilters` is no longer imported — the page-level
 //   Clear was its only caller. It STAYS in surfaceFilterPrefs (exported,
 //   symmetric with its two siblings, independently tested); see the note where
@@ -179,10 +183,28 @@ const INITIAL_FILTERS: LibraryFilters = {
   lotwBuf: 2,
   lotdTarget: null,
   lotdBuf: 2,
+  // ★★★ fix-488 — THE TWO NEW BUFFERS ARE NOT 2, AND THAT IS THE DESIGN.
+  //
+  // `matchTargetWithBuffer` is ABSOLUTE, not proportional, so the default has
+  // to be in the unit of the thing. The four dimension buffers are ±2 FEET;
+  // ±2 SQUARE FEET on a 7,200 sf lot is a rounding error and the control would
+  // read as broken on its first use.
+  //
+  //   lot  ±500 sf  — ~7% of Bobby's own 7,200 example. Wide enough that
+  //                   "about a seven-thousand-foot lot" returns the lots a
+  //                   person means; tight enough to separate 5,000 from 9,000.
+  //   unit ±100 sf  — a fifth of it, because a unit is an order of magnitude
+  //                   smaller. 1,700 ± 100 is the window somebody means when
+  //                   they say "seventeen hundred"; ±500 would sweep in 1,200
+  //                   and 2,200 and answer a different question.
+  lotsizeTarget: null,
+  lotsizeBuf: 500,
   unitwTarget: null,
   unitwBuf: 2,
   unitdTarget: null,
   unitdBuf: 2,
+  unitsizeTarget: null,
+  unitsizeBuf: 100,
   zone: '',
   alley: '',
   productTypes: [],
@@ -508,6 +530,22 @@ function Body({ projects, permits }: BodyProps) {
               onBuf={(v) => update('lotdBuf', v)}
               testIdPrefix="lotd"
             />
+            {/* ★★★ fix-488 §A (P-142) — LOT SIZE JOINS THE PRIMARY TIER.
+                It belongs beside the two dimensions rather than among the
+                qualifiers below: it is a thing you search FROM ("about a
+                7,000-foot lot"), not a thing you narrow BY.
+
+                ★★ IT MATCHES THE TYPED SIZE ONLY — a lot whose area is merely
+                derivable from W×D does not answer "which lots did we record as
+                about this big". See `filterLibraryRows`. */}
+            <TargetRange
+              label="Lot Size (sf)"
+              target={filters.lotsizeTarget}
+              buf={filters.lotsizeBuf}
+              onTarget={(v) => update('lotsizeTarget', v)}
+              onBuf={(v) => update('lotsizeBuf', v)}
+              testIdPrefix="lotsize"
+            />
           </div>
 
           <div className="flex flex-wrap items-end gap-3">
@@ -659,6 +697,19 @@ function Body({ projects, permits }: BodyProps) {
               onTarget={(v) => update('unitdTarget', v)}
               onBuf={(v) => update('unitdBuf', v)}
               testIdPrefix="unitd"
+            />
+            {/* ★★★ fix-488 §B (P-150) — THE CONTROL BOBBY ASKED FOR BY NAME.
+                *"show me all my 1,700 sqft units with a garage."* This target,
+                ANDed with the Parking select below on the SAME unit — fix-402's
+                per-unit conjunction, which is what makes the answer mean what
+                the sentence means. */}
+            <TargetRange
+              label="Unit Size (sf)"
+              target={filters.unitsizeTarget}
+              buf={filters.unitsizeBuf}
+              onTarget={(v) => update('unitsizeTarget', v)}
+              onBuf={(v) => update('unitsizeBuf', v)}
+              testIdPrefix="unitsize"
             />
           </div>
 
@@ -845,6 +896,9 @@ function Body({ projects, permits }: BodyProps) {
               <UTh sort={unitSort} col="unitLabel" onClick={toggleUnitSort} align="left">Unit type</UTh>
               <UTh sort={unitSort} col="width" onClick={toggleUnitSort} align="center">Width</UTh>
               <UTh sort={unitSort} col="depth" onClick={toggleUnitSort} align="center">Depth</UTh>
+              {/* ★★★ fix-488 §B — the column the size filter returns you to.
+                  A filter you cannot read the result of is half a feature. */}
+              <UTh sort={unitSort} col="size" onClick={toggleUnitSort} align="center">Size (sf)</UTh>
               <UTh sort={unitSort} col="qty" onClick={toggleUnitSort} align="center">Qty</UTh>
               <UTh sort={unitSort} col="stories" onClick={toggleUnitSort} align="center">Stories</UTh>
               <UTh sort={unitSort} col="parking" onClick={toggleUnitSort} align="center">Parking</UTh>
@@ -940,7 +994,10 @@ function Body({ projects, permits }: BodyProps) {
                   //   and §A2 took `Work` (a trailing cell). Asserted against
                   //   the rendered header count, like its sibling, because
                   //   A STALE colSpan IS INVISIBLE UNTIL THE TABLE IS EMPTY.
-                  colSpan={11}
+                  // ★ fix-488 §B: 12. Was 11 — the Size column joined the
+                  //   header. A stale span is invisible until the table is
+                  //   empty (the note above).
+                  colSpan={12}
                   className="px-4 py-8 text-center text-xs text-dim italic"
                 >
                   No units match the current filters.
@@ -974,6 +1031,11 @@ function Body({ projects, permits }: BodyProps) {
                   report. This is the Library table only. */}
               <Th sort={sort} col="zone" onClick={toggleSort} align="center">Zone</Th>
               <Th sort={sort} col="lotWidth" onClick={toggleSort} align="center">Lot W×D</Th>
+              {/* ★★★ fix-488 §A — LOT SIZE, BESIDE THE PAIR IT RELATES TO.
+                  A DERIVED size renders in the same face as a typed one
+                  (Bobby's rule: the number is the number), with the derived
+                  ones marked only by the `~` a hover explains — see the cell. */}
+              <Th sort={sort} col="lotSizeSf" onClick={toggleSort} align="center">Lot SF</Th>
               <Th sort={sort} col="alley" onClick={toggleSort} align="center">Alley</Th>
               {/* fix-122: Corner Lot — same dimensions feel very
                   different on a corner. */}
@@ -1023,7 +1085,10 @@ function Body({ projects, permits }: BodyProps) {
                   //   UNTIL THE TABLE IS EMPTY. Every span here is asserted
                   //   against the rendered header count, so removing three
                   //   columns cannot quietly break the empty state either.
-                  colSpan={10}
+                  // ★ fix-488 §A: 11. Was 10 — the Lot SF column joined the
+                  //   header, and a stale span is invisible until the table is
+                  //   empty (the note above, third time it has mattered).
+                  colSpan={11}
                   className="px-4 py-8 text-center text-xs text-dim italic"
                 >
                   No projects match the current filters.
@@ -1157,13 +1222,67 @@ function Row({ row, bandClass }: RowProps) {
           {/* ★ fix-411 §2: whole feet. The SORT still reads row.lotWidth
               unrounded (see SORTABLE_COLUMNS' lotWidth arm), so 100.47 and
               100.4 keep their real order while both render "100". */}
-          {row.lotWidth && row.lotDepth ? (
-            <span className="font-mono text-text">
-              {formatLotPair(row.lotWidth, row.lotDepth)}
-            </span>
-          ) : (
-            <span className="text-dim">—</span>
-          )}
+          {/* ★★★ fix-488 §A — THE PAIR NOW KNOWS ABOUT "VARIES".
+              `formatLotPair`'s both-or-neither rule is still right for its
+              other callers and is unchanged; this cell asks `lotSizeView`,
+              which says "60 × varies" where a size was typed and one dimension
+              was not. The 0 sentinels in `LibraryRow` are mapped back to null
+              first, because `lotWidth: 0` means "not recorded" here. */}
+          {(() => {
+            const v = lotSizeView(
+              row.lotWidth || null,
+              row.lotDepth || null,
+              row.lotSizeSf,
+            );
+            if (v.pairText === null) return <span className="text-dim">—</span>;
+            return (
+              <span className="font-mono text-text">
+                {v.widthVaries ? (
+                  <span className="italic text-dim">{v.widthText}</span>
+                ) : (
+                  v.widthText
+                )}
+                {' × '}
+                {v.depthVaries ? (
+                  <span className="italic text-dim">{v.depthText}</span>
+                ) : (
+                  v.depthText
+                )}
+              </span>
+            );
+          })()}
+        </td>
+        <td className="px-2 py-1.5 text-center">
+          {(() => {
+            const v = lotSizeView(
+              row.lotWidth || null,
+              row.lotDepth || null,
+              row.lotSizeSf,
+            );
+            if (v.sizeText === null) return <span className="text-dim">—</span>;
+            return (
+              <span
+                className="font-mono text-text"
+                // ★★ A DERIVED SIZE IS MARKED, NOT HIDDEN AND NOT RESTYLED.
+                //    It is the same number in the same face — a `~` and a title
+                //    are the whole distinction, because a person scanning this
+                //    column wants areas, and greying half of them would make
+                //    the column look half-empty when it is not.
+                title={
+                  v.sizeDerived
+                    ? 'Width × depth — nobody has typed a lot size'
+                    : v.irregular
+                      ? 'Typed lot size. It is more than 5% from width × depth — an irregular lot.'
+                      : 'Typed lot size'
+                }
+                data-derived={v.sizeDerived ? 'true' : 'false'}
+                data-testid="library-lot-size"
+              >
+                {v.sizeDerived ? '~' : ''}
+                {v.sizeText}
+              </span>
+            );
+          })()}
         </td>
         <td className="px-2 py-1.5 text-center">
           {row.alley ? (
@@ -1309,6 +1428,11 @@ function LibraryUnitRow({
   const [w, setW] = useState(row.width_ft != null ? String(row.width_ft) : '');
   const [d, setD] = useState(row.depth_ft != null ? String(row.depth_ft) : '');
   const [qty, setQty] = useState(String(row.qty || 1));
+  // ★ fix-488 §B: buffered like W/D/Qty above — the fix-73/98 dirty-flag
+  //   pattern, so a keystroke does not write.
+  const [sizeSf, setSizeSf] = useState(
+    row.size_sf != null ? String(row.size_sf) : '',
+  );
   const [stories, setStories] = useState(
     row.stories != null ? String(row.stories) : '',
   );
@@ -1324,6 +1448,7 @@ function LibraryUnitRow({
     setW(row.width_ft != null ? String(row.width_ft) : '');
     setD(row.depth_ft != null ? String(row.depth_ft) : '');
     setQty(String(row.qty || 1));
+    setSizeSf(row.size_sf != null ? String(row.size_sf) : '');
     setStories(row.stories != null ? String(row.stories) : '');
     setStalls(row.parking_stalls != null ? String(row.parking_stalls) : '');
   }, [
@@ -1331,6 +1456,11 @@ function LibraryUnitRow({
     row.width_ft,
     row.depth_ft,
     row.qty,
+    // ★ fix-488: in the effect body AND in this list. A state seeded in the
+    //   body but missing from the deps stops following the row — which is the
+    //   pre-existing shape of the `parking_stalls` bug on the OTHER unit row
+    //   (ProjectDetailHeader's `UnitRow`), noted there.
+    row.size_sf,
     row.stories,
     row.parking_stalls,
   ]);
@@ -1458,6 +1588,30 @@ function LibraryUnitRow({
           }}
           className={numClass}
           data-testid={`${idBase}-d`}
+        />
+      </td>
+      <td className="px-2 py-0.5 text-center">
+        {/* ★★★ fix-488 §B — TYPED, never derived from W × D. A footprint is
+            not a floor area; see `parseUnitTypes`. `step={1}` because square
+            feet are whole numbers here, unlike the 0.5-foot dimensions. */}
+        <input
+          type="number"
+          min={1}
+          step="1"
+          value={sizeSf}
+          placeholder="—"
+          disabled={disabled}
+          onChange={(e) => {
+            dirtyRef.current = true;
+            setSizeSf(e.target.value);
+          }}
+          onBlur={() => {
+            const v = sizeSf === '' ? null : Math.round(Number(sizeSf)) || null;
+            if (v !== (row.size_sf ?? null)) onChange('size_sf', v);
+            dirtyRef.current = false;
+          }}
+          className={numClass}
+          data-testid={`${idBase}-size`}
         />
       </td>
       <td className="px-2 py-0.5 text-center">

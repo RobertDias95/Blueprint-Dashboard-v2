@@ -42,6 +42,9 @@ describe('<UnitTypesEditor />', () => {
       // ★ fix-402: parseUnitTypes/nextRow now also emit the three unit-parking
       // fields, all null — NOT RECORDED, which is what a row that never
       // carried them is until the backfill reaches it.
+      // ★ fix-488 §B: the seed spells `size_sf` out as null beside the
+      //   fix-402 trio, for the same reason they are spelled out.
+      size_sf: null,
       parking_kind: null,
       parking_stalls: null,
       roof_deck: null,

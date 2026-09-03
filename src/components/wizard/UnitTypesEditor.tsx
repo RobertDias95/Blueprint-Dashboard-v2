@@ -40,6 +40,10 @@ function nextRow(rows: readonly UnitType[]): UnitType {
     // ★★★ fix-402: a NEW row starts NOT RECORDED on all three, spelled out
     //   rather than left absent — so the intent survives a future refactor
     //   that might otherwise reach for a "sensible default".
+    // ★ fix-488 §B: spelled out as null, like the fix-402 trio below — an
+    //   absent key and a null key read the same to `parseUnitTypes`, but the
+    //   seed is where somebody looks to learn what a unit row holds.
+    size_sf: null,
     parking_kind: null,
     parking_stalls: null,
     roof_deck: null,

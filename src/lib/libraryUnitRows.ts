@@ -162,6 +162,10 @@ export const UNIT_SORTABLE_COLUMNS = [
   'unitLabel',
   'width',
   'depth',
+  // ★ fix-488 §B. Unlike the SITE sorter, this union's `switch` is
+  //   exhaustive-return, so a member added here without an arm below is a
+  //   COMPILE error rather than a render-time throw.
+  'size',
   'qty',
   'stories',
   'parking',
@@ -251,6 +255,11 @@ export function sortUnitRows(
       return out.sort(
         (a, b) =>
           cmpNullable(a.unit.depth_ft ?? null, b.unit.depth_ft ?? null, dir) || a.index - b.index,
+      );
+    case 'size':
+      return out.sort(
+        (a, b) =>
+          cmpNullable(a.unit.size_sf ?? null, b.unit.size_sf ?? null, dir) || a.index - b.index,
       );
     case 'qty':
       return out.sort(

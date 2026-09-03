@@ -457,6 +457,7 @@ function renderHeader(over: Partial<Project> = {}) {
     zone: null,
     lot_width: null,
     lot_depth: null,
+    lot_size_sf: null,
     unit_types: [{ label: 'SFR', width_ft: 20, depth_ft: 30, qty: 1 }],
     alley: null,
     product_types: ['SFR'],

@@ -191,6 +191,7 @@ function makeProject(over: Partial<Project> = {}): Project {
     zone: 'NR3',
     lot_width: 61,
     lot_depth: 192,
+    lot_size_sf: null,
     num_lots: 1,
     is_corner_lot: false,
     alley: 'No',

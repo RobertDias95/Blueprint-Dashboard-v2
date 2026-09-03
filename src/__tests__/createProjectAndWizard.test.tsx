@@ -185,6 +185,7 @@ describe('useCreateProjectWithPermits (fix-22 signature)', () => {
           zone: 'LR2',
           lot_width: 40,
           lot_depth: 100,
+          lot_size_sf: null,
           // ★ fix-402: the two site-level parking fields left ProjectData —
           //   parking is per-UNIT now (unit_types[].parking_kind/stalls).
           alley: 'yes',

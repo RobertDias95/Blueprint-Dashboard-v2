@@ -104,6 +104,7 @@ function setup(unitTypes: UnitType[], productTypes: string[] = ['Remodel', 'SFR'
     zone: null,
     lot_width: null,
     lot_depth: null,
+    lot_size_sf: null,
     unit_types: unitTypes,
     alley: null,
     product_types: productTypes,

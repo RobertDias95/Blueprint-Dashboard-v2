@@ -41,7 +41,13 @@ export function useProjects() {
             // block would render nothing, for ever, with no error anywhere.
             'entitlement_lead, design_manager, schematic_designer, go_date',
             'construction_admin',
-            'units, zone, lot_width, lot_depth, unit_types',
+            // ★★★ fix-488: `lot_size_sf` HAS to be on this line — the FIFTH
+            // time this file has recorded the trap (fix-122, fix-386, fix-410
+            // and fix-487 above). The select list is explicit, so an unlisted
+            // column arrives as `undefined` and the Site card, the Library
+            // column and the new filter would all read "not recorded" for ever,
+            // with no error anywhere.
+            'units, zone, lot_width, lot_depth, lot_size_sf, unit_types',
             // ★ fix-402: parking_type / parking_stalls dropped from the select.
             // They are archived and NULL on every row; selecting them would
             // ship 186 nulls to every client on every load to feed nothing.

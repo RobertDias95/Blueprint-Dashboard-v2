@@ -22,7 +22,7 @@ import {
   type UnitRowColumn,
 } from '../../lib/unitRowLayout';
 import ZoneSelect from '../shared/ZoneSelect';
-import { roundLotForStorage } from '../../lib/lotDimensions';
+import { lotSizeView, roundLotForStorage } from '../../lib/lotDimensions';
 import { VENDOR_SEND_LEAD_DAYS, vendorTargetSend } from '../../lib/vendorReport';
 import type {
   Builder,
@@ -1352,9 +1352,10 @@ function ProjectCell({
   const productTypes = Array.isArray(project.product_types)
     ? project.product_types
     : [];
-  const tags = Array.isArray(project.project_tags)
-    ? (project.project_tags as string[])
-    : [];
+  // ★ fix-488 §A: `tags` moved to the Site section with its chips, so this
+  //   card-level const has no reader left here. SiteEditor reads
+  //   `project.project_tags` directly, the same way it reads every other Site
+  //   field, rather than being handed a value from three hundred lines up.
   // fix-126: children of this project (descendant redesigns), sorted by
   // created_at ascending so "Redesign #1" is the first one spawned.
   // Filtered in-place from the already-cached projects list.
@@ -1446,28 +1447,15 @@ function ProjectCell({
                 Parallel to the Redesigns section; one field shared with the
                 wizard + reports. */}
             <ReuseEditor project={project} allProjects={allProjects} />
-            <div className="flex items-baseline gap-1.5 mt-0.5">
-              <span className="text-[9px] text-dim min-w-[36px]">Tags</span>
-              <div className="flex flex-wrap gap-0.5">
-                {tags.length === 0 ? (
-                  <span className="text-[9px] text-dim italic">none</span>
-                ) : (
-                  tags.map((t) => (
-                    <span
-                      key={t}
-                      className="text-[8px] font-bold px-1.5 py-0.5 rounded border"
-                      style={{
-                        background: 'var(--color-de-bg)',
-                        color: 'var(--color-de)',
-                        borderColor: 'var(--color-de-border)',
-                      }}
-                    >
-                      {t}
-                    </span>
-                  ))
-                )}
-              </div>
-            </div>
+            {/* ★★★ fix-488 §A — TAGS HAS MOVED TO THE SITE SECTION.
+                Bobby asked for it to sit beside the new Lot size row, and the
+                v10 mock's Project Data lists it in the `site` tab, after Reuse.
+                It renders in `SiteEditor` now; nothing about the chips changed.
+
+                ★★ IT WAS NEVER A PROPOSAL FIELD IN THE MOCK — it was here
+                because fix-331 grouped it with Units and Type. A tag is a fact
+                about the PARCEL (ECA, steep slope, shoreline), which is what
+                the Site section is for. */}
 
             {/* fix-126: expandable Redesigns (N) subsection. Hidden
                 entirely when zero descendants exist (empty state is
@@ -2325,6 +2313,43 @@ function SiteEditor({ project }: { project: Project }) {
         />
       </div>
       <SiteLotRow project={project} disabled={occMissing} onCommit={commit} />
+      {/* ★★★ fix-488 §A: the typed lot size, directly under the pair it
+          relates to — and the row that renders `varies` when one dimension is
+          blank beside a typed size. */}
+      <SiteLotSizeRow
+        project={project}
+        disabled={occMissing}
+        onCommit={(field, next, prev, label) => {
+          void commit(field, next, prev, label);
+        }}
+      />
+      {/* ★★★ fix-488 §A: TAGS, moved here from Proposal — Bobby asked for it
+          beside the lot size, and it is a fact about the parcel. Read-only
+          chips, exactly as they rendered before; `project_tags` is written
+          elsewhere and this ticket does not change that. */}
+      <div className="flex items-baseline gap-1.5">
+        <span className="text-[9px] text-dim min-w-[32px]">Tags</span>
+        <div className="flex flex-wrap gap-0.5">
+          {(Array.isArray(project.project_tags) ? project.project_tags : [])
+            .length === 0 ? (
+            <span className="text-[9px] text-dim italic">none</span>
+          ) : (
+            (project.project_tags as string[]).map((t) => (
+              <span
+                key={t}
+                className="text-[8px] font-bold px-1.5 py-0.5 rounded border"
+                style={{
+                  background: 'var(--color-de-bg)',
+                  color: 'var(--color-de)',
+                  borderColor: 'var(--color-de-border)',
+                }}
+              >
+                {t}
+              </span>
+            ))
+          )}
+        </div>
+      </div>
       {/* fix-122: Number of Lots (1-20 dropdown, blank = unset). Lives in
           Site because a subdivision count is a parcel-level fact, not a
           proposal/scope fact. Users who need >20 can backfill via the
@@ -2552,6 +2577,106 @@ function SiteLotRow({
         data-testid="pd-site-lot-d"
       />
       <span className="text-[9px] text-dim">ft</span>
+    </div>
+  );
+}
+
+/**
+ * ★★★ fix-488 §A (P-142) — LOT SIZE, AND WHAT "VARIES" LOOKS LIKE.
+ *
+ * Bobby, 2026-09-02: *"if I put width 100 and lot size 10,000 and leave depth
+ * blank, that's because the depth is irregular… instead of Target it would say
+ * Varies."*
+ *
+ * ★★ AN INPUT AND A READING, ON ONE LINE. The box is where the number is typed;
+ * the text beside it is what `lotSizeView` makes of the three fields together —
+ * including the word `varies` in place of the dimension nobody could give, and
+ * the `~` that marks a size this app worked out rather than one somebody
+ * measured.
+ *
+ * ★★★ IT IS AN INTEGER PARSE, NOT `roundLotForStorage`. That helper is named
+ * for the LOT DIMENSION on purpose (lib/lotDimensions' header: "so that a call
+ * site rounding a unit reads obviously wrong"), and square feet are a different
+ * quantity from feet. Same arithmetic, different reason, so it is written here
+ * rather than borrowed.
+ */
+function SiteLotSizeRow({
+  project,
+  disabled,
+  onCommit,
+}: {
+  project: Project;
+  disabled: boolean;
+  onCommit: (
+    field: 'lot_size_sf',
+    next: number | null,
+    prev: number | null | undefined,
+    label: string,
+  ) => void;
+}) {
+  const [draft, setDraft] = useState(
+    project.lot_size_sf != null ? String(project.lot_size_sf) : '',
+  );
+  const dirtyRef = useRef(false);
+  // ★ The fix-73/98 dirty-flag pattern, like SiteLotRow above: follow the row
+  //   unless somebody is mid-edit.
+  useEffect(() => {
+    if (dirtyRef.current) return;
+    setDraft(project.lot_size_sf != null ? String(project.lot_size_sf) : '');
+  }, [project.lot_size_sf]);
+
+  const view = lotSizeView(project.lot_width, project.lot_depth, project.lot_size_sf);
+
+  return (
+    <div className="flex items-baseline gap-1.5">
+      <span className="text-[9px] text-dim min-w-[32px]">Lot size</span>
+      <input
+        type="number"
+        min={0}
+        step={1}
+        value={draft}
+        placeholder="—"
+        onChange={(e) => {
+          dirtyRef.current = true;
+          setDraft(e.target.value);
+        }}
+        onBlur={() => {
+          const t = draft.trim();
+          const n = t === '' ? null : Math.round(Number(t));
+          const next = n !== null && Number.isFinite(n) && n > 0 ? n : null;
+          onCommit('lot_size_sf', next, project.lot_size_sf, 'Lot Size');
+          dirtyRef.current = false;
+        }}
+        disabled={disabled}
+        className="w-14 text-[10px] font-semibold text-text border-0 border-b outline-none bg-transparent px-0 py-0.5 text-center disabled:opacity-50"
+        style={{ borderBottomColor: 'var(--color-border)' }}
+        data-testid="pd-site-lot-size"
+      />
+      <span className="text-[9px] text-dim">sf</span>
+      {/* ★★ THE DERIVED READING, and it is NOT written back. The box stays
+          empty while this shows the product — which is the whole distinction
+          the column exists for. */}
+      {view.sizeDerived && view.sizeText !== null && (
+        <span
+          className="text-[9px] text-dim italic"
+          title="Width × depth. Nobody has typed a lot size — type one to record an irregular parcel."
+          data-testid="pd-site-lot-size-derived"
+        >
+          ~{view.sizeText}
+        </span>
+      )}
+      {/* ★ THE IRREGULAR NOTE — quiet, and never an error or an auto-correct.
+          Both numbers are things a person typed. */}
+      {view.irregular && (
+        <span
+          className="text-[9px] italic"
+          style={{ color: 'var(--color-co)' }}
+          title="The typed size is more than 5% from width × depth."
+          data-testid="pd-site-lot-irregular"
+        >
+          irregular lot
+        </span>
+      )}
     </div>
   );
 }
@@ -2922,6 +3047,12 @@ function UnitRow({
     setQty(String(row.qty || 1));
     setStories(row.stories != null ? String(row.stories) : '');
     setStalls(row.parking_stalls != null ? String(row.parking_stalls) : '');
+    // ★ fix-488 §B: no `size_sf` state here — the column was measured and
+    //   reverted (see the note where the input would have been).
+    //   ★ `row.parking_stalls` is seeded in the body and MISSING from these
+    //     deps — a pre-existing gap (fix-402). Left as found, and named so
+    //     whoever fixes it also fixes the Library's copy of this row, which
+    //     does list it.
   }, [row.label, row.width_ft, row.depth_ft, row.qty, row.stories]);
 
   // ★ fix-422: the matrix cell. 9px, centred, one baseline for every column so
@@ -3105,6 +3236,24 @@ function UnitRow({
         data-testid="pd-unit-d"
       />
       <span aria-hidden="true" />
+      {/* ★★★ fix-488 §B — THE UNIT SIZE INPUT IS **NOT** HERE, AND THE
+          NUMBER IS WHY.
+
+          It was built as a ninth column, measured, and reverted: the matrix
+          goes 274px → 312px, which is 76px on the overview row minimum, and
+          fix-423 §D's guarantee is that below the wrap point BOTH LINES FIT AT
+          1280. They would not — the wider line needs 736px against 710
+          available, i.e. a horizontal scrollbar on the overview, the exact
+          defect fix-417 exists to prevent. The two-line layout has 12px of
+          slack and the smallest honest cell plus its gap is 30px.
+
+          ★★ THE FIELD ITSELF SHIPPED. `unit_types[].size_sf` is typed in the
+             Library's unit table and in the wizard's unit editor, and searched
+             by the Library's Unit Size ± filter — which is what Bobby asked
+             for: *"something we actually type in… so we can search for units
+             that fit that criteria."* What is missing is only this DISPLAY.
+             See lib/unitRowLayout for the full arithmetic and the fix-488 PR
+             for the options put to him. */}
       {/* Qty */}
       <input
         type="number"

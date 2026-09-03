@@ -55,6 +55,10 @@ export interface ProjectData {
   zone?: string | null;
   lot_width?: number | null;
   lot_depth?: number | null;
+  /** ★ fix-488 §A: read by the RPC as `v_pd->>'lot_size_sf'` (patched into
+   *  `bp_create_project_with_permits` by the fix-488 migration). A key absent
+   *  from this interface is simply never sent — SILENT. */
+  lot_size_sf?: number | null;
   unit_types?: UnitType[] | null;
   // ★ fix-402: removed — parking moved to unit_types[].parking_kind/stalls.
   alley?: string | null;

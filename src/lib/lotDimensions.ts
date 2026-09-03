@@ -103,3 +103,162 @@ export function formatLotPair(
   if (w === null || d === null) return null;
   return `${w}×${d}`;
 }
+
+
+// ===========================================================================
+// ★★★ fix-488 §A (P-142) — LOT SIZE, AND "VARIES"
+// ===========================================================================
+//
+// Bobby, 2026-09-02:
+//
+//   *"if I put width 100 and depth 100, lot size is 10,000 — quick math. But if
+//    I put width 100 and lot size 10,000 and leave depth blank, that's because
+//    the depth is irregular… in Seattle lots are regular, in other
+//    jurisdictions there's a lot of multi-angled parcels… instead of Target it
+//    would say Varies. What was that 9,000-square-foot lot in Kirkland?"*
+//
+// ---------------------------------------------------------------------------
+// ★★★ THE SIZE IS DISPLAYED AS COMPUTED AND STORED ONLY WHEN TYPED
+// ---------------------------------------------------------------------------
+// `projects.lot_size_sf` is never written from `lot_width * lot_depth`. If it
+// were, a derived rectangle and a surveyed area would be the same bytes — and
+// telling those two apart is the entire feature. `sizeDerived` below is how a
+// surface knows which one it is looking at.
+//
+// ---------------------------------------------------------------------------
+// ★★★ "VARIES" IS ASSERTED, NOT ASSUMED — AND ONLY WHEN THE OTHER SIDE IS KNOWN
+// ---------------------------------------------------------------------------
+// A blank depth on its own means NOT RECORDED. A blank depth *beside a typed
+// size* means somebody knew the area and could not give a single depth — which
+// is precisely Bobby's multi-angled parcel. So the word appears only when a
+// size is typed AND the opposite dimension is known:
+//
+//     60  ·  —      ·  —        →  nothing said about the shape
+//     60  ·  —      ·  7,200    →  "60 × varies"          ← the Kirkland case
+//     —   ·  —      ·  7,200    →  no pair at all, just the size
+//
+// ★★ THAT LAST ROW IS COWORK'S CALL, NOT BOBBY'S. With neither dimension known
+//    we have an AREA and nothing else; "varies × varies" would assert an
+//    irregular parcel from an entry that says only "I know the square footage".
+//    Flagged in the fix-488 PR.
+//
+// ★★★ AND IT SUPERSEDES `formatLotPair`'s "BOTH OR NEITHER". That rule was
+//     right while a half-known lot was always an unknown lot. It no longer is,
+//     so `formatLotPair` is left exactly as it was for its existing callers and
+//     this is the function that knows about size. Two rules, one of them
+//     explicitly older — not a silent change of meaning under the old name.
+
+/** ★ The word. One place, because it is asserted in three surfaces and a
+ *  fourth would otherwise invent "Varies" or "irregular". */
+export const LOT_VARIES_LABEL = 'varies';
+
+/**
+ * ★★ How far `width × depth` may sit from a typed size before the lot is called
+ * irregular. **5%.**
+ *
+ * ★★★ THIS NUMBER IS COWORK'S, NOT BOBBY'S — he did not rule on it, and the
+ * fix-488 PR says so. It is a NOTE, never an error and never an auto-correct:
+ * both numbers are things a person typed, and a tool that "fixed" one of them
+ * would be overwriting a survey with arithmetic. 5% is loose enough that a
+ * rounded 100.4×72.3 lot does not trip it and tight enough that a genuinely
+ * multi-angled parcel does.
+ */
+export const LOT_IRREGULAR_TOLERANCE = 0.05;
+
+export interface LotSizeView {
+  /** "60" · "varies" · null (nothing recorded). */
+  widthText: string | null;
+  depthText: string | null;
+  /** Which half is the WORD rather than a number — so a surface can style it
+   *  (the v10 mock renders it dim and italic) without string-matching. */
+  widthVaries: boolean;
+  depthVaries: boolean;
+  /** "60 × varies", "60 × 100", or null when neither side can be shown. */
+  pairText: string | null;
+  /** The area in whole square feet — typed, or computed for display. */
+  sizeSf: number | null;
+  /** "7,200 sf", or null. */
+  sizeText: string | null;
+  /** ★ TRUE when `sizeSf` is `width × depth` rather than a stored value. The
+   *  one thing a surface must not lose: a derived area is arithmetic, a typed
+   *  one is a survey. */
+  sizeDerived: boolean;
+  /** ★ All three typed, and `width × depth` is more than 5% from the size. */
+  irregular: boolean;
+}
+
+function n(v: number | null | undefined): number | null {
+  return typeof v === 'number' && Number.isFinite(v) ? v : null;
+}
+
+/** ★ "7,200" — grouped, because a lot size is a four- or five-digit number that
+ *  is read at a glance and misread without separators. `toLocaleString` with an
+ *  explicit locale, so a test does not depend on the machine's. */
+export function formatLotSizeSf(sf: number | null | undefined): string | null {
+  const v = n(sf);
+  if (v === null) return null;
+  return `${Math.round(v).toLocaleString('en-US')} sf`;
+}
+
+/**
+ * ★★★ THE ONE RULE, over all eight combinations of {width, depth, size}.
+ *
+ *   w  d  s   →  what comes out
+ *   ─────────────────────────────────────────────────────────────────────────
+ *   ·  ·  ·   →  nothing at all
+ *   ✓  ·  ·   →  "60" and a blank depth. NOT "varies" — nobody said so.
+ *   ·  ✓  ·   →  the mirror of the above
+ *   ✓  ✓  ·   →  "60 × 100", size 6,000 sf DERIVED (never stored)
+ *   ·  ·  ✓   →  the size alone, no pair (see the header — Cowork's call)
+ *   ✓  ·  ✓   →  "60 × varies", size as typed          ← Bobby's case
+ *   ·  ✓  ✓   →  "varies × 100", size as typed
+ *   ✓  ✓  ✓   →  all three as typed, plus `irregular` if they disagree by >5%
+ *
+ * ★ Dimensions render through `formatLotFeet`, so fix-411's whole-feet rule
+ *   still owns how a dimension looks. This function owns only what is SAID.
+ */
+export function lotSizeView(
+  width: number | null | undefined,
+  depth: number | null | undefined,
+  sizeSf: number | null | undefined,
+): LotSizeView {
+  const w = n(width);
+  const d = n(depth);
+  const typed = n(sizeSf);
+
+  const widthVaries = typed !== null && w === null && d !== null;
+  const depthVaries = typed !== null && d === null && w !== null;
+
+  const widthText = w !== null ? formatLotFeet(w) : widthVaries ? LOT_VARIES_LABEL : null;
+  const depthText = d !== null ? formatLotFeet(d) : depthVaries ? LOT_VARIES_LABEL : null;
+
+  const pairText =
+    widthText !== null && depthText !== null ? `${widthText} × ${depthText}` : null;
+
+  // ★★ THE PRODUCT IS COMPUTED FROM THE ROUNDED FEET, not the raw numeric.
+  //    The card shows "60 × 100"; a size of 6,047 under it would read as an
+  //    arithmetic bug rather than as the two hidden decimals it actually is.
+  const derived =
+    w !== null && d !== null ? roundLotFeet(w) * roundLotFeet(d) : null;
+
+  const size = typed ?? derived;
+  const sizeDerived = typed === null && derived !== null;
+
+  const irregular =
+    typed !== null &&
+    derived !== null &&
+    typed > 0 &&
+    Math.abs(derived - typed) / typed > LOT_IRREGULAR_TOLERANCE;
+
+  return {
+    widthText,
+    depthText,
+    widthVaries,
+    depthVaries,
+    pairText,
+    sizeSf: size,
+    sizeText: formatLotSizeSf(size),
+    sizeDerived,
+    irregular,
+  };
+}
