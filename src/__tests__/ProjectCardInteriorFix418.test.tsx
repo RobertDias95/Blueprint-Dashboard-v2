@@ -1,13 +1,11 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { ReactElement, ReactNode } from 'react';
 import { useAuthStore } from '../stores/authStore';
 import type { PermitWithCycles, Project, UnitType } from '../lib/database.types';
 import { parseUnitTypes } from '../lib/unitTypeNaming';
-import { WORK_SCOPE_LABEL } from '../lib/unitRowLayout';
-import { WORK_SCOPES, matchWorkScope } from '../lib/unitWorkScope';
 
 // ===========================================================================
 // fix-418 — WHAT SURVIVED fix-422, AND WHY THE REST DID NOT
@@ -35,16 +33,16 @@ import { WORK_SCOPES, matchWorkScope } from '../lib/unitWorkScope';
 // protecting. Those assertions live in ProjectCardMatrixFix422.test.tsx now.
 //
 // ---------------------------------------------------------------------------
-// ★★★ KEPT, IN FULL — THE SCOPING HALF (fix-418 §B)
+// ★★★ ALSO RETIRED — THE SCOPING HALF (fix-418 §B), BY fix-486 §D
 // ---------------------------------------------------------------------------
 //
-// `work_scope` renders ONLY on a unit labelled Remodel. That was a real scoping
-// defect from fix-412 (P-050 made it a property of a Remodel; fix-412 put the
-// control on every unit type), and nothing about the reshape touches it. It
-// moved from a grid cell to a chip under its own row — see fix-422 Scope 7 for
-// why a three-state answer whose third state is "not yet answered" cannot be a
-// one-glyph column — but WHEN it renders, and what happens to a stored value on
-// a relabel, are unchanged and asserted here.
+// fix-418 §B's whole subject was `work_scope`, and fix-486 retired the field.
+// See the named retirement below; §A is what this file still asserts.
+//
+// ★★★ AND fix-418 §B IS THE BEST ARGUMENT FOR RETIRING IT. Its own ruling was
+// that the control renders ONLY on a unit already labelled `Remodel` — which is
+// to say the app asked, on a row that says Remodel, whether it was a remodel.
+// Bobby, 2026-09-03: *one way to say remodel — the type.*
 
 const T = 'test-tenant-uuid';
 const NOW = '2026-05-15T12:00:00Z';
@@ -138,9 +136,12 @@ vi.mock('../hooks/useProjectConsultants', () => ({
 
 import ProjectDetailHeader from '../components/ProjectDetail/ProjectDetailHeader';
 
+// ★ fix-486 (P-143): `Duplex` became `Attached`. The fixture needs two
+//   DIFFERENT labels, one of them a Remodel; the words just have to be words
+//   the app still offers, or the row renders an off-list mark it never had.
 const TWO_UNITS = [
   { label: 'Remodel', width_ft: 20, depth_ft: 30, qty: 1 },
-  { label: 'Duplex', width_ft: 24, depth_ft: 40, qty: 2 },
+  { label: 'Attached', width_ft: 24, depth_ft: 40, qty: 2 },
 ];
 
 function makeProject(over: Partial<Project> = {}): Project {
@@ -163,7 +164,7 @@ function makeProject(over: Partial<Project> = {}): Project {
     lot_depth: null,
     unit_types: TWO_UNITS,
     alley: null,
-    product_types: ['Remodel', 'Duplex', 'SFR'],
+    product_types: ['Remodel', 'Attached', 'Detached'],
     project_tags: null,
     builder_name: 'Owner LLC',
     builder_company: 'Builder Company LLC',
@@ -197,13 +198,9 @@ function renderHeader(over: Partial<Project> = {}) {
   return render(header(makeProject(over)), { wrapper });
 }
 
-/** ★ Re-render with a new unit_types array, exactly as a landed save would. */
-function rerenderWith(
-  rerender: (ui: ReactElement) => void,
-  unit_types: UnitType[],
-) {
-  rerender(header(makeProject({ unit_types } as Partial<Project>)));
-}
+// ★ fix-486 §D: `rerenderWith` went with fix-418 §B. Its only callers were the
+//   relabel round-trips, which existed to prove a stored `work_scope` survived
+//   a change of label — a field that no longer exists to survive anything.
 
 beforeEach(() => {
   saves.length = 0;
@@ -214,167 +211,62 @@ beforeEach(() => {
   } as never);
 });
 
+// ===========================================================================
+// ★★★ fix-486 §D (P-143) — fix-418 §B IS RETIRED, BY NAME
+// ===========================================================================
+//
+// RETIRED FROM `fix-418 §B1: the Work control renders only on a Remodel`
+//   · present on the Remodel and ABSENT on the Duplex — same rendered project
+//   · ABSENT, not disabled and not greyed
+//   · it appears the moment a unit is RELABELLED to Remodel
+//
+// RETIRED FROM `fix-418 §B2: the stored key and the three states are unchanged`
+//   · parseUnitTypes STILL names work_scope — the whitelist trap
+//   · the three states are still ""/none/performed
+//   · SCOPE B4: the Library filter is untouched
+//
+// RETIRED FROM `fix-418 §B3: a stored work_scope survives a relabel`
+//   · ROUND TRIP: Remodel → Duplex → Remodel keeps "performed"
+//   · an UNRELATED edit to a non-Remodel unit does not drop its work_scope
+//
 // ---------------------------------------------------------------------------
-// §B1 · WORK RENDERS ONLY ON A REMODEL — UNCHANGED BY fix-422
+// ★★★ ONE OF THEM IS NOT RETIRED SO MUCH AS **INVERTED**, AND IT IS KEPT
 // ---------------------------------------------------------------------------
+// "parseUnitTypes STILL names work_scope — the whitelist trap" was fix-412's
+// hardest-won lesson: `parseUnitTypes` is a WHITELIST, both editors write the
+// PARSED array back, so a key it stops naming is DELETED from the row on the
+// next unrelated edit. That mechanism has not changed — what changed is that
+// the deletion is now the POINT. The migration strips the key from the stored
+// json; the whitelist is what stops the app putting it back. Asserted below in
+// exactly that direction, because a mechanism this sharp deserves a test
+// pointing at whichever way it is currently cutting.
 
-describe('fix-418 §B1: the Work control renders only on a Remodel', () => {
-  it('★★★ present on the Remodel and ABSENT on the Duplex — same rendered project', () => {
-    // ★★ ONE project, deliberately: a suite that renders two would pass while
-    //    the condition was actually keyed off something project-wide.
-    renderHeader();
-    const rows = screen.getAllByTestId('pd-unit-row');
-    expect(rows).toHaveLength(2);
-    const [remodel, duplex] = rows;
-    expect(remodel.dataset.remodel).toBe('true');
-    expect(duplex.dataset.remodel).toBe('false');
-
-    // ★ fix-422 moved the control OUT of the row and under it, so the assertion
-    //   walks to the row's group rather than into the grid.
-    const chips = screen.getAllByTestId('pd-unit-work-chip');
-    expect(chips).toHaveLength(1);
-    expect(remodel.parentElement).toContainElement(chips[0]);
-    expect(duplex.parentElement).not.toContainElement(chips[0]);
-    expect(screen.getAllByTestId('pd-unit-work-scope')).toHaveLength(1);
-  });
-
-  it('★★★ ABSENT, not disabled and not greyed', () => {
-    // ★ A greyed control still says "there is an unanswered question here",
-    //   which is exactly the wrong thing to say about a Duplex.
-    renderHeader();
-    const duplexGroup = screen.getAllByTestId('pd-unit-row')[1].parentElement!;
-    expect(
-      duplexGroup.querySelectorAll('[data-testid="pd-unit-work-scope"]'),
-    ).toHaveLength(0);
-    expect(duplexGroup.textContent).not.toContain(WORK_SCOPE_LABEL);
-  });
-
-  it('★★★ it appears the moment a unit is RELABELLED to Remodel', () => {
-    // ★ Not a load-time decision — the condition reads the live label.
-    const { rerender } = renderHeader({
-      unit_types: [{ label: 'Duplex', width_ft: 24, depth_ft: 40, qty: 1 }],
-    } as Partial<Project>);
-    expect(screen.queryByTestId('pd-unit-work-scope')).toBeNull();
-    fireEvent.change(screen.getByTestId('pd-unit-label-select'), {
-      target: { value: 'Remodel' },
-    });
-    expect(saves).toHaveLength(1);
-    expect(saves[0].unit_types[0].label).toBe('Remodel');
-    rerenderWith(rerender, saves[0].unit_types);
-    expect(screen.getByTestId('pd-unit-work-scope')).toBeInTheDocument();
-  });
-});
-
-describe('fix-418 §B2: the stored key and the three states are unchanged', () => {
-  it('★★★ parseUnitTypes STILL names work_scope — the whitelist trap', () => {
-    // ★★★ fix-412's hardest-won lesson: `parseUnitTypes` is a WHITELIST. A key
-    //     it stops naming is DELETED from the row on the next unrelated edit to
-    //     that unit. Neither fix-418 nor fix-422 touches what parses.
+describe('fix-418 §B (inverted by fix-486): the whitelist now REMOVES it', () => {
+  it('★★★ parseUnitTypes DROPS work_scope — the whitelist, cutting the other way', () => {
     const parsed = parseUnitTypes([
-      { label: 'Remodel', work_scope: 'performed' },
-      { label: 'Duplex', work_scope: 'none' },
+      { label: 'Remodel', width_ft: 20, depth_ft: 30, qty: 1, work_scope: 'performed' },
+      { label: 'Attached', width_ft: 24, depth_ft: 40, qty: 2, work_scope: 'none' },
     ]);
-    expect(parsed[0].work_scope).toBe('performed');
-    expect(parsed[1].work_scope).toBe('none');
-    expect('work_scope' in parsed[0]).toBe(true);
-  });
-
-  it('★★★ the three states are still ""/none/performed', () => {
-    renderHeader();
-    const sel = screen.getByTestId('pd-unit-work-scope') as HTMLSelectElement;
-    expect(Array.from(sel.options).map((o) => o.value)).toEqual([
-      '',
-      'none',
-      'performed',
-    ]);
-    expect(WORK_SCOPES).toEqual(['none', 'performed']);
-  });
-
-  it('★★ SCOPE B4: the Library filter is untouched', () => {
-    // ★ `matchWorkScope(rawScope, filter)` is the Library's predicate. The
-    //   Remodel-only rule is a render condition on ONE card and must not reach
-    //   it. `''` means "anything but a confirmed no-work", not "everything".
-    expect(matchWorkScope('performed', '')).toBe(true);
-    expect(matchWorkScope('none', '')).toBe(false);
-    expect(matchWorkScope(null, '')).toBe(true);
-    expect(matchWorkScope('none', 'none')).toBe(true);
-    expect(matchWorkScope('performed', 'none')).toBe(false);
-    expect(matchWorkScope('performed', 'performed')).toBe(true);
-    expect(matchWorkScope(null, 'unanswered')).toBe(true);
-    expect(matchWorkScope('none', 'unanswered')).toBe(false);
-    // ★★ …and it reads the SCOPE ALONE. It never sees a label, so a unit no
-    //    longer labelled Remodel still filters on its stored answer — the filter
-    //    reads DATA, not what the card chose to draw.
-    const duplex = { label: 'Duplex', work_scope: 'none' } as UnitType;
-    expect(matchWorkScope(duplex.work_scope, 'none')).toBe(true);
-    expect(matchWorkScope(duplex.work_scope, '')).toBe(false);
-  });
-});
-
-describe('fix-418 §B3: a stored work_scope survives a relabel', () => {
-  it('★★★ ROUND TRIP: Remodel → Duplex → Remodel keeps "performed"', () => {
-    // ★★★ Proven through the REAL save path rather than by reading the code.
-    //     Erasing the value would destroy a real answer in order to fix a
-    //     rendering bug; not CARRYING it would hit the `parseUnitTypes`
-    //     whitelist trap on the very next edit.
-    const start = [
-      {
-        label: 'Remodel',
-        width_ft: 20,
-        depth_ft: 30,
-        qty: 1,
-        work_scope: 'performed',
-      },
-    ];
-    const { rerender } = renderHeader({ unit_types: start } as Partial<Project>);
-
-    const sel = screen.getByTestId('pd-unit-work-scope') as HTMLSelectElement;
-    expect(sel.value).toBe('performed');
-
-    fireEvent.change(screen.getByTestId('pd-unit-label-select'), {
-      target: { value: 'Duplex' },
-    });
-    expect(saves).toHaveLength(1);
-    // ★★★ RETAINED IN DATA. The write carries work_scope through untouched.
-    expect(saves[0].unit_types[0]).toMatchObject({
-      label: 'Duplex',
-      work_scope: 'performed',
-    });
-
-    rerenderWith(rerender, saves[0].unit_types);
-    expect(screen.queryByTestId('pd-unit-work-scope')).toBeNull();
-    expect(parseUnitTypes(saves[0].unit_types)[0].work_scope).toBe('performed');
-
-    fireEvent.change(screen.getByTestId('pd-unit-label-select'), {
-      target: { value: 'Remodel' },
-    });
-    expect(saves).toHaveLength(2);
-    expect(saves[1].unit_types[0]).toMatchObject({
+    expect('work_scope' in parsed[0]).toBe(false);
+    expect('work_scope' in parsed[1]).toBe(false);
+    // ★★ AND NOTHING ELSE WENT WITH IT. The blanket half: a whitelist edit is
+    //    exactly the change that quietly takes a neighbour along.
+    expect(parsed[0]).toMatchObject({
       label: 'Remodel',
-      work_scope: 'performed',
+      width_ft: 20,
+      depth_ft: 30,
+      qty: 1,
     });
-    rerenderWith(rerender, saves[1].unit_types);
-    const back = screen.getByTestId('pd-unit-work-scope') as HTMLSelectElement;
-    expect(back.value).toBe('performed');
+    expect(parsed[1]).toMatchObject({ label: 'Attached', width_ft: 24, qty: 2 });
   });
 
-  it('★★★ an UNRELATED edit to a non-Remodel unit does not drop its work_scope', () => {
-    // ★★ The whitelist trap's actual failure mode: the value survives the
-    //    relabel and then vanishes on the next width change, because the row
-    //    was rebuilt from a parse that no longer names the key.
-    renderHeader({
-      unit_types: [
-        { label: 'Duplex', width_ft: 24, depth_ft: 40, qty: 1, work_scope: 'none' },
-      ],
-    } as Partial<Project>);
-    const w = screen.getByTestId('pd-unit-w');
-    fireEvent.change(w, { target: { value: '26' } });
-    fireEvent.blur(w);
-    expect(saves).toHaveLength(1);
-    expect(saves[0].unit_types[0]).toMatchObject({
-      width_ft: 26,
-      work_scope: 'none',
-    });
+  it('★★★ no unit row offers a work control at all any more', () => {
+    // ★ fix-418 §B1's inverse. The control was Remodel-only, so a Remodel row
+    //   is the one that proves it is gone rather than merely out of scope.
+    renderHeader();
+    expect(screen.queryByTestId('pd-unit-work-scope')).toBeNull();
+    expect(screen.queryByTestId('pd-unit-work-chip')).toBeNull();
+    expect(screen.getAllByTestId('pd-unit-row')[0].dataset.remodel).toBeUndefined();
   });
 });
 

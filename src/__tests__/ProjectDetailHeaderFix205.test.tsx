@@ -33,7 +33,8 @@ vi.mock('../hooks/useAppConfig', () => ({
   //   the frame before app_config arrives.
   useAppConfig: () => ({
     map: new Map<string, unknown>([
-      ['productTypeOptions', ['SFR', 'Cottages', 'Duplex', 'Condo', 'ADU', 'DADU', 'SFR+ADU', 'Remodel']],
+      // ★ fix-486 (P-143): the registry is five values now.
+      ['productTypeOptions', ['Detached', 'Attached', 'ADU', 'DADU', 'Remodel']],
     ]),
   }),
   readConsultantTypes: () => [] as { type: string; firms: string[] }[],
@@ -135,7 +136,7 @@ const NAMED_ROW = [{ label: 'Type A', width_ft: 20, depth_ft: 30, qty: 1 }];
 
 describe('fix-205: W/D decimals in the expanded grid', () => {
   it('W/D inputs allow half-foot steps and persist a decimal width', async () => {
-    setup({ product_types: ['SFR'], unit_types: NAMED_ROW });
+    setup({ product_types: ['Detached'], unit_types: NAMED_ROW });
     const wInput = screen.getByTestId('pd-unit-w') as HTMLInputElement;
     expect(wInput.getAttribute('step')).toBe('0.5');
     expect(
@@ -152,7 +153,7 @@ describe('fix-205: W/D decimals in the expanded grid', () => {
 
 describe('fix-205: per-row Stories', () => {
   it('Stories input persists onto the unit_types row', async () => {
-    setup({ product_types: ['SFR'], unit_types: NAMED_ROW });
+    setup({ product_types: ['Detached'], unit_types: NAMED_ROW });
     const sty = screen.getByTestId('pd-unit-stories') as HTMLInputElement;
     fireEvent.change(sty, { target: { value: '3' } });
     fireEvent.blur(sty);
@@ -173,36 +174,69 @@ describe('fix-205: per-row Stories', () => {
 //
 // Bobby (P-077, inheriting fix-415's rule): an off-list value is SHOWN as
 // off-list, never silently vanished or rewritten. 22 of prod's 235 unit rows
-// carry one, and "Type A–D" read like per-project unit NAMES — his ruling to
-// make, not this dropdown's.
+// carried one when that was measured.
+//
+// ★★★ fix-486 (P-143) SHARPENED THIS RULING RATHER THAN REVERSING IT. fix-449
+// noted that "Type A–D" read like per-project unit NAMES and left the call to
+// Bobby. He made it: they are the WIZARD'S PLACEHOLDERS — the intake habit is
+// to add rows first and name them later — so they are not a name and not a
+// type, they are an unanswered question. The remap deliberately left the label
+// (a rule that guessed would have declared eleven unanswered rows answered) and
+// the row now says *needs a type* rather than *not in the list*.
+//
+// ★★ THE UNDERLYING RULE IS UNTOUCHED AND IS WHAT THIS BLOCK STILL ASSERTS:
+// the stored value is shown, it is selected, and editing another field does not
+// rewrite it. Only the WORD in the mark changed, and only for placeholders — a
+// label somebody deliberately typed still gets the off-list mark.
 describe('fix-209 → fix-449: the Label dropdown SHOWS an off-list value', () => {
   it('★★★ the stored value is IN the options, beside "Other…"', () => {
     setup({
-      product_types: ['SFR', 'Duplex'],
+      product_types: ['Detached', 'Attached'],
       unit_types: NAMED_ROW, // legacy label "Type A"
     });
     const select = screen.getByTestId('pd-unit-label-select') as HTMLSelectElement;
     const opts = Array.from(select.options).map((o) => o.value);
     // ★ fix-415's append rule: a control must be able to display what it holds.
-    expect(opts).toEqual(['', 'SFR', 'Duplex', 'Type A', '__other__']);
+    expect(opts).toEqual([
+      '',
+      'Detached',
+      'Attached',
+      'Type A',
+      '__other__',
+    ]);
   });
 
   it('★★★ …and it is SELECTED, not left on "Pick type…"', () => {
-    setup({ product_types: ['SFR', 'Duplex'], unit_types: NAMED_ROW });
+    setup({ product_types: ['Detached', 'Attached'], unit_types: NAMED_ROW });
     const select = screen.getByTestId('pd-unit-label-select') as HTMLSelectElement;
     expect(select.value).toBe('Type A');
-    // ★★ …and it says so.
+    // ★★ …and it says so — as fix-486's "needs a type", because `Type A` is a
+    //    placeholder rather than a word somebody chose.
+    expect(screen.getByTestId('pd-unit-label-needs-type')).toBeInTheDocument();
+    expect(screen.queryByTestId('pd-unit-label-offlist')).toBeNull();
+  });
+
+  it('★★★ fix-486: a DELIBERATE off-list label still gets the off-list mark', () => {
+    // ★★★ THE HALF THAT WOULD OTHERWISE ROT. The two marks are different
+    //     states, and a change that collapsed them would tell somebody who
+    //     typed a real word that they had failed to answer a question. One
+    //     fixture each, in the same suite, is what keeps them apart.
+    setup({
+      product_types: ['Detached', 'Attached'],
+      unit_types: [{ label: 'Carriage House', width_ft: 20, depth_ft: 30, qty: 1 }],
+    });
     expect(screen.getByTestId('pd-unit-label-offlist')).toBeInTheDocument();
+    expect(screen.queryByTestId('pd-unit-label-needs-type')).toBeNull();
   });
 
   it('picking a product type from the dropdown saves it as the label', () => {
-    setup({ product_types: ['SFR', 'Duplex'], unit_types: NAMED_ROW });
+    setup({ product_types: ['Detached', 'Attached'], unit_types: NAMED_ROW });
     const select = screen.getByTestId('pd-unit-label-select') as HTMLSelectElement;
-    fireEvent.change(select, { target: { value: 'Duplex' } });
+    fireEvent.change(select, { target: { value: 'Attached' } });
     return waitFor(() => {
       expect(updateMutateAsync).toHaveBeenCalledTimes(1);
       expect(updateMutateAsync.mock.calls[0][0].patch.unit_types[0].label).toBe(
-        'Duplex',
+        'Attached',
       );
     });
   });
@@ -212,7 +246,7 @@ describe('fix-209 → fix-449: the Label dropdown SHOWS an off-list value', () =
     //     save, so under fix-209 typing a width blanked "Type A" ON DISK — and
     //     under fix-212 it replaced it with the lone product type. Ten of
     //     prod's rows ("Type A" ×5, "Type B" ×5) were one keystroke from that.
-    setup({ product_types: ['SFR', 'Duplex'], unit_types: NAMED_ROW });
+    setup({ product_types: ['Detached', 'Attached'], unit_types: NAMED_ROW });
     const wInput = screen.getByTestId('pd-unit-w') as HTMLInputElement;
     fireEvent.change(wInput, { target: { value: '21' } });
     fireEvent.blur(wInput);
@@ -223,11 +257,11 @@ describe('fix-209 → fix-449: the Label dropdown SHOWS an off-list value', () =
   });
 
   it('★★★ a SINGLE product type no longer overrides a stored label either', () => {
-    setup({ product_types: ['SFR'], unit_types: NAMED_ROW }); // stored "Type A"
+    setup({ product_types: ['Detached'], unit_types: NAMED_ROW }); // stored "Type A"
     const select = screen.getByTestId('pd-unit-label-select') as HTMLSelectElement;
     expect(select.value).toBe('Type A');
     const opts = Array.from(select.options).map((o) => o.value);
-    expect(opts).toEqual(['', 'SFR', 'Type A', '__other__']);
+    expect(opts).toEqual(['', 'Detached', 'Type A', '__other__']);
   });
 
   it('★★ fix-212\'s surviving half: a BLANK label still fills from a lone type', () => {
@@ -236,14 +270,14 @@ describe('fix-209 → fix-449: the Label dropdown SHOWS an off-list value', () =
     // ★ TWO rows, because a lone blank-label row renders the COMPACT control
     //   (`isCompact`), which has no label select at all.
     setup({
-      product_types: ['SFR'],
+      product_types: ['Detached'],
       unit_types: [
         { label: '', width_ft: 20, depth_ft: 30, qty: 1 },
-        { label: 'SFR', width_ft: 22, depth_ft: 33, qty: 1 },
+        { label: 'Detached', width_ft: 22, depth_ft: 33, qty: 1 },
       ],
     });
     const selects = screen.getAllByTestId('pd-unit-label-select') as HTMLSelectElement[];
-    expect(selects[0]!.value).toBe('SFR');
+    expect(selects[0]!.value).toBe('Detached');
     // ★ A filled blank is not off-list — nothing was displaced.
     expect(screen.queryByTestId('pd-unit-label-offlist')).toBeNull();
   });
@@ -251,7 +285,7 @@ describe('fix-209 → fix-449: the Label dropdown SHOWS an off-list value', () =
 
 describe('fix-232: proposal unit-row label is dropdown-only (no free-text)', () => {
   it('with product types, the label is the dropdown — there is NO free-text label input', () => {
-    setup({ product_types: ['SFR', 'Duplex'], unit_types: NAMED_ROW });
+    setup({ product_types: ['Detached', 'Attached'], unit_types: NAMED_ROW });
     expect(screen.getByTestId('pd-unit-label-select')).toBeInTheDocument();
     // No read-only fallback + no free-typing: the ONLY label control is the select.
     expect(screen.queryByTestId('pd-unit-label-readonly')).toBeNull();
@@ -300,7 +334,7 @@ describe('fix-209: narrower Qty + Stories inputs', () => {
     expect(col('qty')).toBeLessThan(col('width_ft'));
     expect(col('stories')).toBeLessThan(col('depth_ft'));
     // ...and the cells fill their column rather than carrying their own width.
-    setup({ product_types: ['SFR'], unit_types: NAMED_ROW });
+    setup({ product_types: ['Detached'], unit_types: NAMED_ROW });
     expect(screen.getByTestId('pd-unit-qty').className).toContain('w-full');
     expect(screen.getByTestId('pd-unit-stories').className).toContain('w-full');
   });
@@ -311,7 +345,7 @@ describe('fix-205: "unnamed" fix on save (single product type)', () => {
     // A lone unlabeled row renders the COMPACT editor; editing a dimension
     // saves the row, and writeTypes resolves the blank label to the type.
     setup({
-      product_types: ['SFR'],
+      product_types: ['Detached'],
       unit_types: [{ label: '', width_ft: null, depth_ft: null, qty: 1 }],
     });
     const wInput = screen.getByTestId('pd-units-compact-w') as HTMLInputElement;
@@ -319,14 +353,14 @@ describe('fix-205: "unnamed" fix on save (single product type)', () => {
     fireEvent.blur(wInput);
     await waitFor(() => expect(updateMutateAsync).toHaveBeenCalledTimes(1));
     const row = updateMutateAsync.mock.calls[0][0].patch.unit_types[0];
-    expect(row.label).toBe('SFR');
+    expect(row.label).toBe('Detached');
     expect(row.width_ft).toBe(96);
   });
 
   it('fix-212 → fix-449: a single product type no longer overrides a stored label on save', async () => {
     // ★★★ The save-path half of the same inversion. This is the path that
     //     would have quietly rewritten prod's ten "Type A"/"Type B" rows.
-    setup({ product_types: ['SFR'], unit_types: NAMED_ROW }); // stored "Type A"
+    setup({ product_types: ['Detached'], unit_types: NAMED_ROW }); // stored "Type A"
     const wInput = screen.getByTestId('pd-unit-w') as HTMLInputElement;
     fireEvent.change(wInput, { target: { value: '21' } });
     fireEvent.blur(wInput);

@@ -109,10 +109,11 @@ describe('parseUnitTypes', () => {
         parking_kind: null,
         parking_stalls: null,
         roof_deck: null,
-        // ★ fix-412: parseUnitTypes names work_scope now. It is a WHITELIST,
-        //   so a key it does not name is deleted from the row on the next
-        //   save — these exact-shape assertions are what proved it is emitted.
-        work_scope: null,
+        // ★★★ fix-486 §D: `work_scope` IS NO LONGER EMITTED, and this exact-shape
+        //   assertion is what proves it. The whitelist mechanism fix-412 noted
+        //   here is unchanged and now cuts the other way: a key `parseUnitTypes`
+        //   does not name is DELETED from the row on the next save, which is
+        //   precisely how the retired field stays retired.
       },
     ]);
   });
@@ -134,7 +135,6 @@ describe('parseUnitTypes', () => {
         parking_kind: null,
         parking_stalls: null,
         roof_deck: null,
-        work_scope: null,
       },
     ]);
   });

@@ -703,12 +703,19 @@ function Body({ projects, permits }: BodyProps) {
                 COLUMN. Bobby: *"Under unit, get rid of work, and the filter
                 below for work."*
 
-                ★★★ fix-412's DEFAULT EXCLUSION SURVIVES AND IS NOW UNASKABLE.
-                A project whose every unit is a confirmed no-work still drops
-                out of the Library set — that is a standing ruling Bobby did not
-                revisit, so it is held. But fix-412 defended it on the grounds
-                that it was *"askable"*, and this control is what made it so.
-                See lib/libraryHelpers' `workScope` note for the full trade. */}
+                ★★★ fix-486 §D (P-143) FINISHED IT: THE FIELD ITSELF IS RETIRED.
+                fix-483 kept fix-412's default exclusion — a project whose every
+                unit was a confirmed no-work dropped out of the set — while
+                noting that removing this control had made it unaskable. Bobby
+                then ruled the field out entirely: *one way to say remodel, and
+                it is the type.* So the exclusion is gone too, and there is no
+                unaskable rule left here.
+
+                ★★ IT NEVER EXCLUDED A ROW. Measured on prod 2026-09-03: 245
+                unit rows, ZERO non-null `work_scope`. The predicate fired on
+                `'none'`, so in the weeks it shipped it removed nothing from
+                anybody's Library — which is why this is a rule being deleted
+                rather than a behaviour. See lib/libraryHelpers. */}
 
             <FieldLabel label="Roof Deck">
               <select

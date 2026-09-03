@@ -80,12 +80,15 @@ export interface UnitRowColumn {
  *
  * Type · W · D · Qty · Sty · P · # · RD, then the remove control.
  *
- * ★★ `work_scope` IS NOT HERE ANY MORE, and that is Scope 7 rather than an
- * omission. It has THREE states and the third is "not yet answered" — which
- * cannot honestly be a letter, because every letter in a one-glyph cell reads
- * as an answer. It renders as a chip under the row that owns it, Remodel-only,
- * exactly as fix-418 scoped it. See `UNIT_ROW_SUPPRESSED_ON_NO_WORK` below:
- * leaving the grid did not change what it gates.
+ * ★★★ THE RULE fix-422 §7 LEFT BEHIND, AND IT BINDS THE NEXT COLUMN SOMEBODY
+ * PROPOSES: a field whose states include "not yet answered" cannot be a cell in
+ * this grid. Every cell here answers with one glyph, any letter in a one-glyph
+ * box reads as an answer, and `—` is already spoken for by "not recorded" in
+ * the columns beside it — so a third state has nowhere honest to go.
+ *
+ * ★ `work_scope` was the field that rule was written about. fix-486 §D (P-143)
+ *   retired it outright — Bobby: *one way to say remodel, and it is the type* —
+ *   so the columns below are the whole unit row. The rule outlived it.
  *
  * ★ Every width below is sized at the 9px semibold these cells render at
  *   (~5.4px per digit, ~14px for a select's chevron, 6px of cell padding).
@@ -95,7 +98,8 @@ export const UNIT_ROW_COLUMNS: readonly UnitRowColumn[] = [
     key: 'label',
     header: 'Type',
     // ★★ 52px, and Bobby set it: *"we only need it as wide as duplex or
-    //    cottage."* `Duplex` (6) and `Cottages` (8) are the two he named;
+    //    cottage."* ★ fix-486 renamed those two to `Attached` (8) and
+    //    `Detached` (8) — no wider than `Cottages`, so the width still holds. `Duplex` (6) and `Cottages` (8) are the two he named;
     //    `Cottages` is the longest of the eight registry values (SFR, Cottages,
     //    Duplex, Condo, ADU, DADU, SFR+ADU, Remodel) and fits at 52 with the
     //    chevron. 9 of 235 prod rows carry off-registry free text — the longest
@@ -236,20 +240,12 @@ export const UNIT_MATRIX_WIDTH: number =
   UNIT_ROW_COLUMNS.reduce((a, c) => a + c.width, 0) +
   UNIT_ROW_COLUMNS.slice(0, -1).reduce((a, _c, i) => a + unitGapAfter(i), 0);
 
-/**
- * ★★★ SCOPE 7 — `work_scope` IS OFF THE GRID, SO IT NEEDS ITS OWN LABEL HERE.
- *
- * It is still a unit field and it is still declared once; it simply is not a
- * COLUMN, because its third state ("not yet answered") cannot be a letter — any
- * glyph in a one-glyph cell reads as an answer, and `—` is already spoken for by
- * "not recorded". So it renders as a chip under the row that owns it, with its
- * words intact, and the two strings live beside the columns rather than in the
- * component.
- */
-export const WORK_SCOPE_LABEL = 'Work';
-
-export const WORK_SCOPE_TOOLTIP =
-  'Whether work was performed on this Remodel unit. No work · Yes · not yet answered.';
+// ★★★ fix-486 §D — `WORK_SCOPE_LABEL` AND `WORK_SCOPE_TOOLTIP` ARE GONE.
+//
+// fix-422 §7 put them here rather than in the component because `work_scope`
+// had left the matrix grid and still needed its words declared once. The field
+// itself is retired now (Bobby: *one way to say remodel — the type*), so the
+// words have nothing to label.
 
 // ---------------------------------------------------------------------------
 // ★★★ THE HEIGHT MODEL — because HEIGHT is what this ticket is actually about
@@ -313,20 +309,13 @@ export function unitFieldTooltip(key: string): string {
   return col.tooltip;
 }
 
-/** ★ The columns fix-412 B5 suppresses on a confirmed No-work unit — everything
- *  that describes drawn detail. `label` and `remove` stay live: you must be able
- *  to see what the unit is and delete the row. `work_scope` is not listed
- *  because it is not a column any more; the chip that owns it is never
- *  suppressed, or you could not change your mind. */
-export const UNIT_ROW_SUPPRESSED_ON_NO_WORK: readonly string[] = [
-  'width_ft',
-  'depth_ft',
-  'qty',
-  'stories',
-  'parking_kind',
-  'parking_stalls',
-  'roof_deck',
-];
+// ★★★ fix-486 §D — `UNIT_ROW_SUPPRESSED_ON_NO_WORK` IS GONE WITH ITS TRIGGER.
+//
+// fix-412 §B5 greyed out everything describing drawn detail once a unit was
+// answered "no work". There is no such answer any more, and there never was
+// one: prod held **zero** non-null `work_scope` values across 245 rows, so this
+// list named seven columns that were never suppressed on any row in the app's
+// life. Removing it removes a rule, not a behaviour.
 
 /**
  * ★ fix-412's row, kept as a NUMBER rather than a layout.

@@ -14,10 +14,8 @@ import {
   type RoofDeckFilter,
   type StallsTier,
 } from './unitParking';
-// ★ fix-483 §A2: `matchWorkScope` and `WorkScopeFilter` left with the filter.
-//   `isNoWorkUnit` STAYS and is now the module's only reader of work_scope — it
-//   is what enforces fix-412's surviving default exclusion.
-import { isNoWorkUnit } from './unitWorkScope';
+// ★ fix-486 §D: `isNoWorkUnit` was this module's last reader of `work_scope`,
+//   and it left with the default exclusion above. Nothing here reads the field.
 
 // Q6.3.a: pure helpers for the Library matrix view (Settings → Library tab).
 // Mirrors v1's renderMatrix (index.html lines 5680-5778). The matrix shows
@@ -255,24 +253,21 @@ export interface LibraryFilters {
   stalls: StallsTier;
   /** '' = Any · Yes · No, tri-state like fix-122's corner. */
   roofDeck: RoofDeckFilter;
-  // ★★★ fix-483 §A2 (P-136) — `workScope` IS GONE, AND ITS DEFAULT SURVIVES.
-  //     Bobby: *"Under unit, get rid of work, and the filter below for work."*
-  //     The control and the column both went.
+  // ★★★ fix-486 §D (P-143) — AND NOW THE DEFAULT EXCLUSION GOES TOO.
   //
-  // ★★★ THE HALF THAT DID NOT GO, SAID OUT LOUD BECAUSE IT IS NOW UNASKABLE:
-  //     fix-412's ruling — *"a confirmed No-work remodel drops out of the
-  //     Library set by default"* — is still enforced, in `filterLibraryRows`,
-  //     unconditionally. It used to run only while the filter sat at Any, and
-  //     the filter is what made it HONEST: fix-412's own note says a hidden
-  //     default exclusion is defensible *"because it is askable"*. It is not
-  //     askable any more.
+  // fix-412 ruled that *"a confirmed No-work remodel drops out of the Library
+  // set by default"*; fix-483 removed the FILTER and kept the exclusion,
+  // recording that it had become unaskable. fix-486 retires the FIELD, so the
+  // exclusion has nothing left to test.
   //
-  // ★★ THE ALTERNATIVE WAS WORSE. Dropping the exclusion with the control
-  //    would have reversed a standing ruling Bobby did not revisit — he asked
-  //    to remove a filter, not to change what the Library returns. So the
-  //    behaviour is held and the loss is recorded here rather than absorbed.
-  //    `unit_types[].work_scope` is still editable on the units row and still
-  //    read by `isNoWorkUnit`; nothing about the DATA changed.
+  // ★★★ IT NEVER EXCLUDED A ROW. Measured on prod 2026-09-03: 245 unit rows,
+  //     **zero** non-null `work_scope`. The predicate fires on `'none'`, so in
+  //     the six weeks it shipped it removed nothing from anybody's Library.
+  //     This is a rule being deleted, not a behaviour — which is why the ruling
+  //     can be retired rather than re-homed.
+  //
+  // ★ Bobby's replacement is the one that was always there: the TYPE. A unit
+  //   whose type is `Remodel` says so, on the row, in the word.
   /** fix-122: tri-state Corner Lot filter. '' = no filter (Any);
    *  'Yes' = only is_corner_lot === true; 'No' = only false.
    *  Rows with NULL is_corner_lot fall out under Yes/No (no implicit
@@ -550,28 +545,6 @@ export function filterLibraryRows(
     if (!matchTargetWithBuffer(r.lotWidth, filters.lotwTarget, filters.lotwBuf)) return false;
     if (!matchTargetWithBuffer(r.lotDepth, filters.lotdTarget, filters.lotdBuf)) return false;
     if (hasUnitFilter && matchingUnitIndices(r, filters).length === 0) return false;
-    // ★★★ fix-412 Scope B4 — THE DEFAULT EXCLUSION, AND IT RUNS UNCONDITIONALLY.
-    //
-    // Bobby: *"a confirmed No-work remodel drops out of the Library set by
-    // default."* That cannot live inside `matchingUnitIndices`, because
-    // `hasAnyUnitFilter` gates whether that runs at all — and with no other
-    // unit filter picked it does not run, which made the ruling inert. (The
-    // fix-412 suite caught it: all three fixture rows came back.)
-    //
-    // ★★ THE RULE IS PER PROJECT, NOT PER UNIT, and the difference matters. A
-    // project with one no-work unit AND three real ones is still a project
-    // worth finding — dropping it would hide three units to hide one. So a row
-    // leaves the default set only when it has units and EVERY one of them is a
-    // confirmed no-work.
-    //
-    // ★ A project with NO unit rows at all is untouched: it has not answered
-    //   the question, and "no units recorded" is not "no work".
-    // ★★★ fix-483 §A2: UNCONDITIONAL NOW. The `filters.workScope === ''` guard
-    //     is gone because the filter is gone — see LibraryFilters for the
-    //     ruling this preserves and the honesty it costs.
-    if (r.unitTypes.length > 0 && r.unitTypes.every((u) => isNoWorkUnit(u))) {
-      return false;
-    }
     // ★★★ fix-415 A5 — EXACT MATCH, NOT SUBSTRING, AND THAT IS A BUG FIX.
     //
     // This read `.includes(zoneQ)` while the control was a free-text box, which

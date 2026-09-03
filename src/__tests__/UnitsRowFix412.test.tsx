@@ -1,31 +1,16 @@
 import { MemoryRouter } from 'react-router-dom';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+// ★ fix-486 §D: `fireEvent`/`waitFor` left with §B — every remaining
+//   assertion in this file reads a rendered row rather than driving one.
+import { render, screen } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { ReactNode } from 'react';
 import { useAuthStore } from '../stores/authStore';
 import { queryKeys } from '../lib/queryKeys';
 import migrationSql from '../../migrations/fix_412_existing_to_remodel.sql?raw';
-import {
-  UNIT_MATRIX_GRID,
-  UNIT_ROW_COLUMNS,
-  UNIT_ROW_SUPPRESSED_ON_NO_WORK,
-} from '../lib/unitRowLayout';
-import {
-  WORK_SCOPES,
-  asWorkScope,
-  isNoWorkUnit,
-  matchWorkScope,
-} from '../lib/unitWorkScope';
-// ★ fix-483 §A2: `hasAnyUnitFilter` is no longer imported here — the only
-//   assertion that used it was "the work filter is in the list, or it would be
-//   INERT", and there is no work filter. The function is unchanged, still
-//   exported and still tested for its live arms in libraryHelpers.test.
-import {
-  filterLibraryRows,
-  type LibraryFilters,
-  type LibraryRow,
-} from '../lib/libraryHelpers';
+import { UNIT_MATRIX_GRID, UNIT_ROW_COLUMNS } from '../lib/unitRowLayout';
+// ★★★ fix-486 §D (P-143) — `unitWorkScope` AND `libraryHelpers` ARE NO LONGER
+//     IMPORTED HERE. Both belonged to §B/§B4; see the retirement record below.
 import type { UnitType } from '../lib/database.types';
 
 // ===========================================================================
@@ -192,7 +177,12 @@ describe('fix-412 §C (third edition, fix-422): one template, header and rows', 
   it('★★★ C-CORE: the header and every row render from the SAME template', () => {
     // ★★★ THE DEFECT fix-412 EXISTED FOR, and the property that has survived
     //     three layouts: two hand-kept lists drift, one template cannot.
-    setup([unit({ label: 'SFR' }), unit({ label: 'Remodel' })], ['SFR', 'Remodel']);
+    // ★ fix-486: the vocabulary, not the claim. Two DIFFERENT labels is all
+    //   this needs; they just have to be labels the app still offers.
+    setup(
+      [unit({ label: 'Detached' }), unit({ label: 'Remodel' })],
+      ['Detached', 'Remodel'],
+    );
     const header = screen.getByTestId('pd-unit-header');
     expect(header.style.gridTemplateColumns).toBe(UNIT_MATRIX_GRID);
     const rows = screen.getAllByTestId('pd-unit-row');
@@ -203,9 +193,11 @@ describe('fix-412 §C (third edition, fix-422): one template, header and rows', 
   });
 
   it('★★★ C3: the field order is still Bobby\'s, declared once', () => {
-    // ★ `work_scope` has left the grid (fix-422 Scope 7 — a three-state answer
-    //   whose third state is "not yet answered" cannot be one glyph). Every
-    //   other field is in the order he gave, unchanged since fix-412.
+    // ★ fix-422 Scope 7 took `work_scope` off the grid; fix-486 §D retired the
+    //   field outright. The assertion below is kept and is STRONGER than it
+    //   was — it used to mean "not a column", it now means "not a field" —
+    //   because it is the one that catches the column list growing it back.
+    //   Every other field is in the order Bobby gave, unchanged since fix-412.
     const keys = UNIT_ROW_COLUMNS.map((c) => c.key).filter((k) => k !== 'remove');
     expect(keys).toEqual([
       'label',
@@ -256,235 +248,85 @@ describe('fix-412 §C (third edition, fix-422): one template, header and rows', 
   });
 });
 
+// ===========================================================================
+// ★★★ fix-486 §D (P-143) — §B AND §B4 ARE RETIRED, BY NAME
+// ===========================================================================
+//
+// Bobby, 2026-09-03: **one way to say remodel — the type.** `work_scope` is
+// gone from the type, the row, the Library and the stored json, so the twelve
+// tests below have nothing left to assert. Naming them is the point: a deleted
+// test nobody can find later reads as coverage that quietly lapsed.
+//
 // ---------------------------------------------------------------------------
-// §B · THE THREE-STATE WORK SCOPE
+// RETIRED FROM `fix-412 §B: three states, and null is not an answer`
 // ---------------------------------------------------------------------------
+//   · B1/B2: the key is `work_scope`, and absent means NOT ANSWERED
+//   · only an explicit "none" is a no-work unit
+//   · B3 (fix-418): the control renders only on a REMODEL
+//   · picking an answer writes it onto the unit object
+//   · B5: a No-work unit SUPPRESSES its detail inputs
+//   · NOT ANSWERED does not suppress — those units still need filling in
+//   · FALSIFIABLE CLAIM: suppressing does NOT orphan stored values
+//
+// ---------------------------------------------------------------------------
+// RETIRED FROM `fix-412 §B4: the Library filter, three states plus Any`
+// ---------------------------------------------------------------------------
+//   · ANY excludes a confirmed No-work unit — Bobby's default ruling
+//   · ...but a NOT-YET-ANSWERED unit is NOT silently excluded
+//   · each of the three states is reachable BY NAME
+//   · a confirmed no-work project still drops out, by default and always
+//   · …and a project is only dropped when EVERY unit is a confirmed no-work
+//
+// ---------------------------------------------------------------------------
+// ★★★ TWO OF THOSE ASSERTED A BEHAVIOUR THAT NEVER ONCE HAPPENED
+// ---------------------------------------------------------------------------
+// "B5 SUPPRESSES its detail inputs" and "a confirmed no-work project drops out
+// of the Library" both fire on `work_scope === 'none'`. Measured on prod
+// 2026-09-03: 245 unit rows, 95 carrying the key at all, **zero non-null**. In
+// the six weeks the field shipped, no row was ever suppressed and no project
+// was ever dropped. The tests passed on fixtures the data never produced —
+// which is not a criticism of them (they were the only way to prove the rule)
+// so much as the strongest argument for retiring the rule.
+//
+// ---------------------------------------------------------------------------
+// ★★ TWO THINGS FROM THIS BLOCK ARE **KEPT**, RE-HOMED HERE
+// ---------------------------------------------------------------------------
+// They are about the unit ROW, not about work_scope, and losing them with the
+// field would be an accident.
 
-describe('fix-412 §B: three states, and null is not an answer', () => {
-  it('★★★ B1/B2: the key is `work_scope`, and absent means NOT ANSWERED', () => {
-    // ★ A boolean would have defaulted all 234 existing unit objects to an
-    //   answer nobody gave. An absent key reads as null, which is true of every
-    //   one of them.
-    expect(asWorkScope(undefined)).toBeNull();
-    expect(asWorkScope(null)).toBeNull();
-    expect(asWorkScope('none')).toBe('none');
-    expect(asWorkScope('performed')).toBe('performed');
-    // ★ Anything else — a hand-edited blob, a `false` from an earlier shape —
-    //   reads as not answered rather than guessing.
-    for (const junk of [false, true, 0, 1, 'partial', {}, []]) {
-      expect(asWorkScope(junk)).toBeNull();
-    }
-    expect([...WORK_SCOPES]).toEqual(['none', 'performed']);
-  });
-
-  it('★★★ only an explicit "none" is a no-work unit', () => {
-    expect(isNoWorkUnit({ work_scope: 'none' })).toBe(true);
-    expect(isNoWorkUnit({ work_scope: 'performed' })).toBe(false);
-    expect(isNoWorkUnit({})).toBe(false);
-    expect(isNoWorkUnit(null)).toBe(false);
-  });
-
-  it('★★★ B3 (fix-418): the control renders only on a REMODEL', () => {
-    // ★★ fix-412 rendered Work on EVERY unit type, which was a scoping defect:
-    //    P-050 specified it as a property of a Remodel and a Duplex has no
-    //    meaningful answer. fix-418 makes it ABSENT — not disabled — on
-    //    anything else. The three states and the stored key are unchanged.
-    setup([unit({ label: 'Remodel' })], ['Remodel']);
-    const sel = screen.getByTestId('pd-unit-work-scope') as HTMLSelectElement;
-    expect(Array.from(sel.options).map((o) => o.value)).toEqual([
-      '',
-      'none',
-      'performed',
-    ]);
-  });
-
-  it('★★★ picking an answer writes it onto the unit object', async () => {
-    setup([unit()]);
-    fireEvent.change(screen.getByTestId('pd-unit-work-scope'), {
-      target: { value: 'none' },
-    });
-    await waitFor(() => expect(updateMutateAsync).toHaveBeenCalledTimes(1));
-    expect(
-      updateMutateAsync.mock.calls[0][0].patch.unit_types[0].work_scope,
-    ).toBe('none');
-  });
-
-  it('★★★ B5: a No-work unit SUPPRESSES its detail inputs', () => {
-    setup([unit({ work_scope: 'none' })]);
-    expect(screen.getByTestId('pd-unit-row').dataset.noWork).toBe('true');
-    for (const key of UNIT_ROW_SUPPRESSED_ON_NO_WORK) {
-      const testid = {
-        width_ft: 'pd-unit-w',
-        depth_ft: 'pd-unit-d',
-        qty: 'pd-unit-qty',
-        stories: 'pd-unit-stories',
-        parking_kind: 'pd-unit-parking-kind',
-        parking_stalls: 'pd-unit-stalls',
-        roof_deck: 'pd-unit-roof-deck',
-      }[key]!;
-      expect(screen.getByTestId(testid)).toBeDisabled();
-    }
-    // ★ The three that stay LIVE: you must be able to see what it is, change
-    //   your mind, and delete the row.
-    expect(screen.getByTestId('pd-unit-label-select')).not.toBeDisabled();
-    expect(screen.getByTestId('pd-unit-work-scope')).not.toBeDisabled();
-  });
-
-  it('★★ NOT ANSWERED does not suppress — those units still need filling in', () => {
-    setup([unit()]);
-    expect(screen.getByTestId('pd-unit-row').dataset.noWork).toBe('false');
-    expect(screen.getByTestId('pd-unit-w')).not.toBeDisabled();
-    expect(screen.getByTestId('pd-unit-roof-deck')).not.toBeDisabled();
-  });
-
-  it('★★★ FALSIFIABLE CLAIM: suppressing does NOT orphan stored values', async () => {
-    // The brief: *"Prove it with a test that round-trips a unit through No-work
-    // and back."* The inputs are DISABLED, never cleared — so the stored values
-    // survive the round trip and come straight back.
-    const stored = unit({
-      width_ft: 20.5,
-      depth_ft: 30.5,
-      stories: 3,
-      roof_deck: true,
-    });
-    setup([{ ...stored, work_scope: 'none' }]);
-
-    // Still rendering the stored numbers while suppressed — nothing was wiped.
-    expect((screen.getByTestId('pd-unit-w') as HTMLInputElement).value).toBe('20.5');
-    expect((screen.getByTestId('pd-unit-d') as HTMLInputElement).value).toBe('30.5');
-    expect((screen.getByTestId('pd-unit-stories') as HTMLInputElement).value).toBe('3');
-    expect((screen.getByTestId('pd-unit-roof-deck') as HTMLSelectElement).value).toBe(
-      'Yes',
-    );
-
-    // Answer "work performed" again — the ONLY key that changes is work_scope.
-    fireEvent.change(screen.getByTestId('pd-unit-work-scope'), {
-      target: { value: 'performed' },
-    });
-    await waitFor(() => expect(updateMutateAsync).toHaveBeenCalledTimes(1));
-    const written = updateMutateAsync.mock.calls[0][0].patch.unit_types[0];
-    expect(written.work_scope).toBe('performed');
-    expect(written.width_ft).toBe(20.5);
-    expect(written.depth_ft).toBe(30.5);
-    expect(written.stories).toBe(3);
-    expect(written.roof_deck).toBe(true);
-  });
-
+describe('fix-412 §B (surviving): the unit row, after work_scope', () => {
   it('★★ MUST NOT CHANGE: fractional unit dimensions keep their precision', () => {
     // 102 of 232 unit rows carry a fractional width; half-feet are real design
     // dimensions. Bobby's rounding ruling (fix-411) was about LOT dimensions.
+    // ★ Named in fix-486's "must not change" list too — the remap touches
+    //   `label` and nothing else on the row.
     setup([unit({ width_ft: 20.5, depth_ft: 30.25 })]);
     expect((screen.getByTestId('pd-unit-w') as HTMLInputElement).value).toBe('20.5');
     expect((screen.getByTestId('pd-unit-d') as HTMLInputElement).value).toBe('30.25');
   });
-});
 
-// ---------------------------------------------------------------------------
-// §B4 · THE LIBRARY FILTER
-// ---------------------------------------------------------------------------
-
-const BASE: LibraryFilters = {
-  view: 'site' as const,
-  lotwTarget: null, lotwBuf: 2, lotdTarget: null, lotdBuf: 2,
-  unitwTarget: null, unitwBuf: 2, unitdTarget: null, unitdBuf: 2,
-  zone: '', alley: '', productTypes: [], juris: '',
-  isCornerLot: '', stories: '',
-  parkingKind: '', stalls: '', roofDeck: '',
-};
-
-const libRow = (id: string, units: UnitType[]): LibraryRow =>
-  ({
-    projectId: id, address: id, juris: '', productTypes: [], units: units.length,
-    zone: '', lotWidth: 40, lotDepth: 100, alley: '', tags: [], stage: 'de',
-    unitTypes: units, numLots: null, isCornerLot: null, isRegularShape: null,
-    updatedAt: null,
-  }) as LibraryRow;
-
-const ROWS: LibraryRow[] = [
-  libRow('performed', [unit({ work_scope: 'performed' })]),
-  libRow('none', [unit({ work_scope: 'none' })]),
-  libRow('unanswered', [unit()]),
-];
-
-describe('fix-412 §B4: the Library filter, three states plus Any', () => {
-  it('★★★ ANY excludes a confirmed No-work unit — Bobby\'s default ruling', () => {
-    expect(matchWorkScope('none', '')).toBe(false);
-    expect(matchWorkScope('performed', '')).toBe(true);
-  });
-
-  it('★★★ ...but a NOT-YET-ANSWERED unit is NOT silently excluded', () => {
-    // ★ The half that matters most: the field must not hide exactly the units
-    //   somebody needs to chase.
-    expect(matchWorkScope(null, '')).toBe(true);
-    expect(matchWorkScope(undefined, '')).toBe(true);
-  });
-
-  it('★★★ each of the three states is reachable BY NAME', () => {
-    // ★ This is what makes the hidden default exclusion honest rather than a
-    //   trap: nothing becomes unfindable.
-    expect(matchWorkScope('none', 'none')).toBe(true);
-    expect(matchWorkScope('performed', 'none')).toBe(false);
-    expect(matchWorkScope('performed', 'performed')).toBe(true);
-    expect(matchWorkScope(null, 'unanswered')).toBe(true);
-    expect(matchWorkScope('none', 'unanswered')).toBe(false);
-  });
-
-  // ★★★ fix-483 §A2 (P-136) — THE FILTER IS GONE; THE DEFAULT EXCLUSION IS NOT.
-  //
-  // Bobby, 2026-09-02: *"Under unit, get rid of work, and the filter below for
-  // work."* The control and the column both went, and with them the three
-  // pickable states — so `none`, `performed` and `unanswered` are no longer
-  // reachable and `hasAnyUnitFilter` no longer has an arm for them.
-  //
-  // ★★★ WHAT MUST NOT GO, AND IS ASSERTED HERE INSTEAD: fix-412's RULING —
-  //     *"a confirmed No-work remodel drops out of the Library set by
-  //     default"* — is a standing decision Bobby did not revisit, so it is
-  //     held, and it now runs UNCONDITIONALLY rather than while the filter sat
-  //     at Any. This is the only test of it left, which is why it is stated as
-  //     the whole rule rather than as one arm of four.
-  //
-  // ★★ AND THE HONESTY COST IS REAL. fix-412 defended a hidden default
-  //    exclusion on the grounds that it was *"askable"*. It is not askable any
-  //    more — see lib/libraryHelpers' note. The DATA is untouched:
-  //    `unit_types[].work_scope` is still edited on the units row and
-  //    `isNoWorkUnit` still reads it.
-  it('★★★ a confirmed no-work project still drops out, by default and always', () => {
-    expect(
-      filterLibraryRows(ROWS, BASE).map((r) => r.projectId).sort(),
-    ).toEqual(['performed', 'unanswered']);
-  });
-
-  it('★★ …and a project is only dropped when EVERY unit is a confirmed no-work', () => {
-    // ★ The rule is per PROJECT, not per unit: one no-work unit beside three
-    //   real ones must not hide the three. fix-412's own distinction, and the
-    //   half most likely to be lost now that only one test guards it.
-    const mixed = libRow('mixed', [
-      unit({ work_scope: 'none' }),
-      unit({ work_scope: 'performed' }),
-    ]);
-    expect(filterLibraryRows([mixed], BASE).map((r) => r.projectId)).toEqual([
-      'mixed',
-    ]);
-  });
-
-  it('★★ it ANDs onto the SAME unit as the other unit filters (fix-402)', () => {
-    // A project with unit A (work performed, no deck) and unit B (no work,
-    // deck) must NOT match "work performed AND roof deck".
-    const split = libRow('split', [
-      unit({ work_scope: 'performed', roof_deck: false, stories: 2 }),
-      unit({ work_scope: 'performed', roof_deck: true, stories: 3 }),
-    ]);
-    // ★ fix-483 §A2: the conjunction was `work performed AND roof deck`. Work
-    //   is no longer a filter, so the pair is `roof deck AND 2 stories` — the
-    //   CLAIM is fix-402's per-unit AND, and it needs two live unit filters,
-    //   not those two in particular.
-    expect(
-      filterLibraryRows([split], {
-        ...BASE,
-        roofDeck: 'Yes',
-        stories: '2',
-      }),
-    ).toHaveLength(0);
+  it('★★★ nothing on the row is disabled any more — the suppression is GONE', () => {
+    // ★★★ THE FALSIFIABLE HALF OF THE RETIREMENT. fix-412 §B5 disabled seven
+    //     inputs on a "no work" unit. There is no such answer now, so a row
+    //     that would once have carried one must render fully live. If the
+    //     suppression came back — a stray `disabled` from a re-added rule —
+    //     this fails rather than the behaviour silently returning.
+    setup([unit({ label: 'Remodel' })], ['Remodel']);
+    for (const testid of [
+      'pd-unit-w',
+      'pd-unit-d',
+      'pd-unit-qty',
+      'pd-unit-stories',
+      'pd-unit-parking-kind',
+      'pd-unit-stalls',
+      'pd-unit-roof-deck',
+      'pd-unit-label-select',
+    ]) {
+      expect(screen.getByTestId(testid)).not.toBeDisabled();
+    }
+    // ★ And the control itself is absent, not merely inert.
+    expect(screen.queryByTestId('pd-unit-work-scope')).toBeNull();
+    expect(screen.getByTestId('pd-unit-row').dataset.noWork).toBeUndefined();
   });
 });
 
