@@ -27,6 +27,14 @@ export interface TeamMembersResult {
   /** fix-222: the Schematic Team roster — sources the New Project wizard's
    *  Schematic Designer picker + the Schematic Team admin section. */
   schematics: TeamMember[];
+  /** ★★★ fix-487 (P-144): the Construction Admin roster — Steve and David.
+   *  Sources the Settings section and the two CA pickers (the project's, on
+   *  ProjectSettingsModal, and the permit's, on QuickEditPermitModal).
+   *
+   *  ★ WITHOUT THIS BUCKET the role exists and nobody can be added to it,
+   *    removed from it or renamed in it — AdminTeamTab's sections each render
+   *    one of these lists. Nothing would have failed to compile. */
+  cas: TeamMember[];
   /** fix-233: the distinct display names of CURRENT team members (active and not
    *  former), sorted A→Z — the single source for the task assignee people-pickers
    *  so departed staff never appear as selectable options. */
@@ -160,6 +168,9 @@ export function useTeamMembers() {
       // roster — he was never visible before either.
       acqs: all.filter((m) => ACQ_ROLES.has(m.role) && isCurrentMember(m)),
       schematics: ofRole('schematic').filter(isCurrentMember),
+      // ★ fix-487: same single-role, current-member shape as `schematics` and
+      //   `dms`. `ca` has no lead/second grade, so no family widening.
+      cas: ofRole('ca').filter(isCurrentMember),
       activeMemberNames: activeMemberNamesOf(all),
       // ★★★ fix-407: everybody the roster says is NOT here, whatever their
       //   role. `formerDas` covers role='da' only, which is why Caleb —

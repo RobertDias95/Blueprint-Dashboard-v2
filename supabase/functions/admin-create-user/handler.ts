@@ -49,6 +49,8 @@ export const TEAM_ROLES = [
   'schematic',
   'acq_lead',
   'acq',
+  // ★ fix-487 (P-144). The twin test is what makes this line non-optional.
+  'ca',
   'viewer',
 ] as const;
 export type TeamRoleName = (typeof TEAM_ROLES)[number];

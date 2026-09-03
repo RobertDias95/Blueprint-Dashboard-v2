@@ -34,7 +34,13 @@ export function useProjects() {
             'acq_lead, external_team, builder_id, permit_order',
             // fix-222: schematic_designer text[] (added to the DB in
             // fix_222_task_template_overhaul.sql — now safe to select).
+            // ★★★ fix-487: `construction_admin` HAS to be on this line — the
+            // FOURTH time this trap has been recorded in this file (fix-122,
+            // fix-386, fix-410 above). The select list is explicit, so an
+            // unlisted column arrives as `undefined` and the Team card's sixth
+            // block would render nothing, for ever, with no error anywhere.
             'entitlement_lead, design_manager, schematic_designer, go_date',
+            'construction_admin',
             'units, zone, lot_width, lot_depth, unit_types',
             // ★ fix-402: parking_type / parking_stalls dropped from the select.
             // They are archived and NULL on every row; selecting them would

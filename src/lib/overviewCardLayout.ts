@@ -637,8 +637,11 @@ export const TEAM_INTERNAL_TWO_UP_MIN =
   TEAM_INTERNAL_COLUMN_MIN * 2 + TEAM_INTERNAL_COLUMN_GUTTER;
 
 export interface TeamInternalRow {
-  /** Which value this row shows. */
-  key: 'acq' | 'ent' | 'sd' | 'dm' | 'da';
+  /** Which value this row shows.
+   *  ★ fix-487 appends `ca`. Widening THIS union is what makes the sixth block
+   *    a compiler problem rather than a silent omission: every
+   *    `Record<TeamInternalRow['key'], …>` consumer must supply the value. */
+  key: 'acq' | 'ent' | 'sd' | 'dm' | 'da' | 'ca';
   /** The abbreviation the card prints. */
   label: string;
   /** fix-321: the tier's full name, since the card shows abbreviations. */
@@ -654,4 +657,18 @@ export const TEAM_INTERNAL_ROWS: readonly TeamInternalRow[] = [
   { key: 'sd', label: 'SD', title: 'Schematic design', column: 'right' },
   { key: 'dm', label: 'DM', title: 'Design Manager', column: 'right' },
   { key: 'da', label: 'DA', title: 'Design Associate', column: 'right' },
+  // ★★★ fix-487 (P-144) — the sixth block, AFTER Design Associate.
+  //
+  // fix-475's own note promised it: *"a sixth role added to the table appears
+  // here for free."* It does — the card, the chat modal's avatar strip and the
+  // fix-479 height harness all iterate this list.
+  //
+  // ★★ LAST, because the list is in the order the work happens: land,
+  //    entitlement, schematic, manager, associate — and construction admin is
+  //    post-permit-issuance, which is after all five.
+  //
+  // ★ `column: 'right'` is vestigial here: fix-475 replaced fix-423's two-up
+  //   with one block per role. It is set consistently with its neighbours so
+  //   the field keeps meaning something if the two-up ever returns.
+  { key: 'ca', label: 'CA', title: 'Construction Admin', column: 'right' },
 ];

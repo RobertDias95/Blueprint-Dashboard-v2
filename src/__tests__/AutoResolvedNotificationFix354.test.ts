@@ -393,6 +393,10 @@ describe('fix-354: it reaches the bell and the board', () => {
 
 const ALL_ROLES: TeamRole[] = [
   'da', 'dm', 'ent', 'ent_lead', 'acq', 'acq_lead', 'schematic', 'viewer', 'director',
+  // ★ fix-487 (P-144): Construction Admin, the tenth role string and the sixth
+  //   INTERNAL position. `ROLE_SENIORITY` is the list the compiler cannot
+  //   check, so this is the assertion that made adding it safe.
+  'ca',
 ];
 
 describe('fix-354 §6: Dave is the Director, and still on the schematic team', () => {

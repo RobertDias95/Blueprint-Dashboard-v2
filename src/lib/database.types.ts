@@ -112,6 +112,23 @@ export interface Project {
    *  multiple allowed). 'Schematic Team' template tasks + the "Schematic
    *  Designer" co-assignee token route to these names. */
   schematic_designer?: string[] | null;
+  /** ★★★ fix-487 (P-144): the project's Construction Admin — a
+   *  `team_members.name`, the same shape as `design_manager` and
+   *  `entitlement_lead` above.
+   *
+   *  ★★ DEFAULTED ON THE COLUMN, not by the wizard: `add column ... default
+   *  'Steve'` means every insert path (wizard, redesign, reuse, backfill, hand
+   *  SQL) gets him, per Bobby's *"Steve should be the default on every new
+   *  project."* It also filled all 211 existing rows as a CATALOG change, so no
+   *  `updated_at` moved and no OCC token was invalidated — which a bulk UPDATE
+   *  would have done to every row in the table (the fix-410/fix-425 problem,
+   *  sidestepped rather than solved).
+   *
+   *  ★ Optional, because fixtures predating fix-487 do not carry it — and
+   *  because it MUST be named in `useProjects`' explicit select list or it
+   *  arrives `undefined` everywhere (the fix-122 / fix-386 / fix-410 trap,
+   *  fourth time). */
+  construction_admin?: string | null;
   /** fix-22 Migration 1+2: physical/scheduling fields moved from permits
    *  → projects as the single source of truth. Backfilled from each
    *  project's Building Permit; conflicts recorded in audit_log. */
@@ -750,6 +767,17 @@ export interface Permit {
    *  project-level default; this field overrides per permit. */
   ent_lead: string | null;
   dual_da: string | null;
+  /** ★★★ fix-487 (P-144): per-permit Construction Admin.
+   *
+   *  ★★ BLANK BY DEFAULT, unlike the project column. Bobby: *"He would only get
+   *  assigned to a permit by himself, or ENT in general"* — his example was a
+   *  PPR, post-permit-issuance work handed to a CA on purpose. So an unset `ca`
+   *  is the normal state and the permit card shows the name only when there is
+   *  one.
+   *
+   *  ★ No select-list cost: `usePermits` reads `select('*')`, the opposite of
+   *  `useProjects`. */
+  ca?: string | null;
   target_submit: string | null;
   /** True when target_submit was hand-typed. The engine never overwrites a
    *  manual date — bp_recompute_target_submits skips these rows outright. */
@@ -1330,7 +1358,16 @@ export type Department =
   | 'acquisitions'
   | 'underwriting'
   | 'executive'
-  | 'it_investor_relations';
+  | 'it_investor_relations'
+  // ★★★ fix-487 (P-144): the department the Construction Admin role belongs
+  // to. Bobby, 2026-09-03, on why it is not filed under Design & Entitlements:
+  // *"they're more construction-based, post-permit-issuance."*
+  //
+  // ★ NAMING NOTE, raised in the fix-487 PR for Bobby to settle: every other
+  //   department is a FUNCTION ("Policy", "Acquisitions") and this one is a JOB
+  //   TITLE. "Construction" may read better. If he renames it, only
+  //   DEPARTMENT_LABEL changes — this key is stable and holds the data.
+  | 'construction_admin';
 
 export type TeamRole =
   | 'da'
@@ -1365,7 +1402,25 @@ export type TeamRole =
   // Design" and he stays in every schematic list, picker and filter. Changing
   // the row he has would take him off the schematic team, which is not what was
   // asked: he genuinely does that work.
-  | 'director';
+  | 'director'
+  // ★★★ fix-487 (P-144) — CONSTRUCTION ADMIN, the sixth internal position.
+  //
+  // Bobby, 2026-09-02/03: *"We want to add one more internal position,
+  // construction admin. There's two people on that team, Steve and David Rice…
+  // say there's a PPR — they get thrown onto it because they're more
+  // construction-based, post-permit-issuance."*
+  //
+  // ★★ IT IS A DISCIPLINE, NOT A GRADE. `ent_lead`/`ent` and `acq_lead`/`acq`
+  //    are two grades of one job and collapse in `primaryRoles`; `ca` is its
+  //    own family, like `dm` and `schematic`, so somebody who is both a CA and
+  //    something else prints BOTH titles.
+  //
+  // ★★★ AND THERE IS NO `team_members_role_check` ON PROD (measured
+  //     2026-09-03) — departments have a CHECK, roles do not. So nothing in the
+  //     database stops a role string this union has never heard of, which is
+  //     exactly why every list of roles in `src/` has to be enumerated by hand.
+  //     The fix-487 PR carries the inventory.
+  | 'ca';
 
 /** Tenant-scoped roster. `active` flags currently-working members;
  * `former` flags DAs (and only DAs in v1's UX) who used to be on the

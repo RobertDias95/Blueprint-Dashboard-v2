@@ -6,6 +6,9 @@ import {
   namePlatePreview,
 } from '../../lib/addPerson';
 import { ROLE_TITLE } from '../../lib/roleLabels';
+// ★ fix-487 §B: the label + input shell moved to `personFields` so the details
+//   dialog renders the SAME three fields rather than a copy of them.
+import { PERSON_FIELD_INPUT as INPUT, PersonFieldRow as Row } from './personFields';
 import type { TeamRole } from '../../lib/database.types';
 import type { AddPersonSuccess } from '../../../supabase/functions/admin-create-user/handler';
 
@@ -332,33 +335,10 @@ const BRIDGE_ACCESS_LABEL: Record<'admin' | 'editor', string> = {
   editor: 'Editor',
 };
 
-const INPUT =
-  'w-full text-[12px] px-2 py-1.5 rounded border border-border bg-bg text-text focus:outline-none focus:border-de';
-
-function Row({
-  label,
-  htmlFor,
-  hint,
-  children,
-}: {
-  label: string;
-  htmlFor: string;
-  hint?: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <div>
-      <label
-        htmlFor={htmlFor}
-        className="block text-[10px] uppercase tracking-wide text-dim font-semibold mb-1"
-      >
-        {label}
-      </label>
-      {children}
-      {hint && <div className="text-[10px] text-dim mt-0.5">{hint}</div>}
-    </div>
-  );
-}
+// ★★ fix-487 §B: `INPUT` and `Row` are IMPORTED now (see the top of the file),
+//    not declared here. They were this dialog's private chrome; the details
+//    dialog needs the same three fields, and the brief asked for reuse rather
+//    than a second copy that starts identical and drifts.
 
 /** ★★ C2 — WHAT THE PERSON WILL SEE, built the way Chrome builds it. */
 function PlatePreview({ plate }: { plate: { name: string; title: string } }) {

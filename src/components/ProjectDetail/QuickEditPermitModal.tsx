@@ -28,6 +28,9 @@ interface FormState {
   type: string;
   ent_lead: string;
   da: string;
+  /** ★ fix-487 (P-144): the permit's Construction Admin. Blank on almost every
+   *  permit — see the field for why that is the normal state. */
+  ca: string;
   num: string;
   struct_address: string;
   portal_url: string;
@@ -40,6 +43,7 @@ function initForm(permit: PermitWithCycles): FormState {
     type: permit.type ?? '',
     ent_lead: permit.ent_lead ?? '',
     da: permit.da ?? '',
+    ca: permit.ca ?? '',
     num: permit.num ?? '',
     struct_address: permit.struct_address ?? '',
     portal_url: permit.portal_url ?? '',
@@ -53,6 +57,7 @@ function diff(original: FormState, current: FormState): Partial<Permit> {
   if (current.type !== original.type) out.type = current.type;
   if (current.ent_lead !== original.ent_lead) out.ent_lead = current.ent_lead.trim() || null;
   if (current.da !== original.da) out.da = current.da.trim() || null;
+  if (current.ca !== original.ca) out.ca = current.ca.trim() || null;
   if (current.num !== original.num) out.num = current.num.trim() || null;
   if (current.struct_address !== original.struct_address)
     out.struct_address = current.struct_address.trim() || null;
@@ -144,6 +149,10 @@ export default function QuickEditPermitModal({ permit, siblings = [], onClose }:
   const daOptions = team
     .filter((t) => t.role === 'da' && isCurrentMember(t))
     .map((t) => t.name);
+  // ★ fix-487 (P-144): the Construction Admin roster — Steve and David today.
+  const caOptions = team
+    .filter((t) => t.role === 'ca' && isCurrentMember(t))
+    .map((t) => t.name);
   const permitTypes = (permitTypesQ.data ?? []).map((t) => t.name);
 
   // fix-194: "Sub-permit of…" candidates — the project's OTHER permits, minus
@@ -214,9 +223,23 @@ export default function QuickEditPermitModal({ permit, siblings = [], onClose }:
             </select>
           </QeField>
 
+          {/* ★★★ fix-487 (P-144) — CA JOINS ENT AND DA HERE.
+              Bobby: *"He would only get assigned to a permit by himself, or ENT
+              in general"* — his example was a PPR, thrown to a CA because the
+              work is post-permit-issuance.
+
+              ★★ NO ROLE GATE. There is no such gate anywhere on this modal and
+              none is added: anyone with edit rights can set it, which is what
+              "or ENT in general" asks for.
+
+              ★★★ AND `DM` IS STILL NOT HERE, WHICH IS NOT AN OMISSION.
+              fix-379 made `permits.dm` DERIVED from the permit's DA by trigger,
+              so it is not editable anywhere in the app — the brief's "beside
+              ENT / DM / DA" resolves to ENT and DA, which is what this row
+              holds. */}
           <QeField
             label="Assigned To"
-            hint="(ENT + DA)"
+            hint="(ENT + DA + CA)"
           >
             <div className="grid grid-cols-2 gap-2">
               <input
@@ -243,6 +266,23 @@ export default function QuickEditPermitModal({ permit, siblings = [], onClose }:
                 style={qeInputStyle}
                 data-testid="qe-da"
               />
+              <input
+                type="text"
+                list="qe-ca-options"
+                value={form.ca}
+                onChange={(e) =>
+                  setForm((f) => ({ ...f, ca: e.target.value }))
+                }
+                placeholder="CA"
+                className={qeInputCls}
+                style={qeInputStyle}
+                data-testid="qe-ca"
+              />
+              <datalist id="qe-ca-options">
+                {caOptions.map((n) => (
+                  <option key={n} value={n} />
+                ))}
+              </datalist>
               <datalist id="qe-ent-options">
                 {entOptions.map((n) => (
                   <option key={n} value={n} />

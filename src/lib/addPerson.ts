@@ -52,6 +52,11 @@ export const ADD_PERSON_ROLE_OPTIONS: ReadonlyArray<{
     'schematic',
     'acq',
     'acq_lead',
+    // ★★★ fix-487: WITHOUT THIS LINE BOBBY CANNOT CREATE A CONSTRUCTION ADMIN
+    //     AT ALL, and nothing would have failed to compile — this array is
+    //     hand-written, not derived from `TeamRole`. The suite asserts it
+    //     covers the union exactly, which is the only thing that catches it.
+    'ca',
     'director',
     'viewer',
   ] as const

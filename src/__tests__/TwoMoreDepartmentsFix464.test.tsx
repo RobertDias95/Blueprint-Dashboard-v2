@@ -28,15 +28,32 @@ import type { Department, TeamMember } from '../lib/database.types';
 // ★★ NEWEST-FIRST. fix-461's "do not add a fifth" is SUPERSEDED. ★ Its other
 // half is not: **Accounting is still not a department.**
 
-describe('fix-464 §A — the vocabulary is six', () => {
-  it('★★★ six keys, and the original four are FIRST, in his order', () => {
+// ★★★ AMENDED AGAIN 2026-09-03 (fix-487, P-144) — SEVEN. The Construction
+// Admin role arrived with a department of its own: Bobby, *"they're more
+// construction-based, post-permit-issuance."* fix-464's APPEND rule is what
+// made that a one-line change, and it is asserted below rather than assumed.
+//
+// ★★ THE HALF THAT STILL HAS NOT EXPIRED: **Accounting is still not a
+//    department.** Two amendments have now moved the count and neither touched
+//    that, which is exactly the distinction fix-464 drew when it superseded
+//    fix-461's "no fifth".
+
+describe('fix-464 §A — the vocabulary grows by APPENDING', () => {
+  it('★★★ seven keys, and the original four are STILL first, in his order', () => {
     // §A5: APPEND, do not reshuffle. This array's order is the one he scans,
-    // and he has just spent a session using it to classify 32 people.
+    // and he has spent a session using it to classify 32 people.
     expect(DEPARTMENTS).toEqual([
       'policy',
       'design_entitlements',
       'acquisitions',
       'underwriting',
+      'executive',
+      'it_investor_relations',
+      'construction_admin',
+    ]);
+    // ★ And fix-464's own two are still where IT put them — the append rule
+    //   applied twice, which is the only way it means anything.
+    expect(DEPARTMENTS.slice(4, 6)).toEqual([
       'executive',
       'it_investor_relations',
     ]);
@@ -93,25 +110,38 @@ describe('fix-464 — the five places cannot drift apart', () => {
       'underwriting',
       'executive',
       'it_investor_relations',
+      // ★ fix-487 (P-144).
+      'construction_admin',
     ];
     expect([...fromUnion].sort()).toEqual(Object.keys(DEPARTMENT_LABEL).sort());
-    expect(fromUnion).toHaveLength(6);
+    expect(fromUnion).toHaveLength(7);
   });
 
   it('★★★ THE FIFTH PLACE: bp_set_team_department carries its OWN value list', () => {
     // ★ STEP 0a's finding, and the one that would have shipped a broken picker.
     //   The brief named four places; the RPC validates independently of the
     //   CHECK constraint, so widening only the constraint gives you a dropdown
-    //   that offers two options the writer raises "unknown department" on.
+    //   that offers options the writer raises "unknown department" on.
+    //
+    // ★★★ fix-487 RE-POINTED THIS AT THE MIGRATION THAT DEFINES THE CURRENT
+    //     VOCABULARY. It used to read fix-464's file, which is now a HISTORICAL
+    //     record of six — it cannot mention `construction_admin` and should not
+    //     be edited to. The rule being enforced ("both database lists agree
+    //     with the app's") is unchanged; what moved is which file is the live
+    //     one, and the next department will move it again.
     const sql = readFileSync(
-      resolve(process.cwd(), 'migrations/fix_464_two_more_departments.sql'),
+      resolve(process.cwd(), 'migrations/fix_487_construction_admin.sql'),
       'utf8',
     );
+    // ★ The `?raw`/readFileSync guard (fix-406): assert the file arrived before
+    //   trusting a "contains" check, or an empty string passes everything below
+    //   for the wrong reason.
+    expect(sql.length).toBeGreaterThan(2000);
     expect(sql).toMatch(/add constraint team_members_department_check/);
     expect(sql).toMatch(/create or replace function public\.bp_set_team_department/);
 
-    // ★★ BOTH lists carry all six — split the file at the function boundary and
-    //    check each half, so widening one and not the other fails here.
+    // ★★ BOTH lists carry all seven — split the file at the function boundary
+    //    and check each half, so widening one and not the other fails here.
     const cut = sql.indexOf('create or replace function public.bp_set_team_department');
     const constraintHalf = sql.slice(0, cut);
     const functionHalf = sql.slice(cut);
@@ -119,6 +149,19 @@ describe('fix-464 — the five places cannot drift apart', () => {
       expect(constraintHalf, `constraint is missing ${key}`).toContain(`'${key}'`);
       expect(functionHalf, `the RPC is missing ${key}`).toContain(`'${key}'`);
     }
+  });
+
+  it('★★ fix-464\'s own migration is untouched — it still records ITS six', () => {
+    // ★ A historical migration is a record of what happened, not a copy of the
+    //   current vocabulary. Editing it to add `construction_admin` would make
+    //   the file claim to have done something it did not do.
+    const sql = readFileSync(
+      resolve(process.cwd(), 'migrations/fix_464_two_more_departments.sql'),
+      'utf8',
+    );
+    expect(sql.length).toBeGreaterThan(500);
+    expect(sql).toContain(`'it_investor_relations'`);
+    expect(sql).not.toContain(`'construction_admin'`);
   });
 });
 
@@ -157,13 +200,16 @@ beforeEach(() => {
 });
 
 describe('fix-464 §B — the screens', () => {
-  it('★★★ §B1: the picker offers all six, and renders from DEPARTMENTS', () => {
+  it('★★★ §B1: the picker offers them ALL, and renders from DEPARTMENTS', () => {
     render(<DepartmentEditor members={[row({ name: 'Darin' })]} readOnly={false} />);
     const select = screen.getByTestId('department-select-Darin') as HTMLSelectElement;
     const values = Array.from(select.options).map((o) => o.value);
-    // Six departments + the "No department" option.
+    // ★ Every department + the "No department" option — DERIVED from
+    //   DEPARTMENTS rather than a pinned count, so the next append does not
+    //   have to edit this line. fix-464 wrote `7`; fix-487 made it 8 and took
+    //   the number out.
     expect(values).toEqual(['', ...DEPARTMENTS]);
-    expect(select.options.length).toBe(7);
+    expect(select.options.length).toBe(DEPARTMENTS.length + 1);
   });
 
   it('★★★ §B2: an EMPTY department renders as an empty group, not a gap', () => {

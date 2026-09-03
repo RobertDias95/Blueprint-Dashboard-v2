@@ -107,6 +107,9 @@ interface ProjectScalarFields {
   product_types: string[];
   entitlement_lead: string;
   design_manager: string;
+  /** ★ fix-487 (P-144): the project's Construction Admin. Steve on every
+   *  project by default; this is where he hands one to David. */
+  construction_admin: string;
   /** fix-175: per-project point-of-contact (NOT a builder catalog field). */
   poc_name: string;
   poc_email: string;
@@ -203,6 +206,7 @@ function initForm(
         ? project.product_types
         : [],
       entitlement_lead: project.entitlement_lead ?? '',
+      construction_admin: project.construction_admin ?? '',
       design_manager: project.design_manager ?? '',
       poc_name: project.poc_name ?? '',
       poc_email: project.poc_email ?? '',
@@ -322,6 +326,11 @@ export default function ProjectSettingsModal({
   const sdMembers = dedupByName(
     team.filter((t) => t.role === 'schematic' && isCurrentMember(t)),
   );
+  // ★ fix-487 (P-144): the Construction Admin roster — two people today, Steve
+  //   and David. Same current-roster rule as every picker above it.
+  const caMembers = dedupByName(
+    team.filter((t) => t.role === 'ca' && isCurrentMember(t)),
+  );
 
   function set<K extends keyof FormState>(key: K, value: FormState[K]) {
     setForm((f) => ({ ...f, [key]: value }));
@@ -422,6 +431,12 @@ export default function ProjectSettingsModal({
         alley: form.projectFields.alley || null,
         product_types: form.projectFields.product_types,
         entitlement_lead: form.projectFields.entitlement_lead.trim() || null,
+        // ★★ fix-487: `bp_update_project_with_permits` whitelists this key
+        //    server-side (the migration patched the function by anchor). The
+        //    client patch is untyped, so the RPC's own list is the real gate —
+        //    a key it does not know is dropped SILENTLY.
+        construction_admin:
+          form.projectFields.construction_admin.trim() || null,
         design_manager: form.projectFields.design_manager.trim() || null,
         builder_name: form.builder.builder_name.trim() || null,
         builder_company: form.builder.builder_company.trim() || null,
@@ -607,6 +622,28 @@ export default function ProjectSettingsModal({
                 options={['', ...dmMembers.map((m) => m.name)]}
                 placeholderLabel="— none —"
                 testid="psm-dm"
+              />
+            </Field>
+            {/* ★★★ fix-487 (P-144) — THE PROJECT'S CONSTRUCTION ADMIN.
+                Bobby: *"Construction admin will always default to Steve, and as
+                needed Steve would hand it off to David Rice."* This field IS
+                the hand-off, and it is the only place the project-level value
+                is editable.
+
+                ★★ CHANGING IT CASCADES. `projects_cascade_lead` follows a
+                changed construction_admin down to the project's UNISSUED
+                permits that still name the old person — the same rule fix-377
+                built for the entitlement lead, and for the same reason. An
+                ISSUED permit keeps who took it through
+                (D-2026-08-28), which matters more for a CA than for anyone
+                else because the job is post-permit-issuance work. */}
+            <Field label="Construction Admin">
+              <SelectInput
+                value={form.projectFields.construction_admin}
+                onChange={(v) => setProj('construction_admin', v)}
+                options={['', ...caMembers.map((m) => m.name)]}
+                placeholderLabel="— none —"
+                testid="psm-ca"
               />
             </Field>
             {/* ★★★ fix-344 §1 — THE SCHEMATIC DESIGNER, AND THE MOVE.

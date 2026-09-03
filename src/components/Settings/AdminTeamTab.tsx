@@ -4,6 +4,10 @@ import DaRoutingEditor from './DaRoutingEditor';
 import PermitsMissingLeadPanel from './PermitsMissingLeadPanel';
 import DepartmentEditor from './DepartmentEditor';
 import AgendaMembersPanel from './AgendaMembersPanel';
+// ★★★ fix-487 §B (P-120): the third person-level panel, beside Departments and
+//   Agenda members. It lists PEOPLE (not role rows) so it can reach the seven
+//   viewers and the director who appear in none of the role lists below.
+import PersonDetailsEditor from './PersonDetailsEditor';
 import MentionTagsEditor from './MentionTagsEditor';
 import TeamActiveQuartersEditor from './TeamActiveQuartersEditor';
 import QuarterLayoutEditor from './QuarterLayoutEditor';
@@ -149,6 +153,14 @@ export default function AdminTeamTab() {
     key: m.name,
     label: m.name,
   }));
+  // ★★★ fix-487 (P-144): the Construction Admins — Steve and David.
+  //
+  // ★ `?? []` IS THE PARTIALLY-MOCKED-MODULE GUARD, the same one `otherInactive`
+  //   below carries and for the same reason: roughly forty test files mock
+  //   `hooks/useTeamMembers` with a hand-written object, so a NEW field on the
+  //   result is `undefined` at the call site and `.map` throws inside a render.
+  //   fix-390 hit it, fix-401 hit it again, fix-407 recorded it.
+  const caItems = (teamQ.cas ?? []).map((m) => ({ key: m.name, label: m.name }));
   const formerItems = teamQ.formerDas.map((d) => ({
     key: d.name,
     label: d.name,
@@ -290,6 +302,23 @@ export default function AdminTeamTab() {
         <AgendaMembersPanel members={teamQ.all} readOnly={!isAdmin} />
       </Section>
 
+      {/* ★★★ fix-487 §B (P-120) — NAMES AND EMAILS.
+          Bobby: *"have the ability to edit our team database so i can enter
+          their last names too."*
+
+          ★★ THE THIRD PERSON-LEVEL PANEL, directly under the other two. All
+          three answer "what is true of this PERSON" rather than "who is in this
+          role", and all three fold the roster to people first — because seven
+          people carry two rows and a row-per-line panel shows them twice.
+
+          ★★★ AND IT REACHES PEOPLE THE ROLE LISTS BELOW CANNOT. Seven viewers
+          and a director hold no DA/DM/ENT/ACQ/Schematic/CA row, so an edit
+          button hung off those pills would have missed a quarter of the roster
+          while looking complete. */}
+      <Section title="Names and emails">
+        <PersonDetailsEditor members={teamQ.all} readOnly={!isAdmin} />
+      </Section>
+
       {/* ★★★ fix-458 §A (P-106): the THIRD roster-gap surface on this tab, and
           deliberately in the same shape as the two above it — fix-457's
           "active DA with no routing row" and TeamStructureEditor's "⚠ Unassigned
@@ -359,6 +388,27 @@ export default function AdminTeamTab() {
           placeholder="Add Schematic Designer…"
           readOnly={!isAdmin}
           testIdPrefix="team-schematic"
+        />
+      </Section>
+
+      {/* ★★★ fix-487 (P-144) — CONSTRUCTION ADMINS, the sixth role list.
+          Bobby: *"We want to add one more internal position, construction
+          admin. There's two people on that team, Steve and David Rice."*
+
+          ★ Same shape as the five above it, and `hardDelete`/`renameSimple` are
+            role-parameterised, so nothing new is needed for either. There is no
+            lead/second grade for this role, so `findAllByName`'s family
+            branches do not apply and its plain `else` is correct. */}
+      <Section title={ROLE_LABEL.ca}>
+        <PillListEditor
+          label={ROLE_LABEL.ca}
+          items={caItems}
+          onAdd={(name) => addMember('ca', name)}
+          onRemove={(name) => hardDelete('ca', name)}
+          onRename={(oldName, newName) => renameSimple('ca', oldName, newName)}
+          placeholder="Add Construction Admin…"
+          readOnly={!isAdmin}
+          testIdPrefix="team-ca"
         />
       </Section>
 

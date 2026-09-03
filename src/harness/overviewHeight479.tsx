@@ -128,6 +128,8 @@ const ROSTER: Record<string, string> = {
   sd: 'Ana',
   dm: 'Jade',
   da: 'Nicky',
+  // ★ fix-487: the sixth block, so the harness measures what the card renders.
+  ca: 'Steve',
 };
 
 function BuilderDisclosure() {

@@ -1671,6 +1671,10 @@ function TeamCell({
     sd,
     dm,
     da,
+    // ★ fix-487: the sixth block. `internal` is `projectInternalTeam`, which
+    //   deliberately does NOT let the BP's own `ca` override the project's —
+    //   see lib/projectTeam for why this one differs from ent/dm/da.
+    ca: internal.ca,
   };
 
   // ★★ fix-345 §3: the card owns the modal now, because the two things that
