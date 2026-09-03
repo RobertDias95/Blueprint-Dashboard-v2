@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>fix-489 — Library size ± boxes</title>
+    <!--
+      ===========================================================================
+      fix-489 (P-151) — DO THE ± BOXES FIT THEIR OWN DEFAULTS?
+      ===========================================================================
+
+      Bobby, 2026-09-03, with a screenshot of the Library: "the unit and lot size
+      is not fully visable. that is a problem. the lot size should default +/-
+      500 and the unit size should be +/- 100"
+
+      ★ The defaults ARE 500 and 100. The boxes are 40px wide and print "5" and
+        "1". This page measures that, before and after, rather than arguing it.
+
+      Run it:   npm run dev
+                http://localhost:5173/harness/library-size-boxes-489.html
+
+      The report prints at the bottom in <pre id="fix489-report">.
+    -->
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/harness/librarySizeBoxes489.tsx"></script>
+  </body>
+</html>

@@ -545,6 +545,8 @@ function Body({ projects, permits }: BodyProps) {
               onTarget={(v) => update('lotsizeTarget', v)}
               onBuf={(v) => update('lotsizeBuf', v)}
               testIdPrefix="lotsize"
+              // ★ fix-489: square feet need more room than feet — see TargetRange.
+              unit="sf"
             />
           </div>
 
@@ -710,6 +712,7 @@ function Body({ projects, permits }: BodyProps) {
               onTarget={(v) => update('unitsizeTarget', v)}
               onBuf={(v) => update('unitsizeBuf', v)}
               testIdPrefix="unitsize"
+              unit="sf"
             />
           </div>
 
@@ -1994,6 +1997,58 @@ function FieldLabel({
   );
 }
 
+/**
+ * ★★★ fix-489 (P-151) — THE BOXES HAVE TO FIT WHAT THEY HOLD.
+ *
+ * Bobby, 2026-09-03, with a screenshot of the Library: *"the unit and lot size
+ * is not fully visable. that is a problem. the lot size should default +/- 500
+ * and the unit size should be +/- 100"*
+ *
+ * ★★★ THE DEFAULTS WERE ALREADY 500 AND 100 — verified in `INITIAL_FILTERS`,
+ *     in `clearCardFilters` (which restores from that same object) and in
+ *     `loadLibraryFilters`' fallback. Nothing was resetting them. What he
+ *     photographed was a 40px box printing **"5"** and **"1"**: the value was
+ *     right and the box was too narrow.
+ *
+ * ---------------------------------------------------------------------------
+ * ★★★ THE CAUSE, MEASURED IN CHROME — IT IS THE SPINNER, NOT THE DIGITS
+ * ---------------------------------------------------------------------------
+ * At `w-10` the box is 38px of client, 22px of content, and "500" is only
+ * 17.8px of text — it should fit. It does not, because Chrome reserves room
+ * for `::-webkit-inner-spin-button` inside the box:
+ *
+ *     input[type=number] "500" at w-10   scrollWidth 49 / clientWidth 38  ✗
+ *     …the same box with the spinner suppressed              38 / 38     ✓
+ *     input[type=TEXT]   "500" at w-10                       38 / 38     ✓
+ *
+ * The spinner costs exactly **11px**, and 11px is the whole defect.
+ *
+ * ★★ SO WHY NOT JUST HIDE THE SPINNER? It would fix this with no width change
+ *    (`[appearance:textfield]`, which the unit-matrix cells already use). It is
+ *    out of scope by the brief — *"only the widths change"* — and it is a
+ *    change to all nine boxes rather than the two that are wrong. Raised in the
+ *    fix-489 PR as the cheaper alternative if Bobby wants it.
+ *
+ * ---------------------------------------------------------------------------
+ * ★★★ AND THE WIDTHS ARE MEASURED, NOT ESTIMATED
+ * ---------------------------------------------------------------------------
+ * The brief proposed `w-20` / `w-14`. Chrome says `w-14` is **one pixel short**:
+ *
+ *     ±  box   w-14 (54px)   "500" 54/54 ✓   but "1000" 55/54 ✗
+ *     ±  box   w-16 (62px)   "2500" 62/62 ✓
+ *     target   w-16 (62px)   "12000" 62/62 ✓ but "100000" 67/62 ✗
+ *     target   w-20 (78px)   "999999" 78/78 ✓
+ *
+ * A four-digit tolerance (±1000 on a lot) and a six-digit area (a 2.5-acre
+ * parcel is 108,900 sf) are both ordinary, so the sf boxes take **w-16** and
+ * **w-20**. Shipping `w-14` would have re-created this ticket the first time
+ * somebody typed ±1000.
+ *
+ * ★ ONE COMPONENT, per D-2026-09-02 (consistency is a brand rule). The `ft`
+ *   default leaves the four width/depth callers byte-identical, and only the
+ *   two width classes move — `FIELD_CLASS`, the `±` glyph, `text-center` and
+ *   the label tier are untouched.
+ */
 function TargetRange({
   label,
   target,
@@ -2001,6 +2056,7 @@ function TargetRange({
   onTarget,
   onBuf,
   testIdPrefix,
+  unit = 'ft',
 }: {
   label: string;
   target: number | null;
@@ -2008,7 +2064,11 @@ function TargetRange({
   onTarget: (v: number | null) => void;
   onBuf: (v: number) => void;
   testIdPrefix: string;
+  /** ★ `'sf'` widens BOTH boxes; `'ft'` is today's geometry, unchanged. */
+  unit?: 'ft' | 'sf';
 }) {
+  const targetWidth = unit === 'sf' ? 'w-20' : 'w-16';
+  const bufWidth = unit === 'sf' ? 'w-16' : 'w-10';
   return (
     // ★★ fix-406: width/depth are the PRIMARY tier — fix-402's ruling, kept by
     //    giving this label the heavier weight rather than by darkening
@@ -2023,7 +2083,7 @@ function TargetRange({
             onTarget(e.target.value === '' ? null : Number(e.target.value))
           }
           placeholder="Target"
-          className={`w-16 text-center ${FIELD_CLASS}`}
+          className={`${targetWidth} text-center ${FIELD_CLASS}`}
           data-testid={`${testIdPrefix}-target`}
         />
         <span>±</span>
@@ -2032,7 +2092,7 @@ function TargetRange({
           min={0}
           value={buf}
           onChange={(e) => onBuf(Number(e.target.value) || 0)}
-          className={`w-10 text-center ${FIELD_CLASS}`}
+          className={`${bufWidth} text-center ${FIELD_CLASS}`}
           data-testid={`${testIdPrefix}-buf`}
         />
       </div>
