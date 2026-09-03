@@ -20,6 +20,7 @@ const CANNED: ReuseSource = {
   zone: 'LR2',
   lot_width: 20,
   lot_depth: 30,
+  lot_size_sf: null,
   product_types: ['SFR'],
   unit_types: [{ label: 'Type A', width_ft: 20, depth_ft: 30, qty: 1, stories: 2 }],
   primaryDa: 'Fisk',

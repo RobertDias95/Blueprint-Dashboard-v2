@@ -73,10 +73,20 @@ export function loadLibraryFilters(
       lotwBuf: numOrNull(o.lotwBuf) ?? fallback.lotwBuf,
       lotdTarget: numOrNull(o.lotdTarget),
       lotdBuf: numOrNull(o.lotdBuf) ?? fallback.lotdBuf,
+      // ★★★ fix-488: WITHOUT THESE FOUR LINES THE TWO NEW FILTERS RESET ON
+      //     EVERY PAGE LOAD, with no error anywhere. This decoder is
+      //     field-by-field on purpose (see the header): a key it does not name
+      //     is simply never read back out of storage. The two Clear buttons
+      //     would still work, the filters would still filter — they just would
+      //     not survive a reload, which is the one thing this file exists for.
+      lotsizeTarget: numOrNull(o.lotsizeTarget),
+      lotsizeBuf: numOrNull(o.lotsizeBuf) ?? fallback.lotsizeBuf,
       unitwTarget: numOrNull(o.unitwTarget),
       unitwBuf: numOrNull(o.unitwBuf) ?? fallback.unitwBuf,
       unitdTarget: numOrNull(o.unitdTarget),
       unitdBuf: numOrNull(o.unitdBuf) ?? fallback.unitdBuf,
+      unitsizeTarget: numOrNull(o.unitsizeTarget),
+      unitsizeBuf: numOrNull(o.unitsizeBuf) ?? fallback.unitsizeBuf,
       zone: str(o.zone),
       alley: str(o.alley),
       productTypes: strArray(o.productTypes),

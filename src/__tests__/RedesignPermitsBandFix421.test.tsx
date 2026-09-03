@@ -132,7 +132,7 @@ function project(over: Record<string, unknown>): Record<string, unknown> {
     id: 'x', address: 'addr', juris: 'Seattle', archived: false, notes: null,
     acq_lead: null, external_team: {}, builder_id: null, permit_order: [],
     entitlement_lead: null, design_manager: null, go_date: null, units: null,
-    zone: null, lot_width: null, lot_depth: null, unit_types: null,
+    zone: null, lot_width: null, lot_depth: null, lot_size_sf: null, unit_types: null,
     parking_type: null, parking_stalls: null, alley: null, product_types: [],
     project_tags: null, builder_name: null, builder_company: null,
     builder_email: null, builder_phone: null,

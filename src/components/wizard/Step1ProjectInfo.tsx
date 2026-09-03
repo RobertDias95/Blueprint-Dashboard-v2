@@ -982,6 +982,29 @@ export default function Step1ProjectInfo({
               data-testid="wizard-lot-depth"
             />
           </label>
+          {/* ★★★ fix-488 §A (P-142) — LOT SIZE, THE THIRD CELL.
+              The grid was already `md:grid-cols-4` with two children, so this
+              costs no layout change at all.
+
+              ★★ NOT REQUIRED, and blank is a real answer: most lots are
+              rectangles and W × D says everything. It is typed when the parcel
+              is irregular — Bobby's *"multi-angled parcels"* — which is also
+              when one of the two dimensions above is deliberately left empty. */}
+          <label className="flex flex-col gap-1">
+            <span className="text-[10px] uppercase tracking-wide text-dim">
+              Lot Size (sf)
+            </span>
+            <input
+              type="number"
+              step="1"
+              min={0}
+              value={numStr(value.lot_size_sf)}
+              onChange={(e) => set('lot_size_sf', e.target.value)}
+              placeholder="e.g. 7200"
+              className="bg-bg border border-border rounded-md px-3 py-1.5 text-xs font-mono text-text placeholder:text-dim focus:outline-none focus:border-de"
+              data-testid="wizard-lot-size"
+            />
+          </label>
           {/* ★★★ fix-402 — SITE PARKING LEFT THE WIZARD TOO.
               Bobby: *"Remove [parking] from the holistic site and merge that
               under the units for proposal."* The two site-level fields that

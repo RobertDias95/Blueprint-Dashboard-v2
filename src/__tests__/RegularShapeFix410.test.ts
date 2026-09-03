@@ -131,6 +131,7 @@ const proj = (over: Partial<Project>): Project =>
     zone: 'NR3',
     lot_width: 40,
     lot_depth: 100,
+    lot_size_sf: null,
     alley: 'No',
     product_types: [],
     project_tags: [],

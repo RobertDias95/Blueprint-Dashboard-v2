@@ -39,6 +39,7 @@ function row(over: Partial<LibraryRow> = {}): LibraryRow {
     zone: 'NR',
     lotWidth: 40,
     lotDepth: 100,
+    lotSizeSf: null,
     alley: 'Yes',
     tags: [],
     stage: 'de',

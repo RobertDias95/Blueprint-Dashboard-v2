@@ -121,6 +121,7 @@ function redesignState(over: Partial<WizardState> = {}): WizardState {
 
     lot_width: '40',
     lot_depth: '100',
+    lot_size_sf: '',
     project_tags: ['ECA'],
     redesign_of_project_id: 'parent-uuid',
     redesign_of_project_address: '10150 NE 64th St',

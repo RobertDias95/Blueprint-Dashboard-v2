@@ -3,7 +3,9 @@ import {
   holisticOwner,
 } from '../../lib/volumeAttribution';
 import { parseUnitTypes } from '../../lib/unitTypeNaming';
-import { formatLotPair } from '../../lib/lotDimensions';
+// ★ fix-488 §A: `formatLotPair` left this file with the both-or-neither
+//   reading — see `reuseContextLine`. It is UNCHANGED and still exported.
+import { lotSizeView } from '../../lib/lotDimensions';
 import { structAddressHaystack } from '../../lib/structAddressSearch';
 import type {
   PermitWithCycles,
@@ -23,6 +25,9 @@ export interface ReuseSource {
   zone: string | null;
   lot_width: number | null;
   lot_depth: number | null;
+  /** ★ fix-488 §A: carried so the context line can say "60 × varies" rather
+   *  than dropping the lot fragment entirely on an irregular parcel. */
+  lot_size_sf: number | null;
   product_types: string[];
   /** Canonicalized (parseUnitTypes) so copied rows are the shape both editors
    *  read + write — the fix-205/212 rules apply on display + save. */
@@ -52,6 +57,7 @@ export function buildReuseSources(
       zone: p.zone ?? null,
       lot_width: p.lot_width ?? null,
       lot_depth: p.lot_depth ?? null,
+      lot_size_sf: p.lot_size_sf ?? null,
       product_types: Array.isArray(p.product_types) ? p.product_types : [],
       unit_types: parseUnitTypes(p.unit_types),
       primaryDa: holisticOwner('da', p, permitsByProject.get(p.id) ?? []),
@@ -98,8 +104,18 @@ export function reuseContextLine(s: ReuseSource): string {
   // ★ fix-411 §2 (P-051): whole feet here too. This line is pure display — a
   //   one-glance summary of a candidate source project — so a surveyed
   //   "100.47×120.5 lot" is exactly the noise Bobby asked to be rid of.
-  const lot = formatLotPair(s.lot_width, s.lot_depth);
-  if (lot) parts.push(`${lot} lot`);
+  // ★★★ fix-488 §A — IT ASKS `lotSizeView`, SO AN IRREGULAR LOT STILL SHOWS.
+  //
+  // `formatLotPair` is both-or-neither: a parcel with a typed size and one
+  // blank dimension returned null, and the lot fragment VANISHED from this
+  // line entirely — the picker said nothing at all about exactly the lots that
+  // are most worth knowing about. Now it says "60 × varies lot".
+  //
+  // ★ `formatLotPair` itself is unchanged and still right for callers that
+  //   have no size to consult.
+  const view = lotSizeView(s.lot_width, s.lot_depth, s.lot_size_sf);
+  if (view.pairText) parts.push(`${view.pairText} lot`);
+  else if (view.sizeText) parts.push(`${view.sizeText} lot`);
   if (s.primaryDa) parts.push(`DA ${s.primaryDa}`);
   if (s.product_types.length > 0) parts.push(s.product_types.join(', '));
   return parts.join(' · ');

@@ -20,6 +20,7 @@ function project(over: Partial<Project>): Project {
     zone: 'LR2',
     lot_width: 20,
     lot_depth: 30,
+    lot_size_sf: null,
     product_types: ['SFR'],
     unit_types: null,
     ...over,
@@ -67,6 +68,7 @@ describe('buildReuseSources', () => {
         parking_kind: null,
         parking_stalls: null,
         roof_deck: null,
+        size_sf: null,
         // ★★★ fix-486 §D: `work_scope` IS NO LONGER EMITTED, and this exact-shape
         //   assertion is what proves it. The whitelist mechanism fix-412 noted
         //   here is unchanged and now cuts the other way: a key `parseUnitTypes`
@@ -81,11 +83,11 @@ describe('filterReuseSources', () => {
   const sources: ReuseSource[] = [
     {
       id: 'a', address: '500 Pike St', juris: 'Seattle', zone: 'LR2',
-      lot_width: 20, lot_depth: 30, product_types: ['SFR'], unit_types: [], primaryDa: 'Fisk',
+      lot_width: 20, lot_depth: 30, lot_size_sf: null, product_types: ['SFR'], unit_types: [], primaryDa: 'Fisk',
     },
     {
       id: 'b', address: '90 Bellevue Way', juris: 'Bellevue', zone: 'R-4',
-      lot_width: 40, lot_depth: 60, product_types: ['Cottages'], unit_types: [], primaryDa: 'Cam',
+      lot_width: 40, lot_depth: 60, lot_size_sf: null, product_types: ['Cottages'], unit_types: [], primaryDa: 'Cam',
     },
   ];
 
@@ -110,10 +112,14 @@ describe('filterReuseSources', () => {
 describe('reuseContextLine', () => {
   it('renders Library-style context', () => {
     const line = reuseContextLine({
-      id: 'a', address: 'x', juris: 'Seattle', zone: 'LR2', lot_width: 20, lot_depth: 30,
+      id: 'a', address: 'x', juris: 'Seattle', zone: 'LR2', lot_width: 20, lot_depth: 30, lot_size_sf: null,
       product_types: ['SFR'], unit_types: [], primaryDa: 'Fisk',
     });
-    expect(line).toBe('Seattle · LR2 · 20×30 lot · DA Fisk · SFR');
+    // ★ fix-488 §A: the pair is SPACED now — `reuseContextLine` asks
+    //   `lotSizeView` so it can say "20 × varies" on an irregular parcel,
+    //   where `formatLotPair` returned null and the lot fragment vanished
+    //   from this line entirely. `formatLotPair` itself is unchanged.
+    expect(line).toBe('Seattle · LR2 · 20 × 30 lot · DA Fisk · SFR');
   });
 });
 
@@ -165,6 +171,7 @@ describe('<ReuseSourcePicker />', () => {
         parking_kind: null,
         parking_stalls: null,
         roof_deck: null,
+        size_sf: null,
       },
     ]);
   });

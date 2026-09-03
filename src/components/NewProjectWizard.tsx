@@ -427,6 +427,12 @@ export default function NewProjectWizard({ open, onClose, initialState }: Props)
       //   "100." intact while the user is still typing it.
       lot_width: roundLotForStorage(numOrNull(state.lot_width)),
       lot_depth: roundLotForStorage(numOrNull(state.lot_depth)),
+      // ★ fix-488 §A: an integer parse, deliberately NOT `roundLotForStorage`
+      //   — square feet are not lot feet (lib/lotDimensions' header).
+      lot_size_sf: (() => {
+        const n = numOrNull(state.lot_size_sf);
+        return n != null && Number.isFinite(n) && n > 0 ? Math.round(n) : null;
+      })(),
       unit_types: state.unit_types.length > 0 ? state.unit_types : null,
       // ★ fix-402: site parking is gone — it lives on each unit now.
       alley: strOrNull(state.alley),

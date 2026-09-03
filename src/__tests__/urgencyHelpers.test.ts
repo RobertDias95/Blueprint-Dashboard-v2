@@ -55,6 +55,7 @@ function makePermit(p: Partial<Permit>): Permit {
     parking_stalls: null,
     lot_width: null,
     lot_depth: null,
+    lot_size_sf: null,
     alley: null,
     corr_rounds: null,
     permit_owner: null,

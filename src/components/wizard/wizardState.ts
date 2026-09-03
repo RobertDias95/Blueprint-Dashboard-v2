@@ -128,6 +128,8 @@ export interface WizardState {
   zone: string;
   lot_width: string;
   lot_depth: string;
+  /** ★ fix-488 §A: typed lot area in square feet. Blank is a real answer. */
+  lot_size_sf: string;
   unit_types: UnitType[];
 
   alley: string;
@@ -231,6 +233,7 @@ export function makeEmptyWizardState(): WizardState {
     zone: '',
     lot_width: '',
     lot_depth: '',
+    lot_size_sf: '',
     unit_types: [],
 
     alley: '',
@@ -286,6 +289,7 @@ export function makeRedesignWizardState(
     zone?: string | null;
     lot_width?: number | null;
     lot_depth?: number | null;
+    lot_size_sf?: number | null;
     num_lots?: number | null;
     is_corner_lot?: boolean | null;
     is_regular_shape?: boolean | null;
@@ -336,6 +340,14 @@ export function makeRedesignWizardState(
       parentProject.lot_width != null ? String(parentProject.lot_width) : '',
     lot_depth:
       parentProject.lot_depth != null ? String(parentProject.lot_depth) : '',
+    // ★★★ fix-488 §A: a redesign INHERITS the parent's lot size, like its two
+    //     dimensions above. It is the SAME PARCEL — that is what a redesign
+    //     is — so dropping it would make an irregular lot look regular on
+    //     every redesign of it, which is the state this field exists to keep.
+    lot_size_sf:
+      parentProject.lot_size_sf != null
+        ? String(parentProject.lot_size_sf)
+        : '',
     unit_types: Array.isArray(parentProject.unit_types)
       ? parentProject.unit_types
       : [],

@@ -194,6 +194,22 @@ export function parseUnitTypes(raw: unknown): UnitType[] {
           ? u.parking_stalls
           : null,
       roof_deck: typeof u.roof_deck === 'boolean' ? u.roof_deck : null,
+      // ★★★ fix-488 §B (P-150) — `size_sf`, THE UNIT'S TYPED FLOOR AREA.
+      //
+      // ★★★ THERE IS NO `width_ft * depth_ft` FALLBACK HERE AND THERE MUST NOT
+      //     BE ONE. That product is a FOOTPRINT (square feet of ground); this
+      //     is a FLOOR AREA across `stories`. A two-storey 20×40 unit covers
+      //     800 sf and has ~1,600 sf of floor, so a fallback would answer
+      //     "show me my 1,700 sf units" with the wrong rows and no way to tell.
+      //     Bobby ruled it out in the sentence that asked for the field:
+      //     *"It won't be W×D = unit size, but something we actually type in."*
+      //
+      // ★ `> 0`, like `qty` and `stories` and unlike `parking_stalls`: a
+      //   zero-square-foot unit is not a recorded zero, it is a typo.
+      size_sf:
+        typeof u.size_sf === 'number' && Number.isFinite(u.size_sf) && u.size_sf > 0
+          ? u.size_sf
+          : null,
       // ★★★ fix-486 §D — `work_scope` IS NO LONGER NAMED HERE, AND THAT IS
       //     WHAT DELETES IT FROM EVERY ROW.
       //

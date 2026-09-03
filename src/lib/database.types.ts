@@ -82,6 +82,29 @@ export interface UnitType {
    *  ★ Hand-typed, like the rest of this file. Optional for the same reason
    *  `parking_kind` is: 230 of 234 units predate that key too, and a required
    *  field would make every stored unit object invalid. */
+  /** ★★★ fix-488 §B (P-150): the unit's floor area in whole square feet, TYPED.
+   *
+   *  Bobby, 2026-09-03: *"how we have lot size, we also want unit size too. It
+   *  won't be W×D = unit size, but something we actually type in. That way we
+   *  can search for units that fit that criteria — show me all my 1,700 sqft
+   *  units with a garage."*
+   *
+   *  ★★★ NEVER COMPUTED FROM `width_ft × depth_ft`, AND THE REASON IS IN THE
+   *  UNITS: that product is a FOOTPRINT in square feet of ground, while this is
+   *  a FLOOR AREA across `stories`. A two-storey 20×40 unit covers 800 sf of
+   *  lot and has ~1,600 sf of floor. A fallback would put the wrong number in
+   *  front of somebody searching for 1,700 sf units, and they would have no way
+   *  to tell. Bobby ruled it out in the same sentence he asked for the field.
+   *
+   *  ★★ NULL = NOT RECORDED, never 0 — fix-386's rule, and it matters here
+   *  because the Library filter has to leave unmeasured units findable rather
+   *  than silently scoring them as zero-square-foot.
+   *
+   *  ★ Same jsonb array, no migration — `stories` (fix-205) and the three
+   *  parking fields (fix-402) joined this way too. `parseUnitTypes` is the only
+   *  gate, and it is a WHITELIST: a key it does not name is DELETED from the
+   *  row on the next edit. */
+  size_sf?: number | null;
 }
 
 export interface Project {
@@ -160,6 +183,27 @@ export interface Project {
   zone?: string | null;
   lot_width?: number | null;
   lot_depth?: number | null;
+  /** ★★★ fix-488 §A (P-142): the lot AREA in whole square feet, TYPED.
+   *
+   *  Bobby, 2026-09-02: *"if I put width 100 and lot size 10,000 and leave
+   *  depth blank, that's because the depth is irregular… instead of Target it
+   *  would say Varies."*
+   *
+   *  ★★ NEVER DERIVED AND NEVER WRITTEN. The app DISPLAYS `width × depth` where
+   *  both exist, but stores nothing: a derived rectangle and a surveyed area
+   *  would be the same bytes, and telling them apart is the whole feature.
+   *  `lotSizeView` (lib/lotDimensions) is the one rule, and its `sizeDerived`
+   *  flag is how a surface knows which it is looking at.
+   *
+   *  ★ INTEGER, unlike `lot_width`/`lot_depth`, which are numeric because they
+   *  are surveyed values with real halves (fix-411 measured 14 fractional
+   *  widths, 23 fractional depths). An area is read off documents as a whole
+   *  number of square feet.
+   *
+   *  ★★★ AND IT MUST BE NAMED IN `useProjects`' EXPLICIT SELECT LIST or it
+   *  arrives `undefined` on every read surface for ever — the fix-122 /
+   *  fix-386 / fix-410 / fix-487 trap, fifth time. */
+  lot_size_sf?: number | null;
   unit_types?: UnitType[] | null;
   /** @deprecated ★★★ fix-402 — SITE-LEVEL PARKING IS ARCHIVED AND CLEARED.
    *

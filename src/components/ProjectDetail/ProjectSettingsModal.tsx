@@ -101,6 +101,9 @@ interface ProjectScalarFields {
   zone: string;
   lot_width: string;
   lot_depth: string;
+  /** ★ fix-488 §A: the TYPED lot area in square feet. Blank is a real answer —
+   *  the Site card shows `width × depth` in its place and stores nothing. */
+  lot_size_sf: string;
 
   alley: string;
   /** fix-91: was a single text column, now an array (multi-select). */
@@ -200,6 +203,8 @@ function initForm(
       zone: project.zone ?? '',
       lot_width: project.lot_width != null ? String(project.lot_width) : '',
       lot_depth: project.lot_depth != null ? String(project.lot_depth) : '',
+      lot_size_sf:
+        project.lot_size_sf != null ? String(project.lot_size_sf) : '',
 
       alley: project.alley ?? '',
       product_types: Array.isArray(project.product_types)
@@ -427,6 +432,18 @@ export default function ProjectSettingsModal({
         //   commit, so the submit IS the commit.
         lot_width: roundLotForStorage(toNumOrNull(form.projectFields.lot_width)),
         lot_depth: roundLotForStorage(toNumOrNull(form.projectFields.lot_depth)),
+        // ★★★ fix-488 §A: NOT `roundLotForStorage` — that helper is named for
+        //     the lot DIMENSION on purpose (lib/lotDimensions' header), and
+        //     square feet are a different quantity. Same arithmetic, stated
+        //     separately, so a call site rounding the wrong thing reads wrong.
+        //
+        // ★★ And like `construction_admin` above, this key reaches the database
+        //    only because `bp_update_project_with_permits` whitelists it — the
+        //    client patch is untyped and the RPC's SET list is the real gate.
+        lot_size_sf: (() => {
+          const n = toNumOrNull(form.projectFields.lot_size_sf);
+          return n != null && Number.isFinite(n) && n > 0 ? Math.round(n) : null;
+        })(),
 
         alley: form.projectFields.alley || null,
         product_types: form.projectFields.product_types,
@@ -724,6 +741,28 @@ export default function ProjectSettingsModal({
                   data-testid="psm-lotd"
                 />
               </div>
+            </Field>
+            {/* ★★★ fix-488 §A (P-142) — LOT SIZE, ITS OWN FIELD.
+                Bobby: *"if I put width 100 and lot size 10,000 and leave depth
+                blank, that's because the depth is irregular."* Leaving a
+                dimension blank here is how that is recorded, and the Site card
+                then reads "100 × varies".
+
+                ★ Its own `<Field>` rather than a third box inside the pair
+                  above: the pair is one measurement (W × D) and this is a
+                  second, independent one. */}
+            <Field label="Lot Size (sf)">
+              <input
+                type="number"
+                min={0}
+                step={1}
+                value={form.projectFields.lot_size_sf}
+                onChange={(e) => setProj('lot_size_sf', e.target.value)}
+                className={inputCls}
+                style={{ ...inputStyle, width: 100 }}
+                placeholder="e.g. 7200"
+                data-testid="psm-lotsize"
+              />
             </Field>
             {/* ★★ fix-402: the two site-level parking fields are gone —
                 parking is a per-UNIT property now (Unit Dimensions on Project

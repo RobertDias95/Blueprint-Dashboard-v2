@@ -150,6 +150,7 @@ const fixtures = vi.hoisted(() => ({
       zone: 'NR',
       lot_width: 40,
       lot_depth: 100,
+      lot_size_sf: null,
       alley: 'Yes',
       product_types: ['SFR'],
       project_tags: ['ECA'],
@@ -620,7 +621,8 @@ describe('fix-406 §4: the Lots column and its sort are gone', () => {
     const headers = screen
       .getByTestId('library-table')
       .querySelectorAll('thead th');
-    expect(headers.length).toBe(10);
+    // ★ fix-488 §A: 11 — the Lot SF column joined the header.
+    expect(headers.length).toBe(11);
   });
 
   it('★★ fix-447: the UNIT table\'s header count and its colSpan agree too', () => {
@@ -633,7 +635,8 @@ describe('fix-406 §4: the Lots column and its sort are gone', () => {
     const headers = screen
       .getByTestId('library-table-unit')
       .querySelectorAll('thead th');
-    expect(headers.length).toBe(11);
+    // ★ fix-488 §B: 12 — the Size (sf) column joined the unit header.
+    expect(headers.length).toBe(12);
   });
 });
 
@@ -655,6 +658,7 @@ describe('fix-406 §5: an unrecognised sort column falls back cleanly', () => {
     zone: '',
     lotWidth: 0,
     lotDepth: 0,
+    lotSizeSf: null,
     alley: '',
     tags: [],
     stage: 'de' as const,
@@ -755,10 +759,14 @@ describe('fix-406 §5: an unrecognised sort column falls back cleanly', () => {
       lotwBuf: 2,
       lotdTarget: null,
       lotdBuf: 2,
+      lotsizeTarget: null,
+      lotsizeBuf: 500,
       unitwTarget: null,
       unitwBuf: 2,
       unitdTarget: null,
       unitdBuf: 2,
+      unitsizeTarget: null,
+      unitsizeBuf: 100,
       zone: '',
       alley: '',
       productTypes: [],

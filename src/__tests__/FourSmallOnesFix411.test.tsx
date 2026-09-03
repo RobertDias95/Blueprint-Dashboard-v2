@@ -231,6 +231,7 @@ const lotRow = (id: string, w: number, d: number): LibraryRow =>
     zone: '',
     lotWidth: w,
     lotDepth: d,
+    lotSizeSf: null,
     alley: '',
     tags: [],
     stage: 'de',
@@ -265,8 +266,21 @@ describe('fix-411 §2: sorting still uses the UNROUNDED value', () => {
 });
 
 describe('fix-411 §2: every render site, and the ones deliberately untouched', () => {
-  it('★★★ the Library LOT W×D cell uses the shared helper', () => {
-    expect(matrixSource).toContain('formatLotPair(row.lotWidth, row.lotDepth)');
+  it('★★★ the Library LOT W×D cell uses A shared helper — now `lotSizeView`', () => {
+    // ★★★ fix-488 §A MOVED THE CELL, NOT THE RULE. fix-411's ruling was "one
+    //     formatter, no local one that can drift back to decimals", and that is
+    //     asserted by the NEXT test, unchanged. What changed is WHICH shared
+    //     helper: the cell has to be able to say "60 × varies" when a size was
+    //     typed and a dimension was not, and `formatLotPair` is both-or-neither
+    //     by design. `lotSizeView` renders its dimensions through
+    //     `formatLotFeet`, so fix-411's whole-feet rule still owns the numbers.
+    expect(matrixSource).toContain('lotSizeView(');
+    expect(matrixSource).toContain('row.lotSizeSf');
+    // ★ …and no second, local formatter came back with the new cell. Asserted
+    //   against the COMMENT-STRIPPED source, because fix-406's note in this
+    //   file quotes the deleted `n.toFixed(2)` it replaced — the trap this
+    //   repo has now met eight times.
+    expect(stripComments(matrixSource)).not.toContain('toFixed(');
   });
 
   it('★★★ the local fmtDim is DELETED, not repointed', () => {
@@ -286,10 +300,16 @@ describe('fix-411 §2: every render site, and the ones deliberately untouched', 
         zone: 'LR2',
         lot_width: 100.47,
         lot_depth: 120.5,
+        lot_size_sf: null,
         primaryDa: null,
         product_types: [],
       } as never),
-    ).toContain('100×121 lot');
+    // ★ fix-488 §A: `100 × 121`, spaced. `lotSizeView`'s pair is spaced
+    //   because it has to read beside the word "varies" (and the v10 mock
+    //   spaces it); `formatLotPair` is unchanged and still tight for its own
+    //   callers. The ROUNDING — 100.47 → 100, 120.5 → 121 — is fix-411's and
+    //   is what this test is actually about.
+    ).toContain('100 × 121 lot');
   });
 
   it('★★★ the EDITABLE inputs are NOT rounded — they would write it back', () => {

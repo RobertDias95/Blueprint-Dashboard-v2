@@ -109,6 +109,7 @@ describe('parseUnitTypes', () => {
         parking_kind: null,
         parking_stalls: null,
         roof_deck: null,
+        size_sf: null,
         // ★★★ fix-486 §D: `work_scope` IS NO LONGER EMITTED, and this exact-shape
         //   assertion is what proves it. The whitelist mechanism fix-412 noted
         //   here is unchanged and now cuts the other way: a key `parseUnitTypes`
@@ -135,6 +136,7 @@ describe('parseUnitTypes', () => {
         parking_kind: null,
         parking_stalls: null,
         roof_deck: null,
+        size_sf: null,
       },
     ]);
   });

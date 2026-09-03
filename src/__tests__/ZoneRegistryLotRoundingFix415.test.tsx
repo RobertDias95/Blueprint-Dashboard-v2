@@ -253,8 +253,8 @@ describe('fix-415 §B: the rounding rule', () => {
 
 const BASE: LibraryFilters = {
   view: 'site' as const,
-  lotwTarget: null, lotwBuf: 2, lotdTarget: null, lotdBuf: 2,
-  unitwTarget: null, unitwBuf: 2, unitdTarget: null, unitdBuf: 2,
+  lotwTarget: null, lotwBuf: 2, lotdTarget: null, lotdBuf: 2, lotsizeTarget: null, lotsizeBuf: 500,
+  unitwTarget: null, unitwBuf: 2, unitdTarget: null, unitdBuf: 2, unitsizeTarget: null, unitsizeBuf: 100,
   zone: '', alley: '', productTypes: [], juris: '',
   isCornerLot: '', stories: '',
   parkingKind: '', stalls: '', roofDeck: '',
@@ -263,7 +263,7 @@ const BASE: LibraryFilters = {
 const row = (id: string, zone: string): LibraryRow =>
   ({
     projectId: id, address: id, juris: '', productTypes: [], units: 0,
-    zone, lotWidth: 40, lotDepth: 100, alley: '', tags: [], stage: 'de',
+    zone, lotWidth: 40, lotDepth: 100, lotSizeSf: null, alley: '', tags: [], stage: 'de',
     unitTypes: [], numLots: null, isCornerLot: null, isRegularShape: null,
     updatedAt: null,
   }) as LibraryRow;
@@ -378,7 +378,7 @@ function setupSite(over: Record<string, unknown> = {}) {
     id: 'p-test', address: '500 Pike St', juris: 'Seattle', archived: false,
     notes: null, acq_lead: null, external_team: {}, builder_id: null,
     permit_order: [], entitlement_lead: null, design_manager: null,
-    go_date: null, units: 4, zone: 'NR', lot_width: null, lot_depth: null,
+    go_date: null, units: 4, zone: 'NR', lot_width: null, lot_depth: null, lot_size_sf: null,
     unit_types: null, alley: null, product_types: [], project_tags: null,
     created_at: TOKEN, updated_at: TOKEN, ...over,
   } as unknown as Parameters<typeof ProjectDetailHeader>[0]['project'];

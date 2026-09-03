@@ -162,6 +162,7 @@ function makeProject(over: Partial<Project> = {}): Project {
     zone: null,
     lot_width: null,
     lot_depth: null,
+    lot_size_sf: null,
     unit_types: TWO_UNITS,
     alley: null,
     product_types: ['Remodel', 'Attached', 'Detached'],
