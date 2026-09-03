@@ -28,10 +28,18 @@ export function isParkingKind(v: unknown): v is ParkingKind {
   return typeof v === 'string' && (PARKING_KINDS as readonly string[]).includes(v);
 }
 
-/** ★ fix-412: re-exported here so `UnitType` can name it without importing
- *  from a module that imports this one. The vocabulary, the labels and the
- *  filter predicate all live in lib/unitWorkScope — this is the type alone. */
-export type WorkScope = 'none' | 'performed';
+// ★★★ fix-486 §D (P-143) — `WorkScope` IS RETIRED, AND THE TYPE IS WHY.
+//
+// Bobby, 2026-09-03: **one way to say remodel — the type.** fix-412 added a
+// per-unit three-state `work_scope` ("was work performed on this Remodel
+// unit?") on top of a `Remodel` label that already said it. Two fields for one
+// fact is how the two start disagreeing, and this one never got the chance:
+// measured on prod 2026-09-03, **245 unit rows, 95 carrying the key, ZERO
+// non-null**. Nobody ever answered it, once, in the six weeks it shipped.
+//
+// ★ The migration asserts that zero BEFORE stripping the key, so the strip
+//   cannot silently discard an answer somebody gave between the measurement and
+//   the run.
 
 export interface UnitType {
   label: string;
@@ -74,7 +82,6 @@ export interface UnitType {
    *  ★ Hand-typed, like the rest of this file. Optional for the same reason
    *  `parking_kind` is: 230 of 234 units predate that key too, and a required
    *  field would make every stored unit object invalid. */
-  work_scope?: WorkScope | null;
 }
 
 export interface Project {

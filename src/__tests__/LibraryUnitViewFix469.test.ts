@@ -79,7 +79,6 @@ function unit(over: Partial<UnitType> = {}): UnitType {
     parking_kind: null,
     parking_stalls: null,
     roof_deck: null,
-    work_scope: null,
     ...over,
   } as unknown as UnitType;
 }

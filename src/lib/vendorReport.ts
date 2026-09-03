@@ -136,9 +136,13 @@ export interface VendorScheduleRow extends VendorScheduleFacts {
  *  list of types is one fact with several values.
  *
  *  ★ Kept SHORT deliberately — "this is a planning list, not a spec sheet". The
- *  types are stored the way they are shown ("SFR", "ADU", "DADU"), so there is
+ *  types are stored the way they are shown (Detached, ADU, DADU), so there is
  *  no expansion to do and nothing to truncate: the widest real row on prod is
- *  three of them ("SFR, ADU, DADU"). */
+ *  three of them.
+ *
+ *  ★ fix-486 (P-143) re-worded the example onto the five-type vocabulary. This
+ *  function is agnostic — it joins whatever strings it is given — so the remap
+ *  changed nothing about it but the words in this note. */
 export function formatProductTypes(types: ReadonlyArray<string>): string {
   return types.map((t) => t.trim()).filter(Boolean).join(', ');
 }

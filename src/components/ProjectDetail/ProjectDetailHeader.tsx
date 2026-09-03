@@ -18,12 +18,9 @@ import {
 import {
   UNIT_MATRIX_GRID,
   UNIT_ROW_COLUMNS,
-  WORK_SCOPE_LABEL,
-  WORK_SCOPE_TOOLTIP,
   unitFieldTooltip,
   type UnitRowColumn,
 } from '../../lib/unitRowLayout';
-import { isNoWorkUnit } from '../../lib/unitWorkScope';
 import ZoneSelect from '../shared/ZoneSelect';
 import { roundLotForStorage } from '../../lib/lotDimensions';
 import { VENDOR_SEND_LEAD_DAYS, vendorTargetSend } from '../../lib/vendorReport';
@@ -36,10 +33,10 @@ import type {
 import {
   ParkingKindSelect,
   RoofDeckSelect,
-  WorkScopeSelect,
   StallsInput,
 } from '../shared/UnitParkingInputs';
 import { parseStalls, NOT_RECORDED } from '../../lib/unitParking';
+import { unitLabelNeedsType } from '../../lib/unitTypeVocabulary';
 import { useUpdateProject } from '../../hooks/useUpdateProject';
 import { useViewportAwarePopover } from '../../hooks/useViewportAwarePopover';
 import {
@@ -2779,8 +2776,12 @@ function UnitDimensionsExpanded({
 }) {
   // ★★ fix-449 §C: the CANONICAL product-type registry, read ONCE here rather
   //    than per row. "Off list" has to mean "the app offers this nowhere" — a
-  //    project whose own product_types are ['SFR'] would otherwise mark a unit
-  //    labelled "Duplex" as off-list, and Duplex is a perfectly real type.
+  //    project whose own product_types are [Detached] would otherwise mark a
+  //    unit labelled Attached as off-list, and Attached is a real type.
+  //
+  // ★ fix-486 (P-143) re-worded this with the new vocabulary rather than
+  //   leaving the old one in the explanation. The example IS the rule here, so
+  //   an example in a vocabulary the app no longer offers reads as a live case.
   const registryTypes = productTypeRegistry(useAppConfig().map);
 
   // ★★★ fix-422 SCOPE 2 — A MATRIX: ONE HEADER ROW, ONE ROW PER UNIT TYPE.
@@ -2930,105 +2931,121 @@ function UnitRow({
   const hasProductTypes = productTypes.length >= 1;
   const selectValue = resolveUnitLabel(label, productTypes);
   const offListLabel = isOffListUnitLabel(selectValue, registryTypes);
-  // ★★★ fix-412 SCOPE B5 — a confirmed No-work unit hides its drawn detail.
-  //     DISABLED, not cleared: `onChange` is never called, so whatever is
-  //     stored stays stored and comes back the moment the answer changes.
-  const noWork = isNoWorkUnit(row);
-  const off = disabled || noWork;
-  // ★★★ fix-418 SCOPE B, KEPT EXACTLY — WORK BELONGS TO A REMODEL.
+  // ★★★ fix-486 §C (P-143) — "NEEDS A TYPE" IS NOT THE SAME AS "OFF-LIST".
   //
-  // Bobby, 2026-08-26: *"that should only populate if and when the remodel
-  // label is deployed."* P-050 specified `work_scope` as a property of a
-  // Remodel; a Duplex has no meaningful answer, and a greyed control still says
-  // "there is a question here you have not answered". ABSENT, not disabled.
+  // Eleven prod rows carry the wizard's seed letters (`Type A`…`Type D`) — the
+  // intake habit is to add rows first and name them later, so those labels were
+  // never a type, they are a question nobody answered. The remap deliberately
+  // left them (a rule that guessed would have declared eleven unanswered rows
+  // answered), and this is how the row says so.
   //
-  // ★★★ AND THE STORED VALUE IS STILL NEVER TOUCHED. Nothing here writes
-  // `work_scope` when the label changes — `onUpdate` spreads the existing unit
-  // and `parseUnitTypes` still names the key — so a unit relabelled away from
-  // Remodel keeps its answer and relabelling back shows it again.
-  const isRemodel = label === 'Remodel';
+  // ★★ THE TWO MARKS ARE DIFFERENT STATES AND MUST STAY DIFFERENT. An off-list
+  //    label is a word somebody CHOSE; telling that person they had failed to
+  //    answer would be wrong, and telling somebody staring at `Type C` that
+  //    their deliberate choice is merely "not in the list" is wrong the other
+  //    way. Same slot, same size, different word.
+  const needsType = unitLabelNeedsType(selectValue);
+  // ★★★ fix-486 §D (P-143) — THREE THINGS LEFT THIS ROW WITH `work_scope`.
+  //
+  //   fix-412 §B5  a confirmed No-work unit greyed out its drawn detail
+  //   fix-418 §B   the control appeared only on a `Remodel` label
+  //   fix-422 §7   it rendered as a chip under the row, not a matrix cell
+  //
+  // ★★★ ALL THREE WERE ABOUT A QUESTION THE TYPE NOW ANSWERS. Bobby,
+  //     2026-09-03: *one way to say remodel — the type.* fix-418's own gate is
+  //     the tell: the control only ever showed on a row already LABELLED
+  //     Remodel, which is to say it asked whether a remodel was a remodel.
+  //
+  // ★★ AND NOTHING WAS LOST. Measured on prod 2026-09-03: 245 unit rows, 95
+  //    carrying the key at all, **zero non-null**. The suppression fix-412 §B5
+  //    built therefore never suppressed anything — it fires on
+  //    `work_scope === 'none'`, and no row has ever held it.
+  const off = disabled;
 
-  // ★★★ fix-422 SCOPE 7 — WORK IS A CHIP UNDER THE ROW, NOT A MATRIX COLUMN.
+  // ★★★ fix-486 §D — THE `pd-unit-row-group` WRAPPER GOES WITH THE CHIP.
   //
-  // ★★ IT HAS THREE STATES AND THE THIRD IS "NOT YET ANSWERED". Every other
-  // matrix cell answers with one glyph; `work_scope` cannot, because any letter
-  // in a one-glyph box reads as an answer and the whole point of the third
-  // state is that nobody has given one. `—` would collide with the "not
-  // recorded" glyph the other columns already use for NULL, which is the same
-  // conflation fix-402 exists to prevent.
-  //
-  // ★ So it keeps its words, under the row it belongs to, indented to the
-  //   matrix's Type column so it reads as that row's footnote rather than a
-  //   free-floating control.
+  // fix-422 Scope 7 added it so the Work chip could sit UNDER its own row and
+  // still be associated with it. There is no chip, so the wrapper wrapped one
+  // element — and fix-418's lesson is that a pass-through div is not free: a
+  // wrapper between a flex parent and its children swallows the height
+  // distribution the parent is trying to do. The row is the units band's own
+  // child again, exactly as it was before Scope 7.
   return (
-    <div data-testid="pd-unit-row-group">
-      <div
-        className="grid items-center"
-        style={{ gridTemplateColumns: UNIT_MATRIX_GRID }}
-        data-testid="pd-unit-row"
-        data-no-work={noWork ? 'true' : 'false'}
-        data-remodel={isRemodel ? 'true' : 'false'}
-      >
-        {/* Type */}
-        {hasProductTypes ? (
-          <select
-            value={selectValue}
-            onChange={(e) => {
-              const v = e.target.value;
-              // ★★★ fix-449 §C1: an off-list label is a DELIBERATE act.
-              if (v === OTHER_UNIT_LABEL) {
-                const typed = window.prompt('Unit type label', label);
-                if (typed === null) return;
-                const next = typed.trim();
-                dirtyRef.current = true;
-                setLabel(next);
-                onChange('label', next);
-                dirtyRef.current = false;
-                return;
-              }
+    <div
+      className="grid items-center"
+      style={{ gridTemplateColumns: UNIT_MATRIX_GRID }}
+      data-testid="pd-unit-row"
+    >
+      {/* Type */}
+      {hasProductTypes ? (
+        <select
+          value={selectValue}
+          onChange={(e) => {
+            const v = e.target.value;
+            // ★★★ fix-449 §C1: an off-list label is a DELIBERATE act.
+            if (v === OTHER_UNIT_LABEL) {
+              const typed = window.prompt('Unit type label', label);
+              if (typed === null) return;
+              const next = typed.trim();
               dirtyRef.current = true;
-              setLabel(v);
-              onChange('label', v);
+              setLabel(next);
+              onChange('label', next);
               dirtyRef.current = false;
-            }}
-            disabled={disabled}
-            // ★ SCOPE 8: a label longer than the column truncates, and the FULL
-            //   text is on hover. 9 of 235 prod rows are off-registry free text
-            //   — "SFR w/ Accessory Units" is 22 characters — and sizing the
-            //   column for those nine would tax every other project.
-            title={label || undefined}
-            className={`${cellClass} text-left px-0.5 truncate`}
-            data-testid="pd-unit-label-select"
-          >
-            <option value="">Pick type…</option>
-            {/* ★★★ fix-449 §C1: the stored value is IN the list when it is
-                off-list, so this control shows what it holds rather than
-                blanking it or substituting the project's lone type. */}
-            {unitLabelOptions(productTypes, selectValue).map((t) => (
-              <option key={t} value={t}>
-                {t}
-              </option>
-            ))}
-            <option value={OTHER_UNIT_LABEL}>Other…</option>
-          </select>
-        ) : (
-          <span
-            className={`${cellClass} text-left px-0.5 truncate leading-[16px] ${label ? '' : 'text-dim'}`}
-            title={
-              label
-                ? `${label} — add a product type to change`
-                : 'Add a product type to label units'
+              return;
             }
-            data-testid="pd-unit-label-readonly"
+            dirtyRef.current = true;
+            setLabel(v);
+            onChange('label', v);
+            dirtyRef.current = false;
+          }}
+          disabled={disabled}
+          // ★ SCOPE 8: a label longer than the column truncates, and the FULL
+          //   text is on hover. 9 of 235 prod rows are off-registry free text
+          //   — "SFR w/ Accessory Units" is 22 characters — and sizing the
+          //   column for those nine would tax every other project.
+          title={label || undefined}
+          className={`${cellClass} text-left px-0.5 truncate`}
+          data-testid="pd-unit-label-select"
+        >
+          <option value="">Pick type…</option>
+          {/* ★★★ fix-449 §C1: the stored value is IN the list when it is
+              off-list, so this control shows what it holds rather than
+              blanking it or substituting the project's lone type. */}
+          {unitLabelOptions(productTypes, selectValue).map((t) => (
+            <option key={t} value={t}>
+              {t}
+            </option>
+          ))}
+          <option value={OTHER_UNIT_LABEL}>Other…</option>
+        </select>
+      ) : (
+        <span
+          className={`${cellClass} text-left px-0.5 truncate leading-[16px] ${label ? '' : 'text-dim'}`}
+          title={
+            label
+              ? `${label} — add a product type to change`
+              : 'Add a product type to label units'
+          }
+          data-testid="pd-unit-label-readonly"
+        >
+          {label || NOT_RECORDED}
+        </span>
+      )}
+      {/* ★★ fix-449 §C3: the mark rides in the SPACER that already sits
+          between Type and W — so it costs the matrix no width at all. The
+          column keeps fix-422's measured size. */}
+      <span aria-hidden={offListLabel || needsType ? undefined : 'true'}>
+        {needsType ? (
+          <span
+            className="text-[8px] px-1 rounded font-bold uppercase"
+            style={{ background: 'var(--color-co-bg)', color: 'var(--color-co)' }}
+            title="Needs a type — this is the wizard's placeholder, not a unit type. Pick one from the list."
+            data-testid="pd-unit-label-needs-type"
           >
-            {label || NOT_RECORDED}
+            ?
           </span>
-        )}
-        {/* ★★ fix-449 §C3: the mark rides in the SPACER that already sits
-            between Type and W — so it costs the matrix no width at all. The
-            column keeps fix-422's measured size. */}
-        <span aria-hidden={offListLabel ? undefined : 'true'}>
-          {offListLabel && (
+        ) : (
+          offListLabel && (
             <span
               className="text-[8px] px-1 rounded font-bold uppercase"
               style={{ background: 'var(--color-s2)', color: 'var(--color-muted)' }}
@@ -3037,158 +3054,139 @@ function UnitRow({
             >
               !
             </span>
-          )}
-        </span>
-        {/* W */}
-        <input
-          type="number"
-          min={0}
-          step="0.5"
-          value={w}
-          placeholder={NOT_RECORDED}
-          onChange={(e) => {
-            dirtyRef.current = true;
-            setW(e.target.value);
-          }}
-          onBlur={() => {
-            onChange('width_ft', w === '' ? null : Number(w) || 0);
-            dirtyRef.current = false;
-          }}
-          disabled={off}
-          className={cellClass}
-          aria-label={unitFieldTooltip('width_ft')}
-          data-testid="pd-unit-w"
-        />
-        {/* ★ SCOPE 3: the tighter W–D gap. No `×`, so the pair has to group by
-            proximity instead. */}
-        <span aria-hidden="true" />
-        {/* D */}
-        <input
-          type="number"
-          min={0}
-          step="0.5"
-          value={d}
-          placeholder={NOT_RECORDED}
-          onChange={(e) => {
-            dirtyRef.current = true;
-            setD(e.target.value);
-          }}
-          onBlur={() => {
-            onChange('depth_ft', d === '' ? null : Number(d) || 0);
-            dirtyRef.current = false;
-          }}
-          disabled={off}
-          className={cellClass}
-          aria-label={unitFieldTooltip('depth_ft')}
-          data-testid="pd-unit-d"
-        />
-        <span aria-hidden="true" />
-        {/* Qty */}
-        <input
-          type="number"
-          min={1}
-          value={qty}
-          placeholder={NOT_RECORDED}
-          onChange={(e) => {
-            dirtyRef.current = true;
-            setQty(e.target.value);
-          }}
-          onBlur={() => {
-            onChange('qty', Number(qty) || 1);
-            dirtyRef.current = false;
-          }}
-          disabled={off}
-          className={cellClass}
-          aria-label={unitFieldTooltip('qty')}
-          data-testid="pd-unit-qty"
-        />
-        <span aria-hidden="true" />
-        {/* Sty */}
-        <input
-          type="number"
-          min={1}
-          value={stories}
-          placeholder={NOT_RECORDED}
-          onChange={(e) => {
-            dirtyRef.current = true;
-            setStories(e.target.value);
-          }}
-          onBlur={() => {
-            const n =
-              stories === '' ? null : Math.max(1, Number(stories) || 0) || null;
-            onChange('stories', n);
-            dirtyRef.current = false;
-          }}
-          disabled={off}
-          className={cellClass}
-          aria-label={unitFieldTooltip('stories')}
-          data-testid="pd-unit-stories"
-        />
-        <span aria-hidden="true" />
-        {/* P — the cell is a letter, the menu is words. */}
-        <ParkingKindSelect
-          value={row.parking_kind}
-          disabled={off}
-          onChange={(v) => onChange('parking_kind', v)}
-          testid="pd-unit-parking-kind"
-          code
-        />
-        <span aria-hidden="true" />
-        {/* # */}
-        <StallsInput
-          value={stalls}
-          disabled={off}
-          compact
-          onChange={(raw) => {
-            dirtyRef.current = true;
-            setStalls(raw);
-          }}
-          onBlur={() => {
-            onChange('parking_stalls', parseStalls(stalls));
-            dirtyRef.current = false;
-          }}
-          testid="pd-unit-stalls"
-        />
-        <span aria-hidden="true" />
-        {/* RD */}
-        <RoofDeckSelect
-          value={row.roof_deck}
-          disabled={off}
-          onChange={(v) => onChange('roof_deck', v)}
-          testid="pd-unit-roof-deck"
-          code
-        />
-        <span aria-hidden="true" />
-        <button
-          type="button"
-          onClick={onRemove}
-          disabled={disabled}
-          className="bg-transparent border-0 text-dim cursor-pointer text-[12px] leading-none p-0 disabled:opacity-50"
-          title="Remove type"
-          data-testid="pd-unit-remove"
-        >
-          ×
-        </button>
-      </div>
-      {isRemodel && (
-        <div
-          className="flex items-center gap-1 mt-0.5 mb-0.5"
-          data-testid="pd-unit-work-chip"
-        >
-          <span
-            className="text-[8px] font-extrabold uppercase tracking-wide text-dim cursor-help"
-            title={WORK_SCOPE_TOOLTIP}
-          >
-            {WORK_SCOPE_LABEL}
-          </span>
-          <WorkScopeSelect
-            value={row.work_scope}
-            disabled={disabled}
-            onChange={(v) => onChange('work_scope', v)}
-            testid="pd-unit-work-scope"
-          />
-        </div>
-      )}
+          )
+        )}
+      </span>
+      {/* W */}
+      <input
+        type="number"
+        min={0}
+        step="0.5"
+        value={w}
+        placeholder={NOT_RECORDED}
+        onChange={(e) => {
+          dirtyRef.current = true;
+          setW(e.target.value);
+        }}
+        onBlur={() => {
+          onChange('width_ft', w === '' ? null : Number(w) || 0);
+          dirtyRef.current = false;
+        }}
+        disabled={off}
+        className={cellClass}
+        aria-label={unitFieldTooltip('width_ft')}
+        data-testid="pd-unit-w"
+      />
+      {/* ★ SCOPE 3: the tighter W–D gap. No `×`, so the pair has to group by
+          proximity instead. */}
+      <span aria-hidden="true" />
+      {/* D */}
+      <input
+        type="number"
+        min={0}
+        step="0.5"
+        value={d}
+        placeholder={NOT_RECORDED}
+        onChange={(e) => {
+          dirtyRef.current = true;
+          setD(e.target.value);
+        }}
+        onBlur={() => {
+          onChange('depth_ft', d === '' ? null : Number(d) || 0);
+          dirtyRef.current = false;
+        }}
+        disabled={off}
+        className={cellClass}
+        aria-label={unitFieldTooltip('depth_ft')}
+        data-testid="pd-unit-d"
+      />
+      <span aria-hidden="true" />
+      {/* Qty */}
+      <input
+        type="number"
+        min={1}
+        value={qty}
+        placeholder={NOT_RECORDED}
+        onChange={(e) => {
+          dirtyRef.current = true;
+          setQty(e.target.value);
+        }}
+        onBlur={() => {
+          onChange('qty', Number(qty) || 1);
+          dirtyRef.current = false;
+        }}
+        disabled={off}
+        className={cellClass}
+        aria-label={unitFieldTooltip('qty')}
+        data-testid="pd-unit-qty"
+      />
+      <span aria-hidden="true" />
+      {/* Sty */}
+      <input
+        type="number"
+        min={1}
+        value={stories}
+        placeholder={NOT_RECORDED}
+        onChange={(e) => {
+          dirtyRef.current = true;
+          setStories(e.target.value);
+        }}
+        onBlur={() => {
+          const n =
+            stories === '' ? null : Math.max(1, Number(stories) || 0) || null;
+          onChange('stories', n);
+          dirtyRef.current = false;
+        }}
+        disabled={off}
+        className={cellClass}
+        aria-label={unitFieldTooltip('stories')}
+        data-testid="pd-unit-stories"
+      />
+      <span aria-hidden="true" />
+      {/* P — the cell is a letter, the menu is words. */}
+      <ParkingKindSelect
+        value={row.parking_kind}
+        disabled={off}
+        onChange={(v) => onChange('parking_kind', v)}
+        testid="pd-unit-parking-kind"
+        code
+      />
+      <span aria-hidden="true" />
+      {/* # */}
+      <StallsInput
+        value={stalls}
+        disabled={off}
+        compact
+        onChange={(raw) => {
+          dirtyRef.current = true;
+          setStalls(raw);
+        }}
+        onBlur={() => {
+          onChange('parking_stalls', parseStalls(stalls));
+          dirtyRef.current = false;
+        }}
+        testid="pd-unit-stalls"
+      />
+      <span aria-hidden="true" />
+      {/* RD */}
+      <RoofDeckSelect
+        value={row.roof_deck}
+        disabled={off}
+        onChange={(v) => onChange('roof_deck', v)}
+        testid="pd-unit-roof-deck"
+        code
+      />
+      <span aria-hidden="true" />
+      <button
+        type="button"
+        onClick={onRemove}
+        disabled={disabled}
+        className="bg-transparent border-0 text-dim cursor-pointer text-[12px] leading-none p-0 disabled:opacity-50"
+        title="Remove type"
+        data-testid="pd-unit-remove"
+      >
+        ×
+      </button>
     </div>
   );
 }

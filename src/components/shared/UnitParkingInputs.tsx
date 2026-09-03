@@ -6,12 +6,6 @@ import {
   parkingKindCode,
   roofDeckCode,
 } from '../../lib/unitParking';
-import {
-  WORK_SCOPES,
-  WORK_SCOPE_SHORT,
-  asWorkScope,
-  type WorkScope,
-} from '../../lib/unitWorkScope';
 
 // ===========================================================================
 // ★★★ fix-402 — THE THREE UNIT-PARKING CONTROLS, ONE IMPLEMENTATION
@@ -37,7 +31,8 @@ import {
 // a NULL, so the editor and the display speak the same language.
 
 // ★ fix-412: this file is the shared UNIT-CELL control module now, not only
-//   the parking one — `WorkScopeSelect` joins the three fix-402 controls below.
+//   the parking one. ★ fix-486 §D retired `WorkScopeSelect`; the three
+//   fix-402 controls below are what remain.
 //   The filename predates the second field; renaming it would touch three
 //   mounts and their suites for no behavioural gain, so it is noted rather than
 //   done.
@@ -257,52 +252,10 @@ export function RoofDeckSelect({
   );
 }
 
-/**
- * ★★★ fix-412 Scope B — the three-state work-scope control.
- *
- * Bobby: *"a two-way toggle with a third, default state: No work / Work
- * performed / not yet answered."*
- *
- * ★★ A SELECT, NOT A TOGGLE, and the word "toggle" is why it needs saying. A
- * two-position switch cannot show a third state without inventing a visual for
- * "neither position", which is the ambiguity this field exists to remove.
- * `RoofDeckSelect` beside it already answers a yes/no question in three states
- * with a select, and a person reading the row should not have to learn two
- * grammars for the same shape of answer.
- *
- * ★ Clears back to "—" like every other unit control (fix-402's rule): picking
- * "No work" by mistake must be undoable back to NOT ANSWERED, not merely to the
- * other answer — those are different claims.
- */
-export function WorkScopeSelect({
-  value,
-  onChange,
-  disabled,
-  testid,
-  fill,
-}: {
-  value: WorkScope | null | undefined;
-  /** null means the user cleared it back to NOT ANSWERED. */
-  onChange: (next: WorkScope | null) => void;
-  disabled?: boolean;
-  testid: string;
-  fill?: boolean;
-}) {
-  return (
-    <select
-      value={asWorkScope(value) ?? ''}
-      disabled={disabled}
-      onChange={(e) => onChange(asWorkScope(e.target.value))}
-      className={cls(fill)}
-      data-testid={testid}
-      aria-label="Work performed"
-    >
-      <option value="">{NOT_RECORDED}</option>
-      {WORK_SCOPES.map((s) => (
-        <option key={s} value={s}>
-          {WORK_SCOPE_SHORT[s]}
-        </option>
-      ))}
-    </select>
-  );
-}
+// ★★★ fix-486 §D — `WorkScopeSelect` IS DELETED. Bobby, 2026-09-03: one way to
+// say remodel, and it is the TYPE. The control asked a question a `Remodel`
+// label had already answered, and prod says nobody ever answered it twice: 245
+// unit rows, zero non-null `work_scope`.
+//
+// ★ Its three siblings — `ParkingKindSelect`, `StallsInput`, `RoofDeckSelect`
+//   (fix-402) — are untouched. They describe things a label cannot.

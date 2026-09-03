@@ -14,7 +14,6 @@ import {
   UNIT_ROW_COLUMNS,
   UNIT_ROW_GAP,
   UNIT_WD_GAP,
-  WORK_SCOPE_LABEL,
   fix418BandHeight,
   unitBandHeight,
   unitFieldTooltip,
@@ -451,11 +450,21 @@ vi.mock('../hooks/useProjectConsultants', () => ({
 
 import ProjectDetailHeader from '../components/ProjectDetail/ProjectDetailHeader';
 
-const PRODUCT_TYPES = ['SFR', 'Cottages', 'Duplex', 'Condo', 'ADU', 'Remodel'];
+// ★ fix-486 (P-143): the registry is five values now, not eight.
+const PRODUCT_TYPES = ['Detached', 'Attached', 'ADU', 'DADU', 'Remodel'];
 
-/** ★ The six-type project that exists in prod — the case Bobby reported. */
-const SIX_TYPES = PRODUCT_TYPES.map((t, i) => ({
-  label: t,
+/**
+ * ★ The six-ROW project that exists in prod — the case Bobby reported.
+ *
+ * ★★ SIX ROWS, NOT SIX DISTINCT TYPES, and that distinction only appeared with
+ *    fix-486: the vocabulary is five values while the prod project that started
+ *    all this has six unit rows. Every §1/§2/§9 assertion below is about how
+ *    many ROWS the band lays out, so the sixth cycles back to the first label.
+ *    A registry label (rather than free text) is what matters — an off-list one
+ *    renders read-only and would change what is being measured.
+ */
+const SIX_TYPES = Array.from({ length: 6 }, (_, i) => ({
+  label: PRODUCT_TYPES[i % PRODUCT_TYPES.length],
   width_ft: 20 + i,
   depth_ft: 30 + i,
   qty: 1,
@@ -480,7 +489,7 @@ function makeProject(over: Partial<Project> = {}): Project {
     lot_width: null,
     lot_depth: null,
     unit_types: [
-      { label: 'Duplex', width_ft: 24, depth_ft: 40, qty: 2 },
+      { label: 'Attached', width_ft: 24, depth_ft: 40, qty: 2 },
       { label: 'Remodel', width_ft: 20, depth_ft: 30, qty: 1 },
     ],
     alley: null,
@@ -685,7 +694,7 @@ describe('fix-422 §3: every header explains itself, by hover and by Tab', () =>
 describe('fix-422 §4: the cell shows a code, the menu shows the words', () => {
   it('★★★ parking renders G in the cell and "Garage" in the menu', () => {
     renderHeader({
-      unit_types: [{ label: 'Duplex', qty: 1, parking_kind: 'garage' }],
+      unit_types: [{ label: 'Attached', qty: 1, parking_kind: 'garage' }],
     } as unknown as Partial<Project>);
     const sel = screen.getByTestId('pd-unit-parking-kind') as HTMLSelectElement;
     // ★ The MENU is words — Bobby's requirement, and the platform's own.
@@ -702,7 +711,7 @@ describe('fix-422 §4: the cell shows a code, the menu shows the words', () => {
   it('★★★ each recorded kind paints its own letter', () => {
     for (const [kind, code] of Object.entries(PARKING_KIND_CODE)) {
       const { unmount } = renderHeader({
-        unit_types: [{ label: 'Duplex', qty: 1, parking_kind: kind }],
+        unit_types: [{ label: 'Attached', qty: 1, parking_kind: kind }],
       } as unknown as Partial<Project>);
       const cell = screen.getByTestId('pd-unit-parking-kind').parentElement!;
       expect(cell.textContent).toContain(code);
@@ -717,7 +726,7 @@ describe('fix-422 §4: the cell shows a code, the menu shows the words', () => {
       [null, '—'],
     ] as const) {
       const { unmount } = renderHeader({
-        unit_types: [{ label: 'Duplex', qty: 1, roof_deck: value }],
+        unit_types: [{ label: 'Attached', qty: 1, roof_deck: value }],
       } as unknown as Partial<Project>);
       const sel = screen.getByTestId('pd-unit-roof-deck') as HTMLSelectElement;
       expect(sel.parentElement!.textContent).toContain(code);
@@ -732,7 +741,7 @@ describe('fix-422 §4: the cell shows a code, the menu shows the words', () => {
     // ★★ fix-402's rule, at the point it bites hardest: NULL is "nobody has
     //    said", and a blank cell says nothing at all.
     renderHeader({
-      unit_types: [{ label: 'Duplex', qty: 1 }],
+      unit_types: [{ label: 'Attached', qty: 1 }],
     } as unknown as Partial<Project>);
     expect(
       screen.getByTestId('pd-unit-parking-kind').parentElement!.textContent,
@@ -750,7 +759,7 @@ describe('fix-422 §4: the cell shows a code, the menu shows the words', () => {
 
   it('★★ picking a value still writes through to the unit', () => {
     renderHeader({
-      unit_types: [{ label: 'Duplex', qty: 1 }],
+      unit_types: [{ label: 'Attached', qty: 1 }],
     } as unknown as Partial<Project>);
     fireEvent.change(screen.getByTestId('pd-unit-parking-kind'), {
       target: { value: 'surface' },
@@ -759,45 +768,26 @@ describe('fix-422 §4: the cell shows a code, the menu shows the words', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// §7 · THE WORK CHIP
-// ---------------------------------------------------------------------------
-
-describe('fix-422 §7: work_scope is a chip, not a column', () => {
-  it('★★★ it is NOT a matrix column, and the reason is its third state', () => {
-    // ★★★ Every other cell answers with one glyph. `work_scope` cannot: its
-    //     third state is "not yet answered", and any letter in a one-glyph box
-    //     reads as an answer — while `—` is already spoken for by "not
-    //     recorded" in the columns beside it.
-    expect(UNIT_ROW_COLUMNS.some((c) => c.key === 'work_scope')).toBe(false);
-    renderHeader();
-    expect(screen.queryByTestId('pd-unit-h-work_scope')).toBeNull();
-  });
-
-  it('★★★ the chip appears only on a Remodel row, and carries all three states', () => {
-    renderHeader();
-    const chips = screen.getAllByTestId('pd-unit-work-chip');
-    expect(chips).toHaveLength(1);
-    expect(chips[0].textContent).toContain(WORK_SCOPE_LABEL);
-    const sel = within(chips[0]).getByTestId(
-      'pd-unit-work-scope',
-    ) as HTMLSelectElement;
-    expect(Array.from(sel.options).map((o) => o.textContent)).toEqual([
-      '—', 'None', 'Yes',
-    ]);
-    // ★ "not yet answered" is the DEFAULT, and it is selectable back to.
-    expect(sel.value).toBe('');
-  });
-
-  it('★★★ it sits under the row it belongs to, not beside another one', () => {
-    renderHeader({ unit_types: SIX_TYPES } as unknown as Partial<Project>);
-    const chips = screen.getAllByTestId('pd-unit-work-chip');
-    expect(chips).toHaveLength(1);
-    const rows = screen.getAllByTestId('pd-unit-row');
-    const remodel = rows.find((r) => r.dataset.remodel === 'true')!;
-    expect(remodel.parentElement).toContainElement(chips[0]);
-  });
-});
+// ===========================================================================
+// ★★★ fix-486 §D (P-143) — §7 IS RETIRED, BY NAME
+// ===========================================================================
+//
+// RETIRED FROM `fix-422 §7: work_scope is a chip, not a column`
+//   · it is NOT a matrix column, and the reason is its third state
+//   · the chip appears only on a Remodel row, and carries all three states
+//   · it sits under the row it belongs to, not beside another one
+//
+// ★★ THE REASONING IS WORTH KEEPING EVEN THOUGH THE FIELD IS NOT. §7 argued
+//    that a three-state answer whose third state is "not yet answered" cannot
+//    be a one-glyph cell, because any letter reads as an answer and `—` is
+//    already spoken for by "not recorded". That rule still binds the next
+//    field somebody proposes for this grid — it is recorded in
+//    `lib/unitRowLayout`, above `UNIT_ROW_COLUMNS`, where a person adding a
+//    column will meet it.
+//
+// ★ The two live consequences are asserted elsewhere rather than dropped:
+//   `work_scope` is not in `UNIT_ROW_COLUMNS` (UnitsRowFix412 §C3) and no row
+//   renders a work control (ProjectCardInteriorFix418, fix-486 §B).
 
 // ---------------------------------------------------------------------------
 // §8 · LONG LABELS
@@ -805,9 +795,17 @@ describe('fix-422 §7: work_scope is a chip, not a column', () => {
 
 describe('fix-422 §8: an off-registry label truncates and stays readable', () => {
   it('★★★ a 22-character label truncates, with the full text on hover', () => {
-    // ★ 9 of 235 prod rows carry off-registry free text; the longest is
-    //   "SFR w/ Accessory Units". Sizing the Type column for those nine would
-    //   tax the other 226 and every project that has none of them.
+    // ★ Sizing the Type column for the longest off-registry label would tax
+    //   every row that is not one. 22 characters is the worst case this band
+    //   has ever had to hold.
+    //
+    // ★★ fix-486 (P-143) KEPT THE STRING AND RETIRED THE STATISTIC. When this
+    //    was written, 9 of 235 prod rows carried off-registry free text and
+    //    "SFR w/ Accessory Units" was the longest. The remap mapped that label
+    //    to Detached, so it exists nowhere on prod now — but the PROPERTY being
+    //    asserted (a long label truncates and keeps its full text on hover) is
+    //    about the cell, not about that string, and the string is still the
+    //    honest worst case to prove it with.
     const LONG = 'SFR w/ Accessory Units';
     expect(LONG).toHaveLength(22);
     renderHeader({
@@ -822,11 +820,11 @@ describe('fix-422 §8: an off-registry label truncates and stays readable', () =
 
   it('★★ a registry label on the dropdown truncates the same way', () => {
     renderHeader({
-      unit_types: [{ label: 'Cottages', qty: 1 }],
+      unit_types: [{ label: 'Detached', qty: 1 }],
     } as unknown as Partial<Project>);
     const sel = screen.getByTestId('pd-unit-label-select');
     expect(sel.className).toContain('truncate');
-    expect(sel.getAttribute('title')).toBe('Cottages');
+    expect(sel.getAttribute('title')).toBe('Detached');
   });
 });
 

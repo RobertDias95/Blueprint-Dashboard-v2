@@ -1,5 +1,4 @@
 import { isParkingKind } from './database.types';
-import { asWorkScope } from './unitWorkScope';
 import type { UnitType } from './database.types';
 
 // fix-81: shared "next Type X" computation for unit-types editors. The
@@ -195,18 +194,16 @@ export function parseUnitTypes(raw: unknown): UnitType[] {
           ? u.parking_stalls
           : null,
       roof_deck: typeof u.roof_deck === 'boolean' ? u.roof_deck : null,
-      // ★★★ fix-412: `work_scope` HAS TO BE NAMED HERE. This function is a
-      //   WHITELIST — it rebuilds each unit object key by key — and both
-      //   editors write the PARSED array back. A key missing from this list is
-      //   therefore not merely invisible: it is DELETED from the row the first
-      //   time anybody edits any other field on it. The fix-412 suite caught
-      //   exactly that, and it is why the field is coerced here rather than
-      //   spread through.
+      // ★★★ fix-486 §D — `work_scope` IS NO LONGER NAMED HERE, AND THAT IS
+      //     WHAT DELETES IT FROM EVERY ROW.
       //
-      // ★ Same NULL-safe rule as the three above (fix-386): an absent key, a
-      //   wrong type, or a value outside the closed set all read as "not
-      //   answered" — never as 'none', which is a recorded answer.
-      work_scope: asWorkScope(u.work_scope),
+      // fix-412's note is worth keeping because the mechanism is unchanged and
+      // load-bearing in both directions: this function is a WHITELIST that
+      // rebuilds each unit key by key, and both editors write the PARSED array
+      // back. A key missing from this list is not merely invisible — it is
+      // REMOVED from the row the first time anybody edits any other field on
+      // it. That is exactly what is wanted now: the migration strips the key,
+      // and this makes sure nothing puts it back.
     }));
 }
 
