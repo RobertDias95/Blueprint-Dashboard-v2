@@ -235,11 +235,21 @@ describe('Draw Schedule block layout (fix-DS-uniform-layout)', () => {
     expect(est.textContent).toContain('08-15-26');
   });
 
-  it('address is a single line truncated with CSS ellipsis; full address in the title', () => {
-    // fix-DS-uniform-layout: addresses are one line, clipped via
-    // white-space:nowrap + text-overflow:ellipsis (the browser paints the "…";
-    // jsdom does not, so assert the CSS, not a literal character). The full
-    // address lives in the title tooltip.
+  // ★★★ AMENDED BY fix-484 §A2 (P-146) — THE ADDRESS IS TWO LINES NOW.
+  //
+  // fix-DS-uniform-layout chose ONE line with an ellipsis, trading legibility
+  // for a uniform per-block rhythm. Measured in Chrome on the real addresses at
+  // the real column widths (harness/draw-block-fit-484.html): that trade cost
+  // the reader the end of the street name on **5 of 5 blocks at 1440 and 4 of 5
+  // at 1920**. Bobby, 2026-09-02: *"a ton of colour and just a little bit of
+  // text."*
+  //
+  // ★★ WHAT THIS TEST ALWAYS ACTUALLY GUARDED SURVIVES, and is asserted below:
+  //    the label is the address before the first comma, no JS inserts a "…",
+  //    the overflow is handled in CSS rather than by cutting the string, and
+  //    the FULL address is in the title. Only the clamp changed — from one line
+  //    to two, with the font stepping down before it truncates at all.
+  it('address wraps to at most two lines; full address in the title', () => {
     const fullAddr = '12345 Northeast Greenwood Park Boulevard Suite 1000, Seattle, WA';
     refs.draw.current = [row({ project_id: 'pa', da_assigned: 'A1', start_week: W[3], end_week: W[6] })];
     refs.projects.current = [project('pa', fullAddr)];
@@ -248,9 +258,11 @@ describe('Draw Schedule block layout (fix-DS-uniform-layout)', () => {
     // shortLabel = everything before the first comma; no JS-inserted "…".
     expect(addr.textContent).toBe('12345 Northeast Greenwood Park Boulevard Suite 1000');
     expect(addr.textContent).not.toContain('…');
-    expect(addr.style.whiteSpace).toBe('nowrap');
-    expect(addr.style.textOverflow).toBe('ellipsis');
+    expect(addr.style.display).toBe('-webkit-box');
+    expect(addr.style.webkitLineClamp).toBe('2');
     expect(addr.style.overflow).toBe('hidden');
+    // ★ Never one line any more.
+    expect(addr.style.whiteSpace).not.toBe('nowrap');
     expect(addr).toHaveAttribute('title', fullAddr);
   });
 
@@ -279,8 +291,17 @@ describe('Draw Schedule block layout (fix-DS-uniform-layout)', () => {
     // data-overflow stays so styling/tests can still detect a tail slice.
     expect(block).toHaveAttribute('data-overflow', 'tail');
     expect(block).toHaveAttribute('data-tier', 'default');
-    // A tail slice is compact → top-anchored so the address can't clip.
-    expect(block.style.justifyContent).toBe('flex-start');
+    // ★★★ AMENDED BY fix-484 §A1 (P-146). This asserted "a tail slice is
+    //     compact → top-anchored", which was the defect: `isCompact` is true
+    //     for EVERY cross-quarter slice however tall, so a seven-week tail
+    //     (~403px at 1920) top-anchored two lines of text and left 174px of
+    //     bare colour under them. Measured before and after in
+    //     harness/draw-block-fit-484.html.
+    //
+    // ★★ THE ANCHOR IS A HEIGHT QUESTION NOW, and this block has the room, so
+    //    it centres. What `isCompact` still decides — WHICH FIELDS render — is
+    //    unchanged and is asserted immediately below.
+    expect(block.style.justifyContent).toBe('center');
     // Address + Est. Approval render on the tail slice...
     expect(screen.getByTestId('block-address-pt')).toBeInTheDocument();
     // ...but overflow slices are stripped to the essentials: the status pill
@@ -321,10 +342,14 @@ describe('Draw Schedule block layout (fix-DS-uniform-layout)', () => {
     expect(block.style.justifyContent).toBe('center');
   });
 
-  it('head (starts in this quarter, ends after): compact (no juris/pill), top-anchored, no arrow', () => {
+  it('head (starts in this quarter, ends after): compact (no juris/pill), no arrow', () => {
     // Starts within the current quarter, ends in the next. A head slice is an
-    // overflow block → compact: stripped to address + Est. Approval, top-
-    // anchored. The continuation is left to the next quarter's tail slice.
+    // overflow block → compact: stripped to address + Est. Approval. The
+    // continuation is left to the next quarter's tail slice.
+    //
+    // ★ fix-484 §A1: "top-anchored" left the name and the assertion — see the
+    //   tail test above. This slice is four weeks (~112px at BASE_ROW_H in
+    //   jsdom), which holds its stack, so it centres.
     refs.draw.current = [
       row({ project_id: 'ph', da_assigned: 'A5', start_week: W[W.length - 4], end_week: NEXT[1] }),
     ];
@@ -335,7 +360,7 @@ describe('Draw Schedule block layout (fix-DS-uniform-layout)', () => {
     // carries that attribute even though it IS an overflow (compact) block.
     expect(block).not.toHaveAttribute('data-overflow');
     expect(block).toHaveAttribute('data-tier', 'default');
-    expect(block.style.justifyContent).toBe('flex-start');
+    expect(block.style.justifyContent).toBe('center');
     expect(screen.queryByTestId('block-overflow-nav-ph')).toBeNull();
     expect(screen.getByTestId('block-address-ph')).toBeInTheDocument();
     // Compact → no status pill (fix-DS-overflow-no-pill) and no juris

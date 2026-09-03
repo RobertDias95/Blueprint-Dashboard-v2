@@ -128,11 +128,10 @@ vi.mock('../hooks/useProjectHolds', async (importActual) => {
   };
 });
 
-// fix-225: shared (DA-reassigned) project ids for the board marker.
-const sharedIdsRef = vi.hoisted(() => ({ current: new Set<string>() }));
-vi.mock('../hooks/useProjectDaHandoffs', () => ({
-  useProjectsWithHandoffs: () => ({ projectIds: sharedIdsRef.current }),
-}));
+// ★ fix-484 §A3: the fix-225 shared-marker mock is gone with the marker — the
+//   grid no longer imports `useProjectsWithHandoffs`, so mocking it would be a
+//   stub for a module this component never loads. The hook is untouched and
+//   still covered by its own file.
 
 // fix-182c: useQuarterLayout reads a mutable ref. Default [] -> isLayoutMode
 // false -> the grid renders the unchanged fallback for every existing test. The
@@ -1851,21 +1850,24 @@ describe('<DrawScheduleGrid /> — fix-220 admin-only editing', () => {
 });
 
 // fix-225: the "shared" marker (DA-reassigned / ownership handoff) on a block.
-describe('<DrawScheduleGrid /> — fix-225 shared marker', () => {
-  afterEach(() => {
-    sharedIdsRef.current = new Set<string>();
-  });
-
-  it('a project with a DA handoff shows data-shared + an asterisk on its block', () => {
-    sharedIdsRef.current = new Set<string>(['p-now']);
-    renderGrid();
-    const shared = screen.getByTestId('block-p-now');
-    expect(shared).toHaveAttribute('data-shared', 'true');
-    expect(screen.getByTestId('block-address-p-now').textContent).toContain('✳');
-    // a project with no handoff has no marker
-    expect(screen.getByTestId('block-p-other')).not.toHaveAttribute('data-shared');
-  });
-});
+// ★★★ fix-484 §A3 (P-146) — THE SHARED MARKER IS RETIRED.
+//
+// fix-225 put a ✳ before the address, and `data-shared` on the block, for any
+// project whose DA had been reassigned: the block stays under the ORIGINAL DA,
+// so the glyph said the work was split. Bobby, 2026-09-02: in a 90px column
+// (fix-48's DA floor) the block has room for an address and nothing else, and
+// the marker was eating the front of it.
+//
+// ★★ THE FACT IT WAS DRAWN FROM IS UNTOUCHED. `project_da_handoffs` still
+// records every reassignment, `useProjectDaHandoffs` still reads it for the
+// handoff editor, and fix-225's per-DA co-credit arithmetic in
+// `lib/volumeAttribution` / `lib/teamPerformance` is not involved here at all —
+// those read the table directly and have their own suites. What went is one
+// glyph on one surface.
+//
+// ★ `useProjectsWithHandoffs` had exactly ONE call site (this grid) and it is
+//   gone; the hook stays exported and covered by its own file's tests. Its
+//   absence from the block is asserted in DrawBlockFitFix484.
 
 // ── fix-262: cancelled projects stay on the board ───────────────────────────
 // Bobby: the block STAYS at full width even though the project is no longer
