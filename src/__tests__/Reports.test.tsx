@@ -60,7 +60,6 @@ const fixtures = vi.hoisted(() => ({
       id: 1,
       project_id: 'p1',
       type: 'Building Permit',
-      stage: 'pm',
       stage_override: null,
       // fix-113-a: permit-level status (decoupled from team's actual_issue
       // stamp). 'Issued' here = the city portal reports the permit as
@@ -112,7 +111,6 @@ const fixtures = vi.hoisted(() => ({
       id: 2,
       project_id: 'p2',
       type: 'Demolition',
-      stage: 'de',
       stage_override: null,
       // fix-113-a: distinct permit-level status so the permit-status filter
       // has multiple options to choose from in the dropdown.
@@ -503,10 +501,16 @@ describe('<Reports /> Q7.2.b', () => {
 
   it('ledger stage select narrows to projects with that dominant stage', () => {
     renderIt();
-    // Fixture: p1 permit stage='pm', p2 permit stage='de'. Selecting 'pm'
-    // keeps only p1; selecting 'de' keeps only p2.
+    // ★★★ fix-498 (P-025): p1 IS 'ap', AND IT ALWAYS WAS. This test used to
+    //     select 'pm' because the fixture SAID `stage: 'pm'` — a stored column
+    //     nothing maintained. p1 has approval_date 2026-04-26 and no
+    //     actual_issue, so the derived stage is 'ap' (approved, issuance
+    //     outstanding) and has been since the fixture was written. The ledger
+    //     was the only surface still believing the seed.
+    // ★★ p2 has no cycles and no dates, so it derives 'de' — unchanged, and
+    //    that agreement is exactly why the column looked healthy so long.
     fireEvent.change(screen.getByTestId('ledger-filter-stage'), {
-      target: { value: 'pm' },
+      target: { value: 'ap' },
     });
     expect(screen.getByTestId('report-table-row-p1')).toBeInTheDocument();
     expect(screen.queryByTestId('report-table-row-p2')).not.toBeInTheDocument();

@@ -800,7 +800,15 @@ export interface Permit {
    *  NULL = standalone / parent permit. */
   parent_permit_id?: number | null;
   type: string | null;
-  stage: string | null;
+  /** ★★★ fix-498 (P-025): `stage: string | null` USED TO SIT HERE, and the
+   *  column `permits.stage` was DROPPED — nothing kept it current, so 342 of
+   *  406 issued permits on prod still read 'de'. A permit's stage is DERIVED:
+   *  `effectiveStage(permit, cycles, reviewers)` in src/lib/permitStage.ts.
+   *  There is no stored stage to fall back to and no reason to want one.
+   *  ★ `stage_override` below is a DIFFERENT column and STAYS — it is the
+   *    hand-set escape hatch computeStage honours. Do not conflate them.
+   *  ★ `permit_tasks.stage` further down is also a different column (fix-79's
+   *    phase mirror) and is untouched. */
   stage_override: string | null;
   status: string | null;
   num: string | null;

@@ -43,7 +43,7 @@ function mkPermit(
 ): PermitWithCycles {
   const { id, project_id, ...rest } = over;
   return {
-    id, project_id, parent_permit_id: null, type: 'Building Permit', stage: 'de',
+    id, project_id, parent_permit_id: null, type: 'Building Permit',
     stage_override: null, status: null, num: null, da: null, dm: null,
     ent_lead: null, dual_da: null, target_submit: null, dd_start: null, dd_end: null,
     expected_issue: null, actual_issue: null, approval_date: null, intake_date: null,

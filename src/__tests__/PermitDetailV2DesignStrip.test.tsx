@@ -69,7 +69,6 @@ function makePermit(cycles: PermitCycle[]): PermitWithCycles {
     id: 10009,
     project_id: 'p-test',
     type: 'Building Permit',
-    stage: 'de',
     stage_override: null,
     status: null,
     num: null,

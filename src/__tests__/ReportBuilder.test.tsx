@@ -17,7 +17,14 @@ const CATALOG: ReportBuilderCatalog = {
       default_sort: { column: 'target_submit', dir: 'asc' },
       columns: [
         { key: 'num', label: 'Permit #', type: 'text', filterable: true, operators: ['=', '!=', 'contains', 'in', 'not_in', 'is_null', 'is_not_null'], source: 'direct' },
-        { key: 'stage', label: 'Stage', type: 'text', filterable: true, operators: ['=', '!=', 'contains', 'in', 'not_in', 'is_null', 'is_not_null'], source: 'direct' },
+        // ★★★ fix-498 (P-025): this fixture used to carry
+        //     `{ key: 'stage', label: 'Stage', … }`, mirroring a server
+        //     catalog that offered permits.stage as a filterable column.
+        //     The column is retired and the catalog no longer publishes it,
+        //     so the mirror must not either — a fixture that describes a
+        //     catalog the server does not serve tests nothing.
+        //     `type` stands in: a real permits text column, same shape.
+        { key: 'type', label: 'Type', type: 'text', filterable: true, operators: ['=', '!=', 'contains', 'in', 'not_in', 'is_null', 'is_not_null'], source: 'direct' },
         { key: 'expected_issue', label: 'ACQ Target', type: 'date', filterable: true, operators: ['=', '!=', '>', '>=', '<', '<=', 'in', 'not_in', 'is_null', 'is_not_null'], source: 'direct' },
       ],
     },
@@ -66,7 +73,7 @@ describe('<ReportBuilder /> (fix-69)', () => {
     const entity = screen.getByTestId('report-builder-entity') as HTMLSelectElement;
     expect(entity.value).toBe('permits');
     expect(screen.getByTestId('report-builder-col-num')).toBeInTheDocument();
-    expect(screen.getByTestId('report-builder-col-stage')).toBeInTheDocument();
+    expect(screen.getByTestId('report-builder-col-type')).toBeInTheDocument();
   });
 
   it('Preview is disabled until at least one column is selected', () => {
@@ -109,16 +116,16 @@ describe('<ReportBuilder /> (fix-69)', () => {
     // Select two columns.
     fireEvent.click(screen.getByTestId('report-builder-col-num'));
     fireEvent.click(screen.getByTestId('report-builder-col-expected_issue'));
-    // Add a filter: stage = is.
+    // Add a filter: type = Demolition.
     fireEvent.click(screen.getByTestId('report-builder-add-filter'));
     fireEvent.change(screen.getByTestId('report-builder-filter-0-column'), {
-      target: { value: 'stage' },
+      target: { value: 'type' },
     });
     fireEvent.change(screen.getByTestId('report-builder-filter-0-op'), {
       target: { value: '=' },
     });
     fireEvent.change(screen.getByTestId('report-builder-filter-0-value'), {
-      target: { value: 'is' },
+      target: { value: 'Demolition' },
     });
     fireEvent.click(screen.getByTestId('report-builder-preview'));
 
@@ -127,7 +134,7 @@ describe('<ReportBuilder /> (fix-69)', () => {
       version: 1,
       entity: 'permits',
       columns: ['num', 'expected_issue'],
-      filters: [{ column: 'stage', op: '=', value: 'is' }],
+      filters: [{ column: 'type', op: '=', value: 'Demolition' }],
       sort: [],
       limit: 1000,
     });

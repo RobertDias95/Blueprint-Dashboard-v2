@@ -12,7 +12,7 @@ import type { Permit, PermitWithCycles } from '../lib/database.types';
 export interface CreatePermitInput {
   projectId: string;
   type: string;
-  /** Optional initial values; defaults handle stage/status. */
+  /** Optional initial values; the default handles status. */
   patch?: Partial<Permit>;
 }
 
@@ -22,10 +22,16 @@ export function useCreatePermit() {
 
   return useMutation<PermitWithCycles, Error, CreatePermitInput>({
     mutationFn: async ({ projectId, type, patch }) => {
+      // ★★★ fix-498 (P-025): `stage: 'de'` used to be in this literal. The
+      //     column is gone — this is a DIRECT table insert, not an RPC, so it
+      //     would have 400'd on the next "Add permit" click the moment the
+      //     migration landed. STEP 0's brief listed only the two project RPCs
+      //     as writers; this one and bp_insert_permit were the ones it missed.
+      //     A new permit's stage is derived, and with no cycles and no dates
+      //     it derives to 'de' anyway — the seed was never doing any work.
       const insert = {
         project_id: projectId,
         type,
-        stage: 'de',
         status: 'Pre-Submittal — GO',
         ...(patch ?? {}),
       };

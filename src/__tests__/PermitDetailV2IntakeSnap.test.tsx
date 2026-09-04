@@ -75,7 +75,6 @@ function makePermit(
     id: 10009,
     project_id: 'p-test',
     type: 'Building Permit',
-    stage: 'de',
     stage_override: null,
     status: null,
     num: null,
@@ -142,10 +141,13 @@ describe('fix-75: intake_accepted + resubmitted auto-snap on valid input', () =>
 
   it('resubmitted fires the upsert on a valid date (flushed via blur)', () => {
     // Cycle 1 needs to exist + be the viewed cycle for the Resubmitted cell to
-    // render. With stage='pm', the component lands on the latest cycle (1).
+    // render; the component lands on the latest cycle.
+    // ★ fix-498: the override used to be `{ stage: 'pm' }`. Nothing ever read
+    //   the stored column to pick the viewed cycle — the cycle rows do that —
+    //   so the seed was decorative, and the column is gone.
     const permit = makePermit(
       [makeCycle({ cycle_index: 0 }), makeCycle({ cycle_index: 1 })],
-      { stage: 'pm' },
+      {},
     );
     renderWithClient(<PermitDetailV2 permit={permit} />);
     fireEvent.click(screen.getByTestId('pd-v2-cycle-tab-1'));

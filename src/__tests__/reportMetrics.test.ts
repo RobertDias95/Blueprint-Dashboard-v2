@@ -39,7 +39,6 @@ function makePermit(over: Partial<PermitWithCycles> = {}): PermitWithCycles {
     id: 1,
     project_id: 'p1',
     type: 'Building Permit',
-    stage: 'de',
     stage_override: null,
     status: null,
     num: null,
@@ -988,7 +987,6 @@ describe('aggregateByProject', () => {
       ent_lead: 'Bobby',
       da: 'Ada',
       dm: 'Dave',
-      stage: 'pm',
       permit_cycles: [makeCycle({ submitted: '2025-02-01' })],
     });
     const b = makePermit({
@@ -997,7 +995,6 @@ describe('aggregateByProject', () => {
       ent_lead: null,
       da: null,
       dm: null,
-      stage: 'co',
       permit_cycles: [makeCycle({ id: 'c2', submitted: '2025-04-15', corr_issued: '2025-05-30' })],
     });
     const enriched = enrichPermits([a, b], localById);
@@ -1065,13 +1062,11 @@ describe('aggregateByProject', () => {
       id: 1,
       project_id: 'p1',
       type: 'Building Permit',
-      stage: 'de',
     });
     const par = makePermit({
       id: 2,
       project_id: 'p1',
       type: 'PAR',
-      stage: 'is',
       actual_issue: '2025-09-01',
     });
     const enriched = enrichPermits([bp, par], projectsById);
@@ -1080,9 +1075,30 @@ describe('aggregateByProject', () => {
   });
 
   it('dominantStage falls back to most-advanced when no BP exists', () => {
-    // PAR-only project — BP filter empty → falls back to pool of all permits.
-    const par = makePermit({ id: 1, project_id: 'p1', type: 'PAR', stage: 'co' });
-    const enriched = enrichPermits([par], projectsById);
+    // No-BP project — the BP filter is empty, so the pool is every permit and
+    // the most-advanced one wins.
+    //
+    // ★★★ fix-498 (P-025): THIS TEST USED TO PASS ONE PERMIT AND ASSERT 'co',
+    //     which only worked because the fixture SAID `stage: 'co'`. A single
+    //     permit cannot demonstrate "most-advanced" at all, and the stored
+    //     column it leaned on is retired. Two permits now, and the 'co' is
+    //     EARNED — a cycle with corr_issued and no resubmittal.
+    const quiet = makePermit({ id: 1, project_id: 'p1', type: 'PAR' });
+    const inCorrections = makePermit({
+      id: 2,
+      project_id: 'p1',
+      type: 'ULS',
+      permit_cycles: [
+        makeCycle({
+          id: 'c-uls',
+          permit_id: 2,
+          submitted: '2026-01-10',
+          corr_issued: '2026-02-01',
+          resubmitted: null,
+        }),
+      ],
+    });
+    const enriched = enrichPermits([quiet, inCorrections], projectsById);
     const rows = aggregateByProject(enriched);
     expect(rows[0].dominantStage).toBe('co');
   });

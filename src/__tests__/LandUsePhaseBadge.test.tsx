@@ -11,7 +11,6 @@ function permit(over: Partial<PermitWithCycles> = {}): PermitWithCycles {
     id: 42,
     project_id: 'p1',
     type: 'ULS',
-    stage: null,
     stage_override: null,
     status: null,
     num: 'LUP-1001',

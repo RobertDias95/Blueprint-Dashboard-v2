@@ -1,4 +1,5 @@
 import type { EnrichedPermit } from './reportMetrics';
+import { effectiveStage } from './permitStage';
 
 // Q9.5.d: CSV export for the Reports page header button. v1 column
 // shape from index.html:6332 ported to v2's EnrichedPermit fields.
@@ -61,8 +62,20 @@ export function exportEnrichedPermitsToCSV(
       e.address,
       p.type ?? '',
       p.num ?? '',
-      // Stage derivation: use the override if present, else the column.
-      p.stage_override ?? p.stage ?? '',
+      // ★★★ fix-498 (P-025): the DERIVED stage, not the stored column.
+      //     This read was `p.stage_override ?? p.stage ?? ''` — the column
+      //     `permits.stage`, which nothing kept current. On prod 2026-09-04,
+      //     342 of 406 ISSUED permits still read 'de', so this export called
+      //     every one of them "Design". `permits.stage` is dropped by this
+      //     same fix; the derived stage is the only stage there is now.
+      //
+      // ★★ THE OVERRIDE STOPS BEING ABSOLUTE HERE, ON PURPOSE. It used to
+      //    win outright in this one column; effectiveStage consults it via
+      //    computeStage only after actual_issue / approval_date / a terminal
+      //    portal status. That is how the Dashboard, the Library and the
+      //    Project View have always read it — the export was the outlier, and
+      //    an outlier is the whole shape of P-025.
+      effectiveStage(p, p.permit_cycles ?? [], e.reviewers),
       p.ent_lead ?? '',
       p.da ?? p.architect ?? '',
       p.dm ?? '',

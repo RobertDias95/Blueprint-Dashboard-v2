@@ -321,7 +321,6 @@ describe('useDeletePermitCycle', () => {
       id: 7,
       project_id: 'proj-1',
       type: 'BP',
-      stage: null,
       stage_override: null,
       status: null,
       num: null,

@@ -16,7 +16,6 @@ function permit(id: number, over: Partial<Permit> = {}): Permit {
     id,
     project_id: over.project_id ?? 'p1',
     type: 'Building Permit',
-    stage: null,
     stage_override: null,
     status: null,
     num: null,
