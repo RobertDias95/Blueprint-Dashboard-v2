@@ -1,4 +1,5 @@
 import TaskProvenance from '../TaskProvenance';
+import { permitIsSubmitted } from '../../lib/permitPhase';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { effectiveStage } from '../../lib/permitStage';
@@ -305,6 +306,15 @@ export default function PermitDetailV2({ permit, project }: Props) {
           // resubmitted yet after a corr_issued), so the Permitting-phase
           // Add input can show "Add correction…" per Bobby's screenshot 1.
           c0IntakeAccepted={designCycle?.intake_accepted ?? null}
+          // ★★★ fix-494 (P-155): the OPENING tab, from the one shared
+          //     predicate. The parent has the permit and its cycles, so the
+          //     answer is computed here and passed down rather than threading
+          //     cycles into a panel that only wants a boolean.
+          //
+          // ★ Passed BESIDE `c0IntakeAccepted`, not instead of it: fix-123's
+          //   auto-snap below is a TRANSITION detector on that one date and
+          //   stays exactly as it was.
+          isSubmitted={permitIsSubmitted(permit)}
           inCorrections={cycles.some(
             (c) => c.cycle_index >= 1 && c.corr_issued && !c.resubmitted,
           )}
@@ -1728,6 +1738,7 @@ function TasksPanel({
   permitEntLead,
   projectSchematicDesigners,
   c0IntakeAccepted,
+  isSubmitted,
   inCorrections,
 }: {
   permitId: number;
@@ -1746,6 +1757,11 @@ function TasksPanel({
    *  auto-snap. Was `defaultBucket: 'de' | 'pm'` pre-fix-123 (derived
    *  from c0.submitted, not intake_accepted). */
   c0IntakeAccepted: string | null;
+  /** ★★★ fix-494: is this permit with the city? Computed by the parent from
+   *  `permitIsSubmitted` (lib/permitPhase), whose SQL twin
+   *  `bp_permit_is_submitted` is what the DB trigger now uses. One rule, three
+   *  readers — this screen, the chat composer and the trigger. */
+  isSubmitted: boolean;
   /** fix-123: whether the permit currently has an open corrections cycle
    *  (any review cycle with corr_issued but no resubmitted). When true,
    *  the Permitting-phase Add input shows "Add correction…" instead of
@@ -1768,8 +1784,22 @@ function TasksPanel({
   // fix-79 / fix-123: D&E / Permitting phase tabs. Clicking a tab swaps the
   // active phase; the columns below filter to that phase's tasks and the
   // "+ Add task" input lands new rows with bucket=activePhase.
+  // ★★★ fix-494 (P-155) — THE SCREEN, THE COMPOSER AND THE TRIGGER NOW SHARE
+  //     ONE PREDICATE.
+  //
+  // This opened on `c0IntakeAccepted ? 'pm' : 'de'` while the DB trigger
+  // decided from `c0.submitted`. Two definitions of "submitted", disagreeing on
+  // 58 of 261 open permits — and a task made from chat (which sent no bucket)
+  // got the trigger's answer while the person was looking at this screen's.
+  //
+  // ★★ `permitIsSubmitted` is the one rule, and `bp_permit_is_submitted` is its
+  //    SQL twin. Three readers, one answer.
+  //
+  // ★ WIDENING THIS DEFAULT CANNOT MOVE AN EXISTING TASK — it chooses which tab
+  //   opens, nothing more. What it does change is which tab a person is looking
+  //   at when they type into "+ Add task", which passes `bucket: activeBucket`.
   const [activeBucket, setActiveBucket] = useState<'de' | 'pm'>(
-    c0IntakeAccepted ? 'pm' : 'de',
+    isSubmitted ? 'pm' : 'de',
   );
 
   // fix-123: auto-snap on the c0.intake_accepted null↔non-null transition.

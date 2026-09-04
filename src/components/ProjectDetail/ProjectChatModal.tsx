@@ -50,13 +50,16 @@ import { Avatar } from './ChatMessageBody';
 //   ONE place its order and labels are stated (fix-423). Neither is retyped.
 import { projectInternalTeam } from '../../lib/projectTeam';
 import { TEAM_INTERNAL_ROWS } from '../../lib/overviewCardLayout';
+import { defaultTaskBucket } from '../../lib/permitPhase';
 import { useMentionTags } from '../../hooks/useMentionTags';
 import {
   useProjectReactions,
 } from '../../hooks/useMessageReactions';
 import { mentionTargets, projectTagTarget } from '../../lib/mentionTags';
 import { emptyMentionTargets } from '../../lib/projectChat';
-import type { Permit, PermitWithCycles, Project } from '../../lib/database.types';
+// ★ fix-494: `Permit` is no longer imported — every `permits` prop in this
+//   file is `PermitWithCycles[]` now, because the phase decision reads cycles.
+import type { PermitWithCycles, Project } from '../../lib/database.types';
 
 // fix-334 — the conversation, organised.
 //
@@ -85,7 +88,11 @@ export default function ProjectChatModal({
   onClose,
 }: {
   projectId: string;
-  permits: Permit[];
+  /** ★★★ fix-494: `PermitWithCycles`, not `Permit`. The caller already passes
+   *  rows that carry `permit_cycles` — the header's `permits` are
+   *  `PermitWithCycles[]` — so this prop was narrower than its own data, and
+   *  the cycles the phase decision needs were invisible to the type checker. */
+  permits: PermitWithCycles[];
   /** ★ fix-362: a message to land on, straight from `?msg=` in the URL. Null
    *  when the link asked only for the conversation. */
   focusMessageId?: string | null;
@@ -759,7 +766,9 @@ function ReplyComposer({
     | import('../../lib/database.types').MentionablePerson
     | import('../../lib/mentionTags').MentionTarget
   )[];
-  permits: Permit[];
+  // ★ fix-494: cycles are needed to decide the task's phase — see
+  //   lib/permitPhase. The caller already passes rows that carry them.
+  permits: PermitWithCycles[];
 }) {
   const post = usePostMessage();
   const [draft, setDraft] = useState('');
@@ -851,6 +860,14 @@ function ReplyComposer({
                 permitId: task.permitId,
                 text: task.text.trim().slice(0, 200),
                 discipline: disciplineForDraft(task),
+                // ★★★ fix-494 (P-155): SEND THE PHASE, like the permit screen
+                //     does. Sending nothing let the trigger decide from
+                //     `c0.submitted`, which disagreed with the screen on 58 of
+                //     261 open permits — including permit 316, where Miles's
+                //     CR1 task landed in D&E on a permit under corrections.
+                bucket: defaultTaskBucket(
+                  permits.find((p) => p.id === task.permitId) ?? null,
+                ),
                 assignedTo: task.assignedTo || null,
                 targetDate: task.targetDate,
               }

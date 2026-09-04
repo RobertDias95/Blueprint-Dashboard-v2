@@ -1,4 +1,5 @@
 import { useMemo } from 'react';
+import { defaultTaskBucket, TASK_BUCKET_LABEL } from '../../lib/permitPhase';
 import { useDmDaGroups } from '../../hooks/useDmDaGroups';
 import { useProjects } from '../../hooks/useProjects';
 import { useTeamMembers, activeMemberNamesOf } from '../../hooks/useTeamMembers';
@@ -12,7 +13,7 @@ import {
   disciplineForDraft,
   type ChatTaskDraft,
 } from '../../lib/chatTaskDraft';
-import type { Permit } from '../../lib/database.types';
+import type { PermitWithCycles } from '../../lib/database.types';
 
 // fix-334 §5 — the task form, lifted OUT of ChatTaskComposer so two callers can
 // share it.
@@ -39,7 +40,8 @@ export default function ChatTaskFields({
   draft: ChatTaskDraft;
   onChange: (next: ChatTaskDraft) => void;
   projectId: string;
-  permits: Permit[];
+  // ★ fix-494: cycles are needed for the "→ Permitting" / "→ D&E" label.
+  permits: PermitWithCycles[];
   disabled?: boolean;
   testIdPrefix: string;
 }) {
@@ -101,6 +103,22 @@ export default function ChatTaskFields({
             </option>
           ))}
         </select>
+        {/* ★★★ fix-494 (P-155) — SAY WHERE IT WILL LAND, BEFORE SEND.
+            Bobby's complaint was that a task arrived in the wrong phase and
+            nothing had said which phase it was going to. The phase is decided
+            by the same helper the permit screen and the DB trigger use, so this
+            label cannot promise one thing and deliver another.
+
+            ★ LABEL ONLY — it is not a control. The phase follows the permit,
+              and choosing the permit is the decision the poster is already
+              making one line up. */}
+        <div
+          className="text-[10px] mt-0.5"
+          style={{ color: 'var(--color-muted)' }}
+          data-testid={`${testIdPrefix}-phase`}
+        >
+          → {TASK_BUCKET_LABEL[defaultTaskBucket(permit)]}
+        </div>
       </Field>
 
       <div className="flex gap-3 flex-wrap">

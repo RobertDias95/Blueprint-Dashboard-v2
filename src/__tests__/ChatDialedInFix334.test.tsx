@@ -174,7 +174,7 @@ function renderModal(permits: Permit[] = PERMITS) {
     </QueryClientProvider>
   );
   return render(
-    <ProjectChatModal projectId="p-1" permits={permits} onClose={vi.fn()} />,
+    <ProjectChatModal projectId="p-1" permits={permits as never} onClose={vi.fn()} />,
     { wrapper },
   );
 }

@@ -330,7 +330,7 @@ function renderModal(permits: Permit[] = [permit()]) {
   );
   modalClosed.mockClear();
   return render(
-    <ProjectChatModal projectId="p-1" permits={permits} onClose={modalClosed} />,
+    <ProjectChatModal projectId="p-1" permits={permits as never} onClose={modalClosed} />,
     { wrapper },
   );
 }

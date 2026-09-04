@@ -477,7 +477,7 @@ async function createTaskOnPermit(permitId: number, assignee?: string) {
   // card's pinned Chat button, so this renders the modal directly. Everything
   // below it — the composer, the chooser, the write path — is unchanged.
   render(
-    <ProjectChatModal projectId={PROJECT} permits={PERMITS} onClose={() => {}} />,
+    <ProjectChatModal projectId={PROJECT} permits={PERMITS as never} onClose={() => {}} />,
     { wrapper },
   );
   fireEvent.click(screen.getByTestId('project-chat-create-task-m-7'));
@@ -610,7 +610,7 @@ describe('fix-330: the chain, end to end on one store', () => {
 describe('fix-330: attachments travel the real write path', () => {
   it('★ a pasted snip is uploaded, then the message is inserted with it', async () => {
     render(
-      <ProjectChatModal projectId={PROJECT} permits={PERMITS} onClose={() => {}} />,
+      <ProjectChatModal projectId={PROJECT} permits={PERMITS as never} onClose={() => {}} />,
       { wrapper },
     );
     fireEvent.paste(screen.getByTestId('project-chat-input'), {
@@ -675,7 +675,7 @@ describe('fix-330: attachments travel the real write path', () => {
     };
 
     render(
-      <ProjectChatModal projectId={PROJECT} permits={PERMITS} onClose={() => {}} />,
+      <ProjectChatModal projectId={PROJECT} permits={PERMITS as never} onClose={() => {}} />,
       { wrapper },
     );
     fireEvent.paste(screen.getByTestId('project-chat-input'), {

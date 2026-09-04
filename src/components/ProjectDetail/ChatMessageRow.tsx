@@ -23,7 +23,7 @@ import ChatTaskComposer from './ChatTaskComposer';
 import MentionTextarea from './MentionTextarea';
 import type {
   MentionablePerson,
-  Permit,
+  PermitWithCycles,
   ProjectMessage,
 } from '../../lib/database.types';
 
@@ -72,7 +72,8 @@ export default function ChatMessageRow({
   /** ★ `@project` resolved for this project — the fallback audience for the
    *  "who has not reacted" line on an untagged post. */
   projectTeamIds?: readonly string[];
-  permits: Permit[];
+  // ★ fix-494: cycles are needed for the task's phase — see lib/permitPhase.
+  permits: PermitWithCycles[];
   focused?: boolean;
   variant?: 'post' | 'reply';
 }) {
