@@ -78,7 +78,6 @@ function makePermit(over: Partial<PermitWithCycles> = {}): PermitWithCycles {
     type: 'Building Permit',
     // 'pm' (permitting) lands viewCycleIdx on the latest cycle (cycle 1 here),
     // which is where the approval_date DateCell renders.
-    stage: 'pm',
     stage_override: null,
     status: null,
     num: null,

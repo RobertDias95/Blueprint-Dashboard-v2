@@ -6,7 +6,7 @@ import type {
   ProjectHold,
 } from './database.types';
 import { multiMatchAddress } from './drawScheduleHelpers';
-import { isPermitInCorrections } from './permitStage';
+import { effectiveStage, isPermitInCorrections } from './permitStage';
 import { isEffectivelyIssued } from './effectiveIssued';
 import { accountableDays } from './holdOverlap';
 import { isNotSubPermit } from './subPermit';
@@ -594,7 +594,16 @@ function pickDominantStage(permits: EnrichedPermit[]): string {
   let best = '';
   let bestRank = -1;
   for (const e of pool) {
-    const s = e.permit.stage_override ?? e.permit.stage ?? '';
+    // ★★★ fix-498 (P-025): the DERIVED stage. This was
+    //     `e.permit.stage_override ?? e.permit.stage ?? ''` — the stored
+    //     `permits.stage` column, stale on 342 of 406 issued permits, which
+    //     is why a project whose Building Permit was issued last month still
+    //     ranked "Design" in the Reports ledger. The column is dropped by
+    //     this same fix.
+    // ★ STAGE_RANK already speaks the derived vocabulary (de/pm/co/ap/is), so
+    //   the map is untouched; effectiveStage cannot return anything else, and
+    //   the `?? -1` arm is now unreachable rather than load-bearing.
+    const s = effectiveStage(e.permit, e.permit.permit_cycles ?? [], e.reviewers);
     const rank = STAGE_RANK[s] ?? -1;
     if (rank > bestRank) {
       bestRank = rank;

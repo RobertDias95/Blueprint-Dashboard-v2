@@ -86,7 +86,6 @@ function seedPermitWithC0(queryClient: QueryClient) {
     id: PERMIT_ID,
     project_id: PROJECT,
     type: 'Building Permit',
-    stage: 'design',
     stage_override: null,
     status: null,
     num: null,

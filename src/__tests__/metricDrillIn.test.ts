@@ -16,7 +16,7 @@ function cycle(over: Partial<PermitCycle> = {}): PermitCycle {
 }
 function permit(over: Partial<PermitWithCycles> = {}): PermitWithCycles {
   return {
-    id: 1, project_id: 'p1', type: 'Building Permit', stage: 'de', stage_override: null,
+    id: 1, project_id: 'p1', type: 'Building Permit', stage_override: null,
     status: null, num: null, da: null, dm: null, ent_lead: null, dual_da: null,
     target_submit: null, dd_start: null, dd_end: null, expected_issue: null,
     actual_issue: null, approval_date: null, intake_date: null, notes: null,

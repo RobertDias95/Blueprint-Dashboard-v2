@@ -39,7 +39,6 @@ function mkPermit(
     id,
     project_id,
     type: 'Building Permit',
-    stage: 'is',
     stage_override: null,
     status: null,
     num: null,

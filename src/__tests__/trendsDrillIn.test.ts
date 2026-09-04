@@ -49,7 +49,6 @@ function mkPermit(over: Partial<PermitWithCycles> & { id: number }): PermitWithC
     project_id: 'p1',
     parent_permit_id: null,
     type: 'Building Permit',
-    stage: 'is',
     stage_override: null,
     status: null,
     num: null,

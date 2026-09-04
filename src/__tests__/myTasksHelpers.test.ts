@@ -49,7 +49,6 @@ function makePermit(over: Partial<Permit> = {}): Permit {
     id: 1,
     project_id: 'proj-1',
     type: 'Building Permit',
-    stage: 'de',
     stage_override: null,
     status: null,
     num: null,

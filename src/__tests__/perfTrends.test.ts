@@ -55,7 +55,6 @@ function mkPermit(over: Partial<PermitWithCycles> & { id?: number } = {}): Permi
     id: over.id ?? 1,
     project_id: 'p1',
     type: 'Building Permit',
-    stage: 'is',
     stage_override: null,
     status: null,
     num: null,
