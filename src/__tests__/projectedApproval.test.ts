@@ -1188,3 +1188,129 @@ describe('fix-491: computeProjectedApproval reports its route', () => {
     expect(r.heldShiftDays).toBeGreaterThan(0);
   });
 });
+
+// ---------------------------------------------------------------------------
+// ★★★ fix-493 §A (P-152) — AN OVERRIDE ALWAYS WALKS
+// ---------------------------------------------------------------------------
+//
+// fix-24h dropped v1's `targetCycle === 1 &&` from the shortcut gate, which
+// made a hand-set `targetCycleOverride` **stored and ignored** on any permit
+// without corrections. Prod, measured 2026-09-04: 3 of 667 permits carry an
+// override and exactly ONE was affected — `3117 W Dravus St` (id 298,
+// `7139421-CN`, override 3, no corrections). Somebody pressed the button and
+// nothing happened.
+
+describe('fix-493: a hand-set override bypasses the holistic shortcut', () => {
+  /** ★ `3117 W Dravus St`'s real shape: intake recorded, cycle 1 submitted,
+   *  no corrections — the permit that took the shortcut with its override
+   *  ignored. */
+  const dravusCycles = () => [
+    cyc({ cycle_index: 0, intake_accepted: '2026-07-07' }),
+    cyc({ cycle_index: 1, submitted: '2026-06-25', city_target: '2026-09-15' }),
+  ];
+  const seattleBp = () =>
+    learned({
+      source: 'Last 90d · Building Permit · Seattle',
+      sampleCount: 30,
+      avgIntakeToApproval: 160,
+      mostLikelyCycle: 3,
+      cycleDist: { 1: 0, 2: 4, 3: 19, 4: 7 },
+      recencyTier: 'last_90d',
+    });
+
+  it('★★★ WITH an override it walks — `walk_override`, cycle 3, rounds filled', () => {
+    // ★★★ FAILS ON origin/main, where this returns `holistic_learned` with
+    //     `targetCycle: 1` and `rounds: {}` — byte-identical to the no-override
+    //     case below, which is the whole defect.
+    const r = computeProjectedApproval({
+      permit: permit({ target_submit: '2026-07-03' }),
+      cycles: dravusCycles(),
+      learnedEstimate: seattleBp(),
+      cycle0IntakeAccepted: '2026-07-07',
+      targetCycleOverride: 3,
+    });
+    expect(r.route).toBe('walk_override');
+    expect(r.targetCycle).toBe(3);
+    expect(r.routeFacts?.overrideCycle).toBe(3);
+    expect(r.routeFacts?.correctionRounds).toBe(2);
+    // ★ The rounds the shortcut never produced — an override now yields a
+    //   round-by-round estimate a person can read.
+    expect(r.rounds?.corrIssued1).toBeTruthy();
+    expect(r.rounds?.resubmitted1).toBeTruthy();
+    expect(r.rounds?.corrIssued2).toBeTruthy();
+  });
+
+  it('★★★ WITHOUT an override nothing moves — the date is pinned', () => {
+    // ★★★ THE BLAST-RADIUS ASSERTION. The gate change tests the INPUT, not the
+    //     resolved target, so a permit nobody has touched keeps the shortcut
+    //     and keeps its date. Pinned as a literal so a future edit to the gate
+    //     cannot move it quietly.
+    const r = computeProjectedApproval({
+      permit: permit({ target_submit: '2026-07-03' }),
+      cycles: dravusCycles(),
+      learnedEstimate: seattleBp(),
+      cycle0IntakeAccepted: '2026-07-07',
+    });
+    expect(r.route).toBe('holistic_learned');
+    expect(r.targetCycle).toBe(1);
+    // ★ cycle 1 submitted 2026-06-25 + 160 days. (NOT intake + 160 — the
+    //   holistic anchor is `base`, which resolves to the cycle-1 submitted
+    //   date here; measured, not assumed.)
+    expect(r.projection).toBe('2026-12-02');
+    // ★ …and the learner's real pick travels with it, for the stepper (§B).
+    expect(r.routeFacts?.mostLikelyCycle).toBe(3);
+  });
+
+  it('★★ an override of 1 also walks — the gate reads the INPUT, not the value', () => {
+    // ★★★ WHY THE CHECK IS `typeof … !== 'number'` AND NOT `targetCycle === 1`.
+    //     Restoring v1's resolved-target test would have changed permits with
+    //     NO override (a learner picking cycle 1 would stop taking the
+    //     shortcut). Asking whether somebody SET one moves only permits
+    //     somebody set one on — including this deliberate 1.
+    const r = computeProjectedApproval({
+      permit: permit({ target_submit: '2026-07-03' }),
+      cycles: dravusCycles(),
+      learnedEstimate: seattleBp(),
+      cycle0IntakeAccepted: '2026-07-07',
+      targetCycleOverride: 1,
+    });
+    expect(r.route).toBe('walk_override');
+    expect(r.routeFacts?.correctionRounds).toBe(0);
+  });
+
+  it('★★ the two OTHER prod overrides are untouched, for two different reasons', () => {
+    // ★★ Measured on prod: 4563 34th Ave W is ISSUED, so the projection returns
+    //    `actual` long before the gate; 2812 32nd Ave W has a correction round,
+    //    so `actualCorrCycles === 0` already excluded it. Both are pinned here
+    //    so "exactly one permit moves" is a test, not a claim.
+    const issued = computeProjectedApproval({
+      permit: permit({ type: 'Demolition', actual_issue: '2026-03-25' }),
+      cycles: [cyc({ cycle_index: 1, submitted: '2026-03-02' })],
+      learnedEstimate: seattleBp(),
+      targetCycleOverride: 2,
+    });
+    expect(issued.route).toBe('actual');
+    expect(issued.projection).toBe('2026-03-25');
+
+    const alreadyWalking = computeProjectedApproval({
+      permit: permit({ target_submit: '2026-06-12' }),
+      cycles: [
+        cyc({ cycle_index: 0, intake_accepted: '2026-06-10' }),
+        cyc({
+          cycle_index: 1,
+          submitted: '2026-06-03',
+          corr_issued: '2026-08-14',
+          resubmitted: '2026-08-24',
+        }),
+        cyc({ cycle_index: 2, submitted: '2026-08-24' }),
+      ],
+      learnedEstimate: seattleBp(),
+      cycle0IntakeAccepted: '2026-06-10',
+      targetCycleOverride: 3,
+    });
+    // ★ It walked before this ticket and it walks now — only the route LABEL
+    //   is more specific than the `walk_learned` it would otherwise carry.
+    expect(alreadyWalking.route).toBe('walk_override');
+    expect(alreadyWalking.targetCycle).toBe(3);
+  });
+});
