@@ -1,4 +1,5 @@
 import { useMemo } from 'react';
+import { routeSentence } from '../../lib/estimatorRouteCopy';
 import { usePermits } from '../../hooks/usePermits';
 import { useProjects } from '../../hooks/useProjects';
 import { useAllPermitCycleReviewers } from '../../hooks/useAllPermitCycleReviewers';
@@ -220,7 +221,11 @@ export default function ScheduleEstimator({ permit }: Props) {
         {result.targetCycle !== undefined && result.targetCycle > 1 && (
           <PerRoundBlock result={result} cycles={cycles} />
         )}
-        <SourceNote result={result} />
+        <SourceNote
+          result={result}
+          permitType={permit.type}
+          juris={projectJuris}
+        />
       </div>
     </div>
   );
@@ -355,10 +360,16 @@ function PerRoundBlock({
               </span>
             )}
           </span>
+          {/* ★★★ fix-491 §C — THE NOTE NOW SAYS "GREY DATES ARE PROJECTED",
+              SO THE DATES HAD TO BECOME GREY. They were `--color-text` and
+              italic, which is to say: the same colour as everything else, and
+              a distinction carried entirely by a slant nobody reads as a
+              legend. The italic STAYS (two signals beat one); the colour is
+              what makes the sentence true. */}
           <span
             className="font-mono"
             style={{
-              color: it.isReal ? 'var(--color-pm)' : 'var(--color-text)',
+              color: it.isReal ? 'var(--color-pm)' : 'var(--color-muted)',
               fontStyle: it.isReal ? 'normal' : 'italic',
             }}
           >
@@ -438,48 +449,62 @@ function CycleAdjuster({
   );
 }
 
-function SourceNote({ result }: { result: ProjectedApprovalResult }) {
-  if (result.isActual) return null;
-  if (!result.isProjected) {
-    return (
-      <div
-        className="text-[9px] italic"
-        style={{ color: 'var(--color-dim)' }}
-      >
-        Not enough data to project — set GO date, target submit, or cycle 1
-        submitted to seed the estimator.
-      </div>
-    );
-  }
-  if (result.targetCycle === 0) {
-    return (
-      <div
-        className="text-[9px] italic"
-        style={{ color: 'var(--color-dim)' }}
-      >
-        ULS anchored to sibling Building Permit's expected issue + 120 days.
-      </div>
-    );
-  }
-  if (result.targetCycle === 1) {
-    return (
-      <div
-        className="text-[9px] italic"
-        style={{ color: 'var(--color-dim)' }}
-      >
-        Holistic projection — learner expects approval in the first review
-        with no corrections.
-      </div>
-    );
-  }
+/**
+ * ★★★ fix-491 §B/§C (P-117) — THE FOOTNOTE NAMES ITS ROUTE, IN NUMBERS.
+ *
+ * ---------------------------------------------------------------------------
+ * ★★★ WHAT THIS REPLACES, AND WHY IT WAS WRONG RATHER THAN MERELY TERSE
+ * ---------------------------------------------------------------------------
+ * It used to branch on `result.targetCycle === 1` and print *"Holistic
+ * projection — learner expects approval in the first review with no
+ * corrections."* On the holistic branch that `1` is a CODE-PATH MARKER — the
+ * branch never walks cycles — and the date is `intake + avgIntakeToApproval`,
+ * an average that ALREADY CONTAINS the correction rounds of the permits it was
+ * drawn from. The learner's real pick for `554 N 75th St`'s cohort is cycle 3;
+ * cycle 1 was 0 of 32. **The sentence attributed to the learner a claim the
+ * learner never made**, which is exactly what Bobby caught.
+ *
+ * The other branch read *"Walked N correction rounds + final review buffer.
+ * Italic values are derived; ✓ marks real cycle data."* — engineering slang and
+ * a glyph used as a word. He read it aloud as *"block two correction rounds…
+ * R drive, mark…"*.
+ *
+ * ★★ SO THE COMPONENT NO LONGER INFERS ANYTHING. `computeProjectedApproval`
+ *    reports which branch it took (`result.route`) and the numbers that branch
+ *    used (`result.routeFacts`); `routeSentence` turns those into the wording
+ *    Bobby approved on 2026-09-04. Nothing here decides what happened.
+ *
+ * ★★★ §C — 11px REGULAR, MUTED, AND THAT IS A STEP **UP** FROM THE BODY.
+ *     The widget's body is `text-[10px]` and its labels `text-[8px]`; this note
+ *     was `text-[9px] italic` in `--color-dim`, i.e. the smallest and faintest
+ *     thing in a box of small faint things — while being the one sentence
+ *     anybody actually reads. Bobby's ruling: *11px regular, muted*. Do not
+ *     "normalise" it back down to match its neighbours.
+ */
+function SourceNote({
+  result,
+  permitType,
+  juris,
+}: {
+  result: ProjectedApprovalResult;
+  permitType?: string | null;
+  juris?: string | null;
+}) {
+  const sentence = routeSentence(result.route, result.routeFacts, {
+    type: permitType,
+    juris,
+  });
+  // ★ `actual` returns null — a recorded date explains itself, exactly as
+  //   before. So does an unknown route, rather than inventing a sentence.
+  if (sentence === null) return null;
   return (
     <div
-      className="text-[9px] italic"
-      style={{ color: 'var(--color-dim)' }}
+      className="text-[11px]"
+      style={{ color: 'var(--color-muted)', fontStyle: 'normal' }}
+      data-testid="estimator-source-note"
+      data-route={result.route ?? 'unknown'}
     >
-      Walked {(result.targetCycle ?? 1) - 1} correction round
-      {result.targetCycle === 2 ? '' : 's'} + final review buffer. Italic
-      values are derived; ✓ marks real cycle data.
+      {sentence}
     </div>
   );
 }

@@ -1032,3 +1032,159 @@ describe('computeProjectedApproval — fix-53 cycle-1 intake anchor', () => {
     expect(r.rounds?.corrIssued1).toBe('2026-02-14');
   });
 });
+
+// ---------------------------------------------------------------------------
+// ★★★ fix-491 (P-117) — THE RESULT NAMES THE BRANCH THAT PRODUCED IT
+// ---------------------------------------------------------------------------
+//
+// One case per `route`. ★★ NOT ONE OF THESE ASSERTS A DATE: every projection in
+// this file is pinned above and none of them moved, which is the ticket's own
+// stop condition — *"if a date moves, the change is wrong"*.
+
+describe('fix-491: computeProjectedApproval reports its route', () => {
+  it('★★★ THE BUG, PINNED — a Seattle-BP-shaped cohort is `holistic_learned`', () => {
+    // ★★★ THIS IS `554 N 75th St`. A learner IS present (n=32, avg 160d), the
+    //     permit has no correction cycles, so the holistic shortcut fires and
+    //     returns `targetCycle: 1`. The widget used to read that 1 as
+    //     "approval in the first review with no corrections" — while the SAME
+    //     learner's `mostLikelyCycle` is 3 and cycle 1 is 0 of 32.
+    //
+    // ★★ The `1` is a code-path marker. `route` is the thing that is true.
+    const r = computeProjectedApproval({
+      permit: permit(),
+      cycles: [cyc({ cycle_index: 1, submitted: '2026-01-01' })],
+      learnedEstimate: learned({
+        source: 'Last 90d · Building Permit · Seattle',
+        sampleCount: 32,
+        avgIntakeToApproval: 160,
+        mostLikelyCycle: 3,
+        cycleDist: { 1: 0, 2: 4, 3: 16, 4: 12 },
+        recencyTier: 'last_90d',
+      }),
+    });
+    expect(r.route).toBe('holistic_learned');
+    expect(r.targetCycle).toBe(1);
+    // ★ The facts the sentence prints — including the learner's REAL pick,
+    //   which is what makes the old copy demonstrably wrong.
+    expect(r.routeFacts?.mostLikelyCycle).toBe(3);
+    expect(r.routeFacts?.cycleDist).toEqual({ 1: 0, 2: 4, 3: 16, 4: 12 });
+    expect(r.routeFacts?.sampleCount).toBe(32);
+    expect(r.routeFacts?.avgIntakeToApproval).toBe(160);
+    expect(r.routeFacts?.recencyTier).toBe('last_90d');
+    expect(r.routeFacts?.cohortLabel).toBe('32 Seattle Building Permits');
+  });
+
+  it('★★★ the same shortcut with NO learner is `holistic_default`', () => {
+    // ★★ `effectiveAvg` is a chain of ternaries and the branch it took is not
+    //    recoverable from the value: 210 could be a learned average that
+    //    happens to be 210. The route is the only thing that distinguishes it.
+    const r = computeProjectedApproval({
+      permit: permit({ target_submit: '2026-01-01' }),
+      cycles: [],
+      // ★ Required by the input type; this case has no learner by design.
+      learnedEstimate: null,
+    });
+    expect(r.route).toBe('holistic_default');
+    expect(r.routeFacts?.defaultDays).toBe(210);
+    expect(r.routeFacts?.cohortLabel).toBeUndefined();
+  });
+
+  it('★★ a learner-picked target cycle is `walk_learned`', () => {
+    const r = computeProjectedApproval({
+      permit: permit(),
+      cycles: [cyc({ cycle_index: 1, submitted: '2026-01-01' })],
+      learnedEstimate: learned({
+        source: 'Last 90d · Building Permit · Seattle',
+        sampleCount: 30,
+        mostLikelyCycle: 2,
+        recencyTier: 'last_90d',
+      }),
+    });
+    expect(r.route).toBe('walk_learned');
+    // ★ targetCycle 2 → ONE correction round, then a final review.
+    expect(r.routeFacts?.correctionRounds).toBe(1);
+    expect(r.routeFacts?.cohortLabel).toBe('30 Seattle Building Permits');
+  });
+
+  it('★★ a hand-set target is `walk_override`, and carries the cycle', () => {
+    const r = computeProjectedApproval({
+      permit: permit(),
+      cycles: [cyc({ cycle_index: 1, submitted: '2026-01-01' })],
+      // ★ Required by the input type; this case has no learner by design.
+      learnedEstimate: null,
+      targetCycleOverride: 3,
+    });
+    expect(r.route).toBe('walk_override');
+    expect(r.routeFacts?.overrideCycle).toBe(3);
+    expect(r.routeFacts?.correctionRounds).toBe(2);
+  });
+
+  it('★★ a walk with neither is `walk_default`', () => {
+    // ★ A permit already in a correction round walks without a learner: the
+    //   holistic shortcut cannot fire (actualCorrCycles > 0).
+    const r = computeProjectedApproval({
+      permit: permit(),
+      // ★ Required by the input type; this case has no learner by design.
+      learnedEstimate: null,
+      cycles: [
+        cyc({
+          cycle_index: 1,
+          submitted: '2026-01-01',
+          corr_issued: '2026-01-20',
+          resubmitted: '2026-02-01',
+        }),
+        cyc({ cycle_index: 2, submitted: '2026-02-01' }),
+      ],
+    });
+    expect(r.route).toBe('walk_default');
+    expect(r.routeFacts?.cohortLabel).toBeUndefined();
+  });
+
+  it('★★ a real recorded date is `actual`, and carries no facts', () => {
+    const r = computeProjectedApproval({
+      permit: permit({ actual_issue: '2026-05-01' }),
+      cycles: [],
+      // ★ Required by the input type; this case has no learner by design.
+      learnedEstimate: null,
+    });
+    expect(r.route).toBe('actual');
+    expect(r.routeFacts).toBeUndefined();
+  });
+
+  it('★★ nothing to go on is `none`', () => {
+    const r = computeProjectedApproval({
+      permit: permit(),
+      cycles: [],
+      learnedEstimate: null,
+    });
+    expect(r.route).toBe('none');
+    expect(r.projection).toBeNull();
+  });
+
+  it('★★★ the hold wrapper PRESERVES the route it was handed', () => {
+    // ★★ `computeProjectedApproval` shifts a held projection and rebuilds the
+    //    object. A spread that dropped `route` would leave the widget with no
+    //    sentence on exactly the projects that most need explaining.
+    const r = computeProjectedApproval({
+      permit: permit({ target_submit: '2026-01-01' }),
+      cycles: [],
+      // ★ Required by the input type; this case has no learner by design.
+      learnedEstimate: null,
+      // ★ The hold's own field names are `hold_start` / `hold_end` (fix-262),
+      //   not `started_at` — see projectedApprovalHolds.test.ts.
+      holds: [
+        {
+          id: 'h1',
+          project_id: 'p1',
+          hold_start: '2026-01-05',
+          hold_end: null,
+          kind: 'hold',
+          reason: null,
+        },
+      ] as never,
+      today: '2026-02-05',
+    });
+    expect(r.route).toBe('holistic_default');
+    expect(r.heldShiftDays).toBeGreaterThan(0);
+  });
+});

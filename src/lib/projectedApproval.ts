@@ -3,6 +3,7 @@ import {
   defaultDaysForType,
   SCHEDULE_DEFAULTS,
   type LearnedEstimate,
+  type RecencyTier,
 } from './scheduleBenchmarks';
 import type {
   Permit,
@@ -154,6 +155,63 @@ export interface ProjectedApprovalRounds {
   resubmitted8?: string;
 }
 
+/**
+ * ★★★ fix-491 (P-117) — WHICH BRANCH PRODUCED THE DATE.
+ *
+ * Bobby, on `554 N 75th St`: *"I don't see how our historical permit data shows
+ * we're going to get through without any corrections."* He was right about the
+ * SENTENCE and the date was right too — the widget was reading
+ * `targetCycle === 1` as "approved in the first review", when on the holistic
+ * branch that 1 is a CODE-PATH MARKER, not a prediction. The projection there
+ * is `intake + avgIntakeToApproval`, an average that already contains every
+ * correction round those historical permits went through.
+ *
+ * ★★ SO THE RESULT NOW SAYS WHICH ROUTE IT TOOK, and the copy reads that
+ *    instead of inferring it from a number that means something else. Nothing
+ *    about the maths moves — this is a label on a road already taken.
+ */
+export type ProjectedApprovalRoute =
+  /** Holistic average from the learner: `intake + avgIntakeToApproval`. */
+  | 'holistic_learned'
+  /** Holistic average from `defaultDaysForType` — no learner for this cohort. */
+  | 'holistic_default'
+  /** Round-by-round walk, target cycle from `learnedEstimate.mostLikelyCycle`. */
+  | 'walk_learned'
+  /** Round-by-round walk with no learner — default durations. */
+  | 'walk_default'
+  /** Round-by-round walk, target cycle set by hand. */
+  | 'walk_override'
+  /** ULS, anchored to the sibling Building Permit. */
+  | 'uls_anchor'
+  /** A real recorded date — nothing is projected. */
+  | 'actual'
+  /** Not projectable. */
+  | 'none';
+
+/**
+ * ★★ ONLY WHAT THE COPY PRINTS. Every field is optional because every route
+ * uses a different handful, and a required field would make each `return` site
+ * carry values its sentence never mentions.
+ */
+export interface ProjectedApprovalRouteFacts {
+  /** "30 Seattle Building Permits" — the cohort, in words. */
+  cohortLabel?: string;
+  sampleCount?: number;
+  recencyTier?: RecencyTier;
+  avgIntakeToApproval?: number;
+  filteredCount?: number;
+  mostLikelyCycle?: number;
+  cycleDist?: Record<1 | 2 | 3 | 4, number>;
+  /** The per-type default used when there is no learner. */
+  defaultDays?: number;
+  /** `targetCycle - 1` on the walk routes. */
+  correctionRounds?: number;
+  /** The hand-set target, on `walk_override`. */
+  overrideCycle?: number;
+  /** fix-32's bump: reviewers flagged corrections on this cycle. */
+  reviewerBumpCycle?: number;
+}
+
 export interface ProjectedApprovalResult {
   projection: string | null;
   isActual: boolean;
@@ -167,6 +225,10 @@ export interface ProjectedApprovalResult {
    *  under an ACTIVE hold. 0 when not held (or when the date is actual). Exposed
    *  so a surface can annotate the date ("+34d on hold") without recomputing. */
   heldShiftDays?: number;
+  /** ★ fix-491: which branch produced `projection`. See the type above. */
+  route?: ProjectedApprovalRoute;
+  /** ★ fix-491: the numbers the footnote prints, and nothing else. */
+  routeFacts?: ProjectedApprovalRouteFacts;
   /** ULS-specific anchor data (rendered in the widget when the permit is ULS). */
   ulsAnchors?: {
     bpApprovalAnchor: string;
@@ -174,6 +236,37 @@ export interface ProjectedApprovalResult {
     targetSubmit: string;
     estApproval: string;
   };
+}
+
+/**
+ * ★★ fix-491 — THE COHORT, IN WORDS: "30 Seattle Building Permits".
+ *
+ * `LearnedEstimate.source` is a DIAGNOSTIC string built as
+ * `"Last 90d · Building Permit · Seattle"` (or `"All-time · …"`) by
+ * `buildEstimate`. The window is already carried separately as `recencyTier`,
+ * so what is wanted here is the last two segments, in reading order, with the
+ * sample count in front.
+ *
+ * ★★★ AND IT REFUSES TO GUESS. Parsing a producer's diagnostic string is
+ * fragile by nature, so an unexpected shape falls back to the raw `source`
+ * rather than to a confidently-wrong phrase — the rule this whole ticket
+ * enforces (a fallback must not borrow the confident voice). The projection
+ * module cannot do better: it is handed `permit.type` but never the project's
+ * juris, and `source` is the only place the pair travels together.
+ */
+export function cohortLabelFrom(
+  source: string | null | undefined,
+  sampleCount: number,
+): string {
+  const raw = (source ?? '').trim();
+  const parts = raw.split('·').map((p) => p.trim()).filter(Boolean);
+  if (parts.length < 3) return raw;
+  const type = parts[parts.length - 2]!;
+  const juris = parts[parts.length - 1]!;
+  // ★ "Permits" not "Permit s" — the type is a noun phrase, so the plural goes
+  //   on the end of it. `1` keeps the singular so a one-permit cohort reads.
+  const plural = sampleCount === 1 ? type : `${type}s`;
+  return `${sampleCount} ${juris} ${plural}`;
 }
 
 /** v1 :4474-4506 durFor: smart per-cycle duration lookup. Blends THIS
@@ -373,10 +466,20 @@ function computeProjectedApprovalCore(
 
   // Real outcomes short-circuit.
   if (permit.actual_issue) {
-    return { projection: permit.actual_issue, isActual: true, isProjected: false };
+    return {
+      projection: permit.actual_issue,
+      isActual: true,
+      isProjected: false,
+      route: 'actual',
+    };
   }
   if (permit.approval_date) {
-    return { projection: permit.approval_date, isActual: true, isProjected: false };
+    return {
+      projection: permit.approval_date,
+      isActual: true,
+      isProjected: false,
+      route: 'actual',
+    };
   }
 
   // Q9.5.f-fix-11 A: ULS branch. Anchors to sibling BP's projected
@@ -434,6 +537,7 @@ function computeProjectedApprovalCore(
         isActual: false,
         isProjected: true,
         targetCycle: 0,
+        route: 'uls_anchor',
         ulsAnchors: anchors,
       };
     }
@@ -447,7 +551,12 @@ function computeProjectedApprovalCore(
   const r4 = cycles.find((c) => c.cycle_index === 4) ?? null;
   const base = r1?.submitted ?? permit.target_submit ?? projectGoDate ?? null;
   if (!base) {
-    return { projection: null, isActual: false, isProjected: false };
+    return {
+      projection: null,
+      isActual: false,
+      isProjected: false,
+      route: 'none',
+    };
   }
 
   // fix-53: cycle-1 city review starts at intake_accepted (matches the
@@ -506,12 +615,18 @@ function computeProjectedApprovalCore(
   // happened on this permit (currentReviewCycle).
   const currentReviewCycle = Math.max(1, actualCorrCycles + 1);
   let targetCycle: number;
+  // ★ fix-491: recorded here rather than re-derived below, because the three
+  //   branches are distinguishable now and not afterwards.
+  let walkRoute: ProjectedApprovalRoute;
   if (typeof input.targetCycleOverride === 'number') {
     targetCycle = Math.max(currentReviewCycle, input.targetCycleOverride);
+    walkRoute = 'walk_override';
   } else if (learnedEstimate && typeof learnedEstimate.mostLikelyCycle === 'number') {
     targetCycle = Math.max(currentReviewCycle, learnedEstimate.mostLikelyCycle);
+    walkRoute = 'walk_learned';
   } else {
     targetCycle = currentReviewCycle;
+    walkRoute = 'walk_default';
   }
   // fix-32 (2026-05-19): a reviewer flagged corrections_required on
   // the LATEST cycle is the city signaling "another corr_issued is
@@ -523,8 +638,11 @@ function computeProjectedApprovalCore(
   // represented in the cycle walk and adding +1 here would push the
   // projection too far. (hasReviewerCorrectionsOnLatestCycle is
   // computed above so the holistic shortcut gate uses the same signal.)
+  // ★ fix-491: remembered so the footnote can say *why* a round was added.
+  let reviewerBumpCycle: number | undefined;
   if (hasReviewerCorrectionsOnLatestCycle) {
     targetCycle = Math.max(targetCycle, latestCycleIdx + 1);
+    reviewerBumpCycle = latestCycleIdx;
   }
   // Q9.5.f-fix-17.5 B: ceiling lifted from 4 → 8 for edge cases (complex
   // permits that hit 5+ correction rounds). The learner's mostLikelyCycle
@@ -570,6 +688,13 @@ function computeProjectedApprovalCore(
       : !hasAnyCycleActivity
         ? defaultDaysForType(permit.type, input.typeDefaultsOverride)
         : null;
+  // ★★★ fix-491: WHICH of the two sources `effectiveAvg` came from. The
+  //     expression above is a chain of ternaries and the branch it took is not
+  //     recoverable afterwards — the value alone cannot say whether 210 is a
+  //     learned average that happens to be 210 or the per-type default.
+  const holisticFromLearner =
+    !!learnedEstimate?.avgIntakeToApproval &&
+    learnedEstimate.avgIntakeToApproval > 0;
   // fix-32: when reviewers have flagged corrections on the latest
   // cycle, we already know a correction round is incoming. Skip the
   // first-review-approval shortcut and let the cycle walk produce a
@@ -593,8 +718,29 @@ function computeProjectedApprovalCore(
       projection,
       isActual: false,
       isProjected: true,
+      // ★★★ THE `1` THAT STARTED THIS TICKET. It is a code-path marker — this
+      //     branch does not walk cycles at all — and the widget used to read it
+      //     as "approved in the first review". `route` is what the copy reads
+      //     now; `targetCycle` keeps its value because `CycleAdjuster` and the
+      //     projection tests both depend on it (see the fix-491 PR: the stepper
+      //     showing 1 on a holistic date is reported, not fixed).
       targetCycle: 1,
       rounds: {},
+      route: holisticFromLearner ? 'holistic_learned' : 'holistic_default',
+      routeFacts: holisticFromLearner
+        ? {
+            cohortLabel: cohortLabelFrom(
+              learnedEstimate!.source,
+              learnedEstimate!.sampleCount,
+            ),
+            sampleCount: learnedEstimate!.sampleCount,
+            recencyTier: learnedEstimate!.recencyTier,
+            avgIntakeToApproval: effectiveAvg,
+            filteredCount: learnedEstimate!.filteredCount,
+            mostLikelyCycle: learnedEstimate!.mostLikelyCycle,
+            cycleDist: learnedEstimate!.cycleDist,
+          }
+        : { defaultDays: effectiveAvg },
     };
   }
 
@@ -732,6 +878,29 @@ function computeProjectedApprovalCore(
     isProjected: true,
     targetCycle,
     rounds,
+    route: walkRoute,
+    routeFacts: {
+      // ★ The walk targets cycle N, so it projects N−1 correction rounds and
+      //   then a final review. That subtraction is the sentence's number.
+      correctionRounds: Math.max(0, targetCycle - 1),
+      ...(walkRoute === 'walk_override'
+        ? { overrideCycle: targetCycle }
+        : {}),
+      ...(learnedEstimate
+        ? {
+            cohortLabel: cohortLabelFrom(
+              learnedEstimate.source,
+              learnedEstimate.sampleCount,
+            ),
+            sampleCount: learnedEstimate.sampleCount,
+            recencyTier: learnedEstimate.recencyTier,
+            mostLikelyCycle: learnedEstimate.mostLikelyCycle,
+            cycleDist: learnedEstimate.cycleDist,
+            filteredCount: learnedEstimate.filteredCount,
+          }
+        : {}),
+      ...(reviewerBumpCycle !== undefined ? { reviewerBumpCycle } : {}),
+    },
   };
 }
 
