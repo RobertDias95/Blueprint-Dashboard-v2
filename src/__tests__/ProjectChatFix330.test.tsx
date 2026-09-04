@@ -396,7 +396,7 @@ function openModal(permits: Permit[] = [permit()]) {
     </QueryClientProvider>
   );
   return render(
-    <ProjectChatModal projectId="p-1" permits={permits} onClose={() => {}} />,
+    <ProjectChatModal projectId="p-1" permits={permits as never} onClose={() => {}} />,
     { wrapper },
   );
 }

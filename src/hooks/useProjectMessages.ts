@@ -157,6 +157,18 @@ export interface PostMessageInput {
     permitId: number;
     text: string;
     discipline: 'arch' | 'ent';
+    /** ★★★ fix-494 (P-155): the PHASE the task lands in.
+     *
+     *  Before this, the composer sent nothing here and
+     *  `bp_trg_permit_task_default_bucket` filled it in from `c0.submitted` —
+     *  a different date from the one the permit screen reads, so a task made
+     *  from chat on a submitted permit landed in D&E. The composer now sends
+     *  the same answer the screen shows, from the same helper.
+     *
+     *  ★ Still optional: the trigger's default is a real fallback for any
+     *    caller that genuinely has no permit context, and fix-494 fixed that
+     *    default too rather than relying on every caller to remember. */
+    bucket?: 'de' | 'pm';
     assignedTo?: string | null;
     targetDate?: string | null;
   } | null;
@@ -216,6 +228,9 @@ export function usePostMessage() {
         const taskId = await upsert.mutateAsync({
           permitId: task.permitId,
           discipline: task.discipline,
+          // ★ fix-494: undefined still means "let the trigger decide", which is
+          //   now the same decision this value would have made.
+          bucket: task.bucket,
           text: task.text,
           status: 'Open',
           assignedTo: task.assignedTo ?? null,

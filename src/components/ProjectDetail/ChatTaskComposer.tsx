@@ -10,7 +10,7 @@ import {
   taskDraftIsReady,
   type ChatTaskDraft,
 } from '../../lib/chatTaskDraft';
-import type { Permit } from '../../lib/database.types';
+import type { PermitWithCycles } from '../../lib/database.types';
 
 // fix-330 — create a task from a message ALREADY POSTED, and choose its permit.
 //
@@ -40,7 +40,8 @@ export default function ChatTaskComposer({
   messageId: string;
   projectId: string;
   defaultText: string;
-  permits: Permit[];
+  // ★ fix-494: cycles are needed for the task's phase — see lib/permitPhase.
+  permits: PermitWithCycles[];
   onDone: () => void;
   onCancel: () => void;
 }) {
