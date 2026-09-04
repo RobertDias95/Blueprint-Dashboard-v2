@@ -205,7 +205,16 @@ const PAGE_LABELS: ReadonlyArray<{ match: RegExp; label: string }> = [
   { match: /^\/reports\/weekly-da(?:\?|$)/, label: 'Weekly DA Update' },
   { match: /^\/reports\/weekly-updates(?:\?|$)/, label: 'Weekly Updates' },
   { match: /^\/reports\/approved-awaiting(?:\?|$)/, label: 'Awaiting Issuance' },
-  { match: /^\/reports\/vendor-forecast(?:\?|$)/, label: 'Structural Forecast' },
+  // ★★ fix-499: ONE ROUTE, SEVEN REPORTS. The label was "Structural Forecast",
+  //   which is now a lie on six of them — and this list maps a path to a fixed
+  //   string, so it cannot read the `?discipline` back out. Generalised rather
+  //   than left wrong: "Schedule Forecast" is true of all seven, and a Previous
+  //   link that under-specifies is far better than one that misnames.
+  {
+    match: /^\/reports\/vendor-forecast(?:\?|$)/,
+    label: 'Schedule Forecast',
+  },
+  { match: /^\/reports\/waiting-on(?:\?|$)/, label: 'Waiting On' },
   { match: /^\/reports\/phase-durations(?:\?|$)/, label: 'Phase durations' },
   { match: /^\/reports\/builder(?:\/[^/?#]+)?(?:\?|$)/, label: 'Report builder' },
   { match: /^\/reports\/custom\/[^/?#]+(?:\?|$)/, label: 'Report' },

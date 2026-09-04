@@ -339,9 +339,25 @@ describe('fix-317: what must not have moved', () => {
   });
 
   it('the hub itself was not restructured — only the ribbon changed', () => {
-    // Same six builtins registered, same routes. This ticket moved navigation.
+    // ★★ fix-317's six are all still registered with their routes unchanged;
+    //    that is what this test is for and it still holds.
+    // ★★★ fix-499 ADDED SEVEN: six more disciplines on the one forecast route
+    //     (they differ only by `?discipline=`), and Waiting On, which moved out
+    //     of the My Tasks shell and became a report.
+    for (const r of THE_SIX) {
+      expect(Object.keys(BUILTIN_REPORT_COMPONENTS)).toContain(r.key);
+    }
     expect(Object.keys(BUILTIN_REPORT_COMPONENTS).sort()).toEqual(
-      [...THE_SIX].map((r) => r.key).sort(),
+      [
+        ...THE_SIX.map((r) => r.key),
+        'forecast_arborist',
+        'forecast_civil',
+        'forecast_energy',
+        'forecast_geotech',
+        'forecast_landscape',
+        'forecast_surveyor',
+        'waiting_on',
+      ].sort(),
     );
   });
 });

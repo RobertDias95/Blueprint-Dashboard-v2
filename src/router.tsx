@@ -21,6 +21,8 @@ import WeeklyUpdatesReport from './pages/WeeklyUpdatesReport';
 import ApprovedAwaitingIssuanceReport from './pages/ApprovedAwaitingIssuanceReport';
 import VendorScheduleForecastReport from './pages/VendorScheduleForecastReport';
 import CorrectionsReport from './pages/CorrectionsReport';
+import WaitingOnView from './components/Reports/WaitingOnView';
+import BoardOrWaitingOn from './components/BoardOrWaitingOn';
 import CorrectionPatterns from './pages/CorrectionPatterns';
 import SettingsPage from './pages/SettingsPage';
 import CustomReport from './pages/CustomReport';
@@ -125,8 +127,14 @@ export const router = createBrowserRouter([
         path: 'reports/phase-durations',
         element: <Navigate to="/settings/permits" replace />,
       },
-      // fix-265: Vendor Schedule Forecast — the weekly note to the structural
-      // engineer. Composes an Outlook draft; "Mark as sent" is separate.
+      // fix-265: the weekly schedule forecast owed to an outside consultant.
+      // Composes an Outlook draft; "Mark as sent" is separate.
+      //
+      // ★★★ fix-499 §B: ONE PATH, SEVEN REPORTS. The discipline is
+      // `?discipline=<name>` and ABSENT MEANS STRUCTURAL, so every link and
+      // bookmark that predates the change lands exactly where it always did.
+      // A second path per discipline would be six more entries for the ribbon
+      // coverage guard to account for and no behaviour at all.
       {
         path: 'reports/vendor-forecast',
         element: (
@@ -235,7 +243,12 @@ export const router = createBrowserRouter([
       // stacked. MyBoard and MineTasks are mounted as they are — nothing was
       // rebuilt, and both read the SAME useAllTasks query, so a tick in one
       // half re-renders the other from one invalidation.
-      { path: 'board', element: <PersonalBoard /> },
+      // ★★ fix-499 §D: `/board?view=waiting-on` was the way in while Waiting
+      //    On lived inside the My Tasks shell (fix-325). The switcher is gone;
+      //    the bookmark is not. A route cannot match a query string, so
+      //    BoardOrWaitingOn reads it and sends those visits to
+      //    /reports/waiting-on. Everything else is <PersonalBoard /> as before.
+      { path: 'board', element: <BoardOrWaitingOn /> },
       // ★★★ fix-462 (P-045): the Agenda. NOT wrapped in a guard, deliberately —
       // agenda membership hides a ribbon ENTRY, it is not a permission, and the
       // screen is of no use rather than secret to somebody outside the meeting.
@@ -256,18 +269,23 @@ export const router = createBrowserRouter([
       // Ungated, matching where it came from — /my-tasks was never admin-only.
       // The component is mounted exactly as it was, with no props and no
       // rewrite; it needed a route, not a redesign.
-      // ★ fix-325 #5: Waiting On folded into My Tasks. Bobby: "I think the
-      // waiting on needs to get folded into the my task section." /board mounts
-      // the full MyTasks shell now, whose Mine / Waiting On switcher is URL-
-      // backed — so this redirect lands on the view itself, not merely near it.
+      // ★★★ fix-499 §D — WAITING ON IS A REPORT. Bobby, 2026-08-31: *"Waiting
+      // on gets moved into reports."*
       //
-      // ★ The route is KEPT rather than deleted: fix-315 exists because fix-313
-      // removed a destination and stranded a real surface. The per-firm CSV is
-      // the reason that screen was rescued, and every link and bookmark to it
-      // still arrives.
+      // ★★★ UNGATED, AND THAT IS A DECISION, NOT AN OVERSIGHT. Every route
+      // around it here is wrapped in <AdminRoute>, and this one must not be:
+      // /my-tasks was never admin-only, fix-315's own comment says so, and 23
+      // of 29 logins are non-admin editors. Moving a screen between two
+      // addresses must not quietly take it away from the people using it.
+      { path: 'reports/waiting-on', element: <WaitingOnView /> },
+      // ★ fix-315 → fix-325 → fix-499: this path has now been rescued twice and
+      // moved twice, and it still resolves. fix-315 exists because fix-313
+      // removed a destination and stranded a real surface; the per-firm CSV is
+      // the reason that screen was rescued. Every link and bookmark still
+      // arrives — the address at the end of the chain is what changed.
       {
         path: 'waiting-on',
-        element: <Navigate to="/board?view=waiting-on" replace />,
+        element: <Navigate to="/reports/waiting-on" replace />,
       },
       // fix-28: scraper activity feed. The page owns search / category / ent
       // filters + per-row read state.

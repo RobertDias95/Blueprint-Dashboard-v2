@@ -279,6 +279,10 @@ describe('fix-325 #5: Waiting On folds into My Tasks', () => {
     expect(screen.queryByTestId('ribbon-link-/waiting-on')).toBeNull();
     expect(allRibbonRoutes()).not.toContain('/waiting-on');
     expect(routerSrc).toContain("path: 'waiting-on'");
+    // ★ fix-499 §D: it redirects to /reports/waiting-on now — Bobby moved
+    //   Waiting On out of My Tasks and into Reports. The switcher URL this
+    //   ticket created redirects there too, so nothing fix-325 rescued is lost.
+    expect(routerSrc).toContain('/reports/waiting-on');
     expect(routerSrc).toContain('/board?view=waiting-on');
   });
 

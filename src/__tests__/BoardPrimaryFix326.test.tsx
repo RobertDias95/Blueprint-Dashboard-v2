@@ -244,13 +244,18 @@ describe('fix-326: what fix-318 guaranteed still holds', () => {
     expect(screen.getByTestId('personal-board-panel').className).toContain('overflow-auto');
   });
 
-  it('the Mine / Waiting On switcher still works inside My Tasks', () => {
+  it('★★★ SUPERSEDED BY fix-499 §D: the switcher is gone, the shell is not', () => {
+    // fix-326 asserted the folded-in switcher worked from the board. Bobby
+    // moved Waiting On out to /reports/waiting-on, so what this now protects is
+    // that removing the control left nothing half-wired behind it: the tab
+    // still mounts the real shell, and `/board?view=waiting-on` redirects
+    // rather than rendering an empty view (see router.tsx BoardOrWaitingOn).
     state.tasks = [task()];
     renderBoard();
     openTasks();
-    expect(screen.getByTestId('my-tasks-view-switcher')).toBeInTheDocument();
-    fireEvent.click(screen.getByTestId('my-tasks-view-waiting-on'));
-    expect(screen.getByTestId('my-tasks-view-waiting-on').getAttribute('aria-pressed')).toBe('true');
+    expect(screen.getByTestId('mytasks-shell')).toBeInTheDocument();
+    expect(screen.queryByTestId('my-tasks-view-switcher')).toBeNull();
+    expect(screen.queryByTestId('my-tasks-view-waiting-on')).toBeNull();
   });
 
   it('MyTasks.tsx was mounted, not rewritten', async () => {

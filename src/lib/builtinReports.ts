@@ -5,6 +5,7 @@ import ApprovedAwaitingIssuanceReport from '../pages/ApprovedAwaitingIssuanceRep
 import PhaseDurationsReport from '../pages/PhaseDurationsReport';
 import VendorScheduleForecastReport from '../pages/VendorScheduleForecastReport';
 import CorrectionsReport from '../pages/CorrectionsReport';
+import WaitingOnView from '../components/Reports/WaitingOnView';
 
 // fix-68: builtin report registry. Maps a saved_reports.builtin_key to its
 // rendering component + the route that runs it. The Reporting hub (Settings
@@ -56,7 +57,61 @@ export const BUILTIN_REPORT_COMPONENTS: Record<string, BuiltinReportDef> = {
   vendor_schedule_forecast: {
     component: VendorScheduleForecastReport,
     route: '/reports/vendor-forecast',
-    label: 'Vendor Schedule Forecast',
+    label: 'Structural Schedule Forecast',
+  },
+  // ===========================================================================
+  // ★★★ fix-499 (P-034) — SEVEN FORECASTS, ONE COMPONENT, ONE ROUTE
+  // ===========================================================================
+  //
+  // Bobby: *"This vendor schedule forecast could then be applied to all of the
+  // other vendors we're using based on the same concept."*
+  //
+  // ★★★ `vendor_schedule_forecast` KEEPS ITS KEY AND ITS BARE ROUTE, and that
+  //     is load-bearing rather than tidy: it is the key prod's saved_reports row
+  //     carries, the key fix_267's seed inserted, and the route every existing
+  //     link, bookmark and Weekly Update card points at. Absent `?discipline`
+  //     means Structural, so all of them land where they always did.
+  //
+  // ★★ The other six differ ONLY by the query string. One component, one
+  //    router path — a second route per discipline would be six more things to
+  //    keep in step with the ribbon coverage guard for no behaviour at all.
+  forecast_civil: {
+    component: VendorScheduleForecastReport,
+    route: '/reports/vendor-forecast?discipline=Civil',
+    label: 'Civil Schedule Forecast',
+  },
+  forecast_surveyor: {
+    component: VendorScheduleForecastReport,
+    route: '/reports/vendor-forecast?discipline=Surveyor',
+    label: 'Surveyor Schedule Forecast',
+  },
+  forecast_arborist: {
+    component: VendorScheduleForecastReport,
+    route: '/reports/vendor-forecast?discipline=Arborist',
+    label: 'Arborist Schedule Forecast',
+  },
+  forecast_geotech: {
+    component: VendorScheduleForecastReport,
+    route: '/reports/vendor-forecast?discipline=Geotech',
+    label: 'Geotech Schedule Forecast',
+  },
+  forecast_energy: {
+    component: VendorScheduleForecastReport,
+    route: '/reports/vendor-forecast?discipline=Energy',
+    label: 'Energy Schedule Forecast',
+  },
+  forecast_landscape: {
+    component: VendorScheduleForecastReport,
+    route: '/reports/vendor-forecast?discipline=Landscape',
+    label: 'Landscape Schedule Forecast',
+  },
+  // ★★★ fix-499 §D — WAITING ON IS A REPORT. Bobby: *"Waiting on gets moved
+  //     into reports."* Same component, no rewrite; it moved file from
+  //     components/MyTasks to components/Reports and gained a route.
+  waiting_on: {
+    component: WaitingOnView,
+    route: '/reports/waiting-on',
+    label: 'Waiting On',
   },
   // fix-277: every indexed correction-letter comment across every project, with
   // the consecutive-cycle repeat rate. Replaces the per-project panel fix-276
@@ -129,6 +184,52 @@ export interface BuiltinReportCatalogEntry {
   howItWorks: HowItWorks;
 }
 
+/** ★★★ fix-499 §B — ONE EXPLANATION, WRITTEN ONCE, WITH THE DISCIPLINE IN IT.
+ *
+ *  The seven forecasts are ONE report with a parameter, so they get ONE
+ *  explanation. Seven hand-written copies would be seven places to update the
+ *  day the rule changes, and six of them would be wrong within a ticket or two.
+ *
+ *  ★★★ IT IS REWRITTEN, NOT EDITED. The fix-265/269 text described a report
+ *  whose membership came from tasks — "a structural task that is open and not
+ *  yet started", "name the task whatever you like". None of that is true any
+ *  more, and a stale explanation is worse than none: it is the thing a reader
+ *  trusts when the screen surprises them.
+ *
+ *  ★★ IT SAYS THE TARGET-SEND RULE OUT LOUD, because that rule is the single
+ *  most surprising thing on the page — a date the consultant record does not
+ *  state is filled in from the schedule, and on prod that is very nearly every
+ *  row. */
+function forecastHowItWorks(discipline: string): HowItWorks {
+  const d = discipline;
+  return {
+    included: [
+      `Projects that have a ${d} consultant recorded on them. The consultant record is what puts a project on this list — nothing else does.`,
+      'Their round has to be at Scheduled (nothing sent yet) or Pending (sent, waiting for it back). Scheduled rows are the schedule sections; Pending rows are under "Transmitted".',
+      'The target send date is the one on the consultant record when somebody has entered one. When nobody has, it is worked out from the project\'s draw block instead: one week before the end of the design phase (DD End).',
+      'A row whose target send has already passed and which has still not gone out stays on the list, at the top, marked OVERDUE.',
+      'Held projects stay on the list, labelled, so the firm knows a project is parked rather than wondering why it went quiet.',
+    ],
+    excluded: [
+      'Any project with no consultant recorded for this discipline. That is the most common reason something you expected is not here.',
+      'Rounds marked Received — the work came back, so it falls off. There is no tombstone and nothing to tidy up: the round is the record.',
+      'Projects whose permits have all issued or closed. This overrides everything else.',
+      'Projects whose draw block has moved past submittal — under review, corrections or approved.',
+      'Projects with no date at all: no date on the round and no schedule to work one out from. An undated row in a "coming to you" list would be a commitment nobody made.',
+      'Cancelled projects, and any draw block flagged to stay out of vendor emails.',
+      'Vacation, PTO and training blocks — they are not projects and never reach this report.',
+    ],
+    notes: [
+      'Target send is a commitment, not an observation: it is the date we are aiming to hand documents over, not something we watched happen.',
+      'Expected back is left blank unless somebody entered one. It is not guessed from a lead time — an invented date in an email to an outside engineer is worse than an empty cell.',
+      `The way something leaves this report is to mark the ${d} round Received on the project. Nothing else removes it.`,
+      'Empty sections vanish from the email completely, so most weeks show two or three of the five.',
+      'Composing a draft records nothing — previewing is free. Only "Mark as sent" updates what the firm is treated as knowing. Skip it and everything shows as new again next week.',
+      'Corrections are different: those are permitting-phase items sitting with the firm, and they still come from tasks rather than from a design round.',
+    ],
+  };
+}
+
 /** fix-267: hub placement per builtin. `null` means DELIBERATELY not listed —
  *  reachable by URL only.
  *
@@ -188,34 +289,65 @@ export const BUILTIN_REPORT_CATALOG: Record<
     },
   },
   // fix-265 / fix-267: seeded by migrations/fix_267_seed_vendor_forecast_report.sql.
+  // ★ fix-499 kept the KEY, the NAME and the POSITION: prod's row carries this
+  //   builtin_key and this is the card everyone already knows.
   vendor_schedule_forecast: {
     name: 'Structural Schedule Forecast',
     category: 'Weekly Updates',
     position: 2,
+    howItWorks: forecastHowItWorks('Structural'),
+  },
+  // ★★★ fix-499: Civil and Surveyor are SEEDED — the two disciplines with open
+  //     work today (32 and 46 live Scheduled rounds on prod, against Arborist
+  //     16, Energy 4, Landscape 3, Geotech 2). Everything they say about how
+  //     they decide is the Structural entry's text with the discipline swapped:
+  //     it is ONE report, and seven copies of the same paragraph would be seven
+  //     places to update the day the rule changes.
+  forecast_civil: {
+    name: 'Civil Schedule Forecast',
+    category: 'Weekly Updates',
+    position: 3,
+    howItWorks: forecastHowItWorks('Civil'),
+  },
+  forecast_surveyor: {
+    name: 'Surveyor Schedule Forecast',
+    category: 'Weekly Updates',
+    position: 4,
+    howItWorks: forecastHowItWorks('Surveyor'),
+  },
+  // ★★ THE OTHER FOUR ARE `null` — reachable by URL, not on the shelf, exactly
+  //    the phase_durations precedent two entries below. This is NOT the brief
+  //    departing from itself: `seededBuiltinKeys()` is defined as "the set the
+  //    seed migration inserts", a test pins the two lists together, and
+  //    fix_499's migration seeds Civil and Surveyor only. Giving these four a
+  //    catalog entry would make that guard assert a row no migration writes —
+  //    the fix-267 failure, inverted. Give one an entry (Weekly Updates,
+  //    positions 6+) and add it to the seed on the day someone wants the card.
+  forecast_arborist: null,
+  forecast_geotech: null,
+  forecast_energy: null,
+  forecast_landscape: null,
+  // ★★★ fix-499 §D: Waiting On, filed after the forecasts as the brief asks.
+  waiting_on: {
+    name: 'Waiting On — what each firm owes us',
+    category: 'Weekly Updates',
+    position: 5,
     howItWorks: {
       included: [
-        'Projects whose draw block is in a pre-submittal phase — Scheduled, Schematic, DD / Permit Set or Pending Consultants — and that have an address. Redesigns count in their own right.',
-        'Their target send date (DD End) must still be ahead of us.',
-        'Exception: a target send date that has already passed still shows IF the project has a structural task that is open and not yet started. Those appear at the top of Upcoming, marked OVERDUE.',
-        'Once that task is started, the project moves to Transmitted instead — sent, awaiting return.',
-        'The project\'s PHASE decides which section a structural task lands in, not what the task is called. On a pre-submittal project it is the design handoff (Upcoming or Transmitted); on a project past submittal it is a correction.',
+        'Every open task whose "waiting on" field names an outside discipline — structural, civil, surveyor and the rest.',
+        'Grouped by discipline, then by the firm recorded for that discipline on the task\'s project.',
+        'Each firm section carries its contact details from the External Team directory, and its own CSV.',
+        'Tasks on projects or permits that are on hold are shown, labelled, rather than hidden.',
       ],
       excluded: [
-        'Projects whose permits have all issued or closed. This overrides everything else, including an open transmit task.',
-        'Draw blocks that have moved past submittal — Under Review, Corrections or Approved.',
-        'A target send date that has passed when the project has NO transmit task at all: nothing says the work is still live.',
-        'Projects whose transmit task has been resolved — the package came back, so the design phase is finished.',
-        'Cancelled projects, and any block flagged to stay out of vendor emails.',
-        'Vacation, PTO and training blocks — they are not projects and never reach this report.',
+        'Tasks that are finished, unless you tick "include completed".',
+        'Tasks waiting on somebody inside Blueprint — this list is about what is with an outside firm.',
+        'Cancelled projects.',
       ],
       notes: [
-        'Target send is a commitment, not an observation: it is the date we are aiming to hand documents over, not something we watched happen.',
-        'Empty sections vanish from the email completely, so most weeks show two or three of the five.',
-        'Composing a draft records nothing — previewing is free. Only "Mark as sent" updates what the consultant is treated as knowing. Skip it and everything shows as new again next week.',
-        'Held projects stay on the list, labelled, so the consultant knows a project is parked rather than wondering why it went quiet.',
-        'Name the task whatever you like — the report reads the project\'s phase, not the task name. Only that a structural task EXISTS and whether it has been started matters.',
-        'Only a handful of projects currently carry a structural task. Until a project has one, it will drop off silently the moment its target send date passes.',
-        'A project with no draw block at all is treated as permitting, so its structural work shows under Corrections. Putting an unknown into a "coming to you" list is the worse mistake.',
+        'This is the mirror image of the schedule forecasts. They say what is COMING to a firm; this says what is sitting with one now.',
+        'The Mine / All toggle is the same one the board uses and remembers the same choice.',
+        'It used to live inside My Tasks behind a switcher. Every old link still works — they land here.',
       ],
     },
   },

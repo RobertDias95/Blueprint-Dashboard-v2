@@ -238,9 +238,12 @@ describe('fix-385: three tabs, one screen', () => {
     expect(screen.getByTestId('my-board')).toBeInTheDocument();
 
     fireEvent.click(tab('tasks'));
-    // fix-325's full shell, with the Mine / Waiting On switcher inside it.
+    // fix-325's full shell. ★ fix-499 §D took the Mine / Waiting On switcher
+    // out of it — Waiting On is /reports/waiting-on now — so the shell mounts
+    // the board and nothing else. The shell itself is still what this tab
+    // shows, which is what "mounted, not rewritten" means here.
     expect(screen.getByTestId('mytasks-shell')).toBeInTheDocument();
-    expect(screen.getByTestId('my-tasks-view-switcher')).toBeInTheDocument();
+    expect(screen.queryByTestId('my-tasks-view-switcher')).toBeNull();
 
     fireEvent.click(tab('notifications'));
     // fix-336's centre, by its own testid.

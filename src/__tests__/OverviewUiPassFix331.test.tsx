@@ -755,6 +755,11 @@ describe('fix-331 §8: the ribbon order', () => {
     expect(allRibbonRoutes()).not.toContain('/waiting-on');
     expect(ribbonExemptPaths()).toContain('/waiting-on');
     expect(routerSrc).toContain('/board?view=waiting-on');
+    // ★ fix-499 §D: still not a ribbon row, and the destination moved to
+    //   Reports. Both the bare path and the switcher URL land there.
+    expect(routerSrc).toContain('/reports/waiting-on');
+    expect(allRibbonRoutes()).not.toContain('/reports/waiting-on');
+    expect(ribbonExemptPaths()).toContain('/reports/waiting-on');
   });
 });
 

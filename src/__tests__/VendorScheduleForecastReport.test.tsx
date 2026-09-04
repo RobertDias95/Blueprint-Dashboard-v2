@@ -15,13 +15,11 @@ const drawRef = vi.hoisted(() => ({ current: [] as unknown[] }));
 const holdsRef = vi.hoisted(() => ({ current: [] as unknown[] }));
 const ledgerRef = vi.hoisted(() => ({ current: [] as unknown[] }));
 const waitingRef = vi.hoisted(() => ({ current: [] as unknown[] }));
-const extrasRef = vi.hoisted(() => ({
-  current: {
-    reusedFromProjectId: new Map<string, string>(),
-    reuseNotes: new Map<string, string>(),
-    migrationPending: false,
-  },
-}));
+// ★★★ fix-499: the CONSULTANT RECORDS are what put a project on this report.
+//     `useVendorReportExtras` is gone (its Reuse column went with it), and this
+//     ref replaced it.
+const consultantsRef = vi.hoisted(() => ({ current: [] as unknown[] }));
+const directoryRef = vi.hoisted(() => ({ current: [] as unknown[] }));
 const configRef = vi.hoisted(() => ({ current: new Map<string, unknown>() }));
 const markSentMutate = vi.hoisted(() => vi.fn());
 
@@ -40,8 +38,19 @@ vi.mock('../hooks/useWaitingOnTasks', () => ({
 vi.mock('../hooks/useAppConfig', () => ({
   useAppConfig: () => ({ map: configRef.current, isLoading: false, error: null }),
 }));
-vi.mock('../hooks/useVendorReportExtras', () => ({
-  useVendorReportExtras: () => ({ data: extrasRef.current, isLoading: false, error: null }),
+vi.mock('../hooks/useConsultantCurrent', () => ({
+  useConsultantCurrent: () => ({
+    data: consultantsRef.current,
+    isLoading: false,
+    error: null,
+  }),
+}));
+vi.mock('../hooks/useExternalTeamDirectory', () => ({
+  useExternalTeamDirectory: () => ({
+    data: directoryRef.current,
+    isLoading: false,
+    error: null,
+  }),
 }));
 vi.mock('../hooks/useVendorReportState', () => ({
   useVendorReportState: () => ({
@@ -110,9 +119,29 @@ const RECIPIENTS = {
   },
 };
 
-function renderPage() {
+/** ★ fix-499: a Scheduled Structural round on every fixture project unless a
+ *  test supplies its own. Same reasoning as the pure-core suite: `Scheduled`
+ *  ("nothing sent yet") is the state these tests always implicitly assumed. */
+function consultant(over: Record<string, unknown> & { project_id: string }) {
+  return {
+    consultant_id: `c-${over.project_id}`,
+    discipline: 'Structural',
+    firm_name: 'SSS',
+    firm_active: true,
+    status: 'Scheduled',
+    est_send: null,
+    sent: null,
+    est_recd: null,
+    recd: null,
+    round_index: 1,
+    round_count: 1,
+    ...over,
+  };
+}
+
+function renderPage(path = '/reports/vendor-forecast') {
   return render(
-    <MemoryRouter>
+    <MemoryRouter initialEntries={[path]}>
       <VendorScheduleForecastReport />
     </MemoryRouter>,
   );
@@ -158,11 +187,10 @@ beforeEach(() => {
   holdsRef.current = [];
   permitsRef.current = [];
   waitingRef.current = [];
-  extrasRef.current = {
-    reusedFromProjectId: new Map(),
-    reuseNotes: new Map(),
-    migrationPending: false,
-  };
+  consultantsRef.current = projectsRef.current.map((p) =>
+    consultant({ project_id: (p as { id: string }).id }),
+  );
+  directoryRef.current = [];
   configRef.current = new Map<string, unknown>([['vendorReportRecipients', RECIPIENTS]]);
 
   createdBlobs = [];
@@ -239,16 +267,33 @@ describe('<VendorScheduleForecastReport /> sections (fix-265)', () => {
     expect(screen.queryByTestId('vsf-pipeline-row-p-same')).toBeNull();
   });
 
-  it('excludes Corrections-status blocks, excluded blocks and past-DD blocks', () => {
+  it('excludes Corrections-status blocks and excluded blocks', () => {
     drawRef.current = [
       block({ project_id: 'p-new', status: 'Corrections' }),
       block({ project_id: 'p-moved', exclude_from_vendor_reports: true }),
-      block({ project_id: 'p-same', dd_end: '2026-08-01' }),
     ];
+    projectsRef.current = projectsRef.current.slice(0, 2);
+    consultantsRef.current = projectsRef.current.map((p) =>
+      consultant({ project_id: (p as { id: string }).id }),
+    );
     renderPage();
     // fix-268: an empty section is omitted entirely — heading, count and all.
     expect(screen.queryByTestId('vsf-pipeline')).toBeNull();
     expect(screen.getByTestId('vsf-all-empty')).toBeInTheDocument();
+  });
+
+  it('★★★ SUPERSEDED BY fix-499: a past-DD block is FLAGGED, not excluded', () => {
+    // ★★★ It used to be in the list above, asserted as excluded. fix-269's
+    //     reasoning was "no transmit task, so no evidence the work is live".
+    //     A Scheduled consultant round IS that evidence, so the row stays and
+    //     says it is late instead of disappearing on the day it matters most.
+    drawRef.current = [block({ project_id: 'p-same', dd_end: '2026-08-01', end_week: null })];
+    projectsRef.current = [project({ id: 'p-same', address: '2450 3rd Ave W' })];
+    consultantsRef.current = [consultant({ project_id: 'p-same' })];
+    ledgerRef.current = [];
+    renderPage();
+    expect(screen.getByTestId('vsf-pipeline-row-p-same')).toBeInTheDocument();
+    expect(screen.getByTestId('vsf-overdue-pipeline-p-same')).toBeInTheDocument();
   });
 
   it('shows the corrections section with blanks for missing dates', () => {
@@ -289,10 +334,11 @@ describe('<VendorScheduleForecastReport /> sections (fix-265)', () => {
     expect(screen.queryByTestId('vsf-correction-row-t2')).toBeNull();
   });
 
-  it('warns when the migration has not been applied', () => {
-    extrasRef.current = { ...extrasRef.current, migrationPending: true };
+  it('★★ SUPERSEDED BY fix-499 §C: there is no migration-pending banner', () => {
+    // It warned that `reuse_notes` was unavailable. The Reuse column went, the
+    // hook that fetched it went, and the banner had nothing left to warn about.
     renderPage();
-    expect(screen.getByTestId('vsf-migration-pending')).toBeInTheDocument();
+    expect(screen.queryByTestId('vsf-migration-pending')).toBeNull();
   });
 
   it('warns about a recipient with no address and disables compose with no To', () => {
@@ -309,8 +355,11 @@ describe('<VendorScheduleForecastReport /> sections (fix-265)', () => {
   });
 });
 
-// fix-268: design-phase transmit state, and empty sections disappearing.
-describe('<VendorScheduleForecastReport /> transmit state (fix-268)', () => {
+// ★★★ fix-499: this describe was fix-268's TRANSMIT-TASK state, end to end
+//     through the page. The sections are decided by the consultant round now,
+//     so each case supplies a round instead of a task — the assertions about
+//     what the SCREEN shows are unchanged, which is the point.
+describe('<VendorScheduleForecastReport /> round state (fix-268 → fix-499)', () => {
   const SSS_PROJECT = {
     id: 'p-new',
     address: '554 N 75th St',
@@ -341,11 +390,17 @@ describe('<VendorScheduleForecastReport /> transmit state (fix-268)', () => {
     projectsRef.current = [SSS_PROJECT];
     drawRef.current = [block({ project_id: 'p-new' })];
     ledgerRef.current = [];
+    consultantsRef.current = [consultant({ project_id: 'p-new' })];
   });
 
-  it('a STARTED transmit moves the project out of PIPELINE into TRANSMITTED', () => {
-    waitingRef.current = [
-      transmitTask({ start_date: '2026-09-18', target_date: '2026-10-02' }),
+  it('★★★ a PENDING round moves the project out of PIPELINE into TRANSMITTED', () => {
+    consultantsRef.current = [
+      consultant({
+        project_id: 'p-new',
+        status: 'Pending',
+        sent: '2026-09-18',
+        est_recd: '2026-10-02',
+      }),
     ];
     renderPage();
     expect(screen.getByTestId('vsf-transmitted-row-p-new')).toBeInTheDocument();
@@ -355,22 +410,26 @@ describe('<VendorScheduleForecastReport /> transmit state (fix-268)', () => {
     expect(row.textContent).toContain('2026-10-02');
   });
 
-  it('an UNSTARTED transmit leaves the project in PIPELINE and shows no section 4', () => {
-    waitingRef.current = [transmitTask({ start_date: null })];
+  it('a SCHEDULED round leaves the project in PIPELINE and shows no section 4', () => {
     renderPage();
     expect(screen.getByTestId('vsf-pipeline-row-p-new')).toBeInTheDocument();
     expect(screen.queryByTestId('vsf-transmitted')).toBeNull();
   });
 
-  it('a RESOLVED transmit appears in neither section', () => {
-    // fix-269 changed this: received means structural is finished with the
-    // design phase, so the project leaves UPCOMING too.
-    waitingRef.current = [
-      transmitTask({ start_date: '2026-09-18', completion_status: 'Resolved' }),
+  it('★★★ a RECEIVED round appears in neither section — it falls off', () => {
+    // Bobby: "once it's completed, it would fall off this list."
+    consultantsRef.current = [
+      consultant({ project_id: 'p-new', status: 'Received', sent: '2026-09-18', recd: '2026-10-01' }),
     ];
     renderPage();
     expect(screen.queryByTestId('vsf-transmitted')).toBeNull();
     expect(screen.queryByTestId('vsf-pipeline-row-p-new')).toBeNull();
+  });
+
+  it('★★★ a project with NO consultant record is not on the report at all', () => {
+    consultantsRef.current = [];
+    renderPage();
+    expect(screen.getByTestId('vsf-all-empty')).toBeInTheDocument();
   });
 
   // fix-271: this used to assert the opposite. Under text matching, a task named
@@ -378,6 +437,9 @@ describe('<VendorScheduleForecastReport /> transmit state (fix-268)', () => {
   // 7708/7336 misfiling. Phase decides now, so on a Scheduled project it is the
   // design handoff whatever it is called.
   it('a differently-named structural task on a pre-submittal project is DESIGN', () => {
+    // ★ fix-271's rule, unchanged: on a pre-submittal project a structural task
+    //   is NOT a correction, whatever it is called. What decides which design
+    //   section the project lands in is the round, so the fixture sets one.
     waitingRef.current = [
       transmitTask({
         task_id: 'cr1',
@@ -386,9 +448,11 @@ describe('<VendorScheduleForecastReport /> transmit state (fix-268)', () => {
         start_date: '2026-07-20',
       }),
     ];
+    consultantsRef.current = [
+      consultant({ project_id: 'p-new', status: 'Pending', sent: '2026-07-20' }),
+    ];
     renderPage();
     expect(screen.queryByTestId('vsf-correction-row-cr1')).toBeNull();
-    // Started → Transmitted, and therefore out of the pipeline.
     expect(screen.getByTestId('vsf-transmitted-row-p-new')).toBeInTheDocument();
     expect(screen.queryByTestId('vsf-pipeline-row-p-new')).toBeNull();
   });
@@ -421,12 +485,13 @@ describe('<VendorScheduleForecastReport /> transmit state (fix-268)', () => {
     expect(screen.queryByTestId('vsf-pipeline-row-p-new')).toBeNull();
   });
 
-  it('a stale block with no dd_end and a past end_week leaves the pipeline', () => {
+  it('★★★ SUPERSEDED BY fix-499: a stale block is FLAGGED overdue, not dropped', () => {
     drawRef.current = [
       block({ project_id: 'p-new', dd_end: null, end_week: '2026-06-08' }),
     ];
     renderPage();
-    expect(screen.queryByTestId('vsf-pipeline-row-p-new')).toBeNull();
+    expect(screen.getByTestId('vsf-pipeline-row-p-new')).toBeInTheDocument();
+    expect(screen.getByTestId('vsf-overdue-pipeline-p-new')).toBeInTheDocument();
   });
 
   // fix-269: the Via Estrella shape, end to end through the page.
@@ -452,15 +517,20 @@ describe('<VendorScheduleForecastReport /> transmit state (fix-268)', () => {
     expect(row.textContent).not.toContain('2026-03-27');
   });
 
-  it('the same block with NO transmit task stays invisible', () => {
-    // Regression lock on the majority case: without a liveness signal a passed
-    // target send still drops the row, exactly as fix-268 shipped it.
+  it('★★★ SUPERSEDED BY fix-499: the same block with NO TASK is now VISIBLE', () => {
+    // ★★★ THE INVERSION, ON THE MAJORITY CASE. This was the regression lock on
+    //     fix-268's rule — "without a liveness signal a passed target send drops
+    //     the row". Measured on prod 2026-09-04: 43 live Structural rounds
+    //     against 8 open Structural tasks, so that rule was hiding most of the
+    //     work most of the time. The round is the liveness signal now, and 37
+    //     of the 43 are Scheduled.
     drawRef.current = [
       block({ project_id: 'p-new', dd_end: '2026-03-27', end_week: '2026-03-23' }),
     ];
     waitingRef.current = [];
     renderPage();
-    expect(screen.queryByTestId('vsf-pipeline-row-p-new')).toBeNull();
+    expect(screen.getByTestId('vsf-pipeline-row-p-new')).toBeInTheDocument();
+    expect(screen.getByTestId('vsf-overdue-pipeline-p-new')).toBeInTheDocument();
   });
 
   it('empty sections are omitted — no stray headers', () => {

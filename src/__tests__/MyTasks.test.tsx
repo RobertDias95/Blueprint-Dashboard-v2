@@ -1405,9 +1405,18 @@ describe('MyTasks (fix-80 v1 three-pane kanban)', () => {
   });
 });
 
-// fix-140: URL-backed view switcher between the existing board and the new
-// Waiting On reporting view.
-describe('MyTasks view switcher (fix-140)', () => {
+// ★★★ fix-499 §D — THE SWITCHER IS GONE, AND THESE FOUR TESTS ARE ITS RECORD.
+//
+// fix-140 built a URL-backed Mine / Waiting On switcher on this page; fix-325
+// folded Waiting On INTO it on Bobby's instruction; fix-499 moved it out again,
+// also on his: *"Waiting on gets moved into reports."* It is `/reports/waiting-on`
+// now, with `/waiting-on` and `/board?view=waiting-on` both redirecting there.
+//
+// ★★ SO THE ASSERTIONS INVERT RATHER THAN VANISH. What this describe protects
+//    is that the page shows the BOARD and nothing else, and that no half-removed
+//    switcher is left behind — the failure mode of deleting a control is a dead
+//    testid or an orphaned URL parameter, not a missing one.
+describe('MyTasks view switcher — SUPERSEDED BY fix-499 §D', () => {
   function renderAt(path: string) {
     const queryClient = new QueryClient({
       defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
@@ -1421,41 +1430,30 @@ describe('MyTasks view switcher (fix-140)', () => {
     );
   }
 
-  it('renders both options and defaults to the My Tasks board', () => {
+  it('★★★ there is no switcher — the page renders the board and nothing else', () => {
     renderAt('/my-tasks');
-    expect(screen.getByTestId('my-tasks-view-switcher')).toBeInTheDocument();
-    expect(screen.getByTestId('my-tasks-view-mine')).toBeInTheDocument();
-    expect(screen.getByTestId('my-tasks-view-waiting-on')).toBeInTheDocument();
-    // Default = board (the existing page renders mytasks-page), not the view.
+    expect(screen.queryByTestId('my-tasks-view-switcher')).toBeNull();
+    expect(screen.queryByTestId('my-tasks-view-mine')).toBeNull();
+    expect(screen.queryByTestId('my-tasks-view-waiting-on')).toBeNull();
     expect(screen.getByTestId('mytasks-page')).toBeInTheDocument();
-    expect(screen.queryByTestId('waiting-on-view')).toBeNull();
-    expect(
-      screen.getByTestId('my-tasks-view-mine').getAttribute('aria-pressed'),
-    ).toBe('true');
   });
 
-  it('clicking Waiting On swaps to the view and sets ?view=waiting-on', () => {
-    renderAt('/my-tasks');
-    fireEvent.click(screen.getByTestId('my-tasks-view-waiting-on'));
-    expect(screen.getByTestId('waiting-on-view')).toBeInTheDocument();
-    expect(screen.queryByTestId('mytasks-page')).toBeNull();
-    expect(
-      screen.getByTestId('my-tasks-view-waiting-on').getAttribute('aria-pressed'),
-    ).toBe('true');
-  });
-
-  it('loads the Waiting On view directly from ?view=waiting-on (bookmark path)', () => {
+  it('★★★ ?view=waiting-on no longer renders Waiting On here', () => {
+    // ★★ The parameter is INERT on this page, not half-wired: /board reads it
+    //    and redirects (BoardOrWaitingOn in router.tsx), and this shell simply
+    //    does not know about it any more. A page that half-honoured it would be
+    //    the worst of the three states.
     renderAt('/my-tasks?view=waiting-on');
-    expect(screen.getByTestId('waiting-on-view')).toBeInTheDocument();
-    expect(screen.queryByTestId('mytasks-page')).toBeNull();
-  });
-
-  it('switching back to My Tasks unmounts the Waiting On view', () => {
-    renderAt('/my-tasks?view=waiting-on');
-    expect(screen.getByTestId('waiting-on-view')).toBeInTheDocument();
-    fireEvent.click(screen.getByTestId('my-tasks-view-mine'));
     expect(screen.queryByTestId('waiting-on-view')).toBeNull();
     expect(screen.getByTestId('mytasks-page')).toBeInTheDocument();
+  });
+
+  it('★★ the shell itself survives — MineTasks is still mounted inside it', () => {
+    // fix-318 exports MineTasks for PersonalBoard and several suites mount
+    // against `mytasks-shell`. Collapsing the two would be a refactor this
+    // ticket did not ask for.
+    renderAt('/my-tasks');
+    expect(screen.getByTestId('mytasks-shell')).toBeInTheDocument();
   });
 
   // ── fix-155: BOT badge + filter + priority/auto sort ───────────────────

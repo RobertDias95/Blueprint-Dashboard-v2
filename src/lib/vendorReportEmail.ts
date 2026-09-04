@@ -76,6 +76,77 @@ export function readVendorRecipients(
   };
 }
 
+// ===========================================================================
+// ★★★ fix-499 §B — WHERE THE RECIPIENTS COME FROM, AND SAYING SO
+// ===========================================================================
+//
+// Settings → Reporting holds a `vendorReportRecipients` blob keyed by vendor.
+// It has exactly ONE key today (`structural`), because until this ticket there
+// was one report. Six more disciplines now have one, and none of them has a
+// Settings entry — so a Civil forecast would have opened with "No recipients
+// are configured", which is true and useless when the directory has held that
+// firm's contact address all along.
+//
+// ★★ SO THE DIRECTORY IS THE DEFAULT, NOT A REPLACEMENT. Settings wins whenever
+//    it names anybody: it is the deliberate list, with a Cc and a label. The
+//    directory fills the gap, and the page SAYS WHICH ONE IT USED — a draft
+//    addressed from a source the sender did not choose is how the wrong person
+//    gets a schedule.
+//
+// ★ Inactive firms are skipped here, and only here. `firm_active` is a flag not
+//   a delete (fix-474), so an inactive firm still NAMES the work it did — but
+//   it should not receive new mail by default.
+
+export type RecipientSource = 'settings' | 'directory' | 'none';
+
+export interface ResolvedRecipients extends VendorRecipients {
+  /** Which of the two lists this came from, for the line the page shows. */
+  source: RecipientSource;
+}
+
+/** A directory firm, structurally typed so this module needs no import from the
+ *  database types it does not otherwise use. */
+export interface DirectoryFirmLike {
+  discipline: string;
+  name: string;
+  contact_name?: string | null;
+  contact_email?: string | null;
+  active?: boolean | null;
+}
+
+/** Settings first, the directory second, nothing third. */
+export function resolveForecastRecipients(
+  configValue: unknown,
+  vendorKey: string,
+  discipline: string,
+  firms: ReadonlyArray<DirectoryFirmLike> | undefined,
+): ResolvedRecipients {
+  const configured = readVendorRecipients(configValue, vendorKey);
+  if (configured.to.length > 0 || configured.cc.length > 0) {
+    return { ...configured, source: 'settings' };
+  }
+  const to: VendorRecipient[] = [];
+  const names: string[] = [];
+  for (const f of firms ?? []) {
+    if ((f.discipline ?? '').trim() !== discipline) continue;
+    if (f.active === false) continue;
+    const email = (f.contact_email ?? '').trim();
+    if (email === '') continue;
+    to.push({ name: (f.contact_name ?? '').trim(), email });
+    names.push((f.name ?? '').trim());
+  }
+  if (to.length === 0) return { ...EMPTY_RECIPIENTS, source: 'none' };
+  return {
+    // The label is what the email greets and what the heading shows. One firm
+    // names itself; several are joined, because a discipline with two firms on
+    // the directory is a real state and picking one silently would be worse.
+    label: names.filter((n) => n !== '').join(', '),
+    to,
+    cc: [],
+    source: 'directory',
+  };
+}
+
 /** Configured people with no email address yet. The page surfaces these so a
  *  silently-undeliverable draft is impossible — the worst failure mode for a
  *  vendor-facing email is one that looks sent and never arrived. */
@@ -135,11 +206,22 @@ const H2 = 'font-family:Segoe UI,Arial,sans-serif;font-size:15px;margin:22px 0 8
 // fix-274: column widths, shared across the three table shapes
 // ---------------------------------------------------------------------------
 //
-// The email stacks three DIFFERENT table shapes:
-//   schedule     Start week · Address · Jurisdiction · Units · Type ·
-//                Target send · Reuse                                        (7)
-//   transmitted  Address · Jurisdiction · Sent · Expected back               (4)
+// ★★★ fix-499 §C — THE ROW IS FIVE COLUMNS AND NOTHING ELSE. Bobby:
+// *"There's not going to be any notes. It's like, here's your dates, here's
+// your address, here's your unit, here's your unit type."*
+//
+//   schedule     Address · Units · Type · Target send · Expected back        (5)
+//   transmitted  Address · Units · Type · Sent        · Expected back        (5)
 //   corrections  Address · Jurisdiction · Permit type · Sent · Expected back (5)
+//
+// ★★ WHAT WENT, AND WHERE IT WENT INSTEAD. Start week and Jurisdiction are no
+// longer columns. Start week still drives change detection and the ledger, so a
+// start-week move is not lost — it renders as a sub-line under the address in
+// the Changes section, exactly the way a status move already did. Losing the
+// SIGNAL was never on the table; losing the column was the instruction.
+//
+// The three shapes finally line up, because the first three columns are now
+// literally the same three in two of them.
 //
 // Each <table> auto-sized its own columns from its own content, so nothing lined
 // up when read one after another. Every NAMED column now has ONE width used
@@ -157,7 +239,6 @@ const H2 = 'font-family:Segoe UI,Arial,sans-serif;font-size:15px;margin:22px 0 8
 const W_DATE = 15;
 const W_JURIS = 13;
 const W_PERMIT_TYPE = 14;
-const W_REUSE = 18;
 // ★★ fix-367 §2: the two scope columns. Units is a small integer and needs
 // almost nothing; Type holds at most three short tokens ("SFR, ADU, DADU" is
 // the widest real row on prod, of 44 multi-type projects).
@@ -171,8 +252,8 @@ const W_PRODUCT_TYPES = 12;
 // that every date column is 15% everywhere it appears so the three tables line
 // up when read one after another.
 const W_ADDRESS_SCHEDULE =
-  100 - W_DATE - W_JURIS - W_UNITS - W_PRODUCT_TYPES - W_DATE - W_REUSE; // 21
-const W_ADDRESS_TRANSMITTED = 100 - W_JURIS - W_DATE - W_DATE; // 57
+  100 - W_UNITS - W_PRODUCT_TYPES - W_DATE - W_DATE; // 52
+const W_ADDRESS_TRANSMITTED = W_ADDRESS_SCHEDULE; // same five columns
 const W_ADDRESS_CORRECTIONS = 100 - W_JURIS - W_PERMIT_TYPE - W_DATE - W_DATE; // 43
 
 /** fix-274: a header cell with its width INLINE.
@@ -208,13 +289,6 @@ function holdSuffix(row: VendorScheduleRow): string {
   )}]</span>`;
 }
 
-function reuseCell(row: VendorScheduleRow): string {
-  const parts: string[] = [];
-  if (row.reuseFromAddress) parts.push(esc(row.reuseFromAddress));
-  if (row.reuseNotes) parts.push(esc(row.reuseNotes));
-  return parts.length ? parts.join(' &middot; ') : BLANK;
-}
-
 /** fix-269: the overdue marker. TEXT, deliberately — no colour, no class, no
  *  background. Outlook strips or mangles most of that, and a signal the vendor
  *  cannot see is worse than none. Bold is the only emphasis Word renders
@@ -233,9 +307,7 @@ function scheduleTable(
 ): string {
   const head =
     `<tr>` +
-    th('Start week', W_DATE) +
     th('Address', W_ADDRESS_SCHEDULE) +
-    th('Jurisdiction', W_JURIS) +
     // ★★★ fix-367 §2: THE SAME TWO COLUMNS THE SCREEN HAS, from the same two
     // formatters. A column that exists on screen and not here is worse than
     // neither — it makes the report and the message disagree about what was
@@ -247,36 +319,41 @@ function scheduleTable(
     // documents to the external consultant" — so the column says so. It is a
     // commitment we are making, not a date we observed.
     th('Target send', W_DATE) +
-    th('Reuse', W_REUSE) +
+    // ★ fix-499: the round's est_recd. Blank on nearly every row today, and it
+    //   stays blank rather than being derived from a lead time.
+    th('Expected back', W_DATE) +
     `</tr>`;
   const body = rows
     .map((r) => {
       const prev = r.previous;
-      const start =
-        opts.showDelta && prev ? delta(prev.startWeek, r.startWeek) : cell(r.startWeek);
       const ddEnd =
         opts.showDelta && prev
           ? delta(prev.targetSend, r.targetSend)
           : cell(r.targetSend);
-      // Status only earns a column in the Changes section, where it moved.
-      const statusNote =
-        opts.showDelta && prev && (prev.status ?? '') !== (r.status ?? '')
-          ? `<div style="font-size:12px;color:#555;margin-top:2px;">Status: ${delta(
-              prev.status,
-              r.status,
-            )}</div>`
-          : '';
+      // ★★ fix-499: start week and status are no longer COLUMNS, so their
+      //    deltas render as sub-lines under the address. The Changes section
+      //    exists to show what moved; dropping a column must not drop a move.
+      const moved: string[] = [];
+      if (opts.showDelta && prev && (prev.startWeek ?? '') !== (r.startWeek ?? '')) {
+        moved.push(`Start week: ${delta(prev.startWeek, r.startWeek)}`);
+      }
+      if (opts.showDelta && prev && (prev.status ?? '') !== (r.status ?? '')) {
+        moved.push(`Status: ${delta(prev.status, r.status)}`);
+      }
+      const movedNote = moved.length
+        ? `<div style="font-size:12px;color:#555;margin-top:2px;">${moved.join(
+            ' &middot; ',
+          )}</div>`
+        : '';
       return (
         `<tr>` +
-        `<td style="${TD}">${start}</td>` +
-        `<td style="${TD}">${cell(r.address)}${overdueMarker(r)}${holdSuffix(r)}${statusNote}</td>` +
-        `<td style="${TD}">${cell(r.juris)}</td>` +
-        // ★ `cell()` renders the same BLANK the Reuse column uses for an
-        // absent value — fix-269's rule, not a second convention.
+        `<td style="${TD}">${cell(r.address)}${overdueMarker(r)}${holdSuffix(r)}${movedNote}</td>` +
+        // ★ `cell()` renders the same BLANK every absent value uses —
+        // fix-269's rule, not a second convention.
         `<td style="${TD}">${cell(formatUnits(r.units))}</td>` +
         `<td style="${TD}">${cell(formatProductTypes(r.productTypes))}</td>` +
         `<td style="${TD}">${ddEnd}</td>` +
-        `<td style="${TD}">${reuseCell(r)}</td>` +
+        `<td style="${TD}">${cell(r.expectedBack)}</td>` +
         `</tr>`
       );
     })
@@ -315,14 +392,17 @@ function correctionsTable(rows: ReadonlyArray<VendorCorrectionRow>): string {
   return `<table style="${TABLE}" cellpadding="0" cellspacing="0" border="0">${head}${body}</table>`;
 }
 
-/** fix-268: TRANSMITTED — packages sent, awaiting return. Four columns; no
- *  permit column, because a transmit is a project-level design handoff rather
- *  than permit-scoped work. */
+/** TRANSMITTED — packages sent, awaiting return. No permit column, because a
+ *  transmit is a project-level design handoff rather than permit-scoped work.
+ *
+ *  ★ fix-499 §C: the same five columns the schedule shape has, with `Sent` in
+ *  place of `Target send` — the date that matters once it has gone out. */
 function transmittedTable(rows: ReadonlyArray<VendorTransmitRow>): string {
   const head =
     `<tr>` +
     th('Address', W_ADDRESS_TRANSMITTED) +
-    th('Jurisdiction', W_JURIS) +
+    th('Units', W_UNITS) +
+    th('Type', W_PRODUCT_TYPES) +
     th('Sent', W_DATE) +
     th('Expected back', W_DATE) +
     `</tr>`;
@@ -331,7 +411,8 @@ function transmittedTable(rows: ReadonlyArray<VendorTransmitRow>): string {
       (r) =>
         `<tr>` +
         `<td style="${TD}">${cell(r.address)}</td>` +
-        `<td style="${TD}">${cell(r.juris)}</td>` +
+        `<td style="${TD}">${cell(formatUnits(r.units))}</td>` +
+        `<td style="${TD}">${cell(formatProductTypes(r.productTypes))}</td>` +
         `<td style="${TD}">${cell(r.sent)}</td>` +
         `<td style="${TD}">${cell(r.expectedBack)}</td>` +
         `</tr>`,
@@ -424,10 +505,22 @@ export function formatWeekOf(iso: string): string {
 }
 
 /** Subject line. Deliberately ASCII-only so the .eml header needs no RFC 2047
- *  encoded-word — an em dash here renders as mojibake in some Outlook builds. */
-export function buildVendorEmailSubject(vendorLabel: string, weekOf: string): string {
+ *  encoded-word — an em dash here renders as mojibake in some Outlook builds.
+ *
+ *  ★★ fix-499: the DISCIPLINE is in the subject. Seven of these reports now
+ *  exist and a Civil firm and a Surveyor would otherwise receive two messages
+ *  whose subject lines are indistinguishable in a mailbox. Optional so the
+ *  pre-fix-499 two-argument call still reads the same. */
+export function buildVendorEmailSubject(
+  vendorLabel: string,
+  weekOf: string,
+  discipline?: string,
+): string {
   const who = vendorLabel ? `${vendorLabel} ` : '';
-  return `${who}schedule forecast - week of ${formatWeekOf(weekOf)}`;
+  const what = (discipline ?? '').trim();
+  return `${who}${what ? `${what} ` : ''}schedule forecast - week of ${formatWeekOf(
+    weekOf,
+  )}`;
 }
 
 // ---------------------------------------------------------------------------

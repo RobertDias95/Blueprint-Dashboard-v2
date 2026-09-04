@@ -344,7 +344,8 @@ const WIRED_BY_LINK = [
   'components/DrawSchedule/ProjectBlockPopup',
   'components/LibraryMatrix',
   'components/MyTasks/TaskCard',
-  'components/MyTasks/WaitingOnView',
+  // ★ fix-499 §D: moved from components/MyTasks — Waiting On is a report now.
+  'components/Reports/WaitingOnView',
   'components/PermitCard',
   'components/ProjectDetail/ChatMessageRow',
   'components/ProjectDetail/ProjectDetailHeader',

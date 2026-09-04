@@ -28,7 +28,6 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 //   must bring the reader back to My Tasks.
 import { useOriginState } from '../hooks/useOriginState';
 import { PARAM_TASK } from '../lib/notificationTargets';
-import WaitingOnView from '../components/MyTasks/WaitingOnView';
 import BotBadge from '../components/shared/BotBadge';
 import AutoClosedBadge from '../components/shared/AutoClosedBadge';
 import { UNOWNED_LABEL, taskNeedsOwner } from '../lib/boardOwnership';
@@ -115,7 +114,6 @@ import {
   useIsCoAssigned,
 } from '../lib/coAssignedContext';
 import ScopeToggle from '../components/shared/ScopeToggle';
-import TwoStateToggle from '../components/shared/TwoStateToggle';
 import { SkeletonRows } from '../components/Skeleton';
 import QueryError from '../components/QueryError';
 import {
@@ -420,64 +418,27 @@ function isOverdue(t: Task, today: string): boolean {
   return isTaskOverdue(t, today);
 }
 
-// fix-140: the page is now a thin shell around a URL-backed view switcher.
-// `?view=waiting-on` renders the Waiting On reporting view; anything else
-// (default) renders the existing My Tasks board. The switcher chrome stays
-// mounted across both; only the content area below it swaps.
+// ===========================================================================
+// ★★★ fix-499 §D — WAITING ON LEFT THIS PAGE
+// ===========================================================================
+//
+// Bobby, 2026-08-31: *"Waiting on gets moved into reports."*
+//
+// This shell was fix-140's URL-backed Mine / Waiting On switcher, kept through
+// fix-313's merge into /board and fix-325's decision to fold Waiting On in
+// here rather than leave it in the ribbon. It has one job left: render the
+// board. The switcher and the `?view=waiting-on` branch are gone, and
+// `/board?view=waiting-on` now redirects to `/reports/waiting-on` so every
+// bookmark that fix-315 and fix-325 each rescued in turn still arrives.
+//
+// ★ THE SHELL ITSELF STAYS. `MineTasks` is exported for PersonalBoard and the
+//   `mytasks-shell` testid is what several suites mount against; collapsing the
+//   two would be a refactor this ticket did not ask for.
 export default function MyTasks() {
-  const [searchParams, setSearchParams] = useSearchParams();
-  const view: 'mine' | 'waiting-on' =
-    searchParams.get('view') === 'waiting-on' ? 'waiting-on' : 'mine';
-
-  function setView(next: 'mine' | 'waiting-on') {
-    const params = new URLSearchParams(searchParams);
-    if (next === 'mine') params.delete('view');
-    else params.set('view', 'waiting-on');
-    setSearchParams(params);
-  }
-
   return (
     <div data-testid="mytasks-shell">
-      <div className="px-3 pt-3">
-        <ViewSwitcher view={view} onChange={setView} />
-      </div>
-      {view === 'waiting-on' ? <WaitingOnView /> : <MineTasks />}
+      <MineTasks />
     </div>
-  );
-}
-
-/** fix-140: segmented control mirroring the FilterRow "All roles" chip group
- *  (chipStyle), URL-backed via the parent.
- *
- *  ★★ fix-483 §B (P-137): it is `TwoStateToggle` now. It was already a
- *  hand-rolled copy of ScopeToggle's markup down to the class string — the
- *  same two-state view switch, written out a second time — so it converts with
- *  no visual change at all: same classes, same `chipStyle(active, 'bg')`, same
- *  testids. It sits on the page ground rather than a card, which is why the
- *  surface stays `'bg'` (fix-441 §D's two real tints, unchanged). */
-function ViewSwitcher({
-  view,
-  onChange,
-}: {
-  view: 'mine' | 'waiting-on';
-  onChange: (v: 'mine' | 'waiting-on') => void;
-}) {
-  return (
-    <TwoStateToggle<'mine' | 'waiting-on'>
-      value={view}
-      onChange={onChange}
-      testid="my-tasks-view-switcher"
-      ariaLabel="Show my tasks or what I am waiting on"
-      surface="bg"
-      options={[
-        { value: 'mine', label: 'My Tasks', testid: 'my-tasks-view-mine' },
-        {
-          value: 'waiting-on',
-          label: 'Waiting On',
-          testid: 'my-tasks-view-waiting-on',
-        },
-      ]}
-    />
   );
 }
 
