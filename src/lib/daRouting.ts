@@ -77,9 +77,24 @@ export function groupRoutingByDa(
  *
  * What actually happens to an unrouted DA:
  *   1. the ENT cascade never fills their permits' `ent_lead`, and
- *   2. `daHasRoutingFor` returns false, so Step1ProjectInfo renders them as a
- *      DISABLED option — `disabled = !backfillMode && !routedDaSet.has(name)`.
- *      They cannot be picked as lead DA on a new project at all.
+ *   2. the wizard ASKS for the lead instead of deriving one.
+ *
+ * ★★★ POINT 2 CHANGED IN fix-497 (P-157), AND THE OLD TEXT IS WORTH KEEPING AS
+ * THE RECORD: it read *"Step1ProjectInfo renders them as a DISABLED option…
+ * they cannot be picked as lead DA on a new project at all."* That was true
+ * and it was the reason two real people could not be picked.
+ *
+ * Bobby, 2026-09-04, on Cam and Shire: *"they arent really mapped to people…
+ * shire and cam work on generally all projects… they float between all three
+ * of us."* Prod agreed — Cam's 27 open permits are led Miles 15 / Briana 12.
+ * **A missing routing row is now a legitimate state**, meaning "no default
+ * lead; ask on each project", and the wizard's ENT dropdown does the asking
+ * (`PermitAssignmentRow`, plus a submit gate so a floater's permit cannot be
+ * created leaderless).
+ *
+ * ★★ POINT 1 IS UNCHANGED AND WAS ALWAYS RIGHT: there is still no "defaults to
+ * Miles" rule anywhere. The cascade skips NULL, which is exactly what makes
+ * deleting a floater's row safe.
  *
  * Matched trimmed + case-folded, exactly like `unmappedActiveDas`, so a roster
  * name differing only in spacing is not reported as a gap it is not.

@@ -197,10 +197,15 @@ export default function Step3Permits({ value, onChange }: Props) {
     return out.sort((a, b) => a.name.localeCompare(b.name));
   }, [teamQ.all, backfillMode]);
 
-  /** fix-96-b: which DAs are routed for the project's juris. A DA appears
-   *  in the dropdown either way (so the user can see Bobby's full team)
-   *  but unrouted DAs render disabled. Recompute when juris or the
-   *  routing rows change. */
+  /** ★★★ fix-497 (P-157): which DAs are routed for the project's juris.
+   *
+   *  ★★ IT NO LONGER DISABLES ANYTHING. fix-96-b greyed out an unrouted DA;
+   *  Bobby's ruling is that a floating DA (Cam, Shire) has no routing row *by
+   *  design* and must stay pickable. The set survives because Step 3 still
+   *  needs to know: an unrouted DA means the permit's ENT lead is ASKED FOR
+   *  rather than derived — see `PermitAssignmentRow`.
+   *
+   *  Recompute when juris or the routing rows change. */
   const routedDaSet = useMemo(() => {
     const set = new Set<string>();
     for (const m of daMembers) {

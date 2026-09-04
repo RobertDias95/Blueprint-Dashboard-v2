@@ -5,10 +5,11 @@ import { useJurisdictions } from '../../hooks/useJurisdictions';
 import { useTeamMembers } from '../../hooks/useTeamMembers';
 import { isCurrentMember } from '../../lib/roster';
 import { useAppConfig, readAppConfigStringArray } from '../../hooks/useAppConfig';
-import {
-  daHasRoutingFor,
-  useDaTeamRouting,
-} from '../../hooks/useDaTeamRouting';
+// ★ fix-497: `daHasRoutingFor` is no longer imported here — Step 1's only use
+//   of it was the routing gate on the lead-DA option, which this ticket
+//   removes. It stays exported and is still used by Step 3 and by the Settings
+//   routing editor.
+import { useDaTeamRouting } from '../../hooks/useDaTeamRouting';
 import UnitTypesEditor from './UnitTypesEditor';
 import ReuseSourcePicker, { type ReuseSource } from './ReuseSourcePicker';
 import BuilderAutocompleteField from '../builder/BuilderAutocompleteField';
@@ -153,8 +154,9 @@ export default function Step1ProjectInfo({
   // fix-143: in backfill mode include inactive/former DAs and drop the routing
   // gate (historical DAs usually have no da_team_routing rows; the point of
   // backfill is to assign to them anyway).
-  const routingQ = useDaTeamRouting();
-  const routingRows = routingQ.data ?? [];
+  // ★ fix-497: the hook is still called (it warms the shared query the later
+  //   steps read) but Step 1 no longer needs the rows themselves.
+  useDaTeamRouting();
   const daMembers = useMemo(() => {
     const seen = new Set<string>();
     const out: TeamMember[] = [];
@@ -167,15 +169,19 @@ export default function Step1ProjectInfo({
     }
     return out.sort((a, b) => a.name.localeCompare(b.name));
   }, [teamAll, backfillMode]);
-  const routedDaSet = useMemo(() => {
-    const set = new Set<string>();
-    for (const m of daMembers) {
-      if (daHasRoutingFor(m.name, value.juris || null, routingRows)) {
-        set.add(m.name);
-      }
-    }
-    return set;
-  }, [daMembers, routingRows, value.juris]);
+  // ★★★ fix-497 (P-157) — `routedDaSet` IS GONE FROM STEP 1.
+  //
+  // Its only reader was the `disabled` flag on the lead-DA option, and that
+  // gate is what this ticket removes: a DA with no routing row is a FLOATER
+  // (Cam, Shire), not an unfinished setup, and must be pickable.
+  //
+  // ★★ The SET still exists on **Step 3**, where it earns its keep — there it
+  //    decides whether the permit's ENT lead is asked for or derived. Here it
+  //    decided only whether to grey somebody out, so it left with the grey.
+  //
+  // ★ `daHasRoutingFor` is untouched and still exported: the Settings routing
+  //   editor uses it to list DAs with no row, which is still worth showing (it
+  //   catches a genuine new joiner).
 
   // fix-143: tenure warning. When backfill mode is on and a lead DA with a
   // tenure window is picked, warn (don't block) if either entered DD date falls
@@ -654,24 +660,38 @@ export default function Step1ProjectInfo({
             >
               <option value="">— unassigned —</option>
               {daMembers.map((m) => {
-                // fix-143: backfill mode lists inactive/former DAs and skips
-                // the routing gate (they rarely have routing rows).
-                const disabled = !backfillMode && !routedDaSet.has(m.name);
+                // ★★★ fix-497 (P-157) — THE ROUTING GATE IS GONE.
+                //
+                // Bobby, 2026-09-04, on Cam and Shire: *"they arent really
+                // mapped to people… shire and cam work on generally all
+                // projects… they float between all three of us."* Prod agrees —
+                // Cam's 27 open permits are led Miles 15 / Briana 12.
+                //
+                // ★★ A MISSING ROUTING ROW IS NOW A REAL STATE, NOT A GAP.
+                //    It said "this DA is not set up yet" and greyed them out;
+                //    for a floater it means "there is no default lead, ask".
+                //    Step 3's ENT dropdown is where the asking happens.
+                //
+                // ★ fix-143's backfill listing of inactive/former DAs is
+                //   unchanged; only the routing condition left.
+                // ★ …and the "(not routed)" tag goes with it. It named a
+                //   deficiency; floating is not one. Where it MATTERS — the
+                //   permit whose lead has to be chosen — Step 3 says so
+                //   directly: "⟨Cam⟩ floats — choose who leads this permit".
                 const base = backfillMode ? memberLabel(m) : m.name;
                 const nonActive = isNonActiveMember(m);
                 return (
                   <option
                     key={m.id}
                     value={m.name}
-                    disabled={disabled}
                     data-testid={
                       nonActive
                         ? `wizard-role-da-option-inactive-${m.id}`
                         : `wizard-lead-da-opt-${m.name}`
                     }
-                    data-routing-disabled={disabled ? 'true' : 'false'}
+                    data-routing-disabled="false"
                   >
-                    {disabled ? `${base} (not routed)` : base}
+                    {base}
                   </option>
                 );
               })}

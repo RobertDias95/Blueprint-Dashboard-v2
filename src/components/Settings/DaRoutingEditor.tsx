@@ -148,9 +148,15 @@ export default function DaRoutingEditor({ activeDas, ents, readOnly }: Props) {
             {unrouted.length} active {unrouted.length === 1 ? 'DA has' : 'DAs have'}{' '}
             no routing rule
           </span>
+          {/* ★★★ fix-497 (P-157): the second half of this sentence stopped
+              being true. A DA with no routing row IS pickable now — Bobby's
+              ruling is that Cam and Shire float across all three entitlement
+              leads by design, so the missing row is the answer, not a gap.
+              ★ The LIST stays: it still catches a genuine new joiner, and
+                seeing who has no default is worth a glance either way. */}
           <span className="text-[10px] text-muted">
-            Their permits&apos; entitlement lead is left unset by the cascade, and
-            they cannot be picked as lead DA on a new project.
+            Their permits&apos; entitlement lead is chosen by hand on each new
+            project; the cascade leaves them alone.
           </span>
           <div className="flex flex-wrap gap-1.5 pt-0.5">
             {unrouted.map((name) => (
