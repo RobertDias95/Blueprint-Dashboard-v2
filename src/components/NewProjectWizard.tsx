@@ -29,7 +29,14 @@ import {
 import { pushToast } from '../stores/toastStore';
 import { findDmForDa } from './wizard/dmRouting';
 import { useDmDaGroups } from '../hooks/useDmDaGroups';
-import { lookupEntLeadForDa } from '../hooks/useDaTeamRouting';
+// ★ fix-497 §B: `daHasRoutingFor` + the hook join `lookupEntLeadForDa` here —
+//   submit now has to know which DAs float, using the SAME predicate Step 3's
+//   row uses for its caption.
+import {
+  daHasRoutingFor,
+  lookupEntLeadForDa,
+  useDaTeamRouting,
+} from '../hooks/useDaTeamRouting';
 import { snapToMonday, addDays } from '../lib/dateUtils';
 import type { RedesignTrigger } from '../lib/database.types';
 
@@ -146,6 +153,9 @@ export default function NewProjectWizard({ open, onClose, initialState }: Props)
   // through bp_ent_lead_for_da. Cached in this hook so the submit path
   // doesn't refetch.
   const dmDaGroupsQ = useDmDaGroups();
+  // ★ fix-497 §B: the same routing rows Step 3 reads, so the submit gate and
+  //   the row's "⟨Cam⟩ floats" caption can never disagree about who floats.
+  const routingRowsForValidation = useDaTeamRouting().data ?? [];
 
   const [step, setStep] = useState<StepIndex>(1);
   // fix-126: seed from initialState (redesign mode) or fall back to the
@@ -210,6 +220,27 @@ export default function NewProjectWizard({ open, onClose, initialState }: Props)
     onClose();
   }
 
+  /**
+   * ★★★ fix-497 §B (P-157) — the SELECTED permits whose DA has no routing row.
+   *
+   * A floating DA (Cam, Shire) has no `da_team_routing` row by design, so
+   * `bp_ent_lead_for_da` returns NULL and nothing will ever fill the lead in.
+   * These are the rows submit has to ask about.
+   *
+   * ★ Backfill is exempt, like every other routing rule here: a historical
+   *   project's lead is whatever it was, and those DAs rarely have rows.
+   */
+  const floatingDaPermits = useMemo(() => {
+    if (state.backfill_mode) return [];
+    const rows = routingRowsForValidation;
+    return state.permits.filter(
+      (p) =>
+        p.selected &&
+        !!p.da?.trim() &&
+        !daHasRoutingFor(p.da, state.juris || null, rows),
+    );
+  }, [state.permits, state.juris, state.backfill_mode, routingRowsForValidation]);
+
   /** Per-step "ready to advance" check. Step 4 → submit. */
   const stepError = useMemo<string | null>(() => {
     if (step === 1) {
@@ -229,10 +260,31 @@ export default function NewProjectWizard({ open, onClose, initialState }: Props)
       return null;
     }
     if (step === 3 || step === 4) {
+      // ★★★ fix-497 §B (P-157) — A PERMIT WITH A FLOATING DA MUST NAME ITS LEAD.
+      //
+      // ★★★ STEP 0's FINDING: before this, steps 3 and 4 returned `null` — there
+      //     was NO validation of `ent_lead` at all, and the submit path says so
+      //     out loud ("submit continues with a blank project-level ent_lead").
+      //     That was survivable while every pickable DA had a routing row to
+      //     derive from. fix-497 makes floaters pickable, so a permit could now
+      //     reach the database with a DA, no lead, and nothing that would ever
+      //     fill it in — the cascade skips NULL by design.
+      //
+      // ★★ IT ONLY FIRES FOR A DA THAT ACTUALLY FLOATS. A routed DA whose
+      //    lookup has not landed yet is not an error: the derive path fills it,
+      //    and blocking there would gate submit on a race. `floatingDaPermits`
+      //    is computed from the same `daHasRoutingFor` the row uses.
+      //
+      // ★ Backfill mode is exempt, like the rest of the routing logic — a
+      //   historical project's lead is whatever it was.
+      const missing = floatingDaPermits.find((p) => !p.ent_lead.trim());
+      if (missing) {
+        return `${missing.type || 'Permit'}: pick the ENT lead — ${missing.da} has no default`;
+      }
       return null;
     }
     return null;
-  }, [step, state.address, state.juris, state.units]);
+  }, [step, state.address, state.juris, state.units, floatingDaPermits]);
 
   function goNext() {
     setValidationErr(null);

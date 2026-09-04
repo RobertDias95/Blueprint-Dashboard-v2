@@ -677,7 +677,7 @@ describe('<Step3Permits />', () => {
     expect(lookupEntLeadForDaMock).toHaveBeenCalledWith('Trevor', 'Bellevue');
   });
 
-  it('fix-96-b: a DA with no routing rows renders disabled + tagged "(not routed)"', () => {
+  it('★★★ fix-497: a DA with no routing rows for this juris is PICKABLE', () => {
     // Only Cam has a routing row in this fixture; Trevor + Shire don't.
     routingRowsState.rows = [{ da: 'Cam', jurisdiction: null }];
     const init = makeEmptyWizardState();
@@ -694,17 +694,21 @@ describe('<Step3Permits />', () => {
     expect(cam.disabled).toBe(false);
     expect(cam.textContent).toBe('Cam');
 
+    // ★★★ fix-497 (P-157): BOTH OF THESE ARE INVERTED. They asserted the gate
+    //     that stopped a floating DA being picked at all. A DA with no routing
+    //     row for this juris is now pickable, and Step 3's ENT dropdown asks
+    //     for the lead instead of deriving one.
     const trevor = screen.getByTestId(
       `wizard-perm-da-${targetRowId}-opt-Trevor`,
     ) as HTMLOptionElement;
-    expect(trevor.disabled).toBe(true);
-    expect(trevor.getAttribute('data-routing-disabled')).toBe('true');
-    expect(trevor.textContent).toContain('(not routed)');
+    expect(trevor.disabled).toBe(false);
+    expect(trevor.getAttribute('data-routing-disabled')).toBe('false');
+    expect(trevor.textContent).not.toContain('(not routed)');
 
     const shire = screen.getByTestId(
       `wizard-perm-da-${targetRowId}-opt-Shire`,
     ) as HTMLOptionElement;
-    expect(shire.disabled).toBe(true);
+    expect(shire.disabled).toBe(false);
   });
 
   // fix-96-c: BP DA is now a project-level question (Step 1). On Step 3,

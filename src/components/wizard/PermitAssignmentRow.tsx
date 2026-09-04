@@ -74,6 +74,25 @@ export default function PermitAssignmentRow({
   onRemove,
   canRemove,
 }: Props) {
+  /**
+   * ★★★ fix-497 (P-157) — DOES THIS PERMIT'S DA HAVE A DEFAULT LEAD?
+   *
+   * Bobby's ruling: Cam and Shire have no `da_team_routing` row *by design*
+   * because they float across all three entitlement leads. `bp_ent_lead_for_da`
+   * returns NULL for them and the project cascade already skips NULL — so the
+   * database was always content. What was missing was the ASK.
+   *
+   * ★★ `routedDas === undefined` means the caller did not supply routing at all
+   *    (backfill and some tests), which is not the same as "this DA floats".
+   *    Treated as "no claim", so nothing is demanded of a caller that never had
+   *    the data.
+   */
+  const daFloats =
+    !backfillMode &&
+    routedDas !== undefined &&
+    !!permit.da &&
+    !routedDas.has(permit.da);
+
   return (
     <div
       className="relative border border-border rounded-md bg-bg/40 p-3 grid grid-cols-1 md:grid-cols-6 gap-2"
@@ -141,9 +160,22 @@ export default function PermitAssignmentRow({
           value={permit.ent_lead}
           onChange={(e) => onChange({ ent_lead: e.target.value })}
           className="bg-surface border border-border rounded-md px-2 py-1 text-xs font-mono text-text focus:outline-none focus:border-de"
+          style={
+            // ★ An unanswered required field looks unanswered. Same corrections
+            //   colour the rest of the app uses for "this needs you".
+            daFloats && !permit.ent_lead
+              ? { borderColor: 'var(--color-co)' }
+              : undefined
+          }
           data-testid={`wizard-perm-ent-${permit.rowId}`}
         >
-          <option value="">— none —</option>
+          {/* ★★★ fix-497 §B — A FLOATING DA MEANS THE LEAD IS ASKED FOR.
+              "— none —" reads as a legitimate empty on a routed DA, where the
+              lookup simply has not fired yet. On a floater there IS no default
+              coming, ever, so the placeholder has to say so. */}
+          <option value="">
+            {daFloats ? '— pick the ENT lead —' : '— none —'}
+          </option>
           {entOptions.map((m) => {
             const nonActive = isNonActiveMember(m);
             return (
@@ -165,6 +197,18 @@ export default function PermitAssignmentRow({
               <option value={permit.ent_lead}>{permit.ent_lead}</option>
             )}
         </select>
+        {/* ★★ SAY WHY, not just that. "Cam floats" is the fact; "choose who
+            leads this permit" is what to do about it. Without the first half
+            the empty box reads as a bug. */}
+        {daFloats && !permit.ent_lead && (
+          <span
+            className="text-[9px]"
+            style={{ color: 'var(--color-co)' }}
+            data-testid={`wizard-perm-ent-floats-${permit.rowId}`}
+          >
+            {permit.da} floats — choose who leads this permit
+          </span>
+        )}
       </label>
 
       <label className="flex flex-col gap-0.5">
@@ -214,23 +258,25 @@ export default function PermitAssignmentRow({
               // tell whether the DA exists at all.
               // fix-143: backfill mode lists inactive/former DAs and drops the
               // routing gate (historical DAs rarely have routing rows).
-              const disabled =
-                !backfillMode && routedDas !== undefined && !routedDas.has(m.name);
+              // ★★★ fix-497 (P-157): the routing gate is gone here too. A DA
+              //     with no routing row is a FLOATER, not an unfinished setup
+              //     — Cam and Shire work across all three entitlement leads by
+              //     design. `routedDas` is still received, and still used
+              //     below: it decides whether the ENT lead is asked for.
               const base = backfillMode ? memberLabel(m) : m.name;
               const nonActive = isNonActiveMember(m);
               return (
                 <option
                   key={m.id}
                   value={m.name}
-                  disabled={disabled}
                   data-testid={
                     nonActive
                       ? `wizard-role-da-option-inactive-${m.id}`
                       : `wizard-perm-da-${permit.rowId}-opt-${m.name}`
                   }
-                  data-routing-disabled={disabled ? 'true' : 'false'}
+                  data-routing-disabled="false"
                 >
-                  {disabled ? `${base} (not routed)` : base}
+                  {base}
                 </option>
               );
             })}

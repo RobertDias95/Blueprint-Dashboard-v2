@@ -498,27 +498,43 @@ describe('<Step1ProjectInfo />', () => {
       expect(opt.disabled).toBe(false);
     });
 
-    it('a DA with no routing row at all (Shire) is disabled + tagged "(not routed)"', () => {
+    it('★★★ fix-497: a DA with no routing row at all (Shire) is PICKABLE', () => {
+      // ★★★ THIS TEST IS INVERTED, AND THAT IS THE TICKET. It asserted
+      //     `disabled === true` and the "(not routed)" tag, which is exactly
+      //     what stopped Cam and Shire being picked.
+      //
+      // Bobby, 2026-09-04: *"they arent really mapped to people… shire and cam
+      // work on generally all projects… they float between all three of us."*
+      // Prod agreed — Cam's 27 open permits are led Miles 15 / Briana 12.
+      //
+      // ★★ A MISSING ROUTING ROW IS A REAL STATE NOW: "no default lead, ask on
+      //    each project". The asking happens on Step 3.
       const init = makeEmptyWizardState();
       init.juris = 'Seattle';
       setup(init);
       const opt = screen.getByTestId(
         'wizard-lead-da-opt-Shire',
       ) as HTMLOptionElement;
-      expect(opt.disabled).toBe(true);
-      expect(opt.getAttribute('data-routing-disabled')).toBe('true');
-      expect(opt.textContent).toContain('(not routed)');
+      expect(opt.disabled).toBe(false);
+      expect(opt.getAttribute('data-routing-disabled')).toBe('false');
+      // ★ …and the tag is gone: it named a deficiency, and floating is not one.
+      expect(opt.textContent).not.toContain('(not routed)');
+      expect(opt.textContent).toBe('Shire');
     });
 
-    it('a juris-specific row (Trevor + Seattle) is disabled for a different juris (Bellevue)', () => {
+    it('★★★ fix-497: a juris-specific row elsewhere (Trevor) is PICKABLE too', () => {
+      // ★★ THE SAME RULE FOR THE OTHER SHAPE. Trevor has a Seattle row and this
+      //    project is Bellevue, so he is "unrouted here" — which used to grey
+      //    him out. It is the same claim as Shire's ("no default lead for this
+      //    project") and gets the same answer: pick him, then name the lead.
       const init = makeEmptyWizardState();
       init.juris = 'Bellevue';
       setup(init);
       const opt = screen.getByTestId(
         'wizard-lead-da-opt-Trevor',
       ) as HTMLOptionElement;
-      expect(opt.disabled).toBe(true);
-      expect(opt.textContent).toContain('(not routed)');
+      expect(opt.disabled).toBe(false);
+      expect(opt.textContent).not.toContain('(not routed)');
     });
   });
 
