@@ -97,9 +97,17 @@ export interface ProjectedApprovalInput {
   siblingLearnedByPermitId?: Map<number, LearnedEstimate | null>;
   /** Q9.5.f-fix-16 B: user-supplied target cycle override. Replaces the
    *  learner's `mostLikelyCycle` pick. Floored at currentReviewCycle (can't
-   *  target a round earlier than what's already happened) and clamped 1–4.
-   *  When set, the holistic shortcut still applies if the resolved target
-   *  is 1 + no actual corrections. */
+   *  target a round earlier than what's already happened) and clamped 1–8.
+   *
+   *  ★★★ fix-493 (P-152): **SETTING THIS ALWAYS PRODUCES A ROUND-BY-ROUND
+   *  WALK.** The holistic shortcut is skipped outright when it is a number.
+   *
+   *  ★★ THE OLD SENTENCE HERE WAS WRONG, not merely stale: it claimed *"the
+   *  holistic shortcut still applies if the resolved target is 1 + no actual
+   *  corrections"*, and the gate never looked at the resolved target — or at
+   *  this field at all. The override was stored and ignored on every permit
+   *  without corrections. Recorded rather than quietly deleted, because a
+   *  comment that describes a check nobody wrote is how the bug survived. */
   targetCycleOverride?: number | null;
   /** fix-25-feat-Z: tenant-scoped per-type default overrides. When the
    *  learner is silent and the holistic fallback fires, prefer this map
@@ -699,10 +707,32 @@ function computeProjectedApprovalCore(
   // cycle, we already know a correction round is incoming. Skip the
   // first-review-approval shortcut and let the cycle walk produce a
   // multi-cycle projection so the +1-cycle bump above can take effect.
+  //
+  // ★★★ fix-493 §A (P-152) — AN EXPLICIT OVERRIDE BYPASSES THE SHORTCUT.
+  //
+  // v1's gate included `targetCycle === 1 &&`. fix-24h (681a53f) dropped it so
+  // the branch could also fire when the learner was silent — and in doing so
+  // made a hand-set `targetCycleOverride` **stored and ignored**: the widget
+  // wrote `extras.scheduleCycleOverride`, the projection took the shortcut
+  // anyway, and `targetCycle` still read 1. Somebody pressed the button and
+  // nothing happened.
+  //
+  // ★★ THE CHECK IS ON THE INPUT, NOT ON THE RESOLVED TARGET. Testing
+  //    `targetCycle === 1` would restore v1's gate and change behaviour for
+  //    permits with NO override (a learner picking cycle 1 would stop taking
+  //    the shortcut). Testing the input moves only the permits where somebody
+  //    actually asked for a cycle — measured on prod 2026-09-04: **3 of 667
+  //    permits carry an override, and exactly ONE of them changes.** The other
+  //    two are already elsewhere: 4563 34th Ave W is issued (returns `actual`
+  //    before this line) and 2812 32nd Ave W has a correction round, so
+  //    `actualCorrCycles === 0` already excluded it.
+  //
+  // ★ Bobby, 2026-09-04: **an override always walks.**
   if (
     effectiveAvg !== null &&
     actualCorrCycles === 0 &&
-    !hasReviewerCorrectionsOnLatestCycle
+    !hasReviewerCorrectionsOnLatestCycle &&
+    typeof input.targetCycleOverride !== 'number'
   ) {
     // fix-24e: floor base so a past submitted/target_submit still produces a
     // future-looking holistic projection.

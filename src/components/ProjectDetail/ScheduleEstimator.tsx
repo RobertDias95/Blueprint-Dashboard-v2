@@ -145,11 +145,40 @@ export default function ScheduleEstimator({ permit }: Props) {
     [permit, permitHolds, learnedEstimate, projectGoDate, siblings, siblingCyclesByPermitId, siblingLearnedByPermitId, cycleOverride, permitReviewers],
   );
 
+  /**
+   * ★★★ fix-493 §B (P-152) — WHAT THE STEPPER SHOWS ON A SHORTCUT ESTIMATE.
+   *
+   * On `holistic_learned` the projection's `targetCycle` is **1**, and that 1
+   * is a code-path marker: the branch never walks cycles (see
+   * lib/projectedApproval). Printing it put a bold **1** directly above
+   * fix-491's own footnote saying *"…9 in 10 needed two or more correction
+   * rounds"* — the widget contradicting itself in two adjacent lines.
+   *
+   * ★★ SO IT SHOWS THE LEARNER'S ACTUAL PICK, which is the number the sentence
+   *    is about. Bobby, 2026-09-04: show the likely cycle and step from it.
+   *
+   * ★★★ ONLY ON `holistic_learned`. `holistic_default` has no learner and
+   *     therefore no likely cycle — its footnote already says the date is the
+   *     per-type default, so the stepper keeps showing `targetCycle` rather
+   *     than inventing a cohort that does not exist. Every walk route already
+   *     shows the cycle it actually walked to.
+   *
+   * ★ And once somebody sets an override, `cycleOverride` is the truth on every
+   *   route — that is what they asked for.
+   */
+  const displayedCycle =
+    cycleOverride ??
+    (result.route === 'holistic_learned'
+      ? (result.routeFacts?.mostLikelyCycle ?? result.targetCycle ?? 1)
+      : (result.targetCycle ?? 1));
+
   function adjustOverride(delta: number) {
     if (!permit.updated_at) return;
-    // Base = current effective target. If user has no override yet, start
-    // from learner's pick (result.targetCycle), then bump.
-    const base = cycleOverride ?? result.targetCycle ?? 1;
+    // ★★★ fix-493: the base is THE NUMBER ON SCREEN. It used to be
+    //     `result.targetCycle`, so on a shortcut estimate the first press
+    //     stepped from 1 — moving the visible 3 to 2, backwards, for no reason
+    //     a reader could see. A stepper must step from what it is showing.
+    const base = displayedCycle;
     const next = Math.max(1, Math.min(8, base + delta));
     if (next === cycleOverride) return;
     const nextExtras = { ...extras, scheduleCycleOverride: next };
@@ -204,7 +233,14 @@ export default function ScheduleEstimator({ permit }: Props) {
         <span>Schedule Estimator</span>
         {result.targetCycle !== undefined && result.targetCycle > 0 && (
           <CycleAdjuster
-            current={result.targetCycle}
+            current={displayedCycle}
+            // ★ fix-493: on a shortcut estimate the number is the learner's
+            //   likely cycle, not a walked target — so the control says so.
+            hint={
+              result.route === 'holistic_learned' && cycleOverride === null
+                ? 'Likely approval cycle for this permit type — press to set your own'
+                : undefined
+            }
             overridden={cycleOverride !== null}
             disabled={updatePermit.isPending || !permit.updated_at}
             onDec={() => adjustOverride(-1)}
@@ -385,6 +421,7 @@ function CycleAdjuster({
   current,
   overridden,
   disabled,
+  hint,
   onDec,
   onInc,
   onClear,
@@ -392,6 +429,10 @@ function CycleAdjuster({
   current: number;
   overridden: boolean;
   disabled: boolean;
+  /** ★ fix-493: what this number MEANS on the current route. Supplied only on
+   *  a shortcut estimate, where it is the learner's likely cycle rather than a
+   *  cycle anything walked to. */
+  hint?: string;
   onDec: () => void;
   onInc: () => void;
   onClear: () => void;
@@ -416,7 +457,20 @@ function CycleAdjuster({
         style={{
           color: overridden ? 'var(--color-pm)' : 'var(--color-text)',
         }}
-        title={overridden ? 'Manual override — click ✕ to clear' : 'Learner pick'}
+        // ★★ fix-493: three states, three sentences. An override says so; a
+        //    shortcut estimate says what the number is (it is NOT a walked
+        //    target); anything else keeps the label it had.
+        title={
+          overridden
+            ? 'Manual override — click ✕ to clear'
+            : (hint ?? 'Learner pick')
+        }
+        aria-label={
+          overridden
+            ? `Target cycle ${current}, set by hand`
+            : (hint ?? `Target cycle ${current}`)
+        }
+        data-testid="estimator-cycle-current"
       >
         {current}
       </span>
