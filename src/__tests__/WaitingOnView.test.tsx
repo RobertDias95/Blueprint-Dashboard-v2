@@ -190,7 +190,7 @@ const csvMock = vi.hoisted(() => ({
 }));
 vi.mock('../lib/waitingOnCsv', () => csvMock);
 
-import WaitingOnView from '../components/MyTasks/WaitingOnView';
+import WaitingOnView from '../components/Reports/WaitingOnView';
 
 function renderView() {
   const queryClient = new QueryClient({

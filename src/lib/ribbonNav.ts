@@ -861,7 +861,11 @@ export const ROUTES_INTENTIONALLY_NOT_IN_RIBBON: ReadonlyArray<{
   },
   {
     path: '/waiting-on',
-    why: 'fix-325 #5: redirect only — Waiting On folded into My Tasks, where the Mine / Waiting On switcher on /board is the way in. Bobby: "the waiting on needs to get folded into the my task section." Kept so the fix-315 links and bookmarks survive.',
+    why: 'fix-499 §D: redirect only — it now lands on /reports/waiting-on. fix-325 had folded Waiting On into My Tasks; Bobby moved it again ("Waiting on gets moved into reports"). Kept so the fix-315 links and bookmarks survive a second move.',
+  },
+  {
+    path: '/reports/waiting-on',
+    why: 'fix-499 §D: reached from the Reporting hub ("Saved reports"), which is in the ribbon, where it sits under the Weekly Updates category as "Waiting On — what each firm owes us", after the schedule forecasts. Bobby: "Waiting on gets moved into reports." Deliberately UNGATED, unlike its neighbouring report routes: /my-tasks was never admin-only and moving a screen must not take it away from the people using it.',
   },
   // ★★ fix-336 §2: the notification centre. Deliberately NOT a ribbon row.
   {

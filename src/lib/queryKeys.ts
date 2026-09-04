@@ -317,6 +317,12 @@ export const queryKeys = {
    *  the bare prefix above so any consultant write invalidates it too. */
   consultantRounds: (tenantId: string, consultantId: string) =>
     ['project_consultants', tenantId, 'rounds', { consultantId }] as const,
+  /** ★★ fix-499 (P-034): EVERY consultant record in the tenant — the discipline
+   *  forecast's membership list. Shares the `project_consultants` prefix on
+   *  purpose so the fix-474 mutations that already invalidate it refresh this
+   *  report too; a second invalidation list is a second thing to forget. */
+  consultantCurrentAll: (tenantId: string) =>
+    ['project_consultants', tenantId, 'current-all'] as const,
   // fix-170: all of a tenant's holds (active + closed), for the dashboard +
   // estimator surfaces. Shares the project_holds bare prefix for realtime.
   allProjectHolds: (tenantId: string) =>
@@ -341,10 +347,10 @@ export const queryKeys = {
   vendorReportStateAll: ['vendor_report_state'] as const,
   vendorReportState: (tenantId: string, vendorKey: string) =>
     ['vendor_report_state', tenantId, { vendorKey }] as const,
-  // fix-265: reuse columns the shared useProjects() select deliberately does not
-  // carry (see useVendorReportExtras for why they are fetched separately).
-  vendorProjectExtras: (tenantId: string) =>
-    ['vendor_project_extras', tenantId] as const,
+  // ★ fix-499 §C: `vendorProjectExtras` WAS HERE, keying the separate fetch of
+  //   reuse_notes + reused_from_project_id for the forecast's Reuse column.
+  //   Bobby: "There's not going to be any notes." The column went, its hook
+  //   went, and the key went with them.
   // fix-276: indexed correction-letter items, per project. Read-only — the rows
   // are written by the file_indexer on Bobby's PC (scraper repo), not by this
   // app and not by the scraper, so there is no realtime channel to hang the

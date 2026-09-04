@@ -56,9 +56,12 @@ describe('fix-483 §B: one toggle, and the inventory is closed', () => {
     //     PermitDetailV2 buckets  an N-bucket stage bar, stage-coloured
     //   Each is a different control answering a different question; forcing
     //   them into a two-half toggle would be a worse fit, not a consistency.
+    // ★★ fix-499 §D removed one from this list: MyTasks' Mine / Waiting On
+    //    switcher. Waiting On is its own report now, so the page has no view to
+    //    switch between — the control was deleted, not un-shared. Its scope
+    //    toggle (a different control) still comes from ScopeToggle.
     for (const f of [
       'src/components/shared/ScopeToggle.tsx',
-      'src/pages/MyTasks.tsx',
       'src/components/WeeklyUpdate/AgendaBlock.tsx',
       'src/components/LibraryMatrix.tsx',
     ]) {

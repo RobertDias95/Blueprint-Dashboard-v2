@@ -30,8 +30,10 @@ function row(over: Partial<VendorScheduleRow> & { projectId: string }): VendorSc
     bucket: 'new',
     overdue: false,
     previous: null,
-    reuseFromAddress: null,
-    reuseNotes: null,
+    // ★ fix-499 §C: `reuseFromAddress` / `reuseNotes` were here. Bobby: "There's
+    //   not going to be any notes." `expectedBack` took their place in the row.
+    expectedBack: null,
+    firmName: 'SSS',
     holdReason: null,
     // ★ fix-367 §2: the scope columns. Defaulted to "not stated" so every
     // existing fixture keeps testing what it was written to test.
@@ -70,14 +72,17 @@ function html(over: Partial<Parameters<typeof buildVendorEmailHtml>[0]> = {}) {
 }
 
 function transmit(
-  over: Partial<VendorTransmitRow> & { taskId: string },
+  // ★ fix-499: keyed by PROJECT, not by task id — a Transmitted row comes from
+  //   the project's one current consultant round now, not from a permit task.
+  over: Partial<VendorTransmitRow> & { projectId: string },
 ): VendorTransmitRow {
   return {
-    projectId: 'p1',
     address: '100 A St',
     juris: 'Seattle',
     sent: '2026-07-27',
     expectedBack: '2026-08-14',
+    units: null,
+    productTypes: [],
     ...over,
   };
 }
@@ -93,7 +98,7 @@ describe('fix-274 column widths line up across the three table shapes', () => {
       changedRows: [],
       pipelineRows: [row({ projectId: 'p2' })],
     },
-    transmitted: [transmit({ taskId: 't1' })],
+    transmitted: [transmit({ projectId: 'p1' })],
     corrections: [correction({ taskId: 'c1' })],
   });
 
@@ -123,16 +128,23 @@ describe('fix-274 column widths line up across the three table shapes', () => {
     return found[1];
   }
 
-  it('renders exactly the three expected shapes', () => {
-    // ★ fix-367 §2 added Units and Type to the SCHEDULE shape — SSS needs the
-    // scope of what is coming, not only when it lands. Both sit between
-    // Jurisdiction and Target send, so the dates still end the row.
+  it('★★★ fix-499 §C: FIVE COLUMNS, and the first three now match across two shapes', () => {
+    // ★★★ THE SHAPES CHANGED, AND THAT IS THE INSTRUCTION. Bobby: *"There's not
+    //     going to be any notes. It's like, here's your dates, here's your
+    //     address, here's your unit, here's your unit type."* Start week,
+    //     Jurisdiction and Reuse left the schedule shape; Expected back joined
+    //     it, so the row carries both dates the firm cares about.
+    // ★★ fix-274's invariant SURVIVES and gets easier: schedule and transmitted
+    //    are now the same five columns with one date swapped, so they line up
+    //    exactly rather than merely agreeing on widths.
     expect(headerWidths(FULL, SCHEDULE).map(([l]) => l)).toEqual([
-      'Start week', 'Address', 'Jurisdiction', 'Units', 'Type', 'Target send', 'Reuse',
+      'Address', 'Units', 'Type', 'Target send', 'Expected back',
     ]);
     expect(headerWidths(FULL, TRANSMITTED).map(([l]) => l)).toEqual([
-      'Address', 'Jurisdiction', 'Sent', 'Expected back',
+      'Address', 'Units', 'Type', 'Sent', 'Expected back',
     ]);
+    // ★ Corrections is untouched: it is permitting work, not a design round,
+    //   and fix-499 left section 5 alone.
     expect(headerWidths(FULL, CORRECTIONS).map(([l]) => l)).toEqual([
       'Address', 'Jurisdiction', 'Permit type', 'Sent', 'Expected back',
     ]);
@@ -146,17 +158,28 @@ describe('fix-274 column widths line up across the three table shapes', () => {
     }
   });
 
-  it('JURISDICTION is identical in all three shapes', () => {
-    const a = widthOf(SCHEDULE, 'Jurisdiction');
-    expect(widthOf(TRANSMITTED, 'Jurisdiction')).toBe(a);
-    expect(widthOf(CORRECTIONS, 'Jurisdiction')).toBe(a);
+  it('★★ SUPERSEDED BY fix-499: Jurisdiction survives only in Corrections', () => {
+    // It was in all three shapes and is now in one — it is not among the five.
+    // The width constant is unchanged, so the day it comes back it lines up.
+    expect(widthOf(CORRECTIONS, 'Jurisdiction')).toBe(13);
+    expect(
+      headerWidths(FULL, SCHEDULE).some(([l]) => l === 'Jurisdiction'),
+    ).toBe(false);
+    expect(
+      headerWidths(FULL, TRANSMITTED).some(([l]) => l === 'Jurisdiction'),
+    ).toBe(false);
+  });
+
+  it('★★ UNITS and TYPE are identical across the two shapes that carry them', () => {
+    expect(widthOf(TRANSMITTED, 'Units')).toBe(widthOf(SCHEDULE, 'Units'));
+    expect(widthOf(TRANSMITTED, 'Type')).toBe(widthOf(SCHEDULE, 'Type'));
   });
 
   it('EVERY DATE COLUMN is the same width, in every shape', () => {
     // Start week / Target send / Sent / Expected back read as one column type to
     // the eye — these are the ones that look broken when they drift.
-    const d = widthOf(SCHEDULE, 'Start week');
-    expect(widthOf(SCHEDULE, 'Target send')).toBe(d);
+    const d = widthOf(SCHEDULE, 'Target send');
+    expect(widthOf(SCHEDULE, 'Expected back')).toBe(d);
     expect(widthOf(TRANSMITTED, 'Sent')).toBe(d);
     expect(widthOf(TRANSMITTED, 'Expected back')).toBe(d);
     expect(widthOf(CORRECTIONS, 'Sent')).toBe(d);
@@ -174,18 +197,22 @@ describe('fix-274 column widths line up across the three table shapes', () => {
     }
   });
 
-  it('ADDRESS is the column that flexes — deliberately', () => {
-    // Different column counts mean something must absorb the remainder. Address
-    // holds the longest, most variable content, so a difference there is far
-    // less noticeable than dates failing to line up. If this test starts failing
-    // because someone equalised Address, they have inverted the fix.
+  it('ADDRESS still absorbs the remainder — deliberately', () => {
+    // fix-274's rule, and it did not change: something has to flex when the
+    // shapes differ, and Address is the right thing to flex. If this starts
+    // failing because someone equalised Address and let the dates float, they
+    // have inverted the fix.
+    //
+    // ★ fix-499: schedule and transmitted are now the SAME five columns, so
+    //   their Address widths are equal by construction — which is the invariant
+    //   arriving, not leaving. Corrections still differs, and still flexes.
     const s = widthOf(SCHEDULE, 'Address');
     const t = widthOf(TRANSMITTED, 'Address');
     const c = widthOf(CORRECTIONS, 'Address');
-    expect(new Set([s, t, c]).size).toBeGreaterThan(1);
-    // Transmitted has the fewest columns, so its Address is the widest.
-    expect(t).toBeGreaterThan(c);
-    expect(c).toBeGreaterThan(s);
+    expect(t).toBe(s);
+    expect(c).not.toBe(s);
+    // Corrections carries an extra named column, so its Address is narrower.
+    expect(s).toBeGreaterThan(c);
   });
 
   it('uses table-layout:fixed — without it the widths are advisory', () => {
@@ -234,7 +261,7 @@ describe('fix-265 email HTML — Outlook safety', () => {
         ],
         pipelineRows: [row({ projectId: 'p3' })],
       },
-      transmitted: [transmit({ taskId: 't1' })],
+      transmitted: [transmit({ projectId: 'p1' })],
       corrections: [correction({ taskId: 'c1' })],
     });
     const order = [
@@ -275,7 +302,7 @@ describe('fix-265 email HTML — Outlook safety', () => {
     const out = html({
       transmitted: [
         transmit({
-          taskId: 't1',
+          projectId: 'p1',
           address: '554 N 75th St',
           juris: 'Seattle',
           sent: '2026-09-18',
@@ -291,7 +318,7 @@ describe('fix-265 email HTML — Outlook safety', () => {
 
   it('a transmitted row with no expected-back date still renders, blank', () => {
     const out = html({
-      transmitted: [transmit({ taskId: 't1', expectedBack: null })],
+      transmitted: [transmit({ projectId: 'p1', expectedBack: null })],
     });
     expect(out).toContain('&mdash;');
   });
@@ -397,18 +424,28 @@ describe('fix-265 email HTML — Outlook safety', () => {
     expect(out).toContain('Waiting on survey');
   });
 
-  it('joins reuse address and notes in one cell', () => {
+  it('★★★ SUPERSEDED BY fix-499 §C: there is no reuse cell, and no notes', () => {
+    // ★★★ THIS TEST IS INVERTED, AND THAT IS THE INSTRUCTION. It asserted the
+    //     email joined the reuse address and reuse notes into one cell. Bobby,
+    //     2026-08-31: *"There's not going to be any notes. It's like, here's
+    //     your dates, here's your address, here's your unit, here's your unit
+    //     type."* Five columns, and Reuse is not one of them.
     const out = html({
       sections: {
-        newRows: [
-          row({ projectId: 'p1', reuseFromAddress: '13515 27th Ave NE', reuseNotes: 'W/O GAR' }),
-        ],
+        newRows: [row({ projectId: 'p1' })],
         changedRows: [],
         pipelineRows: [],
       },
     });
-    expect(out).toContain('13515 27th Ave NE');
-    expect(out).toContain('W/O GAR');
+    expect(out).not.toContain('Reuse');
+    expect(out).toContain('Address');
+    expect(out).toContain('Units');
+    expect(out).toContain('Type');
+    expect(out).toContain('Target send');
+    expect(out).toContain('Expected back');
+    // ★ …and the two columns that stopped being columns are not headings.
+    expect(out).not.toContain('>Start week<');
+    expect(out).not.toContain('>Jurisdiction<');
   });
 
   it('escapes HTML in project data', () => {

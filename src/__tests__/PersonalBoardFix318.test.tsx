@@ -4,6 +4,8 @@ import { fireEvent, render, screen, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { ReactNode } from 'react';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import routerSrc from '../router.tsx?raw';
 import { allRibbonRoutes } from '../lib/ribbonNav';
 // ★ fix-326 removed the draggable split — and boardSplitPrefs with it. My Board
@@ -262,23 +264,26 @@ describe('fix-318 ★ the grouped task list is back, on /board', () => {
     expect(within(bottom).getByTestId('mytasks-counters')).toBeInTheDocument();
   });
 
-  // The shell's view switcher was deliberately left behind — see the comment
-  // on the MineTasks export.
-  // ★ fix-325 #5 INVERTS this. fix-318 deliberately mounted MineTasks WITHOUT
-  // the switcher, because fix-315 had just given Waiting On its own route and
-  // ribbon entry and a second home would have been duplication. Bobby then asked
-  // for exactly that fold — "the waiting on needs to get folded into the my task
-  // section" — and the ribbon entry went with it, so the switcher is now the ONE
-  // way in rather than a second one.
-  it('★ DOES bring the Mine / Waiting On switcher — it is the only way in now', () => {
+  // ★★★ THIS ASSERTION HAS NOW BEEN INVERTED TWICE, WHICH IS WHY IT KEEPS ITS
+  //     WHOLE HISTORY. fix-318 mounted MineTasks WITHOUT the switcher, because
+  //     fix-315 had just given Waiting On its own route and a second home would
+  //     have been duplication. fix-325 inverted that on Bobby's instruction
+  //     ("the waiting on needs to get folded into the my task section"), making
+  //     the switcher the ONE way in. fix-499 inverts it back, on his instruction
+  //     again ("Waiting on gets moved into reports") — and this time Waiting On
+  //     keeps its own address rather than losing one, so there is no stranding
+  //     to guard against.
+  it('★★★ SUPERSEDED BY fix-499 §D: no switcher — Waiting On is a report', () => {
     state.tasks = [task()];
     renderBoard();
     openTasks();
     expect(screen.getByTestId('mytasks-shell')).toBeInTheDocument();
-    expect(screen.getByTestId('my-tasks-view-switcher')).toBeInTheDocument();
-    expect(screen.getByTestId('my-tasks-view-waiting-on')).toBeInTheDocument();
-    // The ribbon no longer offers it, which is what makes this the only way in.
+    expect(screen.queryByTestId('my-tasks-view-switcher')).toBeNull();
+    expect(screen.queryByTestId('my-tasks-view-waiting-on')).toBeNull();
+    // ★ /waiting-on is still not a ribbon row — it redirects, and the way in is
+    //   the Reporting hub. Unchanged since fix-325, and still true.
     expect(allRibbonRoutes()).not.toContain('/waiting-on');
+    expect(allRibbonRoutes()).not.toContain('/reports/waiting-on');
   });
 });
 
@@ -410,7 +415,16 @@ describe('fix-318: what must not have moved', () => {
     expect(routerSrc).toMatch(
       /path: 'my-tasks', element: <Navigate to="\/board" replace \/>/,
     );
-    expect(routerSrc).toContain('<PersonalBoard />');
+    // ★ fix-499 §D: /board renders <BoardOrWaitingOn />, which is
+    //   <PersonalBoard /> unless the legacy ?view=waiting-on is present — a
+    //   query string cannot be routed on, so the redirect has to be a
+    //   component. PersonalBoard is still what the board route shows.
+    expect(routerSrc).toContain('<BoardOrWaitingOn />');
+    const redirect = readFileSync(
+      resolve(process.cwd(), 'src/components/BoardOrWaitingOn.tsx'),
+      'utf8',
+    );
+    expect(redirect).toContain('<PersonalBoard />');
   });
 
   it('★ the ribbon has ONE personal entry, not two', () => {

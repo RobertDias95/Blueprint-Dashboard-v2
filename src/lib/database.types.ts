@@ -319,7 +319,7 @@ export interface Project {
    *  Added by migrations/fix_265_vendor_schedule_forecast.sql — optional here
    *  because that migration is not applied yet, and because the shared
    *  useProjects() select deliberately does not fetch it (see
-   *  useVendorReportExtras). */
+   *  the fix-265 fetch that fix-499 deleted along with the Reuse column). */
   reuse_notes?: string | null;
   created_at?: string | null;
   updated_at?: string | null;

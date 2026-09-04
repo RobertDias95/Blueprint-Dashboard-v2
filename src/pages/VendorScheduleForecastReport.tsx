@@ -13,18 +13,21 @@ import {
   useVendorReportState,
   useMarkVendorReportSent,
 } from '../hooks/useVendorReportState';
-import { useVendorReportExtras } from '../hooks/useVendorReportExtras';
+import { useConsultantCurrent } from '../hooks/useConsultantCurrent';
+import { useExternalTeamDirectory } from '../hooks/useExternalTeamDirectory';
 import { SkeletonRows } from '../components/Skeleton';
 import QueryError from '../components/QueryError';
 import {
-  VENDOR_KEY_STRUCTURAL,
+  FORECAST_DISCIPLINES,
   buildVendorScheduleRows,
   splitVendorSections,
   buildVendorCorrectionRows,
   buildVendorTransmitRows,
-  transmitStateByProject,
+  consultantByProject,
   designPhaseProjectIds,
   allPermitsDoneProjectIds,
+  resolveForecastDiscipline,
+  vendorKeyForDiscipline,
   vendorSentPayload,
   lastSentAt,
   type VendorCorrectionRow,
@@ -41,9 +44,8 @@ import {
   emlFilename,
   formatWeekOf,
   missingRecipientEmails,
-  readVendorRecipients,
+  resolveForecastRecipients,
 } from '../lib/vendorReportEmail';
-import type { Project } from '../lib/database.types';
 
 // fix-265: Vendor Schedule Forecast — the weekly note Blueprint owes SSS, built
 // from the draw schedule instead of hand-typed off old feasibility docs.
@@ -69,16 +71,31 @@ function todayIso(): string {
 }
 
 export default function VendorScheduleForecastReport() {
-  const vendorKey = VENDOR_KEY_STRUCTURAL;
+  // ★★★ fix-499 §B — THE DISCIPLINE IS A PARAMETER, AND ABSENT MEANS
+  //     STRUCTURAL. Every link, bookmark and Weekly Update card that predates
+  //     this ticket carries no `?discipline`, so all of them land exactly where
+  //     they always did. An UNKNOWN value renders the empty state below with
+  //     the seven as links — never a throw, because a mistyped URL is a typo,
+  //     not an error condition.
+  const [searchParams] = useSearchParams();
+  const discipline = resolveForecastDiscipline(searchParams.get('discipline'));
+  // ★★ The ledger key is the lower-cased discipline, so `Structural` stays
+  //    `structural` and the six existing vendor_report_state rows keep their
+  //    history. The ledger schema and its rows are untouched by this ticket.
+  const vendorKey = vendorKeyForDiscipline(discipline ?? '');
 
   const projectsQ = useProjects();
   const permitsQ = usePermits();
   const drawQ = useDrawSchedule();
   const holdsQ = useAllProjectHolds();
   const ledgerQ = useVendorReportState(vendorKey);
-  const extrasQ = useVendorReportExtras();
   const configQ = useAppConfig();
   const waitingQ = useWaitingOnTasks({ includeCompleted: false });
+  // ★★★ fix-499 §A: THE MEMBERSHIP SIGNAL. A project is on this report because
+  //     it has a consultant record for this discipline whose latest live round
+  //     is not Received — not because somebody remembered to make a task.
+  const consultantsQ = useConsultantCurrent();
+  const directoryQ = useExternalTeamDirectory();
   const markSent = useMarkVendorReportSent();
 
   const [copied, setCopied] = useState(false);
@@ -94,20 +111,16 @@ export default function VendorScheduleForecastReport() {
     [holdsQ.data],
   );
 
-  // Merge the separately-fetched reuse columns onto the shared project rows.
-  // (useProjects' select deliberately does not carry them — see
-  // useVendorReportExtras for why.)
-  const projects = useMemo<Project[]>(() => {
-    const extras = extrasQ.data;
-    const base = projectsQ.data ?? [];
-    if (!extras) return base;
-    return base.map((p) => ({
-      ...p,
-      reused_from_project_id:
-        extras.reusedFromProjectId.get(p.id) ?? p.reused_from_project_id ?? null,
-      reuse_notes: extras.reuseNotes.get(p.id) ?? null,
-    }));
-  }, [projectsQ.data, extrasQ.data]);
+  // ★ fix-499 §C: `useVendorReportExtras` is GONE. It existed to fetch
+  //   `reused_from_project_id` + `reuse_notes` for the Reuse column, and the
+  //   Reuse column is not one of the five. Bobby: "There's not going to be any
+  //   notes." Nothing else read the hook, so it went with the column — and the
+  //   "migration pending" banner it powered went with it.
+  // ★ Memoised on the query's own array so the four memos below keep a stable
+  //   dependency. `projectsQ.data ?? []` inline would mint a new [] on every
+  //   render whenever the query is still empty, which is what the exhaustive-
+  //   deps rule warns about — and this page has four consumers of it.
+  const projects = useMemo(() => projectsQ.data ?? [], [projectsQ.data]);
 
   // fix-268: projects whose permits have all issued — finished, whatever the
   // draw block still says.
@@ -123,31 +136,18 @@ export default function VendorScheduleForecastReport() {
     [drawQ.data],
   );
 
-  // fix-268: section 4 — the design-phase handoff. Built BEFORE the schedule
-  // rows, because a started transmit moves its project out of the pipeline.
-  const transmitted = useMemo(
-    () =>
-      buildVendorTransmitRows(
-        waitingQ.data ?? [],
-        projects,
-        vendorKey,
-        designPhaseIds,
-        cancelledIds,
-      ),
-    [waitingQ.data, projects, vendorKey, designPhaseIds, cancelledIds],
+  // ★★★ fix-499: one consultant record per project for THIS discipline. Every
+  //     section below reads it; a project absent from this map is absent from
+  //     the report.
+  const consultants = useMemo(
+    () => consultantByProject(consultantsQ.data ?? [], discipline ?? ''),
+    [consultantsQ.data, discipline],
   );
-  // fix-269: THE liveness signal. Decides membership in UPCOMING; the target
-  // send date only decides how the row is presented.
-  const transmitState = useMemo(
-    () =>
-      transmitStateByProject(
-        waitingQ.data ?? [],
-        projects,
-        vendorKey,
-        designPhaseIds,
-        cancelledIds,
-      ),
-    [waitingQ.data, projects, vendorKey, designPhaseIds, cancelledIds],
+
+  // Section 4 — sent and awaiting return: the rounds sitting at Pending.
+  const transmitted = useMemo(
+    () => buildVendorTransmitRows(consultants, projects, cancelledIds),
+    [consultants, projects, cancelledIds],
   );
 
   const rows = useMemo(
@@ -159,7 +159,7 @@ export default function VendorScheduleForecastReport() {
         cancelledIds,
         holdsByProject,
         allPermitsDoneIds,
-        transmitState,
+        consultants,
         todayIso: today,
       }),
     [
@@ -169,28 +169,40 @@ export default function VendorScheduleForecastReport() {
       cancelledIds,
       holdsByProject,
       allPermitsDoneIds,
-      transmitState,
+      consultants,
       today,
     ],
   );
 
   const sections = useMemo(() => splitVendorSections(rows), [rows]);
 
+  // ★★ fix-499: SECTION 5 IS UNCHANGED AND STILL READS TASKS. A correction is
+  //    post-submittal permitting work sitting with the firm — it is not a design
+  //    round, it has no round to belong to, and fix-271's rule that design and
+  //    permitting never blur survives this ticket intact. Only its firm lookup
+  //    moved, from the deleted VENDOR_FIRM constant to the consultant record.
   const corrections = useMemo(
     () =>
       buildVendorCorrectionRows(
         waitingQ.data ?? [],
         projects,
-        vendorKey,
+        discipline ?? '',
         designPhaseIds,
         cancelledIds,
+        consultants,
       ),
-    [waitingQ.data, projects, vendorKey, designPhaseIds, cancelledIds],
+    [waitingQ.data, projects, discipline, designPhaseIds, cancelledIds, consultants],
   );
 
   const recipients = useMemo(
-    () => readVendorRecipients(configQ.map.get('vendorReportRecipients'), vendorKey),
-    [configQ.map, vendorKey],
+    () =>
+      resolveForecastRecipients(
+        configQ.map.get('vendorReportRecipients'),
+        vendorKey,
+        discipline ?? '',
+        directoryQ.data,
+      ),
+    [configQ.map, vendorKey, discipline, directoryQ.data],
   );
   const missingEmails = useMemo(
     () => missingRecipientEmails(recipients),
@@ -209,13 +221,24 @@ export default function VendorScheduleForecastReport() {
     [sections, transmitted, corrections, recipients.label, today],
   );
 
-  const subject = buildVendorEmailSubject(recipients.label, today);
+  const subject = buildVendorEmailSubject(
+    recipients.label,
+    today,
+    discipline ?? '',
+  );
   const sentAt = lastSentAt(ledgerQ.data ?? []);
 
   const error =
-    projectsQ.error ?? drawQ.error ?? ledgerQ.error ?? waitingQ.error;
+    projectsQ.error ??
+    drawQ.error ??
+    ledgerQ.error ??
+    waitingQ.error ??
+    consultantsQ.error;
   const isLoading =
-    projectsQ.isLoading || drawQ.isLoading || ledgerQ.isLoading;
+    projectsQ.isLoading ||
+    drawQ.isLoading ||
+    ledgerQ.isLoading ||
+    consultantsQ.isLoading;
 
   /** COMPOSE — builds a draft file. Writes NOTHING. See the header comment. */
   function composeEmail() {
@@ -265,7 +288,6 @@ export default function VendorScheduleForecastReport() {
   // seeing which rows are about to be written, is how a ledger gains a week it
   // never had. The mark-sent link opens this page so the button can be pressed
   // HERE, in front of the contents.
-  const [searchParams] = useSearchParams();
   const composedRef = useRef(false);
   const wantsCompose = searchParams.get('compose') === '1';
   useEffect(() => {
@@ -283,6 +305,39 @@ export default function VendorScheduleForecastReport() {
       vendorKey,
       rows: vendorSentPayload(sections.pipelineRows),
     });
+  }
+
+  // ★★★ fix-499 §B: an UNKNOWN ?discipline lands here, not in a throw. The
+  //     seven are listed as links so a typo is one click from being fixed,
+  //     which is the whole reason this is a parameter and not seven pages.
+  if (discipline === null) {
+    return (
+      <div className="space-y-3" data-testid="vsf-unknown-discipline">
+        <Link to="/reports" className="text-[12px] text-de hover:underline">
+          ← Reports
+        </Link>
+        <h1 className="text-lg font-display font-extrabold text-text">
+          Schedule Forecast
+        </h1>
+        <p className="text-[12px] text-muted">
+          “{searchParams.get('discipline')}” is not one of the disciplines we
+          track. Pick one:
+        </p>
+        <ul className="text-[12px] space-y-0.5">
+          {FORECAST_DISCIPLINES.map((d) => (
+            <li key={d}>
+              <Link
+                to={`/reports/vendor-forecast?discipline=${d}`}
+                className="text-de hover:underline"
+                data-testid={`vsf-discipline-link-${d}`}
+              >
+                {d} Schedule Forecast
+              </Link>
+            </li>
+          ))}
+        </ul>
+      </div>
+    );
   }
 
   if (error) {
@@ -310,8 +365,11 @@ export default function VendorScheduleForecastReport() {
           >
             ← Reports
           </Link>
-          <h1 className="text-lg font-display font-extrabold text-text mt-1">
-            Vendor Schedule Forecast
+          <h1
+            className="text-lg font-display font-extrabold text-text mt-1"
+            data-testid="vsf-heading"
+          >
+            {discipline} Schedule Forecast
             {recipients.label ? ` — ${recipients.label}` : ''}
           </h1>
           <p className="text-[11px] text-muted">
@@ -357,18 +415,23 @@ export default function VendorScheduleForecastReport() {
         </div>
       </div>
 
-      {extrasQ.data?.migrationPending ? (
-        <Banner testid="vsf-migration-pending" tone="warn">
-          The fix-265 migration has not been applied yet — reuse notes and the
-          per-block exclusion switch are unavailable, so those columns render
-          blank. Everything else on this page is live.
+      {/* ★★ fix-499 §B: SAY WHICH LIST THIS IS ADDRESSED FROM. Settings holds a
+          recipient entry for `structural` only, so six of the seven forecasts
+          fall back to the directory's contact address — and a draft addressed
+          from a source the sender did not choose is how the wrong person gets a
+          schedule. */}
+      {recipients.source === 'directory' ? (
+        <Banner testid="vsf-recipients-from-directory" tone="warn">
+          Using the {discipline} contact from the External Team directory —
+          Settings → Reporting has no recipient list for this discipline yet.
         </Banner>
       ) : null}
 
       {recipients.to.length === 0 ? (
         <Banner testid="vsf-no-recipients" tone="warn">
-          No recipients are configured for this vendor. Add them in Settings →
-          Reporting before composing.
+          No recipients are configured for this discipline, and no directory
+          firm has a contact email. Add them in Settings → Reporting, or fill in
+          the firm's contact in Settings → External Team.
         </Banner>
       ) : null}
 
@@ -539,23 +602,31 @@ function ScheduleTable({
   showDelta: boolean;
   idPrefix: string;
 }) {
+  // ★★★ fix-499 §C — FIVE COLUMNS AND NOTHING ELSE. Bobby: *"here's your
+  //     dates, here's your address, here's your unit, here's your unit type."*
+  //     Start week and Jurisdiction stopped being columns; the Reuse column and
+  //     its notes went entirely.
+  // ★ Start week still drives change detection and the ledger, so a start-week
+  //   move renders as a sub-line under the address — dropping a column must
+  //   never drop a signal.
   return (
     <table className="w-full border-collapse mb-4">
       <thead>
         <tr style={{ background: 'var(--color-s2)' }}>
-          <th className={TH}>Start week</th>
           <th className={TH}>Address</th>
-          <th className={TH}>Jurisdiction</th>
-          {/* ★★ fix-367 §2: the SCOPE, so SSS can plan against it rather than
-              only knowing when it lands. Two columns, not one combined
+          {/* ★★ fix-367 §2: the SCOPE, so the firm can plan against it rather
+              than only knowing when it lands. Two columns, not one combined
               "Scope": an empty units and an empty type are different gaps, and
               merging them would hide whichever is missing. */}
           <th className={TH}>Units</th>
           <th className={TH}>Type</th>
-          {/* fix-269: dd_end is a TARGET SEND date — the date we are committing
-              to hand documents over, not one we observed. */}
+          {/* fix-269: a TARGET SEND date — the date we are committing to hand
+              documents over, not one we observed. ★ fix-499: the round's
+              est_send when somebody stated one, the schedule's derived date
+              when nobody has. */}
           <th className={TH}>Target send</th>
-          <th className={TH}>Reuse</th>
+          {/* ★ fix-499: the round's est_recd. Blank stays blank. */}
+          <th className={TH}>Expected back</th>
         </tr>
       </thead>
       <tbody>
@@ -566,13 +637,6 @@ function ScheduleTable({
             style={{ borderColor: 'var(--color-border)' }}
             data-testid={`vsf-${idPrefix}-row-${r.projectId}`}
           >
-            <td className={TD}>
-              {showDelta && r.previous ? (
-                <Delta from={r.previous.startWeek} to={r.startWeek} />
-              ) : (
-                <Cell value={r.startWeek} />
-              )}
-            </td>
             <td className={TD}>
               {r.address}
               {/* fix-269: target send passed with nothing sent. Text marker, not
@@ -594,6 +658,20 @@ function ScheduleTable({
                   [ON HOLD — {r.holdReason}]
                 </span>
               ) : null}
+              {/* ★★ fix-499: start week and status are no longer COLUMNS, so
+                  their deltas live here. The Changes section exists to show
+                  what moved. */}
+              {showDelta &&
+              r.previous &&
+              (r.previous.startWeek ?? '') !== (r.startWeek ?? '') ? (
+                <div
+                  className="text-[11px] text-muted mt-0.5"
+                  data-testid={`vsf-${idPrefix}-startweek-delta-${r.projectId}`}
+                >
+                  Start week:{' '}
+                  <Delta from={r.previous.startWeek} to={r.startWeek} />
+                </div>
+              ) : null}
               {showDelta &&
               r.previous &&
               (r.previous.status ?? '') !== (r.status ?? '') ? (
@@ -602,12 +680,8 @@ function ScheduleTable({
                 </div>
               ) : null}
             </td>
-            <td className={TD}>
-              <Cell value={r.juris} />
-            </td>
             {/* ★ fix-367 §2. `Cell` already renders <Blank /> for null or '' —
-                the same blank the Reuse column has shown since fix-269, whose
-                rule this follows: "the visible gap is what prompts someone to
+                fix-269's rule: "the visible gap is what prompts someone to
                 fill it in", never the word "Unknown". */}
             <td className={TD} data-testid={`vsf-${idPrefix}-units-${r.projectId}`}>
               <Cell value={formatUnits(r.units)} />
@@ -622,12 +696,11 @@ function ScheduleTable({
                 <Cell value={r.targetSend} />
               )}
             </td>
-            <td className={TD}>
-              {r.reuseFromAddress || r.reuseNotes ? (
-                [r.reuseFromAddress, r.reuseNotes].filter(Boolean).join(' · ')
-              ) : (
-                <Blank />
-              )}
+            <td
+              className={TD}
+              data-testid={`vsf-${idPrefix}-expected-${r.projectId}`}
+            >
+              <Cell value={r.expectedBack} />
             </td>
           </tr>
         ))}
@@ -636,15 +709,20 @@ function ScheduleTable({
   );
 }
 
-/** fix-268: section 4 — sent, awaiting return. No permit column: a transmit is a
- *  project-level design handoff, not permit-scoped work. */
+/** Section 4 — sent, awaiting return. No permit column: a transmit is a
+ *  project-level design handoff, not permit-scoped work.
+ *
+ *  ★ fix-499 §C: the same five columns the schedule tables have, with `Sent`
+ *  where they carry `Target send`. ★ The key is the PROJECT now, not a task id:
+ *  the row comes from the project's one current round. */
 function TransmittedTable({ rows }: { rows: VendorTransmitRow[] }) {
   return (
     <table className="w-full border-collapse mb-4">
       <thead>
         <tr style={{ background: 'var(--color-s2)' }}>
           <th className={TH}>Address</th>
-          <th className={TH}>Jurisdiction</th>
+          <th className={TH}>Units</th>
+          <th className={TH}>Type</th>
           <th className={TH}>Sent</th>
           <th className={TH}>Expected back</th>
         </tr>
@@ -652,7 +730,7 @@ function TransmittedTable({ rows }: { rows: VendorTransmitRow[] }) {
       <tbody>
         {rows.map((r) => (
           <tr
-            key={r.taskId}
+            key={r.projectId}
             className="border-t"
             style={{ borderColor: 'var(--color-border)' }}
             data-testid={`vsf-transmitted-row-${r.projectId}`}
@@ -661,7 +739,10 @@ function TransmittedTable({ rows }: { rows: VendorTransmitRow[] }) {
               <Cell value={r.address} />
             </td>
             <td className={TD}>
-              <Cell value={r.juris} />
+              <Cell value={formatUnits(r.units)} />
+            </td>
+            <td className={TD}>
+              <Cell value={formatProductTypes(r.productTypes)} />
             </td>
             <td className={TD}>
               <Cell value={r.sent} />

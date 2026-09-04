@@ -85,15 +85,27 @@ describe('fix-267 builtin registry ⇄ hub catalog', () => {
   });
 
   it('pins the seeded set — matches what prod holds + what the migrations insert', () => {
-    // Prod holds exactly these five builtin rows: four verified 2026-08-03,
-    // plus `corrections` seeded by fix_277_seed_corrections_report.sql on
+    // Prod holds five builtin rows today: four verified 2026-08-03, plus
+    // `corrections` seeded by fix_277_seed_corrections_report.sql on
     // 2026-08-11. phase_durations is deliberately absent: see the comment on
     // its catalog entry — that null is a FLAG for unreviewed drift, not a
     // settled decision.
+    //
+    // ★★★ fix-499 adds THREE, inserted by
+    //     fix_499_seed_discipline_forecast_reports.sql (applied on Bobby's yes
+    //     after merge): the Civil and Surveyor forecasts — the two disciplines
+    //     with open work — and Waiting On, which became a report of its own.
+    // ★★ Arborist, Geotech, Energy and Landscape are registered and reachable
+    //    by URL but NOT seeded, so they are `null` in the catalog and absent
+    //    here. That is the same explicit flag phase_durations carries; this
+    //    list and the migration must always agree.
     expect(seededBuiltinKeys()).toEqual([
       'approved_awaiting_issuance',
       'corrections',
+      'forecast_civil',
+      'forecast_surveyor',
       'vendor_schedule_forecast',
+      'waiting_on',
       'weekly_da_update',
       'weekly_updates',
     ]);

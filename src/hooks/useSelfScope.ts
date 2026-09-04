@@ -93,10 +93,18 @@ export interface UseScopeModeResult {
  *
  * ★★ THE ONE HONEST EXCEPTION, and the brief's STEP 0 #8 was slightly off
  * about it: `MyTasks()` the page does NOT call `usePermits()` — its two calls
- * live in the `MineTasks` body, which is the SIBLING of `<WaitingOnView />` in
- * a ternary. So the Waiting-On tab gains one subscription to the shared permits
- * query. One tab, to a query the rest of the app keeps warm — against making
- * every page in the product fetch it. Recorded rather than glossed over.
+ * live in the `MineTasks` body. So Waiting On gains one subscription to the
+ * shared permits query. One surface, to a query the rest of the app keeps warm
+ * — against making every page in the product fetch it. Recorded rather than
+ * glossed over.
+ *
+ * ★★★ fix-499 §D UPDATED THIS NOTE RATHER THAN DELETING IT, and the update is
+ * the point: WaitingOnView is no longer the SIBLING of `MineTasks` in a
+ * ternary. It is its own report at `/reports/waiting-on`, so it does not share
+ * a mount with anything that already holds the permits query — the exception
+ * got slightly more expensive, not less, and it is still worth it. It keeps the
+ * SAME `'mytasks'` persistence key on purpose: a person's Mine/All choice must
+ * not fork just because the screen moved address.
  *
  * ★ `identity.scope` itself is NOT widened. RosterIdentity keeps fix-179's
  *   meaning for every existing reader (the fix-343 name plate, the board lens,

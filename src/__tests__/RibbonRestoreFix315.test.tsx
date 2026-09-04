@@ -277,8 +277,14 @@ describe('fix-315 §2: Waiting On is reachable again', () => {
     // stricter than it was.
     expect(screen.queryByTestId('ribbon-link-/waiting-on')).toBeNull();
     expect(allRibbonRoutes()).not.toContain('/waiting-on');
-    // The destination survives as a redirect into the switcher that replaced it.
+    // The destination survives as a redirect. ★ fix-499 §D moved where it
+    // lands: it was /board?view=waiting-on (the switcher fix-325 folded it
+    // into); Waiting On is its own report now, so it goes to
+    // /reports/waiting-on and the switcher URL redirects there as well. This
+    // path has been rescued twice and still resolves — which is the whole
+    // point fix-315 exists to make.
     expect(routerSrc).toContain("path: 'waiting-on'");
+    expect(routerSrc).toContain('/reports/waiting-on');
     expect(routerSrc).toContain('/board?view=waiting-on');
   });
 
