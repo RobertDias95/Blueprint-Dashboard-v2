@@ -98,19 +98,22 @@ function entryIds(entries: readonly RibbonEntry[] = RIBBON_ENTRIES): string[] {
 // ---------------------------------------------------------------------------
 // §A1 — the order
 // ---------------------------------------------------------------------------
-describe('fix-485 §A1: three captioned sections + a pinned utility block', () => {
+describe('fix-485 §A1: three sections + a pinned utility block', () => {
   it('★★★ the whole ribbon, in order, in one assertion', () => {
+    // ★★★ SUPERSEDED BY fix-503 §A: `cap-*` → `div-*`, and `jurisdictions` →
+    //     `cities`. The ORDER and the SECTIONS are byte-identical — this ticket
+    //     removed three words and a folder wrapper, not a structure.
     expect(entryIds()).toEqual([
-      'cap-work',
+      'div-work',
       '/dashboard',
       '/draw-schedule',
       '/board',
-      'cap-reports',
+      'div-reports',
       '/library',
       'reports',
-      'cap-links',
+      'div-links',
       'sharepoint',
-      'jurisdictions',
+      'cities',
       'util',
       '/whats-new',
       '/settings',
@@ -118,13 +121,25 @@ describe('fix-485 §A1: three captioned sections + a pinned utility block', () =
     ]);
   });
 
-  it('★★★ the three captions carry Bobby\'s three words', () => {
-    const captions = RIBBON_ENTRIES.filter((e) => e.kind === 'caption');
-    expect(captions.map((c) => (c.kind === 'caption' ? c.label : ''))).toEqual([
-      'Work',
-      'Reports',
-      'Links',
+  it('★★★ SUPERSEDED BY fix-503 §A: the three sections carry NO words at all', () => {
+    // ★★★ THIS ASSERTION IS INVERTED, AND IT IS THE TICKET. It read: "the three
+    //     captions carry Bobby's three words" — Work, Reports, Links. Bobby,
+    //     2026-09-04: *"we want to get rid of the categorical titles. So we want
+    //     to get rid of links, reports, and more on that ribbon as well."*
+    //     Ruled by popup to thin divider lines where the captions were.
+    //
+    // ★★ The three are still THREE, in the same three places. A divider has no
+    //    `label` field at all, so the words cannot come back by accident —
+    //    structural, the way fix-485 made these kinds ungatable.
+    const dividers = RIBBON_ENTRIES.filter((e) => e.kind === 'divider');
+    expect(dividers.map((d) => (d.kind === 'divider' ? d.id : ''))).toEqual([
+      'div-work',
+      'div-reports',
+      'div-links',
     ]);
+    for (const d of dividers) {
+      expect(d).not.toHaveProperty('label');
+    }
   });
 
   it('★★★ there are NO separators left — captions and the spacer draw the rules', () => {
@@ -140,21 +155,35 @@ describe('fix-485 §A1: three captioned sections + a pinned utility block', () =
     ]);
   });
 
-  it('★★ the captions render at the mock\'s treatment, and the first draws no rule', () => {
+  it('★★★ SUPERSEDED BY fix-503 §A: a divider is the RULE, with no text', () => {
+    // ★★★ It asserted the mock v9 `.cat` treatment — 8.5px / 800 / uppercase /
+    //     .08em — on a label that no longer exists.
+    // ★★ WHAT SURVIVES UNCHANGED is the half that carried the meaning: the same
+    //    1px `var(--color-s3)`, the same first-entry exception (a hairline
+    //    directly under the brand block reads as a mistake).
     renderRibbon();
-    const work = screen.getByTestId('ribbon-caption-cap-work');
-    const reports = screen.getByTestId('ribbon-caption-cap-reports');
-    expect(work.textContent).toBe('Work');
-    // ★ 8.5px / 800 / uppercase / .08em, mock v9's `.cat`.
-    const label = work.querySelector('div') as HTMLElement;
-    expect(label.style.fontSize).toBe('8.5px');
-    expect(label.style.fontWeight).toBe('800');
-    expect(label.style.letterSpacing).toBe('0.08em');
-    expect(label.style.color).toBe('var(--color-dim)');
-    // ★★ The FIRST caption draws no rule — a hairline directly under the brand
-    //    block reads as a mistake — and every later one does.
+    const work = screen.getByTestId('ribbon-divider-div-work');
+    const reports = screen.getByTestId('ribbon-divider-div-reports');
+    expect(work.textContent).toBe('');
+    expect(reports.textContent).toBe('');
     expect(work.style.borderTop).toBe('');
     expect(reports.style.borderTop).toContain('1px');
+    expect(reports.style.borderTop).toContain('var(--color-s3)');
+  });
+
+  it('★★★ NOT ONE of the three words is left anywhere in the ribbon chrome', () => {
+    // ★★ "Reports" survives as the GROUP's own label and "Links" must not — the
+    //    guard is against the CAPTIONS, so it checks the divider elements and
+    //    the absence of any `ribbon-caption-*` node rather than the whole tree.
+    const { container } = renderRibbon();
+    expect(container.querySelectorAll('[data-testid^="ribbon-caption-"]')).toHaveLength(0);
+    expect(container.querySelectorAll('[data-testid^="ribbon-divider-"]')).toHaveLength(3);
+    // ★ The one word that legitimately remains is the Reports GROUP toggle,
+    //   which Bobby did not ask to remove — it names a destination, not a
+    //   category of the ribbon.
+    expect(screen.getByTestId('ribbon-group-toggle-reports').textContent).toContain(
+      'Reports',
+    );
   });
 
   it('★★ the spacer pushes, and carries the utility block\'s own rule', () => {
@@ -235,7 +264,7 @@ describe('fix-485 §A1: routes and gates are byte-identical', () => {
       [true, false],
     ] as const) {
       const ids = entryIds(visibleEntries(admin, member));
-      for (const id of ['cap-work', 'cap-reports', 'cap-links', 'util', 'jurisdictions']) {
+      for (const id of ['div-work', 'div-reports', 'div-links', 'util', 'cities']) {
         expect(ids, `${id} for admin=${admin} member=${member}`).toContain(id);
       }
     }
@@ -255,7 +284,7 @@ describe('fix-485 §A1: routes and gates are byte-identical', () => {
   });
 
   it('★★ nothing new can claim to be the current page', () => {
-    // ★ `activeRibbonTarget` considers links and group children only. A caption,
+    // ★ `activeRibbonTarget` considers links and group children only. A divider,
     //   a spacer and a city's GIS are never "where you are".
     for (const p of ['/dashboard', '/library', '/agenda', '/settings/errors']) {
       expect(activeRibbonTarget(p)).toBe(p);
@@ -273,27 +302,39 @@ describe('fix-485 §A1: routes and gates are byte-identical', () => {
 // ---------------------------------------------------------------------------
 // §A2 / §A3 — Jurisdictions
 // ---------------------------------------------------------------------------
-describe('fix-485 §A2: the Jurisdictions folder', () => {
-  it('★★★ collapsed by default; opening it lists the seeded three', () => {
+// ★★★ fix-503 §A: THE FOLDER IS GONE AND THE CITIES ARE ROWS. Every assertion
+//     below kept its subject — the seeded three, the empty state, the external
+//     treatment, the persisted open state — and lost one click: there is no
+//     "◎ Jurisdictions ▾" toggle to open first.
+describe('fix-485 §A2 → fix-503 §A: the cities are ribbon rows', () => {
+  it('★★★ SUPERSEDED: the three cities are ALWAYS listed, not behind a folder', () => {
+    // ★★★ It asserted `ribbon-jurisdiction-cities` was absent until the folder
+    //     was opened. Bobby: *"can we remove jurisdictions, and just make the
+    //     jurisdictions present but slightly indented with a carrot."* Present
+    //     is the word: the rows are there on arrival.
     renderRibbon();
-    expect(screen.queryByTestId('ribbon-jurisdiction-cities')).toBeNull();
-    fireEvent.click(screen.getByTestId('ribbon-jurisdictions-toggle'));
+    expect(screen.queryByTestId('ribbon-jurisdictions-toggle')).toBeNull();
     for (const c of ['Seattle', 'Kirkland', 'Bellevue']) {
       expect(screen.getByTestId(`ribbon-jurisdiction-${c}`)).toBeInTheDocument();
+      // ★ Bobby's "carrot", closed.
+      expect(screen.getByTestId(`ribbon-jurisdiction-caret-${c}`).textContent).toBe('▾');
     }
+    // ★★ …and their links are NOT, until a city is opened.
+    expect(screen.queryByTestId('ribbon-jurisdiction-links-Seattle')).toBeNull();
   });
 
   it('★★★ a city with NO links says so, and offers nothing to click', () => {
     // ★★ The state all three ship in: Bobby named the cities and has not given
     //    the URLs, so none were invented. This is what that renders.
     renderRibbon();
-    fireEvent.click(screen.getByTestId('ribbon-jurisdictions-toggle'));
     fireEvent.click(screen.getByTestId('ribbon-jurisdiction-toggle-Seattle'));
     const empty = screen.getByTestId('ribbon-jurisdiction-empty-Seattle');
     expect(empty.textContent).toBe(NO_LINKS_YET);
     expect(
       screen.getByTestId('ribbon-jurisdiction-links-Seattle').querySelectorAll('a'),
     ).toHaveLength(0);
+    // ★ The caret flips when it opens.
+    expect(screen.getByTestId('ribbon-jurisdiction-caret-Seattle').textContent).toBe('▴');
   });
 
   it('★★★ a city WITH links renders them as externals, in a new tab', () => {
@@ -312,7 +353,6 @@ describe('fix-485 §A2: the Jurisdictions folder', () => {
       ],
     ]);
     renderRibbon();
-    fireEvent.click(screen.getByTestId('ribbon-jurisdictions-toggle'));
     fireEvent.click(screen.getByTestId('ribbon-jurisdiction-toggle-Seattle'));
     const gis = screen.getByTestId('ribbon-jurisdiction-link-Seattle-GIS');
     expect(gis.getAttribute('href')).toBe('https://gis.example.gov/seattle');
@@ -322,24 +362,28 @@ describe('fix-485 §A2: the Jurisdictions folder', () => {
     expect(gis.getAttribute('rel')).toContain('noopener');
   });
 
-  it('★★ one city expands at a time, and the folder\'s own state persists', () => {
-    // ★ The FOLDER shares `openGroups` with the Reports group — one memory of
-    //   what is open, not a second that could disagree. Which CITY is expanded
-    //   is local: a browse, not a workspace.
+  it('★★★ SUPERSEDED: cities open INDEPENDENTLY, and each one is remembered', () => {
+    // ★★★ TWO RULINGS INVERTED, and both were the folder's doing. fix-485 kept
+    //     ONE city open at a time and forgot which on reload, on the reasoning
+    //     that "a browse is not a workspace" and the FOLDER was the thing worth
+    //     remembering. With the folder gone the cities ARE the ribbon's rows,
+    //     and the brief asks for exactly this: open state per city, persisted
+    //     "the way `openGroups` does today".
+    //
+    // ★★ Still ONE memory, not a second that could disagree: the ids are
+    //    `juris-<city>` inside the same `openGroups` list the Reports group uses.
     const first = renderRibbon();
-    fireEvent.click(screen.getByTestId('ribbon-jurisdictions-toggle'));
     fireEvent.click(screen.getByTestId('ribbon-jurisdiction-toggle-Seattle'));
-    expect(screen.getByTestId('ribbon-jurisdiction-links-Seattle')).toBeInTheDocument();
     fireEvent.click(screen.getByTestId('ribbon-jurisdiction-toggle-Kirkland'));
-    expect(screen.queryByTestId('ribbon-jurisdiction-links-Seattle')).toBeNull();
+    expect(screen.getByTestId('ribbon-jurisdiction-links-Seattle')).toBeInTheDocument();
     expect(screen.getByTestId('ribbon-jurisdiction-links-Kirkland')).toBeInTheDocument();
     first.unmount();
 
     renderRibbon();
-    // The folder is still open…
-    expect(screen.getByTestId('ribbon-jurisdiction-cities')).toBeInTheDocument();
-    // …and no city is.
-    expect(screen.queryByTestId('ribbon-jurisdiction-links-Kirkland')).toBeNull();
+    // ★ Both survive the remount — that is the persistence, and it is the same
+    //   store the Reports group writes to.
+    expect(screen.getByTestId('ribbon-jurisdiction-links-Seattle')).toBeInTheDocument();
+    expect(screen.getByTestId('ribbon-jurisdiction-links-Kirkland')).toBeInTheDocument();
   });
 });
 

@@ -664,12 +664,16 @@ describe('fix-315: fix-313 survives', () => {
   //     whose children would be run through the route table. The exemption is
   //     still structural; there are simply more shapes that qualify.
   it('the entries are typed as the five kinds, and only routed ones carry a `to`', () => {
+    // ★ fix-503 §A renamed two of the six: `caption` → `divider` (the words
+    //   went, the rule stayed) and `jurisdictions` → `cities` (the folder
+    //   wrapper went, the rows stayed). Still six kinds, and the PROPERTY this
+    //   test is really for — only routed kinds carry a `to` — is untouched.
     const kinds = new Set(RIBBON_ENTRIES.map((e: RibbonEntry) => e.kind));
     expect([...kinds].sort()).toEqual([
-      'caption',
+      'cities',
+      'divider',
       'external',
       'group',
-      'jurisdictions',
       'link',
       'spacer',
     ]);
