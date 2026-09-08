@@ -36,6 +36,15 @@ import ScheduleHealthTable from '../components/ProjectDetail/ScheduleHealthTable
 import NotesPanel from '../components/ProjectDetail/NotesPanel';
 import PermitDetailV2 from '../components/ProjectDetail/PermitDetailV2';
 import ProjectSettingsModal from '../components/ProjectDetail/ProjectSettingsModal';
+// ★ fix-506 §G (P-140): the tabbed modal that replaces the overview's inline
+//   editors. Project Settings stays for Address / Jurisdiction / permits /
+//   Product Types / the roster — see the note at the top of ProjectDataModal.
+import ProjectDataModal from '../components/ProjectDetail/ProjectDataModal';
+import {
+  PARAM_DATA,
+  isProjectDataTab,
+  type ProjectDataTab,
+} from '../lib/projectDataTabs';
 import { ProjectHoldBadge } from '../components/ProjectDetail/ProjectHold';
 import { LandUsePhaseBadge } from '../components/ProjectDetail/LandUsePhaseBadge';
 import DeleteProjectDialog from '../components/ProjectDetail/DeleteProjectDialog';
@@ -185,7 +194,7 @@ function ProjectDetailBody({
   // Project View"). Resolves to a real permit id on this project, else null (an
   // absent/invalid param — e.g. a project-level task — falls back to the project
   // overview, the pre-fix behavior).
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const permitParam = searchParams.get('permit');
   // fix-219: resolve the ?permit= value TYPE-ROBUSTLY. permit.id is typed
   // `number` but the URL param is a string, and a strict === against a coerced
@@ -239,6 +248,35 @@ function ProjectDetailBody({
   // dialog are owned at the page level so all four entry points (Settings
   // button / Delete button / future hotkeys) target the same instances.
   const [settingsOpen, setSettingsOpen] = useState(false);
+  // ★★★ fix-506 §G/§H — PROJECT DATA, AND ITS TAB IS IN THE URL.
+  //
+  // §H's Library links are `?data=units` / `?data=site`, and fix-362 §2's rule
+  // applies: a destination that only works from inside the app is not a
+  // destination. Applied ONCE per parameter value with the in-render
+  // adjust-on-change pattern (never a setState-in-effect — the React Compiler
+  // rejects that form outright, as fix-350 found twice), so somebody can CLOSE
+  // the modal and have it stay closed.
+  const [dataOpen, setDataOpen] = useState<ProjectDataTab | null>(null);
+  const dataParam = searchParams.get(PARAM_DATA);
+  const [appliedDataParam, setAppliedDataParam] = useState<string | null>(null);
+  if (dataParam === null) {
+    if (appliedDataParam !== null) setAppliedDataParam(null);
+  } else if (dataParam !== appliedDataParam) {
+    setAppliedDataParam(dataParam);
+    // ★ An unknown value opens on Site data rather than rendering nothing —
+    //   fix-406's lesson: removing a value from a union does not stop a stored
+    //   string arriving.
+    setDataOpen(isProjectDataTab(dataParam) ? dataParam : 'site');
+  }
+
+  function closeProjectData() {
+    setDataOpen(null);
+    if (searchParams.has(PARAM_DATA)) {
+      const next = new URLSearchParams(searchParams);
+      next.delete(PARAM_DATA);
+      setSearchParams(next, { replace: true });
+    }
+  }
   const [deleteOpen, setDeleteOpen] = useState(false);
   // fix-126: redesign-wizard state. When non-null the New Project wizard
   // mounts in redesign mode with this seed; settingsOpen is closed first
@@ -303,10 +341,44 @@ function ProjectDetailBody({
           Delete buttons right. */}
       {/* ★ fix-331 §4: one button. Reassign DA and Delete are inside it. */}
       <ProjectPageChrome
-        onSettings={() => setSettingsOpen(true)}
+        onSettings={() => setDataOpen('site')}
         projects={allProjects}
       />
 
+      {dataOpen && (
+        <ProjectDataModal
+          project={project}
+          permits={lineagePermits}
+          bp={bp}
+          initialTab={dataOpen}
+          onClose={closeProjectData}
+          // ★ ONE overlay at a time — fix-331 §4's rule, and the reason the
+          //   page owns every dialog instance. Project Data closes itself
+          //   before Project Settings opens.
+          onOpenSettings={() => {
+            closeProjectData();
+            setSettingsOpen(true);
+          }}
+          canReassignDa={isAdmin}
+          onReassignDa={() => {
+            closeProjectData();
+            setReassignOpen(true);
+          }}
+          onDelete={() => {
+            closeProjectData();
+            setDeleteOpen(true);
+          }}
+          onSpawnRedesign={() => {
+            const seed = makeRedesignWizardState(
+              project,
+              redesignsQ.count,
+              bp?.da ?? null,
+            );
+            closeProjectData();
+            setRedesignSeed(seed);
+          }}
+        />
+      )}
       {settingsOpen && (
         <ProjectSettingsModal
           project={project}
@@ -657,9 +729,9 @@ function ProjectPageChrome({
         <button
           onClick={onSettings}
           className="px-3 py-1 rounded-md text-xs font-bold border border-border bg-s2 text-text hover:bg-s3 transition"
-          data-testid="project-settings-btn"
+          data-testid="project-data-btn"
         >
-          ⚙ Project Settings
+          ⚙ Project Data
         </button>
       </div>
     </div>

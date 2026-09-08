@@ -260,3 +260,27 @@ export function consultantHasNothingToClear(row: {
     row.recd === null
   );
 }
+
+// ★ IN lib, NOT IN THE COMPONENT FILE. `react-refresh/only-export-components`
+//   is an ERROR in this repo, so a component file may export components and
+//   types and nothing else — the rule that moved a helper in fix-403, fix-408
+//   and fix-499, and only LINT catches it (tsc is happy either way).
+
+/** ★ The four disciplines Bobby fixed, in his order. Declared once — the slot
+ *  list, the empty-slot label and the test all read it. */
+export const FIXED_DISCIPLINES = ['Surveyor', 'Arborist', 'Structural', 'Civil'] as const;
+
+/**
+ * ★★ THE LADDER, AS A FUNCTION OF WHERE YOU ARE. `CONSULTANT_STATUSES` is
+ *    Scheduled → Pending → Received and the button advances one step, wrapping
+ *    from the end back to the start.
+ *
+ * ★ WRAPPING IS THE STEP fix-479 ALREADY GUARDS. Received → Scheduled is the
+ *   backward move out of Received, which `transitionAppends` treats as a new
+ *   round and which keeps fix-479's own prompt — so the one destructive
+ *   transition on this control is the one that was already asking twice.
+ */
+export function nextStatus(current: ConsultantStatus): ConsultantStatus {
+  const i = CONSULTANT_STATUSES.indexOf(current);
+  return CONSULTANT_STATUSES[(i + 1) % CONSULTANT_STATUSES.length];
+}

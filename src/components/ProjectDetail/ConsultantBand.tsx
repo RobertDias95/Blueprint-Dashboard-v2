@@ -1,5 +1,8 @@
 import { useMemo, useState } from 'react';
-import { OverviewCard, OverviewSection } from './OverviewCard';
+import {
+  CONSULTANT_PILL_COMPACT_MIN,
+  consultantRowSplit,
+} from '../../lib/projectCardLayout';
 import BufferedDateInput from '../BufferedDateInput';
 import { useExternalTeamDirectory } from '../../hooks/useExternalTeamDirectory';
 import {
@@ -14,7 +17,8 @@ import {
 import {
   CONSULTANT_DATE_LABEL,
   CONSULTANT_DATE_SLOTS,
-  CONSULTANT_STATUSES,
+  FIXED_DISCIPLINES,
+  nextStatus,
   consultantHasNothingToClear,
   seedConsultantDates,
   transitionAppends,
@@ -64,7 +68,40 @@ const STATUS_STYLE: Record<ConsultantStatus, { bg: string; fg: string; bd: strin
   Received: { bg: 'var(--color-pm-bg)', fg: 'var(--color-ok)', bd: 'var(--color-pm-border)' },
 };
 
-export default function ConsultantsCard({
+// ===========================================================================
+// ★★★ fix-506 §F (P-139, P-133) — THE CONSULTANTS CARD BECOMES A BAND
+// ===========================================================================
+//
+// §A retires this as a CARD; its pills become a grid across the foot of the
+// Team card. Bobby's rules, in order:
+//
+//   · **minimum four slots always** — an absent discipline shows an empty slot,
+//     not a shorter grid.
+//   · **Surveyor · Arborist · Structural · Civil are the first four, in that
+//     order, left to right, top to bottom.** 5–8 are whatever the project has.
+//   · odd counts **stretch the bottom row**: 5 goes 3+2, 7 goes 4+3.
+//
+// ★★★ THE PILL IS COMPACT NOW, AND THAT IS A MEASUREMENT, NOT A STYLE CHOICE.
+//     fix-475 sized a pill for a 144px COLUMN — one per line, as many lines as
+//     there are consultants — and stacked the two dates because two
+//     `BufferedDateInput`s side by side cost 252px against a 190px budget. A
+//     grid four across in a ~290px Team card gives each pill ~70px, so the
+//     stacked-date pill cannot be the grid pill either. See
+//     `lib/projectCardLayout` for the arithmetic.
+//
+// ★★★ SO THE DATES PRINT, AND EDIT IN A FLOATING PANEL. Bobby's exception to
+//     the read-only overview is *"a consultant's status and two dates stay
+//     editable on the overview"* — it is about the FIELDS, not the control. A
+//     printed `05/01` is 36px; the panel that edits it is anchored to the pill
+//     and sized independently, so `BufferedDateInput` keeps its honest 103px
+//     and fix-073's rule (no raw `onChange` on a server-committing date) is
+//     untouched.
+//
+// ★ AND THE STATUS IS A BUTTON, not the `<select>` it was. P-164 made the click
+//   open a confirm; a `<select>` whose every option opens the same dialog is a
+//   menu pretending to be a menu.
+
+export function ConsultantBand({
   projectId,
   bp,
 }: {
@@ -102,90 +139,160 @@ export default function ConsultantsCard({
     [bp?.dd_end, bp?.target_submit],
   );
 
+  /** ★ Bobby's fixed four, then everything else in discipline order. An
+   *  absent fixed discipline holds its SLOT — that is what makes the grid
+   *  readable at a glance across projects, which is the whole point of fixing
+   *  the order. */
+  const slots = useMemo(() => {
+    const byDiscipline = new Map(rows.map((r) => [r.discipline.toLowerCase(), r]));
+    const fixed = FIXED_DISCIPLINES.map((d) => byDiscipline.get(d.toLowerCase()) ?? null);
+    const rest = rows
+      .filter((r) => !FIXED_DISCIPLINES.some((d) => d.toLowerCase() === r.discipline.toLowerCase()))
+      .sort((x, y) => x.discipline.localeCompare(y.discipline));
+    const list: (ConsultantCurrent | null)[] = [...fixed, ...rest];
+    // ★ `max(4, n)` — the minimum is four SLOTS, and a project with six real
+    //   consultants gets six, not four.
+    while (list.length < 4) list.push(null);
+    return list;
+  }, [rows]);
+
+  const { top, bottom } = consultantRowSplit(slots.length);
+  const lines = [slots.slice(0, top), slots.slice(top, top + bottom)];
+
   return (
-    <OverviewCard title="Consultants" testId="pd-consultants-card">
-      <OverviewSection testId="pd-consultants-body">
-        {/* ★★ THE EMPTY STATE IS THE BUTTON AND NOTHING ELSE. No placeholder
-            text, no seeded disciplines — Bobby ruled 2026-09-01 not to seed
-            from `external_team` at all, so a project with no consultants has
-            genuinely nothing to say and says nothing. */}
-        {rows.map((row) => (
-          <ConsultantPill
-            key={row.consultant_id}
-            projectId={projectId}
-            row={row}
-            firms={firms}
-            seeds={seeds}
-          />
-        ))}
-
-        {adding && available.length > 0 && (
+    <div
+      className="border-t"
+      style={{ borderTopColor: 'var(--color-border)' }}
+      data-testid="pd-consultant-band"
+      data-slot-count={String(slots.length)}
+      data-split={`${top}+${bottom}`}
+    >
+      {lines.map((line, li) =>
+        line.length === 0 ? null : (
           <div
-            className="flex items-center gap-1.5 mb-1.5"
-            data-testid="pd-consultant-add-row"
+            key={li}
+            className="flex flex-wrap"
+            data-testid={`pd-consultant-row-${li}`}
           >
-            <select
-              className="text-[11px] border rounded px-1.5 py-1 flex-1 min-w-0"
-              style={{ borderColor: 'var(--color-border)' }}
-              defaultValue=""
-              onChange={(e) => {
-                const discipline = e.target.value;
-                if (!discipline) return;
-                const firm = firms.find(
-                  (f) => f.active && f.discipline === discipline,
-                );
-                if (!firm) return;
-                add.mutate(
-                  {
-                    discipline,
-                    firmId: firm.id,
-                    estSend: seeds.est_send,
-                    estRecd: seeds.est_recd,
-                  },
-                  { onSuccess: () => setAdding(false) },
-                );
-              }}
-              data-testid="pd-consultant-add-discipline"
-            >
-              <option value="">Discipline…</option>
-              {available.map((d) => (
-                <option key={d} value={d}>
-                  {d}
-                </option>
-              ))}
-            </select>
-            <button
-              type="button"
-              className="text-[11px] px-2 py-1"
-              style={{ color: 'var(--color-muted)' }}
-              onClick={() => setAdding(false)}
-              data-testid="pd-consultant-add-cancel"
-            >
-              Cancel
-            </button>
+            {line.map((row, i) => (
+              <div
+                key={row ? row.consultant_id : `empty-${li}-${i}`}
+                className="flex flex-col justify-center"
+                // ★★ `flex: 1 1 <floor>` and NOT a grid of `repeat(k, 1fr)`:
+                //    the ruled 3+2 / 4+3 split is the TARGET, and a grid of
+                //    fixed track count CLIPS when the card is narrower than
+                //    k pills. Flex with a declared basis renders the split
+                //    wherever it fits and wraps to fewer per line where it does
+                //    not — degrading to the one-per-line list fix-475 shipped.
+                style={{ flex: `1 1 ${CONSULTANT_PILL_COMPACT_MIN}px`, minWidth: 0 }}
+              >
+                {row ? (
+                  <ConsultantPill
+                    projectId={projectId}
+                    row={row}
+                    firms={firms}
+                    seeds={seeds}
+                  />
+                ) : (
+                  <EmptySlot
+                    discipline={FIXED_DISCIPLINES[li * top + i] ?? null}
+                    canAdd={available.length > 0}
+                    onAdd={() => setAdding(true)}
+                  />
+                )}
+              </div>
+            ))}
           </div>
-        )}
+        ),
+      )}
 
-        {available.length > 0 && !adding && (
+      {adding && available.length > 0 && (
+        <div
+          className="flex items-center gap-1.5 px-2 py-1.5 border-t"
+          style={{ borderTopColor: 'var(--color-border)' }}
+          data-testid="pd-consultant-add-row"
+        >
+          <select
+            className="text-[11px] border rounded px-1.5 py-1 flex-1 min-w-0"
+            style={{ borderColor: 'var(--color-border)' }}
+            defaultValue=""
+            onChange={(e) => {
+              const discipline = e.target.value;
+              if (!discipline) return;
+              const firm = firms.find((f) => f.active && f.discipline === discipline);
+              if (!firm) return;
+              add.mutate(
+                {
+                  discipline,
+                  firmId: firm.id,
+                  estSend: seeds.est_send,
+                  estRecd: seeds.est_recd,
+                },
+                { onSuccess: () => setAdding(false) },
+              );
+            }}
+            data-testid="pd-consultant-add-discipline"
+          >
+            <option value="">Discipline…</option>
+            {available.map((d) => (
+              <option key={d} value={d}>
+                {d}
+              </option>
+            ))}
+          </select>
           <button
             type="button"
-            className="w-full text-[11px] font-bold px-2 py-1.5 rounded border border-dashed"
-            style={{
-              borderColor: 'var(--color-border)',
-              // ★ fix-467's measurement: `--color-muted` on white is 5.48:1.
-              //   Not `--color-dim`, which is 2.82:1.
-              color: 'var(--color-muted)',
-            }}
-            onClick={() => setAdding(true)}
-            data-testid="pd-consultant-add"
+            className="text-[11px] px-2 py-1"
+            style={{ color: 'var(--color-muted)' }}
+            onClick={() => setAdding(false)}
+            data-testid="pd-consultant-add-cancel"
           >
-            + Add consultant
+            Cancel
           </button>
-        )}
-      </OverviewSection>
-    </OverviewCard>
+        </div>
+      )}
+    </div>
   );
 }
+
+/**
+ * ★★ AN EMPTY SLOT NAMES THE DISCIPLINE IT IS WAITING FOR. The mock's copy is
+ *    *"+ Add consultant (Project Data)"*; naming the discipline as well is what
+ *    turns a hole into information — "no Arborist yet" rather than "something
+ *    missing here".
+ *
+ * ★ It opens the add row on this band rather than the modal, because the band
+ *   already owns `bp_add_project_consultant` and a control that sends you to a
+ *   second surface to do what this one can do is a longer path, not a simpler
+ *   one.
+ */
+function EmptySlot({
+  discipline,
+  canAdd,
+  onAdd,
+}: {
+  discipline: string | null;
+  canAdd: boolean;
+  onAdd: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      className="w-full h-full text-[9.5px] px-2 py-3 text-center disabled:cursor-default"
+      style={{
+        color: 'var(--color-muted)',
+        background:
+          'repeating-linear-gradient(45deg, transparent 0 6px, var(--color-s2) 6px 7px)',
+      }}
+      disabled={!canAdd}
+      onClick={onAdd}
+      data-testid={`pd-consultant-empty-${discipline ?? 'slot'}`}
+    >
+      {discipline ? `+ ${discipline}` : '+ Add consultant'}
+    </button>
+  );
+}
+
 
 // ---------------------------------------------------------------------------
 // ONE PILL
@@ -213,6 +320,10 @@ function ConsultantPill({
   const [firmPrompt, setFirmPrompt] = useState<string | null>(null);
   /** ★ fix-506 §F: the status the person clicked, awaiting Confirm. */
   const [statusPrompt, setStatusPrompt] = useState<ConsultantStatus | null>(null);
+  /** ★ fix-506 §F: which date slot the person clicked. One flag, not one
+   *  per slot — the panel shows BOTH dates, because they are the pair the
+   *  status carries and editing one usually means checking the other. */
+  const [dateEdit, setDateEdit] = useState<ConsultantDateField | null>(null);
   const roundsQ = useConsultantRounds(row.consultant_id, open);
 
   const status = (row.status ?? 'Scheduled') as ConsultantStatus;
@@ -325,73 +436,132 @@ function ConsultantPill({
 
   return (
     <div
-      className="rounded border mb-1.5 overflow-hidden"
+      className="border-r border-b h-full flex flex-col"
       style={{ borderColor: 'var(--color-border)', background: 'var(--color-surface)' }}
       data-testid={`pd-consultant-${row.discipline}`}
       data-status={status}
     >
-      <div className="px-2 py-1.5">
+      <div className="px-2 py-1.5 flex-1">
+        {/* ★ The mock's `.pill .d` — the discipline as a caption on its own
+            line, above the firm/status row. It is what lets a reader find
+            "Structural" without reading four firm names. */}
         <div
-          className="text-[8.5px] font-extrabold uppercase mb-0.5"
+          className="text-[8.5px] font-extrabold uppercase truncate"
           style={{ letterSpacing: '0.06em', color: 'var(--color-muted)' }}
         >
           {row.discipline}
         </div>
 
-        {/* Firm */}
-        <select
-          className="w-full text-[11.5px] font-bold rounded px-1 py-0.5 border min-w-0"
-          style={{
-            borderColor: 'transparent',
-            background: 'transparent',
-            color: 'var(--color-text)',
-          }}
-          value={row.firm_id}
-          onChange={(e) => onPickFirm(e.target.value)}
-          data-testid={`pd-consultant-firm-${row.discipline}`}
-        >
-          {options.map((f) => (
-            <option key={f.id} value={f.id}>
-              {f.name}
-              {!f.active ? ' (inactive)' : ''}
-            </option>
-          ))}
-        </select>
+        {/* ★★ FIRM AND STATUS ON ONE LINE, held apart — the mock's
+            `.pill .firm{display:flex;justify-content:space-between}`. */}
+        <div className="flex items-center justify-between gap-1.5 my-0.5 min-w-0">
+          <select
+            className="text-[11px] font-bold rounded border min-w-0 flex-1 truncate px-0 py-0"
+            style={{
+              borderColor: 'transparent',
+              background: 'transparent',
+              color: 'var(--color-text)',
+            }}
+            value={row.firm_id}
+            onChange={(e) => onPickFirm(e.target.value)}
+            data-testid={`pd-consultant-firm-${row.discipline}`}
+          >
+            {options.map((f) => (
+              <option key={f.id} value={f.id}>
+                {f.name}
+                {!f.active ? ' (inactive)' : ''}
+              </option>
+            ))}
+          </select>
 
-        {/* Status — the only coloured object in the column */}
-        <select
-          className="w-full text-[9.5px] font-extrabold uppercase rounded-full px-2 py-0.5 border mt-1"
-          style={{
-            letterSpacing: '0.04em',
-            background: tint.bg,
-            color: tint.fg,
-            borderColor: tint.bd,
-          }}
-          value={status}
-          onChange={(e) => onStatus(e.target.value as ConsultantStatus)}
-          data-testid={`pd-consultant-status-${row.discipline}`}
-        >
-          {CONSULTANT_STATUSES.map((s) => (
-            <option key={s} value={s}>
-              {s}
-            </option>
-          ))}
-        </select>
+          {/* ★★★ A BUTTON, NOT A `<select>`. P-164 made every status change ask
+              first, and a menu whose every option opens the same dialog is a
+              menu pretending to be one. The click ADVANCES along the ladder —
+              Scheduled → Pending → Received → Scheduled — and the confirm names
+              where it is going, so nothing is written by picking. */}
+          <button
+            type="button"
+            className="text-[8.5px] font-extrabold uppercase rounded-full px-1.5 py-0.5 border flex-none"
+            style={{
+              letterSpacing: '0.04em',
+              background: tint.bg,
+              color: tint.fg,
+              borderColor: tint.bd,
+            }}
+            onClick={() => onStatus(nextStatus(status))}
+            title={`${row.discipline} is ${status}. Click to move it to ${nextStatus(status)} — it will ask first.`}
+            data-testid={`pd-consultant-status-${row.discipline}`}
+          >
+            {status}
+          </button>
+        </div>
 
-        {/* ★★★ TWO DATES, STACKED — see the note at the top of this file for the
-            measurement that put them one above the other rather than side by
-            side. Same two slots on every pill; the STATUS decides which two. */}
-        <div className="flex flex-col gap-1 mt-1.5" data-testid={`pd-consultant-dates-${row.discipline}`}>
+        {/* ★★★ TWO DATES, SIDE BY SIDE, PRINTED — and editable in the panel
+            below. See the file header for the measurement: a printed date is
+            36px and a `BufferedDateInput` is 103, and four pills share a ~290px
+            card. Same two slots on every pill; the STATUS decides which two. */}
+        <div
+          className="grid gap-1.5"
+          style={{ gridTemplateColumns: '1fr 1fr' }}
+          data-testid={`pd-consultant-dates-${row.discipline}`}
+        >
           {slots.map((field) => {
             // ★ An EST slot is a guess and looks like one: dashed, muted. A
             //   stamped date is solid. The label comes from fix-474's one
             //   constant — this vocabulary has changed three times.
             const isEst = field === 'est_send' || field === 'est_recd';
+            const value = (row[field] as string | null) ?? '';
             return (
-              <label key={field} className="block" data-testid={`pd-consultant-slot-${row.discipline}-${field}`}>
+              <button
+                key={field}
+                type="button"
+                className="text-left min-w-0"
+                onClick={() => setDateEdit((v) => (v ? null : field))}
+                title={`${CONSULTANT_DATE_LABEL[field]} — click to edit`}
+                data-testid={`pd-consultant-slot-${row.discipline}-${field}`}
+              >
                 <span
-                  className="block text-[8.5px] font-extrabold uppercase mb-0.5"
-                  style={{ letterSpacing: '0.06em', color: 'var(--color-muted)' }}
+                  className="block text-[8px] font-extrabold uppercase truncate"
+                  style={{ letterSpacing: '0.05em', color: 'var(--color-muted)' }}
+                >
+                  {CONSULTANT_DATE_LABEL[field]}
+                </span>
+                <span
+                  className="block text-[9.5px] font-semibold font-mono tabular-nums"
+                  style={{
+                    color: isEst ? 'var(--color-muted)' : 'var(--color-text)',
+                    borderBottom: isEst
+                      ? '1px dashed var(--color-border)'
+                      : '1px solid transparent',
+                  }}
+                  data-testid={`pd-consultant-date-${row.discipline}-${field}`}
+                >
+                  {value ? value.slice(5).replace('-', '/') : '—'}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+
+        {/* ★★ THE EDITOR IS A PANEL, NOT AN INPUT IN THE CELL. A native
+            `<input type="date">` is 103px and cannot reflow (fix-423); the pill
+            is 140. Opening the pair below the pill — the shape
+            `BuilderOwnerDisclosure` already uses on this row — keeps
+            `BufferedDateInput` at its honest width AND keeps fix-073's rule
+            that a server-committing date never sees a raw `onChange`. */}
+        {dateEdit && (
+          <div
+            className="mt-1 pt-1 border-t flex flex-col gap-1"
+            style={{ borderTopColor: 'var(--color-border)' }}
+            role="group"
+            aria-label={`Edit ${row.discipline} dates`}
+            data-testid={`pd-consultant-date-editor-${row.discipline}`}
+          >
+            {slots.map((field) => (
+              <label key={field} className="block">
+                <span
+                  className="block text-[8px] font-extrabold uppercase"
+                  style={{ letterSpacing: '0.05em', color: 'var(--color-muted)' }}
                 >
                   {CONSULTANT_DATE_LABEL[field]}
                 </span>
@@ -406,18 +576,22 @@ function ConsultantPill({
                     })
                   }
                   className="w-full text-[10.5px] rounded px-1 py-0.5 border tabular-nums"
-                  style={{
-                    borderColor: 'var(--color-border)',
-                    borderStyle: isEst ? 'dashed' : 'solid',
-                    background: isEst ? 'var(--color-s2)' : 'var(--color-surface)',
-                    color: isEst ? 'var(--color-muted)' : 'var(--color-text)',
-                  }}
-                  testId={`pd-consultant-date-${row.discipline}-${field}`}
+                  style={{ borderColor: 'var(--color-border)' }}
+                  testId={`pd-consultant-date-input-${row.discipline}-${field}`}
                 />
               </label>
-            );
-          })}
-        </div>
+            ))}
+            <button
+              type="button"
+              className="text-[9px] font-bold self-end"
+              style={{ color: 'var(--color-muted)' }}
+              onClick={() => setDateEdit(null)}
+              data-testid={`pd-consultant-date-close-${row.discipline}`}
+            >
+              Done
+            </button>
+          </div>
+        )}
 
         {/* History */}
         {row.round_count > 1 || open ? (
