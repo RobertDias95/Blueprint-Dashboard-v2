@@ -203,15 +203,34 @@ describe('fix-475 §1 — the Consultants column', () => {
     }
   });
 
-  it('★★ a status flip goes to the RPC — the stamp is the server\'s, not ours', () => {
-    // Bobby: *"okay, here's the status, auto date pops in."* The client sends
-    // the status and nothing else; `bp_set_consultant_status` decides both the
-    // date and whether a round is appended.
+  it('★★★ SUPERSEDED BY fix-506 §F (P-164): a status flip ASKS FIRST', () => {
+    // ★★★ THIS ASSERTION IS INVERTED, AND IT IS THE DEFECT. It read "a status
+    //     flip goes to the RPC" and proved that ONE `<select>` change wrote —
+    //     which is exactly what Bobby asked to stop: a mis-click on a
+    //     three-item list moved a consultant to Received, stamping `recd`,
+    //     with no way back but another write.
+    //
+    // ★★ WHAT SURVIVES UNCHANGED is the half fix-475 was really protecting:
+    //    when the write DOES happen the client sends the status and nothing
+    //    else, and `bp_set_consultant_status` decides the date — asserted in
+    //    the Confirm test below.
     state.rows = [row({ status: 'Scheduled' })];
     renderCard();
     fireEvent.change(screen.getByTestId('pd-consultant-status-Geotech'), {
       target: { value: 'Pending' },
     });
+    expect(state.status).toHaveLength(0);
+    expect(state.dates).toHaveLength(0);
+    expect(screen.getByTestId('pd-consultant-status-prompt-Geotech')).toBeInTheDocument();
+  });
+
+  it('★★★ Confirm writes ONCE, with the status and no date', () => {
+    state.rows = [row({ status: 'Scheduled' })];
+    renderCard();
+    fireEvent.change(screen.getByTestId('pd-consultant-status-Geotech'), {
+      target: { value: 'Pending' },
+    });
+    fireEvent.click(screen.getByTestId('pd-consultant-status-confirm-Geotech'));
     expect(state.status).toHaveLength(1);
     expect(state.status[0]).toMatchObject({
       consultantId: 'c-1',
@@ -219,8 +238,64 @@ describe('fix-475 §1 — the Consultants column', () => {
       // ★ OCC on the ROUND's token, since the round is what this write touches.
       expectedUpdatedAt: '2026-09-01T00:00:00Z',
     });
-    // ★ No date was sent — nobody types `sent`.
+    // ★★ No date was sent — nobody EDITED one, and an untouched slot must not
+    //    overwrite the stamp the RPC is about to make.
     expect(state.dates).toHaveLength(0);
+    expect(screen.queryByTestId('pd-consultant-status-prompt-Geotech')).toBeNull();
+  });
+
+  it('★★★ Cancel writes NOTHING, and the pill keeps its old status', () => {
+    // ★★★ THE ASSERTION P-164 EXISTS FOR. Fails on origin/main, where the
+    //     change had already been written before anyone could cancel.
+    state.rows = [row({ status: 'Scheduled' })];
+    renderCard();
+    fireEvent.change(screen.getByTestId('pd-consultant-status-Geotech'), {
+      target: { value: 'Received' },
+    });
+    fireEvent.click(screen.getByTestId('pd-consultant-status-cancel-Geotech'));
+    expect(state.status).toHaveLength(0);
+    expect(state.dates).toHaveLength(0);
+    expect(screen.queryByTestId('pd-consultant-status-prompt-Geotech')).toBeNull();
+    // ★★ The select is CONTROLLED on the row, so cancelling needs no revert —
+    //    we simply never wrote, and the next render puts the old value back. A
+    //    local "pending value" would be a second source of truth.
+    expect(
+      (screen.getByTestId('pd-consultant-status-Geotech') as HTMLSelectElement).value,
+    ).toBe('Scheduled');
+  });
+
+  it('★★★ the confirm shows the slots the NEW status will carry', () => {
+    // ★★ A status change is not just a label: the RPC stamps `sent` on Pending
+    //    and `recd` on Received, and the two visible slots change with it. So
+    //    "move this to Received?" is really "…with THESE two dates?", and the
+    //    dialog asks the real question.
+    state.rows = [row({ status: 'Pending', sent: '2026-10-02' })];
+    renderCard();
+    fireEvent.change(screen.getByTestId('pd-consultant-status-Geotech'), {
+      target: { value: 'Received' },
+    });
+    for (const f of CONSULTANT_DATE_SLOTS.Received) {
+      expect(
+        screen.getByTestId(`pd-consultant-confirm-slot-Geotech-${f}`),
+      ).toBeInTheDocument();
+    }
+    // ★ …and NOT the slot only the old status had.
+    expect(screen.queryByTestId('pd-consultant-confirm-slot-Geotech-est_recd')).toBeNull();
+  });
+
+  it('★★ an EDITED date is written after the status, and only that one', () => {
+    state.rows = [row({ status: 'Scheduled' })];
+    renderCard();
+    fireEvent.change(screen.getByTestId('pd-consultant-status-Geotech'), {
+      target: { value: 'Pending' },
+    });
+    const input = screen.getByTestId('pd-consultant-confirm-date-Geotech-est_recd');
+    fireEvent.change(input, { target: { value: '2026-11-05' } });
+    fireEvent.blur(input);
+    fireEvent.click(screen.getByTestId('pd-consultant-status-confirm-Geotech'));
+    expect(state.status).toHaveLength(1);
+    expect(state.dates).toHaveLength(1);
+    expect(state.dates[0]).toMatchObject({ field: 'est_recd', value: '2026-11-05' });
   });
 
   it('★★★ Received → Scheduled OPENS the history so the new round is visible', () => {
@@ -238,6 +313,9 @@ describe('fix-475 §1 — the Consultants column', () => {
     fireEvent.change(screen.getByTestId('pd-consultant-status-Geotech'), {
       target: { value: 'Scheduled' },
     });
+    // ★ fix-506 §F: the step back out of Received asks like every other one —
+    //   the history opens once it is CONFIRMED, not on the click.
+    fireEvent.click(screen.getByTestId('pd-consultant-status-confirm-Geotech'));
     expect(screen.getByTestId('pd-consultant-history-Geotech')).toBeInTheDocument();
     // ★ The finished round is in it, unchanged — its dates are still there.
     const hist = screen.getByTestId('pd-consultant-history-Geotech');

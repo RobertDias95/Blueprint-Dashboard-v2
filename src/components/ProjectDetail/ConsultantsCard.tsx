@@ -115,6 +115,7 @@ export default function ConsultantsCard({
             projectId={projectId}
             row={row}
             firms={firms}
+            seeds={seeds}
           />
         ))}
 
@@ -193,10 +194,16 @@ function ConsultantPill({
   projectId,
   row,
   firms,
+  seeds,
 }: {
   projectId: string;
   row: ConsultantCurrent;
   firms: readonly { id: string; name: string; discipline: string; active: boolean }[];
+  /** ★ fix-506 §F (P-164): the dates a NEW status would carry, so the confirm
+   *  can show them before anything is written. Computed once by the card from
+   *  the BP — the same `seedConsultantDates` "+ Add consultant" already uses,
+   *  so a seeded date and a confirmed date can never disagree. */
+  seeds: { est_send: string | null; est_recd: string | null };
 }) {
   const setStatus = useSetConsultantStatus(projectId);
   const setDate = useSetConsultantDate(projectId);
@@ -204,6 +211,8 @@ function ConsultantPill({
   const setFirm = useSetConsultantFirm(projectId);
   const [open, setOpen] = useState(false);
   const [firmPrompt, setFirmPrompt] = useState<string | null>(null);
+  /** ★ fix-506 §F: the status the person clicked, awaiting Confirm. */
+  const [statusPrompt, setStatusPrompt] = useState<ConsultantStatus | null>(null);
   const roundsQ = useConsultantRounds(row.consultant_id, open);
 
   const status = (row.status ?? 'Scheduled') as ConsultantStatus;
@@ -255,7 +264,33 @@ function ConsultantPill({
     setFirmPrompt(nextFirmId);
   }
 
+  // ===========================================================================
+  // ★★★ fix-506 §F (P-164) — ADVANCING A STATUS ASKS FIRST
+  // ===========================================================================
+  //
+  // ★★★ ONE CLICK USED TO WRITE. `onStatus` called the RPC straight from the
+  //     `<select>`'s onChange, so a mis-click on a three-item list moved a
+  //     consultant from Scheduled to Received — stamping `recd` — with no way
+  //     back but another write. Bobby ruled it must ask.
+  //
+  // ★★ AND THE ASK SHOWS THE DATES, because that is what the answer depends on.
+  //    A status change is not just a label: `bp_set_consultant_status` stamps
+  //    `sent` on Pending and `recd` on Received, and the two visible slots
+  //    change with it. The confirm renders the slots the NEW status will carry,
+  //    pre-filled and editable, so "confirm" means "these dates", not "this
+  //    word".
+  //
+  // ★ THE SELECT IS CONTROLLED ON `row.status`, so Cancel needs no revert: we
+  //   simply never write, and the next render puts the old value back. A local
+  //   "pending value" state would be a second source of truth for something the
+  //   row already knows.
   function onStatus(next: ConsultantStatus) {
+    if (next === status) return;
+    setStatusPrompt(next);
+  }
+
+  /** The write, once the person has said yes. */
+  function commitStatus(next: ConsultantStatus, dates: Partial<Record<ConsultantDateField, string>>) {
     // ★★ fix-474's RPC decides whether this appends a round; this only decides
     //    whether to OPEN the history so the person sees what happened. The
     //    prediction is never used as the write.
@@ -266,8 +301,26 @@ function ConsultantPill({
         status: next,
         expectedUpdatedAt: row.round_updated_at,
       },
-      { onSuccess: () => { if (willAppend) setOpen(true); } },
+      {
+        onSuccess: () => {
+          // ★★★ THE STATUS WRITE LANDS FIRST, THEN THE EDITED DATES. The RPC
+          //     stamps `sent` / `recd` itself, so a date write sent alongside
+          //     would race the stamp it is meant to sit beside. Only fields the
+          //     person actually changed are written — an untouched slot must
+          //     not overwrite what the RPC just stamped.
+          for (const [field, value] of Object.entries(dates)) {
+            setDate.mutate({
+              consultantId: row.consultant_id,
+              field: field as ConsultantDateField,
+              value: value || null,
+              expectedUpdatedAt: null,
+            });
+          }
+          if (willAppend) setOpen(true);
+        },
+      },
     );
+    setStatusPrompt(null);
   }
 
   return (
@@ -453,6 +506,33 @@ function ConsultantPill({
           genuine hand-off is real too, and **only the person doing it knows
           which**. So it is neither automatic nor silent: the app asks, and
           fix-475's RPC makes whichever answer atomic. */}
+      {/* ===================================================================
+          ★★★ fix-506 §F (P-164) — THE STATUS CONFIRM
+          ===================================================================
+
+          Bobby ruled that advancing a consultant's status must ask first. It
+          shows the two date slots the NEW status will carry, pre-filled and
+          editable, so Confirm means "these dates" rather than "this word".
+
+          ★★ CANCEL WRITES NOTHING — not the status, not a date. That is the
+             assertion that fails on origin/main, where the `<select>`'s
+             onChange called the RPC directly.
+
+          ★ It sits INSIDE the pill, like the firm prompt above it, rather than
+            being a modal: the thing being changed has to stay on screen, and
+            this card already has one in-place prompt whose shape people know. */}
+      {statusPrompt && (
+        <StatusConfirm
+          discipline={row.discipline}
+          from={status}
+          to={statusPrompt}
+          row={row}
+          seeds={seeds}
+          onCancel={() => setStatusPrompt(null)}
+          onConfirm={(dates) => commitStatus(statusPrompt, dates)}
+        />
+      )}
+
       {firmPrompt && (
         <div
           className="border-t px-2 py-2"
@@ -511,6 +591,121 @@ function ConsultantPill({
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// ★★★ fix-506 §F (P-164) — "advancing a status asks first"
+// ---------------------------------------------------------------------------
+//
+// ★★★ WHAT IT SHOWS IS THE POINT. `bp_set_consultant_status` stamps `sent` when
+//     a round reaches Pending and `recd` when it reaches Received, and the two
+//     visible slots change with the status (fix-474's CONSULTANT_DATE_SLOTS).
+//     So the question "move this to Pending?" is really "move it to Pending
+//     with THESE two dates?", and the dialog asks the real question.
+//
+// ★★ PRE-FILLED FROM THE ROW FIRST, THE SEED SECOND. A date somebody already
+//    typed is the best answer; `seedConsultantDates` fills only what is still
+//    blank — the same seed "+ Add consultant" uses, so the two paths cannot
+//    disagree about what a fresh EST SEND is.
+//
+// ★★★ ONLY EDITED FIELDS ARE RETURNED. An untouched slot must not be written:
+//     the RPC stamps `sent`/`recd` itself, and echoing a pre-filled value back
+//     would overwrite the stamp it was meant to sit beside.
+function StatusConfirm({
+  discipline,
+  from,
+  to,
+  row,
+  seeds,
+  onCancel,
+  onConfirm,
+}: {
+  discipline: string;
+  from: ConsultantStatus;
+  to: ConsultantStatus;
+  row: ConsultantCurrent;
+  seeds: { est_send: string | null; est_recd: string | null };
+  onCancel: () => void;
+  onConfirm: (dates: Partial<Record<ConsultantDateField, string>>) => void;
+}) {
+  const slots = CONSULTANT_DATE_SLOTS[to];
+  const initial: Partial<Record<ConsultantDateField, string>> = {};
+  for (const f of slots) {
+    const existing = (row[f] as string | null) ?? '';
+    const seeded = f === 'est_send' ? seeds.est_send : f === 'est_recd' ? seeds.est_recd : null;
+    initial[f] = existing || seeded || '';
+  }
+  const [draft, setDraft] = useState(initial);
+  const [touched, setTouched] = useState<Partial<Record<ConsultantDateField, boolean>>>({});
+
+  return (
+    <div
+      className="border-t px-2 py-2"
+      style={{ borderTopColor: 'var(--color-border)', background: 'var(--color-de-bg)' }}
+      role="group"
+      aria-label={`Change ${discipline} status`}
+      data-testid={`pd-consultant-status-prompt-${discipline}`}
+    >
+      <p className="text-[10.5px] mb-1.5" style={{ color: 'var(--color-text)' }}>
+        Move {discipline} from <b>{from}</b> to <b>{to}</b>?
+      </p>
+
+      {/* ★ The slots the NEW status carries — not the old one's. */}
+      <div className="flex flex-col gap-1 mb-1.5">
+        {slots.map((f) => (
+          <label key={f} className="block" data-testid={`pd-consultant-confirm-slot-${discipline}-${f}`}>
+            <span
+              className="block text-[8.5px] font-extrabold uppercase mb-0.5"
+              style={{ letterSpacing: '0.06em', color: 'var(--color-muted)' }}
+            >
+              {CONSULTANT_DATE_LABEL[f]}
+            </span>
+            <BufferedDateInput
+              value={draft[f] ?? ''}
+              onCommit={(v) => {
+                setDraft((p) => ({ ...p, [f]: v }));
+                setTouched((p) => ({ ...p, [f]: true }));
+              }}
+              testId={`pd-consultant-confirm-date-${discipline}-${f}`}
+            />
+          </label>
+        ))}
+      </div>
+
+      <div className="flex gap-1.5">
+        <button
+          type="button"
+          className="text-[10px] font-bold px-2 py-1 rounded border flex-1"
+          style={{
+            borderColor: 'var(--color-de)',
+            background: 'var(--color-de)',
+            color: '#fff',
+          }}
+          onClick={() => {
+            const edited: Partial<Record<ConsultantDateField, string>> = {};
+            for (const f of slots) if (touched[f]) edited[f] = draft[f] ?? '';
+            onConfirm(edited);
+          }}
+          data-testid={`pd-consultant-status-confirm-${discipline}`}
+        >
+          Confirm → {to.toUpperCase()}
+        </button>
+        <button
+          type="button"
+          className="text-[10px] font-bold px-2 py-1 rounded border flex-1"
+          style={{
+            borderColor: 'var(--color-border)',
+            background: 'var(--color-surface)',
+            color: 'var(--color-text)',
+          }}
+          onClick={onCancel}
+          data-testid={`pd-consultant-status-cancel-${discipline}`}
+        >
+          Cancel
+        </button>
+      </div>
     </div>
   );
 }
