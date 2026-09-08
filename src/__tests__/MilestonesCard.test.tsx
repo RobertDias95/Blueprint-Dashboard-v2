@@ -103,7 +103,9 @@ vi.mock('../hooks/useProjectConsultants', () => ({
 }));
 
 
-import ProjectDetailHeader from '../components/ProjectDetail/ProjectDetailHeader';
+import ProjectDetailHeader, {
+  CONNECT_URL,
+} from '../components/ProjectDetail/ProjectDetailHeader';
 
 function projectFixture(over: Partial<Project> = {}): Project {
   return {
@@ -500,30 +502,47 @@ describe('fix-335 §7: Milestones ends with a link to the block', () => {
 // ★★★ SO IT SHIPS, AND IT MUST BE HONEST. The failure that set the rule was
 // never the label — it was that nobody had chosen what the control would do,
 // and the UI hid that behind a date-shaped promise.
-describe('fix-335 §8: Connect is visibly not wired up yet', () => {
-  it('★★ reads as not-yet-working BEFORE it is clicked', () => {
+describe('fix-335 §8 → fix-506 §C: Connect is a real link now', () => {
+  // ★★★ EVERY ASSERTION IN THIS BLOCK IS INVERTED, AND THAT IS P-032.
+  //
+  //     fix-335 §8 shipped Connect as the app's ONE inert control — knowingly,
+  //     against the no-placeholders rule Bobby had just set, because nobody
+  //     knew what URL it should open. It was made honest by LOOKING
+  //     not-yet-working: disabled, dashed border, "no link yet".
+  //
+  // ★★ Bobby, 2026-09-08: it opens blueprint.datapage.com/home, *"for the time
+  //    being"*. So the whole placeholder treatment goes, because the reason
+  //    for it does — and the app now has NO inert control at all, which is the
+  //    state fix-335 §8's own rule wanted and could not have.
+
+  it('★★★ SUPERSEDED: it is a live external anchor, not a disabled button', () => {
     renderHeader(projectFixture(), [bpFixture()]);
-    const btn = screen.getByTestId('pd-connect-button') as HTMLButtonElement;
-    // Not a live-looking button that silently does nothing: it is disabled, so
-    // the click never happens and the cursor says so on the way in.
-    expect(btn.disabled).toBe(true);
-    expect(btn.getAttribute('aria-disabled')).toBe('true');
-    expect(btn.className).toContain('border-dashed');
-    expect(btn.className).toContain('cursor-not-allowed');
+    const el = screen.getByTestId('pd-connect-button') as HTMLAnchorElement;
+    expect(el.tagName).toBe('A');
+    expect(el.getAttribute('href')).toBe(CONNECT_URL);
+    expect(el.getAttribute('target')).toBe('_blank');
+    // ★★ An external the app hands over to must not get a handle on the window
+    //    it came from.
+    expect(el.getAttribute('rel')).toContain('noopener');
+    // ★ None of the inert treatment survives.
+    expect(el.className).not.toContain('border-dashed');
+    expect(el.className).not.toContain('cursor-not-allowed');
+    expect(el.getAttribute('aria-disabled')).toBeNull();
   });
 
-  // ★ NO INVENTED DATE. The face states a fact about today — checkable, already
-  // true, promising nothing — rather than a forecast nobody has made.
-  it('★ says "Connect" and "no link yet", and nothing about the future', () => {
+  it('★★★ SUPERSEDED: "no link yet" is gone, because there is one', () => {
     renderHeader(projectFixture(), [bpFixture()]);
-    const btn = screen.getByTestId('pd-connect-button');
-    expect(btn.textContent).toContain('Connect');
-    expect(btn.textContent).toMatch(/no link yet/i);
-    expect(btn.textContent).not.toMatch(/soon|later|coming|shortly|Q[1-4]|20\d\d/i);
-    expect(btn.getAttribute('title')).toMatch(/application on our PCs/i);
+    const el = screen.getByTestId('pd-connect-button');
+    expect(el.textContent).toContain('Connect');
+    expect(el.textContent).not.toMatch(/no link yet/i);
+    // ★ The no-forecast rule still holds and always did: the face states a
+    //   fact, never a promise about when something will work.
+    expect(el.textContent).not.toMatch(/soon|later|coming|shortly|Q[1-4]|20[0-9][0-9]/i);
   });
 
   it('sits at the foot of the Project card', () => {
+    // ★ Unchanged by fix-506 — Bobby's fix-335 placement ruling ("at the bottom
+    //   of project") is about position, not about whether it works.
     renderHeader(projectFixture(), [bpFixture()]);
     const card = screen.getByTestId('pd-project-card');
     const sections = Array.from(card.querySelectorAll(':scope > section'));
@@ -532,11 +551,10 @@ describe('fix-335 §8: Connect is visibly not wired up yet', () => {
     );
   });
 
-  // ★★★ AND IT IS THE ONLY ONE. Everything else fix-335 adds works, so the
-  // waiver stays a waiver for one named control rather than a new habit. The
-  // marker is declared in the DOM precisely so this is a question the whole app
-  // can be asked, rather than a list somebody has to keep up to date.
-  it('★★★ it is the only inert control fix-335 shipped', () => {
+  it('★★★ SUPERSEDED, AND THE STRONGER CLAIM: the app has NO inert control', () => {
+    // ★★★ fix-335 §8's test asserted its placeholder was the ONLY one. The
+    //     honest successor is that there are now none — the same whole-tree
+    //     question, with the answer the rule always wanted.
     const modules = import.meta.glob('../**/*.{ts,tsx}', {
       query: '?raw',
       import: 'default',
@@ -544,19 +562,20 @@ describe('fix-335 §8: Connect is visibly not wired up yet', () => {
     }) as Record<string, string>;
     const offenders = Object.entries(modules)
       .filter(([path]) => !/\.test\.tsx?$/.test(path))
-      // ★ fix-345 §3 moved the button's markup into the shared <OverviewAction>,
-      // so the attribute is passed as a prop rather than written as JSX. Both
-      // spellings are hunted, which is what keeps this a question about the
-      // whole tree rather than about one file's formatting.
       .filter(([, src]) => /data-placeholder(="true"|': 'true')/.test(src))
       .map(([path]) => path);
-    expect(offenders).toEqual(['../components/ProjectDetail/ProjectDetailHeader.tsx']);
+    expect(offenders).toEqual([]);
 
     renderHeader(projectFixture(), [bpFixture()]);
-    // The other control this ticket added to these cards is live.
     expect(
       (screen.getByTestId('pd-draw-schedule-link') as HTMLAnchorElement).getAttribute('href'),
     ).toContain('/draw-schedule');
+  });
+
+  it('★ the URL is a NAMED constant, so a test asserts the destination', () => {
+    // fix-335 §4's rule for SHAREPOINT_URL, and the fix-306 defect class it
+    // exists to prevent: a nav link to the wrong place is worse than none.
+    expect(CONNECT_URL).toBe('https://blueprint.datapage.com/home');
   });
 });
 

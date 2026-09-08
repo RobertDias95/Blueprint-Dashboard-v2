@@ -188,19 +188,30 @@ describe('fix-410 §2: the row builder keeps all three states apart', () => {
     );
   });
 
-  it('★★★ the Project Overview renders three distinct states, never null as Yes', () => {
-    const block = headerSource.slice(
-      headerSource.indexOf("label=\"Regular Shape\"") - 200,
-      headerSource.indexOf("label=\"Regular Shape\"") + 700,
+  it('★★★ SUPERSEDED BY fix-506 §C (P-161): the overview has NO Regular Shape row', () => {
+    // ★★★ THIS ASSERTION IS INVERTED, AND IT IS THE RIDER. It pinned the
+    //     overview's three-state rendering — Yes / No / '' — which was right:
+    //     fix-410 built it so a NULL read as blank rather than as "Yes",
+    //     because turning an absence into a claim about somebody's lot is the
+    //     worse error.
+    //
+    // ★★ Bobby, 2026-09-08: the shape is IMPLIED BY THE DIMENSIONS. Width ×
+    //    depth both present reads as a rectangle; one of them plus a lot size
+    //    reads as irregular. So the row restated what the two rows above it
+    //    already said, and it went.
+    expect(headerSource).not.toContain('label="Regular Shape"');
+    expect(headerSource).not.toContain("'is_regular_shape',");
+  });
+
+  it('★★★ …and the COLUMN is untouched — a display change, not a data one', () => {
+    // ★★ The wizard still writes it (fix-410's ruling is not reversed), the
+    //    select list still carries it, and the Library still shows it. That is
+    //    what makes dropping the overview row safe with no migration and no
+    //    backfill — nothing stopped being recorded.
+    expect(useProjectsSource).toContain(
+      "'num_lots, is_corner_lot, is_regular_shape, closing_date'",
     );
-    // Yes / No / '' — the empty string is the "nobody has said" rendering.
-    expect(block).toContain("project.is_regular_shape === true");
-    expect(block).toContain("? 'Yes'");
-    expect(block).toContain("? 'No'");
-    expect(block).toContain(": ''");
-    expect(block).toContain("options={['', 'Yes', 'No']}");
-    // ★ and it commits through the same path every other site field uses.
-    expect(block).toContain("'is_regular_shape',");
+    expect(matrixSource).toContain('library-regular-shape-');
   });
 
   it('★★ the Library cell renders Regular / Irregular / em dash', () => {
