@@ -1,5 +1,8 @@
 import { useId, useState } from 'react';
 import { useSetPersonDetails } from '../../hooks/useSetPersonDetails';
+import { useProfileIdForRosterName } from '../../hooks/useAvatars';
+import { useIsTenantAdmin } from '../../hooks/useIsTenantAdmin';
+import AvatarControl from './AvatarControl';
 import { ROLE_TITLE } from '../../lib/roleLabels';
 import { PERSON_FIELD_INPUT, PersonFieldRow } from './personFields';
 import type { RosterPerson } from '../../lib/personDetails';
@@ -51,6 +54,12 @@ interface Props {
 export default function PersonDetailsDialog({ person, onClose }: Props) {
   const formId = useId();
   const save = useSetPersonDetails();
+  // ★★★ fix-505 §B: a roster row is not a login. `profiles` is read-own-only,
+  //     so the client cannot look one up — `bp_profile_id_for_roster_name`
+  //     answers it, and NULL is the real, common state (42 roster people, 37
+  //     logins on prod 2026-09-08).
+  const isAdmin = useIsTenantAdmin();
+  const profileIdQ = useProfileIdForRosterName(person?.name ?? null);
   const [first, setFirst] = useState('');
   const [last, setLast] = useState('');
   const [email, setEmail] = useState('');
@@ -143,6 +152,35 @@ export default function PersonDetailsDialog({ person, onClose }: Props) {
           className="px-5 py-4 space-y-3"
           data-testid="person-details-form"
         >
+          {/* ★★★ fix-505 §B — THE PICTURE, AND THE THREE STATES IT HAS.
+              · an admin, on somebody with a login → the full control
+              · anyone, on somebody with NO login → the picture cannot be set,
+                and the note says why rather than showing a button that fails
+              · a non-admin → the picture, read-only
+              The order matters: "no login" is a fact about the PERSON and beats
+              "you are not an admin", which is a fact about the viewer. Telling
+              an editor they lack permission to do something nobody can do
+              would send them to ask an admin who would also fail. */}
+          <PersonFieldRow
+            label="Picture"
+            htmlFor={`${formId}-avatar`}
+            hint="Shown wherever this person's initials appear today."
+          >
+            <div id={`${formId}-avatar`}>
+              <AvatarControl
+                profileId={profileIdQ.data ?? null}
+                name={person.name}
+                canEdit={isAdmin && !!profileIdQ.data}
+                noLoginNote={
+                  profileIdQ.isLoading || profileIdQ.data
+                    ? undefined
+                    : 'No login — a picture can be set once they can sign in.'
+                }
+                testId="person-details-avatar"
+              />
+            </div>
+          </PersonFieldRow>
+
           {/* ★★ THE JOIN KEY IS SHOWN AND NOT EDITABLE. Hiding it would leave
               somebody wondering where "Fisk" is; a disabled box says "this is
               the name the app matches on, and it is not changed here". */}

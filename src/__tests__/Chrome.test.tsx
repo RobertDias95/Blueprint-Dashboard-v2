@@ -198,18 +198,32 @@ describe('<Chrome /> fix-313 the Blueprint Bridge shell', () => {
     expect(screen.queryByTestId('error-triage-button')).toBeNull();
   });
 
-  // ★ fix-331 §7: the initials circle is gone. Bobby: "I don't know if it needs
-  // to say the BO part, because it's not like a setting, there's no button
-  // functionality." Name, position and the bell remain.
-  it('★ fix-331 §7: the user chip has no initials circle', () => {
+  // ★★★ SUPERSEDED BY fix-505 §C — AND THE DISTINCTION IS THE WHOLE REASON.
+  //
+  // fix-331 §7 removed a circle of INITIALS from here. Bobby: *"I don't know if
+  // it needs to say the BO part, because it's not like a setting, there's no
+  // button functionality."* He was right — a 29px circle in the top-right
+  // corner of a web app is an account menu everywhere else, and this one opened
+  // nothing. The rule that removed it (a control either does something or it
+  // goes) STILL STANDS and is not being reversed.
+  //
+  // ★★ What returns is not that control. Bobby, 2026-09-04: *"upload our
+  //    headshot… and then that would display at the top right."* It is the
+  //    person's own face — identity, not a control — and it is the same
+  //    `<Avatar>` every other circle in the app uses, at 28px.
+  //
+  // ★ It still opens nothing, and this test now says so: no button, no menu,
+  //   nothing clickable. That is the half of fix-331 §7 that has to survive.
+  it("★★★ fix-505 §C: the chip shows the viewer's picture, and still opens nothing", () => {
     renderIt();
     const chip = screen.getByTestId('chrome-user-chip');
-    // The name/position block survives; the 29px rounded circle in front of it
-    // does not. Asserted structurally — a name is only two lines of text now,
-    // so there is no third element to be an avatar.
     expect(chip.textContent).toContain('Blueprint Services');
-    expect(chip.querySelector('.rounded-full')).toBeNull();
-    expect(chip.children).toHaveLength(1);
+    // The avatar, then the name/position block.
+    expect(chip.children).toHaveLength(2);
+    expect(chip.querySelector('[data-testid="chat-avatar"]')).toBeTruthy();
+    // ★★ NOT A CONTROL: nothing in the chip is clickable.
+    expect(chip.querySelector('button')).toBeNull();
+    expect(chip.querySelector('a')).toBeNull();
     // The bell is still to its left, in the same header.
     expect(screen.getByTestId('board-bell-button')).toBeTruthy();
   });
