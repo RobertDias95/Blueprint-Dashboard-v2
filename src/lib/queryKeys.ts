@@ -166,6 +166,18 @@ export const queryKeys = {
   // on screen and re-sign them all. The object is immutable; only the signature
   // expires, which is what the query's own staleTime handles.
   chatAttachmentUrl: (path: string) => ['chat_attachment_url', path] as const,
+  // ★★ fix-505 (P-162): profile pictures.
+  //   `avatarPaths` — every picture in the tenant, ONE query behind every
+  //   circle on every screen (the brief made a per-avatar fetch a stop
+  //   condition: a Team card plus a chat thread would be ~50 requests).
+  //   `avatarUrl` — keyed on the PATH ALONE and outside the tenant prefix, so N
+  //   circles for one person sign once. Same shape as chatAttachmentUrl.
+  avatarPaths: (tenantId: string) => ['avatar_paths', tenantId] as const,
+  avatarUrl: (path: string) => ['avatar_url', path] as const,
+  /** ★ Which login a roster name belongs to — `profiles` is read-own-only, so
+   *  Settings → Team cannot look one up without an RPC. */
+  profileIdForName: (tenantId: string, name: string) =>
+    ['profile_id_for_name', tenantId, name] as const,
   notes: (tenantId: string, projectId: string) =>
     ['notes', tenantId, { projectId }] as const,
   // fix-notes-2: active-note search index for the Project List. Under the

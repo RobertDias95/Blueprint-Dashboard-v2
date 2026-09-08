@@ -630,7 +630,12 @@ describe('fix-347 §1: the reaction bar, rendered', () => {
     );
     // ★ The ONLY write is the toggle. Nothing posts a message, edits mentions,
     // or writes a board read.
-    const writes = db.rpcCalls.filter((c) => c.name !== 'bp_list_message_reactions');
+    // ★★ fix-505 added `bp_avatar_paths` — a tenant-wide READ that every avatar
+    //    circle shares. It joins the reads filtered out here rather than
+    //    weakening the claim: what this asserts is that reacting performs no
+    //    WRITE beyond the toggle, and a read cannot notify anybody.
+    const READS = ['bp_list_message_reactions', 'bp_avatar_paths'];
+    const writes = db.rpcCalls.filter((c) => !READS.includes(c.name));
     expect(writes.map((c) => c.name)).toEqual(['bp_toggle_message_reaction']);
 
     // ★★ And the model that feeds the bell has no reaction source at all: a

@@ -217,6 +217,13 @@ export default function MentionTextarea({
                   }}
                   aria-hidden
                 >
+                  {/* ★ fix-505 §C: DELIBERATELY NOT ROUTED THROUGH <Avatar>.
+                      This circle also renders '@' for a TAG and switches its
+                      colours for one — so sharing it would mean teaching the
+                      avatar about tags and a second size, to put a headshot in
+                      a 20px picker row where the person's NAME is printed
+                      immediately beside it. The one hand-rolled `initialsOf` in
+                      src/, and the reason it stays. */}
                   {isTag ? '@' : initialsOf(p.name)}
                 </span>
                 <span className="min-w-0">

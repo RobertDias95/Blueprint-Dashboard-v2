@@ -12,6 +12,7 @@ import WeeklyUpdateModal from './WeeklyUpdate/WeeklyUpdateModal';
 import SaveFailureBanner from './SaveFailureBanner';
 import MissedScrapeBanner from './MissedScrapeBanner';
 import { rosterRoleTitle } from '../lib/roleLabels';
+import { Avatar } from './ProjectDetail/ChatMessageBody';
 import {
   BRAND_LOCKUP_DROP,
   BRAND_LOCKUP_HEIGHT,
@@ -260,6 +261,24 @@ export default function Chrome() {
             className="flex items-center gap-2.5 pl-3.5 border-l border-border"
             data-testid="chrome-user-chip"
           >
+            {/* ★★★ fix-505 §C (P-162) — THE CIRCLE IS BACK, AND IT IS NOT THE
+                ONE fix-331 §7 REMOVED. That one was a circle of INITIALS at the
+                top-right corner, which reads as an account menu everywhere else
+                on the web, and it opened nothing: *"it's not like a setting,
+                there's no button functionality."* The rule that removed it —
+                a control either does something or it goes — still stands, and
+                this is not a control. It is the person's own face, which Bobby
+                asked to see here: *"upload our headshot… and then that would
+                display at the top right."*
+
+                ★★ It is the SAME `<Avatar>` every other circle uses, at 28px.
+                   With no picture it draws initials — which is what fix-331
+                   took away, so the one thing this must not become is a
+                   permanent letter circle. It is `titled` because there is no
+                   second name beside it that a screen reader could use… except
+                   there is: the name is printed immediately to its right, so it
+                   stays decorative and the text carries the identity. */}
+            <Avatar name={identity.name} size={28} />
             <div className="leading-tight">
               <div className="font-display font-semibold text-text" style={{ fontSize: 12.5 }}>
                 {identity.name ?? 'Signed in'}

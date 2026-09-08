@@ -1,7 +1,9 @@
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
 import { useAuthStore } from '../../stores/authStore';
+import { useSelfScope } from '../../hooks/useSelfScope';
 import DbToolsCard from '../SettingsModal/DbToolsCard';
+import AvatarControl from './AvatarControl';
 
 // Q7.3.d: Account tab. Read-only sign-in info + sign-out.
 // Q9.5.a: DB Tools restored (was dropped per Q3 — wrong call given the
@@ -29,6 +31,12 @@ export default function AdminAccountTab() {
   const activeRole =
     memberships.find((m) => m.tenant_id === activeTenantId)?.role ?? 'viewer';
 
+  // ★★ fix-505 §B: the circle is drawn from the ROSTER NAME, not from the email
+  //    or the login id — that is the key `bp_avatar_paths()` returns and the
+  //    string every other avatar in the app is resolved by. `identity.name` is
+  //    that name, already resolved by useSelfScope from the signed-in address.
+  const { identity } = useSelfScope();
+
   async function handleSignOut() {
     await supabase.auth.signOut();
     navigate('/login', { replace: true });
@@ -36,6 +44,22 @@ export default function AdminAccountTab() {
 
   return (
     <div className="space-y-3" data-testid="admin-account-tab">
+      {/* ★★★ fix-505 §B (P-162) — YOUR PICTURE. Bobby: *"in settings, if we can
+          have the option to upload our headshot or profile picture."* This tab
+          because it is the one that already shows YOUR sign-in — the Team tab
+          is where you edit other people. */}
+      <div className="bg-surface border border-border rounded-lg p-4">
+        <h2 className="text-sm font-display font-bold text-text mb-3">
+          Your picture
+        </h2>
+        <AvatarControl
+          profileId={user?.id ?? null}
+          name={identity.name}
+          canEdit
+          testId="account-avatar"
+        />
+      </div>
+
       <div className="bg-surface border border-border rounded-lg p-4">
         <h2 className="text-sm font-display font-bold text-text mb-3">
           Account
