@@ -18,6 +18,7 @@ import type {
   Project,
 } from '../../lib/database.types';
 import { useUpdateProject } from '../../hooks/useUpdateProject';
+import { useDrawSchedule } from '../../hooks/useDrawSchedule';
 import { useViewportAwarePopover } from '../../hooks/useViewportAwarePopover';
 import { drawScheduleTarget } from '../../lib/drawScheduleLink';
 // ★★★ fix-448 §B: the pick-only replacement for the five autocomplete
@@ -543,7 +544,17 @@ function ProjectCell({
     () => parseUnitTypes(project.unit_types),
     [project.unit_types],
   );
-  const drawStart = bp?.dd_start ?? null;
+  // ★★★ THE DRAW BLOCK'S START WEEK, NOT `dd_start`. `drawScheduleTarget`
+  //     turns this into `?quarter=`, and the two are different facts: dd_start
+  //     is when design development begins, `draw_schedule.start_week` is where
+  //     the project's BLOCK sits on the board. Handing it the wrong one gives a
+  //     link that opens the wrong quarter — fix-306's defect class, and a
+  //     regression I introduced here that the fix-335 §7 suite caught.
+  const drawQ = useDrawSchedule();
+  const drawStart =
+    (drawQ.data ?? []).find(
+      (r) => (r as { project_id?: string }).project_id === project.id,
+    )?.start_week ?? null;
 
   return (
     <OverviewCard title="Project" testId="pd-project-card">
