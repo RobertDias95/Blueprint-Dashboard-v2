@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>fix-506 STEP 0-1 — does the 470px Plan of Record column fit?</title>
+    <!--
+      ===========================================================================
+      fix-506 STEP 0-1 — THE GATE, MEASURED
+      ===========================================================================
+
+      The brief makes this a STOP CONDITION: "If STEP 0-1 shows the mock's 470px
+      Plan of Record column cannot fit at 1600 without clipping the units matrix,
+      stop and report with the numbers — that is a layout ruling, not yours to
+      make."
+
+      The mock is drawn on a NARROWER SHELL than the app ships — a 188px permits
+      rail and a 200px ribbon against the app's 240 and 212 — so its proportions
+      cannot be trusted without re-measuring against the real chrome. That is
+      the recorded trap this page exists to avoid repeating.
+
+      Run it:  npm run dev
+               http://localhost:5173/harness/overview-v14-fit-506.html
+      Window size does not matter — every width is resolved from the app's own
+      overviewRowWidthAt / resolveOverviewWidths.
+    -->
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/harness/overviewV14Fit506.tsx"></script>
+  </body>
+</html>

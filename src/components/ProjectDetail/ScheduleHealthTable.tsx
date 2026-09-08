@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { approvalDisplay } from '../../lib/approvalDisplay';
 import { effectiveStage } from '../../lib/permitStage';
 import { STAGE_LABEL } from '../../lib/stageLabel';
 import { isNotSubPermit } from '../../lib/subPermit';
@@ -293,8 +294,14 @@ function Row({
       }),
     [permit, projectHolds, learnedEstimate, projectGoDate, siblings, siblingCyclesByPermitId, siblingLearnedByPermitId, cycleOverride, typeDefaultsOverride, reviewers],
   );
-  const projection = projectedResult.projection;
-  const isActual = projectedResult.isActual;
+  // ★★★ fix-506 §I: the label comes from the SHARED helper now, so the Dates
+  //     card's "Est. approval / Approved" and this column's "Est. Approval /
+  //     Actual" can never disagree about which state a permit is in. The two
+  //     surfaces keep their own NOUN — a column of many permits says "Actual",
+  //     one project's story says "Approved" (Bobby's word in the v14 mock) —
+  //     and `APPROVAL_LABEL` declares both so neither invents a third.
+  const approval = approvalDisplay(projectedResult, 'scheduleHealth');
+  const projection = approval.date;
   // Q9.5.f-fix-7: wire ACQ Target to permits.expected_issue. v1 writes the
   // team's target issue date here, so v2 reads it. Estimated Approval at
   // :120 already prefers actual_issue/approval_date over expected_issue,
@@ -408,7 +415,7 @@ function Row({
           <div>
             <div className="text-text font-bold">{fmtDate(projection)}</div>
             <div className="text-[9px] text-dim mt-0.5 font-sans">
-              {isActual ? 'Actual' : 'Est. Approval'}
+              {approval.label}
             </div>
           </div>
         ) : (

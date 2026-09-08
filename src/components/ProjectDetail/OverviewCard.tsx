@@ -303,8 +303,17 @@ const OVERVIEW_ACTION_INERT =
 interface ActionProps {
   /** Renders a react-router <Link>. Mutually exclusive with onClick/disabled. */
   to?: string;
+  /** ★★★ fix-506 §C: renders an EXTERNAL anchor — `target="_blank"` and
+   *  `rel="noopener noreferrer"`, always. Distinct from `to`, which is a
+   *  react-router Link and would push a foreign URL onto the app's own history
+   *  instead of navigating to it. */
+  href?: string;
   onClick?: () => void;
-  /** Renders a disabled <button>. The Connect placeholder is the only user. */
+  /** Renders a disabled <button>.
+   *  ★ fix-506 §C: the Connect placeholder WAS the only user, and it is a real
+   *    link now — so this has no callers today. Kept because "an action that is
+   *    not available yet" is a real state a future action may need, and the
+   *    inert styling it selects is the thing that made that state honest. */
   disabled?: boolean;
   title?: string;
   testId: string;
@@ -321,6 +330,7 @@ interface ActionProps {
  */
 export function OverviewAction({
   to,
+  href,
   onClick,
   disabled = false,
   title,
@@ -332,6 +342,22 @@ export function OverviewAction({
     disabled ? OVERVIEW_ACTION_INERT : OVERVIEW_ACTION_LIVE
   }`;
   const attrs = { ...data, 'data-testid': testId, title, className };
+  // ★★★ fix-506 §C (P-032) — AN EXTERNAL DESTINATION IS A THIRD SHAPE.
+  //     `to` is a react-router <Link>, which is wrong for a URL that leaves the
+  //     app: it would push onto the app's own history and never navigate. The
+  //     ribbon already draws its one external as a plain <a> for this reason
+  //     (fix-335 §4); this gives the overview's actions the same option rather
+  //     than a second component that happens to look like them.
+  //
+  // ★ `rel="noopener"` is not optional — an external the app hands over to must
+  //   not get a handle on the window it came from.
+  if (href !== undefined) {
+    return (
+      <a href={href} target="_blank" rel="noopener noreferrer" {...attrs}>
+        {children}
+      </a>
+    );
+  }
   if (to !== undefined) {
     return (
       <Link to={to} {...attrs}>

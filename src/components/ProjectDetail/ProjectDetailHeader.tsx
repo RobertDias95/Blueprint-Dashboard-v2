@@ -1532,70 +1532,50 @@ function ProjectCell({
       {/* ★★ fix-335 §8: the Connect control. THE ONE PLACEHOLDER IN THIS
           TICKET — see ConnectPlaceholder for why it is allowed and what makes
           it honest. */}
-      <ConnectPlaceholder />
+      <ConnectLink />
     </OverviewCard>
   );
 }
 
 // ============================================================
-// ★★★ fix-335 §8 — the Connect button, and the ONLY inert control here
+// ★★★ fix-506 §C (P-032) — CONNECT IS A REAL LINK NOW
 // ============================================================
 //
-// Bobby: "How we had talked about adding the connect button that would then
-// take you to the app and/or feature link, that placeholder, we want to put
-// that at the bottom of project."
+// Bobby, 2026-09-08: it opens `blueprint.datapage.com/home`, *"for the time
+// being"*.
 //
-// ★★ THIS WAS HELD ON 2026-08-16, and by his own rule: nobody knew what URL it
-// should open, and he had just said nothing ships as a placeholder. He has now
-// waived that, knowingly, having been told he was waiving it — "connect is
-// currently an app on our PCs. we can just use a placeholder button for it
-// until we get to this point."
+// ★★★ THIS RETIRES THE APP'S ONLY INERT CONTROL. fix-335 §8 shipped it as a
+//     placeholder — knowingly, against the no-placeholders rule Bobby himself
+//     set, because nobody knew what URL it should open. It was made honest by
+//     LOOKING not-yet-working: disabled, dashed, "no link yet". The whole of
+//     that treatment goes, because the reason for it does.
 //
-// ★★★ SO IT SHIPS, AND IT MUST BE AN HONEST ONE. The chat "Attach" stub that
-// set the no-placeholder rule (fix-330) failed on more than its label; it was
-// that nobody had chosen what the thing would do, and the UI hid that behind a
-// date-shaped promise. Three things follow, and all three are asserted:
+// ★★ fix-335's note on WHAT THE REAL VERSION LIKELY IS turned out to be wrong
+//    in an instructive way, so it is recorded rather than deleted: it guessed a
+//    protocol handler (`connect://…`) registered by the desktop installer, and
+//    warned that Chrome refuses to navigate an https page to `file:` or a UNC
+//    path SILENTLY (fix-289). Neither applies — the answer was a web address
+//    all along, which is why this is an ordinary `<a target="_blank">` and
+//    needs none of that machinery.
 //
-//   1. IT READS AS NOT-YET-WORKING BEFORE IT IS CLICKED. `disabled`, dashed
-//      border, muted text, cursor:not-allowed. A live-looking button that
-//      silently does nothing is strictly worse than no button — the user
-//      concludes the app is broken rather than unfinished.
-//   2. NO INVENTED DATE, and none of the banned phrasing either — fix-331 §5
-//      greps the whole tree for it and this file is not exempt. The face says
-//      **"Connect"** with **"no link yet"** beside it. That is a fact about
-//      today: checkable, already true, and it promises nothing. A word like
-//      "soon" would be a forecast nobody has made. When the link exists, the
-//      tag comes off and the label does not have to change.
-//   3. IT IS THE ONLY ONE. Every other control this ticket adds — SharePoint,
-//      Draw schedule — works.
-//
-// ★ WHAT THE REAL VERSION LIKELY IS, for whoever picks this up: Connect is
-// desktop software, so the working version is probably a protocol handler
-// (`connect://<something>`) registered by the app's installer. Note fix-289's
-// finding while you are here — Chrome refuses to navigate an https page to
-// `file:` or a UNC path and does it SILENTLY, which is the failure mode this
-// button is currently being honest about instead of reproducing.
-function ConnectPlaceholder() {
+// ★ "For the time being" is Bobby's own framing and is why the URL is a named
+//   constant: when Connect gets a per-project deep link, one line changes.
+
+/** ★ Named, not inlined, so a test can assert the EXACT destination rather than
+ *  "an href exists" — the fix-335 §4 rule for SHAREPOINT_URL, and the fix-306
+ *  defect class it exists to prevent (a nav link to the wrong place). */
+export const CONNECT_URL = 'https://blueprint.datapage.com/home';
+
+function ConnectLink() {
   return (
-    // ★★ fix-345 §3 RESTYLED THIS AND DID NOT ACTIVATE IT — the brief's words.
-    // It takes the shared geometry so it lines up with the other two, and keeps
-    // its dashed border, muted fill and disabled state, because the ONLY thing
-    // that made this placeholder honest is that it reads as not-yet-working
-    // before it is clicked. Uniform in size and position; not in promise.
     <OverviewSection testId="pd-connect-section" pinBottom>
       <OverviewAction
-        disabled
+        href={CONNECT_URL}
         testId="pd-connect-button"
-        // ★ Declared in the DOM, so "is anything inert on this screen?" is a
-        // question a test can ask of the whole app rather than of a list
-        // somebody has to maintain.
-        data={{ 'data-placeholder': 'true' }}
-        title="Connect is an application on our PCs. There is no link for the browser to open yet."
+        title="Open Connect (blueprint.datapage.com) in a new tab"
       >
         <span>Connect</span>
-        <span className="font-normal text-[9px] uppercase tracking-wide">
-          no link yet
-        </span>
+        <span className="font-normal text-[9px]">↗</span>
       </OverviewAction>
     </OverviewSection>
   );
@@ -2396,40 +2376,24 @@ function SiteEditor({ project }: { project: Project }) {
           );
         }}
       />
-      {/* ★★★ fix-410 (P-040) — REGULAR SHAPE, editable after setup.
-          Bobby: *"an equal widths / equal lengths rectangle, or irregular."*
+      {/* ★★★ fix-506 §C (P-161) — THE REGULAR / IRREGULAR ROW IS GONE.
+          Bobby, 2026-09-08: the shape is IMPLIED BY THE DIMENSIONS and does not
+          need a label of its own — width × depth both present reads as a
+          rectangle; one of them plus a lot size reads as irregular. A row that
+          restates what the two rows above it already say is a row somebody has
+          to keep true.
 
-          ★★ THE BLANK OPTION IS KEPT HERE EVEN THOUGH THE WIZARD HAS NONE.
-          The form answers for every NEW project; this row has to render what a
-          row ACTUALLY holds, and a NULL must read as blank rather than as
-          "Yes". A blank means nobody has said — showing it as a Yes would turn
-          an absence into a claim about somebody's lot. (After fix-410's
-          approved backfill no project is null today; the state is built
-          because a future create path that omits the key still produces one.)
+          ★★ THE COLUMN STAYS AND SO DOES THE WIZARD. `projects.is_regular_shape`
+          is still written at creation (fix-410's own ruling is untouched this
+          ticket) and still renders in the Library's Shape column. What went is
+          the OVERVIEW's restatement of it — this is a display change, not a
+          data one, which is why no migration rides with it.
 
-          ★ Same SiteSelectRow, same commit(), same OCC token as every other
-          field in this section — see the note on Corner above. */}
-      <SiteSelectRow
-        label="Regular Shape"
-        value={
-          project.is_regular_shape === true
-            ? 'Yes'
-            : project.is_regular_shape === false
-              ? 'No'
-              : ''
-        }
-        options={['', 'Yes', 'No']}
-        disabled={occMissing}
-        onCommit={(v) => {
-          const next = v === 'Yes' ? true : v === 'No' ? false : null;
-          void commit(
-            'is_regular_shape',
-            next,
-            project.is_regular_shape,
-            'Regular Shape',
-          );
-        }}
-      />
+          ★ fix-410's note on why the blank option existed here is worth keeping
+          as the record: this row had to render what a row ACTUALLY holds, so a
+          NULL read as blank rather than as "Yes" — turning an absence into a
+          claim about somebody's lot. That reasoning was right and is why the
+          field can be dropped from the overview without a backfill. */}
       {/* fix-148: Closing Date moved to the DD Phase cell (ClosingRow) — it was
           crowding Project Site, and it fits DD Phase thematically. */}
       <SiteSelectRow
