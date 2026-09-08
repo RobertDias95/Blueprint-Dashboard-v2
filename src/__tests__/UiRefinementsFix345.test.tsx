@@ -261,15 +261,18 @@ describe('fix-345 §4: SharePoint is a row now, under Reports', () => {
             ? e.group.id
             : e.id,
     );
-    // ★★★ AMENDED BY fix-485 §A1. fix-345 §4's ruling — Bobby's *"maybe below
-    //     reports?"*, the studio's site treated as an ordinary destination
-    //     rather than an exile — is what this protects, and it is intact: still
-    //     after Reports, still before Settings. What moved is that a CAPTION
-    //     now sits between it and the Reports group, and a `jurisdictions`
-    //     folder after it, so the two immediate neighbours changed.
+    // ★★★ AMENDED TWICE, AND THE RULING IT PROTECTS HAS NEVER MOVED. fix-345
+    //     §4 — Bobby's *"maybe below reports?"*, the studio's site treated as an
+    //     ordinary destination rather than an exile — is intact: still after
+    //     Reports, still before Settings, which is what the last two
+    //     expectations below assert and what this test is actually for.
+    //
+    // ★ Only the NEIGHBOURS have churned. fix-485 §A1 put a `Links` caption
+    //   above and a `jurisdictions` folder below; fix-503 §A turned the caption
+    //   into a wordless `divider` and unwrapped the folder into `cities`.
     const i = ids.indexOf('sharepoint');
-    expect(ids[i - 1]).toBe('cap-links');
-    expect(ids[i + 1]).toBe('jurisdictions');
+    expect(ids[i - 1]).toBe('div-links');
+    expect(ids[i + 1]).toBe('cities');
     expect(i).toBeGreaterThan(ids.indexOf('reports'));
     expect(i).toBeLessThan(ids.indexOf('/settings'));
   });

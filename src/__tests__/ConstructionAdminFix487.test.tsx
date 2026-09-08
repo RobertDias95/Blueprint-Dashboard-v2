@@ -162,11 +162,19 @@ describe('fix-487 §A: the project-level Construction Admin', () => {
     //     including him would turn `@project` — a tag for the handful of people
     //     on this job — into a message to one person about every job in the
     //     company.
+    //
+    // ★★★ AND BOBBY RULED ON IT, 2026-09-04: *"it should not be including
+    //     schematic, construction administration, or acquisitions in that
+    //     tag."* fix-487's call stands, confirmed rather than overturned — and
+    //     ACQ went with it, which is the one line of this assertion that moved.
     const team = projectInternalTeam(PROJECT, null);
     expect(projectTeamNames(team)).toContain('Steve');
     expect(projectTagNames(team)).not.toContain('Steve');
-    // ★ …and the tag still drops the SD and keeps the other three, unchanged.
-    expect(projectTagNames(team)).toEqual(['Cam', 'Bobby', 'Derry']);
+    // ★ SUPERSEDED BY fix-503 §C: was `['Cam', 'Bobby', 'Derry']` — Cam is the
+    //   ACQ lead. The tag is the three people doing the work; Cam is still on
+    //   the card, and `projectTeamNames` above still returns him.
+    expect(projectTagNames(team)).toEqual(['Bobby', 'Derry']);
+    expect(projectTeamNames(team)).toContain('Cam');
   });
 });
 

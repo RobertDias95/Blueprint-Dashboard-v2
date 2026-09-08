@@ -159,13 +159,49 @@ export interface RibbonGroup {
 // `allRibbonRoutes()` walks links and group children only, and `visibleEntries`
 // falls them through ungated with the externals. That is STRUCTURAL, the way
 // fix-335 §4 made `RibbonExternal` un-routable — there is nothing to remember.
+// ===========================================================================
+// ★★★ fix-503 §A (P-159) — THE CAPTIONS ARE GONE, AND THE CITIES CAME UP A LEVEL
+// ===========================================================================
+//
+// Bobby, 2026-09-04: *"we want to get rid of the categorical titles. So we want
+// to get rid of links, reports, and more on that ribbon as well."* and *"can we
+// remove jurisdictions, and just make the jurisdictions present but slightly
+// indented with a carrot."* Ruled by popup: **thin divider lines where the
+// captions were, no words.**
+//
+// ★★★ `caption` → `divider`, AND THE ONLY THING LOST IS THE WORD. fix-485 §A1
+//     introduced the captions to replace bare separators, on the reasoning that
+//     "a captioned section draws the same rule AND says what is under it".
+//     Bobby has now weighed the words against the count of things on screen and
+//     chosen the count: he wants the ITEMS, not the HEADINGS. The rule the
+//     caption drew is exactly what stays — same 1px, same colour, same
+//     boundaries, same first-entry exception — so the sections are unchanged
+//     and only their labels went.
+//
+// ★★ THE IDS KEEP THEIR SHAPE (`cap-work` → `div-work`) rather than being
+//    dropped. `isFirstEntry` reads `RIBBON_ENTRIES[0].id`, and two suites pin
+//    SharePoint's neighbour BY ID; an entry with no id would make the first of
+//    those undecidable and the second unwritable.
+//
+// ★★★ `jurisdictions` → `cities`, AND IT IS NO LONGER A FOLDER. It was one
+//     "◎ Jurisdictions ▾" row that opened a list of cities that opened lists of
+//     links — three taps to a GIS map. The cities are rows in their own right
+//     now, indented one step with a caret, so a link is two taps and the word
+//     "Jurisdictions" (which named a category, exactly what Bobby is removing)
+//     is gone with the captions.
+//
+// ★ IT STILL CANNOT CONTRIBUTE A ROUTE. Same structural reason as before: the
+//   kind has no `to` anywhere in its shape, so `allRibbonRoutes()` is
+//   byte-identical and the coverage guard needs no exception. The cities
+//   themselves are still data (`app_config.jurisdictionLinks`), which is why
+//   this is ONE entry that expands to N rows rather than N entries.
 export type RibbonEntry =
   | { kind: 'link'; link: RibbonLink }
   | { kind: 'group'; group: RibbonGroup }
   | { kind: 'external'; external: RibbonExternal }
-  | { kind: 'caption'; id: string; label: string }
+  | { kind: 'divider'; id: string }
   | { kind: 'spacer'; id: string }
-  | { kind: 'jurisdictions'; id: string; label: string; icon: string };
+  | { kind: 'cities'; id: string };
 
 /** ★ fix-335 §4: the studio's SharePoint site.
  *
@@ -229,7 +265,12 @@ export const SHAREPOINT_URL =
 export const RIBBON_ENTRIES: RibbonEntry[] = [
   // ★★★ fix-485 §A1 — SECTION 1: WORK. Bobby: *"Category 1: Pipeline, Draw
   //     Schedule, My Board."* The three places a day's work happens.
-  { kind: 'caption', id: 'cap-work', label: 'Work' },
+  //
+  // ★ fix-503 §A: it was `{ kind: 'caption', label: 'Work' }`. The SECTION is
+  //   unchanged and so is its boundary; the word above it is gone. This one
+  //   drew no rule anyway (it is first), so all it ever contributed was the
+  //   label — which is why removing it costs the top of the ribbon nothing.
+  { kind: 'divider', id: 'div-work' },
   { kind: 'link', link: { to: '/dashboard', label: 'Pipeline', icon: '▦' } },
   // ★ Promoted out of Entitlements to the top tier: it is a daily destination,
   // not a sub-page of a category.
@@ -253,9 +294,15 @@ export const RIBBON_ENTRIES: RibbonEntry[] = [
   //   now weighed that against the tab count and chosen the tab count. The
   //   ROUTE is unchanged and so are its semantics; only the shelf moved.
   // ★★★ fix-485 §A1 — SECTION 2: REPORTS. Bobby: *"Then the reporting
-  //     features: Library and Reports."* Replaces `sep-1`, which drew this
-  //     boundary as a bare rule and said nothing about what was under it.
-  { kind: 'caption', id: 'cap-reports', label: 'Reports' },
+  //     features: Library and Reports."*
+  //
+  // ★★ fix-503 §A: this replaced `sep-1` — a bare rule — precisely BECAUSE a
+  //    bare rule "said nothing about what was under it", and it is a bare rule
+  //    again. That is not the earlier reasoning being wrong; it is Bobby
+  //    weighing the same trade the other way now that he has lived with it, and
+  //    the words recorded here so the next person does not re-litigate it. The
+  //    section it opens is untouched: Library, the Reports group.
+  { kind: 'divider', id: 'div-reports' },
   // ★ fix-335 §3: Library, standing alone. It keeps the group's own icon rather
   // than the '·' it wore as a child — a top-level entry sits in the same column
   // as Pipeline and My Board and has to read like one, and the group it came out
@@ -408,7 +455,10 @@ export const RIBBON_ENTRIES: RibbonEntry[] = [
   // ★★★ fix-485 §A1 — SECTION 3: LINKS. Bobby: *"Then links: D&E Studio, and a
   //     drop-down of Seattle, Kirkland, Bellevue."* The two entries that leave
   //     the app, said so by the caption rather than by their position.
-  { kind: 'caption', id: 'cap-links', label: 'Links' },
+  // ★ fix-503 §A: was the `Links` caption. The section is still the two
+  //   outward-facing destinations — the studio's site and the city links — and
+  //   the rule still marks where it starts.
+  { kind: 'divider', id: 'div-links' },
   // ★★ fix-345 §4: SharePoint, BELOW REPORTS — Bobby: "Maybe below reports?"
   //
   // fix-335 §4 put it last, in the bottom tier, on the reasoning that the one
@@ -465,12 +515,12 @@ export const RIBBON_ENTRIES: RibbonEntry[] = [
   //    structurally, because it has no `to` anywhere in its shape. Its contents
   //    are data (`app_config.jurisdictionLinks`) and live in
   //    lib/jurisdictionLinks, not here.
-  {
-    kind: 'jurisdictions',
-    id: 'jurisdictions',
-    label: 'Jurisdictions',
-    icon: '◎',
-  },
+  // ★★★ fix-503 §A: ONE ROW PER CITY, not a folder of folders. See the note on
+  //     `RibbonEntry` above. It stays HERE — inside the Links section, directly
+  //     under D&E Studio — because that is what the section is for and it is
+  //     where the folder already sat; the ribbon gains no fourth divider for a
+  //     block that already has one.
+  { kind: 'cities', id: 'cities' },
   // ★★★ fix-485 §A1 — THE UTILITY BLOCK, PINNED TO THE FOOT.
   //
   // Bobby: *"What's New, Settings, Error Triage go to the bottom."* Everything
@@ -581,12 +631,16 @@ export function visibleEntries(
     // absent, so a future external cannot be gated by accident and nobody has
     // to remember that SharePoint is for everyone.
     //
-    // ★★ fix-485 §A1: `caption`, `spacer` and `jurisdictions` join them, and
-    //    for the same structural reason — none of the three carries a gate
-    //    FIELD, so none can be gated by accident. A caption that could be
-    //    withheld would leave the section under it captionless; a jurisdictions
-    //    folder is external links, and Bobby's ruling on the studio's site
-    //    ("this is accessible by everyone") is the same ruling.
+    // ★★ fix-485 §A1: `divider`, `spacer` and `cities` join them, and for the
+    //    same structural reason — none of the three carries a gate FIELD, so
+    //    none can be gated by accident. A divider that could be withheld would
+    //    leave two sections run together; the city rows are external links, and
+    //    Bobby's ruling on the studio's site ("this is accessible by everyone")
+    //    is the same ruling.
+    //
+    // ★ fix-503 §A renamed two of the three kinds and changed nothing here but
+    //   the words: a kind with no gate field is ungatable whatever it is
+    //   called, which is the property this comment exists to record.
     out.push(e);
   }
   return out;

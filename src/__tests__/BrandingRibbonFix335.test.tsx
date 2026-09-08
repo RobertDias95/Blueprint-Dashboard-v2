@@ -475,11 +475,17 @@ describe('fix-335 §4: SharePoint, ungated and outside the app', () => {
     //     studio's site sits in the content tier, below Reports and above
     //     Settings, rather than exiled to the bottom.
     //
-    // ★★ AND IT IS NOW SAID OUT LOUD rather than inferred from a position: the
-    //    `Links` caption directly above it names the section SharePoint belongs
-    //    to, which is the thing a rule between two entries could only imply.
-    expect(ids[ids.indexOf('sharepoint') - 1]).toBe('cap-links');
-    expect(ids[ids.indexOf('sharepoint') + 1]).toBe('jurisdictions');
+    // ★★ fix-485 §A1 said this out loud with a `Links` CAPTION above it; fix-503
+    //    §A took the word back off, on Bobby's ruling ("get rid of the
+    //    categorical titles"), so the boundary is a bare rule again — a
+    //    `divider`, at the same position, drawing the same 1px. What §4 was
+    //    protecting is untouched either way: the studio's site is in the
+    //    content tier, below Reports and above Settings.
+    // ★ Its lower neighbour is now the CITY ROWS (`cities`) rather than the
+    //   `jurisdictions` folder that used to wrap them — same block, one fewer
+    //   level.
+    expect(ids[ids.indexOf('sharepoint') - 1]).toBe('div-links');
+    expect(ids[ids.indexOf('sharepoint') + 1]).toBe('cities');
   });
 });
 

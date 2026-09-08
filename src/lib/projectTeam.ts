@@ -102,33 +102,44 @@ export function projectTeamNames(team: ProjectInternalTeam): string[] {
 }
 
 /**
- * ★★★ fix-344 §3 — WHO `@project` NOTIFIES: ACQ · ENT · DM · DA.
+ * ★★★ fix-503 §C (P-163) — WHO `@project` NOTIFIES: **ENT · DM · DA**.
  *
- * Bobby: *"For the @project, we generally don't need the SD mentioned. So
- * everyone but the SD!"*
+ * Bobby, 2026-09-04: *"The app project chat function, it should not be
+ * including schematic, construction administration, or acquisitions in that
+ * tag."* Three names, and two of them had already gone — this ticket removes
+ * the third.
  *
- * ★★ ONLY THE TAG CHANGES. `projectInternalTeam` still returns `sd` and the
- * Team card still renders it (fix-321 #78's five rows are Bobby's own order) —
- * one definition, two consumers with different needs. The alternative, dropping
- * `sd` from the shared shape, would have taken the schematic designer off the
- * card to fix a mention list, which is not what was asked and is the exact
- * "second definition" trap fix-347 §3 was written to avoid.
+ * ★★★ THE TAG IS FOR THE THREE PEOPLE DOING THE WORK. That is the rule the
+ *     three exclusions add up to, and it is worth saying as one sentence rather
+ *     than as three separate omissions: entitlement, design manager, design
+ *     associate are who a question about this project is FOR. Acquisitions,
+ *     Schematic and Construction Admin are on the project and belong on the
+ *     card; they are not who you are asking.
+ *
+ * ★★ AN EVOLUTION, NOT A CORRECTION — the two earlier rulings were right when
+ *    they were made and are kept here as the record of how the list narrowed:
+ *
+ *      fix-344 §3  ACQ · ENT · DM · DA   *"we generally don't need the SD
+ *                                        mentioned. So everyone but the SD!"*
+ *      fix-487     ENT · DM · DA + ACQ   `ca` dropped: it defaults to Steve on
+ *                                        EVERY project (211 of 211), so the tag
+ *                                        would have become a message to one
+ *                                        person about every job in the company.
+ *      fix-503 §C  ENT · DM · DA         `acq` dropped, on Bobby's ruling.
+ *
+ * ★★ ONLY THE TAG CHANGES — and this is the third time that sentence has been
+ *    needed, which is why it is load-bearing. `projectInternalTeam` still
+ *    returns all five roles and the Team card still renders every one of them
+ *    (fix-321 #78's rows are Bobby's own order). One definition, two consumers
+ *    with different needs. Dropping a role from the shared shape to fix a
+ *    mention list would take that person off the card — not what was asked, and
+ *    the exact "second definition" trap fix-347 §3 was written to avoid.
  *
  * ★ So this is a FILTER over the one definition, not a rival to it: same
- * source, same order, one role omitted, and the omission stated in one place.
+ * source, same order, three roles omitted, and the omissions stated in one
+ * place. The hint string (`N on this project`) counts what this returns, so it
+ * needs no change and gets none.
  */
 export function projectTagNames(team: ProjectInternalTeam): string[] {
-  // ★★★ fix-487 DROPS `ca` FROM THE TAG TOO, and this is a judgement call
-  //     flagged for Bobby rather than an obvious consequence.
-  //
-  // Bobby's fix-344 ruling was *"everyone but the SD"*, made when the card had
-  // five rows. `ca` defaults to Steve on EVERY project (211 of 211), so
-  // including him would turn `@project` — a tag for the handful of people on
-  // this job — into a message to Steve about every job in the company. That is
-  // not what the tag is for, and the noise would land on one person.
-  //
-  // ★★ THE CARD STILL SHOWS HIM. Same shape as the `sd` omission above: one
-  //    definition (`projectInternalTeam`), two consumers with different needs,
-  //    and the difference stated here rather than by a rival definition.
-  return projectTeamNames({ ...team, sd: [], ca: null });
+  return projectTeamNames({ ...team, sd: [], ca: null, acq: null });
 }
