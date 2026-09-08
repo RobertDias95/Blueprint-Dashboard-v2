@@ -1,4 +1,8 @@
-import { UNIT_MATRIX_WIDTH } from './unitRowLayout';
+import {
+  CONSULTANT_BAND_MIN_WIDTH,
+  POR_CARD_MIN_WIDTH,
+  PROJECT_CARD_MIN_WIDTH,
+} from './projectCardLayout';
 
 // ===========================================================================
 // ★★★ fix-417 — THE PROJECT OVERVIEW CARD ROW GETS DECLARED PROPORTIONS
@@ -189,127 +193,113 @@ export const MILESTONE_ROW_MIN_WIDTH =
   MILESTONE_DATE_INPUT_MIN;
 
 /**
- * ★★★ THE FLOORS ARE RE-DERIVED FROM WHAT EACH CARD ACTUALLY HOLDS.
+ * ===========================================================================
+ * ★★★ fix-506 §A (P-139) — FIVE CARDS BECOME THREE
+ * ===========================================================================
  *
- * fix-417 set them by scaling Bobby's proposal to fit a row that turned out not
- * to exist. This ticket sets each one from its card's content and says which
- * are HARD and which are soft, because that distinction is what decides who
- * gives way when the row is short:
+ * Bobby's v14 ruling: *"Permit intake's column is gone; its width goes to the
+ * Plan of Record card (mock: 470px, was 360)."* Milestones and Consultants
+ * cease to exist as cards — Milestones' dates become the Dates card inside
+ * Project (§B), and the consultant pills become a band across the foot of Team
+ * (§F). What is left is the permits rail (rendered outside this grid) and:
  *
- *   HARD — the card CLIPS or truncates below the number.
+ *     [ Plan of Record ] [ Project ] [ Team ]
+ *
+ * ★★★ THE SHARES ARE THE MOCK'S, TRANSLATED. `overview_book_v14.html:470`
+ *     declares `188px 470px 1.05fr 1.15fr` — a FIXED Plan of Record column and
+ *     two `fr` for the rest. A fixed px column cannot survive contact with a
+ *     row whose width the ribbon changes by 156px without the window moving, so
+ *     the 470 is expressed as the SHARE that produces it: 470 / 1330px of
+ *     shared space at 1920 is 35%, and the remaining 65 splits 1.05 : 1.15.
+ *     Rendered at 1920 that is **PoR 465 · Project 412 · Team 452** — within
+ *     5px of the drawing, and correct in both ribbon states rather than one.
+ *
+ * ★★ THE FLOORS ARE STILL THE TRUTH, and they are derived from
+ *    `lib/projectCardLayout` — the widest control each column must actually
+ *    hold — exactly as fix-422 and fix-423 established. `minmax(floor, fr)`,
+ *    never a bare `fr`.
+ *
+ * ★★★ AND THE ROW MINIMUM FALLS 1,172 → 904, which is the headline number of
+ *     this rebuild. Two whole cards left the line, and the two that absorbed
+ *     their content did it in HEIGHT (a Dates card of printed text where
+ *     Milestones held four `<input type="date">` at 100px each; a consultant
+ *     band that wraps where the Consultants card could not). The row runs
+ *     unwrapped from a **1474px** window against today's 1788 — so 1600, which
+ *     the brief requires not to clip, now fits on ONE line for the first time
+ *     since fix-417.
+ *
+ *   HARD — the card CLIPS or truncates below its floor.
  *     · Project      a CSS grid inside an `overflow-hidden` card.
- *     · Builder/Owner  `<input>` values, which do not wrap.
  *   SOFT — the card reflows and stays readable.
- *     · Milestones, Team, Plan of Record.
- *
- * ★★ AND BOBBY'S STANDING RULING SURVIVES: the Plan of Record is the largest
- * SHARE (29%) and the largest FLOOR (310), so it is the widest card at every
- * width — the thing fix-417 was raised to fix. Scope 10(ii) offered its floor
- * as the place to find room; taking it demotes the Plan of Record below Project
- * at EVERY width, not just narrow ones, so it was measured and refused. See the
- * PR body for the numbers.
+ *     · Team, Plan of Record.
  */
 export const OVERVIEW_CARD_COLUMNS: readonly OverviewCardColumn[] = [
   {
-    key: 'dd',
-    title: 'Milestones',
-    // ★ fix-423: 13 → 16, and Bobby said where it comes from — *"take a little
-    //   bit of width out of Builder/Owner and give that to Milestones"*.
-    //   Builder gives 19 → 16; its FLOOR is untouched (see below).
-    pct: 16,
-    // ★★★ DERIVED, NOT TYPED — the discipline fix-422 applied to `proj`.
-    minPx: MILESTONE_ROW_MIN_WIDTH + OVERVIEW_CARD_CHROME,
+    // ★★★ FIRST IN THE ROW NOW, where Milestones used to be. Bobby reads the
+    //     overview left to right as a book (P-139) and the plan is the thing
+    //     the page is about.
+    key: 'por',
+    title: 'Plan of Record',
+    // ★ 470 / 1330 of shared space at 1920 — see the note above.
+    pct: 35,
+    // ★★★ ITS OWN CONTENT ONLY NEEDS 300 (`POR_CARD_MIN_WIDTH` — the two
+    //     Marketing buttons side by side). The floor is raised to sit 14px
+    //     above PROJECT's because Bobby's fix-417 ruling — *"the Design plan of
+    //     record should be the widest of the boxes"* — is a statement about
+    //     EVERY width, and below the row minimum the floors are the only thing
+    //     deciding. Measured: at 1600 the shares alone would hand PoR 333
+    //     against Project's 354 and silently invert the ruling.
+    minPx: Math.max(POR_CARD_MIN_WIDTH, PROJECT_CARD_MIN_WIDTH + 14),
     floorReason:
-      '★★★ HARD, and DERIVED. fix-417 called this SOFT — "Dates and short ' +
-      'state words, all of which reflow" — and set 140 on that reading. It is ' +
-      'FALSE: four of the nine rows are `<input type="date">`, and an input ' +
-      'does NOT reflow, which is the very finding fix-417 made for ' +
-      'Builder/Owner three rows down this same table. Measured in Chrome at ' +
-      "the card's 11px semibold: the input alone is 100px, its row 200px, the " +
-      'card 222px. It had been rendering 140px at 1280/1440 and 169px at 1920, ' +
-      'so the dates clipped at EVERY width — which is what Bobby is looking ' +
-      "at. The floor is the row's parts plus the card chrome now, computed, so " +
-      'a label or padding change moves it in the same build.',
+      'SOFT content (a plan thumbnail scales) but a HARD ORDERING constraint, ' +
+      'and this ticket is the first time the ordering actually binds. Its own ' +
+      'content needs POR_CARD_MIN_WIDTH (300) — both Marketing buttons on one ' +
+      'line, because they are a pair read against each other. The floor is ' +
+      "pinned 14px above PROJECT's instead, the smallest margin that keeps " +
+      "Bobby's \"widest of the boxes\" true at 1600, where the shares alone " +
+      'would give PoR 333 against Project 354.',
   },
   {
     key: 'proj',
     title: 'Project',
-    pct: 22,
-    // ★★★ DERIVED, NOT TYPED. See UNIT_MATRIX_WIDTH — widen a matrix column and
-    //     this floor widens in the same build.
-    minPx: UNIT_MATRIX_WIDTH + OVERVIEW_CARD_CHROME,
+    // ★ The mock's 1.05fr of the 65% the Plan of Record leaves.
+    pct: 31,
+    // ★★★ DERIVED IN `lib/projectCardLayout`, from the transposed units matrix
+    //     at six type columns (332) — prod's maximum, and 403 W Dravus St is
+    //     one of the two projects that has it.
+    minPx: PROJECT_CARD_MIN_WIDTH,
     floorReason:
-      '★ HARD, and DERIVED from UNIT_MATRIX_WIDTH. fix-417 justified 220px ' +
-      'with "its widest content — the Units row — SCROLLS inside the card now ' +
-      '(fix-417 §B)". fix-418 DELETED that scroller, so the justification has ' +
-      'been false on main since ef9b0eb and the card has been free to clip its ' +
-      'own contents. OverviewCard is `overflow-hidden`: a card narrower than ' +
-      'the matrix does not scroll, it truncates silently. So the floor is the ' +
-      'matrix plus the card chrome, computed, and the two can never disagree.',
+      '★★★ HARD, and DERIVED — the discipline fix-422 established. The card ' +
+      'now holds three things: Site data, the Dates card and the transposed ' +
+      'units matrix. The MATRIX binds at 332px (six unit types); the ' +
+      'Site/Dates pair binds only at its STACKED width (296) because it wraps ' +
+      'rather than clips. If that pair could not wrap the floor would be ' +
+      'SITE_DATES_SIDE_BY_SIDE_MIN (475) + chrome, the row minimum would be ' +
+      '1,025, and 1600 would clip — which is the gate this ticket STEP 0 ' +
+      'fired on. See projectCardLayout for the measurement.',
   },
   {
     key: 'team',
     title: 'Team',
-    pct: 17,
-    minPx: 160,
+    // ★ The mock's 1.15fr — Team is the WIDER of the two `fr` columns, because
+    //   it carries the consultant band across its foot.
+    pct: 34,
+    // ★★ DERIVED, and it barely moves: the top block's 160 against one
+    //    consultant pill plus card chrome (162).
+    minPx: Math.max(160, CONSULTANT_BAND_MIN_WIDTH + OVERVIEW_CARD_CHROME),
     floorReason:
-      'SOFT, and fix-423 DELIBERATELY LEFT IT AT 160 against its own brief, ' +
-      'which asked for 185 to hold the new two-up Internal block. Raising it ' +
-      'puts the wrapped first line (Milestones + Project + Team) at 728px ' +
-      'against the 710px this row gets at a 1280 window, which re-opens the ' +
-      'sideways scroll the whole sequence exists to close. So the two-up is a ' +
-      'CONTAINER QUERY inside the card instead (TEAM_INTERNAL_TWO_UP_MIN): it ' +
-      'appears whenever the card is wide enough to hold it — which is every ' +
-      'width Bobby works at — and the card stacks gracefully when it is not. ' +
-      'A layout that asks for width the row cannot always give is not a floor.',
-  },
-  {
-    key: 'por',
-    title: 'Design Plan of Record',
-    pct: 29,
-    // ★★★ MUST EXCEED THE PROJECT FLOOR. Bobby's fix-417 ruling — "the Design
-    //     plan of record should be the widest of the boxes" — is a statement
-    //     about EVERY width, and below ~1130px of row the floors are the only
-    //     thing deciding. +14 over Project is the smallest margin that keeps it
-    //     true without taking more than the row can spare.
-    minPx: UNIT_MATRIX_WIDTH + OVERVIEW_CARD_CHROME + 14,
-    floorReason:
-      'SOFT content (a plan thumbnail scales) but a HARD ordering constraint: ' +
-      'Bobby ruled this the widest box, and a floor below Project\'s would ' +
-      'demote it everywhere the floors bind. Pinned just above Project\'s so ' +
-      'the ruling holds at every width for the least width taken.',
-  },
-  {
-    // ★★★ fix-475 (P-116): `builder` LEAVES and `consultants` takes its slot.
-    //     Builder/Owner is not deleted — it becomes the Team card's top
-    //     section, collapsed to Owner + Business with a disclosure.
-    key: 'consultants',
-    title: 'Consultants',
-    // ★ The SHARE is inherited from Builder/Owner unchanged. fix-423 tuned
-    //   these five percentages against each other and this ticket has no
-    //   measurement that says any of them should move; changing a share
-    //   without one would undo that tuning by accident.
-    pct: 16,
-    // ★★★ DERIVED, NOT TYPED — the discipline fix-422 applied to `proj` and
-    //     fix-423 to `dd`.
-    minPx: CONSULTANT_CARD_MIN_WIDTH,
-    floorReason:
-      '★★★ HARD, DERIVED, and 46px BELOW the floor it replaces — see ' +
-      'harness/consultant-column-floor.html for the Chrome measurement. The ' +
-      'binding part is a native <input type="date">: 103px at this pill\'s ' +
-      '10.5px, which the mock hides by drawing PLAIN TEXT boxes it can size ' +
-      'freely. The app commits dates through BufferedDateInput, so it gets the ' +
-      "browser's own control and the browser's own minimum. Side by side, as " +
-      'the mock draws them, the two dates alone cost 252px of floor against ' +
-      'the 190 Builder/Owner vacates — so the PAIR STACKS. That trades width, ' +
-      'which this row has none of, for height, which a list-shaped card has. ' +
-      'The floor is then the widest single control (the 104px status pill) ' +
-      'plus the pill chrome plus the card chrome, computed — so a padding ' +
-      'change moves it in the same build.',
+      'SOFT. fix-423 held this at 160 against its own brief because the ' +
+      'wrapped first line could not afford 185; the same reasoning applies to ' +
+      "the consultant band this ticket puts across the card's foot. The band's " +
+      'ruled 3+2 / 4+3 split is a TARGET declared with flex bases, not a ' +
+      'floor: flooring it at four pills costs 578px against the ~290 Team gets ' +
+      'at 1600 and would wrap the row at every width Bobby works at. It asks ' +
+      'for ONE pill and takes as many as the card is given — degrading to ' +
+      "exactly the one-per-line list fix-475 shipped, which is main's today.",
   },
 ];
 
-/** The five grid-area names, in render order. */
+/** The three grid-area names, in render order. */
 export const OVERVIEW_GRID_AREAS = `"${OVERVIEW_CARD_COLUMNS.map((c) => c.key).join(' ')}"`;
 
 /** The gap between cards, px. Declared here so the template and any width
@@ -497,9 +487,10 @@ export const OVERVIEW_ROW_CONTAINER = 'pd-overview';
  *  and its floor without depending on child order. */
 export const OVERVIEW_CELL_ATTR = 'data-overview-cell';
 
-/** How many cards sit on the first line once the row wraps. Milestones,
- *  Project, Team — Bobby's reading order, unbroken. */
-export const OVERVIEW_ROW_LINE_1_COUNT = 3;
+/** How many cards sit on the first line once the row wraps.
+ *  ★ fix-506: the Plan of Record and Project — the two that are read against
+ *  each other — with Team on the second line. It was three of five. */
+export const OVERVIEW_ROW_LINE_1_COUNT = 2;
 
 /**
  * What the wrapped FIRST line needs. ★ This is the number that decides whether
@@ -513,7 +504,7 @@ export const OVERVIEW_ROW_LINE_1_MIN_WIDTH: number =
   ) +
   (OVERVIEW_ROW_LINE_1_COUNT - 1) * OVERVIEW_GRID_GAP;
 
-/** What the wrapped SECOND line needs — Plan of Record and Builder/Owner. */
+/** What the wrapped SECOND line needs — Team, alone. */
 export const OVERVIEW_ROW_LINE_2_MIN_WIDTH: number =
   OVERVIEW_CARD_COLUMNS.slice(OVERVIEW_ROW_LINE_1_COUNT).reduce(
     (a, c) => a + c.minPx,

@@ -112,3 +112,22 @@ export function quarterToDateRange(
   };
   return bounds[q];
 }
+
+/**
+ * `2026-07-06` -> `07/06/2026`, the way the v14 Dates card prints a date.
+ *
+ * ★★ SLICED, NEVER `new Date()`. An ISO date parsed as UTC and printed in local
+ *    time is YESTERDAY anywhere west of Greenwich — fix-433's finding, and the
+ *    Dates card prints eleven of them. There is no time component in a `date`
+ *    column to reason about, so string surgery is not a shortcut here, it is
+ *    the correct operation.
+ *
+ * ★ It matches what a native `<input type="date">` shows in a US browser
+ *   (fix-320), so a read-only row and the editor behind it read alike.
+ */
+export function formatUsDate(iso: string | null | undefined): string {
+  if (!iso) return '';
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso);
+  if (!m) return iso;
+  return `${m[2]}/${m[3]}/${m[1]}`;
+}
