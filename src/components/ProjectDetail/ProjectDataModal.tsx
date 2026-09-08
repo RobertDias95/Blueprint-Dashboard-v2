@@ -293,18 +293,30 @@ function DatesTab({
   const cycle0 = (bp?.permit_cycles ?? []).find((c) => c.cycle_index === 0);
   return (
     <TabPanel caption="Each date saves as you leave it. Accepted and Approved come from the Building Permit and are read-only.">
-      <KeyDatesSection project={project} />
+      {/* ★★ KEY DATES IS RENDERED BY `DDPhaseEditor` ITSELF — it always was,
+          which is why the order of GO / Closing is *"stated once in
+          KeyDatesSection"* in that file. Rendering it here as well put TWO
+          `pd-go-date` rows on the tab, and the fix-311 suite caught it. It is
+          rendered explicitly only on the two no-BP branches, where there is no
+          `DDPhaseEditor` to carry it — which is exactly what the retired
+          `DDPhaseCell` did. */}
       {bp ? (
         <DDPhaseEditor project={project} bp={bp} permits={permits} />
       ) : project.redesign_of_project_id && project.redesign_reuses_original_permit ? (
+        <>
+          <KeyDatesSection project={project} />
         // ★ fix-145's branch, kept: a reuse-redesign has no BP but DOES carry a
         //   draw_schedule lane, so the inline lane editor is the right control.
-        <ReuseRedesignDdEditor project={project} />
+          <ReuseRedesignDdEditor project={project} />
+        </>
       ) : (
-        <p className="text-[11px] text-dim">
+        <>
+          <KeyDatesSection project={project} />
+          <p className="text-[11px] text-dim">
           No building permit — the DD window, target submit and intake dates
-          hang off one.
-        </p>
+            hang off one.
+          </p>
+        </>
       )}
       {/* ★★ READ-ONLY, AND CAPTIONED WITH WHY. These two are scraped from the
           portal; an editable box would invite somebody to correct the city. */}

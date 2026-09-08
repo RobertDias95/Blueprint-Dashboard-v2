@@ -106,7 +106,21 @@ vi.mock('../hooks/useProjectConsultants', () => ({
 }));
 
 
-import ProjectDetailHeader from '../components/ProjectDetail/ProjectDetailHeader';
+// ===========================================================================
+// ★★★ fix-506 §G (P-140) — THIS SUITE'S EDITOR MOVED, AND NOTHING ELSE DID
+// ===========================================================================
+//
+// Bobby ruled the overview read-only: every project field is edited in the
+// **Project Data** modal now. The components this file exercises —
+// `MilestoneDateRow / KeyDatesSection / DDPhaseEditor` — are byte-for-byte what shipped on `origin/main`, because the
+// brief's rule was *"every write goes through the SAME hooks the overview uses
+// today; no new RPC, same OCC tokens, same toasts."*
+//
+// ★★ SO EVERY ASSERTION BELOW IS UNCHANGED AND STILL MEANS WHAT IT MEANT. Only
+//    the mount point moved, from `<ProjectDetailHeader>` to the modal's
+//    **Dates** tab. A suite that had been repointed AND weakened would stop
+//    catching the regression it was written for; this one can still catch it.
+import ProjectDataModal from '../components/ProjectDetail/ProjectDataModal';
 
 function projectFixture(over: Partial<Project> = {}): Project {
   return {
@@ -189,7 +203,14 @@ function renderHeader(
     </QueryClientProvider>
   );
   return render(
-    <ProjectDetailHeader project={project} permits={permits} bp={bp} />,
+    <ProjectDataModal
+      project={project}
+      permits={permits}
+      bp={bp}
+      initialTab="dates"
+      onClose={() => {}}
+      onOpenSettings={() => {}}
+    />,
     { wrapper },
   );
 }
@@ -222,8 +243,11 @@ function shiftIso(iso: string, days: number): string {
   return d.toISOString().slice(0, 10);
 }
 
+/** ★ fix-506 §G: the Milestones CARD is retired and these rows are the Project
+ *  Data modal's **Dates** tab. One accessor, so every query below scopes to the
+ *  panel exactly as it scoped to the card. */
 function card(): HTMLElement {
-  return screen.getByTestId('pd-milestones-card');
+  return screen.getByTestId('project-data-body');
 }
 
 /** Every date VALUE on the card, in DOM order. */
@@ -529,13 +553,22 @@ describe('fix-311: the rows that could write still write', () => {
 });
 
 describe('fix-311: the branches that are not the happy path', () => {
-  it('no building permit → the plain message under both headings, not empty boxes', () => {
+  it('★★ no building permit → ONE plain message, and Key dates still renders', () => {
+    // ★★★ SUPERSEDED IN FORM. fix-311 asserted TWO "No building permit" lines
+    //     because the retired `DDPhaseCell` printed one under the DD window
+    //     heading and one under Permit intake — two empty headings needed two
+    //     explanations. The Dates tab says it once, which is the same fact
+    //     without the repetition a card layout forced.
+    //
+    // ★★ WHAT fix-311 WAS ACTUALLY GUARDING IS UNCHANGED AND STILL HERE: no
+    //    empty date boxes claiming there are values, and Key dates still
+    //    rendering its two rows through the shared component.
     renderHeader(projectFixture(), []);
-    expect(within(card()).getAllByText('No building permit')).toHaveLength(2);
+    expect(within(card()).getAllByText(/No building permit|no building permit/i))
+      .toHaveLength(1);
     expect(screen.queryByTestId('pd-bp-dd_start')).toBeNull();
     expect(screen.queryByTestId('pd-intake-accepted')).toBeNull();
     expect(screen.queryByTestId('pd-target-submit')).toBeNull();
-    // Key dates still renders its two rows through the shared component.
     expect(screen.getByTestId('pd-go-date')).toBeInTheDocument();
     expect(screen.getByTestId('project-overview-closing')).toBeInTheDocument();
   });
@@ -560,10 +593,19 @@ describe('fix-311: the branches that are not the happy path', () => {
     expect(screen.getByTestId('pd-intake-accepted').textContent).toBe('—');
   });
 
-  it('fix-296 still holds: the card is called Milestones', () => {
+  it('★★★ SUPERSEDED: the card is called Dates, and it is a TAB', () => {
+    // ★★★ fix-296 named this card "Milestones" and fix-311 pinned the name so
+    //     it could not drift back. fix-506 retires the card: these rows are the
+    //     Project Data modal's **Dates** tab, and Bobby's v14 mock calls the
+    //     overview's read-only counterpart "Dates" too.
+    //
+    // ★★ THE RULE fix-296 SET SURVIVES AND IS WHAT THIS ASSERTS — one name for
+    //    this group of dates, declared in one place, not two surfaces calling
+    //    it two things. `PROJECT_DATA_TABS` is that place.
     renderHeader();
-    expect(
-      within(card()).getAllByTestId('overview-card-banner')[0],
-    ).toHaveTextContent('Milestones');
+    const tab = screen.getByTestId('project-data-tab-dates');
+    expect(tab.textContent).toBe('Dates');
+    expect(tab.getAttribute('aria-current')).toBe('page');
+    expect(screen.queryByTestId('pd-milestones-card')).toBeNull();
   });
 });

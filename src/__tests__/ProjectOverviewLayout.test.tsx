@@ -110,14 +110,20 @@ beforeEach(() => {
   });
 });
 
-describe('fix-285 the five-column overview row', () => {
+describe('fix-285 the overview row (fix-506: THREE columns)', () => {
   it('places the cards in the agreed order', () => {
     renderHeader();
     const order = areaOrder().filter(Boolean);
-    // ★★★ AMENDED BY fix-475 (P-116): the fifth column is CONSULTANTS now. `builder`
-    //     did not shrink or move — Builder/Owner became the Team card's top section
-    //     and its column was taken over. The CLAIM here is unchanged; only the key is.
-    expect(order).toEqual(['dd', 'proj', 'team', 'por', 'consultants']);
+    // ★★★ AMENDED TWICE, AND THE CLAIM — the cards render in the agreed order
+    //     — is what this test is for and is unchanged.
+    //
+    //       fix-475 (P-116)  the fifth column becomes CONSULTANTS; Builder/Owner
+    //                        moves into the Team card's top section.
+    //       fix-506 §A       Milestones and Consultants stop being cards at all
+    //                        (their content moves into Project and Team), and
+    //                        the Plan of Record leads the row — Bobby reads the
+    //                        overview left to right as a book (P-139).
+    expect(order).toEqual(['por', 'proj', 'team']);
   });
 
   // fix-290 gave Project both rows because the half-height slot squeezed its
@@ -132,7 +138,7 @@ describe('fix-285 the five-column overview row', () => {
     renderHeader();
     const grid = screen.getByTestId('project-overview-grid');
     const areas = grid.style.gridTemplateAreas.replace(/\s+/g, ' ');
-    expect(areas).toContain('dd proj team por consultants');
+    expect(areas).toContain('por proj team');
     expect(areas).not.toContain('notes');
     const rows = areas.split('"').filter((r) => r.trim());
     expect(rows).toHaveLength(1);
@@ -148,10 +154,10 @@ describe('fix-285 the five-column overview row', () => {
     expect(proj.style.height).toBe('100%');
   });
 
-  it('has five columns', () => {
+  it('has three columns, each with an explicit floor', () => {
     renderHeader();
     const grid = screen.getByTestId('project-overview-grid');
-    expect(trackShares(grid)).toHaveLength(5);
+    expect(trackShares(grid)).toHaveLength(3);
     // ★ fix-417: and every track now carries an EXPLICIT px floor. A bare `fr`
     //   means `minmax(auto, …)`, which is how the PROJECT card came to resize
     //   its four neighbours.
@@ -165,14 +171,13 @@ describe('fix-285 the five-column overview row', () => {
   // to the point where it hid its own Site section).
   it('gives the Plan of Record column the most width', () => {
     renderHeader();
-    const cols = trackShares(screen.getByTestId('project-overview-grid'));
-    const [dd, proj, team, por, consultants] = cols;
+    const [por, proj, team] = trackShares(
+      screen.getByTestId('project-overview-grid'),
+    );
+    // ★ Bobby's standing ruling — the Plan of Record is the widest box — and
+    //   fix-506 §A gave it Permit intake's width on top, 29% → 35%.
     expect(por).toBeGreaterThan(proj);
     expect(por).toBeGreaterThan(team);
-    // ★ Bobby's standing ruling — the Plan of Record is the widest box —
-    //   still holds against whatever occupies the fifth slot.
-    expect(por).toBeGreaterThan(consultants);
-    expect(por).toBeGreaterThan(dd);
     // ...and Project keeps the width fix-290 gave it, so its Site section
     // cannot be squeezed back out of view.
     expect(proj).toBeGreaterThanOrEqual(1);
@@ -188,8 +193,12 @@ describe('fix-309 #54 Notes left the header grid', () => {
     renderHeader();
     expect(screen.queryByTestId('project-overview-notes-col')).toBeNull();
     expect(screen.queryByTestId('notes-panel')).toBeNull();
-    expect(areaOrder()).toContain('dd');
+    // ★ fix-506 §A: `dd` is gone too — the Milestones card is retired and its
+    //   dates are the Project card's Dates box. The claim here is about NOTES,
+    //   so it is asserted of the card that is actually in the row.
+    expect(areaOrder()).toContain('por');
     expect(areaOrder()).not.toContain('notes');
+    expect(areaOrder()).not.toContain('dd');
   });
 });
 
@@ -223,11 +232,15 @@ describe('fix-285 the team cards stack', () => {
 });
 
 describe('fix-285 the Plan of Record card has a home', () => {
-  it('renders between Team and Builder/Owner', () => {
+  it('★★★ leads the row now, and still has one', () => {
+    // ★★★ fix-285 put it between Team and Builder/Owner; fix-506 §A puts it
+    //     FIRST. The claim fix-285 was making — this card has a declared slot
+    //     in the row rather than floating — is what survives, and it is what
+    //     this asserts.
     renderHeader();
     const order = areaOrder();
-    expect(order.indexOf('por')).toBe(order.indexOf('team') + 1);
-    expect(order.indexOf('consultants')).toBe(order.indexOf('por') + 1);
+    expect(order.indexOf('por')).toBe(0);
+    expect(order.indexOf('proj')).toBe(1);
     expect(screen.getByTestId('plan-of-record-card')).toBeInTheDocument();
   });
 });

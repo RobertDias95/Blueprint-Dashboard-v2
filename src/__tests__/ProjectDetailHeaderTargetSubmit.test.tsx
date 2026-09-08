@@ -79,7 +79,21 @@ vi.mock('../hooks/useProjectConsultants', () => ({
 }));
 
 
-import ProjectDetailHeader from '../components/ProjectDetail/ProjectDetailHeader';
+// ===========================================================================
+// ★★★ fix-506 §G (P-140) — THIS SUITE'S EDITOR MOVED, AND NOTHING ELSE DID
+// ===========================================================================
+//
+// Bobby ruled the overview read-only: every project field is edited in the
+// **Project Data** modal now. The components this file exercises —
+// `TargetSubmitRow` — are byte-for-byte what shipped on `origin/main`, because the
+// brief's rule was *"every write goes through the SAME hooks the overview uses
+// today; no new RPC, same OCC tokens, same toasts."*
+//
+// ★★ SO EVERY ASSERTION BELOW IS UNCHANGED AND STILL MEANS WHAT IT MEANT. Only
+//    the mount point moved, from `<ProjectDetailHeader>` to the modal's
+//    **Dates** tab. A suite that had been repointed AND weakened would stop
+//    catching the regression it was written for; this one can still catch it.
+import ProjectDataModal from '../components/ProjectDetail/ProjectDataModal';
 
 function projectFixture(over: Partial<Project> = {}): Project {
   return {
@@ -172,7 +186,14 @@ function renderHeader(project: Project, permits: PermitWithCycles[]) {
     </QueryClientProvider>
   );
   return render(
-    <ProjectDetailHeader project={project} permits={permits} bp={bp} />,
+    <ProjectDataModal
+      project={project}
+      permits={permits}
+      bp={bp}
+      initialTab="dates"
+      onClose={() => {}}
+      onOpenSettings={() => {}}
+    />,
     { wrapper },
   );
 }

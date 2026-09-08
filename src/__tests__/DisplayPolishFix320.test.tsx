@@ -102,7 +102,21 @@ vi.mock('../hooks/useProjectConsultants', () => ({
 
 vi.mock('../hooks/useIsTenantAdmin', () => ({ useIsTenantAdmin: () => true }));
 
-import ProjectDetailHeader from '../components/ProjectDetail/ProjectDetailHeader';
+// ===========================================================================
+// ★★★ fix-506 §G (P-140) — THIS SUITE'S EDITOR MOVED, AND NOTHING ELSE DID
+// ===========================================================================
+//
+// Bobby ruled the overview read-only: every project field is edited in the
+// **Project Data** modal now. The components this file exercises —
+// `MilestoneDateRow` — are byte-for-byte what shipped on `origin/main`, because the
+// brief's rule was *"every write goes through the SAME hooks the overview uses
+// today; no new RPC, same OCC tokens, same toasts."*
+//
+// ★★ SO EVERY ASSERTION BELOW IS UNCHANGED AND STILL MEANS WHAT IT MEANT. Only
+//    the mount point moved, from `<ProjectDetailHeader>` to the modal's
+//    **Dates** tab. A suite that had been repointed AND weakened would stop
+//    catching the regression it was written for; this one can still catch it.
+import ProjectDataModal from '../components/ProjectDetail/ProjectDataModal';
 import Ribbon from '../components/Ribbon';
 
 function projectFixture(over: Partial<Project> = {}): Project {
@@ -180,7 +194,14 @@ function renderHeader(
     </QueryClientProvider>
   );
   return render(
-    <ProjectDetailHeader project={project} permits={permits} bp={bp} />,
+    <ProjectDataModal
+      project={project}
+      permits={permits}
+      bp={bp}
+      initialTab="dates"
+      onClose={() => {}}
+      onOpenSettings={() => {}}
+    />,
     { wrapper },
   );
 }
@@ -218,7 +239,7 @@ const RUNNER_IS_US = new Intl.DateTimeFormat().resolvedOptions().locale.startsWi
 function readOnlyBoxes(): HTMLElement[] {
   return Array.from(
     screen
-      .getByTestId('pd-milestones-card')
+      .getByTestId('project-data-body')
       .querySelectorAll('[data-milestone-editable="false"]'),
   ) as HTMLElement[];
 }
@@ -265,7 +286,7 @@ describe('fix-320 #1: the Milestones card reads in ONE date format', () => {
     );
     expect(screen.getByTestId('pd-intake-accepted').textContent).toBe('—');
     expect(screen.getByTestId('pd-go-date').textContent).toBe('—');
-    const card = screen.getByTestId('pd-milestones-card').textContent ?? '';
+    const card = screen.getByTestId('project-data-body').textContent ?? '';
     expect(card).not.toMatch(/1970|12\/31\/1969|Invalid|NaN/);
   });
 
@@ -323,7 +344,7 @@ describe('fix-320 #1: the Milestones card reads in ONE date format', () => {
   // fix-311's contract, re-checked on the reformatted card.
   it('fix-311 survives: one shared row component, three headings', () => {
     renderHeader();
-    const card = screen.getByTestId('pd-milestones-card');
+    const card = screen.getByTestId('project-data-body');
     const boxes = Array.from(card.querySelectorAll('[data-milestone-value]')) as HTMLElement[];
     expect(boxes.length).toBe(9);
     expect(
