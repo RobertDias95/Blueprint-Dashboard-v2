@@ -399,7 +399,13 @@ describe('fix-505 §B: upload and remove', () => {
 
   it('★ the bucket name is the one the migration creates', () => {
     expect(AVATAR_BUCKET).toBe('avatars');
-    expect(MIGRATION).toContain("'avatars',\n  'avatars',");
+    // ★★★ LINE-ENDING-INSENSITIVE, AND fix-506 FOUND OUT WHY THE HARD WAY.
+    //     This read `expect(MIGRATION).toContain(...)` and passed in
+    //     fix-505's CI, because the migration had just been WRITTEN with LF.
+    //     It fails on the next checkout, where git's autocrlf has turned it
+    //     into CRLF: a source-grep that SPANS A NEWLINE is asserting the
+    //     working tree's line endings, not the file's content.
+    expect(MIGRATION.replace(/\r/g, '')).toContain("'avatars',\n  'avatars',");
   });
 });
 
