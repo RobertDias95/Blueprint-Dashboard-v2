@@ -1,5 +1,5 @@
-import { Fragment, useMemo } from 'react';
-import type { ReactNode } from 'react';
+import { useMemo } from 'react';
+import type { CSSProperties, ReactNode } from 'react';
 import OriginLink from '../OriginLink';
 import { OverviewSection } from './OverviewCard';
 import { lotSizeView } from '../../lib/lotDimensions';
@@ -13,15 +13,15 @@ import { useProjectedApprovalFor } from '../../hooks/useProjectedApprovalFor';
 import { formatUsDate } from '../../lib/dateUtils';
 import { parkingKindCode } from '../../lib/unitParking';
 import {
-  DATES_CARD_MIN_WIDTH,
   DATES_COLUMN_GAP,
   DATES_LABEL_WIDTH_LEFT,
   DATES_LABEL_WIDTH_RIGHT,
-  SITE_DATA_MIN_WIDTH,
-  SITE_DATES_GAP,
+  SITE_DATES_PAIR_CLASS,
+  SITE_DATES_SITE_CLASS,
   SITE_LABEL_WIDTH,
-  UNIT_MATRIX_LABEL_COL,
-  UNIT_MATRIX_TYPE_COL,
+  UNIT_MATRIX_CORNER_PCT,
+  UNIT_MATRIX_TYPE_STEPS,
+  unitMatrixIsBig,
 } from '../../lib/projectCardLayout';
 import type { PermitWithCycles, Project, UnitType } from '../../lib/database.types';
 
@@ -47,12 +47,14 @@ import type { PermitWithCycles, Project, UnitType } from '../../lib/database.typ
 //     Data modal (§G) and keep their own hooks, OCC tokens and toasts, so no
 //     write path changed shape.
 //
-// ★★★ AND THE PAIR WRAPS RATHER THAN CLIPPING. See `lib/projectCardLayout` for
-//     the Chrome measurement and the three-way constraint it resolves — the
-//     short version is that the mock's side-by-side Site/Dates needs 475px of
-//     card body and the app's Project column gets 390 at 1920, so the two boxes
-//     are a `flex-wrap` pair with declared bases: side by side wherever they
-//     fit, stacked where they do not, truncated never.
+// ★★★ AND THE PAIR SITS SIDE BY SIDE (fix-507 §B). fix-506 made it a
+//     `flex-wrap` pair — side by side wherever it fits, stacked where it does
+//     not — and the "wherever it fits" branch NEVER FIRED: the pair needs 475px
+//     of card body and the Project column got 390 at 1920, so every real
+//     machine saw the stacked fallback (P-174). fix-507 §A narrows the permits
+//     rail and re-shares the row to give the card 476, and the arrangement
+//     becomes the mock's two-column grid with a DECLARED breakpoint. See
+//     `lib/projectCardLayout`.
 
 // ---------------------------------------------------------------------------
 // One field
@@ -414,6 +416,19 @@ const UNIT_ATTRIBUTES: ReadonlyArray<{
   title: string;
   read: (u: UnitType) => string;
 }> = [
+  // ★★★ fix-507 §E — `Type` IS AN ATTRIBUTE ROW, AND THAT IS THE WHOLE POINT OF
+  //     THE TRANSPOSE. fix-506 headed each column with the type NAME, which
+  //     ellipsised to `Detach…Detach…` on the 59 prod projects whose units are
+  //     all `Detached` — a header row that says the same word n times and then
+  //     truncates it identifies nothing. The mock heads the columns `Unit 1 …
+  //     Unit n` (an ordinal the reader can point at) and prints the type as the
+  //     first row, like every other attribute.
+  {
+    key: 'type',
+    label: 'Type',
+    title: 'The product type this unit is.',
+    read: (u) => (u.label ?? '').trim() || '—',
+  },
   { key: 'width', label: 'Width', title: 'How wide this unit type is, in feet.', read: (u) => num(u.width_ft) },
   { key: 'depth', label: 'Depth', title: 'How deep this unit type is, in feet.', read: (u) => num(u.depth_ft) },
   {
@@ -454,9 +469,26 @@ function num(v: number | null | undefined): string {
  *     stop each extra unit type spending HEIGHT that four other cards were
  *     charged for; v14 turns it ninety degrees again, and the reason the
  *     trade-off reversed is that the row is three cards now instead of five.
- *     Each unit type costs 45px of width and each attribute costs 16px of
- *     height, and the card's floor is derived from six type columns —
- *     prod's maximum.
+ *
+ * ★★★ fix-507 §E — AND IT FILLS THE BOX NOW (P-175). fix-506 shipped it as a
+ *     CSS grid of FIXED 45px type columns, so a two-unit project drew a 152px
+ *     strip inside a 400px card and left the rest of the box empty, while its
+ *     headers — the type NAME, per column — ellipsised to `Detach…Detach…` on
+ *     the 59 prod projects whose units are all `Detached`.
+ *
+ *     The mock is a `table` at `width:100%; table-layout:fixed` with a 19%
+ *     corner cell, so `n` columns divide whatever the card gives them; the
+ *     headers are the ordinals `Unit 1 … Unit n`; and `Type` is the first
+ *     attribute ROW, like every other attribute. At four units or fewer it
+ *     takes a type step UP (`big`) — Bobby: *"if you had two, it would fill out
+ *     the space. If you had six, it would kind of shrink and condense to the
+ *     space."*
+ *
+ * ★ THE CARD'S FLOOR IS UNCHANGED and still derived from six type columns.
+ *   `table-layout:fixed` divides the width it is GIVEN; it does not ask for
+ *   any, so the thing that stops the columns becoming unreadable is still
+ *   `PROJECT_CARD_MIN_WIDTH`. See lib/projectCardLayout for why 19% and 62px
+ *   describe the same table at 332.
  */
 export function UnitsMatrix({ unitTypes }: { unitTypes: readonly UnitType[] }) {
   if (unitTypes.length === 0) {
@@ -468,49 +500,89 @@ export function UnitsMatrix({ unitTypes }: { unitTypes: readonly UnitType[] }) {
       </OverviewSection>
     );
   }
+  const big = unitMatrixIsBig(unitTypes.length);
+  const step = big ? UNIT_MATRIX_TYPE_STEPS.big : UNIT_MATRIX_TYPE_STEPS.normal;
+  const headCell: CSSProperties = {
+    fontSize: step.header,
+    padding: `${step.padY}px ${step.padX}px`,
+    borderBottom: '2px solid var(--color-border)',
+    color: 'var(--color-text)',
+    letterSpacing: '0.06em',
+  };
   return (
     <OverviewSection title="Units" testId="pd-units-matrix">
-      <div
-        className="grid"
-        style={{
-          gridTemplateColumns: `${UNIT_MATRIX_LABEL_COL}px repeat(${unitTypes.length}, minmax(0, ${UNIT_MATRIX_TYPE_COL}px))`,
-        }}
+      <table
+        className="border-collapse"
+        style={{ width: '100%', tableLayout: 'fixed' }}
         data-testid="pd-units-matrix-grid"
+        data-big={big ? 'true' : 'false'}
       >
-        <div />
-        {unitTypes.map((u, i) => (
-          <div
-            key={`h-${i}`}
-            className="text-[10.5px] font-bold text-center truncate pb-0.5 border-b-2"
-            style={{ color: 'var(--color-de)', borderBottomColor: 'var(--color-border)' }}
-            title={u.label}
-            data-testid={`pd-units-col-${i}`}
-          >
-            {u.label}
-          </div>
-        ))}
-        {UNIT_ATTRIBUTES.map((attr) => (
-          <Fragment key={attr.key}>
-            <div
-              className="text-[9px] text-dim h-4 flex items-center"
-              title={attr.title}
-              data-testid={`pd-units-attr-${attr.key}`}
+        <thead>
+          <tr>
+            <th
+              scope="col"
+              className="text-left font-black uppercase"
+              style={{
+                ...headCell,
+                width: `${UNIT_MATRIX_CORNER_PCT}%`,
+                paddingLeft: 0,
+              }}
+              data-testid="pd-units-corner"
             >
-              {attr.label}
-            </div>
-            {unitTypes.map((u, i) => (
-              <div
-                key={`${attr.key}-${i}`}
-                className="text-[10.5px] font-semibold font-mono tabular-nums text-center h-4 flex items-center justify-center border-b"
-                style={{ borderBottomColor: 'var(--color-s3)' }}
-                data-testid={`pd-units-cell-${attr.key}-${i}`}
+              Units
+            </th>
+            {unitTypes.map((_, i) => (
+              <th
+                scope="col"
+                key={`h-${i}`}
+                className="text-center font-extrabold uppercase"
+                style={headCell}
+                data-testid={`pd-units-col-${i}`}
               >
-                {attr.read(u)}
-              </div>
+                {`Unit ${i + 1}`}
+              </th>
             ))}
-          </Fragment>
-        ))}
-      </div>
+          </tr>
+        </thead>
+        <tbody>
+          {UNIT_ATTRIBUTES.map((attr) => (
+            <tr key={attr.key}>
+              <th
+                scope="row"
+                className="text-left font-bold"
+                style={{
+                  fontSize: step.cell,
+                  padding: `${step.padY}px 0`,
+                  color: 'var(--color-text)',
+                  borderBottom: '1px solid var(--color-s3)',
+                }}
+                title={attr.title}
+                data-testid={`pd-units-attr-${attr.key}`}
+              >
+                {attr.label}
+              </th>
+              {unitTypes.map((u, i) => (
+                <td
+                  key={`${attr.key}-${i}`}
+                  className="text-center truncate"
+                  style={{
+                    fontSize: step.cell,
+                    padding: `${step.padY}px ${step.padX}px`,
+                    borderBottom: '1px solid var(--color-s3)',
+                  }}
+                  // ★ The type is prose and can be off-registry free text, so
+                  //   it carries its own title; the numbers speak for
+                  //   themselves and the row heading already names them.
+                  title={attr.key === 'type' ? attr.read(u) : undefined}
+                  data-testid={`pd-units-cell-${attr.key}-${i}`}
+                >
+                  {attr.read(u)}
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </OverviewSection>
   );
 }
@@ -520,16 +592,29 @@ export function UnitsMatrix({ unitTypes }: { unitTypes: readonly UnitType[] }) {
 // ---------------------------------------------------------------------------
 
 /**
- * ★★★ SITE DATA AND DATES, SIDE BY SIDE WHERE THEY FIT.
+ * ★★★ fix-507 §B — SITE DATA BESIDE DATES, ON EVERY MACHINE THAT CAN HOLD IT.
  *
- * `flex-wrap` with a declared basis on each box. Above
- * `SITE_DATES_SIDE_BY_SIDE_MIN` of card body they share a line, exactly as the
- * mock draws them; below it they stack. See `lib/projectCardLayout` for why
- * that is the only arrangement satisfying all three ruled constraints.
+ * Bobby's ruling 1, 2026-09-09, and it closes the ⏸ question fix-506 left open:
+ * *"Site data sits beside Dates on every machine."*
  *
- * ★ `min-width: 0` on both is load-bearing: a flex item's default minimum is
- *   its min-content, which would let the Dates grid push the pair wider than
- *   the card and re-open the clipping this whole mechanism removes.
+ * ★★★ fix-506's `flex-wrap` PAIR IS GONE, AND THE REASON IT HAD TO GO IS THAT
+ *     ITS "WHERE IT FITS" BRANCH NEVER FIRED. Measured in Chrome on the shipped
+ *     app: the Project card's body is **406px** at a 1920 viewport against the
+ *     475 the pair declares, so every real machine got the stacked fallback and
+ *     the side-by-side layout existed only above a 2560 window. A fallback that
+ *     is the only state is not a fallback.
+ *
+ * ★★ IT IS A TWO-COLUMN GRID WITH A DECLARED BREAKPOINT — the mock's `.pstrip`
+ *    — and the breakpoint is a CONTAINER query on the Project card, not a media
+ *    query: the ribbon collapses 156px without the window changing size, so
+ *    only the card's own width can answer "is there room?" (fix-423). Its
+ *    tracks carry the two boxes' own floors, so above the threshold neither box
+ *    can be squeezed under the width it was measured at.
+ *
+ * ★ `min-width: 0` on both columns is still load-bearing: a grid item's
+ *   automatic minimum is its min-content, which would let the Dates grid push
+ *   the pair wider than the card and re-open the clipping (`OverviewCard` is
+ *   `overflow-hidden`, so the failure is silent — fix-422).
  */
 export function SiteAndDates({
   project,
@@ -547,14 +632,10 @@ export function SiteAndDates({
   datesFoot: ReactNode;
 }) {
   return (
-    <div
-      className="flex flex-wrap"
-      style={{ gap: SITE_DATES_GAP }}
-      data-testid="pd-site-dates-pair"
-    >
+    <div className={SITE_DATES_PAIR_CLASS} data-testid="pd-site-dates-pair">
       <div
-        className="flex flex-col"
-        style={{ flex: `1 1 ${SITE_DATA_MIN_WIDTH}px`, minWidth: 0 }}
+        className={`flex flex-col ${SITE_DATES_SITE_CLASS}`}
+        style={{ minWidth: 0 }}
         data-testid="pd-site-dates-site"
       >
         <SiteDataBox project={project} allProjects={allProjects} unitTypes={unitTypes} />
@@ -562,7 +643,7 @@ export function SiteAndDates({
       </div>
       <div
         className="flex flex-col"
-        style={{ flex: `1.25 1 ${DATES_CARD_MIN_WIDTH}px`, minWidth: 0 }}
+        style={{ minWidth: 0 }}
         data-testid="pd-site-dates-dates"
       >
         <DatesBox project={project} bp={bp} />

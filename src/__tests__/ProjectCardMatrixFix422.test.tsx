@@ -344,7 +344,14 @@ describe('fix-422 §D: the five cards, re-shared against the real row', () => {
     //     met at all: the threshold is a 1474px window, so 1600 FITS. The
     //     full-width units band Bobby never ruled on is not needed, and this is
     //     the first ticket in the sequence that can say so.
-    expect(overviewMinViewport('expanded')).toBe(1474);
+    // ★★★ fix-507 §A MOVED IT AGAIN, 1474 → 1439, and by a route this ticket
+    //     had not used before: not floors and not cards, but the CHROME. The
+    //     permits rail went 240 → 190 (Bobby, 2026-09-09) and STEP 0 found a
+    //     15px pillbox scrollbar this module had never counted — the EIGHTH box
+    //     against fix-422's seven. Net 35px of extra row at every viewport, and
+    //     1440-expanded now fits by a single pixel.
+    expect(overviewMinViewport('expanded')).toBe(1439);
+    expect(overviewRowFitsAt(1440, 'expanded')).toBe(true);
     expect(overviewRowFitsAt(1600, 'expanded')).toBe(true);
     expect(overviewRowFitsAt(1920, 'expanded')).toBe(true);
   });
@@ -353,15 +360,23 @@ describe('fix-422 §D: the five cards, re-shared against the real row', () => {
     // ★★★ THE PRE-EXISTING DEFECT, held against fix-417's own floors so it
     //     cannot be read as something this ticket caused. 970px of floors
     //     against 710px of row: short by 260px on main today.
-    expect(overviewRowWidthAt(1280, 'expanded')).toBe(710);
+    // ★ fix-507 §A: 710 → 745 at 1280 (rail −50, scrollbar +15). The claim is
+    //   unchanged and still true by a wide margin — fix-417's own floors needed
+    //   970 — which is the point of holding it against a derived width rather
+    //   than a remembered one.
+    expect(overviewRowWidthAt(1280, 'expanded')).toBe(745);
     expect(970).toBeGreaterThan(overviewRowWidthAt(1280, 'expanded'));
-    // The three boxes fix-417 never counted, together, are the whole gap.
+    // The boxes fix-417 never counted, together, are the whole gap. ★ fix-507
+    // adds the pillbox SCROLLBAR to that list — the one a rect does not show
+    // you, because it lives between the border box and the content box — and
+    // subtracts 50 from the rail, so 278 becomes 243.
     const missed =
       SHELL_CHROME_PX.permitsRail +
       SHELL_CHROME_PX.permitsRailGap +
       SHELL_CHROME_PX.pillboxBorder +
+      SHELL_CHROME_PX.pillboxScrollbar +
       SHELL_CHROME_PX.pageRowPadding;
-    expect(missed).toBe(278);
+    expect(missed).toBe(243);
   });
 });
 

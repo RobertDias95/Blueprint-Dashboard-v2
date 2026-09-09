@@ -855,8 +855,12 @@ describe('fix-345 §3: the Team card has exactly one way into the chat', () => {
   // the count is still four sections, so fix-345 §3's pinning above is intact.
   it('★★ the card order is Builder/Owner, Internal, the preview, then the button', () => {
     renderHeader(projectFixture(), [bpFixture()]);
+    // ★★★ fix-507 §C: DOCUMENT order, not direct children — Chat moved into
+    //     the grid's second cell and the reading order did not move with it.
     const ids = Array.from(
-      screen.getByTestId('project-overview-team').querySelectorAll(':scope > section'),
+      screen
+        .getByTestId('project-overview-team')
+        .querySelectorAll('section[data-testid]'),
     ).map((s) => (s as HTMLElement).dataset.testid);
     // ★ fix-475 (P-116): Builder/Owner became Team's TOP section when its own
     //   Overview column was taken over by Consultants. fix-346's order — the

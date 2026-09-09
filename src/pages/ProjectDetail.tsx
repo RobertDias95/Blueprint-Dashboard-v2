@@ -17,6 +17,7 @@ import { useProjects } from '../hooks/useProjects';
 import { usePermitsByProject } from '../hooks/usePermitsByProject';
 import { useAllPermitCycleReviewers } from '../hooks/useAllPermitCycleReviewers';
 import { effectiveStage } from '../lib/permitStage';
+import { PERMITS_RAIL_WIDTH } from '../lib/overviewCardLayout';
 import { STAGE_LABEL } from '../lib/stageLabel';
 import { isSubPermit, subPermitBadgeLabel } from '../lib/subPermit';
 import { useUpdateProject } from '../hooks/useUpdateProject';
@@ -517,11 +518,18 @@ function ProjectDetailBody({
             bolted-on widget, and it is what the §3 test asserts is over.
 
             The rail is back to Permits and Redesigns. The wrapper stays — fix-329
-            moved the 240px width up here so the column and its children could not
-            disagree about it, and that is still worth having with one child. */}
+            moved the width up here so the column and its children could not
+            disagree about it, and that is still worth having with one child.
+
+            ★★★ fix-507 §A: the number itself now lives in
+            `lib/overviewCardLayout` as `PERMITS_RAIL_WIDTH`, because
+            `SHELL_CHROME_PX.permitsRail` has to model exactly this element —
+            and two files each typing `240` is precisely how fix-422 found the
+            row 278px narrower than fix-417 believed. One declaration, two
+            readers. */}
         <div
           className="flex-shrink-0 flex flex-col gap-3 min-h-0"
-          style={{ width: 240 }}
+          style={{ width: PERMITS_RAIL_WIDTH }}
           data-testid="pd-left-rail"
         >
           <PermitsSidebar

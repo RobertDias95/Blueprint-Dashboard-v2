@@ -14,7 +14,10 @@ import {
   formatModified,
   hasThumbnail,
   missingThumbnailReason,
+  planOfRecordSetButtons,
+  planOfRecordSetCaption,
   stageLabel,
+  type PlanOfRecordVariant,
 } from '../../lib/planOfRecord';
 import { pushToast } from '../../stores/toastStore';
 import { OverviewCard, OverviewSection } from './OverviewCard';
@@ -28,6 +31,7 @@ import { SHARE_TOAST, signPlanShareUrl } from '../../lib/planOfRecordShare';
 import {
   POR_BUTTON_GAP,
   POR_BUTTON_MIN_WIDTH,
+  POR_IMAGE_MAX_HEIGHT,
 } from '../../lib/projectCardLayout';
 import type {
   PlanOfRecordStage,
@@ -437,10 +441,27 @@ function Preview({
       title="Click to enlarge"
       data-testid="plan-of-record-preview"
     >
+      {/* ★★★ fix-507b §G — THE SHEET FITS INSIDE A FIXED BOX, IT DOES NOT SET
+          THE BOX. Shipped, this image was `w-full h-auto`, so the CARD'S HEIGHT
+          WAS THE ASPECT RATIO OF WHATEVER SHEET THE INDEXER GRABBED. Measured
+          across all 164 indexed plans (2026-09-09): 162 landscape, 2 portrait,
+          four distinct sizes, and the portrait pair renders 716px against the
+          modal sheet's 300 — a 416px card, on its own, on a row this ticket is
+          trying to get above the fold.
+
+          ★ `object-fit: contain`, never `cover`: the title block and the north
+            arrow have to survive a preview, and a crop is exactly what removes
+            them. A portrait sheet scales down and centres, with white either
+            side. The VIEWER is untouched and still renders pages at full width.
+
+          ★ The cap is DERIVED — what the modal 1400 × 906 sheet renders at, at
+            the card's reference width — so 159 of 164 plans are pixel-identical
+            to today and only the outliers move. See lib/projectCardLayout. */}
       <img
         src={thumbQ.data ?? ''}
         alt={`Page 1 of ${row.file_name}`}
-        className="block w-full h-auto"
+        className="block w-full"
+        style={{ height: POR_IMAGE_MAX_HEIGHT, objectFit: 'contain' }}
         data-testid="plan-of-record-preview-img"
       />
       <span
@@ -499,19 +520,26 @@ async function sharePlanPage(objectPath: string | null) {
 }
 
 /**
- * ★★★ THE TWO MARKETING BUTTONS, AND WHY EXTERNAL CAN BE DISABLED.
+ * ★★★ THE SET BUTTONS — AND fix-507 §F MAKES THEM NAME THE PROJECT'S STAGE.
  *
  * Bobby: *"two buttons, Marketing · Internal and Marketing · External, the
- * picked one blue, default Internal."* External needs fix-504's page objects,
- * which are not on prod — so it renders disabled with the reason underneath
- * rather than as a button that opens an empty viewer.
+ * picked one blue, default Internal."* fix-506 §E built exactly that and gave
+ * it to every project — including the **36 of 164** whose newest set is
+ * Schematic or Design Guidance, which then showed a `SCHEMATIC` chip above two
+ * buttons saying `Marketing` (P-178, and `233 31st Ave E` is the screenshot).
  *
- * ★★ A DISABLED CONTROL WITH A STATED REASON IS NOT THE P-032 PLACEHOLDER THIS
- *    TICKET JUST REMOVED. Connect was inert with *"no link yet"* — a promise
- *    about the future with no date. This states a FACT about now (*"external
- *    pages arrive with the next indexer run"*), it becomes live on its own when
- *    the indexer writes the rows, and nobody has to ship anything for that to
- *    happen.
+ * ★★★ THE STAGE DECIDES, AND IT **REPLACES**. `planOfRecordSetButtons` owns the
+ *     list; marketing gets the two variants, schematic and design guidance get
+ *     ONE button each and no marketing button at all. Earlier sets are not
+ *     accumulated onto the face — they stay indexed and reachable in Project
+ *     Data's Plan of record tab, which is Bobby's ruling 5.
+ *
+ * ★★ EXTERNAL CAN STILL BE DISABLED, and only marketing has one. It needs
+ *    fix-504's page objects, which are not on prod — so it renders disabled
+ *    with the reason underneath rather than as a button that opens an empty
+ *    viewer. A disabled control with a STATED FACT about now is not the P-032
+ *    placeholder fix-506 removed: it becomes live on its own when the indexer
+ *    writes the rows.
  */
 function SetButtons({
   row,
@@ -521,45 +549,53 @@ function SetButtons({
 }: {
   row: ProjectPlanOfRecordRow;
   sets: import('../../hooks/usePlanOfRecordSets').PlanOfRecordSets | undefined;
-  variant: 'internal' | 'external';
-  onPickVariant: (v: 'internal' | 'external') => void;
+  variant: PlanOfRecordVariant;
+  onPickVariant: (v: PlanOfRecordVariant) => void;
 }) {
   const internalSet = findVariant(sets, 'internal');
   const externalSet = findVariant(sets, 'external');
   const externalReady =
     !!externalSet && externalSet.pages_status === 'ok' && (externalSet.page_count ?? 0) > 0;
-  const shown = variant === 'external' ? externalSet : internalSet;
+  const buttons = planOfRecordSetButtons(row.set_type);
+  // ★ A stage with one button can only ever be showing it. Reading the SELECTED
+  //   variant off the list rather than off state is what makes "the caption
+  //   names the same set as the selected button" true even if a project's stage
+  //   changes under a card whose state still says `external`.
+  const selected =
+    buttons.find((b) => b.variant === variant) ?? buttons[0] ?? null;
+  const shownVariant = selected?.variant ?? 'internal';
+  const shown = shownVariant === 'external' ? externalSet : internalSet;
   const archived = shown?.is_archived_fallback === true;
 
   return (
     <div className="mt-1.5 flex flex-col gap-1">
       <div className="flex" style={{ gap: POR_BUTTON_GAP }}>
-        <SetButton
-          label="Marketing · Internal"
-          picked={variant === 'internal'}
-          onPick={() => onPickVariant('internal')}
-          onShare={() =>
-            void sharePlanPage(
-              internalSet ? pagePaths(internalSet)[0] ?? row.thumb_path : row.thumb_path,
-            )
-          }
-          testId="plan-of-record-set-internal"
-        />
-        <SetButton
-          label="Marketing · External"
-          picked={variant === 'external'}
-          disabled={!externalReady}
-          onPick={() => onPickVariant('external')}
-          onShare={() => void sharePlanPage(pagePaths(externalSet)[0] ?? null)}
-          testId="plan-of-record-set-external"
-        />
+        {buttons.map((b) => (
+          <SetButton
+            key={b.variant}
+            label={b.label}
+            picked={shownVariant === b.variant}
+            disabled={b.variant === 'external' && !externalReady}
+            onPick={() => onPickVariant(b.variant)}
+            onShare={() =>
+              void sharePlanPage(
+                b.variant === 'external'
+                  ? pagePaths(externalSet)[0] ?? null
+                  : internalSet
+                    ? pagePaths(internalSet)[0] ?? row.thumb_path
+                    : row.thumb_path,
+              )
+            }
+            testId={`plan-of-record-set-${b.variant}`}
+          />
+        ))}
       </div>
       <div
         className="text-[9px] text-center"
         style={{ color: 'var(--color-muted)' }}
         data-testid="plan-of-record-set-caption"
       >
-        {variant === 'external' && !externalReady ? (
+        {shownVariant === 'external' && !externalReady ? (
           'External pages arrive with the next indexer run.'
         ) : (
           <>
@@ -572,8 +608,9 @@ function SetButtons({
                 ARCHIVED
               </span>
             )}
-            Marketing plan ({variant}) · {formatModified(row.modified_at)} ·{' '}
-            {pageCountLabel(shown, variant)}
+            {planOfRecordSetCaption(row.set_type, shownVariant)} ·{' '}
+            {formatModified(row.modified_at)} ·{' '}
+            {pageCountLabel(shown, shownVariant)}
           </>
         )}
       </div>

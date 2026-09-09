@@ -17,6 +17,7 @@ import {
   STAGE_CHIP,
   STAGE_CHIP_MIX,
 } from '../lib/planOfRecord';
+import { POR_IMAGE_MAX_HEIGHT } from '../lib/projectCardLayout';
 
 // fix-285: the Design Plan of Record card.
 //
@@ -809,6 +810,121 @@ describe('fix-335 §6: the Design Plan of Record centres its content', () => {
         .getByTestId('plan-of-record-card')
         .querySelector('section section') as HTMLElement;
       expect(section.dataset.centerVertically).toBe('true');
+      view.unmount();
+    }
+  });
+});
+
+// ===========================================================================
+// ★★★ fix-507 §F (P-178) — THE CARD NAMES THE STAGE THE PROJECT IS AT
+// ===========================================================================
+//
+// fix-506 §E built the two Marketing buttons for the marketing case and gave
+// them to EVERY project. Measured on prod 2026-09-09 there are **164** indexed
+// plans — 128 `marketing`, 31 `schematic`, 5 `design_guidance` — so **36
+// projects showed a SCHEMATIC chip above two buttons saying Marketing**.
+// `233 31st Ave E`, the project in Bobby's screenshot, is one of them.
+//
+// ★★★ THE STAGE IS THE NEWEST SET THE INDEXER HAS, AND IT IS NOT RE-DERIVED
+//     HERE. fix-284 applies the precedence in the VIEW (design_guidance <
+//     schematic < marketing, furthest stage present); this card reads
+//     `row.set_type`. Bobby's ruling 6: *"the card renders files, so the files
+//     decide, and the label can never disagree with the picture."*
+//
+// ★★★ AND THE STAGE **REPLACES**. At marketing you see the two marketing
+//     buttons and nothing else; earlier sets stay indexed and reachable in
+//     Project Data's Plan of record tab (ruling 5).
+
+describe('fix-507 §F: the buttons name the resolved set, at every stage', () => {
+  it.each([
+    ['marketing', ['Marketing · Internal', 'Marketing · External'], 'Marketing plan (internal)'],
+    ['schematic', ['Schematic'], 'Schematic set'],
+    ['design_guidance', ['Design guidance'], 'Design guidance set'],
+  ] as const)(
+    '★★★ %s — the chip, the buttons and the caption say the same thing',
+    async (setType, labels, caption) => {
+      state.row = row({ set_type: setType });
+      renderCard();
+      const internal = await screen.findByTestId('plan-of-record-set-internal');
+      // ★ The BUTTONS, asserted as an ordered list rather than by presence: a
+      //   presence check would pass on a schematic project that had grown a
+      //   Marketing button back.
+      const buttons = Array.from(
+        document.querySelectorAll('[data-testid^="plan-of-record-set-"]'),
+      ).filter((el) => el.tagName === 'BUTTON' && !el.getAttribute('data-testid')?.endsWith('-share'));
+      expect(buttons.map((b) => b.textContent)).toEqual(labels);
+      expect(internal.getAttribute('aria-pressed')).toBe('true');
+      // ★ The CAPTION names the same set as the picked button…
+      expect(
+        screen.getByTestId('plan-of-record-set-caption').textContent ?? '',
+      ).toContain(caption);
+      // ★ …and so does the CHIP, which is the half P-178 was actually about:
+      //   a SCHEMATIC chip above two Marketing buttons is a card arguing with
+      //   itself.
+      expect(
+        await screen.findByTestId(`plan-of-record-stage-${setType}`),
+      ).toBeInTheDocument();
+    },
+  );
+
+  it('★★★ REPLACE, not accumulate — no Marketing button on a schematic project', async () => {
+    // ★ Bobby's ruling 5, asserted as an ABSENCE because that is what it is:
+    //   the earlier sets are still indexed and still reachable in Project
+    //   Data; they are simply not on this card's face.
+    state.row = row({ set_type: 'schematic' });
+    renderCard();
+    await screen.findByTestId('plan-of-record-set-internal');
+    expect(screen.queryByTestId('plan-of-record-set-external')).toBeNull();
+    expect(document.body.textContent).not.toContain('Marketing');
+  });
+
+  it('★★ only marketing has an external variant, so only it can be disabled', async () => {
+    // ★ The disabled-External branch is fix-506 §E's and is untouched — it is
+    //   simply unreachable on the 36 projects that are not at marketing, which
+    //   is the point: a control that cannot apply is not rendered greyed out,
+    //   it is not rendered.
+    state.row = row({ set_type: 'design_guidance' });
+    renderCard();
+    await screen.findByTestId('plan-of-record-set-internal');
+    expect(screen.queryByTestId('plan-of-record-set-external')).toBeNull();
+    expect(
+      screen.getByTestId('plan-of-record-set-caption').textContent ?? '',
+    ).not.toContain('indexer run');
+  });
+});
+
+// ===========================================================================
+// ★★★ fix-507b §G — THE THUMBNAIL GETS A HEIGHT CAP
+// ===========================================================================
+//
+// The image was `w-full h-auto`, so **the card's height was the aspect ratio of
+// whatever sheet the indexer happened to grab**. Measured across all 164
+// indexed plans: 162 landscape, 2 portrait, four distinct sizes. At the card's
+// reference width the modal 1400 × 906 sheet renders 300px and the portrait
+// 1400 × 2164 pair render **716** — a 416px card, on its own, on a row this
+// ticket is trying to get above the fold.
+
+describe('fix-507b §G: the plan preview is capped and contained', () => {
+  it('★★★ the image is a fixed-height box with `object-fit: contain`', async () => {
+    state.row = row();
+    renderCard();
+    const img = await screen.findByTestId('plan-of-record-preview-img');
+    expect(img.style.height).toBe(`${POR_IMAGE_MAX_HEIGHT}px`);
+    // ★★★ `contain`, NEVER `cover`. A crop is exactly what removes the title
+    //     block and the north arrow, which are the two things a preview of a
+    //     plan sheet exists to show.
+    expect(img.style.objectFit).toBe('contain');
+    // ★ …and the auto height is gone, which is the half that would silently
+    //   come back if somebody re-added the Tailwind class.
+    expect(img.className).not.toContain('h-auto');
+  });
+
+  it('★★ every stage gets the same treatment — one rule, three stages', async () => {
+    for (const setType of ['marketing', 'schematic', 'design_guidance'] as const) {
+      state.row = row({ set_type: setType, thumb_path: `${PROJECT_ID}/${setType}.jpg` });
+      const view = renderCard();
+      const img = await screen.findByTestId('plan-of-record-preview-img');
+      expect(img.style.height, setType).toBe(`${POR_IMAGE_MAX_HEIGHT}px`);
       view.unmount();
     }
   });

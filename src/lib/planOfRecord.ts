@@ -101,6 +101,82 @@ export function stageLabel(stage: string | null | undefined): string {
   return STAGE_LABEL[stage as PlanOfRecordStage] ?? stage;
 }
 
+// ===========================================================================
+// ★★★ fix-507 §F (P-178) — THE CARD NAMES THE STAGE THE PROJECT IS AT
+// ===========================================================================
+//
+// fix-506 §E built the two Marketing buttons for the marketing case and gave
+// them to EVERY project. Measured on prod 2026-09-09 there are **164** indexed
+// plans: 128 `marketing`, 31 `schematic`, 5 `design_guidance`. So **36
+// projects show a SCHEMATIC chip above two buttons that say Marketing** —
+// `233 31st Ave E`, the project in Bobby's screenshot, among them. A card whose
+// label contradicts its own picture is worse than one with no label.
+//
+// ★★★ THE STAGE IS THE NEWEST SET THE INDEXER HAS, AND IT IS NOT DECIDED HERE.
+//     Bobby's ruling 6: *"the card renders files, so the files decide, and the
+//     label can never disagree with the picture."* fix-284 already applies
+//     exactly that precedence in `public.project_plan_of_record` —
+//     `design_guidance < schematic < marketing`, furthest stage present,
+//     regardless of dates — so this reads `row.set_type` and renders it. A
+//     second implementation of the precedence here would be a second answer
+//     waiting to disagree with the first, which is the note at the top of this
+//     file, still load-bearing.
+//
+// ★★★ AND THE STAGE **REPLACES**, IT DOES NOT ACCUMULATE. At marketing you see
+//     the two marketing buttons and nothing else; the earlier sets stay indexed
+//     and reachable in Project Data's Plan of record tab. That is Bobby's
+//     ruling 5, and it is why this returns a LIST rather than a set of flags —
+//     the card renders what the list holds and has no branch for "also show".
+
+/** Which variant of a stage's set a button selects. Only `marketing` has two. */
+export type PlanOfRecordVariant = 'internal' | 'external';
+
+export interface PlanOfRecordSetButton {
+  variant: PlanOfRecordVariant;
+  /** The button's face. */
+  label: string;
+}
+
+/**
+ * The buttons the card offers for a stage.
+ *
+ * ★ One list, read by the card, the caption and the test — so "the chip and the
+ *   caption name the same set as the selected button" is true by construction
+ *   rather than by three places agreeing.
+ */
+export function planOfRecordSetButtons(
+  stage: PlanOfRecordStage | null | undefined,
+): readonly PlanOfRecordSetButton[] {
+  if (stage === 'marketing') {
+    return [
+      { variant: 'internal', label: 'Marketing · Internal' },
+      { variant: 'external', label: 'Marketing · External' },
+    ];
+  }
+  if (stage === 'schematic') return [{ variant: 'internal', label: 'Schematic' }];
+  if (stage === 'design_guidance') {
+    return [{ variant: 'internal', label: 'Design guidance' }];
+  }
+  return [];
+}
+
+/**
+ * What the caption under the buttons calls the selected set.
+ *
+ * ★ Marketing keeps the wording fix-506 shipped, to the character, because it
+ *   is correct for 128 of the 164 and nothing about marketing changed. The two
+ *   other stages get the same shape with their own name.
+ */
+export function planOfRecordSetCaption(
+  stage: PlanOfRecordStage | null | undefined,
+  variant: PlanOfRecordVariant,
+): string {
+  if (stage === 'marketing') return `Marketing plan (${variant})`;
+  if (stage === 'schematic') return 'Schematic set';
+  if (stage === 'design_guidance') return 'Design guidance set';
+  return stageLabel(stage);
+}
+
 /**
  * "627 KB" / "4.1 MB". Input is KILOBYTES — the column is size_kb.
  *

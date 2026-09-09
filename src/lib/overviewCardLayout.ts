@@ -240,8 +240,12 @@ export const OVERVIEW_CARD_COLUMNS: readonly OverviewCardColumn[] = [
     //     the page is about.
     key: 'por',
     title: 'Plan of Record',
-    // ★ 470 / 1330 of shared space at 1920 — see the note above.
-    pct: 35,
+    // ★★★ fix-507 §B — 35 → 35.5. The Plan of Record's share moves only enough
+    //     to stay AHEAD of Project's, which had to rise to 35 so the Site/Dates
+    //     pair can sit side by side (Bobby's ruling 1). fix-417's "widest of the
+    //     boxes" is preserved by construction: measured at 1920 with the 190px
+    //     rail, PoR 485 · Project 478 · Team 403.
+    pct: 35.5,
     // ★★★ ITS OWN CONTENT ONLY NEEDS 300 (`POR_CARD_MIN_WIDTH` — the two
     //     Marketing buttons side by side). The floor is raised to sit 14px
     //     above PROJECT's because Bobby's fix-417 ruling — *"the Design plan of
@@ -262,8 +266,14 @@ export const OVERVIEW_CARD_COLUMNS: readonly OverviewCardColumn[] = [
   {
     key: 'proj',
     title: 'Project',
-    // ★ The mock's 1.05fr of the 65% the Plan of Record leaves.
-    pct: 31,
+    // ★★★ fix-507 §B — 31 → 35, AND THIS IS WHAT THE RAIL'S 50px PAYS FOR.
+    //     The brief: *"The 50px it frees goes to the Project card (that is what
+    //     funds §B)."* A SHARE, not a fixed width, for the same reason the
+    //     mock's 470px column became one — the ribbon moves the row by 156px
+    //     without the window moving. Measured in Chrome: 408 of card (390 of
+    //     body) before, **478 of card (476 of body) after** — one pixel above
+    //     the 475 the pair declares, which is the whole of §B.
+    pct: 35,
     // ★★★ DERIVED IN `lib/projectCardLayout`, from the transposed units matrix
     //     at six type columns (332) — prod's maximum, and 403 W Dravus St is
     //     one of the two projects that has it.
@@ -281,9 +291,13 @@ export const OVERVIEW_CARD_COLUMNS: readonly OverviewCardColumn[] = [
   {
     key: 'team',
     title: 'Team',
-    // ★ The mock's 1.15fr — Team is the WIDER of the two `fr` columns, because
-    //   it carries the consultant band across its foot.
-    pct: 34,
+    // ★★★ fix-507 §B — 34 → 29.5, and this is the card that pays the rest.
+    //     Measured in Chrome at 1920 with the 190px rail: Team 447 → **403**,
+    //     and the consultant band renders 185px at BOTH widths — the two-row
+    //     3+3 split is unchanged, so the 44px comes out of slack the band was
+    //     not using. Below the width where the shares decide anything, Team's
+    //     FLOOR is what protects it, and that is untouched.
+    pct: 29.5,
     // ★★ DERIVED, and it barely moves: the top block's 160 against one
     //    consultant pill plus card chrome (162).
     minPx: Math.max(160, CONSULTANT_BAND_MIN_WIDTH + OVERVIEW_CARD_CHROME),
@@ -329,6 +343,41 @@ export const OVERVIEW_ROW_MIN_WIDTH: number =
  * entry names the file and class it is read from, so the next person to change
  * a padding can find what depends on it.
  */
+/**
+ * ★★★ fix-507 §A — THE PERMITS RAIL PAYS FOR THE SITE/DATES PAIR: 240 → 190.
+ *
+ * Bobby's own offer, 2026-09-09: *"we could take a little bit of width out of
+ * the Permits column and provide it elsewhere as needed."* 190 is essentially
+ * the **188px rail the v14 mock was drawn on** — i.e. the shell the layout was
+ * actually signed off against ([[a-mock-measures-a-drawing-not-the-control-you-
+ * ship]]) — so this is not a new proportion, it is the drawing's.
+ *
+ * ★★★ AND IT IS NOT FREE, WHICH STEP 0-3 MEASURED RATHER THAN ASSUMED. A rail
+ *     row's content box is `width − 29` (the aside's 1px border a side, the
+ *     row's 3px stage accent and its `px-3`). Measured in Chrome on
+ *     `233 31st Ave E`:
+ *
+ *       permit number   `SDOTTRLA0002500 ↗`               102   fits at 190
+ *       date line       `Target: 2026-10-16`              106   fits at 190
+ *       type · stage    `PAR/Pre-Sub · Issued`            120   fits at 190
+ *       type · stage    `Building Permit · Corrections`   173   TRUNCATES
+ *       type · stage    `Grading / Clearing · Corrections` 188   TRUNCATES
+ *
+ *     So `PERMITS_RAIL_NO_TRUNCATION_WIDTH` — the smallest rail at which the
+ *     stage breadcrumb never ellipsises — is **217**, and it is recorded here
+ *     rather than silently substituted, which is what STEP 0-3 asked for. What
+ *     190 costs is the SECONDARY half of the type line (`Building Permit ·
+ *     Correc…`); the permit number, the date line and the stage's own colour
+ *     dot are all untouched.
+ */
+export const PERMITS_RAIL_WIDTH = 190;
+
+/** ★ The smallest rail at which nothing in a permit row truncates, measured in
+ *  Chrome against prod's longest type (`Grading / Clearing`, 7 permits) and
+ *  longest stage word (`Corrections`). Reported, not adopted — Bobby ruled 190.
+ *  Without `Grading / Clearing` it is 202. */
+export const PERMITS_RAIL_NO_TRUNCATION_WIDTH = 217;
+
 export const SHELL_CHROME_PX = {
   /** Ribbon.tsx `WIDTH_EXPANDED` — and expanded is the default. */
   ribbonExpanded: 212,
@@ -338,13 +387,27 @@ export const SHELL_CHROME_PX = {
   shellPadding: 24 * 2,
   /** ProjectDetail.tsx body row `px-3`. */
   pageRowPadding: 12 * 2,
-  /** ★ ProjectDetail.tsx `pd-left-rail` — a fixed 240px permits column that is
-   *  rendered on the overview too. The box fix-417 missed. */
-  permitsRail: 240,
+  /** ★ ProjectDetail.tsx `pd-left-rail` — a fixed permits column that is
+   *  rendered on the overview too. The box fix-417 missed; fix-507 §A narrows
+   *  it, and ProjectDetail.tsx reads THIS constant so the two cannot drift. */
+  permitsRail: PERMITS_RAIL_WIDTH,
   /** ★ …and its `gap-3` to the right pillbox. */
   permitsRailGap: 12,
   /** ★ `pd-right-pillbox` `border` — 1px a side. */
   pillboxBorder: 2,
+  /**
+   * ★★★ fix-507 STEP 0 — THE EIGHTH BOX, AND NOBODY HAD COUNTED IT.
+   *
+   * `pd-right-pillbox` is `overflow-y-auto` and its content is taller than the
+   * pane on every project, so a **15px vertical scrollbar is always there**.
+   * Measured in Chrome at a 1920 viewport: the pillbox is 1384 wide and its
+   * CONTENT box 1367, and the overview row renders **1335**, not the 1350 this
+   * module used to compute. fix-422 found 278px missing by walking the DOM
+   * chain; this is the same walk finding the one box a `getBoundingClientRect`
+   * does not show you, because a scrollbar lives between the border box and the
+   * content box.
+   */
+  pillboxScrollbar: 15,
   /** ProjectDetailHeader.tsx root `px-4`. */
   headerPadding: 16 * 2,
 } as const;
@@ -366,6 +429,7 @@ export function overviewRowWidthAt(
     SHELL_CHROME_PX.permitsRail -
     SHELL_CHROME_PX.permitsRailGap -
     SHELL_CHROME_PX.pillboxBorder -
+    SHELL_CHROME_PX.pillboxScrollbar -
     SHELL_CHROME_PX.headerPadding
   );
 }
@@ -393,6 +457,7 @@ export function overviewMinViewport(
     SHELL_CHROME_PX.permitsRail +
     SHELL_CHROME_PX.permitsRailGap +
     SHELL_CHROME_PX.pillboxBorder +
+    SHELL_CHROME_PX.pillboxScrollbar +
     SHELL_CHROME_PX.headerPadding
   );
 }

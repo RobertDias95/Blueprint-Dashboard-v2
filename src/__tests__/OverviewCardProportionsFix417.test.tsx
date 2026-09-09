@@ -134,7 +134,12 @@ describe('fix-417 §A: the proportions are declared once', () => {
     // ★ 29 → 35: Bobby's v14 ruling is *"Permit intake's column is gone; its
     //   width goes to the Plan of Record card"*, and 35% of the shared space is
     //   what renders the mock's 470px at 1920.
-    expect(por.pct).toBe(35);
+    // ★★ fix-507 §B: 35 → 35.5, and the half point is the whole content of the
+    //    change. Project's share had to rise to 35 so the Site/Dates pair fits
+    //    side by side (Bobby's ruling 1), and this is the smallest move that
+    //    keeps fix-417's ruling — Plan of Record widest — true by construction
+    //    rather than by luck. Measured at 1920: PoR 485 · Project 478.
+    expect(por.pct).toBe(35.5);
   });
 
   it('★★★ …and the largest FLOOR, so it is widest at every width, not just wide ones', () => {
@@ -153,7 +158,10 @@ describe('fix-417 §A: the proportions are declared once', () => {
     //   with the widest contents the power to resize its neighbours.
     const tracks = OVERVIEW_GRID_TEMPLATE.match(/minmax\([^)]*\)/g) ?? [];
     expect(tracks).toHaveLength(3);
-    for (const t of tracks) expect(t).toMatch(/minmax\(\d+px, \d+fr\)/);
+    // ★ fix-507 §B: a share may be fractional now (35.5), so the pattern
+    //   accepts a decimal. The PROPERTY is unchanged and is the whole point: an
+    //   explicit px minimum on every track, never a bare fr.
+    for (const t of tracks) expect(t).toMatch(/minmax\(\d+px, \d+(\.\d+)?fr\)/);
     expect(OVERVIEW_GRID_TEMPLATE).not.toMatch(/(^|\s)[\d.]+fr(\s|$)/);
   });
 
@@ -192,17 +200,30 @@ describe('fix-417: the page body never scrolls sideways', () => {
   // wrong number confidently enough that nobody re-derived it. Recorded here as
   // a failure of measurement, not of reasoning: everything fix-417 concluded
   // from `minmax` is still correct.
-  it('★★★ the chrome is SEVEN boxes, not three — and the row is 710px at 1280', () => {
-    expect(overviewRowWidthAt(1280, 'expanded')).toBe(710);
-    expect(overviewRowWidthAt(1280, 'collapsed')).toBe(866);
-    // The three boxes fix-417 never counted, named so they cannot be lost again.
-    expect(SHELL_CHROME_PX.permitsRail).toBe(240);
+  //
+  // ★★★ fix-507 STEP 0 FOUND AN **EIGHTH** BOX, AND IT IS THE ONE A RECT DOES
+  //     NOT SHOW YOU: `pd-right-pillbox` is `overflow-y-auto` and its content
+  //     is taller than the pane on every project, so a **15px vertical
+  //     scrollbar** is always there. Measured in Chrome at a 1920 viewport: the
+  //     pillbox is 1384 wide, its CONTENT box 1367, and the row renders 1335 —
+  //     not the 1350 this module computed. fix-422 found 278px by walking the
+  //     DOM chain; this is the same walk finding the box that lives BETWEEN the
+  //     border box and the content box.
+  //
+  // ★★★ AND §A NARROWS THE RAIL, 240 → 190 (Bobby, 2026-09-09). Net: the
+  //     chrome falls 570 → 535 and the row gains 35px at every viewport.
+  it('★★★ the chrome is EIGHT boxes — and the row is 745px at 1280', () => {
+    expect(overviewRowWidthAt(1280, 'expanded')).toBe(745);
+    expect(overviewRowWidthAt(1280, 'collapsed')).toBe(901);
+    // The boxes fix-417 never counted, named so they cannot be lost again.
+    expect(SHELL_CHROME_PX.permitsRail).toBe(190);
     expect(SHELL_CHROME_PX.permitsRailGap).toBe(12);
     expect(SHELL_CHROME_PX.pillboxBorder).toBe(2);
+    expect(SHELL_CHROME_PX.pillboxScrollbar).toBe(15);
     expect(SHELL_CHROME_PX.pageRowPadding).toBe(24);
-    // 212 + 48 + 24 + 240 + 12 + 2 + 32 = 570 expanded.
-    expect(1280 - overviewRowWidthAt(1280, 'expanded')).toBe(570);
-    expect(1280 - overviewRowWidthAt(1280, 'collapsed')).toBe(414);
+    // 212 + 48 + 24 + 190 + 12 + 2 + 15 + 32 = 535 expanded.
+    expect(1280 - overviewRowWidthAt(1280, 'expanded')).toBe(535);
+    expect(1280 - overviewRowWidthAt(1280, 'collapsed')).toBe(379);
   });
 
   it('★★★ so the honest fit table is this, at every supported viewport', () => {
@@ -213,7 +234,12 @@ describe('fix-417: the page body never scrolls sideways', () => {
       overviewRowFitsAt(vw, r);
     expect(fits(1280, 'expanded')).toBe(false);
     expect(fits(1280, 'collapsed')).toBe(false);
-    expect(fits(1440, 'expanded')).toBe(false);
+    // ★★★ fix-507 §A: 1440-EXPANDED FITS NOW, by ONE PIXEL. The floors are
+    //     unchanged at 904 and the row at 1440 is 905, because the rail gave up
+    //     50px and the scrollbar took 15 back. Asserted as the flip it is,
+    //     rather than edited to `true` in passing.
+    expect(fits(1440, 'expanded')).toBe(true);
+    expect(overviewRowWidthAt(1440, 'expanded')).toBe(905);
     // ★★★ fix-506: 1440-COLLAPSED FITS NOW, and 1600-expanded does. Two cards
     //     left the row and the two that absorbed their content did it in
     //     HEIGHT, so the minimum fell 1,172 → 904.
@@ -239,8 +265,13 @@ describe('fix-417: the page body never scrolls sideways', () => {
     //     fix-423's 82 the other way. It is not a re-share: the row lost two
     //     CARDS. The brief's requirement was *"must not clip at 1600"*, and
     //     1600 is now 126px clear of the threshold rather than 142 short of it.
-    expect(overviewMinViewport('expanded')).toBe(1474);
-    expect(overviewMinViewport('collapsed')).toBe(1318);
+    // ★★★ fix-507 §A MOVES IT 1474 → 1439, and this one is not a re-share
+    //     either: the permits rail gave 50px back and STEP 0 charged the row
+    //     15px for a scrollbar nobody had counted, so the net is 35. 1440 now
+    //     fits by a single pixel, which is worth knowing before anybody spends
+    //     that pixel.
+    expect(overviewMinViewport('expanded')).toBe(1439);
+    expect(overviewMinViewport('collapsed')).toBe(1283);
   });
 
   it('★★ below the threshold the cards sit on their floors and the PANE scrolls', () => {
@@ -250,7 +281,9 @@ describe('fix-417: the page body never scrolls sideways', () => {
     //     the grid inside `pd-right-pillbox`, whose `overflow-y-auto` makes its
     //     `overflow-x` compute to `auto`. A scrollbar on the pane is a visible,
     //     recoverable state; a clipped matrix is not.
-    const narrow = resolveOverviewWidths(overviewRowWidthAt(1440, 'expanded'));
+    // ★ fix-507 §A: 1440-expanded now clears the floors by 1px, so the widest
+    //   viewport that puts every track ON its floor is 1280.
+    const narrow = resolveOverviewWidths(overviewRowWidthAt(1280, 'expanded'));
     expect(narrow).toEqual(OVERVIEW_CARD_COLUMNS.map((c) => c.minPx));
     expect(narrow[1]).toBeGreaterThanOrEqual(
       UNIT_MATRIX_WIDTH + OVERVIEW_CARD_CHROME,
@@ -264,7 +297,10 @@ describe('fix-417: the page body never scrolls sideways', () => {
     //   stronger than the one recorded.
     const bobbysFloors = 180 + 340 + 180 + 320 + 230 + 4 * OVERVIEW_GRID_GAP;
     expect(bobbysFloors).toBe(1290);
-    expect(bobbysFloors).toBeGreaterThan(overviewRowWidthAt(1280, 'expanded') * 1.8);
+    // ★ fix-507 §A widened the row at 1280 from 710 to 745, so the multiple is
+    //   1.73 rather than 1.8. The point survives at full strength: his floors
+    //   are still most of a second row wider than the row he had.
+    expect(bobbysFloors).toBeGreaterThan(overviewRowWidthAt(1280, 'expanded') * 1.7);
   });
 
   it('★★★ fix-422 re-shared the row, and the Plan of Record is STILL the widest', () => {
@@ -662,7 +698,10 @@ describe('fix-417: THE REPORTED DEFECT — Builder/Owner clips mid-word', () => 
     // ★ Every track still declares a real floor — the property fix-417
     //   introduced the `minmax()` for, and the one thing in this test that has
     //   survived every amendment. THREE of them since fix-506 §A.
-    const trackRe = /minmax\((\d+)px, \d+fr\)/g;
+    // ★ fix-507 §B: a share may carry a decimal now (35.5), so the `fr` half of
+    //   the pattern accepts one. The floor half — an explicit px minimum on
+    //   every track — is what this assertion is for and is unchanged.
+    const trackRe = /minmax\((\d+)px, \d+(?:\.\d+)?fr\)/g;
     const tracks = [
       ...screen
         .getByTestId('project-overview-grid')
@@ -720,7 +759,12 @@ describe('fix-417 §B (superseded): the PROJECT card still cannot set the row wi
     //     five. The shares are the v14 mock's `470px · 1.05fr · 1.15fr`
     //     translated: 470 is 35% of the 1,330px of shared space at 1920, and
     //     the remaining 65 splits 1.05 : 1.15.
-    expect(OVERVIEW_CARD_COLUMNS.map((c) => c.pct)).toEqual([35, 31, 34]);
+    // ★★★ fix-507 §B RE-SHARES THEM, and the 50px the permits rail gave up is
+    //     what pays for it: Project rises 31 → 35 so its body clears the 475 the
+    //     Site/Dates pair needs, Plan of Record follows to 35.5 to stay the
+    //     widest (fix-417's unrevoked ruling), and Team pays 34 → 29.5.
+    //     Measured in Chrome at 1920: 485 · 478 · 403.
+    expect(OVERVIEW_CARD_COLUMNS.map((c) => c.pct)).toEqual([35.5, 35, 29.5]);
     expect(OVERVIEW_CARD_COLUMNS.map((c) => c.minPx)).toEqual([
       // ★ por is pinned 14 above proj (Bobby's "widest of the boxes" ruling,
       //   which only the FLOORS can honour below the row minimum); proj is the
