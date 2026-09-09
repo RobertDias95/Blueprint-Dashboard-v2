@@ -435,13 +435,15 @@ export interface MilestoneOccurrence {
 
 /** Today in the user's LOCAL timezone as YYYY-MM-DD. The board's buckets are
  *  calendar-relative, so a UTC-derived "today" would put an evening user's work
- *  in tomorrow. Callers inject this so tests never depend on the clock. */
-export function todayIso(now: Date = new Date()): string {
-  const y = now.getFullYear();
-  const m = String(now.getMonth() + 1).padStart(2, '0');
-  const d = String(now.getDate()).padStart(2, '0');
-  return `${y}-${m}-${d}`;
-}
+ *  in tomorrow. Callers inject this so tests never depend on the clock.
+ *
+ *  ★★★ fix-513 §A: THE DEFINITION MOVED to `lib/dateUtils` — a leaf module, so
+ *  `lib/targetApproval`'s intake predicate can read the same clock without
+ *  importing this 2,000-line one. Re-exported here so every existing caller and
+ *  every existing test import is untouched; there is still exactly one
+ *  implementation. See the note in dateUtils for the three other places that
+ *  had already re-written it. */
+export { todayIso } from './dateUtils';
 
 function daysBetween(fromIso: string, toIso: string): number {
   const a = Date.parse(`${fromIso}T12:00:00Z`);

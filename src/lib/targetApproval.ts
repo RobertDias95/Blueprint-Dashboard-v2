@@ -1,4 +1,5 @@
 import type { PermitWithCycles, Project } from './database.types';
+import { todayIso } from './dateUtils';
 
 // ===========================================================================
 // ★★★ fix-508 §D (P-194) — TARGET APPROVAL, AND WHAT "ACCEPTED" MEANS
@@ -143,11 +144,55 @@ export function targetApproval(
 //     fix-506 §B already switched the overview's `Accepted` row to it. This
 //     names that choice rather than making a new one.
 
-/** Whether the city has accepted this permit's intake. */
+// ===========================================================================
+// ★★★ fix-513 §A (P-208) — A DATE IS NOT A STATE
+// ===========================================================================
+//
+// fix-508 shipped `return !!permit?.intake_date;` and the sentence above it was
+// already the bug: **`intake_date` is not "the date intake was accepted".** It
+// is *the intake date, whenever it falls* — the scraper and the DAs both write
+// SCHEDULED intakes into it, months ahead. A column holding a future
+// appointment was being read as a past event.
+//
+// **RULED BY BOBBY, 2026-09-09: DATE ONLY.** Accepted means the intake date has
+// arrived. Status does **not** corroborate it, on the argument that status
+// vocabulary is jurisdiction-specific and drifts while the date is a fact.
+//
+// ★★★ AND THE RULING WAS TAKEN AGAINST A MEASURED COUNTEREXAMPLE SET, not in
+//     ignorance of one. **19 prod permits** carry a PAST `intake_date` beside a
+//     status that says intake has not happened (14 × `Pre-Submittal — GO`,
+//     3 × `Pre-Submittal — Kickoff`, 2 × `Ready for Intake`). Under date-only
+//     every one of them reads "Accepted intake". **That is a DATA problem, and
+//     that is precisely why the ruling stands** — a status check here would
+//     hide nineteen bad rows behind a predicate instead of correcting them.
+//     The set is in the fix-513 PR as a table. Nothing was written to them.
+//
+// ★★★ THE VISIBLE POPULATION OF THE BUG WAS NINE, and they are the rows this
+//     line moves. Of 685 prod permits, 490 carry an `intake_date` and **9 are
+//     in the future**, across 5 projects, every one `status = Scheduled`:
+//     `233 31st Ave E` (BP + Demo, 2027-01-26), `2601 E Galer St` (Demo,
+//     2026-12-01), `4017 Corliss Ave N` (BP 2026-12-03, Demo 2026-12-10),
+//     `4137 54th Ave SW` (BP + Demo, 2027-01-26), `554 N 75th St` (BP + Demo,
+//     2027-02-02). All nine flip from "Accepted intake" to "Target intake".
+//
+// ★★ ONE CLOCK. `todayIso` comes from `lib/dateUtils` and is injectable, so this
+//    predicate cannot read a different today from the surface calling it — the
+//    defect §A warned about, which the codebase already had four times over
+//    before this ticket (see that module's note).
+
+/**
+ * Whether the city has accepted this permit's intake.
+ *
+ * ★ `today` is a parameter with a live default rather than a module constant:
+ *   a constant captured at import time is wrong for any session left open
+ *   across midnight, and this is a comparison against a calendar day.
+ */
 export function intakeIsAccepted(
   permit: Pick<PermitWithCycles, 'intake_date'> | null | undefined,
+  today: string = todayIso(),
 ): boolean {
-  return !!permit?.intake_date;
+  const d = permit?.intake_date;
+  return !!d && d <= today;
 }
 
 /**
@@ -163,9 +208,24 @@ export function intakeIsAccepted(
  */
 export function intakeDisplay(
   permit: Pick<PermitWithCycles, 'intake_date' | 'target_submit'> | null | undefined,
+  today: string = todayIso(),
 ): { label: string; date: string | null; isActual: boolean } {
-  if (intakeIsAccepted(permit)) {
+  if (intakeIsAccepted(permit, today)) {
     return { label: 'Accepted intake', date: permit?.intake_date ?? null, isActual: true };
   }
-  return { label: 'Estimated intake', date: permit?.target_submit ?? null, isActual: false };
+  // ★★★ fix-513 §B — `Estimated intake` → `Target intake`. Bobby, 2026-09-09:
+  //     *"this should say target intake until the intake happens."*
+  //
+  // ★★ IT MATCHES `Target Approval` DIRECTLY ABOVE IT, and the column under it
+  //    is literally called `target_submit`. Two rows that both name a target
+  //    should use the same noun; "estimated" implied the app had worked it out,
+  //    when in fact somebody typed it.
+  //
+  // ★ THE DATE ALREADY MOVED WITH THE LABEL and did not need changing here —
+  //   this branch has returned `target_submit` since fix-508. What made the row
+  //   show a scheduled `intake_date` under an "Accepted" label was the predicate
+  //   above, not this line. §A's fix is what routes the nine future-intake
+  //   permits into this branch, where `4137 54th Ave SW` reads 10/23/2026 (its
+  //   target submit) instead of 01/26/2027 (its booked intake).
+  return { label: 'Target intake', date: permit?.target_submit ?? null, isActual: false };
 }

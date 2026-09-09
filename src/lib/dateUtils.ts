@@ -131,3 +131,46 @@ export function formatUsDate(iso: string | null | undefined): string {
   if (!m) return iso;
   return `${m[2]}/${m[3]}/${m[1]}`;
 }
+
+// ===========================================================================
+// ★★★ fix-513 §A (P-208) — ONE CLOCK, PROMOTED SO A PREDICATE CAN READ IT
+// ===========================================================================
+//
+// `todayIso` was written in `lib/myBoard` for the board's calendar buckets, and
+// it is the RIGHT one: local parts, never `toISOString()`, because a UTC-derived
+// "today" puts an evening user's work in tomorrow — [[fix-433]]'s finding, where
+// a UTC "today" went silent on exactly the day it had to speak (20:11 PT is
+// 03:11Z the NEXT day).
+//
+// ★★★ IT HAD ALREADY BEEN RE-WRITTEN THREE TIMES BEFORE THIS TICKET NEEDED IT:
+// `PermitDetailV2`'s hold rows, `PermitHold.tsx`, `ProjectHold.tsx` each declare
+// a local `todayIso()`, and `lib/intakeHelpers` inlines a fourth variant that
+// goes through `toISOString()` after a local `setHours(0,0,0,0)`. §A's own
+// warning — *"a predicate that reads three different clocks in one render is the
+// same defect in a new coat"* — was already true of the codebase before the
+// predicate existed.
+//
+// ★★ SO IT MOVES HERE, to the leaf module with no imports of its own, which is
+// what lets `lib/targetApproval` read it without pulling in `lib/myBoard` (a
+// 2,000-line module that would be a cycle waiting to happen). fix-104's rule:
+// the shared module exists because the thing was about to be copied again.
+// `lib/myBoard` re-exports it, so its own callers are untouched.
+//
+// ★★ AND THE SERVER AGREES BY CONSTRUCTION, WHICH MATTERS FOR §C.
+// `bp_weekly_snapshot` computes `v_today := (now() AT TIME ZONE
+// 'America/Los_Angeles')::date` — a local calendar date, not a UTC one. The
+// client's local date and the server's Pacific date are the same date for
+// everyone in this company, and both are calendar dates rather than instants.
+
+/**
+ * Today in the user's LOCAL timezone as `YYYY-MM-DD`.
+ *
+ * ★ `now` is injectable so a test never depends on the clock — every caller in
+ *   this codebase that needs to be deterministic passes it.
+ */
+export function todayIso(now: Date = new Date()): string {
+  const y = now.getFullYear();
+  const m = String(now.getMonth() + 1).padStart(2, '0');
+  const d = String(now.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}

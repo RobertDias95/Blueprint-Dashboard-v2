@@ -868,7 +868,16 @@ export function TargetSubmitRow({
  *    `useUpdateProjectWithPermits`, same two OCC tokens, same conflict copy.
  *    A moved control that also changes how it writes is two changes wearing one
  *    ticket number.
- */
+ *
+ * ★★★ fix-513 §E (P-207) — THIS ROW EDITS THE BUILDING PERMIT AND NOTHING ELSE,
+ *     which is why `PermitDetailV2`'s ACQ Target box is still there. `bp.id` is
+ *     the only element `permitUpserts` ever carries, and on prod **153 non-BP
+ *     permits across 105 projects hold an ACQ date that differs from their own
+ *     Building Permit's** — by design, since `permitSeedingDefaults` seeds ULS
+ *     at `bp_acq + 120` and Land Use at `go_date + 30`. Deleting the per-permit
+ *     editor would strand every one of them while Schedule Health kept deriving
+ *     a Target Approval from the value. The exception is written up at that
+ *     control and pinned by `ExpectedIssueWritersFix513`. */
 function AcqDateRow({
   project,
   bp,
