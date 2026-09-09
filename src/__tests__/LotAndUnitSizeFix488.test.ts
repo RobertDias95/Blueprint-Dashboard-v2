@@ -547,7 +547,14 @@ describe('fix-488 §B: why the overview units matrix has no Size column', () => 
       'parking_kind', 'parking_stalls', 'roof_deck', 'remove',
     ]);
     expect(UNIT_MATRIX_WIDTH).toBe(274);
-    expect(OVERVIEW_ROW_MIN_WIDTH).toBe(1172);
+    // ★★★ fix-506 §D SPENT WHAT fix-488 COULD NOT AFFORD, BY TRANSPOSING.
+    //     fix-488 §B built P-150's ninth column, measured matrix 274 → 312,
+    //     PROJECT floor 296 → 334, row minimum 1,172 → 1,248, wrap point 1,742
+    //     → 1,818 — and REVERTED it, because at 1280 the wider wrapped line
+    //     then needed 736px against 710 available. Turning the matrix ninety
+    //     degrees makes an attribute a ROW, so `Size (sf)` costs 16px of HEIGHT
+    //     and nothing of width. The constraint expired; the column ships.
+    expect(OVERVIEW_ROW_MIN_WIDTH).toBe(904);
     expect(UNIT_ROW_COLUMNS.some((c) => c.key === 'size_sf')).toBe(false);
   });
 
@@ -568,6 +575,10 @@ describe('fix-488 §B: why the overview units matrix has no Size column', () => 
       'utf8',
     );
     expect(matrix).toContain('-size`');
-    expect(matrix).toContain("onChange('size_sf'");
+    // ★ fix-506 §H made the Library read-only, so `size_sf` is TYPED in the
+    //   wizard and in Project Data's Units tab, and PRINTED here. The field
+    //   still ships and is still searchable by the Library's ± filter, which
+    //   is the ask — what went is the second editor.
+    expect(matrix).toContain('size');
   });
 });

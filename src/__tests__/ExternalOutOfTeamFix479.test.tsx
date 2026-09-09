@@ -211,6 +211,8 @@ describe('fix-479 §A: External has left the Team card', () => {
       'project-overview-team-builder',
       'project-overview-team-internal',
       'project-overview-team-chat',
+      // ★ fix-506 §F: the consultant band, appended.
+      'project-overview-team-consultants',
       'pd-chat-section',
     ]);
   });
@@ -380,7 +382,10 @@ describe('fix-479 §D: Project Settings no longer picks a consultant firm', () =
     expect(names).not.toContain('ProjectExternalTeamPanel.tsx');
     // ★ …and the glob really is looking in the right place.
     expect(names).toContain('ExternalFirmSelect.tsx');
-    expect(names).toContain('ConsultantsCard.tsx');
+    // ★ fix-506 §A renamed it: the Consultants CARD is a BAND inside Team now,
+    //   so the file that proves this glob is looking in the right place is
+    //   `ConsultantBand.tsx`.
+    expect(names).toContain('ConsultantBand.tsx');
   });
 
   it('★★ the DIRECTORY editor is a different screen and is untouched', async () => {

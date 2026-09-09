@@ -1,5 +1,10 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { render, screen, within } from '@testing-library/react';
+import { renderProjectData } from '../test/renderProjectData';
+import {
+  DATES_CARD_MIN_WIDTH,
+  SITE_DATA_MIN_WIDTH,
+} from '../lib/projectCardLayout';
+import { render, screen, within, cleanup } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { ReactNode } from 'react';
@@ -116,6 +121,12 @@ const EMPTY_PROJECT = {
   parking_stalls: null,
 } as unknown as Project;
 
+/** ★ fix-506 §G: the Site editor is a Project Data tab now — see
+ *  src/test/renderProjectData. `makeProject` is this file's fixture. */
+function makeProject(): Project {
+  return PROJECT;
+}
+
 function renderHeader(project: Project = PROJECT) {
   const qc = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
@@ -140,99 +151,123 @@ beforeEach(() => {
 
 // ------------------------------------------------- ★ the restored Site block --
 
-describe('fix-290 the Site block is back on the Project card', () => {
-  it('renders as a section of the Project card, under Proposal', () => {
+describe('fix-290 → fix-506: the Site block, and where its editors went', () => {
+  // ★★★ fix-290 EXISTED BECAUSE SITE WAS SQUEEZED OUT OF VIEW. Proposal and
+  //     Site sat side by side in a `1fr 1fr` grid inside a fifth of the screen,
+  //     so each half was ~10% of the viewport and Site stopped being LEGIBLE —
+  //     which from the desk is the same thing as gone. Stacking them gave each
+  //     the card's full width, and that is the claim this suite pins.
+  //
+  // ★★★ v14 KEEPS THE CLAIM AND CHANGES THE SHAPE TWICE OVER. **Proposal** is
+  //     retired (its Units count is derived from the unit rows now; its type
+  //     chips and redesign list are Project Data's), and **Site data** is a
+  //     READ-ONLY box beside a new Dates card — a `flex-wrap` pair, so the two
+  //     sit side by side only where the card can genuinely hold both, and stack
+  //     where it cannot. fix-290's defect cannot recur by construction: below
+  //     475px of card body they are stacked, exactly as fix-290 left them.
+  //
+  // ★★ THE FIELDS ARE ALL STILL HERE — as text on the overview, as the same
+  //    controls in the modal's Site data tab. Both are asserted.
+
+  it('★★★ Site data and Dates are a WRAPPING pair, so neither is squeezed', () => {
     renderHeader();
     const card = screen.getByTestId('pd-project-card');
-    const proposal = within(card).getByTestId('pd-project-proposal');
-    const site = within(card).getByTestId('pd-project-site');
-    // Stacked, not side by side: Site FOLLOWS Proposal in the document.
-    expect(
-      proposal.compareDocumentPosition(site) & Node.DOCUMENT_POSITION_FOLLOWING,
-    ).toBeTruthy();
-    expect(proposal.parentElement).toBe(site.parentElement);
+    const pair = within(card).getByTestId('pd-site-dates-pair');
+    const site = within(card).getByTestId('pd-site-dates-site');
+    const dates = within(card).getByTestId('pd-site-dates-dates');
+    expect(pair.className).toContain('flex-wrap');
+    expect(site.parentElement).toBe(dates.parentElement);
+    // ★ Each declares a BASIS, which is what makes the wrap a floor rather
+    //   than a squeeze — fix-290's failure mode was a `1fr` that could shrink
+    //   to nothing.
+    expect(site.style.flex).toContain(`${SITE_DATA_MIN_WIDTH}px`);
+    expect(dates.style.flex).toContain(`${DATES_CARD_MIN_WIDTH}px`);
   });
 
-  it('labels both sections', () => {
+  it('★★★ SUPERSEDED: there is no Proposal section, and its content moved', () => {
     renderHeader();
-    const card = screen.getByTestId('pd-project-card');
-    expect(within(card).getByText('Proposal')).toBeInTheDocument();
-    expect(within(card).getByText('Site')).toBeInTheDocument();
+    expect(screen.queryByTestId('pd-project-proposal')).toBeNull();
+    // The Units count survives, derived from the rows the matrix prints.
+    expect(screen.getByTestId('pd-site-units-count')).toBeInTheDocument();
   });
 
-  // The list from §1 of the brief, field by field. This is the regression.
+  // The list from §1 of the brief, field by field — READ-ONLY on the overview.
   it.each([
-    ['zone', 'Zone'],
-    ['lots', 'Lots'],
-    ['corner', 'Corner'],
-    ['alley', 'Alley'],
-    // ★★★ fix-402 removed 'parking' and 'stalls' from this list, by ruling.
-    // Bobby, 2026-08-25: *"Remove [parking] from the holistic site and merge
-    // that under the units for proposal."* The values were archived to
-    // _parking_site_archive_2026_08_25 and the columns cleared; parking is a
-    // per-UNIT field now and lives in the Unit Dimensions editor.
-  ])('renders the %s field', (testid, label) => {
+    ['zone-row', 'Zone'],
+    ['corner-row', 'Corner'],
+    ['alley-row', 'Alley'],
+    // ★★★ fix-402 removed 'parking' and 'stalls' by ruling — parking is a
+    //     per-UNIT field now. ★★★ fix-506 §C removes 'lots': `num_lots` is not
+    //     on Bobby's v14 row list. It still edits in Project Data; it is simply
+    //     not one of the eight things he reads here.
+  ])('renders the %s row', (testid, label) => {
     renderHeader();
-    const site = screen.getByTestId('pd-project-site');
+    const site = screen.getByTestId('pd-site-data');
     expect(within(site).getByTestId(`pd-site-${testid}`)).toBeInTheDocument();
     expect(within(site).getByText(label)).toBeInTheDocument();
   });
 
-  it('renders lot width AND depth, which are one row but two columns', () => {
+  it('renders lot width AND depth as one printed pair', () => {
+    // ★ `lotSizeView` builds `60 × 125`, or `60 × varies` when one dimension is
+    //   blank beside a typed size — fix-488's rule, unchanged.
     renderHeader();
-    const site = screen.getByTestId('pd-project-site');
-    expect(within(site).getByTestId('pd-site-lot-w')).toBeInTheDocument();
-    expect(within(site).getByTestId('pd-site-lot-d')).toBeInTheDocument();
+    const site = screen.getByTestId('pd-site-data');
+    expect(within(site).getByTestId('pd-site-lot-row').textContent).toContain('61');
+    expect(within(site).getByTestId('pd-site-lot-row').textContent).toContain('192');
   });
 
   it('shows the stored values, populated from projects', () => {
     renderHeader();
-    const site = screen.getByTestId('pd-project-site');
-    expect(within(site).getByTestId('pd-site-zone')).toHaveValue('NR');
-    expect(within(site).getByTestId('pd-site-lot-w')).toHaveValue(61);
-    expect(within(site).getByTestId('pd-site-lot-d')).toHaveValue(192);
-    expect(within(site).getByTestId('pd-site-lots')).toHaveValue('1');
-    expect(within(site).getByTestId('pd-site-corner')).toHaveValue('No');
-    expect(within(site).getByTestId('pd-site-alley')).toHaveValue('No');
+    const site = screen.getByTestId('pd-site-data');
+    expect(within(site).getByTestId('pd-site-zone-row').textContent).toContain('NR');
+    expect(within(site).getByTestId('pd-site-corner-row').textContent).toContain('No');
+    expect(within(site).getByTestId('pd-site-alley-row').textContent).toContain('No');
     // ★ fix-402: the two site parking rows are gone — asserted absent rather
-    // than merely dropped, so a re-introduction is caught here.
+    //   than merely dropped, so a re-introduction is caught here.
     expect(within(site).queryByTestId('pd-site-parking')).toBeNull();
     expect(within(site).queryByTestId('pd-site-stalls')).toBeNull();
   });
 
-  // ★ A null column must read as EMPTY, never as the string "null" — the classic
-  // way a restored block embarrasses itself on a project nobody has filled in.
-  it('renders every field blank, and never "null", when the columns are NULL', () => {
+  it('renders every field as an em dash, and never "null", when the columns are NULL', () => {
+    // ★★★ THE STATE A NEW PROJECT IS IN before anybody fills the site in, and
+    //     the reason this fixture exists: a card that printed the STRING
+    //     "null" would be worse than one that printed nothing.
+    //
+    // ★★ fix-506 §C strengthens the claim rather than weakening it. The old
+    //    editable rows rendered an empty `<input>`, which is indistinguishable
+    //    from a field somebody cleared on purpose; the read-only box prints an
+    //    EM DASH, which is fix-386's vocabulary for NOT RECORDED and says so.
     renderHeader(EMPTY_PROJECT);
-    const site = screen.getByTestId('pd-project-site');
-    expect(site.textContent).not.toMatch(/null|undefined|NaN/i);
-    for (const id of [
-      'pd-site-zone', 'pd-site-lot-w', 'pd-site-lot-d', 'pd-site-lots',
-      'pd-site-corner', 'pd-site-alley',
-    ]) {
-      expect(within(site).getByTestId(id)).toHaveValue(
-        id.includes('lot-') || id.endsWith('stalls') ? null : '',
-      );
+    const site = screen.getByTestId('pd-site-data');
+    for (const id of ['pd-site-zone-row', 'pd-site-lot-row', 'pd-site-corner-row', 'pd-site-alley-row']) {
+      const row = within(site).getByTestId(id);
+      expect(row.textContent, id).toContain('—');
+      expect(row.textContent, id).not.toMatch(/null|undefined|NaN/);
     }
+  });
+
+  it('★★★ and every one of them is still EDITABLE, in Project Data', () => {
+    // ★★ P-140 makes the overview read-only; it does not make the fields
+    //    read-only. `SiteEditor` is byte-for-byte what shipped.
+    cleanup();
+    renderProjectData(makeProject(), [], 'site');
+    for (const id of ['pd-site-zone', 'pd-site-lots', 'pd-site-corner', 'pd-site-alley']) {
+      expect(screen.getByTestId(id)).toBeInTheDocument();
+    }
+    expect(screen.getByTestId('pd-site-lot-w')).toBeInTheDocument();
+    expect(screen.getByTestId('pd-site-lot-d')).toBeInTheDocument();
   });
 });
 
-// ------------------------------------------------------ the universal banner --
-
-/** The five cards of the overview row, plus Notes, which the mockup also draws
- *  as a card. Keyed by the banner text each must show. */
 const CARDS: Array<[string, string]> = [
-  // fix-296: DD Phase -> Milestones. Internal shorthand that did not survive
-  // a new person reading it.
-  ['pd-milestones-card', 'Milestones'],
+  // ★★★ fix-506 §A: THREE. fix-296 renamed DD Phase to Milestones and fix-475
+  //     put Consultants in Builder/Owner's slot; both of those cards are
+  //     retired now — the dates are the Project card's Dates box and the
+  //     consultant pills are a band inside Team. fix-290's contract is about
+  //     the row's CARDS, so it is asserted of the cards that are there.
+  ['plan-of-record-card', 'Design Plan of Record'],
   ['pd-project-card', 'Project'],
   ['project-overview-team', 'Team'],
-  ['plan-of-record-card', 'Design Plan of Record'],
-  // ★★★ fix-475 (P-116): the fifth card is CONSULTANTS. `pd-builder-cell` is
-  //     NOT gone — it moved inside Team behind a disclosure — but it is no
-  //     longer one of the five the row renders, and fix-290's contract is
-  //     about the row's cards. The card that is there is asserted below.
-  ['pd-consultants-card', 'Consultants'],
 ];
 
 // ★ fix-309 #54 moved Notes OUT of the header, to the bottom of Schedule
@@ -303,13 +338,17 @@ describe('fix-290 a third section costs nothing', () => {
   // separator carried by each one, so adding another is a JSX line — no layout
   // change, no counting, no index-aware styling to update.
   it('separates stacked sections with the section\'s own top border', () => {
+    // ★ Asserted of the TEAM card, which is the row's stacked-section card
+    //   after fix-506 §A. The pattern's claim — sections are siblings and each
+    //   carries its own separator, so a third costs a JSX line — is unchanged,
+    //   and §F added one (the consultant band) to prove it.
     renderHeader();
-    const card = screen.getByTestId('pd-project-card');
-    const proposal = within(card).getByTestId('pd-project-proposal');
-    const site = within(card).getByTestId('pd-project-site');
+    const card = screen.getByTestId('project-overview-team');
+    const builder = within(card).getByTestId('project-overview-team-builder');
+    const internal = within(card).getByTestId('project-overview-team-internal');
     // The first section suppresses its own rule; the next one draws it.
-    expect(proposal.className).toContain('first:border-t-0');
-    expect(site.className).toContain('border-t');
+    expect(builder.className).toContain('first:border-t-0');
+    expect(internal.className).toContain('border-t');
   });
 
   it('stacks Team the same way it stacks Project', () => {
@@ -330,11 +369,13 @@ describe('fix-290 a third section costs nothing', () => {
   });
 
   it('leaves single-section cards with no sub-heading to repeat the banner', () => {
-    // ★ fix-475: asserted of CONSULTANTS now — the row's one single-section
-    //   card. Builder/Owner is inside Team and its heading there is a SECTION
-    //   heading, which is exactly what this rule is about not duplicating.
+    // ★ fix-475 asserted this of CONSULTANTS, the row's one single-section
+    //   card. fix-506 §A retires that card — its pills are a band inside Team —
+    //   so the row's single-section card is the PLAN OF RECORD, and the rule is
+    //   what it always was: a card with one section does not repeat its banner
+    //   as a sub-heading.
     renderHeader();
-    const consultants = screen.getByTestId('pd-consultants-card');
-    expect(within(consultants).getAllByText('Consultants')).toHaveLength(1);
+    const por = screen.getByTestId('plan-of-record-card');
+    expect(within(por).getAllByText('Design Plan of Record')).toHaveLength(1);
   });
 });

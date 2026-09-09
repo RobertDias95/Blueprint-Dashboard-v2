@@ -69,7 +69,7 @@ describe('fix-449 §A: alley is a list on every write surface', () => {
     //     SAME `SiteSelectRow` with the SAME options as fix-410's Regular
     //     Shape — the control §A1 asked to copy — and the modal and wizard are
     //     both <select>s. What was actually wrong was TWO copies of the list.
-    const header = read('src/components/ProjectDetail/ProjectDetailHeader.tsx');
+    const header = read('src/components/ProjectDetail/ProjectDataEditors.tsx');
     expect(header).toContain("label=\"Alley\"");
     expect(header).toMatch(/label="Alley"[\s\S]{0,200}options=\{\['', 'Yes', 'No'\]\}/);
 
@@ -84,7 +84,7 @@ describe('fix-449 §A: alley is a list on every write surface', () => {
 
   it('★★ no surface offers a free-text alley input', () => {
     for (const f of [
-      'src/components/ProjectDetail/ProjectDetailHeader.tsx',
+      'src/components/ProjectDetail/ProjectDataEditors.tsx',
       'src/components/ProjectDetail/ProjectSettingsModal.tsx',
       'src/components/wizard/Step1ProjectInfo.tsx',
     ]) {

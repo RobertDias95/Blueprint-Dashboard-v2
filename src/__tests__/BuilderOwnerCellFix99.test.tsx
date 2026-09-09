@@ -83,6 +83,26 @@ const toastMock = vi.hoisted(() => vi.fn());
 vi.mock('../lib/supabase', () => ({ supabase: supabaseMock.builder }));
 vi.mock('../stores/toastStore', () => ({ pushToast: toastMock }));
 
+// ★★★ fix-506 §B/§I — THE APPROVAL PROJECTION IS INERT HERE, AND THE REASON IS
+//     THE TRAP THIS FILE'S OWN MOCK SETS.
+//
+//     The Dates card asks `useProjectedApprovalFor` for the Building Permit's
+//     projected approval, and that hook reads five tenant-wide queries —
+//     permits, projects, reviewers, type defaults and holds. In the APP those
+//     are React Query cache hits: `ScheduleHealthTable` on the same page has
+//     always loaded all five, which is precisely why the assembly was hoisted
+//     into one hook rather than duplicated.
+//
+// ★★ IN THIS SUITE THEY ARE NOT FREE. The supabase mock above has ONE queue and
+//    `.select()` SHIFTS it, so a component issuing an unrelated read silently
+//    eats the response this test queued for its own OCC retry — and the failure
+//    surfaces as "expected 5 to be 2" with nothing pointing at the cause. Mocked
+//    inert, exactly as `useProjectConsultants` and `useSetBpDdDates` are in the
+//    files that have this shape.
+vi.mock('../hooks/useProjectedApprovalFor', () => ({
+  useProjectedApprovalFor: () => null,
+}));
+
 // Inert hooks the surrounding ProjectDetailHeader components touch.
 vi.mock('../hooks/useBuilderSearch', () => ({
   useBuilderSearch: () => ({ data: [], isLoading: false }),

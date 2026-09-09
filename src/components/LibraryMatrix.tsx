@@ -1,9 +1,9 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useMemo, useState } from 'react';
 import OriginLink from './OriginLink';
+import { projectDataHref } from '../lib/projectDataTabs';
 import { PREVIOUS_ORIGINS } from '../lib/previousOrigin';
 import { useProjects } from '../hooks/useProjects';
 import { usePermits } from '../hooks/usePermits';
-import { useUpdateProject } from '../hooks/useUpdateProject';
 import {
   DEFAULT_LIBRARY_SORT,
   buildLibraryRows,
@@ -34,24 +34,17 @@ import type {
   UnitType,
 } from '../lib/database.types';
 import { STAGE_LABEL } from '../lib/stageLabel';
-import {
-  ParkingKindSelect,
-  RoofDeckSelect,
-  StallsInput,
-} from './shared/UnitParkingInputs';
 import { PARKING_KINDS, type ParkingKind } from '../lib/database.types';
 import {
+  NOT_RECORDED,
   PARKING_KIND_LABEL,
-  parseStalls,
+  parkingKindCode,
   type RoofDeckFilter,
   type StallsTier,
 } from '../lib/unitParking';
 import {
-  OTHER_UNIT_LABEL,
   isOffListUnitLabel,
   resolveUnitLabel,
-  unitLabelOptions,
-  resolveUnitTypesForSave,
 } from '../lib/unitTypeNaming';
 
 import { useAppConfig, readAppConfigStringArray } from '../hooks/useAppConfig';
@@ -257,25 +250,26 @@ function Body({ projects, permits }: BodyProps) {
       prev.col === col ? { col, asc: !prev.asc } : { col, asc: true },
     );
   }
-  // fix-206: the unit table is editable through the SAME write path as Project
-  // Overview (useUpdateProject patch { unit_types } with the project's OCC
-  // token). One store — the optimistic projects-cache patch reflects on Project
-  // Overview immediately, and a Project Overview edit reflects here, with no
-  // second store or sync engine.
-  const updateProject = useUpdateProject();
-  function writeUnitTypes(row: LibraryRow, next: UnitType[]) {
-    if (!row.updatedAt) return; // occMissing → editing disabled (parity w/ PO)
-    void updateProject
-      .mutateAsync({
-        projectId: row.projectId,
-        expectedUpdatedAt: row.updatedAt,
-        patch: { unit_types: resolveUnitTypesForSave(next, row.productTypes) },
-        fieldLabel: 'Unit Dimensions',
-      })
-      .catch(() => {
-        /* useUpdateProject.onError already surfaced the toast + rolled back */
-      });
-  }
+  // ===========================================================================
+  // ★★★ fix-506 §H (P-167) — `writeUnitTypes` IS GONE, AND WITH IT THE LIBRARY'S
+  //     ONLY WRITE PATH
+  // ===========================================================================
+  //
+  // fix-206's note said the unit table was editable *"through the SAME write
+  // path as Project Overview (useUpdateProject patch { unit_types } with the
+  // project's OCC token). One store."* That was true and it is why this was
+  // always defensible — but Bobby has ruled the Library is not a write surface
+  // at all, and "one store, two editors" is still two editors.
+  //
+  // ★★★ THE ASSERTION §H IS ABOUT: this file makes ZERO calls to
+  //     `useUpdateProject`. STEP 0-3 enumerated the whole surface and found
+  //     exactly one write path feeding eight inputs; both are now the Units tab
+  //     of Project Data, which each row links to.
+  //
+  // ★ THE OPTIMISTIC-CACHE REASONING SURVIVES INTACT, just from one side: an
+  //   edit in Project Data patches the projects cache, so it reflects here
+  //   immediately. That was half of fix-206's argument and it is the half that
+  //   was never about writing.
   // ★★★ fix-447 §B6 — fix-81's CARET IS RETIRED, AND SO IS ITS STATE.
   //
   // The caret existed because site columns and unit detail shared one table:
@@ -921,35 +915,6 @@ function Body({ projects, permits }: BodyProps) {
                 index={u.index}
                 productTypes={u.project.productTypes}
                 registryTypes={productTypeOptions}
-                disabled={!u.project.updatedAt}
-                // ★★★ fix-472 §1 (P-124) — THE MATCHED HIGHLIGHT IS GONE, AND
-                //     THIS IS THE PLACE IT DIED. fix-469 left `matched={false}`
-                //     here under an instruction to keep the mechanism because
-                //     it was "still live in the SITE view's expand" — it was
-                //     not: fix-447 §B6 had already deleted that expand and says
-                //     so above `RowProps`. So this was the highlight's only
-                //     call site, and a prop whose sole caller passes a literal
-                //     `false` reads as alive at the next review.
-                //
-                // ★★ WHAT WAS KEPT, AND WHY THE TWO CASES DIFFER: fix-467 kept
-                //    `STAGE_CHIP` because it is EXPORTED AND INDEPENDENTLY
-                //    TESTED — a property of its file that needs no call site to
-                //    stay true. This prop had neither. The banked rule is
-                //    "keep-this-it-is-used-elsewhere must NAME the call site".
-                //
-                // ★★★ AND `matchingUnitIndices` ITSELF STAYS — see the note by
-                //     `matchingUnitRows` in lib/libraryUnitRows. Only the
-                //     HIGHLIGHT consumer went; the predicate is what chooses
-                //     which rows this table prints at all, and deleting it
-                //     would silently restore the 71%-noise bug fix-469 fixed.
-                onChange={(field, val) =>
-                  writeUnitTypes(
-                    u.project,
-                    u.project.unitTypes.map((x, i) =>
-                      i === u.index ? { ...x, [field]: val } : x,
-                    ),
-                  )
-                }
                 // ★★★ THE PROJECT CELLS, PASSED IN. `LibraryUnitRow` renders
                 //     its own `<tr>`, so the only way to put Address/Juris/Type
                 //     in front of its cells — and Work/Stage after them — is to
@@ -977,6 +942,23 @@ function Body({ projects, permits }: BodyProps) {
                 }
                 trailing={
                   <>
+                    {/* ★★★ fix-506 §H (P-167) — THE ONE-CLICK PATH OUT.
+                        Bobby: every inline edit becomes read-only *"with a
+                        one-click path to that project's Project Data"*. It
+                        carries the project id AND the tab, so the link opens on
+                        the Units editor rather than on the modal's first tab —
+                        `?data=units`, built from `projectDataHref` so a renamed
+                        tab cannot leave a dead link here (fix-367's rule). */}
+                    <td className="px-2 py-1.5 whitespace-nowrap">
+                      <OriginLink
+                        to={projectDataHref(u.project.projectId, 'units')}
+                        state={{ from: PREVIOUS_ORIGINS.library }}
+                        className="text-[10px] font-bold text-de hover:underline"
+                        data-testid={`library-unit-edit-${u.key}`}
+                      >
+                        Edit in Project Data →
+                      </OriginLink>
+                    </td>
                     {/* ★ fix-483 §A2: fix-412's read-only work-scope cell went
                         with the filter it existed to let you SEE. */}
                     <td className="px-2 py-1.5 text-center">
@@ -1354,40 +1336,65 @@ function Row({ row, bandClass }: RowProps) {
 // project at once, so the wrapper had no caller left — dead code, removed
 // rather than left as scenery.
 //
-// ★★ WHAT IT WRAPPED SURVIVES INTACT. fix-206's rule — *"the unit table is
-// EDITABLE inline, each cell writing through the same useUpdateProject path
-// as Project Overview (one store)"* — is still true, because `LibraryUnitRow`
-// and `writeUnitTypes` are untouched and now sit in the view itself. The
-// editing did not move behind a different door; the door was removed.
+// ★★★ fix-506 §H SUPERSEDES THE PARAGRAPH THAT USED TO BE HERE. It said
+// fix-206's rule — *"the unit table is EDITABLE inline, each cell writing
+// through the same useUpdateProject path as Project Overview (one store)"* —
+// was still true. It is not: Bobby ruled on 2026-09-08 that the Library is not
+// a write surface (P-167), and the row below is read-only.
+//
+// ★★ THE "ONE STORE" HALF OF THAT RULE IS UNTOUCHED and is why this reads
+//    live: an edit in Project Data patches the projects cache optimistically,
+//    so it reflects here immediately. What went is the second EDITOR, not the
+//    single source.
+//
+// ★ THE OTHER WRITE-SURFACE NOTES SHOULD SAY SO TOO — fix-406, fix-488 and
+//   fix-415 each enumerate where a unit or site field can be written. The
+//   Library left that list on 2026-09-08.
 
-// fix-206: one editable unit_types row in the Library table. Mirrors the
-// Project Overview UnitRow (fix-205) semantics exactly — product-type Label
-// (dropdown when several types, freeform auto-labelled when one), W/D decimals
-// (step 0.5), Qty, Stories — but laid out as table cells and keeping fix-205's
+// One READ-ONLY unit_types row in the Library table. It kept fix-205's
 // testids.
 // ★ fix-472: the fix-205 matched-highlight is no longer among them. fix-469
 //   made every printed row a match, so marking them all marked nothing; fix-447
 //   §B6 had already removed the only other surface that used it. The fix-73/98 dirty-flag prop sync keeps
 // a mid-typed value from being clobbered by an external cache refresh (the
 // optimistic projects-cache patch from this or the Project Overview editor).
-/** ★★ fix-449 §C — THE MARK. Small, beside the value, never instead of it.
- *
- *  fix-415's rule made visible: a stored value the registry does not offer is
- *  SHOWN, and told on. It is a superscript-weight chip rather than a warning
- *  colour — 22 of 235 unit rows carry one, and 22 amber badges would read as
- *  22 errors rather than 22 things worth a ruling. */
-function OffListMark({ testid }: { testid: string }) {
-  return (
-    <span
-      className="ml-1 text-[8px] px-1 py-px rounded font-bold uppercase tracking-wide align-middle"
-      style={{ background: 'var(--color-s2)', color: 'var(--color-muted)' }}
-      title="Not in the product-type list — kept exactly as stored"
-      data-testid={testid}
-    >
-      not in list
-    </span>
-  );
-}
+// ★★★ fix-506 §H — `OffListMark` IS DELETED, AND THE MARK IS NOT.
+//
+// It was a component because the editable row had two places to put it. The
+// read-only row has one, so it is an inline `⚠` there instead — and fix-449
+// §C's rule is unchanged: a stored value the registry does not offer is SHOWN,
+// and told on. 22 of 235 unit rows carry one.
+//
+// ★ Kept as a comment rather than a component with a single caller, which is
+//   the "keep-this-it-is-used-elsewhere must NAME the call site" rule fix-472
+//   banked two hundred lines up this file.
+
+
+// ===========================================================================
+// ★★★ fix-506 §H (P-167) — THE LIBRARY IS NOT A WRITE SURFACE
+// ===========================================================================
+//
+// Bobby, 2026-09-08: *"every inline edit in the Library becomes read-only with
+// a one-click path to that project's Project Data."*
+//
+// ★★★ EVERY CONTROL IN THIS ROW IS GONE — a `<select>` for the label, seven
+//     buffered `<input>`s, the parking and roof-deck pickers, and with them the
+//     fix-73/98 dirty-flag machinery each one needed. `LibraryMatrix` now makes
+//     ZERO calls to `useUpdateProject`, which is the assertion §H is really
+//     about: the Library was the second write path to `projects.unit_types`,
+//     and a second write path is what fix-415 spent a ticket proving is where
+//     server-side rules get bypassed.
+//
+// ★★ WHAT WAS ACTUALLY LOST IS SMALLER THAN THE DIFF SUGGESTS. STEP 0-3
+//    enumerated it: the whole Library had exactly ONE write path —
+//    `writeUnitTypes` → `useUpdateProject({ unit_types })` — feeding eight
+//    inputs on this row. One store, one editor now, and the editor is the Units
+//    tab of Project Data, which is the same `unit_types` array through the same
+//    hook with the same OCC token.
+//
+// ★ fix-412's ruling SURVIVES and is why this reads cleanly: the header strip
+//   and the row are still one declaration, so read-only cells line up under
+//   their headers for free.
 
 function LibraryUnitRow({
   row,
@@ -1395,8 +1402,6 @@ function LibraryUnitRow({
   index,
   productTypes,
   registryTypes,
-  disabled,
-  onChange,
   leading,
   trailing,
   bandClass = '',
@@ -1407,83 +1412,23 @@ function LibraryUnitRow({
   productTypes: string[];
   /** ★ fix-449 §C: the CANONICAL product-type registry
    *  (app_config.productTypeOptions), for the off-list mark. Distinct from
-   *  `productTypes`, which is this PROJECT's chosen subset. */
+   *  `productTypes`, which is this PROJECT's chosen subset. ★ It survives §H
+   *  because the MARK is a reading aid, not an edit — a label the app does not
+   *  offer anywhere is worth flagging whether or not you can change it here. */
   registryTypes: string[];
-  disabled: boolean;
-  // ★ fix-402 widened this: roof_deck is a BOOLEAN, and a value type that
-  //   stopped at string|number would have quietly excluded it.
-  onChange: (field: keyof UnitType, val: string | number | boolean | null) => void;
-  /** ★★★ fix-447: cells rendered BEFORE and AFTER this row's unit cells.
-   *
-   *  This component owns its `<tr>`, so the UNIT view — which needs
-   *  Address/Juris/Type in front and Work/Stage behind — cannot wrap it. Two
-   *  optional slots keep it ONE component instead of a second, near-identical
-   *  editable row: the sub-table that used to hide behind fix-81's caret and
-   *  the unit view's row are the same code, writing through the same untouched
-   *  OCC path. Absent for every existing caller. */
+  /** ★★★ fix-447: cells rendered BEFORE and AFTER this row's unit cells. This
+   *  component owns its `<tr>`, so the UNIT view — which needs Address/Juris/
+   *  Type in front and Stage behind — cannot wrap it. */
   leading?: React.ReactNode;
   trailing?: React.ReactNode;
-  /** ★ fix-483 §A1: '' or the alternate-project band class. Defaulted, so the
-   *  component's other caller shape (no band) is untouched. */
+  /** ★ fix-483 §A1: '' or the alternate-project band class. */
   bandClass?: string;
 }) {
-  const [label, setLabel] = useState(row.label);
-  const [w, setW] = useState(row.width_ft != null ? String(row.width_ft) : '');
-  const [d, setD] = useState(row.depth_ft != null ? String(row.depth_ft) : '');
-  const [qty, setQty] = useState(String(row.qty || 1));
-  // ★ fix-488 §B: buffered like W/D/Qty above — the fix-73/98 dirty-flag
-  //   pattern, so a keystroke does not write.
-  const [sizeSf, setSizeSf] = useState(
-    row.size_sf != null ? String(row.size_sf) : '',
-  );
-  const [stories, setStories] = useState(
-    row.stories != null ? String(row.stories) : '',
-  );
-  // ★ fix-402: stalls is a text box, so it buffers like W/D/Qty/Stories above
-  //   — the fix-73/98 dirty-flag pattern, not a per-keystroke write.
-  const [stalls, setStalls] = useState(
-    row.parking_stalls != null ? String(row.parking_stalls) : '',
-  );
-  const dirtyRef = useRef(false);
-  useEffect(() => {
-    if (dirtyRef.current) return;
-    setLabel(row.label);
-    setW(row.width_ft != null ? String(row.width_ft) : '');
-    setD(row.depth_ft != null ? String(row.depth_ft) : '');
-    setQty(String(row.qty || 1));
-    setSizeSf(row.size_sf != null ? String(row.size_sf) : '');
-    setStories(row.stories != null ? String(row.stories) : '');
-    setStalls(row.parking_stalls != null ? String(row.parking_stalls) : '');
-  }, [
-    row.label,
-    row.width_ft,
-    row.depth_ft,
-    row.qty,
-    // ★ fix-488: in the effect body AND in this list. A state seeded in the
-    //   body but missing from the deps stops following the row — which is the
-    //   pre-existing shape of the `parking_stalls` bug on the OTHER unit row
-    //   (ProjectDetailHeader's `UnitRow`), noted there.
-    row.size_sf,
-    row.stories,
-    row.parking_stalls,
-  ]);
-
-  // fix-209 → fix-212: product-type-driven Label whenever the project has ANY
-  // product type. The shown/selected value is the RESOLVED label — with several
-  // types it's the value only if it's a product type (else "Pick type…"); with
-  // EXACTLY ONE type it's always that type, overriding a legacy custom.
-  const hasProductTypes = productTypes.length >= 1;
-  const selectValue = resolveUnitLabel(label, productTypes);
-  // ★ fix-449 §C: judged against the CANONICAL registry, not this project's
-  //   own product types — "off list" means the app does not offer it anywhere.
-  const offList = isOffListUnitLabel(selectValue, registryTypes);
-
-  const idBase = `library-unit-${projectId}-${index}`;
-  const numClass =
-    'w-12 bg-transparent border-0 border-b border-border text-center font-mono text-text text-[11px] outline-none focus:border-de disabled:opacity-50';
-  // fix-209: Qty + Sty are single-digit (occasionally 2) — narrow + equal
-  // (w-7 ≈ 28px). W/D keep numClass (w-12).
-  const narrowNumClass = numClass.replace('w-12', 'w-7');
+  // fix-209 → fix-212: the shown label is the RESOLVED one — with several
+  // product types it is the value only if it IS a product type; with exactly
+  // one it is always that type, overriding a legacy custom.
+  const shown = resolveUnitLabel(row.label, productTypes);
+  const offList = isOffListUnitLabel(shown, registryTypes);
 
   return (
     <tr
@@ -1493,207 +1438,61 @@ function LibraryUnitRow({
     >
       {leading}
       <td className="px-2 py-0.5 font-mono text-text whitespace-nowrap">
-        {hasProductTypes ? (
-          <>
-          <select
-            value={selectValue}
-            disabled={disabled}
-            onChange={(e) => {
-              const v = e.target.value;
-              // ★★★ fix-449 §C1: "Other…" is how an off-list label is entered
-              //     — a deliberate act, never a typo that slips through.
-              if (v === OTHER_UNIT_LABEL) {
-                const typed = window.prompt('Unit type label', label);
-                if (typed === null) return;
-                const next = typed.trim();
-                dirtyRef.current = true;
-                setLabel(next);
-                if (next !== row.label) onChange('label', next);
-                dirtyRef.current = false;
-                return;
-              }
-              dirtyRef.current = true;
-              setLabel(v);
-              if (v !== row.label) onChange('label', v);
-              dirtyRef.current = false;
-            }}
-            className="bg-transparent border-0 border-b border-border text-text text-[11px] outline-none focus:border-de disabled:opacity-50"
-            data-testid={`${idBase}-label`}
+        <span data-testid={`library-unit-${projectId}-${index}-label`}>
+          {shown || '—'}
+        </span>
+        {offList && (
+          // ★ fix-449 §C's mark, unchanged: this label is not in the registry,
+          //   so nothing in the app offers it.
+          <span
+            className="ml-1 text-[9px] font-bold text-co"
+            title="Not in the product-type registry"
+            data-testid={`library-unit-${projectId}-${index}-offlist`}
           >
-            <option value="">Pick type…</option>
-            {/* ★★ The stored value is in the list when it is off-list, so the
-                control DISPLAYS what it holds instead of blanking it. */}
-            {unitLabelOptions(productTypes, selectValue).map((t) => (
-              <option key={t} value={t}>
-                {t}
-              </option>
-            ))}
-            <option value={OTHER_UNIT_LABEL}>Other…</option>
-          </select>
-          {offList && <OffListMark testid={`${idBase}-offlist`} />}
-          </>
-        ) : (
-          <input
-            type="text"
-            value={label}
-            placeholder="Label"
-            disabled={disabled}
-            onChange={(e) => {
-              dirtyRef.current = true;
-              setLabel(e.target.value);
-            }}
-            onBlur={() => {
-              if (label !== row.label) onChange('label', label);
-              dirtyRef.current = false;
-            }}
-            className="w-24 bg-transparent border-0 border-b border-border text-text text-[11px] outline-none focus:border-de placeholder:text-dim disabled:opacity-50"
-            data-testid={`${idBase}-label`}
-          />
+            ⚠
+          </span>
         )}
       </td>
-      <td className="px-2 py-0.5 text-center">
-        <input
-          type="number"
-          min={0}
-          step="0.5"
-          value={w}
-          placeholder="—"
-          disabled={disabled}
-          onChange={(e) => {
-            dirtyRef.current = true;
-            setW(e.target.value);
-          }}
-          onBlur={() => {
-            const v = w === '' ? null : Number(w) || 0;
-            if (v !== (row.width_ft ?? null)) onChange('width_ft', v);
-            dirtyRef.current = false;
-          }}
-          className={numClass}
-          data-testid={`${idBase}-w`}
-        />
-      </td>
-      <td className="px-2 py-0.5 text-center">
-        <input
-          type="number"
-          min={0}
-          step="0.5"
-          value={d}
-          placeholder="—"
-          disabled={disabled}
-          onChange={(e) => {
-            dirtyRef.current = true;
-            setD(e.target.value);
-          }}
-          onBlur={() => {
-            const v = d === '' ? null : Number(d) || 0;
-            if (v !== (row.depth_ft ?? null)) onChange('depth_ft', v);
-            dirtyRef.current = false;
-          }}
-          className={numClass}
-          data-testid={`${idBase}-d`}
-        />
-      </td>
-      <td className="px-2 py-0.5 text-center">
-        {/* ★★★ fix-488 §B — TYPED, never derived from W × D. A footprint is
-            not a floor area; see `parseUnitTypes`. `step={1}` because square
-            feet are whole numbers here, unlike the 0.5-foot dimensions. */}
-        <input
-          type="number"
-          min={1}
-          step="1"
-          value={sizeSf}
-          placeholder="—"
-          disabled={disabled}
-          onChange={(e) => {
-            dirtyRef.current = true;
-            setSizeSf(e.target.value);
-          }}
-          onBlur={() => {
-            const v = sizeSf === '' ? null : Math.round(Number(sizeSf)) || null;
-            if (v !== (row.size_sf ?? null)) onChange('size_sf', v);
-            dirtyRef.current = false;
-          }}
-          className={numClass}
-          data-testid={`${idBase}-size`}
-        />
-      </td>
-      <td className="px-2 py-0.5 text-center">
-        <input
-          type="number"
-          min={1}
-          value={qty}
-          placeholder="1"
-          disabled={disabled}
-          onChange={(e) => {
-            dirtyRef.current = true;
-            setQty(e.target.value);
-          }}
-          onBlur={() => {
-            const v = Number(qty) || 1;
-            if (v !== row.qty) onChange('qty', v);
-            dirtyRef.current = false;
-          }}
-          className={narrowNumClass}
-          data-testid={`${idBase}-qty`}
-        />
-      </td>
-      <td className="px-2 py-0.5 text-center">
-        <input
-          type="number"
-          min={1}
-          value={stories}
-          placeholder="—"
-          disabled={disabled}
-          onChange={(e) => {
-            dirtyRef.current = true;
-            setStories(e.target.value);
-          }}
-          onBlur={() => {
-            const v =
-              stories === '' ? null : Math.max(1, Number(stories) || 0) || null;
-            if (v !== (row.stories ?? null)) onChange('stories', v);
-            dirtyRef.current = false;
-          }}
-          className={narrowNumClass}
-          data-testid={`${idBase}-stories`}
-        />
-      </td>
-      {/* ★★★ fix-402 — the three shared controls. Each writes null when
-          cleared, so a row can always return to NOT RECORDED. */}
-      <td className="px-2 py-0.5 text-center">
-        <ParkingKindSelect
-          value={row.parking_kind}
-          disabled={disabled}
-          onChange={(v) => onChange('parking_kind', v)}
-          testid={`${idBase}-parking-kind`}
-        />
-      </td>
-      <td className="px-2 py-0.5 text-center">
-        <StallsInput
-          value={stalls}
-          disabled={disabled}
-          onChange={(raw) => {
-            dirtyRef.current = true;
-            setStalls(raw);
-          }}
-          onBlur={() => {
-            const v = parseStalls(stalls);
-            if (v !== (row.parking_stalls ?? null)) onChange('parking_stalls', v);
-            dirtyRef.current = false;
-          }}
-          testid={`${idBase}-stalls`}
-        />
-      </td>
-      <td className="px-2 py-0.5 text-center">
-        <RoofDeckSelect
-          value={row.roof_deck}
-          disabled={disabled}
-          onChange={(v) => onChange('roof_deck', v)}
-          testid={`${idBase}-roof-deck`}
-        />
-      </td>
+      <UnitCell testId={`library-unit-${projectId}-${index}-width`} value={row.width_ft} />
+      <UnitCell testId={`library-unit-${projectId}-${index}-depth`} value={row.depth_ft} />
+      <UnitCell testId={`library-unit-${projectId}-${index}-size`} value={row.size_sf} />
+      <UnitCell testId={`library-unit-${projectId}-${index}-qty`} value={row.qty} />
+      <UnitCell testId={`library-unit-${projectId}-${index}-stories`} value={row.stories} />
+      <UnitCell
+        testId={`library-unit-${projectId}-${index}-parking`}
+        text={parkingKindCode(row.parking_kind ?? null)}
+      />
+      <UnitCell testId={`library-unit-${projectId}-${index}-stalls`} value={row.parking_stalls} />
+      <UnitCell
+        testId={`library-unit-${projectId}-${index}-roofdeck`}
+        text={row.roof_deck == null ? NOT_RECORDED : row.roof_deck ? 'Y' : 'N'}
+      />
       {trailing}
     </tr>
+  );
+}
+
+/** ★ One read-only cell. `null` prints the NOT-RECORDED dash and `0` prints
+ *  `0` — fix-386's rule, which mattered more here than anywhere: a Library
+ *  filter reading an unmeasured unit as zero square feet is how somebody
+ *  searching for 1,700 sf units silently misses them. */
+function UnitCell({
+  value,
+  text,
+  testId,
+}: {
+  value?: number | null;
+  text?: string;
+  testId: string;
+}) {
+  const shown = text !== undefined ? text : value == null ? NOT_RECORDED : String(value);
+  return (
+    <td
+      className="px-2 py-0.5 text-center font-mono text-[11px] text-text"
+      data-testid={testId}
+    >
+      {shown}
+    </td>
   );
 }
 

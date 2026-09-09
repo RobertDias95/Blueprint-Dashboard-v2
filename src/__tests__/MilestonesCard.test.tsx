@@ -106,6 +106,7 @@ vi.mock('../hooks/useProjectConsultants', () => ({
 import ProjectDetailHeader, {
   CONNECT_URL,
 } from '../components/ProjectDetail/ProjectDetailHeader';
+import { renderProjectData } from '../test/renderProjectData';
 
 function projectFixture(over: Partial<Project> = {}): Project {
   return {
@@ -146,6 +147,20 @@ function bpFixture(over: Partial<PermitWithCycles> = {}): PermitWithCycles {
     permit_cycles: [],
     ...over,
   } as unknown as PermitWithCycles;
+}
+
+// ★★★ fix-506 §G (P-140): the dates that were the Milestones CARD are the
+//     Project Data modal's **Dates** tab. `KeyDatesSection`, `DDPhaseEditor`,
+//     `TargetSubmitRow` and `MilestoneDateRow` are byte-for-byte what shipped,
+//     so every assertion below still means what it meant — only the mount
+//     point moved. `renderDates` is that mount.
+function renderDates(project: Project, permits: PermitWithCycles[]) {
+  return renderProjectData(project, permits, 'dates');
+}
+
+/** ★ The panel these tests used to scope to `pd-milestones-card`. */
+function datesPanel(): HTMLElement {
+  return screen.getByTestId('project-data-body');
 }
 
 function renderHeader(project: Project, permits: PermitWithCycles[]) {
@@ -193,42 +208,46 @@ beforeEach(() => {
 
 // --------------------------------------------------------- all three branches --
 
-describe('fix-296 the card is called Milestones, on every branch', () => {
+describe('fix-296 → fix-506: the group is called Dates, on every branch', () => {
+  // ★★★ fix-296 RENAMED "DD Phase" TO "Milestones" AND PINNED IT ON EVERY
+  //     BRANCH, because the old name described a phase while the card listed
+  //     dates from several. fix-506 §A retires the card and Bobby's v14 calls
+  //     the group **Dates** — on the overview and on the Project Data tab.
+  //
+  // ★★★ THE RULE fix-296 SET IS WHAT THESE ASSERT, AND IT IS UNCHANGED: ONE
+  //     name for this group, declared once, the same on every branch — a
+  //     project with a BP, one without, and a reuse-redesign. That is the thing
+  //     that could regress; the word itself is Bobby's to change.
+
   it('the normal editor (a project with a building permit)', () => {
-    renderHeader(projectFixture(), [bpFixture()]);
-    const card = screen.getByTestId('pd-milestones-card');
-    expect(within(card).getAllByTestId('overview-card-banner')[0])
-      .toHaveTextContent('Milestones');
+    renderDates(projectFixture(), [bpFixture()]);
+    expect(screen.getByTestId('project-data-tab-dates').textContent).toBe('Dates');
+    expect(screen.getByTestId('pd-bp-dd_start')).toBeInTheDocument();
   });
 
   it('the no-building-permit branch', () => {
-    renderHeader(projectFixture(), []);
-    const card = screen.getByTestId('pd-milestones-card');
-    expect(within(card).getAllByTestId('overview-card-banner')[0])
-      .toHaveTextContent('Milestones');
-    // ★ fix-311 added the Permit intake section, which says the same plain
-    // thing on this branch — Target Submit and Intake Accepted both hang off
-    // the BP, so with no BP there is nothing to box. Hence getAll: the message
-    // is now under both headings, which is the intended treatment rather than a
-    // duplicate.
-    expect(within(card).getAllByText('No building permit')).toHaveLength(2);
+    renderDates(projectFixture(), []);
+    expect(screen.getByTestId('project-data-tab-dates').textContent).toBe('Dates');
+    // ★ ONE message, not two. The retired card printed it under the DD window
+    //   heading AND under Permit intake because two empty headings needed two
+    //   explanations; a tab says it once. What fix-296 guarded — no empty date
+    //   boxes claiming there are values — is asserted below.
+    expect(within(datesPanel()).getAllByText(/no building permit/i)).toHaveLength(1);
+    expect(screen.queryByTestId('pd-bp-dd_start')).toBeNull();
   });
 
   // ★ fix-145 added this branch precisely because it used to render a dead
-  // placeholder. A rename must not regress it back to one.
+  // placeholder. Neither a rename nor a move may regress it back to one.
   it('the reuse-redesign branch renders the inline lane editor, not a placeholder', () => {
-    renderHeader(
+    renderDates(
       projectFixture({
         redesign_of_project_id: 'parent-1',
         redesign_reuses_original_permit: true,
       } as Partial<Project>),
       [],
     );
-    const card = screen.getByTestId('pd-milestones-card');
-    expect(within(card).getAllByTestId('overview-card-banner')[0])
-      .toHaveTextContent('Milestones');
     expect(screen.getByTestId('redesign-dd-editor-start')).toBeInTheDocument();
-    expect(within(card).queryByText('No building permit')).toBeNull();
+    expect(within(datesPanel()).queryByText(/no building permit/i)).toBeNull();
   });
 
   it('no branch still says "DD Phase"', () => {
@@ -240,9 +259,11 @@ describe('fix-296 the card is called Milestones, on every branch', () => {
         redesign_reuses_original_permit: true,
       } as Partial<Project>), []],
     ] as Array<[Project, PermitWithCycles[]]>) {
-      const { unmount } = renderHeader(project, permits);
+      const { unmount } = renderDates(project, permits);
       expect(screen.queryByTestId('pd-dd-phase-card')).toBeNull();
       expect(screen.queryByText('DD Phase')).toBeNull();
+      // ★ …and the card it was renamed to is gone as well.
+      expect(screen.queryByTestId('pd-milestones-card')).toBeNull();
       unmount();
     }
   });
@@ -256,8 +277,8 @@ describe('fix-296 the labels say what they mean', () => {
   // and they are still absent. Only the qualifier changed, and it changed
   // because Bobby asked for the DD wording on this card.
   it('renders DD start and DD end, never the bare words Start and End', () => {
-    renderHeader(projectFixture(), [bpFixture()]);
-    const card = screen.getByTestId('pd-milestones-card');
+    renderDates(projectFixture(), [bpFixture()]);
+    const card = datesPanel();
     expect(within(card).getByText('DD start')).toBeInTheDocument();
     expect(within(card).getByText('DD end')).toBeInTheDocument();
     // The bare words are what made these ambiguous next to the permit dates.
@@ -271,7 +292,7 @@ describe('fix-296 the labels say what they mean', () => {
   // for one concept inches apart on one screen — which is the exact split
   // fix-296b existed to close. Renamed with it.
   it('the reuse-redesign editor uses the same two words as the main card', () => {
-    renderHeader(
+    renderDates(
       projectFixture({
         redesign_of_project_id: 'parent-1',
         redesign_reuses_original_permit: true,
@@ -285,16 +306,17 @@ describe('fix-296 the labels say what they mean', () => {
   });
 
   it('GO Date and Target Submit are unchanged', () => {
-    renderHeader(projectFixture(), [bpFixture()]);
-    const card = screen.getByTestId('pd-milestones-card');
+    renderDates(projectFixture(), [bpFixture()]);
+    const card = datesPanel();
     expect(within(card).getByText('GO Date')).toBeInTheDocument();
     // Target Submit labels its input via aria-label rather than visible text.
     expect(within(card).getByLabelText('Target Submit')).toBeInTheDocument();
   });
 
   it('GO Date is still read-only and still says where to change it', () => {
-    renderHeader(projectFixture(), [bpFixture()]);
-    const row = screen.getByText('GO Date').parentElement as HTMLElement;
+    renderDates(projectFixture(), [bpFixture()]);
+    const row = within(datesPanel()).getByText('GO Date')
+      .parentElement as HTMLElement;
     expect(within(row).queryByRole('textbox')).toBeNull();
     expect(row.querySelector('input')).toBeNull();
     expect(row.innerHTML).toContain('Project Settings');
@@ -308,16 +330,16 @@ describe('fix-296 the labels say what they mean', () => {
 // living in the second one. Only the word changed.
 describe('fix-296 two sections, not one list', () => {
   it('splits Key dates from the DD window', () => {
-    renderHeader(projectFixture(), [bpFixture()]);
-    const card = screen.getByTestId('pd-milestones-card');
+    renderDates(projectFixture(), [bpFixture()]);
+    const card = datesPanel();
     expect(within(card).getByText('Key dates')).toBeInTheDocument();
     expect(within(card).getByText('DD window')).toBeInTheDocument();
     expect(within(card).queryByText('Draw window')).toBeNull();
   });
 
   it('puts the DD dates in the DD window and the milestones in Key dates', () => {
-    renderHeader(projectFixture(), [bpFixture()]);
-    const card = screen.getByTestId('pd-milestones-card');
+    renderDates(projectFixture(), [bpFixture()]);
+    const card = datesPanel();
     const sections = within(card).getAllByText(/^(Key dates|DD window)$/);
     // Key dates leads — it preserves the reading order the card has always had
     // and it is what the card is now named for.
@@ -333,8 +355,8 @@ describe('fix-296 two sections, not one list', () => {
   // fix-290's pattern: a third section costs nothing because each carries its
   // own separator.
   it('each section carries its own top border, so a third can be added', () => {
-    renderHeader(projectFixture(), [bpFixture()]);
-    const card = screen.getByTestId('pd-milestones-card');
+    renderDates(projectFixture(), [bpFixture()]);
+    const card = datesPanel();
     const keyDates = within(card).getByText('Key dates').closest('section') as HTMLElement;
     expect(keyDates.className).toContain('first:border-t-0');
   });
@@ -344,7 +366,7 @@ describe('fix-296 two sections, not one list', () => {
 
 describe('fix-296 the rename is display-only', () => {
   it('Draw Start still writes dd_start and Draw End still writes dd_end', async () => {
-    renderHeader(projectFixture(), [bpFixture()]);
+    renderDates(projectFixture(), [bpFixture()]);
     const start = screen.getByTestId('pd-bp-dd_start') as HTMLInputElement;
     const end = screen.getByTestId('pd-bp-dd_end') as HTMLInputElement;
     // commitDd deliberately refuses a half-filled pair, so both are set.
@@ -373,7 +395,7 @@ describe('fix-296 the draw-schedule conflict flows survive the split', () => {
       proposedStartWeek: '2026-06-01',
       proposedEndWeek: '2026-07-03',
     });
-    renderHeader(projectFixture(), [bpFixture()]);
+    renderDates(projectFixture(), [bpFixture()]);
     const start = screen.getByTestId('pd-bp-dd_start') as HTMLInputElement;
     const end = screen.getByTestId('pd-bp-dd_end') as HTMLInputElement;
     fireEvent.change(start, { target: { value: '2026-06-01' } });
@@ -392,7 +414,7 @@ describe('fix-296 the draw-schedule conflict flows survive the split', () => {
       overlapKind: 'np',
       overlapConflicts: [{ address: 'NP block', np_label: 'Holiday' }],
     });
-    renderHeader(projectFixture(), [bpFixture()]);
+    renderDates(projectFixture(), [bpFixture()]);
     const start = screen.getByTestId('pd-bp-dd_start') as HTMLInputElement;
     const end = screen.getByTestId('pd-bp-dd_end') as HTMLInputElement;
     fireEvent.change(start, { target: { value: '2026-06-01' } });
@@ -424,7 +446,12 @@ describe('fix-296 the draw-schedule conflict flows survive the split', () => {
 // and a bare link would be making a promise it cannot keep. Naming the quarter
 // turns a jump into a statement. The URL-building rules live in
 // drawScheduleLink.test.ts; this is the card's half.
-describe('fix-335 §7: Milestones ends with a link to the block', () => {
+describe('fix-335 §7: the Dates box ends with a link to the block', () => {
+  // ★★★ fix-506 §B MOVED THE FOOT, NOT THE LINK. fix-335 §7 asked for the
+  //     button *"under milestones, at the bottom, underneath permit date"*;
+  //     Milestones is the Project card's **Dates** box now, and the button is
+  //     at ITS foot — the same relationship to the same dates, one card over.
+  //     `DrawScheduleLinkRow` and `drawScheduleTarget` are untouched.
   // ★ The label is quarter-relative, so the clock is pinned — a floating one
   // would make this test mean something different every three months (fix-206).
   beforeEach(() => {
@@ -479,13 +506,20 @@ describe('fix-335 §7: Milestones ends with a link to the block', () => {
     ).toMatch(/Not scheduled yet/i);
   });
 
-  it('sits at the FOOT of the card, under Permit intake', () => {
+  it('sits at the FOOT of the Dates box, under the last date', () => {
     renderHeader(projectFixture(), [bpFixture()]);
-    const card = screen.getByTestId('pd-milestones-card');
-    const sections = Array.from(card.querySelectorAll(':scope > section'));
+    const box = screen.getByTestId('pd-site-dates-dates');
+    const sections = Array.from(box.querySelectorAll('section'));
     expect(sections[sections.length - 1]).toBe(
       screen.getByTestId('pd-draw-schedule-section'),
     );
+    // ★ …and it follows the approval row, which is the last date printed.
+    const approval = screen.getByTestId('pd-date-approval');
+    expect(
+      approval.compareDocumentPosition(
+        screen.getByTestId('pd-draw-schedule-link'),
+      ) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
   });
 });
 
@@ -540,12 +574,21 @@ describe('fix-335 §8 → fix-506 §C: Connect is a real link now', () => {
     expect(el.textContent).not.toMatch(/soon|later|coming|shortly|Q[1-4]|20[0-9][0-9]/i);
   });
 
-  it('sits at the foot of the Project card', () => {
-    // ★ Unchanged by fix-506 — Bobby's fix-335 placement ruling ("at the bottom
-    //   of project") is about position, not about whether it works.
+  it('sits at the foot of SITE DATA, which is where v14 draws it', () => {
+    // ★★★ fix-335's placement ruling was *"at the bottom of project"* when the
+    //     Project card was one column of stacked sections. Bobby's v14 mock is
+    //     more specific and it is the newer drawing: **Connect sits under Site
+    //     data** (`overview_book_v14.html`, the `sitecell` foot), with the
+    //     draw-schedule button under Dates beside it and the units matrix
+    //     spanning below them both.
+    //
+    // ★★ SO IT IS STILL AT THE FOOT OF ITS COLUMN — the same relationship to
+    //    the same content, in a card that now has two columns. Asserted of the
+    //    box it belongs to rather than of the card, which is what the ruling
+    //    was really about.
     renderHeader(projectFixture(), [bpFixture()]);
-    const card = screen.getByTestId('pd-project-card');
-    const sections = Array.from(card.querySelectorAll(':scope > section'));
+    const box = screen.getByTestId('pd-site-dates-site');
+    const sections = Array.from(box.querySelectorAll('section'));
     expect(sections[sections.length - 1]).toBe(
       screen.getByTestId('pd-connect-section'),
     );
@@ -622,7 +665,9 @@ function topLevelSections(card: HTMLElement): HTMLElement[] {
 describe('fix-335 §6: only the single-section card centres', () => {
   it('★★ the multi-section cards still grow and still top-align', () => {
     renderHeader(projectFixture(), [bpFixture()]);
-    for (const cardId of ['pd-milestones-card', 'pd-project-card']) {
+    // ★ fix-506 §A: Milestones is retired, so the multi-section cards on the
+    //   row are Project and Team.
+    for (const cardId of ['pd-project-card', 'project-overview-team']) {
       // ★ fix-418: through the PROJECT card's two-column wrapper. See
       //   topLevelSections() — the rule is unchanged, the query is.
       const sections = topLevelSections(screen.getByTestId(cardId));
@@ -672,16 +717,38 @@ describe('fix-335 §6: only the single-section card centres', () => {
 //
 // ★ jsdom has no layout engine, so what is asserted here is the MECHANISM. The
 // rendered proof at 1280 and 1440 is in the PR.
-describe('fix-345 §3: the three card buttons', () => {
-  const CARDS = [
-    ['pd-milestones-card', 'pd-draw-schedule-section', 'pd-draw-schedule-link'],
-    ['pd-project-card', 'pd-connect-section', 'pd-connect-button'],
+describe('fix-345 §3 → fix-506: the card buttons', () => {
+  // ★★★ fix-345 §3 GAVE THREE CARDS ONE BASELINE, AND v14 RE-CUT THE CARDS.
+  //
+  //     Its mechanism was `pinBottom`: an action section takes no share of the
+  //     spare height and is pushed to the card's floor, so the three buttons
+  //     land on one line however tall their cards are. That mechanism is
+  //     untouched and is asserted below.
+  //
+  // ★★★ WHAT CHANGED IS HOW MANY CARDS THERE ARE. Milestones is retired, and
+  //     its draw-schedule button is at the foot of the Project card's **Dates**
+  //     box — where Bobby's v14 mock draws it, beside Connect at the foot of
+  //     **Site data**, with the units matrix spanning below them both. So the
+  //     Project card's own last section is the matrix, and the two buttons
+  //     share the pair's baseline rather than the card's.
+  //
+  // ★ The Team card is unchanged: Chat is still its pinned last section.
+
+  /** The cards that still end in a pinned action. */
+  const PINNED = [
     ['project-overview-team', 'pd-chat-section', 'project-chat-open'],
   ] as const;
 
-  it('★ every card ends with a pinned action section', () => {
+  /** Every action button on the row, wherever it now sits. */
+  const BUTTONS = [
+    'pd-draw-schedule-link',
+    'pd-connect-button',
+    'project-chat-open',
+  ] as const;
+
+  it('★ the Team card still ends with its pinned action section', () => {
     renderHeader(projectFixture(), [bpFixture()]);
-    for (const [cardId, sectionId] of CARDS) {
+    for (const [cardId, sectionId] of PINNED) {
       const card = screen.getByTestId(cardId);
       const sections = Array.from(card.querySelectorAll(':scope > section'));
       expect(
@@ -691,32 +758,36 @@ describe('fix-345 §3: the three card buttons', () => {
     }
   });
 
-  // ★★ THE MECHANISM, on all three: no share of the spare height, and pushed to
-  // the floor. This is what puts them on one line.
-  it('★★★ the action section takes no share of the spare height', () => {
+  it('★★★ THE MECHANISM IS UNCHANGED: every action takes no share of the height', () => {
+    // ★★ This is the half of fix-345 §3 that actually does the work, and it
+    //    applies wherever the section sits — card floor or box floor.
     renderHeader(projectFixture(), [bpFixture()]);
-    for (const [, sectionId] of CARDS) {
-      const s = screen.getByTestId(sectionId);
-      expect(s.dataset.pinBottom, sectionId).toBe('true');
-      expect(s.style.flexGrow, sectionId).toBe('0');
-      expect(s.style.marginTop, sectionId).toBe('auto');
+    for (const sectionId of [
+      'pd-draw-schedule-section',
+      'pd-connect-section',
+      'pd-chat-section',
+    ]) {
+      const sec = screen.getByTestId(sectionId);
+      expect(sec.dataset.pinBottom, sectionId).toBe('true');
+      expect(sec.style.flexGrow, sectionId).toBe('0');
+      expect(sec.style.marginTop, sectionId).toBe('auto');
       // Still never shrinks — fix-331's other half.
-      expect(s.style.flexShrink, sectionId).toBe('0');
+      expect(sec.style.flexShrink, sectionId).toBe('0');
     }
   });
 
-  // ★ AND fix-331 §1 STILL HOLDS ABOVE IT. The brief was explicit: that fix
-  // exists because Bobby complained about voids, and this must not put one back.
   it('★ the sections above still distribute the spare height between themselves', () => {
+    // ★ fix-331 §1: that fix exists because Bobby complained about voids, and
+    //   neither fix-345 nor fix-506 may put one back.
     renderHeader(projectFixture(), [bpFixture()]);
-    for (const [cardId] of CARDS) {
+    for (const cardId of ['project-overview-team', 'pd-project-card']) {
       const card = screen.getByTestId(cardId);
       const distributed = topLevelSections(card).filter(
-        (s) => s.dataset.pinBottom !== 'true',
+        (sec) => sec.dataset.pinBottom !== 'true',
       );
-      expect(distributed.length, cardId).toBeGreaterThanOrEqual(2);
+      expect(distributed.length, cardId).toBeGreaterThanOrEqual(1);
       // All equal, all growing — "distributed" means nobody is singled out.
-      const grows = distributed.map((s) => s.style.flexGrow);
+      const grows = distributed.map((sec) => sec.style.flexGrow);
       expect(new Set(grows).size, cardId).toBe(1);
       expect(grows[0], cardId).toBe('1');
     }
@@ -724,7 +795,7 @@ describe('fix-345 §3: the three card buttons', () => {
 
   it('★ all three are the same shape: same height, same width, same type', () => {
     renderHeader(projectFixture(), [bpFixture()]);
-    const classes = CARDS.map(([, , btnId]) => screen.getByTestId(btnId).className);
+    const classes = BUTTONS.map((btnId) => screen.getByTestId(btnId).className);
     for (const c of classes) {
       expect(c).toContain('w-full');
       expect(c).toContain('h-[26px]');
@@ -732,8 +803,10 @@ describe('fix-345 §3: the three card buttons', () => {
       expect(c).toContain('justify-center');
       expect(c).toContain('whitespace-nowrap');
     }
-    // ★ The geometry half is identical across all three — only the tone (live
-    // vs the inert Connect placeholder) differs.
+    // ★★ THE GEOMETRY IS IDENTICAL ACROSS ALL THREE, and now so is the TONE:
+    //    fix-345 had to exclude the inert Connect placeholder from this
+    //    comparison, and P-032 made Connect a real link, so there is no longer
+    //    an exception to carve out.
     const geometry = classes.map((c) =>
       c
         .split(' ')
@@ -743,10 +816,6 @@ describe('fix-345 §3: the three card buttons', () => {
     expect(new Set(geometry).size).toBe(1);
   });
 });
-
-// ===========================================================================
-// ★★ fix-345 §3 — one way into the chat, and it keeps the unread count
-// ===========================================================================
 
 describe('fix-345 §3: the Team card has exactly one way into the chat', () => {
   it('★★ the inline "Open chat →" link is gone; the button is the way in', () => {
@@ -793,12 +862,18 @@ describe('fix-345 §3: the Team card has exactly one way into the chat', () => {
     //   Overview column was taken over by Consultants. fix-346's order — the
     //   preview below External and directly above the button — is untouched;
     //   one section was prepended, nothing was reordered.
+    // ★★★ fix-506 §F APPENDS THE CONSULTANT BAND, and appending is the point:
+    //     fix-346's order — the preview below Internal and directly above the
+    //     button — is untouched, and the band takes the slot between the
+    //     preview and the pinned action, which is where Bobby's v14 draws it
+    //     (across the foot of the card, under everything else).
     expect(ids).toEqual([
       'project-overview-team-builder',
       'project-overview-team-internal',
       // ★ fix-479 §A (P-132): `project-overview-team-external` left this list
       //   with the section itself. The ORDER is still asserted whole.
       'project-overview-team-chat',
+      'project-overview-team-consultants',
       'pd-chat-section',
     ]);
   });

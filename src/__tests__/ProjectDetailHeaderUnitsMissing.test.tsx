@@ -4,6 +4,7 @@ import { render, screen } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { ReactNode } from 'react';
 import { useAuthStore } from '../stores/authStore';
+import type { Project } from '../lib/database.types';
 
 // fix-88: amber "⚠ missing" badge in the Proposal cell when project.units
 // is null or 0. Bobby spotted 2724 Walnut Ave SW had the Proposal section
@@ -120,29 +121,58 @@ beforeEach(() => {
 });
 
 describe('ProjectDetailHeader — fix-88 missing-units badge', () => {
-  it('renders the badge when project.units is null', () => {
-    renderHeader({ units: null });
-    expect(screen.getByTestId('units-missing-badge')).toBeInTheDocument();
-    expect(screen.getByTestId('units-missing-badge').textContent).toMatch(
-      /missing/i,
-    );
+  // =========================================================================
+  // ★★★ SUPERSEDED BY fix-506 §C — THE COUNT IS DERIVED, SO IT CANNOT BE MISSING
+  // =========================================================================
+  //
+  // fix-88 added this badge because Bobby spotted 2724 Walnut Ave SW (and one
+  // other) saved without a unit count — the pre-fix-88 wizard did not gate it —
+  // and the badge made the gap visible so somebody could backfill it. NULL and
+  // 0 both flagged, because 0 is not a real unit count for any project type
+  // this app handles.
+  //
+  // ★★★ fix-506 §C REMOVES THE GAP RATHER THAN REPORTING IT. Bobby's v14 rule
+  //     is *"Units — derived count of unit rows"*, so the overview sums the
+  //     `qty` of the unit types the matrix underneath actually prints. A number
+  //     computed from the rows on screen cannot be stale, cannot be missing,
+  //     and cannot disagree with what is under it — which is the whole of what
+  //     fix-88 was defending against.
+  //
+  // ★★ `projects.units` IS STILL WRITTEN and still edits in Project Settings;
+  //    what stopped is the OVERVIEW reading it. Nothing was backfilled and no
+  //    migration rides with this — it is a display change.
+
+  it('★★★ SUPERSEDED: no badge, because the count is summed from the rows', () => {
+    renderHeader({
+      units: null,
+      unit_types: [
+        { label: 'Duplex', width_ft: 24, depth_ft: 40, qty: 2 },
+        { label: 'SFR', width_ft: 30, depth_ft: 50, qty: 1 },
+      ],
+    } as Partial<Project>);
+    expect(screen.queryByTestId('units-missing-badge')).toBeNull();
+    expect(screen.getByTestId('pd-site-units-count').textContent).toBe('3');
   });
 
-  it('renders the badge when project.units is 0 (0 is not a valid count)', () => {
-    renderHeader({ units: 0 });
-    expect(screen.getByTestId('units-missing-badge')).toBeInTheDocument();
+  it('★★★ a project with NO unit rows reads 0 — a fact, not a warning', () => {
+    // ★ fix-88 treated 0 as "nobody has said". Derived, it means exactly what
+    //   it says: the matrix lists no units. The matrix beside it says the same
+    //   thing in more detail, so a badge would be a third telling.
+    renderHeader({ units: null, unit_types: null } as Partial<Project>);
+    expect(screen.queryByTestId('units-missing-badge')).toBeNull();
+    expect(screen.getByTestId('pd-site-units-count').textContent).toBe('0');
+    expect(screen.getByTestId('pd-units-matrix-empty')).toBeInTheDocument();
   });
 
-  it('does NOT render the badge when project.units is a positive integer', () => {
-    renderHeader({ units: 4 });
-    expect(screen.queryByTestId('units-missing-badge')).not.toBeInTheDocument();
-  });
-
-  it('badge has a helpful tooltip pointing to Project Settings', () => {
-    renderHeader({ units: null });
-    const badge = screen.getByTestId('units-missing-badge');
-    const title = badge.getAttribute('title') ?? '';
-    expect(title).toMatch(/unit count/i);
-    expect(title).toMatch(/settings/i);
+  it('★★ the STORED count is ignored, even when it disagrees', () => {
+    // ★★★ THE CASE THAT MADE THIS WORTH DOING. `projects.units` and the unit
+    //     rows have been free to disagree since the wizard started writing
+    //     both, and the overview showed the stored one. Now it shows the sum,
+    //     so the number and the table under it can never contradict each other.
+    renderHeader({
+      units: 99,
+      unit_types: [{ label: 'Duplex', width_ft: 24, depth_ft: 40, qty: 2 }],
+    } as Partial<Project>);
+    expect(screen.getByTestId('pd-site-units-count').textContent).toBe('2');
   });
 });

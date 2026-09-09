@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { renderProjectData } from '../test/renderProjectData';
 import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router-dom';
@@ -136,6 +137,10 @@ function bpFixture(over: Partial<PermitWithCycles> = {}): PermitWithCycles {
   } as unknown as PermitWithCycles;
 }
 
+function renderDates(project: Project, permits: PermitWithCycles[]) {
+  return renderProjectData(project, permits, 'dates');
+}
+
 function renderHeader(project: Project, permits: PermitWithCycles[]) {
   const bp = permits.find((p) => p.type === 'Building Permit') ?? permits[0] ?? null;
   const queryClient = new QueryClient({
@@ -171,17 +176,24 @@ beforeEach(() => {
   } as never);
 });
 
-/** The Key dates section of the Milestones card. */
+/** The Key dates section — the Project Data modal's Dates tab since fix-506. */
 function keyDatesSection(): HTMLElement {
-  const card = screen.getByTestId('pd-milestones-card');
-  return within(card).getByText('Key dates').closest('section') as HTMLElement;
+  const panel = screen.getByTestId('project-data-body');
+  return within(panel).getByText('Key dates').closest('section') as HTMLElement;
 }
 
 // ------------------------------------------------------------------- #51 --
 
+// ★★★ fix-506 §G (P-140): #51 through #53 are about the DATE ROWS, and the
+//     overview is read-only now — those rows are the Project Data modal's
+//     **Dates** tab. `KeyDatesSection`, `MilestoneDateRow`, `SchematicRows`
+//     and `DDPhaseEditor` are byte-for-byte what shipped, so every assertion
+//     below still means what it meant; only `renderDates` differs from
+//     `renderHeader`.
+
 describe('fix-309 #51: Key dates is GO Date then Closing date, and nothing else', () => {
   it('renders exactly those two, in that order', () => {
-    renderHeader(projectFixture(), [bpFixture()]);
+    renderDates(projectFixture(), [bpFixture()]);
     const section = keyDatesSection();
     const text = section.textContent ?? '';
     expect(text).toContain('GO Date');
@@ -191,20 +203,20 @@ describe('fix-309 #51: Key dates is GO Date then Closing date, and nothing else'
   });
 
   it('does not carry Target Submit any more — it moved under the DD window', () => {
-    renderHeader(projectFixture(), [bpFixture()]);
+    renderDates(projectFixture(), [bpFixture()]);
     const section = keyDatesSection();
     expect(within(section).queryByTestId('pd-target-submit')).toBeNull();
     expect(section.textContent ?? '').not.toMatch(/target/i);
     // ...but it is still on the card, and still editable. Moving a row out of
     // "Key dates" must not delete it.
-    const card = screen.getByTestId('pd-milestones-card');
+    const card = screen.getByTestId('project-data-body');
     const input = within(card).getByTestId('pd-target-submit');
     expect(input).toBeInTheDocument();
     expect(input).not.toBeDisabled();
   });
 
   it('is the same two rows on the permit-less branch, not a different card', () => {
-    renderHeader(projectFixture(), []);
+    renderDates(projectFixture(), []);
     const text = keyDatesSection().textContent ?? '';
     expect(text).toContain('GO Date');
     expect(text).toContain('Closing');
@@ -216,11 +228,11 @@ describe('fix-309 #51: Key dates is GO Date then Closing date, and nothing else'
 
 describe('fix-309 #49: the duration line is gone', () => {
   it('renders no Duration anywhere on the Milestones card', () => {
-    renderHeader(
+    renderDates(
       projectFixture(),
       [bpFixture({ dd_start: '2026-06-01', dd_end: '2026-07-03' } as Partial<PermitWithCycles>)],
     );
-    const card = screen.getByTestId('pd-milestones-card');
+    const card = screen.getByTestId('project-data-body');
     expect(within(card).queryByText(/duration/i)).toBeNull();
     // The regression that would sneak it back: a bare "N weeks" readout with a
     // different label. The number it was computed from is 4.7 weeks / 32 days.
@@ -232,8 +244,8 @@ describe('fix-309 #49: the duration line is gone', () => {
 
 describe('fix-309 #52: the labels read DD start / DD end — display only', () => {
   it('shows the new words and not the old ones', () => {
-    renderHeader(projectFixture(), [bpFixture()]);
-    const card = screen.getByTestId('pd-milestones-card');
+    renderDates(projectFixture(), [bpFixture()]);
+    const card = screen.getByTestId('project-data-body');
     expect(within(card).getByText('DD start')).toBeInTheDocument();
     expect(within(card).getByText('DD end')).toBeInTheDocument();
     expect(within(card).queryByText('Draw Start')).toBeNull();
@@ -241,7 +253,7 @@ describe('fix-309 #52: the labels read DD start / DD end — display only', () =
   });
 
   it('keeps the test ids, which are the DB vocabulary', () => {
-    renderHeader(projectFixture(), [bpFixture()]);
+    renderDates(projectFixture(), [bpFixture()]);
     expect(screen.getByTestId('pd-bp-dd_start')).toBeInTheDocument();
     expect(screen.getByTestId('pd-bp-dd_end')).toBeInTheDocument();
   });
@@ -250,7 +262,7 @@ describe('fix-309 #52: the labels read DD start / DD end — display only', () =
   // rename that reached the payload would turn a wording change into a
   // migration, and this is what catches it.
   it('writes ddStart / ddEnd through bp_set_bp_dd_dates, with no renamed key', async () => {
-    renderHeader(projectFixture(), [bpFixture()]);
+    renderDates(projectFixture(), [bpFixture()]);
     const start = screen.getByTestId('pd-bp-dd_start') as HTMLInputElement;
     const end = screen.getByTestId('pd-bp-dd_end') as HTMLInputElement;
     // commitDd refuses a half-filled pair, so both are set before the blur.
@@ -284,7 +296,7 @@ describe('fix-309 #53: the schematic window is derived, never stored', () => {
   // end so the two sit parallel with DD start / DD end. The WINDOW is unchanged
   // — same deriver, same two dates, two rows instead of one.
   it('renders that window above the DD row', () => {
-    renderHeader(
+    renderDates(
       projectFixture(),
       [bpFixture({ dd_start: '2026-06-01', dd_end: '2026-07-03' } as Partial<PermitWithCycles>)],
     );
@@ -294,7 +306,7 @@ describe('fix-309 #53: the schematic window is derived, never stored', () => {
     expect(screen.getByTestId('pd-sd-start')).toHaveTextContent(shownDate('2026-05-04'));
     expect(screen.getByTestId('pd-sd-end')).toHaveTextContent(shownDate('2026-06-01'));
     // Above, not below: the schematic phase precedes DD.
-    const card = screen.getByTestId('pd-milestones-card');
+    const card = screen.getByTestId('project-data-body');
     const text = card.textContent ?? '';
     expect(text.indexOf('SD')).toBeLessThan(text.indexOf('DD start'));
   });
@@ -302,7 +314,7 @@ describe('fix-309 #53: the schematic window is derived, never stored', () => {
   // ★ Derived means it MOVES. If it were stored at create time this passes on
   // the first render and silently rots on the second.
   it('moves when DD start moves', () => {
-    renderHeader(
+    renderDates(
       projectFixture(),
       [bpFixture({ dd_start: '2026-06-01', dd_end: '2026-07-03' } as Partial<PermitWithCycles>)],
     );
@@ -315,10 +327,10 @@ describe('fix-309 #53: the schematic window is derived, never stored', () => {
   });
 
   it('renders no window at all when DD start is null — never a garbage date', () => {
-    renderHeader(projectFixture(), [bpFixture({ dd_start: null } as Partial<PermitWithCycles>)]);
+    renderDates(projectFixture(), [bpFixture({ dd_start: null } as Partial<PermitWithCycles>)]);
     expect(screen.queryByTestId('pd-sd-start')).toBeNull();
     expect(screen.queryByTestId('pd-sd-end')).toBeNull();
-    expect(screen.getByTestId('pd-milestones-card').textContent ?? '').not.toMatch(
+    expect(screen.getByTestId('project-data-body').textContent ?? '').not.toMatch(
       /NaN|Invalid|1970/,
     );
     // And the deriver agrees, for the inputs a form can actually produce.
@@ -369,29 +381,29 @@ describe('fix-309 #55: the card row is one equal-height band', () => {
     const grid = screen.getByTestId('project-overview-grid');
     expect(getComputedStyle(grid).alignItems).toBe('stretch');
 
+    // ★★★ fix-441 §B's EXCEPTION IS GONE WITH ITS CARD, AND THAT RESTORES
+    //     fix-309 #55 WHOLE. fix-441 let ONE cell stop at its own content —
+    //     Builder/Owner, then Consultants — because a card with the least to
+    //     say was carrying the most empty space under an equal-height band.
+    //     Both of those cards are retired: Builder/Owner is a Team section and
+    //     the consultant pills are a band across Team's foot. Every cell in
+    //     the row stretches again, with no exception to spread by accident.
     const c = cells();
-    for (const area of ['dd', 'proj', 'team', 'por']) {
+    for (const area of ['por', 'proj', 'team']) {
       expect(c[area], `missing cell: ${area}`).toBeTruthy();
       expect(getComputedStyle(c[area]).height, `cell ${area} does not stretch`).toBe('100%');
     }
-    // ★★★ …and the one exception, asserted as an exception rather than left
-    //     out of the loop, so it cannot spread by accident.
-    // ★★★ AMENDED BY fix-475: the SHORT CELL is `consultants` now. fix-441's
-    //     finding is about the CELL, not about Builder/Owner — a card with
-    //     the least to say must not be stretched to the row's height, and a
-    //     consultants list on a project with one consultant is exactly that
-    //     card. Both halves are still required together: `stretch` would
-    //     impose the height whatever the inline style said.
-    expect(c['consultants'], 'missing cell: consultants').toBeTruthy();
-    expect(getComputedStyle(c['consultants']).height).not.toBe('100%');
-    expect(getComputedStyle(c['consultants']).alignSelf).toBe('start');
+    expect(c['consultants']).toBeUndefined();
+    expect(c['builder']).toBeUndefined();
   });
 
   it('the cards themselves fill their cell rather than sitting at content height', () => {
     renderHeader(projectFixture(), [bpFixture()]);
-    // Milestones is the shortest card and the one the complaint named. If the
-    // OverviewCard shell does not fill, stretching the cell achieves nothing.
-    const card = screen.getByTestId('pd-milestones-card');
+    // ★ Milestones was the shortest card and the one the complaint named; it
+    //   is retired, so this is asserted of Team — the shortest of the three on
+    //   a project with no consultants and no builder. If the OverviewCard
+    //   shell does not fill, stretching the cell achieves nothing.
+    const card = screen.getByTestId('project-overview-team');
     expect(getComputedStyle(card).height).toBe('100%');
   });
 
@@ -399,8 +411,9 @@ describe('fix-309 #55: the card row is one equal-height band', () => {
     renderHeader(projectFixture(), [bpFixture()]);
     const grid = screen.getByTestId('project-overview-grid');
     const cols = trackShares(grid);
-    // fix-295's width survives: por is still the widest column.
-    expect(Math.max(...cols)).toBe(cols[3]);
+    // ★ fix-295's width survives: por is still the widest column — and it is
+    //   the FIRST one since fix-506 §A, so the index is looked up.
+    expect(Math.max(...cols)).toBe(cols[0]);
     // And nothing caps its height — a max-height would shrink it to the others.
     const por = cells().por;
     expect(por.style.maxHeight).toBeFalsy();

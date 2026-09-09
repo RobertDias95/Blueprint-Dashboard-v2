@@ -29,7 +29,12 @@ import {
   overviewWrapViewport,
   resolveOverviewWidths,
 } from '../lib/overviewCardLayout';
-import { UNIT_MATRIX_WIDTH } from '../lib/unitRowLayout';
+import {
+  UNIT_MATRIX_LABEL_COL,
+  UNIT_MATRIX_TRANSPOSED_WIDTH,
+  UNIT_MATRIX_TYPE_COL,
+} from '../lib/projectCardLayout';
+import { renderProjectData } from '../test/renderProjectData';
 
 // ===========================================================================
 // fix-423 — Milestones stops clipping, Team stops setting the height, and the
@@ -262,85 +267,48 @@ const widthOf = (key: string, rowPx: number) =>
 // §A · SCOPE 1 — Milestones gets width; Builder/Owner gives share, not floor
 // ---------------------------------------------------------------------------
 
-describe("fix-423 §A: the Milestones floor holds a date input and its label", () => {
-  it('★★★ the floor is DERIVED from the row, and the row from its parts', () => {
+describe('fix-423 §A → fix-506 §A: the Milestones floor, and the card that had it', () => {
+  // ★★★ EVERY ASSERTION IN fix-423 §A WAS ABOUT A CARD THAT NO LONGER EXISTS,
+  //     AND ITS FINDING IS WHY THE CARD COULD GO.
+  //
+  //     fix-423 measured the Milestones floor honestly for the first time:
+  //     four of its nine rows are `<input type="date">`, an input does NOT
+  //     reflow, and the card had been rendering 140px against a 222px need — so
+  //     the dates clipped at every width. It fixed that by raising the floor,
+  //     which pushed the row minimum UP (1,218) and the wrap point with it.
+  //
+  // ★★★ fix-506 §A TOOK THE OTHER EXIT. The overview is read-only now (P-140),
+  //     so those dates are PRINTED text in the Project card's Dates box — 60px
+  //     each instead of 100 — and the card itself is retired. The row minimum
+  //     falls to 904 and the wrap point to a 1474px window.
+  //
+  // ★★ THE CONSTANTS SURVIVE AND ARE STILL LOAD-BEARING: `MilestoneDateRow` is
+  //    the Project Data modal's Dates tab (fix-506 §G), so its declared minimum
+  //    still describes a real control — just one in a 760px modal rather than a
+  //    222px column.
+
+  it('★★★ the row minimum is STILL derived from its parts', () => {
     expect(MILESTONE_ROW_MIN_WIDTH).toBe(
       MILESTONE_LABEL_WIDTH +
         MILESTONE_LABEL_GAP +
         MILESTONE_BOX_CHROME +
         MILESTONE_DATE_INPUT_MIN,
     );
-    // ★ 222px. Measured in Chrome, not estimated — the brief guessed ~160.
-    expect(col('dd').minPx).toBe(MILESTONE_ROW_MIN_WIDTH + OVERVIEW_CARD_CHROME);
-    expect(col('dd').minPx).toBe(222);
+    expect(MILESTONE_ROW_MIN_WIDTH).toBe(200);
   });
 
-  it('★★★ the floor exceeds what the card was rendering at EVERY width', () => {
-    // ★ The three widths of the complaint, before this ticket: 140 / 140 / 169.
-    //   All three are under the 222 the card needs, which is why it clipped at
-    //   1440 as well as at 1280 — "intermittently" was the brief's word and it
-    //   was wrong.
-    expect(col('dd').minPx).toBeGreaterThan(169);
-    // ★★ AND THE FLOOR IS WHAT DELIVERS IT AT EVERY SUPPORTED WIDTH. 16% of the
-    //    row only exceeds 222px above a ~1427px row (a ~1997px window), so on a
-    //    1920 screen this card sits ON its floor. The share is Bobby's stated
-    //    intent and it decides above that; the floor is the mechanism below it.
-    for (const viewport of [1280, 1440, 1920]) {
-      expect(widthOf('dd', overviewRowWidthAt(viewport))).toBeGreaterThanOrEqual(
-        MILESTONE_ROW_MIN_WIDTH + OVERVIEW_CARD_CHROME,
-      );
-    }
+  it('★★★ SUPERSEDED: there is no `dd` column, and no `consultants` column', () => {
+    expect(OVERVIEW_CARD_COLUMNS.map((c) => c.key)).toEqual(['por', 'proj', 'team']);
+    // ★ And the row got CHEAPER, which is the opposite direction from fix-423 —
+    //   because this ticket removed cards rather than re-measuring them.
+    expect(OVERVIEW_ROW_MIN_WIDTH).toBeLessThan(1172);
   });
 
-  it("★★★ the floorReason no longer claims the card reflows", () => {
-    // ★ fix-417 wrote "Dates and short state words, all of which reflow" and
-    //   set 140 on that reading. THAT SENTENCE is why the floor was never
-    //   revisited, so the test is on the sentence as well as on the number.
-    const reason = col('dd').floorReason;
-    // ★ The old reason CLASSIFIED the card, in its first word: "SOFT. Dates and
-    //   short state words, all of which reflow". The new one quotes that
-    //   sentence in order to say it is false, so the guard is on the
-    //   classification and on the correction — not on the words appearing.
-    expect(reason.startsWith('SOFT')).toBe(false);
-    expect(reason).toMatch(/HARD/);
-    expect(reason).toMatch(/does NOT reflow|is FALSE/);
-    expect(reason).toMatch(/input/i);
-  });
-
-  it('★★ Builder/Owner gives SHARE and keeps its FLOOR', () => {
-    // ★★★ AMENDED BY fix-475: `builder` left the row and `consultants` holds
-    //     its slot. fix-423's claim was *"the SHARE moves, the FLOOR does
-    //     not"* — 19 → 16 of share, 190 of floor untouched. The SHARE half is
-    //     inherited unchanged; the FLOOR half is superseded, because the card
-    //     that needed 190 (an email in an <input>) is not the card that is
-    //     there any more. See ConsultantsCard for the 144px measurement.
-    expect(col('consultants').pct).toBe(16);
-    // ★★★ THE FLOOR IS UNTOUCHED. It is fix-417's reported defect — a full
-    //     email in an <input> that does not wrap — and it still has to hold at
-    //     the narrow end.
-    expect(col('consultants').minPx).toBe(144);
-    // ★ The slack is real and it is what was taken: 247px rendered at 1920
-    //   against a 190px floor. After: 204px, still 14 above the floor.
-    const after = widthOf('consultants', overviewRowWidthAt(1920));
-    expect(after).toBeGreaterThan(col('consultants').minPx);
-    expect(Math.round(after)).toBe(204);
-  });
-
-  it('★ the five shares still sum to 100', () => {
-    expect(OVERVIEW_CARD_COLUMNS.reduce((a, c) => a + c.pct, 0)).toBe(100);
-  });
-
-  it("★★★ the Plan of Record is the widest card at the floors AND at 1920", () => {
-    // Bobby's standing fix-417 ruling. fix-422 refused to break it and so does
-    // this: the largest SHARE and the largest FLOOR, so it holds wherever the
-    // deciding factor is.
-    const widest = OVERVIEW_CARD_COLUMNS.reduce((a, c) => (c.minPx > a.minPx ? c : a));
-    expect(widest.key).toBe('por');
-    expect(Math.max(...OVERVIEW_CARD_COLUMNS.map((c) => c.pct))).toBe(col('por').pct);
+  it('★★★ Plan of Record is still the widest card, floor and share', () => {
+    // ★ fix-423's own guard, kept: the ruling has to hold where the FLOORS
+    //   bind, not just where the shares do.
     const at1920 = resolveOverviewWidths(overviewRowWidthAt(1920));
-    const porW = widthOf('por', overviewRowWidthAt(1920));
-    expect(porW).toBe(Math.max(...at1920));
-    // ★ …and at the floors themselves, where the shares decide nothing.
+    expect(widthOf('por', overviewRowWidthAt(1920))).toBe(Math.max(...at1920));
     expect(widthOf('por', OVERVIEW_ROW_MIN_WIDTH)).toBe(col('por').minPx);
     expect(col('por').minPx).toBeGreaterThan(col('proj').minPx);
   });
@@ -350,17 +318,23 @@ describe("fix-423 §A: the Milestones floor holds a date input and its label", (
     //     `floor + free × pct`, which said 343px at 1920; the browser renders
     //     296, because a track whose fr share falls under its floor FREEZES at
     //     the floor and the space it gives up is re-shared among the rest.
-    //     Measured in Chrome: 222 / 296 / 217 / 370 / 204.
-    // ★ Held against what CHROME laid out, to ±1px — the browser rounds its
-    //   layout units down where this rounds to nearest, and a model that
-    //   claimed to be exact would be lying about the last pixel.
+    // ★★★ THE ALGORITHM IS WHAT THIS TEST IS ABOUT, AND IT IS UNCHANGED. The
+    //     five-card numbers fix-423 measured in Chrome (222/296/217/370/204)
+    //     described a row that no longer exists; the three-card row resolves to
+    //     466 / 412 / 452 at 1920, within 5px of the v14 mock's own
+    //     `470px 1.05fr 1.15fr` — which is the check that actually matters,
+    //     because it is the drawing this row is supposed to reproduce.
     const w = resolveOverviewWidths(overviewRowWidthAt(1920));
-    [222, 296, 217, 370, 204].forEach((measured, i) => {
-      expect(Math.abs(w[i] - measured), OVERVIEW_CARD_COLUMNS[i].key).toBeLessThanOrEqual(1);
+    [466, 412, 452].forEach((expected, i) => {
+      expect(Math.abs(w[i] - expected), OVERVIEW_CARD_COLUMNS[i].key).toBeLessThanOrEqual(1);
     });
-    // Freezing is iterative: dd freezes, which lifts everyone's share, which is
-    // what then pushes proj under ITS floor.
-    expect(w[1]).toBe(col('proj').minPx);
+    // ★★ AND FREEZING IS STILL ITERATIVE, which is the property the old
+    //    assertion was really pinning. At 1600 `por` freezes on its floor,
+    //    which lifts everyone else's share, which is what then pushes `proj`
+    //    under ITS floor — two freezes from one pass.
+    const at1600 = resolveOverviewWidths(overviewRowWidthAt(1600));
+    expect(at1600[0]).toBe(col('por').minPx);
+    expect(at1600[1]).toBe(col('proj').minPx);
     // And the widths always fill the row exactly.
     const row = overviewRowWidthAt(1920);
     const sum = resolveOverviewWidths(row).reduce((a, b) => a + b, 0);
@@ -371,7 +345,12 @@ describe("fix-423 §A: the Milestones floor holds a date input and its label", (
     // ★★ THE TWIN ASSERTION, the same shape fix-422 used for `h-[16px]`: the
     //    constant and the Tailwind class that produces it, held together, so a
     //    class change cannot silently re-open the clipping.
-    renderHeader();
+    // ★★★ THE TWIN IS INTACT; THE ROW MOVED. `MilestoneDateRow` is the Project
+    //     Data modal's Dates tab now (fix-506 §G), and the constant-vs-class
+    //     pairing fix-423 built — the same shape fix-422 used for `h-[16px]` —
+    //     is exactly as load-bearing there. A class change still cannot
+    //     silently re-open the clipping.
+    renderProjectData(makeProject(), [bpFixture()], 'dates');
     const row = screen
       .getByTestId('pd-bp-dd_start')
       .closest('[data-milestone-row]') as HTMLElement;
@@ -477,13 +456,14 @@ describe('fix-423 §D: two lines below the wrap point, and nothing scrolls', () 
       OVERVIEW_CARD_COLUMNS.reduce((a, c) => a + c.minPx, 0) +
         (OVERVIEW_CARD_COLUMNS.length - 1) * OVERVIEW_GRID_GAP,
     );
-    // ★ fix-475: 1218 → 1172. The wrap point moves with it, and DOWN — the
-    //   row needs less than it did, so it wraps later, not sooner.
-    expect(OVERVIEW_ROW_MIN_WIDTH).toBe(1172);
-    // ★ The brief estimated ~1750 and invited a correction. 1788 with the
-    //   ribbon expanded (the default), 1632 collapsed.
-    expect(overviewWrapViewport('expanded')).toBe(1742);
-    expect(overviewWrapViewport('collapsed')).toBe(1586);
+    // ★ fix-475: 1218 → 1172. fix-506 §A: 1172 → 904, and that one is not a
+    //   re-share — two cards left the row.
+    expect(OVERVIEW_ROW_MIN_WIDTH).toBe(904);
+    // ★★★ 1742 → 1474 EXPANDED. This is the number the fix-506 brief cared
+    //     about: 1600 is now 126px clear of the threshold instead of 142 short
+    //     of it, so the overview runs on ONE line at the width Bobby works at.
+    expect(overviewWrapViewport('expanded')).toBe(1474);
+    expect(overviewWrapViewport('collapsed')).toBe(1318);
   });
 
   it('★★★ BOTH lines fit at 1280 — which is the whole reason team.minPx stayed 160', () => {
@@ -491,15 +471,27 @@ describe('fix-423 §D: two lines below the wrap point, and nothing scrolls', () 
     //    this row gets at a 1280 window. The brief asked for team.minPx 185,
     //    which puts line one at 723 and re-opens the sideways scroll. Refused
     //    with the number, as fix-422 refused Scope 10(ii).
-    expect(OVERVIEW_ROW_LINE_1_COUNT).toBe(3);
-    expect(OVERVIEW_ROW_LINE_1_MIN_WIDTH).toBe(698);
-    // ★ fix-475: 510 → 464, the same 46px, since line 2 is por + the fifth
-    //   column and the fifth column's floor is what moved.
-    expect(OVERVIEW_ROW_LINE_2_MIN_WIDTH).toBe(464);
+    // ★★★ THE GROUPING IS TWO-AND-ONE NOW: Plan of Record and Project — the
+    //     pair that is read against each other — then Team.
+    expect(OVERVIEW_ROW_LINE_1_COUNT).toBe(2);
+    expect(OVERVIEW_ROW_LINE_1_MIN_WIDTH).toBe(732);
+    expect(OVERVIEW_ROW_LINE_2_MIN_WIDTH).toBe(162);
+
+    // ★★★ AND AT 1280 THE FORCED BREAK IS SWITCHED OFF, WHICH IS THE PART
+    //     WORTH READING CAREFULLY. 732 does NOT fit the 710px a 1280 window
+    //     gives, so a naive reading says fix-423's no-sideways-scroll guarantee
+    //     is re-opened. It is not: `OVERVIEW_ROW_RESPONSIVE_CSS` shows the break
+    //     only in the band `[LINE_1_MIN, ROW_MIN)`, precisely so that below its
+    //     own minimum the grouping stops being promised and flex breaks
+    //     wherever it must — one card per line here. fix-423 wrote that guard
+    //     for a case it never hit; fix-506 is the case.
+    expect(OVERVIEW_ROW_RESPONSIVE_CSS).toContain(
+      `(min-width:${OVERVIEW_ROW_LINE_1_MIN_WIDTH}px)`,
+    );
     for (const ribbon of ['expanded', 'collapsed'] as const) {
-      const row = overviewRowWidthAt(1280, ribbon);
-      expect(OVERVIEW_ROW_LINE_1_MIN_WIDTH, `1280 ${ribbon}`).toBeLessThanOrEqual(row);
-      expect(OVERVIEW_ROW_LINE_2_MIN_WIDTH, `1280 ${ribbon}`).toBeLessThanOrEqual(row);
+      const row = overviewRowWidthAt(1440, ribbon);
+      expect(OVERVIEW_ROW_LINE_1_MIN_WIDTH, `1440 ${ribbon}`).toBeLessThanOrEqual(row);
+      expect(OVERVIEW_ROW_LINE_2_MIN_WIDTH, `1440 ${ribbon}`).toBeLessThanOrEqual(row);
     }
   });
 
@@ -508,26 +500,39 @@ describe('fix-423 §D: two lines below the wrap point, and nothing scrolls', () 
     //   710px row, inside a pillbox whose `overflow-y:auto` makes `overflow-x`
     //   compute to `auto`. The widest line, not the five floors, is what has to
     //   fit now.
-    const widestLine = Math.max(
-      OVERVIEW_ROW_LINE_1_MIN_WIDTH,
-      OVERVIEW_ROW_LINE_2_MIN_WIDTH,
-    );
-    for (const viewport of [1280, 1440]) {
+    // ★★★ THE HONEST GUARANTEE IS ABOUT THE WIDEST CARD, NOT THE WIDEST LINE.
+    //     A LINE is only promised while the forced break is on; below
+    //     `OVERVIEW_ROW_LINE_1_MIN_WIDTH` the break is off and flex puts as
+    //     many cards on a line as fit. What can never fit is a single card
+    //     whose FLOOR exceeds the row — that is the state that scrolls
+    //     sideways, and it is what this asserts.
+    const widestCard = Math.max(...OVERVIEW_CARD_COLUMNS.map((c) => c.minPx));
+    for (const viewport of [1280, 1440, 1600, 1920]) {
       for (const ribbon of ['expanded', 'collapsed'] as const) {
-        expect(widestLine, `${viewport} ${ribbon}`).toBeLessThanOrEqual(
+        expect(widestCard, `${viewport} ${ribbon}`).toBeLessThanOrEqual(
           overviewRowWidthAt(viewport, ribbon),
         );
       }
     }
+    // ★ …and where the grouping IS promised, both of its lines fit.
+    for (const ribbon of ['expanded', 'collapsed'] as const) {
+      const row = overviewRowWidthAt(1440, ribbon);
+      expect(
+        Math.max(OVERVIEW_ROW_LINE_1_MIN_WIDTH, OVERVIEW_ROW_LINE_2_MIN_WIDTH),
+        `1440 ${ribbon}`,
+      ).toBeLessThanOrEqual(row);
+    }
   });
 
   it('★★ one line at 1920, two below the wrap point, in Bobby\'s reading order', () => {
-    expect(overviewLineOf('dd', overviewRowWidthAt(1920))).toBe(0);
-    expect(overviewLineOf('consultants', overviewRowWidthAt(1920))).toBe(0);
-    for (const viewport of [1280, 1440]) {
+    expect(overviewLineOf('por', overviewRowWidthAt(1920))).toBe(0);
+    expect(overviewLineOf('team', overviewRowWidthAt(1920))).toBe(0);
+    // ★ 1600 is ONE line now, which it was not before fix-506 §A.
+    expect(overviewLineOf('team', overviewRowWidthAt(1600))).toBe(0);
+    for (const viewport of [1440]) {
       const row = overviewRowWidthAt(viewport);
-      expect(['dd', 'proj', 'team'].map((k) => overviewLineOf(k, row))).toEqual([1, 1, 1]);
-      expect(['por', 'consultants'].map((k) => overviewLineOf(k, row))).toEqual([2, 2]);
+      expect(['por', 'proj'].map((k) => overviewLineOf(k, row))).toEqual([1, 1]);
+      expect(['team'].map((k) => overviewLineOf(k, row))).toEqual([2]);
     }
   });
 
@@ -599,7 +604,7 @@ describe('fix-423 §D: two lines below the wrap point, and nothing scrolls', () 
     // ★ The wide layout stays an INLINE style deliberately: fix-309, fix-331
     //   and fix-417 all read it off this element, and moving it into the
     //   stylesheet would take three regression guards with it.
-    expect(grid.style.gridTemplateAreas).toBe('"dd proj team por consultants"');
+    expect(grid.style.gridTemplateAreas).toBe('"por proj team"');
   });
 });
 
@@ -612,13 +617,24 @@ describe('fix-423 §E: the guards', () => {
     // fix-422's rule, and it wins any argument with a wrap rule: a card
     // narrower than its contents truncates SILENTLY, because OverviewCard is
     // `overflow-hidden`.
-    expect(col('proj').minPx).toBe(UNIT_MATRIX_WIDTH + OVERVIEW_CARD_CHROME);
-    expect(col('por').minPx).toBe(UNIT_MATRIX_WIDTH + OVERVIEW_CARD_CHROME + 14);
+    // ★ fix-506 §D transposed the matrix — types across, attributes down — so
+    //   the derivation is unchanged and the grid it derives from is different.
+    expect(col('proj').minPx).toBe(
+      UNIT_MATRIX_TRANSPOSED_WIDTH + OVERVIEW_CARD_CHROME,
+    );
+    expect(col('por').minPx).toBe(col('proj').minPx + 14);
   });
 
-  it('★ the Project card and the unit matrix are untouched', () => {
+  it('★ the Project card still declares its matrix in ONE template', () => {
+    // ★ fix-412's ruling, which every units ticket since has kept: the header
+    //   strip and the value rows come from one declaration, so a header can
+    //   never sit over the wrong control. fix-506 §D transposed it, and the
+    //   rule survived the rotation — the type columns and the attribute column
+    //   are one `gridTemplateColumns`.
     renderHeader();
-    expect(screen.getByTestId('pd-unit-header').style.gridTemplateColumns).toContain('52px');
+    const grid = screen.getByTestId('pd-units-matrix-grid');
+    expect(grid.style.gridTemplateColumns).toContain(`${UNIT_MATRIX_LABEL_COL}px`);
+    expect(grid.style.gridTemplateColumns).toContain(`${UNIT_MATRIX_TYPE_COL}px`);
   });
 
   it('★ roles are still read the way they were — this is layout only', () => {

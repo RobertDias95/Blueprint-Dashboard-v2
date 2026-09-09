@@ -68,6 +68,14 @@ export function useProjects() {
             // top badge + the expandable "Redesigns (N)" subsection on
             // Project Overview, plus the yellow border on draw schedule
             // blocks for redesign projects.
+            // ★★★ fix-506 (P-141): `reused_from_project_id` HAS to be on this
+            // line — the SIXTH time this file has recorded the trap (fix-122,
+            // fix-386, fix-410, fix-487, fix-488 above). SIX prod projects carry
+            // a reuse source and the overview read `undefined` for every one of
+            // them, so the Reuse badge ReuseEditor renders has never appeared and
+            // "reused by N" has always counted zero. The column existed, the
+            // wizard wrote it, the reports read it — only this list was missing.
+            'reused_from_project_id',
             'redesign_of_project_id, redesign_trigger',
             'redesign_reuses_original_permit, redesign_notes',
             // ★★★ fix-386: WITHOUT THIS LINE THE WHOLE FLAG IS INERT. The

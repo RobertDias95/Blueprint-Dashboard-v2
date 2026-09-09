@@ -1,6 +1,6 @@
 import { MemoryRouter } from 'react-router-dom';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, cleanup } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { ReactNode } from 'react';
 import { useAuthStore } from '../stores/authStore';
@@ -57,7 +57,21 @@ vi.mock('../hooks/useProjectConsultants', () => ({
 
 vi.mock('../stores/toastStore', () => ({ pushToast: vi.fn() }));
 
-import ProjectDetailHeader from '../components/ProjectDetail/ProjectDetailHeader';
+// ===========================================================================
+// ★★★ fix-506 §G (P-140) — THIS SUITE'S EDITOR MOVED, AND NOTHING ELSE DID
+// ===========================================================================
+//
+// Bobby ruled the overview read-only: every project field is edited in the
+// **Project Data** modal now. The components this file exercises —
+// `SiteEditor` — are byte-for-byte what shipped on `origin/main`, because the
+// brief's rule was *"every write goes through the SAME hooks the overview uses
+// today; no new RPC, same OCC tokens, same toasts."*
+//
+// ★★ SO EVERY ASSERTION BELOW IS UNCHANGED AND STILL MEANS WHAT IT MEANT. Only
+//    the mount point moved, from `<ProjectDetailHeader>` to the modal's
+//    **Site data** tab. A suite that had been repointed AND weakened would stop
+//    catching the regression it was written for; this one can still catch it.
+import ProjectDataModal from '../components/ProjectDetail/ProjectDataModal';
 import { settle } from '../test/settle';
 
 function projectFixture(over: Partial<Record<string, unknown>> = {}) {
@@ -95,10 +109,16 @@ function projectFixture(over: Partial<Record<string, unknown>> = {}) {
     created_at: OLD_TOKEN,
     updated_at: OLD_TOKEN,
     ...over,
-  } as unknown as Parameters<typeof ProjectDetailHeader>[0]['project'];
+  } as unknown as Parameters<typeof ProjectDataModal>[0]['project'];
 }
 
-function setup(over: Partial<Record<string, unknown>> = {}) {
+/** ★ fix-506 §G: Site data and Dates are different TABS of Project Data, so a
+ *  suite that reaches for a site row and a closing date has to say which one it
+ *  is looking at. Defaulted to `site`, which is what most of this file wants. */
+function setupTab(
+  over: Partial<Record<string, unknown>> = {},
+  tab: 'site' | 'dates' = 'site',
+) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
@@ -114,11 +134,24 @@ function setup(over: Partial<Record<string, unknown>> = {}) {
     </QueryClientProvider>
   );
   const utils = render(
-    <ProjectDetailHeader project={project} permits={[]} bp={null} />,
+    <ProjectDataModal
+      project={project}
+      permits={[]}
+      bp={null}
+      initialTab={tab}
+      onClose={() => {}}
+      onOpenSettings={() => {}}
+    />,
     { wrapper },
   );
   return { ...utils, queryClient };
 }
+
+/** ★ The default-tab alias every existing call site uses, unchanged. */
+const setup = (
+  over: Partial<Record<string, unknown>> = {},
+  tab: 'site' | 'dates' = 'site',
+) => setupTab(over, tab);
 
 beforeEach(() => {
   updateMutateAsync.mockReset();
@@ -232,7 +265,14 @@ describe('SiteEditor — fix-122 Corner Lot row', () => {
 // fix-148: Closing Date moved from the Project Site cell to the DD Phase cell
 // (testid project-overview-closing). Behavior (commit closing_date via
 // useUpdateProject, occMissing-disabled) is unchanged — only the location.
-describe('DD Phase — Closing Date row (moved from Project Site, fix-148)', () => {
+describe('Closing Date row (fix-148: moved out of Project Site; fix-506: the Dates tab)', () => {
+  // ★★ fix-148 moved this row from the Site section to the Milestones card
+  //    "because it fits DD Phase thematically". fix-506 §G retires that card
+  //    and the row is on the **Dates** tab — the same thematic home, one
+  //    surface further in. `ClosingRow` itself is untouched.
+  const setup = (over: Partial<Record<string, unknown>> = {}) =>
+    setupTab(over, 'dates');
+
   it('renders blank when closing_date is null', () => {
     setup();
     const input = screen.getByTestId('project-overview-closing') as HTMLInputElement;
@@ -279,7 +319,10 @@ describe('DD Phase — Closing Date row (moved from Project Site, fix-148)', () 
 });
 
 describe('fix-122 occMissing disables the inline rows', () => {
-  it('Lots/Corner (Site) + Closing (DD Phase) are disabled when project.updated_at is missing', () => {
+  it('Lots/Corner (Site) + Closing (Dates) are disabled when project.updated_at is missing', () => {
+    // ★ The two live on different TABS now, so the claim is asserted twice —
+    //   once per tab. It is the same claim: no OCC token, no editing, on either
+    //   surface.
     setup({ updated_at: null });
     expect(
       (screen.getByTestId('pd-site-lots') as HTMLSelectElement).disabled,
@@ -287,6 +330,8 @@ describe('fix-122 occMissing disables the inline rows', () => {
     expect(
       (screen.getByTestId('pd-site-corner') as HTMLSelectElement).disabled,
     ).toBe(true);
+    cleanup();
+    setup({ updated_at: null }, 'dates');
     expect(
       (screen.getByTestId('project-overview-closing') as HTMLInputElement).disabled,
     ).toBe(true);

@@ -1,4 +1,9 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
+import {
+  SHARE_TOAST,
+  SHARE_TTL_DAYS,
+  SHARE_TTL_SECONDS,
+} from '../lib/planOfRecordShare';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -229,13 +234,23 @@ describe('fix-285 the file card', () => {
   it('★ fix-331 §2: the card face shows no filename, date or size', async () => {
     state.row = row();
     renderCard();
-    await screen.findByTestId('plan-of-record-copy');
+    await screen.findByTestId('plan-of-record-set-internal');
     expect(screen.queryByTestId('plan-of-record-filename')).toBeNull();
     expect(screen.queryByTestId('plan-of-record-meta')).toBeNull();
     const card = screen.getByTestId('plan-of-record-card');
     expect(card.textContent ?? '').not.toContain('10044 - Plan Set');
     expect(card.textContent ?? '').not.toContain('17 MB');
-    expect(card.textContent ?? '').not.toMatch(/Jun 18, 2026/);
+    // ★★★ THE DATE COMES BACK, AND BOBBY PUT IT THERE. fix-331 §2 took all
+    //     three off the face — *"here's the marketing, click to enlarge, copy
+    //     path, that's it"* — and v14's caption is explicit: `Marketing plan
+    //     (internal) · <date> · N pages`. The FILENAME and SIZE, which are what
+    //     he actually highlighted as noise, are still off it; a modified date
+    //     is how you tell a current plan from a stale one at a glance, which is
+    //     the job of a caption under a picture.
+    expect(screen.getByTestId('plan-of-record-set-caption').textContent ?? '')
+      .toMatch(/Jun 18, 2026/);
+    expect(screen.getByTestId('plan-of-record-set-caption').textContent ?? '')
+      .toMatch(/1 page/);
   });
 
   // ★ MOVED, NOT DELETED — the other half of §2, and the half that makes the
@@ -256,7 +271,7 @@ describe('fix-285 the file card', () => {
   it('does NOT show the UNC path on the card face', async () => {
     state.row = row();
     renderCard();
-    await screen.findByTestId('plan-of-record-copy');
+    await screen.findByTestId('plan-of-record-set-internal');
     expect(screen.queryByTestId('plan-of-record-path')).toBeNull();
     // ...and the card does not smuggle it back in as loose text.
     expect(screen.queryByText(UNC)).toBeNull();
@@ -279,22 +294,66 @@ describe('fix-285 the file card', () => {
   // the button's own title, so nobody who wonders what Copy path is for is left
   // guessing — it just no longer spends a line of a card whose height every
   // other card in the row has to match.
-  it('★ offers Copy path; the paste hint is on the button, not loose beside it', async () => {
+  it('★★★ SUPERSEDED by fix-506 §E: the face is two set buttons, not Copy path', async () => {
+    // ★★★ THE BRIEF: *"Delete Copy path as a control; keep the UNC path visible
+    //     in the viewer footer (fix-295's rule) for staff."* The card face is
+    //     Bobby's v14 pair — **Marketing · Internal** and **Marketing ·
+    //     External**, the picked one blue, a share glyph at each right end.
+    //
+    // ★★ fix-289's FINDING IS UNTOUCHED AND STILL THE REASON THE PATH MATTERS:
+    //    Chrome and Edge silently refuse to navigate an https page to a `file:`
+    //    URL or a UNC path, so copying is the one thing that reliably works and
+    //    an "Open" button must never come back. The test below still asserts
+    //    that. What moved is WHERE the path lives — the enlarged view, one
+    //    click away, beside the rest of the file's facts.
     state.row = row();
     renderCard();
-    const btn = await screen.findByTestId('plan-of-record-copy');
-    expect(btn).toBeInTheDocument();
+    const internal = await screen.findByTestId('plan-of-record-set-internal');
+    expect(internal.textContent).toBe('Marketing · Internal');
+    expect(internal.getAttribute('aria-pressed')).toBe('true');
+    expect(screen.getByTestId('plan-of-record-set-external')).toBeInTheDocument();
+    expect(screen.queryByTestId('plan-of-record-copy')).toBeNull();
     expect(screen.queryByTestId('plan-of-record-copy-hint')).toBeNull();
-    expect(btn.getAttribute('title')).toMatch(/paste it into File Explorer/i);
   });
 
-  it('copies the path to the clipboard', async () => {
+  it('★★★ fix-506 §E: External is DISABLED until the indexer writes its pages', async () => {
+    // ★★★ STEP 0-4 CONFIRMED `project_plan_of_record_sets` ABSENT ON PROD
+    //     (fix-504 is in flight in the scraper repo), so this is the branch
+    //     that actually runs today. The button states a FACT about now and
+    //     becomes live on its own — which is what separates it from the P-032
+    //     placeholder this same ticket removed from the Project card.
+    state.row = row();
+    renderCard();
+    const external = await screen.findByTestId('plan-of-record-set-external');
+    expect((external as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(external);
+    expect(
+      screen.getByTestId('plan-of-record-set-internal').getAttribute('aria-pressed'),
+    ).toBe('true');
+  });
+
+  it('★★★ fix-506 §E: Share copies a 30-day signed URL and says so', async () => {
     const writeText = vi.fn().mockResolvedValue(undefined);
     Object.assign(navigator, { clipboard: { writeText } });
     state.row = row();
     renderCard();
-    fireEvent.click(await screen.findByTestId('plan-of-record-copy'));
-    await waitFor(() => expect(writeText).toHaveBeenCalledWith(UNC));
+    fireEvent.click(await screen.findByTestId('plan-of-record-set-internal-share'));
+    // ★ The signature is minted against the caller's own session, so the
+    //   storage policy authorises it: a user who cannot see the project cannot
+    //   mint a link to its plan. The mock returns the object path back.
+    await waitFor(() => expect(writeText).toHaveBeenCalled());
+    expect(writeText).toHaveBeenCalledWith(state.signedUrl);
+    // ★★★ THIRTY DAYS, AND THE TOAST'S WORDS COME FROM THE SAME CONSTANT — a
+    //     control whose promise and behaviour can disagree is the fix-306
+    //     defect class applied to a promise about access.
+    const [path, ttl] = state.signArgs[state.signArgs.length - 1];
+    expect(path).toBe(`${PROJECT_ID}/marketing.jpg`);
+    expect(ttl).toBe(SHARE_TTL_SECONDS);
+    expect(SHARE_TOAST).toContain(String(SHARE_TTL_DAYS));
+    expect(SHARE_TOAST).toMatch(/no login/i);
+    // ★ …and the bucket stays PRIVATE: a public URL would either 400 or, far
+    //   worse, work.
+    expect(state.publicUrlCalls).toBe(0);
   });
 
   // ★ fix-289: the whole point of the ticket. Chrome and Edge silently refuse
@@ -303,17 +362,19 @@ describe('fix-285 the file card', () => {
   it('offers NO Open button and NO "Show in folder" button', async () => {
     state.row = row();
     renderCard();
-    await screen.findByTestId('plan-of-record-copy');
+    await screen.findByTestId('plan-of-record-set-internal');
     expect(screen.queryByTestId('plan-of-record-open')).toBeNull();
     expect(screen.queryByTestId('plan-of-record-folder')).toBeNull();
     expect(screen.queryByText('Open')).toBeNull();
+    // ★ fix-506 §E: nor does the SHARE control offer one — it copies a signed
+    //   https URL, never a path the browser cannot follow.
     expect(screen.queryByText(/show in folder/i)).toBeNull();
   });
 
   it('renders no link to a file: URL or a UNC path anywhere in the card', async () => {
     state.row = row();
     const { container } = renderCard();
-    await screen.findByTestId('plan-of-record-copy');
+    await screen.findByTestId('plan-of-record-set-internal');
     for (const a of Array.from(container.querySelectorAll('a[href]'))) {
       const href = a.getAttribute('href') ?? '';
       expect(href.toLowerCase().startsWith('file:')).toBe(false);
@@ -394,9 +455,12 @@ describe('fix-285 a missing thumbnail degrades to the file card', () => {
     // what has to survive a failed render is the REASON and Copy path.
     expect(screen.getByTestId('plan-of-record-no-preview').textContent ?? '')
       .not.toBe('');
-    // fix-295: the path is no longer on the face, so Copy path is what has to
-    // survive a failed render -- it is the only route from here to the file.
-    expect(screen.getByTestId('plan-of-record-copy')).toBeInTheDocument();
+    // ★★★ fix-506 §E: Copy path left the face, so what has to survive a failed
+    //     render is the SET PICKER — the route to the enlarged view, which is
+    //     where the selectable UNC path now lives (fix-295's rule, one click
+    //     further in). A card whose thumbnail failed must still get a person to
+    //     the file.
+    expect(screen.getByTestId('plan-of-record-set-internal')).toBeInTheDocument();
   });
 
   it('a not-yet-generated thumbnail says so plainly', async () => {
@@ -564,7 +628,7 @@ describe('fix-285 the card is READ ONLY', () => {
   it('offers no upload, replace or delete control', async () => {
     state.row = row();
     renderCard();
-    await screen.findByTestId('plan-of-record-copy');
+    await screen.findByTestId('plan-of-record-set-internal');
     const card = screen.getByTestId('plan-of-record-card');
     expect(card.querySelector('input[type="file"]')).toBeNull();
     for (const word of [/upload/i, /replace/i, /delete/i, /remove/i, /edit/i]) {
@@ -586,7 +650,7 @@ describe('fix-285 the card is READ ONLY', () => {
   it('reads from the view, not the underlying table', async () => {
     state.row = row();
     renderCard();
-    await screen.findByTestId('plan-of-record-copy');
+    await screen.findByTestId('plan-of-record-set-internal');
     expect(state.calls).toContain('from:project_plan_of_record');
     expect(state.calls).not.toContain('from:project_file_index');
   });
@@ -609,20 +673,24 @@ describe('fix-285 a failed row fetch stays calm', () => {
 // enlarge the preview, and enlarge the lightbox WITHOUT upscaling the image.
 
 describe('fix-295 the path moved off the card face', () => {
-  it('keeps Copy path, which is the only route from the card to the file', async () => {
-    const writeText = vi.fn().mockResolvedValue(undefined);
-    Object.assign(navigator, { clipboard: { writeText } });
+  it('★★★ SUPERSEDED: the FULL UNC path is in the viewer, selectable', async () => {
+    // ★★★ fix-295's RULE IS THE ONE THAT SURVIVES: staff need the real path,
+    //     because fix-289 established a browser will not navigate to it and
+    //     copying is the only thing that works. fix-506 §E deletes the BUTTON
+    //     and keeps the path — in the enlarged view, `select-all` and
+    //     monospace, beside the rest of the file's facts.
     state.row = row();
     renderCard();
-    fireEvent.click(await screen.findByTestId('plan-of-record-copy'));
-    // ★ Still the FULL UNC path, even though it is no longer displayed.
-    await waitFor(() => expect(writeText).toHaveBeenCalledWith(UNC));
+    fireEvent.click(await screen.findByTestId('plan-of-record-preview'));
+    const path = screen.getByTestId('plan-of-record-lightbox-path');
+    expect(path.textContent).toBe(UNC);
+    expect(path.className).toContain('select-all');
   });
 
   it('still offers no Open or Show in folder (fix-289 stays fixed)', async () => {
     state.row = row();
     renderCard();
-    await screen.findByTestId('plan-of-record-copy');
+    await screen.findByTestId('plan-of-record-set-internal');
     expect(screen.queryByTestId('plan-of-record-open')).toBeNull();
     expect(screen.queryByTestId('plan-of-record-folder')).toBeNull();
   });

@@ -8,7 +8,12 @@ import { queryKeys } from '../lib/queryKeys';
 import zoneMigrationSql from '../../migrations/fix_415_zone_registry_and_remap.sql?raw';
 import lotMigrationSql from '../../migrations/fix_415_round_lot_dimensions.sql?raw';
 import settingsSource from '../lib/settingsSections.ts?raw';
-import headerSource from '../components/ProjectDetail/ProjectDetailHeader.tsx?raw';
+// ★★★ fix-506 §G: the Site editor left `ProjectDetailHeader` for
+//     `ProjectDataEditors` — the overview is read-only now (P-140) and these
+//     controls are the Project Data modal's Site data tab. The MOVE is the only
+//     change: fix-415's three-write-surfaces rule is about which files can
+//     write a zone or a lot dimension, and this is still one of them.
+import headerSource from '../components/ProjectDetail/ProjectDataEditors.tsx?raw';
 import psmSource from '../components/ProjectDetail/ProjectSettingsModal.tsx?raw';
 import wizardSource from '../components/NewProjectWizard.tsx?raw';
 import step1Source from '../components/wizard/Step1ProjectInfo.tsx?raw';
@@ -370,7 +375,21 @@ vi.mock('../hooks/useProjectConsultants', () => ({
 
 vi.mock('../stores/toastStore', () => ({ pushToast: vi.fn() }));
 
-import ProjectDetailHeader from '../components/ProjectDetail/ProjectDetailHeader';
+// ===========================================================================
+// ★★★ fix-506 §G (P-140) — THIS SUITE'S EDITOR MOVED, AND NOTHING ELSE DID
+// ===========================================================================
+//
+// Bobby ruled the overview read-only: every project field is edited in the
+// **Project Data** modal now. The components this file exercises —
+// `SiteEditor / SiteLotRow` — are byte-for-byte what shipped on `origin/main`, because the
+// brief's rule was *"every write goes through the SAME hooks the overview uses
+// today; no new RPC, same OCC tokens, same toasts."*
+//
+// ★★ SO EVERY ASSERTION BELOW IS UNCHANGED AND STILL MEANS WHAT IT MEANT. Only
+//    the mount point moved, from `<ProjectDetailHeader>` to the modal's
+//    **Site data** tab. A suite that had been repointed AND weakened would stop
+//    catching the regression it was written for; this one can still catch it.
+import ProjectDataModal from '../components/ProjectDetail/ProjectDataModal';
 
 function setupSite(over: Record<string, unknown> = {}) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -381,7 +400,7 @@ function setupSite(over: Record<string, unknown> = {}) {
     go_date: null, units: 4, zone: 'NR', lot_width: null, lot_depth: null, lot_size_sf: null,
     unit_types: null, alley: null, product_types: [], project_tags: null,
     created_at: TOKEN, updated_at: TOKEN, ...over,
-  } as unknown as Parameters<typeof ProjectDetailHeader>[0]['project'];
+  } as unknown as Parameters<typeof ProjectDataModal>[0]['project'];
   queryClient.setQueryData(queryKeys.projects(T), [project]);
   const wrapper = ({ children }: { children: ReactNode }) => (
     <QueryClientProvider client={queryClient}>
@@ -389,7 +408,14 @@ function setupSite(over: Record<string, unknown> = {}) {
     </QueryClientProvider>
   );
   return render(
-    <ProjectDetailHeader project={project} permits={[]} bp={null} />,
+    <ProjectDataModal
+      project={project}
+      permits={[]}
+      bp={null}
+      initialTab="site"
+      onClose={() => {}}
+      onOpenSettings={() => {}}
+    />,
     { wrapper },
   );
 }

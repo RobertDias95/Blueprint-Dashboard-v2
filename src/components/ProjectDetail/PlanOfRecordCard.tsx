@@ -18,6 +18,17 @@ import {
 } from '../../lib/planOfRecord';
 import { pushToast } from '../../stores/toastStore';
 import { OverviewCard, OverviewSection } from './OverviewCard';
+import {
+  usePlanOfRecordSets,
+  findVariant,
+  pagePaths,
+  type PlanOfRecordSetRow,
+} from '../../hooks/usePlanOfRecordSets';
+import { SHARE_TOAST, signPlanShareUrl } from '../../lib/planOfRecordShare';
+import {
+  POR_BUTTON_GAP,
+  POR_BUTTON_MIN_WIDTH,
+} from '../../lib/projectCardLayout';
 import type {
   PlanOfRecordStage,
   ProjectPlanOfRecordRow,
@@ -55,6 +66,14 @@ export default function PlanOfRecordCard({ projectId }: Props) {
   // three states it distinguishes and why the old single empty state was the
   // bug fix-356 was built to end.
   const verdictQ = usePlanOfRecordVerdict(projectId);
+  // ★★★ fix-506 §E (P-148): TWO MARKETING VARIANTS, ONE PICKED.
+  //
+  // `project_plan_of_record_sets` is fix-504's, and STEP 0-4 confirmed it
+  // ABSENT on prod — so `sets.available` is false today and the External
+  // button renders disabled with the reason. Both branches are written; only
+  // the absent one is reachable until the scraper ticket lands.
+  const setsQ = usePlanOfRecordSets(projectId);
+  const [variant, setVariant] = useState<'internal' | 'external'>('internal');
   const [lightbox, setLightbox] = useState(false);
   const row = q.data ?? null;
   const verdict = verdictQ.data ?? null;
@@ -130,6 +149,9 @@ export default function PlanOfRecordCard({ projectId }: Props) {
             row={row}
             verdict={verdictKnown ? verdict : null}
             onEnlarge={() => setLightbox(true)}
+            sets={setsQ.data}
+            variant={variant}
+            onPickVariant={setVariant}
           />
         )}
       </OverviewSection>
@@ -139,6 +161,8 @@ export default function PlanOfRecordCard({ projectId }: Props) {
           row={row}
           verdict={verdictKnown ? verdict : null}
           onClose={() => setLightbox(false)}
+          externalSet={findVariant(setsQ.data, 'external')}
+          variant={variant}
         />
       )}
     </OverviewCard>
@@ -261,10 +285,16 @@ function PlanOfRecordBody({
   row,
   verdict,
   onEnlarge,
+  sets,
+  variant,
+  onPickVariant,
 }: {
   row: ProjectPlanOfRecordRow;
   verdict: ProjectPlanOfRecordVerdictRow | null;
   onEnlarge: () => void;
+  sets: import('../../hooks/usePlanOfRecordSets').PlanOfRecordSets | undefined;
+  variant: 'internal' | 'external';
+  onPickVariant: (v: 'internal' | 'external') => void;
 }) {
   return (
     <>
@@ -290,7 +320,12 @@ function PlanOfRecordBody({
           stays because fix-289 established browsers will not open a UNC path
           from https — it is the only route from this card to the actual file.
           Removing it would strand the card. */}
-      <PathActions row={row} />
+      <SetButtons
+        row={row}
+        sets={sets}
+        variant={variant}
+        onPickVariant={onPickVariant}
+      />
 
       {/* ★★★ fix-358 §3 + §4: THE ONLY THING THE SENTENCE ADDS TO THE FACE IS A
           WARNING, AND ONLY WHEN THERE IS ONE.
@@ -420,43 +455,200 @@ function Preview({
 
 // ------------------------------------------------------------------ actions --
 
-// ★ fix-289: THERE IS NO "OPEN" BUTTON, AND ONE MUST NOT BE ADDED BACK.
+// ★★★ fix-506 §E — "COPY PATH" LEAVES THE FACE, AND THE PATH DOES NOT.
 //
-// Chrome and Edge silently refuse to navigate from an https page to a file:
-// URL or a UNC path. Nothing is thrown and no dialog appears — the click just
-// does nothing, which is worse than not offering it at all. This is a browser
-// security boundary, not a bug to route around: a file: anchor and
-// window.open() are both blocked, and a custom protocol handler would need
-// software installed on every machine that ever views this page.
-//
-// The clipboard is NOT restricted, so copying is the one thing that reliably
-// works. Copy path plus the visible, selectable path above it is the whole
-// mechanism, and the hint says where the copied text is meant to go.
-function PathActions({ row }: { row: ProjectPlanOfRecordRow }) {
-  async function copy(text: string, what: string) {
-    try {
-      await navigator.clipboard.writeText(text);
-      pushToast(`${what} copied`, 'success');
-    } catch {
-      pushToast('Could not copy to the clipboard', 'error');
-    }
-  }
+// The brief: *"Delete Copy path as a control; keep the UNC path visible in the
+// viewer footer (fix-295's rule) for staff."* fix-289's finding is untouched and
+// still the reason the path matters — Chrome and Edge SILENTLY refuse to
+// navigate an https page to a `file:` URL or a UNC path, so copying is the one
+// thing that reliably works and an "Open" button must never be added back. What
+// changed is where it lives: the card face is two Marketing buttons now, and the
+// selectable path is in the enlarged view, one click away, exactly where
+// fix-295 put the rest of the file's facts.
 
-  // ★ fix-331 §2: the "paste into File Explorer to open" hint is gone from the
-  // card face — Bobby highlighted it with the filename and the size line. The
-  // button's own title still says it, so the instruction survives on hover for
-  // anyone who wonders what Copy path is for, without spending a line of a card
-  // whose height every other card in the row now has to match.
+/** The three-node share glyph, drawn rather than imported — the app carries no
+ *  icon set, and one PNG for one glyph is a network round trip for 300 bytes. */
+function ShareGlyph() {
   return (
-    <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
+    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" aria-hidden focusable="false">
+      <circle cx="18" cy="5" r="2.6" stroke="currentColor" strokeWidth="2" />
+      <circle cx="6" cy="12" r="2.6" stroke="currentColor" strokeWidth="2" />
+      <circle cx="18" cy="19" r="2.6" stroke="currentColor" strokeWidth="2" />
+      <path d="M8.4 10.8 15.6 6.4M8.4 13.2l7.2 4.4" stroke="currentColor" strokeWidth="2" />
+    </svg>
+  );
+}
+
+/** ★ One place that copies, so the toast wording and the failure path cannot
+ *  differ between the two buttons and the viewer. */
+async function sharePlanPage(objectPath: string | null) {
+  if (!objectPath) {
+    pushToast('Nothing to share yet — the page image has not been generated', 'error');
+    return;
+  }
+  try {
+    const url = await signPlanShareUrl(objectPath);
+    await navigator.clipboard.writeText(url);
+    pushToast(SHARE_TOAST, 'success');
+  } catch {
+    // ★ ONE message for both failures — minting and copying. A person who
+    //   cannot share does not need to know which half refused, and naming the
+    //   storage error would leak a path.
+    pushToast('Could not create the share link', 'error');
+  }
+}
+
+/**
+ * ★★★ THE TWO MARKETING BUTTONS, AND WHY EXTERNAL CAN BE DISABLED.
+ *
+ * Bobby: *"two buttons, Marketing · Internal and Marketing · External, the
+ * picked one blue, default Internal."* External needs fix-504's page objects,
+ * which are not on prod — so it renders disabled with the reason underneath
+ * rather than as a button that opens an empty viewer.
+ *
+ * ★★ A DISABLED CONTROL WITH A STATED REASON IS NOT THE P-032 PLACEHOLDER THIS
+ *    TICKET JUST REMOVED. Connect was inert with *"no link yet"* — a promise
+ *    about the future with no date. This states a FACT about now (*"external
+ *    pages arrive with the next indexer run"*), it becomes live on its own when
+ *    the indexer writes the rows, and nobody has to ship anything for that to
+ *    happen.
+ */
+function SetButtons({
+  row,
+  sets,
+  variant,
+  onPickVariant,
+}: {
+  row: ProjectPlanOfRecordRow;
+  sets: import('../../hooks/usePlanOfRecordSets').PlanOfRecordSets | undefined;
+  variant: 'internal' | 'external';
+  onPickVariant: (v: 'internal' | 'external') => void;
+}) {
+  const internalSet = findVariant(sets, 'internal');
+  const externalSet = findVariant(sets, 'external');
+  const externalReady =
+    !!externalSet && externalSet.pages_status === 'ok' && (externalSet.page_count ?? 0) > 0;
+  const shown = variant === 'external' ? externalSet : internalSet;
+  const archived = shown?.is_archived_fallback === true;
+
+  return (
+    <div className="mt-1.5 flex flex-col gap-1">
+      <div className="flex" style={{ gap: POR_BUTTON_GAP }}>
+        <SetButton
+          label="Marketing · Internal"
+          picked={variant === 'internal'}
+          onPick={() => onPickVariant('internal')}
+          onShare={() =>
+            void sharePlanPage(
+              internalSet ? pagePaths(internalSet)[0] ?? row.thumb_path : row.thumb_path,
+            )
+          }
+          testId="plan-of-record-set-internal"
+        />
+        <SetButton
+          label="Marketing · External"
+          picked={variant === 'external'}
+          disabled={!externalReady}
+          onPick={() => onPickVariant('external')}
+          onShare={() => void sharePlanPage(pagePaths(externalSet)[0] ?? null)}
+          testId="plan-of-record-set-external"
+        />
+      </div>
+      <div
+        className="text-[9px] text-center"
+        style={{ color: 'var(--color-muted)' }}
+        data-testid="plan-of-record-set-caption"
+      >
+        {variant === 'external' && !externalReady ? (
+          'External pages arrive with the next indexer run.'
+        ) : (
+          <>
+            {archived && (
+              <span
+                className="font-extrabold mr-1"
+                style={{ color: 'var(--color-co)' }}
+                data-testid="plan-of-record-archived"
+              >
+                ARCHIVED
+              </span>
+            )}
+            Marketing plan ({variant}) · {formatModified(row.modified_at)} ·{' '}
+            {pageCountLabel(shown, variant)}
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/** ★ `1 page` when there is no set row at all, because the single thumbnail IS
+ *  one page — that is what the card has always shown and what it still shows
+ *  until fix-504 lands. */
+function pageCountLabel(
+  set: PlanOfRecordSetRow | null,
+  variant: 'internal' | 'external',
+): string {
+  const n = set?.page_count ?? (variant === 'internal' ? 1 : 0);
+  return `${n} ${n === 1 ? 'page' : 'pages'}`;
+}
+
+function SetButton({
+  label,
+  picked,
+  disabled,
+  onPick,
+  onShare,
+  testId,
+}: {
+  label: string;
+  picked: boolean;
+  disabled?: boolean;
+  onPick: () => void;
+  onShare: () => void;
+  testId: string;
+}) {
+  return (
+    <div
+      className="flex rounded border overflow-hidden"
+      style={{
+        flex: `1 1 ${POR_BUTTON_MIN_WIDTH}px`,
+        minWidth: 0,
+        borderColor: picked ? 'var(--color-de)' : 'var(--color-border)',
+        opacity: disabled ? 0.5 : 1,
+      }}
+    >
       <button
         type="button"
-        onClick={() => copy(row.unc_path, 'Path')}
-        className="text-[10px] font-bold px-2 py-0.5 rounded border border-de bg-de text-white hover:opacity-90 transition"
-        title="Copy the file path — paste it into File Explorer to open"
-        data-testid="plan-of-record-copy"
+        onClick={onPick}
+        disabled={disabled}
+        className="flex-1 min-w-0 truncate text-[10px] font-bold px-1.5 py-1 disabled:cursor-default"
+        style={{
+          background: picked ? 'var(--color-de)' : 'var(--color-surface)',
+          color: picked ? '#fff' : 'var(--color-de)',
+        }}
+        aria-pressed={picked}
+        data-testid={testId}
       >
-        Copy path
+        {label}
+      </button>
+      {/* ★ The share glyph sits INSIDE the button's frame, at its right end, as
+          the mock draws it — but it is its own <button>, because picking a set
+          and copying a link are two actions and one control cannot be both. */}
+      <button
+        type="button"
+        onClick={onShare}
+        disabled={disabled}
+        className="px-1.5 flex items-center border-l disabled:cursor-default"
+        style={{
+          borderLeftColor: picked ? 'rgba(255,255,255,.4)' : 'var(--color-border)',
+          background: picked ? 'var(--color-de)' : 'var(--color-surface)',
+          color: picked ? '#fff' : 'var(--color-de)',
+        }}
+        title={`Copy a 30-day link to this set's first page — no login needed`}
+        aria-label={`Share ${label}`}
+        data-testid={`${testId}-share`}
+      >
+        <ShareGlyph />
       </button>
     </div>
   );
@@ -468,11 +660,26 @@ function Lightbox({
   row,
   verdict,
   onClose,
+  externalSet,
+  variant,
 }: {
   row: ProjectPlanOfRecordRow;
   verdict: ProjectPlanOfRecordVerdictRow | null;
   onClose: () => void;
+  /** fix-504's row for the external variant, or null until it lands. */
+  externalSet: PlanOfRecordSetRow | null;
+  variant: 'internal' | 'external';
 }) {
+  // ★★★ fix-506 §E — INTERNAL OPENS ONE PAGE; EXTERNAL SCROLLS EVERY PAGE.
+  //
+  // Bobby's ruling, and the shape follows from it: the internal marketing plan
+  // IS one page, so a viewer offering "page 1 of 1" would be inventing a
+  // sequence. The external set has `page_count` pages at `pages_prefix`, and
+  // they stack in one scroller — not a pager. A reader flipping through a set
+  // wants to scroll it the way they scroll the PDF, and a Next button turns
+  // twelve pages into twelve deliberate clicks.
+  const pages =
+    variant === 'external' ? pagePaths(externalSet) : [];
   const thumbQ = usePlanOfRecordThumbnail(hasThumbnail(row) ? row.thumb_path : null);
   // ★ fix-295: THE ENLARGE IS CAPPED, AND NOT BY THIS REPO.
   //
@@ -545,7 +752,14 @@ function Lightbox({
             <div className="text-[10px] text-dim mt-0.5">
               {/* Page 1 — the only page rendered. The row carries no page
                   COUNT, so none is claimed: "page 1 of 12" would be invented. */}
-              {[stageLabel(row.set_type), meta && `Modified ${meta}`, 'Page 1']
+              {[
+                stageLabel(row.set_type),
+                meta && `Modified ${meta}`,
+                // ★ The COUNT is claimed only when a set row supplies one.
+                //   fix-295's rule: "page 1 of 12" would be invented for a
+                //   single thumbnail, which carries no page count at all.
+                pages.length > 0 ? `${pages.length} pages` : 'Page 1',
+              ]
                 .filter(Boolean)
                 .join(' · ')}
             </div>
@@ -572,17 +786,51 @@ function Lightbox({
               </div>
             )}
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="flex-shrink-0 text-[11px] font-bold px-2.5 py-1 rounded border border-border bg-surface text-text hover:bg-s2 transition"
-            data-testid="plan-of-record-lightbox-close"
-          >
-            Close
-          </button>
+          <div className="flex-shrink-0 flex items-center gap-1.5">
+            {/* ★ Shares the FIRST page — see lib/planOfRecordShare for why a
+                multi-page share is a landing page and not a list of URLs. */}
+            <button
+              type="button"
+              onClick={() =>
+                void sharePlanPage(pages[0] ?? row.thumb_path)
+              }
+              className="text-[11px] font-bold px-2.5 py-1 rounded border border-de bg-surface text-de hover:bg-s2 transition flex items-center gap-1"
+              title="Copy a 30-day link to page 1 — no login needed"
+              data-testid="plan-of-record-lightbox-share"
+            >
+              <ShareGlyph />
+              Share
+            </button>
+            <button
+              type="button"
+              onClick={onClose}
+              className="text-[11px] font-bold px-2.5 py-1 rounded border border-border bg-surface text-text hover:bg-s2 transition"
+              data-testid="plan-of-record-lightbox-close"
+            >
+              Close
+            </button>
+          </div>
         </div>
 
-        {thumbQ.data ? (
+        {pages.length > 0 ? (
+          // ★ Every page, stacked, each numbered. `maxHeight` + `overflow-y`
+          //   rather than a pager — see the note at the top of this component.
+          <div
+            className="flex flex-col gap-3 overflow-y-auto"
+            style={{ maxHeight: '70vh' }}
+            data-testid="plan-of-record-pages"
+          >
+            {pages.map((path, i) => (
+              <PageImage
+                key={path}
+                objectPath={path}
+                index={i}
+                total={pages.length}
+                fileName={row.file_name}
+              />
+            ))}
+          </div>
+        ) : thumbQ.data ? (
           <img
             src={thumbQ.data}
             alt={`Page 1 of ${row.file_name}`}
@@ -621,5 +869,51 @@ function Lightbox({
         </div>
       </div>
     </div>
+  );
+}
+
+/**
+ * ★ One external page. Signed on its own, and CACHED PER PATH by the query key
+ *   — a twelve-page set mints twelve signatures once and re-uses them for the
+ *   session, rather than re-signing on every scroll.
+ *
+ * ★★ A PAGE THAT WILL NOT SIGN DOES NOT BREAK THE SET. It renders its number
+ *    and a note; the pages either side still show. The alternative — one failed
+ *    signature emptying the viewer — is the shape fix-358 spent a ticket
+ *    removing from this very card.
+ */
+function PageImage({
+  objectPath,
+  index,
+  total,
+  fileName,
+}: {
+  objectPath: string;
+  index: number;
+  total: number;
+  fileName: string;
+}) {
+  const q = usePlanOfRecordThumbnail(objectPath);
+  return (
+    <figure className="m-0" data-testid={`plan-of-record-page-${index + 1}`}>
+      <figcaption className="text-[9px] text-dim mb-0.5">
+        Page {index + 1} of {total}
+      </figcaption>
+      {q.data ? (
+        <img
+          src={q.data}
+          alt={`Page ${index + 1} of ${fileName}`}
+          className="block w-full h-auto rounded border mx-auto"
+          style={{ borderColor: 'var(--color-border)' }}
+        />
+      ) : (
+        <div
+          className="rounded border border-dashed px-3 py-8 text-center text-[10px] text-dim"
+          style={{ borderColor: 'var(--color-border)' }}
+        >
+          {q.isLoading ? 'Loading…' : 'This page could not be loaded.'}
+        </div>
+      )}
+    </figure>
   );
 }

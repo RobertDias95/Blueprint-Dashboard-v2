@@ -64,7 +64,21 @@ vi.mock('../hooks/useProjectConsultants', () => ({
 
 vi.mock('../stores/toastStore', () => ({ pushToast: vi.fn() }));
 
-import ProjectDetailHeader from '../components/ProjectDetail/ProjectDetailHeader';
+// ===========================================================================
+// ★★★ fix-506 §G (P-140) — THIS SUITE'S EDITOR MOVED, AND NOTHING ELSE DID
+// ===========================================================================
+//
+// Bobby ruled the overview read-only: every project field is edited in the
+// **Project Data** modal now. The components this file exercises —
+// `UnitDimensions` — are byte-for-byte what shipped on `origin/main`, because the
+// brief's rule was *"every write goes through the SAME hooks the overview uses
+// today; no new RPC, same OCC tokens, same toasts."*
+//
+// ★★ SO EVERY ASSERTION BELOW IS UNCHANGED AND STILL MEANS WHAT IT MEANT. Only
+//    the mount point moved, from `<ProjectDetailHeader>` to the modal's
+//    **Units** tab. A suite that had been repointed AND weakened would stop
+//    catching the regression it was written for; this one can still catch it.
+import ProjectDataModal from '../components/ProjectDetail/ProjectDataModal';
 
 function projectFixture(over: Partial<Record<string, unknown>> = {}) {
   return {
@@ -98,7 +112,7 @@ function projectFixture(over: Partial<Record<string, unknown>> = {}) {
     created_at: TOKEN,
     updated_at: TOKEN,
     ...over,
-  } as unknown as Parameters<typeof ProjectDetailHeader>[0]['project'];
+  } as unknown as Parameters<typeof ProjectDataModal>[0]['project'];
 }
 
 function setup(over: Partial<Record<string, unknown>> = {}) {
@@ -117,7 +131,14 @@ function setup(over: Partial<Record<string, unknown>> = {}) {
     </QueryClientProvider>
   );
   return render(
-    <ProjectDetailHeader project={project} permits={[]} bp={null} />,
+    <ProjectDataModal
+      project={project}
+      permits={[]}
+      bp={null}
+      initialTab="units"
+      onClose={() => {}}
+      onOpenSettings={() => {}}
+    />,
     { wrapper },
   );
 }

@@ -23,3 +23,6 @@ dist-ssr
 *.sln
 *.sw?
 .claude/
+
+# fix-506: the vitest JSON reporter output, written by a local run.
+.vitest.json

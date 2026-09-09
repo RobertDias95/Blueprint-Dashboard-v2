@@ -64,7 +64,17 @@ vi.mock('../hooks/useProjectConsultants', () => ({
 
 vi.mock('../stores/toastStore', () => ({ pushToast: toastMock }));
 
-import ProjectDetailHeader from '../components/ProjectDetail/ProjectDetailHeader';
+// ===========================================================================
+// ★★★ fix-506 §G (P-140) — THIS SUITE'S EDITOR MOVED, AND NOTHING ELSE DID
+// ===========================================================================
+//
+// Bobby ruled the overview read-only: every project field is edited in the
+// **Project Data** modal now. `UnitDimensions` is byte-for-byte what shipped on
+// `origin/main` — the brief's rule was *"every write goes through the SAME
+// hooks the overview uses today; no new RPC, same OCC tokens, same toasts"* —
+// so every assertion below is unchanged and still means what it meant. Only the
+// mount point moved, to the modal's **Units** tab.
+import ProjectDataModal from '../components/ProjectDetail/ProjectDataModal';
 import { settle } from '../test/settle';
 
 function projectFixture(over: Partial<Record<string, unknown>> = {}) {
@@ -99,7 +109,7 @@ function projectFixture(over: Partial<Record<string, unknown>> = {}) {
     created_at: OLD_TOKEN,
     updated_at: OLD_TOKEN,
     ...over,
-  } as unknown as Parameters<typeof ProjectDetailHeader>[0]['project'];
+  } as unknown as Parameters<typeof ProjectDataModal>[0]['project'];
 }
 
 function setup(over: Partial<Record<string, unknown>> = {}) {
@@ -118,7 +128,14 @@ function setup(over: Partial<Record<string, unknown>> = {}) {
     </QueryClientProvider>
   );
   const utils = render(
-    <ProjectDetailHeader project={project} permits={[]} bp={null} />,
+    <ProjectDataModal
+      project={project}
+      permits={[]}
+      bp={null}
+      initialTab="units"
+      onClose={() => {}}
+      onOpenSettings={() => {}}
+    />,
     { wrapper },
   );
   return { ...utils, queryClient };
@@ -197,7 +214,7 @@ function ControlledHost({
   initial,
   hostRef,
 }: {
-  initial: Parameters<typeof ProjectDetailHeader>[0]['project'];
+  initial: Parameters<typeof ProjectDataModal>[0]['project'];
   hostRef: { setProject: (p: typeof initial) => void };
 }) {
   const [project, setProject] = useState(initial);
@@ -207,7 +224,14 @@ function ControlledHost({
   // the test's contract for flipping the project prop in-place.
   // eslint-disable-next-line react-hooks/immutability
   hostRef.setProject = setProject;
-  return <ProjectDetailHeader project={project} permits={[]} bp={null} />;
+  return <ProjectDataModal
+      project={project}
+      permits={[]}
+      bp={null}
+      initialTab="units"
+      onClose={() => {}}
+      onOpenSettings={() => {}}
+    />;
 }
 
 function setupControlled(over: Partial<Record<string, unknown>> = {}) {

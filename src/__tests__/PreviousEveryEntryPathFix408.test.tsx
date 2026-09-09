@@ -348,7 +348,7 @@ const WIRED_BY_LINK = [
   'components/Reports/WaitingOnView',
   'components/PermitCard',
   'components/ProjectDetail/ChatMessageRow',
-  'components/ProjectDetail/ProjectDetailHeader',
+  'components/ProjectDetail/ProjectOverviewBoxes',
   'components/ProjectDetail/ReuseEditor',
   'components/Reports/BenchmarkSourceModal',
   'components/Reports/CorrectionCommentList',

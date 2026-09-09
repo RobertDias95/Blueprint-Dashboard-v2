@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { render, screen, fireEvent, within } from '@testing-library/react';
+import { renderProjectData } from '../test/renderProjectData';
+import { render, screen, fireEvent, within, cleanup } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router-dom';
 import type { ReactNode } from 'react';
@@ -303,9 +304,13 @@ describe('fix-331 §1: equal-height cards distribute their spare room', () => {
       (s) => (s as HTMLElement).dataset.pinBottom !== 'true',
     ) as HTMLElement[];
 
+  // ★★★ fix-506 §A: asserted of TEAM, the row's multi-section card. Milestones
+  //     is retired — its dates are the Project card's Dates box — so fix-331
+  //     §1's distribution rule is pinned on the card that still stacks
+  //     sections, which is what the rule was ever about.
   it('★★ every section grows, so the spare height is shared out', () => {
     renderHeader();
-    const card = screen.getByTestId('pd-milestones-card');
+    const card = screen.getByTestId('project-overview-team');
     const sections = distributed(card);
     expect(sections.length).toBeGreaterThanOrEqual(3);
     for (const s of sections) {
@@ -317,7 +322,7 @@ describe('fix-331 §1: equal-height cards distribute their spare room', () => {
   // content is taller than the row keeps its content and scrolls.
   it('★ sections grow but never shrink', () => {
     renderHeader();
-    const card = screen.getByTestId('pd-milestones-card');
+    const card = screen.getByTestId('project-overview-team');
     for (const s of Array.from(card.querySelectorAll('section'))) {
       expect((s as HTMLElement).style.flexShrink).toBe('0');
     }
@@ -326,7 +331,7 @@ describe('fix-331 §1: equal-height cards distribute their spare room', () => {
   // ★ Both anti-patterns the brief ruled out.
   it('★ nothing is centred and no single element swallows the gap', () => {
     renderHeader();
-    const card = screen.getByTestId('pd-milestones-card');
+    const card = screen.getByTestId('project-overview-team');
     // Not centred: the card is a plain top-to-bottom column.
     expect(card.className).toContain('flex-col');
     expect(card.style.justifyContent ?? '').not.toBe('center');
@@ -338,10 +343,15 @@ describe('fix-331 §1: equal-height cards distribute their spare room', () => {
   });
 
   // ★ The reading rhythm has to survive the redistribution.
-  it('★ the section order is unchanged: Key dates, DD window, Permit intake', () => {
-    renderHeader();
-    const card = screen.getByTestId('pd-milestones-card');
-    const headings = Array.from(card.querySelectorAll('section'))
+  it('★ the section order is unchanged — on the tab those sections now live on', () => {
+    // ★★★ Key dates / DD window / Permit intake are the Project Data modal's
+    //     **Dates** tab since fix-506 §G, and their order is exactly what
+    //     fix-331 §1 pinned. The rhythm survived the move, which is the thing
+    //     worth checking.
+    cleanup();
+    renderProjectData(projectFixture(), [bpFixture()], 'dates');
+    const panel = screen.getByTestId('project-data-body');
+    const headings = Array.from(panel.querySelectorAll('section'))
       .map((s) => s.querySelector('span')?.textContent?.trim())
       .filter((t) => t === 'Key dates' || t === 'DD window' || t === 'Permit intake');
     expect(headings).toEqual(['Key dates', 'DD window', 'Permit intake']);
@@ -369,17 +379,30 @@ describe('fix-331 §2: the DPoR card face is label, preview, enlarge, copy', () 
     const text = card.textContent ?? '';
     expect(text).not.toContain('10729 - Marketing - Internal.pdf');
     expect(text).not.toContain('117 KB');
-    expect(text).not.toMatch(/Aug 06, 2026/);
+    // ★★★ THE DATE IS BACK, BY BOBBY'S OWN v14 CAPTION: `Marketing plan
+    //     (internal) · <date> · N pages`. fix-331 §2 took all three off the
+    //     face; the FILENAME and SIZE — what he actually called noise — are
+    //     still off it, and a modified date is how you tell a current plan from
+    //     a stale one at a glance.
+    expect(within(card).getByTestId('plan-of-record-set-caption').textContent)
+      .toMatch(/Aug 06, 2026/);
     expect(text).not.toMatch(/paste into File Explorer/i);
   });
 
-  it('★ keeps the label, the preview, Click to enlarge and Copy path', () => {
+  it('★ keeps the label, the preview, Click to enlarge — and the SET BUTTONS', () => {
+    // ★★★ fix-506 §E: *"Delete Copy path as a control"*. The face is the v14
+    //     pair — Marketing · Internal and Marketing · External — and the
+    //     selectable UNC path is in the enlarged view, which is fix-295's rule
+    //     one click further in. fix-289's finding is untouched and is why the
+    //     path still matters at all.
     renderHeader();
     const card = screen.getByTestId('plan-of-record-card');
     expect(within(card).getByTestId('plan-of-record-stage-marketing')).toBeInTheDocument();
     expect(within(card).getByTestId('plan-of-record-preview')).toBeInTheDocument();
     expect(card.textContent).toMatch(/Click to enlarge/i);
-    expect(within(card).getByTestId('plan-of-record-copy')).toBeInTheDocument();
+    expect(within(card).getByTestId('plan-of-record-set-internal')).toBeInTheDocument();
+    expect(within(card).getByTestId('plan-of-record-set-external')).toBeInTheDocument();
+    expect(within(card).queryByTestId('plan-of-record-copy')).toBeNull();
   });
 
   // ★ MOVED, NOT DELETED — the half that makes the removal above safe.
@@ -435,6 +458,8 @@ describe('fix-331 §3: the chat lives inside the Team card', () => {
       // ★ fix-479 §A (P-132): `project-overview-team-external` left this list
       //   with the section itself. The ORDER is still asserted whole.
       'project-overview-team-chat',
+      // ★ fix-506 §F: the consultant band, appended.
+      'project-overview-team-consultants',
       'pd-chat-section',
     ]);
   });
@@ -517,7 +542,12 @@ describe('fix-331 §3: the chat lives inside the Team card', () => {
 describe('fix-331 §4: one button, and Delete stays dangerous', () => {
   it('★ the page header offers Project Settings and nothing else', async () => {
     const src = (await import('../pages/ProjectDetail.tsx?raw')).default as string;
-    expect(src).toContain('data-testid="project-settings-btn"');
+    // ★★★ fix-506 §G: the button reads **⚙ Project Data** and opens the tabbed
+    //     modal. fix-331 §4's claim — ONE button on the page header, with
+    //     Reassign DA and Delete inside it rather than beside it — is what this
+    //     asserts and it is unchanged; both are on the modal's Actions tab.
+    expect(src).toContain('data-testid="project-data-btn"');
+    expect(src).toContain('Project Data');
     // The two that moved inside are gone from the header.
     expect(src).not.toContain('data-testid="project-reassign-da-btn"');
     expect(src).not.toContain('data-testid="project-delete-btn"');

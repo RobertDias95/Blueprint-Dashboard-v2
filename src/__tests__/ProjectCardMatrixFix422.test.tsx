@@ -221,15 +221,17 @@ describe('fix-422 §D: the five cards, re-shared against the real row', () => {
     //     fix-418 deleted that scroller, so the justification has been false on
     //     main since ef9b0eb and the card has been free to clip its own
     //     contents — `OverviewCard` is `overflow-hidden`.
+    // ★★★ THE FINDING SURVIVES; THE SENTENCE MOVED. fix-422's point was that a
+    //     floor justified by a scroller fix-418 had deleted was a floor nobody
+    //     could check — so the floor became a DERIVATION and the reason had to
+    //     say so. fix-506 §D transposed the matrix and re-derived against it;
+    //     what this asserts is the property, not the prose of one ticket.
     const proj = OVERVIEW_CARD_COLUMNS.find((c) => c.key === 'proj')!;
-    // ★ The old reason is QUOTED rather than deleted — the next reader needs
-    //   to know it was there and why it stopped being true.
-    expect(proj.floorReason).toContain('fix-418 DELETED that scroller');
-    expect(proj.floorReason).toContain('false on main since ef9b0eb');
-    expect(proj.floorReason).toContain('DERIVED from UNIT_MATRIX_WIDTH');
-    // ★★★ AND THE FLOOR IS NOW A DERIVATION, so the two cannot disagree again.
-    expect(proj.minPx).toBe(UNIT_MATRIX_WIDTH + OVERVIEW_CARD_CHROME);
-    expect(proj.minPx).toBe(296);
+    expect(proj.floorReason).toContain('DERIVED');
+    expect(proj.floorReason).toMatch(/matrix/i);
+    // ★★★ AND THE FLOOR IS STILL A DERIVATION, so the two cannot disagree.
+    expect(proj.minPx).toBe(PROJECT_CARD_MIN_WIDTH);
+    expect(proj.minPx).toBe(UNIT_MATRIX_TRANSPOSED_WIDTH + OVERVIEW_CARD_CHROME);
   });
 
   it('★★★ every floor states whether it is HARD or SOFT, and why', () => {
@@ -238,15 +240,17 @@ describe('fix-422 §D: the five cards, re-shared against the real row', () => {
     const byKey = Object.fromEntries(
       OVERVIEW_CARD_COLUMNS.map((c) => [c.key, c.floorReason]),
     );
+    // ★★★ AMENDED TWICE — fix-475 swapped `builder` for `consultants`, and
+    //     fix-506 §A cut the row to three. The CLAIM is unchanged and it is
+    //     what makes the table useful: every floor says whether its card CLIPS
+    //     below the number or merely reflows, because that is what decides who
+    //     gives way when the row is short. Asserted of every column that is
+    //     actually there, rather than of a list somebody has to keep in step.
     expect(byKey.proj).toContain('HARD');
-    // ★★★ AMENDED BY fix-475: `builder` is gone from the row and
-    //     `consultants` holds its slot. The claim — every floor states
-    //     whether it is HARD or SOFT and why — is what this asserts, and it
-    //     is asserted of the column that is actually there.
-    expect(byKey.consultants).toContain('HARD');
-    expect(byKey.dd).toContain('SOFT');
-    expect(byKey.team).toContain('SOFT');
-    expect(byKey.por).toContain('SOFT');
+    for (const c of OVERVIEW_CARD_COLUMNS) {
+      expect(c.floorReason, c.key).toMatch(/HARD|SOFT/);
+      expect(c.floorReason.length, c.key).toBeGreaterThan(40);
+    }
   });
 
   it('★★★ Plan of Record is STILL the widest card, at every width', () => {
@@ -260,43 +264,41 @@ describe('fix-422 §D: the five cards, re-shared against the real row', () => {
         expect(por.minPx).toBeGreaterThan(c.minPx);
       }
     }
-    for (const vw of [1280, 1440, 1920, 2560]) {
+    // ★ fix-506 §A put the Plan of Record FIRST, so the index is looked up.
+    const porIdx = OVERVIEW_CARD_COLUMNS.findIndex((c) => c.key === 'por');
+    for (const vw of [1280, 1440, 1600, 1920, 2560]) {
       for (const r of ['expanded', 'collapsed'] as const) {
         const w = resolveOverviewWidths(overviewRowWidthAt(vw, r));
-        expect(w[3]).toBe(Math.max(...w));
+        expect(w[porIdx]).toBe(Math.max(...w));
       }
     }
   });
 
-  it('★★★ Team and Builder gain SHARE — the only lever the row still has', () => {
-    // ★★ AND THEY DO NOT GAIN WIDTH AT 1920 EXPANDED, which is the honest half.
-    //    The row's free space there is 214px against 1136px of floors, so the
-    //    floors dominate and there is nothing to redistribute. Scope 9 expected
-    //    to reclaim ~100px from an over-wide PROJECT card; that card does not
-    //    exist. Recorded so the next brief starts from the real number.
+  it('★★★ SUPERSEDED: the row stopped needing a lever, because it lost two cards', () => {
+    // ★★★ fix-422's HONEST HALF, and it is the half worth keeping: it recorded
+    //     that Team and Builder could only gain SHARE, not WIDTH, because at
+    //     1920 the row's free space was 214px against 1,136px of floors — so
+    //     the floors dominated and there was nothing to redistribute. Scope 9
+    //     had expected to reclaim ~100px from an over-wide PROJECT card that
+    //     did not exist.
+    //
+    // ★★★ fix-506 §A DID NOT FIND A LEVER EITHER. It removed two cards, and
+    //     that is a different kind of answer: the floors total 904 instead of
+    //     1,136, so at 1920 the free space is 426px and every card is above its
+    //     floor with room to spare. The constraint fix-422 measured was real
+    //     and it is simply no longer binding.
     const team = OVERVIEW_CARD_COLUMNS.find((c) => c.key === 'team')!;
-    const consultants = OVERVIEW_CARD_COLUMNS.find((c) => c.key === 'consultants')!;
+    expect(OVERVIEW_CARD_COLUMNS.some((c) => c.key === 'consultants')).toBe(false);
     expect(team.pct).toBeGreaterThan(15);
-    // ★★★ SUPERSEDED BY fix-423 for Builder/Owner ONLY, by Bobby's own
-    //     instruction — *"take a little bit of width out of Builder/Owner and
-    //     give that to Milestones"* — so its share is 16 again. This assertion
-    //     was never really about the share: what it guards is that the re-share
-    //     did not shrink the card that was clipping emails, and at 1920 it
-    //     renders 204px against a 190px floor. Team's half is untouched.
-    // ★ The SHARE is inherited from Builder/Owner unchanged — fix-423 tuned
-    //   these five against each other and fix-475 has no measurement saying
-    //   any should move.
-    expect(consultants.pct).toBe(16);
-    // ★★★ THE FLOOR FELL, 190 → 144, and that is the whole width story of
-    //     fix-475. Measured in Chrome (harness/consultant-column-floor.html):
-    //     a native <input type="date"> needs 103px, so the mock's SIDE-BY-SIDE
-    //     pair would cost 252px of floor. Stacked, the widest single control
-    //     is the 104px status pill. OVERVIEW_ROW_MIN_WIDTH goes 1218 → 1172.
-    expect(consultants.minPx).toBe(144);
-    expect(team.minPx).toBeGreaterThan(140);
-    const free =
-      overviewRowWidthAt(1920, 'expanded') - OVERVIEW_ROW_MIN_WIDTH;
-    expect(free).toBeLessThan(220);
+
+    const free = overviewRowWidthAt(1920, 'expanded') - OVERVIEW_ROW_MIN_WIDTH;
+    expect(free).toBeGreaterThan(400);
+    // ★★ …and every card is genuinely above its floor at 1920, which was the
+    //    thing fix-422 could not say.
+    const w = resolveOverviewWidths(overviewRowWidthAt(1920, 'expanded'));
+    OVERVIEW_CARD_COLUMNS.forEach((c, i) => {
+      expect(w[i], c.key).toBeGreaterThan(c.minPx);
+    });
   });
 
   it('★★★ SCOPE 10: which remedy was used, recorded as arithmetic', () => {
@@ -318,6 +320,8 @@ describe('fix-422 §D: the five cards, re-shared against the real row', () => {
     const proj = OVERVIEW_CARD_COLUMNS.find((c) => c.key === 'proj')!;
     expect(por.minPx).toBeGreaterThan(proj.minPx);
     expect(por.minPx - proj.minPx).toBe(14); // the smallest margin that holds
+    // ★ Still 14 after fix-506 §A re-derived both — the margin is declared, not
+    //   a coincidence of two independent numbers.
 
     // (iii) …so the condition for the fallback IS met, and it is stated rather
     //       than quietly absorbed: below a 1706px window (ribbon expanded) the
@@ -334,8 +338,14 @@ describe('fix-422 §D: the five cards, re-shared against the real row', () => {
     //     brought a measured 144, so the whole row needs 46px LESS than it did.
     //     Every claim above survives — the condition for the fallback is still
     //     met, by 142px at a 1600 window — and the band is still Bobby's call.
-    expect(overviewMinViewport('expanded')).toBe(1742);
-    expect(overviewRowFitsAt(1600, 'expanded')).toBe(false);
+    // ★★★ fix-506 §A ANSWERED (iii) BY REMOVING THE ROW'S THIRD AND FIFTH
+    //     CARDS. The condition fix-422 recorded — *"below a 1706px window the
+    //     five-card row cannot hold the matrix at its floors"* — is no longer
+    //     met at all: the threshold is a 1474px window, so 1600 FITS. The
+    //     full-width units band Bobby never ruled on is not needed, and this is
+    //     the first ticket in the sequence that can say so.
+    expect(overviewMinViewport('expanded')).toBe(1474);
+    expect(overviewRowFitsAt(1600, 'expanded')).toBe(true);
     expect(overviewRowFitsAt(1920, 'expanded')).toBe(true);
   });
 
@@ -449,6 +459,11 @@ vi.mock('../hooks/useProjectConsultants', () => ({
 
 
 import ProjectDetailHeader from '../components/ProjectDetail/ProjectDetailHeader';
+import ProjectDataModal from '../components/ProjectDetail/ProjectDataModal';
+import {
+  PROJECT_CARD_MIN_WIDTH,
+  UNIT_MATRIX_TRANSPOSED_WIDTH,
+} from '../lib/projectCardLayout';
 
 // ★ fix-486 (P-143): the registry is five values now, not eight.
 const PRODUCT_TYPES = ['Detached', 'Attached', 'ADU', 'DADU', 'Remodel'];
@@ -506,7 +521,27 @@ function makeProject(over: Partial<Project> = {}): Project {
   } as unknown as Project;
 }
 
+// ★★★ fix-506 §G (P-140): `UnitDimensions` is the Project Data modal's **Units**
+//     tab. The component is byte-for-byte what shipped — the brief's rule is
+//     that every write goes through the same hooks, so §2 through §8 below
+//     assert exactly what they asserted before and can still catch a
+//     regression in the editor. Only the mount point moved.
 function header(project: Project): ReactElement {
+  return (
+    <ProjectDataModal
+      project={project}
+      permits={[] as PermitWithCycles[]}
+      bp={null}
+      initialTab="units"
+      onClose={() => {}}
+      onOpenSettings={() => {}}
+    />
+  );
+}
+
+/** ★ The three-box overview row, for the assertions that are about the CARD
+ *  rather than about the editor. */
+function overview(project: Project): ReactElement {
   return (
     <ProjectDetailHeader
       project={project}
@@ -528,6 +563,19 @@ function renderHeader(over: Partial<Project> = {}) {
   return render(header(makeProject(over)), { wrapper });
 }
 
+/** ★ Same providers, the overview instead of the modal. */
+function renderOverview(over: Partial<Project> = {}) {
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+  });
+  const wrapper = ({ children }: { children: ReactNode }) => (
+    <QueryClientProvider client={queryClient}>
+      <MemoryRouter>{children}</MemoryRouter>
+    </QueryClientProvider>
+  );
+  return render(overview(makeProject(over)), { wrapper });
+}
+
 beforeEach(() => {
   saves.length = 0;
   useAuthStore.setState({
@@ -541,31 +589,56 @@ beforeEach(() => {
 // §1 · BAND ORDER
 // ---------------------------------------------------------------------------
 
-describe('fix-422 §1: PROPOSAL, SITE, UNIT DIMENSIONS', () => {
-  it('★★★ in that order, as direct children of the card', () => {
-    // Bobby: *"Maybe the stack goes proposal, site, then unit dimensions at the
-    // bottom of that category."*
-    renderHeader();
+describe('fix-422 §1 → fix-506 §B/§C/§D: the card\'s bands, re-cut', () => {
+  // ★★★ BOBBY RE-CUT THIS CARD ON 2026-09-08, AND THE RULE fix-422 ESTABLISHED
+  //     SURVIVED THE RE-CUT — which is the only reason these are inverted here
+  //     rather than deleted.
+  //
+  //     fix-422's ruling: *"the stack goes proposal, site, then unit dimensions
+  //     at the bottom of that category"*, and UNITS LAST **on purpose**, because
+  //     it is the only band whose height varies with the data — at the foot it
+  //     grows against the card's bottom edge, where the spare height already is.
+  //
+  // ★★★ v14 KEEPS UNITS LAST AND CHANGES WHAT IS ABOVE IT. Proposal is gone
+  //     (its Units count is DERIVED from the unit rows now, and its type chips
+  //     and redesign list moved to Project Data); Site data sits beside a new
+  //     Dates card, as a wrapping pair. So the card reads: [Site | Dates] then
+  //     the matrix — and the height argument is untouched.
+
+  it('★★★ Site data and Dates sit above the matrix, and the matrix is LAST', () => {
+    renderOverview({ unit_types: SIX_TYPES } as unknown as Partial<Project>);
     const card = screen.getByTestId('pd-project-card');
-    const sections = Array.from(card.querySelectorAll(':scope > section'));
-    const at = (id: string) => sections.indexOf(screen.getByTestId(id));
-    expect(at('pd-project-proposal')).toBeGreaterThanOrEqual(0);
-    expect(at('pd-project-proposal')).toBeLessThan(at('pd-project-site'));
-    expect(at('pd-project-site')).toBeLessThan(at('pd-project-units'));
+    const pair = screen.getByTestId('pd-site-dates-pair');
+    const units = screen.getByTestId('pd-units-matrix');
+    expect(card).toContainElement(pair);
+    expect(card).toContainElement(units);
+    // ★ Units follows the pair in DOM order — `DOCUMENT_POSITION_FOLLOWING`.
+    expect(pair.compareDocumentPosition(units) & Node.DOCUMENT_POSITION_FOLLOWING)
+      .toBeTruthy();
   });
 
-  it('★★★ UNITS IS LAST ON PURPOSE — it is the only band whose height varies', () => {
-    // ★ Between Proposal and Site, every extra unit type pushes Site down the
-    //   card. At the foot it grows against the card's bottom edge, where the
-    //   spare height already is.
-    renderHeader({ unit_types: SIX_TYPES } as unknown as Partial<Project>);
+  it('★★★ SUPERSEDED: there is no Proposal band, because its content moved', () => {
+    renderOverview();
+    expect(screen.queryByTestId('pd-project-proposal')).toBeNull();
+    // ★★ The Units COUNT survives and is stronger: derived from the rows the
+    //    matrix prints, so it cannot be stale or missing (fix-88's "⚠ missing"
+    //    badge has nothing left to report).
+    expect(screen.getByTestId('pd-site-units-count')).toBeInTheDocument();
+  });
+
+  it('★★★ UNITS IS STILL LAST, and still for the height reason', () => {
+    // ★ The matrix is the only band whose height varies with the data — six
+    //   unit types is six columns and a fixed eight rows, but a project with
+    //   none prints an empty note. At the foot it grows into the spare height.
+    renderOverview({ unit_types: SIX_TYPES } as unknown as Partial<Project>);
     const card = screen.getByTestId('pd-project-card');
     const sections = Array.from(card.querySelectorAll(':scope > section'));
-    const units = screen.getByTestId('pd-project-units');
     const notPinned = sections.filter(
-      (s) => (s as HTMLElement).dataset.pinBottom !== 'true',
+      (sec) => (sec as HTMLElement).dataset.pinBottom !== 'true',
     );
-    expect(notPinned[notPinned.length - 1]).toBe(units);
+    expect(notPinned[notPinned.length - 1]).toBe(
+      screen.getByTestId('pd-units-matrix'),
+    );
   });
 });
 
@@ -835,7 +908,10 @@ describe('fix-422 §8: an off-registry label truncates and stays readable', () =
 
 describe('fix-422 §9: horizontal came back, the scrollbar did not', () => {
   it('★★★ nothing in the PROJECT card scrolls sideways — with SIX unit types', () => {
-    renderHeader({ unit_types: SIX_TYPES } as unknown as Partial<Project>);
+    // ★ Mounted on the OVERVIEW, because this is a claim about the card rather
+    //   than about the editor. Six unit types is prod's maximum and it is what
+    //   the card's floor is derived to hold.
+    renderOverview({ unit_types: SIX_TYPES } as unknown as Partial<Project>);
     const card = screen.getByTestId('pd-project-card');
     for (const el of Array.from(card.querySelectorAll('*')) as HTMLElement[]) {
       const cls = typeof el.className === 'string' ? el.className : '';
@@ -850,16 +926,27 @@ describe('fix-422 §9: horizontal came back, the scrollbar did not', () => {
     // ★ fix-418 needed `flex-1` on a wrapper to keep this alive; fix-422 has no
     //   wrapper, so the sections are the card's own children again and the rule
     //   applies natively. Asserted because it was a live regression yesterday.
-    renderHeader({ unit_types: SIX_TYPES } as unknown as Partial<Project>);
+    //
+    // ★★★ fix-506 §B/§C PUT TWO OF THEM SIDE BY SIDE, AND THE RULE STILL HOLDS
+    //     WHERE IT APPLIES. Site data and Dates are a `flex-wrap` PAIR inside
+    //     the card now, so the card's own direct-section count is smaller — the
+    //     matrix, plus whatever the pair contributes. The property fix-331 §1
+    //     is about is that a DIRECT section is distributed rather than pinned,
+    //     and that is what this asserts, of however many there are.
+    renderOverview({ unit_types: SIX_TYPES } as unknown as Partial<Project>);
     const card = screen.getByTestId('pd-project-card');
     const sections = Array.from(
       card.querySelectorAll(':scope > section'),
     ) as HTMLElement[];
-    const distributed = sections.filter((s) => s.dataset.pinBottom !== 'true');
-    expect(distributed.length).toBeGreaterThanOrEqual(3);
-    for (const s of distributed) {
-      expect(s.style.flexGrow).toBe('1');
-      expect(s.style.flexShrink).toBe('0');
+    const distributed = sections.filter((sec) => sec.dataset.pinBottom !== 'true');
+    expect(distributed.length).toBeGreaterThanOrEqual(1);
+    for (const sec of distributed) {
+      expect(sec.style.flexGrow).toBe('1');
+      expect(sec.style.flexShrink).toBe('0');
     }
+    // ★★ AND THE PAIR IS INSIDE THE CARD, not wrapped around it — the fix-418
+    //    trap this test was written for. A wrapper `<div>` between the card and
+    //    its sections is what swallows the distribution.
+    expect(card).toContainElement(screen.getByTestId('pd-site-dates-pair'));
   });
 });

@@ -209,7 +209,7 @@ describe('fix-325 #2: the tab carries the real mark', () => {
 // source-level fact that only ONE divider is left and which one it is.)
 describe('fix-325 #3: the Permit intake divider is gone', () => {
   it('★ pd-intake-divider is removed and pd-sd-dd-divider stays', async () => {
-    const src = (await import('../components/ProjectDetail/ProjectDetailHeader.tsx?raw'))
+    const src = (await import('../components/ProjectDetail/ProjectDataEditors.tsx?raw'))
       .default as string;
     const code = src.replace(/^\s*\/\/.*$/gm, '');
     expect(code).not.toContain('pd-intake-divider');
