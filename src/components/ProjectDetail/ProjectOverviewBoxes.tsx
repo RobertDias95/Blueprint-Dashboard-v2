@@ -339,13 +339,19 @@ export function DatesBox({
         />
         <DateField label="DD end" testId="pd-date-dd-end" value={bp?.dd_end} />
 
-        {/* ★★★ fix-508 §D — `Estimated intake` FLIPS TO `Accepted intake`.
+        {/* ★★★ fix-508 §D — `Target intake` FLIPS TO `Accepted intake`.
             The same shape as `Est. approval → Approved` below it, deliberately:
             two rows that mean "the plan, then the fact" should not read as two
             different mechanisms. Until the city accepts, it prints the team's
             target submit — the city accepts what is submitted, so that IS the
-            estimate. `intakeIsAccepted` is the ONE definition, in
-            lib/targetApproval, because P-182 and P-180 both need it next. */}
+            target. `intakeIsAccepted` is the ONE definition, in
+            lib/targetApproval, because P-182 and P-180 both need it next.
+            ★★★ fix-513 §B: the noun was `Estimated`, and Bobby's word is
+                `Target` — it matches `Target Approval` two rows down and the
+                column underneath is literally `target_submit`.
+            ★★★ fix-513 §A: and the FLIP now needs the date to have ARRIVED, not
+                merely to exist. Nine prod permits had a booked 2027 intake and
+                read "Accepted intake" against it. */}
         <Field
           label={intake.label}
           labelWidth={DATES_LABEL_WIDTH}
@@ -353,18 +359,16 @@ export function DatesBox({
           title={
             intake.isActual
               ? 'The city has accepted this intake — the real date.'
-              : 'The team’s target submit. The city accepts what is submitted, so this is the intake estimate.'
+              : 'The team’s target submit. The city accepts what is submitted, so this is the intake target.'
           }
         >
+          {/* ★★★ fix-513 §D (P-209) — THE GREY AND THE DASHED RULE ARE GONE.
+              See the note on the approval row below: this was the second and
+              last instance of the convention, and both go together. */}
           <span
             className="font-mono tabular-nums"
             data-testid="pd-date-intake-value"
             data-actual={intake.isActual ? 'true' : 'false'}
-            style={
-              intake.isActual
-                ? undefined
-                : { color: 'var(--color-muted)', borderBottom: '1px dashed var(--color-border)' }
-            }
           >
             {intake.date ? formatUsDate(intake.date) : <span className="text-dim">—</span>}
           </span>
@@ -406,18 +410,50 @@ export function DatesBox({
               : 'Projected from this permit type and jurisdiction. Same number as Schedule Health.'
           }
         >
+          {/* =================================================================
+              ★★★ fix-513 §D (P-209) — `Est. approval` IS NOT A DIFFERENT COLOUR
+              =================================================================
+
+              Bobby, 2026-09-09: *"est approval should not be a different color.
+              remove the lines under est approval."*
+
+              ★★★ THE CAUSE WAS §D's FIRST CANDIDATE, NOT ITS SECOND: no stray
+              `<abbr>`, no leftover tooltip border. It was a deliberate
+              **derived/estimated affordance** — `color: var(--color-muted)` plus
+              a dashed bottom rule, meaning "computed, not entered."
+
+              ★★★ SO THE CONVENTION IS DELETED, NOT THE CELL REPAINTED. That is
+              [[P-195-schedule-health-labels-and-the-blue-target]]'s precedent
+              read the same way it settled itself: the stray blue there *"was the
+              editable-input affordance, not a colour choice"*, and it went with
+              the input rather than being overpainted.
+
+              ★★★ AND THE MEASUREMENT IS WHAT MAKES IT A DELETION. The card has
+              ten rows. The convention marked **two** — this one and the intake
+              row above. Of the eight it left plain, **four are equally derived**:
+              `SD start` and `SD end` (their own titles say *"derived from DD
+              start, not stored"*), `Consultant` (`dd_end − 7`, computed by
+              `vendorTargetSend`), and `Target Approval` (fix-508 §D's `max` over
+              three dates). A mark that appears on two of six derived values
+              communicates nothing — the reader cannot learn a rule from it, so
+              it is decoration that costs contrast.
+
+              ★★ WHAT SURVIVES, because it carries the same fact without the
+              colour: the row LABEL still flips (`Target intake` → `Accepted
+              intake`, `Est. approval` → `Approved`), the `title` still says
+              which it is, and `data-actual` still carries it for tests. The
+              distinction was never lost — it was said three times and painted
+              once.
+
+              ★ SWEEP RESULT (§D asks for it, including "nothing else"): these
+              two `style={}` blocks were the ONLY survivors of the convention in
+              this file. Every other `text-dim` here is the em-dash placeholder
+              for "not recorded", which is a different statement and stays.
+              Third instance of [[P-189-the-overview-is-grey-where-it-should-be-black]]. */}
           <span
             className="font-mono tabular-nums"
             data-testid="pd-date-approval-value"
             data-actual={approval.isActual ? 'true' : 'false'}
-            style={
-              approval.isActual
-                ? undefined
-                : {
-                    color: 'var(--color-muted)',
-                    borderBottom: '1px dashed var(--color-border)',
-                  }
-            }
           >
             {approval.date ? formatUsDate(approval.date) : <span className="text-dim">—</span>}
           </span>
